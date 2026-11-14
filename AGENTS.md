@@ -1,22 +1,16 @@
-<!-- privacy: allow-file 开发说明里描述公司扩展的模块表和测试命令 -->
+<!-- privacy: allow-file 开发说明里描述扩展的模块表和测试命令 -->
 # 仓库合并约定
 
-仓库所有者已授权：本仓库的开发改动完成并执行适用检查后，直接合并到默认主干 `master`，无需 CR/MR Review，也无需再次请求合并确认。检查存在已确认的基线失败时，记录验证结果和限制，不将其宣称为全部通过。
+默认主干是 `main`，GitHub `ericxk/covey` 是准源。改动在分支上做；开发完成并跑完适用检查（见下文「怎么挑测试」）后，先同步最新 `main`，再快进合并进 `main` 并推到 GitHub，不 force 推送，也不覆盖别人的提交。检查存在已确认的基线失败时，记录验证结果和限制，不把它说成全部通过。GitHub Actions（`.github/workflows`）在 `main` 上跑测试，红了先修。
 
-合并前同步最新主干，保留其他人的改动，不覆盖远端历史。若用户在具体任务中明确要求 Review 或暂缓合并，则遵循该次要求。
+贡献者和 Coding Agent 都照下面几条做：
 
-部署照 [部署新版本](docs/operations.md#部署新版本) 的步骤：服务根目录用文首定义的 `SERVICE_ROOT`（任务 shell 里没有 `COVEY_SERVICE_ROOT`），升级 Manager 见第 6 步。
-
-# 多人部署
-
-几位同事各自部署本仓库：各自的飞书机器人、服务根和数据根（`COVEY_DATA_HOME`，见 [数据目录](docs/operations.md#数据目录)）。`master` 不设保护，谁都可以直接合并，所以每个人和他的 Coding Agent 都照下面几条做：
-
-1. **凭据只在自己的机器和数据根**：账号登录、令牌、SSH 配置、Codex 的 `auth.json` 等不进仓库，也不写进文档、测试和提交说明；测试用一看就是假的值。
-2. **个人环境靠配置传入，代码里不写**：主机名、路径、账号、open_id、群 ID、节点清单放自己数据根里的配置文件（如 `harnesses.json`、扩展自己配置里的节点清单）或服务的环境变量（`COVEY_*`）。
-3. **部署记录不进仓库**：用了哪几台机器、节点 ID、会话数量、某次部署和验收的经过与数据，写在自己的数据根。`docs/` 只写对每个部署都成立的用法、规则和已知限制，例子里的路径用 `/absolute/...` 这类占位。
-4. **只有部分部署要用的功能默认关闭**：没配置时不起线程、不加入口、不改已有行为；在对应文档写明怎么打开（如 [本机运行锁](docs/runtime-locks.md)；只有个别部署要用的整块功能做成[扩展](docs/architecture.md#扩展)，如 Paseo）。
-5. **公共核心的改动对所有部署生效**：改锁、记录与状态、调度、投递、服务管理（见下文「最容易改坏的规则」）时，开关关着的行为要和原来一样，并跑全量；只给自己用的改动放到开关后面。
-6. **只适合自己环境、又做不成开关的改动留在自己的分支**，不合进 `master`。
+1. **凭据不进仓库**：账号登录、令牌、SSH 配置、Codex 的 `auth.json` 等不写进代码、文档、测试和提交说明；测试用一看就是假的值。
+2. **个人环境靠配置传入，代码里不写**：主机名、路径、账号、open_id、群 ID、节点清单放自己数据根（`COVEY_DATA_HOME`，见 [数据目录](docs/operations.md#数据目录)）里的配置文件或服务的环境变量（`COVEY_*`）。
+3. **部署记录不进仓库**：`docs/` 只写对每个部署都成立的用法、规则和已知限制，例子里的路径用 `/absolute/...` 这类占位。
+4. **只有部分使用者要用的功能默认关闭**：没配置时不起线程、不加入口、不改已有行为；在对应文档写明怎么打开（如 [本机运行锁](docs/runtime-locks.md)；整块的可选功能做成[扩展](docs/architecture.md#扩展)）。
+5. **公共核心的改动对所有使用者生效**：改锁、记录与状态、调度、投递、服务管理（见下文「最容易改坏的规则」）时，开关关着的行为要和原来一样，并跑全量。
+6. 部署照 [部署新版本](docs/operations.md#部署新版本) 的步骤。
 
 # 代码地图
 
@@ -50,7 +44,7 @@
 | 任务进程与 `runs/` 协议 | `app/detached.py`、`app/runner_spawn.py`、`app/runner_ipc.py`、`app/runner.py`、`core/run_dir.py` | [排队与任务进程](docs/architecture.md#排队与任务进程)、[跨版本检查](docs/testing.md#任务进程协议与跨版本检查) |
 | 记录、状态与锁 | `core/jobs.py`、`core/statuses.py`、`core/store.py`、`core/locks.py` | [状态与并发](docs/architecture.md#状态与并发) |
 | Harness 与后端 | `core/harness.py`、`core/roster.py`、`core/providers.py`、`backends/<名字>/bridge.py` | [Harness 接口](docs/architecture.md#harness-接口)、[harnesses.md](docs/harnesses.md) |
-| 扩展（`COVEY_EXTENSIONS` 或 `extensions/enabled` 启用的包，核心不按名字引用；公司部署的 MASO 在公司扩展里，README 在扩展自己里面） | `core/extensions.py`（manifest 并进 `core/roster.py`、`core/providers.py` 的表，`features(app)` 并进 `app/unified.py` 的 `self.features`） | [扩展](docs/architecture.md#扩展) |
+| 扩展（`COVEY_EXTENSIONS` 或 `extensions/enabled` 启用的包，核心不按名字引用；扩展自带 README） | `core/extensions.py`（manifest 并进 `core/roster.py`、`core/providers.py` 的表，`features(app)` 并进 `app/unified.py` 的 `self.features`） | [扩展](docs/architecture.md#扩展) |
 | 维护与备份 | `core/maintenance.py`（规则表在 `core/maintenance_rules.py`，备份在 `core/backup.py`）、`app/stale.py`、`core/migrate.py` | [备份、归档与维护](docs/operations.md#备份归档与维护) |
 | 服务、看门狗、诊断 | `service/manager.py`、`service/boot.py`、`service/memguard.py`、`service/doctor.py` | [服务组成](docs/operations.md#服务组成)、[troubleshooting.md](docs/troubleshooting.md) |
 
@@ -432,7 +426,7 @@
 4. 状态只按 `JOB_TRANSITIONS`、`QUESTION_TRANSITIONS`、`NEXT`（限流自动重试 `auto_retry.py` 的 `AUTO_RETRY_TRANSITIONS`，安全拒绝换模型重试 `policy_retry.py` 的 `POLICY_RETRY_TRANSITIONS`）前进，终态不回退（状态）。
 5. 只发经 `verified_reply` 保存并授权的回复；重投只发保存的正文，不跑模型（结果授权与投递）。
 6. `RunHandle` 的写不自动重放：`SteerRefused`/`SteerNotReady` 是没发出，其他异常是可能已送达（一次运行）。
-7. 后端不导入 `app/`、`feishu/`、`cards/`，也不导入别的后端（`backends/gateway` 除外），`TYPE_CHECKING` 下也不；扩展里隔离解释器导入的 `core/` 模块只用标准库（公司扩展的清单是 `extensions/covey_internal/tests/test_maso_structure.py` 的 `MASO_CORE`）；`__init__.py` 为空（硬约束）。
+7. 后端不导入 `app/`、`feishu/`、`cards/`，也不导入别的后端（`backends/gateway` 除外），`TYPE_CHECKING` 下也不；扩展里隔离解释器导入的 `core/` 模块只用标准库（清单在扩展自己的结构测试里，如 `MASO_CORE`）；`__init__.py` 为空（硬约束）。
 8. 新按钮 kind 先进 `ACTIONS`（带认领它的 `handler`），会建任务的设 `bot_only`；任务进程只改本任务的卡和记录（`cards.md` 添加一个卡片按钮）。
 9. 表单变化时整卡替换；卡片 JSON 变了（`tests/golden/cards.json` 有 diff）要真实客户端验收（`cards.md` 卡片的客户端限制）。
 10. 兼容（2026-11-14 改名 Covey：旧导入 `harness_bridge`、旧变量 `LARK_BRIDGE_*`、旧 bin 名、旧单元名都保留，见 docs/operations.md「改名 Covey 后的兼容」）：现网 `harnesses.json` 仍能解析（删功能时保留它写着的选项，如 `--claude-transport stream-json`）；`runs/<任务键>/` 与旧 release 的任务进程双向兼容；旧记录可读；已发卡片的 kind 不崩溃、不悄悄开工（硬约束）。
