@@ -184,6 +184,16 @@ python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" prune
 
 `scripts/deploy_bridge.sh --workdir <目录> --profile <profile> [-- <bridge 参数>]` 按第 1–4 步做完并打印一行 JSON（变量名同文首），检查不过就停；`--check-only` 只做部署前的检查，参数见脚本开头。其中权限变量（`pre.permission_env`）查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，和部署后 `covey_doctor --runtime-only` 的口径一致（停用的服务只告警）。它还在结果里报 `post.app_config`（飞书应用缺不缺东西），不算失败。
 
+**核心和扩展分开检出时**（核心在 `covey/` 检出，公司等扩展在各自的库里，布局：扩展库根下每个含 manifest 文件的目录是一个扩展包）：加 `--ext-repo <扩展检出>` 和 `--ext-commit <提交>`（默认 `HEAD`），都可重复，按先后配对，例如主人的开发机再加一个 Paseo 扩展库。`--repo`/`--commit` 仍是核心。
+
+```bash
+scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute/covey --ext-repo /absolute/covey-internal --check-only
+```
+
+- 打包改由 `scripts/assemble_release.py` 做：核心 `git archive` 到 release，每个扩展包（扩展库根目录下含清单模块的目录）`git archive` 到 `release/extensions/<包名>/`，去掉包里的 `standalone/`，包的 `bin/*.py` 入口（如扩展自己的运行时脚本）放进 `release/bin/` 盖掉核心里的转发脚本，写 `extensions/enabled`（按 `--ext-repo` 的顺序列出所有包名）和 `RELEASE_MANIFEST`（各检出的完整提交号），再重写 `AGENTS.md` 的模块表。形状和旧的单仓库 release 相同，服务清单、`runs/<任务键>/` 协议、回滚都不变。拼装按提交取，不看检出的工作区。
+- release id 是 `<核心前 8 位>-<扩展前 8 位>[-<第二个扩展前 8 位>…]`，release 目录、`bridge started … release=<id>` 的匹配都用它；结果 JSON 的 `commit` 仍是核心完整提交号，另有 `ext_commits` 和 `release_id`。不给 `--ext-repo` 时一切照旧（release 目录名是核心提交号）。回滚只回一半：核心提交不变、`--ext-commit` 设成旧值，得到一个新 id 的 release。
+- 额外的预检（`--check-only` 同样做，输出里有两个或更多提交）：扩展检出是 git 仓库、提交存在（否则退出码 2）；扩展库的 `core.lock` 写的核心提交和 `--commit` 不一致时拦下（`pre.core_lock_mismatch`；试新核心时加 `--allow-core-mismatch` 放行）；服务清单和当前终端里不能有 `COVEY_EXTENSION_PATH`、`COVEY_EXTENSIONS`（`pre.extension_env`；它们会盖过 release 里的 `extensions/`，unset 后重新注册）。
+
 **1. 看有没有会被打断的任务。**
 
 ```bash

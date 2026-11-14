@@ -4,7 +4,7 @@
 #
 #   deploy_bridge.sh --workdir DIR --profile NAME [--app-id ID] [--state-dir DIR] [--harness-config FILE]
 #                    [--check-only] [--repo CHECKOUT] [--commit REV] [--run-dir DIR] [--allow-command-change]
-#                    [-- BRIDGE_OPTION ...]
+#                    [--ext-repo CHECKOUT [--ext-commit REV]]... [--allow-core-mismatch] [-- BRIDGE_OPTION ...]
 #
 # Names as in docs/operations.md: COVEY_DATA_HOME (required), APP_ID and STATE_DIR when --app-id and
 # --state-dir are absent (STATE_DIR defaults to $COVEY_DATA_HOME/harness-$APP_ID), the service root from
@@ -20,7 +20,14 @@
 # the Bridge command bootstrap would register == the manifest's (python, arguments; --allow-command-change lets
 # it differ).
 # --check-only stops there. Then: git archive REV into releases/<sha>, bootstrap from the release.
-# Post-checks: a new `bridge started … release=<sha>` line, two `ready event_key=` after it,
+# Extensions (docs/operations.md 部署新版本): each --ext-repo (repeatable; --ext-commit pairs with it in order, default
+# HEAD) is an extension checkout laid out as scripts/export_extension.py writes it. The release is then assembled by
+# scripts/assemble_release.py (core at --commit + the extensions, the shape of the old single repository) and its id
+# is <core 8>-<extension 8>[-<extension 8>...] instead of <sha>. More pre-checks: the checkouts and commits exist; the
+# core.lock of an extension names --commit (--allow-core-mismatch lets it differ); the manifest environment and this
+# shell have neither COVEY_EXTENSION_PATH nor COVEY_EXTENSIONS (they would override the release's extensions/).
+# Without --ext-repo nothing changes.
+# Post-checks: a new `bridge started … release=<id>` line, two `ready event_key=` after it,
 # /proc/<pid>/cmdline runs the new release, covey_doctor --runtime-only exits 0, (reported only) what the
 # Feishu app lacks (bin/covey_app_setup.py check),
 # status.health.workers.proxy is true (or absent), every task runner alive before the deploy is adopted.
@@ -46,6 +53,9 @@ ap.add_argument("--repo", default=sys.argv[1])
 ap.add_argument("--commit", default="HEAD")
 ap.add_argument("--run-dir")
 ap.add_argument("--allow-command-change", action="store_true")
+ap.add_argument("--ext-repo", action="append", default=[])
+ap.add_argument("--ext-commit", action="append", default=[])
+ap.add_argument("--allow-core-mismatch", action="store_true")
 ap.add_argument("--app-id", default=os.environ.get("APP_ID"))
 ap.add_argument("--state-dir", default=os.environ.get("STATE_DIR"))
 ap.add_argument("--workdir")
@@ -53,6 +63,8 @@ ap.add_argument("--profile")
 ap.add_argument("--harness-config")
 ap.add_argument("bridge_options", nargs="*")
 args = ap.parse_args(sys.argv[2:])
+if len(args.ext_commit) > len(args.ext_repo):
+    finish(2, error="--ext-commit needs a --ext-repo before it")
 
 # COVEY_DATA_HOME, or the old name LARK_BRIDGE_DATA_HOME (core/env.py): either one does.
 DATA_HOME = os.environ.get("COVEY_DATA_HOME") or os.environ.get("LARK_BRIDGE_DATA_HOME")
@@ -122,7 +134,7 @@ def runners():
     return found
 
 
-def log_after_start(commit):
+def log_after_start(release_id):
     """bridge.log lines after the last `bridge started` line of this release (None if not there yet)."""
     try:
         lines = (S / "bridge.log").read_text(errors="replace").splitlines()
@@ -130,7 +142,7 @@ def log_after_start(commit):
         return None, None
     for i in range(len(lines) - 1, -1, -1):
         if "bridge started pid=" in lines[i]:
-            return (lines[i], lines[i + 1:]) if f"release={commit}" in lines[i] else (None, None)
+            return (lines[i], lines[i + 1:]) if f"release={release_id}" in lines[i] else (None, None)
     return None, None
 
 
@@ -138,8 +150,23 @@ repo = Path(args.repo).absolute()
 commit = sh(["git", "rev-parse", "--verify", f"{args.commit}^{{commit}}"], cwd=repo).stdout.strip()
 if not commit:
     finish(2, error=f"{args.commit} is not a commit in {repo}")
-release = DATA / "releases" / commit
+exts = []  # (checkout, full commit, core.lock's commit or None)
+for number, ext_dir in enumerate(args.ext_repo):
+    ext_path = Path(ext_dir).absolute()
+    rev = args.ext_commit[number] if number < len(args.ext_commit) else "HEAD"
+    if not ext_path.is_dir() or sh(["git", "rev-parse", "--git-dir"], cwd=ext_path).returncode:
+        finish(2, error=f"--ext-repo {ext_dir} is not a git checkout")
+    ext_sha = sh(["git", "rev-parse", "--verify", f"{rev}^{{commit}}"], cwd=ext_path).stdout.strip()
+    if not ext_sha:
+        finish(2, error=f"{rev} is not a commit in {ext_path}")
+    lock = sh(["git", "show", f"{ext_sha}:core.lock"], cwd=ext_path)
+    words = [ln.split()[0] for ln in lock.stdout.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    exts.append((ext_path, ext_sha, words[0] if lock.returncode == 0 and words else None))
+release_id = "-".join([commit[:8], *(sha[:8] for _, sha, _ in exts)]) if exts else commit
+release = DATA / "releases" / release_id
 result.update(commit=commit, release=str(release))
+if exts:
+    result.update(ext_commits=[sha for _, sha, _ in exts], release_id=release_id)
 
 # ---- pre-checks
 pre = {}
@@ -191,11 +218,22 @@ live = manifest.get("command") or []
 planned = [shutil.which("python3") or "python3", "-B"]
 same = live[:2] == planned and live[3:] == BRIDGE_ARGS
 pre["command_diff"] = {} if same else {"live": live[:2] + live[3:], "planned": planned + BRIDGE_ARGS}
+if exts:
+    pre["core_lock_mismatch"] = [f"{path.name}: core.lock {lock} vs --commit {commit[:8]}" for path, _, lock in exts
+                                 if lock and not commit.startswith(lock) and not lock.startswith(commit[:len(lock)])]
+    pre["extension_env"] = sorted({name for env in (manifest.get("environment") or {}, mine) for name in env
+                                   if name.removeprefix("COVEY_").removeprefix("LARK_BRIDGE_")
+                                   in ("EXTENSION_PATH", "EXTENSIONS")})
+    if pre["extension_env"]:
+        pre["extension_env_note"] = ("COVEY_EXTENSION_PATH / COVEY_EXTENSIONS override the release's extensions/: "
+                                     "unset them in the shell and re-register without them")
 old = before.get("status") or {}
 result.update(pre=pre, old={"generation": old.get("generation"), "pid": (old.get("process") or {}).get("pid")})
 blocked = [k for k in ("restart_blockers", "creating_worktree", "proxy_sending",
-                       "env_missing", "env_extra", "env_value_diff", "permission_env", "command_diff") if pre[k]
-           and not (k == "command_diff" and args.allow_command_change)]
+                       "env_missing", "env_extra", "env_value_diff", "permission_env", "command_diff",
+                       "extension_env", "core_lock_mismatch") if pre.get(k)
+           and not (k == "command_diff" and args.allow_command_change)
+           and not (k == "core_lock_mismatch" and args.allow_core_mismatch)]
 if blocked:
     finish(error=f"pre-checks failed: {blocked}")
 if args.check_only:
@@ -206,10 +244,19 @@ live_runners = runners()
 result["runners_before"] = {str(pid): job for pid, job in sorted(live_runners.items())}
 if not (release / "bin" / "covey_bridge.py").exists():
     release.mkdir(parents=True, exist_ok=True)
-    pack = subprocess.run(f"git archive {commit} | tar -x -C '{release}'", shell=True, cwd=repo,
-                          capture_output=True, text=True, timeout=300)
+    if exts:
+        cmd = ["python3", "-B", "-I", str(Path(sys.argv[1]) / "scripts" / "assemble_release.py"), "--core", str(repo),
+               "--core-ref", commit, "--out", str(release)]
+        for path, sha, _ in exts:
+            cmd += ["--ext", str(path), "--ext-ref", sha]
+        pack = sh(cmd, timeout=600, log="assemble.log")
+        what = "assemble_release.py"
+    else:
+        pack = subprocess.run(f"git archive {commit} | tar -x -C '{release}'", shell=True, cwd=repo,
+                              capture_output=True, text=True, timeout=300)
+        what = "git archive"
     if pack.returncode:
-        finish(error=f"git archive failed: {pack.stderr[-500:]}")
+        finish(error=f"{what} failed: {pack.stderr[-500:]}")
 boot = sh(["./scripts/bootstrap_harness_bridge.sh", *BOOTSTRAP], cwd=release, timeout=300, log="bootstrap.log")
 result["bootstrap_exit"] = boot.returncode
 if boot.returncode:
@@ -220,7 +267,7 @@ post = {}
 deadline = time.time() + 240
 started, after = None, None
 while time.time() < deadline:
-    started, after = log_after_start(commit)
+    started, after = log_after_start(release_id)
     if started and sum("ready event_key=" in line for line in after) >= 2:
         break
     time.sleep(3)
@@ -228,7 +275,7 @@ post["started_line"] = started
 post["ready_lines"] = sum("ready event_key=" in line for line in after or [])
 pending = {}
 while started and time.time() < deadline:
-    _, after = log_after_start(commit)
+    _, after = log_after_start(release_id)
     text = "\n".join(after or [])
     pending = {pid: job for pid, job in live_runners.items()
                if f"adopted task runner job=#{job} pid={pid}" not in text and os.path.exists(f"/proc/{pid}")}

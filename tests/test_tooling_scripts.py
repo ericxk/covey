@@ -41,7 +41,7 @@ DEPLOY = REPO / "scripts" / "deploy_bridge.sh"
 APP = "cli_test"
 
 
-class DeployScriptTests(unittest.TestCase):
+class DeployFixture(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
@@ -70,6 +70,8 @@ class DeployScriptTests(unittest.TestCase):
         self.assertEqual(len(lines), 1, child.stdout + child.stderr)
         return child.returncode, json.loads(lines[0])
 
+
+class DeployScriptTests(DeployFixture):
     def test_check_only_takes_the_names_of_the_operations_guide_and_deploys_nothing(self):
         code, out = self.deploy("--check-only", "--workdir", str(self.workdir), "--profile", "bot", "--",
                                 "--sandbox", "danger-full-access")
@@ -170,6 +172,172 @@ class DeployScriptTests(unittest.TestCase):
                                 "--state-dir", str(self.root / "other-state"))
         self.assertEqual((code, out["state_dir"]), (1, str(self.root / "other-state")))
         self.assertIn("expected one manifest", out["error"])
+
+
+def make_repo(path, files, message="init"):
+    """A git repository at path with the given files ({relative path: text}, one commit); returns its commit."""
+    for name, text in files.items():
+        target = Path(path) / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@localhost",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@localhost"}
+    for cmd in (["init", "-q", "-b", "master"], ["add", "-A"], ["commit", "-q", "-m", message]):
+        subprocess.run(["git", *cmd], cwd=path, env=env, check=True, capture_output=True)
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True).stdout.strip()
+
+
+ASSEMBLE = REPO / "scripts" / "assemble_release.py"
+CORE_FILES = {"README.md": "core\n", "covey/__init__.py": "", "bin/covey_maso_runtime.py": "# forwarder\n",
+              "bin/covey_bridge.py": "# bridge\n", "docs/a.md": "a\n"}
+EXT_FILES = {"covey_internal/manifest.py": "HARNESSES = {}\n", "covey_internal/__init__.py": "",
+             "covey_internal/bin/covey_maso_runtime.py": "# the real one\n",
+             "covey_internal/standalone/core.lock": "x\n", "covey_internal/tests/test_x.py": "# t\n",
+             "README.md": "ext\n", "core.lock": "# comment\n{core}\n", "dev/test.sh": "#!/bin/sh\n"}
+PASEO_FILES = {"covey_paseo/manifest.py": "SETTINGS = {}\n", "covey_paseo/bin/covey_paseo_fleet.py": "# fleet\n"}
+
+
+def tree(root):
+    root = Path(root)
+    return {str(p.relative_to(root)): p.read_text() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+class AssembleReleaseTests(unittest.TestCase):
+    """scripts/assemble_release.py on small fake repositories: the release has the shape of the old single repository."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.core = self.root / "core"
+        self.core_sha = make_repo(self.core, CORE_FILES)
+        self.ext = self.root / "ext"
+        self.ext_sha = make_repo(self.ext, {**EXT_FILES, "core.lock": f"# c\n{self.core_sha[:8]}\n"})
+        self.paseo = self.root / "paseo"
+        self.paseo_sha = make_repo(self.paseo, PASEO_FILES)
+
+    def assemble(self, out, *args):
+        child = subprocess.run([sys.executable, "-B", "-I", str(ASSEMBLE), "--core", str(self.core), "--out", str(out),
+                                *args], capture_output=True, text=True, timeout=60)
+        return child.returncode, child.stdout, child.stderr
+
+    def test_without_extensions_the_release_is_the_cores_git_archive(self):
+        code, out, err = self.assemble(self.root / "r0")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(tree(self.root / "r0"), CORE_FILES)
+        self.assertEqual(json.loads(out)["extensions"], [])
+
+    def test_one_extension_gives_the_single_repository_shape(self):
+        if not (REPO / "extensions" / "enabled").exists():
+            self.skipTest("the single-repository shape needs extensions/enabled; the public core has none")
+        # What the single repository would have: the core's files, extensions/<package>/ (no standalone/), the
+        # package's bin/ over the core's forwarders, extensions/enabled (the repository's own text for covey_internal).
+        single = {**CORE_FILES, "bin/covey_maso_runtime.py": "# the real one\n",
+                  "extensions/enabled": (REPO / "extensions" / "enabled").read_text()}
+        for name, text in EXT_FILES.items():
+            if name.startswith("covey_internal/") and "/standalone/" not in name:
+                single["extensions/" + name] = text
+        code, out, err = self.assemble(self.root / "r1", "--ext", str(self.ext))
+        self.assertEqual(code, 0, err)
+        got = tree(self.root / "r1")
+        manifest = got.pop("RELEASE_MANIFEST")
+        self.assertEqual(got, single)
+        self.assertEqual(manifest, f"core {self.core_sha}\nextension {self.ext_sha} covey_internal\n")
+        self.assertEqual(json.loads(out)["extensions"][0]["packages"], ["covey_internal"])
+
+    def test_two_extensions_are_enabled_in_order_and_a_core_carrying_one_loses_to_the_checkout(self):
+        core2 = self.root / "core2"
+        sha = make_repo(core2, {**CORE_FILES, "extensions/covey_internal/manifest.py": "OLD = 1\n",
+                                "extensions/covey_internal/old_only.py": "", "extensions/enabled": "covey_internal\n"})
+        out = self.root / "r2"
+        child = subprocess.run([sys.executable, "-B", "-I", str(ASSEMBLE), "--core", str(core2), "--out", str(out),
+                                "--ext", str(self.paseo), "--ext", str(self.ext), "--ext-ref", self.paseo_sha],
+                               capture_output=True, text=True, timeout=60)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        got = tree(out)
+        self.assertNotIn("extensions/covey_internal/old_only.py", got)
+        self.assertEqual(got["extensions/covey_internal/manifest.py"], "HARNESSES = {}\n")
+        self.assertEqual([ln for ln in got["extensions/enabled"].splitlines() if not ln.startswith("#")],
+                         ["covey_paseo", "covey_internal"])
+        self.assertEqual(got["bin/covey_paseo_fleet.py"], "# fleet\n")
+        self.assertEqual(got["RELEASE_MANIFEST"].splitlines()[0], f"core {sha}")
+
+    def test_a_non_empty_target_or_a_checkout_without_a_package_is_refused(self):
+        (self.root / "full").mkdir()
+        (self.root / "full" / "x").write_text("x")
+        self.assertEqual(self.assemble(self.root / "full", "--ext", str(self.ext))[0], 1)
+        bare = self.root / "bare"
+        make_repo(bare, {"README.md": "no package\n"})
+        code, _, err = self.assemble(self.root / "r3", "--ext", str(bare))
+        self.assertEqual(code, 1)
+        self.assertIn("no extension package", err)
+
+
+class DeployExtensionTests(DeployFixture):
+    """deploy_bridge.sh --ext-repo: release id, commits in the result, core.lock and environment pre-checks
+    (--check-only on the fake state directory of DeployScriptTests; the core is this checkout)."""
+
+    def setUp(self):
+        super().setUp()
+        self.head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+        self.ext = self.root / "ext"
+        self.ext_sha = make_repo(self.ext, {**EXT_FILES, "core.lock": f"# c\n{self.head[:8]}\n"})
+        self.base = ["--check-only", "--workdir", str(self.workdir), "--profile", "bot", "--"]
+        self.tail = ["--sandbox", "danger-full-access"]
+
+    def check(self, *extra, env=None):
+        return self.deploy(*self.base[:-1], *extra, "--", *self.tail, env=env)
+
+    def test_without_an_extension_the_result_has_no_extension_fields(self):
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("release_id", out)
+        self.assertNotIn("ext_commits", out)
+        self.assertNotIn("core_lock_mismatch", out["pre"])
+        self.assertEqual(out["release"], str(self.data / "releases" / self.head))
+
+    def test_an_extension_names_the_release_after_both_commits_and_keeps_the_core_commit(self):
+        code, out = self.check("--ext-repo", str(self.ext))
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["commit"], out["ext_commits"], out["release_id"]),
+                         (self.head, [self.ext_sha], f"{self.head[:8]}-{self.ext_sha[:8]}"))
+        self.assertEqual(out["release"], str(self.data / "releases" / out["release_id"]))
+        self.assertFalse((self.data / "releases").exists())
+        second = self.root / "ext2"
+        sha2 = make_repo(second, {**EXT_FILES, "core.lock": f"{self.head[:8]}\n"})
+        code, out = self.check("--ext-repo", str(self.ext), "--ext-commit", "HEAD", "--ext-repo", str(second))
+        self.assertEqual(out["release_id"], f"{self.head[:8]}-{self.ext_sha[:8]}-{sha2[:8]}")
+
+    def test_a_core_lock_naming_another_commit_blocks_unless_allowed(self):
+        other = self.root / "other"
+        make_repo(other, {**EXT_FILES, "core.lock": "deadbeef\n"})
+        code, out = self.check("--ext-repo", str(other))
+        self.assertEqual((code, out["ok"]), (1, False))
+        self.assertEqual(len(out["pre"]["core_lock_mismatch"]), 1)
+        self.assertIn("core_lock_mismatch", out["error"])
+        code, out = self.check("--ext-repo", str(other), "--allow-core-mismatch")
+        self.assertEqual((code, out["ok"]), (0, True), out)
+        self.assertTrue(out["pre"]["core_lock_mismatch"])
+
+    def test_the_extension_variables_in_the_manifest_or_the_shell_block(self):
+        for what, kept, shell in (("manifest", {"LARK_BRIDGE_EXTENSION_PATH": "/x"}, {}),
+                                  ("shell", {}, {"COVEY_EXTENSIONS": ""})):
+            with self.subTest(what):
+                env = {**self.env, **shell}
+                self.manifest({**runtime_environment(env), **kept}, self.args)
+                code, out = self.check("--ext-repo", str(self.ext), env=env)
+                self.assertEqual((code, out["ok"]), (1, False), out)
+                self.assertIn("extension_env", out["error"])
+                self.assertIn("EXTENSION", " ".join(out["pre"]["extension_env"]))
+
+    def test_a_missing_checkout_or_commit_or_an_orphan_ext_commit_is_a_usage_error(self):
+        code, out = self.check("--ext-repo", str(self.root / "nowhere"))
+        self.assertEqual(code, 2)
+        self.assertIn("not a git checkout", out["error"])
+        code, out = self.check("--ext-repo", str(self.ext), "--ext-commit", "nosuchrev")
+        self.assertEqual(code, 2)
+        self.assertIn("not a commit", out["error"])
+        code, out = self.check("--ext-commit", "HEAD")
+        self.assertEqual(code, 2)
 
 
 class CardkitCheckTests(unittest.TestCase):
