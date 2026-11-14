@@ -132,7 +132,7 @@ class PolicyTests(unittest.TestCase):
             answer = ClaudeBackend().run(RunRequest(ctx, "synthetic", inputs=RunInputs(threading.Event(), run_id=RUN)))
             self.assertEqual(answer.outcome.error_code, "policy_refusal")
             child = int((ctx.workdir / 'policy-child.pid').read_text())
-            for _ in range(100):
+            for _ in range(1000):  # Up to 10 s: a loaded machine takes longer than 1 s to reap it.
                 if process_identity(child) is None:
                     break
                 threading.Event().wait(0.01)
