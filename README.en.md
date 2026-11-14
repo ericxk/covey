@@ -23,7 +23,7 @@ Most of the documentation is written in Chinese for now. Screenshots and a demo 
 Requirements: Claude Code or Codex installed and logged in on this machine, Linux or macOS, Python 3.10+.
 
 ```bash
-git clone https://github.com/OWNER/covey.git && cd covey
+git clone https://github.com/ericxk/covey.git && cd covey
 ./install        # scan the QR code in the terminal once with the Feishu mobile app
 ```
 

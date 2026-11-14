@@ -23,7 +23,7 @@ Covey 在飞书里驱动你自己开发机上的编程 Agent。一个机器人�
 前提：机器上已装好并登录了 Claude Code 或 Codex，Linux 或 macOS，Python 3.10+。
 
 ```bash
-git clone https://github.com/OWNER/covey.git && cd covey
+git clone https://github.com/ericxk/covey.git && cd covey
 ./install        # 终端里出现二维码时，用飞书手机端扫一次
 ```
 

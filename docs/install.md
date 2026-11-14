@@ -9,7 +9,7 @@
 ## 安装
 
 ```bash
-git clone https://github.com/OWNER/covey.git && cd covey
+git clone https://github.com/ericxk/covey.git && cd covey
 ./install
 ```
 
