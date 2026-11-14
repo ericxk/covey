@@ -70,6 +70,72 @@ class DownloadTest(unittest.TestCase):
         self.assertIn("3 秒没有进展", why)
         self.assertEqual(["    下载 Chromium", "    0% of 10.0 MiB", "    10% of 10.0 MiB", "    20% of 10.0 MiB", "    100% of 10.0 MiB"], said)
 
+    def test_npm_proxy_spellings_are_dropped_too(self):
+        env = {"PATH": "/bin", "npm_config_https_proxy": "http://p.invalid:1", "NPM_CONFIG_PROXY": "http://p.invalid:1"}
+        self.assertEqual({"PATH": "/bin"}, bs.direct(env))
+        self.assertTrue(bs.has_proxy(env))
+
+    def test_each_source_is_told_its_name_and_only_the_last_may_not_be_switched(self):
+        seen = []
+
+        def runner(python, e, say, live, **kw):
+            seen.append((kw["source"], kw["slow_eta"]))
+            return False, "x"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(bs.Unavailable):
+                bs.download_chromium("py", {"PATH": "/bin", "HTTPS_PROXY": "http://p.invalid:1"}, lambda x: None, tmp, tmp, runner=runner)
+        self.assertEqual([("官方源", bs.SLOW_ETA_SECONDS), ("镜像 npmmirror", bs.SLOW_ETA_SECONDS),
+                          ("官方源（走代理）", bs.SLOW_ETA_SECONDS), ("镜像（走代理）", None)], seen)
+
+
+class SlowDownloadTest(unittest.TestCase):
+    def test_speed_and_estimate_from_percent_and_size(self):
+        rate, eta = bs.speed_eta(10, 100 * 10 ** 6, 50)
+        self.assertEqual(200000, rate)
+        self.assertEqual(450, eta)
+        self.assertIsNone(bs.speed_eta(0, 100, 30))
+        self.assertEqual(0, bs.size_bytes("??"))
+        self.assertIn("0.2 MB/s", bs.speed_text(200000, 450))
+        self.assertIn("7.5 分钟", bs.speed_text(200000, 450))
+
+    def run_script(self, script, slow_eta, clock):
+        said = []
+        real = subprocess.Popen
+
+        def fake(argv, **kw):
+            return real([sys.executable, "-c", script], **kw)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(subprocess, "Popen", side_effect=fake), \
+                mock.patch.object(bs, "SLOW_CHECK_SECONDS", 0), mock.patch.object(bs.time, "monotonic", side_effect=clock):
+            ok, why = bs.run_install("py", {"PATH": "/usr/bin:/bin"}, said.append, None, stall=1000, deadline=1e12,
+                                     tmp_dirs=[tmp], source="官方源", slow_eta=slow_eta)
+        return ok, why, said
+
+    @staticmethod
+    def ticking(step):
+        state = {"t": 0.0}
+
+        def clock():
+            state["t"] += step
+            return state["t"]
+        return clock
+
+    SCRIPT = ("print('Downloading Chromium 1 (playwright build v1) from x', flush=True)\n"
+              "print('|##| 10% of 100.0 MB', flush=True)\nimport time\ntime.sleep(30)\n")
+
+    def test_a_slow_file_is_given_up_when_another_source_exists(self):
+        ok, why, said = self.run_script(self.SCRIPT, 180, self.ticking(10))
+        self.assertFalse(ok)
+        self.assertIn("太慢", why)
+        self.assertIn("预计还要", why)
+
+    def test_the_last_source_keeps_going_and_shows_the_source_and_speed(self):
+        script = self.SCRIPT.replace("time.sleep(30)", "print('|##| 100% of 100.0 MB', flush=True)")
+        ok, why, said = self.run_script(script, None, self.ticking(10))
+        self.assertTrue(ok)
+        self.assertTrue(any(x.startswith("    [官方源] 10% of 100.0 MB  ") and "MB/s" in x for x in said), said)
+
 
 class SystemBrowserTest(unittest.TestCase):
     def test_a_named_executable_on_path_is_used(self):

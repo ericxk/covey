@@ -28,8 +28,13 @@ from covey.core import browser_env
 PLAYWRIGHT_VERSION = "1.56.0"
 MIRROR = "https://cdn.npmmirror.com/binaries/playwright"  # builds/chromium/<rev>/…zip 已核实可下
 STALL_SECONDS = 60
+SLOW_CHECK_SECONDS = 25  # 一个文件开始下载这么久之后，按已下载字节估算剩余时间
+SLOW_ETA_SECONDS = 180  # 预计剩余超过这么久就换下一个源（最后一个源不换，只显示预计时间）
 TOTAL_SECONDS = 1500
-PROXY_KEYS = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy")
+PROXY_KEYS = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy",
+              "npm_config_https_proxy", "npm_config_http_proxy", "npm_config_proxy",
+              "NPM_CONFIG_HTTPS_PROXY", "NPM_CONFIG_HTTP_PROXY", "NPM_CONFIG_PROXY")  # Playwright 下载器也认 npm 的这几个
+UNITS = {"b": 1, "kb": 1000, "kib": 1024, "mb": 1000 ** 2, "mib": 1024 ** 2, "gb": 1000 ** 3, "gib": 1024 ** 3}
 PROGRESS = re.compile(r"(\d+)% of ([\d.]+ ?\w+)")
 DOWNLOADING = re.compile(r"^Downloading (.+?)(?: [\d.]+)? \(?playwright build")
 SYSTEM_BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome")
@@ -74,6 +79,29 @@ def direct(env):
 
 def has_proxy(env):
     return any(env.get(k) for k in PROXY_KEYS)
+
+
+def size_bytes(text):
+    """'160.5 MiB' -> bytes; 0 when unreadable."""
+    found = re.match(r"([\d.]+) ?(\w+)", text.strip())
+    try:
+        return int(float(found.group(1)) * UNITS.get(found.group(2).lower(), 0)) if found else 0
+    except ValueError:
+        return 0
+
+
+def speed_eta(percent, total, elapsed):
+    """(bytes per second, seconds left) of one file from its percent, size and the seconds since it began; None when unknown."""
+    done = total * percent / 100
+    if elapsed <= 0 or done <= 0:
+        return None
+    rate = done / elapsed
+    return rate, (total - done) / rate
+
+
+def speed_text(rate, eta):
+    left = f"{eta / 60:.1f} 分钟" if eta >= 90 else f"{eta:.0f} 秒"
+    return f"{rate / 1e6:.1f} MB/s，预计还要 {left}"
 
 
 def tree_size(*paths):
@@ -156,14 +184,16 @@ def chromium_installed(folder):
     return bool(glob.glob(str(Path(folder) / "chromium_headless_shell-*" / "INSTALLATION_COMPLETE")))
 
 
-def run_install(python, env, say, live, *, stall, deadline, tmp_dirs):
+def run_install(python, env, say, live, *, stall, deadline, tmp_dirs, source="", slow_eta=None):
     """One ``playwright install chromium``; (ok, reason). Progress on one refreshed line (``live``) or, without one, a line
-    per 10%; no progress (output or growing files) for ``stall`` seconds kills it."""
+    per 10%, each with the source and the speed; no progress (output or growing files) for ``stall`` seconds kills it, and so
+    does a file that, after SLOW_CHECK_SECONDS, would still need more than ``slow_eta`` seconds (None: only show the estimate)."""
     env = {**env, "PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS": "1"}  # The libraries are our own step.
     proc = subprocess.Popen([python, "-m", "playwright", "install", "chromium"], env=env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     lines, seen = pump(proc), []
-    last, size, percent, title = time.monotonic(), -1, -1, ""
+    last, size, percent, title, began = time.monotonic(), -1, -1, "", 0.0
+    tag = f"[{source}] " if source else ""
     while True:
         try:
             line = lines.get(timeout=2)
@@ -180,18 +210,24 @@ def run_install(python, env, say, live, *, stall, deadline, tmp_dirs):
             seen.append(line)
             found = DOWNLOADING.search(line)
             if found:
-                title, percent = found.group(1), -1
+                title, percent, began = found.group(1), -1, time.monotonic()
                 if live:
                     live(None)
                 say(f"    下载 {title}")
             progress = PROGRESS.search(line)
             if progress and title:
                 now_percent = int(progress.group(1))
+                total = size_bytes(progress.group(2))
+                estimate = speed_eta(now_percent, total, time.monotonic() - began) if now_percent < 100 else None
+                extra = f"  {speed_text(*estimate)}" if estimate and time.monotonic() - began >= 3 else ""
                 if live:
-                    live(f"    {now_percent:3d}% of {progress.group(2)}")
+                    live(f"    {tag}{now_percent:3d}% of {progress.group(2)}{extra}")
                 elif now_percent // 10 > percent // 10 or now_percent == 100 and percent < 100:
-                    say(f"    {now_percent}% of {progress.group(2)}")
+                    say(f"    {tag}{now_percent}% of {progress.group(2)}{extra}")
                 percent = now_percent
+                if (estimate and slow_eta and time.monotonic() - began >= SLOW_CHECK_SECONDS and estimate[1] > slow_eta):
+                    stop(proc)
+                    return False, f"太慢（{speed_text(*estimate)}）"
         if time.monotonic() - last > stall:
             stop(proc)
             return False, f"{stall} 秒没有进展"
@@ -213,13 +249,16 @@ def download_chromium(python, env, say, folder, tmp_dir, *, live=None, stall=STA
     if has_proxy(env):
         plan += [("官方源（走代理）", "", True), ("镜像（走代理）", mirror, True)]
     reason = ""
-    for name, host, proxied in plan:
+    for number, (name, host, proxied) in enumerate(plan, 1):
         e = dict(env if proxied else direct(env))
         e.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
         if host:
             e["PLAYWRIGHT_DOWNLOAD_HOST"] = host
-        say(f"    浏览器下载：{name}（{stall} 秒没进展会自动换源）")
-        ok, reason = runner(python, e, say, live, stall=stall, deadline=deadline, tmp_dirs=[folder, tmp_dir])
+        last_source = number == len(plan)
+        say(f"    浏览器下载：{name}（{stall} 秒没进展或预计超过 {SLOW_ETA_SECONDS // 60} 分钟会自动换源）" if not last_source
+            else f"    浏览器下载：{name}（最后一个源，不再换，只显示预计时间）")
+        ok, reason = runner(python, e, say, live, stall=stall, deadline=deadline, tmp_dirs=[folder, tmp_dir], source=name,
+                            slow_eta=None if last_source else SLOW_ETA_SECONDS)
         if ok:
             return
         say(f"    {name}没成功：{reason}")

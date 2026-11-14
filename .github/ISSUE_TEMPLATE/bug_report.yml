@@ -1,0 +1,52 @@
+name: 报告问题 / Bug report
+description: 某个功能不工作或行为不对 / Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请**不要**贴令牌、账号、飞书 id、群 ID 或聊天内容；日志先打码。安全问题请走 [SECURITY.md](../blob/main/SECURITY.md)。
+        Do **not** paste tokens, accounts, Feishu ids, chat ids or chat content; redact logs first. Security issues: see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么 / What happened
+      description: 你做了什么，期望什么，实际看到什么
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+  - type: input
+    id: system
+    attributes:
+      label: 系统 / OS
+      placeholder: Ubuntu 22.04 x86_64 / macOS 15 arm64
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python 版本 / Python version
+      placeholder: "3.11.9"
+    validations:
+      required: true
+  - type: input
+    id: harness
+    attributes:
+      label: Harness 与版本 / Harness and version
+      placeholder: Claude Code 2.x、Codex 0.x
+  - type: input
+    id: install
+    attributes:
+      label: 安装方式与提交号 / Install method and commit
+      placeholder: git clone + ./install，git rev-parse --short HEAD
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 相关几行即可（已打码）。可以先跑 `python3 bin/covey_doctor.py` 附上输出。
+      render: text
