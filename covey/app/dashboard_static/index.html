@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>敏感词脱敏 · Harness Bridge</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <h1>敏感词脱敏</h1>
+  <p class="sub">开着脱敏的话题，发给模型厂商的请求里，词表中的词会换成替身词；回复里再换回来。</p>
+</header>
+
+<main>
+  <section id="login" class="panel" hidden>
+    <h2>输入口令</h2>
+    <p class="hint">口令在机器人菜单「设置」→「脱敏」的“打开看板”链接里（<code>?t=</code> 后面那一串）。</p>
+    <form id="login-form" class="row">
+      <input id="login-token" type="password" autocomplete="current-password" placeholder="口令" required>
+      <button type="submit" class="primary">登录</button>
+    </form>
+    <p id="login-error" class="error" hidden></p>
+  </section>
+
+  <div id="app" hidden>
+    <section class="panel status" aria-live="polite">
+      <div class="stat"><span class="label">配置</span><span id="st-config">—</span></div>
+      <div class="stat"><span class="label">词数</span><span id="st-terms">—</span></div>
+      <div class="stat"><span class="label">近 7 天替换</span><span id="st-week">—</span></div>
+      <div class="stat"><span class="label">最近保存</span><span id="st-updated">—</span></div>
+    </section>
+    <p id="config-error" class="error banner" hidden></p>
+
+    <section class="panel">
+      <h2>开关</h2>
+      <label class="switch"><input type="checkbox" id="default-on"> 新话题默认开<span class="hint">启动卡上「敏感词脱敏」的初始选择</span></label>
+      <label class="switch"><input type="checkbox" id="ignore-case"> 不区分大小写<span class="hint">其他大小写写法各有自己的自动替身，还原成原样写法</span></label>
+      <label class="switch"><input type="checkbox" id="restore"> 回复还原<span class="hint">关掉后模型回复里的替身词原样留着</span></label>
+      <div class="field">
+        <label for="upstream">上游地址</label>
+        <div class="row">
+          <input id="upstream" type="url" placeholder="留空：每轮自动探测（Claude 账号用）" spellcheck="false">
+          <button type="button" id="detect">探测</button>
+        </div>
+        <p id="detect-result" class="hint" hidden></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>词表</h2>
+      <div class="terms-head" aria-hidden="true">
+        <span>原词</span><span>替身词</span><span>匹配</span><span>还原</span><span>命中</span><span></span>
+      </div>
+      <div id="terms"></div>
+      <p id="terms-empty" class="hint" hidden>词表是空的。</p>
+      <div class="row actions">
+        <button type="button" id="add-row">添加一行</button>
+        <button type="button" id="toggle-bulk">批量粘贴</button>
+      </div>
+      <div id="bulk" class="field" hidden>
+        <label for="bulk-text">每行「原词 =&gt; 替身词」或「原词」</label>
+        <textarea id="bulk-text" rows="6" spellcheck="false" placeholder="内部项目名 =&gt; 项目甲&#10;客户名"></textarea>
+        <div class="row"><button type="button" id="bulk-add">加入词表</button></div>
+      </div>
+      <div class="row save">
+        <button type="button" id="save" class="primary">保存</button>
+        <span id="dirty" class="hint" hidden>有未保存的改动</span>
+      </div>
+      <p id="save-error" class="error" hidden></p>
+      <p id="save-ok" class="ok" hidden></p>
+    </section>
+
+    <section class="panel">
+      <h2>试一下</h2>
+      <p class="hint">用当前页面上的词表和开关（含未保存的改动）替换一段文字，再还原。</p>
+      <textarea id="preview-text" rows="4" placeholder="粘贴一段文字"></textarea>
+      <div class="row"><button type="button" id="preview">试一下</button></div>
+      <p id="preview-error" class="error" hidden></p>
+      <div id="preview-out" hidden>
+        <h3>发出去的样子</h3>
+        <pre id="preview-redacted"></pre>
+        <h3>还原后</h3>
+        <pre id="preview-restored"></pre>
+        <p id="preview-hits" class="hint"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>开着脱敏的话题</h2>
+      <p class="hint">只列最近记录过的话题。</p>
+      <ul id="topics" class="list"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>最近几轮</h2>
+      <div class="scroll">
+        <table id="turns">
+          <thead><tr><th>时间</th><th>话题</th><th>模型</th><th>请求</th><th>替换</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="notes">
+      <p>改动下一轮生效：正在跑的一轮用它开始时的词表。</p>
+      <p>词表只存在本机（Bridge 状态目录的 redaction/config.json），不上传到任何地方。卡片上不出现词本身。</p>
+    </footer>
+  </div>
+</main>
+</body>
+</html>

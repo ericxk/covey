@@ -1,0 +1,1022 @@
+"""Card JSON goldens: a fixed set of cards and card parts drawn by the real builders, with the clock frozen and
+the time zone fixed, compared byte for byte with tests/golden/cards.json (keys sorted).
+
+Any difference means the JSON the Bridge sends for a card changed, so rule 9's client check applies
+(docs/cards.md 卡片的客户端限制). After a deliberate change rewrite the file and commit it with the change:
+
+    GOLDEN_CARDS=update python3 -B -m unittest discover -s tests -p test_card_golden.py
+
+The samples carry only fake open_ids, chat and message IDs and /absolute/... paths.
+"""
+
+from __future__ import annotations
+
+import json
+import lzma
+import os
+import sys
+import time
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # support, also when run as tests.test_card_golden
+
+from support.cards import TOPIC, redaction_facts, redaction_web, sample_job, status_block, stream_runtime  # noqa: E402
+
+GOLDEN = Path(__file__).resolve().parent / "golden" / "cards.json"
+PACKED = GOLDEN.with_name("cards.json.xz")  # The public export packs the golden file (scripts/export_core.py).
+FROZEN = 1793790000.0  # 2026-11-04 19:00 at UTC+8
+ZONE = "CST-8"  # POSIX form: no tz database needed
+WORK = Path("/absolute/work")
+TOKEN = "0123456789abcdef"
+
+
+def question_record(status="pending", **fields):
+    record = {"token": TOKEN, "status": status, "topic_id": TOPIC, "chat_id": "oc_fake_chat", "job_id": 431,
+              "blocking": True, "harness_id": "codex", "binding_revision": 2, "created_at": FROZEN - 60,
+              "questions": [{"id": "fmt", "header": "格式", "question": "用哪种格式输出？",
+                             "options": [{"label": "表格", "description": "Markdown 表格"},
+                                         {"label": "列表", "description": "无序列表"}]},
+                            {"id": "note", "header": "补充", "question": "还有别的要求吗？"}],
+              "answers": {"fmt": {"answers": ["表格"]}, "note": {"answers": ["无"]}}}
+    record.update(fields)
+    return record
+
+
+CHOICES = {
+    "codex:gpt-6-astra": {"harness": "codex", "title": "Codex", "provider": "openai", "provider_title": "Codex 自带",
+                          "display_name": "GPT-6-Astra", "label": "Codex · GPT-6-Astra",
+                          "levels": ["low", "high", "xhigh", "max"]},
+    "claude:opus": {"harness": "claude", "title": "Claude", "provider": "anthropic", "provider_title": "Claude 自带",
+                    "display_name": "Opus 5.5", "redaction": True, "label": "Claude · Opus 5.5",
+                    "levels": ["high", "xhigh", "max"]},
+    "maso:preset": {"harness": "maso", "title": "MASO", "provider": "maso", "provider_title": "MASO",
+                    "display_name": "Preset", "label": "MASO · Preset", "levels": ["high"],
+                    "work_modes": ["focus", "adaptive"]},
+    "dsh:ali-deepseek-v4.1-flash": {"harness": "dsh", "title": "DeepSeek Harness", "provider": "acme",
+                                    "provider_title": "Acme", "display_name": "DeepSeek V4.1 Flash",
+                                    "label": "DeepSeek Harness · flash", "levels": ["low", "high", "max"]},
+}
+
+
+def task_cards():
+    from covey.cards.review import (answer_card, answer_lead, answer_summary, outcome_line, recent_user_questions,
+                                             render_history, render_stream_final, render_stream_status, running_summary,
+                                             stopped_sentence, task_card_summary)
+    from covey.cards.card_cost import exceeds_stream_card_limit
+    from covey.cards.streaming import build_stream_card, card_details_text, task_details_panel, usage_lines
+    from covey.cards.task_figures import figure_cells, figures_element
+    from covey.cards.task_status import status_elements
+
+    from covey.cards.answer_card import output_lines, output_parts, running_figures
+    from covey.cards.task_figures import io_box, io_lines
+
+    run = stream_runtime()
+    snapshot = {"started_at": FROZEN - 100, "ended_at": FROZEN, "input_tokens": 120000, "output_tokens": 3400,
+                "cache_read_tokens": 90000, "cache_write_tokens": 1000, "measured_output_tokens": 3000,
+                "generation_seconds": 40.0, "ttft_seconds": 1.5, "ttft_source": "stream", "steps": {}}
+    running = {"started_at": FROZEN - 73, "input_tokens": 570000, "output_tokens": 9000,
+               "measured_output_tokens": 4800, "generation_seconds": 70.0, "context_tokens": 86000,
+               "context_window": 1000000, "steps": {}}
+    cards = {
+        "running": build_stream_card("正在处理", "任务", run, job=sample_job(), include_stop_action=True),
+        "running_essential": build_stream_card("正在处理", "任务", run, job=sample_job(), include_stop_action=True,
+                                               essential=True),
+        "plain": build_stream_card("正在处理", "任务", run, job=sample_job()),
+        "no_job": build_stream_card("直接回答", "任务", run),
+        "figures": figures_element(snapshot, 100),
+        "figures_empty": figures_element(),
+        "figures_compact": figures_element(snapshot, 100, compact=True),  # A slim card's 详情 (one line).
+        "figure_cells": figure_cells(snapshot, 100),
+        "usage_lines": usage_lines(snapshot),
+        "task_details": task_details_panel(sample_job(), snapshot),
+        "task_details_redacting": task_details_panel(sample_job(), {**snapshot, "redaction": {
+            "terms": 1, "hits": 2, "requests": 3}}),
+        "status_block": status_block("⏳ 执行中 · 已运行 1 分\n第二行", figures_element(snapshot)),
+        # The 输入/输出 box (the "E" sample, 2026-11-08): running (开始 · 已运行 / token · token/s / 上下文), on a slim
+        # card (no 已运行), and ended (用时 · token/s / token · 缓存命中).
+        "io_box_running": io_box(sample_job(), io_lines(running_figures(running, FROZEN - 73), "1分13秒")),
+        "io_box_slim": io_box(sample_job(), io_lines(running_figures(running, FROZEN - 73), slim=True)),
+        "io_box_ended": io_box(sample_job(), output_lines(output_parts(snapshot, 100))),
+        "io_box_unknown": io_box(sample_job(input_parts=None, model_label="", workspace_label="")),
+        "answer_card": answer_card("# 结论\n\n第一段 **加粗**\n\n### 小标题\n\n- 一\n- 二\n\n```py\nprint(1)\n```\n",
+                                   "✅ T70 · #431 · 已完成"),
+        "status_text": render_stream_status(sample_job(), "排队中", ["⚠️ 提示", "前面还有 1 个任务"], queue_depth=2),
+        **answer_tail_cards(),
+    }
+    for status in ("done", "failed", "cancelled", "waiting_user"):
+        cards[f"final_text_{status}"] = render_stream_final(sample_job(), "任务 #431 的回答正文", status=status)
+    cards["final_text_done_elsewhere"] = render_stream_final(sample_job(), "任务 #431 的回答正文", answer_elsewhere=True)
+    # A body over the card's limit: cut by characters (an open code block closed again), then by size (tables).
+    by_chars = "开头一段。\n\n```py\n" + "".join(f"print('{i:04d}' + '{'a' * 88}')\n" for i in range(300)) + "```\n"
+    by_size = "| a | b | c | d | e | f | g |\n" * 200
+    cards["over_limit_by_chars"] = build_stream_card(by_chars, "任务", run, job=sample_job())
+    cards["over_limit_by_size"] = build_stream_card(by_size, "任务", run, job=sample_job())
+    cards["over_limit_flags"] = [exceeds_stream_card_limit(text, run) for text in (by_chars, by_size)]
+    cards["details_text"] = card_details_text(cards["running"])
+    cards["status_elements"] = {"line": status_elements("⏳ 执行中", False),
+                                "rows": status_elements("⏳ 执行中 · 已运行 1 分\n阶段：改代码", True)}
+    lead = answer_lead("# 结论：重试改成指数退避\n\n正文")
+    cards["texts"] = {
+        "answer_lead": lead,
+        "answer_lead_sentence": answer_lead("改好了。还跑了测试"),
+        "answer_lead_code_only": answer_lead("```\ncode\n```"),
+        "answer_summary": {status: answer_summary("T70", status, lead) for status in ("done", "failed")},
+        "answer_summary_no_lead": answer_summary("T70", "cancelled", ""),
+        "outcome_line": {status: outcome_line(status) for status in ("done", "failed", "cancelled", "waiting_user")},
+        "running_summary": [running_summary("T70", "任务"), running_summary("T70", "任务", phase="改代码" * 20),
+                            running_summary("T70", "任务", asking=True)],
+        "task_card_summary": [task_card_summary("T70", "done", "✅ 已完成 · 用时 3 分 39 秒"),
+                              task_card_summary("T70", "failed")],
+        "stopped_sentence": stopped_sentence(431),
+        "history": render_history([{"role": "user", "content": "第一问"}, {"role": "assistant", "content": "第一答"},
+                                   {"role": "user", "content": "  "}]),
+        "recent_questions": recent_user_questions([{"role": "user", "content": f"问题 {i}"} for i in range(5)],
+                                                  "问题 4"),
+    }
+    return cards
+
+
+def trace_panels():
+    """执行过程 as each state of a task draws it: the panel put on the card, and the CardKit writes from the
+    previous state's panel."""
+    from covey.backends.gateway.catalog import retry_notice
+    from covey.backends.gateway.relay import Busy
+    from support import acme as acme_gateway
+    from covey.core.trace import ToolTrace, finish_record_trace, task_trace
+    from covey.cards.trace_updates import incremental_actions
+    from support.cards import figures_line, split_panel, trace_panel
+
+    out = {}
+
+    def shots(name, trace, states):
+        previous = None
+        for label, step in states:
+            step(trace)
+            panel = split_panel(trace_panel(trace, trace.ended_at is None))
+            entry = {"panel": panel, "figures_line": figures_line(trace.snapshot())}
+            if previous is not None:
+                entry["actions"] = incremental_actions(previous, panel)
+            out[f"{name}.{label}"] = entry
+            previous = panel
+
+    def tool(i, status="done", *, child=None, name="bash", detail=None):
+        data = {"id": f"t{i}", "name": name, "status": status, "started_at": FROZEN - 60 + i,
+                "detail": f"ls -la dir{i}" if detail is None else detail}
+        if status != "running":
+            data.update(ended_at=data["started_at"] + 1.5, exit_code=0 if status == "done" else 1)
+        if child:
+            data["child_id"] = child
+        return data
+
+    def accept(*events):
+        return lambda trace: [trace.accept(kind, data) for kind, data in events]
+
+    def finish(stopped=False):
+        return lambda trace: trace.finish(stopped=stopped)
+
+    usage = ("token_usage", {"output_tokens": 3400, "input_tokens": 120000, "cache_read_tokens": 90000,
+                             "cache_write_tokens": 1000, "measured_output_tokens": 3000, "generation_seconds": 40.0,
+                             "context_tokens": 623456, "context_window": 1000000})
+    shots("running", task_trace(), [
+        ("empty", accept()),
+        ("first_tool", accept(("tool", tool(1, "running")))),
+        ("note", accept(("tool", tool(1)), ("progress_note", {"id": "n1", "text": "先看目录，再改代码。**重点**：`a.py`",
+                                                            "received_at": FROZEN - 50}))),
+        ("more", accept(*[("tool", tool(i, "done" if i % 3 else "failed",
+                                        name=("bash", "read", "edit", "web_search")[i % 4], detail=f"/absolute/work/f{i}.py"))
+                          for i in range(2, 9)],
+                        ("tool", tool(9, "running")), usage,
+                        ("first_token", {"ttft_seconds": 1.25, "ttft_source": "stream"}),
+                        ("redaction", {"terms": 3, "hits": 5, "requests": 2}))),
+        ("finished", finish()),
+    ])
+    shots("stopped", task_trace(), [
+        ("running", accept(("tool", tool(1, "running")), ("progress_note", {"id": "n", "text": "处理中"}))),
+        ("stopped", finish(stopped=True)),
+    ])
+    shots("subtasks", task_trace(), [
+        ("spawned", accept(("progress_note", {"id": "intro", "text": "检查项目"}),
+                           ("agent_state", {"id": "c1", "name": "检查配置", "status": "running", "started_at": FROZEN - 40,
+                                            "description": "读取配置"}),
+                           ("tool", tool(1, "running", child="c1")),
+                           ("agent_state", {"id": "c2", "name": "核对", "status": "pendingInit",
+                                            "started_at": FROZEN - 30, "parent_id": "c1"}),
+                           ("tool", tool(2, child="c2")),
+                           ("progress_note", {"id": "c1n", "text": "子任务的说明。" * 30, "child_id": "c1",
+                                              "title": "子任务说明"}))),
+        ("child_done", accept(("tool", tool(1, child="c1")),
+                              ("agent_state", {"id": "c1", "name": "检查配置", "status": "completed",
+                                               "started_at": FROZEN - 40, "ended_at": FROZEN - 5, "summary": "配置无误"}),
+                              ("subtask_usage", {"subtasks": [{"id": "c1", "input_tokens": 100, "output_tokens": 10}]}),
+                              usage)),
+        ("finished", finish()),
+    ])
+    shots("compacting", task_trace(), [
+        ("running", accept(("tool", {"id": "compact-before-turn", "name": "context_compaction", "status": "running",
+                                     "started_at": FROZEN - 50, "public_progress": True,
+                                     "detail": "按任务卡上的安排 · 压缩前上下文 62.3 万 token"}))),
+        ("done", accept(("tool", {"id": "compact-before-turn", "name": "context_compaction", "status": "done",
+                                  "started_at": FROZEN - 50, "ended_at": FROZEN - 2,
+                                  "detail": "按任务卡上的安排 · 压缩前 62.3 万 token → 摘要 9,800 token"}),
+                        ("tool", tool(1)), ("tool", tool(2)))),
+        ("finished", finish()),
+    ])
+
+    def busy(trace):
+        notify = retry_notice(SimpleNamespace(emit=trace.accept), acme_gateway())
+        notify(Busy("retrying", 7, 20, 1, 7, 20))
+        notify(Busy("retrying", 2, 16, 1, 2, 16, "sub", limited=2))
+        trace.accept("tool", tool(1, "running", child="sub"))
+        trace.accept("agent_state", {"id": "sub", "name": "核对", "status": "running", "started_at": FROZEN - 9})
+        notify(Busy("recovered", 30, 80, 1, 30, 80))
+        notify(Busy("retrying", 3, 15, 2, 33, 95, limited=1))
+        trace.accept("tool", tool(2, "running"))
+    shots("busy", task_trace(), [("retrying", busy), ("finished", finish())])
+
+    def many(trace):
+        for i in range(60):
+            trace.accept("tool", tool(i, detail=f"grep -rn pattern{i} src/ | head -{i}" * (1 + i % 5)))
+            if i % 7 == 0:
+                trace.accept("progress_note", {"id": f"n{i}", "text": f"第 {i} 步说明 " * (20 + i * 3),
+                                               "received_at": FROZEN - 60 + i})
+    shots("long", task_trace(), [("running", many), ("finished", finish())])
+    # Over the panel's budget: one note in chunks, then more 进展说明 than fit, so the oldest fold to their first
+    # sentences (older_fold) and the fold's own oldest lines are left out.
+    shots("huge_note", task_trace(), [
+        ("note", accept(("progress_note", {"id": "big", "text": ("长说明 " * 400 + "\n\n") * 12}))),
+        ("finished", finish())])
+
+    def notes(trace):
+        for i in range(120):
+            if i % 20 == 0:
+                trace.accept("tool", tool(i))
+            trace.accept("progress_note", {"id": f"m{i}", "text": f"第 {i} 段说明" + "首句很长没有句号" * 10 + "。"
+                                           + "细节 " * 40, "received_at": FROZEN - 300 + i})
+    shots("over_budget", task_trace(), [("running", notes), ("finished", finish())])
+    checkpoint = task_trace()
+    checkpoint.checkpoint = "/absolute/state/checkpoints/431.json"
+    shots("checkpoint", checkpoint, [("written", accept(
+        ("tool", tool(1, detail="记下当前进度 · cat > /absolute/state/checkpoints/431.json <<'EOF'\n{}\nEOF")),
+        ("tool", tool(2, name="write", detail="/absolute/state/checkpoints/431.json"))))])
+    shots("empty", task_trace(), [("finished", finish())])
+    # A record restored after a restart, then ended or stopped.
+    for status in ("cancelled", "done"):
+        trace = task_trace()
+        trace.accept("tool", tool(1, "running"))
+        restored = ToolTrace.restore(json.loads(json.dumps(trace.snapshot())))
+        finish_record_trace(restored, {"status": status, "elapsed_seconds": 30})
+        out[f"restored_{status}"] = {"panel": split_panel(trace_panel(restored, True))}
+    return out
+
+
+def launch_cards():
+    from covey.cards.launch_config import launch_form_card
+    from covey.cards.launch_receipt import build_preparing_card, build_receipt_card
+
+    def form(model, **kwargs):
+        values = dict(model=model, choices=CHOICES, effort="xhigh", workspace="project",
+                      names=["project", "notes"], run_mode="worktree", topic_tag="T70")
+        return launch_form_card("a" * 24, **{**values, **kwargs})
+
+    return {
+        "codex": form("codex:gpt-6-astra"),
+        "codex_effort_open": form("codex:gpt-6-astra", expanded=True, page="effort"),
+        "codex_notice": form("codex:gpt-6-astra", notice="⚠️ 提示", run_mode="original"),
+        "claude_redacting": form("claude:opus", redaction="on"),
+        "maso_expanded": form("maso:preset", expanded=True, work_mode="adaptive"),
+        "receipt": build_receipt_card({"model_label": "Codex · GPT-6-Astra", "effort": "xhigh",
+                                       "workdir": str(WORK), "topic": "T70", "run_mode": "worktree",
+                                       "branch": "bridge/t70"}),
+        "preparing": build_preparing_card({"label": "Codex · GPT-6-Astra", "effort": "xhigh",
+                                           "workspace": "project", "topic": "T70"}),
+    }
+
+
+def question_cards():
+    from covey.cards.question_cards import (TOP_COPY, answer_notice_card, folded_refusal, mirror_card,
+                                                     question_card, question_element, question_feedback_card)
+
+    cards = {f"card_{status}": question_card(question_record(status, continuation_job_id=432), "T70")
+             for status in ("pending", "answered", "cancelled", "superseded", "expired", "submitting", "uncertain")}
+    cards["card_answered_running"] = question_card(question_record("answered", delivery_state="running"))
+    cards["card_folded"] = question_card(question_record("superseded", superseded_reason="newer_question",
+                                                         superseded_by_job=432, refusal="这组问题已收起"))
+    cards["card_multi_select"] = question_card(question_record(
+        questions=[{"id": "q", "header": "选择", "question": "选哪个？", "multiSelect": True,
+                    "options": [{"label": "甲（推荐）"}, {"label": "乙"}]}], answers={}))
+    cards["element_on_task_card"] = question_element(question_record(), "tag", headed=True)
+    # One question with options at the private chat's top level: a button per option (cards/question_cards.py picks).
+    cards["card_top_pick"] = question_card({**question_record(questions=question_record()["questions"][:1], answers={}),
+                                            TOP_COPY: True}, "T70")
+    # A 话题区's question at the top level (app/question_display.py mirror): the turn's output above the form.
+    output = "## 两种做法\n\n- A：改看板，`pins.py`\n- B：改卡片 <x>"
+    cards["mirror_pending"] = mirror_card(question_record(), "T436", output)
+    cards["mirror_answered"] = mirror_card(question_record("answered", continuation_job_id=432), "T436", output)
+    cards["mirror_no_output"] = mirror_card(question_record(), "T436")
+    # The asking turn's 产物 under the output, as its answer card in the topic shows them (2026-11-09).
+    from covey.cards.answer_card import ARTIFACTS_ID
+    from covey.cards.elements import markdown_panel
+    files = markdown_panel(ARTIFACTS_ID, "产物 2 个 · a.png 等", "- [a.png](https://example.invalid/a) · 12 KB\n"
+                           "- [b.png](https://example.invalid/b) · 3 KB", quiet=True)
+    cards["mirror_with_files"] = mirror_card(question_record(), "T436", output, files=files)
+    cards["mirror_files_no_output"] = mirror_card(question_record("answered", continuation_job_id=432), "T436",
+                                                  files=files)
+    cards["feedback"] = question_feedback_card(question_record())
+    cards["answer_notice"] = answer_notice_card("已提交回答")
+    cards["folded_refusal"] = folded_refusal(question_record("superseded", superseded_by_job=432))
+    return cards
+
+
+def proxy_cards():
+    from covey.cards.proxy_panel import expired_card, proxy_panel_card
+    from covey.cards.proxy_resend import resend_card
+
+    settings = {"enabled": True, "group_chat_id": "oc_fake_proxy", "harness": "codex", "model": "gpt-6-astra",
+                "effort": "xhigh", "user_profile": "me", "web_python": "/absolute/python", "workspace": "project"}
+    person = {"key": "p2p:ou_fake_z", "kind": "p2p", "target": "ou_fake_z", "name": "张三"}
+    cards = {
+        "panel": proxy_panel_card(
+            "f" * 24, {"revision": 2, "notice": "✓ 已加入白名单", "query": "张三",
+                       "found": {"query": "张三", "candidates": [{**person, "detail": "数据", "email": "z@example.com"}]}},
+            settings=settings,
+            contacts=[{**person, "paused": False},
+                      {"key": "group:oc_fake_g", "kind": "group", "target": "oc_fake_g", "name": "项目群", "paused": True}],
+            batches=[{"contact": person["key"]}], choices=CHOICES, current=("codex:gpt-6-astra", "xhigh")),
+        "panel_lookup": proxy_panel_card(
+            "f" * 24, {"revision": 3, "query": "张三、王五 C队", "page": 1, "lookup": {
+                "id": "abcd1234", "text": "张三、王五 C队", "left": 0, "items": [
+                    {"query": "张三", "state": "unique", "candidates": [{**person, "detail": "数据", "email": ""}]},
+                    {"query": "C队", "state": "unique", "candidates": [
+                        {"key": "group:oc_fake_c", "kind": "group", "target": "oc_fake_c", "name": "C队", "detail": "群",
+                         "email": "", "members": 12}]},
+                    {"query": "王五", "state": "choices", "more": 0, "candidates": [
+                        {"key": f"p2p:ou_fake_w{i}", "kind": "p2p", "target": f"ou_fake_w{i}", "name": "王五",
+                         "detail": "部门", "email": ""} for i in range(2)]},
+                    {"query": "没这个人", "state": "none", "candidates": []}]},
+                "members": {"id": "beef0001", "chat_id": "oc_fake_c", "name": "C队", "total": 12, "bots": 1, "skipped": 2,
+                            "add": [{"open_id": f"ou_fake_m{i}", "name": f"成员{i}"} for i in range(10)],
+                            "partial": False}},
+            settings=settings,
+            contacts=[{"key": f"p2p:ou_fake_{i}", "kind": "p2p", "target": f"ou_fake_{i}", "name": f"联系人{i}",
+                       "paused": False} for i in range(12)] + [
+                {"key": f"p2p:ou_fake_s{i}", "kind": "p2p", "target": f"ou_fake_s{i}", "name": f"成员{i}",
+                 "paused": i == 0, "source": {"chat_id": "oc_fake_s", "name": "项目群"}} for i in range(5)],
+            batches=[], choices=CHOICES, current=("codex:gpt-6-astra", "xhigh"), busy="⏳ 正在查找…"),
+        "panel_group_open": proxy_panel_card(
+            "f" * 24, {"revision": 4, "source_open": "oc_fake_s"}, settings=settings,
+            contacts=[{**person, "paused": False}] + [
+                {"key": f"p2p:ou_fake_s{i}", "kind": "p2p", "target": f"ou_fake_s{i}", "name": f"成员{i}",
+                 "paused": i == 0, "source": {"chat_id": "oc_fake_s", "name": "项目群"}} for i in range(3)],
+            batches=[{"contact": "p2p:ou_fake_s1"}], choices=CHOICES, current=("codex:gpt-6-astra", "xhigh")),
+        "expired": expired_card(),
+    }
+    for state in ("failed", "resending", "sent", "uncertain", "dropped"):
+        cards[f"resend_{state}"] = resend_card({"state": state, "notice": "⚠️ 没有重新发送：代答已关闭。"}, {
+            "id": "0" * 32, "reply": "收到\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "张三")
+    return cards
+
+
+def steer_cards():
+    from covey.cards.held_note import feedback_chooser, note_card
+    from covey.cards.steer_form import closed_card, latest_request, steer_form
+    from covey.cards.steer_receipts import receipt_card, stage_line
+
+    receipt = {"status": "sent", "job_id": 431, "text": "再补充一点\n第二行", "saved_at": FROZEN - 20,
+               "sent_at": FROZEN - 10, "topic_id": TOPIC, "token": "c" * 64}
+    # Each state's wording and buttons (撤回, 检查送达状态, 重新排队执行).
+    receipts = {
+        "submitting": {"status": "submitting", "sent_at": None},
+        "held": {"status": "held", "held_at": FROZEN - 15, "sent_at": None, "error": "任务刚开始"},
+        "uncertain": {"status": "uncertain", "error": "飞书超时"},
+        "sent_with_reads": {"reads": True},
+        "read": {"status": "read", "read_at": FROZEN - 5, "reads": True},
+        "unread_requeue": {"target_ended": True, "ended_at": FROZEN - 2, "requeue": True},
+        "unread": {"target_ended": True, "ended_at": FROZEN - 2},
+        "refused_requeue": {"status": "refused", "sent_at": None, "error": "任务已结束", "requeue": True},
+        "withdrawn": {"status": "withdrawn", "sent_at": None, "withdrawn_at": FROZEN - 5, "requeue": True},
+        "merged": {"merged": True},
+        "requeue_uncertain": {"status": "refused", "sent_at": None, "requeue": True, "requeue_state": "uncertain"},
+        "requeued": {"status": "refused", "sent_at": None, "requeue": True, "requeued_job_id": 433},
+    }
+    return {
+        "form": steer_form(431, "T70 · #431", {"kind": "bridge_steer_submit", "job_id": 431}),
+        "form_refused": steer_form(431, "T70 · #431", {"kind": "bridge_steer_submit", "job_id": 431}, text="已写",
+                                   notice="⚠️ 没有送达"),
+        "closed": closed_card("任务已结束", "T70 · #431 · 已结束", unsent="没发出的补充"),
+        "receipt": receipt_card(receipt, source="来源：#432"),
+        **{f"receipt_{name}": receipt_card({**receipt, **fields}) for name, fields in receipts.items()},
+        "stage_lines": {name: stage_line({**receipt, **fields}) for name, fields in receipts.items()},
+        "latest_request": latest_request("📝 **最新补充** 19:00 · 再补充一点"),
+        "feedback_chooser": feedback_chooser(TOPIC, "d" * 24, [question_record(), question_record(token="e" * 16)]),
+        "held_note": note_card({"status": "held", "job_id": 431, "text": "这条先暂存", "topic_id": TOPIC,
+                                "token": "d" * 24}),
+        "held_note_moved": note_card({"status": "held", "text": "这条先暂存", "topic_id": TOPIC, "token": "d" * 24,
+                                      "waiting": [{"job_id": 432, "created_at": FROZEN - 20, "count": 2}],
+                                      "folded": [{"job_id": 431, "created_at": FROZEN - 30, "count": 1}]}),
+    }
+
+
+def recovery_cards():
+    from covey.app.recovery_cards import recovery_card
+    from covey.cards.recovery import result_actions, result_note, retry_status, stopped_card
+
+    record = {"job_id": 431, "topic_id": TOPIC, "status": "interrupted", "message_id": "om_fake_task",
+              "harness_id": "codex", "binding_revision": 2, "user_text": "继续"}
+    return {
+        "interrupted": recovery_card(record),
+        "interrupted_continued": recovery_card(record, continued=True),
+        "saved_answer": recovery_card({**record, "result_retry_policy": "saved_delivery_only",
+                                       "verified_reply_authorized": True, "verified_reply_state": "authorized"}),
+        "stopped": stopped_card("任务 #431 已停止。", retry=("检查并继续", TOPIC, 431),
+                                actions=[result_actions(TOPIC, 431, "重新执行")], header="T70 · #431",
+                                summary="⏹ T70 · #431"),
+        "result_actions_auto_retry": result_actions(TOPIC, 431, "检查并继续", stop_kind="bridge_auto_retry_stop"),
+        "retry_status": retry_status("自动重试 · 10:00"),
+        "result_note": result_note("说明"),
+    }
+
+
+def rewind_cards():
+    from covey.cards.rewind import done_card, rewind_card
+
+    form = {"token": "c" * 24, "topic": "T70", "job_id": 12, "user_text": "把 a.py 里的重试改成指数退避",
+            "workdir": str(WORK), "point": {"keep": "k", "checkpoint": True, "file_count": 2, "files": [
+                (str(WORK / "a.py"), "restore"), (str(WORK / "notes.md"), "delete")]}}
+    return {
+        "card": rewind_card(form),
+        "card_no_files": rewind_card({**form, "point": {"keep": "k", "checkpoint": False, "files": [],
+                                                         "file_count": 0}}),
+        "done": done_card({**form, "done": {"files": 0, "keep": "k"}}),
+        "done_files": done_card({**form, "done": {"files": 2, "keep": "k"}}),
+    }
+
+
+def turn_export_panels():
+    from covey.cards.turn_export import export_panel
+
+    return {
+        "offered": export_panel(TOPIC, 431),
+        "building": export_panel(TOPIC, 431, {"status": "building", "at": FROZEN - 30}),
+        "failed": export_panel(TOPIC, 431, {"status": "failed", "error": "上传失败", "at": FROZEN - 30}),
+        "done": export_panel(TOPIC, 431, {"status": "done", "url": "https://example.com/file/x", "at": FROZEN - 30,
+                                          "name": "T70-#431-请求与结果.json.xz", "requests": 12, "subagents": 2,
+                                          "size": 85000, "raw_size": 9000000}),
+    }
+
+
+def switch_cards():
+    from covey.cards.elements import notice_card
+    from covey.cards.switch_form import build_switch_card
+    from covey.cards.topic_actions import switch_panel
+
+    old = {"token": "b" * 24, "topic": "T70", "workspace": "project",
+           "current": {"label": "Codex · GPT-6-Astra", "effort": "xhigh"},
+           "selected_model": "codex:gpt-6-astra", "selected_effort": "xhigh", "config_revision": 2,
+           "models": {"codex:gpt-6-astra": {"label": "Codex · GPT-6-Astra", "levels": ["low", "high", "xhigh", "max"]},
+                      "dsh:ali-deepseek-v4.1-flash": {"label": "DeepSeek Harness · flash",
+                                                      "levels": ["low", "high", "max"]}}}
+    form = {**old, "models": {key: CHOICES[key] for key in ("codex:gpt-6-astra", "claude:opus",
+                                                            "dsh:ali-deepseek-v4.1-flash")},
+            "current": {"label": "Codex · GPT-6-Astra", "effort": "xhigh", "key": "codex:gpt-6-astra",
+                        "budget": "xhigh", "workspace": "project", "run_mode": "worktree", "redaction": False},
+            "workspaces": ["project", "notes"], "selected_workspace": "project", "selected_run_mode": "worktree",
+            "selected_redaction": "off"}
+    return {
+        "card": build_switch_card(form),
+        "card_changed": build_switch_card({**form, "selected_model": "dsh:ali-deepseek-v4.1-flash",
+                                           "selected_effort": "low", "selected_run_mode": "original"}),
+        "card_old_record": build_switch_card(old),
+        "card_redacting": build_switch_card({**form, "selected_model": "claude:opus", "selected_redaction": "off",
+                                             "current": {**form["current"], "redaction": True}}),
+        "card_refused": build_switch_card({**form, "notice": "**⚠️ 还没有换（20:08）**：本话题还有任务在排队或执行"}),
+        "closed": notice_card("**🔁 已换配置**", "已换配置"),
+        "panel_on_task_card": switch_panel(TOPIC, 431, "codex", 2),
+    }
+
+
+def topic_panels():
+    from covey.app.artifacts import artifact_panel
+    from covey.cards.topic_actions import topic_panel
+
+    return {
+        "topic": topic_panel(TOPIC, 431, ("claude", 2), rewind=True),
+        "artifacts": artifact_panel({"job_id": 431, "result_file_path": str(WORK / "result.md"),
+                                     "diff_artifact_path": str(WORK / "diff.md")}, TOPIC),
+    }
+
+
+def usage_cards():
+    from covey.cards.weekly_usage import usage_card, usage_text
+
+    summary = {"since": FROZEN - 7 * 86400, "until": FROZEN, "days": 7, "tasks": 200, "topics": 3, "untracked": 1,
+               "tokens": {"input_tokens": 330000000, "cache_read_tokens": 270000000, "output_tokens": 3100000},
+               "outcomes": {"done": 3, "continued": 195, "failed": 1, "active": 1},
+               "harnesses": [{"title": "Codex", "tasks": 197, "tokens": 30300000, "input": 30200000, "cache": 0,
+                              "untracked": 1},
+                             {"title": "Claude", "tasks": 3, "tokens": 33000000, "input": 300000000,
+                              "cache": 270000000, "untracked": 0}]}
+    empty = {**summary, "tasks": 0, "topics": 0, "untracked": 0, "outcomes": {}, "harnesses": [],
+             "tokens": {"input_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0}}
+    return {"card": usage_card(summary), "card_empty": usage_card(empty), "text": usage_text(summary)}
+
+
+def free_groups():
+    """Four groups for the 免@ cards: 你和选中的人 (2 picked, one gone from the group), 所有人 while stopped, the proxy's
+    and an external one with 只有你."""
+    return [{"chat_id": "oc_fake_group1", "active": True, "external": False, "free_talk": "some",
+             "free_talk_members": ["ou_fake_m3", "ou_fake_gone1"]},
+            {"chat_id": "oc_fake_group2", "active": True, "external": False},
+            {"chat_id": "oc_fake_group3", "active": False, "external": False, "free_talk": "all",
+             "deactivated_at": "2026-11-09T00:00:00Z"},
+            {"chat_id": "oc_fake_group6", "active": False, "external": True, "free_talk": "owner"}]
+
+
+def menu_panels():
+    from covey.cards.directory import directory_card
+    from covey.cards.group_manager import group_manager_card
+    from covey.cards.redaction_link import link_card
+    from covey.cards.group_manager import folded_card as groups_folded
+    from covey.cards.proxy_panel import folded_card as proxy_folded
+    from covey.cards.redaction_link import folded_card as redaction_folded
+    from covey.cards.weekly_usage import folded_card as usage_folded
+    from covey.cards.workspace_manager import closed_card, manager_card
+    from covey.cards.workspace_manager import folded_card as workspaces_folded
+
+    groups = [{"chat_id": f"oc_fake_group{i}", "active": i % 3 != 0, "external": None if i == 3 else i == 6}
+              for i in range(12)]
+    names = {f"oc_fake_group{i}": f"群{i}" for i in range(10)}
+    config = {"default": "w0", "workspaces": {f"w{i}": f"/absolute/w{i}" for i in range(14)},
+              "recent": {"w1": FROZEN - 60}}
+    view = {"revision": 3, "notice": "✓ 已从列表移除 1 项，磁盘目录未删除", "details": "**old** · /absolute/old"}
+    return {
+        "groups": group_manager_card("a" * 24, {"revision": 1, "page": 0}, groups, names),
+        "groups_page_2": group_manager_card("a" * 24, {"revision": 1, "page": 1, "notice": "✓ 已停用"}, groups, names),
+        "groups_empty": group_manager_card("a" * 24, {"revision": 1}, [], {}),
+        # 免@ offered (COVEY_GROUP_ALL_MESSAGES=1): a tag and a 免@ button a row, and a group's 免@ page.
+        "groups_free": group_manager_card("a" * 24, {"revision": 1, "page": 0}, free_groups(), names,
+                                          free={"blocked": {"oc_fake_group2"}}),
+        "groups_free_page": group_manager_card(
+            "a" * 24, {"revision": 2, "free": "oc_fake_group1", "notice": "✓ 群「群1」免@ 改成：你和选中的人",
+                       "members": [{"id": f"ou_fake_m{i}", "name": f"成员{i}"} for i in range(10)]},
+            free_groups(), names, free={"blocked": set()}),
+        "groups_free_unread": group_manager_card(
+            "a" * 24, {"revision": 2, "free": "oc_fake_group1", "members": None, "member_page": 0},
+            free_groups(), names, free={"blocked": set()}),
+        "groups_free_external": group_manager_card(
+            "a" * 24, {"revision": 2, "free": "oc_fake_group6", "members": []}, free_groups(), names,
+            free={"blocked": set()}),
+        "groups_free_proxy": group_manager_card(
+            "a" * 24, {"revision": 2, "free": "oc_fake_group2", "members": []}, free_groups(), names,
+            free={"blocked": {"oc_fake_group2"}}),
+        "redaction": link_card("口令已换：旧链接不能用了。", "https://example.com/dashboard#token",
+                               ["只在内网打开", "第二条说明"]),
+        "redaction_not_listening": link_card("", "https://example.com/dashboard#token", ["说明"], listening=False),
+        "workspaces": manager_card("a" * 24, view, config, {"/absolute/w2": False, "/absolute/w3": None},
+                                   standalone=True),
+        "workspaces_from_launch": manager_card("a" * 24, view, config, {}, standalone=False),
+        "workspaces_closed": closed_card("**工作区管理已结束**"),
+        "directory": directory_card("e" * 24, {"path": str(WORK), "revision": 1,
+                                               "entries": [{"name": f"child-{i}", "link": False} for i in range(30)]}),
+        # A second menu click on the newest card folds it in place (app/bot_menu.py).
+        "folded_usage": usage_folded(),
+        "folded_workspaces": workspaces_folded(),
+        "folded_redaction": redaction_folded(),
+        "folded_proxy": proxy_folded(),
+        "folded_groups": groups_folded(),
+    }
+
+
+def answer_tail_cards():
+    """The answer card with its 产物 and 输入/输出 (cards/answer_card.py, 2026-11-08), its relay at the top level and
+    the small card after an answer sent as a file."""
+    from covey.cards.relay_card import DONE, relay_card
+    from covey.cards.answer_card import ARTIFACTS_ID, input_parts, output_parts, tail, tail_card
+    from covey.cards.elements import markdown_panel
+    from covey.cards.review import answer_card
+
+    files = markdown_panel(ARTIFACTS_ID, "产物 2 个 · REPORT.md 等", "- [REPORT.md](https://example.invalid/a) · 12 KB\n"
+                           "- [本轮改动.diff](https://example.invalid/b) · 3 KB", quiet=True)
+    inputs = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", True, "algo-agent-devskills")
+    outputs = output_parts({"input_tokens": 750_000, "output_tokens": 10_000, "cache_read_tokens": 690_000,
+                            "measured_output_tokens": 8_200, "generation_seconds": 200}, 760)
+    text = "**结论**：按钮已经改好。\n\n- 去掉了侧聊\n- 旧卡点了回一句"
+    from covey.cards.answer_card import ask_block
+    from covey.cards.question_cards import mirror_card
+
+    ask = ask_block("这个答案区的卡片能不能和私聊区的卡片样式一样？或者说，私聊区相比答案区只多一个跳转链接。", at="12:31",
+                    url="https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x")
+    from covey.cards.answer_card import answer_block
+    # An answer's turn: the "你答" fold, folded, opening the whole answer (2026-11-09: two questions, one answer of two
+    # long lines, 补充说明).
+    answered = answer_block([("question", "7 种风格里选哪一种（A 极简 / B 杂志 / C 手绘 / D 水彩 / E 像素 / F 线稿 / G 拼贴）？"),
+                             ("answer", "我重新给你一张图，你把这个图的风格和第 3 种结合起来，颜色用暖色，字体用 **粗一点** 的；"
+                              "人物比例按原图，背景留白多一些，不要 <b>阴影</b>。\n- 先出两张小样给我挑"),
+                             ("question", "S3（先读后答）按 S3-PLAN.md 的草稿执行到哪一步？"), ("answer", "全流程（推荐）"),
+                             ("heading", "补充说明"), ("note", "做完后发我截图\n两张就够")],
+                            "7 种风格里选哪一种 → 我重新给你一张图；S3 → 全流程（推荐）", at="14:43")
+    from covey.cards.answer_card import head_element
+    head = head_element("✅ 做完", "T443", "改看板的 Pin 目标")  # Atop a 话题区's answer card in its thread (D3).
+    # A turn that changed code (app/answer_cards.py change): its checkpoint's delivery as written.
+    handed = {"commit": "a6bc148d38ce8c230e96e", "deployed": "第 322 代（10:11 切换，旧进程已退出）",
+              "verified": "全量测试通过；在「C队 验收测试」点开折叠看过"}
+    from covey.cards.answer_card import handoff_card, hook_card
+    # 2026-11-10 17:59: the line a topic's thread gets from topic_send opens the owner's message; the hook under his
+    # message opens each topic it went to (one without a link: no ›).
+    handoff = handoff_card("主线程转来你 17:54 的消息", "这块代码提交到github上吧\n附件：图片 1 张",
+                           "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=1379")
+    hook = hook_card([("T453「同步 GitHub」", "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x"
+                                            "&open_thread_id=omt_x&thread_position=7"), ("T454「看板」", "")])
+    return {"handoff_line": handoff, "main_hook": hook,
+            "answer_card_tail": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs)),
+            "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
+            "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),
+                                                      [head_element("⏹ 已停止", "T443", "改看板的 Pin 目标")]),
+            "answer_card_asked": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [ask]),
+            "answer_relay_asked": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
+                                             ask=ask)[0],
+            "question_copy_asked": mirror_card(question_record(), "T439", "先说结论：两种都行。", ask=ask),
+            "answer_card_answered": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [answered]),
+            "answer_relay_answered": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
+                                                ask=answered)[0],
+            "question_copy_answered": mirror_card(question_record(), "T439", "先说结论：两种都行。", ask=answered),
+            "answer_relay_tail": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files)[0],
+            "answer_tail_card": tail_card(tail(files, inputs, outputs), "T439 · 产物与详情",
+                                          "上面是这一轮的回答，产物和详情在这里"),
+            # A turn that changed code: its 改动 folded under 产物 (cards/answer_card.py change_element).
+            "answer_card_delivery": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs, change=handed),
+                                                [head]),
+            "answer_relay_delivery": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
+                                                change=handed)[0],
+            # A release before 2026-11-09 kept the line as a string: one grey 改动 line.
+            "answer_relay_delivery_string": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs,
+                                                       delivery="已提交 a6bc148 · 已部署 第 322 代 · 未验收")[0]}
+
+
+def main_topic_cards():
+    from covey.cards.topic_card import topic_card
+
+    config = ("Claude Code", "Opus 5.5", "思考预算 high", "工作区 work", "原目录")
+    return {"unnumbered": topic_card("查昨晚的失败日志", why="日志在这个仓库，只读", config=config),
+            "numbered": topic_card("查昨晚的失败日志", label="T412", why="日志在这个仓库，只读", config=config),
+            "bare": topic_card("查昨晚的失败日志", label="T412")}
+
+
+def main_task_cards():
+    """The main thread's slim task card (core/main_thread.py Traits.slim_card) as it is sent, and as its writes
+    leave it: queued and held, running, a direct answer, a turn that opened and handed over topics, stopped with
+    the supplements it took, failed with its 重试 row. The writes are drawn by the builders the Bridge writes with."""
+    from covey.app.main_reply import DROPPED, reply_fold, routed_body
+    from covey.cards.elements import md
+    from covey.cards.recovery import result_actions
+    from covey.cards.review import render_stream_final, render_stream_status
+    from covey.cards.streaming import ACTION_ROW_ELEMENT_ID, build_stream_card
+    from covey.cards.task_figures import IO_BOX_ID
+    from covey.cards.task_status import status_elements
+    from covey.core import main_thread
+
+    run = stream_runtime()
+    snapshot = {"started_at": FROZEN - 13, "ended_at": FROZEN, "input_tokens": 52000, "output_tokens": 900,
+                "measured_output_tokens": 800, "generation_seconds": 10.0, "steps": {}}
+
+    def job():
+        return sample_job(topic_id=main_thread.main_topic_id("chat"), topic_label="", harness_id="claude",
+                          user_text="帮我看看昨晚的失败日志", title="")
+
+    def ended(body, status, *, under=(), inside=()):
+        card = build_stream_card(" ", "任务", run, job=job(), include_stop_action=True)
+        elements = card["body"]["elements"]
+        elements[0]["content"] = body
+        elements[1] = status_elements(status, False, True)[0]
+        details = elements[2]["elements"]
+        details[:] = [ended_box(job(), snapshot, 13) if e.get("element_id") == IO_BOX_ID else e
+                      for e in details if e.get("element_id") != ACTION_ROW_ELEMENT_ID]
+        details[1:1] = list(inside)  # After the 输入/输出 box (task_card.body_anchor).
+        elements[1:1] = list(under)  # Right under the body (task_card.under_body).
+        return card
+
+    with mock.patch.dict(os.environ, {main_thread.ENV: "1"}):
+        lines = ["↪ 开了 **T410**「查昨晚的失败日志」· work · 只读", "↪ 转给 **T388**「迁移数据」：顺便把日志也看一下"]
+        bare = SimpleNamespace(job_id=431, progress=SimpleNamespace(slim=True))
+        return {
+            "queued": build_stream_card(render_stream_status(job(), "已入队"), "任务", run, job=job(),
+                                        include_stop_action=True),
+            "held": build_stream_card(render_stream_status(job(), main_thread.HOLD_STATUS), "任务", run, job=job(),
+                                      include_stop_action=True),
+            "running_status": status_elements("执行中 · 已运行 6 秒 · 阶段：读日志\n当前：Read bridge.log", False, True),
+            "done": ended(render_stream_final(bare, "昨晚失败是**磁盘满**。", bare=True), "✅ 已完成 · 用时 13 秒"),
+            "routed": ended(render_stream_final(bare, routed_body(lines), bare=True),
+                            "✅ 已完成 · 用时 13 秒", inside=[reply_fold("开了 T410，转给 T388。")]),
+            "stopped": ended("已保存的结果和记录保留在私聊里。", "⏹ 已停止 · 用时 13 秒",
+                             under=[md("**这一轮停了，期间你发的 1 条补充也一起停了**，不会自动重发；要的话改一改再发：\n"
+                                       "- 14:36 · 看看这两个样本", element_id=DROPPED)]),
+            "failed": ended("任务 #431 处理出错（RuntimeError），未满足结果发布条件。", "⚠️ 执行失败 · 用时 13 秒",
+                            under=[result_actions(main_thread.main_topic_id("chat"), 431, "检查并继续")]),
+        }
+
+
+def ended_box(job, snapshot, took):
+    """The 输入/输出 box of ``job``'s card once its run ended (app/task_details.py _io_figures writes its 输出)."""
+    from covey.cards.answer_card import output_lines, output_parts
+    from covey.cards.task_figures import io_box
+    return io_box(job, output_lines(output_parts(snapshot, took)))
+
+
+def status_cards_samples():
+    """The topic status card the pinned board pins (cards/status_card.py), one per state."""
+    from covey.cards.status_card import status_card
+    return {
+        "running": status_card("T419 · 讨论 Pin 看板是否对前台话题关闭", "在做", "第 9 轮 · 14:25 开始 · 阶段：看图",
+                               "这一轮：这个 pin 显示上也有问题"),
+        "waiting": status_card("T404 · 排查群晖 Btrfs", "等你回答", "14:12 · 第 3 轮", "问题：把第三版说明发给 Codex？"),
+        "done": status_card("T432 · 调研 Mac mini <雷电5>", "做完", "13:01 · 2 轮 · 用时 5 分 49 秒", "结论：没找到 *完全* 对口的实测"),
+        "bare": status_card("T7", "排队", "第 1 轮", ""),
+        # The checkpoint's steps in place of its phase (app/status_cards.py lines).
+        "running_steps": status_card("T445 · 检查点里的步骤与交付进度", "在做", "第 2 轮 · 14:25 开始 · 第 3/5 步：改卡片",
+                                     "这一轮：长任务看得出走到第几步"),
+    }
+
+
+# As app/launch_models.py available_models names them: each with its provider (core/providers.py).
+CLAUDE_OWN = {"provider": "anthropic", "provider_title": "Claude 自带"}
+MAIN_CHOICES = {"claude:claude-opus-5-5": {"harness": "claude", "model": "claude-opus-5-5", "title": "Claude Code",
+                                          "display_name": "Opus 5.5", "levels": ["low", "high", "xhigh", "max"],
+                                          "redaction": True, **CLAUDE_OWN},
+               "claude:claude-sonnet-5-5": {"harness": "claude", "model": "claude-sonnet-5-5", "title": "Claude Code",
+                                            "display_name": "Sonnet 5.5", "levels": ["low", "high"], "redaction": True,
+                                            **CLAUDE_OWN},
+               "codex:gpt-6": {"harness": "codex", "model": "gpt-6", "title": "Codex", "display_name": "GPT-6",
+                               "levels": ["low", "medium", "high", "xhigh"], "provider": "openai",
+                               "provider_title": "Codex 自带"},
+               "codex:acme/gpt-6-astra": {"harness": "codex", "model": "acme/gpt-6-astra", "title": "Codex",
+                                            "provider": "acme", "provider_title": "Acme",
+                                            "display_name": "GPT-6 Astra", "levels": ["high"]}}
+
+
+def main_thread_panels():
+    from covey.cards.main_thread_panel import main_thread_panel_card
+    from covey.core.main_thread_settings import Settings, TopicDefaults
+
+    names = ["bridge", "docs", "scratch"]
+    changed = Settings(enabled=False, model="claude-opus-5-5", effort="high", compact_tokens=300_000, redaction=True,
+                       topic_defaults=TopicDefaults(harness="codex", model="gpt-6", effort="xhigh", run_mode="worktree",
+                                                    workspace="bridge"),
+                       start=("readonly", "requested"), trusted=("bridge|edit", "docs|read"),
+                       workspace_notes=(("bridge", "Harness Bridge 本体"), ("docs", "文档")))
+    follows = {"t_harness": "跟随上次：Claude Code · Opus · max", "t_model": "跟随上次：Opus · max",
+               "t_effort": "Bridge 默认：high"}
+    return {"default": main_thread_panel_card("b" * 24, {"revision": 1}, Settings(), MAIN_CHOICES, names),
+            # Empty defaults say what they resolve to now (app/main_thread_panel.py follows).
+            "follows": main_thread_panel_card("b" * 24, {"revision": 2}, Settings(), MAIN_CHOICES, names,
+                                              follows=follows),
+            "follows_model": main_thread_panel_card(
+                "b" * 24, {"revision": 3}, Settings(topic_defaults=TopicDefaults(harness="claude")), MAIN_CHOICES,
+                names, follows=follows),
+            "changed": main_thread_panel_card("b" * 24, {"revision": 4, "notice": "⚠️ 只有机器人主人能改主线程的设置。"},
+                                              changed, MAIN_CHOICES, names)}
+
+
+def settings_cards():
+    """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the main thread's
+    two pages, 私聊默认 and 新话题默认, 工作区 (with the main thread's 用途 and 记住的工作区, and without) and 脱敏."""
+    from covey.cards.group_manager import group_manager_card
+    from covey.cards.main_thread_panel import WORKSPACE_NOTE, main_thread_panel_card, notes_button, trusted_section
+    from covey.cards.elements import note
+    from covey.cards.proxy_panel import proxy_panel_card
+    from covey.cards.redaction_panel import redaction_card
+    from covey.cards.settings_hub import folded_hub, tab_row
+    from covey.cards.workspace_manager import manager_card
+    from covey.core.main_thread_settings import Settings
+
+    tabs = ["main", "topic", "workspace", "redaction", "proxy", "groups"]
+
+    def row(tab):
+        return [tab_row(tab, "c" * 24, tabs)]
+
+    settings = {"enabled": True, "group_chat_id": "oc_fake_proxy", "harness": "codex", "model": "gpt-6-astra",
+                "effort": "xhigh", "user_profile": "me", "web_python": "/absolute/python", "workspace": "project"}
+    person = {"key": "p2p:ou_fake_z", "kind": "p2p", "target": "ou_fake_z", "name": "张三", "paused": False}
+    groups = [{"chat_id": f"oc_fake_group{i}", "active": i % 3 != 0, "external": False} for i in range(4)]
+    view = {"revision": 1, "hub": True}
+    config = {"default": "bridge", "workspaces": {"bridge": "/absolute/bridge", "docs": "/absolute/docs"}, "recent": {}}
+    kept = Settings(trusted=("bridge|read", "docs|write"), workspace_notes=(("bridge", "Bridge 的代码"),))
+
+    def value(kind, **more):
+        return {"kind": kind, "token": "c" * 24, "revision": 1, **more}
+
+    return {
+        **{page: main_thread_panel_card("c" * 24, view, Settings(), MAIN_CHOICES, ["bridge", "docs"],
+                                        top=row(page), page=page) for page in ("main", "topic")},
+        "workspace": manager_card("c" * 24, view, config, {}, standalone=True, hub=True, top=row("workspace"),
+                                  notes=(dict(kept.workspace_notes), lambda names: notes_button(value, names)),
+                                  after=[*trusted_section(kept, value), note(WORKSPACE_NOTE)]),
+        "workspace_no_main": manager_card("c" * 24, view, config, {}, standalone=True, hub=True,
+                                          top=[tab_row("workspace", "c" * 24, tabs[2:])]),
+        # 脱敏 (cards/redaction_panel.py): no term, only its first character and length.
+        "redaction": redaction_card("c" * 24, {**view, "notice": "已删除「机··（4 字）」。", "undo": True},
+                                    redaction_facts(), top=row("redaction"), web=redaction_web()),
+        "redaction_found": redaction_card("c" * 24, {**view, "found": ["b" * 12]}, redaction_facts(),
+                                          top=row("redaction")),
+        "redaction_pages": redaction_card("c" * 24, {**view, "at": 1}, redaction_facts(rows=12), top=row("redaction")),
+        # The 开关 fold's probe, the upstream box and a try-out open (no form may sit in a fold).
+        "redaction_folds": redaction_card(
+            "c" * 24, {**view, "open": ["try", "upstream"], "probe": {"upstream": "https://api.example.com",
+                                                                     "source": "默认"},
+                       "preview": {"redacted": "我们的 RXFAKE000 上线了\n第二行", "count": 1, "terms": 1,
+                                   "restore": True, "same": True}},
+            redaction_facts(upstream="https://gw.example.com/v1"), top=row("redaction"),
+            web={**redaction_web(), "listening": False}),
+        "redaction_probing": redaction_card("c" * 24, {**view, "probing": FROZEN}, redaction_facts(),
+                                            top=row("redaction")),
+        # A view of the 2026-11-13 layout (page, edit): its card is drawn in the new one.
+        "redaction_old_view": redaction_card("c" * 24, {**view, "page": "records", "edit": "b" * 12},
+                                             redaction_facts(), top=row("redaction")),
+        "redaction_idle": redaction_card("c" * 24, view, redaction_facts(rows=0), top=row("redaction"),
+                                         web={"error": "脱敏看板的设置不对：端口不对"}),
+        "redaction_unreadable": redaction_card("c" * 24, view, {**redaction_facts(), "error": "词表文件读不了或有错。"},
+                                               top=row("redaction")),
+        "proxy": proxy_panel_card("c" * 24, view, settings=settings, contacts=[person], batches=[], choices=CHOICES,
+                                  current=("codex:gpt-6-astra", "xhigh"), top=row("proxy")),
+        "groups": group_manager_card("c" * 24, {**view, "page": 0}, groups, {"oc_fake_group0": "群0"},
+                                     top=row("groups")),
+        # Folded by a click on the tab shown or the menu's 设置: the panel's title bar and the tab row.
+        "main_folded": folded_hub("main", "c" * 24, tabs),
+        "topic_folded": folded_hub("topic", "c" * 24, tabs),
+        "proxy_folded": folded_hub("proxy", "c" * 24, tabs),
+        "groups_folded_no_main": folded_hub("groups", "c" * 24, tabs[2:]),
+        "workspace_folded": folded_hub("workspace", "c" * 24, tabs),
+        # A record still on the retired 其他 folds as 工作区.
+        "other_folded": folded_hub("other", "c" * 24, tabs),
+    }
+
+
+def overview_cards():
+    from covey.cards.overview import overview_card
+
+    board = {"counts": {"waiting": 2, "result": 3, "running": 11, "unseen": 2}, "pinned": 10,
+             "waiting": [{"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": FROZEN - 180}],
+             "result": [{"label": "T394", "title": "群晖公钥", "status": "failed", "at": FROZEN - 600, "seen": False},
+                        {"label": "T393", "title": "日志", "status": "cancelled", "at": FROZEN - 900, "seen": True}],
+             "running": [{"label": "T391", "title": "logid", "harness": "Codex", "workspace": "EnvReplay",
+                          "status": "queued", "started": None, "phase": ""},
+                         {"label": "T390", "title": "重构", "harness": "Claude Code", "workspace": "algo-agent-devskills",
+                          "status": "running", "started": FROZEN - 3900, "phase": "跑全量"}],
+             "stale": [{"label": f"T{n}", "title": "旧", "topic": f"topic-{n}", "ask": "补充信息",
+                        "since": FROZEN - 2 * 86400} for n in (380, 381)],
+             "dismissed": ["T401", "T402"]}
+    empty = {"counts": {"waiting": 0, "result": 0, "running": 0}, "pinned": 0, "waiting": [], "result": [],
+             "running": [], "stale": []}
+    view = {"waiting": [], "running": [], "ended": []}
+    return {"pinned_board": overview_card({**view, "board": board}, FROZEN, "14:40"),
+            "pinned_board_empty": overview_card({**view, "board": empty}, FROZEN, "14:40")}
+
+
+def digest_cards():
+    from covey.cards.digest import digest_card, folded_board
+
+    def row(label, title, state, took, seen=False):
+        return {"label": label, "title": title, "state": state, "took": took, "seen": seen}
+
+    view = {"slot": FROZEN, "since": FROZEN - 9.5 * 3600,
+            "waiting": [row("[T396](https://applink.feishu.cn/client/thread/open?open_chat_id=oc_fake_chat)",
+                            "你为啥没有pin？", "等你回答：置顶汇总卡", "等了 3分00秒"),
+                        row("T397", "新话题", "等你开工", "等了 40秒")],
+            "running": [row("T390", "重构", "跑全量", "已运行 1小时5分")],
+            "done": [row("T394", "群晖公钥", "失败", "用时 2分10秒"),
+                     row("T393", "日志", "做完", "用时 45秒", seen=True)]
+                    + [row(f"T{n}", "旧", "做完", "用时 1秒") for n in range(380, 388)]}
+    from covey.app.digest import cleared
+
+    old = {**view, "dismissable": True, "done": view["done"][:2],
+           "stale": [{"topic": f"t{n}", "label": f"T{n}", "title": "旧问题"} for n in (370, 371, 372)]}
+    return {"three_parts": digest_card(view),
+            "done_only": digest_card({**view, "waiting": [], "running": [], "done": view["done"][:1]}),
+            # Results not seen that ended before the digest before are listed too, the heading says how many.
+            "older_unseen": digest_card({**view, "waiting": [], "running": [], "done": view["done"][:2], "older": 1}),
+            "old_questions": digest_card(old),
+            "after_dismiss": digest_card(cleared(old, {"t370", "t371", "t372"})),
+            # The bot menu's 看板 (app/digest.py board): the same card at any time, and with nothing to list.
+            "asked": digest_card({**old, "asked": True}),
+            "asked_empty": digest_card({"slot": FROZEN, "since": FROZEN - 3 * 3600, "waiting": [], "stale": [],
+                                        "running": [], "done": [], "asked": True}),
+            "asked_folded": folded_board()}
+
+
+def app_setup_cards():
+    """飞书应用待补 (cards/app_setup.py): the offer, with and without reviewed scopes and a full menu, the run's
+    steps with the QR prompt, the result after a published run and after one stopped at a step."""
+    from covey.app.app_setup import need_dict
+    from covey.cards.app_setup import offer_card, progress_card, result_card, skipped_card, unavailable_card
+    from covey.core import app_manifest
+
+    needs = [need for need in app_manifest.required({"COVEY_DIGEST_TIMES": "09:30",
+                                                      "COVEY_GROUP_ALL_MESSAGES": "1"})
+             if need.name in ("application.bot.menu_v6", "im:message", "drive:file:upload", "weekly_usage",
+                              "bridge_settings", "digest_board", "im:message.group_msg")]
+    offer = [need_dict(n) for n in needs if not n.review]
+    review = [need_dict(n) for n in needs if n.review]
+    view = {"offer": offer, "review": [], "full": [], "version": "1.0.11", "digest": "0123456789abcdef"}
+    steps = {"login": "done", "read": "done", "manifest": "done", "menu": "doing"}
+    return {"offer": offer_card(view),
+            "offer_review_full": offer_card({**view, "review": review, "full": [offer[-1]]}),
+            "progress_qr": progress_card({**view, "steps": {"login": "doing"}, "qr": True}),
+            "progress_steps": progress_card({**view, "steps": steps}),
+            "published": result_card({**view, "steps": {**steps, "menu": "done", "version": "done", "check": "done"},
+                                      "still": [], "new_version": "1.0.12"}),
+            "failed": result_card({**view, "steps": {**steps, "menu": "failed"}, "still": [offer[-1]["id"]],
+                                   "failed": {"words": "写入菜单", "detail": "后台接口 robot/update_changed 报错 9499 Bad Request",
+                                              "changed": ["manifest"]}}),
+            "skipped": skipped_card(view),
+            "unavailable": unavailable_card(view, "没有装了 Playwright 的 Python（COVEY_PLAYWRIGHT_PYTHON）")}
+
+
+GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,
+          "proxy": proxy_cards, "steer": steer_cards, "recovery": recovery_cards, "rewind": rewind_cards,
+          "turn_export": turn_export_panels, "switch": switch_cards, "topic": topic_panels,
+          "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
+          "main_thread": main_thread_panels, "settings": settings_cards,
+          "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards}
+
+
+def render():
+    """Every sample as ``group.name`` -> its JSON, drawn with time.time() and the local time at FROZEN in UTC+8."""
+    real_localtime = time.localtime
+    zone = os.environ.get("TZ")
+    os.environ["TZ"] = ZONE
+    time.tzset()
+    try:
+        with mock.patch("time.time", return_value=FROZEN), \
+                mock.patch("time.localtime", lambda seconds=None: real_localtime(FROZEN if seconds is None else seconds)):
+            return {f"{group}.{name}": value for group, build in GROUPS.items() for name, value in build().items()}
+    finally:
+        if zone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = zone
+        time.tzset()
+
+
+def encode(samples):
+    return json.dumps(samples, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+
+
+def first_difference(old, new, at=""):
+    """The path of the first place ``old`` and ``new`` differ, or None."""
+    if type(old) is not type(new):
+        return at or "/"
+    if isinstance(old, dict):
+        for key in sorted(set(old) | set(new)):
+            if key not in old or key not in new:
+                return f"{at}/{key} ({'added' if key not in old else 'removed'})"
+            found = first_difference(old[key], new[key], f"{at}/{key}")
+            if found:
+                return found
+        return None
+    if isinstance(old, list):
+        for i, (a, b) in enumerate(zip(old, new)):
+            found = first_difference(a, b, f"{at}[{i}]")
+            if found:
+                return found
+        return None if len(old) == len(new) else f"{at} (length {len(old)} -> {len(new)})"
+    return None if old == new else at or "/"
+
+
+def changes(old, new):
+    """One line per sample added, removed or changed, with where it first differs."""
+    lines = [f"added: {name}" for name in sorted(set(new) - set(old))]
+    lines += [f"removed: {name}" for name in sorted(set(old) - set(new))]
+    lines += [f"changed: {name} at {first_difference(old[name], new[name])}" for name in sorted(set(old) & set(new))
+              if encode(old[name]) != encode(new[name])]
+    return lines
+
+
+class CardGoldenTests(unittest.TestCase):
+    def test_cards_match_the_golden_file(self):
+        text = encode(render())
+        if os.environ.get("GOLDEN_CARDS") == "update":
+            GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+            GOLDEN.write_text(text, encoding="utf-8")
+            return
+        self.assertTrue(GOLDEN.exists() or PACKED.exists(), f"{GOLDEN} is missing: GOLDEN_CARDS=update writes it")
+        saved = (GOLDEN.read_text(encoding="utf-8") if GOLDEN.exists()
+                 else lzma.decompress(PACKED.read_bytes()).decode("utf-8"))
+        if saved == text:
+            return
+        lines = changes(json.loads(saved), json.loads(text)) or ["the samples are equal but the bytes are not"]
+        self.fail("Card JSON differs from tests/golden/cards.json:\n  " + "\n  ".join(lines) +
+                  "\nIf the change is meant, rewrite the file (GOLDEN_CARDS=update, docs/testing.md) and check the "
+                  "cards in a real Feishu client (docs/cards.md 卡片的客户端限制).")
+
+    def test_rendering_twice_gives_the_same_bytes(self):
+        self.assertEqual(encode(render()), encode(render()))
+
+    def test_differences_are_named_by_sample_and_path(self):
+        old = {"a.x": {"body": [{"text": "停止"}]}, "a.gone": {}}
+        new = {"a.x": {"body": [{"text": "停 止"}]}, "a.new": {}}
+        self.assertEqual(changes(old, new), ["added: a.new", "removed: a.gone", "changed: a.x at /body[0]/text"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,445 @@
+"""Runs: one job's turn on its Harness's backend.
+
+The prompt (the bridge rules, at system level when the backend has a channel for them,
+otherwise in the message; recent history on a fresh session, the message alone on a
+continued one; a fork's or a switch's first-run context; the checkpoint file and the
+previous status), the native sessions the backend reports (claimed until the result is
+settled), and a checkpoint question the turn leaves behind.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import datetime as _dt
+import time
+import uuid
+from collections.abc import Callable
+from pathlib import Path
+
+from covey.app import knowledge_turn
+from covey.app.leftovers import stop_task_leftovers
+from covey.app.main_thread import main_turn
+from covey.app.prompts import (REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
+                                        first_turn_message, principles_block, resume_message, workspace_block)
+from covey.app.sessions import mark_system_rules, started_with_system_rules
+from covey.app.recovery_cards import paint_answered
+from covey.app.switch_handoff import capped
+from covey.cards.trace_view import BRIDGE_NOTE
+from covey.core.attachments import encoded_size, fit_images, native_image_attachments
+from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, read_checkpoint,
+                                            release_user_wait)
+from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
+                                         backend_capabilities, normalize_run_result)
+from covey.core.jobs import BridgeReplyJob as ReplyJob
+from covey.core.jobs import upsert_job_record
+from covey.core import principles as owner_principles
+from covey.core.main_thread import is_main_topic
+from covey.core.metrics import mark
+from covey.core.proxy import owner_turn_note
+from covey.core.redaction import topic_redaction
+from covey.core.result import ExecutionOutcome
+from covey.core.saved_results import consume_paused_question_answer, observe_verified_reply
+from covey.core.session_guard import claim_native_session
+from covey.core.history_storage import recent_history
+from covey.core.topics import proxy_topic, read_topic
+
+
+def _file_size(item) -> int:
+    try:
+        return Path(item["path"]).stat().st_size
+    except OSError:  # Read by the Harness, which reports it.
+        return 0
+
+
+def _megabytes(size: int) -> str:
+    return f"{size / 1024 / 1024:.1f} MB"
+
+
+def _why(item, limit: int) -> str:
+    return (f"超过单张 {_megabytes(limit)} 的上限" if item["reason"] == "image"
+            else "本轮图片合计超过一次请求能带的大小")
+
+
+def skipped_images_note(skipped, limit: int) -> str:
+    """The prompt's note for the images left out: their paths are in the message above it."""
+    lines = "\n".join(f"- `{item['path']}`（{_megabytes(item['size'])}，{_why(item, limit)}）" for item in skipped)
+    return ("\n\n[这些图片没有作为图片附上，只在上文给了路径；需要看时自己用工具处理这个文件（例如先缩小再读取）：\n"
+            + lines + "]")
+
+
+def skipped_images_card_note(skipped, limit: int, at: str, shown: int = 5) -> str:
+    """The task card's line for the images left out."""
+    names = "；".join(f"{Path(item['path']).name}（{_megabytes(item['size'])}，{_why(item, limit)}）"
+                     for item in skipped[:shown])
+    more = f"；等共 {len(skipped)} 张" if len(skipped) > shown else ""
+    return (f"机器人 {at}：{len(skipped)} 张图片没有直接交给模型：{names}{more}。模型只拿到文件路径，需要时自己读取；"
+            "要让模型直接看图，请压缩后重发。")
+
+
+def proxy_turn_note(ctx, job) -> str:
+    """What the owner's own turn in a 代答 topic is told while a batch there waits: that turn's reply is
+    sent to the contact (app/proxy.py), and the rules are only in the batches' messages."""
+    try:
+        contact = (read_topic(ctx).get("proxy") or {}).get("contact")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return owner_turn_note(ctx.state_dir, contact, job.message_id) if contact else ""
+
+
+@dataclasses.dataclass
+class _Live:
+    """What a run's callbacks (Runs._callbacks) read when they are called, not when they are made: the context the
+    turn runs in, which a fork, the main thread, a ↩️ 回退 and a compaction replace, and whether its session has the
+    bridge rules at system level."""
+    ctx: BridgeContext
+    rules_session: bool = False
+
+
+class Runs:
+    """- ``harness``: whose backend runs the turn, and its session pattern.
+    - ``runtime``: the log.
+    - ``interaction``: receives the backend's structured events.
+    - ``forks`` / ``switch``: the first run of a forked or switched topic.
+    - ``cards``: the card of the answered task a checkpoint continuation continues.
+    - ``questions``: a checkpoint question the turn leaves behind.
+    - ``compaction``: a compaction request (the main thread's) the turn takes.
+    - ``rewinds``: a ↩️ 回退 the turn resumes for, and its prompt.
+    - ``record_job_state``: the Harness's job-state recorder (late-bound: it sits above).
+    """
+
+    def __init__(self, harness, *, runtime, interaction, forks, switch, cards, questions, compaction, rewinds,
+                 record_job_state) -> None:
+        self.harness = harness
+        self.runtime = runtime
+        self.interaction = interaction
+        self.forks = forks
+        self.switch = switch
+        self.cards = cards
+        self.questions = questions
+        self.compaction = compaction
+        self.rewinds = rewinds
+        self.record_job_state = record_job_state
+
+    def bridge_rules(self, ctx: BridgeContext, job: ReplyJob | None = None) -> str:
+        return bridge_rules(
+            backend_name=self.harness.spec.prompt_agent_name,
+            workspace_name=ctx.workspace_name,
+            workdir=ctx.workdir,
+            runtime_note=self.harness.backend.prompt_runtime_note(ctx),
+            notes=tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx)),
+            principles=self.principles(ctx, job),
+            knowledge_text=knowledge_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job), resumed=False),
+            remember=knowledge_turn.remembers(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
+        )
+
+    def principles(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
+        """The owner's principles block for ``job``'s turn (core/principles.py): ctx's workspace's always (the
+        project's conventions, whoever asks), 通用 only on the owner's own turn (``owner_turn``: a colleague's topic
+        in a group does not read the owner's personal preferences); '' when there are none, and for a 代答 topic,
+        whose replies go to other people as the owner."""
+        if proxy_topic(ctx):
+            return ""
+        owner, workspace = owner_principles.for_turn(ctx.state_dir, ctx.workspace_name)
+        return principles_block(owner if self.owner_turn(ctx, job) else [], workspace, ctx.workspace_name)
+
+    def owner_turn(self, ctx: BridgeContext, job: ReplyJob | None) -> bool:
+        """Whether ``job`` is the owner's own turn: the main thread's always, else as app/access.py says from its
+        sender (rule 11); a task runner has the Bridge's owner and state too (app/runner.py). No job: not."""
+        if job is None:
+            return False
+        if is_main_topic(job.topic_id or ctx.topic_id, job.chat_id):
+            return True
+        return self.runtime.access.owner_turn(job.chat_id, getattr(job, "sender_id", ""))
+
+    def generate_reply_for_worker(
+        self,
+        ctx: BridgeContext,
+        job: ReplyJob,
+        session_id: str | None,
+        progress_callback: Callable[[str, bool], None] | None,
+    ) -> RunResult:
+        job.bridge_run_id = job.bridge_run_id or str(uuid.uuid4())
+        job.native_session_claims = set()
+        job.result_backend = self.harness.spec.name
+        job.last_backend_control = None
+        live = _Live(ctx)
+        if isinstance(job.recovery_context, dict) and "native_question_continuation" in job.recovery_context:
+            session_id = consume_paused_question_answer(ctx, job, self.harness.spec.name, session_id)
+        callbacks = self._callbacks(live, job, session_id)
+        if session_id:
+            callbacks.session(session_id)
+        prompt, rules, system, attachments = self._prompt(live, job, session_id)
+        cancel = getattr(job, "cancel_event", None)
+        if cancel is not None and cancel.is_set():
+            # Stopped (or a SIGTERM) while the prompt was made, as during a 换配置 handoff summary (up to 3 minutes):
+            # no new Harness starts; the worker ends the turn as cancelled or interrupted.
+            raise JobCancelled("任务在开始执行前停止")
+        refused = self._refusal(live.ctx, session_id)
+        if refused is not None:
+            return refused
+        live.ctx = self.rewinds.turn_context(live.ctx, job, session_id)
+        live.ctx = self.compaction.turn_context(live.ctx, job, session_id)
+        return self._run(live.ctx, job, session_id, progress_callback, callbacks, prompt, rules if system else "",
+                         attachments)
+
+    def _callbacks(self, live: _Live, job: ReplyJob, session_id: str | None) -> RunCallbacks:
+        """The run's callbacks: the backend's control, native sessions (claimed; marked as having the bridge rules
+        at system level when ``live`` says so), process and verified reply, and its structured events (the status
+        line's model requests and a ↩️ 回退's prompt here, the rest to Interaction). They read ``live`` when they are
+        called: a fork, the main thread, a 回退 and a compaction replace the context after they are made."""
+
+        def observe_control(control):
+            job.backend_control = control
+            if control is not None:
+                job.last_backend_control = control
+
+        def observe_session(sid):
+            if self.harness.spec.session_pattern.fullmatch(sid):
+                claim_native_session(live.ctx, self.harness.spec.name, sid, job.bridge_run_id)
+                job.native_session_claims.add(sid)
+                job.session_id = sid
+                # Observation is not permission to activate a topic session.
+                if live.rules_session and sid != session_id:
+                    try:
+                        mark_system_rules(live.ctx, self.harness.spec.name, sid)
+                    except (OSError, ValueError) as exc:  # Unmarked only costs the fuller message.
+                        self.runtime.log(f"session {sid} not marked: {type(exc).__name__}")
+
+        def observe_process(process):
+            job.backend_process = process
+            if process is not None:
+                mark(job, 'backend_started')
+                if job.execution_started:
+                    upsert_job_record(live.ctx.state_dir, job.message_id, timings=job.timings)
+
+        def observe_event(kind, data, control):
+            if kind == "model_request":  # Only the status line hears of it; the trace has nothing to show.
+                if job.activity_monitor is not None:
+                    job.activity_monitor.request()
+                return None
+            if kind == "prompt_read":  # The turn a ↩️ 回退 would drop starts here (app/rewind.py).
+                try:
+                    self.rewinds.prompt_read(live.ctx, job, data)
+                except (OSError, ValueError) as exc:
+                    self.runtime.log(f"prompt of job=#{job.job_id} not recorded: {type(exc).__name__}")
+                return None
+            return self.interaction.structured_harness_event(live.ctx, job, kind, data, control)
+
+        return RunCallbacks(
+            event=observe_event,
+            session=observe_session,
+            control=observe_control,
+            process=observe_process,
+            verified_reply=lambda reply: observe_verified_reply(live.ctx, job, self.harness.spec.name, reply),
+        )
+
+    def _prompt(self, live: _Live, job: ReplyJob, session_id: str | None):
+        """(prompt, rules, whether the backend takes them at system level, image attachments) of the turn; sets
+        ``live``'s context (a fork's first run and the main thread's turn replace it) and whether its session has the
+        rules at system level."""
+        fresh = not session_id
+        # A fork replaces ctx; the callbacks read it when they are called.
+        live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
+        # The main thread's turn (app/main_thread.py): its rules and snapshot open the message, its Bridge tools
+        # join the run; the whole snapshot on a new session and on one compacted before this turn.
+        live.ctx, prompt = main_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log)
+        ctx = live.ctx
+        rules = self.bridge_rules(ctx, job)
+        caps = backend_capabilities(self.harness.backend, ctx)
+        system = caps.system_instructions
+        # A native session keeps the system rules of its first invocation: a new one starts with
+        # them, a fork has its source's, a resumed one has them only if it started with them.
+        source = session_id or ctx.options.get("fork_session")
+        live.rules_session = system and (started_with_system_rules(ctx, self.harness.spec.name, source) if source else True)
+        prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
+        prompt += self._checkpoint_note(ctx, job)
+        prompt, attachments = self._fit_images(ctx, job, caps, prompt, self._image_attachments(ctx, prompt))
+        return prompt, rules, system, attachments
+
+    def _refusal(self, ctx: BridgeContext, session_id: str | None) -> RunResult | None:
+        """The failed result of a turn that may not start (its workdir is missing, or redaction is on where the
+        Harness cannot do it), or None when it may."""
+        if not Path(ctx.workdir).is_dir():
+            # Every backend would fail to start here, each with a generic transport error.
+            outcome = ExecutionOutcome("failed", "workdir_missing", cleanup_confirmed=True, protection_confirmed=True)
+            return RunResult(outcome.summary(), session_id, True, None, outcome)
+        refused = self._redaction_refusal(ctx)
+        if refused:
+            # Never sent unredacted: a Harness without the relay does not start (core/redaction.py).
+            outcome = ExecutionOutcome("failed", "redaction_failed", cleanup_confirmed=True, protection_confirmed=True)
+            return RunResult(outcome.summary(refused), session_id, True, None, outcome, failure_detail=refused)
+        return None
+
+    def _run(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None, progress_callback, callbacks, prompt: str,
+             system_rules: str, attachments) -> RunResult:
+        """The turn on the backend, then what its commands left running stopped and its checkpoint question left."""
+        try:
+            result = normalize_run_result(self.harness.backend.run(RunRequest(ctx, prompt, session_id, progress_callback,
+                callbacks, RunInputs(job.cancel_event, job.checkpoint_path, tuple(attachments), job.bridge_run_id),
+                system_rules)))
+        finally:
+            # The backend has closed its Harness: what the turn's commands left running (app/leftovers.py).
+            stop_task_leftovers(self.runtime, self.interaction, ctx, job)
+        self._leave_checkpoint_question(ctx, job, result)
+        return result
+
+    def _redaction_refusal(self, ctx: BridgeContext) -> str:
+        """Why the turn may not start for redaction, or '' when it may."""
+        try:
+            if not topic_redaction(ctx.state_dir, ctx.topic_id):
+                return ""
+        except ValueError as exc:
+            return str(exc).rstrip("。") + "。"
+        if backend_capabilities(self.harness.backend, ctx).redaction:
+            return ""
+        return (f"本话题开着敏感词脱敏，{self.harness.spec.title} 不支持脱敏，本轮没有发给模型服务。"
+                "可点任务卡上的“🔁 换配置”换到 Claude 的模型。")
+
+    def _turn_message(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> tuple[BridgeContext, str]:
+        """The message before the rules, and the context to run in (a fork's first run has its own)."""
+        user_text = (job.prompt_text or job.user_text) + proxy_turn_note(ctx, job)
+        if session_id:
+            return ctx, resume_message(user_text)
+        history_snapshot = (
+            job.history_snapshot if job.history_snapshot is not None else recent_history(ctx.history_path)
+        )
+        ctx, history_snapshot = self.forks.fork_start(ctx, history_snapshot)
+        if getattr(job, "policy_retry", None):
+            # A retry after a safety refusal (app/policy_retry.py) starts from its own snapshot, the refused round
+            # taken out: a switch handoff would bring that round back, and the switch notice, again.
+            return ctx, first_turn_message(user_text, earlier_history(history_snapshot, job.message_id, user_text))
+        # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, 敏感词脱敏).
+        history_snapshot, handoff = self.switch.switch_handoff(
+            ctx, history_snapshot, getattr(job, "cancel_event", None),
+            ready=lambda: Path(ctx.workdir).is_dir() and not self._redaction_refusal(ctx),
+            note=lambda text: self._bridge_note(ctx, job, "bridge-handoff", text))
+        earlier = earlier_history(history_snapshot, job.message_id, user_text)
+        # After a switch each earlier message is cut short: the transcript file has them whole.
+        return ctx, first_turn_message(user_text, capped(earlier) if handoff else earlier) + handoff
+
+    def _bridge_note(self, ctx: BridgeContext, job: ReplyJob, key: str, text: str) -> None:
+        """A line of the Bridge's own in the task card's 执行过程 (one ``key`` per turn, a later text replaces it)."""
+        if job.tool_trace is None:
+            return
+        at = _dt.datetime.now().astimezone().strftime("%H:%M")
+        self.interaction.structured_harness_event(ctx, job, "progress_note", {
+            "id": f"{key}-{job.job_id}", "title": BRIDGE_NOTE, "text": f"机器人 {at}：{text}"}, None, from_backend=False)
+
+    def _with_rules(self, ctx: BridgeContext, job: ReplyJob, prompt: str, rules: str, *,
+                    system: bool, fresh: bool, rules_session: bool) -> str:
+        if not system and fresh:
+            prompt = rules + "\n\n" + prompt
+        elif not rules_session:
+            # Sessions without the rules at system level (older ones, or no such channel); their original prompts may still describe the tool repository as the
+            # output root, or compaction may have dropped them.
+            # The principles too: one the owner gave after the session started reaches its next turn.
+            principles = self.principles(ctx, job)
+            # The knowledge entries (core/knowledge.py) too, only those since the topic's previous turn.
+            owner = lambda: self.owner_turn(ctx, job)  # noqa: E731
+            knowledge_text = knowledge_turn.block(ctx, job, owner_turn=owner, resumed=True)
+            remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
+            prompt += "\n\n" + RESUME_REMINDERS + (
+                "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir) + ("\n\n" + principles if principles else "")
+                + ("\n\n" + knowledge_text if knowledge_text else "")
+                + "\n\n" + CHECKPOINT_RULES + ("\n\n" + REMEMBER_RULE if remember else ""))
+        return prompt
+
+    def _checkpoint_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
+        """The checkpoint file and the previous status; continuing an answered task closes its card."""
+        if not job.checkpoint_path:
+            return ""
+        prior = job.recovery_context
+        if prior is None:
+            prior = self._continue_previous(ctx, job)
+        if prior is not None:
+            job.recovery_context = prior
+            prior = {**prior, "bridge_preflight": audit_recovery(prior,ctx.workdir)}
+            self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
+        return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior)
+
+    def _continue_previous(self, ctx: BridgeContext, job: ReplyJob) -> dict | None:
+        """A task of the topic waiting for answers when ``job`` starts without being one: it becomes continued and
+        its card says its questions went unanswered. Its checkpoint, which ``job`` goes on from; None without one."""
+        previous = next((r for r in self.harness.topic_records(ctx,job.chat_id)
+                         if r.get("status") == "waiting_user" and r.get("checkpoint_path")), None)
+        if not previous:
+            return None
+        # A message queued before that task asked, starting now: not an answer to its questions,
+        # which stay open (repo review U8: the card said 已收到回答 and lost all but its body).
+        prior = read_checkpoint(Path(previous["checkpoint_path"]))
+        upsert_job_record(ctx.state_dir, previous["key"], status="continued",
+                          status_message=f"#{job.job_id} 已接着开始，这组问题没有回答", resumed_by=job.message_id)
+        paint_answered(self.cards, self.runtime.log, ctx, job.chat_id, job.job_id, previous, answered=False)
+        return prior
+
+    @staticmethod
+    def _image_attachments(ctx: BridgeContext, prompt: str) -> list[dict[str, str]]:
+        attachments = native_image_attachments(prompt, ctx.history_path.parent / 'incoming_media')
+        for item in native_image_attachments(prompt, ctx.state_dir / 'incoming_media'):
+            if item not in attachments:
+                attachments.append(item)
+        return attachments
+
+    def _fit_images(self, ctx: BridgeContext, job: ReplyJob, caps, prompt: str, attachments: list[dict[str, str]]):
+        """(prompt, attachments): the images the Harness takes whole go with the prompt. One over its limits
+        (``caps.image_bytes``, ``caps.image_frame``) is left out rather than fail the turn (the owner, 2026-11-05:
+        跳过并提示; Claude Code ended such a turn with protocol_error): the prompt tells the model, whose message
+        already names its path; the task card says so in a line of the Bridge's own; the log in one line."""
+        if not attachments or not (caps.image_bytes or caps.image_frame):
+            return prompt, attachments
+        kept, skipped = fit_images(attachments, limit=caps.image_bytes, frame=caps.image_frame,
+                                   used=len(prompt.encode()))
+        while skipped:
+            note = skipped_images_note(skipped, caps.image_bytes)
+            sizes = sum(encoded_size(_file_size(item)) for item in kept)
+            if not caps.image_frame or not kept or len((prompt + note).encode()) + sizes <= caps.image_frame:
+                break
+            # The note itself took the room of the last image kept.
+            last = kept.pop()
+            skipped.append({**last, "size": _file_size(last), "reason": "frame"})
+        if not skipped:
+            return prompt, attachments
+        self.runtime.log(f"images not attached job=#{job.job_id} skipped={len(skipped)} kept={len(kept)} "
+                         f"sizes={','.join(str(item['size']) for item in skipped)} "
+                         f"reasons={','.join(item['reason'] for item in skipped)}")
+        if job.tool_trace is not None:
+            at = _dt.datetime.now().astimezone().strftime("%H:%M")
+            try:
+                self.interaction.structured_harness_event(ctx, job, "progress_note", {
+                    "id": f"bridge-images-{time.time_ns()}", "title": BRIDGE_NOTE,
+                    "text": skipped_images_card_note(skipped, caps.image_bytes, at)}, None, from_backend=False)
+            except Exception as exc:  # noqa: BLE001 - the turn goes on; only the card line failed
+                self.runtime.log(f"images note not shown: {type(exc).__name__}")
+        return prompt + note, kept
+
+    def _leave_checkpoint_question(self, ctx: BridgeContext, job: ReplyJob, result: RunResult) -> None:
+        """A checkpoint that asks the user becomes a deferred question; the reply is kept either way.
+        A 代答 topic (app/proxy.py) never waits for the owner: the owner asked that its replies go out
+        without their confirmation, so its question is dropped and the turn ends with its reply."""
+        cp = read_checkpoint(Path(job.checkpoint_path)) if job.checkpoint_path else {}
+        if cp.get("requires_user") is True and proxy_topic(ctx):
+            release_user_wait(Path(job.checkpoint_path), drop_questions=True)
+            self.runtime.log(f"proxy job=#{job.job_id} checkpoint question dropped")
+            return
+        question_allowed = result.outcome is None or (result.outcome.status == "completed" and result.outcome.resume_allowed)
+        asks = question_allowed and not result.is_error and cp.get("requires_user") is True and bool(cp.get("question"))
+        # Only a native question still waiting holds the checkpoint's back; answered ones do not (T444 #3288).
+        if asks and self.questions.has_open_native_questions(ctx, job.job_id):
+            self.runtime.log(f"checkpoint question skipped job=#{job.job_id}: native question still open")
+            asks = False
+        if asks:
+            questions = cp.get("questions") or [{"id": "answer", "header": "补充信息", "question": cp["question"]}]
+            # Registration is delivery bookkeeping, not a second model result.
+            # Preserve a successful backend reply even if question storage fails.
+            job.checkpoint_question_deferred = True
+            job.checkpoint_question_registration_pending = True
+            try:
+                upsert_job_record(ctx.state_dir, job.message_id, final_text=result.text,
+                                  execution_status="waiting_user", delivery_ok=False,
+                                  checkpoint_question_deferred=True, checkpoint_question_registration_pending=True)
+                self.questions.defer_checkpoint_question(ctx, job, questions)
+                upsert_job_record(ctx.state_dir, job.message_id, checkpoint_question_registration_pending=False)
+                job.checkpoint_question_registration_pending = False
+            except Exception as exc:
+                job.checkpoint_question_error = "问题登记失败（" + type(exc).__name__ + "）"
+                self.runtime.log(job.checkpoint_question_error)

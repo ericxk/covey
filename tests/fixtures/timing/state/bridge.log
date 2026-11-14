@@ -1,0 +1,18 @@
+[2026-10-26T19:20:00.000+08:00] timing flow=message outcome=launch_card message=om_early chat=p2p feishu_ms=9000 t0=1793013591000 total_ms=9000 api_ms=1 calls=1 phases=access:1
+[2026-10-26T19:31:00.160+08:00] received message id=om_a
+[2026-10-26T19:31:00.840+08:00] feishu call op=card_create api=POST:/open-apis/cardkit/v1/cards ms=300 proc_ms=298 via=sdk attempts=1 result=ok thread=MainThread flow=message:om_a
+[2026-10-26T19:31:01.270+08:00] feishu call op=msg_reply api=im+messages-reply ms=400 proc_ms=350 via=cli attempts=1 result=ok thread=MainThread flow=message:om_a
+[2026-10-26T19:31:02.510+08:00] timing flow=message outcome=launch_card message=om_a chat=p2p feishu_ms=910 event_ms=880 t0=1793014260100 total_ms=2410 api_ms=700 calls=2 phases=access:2,dedup:10,route:60,enrich:61,context:70,command:330,history:336,prepare:340,records:341,reserve:375,build:440,card_create:740,msg_reply:1170,saved:1200
+[2026-10-26T19:31:02.600+08:00] handle_event error: 用户写的内容不应出现在报告里
+[2026-10-26T19:32:01.136+08:00] feishu call op=card_put api=PUT:/open-apis/cardkit/v1/cards/:id ms=700 proc_ms=700 via=sdk attempts=1 result=ok thread=card-lane-0 flow=click:ev-submit
+[2026-10-26T19:32:02.160+08:00] feishu call op=card_create api=POST:/open-apis/cardkit/v1/cards ms=700 proc_ms=700 via=sdk attempts=1 result=ok thread=card-lane-1 flow=click:ev-submit
+[2026-10-26T19:32:02.963+08:00] feishu call op=msg_reply api=im+messages-reply ms=804 proc_ms=700 via=cli attempts=1 result=ok thread=card-lane-1 flow=click:ev-submit
+[2026-10-26T19:32:03.046+08:00] timing flow=click outcome=handled kind=bridge_launch_submit event=ev-submit message=card-msg-1 feishu_ms=600 jobs=#12 t0=1793014320000 total_ms=3046 api_ms=2204 calls=3 phases=lane:0,access:0,route:15,checked:284,bound:403,card_put:1136,ack:1195,followup:1195,card_create:2160,msg_reply:2963,recorded:3024,queued:3046
+[2026-10-26T19:32:03.420+08:00] timing flow=job_start job=#12 harness=claude queued_ms=54 t0=1793014323100 total_ms=320 api_ms=0 calls=0 phases=check:300,ready:301,spawned:320
+[2026-10-26T19:32:03.430+08:00] task runner started job=#12 pid=4242 dir=/state/runs/om_task
+[2026-10-26T19:35:00.690+08:00] feishu call op=card_create api=POST:/open-apis/cardkit/v1/cards ms=280 proc_ms=279 via=sdk attempts=1 result=ok thread=MainThread flow=message:om_b
+[2026-10-26T19:35:01.100+08:00] feishu call op=msg_reply api=im+messages-reply ms=360 proc_ms=330 via=cli attempts=1 result=ok thread=MainThread flow=message:om_b
+[2026-10-26T19:35:02.115+08:00] timing flow=message outcome=launch_card message=om_b chat=p2p feishu_ms=640 event_ms=600 t0=1793014500000 total_ms=2115 api_ms=640 calls=2 phases=access:1,dedup:9,route:50,enrich:51,context:58,command:320,history:325,prepare:330,records:331,reserve:362,build:420,card_create:690,msg_reply:1100,saved:1130
+[2026-10-26T19:36:00.040+08:00] timing flow=click outcome=forwarded kind=bridge_job_stop event=ev-stop message=om_card feishu_ms=700 t0=1793014560000 total_ms=40 api_ms=0 calls=0 phases=lane:0,access:0,route:12,forward:38,ack:40
+[2026-10-26T19:36:00.041+08:00] card action kind=bridge_job_stop message=om_card event=ev-stop outcome=forwarded elapsed_ms=40
+[2026-10-26T19:40:32.600+08:00] timing flow=message outcome=queued_card message=om_c chat=p2p feishu_ms=500 parent=fetched jobs=#13 t0=1793014830000 total_ms=2600 api_ms=1500 calls=3 phases=access:1,dedup:8,route:40,msg_get:500,enrich:501,context:510,command:770,history:776,prepare:780,records:781,reserve:810,card_create:1300,msg_reply:2500,recorded:2560,queued:2600

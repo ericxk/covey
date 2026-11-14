@@ -1,0 +1,111 @@
+"""The extension hooks and settings (core/extensions.py) and what the core does without them: no 代答 entrance
+without a sender, a dashboard without a fixed entry, an installer with systemd only, the default web host."""
+# privacy: allow-file 测公司扩展 manifest 的设置值
+from __future__ import annotations
+
+import argparse
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from covey.core import extensions
+from support import requires_extension
+
+
+def manifest_of(**fields):
+    return extensions.Extension("x", {}, (), {}, {}, **fields)
+
+
+class HookTests(unittest.TestCase):
+    def test_a_manifest_names_only_known_hooks_and_settings(self):
+        fake = SimpleNamespace(HOOKS={"nope": "x.y"})
+        with mock.patch.object(extensions, "_import", return_value=fake), self.assertRaises(extensions.ExtensionError):
+            extensions.read("x")
+        fake = SimpleNamespace(SETTINGS={"web_tenant_domain": 3})
+        with mock.patch.object(extensions, "_import", return_value=fake), self.assertRaises(extensions.ExtensionError):
+            extensions.read("x")
+        fake = SimpleNamespace(HOOKS={"proxy_sender": "x.y"}, SETTINGS={"web_tenant_domain": "t.example.com"})
+        with mock.patch.object(extensions, "_import", return_value=fake):
+            read = extensions.read("x")
+        self.assertEqual((read.hooks, read.settings), ({"proxy_sender": "x.y"}, {"web_tenant_domain": "t.example.com"}))
+
+    def test_without_an_extension_there_is_no_hook_and_the_default_stands(self):
+        with mock.patch.object(extensions, "manifests", return_value=()):
+            self.assertIsNone(extensions.hook("proxy_sender"))
+            self.assertEqual(extensions.setting("web_tenant_domain", "open.feishu.cn"), "open.feishu.cn")
+            with self.assertRaises(KeyError):
+                extensions.hook("other")
+
+    def test_the_first_package_that_sets_a_setting_wins(self):
+        one, two = manifest_of(settings={"web_tenant_domain": "a.example.com"}), manifest_of(settings={"web_tenant_domain": "b"})
+        with mock.patch.object(extensions, "manifests", return_value=(one, two)):
+            self.assertEqual(extensions.setting("web_tenant_domain"), "a.example.com")
+
+    @requires_extension()
+    def test_the_company_extension_provides_all_three_hooks(self):
+        for name in extensions.HOOK_NAMES:
+            self.assertIsNotNone(extensions.hook(name), name)
+        self.assertEqual(extensions.setting("web_tenant_domain"), "bytedance.larkoffice.com")
+
+
+class WithoutHooksTests(unittest.TestCase):
+    """The same checks with the hooks taken away, whether or not an extension is enabled."""
+
+    def test_no_sender_means_no_proxy_entrance(self):
+        from covey.app import proxy_send
+        from covey.app.menu_panel import hub_tabs
+        from covey.app.proxy import Proxy
+        from covey.cards.settings_hub import PROXY
+        with mock.patch.object(extensions, "hook", return_value=None):
+            self.assertFalse(proxy_send.available())
+            self.assertNotIn(PROXY, hub_tabs())
+            proxy = Proxy.__new__(Proxy)
+            self.assertEqual((proxy.threads(), proxy.menu_items(), proxy.menu_folds()), ((), {}, {}))
+            web = proxy_send.ProxySend(proxy)
+            self.assertEqual(web.web_send(None, {}, {}, {}, "x")["submitted"], False)
+            self.assertEqual(web.problems(None, {}), [proxy_send.NO_SENDER])
+            login = proxy_send.NullLogin()
+            self.assertIsNone(login.check_login(None, {}))
+
+    def test_no_dashboard_hook_means_no_entry_lines(self):
+        from covey.app.dashboard import Dashboard
+        with mock.patch.object(extensions, "hook", return_value=None):
+            lines = Dashboard.link_lines(Path("/nonexistent"), "http://a:1", "T", lead="L")[2]
+        self.assertEqual(len(lines), 1)
+
+    def test_no_hosting_hook_means_the_core_modes_only(self):
+        from covey.service import install
+        seen = {}
+
+        def parse(self, *args, **kwargs):
+            seen["modes"] = [a for a in self._actions if a.dest == "mode"][0].choices
+            raise SystemExit(0)
+        with mock.patch.object(extensions, "hook", return_value=None), \
+                mock.patch.object(argparse.ArgumentParser, "parse_args", parse), self.assertRaises(SystemExit):
+            install.main()
+        self.assertEqual(seen["modes"], ["systemd", "launchd", "cron", "manager", "auto"])
+
+    def test_the_web_host_defaults_to_the_open_platform(self):
+        import importlib
+        from covey.feishu import web_client
+        try:
+            with mock.patch.object(extensions, "manifests", return_value=()), \
+                    mock.patch.dict("os.environ", {web_client.HOST_ENV: ""}):
+                importlib.reload(web_client)
+                self.assertEqual(web_client.BASE, "https://open.feishu.cn")
+                self.assertTrue(web_client.on_messenger("https://acme.feishu.cn/next/messenger/"))
+                self.assertFalse(web_client.on_messenger("https://acme.feishu.cn/accounts/login"))
+        finally:
+            importlib.reload(web_client)
+
+    def test_the_contact_notes_have_no_place_by_default(self):
+        from covey.core import proxy as records
+        with mock.patch.object(extensions, "manifests", return_value=()):
+            self.assertEqual(records.notes_dir(Path("/w"), {"kind": "p2p", "key": "k"}, "20260101"), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

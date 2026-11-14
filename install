@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# 一遍式安装：./install（选项见 ./install --help，说明见 docs/install.md）。只检查 Python 就交给 bin/covey_install.py。
+set -eu
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="${PYTHON:-python3}"
+command -v "$PY" >/dev/null 2>&1 || { echo "需要 Python 3.10 或更新（没找到 $PY）" >&2; exit 1; }
+"$PY" -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { echo "需要 Python 3.10 或更新" >&2; exit 1; }
+exec "$PY" -B "$ROOT/bin/covey_install.py" "$@"

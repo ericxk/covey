@@ -1,0 +1,7 @@
+[2026-10-26T19:32:03.710+08:00] task runner job=#12 harness=claude pid=4242
+[2026-10-26T19:32:07.050+08:00] feishu call op=card_patch api=PATCH:/open-apis/cardkit/v1/cards/:id/elements/:id ms=180 proc_ms=178 via=sdk attempts=1 result=ok thread=card-updates flow=runner:#12
+[2026-10-26T19:32:07.051+08:00] timing flow=runner job=#12 harness=claude t0=1793014323110 total_ms=3940 api_ms=180 calls=1 phases=app:600,built:1400,check:2500,ready:2501,started:2600,card_patch:3940
+[2026-10-26T19:36:00.510+08:00] feishu call op=card_patch api=PATCH:/open-apis/cardkit/v1/cards/:id/elements/:id ms=170 proc_ms=169 via=sdk attempts=1 result=ok thread=runner-inbox flow=click:ev-stop
+[2026-10-26T19:36:00.580+08:00] feishu call op=card_settings api=PATCH:/open-apis/cardkit/v1/cards/:id/settings ms=70 proc_ms=69 via=sdk attempts=1 result=ok thread=runner-inbox flow=click:ev-stop
+[2026-10-26T19:36:00.590+08:00] timing flow=click outcome=handled kind=bridge_job_stop event=ev-stop message=om_card runner=#12 inbox_ms=290 t0=1793014560330 total_ms=260 api_ms=240 calls=2 phases=card_patch:180,card_settings:250,ack:260
+[2026-10-26T19:37:10.000+08:00] feishu calls op=card_text n=40 errors=0 ms_p50=120 ms_max=900 proc_p50=118 window_s=60

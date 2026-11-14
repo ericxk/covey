@@ -1,0 +1,4 @@
+interface:
+  display_name: "Covey Onboarding"
+  short_description: "Guide a new user to install their own unified Feishu bot"
+  default_prompt: "Use $harness-bridge-onboarding to walk me through installing my own unified Feishu bot from this repository."

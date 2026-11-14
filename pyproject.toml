@@ -1,0 +1,12 @@
+[project]
+name = "covey"
+version = "0.1.0"
+description = "Covey (formerly Harness Bridge): drive Codex, Claude Code, Pi and dsh on your own machine from Feishu chat."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+feishu-sdk = ["lark-oapi==1.7.4", "cryptography>=43"]
+
+[tool.ruff]
+line-length = 120

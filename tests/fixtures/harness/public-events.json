@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic sanitized protocol fixture covering reconnect replay, nested agents and usage; no credentials or private tool output.",
+  "events": [
+    ["progress_note", {"id":"n1","text":"先读取配置。\n随后检查差异。","received_at":1}],
+    ["tool", {"id":"t1","name":"read","status":"running","detail":"/workspace/config.json","started_at":2}],
+    ["tool", {"id":"t1","name":"read","status":"done","detail":"/workspace/config.json","started_at":2,"ended_at":3}],
+    ["tool", {"id":"t1","name":"read","status":"running","detail":"/workspace/config.json","started_at":2}],
+    ["agent_state", {"id":"a","name":"检查器","status":"running","started_at":4}],
+    ["agent_state", {"id":"b","parent_id":"a","name":"子检查器","status":"running","started_at":5}],
+    ["tool", {"id":"t2","child_id":"b","name":"bash","status":"failed","started_at":5,"ended_at":6,"exit_code":1,"detail":"check"}],
+    ["agent_state", {"id":"b","parent_id":"a","name":"子检查器","status":"errored","started_at":5,"ended_at":6}],
+    ["agent_state", {"id":"a","name":"检查器","status":"completed","started_at":4,"ended_at":7}],
+    ["token_usage", {"output_tokens":321}]
+  ]
+}

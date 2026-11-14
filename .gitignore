@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+.omo/
+.claude/
+
+# Local bridge/review runtime state is private and must not be committed.
+.local-state/
+node_modules/

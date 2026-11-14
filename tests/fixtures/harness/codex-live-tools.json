@@ -1,0 +1,40 @@
+{
+  "description": "2026-09-17 真实 Codex App Server 工具事件；替换了事件 ID、路径并归一化时间。只保留公开工具状态与用量。",
+  "events": [
+    [
+      "tool",
+      {
+        "name": "bash",
+        "status": "running",
+        "exit_code": null,
+        "id": "tool-1",
+        "detail": "pwd",
+        "started_at": 0.0
+      }
+    ],
+    [
+      "tool",
+      {
+        "name": "bash",
+        "status": "done",
+        "exit_code": 0,
+        "id": "tool-1",
+        "detail": "pwd",
+        "started_at": 0.0,
+        "ended_at": 0.005
+      }
+    ],
+    [
+      "token_usage",
+      {
+        "output_tokens": 36
+      }
+    ],
+    [
+      "token_usage",
+      {
+        "output_tokens": 44
+      }
+    ]
+  ]
+}

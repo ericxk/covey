@@ -1,0 +1,1700 @@
+{
+ "after_ack": [
+  [
+   "acks/",
+   "0o700"
+  ],
+  [
+   "acks/1793800000000001000-00000001.json",
+   "0o600",
+   {
+    "error": "",
+    "ok": true
+   }
+  ],
+  [
+   "acks/x-1.json",
+   "0o600",
+   {
+    "error": "e",
+    "held": true,
+    "ok": true,
+    "refused": false
+   }
+  ],
+  [
+   "inbox/",
+   "0o700"
+  ],
+  [
+   "inbox/1793800000000001000-00000001.json",
+   "0o600",
+   {
+    "id": "1793800000000001000-00000001",
+    "kind": "steer",
+    "text": "中文"
+   }
+  ],
+  [
+   "inbox/1793800000000003000-00000003.json",
+   "0o600",
+   {
+    "id": "1793800000000003000-00000003"
+   }
+  ],
+  [
+   "replies/",
+   "0o700"
+  ],
+  [
+   "replies/1793800000000002000-00000002.json",
+   "0o600",
+   {
+    "error": "错误",
+    "job_id": 7,
+    "ok": false
+   }
+  ],
+  [
+   "requests/",
+   "0o700"
+  ],
+  [
+   "requests/1793800000000002000-00000002.json",
+   "0o600",
+   {
+    "deadline": 1.5,
+    "id": "1793800000000002000-00000002",
+    "kind": "enqueue_answer"
+   }
+  ]
+ ],
+ "after_post": [
+  [
+   "acks/",
+   "0o700"
+  ],
+  [
+   "inbox/",
+   "0o700"
+  ],
+  [
+   "inbox/1793800000000001000-00000001.json",
+   "0o600",
+   {
+    "id": "1793800000000001000-00000001",
+    "kind": "steer",
+    "text": "中文"
+   }
+  ],
+  [
+   "inbox/1793800000000003000-00000003.json",
+   "0o600",
+   {
+    "id": "1793800000000003000-00000003"
+   }
+  ],
+  [
+   "replies/",
+   "0o700"
+  ],
+  [
+   "requests/",
+   "0o700"
+  ],
+  [
+   "requests/1793800000000002000-00000002.json",
+   "0o600",
+   {
+    "deadline": 1.5,
+    "id": "1793800000000002000-00000002",
+    "kind": "enqueue_answer"
+   }
+  ]
+ ],
+ "after_take": [
+  [
+   "acks/",
+   "0o700"
+  ],
+  [
+   "acks/torn.json",
+   "0o600",
+   "{"
+  ],
+  [
+   "acks/x-1.json",
+   "0o600",
+   {
+    "error": "e",
+    "held": true,
+    "ok": true,
+    "refused": false
+   }
+  ],
+  [
+   "inbox/",
+   "0o700"
+  ],
+  [
+   "inbox/0-bad.json",
+   "0o600",
+   "[1,"
+  ],
+  [
+   "inbox/note.txt",
+   "0o600",
+   "x"
+  ],
+  [
+   "replies/",
+   "0o700"
+  ],
+  [
+   "replies/1793800000000002000-00000002.json",
+   "0o600",
+   {
+    "error": "错误",
+    "job_id": 7,
+    "ok": false
+   }
+  ],
+  [
+   "requests/",
+   "0o700"
+  ],
+  [
+   "requests/1793800000000002000-00000002.json",
+   "0o600",
+   {
+    "deadline": 1.5,
+    "id": "1793800000000002000-00000002",
+    "kind": "enqueue_answer"
+   }
+  ]
+ ],
+ "answer_acks": [
+  [
+   {
+    "ok": true
+   },
+   [
+    "ok",
+    true
+   ]
+  ],
+  [
+   {
+    "local": true,
+    "ok": true
+   },
+   [
+    "ok",
+    false
+   ]
+  ],
+  [
+   {
+    "error": "已回答",
+    "ok": false
+   },
+   [
+    "raised",
+    "ValueError",
+    "已回答"
+   ]
+  ],
+  [
+   {
+    "ok": false
+   },
+   [
+    "raised",
+    "ValueError",
+    "回答未送达当前任务"
+   ]
+  ],
+  [
+   null,
+   [
+    "raised",
+    "ValueError",
+    "回答已转交当前任务，暂未确认送达；请先查看回答状态，不会重复发送"
+   ]
+  ],
+  [
+   "bad token",
+   [
+    "ok",
+    false
+   ]
+  ]
+ ],
+ "answer_inbox": [
+  {
+   "chat_id": "oc_chat",
+   "event_id": "ev-a0",
+   "fields": {
+    "q": "a0"
+   },
+   "id": "<OP>",
+   "kind": "answer",
+   "token": "00112233445566ff"
+  },
+  {
+   "chat_id": "oc_chat",
+   "event_id": "ev-a1",
+   "fields": {
+    "q": "a1"
+   },
+   "id": "<OP>",
+   "kind": "answer",
+   "token": "00112233445566ff"
+  },
+  {
+   "chat_id": "oc_chat",
+   "event_id": "ev-a2",
+   "fields": {
+    "q": "a2"
+   },
+   "id": "<OP>",
+   "kind": "answer",
+   "token": "00112233445566ff"
+  },
+  {
+   "chat_id": "oc_chat",
+   "event_id": "ev-a3",
+   "fields": {
+    "q": "a3"
+   },
+   "id": "<OP>",
+   "kind": "answer",
+   "token": "00112233445566ff"
+  },
+  {
+   "chat_id": "oc_chat",
+   "event_id": "ev-a4",
+   "fields": {
+    "q": "a4"
+   },
+   "id": "<OP>",
+   "kind": "answer",
+   "token": "00112233445566ff"
+  }
+ ],
+ "await_handoff": [
+  true,
+  null
+ ],
+ "await_hit": {
+  "error": "",
+  "ok": true
+ },
+ "await_missing": null,
+ "await_past": null,
+ "await_torn": null,
+ "bridge_identity_keys": [
+  "boot_id",
+  "pid",
+  "start_ticks"
+ ],
+ "click_forwarded": [
+  true,
+  true,
+  false
+ ],
+ "click_inbox": [
+  {
+   "event": {
+    "chat_id": "oc_chat",
+    "event_id": "ev-c",
+    "message_id": "om_card",
+    "operator_id": "ou_owner"
+   },
+   "id": "<OP>",
+   "kind": "card_event"
+  },
+  {
+   "event": {
+    "chat_id": "oc_chat",
+    "event_id": "ev-c",
+    "message_id": "om_card",
+    "operator_id": "ou_owner"
+   },
+   "id": "<OP>",
+   "kind": "card_event"
+  }
+ ],
+ "done_files": [
+  [
+   "done.json",
+   "0o600",
+   {
+    "done_at": 1793800000.25,
+    "status": "finished"
+   }
+  ],
+  [
+   "exit.json",
+   "0o600",
+   {
+    "finished_at": 1793800000.25,
+    "status": "error:RuntimeError"
+   }
+  ]
+ ],
+ "enqueue_replies": [
+  [
+   {
+    "job_id": 9,
+    "ok": true
+   },
+   [
+    "ok",
+    {
+     "job_id": 9
+    }
+   ]
+  ],
+  [
+   {
+    "error": "后续任务未能入队",
+    "ok": false
+   },
+   [
+    "raised",
+    "ValueError",
+    "后续任务未能入队"
+   ]
+  ],
+  [
+   {
+    "ok": false
+   },
+   [
+    "raised",
+    "ValueError",
+    "后续任务未能入队"
+   ]
+  ],
+  [
+   null,
+   [
+    "raised",
+    "RuntimeError",
+    "后续任务入队未确认"
+   ]
+  ],
+  [
+   {
+    "job_id": 10,
+    "ok": true
+   },
+   [
+    "ok",
+    {
+     "job_id": 10
+    }
+   ]
+  ]
+ ],
+ "enqueue_requests": [
+  {
+   "chat_id": "oc_chat",
+   "deadline": "<DEADLINE>",
+   "display": "显示",
+   "effort": "high",
+   "harness": "codex",
+   "id": "<OP>",
+   "kind": "enqueue_answer",
+   "message_id": "om_c0",
+   "model": "m",
+   "recovery_context": {
+    "why": "x"
+   },
+   "text": "后续",
+   "title": "题",
+   "topic_id": "t1"
+  },
+  {
+   "chat_id": "oc_chat",
+   "deadline": "<DEADLINE>",
+   "display": "显示",
+   "effort": "high",
+   "harness": "codex",
+   "id": "<OP>",
+   "kind": "enqueue_answer",
+   "message_id": "om_c1",
+   "model": "m",
+   "recovery_context": {
+    "why": "x"
+   },
+   "text": "后续",
+   "title": "题",
+   "topic_id": "t1"
+  },
+  {
+   "chat_id": "oc_chat",
+   "deadline": "<DEADLINE>",
+   "display": "显示",
+   "effort": "high",
+   "harness": "codex",
+   "id": "<OP>",
+   "kind": "enqueue_answer",
+   "message_id": "om_c2",
+   "model": "m",
+   "recovery_context": {
+    "why": "x"
+   },
+   "text": "后续",
+   "title": "题",
+   "topic_id": "t1"
+  },
+  {
+   "chat_id": "oc_chat",
+   "deadline": "<DEADLINE>",
+   "display": "显示",
+   "effort": "high",
+   "harness": "codex",
+   "id": "<OP>",
+   "kind": "enqueue_answer",
+   "message_id": "om_c3",
+   "model": "m",
+   "recovery_context": {
+    "why": "x"
+   },
+   "text": "后续",
+   "title": "题",
+   "topic_id": "t1"
+  },
+  {
+   "chat_id": "oc_chat",
+   "deadline": "<DEADLINE>",
+   "display": "",
+   "effort": "high",
+   "harness": "codex",
+   "id": "<OP>",
+   "kind": "enqueue_answer",
+   "message_id": "om_c9",
+   "model": "m",
+   "recovery_context": null,
+   "text": "t",
+   "title": "",
+   "topic_id": "t1",
+   "work_mode": "focus"
+  }
+ ],
+ "handoff_job_extras": {
+  "topic_label": "T1"
+ },
+ "handoff_job_fields": [
+  "auto_continue",
+  "auto_resume",
+  "auto_retry",
+  "binding_revision",
+  "cancel_requested_at",
+  "cancel_requested_by",
+  "cancelled_before_start",
+  "chat_id",
+  "checkpoint_path",
+  "diff_artifact_path",
+  "diff_json_path",
+  "effort",
+  "execution_started",
+  "harness_id",
+  "history_path",
+  "history_snapshot",
+  "job_id",
+  "kind",
+  "last_card_error",
+  "message_id",
+  "model",
+  "model_settings_snapshot",
+  "prompt_text",
+  "recent_questions",
+  "recovery_context",
+  "reply_to_message_id",
+  "sender_id",
+  "session_id",
+  "session_path",
+  "sessions_dir",
+  "steer_target_job_id",
+  "stream_replacements",
+  "timeout",
+  "timings",
+  "title",
+  "topic_id",
+  "user_text",
+  "work_mode",
+  "workdir",
+  "workspace_name"
+ ],
+ "handoff_job_keys": [
+  "cancelled",
+  "extras",
+  "fields",
+  "progress"
+ ],
+ "handoff_job_rest": {
+  "cancelled": false,
+  "progress": null
+ },
+ "handoff_job_values": {
+  "chat_id": "oc_chat",
+  "execution_started": false,
+  "harness_id": "codex",
+  "job_id": 7,
+  "message_id": "om_task",
+  "topic_id": "t1",
+  "user_text": "请做这件事（补充）",
+  "workdir": "<S>/hand-work"
+ },
+ "handoff_top": {
+  "argv": [
+   "--profile",
+   "p",
+   "--harness-config",
+   "<S>/cwd/harnesses.json",
+   "--state-dir",
+   "<S>/hand-state",
+   "--workdir",
+   "<S>/hand-work"
+  ],
+  "created_at": 1793800000.25,
+  "harness": "codex",
+  "owner": "ou_owner",
+  "schema_version": 1,
+  "script_path": "<REPO>/bin/covey_bridge.py"
+ },
+ "late_after_exit": [
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   {
+    "error": "",
+    "ok": true
+   }
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   {
+    "error": "任务已结束，补充没有发出",
+    "ok": false,
+    "refused": true
+   }
+  ],
+  [
+   "ok",
+   {
+    "error": "任务已结束，补充没有发出",
+    "ok": false,
+    "refused": true
+   }
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ]
+ ],
+ "late_before_exit": [
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   {
+    "error": "",
+    "ok": true
+   }
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ],
+  [
+   "ok",
+   null
+  ]
+ ],
+ "live_keys": [
+  "live"
+ ],
+ "live_keys_detached": [
+  "live"
+ ],
+ "live_keys_given_alive": [
+  "gone",
+  "wrong-ticks"
+ ],
+ "live_keys_missing": [],
+ "live_keys_with_list": [
+  "raised",
+  "AttributeError",
+  "'list' object has no attribute 'get'"
+ ],
+ "mark_done_missing": [
+  "ok",
+  null
+ ],
+ "mark_exit_missing": [
+  "ok",
+  null
+ ],
+ "names": {
+  "ACKS": "acks",
+  "DONE": "done.json",
+  "EXIT": "exit.json",
+  "HANDOFF": "handoff.json",
+  "INBOX": "inbox",
+  "LOG": "runner.log",
+  "OP": "[0-9]+-[0-9a-f]+",
+  "QUEUED": "queued",
+  "REPLIES": "replies",
+  "REQUESTS": "requests",
+  "RUNNER": "runner.json",
+  "RUNS": "runs",
+  "WAKE": "wake.json",
+  "WAKE_SIGNAL": "SIGUSR1"
+ },
+ "new_op": "1793800000000004000-00000004",
+ "op_time": [
+  [
+   "None",
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   "''",
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   "'123-ab'",
+   [
+    "ok",
+    123
+   ]
+  ],
+  [
+   "'123'",
+   [
+    "ok",
+    123
+   ]
+  ],
+  [
+   "'abc-1'",
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   "123",
+   [
+    "ok",
+    123
+   ]
+  ],
+  [
+   "0",
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   "'0-x'",
+   [
+    "ok",
+    0
+   ]
+  ],
+  [
+   "'١٢٣-ab'",
+   [
+    "ok",
+    123
+   ]
+  ],
+  [
+   "'²-x'",
+   [
+    "raised",
+    "ValueError",
+    "invalid literal for int() with base 10: '²'"
+   ]
+  ],
+  [
+   "' 1-a'",
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   "'-1-a'",
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   "'1793800000000001000-00000001'",
+   [
+    "ok",
+    1793800000000001000
+   ]
+  ]
+ ],
+ "ops": [
+  "1793800000000001000-00000001",
+  "1793800000000002000-00000002",
+  "1793800000000003000-00000003"
+ ],
+ "paths": [
+  [
+   "<S>/abs-state",
+   "om_abc",
+   [
+    "ok",
+    "<S>/abs-state/runs/om_abc"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/om_abc.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "",
+   [
+    "ok",
+    "<S>/abs-state/runs/job"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/job.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "a.b",
+   [
+    "ok",
+    "<S>/abs-state/runs/a.b"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/a.b.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "../x",
+   [
+    "ok",
+    "<S>/abs-state/runs/x"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/x.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "ü-key",
+   [
+    "ok",
+    "<S>/abs-state/runs/key"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/key.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   [
+    "ok",
+    "<S>/abs-state/runs/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   ".hidden",
+   [
+    "ok",
+    "<S>/abs-state/runs/hidden"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/hidden.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "a/b",
+   [
+    "ok",
+    "<S>/abs-state/runs/a-b"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/a-b.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "-",
+   [
+    "ok",
+    "<S>/abs-state/runs/job"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/job.json"
+   ]
+  ],
+  [
+   "<S>/abs-state",
+   "job.json",
+   [
+    "ok",
+    "<S>/abs-state/runs/job.json"
+   ],
+   true,
+   [
+    "ok",
+    "<S>/abs-state/queued/job.json.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "om_abc",
+   [
+    "ok",
+    "<S>/rel-state/runs/om_abc"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/om_abc.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "",
+   [
+    "ok",
+    "<S>/rel-state/runs/job"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/job.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "a.b",
+   [
+    "ok",
+    "<S>/rel-state/runs/a.b"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/a.b.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "../x",
+   [
+    "ok",
+    "<S>/rel-state/runs/x"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/x.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "ü-key",
+   [
+    "ok",
+    "<S>/rel-state/runs/key"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/key.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   [
+    "ok",
+    "<S>/rel-state/runs/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.json"
+   ]
+  ],
+  [
+   "rel-state",
+   ".hidden",
+   [
+    "ok",
+    "<S>/rel-state/runs/hidden"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/hidden.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "a/b",
+   [
+    "ok",
+    "<S>/rel-state/runs/a-b"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/a-b.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "-",
+   [
+    "ok",
+    "<S>/rel-state/runs/job"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/job.json"
+   ]
+  ],
+  [
+   "rel-state",
+   "job.json",
+   [
+    "ok",
+    "<S>/rel-state/runs/job.json"
+   ],
+   true,
+   [
+    "ok",
+    "rel-state/queued/job.json.json"
+   ]
+  ]
+ ],
+ "prestart_command_tail": [
+  "--run-dir",
+  "<S>/hand-state/runs/om_pre",
+  "--await-handoff",
+  "cdcdcdcdcdcdcdcd"
+ ],
+ "prestart_handoff_nonce": "cdcdcdcdcdcdcdcd",
+ "queued_after_handoff": [],
+ "queued_file": [
+  [
+   "om_task.json",
+   "0o600"
+  ]
+ ],
+ "queued_keys": [
+  [
+   "harness",
+   "job",
+   "schema_version"
+  ],
+  1,
+  "codex",
+  [
+   "cancelled",
+   "extras",
+   "fields",
+   "progress"
+  ]
+ ],
+ "queued_updated_text": "请做这件事（补充）",
+ "read_exit": {
+  "finished_at": 1793800000.25,
+  "status": "error:RuntimeError"
+ },
+ "read_exit_list": [
+  "ok",
+  [
+   1
+  ]
+ ],
+ "read_exit_none": {},
+ "read_exit_null": [
+  "ok",
+  null
+ ],
+ "read_exit_torn": [
+  "ok",
+  {}
+ ],
+ "remote_control": {
+  "answer": [
+   "raised",
+   "ValueError",
+   "该任务在独立进程中运行，请在任务卡上操作"
+  ],
+  "close": null,
+  "pause_for_question": "",
+  "remote": true
+ },
+ "run_dir_after_handoff": [
+  [
+   "acks/",
+   "0o700"
+  ],
+  [
+   "handoff.json",
+   "0o600"
+  ],
+  [
+   "inbox/",
+   "0o700"
+  ],
+  [
+   "inbox/keep.txt",
+   "0o600"
+  ],
+  [
+   "replies/",
+   "0o700"
+  ],
+  [
+   "requests/",
+   "0o700"
+  ],
+  [
+   "runner.json",
+   "0o600"
+  ],
+  [
+   "runner.log",
+   "0o600"
+  ]
+ ],
+ "runner_alive": {
+  "argv-without-dir": [
+   "ok",
+   false
+  ],
+  "empty-list": [
+   "ok",
+   false
+  ],
+  "file.txt": [
+   "ok",
+   false
+  ],
+  "gone": [
+   "ok",
+   false
+  ],
+  "list": [
+   "ok",
+   false
+  ],
+  "live": [
+   "ok",
+   true
+  ],
+  "no-key": [
+   "ok",
+   false
+  ],
+  "none": [
+   "ok",
+   false
+  ],
+  "pid-str": [
+   "ok",
+   false
+  ],
+  "torn": [
+   "ok",
+   false
+  ],
+  "wrong-boot": [
+   "ok",
+   false
+  ],
+  "wrong-ticks": [
+   "ok",
+   false
+  ]
+ },
+ "runner_alive_relative": [
+  "ok",
+  true
+ ],
+ "runner_alive_trailing": [
+  "ok",
+  true
+ ],
+ "runner_command": [
+  true,
+  "-B",
+  "<REPO>/bin/covey_runner.py",
+  "--run-dir",
+  "<S>/hand-state/runs/om_task"
+ ],
+ "runner_info": {
+  "argv-without-dir": [
+   "ok",
+   {
+    "boot_id": "<boot_id>",
+    "key": "argv-without-dir",
+    "pid": "<other.pid>",
+    "start_ticks": "<other.start_ticks>"
+   }
+  ],
+  "empty-list": [
+   "ok",
+   []
+  ],
+  "file.txt": [
+   "ok",
+   null
+  ],
+  "gone": [
+   "ok",
+   {
+    "key": "gone",
+    "pid": 999999999
+   }
+  ],
+  "list": [
+   "ok",
+   [
+    1,
+    2
+   ]
+  ],
+  "live": [
+   "ok",
+   {
+    "boot_id": "<boot_id>",
+    "key": "live",
+    "pid": "<child.pid>",
+    "start_ticks": "<child.start_ticks>"
+   }
+  ],
+  "no-key": [
+   "ok",
+   {
+    "boot_id": "<boot_id>",
+    "pid": "<child.pid>",
+    "start_ticks": "<child.start_ticks>"
+   }
+  ],
+  "none": [
+   "ok",
+   null
+  ],
+  "pid-str": [
+   "ok",
+   {
+    "boot_id": "<boot_id>",
+    "key": "pid-str",
+    "pid": "<child.pid>",
+    "start_ticks": "<child.start_ticks>"
+   }
+  ],
+  "torn": [
+   "ok",
+   null
+  ],
+  "wrong-boot": [
+   "ok",
+   {
+    "boot_id": "x",
+    "key": "wrong-boot",
+    "pid": "<child.pid>",
+    "start_ticks": "<child.start_ticks>"
+   }
+  ],
+  "wrong-ticks": [
+   "ok",
+   {
+    "boot_id": "<boot_id>",
+    "key": "wrong-ticks",
+    "pid": "<child.pid>",
+    "start_ticks": "1"
+   }
+  ]
+ },
+ "runner_json": {
+  "boot_id": "<boot_id>",
+  "harness": "codex",
+  "job_id": 7,
+  "key": "om_task",
+  "pid": "<bridge.pid>",
+  "release": "<REPO>",
+  "start_ticks": "<bridge.start_ticks>",
+  "started_at": 1793800000.25
+ },
+ "runner_popen": {
+  "cwd": "<S>/hand-state/runs/om_task",
+  "start_new_session": true
+ },
+ "runner_take_inbox": {
+  "answer": {
+   "acks": [
+    {
+     "error": "",
+     "ok": true
+    },
+    {
+     "error": "问题已结束",
+     "ok": false,
+     "refused": false
+    },
+    {
+     "error": "KeyError",
+     "ok": false,
+     "refused": false
+    }
+   ],
+   "calls": [
+    [
+     "answer",
+     "oc_chat",
+     "tttttttttttttttt",
+     {
+      "q": "a"
+     },
+     "ev-a"
+    ]
+   ],
+   "left": []
+  },
+  "click": {
+   "acks": [
+    null,
+    null
+   ],
+   "calls": [
+    [
+     "click",
+     {
+      "event_id": "ev-c",
+      "message_id": "om_card"
+     }
+    ]
+   ],
+   "left": []
+  },
+  "restart": {
+   "acks": [
+    null
+   ],
+   "calls": [
+    [
+     "note",
+     "progress_note",
+     "bridge-restart-1793800000",
+     "机器人",
+     {
+      "from_backend": false
+     }
+    ]
+   ],
+   "left": []
+  },
+  "restart_no_trace": {
+   "acks": [
+    null,
+    null
+   ],
+   "calls": [],
+   "left": []
+  },
+  "steer": {
+   "acks": [
+    {
+     "error": "",
+     "ok": true
+    },
+    {
+     "error": "这条补充不收",
+     "ok": false,
+     "refused": true
+    },
+    {
+     "error": "RuntimeError",
+     "ok": false,
+     "refused": false
+    },
+    {
+     "error": "说明给用户",
+     "ok": false,
+     "refused": false
+    },
+    {
+     "error": "还没准备好",
+     "held": true,
+     "ok": true
+    }
+   ],
+   "calls": [
+    [
+     "steer",
+     "ok",
+     "ev-ok"
+    ],
+    [
+     "note",
+     "ok"
+    ],
+    [
+     "steer",
+     "refuse",
+     "ev-refuse"
+    ],
+    [
+     "steer",
+     "boom",
+     "ev-boom"
+    ],
+    [
+     "steer",
+     "value",
+     "ev-value"
+    ],
+    [
+     "steer",
+     "later",
+     "ev-later"
+    ],
+    [
+     "hold",
+     "later",
+     "ev-later"
+    ]
+   ],
+   "left": []
+  },
+  "steer_ended": {
+   "acks": [
+    {
+     "error": "当前任务已结束，补充没有发出",
+     "ok": false,
+     "refused": true
+    }
+   ],
+   "calls": [],
+   "left": []
+  },
+  "steer_no_control": {
+   "acks": [
+    {
+     "error": "任务刚开始，后端还没准备好接收补充",
+     "held": true,
+     "ok": true
+    }
+   ],
+   "calls": [
+    [
+     "hold",
+     "ok",
+     "ev-n"
+    ]
+   ],
+   "left": []
+  },
+  "steer_paused": {
+   "acks": [
+    {
+     "error": "当前任务正在等待回答问题，请先回答",
+     "ok": false,
+     "refused": true
+    }
+   ],
+   "calls": [],
+   "left": []
+  }
+ },
+ "runner_take_inbox_log": [
+  "runner inbox steer failed: SteerRefused",
+  "runner inbox steer failed: RuntimeError",
+  "runner inbox steer failed: ValueError",
+  "runner inbox steer failed: SteerRefused",
+  "runner inbox steer failed: SteerRefused",
+  "runner inbox answer failed: ValueError",
+  "runner inbox answer failed: KeyError",
+  "runner inbox card_event failed: KeyError"
+ ],
+ "serve_requests_failing_op": "1793800000000003000-00000003",
+ "serve_requests_left": [],
+ "serve_requests_log": [
+  "continuation for task runner failed: FileNotFoundError"
+ ],
+ "serve_requests_replies": [
+  [
+   "1793800000000003000-00000003.json",
+   "0o600",
+   {
+    "error": "FileNotFoundError",
+    "ok": false
+   }
+  ]
+ ],
+ "start_runner": [
+  "ok",
+  "<S>/hand-state/runs/om_task"
+ ],
+ "steer_acks": [
+  [
+   {
+    "error": "",
+    "ok": true
+   },
+   [
+    "ok",
+    null
+   ]
+  ],
+  [
+   {
+    "error": "还没准备好",
+    "held": true,
+    "ok": true
+   },
+   [
+    "ok",
+    "held"
+   ]
+  ],
+  [
+   {
+    "error": "这条补充不收",
+    "ok": false,
+    "refused": true
+   },
+   [
+    "raised",
+    "SteerRefused",
+    "这条补充不收"
+   ]
+  ],
+  [
+   {
+    "error": "RuntimeError",
+    "ok": false,
+    "refused": false
+   },
+   [
+    "raised",
+    "SteerUncertain",
+    "RuntimeError"
+   ]
+  ],
+  [
+   {
+    "error": "旧版拒绝",
+    "ok": false
+   },
+   [
+    "raised",
+    "SteerRefused",
+    "旧版拒绝"
+   ]
+  ],
+  [
+   {
+    "error": "RuntimeError",
+    "ok": false
+   },
+   [
+    "raised",
+    "SteerUncertain",
+    "RuntimeError"
+   ]
+  ],
+  [
+   {
+    "ok": false
+   },
+   [
+    "raised",
+    "SteerRefused",
+    "补充未送达当前任务"
+   ]
+  ],
+  [
+   null,
+   [
+    "raised",
+    "SteerUncertain",
+    "补充已转交任务进程，暂未确认送达；不会重复发送"
+   ]
+  ]
+ ],
+ "steer_inbox": [
+  {
+   "event_id": "ev-0",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充0"
+  },
+  {
+   "event_id": "ev-1",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充1"
+  },
+  {
+   "event_id": "ev-2",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充2"
+  },
+  {
+   "event_id": "ev-3",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充3"
+  },
+  {
+   "event_id": "ev-4",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充4"
+  },
+  {
+   "event_id": "ev-5",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充5"
+  },
+  {
+   "event_id": "ev-6",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充6"
+  },
+  {
+   "event_id": "ev-7",
+   "id": "<OP>",
+   "kind": "steer",
+   "text": "补充7"
+  }
+ ],
+ "take": [
+  [
+   1,
+   2
+  ],
+  {
+   "id": "1793800000000001000-00000001",
+   "kind": "steer",
+   "text": "中文"
+  },
+  {
+   "id": "1793800000000003000-00000003"
+  }
+ ],
+ "take_missing": [],
+ "wake_accepted": true,
+ "wake_file": [
+  [
+   "wake.json",
+   "0o600",
+   {
+    "boot_id": "<boot_id>",
+    "pid": "<bridge.pid>",
+    "start_ticks": "<bridge.start_ticks>"
+   }
+  ]
+ ],
+ "wake_sent": true,
+ "wake_sent_missing": false,
+ "wake_sent_torn": false,
+ "wake_sent_wrong_identity": false
+}
