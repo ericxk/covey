@@ -261,6 +261,20 @@ class AssembleReleaseTests(unittest.TestCase):
         self.assertEqual(got["bin/covey_paseo_fleet.py"], "# fleet\n")
         self.assertEqual(got["RELEASE_MANIFEST"].splitlines()[0], f"core {sha}")
 
+    def test_a_root_enabled_file_picks_the_packages_turned_on_by_default(self):
+        both = self.root / "both"
+        make_repo(both, {**EXT_FILES, "covey_paseo/manifest.py": "HARNESSES = {}\n", "enabled": "# only the first\ncovey_internal\n"})
+        code, out, err = self.assemble(self.root / "r4", "--ext", str(both))
+        self.assertEqual(code, 0, err)
+        got = tree(self.root / "r4")
+        self.assertIn("extensions/covey_paseo/manifest.py", got)
+        self.assertEqual([ln for ln in got["extensions/enabled"].splitlines() if not ln.startswith("#")], ["covey_internal"])
+        bad = self.root / "bad"
+        make_repo(bad, {**EXT_FILES, "enabled": "covey_nope\n"})
+        code, _, err = self.assemble(self.root / "r5", "--ext", str(bad))
+        self.assertEqual(code, 1)
+        self.assertIn("covey_nope", err)
+
     def test_a_non_empty_target_or_a_checkout_without_a_package_is_refused(self):
         (self.root / "full").mkdir()
         (self.root / "full" / "x").write_text("x")

@@ -184,7 +184,7 @@ python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" prune
 
 `scripts/deploy_bridge.sh --workdir <目录> --profile <profile> [-- <bridge 参数>]` 按第 1–4 步做完并打印一行 JSON（变量名同文首），检查不过就停；`--check-only` 只做部署前的检查，参数见脚本开头。其中权限变量（`pre.permission_env`）查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，和部署后 `covey_doctor --runtime-only` 的口径一致（停用的服务只告警）。它还在结果里报 `post.app_config`（飞书应用缺不缺东西），不算失败。
 
-**核心和扩展分开检出时**（核心在 `covey/` 检出，公司等扩展在各自的库里，布局：扩展库根下每个含 manifest 文件的目录是一个扩展包）：加 `--ext-repo <扩展检出>` 和 `--ext-commit <提交>`（默认 `HEAD`），都可重复，按先后配对，例如主人的开发机再加一个 Paseo 扩展库。`--repo`/`--commit` 仍是核心。
+**核心和扩展分开检出时**（核心在 `covey/` 检出，公司等扩展在各自的库里，布局：扩展库根下每个含 manifest 文件的目录是一个扩展包）：加 `--ext-repo <扩展检出>` 和 `--ext-commit <提交>`（默认 `HEAD`），都可重复，按先后配对，例如主人的开发机再加一个 Paseo 扩展库。`--repo`/`--commit` 仍是核心。release 的 `extensions/enabled` 列每个扩展检出根目录 `enabled` 文件里的包（没有这个文件就列它所有的包）；检出里没列的包随 release 带着但默认不启用，用环境变量 `COVEY_EXTENSIONS` 打开。
 
 ```bash
 scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute/covey --ext-repo /absolute/covey-internal --check-only

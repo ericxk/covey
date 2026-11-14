@@ -9,7 +9,8 @@
 - 扩展检出：仓库根目录下含 manifest.py 的目录都是扩展包（scripts/export_extension.py 导出的布局：
   <包名>/manifest.py，另有 README.md、core.lock、dev/）。每个包 `git archive` 到 DIR/extensions/<包名>/，
   去掉包里的 standalone/；包里 bin/*.py 的入口（如扩展自带的运行时脚本）放进 DIR/bin/，盖掉核心里同名的转发脚本。
-- 写 DIR/extensions/enabled（按 --ext 的顺序列出所有包名）、DIR/RELEASE_MANIFEST（每个检出的完整提交号）；
+- 写 DIR/extensions/enabled：按 --ext 的顺序，每个扩展检出列出它根目录 `enabled` 文件里的包名（一行一个，# 开头是注释，
+  必须是这个检出里的包）；检出没有 `enabled` 文件就列出它所有的包。没列的包随 release 带着，但默认不启用、DIR/RELEASE_MANIFEST（每个检出的完整提交号）；
   最后重写 DIR/AGENTS.md 里的模块表（scripts/code_map.py，和单仓库一样包含扩展的模块）。
 - --ext 可重复，--ext-ref 按顺序和它配对（少给的用 HEAD）。不给 --ext 时就是纯核心的 git archive，
   不建 extensions/enabled。按提交取，不看工作区；DIR 必须不存在或为空。只用标准库，核心代码里不写任何扩展名。
@@ -67,6 +68,18 @@ def core_lock(repo: Path, sha: str) -> str | None:
     return None
 
 
+def enabled_of(repo: Path, sha: str, packages: list[str]) -> list[str]:
+    """The packages this extension checkout turns on by default: its root `enabled` file, or all of its packages."""
+    p = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:enabled"], capture_output=True, text=True)
+    if p.returncode:
+        return list(packages)
+    names = [ln.strip() for ln in p.stdout.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    unknown = [n for n in names if n not in packages]
+    if unknown:
+        raise AssembleError(f"{repo}: enabled names {unknown}, which are not packages of that checkout ({packages})")
+    return names
+
+
 def assemble(core: Path, core_ref: str, exts: list[tuple[Path, str]], out: Path) -> dict:
     out = out.resolve()
     core_sha = resolve(core, core_ref)
@@ -106,7 +119,8 @@ def assemble(core: Path, core_ref: str, exts: list[tuple[Path, str]], out: Path)
                                   capture_output=True, text=True)
             if done.returncode:
                 raise AssembleError(f"code_map.py --write failed: {(done.stderr or done.stdout).strip()[-300:]}")
-        (out / "extensions" / "enabled").write_text(ENABLED_HEADER + "".join(f"{n}\n" for n in names))
+        turned_on = [n for repo, sha, packages in found for n in enabled_of(repo, sha, packages)]
+        (out / "extensions" / "enabled").write_text(ENABLED_HEADER + "".join(f"{n}\n" for n in turned_on))
         (out / "RELEASE_MANIFEST").write_text("\n".join(manifest) + "\n")
     return {"core": core_sha, "out": str(out),
             "extensions": [{"repo": str(r), "commit": s, "packages": p} for r, s, p in found]}
