@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from types import SimpleNamespace
@@ -19,7 +20,6 @@ from support.processes import leftover_check
 from support.world import build_claude_app
 
 from covey.app.leftovers import leftover_note, stop_task_leftovers
-from covey.core import procfs
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.jobs import BridgeReplyJob
 from covey.core.task_processes import (TASK_DIR_ENV, Leftover, find_leftovers, is_search, short_command,
@@ -169,33 +169,24 @@ class NoteTests(LeftoverCase):
     def test_a_runner_ends_its_turns_leftover_search_and_notes_it_on_the_card(self):
         with exec_tempdir() as bin_dir:
             rg = Path(bin_dir) / "rg"
-            rg.symlink_to(SLEEP)  # A process named rg, which is a search tool.
-            search = self.orphan([str(rg), "60"], self.env())
-            probe = subprocess.run([str(rg), "0.01"], capture_output=True, text=True)  # Diagnostic: does it run?
+            # A process named rg, which is a search tool. Not a link to sleep: where coreutils is one
+            # multi-call binary (uutils, newer Ubuntu), a link named rg exits at once, "rg: not found".
+            rg.symlink_to(sys.executable)
+            search = self.orphan([str(rg), "-c", "import time; time.sleep(60)"], self.env())
             events, log = [], []
             interaction = SimpleNamespace(structured_harness_event=lambda *args, **kwargs: events.append((args, kwargs)))
             runtime = SimpleNamespace(log=log.append)
             job = SimpleNamespace(job_id=7, tool_trace=object())
 
-            def snap(label):  # Diagnostic: the search's /proc stat at this point.
-                try:
-                    return label, Path(f"/proc/{search}/stat").read_text()[:80]
-                except OSError as exc:
-                    return label, repr(exc)
-            trail = [snap("born")]
             stop_task_leftovers(runtime, interaction, "ctx", job)  # Not in a runner: nothing is marked.
-            trail.append(snap("after-first"))
             self.assertTrue(alive(search))
             self.assertEqual((events, log), ([], []))
 
             with mock.patch.dict(os.environ, {TASK_DIR_ENV: str(self.run_dir)}):
-                seen = [(item.pid, item.name, item.search) for item in find_leftovers(self.run_dir)]
-                parent = getattr(procfs.stat(search), 'ppid', None)
-                trail.append(snap("before-second"))
                 stop_task_leftovers(runtime, interaction, "ctx", job)
 
         self.assertFalse(alive(search))
-        self.assertEqual(len(events), 1, (log, seen, search, parent, os.getpid(), SLEEP, os.path.realpath(SLEEP), probe.returncode, probe.stderr, trail))
+        self.assertEqual(len(events), 1, log)
         (ctx, noted_job, kind, data, rpc), kwargs = events[0]
         self.assertEqual((ctx, noted_job, kind, rpc, kwargs), ("ctx", job, "progress_note", None, {"from_backend": False}))
         self.assertEqual(data["title"], BRIDGE_NOTE)

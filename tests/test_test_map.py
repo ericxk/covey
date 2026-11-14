@@ -723,7 +723,8 @@ class ParallelRunTest(unittest.TestCase):
         self.assertIn("last words", crash)
         self.assertEqual(test_map.failed_ids(result), ["jobs_pass.P.test_sub", "setUpClass (jobs_pass.Q)",
                                                        "jobs_crash.C.test_b"])
-        self.assertIn("FAIL: test_sub (jobs_pass.P.test_sub) (case=2)\n", err)
+        self.assertIn("FAIL: " + ("test_sub (jobs_pass.P.test_sub) (case=2)" if sys.version_info >= (3, 11)
+                                  else "test_sub (jobs_pass.P) (case=2)") + "\n", err)
         self.assertIn("ERROR: jobs_crash (exit code 3)\n", err)
         self.assertNotIn("noise", err)  # A child's output stays in its log.
         self.assertIsNotNone(reports["jobs_pass"]["seconds"])
