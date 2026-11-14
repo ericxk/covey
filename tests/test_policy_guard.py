@@ -129,7 +129,7 @@ time.sleep(300)
 '''
         self.proc = subprocess.Popen([sys.executable, '-B', '-c', code, str(self.directory), str(ready)], start_new_session=True)
         self.addCleanup(self.cleanup_process)
-        wait_for(self, ready.exists)
+        wait_for(self, lambda: ready.exists() and ready.read_text().endswith('}'))  # Created first, then written.
         child = json.loads(ready.read_text())['child']
         self.child_identity = process_identity(child)
         runner_spawn.register_runner(self.directory, self.proc.pid, Path('/old-release'), 77, self.key, 'claude')
