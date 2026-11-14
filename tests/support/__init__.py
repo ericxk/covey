@@ -12,6 +12,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
+
+
+def enter_context(case: unittest.TestCase, manager):
+    """``case.enterContext(manager)`` (Python 3.11+): enter ``manager``, leave it at cleanup, return its value."""
+    value = type(manager).__enter__(manager)
+    case.addCleanup(type(manager).__exit__, manager, None, None, None)
+    return value
+
+
+if not hasattr(unittest.TestCase, "enterContext"):  # Python 3.10
+    unittest.TestCase.enterContext = enter_context
+
 REPO = Path(__file__).resolve().parents[2]
 TESTS = REPO / "tests"
 FIXTURES = TESTS / "fixtures"

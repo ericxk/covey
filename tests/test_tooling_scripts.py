@@ -13,6 +13,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -264,6 +265,7 @@ class Fake(unittest.TestCase):
             code = golden_trace.main(list(argv))
         return code, out.getvalue()
 
+    @unittest.skipIf(sys.version_info < (3, 11), "Path.replace on 3.10 calls the os.replace saved at import, which the trace hook cannot see")
     def test_two_recordings_agree_and_compare_reports_a_changed_message_text(self):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)

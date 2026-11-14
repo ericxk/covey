@@ -12,6 +12,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from support import enter_context
+
 from covey.core import env as cenv
 from covey.core import main_requests, main_thread, main_thread_settings as settings
 from covey.core.main_tool_specs import NAMES, TOOLS
@@ -174,10 +176,10 @@ class PrivateModeTest(unittest.TestCase):
     is 0, the owner's mode in main-thread.json turns it on, and the Bridge's first start writes the mode once."""
 
     def setUp(self):
-        self.state = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.state = Path(enter_context(self, tempfile.TemporaryDirectory()))
         previous = main_thread.configure_state(self.state)
         self.addCleanup(main_thread.configure_state, previous)
-        self.enterContext(mock.patch.dict(os.environ, {main_thread.ENV: ""}))
+        enter_context(self, mock.patch.dict(os.environ, {main_thread.ENV: ""}))
 
     def write(self, data):
         (self.state / settings.FILE).write_text(json.dumps(data))
@@ -262,10 +264,10 @@ class PlacementTest(unittest.TestCase):
         from covey.core import placement
 
         self.placement = placement
-        self.state = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.state = Path(enter_context(self, tempfile.TemporaryDirectory()))
         previous = main_thread.configure_state(self.state)
         self.addCleanup(main_thread.configure_state, previous)
-        self.enterContext(mock.patch.dict(os.environ, {main_thread.ENV: ""}))
+        enter_context(self, mock.patch.dict(os.environ, {main_thread.ENV: ""}))
 
     def write(self, data):
         (self.state / settings.FILE).write_text(json.dumps(data))

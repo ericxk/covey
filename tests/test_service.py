@@ -188,10 +188,18 @@ class ServiceTests(unittest.TestCase):
         self.addCleanup(self.manager.stop.set)
 
         def read():
-            with socket.socket(socket.AF_UNIX) as client:
-                client.settimeout(3)
-                client.connect(address)
-                return client.recv(4096)
+            until = time.monotonic() + 5
+            while True:
+                with socket.socket(socket.AF_UNIX) as client:
+                    client.settimeout(3)
+                    try:
+                        client.connect(address)  # Refused until the server thread has started listening.
+                    except ConnectionRefusedError:
+                        if time.monotonic() > until:
+                            raise
+                        time.sleep(0.02)
+                        continue
+                    return client.recv(4096)
 
         self.assertEqual(json.loads(read())['process'], process_identity(os.getpid()))
         with mock.patch('covey.service.boot.os.getuid', return_value=os.getuid() + 1):

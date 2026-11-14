@@ -152,6 +152,7 @@ class DiffTest(unittest.TestCase):
                                                             {7: "    return x - LIMIT", 21: "", 22: "# a comment"}))
         self.assertEqual(found["docs/a.md"], ({1: "-- a heading that starts like a header", 2: "text"}, {}))
 
+    @unittest.skipUnless(sys.version_info >= (3, 11), "code.co_qualname is Python 3.11+")
     def test_qualified_names_match_what_the_interpreter_records(self):
         source = OLD + textwrap.dedent('''\
             def outer():
@@ -604,6 +605,7 @@ class TestTempTest(unittest.TestCase):
 
 
 class ChildHookTest(unittest.TestCase):
+    @unittest.skipUnless(hasattr(sys, "monitoring"), "recording which functions ran uses sys.monitoring, Python 3.12+")
     def test_a_child_reports_the_functions_it_ran_and_prints_nothing(self):
         with tempfile.TemporaryDirectory() as root:
             hooks, out = Path(root) / "hooks", Path(root) / "out"
@@ -712,7 +714,8 @@ class ParallelRunTest(unittest.TestCase):
             result, reports, err = self.run_jobs(["jobs_pass", "jobs_crash"], root)
         self.assertEqual((result.testsRun, len(result.failures), len(result.skipped)), (5, 1, 1))
         self.assertEqual([(test.id(), str(test)) for test, _ in result.failures],
-                         [("jobs_pass.P.test_sub", "test_sub (jobs_pass.P.test_sub) (case=2)")])
+                         [("jobs_pass.P.test_sub", "test_sub (jobs_pass.P.test_sub) (case=2)" if sys.version_info >= (3, 11)
+                           else "test_sub (jobs_pass.P) (case=2)")])  # How unittest names a subtest changed in 3.11.
         self.assertEqual([(test.id(), str(test)) for test, _ in result.errors], [
             ("setUpClass (jobs_pass.Q)", "setUpClass (jobs_pass.Q)"), ("jobs_crash.C.test_b", "jobs_crash (exit code 3)")])
         crash = result.errors[1][1]
@@ -769,6 +772,7 @@ class ParallelRunTest(unittest.TestCase):
             time.sleep(.1)
         self.assertFalse(alive())
 
+    @unittest.skipUnless(hasattr(sys, "monitoring"), "recording which functions ran uses sys.monitoring, Python 3.12+")
     def test_a_build_child_records_its_functions_and_files_and_its_children_report_theirs(self):
         with tempfile.TemporaryDirectory() as root:
             root, hooks = Path(root), Path(root) / "hooks"

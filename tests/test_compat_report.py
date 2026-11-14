@@ -15,6 +15,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from support import enter_context
+
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("compat_report_script", REPO / "scripts" / "compat_report.py")
 compat = importlib.util.module_from_spec(_spec)
@@ -218,7 +220,7 @@ class ReportTests(unittest.TestCase):
             if key not in asked:
                 asked[key] = real(facts, release, commit)
             return asked[key]
-        self.enterContext(mock.patch.object(compat.Facts, "contains", contains))
+        enter_context(self, mock.patch.object(compat.Facts, "contains", contains))
         self.alive = {"new"}
         self.assertEqual(self.run_report()[1]["steer-refused"]["verdict"], "可删")
         self.write("runs/old/runner.json", {"release": str(releases / old)})
