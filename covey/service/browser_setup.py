@@ -41,12 +41,13 @@ CHROMIUM_DEBS = ("libasound2", "libatk-bridge2.0-0", "libatk1.0-0", "libatspi2.0
                  "libxcomposite1", "libxdamage1", "libxext6", "libxfixes3", "libxkbcommon0", "libxrandr2")
 # Packages that would replace a library the system itself loads (a second libsystemd, say).
 UNSAFE_DEBS = ("libelogind0", "libsystemd0", "libc6", "libgcc-s1", "libstdc++6")
+# Runs alone under the Playwright interpreter (-I -c): it imports nothing from covey, so no cenv here.
 CHECK_SCRIPT = """
 import os, sys
 from playwright.sync_api import sync_playwright
 try:
     with sync_playwright() as p:
-        exe = cenv.get("COVEY_BROWSER_EXECUTABLE") or None
+        exe = os.environ.get("COVEY_BROWSER_EXECUTABLE") or os.environ.get("LARK_BRIDGE_BROWSER_EXECUTABLE") or None
         b = p.chromium.launch(headless=True, executable_path=exe)
         b.new_page().goto("about:blank")
         b.close()

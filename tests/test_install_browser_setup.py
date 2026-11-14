@@ -286,5 +286,39 @@ class UnsubscribedRetryTest(unittest.TestCase):
         self.assertFalse(health.unsubscribed)
 
 
+class CheckScriptTest(unittest.TestCase):
+    def test_script_runs_alone_with_a_stub_playwright(self):
+        # The probe runs under the Playwright interpreter with -I: it must not name anything of covey (it once used cenv).
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp) / "playwright"
+            stub.mkdir()
+            (stub / "__init__.py").write_text("")
+            (stub / "sync_api.py").write_text(
+                "import os\n"
+                "class _B:\n"
+                "    def new_page(self):\n"
+                "        class P:\n"
+                "            def goto(self, url): pass\n"
+                "        return P()\n"
+                "    def close(self): pass\n"
+                "class _C:\n"
+                "    def launch(self, headless, executable_path):\n"
+                "        print('exe=' + str(executable_path))\n"
+                "        return _B()\n"
+                "class _P:\n"
+                "    chromium = _C()\n"
+                "class sync_playwright:\n"
+                "    def __enter__(self): return _P()\n"
+                "    def __exit__(self, *a): return False\n")
+            env = {"PYTHONPATH": tmp, "PATH": "/usr/bin:/bin"}
+            done = subprocess.run([sys.executable, "-c", bs.CHECK_SCRIPT], env={**env, "COVEY_BROWSER_EXECUTABLE": "/x/chrome"},
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(0, done.returncode, done.stderr)
+            self.assertIn("exe=/x/chrome", done.stdout)
+            done = subprocess.run([sys.executable, "-c", bs.CHECK_SCRIPT], env={**env, "LARK_BRIDGE_BROWSER_EXECUTABLE": "/y/chrome"},
+                                  capture_output=True, text=True, timeout=60)
+            self.assertIn("exe=/y/chrome", done.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
