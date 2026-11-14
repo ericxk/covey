@@ -76,7 +76,10 @@ class RuleTests(GuardCase):
         for path in (data / 'outbox').glob('*.json'):
             alert = json.loads(path.read_text())
             alerts.setdefault(alert['rule'], []).append(alert)
-        self.assertEqual({rule for rule in alerts}, {'search_rss', 'orphan', 'big_process', 'container', 'long_search'})
+        expected = {'search_rss', 'orphan', 'big_process', 'container', 'long_search'}
+        if memguard.cg_ratio(memguard.read_cgroup()) is None:
+            expected.discard('container')  # No memory limit to take a ratio of (a CI runner): the rule cannot fire.
+        self.assertEqual({rule for rule in alerts}, expected)
         [killed] = alerts['search_rss']
         self.assertEqual((killed['pid'], killed['task_dir']), (search.pid, '/state/runs/om_task'))
         self.assertIn('【内存看门狗】已终止失控搜索进程（killed）', killed['text'])

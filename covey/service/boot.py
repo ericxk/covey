@@ -215,11 +215,7 @@ def watch(config_path, *, stop=None, interval=10):
                 cfg = json.loads(Path(config_path).read_text())
                 if not cfg.get('enabled'):
                     return
-                # In PID 1, self is authoritative even inside a PID namespace
-                # whose /proc mount belongs to its parent namespace.
-                env_path = '/proc/self/environ' if os.getpid() == 1 else '/proc/1/environ'
-                raw = Path(env_path).read_bytes().split(b'\0')
-                current_job = next((x.split(b'=', 1)[1].decode() for x in raw if x.startswith(b'MERLIN_JOB_ID=')), '') # privacy: allow 同上，读 PID 1 的环境
+                current_job = hosting_job()
                 if current_job != cfg['devbox_id']:
                     return
                 if not mounted(cfg['root'], cfg['mountpoint']):
@@ -234,6 +230,15 @@ def watch(config_path, *, stop=None, interval=10):
     finally:
         health_stop.set()
         singleton.close()
+
+
+def hosting_job():
+    """The hosting platform job id of the host this watchdog runs on, read from PID 1's environment. In PID 1 itself,
+    self is authoritative even inside a PID namespace whose /proc mount belongs to its parent namespace.
+    Raises OSError when PID 1's environment cannot be read (another user's init): the host is then unknown."""
+    env_path = '/proc/self/environ' if os.getpid() == 1 else '/proc/1/environ'
+    raw = Path(env_path).read_bytes().split(b'\0')
+    return next((x.split(b'=', 1)[1].decode() for x in raw if x.startswith(b'MERLIN_JOB_ID=')), '')  # privacy: allow 同上，读 PID 1 的环境
 
 
 def supervise(config_path, *, stop=None, interval=10):

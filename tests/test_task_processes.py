@@ -19,6 +19,7 @@ from support.processes import leftover_check
 from support.world import build_claude_app
 
 from covey.app.leftovers import leftover_note, stop_task_leftovers
+from covey.core import procfs
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.jobs import BridgeReplyJob
 from covey.core.task_processes import (TASK_DIR_ENV, Leftover, find_leftovers, is_search, short_command,
@@ -180,10 +181,12 @@ class NoteTests(LeftoverCase):
             self.assertEqual((events, log), ([], []))
 
             with mock.patch.dict(os.environ, {TASK_DIR_ENV: str(self.run_dir)}):
+                seen = [(item.pid, item.name, item.search) for item in find_leftovers(self.run_dir)]
+                parent = getattr(procfs.stat(search), 'ppid', None)
                 stop_task_leftovers(runtime, interaction, "ctx", job)
 
         self.assertFalse(alive(search))
-        self.assertEqual(len(events), 1)
+        self.assertEqual(len(events), 1, (log, seen, search, parent, os.getpid()))
         (ctx, noted_job, kind, data, rpc), kwargs = events[0]
         self.assertEqual((ctx, noted_job, kind, rpc, kwargs), ("ctx", job, "progress_note", None, {"from_backend": False}))
         self.assertEqual(data["title"], BRIDGE_NOTE)

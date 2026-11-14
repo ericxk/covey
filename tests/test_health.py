@@ -41,7 +41,8 @@ class HealthTests(unittest.TestCase):
         thread = threading.Thread(target=serve, args=(sock, lambda: {'status': 'ready'}, stop))
         thread.start()
         try:
-            self.assertEqual(query(name), {'status': 'ready'})
+            # serve() starts listening in its own thread: a query made before that is refused, not answered.
+            self.assertEqual(self.wait_for(lambda: query(name)), {'status': 'ready'})
             self.assertIsNone(query(name + '-missing', timeout=.01))
         finally:
             stop.set()
@@ -108,11 +109,13 @@ class HealthTests(unittest.TestCase):
     def test_boot_watchdog_exposes_waiting_mount_without_nas_io(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'boot.json'
-            raw = Path('/proc/1/environ').read_bytes().split(b'\0')
-            job = next((x.split(b'=', 1)[1].decode() for x in raw if x.startswith(b'MERLIN_JOB_ID=')), '')
-            config.write_text(json.dumps({'enabled': True, 'devbox_id': job,
+            config.write_text(json.dumps({'enabled': True, 'devbox_id': 'test-job',
                                           'root': '/missing/services', 'mountpoint': '/missing'}))
             stop = threading.Event()
+            # The host's PID 1 may be another user's (CI runners): its environment is not what is under test.
+            patch = mock.patch('covey.service.boot.hosting_job', return_value='test-job')
+            patch.start()
+            self.addCleanup(patch.stop)
             thread = threading.Thread(target=watch, args=(config,), kwargs={'stop': stop, 'interval': .02})
             thread.start()
             try:
@@ -123,6 +126,21 @@ class HealthTests(unittest.TestCase):
                 stop.set()
                 thread.join(3)
 
+    def test_unreadable_init_environment_leaves_the_host_unknown_and_the_watchdog_retrying(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'boot.json'
+            config.write_text(json.dumps({'enabled': True, 'devbox_id': 'test-job', 'root': tmp, 'mountpoint': '/'}))
+            stop = threading.Event()
+            with mock.patch('covey.service.boot.hosting_job', side_effect=PermissionError(13, 'denied')):
+                thread = threading.Thread(target=watch, args=(config,), kwargs={'stop': stop, 'interval': .02})
+                thread.start()
+                try:
+                    report = self.wait_for(lambda: (h if (h := boot_health(config)) and h['state'] == 'retrying' else None))
+                    self.assertEqual(report['error'], 'PermissionError')
+                finally:
+                    stop.set()
+                    thread.join(3)
+
     def test_outer_loop_survives_unexpected_watchdog_exception(self):
         with mock.patch('covey.service.boot.watch', side_effect=[RuntimeError('fault'), None]) as run:
             supervise('/unused', interval=.001)
@@ -131,14 +149,13 @@ class HealthTests(unittest.TestCase):
     def test_unresponsive_manager_uses_only_previously_verified_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'boot.json'
-            raw = Path('/proc/1/environ').read_bytes().split(b'\0')
-            job = next((x.split(b'=', 1)[1].decode() for x in raw if x.startswith(b'MERLIN_JOB_ID=')), '')
-            config.write_text(json.dumps({'enabled': True, 'devbox_id': job,
+            config.write_text(json.dumps({'enabled': True, 'devbox_id': 'test-job',
                                           'root': tmp, 'mountpoint': '/', 'watchdog_seconds': 0}))
             stop = threading.Event()
             identity = {'pid': 987654321, 'start_ticks': '123', 'boot_id': 'test'}
             with mock.patch('covey.service.boot.manager_health', side_effect=[{'process': identity, 'lag': 0}, None]), \
                  mock.patch('covey.service.boot.process_matches', return_value=True), \
+                 mock.patch('covey.service.boot.hosting_job', return_value='test-job'), \
                  mock.patch('covey.service.boot.os.kill', side_effect=lambda *_: stop.set()) as kill, \
                  mock.patch('covey.service.boot.subprocess.Popen') as spawn:
                 watch(config, stop=stop, interval=.001)
@@ -157,7 +174,10 @@ class HealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             entry = '/opt/tiger/arnold/arnold_entrypoint/exec/my_init.py'  # privacy: allow 扩展的 hosting 按平台 PID 1 入口路径认环境
-            raw = Path('/proc/1/environ').read_bytes().split(b'\0')
+            try:
+                raw = Path('/proc/1/environ').read_bytes().split(b'\0')
+            except OSError:
+                self.skipTest("PID 1's environment is not readable here")
             job = next((x.split(b'=', 1)[1].decode() for x in raw if x.startswith(b'MERLIN_JOB_ID=')), '')
             if not job:
                 self.skipTest('Merlin job identity unavailable')

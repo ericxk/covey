@@ -107,7 +107,7 @@ def stop_bus(identity):
 def watch(runtime, ctx):
     failures = 0
     identity = None
-    last_restart = 0
+    last_restart = float('-inf')  # not 0: time.monotonic() is the host's uptime, small just after a boot
     last_verified = None
     while not runtime.shutdown.is_set():
         try:

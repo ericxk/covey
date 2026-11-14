@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -196,15 +197,24 @@ class HealthAndMetricsTests(unittest.TestCase):
         self.assertEqual(tcp_receive_age(text, 12), 650)
         self.assertIsNone(tcp_receive_age(text, 9))
 
-    def watch_samples(self, samples):
+    def watch_samples(self, samples, uptime=None):
         stop = mock.Mock()
         stop.is_set.side_effect = [False] * len(samples) + [True]
         app = SimpleNamespace(runtime=SimpleNamespace(shutdown=stop, log=lambda _: None, connection_health={}))
+        clock = mock.patch('covey.feishu.connections.time.monotonic', return_value=uptime) if uptime is not None \
+            else contextlib.nullcontext()
         with mock.patch('covey.feishu.connections.bus_sample', side_effect=samples), \
              mock.patch('covey.feishu.connections.is_owned', return_value=True), \
-             mock.patch('covey.feishu.connections.stop_bus') as kill:
+             mock.patch('covey.feishu.connections.stop_bus') as kill, clock:
             watch(app.runtime, SimpleNamespace(profile='test'))
         return app, kill
+
+    def test_a_hung_bus_is_replaced_even_just_after_the_host_booted(self):
+        # time.monotonic() is the uptime: a host booted a minute ago (a fresh CI runner) must not look like
+        # "restarted a moment ago".
+        sample = {'status': 'receiving', 'process': {'pid': 12}, 'exclusive': True}
+        _, kill = self.watch_samples([sample, BusUnresponsive(), BusUnresponsive(), BusUnresponsive()], uptime=60.0)
+        kill.assert_called_once_with({'pid': 12})
 
     def test_quiet_tcp_receiving_bus_never_restarts(self):
         sample = {'status': 'receiving', 'process': {'pid': 12}, 'exclusive': True}

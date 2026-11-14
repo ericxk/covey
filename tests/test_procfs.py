@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
 
 from covey.core import procfs
@@ -26,6 +27,10 @@ class StatTests(unittest.TestCase):
                                   "print(flush=True); time.sleep(30)"], stdout=subprocess.PIPE, start_new_session=True)
         self.addCleanup(lambda: (child.kill(), child.wait(), child.stdout.close()))
         child.stdout.readline()
+        # It prints, then goes to sleep: until it has, a loaded machine (a CI runner) still shows it running.
+        deadline = time.monotonic() + 10
+        while procfs.stat(child.pid).state != "S" and time.monotonic() < deadline:
+            time.sleep(0.01)
         stat = procfs.stat(child.pid)
         self.assertEqual((stat.name, stat.state, stat.ppid, stat.pgrp, stat.session), ("a) b (c", "S", os.getpid(), child.pid,
                                                                                      child.pid))

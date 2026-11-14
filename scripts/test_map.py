@@ -1231,7 +1231,9 @@ def child(args) -> int:
             if isinstance(path, str) and not path.endswith(".py"):
                 record(path)
 
-    result, start, mon = Streamed(), time.time(), sys.monitoring
+    result, start, mon = Streamed(), time.time(), getattr(sys, "monitoring", None)
+    if args.hooks and mon is None:  # Only recording which functions ran needs it; running the tests does not.
+        sys.exit("test_map build: recording coverage needs Python 3.12 (sys.monitoring)")
     if args.hooks:
         os.environ["TEST_MAP_CHILD"] = args.hooks
         mon.use_tool_id(mon.COVERAGE_ID, "test_map")

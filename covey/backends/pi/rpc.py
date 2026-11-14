@@ -244,7 +244,13 @@ def run_rpc(request, argv, env, *, context_window=0, label="Pi"):
         stopped, timed_out = _read_loop(rows, turn, control, adapter, request, payload, deadline)
         control.closing, control.accepting = True, False
         if not timed_out:
-            status, code = outcome(turn, process.poll(), stopped and cancel.is_set())
+            rc = process.poll()
+            if rc is None and not (stopped or turn.ended or turn.invalid or turn.refusal is not None):
+                # Its output ended without the turn ending: pi is exiting, but the exit code may not be
+                # collectable yet (a loaded machine); wait for it so the failure is process_exit, not a guess.
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    rc = process.wait(2)
+            status, code = outcome(turn, rc, stopped and cancel.is_set())
         if status == "completed":
             text = message_texts(turn.last_assistant).strip()
             state.preserve(turn.sid, ("pi-rpc", turn.sid, state.run_id), ("final:" + state.run_id,), text)

@@ -307,9 +307,11 @@ class ServiceTests(unittest.TestCase):
 
     def test_boot_watchdog_restarts_real_manager_and_adopts_service(self):
         self.register()
-        env = dict(x.split(b'=', 1) for x in Path('/proc/1/environ').read_bytes().split(b'\0') if b'=' in x)
+        hosting = mock.patch('covey.service.boot.hosting_job', return_value='test-job')  # PID 1 may be another user's
+        hosting.start()
+        self.addCleanup(hosting.stop)
         config = self.root / 'boot.json'
-        config.write_text(json.dumps({'enabled': True, 'devbox_id': env.get(b'MERLIN_JOB_ID', b'').decode(),
+        config.write_text(json.dumps({'enabled': True, 'devbox_id': 'test-job',
             'root': str(self.manager_root), 'mountpoint': '/', 'watchdog_seconds': 30,
             'command': [sys.executable, '-B', str(Path(__file__).parents[1] / 'bin/covey_service.py'),
                         '--root', str(self.manager_root), 'run', '--interval', '.1']}))
