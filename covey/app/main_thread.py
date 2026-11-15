@@ -119,6 +119,15 @@ class MainThread:
         self.runtime = topics.runtime
         self.tracks = Tracks(self)  # 多路并行 (app/main_tracks.py); idle unless COVEY_MAIN_TRACKS=1 and the mode says so.
 
+    def harness_note(self) -> str:
+        """The start's warning when the private chat is set to Personal Agent but the main thread's Harness
+        (``HARNESS``) is not enabled: the owner's messages then open topics as with the main thread off, which
+        nothing else says (acceptance on a test bot without Claude Code, 2026-11-15). '' otherwise."""
+        if not contract.enabled() or self.topics.apps.get(HARNESS) is not None:
+            return ""
+        return (f"main thread is on but its Harness {HARNESS} is not enabled: private chat messages open topics "
+                f"instead; enable {HARNESS} in harnesses.json or choose 纯话题 on the settings card")
+
     @staticmethod
     def configure(ctx) -> None:
         """Where replies go, in this process. A reply to one of the main thread's messages goes in that message's

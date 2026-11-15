@@ -120,6 +120,8 @@
 - **维护**：账本保留 7 天（`Temporary` 规则的 `main-thread/tracks`）；路的 Claude 会话文件按账本里的 `session_id`，那一轮结束满 3 天且 3 天没改没读的删（`TrackSessions`，只动 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）下 `projects/*/<session_id>.jsonl`）。
 - **开关**：`COVEY_MAIN_TRACKS` 关着不写账本、不加这一块。
 
+主线程只用 Claude Code（`app/main_thread.py` 的 `HARNESS`）。设置卡是 Personal Agent、但 Claude Code 没启用时，私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness claude is not enabled`。
+
 ### 提问不开串
 
 话题区布局下主线程这一轮默认不发卡（`(AREA, MAIN)` 格子的 `Row.quiet`）。`placement.quiet` 还要求消息是主人自己的（`om_` 开头）或回答问题后的续接一轮（`CONTINUATION`）。

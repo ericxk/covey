@@ -1450,3 +1450,20 @@ class ActionRowTest(MainCase):
         card = self.card('t' * 32)
         self.assertIn('running_switch', card)
         self.assertNotIn('side_chat_action', card)  # Off every card since 2026-11-08.
+
+
+class HarnessNoteTest(unittest.TestCase):
+    """The start says so when the private chat is Personal Agent but the main thread's Harness is not enabled: the
+    owner's messages then open topics, and nothing else told (acceptance on a test bot without Claude Code)."""
+
+    def thread(self, apps):
+        return session.MainThread(SimpleNamespace(runtime=SimpleNamespace(), apps=apps))
+
+    def test_a_missing_harness_is_one_warning_line_and_an_enabled_one_none(self):
+        with mock.patch.object(session.contract, "enabled", return_value=True):
+            note = self.thread({}).harness_note()
+            self.assertIn(f"Harness {session.HARNESS} is not enabled", note)
+            self.assertIn("纯话题", note)
+            self.assertEqual(self.thread({session.HARNESS: object()}).harness_note(), "")
+        with mock.patch.object(session.contract, "enabled", return_value=False):
+            self.assertEqual(self.thread({}).harness_note(), "", "the main thread off: nothing to warn of")

@@ -497,6 +497,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.runtime.log(f"history={ctx.history_path}")
         self.runtime.log(f"session_path={ctx.session_path}")
         self.runtime.log(f"state_dir={ctx.state_dir}")
+        note = self.main_thread.harness_note()
+        if note:
+            self.runtime.log(note)
         start_catalog_refresh(self.topics)
         model_usage.start(ctx.state_dir, self.runtime.log)  # The model selects' order (app/model_usage.py).
 
