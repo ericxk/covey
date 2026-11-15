@@ -44,7 +44,7 @@ from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
 from covey.core.locks import LOCK, topic_lock
 from covey.core.main_opened import OPENED
-from covey.core.main_thread import main_topic_id
+from covey.core.main_thread import is_main_topic
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.roster import NAMES
 from covey.core.state import read_object, write_json
@@ -90,7 +90,7 @@ def find_topic(env, chat, name):
         found = text
     if not found:
         return f"没有找到话题 {text or '（空）'}：用 topics_list 查 T 号。"
-    if found == main_topic_id(chat):
+    if is_main_topic(found, chat):
         return "这是主线程自己，不是一个话题。"
     if retired_topic(Path(env.state_dir), found):
         return (f"{text} 是已下线的前台话题（11-07 的旧布局），不再接新消息，也不能分叉：这件事就在主线程里做，"
@@ -422,7 +422,8 @@ def place(env, request, chat) -> tuple:
     owner = main_job_owner_message(env.state_dir, request.job_key)
     if not owner:
         return "", False
-    free = message_topic(Path(env.state_dir), chat, owner) in ("", main_topic_id(chat))
+    held = message_topic(Path(env.state_dir), chat, owner)
+    free = not held or is_main_topic(held, chat)
     return owner if free else "", not free
 
 

@@ -28,6 +28,7 @@ from covey.core.history_storage import append_history
 from covey.core.text import literal
 from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
 from covey.app.main_thread import SUPPLEMENT_LOST, SUPPLEMENT_UNCERTAIN
+from covey.app.runtime import job_stage
 from covey.app.submission import queue_hint
 from covey.app.detached import update_queued
 from covey.app.steer_forms import SteerForms
@@ -70,13 +71,7 @@ class Steering(SteerForms, SteerReceiptFlow):
     def steer_stage(self, job):
         """Where a task is for a supplement: queued (registered, not started), starting (taken by a
         worker, no backend control yet), running, paused (waiting for an answer) or ended."""
-        if job.cancel_event.is_set() or job.answer_finalized:
-            return "ended"
-        control = job.backend_control
-        if control is not None:
-            waiting = getattr(control, "pause_for_question", "") or getattr(control, "awaiting_answer", False) is True
-            return "paused" if waiting else "running"
-        return "starting" if job.execution_started else "queued"
+        return job_stage(job)
 
     def steer_target(self, ctx, chat, job_id):
         """This topic's task #job_id and its stage; (None, "ended") once it is gone."""

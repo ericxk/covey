@@ -187,10 +187,29 @@ HISTORY_TOOLS = (
 ALL_NAMES = NAMES + tuple(tool["name"] for tool in KNOWLEDGE_TOOLS + HISTORY_TOOLS)
 
 
+# 管家 (COVEY_MAIN_BUTLER=1, app/prompts.py BUTLER_RULES): topic_start's description says what the rules say, not that
+# the main thread does a minute or two's work itself. The name is app/prompts.py's BUTLER_ENV.
+BUTLER_ENV = "COVEY_MAIN_BUTLER"
+START_OWN = ("（可能超过一两分钟的、要改代码或文件的、主人说开话题的），而不是在主线程里自己做；"
+             "只读、一两分钟能做完的查询和命令你自己做。")
+START_BUTLER = ("（要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的、主人说开话题的），"
+                "不要先自己试一试，派出去；只有几秒内就能答完的快答（不用工具，或一两次只读查询）才自己答，"
+                "拿不准就派出去，主人明确说“你直接做”时例外。")
+assert any(tool["name"] == "topic_start" and START_OWN in tool["description"] for tool in TOOLS)
+
+
+def butler_tools(tools) -> tuple:
+    """``tools`` with topic_start's description as the butler's rules say it (START_BUTLER in place of START_OWN)."""
+    return tuple({**tool, "description": tool["description"].replace(START_OWN, START_BUTLER)}
+                 if tool["name"] == "topic_start" else tool for tool in tools)
+
+
 def listed(environ) -> tuple:
     """The tools the MCP server lists in ``environ``: TOOLS, with the knowledge tools when COVEY_KNOWLEDGE is
-    1 and history_search when COVEY_HISTORY_CMD is an absolute path."""
+    1 and history_search when COVEY_HISTORY_CMD is an absolute path; with COVEY_MAIN_BUTLER=1 topic_start's
+    description is the butler's (``butler_tools``). The Bridge hands the variable on (core/main_thread.py mcp_config)."""
     extra = KNOWLEDGE_TOOLS if str(cenv.get(KNOWLEDGE_ENV, "", environ)).strip() == "1" else ()
     if str(cenv.get(HISTORY_ENV, "", environ)).strip().startswith("/"):
         extra += HISTORY_TOOLS
-    return TOOLS + extra
+    tools = TOOLS + extra
+    return butler_tools(tools) if str(cenv.get(BUTLER_ENV, "", environ)).strip() == "1" else tools

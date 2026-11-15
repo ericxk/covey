@@ -42,7 +42,12 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
                 # ↩️ 回退: the session's chain up to this entry only; the turn hangs its messages under it.
                 argv += ["--resume-session-at", ctx.options["resume_at"]]
         elif ctx.options.get("fork_session"):
-            argv += ["--resume", ctx.options["fork_session"], "--fork-session"]
+            argv += ["--resume", ctx.options["fork_session"]]
+            if ctx.options.get("fork_at"):
+                # A track of the main thread (core/main_tracks.py): the fork's chain ends at this entry, so a turn of
+                # the source that is still running (its question already written) is not carried over.
+                argv += ["--resume-session-at", ctx.options["fork_at"]]
+            argv += ["--fork-session"]
         if instructions:
             # On every invocation; a resumed session keeps its first one's (app/sessions.py marks those).
             argv += ["--append-system-prompt", instructions]

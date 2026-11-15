@@ -167,11 +167,11 @@ class Hit:
 def turns_of(env, chat):
     """Each turn of the owner's topics but the main thread's, oldest first: its KEPT fields, taken from the jobs/ cache
     as the query looks (``where``, which only reads; returning False, so no whole record is copied)."""
-    main, kept = main_thread.main_topic_id(chat), []
+    kept = []
 
     def keep(record):
         topic_id = record.get("topic_id")
-        if isinstance(topic_id, str) and topic_id and topic_id != main:
+        if isinstance(topic_id, str) and topic_id and not main_thread.is_main_topic(topic_id, chat):
             kept.append({key: record.get(key) for key in KEPT})
         return False
     directory_store(jobs_dir(env.state_dir)).query(keep, chat_id=chat)

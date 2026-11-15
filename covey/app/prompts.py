@@ -19,6 +19,7 @@ from covey.cards.review import render_history
 from covey.core import env as cenv
 from covey.core import knowledge
 from covey.core.checkpoint import CHECKPOINT_RULES
+from covey.core.main_tool_specs import BUTLER_ENV
 
 # Commands' and subtasks' descriptions show on the task card's 执行过程 (core/text.py step_action): the owner
 # reads them, so they are in the owner's language too (T444 V11: 27 of #3288's 33 were English).
@@ -256,9 +257,9 @@ SHARED_RULES = (
     "- " + TOOL_NOTES_LANGUAGE,
 )
 # 管家 (COVEY_MAIN_BUTLER=1, docs/main-thread.md 管家规则): the main thread only answers quickly and hands the rest on, so
-# it is free for the owner's next question. It takes the place of SHARED_RULES' first rule (everything under a minute
-# or two is done in place); the other rules are the same. Off, the rules are exactly SHARED_RULES.
-BUTLER_ENV = "COVEY_MAIN_BUTLER"
+# it is free for the owner's next question. It takes the place of SHARED_RULES' first two rules (everything under a
+# minute or two is done in place; what goes to a topic area is what may take over a minute or two); the other rules are
+# the same. Off, the rules are exactly SHARED_RULES. BUTLER_ENV is core/main_tool_specs.py's: the tool list reads it too.
 BUTLER_RULES = (
     "- 你是管家，只做快答和分派，不在自己这一轮里干几分钟的活，这样才接得住主人的下一句。"
     "快答：不用工具，或只用一两次只读的查询（看一眼文件或日志、查一项配置、topic_read、topics_list），几秒内就能答完的，直接答，不开话题。"
@@ -267,7 +268,11 @@ BUTLER_RULES = (
     "拿不准是快答还是要干活的，派出去。"
     "派出去后只对主人说一句：放到哪个 T 号、大概多久，例如“放到 T432「标题」里做，大概十分钟”。"
     "例外：主人明确说“你直接做”“别开话题”“就在这儿做”时，这一轮自己做完再答；没有这样的话，一律照上面分。",
+    # SHARED_RULES' second rule, as is, but for what goes to a topic area.
+    SHARED_RULES[1].replace("可能超过一两分钟的、要改代码或文件的、主人说开话题的。",
+                            "要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的、主人说开话题的。"),
 )
+assert BUTLER_RULES[1] != SHARED_RULES[1]
 
 
 def butler_on(environ=None) -> bool:
@@ -276,8 +281,8 @@ def butler_on(environ=None) -> bool:
 
 
 def shared_rules(environ=None) -> tuple[str, ...]:
-    """SHARED_RULES, the butler's rule in place of the first one when COVEY_MAIN_BUTLER=1."""
-    return BUTLER_RULES + SHARED_RULES[1:] if butler_on(environ) else SHARED_RULES
+    """SHARED_RULES, the butler's two rules in place of the first two when COVEY_MAIN_BUTLER=1."""
+    return BUTLER_RULES + SHARED_RULES[2:] if butler_on(environ) else SHARED_RULES
 
 
 AREA_RULE = ("- 交给话题区后，你只用一句话说放到了哪里：新开的写“放到 T432「标题」里做”，追加的写“接着在 T432 里做”。"

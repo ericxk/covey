@@ -253,6 +253,7 @@
 | `core/main_thread.py` | The main thread (主线程), in the private chat mode Personal Agent |
 | `core/main_thread_settings.py` | The main thread's settings: <state>/main-thread.json |
 | `core/main_tool_specs.py` | The Bridge tools the main thread's session gets |
+| `core/main_tracks.py` | 多路并行 (docs/main-thread.md 多路并行, developing |
 | `core/maintenance.py` | Daily maintenance of a state directory: a verifiable backup, archival and bounded storage |
 | `core/maintenance_report.py` | How maintenance's --dry-run words what it would do |
 | `core/maintenance_rules.py` | The rules of daily maintenance |

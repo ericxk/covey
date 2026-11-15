@@ -12,7 +12,7 @@ from pathlib import Path
 
 from covey.app import detached
 from covey.app.access import Access
-from covey.core import timing
+from covey.core import main_tracks, timing
 from covey.core.jobs import job_key
 from covey.core.scheduler import topic_key
 
@@ -21,6 +21,19 @@ def print_log(message: str) -> None:
     # Milliseconds: the timing lines (core/timing.py) and a flow's other lines line up.
     ts = _dt.datetime.now().astimezone().isoformat(timespec="milliseconds")
     print(f"[{ts}] {message}", flush=True)
+
+
+def job_stage(job) -> str:
+    """Where a task is for a supplement: queued (registered, not started), starting (taken by a worker, no backend
+    control yet), running, paused (waiting for an answer) or ended. Reads the task's own fields only (no lock, no
+    file, no call): app/steering.py steer_stage says it, and ``JobRegistry.family_live`` counts by it."""
+    if job.cancel_event.is_set() or job.answer_finalized:
+        return "ended"
+    control = job.backend_control
+    if control is not None:
+        waiting = getattr(control, "pause_for_question", "") or getattr(control, "awaiting_answer", False) is True
+        return "paused" if waiting else "running"
+    return "starting" if job.execution_started else "queued"
 
 
 class JobRegistry:
@@ -104,6 +117,18 @@ class JobRegistry:
         """This topic's jobs here, in the order they were registered."""
         with self.lock:
             return [j for j in self.by_id.values() if j.topic_id == topic_id and j.chat_id == chat_id]
+
+    def family_live(self, chat_id) -> list:
+        """The main thread family's tasks in ``chat_id`` (core/main_tracks.py: slot 0, with COVEY_MAIN_TRACKS=1 the
+        tracks too) that are not ended and not waiting for an answer, as ``job_stage`` says (queued, starting,
+        running), oldest first. The tracks that are running count against COVEY_MAIN_TRACKS_MAX; a task waiting for the
+        owner's answer holds its slot but is not one of them. Reads this registry only, no file and no call."""
+        topics = frozenset(main_tracks.family_ids(chat_id))
+        with self.lock:
+            live = [job for job in self.by_id.values()
+                    if job.chat_id == chat_id and job.topic_id in topics
+                    and job_stage(job) in ("queued", "starting", "running")]
+        return sorted(live, key=lambda job: int(job.job_id))
 
     def in_topic(self, topic_id, *, started=False) -> bool:
         """A job of this topic is here, in any chat; ``started``: one no longer queued."""

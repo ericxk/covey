@@ -43,6 +43,33 @@ class NativeForkTests(unittest.TestCase):
         self.assertNotIn("--fork-session", argv)
         self.assertNotIn(SOURCE, argv)
 
+    def test_a_fork_at_an_entry_ends_the_forks_chain_there(self):
+        """B1 (B-SPEC 1.3, SPIKE.md): ``--resume X --resume-session-at U --fork-session``, the three together."""
+        ctx = codex_context(self.root, "stream-json")
+        ctx.options["fork_session"] = SOURCE
+        ctx.options["fork_at"] = "11111111-2222-4333-8444-555555555555"
+        backend = ClaudeBackend()
+        argv = stream_argv(backend, ctx)
+        index = argv.index("--resume")
+        self.assertEqual(argv[index:index + 5], ["--resume", SOURCE, "--resume-session-at", ctx.options["fork_at"],
+                                                 "--fork-session"])
+        self.assertEqual(argv.count("--resume-session-at"), 1)
+        # Without it, or empty, the fork is the whole session as before.
+        for at in (None, ""):
+            ctx.options["fork_at"] = at
+            argv = stream_argv(backend, ctx)
+            self.assertNotIn("--resume-session-at", argv)
+            self.assertEqual(argv[argv.index("--resume"):argv.index("--resume") + 3], ["--resume", SOURCE, "--fork-session"])
+
+    def test_fork_at_alone_or_with_a_session_to_resume_changes_nothing(self):
+        ctx = codex_context(self.root, "stream-json")
+        backend = ClaudeBackend()
+        plain, resumed = stream_argv(backend, ctx), stream_argv(backend, ctx, SID)
+        ctx.options["fork_at"] = "11111111-2222-4333-8444-555555555555"
+        self.assertEqual(stream_argv(backend, ctx), plain)  # No fork_session: not a fork.
+        self.assertEqual(stream_argv(backend, ctx, SID), resumed)  # A session to resume wins; resume_at is the rewind's.
+        self.assertNotIn("--resume-session-at", resumed)
+
     def test_codex_forks_the_source_thread_and_keeps_the_new_one(self):
         ctx = codex_context(self.root, "app-server")
         ctx.options["fork_session"] = SOURCE
