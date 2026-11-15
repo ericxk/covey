@@ -437,19 +437,26 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
 
     def worker_targets(self):
         """The Bridge's worker threads: (name, target), each target run as ``target(ctx)``."""
-        from covey.app.stale import close_stale_records
-        from covey.core.maintenance import maintenance_loop
-        from covey.feishu.connections import watch as watch_connection
         return [('scheduler', self.reply_worker_loop), ('cards', self.card_action_loop), ('menu', self.menu_loop),
-                ('maintenance', lambda ctx: maintenance_loop(
-                    self.runtime, ctx, close_stale=lambda plan: close_stale_records(self, ctx, plan),
-                    prune_web=lambda: self.proxy.web_login.prune_web_caches(ctx))),
-                ('connections', lambda ctx: watch_connection(self.runtime, ctx)),
+                ('maintenance', self.maintenance_target), ('connections', self.connections_target),
                 ('availability', lambda ctx: watch_availability(self, ctx)),
                 ('outbox', lambda ctx: run_outbox(self, ctx, *OUTBOX_STEPS)),
                 ('policy', lambda ctx: run_policy_guard(self, ctx)),
                 *(thread for feature in self.features for thread in getattr(feature, 'threads', tuple)()),
                 *self.group_menu.threads(), *self.group_boards.threads()]
+
+    def maintenance_target(self, ctx):
+        """The maintenance thread. Its modules are imported when the thread starts, not when the targets are listed:
+        a task runner never lists them, and a test that patches the loop after listing still reaches it."""
+        from covey.app.stale import close_stale_records
+        from covey.core.maintenance import maintenance_loop
+        return maintenance_loop(self.runtime, ctx, close_stale=lambda plan: close_stale_records(self, ctx, plan),
+                                prune_web=lambda: self.proxy.web_login.prune_web_caches(ctx))
+
+    def connections_target(self, ctx):
+        """The event bus watchdog thread, imported when it starts (as ``maintenance_target``)."""
+        from covey.feishu.connections import watch
+        return watch(self.runtime, ctx)
 
     def log_start(self, ctx):
         """The first line of a start: the process, its Manager generation and its code. A start in the same
