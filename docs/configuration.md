@@ -97,6 +97,7 @@
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES` | `digest` 线程、菜单「看板」 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/kb-history` | 主线程多 `knowledge_*` 工具，话题首轮带知识条目，汇总多一节；主线程多 `history_search`，话题规则多一行查历史的命令 |
 | [主线程](#主线程) | 默认允许；`COVEY_MAIN_THREAD=0` 不允许 | `main-tools`、`main-search` 线程；设置卡的私聊、新话题标签 |
+| [管家规则](#管家规则) | `COVEY_MAIN_BUTLER=1` | 主线程只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
 | [自动补齐飞书应用](operations.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 线程 |
@@ -167,6 +168,13 @@
 - 主线程的设置在 `<state>/main-thread.json`，工具请求在 `<state>/main-thread/requests/`。主线程的会话只能用 Claude Code。
 - `main-thread.json` 里旧的 `"desk_topics": true` 读到也按 `false` 处理，启动时记一行 warning，见[已下架项与旧配置](#已下架项与旧配置)。
 
+### 管家规则
+
+`COVEY_MAIN_BUTLER=1`（只认 `1`）：主线程的规则里，“只读的、一两分钟能做完的自己做完直接答”这一条换成管家规则：几秒能答完的直接答，要查、要跑、要改、要花几分钟的用 `topic_start`、`topic_send` 派给话题区，对主人只说一句放到哪个 T 号、大概多久。主人明确说“你直接做”时例外。其余规则一条不动；没设时每轮提示词和原来逐字节相同（`tests/golden/main_thread_prompt.txt`）。规则全文和旧会话什么时候用上新规则，见[主线程 · 管家规则](main-thread.md#管家规则)。
+
+- 打开：在注册服务的终端里设 `COVEY_MAIN_BUTLER=1`，重新 `launch`。关掉：去掉变量、重新 `launch`。
+- 不影响话题的规则、工具清单和卡片；跑过 `CARD_AFTER`（90 秒）才出卡的兜底照旧，没有另设变量。
+
 ### 群聊免@
 
 `COVEY_GROUP_ALL_MESSAGES=1`：主人可以按群选谁说话不用 @ 机器人（见[在群里用](usage.md#在群里用)）。只认 `1`。
@@ -225,6 +233,7 @@
 | `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/main_thread.py`（`mcp_config` 同上）、`core/main_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根的 `extensions/enabled`（没有这个文件就没有扩展）；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
+| `COVEY_MAIN_BUTLER` | `app/prompts.py`（`butler_on`） | 空：关；`1` 把主线程规则的首条换成管家规则（只快答和分派） | 否 |
 | `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（多路并行里，规则没能定的新消息交给小模型判断是并进哪一路还是新开一路；这一包只有函数，接线在后） | `claude`：Claude Code 的 Haiku 起一次性进程；`off` 不调，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一路 | 否 |
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 2000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一路；取值限制在 200 到 10000 | 否 |
