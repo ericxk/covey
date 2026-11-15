@@ -331,7 +331,12 @@ class AttachTest(ShimCase):
         got = frames.until(lambda f: f.get("k") == "hb", timeout=15)
         self.assertIsNotNone(got, "a heartbeat within 15 seconds")
         self.assertNotIn("o", got[-1])
-        self.assertNotIn("hb", (self.device.task_dir("t1") / "journal").read_text())
+        # Each journal line is one record; no record is a heartbeat. (A substring check for "hb" failed when the random
+        # temp directory name, which records carry, had those two letters: CI 3.11 on 8e07496.)
+        kinds = [json.loads(line)["k"] for line in (self.device.task_dir("t1") / "journal").read_text().splitlines()
+                 if line.strip()]
+        self.assertTrue(kinds)
+        self.assertNotIn("hb", kinds)
 
 
 class SendTest(ShimCase):
