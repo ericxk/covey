@@ -17,8 +17,13 @@ nothing changes. A switch that is on with no device listed behaves the same.
 - **Records** under ``<state>/devices/``: ``hub-id`` (one per hub, so two hubs on one device do not meet),
   ``<alias>/hello.json`` (the last ``hello``) and ``<alias>/profile.json`` (what ``self_check`` learned: tools,
   logins, the proxy environment that passed the whitelist).
-- **self_check** connects, pushes the shim, says hello, imports the environment profile and (once the hub passes a
-  ``probe``) runs one minimal real request per declared Harness.
+- **self_check** connects, pushes the shim (and the Codex reader), says hello, imports the environment profile and
+  (with ``probe_harness``, which ``check_device`` and ``bin/covey_devices.py check`` pass) runs one minimal real request
+  per declared Harness on the device, with the profile's environment. Its outcome, in words (``CheckResult.explain``),
+  is kept in ``profile.json`` and read back by ``status_text`` (the workspace card's device line, ``service/doctor.py``).
+- **Browsing** (``list_dirs``, ``search_dirs``): a directory listing and a name search done on the device (the shim's
+  ``ls``; one ``exec`` of a small script), for the directory browser. **Codex's model list** (``codex_root``): the
+  device's ``models_cache.json`` fetched with the shim's ``get`` into ``<state>/devices/<alias>/codex-home/``.
 
 Standard library plus core/env, core/paths, core/state and core/device_transport.
 """
@@ -37,6 +42,7 @@ from pathlib import Path
 
 import covey.core.env as cenv
 from covey.core import device_transport as transport_module
+from covey.core import harness_probe
 from covey.core.device_transport import LinkError, SshTransport, shim_bytes, shim_id
 from covey.core.paths import data_home
 from covey.core.state import ensure_private_dir, read_object, write_json
@@ -676,6 +682,10 @@ def effective_env(device, profile):
 # ---------------------------------------------------------------- self check
 
 LOGIN_ENV_SCRIPT = ["sh", "-c", 'exec "${SHELL:-sh}" -lc env']
+READER_FILE = Path(__file__).resolve().parents[1] / "backends" / "codex" / "workspace_reader.py"
+PROBE_SECONDS = 60
+PROBE_OUTPUT = 1 << 16
+LOGIN_HELP = {"claude": "在设备上运行 claude，用 /login 登录", "codex": "在设备上运行 codex login"}
 
 
 @dataclasses.dataclass
@@ -687,12 +697,58 @@ class Step:
     skipped: bool = False
 
 
+def proxy_names(env):
+    """The proxy variables (names only) a mapping of environment variables sets."""
+    return [name for name in PROXY_URLS if (env or {}).get(name)]
+
+
+def explain_probe(alias, harness, answer, env):
+    """What a failed minimal request means for the one who sets the device up, in words. ``answer`` is a
+    ``harness_probe`` result, ``env`` the environment the request ran with (what ``effective_env`` gave)."""
+    reason, detail = answer.get("reason", "other"), (answer.get("detail") or "").strip()
+    if reason == "not_installed":
+        return "%s 上没有 %s（PATH 和常见安装目录里都找不到）。" % (alias, harness)
+    if reason == "not_logged_in":
+        return "%s 上的 %s 没有登录：%s，再自检。" % (alias, harness, LOGIN_HELP.get(harness, "先在设备上登录"))
+    if reason == "timeout":
+        return "%s 上的 %s 在 %d 秒内没有答复（出网慢，或被代理卡住）。" % (alias, harness, PROBE_SECONDS)
+    if reason == "network":
+        proxies = proxy_names(env)
+        if not proxies:
+            return ("%s 上的 %s 连不上模型服务，而且环境档案里没有代理（HTTPS_PROXY）。设备出网要代理的话，在设备的 "
+                    "~/.claude/settings.json 的 env 里设 HTTPS_PROXY，或写进 devices.json 里这台设备的 env，再自检。"
+                    % (alias, harness))
+        return ("%s 上的 %s 连不上模型服务；已带代理（%s）仍然不通：确认这个代理从 %s 上访问得到，或在 devices.json "
+                "的 env 里改。" % (alias, harness, "、".join(proxies), alias))
+    return "%s 上的 %s 最小请求失败：%s" % (alias, harness, detail or "没有输出")
+
+
+def probe_harness(transport, device, name, profile, *, timeout=PROBE_SECONDS):
+    """The one real minimal request of a Harness on a device (``self_check``'s ``probe``): the same call as
+    ``core/harness_probe.py`` makes here (``claude -p``, ``codex exec``), run by the shim's ``exec`` on the device with
+    the profile's environment (``effective_env``). ``{"ok", "reason", "detail", "seconds"}``; ``reason`` is one of
+    ``harness_probe.REASONS``."""
+    info = (profile.get("tools") or {}).get(name) or {}
+    if not info.get("found") or not info.get("path"):
+        return {"ok": False, "reason": "not_installed", "detail": "%s not found on the device" % name, "seconds": 0.0}
+    argv = harness_probe.command_for(name, info["path"])
+    started = time.monotonic()
+    answer = transport.call("exec", argv=argv, env=effective_env(device, profile), cwd="~", timeout=timeout,
+                            max_out=PROBE_OUTPUT, patience=timeout + 30.0)
+    spent = round(time.monotonic() - started, 1)
+    if answer.get("timed_out"):
+        return {**harness_probe._result(False, "timeout", "no answer within %d s" % timeout), "seconds": spent}
+    output = (answer.get("stderr") or "") + "\n" + (answer.get("out") or "")
+    return {**harness_probe.classify(output, answer.get("code", 1)), "seconds": spent}
+
+
 @dataclasses.dataclass
 class CheckResult:
     alias: str
     steps: list
     hello: dict | None = None
     profile: dict | None = None
+    env: dict = dataclasses.field(default_factory=dict)  # What the minimal requests ran with: for the words.
 
     @property
     def ok(self):
@@ -703,20 +759,58 @@ class CheckResult:
         return next((step for step in self.steps if not (step.ok or step.skipped)), None)
 
     def lines(self):
-        """One line per step, for ``bin/covey_devices.py check`` and the workspace card."""
+        """One line per step, for ``bin/covey_devices.py check``."""
         return ["%s %-9s %5.1fs  %s" % ("ok " if step.ok else "-- " if step.skipped else "FAIL", step.name,
                                         step.seconds, step.detail) for step in self.steps]
+
+    def explain(self):
+        """The outcome in words: one line when it passed (what was found, and that the minimal requests passed), else
+        what failed first and what to do about it, a line each for every failed step."""
+        if self.ok:
+            tools = ((self.profile or {}).get("tools") or {})
+            found = " · ".join("%s %s" % (name, short_version(name, info)) for name, info in tools.items()
+                               if info.get("found")) or "没有声明 Harness"
+            probed = [step.name.split(":", 1)[1] for step in self.steps if step.name.startswith("probe:") and step.ok]
+            return "%s 自检通过：%s%s" % (self.alias, found,
+                                        "；%s 的最小请求都通过了" % "、".join(probed) if probed else "（没有真跑最小请求）")
+        return "\n".join(self._failure(step) for step in self.steps if not (step.ok or step.skipped))
+
+    def _failure(self, step):
+        name, detail, alias = step.name, step.detail, self.alias
+        if name == "connect":
+            return ("连不上 %s：%s。自检用 ssh BatchMode（从不问密码）：设备要能免密登录，known_hosts 里要有它的主机密钥"
+                    "（先在 Bridge 所在机器上手动 ssh 一次）。" % (alias, detail))
+        if name == "shim":
+            return "%s 上放不下设备端程序：%s" % (alias, detail)
+        if name == "hello":
+            return "%s 上的设备端程序没有正常答复：%s。设备上要有 Python 3.9 以上（devices.json 的 ssh.python）。" % (alias, detail)
+        if name == "profile":
+            return "%s 的环境档案没取成：%s" % (alias, detail)
+        if name == "tools":
+            return "%s 上没装 %s。" % (alias, detail.rpartition(":")[2].strip())
+        harness = name.split(":", 1)[1]
+        answer = (self.profile or {}).get("probe", {}).get(harness)
+        return explain_probe(alias, harness, answer, self.env) if answer else "%s 上的 %s 最小请求没做成：%s" % (
+            alias, harness, detail)
+
+
+def short_version(name, info):
+    """A tool's version as a short word: the first number-led part of what ``--version`` printed."""
+    text = str(info.get("version") or "")
+    return next((word for word in text.replace(",", " ").split() if word[:1].isdigit()), text[:20] or "?")
 
 
 def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now=time.time, data=None):
     """Check a device end to end and record what was learned.
 
     Steps, stopping at the first that fails: ``connect`` (a trivial command over ssh, BatchMode), ``shim`` (push
-    ``core/device_shim.py`` unless the device has it), ``hello`` (the device answers with the shim we pushed),
-    ``profile`` (tools, logins and the environment that passed the whitelist; written with ``hello`` to
-    ``<state>/devices/<alias>/`` when ``state_dir`` is given), ``tools`` (every Harness the device declares is
-    installed) and ``probe:<harness>`` (``probe(transport, device, harness, profile)`` -> ``{"ok", "reason",
-    "detail"}``, the one real minimal request A7 supplies; without a ``probe`` these are skipped, not failed).
+    ``core/device_shim.py``, and ``backends/codex/workspace_reader.py`` when Codex is declared, unless the device has
+    them), ``hello`` (the device answers with the shim we pushed), ``profile`` (tools, logins and the environment that
+    passed the whitelist; written with ``hello`` to ``<state>/devices/<alias>/`` when ``state_dir`` is given), ``tools``
+    (every Harness the device declares is installed) and ``probe:<harness>`` (``probe(transport, device, harness,
+    profile)`` -> ``{"ok", "reason", "detail"}``, the one real minimal request: ``probe_harness``; without a ``probe``
+    these are skipped, not failed). ``profile.json`` also gets ``check`` (when, whether it passed, ``explain()``) -- a
+    check that fails before the profile step only updates the ``check`` of a profile that is already there.
     ``transport`` defaults to ``open_transport`` (needs ``state_dir``)."""
     device = config.device(alias)
     data = shim_bytes() if data is None else data
@@ -725,6 +819,15 @@ def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now
         if state_dir is None:
             raise ValueError("self_check needs a state_dir or a transport")
         transport = open_transport(config, alias, state_dir)
+    try:
+        _run_check(config, device, transport, data, probe, now, state_dir, result)
+    finally:
+        _record_check(state_dir, alias, result, now)
+    return result
+
+
+def _run_check(config, device, transport, data, probe, now, state_dir, result):
+    alias = device.alias
 
     def step(name, action):
         started = time.monotonic()
@@ -744,6 +847,9 @@ def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now
 
     def push():
         state, path = push_file(transport, data)
+        if "codex" in device.harnesses:
+            reader, _ = push_file(transport, READER_FILE.read_bytes(), "workspace_reader.py")
+            return "%s %s · reader %s" % (state, path, reader)
         return "%s %s" % (state, path)
 
     hello = {}
@@ -760,6 +866,7 @@ def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now
             answer = transport.call("exec", argv=LOGIN_ENV_SCRIPT, timeout=20, max_out=1 << 18, patience=40.0)
             login = parse_env_lines(answer.get("out") or "")
         result.profile = build_profile(device, hello, login_env=login, now=now())
+        result.env = effective_env(device, result.profile)
         if state_dir is not None:
             write_hello(state_dir, alias, hello, now=now())
             write_json(device_dir(state_dir, alias) / "profile.json", result.profile, ensure_ascii=False)
@@ -773,10 +880,10 @@ def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now
         return ", ".join("%s %s" % (name, result.profile["tools"][name].get("version", "")) for name in device.harnesses)
 
     if not step("connect", connect) or not step("shim", push) or not step("hello", say_hello):
-        return result
+        return
     result.hello = dict(hello)
     if not step("profile", make_profile):
-        return result
+        return
     step("tools", tools)
     for name in device.harnesses:
         if probe is None:
@@ -793,4 +900,172 @@ def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now
             return "ok"
 
         step("probe:" + name, run_probe)
-    return result
+
+
+def _record_check(state_dir, alias, result, now):
+    """The outcome of ``result`` in ``profile.json`` (``check``): on the profile this check made, else on the one that
+    is already there (no record at all when there is neither)."""
+    if state_dir is None:
+        return
+    path = device_dir(state_dir, alias) / "profile.json"
+    profile = result.profile if result.profile is not None else read_object(path)
+    if not profile:
+        return
+    failed = result.failed
+    profile["check"] = {"at": now(), "ok": result.ok, "failed": failed.name if failed else "", "text": result.explain()}
+    write_json(path, profile, ensure_ascii=False)
+
+
+def check_device(config, alias, *, state_dir, transport=None, now=time.time):
+    """``self_check`` with the real minimal request (``probe_harness``): what ``bin/covey_devices.py check`` runs."""
+    return self_check(config, alias, state_dir=state_dir, transport=transport, probe=probe_harness, now=now)
+
+
+def age_text(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return "刚刚"
+    if seconds < 5400:
+        return "%d 分钟前" % round(seconds / 60)
+    if seconds < 129600:
+        return "%d 小时前" % round(seconds / 3600)
+    return "%d 天前" % round(seconds / 86400)
+
+
+def status_text(state_dir, alias, *, now=None):
+    """One line on a device's last self-check, from ``profile.json`` (read here, never asked of the device): the
+    workspace card's device line and ``service/doctor.py`` print it."""
+    profile = read_profile(state_dir, alias)
+    check = profile.get("check") if isinstance(profile.get("check"), dict) else None
+    if not check:
+        return "还没自检：在 Bridge 所在机器上运行 covey_devices.py check %s" % alias
+    when = age_text((now if now is not None else time.time()) - float(check.get("at") or 0))
+    if check.get("ok"):
+        tools = (profile.get("tools") or {})
+        found = " · ".join("%s %s" % (name, short_version(name, info)) for name, info in tools.items() if info.get("found"))
+        return "自检通过（%s）%s" % (when, " · " + found if found else "")
+    return "自检未通过（%s）：%s" % (when, str(check.get("text") or "").replace("\n", " ")[:160])
+
+
+# ---------------------------------------------------------------- browsing and models on the device
+
+LIST_SECONDS = 5.0
+SEARCH_LIMITS = {"depth": 3, "directories": 5000, "seconds": 6, "results": 200, "scan": 4000}
+# The directory browser's name search (app/directory_picker.py search_directories), run on the device by ``exec``: the
+# same walk (breadth first, no link followed, hidden and node_modules skipped), one round trip. Python 3.9.
+SEARCH_SCRIPT = r"""
+import json, os, sys, time
+path, query = os.path.abspath(os.path.expanduser(sys.argv[1])), sys.argv[2]
+depth, directories, seconds, results, scan = (int(x) for x in sys.argv[3:8])
+started, needle = time.monotonic(), query.strip().casefold()
+hidden = needle.startswith('.')
+found, level, scanned, truncated, error = [], [''], 0, False, ''
+for _ in range(depth):
+    below = []
+    for relative in level:
+        if scanned >= directories or time.monotonic() - started > seconds:
+            truncated = True
+            break
+        scanned += 1
+        names = []
+        try:
+            with os.scandir(os.path.join(path, relative) if relative else path) as it:
+                for count, entry in enumerate(it):
+                    if count >= scan or time.monotonic() - started > seconds:
+                        truncated = True
+                        break
+                    link = entry.is_symlink()
+                    if link or entry.is_dir(follow_symlinks=False):
+                        names.append((entry.name, link))
+        except OSError as exc:
+            if not relative:
+                error = 'not_found' if isinstance(exc, (FileNotFoundError, NotADirectoryError)) else (
+                    'permission' if isinstance(exc, PermissionError) else 'other')
+                break
+            continue
+        for name, link in sorted(names, key=lambda item: (item[0].casefold(), item[0])):
+            if not hidden and name.startswith('.'):
+                continue
+            child = relative + '/' + name if relative else name
+            if needle in name.casefold():
+                found.append({'name': child, 'link': link})
+            if not link and name not in ('node_modules', '__pycache__'):
+                below.append(child)
+    if truncated or error:
+        break
+    level = below
+print(json.dumps({'path': path, 'entries': found[:results], 'more': len(found) > results, 'code': error,
+                  'truncated': truncated, 'scanned': scanned}))
+"""
+CODEX_MODELS = "~/.codex/models_cache.json"
+CODEX_TTL = 600.0
+BROWSE_CODES = {"not_found": "not_found", "not_dir": "not_found", "permission": "permission"}
+
+
+def _device_python(state_dir, alias, device):
+    return read_profile(state_dir, alias).get("python_exe") or device.python
+
+
+def _browse_failure(exc):
+    """The browser's error code for a failed device call: ``not_found``, ``permission``, ``offline`` (nothing answered)
+    or ``other``."""
+    if isinstance(exc, transport_module.ShimError):
+        return BROWSE_CODES.get(getattr(exc, "code", ""), "other")
+    return "offline" if isinstance(exc, (LinkError, OSError)) else "other"
+
+
+def list_dirs(state_dir, alias, path, *, timeout=LIST_SECONDS, limit=4000, config=None, environ=None):
+    """The directories (and links) in ``path`` on ``alias``, listed by the device: ``{"path"`` (the absolute path,
+    ``~`` expanded by the device), ``"entries"`` (``[{"name", "link"}]`` by name), ``"truncated"``, ``"code"`` (empty,
+    or ``not_found``, ``permission``, ``offline``, ``other``)``}``. One shim ``ls``; the hub looks at no path."""
+    try:
+        link = open_transport(config if config is not None else current(environ), alias, state_dir)
+        push_file(link, shim_bytes())
+        answer = link.call("ls", path=path, limit=limit, patience=timeout)
+    except (transport_module.DeviceError, OSError) as exc:
+        return {"path": path, "entries": [], "truncated": False, "code": _browse_failure(exc), "detail": str(exc)[:200]}
+    entries = [{"name": item["name"], "link": item.get("kind") == "link"} for item in answer.get("entries") or []
+               if item.get("kind") in ("dir", "link") and isinstance(item.get("name"), str)]
+    entries.sort(key=lambda item: (item["name"].casefold(), item["name"]))
+    return {"path": answer.get("path", path), "entries": entries, "truncated": bool(answer.get("truncated")), "code": ""}
+
+
+def search_dirs(state_dir, alias, path, query, *, timeout=None, config=None, environ=None, limits=None):
+    """Directories below ``path`` on ``alias`` whose name contains ``query``, found by ``SEARCH_SCRIPT`` on the device
+    in one ``exec``: ``{"path", "entries", "more", "truncated", "scanned", "code"}`` like ``list_dirs``."""
+    limits = {**SEARCH_LIMITS, **(limits or {})}
+    timeout = timeout if timeout is not None else limits["seconds"] + 6.0
+    try:
+        use = config if config is not None else current(environ)
+        link = open_transport(use, alias, state_dir)
+        push_file(link, shim_bytes())
+        argv = [_device_python(state_dir, alias, use.device(alias)), "-c", SEARCH_SCRIPT, path, query,
+                *(str(limits[key]) for key in ("depth", "directories", "seconds", "results", "scan"))]
+        answer = link.call("exec", argv=argv, cwd="~", timeout=timeout, max_out=1 << 20, patience=timeout + 5.0)
+        found = json.loads((answer.get("out") or "").strip().splitlines()[-1])
+    except (transport_module.DeviceError, OSError, ValueError, IndexError) as exc:
+        return {"path": path, "entries": [], "truncated": False, "code": _browse_failure(exc), "detail": str(exc)[:200]}
+    return found
+
+
+def codex_root(state_dir, alias, *, refresh=False, ttl=CODEX_TTL, config=None, environ=None):
+    """A directory on the hub holding the device's Codex ``models_cache.json`` (what ``core/model_settings.py``
+    ``model_catalog(root)`` reads): fetched from the device with the shim's ``get`` when the copy is older than ``ttl``
+    seconds (or ``refresh``). A device that does not answer leaves the older copy; none, an empty directory (no
+    models). Always the same directory for the alias, so the caller needs no check."""
+    root = device_dir(state_dir, alias) / "codex-home"
+    target = root / "models_cache.json"
+    try:
+        fresh = time.time() - target.stat().st_mtime < ttl
+    except OSError:
+        fresh = False
+    if fresh and not refresh:
+        return root
+    try:
+        link = open_transport(config if config is not None else current(environ), alias, state_dir)
+        push_file(link, shim_bytes())
+        data = link.get_file(CODEX_MODELS, max_bytes=8 << 20, patience=LIST_SECONDS + 10.0)
+        write_json(target, json.loads(data.decode("utf-8")), ensure_ascii=False)
+    except (transport_module.DeviceError, OSError, ValueError):
+        pass
+    return root

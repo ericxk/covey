@@ -11,7 +11,8 @@ import time
 from covey.core.loops import every
 from covey.core.state import read_json, write_json
 from covey.core.roster import HARNESSES
-from covey.core.process_env import child_process_env, env_flag
+from covey.core.process import device_of
+from covey.core.process_env import child_process_env, env_flag, process_device
 from covey.core import harness_probe
 from covey.core import gateways
 from covey.core.result import ERROR_CODES
@@ -43,7 +44,31 @@ def probe_row(result):
     return {k: result[k] for k in ('ok', 'reason', 'detail', 'checked_at', 'cached') if k in result}
 
 
+def device_check(name, ctx):
+    """A Harness's readiness on the device ``ctx`` works on, from what the device last said (its cached ``hello`` and the
+    environment profile of its last self-check, core/devices.py): never a command looked for on this machine. No
+    ``hello`` younger than ``HELLO_TTL`` (nothing has talked to the device lately) is 'unknown', which does not stop a
+    task: the turn's own connection (and the 5-second check before it) says if the device is gone."""
+    from covey.core import devices
+    alias = device_of(ctx)
+    hello = devices.read_hello(ctx.state_dir, alias)
+    if hello is None:
+        return {'status': 'unknown', 'reason': 'device_not_checked', 'scope': 'device_preflight'}
+    tool = (hello.get('tools') or {}).get(name)
+    if not isinstance(tool, dict) or not tool.get('found'):
+        return {'status': 'unavailable', 'reason': 'executable_missing', 'scope': 'device_preflight'}
+    if tool.get('login') == 'no':
+        return {'status': 'unavailable', 'reason': 'authentication', 'scope': 'device_preflight'}
+    # The last minimal request (self-check) said it is not signed in: the same answer as a cached local probe.
+    probe = (devices.read_profile(ctx.state_dir, alias).get('probe') or {}).get(name) or {}
+    if probe.get('reason') == 'not_logged_in':
+        return {'status': 'unavailable', 'reason': 'authentication', 'scope': 'device_probe'}
+    return {'status': 'configured', 'scope': 'device_preflight; model access not probed'}
+
+
 def local_check(name, ctx):
+    if device_of(ctx):
+        return device_check(name, ctx)
     executable = _executable(ctx)
     if not executable or not shutil.which(executable):
         return {'status': 'unavailable', 'reason': 'executable_missing', 'scope': 'local_preflight'}
@@ -63,7 +88,8 @@ def local_check(name, ctx):
         _logins[executable] = time.monotonic()
     if name in PROBED and probe_enabled():
         # Only the cached answer: a task's preflight never waits for a model call (the watch fills the cache).
-        known = harness_probe.read_cache(harness_probe.probe_directory(), name, command=_command(ctx), env=child_process_env(ctx.workdir))
+        known = harness_probe.read_cache(harness_probe.probe_directory(), name, command=_command(ctx),
+                                         env=child_process_env(ctx.workdir, device=process_device(ctx)))
         if known and known.get('reason') == 'not_logged_in':
             return {'status': 'unavailable', 'reason': 'authentication', 'scope': 'live_probe'}
     gateway = gateways.for_model(name, ctx.model) if name == 'pi' else gateways.dsh_gateway() if name == 'dsh' else None
@@ -117,7 +143,7 @@ def snapshot(state):
 
 def check_or_raise(name, ctx):
     executable = _executable(ctx)
-    passed = _logins.get(executable) if name == 'claude' else None
+    passed = _logins.get(executable) if name == 'claude' and not device_of(ctx) else None
     if passed is not None and time.monotonic() - passed < LOGIN_REUSE and shutil.which(executable):
         return {'status': 'configured', 'scope': 'local_preflight; login check reused'}
     check = local_check(name, ctx)
@@ -140,7 +166,8 @@ def sample(gateway, ctx):
             check = checks[name]
             if name in PROBED and probe_enabled() and (check['status'] != 'unavailable' or check.get('scope') == 'live_probe'):
                 check['probe'] = probe_row(harness_probe.cached_probe(
-                    harness_probe.probe_directory(), name, command=_command(target), env=child_process_env(target.workdir)))
+                    harness_probe.probe_directory(), name, command=_command(target),
+                    env=child_process_env(target.workdir, device=process_device(target))))
         except (OSError, ValueError, TypeError, AttributeError):
             checks[name] = {'status': 'unknown', 'scope': 'local_preflight'}
     gateway.runtime.availability_health = {'preflight': checks, 'observations': snapshot(ctx.state_dir)}

@@ -2,12 +2,18 @@
 
 The navigation here (``step``, ``read_into``) and the card in cards/directory.py serve two hosts: the
 launch card's 选择其他目录 (``DirectoryPicker`` below, the view in a launch form's ``picker``) and the
-workspace manager's ＋ 添加工作区… (app/workspace_manager.py, the view in ``manager.browse``)."""
+workspace manager's ＋ 添加工作区… (app/workspace_manager.py, the view in ``manager.browse``).
+
+A view with a ``device`` (an alias of devices.json) browses that device: the listing and the name search are done by
+the device (core/devices.py ``list_dirs``, ``search_dirs``), ``~`` is the device's home (never expanded here), the cache
+key carries the device, and a directory chosen is ``alias:path``. An owner gets there by typing ``alias:path`` in the
+search box, where the chat's ``spaces`` allow it (``DeviceGate``); the hub looks at no device path itself."""
 from __future__ import annotations
 
 import copy
 import os
 from pathlib import Path
+import posixpath
 import re
 import threading
 import time
@@ -20,6 +26,7 @@ from covey.app.launch import (OWNER_ONLY_DIRECTORY, rebuild_launch_card, refuse_
                                        refuse_retired_form, retired_form, retired_form_at, selected_effort)
 from covey.cards.launch_config import PICKER_PREFIX
 from covey.cards.directory import DIRECTORY_FORM_PREFIX, directory_card, visible_entries
+from covey.core import devices
 from covey.core.text import literal
 from covey.core.locks import resource_lock
 from covey.core.workspaces import add_workspace
@@ -44,6 +51,67 @@ def _read_error(exc):
     if isinstance(exc, PermissionError):
         return '没有权限读取此目录，请返回上一级。'
     return f'读取失败，{RETRY}，或返回上一级。'
+
+
+def device_error(code, device):
+    """The card's words for a device listing that failed (core/devices.py ``list_dirs`` codes)."""
+    if code in ('not_found', 'not_dir'):
+        return _read_error(FileNotFoundError())
+    if code == 'permission':
+        return _read_error(PermissionError())
+    if code == 'offline':
+        return f'设备 {device} 没有答复，{RETRY}，或返回上一级。'
+    return f'读取失败，{RETRY}，或返回上一级。'
+
+
+def read_device(device, path, query, state_dir):
+    """A listing (``query`` empty) or a name search of ``path`` on ``device``, in the shape of scan_directory's and
+    search_directories's, plus the ``path`` the device resolved (``~`` expanded there)."""
+    if state_dir is None:
+        return {'entries': [], 'error': device_error('other', device)}
+    found = (devices.search_dirs(state_dir, device, path, query) if query
+             else devices.list_dirs(state_dir, device, path))
+    if found.get('code'):
+        return {'entries': [], 'error': device_error(found['code'], device)}
+    return {**{k: found[k] for k in ('entries', 'truncated', 'more', 'scanned') if k in found},
+            'path': found.get('path', path), 'error': ''}
+
+
+class DeviceGate:
+    """Which devices a chat's browser may go to: ``gate(alias)`` is '' when allowed, else the reason (an alias
+    devices.json does not list, or one the chat's ``spaces`` refuse: app/access.py ``allows_device``)."""
+
+    def __init__(self, access, chat_id):
+        self.access, self.chat_id = access, chat_id
+
+    def __call__(self, alias):
+        try:
+            devices.current().device(alias)
+        except devices.UnknownDevice:
+            return f'设备 {alias} 不在 devices.json 里'
+        if not self.access.allows_device(self.chat_id, alias):
+            return f'设备 {alias} 不允许在这个聊天里使用（devices.json 的 spaces）'
+        return ''
+
+    def offers(self):
+        """Whether this chat may browse some device: the browser then says so in its search box."""
+        try:
+            return any(not self(alias) for alias in devices.current().devices)
+        except devices.DeviceConfigError:
+            return False
+
+
+def device_hop(text):
+    """(alias, path) of a typed ``alias:path`` with devices on (``~`` for an empty path), else None."""
+    if not devices.is_device_value(text):
+        return None
+    alias, _, rest = text.strip().partition(':')
+    return alias, devices.normalize_remote(rest)
+
+
+def qualified(view, path):
+    """``path`` as the workspace value to add: ``alias:path`` in a device's view."""
+    return f"{view['device']}:{path}" if view.get('device') else path
 
 
 def scan_directory(path):
@@ -154,10 +222,11 @@ def legacy_form(view, verb, fields):
     return ('jump' if verb != 'select' else 'use'), target
 
 
-def step(view, verb, arg, *, near=None):
+def step(view, verb, arg, *, near=None, allow=None):
     """Apply one click to ``view`` in place: 'read' to list (or search) what it shows next, 'refresh'
     to read it again past the cache, 'show' to render it as it is, ('choose', path), 'back', or None
-    for a click that does not apply (it is ignored)."""
+    for a click that does not apply (it is ignored). ``allow`` (a DeviceGate) says which devices a typed
+    ``alias:path`` may go to; none given, none."""
     view.pop('notice', None)
     entries = view.get('entries', [])
     ready = not (view.get('loading') or view.get('error'))
@@ -177,15 +246,29 @@ def step(view, verb, arg, *, near=None):
         target = row(arg)
         if target is None:
             return None
-        return move(target) if verb == 'enter' else ('choose', target)
+        return move(target) if verb == 'enter' else ('choose', qualified(view, target))
     if verb in ('use', 'select'):
         if not ready:
             return None
-        return 'choose', arg if isinstance(arg, str) and arg else view['path']
+        return 'choose', qualified(view, arg if isinstance(arg, str) and arg else view['path'])
     if verb in ('search', 'filter', 'jump'):
         if not isinstance(arg, str) or len(arg) > 1000:
             return None
         text = arg.strip()
+        if (hop := device_hop(text)) is not None:
+            refusal = allow(hop[0]) if allow is not None else 'devices.json 里没有可用的设备'
+            if refusal:
+                view['notice'] = '⚠️ ' + refusal
+                return 'show'
+            view.update(device=hop[0], device_title=device_title(hop[0]))
+            return move(hop[1], 'refresh')
+        if view.get('device') and (verb == 'jump' or text.startswith(('/', '~'))):
+            # A path typed in a device's view is the device's: no expansion and no absolute-path check here.
+            target = devices.normalize_remote(text)
+            if not target.startswith(('/', '~')):
+                view['notice'] = '⚠️ 请输入绝对路径，例如 /home/me/project'
+                return 'show'
+            return move(target, 'refresh')
         if verb == 'jump' or text.startswith(('/', '~')):
             target = os.path.expanduser(text)
             if not os.path.isabs(target):
@@ -197,10 +280,13 @@ def step(view, verb, arg, *, near=None):
     if verb == 'clear':
         return move(view['path'])
     if verb == 'up':
+        if view.get('device'):
+            parent = posixpath.dirname(view['path'])
+            return move(parent if view['path'] not in ('~', '/') and parent else '/')
         return move(str(Path(view['path']).parent))
     if verb == 'root':
         return move('/')
-    if verb == 'near' and near:
+    if verb == 'near' and near and not view.get('device') and not devices.is_device_value(near):
         return move(str(Path(near).parent))
     if verb == 'hidden':
         view['hidden'] = not view.get('hidden')
@@ -215,11 +301,19 @@ def step(view, verb, arg, *, near=None):
     return None
 
 
-def read_into(cache, view, *, refresh=False):
+def device_title(alias):
+    try:
+        return devices.current().device(alias).title
+    except (devices.UnknownDevice, devices.DeviceConfigError):
+        return alias
+
+
+def read_into(cache, view, *, refresh=False, state_dir=None):
     """Fill ``view`` with its listing, or its search results, when they come within a moment; else
-    mark it loading and return the future that brings them."""
+    mark it loading and return the future that brings them. A device view needs the ``state_dir``."""
     query = view.get('query', '') if view.get('results') else ''
-    future = cache.request(view['path'], refresh=refresh, query=query)
+    future = cache.request(view['path'], refresh=refresh, query=query, device=view.get('device', ''),
+                           state_dir=state_dir)
     try:
         view.update(future.result(timeout=SEARCH_WAIT if query else FAST_SCAN_SECONDS), loading=False)
     except TimeoutError:
@@ -243,12 +337,18 @@ def when_listed(future, redispatch):
     future.add_done_callback(lambda completed: redispatch(completed.result()))
 
 
-def listed_paths(config):
-    """Saved workspaces by normalized path, for the browser's 已在列表 marks; reads no directory."""
-    return {os.path.normpath(path): name for name, path in config['workspaces'].items()}
+def listed_paths(config, device=''):
+    """Saved workspaces by normalized path, for the browser's 已在列表 marks; reads no directory. A device's view
+    marks the workspaces on that device (by their path there), a local view those here."""
+    if device:
+        prefix = device + ':'
+        return {posixpath.normpath(path[len(prefix):] or '~'): name for name, path in config['workspaces'].items()
+                if path.startswith(prefix) and devices.is_device_value(path)}
+    return {os.path.normpath(path): name for name, path in config['workspaces'].items()
+            if not devices.is_device_value(path)}
 
 
-def open_view(ctx, event, record, topic, candidate):
+def open_view(ctx, event, record, topic, candidate, allow=None):
     """The first view of a picker opened from the launch form: the draft the form had is kept in
     ``candidate`` for its return. None when the click cannot open it."""
     if record.get('picker'):
@@ -273,15 +373,23 @@ def open_view(ctx, event, record, topic, candidate):
     config = load_config(ctx.state_dir, ctx.default_workdir)
     initial = config['workspaces'].get(fields.get('workspace'), topic['workdir'])
     custom = fields.get('path', '').strip()
-    if custom and Path(custom).is_absolute() :
+    if custom and (Path(custom).is_absolute() or devices.is_device_value(custom)):
         initial = custom
     view = {'path': initial, 'hidden': False, 'query': '', 'revision': 1}
+    if (hop := device_hop(initial)) is not None:
+        # Browsing starts on the device the chosen workspace is on, where this chat may.
+        if allow is not None and not allow(hop[0]):  # '' is allowed.
+            view.update(path=hop[1], device=hop[0], device_title=device_title(hop[0]))
+        else:
+            view['path'] = str(ctx.default_workdir)
+    if allow is not None and allow.offers():
+        view['offer'] = True  # The search box says a device's path can be typed.
     return view
 
 
 class DirectoryCache:
     """At most two disk readers, including hung NAS calls; no executor exit wait. A listing is
-    cached by its path, a search by (path, query)."""
+    cached by its path, a search by (path, query); a device's by ``('dev', device, path[, query])``."""
 
     def __init__(self, *, ttl=20, capacity=64, stale_ttl=120):
         self.ttl, self.capacity, self.stale_ttl = ttl, capacity, stale_ttl
@@ -290,8 +398,10 @@ class DirectoryCache:
         self.pending = {}
         self.slots = threading.BoundedSemaphore(2)
 
-    def request(self, path, *, refresh=False, query=''):
-        key = (path, query.strip().casefold()) if query.strip() else path
+    def request(self, path, *, refresh=False, query='', device='', state_dir=None):
+        text = query.strip().casefold()
+        key = (('dev', device, path, text) if text else ('dev', device, path)) if device else (
+            (path, text) if text else path)
         stale = None
         with self.lock:
             if refresh:
@@ -319,7 +429,8 @@ class DirectoryCache:
 
         def read():
             try:
-                found = search_directories(path, query) if key != path else scan_directory(path)
+                found = (read_device(device, path, query.strip(), state_dir) if device else
+                         search_directories(path, query) if text else scan_directory(path))
                 result = {**found, 'stale': False}
             except Exception:
                 result = {'entries': [], 'error': f'读取失败，{RETRY}。', 'stale': False}
@@ -367,7 +478,7 @@ class DirectoryPicker(CardActionQueue):
 
     def _publish(self, ctx, path, record, candidate):
         config = load_config(ctx.state_dir, ctx.default_workdir)
-        card = directory_card(path.stem, candidate['picker'], listed=listed_paths(config))
+        card = directory_card(path.stem, candidate['picker'], listed=listed_paths(config, candidate['picker'].get('device', '')))
         return replace_form_card(ctx, path, record, candidate, card, self.topics.messenger, 'directory')
 
     def process(self, ctx, event):
@@ -398,7 +509,8 @@ class DirectoryPicker(CardActionQueue):
                 return
             candidate = copy.deepcopy(record)
             if opening:
-                view = open_view(ctx, event, record, topic, candidate)
+                view = open_view(ctx, event, record, topic, candidate,
+                                 allow=DeviceGate(self.topics.runtime.access, event.get('chat_id', '')))
                 if view is None:
                     return
                 outcome = 'read'
@@ -445,7 +557,8 @@ class DirectoryPicker(CardActionQueue):
                 if (legacy := legacy_form(view, verb, fields)) is None:
                     return None
                 verb, arg = legacy
-        outcome = step(view, verb, arg, near=topic['workdir'])
+        outcome = step(view, verb, arg, near=topic['workdir'],
+                       allow=DeviceGate(self.topics.runtime.access, event.get('chat_id', '')))
         if outcome is None:
             return None
         if outcome == 'back' or outcome[0] == 'choose':
@@ -458,7 +571,8 @@ class DirectoryPicker(CardActionQueue):
         """``candidate``'s picker on the card, its directory read (unless only shown) and, once listed, the
         listing posted back as a ``loaded`` click."""
         view = candidate['picker']
-        future = read_into(self.cache, view, refresh=outcome == 'refresh') if outcome != 'show' else None
+        future = (read_into(self.cache, view, refresh=outcome == 'refresh', state_dir=ctx.state_dir)
+                  if outcome != 'show' else None)
         if self._publish(ctx, path, record, candidate) and future is not None:
             revision = view['revision']
             when_listed(future, lambda listing: self._enqueue(ctx, {**event, 'action_name': '', 'action_value': {

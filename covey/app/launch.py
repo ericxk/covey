@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.core import main_thread_settings, timing
+from covey.core import devices, main_thread_settings, timing
 from covey.core.state import read_json
 from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.workspaces import (RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding,
@@ -113,6 +113,20 @@ def topic_budget(state_dir):
     return (defaults.harness.lower(), defaults.effort) if defaults.effort else ('', '')
 
 
+def device_titles(config):
+    """name -> the device's title for each device workspace of ``config`` (empty unless devices are on): the launch
+    card's device label."""
+    found = {}
+    for name, value in config['workspaces'].items():
+        if devices.is_device_value(value):
+            alias = value.partition(':')[0]
+            try:
+                found[name] = devices.current().device(alias).title
+            except (devices.UnknownDevice, devices.DeviceConfigError):
+                found[name] = alias
+    return found
+
+
 def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
     if new_topic:
         raise ValueError('请在主聊天发送任务，在该消息下选择配置')
@@ -160,7 +174,7 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
                             workspace=selection.workspace, names=selection.names, run_mode=run_mode,
                             notice=selection.notice, work_mode=selection.work_mode, redaction=redaction,
                             topic_tag=topic_label(ctx.state_dir, ctx.topic_id), expanded=bool(draft.get('expanded')),
-                            page=page)
+                            page=page, devices=device_titles(config))
 
 
 def remember_launch_card(ctx, card, card_id, message_id, *, sequence=0):

@@ -71,10 +71,11 @@ def run_mode_setting(key, kind, current):
     return Setting(key, '运行方式', kind, current, list(RUN_MODES.items()))
 
 
-def workspace_setting(key, kind, current, names, *, first=(), last=()):
+def workspace_setting(key, kind, current, names, *, first=(), last=(), labels=None):
     """A 工作区 row: the saved workspaces ``names``, each its own value, between the card's own ``first`` and ``last``
-    options."""
-    return Setting(key, '工作区', kind, current, [*first, *((name, name) for name in names), *last])
+    options. ``labels``: the text of a name that is not its own (a device's workspace: 名字 · 设备标题)."""
+    labels = labels or {}
+    return Setting(key, '工作区', kind, current, [*first, *((name, labels.get(name, name)) for name in names), *last])
 
 
 def tap(value, elements, padding):
@@ -208,10 +209,12 @@ def summary_block(choice, lines):
 
 
 def launch_form_card(token, *, model, choices, effort, workspace, names, run_mode, topic_tag='', notice='',
-                     work_mode='', redaction='off', expanded=False, page=''):
+                     work_mode='', redaction='off', expanded=False, page='', devices=None):
     """The launch card under the panels' title bar: the summary (summary_block), the settings list folded under
     ADJUST_TITLE (``expanded`` after a choice on it; ``page``, a row drawn open), then 其他目录… and 开始任务 in the
-    form. Its token routes every callback to the record build_launch_card saved."""
+    form. Its token routes every callback to the record build_launch_card saved. ``devices``: the title of the device
+    each of the ``names`` that is a device's workspace is on; the summary and the 工作区 row name it."""
+    devices = devices or {}
     title = '开始任务'
     choice = choices.get(model, {})
     mode = work_modes(choice, work_mode)[1]
@@ -220,12 +223,13 @@ def launch_form_card(token, *, model, choices, effort, workspace, names, run_mod
     if choice.get('redaction'):
         settings.append(redaction_setting('redaction', REDACTION_ACTION, 'on' if redaction == 'on' else 'off'))
     settings += [workspace_setting('workspace', WORKSPACE_ACTION, workspace, names,
-                                   last=[(MANAGE_OPTION, '⚙️ 添加或管理工作区…')]),
+                                   last=[(MANAGE_OPTION, '⚙️ 添加或管理工作区…')],
+                                   labels={name: f'{name} · {title}' for name, title in devices.items()}),
                  run_mode_setting('run_mode', MODE_ACTION, run_mode)]
     rows = [setting_row(setting, token=token, open_key=page) for setting in settings]
     facts = [f'思考预算 {effort_text(choice, effort)}', *(['工作模式 {}（{}）'.format(*WORK_MODES[mode])] if mode else []),
              *([f"敏感词脱敏 {REDACTION_LABELS.get(redaction, '关')}"] if choice.get('redaction') else []),
-             f'工作区 {workspace}', RUN_MODES['direct'] + '运行' if run_mode == 'direct' else RUN_MODES['worktree']]
+             f'工作区 {workspace}' + (f' · 设备 {devices[workspace]}' if workspace in devices else ''), RUN_MODES['direct'] + '运行' if run_mode == 'direct' else RUN_MODES['worktree']]
     summary = summary_block(choice, facts) if choice else md('模型目录准备中，请稍后重新打开配置。')
     adjust = fold('launch_adjust', md(grey(ADJUST_TITLE)), rows, expanded=bool(expanded or page), background='grey-50',
                   padding='0px 12px 0px 12px', spacing='0px')

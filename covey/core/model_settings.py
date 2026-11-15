@@ -12,9 +12,12 @@ from covey.core.topics import read_topic, workspace_locked
 from covey.core.state import read_json
 
 
-def model_catalog():
-    home = os.environ.get("CODEX_HOME", "").strip()
-    root = Path(home).expanduser() if home else Path.home() / ".codex"
+def model_catalog(root=None):
+    """Codex's visible models by slug, from ``models_cache.json`` under ``root`` (default ``$CODEX_HOME``, else
+    ``~/.codex``; a device's turn passes the copy of the device's own, core/devices.py ``codex_root``)."""
+    if root is None:
+        home = os.environ.get("CODEX_HOME", "").strip()
+        root = Path(home).expanduser() if home else Path.home() / ".codex"
     try:
         cache = read_json(root / "models_cache.json")
     except (ValueError, OSError):

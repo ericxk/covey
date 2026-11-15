@@ -13,6 +13,7 @@ import json
 import time
 
 from covey.cards.directory import Host, label
+from covey.core import devices
 from covey.core.text import literal
 from covey.cards.main_thread_panel import NOTE_LENGTH, NOTES_HINT
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, fits, folded_panel, form_button, item, markdown_panel,
@@ -52,7 +53,10 @@ def list_entries(config, status):
     """The card's order: the default first, then the launch card's."""
     names = sorted(ordered_names(config), key=lambda name: name != config['default'])
     return [{'name': name, 'path': config['workspaces'][name], 'state': status.get(config['workspaces'][name]),
-             'used': config.get('recent', {}).get(name)} for name in names]
+             'used': config.get('recent', {}).get(name),
+             # A device's workspace (alias:path) says so; none exist unless devices are on.
+             **({'device': config['workspaces'][name].partition(':')[0]}
+                if devices.is_device_value(config['workspaces'][name]) else {})} for name in names]
 
 
 def visible(entries, view, now=None):
@@ -86,15 +90,17 @@ def tail(path, size=120):
 
 def entry_tags(entry, default):
     return ([tag('默认', 'blue')] if entry['name'] == default else []) + (
+        [tag('设备 ' + entry['device'], 'blue')] if entry.get('device') else []) + (
         [tag('目录不存在', 'red')] if entry['state'] is False else [tag('未确认', 'orange')] if entry['state'] is None else [])
 
 
-def manager_card(token, view, config, status, *, standalone, hub=False, top=(), notes=None, after=()):
+def manager_card(token, view, config, status, *, standalone, hub=False, top=(), notes=None, after=(), device_lines=()):
     """The whole card under the menu panels' title bar; while a change is applied every action except 刷新
     is disabled. ``standalone`` (opened from the menu) ends with 完成管理, in a launch card's place with
     返回启动卡 and 结束，不启动任务; ``hub`` (the 设置 card's tab, ``top`` its tab row) with 刷新 only. ``notes``:
     (name -> 用途, ``save(names)`` the 保存用途 button of the rows listed) to edit each row's 用途; ``after``: elements
-    under the form, within the same budget. Its form: the list's head (``list_head``), a row for each workspace
+    under the form, within the same budget. ``device_lines``: a line on each device the chat may use (its last
+    self-check, core/devices.py ``status_text``), above the form. Its form: the list's head (``list_head``), a row for each workspace
     remembered (``entry_rows``), pages and 移除不存在的 (``list_foot``), and the buttons (``end_buttons``)."""
     busy = bool(view.get('processing'))
 
@@ -123,6 +129,7 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
         elements.append(md(notice))
     if view.get('details') and not busy:
         elements.append(markdown_panel('wsm_removed', REMOVED_TITLE, view['details']))
+    elements += [note(literal(line)) for line in device_lines]
 
     shown = visible(entries, view)
     pages = max(1, -(-len(shown) // PAGE_SIZE))

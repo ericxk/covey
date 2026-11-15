@@ -17,6 +17,7 @@ from covey.core import env as cenv
 from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY, for_device
 
 from covey.core.process_env import child_process_env, process_device
+from covey.core.process import device_of
 from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunRequest, RunResult, UUID_RE
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.state import ensure_private_dir
@@ -95,14 +96,23 @@ class CodexBackend(BackendRuntime):
 
     # The signed-in account's models plus the gateways' Responses models (<prefix><model>, core/gateways.py).
     def model_catalog(self, ctx: BridgeContext) -> dict:
-        from covey.core.model_settings import model_catalog
-        account = model_catalog()
+        account = self.account_models(ctx)
         return {**account, **gateway_models.cached(ctx, account)}
 
     def refresh_model_catalog(self, ctx: BridgeContext) -> dict:
-        from covey.core.model_settings import model_catalog
-        account = model_catalog()
+        account = self.account_models(ctx, refresh=True)
         return {**account, **gateway_models.refresh(ctx, account)}
+
+    @staticmethod
+    def account_models(ctx, *, refresh=False) -> dict:
+        """The signed-in account's models: this machine's Codex home, or for a turn on a device (``ctx.device``) the
+        device's own list, fetched with the shim's ``get`` (core/devices.py ``codex_root``)."""
+        from covey.core.model_settings import model_catalog
+        alias = device_of(ctx)
+        if not alias:
+            return model_catalog()
+        from covey.core import devices
+        return model_catalog(devices.codex_root(ctx.state_dir, alias, refresh=refresh))
 
     def run(self, request: RunRequest) -> RunResult:
         request.check_cancelled()
@@ -113,8 +123,7 @@ class CodexBackend(BackendRuntime):
             raise ValueError(retired_provider_notice(removed))
         gateway = gateways.for_model("codex", ctx.model)
         if gateway is not None:
-            from covey.core.model_settings import model_catalog
-            gateway_models.check(ctx, gateway, model_catalog())
+            gateway_models.check(ctx, gateway, self.account_models(ctx))
             # Lives exactly as long as this turn; its waits show on the card like Codex's own retries.
             with turn_relay(request, gateway, ctx.state_dir) as relay:
                 ctx, env = gateway_models.bind(ctx, gateway, env, relay.base_url)
