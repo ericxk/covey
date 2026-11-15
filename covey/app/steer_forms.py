@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from covey.cards.steer_receipts import CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND, receipt_card, stage_line
 from covey.core.deliveries import delivery_path, read_delivery, reconcile
 from covey.cards.steer_form import closed_card, steer_form
+from covey.app.card_actions import action_value
 from covey.core.jobs import upsert_job_record
 from covey.core.main_thread import traits, worded
 from covey.core.state import read_json
@@ -43,6 +44,21 @@ class SteerForms:
                                     traits(ctx.topic_id, chat)))
         # With nothing ahead, a card that still says 已入队 is the task about to start: it takes the supplement.
         self.messenger.publish_card(ctx, chat, mid, self.steer_form_card(job, raw), on_sent=job.steer_forms.append, voice=self.voice)
+
+    def dispatch_steer(self, ctx, event):
+        """📝 补充 on a 派发活卡片 (cards/dispatch_card.py): the 补充 form of the job the card named, a card of its own
+        (that card is redrawn, so it holds no field), then as a click on the job's own 补充."""
+        raw = action_value(event)
+        if raw.get("topic_id") != ctx.topic_id:
+            raise ValueError("操作不属于当前话题")
+        try:
+            job_id = int(raw.get("job_id"))
+        except (TypeError, ValueError):
+            raise ValueError("这件事还没有可补充的任务") from None
+        self.steer_action(ctx, str(event.get("chat_id") or ""), event,
+                          {"kind": "bridge_steer", "topic_id": ctx.topic_id, "job_id": job_id}, {},
+                          str(event.get("event_id") or event.get("message_id") or ""))
+        return True
 
     def steer_form_card(self, job, raw, *, text="", notice=""):
         """The 补充 form names the task it feeds; it is replaced by a receipt or closed when the task ends."""

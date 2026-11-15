@@ -365,6 +365,17 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和主线程都�
 - 位置由 `feishu/message_read.py` 的 `fetch_message_detail` 读一次，记在 `<state>/topic-links.json`，每个话题留 `KEPT`（8）条。
 - 读不到保持纯文字；读消息在所有锁外（规则 1、2）；只改显示的文字，保存的回复（规则 5）不变。
 
+### 派发活卡片（开关默认关）
+
+`COVEY_MAIN_DISPATCH_CARD=1` 时（见[配置 · 派发活卡片](configuration.md#派发活卡片)），主线程派出话题的那一刻在聊天区多一张**总览卡**：它不开串，引用主人那条提问；话题照旧在话题区、有串、有自己的任务卡。关着时没有这个调用、没有线程，`hook_card` 照旧（`app/main_topics.py` 的 `dispatch_card` 先看开关）。
+
+- **内容**（`cards/dispatch_card.py` 的 `dispatch_card`）：卡头 = 主人请求的前 30 字 + 状态标签（在做、等你、做完、失败、已停）；`dp_meta` 一行灰字“T453 · 12:41 起 · 用时 2分05秒”；折叠面板 `dp_thread`（标题行 T 号 + 话题标题 + 工作区；在做和等你时展开，做完、失败、已停收起）里是当前步骤或阶段（读法同 `app/main_thread.py` 的 `snapshot_groups`：`step_text`、`phase`）；`dp_io` 输入/输出灰框（`cards/answer_card.py` 的 `box`）；`dp_btns` 里补充（`dp_steer`）、停止（`dp_stop`）、› 打开话题串（`dp_open`），能用的才画：补充和停止只在“在做”且已有任务时，等你时回答在话题里的问题卡上。卡里**没有输入框**（会刷新的卡不放输入框，docs/cards.md 卡片的客户端限制）。
+- **创建**（`app/dispatch_cards.py` 的 `created`）：话题接了活（`topic_start` 开完并提交第一轮、`topic_send` 送出或开了下一轮、`topic_fork`）之后，发一张顶层回复，`reply_to` 主人那条提问、`in_thread=False`；记 `route_message`，主人引用这张卡说话进那个话题。同一个请求只发一张（记录里有 `card_message_id`）。发不出去只记日志，话题已经开了。
+- **记录**：`<state>/main-thread/dispatch/<token>.json`（`core/dispatch_records.py`）：`token`（请求的）、`topic_id`、`job_key`（主线程那一轮）、`mid`（话题里这一轮的任务键）、`owner_message`、`card_id`、`card_message_id`、`sequence`、`state`、`started_at`，以及留给以后升级成项目用的 `rounds`（同一条提问再次派给同一个话题的次数）、`upgrade_hint.long_word`（请求里有“长活”“长期”“接着做”）、`project_id: null`，本期只写不读。`state` 只有 `live → settled`（`DISPATCH_TRANSITIONS`），`settled` 之后线程不再看它。
+- **刷新**：`DispatchCards` 的线程每秒看一遍没结束的记录，只读话题的任务记录（`find_job_record`、`topic_job_records`，没有飞书调用，不拿锁），画出整张卡，算摘要；摘要变了且离上次写至少 2.5 秒（`MIN_GAP`）才写一次整卡。写之前从 `reserve` 取 sequence 存进记录，失败了按 2、4、8 … 最多 60 秒退避，下次取新的 sequence，从不重发同一个。运行时进程不碰这张卡，Bridge 里只有这个线程写它。话题链接（›）读一次飞书、记在 `topic-links.json`，读不到 30 秒后再试。
+- **结论沉底**（B8）：回带发出后，`app/relay_send.py` 的 `send_once` 调 `dispatch_note`，在运行时进程里只留一张小便条 `<token>.relay.json`（`mark_relayed`，不碰卡）；线程读到便条，把卡整卡换成一行“✅ 做完 · 结论在下方 ›”（链到结论消息，面板收起、按钮摘掉），写成功后记录转 `settled`。失败或停止同样写一行原因（主人自己停的话回带被跳过，也是这一行“⏹ 已停”）。回带发送 `uncertain` 或 `unsent` 时不留便条，卡原样留着让主人看到出了问题；等回答的回带（`WAITING`）也不留。任务结束后 10 分钟（`TERMINAL_GRACE`）还没有便条，卡就按最后的样子转 `settled`；3 天还没结束的也一样。
+- **按钮**：`bridge_dispatch_steer`、`bridge_dispatch_stop` 在 `ACTIONS` 里（`handler` 是 `steering.dispatch_steer`、`controls.dispatch_stop`，不是 `bot_only`）。卡的消息记在话题名下，点击按话题路由；按钮的值带 `topic_id` 和 `job_id`，话题的任务进程活着时点击转给它，和任务卡上的补充、停止一样。补充另发一张不刷新的补充卡（`steer_form_card`），停止走 `cancel_reply_job_from_card`。
+
 ## 代码位置
 
 | 模块 | 职责 |
@@ -396,6 +407,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和主线程都�
 | `app/relay_targets.py` | 回带到哪：`relay_target`、`area_target`、`ask_for` |
 | `app/relay_send.py`、`cards/relay_card.py` | 只发一次（`send_once`）、回带卡 |
 | `app/question_display.py` | 问题卡和顶层副本 |
+| `app/dispatch_cards.py`、`cards/dispatch_card.py`、`core/dispatch_records.py` | 派发活卡片：创建、刷新线程、结论沉底、记录 |
 | `app/answer_cards.py`、`cards/answer_card.py` | 答案卡的产物、“你问”块 |
 | `app/pins.py`、`app/overview.py`、`app/status_cards.py` | 看板、手上的事、状态卡 |
 | `app/topic_seen.py`、`core/topic_seen.py` | 已读事件和记录 |

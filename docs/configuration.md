@@ -99,6 +99,7 @@
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/kb-history` | 主线程多 `knowledge_*` 工具，话题首轮带知识条目，汇总多一节；主线程多 `history_search`，话题规则多一行查历史的命令 |
 | [主线程](#主线程) | 默认允许；`COVEY_MAIN_THREAD=0` 不允许 | `main-tools`、`main-search` 线程；设置卡的私聊、新话题标签 |
 | [管家规则](#管家规则) | `COVEY_MAIN_BUTLER=1` | 主线程只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
+| [派发活卡片](#派发活卡片) | `COVEY_MAIN_DISPATCH_CARD=1` | `dispatch_cards` 线程；主线程派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
 | [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 目前只有配置、连接和设备端小程序的 hub 侧代码，还没接进话题和任务；开了也不起线程，不改已有行为 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
@@ -176,6 +177,13 @@
 
 - 打开：在注册服务的终端里设 `COVEY_MAIN_BUTLER=1`，重新 `launch`。关掉：去掉变量、重新 `launch`。
 - 不影响话题的规则、工具清单（只换 `topic_start` 的说明）和卡片；跑过 `CARD_AFTER`（90 秒）才出卡的兜底照旧，没有另设变量。
+
+### 派发活卡片
+
+`COVEY_MAIN_DISPATCH_CARD=1`（只认 `1`）：主线程用 `topic_start`、`topic_send`、`topic_fork` 把一件事交给话题后，在私聊的聊天区引用主人那条提问发一张**活卡片**：卡头是主人请求的前 30 字加状态（在做、等你、做完、失败、已停），一行灰字写 T 号、开始时间和用时，折叠面板“线程”写话题的标题、工作区和当前步骤，下面是输入/输出灰框，按钮是补充、停止、› 打开话题串。`dispatch_cards` 线程每秒读一次话题的任务记录，内容变了且离上次写超过 2.5 秒才整卡刷新一次。话题的结论回带发出后，卡缩成一行“✅ 做完 · 结论在下方 ›”（链到结论），之后不再刷新。说明见[主线程 · 派发活卡片](main-thread.md#派发活卡片开关默认关)。
+
+- 打开：在注册服务的终端里设 `COVEY_MAIN_DISPATCH_CARD=1`，重新 `launch`。关掉：去掉变量、重新 `launch`；关着时不起线程、不发这张卡，话题的任务卡、回带和小卡（`hook_card`）和原来一样。
+- 记录在 `<state>/main-thread/dispatch/`，7 天没动的由维护删。
 
 ### 群聊免@
 
@@ -298,6 +306,7 @@
 | `COVEY_DEVICES` | `core/devices.py`（`enabled`） | 空：关；`1` 才读 `devices.json`，见[多设备](#多设备开发中默认关) | 否 |
 | `COVEY_DEVICES_FILE` | `core/devices.py`（`config_path`） | 空：`<数据根>/devices.json` | 否 |
 | `COVEY_MAIN_BUTLER` | `app/prompts.py`（`butler_on`）、`core/main_thread.py`（`mcp_config` 交给主线程的 MCP 服务）、`core/main_tool_specs.py`（`listed`：MCP 服务据此换 `topic_start` 的工具说明） | 空：关；`1` 把主线程规则的前两条换成管家规则（只快答和分派），`topic_start` 的工具说明同步 | 否 |
+| `COVEY_MAIN_DISPATCH_CARD` | `app/dispatch_cards.py`（`enabled`；`app/main_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 线程） | 空：关；`1` 开派发活卡片：主线程派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
 | `COVEY_MAIN_TRACKS` | `core/main_tracks.py`（`enabled`；`core/main_thread.py` 的 `is_main_topic` 据此把槽 1 到 4 的话题也算主线程） | 空：关；`1` 开多路并行（开发中，这一包只有底座：槽位话题、家族谓词、分叉点，还没有分流和路的运行，开了也不改消息的走法）。要求主线程允许、模式是 Personal Agent | 否 |
 | `COVEY_MAIN_TRACKS_MAX` | `core/main_tracks.py`（`limit`） | 3：同时在跑的路数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
 | `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |

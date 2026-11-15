@@ -45,6 +45,10 @@ ACTIONS = {
     "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.
     "bridge_steer": CardAction("补充当前任务", handler=QUESTIONS),
+    # The 派发活卡片's buttons (cards/dispatch_card.py): a topic's click like the job's own, not bot_only: with a task
+    # process alive the click goes to it (it carries the job's id), as 补充 and 停止 on the task card do.
+    "bridge_dispatch_steer": CardAction("补充派出去的任务", handler="steering.dispatch_steer"),
+    "bridge_dispatch_stop": CardAction("停止派出去的任务", handler="controls.dispatch_stop"),
     "bridge_steer_status": CardAction("检查送达状态", handler=QUESTIONS),
     "bridge_steer_requeue": CardAction("重新排队执行", bot_only=True, handler=QUESTIONS),
     "bridge_steer_withdraw": CardAction("撤回补充", handler=QUESTIONS),

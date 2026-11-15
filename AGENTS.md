@@ -82,6 +82,7 @@
 | `app/detached.py` | Run each task in its own process so a bridge restart or deploy does not stop it |
 | `app/digest.py` | 早晚汇总: at the times of day COVEY_DIGEST_TIMES lists, one card at the top level of the owner's private chat … |
 | `app/directory_picker.py` | Bounded directory browsing: one listing or name search at a time, never on the event threads |
+| `app/dispatch_cards.py` | 派发活卡片, when COVEY_MAIN_DISPATCH_CARD=1 |
 | `app/forks.py` | Forks: a new topic that continues from another topic, opened by the main thread's topic_fork |
 | `app/form_cards.py` | Form cards: a card with a record of its own that every click on it reads |
 | `app/group_boards.py` | 手上的事, the pinned board and 早晚汇总 in each personal group |
@@ -181,6 +182,7 @@
 | `cards/cardkit_actions.py` | What a CardKit write says, as plain JSON |
 | `cards/digest.py` | The digest card: sent at the times the deployer set, at the top level of the owner's private chat |
 | `cards/directory.py` | The directory browser card |
+| `cards/dispatch_card.py` | The 派发活卡片 (app/dispatch_cards.py |
 | `cards/elements.py` | Schema 2.0 card skeletons and the buttons several cards share |
 | `cards/facts.py` | A turn's figures from its process snapshot, worked out in one place for the task card's tiles and the answer … |
 | `cards/group_manager.py` | The 群聊 card, the bot menu's 群聊 panel |
@@ -235,6 +237,7 @@
 | `core/device_transport.py` | The hub's side of the device shim's wire protocol |
 | `core/devices.py` | Devices: other machines (Linux over ssh) a topic can work on instead of this one |
 | `core/diff.py` | Per-job workspace diff capture for shared Harness bridge jobs |
+| `core/dispatch_records.py` | The records of the 派发活卡片 |
 | `core/env.py` | Environment variable names: `COVEY_<X>` is the name, `LARK_BRIDGE_<X>` the old one that still works |
 | `core/extensions.py` | Optional extension packages: which are enabled, where they are found, the data and features they add |
 | `core/file_lock.py` | Explicit host-local lock files |
