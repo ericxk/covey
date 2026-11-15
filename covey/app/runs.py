@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import knowledge_turn
+from covey.app import device_files, knowledge_turn
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.main_thread import main_turn
 from covey.app.prompts import (REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
@@ -63,7 +63,7 @@ def _why(item, limit: int) -> str:
 
 def skipped_images_note(skipped, limit: int) -> str:
     """The prompt's note for the images left out: their paths are in the message above it."""
-    lines = "\n".join(f"- `{item['path']}`（{_megabytes(item['size'])}，{_why(item, limit)}）" for item in skipped)
+    lines = "\n".join(f"- `{item.get('shown') or item['path']}`（{_megabytes(item['size'])}，{_why(item, limit)}）" for item in skipped)
     return ("\n\n[这些图片没有作为图片附上，只在上文给了路径；需要看时自己用工具处理这个文件（例如先缩小再读取）：\n"
             + lines + "]")
 
@@ -279,8 +279,29 @@ class Runs:
         live.rules_session = system and (started_with_system_rules(ctx, self.harness.spec.name, source) if source else True)
         prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
         prompt += self._checkpoint_note(ctx, job)
-        prompt, attachments = self._fit_images(ctx, job, caps, prompt, self._image_attachments(ctx, prompt))
+        attachments = self._image_attachments(ctx, prompt)
+        if ctx.device:
+            prompt, attachments, live.ctx = self._stage_attachments(ctx, job, prompt, attachments)
+        prompt, attachments = self._fit_images(live.ctx, job, caps, prompt, attachments)
         return prompt, rules, system, attachments
+
+    def _stage_attachments(self, ctx: BridgeContext, job: ReplyJob, prompt: str, attachments):
+        """(prompt, attachments, context) of a device turn with the files the prompt names put on the device (app/device_files.py):
+        the prompt names the copies, an image gains its ``device_path``, and the directory they are in is the context's
+        ``device_incoming`` (Codex's workspace reader may read it). Files left out are one line on the task card and in the log."""
+        staged = device_files.stage(ctx, job, prompt, attachments)
+        if staged.put or staged.skipped:
+            self.runtime.log(f"device attachments job=#{job.job_id} device={ctx.device} put={len(staged.put)} "
+                             f"skipped={len(staged.skipped)} bytes={sum(size for _, size, _ in staged.put)}")
+        line = staged.card_line(ctx.device)
+        if line:
+            try:
+                self._bridge_note(ctx, job, "bridge-device-files", line)
+            except Exception as exc:  # noqa: BLE001 - the turn goes on; only the card line failed
+                self.runtime.log(f"device attachments note not shown: {type(exc).__name__}")
+        if staged.directory:
+            ctx = dataclasses.replace(ctx, options={**ctx.options, "device_incoming": staged.directory})
+        return staged.prompt, staged.attachments, ctx
 
     def _device_refusal(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
         """Why a turn on ``ctx.device`` may not start, or '': the device is not in devices.json, not for this chat's space

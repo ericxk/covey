@@ -20,6 +20,8 @@ import hashlib
 import threading
 from pathlib import Path
 
+from covey.app import device_files
+from covey.app.artifacts import device_policy
 from covey.core import background
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
 from covey.core.main_thread import is_main_topic
@@ -57,8 +59,11 @@ def wanted(checkpoint) -> list[tuple[Path, str, bool]]:
     return found
 
 
-def digest(path: Path) -> str:
-    """The image's identity: its path, size and modification time (a file written again is another image)."""
+def digest(path) -> str:
+    """The image's identity: its path, size and modification time (a file written again is another image). An image of a
+    device (``RemoteImage``, app/device_files.py) has its own, from what the device said."""
+    if isinstance(path, device_files.RemoteImage):
+        return path.digest()
     stat = path.stat()
     return hashlib.sha256(f"{path}\0{stat.st_size}\0{stat.st_mtime_ns}".encode()).hexdigest()[:16]
 
@@ -86,7 +91,9 @@ class TurnImages:
         """Start sending the images ``checkpoint`` lists that were not sent; each is claimed first, so two
         readings never send one twice. Never raises."""
         try:
-            for path, note, urgent in wanted(checkpoint):
+            # On a device ``show_images`` names files of the device: looked at there, in one ``stat`` through the shim.
+            found = self.remote_wanted(checkpoint) if getattr(self.ctx, "device", "") else wanted(checkpoint)
+            for path, note, urgent in found:
                 mark = digest(path)
                 with self.lock:
                     sent = self._sent()
@@ -102,6 +109,11 @@ class TurnImages:
         except Exception as exc:  # noqa: BLE001 - the turn goes on; its 产物 still list the file
             self.log(f"images not sent job=#{self.job.job_id}: {type(exc).__name__}")
 
+    def remote_wanted(self, checkpoint):
+        """``wanted`` for a device: (``RemoteImage``, note, urgent), the files looked at on the device (app/device_files.py)."""
+        return device_files.wanted_images(self.ctx, checkpoint, device_policy(), field=FIELD, suffixes=IMAGE_SUFFIXES,
+                                          most=MOST, max_bytes=MAX_BYTES, note_chars=NOTE_CHARS)
+
     def send(self, path, note, urgent, mark) -> None:
         """One image: in the turn's thread (a topic's), then at the top level when it is urgent, the thread send
         failed or the turn is the main thread's. Each step's outcome is one log line. Never raises."""
@@ -110,6 +122,8 @@ class TurnImages:
         main = is_main_topic(topic, chat)
         base = f"image-{job.message_id}-{mark}"
         try:
+            if isinstance(path, device_files.RemoteImage):  # The hub's copy of the device's file is what is sent.
+                path = Path(path.fetch(ctx.state_dir, self.key))
             thread = ""
             if not main:
                 self.messenger.send_message(ctx.profile, chat, note or "图片", f"{base}-note", voice=voice,
