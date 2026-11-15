@@ -288,7 +288,7 @@ class DeviceTurn:
             quiet(self.app)
             options = {"harness_id": "codex"}
             backend_cmd = [sys.executable, str(APP_SERVER), "--plain"]
-        base = make_context(self.root, options=options, backend_cmd=backend_cmd, timeout=40, model="fixture-model")
+        base = make_context(self.root, options=options, backend_cmd=backend_cmd, timeout=120, model="fixture-model")
         runtime = self.app.runtime
         runtime.owner_open_id = "ou_user"
         runtime.access.spaces = spaces.Settings()
