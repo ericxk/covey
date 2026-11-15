@@ -288,7 +288,11 @@ def parse_job_stop_action_value(raw: Any) -> dict[str, str] | None:
         return None
     if len(message_id) > 180:
         return None
-    return {"kind": JOB_STOP_ACTION_KIND, "job_id": job_id, "message_id": message_id}
+    action = {"kind": JOB_STOP_ACTION_KIND, "job_id": job_id, "message_id": message_id}
+    others = str(raw.get("others") or "").strip()
+    if others.isdigit() and int(others) > 0:
+        action["others"] = others  # A stop word of the main thread's tracks: how many other tracks are still going.
+    return action
 
 
 def job_file(state_dir: Path, key: str) -> Path:

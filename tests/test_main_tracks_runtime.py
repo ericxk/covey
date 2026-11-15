@@ -147,6 +147,50 @@ class RouteTest(TracksCase):
         self.assertTrue(self.job_of("om_1").cancel_event.is_set())
         self.assertFalse(self.job_of("om_2").cancel_event.is_set())
 
+    def test_a_quote_the_consumer_names_reply_to_is_still_a_quote(self):
+        # lark-cli 1.0.69+ gives the quoted message as ``reply_to`` and no ``parent_id``; the quote is read before
+        # ``enrich_incoming_event`` (which copies it over), so "停止" quoting the first track stopped the newest one.
+        self.send("om_1", LONG)
+        self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.run_job("om_2")
+        self.send("om_3", "停止", reply_to="om_1", root_id="om_1")
+        self.assertTrue(self.job_of("om_1").cancel_event.is_set())
+        self.assertFalse(self.job_of("om_2").cancel_event.is_set())
+
+    def test_a_stop_word_reaches_the_runner_of_a_task_that_runs_in_one(self):
+        # The task runs in a process of its own (app/detached.py): a stop only set in the Bridge's copy of the job reached
+        # nobody, and both tasks ran on and sent their answers (2026-11-15). The stop word is the card's 停止 click,
+        # forwarded to the runner like the button's, with how many other tracks go on.
+        self.send("om_1", LONG)
+        self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.run_job("om_2")
+        with mock.patch.object(runtime_tracks.runner_ipc, "forward_card_action", return_value=True) as forward, \
+                mock.patch.object(self.claude.controls, "cancel_reply_job_from_card") as local:
+            self.send("om_3", "停止", reply_to="om_1")
+        local.assert_not_called()
+        runtime, target, click, action = forward.call_args.args
+        self.assertEqual((target.topic_id, click["message_id"], click["chat_id"]), (MAIN, "om_3", CHAT))
+        self.assertEqual(action, {"kind": "bridge_job_stop", "job_id": str(self.job_of("om_1").job_id),
+                                  "message_id": "om_1", "others": "1"})
+        self.assertEqual(click["action_value"], action)
+
+    def test_the_forwarded_stop_stops_the_job_and_says_how_many_tracks_go_on(self):
+        self.send("om_1", LONG)
+        job = self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.run_job("om_2")
+        action = {"kind": "bridge_job_stop", "job_id": str(job.job_id), "message_id": "om_1", "others": "1"}
+        click = {"chat_id": CHAT, "message_id": "om_3", "event_id": "track-stop-om_3", "operator_id": self.app.runtime.owner_open_id,
+                 "action_value": action}
+        runtime_tracks.move_topic_message(self.state, MAIN, CHAT, "om_3")  # What Tracks.stop does before it forwards.
+        with mock.patch.object(self.app.messenger, "reply") as reply:
+            self.app.handle_card_action_event(click, self.ctx)
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertFalse(self.job_of("om_2").cancel_event.is_set())
+        self.assertIn("还有 1 路在做。", " ".join(str(call.args[2]) for call in reply.call_args_list))
+
     def test_the_answer_to_a_track_that_asks_joins_it(self):
         self.send("om_1", LONG)
         control = Control(paused=True)
@@ -473,6 +517,38 @@ class ReleaseTest(TracksCase):
                                             cards=None, sessions=None, runs=None, artifacts=None, questions=None,
                                             steering=None, record_job_state=mock.Mock())
             self.assertEqual(len(calls), 1)
+
+
+class StoppedReplyTest(TracksCase):
+    """The owner's stop of a task of the family drops the reply a stopped Claude turn kept while only background tasks ran
+    (backends/claude/runtime.py ``keep_last_reply``); a task of another topic, or with the switch off, still sends it."""
+
+    def settle(self, topic, *, by="card", tracks="1"):
+        from covey.app import turn_settle
+        from covey.core.result import ExecutionOutcome
+        outcome = ExecutionOutcome("cancelled", "cancelled", True, True, True, False, "a" * 64)
+        result = SimpleNamespace(text="Reply 1", session_id="sid", is_error=False, outcome=outcome,
+                                 public_reply=SimpleNamespace(fingerprint="a" * 64, session_id="sid"))
+        job = SimpleNamespace(cancel_event=threading.Event(), interrupted=False, topic_id=topic, chat_id=CHAT,
+                              cancel_requested_by=by, session_id="", result_backend="claude", model="m",
+                              native_session_claims=set())
+        job.cancel_event.set()
+        with mock.patch.dict(os.environ, {main_tracks.ENV: tracks}), mock.patch.object(turn_settle, "observe"):
+            return turn_settle._turn_facts(SimpleNamespace(allow_resume=False), result, self.ctx, job, session_id="sid",
+                                           runtime=self.app.runtime, prefix="claude")
+
+    def test_the_owners_stop_of_a_track_sends_no_reply(self):
+        from covey.core.harness import JobCancelled
+        for topic in (MAIN, SLOT1):
+            with self.subTest(topic=topic), self.assertRaises(JobCancelled):
+                self.settle(topic)
+
+    def test_everything_else_still_sends_the_kept_reply(self):
+        for label, topic, by, tracks in (("another topic", "other-topic", "card", "1"), ("switch off", MAIN, "card", "0"),
+                                         ("no stop request", MAIN, "", "1")):
+            with self.subTest(label):
+                reply, _, outcome, _ = self.settle(topic, by=by, tracks=tracks)
+                self.assertEqual((reply, outcome.status), ("Reply 1", "cancelled"))
 
 
 if __name__ == "__main__":

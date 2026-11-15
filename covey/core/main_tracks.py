@@ -83,3 +83,11 @@ def track_of(topic_id, chat_id):
         return ids.index(topic_id)
     except ValueError:
         return None
+
+
+def owner_stop_drops_reply(topic_id, chat_id, cancel_requested_by) -> bool:
+    """Whether the owner's stop (``cancel_requested_by`` set on the job: the card's 停止 or a stop word) of a task of
+    the family, with the switch on, also drops the reply a stopped Claude turn kept (backends/claude/runtime.py
+    ``keep_last_reply``: stopped while only background tasks ran, the last complete reply is still sent). Everywhere
+    else that reply goes out as before: a stop of a task of an ordinary topic, or with the switch off, is unchanged."""
+    return bool(cancel_requested_by) and enabled() and track_of(topic_id, chat_id) is not None
