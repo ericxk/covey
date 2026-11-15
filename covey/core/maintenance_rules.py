@@ -50,6 +50,11 @@ DIFF_BYTES = 200 * 1024 * 1024
 LOCK_DIRS = ("jobs", "questions", "held-notes", "interaction-deliveries", "cards", "answer-cards")
 
 
+# main-thread/tracks (core/track_ledger.py): a track's ledger record stays this long (the Temporary rule); the track's
+# own Claude session file goes sooner, TRACK_SESSION_DAYS after its turn ended (TrackSessions).
+TRACK_SESSION_DAYS = 3
+
+
 # 代答 batches that ended (no state follows in BATCH_TRANSITIONS) go after this many days; open ones stay.
 PROXY_BATCH_DAYS = 30
 
@@ -372,9 +377,11 @@ class Temporary(Rule):
     # proxy/shots: 代答's failed-step screenshots; main-thread/opened: which topic each main-thread topic_start opened
     # (app/main_topics.py), kept so the same call opens no second one; main-thread/relays: which topic turn's outcome
     # went back to the top level (app/main_relay.py), read for the RESULT_AGE the board and snapshot look back;
-    # main-thread/dispatch: the 派发活卡片's records and conclusion notes (app/dispatch_cards.py); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
+    # main-thread/dispatch: the 派发活卡片's records and conclusion notes (app/dispatch_cards.py); main-thread/tracks: the
+    # ledger of what the main thread's tracks answered (core/track_ledger.py; their session files go sooner,
+    # TrackSessions); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
     folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/relays",
-               "main-thread/dispatch", "answer-cards")
+               "main-thread/dispatch", "main-thread/tracks", "answer-cards")
     title = "删除 tmp/、artifact-upload/、proxy/shots/ 条目"
 
     def select(self, run):
@@ -435,6 +442,48 @@ class ProxyBatches(Rule):
         for name in plan[self.keys[0]]:
             path = Path(name)
             if _ended_batch(path) and _untouched_since(path, run.cutoff(self.days)):
+                path.unlink(missing_ok=True)
+
+
+class TrackSessions(Rule):
+    """The Claude session file of a track of the main thread (core/main_tracks.py) whose turn ended TRACK_SESSION_DAYS
+    ago: removed. The track forks the main thread's session on every request, so each leaves a transcript of its own
+    (the pointer to it is cleared when the turn ends, app/main_tracks.py release_pointer); the ledger record
+    (main-thread/tracks/<job key>.json) names it by ``session_id``. Only a file of that name under the projects store
+    of CLAUDE_CONFIG_DIR (default ~/.claude) is touched, and not one changed or read since the cutoff."""
+    keys = ("remove_track_sessions",)
+    days = TRACK_SESSION_DAYS
+    title = "删除多路并行里路的 Claude 会话文件"
+    SESSION = re.compile(r"[0-9a-fA-F-]{8,64}")
+
+    @staticmethod
+    def projects():
+        home = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+        return (Path(home).expanduser() if home else Path.home() / ".claude") / "projects"
+
+    def select(self, run):
+        found, cutoff = [], run.cutoff(self.days)
+        folder = run.state / "main-thread" / "tracks"
+        root = self.projects()
+        if not folder.is_dir() or not root.is_dir():
+            return found
+        for ledger in sorted(folder.glob("*.json")):
+            record = read_object(ledger)
+            session = record.get("session_id")
+            if not (isinstance(session, str) and self.SESSION.fullmatch(session)
+                    and float(record.get("ended_at") or 0) < cutoff):
+                continue
+            for project in sorted(root.iterdir()):
+                transcript = project / f"{session}.jsonl"
+                if project.is_dir() and not project.is_symlink() and transcript.is_file() and not transcript.is_symlink() \
+                        and _untouched_since(transcript, cutoff):
+                    found.append(str(transcript))
+        return found
+
+    def apply(self, run, plan):
+        for name in plan[self.keys[0]]:
+            path = Path(name)
+            if path.suffix == ".jsonl" and not path.is_symlink() and _untouched_since(path, run.cutoff(self.days)):
                 path.unlink(missing_ok=True)
 
 
@@ -578,11 +627,12 @@ class Stale(Rule):
 HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS = History(), Checkpoints(), Traces(), SlimRecords()
 TEMPORARY, RUNS_DIRS, PROXY_BATCHES, JOURNALS = Temporary(), Runs(), ProxyBatches(), Journals()
 LOCKS, DIFFS, BACKUPS, STALE = Locks(), Diffs(), Backups(), Stale()
+TRACK_SESSIONS = TrackSessions()
 
 
 # Every rule, in the order of the plan's keys (then "backup", the run's own, named by maintain).
 RULES = (HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, LOCKS, DIFFS, BACKUPS, STALE,
-         JOURNALS)
+         JOURNALS, TRACK_SESSIONS)
 
 
 class _NoJob(Rule):
@@ -594,11 +644,12 @@ class _NoJob(Rule):
 
 # The order the cleanup carries them out in. The steps under LOCK first; after _NoJob, outside LOCK: nothing a
 # job that starts now uses, and each item is checked again. Old backups go in maintain, stale records in close_stale.
-CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TEMPORARY, RUNS_DIRS, PROXY_BATCHES, TRACES, SLIM_RECORDS, JOURNALS, LOCKS,
-           DIFFS)
+CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, TRACES, SLIM_RECORDS,
+           JOURNALS, LOCKS, DIFFS)
 
 
 # The plan's keys of what a cleanup removed, in RULES' order: maintenance_loop logs how many of each.
 REMOVALS = tuple(key for rule in RULES for key in rule.keys if key.startswith("remove_"))
 # The order --dry-run lists them in.
-DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, PROXY_BATCHES, RUNS_DIRS, LOCKS, DIFFS, STALE)
+DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, TRACK_SESSIONS, PROXY_BATCHES, RUNS_DIRS, LOCKS,
+           DIFFS, STALE)

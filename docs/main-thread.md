@@ -107,7 +107,16 @@
 - **一轮结束**：`process_bridge_reply_job` 在 `_run_turn` 之后调 `release_pointer`：槽 ≥1 且状态不是 `waiting_user` 就清会话指针（会话文件留着）；等回答的那一路指针保留，回答的续接轮接着用。
 - **开了又关**：槽话题留在盘上，这时它们是普通话题（`traits` 给 TOPIC），回答、引用老卡都按 `topic_id` 找到会话指针继续；关着时槽 ≥1 不是主线程，下次再开时空闲槽的遗留指针由 `enter` 清掉。
 
-表情（排队中、并进）、记忆账本、派发卡不在这里：`Tracks.noted` 是表情的调用点，`parallel_note` 旁边是账本块的位置。
+表情（排队中、并进）、派发卡不在这里：`Tracks.noted` 是表情的调用点。
+
+**记忆合并**（`core/track_ledger.py`、`app/track_digest.py`）：路是槽 0 会话的分叉，它答了什么不在管家自己的会话里，所以交给管家的下一轮。
+
+- **账本**：槽 ≥1 的一轮结束、结果送达之后，`TurnDelivery.deliver` 末尾（`relay` 之后）调 `ledger` 回调（`track_digest.record`），写 `main-thread/tracks/<任务键>.json`：`key`、`chat_id`、`track`（槽号）、`owner_message`（主人消息号）、`request`（≤200 字）、`answer`（≤600 字，只取已送达、已授权的回复正文，没送达就是空）、`status`（`done`/`failed`/`cancelled`）、`ended_at`、`session_id`、`opened`（这一轮开的话题的 T 号）、`digested_by`（读过它的管家那一轮的任务键，起初为空）。等回答（`waiting_user`）和中断的一轮不写，回答后的续接轮写；槽 0 的不写（答案已在它自己的会话里）。写失败只记日志。
+- **交给管家**：槽 0 的一轮在快照之后加一块“[另几路这段时间答了什么]”：12 小时内、最多 8 条（更早的记一行“还有 N 条没列”），每条“完成时刻（失败、已停止注明）请求「…」→ 答案前 300 字 → T 号”。块做好后用记录锁下的 compare-and-set 写 `digested_by=<这一轮的任务键>`；下一轮看到 `digested_by` 指向的那一轮没有正常结束（不在 `GOOD_ENDS` 里，同 `take_snapshot` 的 `settled`）时再给一次。
+- **交给新的一路**：路的第一轮在“此刻另几路在做”后面加同一块，不标记已读（管家自己还没读到）；分叉的会话已读过的（`digested_by` 那一轮正常结束了）不重复。
+- **压缩**：摘要只在槽 0 做（槽 ≥1 不压缩）；`COMPACT_INSTRUCTIONS` 不变。路的内容只有被管家一轮读进之后才进它的记忆，压缩把它一并压进摘要；压缩后的那一轮照常拿到还没给过的账本条目（`tests/test_track_ledger.py`）。
+- **维护**：账本保留 7 天（`Temporary` 规则的 `main-thread/tracks`）；路的 Claude 会话文件按账本里的 `session_id`，那一轮结束满 3 天且 3 天没改没读的删（`TrackSessions`，只动 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）下 `projects/*/<session_id>.jsonl`）。
+- **开关**：`COVEY_MAIN_TRACKS` 关着不写账本、不加这一块。
 
 ### 提问不开串
 
