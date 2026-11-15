@@ -167,7 +167,7 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("ssh.options", bad({"host": "h", "options": ["-J", 5]}))
         self.assertIn("ssh.python", bad({"host": "h", "python": ""}))
         self.assertIn("unknown keys proxy", bad({"host": "h", "proxy": "x"}))
-        for host in ("gpu1", "me@gpu1.example", "10.0.0.5", "fe80::1"):
+        for host in ("gpu1", "me@gpu1.example", "192.0.2.5", "fe80::1"):
             devices.parse(config_text(devices={"gpu1": {"ssh": {"host": host}}}))
 
     def test_control_dir_must_leave_room_for_a_unix_socket_path(self):
