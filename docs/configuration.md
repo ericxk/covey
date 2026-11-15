@@ -226,6 +226,8 @@
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根的 `extensions/enabled`（没有这个文件就没有扩展）；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
 | `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
+| `COVEY_TRACK_JUDGE` | `app/track_judge.py`（多路并行里，规则没能定的新消息交给小模型判断是并进哪一路还是新开一路；这一包只有函数，接线在后） | `claude`：Claude Code 的 Haiku 起一次性进程；`off` 不调，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一路 | 否 |
+| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 2000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一路；取值限制在 200 到 10000 | 否 |
 | `COVEY_MAIN_STATE` | `core/main_mcp.py`（主线程任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_MAIN_JOB` | `core/main_mcp.py`（主线程任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 关；`1` 开（还要 `COVEY_PINNED_OVERVIEW=1`） | 否 |

@@ -1,0 +1,66 @@
+{"id": "r1-empty", "text": "帮我查个示例城市的天气", "live": [], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "1", "note": ""}
+{"id": "r1-off", "text": "停", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": false, "label": "new", "rule": "1", "note": ""}
+{"id": "r1-empty-stop", "text": "停止", "live": [], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "1", "note": ""}
+{"id": "r2-stop", "text": "停", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": ""}
+{"id": "r2-stop-punct", "text": "停止。", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": ""}
+{"id": "r2-suanle", "text": "算了", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": "two live: the newest one"}
+{"id": "r2-bie", "text": "别做了！", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": ""}
+{"id": "r2-cancel", "text": "Cancel", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": ""}
+{"id": "r2-stop-en", "text": "stop", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["paused", "把示例项目的 README 翻译成英文", 100, 80]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": ""}
+{"id": "r2-wrong", "text": "发错了", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": ""}
+{"id": "r2-quote-card", "text": "停下", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "live:1", "bare": false, "enabled": true, "label": "stop", "rule": "2", "note": "quotes the older one"}
+{"id": "r2-not-stop", "text": "别停，继续做", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": ""}
+{"id": "r2-parking", "text": "停车场怎么收费", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": ""}
+{"id": "r2-long-stop", "text": "这个方案不用了，换个思路帮我重写", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": "long, not a stop word"}
+{"id": "r3-alone", "text": "单独答", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "merged:1", "bare": false, "enabled": true, "label": "new", "rule": "3", "note": ""}
+{"id": "r3-alone2", "text": "这是新问题", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "merged:2", "bare": false, "enabled": true, "label": "new", "rule": "3", "note": ""}
+{"id": "r3-alone-ended", "text": "单独回答。", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "merged:9", "bare": false, "enabled": true, "label": "new", "rule": "3", "note": ""}
+{"id": "r4-live", "text": "再加上命中率的算法", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "live:1", "bare": false, "enabled": true, "label": "merge", "rule": "4", "note": ""}
+{"id": "r4-live-second", "text": "把第三列去掉", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "live:2", "bare": false, "enabled": true, "label": "merge", "rule": "4", "note": ""}
+{"id": "r4-live-first", "text": "表头用粗体", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "live:1", "bare": false, "enabled": true, "label": "merge", "rule": "4", "note": ""}
+{"id": "r4-answer", "text": "美式", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "live:1", "bare": false, "enabled": true, "label": "merge", "rule": "4", "note": "the question card of the waiting task"}
+{"id": "r4-queued", "text": "顺便也比较一下 ARC", "live": [["queued", "整理缓存淘汰策略的对比表", 50, 50]], "quote": "live:1", "bare": false, "enabled": true, "label": "merge", "rule": "4", "note": ""}
+{"id": "r4-ended-meanwhile", "text": "再加一行", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "live:9", "bare": false, "enabled": true, "label": "new", "rule": "5", "note": "the task ended meanwhile"}
+{"id": "r5-answer", "text": "再详细一点", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "ended", "bare": false, "enabled": true, "label": "new", "rule": "5", "note": ""}
+{"id": "r5-own-old", "text": "这个也帮我看看", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "own", "bare": false, "enabled": true, "label": "new", "rule": "5", "note": ""}
+{"id": "r5-ended-thanks", "text": "谢谢，另外查一下明天的天气", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "ended", "bare": false, "enabled": true, "label": "new", "rule": "5", "note": ""}
+{"id": "r5-merged-plain", "text": "好的", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "merged:1", "bare": false, "enabled": true, "label": "new", "rule": "5", "note": "not an alone word"}
+{"id": "r5-own-q", "text": "为什么选这个", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["paused", "把示例项目的 README 翻译成英文", 100, 80]], "quote": "own", "bare": false, "enabled": true, "label": "new", "rule": "5", "note": ""}
+{"id": "r6-us", "text": "美式", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "6", "note": ""}
+{"id": "r6-ok", "text": "好的", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "6", "note": ""}
+{"id": "r6-option", "text": "选 B", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "6", "note": ""}
+{"id": "r6-number", "text": "2", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "6", "note": ""}
+{"id": "r6-sentence", "text": "可以，就按你说的做", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "6", "note": ""}
+{"id": "r6-unrelated", "text": "明天几点开会", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["paused", "把示例项目的 README 翻译成英文", 100, 80]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "6", "note": "short, unrelated: the rule takes it as the answer"}
+{"id": "r6-unrelated2", "text": "帮我订个会议室", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "6", "note": "same error"}
+{"id": "r6-question", "text": "你问的是哪个仓库？", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": "a question mark"}
+{"id": "r6-long", "text": "顺便帮我查一下明天示例城市的天气和穿衣建议，谢谢", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": ""}
+{"id": "r6-two-paused-no", "text": "美式", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150], ["paused", "整理缓存淘汰策略的对比表", 100, 90]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": "two paused"}
+{"id": "r6-bare-text", "text": "好", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": "no paused task: nothing to answer"}
+{"id": "r7-link", "text": "https://example.com/spec", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": true, "enabled": true, "label": "merge", "rule": "7", "note": ""}
+{"id": "r7-image", "text": "", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": true, "enabled": true, "label": "merge", "rule": "7", "note": ""}
+{"id": "r7-file", "text": "", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": true, "enabled": true, "label": "merge", "rule": "7", "note": "the newest one"}
+{"id": "r7-forward", "text": "", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["paused", "把示例项目的 README 翻译成英文", 100, 80]], "quote": "none", "bare": true, "enabled": true, "label": "merge", "rule": "7", "note": ""}
+{"id": "r7-link-new", "text": "https://example.com/other", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": true, "enabled": true, "label": "new", "rule": "7", "note": "a link for something else"}
+{"id": "r8-budui", "text": "不对，是英文版", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-wo-shi-shuo", "text": "我是说用表格", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-buchong", "text": "补充一下，加上 LFU", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-lingwai", "text": "另外把标题放大", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-wait", "text": "等一下，先别提交", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-dui", "text": "对，就这样", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-huancheng", "text": "换成 Markdown 表格", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r8-also", "text": "还有，再加一列", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": "还有 is not a correction word"}
+{"id": "r8-dialog", "text": "对话框的样式能改吗", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": "starts with 对 but not 对，"}
+{"id": "r8-too-late", "text": "不对，是英文版", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": "200 s after the last message"}
+{"id": "r8-bushi-new", "text": "不是所有人都能访问，帮我另外查一下权限怎么配", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "8", "note": "known error: starts with 不是"}
+{"id": "r8-buchong-material", "text": "补充材料已经放在共享目录里了", "live": [["running", "整理缓存淘汰策略的对比表", 90, 20]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "8", "note": ""}
+{"id": "r9-new-poem", "text": "帮我写一首关于春天的短诗", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": ""}
+{"id": "r9-csv", "text": "把上面的表格转成 CSV", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": ""}
+{"id": "r9-new-weather", "text": "顺便问一下，明天要带伞吗", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": ""}
+{"id": "r9-add-col", "text": "再加一列复杂度", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": ""}
+{"id": "r9-new-code", "text": "写个脚本统计目录下每种文件的个数", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": ""}
+{"id": "r9-about-second", "text": "天气那个只要明天的就行", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["running", "查一下示例城市今天的天气", 100, 30]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": ""}
+{"id": "r6-ask", "text": "示例项目现在用什么协议", "live": [["running", "整理缓存淘汰策略的对比表", 400, 300], ["paused", "把示例项目的 README 翻译成英文", 100, 80]], "quote": "none", "bare": false, "enabled": true, "label": "new", "rule": "6", "note": "short, no question mark, unrelated: the rule takes it as the answer"}
+{"id": "r9-more", "text": "对比里再补上它们的适用场景", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "9", "note": ""}
+{"id": "r6-translate-more", "text": "译文的语气再正式一些", "live": [["paused", "把示例项目的 README 翻译成英文", 200, 150]], "quote": "none", "bare": false, "enabled": true, "label": "merge", "rule": "6", "note": "the waiting task is the one it is about"}
+{"id": "r9-unknown-quote", "text": "这个怎么处理", "live": [["running", "整理缓存淘汰策略的对比表", 300, 200]], "quote": "unknown", "bare": false, "enabled": true, "label": "new", "rule": "9", "note": ""}
