@@ -230,7 +230,7 @@ class StoppingTest(unittest.TestCase):
                      mock.patch("covey.app.unified.configure_card_locks", configure("card_locks")),
                      mock.patch("covey.core.timing.configure", configure("timing")),
                      mock.patch("covey.core.timing.flush", step("flush")),
-                     mock.patch("covey.app.unified.migrate"),
+                     mock.patch("covey.core.migrate.migrate"),
                      mock.patch("covey.feishu.sdk.lark_cli_direct"),
                      mock.patch("covey.feishu.sdk.enabled", return_value=False),
                      mock.patch.object(app, "init_target"), mock.patch.object(app.harnesses[DEFAULT], "ensure_started"),

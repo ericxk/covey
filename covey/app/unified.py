@@ -6,6 +6,8 @@ controllers; it routes every message, click and job to the app of its topic's
 Harness (app/card_routing.py CardRouting, app/job_dispatch.py JobDispatch, both parts of
 UnifiedBridgeApp) and runs the process. No Harness app has a mutable backend selector.
 Topics recorded by the retired single-harness Codex bot stay readable in place.
+A task runner (app/runner.py) builds it with ``task_runner=True``: the controllers, features and bot menu that only
+the Bridge uses (``PARTS``) are built, and their modules imported, on first use, since a runner starts for every turn.
 """
 from __future__ import annotations
 
@@ -23,68 +25,37 @@ from covey.core import env as cenv
 from covey.app.app import BridgeApp
 from covey.app import auto_retry, policy_retry
 from covey.app.availability import watch as watch_availability
-from covey.app.bot_menu import BotMenu, Panels, known_chats
-from covey.app.group_boards import GroupBoards
-from covey.app.group_menu import GroupMenu
 from covey.app.card_lanes import CardLanes
 from covey.app.card_routing import INBOUND_DIR, CardRouting
-from covey.app.dashboard import Dashboard, detect_upstream
-from covey.app.redaction_panel import RedactionPanel
-from covey.app.directory_picker import DirectoryPicker
-from covey.app.group_manager import GroupManager
-from covey.app.main_thread_panel import MainThreadPanel
-from covey.app.harness_switch import HarnessSwitch
-from covey.app.rewind import RewindCards
 from covey.app.job_dispatch import JobDispatch
-from covey.app.harnesses import Harness, components, enabled_names, models_first
-from covey.app.health import bridge_snapshot
-from covey.app.memguard_alerts import MemguardAlerts
-from covey.app.model_picker import LaunchModelPicker
-from covey.app.outbox import run as run_outbox
-from covey.app import main_knowledge, main_search, main_thread_panel, main_tools, main_topics
-from covey.app.main_env import MainEnv
-from covey.app.settings_hub import SettingsHub
-from covey.app.main_tools import MainTools
-from covey.app.pins import configure_boards
-from covey.app.overview import Overview
 from covey.app.main_thread import MainThread
-from covey.app.digest import Digest
-from covey.app.app_setup import AppSetup
-from covey.app.proxy import Proxy
+from covey.app.harnesses import Harness, components, enabled_names, models_first
+from covey.app.outbox import run as run_outbox
+from covey.app.pins import configure_boards
 from covey.app.policy_guard import run as run_policy_guard
 from covey.app.questions import fold_older_questions, recover_question_delivery
 from covey.app.runtime import Runtime
-from covey.app.stale import close_stale_records
-from covey.app.topic_seen import TopicSeen
 from covey.app.topics import DEFAULT, Topics
-from covey.app.weekly_usage import WeeklyUsage
-from covey.app.workspace_manager import WorkspaceManager
 from covey.core import extensions
 from covey.core.harness import BridgeContext, format_timeout
-from covey.core.ignored_env import ignored_env
-from covey.core.maintenance import maintenance_loop
-from covey.core.migrate import migrate
 from covey.core import gateways
 from covey.core import spaces
 from covey.core.locks import configure_card_locks
 from covey.core.loops import supervised
 from covey.core.process import instance_lock, log_to, service_key, stop_processes
 from covey.core.scheduler import WorkspaceScheduler
-from covey.feishu.connections import watch as watch_connection
 from covey.feishu.events import (CARD_ACTION_EVENT_KEY, MENU_EVENT_KEY, MESSAGE_EVENT_KEY, SUBSCRIPTIONS,
                                           consume, consumer)
 from covey.feishu.messenger import Messenger
 from covey.feishu.transport import CliFailed, cli_json, configure_receipts, lark_argv
-from covey.service.boot import serve
-from covey.service import manager
 from covey.core.jobs import max_job_id
 from covey.core.roster import NAMES
 from covey.core.state import write_private_text, read_json, write_json
-from covey.core.logs import keep_log
-from covey.app.launch_models import start_catalog_refresh
-from covey.app import model_usage
 from covey.core import background, main_thread_settings, timing
 from covey.core.store import save_indexes
+
+# A task runner (``task_runner=True``) imports what the Bridge alone uses only when it first needs it: the
+# Bridge's controllers (_build_parts), and below, the startup and maintenance parts of main().
 
 CARD_ACTION_RETRY_SECONDS = 300
 
@@ -148,7 +119,14 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel',
               'main_thread_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu')
 
-    def __init__(self, *, script_path, component_factory=components):
+    # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
+    # task runner (``task_runner=True``), which rarely meets any of it.
+    PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
+             'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'main_thread_panel',
+             'settings_hub', 'overview', 'main_env', 'main_tools', 'main_search', 'memguard_alerts', 'digest',
+             'topic_seen', 'app_setup', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
+
+    def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
         self.messenger = Messenger(self.runtime.log)
         self.harnesses = {name: Harness(*component_factory(name)) for name in NAMES}
@@ -165,72 +143,125 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.pairing_file = None
         self.event_procs = {}  # Each event key's running lark-cli consumer (feishu/events.py SUBSCRIPTIONS).
         self.card_lanes = None
-        self.directory_picker = DirectoryPicker(self.topics)
-        self.launch_model_picker = LaunchModelPicker(self.topics)
-        self.workspace_manager = WorkspaceManager(self.topics, self.directory_picker.cache)
-        self.harness_switch = HarnessSwitch(self.topics)
-        self.rewind = RewindCards(self.topics)
-        self.proxy = Proxy(self.topics)
-        self.dashboard = Dashboard(self.runtime, self.messenger, self.voice,
-                                   detect=lambda harness=self.harnesses['claude']: detect_upstream(harness))
-        self.weekly_usage = WeeklyUsage(self.runtime, self.messenger, self.voice,
-                                        {name: h.spec.title for name, h in self.harnesses.items()})
-        self.group_manager = GroupManager(self.runtime, self.messenger, self.voice)
-        self.dashboard_rotate = DashboardRotate(self)
-        # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card, the web dashboard's link last.
-        self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice, self.dashboard)
-        # The main thread's settings card (docs/main-thread.md 设置卡): the 设置 card's 主线程 tab.
-        self.main_thread_panel = MainThreadPanel(self.topics)
-        # The bot menu's 设置 (app/settings_hub.py): 主线程, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
-        self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.main_thread_panel,
-                                        self.proxy.panel, self.group_manager, self.workspace_manager,
-                                        self.redaction_panel)
-        # 手上的事 (app/overview.py): the card pinned in the owner's private chat, when COVEY_PINNED_OVERVIEW=1.
-        self.overview = Overview(self.runtime, self.messenger, self.voice,
-                                 {name: h.spec.title for name, h in self.harnesses.items()})
-        # The main thread's tools (app/main_tools.py), unless COVEY_MAIN_THREAD=0: the state directory and
-        # profile are filled in by build_context, before any thread runs.
-        self.main_env = MainEnv(self.runtime, self.topics, self.messenger, self.voice, state_dir=None, profile='',
-                                settings=self.settings_hub)
-        # Every tool core/main_tool_specs.py names, by the module that runs it.
-        self.main_tools = MainTools(self.main_env, handlers={**main_tools.TOOLS, **main_search.TOOLS, **main_topics.TOOLS,
-                                                             **main_thread_panel.TOOLS, **main_knowledge.TOOLS})
-        self.main_search = main_search.MainSearch(self.main_env)  # Reads the checkpoints topics_search looks into.
-        # The memory watchdog's alerts (service/memguard.py), to a task's topic or the owner's private chat.
-        self.memguard_alerts = MemguardAlerts(self.runtime, self.messenger, self.voice)
-        # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
-        self.digest = Digest(self.runtime, self.messenger, self.voice)
-        # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
-        self.overview.handed[self.digest.origin] = self.digest.dismissed
-        # Which topics the owner has seen (app/topic_seen.py): read receipts, when COVEY_PINNED_TOPICS=1.
-        self.topic_seen = TopicSeen(self.runtime, lambda ctx, key, handle: self.consume_events(ctx, key, handle))
-        # The Feishu app kept up with the Bridge (app/app_setup.py): what it lacks offered in the owner's private
-        # chat, added by the developer console after a QR login.
-        self.app_setup = AppSetup(self.runtime, self.messenger, self.voice)
-        # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
-        # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
-        # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
-        # (core/extensions.py) come last.
-        # The enabled extensions' feature objects also take a top-level message and a card click before the core's
-        # (card_routing.py: handle_event, claim) and are closed when the Bridge stops (close).
-        self.extension_features = extensions.features(self)
-        self.features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
-                         self.group_manager, self.overview, self.topic_seen, self.main_tools,
-                         self.main_search, self.settings_hub, self.main_thread, self.digest, self.app_setup,
-                         *self.extension_features)
-        # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
-        # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).
-        self.menu = BotMenu(self.runtime, INBOUND_DIR,
-                            {key: action for feature in self.features
-                             for key, action in getattr(feature, 'menu_items', dict)().items()},
-                            Panels(self.runtime, self.messenger), hints=lambda ctx: known_chats(self.proxy.panel, ctx),
-                            folds={key: fold for feature in self.features
-                                   for key, fold in getattr(feature, 'menu_folds', dict)().items()})
-        # The menu card pinned in each personal group (app/group_menu.py, core/spaces.py personal_groups).
-        self.group_menu = GroupMenu(self.runtime, self.messenger, self.voice, self.menu)
-        # 手上的事, the pinned board and 早晚汇总 in each of those groups too (app/group_boards.py).
-        self.group_boards = GroupBoards(self.runtime, self.messenger, self.voice,
-                                        {name: h.spec.title for name, h in self.harnesses.items()}, self.overview)
+        # As the Harnesses were when the Bridge was built: build_context drops the ones a bot does not enable.
+        self.titles = {name: h.spec.title for name, h in self.harnesses.items()}
+        self.claude = self.harnesses['claude']
+        self.main_paths = None  # (state directory, profile) for the main thread's tools, set by build_context
+        self.parts_lock = threading.RLock()
+        if task_runner:
+            # The enabled extensions' feature objects take what the Bridge hands them (runtime, messenger, voice),
+            # and a broken one fails here, as it did before.
+            self.extension_features = extensions.features(self)
+        else:
+            self._build_parts()
+
+    def __getattr__(self, name):
+        """A part not built yet (``PARTS``): built now, with all the others."""
+        if name in self.PARTS and 'parts_lock' in self.__dict__:
+            self._build_parts()
+            try:
+                return self.__dict__[name]
+            except KeyError:
+                pass
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+
+    def _build_parts(self):
+        """The Bridge's controllers, the optional features and the bot menu, in the order they depend on each
+        other. Built once."""
+        from covey.app.app_setup import AppSetup
+        from covey.app.bot_menu import BotMenu, Panels, known_chats
+        from covey.app.dashboard import Dashboard, detect_upstream
+        from covey.app.digest import Digest
+        from covey.app.directory_picker import DirectoryPicker
+        from covey.app.group_boards import GroupBoards
+        from covey.app.group_manager import GroupManager
+        from covey.app.group_menu import GroupMenu
+        from covey.app.harness_switch import HarnessSwitch
+        from covey.app import main_knowledge, main_search, main_thread_panel, main_tools, main_topics
+        from covey.app.main_env import MainEnv
+        from covey.app.main_thread_panel import MainThreadPanel
+        from covey.app.main_tools import MainTools
+        from covey.app.memguard_alerts import MemguardAlerts
+        from covey.app.model_picker import LaunchModelPicker
+        from covey.app.overview import Overview
+        from covey.app.proxy import Proxy
+        from covey.app.redaction_panel import RedactionPanel
+        from covey.app.rewind import RewindCards
+        from covey.app.settings_hub import SettingsHub
+        from covey.app.topic_seen import TopicSeen
+        from covey.app.weekly_usage import WeeklyUsage
+        from covey.app.workspace_manager import WorkspaceManager
+        with self.parts_lock:
+            if 'features' in self.__dict__:
+                return
+            self.directory_picker = DirectoryPicker(self.topics)
+            self.launch_model_picker = LaunchModelPicker(self.topics)
+            self.workspace_manager = WorkspaceManager(self.topics, self.directory_picker.cache)
+            self.harness_switch = HarnessSwitch(self.topics)
+            self.rewind = RewindCards(self.topics)
+            self.proxy = Proxy(self.topics)
+            self.dashboard = Dashboard(self.runtime, self.messenger, self.voice,
+                                       detect=lambda harness=self.claude: detect_upstream(harness))
+            self.weekly_usage = WeeklyUsage(self.runtime, self.messenger, self.voice, self.titles)
+            self.group_manager = GroupManager(self.runtime, self.messenger, self.voice)
+            self.dashboard_rotate = DashboardRotate(self)
+            # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card, the web dashboard's link last.
+            self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice, self.dashboard)
+            # The main thread's settings card (docs/main-thread.md 设置卡): the 设置 card's 主线程 tab.
+            self.main_thread_panel = MainThreadPanel(self.topics)
+            # The bot menu's 设置 (app/settings_hub.py): 主线程, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
+            self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.main_thread_panel,
+                                            self.proxy.panel, self.group_manager, self.workspace_manager,
+                                            self.redaction_panel)
+            # 手上的事 (app/overview.py): the card pinned in the owner's private chat, when COVEY_PINNED_OVERVIEW=1.
+            self.overview = Overview(self.runtime, self.messenger, self.voice, self.titles)
+            # The main thread's tools (app/main_tools.py), unless COVEY_MAIN_THREAD=0: the state directory and
+            # profile are filled in by build_context, before any thread runs.
+            self.main_env = MainEnv(self.runtime, self.topics, self.messenger, self.voice, state_dir=None, profile='',
+                                    settings=self.settings_hub)
+            if self.main_paths is not None:
+                self.main_env.state_dir, self.main_env.profile = self.main_paths
+            # Every tool core/main_tool_specs.py names, by the module that runs it.
+            self.main_tools = MainTools(self.main_env, handlers={**main_tools.TOOLS, **main_search.TOOLS,
+                                                                 **main_topics.TOOLS, **main_thread_panel.TOOLS,
+                                                                 **main_knowledge.TOOLS})
+            self.main_search = main_search.MainSearch(self.main_env)  # Reads the checkpoints topics_search looks into.
+            # The memory watchdog's alerts (service/memguard.py), to a task's topic or the owner's private chat.
+            self.memguard_alerts = MemguardAlerts(self.runtime, self.messenger, self.voice)
+            # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
+            self.digest = Digest(self.runtime, self.messenger, self.voice)
+            # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
+            self.overview.handed[self.digest.origin] = self.digest.dismissed
+            # Which topics the owner has seen (app/topic_seen.py): read receipts, when COVEY_PINNED_TOPICS=1.
+            self.topic_seen = TopicSeen(self.runtime, lambda ctx, key, handle: self.consume_events(ctx, key, handle))
+            # The Feishu app kept up with the Bridge (app/app_setup.py): what it lacks offered in the owner's private
+            # chat, added by the developer console after a QR login.
+            self.app_setup = AppSetup(self.runtime, self.messenger, self.voice)
+            # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
+            # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
+            # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
+            # (core/extensions.py) come last.
+            # The enabled extensions' feature objects also take a top-level message and a card click before the core's
+            # (card_routing.py: handle_event, claim) and are closed when the Bridge stops (close).
+            if 'extension_features' not in self.__dict__:
+                self.extension_features = extensions.features(self)
+            features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
+                        self.group_manager, self.overview, self.topic_seen, self.main_tools,
+                        self.main_search, self.settings_hub, self.main_thread, self.digest, self.app_setup,
+                        *self.extension_features)
+            # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
+            # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).
+            self.menu = BotMenu(self.runtime, INBOUND_DIR,
+                                {key: action for feature in features
+                                 for key, action in getattr(feature, 'menu_items', dict)().items()},
+                                Panels(self.runtime, self.messenger), hints=lambda ctx: known_chats(self.proxy.panel, ctx),
+                                folds={key: fold for feature in features
+                                       for key, fold in getattr(feature, 'menu_folds', dict)().items()})
+            # The menu card pinned in each personal group (app/group_menu.py, core/spaces.py personal_groups).
+            self.group_menu = GroupMenu(self.runtime, self.messenger, self.voice, self.menu)
+            # 手上的事, the pinned board and 早晚汇总 in each of those groups too (app/group_boards.py).
+            self.group_boards = GroupBoards(self.runtime, self.messenger, self.voice, self.titles, self.overview)
+            self.features = features  # Last: 'features' in the instance says the build is done.
 
     def main(self, argv=None):
         # Task runners rebuild this Bridge from the same arguments.
@@ -243,6 +274,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         if cenv.get("COVEY_MANAGED") == "1":
             # Its own log, kept by size: the Manager's file (any release's rotates at each start) keeps only what came
             # before this (repo review E3).
+            from covey.core.logs import keep_log
             log = ctx.state_dir / "bridge.log"
             log_to(log)
             threading.Thread(target=keep_log, args=(log, self.runtime.shutdown), name="bridge-log", daemon=True).start()
@@ -251,6 +283,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         signal.signal(signal.SIGTERM, self.shutdown_handler)
         signal.signal(signal.SIGINT, self.shutdown_handler)
 
+        from covey.app.health import bridge_snapshot
+        from covey.service.boot import serve
         pid_path = ctx.state_dir / "bridge.pid"
         write_private_text(pid_path, str(os.getpid()))
         workers = {}
@@ -285,6 +319,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         with contextlib.ExitStack() as stopping:
             stopping.callback(stop)
             # Old records migrated before anything reads them (core/migrate.py); once done, one file read.
+            from covey.core.migrate import migrate
             migrate(ctx.state_dir, log=self.runtime.log)
             self.main_thread.settle(ctx, self.runtime.log)  # The private chat mode, once (docs/main-thread.md 私聊模式).
             if main_thread_settings.desk_topics_left(ctx.state_dir):  # Retired 2026-11-09 (docs/main-thread.md 前台话题).
@@ -333,7 +368,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         for note in notes:
             self.runtime.log(note)
         configure_boards(self.runtime.access.board_groups())  # Each keeps a board record of its own (app/pins.py).
-        self.main_env.state_dir, self.main_env.profile = ctx.state_dir, ctx.profile or ''
+        self.main_paths = ctx.state_dir, ctx.profile or ''
+        if 'main_env' in self.__dict__:  # Built already (the Bridge's); a task runner's is built later, with these.
+            self.main_env.state_dir, self.main_env.profile = self.main_paths
         self.main_thread.configure(ctx)  # Here, so a task runner's replies stay where the Bridge's do.
         ignored = sorted(set(config.get('harnesses', {})) - set(NAMES))
         if ignored:
@@ -400,6 +437,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
 
     def worker_targets(self):
         """The Bridge's worker threads: (name, target), each target run as ``target(ctx)``."""
+        from covey.app.stale import close_stale_records
+        from covey.core.maintenance import maintenance_loop
+        from covey.feishu.connections import watch as watch_connection
         return [('scheduler', self.reply_worker_loop), ('cards', self.card_action_loop), ('menu', self.menu_loop),
                 ('maintenance', lambda ctx: maintenance_loop(
                     self.runtime, ctx, close_stale=lambda plan: close_stale_records(self, ctx, plan),
@@ -415,6 +455,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         """The first line of a start: the process, its Manager generation and its code. A start in the same
         generation as the one before is the Manager replacing a Bridge that exited or stopped answering; a
         new one is a deploy or restart (repo review E3: only "received signal 15" was left of it)."""
+        from covey.service import manager
         try:
             generation = manager.generation(ctx.state_dir)
         except (OSError, ValueError, KeyError, TypeError):
@@ -426,6 +467,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         default = self.apps[self.topics.default]
         self.runtime.log(f"profile={ctx.profile or 'default'} active_workspace={ctx.workspace_name} workdir={ctx.workdir}")
         self.runtime.log("conversation_mode=topic (one Feishu topic per Harness session)")
+        from covey.core.ignored_env import ignored_env
+        from covey.app.launch_models import start_catalog_refresh
+        from covey.app import model_usage
         for line in ignored_env():  # Only here: a task runner builds its context without logging this.
             self.runtime.log(line)
         for line in extensions.unused_env():  # Variables of a feature that moved into an extension that is not enabled.

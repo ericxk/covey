@@ -40,7 +40,6 @@ from covey.core.redaction import load_config, record_turn, topic_redaction
 from covey.core.redactor import Redactor
 from covey.core.result import ExecutionOutcome
 from covey.core.http_upstream import copy_headers, opener, pipe, send
-from covey.core.serving import LoopbackServer
 from covey.core.state import read_json, read_object, write_json
 from covey.core.logs import line_log
 
@@ -198,6 +197,7 @@ class Relay:
         # A redirect goes back to Claude Code as it came; the body is never sent to another address.
         self.opener = opener(direct=is_loopback(self.upstream))
         # The request line is in relay.log.
+        from covey.core.serving import LoopbackServer  # Here: http.server stays out of a task runner's start.
         self.server = LoopbackServer(self.forward, "redaction-relay", read_body=read_body,
                                      verbs=("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"))
 
