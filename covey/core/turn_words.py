@@ -136,8 +136,9 @@ def device_restarted(alias) -> str:
 
 
 def device_hub_restarted(alias) -> str:
-    """The Bridge's machine restarted (or its task runner was killed) under a turn on the device."""
-    return f"机器人所在机器重启过，{alias} 上这一轮可能还在跑；点检查并继续会先停掉它再接着做。"
+    """The turn's task process on the Bridge's machine went away under a turn on the device: the Bridge restarted, or only
+    the task process was killed or exited. The record does not tell which (``interrupted_by`` is the same), so the words fit both."""
+    return f"上一轮的任务进程中断过（机器人重启或任务进程退出），{alias} 上这一轮可能还在跑；点检查并继续会先停掉它再接着做。"
 
 
 def device_interrupted(record) -> str:

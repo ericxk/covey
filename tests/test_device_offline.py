@@ -6,6 +6,7 @@ faults are injected on the link (``faults.fail``, ``kill_attaches``). Every test
 on anything of the device left running."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import signal
@@ -17,12 +18,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from covey.app import detached
+from covey.app import availability, detached
 from covey.app import devices as device_turns
 from covey.app import policy_guard, worker
 from covey.app.app import BridgeApp
 from covey.app.recovery_cards import recovery_text
 from covey.core import device_link as dl
+from covey.core import device_transport as dt
 from covey.core import device_reap, devices, turn_words
 from covey.core import recovery as core_recovery
 from covey.core.jobs import DEVICE_LOST_STATUS, find_job_record, upsert_job_record
@@ -30,7 +32,7 @@ from covey.core.longtask import TaskMonitor
 from covey.core.state import read_object, write_json
 from covey.core.status_line import Facts, status_summary, status_text
 from covey.core.trace import ToolTrace
-from support import make_job
+from support import exec_tempdir, make_job
 from support.fake_device import FakeDevice
 from test_device_process import DeviceCase, Lines, wait_for
 
@@ -71,7 +73,7 @@ class WordsTest(unittest.TestCase):
         self.assertEqual(turn_words.device_stop_pending("gpu1"), "已请求停止，gpu1 连上后生效")
         self.assertEqual(turn_words.device_restarted("gpu1"), "gpu1 重启过，这一轮按失败处理；会话还在设备上，检查并继续会接着做。")
         self.assertEqual(turn_words.device_hub_restarted("gpu1"),
-                         "机器人所在机器重启过，gpu1 上这一轮可能还在跑；点检查并继续会先停掉它再接着做。")
+                         "上一轮的任务进程中断过（机器人重启或任务进程退出），gpu1 上这一轮可能还在跑；点检查并继续会先停掉它再接着做。")
         self.assertEqual(turn_words.device_reconnected({"alias": "gpu1"}), "gpu1 已重新连上")
 
     def test_the_recovery_card_of_an_interrupted_device_turn_leads_with_where_the_agent_is(self):
@@ -79,7 +81,7 @@ class WordsTest(unittest.TestCase):
         lost = {**base, "interrupted_by": "device_lost", "device_state": {"limit_seconds": 900}}
         restarted = {**base, "interrupted_by": "restart"}
         local = {"status": "interrupted", "job_id": 5, "interrupted_by": "restart"}
-        for record, words in ((lost, "gpu1 失联超过 15 分钟，这一轮按中断处理"), (restarted, "机器人所在机器重启过，gpu1 上这一轮可能还在跑")):
+        for record, words in ((lost, "gpu1 失联超过 15 分钟，这一轮按中断处理"), (restarted, "上一轮的任务进程中断过（机器人重启或任务进程退出），gpu1 上这一轮可能还在跑")):
             decided = core_recovery.classify(record)
             self.assertEqual((decided.card, decided.label), (core_recovery.INTERRUPTED, "检查并继续"))
             text = recovery_text(record, decided.card, decided.label, {}, continued=False, state_dir=None)
@@ -416,7 +418,7 @@ class HooksTest(unittest.TestCase):
                          ("runner_lost", 4242, "topic-1", self.key))
         self.assertEqual(find_job_record(self.state, self.key)["status"], "interrupted")
         notice = controls.report_unfinished.call_args.args[2]
-        self.assertTrue(notice.startswith("机器人所在机器重启过，gpu1 上这一轮可能还在跑"), notice)
+        self.assertTrue(notice.startswith("上一轮的任务进程中断过（机器人重启或任务进程退出），gpu1 上这一轮可能还在跑"), notice)
         self.assertTrue(any("device reap registered" in line for line in self.logs))
 
     def test_a_turn_the_device_lost_is_interrupted_by_device_lost_and_not_continued_by_itself(self):
@@ -457,7 +459,7 @@ class HooksTest(unittest.TestCase):
         self.assertEqual(list(self.entries()), ["dev-job-1-ab12"])
         self.assertEqual(self.entries()["dev-job-1-ab12"]["reason"], "restart")
         notices = {call.args[1]["key"]: call.args[2] for call in fake.controls.report_unfinished.call_args_list}
-        self.assertTrue(notices[self.key].startswith("机器人所在机器重启过，gpu1"))
+        self.assertTrue(notices[self.key].startswith("上一轮的任务进程中断过（机器人重启或任务进程退出），gpu1"))
         self.assertIn("已中断", notices[local["key"]])
         # Registering twice leaves one entry with the first reason.
         BridgeApp.notify_stale_jobs(fake, SimpleNamespace(state_dir=self.state))
@@ -531,7 +533,9 @@ class ThreadTest(unittest.TestCase):
         self.logs = []
         self.runtime = SimpleNamespace(shutdown=threading.Event(), log=self.logs.append)
         self.ctx = SimpleNamespace(state_dir=self.state)
-        self.config = devices.Config({"gpu1": object()}, Path(self.tmp.name), connect_seconds=2)
+        document = {"schema": 1, "devices": {"gpu1": {"ssh": {"host": "gpu1.example"}, "harnesses": ["claude", "codex"]}}}
+        self.config = dataclasses.replace(devices.parse(json.dumps(document)), control_dir=Path(self.tmp.name),
+                                          connect_seconds=2)
         self.patches = [mock.patch.object(devices, "current", return_value=self.config),
                         mock.patch.object(dl, "transport_for", return_value=self.device.transport)]
         for patch in self.patches:
@@ -562,6 +566,62 @@ class ThreadTest(unittest.TestCase):
         self.device.transport.log.clear()
         thread.round(self.ctx)  # gc runs once an hour, not every minute.
         self.assertNotIn("gc", [cmd for cmd, _ in self.device.transport.log])
+
+    def with_tools(self, *names):
+        """The named tools installed on the device (a script that says its version and that it is logged in)."""
+        bin_dir = exec_tempdir()
+        self.addCleanup(bin_dir.cleanup)
+        for name in names:
+            tool = Path(bin_dir.name) / name
+            tool.write_text("#!/bin/sh\necho '%s 9.9.9 (fake)'\n" % name)
+            tool.chmod(0o755)
+            if not os.access(tool, os.X_OK):
+                self.skipTest("no directory here where a script may be executed (run through scripts/test_map.py)")
+        # Only these: the developer machine's own claude and codex must not count as the device's.
+        self.device.transport.env["PATH"] = "%s:/usr/bin:/bin" % bin_dir.name
+
+    def turn_context(self):
+        from support import make_context
+        return make_context(Path(self.tmp.name), device="gpu1", remote_workdir="/srv/p", backend_cmd=["claude"])
+
+    def test_a_round_does_not_wipe_the_tools_the_self_check_found(self):
+        """A-10: the thread's hello asked for no tools, its answer replaced the self-check's, and every turn on the
+        device was then refused with 'executable missing'."""
+        self.with_tools("claude", "codex")
+        result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        self.assertTrue(result.ok, result.lines())
+        ctx = self.turn_context()
+        self.assertEqual(availability.check_or_raise("claude", ctx)["status"], "configured")
+        device_turns.Devices(self.runtime).round(self.ctx)
+        self.assertTrue(read_object(devices.device_dir(self.state, "gpu1") / "health.json")["ok"])
+        self.assertEqual(sorted(devices.read_hello(self.state, "gpu1")["tools"]), ["claude", "codex"])
+        self.assertEqual(availability.check_or_raise("claude", ctx)["status"], "configured")
+        self.assertEqual(availability.check_or_raise("codex", ctx)["status"], "configured")
+        probe_hello = [fields for cmd, fields in self.device.transport.log if cmd == "hello"][-1]
+        self.assertEqual((probe_hello["want"], probe_hello["proto"]), (["claude", "codex"], dt.PROTO))
+
+    def test_a_tool_the_device_really_lacks_is_still_refused_after_a_round(self):
+        self.with_tools("codex")  # No claude on this device.
+        result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        self.assertFalse(result.ok)
+        ctx = self.turn_context()
+        self.assertEqual(availability.local_check("claude", ctx)["reason"], "executable_missing")
+        device_turns.Devices(self.runtime).round(self.ctx)
+        self.assertEqual(availability.local_check("claude", ctx)["reason"], "executable_missing")
+        self.assertEqual(availability.local_check("codex", ctx)["status"], "configured")
+        with self.assertRaisesRegex(ValueError, "不可用"):
+            availability.check_or_raise("claude", ctx)
+
+    def test_a_hello_without_tools_keeps_the_tools_already_known(self):
+        found = {"claude": {"found": True, "login": "ok"}}
+        devices.write_hello(self.state, "gpu1", {"shim": "a", "tools": found}, now=1.0)
+        devices.refresh_hello(self.state, "gpu1", {"shim": "b", "tools": {}})
+        kept = devices.read_hello(self.state, "gpu1")
+        self.assertEqual((kept["shim"], kept["tools"]), ("b", found))
+        devices.refresh_hello(self.state, "gpu1", {"shim": "c", "tools": {"claude": {"found": False}}})
+        self.assertEqual(devices.read_hello(self.state, "gpu1")["tools"], {"claude": {"found": False}})
+        devices.refresh_hello(self.state, "gpu2", {"shim": "d"})  # Nothing known before: written as it is.
+        self.assertEqual(devices.read_hello(self.state, "gpu2"), {"shim": "d"})
 
     def test_an_unreachable_device_keeps_its_entries_and_is_skipped(self):
         device_reap.register(self.state, "gpu1", "dev-old-2", reason="device_lost", shim="")

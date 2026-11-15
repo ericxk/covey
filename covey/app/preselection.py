@@ -28,14 +28,32 @@ class LaunchSelection(NamedTuple):
     notice: str
 
 
+def device_fit(choices, model, declared):
+    """The menu entry a device workspace starts from: ``model`` itself when its Harness is one the device declares
+    (devices.json ``harnesses``; ``declared`` empty or None: no device, no limit), else the first model, in the menu's
+    order, of the first declared Harness the menu offers (the hub's enabled ones only); ``model`` again when the device
+    declares none the menu has, which 开始任务 then refuses with the reason."""
+    if not declared or choices.get(model, {}).get('harness', model.split(':', 1)[0]) in declared:
+        return model
+    for name in declared:
+        for key, entry in choices.items():
+            if entry.get('harness', key.split(':', 1)[0]) == name:
+                return key
+    return model
+
+
 def launch_selection(choices, usage, config, *, model, workspace, work_mode, fresh, saved=None, draft=None,
-                     notice='', topic_budget=('', '')):
+                     notice='', topic_budget=('', ''), device_harnesses=None):
     """The launch card's preselection. ``choices`` available_models' menu, ``usage`` the chat's selections
     (model_usage.recent), ``config`` the workspace config; ``model`` (harness:model), ``workspace`` and
     ``work_mode`` the topic's binding; ``fresh`` whether it is the topic's first binding, the only one
     preferences prefill, with ``saved`` the chat's last launch (launch_defaults; anything but a dict is
     none); ``draft`` a rebuilt card's own choices. ``topic_budget`` (Harness, budget): the 设置卡's 新话题默认
-    budget (core/main_thread_settings.py TopicDefaults; its Harness '' for any), ('', '') without one."""
+    budget (core/main_thread_settings.py TopicDefaults; its Harness '' for any), ('', '') without one.
+    ``device_harnesses`` (workspace name → the Harnesses its device declares, device workspaces only): a card that
+    nobody has chosen a model on (no ``draft`` model) whose workspace is such a one does not start from a Harness the
+    device lacks but from its first declared one, with that model's own budget (``device_fit``); a model the owner
+    chose stays and is refused at 开始任务."""
     # A budget comes with the model only from a budget preset key, saved or sent before one entry per model.
     model, budget = find_choice(choices, model) or (model, '')
     mode, first, last = work_mode, None, ('', '')
@@ -75,6 +93,11 @@ def launch_selection(choices, usage, config, *, model, workspace, work_mode, fre
         # starting elsewhere, and the card, redrawn with it, says so.
         workspace, names = draft['workspace'], [*names, draft['workspace']]
         notice = '\n'.join(filter(None, [notice, f'⚠️ 工作区「{workspace}」已从列表移除，请换一个工作区。']))
+    if not draft.get('model'):
+        fitted = device_fit(choices, model, (device_harnesses or {}).get(workspace))
+        if fitted != model:
+            model, budget = fitted, ''
+            choices = model_usage.ranked(choices, usage, model)
     options, default_effort = effort_options(choices.get(model, {}))
     # A budget preset's or the card's budget; else the 新话题默认 budget where its Harness is the model's and the
     # model offers it (owner 2026-11-10: the card follows it, so a lowered default reaches chats that always took

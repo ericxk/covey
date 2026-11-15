@@ -127,6 +127,19 @@ def device_titles(config):
     return found
 
 
+def device_harnesses(config):
+    """name -> the Harnesses its device declares (devices.json ``harnesses``) for each device workspace of ``config``
+    (empty unless devices are on): what a card preselects a model from (app/preselection.py device_fit)."""
+    found = {}
+    for name, value in config['workspaces'].items():
+        if devices.is_device_value(value):
+            try:
+                found[name] = devices.current().device(value.partition(':')[0]).harnesses
+            except (devices.UnknownDevice, devices.DeviceConfigError):
+                continue
+    return found
+
+
 def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
     if new_topic:
         raise ValueError('请在主聊天发送任务，在该消息下选择配置')
@@ -147,7 +160,7 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
         saved = launch_defaults(ctx.state_dir, chat_id) if fresh else None
     except (OSError, ValueError):
         saved = None
-    selection = launch_selection(available_models(topics, ctx), usage, config,
+    selection = launch_selection(available_models(topics, ctx), usage, config, device_harnesses=device_harnesses(config),
                                  model=ctx.options['harness_id'] + ':' + ctx.model, workspace=ctx.workspace_name,
                                  work_mode=ctx.work_mode, fresh=fresh, saved=saved, draft=draft, notice=notice,
                                  topic_budget=topic_budget(ctx.state_dir))
@@ -363,6 +376,9 @@ def _submit_launch_form(app, ctx, event):
         if binding.device:
             if not app.runtime.access.allows_device(event['chat_id'], binding.device):
                 raise ValueError(f'设备 {binding.device} 不允许在这个聊天里使用（devices.json 的 spaces）')
+            refused = devices.undeclared_refusal(binding.device, name, choice.get('title') or name)
+            if refused:
+                raise ValueError(refused)
             if run_mode == 'worktree':
                 raise ValueError('设备上的工作区只能用原目录运行')
         plan = {'harness': name, 'model': model, 'effort': effort, 'label': choice['label'], 'work_mode': work_mode,

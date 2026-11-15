@@ -858,3 +858,93 @@ class LaunchFollowUpTests(LaunchCase):
         self.assertIn('released 1 waiting messages of started topic=', ' '.join(self.logs))
         restarted.release_started_launches(base)  # Nothing is left waiting: nothing more is queued.
         self.assertTrue(restarted.runtime.jobs.queue.empty())
+
+
+class DeviceHarnessLaunchTests(LaunchCase):
+    """A device workspace starts from a Harness the device declares (devices.json ``harnesses``), and a Harness it does
+    not declare is refused at 开始任务 with the reason (A-10)."""
+
+    def setUp(self):
+        super().setUp()
+        from support.fake_device import FakeDevice
+        from covey.core import devices
+        document = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-launch",
+                    "devices": {"gpu1": {"ssh": {"host": "gpu1.example"}, "harnesses": ["codex"],
+                                         "spaces": ["owner_private", "team"]}}}
+        (self.root / 'devices.json').write_text(json.dumps(document))
+        patch = mock.patch.dict('os.environ', {'COVEY_DEVICES': '1', 'COVEY_DEVICES_FILE': str(self.root / 'devices.json')})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.device = FakeDevice()
+        self.addCleanup(lambda: self.assertEqual(self.device.cleanup(), []))
+        opened = mock.patch.object(devices, 'open_transport', side_effect=lambda *a, **k: self.device.transport)
+        opened.start()
+        self.addCleanup(opened.stop)
+        self.value = 'gpu1:%s' % self.device.home
+        self.app.runtime.access.allows_device = lambda chat, device: True
+
+    def use_device_workspace(self, *, default=False):
+        config = load_config(self.ctx.state_dir, self.root)
+        config['workspaces']['gpu1-proj'] = self.value
+        if default:
+            config['default'] = 'gpu1-proj'
+        config_path(self.ctx.state_dir).write_text(json.dumps(config))
+
+    def pick(self, event, kind, option):
+        """One select callback on the card the event belongs to; the event of the card it redraws."""
+        token = event['action_name'][len(SUBMIT_PREFIX):]
+        with FakeCardKit():
+            self.app.handle_card_action_event({**event, 'action_name': '', 'event_id': kind + '-' + str(option),
+                'action_value': {'kind': kind, 'token': token}, 'option': option}, self.ctx)
+            self.app.launch_model_picker.queue.join()
+        return {**event, 'action_name': SUBMIT_PREFIX + current_token(self.ctx.state_dir, token), 'form_value': {'path': ''}}
+
+    def selected(self, event):
+        return self.launch_form(event['action_name'][len(SUBMIT_PREFIX):])
+
+    def test_a_card_for_a_device_workspace_starts_from_the_devices_harness(self):
+        self.use_device_workspace(default=True)
+        self.receive('task', 'hello')
+        card, event = self.form('task')
+        record = self.launch_form(card_token(card))
+        self.assertEqual(record['models'][record['selected_model']]['harness'], 'codex')
+        self.assertEqual(next(iter(record['models'])), record['selected_model'])
+        self.assertEqual(record['form_defaults']['workspace'], 'gpu1-proj')
+
+    def test_choosing_the_device_workspace_moves_the_selection_and_choosing_a_local_one_leaves_it(self):
+        self.use_device_workspace()
+        self.receive('task', 'hello')
+        card, event = self.form('task')
+        event = self.pick(event, 'bridge_launch_model', 'claude:claude-model')
+        self.assertEqual(self.selected(event)['selected_model'], 'claude:claude-model')
+        event = self.pick(event, 'bridge_launch_workspace', 'gpu1-proj')
+        record = self.selected(event)
+        self.assertEqual(record['selected_model'], 'codex:codex-model')
+        self.assertEqual(record['form_defaults']['workspace'], 'gpu1-proj')
+        # Back to a local workspace: the model stays where it is.
+        event = self.pick(event, 'bridge_launch_workspace', load_config(self.ctx.state_dir, self.root)['default'])
+        self.assertEqual(self.selected(event)['selected_model'], 'codex:codex-model')
+
+    def test_a_model_chosen_by_hand_that_the_device_lacks_is_refused_with_the_reason(self):
+        self.use_device_workspace()
+        self.receive('task', 'hello')
+        card, event = self.form('task')
+        event = self.pick(event, 'bridge_launch_workspace', 'gpu1-proj')
+        event = self.pick(event, 'bridge_launch_model', 'claude:claude-model')
+        self.assertEqual(self.selected(event)['selected_model'], 'claude:claude-model')  # The owner's choice stays.
+        before = read_topic(self.route('task')[1])
+        self.app.handle_card_action_event(event, self.ctx)
+        text = '\n'.join(self.said())
+        self.assertIn('设备 gpu1 只声明了 codex（devices.json 的 harnesses）', text)
+        self.assertTrue(self.app.runtime.jobs.queue.empty())
+        self.assertEqual(read_topic(self.route('task')[1]), before)
+
+    def test_the_devices_own_harness_starts(self):
+        self.use_device_workspace()
+        self.receive('task', 'hello')
+        card, event = self.form('task')
+        event = self.pick(event, 'bridge_launch_workspace', 'gpu1-proj')
+        self.assertEqual(self.selected(event)['selected_model'].split(':')[0], 'codex')
+        self.app.handle_card_action_event(event, self.ctx)
+        job = self.app.runtime.jobs.queue.get_nowait()
+        self.assertEqual((job.harness_id, job.user_text), ('codex', 'hello'))

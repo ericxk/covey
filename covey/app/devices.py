@@ -182,7 +182,10 @@ class Devices:
         error = ""
         try:
             devices.push_file(transport, dt.shim_bytes())
-            devices.write_hello(state_dir, alias, transport.call("hello", want=[], patience=config.connect_seconds + 10.0))
+            # The same hello as the self-check's and a turn's connection (protocol and the Harnesses this device declares):
+            # one without ``want`` carries no tools, and a turn then finds none of them.
+            wanted = config.device(alias).harnesses
+            devices.refresh_hello(state_dir, alias, transport.hello(wanted, patience=config.connect_seconds + 10.0))
         except (dt.DeviceError, OSError) as exc:
             error = type(exc).__name__
         write_json(devices.device_dir(state_dir, alias) / "health.json",

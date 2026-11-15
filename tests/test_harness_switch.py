@@ -47,7 +47,7 @@ from covey.core.state import write_private_text
 from covey.core.history_storage import append_history
 from covey.core.store import invalidate_directory
 from covey.core.topics import read_topic, remember_topic_message
-from covey.core.workspaces import resolve_selection
+from covey.core.workspaces import load_config, resolve_selection
 
 setUpModule, tearDownModule = leftover_check()
 
@@ -426,6 +426,39 @@ class HarnessSwitchTests(UnifiedCase):
         self.assertIn('工作区：project（原目录） → other（原目录）', json.dumps(replace.call_args.args[4], ensure_ascii=False))
         note = switch_handoff.handoff_note(topic, Path('/t.md'), 5)
         self.assertIn(f'工作目录从 {self.work} 换成了上面的 Current workdir', note)
+
+    def test_a_harness_the_device_does_not_declare_is_refused_and_a_declared_one_switches(self):
+        from support.fake_device import FakeDevice
+        from covey.core import devices
+        document = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-switch",
+                    "devices": {"gpu1": {"ssh": {"host": "gpu1.example"}, "harnesses": ["claude"],
+                                         "spaces": ["owner_private", "team"]}}}
+        (self.root / "devices.json").write_text(json.dumps(document))
+        patcher = mock.patch.dict(os.environ, {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(self.root / "devices.json")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        device = FakeDevice()
+        self.addCleanup(lambda: self.assertEqual(device.cleanup(), []))
+        opened = mock.patch.object(devices, "open_transport", side_effect=lambda *a, **k: device.transport)
+        opened.start()
+        self.addCleanup(opened.stop)
+        self.app.runtime.access.allows_device = lambda chat, alias: True
+        value = "gpu1:%s" % device.home
+        resolve_selection(self.ctx.state_dir, self.ctx.default_workdir, value)
+        name = next(n for n, v in load_config(self.ctx.state_dir, self.ctx.default_workdir)["workspaces"].items() if v == value)
+        form, path, _ = self.open()
+        self.click(form, hs.WORKSPACE, name)
+        before = self.topic()
+        self.click(json.loads(path.read_text()), hs.CONFIRM)  # The topic's Codex on a device that declares Claude only.
+        record = json.loads(path.read_text())
+        self.assertEqual(record["status"], "ready")
+        self.assertIn("设备 gpu1 只声明了 claude（devices.json 的 harnesses），没有", record["notice"])
+        self.assertIn("话题配置没有改变", record["notice"])
+        self.assertEqual((self.topic()["harness_id"], self.topic()["workdir"]), (before["harness_id"], before["workdir"]))
+        self.click(record, hs.MODEL, "claude:claude-model")
+        self.click(json.loads(path.read_text()), hs.CONFIRM)
+        self.assertEqual(json.loads(path.read_text())["status"], "done")
+        self.assertEqual((self.topic()["harness_id"], self.topic()["workdir"]), ("claude", value))
 
     def test_a_worktree_is_made_from_the_workspaces_commit_and_kept_when_the_switch_is_refused(self):
         for where in ('covey.core.workspaces.worktree_root', 'covey.app.binding.worktree_root'):

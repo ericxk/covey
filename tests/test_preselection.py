@@ -101,6 +101,36 @@ class LaunchSelectionTests(unittest.TestCase):
             ('an empty menu', {'choices': {}}, {'model': 'unavailable', 'effort': 'default', 'work_mode': '', 'first': None}),
         ])
 
+    def test_a_device_workspace_starts_from_a_harness_the_device_declares(self):
+        # A-10: testbox declared only Codex, yet the card started from the hub's default Claude Code.
+        device = {'device_harnesses': {'project': ('codex',), 'other': ('dsh', 'codex')}}
+        usual = used(('codex:gpt', 'low', ''), ('codex:gpt', 'low', ''))
+        self.check([
+            ('a Harness the device lacks gives way to its first declared one', {**device, 'model': 'claude:opus'},
+             {'model': 'codex:gpt', 'effort': RECOMMENDED, 'workspace': 'project', 'first': 'codex:gpt'}),
+            ('with that models usual budget', {**device, 'model': 'claude:opus', 'usage': usual},
+             {'model': 'codex:gpt', 'effort': 'low', 'first': 'codex:gpt'}),
+            ('a declared Harness stays', {**device, 'model': 'codex:gpt'}, {'model': 'codex:gpt', 'first': 'claude:opus'}),
+            ('the first declared one the hub offers', {'device_harnesses': {'project': ('maso', 'dsh', 'codex')},
+                                                       'model': 'claude:opus'},
+             {'model': 'maso:gpt56_sol', 'effort': '', 'work_mode': 'focus'}),
+            ('none of them offered: the model stays and 开始任务 refuses it', {'device_harnesses': {'project': ('pi',)},
+                                                                              'model': 'claude:opus'},
+             {'model': 'claude:opus'}),
+            ('a workspace that is not on a device', {'device_harnesses': {'project': ('codex',)}, 'model': 'claude:opus',
+                                                     'workspace': 'other', 'draft': {'workspace': 'other'}},
+             {'model': 'claude:opus', 'workspace': 'other'}),
+            ('no device workspaces at all', {'model': 'claude:opus'}, {'model': 'claude:opus'}),
+            ('the draft workspace is the one that counts', {'device_harnesses': {'other': ('codex',)}, 'model': 'claude:opus',
+                                                            'draft': {'workspace': 'other'}},
+             {'model': 'codex:gpt', 'workspace': 'other'}),
+            ('a model the owner chose stays', {**device, 'model': 'claude:opus', 'draft': {'model': 'claude:opus'}},
+             {'model': 'claude:opus'}),
+            ('the last launch is fitted too', {**device, 'model': 'claude:opus', 'fresh': True,
+                                               'saved': {'model_choice': 'claude:opus', 'effort': 'max'}},
+             {'model': 'codex:gpt', 'effort': RECOMMENDED}),
+        ])
+
     def test_the_new_topic_default_budget(self):
         # The 设置卡's 新话题默认 budget (owner 2026-11-10): before the chat's usual one and its last launch's, after the
         # card's own and a MASO preset's; only for its Harness and where the model offers it.

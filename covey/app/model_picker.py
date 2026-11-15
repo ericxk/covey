@@ -10,7 +10,7 @@ import re
 
 from covey.app.card_queue import CardActionQueue
 from covey.app.form_cards import LAUNCH_FORM_LOCK
-from covey.app.launch import (form_draft, form_topic_root, rebuild_launch_card, refuse_retired_form,
+from covey.app.launch import (device_harnesses, form_draft, form_topic_root, rebuild_launch_card, refuse_retired_form,
                                        retired_form, retired_form_at)
 from covey.cards.launch_config import (BUDGET_ACTION, HARNESS_ACTION, MANAGE_OPTION, MODE_ACTION, MODEL_ACTION,
                                                 PAGE_ACTION, PAGES, PROVIDER_ACTION, REDACTION_ACTION, REDACTION_LABELS,
@@ -21,7 +21,8 @@ from covey.core.state import read_json, write_json
 from covey.core.topics import load_topic
 from covey.app.card_actions import action_value
 from covey.app.launch_models import available_models
-from covey.core.workspaces import RUN_MODES
+from covey.app.preselection import device_fit
+from covey.core.workspaces import RUN_MODES, load_config
 
 
 class LaunchModelPicker(CardActionQueue):
@@ -92,8 +93,13 @@ class LaunchModelPicker(CardActionQueue):
             record['page'] = ''  # Any choice returns to the list.
             if kind in (WORKSPACE_ACTION, MODE_ACTION, WORK_MODE_ACTION, REDACTION_ACTION, BUDGET_ACTION):
                 # On a page, the option already chosen (or one no longer offered) returns to the list too.
-                if not record.get('compact') or not (self.record_choice(record, kind, model) or page):
+                if not record.get('compact'):
                     return
+                changed = self.record_choice(record, kind, model)
+                if not (changed or page):
+                    return
+                if changed and kind == WORKSPACE_ACTION:
+                    self.fit_device(ctx, record, model)
                 # Recorded, then the card is redrawn with it (process): its summary names the choice. Only the
                 # latest revision redraws; a budget from a card a redraw is replacing no longer matches it.
                 revision = record.get('config_revision', 0) + 1
@@ -135,6 +141,20 @@ class LaunchModelPicker(CardActionQueue):
             self.save(path, record)
             # A full queue must fail closed; an older budget may never start.
             self.submit('configuration remains pending', self.process, ctx, path, revision)
+
+    @staticmethod
+    def fit_device(ctx, record, workspace):
+        """A device workspace chosen on the card whose device does not declare the selected model's Harness
+        (devices.json ``harnesses``) moves the selection to the device's first declared one, with its default budget
+        (app/preselection.py device_fit), so the card does not start from a Harness the device lacks. Any other
+        workspace leaves the selection alone; one the owner then chooses by hand is refused at 开始任务."""
+        try:
+            declared = device_harnesses(load_config(ctx.state_dir, ctx.default_workdir)).get(workspace)
+        except (OSError, ValueError):
+            return
+        fitted = device_fit(record['models'], record['selected_model'], declared)
+        if fitted != record['selected_model']:
+            record.update(selected_model=fitted, selected_effort='')
 
     @staticmethod
     def record_choice(record, kind, option):

@@ -357,6 +357,12 @@ class HarnessSwitch(CardActionQueue):
                     alias = place["workdir"].split(":", 1)[0]
                     if not self.topics.runtime.access.allows_device(chat, alias):
                         raise ValueError(f"设备 {alias} 不允许在这个聊天里使用（devices.json 的 spaces）")
+                # Where the topic runs after the switch: its Harness must be one that device declares.
+                where = place["workdir"] if isinstance(place, dict) else str(topic.get("workdir") or "")
+                if devices.is_device_value(where):
+                    refused = devices.undeclared_refusal(where.split(":", 1)[0], name, choice.get("title") or name)
+                    if refused:
+                        raise ValueError(refused.replace("任务尚未启动", "话题配置没有改变"))
                 switched = switch_topic(self.topics, target, chat, record, name, model, effort, mode, place=place,
                                         redaction=redaction)
             except ValueError as exc:

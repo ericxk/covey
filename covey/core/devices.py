@@ -122,6 +122,19 @@ class Config:
             raise UnknownDevice("no device %r in devices.json" % (alias,))
 
 
+def undeclared_refusal(alias, harness, title):
+    """Why a task of the Harness ``harness`` (shown as ``title``) does not start on device ``alias``: devices.json does
+    not declare it for that device ('' when it does, or when the device is not known here: the turn's own check says so)."""
+    try:
+        declared = current().device(alias).harnesses
+    except (UnknownDevice, DeviceConfigError):
+        return ""
+    if harness in declared:
+        return ""
+    return ("设备 %s 只声明了 %s（devices.json 的 harnesses），没有 %s；请换一个 Harness 或工作区，任务尚未启动。"
+            % (alias, " / ".join(declared), title))
+
+
 def default_control_dir(environ=None):
     """``/tmp/covey-ssh-<uid>``: short (a Unix socket path is limited) and on local disk, never the NAS."""
     return Path("/tmp/covey-ssh-%d" % os.getuid())
@@ -624,6 +637,17 @@ def device_dir(state_dir, alias):
 def write_hello(state_dir, alias, hello, *, now=None):
     write_json(device_dir(state_dir, alias) / "hello.json", {"at": now if now is not None else time.time(),
                                                             "hello": hello}, ensure_ascii=False)
+
+
+def refresh_hello(state_dir, alias, hello, *, now=None):
+    """Write a periodic ``hello`` without losing what the last one said about the tools: a ``hello`` that carries no
+    ``tools`` at all (the shim only probes the names it was asked for) keeps the previous ones, of any age. A ``hello``
+    that does carry them (a tool reported ``found: false`` included) replaces them as it is."""
+    if not hello.get("tools"):
+        previous = (read_hello(state_dir, alias, max_age=None) or {}).get("tools")
+        if previous:
+            hello = {**hello, "tools": previous}
+    write_hello(state_dir, alias, hello, now=now)
 
 
 def read_hello(state_dir, alias, *, max_age=HELLO_TTL, now=None):
