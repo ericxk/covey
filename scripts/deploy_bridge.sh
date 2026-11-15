@@ -19,7 +19,11 @@
 # danger-full-access, LARK_CLAUDE_BRIDGE_SKIP_PERMISSIONS off; the services covey_doctor --runtime-only fails on), and
 # the Bridge command bootstrap would register == the manifest's (python, arguments; --allow-command-change lets
 # it differ).
-# --check-only stops there. Then: git archive REV into releases/<sha>, bootstrap from the release.
+# --check-only stops there. Then: git archive REV into releases/<sha>, write its .pyc files (below), bootstrap from it.
+# Precompiling: the service runs every Python process with -B, so a release without __pycache__ is compiled from source
+# again at each process start. Before bootstrap, scripts/precompile_release.py runs under the python3 bootstrap
+# registers (the one the pre-check compared with the manifest), also for a release that already exists. A compile
+# failure is only a warning (result "precompile"), never a failed deploy; compiled files are skipped the next time.
 # Extensions (docs/operations.md 部署新版本): each --ext-repo (repeatable; --ext-commit pairs with it in order, default
 # HEAD) is an extension checkout laid out as scripts/export_extension.py writes it. The release is then assembled by
 # scripts/assemble_release.py (core at --commit + the extensions, the shape of the old single repository) and its id
@@ -257,6 +261,17 @@ if not (release / "bin" / "covey_bridge.py").exists():
         what = "git archive"
     if pack.returncode:
         finish(error=f"{what} failed: {pack.stderr[-500:]}")
+# The service never writes bytecode itself (-B, PYTHONDONTWRITEBYTECODE=1), so compile once here, with the interpreter
+# bootstrap registers; a failure is a warning only.
+try:
+    comp = sh([planned[0], "-B", "-I", str(Path(sys.argv[1]) / "scripts" / "precompile_release.py"), str(release)],
+              timeout=600, log="precompile.log")
+    try:
+        result["precompile"] = json.loads(comp.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        result["precompile"] = {"ok": False, "exit": comp.returncode, "failed": [(comp.stderr or comp.stdout)[-200:]]}
+except (OSError, subprocess.TimeoutExpired) as exc:
+    result["precompile"] = {"ok": False, "failed": [str(exc)]}
 boot = sh(["./scripts/bootstrap_harness_bridge.sh", *BOOTSTRAP], cwd=release, timeout=300, log="bootstrap.log")
 result["bootstrap_exit"] = boot.returncode
 if boot.returncode:

@@ -7,7 +7,8 @@
                     像网络问题时问一次代理地址；通过后把代理写进服务环境；扩展的安装钩子在这里跑
   4 飞书应用        一个无头浏览器扫一次码：登录、建应用、授权、开发者后台补回调/事件/菜单/权限并发布、读回核对
                     （feishu/install_browser.py）；浏览器装不上或 ``--no-browser`` 时退回手机多次扫码
-  5 注册并启动服务   scripts/bootstrap_harness_bridge.sh，先 bin/covey_service_install.py --mode auto --activate（托管），再 bootstrap（注册）
+  5 注册并启动服务   scripts/bootstrap_harness_bridge.sh，先 bin/covey_service_install.py --mode auto --activate（托管），再 bootstrap（注册）；
+                    先用将注册的 python3 给检出预编译 .pyc（scripts/precompile_release.py，失败只提示）
   6 等待就绪        bin/covey_doctor.py 退出码 0
 
 幂等：已有的 lark-cli profile、授权、应用配置、服务都复用，只做缺的；``--reconfigure`` 才重来。
@@ -636,8 +637,23 @@ class Installer:
                                "--runtime-only"], env=self.env, capture_output=True, timeout=120).returncode
         return code == 0
 
+    def precompile(self):
+        """Write the checkout's .pyc files with the python3 bootstrap will register. The service runs every process
+        with -B and so never writes them: without this each start compiles Covey from source (scripts/precompile_release.py).
+        Skipped files are the up-to-date ones, so a re-run is quick; a failure is only said."""
+        python = shutil.which("python3", path=self.env.get("PATH")) or sys.executable
+        try:
+            done = subprocess.run([python, "-B", "-I", str(REPO_ROOT / "scripts" / "precompile_release.py"), str(REPO_ROOT)],
+                                  env=self.env, capture_output=True, text=True, timeout=300)
+            ok = done.returncode == 0 and json.loads(done.stdout.strip().splitlines()[-1]).get("ok") is True
+        except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+            ok = False
+        if not ok:
+            self.note("没能预编译字节码（只是每个进程启动慢一点，不影响使用）")
+
     def start_service(self, config_path):
         self.step(5, "注册并启动服务")
+        self.precompile()
         record = self.data / "install.json"
         now = self.fingerprint(config_path)
         try:

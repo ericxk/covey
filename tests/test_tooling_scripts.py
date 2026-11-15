@@ -22,7 +22,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from support import REPO
+from support import REPO, exec_tempdir
 
 from covey.service.manager import runtime_environment
 
@@ -352,6 +352,112 @@ class DeployExtensionTests(DeployFixture):
         self.assertIn("not a commit", out["error"])
         code, out = self.check("--ext-commit", "HEAD")
         self.assertEqual(code, 2)
+
+
+PRECOMPILE = REPO / "scripts" / "precompile_release.py"
+
+
+def fake_release(root, files=None):
+    """A release-shaped directory (code only) with a test module and a dev script that must stay uncompiled."""
+    for name, text in (files or {"covey/__init__.py": "", "covey/app/x.py": "X = 1\n", "covey/tests/t.py": "T = 1\n",
+                                 "extensions/pkg/manifest.py": "M = 1\n", "extensions/pkg/tests/t.py": "T = 1\n",
+                                 "harness_bridge.py": "H = 1\n", "bin/covey_bridge.py": "# entry\n"}).items():
+        target = Path(root) / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    return Path(root)
+
+
+def pyc_names(root):
+    return sorted(str(p.relative_to(root)).replace(sys.implementation.cache_tag, "TAG")
+                  for p in Path(root).rglob("*.pyc"))
+
+
+class PrecompileReleaseTests(unittest.TestCase):
+    """scripts/precompile_release.py, assemble_release.py --precompile and deploy_bridge.sh writing a release's .pyc
+    files (the service runs with -B and never would)."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def run_script(self, release):
+        child = subprocess.run([sys.executable, "-B", "-I", str(PRECOMPILE), str(release)], capture_output=True,
+                               text=True, timeout=60)
+        return child.returncode, child.stderr, json.loads(child.stdout.strip().splitlines()[-1]) if child.stdout else None
+
+    def test_code_is_compiled_tests_and_entry_scripts_are_not_and_a_second_run_leaves_the_files_alone(self):
+        release = fake_release(self.root / "r")
+        code, err, info = self.run_script(release)
+        self.assertEqual((code, err, info["ok"], info["failed"]), (0, "", True, []))
+        self.assertEqual(pyc_names(release), ["__pycache__/harness_bridge.TAG.pyc", "covey/__pycache__/__init__.TAG.pyc",
+                                              "covey/app/__pycache__/x.TAG.pyc",
+                                              "extensions/pkg/__pycache__/manifest.TAG.pyc"])
+        before = {p: p.stat().st_mtime_ns for p in release.rglob("*.pyc")}
+        self.assertEqual(self.run_script(release)[0], 0)
+        self.assertEqual({p: p.stat().st_mtime_ns for p in release.rglob("*.pyc")}, before)
+
+    def test_a_file_that_does_not_compile_is_a_warning_and_the_rest_is_still_compiled(self):
+        release = fake_release(self.root / "r")
+        (release / "covey" / "app" / "broken.py").write_text("def (:\n")
+        code, err, info = self.run_script(release)
+        self.assertEqual((code, info["ok"], info["failed"]), (0, False, ["covey"]))
+        self.assertIn("warning", err)
+        self.assertIn("covey/app/__pycache__/x.TAG.pyc", pyc_names(release))
+        self.assertEqual(subprocess.run([sys.executable, "-B", "-I", str(PRECOMPILE), str(self.root / "nowhere")],
+                                        capture_output=True, text=True, timeout=60).returncode, 2)
+
+    def test_assemble_writes_pyc_only_when_asked_and_a_wrong_interpreter_only_warns(self):
+        core = self.root / "core"
+        make_repo(core, {"covey/__init__.py": "", "covey/a.py": "A = 1\n", "bin/covey_bridge.py": "# b\n"})
+        run = lambda out, *a: subprocess.run([sys.executable, "-B", "-I", str(ASSEMBLE), "--core", str(core), "--out",
+                                              str(self.root / out), *a], capture_output=True, text=True, timeout=60)
+        plain = run("plain")
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertEqual((pyc_names(self.root / "plain"), "precompile" in json.loads(plain.stdout)), ([], False))
+        done = run("with", "--precompile", sys.executable)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(pyc_names(self.root / "with"), ["covey/__pycache__/__init__.TAG.pyc", "covey/__pycache__/a.TAG.pyc"])
+        self.assertTrue(json.loads(done.stdout)["precompile"]["ok"])
+        bad = run("bad", "--precompile", str(self.root / "no-python"))
+        self.assertEqual(bad.returncode, 0, bad.stderr)
+        self.assertIn("warning", bad.stderr)
+        self.assertFalse(json.loads(bad.stdout)["precompile"]["ok"])
+        self.assertTrue((self.root / "bad" / "covey" / "a.py").exists())
+
+
+class DeployPrecompileTests(DeployFixture):
+    """deploy_bridge.sh compiles the release it bootstraps from, also one that already exists, and a compile failure
+    does not stop it (the stub bootstrap fails on purpose, so nothing is registered)."""
+
+    def deploy_into_existing_release(self, files=None):
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+        # The stub bootstrap is executed, and the test temp dir (/dev/shm under test_map.py) is noexec: link one that is not.
+        spare = exec_tempdir()
+        self.addCleanup(spare.cleanup)
+        release = fake_release(Path(spare.name) / "release", files)
+        (self.data / "releases").mkdir(parents=True)
+        (self.data / "releases" / head).symlink_to(release)
+        stub = release / "scripts" / "bootstrap_harness_bridge.sh"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text("#!/bin/bash\nexit 1\n")
+        stub.chmod(0o755)
+        code, out = self.deploy("--workdir", str(self.workdir), "--profile", "bot", "--", "--sandbox", "danger-full-access")
+        self.assertEqual((code, out["error"]), (1, "bootstrap failed, see bootstrap.log"), out)
+        return release, out
+
+    def test_an_existing_release_is_compiled_before_bootstrap(self):
+        release, out = self.deploy_into_existing_release()
+        self.assertTrue(out["precompile"]["ok"], out)
+        self.assertEqual(out["precompile"]["failed"], [])
+        self.assertIn("covey/app/__pycache__/x.TAG.pyc", pyc_names(release))
+        self.assertTrue((Path(out["run_dir"]) / "precompile.log").is_file())
+
+    def test_a_compile_failure_is_reported_and_the_deploy_goes_on_to_bootstrap(self):
+        _, out = self.deploy_into_existing_release({"covey/__init__.py": "", "covey/bad.py": "def (:\n",
+                                                    "bin/covey_bridge.py": "# entry\n"})
+        self.assertFalse(out["precompile"]["ok"])
+        self.assertEqual(out["bootstrap_exit"], 1)
 
 
 class CardkitCheckTests(unittest.TestCase):

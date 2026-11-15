@@ -23,7 +23,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 2. **准备 `lark-cli`**：没有就装；Skills 默认不同步（要用加 `--skills`）。
 3. **检查 Harness**：对 Claude Code 和 Codex 各真实调用一次模型。没登录、网络不通会分别说明；没调通的不启用，写进 `harnesses.json` 的只有调通的。网络不通时问一次代理地址，通过后代理和飞书域名的 `NO_PROXY` 一起写进服务环境。
 4. **飞书应用**：先准备一个无头浏览器（用机器上已有的 Chrome/Chromium，没有就下载 Chromium，显示进度，60 秒没进展自动换 npmmirror 镜像；Debian/Ubuntu 缺系统库时，有 root 用 `playwright install-deps`，没有 root 自动下载需要的 deb 解到数据根下，只给浏览器进程用）。然后扫一次码，在同一个会话里建应用、授权、在开发者后台补回调、事件、菜单和权限、发布，再读回核对。浏览器装在数据根下，主人的网页登录只在本次运行的临时目录里，结束就删（`--keep-login` 留下）。
-5. **注册并启动服务**：托管服务启动，并注册开机自启（Linux 用 systemd 用户服务，macOS 用 launchd；没有 systemd 但有 `crontab` 时往 crontab 加一行 `@reboot`，每个服务根一行（标记带服务根的短哈希）：同一服务根重复运行不重复加，不同服务根的 Bridge 各留各的，`--no-autostart` 跳过；都没有就是 Manager 方式，开机不会自启，安装器会说明）。
+5. **注册并启动服务**：先给检出预编译 `.pyc`（服务带 `-B` 自己不写，没有它每个进程启动都重新编译；失败只提示），托管服务启动，并注册开机自启（Linux 用 systemd 用户服务，macOS 用 launchd；没有 systemd 但有 `crontab` 时往 crontab 加一行 `@reboot`，每个服务根一行（标记带服务根的短哈希）：同一服务根重复运行不重复加，不同服务根的 Bridge 各留各的，`--no-autostart` 跳过；都没有就是 Manager 方式，开机不会自启，安装器会说明）。
 6. **等待就绪**：诊断通过后打印「去飞书私聊机器人「Covey」发一句话」。
 
 ## 选项

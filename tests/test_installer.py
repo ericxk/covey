@@ -461,9 +461,11 @@ class ServiceTest(InstallerCase):
             ran.append((name, argv))
             return (install_code if name == "service-install" else 0), "launchd (KeepAlive)"
 
+        self.precompiled = mock.Mock()
         patches = (mock.patch.object(installer.Installer, "run_logged", side_effect=run_logged),
-                   mock.patch.object(installer.Installer, "service_up", return_value=up))
-        with patches[0], patches[1]:
+                   mock.patch.object(installer.Installer, "service_up", return_value=up),
+                   mock.patch.object(installer.Installer, "precompile", self.precompiled))
+        with patches[0], patches[1], patches[2]:
             ins.start_service(self.data / "harnesses.json")
         return ins, ran
 
@@ -497,6 +499,32 @@ class ServiceTest(InstallerCase):
         ins = self.make(env=self.env(COVEY_PINNED_TOPICS="1"))
         ins.app_id, ins.workdir, ins.working = "cli_fake", self.root / "work", ["codex"]
         self.assertEqual("1", ins.fingerprint(self.data / "harnesses.json")["settings"]["LARK_BRIDGE_PINNED_TOPICS"])  # Fingerprints keep the old spelling (core/env.py canonical).
+
+    def test_the_checkout_is_precompiled_before_registering_even_when_nothing_else_changed(self):
+        self.start()
+        self.precompiled.assert_called_once_with()
+        self.start(up=True)  # A pull since the last run: the stale .pyc files are refreshed, the service is left alone.
+        self.precompiled.assert_called_once_with()
+
+    def test_precompile_runs_the_script_with_the_registered_python_and_only_says_a_failure(self):
+        said = []
+        ins = self.make()
+        ins.say = said.append
+        ok = subprocess.CompletedProcess([], 0, '{"ok": true, "failed": []}\n', "")
+        with mock.patch.object(installer.subprocess, "run", return_value=ok) as run:
+            ins.precompile()
+        argv = run.call_args.args[0]
+        self.assertEqual(["-B", "-I", str(installer.REPO_ROOT / "scripts" / "precompile_release.py"),
+                          str(installer.REPO_ROOT)], argv[1:])
+        self.assertEqual([], said)
+        for broken in (subprocess.CompletedProcess([], 0, '{"ok": false}\n', ""), subprocess.CompletedProcess([], 1, "", "x"),
+                       subprocess.CompletedProcess([], 0, "", ""), OSError("no python")):
+            said.clear()
+            with mock.patch.object(installer.subprocess, "run", **({"side_effect": broken} if isinstance(broken, OSError)
+                                                                  else {"return_value": broken})):
+                ins.precompile()
+            self.assertEqual(1, len(said), broken)
+            self.assertIn("预编译", said[0])
 
     def test_boot_registration_failing_is_said_not_fatal(self):
         ins, _ = self.start(install_code=2)

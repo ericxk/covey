@@ -191,6 +191,7 @@ scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute
 ```
 
 - 打包改由 `scripts/assemble_release.py` 做：核心 `git archive` 到 release，每个扩展包（扩展库根目录下含清单模块的目录）`git archive` 到 `release/extensions/<包名>/`，去掉包里的 `standalone/`，包的 `bin/*.py` 入口（如扩展自己的运行时脚本）放进 `release/bin/` 盖掉核心里的转发脚本，写 `extensions/enabled`（按 `--ext-repo` 的顺序列出所有包名）和 `RELEASE_MANIFEST`（各检出的完整提交号），再重写 `AGENTS.md` 的模块表。形状和旧的单仓库 release 相同，服务清单、`runs/<任务键>/` 协议、回滚都不变。拼装按提交取，不看检出的工作区。
+- **预编译字节码**：服务的每个 Python 进程（Bridge、任务进程、主线程的 MCP 服务）都带 `-B` 并设了 `PYTHONDONTWRITEBYTECODE=1`，自己不写 `.pyc`，release 里没有 `__pycache__` 时每次启动都要把 Covey 源码从头编译一遍（`import covey.app.runner` 约多 0.4–0.5 秒）。`deploy_bridge.sh` 在 bootstrap 之前运行 `scripts/precompile_release.py`，用将要注册的那个 `python3`（`pre.command_diff` 已核对它和服务清单一致；`.pyc` 带解释器版本标签，版本不一致就白编）给 `covey/`、`extensions/` 和 `harness_bridge.py` 写 `.pyc`；release 目录已存在、跳过打包时同样会做。编译失败只在结果的 `precompile`（`ok: false`、`failed`）里报告，不让部署失败；已经编译过的文件会跳过，重复部署很快。`-B` 和环境变量保持不变，运行时只读不写。手工用 `assemble_release.py` 拼装时加 `--precompile [PYTHON]`（默认不编，文件清单不变）；手工 `git archive` 导出 release（第 2 步）后运行 `python3 -B -I scripts/precompile_release.py "$RELEASE"`（用服务的 python3）。`./install` 直接从检出目录运行服务，也会在步骤 5 先给检出预编译；`git pull` 后重跑 `./install` 刷新。
 - release id 是 `<核心前 8 位>-<扩展前 8 位>[-<第二个扩展前 8 位>…]`，release 目录、`bridge started … release=<id>` 的匹配都用它；结果 JSON 的 `commit` 仍是核心完整提交号，另有 `ext_commits` 和 `release_id`。不给 `--ext-repo` 时一切照旧（release 目录名是核心提交号）。回滚只回一半：核心提交不变、`--ext-commit` 设成旧值，得到一个新 id 的 release。
 - 额外的预检（`--check-only` 同样做，输出里有两个或更多提交）：扩展检出是 git 仓库、提交存在（否则退出码 2）；扩展库的 `core.lock` 写的核心提交和 `--commit` 不一致时拦下（`pre.core_lock_mismatch`；试新核心时加 `--allow-core-mismatch` 放行）；服务清单和当前终端里不能有 `COVEY_EXTENSION_PATH`、`COVEY_EXTENSIONS`（`pre.extension_env`；它们会盖过 release 里的 `extensions/`，unset 后重新注册）。
 
@@ -212,6 +213,8 @@ RELEASE="$COVEY_DATA_HOME/releases/$COMMIT"
 mkdir -p "$RELEASE"
 git archive "$COMMIT" | tar -x -C "$RELEASE"
 ```
+
+手工导出后用服务的 `python3` 预编译字节码（失败只是启动慢一点；`deploy_bridge.sh` 已包含这一步）：`python3 -B -I scripts/precompile_release.py "$RELEASE"`。
 
 **3. 核对清单和终端环境，再用新 release 重新注册。**
 
