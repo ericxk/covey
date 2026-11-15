@@ -161,6 +161,7 @@
 | `app/topic_links.py` | Links that open a topic from a card (docs/main-thread.md 话题链接 |
 | `app/topic_seen.py` | Which topics the owner has seen, from Feishu's read receipts |
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
+| `app/track_judge.py` | The small model that decides a new main-thread message the rules could not |
 | `app/turn_export.py` | 下载请求与结果: a button at the bottom of an ended task card that packs the turn's model requests and the model's … |
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
@@ -301,6 +302,7 @@
 | `core/topics.py` | Durable, chat-scoped Feishu topic -> Harness session bindings, and the readers and writers of a topic's … |
 | `core/trace.py` | A turn's execution trace as data (ToolTrace) |
 | `core/trace_store.py` | Process records on disk: one append-only file per task, outside the job record |
+| `core/track_route.py` | Where a new main-thread message goes when the family already has live tasks |
 | `core/ttft.py` | Numeric first-output timing |
 | `core/turn_export_rows.py` | The rows of a turn export |
 | `core/turn_words.py` | The words the cards, the pinned board and the main thread say about a turn and a topic, in one place |
