@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app import idle_compaction, main_relay, pins, track_digest
+from covey.app import idle_compaction, main_relay, pins, track_digest, track_standby
 from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import main_tracks as tracks_module
@@ -118,6 +118,12 @@ class MainThread:
         self.topics = topics
         self.runtime = topics.runtime
         self.tracks = Tracks(self)  # 多路并行 (app/main_tracks.py); idle unless COVEY_MAIN_TRACKS=1 and the mode says so.
+
+    @staticmethod
+    def close() -> None:
+        """The Bridge's stop (app/unified.py stop_children): the Claude Code kept ready for the track judge goes
+        (app/track_standby.py)."""
+        track_standby.shutdown()
 
     def harness_note(self) -> str:
         """The start's warning when the private chat is set to Personal Agent but the main thread's Harness

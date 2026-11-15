@@ -165,6 +165,7 @@
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
 | `app/track_digest.py` | Memory merge for 多路并行 |
 | `app/track_judge.py` | The small model that decides a new main-thread message the rules could not |
+| `app/track_standby.py` | A Claude Code kept ready for the track judge |
 | `app/turn_export.py` | 下载请求与结果: a button at the bottom of an ended task card that packs the turn's model requests and the model's … |
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
@@ -261,7 +262,7 @@
 | `core/main_thread.py` | The main thread (主线程), in the private chat mode Personal Agent |
 | `core/main_thread_settings.py` | The main thread's settings: <state>/main-thread.json |
 | `core/main_tool_specs.py` | The Bridge tools the main thread's session gets |
-| `core/main_tracks.py` | 多路并行 (docs/main-thread.md 多路并行, developing |
+| `core/main_tracks.py` | 多路并行 (docs/main-thread.md 多路并行 |
 | `core/maintenance.py` | Daily maintenance of a state directory: a verifiable backup, archival and bounded storage |
 | `core/maintenance_report.py` | How maintenance's --dry-run words what it would do |
 | `core/maintenance_rules.py` | The rules of daily maintenance |

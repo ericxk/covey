@@ -159,6 +159,7 @@ class Tracks:
         except ValueError:
             redacted = True
         verdict = track_judge.judge(message, redacted=redacted, backend=app.harness.backend, ctx=ctx, log=self.runtime.log)
+        track_judge.warm(app.harness.backend, ctx)  # The standby it used is gone; the next one starts now.
         if verdict.route == "merge" and verdict.target is not None:
             fresh = self.entries(ctx, chat, now)  # The model took a while: the task may have ended meanwhile.
             target = self.newest_of(fresh, verdict.target)
@@ -209,6 +210,9 @@ class Tracks:
         """True when the message was handled here; False: no task of the family is live, the usual path (slot 0) runs."""
         started = time.monotonic()
         now = time.time()
+        # A Claude Code ready for the judge of the next message (app/track_standby.py): this message may start the task
+        # that message will have to be told from.
+        track_judge.warm(app.harness.backend, ctx)
         entries = self.entries(ctx, chat, now)
         if not entries:
             self.remember_bare(chat, 0, bare, now)

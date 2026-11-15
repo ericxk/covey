@@ -18,6 +18,11 @@ most MAX_TASKS, the newest), and when there are any ``question`` (what the waiti
 message replies to), each text cut to CLIP characters. The answer is ``{"route":"merge"|"new","target":<index|null>,
 "confidence":0-1}``.
 
+On the ``claude`` channel the process is, when it can be, a standby started and primed before the question
+(``warm``, called by app/main_tracks.py; app/track_standby.py): it saves the CLI's start and the slow first request, answers
+this one question and is killed, and ``warm`` starts the next. Without one the call starts a one-shot as above.
+COVEY_TRACK_JUDGE_WARM=0 never starts a standby.
+
 One log line per call, never with the owner's text: ``track judge route=… target=… conf=… why=… ms=… via=…`` or
 ``track judge failed|skipped reason=… ms=… via=…``. Needs a Claude Code that takes ``--no-session-persistence``
 (2.1.322 does); an older one that refuses it is remembered and asked without it from the next call on.
@@ -33,6 +38,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from covey.app import track_standby
+from covey.app.track_standby import Failed
 from covey.core import env as cenv
 from covey.core.process import signal_group
 from covey.core.track_route import LIVE_PHASES, LiveJob, Message
@@ -67,14 +74,6 @@ class Verdict:
     confidence: float = 0.0
     why: str = "ok"
     ms: int = 0
-
-
-class Failed(Exception):
-    """A reason the model's answer cannot be used (``reason`` is what the log line says)."""
-
-    def __init__(self, reason: str, detail: str = ""):
-        super().__init__(reason)
-        self.reason, self.detail = reason, detail
 
 
 def mode(environ=None) -> str:
@@ -121,15 +120,45 @@ def payload(message: Message, tasks: list[LiveJob], question: str) -> dict:
     return out
 
 
-def claude_argv(backend, ctx, with_flag: bool) -> list[str]:
-    """The one-shot Claude Code's argv, like the model catalog's (backends/claude/argv.py stream_argv catalog): no MCP
-    servers, hooks or tools; the prompt arrives on standard input."""
-    argv = [*ctx.backend_cmd, "-p", "--model", MODEL, "--output-format", "json", "--max-turns", "1",
+def claude_argv(backend, ctx, with_flag: bool, stream: bool = False) -> list[str]:
+    """The Claude Code's argv, like the model catalog's (backends/claude/argv.py stream_argv catalog): no MCP servers,
+    hooks or tools. One-shot: the prompt arrives on standard input and the answer is one JSON object. ``stream``
+    (the standby, app/track_standby.py): messages in and events out as stream-json lines."""
+    kind = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] if stream \
+        else ["--output-format", "json"]
+    argv = [*ctx.backend_cmd, "-p", "--model", MODEL, *kind, "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings", '{"disableAllHooks":true}',
             "--tools", "", "--system-prompt", SYSTEM]
     if with_flag:
         argv.append(FLAG)
     return backend.wrap_argv(argv, ctx)
+
+
+def warm_enabled(environ=None) -> bool:
+    """COVEY_TRACK_JUDGE_WARM: a Claude Code kept ready for the next question (the default); 0, off, false or no: a
+    one-shot is started at each question, as before."""
+    return (cenv.get("COVEY_TRACK_JUDGE_WARM", "", environ) or "").strip().lower() not in ("0", "off", "false", "no")
+
+
+def standby_target(backend, ctx):
+    """(argv, env, cwd, signature) of the standby; the directory is made."""
+    cwd = Path(ctx.state_dir) / "track-judge"
+    cwd.mkdir(parents=True, exist_ok=True)
+    argv = claude_argv(backend, ctx, not _refused_flag, stream=True)
+    env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
+    return argv, env, cwd, (tuple(argv), str(cwd))
+
+
+def warm(backend, ctx, environ=None) -> bool:
+    """Have a Claude Code ready for the next question (app/track_standby.py): started and primed now unless a live one is
+    waiting. Nothing when the channel is not ``claude``, the warm standby is off, or ``backend`` or ``ctx`` is missing.
+    Never raises, never waits (the Popen only). True when a process was started."""
+    try:
+        if mode(environ) != "claude" or not warm_enabled(environ) or backend is None or ctx is None:
+            return False
+        return track_standby.warm(*standby_target(backend, ctx))
+    except Exception:  # noqa: BLE001  A standby that cannot start is a one-shot later.
+        return False
 
 
 def run(argv, stdin: str, env, cwd, limit: float) -> str:
@@ -239,11 +268,17 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
         if via == "claude":
             if backend is None or ctx is None:
                 raise Failed("no_backend")
-            cwd = Path(ctx.state_dir) / "track-judge"
-            cwd.mkdir(parents=True, exist_ok=True)
-            env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
             try:
-                raw = run(claude_argv(backend, ctx, not _refused_flag), data, env, cwd, limit)
+                standby = None
+                if warm_enabled(environ):
+                    standby = track_standby.take(standby_target(backend, ctx)[3])
+                if standby is not None:
+                    raw = standby.ask(data, limit)
+                else:
+                    cwd = Path(ctx.state_dir) / "track-judge"
+                    cwd.mkdir(parents=True, exist_ok=True)
+                    env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
+                    raw = run(claude_argv(backend, ctx, not _refused_flag), data, env, cwd, limit)
             except Failed as exc:
                 if exc.reason == "exit_nonzero" and FLAG in exc.detail and "unknown option" in exc.detail:
                     _refused_flag = True

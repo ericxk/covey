@@ -526,7 +526,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.consume_events(ctx, MENU_EVENT_KEY, self.handle_menu_event)
 
     def stop_children(self) -> None:
-        for feature in self.extension_features:
+        for feature in (self.main_thread, *self.extension_features):
             if hasattr(feature, 'close'):
                 feature.close()
         stop_processes([(sub.stop_label, self.event_procs.get(key)) for key, sub in SUBSCRIPTIONS.items()],

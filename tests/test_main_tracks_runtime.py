@@ -73,6 +73,9 @@ class TracksCase(UnifiedCase):
         judge = mock.patch.object(track_judge, "judge", side_effect=self.judged)
         self.judge = judge.start()
         self.addCleanup(judge.stop)
+        warm = mock.patch.object(track_judge, "warm", return_value=False)  # No Claude Code is started by a test.
+        self.warm = warm.start()
+        self.addCleanup(warm.stop)
         self.main = self.app.main_thread
 
     def judged(self, message, **kwargs):
@@ -126,6 +129,17 @@ class RouteTest(TracksCase):
         self.send("om_1", LONG)
         self.assertEqual(self.slot_of("om_1"), 0)
         self.judge.assert_not_called()
+
+    def test_a_message_keeps_a_standby_ready_and_the_judge_starts_the_next_one(self):
+        order = mock.Mock()
+        order.attach_mock(self.warm, "warm")
+        order.attach_mock(self.judge, "judge")
+        self.send("om_1", LONG)  # Nothing live yet, but this task is what the next message is told from.
+        self.assertEqual([call[0] for call in order.mock_calls], ["warm"])
+        self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.assertEqual([call[0] for call in order.mock_calls], ["warm", "warm", "judge", "warm"])
+        self.assertIs(self.warm.call_args.args[0], self.claude.harness.backend)
 
     def test_stop_word_stops_the_newest_track_and_starts_nothing(self):
         self.send("om_1", LONG)
@@ -303,6 +317,7 @@ class OffTest(TracksCase):
         with mock.patch.object(self.main.tracks, "handle") as handle:
             self.send("om_2", "补充一点", parent_id="om_1")
         handle.assert_not_called()
+        self.warm.assert_not_called()  # No standby Claude Code without the switch.
         self.assertEqual([job.message_id for job in self.app.runtime.jobs.topic_jobs(MAIN, CHAT)], ["om_1", "om_2"])
 
     def test_the_mode_pure_topics_turns_it_off_too(self):
