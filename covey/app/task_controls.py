@@ -240,6 +240,20 @@ class TaskControls(Redelivery):
         self.cancel_reply_job_from_card(ctx, action, chat_id, str(event.get("event_id") or event.get("message_id") or ""))
         return True
 
+    def dispatch_stop(self, ctx, event):
+        """⏹ 停止 on a 派发活卡片 (cards/dispatch_card.py): stops the job the card named, as that job's own card does
+        (``cancel_reply_job_from_card``); the card's topic and the click's must be the same."""
+        raw = action_value(event)
+        if raw.get("topic_id") != ctx.topic_id:
+            raise ValueError("操作不属于当前话题")
+        job_id = str(raw.get("job_id") or "").strip()
+        if not job_id.isdigit() or int(job_id) <= 0:
+            raise ValueError("这件事还没有可停止的任务")
+        chat_id = str(event.get("chat_id") or "")
+        self.cancel_reply_job_from_card(ctx, {"job_id": job_id, "message_id": ""}, chat_id,
+                                        str(event.get("event_id") or event.get("message_id") or ""))
+        return True
+
     def cancel_reply_job_from_card(
         self,
         ctx: BridgeContext,

@@ -629,7 +629,29 @@ def answer_tail_cards():
                            "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=1379")
     hook = hook_card([("T453「同步 GitHub」", "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x"
                                             "&open_thread_id=omt_x&thread_position=7"), ("T454「看板」", "")])
+    # The 派发活卡片 (cards/dispatch_card.py): the live card in each state, and the lines it shrinks to.
+    from covey.cards import dispatch_card as dc
+    from covey.cards.dispatch_card import Dispatch, dispatch_card, settled_card
+    thread_url = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
+    work = Dispatch(token="d" * 16, topic_id="topic-fake", request="把这块代码提交到 GitHub 上吧，推之前先问我推哪些", status=dc.RUNNING,
+                    label="T453", title="比对公司主干和 GitHub 快照", workspace="covey", started="12:41", took="2分00秒",
+                    body="第 2/4 步：列出待推提交 · 本步 1 分钟", job_id="7", url=thread_url,
+                    inputs=("Claude Code", "Sonnet 5.5", "思考 high", "covey"),
+                    outputs=("**开始** 12:41　**已运行** 2分00秒",))
+    asked_words = "把这块代码提交到 GitHub 上吧"
     return {"handoff_line": handoff, "main_hook": hook,
+            "dispatch_running": dispatch_card(work),
+            "dispatch_running_no_job": dispatch_card(Dispatch(**{**work.__dict__, "job_id": "", "url": ""})),
+            "dispatch_waiting": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.WAITING,
+                                                          "body": "等你回答：推哪几个提交？"})),
+            "dispatch_done": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.DONE, "body": "已完成",
+                                                       "outputs": ("**用时** 2分00秒",)})),
+            "dispatch_failed": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.FAILED, "body": "后端退出",
+                                                         "outputs": ("**用时** 2分00秒",)})),
+            "dispatch_stopped": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.STOPPED, "body": "已停止"})),
+            "dispatch_line_done": settled_card(dc.DONE, asked_words, url=thread_url, label="T453"),
+            "dispatch_line_failed": settled_card(dc.FAILED, asked_words, reason="后端退出", label="T453"),
+            "dispatch_line_stopped": settled_card(dc.STOPPED, asked_words, label="T453"),
             "answer_card_tail": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs)),
             "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
             "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),

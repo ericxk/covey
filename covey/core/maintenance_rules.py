@@ -372,9 +372,9 @@ class Temporary(Rule):
     # proxy/shots: 代答's failed-step screenshots; main-thread/opened: which topic each main-thread topic_start opened
     # (app/main_topics.py), kept so the same call opens no second one; main-thread/relays: which topic turn's outcome
     # went back to the top level (app/main_relay.py), read for the RESULT_AGE the board and snapshot look back;
-    # answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
+    # main-thread/dispatch: the 派发活卡片's records and conclusion notes (app/dispatch_cards.py); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
     folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/relays",
-               "answer-cards")
+               "main-thread/dispatch", "answer-cards")
     title = "删除 tmp/、artifact-upload/、proxy/shots/ 条目"
 
     def select(self, run):

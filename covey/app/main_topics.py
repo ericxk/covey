@@ -27,7 +27,7 @@ import re
 import time
 from pathlib import Path
 
-from covey.app import main_handoff
+from covey.app import dispatch_cards, main_handoff
 from covey.app.forks import FINISHED, fork_token
 from covey.app.launch import launch_defaults
 from covey.app.launch_models import available_models, run_choice
@@ -73,6 +73,13 @@ def _save(path, record):
 def _text(value, limit=0):
     text = value.strip() if isinstance(value, str) else ""
     return text[:limit] if limit else text
+
+
+def dispatch_card(env, request, topic_id, **how):
+    """The 派发活卡片 of the work ``request`` handed to ``topic_id`` (app/dispatch_cards.py), only with
+    COVEY_MAIN_DISPATCH_CARD=1: without it nothing is called and the topic's own cards are all there is."""
+    if dispatch_cards.enabled():
+        dispatch_cards.created(env, request, topic_id, request.job_key, token=request_token(request), **how)
 
 
 def find_topic(env, chat, name):
@@ -322,6 +329,7 @@ def _open(env, request, path, record, chat, prompt, args):
     if failed:
         return reply(False, f"{label or '话题'}已开，但第一轮没有提交：模型配置无法确认（见话题里的说明）。",
                      topic_id=record["topic_id"], label=label, root_message_id=root, started=False)
+    dispatch_card(env, request, record["topic_id"], kind="start", starts=bool(plan["start"]))
     named = f"{label}「{title}」" if label else f"「{title}」"
     where = ("，话题区挂在主人这条提问下面" if record.get("area_root")
              else "，话题区的根是顶层一张小卡（主人这条提问下面已经有一个话题区）" if record.get("area_taken") else "")
@@ -510,6 +518,7 @@ def topic_send(env, request):
         how = ("任务准备好后自动送入" if saved.get("status") == "held"
                else "并入它的请求" if saved.get("merged") else "已送达")
         hand_line(env, ctx, chat, request, record, main_handoff.STEER, owner, text, items, token)
+        dispatch_card(env, request, ctx.topic_id, kind="send", mid=job.message_id)
         return _done(path, record, reply(True, f"已转给 {label}：作为补充送入正在跑的任务 #{job.job_id}，{how}。",
                                          **data, job_id=job.job_id, steered=True))
     if not workspace_locked(ctx):
@@ -531,6 +540,7 @@ def topic_send(env, request):
         # Its card is headed by the topic's title, not the owner's words about where it goes.
         if app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=title) is None:
             return _done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
+    dispatch_card(env, request, ctx.topic_id, kind="send")
     return _done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
 
 
@@ -593,6 +603,7 @@ def topic_fork(env, request):
                                            items=items, source=label)
         append_history(target.history_path, "user", content, {"message_id": mid})
         target_app.submission.enqueue_chat_job(target, content, chat, mid, prompt_content=sent, title=title)
+    dispatch_card(env, request, fork["topic_id"], kind="fork")
     data = {"topic_id": fork["topic_id"], "label": new_label, "root_message_id": fork["root_id"],
             "source_topic_id": ctx.topic_id, "source_job_id": source["job_id"]}
     return _done(path, record, reply(True, f"已从 {label} 的任务 #{source['job_id']} 分叉出 {new_label}「{title}」，"

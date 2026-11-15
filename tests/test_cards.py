@@ -139,7 +139,15 @@ def sample_cards(work=None):
     rewind_form = {"token": "c" * 24, "topic": "T70", "job_id": 12, "user_text": "把 a.py 里的重试改成指数退避",
                    "workdir": str(work), "point": {"keep": "k", "checkpoint": True, "file_count": 2, "files": [
                        (str(work / "a.py"), "restore"), (str(work / "notes.md"), "delete")]}}
+    from covey.cards import dispatch_card as dc
+    from covey.cards.dispatch_card import Dispatch, dispatch_card, settled_card
+    working = Dispatch(token="d" * 16, topic_id="topic-fake", request="提交到 GitHub", status=dc.RUNNING, label="T453",
+                       title="比对主干", workspace="covey", started="12:41", took="2分00秒", body="第 2/4 步", job_id="7",
+                       url="https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x",
+                       inputs=("Claude Code", "Sonnet"), outputs=("**开始** 12:41",))
     cards = {
+        "dispatch_running": dispatch_card(working),
+        "dispatch_line": settled_card(dc.DONE, "提交到 GitHub", url="https://applink.feishu.cn/client/chat/open?openChatId=oc_x"),
         "task_running": build_stream_card("正在处理", "任务", run, job=sample_job(), include_stop_action=True),
         "task_running_essential": build_stream_card("正在处理", "任务", run, job=sample_job(), include_stop_action=True,
                                                     essential=True),

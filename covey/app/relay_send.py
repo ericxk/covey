@@ -12,7 +12,7 @@ from pathlib import Path
 from covey.app import answer_cards
 from covey.app.relay_targets import ask_for, turn_card
 from covey.cards.answer_card import tail as answer_tail, tail_card
-from covey.cards.relay_card import relay_card, summary
+from covey.cards.relay_card import WAITING as WAITING_OUTCOME, relay_card, summary
 from covey.core import main_thread
 from covey.core.jobs import job_field
 from covey.core.locks import resource_lock
@@ -81,6 +81,17 @@ def linked(state_dir, chat_id, built, text, profile=None, cards=None):
     return built, link(text)
 
 
+def dispatch_note(state_dir, target, outcome, state, message_id="", reason="") -> None:
+    """The 派发活卡片 of the work this relay concludes (app/dispatch_cards.py ``relayed``) is told the relay went out
+    ("sent", ``message_id`` its conclusion) or was skipped, so it can shrink to a line; a relay that waits on the owner
+    says nothing, and one that did not go out (uncertain, unsent) is not told: that card stays as it is. Only with
+    COVEY_MAIN_DISPATCH_CARD=1."""
+    from covey.app import dispatch_cards
+
+    if outcome != WAITING_OUTCOME and dispatch_cards.enabled():
+        dispatch_cards.relayed(state_dir, target, outcome, state, message_id, reason)
+
+
 def record_unsent(state_dir, path, key, job, outcome, error, log=None, target=None):
     """A relay that failed before its record said ``submitting`` (its card could not be made, or what it needs could
     not be read): the record ``unsent`` with ``error``, when there is none yet, and one log line; nothing is sent, now
@@ -99,6 +110,8 @@ def record_only(state_dir, path, key, job, outcome, state, log=None, target=None
                   "topic_id": job_field(job, "topic_id"), "chat_id": (target or {}).get("chat_id")
                   or job_field(job, "chat_id"), "kind": (target or {}).get("kind") or "", **why, "at": time.time()}
         write_json(path, record, ensure_ascii=False, indent=1)
+    if state == SKIPPED and target:
+        dispatch_note(state_dir, target, outcome, state, reason=why.get("why", ""))
     if log is not None:
         log(f"main relay state={state} outcome={outcome} job={str(key)[-10:]} kind={record['kind'] or '-'}"
             + "".join(f" {name}={value}" for name, value in why.items()))
@@ -153,6 +166,8 @@ def send_once(state_dir, job, path, key, target, outcome, send, profile=None, lo
                   sent_at=time.time())
     with lock(state_dir):
         write_json(path, record, ensure_ascii=False, indent=1)
+    if ok and sent:
+        dispatch_note(state_dir, target, outcome, "sent", sent[0])
     # The topic's messages: the owner's quote of one goes to that topic, whose waiting question takes it as the answer.
     remember_sent(state_dir, target["chat_id"], target.get("topic_id"), sent, skip_errors=True)
     if log is not None:
