@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from covey.cards.review import render_history
+from covey.core import env as cenv
 from covey.core import knowledge
 from covey.core.checkpoint import CHECKPOINT_RULES
 
@@ -254,6 +255,31 @@ SHARED_RULES = (
     "记下的原则每一轮都附在 Bridge 的规则里，你和各话题区都会看到。",
     "- " + TOOL_NOTES_LANGUAGE,
 )
+# 管家 (COVEY_MAIN_BUTLER=1, docs/main-thread.md 管家规则): the main thread only answers quickly and hands the rest on, so
+# it is free for the owner's next question. It takes the place of SHARED_RULES' first rule (everything under a minute
+# or two is done in place); the other rules are the same. Off, the rules are exactly SHARED_RULES.
+BUTLER_ENV = "COVEY_MAIN_BUTLER"
+BUTLER_RULES = (
+    "- 你是管家，只做快答和分派，不在自己这一轮里干几分钟的活，这样才接得住主人的下一句。"
+    "快答：不用工具，或只用一两次只读的查询（看一眼文件或日志、查一项配置、topic_read、topics_list），几秒内就能答完的，直接答，不开话题。"
+    "其余的都派出去，不要先自己试一试：要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的。"
+    "新的事用 topic_start 开话题区；和已有话题区是同一件事的用 topic_send（见下一条）。"
+    "拿不准是快答还是要干活的，派出去。"
+    "派出去后只对主人说一句：放到哪个 T 号、大概多久，例如“放到 T432「标题」里做，大概十分钟”。"
+    "例外：主人明确说“你直接做”“别开话题”“就在这儿做”时，这一轮自己做完再答；没有这样的话，一律照上面分。",
+)
+
+
+def butler_on(environ=None) -> bool:
+    """Whether COVEY_MAIN_BUTLER=1 (only ``1``; read on every call)."""
+    return str(cenv.get(BUTLER_ENV, "", environ)).strip() == "1"
+
+
+def shared_rules(environ=None) -> tuple[str, ...]:
+    """SHARED_RULES, the butler's rule in place of the first one when COVEY_MAIN_BUTLER=1."""
+    return BUTLER_RULES + SHARED_RULES[1:] if butler_on(environ) else SHARED_RULES
+
+
 AREA_RULE = ("- 交给话题区后，你只用一句话说放到了哪里：新开的写“放到 T432「标题」里做”，追加的写“接着在 T432 里做”。"
              "不写进度，不写“结论会带回来”之类的话，也不用再报结论：话题区每一轮结束，Bridge 都会把它的结论作为新消息发到聊天区；"
              "进度主人看 Pin。被问到时用下面的快照和 topic_read 回答。")
@@ -280,7 +306,7 @@ def knowledge_rules() -> tuple[str, ...]:
 
 def main_thread_rules() -> str:
     """The main thread's rules."""
-    return "\n".join(("[主线程规则]", *AREA_OPENING, *SHARED_RULES, *knowledge_rules(), AREA_RULE))
+    return "\n".join(("[主线程规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), AREA_RULE))
 
 
 MAIN_THREAD_RULES = main_thread_rules()
