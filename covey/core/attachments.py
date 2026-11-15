@@ -60,6 +60,36 @@ def read_images(attachments, *, limit):
 FORWARDED_IMAGE_BYTES = 20 * 1024 * 1024
 
 
+def path_candidates(prompt: str) -> list[str]:
+    """The words of ``prompt`` that may name an attachment's path: anything in backquotes, and what follows 图片: / 文件:
+    in brackets, in the order written (a word that is no path is for the caller to skip)."""
+    return (re.findall(r"`([^`\n]+)`", prompt)
+            + re.findall(r"\[(?:被回复)?(?:图片|文件): ([^\]\n]+)\]", prompt))
+
+
+def referenced_files(prompt: str, *media_dirs: Path) -> list[tuple[Path, list[str]]]:
+    """Each file saved in one of ``media_dirs`` that ``prompt`` names by its absolute path (``path_candidates``), of any
+    type and size: ``(resolved path, the words that name it)``, once each, in the order first named. A symbolic link
+    that leads out of its directory, a directory and a path that cannot be read are left out, as
+    ``native_image_attachments`` does."""
+    roots = [Path(media).resolve() for media in media_dirs]
+    found: dict[Path, list[str]] = {}
+    for raw in path_candidates(prompt):
+        path = expand_user(raw)
+        if path is None or not path.is_absolute():
+            continue
+        try:
+            path = path.resolve()
+            if not any(path.is_relative_to(root) for root in roots) or not path.is_file():
+                continue
+        except (OSError, ValueError):
+            continue
+        words = found.setdefault(path, [])
+        if raw not in words:
+            words.append(raw)
+    return list(found.items())
+
+
 def native_image_attachments(prompt: str, media_dir: Path) -> list[dict[str, str]]:
     """The images saved in ``media_dir`` this request names by their absolute path (in backquotes, or after 图片: /
     文件:), each once, of IMAGE_TYPES and at most FORWARDED_IMAGE_BYTES: {path, mime} each, for the Harness to hand its
@@ -67,9 +97,7 @@ def native_image_attachments(prompt: str, media_dir: Path) -> list[dict[str, str
     root = media_dir.resolve()
     result = []
     seen = set()
-    candidates = re.findall(r"`([^`\n]+)`", prompt)
-    candidates += re.findall(r"\[(?:被回复)?(?:图片|文件): ([^\]\n]+)\]", prompt)
-    for raw in candidates:
+    for raw in path_candidates(prompt):
         # Any backquoted words are a candidate: one that is no path (core/paths.py expand_user) or cannot be read is
         # skipped, never the turn's failure.
         path = expand_user(raw)

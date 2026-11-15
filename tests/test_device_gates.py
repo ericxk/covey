@@ -30,8 +30,9 @@ from support.fake_lark import MemoryTransport, install_card_transport
 from support.world import build_claude_app, harness_app
 from support.worker_seams import leave_out_side_work
 
-from covey.app import compact_runner, idle_compaction, worker
+from covey.app import compact_runner, device_files, idle_compaction, worker
 from covey.backends.claude import compaction as claude_compaction
+from covey.backends.claude import runtime as claude_runtime
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.backends.codex import rpc as codex_rpc
 from covey.backends.codex.bridge import CODEX_SPEC, CodexBackend
@@ -300,8 +301,8 @@ class DeviceTurn:
         self.app.sessions.record_session_from_worker = mock.Mock()
         self.app.cards.finish_result_controls = mock.Mock()
 
-    def job(self, ctx, number=1, **fields):
-        job = BridgeReplyJob(job_id=number, user_text="please work on the project", chat_id="oc_dm",
+    def job(self, ctx, number=1, text="please work on the project", **fields):
+        job = BridgeReplyJob(job_id=number, user_text=text, chat_id="oc_dm",
                              message_id="om_%s_%d" % (ctx.topic_id, number), timeout=0, topic_id=ctx.topic_id,
                              reply_to_message_id="om_root", model="fixture-model", effort="high",
                              model_settings_snapshot=True, workspace_name=ctx.workspace_name, workdir=ctx.workdir,
@@ -426,6 +427,96 @@ class DeviceTurn:
             if hub:
                 self.assertNotIn(hub, prompt, hub)
 
+    # ---- attachments (A-SPEC 5.2): a message's files are put on the device, the prompt names the copies
+    def attachments(self):
+        """A picture and a PDF saved in the topic's incoming_media as a received message lists them: (picture, pdf, text)."""
+        media = self.ctx.history_path.parent / "incoming_media"
+        media.mkdir(parents=True, exist_ok=True)
+        pic, doc = media / "shot.png", media / "spec.pdf"
+        pic.write_bytes(b"\x89PNG\r\n\x1a\n device pixels")
+        doc.write_bytes(b"%PDF-1.4 device document")
+        text = ("please look at these\n收到的附件（已下载到本地）：\n- 图片 1: `%s`\n- 文件 1（spec.pdf）: `%s`\n"
+                "请在需要理解图片或文件内容时读取上述本地路径。" % (pic, doc))
+        return pic, doc, text
+
+    def play_with_attachments(self, text):
+        puts, seen = [], []
+        real_put, self.read_images_seen = self.device.transport.put, seen
+        real_read = claude_runtime.read_images
+
+        def put(path, *args, **kwargs):
+            puts.append(path)
+            return real_put(path, *args, **kwargs)
+
+        def read(attachments, **kwargs):
+            seen.append([dict(item) for item in attachments])
+            return real_read(attachments, **kwargs)
+
+        self.notes = []
+        real_note = self.app.runs._bridge_note
+        with mock.patch.object(self.device.transport, "put", put), \
+                mock.patch.object(claude_runtime, "read_images", read), \
+                mock.patch.object(self.app.runs, "_bridge_note",
+                                  lambda ctx, job, key, line: self.notes.append((key, line)) or real_note(ctx, job, key, line)):
+            record = self.play(self.job(self.ctx, text=text))
+        self.puts = puts
+        return record
+
+    def staged_dir(self, record):
+        return "%s/.covey/incoming/%s/%s" % (self.device.home, devices.hub_id(self.state), record["key"])
+
+    def test_the_attachments_are_put_on_the_device_and_the_prompt_never_names_the_hubs_copy(self):
+        pic, doc, text = self.attachments()
+        record = self.play_with_attachments(text)
+        self.ran_on_the_device(record)
+        directory = self.staged_dir(record)
+        prompt = self.prompts[0]
+        self.assertIn("`%s/shot.png`" % directory, prompt)
+        self.assertIn("`%s/spec.pdf`" % directory, prompt)
+        for hub in ("incoming_media", str(self.root), str(pic), str(doc)):
+            self.assertNotIn(hub, prompt, hub)
+        self.assertEqual((Path(directory) / "spec.pdf").read_bytes(), doc.read_bytes())
+        self.assertEqual((Path(directory) / "shot.png").read_bytes(), pic.read_bytes())
+        self.assertEqual(sorted(self.puts), sorted(["%s/shot.png" % directory, "%s/spec.pdf" % directory]),
+                         "the files went through the shim")
+        # The hub used no file of the device itself, and none of its stand-in; only the shim did (guard.device_root).
+        self.guard.assert_untouched(self)
+        self.assertEqual(self.notes, [], "nothing was left out: no line on the card")
+
+    def test_a_file_over_the_limit_is_left_out_with_a_line_on_the_card_and_never_a_hub_path_in_the_prompt(self):
+        pic, doc, text = self.attachments()
+        with mock.patch.object(device_files, "MAX_FILE", pic.stat().st_size):  # The picture fits, the PDF does not.
+            record = self.play_with_attachments(text)
+        self.ran_on_the_device(record)
+        directory = self.staged_dir(record)
+        prompt = self.prompts[0]
+        self.assertIn("`%s/shot.png`" % directory, prompt)
+        self.assertNotIn("spec.pdf`", prompt.split("这些附件没有传到设备")[0])
+        for hub in ("incoming_media", str(self.root)):
+            self.assertNotIn(hub, prompt, hub)
+        self.assertTrue((Path(directory) / "shot.png").is_file())
+        self.assertFalse((Path(directory) / "spec.pdf").exists())
+        self.assertEqual([key for key, _ in self.notes], ["bridge-device-files"])
+        self.assertIn("1 个附件没有传到设备 gpu1：spec.pdf", self.notes[0][1])
+        self.guard.assert_untouched(self)
+
+    def test_the_image_the_hub_reads_for_claude_has_its_device_path_for_codex(self):
+        pic, doc, text = self.attachments()
+        record = self.play_with_attachments(text)
+        self.ran_on_the_device(record)
+        directory = self.staged_dir(record)
+        if self.harness == "claude":  # Claude's image is the hub's file as base64; the device path rides along unused.
+            self.assertEqual([[(item["path"], item["device_path"]) for item in items] for items in self.read_images_seen],
+                             [[(str(pic), directory + "/shot.png")]])
+        else:
+            starts = [params for method, params in self.requests if method == "turn/start"]
+            self.assertEqual([item for item in starts[0]["input"] if item["type"] == "localImage"],
+                             [{"type": "localImage", "path": directory + "/shot.png"}])
+            self.assertEqual(self.read_images_seen, [])
+            config = [params for method, params in self.requests if method == "thread/start"][0]["config"]
+            args = config["mcp_servers.bridge_workspace.args"]
+            self.assertIn(directory, [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "--extra-root"])
+
     def test_the_seed_and_the_mirror_go_into_the_spawn_request(self):
         job = self.job(self.ctx)
         seen = []
@@ -496,7 +587,8 @@ def knowledge_history():
 
 class NotLookedForOnTheHub(unittest.TestCase):
     """What the device's Agent lists in its checkpoint are paths on the device: a hub file that happens to have the same
-    path must neither be offered as an artifact nor sent as an image."""
+    path must neither be offered as an artifact nor sent as an image. (They are looked at through the shim:
+    tests/test_device_files.py.)"""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -512,19 +604,23 @@ class NotLookedForOnTheHub(unittest.TestCase):
         return {"checkpoint_path": str(self.checkpoint), "workdir": str(self.root), "result_file_path": str(self.root / "r.md"),
                 **fields}
 
-    def test_a_device_records_artifacts_are_not_looked_up_here_but_its_result_file_stays(self):
+    def test_a_device_records_artifacts_are_listed_and_judged_as_the_devices_not_resolved_on_the_hub(self):
         from covey.app import artifacts
-        self.assertEqual(artifacts.artifact_paths(self.record()), [str(self.hub_file), "rel.txt", str(self.root / "r.md")])
-        self.assertEqual(artifacts.artifact_paths(self.record(device="gpu1", remote_workdir="/p")), [str(self.root / "r.md")])
+        record = self.record(device="gpu1", remote_workdir="/p")
+        self.assertEqual(artifacts.artifact_paths(record), [str(self.hub_file), "rel.txt", str(self.root / "r.md")])
+        self.assertEqual(artifacts.artifact_paths(self.record()), artifacts.artifact_paths(record))
+        with DeviceGuard(self.root / "standin") as guard:
+            self.assertEqual(artifacts.drive_paths(record), [str(self.hub_file), "rel.txt", str(self.root / "r.md")])
+        self.assertNotIn(str(self.hub_file), guard.stats + guard.opened)
 
-    def test_a_device_turn_has_no_image_sender_and_a_local_one_has(self):
+    def test_a_device_turn_sends_images_like_a_local_one_looking_for_them_on_the_device(self):
         ctx = make_context(self.root)
         job = make_job(checkpoint_path=str(self.checkpoint))
         cards = mock.Mock()
         kwargs = dict(cards=cards, runtime=mock.Mock(), record_job_state=mock.Mock(), send_text=mock.Mock(), prefix="p")
         self.assertIsNotNone(worker._task_monitor(ctx, job, **kwargs).images)
-        self.assertIsNone(worker._task_monitor(dataclasses.replace(ctx, device="gpu1", remote_workdir="/p"), job,
-                                               **kwargs).images)
+        self.assertIsNotNone(worker._task_monitor(dataclasses.replace(ctx, device="gpu1", remote_workdir="/p"), job,
+                                                  **kwargs).images)
 
 
 class ClaudeTurn(DeviceTurn, unittest.TestCase):

@@ -57,7 +57,9 @@ def thread_params(ctx, session_id, instructions="", process=None):
         mirror = (ctx.options.get("device_spawn") or {}).get("checkpoint") or {}
         if mirror.get("path"):  # The job's checkpoint is outside the task directory (core/devices.py checkpoint_mirror).
             writable.append(str(mirror["path"]).rpartition("/")[0])
-        command, args = process.workspace_reader(cwd, extra_roots=[str(process.task_dir) + "/incoming"])
+        # The task directory's own incoming/, and where the turn's attachments were put on the device (app/device_files.py).
+        roots = [str(process.task_dir) + "/incoming", *filter(None, [ctx.options.get("device_incoming")])]
+        command, args = process.workspace_reader(cwd, extra_roots=roots)
     else:
         cwd = str(ctx.workdir)
         writable = [str(ctx.state_dir / "checkpoints")]
@@ -90,13 +92,22 @@ def thread_params(ctx, session_id, instructions="", process=None):
     return params, fork
 
 
+def image_paths(ctx, attachments):
+    """The paths the model's ``localImage`` inputs name: the files as the Harness sees them. On a device that is the copy
+    put there (``device_path``, app/device_files.py); an image that was not put there is left out, never named by the hub's
+    path."""
+    if device_of(ctx):
+        return [item["device_path"] for item in attachments if item.get("device_path")]
+    return [item["path"] for item in attachments]
+
+
 def start_turn(rpc, request, ctx, prompt, session_id):
     """Start the turn on the thread and check that both identities are the ones asked for."""
     reply = rpc.request(
         "turn/start",
         {
             "threadId": rpc.thread_id,
-            "input": [{"type": "text", "text": prompt}] + [{"type": "localImage", "path": item["path"]} for item in request.inputs.attachments],
+            "input": [{"type": "text", "text": prompt}] + [{"type": "localImage", "path": path} for path in image_paths(ctx, request.inputs.attachments)],
             "model": ctx.model,
             **({"effort": ctx.effort} if ctx.effort else {}),
         },

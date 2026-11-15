@@ -21,7 +21,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from covey.app import answer_cards
+from covey.app import answer_cards, device_files
 from covey.cards.answer_card import ARTIFACTS_ID
 from covey.core import background, extensions
 from covey.core.checkpoint import read_checkpoint
@@ -55,9 +55,7 @@ CONTACT_NOTES = re.compile(extensions.setting("contact_notes", r"(?!)"))
 
 def artifact_paths(record):
     cp = read_checkpoint(Path(record["checkpoint_path"])) if record.get("checkpoint_path") else {}
-    # A device's artifacts are paths on the device. Looked up here they are a file of the hub with the same name, or none,
-    # and either answers wrongly without a word; app/device_files.py (fetching through the shim) will list them.
-    raw = [] if record.get("device") else cp.get("artifacts", [])
+    raw = cp.get("artifacts", [])
     paths = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
     if record.get("result_file_path"):
         paths.append(record["result_file_path"])
@@ -72,7 +70,11 @@ def artifact_key(path):
 
 def _local_path(record, raw):
     """``raw`` resolved against the task's workdir; ValueError for one that cannot be resolved
-    (a symlink loop, ``~nosuchuser``), which the card then shows as that file's error."""
+    (a symlink loop, ``~nosuchuser``), which the card then shows as that file's error. A path of a device
+    (app/device_files.py) is never resolved here, the hub's links and home are not the device's: it is folded
+    as text, against the device's working directory."""
+    if device_files.is_remote(record, raw):
+        return device_files.remote_path(record, raw)
     try:
         root = Path(record["workdir"]).resolve()
         path = Path(raw).expanduser()
@@ -102,6 +104,17 @@ def _judged_parts(path):
     return parts
 
 
+def device_policy():
+    """The denylist a device's ``stat`` is given and the hub's own rule over the real path it reports back
+    (app/device_files.py): the names and directories this module never publishes."""
+    def denied(path):
+        parts = _judged_parts(path)
+        return ".local-state" in parts or any(part in SENSITIVE_NAMES for part in parts) or _secret_name(path.name)
+
+    return device_files.Policy(tuple(sorted({*SENSITIVE_NAMES, ".env", ".env.*", ".local-state"})),
+                               tuple(sorted("~/" + name for name in {".ssh", ".codex", *AGENT_DIRS})), denied)
+
+
 def config_path(record, raw):
     """A configuration or credential path: never published, and left off the card."""
     if raw in {record.get("diff_artifact_path"), record.get("result_file_path")}:
@@ -111,7 +124,9 @@ def config_path(record, raw):
     except ValueError:
         return False  # Not judged here: resolve_artifact reports it on the card.
     parts = _judged_parts(path)
-    state_artifact = bool(record.get("checkpoint_path")) and path.is_relative_to(Path(record["checkpoint_path"]).resolve().parent / "artifacts")
+    # A device's paths are not the hub's: its artifacts never live in the checkpoint's artifacts/ here.
+    state_artifact = (bool(record.get("checkpoint_path")) and not device_files.is_remote(record, raw)
+                      and path.is_relative_to(Path(record["checkpoint_path"]).resolve().parent / "artifacts"))
     return ((".local-state" in parts and not state_artifact) or
             any(part in SENSITIVE_NAMES for part in parts) or _secret_name(path.name))
 
@@ -141,13 +156,20 @@ def drive_paths(record):
             if not config_path(record, raw) and not (notes and contact_notes(record, raw))]
 
 
-def resolve_artifact(record, key, max_bytes=MAX_ARTIFACT_BYTES, directories=False):
+def resolve_artifact(record, key, max_bytes=MAX_ARTIFACT_BYTES, directories=False, state_dir=None):
+    """The hub file for the artifact ``key`` of ``record``. A device's artifact is copied here first, through the
+    device program (app/device_files.py; ``state_dir`` is where its copy goes, ValueError without it): a directory
+    of a device is not one yet."""
     raw = next((p for p in artifact_paths(record) if artifact_key(p) == key), None)
     if raw is None:
         raise ValueError("产物记录已变化，请重新打开产物列表")
     path = _local_path(record, raw)
     if config_path(record, raw):
         raise ValueError("该文件属于配置或凭据目录，不能作为产物发送")
+    if device_files.is_remote(record, raw):
+        if state_dir is None:
+            raise ValueError("设备上的产物需要状态目录才能取回")
+        return device_files.fetch_artifact(state_dir, record, raw, max_bytes, device_policy())
     if path.is_dir():
         if directories:
             return path
@@ -551,7 +573,7 @@ class Artifacts:
                 for raw in drive_paths(record):
                     key = artifact_key(raw)
                     try:
-                        source = resolve_artifact(record, key, MAX_DRIVE_ARTIFACT_BYTES, directories=True)
+                        source = resolve_artifact(record, key, MAX_DRIVE_ARTIFACT_BYTES, directories=True, state_dir=ctx.state_dir)
                     except ValueError as exc:
                         ledger["errors"][key] = str(exc)
                         continue
@@ -621,7 +643,7 @@ class Artifacts:
             return False
 
     def send_artifact(self, ctx, record, key):
-        source = resolve_artifact(record, key)
+        source = resolve_artifact(record, key, state_dir=ctx.state_dir)
         staging = private_staging(ctx.state_dir, "artifact-upload")
         fd, name = tempfile.mkstemp(dir=staging, suffix=source.suffix)
         temp = Path(name)
