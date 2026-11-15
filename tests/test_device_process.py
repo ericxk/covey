@@ -246,8 +246,7 @@ class SpawnRequestTest(DeviceCase):
         lines = Lines(process.stdout)
         process.stdin.write(json.dumps({"cp": '{"requires_user": false}'}) + "\n")
         process.stdin.flush()
-        self.assertTrue(wait_for(hub_path.exists))
-        self.assertEqual(hub_path.read_text(), '{"requires_user": false}')
+        self.assertTrue(wait_for(lambda: hub_path.exists() and hub_path.read_text() == '{"requires_user": false}'))
         self.assertEqual(hub_path.stat().st_mode & 0o777, 0o600)
         process.stdin.write(json.dumps({"exit": 0}) + "\n")
         process.stdin.flush()
@@ -791,3 +790,21 @@ class AppServerOnADeviceTest(DeviceCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CheckpointFrameTest(unittest.TestCase):
+    """A checkpoint the device read mid-write (empty or cut short) does not replace the hub's good copy: the next
+    look brings the whole file (seen as a flaky mirror test under load, 2026-11-15)."""
+
+    def test_an_empty_or_cut_short_checkpoint_keeps_the_hubs_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hub = Path(tmp) / "hub.json"
+            link = object.__new__(dl.DeviceProcess)
+            link.alias, link.checkpoint = "box", {"hub_path": str(hub)}
+            link._checkpoint({"d": '{"phase": "一"}'})
+            self.assertEqual(hub.read_text(), '{"phase": "一"}')
+            for torn in ("", '{"phase": "二'):
+                link._checkpoint({"d": torn})
+                self.assertEqual(hub.read_text(), '{"phase": "一"}', repr(torn))
+            link._checkpoint({"d": '{"phase": "二"}'})
+            self.assertEqual(hub.read_text(), '{"phase": "二"}')

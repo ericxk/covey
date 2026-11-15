@@ -780,6 +780,11 @@ class DeviceProcess:
         else:
             text = str(frame.get("d", ""))
         try:
+            json.loads(text)
+        except ValueError:  # Caught mid-write on the device (empty or cut short): the next look brings all of it.
+            log.info("device %s: a checkpoint read mid-write was skipped (%d chars)", self.alias, len(text))
+            return
+        try:
             write_private_text(Path(target), text)
         except OSError as exc:
             log.warning("device %s: the checkpoint could not be written: %s", self.alias, exc)
