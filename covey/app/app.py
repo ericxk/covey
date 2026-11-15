@@ -224,7 +224,7 @@ class BridgeApp:
         False skips looking up quoted messages (tests). ``supplement(ctx, prompt, message_id, content=, sender=)``:
         True when it took the message into a running task instead (the main thread's, app/main_thread.py); it
         writes the history line then. ``content`` and ``sender`` are what a new task of the message would be queued
-        with, should the turn never take it (app/steering.py requeue_lost). ``hold``: seconds the new task waits before it starts (the main thread's, for the
+        with, should the turn never take it (app/steering.py requeue_lost). ``supplement`` may instead answer the context of another topic: the message is queued there (多路并行). ``hold``: seconds the new task waits before it starts (the main thread's, for the
         owner's words after a forward). ``routed``: ``ctx`` is the message's topic already, not looked up again from the
         event (the main thread's, for a message whose reply chain starts in a frozen front-desk topic, app/main_thread.py)."""
         sender = str(event.get("sender_id") or "")
@@ -254,9 +254,13 @@ class BridgeApp:
             return
         timing.mark("command")
         prompt = (access.sender_label(event) + "\n\n" + enriched.text) if group else enriched.text
-        if supplement is not None and supplement(ctx, prompt, message_id, content=content, sender=sender):
-            timing.outcome("supplement")
-            return
+        if supplement is not None:
+            taken = supplement(ctx, prompt, message_id, content=content, sender=sender)
+            if isinstance(taken, type(ctx)):
+                ctx = taken  # A supplement the task refused: a track of its own, queued in its topic (app/main_tracks.py).
+            elif taken:
+                timing.outcome("supplement")
+                return
         append_history(ctx.history_path, "user", prompt, {**enriched.event, "display_content": content})
         timing.mark("history")
         submit = dict(prompt_content=prompt, received_at=received_at, sender_id=sender, **({"hold": hold} if hold else {}))

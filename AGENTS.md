@@ -111,6 +111,7 @@
 | `app/main_thread_panel.py` | The 主线程 settings card: the owner changes the main thread's settings in the private chat |
 | `app/main_tools.py` | The main thread's tools as the Bridge runs them, unless COVEY_MAIN_THREAD=0 |
 | `app/main_topics.py` | The main thread's tools that change topics |
+| `app/main_tracks.py` | 多路并行 at run time (docs/main-thread.md 多路并行 |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
 | `app/menu_panel.py` | A card the bot menu sends to the owner's private chat: no topic, no job, one card a menu click |
 | `app/model_picker.py` | The launch card's choices |

@@ -35,7 +35,9 @@ from pathlib import Path
 from covey.app import idle_compaction, main_relay, pins
 from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
-from covey.app.prompts import main_thread_message
+from covey.app import main_tracks as tracks_module
+from covey.app.main_tracks import Tracks
+from covey.app.prompts import first_turn_message, main_thread_message, resume_message, earlier_history
 from covey.core import main_thread as contract
 from covey.core import main_tracks
 from covey.core import board_read, main_opened, main_thread_settings, placement, timing, turn_words
@@ -84,21 +86,28 @@ WORDLESS_TYPES = frozenset({"interactive", "merge_forward", "image", "file", "me
 URL = re.compile(r"https?://\S+")
 
 
+def event_text(event):
+    """(the message's type in lower case, its words): a text's text field (some arrive as <p>…</p>), a post's lines; the
+    content itself when it is no JSON object; '' for any other type (one with no type is read as a text)."""
+    kind = str(event.get("message_type") or event.get("msg_type") or "").strip().lower()
+    if kind not in {"text", "post", ""}:
+        return kind, ""
+    raw = str(event.get("content") or "").strip()
+    parsed = json_object(raw)
+    if kind in {"text", ""}:
+        text = parsed.get("text") if isinstance(parsed, dict) else parsed if isinstance(parsed, str) else ""
+        return kind, strip_paragraph_markup(str(text or ""))
+    return kind, "\n".join(collect_message_parts_named(raw)[0])
+
+
 def bare_message(event) -> bool:
     """Whether the owner's message has no words of its own: a forward, a card, an image, a file or other media, or
     a text (or post) that is only links. An unknown type has words, as before."""
-    kind = str(event.get("message_type") or event.get("msg_type") or "").strip().lower()
+    kind, text = event_text(event)
     if kind in WORDLESS_TYPES:
         return True
     if kind not in {"text", "post"}:
         return False
-    raw = str(event.get("content") or "").strip()
-    parsed = json_object(raw)
-    if kind == "text":  # Its text field (some arrive as <p>…</p>), or the content itself when it is no JSON object.
-        text = parsed.get("text") if isinstance(parsed, dict) else parsed if isinstance(parsed, str) else ""
-        text = strip_paragraph_markup(str(text or ""))
-    else:
-        text = "\n".join(collect_message_parts_named(raw)[0])
     return not URL.sub("", text).strip() and (bool(URL.search(text)) or kind == "post")
 
 
@@ -108,6 +117,7 @@ class MainThread:
     def __init__(self, topics) -> None:
         self.topics = topics
         self.runtime = topics.runtime
+        self.tracks = Tracks(self)  # 多路并行 (app/main_tracks.py); idle unless COVEY_MAIN_TRACKS=1 and the mode says so.
 
     @staticmethod
     def configure(ctx) -> None:
@@ -185,6 +195,9 @@ class MainThread:
         chat = str(event.get("chat_id") or "")
         self.keep_topic(ctx, app, chat)
         message = str(event.get("message_id") or event.get("id") or "")
+        if self.tracks.enabled() and self.tracks.handle(ctx, app, event, chat, message, bare=bare_message(event),
+                                                        text=event_text(event)[1]):
+            return True  # 多路并行: a task of the family is live and the router placed the message.
         remember_topic_message(ctx.state_dir, main_topic_id(chat), chat, message)
         target = app.submission.event_context(app.harness.context, event)
         routed = {}
@@ -280,17 +293,22 @@ class MainThread:
             if data != saved:
                 write_json(path, data, ensure_ascii=False, indent=2)
 
-    def supplement(self, app, chat, ctx, prompt, message, *, bare=False, content="", sender="") -> bool:
+    def supplement(self, app, chat, ctx, prompt, message, *, bare=False, content="", sender="", target=None, fresh=None):
         """True when this turn took ``prompt`` (or may have: rule 6, it is not sent again); False to queue it behind.
         One the turn then certainly never takes (refused, or ended unread) becomes a turn of its own as it would have
         been queued now (``content``, ``sender``; app/steering.py requeue_lost): its ``requeue`` in the record.
         A turn held for the owner's words (``hold_for``) that took it into its request starts now, or, ``bare``
         (still no words), waits HOLD_SECONDS again. Its "你问" block notes the words he wrote (core/attachments.py
-        message_words: not the attachments block, the quoted message or a local path), none of a ``bare`` one."""
+        message_words: not the attachments block, the quoted message or a local path), none of a ``bare`` one.
+        多路并行 (app/main_tracks.py): ``target`` is the task the router chose (not the topic's newest); the task that
+        has ended, or refuses it, makes ``fresh()`` (the context of a track of its own, which the submission queues the
+        message in) the answer instead of False. Both None: as ever."""
         steering = app.steering
         jobs = sorted(self.runtime.jobs.topic_jobs(ctx.topic_id, chat), key=lambda job: int(job.job_id))
-        job = next((job for job in reversed(jobs) if steering.steer_stage(job) != "ended"), None)
-        if job is None or steering.steer_stage(job) == "paused":
+        job = target if target is not None else next((job for job in reversed(jobs) if steering.steer_stage(job) != "ended"), None)
+        if job is None or steering.steer_stage(job) == "ended":
+            return fresh() if fresh is not None and target is not None else False
+        if steering.steer_stage(job) == "paused":
             return False
         try:
             requeue = {"text": content or prompt, "prompt": prompt, **({"sender_id": sender} if sender else {})}
@@ -304,40 +322,68 @@ class MainThread:
             app.reply(ctx, chat, SUPPLEMENT_UNCERTAIN, app.key("main-supplement", message))
         except SteerRefused as exc:
             self.runtime.log(f"main thread supplement queued instead job=#{job.job_id}: {exc}")
-            return False
+            return fresh() if fresh is not None else False
+        if target is not None:
+            self.tracks.noted("merged", chat, message)
         return True
 
 
-def main_turn(ctx, job, prompt, session_id, compaction, log):
+def main_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
     """(context, message) of a turn: unchanged but for the main thread's, whose context carries its tools and what its
     compaction keeps (``COMPACT_INSTRUCTIONS``). ``compaction``: a request that waits means this turn runs on a
-    compacted session, so it reads everything again."""
+    compacted session, so it reads everything again. A turn of a track (slot 1.., core/main_tracks.py; ``harness``
+    needed): no compaction, no idle compaction to stop, the snapshot whole and not saved (the main thread's own record
+    of what it read stays), and a new session starts as a fork of the main thread's (``track_start``)."""
     if not contract.traits_of(job).own_turn:
         return ctx, prompt
+    track = main_tracks.track_of(job.topic_id, job.chat_id) or 0
     # Before the snapshot and the session: an idle compaction under way stops, its request back for this turn's end.
-    idle_compaction.stop_for_turn(ctx, job, log)
+    if not track:
+        idle_compaction.stop_for_turn(ctx, job, log)
     key = job_key(job.message_id, job.job_id)
     ctx = dataclasses.replace(ctx, options={**ctx.options, "compact_instructions": COMPACT_INSTRUCTIONS,
                                             "mcp_config": mcp_config(RELEASE, ctx.state_dir, key, sys.executable)})
     if job.kind != "chat":
         return ctx, prompt
+    note = ""
+    if track and harness is not None:
+        ctx, prompt, note = track_start(ctx, job, prompt, session_id, harness, log)
     try:
         # A request this turn takes compacts the session first; one left to the idle compaction does not.
-        request = compaction.request(ctx)
-        snapshot = take_snapshot(ctx, job.chat_id, key,
-                                 full=not session_id or (request is not None and not left_for_idle(request)))
+        request = None if track else compaction.request(ctx)
+        snapshot = take_snapshot(ctx, job.chat_id, key, save=not track,
+                                 full=bool(track) or not session_id or (request is not None and not left_for_idle(request)))
     except Exception as exc:  # noqa: BLE001 - the owner's message goes on without it
         log(f"main thread snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
         snapshot = "[快照暂时读不到，需要时用 topics_list]"
-    return ctx, main_thread_message(snapshot, prompt)
+    return ctx, main_thread_message(snapshot, prompt, note)
+
+
+def track_start(ctx, job, prompt, session_id, harness, log):
+    """(context, message, note) of a track's turn. On its own session (it waited for an answer: ``session_id``) nothing
+    changes but the note. Else a new one: a fork of the main thread's session (``ctx.options`` ``fork_session``, and
+    ``fork_at`` while a turn of the main thread is under way) with the resume-style message, as the session has the
+    conversation; when no fork can be made, the main thread's recent history as the conversation (the fallback, a new
+    session). ``note``: what the other tracks do now (app/main_tracks.py parallel_note)."""
+    note = tracks_module.parallel_note(ctx.state_dir, job.chat_id, job.topic_id)
+    if session_id:
+        return ctx, prompt, note
+    options = tracks_module.fork_options(ctx, harness, job.chat_id, log)
+    user_text = job.prompt_text or job.user_text
+    if options:
+        log(f"track fork job=#{job.job_id} at={'entry' if options.get('fork_at') else 'end'}")
+        return dataclasses.replace(ctx, options={**ctx.options, **options, "track_fork": True}), resume_message(user_text), note
+    log(f"track without fork job=#{job.job_id}: a new session with the recent conversation")
+    earlier = earlier_history(tracks_module.context_pack(ctx, job.chat_id), job.message_id, user_text)
+    return ctx, first_turn_message(user_text, earlier), note
 
 
 def compact_main_thread(compaction, ctx, job) -> None:
     """A turn of the main thread ended past ``compact_tokens``: a compaction request. One its task runner records is
     ``idle``: the Bridge compacts once the turn's runner has exited and the topic stayed idle (app/idle_compaction.py),
     and the next turn compacts first only when that did not happen in time (app/compaction.py left_for_idle)."""
-    if not contract.traits_of(job).own_turn:
-        return
+    if not contract.traits_of(job).own_turn or main_tracks.track_of(job.topic_id, job.chat_id):
+        return  # A track (slot 1..) has no compaction: the main thread's own does it for the family.
     try:
         threshold = main_thread_settings.load(ctx.state_dir).compact_tokens
         tokens = getattr(job.tool_trace, "context_tokens", None)
@@ -436,8 +482,9 @@ def render_snapshot(groups, previous, *, full, at, receipts) -> str:
     return "\n".join((head, *sections))
 
 
-def take_snapshot(ctx, chat, key, *, full, now=None) -> str:
-    """This turn's snapshot text; saved, for the next turn to compare with."""
+def take_snapshot(ctx, chat, key, *, full, now=None, save=True) -> str:
+    """This turn's snapshot text; saved, for the next turn to compare with (``save`` False: a track's, which only reads
+    the record and leaves it as the main thread's last turn made it)."""
     now = time.time() if now is None else now
     path = topic_file(ctx.state_dir, main_topic_id(chat)).parent / SNAPSHOT
     saved = read_object(path)
@@ -453,5 +500,6 @@ def take_snapshot(ctx, chat, key, *, full, now=None) -> str:
     groups = snapshot_groups(ctx, chat, now)
     text = render_snapshot(groups, previous if isinstance(previous, dict) else {}, full=full,
                            at=time.strftime("%m-%d %H:%M", time.localtime(now)), receipts=(ctx.state_dir / SEEN_FILE).exists())
-    write_json(path, {"schema_version": 1, "job": key, "at": now, "groups": groups}, ensure_ascii=False)
+    if save:
+        write_json(path, {"schema_version": 1, "job": key, "at": now, "groups": groups}, ensure_ascii=False)
     return text

@@ -54,7 +54,7 @@
 
 主线程话题的 `topic.json` 带 `main_thread: true`，没有根消息和 `topic_number`。每条消息都同步设置：模型和预算下一轮生效；换工作区要等没有任务在跑，并开新会话。
 
-- **补充**：有任务没结束时，新消息用 `deliver_steer` 并进最新一轮，不发回执卡。可能已送达的不重发（规则 6），在主人消息下说一句；卡上已列出的不再各说（`TurnDelivery.listed`）。
+- **补充**：有任务没结束时，新消息用 `deliver_steer` 并进最新一轮，不发回执卡（开了[多路并行](#多路并行开关默认关)时，并进哪一路由分流定，`MainThread.supplement` 接目标任务，被拒改成新开一路）。可能已送达的不重发（规则 6），在主人消息下说一句；卡上已列出的不再各说（`TurnDelivery.listed`）。
 - **收尾时发来的消息**：确定这一轮没读到的补充，自动排成主线程的新一轮，和主人刚发一条新消息一样：同一个 message_id 作为这一轮的请求，放置、表情和回答都落在它上面，不开话题串、不说 `SUPPLEMENT_LOST`。“确定没读到”有两种：held 后被拒（从没发出，`drop_held_steers`、`_send_held`），和已发出但 Claude 到结束都没报告读取（`end_unread`）。Claude 交回结果之后到这一轮离开登记表之间来的补充也会 held（后端不再收）；任务离开登记表时（`BridgeApp.process_reply_job` 末尾，任务进程在收件箱停下后再一次）由 `Steering.settle_held_at_end` 当场按被拒结算，不等 steer-hold 线程下一秒的检查（任务进程退出会把它切断）。不确定的（`uncertain`）、主人停止的一轮（`cancel_event`）、没存 `requeue` 的旧记录照旧说一句；卡上已列出的（`listed`）不排也不说。做法：`MainThread.supplement` 在送达记录里存 `requeue`（原文、发给模型的文字、发送人）；发现丢了的一方（`Steering.requeue_lost`）给记录标 `requeue_auto`，在 Bridge 里马上、在任务进程里由 Bridge 在任务进程交还或退出时（`app/detached.py` 的 `queue_lost`）按 `saved_at` 先后各排一轮（`Steering.queue_lost`，走“重新排队执行”的 `_requeue`，`requeue_state`、`requeued_job_id` 保证只排一次，重启后也不再排）。那一轮在没有 Bridge 看着时结束的（Bridge 停着时任务进程退出了，或 Bridge 没来得及排就停了），由 Bridge 启动时在收养任务进程之后补排（`app/detached.py` 的 `queue_stranded`），还在跑的任务进程的留给它结束时排。排队出错的（可能已经排上，`requeue_state` 为 `uncertain`）不再排，在主人那条消息下说一句 `SUPPLEMENT_UNCERTAIN`。已经单独成轮的不再算进旧一轮的“你问”和交接（`app/main_handoff.py` 的 `_supplements`）。同一条消息的事件再来，`deliver_steer` 看到 `requeue_auto` 不再当补充。
 - **等主人的话**：转发框里的留言会在转发后一两秒单独发来。没有任务时，没有自己文字的消息（`bare_message`：卡片、合并转发、图片、文件、只有链接）照常入队，但 `start_held_until` 设成 30 秒后（`HOLD_SECONDS`）。这期间主人的文字经 `merge_before_start` 并进请求并立即放行，写进 `asked_text`；到点没等到就开工。这个时间不存盘。
 
@@ -82,11 +82,11 @@
 
 **旧会话什么时候用上**：主线程的规则不在会话的首轮快照里（会话沿用首轮的系统规则只管 `bridge_rules`，而且各后端现在都不走系统级）。`main_thread_message` 每一轮都重新拼规则，放在这一轮用户消息的开头，续接的会话也一样。所以变量生效的时机是：服务带着变量重新 `launch` 之后，主线程的**下一个聊天轮**就用新规则，不用新开会话、不用等压缩。要注意两点：一是任务进程是 Bridge 按当时的环境启动的，已经在跑的那一轮用旧规则；二是续接的会话里，以前每一轮的消息开头也带着旧规则的原文，在压缩（`compact_tokens`、空闲压缩）把它们摘要掉之前，模型会同时看到新旧两条，以最近一轮的为准。想立刻干净，可以让主线程压缩一次或换新会话。关掉变量反过来也一样。
 
-### 多路并行（开发中，开关默认关）
+### 多路并行（开关默认关）
 
 目标：管家这一轮在做事时，主人的下一句不被挡在后面。做法是把主线程变成一个**话题家族**：槽 0 是现在的主线程话题（`main_topic_id`），再加固定 4 个槽（`track_topic_id(chat, 1..4)`，同样是 32 位十六进制）；每个槽是一条“路”，路里的一轮是普通的主线程任务。调度器不用改：`core/scheduler.py` 按 `(chat, topic)` 排队，不同槽并行、同槽先进先出。
 
-这一包（B1）只有底座，消息的走法不变，开关也不会让它变：
+底座（`core/main_tracks.py`、家族谓词、`family_live`）：
 
 - **开关**（`core/main_tracks.py`）：`COVEY_MAIN_TRACKS=1` 开；`COVEY_MAIN_TRACKS_MAX` 是同时在跑的路数上限（默认 3，取值 2 到 4）。见[配置 · 环境变量](configuration.md#环境变量与选项一览)。
 - **家族谓词**（`core/main_thread.py`）：`is_main_topic` 开关开着时认槽 0 到 4（路的话题也是主线程：工具只认主线程任务、话题清单和看板排除、一轮的规则和卡片照主线程），关着时只认槽 0，和原来一字不同；`is_main_root` 只认槽 0。哪些调用点按家族、哪些只认根，改的时候看调用处的注释。`track_of(topic_id, chat)` 给槽号。
@@ -94,7 +94,20 @@
 - **槽话题的 `topic.json`**：`MainThread.keep_track_topic` 从槽 0 复制模型、思考预算、工作区、脱敏等设置，加 `track: k`；主线程的设置变了，下次调用时同步过去。
 - **存活查询**：`JobRegistry.family_live(chat)` 给家族里没结束、不在等回答的任务（只读内存），用来数路数。
 
-分流、路的运行、记忆合并、派发卡后续的包再接，接线之前这一节只描述底座。
+**运行时**（`app/main_tracks.py` 的 `Tracks`，`MainThread.handle_event` 在原路径前调 `Tracks.handle`）：
+
+- **开不开**：`COVEY_MAIN_TRACKS=1`，并且主线程允许、模式是 Personal Agent（`Tracks.enabled`；`core/main_tracks.enabled` 只看环境变量）。关着时 `handle_event` 一字不变；开着但家族里没有活任务，`handle` 回 False，也走原路径（槽 0，不分叉，不判断）。
+- **活任务**：本进程登记表里家族的没结束的任务（排队、开始、在跑、在等回答），加上话题记录里 `waiting_user` 的（6 小时内；槽 0 的只在别处有活任务时才算）。每个交给路由层一条 `LiveJob`。
+- **认引用**：`parent_id` 先查补充送达记录（`merged`），再看是不是某个活任务的主人原消息、卡片或回复目标（`live_card`），再查别名（槽里有在等回答的任务时当作它的问题卡；其余是 `ended`；谁也不认识是 `unknown`）。
+- **分流**：`core/track_route.py` 的 `route` 九条规则；`ask_judge` 时调 `app/track_judge.py` 的 `judge`（事件线程里同步等，不持锁），判完重读活任务，目标刚结束就新开一路。转发、图片、文件、只有链接的消息之后 30 秒内的文字（没引用、规则落到第 9 条）直接并进那条消息去的那一路，不进分流。
+- **动作**：`stop` 复用 `TaskControls.cancel_reply_job_from_card`（停止消息不建任务、不进模型）；`merge` 把消息别名改到目标路再走 `app.handle_event`，`MainThread.supplement` 带 `target`（目标任务）；目标在等回答时是回答，走原来的续接；`new` 按 `pick_slot` 选槽、`keep_track_topic`、改别名后入队。
+- **送达被拒**：`SteerRefused`（任务刚结束、后端不收补充）或目标已结束，`supplement` 调 `fresh()` 把消息改成新开一路（返回新槽的上下文，`BridgeApp.handle_event` 用它入队）；`SteerUncertain` 照旧说一句、不重发。
+- **选槽**（`pick_slot`）：槽 0 空闲就用槽 0，否则编号最小的空闲槽 1..4；在途（排队、开始、在跑）任务数到 `COVEY_MAIN_TRACKS_MAX`，或没有空闲槽，就选在途最少的槽（并列取编号小的），排在它后面（同话题先进先出，调度器不改），消息记一次 `Tracks.noted("queued")`。等回答的槽、有 `waiting_user` 记录的槽算占着，不分给别的路；空闲槽开始前清掉上一次遗留的会话指针。
+- **路的一轮**（槽 ≥1，`main_turn` → `track_start`）：会话指针为空时分叉槽 0 的会话（`fork_session`，槽 0 有一轮在跑且已记下 `prompt_uuid` 时加 `fork_at`＝`rewind_point(...)["keep"]`，没记就整个分叉），消息是续接式的（`resume_message`）加主线程规则、**完整**快照（`take_snapshot(save=False)`，不动槽 0 的 `main-snapshot.json`）和「并行说明」（另几路此刻在做什么，每路一行，读任务记录，不依赖 Bridge 的登记表）。分叉不了（槽 0 没有会话、工作区不同、后端不支持、`keep` 为空、`rewind_point` 失败）退回新会话＋槽 0 最近的 `history.jsonl`（`first_turn_message`）。不做压缩检查，也不停空闲压缩；`compact_main_thread` 对槽 ≥1 直接返回。
+- **一轮结束**：`process_bridge_reply_job` 在 `_run_turn` 之后调 `release_pointer`：槽 ≥1 且状态不是 `waiting_user` 就清会话指针（会话文件留着）；等回答的那一路指针保留，回答的续接轮接着用。
+- **开了又关**：槽话题留在盘上，这时它们是普通话题（`traits` 给 TOPIC），回答、引用老卡都按 `topic_id` 找到会话指针继续；关着时槽 ≥1 不是主线程，下次再开时空闲槽的遗留指针由 `enter` 清掉。
+
+表情（排队中、并进）、记忆账本、派发卡不在这里：`Tracks.noted` 是表情的调用点，`parallel_note` 旁边是账本块的位置。
 
 ### 提问不开串
 
