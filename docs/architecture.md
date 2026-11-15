@@ -256,6 +256,17 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 - **核心不按名字引用扩展**：核心代码里不出现扩展的包名、Harness 名或供应商；要区别对待靠 manifest 的字段、`HarnessSpec` 上的能力字段（`refuses_questions`：原生问题能否被拒绝；`native_default_model`：任务记录里的空模型是否表示后端自己的默认）或后端对象上的方法（模型目录菜单的 `catalog_hidden`、`catalog_live(models, state_dir)`、`catalog_view(models)`，由 `app/launch_models.py` 的 `catalog_filter` 读）。
 - **扩展的测试**：放在 `extensions/<包>/tests/`（`tests/support/` 并进核心的 `support` 包），扩展启用时 `scripts/test_map.py` 与核心测试一起收集；核心测试在 `COVEY_EXTENSIONS=''` 下也要全过。扩展的脚本放 `extensions/<包>/scripts/`。后端仍遵守“后端不导入 `app/`、`feishu/`、`cards/`”的规则。
 
+### 设备端小程序
+
+多设备功能（默认关）的设备端部分：`core/device_shim.py`，hub 把它的字节经 ssh 推到设备上运行，hub 不导入它，它也不导入 `covey` 里的任何东西。
+
+- **约束**：单文件，只用标准库，语法和标准库用法按 Python 3.9（Mac 命令行工具自带的版本；开发机上没有 3.9）。`scripts/check_shim_compat.py` 用 `ast.parse(feature_version=(3, 9))` 加一份禁用清单（`match`、`zip(strict=)`、`int.bit_count`、`dataclass(slots=)`、3.10 以后才有的标准库名字和参数）检查，并要求保留 `from __future__ import annotations`、只导入标准库；`tests/test_device_shim.py` 跑它。改小程序后跑这个检查。
+- **位置**：设备上 `~/.covey/shim/<id>/shim.py`，`<id>` 是文件内容 SHA-256 的前 16 位（内容变了才推新目录）；任务在 `~/.covey/tasks/<hub-id>/<任务键>/`：`spec.json`（`spawn` 规格的哈希，幂等的依据）、`state.json`（pid、pgid、boot id、proto、shim 路径、spec_sha；pgid 由监管进程自己 `getpgrp()` 写，双 fork 之后它的 pid 不是组号）、只追加的 `journal`、`inbox/<seq>.json`、`seq`、`ctl/`、`checkpoint.json`、`incoming/`、`err.log`（限 1 MiB）、Agent 结束后的 `exit.json`。
+- **协议**：版本字段 `proto`（现为 1）。运行 shim 的命令（`python3 <shim 文件> <cmd>`）的 stdout 第一行永远是 `{"k":"hi","proto":1,"shim":"<id>"}`；一问一答类命令是 stdin 一行 JSON、stdout 一行 `{"ok":…}`（`get`、`put` 的头行写 `len`，后面跟 N 字节和换行；单段不超 64 MiB，大文件用 `offset`/`limit` 分段）；`attach` 是长连接，设备按字节偏移把 journal 里的记录（`out`、`cp`、`ack`、`exit`，带起止偏移 `o`、`e`）推给 hub，另有不落盘的 `hb`，hub 发 `send`、`sig`、`detach`。命令：`hello`、`spawn`、`attach`、`send`、`status`、`stop`、`reap`、`ls`、`stat`、`get`、`put`、`exec`、`gc`。一行最多 16 MiB，未知的键和 `k` 一律忽略。
+- **幂等**：`spawn` 按任务键（同规格返回已有，规格哈希不同报 `conflict`）；输入按 `seq`（小于等于已投递的丢掉，同 `seq` 内容不同报 `conflict`）；记录按偏移；`put` 按哈希；`reap` 可重复。`reap` 只认 `state.json` 的 pgid，而且只杀确认是这个任务的组（监管进程或 Agent 的 pid 加启动时刻对得上，或 Linux 上成员的环境里有 `COVEY_TASK_DIR`），对不上就拒绝（`refused: identity`），免得误杀被回收的组号；它只保证杀进程组，自己 `setsid` 逃出组的子进程不管。
+- **版本协商**：`hello` 互报 `proto`；字段只加不改，不兼容变更才升 `proto`。每个任务在 `state.json` 记自己的 shim 路径，之后对这个任务的调用都用它，所以新 hub 能接旧 shim 起的任务；`gc` 不删被任务引用的 shim 目录，也不删一小时内新建的。
+- **平台**：Linux 完整；macOS 的进程查询走 `ps`、boot id 走 `sysctl`，按同样接口写，还没有在真机上验证。
+
 ### 话题中途换配置
 
 - 入口见[换配置](usage.md#换配置)。按钮带 `harness_id`、`binding_revision`，不一致时 `current_binding_card`（`app/binding.py`）按 `job_id` 判断能否打开。
