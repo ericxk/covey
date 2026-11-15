@@ -124,6 +124,10 @@ class BridgeReplyJob:
     result_backend: str = _state("")
     last_backend_control: Any = _state()
     backend_retry: dict = _state(factory=dict)
+    # What the link to the device says of this turn's process (core/device_link.py details(): state, seconds down, the
+    # patience, ...), read by the activity monitor each tick (core/longtask.py) and saved in the record only for a turn on
+    # a device (as ``device_state``). {} on this machine.
+    device_state: dict = _state(factory=dict)
     native_session_claims: set = _state(factory=set)
     verified_reply: Any = _state()
     verified_result_key: str | None = _state()
@@ -512,6 +516,9 @@ def find_job_record(state_dir: Path, ref: str) -> dict[str, Any] | None:
 
 # The status line a task runner leaves on a turn a SIGTERM ended (app/worker.py leave_interrupted).
 SIGTERM_STATUS = "任务进程收到 SIGTERM，后端已停止，等待标为中断"
+# The same for a turn whose device stayed away past the patience (app/worker.py leave_interrupted): ``interrupted_by`` becomes
+# "device_lost", which app/auto_retry.py does not continue by itself (the device may be gone for good).
+DEVICE_LOST_STATUS = "设备失联超过耐心值，后端已放弃，等待标为中断"
 
 
 def interrupted_fields(record: dict[str, Any], status_message: str, cause: str = "") -> dict[str, Any]:

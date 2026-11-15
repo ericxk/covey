@@ -17,6 +17,8 @@ from covey.app import policy_retry
 from covey.core.main_thread import worded
 from covey.core.model_policy import policy_summary
 from covey.core.policy_feed import match_task, valid_observation
+from covey.app import devices as device_turns
+from covey.core import device_reap
 from covey.core.policy_process import stop_tree
 from covey.core.run_dir import run_dir, runner_alive, runner_info
 from covey.core.state import read_json, write_json
@@ -116,8 +118,18 @@ def finish(gateway, ctx, path):
             previous = intent.get('cleanup', {}).get('processes', [])
             if previous and all(process_identity(p['pid']) != p for p in previous):
                 cleanup = {**cleanup, 'confirmed': True, 'reason': 'previous_tree_gone'}
+        # stop_tree stops the runner's tree; an Agent on a device is not in it (its supervisor runs there): it is reaped
+        # through the device, and the stop is not confirmed until the device says nothing of it is left.
+        if cleanup['confirmed'] and not device_turns.reap_run(ctx.state_dir, run_dir(ctx.state_dir, key), record,
+                                                              device_reap.POLICY):
+            cleanup = {**cleanup, 'confirmed': False, 'reason': 'device_reap_pending'}
         intent['cleanup'] = cleanup
         intent['phase'] = 'stopped' if cleanup['confirmed'] else 'cleanup_unconfirmed'
+        write_json(path, intent)
+    elif (intent['phase'] == 'cleanup_unconfirmed' and intent.get('cleanup', {}).get('reason') == 'device_reap_pending'
+          and device_turns.reap_run(ctx.state_dir, run_dir(ctx.state_dir, key), record, device_reap.POLICY)):
+        intent['cleanup'] = {**intent['cleanup'], 'confirmed': True, 'reason': 'device_reaped'}
+        intent['phase'] = 'stopped'
         write_json(path, intent)
     if intent['phase'] == 'cleanup_unconfirmed':
         # Do not claim success or automatically kill a new PID. Keep the stop latched.

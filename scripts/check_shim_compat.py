@@ -14,6 +14,7 @@ but the standard library: not covey, not a package from outside.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -184,11 +185,32 @@ def check_call(node, found):
         found(node, 'open(encoding="locale") is 3.10')
 
 
+HUB_SIDE = ("device_link.py", "devices.py", "device_transport.py", "device_reap.py")
+
+
+def check_gc(source: str, hub_side: dict[str, str]) -> list[str]:
+    """A directory under ``~/.covey`` the hub-side modules name (``.covey/<dir>``) that the shim's ``gc`` (``cmd_gc`` and the
+    ``gc_*`` helpers it calls) never mentions would grow for ever on the device: one finding per such directory."""
+    mentioned = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.FunctionDef) and (node.name == "cmd_gc" or node.name.startswith("gc_")):
+            mentioned |= {sub.value for sub in ast.walk(node) if isinstance(sub, ast.Constant) and isinstance(sub.value, str)}
+    found = set()
+    for text in hub_side.values():
+        found |= set(re.findall(r"\.covey/(\w+)", text))
+    return ["gc: the hub side writes ~/.covey/%s on the device, but the shim's gc never looks at it" % name
+            for name in sorted(found) if name not in mentioned]
+
+
 def main(argv: list[str]) -> int:
     paths = [Path(arg) for arg in argv[1:]] or [DEFAULT]
     findings = []
     for path in paths:
         findings += check(path.read_text(encoding="utf-8"), str(path))
+        if path == DEFAULT:
+            findings += check_gc(path.read_text(encoding="utf-8"),
+                                 {name: (DEFAULT.parent / name).read_text(encoding="utf-8") for name in HUB_SIDE
+                                  if (DEFAULT.parent / name).exists()})
     for finding in findings:
         print(finding)
     if findings:

@@ -8,6 +8,7 @@ from typing import NamedTuple
 from covey.core.checkpoint import current_step, step_words
 from covey.core.metrics import clock_text, duration, step_age, took_text
 from covey.core.text import safe_text, step_event, step_label
+from covey.core import turn_words
 from covey.core.turn_words import UNSET_PHASES
 
 
@@ -115,6 +116,7 @@ class Facts(NamedTuple):
     frame: int
     steps: str = ""  # The checkpoint's steps (``step_text``), '' without.
     step_doing: bool = False  # One of them is under way: ``steps`` stands for the phase.
+    device: dict | None = None  # The link to the device of a turn there (core/device_link.py details()); None here.
 
 
 def plain_summary(facts):
@@ -177,8 +179,21 @@ def retry_summary(retry, elapsed, epoch):
 
 
 def status_summary(facts):
-    """The status line in full (the record's ``long_task_summary``): a retry, else the model's question
-    waiting for its answer, else what the trace says, else phase and process health."""
+    """The status line in full (the record's ``long_task_summary``): the device's link when it is down, else the
+    turn's own (``_summary``) and, for a device's checkpoint past what is mirrored, the line that says so."""
+    if facts.device:
+        down = turn_words.device_status(facts.device)
+        if down:
+            return down
+        over = turn_words.device_over(facts.device)
+        if over:
+            return _summary(facts) + "\n" + over
+    return _summary(facts)
+
+
+def _summary(facts):
+    """A retry, else the model's question waiting for its answer, else what the trace says, else phase and process
+    health."""
     if facts.retry and not facts.waiting:
         return retry_summary(facts.retry, facts.elapsed, facts.epoch)
     if facts.waiting:
@@ -193,7 +208,8 @@ def status_summary(facts):
 def status_text(facts):
     """The status line a tick writes to the card (TaskMonitor.update): the summary, or, for a short task
     without a trace, its last checkpoint event or a moving ellipsis."""
-    if facts.retry or facts.long_mode or facts.waiting or facts.traced:
+    if (facts.retry or facts.long_mode or facts.waiting or facts.traced
+            or (facts.device and (turn_words.device_status(facts.device) or turn_words.device_over(facts.device)))):
         return status_summary(facts)
     if facts.last_event != "尚无阶段进展":
         return facts.last_event

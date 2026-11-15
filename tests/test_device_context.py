@@ -406,7 +406,7 @@ class RefusalTest(TopicFixture, DeviceCase):
             cases.append(self.refusal(devices.with_binding(self.ctx, devices.bind_workdir(self.ctx, "gpu2:/p"))))
             cases.append(self.refusal(devices.with_binding(
                 self.ctx, devices.bind_workdir(self.ctx, "gpu9:/p", strict=False))))
-        for result, words in zip(cases, ("没有答复", "不允许在这个聊天", "没有声明", "没有这台设备")):
+        for result, words in zip(cases, ("连不上（Timeout）。这一轮没有开始，也不会改到本机跑", "不允许在这个聊天", "没有声明", "没有这台设备")):
             self.assertEqual(result.outcome.error_code, "workdir_missing")
             self.assertIn(words, result.failure_detail)
             self.assertIn(words, result.final_text if hasattr(result, "final_text") else result.failure_detail)

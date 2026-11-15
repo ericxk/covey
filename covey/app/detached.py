@@ -31,10 +31,12 @@ from pathlib import Path
 from covey.core import timing
 from covey.core.state import read_json, write_json
 from covey.app import idle_compaction, knowledge_collect, main_relay
+from covey.core import turn_words
 from covey.core.turn_words import interrupted_notice, retry_hint
 from covey.app.task_card import bind_record
 from covey.core.card_sequence import adopt
-from covey.core.jobs import (SIGTERM_STATUS, context_for_job, find_job_record,
+from covey.app import devices as device_turns
+from covey.core.jobs import (DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, find_job_record,
                                       interrupted_fields, job_key, upsert_job_record)
 from covey.core.main_thread import traits_of
 from covey.core.statuses import RUNNING
@@ -234,15 +236,21 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
             start_failed = unstarted(record, directory)
             # A runner a SIGTERM ended (a container shutting down, as at 22:09 on 2026-11-02) left its turn this way.
             cause = "sigterm" if not start_failed and record.get("status_message") == SIGTERM_STATUS else ""
+            if not start_failed and record.get("status_message") == DEVICE_LOST_STATUS:
+                cause = "device_lost"  # Its device stayed away past the patience: not continued by itself (the device may be gone).
             updated = upsert_job_record(ctx.state_dir, job.message_id, runner_start_failed=start_failed,
                                         **interrupted_fields(record, "task runner exited before this job started"
                                                              if start_failed else
                                                              "task runner exited before this job reached a terminal state",
                                                              cause))
             app.controls.report_unfinished(context_for_job(ctx, job), updated,
-                                           interrupted_notice(job.job_id),
+                                           device_notice(updated, job.job_id, directory),
                                            app.key("runner-lost", job.message_id),
-                                           keep_question_forms=False, restart=bool(cause))
+                                           keep_question_forms=False, restart=cause in ("sigterm", "restart"))
+        # A turn on a device the runner left without seeing its Agent end (the runner was killed, the link was lost, a stop
+        # could not be told): the device may still run it. Registered, never reaped here (core/device_reap.py).
+        if record:
+            device_turns.register_left(app.runtime.log, ctx.state_dir, record, directory)
     finally:
         app.runtime.unregister_reply_job(job)
     close_forms_sent_after_handoff(app, job, ctx, directory)
@@ -259,6 +267,11 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
     knowledge_collect.collect(gateway.runtime, job, ctx)  # The owner's 记一下 in a topic's turn (off without COVEY_KNOWLEDGE).
     main_relay.after_runner(gateway, job, ctx)
     _compact_when_idle(gateway, app, job, ctx)
+
+
+def device_notice(record, job_id, directory) -> str:
+    """The text a runner's end sends when no card can be written: the turn's own for a device's, else the usual one."""
+    return device_turns.lost_notice(record, directory) or turn_words.device_interrupted(record) or interrupted_notice(job_id)
 
 
 def queue_lost(app, job, ctx) -> None:

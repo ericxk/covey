@@ -45,6 +45,7 @@ import threading
 import time
 from pathlib import Path
 
+from covey.core import device_reap
 from covey.core import device_transport as dt
 from covey.core import devices
 from covey.core import env as cenv
@@ -110,6 +111,16 @@ _TRANSPORTS: dict = {}
 _TRANSPORTS_LOCK = threading.Lock()
 
 
+def transport_for(config, alias, state_dir):
+    """The one ssh transport of this hub (``state_dir``) to ``alias``, made on first use: the turns' links and the
+    ``devices`` thread (app/devices.py) share its master connection."""
+    with _TRANSPORTS_LOCK:
+        transport = _TRANSPORTS.get((str(state_dir), alias))
+        if transport is None:
+            transport = _TRANSPORTS[(str(state_dir), alias)] = devices.open_transport(config, alias, state_dir)
+    return transport
+
+
 def resolve(ctx):
     """The ``Link`` of ``ctx.device``: devices.json, one ssh transport per (state directory, device) for the whole
     hub, the profile on disk. Raises ``devices.UnknownDevice`` / ``DeviceConfigError`` when it cannot."""
@@ -117,12 +128,10 @@ def resolve(ctx):
     config = devices.current()
     device = config.device(alias)
     state_dir = Path(ctx.state_dir)
-    with _TRANSPORTS_LOCK:
-        transport = _TRANSPORTS.get((str(state_dir), alias))
-        if transport is None:
-            transport = _TRANSPORTS[(str(state_dir), alias)] = devices.open_transport(config, alias, state_dir)
-    return Link(alias, transport, device, devices.read_profile(state_dir, alias), config.patience_minutes * 60.0,
-                config.waiting_patience_hours * 3600.0, state_dir)
+    transport = transport_for(config, alias, state_dir)
+    return Link(alias, transport, device, devices.read_profile(state_dir, alias),
+                (device.patience_minutes or config.patience_minutes) * 60.0,
+                (device.waiting_patience_hours or config.waiting_patience_hours) * 3600.0, state_dir)
 
 
 def read_record(run_dir):
@@ -286,6 +295,11 @@ class DeviceProcess:
         self.gone = ""
         self.cleanup_confirmed = False
         self.reaped = False
+        self.topic_id = str(getattr(ctx, "topic_id", "") or "")
+        self.stop_requested = False  # A stop was asked for: if the device could not be told, it is reaped later.
+        self.checkpoint_over = False  # The device's checkpoint grew past what the shim mirrors (the hub's copy is stale).
+        self.reconnects = 0
+        self.lost_after = 0.0
         self.task_dir = ""
         self.pgid = None
         self.run_dir = Path(run_dir) if run_dir else self._run_dir_from_env()
@@ -340,6 +354,12 @@ class DeviceProcess:
         spec = self._spec(cwd, env, files)
         try:
             devices.push_file(self.transport, dt.shim_bytes())
+            # The topic's last task may still be running over there (the runner was killed, the hub restarted): stop it
+            # before this turn opens the same session again (core/device_reap.py).
+            if self.topic_id and not device_reap.reap_before_spawn(self.link.state_dir, self.alias, self.topic_id,
+                                                                    self.transport):
+                raise DeviceSpawnError("device %s: the topic's last turn may still be running there and could not be "
+                                       "stopped yet; try again in a minute" % self.alias)
             tries = 0
             while True:
                 try:
@@ -356,6 +376,12 @@ class DeviceProcess:
             raise DeviceSpawnError("device %s: %s" % (self.alias, exc)) from exc
         self.task_dir = str(answer.get("task_dir") or "")
         self.pgid = answer.get("pgid")
+        if self.topic_id:
+            try:
+                device_reap.note_task(self.link.state_dir, self.alias, self.topic_id, self.task, shim=self.shim_path,
+                                      task_dir=self.task_dir, pgid=self.pgid, run_dir=str(self.run_dir or ""))
+            except OSError as exc:
+                log.warning("device %s: the topic's task was not noted: %s", self.alias, exc)
         self._save(force=True)
 
     def _connect_first(self):
@@ -402,6 +428,7 @@ class DeviceProcess:
             return
         name = "KILL" if signum == signal.SIGKILL else "TERM"
         with self._cond:
+            self.stop_requested = True
             attachment = self._att if self._state == "up" else None
             if attachment is None:
                 self._pending_sigs.add(name)
@@ -427,7 +454,15 @@ class DeviceProcess:
         with self._cond:
             return {"state": self._state, "down_seconds": round(self._down_seconds(), 1), "offset": self._offset,
                     "acked": self._acked, "seq": self._next_seq - 1, "lost": self.lost, "gone": self.gone,
-                    "reason": self.reason, "alias": self.alias, "task": self.task}
+                    "reason": self.reason, "alias": self.alias, "task": self.task, "reconnects": self.reconnects,
+                    "holding": self._holding(), "checkpoint_over": self.checkpoint_over, "limit_seconds": self.lost_after or self._limit(),
+                    "stop_requested": self.stop_requested}
+
+    def _holding(self):
+        try:
+            return bool(self._hold())
+        except Exception:
+            return False
 
     def set_hold(self, hold):
         """``hold()`` is true while the process waits for the user (a question): the longer patience counts."""
@@ -472,7 +507,28 @@ class DeviceProcess:
         if confirmed:
             with self._cond:
                 self.reaped = self.cleanup_confirmed = True
+            self._settled()
         return confirmed
+
+    def _settled(self):
+        """The device holds nothing of the task: no pending reap, and the topic's next turn need not reap it."""
+        try:
+            device_reap.forget(self.link.state_dir, self.alias, self.task)
+            device_reap.note_ended(self.link.state_dir, self.alias, self.topic_id, self.task)
+        except OSError as exc:
+            log.warning("device %s: reap bookkeeping failed: %s", self.alias, exc)
+
+    def _owe_reap(self):
+        """The Agent may still run on the device and this process is over for the hub: register a reap (the ``devices``
+        thread, or the next turn of the topic, does it once the device answers)."""
+        reason = (device_reap.DEVICE_LOST if self.lost else device_reap.STOP if self.stop_requested
+                  else device_reap.RUNNER_LOST)
+        try:
+            device_reap.register(self.link.state_dir, self.alias, self.task, reason=reason, shim=self.shim_path,
+                                 task_dir=self.task_dir, pgid=self.pgid, topic_id=self.topic_id,
+                                 run_dir=str(self.run_dir or ""))
+        except OSError as exc:
+            log.warning("device %s: a pending reap was not registered: %s", self.alias, exc)
 
     def close(self):
         """End the link: stop the thread, close the connection (detaching from the shim: the Agent is not touched),
@@ -489,6 +545,10 @@ class DeviceProcess:
         confirmed = self.cleanup_confirmed
         if self.exit_info and self.exit_info.get("left") and not self.reaped:
             confirmed = self.reap(2.0)
+        if confirmed:
+            self._settled()
+        else:
+            self._owe_reap()
         with self._cond:
             if self._state not in ("exited", "lost", "gone"):
                 self._state = "closed"
@@ -770,6 +830,9 @@ class DeviceProcess:
 
     def _checkpoint(self, frame):
         target = (self.checkpoint or {}).get("hub_path")
+        if frame.get("over"):
+            self.checkpoint_over = True  # The card says the hub's copy is not the device's any more.
+            self._dirty = True
         if not target or frame.get("over") or frame.get("gone"):
             return  # Too large to mirror, or removed: the hub's copy stays as it was.
         if isinstance(frame.get("b64"), str):
@@ -804,6 +867,8 @@ class DeviceProcess:
             if self._down_at is not None:
                 self._down_total += now - self._down_at
                 self._down_at = None
+                if self._up_at is not None:
+                    self.reconnects += 1
             self._up_at = now
             self._att = attachment
             self._state = "up"
@@ -852,6 +917,7 @@ class DeviceProcess:
         with self._cond:
             if self._state != "down" or self._down_seconds() <= self._limit():
                 return False
+        self.lost_after = self._limit()  # The patience that ran out (the short one, or the one while a question waits).
         self.lost = True
         self._finish("lost", LOST, why="device_lost")
         return True
@@ -892,8 +958,15 @@ class DeviceProcess:
                       "shim": self.shim_path, "task_dir": self.task_dir, "pgid": self.pgid,
                       "cwd": self.remote_workdir, "state": self._state, "offset": self._offset,
                       "seq": self._next_seq - 1, "acked": self._acked, "requests": self._ledger,
-                      "down_seconds": round(self._down_seconds(), 1), "lost": self.lost, "gone": self.gone,
+                      "down_seconds": round(self._down_seconds(), 1), "limit_seconds": self.lost_after or self._limit(),
+                      "lost": self.lost,
+                      "gone": self.gone,
                       "reason": self.reason, "exit": self.exit_info, "updated": time.time()}
+            if self.topic_id:
+                record["topic_id"] = self.topic_id
+            for name in ("reaped", "cleanup_confirmed", "stop_requested", "checkpoint_over"):
+                if getattr(self, name):
+                    record[name] = True
             self._records, self._saved_at, self._dirty = 0, now, False
             try:
                 write_json(self.run_dir / "device.json", record)

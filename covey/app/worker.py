@@ -5,7 +5,7 @@ AnswerParts, a quiet main-thread turn's top-level notices app/quiet_delivery.py 
 from __future__ import annotations
 
 from covey.core.trace import task_trace
-from covey.core.turn_words import retry_hint
+from covey.core.turn_words import device_restarted, retry_hint
 
 from covey.core.locks import card_lock
 
@@ -26,7 +26,8 @@ from covey.core.harness import JobCancelled, backend_capabilities, normalize_run
 from covey.core.saved_results import (display_saved_reply, reruns_after_withdrawal,
                                                observe_verified_reply, saved_delivery_kind,
                                                paused_question_delivery_key)
-from covey.core.jobs import SIGTERM_STATUS, context_for_job, job_key
+from covey.app import devices as device_turns
+from covey.core.jobs import DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, job_key
 from covey.core import background, placement, timing
 from covey.core.metrics import mark, mark_first_output
 from covey.core.longtask import SEED_PHASE, TaskMonitor
@@ -555,6 +556,11 @@ def leave_interrupted(ctx, job, *, harness, runtime, record_job_state) -> None:
             observe_verified_reply(ctx, job, harness.spec.name, None)
         except (OSError, ValueError) as exc:
             runtime.log(f"candidate reply of interrupted job #{job.job_id} kept: {type(exc).__name__}")
+    if device_turns.end_of(job) == "lost":
+        # The device stayed away past the patience: this runner ends too, and finish_detached registers the reap.
+        record_job_state(ctx, job, "running", DEVICE_LOST_STATUS, device_state=device_turns.state_of(job))
+        runtime.log(f"reply job #{job.job_id} lost its device {ctx.device}; the Bridge marks it interrupted")
+        return
     record_job_state(ctx, job, "running", SIGTERM_STATUS)
     runtime.log(f"reply job #{job.job_id} interrupted by SIGTERM; the Bridge marks it interrupted")
 
@@ -615,6 +621,12 @@ def failure_trace(exc, job) -> str:
     return f"job #{job.job_id} failed with {type(exc).__name__}: {text}"
 
 
+def _stop_note(job) -> str:
+    """A paragraph for a stopped turn's text when the device has not confirmed the stop (its reap is pending), else ''."""
+    note = device_turns.stop_note(job)
+    return f"\n\n{note}" if note else ""
+
+
 def _turn_from_exception(exc, job, settling) -> dict:
     """The TurnResult fields of a turn the exception ``exc`` ended (its native session is never resumed then):
     a timeout fails it; a SIGTERM before the backend finished (``settling`` False) leaves it interrupted, whatever
@@ -624,10 +636,15 @@ def _turn_from_exception(exc, job, settling) -> dict:
                 "final_text": worded(f"任务 #{job.job_id} 超时未完成，可在本话题{retry_hint()} 重试。", job)}
     if job.interrupted and not settling:
         return {"status": "interrupted"}
+    if isinstance(exc, device_turns.DeviceLost):
+        return {"status": "interrupted"}
+    if isinstance(exc, device_turns.DeviceGone):
+        text = device_restarted(str(exc))
+        return {"status": "failed", "status_message": text, "final_text": worded(f"任务 #{job.job_id}：{text}", job)}
     if isinstance(exc, JobCancelled):
         # Like a finished card since P1: no "直接回复本话题即可继续" (repo review U10).
         return {"status": "cancelled", "status_message": "用户停止了任务",
-                "final_text": stopped_sentence(job.job_id) + worded(STOPPED_NOTE, job)}
+                "final_text": stopped_sentence(job.job_id) + worded(STOPPED_NOTE, job) + _stop_note(job)}
     name = type(exc).__name__
     return {"status": "failed", "status_message": "任务异常（" + name + "）",
             "final_text": f"任务 #{job.job_id} 处理出错（{name}），未满足结果发布条件。"}
@@ -662,9 +679,12 @@ def _run_turn(job, ctx, *, harness, runtime, cards, sessions, runs, record_job_s
         result = _generate_reply(ctx, job, session_id, progress, runs=runs, record_job_state=record_job_state)
         if job.interrupted and not finished_before(result):
             raise JobCancelled("任务进程收到 SIGTERM")
+        device_turns.verdict(job)  # A device that stayed away or lost the task: interrupted, or failed (DeviceLost, DeviceGone).
         settling = True
         settle_turn(turn, result, ctx, job, sessions=sessions, session_id=session_id, revision=revision,
                     runtime=runtime, prefix=prefix)
+        if job.cancel_event.is_set() and turn.final_text:
+            turn.final_text += _stop_note(job)  # A stop the device has not confirmed yet (its reap is pending).
     except Exception as exc:  # noqa: BLE001 - isolate backend and delivery failures per job.
         turn.allow_resume = False
         for name, value in _turn_from_exception(exc, job, settling).items():

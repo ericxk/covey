@@ -12,7 +12,7 @@ from covey.app.main_reply import dropped_lines
 from covey.app.outbox import AUDIT_REFUSED_NOTE, REDELIVER_LABEL, REDELIVER_NOTE, RETRY_NOTE
 from covey.cards.elements import md
 from covey.cards.recovery import recovery_view
-from covey.core import recovery
+from covey.core import recovery, turn_words
 from covey.core.checkpoint import read_checkpoint
 from covey.core.main_thread import traits_of, worded
 from covey.core.metrics import ended, job_took, took_text
@@ -119,6 +119,8 @@ def recovery_text(record, state, label, cp, *, continued, state_dir):
     elif state == recovery.POLICY_STOP:
         text += str(record.get("final_text") or "本轮因官方拒绝或降级已停止，请检查任务内容后提出新的要求。")
     else:
+        lead = turn_words.device_interrupted(record)  # A turn on a device: where its Agent is, and what continuing does.
+        text += lead + "\n\n" if lead else ""
         text += f"当前阶段：{cp.get('phase') or '尚无检查点'}\n"
         completed = cp.get("completed", [])
         text += "已完成：" + (

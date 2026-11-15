@@ -93,6 +93,8 @@ class Device:
     env: dict
     login_shell: bool
     spaces: tuple
+    patience_minutes: float | None = None  # This device's own patience (None: devices.json's defaults).
+    waiting_patience_hours: float | None = None
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -218,7 +220,8 @@ def _device(alias, entry, fail):
     if not isinstance(entry, dict):
         fail(where, "must be an object")
         return None
-    unknown = sorted(set(entry) - {"title", "ssh", "harnesses", "env", "login_shell", "spaces"})
+    unknown = sorted(set(entry) - {"title", "ssh", "harnesses", "env", "login_shell", "spaces", "patience_minutes",
+                                   "waiting_patience_hours"})
     if unknown:
         fail(where, "unknown keys %s" % ", ".join(unknown))
     ok = True
@@ -272,10 +275,19 @@ def _device(alias, entry, fail):
             or len(set(spaces)) != len(spaces)):
         fail(where + ".spaces", "must be a non-empty list from %s" % ", ".join(SPACES))
         ok, spaces = False, []
+    patience = {}
+    for key in ("patience_minutes", "waiting_patience_hours"):
+        if key in entry:
+            value, (low, high) = entry[key], LIMITS[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+                fail("%s.%s" % (where, key), "must be a number from %s to %s" % (low, high))
+                ok = False
+            else:
+                patience[key] = value
     if not ok:
         return None
     return Device(alias, title.strip(), host, tuple(options), python.strip(), tuple(harnesses), dict(env), login,
-                  tuple(spaces))
+                  tuple(spaces), **patience)
 
 
 def load(environ=None, *, path=None):
@@ -435,6 +447,9 @@ def device_checkpoint_path(ctx, hub_checkpoint):
 
 
 CHECK_SECONDS = 5.0
+# How check_dir words why a device did not answer (the exception's name otherwise).
+OFFLINE_REASONS = {"Unreachable": "ssh 连不上", "LinkTimeout": "连接超时", "NoHi": "设备上的程序没有应答", "Closed": "连接被关闭",
+                   "BadFrame": "设备返回了无法读取的数据"}
 
 
 def check_dir(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, config=None, environ=None):
@@ -462,7 +477,7 @@ def check_dir(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, config
             else:
                 found["state"] = ("missing", "%s 上没有目录 %s" % (alias, remote_workdir))
         except Exception as exc:  # noqa: BLE001 - any failure to ask is "the device did not answer"
-            found["state"] = ("offline", "设备 %s 没有答复（%s）" % (alias, type(exc).__name__))
+            found["state"] = ("offline", "设备 %s 没有答复（%s）" % (alias, OFFLINE_REASONS.get(type(exc).__name__, type(exc).__name__)))
 
     worker = threading.Thread(target=ask, name="device-check", daemon=True)
     worker.start()
