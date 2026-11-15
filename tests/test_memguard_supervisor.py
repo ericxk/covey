@@ -24,6 +24,14 @@ from covey.service import manager, memguard
 setUpModule, tearDownModule = leftover_check(timeout=5)
 
 
+
+def gone(pid, seconds):
+    """Whether ``pid`` stops running (a zombie counts as gone) within ``seconds``."""
+    deadline = time.monotonic() + seconds
+    while alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return not alive(pid)
+
 class SupervisorTests(GuardCase):
     def daemon(self, config):
         proc = subprocess.Popen([sys.executable, '-B', GUARD, 'daemon', '--config', str(config)],
@@ -55,16 +63,14 @@ class SupervisorTests(GuardCase):
         worker = memguard.query(config)['worker']['pid']
         memguard.query(config, b'stop')
         self.assertEqual(first.wait(30), 0)
-        time.sleep(0.5)
-        self.assertFalse(alive(worker))
+        self.assertTrue(gone(worker, 20))
         again = self.daemon(config)
         worker = self.status(config, lambda s: s.get('heartbeat'))['worker']['pid']
         again.kill()
         again.wait()
-        deadline = time.monotonic() + 5
-        while alive(worker) and time.monotonic() < deadline:
-            time.sleep(0.1)
-        self.assertFalse(alive(worker))  # It dies with its supervisor.
+        # It dies with its supervisor: SIGTERM from PR_SET_PDEATHSIG, then out of the scan it is in. 20 s, not 5: a
+        # slow CI runner once took longer (Python 3.10, 2026-11-16).
+        self.assertTrue(gone(worker, 20))
 
     def test_the_manager_starts_an_enabled_watchdog_that_is_not_running(self):
         config, _ = self.config(interval_seconds=1.0, only_comms=['mgt-none'], container_alert_ratio=2.0)
