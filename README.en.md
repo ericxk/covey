@@ -40,7 +40,7 @@ The settings card, redaction tab: type the words, stand-ins are generated automa
 - **Results and artifacts.** The answer is sent as its own card; registered artifacts are uploaded to cloud storage with a link.
 - **Long tasks survive restarts.** Each task runs in its own process, so restarting or upgrading the bot does not stop it.
 - **Spaces.** The private chat and every bound group is a "space". A personal space is yours alone and has the main thread, the board and the menu cards; a team space is an activated group where colleagues @ the bot to open topics; a proxy space is the group used for proxy replies. See [configuration](docs/configuration.md#空间spaces).
-- **Optional features**, off by default: a topic board and daily digests, proxy replies, sensitive-word redaction. See [configuration](docs/configuration.md). For redaction you type the words on the settings card and the stand-in words are generated automatically; it replaces text only in topics that turned it on, and only for Claude models.
+- **Optional features**, off by default: a topic board and daily digests, proxy replies, sensitive-word redaction, parallel tracks and live dispatch cards for the private chat (several things asked in a row run side by side, and work handed off shows a live card in the chat), and devices (a topic runs Claude Code or Codex on another machine of yours over SSH; in development). See [configuration](docs/configuration.md). For redaction you type the words on the settings card and the stand-in words are generated automatically; it replaces text only in topics that turned it on, and only for Claude models.
 
 ## Quick start
 
