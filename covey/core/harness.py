@@ -115,7 +115,20 @@ def backend_capabilities(backend, ctx):
     return method(ctx) if callable(method) else HarnessCapabilities()
 
 
-from covey.core.process import JobCancelled  # Its home is core/process.py, with stream_subprocess_lines.
+# What a Harness process on a device cannot do: each reads files of the hub (the session store, the request log, the
+# file snapshots) or runs the hub's relay, none of which exist there.
+DEVICE_OFF = ("native_fork", "compaction", "turn_export", "redaction", "rewind")
+
+
+def for_device(capabilities, ctx):
+    """``capabilities`` as they are for ``ctx``: unchanged on this machine, and on a device (``ctx.device``) without
+    ``DEVICE_OFF``, so no card offers a 回退, a 下载 or a 压缩 there (every entry reads these flags)."""
+    if not device_of(ctx):
+        return capabilities
+    return dataclasses.replace(capabilities, **{name: False for name in DEVICE_OFF})
+
+
+from covey.core.process import JobCancelled, device_of  # JobCancelled's home is core/process.py, with stream_subprocess_lines.
 from covey.core.result import ExecutionOutcome, VerifiedRootReply
 from covey.core.protocol import HarnessEvent
 

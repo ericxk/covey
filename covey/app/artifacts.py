@@ -55,7 +55,9 @@ CONTACT_NOTES = re.compile(extensions.setting("contact_notes", r"(?!)"))
 
 def artifact_paths(record):
     cp = read_checkpoint(Path(record["checkpoint_path"])) if record.get("checkpoint_path") else {}
-    raw = cp.get("artifacts", [])
+    # A device's artifacts are paths on the device. Looked up here they are a file of the hub with the same name, or none,
+    # and either answers wrongly without a word; app/device_files.py (fetching through the shim) will list them.
+    raw = [] if record.get("device") else cp.get("artifacts", [])
     paths = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
     if record.get("result_file_path"):
         paths.append(record["result_file_path"])

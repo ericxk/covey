@@ -180,6 +180,7 @@ class Runs:
             return refused
         live.ctx = self.rewinds.turn_context(live.ctx, job, session_id)
         live.ctx = self.compaction.turn_context(live.ctx, job, session_id)
+        live.ctx = devices.spawn_extras(live.ctx, job.checkpoint_path)  # A device's checkpoint mirror and seed file.
         return self._run(live.ctx, job, session_id, progress_callback, callbacks, prompt, rules if system else "",
                          attachments)
 
@@ -316,6 +317,9 @@ class Runs:
             return str(exc).rstrip("。") + "。"
         if backend_capabilities(self.harness.backend, ctx).redaction:
             return ""
+        if ctx.device:  # The term relay runs on the hub; a Harness on a device would talk to its service itself.
+            return (f"本话题开着敏感词脱敏，设备 {ctx.device} 上的任务不支持脱敏，本轮没有发给模型服务。"
+                    "可在换配置里关掉脱敏，或把工作区换成本机目录。")
         return (f"本话题开着敏感词脱敏，{self.harness.spec.title} 不支持脱敏，本轮没有发给模型服务。"
                 "可点任务卡上的“🔁 换配置”换到 Claude 的模型。")
 
@@ -382,7 +386,8 @@ class Runs:
                      if ctx.device else audit_recovery(prior,ctx.workdir))
             prior = {**prior, "bridge_preflight": audit}
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
-        return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior)
+        shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
+        return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown)
 
     def _continue_previous(self, ctx: BridgeContext, job: ReplyJob) -> dict | None:
         """A task of the topic waiting for answers when ``job`` starts without being one: it becomes continued and

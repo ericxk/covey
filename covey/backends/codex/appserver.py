@@ -53,11 +53,14 @@ def thread_params(ctx, session_id, instructions="", process=None):
     reader (``process``, the app server's ``DeviceProcess``, pushes and names it)."""
     if device_of(ctx):
         cwd = ctx.remote_workdir
-        writable = str(process.task_dir)
+        writable = [str(process.task_dir)]
+        mirror = (ctx.options.get("device_spawn") or {}).get("checkpoint") or {}
+        if mirror.get("path"):  # The job's checkpoint is outside the task directory (core/devices.py checkpoint_mirror).
+            writable.append(str(mirror["path"]).rpartition("/")[0])
         command, args = process.workspace_reader(cwd, extra_roots=[str(process.task_dir) + "/incoming"])
     else:
         cwd = str(ctx.workdir)
-        writable = str(ctx.state_dir / "checkpoints")
+        writable = [str(ctx.state_dir / "checkpoints")]
         command = sys.executable
         # Attachments of this topic are downloaded outside the workspace, and so is
         # the transcript a model switch hands over (app/switch_handoff.py).
@@ -72,7 +75,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
         "config": {
             **ctx.options.get("thread_config", {}),
             **({"model_reasoning_effort": ctx.effort} if ctx.effort else {}),
-            "sandbox_workspace_write.writable_roots": [writable],
+            "sandbox_workspace_write.writable_roots": writable,
             "mcp_servers.bridge_workspace.command": command,
             "mcp_servers.bridge_workspace.args": args,
             "mcp_servers.bridge_workspace.enabled": True,

@@ -513,8 +513,9 @@ def _task_monitor(ctx, job, *, cards, runtime, record_job_state, send_text, pref
     its first model call starts (``model_requests``)."""
     # The images the task lists to show at once (app/turn_images.py), in the voice of its task card's writer.
     messenger = getattr(cards, "messenger", None)
+    # Not on a device: ``show_images`` names files of the device, and a file of the hub with the same path would be sent.
     images = (TurnImages(ctx, job, messenger=messenger, voice=cards.voice, log=runtime.log)
-              if messenger is not None and getattr(cards, "voice", None) is not None else None)
+              if messenger is not None and getattr(cards, "voice", None) is not None and not getattr(ctx, "device", "") else None)
     return TaskMonitor(job, Path(job.checkpoint_path),
         lambda content: cards.update_card_activity(ctx, job, content),
         lambda **fields: record_job_state(ctx, job, "running", "任务执行中", **fields),

@@ -81,8 +81,8 @@ def after_runner(gateway, app, job, ctx, launch) -> None:
     if not runtime.detached() or not contract.traits_of(job).own_turn or not hasattr(app.backend, "compact_session"):
         return
     target = context_for_job(ctx, job)
-    if app.compaction.request(target) is None:
-        return
+    if target.device or app.compaction.request(target) is None:
+        return  # A device's session is not ours to compact (backends/claude/compaction.py compact_before_turn).
     token = object()
     with _waiting_lock:
         _waiting[job.topic_id] = token
@@ -105,7 +105,7 @@ def start(gateway, app, job, ctx, launch):
     """Start the compaction runner and wait for it (on the caller's thread); its exit status, or None when it did not
     start: the main thread off, the turn not ``done``, a job of the topic here, no request, or one that failed."""
     runtime, state = gateway.runtime, ctx.state_dir
-    if not contract.traits_of(job).own_turn:
+    if not contract.traits_of(job).own_turn or ctx.device:  # The runner below reads process.pid: a device's has none.
         return None
     if (find_job_record(state, job.message_id) or {}).get("status") != "done":
         return None
