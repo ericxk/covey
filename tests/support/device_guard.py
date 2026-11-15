@@ -115,10 +115,12 @@ class DeviceGuard:
 
         self._stack.enter_context(mock.patch.object(os, "stat", stat))
         self._stack.enter_context(mock.patch.object(os, "lstat", lstat))
+        # Python 3.10: pathlib's accessor took os.stat when imported, and Path.is_dir() goes there (its Path.lstat
+        # is stat(follow_symlinks=False)); 3.11 dropped the accessor. Only what the class has is replaced.
         accessor = getattr(pathlib, "_NormalAccessor", None)
-        if accessor is not None:  # Python 3.10: pathlib took os.stat when imported, and Path.is_dir() goes there.
-            self._stack.enter_context(mock.patch.object(accessor, "stat", staticmethod(stat)))
-            self._stack.enter_context(mock.patch.object(accessor, "lstat", staticmethod(lstat)))
+        for name, recorder in (("stat", stat), ("lstat", lstat)):
+            if accessor is not None and name in vars(accessor):
+                self._stack.enter_context(mock.patch.object(accessor, name, staticmethod(recorder)))
         with _lock:
             _active.append(self)
         return self
