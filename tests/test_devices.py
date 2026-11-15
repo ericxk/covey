@@ -726,6 +726,11 @@ class ChannelFailureTest(unittest.TestCase):
             transport.call("hello")
         with self.assertRaises(dt.Unreachable):
             transport.attach("t")
+        # On a fast machine ssh is gone before the attach request is written (CI): the broken pipe is judged by the
+        # exit code too, not reported as a closed connection.
+        with mock.patch.object(dt.Attachment, "send_raw", side_effect=dt.Closed("the attach connection is closed")):
+            with self.assertRaisesRegex(dt.Unreachable, "Could not resolve"):
+                transport.attach("t")
         self.assertEqual(transport.shell("true")[0], 255, "a plain script reports its exit code and leaves the judging to the caller")
 
     def test_a_missing_python_or_shim_is_no_hi(self):
