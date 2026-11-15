@@ -196,7 +196,7 @@
 
 ### 多设备（开发中，默认关）
 
-让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。第 1 期只支持 Claude Code 和 Codex。**这一节写的是已落地的那一部分**：配置、`别名:路径` 的解码、ssh 命令行、推送设备端小程序、`hello` 和环境档案、自检的骨架（实现在 `core/devices.py`、`core/device_transport.py`，设备端程序是 `core/device_shim.py`），以及话题的上下文和工作区（`别名:路径` 写进工作区列表、启动卡、换配置和 topic.json，见下面「工作区和上下文」）。任务进程还没有接上它，所以现在设备上的话题还起不了任务：每一轮开始前会按名字拒绝。
+让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。第 1 期只支持 Claude Code 和 Codex。**这一节写的是已落地的那一部分**：配置、`别名:路径` 的解码、ssh 命令行、推送设备端小程序、`hello` 和环境档案、自检（实现在 `core/devices.py`、`core/device_transport.py`，设备端程序是 `core/device_shim.py`），话题的上下文和工作区（`别名:路径` 写进工作区列表、启动卡、换配置和 topic.json，见下面「工作区和上下文」），以及在飞书里浏览设备目录（见「浏览设备目录」）。任务进程还没有接上它，所以现在设备上的话题还起不了任务：每一轮开始前会按名字拒绝。
 
 `COVEY_DEVICES=1`（旧名 `LARK_BRIDGE_DEVICES`，只认 `1`）打开。设备写在 `$COVEY_DATA_HOME/devices.json`，`COVEY_DEVICES_FILE` 可以指向别处。不设开关、或开了但没有文件、没有设备时：不读文件、不建 `<状态目录>/devices/`、不起线程，`gpu1:/路径` 就是一个普通的（相对）路径，一切照旧。
 
@@ -231,14 +231,22 @@
 **怎么连**：每台设备一条 ssh 主连接（`ControlMaster=auto`、`ControlPersist=600`、`ControlPath=<control_dir>/%C.sock`），之后的每次调用复用它，不再握手。命令行固定带 `-T`、`BatchMode=yes`（从不问密码，所以设备上要有免密登录，而且 `known_hosts` 里已经有它的主机密钥：先手动 `ssh` 一次）、`ServerAliveInterval=15`、`ConnectTimeout`、`LogLevel=ERROR`。设备端程序按内容哈希放在设备的 `~/.covey/shim/<哈希>/shim.py`，设备上已经有同样内容就不再推。
 
 **工作区和上下文**（`别名:路径`）：
-- 写法：启动卡的路径框里输入 `gpu1:/home/me/proj`（只有主人能输）；工作区管理页的添加框有没有这个入口留给后面的工作包；`covey_workspaces.py` 命令行本期不认设备值。登记时经设备端程序的 `stat` 检查目录在不在，限时 5 秒；设备没答复、目录不存在、别名不在 `devices.json` 里都当场报错，不会登记。名字自动取 `别名-目录名`（重名加 `-2`），工作区列表里存的是规范化后的 `别名:路径`（`//`、`.`、`..` 折掉，不留结尾的 `/`；`~` 留给设备展开）。
+- 写法：在启动卡「其他目录…」或设置卡「工作区」页「＋ 添加工作区…」的目录浏览器的搜索框里输入 `gpu1:/home/me/proj`（只有主人能输，见下面「浏览设备目录」）；`covey_workspaces.py` 命令行本期不认设备值。登记时经设备端程序的 `stat` 检查目录在不在，限时 5 秒；设备没答复、目录不存在、别名不在 `devices.json` 里都当场报错，不会登记。名字自动取 `别名-目录名`（重名加 `-2`），工作区列表里存的是规范化后的 `别名:路径`（`//`、`.`、`..` 折掉，不留结尾的 `/`；`~` 留给设备展开）。
 - 话题：`topic.json` 的 `workdir` 存这个规范化的值；读出来时才变成占位路径加 `device`、`remote_workdir`（上下文 `BridgeContext` 和任务记录各有这两个字段，只在非空时写进记录，所以旧记录照旧可读；设备话题的记录在旧版本上读到的是不存在的占位路径，会被拒绝，不会在本机跑）。
 - 谁能用（`spaces`）：`owner_private`（默认）= 主人和主人其他账号与机器人的私聊；`personal_groups` = 设置里列为个人空间的群；`team` = 已激活的群。代答群、没绑定的群永远不能用设备。启动卡和换配置卡只列这个聊天可用的设备工作区；点击时再查一次；每一轮开始前再查一次，不允许的聊天里的旧话题会被拒绝并说明原因。
 - 每一轮开始前还要设备答复目录在、且这台设备声明了当前 Harness（`harnesses`），否则本轮不启动，卡上写原因（用 `workdir_missing` 这个错误码，说明文字里写明是设备、没答复还是目录不在）。
 - 工作区管理页和 `covey_workspaces.py prune` 不检查设备工作区（目录检查对它们返回「没答复」而不是「不存在」），所以不会把设备工作区当成已删除的目录移除。
 - 设备上的环境：任务进程的环境从空开始，不是 Bridge 的环境；只给 `PWD`（设备上的目录）加设备档案里通过白名单的代理和证书变量，再加 `devices.json` 的 `env`；`LARK_`、`FEISHU_`、`COVEY_` 开头的名字和 Claude、OpenAI 令牌即使写在 `env` 里也会丢掉，日志只记被丢的变量名，不记值。
 
-**记录**（都在状态目录的 `devices/` 下，不是配置）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/profile.json`（自检得到的环境档案：Harness 路径、版本、登录状态、通过白名单的代理和证书变量）。
+**浏览设备目录**：目录浏览器（启动卡的「其他目录…」，设置卡「工作区」页的「＋ 添加工作区…」）在搜索框里认 `别名:路径`（`gpu1:~`、`gpu1:/home/me`）：输入后浏览器就在那台设备上，卡上目录名下面写「设备 GPU 1（gpu1）· 路径」。列目录是设备端程序的 `ls`，按名字搜索是在设备上跑一小段 Python（一次往返，走法同本机：先本层、再向下最多 3 层，不跟随链接，跳过隐藏目录、`node_modules`、`__pycache__`），Bridge 不对设备路径做 `stat`、`list`；`~` 由设备展开，设备视图里不会展开 Bridge 本机的 `~`，设备路径里再输入 `/路径` 或 `~/路径` 仍在这台设备上。缓存的键带设备别名，所以本机和设备上同名的路径不会串。选中的目录登记成 `别名:路径`，名字取 `别名-目录名`，用同样的 5 秒目录检查。
+- 谁能浏览：只有主人（浏览器本来就只认主人），而且这个聊天要在设备的 `spaces` 里（默认只有主人私聊）；别名不在 `devices.json`、或聊天不允许，卡上写原因，浏览器留在原处。关了多设备，`gpu1:/x` 就是一次普通的名字搜索，浏览器和卡片同旧。
+- 浏览器的搜索框提示在这个聊天能用设备时多一句「设备目录写 别名:路径」。启动卡的工作区一行和摘要里，设备工作区写成「名字 · 设备标题」；设置卡「工作区」页每台这个聊天能用的设备有一行状态（最近一次自检的结果，读 `profile.json`，画卡时不去问设备），设备工作区那一行带「设备 别名」标签，目录状态仍是「未确认」。
+
+**自检**：`python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" check gpu1`（`list` 打印每台设备最近一次自检、不碰设备），见[运维](operations.md#设备自检)。流程：5 秒 ssh（BatchMode）→ 推设备端程序（声明了 Codex 就再推 `workspace_reader.py`）→ `hello` → 导入环境档案 → 对设备声明的每个 Harness 真跑一次最小请求（`claude -p`、`codex exec`，经设备端程序的 `exec`，带档案里的环境，限 60 秒）→ 写 `profile.json`。环境档案只收白名单名字（代理和证书路径，见下面「安全默认」），来源是设备 `~/.claude/settings.json` 的 `env`、设备进程环境里的代理变量，`login_shell: true` 时再加登录 shell 的变量，`devices.json` 的 `env` 最后覆盖；带 `user:密码@` 的代理地址拒收。失败的话写明白是哪一步、怎么办：连不上（要免密登录、known_hosts 里要有主机密钥）、没装、没登录、超时，以及「连不上模型服务」——环境档案里没有代理时说去哪里设 `HTTPS_PROXY`，有代理时说代理不通。结果写进 `profile.json` 的 `check`（时间、是否通过、文字），设置卡的设备状态行和 `service/doctor.py` 的 `devices` 读的是同一份。
+
+**设备上的可用性和模型目录**：每一轮开始前的可用性检查（`app/availability.py`）对设备话题不在 Bridge 上找命令，读设备最近的 `hello`（10 分钟内的缓存）和 `profile.json` 里最近一次最小请求：命令不在、`login` 为 `no`、最近一次最小请求判为没登录，都按「模型后端尚未登录/不可用」拒绝；没有近期的 `hello` 就放行，由这一轮自己的连接说话。Claude 的模型目录经 `spawn_process` 起在设备上，所以就是设备上 Claude Code 的目录；Codex 的 `models_cache.json` 用设备端程序的 `get` 从设备的 `~/.codex/` 取到状态目录 `devices/<别名>/codex-home/`（10 分钟内不重取，设备没答复就用旧副本，没有就是空目录），再交给 `core/model_settings.py` 的 `model_catalog(root)`。启动卡和换配置卡里列出的模型仍是 Bridge 本机的目录（每个 Harness 一份，不随工作区变）。
+
+**记录**（都在状态目录的 `devices/` 下，不是配置）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/profile.json`（自检得到的环境档案：Harness 路径、版本、登录状态、通过白名单的代理和证书变量，每个 Harness 最小请求的结果 `probe`，以及最近一次自检的结论 `check`）、`<别名>/codex-home/models_cache.json`（设备上 Codex 的模型目录副本）。
 
 **安全默认**：
 - 环境档案只收代理和证书路径这十几个变量名（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写、`SSL_CERT_FILE`、`NODE_EXTRA_CA_CERTS`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`），带 `user:密码@` 的代理地址拒收，被拒的只记变量名和原因，不记值。Claude 的令牌留在设备上，不经过 Bridge。
@@ -254,7 +262,8 @@
 - 设备上的话题不能由主线程开（主线程开话题遇到设备工作区会明确拒绝，请主人在启动卡里选）；主线程自己的工作区也不能是设备。
 - 设备工作区不能用「独立 worktree」运行方式；换配置换到设备工作区只能选原目录。
 - 换配置时设备话题不生成「旧模型的摘要」（旧会话在设备上）。
-- 真跑一次最小请求的探测（自检的最后一步）还没接上，现在自检只到「设备有这个 Harness、登录状态可读」。
+- 设置卡上设备的状态行读的是最近一次 `covey_devices.py check` 的结果，不会自己去自检；没有近期自检的设备也不会因此被拒绝。
+- 设备上的 Codex 模型目录取自 `~/.codex/models_cache.json`（设备上设了别的 `CODEX_HOME` 就取不到）；设备上的话题不用 hub 上模型网关的检查结果。
 
 ### 飞书 SDK 与直连
 
@@ -367,6 +376,7 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--state-dir`、`--apply`、`--dry-run`、`--destination`、`--restore`、`--verify` | `core/maintenance.py` | 见 [备份、归档与维护](operations.md#备份归档与维护) | 否 |
 | `--legacy-root`、`--new` | `core/paths.py` | 见 `--help` | 旧 `.local-state` 退役后删 |
 | `--state-dir` | `core/workspaces.py` | 见 `--help` | 否 |
+| `--state-dir`、`--no-probe`、`--json` | `service/device_check.py`（`bin/covey_devices.py`） | 见 `--help`；见[多设备](#多设备开发中默认关)的「自检」 | 否 |
 | `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help` | 否 |
 | `--home`、`--start`、`--idle`、`--max`、`--dy` | `feishu/web_client.py`（`bin/covey_feishu_web.py`） | 见 [浏览器服务](proxy.md#浏览器服务) | 否 |
 | `--app-id`、`--home`、`--plan`、`--login-from`、`--console`、`--login-seconds` | `feishu/app_console.py`（`bin/covey_app_console.py`） | 见[自动补齐飞书应用](operations.md#自动补齐飞书应用) | 否 |

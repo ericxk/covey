@@ -26,7 +26,7 @@ from covey.app.card_queue import CardActionQueue
 from covey.app.form_cards import LAUNCH_FORM_LOCK, replace_form_card, save_record
 from covey.app.launch import (CLOSED, OWNER_ONLY_MANAGER, close_launch_form, rebuild_launch_card,
                                        refuse_on_launch_card)
-from covey.app.directory_picker import (DirectoryCache, listed_paths, read_into, step, take_listing,
+from covey.app.directory_picker import (DeviceGate, DirectoryCache, listed_paths, read_into, step, take_listing,
                                                  when_listed)
 from covey.app.menu_panel import FOLDED, HUB_FOLDER, OPEN, MenuPanel, hub_top
 from covey.cards.directory import directory_card
@@ -37,7 +37,7 @@ from covey.cards.launch_config import MANAGE_OPTION, WORKSPACE_ACTION
 from covey.cards.elements import note
 from covey.cards.workspace_manager import (BROWSE_HOST, BROWSE_VERBS, FILTERS, MANAGER_PREFIX, ROW_VERBS,
                                                    closed_card, manager_card, markdown_lines, row_key)
-from covey.core import main_thread, main_thread_settings
+from covey.core import devices, main_thread, main_thread_settings
 from covey.core.workspaces import (add_workspace, directory_status, load_config, missing_workspaces,
                                            remove_workspaces, set_default_workspace)
 from covey.app.card_actions import action_value, form_fields
@@ -116,7 +116,7 @@ class WorkspaceManager(CardActionQueue):
         top = hub_top(WORKSPACE, token, view)
         if view.get('browse'):
             return directory_card(token, {**view['browse'], 'revision': view['revision']}, BROWSE_HOST,
-                                  listed_paths(config), top=top)
+                                  listed_paths(config, view['browse'].get('device', '')), top=top)
         notes, after = None, ()
         if main_thread.available():
             settings = main_thread_settings.load(ctx.state_dir)
@@ -127,7 +127,18 @@ class WorkspaceManager(CardActionQueue):
             notes = dict(settings.workspace_notes), lambda names: notes_button(value, names)
             after = [*trusted_section(settings, value), note(WORKSPACE_NOTE)]
         return manager_card(token, view, config, self.status(config, fresh), standalone=True, hub=True, top=top,
-                            notes=notes, after=after)
+                            notes=notes, after=after, device_lines=self.device_lines(ctx, record.get('chat_id', '')))
+
+    def device_lines(self, ctx, chat_id):
+        """A line on each device this chat may use: its title and alias, and what its last self-check said (read from
+        ``profile.json``: no call to the device while a card is drawn). Nothing when devices are off."""
+        access = self.topics.runtime.access
+        try:
+            listed = devices.current().devices.items()
+        except devices.DeviceConfigError:
+            return []
+        return [f'设备 {device.title}（{alias}）：{devices.status_text(ctx.state_dir, alias)}'
+                for alias, device in listed if access.allows_device(chat_id, alias)]
 
     def tab_shown(self, ctx, token):
         self.topics.runtime.log(f'workspace manager shown on the settings card token={token[:8]}')
@@ -311,7 +322,8 @@ class WorkspaceManager(CardActionQueue):
         view = {'revision': 1}
         config = load_config(ctx.state_dir, ctx.default_workdir)
         if not replace_form_card(ctx, path, record, {**record, 'status': MANAGING, 'manager': view},
-                                 manager_card(token, view, config, self.status(config), standalone=False),
+                                 manager_card(token, view, config, self.status(config), standalone=False,
+                                              device_lines=self.device_lines(ctx, record.get('chat_id', ''))),
                                  self.topics.messenger, 'workspace-manager'):
             self.topics.messenger.send_message(ctx.profile, record['chat_id'],
                 '工作区管理未能打开；启动卡未改动，可重新选择“添加或管理工作区…”。',
@@ -327,18 +339,20 @@ class WorkspaceManager(CardActionQueue):
         config = load_config(ctx.state_dir, ctx.default_workdir)
         if view.get('browse'):
             card = directory_card(path.stem, {**view['browse'], 'revision': view['revision']}, BROWSE_HOST,
-                                  listed_paths(config))
+                                  listed_paths(config, view['browse'].get('device', '')))
         else:
-            card = manager_card(path.stem, view, config, self.status(config, fresh), standalone=standalone)
+            card = manager_card(path.stem, view, config, self.status(config, fresh), standalone=standalone,
+                                device_lines=self.device_lines(ctx, record.get('chat_id', '')))
         return self._publish(ctx, path, record, view, card)
 
     def _browse(self, ctx, path, record, view, verb, arg, fields, topic, event):
         """A click of ＋ 添加工作区… ('open') or on the browser it shows. Moving around is published only
         when CardKit confirms; an addition is kept regardless, like the list's other changes."""
         standalone = topic is None
+        gate = DeviceGate(self.topics.runtime.access, record.get('chat_id', ''))
         if verb == 'open':
             browse, outcome = {'path': start_directory(load_config(ctx.state_dir, ctx.default_workdir)),
-                               'query': '', 'adds': 0}, 'read'
+                               'query': '', 'adds': 0, **({'offer': True} if gate.offers() else {})}, 'read'
         else:
             browse = dict(view['browse'])
             if verb == 'loaded':
@@ -348,7 +362,7 @@ class WorkspaceManager(CardActionQueue):
             else:
                 if verb == 'search':
                     arg = fields.get('query', '')
-                outcome = step(browse, verb, arg)
+                outcome = step(browse, verb, arg, allow=gate)
             if outcome is None:
                 return
         if outcome == 'back':
@@ -368,10 +382,12 @@ class WorkspaceManager(CardActionQueue):
                 browse['notice'] = '⚠️ ' + literal(exc)
             outcome = 'show'
         view = {**view, 'browse': browse, 'revision': view['revision'] + 1}
-        future = read_into(self.cache, browse, refresh=outcome == 'refresh') if outcome != 'show' else None
+        future = (read_into(self.cache, browse, refresh=outcome == 'refresh', state_dir=ctx.state_dir)
+                  if outcome != 'show' else None)
         config = load_config(ctx.state_dir, ctx.default_workdir)
         field = view_field(path)
-        card = directory_card(path.stem, {**browse, 'revision': view['revision']}, BROWSE_HOST, listed_paths(config),
+        card = directory_card(path.stem, {**browse, 'revision': view['revision']}, BROWSE_HOST,
+                              listed_paths(config, browse.get('device', '')),
                               top=hub_top(WORKSPACE, path.stem, view) if is_hub(path) else ())
         if not replace_form_card(ctx, path, record, {**record, field: view}, card, self.topics.messenger,
                                  'workspace-manager'):

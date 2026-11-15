@@ -176,7 +176,22 @@ python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" remove 旧项目 另
 python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" prune
 ```
 
-`add` 的路径必须是已存在的目录，名称 1 至 40 个字符。`remove` 只从列表移除，不删目录；默认工作区要先把别的设为默认才能移除。`prune` 移除确认已不存在的目录。改动只影响之后开始的话题，实时生效。状态目录里还没有 `workspace-config.json` 时，命令会用当前目录建一个默认列表，所以先确认 `--state-dir` 写对了。
+`add` 的路径必须是已存在的目录，名称 1 至 40 个字符。设备上的工作区（`COVEY_DEVICES=1`）在飞书里添加，命令行不认 `别名:路径`。`remove` 只从列表移除，不删目录；默认工作区要先把别的设为默认才能移除。`prune` 移除确认已不存在的目录。改动只影响之后开始的话题，实时生效。状态目录里还没有 `workspace-config.json` 时，命令会用当前目录建一个默认列表，所以先确认 `--state-dir` 写对了。
+
+### 设备自检
+
+开了多设备（`COVEY_DEVICES=1` 和 `devices.json`，见[配置](configuration.md#多设备开发中默认关)）后，新加一台设备、改了它的 ssh 或代理设置、设备上重装了 Claude Code 或 Codex 以后，在 Bridge 所在机器上跑一次自检：
+
+```bash
+python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" check gpu1          # 逐步打印，最后一段是结论
+python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" check gpu1 --json    # 一行 JSON
+python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" check gpu1 --no-probe  # 不真跑最小请求
+python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" list                 # 每台设备最近一次自检，不碰设备
+```
+
+步骤是 `connect`（5 秒、ssh BatchMode）、`shim`（推设备端程序，声明了 Codex 就再推读取器）、`hello`、`profile`（环境档案）、`tools`（声明的 Harness 都装了）、`probe:<Harness>`（真跑一次最小请求，60 秒，带档案里的环境，会花一点点模型额度）。退出码：0 全部通过，2 有一步没过，3 多设备关着或别名不在 `devices.json` 里。结论写进状态目录 `devices/<别名>/profile.json` 的 `check`，设置卡「工作区」页的设备状态行和 `covey_doctor.py` 报告里每个服务的 `devices` 读的就是它（doctor 只读，不去连设备；设备没通过自检只报 `unverified`，不会让服务变成 `degraded`）。
+
+常见失败：「连不上」先在 Bridge 机器上手动 `ssh <host>` 一次（BatchMode 不会问密码，也不会确认主机密钥）；「没有登录」在设备上登录对应的 Harness；「连不上模型服务，而且环境档案里没有代理」在设备的 `~/.claude/settings.json` 的 `env` 里设 `HTTPS_PROXY`，或写进 `devices.json` 里这台设备的 `env`，再自检。
 
 ## 部署新版本
 

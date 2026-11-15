@@ -13,6 +13,7 @@ from covey.core.text import literal
 DIRECTORY_FORM_PREFIX = 'bridge_dir_'
 PAGE_SIZE = 15  # A row is 9 card nodes (3 columns, text, 2 buttons with their labels): 15 fit with the rest.
 SEARCH_PLACEHOLDER = '搜索子目录名，或粘贴绝对路径'
+DEVICE_PLACEHOLDER = '搜索子目录名，或粘贴绝对路径；设备目录写 别名:路径'  # Where the chat may use a device (``offer``).
 NODE_LIMIT, SIZE_LIMIT = CARD_NODES - 5, CARD_BYTES - 2000  # The margin leaves room for the status line.
 
 
@@ -61,8 +62,9 @@ def status_line(view, shown):
 
 
 def directory_card(token, view, host=LAUNCH, listed=None, top=()):
-    """The whole card, one form: every button submits it, so the search box comes with each click.
-    ``listed`` maps a saved workspace's normalized path to its name; ``top``: elements above the form (the 设置 card's
+    """The whole card, one form: every button submits it, so the search box comes with each click. A view with a
+    ``device`` shows which device it is on under the folder's name, and one that may go to a device (``offer``) says
+    in the search box that ``别名:路径`` can be typed. ``listed`` maps a saved workspace's normalized path to its name; ``top``: elements above the form (the 设置 card's
     tab row), within the same budget."""
     top = list(top)
     listed = listed or {}
@@ -88,7 +90,8 @@ def directory_card(token, view, host=LAUNCH, listed=None, top=()):
     folder = os.path.basename(path.rstrip('/')) or '/'
     head = [md('📂 **' + literal(folder) + '**' + (" <font color='grey'>· 已在列表" + (
         '' if here == folder else '：' + literal(here)) + '</font>' if here else '')),
-            md(literal(path), size='notation')]
+            md(literal(path if not view.get('device') else f"设备 {view.get('device_title') or view['device']}"
+                       f"（{view['device']}）· {path}"), size='notation')]
     if view.get('notice'):
         head.append(md(view['notice']))
     status = [(md(status_line(view, shown), size='notation'), 1)]
@@ -97,7 +100,7 @@ def directory_card(token, view, host=LAUNCH, listed=None, top=()):
     head += [row((button('⬆️ 上一级', 'up', disabled=path == '/', small=True), None), (button('🔄 刷新', 'refresh', small=True), None),
                  flex=None),
              row(({'tag': 'input', 'name': 'query', 'width': 'fill', 'max_length': 1000, 'default_value': query,
-                   'placeholder': plain(SEARCH_PLACEHOLDER)}, 1), (button('搜索', 'search'), None), flex=None),
+                   'placeholder': plain(DEVICE_PLACEHOLDER if view.get('device') or view.get('offer') else SEARCH_PLACEHOLDER)}, 1), (button('搜索', 'search'), None), flex=None),
              row(*status, flex=None, align='center')]
     rows = []
     for index, entry in shown[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:

@@ -353,6 +353,7 @@
 | `service/app_check.py` | The Feishu app check and the console run from a terminal, for the install and deploy scripts and by hand |
 | `service/boot.py` | Small standalone boot watchdog |
 | `service/browser_setup.py` | ./install 准备无头浏览器的全部细节（service/installer.py 调用）：用机器上已有的 Chrome/Chromium，没有就下载 Playwright 的 … |
+| `service/device_check.py` | Check the devices of devices.json from the command line |
 | `service/doctor.py` | Read-only layered diagnostics |
 | `service/install.py` | Install an explicit boot registration without changing platform init files |
 | `service/install_probe.py` | ./install 对 Harness 做的一次真实探测：薄适配层，判断本身在 core/harness_probe.py（安装器、doctor、可用性检查共用一份）。 |
@@ -424,7 +425,7 @@
 
 ### bin
 
-入口壳，只解析参数后调 `covey` 里的函数：`covey_app_console.py`、`covey_app_setup.py`、`covey_bridge.py`、`covey_doctor.py`、`covey_feishu_web.py`、`covey_install.py`、`covey_install_browser.py`、`covey_main_mcp.py`、`covey_maintenance.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_paths.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_workspace_reader.py`、`covey_workspaces.py`。
+入口壳，只解析参数后调 `covey` 里的函数：`covey_app_console.py`、`covey_app_setup.py`、`covey_bridge.py`、`covey_devices.py`、`covey_doctor.py`、`covey_feishu_web.py`、`covey_install.py`、`covey_install_browser.py`、`covey_main_mcp.py`、`covey_maintenance.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_paths.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_workspace_reader.py`、`covey_workspaces.py`。
 
 改名前的入口名留作转发壳，服务清单、开机钩子和各部署的脚本还在用：`bridge_app_setup.py`、`bridge_doctor.py`、`bridge_main_mcp.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_service.py`、`bridge_service_install.py`、`lark_app_console.py`、`lark_bridge_maintenance.py`、`lark_bridge_paths.py`、`lark_bridge_workspaces.py`、`lark_feishu_web.py`、`lark_harness_bridge.py`、`lark_install_browser.py`、`lark_task_runner.py`、`lark_workspace_reader.py`。
 <!-- code-map:end -->

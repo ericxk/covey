@@ -59,6 +59,12 @@ def _argv(name, executable):
     return None
 
 
+def command_for(name, executable):
+    """The argv of ``name``'s minimal request with ``executable`` (also what a device runs: core/devices.py
+    ``probe_harness``), or None for a Harness without one."""
+    return _argv(name, executable)
+
+
 def _result(ok, reason, detail=''):
     return {'ok': ok, 'reason': reason, 'detail': _clean(detail)}
 

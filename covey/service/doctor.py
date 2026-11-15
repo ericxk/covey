@@ -106,6 +106,20 @@ def probe_report(names=('claude', 'codex'), *, run=False):
     return rows
 
 
+def devices_row(state_dir):
+    """Each device's last self-check (``covey_devices.py check``), read from the service's state directory; asks no
+    device. None when devices are off or none is listed, so the report is the same as before then."""
+    from covey.service.device_check import devices_report
+    report = devices_report(Path(state_dir))
+    if not report:
+        return None
+    if 'error' in report:
+        return {'status': 'degraded', 'reason': report['error']}
+    rows = {alias: {'title': row['title'], 'status': row['status'], 'check': row['check']} for alias, row in report.items()}
+    return {'status': 'ready' if all((row['check'] or {}).get('ok') for row in rows.values()) else 'unverified',
+            'devices': rows, 'advice': 'a device that is not passed: covey_devices.py --state-dir <state> check <alias>'}
+
+
 def diagnose(root, *, check_events=True, probe=False):
     manager = manager_health(str(root))
     manager_ok = bool(manager and is_owned(manager.get('process')) and manager.get('lag', 999) < 120)
@@ -131,6 +145,10 @@ def diagnose(root, *, check_events=True, probe=False):
                      and status.get('generation') == manifest['generation'])
         row.update(status='ready' if ready else 'degraded', alive=is_owned(identity), bridge=health,
                    generation=manifest['generation'])
+        # Devices (COVEY_DEVICES=1) are reported but never make the service degraded: a device that is off is its
+        # own topics' trouble.
+        if (found := devices_row(manifest['state_dir'])) is not None:
+            row['devices'] = found
         if check_events:
             events = event_report(manifest['profile'])
             owned = [c for c in events.get('consumers', [])
