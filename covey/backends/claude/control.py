@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 
-from covey.core.steer import refuse_steer, steer_text
+from covey.core.steer import SteerNotReady, refuse_steer, steer_text
 
 
 def normalized_questions(raw):
@@ -64,6 +64,16 @@ class ClaudeControl:
         self.steers = {}  # input uuid -> the bridge's event id, until Claude replays it
         self.prompt_id = ""  # The turn's own prompt, until Claude replays it (prompt_read).
         self.control_error = False
+        if getattr(process, "device", False) is True:
+            # The CLI runs on a device: its patience while the link is down is the longer one for as long as a
+            # question waits for the user (core/device_link.py).
+            process.process.set_hold(lambda: bool(self.user_requests))
+
+    @property
+    def offline(self):
+        """The CLI runs on a device and the link to it is down."""
+        transport = getattr(self, "transport", None)
+        return getattr(transport, "device", False) is True and bool(transport.process.offline)
 
     @property
     def session_id(self):
@@ -87,6 +97,8 @@ class ClaudeControl:
 
     def steer(self, text, event_id):
         with self.control_lock:
+            if self.offline:  # Before send_user: a failed send would set control_error and end the turn.
+                raise SteerNotReady("设备连接中断，补充没有发出")
             refuse_steer(text, waiting=bool(self.user_requests), closing=self.closing, ready=self.accepting_steer,
                          label="Claude")
             input_id = str(uuid.uuid4())

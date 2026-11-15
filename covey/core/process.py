@@ -129,10 +129,35 @@ def paths_in_use(root: Path) -> set[Path]:
     return used
 
 
+def device_of(ctx):
+    """The alias of the device ``ctx`` works on, or ``""``: a context without the field (devices are off) or with
+    something that is not a string there is local."""
+    value = getattr(ctx, "device", "")
+    return value if isinstance(value, str) else ""
+
+
+def spawn_process(argv, *, ctx=None, cwd=None, env=None, stdin=None, stdout=None, stderr=None, text=False,
+                  bufsize=-1, **device):
+    """The process a backend starts for a turn: ``subprocess.Popen`` in a session of its own, or, when ``ctx`` names
+    a device (``ctx.device``), a ``DeviceProcess`` (core/device_link.py: the same Popen face, the process runs on
+    the device). ``device`` (``run_dir``, ``checkpoint``, ``files``) is for the device only."""
+    if not device_of(ctx):
+        return subprocess.Popen(argv, cwd=cwd, env=env, start_new_session=True, stdin=stdin, stdout=stdout,
+                                stderr=stderr, text=text, bufsize=bufsize)
+    from covey.core.device_link import DeviceProcess
+    return DeviceProcess(argv, ctx=ctx, cwd=cwd, env=env, stdin=stdin, stdout=stdout, stderr=stderr, text=text,
+                         bufsize=bufsize, **device)
+
+
 def signal_group(process, signum):
     """Signal the private process group ``process`` leads (it was started with
     start_new_session). Nothing once it has exited or its group is gone; when the group
-    cannot be signalled, the process itself."""
+    cannot be signalled, the process itself. A process of a class that has its own ``signal_group`` (a device's,
+    core/device_link.py) signals itself."""
+    own = getattr(type(process), "signal_group", None)
+    if own is not None:
+        own(process, signum)
+        return
     if process.poll() is not None:
         return
     try:

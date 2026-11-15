@@ -20,6 +20,7 @@ from typing import Any
 
 from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY
 
+from covey.core.process import device_of
 from covey.core.process_env import child_process_env
 from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunRequest, RunResult, UUID_RE
 from covey.backends.claude.models import model_catalog
@@ -143,6 +144,8 @@ class ClaudeBackend(BackendRuntime):
         return env
 
     def wrap_argv(self, argv: list[str], ctx: BridgeContext) -> list[str]:
+        if device_of(ctx):  # The device's login shell is the spawn request's ``shell`` (core/device_link.py).
+            return argv
         if not ctx.options.get("login_shell"):
             return argv
         return ["bash", "-ic", shlex.join(argv)]

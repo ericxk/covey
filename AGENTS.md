@@ -229,6 +229,7 @@
 | `core/completion.py` | One post-root deadline, independent of model-request retry policy |
 | `core/defaults.py` | Product defaults, separate from provider-native default metadata |
 | `core/deliveries.py` | Supplements sent into a running task: one delivery record each |
+| `core/device_link.py` | DeviceProcess: a Harness process that runs on a device, dressed as the `subprocess.Popen` the backends use |
 | `core/device_shim.py` | The device-side program the hub pushes over ssh: it supervises Harness tasks and serves files, stdlib only |
 | `core/device_transport.py` | The hub's side of the device shim's wire protocol |
 | `core/devices.py` | Devices: other machines (Linux over ssh) a topic can work on instead of this one |

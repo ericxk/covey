@@ -14,7 +14,7 @@ import time
 import uuid
 
 from covey.core.harness import JobCancelled
-from covey.core.process import cleanup_group, process_identity, stop_group
+from covey.core.process import cleanup_group, device_of, process_identity, spawn_process, stop_group
 
 
 MAX_FRAME = 8 * 1024 * 1024
@@ -30,6 +30,7 @@ TRANSPORT_FAILURES = {
     "initialize_rejected": "Claude initialization failed",
     "initialize_unexpected_event": "Unexpected Claude initialization event",
     "initialize_timeout": "Claude initialization timed out",
+    "device_offline": "Claude's device connection is down; the input was not sent",
 }
 
 
@@ -82,6 +83,8 @@ def save_transport_details(state, details):
 
 
 class ClaudeProcess:
+    device = False  # True for a process on a device (ctx.device), see __init__.
+
     def __init__(self, argv, ctx, env, *, cancel=None, observe=None):
         self.cancel = cancel or threading.Event()
         self.deadline = time.monotonic() + ctx.timeout if ctx.timeout > 0 else None
@@ -89,18 +92,21 @@ class ClaudeProcess:
         self.write_lock = threading.RLock()
         self.stop = threading.Event()
         self.prelude = []
-        self.process = subprocess.Popen(
+        # On a device (ctx.device) the process is a DeviceProcess: no pid, no file descriptor on stdin.
+        self.device = bool(device_of(ctx))
+        self.process = spawn_process(
             argv,
+            ctx=ctx,
             cwd=str(ctx.workdir),
             env=env,
-            start_new_session=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        self.identity = process_identity(self.process.pid)
+        self.identity = None if self.device else process_identity(self.process.pid)
         self.policy_stop = False
-        os.set_blocking(self.process.stdin.fileno(), False)
+        if not self.device:
+            os.set_blocking(self.process.stdin.fileno(), False)
         self.reader = threading.Thread(target=self._read, daemon=True, name="claude-jsonl")
         self.reader.start()
         try:
@@ -147,6 +153,8 @@ class ClaudeProcess:
         if len(data) > MAX_FRAME:
             raise ValueError("Claude input exceeds size limit")
         deadline = time.monotonic() + 10
+        if self.device:
+            return self._send_device(data, deadline)
         with self.write_lock, selectors.DefaultSelector() as selector:
             self.check()
             if self.stop.is_set() or self.process.poll() is not None or self.process.stdin.closed:
@@ -164,6 +172,25 @@ class ClaudeProcess:
                     self.write_offset = offset
                 except BlockingIOError:
                     continue
+
+    def _send_device(self, data, deadline):
+        """One line to the CLI on the device: written once, the shim's ack awaited like the local write. The answer to
+        the CLI's own request (a control_response) is kept while the link is down and sent when it is back; any
+        other input is refused then (``device_offline``, nothing was sent). Never sent twice by this side."""
+        from covey.core.device_link import DeviceClosed, DeviceOffline, DeviceSendUncertain
+        with self.write_lock:
+            self.check()
+            if self.stop.is_set() or self.process.poll() is not None or self.process.stdin.closed:
+                raise transport_error("process_closed")
+            try:
+                self.process.send_frame(data.decode().rstrip("\n"), deadline, check=self.check)
+            except DeviceOffline as exc:
+                raise transport_error("device_offline") from exc
+            except DeviceClosed as exc:
+                raise transport_error("process_closed") from exc
+            except DeviceSendUncertain as exc:
+                raise transport_error("input_write_timeout") from exc
+            self.write_offset = len(data)
 
     def receive(self, timeout=0.1):
         self.check()
@@ -212,6 +239,8 @@ class ClaudeProcess:
         self.stop.set()
         self.end_input()
         stop_group(self.process, 3)
+        if self.device:
+            return self._close_device()
         if self.policy_stop:
             # The CLI can exit on TERM while a child ignores it with stdout closed.
             # Match the original private session/group and start ticks before killing it.
@@ -228,3 +257,13 @@ class ClaudeProcess:
         if not self.reader.is_alive():
             self.process.stdout.close()
         return self.process.poll() is not None and not self.reader.is_alive()
+
+    def _close_device(self):
+        """close() for a process on a device: the group was stopped through the device; there is no group of ours
+        to sweep. After an official refusal the device's task is reaped, not trusted to have exited."""
+        if self.policy_stop:
+            self.process.reap()
+        self.reader.join(timeout=2)
+        confirmed = self.process.close()
+        self.reader.join(timeout=2)
+        return confirmed and self.process.poll() is not None and not self.reader.is_alive()

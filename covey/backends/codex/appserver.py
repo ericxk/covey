@@ -19,6 +19,7 @@ from covey.backends.codex.turn import close_turn, paused_question_end, read_turn
 from covey.backends.codex.usage import CodexTurnUsage
 from covey.core.harness import JobCancelled, RunResult
 from covey.core.paths import entry_script
+from covey.core.process import device_of
 from covey.core.protocol import deliver_event
 from covey.core.reply_state import ReplyState
 from covey.core.result import is_identifier
@@ -44,25 +45,36 @@ CODEX_INSTRUCTIONS = (
 )
 
 
-def thread_params(ctx, session_id, instructions=""):
+def thread_params(ctx, session_id, instructions="", process=None):
     """The thread/start, thread/resume or thread/fork parameters of this turn, and the session it
     forks (None unless a new topic forks one). Codex keeps the developer instructions a thread
-    started with; they are sent on every turn all the same."""
+    started with; they are sent on every turn all the same. On a device (``ctx.device``) the paths are the
+    device's: its working directory, its task directory as the writable root and its copy of the workspace
+    reader (``process``, the app server's ``DeviceProcess``, pushes and names it)."""
+    if device_of(ctx):
+        cwd = ctx.remote_workdir
+        writable = str(process.task_dir)
+        command, args = process.workspace_reader(cwd, extra_roots=[str(process.task_dir) + "/incoming"])
+    else:
+        cwd = str(ctx.workdir)
+        writable = str(ctx.state_dir / "checkpoints")
+        command = sys.executable
+        # Attachments of this topic are downloaded outside the workspace, and so is
+        # the transcript a model switch hands over (app/switch_handoff.py).
+        args = ["-B", str(entry_script("covey_workspace_reader.py")), "--root", str(ctx.workdir),
+                "--extra-root", str(ctx.history_path.parent / "incoming_media"),
+                "--extra-root", str(ctx.history_path.parent / "handoff")]
     params = {
         "model": ctx.model,
-        "cwd": str(ctx.workdir),
+        "cwd": cwd,
         "approvalPolicy": "never",
         "sandbox": ctx.options.get("sandbox", "danger-full-access"),
         "config": {
             **ctx.options.get("thread_config", {}),
             **({"model_reasoning_effort": ctx.effort} if ctx.effort else {}),
-            "sandbox_workspace_write.writable_roots": [str(ctx.state_dir / "checkpoints")],
-            "mcp_servers.bridge_workspace.command": sys.executable,
-            # Attachments of this topic are downloaded outside the workspace, and so is
-            # the transcript a model switch hands over (app/switch_handoff.py).
-            "mcp_servers.bridge_workspace.args": ["-B", str(entry_script("covey_workspace_reader.py")), "--root", str(ctx.workdir),
-                                                  "--extra-root", str(ctx.history_path.parent / "incoming_media"),
-                                                  "--extra-root", str(ctx.history_path.parent / "handoff")],
+            "sandbox_workspace_write.writable_roots": [writable],
+            "mcp_servers.bridge_workspace.command": command,
+            "mcp_servers.bridge_workspace.args": args,
             "mcp_servers.bridge_workspace.enabled": True,
         },
         "developerInstructions": "\n\n".join(filter(None, (instructions, CODEX_INSTRUCTIONS))),
@@ -104,7 +116,7 @@ def open_thread(rpc, request, state, observe):
     rpc.request("initialize", {"clientInfo": {"name": "feishu_bridge", "version": "1.0"},
                 "capabilities": {"experimentalApi": True}})
     rpc.send({"method": "initialized"})
-    params, fork = thread_params(ctx, session_id, request.instructions)
+    params, fork = thread_params(ctx, session_id, request.instructions, rpc.process)
     reply = rpc.request("thread/resume" if session_id else "thread/fork" if fork else "thread/start", params, timeout=60)
     rpc.thread_id = reply["thread"]["id"]
     if (not is_identifier(rpc.thread_id) or (session_id is not None and rpc.thread_id != session_id)
@@ -133,7 +145,8 @@ def run_appserver(request, env):
     try:
         # Bound before anything can fail, so that finally closes the server.
         rpc = AppServer([*ctx.backend_cmd, "app-server", "--stdio", "-c", "agents.max_threads=4",
-            "-c", "features.default_mode_request_user_input=true"], ctx.workdir, env)
+            "-c", "features.default_mode_request_user_input=true"], ctx.workdir, env,
+            **({"ctx": ctx} if device_of(ctx) else {}))
         open_thread(rpc, request, state, observe)
         # Its own thread is never one of its subtasks (CodexEventAdapter.agents).
         adapter = CodexEventAdapter(lambda kind, data: event(kind, data, rpc), rpc.thread_id)

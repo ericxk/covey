@@ -9,10 +9,10 @@ import subprocess
 import threading
 import time
 
-from covey.core.process import stop_group
+from covey.core.process import device_of, spawn_process, stop_group
 from covey.core.reply_state import ReplyError, failure_text
 from covey.core.result import is_identifier
-from covey.core.steer import SteerRefused
+from covey.core.steer import SteerNotReady, SteerRefused
 from covey.core.ttft import codex_marker
 
 
@@ -26,9 +26,14 @@ def failed(code):
 
 
 class AppServer:
-    def __init__(self, argv, cwd, env):
-        self.process = subprocess.Popen(
+    device = False  # True for an app server on a device (ctx.device), see __init__.
+
+    def __init__(self, argv, cwd, env, ctx=None):
+        # On a device the process is a DeviceProcess (core/device_link.py): no pid, no group of ours.
+        self.device = bool(device_of(ctx))
+        self.process = spawn_process(
             argv,
+            ctx=ctx,
             cwd=cwd,
             env=env,
             stdin=subprocess.PIPE,
@@ -36,7 +41,6 @@ class AppServer:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-            start_new_session=True,
         )
         self.events = queue.Queue()
         self.pending = {}
@@ -56,6 +60,8 @@ class AppServer:
         self.paused_question_proof = None
         self._question_request_id = None
         self._paused_question = None
+        if self.device:  # While the link is down, the longer patience counts if a question waits for the user.
+            self.process.set_hold(lambda: bool(self.user_requests) or bool(self.pause_for_question))
         self.readers = [threading.Thread(target=self._read, daemon=True),
                         threading.Thread(target=self._stderr, daemon=True)]
         for reader in self.readers:
@@ -157,6 +163,8 @@ class AppServer:
 
     def steer(self, text, message_id):
         with self.input_lock:
+            if self.device and self.process.offline:  # Before the request: a failure there sets control_error.
+                raise SteerNotReady("设备连接中断，补充没有发出")
             if not self.accepting_input or not self.turn_id:
                 raise SteerRefused("任务尚未就绪或已经结束，补充没有发出")
             if self.reply_state:
@@ -191,6 +199,8 @@ class AppServer:
             reader.join(timeout=1)
         self.cleanup_confirmed = (type(self.process.poll()) is int
                                   and not any(t.is_alive() for t in self.readers))
+        if self.device:  # Only an app server the device reported ended, and left nothing, is cleaned up.
+            self.cleanup_confirmed = self.process.close() and self.cleanup_confirmed
         return self.cleanup_confirmed
 
 

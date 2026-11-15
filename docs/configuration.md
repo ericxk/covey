@@ -303,7 +303,7 @@
 | `COVEY_REQUIRED_MOUNT` | `service/manager.py` | 开机守护设置，不要手设 | 否 |
 | `MERLIN_JOB_ID` | `service/boot.py` | 开发机自带 | 否 | <!-- privacy: allow 平台自带的环境变量名，boot.py 按它认开发机 -->
 | `COVEY_RUNNER_PYTHONPATH` | `app/runner.py` | Bridge 交给任务进程，不要手设 | 否 |
-| `COVEY_TASK_DIR` | `app/leftovers.py` | 任务进程给本轮命令设置，不要手设 | 否 |
+| `COVEY_TASK_DIR` | `app/leftovers.py`、`core/device_link.py` | 任务进程给本轮命令设置，不要手设 | 否 |
 | `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录和 Pi 借用的登录都从它取）、`core/model_settings.py` | `~/.codex` | 否 |
 | `CLAUDE_CONFIG_DIR` | `backends/claude/sessions.py`、`backends/claude/redaction.py` | `~/.claude` | 否 |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`、`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING` | `backends/claude/bridge.py`（Bridge 的环境里设了就用它的值，否则给 claude 子进程设成 `1`） | `1` | 否 |
