@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import pathlib
 import shlex
 import sys
 import threading
@@ -114,6 +115,10 @@ class DeviceGuard:
 
         self._stack.enter_context(mock.patch.object(os, "stat", stat))
         self._stack.enter_context(mock.patch.object(os, "lstat", lstat))
+        accessor = getattr(pathlib, "_NormalAccessor", None)
+        if accessor is not None:  # Python 3.10: pathlib took os.stat when imported, and Path.is_dir() goes there.
+            self._stack.enter_context(mock.patch.object(accessor, "stat", staticmethod(stat)))
+            self._stack.enter_context(mock.patch.object(accessor, "lstat", staticmethod(lstat)))
         with _lock:
             _active.append(self)
         return self
