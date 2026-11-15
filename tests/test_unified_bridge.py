@@ -377,8 +377,8 @@ class IgnoredEnvTests(UnifiedCase):
 
     def startup_lines(self, env):
         self.logs.clear()
-        with mock.patch.dict(os.environ, env), mock.patch("covey.app.unified.start_catalog_refresh"), \
-                mock.patch("covey.app.unified.model_usage.start"):
+        with mock.patch.dict(os.environ, env), mock.patch("covey.app.launch_models.start_catalog_refresh"), \
+                mock.patch("covey.app.model_usage.start"):
             self.app.log_startup(self.ctx)
         return [line for line in self.logs if line.startswith("env ")]
 
@@ -408,7 +408,7 @@ class IgnoredEnvTests(UnifiedCase):
     def test_a_task_runner_rebuilding_the_bridge_says_nothing(self):
         # The runner builds the Bridge's context from the handoff argv (app/runner.py) and never logs the startup.
         with mock.patch.dict(os.environ, self.ENV), \
-                mock.patch("covey.app.unified.ignored_env") as ignored:
+                mock.patch("covey.core.ignored_env.ignored_env") as ignored:
             self.bridge()
         ignored.assert_not_called()
 
@@ -421,6 +421,91 @@ class IgnoredEnvTests(UnifiedCase):
                 for each in option if isinstance(option, tuple) else (option,):
                     if each:
                         self.assertIn(each, parser._option_string_actions, spec.name)
+
+
+class TaskRunnerPartsTests(UnifiedCase):
+    """A task runner builds the Bridge without the parts only the Bridge uses (UnifiedBridgeApp.PARTS), built on first use."""
+
+    # What a runner's start must not import: the bot menu, the settings and other panels, 代答, the web dashboard,
+    # the digest, the maintenance and service parts of the Bridge's main().
+    BRIDGE_ONLY = ('covey.app.bot_menu', 'covey.app.proxy', 'covey.app.dashboard', 'covey.app.digest',
+                   'covey.app.settings_hub', 'covey.app.overview', 'covey.app.group_manager', 'covey.app.group_menu',
+                   'covey.app.group_boards', 'covey.app.weekly_usage', 'covey.app.workspace_manager',
+                   'covey.app.main_tools', 'covey.app.app_setup', 'covey.app.topic_seen', 'covey.app.health',
+                   'covey.app.stale', 'covey.core.maintenance', 'covey.core.migrate', 'covey.service.manager',
+                   'covey.service.boot', 'covey.feishu.connections', 'covey.core.serving', 'urllib.request')
+
+    def runner_bridge(self):
+        from covey.app.unified import UnifiedBridgeApp
+        from support import REPO
+
+        app = UnifiedBridgeApp(script_path=REPO / 'bin/covey_bridge.py', task_runner=True)
+        args = app.build_parser().parse_args(['--workdir', str(self.work), '--state-dir', str(self.root / 'state'),
+                                              '--profile', 'test-bot'])
+        ctx = app.build_context(args)
+        self.built.append(app)
+        return app, ctx
+
+    def test_a_task_runner_starts_without_the_parts_only_the_bridge_uses(self):
+        import subprocess
+        import sys
+        from support import REPO
+
+        script = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "import covey.app.runner\n"
+            "from covey.app.unified import UnifiedBridgeApp\n"
+            "app = UnifiedBridgeApp(script_path=Path(sys.argv[1]) / 'bin/covey_bridge.py', task_runner=True)\n"
+            "ctx = app.build_context(app.build_parser().parse_args(['--workdir', sys.argv[2], '--state-dir', sys.argv[3],\n"
+            "                                                       '--profile', 'test-bot']))\n"
+            "print(' '.join(sorted(name for name in sys.modules if name in sys.argv[4:])))\n")
+        env = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'COVEY_EXTENSIONS': ''}
+        done = subprocess.run([sys.executable, '-c', script, str(REPO), str(self.work), str(self.root / 'runner-state'),
+                               *self.BRIDGE_ONLY], cwd=REPO, env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        self.assertEqual(done.stdout.strip().splitlines()[-1] if done.stdout.strip() else '', '',
+                         'a task runner imported what only the Bridge uses')
+
+    def test_a_part_is_built_on_first_use_and_is_the_bridges_own(self):
+        runner, ctx = self.runner_bridge()
+        for name in runner.PARTS:
+            if name != 'extension_features':
+                self.assertNotIn(name, runner.__dict__, name)
+        self.assertEqual(runner.main_paths, (ctx.state_dir, ctx.profile or ''))
+        before = set(runner.__dict__)
+        menu = runner.menu  # One use builds them all, in the Bridge's order.
+        self.assertEqual(set(runner.__dict__) - before - {'extension_features'}, set(runner.PARTS) - {'extension_features'},
+                         'PARTS names exactly what _build_parts sets')
+        self.assertEqual([type(f).__name__ for f in runner.features], [type(f).__name__ for f in self.app.features])
+        self.assertEqual(sorted(menu.actions), sorted(self.app.menu.actions))
+        self.assertEqual((runner.main_env.state_dir, runner.main_env.profile), (ctx.state_dir, ctx.profile or ''))
+        self.assertIs(runner.menu, menu)  # Built once.
+        # What build_context set before a part exists reaches it; after, it reaches the part itself.
+        self.assertEqual(runner.titles, self.app.titles)
+        with self.assertRaises(AttributeError):
+            runner.no_such_part
+
+    def test_a_click_in_a_task_runner_meets_the_same_controllers(self):
+        runner, ctx = self.runner_bridge()
+        runner.runtime.owner_open_id = 'owner'
+        events = [{'operator_id': 'owner', 'chat_id': 'chat', 'message_id': 'om_card_x', 'event_id': 'ev_1',
+                   'action_value': {'kind': 'old_menu'}}]
+        self.assertEqual(runner._handle_card_action_event(dict(events[0]), ctx),
+                         self.app._handle_card_action_event(dict(events[0]), self.ctx))
+
+    def test_a_runner_builds_the_parts_once_the_job_is_under_way_unless_it_ends_first(self):
+        import threading
+        from covey.app.runner import warm_parts
+
+        runner, _ = self.runner_bridge()
+        stopped = threading.Event()
+        stopped.set()
+        warm_parts(runner, stopped, delay=0)  # The runner ends first: nothing is built.
+        self.assertNotIn('features', runner.__dict__)
+        warm_parts(runner, threading.Event(), delay=0)
+        self.assertIn('features', runner.__dict__)
+        warm_parts(object(), threading.Event(), delay=0)  # A failure is only a missed head start.
 
 
 if __name__ == '__main__':

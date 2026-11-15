@@ -6,23 +6,45 @@ answer like any other error status.
 """
 from __future__ import annotations
 
-import urllib.error
-import urllib.request
+import threading
+
+# urllib.request (with ssl and the mail parser behind it) is imported on the first request, not with the module:
+# a task runner builds every Harness's backend, which imports this, and rarely sends one.
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
+class _Opener:
+    """An opener that never follows a redirect, built on first use; through the environment's proxy unless ``direct``."""
+
+    def __init__(self, direct):
+        self.direct = direct
+        self.built = None
+        self.lock = threading.Lock()
+
+    def open(self, *args, **kwargs):
+        if self.built is None:
+            with self.lock:
+                if self.built is None:
+                    import urllib.request
+
+                    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+                        def redirect_request(self, *args, **kwargs):
+                            return None
+
+                    self.built = urllib.request.build_opener(
+                        *([urllib.request.ProxyHandler({})] if self.direct else []), _NoRedirect())
+        return self.built.open(*args, **kwargs)
 
 
 def opener(*, direct=False):
     """An opener that never follows a redirect; through the environment's proxy unless ``direct``."""
-    return urllib.request.build_opener(*([urllib.request.ProxyHandler({})] if direct else []), _NoRedirect())
+    return _Opener(direct)
 
 
 def send(opener, method, url, body, headers, timeout):
     """(status, response) of one request; an error status is a response like any other. OSError when no
     answer came."""
+    import urllib.error
+    import urllib.request
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         response = opener.open(request, timeout=timeout)

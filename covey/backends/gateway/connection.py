@@ -11,7 +11,6 @@ import math
 import os
 import stat
 import time
-import urllib.request
 from pathlib import Path
 
 from covey.core import http_upstream
@@ -80,6 +79,7 @@ def fetch_models(gateway, timeout=20):
     key = api_key(gateway)
     if not key:
         raise ValueError(gateway.missing_key)
+    import urllib.request  # Here: the Bridge's startup and a model-catalog read use it, a task runner's start does not.
     request = urllib.request.Request(gateway.url() + "/v1/models", headers={
         "Authorization": "Bearer " + key, **gateway.header_dict(), "Accept": "application/json"})
     try:

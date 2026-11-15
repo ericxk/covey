@@ -762,7 +762,7 @@ class WebCacheTests(ProxyCase):
 
     def test_the_bridges_maintenance_bounds_them_each_hour(self):
         [target] = [target for name, target in self.app.worker_targets() if name == 'maintenance']
-        with mock.patch('covey.app.unified.maintenance_loop') as loop, \
+        with mock.patch('covey.core.maintenance.maintenance_loop') as loop, \
                 mock.patch.object(self.proxy.web_login, 'prune_web_caches') as prune:
             target(self.ctx)
             loop.call_args.kwargs['prune_web']()

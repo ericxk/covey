@@ -67,7 +67,6 @@ import time
 
 from covey.backends.gateway.connection import NO_REDIRECT
 from covey.core.http_upstream import copy_headers, pipe, send
-from covey.core.serving import LoopbackServer
 
 # Seconds between the card's notes of one run of 429s: the relay tries again at once, so a note per try
 # would redraw the card for every 429.
@@ -222,6 +221,7 @@ class BusyRelay:
         self.totals = {}  # Thread -> (runs, retries, seconds) of its ended runs this turn.
         self.closed = threading.Event()
         self.lock = threading.Lock()
+        from covey.core.serving import LoopbackServer  # Here: http.server stays out of a task runner's start.
         self.server = LoopbackServer(self.forward, name + "-relay")
 
     @property

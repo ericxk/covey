@@ -57,6 +57,21 @@ def warm_records(state_dir):
     return thread
 
 
+PARTS_DELAY = 3.0
+
+
+def warm_parts(gateway, stop, delay=PARTS_DELAY):
+    """Build the Bridge's own parts (UnifiedBridgeApp.PARTS) once the job is under way, so the first forwarded click
+    does not pay for their imports (about 0.1-0.2 s): a click earlier builds them itself, and a runner that ends
+    sooner never does. Not one of ``BACKGROUND``: the exit does not wait for it; a failure only shows at the click."""
+    if stop.wait(delay):
+        return
+    try:
+        gateway.menu  # Any part: the first use builds them all.
+    except Exception:  # noqa: BLE001 - only a head start
+        pass
+
+
 def _background(before: set) -> list:
     return [t for t in threading.enumerate()
             if t not in before and t.is_alive() and t.name in BACKGROUND and t is not threading.current_thread()]
@@ -151,7 +166,7 @@ def _await(args, directory):
     # imports, the records, its Bridge) is done by the time the job is handed to it.
     warm_records(directory.parents[1])  # run_dir: <state>/runs/<job>/
     script = Path(__file__).resolve().parents[2] / "bin" / "covey_bridge.py"
-    early = (str(script), UnifiedBridgeApp(script_path=script))
+    early = (str(script), UnifiedBridgeApp(script_path=script, task_runner=True))
     return runner_spawn.await_handoff(directory, args.await_handoff), early
 
 
@@ -167,7 +182,7 @@ def _build(handoff, early, directory) -> _Setup:
     if early is not None and early[0] == handoff["script_path"]:
         gateway = early[1]
     else:
-        gateway = UnifiedBridgeApp(script_path=Path(handoff["script_path"]))
+        gateway = UnifiedBridgeApp(script_path=Path(handoff["script_path"]), task_runner=True)
     previous_timing = timing.configure(gateway.runtime.log)  # Millisecond timing lines (core/timing.py).
     # This runner's start, from the bridge writing its handoff to its first Feishu call, on any thread.
     started = timing.begin("runner", started=timing.at(handoff["created_at"]) if handoff.get("created_at") else None,
@@ -207,6 +222,7 @@ def _serve(setup, directory) -> _Inbox:
     sdk.warm_sdk(ctx.profile, gateway.runtime.log)  # After ``before``: the exit waits for it too.
     thread = threading.Thread(target=serve, daemon=True, name="runner-inbox")
     thread.start()
+    threading.Thread(target=warm_parts, args=(gateway, stop), daemon=True, name="runner-parts").start()
     gateway.runtime.log(f"task runner job=#{job.job_id} harness={app.spec.name} pid={os.getpid()}")
     return _Inbox(before, stop, thread, woken)
 

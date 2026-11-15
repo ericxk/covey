@@ -38,7 +38,7 @@ def compact_main(directory) -> int:
         return idle.NOTHING
     outcome, session, log = idle.NOTHING, "", print
     try:
-        gateway = UnifiedBridgeApp(script_path=Path(handoff["script_path"]))
+        gateway = UnifiedBridgeApp(script_path=Path(handoff["script_path"]), task_runner=True)
         gateway.runtime.runner = runner_ipc.RunnerLink(mark.parent)  # In a runner: no job starts here.
         log = gateway.runtime.log
         gateway.build_context(gateway.build_parser().parse_args(handoff["argv"]))

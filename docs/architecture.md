@@ -38,7 +38,7 @@ bin/  →  app/  →  feishu/ · cards/ · backends/<名字>/  →  core/
 
 ### 对象怎么组合
 
-- `UnifiedBridgeApp`（组合根；`app/card_routing.py` 的 `CardRouting`、`app/job_dispatch.py` 的 `JobDispatch` 是它的两半）建一个 `Runtime`（进程状态，`app/runtime.py`）、一个 `Messenger`，每个 Harness 一个 `Harness`（只有数据，`app/harnesses.py`）和一个 `BridgeApp`（`app/app.py`），加 `Topics` 和卡片控制器。任务进程按 `handoff.json` 里的 `Runtime.cli_argv` 再建一遍。
+- `UnifiedBridgeApp`（组合根；`app/card_routing.py` 的 `CardRouting`、`app/job_dispatch.py` 的 `JobDispatch` 是它的两半）建一个 `Runtime`（进程状态，`app/runtime.py`）、一个 `Messenger`，每个 Harness 一个 `Harness`（只有数据，`app/harnesses.py`）和一个 `BridgeApp`（`app/app.py`），加 `Topics` 和卡片控制器。任务进程按 `handoff.json` 里的 `Runtime.cli_argv` 再建一遍，用 `task_runner=True`：只有 Bridge 用的控制器、功能和机器人菜单（`UnifiedBridgeApp.PARTS`）第一次用到时才建、才导入模块（任务进程每轮都起，启动时间算在每个任务上；`runner.py` 的 `warm_parts` 在任务跑起来 3 秒后补建，第一次转发的点击不用等）；启动、维护和服务管理的模块只在 `main()` 里导入。新加的 Bridge 专用控制器加进 `PARTS`，不要在 `unified.py` 顶层导入；`test_unified_bridge` 的 `TaskRunnerPartsTests` 查任务进程启动后没有导入它们。
 - `BridgeApp` 不继承任何类，入口只有话题消息、卡片点击、出队任务、启动时的过期任务；组件在 `__init__` 里按引用拿协作者。`Cards`（`app/cards.py`）是任务卡和执行过程面板唯一的写入方。
 - 可选功能对象自报 `threads()`、`menu_items()`，汇总进工作线程和菜单表；没配置时不起线程、不加入口。`main()` 的停止步骤按顺序写在一个函数里，由 ExitStack 调用。
 

@@ -285,7 +285,7 @@ class TurnTests(Base):
         for name, prepare in (
                 ("broken config", lambda: (Path(self.ctx.state_dir) / "redaction" / "config.json").write_text("{")),
                 ("unreadable topic", lambda: self.topic(raw="{")),
-                ("relay cannot start", lambda: mock.patch.object(redaction, "LoopbackServer",
+                ("relay cannot start", lambda: mock.patch("covey.core.serving.LoopbackServer",
                                                                   side_effect=OSError("busy")).start()),
                 ("upstream unknown", lambda: os.environ.__setitem__("ANTHROPIC_BASE_URL", "nonsense"))):
             with self.subTest(name), mock.patch.dict(os.environ), \
