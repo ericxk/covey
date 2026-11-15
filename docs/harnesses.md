@@ -221,6 +221,17 @@ dsh 是 DeepSeek 官方开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，�
 - **续接**：`--session-id`，只能在创建会话时的工作目录。
 - **限制**：没有原生问答、执行中补充、原生图片、原生 fork；网页搜索要 `DEEPSEEK_API_KEY`。
 
+## 在设备上运行
+
+开了多设备（`COVEY_DEVICES=1`，[配置](configuration.md#多设备开发中默认关)）后，工作区写成 `别名:路径` 的话题，Agent 跑在那台设备上，不在 Bridge 所在的机器上。只有 Claude Code 和 Codex 能在设备上跑；Pi、DeepSeek Harness 和扩展的 Harness 不能（设备的 `harnesses` 只认 `claude`、`codex`）。默认关，真机验收在进行；结构和不变量见[架构：设备](architecture.md#设备多设备默认关)。
+
+- **哪些在设备上**：Harness 的命令（`claude`、`codex`）、它的登录、会话文件、模型目录、代理和证书都是设备上的。Bridge 不替设备登录，也不转发 Claude、OpenAI 的令牌；设备上要先登录好。设备上的环境从空开始，只带设备档案里通过白名单的代理和证书变量，再加 `devices.json` 的 `env`。`--claude-cmd`、`--codex-cmd` 指的是 Bridge 本机的命令，在设备上换成自检时记在档案里的路径（没找到就用命令名）；要用登录 shell 的环境时写设备的 `login_shell`，不是 `--claude-login-shell`。
+- **启动前**：新加或改了设备以后先跑自检（`bin/covey_devices.py check <别名>`，[运维](operations.md#设备自检)），它在设备上对每个声明的 Harness 真跑一次最小请求。每一轮开始前只读最近的自检和 `hello`，不在 Bridge 上找命令；没登录当场拒绝。
+- **和本机的差别**：设备话题没有回退、下载请求与结果、压缩、分叉和敏感词脱敏（话题开着脱敏时设备上的这一轮拒绝）；不取 git diff 快照，所以没有改动摘要。补充、原生问答和图片照常，但文件要先传到设备（见下一条）。启动卡和换配置卡列的模型仍是 Bridge 本机的目录；Claude 实际用的模型目录取自设备，Codex 的 `models_cache.json` 从设备的 `~/.codex/` 取回。
+- **文件**：消息里的图片和文件在开跑前、补充时放到设备的 `.covey/incoming/` 下，提示词里写设备路径；Claude 的图片仍由 Bridge 读本机文件做 base64，Codex 的图片用设备上的副本，并把这个目录加进它的工作区读取范围。产物和 `show_images` 从设备取回再上传，规则见[配置](configuration.md#多设备开发中默认关)的「已知限制」。
+- **权限**：执行权限设置同本机（见下面「执行权限」）；Codex 的可写根目录加上设备上的任务目录和检查点镜像目录。设备上的进程对那台设备有同样的权力，所以 `spaces` 默认只给主人私聊。
+- **断线**：设备上的 Agent 由设备端小程序守着，Bridge 断线时它照常跑；超过耐心值才按中断处理，恢复后先停掉旧进程再 `--resume`，见[配置](configuration.md#多设备开发中默认关)的「离线、重启与恢复」。
+
 ## 执行权限
 
 默认面向个人开发机：Harness 以运行机器人的账号执行本机命令，能读写它能访问的所有文件。用自己的开发账号，不要把状态目录复制给同事。

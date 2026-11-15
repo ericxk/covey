@@ -162,6 +162,36 @@ def stage(ctx, job, prompt, attachments=()):
     return result
 
 
+def stage_message(ctx, job, text, *, log=None, say=None):
+    """``text`` as it goes into a turn that is already running on a device (a supplement, the riders of a native answer):
+    the files it names under ``incoming_media`` are put on the device as ``stage`` does for a first turn, and the text
+    names the copies (a file that cannot be put is left out, with the same lines). ``text`` itself for a job on this
+    machine and for a text with no such file; it never raises. ``log(line)`` gets the one log line, ``say(line)`` the line
+    for the user about the files left out."""
+    device = str(getattr(job, "device", "") or getattr(ctx, "device", "") or "")
+    if not device or not text:
+        return text
+    if getattr(ctx, "device", "") != device:
+        ctx = dataclasses.replace(ctx, device=device, remote_workdir=getattr(job, "remote_workdir", ""))
+    try:
+        staged = stage(ctx, job, text)
+    except Exception as exc:  # noqa: BLE001 - the message is sent as it is rather than not at all
+        if log:
+            log("device supplement files not staged: %s" % type(exc).__name__)
+        return text
+    if log and (staged.put or staged.skipped):
+        log("device attachments job=#%s device=%s put=%d skipped=%d bytes=%d (a message into the running turn)" % (
+            job.job_id, device, len(staged.put), len(staged.skipped), sum(size for _, size, _ in staged.put)))
+    line = staged.card_line(device)
+    if line and say:
+        try:
+            say(line)
+        except Exception as exc:  # noqa: BLE001 - the message goes on; only the line failed
+            if log:
+                log("device attachments note not shown: %s" % type(exc).__name__)
+    return staged.prompt
+
+
 def _replace(text, replacements):
     """``text`` with each key of ``replacements`` replaced in one pass, the longest first (a path that is the start of
     another is not cut out of it)."""

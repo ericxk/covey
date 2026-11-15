@@ -406,6 +406,33 @@ cancelled、superseded：终态
 - **授权**（规则 5）：只发 `load_authorized_reply` 取到的已授权回复；重新发送不跑模型。
 - **主人**（规则 11）：主人判断来自 `Access`；`owner_user_id` 只用来认出主人自己发的消息。
 
+## 设备（多设备，默认关）
+
+让话题的 Agent 在另一台 Linux 机器上跑（`COVEY_DEVICES=1` 加 `devices.json`），Bridge 仍在原来的机器上收发飞书消息、写卡片、存记录。配置、字段、浏览和自检的用法见[配置：多设备](configuration.md#多设备开发中默认关)，自检、排障和回滚见[运维](operations.md#设备自检)，Harness 在设备上的差别见[Harness 说明](harnesses.md#在设备上运行)。这里只写结构和不变量。
+
+**总形状**：设备上跑一个单文件小程序（`core/device_shim.py`，协议见上面的[设备端小程序](#设备端小程序)），它起并看守 Agent、把输出写进只追加的 journal；hub 经 ssh 的一条主连接（`core/device_transport.py`）和它说话。后端不知道自己在设备上：`core/process.py` 的 `spawn_process` 在上下文带 `device` 时返回 `core/device_link.py` 的 `DeviceProcess`（像 `Popen`：stdin、stdout、`poll`、`wait`、信号），Claude 的 `ClaudeProcess` 和 Codex 的 `AppServer` 照常读写管道。链路线程按字节偏移 `attach`、丢已见的帧、断线退避重连，请求账本和偏移存在 `runs/<任务键>/device.json`，所以重连和 runner 重启都不重放已投递的帧。`别名:路径` 在 hub 上解码成一个永远不存在的占位目录加 `device`、`remote_workdir`（`bind_workdir`），没改到的代码路径因此明确失败，不会碰到本机目录。
+
+**设备门**：一个设备话题的每一轮要依次过下面几道，哪一道不过都是当场拒绝并在卡上写原因，不排队、不改到本机跑。
+- **开关与名单**：`devices.enabled()` 和 `devices.json` 里有这个别名；开关关着时 `gpu1:/x` 只是一个普通（相对）路径，一切同旧。
+- **谁能用、哪个 Harness**：`Access.allows_device(chat, device)`（规则 11：谁被服务只经 `app/access.py`）和设备声明的 `harnesses`；启动卡、换配置卡只列能用的设备，点击和每一轮开始前各再查一次（`app/runs.py` 的 `_device_refusal`）。
+- **目录和可用性**：设备经 `stat` 答复目录在不在（5 秒，设备的话，不是 hub 的 `Path.exists`）；`app/availability.py` 读设备最近的 `hello` 和自检结果，不在 hub 上找命令。
+- **能力位**：`core/harness.py` 的 `for_device(caps, ctx)`（`DEVICE_OFF`）在设备上关掉 `native_fork`、`compaction`、`turn_export`、`redaction`、`rewind`；各入口（回退、下载、压缩、分叉、启动卡的脱敏选项）都经 `backend_capabilities` 取值，所以按钮不出现、不是出现后点了才拒。几处没有 `pid` 的地方有闸门：Claude 的轮前压缩、`ClaudeBackend.compact_session`、主线程的空闲压缩和压缩子进程在设备上直接返回。话题开着脱敏时设备上的这一轮拒绝，不会不脱敏地发出去。
+- **hub 上的副作用**：设备话题不取 git diff 快照，不在占位目录里跑 `git`、不写文件；`tests/test_device_gates.py` 在整轮执行期间用审计钩子（`tests/support/device_guard.py`）记录所有 `open`、`stat`、`subprocess`，断言占位目录从未被碰、spawn 规格的环境里没有 hub 的 `LARK_*`、`FEISHU_*`、`COVEY_*`、提示词和线程参数里没有 hub 的路径。设备话题里新加的任何 hub 侧文件操作都要走这个审计。
+
+**检查点镜像**：`job.checkpoint_path` 仍是 hub 路径，hub 侧所有读写不变；提示词里写的是设备上的镜像路径（`~` 下 `.covey/checkpoints/<hub-id>/<任务键>.json`，`devices.checkpoint_mirror`）。首轮把 hub 当前的检查点作为种子文件随 `spawn` 放过去，设备端每秒比较文件的 mtime、大小和 inode，变了就写一条 `cp` 记录，链路线程原子写回 hub 那份（上限 1 MiB，超了只标记不截断）；Agent 退出后再比较一次才写 `exit`。hub 对检查点的改写（如 `release_user_wait`）只改 hub 那份，下一轮是新任务键、新文件，不需要回写。
+
+**文件进出**（`app/device_files.py`，hub 从不打开设备上的路径）：
+- **进**：提示词引用的 `incoming_media` 文件开跑前经 `put` 放到设备的 `.covey/incoming/<hub-id>/<任务键>/`，提示词里的 hub 路径换成设备路径；超限（单个 64 MiB、每轮 256 MiB）、读不了、设备不答复的文件跳过，原处写「未传到设备」，卡上记一行。执行中补充（`app/steering.py` 的 `deliver_steer`）、等回答时的补充说明、随原生问题的回答一起发出的附件和另外补充（`app/questions.py`）走同一个函数 `stage_message`，处理同首轮；已入队但还没开跑的任务不传，它的请求在开跑时统一处理。Claude 的图片仍由 hub 读本机文件再做 base64，Codex 的图片用设备上的副本。
+- **出**：检查点里的产物和 `show_images` 经设备端 `stat`、`get`：名单（`SENSITIVE_NAMES`、代理目录）作为 `deny_names`、`deny_dirs` 发给设备，真实路径和越界在设备上算，hub 对设备报回的路径每一段再判一遍；取回到 `runs/<任务键>/device-files/`，再走和本机文件一样的上传。设备上的产物必须在设备工作区内，图不限；目录暂不支持。
+
+**浏览与自检**：目录浏览器（`app/directory_picker.py`）在搜索框里认 `别名:路径`，列目录是设备端的 `ls`，搜索是在设备上跑一小段 Python，结果缓存的键带设备别名，视图带 `device`，设备视图从不展开 hub 的 `~`；谁能浏览仍是主人，而且聊天要在设备的 `spaces` 里。自检 `core/devices.py` 的 `self_check` 和 `bin/covey_devices.py check`、设置卡的设备状态行共用：ssh 探测、推小程序、`hello`、导入环境档案（只收白名单名字，带凭据的代理拒收）、对每个声明的 Harness 真跑一次最小请求，结论写进 `devices/<别名>/profile.json`。画卡时读缓存，不去问设备。
+
+**离线与恢复**：设备上的 Agent 由设备端小程序守着，hub 连不上时它照常跑，所以「失联」和「停掉」是两件事。连接断开累计超过耐心值（`patience_minutes`，等回答时改用 `waiting_patience_hours`）这一轮结算为 `interrupted`、原因 `device_lost`，不自动再试。凡是要停设备上的进程但当场连不上的（失联、断线时点停止、任务进程退出、Bridge 重启、官方拒绝的停止），都只在 `devices/<别名>/pending-reap.json` 登记一条，`app/devices.py` 的 `devices` 线程（60 秒一轮，只在开关开着且有设备时才起）探活、重放登记、每小时让设备 `gc`；同一话题的下一轮开始前先 `reap` 上一个设备任务（`core/device_reap.py`），设备不确认就不起新一轮。`reap` 只杀确认属于该任务的进程组。收口挂在三处，都只登记或调 `reap`：`app/detached.py` 的 `finish_detached`、`app/app.py` 的 `notify_stale_jobs`、`app/policy_guard.py` 的 `stop_tree` 之后；官方拒绝的停止在设备确认前不标已确认（`cleanup_unconfirmed`）。状态行（`job.device_state` 进 `core/longtask.py` 的 `Facts`）的文案和各情形的处理见[配置：离线、重启与恢复](configuration.md#多设备开发中默认关)。
+
+**设备端小程序协议的要点**（细节见上面的[设备端小程序](#设备端小程序)）：版本字段 `proto`，字段只加不改；命令的 stdout 第一行永远是 `hi`；`spawn` 按任务键和规格哈希幂等，输入按 `seq`、记录按偏移、`put` 按哈希、`reap` 可重复，所以 hub 这边「不确定就重发同一帧」是安全的；链路层错误（`LinkError`）不说明命令有没有执行，只重发幂等的命令。小程序只用标准库、按 Python 3.9 写，改它之后跑 `scripts/check_shim_compat.py`（它也检查 hub 写进 `~/.covey/` 的目录 `gc` 都清得到）。
+
+**关着时不变**：关开关，或开了但 `devices.json` 里没有设备，不读文件、不建 `<状态目录>/devices/`、不起线程，上下文、任务记录里没有 `device` 字段，卡片 JSON 和 `runs/` 协议同旧；新增代码都以「记录或上下文里有 `device`」为前提。验证它：`tests/golden/run_dir.json` 和 `cards.json` 无 diff、`golden_trace` 对关着的模块无差异、`scripts/cross_release.py` 的 `devices-empty-new` 场景等于关着，以及回滚场景 `device-rollback`（[测试](testing.md#任务进程协议与跨版本检查)）。真机验收还在进行，所以默认关。
+
 ## 执行指标口径
 
 任务卡和任务详情上 token、缓存、平均 token/s 和 TTFT 的共同口径（面板见[任务卡与执行过程](usage.md#任务卡与执行过程)，延迟字段见[健康诊断](troubleshooting.md#健康诊断)）；各后端从哪里取数见 [Harness 说明](harnesses.md)各节的“执行指标”。

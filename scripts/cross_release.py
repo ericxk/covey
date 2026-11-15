@@ -28,6 +28,15 @@ Variants:
   sigterm     SIGTERM to the runner: exit "interrupted", finish_detached's sigterm cause, automatic restart, recovery card.
   killed      SIGKILL to the runner: no exit.json, finish_detached, the notice when no card can be written.
   downkilled  Bridge killed, then the runner killed: the next Bridge finds it dead (report_unfinished from notify_stale_jobs).
+
+Devices (docs/architecture.md "设备"; the switch is COVEY_DEVICES, off in the other scenarios):
+  devices-empty-new  base-new again with COVEY_DEVICES=1 and a devices.json that lists no device (every variant above): it must
+              equal base-new and base-old, as when the switch is off.
+  device-rollback  the Bridge of the new release makes a topic on a device (topic.json holds ``gpu1:/home/user/proj``); the
+              Bridge and runner of the old release then take the next message of that topic. Variants device_rollback (the old
+              process has no COVEY_DEVICES, the usual rollback) and device_rollback_on (it still has the switch and the
+              devices.json). The topic's turn must be refused: no backend.run in the runner, a finished record that says so.
+              ``compare`` prints what the old release did and exits 1 when it ran the turn here.
 """
 from __future__ import annotations
 
@@ -52,14 +61,42 @@ TOOL = "cross_release"  # meta.json's marker: a directory holding it is one of t
 # name: (Bridge that starts the runner, the runner's release, the Bridge after the restart)
 SCENARIOS = {"base-old": ("old", "old", "old"), "base-new": ("new", "new", "new"),
              "new-bridge-old-runner": ("new", "old", "new"), "old-bridge-new-runner": ("old", "new", "old"),
-             "deploy-old-to-new": ("old", "old", "new"), "rollback-new-to-old": ("new", "new", "old")}
+             "deploy-old-to-new": ("old", "old", "new"), "rollback-new-to-old": ("new", "new", "old"),
+             "devices-empty-new": ("new", "new", "new"), "device-rollback": ("new", "old", "old")}
 # Each scenario against the same-release runs whose code it mixes; base-new against base-old says
 # whether the two releases behave the same here at all.
 PAIRS = [("new-bridge-old-runner", "base-old"), ("new-bridge-old-runner", "base-new"),
          ("old-bridge-new-runner", "base-old"), ("old-bridge-new-runner", "base-new"),
          ("deploy-old-to-new", "base-old"), ("deploy-old-to-new", "base-new"),
-         ("rollback-new-to-old", "base-new"), ("rollback-new-to-old", "base-old"), ("base-new", "base-old")]
+         ("rollback-new-to-old", "base-new"), ("rollback-new-to-old", "base-old"), ("base-new", "base-old"),
+         ("devices-empty-new", "base-new"), ("devices-empty-new", "base-old")]
 VARIANTS = ("main", "plain", "stop", "sigterm", "killed", "downkilled")
+ROLLBACK_VARIANTS = ("device_rollback", "device_rollback_on")  # Only of the device-rollback scenario, which has no other.
+ALL_VARIANTS = VARIANTS + ROLLBACK_VARIANTS
+DEVICE_PATH = "gpu1:/home/user/proj"
+
+
+def applies(scenario: str, variant: str) -> bool:
+    return (scenario == "device-rollback") == (variant in ROLLBACK_VARIANTS)
+
+
+def device_env(scenario: str, variant: str, phase_name: str, scratch: Path) -> dict:
+    """What a Bridge process of the device scenarios gets besides scrubbed_env(): the switch and the file."""
+    given = {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(scratch / "devices.json")}
+    if scenario == "devices-empty-new":
+        return given
+    if scenario == "device-rollback" and (phase_name == "start" or variant == "device_rollback_on"):
+        return given
+    return {}
+
+
+def devices_file(scenario: str, scratch: Path) -> None:
+    """The scenario's devices.json: no device, or gpu1 that no one can reach (nothing here ever connects to it)."""
+    devices = {}
+    if scenario == "device-rollback":
+        devices = {"gpu1": {"title": "GPU 1", "ssh": {"host": "gpu1.invalid"}, "harnesses": ["claude", "codex"],
+                            "spaces": ["owner_private", "personal_groups", "team"]}}
+    (scratch / "devices.json").write_text(json.dumps({"schema": 1, "defaults": {"connect_seconds": 1}, "devices": devices}))
 WAIT = 240.0  # One step under a loaded machine (load average ~450 on 64 CPUs).
 
 
@@ -572,6 +609,58 @@ class Side:
         self.fact("runner_events", read_lines(self.scratch / "runner-events.jsonl"))
         self.fact("runner_log", (directory / "runner.log").read_text().splitlines())
 
+    def rollback_start(self):
+        """The new release: a topic whose workspace is on a device, as the launch card leaves it (topic.json), no job."""
+        from covey.core import devices
+        from covey.core.topics import bind_topic
+        # "chat" is the owner's private chat with the bot, so that a device of owner_private is allowed there.
+        (self.state / "owner-chat.json").write_text(json.dumps({"owner": "owner", "chat_id": "chat"}))
+        event = {"chat_id": "chat", "sender_id": "owner", "message_id": "task", "root_id": "", "content": "task"}
+        app, target = self.gateway.topics.route(self.ctx, event)
+        binding = devices.bind_workdir(self.ctx, DEVICE_PATH)
+        bind_topic(target, "gpu1-proj", binding.workdir, stored=binding.value)
+        topic = json.loads((self.state / "topics" / target.topic_id / "topic.json").read_text())
+        self.fact("device", binding.device)
+        self.fact("topic", {k: topic.get(k) for k in ("workspace_name", "workdir", "workspace_locked")})
+
+    def rollback_adopt(self):
+        """The old release: the next message of that topic (a reply in its thread), as the Bridge takes it."""
+        import threading
+        from covey.app import submission
+        from covey.core.jobs import max_job_id
+        runtime = self.gateway.runtime
+        runtime.jobs.counter = max_job_id(self.state)
+        self.fact("topic_before", {k: json.loads(p.read_text()).get(k) for p in (self.state / "topics").glob("*/topic.json")
+                                   for k in ("workspace_name", "workdir", "workspace_locked")})
+        event = {"chat_id": "chat", "sender_id": "owner", "message_id": "m2", "root_id": "task", "content": "next"}
+        app, target = self.gateway.topics.route(self.ctx, event)
+        self.fact("target_workdir", str(target.workdir))
+        submission.prestart_runner = lambda *a, **k: None
+        job = app.submission.enqueue_chat_job(target, "请做这件事", "chat", "m2", prompt_content="请做这件事", title="题")
+        self.fact("queued", job is not None)
+        if job is None:
+            return
+        job = runtime.jobs.queue.get_nowait()
+        thread = threading.Thread(target=self.gateway.process_reply_job, args=(job, self.ctx), daemon=True, name="scheduler")
+        thread.start()
+        runs = lambda: [r for r in read_lines(self.scratch / "runner-events.jsonl") if r["what"] == "backend.run"]
+        self.wait("the turn to be refused or to start", lambda: runs() or not thread.is_alive())
+        ran = bool(runs())
+        if ran:  # It started on this machine: let it finish, so that nothing is left running.
+            self.command(1, do="finish")
+        self.wait("the scheduler thread", lambda: not thread.is_alive())
+        self.fact("backend_runs", [{"workdir": r.get("workdir")} for r in runs()])
+        self.fact("ran_here", ran)
+        record = self.record("m2") if (self.state / "jobs" / "m2.json").exists() else {}
+        self.fact("record", {k: v for k, v in record.items() if isinstance(v, (str, bool)) and k not in {"user_text", "prompt"}})
+        self.fact("record_status", record.get("status"))
+        directory = self.state / "runs" / "m2"
+        self.fact("run_dir", directory.exists())
+        log = directory / "runner.log"
+        self.fact("runner_log", [line for line in log.read_text().splitlines() if not TIMING_LINE.match(line)] if log.exists() else [])
+        self.fact("runner_notices", [r.get("text") for r in read_lines(self.scratch / "runner-events.jsonl")
+                                     if r["what"] == "feishu.send_message"])
+
     def save(self, error=None):
         out = {"phase": self.phase, "error": error, "code": self.code, "facts": self.facts, "log": self.logs,
                "feishu": [r for r in read_lines(self.events_path) if r["what"].startswith(("feishu.", "network."))]}
@@ -582,7 +671,10 @@ def bridge_entry(tree, shim, scratch, phase, variant):
     side = Side(tree, shim, scratch, phase, variant)
     error = None
     try:
-        side.start() if phase == "start" else side.adopt()
+        if variant in ROLLBACK_VARIANTS:
+            side.rollback_start() if phase == "start" else side.rollback_adopt()
+        else:
+            side.start() if phase == "start" else side.adopt()
     except BaseException:  # noqa: BLE001
         import traceback
         error = traceback.format_exc()
@@ -637,8 +729,10 @@ def run_one(out: Path, trees: dict, stamp: str, scenario: str, variant: str) -> 
         (shim / "bin" / name).write_text("# Only its path is used: a runner's handoff names it.\n")
     result = {"scenario": scenario, "variant": variant, "trees": [bridge_a, runner_tree, bridge_b], "stamp": stamp}
     env = scrubbed_env(scratch)
+    devices_file(scenario, scratch)
 
     def phase(name, tree):
+        env = {**scrubbed_env(scratch), **device_env(scenario, variant, name, scratch)}
         try:
             done = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), "bridge", trees[tree], str(shim),
                                    str(scratch), name, variant], env=env, cwd=scratch, capture_output=True, text=True,
@@ -659,7 +753,7 @@ def run_one(out: Path, trees: dict, stamp: str, scenario: str, variant: str) -> 
             info = json.loads((scratch / "state/runs/task/runner.json").read_text())
             os.kill(info["pid"], signal.SIGKILL)
             time.sleep(0.5)
-        if ok and variant in {"main", "downkilled"}:
+        if ok and variant in {"main", "downkilled", *ROLLBACK_VARIANTS}:
             ok = phase("adopt", bridge_b)
     except Exception as exc:  # noqa: BLE001 - a run that broke still writes its JSON, as a failed run.
         ok = False
@@ -723,8 +817,8 @@ def run_all(args) -> int:
         print(f"refused: {why}", file=sys.stderr)
         return 2
     scenarios = args.scenarios.split(",") if args.scenarios else list(SCENARIOS)
-    variants = args.variants.split(",") if args.variants else list(VARIANTS)
-    unknown = sorted(set(scenarios) - set(SCENARIOS)) + sorted(set(variants) - set(VARIANTS))
+    variants = args.variants.split(",") if args.variants else list(ALL_VARIANTS)
+    unknown = sorted(set(scenarios) - set(SCENARIOS)) + sorted(set(variants) - set(ALL_VARIANTS))
     if unknown:
         print(f"unknown scenario or variant: {', '.join(unknown)}", file=sys.stderr)
         return 2
@@ -742,7 +836,7 @@ def run_all(args) -> int:
           flush=True)
     failed = 0
     with ThreadPoolExecutor(args.jobs) as pool:
-        for line in pool.map(lambda pair: run_one(out, trees, stamp, *pair), [(s, v) for s in scenarios for v in variants]):
+        for line in pool.map(lambda pair: run_one(out, trees, stamp, *pair), [(s, v) for s in scenarios for v in variants if applies(s, v)]):
             failed += line.endswith("FAILED")
             print(line, flush=True)
     return 1 if failed else 0
@@ -822,6 +916,34 @@ def difference(a, b):
     return {k: (x.get(k, "<absent>"), y.get(k, "<absent>")) for k in sorted(set(x) | set(y)) if x.get(k, "<absent>") != y.get(k, "<absent>")}
 
 
+def rollback(loaded, trees) -> bool:
+    """device-rollback: the old release took a message of a topic the new one made on a device. True when every run
+    of it refused (the runner never ran a backend, the record is ended) and each Bridge was the release it names;
+    None when there is no such run."""
+    good = None
+    for (scenario, variant), (data, _) in sorted(loaded.items()):
+        if variant not in ROLLBACK_VARIANTS:
+            continue
+        good = True if good is None else good
+        start, adopt = data.get("start", {}), data.get("adopt", {})
+        a, b = (adopt.get("facts") or {}), (start.get("facts") or {})
+        right = start.get("code") == trees["new"] and adopt.get("code") == trees["old"]
+        made = b.get("device") == "gpu1" and (b.get("topic") or {}).get("workdir") == DEVICE_PATH
+        refused = a.get("queued") is not False and a.get("ran_here") is False and not a.get("backend_runs")
+        print(f"{scenario} [{variant}]: topic made on the device: {made}; old release took the message: {'yes' if a else 'NO'}; "
+              f"the turn ran on this machine: {a.get('ran_here')}; record status: {a.get('record_status')}; "
+              f"target workdir: {a.get('target_workdir')}")
+        for text in (a.get("runner_notices") or []):
+            print("   the old runner said:", str(text)[:200])
+        for line in (a.get("runner_log") or [])[-3:]:
+            print("   runner.log:", line[:200])
+        if not (right and made and a and refused):
+            print("   NOT REFUSED (or not a valid run):", "wrong release" if not right else "", "" if made else "no device topic",
+                  "" if a else "no adopt facts", "" if refused else "it ran here")
+            good = False
+    return good
+
+
 def compare(args) -> int:
     out = Path(args.dir).absolute()
     meta = own_meta(out)
@@ -842,12 +964,14 @@ def compare(args) -> int:
     failed = sorted(f"{k[0]} {k[1]}" for k, v in loaded.items() if not v[0].get("ok"))
     print("runs", len(loaded), "failed", failed)
     # Every run asked for must be there: a run that never wrote its JSON is not a pass.
-    missing = [f"{s} {v}" for s in meta.get("scenarios", SCENARIOS) for v in meta.get("variants", VARIANTS)
-               if (s, v) not in loaded]
+    missing = [f"{s} {v}" for s in meta.get("scenarios", SCENARIOS) for v in meta.get("variants", ALL_VARIANTS)
+               if applies(s, v) and (s, v) not in loaded]
     print("runs missing:", missing)
     print("runs of another run (not this meta.json's stamp):", stale)
     wrong = []
     for (scenario, variant), (data, _) in loaded.items():
+        if variant in ROLLBACK_VARIANTS:
+            continue
         bridge_a, runner_tree, bridge_b = (trees[name] for name in SCENARIOS[scenario])
         facts = {**(data.get("start", {}).get("facts") or {}), **(data.get("adopt", {}).get("facts") or {})}
         if (data.get("start", {}).get("code") != bridge_a or (facts.get("runner_json") or {}).get("release") != runner_tree
@@ -869,6 +993,7 @@ def compare(args) -> int:
                    for row in (v[0].get(phase, {}).get("facts") or {}).get("runner_events", [])
                    if isinstance(row, dict) and str(row.get("what", "")).startswith("network."))
     print("connections refused (not loopback):", network)
+    refusals = rollback(loaded, trees)
     different = compared = 0
     for variant in VARIANTS:
         for scenario, baseline in PAIRS:
@@ -880,7 +1005,7 @@ def compare(args) -> int:
             print(f"{scenario} vs {baseline} [{variant}]: {len(found)} differences")
             for key, (x, y) in list(found.items())[:args.show]:
                 print("   ", key, "\n       -", str(x)[:220], "\n       +", str(y)[:220])
-    equal = not failed and not wrong and not different and not missing and not stale and compared
+    equal = not failed and not wrong and not different and not missing and not stale and (compared or refusals is not None) and refusals is not False
     print("all equal" if equal else f"NOT EQUAL: {len(failed)} failed, {len(missing)} missing, {len(stale)} of another run, "
           f"{len(wrong)} on the wrong release, {different} of {compared} pairs with differences")
     return 0 if equal else 1
@@ -898,7 +1023,7 @@ def main(argv=None) -> int:
     run.add_argument("--out", required=True, help="a directory of its own, outside this checkout, $HOME and /tmp")
     run.add_argument("--jobs", type=int, default=4)
     run.add_argument("--scenarios", default="", help=f"comma-separated, of {', '.join(SCENARIOS)}")
-    run.add_argument("--variants", default="", help=f"comma-separated, of {', '.join(VARIANTS)}")
+    run.add_argument("--variants", default="", help=f"comma-separated, of {', '.join(ALL_VARIANTS)}")
     cmp_ = sub.add_parser("compare", help="compare the runs in a directory")
     cmp_.add_argument("dir")
     cmp_.add_argument("--show", type=int, default=12, help="differences shown per pair")

@@ -103,7 +103,7 @@
 | [多路并行](main-thread.md#多路并行开关默认关) | `COVEY_MAIN_TRACKS=1` | 主线程一轮在做时，下一句按规则和小模型并进某一路或新开一路；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
 | [派发活卡片](#派发活卡片) | `COVEY_MAIN_DISPATCH_CARD=1` | `dispatch_cards` 线程；主线程派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
-| [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 目前只有配置、连接和设备端小程序的 hub 侧代码，还没接进话题和任务；开了也不起线程，不改已有行为 |
+| [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 设备上能跑 Claude Code 和 Codex 的话题（经 ssh）；默认关，真机验收在进行。开了才有 `devices` 线程；关着，或开了但没有设备时，线程、文件和行为都同没有这个功能 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
 | [自动补齐飞书应用](operations.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 线程 |
 | [内存看门狗](operations.md#内存看门狗) | `bin/covey_memguard.py enable` | 独立进程；`memguard` 线程转发告警 |
@@ -197,22 +197,9 @@
 
 ### 多设备（开发中，默认关）
 
-让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。第 1 期只支持 Claude Code 和 Codex。**这一节写的是已落地的那一部分**：配置、`别名:路径` 的解码、ssh 命令行、推送设备端小程序、`hello` 和环境档案、自检（实现在 `core/devices.py`、`core/device_transport.py`，设备端程序是 `core/device_shim.py`），话题的上下文和工作区（`别名:路径` 写进工作区列表、启动卡、换配置和 topic.json，见下面「工作区和上下文」），以及在飞书里浏览设备目录（见「浏览设备目录」）。任务进程还没有接上它，所以现在设备上的话题还起不了任务：每一轮开始前会按名字拒绝。
+让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。设备上能跑 Claude Code 和 Codex 的话题；默认关，真机验收在进行（第 1 期只支持这两个 Harness）。这一节写配置和用法，结构和不变量见[架构：设备](architecture.md#设备多设备默认关)。
 
-`COVEY_DEVICES=1`（旧名 `LARK_BRIDGE_DEVICES`，只认 `1`）打开。设备写在 `$COVEY_DATA_HOME/devices.json`，`COVEY_DEVICES_FILE` 可以指向别处。不设开关、或开了但没有文件、没有设备时：不读文件、不建 `<状态目录>/devices/`、不起线程，`gpu1:/路径` 就是一个普通的（相对）路径，一切照旧。
-
-```json
-{"schema": 1,
- "defaults": {"patience_minutes": 15, "waiting_patience_hours": 6, "connect_seconds": 5},
- "control_dir": "/absolute/local-disk/covey-ssh",
- "devices": {"gpu1": {
-   "title": "GPU 1",
-   "ssh": {"host": "<ssh 别名或 user@host>", "options": ["-J", "<跳板>"], "python": "python3"},
-   "harnesses": ["claude", "codex"],
-   "env": {"HTTPS_PROXY": "http://proxy.example:3128"},
-   "login_shell": false,
-   "spaces": ["owner_private"]}}}
-```
+实现在 `core/devices.py`（配置、`别名:路径` 的解码、ssh 命令行、推送设备端小程序、`hello` 和环境档案、自检）、`core/device_transport.py`、`core/device_link.py`（任务进程）和设备端程序 `core/device_shim.py`。话题的上下文和工作区（`别名:路径` 写进工作区列表、启动卡、换配置和 topic.json，见下面「工作区和上下文」）、文件进出、浏览设备目录、离线和恢复各有一段，下面按顺序写。设备上的话题每一轮开始前先过一遍设备门（Bridge 上的目录检查换成设备的 `stat`、谁能用、Harness 在不在、设备答不答复），过不了就当场拒绝，不排队，也不会改到本机跑。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -267,7 +254,7 @@
 - 设备上的话题没有压缩（轮前压缩、主线程的空闲压缩都不会碰设备上的会话），能力位里的 `native_fork`、`compaction`、`turn_export`、`redaction`、`rewind` 一并关掉，卡上没有回退、下载请求与结果按钮。话题开着敏感词脱敏时，设备上的这一轮直接拒绝，不会不脱敏地发出去。
 - 任务的检查点在 Bridge 本机那份不变；提示词里写的是设备上的镜像路径（设备用户目录下 `.covey` 里的 `checkpoints` 目录，每个任务一个文件），首轮把 Bridge 写好的检查点放过去，设备上每次改动约 1 秒内写回 Bridge 那份。检查点里登记的产物路径和 `show_images` 是设备上的路径，Bridge 不去本机找同名文件，一律经设备端程序取（见下一条）。
 - 设备话题的文件进出都经设备端程序（`stat`、`get`、`put`），Bridge 不打开设备上的任何路径（`app/device_files.py`）：
-  - **附件（进）**：消息里的图片和文件先存在 Bridge 本机的话题目录，开跑前把提示词里引用的那几个 `put` 到设备用户目录下 `.covey/incoming/<hub-id>/<任务键>/`，提示词里的路径换成设备上的路径，Bridge 本机的路径不会出现在提示词里。单个文件最多 64 MiB，一轮合计最多 256 MiB，超了的、读不了的、设备没答复的文件都不传：提示词里原来的路径位置写「未传到设备」并列出文件名和原因，任务卡的执行过程里记一行，日志一行 `device attachments`。设备上这个目录目前没有人清理（设备端程序的 `gc` 只管任务目录）。Claude 的图片仍由 Bridge 读本机文件、用 base64 发给模型；Codex 的图片用设备上的副本，没传成的图片不发给模型。
+  - **附件（进）**：消息里的图片和文件先存在 Bridge 本机的话题目录，开跑前把提示词里引用的那几个 `put` 到设备用户目录下 `.covey/incoming/<hub-id>/<任务键>/`，提示词里的路径换成设备上的路径，Bridge 本机的路径不会出现在提示词里。单个文件最多 64 MiB，一轮合计最多 256 MiB，超了的、读不了的、设备没答复的文件都不传：提示词里原来的路径位置写「未传到设备」并列出文件名和原因，任务卡的执行过程里记一行，日志一行 `device attachments`。设备上这个目录由设备端程序的 `gc` 清（见上面「设备上的清理」）。Claude 的图片仍由 Bridge 读本机文件、用 base64 发给模型；Codex 的图片用设备上的副本，没传成的图片不发给模型。执行中补充和等回答时的补充说明、随回答发出的附件和另外补充，也是同一套：先传到设备，文字里换成设备路径；超限和失败的处理同首轮，漏掉的文件在话题里回一行。任务还没开跑时补充，文字并进它的请求，等它开跑时再一起传。
   - **产物（出）**：检查点 `artifacts` 里的路径（相对路径按设备工作区算，`~` 是设备的家目录）先在 Bridge 上按名字判一遍（`.ssh`、`.git`、`.codex`、`.claude` 等代理目录、`.env*`、`auth.json`、`credentials.json`、`.local-state`，和本机产物同一张表），再让设备 `stat`：真实路径（跟着链接走）和是否越出工作区都在设备上算，同一张名字表作为 `deny_names`、`deny_dirs` 随请求发过去；Bridge 对设备报回的真实路径的每一段再判一遍。通过后 `get` 到 `<状态目录>/runs/<任务键>/device-files/<哈希>/`，再走和本机文件一样的云空间上传。设备上的产物必须在设备工作区之内（链接指到外面的也算在外面）；目录暂不支持（请打包成文件）；单个文件的上限同本机（旧的逐文件发送 20 MB，云空间上传 200 MB）。设备断线时这一项在卡上写「设备 gpu1 没有答复」，恢复后点重新上传。
   - **图（出）**：`show_images` 里的绝对路径（设备上的图片文件，不超过 10 MB，同一轮最多 5 张）经同一条路径检查后取到 Bridge 再发，不要求在工作区内（二维码常存在 `/tmp`）；同一张图（设备、路径、大小、修改时间）一轮只发一次。
   - 答案卡的「输入/输出」框本期不显示设备文件的大小。回复正文里的 Markdown 本地图片仍不上传。

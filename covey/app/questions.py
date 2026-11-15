@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from covey.core.checkpoint import read_checkpoint, release_user_wait
+from covey.app import device_files
 from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
@@ -278,6 +279,9 @@ class Questions:
             notes = self.notes.claim_held(ctx, chat, token, "feedback" if feedback else "answer")
             # `shown` is what the user wrote, for cards; `text` adds the attachments' local paths for the model.
             shown, text, delivered = answer_message(record, answers, feedback, notes)
+            sent = text
+            if getattr(job, "device", ""):  # Its attachments are put on the device first (app/device_files.py).
+                sent, delivered = self._device_message(ctx, chat, job, token, record, text, delivered)
             if record.get("native_live_question") is True:
                 control = job.backend_control
                 with control.control_lock:
@@ -290,7 +294,7 @@ class Questions:
                 transition_question(path, {"submitting"}, delivery_state="awaiting_ack")
                 job.backend_control.answer(record["request_id"], delivered)
             else:
-                job.backend_control.steer(text, event_id)
+                job.backend_control.steer(sent, event_id)
                 record["delivery_state"] = "delivered"
             if record["blocking"]:
                 release_user_wait(Path(job.checkpoint_path))
@@ -314,6 +318,23 @@ class Questions:
                                         prior, title, retried))
             return
         self._commit_answer(ctx, chat, token, record, path, notes, feedback)
+
+    def _device_message(self, ctx, chat, job, token, record, text, delivered):
+        """(text, delivered) of an answer to a running task on a device with the files they name put there: the answer
+        text, and the riders on the last answer of a native question (the attachments, the 补充说明 and the held notes)."""
+        say = lambda line: self.messenger.reply(ctx, chat, line, self.voice.key("device-answer-files", token),  # noqa: E731
+                                                voice=self.voice)
+
+        def stage(value):
+            return device_files.stage_message(ctx, job, value, log=self.runtime.log, say=say)
+        text = stage(text)
+        if delivered is not None and record.get("questions"):
+            last = record["questions"][-1]["id"]
+            given = (delivered.get(last) or {}).get("answers")
+            if isinstance(given, list):
+                delivered = {**delivered, last: {**delivered[last], "answers": [stage(item) if isinstance(item, str) else item
+                                                                                  for item in given]}}
+        return text, delivered
 
     def _queue_continuation(self, ctx, chat, token, record, path, answers, feedback, prior, title, policy_retry=None):
         try:

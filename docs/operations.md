@@ -322,8 +322,10 @@ systemctl --user restart lark-bridge-manager.service
 
 1. 看 `<状态目录>/devices/<别名>/pending-reap.json`：有条目说明设备上的任务还没确认停掉。`tries` 在涨、`last_try` 在更新说明 `devices` 线程在试；`health.json` 的 `ok` 为 `false` 是设备连不上，先修 ssh（`ssh <host> true`，`known_hosts`、跳板、代理），连上后一分钟内自动收割。
 2. `bridge.log` 里 `devices: <别名> reaped N pending` 是收割结果；`reap` 一直被拒（设备上进程组不是这个任务的，常见于设备重启后进程号被别的进程用了）时，登到设备上确认 `~/.covey/tasks/<hub-id>/<任务键>/state.json` 的进程组已经没有 Agent，再从 `pending-reap.json` 和 `tasks/<话题>.json` 里删掉对应条目（改文件前先停 Bridge 或确认没有任务在跑）。
-3. 设备磁盘上 `~/.covey/checkpoints/` 变大：线程每小时 `gc` 一次，7 天没变的镜像才清；设备一直离线就不会清。
+3. 设备磁盘上 `~/.covey/checkpoints/`（检查点镜像）或 `~/.covey/incoming/`（传到设备的附件）变大：线程每小时 `gc` 一次，7 天没变、也不属于运行中任务的才清；设备一直离线就不会清。
 4. 设备失联后任务记录是 `interrupted`、`interrupted_by` 为 `device_lost`，不会自动重试；设备回来后点卡上的检查并继续即可（会先收割再 `--resume`）。耐心值怎么改见[多设备](configuration.md#多设备开发中默认关)的「离线、重启与恢复」。
+
+5. 回滚到旧 release：设备话题的 `topic.json` 里存的是 `gpu1:/路径`。不认设备的旧 release（或回滚时没带 `COVEY_DEVICES=1`）把它当一个不存在的相对路径，这一轮被拒绝（「本话题的工作目录不存在，后端没有启动」），不会在本机跑；带着开关的旧 release 按设备规则拒绝或照设备跑，取决于它有没有这一版的设备代码。回滚后设备上还在跑的 Agent 不受影响，也不会被停掉：升回来后同一话题的下一轮会先 `reap` 再 `--resume`。跨版本检查的 `device-rollback` 场景（[测试](testing.md#任务进程协议与跨版本检查)）每次发布前验证这一点。
 
 ## 改名 Covey 后的兼容
 

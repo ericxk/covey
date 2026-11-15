@@ -517,6 +517,95 @@ class DeviceTurn:
             args = config["mcp_servers.bridge_workspace.args"]
             self.assertIn(directory, [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "--extra-root"])
 
+    # ---- a message into the running turn (A6's open leak): the supplement and an answer's riders name the device's copies
+    class Control:
+        """What a running task's backend control is to the Bridge: it keeps what it is sent."""
+        supports_steer, pause_for_question, awaiting_answer, remote = True, "", False, False
+
+        def __init__(self):
+            self.steered = []
+
+        def steer(self, text, event_id):
+            self.steered.append(text)
+
+    def running(self, ctx=None, number=3):
+        ctx = ctx or self.ctx
+        job = self.job(ctx, number=number)
+        job.execution_started = True
+        job.backend_control = self.Control()
+        self.app.cards.set_task_element = lambda *a, **k: True
+        self.said = []
+        self.app.messenger.reply = lambda ctx, chat, text, key, **kw: self.said.append(text) or True
+        return job
+
+    def test_a_supplement_with_attachments_puts_the_files_on_the_device_and_names_the_copies(self):
+        pic, doc, text = self.attachments()
+        job = self.running()
+        with DeviceGuard(self.standin, device_root=self.device.home) as guard:
+            self.app.steering.deliver_steer(self.ctx, job, "also " + text, "mid-1")
+        sent = job.backend_control.steered
+        self.assertEqual(len(sent), 1)
+        directory = "%s/.covey/incoming/%s/%s" % (self.device.home, devices.hub_id(self.state), job_key(job.message_id, job.job_id))
+        self.assertIn("`%s/shot.png`" % directory, sent[0])
+        self.assertIn("`%s/spec.pdf`" % directory, sent[0])
+        for hub in ("incoming_media", str(self.root), str(pic), str(doc)):
+            self.assertNotIn(hub, sent[0], hub)
+        self.assertEqual((Path(directory) / "spec.pdf").read_bytes(), doc.read_bytes())
+        guard.assert_untouched(self)
+        self.assertEqual(self.said, [], "nothing was left out: no line for the user")
+
+    def test_a_supplements_file_over_the_limit_is_left_out_with_a_line_and_never_a_hub_path(self):
+        pic, doc, text = self.attachments()
+        job = self.running()
+        with mock.patch.object(device_files, "MAX_FILE", pic.stat().st_size):
+            self.app.steering.deliver_steer(self.ctx, job, text, "mid-2")
+        sent = job.backend_control.steered[0]
+        self.assertIn("shot.png`", sent)
+        self.assertNotIn("incoming_media", sent)
+        self.assertIn("这些附件没有传到设备 gpu1", sent)
+        self.assertEqual(len(self.said), 1)
+        self.assertIn("1 个附件没有传到设备 gpu1：spec.pdf", self.said[0])
+
+    def test_a_supplement_the_task_cannot_take_yet_is_held_with_the_device_paths(self):
+        pic, doc, text = self.attachments()
+        job = self.running()
+        job.backend_control = None  # Starting: the backend has no control yet.
+        try:
+            self.app.steering.deliver_steer(self.ctx, job, text, "mid-3")
+            self.assertEqual(list(job.held_steers), ["mid-3"])
+            held = job.held_steers["mid-3"]
+            self.assertIn("/.covey/incoming/", held)
+            self.assertNotIn("incoming_media", held)
+        finally:
+            job.held_steers.clear()
+
+    def test_a_local_task_gets_its_supplement_as_written_and_nothing_is_put_anywhere(self):
+        pic, doc, text = self.attachments()
+        (self.root / "work").mkdir(exist_ok=True)
+        local = dataclasses.replace(self.local, workdir=self.root / "work", history_path=self.ctx.history_path)
+        job = self.running(local)
+        puts = []
+        with mock.patch.object(self.device.transport, "put", lambda *a, **k: puts.append(a)):
+            self.app.steering.deliver_steer(local, job, text, "mid-4")
+        self.assertEqual(job.backend_control.steered, [text])
+        self.assertEqual(puts, [])
+
+    def test_the_riders_of_a_native_answer_are_put_on_the_device_too(self):
+        from covey.app.answers import answer_message
+        pic, doc, text = self.attachments()
+        files = text.split("\n", 1)[1]
+        record = {"questions": [{"id": "q1", "question": "Which?"}], "attachments": files, "supplement": "see " + files}
+        answers = {"q1": {"answers": ["A"]}}
+        notes = [{"text": "another note\n" + files, "display": "another note"}]
+        shown, said, delivered = answer_message(record, answers, "", notes)
+        self.assertIn("incoming_media", json.dumps(delivered))
+        job = self.running()
+        sent, staged = self.app.questions._device_message(self.ctx, "oc_dm", job, "tok", record, said, delivered)
+        self.assertNotIn("incoming_media", sent + json.dumps(staged))
+        self.assertIn("/.covey/incoming/", json.dumps(staged))
+        self.assertEqual(staged["q1"]["answers"][0], "A")
+        self.assertEqual(self.said, [])
+
     def test_the_seed_and_the_mirror_go_into_the_spawn_request(self):
         job = self.job(self.ctx)
         seen = []

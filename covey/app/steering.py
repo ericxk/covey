@@ -27,6 +27,7 @@ from covey.core.locks import resource_lock
 from covey.core.history_storage import append_history
 from covey.core.text import literal
 from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
+from covey.app import device_files
 from covey.app.main_thread import SUPPLEMENT_LOST, SUPPLEMENT_UNCERTAIN
 from covey.app.runtime import job_stage
 from covey.app.submission import queue_hint
@@ -235,17 +236,20 @@ class Steering(SteerForms, SteerReceiptFlow):
             if record_history:
                 append_history(ctx.history_path, "user", shown or text, {"message_id": mid})
             return merged
+        # A task on a device cannot read this machine's incoming_media: its files go there first, the text names the copies
+        # (the delivery record and the history keep what was written). A queued task read none of it: its request does.
+        sent = self.device_text(ctx, job, text, mid)
         try:
             if job.cancel_event.is_set() or job.answer_finalized:
                 raise SteerRefused("任务已结束或已取消")
             if control is None:
                 raise SteerNotReady("任务刚开始，后端还没准备好接收补充")
-            outcome = control.steer(text, mid)
+            outcome = control.steer(sent, mid)
             timing.mark("delivered")
         except SteerNotReady as exc:
             outcome, reason = "held", str(exc)
             if not getattr(control, "remote", False):
-                self.hold_steer(ctx, job, text, mid, saved=lambda: self._mark_held(path, reason))
+                self.hold_steer(ctx, job, sent, mid, saved=lambda: self._mark_held(path, reason))
         except SteerRefused as exc:
             update_delivery(path, status="refused", error=str(exc))
             raise
@@ -272,6 +276,16 @@ class Steering(SteerForms, SteerReceiptFlow):
             else:
                 later.append(note)
         return current
+
+    def device_text(self, ctx, job, text, mid):
+        """``text`` for the running task of ``job``: for a task on a device, with the files it names put there
+        (app/device_files.py ``stage_message``); the line about files left out is a reply in the topic."""
+        if not (getattr(job, "device", "") or getattr(ctx, "device", "")):
+            return text
+        return device_files.stage_message(
+            ctx, job, text, log=self.runtime.log,
+            say=lambda line: self.messenger.reply(ctx, job.chat_id, line, self.voice.key("device-steer-files", mid),
+                                                  voice=self.voice))
 
     def merge_before_start(self, ctx, job, text, mid, path, *, asked=""):
         """A task that has not started reads its request when it starts: the supplement joins the request.

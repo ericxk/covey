@@ -133,6 +133,7 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 - 输出目录必须给出，不能在本检出、`$HOME` 或 `/tmp` 里；非空目录只接受这个脚本先前写过的（有它的 `meta.json`）。
 - `compare` 列出每个跨版本组合和同版本基线的差异，以及每次运行实际用的 release；缺结果、结果不是这次跑的、一对也没比成，都不算 all equal。时间、进程号、op id 归一化，timing 行和线程间先后不比。
 - 有差异时先看 `base-new vs base-old`：两个 release 本来就不同的地方，跨版本组合也会出现。
+- 多设备（[架构：设备](architecture.md#设备多设备默认关)）有两个只给它的场景。`devices-empty-new`：新 release 开着 `COVEY_DEVICES=1`、`devices.json` 里没有设备，把每个变体再跑一遍，要同 `base-new`、`base-old` 一样（开关开着但没有设备，行为同关着）。`device-rollback`（变体 `device_rollback`、`device_rollback_on`）：新 Bridge 建一个设备话题（`topic.json` 存 `gpu1:/home/user/proj`），旧 Bridge 和旧任务进程收到该话题的下一条消息；这一轮必须被拒绝（任务进程里没有 `backend.run`、记录是 `failed`），`compare` 打印旧 release 的说法，在本机跑了就退出 1。后一个变体是旧进程仍带着 `COVEY_DEVICES=1` 和同一份 `devices.json`。
 
 ### 静态检查
 
