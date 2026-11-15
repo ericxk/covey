@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | 服务命令行 | Bridge 自己的参数（`--workdir`、`--profile`、`--app-id`、`--state-dir`、`--owner`、`--harness-config`）和默认 Harness（Codex）的参数 | 重新注册（`scripts/bootstrap_harness_bridge.sh` 或 `scripts/deploy_bridge.sh`） |
 | `harnesses.json`（`--harness-config`） | 其余 Harness 的参数和模型顺序 | 改文件后重启（`restart` 或重新注册） |
+| `devices.json`（`$COVEY_DATA_HOME/devices.json`，或 `COVEY_DEVICES_FILE` 指的文件） | 多设备（开发中，默认关）：每台设备怎么 ssh、能跑哪些 Harness、给任务的环境和谁能用；`COVEY_DEVICES=1` 才读 | 改文件后重启 |
 | 服务清单里的环境变量 | 可选功能的开关、Harness 的环境（`PATH`、`CODEX_HOME`、代理等） | 在终端里设好后重新注册，见下文 |
 | 状态目录里的设置文件 | 主人在飞书里改的设置：工作区列表、私聊模式、代答、脱敏词表等 | 在飞书的设置卡上改，实时生效 |
 
@@ -99,6 +100,7 @@
 | [主线程](#主线程) | 默认允许；`COVEY_MAIN_THREAD=0` 不允许 | `main-tools`、`main-search` 线程；设置卡的私聊、新话题标签 |
 | [管家规则](#管家规则) | `COVEY_MAIN_BUTLER=1` | 主线程只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
+| [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 目前只有配置、连接和设备端小程序的 hub 侧代码，还没接进话题和任务；开了也不起线程，不改已有行为 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
 | [自动补齐飞书应用](operations.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 线程 |
 | [内存看门狗](operations.md#内存看门狗) | `bin/covey_memguard.py enable` | 独立进程；`memguard` 线程转发告警 |
@@ -183,6 +185,54 @@
 - 设置记在 `<state>/groups/<…>.json` 的 `free_talk`、`free_talk_members`。不设变量时卡上没有免@，这些设置不生效。
 - 开通权限后机器人所在每个群的全部消息都会推给 Bridge：没人免@ 的消息在准入一步丢掉，不写历史、不记日志。日志：`group chat=… free_talk=…`；被拒的免@ 消息是 `ignored message … reason=for_others|proxy_chat`。
 
+### 多设备（开发中，默认关）
+
+让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。第 1 期只支持 Claude Code 和 Codex。**这一节写的是已落地的那一部分**：配置、`别名:路径` 的解码、ssh 命令行、推送设备端小程序、`hello` 和环境档案、自检的骨架（实现在 `core/devices.py`、`core/device_transport.py`，设备端程序是 `core/device_shim.py`）。启动卡、工作区和任务进程还没有接上它，所以现在设了开关也看不到新的行为。
+
+`COVEY_DEVICES=1`（旧名 `LARK_BRIDGE_DEVICES`，只认 `1`）打开。设备写在 `$COVEY_DATA_HOME/devices.json`，`COVEY_DEVICES_FILE` 可以指向别处。不设开关、或开了但没有文件、没有设备时：不读文件、不建 `<状态目录>/devices/`、不起线程，`gpu1:/路径` 就是一个普通的（相对）路径，一切照旧。
+
+```json
+{"schema": 1,
+ "defaults": {"patience_minutes": 15, "waiting_patience_hours": 6, "connect_seconds": 5},
+ "control_dir": "/absolute/local-disk/covey-ssh",
+ "devices": {"gpu1": {
+   "title": "GPU 1",
+   "ssh": {"host": "<ssh 别名或 user@host>", "options": ["-J", "<跳板>"], "python": "python3"},
+   "harnesses": ["claude", "codex"],
+   "env": {"HTTPS_PROXY": "http://proxy.example:3128"},
+   "login_shell": false,
+   "spaces": ["owner_private"]}}}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `schema` | 必填，现在是 `1`。写错的字段名、多出来的字段都会报错，不会悄悄忽略 |
+| `defaults` | `patience_minutes`（断线多久后放弃，默认 15，1 到 1440）、`waiting_patience_hours`（等人回答时放宽到多久，默认 6，1 到 168）、`connect_seconds`（ssh 连接超时，默认 5，1 到 60） |
+| `control_dir` | ssh ControlMaster 套接字放的本地目录，绝对路径，不要放网络盘。Unix 套接字路径有长度上限，加上 `/<40 位>.sock` 和 ssh 建套接字时的临时后缀后不能超过 104 字节，所以目录路径最长 41 字节（Linux 上实测 44 字节还能建连、45 字节起 ssh 报 `unix_listener: path ... too long`，多留的 3 字节给 macOS 的 104 字节上限）。不写用 `/tmp/covey-ssh-<uid>`。目录在第一次真连设备时才建（0700） |
+| 设备别名 | `devices` 的键，`[a-z][a-z0-9-]{0,23}`。工作区写成 `别名:路径`，例如 `gpu1:/home/me/proj`，`gpu1:~/work`（`~` 是设备上的家目录） |
+| `title` | 卡片上显示的名字，默认就是别名 |
+| `ssh.host` | `~/.ssh/config` 里的别名或 `user@host`。不能有空格，不能以 `-` 开头 |
+| `ssh.options` | 追加的 ssh 参数（`-J` 跳板、`-p`、`-i` 等）。Covey 自己的选项排在前面，ssh 对同一个选项取第一个值，所以这里改不掉它们 |
+| `ssh.python` | 设备上的解释器，默认 `python3`。设备端程序只用标准库、按 Python 3.9 写 |
+| `harnesses` | 这台设备上要用的 Harness，`claude`、`codex` 的子集，默认两个都要 |
+| `env` | 只写要覆盖设备环境档案的变量（比如这台机器出网要的代理）。值里不能带 `user:密码@` |
+| `login_shell` | `true` 时自检再用登录 shell 取一次环境变量（`.bashrc` 里设的代理）。默认 `false` |
+| `spaces` | 谁可以用这台设备：`owner_private`（默认，主人私聊）、`personal_groups`、`team`（显式写才开） |
+
+**怎么连**：每台设备一条 ssh 主连接（`ControlMaster=auto`、`ControlPersist=600`、`ControlPath=<control_dir>/%C.sock`），之后的每次调用复用它，不再握手。命令行固定带 `-T`、`BatchMode=yes`（从不问密码，所以设备上要有免密登录，而且 `known_hosts` 里已经有它的主机密钥：先手动 `ssh` 一次）、`ServerAliveInterval=15`、`ConnectTimeout`、`LogLevel=ERROR`。设备端程序按内容哈希放在设备的 `~/.covey/shim/<哈希>/shim.py`，设备上已经有同样内容就不再推。
+
+**记录**（都在状态目录的 `devices/` 下，不是配置）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/profile.json`（自检得到的环境档案：Harness 路径、版本、登录状态、通过白名单的代理和证书变量）。
+
+**安全默认**：
+- 环境档案只收代理和证书路径这十几个变量名（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写、`SSL_CERT_FILE`、`NODE_EXTRA_CA_CERTS`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`），带 `user:密码@` 的代理地址拒收，被拒的只记变量名和原因，不记值。Claude 的令牌留在设备上，不经过 Bridge。
+- 工作区的 `别名:路径` 在 Bridge 上变成一个**永远不存在**的占位路径 `<状态目录>/devices/<别名>/standin/<12 位哈希>`，设备上的路径只当字符串用、不在 Bridge 上做路径运算。没改到的代码路径会因此明确失败，而不是碰到 Bridge 本机的某个目录。
+
+**已知限制**：
+- 只有 Linux 设备在测试机上验证过；macOS 设备没有真机验证。
+- 第 1 期只做 Claude Code 和 Codex；设备上的话题没有回退、压缩、导出、脱敏和分叉（按钮不出现）。
+- `control_dir` 太长时配置报错，不会自动换目录。
+- 真跑一次最小请求的探测（自检的最后一步）还没接上，现在自检只到「设备有这个 Harness、登录状态可读」。
+
 ### 飞书 SDK 与直连
 
 - `COVEY_CARD_TRANSPORT=sdk`：CardKit 卡片接口、消息的发送和回复、读消息详情都用常驻的 `lark-oapi` 客户端；上传文件和图片、转发话题等只有 lark-cli 做得了的仍走 lark-cli（见[投递、重投与 outbox](architecture.md#投递重投与-outbox)）。先在运行 Bridge 的那个 Python 里 `python3 -m pip install '.[feishu-sdk]'`。SDK 只支持显式命名的 profile，应用密钥只在内存里读取。请求发出前取不到凭据时退回 CLI（日志 `CardKit SDK unavailable locally; using CLI`）；请求已发出后不换传输重发。
@@ -206,7 +256,7 @@
 
 | 环境变量 | 谁读 | 默认 | 弃用 |
 | --- | --- | --- | --- |
-| `COVEY_DATA_HOME` | `core/paths.py` | 按 [数据目录](operations.md#数据目录) 推算 | 否 |
+| `COVEY_DATA_HOME` | `core/paths.py`、`core/devices.py`（找 `devices.json`） | 按 [数据目录](operations.md#数据目录) 推算 | 否 |
 | `COVEY_SERVICE_ROOT` | `core/paths.py` | `<数据根>/bridge-services` | 否 |
 | `COVEY_STATE_DIR`；`LARK_CLAUDE_BRIDGE_STATE_DIR`、`LARK_DSH_BRIDGE_STATE_DIR`、`LARK_PI_BRIDGE_STATE_DIR` | `app/harnesses.py`（只有默认 Harness 读，其余总用 Bridge 的 `--state-dir`） | `<数据根>/<Harness 的目录名>` | 否 |
 | `COVEY_PROFILE` | `backends/codex/bridge.py`、`backends/dsh/bridge.py`、`backends/pi/bridge.py`（Bridge 的 `--profile`） | 空：lark-cli 的默认 profile | 否 |
@@ -233,6 +283,8 @@
 | `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/main_thread.py`（`mcp_config` 同上）、`core/main_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根的 `extensions/enabled`（没有这个文件就没有扩展）；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
+| `COVEY_DEVICES` | `core/devices.py`（`enabled`） | 空：关；`1` 才读 `devices.json`，见[多设备](#多设备开发中默认关) | 否 |
+| `COVEY_DEVICES_FILE` | `core/devices.py`（`config_path`） | 空：`<数据根>/devices.json` | 否 |
 | `COVEY_MAIN_BUTLER` | `app/prompts.py`（`butler_on`） | 空：关；`1` 把主线程规则的首条换成管家规则（只快答和分派） | 否 |
 | `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（多路并行里，规则没能定的新消息交给小模型判断是并进哪一路还是新开一路；这一包只有函数，接线在后） | `claude`：Claude Code 的 Haiku 起一次性进程；`off` 不调，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一路 | 否 |
