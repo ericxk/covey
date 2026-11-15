@@ -255,6 +255,11 @@ class DevicePickerTest(DeviceEnv, PickerCase):
             self.press("search", query="~/other")
             self.assertEqual(self.record()["picker"]["path"], str(self.device.home / "other"))
             self.assertEqual([e["name"] for e in self.record()["picker"]["entries"]], ["deep"])
+            # An absolute device path: a stat or list of it on the hub would be seen under the fake device's files.
+            self.press("search", query=f"gpu1:{self.device.home}/other/deep")
+            self.assertEqual(self.record()["picker"]["path"], str(self.device.home / "other" / "deep"))
+            self.press("search", query=f"{self.device.home}/proj")
+            self.assertEqual(self.record()["picker"]["path"], str(self.device.home / "proj"))
         guard.assert_untouched(self)
 
     def test_using_a_device_directory_registers_alias_and_path_and_goes_back_to_the_launch_card(self):
