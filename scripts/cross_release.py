@@ -728,7 +728,6 @@ def run_one(out: Path, trees: dict, stamp: str, scenario: str, variant: str) -> 
     for name in ("covey_bridge.py", "lark_harness_bridge.py"):
         (shim / "bin" / name).write_text("# Only its path is used: a runner's handoff names it.\n")
     result = {"scenario": scenario, "variant": variant, "trees": [bridge_a, runner_tree, bridge_b], "stamp": stamp}
-    env = scrubbed_env(scratch)
     devices_file(scenario, scratch)
 
     def phase(name, tree):
