@@ -242,8 +242,9 @@ class Runs:
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
         # The main thread's turn (app/main_thread.py): its rules and snapshot open the message, its Bridge tools
         # join the run; the whole snapshot on a new session and on one compacted before this turn.
-        live.ctx, prompt = main_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log)
+        live.ctx, prompt = main_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log, self.harness)
         ctx = live.ctx
+        fresh = fresh and not ctx.options.get("track_fork")  # A track's fork has its source's conversation and rules.
         rules = self.bridge_rules(ctx, job)
         caps = backend_capabilities(self.harness.backend, ctx)
         system = caps.system_instructions

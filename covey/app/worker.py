@@ -43,7 +43,7 @@ from covey.core.main_thread import traits_of, worded
 from covey.core.paths import tool_root
 from covey.feishu.transport import last_failure, set_failure
 from covey.app.outbox import AUDIT_REFUSED_NOTE, record_attempt
-from covey.app import (auto_retry, main_reactions, main_relay, main_reply, policy_retry, saved_send,
+from covey.app import (auto_retry, main_reactions, main_relay, main_reply, main_tracks, policy_retry, saved_send,
                                 topic_links)
 from covey.app.answer_delivery import AnswerParts
 from covey.app.turn_images import TurnImages
@@ -577,6 +577,8 @@ def process_bridge_reply_job(job: Any, ctx: Any, *, harness, runtime, messenger,
     turn, snapshot = _run_turn(job, ctx, harness=harness, runtime=runtime, cards=cards, sessions=sessions, runs=runs,
                                record_job_state=record_job_state, send_text=send_text, capabilities=capabilities,
                                revision=revision, session_id=session_id)
+    if turn.status != "waiting_user":  # A track of the main thread forgets its session (app/main_tracks.py).
+        main_tracks.release_pointer(ctx, job, harness, runtime)
     if turn.status == "interrupted":
         leave_interrupted(ctx, job, harness=harness, runtime=runtime, record_job_state=record_job_state)
         return

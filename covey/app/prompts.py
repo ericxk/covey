@@ -317,6 +317,7 @@ def main_thread_rules() -> str:
 MAIN_THREAD_RULES = main_thread_rules()
 
 
-def main_thread_message(snapshot: str, message: str) -> str:
-    """A main-thread turn's message: its rules, the snapshot of the owner's topics, then the turn's own message."""
-    return "\n\n".join((main_thread_rules(), snapshot, message))
+def main_thread_message(snapshot: str, message: str, note: str = "") -> str:
+    """A main-thread turn's message: its rules, the snapshot of the owner's topics, then the turn's own message.
+    ``note``: a track's parallel note (app/main_tracks.py), between the snapshot and the message."""
+    return "\n\n".join((main_thread_rules(), snapshot, *((note,) if note else ()), message))
