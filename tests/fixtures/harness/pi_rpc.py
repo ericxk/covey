@@ -92,8 +92,10 @@ for line in sys.stdin:
         emit({"id": rid, "type": "response", "command": "abort", "success": True})
         continue
     if kind == "steer":
-        if scenario == "steer-refused":
+        if scenario == "steer-refused":  # Refused while the tool runs; the turn ends only after it.
             emit({"id": rid, "type": "response", "command": "steer", "success": False, "error": "not streaming"})
+            tool_done()
+            end(stream("完成"))
             continue
         emit({"type": "queue_update", "steering": [command["message"]], "followUp": []})
         if scenario not in {"steer-early", "steer-unacked"}:
@@ -121,10 +123,7 @@ for line in sys.stdin:
     emit({"type": "message_start", "message": user})
     emit({"type": "message_end", "message": user})
     if scenario in {"steer", "steer-early", "steer-unacked", "steer-refused", "abort"}:
-        tool()
-        if scenario == "steer-refused":
-            tool_done()
-            end(stream("完成"))
+        tool()  # steer-refused waits for the steer too (it ended at once before: a race on slow machines).
         continue
     if scenario == "tool":
         tool()
