@@ -4,7 +4,7 @@ device process tests.
 
 ``initialize`` and ``thread/start`` are answered; ``turn/start`` is answered, then the server asks the client one
 question (a server request ``item/tool/requestUserInput``, id 900) and, once it has the answer, completes the turn with
-an agent message that quotes it. ``turn/steer`` is answered with the current turn. It exits when its stdin ends.
+an agent message that quotes it (with ``--plain`` among its arguments it completes the turn at once, no question). ``turn/steer`` is answered with the current turn. It exits when its stdin ends.
 """
 import json
 import os
@@ -18,6 +18,8 @@ def emit(value):
 
 def main():
     thread, turn = "thread-1", "turn-1"
+    if "--plain" in sys.argv:  # Identities a real server has (core checks them: UUIDs).
+        thread, turn = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
     for line in sys.stdin:
         try:
             row = json.loads(line)
@@ -31,6 +33,11 @@ def main():
         elif method == "turn/start":
             emit({"id": rid, "result": {"turn": {"id": turn}}})
             emit({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn}}})
+            if "--plain" in sys.argv:  # No question: the turn ends with its message.
+                emit({"method": "turn/completed", "params": {"threadId": thread, "turn": {
+                    "id": turn, "status": "completed", "error": None, "itemsView": "full", "items": [
+                        {"type": "agentMessage", "id": "a1", "text": "plain answer", "phase": "final_answer"}]}}})
+                continue
             emit({"id": 900, "method": "item/tool/requestUserInput",
                   "params": {"threadId": thread, "turnId": turn, "questions": [{"id": "q1", "question": "Which?"}]}})
         elif method == "turn/steer":

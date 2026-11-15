@@ -21,6 +21,7 @@ import uuid
 
 from covey.backends.claude.events import compacted_sizes
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
+from covey.core.process import device_of
 from covey.core.steps import Steps
 from covey.core.text import short_count
 
@@ -133,6 +134,8 @@ def compact_before_turn(request, env, spawn, emit, flush, usage):
     the card; its model request counts in ``usage`` (the turn's). A stop or the task's deadline raises
     as in the turn itself."""
     ctx, session_id = request.context, request.session_id
+    if device_of(ctx):
+        return False  # The session file is on the device; ``reason`` would read this machine's and find none to compact.
     why = reason(ctx, session_id, env)
     if why is None:
         return False

@@ -398,6 +398,42 @@ def is_device_value(value, environ=None):
     return enabled(environ) and bool(DEVICE_VALUE.match(str(value).strip()))
 
 
+# ---------------------------------------------------------------- the checkpoint and the seed files of a task
+
+CHECKPOINT_POLL = 1.0
+
+
+def checkpoint_mirror(state_dir, alias, hub_path):
+    """Where the job's checkpoint (``hub_path``, the file the hub keeps and reads) lives on ``alias``: ``{"path", "hub_path",
+    "poll"}``. The path is the device's, an absolute one under the user's home when the profile knows it (an Agent's file
+    tools do not expand ``~``), and the same for every process of the job: it does not depend on the task key the shim
+    gets. The device program mirrors changes to the hub (core/device_link.py writes them to ``hub_path``)."""
+    home = str(read_profile(state_dir, alias).get("home") or "")
+    root = (home.rstrip("/") if home.startswith("/") else "~") + "/.covey/checkpoints/" + hub_id(state_dir)
+    return {"path": "%s/%s" % (root, Path(str(hub_path)).name), "hub_path": str(hub_path), "poll": CHECKPOINT_POLL}
+
+
+def spawn_extras(ctx, hub_checkpoint):
+    """``ctx`` for the run of a device turn: ``options["device_spawn"]`` carries what ``spawn_process`` puts in its request
+    (core/device_link.py): the checkpoint mirror and the seed file, the hub's checkpoint as it is now (a Harness that does
+    not write one still has the file the prompt names). A context of this machine, or a turn without a checkpoint, is
+    returned as it is."""
+    if not getattr(ctx, "device", "") or not hub_checkpoint:
+        return ctx
+    mirror = checkpoint_mirror(ctx.state_dir, ctx.device, hub_checkpoint)
+    files = []
+    try:
+        files.append({"path": mirror["path"], "text": Path(hub_checkpoint).read_text(encoding="utf-8"), "mode": 0o600})
+    except (OSError, UnicodeDecodeError):
+        pass  # No seed: the Agent makes the file, as on this machine.
+    return dataclasses.replace(ctx, options={**ctx.options, "device_spawn": {"checkpoint": mirror, "files": files}})
+
+
+def device_checkpoint_path(ctx, hub_checkpoint):
+    """The path the prompt names for the job's checkpoint on a device (``checkpoint_mirror``)."""
+    return checkpoint_mirror(ctx.state_dir, ctx.device, hub_checkpoint)["path"]
+
+
 CHECK_SECONDS = 5.0
 
 

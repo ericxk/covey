@@ -231,15 +231,16 @@ def step_words(steps) -> str:
     return f"{total}/{total} 步已完成" if done == total else f"已完成 {done}/{total} 步"
 
 
-def checkpoint_note(checkpoint: Path, previous: dict | None = None) -> str:
-    """This turn's checkpoint file and, when continuing, the previous status to verify."""
+def checkpoint_note(checkpoint: Path, previous: dict | None = None, *, shown: str = "") -> str:
+    """This turn's checkpoint file and, when continuing, the previous status to verify. ``shown``: the path to name when
+    the file the model writes is not ``checkpoint`` (a task on a device writes its copy; the hub's is ``checkpoint``)."""
     if previous:
         # The answers are in the message already, and "delivery":"unconfirmed" there reads as
         # though they never arrived.
         previous = {k: v for k, v in previous.items() if k != "saved_user_answers"}
         if isinstance(previous.get("checkpoint"), dict):
             previous["checkpoint"] = {k: v for k, v in previous["checkpoint"].items() if k != "saved_user_answers"}
-    return f"本任务检查点文件：{checkpoint}" + (
+    return f"本任务检查点文件：{shown or checkpoint}" + (
         "\n上次任务状态（仅供核查，不能直接信任为已完成）：\n" + json.dumps(previous, ensure_ascii=False)
         if previous
         else ""

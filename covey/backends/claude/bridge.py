@@ -18,7 +18,7 @@ import dataclasses
 import shlex
 from typing import Any
 
-from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY
+from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY, for_device
 
 from covey.core.process import device_of
 from covey.core.process_env import child_process_env, process_device
@@ -153,9 +153,9 @@ class ClaudeBackend(BackendRuntime):
     def capabilities(self, ctx):
         from covey.backends.claude.process import IMAGE_FRAME
         from covey.core.attachments import MAX_IMAGE_BYTES
-        return HarnessCapabilities(questions=True, image_bytes=MAX_IMAGE_BYTES, image_frame=IMAGE_FRAME, steering=True, native_fork=True,
-            rate_limit_retry=True, incomplete_retry=True, steer_reads=True, compaction=True, turn_export=True,
-            redaction=True, rewind=True)
+        return for_device(HarnessCapabilities(questions=True, image_bytes=MAX_IMAGE_BYTES, image_frame=IMAGE_FRAME, steering=True,
+            native_fork=True, rate_limit_retry=True, incomplete_retry=True, steer_reads=True, compaction=True,
+            turn_export=True, redaction=True, rewind=True), ctx)
 
     def model_catalog(self, ctx):
         return model_catalog(self, ctx, self.child_env(ctx))
@@ -200,6 +200,8 @@ class ClaudeBackend(BackendRuntime):
         """``/compact`` on ``request.session_id`` and nothing else (the main thread's idle compaction): the turn's
         environment and, for a redacted topic, its term relay (backends/claude/runtime.py compact_only)."""
         from covey.backends.claude.runtime import compact_only
+        if device_of(request.context):
+            return False  # The session is on a device: its file is not ours to read (compact_before_turn).
         ctx, env = request.context, self.child_env(request.context)
         if not redaction.wanted(ctx):
             return compact_only(self, request, env)

@@ -76,6 +76,7 @@ class FaultyTransport(LocalTransport):
         super().__init__(home, **kwargs)
         self.faults = faults
         self.attachments = []
+        self.log = []  # (command, fields) of every ``call``: what the hub asked the device.
 
     def before(self, what):
         if self.faults.latency:
@@ -84,6 +85,10 @@ class FaultyTransport(LocalTransport):
             self.faults.fail_count -= 1
             self.faults.failed += 1
             raise Unreachable("injected: ssh could not connect (%s)" % what)
+
+    def call(self, cmd, **fields):
+        self.log.append((cmd, dict(fields)))
+        return super().call(cmd, **fields)
 
     def attach(self, task, offset=0, **kwargs):
         connection = super().attach(task, offset, **kwargs)

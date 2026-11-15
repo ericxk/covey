@@ -14,7 +14,7 @@ import shlex
 from typing import Any
 
 from covey.core import env as cenv
-from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY
+from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY, for_device
 
 from covey.core.process_env import child_process_env, process_device
 from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunRequest, RunResult, UUID_RE
@@ -91,7 +91,7 @@ class CodexBackend(BackendRuntime):
         return str(ctx.options.get("sandbox") or DEFAULT_SANDBOX)
 
     def capabilities(self, ctx):
-        return HarnessCapabilities(questions=True, steering=True, native_fork=True, turn_export=True)
+        return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, turn_export=True), ctx)
 
     # The signed-in account's models plus the gateways' Responses models (<prefix><model>, core/gateways.py).
     def model_catalog(self, ctx: BridgeContext) -> dict:

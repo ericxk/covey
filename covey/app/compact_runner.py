@@ -47,6 +47,8 @@ def compact_main(directory) -> int:
         job = runner_spawn.load_job(handoff["job"])
         target = context_for_job(app.harness.context, job)
         session = app.sessions.read_session_id(target.session_path) or ""
+        if target.device:
+            session = ""  # On a device: its session file is not here, and its process has no pid (``observe``).
         if cancel.is_set():
             outcome = idle.CANCELLED
         elif session:
