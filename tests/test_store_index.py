@@ -264,6 +264,73 @@ class IndexedStorageTest(unittest.TestCase):
                              sorted(bridge.query(status='failed') + bridge.query(status='continued')))
             self.assertEqual(bridge.query(status=set()), [])
 
+    def test_the_boards_read_leaves_old_records_unread_and_says_the_same_as_reading_them_all(self):
+        # P1: the main thread's snapshot read ~3400 job records in a new process for the ~150 written within three
+        # days; updated_at rides in .index (store.CARRIED) so board_read.read does not read the rest.
+        import datetime
+        from covey.core import board_read, store as store_module
+        from covey.core.jobs import select_job_records
+        from covey.core.main_thread import main_topic_id
+        now = time.time()
+
+        def stamp(days):
+            return datetime.datetime.fromtimestamp(now - days * 86400).isoformat()
+        chat = 'chat-1'
+        rows = [('old', 'done', 10, 't1'), ('recent', 'done', 1, 't1'), ('running', 'running', 20, 't2'),
+                ('old-kept', 'done', 10, 't3'), ('main', 'done', 1, main_topic_id(chat)), ('other', 'done', 1, 't4'),
+                ('no-time', 'done', None, 't5'), ('odd-time', 'done', 7, 't6'), ('queued', 'queued', 2, 't7')]
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            for number, (key, status, days, topic) in enumerate(rows, 1):
+                record = {'key': key, 'job_id': number, 'status': status, 'topic_id': topic,
+                          'chat_id': 'chat-2' if key == 'other' else chat}
+                if days is not None:
+                    record['updated_at'] = stamp(days)
+                if key == 'odd-time':
+                    record['updated_at'] = 12345  # Not an ISO time: ``fresh`` takes it as now.
+                write_private_text(job_file(state, key), json.dumps(record))
+            bridge = store_module.JsonDirectoryStore(state / 'jobs')
+            self.assertEqual(len(bridge.query()), len(rows))
+            self.assertTrue(bridge.save_index(every=0))
+            saved = json.loads((state / 'jobs' / '.index').read_text())
+            self.assertEqual(saved['entries']['recent.json'][1]['updated_at'], stamp(1))
+            self.assertEqual(saved['entries']['odd-time.json'][1]['updated_at'], 12345)
+            self.assertNotIn('updated_at', saved['entries']['no-time.json'][1])
+            self.assertNotIn(('updated_at', stamp(1)), bridge.index)  # Carried, not indexed.
+
+            def run(keep=frozenset()):
+                """(keys read, keys board_read.read returns, the same without ``narrow``), in a new process."""
+                read, real = [], store_module.JsonDirectoryStore._read
+                with mock.patch.object(store_module.JsonDirectoryStore, '_read',
+                                       lambda self, file: read.append(file.name) or real(self, file)), \
+                        mock.patch.dict(store_module._stores, clear=True):
+                    got = board_read.read(state, chat, now, keep=keep).jobs
+                    asked = sorted(read)
+                with mock.patch.dict(store_module._stores, clear=True):
+                    every = select_job_records(state, lambda r: board_read.listed(r.get('topic_id'), chat) and (
+                        board_read.fresh(r, now) or r.get('topic_id') in keep), chat_id=chat)
+                self.assertEqual(got, every)
+                return asked, [r['key'] for r in got]
+            asked, keys = run()
+            self.assertEqual(sorted(keys), ['no-time', 'odd-time', 'queued', 'recent', 'running'])
+            # Not read: the old one, the one of another chat, the main thread's, and the not-kept old one.
+            self.assertEqual(asked, ['no-time.json', 'odd-time.json', 'queued.json', 'recent.json', 'running.json'])
+            asked, keys = run(keep=frozenset({'t3', 't1'}))
+            self.assertEqual(sorted(keys), ['no-time', 'odd-time', 'old', 'old-kept', 'queued', 'recent', 'running'])
+            self.assertEqual(len(asked), 7)
+            # An .index from before updated_at was carried: the records decide, the answer is the same.
+            for _, fields in saved['entries'].values():
+                fields.pop('updated_at', None)
+            (state / 'jobs' / '.index').write_text(json.dumps(saved))
+            asked, keys = run()
+            self.assertEqual(sorted(keys), ['no-time', 'odd-time', 'queued', 'recent', 'running'])
+            self.assertEqual(len(asked), len(rows) - 2)  # All but the other chat's (indexed) and the main thread's.
+            # A ``narrow`` that cannot tell leaves the record to ``where``.
+            def broken(fields):
+                raise TypeError('cannot tell')
+            with mock.patch.dict(store_module._stores, clear=True):
+                self.assertEqual(len(select_job_records(state, None, narrow=broken)), len(rows))
+
     def test_a_private_write_skips_repeated_steps_but_remakes_a_removed_directory(self):
         # S39: each step of a write is a NAS round trip; about 20 ms a write.
         with tempfile.TemporaryDirectory() as root:
