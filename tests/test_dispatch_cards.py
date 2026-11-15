@@ -510,10 +510,17 @@ class ClickTest(DispatchCase):
         forward, _ = self.click(view.STEER_KIND, "35")
         self.assertEqual(forward.call_args.args[3]["job_id"], "37")
 
-    def test_the_newest_job_that_has_not_ended_is_the_one_when_one_waits_behind_another(self):
+    def test_the_running_job_is_the_one_when_a_message_waits_behind_it(self):
+        # Check 4 (2026-11-16): 停止 with a message queued behind the running turn cancelled only the queued one.
         self.job(37, running=True)
         self.job(38)  # Queued.
-        forward, _ = self.click(view.STOP_KIND, "37")
+        for kind in (view.STEER_KIND, view.STOP_KIND):
+            forward, _ = self.click(kind, "38")
+            self.assertEqual(forward.call_args.args[3]["job_id"], "37")
+
+    def test_a_queued_job_is_the_one_when_nothing_has_started(self):
+        self.job(38)  # Queued, nothing running.
+        forward, _ = self.click(view.STOP_KIND, "38")
         self.assertEqual(forward.call_args.args[3]["job_id"], "38")
 
     def test_a_topic_with_nothing_running_says_so_and_nothing_is_sent_to_a_task(self):

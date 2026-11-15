@@ -59,17 +59,22 @@ LIVE_STATUS = frozenset({"queued", "running", "waiting_user", "cancel_requested"
 
 
 def click_job(runtime, state_dir, topic_id, chat_id) -> str:
-    """The job a click on a 派发卡 button acts on: the topic's newest one that has not ended, as it is when the button is
-    clicked (the one the card names was the newest when the card was last drawn: an answer to a question or a 补充 that
-    started a turn since then makes a newer one, and the main thread's own turn that handed the work over is a job of
-    another topic). The registry first, then the job records, as a task runner this Bridge has not adopted yet is only
-    in them; '' when the topic has none."""
+    """The job a click on a 派发卡 button acts on, as the topic is when the button is clicked (the one the card names was
+    the newest when the card was last drawn: an answer to a question or a 补充 that started a turn since then makes a
+    newer one, and the main thread's own turn that handed the work over is a job of another topic): the newest one that
+    has started (starting, running, waiting for an answer), else the newest queued one. A message queued behind the
+    running turn does not take the click: 停止 stopped only the queued one and the running turn went on (check 4,
+    2026-11-16). The registry first, then the job records, as a task runner this Bridge has not adopted yet is only in
+    them; '' when the topic has none."""
     live = runtime.jobs.open_in_topic(topic_id, chat_id)
-    if live:
-        return str(max(int(job.job_id) for job in live))
-    rows = [job_number(row) for _, row in directory_store(Path(state_dir) / "jobs").query(
+    if live:  # Started: what app/runtime.py job_stage calls anything but queued (that module is not imported here).
+        started = [job for job in live if job.execution_started or job.backend_control is not None]
+        return str(max(int(job.job_id) for job in started or live))
+    rows = [row for _, row in directory_store(Path(state_dir) / "jobs").query(
         topic_id=topic_id, chat_id=chat_id, status=LIVE_STATUS)]
-    return str(max(rows)) if rows and max(rows) > 0 else ""
+    started = [job_number(row) for row in rows if row.get("status") != "queued"]
+    numbers = started or [job_number(row) for row in rows]
+    return str(max(numbers)) if numbers and max(numbers) > 0 else ""
 
 
 def words(text, limit=BODY_CHARS) -> str:

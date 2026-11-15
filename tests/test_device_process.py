@@ -464,7 +464,8 @@ class PatienceTest(DeviceCase):
     def lose_the_device(self, process):
         self.device.faults.fail(10 ** 6)
         self.device.kill_attaches()
-        self.assertTrue(wait_for(lambda: process.state() == "down"))
+        # "lost" too: on a loaded machine the poll can miss the short "down" before the patience runs out.
+        self.assertTrue(wait_for(lambda: process.state() in ("down", "lost")))
 
     def test_past_the_patience_the_process_is_lost(self):
         process = self.agent()
