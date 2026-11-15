@@ -1641,6 +1641,87 @@ class ClaudeTransportDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result["errno"], 11)
         self.assertEqual(result["reason"], "os_error")
 
+    def failure_events(self, error, *, stage="initialize", tail=(), exit_code=1):
+        """The ``backend_failure`` events of a run that ends on ``error`` at ``stage`` (the CLI's stderr ``tail``)."""
+        import collections
+        events = []
+        with tempfile.TemporaryDirectory() as folder:
+            ctx = dataclasses.replace(codex_context(Path(folder), "stream-json"),
+                backend_cmd=["never-run-claude"], options={"transport": "stream-json"})
+            process = mock.Mock()
+            process.prelude, process.deadline = [], None
+            process.process.poll.return_value = exit_code
+            process.close.return_value = True
+            process.write_size, process.write_offset = 149, 149
+            process.stderr_tail = collections.deque(tail)
+            getattr(process, "initialize" if stage == "initialize" else "send").side_effect = error
+            with mock.patch("covey.backends.claude.runtime.ClaudeProcess", return_value=process):
+                ClaudeBackend().run(RunRequest(ctx, TRANSPORT_PRIVATE_SENTINEL, None, callbacks=RunCallbacks(
+                    event=lambda kind, data, control: events.append((kind, data))),
+                    inputs=RunInputs(threading.Event(), run_id=RUN)))
+        return [data for kind, data in events if kind == "backend_failure"]
+
+    def test_a_transport_failure_says_what_ended_it_how_the_cli_exited_and_what_it_wrote_to_stderr(self):
+        # 2026-11-15: a fork's CLI exited 1 before it answered initialize; stderr went nowhere, the log had nothing.
+        found = self.failure_events(RuntimeError("Unexpected Claude initialization event"),
+                                    tail=["No conversation found with session ID: x", "exit"])
+        self.assertEqual(len(found), 1, found)
+        data = found[0]
+        self.assertEqual((data["status"], data["code"], data["stage"], data["exception"], data["reason"],
+                          data["process_exit_code"]),
+                         ("failed", "transport_error", "initialize", "RuntimeError", "initialize_unexpected_event", 1))
+        self.assertEqual(data["stderr"], ["No conversation found with session ID: x", "exit"])
+
+    def test_the_failure_event_holds_neither_the_exceptions_message_nor_the_prompt(self):
+        found = self.failure_events(OSError(11, TRANSPORT_PRIVATE_SENTINEL), stage="send_input")
+        self.assertEqual(found[0]["errno"], 11)
+        self.assertNotIn(TRANSPORT_PRIVATE_SENTINEL, json.dumps(found))
+
+    def test_a_run_that_completed_or_was_stopped_leaves_no_failure_event(self):
+        from covey.backends.claude.process import failure_event
+        from covey.core.result import ExecutionOutcome
+        for status, code in (("completed", ""), ("cancelled", "cancelled")):
+            self.assertIsNone(failure_event(ExecutionOutcome(status, code), None, "receive_events", mock.Mock(), 0))
+        data = failure_event(ExecutionOutcome("failed", "process_exit"), None, "receive_events", SimpleNamespace(), 2)
+        self.assertEqual((data["exit_code"], data["stderr"]), (2, []))
+
+    def test_credentials_in_stderr_are_hidden_and_a_session_id_is_not(self):
+        from covey.backends.claude.process import scrub
+        session = "b22daa79-4d01-44e0-8687-147cf972b658"
+        line = scrub(f"401 ANTHROPIC_API_KEY=sk-ant-abcdefgh123456 Authorization: Bearer abcdefghijkl session {session} "
+                     "cred hunter2hunter2", {"GATEWAY_TOKEN": "hunter2hunter2", "LANG": "C"})
+        for secret in ("sk-ant-abcdefgh123456", "abcdefghijkl", "hunter2hunter2"):
+            self.assertNotIn(secret, line)
+        self.assertIn(session, line)
+        self.assertLessEqual(len(scrub("x " * 1000)), 400)
+
+    def test_the_bridge_writes_the_failure_as_log_lines_of_the_task_runner(self):
+        from covey.app.runs import log_backend_failure
+        lines = []
+        log_backend_failure(lines.append, 20, {"status": "failed", "code": "transport_error", "stage": "initialize",
+                                               "exception": "RuntimeError", "reason": "initialize_unexpected_event",
+                                               "process_exit_code": 1, "stderr": ["fatal: bad fork", 7, "second"]})
+        self.assertEqual(lines[0], "backend failure job=#20 status=failed code=transport_error stage=initialize "
+                                   "exception=RuntimeError reason=initialize_unexpected_event process_exit_code=1")
+        self.assertEqual(lines[1:], ["backend stderr job=#20 | fatal: bad fork", "backend stderr job=#20 | second"])
+        lines.clear()
+        log_backend_failure(lines.append, 21, {"status": "failed", "stderr": []})
+        self.assertEqual(lines[-1], "backend stderr job=#21 | (nothing)")
+        log_backend_failure(lines.append, 22, "not an object")  # Never raises.
+
+    def test_the_real_process_keeps_the_last_lines_of_its_stderr_and_never_blocks_on_it(self):
+        from covey.backends.claude.process import STDERR_LINES, ClaudeProcess
+        with tempfile.TemporaryDirectory() as folder:
+            ctx = dataclasses.replace(codex_context(Path(folder), "stream-json"), workdir=Path(folder))
+            code = ("import sys\nfor i in range(500): sys.stderr.write('noise %d token=abc12345678\\n' % i)\n"
+                    "sys.stderr.write('fatal: bad fork\\n'); sys.exit(1)")
+            process = ClaudeProcess([sys.executable, "-c", code], ctx, dict(os.environ))
+            process.process.wait(timeout=20)
+            process.close()
+            self.assertEqual(len(process.stderr_tail), STDERR_LINES)
+            self.assertEqual(process.stderr_tail[-1], "fatal: bad fork")
+            self.assertNotIn("abc12345678", " ".join(process.stderr_tail))
+
     def test_details_that_cannot_be_saved_leave_the_failure_as_it_was(self):
         # Before the guard, a failed write turned the transport failure into the job's own exception.
         with mock.patch("covey.core.state.write_private_text", side_effect=OSError(28, "full")):

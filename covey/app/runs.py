@@ -77,6 +77,26 @@ def skipped_images_card_note(skipped, limit: int, at: str, shown: int = 5) -> st
             "要让模型直接看图，请压缩后重发。")
 
 
+def log_backend_failure(log, job_id, data) -> None:
+    """The ``backend_failure`` event (core/protocol.py) as log lines, in the task runner's log: one line of what failed and
+    how the backend ended, then each of its last stderr lines. Only short plain values are written, whatever the event
+    holds; never raises."""
+    try:
+        if not isinstance(data, dict):
+            return
+        facts = " ".join(f"{name}={str(data[name])[:80].replace(' ', '_')}" for name in (
+            "status", "code", "stage", "exception", "reason", "errno", "process_exit_code", "exit_code", "write_size",
+            "write_offset") if type(data.get(name)) in (str, int))
+        log(f"backend failure job=#{job_id} {facts}")
+        lines = [str(line)[:400] for line in data.get("stderr") or () if isinstance(line, str)]
+        for line in lines:
+            log(f"backend stderr job=#{job_id} | {line}")
+        if not lines:
+            log(f"backend stderr job=#{job_id} | (nothing)")
+    except Exception:  # noqa: BLE001 - a diagnosis never decides the turn
+        return
+
+
 def proxy_turn_note(ctx, job) -> str:
     """What the owner's own turn in a 代答 topic is told while a batch there waits: that turn's reply is
     sent to the contact (app/proxy.py), and the rules are only in the batches' messages."""
@@ -218,6 +238,9 @@ class Runs:
             if kind == "model_request":  # Only the status line hears of it; the trace has nothing to show.
                 if job.activity_monitor is not None:
                     job.activity_monitor.request()
+                return None
+            if kind == "backend_failure":  # Only the log hears of it.
+                log_backend_failure(self.runtime.log, job.job_id, data)
                 return None
             if kind == "prompt_read":  # The turn a ↩️ 回退 would drop starts here (app/rewind.py).
                 try:

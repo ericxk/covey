@@ -11,7 +11,7 @@ from operator import attrgetter
 import time
 from typing import Any
 
-from covey.app import runner_ipc
+from covey.app import dispatch_cards, runner_ipc
 from covey.app.binding import JOB_STARTING, STALE_CARD, stale_job_card
 from covey.app.card_actions import action_value, card_object, click_kind, moved_card_text, ACTIONS
 from covey.app.launch import SUBMIT_PREFIX
@@ -201,6 +201,16 @@ class CardRouting:
         app, target = routed
         if raw.get('topic_id') and raw['topic_id'] != target.topic_id:
             return 'other_topic'
+        if raw.get('kind') in dispatch_cards.KINDS and not self.runtime.in_runner:
+            # A 派发卡's 补充 and 停止 act on what the topic is doing when they are clicked, not on the job the card
+            # named when it was last drawn; the task runner a forward reaches takes it as it is.
+            job_id = dispatch_cards.click_job(self.runtime, target.state_dir, target.topic_id, event.get('chat_id'))
+            if not job_id:
+                app.messenger.reply(target, event['chat_id'], dispatch_cards.NO_JOB,
+                                    app.key('dispatch-idle', event.get('event_id') or event['message_id']), voice=app.voice)
+                return 'dispatch_idle'
+            raw = {**raw, 'job_id': job_id}
+            event['action_value'] = raw
         routed = self.job_route(app, target, event, raw)
         timing.mark('job_route')
         if routed is None:

@@ -29,6 +29,9 @@ from dataclasses import dataclass, field
 #   model_reasoning: no fields; the main task's model began reasoning that streams no text.
 #   model_output: optional id, received_at; the main task's model is streaming output, never its content.
 #   model_request: optional id, received_at; the main task's first model call started (capability model_requests).
+#   backend_failure: status, code, stage; optional exception, reason, errno, process_exit_code / exit_code, write_size,
+#     write_offset, stderr (the CLI's last lines of stderr, credentials hidden, at most a few dozen): why a run that did
+#     not complete failed, once, for the Bridge's log (app/runs.py log_backend_failure); never shown on a card.
 #   redaction: terms, hits, requests; once per turn of a redacted topic, before trace_finished: the number of
 #     listed terms, the replacements made in this turn's requests and the requests relayed (core/redaction.py).
 
@@ -96,6 +99,7 @@ def retry_note(attempt, reason, received_at=None, **extra):
 PROGRESS_EVENT_KINDS = frozenset({
     "tool", "progress_note", "agent_state", "answer_snapshot", "first_token", "token_usage", "subtask_usage",
     "trace_finished", "question_resolved", "model_reasoning", "model_output", "model_request", "redaction",
+    "backend_failure",
 })
 
 

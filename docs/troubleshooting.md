@@ -104,6 +104,7 @@ doctor 只读：不发消息、不调用模型、不修复状态。退出码 0 �
 
 - 任务卡变成“任务已中断”：任务进程退出了（机器重启、被 `kill`、崩溃）。看 `<state>/runs/<任务键>/runner.log` 的结尾和 `bridge.log` 的 `task runner ended job=#N … exit=…`（`exit=none` 是被杀或崩溃）。恢复卡 60 秒后自动检查并继续一次，见[自动重试](usage.md#自动重试)。
 - 任务卡变成“任务未能启动”：任务进程在调用模型前就退出了两次，或根本起不来（括号里写原因，例如 `BlockingIOError`，多是系统一时建不了进程）。
+- 任务失败、卡上只写“与执行后端的连接发生异常”：看 `<state>/runs/<任务键>/runner.log` 里的 `backend failure job=#N …`（Claude Code：失败的阶段 `stage`、异常类型 `exception`、原因 `reason`、CLI 的退出码 `process_exit_code`/`exit_code`），下面几行 `backend stderr job=#N | …` 是 CLI 最后几十行 stderr（密钥已替换成 `***`）。同一份不含 stderr 的摘要也在 `<state>/claude-diagnostics/<run id>.json`。取消的任务不写这几行。
 - 要立刻结束一个任务进程，见[任务进程](operations.md#任务进程)。
 
 ## 送达未确认与投递待处理

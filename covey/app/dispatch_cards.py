@@ -1,6 +1,6 @@
 """派发活卡片 (docs/main-thread.md 派发活卡片), when COVEY_MAIN_DISPATCH_CARD=1: the card the main thread's topic_start,
-topic_send and topic_fork leave at the chat's top level, quoting the owner's message, saying how the job it handed to a
-topic is going, kept up to date until the conclusion comes back and the card shrinks to one line (cards/dispatch_card.py).
+topic_send and topic_fork leave at the chat's top level, a message of its own with the "你问" block (cards/dispatch_card.py)
+naming the owner's message, saying how the job it handed to a topic is going, kept up to date until the conclusion comes back and the card shrinks to one line (cards/dispatch_card.py).
 
 - ``created`` (called by app/main_topics.py once a topic took the work): sends the card, records it
   (core/dispatch_records.py), and makes a quote of it go to the topic (``route_message``). Never raises: the topic is
@@ -23,7 +23,8 @@ import time
 from pathlib import Path
 
 from covey.cards import answer_card
-from covey.cards.dispatch_card import (DONE, FAILED, RUNNING, STOPPED, WAITING, Dispatch, dispatch_card, settled_card)
+from covey.cards.dispatch_card import (DONE, FAILED, RUNNING, STEER_KIND, STOP_KIND, STOPPED, WAITING, Dispatch, dispatch_card,
+                                       settled_card)
 from covey.core import dispatch_records as records
 from covey.core import env as cenv
 from covey.core.card_sequence import file_card, reserve
@@ -33,6 +34,7 @@ from covey.core.locks import resource_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, timings_of, took_text
 from covey.core.state import epoch_seconds, read_object, write_json
+from covey.core.store import directory_store
 from covey.core.status_line import step_text
 from covey.core.topics import remember_topic_message, route_message, topic_label, topic_title
 from covey.core.turn_words import UNSET_PHASES, ask_words, request_line
@@ -49,6 +51,25 @@ BODY_CHARS = 300
 
 def enabled() -> bool:
     return cenv.get(ENV, "").strip() == "1"
+
+
+KINDS = frozenset({STEER_KIND, STOP_KIND})
+NO_JOB = "这个话题现在没有在做的任务，上一轮已经结束了。要继续，直接在话题里发消息，或引用这张卡回复。"
+LIVE_STATUS = frozenset({"queued", "running", "waiting_user", "cancel_requested"})
+
+
+def click_job(runtime, state_dir, topic_id, chat_id) -> str:
+    """The job a click on a 派发卡 button acts on: the topic's newest one that has not ended, as it is when the button is
+    clicked (the one the card names was the newest when the card was last drawn: an answer to a question or a 补充 that
+    started a turn since then makes a newer one, and the main thread's own turn that handed the work over is a job of
+    another topic). The registry first, then the job records, as a task runner this Bridge has not adopted yet is only
+    in them; '' when the topic has none."""
+    live = runtime.jobs.open_in_topic(topic_id, chat_id)
+    if live:
+        return str(max(int(job.job_id) for job in live))
+    rows = [job_number(row) for _, row in directory_store(Path(state_dir) / "jobs").query(
+        topic_id=topic_id, chat_id=chat_id, status=LIVE_STATUS)]
+    return str(max(rows)) if rows and max(rows) > 0 else ""
 
 
 def words(text, limit=BODY_CHARS) -> str:
@@ -159,7 +180,8 @@ def facts(state_dir, record, now, titles, url="") -> Dispatch:
                     status=status, label=topic_label(Path(state_dir), topic), title=topic_title(Path(state_dir), topic),
                     workspace=str((job or {}).get("workspace_name") or ""), started=clock(record.get("started_at")),
                     took=took, body=body, inputs=inputs, outputs=outputs,
-                    job_id=str(job_number(job)) if job is not None and job_number(job) else "", url=url)
+                    job_id=str(job_number(job)) if job is not None and job_number(job) else "", url=url,
+                    ask_at=str(record.get("ask_at") or ""), ask_url=str(record.get("ask_url") or ""))
 
 
 def titles_of(topics) -> dict:
@@ -180,6 +202,23 @@ def request_words(state_dir, job_key) -> str:
     """The owner's words the main-thread job ``job_key`` started from, one line."""
     record = find_job_record(Path(state_dir), str(job_key or "")) or {}
     return request_line(record.get("user_text")) or str(record.get("title") or "")
+
+
+def ask_of(env, state, job_key) -> dict:
+    """{ask_at, ask_url} of the main-thread job ``job_key``'s owner message: when he wrote it and the link that opens it at
+    its place in the chat (app/answer_cards.py ask_url, one read of Feishu, kept under the topic); '' for what cannot be
+    read: the "你问" block then has no link."""
+    from covey.app import answer_cards
+    from covey.core.state import epoch_seconds
+
+    record = find_job_record(state, str(job_key or "")) or {}
+    at = epoch_seconds(record.get("created_at")) or 0
+    try:
+        url = answer_cards.ask_url(state, record, profile=env.profile, log=env.runtime.log) if record else ""
+    except Exception as exc:  # noqa: BLE001 - the block without its link
+        env.runtime.log(f"dispatch card ask link failed: {type(exc).__name__}")
+        url = ""
+    return {"ask_at": clock(at), "ask_url": url}
 
 
 def created(env, request, topic_id, job_key="", *, token, kind="start", mid="", starts=True) -> str:
@@ -211,7 +250,7 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts) -> str:
         record = records.new_record(token=token, chat_id=chat, topic_id=topic_id, job_key=job_key,
                                     mid=mid or "main-" + token, kind=kind, owner_message=owner,
                                     request=request_words(state, job_key), starts=starts,
-                                    rounds=records.rounds_for(state, owner, topic_id))
+                                    rounds=records.rounds_for(state, owner, topic_id), **ask_of(env, state, job_key))
         write_json(path, record, ensure_ascii=False, indent=1)
     card = dispatch_card(facts(state, record, time.time(), titles_of(env.topics)))
 
@@ -220,7 +259,7 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts) -> str:
         write_json(path, record, ensure_ascii=False, indent=1)
     card_id, message = env.messenger.create_and_send_card(
         env.profile, chat, card, env.voice.key("main-dispatch", token), voice=env.voice, card_id=record.get("card_id", ""),
-        on_created=saved, reply_to_message_id=owner, in_thread=False)
+        on_created=saved)  # Not a reply: Feishu would put it into the owner's message's thread (see cards/dispatch_card.py).
     if not message:
         env.runtime.log(f"dispatch card not sent topic={str(topic_id)[:12]}")
         return ""

@@ -635,7 +635,8 @@ def answer_tail_cards():
     thread_url = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
     work = Dispatch(token="d" * 16, topic_id="topic-fake", request="把这块代码提交到 GitHub 上吧，推之前先问我推哪些", status=dc.RUNNING,
                     label="T453", title="比对公司主干和 GitHub 快照", workspace="covey", started="12:41", took="2分00秒",
-                    body="第 2/4 步：列出待推提交 · 本步 1 分钟", job_id="7", url=thread_url,
+                    body="第 2/4 步：列出待推提交 · 本步 1 分钟", job_id="7", url=thread_url, ask_at="12:31",
+                    ask_url="https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=76",
                     inputs=("Claude Code", "Sonnet 5.5", "思考 high", "covey"),
                     outputs=("**开始** 12:41　**已运行** 2分00秒",))
     asked_words = "把这块代码提交到 GitHub 上吧"

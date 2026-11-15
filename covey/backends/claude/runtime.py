@@ -19,7 +19,7 @@ from covey.backends.claude.compaction import compact_before_turn
 from covey.backends.claude.completion import ClaudeReplyState, result_failure
 from covey.backends.claude.control import ClaudeControl
 from covey.backends.claude.events import ClaudeEventAdapter
-from covey.backends.claude.process import (ClaudeProcess, IMAGE_FRAME, save_transport_details, transport_error,
+from covey.backends.claude.process import (ClaudeProcess, IMAGE_FRAME, failure_event, save_transport_details, transport_error,
                                                     transport_failure_details)
 from covey.core.attachments import MAX_IMAGE_BYTES, read_images
 from covey.core.completion import CompletionBudget
@@ -268,6 +268,9 @@ def run_stream(backend, request, env):
         failure, cleanup, rc = close_stream(request, process, control, emit, flush_events, failure, rc)
     result = state.finish(rc, cleanup=cleanup, failure=failure, stopped=stopped)
     save_transport_details(state, transport_details)
+    diagnosis = failure_event(result.outcome, transport_details, stage, process, rc)
+    if diagnosis is not None:
+        emit("backend_failure", diagnosis)
     settle_subtasks(adapter, ctx, state.session_id, env)
     redacted = redaction.turn_event(ctx)
     if redacted is not None:

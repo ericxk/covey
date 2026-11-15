@@ -4,6 +4,10 @@ records say), again each time that changes, and once more as a single line when 
 
 Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the order drawn:
 
+- ``answer_ask``: the grey "你问 · 12:31 ›" block (cards/answer_card.py ``ask_block``) with the owner's words, opening his
+  message at its place in the chat. The card is a message of its own at the chat's top level, not a reply to his
+  message: Feishu puts a reply to a message that has a thread already (the topic the work was handed to hangs under
+  that message) into the thread whatever ``reply_in_thread`` says, so the block says whose question it is instead;
 - the header: the owner's request, its first ``HEAD_CHARS`` characters, and the state as a tag (在做, 等你, 做完, 失败, 已停);
 - ``dp_meta``: one grey line, "T453 · 12:41 起 · 用时 2分05秒";
 - ``dp_thread``: the fold 线程 (open while the job works or waits on the owner, closed once it ended), its title line the
@@ -51,6 +55,8 @@ class Dispatch:
     outputs: tuple = ()
     job_id: str = ""
     url: str = ""
+    ask_at: str = ""
+    ask_url: str = ""
 
 
 def head_words(request) -> str:
@@ -103,7 +109,8 @@ def dispatch_card(dispatch):
     if dispatch.notes:
         inside.append(md("\n".join(grey(literal_text(line)) for line in dispatch.notes), element_id="dp_notes",
                          size="notation"))
-    elements = [md(grey(literal_text(meta_line(dispatch))), element_id="dp_meta", size="notation"),
+    elements = [answer_card.ask_block(dispatch.request, at=dispatch.ask_at, url=dispatch.ask_url),
+                md(grey(literal_text(meta_line(dispatch))), element_id="dp_meta", size="notation"),
                 collapsible("dp_thread", thread_title(dispatch), inside, expanded=opened, size="normal_v2"),
                 answer_card.box("dp_io", answer_card.input_lines(dispatch.inputs), list(dispatch.outputs)),
                 *buttons(dispatch)]

@@ -13,14 +13,14 @@ from unittest import mock
 from support.fake_lark import FakeCardKit
 from support.world import UnifiedCase
 
-from covey.app import dispatch_cards, main_topics, relay_send
+from covey.app import dispatch_cards, main_topics, relay_send, runner_ipc
 from covey.app.card_actions import ACTIONS
 from covey.app.main_env import MainEnv
 from covey.cards import dispatch_card as view
 from covey.cards.elements import find_element
 from covey.core import dispatch_records as records
 from covey.core import main_thread_settings
-from covey.core.jobs import upsert_job_record
+from covey.core.jobs import BridgeReplyJob, upsert_job_record
 from covey.core.main_requests import Request
 from covey.core.state import read_object
 from covey.core.topics import routed_topic
@@ -30,6 +30,7 @@ OWNER = "om_owner_question"
 ASK = "把这块代码提交到 GitHub 上吧，推之前先问我推哪些"
 ELEMENT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,19}$")
 URL = "https://applink.example/client/thread/open?open_chat_id=oc_x"
+ASK_URL = "https://applink.example/client/chat/open?openChatId=oc_x&position=76"
 
 
 def ids(value):
@@ -49,7 +50,8 @@ def ids(value):
 def dispatch(status=view.RUNNING, **fields):
     base = dict(token="t" * 16, topic_id="topic1", request=ASK, status=status, label="T453", title="比对公司主干和 GitHub 快照",
                 workspace="covey", started="12:41", took="2分00秒", body="第 2/4 步：列出待推提交",
-                inputs=("Claude Code", "Sonnet", "思考 high", "covey"), outputs=("**开始** 12:41",), job_id="7", url=URL)
+                inputs=("Claude Code", "Sonnet", "思考 high", "covey"), outputs=("**开始** 12:41",), job_id="7", url=URL,
+                ask_at="12:31", ask_url=ASK_URL)
     base.update(fields)
     return view.Dispatch(**base)
 
@@ -63,7 +65,9 @@ class CardTest(UnifiedCase):
         self.assertEqual(longer, "把" * 29 + "…")
         self.assertEqual([tag["text"]["content"] for tag in head["text_tag_list"]], ["在做"])
         self.assertEqual(ids(card["body"]["elements"]),
-                         ["dp_meta", "dp_thread", "dp_body", "dp_io", "dp_btns", "dp_steer", "dp_stop", "dp_open"])
+                         ["answer_ask", "dp_meta", "dp_thread", "dp_body", "dp_io", "dp_btns", "dp_steer", "dp_stop", "dp_open"])
+        self.assertEqual(find_element(card, "answer_ask")["behaviors"], [{"type": "open_url", "default_url": ASK_URL}])
+        self.assertIn("你问 · 12:31", json.dumps(find_element(card, "answer_ask"), ensure_ascii=False))
         meta = find_element(card, "dp_meta")
         self.assertIn("T453 · 12:41 起 · 用时 2分00秒", meta["content"])
         fold = find_element(card, "dp_thread")
@@ -167,6 +171,9 @@ class DispatchCase(UnifiedCase):
         link = mock.patch("covey.app.topic_links.topic_thread_link", return_value=(URL, "thread"))
         link.start()
         self.addCleanup(link.stop)
+        asked = mock.patch("covey.app.answer_cards.ask_url", return_value=ASK_URL)
+        self.ask_url = asked.start()
+        self.addCleanup(asked.stop)
         self.cards = dispatch_cards.DispatchCards(self.app.runtime, self.app.messenger, self.app.voice, {"claude": "Claude Code"})
 
     def send_card(self, profile, chat, card, key, **kwargs):
@@ -174,8 +181,8 @@ class DispatchCase(UnifiedCase):
         return kwargs.get("card_id") or f"card-{number}", f"om_card{number}"
 
     def dispatch_sends(self):
-        """The calls that sent a 派发活卡片: the ones that quote the owner's message (a topic's own root card is not)."""
-        return [call for call in self.sent.call_args_list if call.kwargs.get("reply_to_message_id")]
+        """The calls that sent a 派发活卡片 (the ones whose card has the 线程 fold; a topic's own root card has none)."""
+        return [call for call in self.sent.call_args_list if find_element(call.args[2], "dp_thread")]
 
     def start(self, request_id="r1", **args):
         fields = dict(title="查日志", prompt="看看昨晚的失败", workspace="project", readonly=True, user_requested=False,
@@ -204,13 +211,19 @@ class DispatchCase(UnifiedCase):
 
 
 class CreatedTest(DispatchCase):
-    def test_the_card_goes_to_the_top_level_quoting_the_owner_and_a_quote_of_it_goes_to_the_topic(self):
+    def test_the_card_is_a_message_of_its_own_in_the_chat_with_a_link_to_the_owners_and_a_quote_of_it_goes_to_the_topic(self):
+        # Feishu puts a reply to a message that has a thread already into that thread (the topic hangs under the owner's
+        # message), whatever reply_in_thread says: so the card is no reply (the 2026-11-15 check found it in the thread).
         answer = self.start()
         self.assertTrue(answer["ok"], answer)
         topic = answer["data"]["topic_id"]
         (profile, chat, card, key), kwargs = self.dispatch_sends()[-1]
-        self.assertEqual((chat, kwargs["reply_to_message_id"], kwargs["in_thread"]), (CHAT, OWNER, False))
+        self.assertEqual(chat, CHAT)
+        self.assertFalse(kwargs.get("reply_to_message_id"), kwargs)
         self.assertEqual(card["header"]["title"]["content"], ASK)
+        ask = find_element(card, "answer_ask")
+        self.assertEqual(ask["behaviors"][0]["default_url"], ASK_URL)  # His message at its place in the chat.
+        self.assertIn(ASK, json.dumps(ask, ensure_ascii=False))
         record = self.record()
         message = record["card_message_id"]
         self.assertEqual((record["state"], record["topic_id"], record["owner_message"], record["rounds"],
@@ -232,7 +245,7 @@ class CreatedTest(DispatchCase):
 
     def test_a_card_that_cannot_be_sent_leaves_the_topic_opened_and_says_so_in_the_log(self):
         self.sent.side_effect = lambda profile, chat, card, key, **kw: (
-            ("", "") if kw.get("reply_to_message_id") else self.send_card(profile, chat, card, key, **kw))
+            ("", "") if find_element(card, "dp_thread") else self.send_card(profile, chat, card, key, **kw))
         self.assertTrue(self.start()["ok"])
         self.assertTrue(any("dispatch card not sent" in line for line in self.logs))
 
@@ -448,3 +461,78 @@ class ButtonTest(DispatchCase):
                       "chat_id": CHAT, "event_id": "ev1"}))
         args = steer.call_args.args
         self.assertEqual((args[1], args[3], args[5]), (CHAT, {"kind": "bridge_steer", "topic_id": "topic1", "job_id": 7}, "ev1"))
+
+
+class ClickTest(DispatchCase):
+    """The buttons act on what the topic is doing when they are clicked, not on the job the card named when it was drawn
+    (the check on 2026-11-15: 补充 on a running task was said to have ended; the stop found it)."""
+
+    def setUp(self):
+        super().setUp()
+        self.assertTrue(self.start()["ok"])
+        self.topic = self.record()["topic_id"]
+        self.app.runtime.owner_open_id = "ou_owner"
+        self.app.runtime.state_dir = self.ctx.state_dir
+        self.app.runtime.jobs.by_id.clear()  # The one the start queued: these tests set the topic's jobs themselves.
+
+    def job(self, number, topic=None, *, running=False, ended=False):
+        job = BridgeReplyJob(job_id=number, user_text="x", chat_id=CHAT, message_id=f"om_job{number}", timeout=0,
+                             topic_id=topic or self.topic)
+        if running:
+            job.execution_started, job.backend_control = True, SimpleNamespace(remote=False, supports_steer=True)
+        if ended:
+            job.cancel_event.set()
+        self.app.runtime.jobs.register(job)
+        return job
+
+    def click(self, kind, job_id):
+        event = {"operator_id": "ou_owner", "chat_id": CHAT, "message_id": self.record()["card_message_id"],
+                 "event_id": "ev-click", "action_value": {"kind": kind, "topic_id": self.topic, "job_id": job_id}}
+        with mock.patch.object(runner_ipc, "forward_card_action", return_value=True) as forward, \
+                mock.patch.object(self.app.apps["claude"].messenger, "reply") as reply:
+            self.app.handle_card_action_event(event, self.ctx)
+        return forward, reply
+
+    def test_a_button_whose_job_is_over_acts_on_the_one_the_topic_runs_now(self):
+        # The card was drawn when #36 was the topic's job; the turn that follows (an answer, a 补充 that started one) is #37.
+        self.job(36, ended=True)
+        self.job(37, running=True)
+        for kind in (view.STEER_KIND, view.STOP_KIND):
+            forward, _ = self.click(kind, "36")
+            forward.assert_called_once()
+            _, target, event, raw = forward.call_args.args
+            self.assertEqual((target.topic_id, raw["job_id"], raw["kind"]), (self.topic, "37", kind))
+            self.assertEqual(event["action_value"]["job_id"], "37")
+
+    def test_a_job_of_another_topic_is_not_the_one(self):
+        self.job(35, topic="topic-of-the-main-thread", running=True)
+        self.job(37, running=True)
+        forward, _ = self.click(view.STEER_KIND, "35")
+        self.assertEqual(forward.call_args.args[3]["job_id"], "37")
+
+    def test_the_newest_job_that_has_not_ended_is_the_one_when_one_waits_behind_another(self):
+        self.job(37, running=True)
+        self.job(38)  # Queued.
+        forward, _ = self.click(view.STOP_KIND, "37")
+        self.assertEqual(forward.call_args.args[3]["job_id"], "38")
+
+    def test_a_topic_with_nothing_running_says_so_and_nothing_is_sent_to_a_task(self):
+        self.job(36, ended=True)
+        self.set_job(status="done")  # The turn the start queued.
+        for kind in (view.STEER_KIND, view.STOP_KIND):
+            forward, reply = self.click(kind, "36")
+            forward.assert_not_called()
+            self.assertEqual(reply.call_args.args[2], dispatch_cards.NO_JOB)
+
+    def test_a_task_runner_this_bridge_has_not_adopted_yet_is_found_in_the_job_records(self):
+        self.set_job(status="done")
+        upsert_job_record(self.ctx.state_dir, "om_job41", message_id="om_job41", chat_id=CHAT, job_id=41, status="running",
+                          topic_id=self.topic)
+        forward, _ = self.click(view.STEER_KIND, "36")
+        self.assertEqual(forward.call_args.args[3]["job_id"], "41")
+
+    def test_the_task_runner_takes_the_click_as_it_is(self):
+        self.app.runtime.runner = object()  # In a task runner: the Bridge has named the job already.
+        self.job(37, running=True)
+        forward, _ = self.click(view.STOP_KIND, "36")
+        self.assertEqual(forward.call_args.args[3]["job_id"], "36")

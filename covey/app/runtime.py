@@ -118,6 +118,13 @@ class JobRegistry:
         with self.lock:
             return [j for j in self.by_id.values() if j.topic_id == topic_id and j.chat_id == chat_id]
 
+    def open_in_topic(self, topic_id, chat_id) -> list:
+        """This topic's jobs here that have not ended (``job_stage``: queued, starting, running, paused), in the order they
+        were registered. Reads the registry and the jobs' own fields only."""
+        with self.lock:
+            return [j for j in self.by_id.values()
+                    if j.topic_id == topic_id and j.chat_id == chat_id and job_stage(j) != "ended"]
+
     def family_live(self, chat_id) -> list:
         """The main thread family's tasks in ``chat_id`` (core/main_tracks.py: slot 0, with COVEY_MAIN_TRACKS=1 the
         tracks too) that are not ended and not waiting for an answer, as ``job_stage`` says (queued, starting,

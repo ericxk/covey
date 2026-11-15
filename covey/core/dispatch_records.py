@@ -39,14 +39,15 @@ def relay_note_path(state_dir, token) -> Path:
     return folder(state_dir) / f"{token}{RELAY_SUFFIX}"
 
 
-def new_record(*, token, chat_id, topic_id, job_key, mid, kind, owner_message, request, starts, rounds=1, now=None) -> dict:
+def new_record(*, token, chat_id, topic_id, job_key, mid, kind, owner_message, request, starts, rounds=1, now=None, ask_at="", ask_url="") -> dict:
     """A fresh live record. ``job_key`` the main-thread job that sent the card, ``mid`` the key or message id of the
     topic's job it follows, ``kind`` start, send or fork, ``starts`` whether the topic starts at once (else it waits
-    on its launch card)."""
+    on its launch card). ``ask_at``, ``ask_url``: the owner's message the card's "你问" block names (the time he wrote it,
+    the link that opens it)."""
     request = " ".join(str(request or "").split())
     return {"schema_version": SCHEMA, "token": token, "chat_id": chat_id, "topic_id": topic_id, "job_key": job_key,
             "mid": mid, "kind": kind, "owner_message": owner_message, "request": request[:REQUEST_CHARS],
-            "starts": bool(starts), "card_id": "", "card_message_id": "", "sequence": 0, "state": LIVE,
+            "starts": bool(starts), "ask_at": ask_at, "ask_url": ask_url, "card_id": "", "card_message_id": "", "sequence": 0, "state": LIVE,
             "started_at": time.time() if now is None else now,
             # For the phase after this one; nothing reads them yet.
             "rounds": rounds, "upgrade_hint": {"long_word": bool(LONG_WORDS.search(request))}, "project_id": None}
