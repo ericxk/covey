@@ -16,7 +16,7 @@ from typing import Any
 from covey.core import env as cenv
 from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY
 
-from covey.core.process_env import child_process_env
+from covey.core.process_env import child_process_env, process_device
 from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunRequest, RunResult, UUID_RE
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.state import ensure_private_dir
@@ -107,7 +107,7 @@ class CodexBackend(BackendRuntime):
     def run(self, request: RunRequest) -> RunResult:
         request.check_cancelled()
         ctx = request.context
-        env = child_process_env(ctx.workdir)
+        env = child_process_env(ctx.workdir, device=process_device(ctx))
         removed = retired_provider(ctx.model)
         if removed:  # A job queued on a removed provider's model before (core/providers.py RETIRED_PREFIXES).
             raise ValueError(retired_provider_notice(removed))

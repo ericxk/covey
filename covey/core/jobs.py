@@ -92,6 +92,11 @@ class BridgeReplyJob:
     # Bound when the queued card is created; never retarget an old card to an older task.
     # None is a legacy/unbound job; 0 means there was no preceding task.
     steer_target_job_id: int | None = None
+    # The device the job runs on and the directory on it (core/devices.py; BridgeContext has the same two): '' on this
+    # machine. Saved, and in a record, only when set, so a record without them reads as before and an old release
+    # reading one that has them fails on the stand-in ``workdir`` (which never exists) rather than running here.
+    device: str = _state("")
+    remote_workdir: str = _state("")
     # Submission and execution.
     harness_capabilities: Any = _state()
     bridge_run_id: str | None = _state()
@@ -191,6 +196,14 @@ class BridgeReplyJob:
         self.runtime.answer_finalized = value
 
 
+def carry_device(job, ctx):
+    """``job`` runs where ``ctx`` does: its device and the directory on it (nothing for a context on this machine, so a
+    job there is built, saved and read as before devices existed). Returns ``job``."""
+    if getattr(ctx, "device", ""):
+        job.device, job.remote_workdir = ctx.device, ctx.remote_workdir
+    return job
+
+
 def context_for_job(ctx, job):
     """The context ``job`` runs and reports in: its topic, workspace, session files and the model
     settings it was submitted with, over the Harness's base ``ctx``."""
@@ -203,6 +216,8 @@ def context_for_job(ctx, job):
         reply_to_message_id=job.reply_to_message_id,
         workspace_name=job.workspace_name or ctx.workspace_name,
         workdir=job.workdir or ctx.workdir,
+        **({"device": getattr(job, "device", ""), "remote_workdir": getattr(job, "remote_workdir", "")}
+           if job.workdir else {}),
         history_path=job.history_path or ctx.history_path,
         session_path=job.session_path or ctx.session_path,
         sessions_dir=job.sessions_dir or ctx.sessions_dir,
@@ -408,6 +423,8 @@ def record_bridge_job_state(
         payload["sender_id"] = job.sender_id
     if getattr(job, "work_mode", ""):
         payload["work_mode"] = job.work_mode
+    if getattr(job, "device", ""):
+        payload["device"], payload["remote_workdir"] = job.device, str(getattr(job, "remote_workdir", "") or "")
     if getattr(job, "policy_retry", None):
         payload["policy_retry"] = dict(job.policy_retry)  # Never retried again (app/policy_retry.py eligible).
     resolved_sessions_dir = getattr(job, "sessions_dir", None) or sessions_dir
@@ -535,7 +552,8 @@ def context_for_record(base: Any, record: dict[str, Any], reply_to: str | None =
         base, topic_id=record["topic_id"],
         reply_to_message_id=record["reply_to_message_id"] if reply_to is None else reply_to,
         workdir=Path(record["workdir"]), history_path=Path(record["history_path"]),
-        session_path=Path(record["session_path"]))
+        session_path=Path(record["session_path"]),
+        device=str(record.get("device") or ""), remote_workdir=str(record.get("remote_workdir") or ""))
 
 
 def harness_of(job_or_record: Any, fallback: str = "") -> str:

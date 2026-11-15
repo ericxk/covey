@@ -134,7 +134,8 @@ def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, 
     old_app, new_app = topics.apps[topic["harness_id"]], topics.apps[name]
     topic_dir = ctx.history_path.parent
     old_sid = old_app.sessions.read_session_id(topic_dir / old_app.spec.session_filename) or ""
-    transcript = native_transcript(old_app, ctx.workdir, old_sid)  # A glob on the NAS: outside LOCK.
+    # A glob on the NAS: outside LOCK. A device's transcript is on the device: none here.
+    transcript = None if getattr(ctx, "device", "") else native_transcript(old_app, ctx.workdir, old_sid)
     with topic_lock(ctx), LOCK:  # The topic lock waits out a submission or retry still sending its card.
         topic = read_topic(ctx)
         if (topic.get("harness_id") != form["harness_id"]

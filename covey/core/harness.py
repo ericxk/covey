@@ -46,6 +46,11 @@ class BridgeContext:
     reply_to_message_id: str = ""
     # A Harness's work mode where it has them (core/defaults.WORK_MODES); "" is its default.
     work_mode: str = ""
+    # A topic on another machine (core/devices.py): the device's alias and the directory on it, as text (never
+    # resolved on the hub: ``~`` is the device's home). Both are '' on this machine, where ``workdir`` is the directory;
+    # for a device ``workdir`` is the stand-in, a hub path that never exists.
+    device: str = ""
+    remote_workdir: str = ""
 
 
 @dataclasses.dataclass(frozen=True)

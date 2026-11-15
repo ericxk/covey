@@ -26,6 +26,7 @@ from covey.app.recovery_cards import paint_answered
 from covey.app.switch_handoff import capped
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
+from covey.core import devices
 from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, read_checkpoint,
                                             release_user_wait)
 from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
@@ -124,7 +125,7 @@ class Runs:
         return bridge_rules(
             backend_name=self.harness.spec.prompt_agent_name,
             workspace_name=ctx.workspace_name,
-            workdir=ctx.workdir,
+            workdir=ctx.workdir, device=ctx.device, remote_workdir=ctx.remote_workdir,
             runtime_note=self.harness.backend.prompt_runtime_note(ctx),
             notes=tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx)),
             principles=self.principles(ctx, job),
@@ -174,7 +175,7 @@ class Runs:
             # Stopped (or a SIGTERM) while the prompt was made, as during a 换配置 handoff summary (up to 3 minutes):
             # no new Harness starts; the worker ends the turn as cancelled or interrupted.
             raise JobCancelled("任务在开始执行前停止")
-        refused = self._refusal(live.ctx, session_id)
+        refused = self._refusal(live.ctx, session_id, job)
         if refused is not None:
             return refused
         live.ctx = self.rewinds.turn_context(live.ctx, job, session_id)
@@ -256,10 +257,32 @@ class Runs:
         prompt, attachments = self._fit_images(ctx, job, caps, prompt, self._image_attachments(ctx, prompt))
         return prompt, rules, system, attachments
 
-    def _refusal(self, ctx: BridgeContext, session_id: str | None) -> RunResult | None:
+    def _device_refusal(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
+        """Why a turn on ``ctx.device`` may not start, or '': the device is not in devices.json, not for this chat's space
+        (``Access.allows_device``), not for this Harness, or does not answer that its directory is there (one shim
+        ``stat``, 5 seconds)."""
+        try:
+            device = devices.current().device(ctx.device)
+        except devices.UnknownDevice:
+            return f"本话题的工作区在设备 {ctx.device} 上，但 devices.json 里没有这台设备（或没有打开 COVEY_DEVICES），本轮没有启动。"
+        chat_id = getattr(job, "chat_id", "") or read_topic(ctx).get("chat_id", "")
+        if not self.runtime.access.allows_device(chat_id, device):
+            return f"设备 {ctx.device} 不允许在这个聊天里使用（devices.json 的 spaces），本轮没有启动。"
+        if self.harness.spec.name not in device.harnesses:
+            return f"设备 {ctx.device} 没有声明 {self.harness.spec.title}（devices.json 的 harnesses），本轮没有启动。"
+        state, why = devices.check_dir(ctx.state_dir, ctx.device, ctx.remote_workdir)
+        return "" if state == "ok" else why + "，本轮没有启动。"
+
+    def _refusal(self, ctx: BridgeContext, session_id: str | None, job: ReplyJob | None = None) -> RunResult | None:
         """The failed result of a turn that may not start (its workdir is missing, or redaction is on where the
-        Harness cannot do it), or None when it may."""
-        if not Path(ctx.workdir).is_dir():
+        Harness cannot do it), or None when it may. A device's directory is the device's to answer
+        (``_device_refusal``); the hub's stand-in never exists."""
+        if ctx.device:
+            detail = self._device_refusal(ctx, job)
+            if detail:
+                outcome = ExecutionOutcome("failed", "workdir_missing", cleanup_confirmed=True, protection_confirmed=True)
+                return RunResult(outcome.summary(detail), session_id, True, None, outcome, failure_detail=detail)
+        elif not Path(ctx.workdir).is_dir():
             # Every backend would fail to start here, each with a generic transport error.
             outcome = ExecutionOutcome("failed", "workdir_missing", cleanup_confirmed=True, protection_confirmed=True)
             return RunResult(outcome.summary(), session_id, True, None, outcome)
@@ -311,7 +334,7 @@ class Runs:
         # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, 敏感词脱敏).
         history_snapshot, handoff = self.switch.switch_handoff(
             ctx, history_snapshot, getattr(job, "cancel_event", None),
-            ready=lambda: Path(ctx.workdir).is_dir() and not self._redaction_refusal(ctx),
+            ready=lambda: (bool(ctx.device) or Path(ctx.workdir).is_dir()) and not self._redaction_refusal(ctx),
             note=lambda text: self._bridge_note(ctx, job, "bridge-handoff", text))
         earlier = earlier_history(history_snapshot, job.message_id, user_text)
         # After a switch each earlier message is cut short: the transcript file has them whole.
@@ -339,7 +362,7 @@ class Runs:
             knowledge_text = knowledge_turn.block(ctx, job, owner_turn=owner, resumed=True)
             remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
             prompt += "\n\n" + RESUME_REMINDERS + (
-                "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir) + ("\n\n" + principles if principles else "")
+                "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir) + ("\n\n" + principles if principles else "")
                 + ("\n\n" + knowledge_text if knowledge_text else "")
                 + "\n\n" + CHECKPOINT_RULES + ("\n\n" + REMEMBER_RULE if remember else ""))
         return prompt
@@ -353,7 +376,10 @@ class Runs:
             prior = self._continue_previous(ctx, job)
         if prior is not None:
             job.recovery_context = prior
-            prior = {**prior, "bridge_preflight": audit_recovery(prior,ctx.workdir)}
+            audit = (audit_recovery(prior, ctx.remote_workdir,
+                                    stat_paths=devices.stat_paths(ctx.state_dir, ctx.device, ctx.remote_workdir))
+                     if ctx.device else audit_recovery(prior,ctx.workdir))
+            prior = {**prior, "bridge_preflight": audit}
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
         return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior)
 

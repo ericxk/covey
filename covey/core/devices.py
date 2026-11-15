@@ -31,6 +31,7 @@ import os
 import posixpath
 import re
 import secrets
+import threading
 import time
 from pathlib import Path
 
@@ -347,13 +348,15 @@ def standin(state_dir, alias, remote_workdir):
     return Path(state_dir) / "devices" / alias / "standin" / digest
 
 
-def bind_workdir(ctx, value, *, config=None, environ=None):
+def bind_workdir(ctx, value, *, config=None, environ=None, strict=True):
     """Decode a workspace value (``alias:path`` or a hub path). ``ctx`` is a ``BridgeContext`` (its ``state_dir``)
-    or the state directory itself.
+    or the state directory itself. The one decoder: every place a stored workspace value becomes a context calls it.
 
     Off, or a value that is not ``alias:/path`` (``alias:~/path``, ``alias:``): ``Binding(Path(value))``, the value
     untouched. On, a device value: the stand-in and the device's path; an alias devices.json does not list raises
-    ``UnknownDevice``. Creates nothing and starts nothing."""
+    ``UnknownDevice``, or with ``strict=False`` (a stored topic whose device was taken out of the file) still gives the
+    binding, so the turn is refused by name (app/runs.py) instead of failing in the decoder. Creates nothing and
+    starts nothing."""
     text = str(value)
     if not enabled(environ):
         return Binding(Path(text), "", "", text)
@@ -361,9 +364,90 @@ def bind_workdir(ctx, value, *, config=None, environ=None):
     if not found:
         return Binding(Path(text), "", "", text)
     alias, path = found.group(1), normalize_remote(found.group(2))
-    (config or current(environ)).device(alias)
+    try:
+        (config if config is not None else current(environ)).device(alias)
+    except UnknownDevice:
+        if strict:
+            raise
     state_dir = getattr(ctx, "state_dir", ctx)
     return Binding(standin(state_dir, alias, path), alias, path, "%s:%s" % (alias, path))
+
+
+def with_binding(ctx, binding, **changes):
+    """``ctx`` (a context) with ``binding`` applied: ``workdir``, ``device`` and ``remote_workdir`` together (a local
+    binding clears the two device fields), plus ``changes``."""
+    if binding.device or getattr(ctx, "device", ""):
+        changes.update(device=binding.device, remote_workdir=binding.remote_workdir)
+    return dataclasses.replace(ctx, workdir=binding.workdir, **changes)
+
+
+def stored_value(source):
+    """The workspace value to store for a context, job or job record (a mapping): ``gpu1:/home/me/proj`` for a device,
+    else the hub path as text (what was stored before devices existed)."""
+    get = source.get if isinstance(source, dict) else lambda name, default="": getattr(source, name, default)
+    device = str(get("device", "") or "")
+    if device:
+        return "%s:%s" % (device, get("remote_workdir", ""))
+    return str(get("workdir", "") or "")
+
+
+def is_device_value(value, environ=None):
+    """Whether ``value`` (a stored workspace value, a path or a name) is ``alias:path`` with the switch on. Reads no
+    file and needs no listed alias: for the places that must not treat such a value as a hub path (the directory
+    check of ``core/workspaces.py``)."""
+    return enabled(environ) and bool(DEVICE_VALUE.match(str(value).strip()))
+
+
+CHECK_SECONDS = 5.0
+
+
+def check_dir(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, config=None, environ=None):
+    """Whether ``remote_workdir`` is a directory on ``alias``: ``(state, text)``, state ``ok``, ``missing`` (no such
+    directory, or not one), ``offline`` (the device did not answer within ``timeout`` seconds) or ``unknown`` (the
+    alias is not in devices.json). One ``stat`` through the shim (the answer is the device's: ``~`` is its home); the
+    hub never touches the path."""
+    config = config if config is not None else current(environ)
+    try:
+        config.device(alias)
+    except UnknownDevice:
+        return "unknown", "设备 %s 不在 devices.json 里" % alias
+    found = {}
+
+    def ask():
+        try:
+            link = open_transport(config, alias, state_dir)
+            push_file(link, shim_bytes())
+            answer = link.call("stat", paths=["."], base=remote_workdir, patience=timeout)
+            item = (answer.get("results") or [{}])[0]
+            if item.get("is_dir"):
+                found["state"] = ("ok", "")
+            elif item.get("exists"):
+                found["state"] = ("missing", "%s 不是目录" % remote_workdir)
+            else:
+                found["state"] = ("missing", "%s 上没有目录 %s" % (alias, remote_workdir))
+        except Exception as exc:  # noqa: BLE001 - any failure to ask is "the device did not answer"
+            found["state"] = ("offline", "设备 %s 没有答复（%s）" % (alias, type(exc).__name__))
+
+    worker = threading.Thread(target=ask, name="device-check", daemon=True)
+    worker.start()
+    worker.join(timeout + 1.0)
+    return found.get("state") or ("offline", "设备 %s 在 %g 秒内没有答复" % (alias, timeout))
+
+
+def stat_paths(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, config=None, environ=None):
+    """A function that looks at paths on ``alias`` for ``checkpoint.audit_recovery``: ``paths`` (relative to
+    ``remote_workdir``, ``~`` the device's home) in, one shim ``stat`` out: a list of ``{path, exists, size,
+    escapes}``. The shim judges ``escapes`` (outside the directory, links followed) on the device. A failure to ask
+    raises."""
+    def look(paths):
+        use = config if config is not None else current(environ)
+        link = open_transport(use, alias, state_dir)
+        push_file(link, shim_bytes())
+        answer = link.call("stat", paths=list(paths), root=remote_workdir, base=remote_workdir, patience=timeout)
+        return [{"path": item.get("path", ""), "exists": bool(item.get("exists")), "size": item.get("size", 0),
+                 "escapes": bool(item.get("escapes"))} for item in answer.get("results") or []]
+
+    return look
 
 
 # ---------------------------------------------------------------- ssh

@@ -29,7 +29,9 @@ from covey.cards.switch_form import (BUDGET, CANCEL, CONFIRM, HARNESS, MODEL, PA
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.locks import resource_lock
 from covey.core.state import read_json, write_json
-from covey.core.workspaces import RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_selection
+from covey.core import devices
+from covey.core.workspaces import (RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding,
+                                    visible_workspaces)
 from covey.app.card_actions import action_value
 from covey.cards.topic_actions import SWITCH_OPEN
 from covey.app.launch_models import available_models, catalog_changed, run_choice
@@ -264,6 +266,8 @@ class HarnessSwitch(CardActionQueue):
                 return
             try:
                 config = load_config(ctx.state_dir, ctx.default_workdir)
+                # A device's workspaces only where its ``spaces`` say (app/access.py allows_device).
+                config = visible_workspaces(config, lambda alias: self.topics.runtime.access.allows_device(chat, alias))
                 names = sorted(config["workspaces"], key=lambda name: -config.get("recent", {}).get(name, 0))
             except (OSError, ValueError):
                 names = []
@@ -349,6 +353,10 @@ class HarnessSwitch(CardActionQueue):
                 if isinstance(place, dict) and "top" in place:
                     record = self.make_worktree(ctx, path, record, place)
                     place = self.place(target, record)
+                if isinstance(place, dict) and devices.is_device_value(place.get("workdir") or ""):
+                    alias = place["workdir"].split(":", 1)[0]
+                    if not self.topics.runtime.access.allows_device(chat, alias):
+                        raise ValueError(f"设备 {alias} 不允许在这个聊天里使用（devices.json 的 spaces）")
                 switched = switch_topic(self.topics, target, chat, record, name, model, effort, mode, place=place,
                                         redaction=redaction)
             except ValueError as exc:
@@ -376,7 +384,13 @@ class HarnessSwitch(CardActionQueue):
         workspace, run_mode = record.get("selected_workspace"), record.get("selected_run_mode") or "direct"
         if (workspace, run_mode) == (current.get("workspace"), current.get("run_mode")):
             return None
-        name, source = resolve_selection(ctx.state_dir, ctx.default_workdir, workspace)
+        name, binding = resolve_binding(ctx.state_dir, ctx.default_workdir, workspace)
+        source = binding.workdir
+        if binding.device:
+            # The switch card was drawn for this chat (names above); a click on an older card is checked again here.
+            if run_mode != "direct":
+                raise ValueError("设备上的工作区只能用原目录运行")
+            return {"workspace": name, "workdir": binding.value, "run_mode": "direct", "branch": ""}
         if run_mode == "direct":
             return {"workspace": name, "workdir": str(source), "run_mode": "direct", "branch": ""}
         made = record.get("made_worktree") or {}

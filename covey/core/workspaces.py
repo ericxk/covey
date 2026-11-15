@@ -9,9 +9,10 @@ import json
 import subprocess
 import threading
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
+from covey.core import devices
 from covey.core.locks import LOCK, topic_lock
 from covey.core.state import read_json, write_json
 from covey.core.paths import component_dir, expand_user
@@ -19,8 +20,8 @@ from covey.core.topics import bind_topic, context_for_topic, proxy_topic, read_t
 
 __all__ = ["LOCK", "RUN_MODES", "add_topic_worktree", "add_workspace", "bind_topic", "config_path", "directory_status",
            "load_config", "main", "missing_workspaces", "plan_topic_worktree", "proxy_topic", "read_topic",
-           "remove_workspaces", "resolve_selection", "set_default_workspace", "topic_context", "topic_lock",
-           "touch_workspace", "workspace", "workspace_locked", "worktree_root"]
+           "remove_workspaces", "resolve_binding", "resolve_selection", "set_default_workspace", "topic_context", "topic_lock",
+           "touch_workspace", "visible_workspaces", "workspace", "workspace_locked", "worktree_root"]
 RUN_MODES = {"direct": "原目录", "worktree": "独立 worktree"}
 
 
@@ -85,9 +86,29 @@ def load_config(state: Path, fallback: Path) -> dict:
         return data
 
 
-def workspace(data: dict, name: str) -> Path:
+def device_binding(state: Path, value: str, timeout: float = devices.CHECK_SECONDS) -> devices.Binding:
+    """The ``Binding`` of a device workspace value (``gpu1:/home/me/proj``) once the directory is seen to be there:
+    one shim ``stat`` within ``timeout`` seconds (core/devices.py ``check_dir``). ValueError says why not: an alias
+    devices.json does not list, a directory that is not there, a device that did not answer."""
+    try:
+        binding = devices.bind_workdir(state, value)
+    except devices.UnknownDevice as exc:
+        raise ValueError(f"{exc}（设备要先写进 devices.json）") from None
+    if not binding.device:
+        raise ValueError(f"不是设备工作区：{value}")
+    found, why = devices.check_dir(state, binding.device, binding.remote_workdir, timeout=timeout)
+    if found != "ok":
+        raise ValueError(why or f"设备目录不可用：{value}")
+    return binding
+
+
+def workspace(data: dict, name: str, state: Path | None = None) -> Path:
+    """The directory of the listed workspace ``name``; for a device workspace (needs ``state``) its stand-in, once the
+    device answers that the directory is there."""
     if name not in data["workspaces"]:
         raise ValueError("工作区不在本机允许列表中")
+    if state is not None and devices.is_device_value(data["workspaces"][name]):
+        return device_binding(state, data["workspaces"][name]).workdir
     path = Path(data["workspaces"][name]).expanduser().resolve()
     if not path.is_dir():
         raise ValueError(f"工作区目录不存在：{name}")
@@ -95,21 +116,63 @@ def workspace(data: dict, name: str) -> Path:
 
 
 def resolve_selection(state: Path, fallback: Path, selection: str) -> tuple[str, Path]:
-    """Resolve a saved name or register an explicitly supplied existing absolute path."""
+    """Resolve a saved name or register an explicitly supplied existing absolute path. For a device workspace the
+    path is its stand-in (``resolve_binding`` gives the device too)."""
+    name, binding = resolve_binding(state, fallback, selection)
+    return name, binding.workdir
+
+
+def resolve_binding(state: Path, fallback: Path, selection: str) -> tuple[str, devices.Binding]:
+    """``resolve_selection`` with the whole ``Binding`` (core/devices.py): ``workdir``, and for a device workspace
+    (a saved name whose value is ``gpu1:/home/me/proj``, or such a value typed) also ``device``, ``remote_workdir``
+    and ``value``, the text to store in topic.json. A device's directory is checked outside LOCK (the device may
+    take 5 seconds)."""
     with LOCK:
         data = load_config(state, fallback)
-        if selection in data["workspaces"]:
-            return selection, workspace(data, selection)
-        path = expand_user(selection)
-        if path is None or not path.is_absolute():
-            raise ValueError("未找到该工作区，可能已从列表移除；请重新选择工作区或填写绝对目录路径")
-        path = path.resolve()
-        if not path.is_dir():
-            raise ValueError(f"工作区目录不存在：{path}")
-        name, added = _register(data, path)
+        value = data["workspaces"].get(selection)
+        if value is None and not devices.is_device_value(selection):
+            return _resolve_here(state, data, selection)
+        if value is not None and not devices.is_device_value(value):
+            path = workspace(data, selection)
+            return selection, devices.Binding(path, "", "", str(path))
+    binding = device_binding(state, value if value is not None else selection.strip())
+    if value is not None:
+        return selection, binding
+    with LOCK:
+        data = load_config(state, fallback)
+        name, added = _register_device(data, binding)
         if added:
             _save_config(state, data)
-        return name, path
+    return name, binding
+
+
+def _resolve_here(state: Path, data: dict, selection: str) -> tuple[str, devices.Binding]:
+    """A directory on this machine typed as a path: listed once, when it exists (the caller holds LOCK)."""
+    path = expand_user(selection)
+    if path is None or not path.is_absolute():
+        raise ValueError("未找到该工作区，可能已从列表移除；请重新选择工作区或填写绝对目录路径")
+    path = path.resolve()
+    if not path.is_dir():
+        raise ValueError(f"工作区目录不存在：{path}")
+    name, added = _register(data, path)
+    if added:
+        _save_config(state, data)
+    return name, devices.Binding(path, "", "", str(path))
+
+
+def _register_device(data: dict, binding: devices.Binding) -> tuple[str, bool]:
+    """The name a device workspace is listed under (an existing entry with the same value, else ``gpu1-proj``,
+    with -2, -3 on a clash) and whether it was just added. The caller holds LOCK and saves an addition."""
+    for name, existing in data["workspaces"].items():
+        if existing == binding.value:
+            return name, False
+    base = ("%s-%s" % (binding.device, PurePosixPath(binding.remote_workdir).name or "home"))[:32]
+    name, suffix = base, 2
+    while name in data["workspaces"]:
+        name = f"{base}-{suffix}"
+        suffix += 1
+    data["workspaces"][name] = binding.value
+    return name, True
 
 
 def _register(data: dict, path: Path) -> tuple[str, bool]:
@@ -130,6 +193,14 @@ def _register(data: dict, path: Path) -> tuple[str, bool]:
 def add_workspace(state: Path, fallback: Path, text: str, timeout: float = 5) -> tuple[str, bool]:
     """List an existing directory given by its absolute path: (its name, whether it is new). The directory
     is checked before LOCK is taken and for at most ``timeout`` seconds, so a slow NAS holds up only this call."""
+    if devices.is_device_value(text):
+        binding = device_binding(state, text.strip(), timeout)  # Checked before LOCK, like a directory here.
+        with LOCK:
+            data = load_config(state, fallback)
+            name, added = _register_device(data, binding)
+            if added:
+                _save_config(state, data)
+            return name, added
     path = expand_user(text.strip())
     if path is None or not path.is_absolute():
         raise ValueError("请填写目录的绝对路径，例如 /home/me/project")
@@ -167,6 +238,8 @@ def directory_status(paths, timeout: float = 1.5) -> dict:
 
     def check():
         for path in paths:
+            if devices.is_device_value(path):
+                continue  # Not a directory here: None, never False (missing_workspaces and prune must leave it).
             try:
                 result[path] = Path(path).expanduser().is_dir()
             except OSError:
@@ -193,6 +266,21 @@ def remove_workspaces(state: Path, fallback: Path, names) -> list[str]:
         return removed
 
 
+def visible_workspaces(data: dict, allows) -> dict:
+    """``data`` (the config) without the device workspaces ``allows(alias)`` refuses: what a launch or 换配置 card of a
+    chat may list. Without any device workspace it is ``data`` itself. A default that goes is replaced by the first
+    that stays; with nothing staying nothing goes."""
+    hidden = [name for name, value in data["workspaces"].items()
+              if devices.is_device_value(value) and not allows(value.split(":", 1)[0])]
+    if not hidden:
+        return data
+    kept = {name: value for name, value in data["workspaces"].items() if name not in hidden}
+    if not kept:
+        return data
+    default = data["default"] if data["default"] in kept else next(iter(kept))
+    return {**data, "default": default, "workspaces": kept}
+
+
 def missing_workspaces(data: dict, status: dict | None = None) -> list[str]:
     """Names whose directory is confirmed gone; an unanswered check is never counted."""
     if status is None:
@@ -204,7 +292,7 @@ def missing_workspaces(data: dict, status: dict | None = None) -> list[str]:
 def set_default_workspace(state: Path, fallback: Path, name: str) -> None:
     with LOCK:
         data = load_config(state, fallback)
-        workspace(data, name)
+        workspace(data, name, state)
         data["default"] = name
         _save_config(state, data)
 
@@ -214,9 +302,14 @@ def topic_context(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, legacy_
     configured default workspace."""
     config = load_config(ctx.state_dir, ctx.default_workdir)
     default = config["default"]
-    proposed = dataclasses.replace(
-        ctx, workspace_name=default, workdir=Path(config["workspaces"][default]).expanduser().resolve()
-    )
+    if devices.is_device_value(config["workspaces"][default]):
+        # A default workspace on a device: the new topic starts there (its topic.json gets the value, not the stand-in).
+        proposed = devices.with_binding(ctx, devices.bind_workdir(ctx, config["workspaces"][default], strict=False),
+                                        workspace_name=default)
+    else:
+        proposed = dataclasses.replace(
+            ctx, workspace_name=default, workdir=Path(config["workspaces"][default]).expanduser().resolve()
+        )
     return context_for_topic(proposed, event, sessions_dir, legacy_harness_id=legacy_harness_id)
 
 

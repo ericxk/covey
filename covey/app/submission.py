@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import time
 from typing import Any
 
-from covey.core import background, placement, timing
-from covey.core.jobs import BridgeReplyJob, find_job_record
+from covey.core import background, devices, placement, timing
+from covey.core.jobs import BridgeReplyJob, carry_device, find_job_record
 from covey.core.metrics import mark, run_start, took_text
 from covey.core.model_settings import recorded_model_settings, recorded_work_mode
 from covey.cards.review import recent_user_questions, render_stream_status
@@ -18,7 +17,7 @@ from covey.core.state import write_json
 from covey.core.history_storage import recent_history
 from covey.core.topics import bind_topic, read_topic, workspace_locked
 from covey.core.locks import LOCK, topic_lock
-from covey.core.workspaces import resolve_selection, topic_context, touch_workspace
+from covey.core.workspaces import load_config, resolve_selection, topic_context, touch_workspace
 from covey.app import main_reactions
 from covey.app.card_lanes import after_ack
 from covey.app.runner_spawn import prestart_runner
@@ -268,6 +267,7 @@ class Submission:
             history_snapshot=r.get("history_snapshot"),
             recent_questions=recent_user_questions(r.get("history_snapshot") or [], r["user_text"]),
         )
+        carry_device(job, ctx)
         job.harness_id = r.get('harness_id') or r.get('backend') or self.harness.spec.name
         job.binding_revision = int(r.get('binding_revision') or ctx.options.get('binding_revision', 1))
         return job
@@ -280,15 +280,20 @@ class Submission:
         A message sent meanwhile releases them before itself (submit_topic_job), so order holds."""
         with topic_lock(ctx):
             with LOCK:
-                name, resolved = resolve_selection(ctx.state_dir, ctx.default_workdir, name)
-                directory = directory or resolved
+                listed = load_config(ctx.state_dir, ctx.default_workdir)["workspaces"].get(name, "")
+                if devices.is_device_value(listed):
+                    # Already checked on the device when the launch card was submitted (app/launch.py): no second 5 seconds
+                    # under LOCK. The topic keeps the value; its context the stand-in and the device's directory.
+                    binding = devices.bind_workdir(ctx, listed, strict=False)
+                else:
+                    name, resolved = resolve_selection(ctx.state_dir, ctx.default_workdir, name)
+                    binding = devices.Binding(directory or resolved, "", "", "")
                 if workspace_locked(ctx):
                     return "本话题已经开始，工作区已固定。新任务请在主聊天发送消息。"
-                bind_topic(ctx, name, directory)
+                bind_topic(ctx, name, binding.workdir, stored=binding.value if binding.device else "")
                 touch_workspace(ctx.state_dir, ctx.default_workdir, name)
-                ctx = dataclasses.replace(
-                    ctx, workspace_name=name, workdir=directory, sessions_dir=self.harness.store.sessions_dir(directory)
-                )
+                ctx = devices.with_binding(ctx, binding, workspace_name=name,
+                                           sessions_dir=self.harness.store.sessions_dir(binding.workdir))
             if on_bound is not None:
                 on_bound()  # Outside LOCK: it may talk to Feishu.
         after_ack(functools.partial(self.release_waiting, ctx, chat_id))
@@ -333,6 +338,7 @@ class Submission:
             recent_questions=recent_user_questions(history_snapshot, content),
             history_snapshot=history_snapshot, recovery_context=recovery_context, title=title, sender_id=sender_id,
         )
+        carry_device(job, ctx)
         mark(job, 'received', received_at)
         if policy_retry:
             job.policy_retry = dict(policy_retry)

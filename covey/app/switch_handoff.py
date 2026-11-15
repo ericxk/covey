@@ -27,6 +27,7 @@ from pathlib import Path
 
 from covey.app.binding import latest_switch_revision
 from covey.cards.topic_actions import switch_panel, topic_panel
+from covey.core import devices
 from covey.core.defaults import work_mode_tag
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import topic_job_records
@@ -302,6 +303,8 @@ class SwitchHandoff:
         elif "redaction" not in old:
             # Switched before the summary existed: whether its turns were redacted is not known, so nothing is sent.
             why = "no redaction record"
+        elif getattr(ctx, "device", "") or devices.is_device_value(old.get("workdir") or ""):
+            why = "device"  # The old session is on the device; the summary would run on this machine.
         elif not workdir.is_dir():
             why = "workdir missing"
         else:

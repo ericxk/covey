@@ -83,6 +83,15 @@ def show_outcome(cards: Any, ctx: Any, job: Any, status: str, runtime: Any) -> N
         runtime.log("outcome status update failed: " + type(exc).__name__)
 
 
+def outgoing_markdown(text: str, ctx: Any) -> str:
+    """``text`` with the local images it shows made uploadable (feishu/outgoing_images.py). A device topic's text stays
+    as it is: its image paths are the device's, and one that also exists here is not the file meant (the upload of
+    device files is not built yet; docs/configuration.md 多设备)."""
+    if getattr(ctx, "device", ""):
+        return text
+    return prepare_outgoing_markdown_images(text, profile=ctx.profile, base_dirs=media_base_dirs(ctx))
+
+
 def media_base_dirs(ctx: Any) -> list[Path]:
     """Where a reply's local image paths may point: the job's workdir and this tool's repository."""
     return [ctx.workdir, tool_root()]
@@ -98,7 +107,7 @@ class TurnProgress:
     def __call__(self, event: str, force: bool = False) -> None:
         if not str(event or "").strip():
             return
-        event = prepare_outgoing_markdown_images(event, profile=self.ctx.profile, base_dirs=media_base_dirs(self.ctx))
+        event = outgoing_markdown(event, self.ctx)
         rendered_event = format_received_progress_event(event, time.time())
         append_private_text(self.ctx.history_path.parent / "job-progress.jsonl", json.dumps(
             {"job_id": self.job.job_id, "message_id": self.job.message_id, "event": rendered_event}, ensure_ascii=False) + "\n")
@@ -217,7 +226,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         if turn.verified_delivery is not None and turn.verified_outcome.status != "completed":
             display_text = display_saved_reply(turn.verified_delivery, turn.verified_outcome)
             delivery_text = display_text
-        display_text = prepare_outgoing_markdown_images(display_text, profile=ctx.profile, base_dirs=media_base_dirs(ctx))
+        display_text = outgoing_markdown(display_text, ctx)
         if traits_of(job).linkify_body:
             # The owner taps a T number on the main thread's card to open that topic (display only:
             # delivery_text, the saved reply, stays as it was; app/topic_links.py).
@@ -640,7 +649,8 @@ def _run_turn(job, ctx, *, harness, runtime, cards, sessions, runs, record_job_s
         activity.start()
         timing.mark("monitor")
         # After the monitor starts: 执行中 does not wait for git (0.2-0.35 s, S34); the backend does.
-        snapshot = capture_job_diff_snapshot(ctx.workdir)
+        # A device's directory is not on this machine: git here would answer "no changes" (also skips finalize_job_diff).
+        snapshot = None if getattr(ctx, "device", "") else capture_job_diff_snapshot(ctx.workdir)
         timing.mark("snapshot")
         result = _generate_reply(ctx, job, session_id, progress, runs=runs, record_job_state=record_job_state)
         if job.interrupted and not finished_before(result):
