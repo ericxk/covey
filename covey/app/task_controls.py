@@ -237,7 +237,8 @@ class TaskControls(Redelivery):
         chat_id = str(event.get("chat_id") or "")
         if not (action and chat_id):
             return False
-        self.cancel_reply_job_from_card(ctx, action, chat_id, str(event.get("event_id") or event.get("message_id") or ""))
+        self.cancel_reply_job_from_card(ctx, action, chat_id, str(event.get("event_id") or event.get("message_id") or ""),
+                                        others=int(action.get("others") or 0))
         return True
 
     def dispatch_stop(self, ctx, event):

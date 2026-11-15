@@ -100,7 +100,7 @@
 - **活任务**：本进程登记表里家族的没结束的任务（排队、开始、在跑、在等回答），加上话题记录里 `waiting_user` 的（6 小时内；槽 0 的只在别处有活任务时才算）。每个交给路由层一条 `LiveJob`。
 - **认引用**：`parent_id` 先查补充送达记录（`merged`），再看是不是某个活任务的主人原消息、卡片或回复目标（`live_card`），再查别名（槽里有在等回答的任务时当作它的问题卡；其余是 `ended`；谁也不认识是 `unknown`）。
 - **分流**：`core/track_route.py` 的 `route` 九条规则；`ask_judge` 时调 `app/track_judge.py` 的 `judge`（事件线程里同步等，不持锁），判完重读活任务，目标刚结束就新开一路。转发、图片、文件、只有链接的消息之后 30 秒内的文字（没引用、规则落到第 9 条）直接并进那条消息去的那一路，不进分流。
-- **动作**：`stop` 复用 `TaskControls.cancel_reply_job_from_card`（停止消息不建任务、不进模型）；`merge` 把消息别名改到目标路再走 `app.handle_event`，`MainThread.supplement` 带 `target`（目标任务）；目标在等回答时是回答，走原来的续接；`new` 按 `pick_slot` 选槽、`keep_track_topic`、改别名后入队。
+- **动作**：`stop`（停止消息不建任务、不进模型）：任务在任务进程里时，把它任务卡上“停止”按钮的点击转给那个任务进程（`runner_ipc.forward_card_action`，同代答的 `proxy.stop_job`），由任务进程里的 `cancel_reply_job_from_card` 停自己的任务；任务还在 Bridge 里（排队、没交出去）才在 Bridge 里直接调它。只在 Bridge 里给任务的副本设停止标记到不了任务进程，后台命令和答案照常出来（2026-11-15 验收）；主人引用的消息按 `reply_to` 认（lark-cli 1.0.69 起事件里只有 `reply_to`，没有 `parent_id`，`quoted_id`）；`merge` 把消息别名改到目标路再走 `app.handle_event`，`MainThread.supplement` 带 `target`（目标任务）；目标在等回答时是回答，走原来的续接；`new` 按 `pick_slot` 选槽、`keep_track_topic`、改别名后入队。
 - **送达被拒**：`SteerRefused`（任务刚结束、后端不收补充）或目标已结束，`supplement` 调 `fresh()` 把消息改成新开一路（返回新槽的上下文，`BridgeApp.handle_event` 用它入队）；`SteerUncertain` 照旧说一句、不重发。
 - **选槽**（`pick_slot`）：槽 0 空闲就用槽 0，否则编号最小的空闲槽 1..4；在途（排队、开始、在跑）任务数到 `COVEY_MAIN_TRACKS_MAX`，或没有空闲槽，就选在途最少的槽（并列取编号小的），排在它后面（同话题先进先出，调度器不改），消息记一次 `Tracks.noted("queued", chat, message, ctx=, app=)`。等回答的槽、有 `waiting_user` 记录的槽算占着，不分给别的路；空闲槽开始前清掉上一次遗留的会话指针。
 - **路的一轮**（槽 ≥1，`main_turn` → `track_start`）：会话指针为空时分叉槽 0 的会话（`fork_session`，槽 0 有一轮在跑且已记下 `prompt_uuid` 时加 `fork_at`＝`rewind_point(...)["keep"]`，没记就整个分叉），消息是续接式的（`resume_message`）加主线程规则、**完整**快照（`take_snapshot(save=False)`，不动槽 0 的 `main-snapshot.json`）和「并行说明」（另几路此刻在做什么，每路一行，读任务记录，不依赖 Bridge 的登记表）。分叉不了（槽 0 没有会话、工作区不同、后端不支持、`keep` 为空、`rewind_point` 失败）退回新会话＋槽 0 最近的 `history.jsonl`（`first_turn_message`）。不做压缩检查，也不停空闲压缩；`compact_main_thread` 对槽 ≥1 直接返回。
@@ -108,7 +108,8 @@
 - **开了又关**：槽话题留在盘上，这时它们是普通话题（`traits` 给 TOPIC），回答、引用老卡都按 `topic_id` 找到会话指针继续；关着时槽 ≥1 不是主线程，下次再开时空闲槽的遗留指针由 `enter` 清掉。
 
 - **表情**（`app/main_reactions.py`，只给主人自己的消息、话题区布局的主线程一轮，`Tracks.noted` 是调用点；失败只记日志，都在锁外）：排在忙槽后面的消息挂 **排队中**（`OneSecond`）而不挂 OnIt（`start` 见 `HELD` 就跳过）；这一轮在任务进程里开跑时（`worker.process_bridge_reply_job` 里的 `begin`）先摘排队中、再挂 OnIt。进程之间不传状态：`begin` 用 `Messenger.reaction_ids` 查机器人自己挂的排队中，查不到就什么也不做（没排过队的消息 OnIt 已在入队时挂了）；排队时被取消的任务由 `cancel_reply_job_from_card` 摘掉。并进成功的消息挂 **并进**（`THUMBSUP`），一直留着；主人引用它说「单独答」（规则 3）时摘掉，新的一路照常 OnIt → 结束表情。`Get` 已表示“交给话题”，不用。表情代号用接口试过：飞书接受 `OneSecond`、`THUMBSUP`，不接受 `WAIT`。开关关着时一个都不调。
-- **停止的回复**：`stop` 把家族里其他还在做（不在等回答）的路数 k 传给 `cancel_reply_job_from_card(others=k)`，k>0 时文字回复末尾加“还有 k 路在做。”（带任务卡的停止只改卡，不加）。
+- **停止的回复**：`stop` 把家族里其他还在做（不在等回答）的路数 k 传给 `cancel_reply_job_from_card(others=k)`，k>0 时文字回复末尾加“还有 k 路在做。”（带任务卡的停止只改卡，不加）。k 随点击的 `action_value.others` 带到任务进程。
+- **停止后不再发答案**：开关开着、属于家族的任务被主人停止（`cancel_requested_by` 有值）时，Claude 因“只剩后台任务在跑”而保留的最后一条完整回复（`backends/claude/runtime.py` 的 `keep_last_reply`）不再发出，这一轮按已停止收尾（`app/turn_settle.py`，`core/main_tracks.py` 的 `owner_stop_drops_reply`）。开关关着、或普通话题的停止，仍然发出那条回复。Claude 收到 SIGTERM 时自己结束它的后台命令（它们不在 Claude 的进程组里）。
 
 
 **记忆合并**（`core/track_ledger.py`、`app/track_digest.py`）：路是槽 0 会话的分叉，它答了什么不在管家自己的会话里，所以交给管家的下一轮。

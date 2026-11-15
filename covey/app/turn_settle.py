@@ -13,6 +13,7 @@ from covey.core.checkpoint import read_checkpoint
 from covey.core.harness import JobCancelled
 from covey.core.jobs import harness_of
 from covey.core.main_thread import traits_of, worded
+from covey.core.main_tracks import owner_stop_drops_reply
 from covey.core.result import INCOMPLETE_STATUS, STATUS_MESSAGES
 from covey.core.saved_results import (authorize_verified_reply, mark_paused_question_delivery,
                                                observe_verified_reply)
@@ -66,6 +67,10 @@ def _turn_facts(turn, result, ctx, job, *, session_id, runtime, prefix):
     if job.cancel_event.is_set() and not job.interrupted:
         if outcome is None or result.public_reply is None:
             raise JobCancelled("任务已停止")
+        if outcome.status == "cancelled" and owner_stop_drops_reply(job.topic_id, job.chat_id, job.cancel_requested_by):
+            # The backend kept the last complete reply of a turn that waited for background tasks (多路并行): the
+            # owner stopped the task, so nothing is delivered.
+            raise JobCancelled("任务已停止，不再发送后台等待中的回复")
         outcome = replace(outcome, status="cancelled", error_code="cancelled", resume_allowed=False)
     turn.allow_resume = (not is_error) if outcome is None else outcome.resume_allowed
     if outcome is not None and turn.allow_resume and (is_error or result.public_reply is None

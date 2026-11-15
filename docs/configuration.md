@@ -69,6 +69,7 @@
 | 保存：本项目的设置 | 所有 `COVEY_*` 和 `LARK_<名称>_BRIDGE_*`，例如 `COVEY_DATA_HOME`、`COVEY_CARD_TRANSPORT` |
 | 不保存 | `COVEY_MANAGED`（Manager 启动 Bridge 时设置）、`COVEY_REQUIRED_MOUNT`（开机守护设置）、`COVEY_SERVICE_ROOT`（也不传给 Bridge）；名字像凭据的（含 `SECRET`、`TOKEN`、`PASSWORD`、`CREDENTIAL`，或以 `KEY` 为一段）；其他所有变量 |
 
+- **关掉一个开关，光在终端里去掉变量不够。** Bridge 的环境是 Manager 自己的环境加清单（见下），而 Manager 是第一次 `launch` 时从那个终端拉起的（`ensure_manager`），带着当时终端里的变量一直跑下去；之后的 `launch` 只换清单，Manager 不退出，它自己环境里的旧开关就还在，新 Bridge 照旧带着（`service_environment` 只覆盖清单里有的名字）。二选一：① 在终端里把变量设成关闭值（如 `COVEY_MAIN_TRACKS=0`），重新 `launch`，清单里的值盖过 Manager 的；只对“不是 `1` 就关”的开关有效，别的开关看各自一节写的取值；② 先结束 Manager 再 `launch`：`python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["process"]["pid"])' "$SERVICE_ROOT/manager.json"` 取 pid，`kill -TERM -- -<pid>` 结束它的进程组（Manager 在自己的会话里，进程组号就是它的 pid；Bridge 和任务进程各在自己的会话里，不受影响，下一个 Manager 接管），用 `pgrep -g <pid>` 确认没有残留，然后在没有该变量的终端里 `launch`。托管方式（systemd 等）拉起的 Manager 不带终端变量，重启单元即可，见[部署新版本](operations.md#部署新版本)第 6 步。
 - 终端里没有的变量，清单里也就没了。在没有代理变量的终端里重新注册，清单里的代理就会丢；终端里多出的 `LARK_*BRIDGE_*` 也会被保存。重新注册前先对比，见[部署新版本](operations.md#部署新版本)第 3 步。
 - 变量值不能含换行。代理 URL 只能是 `http`、`https`、`socks4`、`socks4a`、`socks5`、`socks5h`，要有主机名，不能带用户名、密码、路径、查询参数或片段（`NO_PROXY` 不校验）。不符合时 `launch` 拒绝写入，报 `only explicit non-secret runtime paths/settings can be persisted` 或 `only non-secret proxy URLs without credentials can be persisted`。带凭据的代理不能托管。
 - Bridge 进程的环境是 Manager 自己的环境，加上清单里的变量，再加 `PYTHONDONTWRITEBYTECODE=1`、`COVEY_MANAGED=1` 和 `TMPDIR=<state>/tmp`。开机后 Manager 由开机守护拉起，不读交互 shell 的初始化文件，所以 `PATH`、代理和本项目的设置只能靠清单。`restart` 不会补上清单里缺的变量，要重新 `launch`。
@@ -88,7 +89,7 @@
 
 ## 可选开关
 
-只有部分部署要用的功能默认关闭：没配置时不起线程、不加菜单项、不改已有行为。打开的办法都是在注册服务的终端里设变量，再重新 `launch`。
+只有部分部署要用的功能默认关闭：没配置时不起线程、不加菜单项、不改已有行为。打开的办法都是在注册服务的终端里设变量，再重新 `launch`。关掉时不能只在终端里去掉变量，见[服务清单里的环境变量](#服务清单里的环境变量)第一条。
 
 | 功能 | 怎么打开 | 打开后多什么 |
 | --- | --- | --- |

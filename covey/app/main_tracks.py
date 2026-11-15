@@ -27,13 +27,14 @@ import json
 import time
 from pathlib import Path
 
-from covey.app import main_reactions, track_judge
+from covey.app import main_reactions, runner_ipc, track_judge
 from covey.core import main_tracks as core
 from covey.core import main_thread as contract
 from covey.core import track_route as route
 from covey.core.deliveries import delivery_path, read_delivery
 from covey.core.harness import backend_capabilities
 from covey.core.history_storage import recent_history
+from covey.core.jobs import JOB_STOP_ACTION_KIND
 from covey.core.redaction import topic_redaction
 from covey.core.session_state import capture_session_state, compare_and_set_session, read_session_id
 from covey.core.state import epoch_seconds, read_object
@@ -117,7 +118,7 @@ class Tracks:
         records (nothing is asked of Feishu). A message of the owner's that triggered a live task counts as that task's
         card (the router's rule 4); one merged into a task is ``merged``; any other message of the family or of a topic
         that went is ``ended``; what no alias knows is ``unknown``."""
-        parent = str(event.get("parent_id") or "")
+        parent = quoted_id(event)
         if not parent:
             return route.Quote()
         state = ctx.state_dir
@@ -146,7 +147,7 @@ class Tracks:
         decision = route.route(message)
         if decision.why == "9" and decision.action in (route.ASK_JUDGE, route.NEW) and not bare and text.strip():
             held = self.bare.get(chat)  # Words right after a forward, a file or a link: they go where it went.
-            if held and now - held[1] <= BARE_SECONDS and not event.get("parent_id"):
+            if held and now - held[1] <= BARE_SECONDS and not quoted_id(event):
                 target = self.newest_of(entries, held[0])
                 if target is not None:
                     return route.Decision(route.MERGE, held[0], "bare", target.live.job_id)
@@ -228,16 +229,27 @@ class Tracks:
 
     def stop(self, ctx, app, chat, message, decision, entries) -> None:
         """The stop word's task stops (app/task_controls.py: a queued one is cancelled, a running one asked to stop); the
-        message itself starts nothing and reaches no model."""
+        message itself starts nothing and reaches no model. A task in a live task runner is stopped there, by the click
+        on its card's 停止 forwarded to the runner as the button does (app/runner_ipc.py ``forward_card_action``, as
+        app/proxy.py ``stop_job``): the runner owns the job, and a stop only set in this Bridge's copy of it reached
+        nobody (2026-11-15: both tasks ran their 90 s on and sent their answers)."""
         entry = next((entry for entry in entries if entry.live.job_id == decision.job_id), None)
         topic = core.track_topic_id(chat, entry.live.track if entry else decision.target or 0)
         move_topic_message(ctx.state_dir, topic, chat, message)
         stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
         going = {other.live.track for other in entries
                  if other.live.job_id != decision.job_id and other.live.phase != route.PAUSED}
-        app.controls.cancel_reply_job_from_card(
-            stop_ctx, {"job_id": decision.job_id, "message_id": entry.job.message_id if entry and entry.job is not None else ""},
-            chat, message, others=len(going - {entry.live.track} if entry else going))
+        others = len(going - {entry.live.track} if entry else going)
+        job = entry.job if entry else None
+        action = {"kind": JOB_STOP_ACTION_KIND, "job_id": decision.job_id, "message_id": job.message_id if job else ""}
+        if others > 0:
+            action["others"] = str(others)  # The runner's reply says it (task_controls.py ``stop_action``).
+        click = {"chat_id": chat, "message_id": message, "event_id": f"track-stop-{message}",
+                 "operator_id": self.runtime.owner_open_id or "", "action_value": action}
+        if job is not None and runner_ipc.forward_card_action(self.runtime, stop_ctx, click, action):
+            self.runtime.log(f"track stop job=#{decision.job_id} sent to its task runner")
+            return
+        app.controls.cancel_reply_job_from_card(stop_ctx, action, chat, message, others=others)
 
     def merge(self, ctx, app, event, chat, message, decision, entries, bare, now) -> None:
         """A supplement to the task (or, when it waits for one, its answer: the usual continuation). The task that ended
@@ -262,7 +274,7 @@ class Tracks:
         if not free:
             self.noted("queued", chat, message, ctx=ctx, app=app)
         if decision.text:  # Rule 3: it was merged into a task before; the owner wants it answered on its own.
-            self.noted("alone", chat, str(event.get("parent_id") or ""), ctx=ctx, app=app)
+            self.noted("alone", chat, quoted_id(event), ctx=ctx, app=app)
             event = {**event, "message_type": "text", "content": json.dumps({"text": decision.text}, ensure_ascii=False)}
         app.handle_event(event, step_ctx, hold=self.main.hold_for(chat, bare) if slot == 0 else 0, routed=True)
 
@@ -299,6 +311,13 @@ class Tracks:
 
 
 # -- a track's turn (in the task runner) -------------------------------------------------------------------------------
+
+def quoted_id(event) -> str:
+    """The message ``event`` quotes. The event is the consumer's, before ``enrich_incoming_event``: a lark-cli that names
+    the reply context (1.0.69 and later, feishu/events.py REPLY_CONTEXT) gives ``reply_to`` and no ``parent_id`` at all,
+    so reading ``parent_id`` alone saw no quote and a "停止" quoting a track stopped the newest one (2026-11-15)."""
+    return str(event.get("parent_id") or event.get("reply_to") or "")
+
 
 def clear_pointer(harness, state_dir, topic_id) -> None:
     """Forget the native session of the topic ``topic_id`` (only the pointer; the transcript stays)."""
