@@ -260,7 +260,11 @@ class TaskControls(Redelivery):
         action: dict[str, str],
         chat_id: str,
         message_id: str,
+        others: int = 0,
     ) -> bool:
+        """The stop of a task by its card or a stop word. ``others``: how many other tracks of the main thread are still
+        going (多路并行, app/main_tracks.py), said at the end of the text reply; 0 says nothing of it."""
+        also = f"还有 {others} 路在做。" if others > 0 else ""
         try:
             job_id = int(action.get("job_id") or "0")
         except ValueError:
@@ -299,7 +303,9 @@ class TaskControls(Redelivery):
             self.record_job_state(ctx, job, "cancelled", "已取消排队，未执行")
             self.close_unstarted_job(ctx, job, "已取消排队", "本条消息不会执行；其他任务继续。",
                                      self.voice.key("cancel-queued", message_id))
-            self.messenger.reply(ctx, chat_id, f"已取消排队任务 #{job.job_id}，其他任务继续。",
+            from covey.app import main_reactions
+            main_reactions.unqueue(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
+            self.messenger.reply(ctx, chat_id, f"已取消排队任务 #{job.job_id}，其他任务继续。{also}",
                                  self.voice.key("cancel-queued-ack", message_id), voice=self.voice)
             return True
         job.cancel_requested_at = utc_now_iso()
@@ -323,7 +329,7 @@ class TaskControls(Redelivery):
             self.messenger.reply(
                 ctx,
                 chat_id,
-                f"已请求停止任务 #{job.job_id}，后台会尽快结束。",
+                f"已请求停止任务 #{job.job_id}，后台会尽快结束。{also}",
                 self.voice.key("job-stop", message_id),
                 voice=self.voice,
             )

@@ -324,7 +324,7 @@ class MainThread:
             self.runtime.log(f"main thread supplement queued instead job=#{job.job_id}: {exc}")
             return fresh() if fresh is not None else False
         if target is not None:
-            self.tracks.noted("merged", chat, message)
+            self.tracks.noted("merged", chat, message, ctx=ctx, app=app)
         return True
 
 

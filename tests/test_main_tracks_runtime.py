@@ -222,7 +222,7 @@ class CapacityTest(TracksCase):
             self.run_job("om_2")
             with mock.patch.object(self.main.tracks, "noted") as noted:
                 self.send("om_3", "再来一个问题，帮我看一下日志里的报错")
-            noted.assert_any_call("queued", CHAT, "om_3")
+            noted.assert_any_call("queued", CHAT, "om_3", ctx=mock.ANY, app=mock.ANY)
             self.assertEqual(self.slot_of("om_3"), 0)  # One each: the lowest slot.
             self.send("om_4", "又一个新的问题，现在磁盘还剩多少空间呢")
             self.assertEqual(self.slot_of("om_4"), 1)  # Slot 0 has two now.

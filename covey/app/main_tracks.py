@@ -15,7 +15,9 @@ owner's goes when the main thread's family (core/main_tracks.py) has live tasks,
   to fork and where, and what the other tracks are doing now. ``release_pointer``, when the turn ended
   (app/worker.py): the track forgets its session unless it waits for the owner's answer.
 
-The surface the reactions (排队中, 并进) will hang on is ``Tracks.noted``.
+The reactions on the owner's message (app/main_reactions.py) hang on ``Tracks.noted``: 排队中 for a message that queues
+behind a track, 并进 for one that joined a task and, when he quotes it with 单独答, off again. The stop's reply says how many
+other tracks are still going (``Tracks.stop``).
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ import json
 import time
 from pathlib import Path
 
-from covey.app import track_judge
+from covey.app import main_reactions, track_judge
 from covey.core import main_tracks as core
 from covey.core import main_thread as contract
 from covey.core import track_route as route
@@ -231,8 +233,11 @@ class Tracks:
         topic = core.track_topic_id(chat, entry.live.track if entry else decision.target or 0)
         move_topic_message(ctx.state_dir, topic, chat, message)
         stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
-        app.controls.cancel_reply_job_from_card(stop_ctx, {"job_id": decision.job_id, "message_id": entry.job.message_id
-                                                           if entry and entry.job is not None else ""}, chat, message)
+        going = {other.live.track for other in entries
+                 if other.live.job_id != decision.job_id and other.live.phase != route.PAUSED}
+        app.controls.cancel_reply_job_from_card(
+            stop_ctx, {"job_id": decision.job_id, "message_id": entry.job.message_id if entry and entry.job is not None else ""},
+            chat, message, others=len(going - {entry.live.track} if entry else going))
 
     def merge(self, ctx, app, event, chat, message, decision, entries, bare, now) -> None:
         """A supplement to the task (or, when it waits for one, its answer: the usual continuation). The task that ended
@@ -255,8 +260,9 @@ class Tracks:
         step_ctx = self.enter(ctx, app, chat, message, slot, free=free)
         self.remember_bare(chat, slot, bare, now)
         if not free:
-            self.noted("queued", chat, message)
+            self.noted("queued", chat, message, ctx=ctx, app=app)
         if decision.text:  # Rule 3: it was merged into a task before; the owner wants it answered on its own.
+            self.noted("alone", chat, str(event.get("parent_id") or ""), ctx=ctx, app=app)
             event = {**event, "message_type": "text", "content": json.dumps({"text": decision.text}, ensure_ascii=False)}
         app.handle_event(event, step_ctx, hold=self.main.hold_for(chat, bare) if slot == 0 else 0, routed=True)
 
@@ -267,7 +273,7 @@ class Tracks:
         step_ctx = self.enter(ctx, app, chat, message, slot, free=free)
         self.remember_bare(chat, slot, bare, now)
         if not free:
-            self.noted("queued", chat, message)
+            self.noted("queued", chat, message, ctx=ctx, app=app)
         return step_ctx
 
     def remember_bare(self, chat, slot, bare, now) -> None:
@@ -276,9 +282,20 @@ class Tracks:
         elif chat in self.bare and now - self.bare[chat][1] > BARE_SECONDS:
             self.bare.pop(chat, None)
 
-    def noted(self, kind, chat, message) -> None:
-        """B4's call point: ``kind`` "queued" (the message waits behind a track's tasks) or "merged" (it joined a task); the
-        reactions on the owner's message go here. Nothing yet."""
+    def noted(self, kind, chat, message, *, ctx=None, app=None) -> None:
+        """The reactions on the owner's ``message`` (app/main_reactions.py), none of them held up by a failure and none
+        under a lock: ``kind`` "queued" (it waits behind a track's tasks: 排队中), "merged" (it joined a task: 并进, which
+        stays) or "alone" (``message`` is a merged one the owner quoted to have it answered on its own: 并进 off). Without
+        ``ctx`` and ``app`` (where the state and the messenger are), or with the switch off, nothing."""
+        if ctx is None or app is None or not message or not self.enabled():
+            return
+        messenger, log = app.messenger, self.runtime.log
+        if kind == "queued":
+            main_reactions.queue(messenger, ctx.state_dir, ctx.profile, chat, message, log)
+        elif kind == "merged":
+            main_reactions.merge(messenger, ctx.state_dir, ctx.profile, chat, message, log)
+        elif kind == "alone":
+            main_reactions.split(messenger, ctx.profile, message, log)
 
 
 # -- a track's turn (in the task runner) -------------------------------------------------------------------------------

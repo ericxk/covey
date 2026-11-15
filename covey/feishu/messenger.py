@@ -158,6 +158,20 @@ class Messenger:
         params = json.dumps({"message_id": message_id, "reaction_id": reaction_id})
         return self._bot(profile, "im", "reactions", "delete", "--params", params) is not None
 
+    def reaction_ids(self, profile, message_id, emoji) -> list | None:
+        """The ids of the reactions ``emoji`` the bot has put on a message (an app's, not a person's); None when the call
+        failed (an empty list: there are none). One page of up to 50, which is all one bot's one emoji can be."""
+        result = self._bot(profile, "im", "reactions", "list", "--params",
+                           json.dumps({"message_id": message_id, "reaction_type": emoji, "page_size": 50}))
+        if not isinstance(result, dict):
+            return None
+        data = result.get("data", result)
+        items = data.get("items") if isinstance(data, dict) else None
+        if items is None:
+            return [] if isinstance(data, dict) else None
+        return [str(item.get("reaction_id")) for item in items if isinstance(item, dict) and item.get("reaction_id")
+                and (item.get("operator") or {}).get("operator_type") == "app"]
+
     def send_to_user(self, profile, open_id, text, key):
         """``text`` as a plain text message to the user ``open_id`` under ``key`` (already safe): the owner's first
         private message (app/bot_menu.py). Feishu's answer, None when it was not sent."""
