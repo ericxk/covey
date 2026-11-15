@@ -75,6 +75,19 @@ def fresh(record, now) -> bool:
     return record.get("status") in RUNNING or (epoch_seconds(record.get("updated_at")) or now) >= now - RESULT_AGE
 
 
+def may_be_read(fields, now, keep, chat) -> bool:
+    """Whether a job record with these indexed and carried ``fields`` (core/store.py) can be one ``read`` takes: false
+    only when they show it is not (``fresh``, or its topic in ``keep``, and ``listed``), so ``read`` leaves such a
+    record unread. True when a field it needs is not there: it is not indexed, or the .index is from a release
+    before ``updated_at`` was carried; the record then decides."""
+    status, updated, topic = fields.get("status"), fields.get("updated_at"), fields.get("topic_id")
+    if topic is None:
+        return True
+    if status is not None and updated is not None and not (fresh(fields, now) or topic in keep):
+        return False
+    return listed(topic, chat)
+
+
 def pending_questions(state, chat) -> list:
     """``chat``'s pending questions shown, of the topics ``listed``, in the index's order."""
     return [row for _, row in directory_store(Path(state) / "questions").query(chat_id=chat, status="pending")
@@ -89,11 +102,14 @@ def running_jobs(state, chat) -> list:
 
 def read(state, chat, now, keep=frozenset()) -> Read:
     """``chat`` now, one query of each index: ``Read``. ``keep``: topics whose older jobs are wanted too (the board
-    record's ``results``: one on the board may have ended before RESULT_AGE)."""
+    record's ``results``: one on the board may have ended before RESULT_AGE). A job record whose indexed and carried
+    fields (core/store.py) show it is none of those is not read (``may_be_read``): in a new process, a few hundred
+    of the thousands."""
     keep = frozenset(keep)
     questions = pending_questions(state, chat)
     jobs = select_job_records(state, lambda record: listed(record.get("topic_id"), chat) and (
-        fresh(record, now) or record.get("topic_id") in keep), chat_id=chat)
+        fresh(record, now) or record.get("topic_id") in keep), chat_id=chat,
+        narrow=lambda fields: may_be_read(fields, now, keep, chat))
     return Read(questions, jobs, read_seen(state), times(Path(state) / PRIORITY), keep)
 
 

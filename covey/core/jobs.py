@@ -441,13 +441,15 @@ def list_job_records(state_dir: Path, limit: int = 20) -> list[dict[str, Any]]:
     return records[:limit] if limit > 0 else records
 
 
-def select_job_records(state_dir: Path, where, *, log=None, **filters) -> list[dict[str, Any]]:
+def select_job_records(state_dir: Path, where, *, log=None, narrow=None, **filters) -> list[dict[str, Any]]:
     """The job records ``where(record)`` accepts (None: all), newest first as list_job_records orders
     them. ``where`` sees the cached record and must not change it; only the accepted ones are copied,
     so a loop that runs every few seconds does not copy all of them (live 774: ~0.3 s, 2026-10-25).
     A record ``where`` raises on is left out; ``log`` hears of it once (JsonDirectoryStore.query).
-    ``filters`` narrow by indexed fields first (status=RUNNING): only those records are read."""
-    records = [record for _, record in directory_store(jobs_dir(state_dir)).query(where, log=log, **filters)]
+    ``filters`` narrow by indexed fields first (status=RUNNING): only those records are read. ``narrow`` also, by a
+    test of the indexed and carried fields (core/store.py CARRIED: ``updated_at``) that ``where`` implies."""
+    records = [record for _, record in directory_store(jobs_dir(state_dir)).query(where, log=log, narrow=narrow,
+                                                                                    **filters)]
     records.sort(key=lambda item: (str(item.get("updated_at") or item.get("created_at") or ""),
                                   int(item.get("job_id") or 0)), reverse=True)
     return records

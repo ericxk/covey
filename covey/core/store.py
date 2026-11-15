@@ -27,6 +27,9 @@ JOURNALED = frozenset({"jobs", "questions", "held-notes"})
 LIST_SECONDS = 60.0  # A full listing still runs this often: for a write the journal missed (a hand edit).
 INDEX = ".index"  # JsonDirectoryStore.save_index; not *.json either.
 INDEXED = ('topic_id', 'chat_id', 'job_id', 'status', 'request_id')  # The fields a query can filter on.
+# Fields kept beside INDEXED (in .index too) for ``narrow``, a query's cheap test on them before any record is read;
+# no index entry is made of them. An .index of a release before them has none: ``narrow`` is then told so (None).
+CARRIED = ('updated_at',)
 _scope = threading.local()
 
 
@@ -94,14 +97,17 @@ class JsonDirectoryStore:
         self.refused = set()  # (name, fingerprint) of the records a ``where`` raised on, already logged.
         self.written = set()  # Names this process wrote since they were last read; None: unknown.
 
-    def query(self, where=None, *, log=None, **filters):
+    def query(self, where=None, *, log=None, narrow=None, **filters):
         """(path, a copy of the record) per record matching the indexed ``filters`` and, when given,
         ``where(record)``. A filter's value is one value, or a set (frozenset) of them: any of those
         (status=RUNNING). ``where`` sees the cached record (it must not change it), so only the
         records it accepts are copied. A record ``where`` raises on (a field of the wrong type) is
         left out, and ``log`` gets one line for it until the file changes: one bad record must not
         stop a loop over the others. Inside one_scan() a repeated query reuses the scan. Only the
-        records the filters select are read, if not read before."""
+        records the filters select are read, if not read before. ``narrow(fields)``, when given, tests a record's
+        INDEXED and CARRIED fields (a dict of those it has and the store knows: one from an .index before CARRIED
+        has none of them) and must be true for every record ``where`` would accept; a record it is false for is not
+        read at all. It must say True when a field it needs is missing."""
         asked = time.monotonic()
         with self.lock:
             self._look(asked)
@@ -111,6 +117,8 @@ class JsonDirectoryStore:
                     names &= set().union(*(self.index.get((key, one), set()) for one in value))
                 else:
                     names &= self.index.get((key, value), set())
+            if narrow is not None:
+                names = {name for name in names if self._narrows(narrow, self.fields[name])}
             self._read_whole(names)
             return [(self.directory / name, copy.deepcopy(self.records[name])) for name in sorted(names)
                     if name in self.records and (where is None or self._accepts(where, name, log))]
@@ -329,7 +337,8 @@ class JsonDirectoryStore:
                 fields.pop(name, None)
             else:
                 records[name] = record
-                fields[name] = {field: record[field] for field in INDEXED if isinstance(record.get(field), (str, int))}
+                fields[name] = {field: record[field] for field in INDEXED + CARRIED
+                                if isinstance(record.get(field), (str, int))}
 
     def _read(self, path):
         """(name, fingerprint, record) of one file; the record this store has when the file is unchanged,
@@ -351,10 +360,19 @@ class JsonDirectoryStore:
         index = {}
         for name, fields in self.fields.items():
             for field, value in fields.items():
+                if field in CARRIED:
+                    continue
                 index.setdefault((field, value), set()).add(name)
         self.index = index
         self.version += 1
         self.refused = {seen for seen in self.refused if self.fingerprints.get(seen[0]) == seen[1]}
+
+    @staticmethod
+    def _narrows(narrow, fields):
+        try:
+            return bool(narrow(fields))
+        except Exception:  # noqa: BLE001 - a test that cannot tell leaves the record to ``where``, as without it
+            return True
 
     def _accepts(self, where, name, log):
         try:
