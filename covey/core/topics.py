@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from covey.core import main_thread
+from covey.core import devices, main_thread
 from covey.core.history_storage import history_lines
 from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK
@@ -104,16 +104,18 @@ def workspace_locked(ctx) -> bool:
                for r in topic_job_records(ctx.state_dir, ctx.topic_id))
 
 
-def bind_topic(ctx, name: str, directory: Path) -> None:
+def bind_topic(ctx, name: str, directory: Path, *, stored: str = "") -> None:
+    """Fix the topic's workspace. ``stored``: the value to write for a device (``gpu1:/home/me/proj``, core/devices.py
+    ``Binding.value``), with ``directory`` its stand-in; '' for a directory here."""
     with LOCK:
         path = ctx.history_path.parent / "topic.json"
         data = read_json(path)
         # Legacy topics with a session are already bound.
-        if (data.get("workspace_locked") or ctx.session_path.exists()) and Path(
-            data["workdir"]
-        ).resolve() != directory.resolve():
+        if (data.get("workspace_locked") or ctx.session_path.exists()) and (
+            data["workdir"] != stored if stored else Path(data["workdir"]).resolve() != directory.resolve()
+        ):
             raise ValueError("本话题已绑定工作区，请在其他工作区新开话题")
-        data.update(workspace_name=name, workdir=str(directory), workspace_locked=True)
+        data.update(workspace_name=name, workdir=stored or str(directory), workspace_locked=True)
         write_json(path, data, ensure_ascii=False, indent=2)
 
 
@@ -248,7 +250,7 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
             data = {
                 "topic_id": topic_id, "chat_id": chat_id,
                 "root_id": root_id or parent_id or message_id, "thread_id": thread_id,
-                "workspace_name": ctx.workspace_name, "workdir": str(ctx.workdir),
+                "workspace_name": ctx.workspace_name, "workdir": devices.stored_value(ctx),
                 "topic_number": _next_topic_number(ctx.state_dir),
             }
             write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
@@ -261,13 +263,18 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
             alias = _alias_path(base, chat_id, identifier)
             if not alias.exists() or json.loads(alias.read_text()).get("topic_id") != topic_id:
                 write_private_text(alias, json.dumps({"topic_id": topic_id}) + "\n")
-    workdir = Path(data["workdir"])
+    # A device value (``gpu1:/home/me/proj``) becomes the stand-in and the device's directory; one for a device that
+    # devices.json no longer lists still does (refused by name when a turn starts, app/runs.py).
+    binding = devices.bind_workdir(ctx, data["workdir"], strict=False)
+    workdir = binding.workdir
     # The main thread's topic has no root: each message is answered quoting it, at the chat's top level.
     top_level = main_thread.traits(topic_id, data.get("chat_id")).top_level
     reply_to = message_id if top_level else data["root_id"]
     return dataclasses.replace(
         ctx, topic_id=topic_id, reply_to_message_id=reply_to,
         workspace_name=data["workspace_name"], workdir=workdir,
+        **({"device": binding.device, "remote_workdir": binding.remote_workdir}
+           if binding.device or getattr(ctx, "device", "") else {}),
         history_path=path.parent / "history.jsonl",
         session_path=path.parent / ctx.session_path.name,
         sessions_dir=sessions_dir(workdir),

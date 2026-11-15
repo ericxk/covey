@@ -12,7 +12,7 @@ from covey.core.main_thread import traits, worded
 from covey.core.checkpoint import read_checkpoint
 from covey.core.harness import BridgeContext
 from covey.core.jobs import BridgeReplyJob as ReplyJob
-from covey.core.jobs import context_for_job, parse_job_stop_action_value, upsert_job_record
+from covey.core.jobs import carry_device, context_for_job, parse_job_stop_action_value, upsert_job_record
 from covey.core.model_settings import recorded_work_mode, strict_recorded_model_settings
 from covey.core.model_policy import retried_line
 from covey.core.state import utc_now_iso
@@ -401,6 +401,7 @@ class TaskControls(Redelivery):
                        session_path=ctx.session_path, sessions_dir=ctx.sessions_dir, history_snapshot=history,
                        recent_questions=recent_user_questions(history, str(record.get("user_text") or "")),
                        **counts)
+        carry_device(job, ctx)
         if fallback:
             job.policy_retry = {name: fallback[name] for name in ("of", "category", "model")}
         elif record.get("policy_retry"):

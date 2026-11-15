@@ -12,7 +12,8 @@ from pathlib import Path
 from covey.core import main_thread_settings, timing
 from covey.core.state import read_json
 from covey.core.locks import LOCK, resource_lock, topic_lock
-from covey.core.workspaces import RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_selection
+from covey.core.workspaces import (RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding,
+                                    visible_workspaces)
 
 
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY, default_on as redaction_default_on
@@ -120,6 +121,8 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
     config = load_config(ctx.state_dir, ctx.default_workdir)
     topic = read_topic(ctx)
     chat_id = topic['chat_id']
+    # A device's workspaces only where its ``spaces`` say (devices.json; app/access.py allows_device).
+    config = visible_workspaces(config, lambda alias: topics.runtime.access.allows_device(chat_id, alias))
     if draft is None:
         # A topic the main thread opened shows what it chose (app/main_topics.py launch_draft).
         draft = (topic.get('origin') or {}).get('launch') or None
@@ -341,10 +344,17 @@ def _submit_launch_form(app, ctx, event):
         if not _waiting_jobs(ctx, event['chat_id']):
             raise ValueError('本话题没有待启动的消息，请先发送任务')
         timing.mark('checked')
-        workspace, source = resolve_selection(ctx.state_dir, ctx.default_workdir, selection)
+        workspace, binding = resolve_binding(ctx.state_dir, ctx.default_workdir, selection)
+        source = binding.workdir
+        if binding.device:
+            if not app.runtime.access.allows_device(event['chat_id'], binding.device):
+                raise ValueError(f'设备 {binding.device} 不允许在这个聊天里使用（devices.json 的 spaces）')
+            if run_mode == 'worktree':
+                raise ValueError('设备上的工作区只能用原目录运行')
         plan = {'harness': name, 'model': model, 'effort': effort, 'label': choice['label'], 'work_mode': work_mode,
                 'model_key': model_key, 'preference_effort': preference_effort,
-                'workspace': workspace, 'source': str(source), 'run_mode': run_mode,
+                'workspace': workspace, 'source': binding.value if binding.device else str(source), 'run_mode': run_mode,
+                **({'device': binding.device} if binding.device else {}),
                 'chat_id': event['chat_id'], 'submitted_at': submitted_at,
                 'topic': topic_label(ctx.state_dir, ctx.topic_id)}
         # Only a model whose card showed the select can turn it on; a form from before it has no choice. Such a
@@ -485,7 +495,7 @@ def _start_topic(app, ctx, path, record, plan, directory, branch):
         record.pop('pending', None)
         record.update(status='done', selection={
             'topic': plan['topic'], 'model_label': plan['label'], 'effort': plan['effort'] or '模型默认', **mode,
-            'workspace': plan['workspace'], 'workdir': str(directory), 'run_mode': plan['run_mode'], 'branch': branch,
+            'workspace': plan['workspace'], 'workdir': plan['source'] if plan.get('device') else str(directory), 'run_mode': plan['run_mode'], 'branch': branch,
             **({'redaction': plan['redaction']} if 'redaction' in plan else {}),
             **({'work_modes': True} if plan.get('work_modes') else {}),
         })

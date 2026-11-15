@@ -35,7 +35,7 @@ from covey.core.menu_choice import budget_effort, find_choice
 from covey.app.main_env import reply
 from covey.cards.topic_card import topic_card
 from covey.app.relay_targets import main_job_owner_message
-from covey.core import main_thread, main_thread_settings
+from covey.core import devices, main_thread, main_thread_settings
 from covey.core.attachments import attachment_block
 from covey.core.card_sequence import file_card, reserve
 from covey.core.defaults import RECOMMENDED
@@ -252,6 +252,9 @@ def plan_start(env, args, settings):
     workspace = defaults.workspace or _text(args.get("workspace"))
     if workspace not in config["workspaces"]:
         return f"没有登记工作区「{workspace}」，可选：{'、'.join(config['workspaces'])}。"
+    if devices.is_device_value(config["workspaces"][workspace]):
+        # Not built yet: the plan's workdir is resolved here, and the topic would be on a path that does not exist.
+        return f"工作区「{workspace}」在设备上，主线程本期还不能把话题开在设备上；请让主人在启动卡里选它。"
     return {"harness": found["harness"], "model": found["model"], "model_key": found["model_key"],
             "effort": found["effort"], "work_mode": getattr(base, "work_mode", "") or "", "workspace": workspace,
             "workdir": str(Path(config["workspaces"][workspace]).expanduser().resolve()),

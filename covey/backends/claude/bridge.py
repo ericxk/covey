@@ -20,7 +20,7 @@ from typing import Any
 
 from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY
 
-from covey.core.process_env import child_process_env
+from covey.core.process_env import child_process_env, process_device
 from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunRequest, RunResult, UUID_RE
 from covey.backends.claude.models import model_catalog
 from covey.backends.claude import redaction, rewind
@@ -133,7 +133,7 @@ class ClaudeBackend(BackendRuntime):
     def child_env(self, ctx: BridgeContext) -> dict[str, str]:
         """The Bridge's environment for a claude child, with the gateway's models unless the Bridge's
         environment names its own value; the compaction window only when configured."""
-        env = child_process_env(ctx.workdir)
+        env = child_process_env(ctx.workdir, device=process_device(ctx))
         env.setdefault(GATEWAY_MODELS_ENV, "1")
         # Every turn backs up the files it edits, so ↩️ 回退 can put them back (backends/claude/rewind.py).
         env.setdefault(rewind.FILE_CHECKPOINTS_ENV, "1")

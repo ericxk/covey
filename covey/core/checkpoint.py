@@ -246,13 +246,19 @@ def checkpoint_note(checkpoint: Path, previous: dict | None = None) -> str:
     )
 
 
-def audit_recovery(previous: dict, directory: Path) -> dict:
-    """Check local artifact presence without executing actions from a checkpoint."""
+def audit_recovery(previous: dict, directory: Path, *, stat_paths=None) -> dict:
+    """Check local artifact presence without executing actions from a checkpoint. ``stat_paths`` (a topic on a device,
+    ``core/devices.py stat_paths``): ``directory`` is then the device's directory as text and the paths are looked at
+    there, in one call, by the device: a list of ``{path, exists, size, escapes}`` per path, or an exception when it
+    could not be asked (every path is then listed as not inspected, never as missing)."""
     cp = previous.get("checkpoint", previous)
     if not isinstance(cp, dict):
         cp = {}
     checks = []
     artifacts = cp.get("artifacts", [])
+    if stat_paths is not None:
+        return _audit_remote(cp, str(directory), [raw for raw in (artifacts[:100] if isinstance(artifacts, list) else [])
+                                                  if isinstance(raw, str)], stat_paths)
     for raw in artifacts[:100] if isinstance(artifacts, list) else []:
         if not isinstance(raw, str):
             continue
@@ -274,6 +280,31 @@ def audit_recovery(previous: dict, directory: Path) -> dict:
     return {
         "checked_at": utc_now_iso(),
         "workdir": str(directory.resolve()),
+        "artifacts": checks,
+        "external_tasks_require_verification": cp.get("external_tasks", []),
+        "instruction": "外部任务尚未核验，先查询任务状态；禁止直接重复提交。已有文件也必须核验内容是否完整。",
+    }
+
+
+def _audit_remote(cp: dict, directory: str, raws: list, stat_paths) -> dict:
+    try:
+        found = list(stat_paths(raws)) if raws else []
+    except Exception:  # noqa: BLE001 - the device did not answer: what it holds is not known
+        found = None
+    checks = []
+    for index, raw in enumerate(raws):
+        item = found[index] if found is not None and index < len(found) else None
+        if item is None:
+            checks.append({"path": raw, "state": "device_not_inspected"})
+        elif item.get("escapes"):
+            checks.append({"path": raw, "state": "outside_workspace_not_inspected"})
+        elif item.get("exists"):
+            checks.append({"path": item.get("path", raw), "exists": True, "bytes": item.get("size", 0)})
+        else:
+            checks.append({"path": item.get("path", raw), "exists": False})
+    return {
+        "checked_at": utc_now_iso(),
+        "workdir": directory,
         "artifacts": checks,
         "external_tasks_require_verification": cp.get("external_tasks", []),
         "instruction": "外部任务尚未核验，先查询任务状态；禁止直接重复提交。已有文件也必须核验内容是否完整。",

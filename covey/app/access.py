@@ -45,6 +45,7 @@ import dataclasses
 import json
 import re
 
+from covey.core import devices
 from covey.core import env as cenv
 from covey.core.locks import resource_lock  # owner-chats.json
 from covey.core.groups import activated, list_groups, read_group, save_group
@@ -282,6 +283,27 @@ class Access:
                                private=bool(chat_id) and (chat_id == self.owner_chat()
                                                           or chat_id in self.account_chats().values()),
                                proxy=self.proxy_chat(chat_id), active=self.active(chat_id))
+
+    def device_space(self, chat_id) -> str:
+        """Which of a device's ``spaces`` (core/devices.py SPACES) ``chat_id`` is: ``owner_private`` (the owner's private
+        chat, any of the owner's accounts), ``personal_groups`` (a group in the settings' personal groups), ``team`` (an
+        active group); '' for any other chat, the proxy's groups included: no device is ever offered there."""
+        chat_id = str(chat_id or '')
+        kind = self.space_of(chat_id)
+        if kind == spaces.PERSONAL:
+            return 'personal_groups' if chat_id in self.spaces.personal_groups else 'owner_private'
+        return 'team' if kind == spaces.TEAM else ''
+
+    def allows_device(self, chat_id, device) -> bool:
+        """Whether the device (a ``devices.Device`` or its alias) may be used in ``chat_id``: the chat's space is one of
+        the device's ``spaces`` (devices.json; ``owner_private`` unless it says more). Unknown alias: no. The launch
+        card, 换配置 and the start of a turn all ask this (rule 11: no one else compares open_ids or chats for it)."""
+        try:
+            found = device if hasattr(device, 'spaces') else devices.current().device(device)
+        except devices.UnknownDevice:
+            return False
+        kind = self.device_space(chat_id)
+        return bool(kind) and kind in found.spaces
 
     def account_chats(self) -> dict:
         """The private chat of each of the owner's other accounts (``owner_accounts``) with the bot, as last seen:

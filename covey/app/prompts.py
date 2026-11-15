@@ -79,10 +79,13 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
     ))
 
 
-def workspace_block(workspace_name: str, workdir: Path) -> str:
+def workspace_block(workspace_name: str, workdir: Path, device: str = "", remote_workdir: str = "") -> str:
+    # On a device the directory is the device's, written as text: the hub's stand-in is never shown (it is no directory).
+    place = (f"Current workdir: {remote_workdir} (on device {device}; the files of this task are on that machine)\n"
+             if device else f"Current workdir: {Path(workdir).resolve()}\n")
     return (
         f"Current workspace: {workspace_name or 'default'}\n"
-        f"Current workdir: {Path(workdir).resolve()}\n"
+        + place +
         "Read and follow the applicable AGENTS.md / CLAUDE.md and storage conventions in this workspace. "
         "Keep project outputs in the locations prescribed by that workspace; use its .local/ "
         "only when permitted, and honor any configured external/NAS data directory. "
@@ -177,12 +180,14 @@ def bridge_rules(
     principles: str = "",
     knowledge_text: str = "",
     remember: bool = False,
+    device: str = "",
+    remote_workdir: str = "",
 ) -> str:
     """Identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
     block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block), the checkpoint
     contract (``remember``: and the rule for writing entries): the same every turn of a topic."""
     return "\n\n".join((constraints(backend_name, runtime_note, notes),
-                        workspace_block(workspace_name, workdir), *((principles,) if principles else ()),
+                        workspace_block(workspace_name, workdir, device, remote_workdir), *((principles,) if principles else ()),
                         *((knowledge_text,) if knowledge_text else ()),
                         CHECKPOINT_RULES, *((REMEMBER_RULE,) if remember else ())))
 

@@ -44,7 +44,8 @@ def block(ctx, job, *, owner_turn, resumed: bool) -> str:
     if not (on or knowledge.history_cmd()) or proxy_topic(ctx):
         return ""
     owner = owner_turn()
-    command = knowledge.history_cmd() if owner else ""
+    # The history command is a path on this machine: a device topic's agent cannot run it.
+    command = knowledge.history_cmd() if owner and not getattr(ctx, "device", "") else ""
     mine, theirs = [], []
     if on:
         topic_id = getattr(job, "topic_id", "") or ctx.topic_id
