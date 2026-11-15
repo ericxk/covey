@@ -124,7 +124,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
              'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'main_thread_panel',
              'settings_hub', 'overview', 'main_env', 'main_tools', 'main_search', 'memguard_alerts', 'digest',
-             'topic_seen', 'app_setup', 'dispatch_cards', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
+             'topic_seen', 'app_setup', 'dispatch_cards', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -174,6 +174,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.digest import Digest
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
+        from covey.app.devices import Devices
         from covey.app.group_boards import GroupBoards
         from covey.app.group_manager import GroupManager
         from covey.app.group_menu import GroupMenu
@@ -249,10 +250,12 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # (card_routing.py: handle_event, claim) and are closed when the Bridge stops (close).
             if 'extension_features' not in self.__dict__:
                 self.extension_features = extensions.features(self)
+            # The devices thread (app/devices.py): probes, replays the pending reaps, gc; none while COVEY_DEVICES is off.
+            self.devices = Devices(self.runtime)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
                         self.group_manager, self.overview, self.topic_seen, self.main_tools,
                         self.main_search, self.settings_hub, self.main_thread, self.digest, self.app_setup,
-                        self.dispatch_cards,
+                        self.dispatch_cards, self.devices,
                         *self.extension_features)
             # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
             # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).

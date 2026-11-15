@@ -316,6 +316,15 @@ systemctl --user restart lark-bridge-manager.service
 - **命令留下的进程**：任务进程给后端和它的命令都加了 `COVEY_TASK_DIR=<运行目录>`。每轮后端关闭后，带这个标记、仍在运行的搜索工具被结束，其他进程只在任务卡的执行过程里列出，`runner.log` 有一行 `task leftovers job=#N stopped=… pending=… running=… pids=…`。找某个任务留下的进程：`grep -lza "^COVEY_TASK_DIR=$STATE_DIR/runs/<任务键>$" /proc/[0-9]*/environ`；结束时按进程组（`kill -TERM -- -<PGID>`）。
 - **边界**：`covey_doctor` 不检查任务进程。机器人停着时任务进程照常刷新任务卡，但点击和消息都由 Bridge 接收，这段时间点卡片没有响应。
 
+### 多设备：设备上的任务没停掉
+
+只在 `COVEY_DEVICES=1` 且配了设备时才有这些。现象是卡上写「失联」「已请求停止，gpu1 连上后生效」，或同一话题的新一轮因「上一轮可能还在运行，没能停掉」没有启动：
+
+1. 看 `<状态目录>/devices/<别名>/pending-reap.json`：有条目说明设备上的任务还没确认停掉。`tries` 在涨、`last_try` 在更新说明 `devices` 线程在试；`health.json` 的 `ok` 为 `false` 是设备连不上，先修 ssh（`ssh <host> true`，`known_hosts`、跳板、代理），连上后一分钟内自动收割。
+2. `bridge.log` 里 `devices: <别名> reaped N pending` 是收割结果；`reap` 一直被拒（设备上进程组不是这个任务的，常见于设备重启后进程号被别的进程用了）时，登到设备上确认 `~/.covey/tasks/<hub-id>/<任务键>/state.json` 的进程组已经没有 Agent，再从 `pending-reap.json` 和 `tasks/<话题>.json` 里删掉对应条目（改文件前先停 Bridge 或确认没有任务在跑）。
+3. 设备磁盘上 `~/.covey/checkpoints/` 变大：线程每小时 `gc` 一次，7 天没变的镜像才清；设备一直离线就不会清。
+4. 设备失联后任务记录是 `interrupted`、`interrupted_by` 为 `device_lost`，不会自动重试；设备回来后点卡上的检查并继续即可（会先收割再 `--resume`）。耐心值怎么改见[多设备](configuration.md#多设备开发中默认关)的「离线、重启与恢复」。
+
 ## 改名 Covey 后的兼容
 
 产品和包改名为 Covey，所有现有部署不改配置照常升级；下面这些旧名都还能用，保留至少一个版本。

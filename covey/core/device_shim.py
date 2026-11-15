@@ -1417,6 +1417,81 @@ def referenced_shims(tasks):
     return found
 
 
+def live_tasks(tasks):
+    """``(key, task dir)`` of the tasks not over (a supervisor or a group member is still there): what they write or read
+    under ``~/.covey/checkpoints`` and ``~/.covey/incoming`` must stay however old it is."""
+    found = []
+    for hub in sorted(os.listdir(tasks)) if os.path.isdir(tasks) else []:
+        for key in sorted(os.listdir(os.path.join(tasks, hub))):
+            tdir = os.path.join(tasks, hub, key)
+            state = read_json(os.path.join(tdir, "state.json"))
+            if state and (supervisor_alive(state) or group_members(state.get("pgid") or 0)):
+                found.append((key, tdir))
+    return found
+
+
+def live_checkpoints(live):
+    """The realpaths of the checkpoint files the ``live`` tasks (``live_tasks``) mirror."""
+    found = set()
+    for _, tdir in live:
+        path = (((read_json(os.path.join(tdir, "spec.json")) or {}).get("spec") or {}).get("checkpoint") or {}).get("path")
+        if isinstance(path, str) and path:
+            found.add(os.path.realpath(os.path.expanduser(path)))
+    return found
+
+
+def newest_mtime(path):
+    """The latest modification time of ``path`` and, for a directory, of everything under it."""
+    newest = os.path.getmtime(path)
+    for folder, names, files in os.walk(path):
+        for name in names + files:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(folder, name)))
+            except OSError:
+                continue
+    return newest
+
+
+def gc_mirrors(tasks, keep):
+    """Remove what the hub puts on the device outside a task's own directory, because its path has to be known before the
+    task exists: the checkpoint mirrors (``~/.covey/checkpoints/<hub>/<job>.json``, the supervisor writes them) and the
+    attachments of a turn (``~/.covey/incoming/<hub>/<job>/``). One not changed for ``keep`` seconds and not belonging to a
+    task still running (a checkpoint a live task names; an attachment directory named like a live task's key without its
+    ``-<suffix>``) goes, and so do the hub directories left empty. ``(checkpoints removed, incoming removed)``, as
+    ``<hub>/<name>``."""
+    base = covey_root()
+    removed = {"checkpoints": [], "incoming": []}
+    live = None
+    for kind in ("checkpoints", "incoming"):
+        root = os.path.join(base, kind)
+        for hub in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+            folder = os.path.join(root, hub)
+            if os.path.islink(folder) or not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                try:
+                    if os.path.islink(path) or time.time() - newest_mtime(path) <= keep:
+                        continue
+                    live = live_tasks(tasks) if live is None else live
+                    if kind == "checkpoints":
+                        if not os.path.isfile(path) or os.path.realpath(path) in live_checkpoints(live):
+                            continue
+                        os.unlink(path)
+                    else:
+                        if not os.path.isdir(path) or any(key.startswith(name + "-") or key == name for key, _ in live):
+                            continue
+                        shutil.rmtree(path, ignore_errors=True)
+                    removed[kind].append("%s/%s" % (hub, name))
+                except OSError:
+                    continue
+            try:
+                os.rmdir(folder)  # Only when it is empty.
+            except OSError:
+                pass
+    return removed["checkpoints"], removed["incoming"]
+
+
 def cmd_gc(req, wire):
     keep = number(req.get("keep_days"), 7.0, 0.0, 3650.0) * 86400
     min_age = number(req.get("shim_min_age"), 3600.0, 0.0, 86400.0 * 365)
@@ -1445,7 +1520,9 @@ def cmd_gc(req, wire):
         else:
             shutil.rmtree(path, ignore_errors=True)
             shims_removed.append(entry)
-    return {"removed_tasks": removed, "removed_shims": shims_removed, "kept_shims": shims_kept}
+    checkpoints, incoming = gc_mirrors(tasks, keep)
+    return {"removed_tasks": removed, "removed_shims": shims_removed, "kept_shims": shims_kept,
+            "removed_checkpoints": checkpoints, "removed_incoming": incoming}
 
 
 COMMANDS = {"hello": cmd_hello, "spawn": cmd_spawn, "attach": cmd_attach, "send": cmd_send, "status": cmd_status,

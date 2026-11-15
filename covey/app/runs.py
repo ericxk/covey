@@ -26,7 +26,7 @@ from covey.app.recovery_cards import paint_answered
 from covey.app.switch_handoff import capped
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
-from covey.core import devices
+from covey.core import devices, turn_words
 from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, read_checkpoint,
                                             release_user_wait)
 from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
@@ -317,6 +317,8 @@ class Runs:
         if self.harness.spec.name not in device.harnesses:
             return f"设备 {ctx.device} 没有声明 {self.harness.spec.title}（devices.json 的 harnesses），本轮没有启动。"
         state, why = devices.check_dir(ctx.state_dir, ctx.device, ctx.remote_workdir)
+        if state == "offline":  # Not queued, not run here either: the card's retry button asks again.
+            return turn_words.device_unreachable(ctx.device, why.partition("（")[2].rstrip("）") or "没有答复")
         return "" if state == "ok" else why + "，本轮没有启动。"
 
     def _refusal(self, ctx: BridgeContext, session_id: str | None, job: ReplyJob | None = None) -> RunResult | None:

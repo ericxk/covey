@@ -67,6 +67,7 @@ class TaskMonitor:
         self.last_checkpoint = None
         self.long_mode = False
         self.last_retry = None
+        self.reconnects = 0  # How many returns of the device's link were written to the trace.
         # The checkpoint's steps and delivery (core/checkpoint.py), and when the Bridge saw each step start and end,
         # kept on the job's record once the checkpoint had them (``step_fields``).
         self.steps, self.step_times, self.delivery, self.stepped = [], {}, {}, False
@@ -108,6 +109,7 @@ class TaskMonitor:
                 long_task_summary=summary,
                 checkpoint_path=str(self.checkpoint),
                 **self.step_fields(),
+                **({"device_state": facts.device} if facts.device else {}),
             )
             if facts.elapsed >= self.long_after and not self.long_mode:
                 self.end_stream()
@@ -146,6 +148,7 @@ class TaskMonitor:
             quiet = max(0, min(ages + [quiet] if self.progress_seen or not ages else ages))
         question = str(cp.get("question") or "").strip()
         retry = self.job.backend_retry
+        device = self.device_facts()
         steps, step_doing = step_text(self.steps, self.step_times, wall)
         return Facts(
             elapsed=elapsed, quiet=quiet, alive=alive, finished=alive is False and returncode == 0,
@@ -157,8 +160,28 @@ class TaskMonitor:
             stirred=(self.progress_seen or self.output_at is not None or self.reasoning_at is not None
                      or self.requested_at is not None),
             retry=retry, epoch=time.time(), long_mode=self.long_mode or elapsed >= self.long_after,
-            frame=self.frame, steps=steps, step_doing=step_doing,
+            frame=self.frame, steps=steps, step_doing=step_doing, device=device,
         ), changed
+
+    def device_facts(self):
+        """What the link to the device says of the backend process (``details()``, core/device_link.py), kept on the job as
+        ``device_state``; None for a process here (one without ``details``, a test's stand-in too). Each time the link
+        came back the execution trace gets an entry, once."""
+        process = self.job.backend_process
+        if process is None or not callable(getattr(type(process), "details", None)):
+            return None
+        try:
+            device = dict(process.details())
+        except Exception:  # noqa: BLE001 - a link that cannot say is not a reason to stop the monitor
+            return None
+        self.job.device_state = device
+        count = int(device.get("reconnects") or 0)
+        if count > self.reconnects and self.job.tool_trace is not None:
+            self.reconnects = count
+            import contextlib
+            with self.job.trace_lock or contextlib.nullcontext():
+                self.job.tool_trace.note(f"device-link-{count}", turn_words.device_reconnected(device), title="设备连接")
+        return device
 
     def _checkpoint_progress(self, now):
         """The checkpoint, and whether it changed beyond its timestamp (which counts as progress)."""

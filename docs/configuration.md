@@ -218,6 +218,7 @@
 | --- | --- |
 | `schema` | 必填，现在是 `1`。写错的字段名、多出来的字段都会报错，不会悄悄忽略 |
 | `defaults` | `patience_minutes`（断线多久后放弃，默认 15，1 到 1440）、`waiting_patience_hours`（等人回答时放宽到多久，默认 6，1 到 168）、`connect_seconds`（ssh 连接超时，默认 5，1 到 60） |
+| 设备的 `patience_minutes`、`waiting_patience_hours` | 可选，写在某台设备下，只改这台的耐心值（范围同 `defaults`），不写就用 `defaults` 的。设法见下面「离线、重启与恢复」 |
 | `control_dir` | ssh ControlMaster 套接字放的本地目录，绝对路径，不要放网络盘。Unix 套接字路径有长度上限，加上 `/<40 位>.sock` 和 ssh 建套接字时的临时后缀后不能超过 104 字节，所以目录路径最长 41 字节（Linux 上实测 44 字节还能建连、45 字节起 ssh 报 `unix_listener: path ... too long`，多留的 3 字节给 macOS 的 104 字节上限）。不写用 `/tmp/covey-ssh-<uid>`。目录在第一次真连设备时才建（0700） |
 | 设备别名 | `devices` 的键，`[a-z][a-z0-9-]{0,23}`。工作区写成 `别名:路径`，例如 `gpu1:/home/me/proj`，`gpu1:~/work`（`~` 是设备上的家目录） |
 | `title` | 卡片上显示的名字，默认就是别名 |
@@ -247,7 +248,13 @@
 
 **设备上的可用性和模型目录**：每一轮开始前的可用性检查（`app/availability.py`）对设备话题不在 Bridge 上找命令，读设备最近的 `hello`（10 分钟内的缓存）和 `profile.json` 里最近一次最小请求：命令不在、`login` 为 `no`、最近一次最小请求判为没登录，都按「模型后端尚未登录/不可用」拒绝；没有近期的 `hello` 就放行，由这一轮自己的连接说话。Claude 的模型目录经 `spawn_process` 起在设备上，所以就是设备上 Claude Code 的目录；Codex 的 `models_cache.json` 用设备端程序的 `get` 从设备的 `~/.codex/` 取到状态目录 `devices/<别名>/codex-home/`（10 分钟内不重取，设备没答复就用旧副本，没有就是空目录），再交给 `core/model_settings.py` 的 `model_catalog(root)`。启动卡和换配置卡里列出的模型仍是 Bridge 本机的目录（每个 Harness 一份，不随工作区变）。
 
-**记录**（都在状态目录的 `devices/` 下，不是配置）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/profile.json`（自检得到的环境档案：Harness 路径、版本、登录状态、通过白名单的代理和证书变量，每个 Harness 最小请求的结果 `probe`，以及最近一次自检的结论 `check`）、`<别名>/codex-home/models_cache.json`（设备上 Codex 的模型目录副本）。
+**离线、重启与恢复**（`COVEY_DEVICES=1` 且设备在 `devices.json` 里才有；实现在 `core/device_link.py`、`core/device_reap.py`、`app/devices.py`）：设备上的 Agent 由设备端小程序守着，Bridge 连不上时它照常在跑，所以「失联」和「停掉」是两件事：
+- **耐心值**：连接断开累计超过 `patience_minutes`（默认 15 分钟）这一轮就按中断处理；Agent 正在等你回答（Claude 的 `control_request`、Codex 的 `requestUserInput`、暂停的问题）时改用 `waiting_patience_hours`（默认 6 小时）。两个数都可以在某台设备下单独写，例如 `"gpu1": {"patience_minutes": 45, "waiting_patience_hours": 12, ...}`；改完重启生效。连上并稳定 5 分钟后，断线累计重新算。
+- **卡上写什么**：开新一轮时 5 秒内连不上，这一轮不开始、不排队、也不改到本机跑，卡上写「gpu1 连不上（原因）…」，点检查并继续重试；运行中断线，状态行写「gpu1 连接中断，重连中（设备上照常在跑）· 已断 2 分 10 秒」，重连后补读日志，执行过程里多一条「gpu1 已重新连上」；等你回答时断线，写「任务停在等你回答，连上后你的回答会送过去」；超过耐心值，这一轮结算为 `interrupted`（记录里 `interrupted_by` 是 `device_lost`，不会自动再试），卡上写「gpu1 失联超过 15 分钟，这一轮按中断处理；设备上的进程连上后会停掉」，按钮是检查并继续；断线时点停止，写「已请求停止，gpu1 连上后生效」；设备重启（设备说没有这个任务）按失败结算，写「gpu1 重启过，这一轮按失败处理；会话还在设备上，检查并继续会接着做」；机器人所在的机器重启过或任务进程被杀，恢复卡写「机器人所在机器重启过，gpu1 上这一轮可能还在跑；点检查并继续会先停掉它再接着做」。设备上的检查点超过 1 MiB 时设备端不再同步，本机那份保持原样，任务卡的状态行加一行标注。
+- **待收割（pending-reap）**：失联、任务进程退出、Bridge 重启、断线时的停止、官方拒绝的停止，都只在 `<状态目录>/devices/<别名>/pending-reap.json` 登记一条（任务键、设备上的任务目录和进程组），不当场连设备。设备恢复后，`devices` 线程（每 60 秒一轮，只在 `COVEY_DEVICES=1` 且有设备时才起）逐条让设备端 `reap`（只停确认属于这个任务的进程组），设备说干净了才删条目；同一话题的下一轮开始前也会先 `reap` 该话题上一个设备任务（`devices/<别名>/tasks/<话题>.json`），再用 `--resume` 接着做，设备不确认时这一轮不启动。官方拒绝的停止在设备确认前不标已确认（停止记录写 `cleanup_unconfirmed`，原因 `device_reap_pending`）。
+- **设备上的清理**：线程每小时让设备端 `gc` 一次：清过期的任务目录、没人引用的小程序目录，以及 `~/.covey/checkpoints/<hub-id>/`（检查点镜像）和 `~/.covey/incoming/<hub-id>/`（传到设备的附件）下 7 天没变、也不属于运行中任务的条目。每轮探活的结果在 `devices/<别名>/health.json`。
+
+**记录**（都在状态目录的 `devices/` 下，不是配置）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/health.json`（线程最近一次探活）、`<别名>/pending-reap.json`、`<别名>/tasks/`（每个话题上一个设备任务）、`<别名>/profile.json`（自检得到的环境档案：Harness 路径、版本、登录状态、通过白名单的代理和证书变量，每个 Harness 最小请求的结果 `probe`，以及最近一次自检的结论 `check`）、`<别名>/codex-home/models_cache.json`（设备上 Codex 的模型目录副本）。
 
 **安全默认**：
 - 环境档案只收代理和证书路径这十几个变量名（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写、`SSL_CERT_FILE`、`NODE_EXTRA_CA_CERTS`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`），带 `user:密码@` 的代理地址拒收，被拒的只记变量名和原因，不记值。Claude 的令牌留在设备上，不经过 Bridge。

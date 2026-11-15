@@ -56,6 +56,9 @@ from covey.app.task_controls import TaskControls
 from covey.app.turn_export import TurnExport
 from covey.app.worker import process_bridge_reply_job
 from covey.core.harness import BridgeContext, HarnessBackend, HarnessSpec, SessionStore
+from covey.app import devices as device_turns
+from covey.core import device_reap, turn_words
+from covey.core.run_dir import run_dir
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import context_for_job, record_bridge_job_state, recover_stale_jobs
 from covey.core import timing
@@ -345,12 +348,18 @@ class BridgeApp:
     def notify_stale_jobs(self, ctx: BridgeContext) -> None:
         keep = self.runtime.adopted_keys
         for stale in recover_stale_jobs(ctx.state_dir, self.spec.name, keep):
+            # A turn on a device the Bridge's restart left: its Agent may still run there. Registered only; the next turn of the
+            # topic (or the devices thread) reaps it first (core/device_reap.py).
+            if stale.get("device"):
+                device_turns.register_left(self.runtime.log, ctx.state_dir, stale, run_dir(ctx.state_dir, str(stale.get("key"))),
+                                           device_reap.RESTART)
             chat_id = str(stale.get("chat_id") or "")
             if not chat_id or not stale.get("topic_id") or stale.get("kind") != "chat":
                 continue
             # The restart that left it unfinished is not the user's doing: 检查并继续 once by itself, a minute
             # from now, unless they stop it on this card first (owner's choice, T314 2026-11-02).
-            self.controls.report_unfinished(ctx, stale, interrupted_notice(stale.get('job_id')),
+            self.controls.report_unfinished(ctx, stale,
+                                            turn_words.device_interrupted(stale) or interrupted_notice(stale.get('job_id')),
                                             self.key("stale", str(stale.get("key"))), keep_question_forms=True)
 
     def unclaimed_card_action(self, event: dict[str, Any], ctx: BridgeContext) -> None:

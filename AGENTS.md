@@ -81,6 +81,7 @@
 | `app/dashboard_http.py` | The sensitive-term dashboard's HTTP side: its server, each request's route and access |
 | `app/detached.py` | Run each task in its own process so a bridge restart or deploy does not stop it |
 | `app/device_files.py` | Files between the hub and a device's topic, always through the device program |
+| `app/devices.py` | Devices at the app's edge |
 | `app/digest.py` | 早晚汇总: at the times of day COVEY_DIGEST_TIMES lists, one card at the top level of the owner's private chat … |
 | `app/directory_picker.py` | Bounded directory browsing: one listing or name search at a time, never on the event threads |
 | `app/dispatch_cards.py` | 派发活卡片, when COVEY_MAIN_DISPATCH_CARD=1 |
@@ -236,6 +237,7 @@
 | `core/defaults.py` | Product defaults, separate from provider-native default metadata |
 | `core/deliveries.py` | Supplements sent into a running task: one delivery record each |
 | `core/device_link.py` | DeviceProcess: a Harness process that runs on a device, dressed as the `subprocess.Popen` the backends use |
+| `core/device_reap.py` | What a device may still hold of a task the hub has given up on |
 | `core/device_shim.py` | The device-side program the hub pushes over ssh: it supervises Harness tasks and serves files, stdlib only |
 | `core/device_transport.py` | The hub's side of the device shim's wire protocol |
 | `core/devices.py` | Devices: other machines (Linux over ssh) a topic can work on instead of this one |
