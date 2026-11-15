@@ -185,6 +185,7 @@ class UnifiedCase(unittest.TestCase):
         # A quiet main-thread turn's reactions (app/main_reactions.py): never a real one.
         self.app.messenger.react = mock.Mock(return_value='reaction-1')
         self.app.messenger.unreact = mock.Mock(return_value=True)
+        self.app.messenger.reaction_ids = mock.Mock(return_value=[])
         for app in self.app.apps.values():
             app.submission.selection_card = mock.Mock()
             app.cards.create_streaming_reply = mock.Mock(return_value=None)

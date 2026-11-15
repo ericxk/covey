@@ -580,6 +580,7 @@ def process_bridge_reply_job(job: Any, ctx: Any, *, harness, runtime, messenger,
         if job.cancelled_before_start:
             return
         job.execution_started = True
+    main_reactions.begin(messenger, ctx.state_dir, ctx.profile, job, runtime.log)  # 排队中 off, OnIt on (多路并行).
     capabilities = backend_capabilities(getattr(harness, "backend", None), ctx)
     revision, session_id = _start_turn(ctx, job, sessions=sessions, runtime=runtime, record_job_state=record_job_state)
     timing.mark("turn")
