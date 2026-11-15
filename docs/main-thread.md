@@ -71,7 +71,7 @@
 
 ### 管家规则
 
-`COVEY_MAIN_BUTLER=1` 时，[直答与转交](#直答与转交)的第一条（一两分钟能做完的自己做）换成 `app/prompts.py` 的 `BUTLER_RULES`，让主线程只快答和分派，这样它接得住主人的连问；其余规则（`SHARED_RULES` 的后面各条、`AREA_OPENING`、`AREA_RULE`、知识库的规则）不动。
+`COVEY_MAIN_BUTLER=1` 时，[直答与转交](#直答与转交)的前两条（一两分钟能做完的自己做；其余交给话题区，“可能超过一两分钟”）换成 `app/prompts.py` 的 `BUTLER_RULES`（两条），让主线程只快答和分派，这样它接得住主人的连问；`topic_start` 的工具说明里同样的话也换了（`core/main_tool_specs.py` 的 `START_BUTLER`；工具清单由 MCP 子进程按环境变量列，所以 `core/main_thread.py` 的 `mcp_config` 把 `COVEY_MAIN_BUTLER` 一并交给它）；其余规则（`SHARED_RULES` 的后面各条、`AREA_OPENING`、`AREA_RULE`、知识库的规则）不动。
 
 - **快答**：不用工具，或只用一两次只读的查询（看一眼文件或日志、查一项配置、`topic_read`、`topics_list`），几秒内能答完，直接答、不开话题。
 - **派出去**：要查一圈、要跑命令、要改代码或文件、要联网或多步操作、预计超过半分钟的；拿不准也派。新的事 `topic_start`，和已有话题区是同一件事 `topic_send`（怎么分仍看下面几条）。
@@ -81,6 +81,20 @@
 - **打开和关掉**：见[配置 · 管家规则](configuration.md#管家规则)。关着时规则、提示词和原来逐字节相同（`tests/test_butler_rules.py`、`tests/golden/main_thread_prompt.txt`）。
 
 **旧会话什么时候用上**：主线程的规则不在会话的首轮快照里（会话沿用首轮的系统规则只管 `bridge_rules`，而且各后端现在都不走系统级）。`main_thread_message` 每一轮都重新拼规则，放在这一轮用户消息的开头，续接的会话也一样。所以变量生效的时机是：服务带着变量重新 `launch` 之后，主线程的**下一个聊天轮**就用新规则，不用新开会话、不用等压缩。要注意两点：一是任务进程是 Bridge 按当时的环境启动的，已经在跑的那一轮用旧规则；二是续接的会话里，以前每一轮的消息开头也带着旧规则的原文，在压缩（`compact_tokens`、空闲压缩）把它们摘要掉之前，模型会同时看到新旧两条，以最近一轮的为准。想立刻干净，可以让主线程压缩一次或换新会话。关掉变量反过来也一样。
+
+### 多路并行（开发中，开关默认关）
+
+目标：管家这一轮在做事时，主人的下一句不被挡在后面。做法是把主线程变成一个**话题家族**：槽 0 是现在的主线程话题（`main_topic_id`），再加固定 4 个槽（`track_topic_id(chat, 1..4)`，同样是 32 位十六进制）；每个槽是一条“路”，路里的一轮是普通的主线程任务。调度器不用改：`core/scheduler.py` 按 `(chat, topic)` 排队，不同槽并行、同槽先进先出。
+
+这一包（B1）只有底座，消息的走法不变，开关也不会让它变：
+
+- **开关**（`core/main_tracks.py`）：`COVEY_MAIN_TRACKS=1` 开；`COVEY_MAIN_TRACKS_MAX` 是同时在跑的路数上限（默认 3，取值 2 到 4）。见[配置 · 环境变量](configuration.md#环境变量与选项一览)。
+- **家族谓词**（`core/main_thread.py`）：`is_main_topic` 开关开着时认槽 0 到 4（路的话题也是主线程：工具只认主线程任务、话题清单和看板排除、一轮的规则和卡片照主线程），关着时只认槽 0，和原来一字不同；`is_main_root` 只认槽 0。哪些调用点按家族、哪些只认根，改的时候看调用处的注释。`track_of(topic_id, chat)` 给槽号。
+- **分叉点**：路的会话是槽 0 会话的分叉。`ctx.options["fork_session"]` 带 `ctx.options["fork_at"]` 时，Claude 后端加 `--resume <会话> --resume-session-at <fork_at> --fork-session`，分叉只含到那一条为止的内容；槽 0 正在跑的那一轮（提问已写进记录）取它提问的父条目，分叉里就没有这一轮的半截。
+- **槽话题的 `topic.json`**：`MainThread.keep_track_topic` 从槽 0 复制模型、思考预算、工作区、脱敏等设置，加 `track: k`；主线程的设置变了，下次调用时同步过去。
+- **存活查询**：`JobRegistry.family_live(chat)` 给家族里没结束、不在等回答的任务（只读内存），用来数路数。
+
+分流、路的运行、记忆合并、派发卡后续的包再接，接线之前这一节只描述底座。
 
 ### 提问不开串
 

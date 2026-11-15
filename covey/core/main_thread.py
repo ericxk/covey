@@ -14,14 +14,13 @@ core/metrics.py, itself standard library only): the MCP server (bin/covey_main_m
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from covey.core import env as cenv
-from covey.core import metrics
+from covey.core import main_tracks, metrics
 
 ENV = "COVEY_MAIN_THREAD"
 MCP_SERVER = "bridge"  # The MCP server's name in the main thread's session: its tools are mcp__bridge__<tool>.
@@ -96,8 +95,9 @@ def forget_mode() -> None:
 
 def main_topic_id(chat_id: str) -> str:
     """The id of the main thread's topic in the owner's private chat ``chat_id``: hex like every topic id
-    (app/topics.py Topics.target takes [0-9a-f]{16,128} only), and no message's alias, so no event routes to it."""
-    return hashlib.sha256(f"main-thread\0{chat_id}".encode()).hexdigest()[:32]
+    (app/topics.py Topics.target takes [0-9a-f]{16,128} only), and no message's alias, so no event routes to it.
+    Slot 0 of the family (core/main_tracks.py): the other slots' ids are ``track_topic_id``."""
+    return main_tracks.root_topic_id(chat_id)
 
 
 # A main-thread message with no words of its own (a forward, a card, a file, a bare link) waits this long for the
@@ -112,7 +112,17 @@ CARD_AFTER = 90
 def is_main_topic(topic_id, chat_id) -> bool:
     """The one predicate: whether ``topic_id`` is the main thread's topic in ``chat_id`` (main_topic_id), whether
     or not the switch is on now. Only app/main_thread.py MainThread.keep_topic writes that topic's topic.json, with
-    ``main_thread: true``, so for every record the product writes this says the same as that flag."""
+    ``main_thread: true``, so for every record the product writes this says the same as that flag.
+    The family (core/main_tracks.py): with COVEY_MAIN_TRACKS=1 the topics of slots 1..4 count too, each a track of the
+    main thread; with it off only slot 0, as before. The call sites that mean the root alone ask ``is_main_root``."""
+    if not topic_id:
+        return False
+    return main_tracks.track_of(topic_id, str(chat_id or "")) is not None
+
+
+def is_main_root(topic_id, chat_id) -> bool:
+    """Whether ``topic_id`` is slot 0, the main thread's own topic (main_topic_id), the switch of the tracks aside:
+    the one whose session the tracks fork, whose snapshot and settings are the main thread's."""
     return bool(topic_id) and topic_id == main_topic_id(str(chat_id or ""))
 
 
@@ -213,11 +223,13 @@ def worded(text: str, of) -> str:
 
 def mcp_config(release: Path, state_dir: Path, job_key: str, python: str) -> dict:
     """The --mcp-config of a main-thread job's Claude Code: the Bridge's tools and nothing else. The variables that
-    switch on the knowledge and history tools (core/main_tool_specs.py listed) are handed on when the Bridge has them."""
+    switch on the knowledge and history tools and the butler's wording of topic_start (core/main_tool_specs.py listed) are
+    handed on when the Bridge has them."""
     env = {}
     handed = {STATE_ENV: str(state_dir), JOB_ENV: job_key,
               "COVEY_KNOWLEDGE": cenv.get("COVEY_KNOWLEDGE", "").strip(),  # core/main_tool_specs.py
-              "COVEY_HISTORY_CMD": cenv.get("COVEY_HISTORY_CMD", "").strip()}  # KNOWLEDGE_ENV, HISTORY_ENV
+              "COVEY_HISTORY_CMD": cenv.get("COVEY_HISTORY_CMD", "").strip(),  # KNOWLEDGE_ENV, HISTORY_ENV
+              "COVEY_MAIN_BUTLER": cenv.get("COVEY_MAIN_BUTLER", "").strip()}  # BUTLER_ENV
     for name, value in handed.items():
         if value:
             cenv.put(env, name, value)  # Both spellings: the server may be an older release's.

@@ -33,7 +33,7 @@ import dataclasses
 from pathlib import Path
 
 from covey.core.jobs import jobs_dir, select_job_records
-from covey.core.main_thread import main_topic_id, traits
+from covey.core.main_thread import is_main_topic, traits
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import RUNNING
@@ -115,10 +115,10 @@ def read(state, chat, now, keep=frozenset()) -> Read:
 
 def topic_jobs(state, chat) -> dict:
     """Every job record of ``chat``'s topics by topic id, each topic's oldest first; not the main thread's."""
-    main, topics = main_topic_id(chat), {}
+    topics = {}
     for _, record in directory_store(jobs_dir(state)).query(chat_id=chat):
         topic_id = record.get("topic_id")
-        if isinstance(topic_id, str) and topic_id and topic_id != main:
+        if isinstance(topic_id, str) and topic_id and not is_main_topic(topic_id, chat):
             topics.setdefault(topic_id, []).append(record)
     for records in topics.values():
         records.sort(key=job_number)

@@ -186,7 +186,7 @@ def after_runner(gateway, job, ctx) -> None:
             # Still the main thread's message, so a relay quoting it stays at the top level; quoting it goes to
             # the topic.
             route_message(state, str(job_field(job, "chat_id")), card, next(iter(areas)),
-                          holder=main_thread.main_topic_id(str(job_field(job, "chat_id"))))
+                          holder=str(job_field(job, "topic_id")))
     except Exception as exc:  # noqa: BLE001 - quoting the card stays the main thread's
         gateway.runtime.log(f"main thread relay settle after job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
 

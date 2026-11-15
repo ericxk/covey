@@ -37,13 +37,14 @@ from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app.prompts import main_thread_message
 from covey.core import main_thread as contract
+from covey.core import main_tracks
 from covey.core import board_read, main_opened, main_thread_settings, placement, timing, turn_words
 from covey.core.board_read import ended_at, topic_label as topic_words
 from covey.core.attachments import message_words
 from covey.core.checkpoint import checkpoint_steps
 from covey.core.jobs import job_key, job_path, read_job_record
 from covey.core.locks import LOCK
-from covey.core.main_thread import main_topic_id, mcp_config
+from covey.core.main_thread import is_main_topic, main_topic_id, mcp_config
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import read_object, write_json
 from covey.core.session_state import capture_session_state, compare_and_set_session
@@ -159,13 +160,13 @@ class MainThread:
             # level or in a thread (S8, 2026-11-08: the card is in the owner's message's thread): that topic's (引用直达).
             return None
         known = [topic for topic in (message_topic(ctx.state_dir, chat, message) for message in above if message) if topic]
-        if known and known[0] != main_topic_id(chat) and retired_topic(ctx.state_dir, known[0]):
+        if known and not is_main_topic(known[0], chat) and retired_topic(ctx.state_dir, known[0]):
             # A frozen front-desk topic's card quoted (core/topics.py retired_topic, 2026-11-10): the message is the
             # main thread's, as a new one at the top level (its chain's root is the owner's message, the main
             # thread's; core/topics.py context_for_topic finds that first).
             known = [main_topic_id(chat)]
         # A reply to a message no topic knows opens a topic on it, as ever; to one of the main thread's stays here.
-        if (known[0] != main_topic_id(chat)) if known else any(above):
+        if (not is_main_topic(known[0], chat)) if known else any(above):
             return None
         app = self.topics.apps.get(HARNESS)
         if app is None:
@@ -187,7 +188,7 @@ class MainThread:
         remember_topic_message(ctx.state_dir, main_topic_id(chat), chat, message)
         target = app.submission.event_context(app.harness.context, event)
         routed = {}
-        if target.topic_id != main_topic_id(chat) and retired_topic(ctx.state_dir, target.topic_id):
+        if not is_main_topic(target.topic_id, chat) and retired_topic(ctx.state_dir, target.topic_id):
             # Its reply chain starts at a frozen front-desk topic's message (core/topics.py context_for_topic finds the
             # root's alias first, and gave this message's to it): the main thread's all the same, as a new message at
             # the top level, never a turn in the frozen topic.
@@ -220,9 +221,8 @@ class MainThread:
         config = load_config(ctx.state_dir, ctx.default_workdir)
         name = settings.workspace if settings.workspace in config["workspaces"] else config["default"]
         workdir = str(Path(config["workspaces"][name]).expanduser().resolve())
-        path = topic_file(ctx.state_dir, topic_id)
-        with LOCK:
-            saved = read_object(path)
+
+        def build(saved):
             data = {**(saved or {
                 "topic_id": topic_id, "chat_id": chat, "root_id": "", "thread_id": "", "main_thread": True,
                 "harness_id": app.spec.name, "binding_revision": 1, "workspace_locked": True, "harness_locked": True,
@@ -233,6 +233,42 @@ class MainThread:
                 data[REDACTION_KEY] = True
             else:
                 data.pop(REDACTION_KEY, None)
+            return data
+        self.write_topic(ctx, app, topic_id, name, workdir, build)
+
+    def keep_track_topic(self, ctx, app, chat, slot) -> str:
+        """The topic.json of track ``slot`` (1..SLOTS, core/main_tracks.py), created or brought up to date: slot 0's
+        (``keep_topic`` first, so it is current) with the settings as they are, ``track: slot`` and its own id. The
+        track has no setting of its own: a new model, effort, workspace or 脱敏 of the main thread reaches it here,
+        a new workspace once nothing runs in it (``write_topic``). Its topic id."""
+        if type(slot) is not int or not 1 <= slot <= main_tracks.SLOTS:
+            raise ValueError(f"track slot {slot!r} is not 1..{main_tracks.SLOTS}")
+        self.keep_topic(ctx, app, chat)
+        root_path = topic_file(ctx.state_dir, main_topic_id(chat))
+        topic_id = main_tracks.track_topic_id(chat, slot)
+
+        def build(saved):
+            root = read_object(root_path)
+            if not root.get("workdir"):
+                raise ValueError("the main thread's topic.json cannot be read")
+            data = {**{key: value for key, value in root.items() if key not in ("topic_id", "track")},
+                    "topic_id": topic_id, "track": slot}
+            for key in ("workdir", "workspace_name", "binding_revision"):  # ``write_topic`` moves these, nothing running.
+                if saved and key in saved:
+                    data[key] = saved[key]
+            return data
+        root = read_object(root_path)
+        self.write_topic(ctx, app, topic_id, root.get("workspace_name", ""), root.get("workdir", ""), build)
+        return topic_id
+
+    def write_topic(self, ctx, app, topic_id, name, workdir, build) -> None:
+        """Write the main thread's family topic ``topic_id``'s topic.json as ``build(saved)`` says (``saved``: what is
+        there, None when nothing is), under LOCK. A workspace that changed with nothing running in the topic
+        takes its next turn on a new session: ``name``, ``workdir`` are the new one."""
+        path = topic_file(ctx.state_dir, topic_id)
+        with LOCK:
+            saved = read_object(path)
+            data = build(saved or None)
             if saved and data.get("workdir") != workdir and not self.runtime.jobs.in_topic(topic_id):
                 data.update(workspace_name=name, workdir=workdir,
                             binding_revision=int(data.get("binding_revision", 1)) + 1)

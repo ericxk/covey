@@ -4,8 +4,8 @@ without it MainTools starts no thread and nothing here runs.
 The loop (``MainTools.run``) first answers UNCERTAIN to every request a previous process claimed and never answered
 (core/main_requests.py orphans: never run twice, AGENTS.md rules 1 and 6), then every TICK seconds takes the pending
 requests, oldest first, and runs each one it claims: only for the main-thread job that is running now (its record
-exists, its topic is main_topic_id of the owner's private chat, its status is in RUNNING), only a tool it has a
-handler for. A handler that raises is answered as failed and logged; the loop goes on. One log line a call:
+exists, its topic is in the main thread's family in the owner's private chat (core/main_tracks.py: slot 0, and
+with COVEY_MAIN_TRACKS=1 the tracks), its status is in RUNNING), only a tool it has a handler for. A handler that raises is answered as failed and logged; the loop goes on. One log line a call:
 ``main tool name=… ok=… ms=… job=…``. The loop holds no lock: a handler takes the locks it needs and sends to
 Feishu outside them (rules 1 and 2).
 
@@ -111,7 +111,7 @@ class MainTools:
         """None for a call the Bridge runs, else its answer."""
         chat = self.env.chat()
         record = read_job_record(job_path(self.env.state_dir, request.job_key)) if request.job_key else None
-        if (not chat or not record or record.get("topic_id") != main_thread.main_topic_id(chat)
+        if (not chat or not record or not main_thread.is_main_topic(record.get("topic_id"), chat)
                 or record.get("status") not in RUNNING):
             return reply(False, REFUSED)
         if request.tool not in self.handlers:
@@ -162,7 +162,7 @@ def resolve(env, chat, ref, records=None):
     if ref in records:
         return ref, records[ref]
     if re.fullmatch("[0-9a-f]{16,128}", ref) and topic_data(env, ref).get("chat_id") == chat \
-            and ref != main_thread.main_topic_id(chat):
+            and not main_thread.is_main_topic(ref, chat):
         return ref, []
     raise ValueError(f"找不到话题“{ref[:40]}”：写 T 号（如 T412）或 topic_id")
 
@@ -234,7 +234,9 @@ def topics_list(env, request):
     read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
     unseen = pins.board_results(state, chat, now, read)[0]
     rows = []
-    for topic_id in (set(records) | set(questions)) - {main_thread.main_topic_id(chat)}:
+    for topic_id in (set(records) | set(questions)):
+        if main_thread.is_main_topic(topic_id, chat):
+            continue
         row, groups = topic_row(env, topic_id, records.get(topic_id, []), questions.get(topic_id, []), unseen, now)
         if wanted != "all" and wanted not in groups:
             continue
