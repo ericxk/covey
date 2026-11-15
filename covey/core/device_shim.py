@@ -818,10 +818,10 @@ def cmd_hello(req, wire):
     }
 
 
-def run_quiet(argv, timeout):
+def run_quiet(argv, timeout, errors=subprocess.STDOUT):
+    """(exit code or None, stdout text); stderr goes to ``errors`` (merged into stdout unless told otherwise)."""
     try:
-        done = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              timeout=timeout)
+        done = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, timeout=timeout)
         return done.returncode, done.stdout.decode("utf-8", "replace").strip()
     except (OSError, subprocess.SubprocessError):
         return None, ""
@@ -837,7 +837,7 @@ def probe_tool(name):
                 break
     if not path:
         return {"found": False}
-    code, text = run_quiet([path, "--version"], 20)
+    code, text = run_quiet([path, "--version"], 20, subprocess.DEVNULL)
     info = {"found": True, "path": path, "version": text.splitlines()[0][:200] if text else ""}
     if code not in (None, 0):
         info["version_error"] = code

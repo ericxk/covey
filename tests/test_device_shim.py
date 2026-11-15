@@ -118,6 +118,8 @@ class CommandLineTest(ShimCase):
             tool = Path(bin_dir) / "fakeagent"
             tool.write_text("#!/bin/sh\necho 'fakeagent 9.9.9'\n")
             tool.chmod(0o755)
+            if not os.access(tool, os.X_OK):
+                self.skipTest("no directory here where a script may be executed (run through scripts/test_map.py)")
             self.device.env["PATH"] = "%s:%s" % (bin_dir, self.device.env["PATH"])
             info = self.device.call("hello", want=["fakeagent"])["tools"]["fakeagent"]
             self.assertEqual((info["found"], info["path"], info["version"]), (True, str(tool), "fakeagent 9.9.9"))
