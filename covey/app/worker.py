@@ -44,7 +44,7 @@ from covey.core.paths import tool_root
 from covey.feishu.transport import last_failure, set_failure
 from covey.app.outbox import AUDIT_REFUSED_NOTE, record_attempt
 from covey.app import (auto_retry, main_reactions, main_relay, main_reply, main_tracks, policy_retry, saved_send,
-                                topic_links)
+                                topic_links, track_digest)
 from covey.app.answer_delivery import AnswerParts
 from covey.app.turn_images import TurnImages
 from covey.app.quiet_delivery import QuietDelivery
@@ -135,14 +135,15 @@ class TurnDelivery(AnswerParts, QuietDelivery):
     answer card sent on its own is AnswerParts (app/answer_delivery.py), a quiet turn's top-level notices QuietDelivery
     (app/quiet_delivery.py). ``retry_promised``: its text promises a retry on an older model (app/policy_retry.py
     at_stop): the record keeps the result as the card shows it, for the card to take the promise back if it does
-    not run."""
+    not run. ``ledger``: called like ``relay`` once the result is delivered, to save what a track of the main thread
+    answered (app/track_digest.py record; never raises)."""
 
     def __init__(self, job, ctx, turn, *, prefix, cards, runtime, artifacts, questions, steering,
-                 record_job_state, send_text, retry=None, relay=None, react=None, retry_promised=False):
+                 record_job_state, send_text, retry=None, relay=None, react=None, retry_promised=False, ledger=None):
         self.job, self.ctx, self.turn, self.prefix = job, ctx, turn, prefix
         self.cards, self.runtime, self.artifacts, self.questions, self.steering = cards, runtime, artifacts, questions, steering
         self.record_job_state, self.send_text, self.retry = record_job_state, send_text, retry
-        self.relay, self.react, self.retry_promised = relay, react, retry_promised
+        self.relay, self.react, self.retry_promised, self.ledger = relay, react, retry_promised, ledger
         self.reacted = False  # A quiet main-thread turn's end reaction is on the owner's message (main_reply.handed_quietly).
         self.cut = False  # The card took the result cut short (send): the full text went elsewhere.
         self.in_place = False  # A main-thread turn's verified reply is on its task card, no answer card (main_reply).
@@ -213,6 +214,8 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         if self.relay is not None:
             # A turn the main thread started or handed on: its outcome back at the top level (after_turn never raises).
             self.relay(self, delivered, execution_status)
+        if self.ledger is not None:
+            self.ledger(self, delivered, execution_status)
 
     def texts(self, snapshot):
         """The text shown for the result and the text kept as delivered, and whether the shown one
@@ -705,7 +708,7 @@ def _deliver_turn(job, ctx, turn, snapshot, *, harness, runtime, messenger, card
                             relay=functools.partial(main_relay.after_turn, messenger=messenger, profile=ctx.profile,
                                                     voice=harness.voice),
                             react=functools.partial(main_reactions.finish, messenger, ctx.profile, log=runtime.log),
-                            retry_promised=promised is not None)
+                            ledger=track_digest.record, retry_promised=promised is not None)
     try:
         delivery.deliver(snapshot)
         main_reply.react_end(delivery)  # A quiet main-thread turn: OnIt on the owner's message becomes its end (D1).

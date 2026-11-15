@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app import idle_compaction, main_relay, pins
+from covey.app import idle_compaction, main_relay, pins, track_digest
 from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import main_tracks as tracks_module
@@ -356,7 +356,19 @@ def main_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
     except Exception as exc:  # noqa: BLE001 - the owner's message goes on without it
         log(f"main thread snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
         snapshot = "[快照暂时读不到，需要时用 topics_list]"
-    return ctx, main_thread_message(snapshot, prompt, note)
+    return ctx, main_thread_message(snapshot, prompt, digest_note(ctx, job, key, track, note, log))
+
+
+def digest_note(ctx, job, key, track, note, log) -> str:
+    """``note`` and, when the family has them, the block of what its other tracks answered since this turn's session last
+    read it (app/track_digest.py): the main thread's own turn marks what it is given, a track's turn does not. Nothing
+    with the switch off (no track writes the ledger then)."""
+    if not main_tracks.enabled():
+        return note
+    state_dir = ctx.state_dir
+    settled = lambda by: (read_job_record(job_path(state_dir, by)) or {}).get("status") in GOOD_ENDS
+    text = track_digest.block(state_dir, job.chat_id, key, settled, mark=not track, log=log)
+    return "\n\n".join(part for part in (note, text) if part)
 
 
 def track_start(ctx, job, prompt, session_id, harness, log):

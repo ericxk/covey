@@ -110,7 +110,15 @@
 - **表情**（`app/main_reactions.py`，只给主人自己的消息、话题区布局的主线程一轮，`Tracks.noted` 是调用点；失败只记日志，都在锁外）：排在忙槽后面的消息挂 **排队中**（`OneSecond`）而不挂 OnIt（`start` 见 `HELD` 就跳过）；这一轮在任务进程里开跑时（`worker.process_bridge_reply_job` 里的 `begin`）先摘排队中、再挂 OnIt。进程之间不传状态：`begin` 用 `Messenger.reaction_ids` 查机器人自己挂的排队中，查不到就什么也不做（没排过队的消息 OnIt 已在入队时挂了）；排队时被取消的任务由 `cancel_reply_job_from_card` 摘掉。并进成功的消息挂 **并进**（`THUMBSUP`），一直留着；主人引用它说「单独答」（规则 3）时摘掉，新的一路照常 OnIt → 结束表情。`Get` 已表示“交给话题”，不用。表情代号用接口试过：飞书接受 `OneSecond`、`THUMBSUP`，不接受 `WAIT`。开关关着时一个都不调。
 - **停止的回复**：`stop` 把家族里其他还在做（不在等回答）的路数 k 传给 `cancel_reply_job_from_card(others=k)`，k>0 时文字回复末尾加“还有 k 路在做。”（带任务卡的停止只改卡，不加）。
 
-记忆账本、派发卡不在这里：`parallel_note` 旁边是账本块的位置。
+
+**记忆合并**（`core/track_ledger.py`、`app/track_digest.py`）：路是槽 0 会话的分叉，它答了什么不在管家自己的会话里，所以交给管家的下一轮。
+
+- **账本**：槽 ≥1 的一轮结束、结果送达之后，`TurnDelivery.deliver` 末尾（`relay` 之后）调 `ledger` 回调（`track_digest.record`），写 `main-thread/tracks/<任务键>.json`：`key`、`chat_id`、`track`（槽号）、`owner_message`（主人消息号）、`request`（≤200 字）、`answer`（≤600 字，只取已送达、已授权的回复正文，没送达就是空）、`status`（`done`/`failed`/`cancelled`）、`ended_at`、`session_id`、`opened`（这一轮开的话题的 T 号）、`digested_by`（读过它的管家那一轮的任务键，起初为空）。等回答（`waiting_user`）和中断的一轮不写，回答后的续接轮写；槽 0 的不写（答案已在它自己的会话里）。写失败只记日志。
+- **交给管家**：槽 0 的一轮在快照之后加一块“[另几路这段时间答了什么]”：12 小时内、最多 8 条（更早的记一行“还有 N 条没列”），每条“完成时刻（失败、已停止注明）请求「…」→ 答案前 300 字 → T 号”。块做好后用记录锁下的 compare-and-set 写 `digested_by=<这一轮的任务键>`；下一轮看到 `digested_by` 指向的那一轮没有正常结束（不在 `GOOD_ENDS` 里，同 `take_snapshot` 的 `settled`）时再给一次。
+- **交给新的一路**：路的第一轮在“此刻另几路在做”后面加同一块，不标记已读（管家自己还没读到）；分叉的会话已读过的（`digested_by` 那一轮正常结束了）不重复。
+- **压缩**：摘要只在槽 0 做（槽 ≥1 不压缩）；`COMPACT_INSTRUCTIONS` 不变。路的内容只有被管家一轮读进之后才进它的记忆，压缩把它一并压进摘要；压缩后的那一轮照常拿到还没给过的账本条目（`tests/test_track_ledger.py`）。
+- **维护**：账本保留 7 天（`Temporary` 规则的 `main-thread/tracks`）；路的 Claude 会话文件按账本里的 `session_id`，那一轮结束满 3 天且 3 天没改没读的删（`TrackSessions`，只动 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）下 `projects/*/<session_id>.jsonl`）。
+- **开关**：`COVEY_MAIN_TRACKS` 关着不写账本、不加这一块。
 
 ### 提问不开串
 
