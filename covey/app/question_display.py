@@ -21,8 +21,8 @@ from pathlib import Path
 from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.cards.elements import card, md, note
-from covey.cards.question_cards import answer_notice_card, mirror_card, question_card, question_element
-from covey.core import butler, placement
+from covey.cards.question_cards import answer_notice_card, mirror_card, question_card, question_element, triage_element
+from covey.core import butler, placement, triage
 from covey.core.jobs import find_job_record
 from covey.core.state import write_private_text
 from covey.core.store import update_question
@@ -96,6 +96,23 @@ class QuestionDisplay:
             self.paint_mirror(ctx, record)
         except Exception as exc:  # noqa: BLE001 - answer delivery is independent from UI
             self.runtime.log(f"Answer state display failed: {exc}")
+
+    def paint_task_card(self, ctx, record):
+        """The question's element on its task's card, drawn as the record says now (the task's live card, or the record's card
+        when the task is gone): what a question the lead held shows once it is the owner's (app/triage.py). Raises on a card
+        that cannot be written; the caller says so in the log."""
+        with self.runtime.jobs.lock:
+            job = self.runtime.jobs.by_id.get(int(record["job_id"]))
+            if job and (job.topic_id != ctx.topic_id or job.chat_id != record["chat_id"]):
+                job = None
+        element = triage_element(record) if triage.state(record) == triage.ESCALATED and record.get("status") == "pending" else question_element(record)
+        if job:
+            self.cards.set_task_element(ctx, job, element)
+        elif record.get("card_id"):
+            original = self.harness.topic_record(ctx, record["chat_id"], record["job_id"])
+            if original:
+                self.cards.update_record_panel(ctx, record["chat_id"], "answer-state-" + str(time.time_ns()),
+                    {"message_id": original.get("card_message_id", "")}, original, element)
 
     @staticmethod
     def _asked_target(ctx, job, target):

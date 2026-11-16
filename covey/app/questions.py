@@ -21,6 +21,7 @@ from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
 from covey.core.jobs import find_job_record, transition_job_record, upsert_job_record, list_job_records
+from covey.core import triage
 from covey.core.locks import resource_lock
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.run_dir import run_dir, runner_alive
@@ -32,6 +33,7 @@ from covey.app.checkpoint_questions import CheckpointQuestions
 from covey.app.held_notes import HeldNotes
 from covey.app.native_questions import NativeQuestions
 from covey.app.question_display import QuestionDisplay, question_card_lock
+from covey.app.triage import Triage
 from covey.core.state import write_private_text
 from covey.core.history_storage import append_history
 from covey.core.store import directory_store, transition_question, update_question
@@ -86,6 +88,7 @@ class Questions:
         self.display = QuestionDisplay(harness, runtime=runtime, messenger=messenger, cards=cards, questions=self)
         self.native = NativeQuestions(harness, runtime=runtime, cards=cards, questions=self)
         self.checkpoints = CheckpointQuestions(runtime=runtime, cards=cards, questions=self)
+        self.triage = Triage(runtime=runtime, cards=cards)  # A project's topic's choice question goes to the lead first (app/triage.py).
 
     def reconcile_checkpoint_questions(self, ctx, chat=None, *, backend=None):
         return self.checkpoints.reconcile(ctx, chat, backend=backend)
@@ -465,7 +468,7 @@ def recover_question_delivery(ctx, harness_questions, log):
     for path, record in directory_store(ctx.state_dir / "questions").query():
         if record.get("job_key") in live:
             continue
-        if record.get("body_delivery_required") and record.get("display_pending"):
+        if record.get("body_delivery_required") and record.get("display_pending") and not triage.held(record):
             original = next((j for j in jobs if j.get("key") == record.get("job_key")
                 and j.get("topic_id") == record["topic_id"] and j.get("chat_id") == record["chat_id"]), None)
             if original and original.get("execution_status") == "waiting_user":

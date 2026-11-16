@@ -131,13 +131,19 @@ def lead_note(record) -> str:
 
 
 def triage_lines(record) -> tuple:
+    """The 分流记录's lines, the newest first: a string, or (string, question token) for a row of an answer the lead gave that the
+    owner has not corrected yet (it gets the 不对 button, cards/project_card.py)."""
     rows = record.get("triage") if isinstance(record.get("triage"), list) else []
     lines = []
     for row in reversed(rows[-LIST_CAP:]):
         text = row.get("text") if isinstance(row, dict) else row
         if isinstance(text, str) and text.strip():
             at = clock(row.get("at")) if isinstance(row, dict) and isinstance(row.get("at"), (int, float)) else ""
-            lines.append((at + " " if at else "") + words(text, 120))
+            line = (at + " " if at else "") + words(text, 120)
+            if isinstance(row, dict) and row.get("kind") == "answered" and row.get("token") and not row.get("corrected"):
+                lines.append((line, str(row["token"])))
+            else:
+                lines.append(line + ("（已纠正）" if isinstance(row, dict) and row.get("corrected") else ""))
     return tuple(lines)
 
 
@@ -641,6 +647,38 @@ def stop_project(host, ctx, event) -> bool:
             stop_task(host, ctx, topic, chat, job, f"{event.get('event_id') or event.get('message_id')}-{job.job_id}")
             stopped += 1
     return say(host, ctx, event, f"已停住专项「{name}」，已请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）。要继续，引用这张卡回复。", "project-stop")
+
+
+def triage_wrong(host, ctx, event) -> bool:
+    """不对 on a row of 分流记录: the form of the correction, a card of its own in the lead's topic (cards/triage_card.py)."""
+    from covey.cards.triage_card import fix_form
+
+    raw, record = click(ctx, event)
+    row = next((r for r in record.get("triage") or () if isinstance(r, dict) and r.get("token") == raw.get("token")
+                and r.get("kind") == "answered"), None)
+    if row is None or row.get("corrected"):
+        return say(host, ctx, event, "这一条已经纠正过，或已经不在分流记录里了。", "project-triage-gone")
+    value = {"project_id": record["id"], "topic_id": ctx.topic_id, "token": str(raw.get("token"))}
+    event_id = str(event.get("event_id") or event.get("message_id") or "")
+    host.messenger.publish_card(ctx, str(event.get("chat_id") or ""), "triage-fix-" + event_id,
+                                fix_form(words(row.get("text"), 160), value), voice=host.voice)
+    return True
+
+
+def triage_fix(host, ctx, event) -> bool:
+    """提交纠正 on that form: what the owner said goes to the member topic as a message, into the project's decisions and
+    its 分流记录 row (``corrected``); app/triage.py ``correct`` does it."""
+    from covey.app import triage
+    from covey.app.card_actions import form_fields
+    from covey.cards.triage_card import FIELD
+
+    raw, record = click(ctx, event)
+    text = " ".join(str((form_fields(event) or {}).get(FIELD) or "").split())
+    if not text:
+        raise ValueError("纠正的内容为空")
+    done = triage.correct(record, str(raw.get("token") or ""), text)
+    say(host, ctx, event, done, "project-triage-fixed")
+    return True
 
 
 def downgrade_project(host, ctx, event) -> bool:

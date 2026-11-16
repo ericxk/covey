@@ -412,6 +412,19 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **不要专项**：点了之后专项记 `cancelled`，卡缩成“⏹ 专项已降为普通话题”，负责人在跑的任务停掉，专项的话题变回普通话题，这条卡和并入的那几行以后被引用回复，回到原话题（见架构里的降级）。
 - **Pin**：看板的格是专项（`core/board_read.py` 的 `cells`）；在做钉专项卡，等你钉话题的问题卡，做完钉结束的那个话题的答案卡（没有就钉专项卡）；专项还没有卡时钉话题自己的卡。手上的事和早晚汇总的行用 `label_title`，格叫“专项 · 专项名”。
 
+### 专项的问题分流（开关默认关）
+
+`COVEY_PROJECTS=1` 且 `COVEY_PROJECT_TRIAGE=1` 时，专项的话题问的选择题先交给负责人（第 2 期 P2-5；`app/triage.py`、`core/triage.py`、`core/project_gates.py`）。关着时问题卡的发法、重投、恢复和以前一样，问题记录里没有 `triage` 字段，负责人没有那两个工具。
+
+- **谁交给负责人**：以下全部成立才交：开关开着；问题是专项的话题（`topic.json` 的 `project.role` 是 `thread`）问的，专项是 `active`；问题挡着这一轮（`blocking`）；**每一道题都有选项**（有一道自由文字就直接给主人）；题目、标题、选项文字里没有硬闸词。`Triage.route(ctx, job, record)` 在两个发卡的口子前调：原生的活问题（`NativeQuestions.show` 的 `live_question` 分支）和检查点、暂停的问题（`CheckpointQuestions.deliver`）；它出任何错都按“给主人”走。
+- **扣住是什么样**：问题记录加 `triage: {state: held, at, deadline: 现在+180 秒, project, receipt}`，`status` 仍是 `pending`，`display_pending` 仍是真，所以所有“待回答的问题”的列表都看不到它，也没有主人能点的卡；任务记录的 `question_delivery_ok` 是真，所以 `undelivered_jobs` 不重投，恢复卡和没扣住时一样（实验 E2，见下）。话题的任务卡上那一行写“已交负责人”（`question_element` 对扣住的问题画的）。`state` 只有 `held → answered_by_lead | escalated`（`core/triage.py` 的 `TRIAGE_TRANSITIONS`），都是终态。
+- **回执和 3 分钟**：任务进程只写自己这道题的记录（规则 8）。Bridge 的 `ProjectLoop` 每 10 秒扫一遍扣住的问题（`app/triage.py` 的 `sweep`）：没有回执的，往专项收件箱写一条 `question` 回执（问了什么、从哪个话题），这种回执不用 `COVEY_PROJECT_AUTOWAKE` 也唤醒负责人；到了 `deadline`、专项不再 `active` 的，发给主人。负责人的状态包里“交给你的话题问题”一段有每道题的 id、题目、选项和还剩几秒（`app/triage_view.py`）。
+- **负责人的两个工具**（只在开关开着时列给负责人）：`project_answer(thread, answers)` 每题都要答，答案是选项原文，多选给数组；走 `Questions.submit_answer`，效果和主人点“提交回答”一样，话题照常续接，补充说明是“（负责人按专项记忆替主人答的）”。提交前先把 `display_pending` 记成假并写 `answering`（超时的扫描让它 90 秒）；提交失败就把问题转给主人。`project_escalate(thread, why)`：问题卡马上按原来的口子发给主人，卡上多一行“负责人转给你的理由：…”，任务卡上的那一行换成“转给你了”；卡发不出去时任务记录记 `question_delivery_ok: false`，主人那边是平常的“重新投递”。
+- **硬闸**（`core/project_gates.py`，只用标准库）：一份词表，查题目、标题、选项的标签和说明：部署、发布、上线、下线、发给、对外、转账、付费、付款、购买、充值、花钱、额度、扣费、删除、清空、覆盖原/掉/现有/画板/文档、停用、排空、批一份、不可逆、无法恢复、强制、生产环境、线上环境/服务、到线上、密钥、密码、令牌，和英文整词 `rm`、`force`、`deploy`、`release`、`publish`、`delete`、`drop`、`truncate`、`purge`、`wipe`、`destroy`、`prod`、`production`、`sudo`、`password`、`secret`、`api key`、`payment`、`billing`。词表宁多勿漏：多一次命中只是主人多看一张本来就会看到的卡。
+- **主人看得到**：负责人替主人答的每一条、每一次转给主人，都是专项卡“分流记录”里的一行（记录的 `triage` 列表，最多 40 条）；答的那行带一个“不对”按钮（`bridge_project_triage_wrong`，不是 `bot_only`）。点了发一张只有一个输入框的小表单卡（专项卡会重画，不放输入框；`cards/triage_card.py`），提交（`bridge_project_triage_fix`，`bot_only`：它在话题里排一条消息）后：这句话作为一条消息排进那个话题（消息 id `triage-fix-<题的 token>`，不是唤醒轮），写进专项的决定日志（负责人每一轮看最近 10 条），那一行记 `corrected`，之后显示“已纠正”。纠正不进专项记忆（记忆是 mem 一路在改的，纠正由负责人看到决定日志后用 `project_remember` 记）。
+- **实验 E2**（扣住的问题会不会被当成“没投出去”）：`undelivered_jobs` 看任务记录的 `delivery_ok`、`question_delivery_ok`、`checkpoint_question_error`，扣住时 `deliver` 照样返回真、任务记录的 `question_delivery_ok` 是真，所以不重投；恢复判定 `core/recovery.py` 的 `classify` 只读任务记录，结果和问题卡已发出的一样。**Bridge 重启**：`recover_question_delivery` 原来把“有 `display_pending` 的检查点问题”当成没送出去，把任务改成 `failed`、`question_delivery_ok: false`，所以这里加了一条：扣住的问题跳过（重启后由 `sweep` 照常接着数 180 秒）。**任务进程**：问题记录是它自己的文件，`route` 只写这一个文件；扣住时任务进程不发卡也不碰收件箱，活问题的任务进程照常等答案，答案经 Bridge 的 `submit_answer` 转给它。`tests/test_project_triage.py` 的 `HeldDeliveryTest`、`HeldLiveQuestionTest` 逐条验证。
+- **实验 E4**（词表回放）：用现网近 30 天的 1162 条问题记录的文字回放（只读，文中只写计数）：755 条全是选择题、407 条有自由文字的；词表第一版（含“线上”“token”“预算”“清理”“回滚”“覆盖”）命中 358 条，抽 45 条人工看约 20% 是误报（`token` 多是模型 token、`清理`多是“清理阶段”、`线上` 多是“线上已有 3 次”）；去掉这几个、加上漏报里看到的“停用”“排空”“批一份”“覆盖画板”后命中 301 条（选择题的 40%），其余 454 条会交给负责人；对这 454 条抽 40 条人工看，约 3 条（7%）该是主人的，补进词表后剩下的靠负责人自己判断、3 分钟超时和“不对”兜底。
+
 ## 代码位置
 
 | 模块 | 职责 |

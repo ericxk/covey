@@ -15,7 +15,7 @@ when something happened since it last looked, and the mechanical checks that sto
   owner's stop paused (a ``tokens`` pause gets a new budget from there, ``token_floor``).
 - Receipts: ``after_runner`` (the Bridge, once a task's runner is gone: rule 8 keeps a task process to its own card and
   record) writes ``thread_end`` (the receipt kind keeps its name on disk) for a member's turn that ended and counts the tokens; ``heard`` (the Bridge, on the owner's
-  message in a member's topic) writes ``owner_said``; the loop writes ``stalled``. ``question`` is phase 2's P2-5.
+  message in a member's topic) writes ``owner_said``; the loop writes ``stalled``; the Bridge's sweep of the held questions (app/triage.py, COVEY_PROJECT_TRIAGE=1) writes ``question``.
 - ``silent`` (app/worker.py TurnDelivery): a wake-up turn's reply is not sent to the owner, unless the lead recorded a
   report note in it that its style lets through (``project_lead.reportable``); then it goes as the lead's reply does.
 
@@ -26,8 +26,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.app import project_lead
-from covey.core import board_read, projects
+from covey.app import project_lead, triage as triage_flow
+from covey.core import board_read, projects, triage
 from covey.core.history_storage import append_history
 from covey.core.jobs import find_job_record, job_field, job_key, topic_job_records
 from covey.core.loops import every
@@ -228,6 +228,7 @@ class ProjectLoop:
 
     def __init__(self, runtime, env) -> None:
         self.runtime, self.env = runtime, env
+        triage_flow.attach(env)  # The 专项卡's 不对 click reaches the member topic through it (app/triage.py correct).
 
     def threads(self):
         return ((self.name, self.run),) if projects.enabled() else ()
@@ -242,6 +243,8 @@ class ProjectLoop:
         if not projects.enabled() or not self.env.state_dir:
             return
         now = time.time() if now is None else now
+        if triage.enabled():  # COVEY_PROJECT_TRIAGE=1: receipts for the held questions, the owner's turn for the late ones.
+            triage_flow.sweep(self.env, now)
         for record in projects.records(Path(self.env.state_dir)):
             if record.get("state") != projects.ACTIVE:
                 continue
@@ -327,5 +330,6 @@ class ProjectLoop:
 
 
 def autowake_due(pending) -> bool:
-    """Whether ``pending`` receipts wake the lead: a ``start`` always does, the others with COVEY_PROJECT_AUTOWAKE=1."""
-    return any(item.get("kind") == "start" for item in pending) or projects.autowake_enabled()
+    """Whether ``pending`` receipts wake the lead: a ``start`` always does, and so does a ``question`` (a held question waits only
+    180 seconds, app/triage.py), the others with COVEY_PROJECT_AUTOWAKE=1."""
+    return any(item.get("kind") in ("start", "question") for item in pending) or projects.autowake_enabled()

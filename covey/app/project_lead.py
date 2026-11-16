@@ -25,7 +25,8 @@ import time
 from pathlib import Path
 
 from covey.app.prompts import TOOL_NOTES_LANGUAGE
-from covey.core import board_read, butler, projects
+from covey.app.triage_view import pack_block
+from covey.core import board_read, butler, projects, triage
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
@@ -98,6 +99,14 @@ TOOL_RULES = (
     "话题里问到主人的选择题，不由你答（分流还没开）。",
     "- 对主人说话要克制：这一轮的回复只有主人在场触发的轮才会发给他；叫醒你的轮，回复不发，要说的话用 project_note 并标 report。",
 )
+NOT_YET = "话题里问到主人的选择题，不由你答（分流还没开）。"  # The tail of a TOOL_RULES line while COVEY_PROJECT_TRIAGE is off.
+TRIAGE_RULES = (
+    "- 分流：专项的话题问了选择题，会先交给你（“专项状态”里“交给你的话题问题”，收件箱里有 question 回执），3 分钟内你不处理就转给主人。"
+    "只替主人答你能依据专项记忆、决定日志和主人在这个专项里说过的话答的题：用 project_answer，每题都答，答案写选项原文，多选给数组；"
+    "回答会注明是你替主人答的，记在专项卡上，主人可以点“不对”纠正。",
+    "- 拿不准、记忆里没有依据、涉及部署、发布、对外发送、花钱、删东西、不可逆的操作，都用 project_escalate 转给主人并写清 why，别猜；"
+    "自由文字的问题不会交给你。主人纠正过的做法，用 project_remember 记下，之后照做。",
+)
 PRACTICE = ""  # Phase 3's layer: how this kind of specialist works (project.leader.profile). Nothing reads it yet.
 
 
@@ -109,7 +118,8 @@ def style_rule(style) -> str:
 def lead_rules(style=None, practice=PRACTICE) -> str:
     """The lead's rules: identity, tools, the style as the record has it, the practice layer (``practice``; none by
     default), the language of tool notes."""
-    layers = [*IDENTITY, *TOOL_RULES, style_rule(style_of({"style": style})) if style else style_rule(STYLE_DEFAULT)]
+    tools = TOOL_RULES if not triage.enabled() else (*(rule.replace(NOT_YET, "") for rule in TOOL_RULES), *TRIAGE_RULES)
+    layers = [*IDENTITY, *tools, style_rule(style_of({"style": style})) if style else style_rule(STYLE_DEFAULT)]
     if practice:
         layers.append(practice)
     layers.append("- " + TOOL_NOTES_LANGUAGE)
@@ -273,6 +283,9 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
         library = library_index(state_dir, record["id"])
         if library:
             out.append("资料库：\n" + "\n".join(f"- {line}" for line in library))
+    held = pack_block(state_dir, record)  # COVEY_PROJECT_TRIAGE=1: the questions held for the lead, else nothing.
+    if held:
+        out.append(held)
     out.append("风格：" + "；".join(f"{name}={value}" for name, value in style.items()))
     decisions = [row for row in record.get("decisions") or () if isinstance(row, dict) and row.get("text")][-DECISIONS:]
     if decisions:

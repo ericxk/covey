@@ -12,6 +12,7 @@ from covey.core.locks import resource_lock
 from covey.cards.elements import md
 from covey.cards.question_cards import question_element
 from covey.app.question_display import question_card_lock
+from covey.app.triage import LEAD
 from covey.core.store import directory_store, transition_question, update_question
 
 
@@ -158,6 +159,10 @@ class CheckpointQuestions:
             with question_card_lock(path):
                 record = update_question(path, confirmed, expected={"pending"})
                 if record is None:
+                    continue
+                if self.questions.triage.route(ctx, job, record) == LEAD:
+                    # The project's lead has it: no card, and not a failure (the task's question_delivery_ok stays true).
+                    self.questions.triage.note(ctx, job, record)
                     continue
                 visible = {**record, "display_pending": False}
                 on_result_card = bool(use_result_card and self.cards.set_task_element(ctx, job, question_element(visible)))

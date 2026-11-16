@@ -1043,8 +1043,10 @@ class CardActionTableTest(unittest.TestCase):
     def test_job_starting_kinds_stay_with_the_bot(self):
         # bridge_question_skip: the Bridge hands the answer on to a runner that waits for it (forward_answer).
         # bridge_fork, bridge_compact: retired buttons on older cards, answered here (app/task_controls.py retired_action).
+        # bridge_project_triage_fix: the owner's correction of the lead's answer queues a message in a member topic (COVEY_PROJECT_TRIAGE).
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
-                                    "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export"})
+                                    "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export",
+                                    "bridge_project_triage_fix"})
         self.assertFalse(runner_ipc.forward_card_action(Runtime(script_path="unit"), None, {},
                                                      {"kind": "bridge_fork"}))
 

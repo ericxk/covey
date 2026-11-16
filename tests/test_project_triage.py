@@ -1,0 +1,598 @@
+"""A member topic's choice question goes to the project's lead first (docs/butler.md 专项的问题分流, app/triage.py, COVEY_PROJECT_TRIAGE=1):
+what holds a question and what does not, that a held question is not a failed delivery (E2), the receipt and the three minutes, the
+lead's two tools, the gate words (E4), the 分流记录 and the 不对 correction, and that with the switch off nothing is different."""
+from __future__ import annotations
+
+import json
+import os
+import time
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from support.records import write_job
+from support.world import QuestionFixture
+
+from covey.app import project_cards, project_lead, project_loop, triage as flow
+from covey.app.project_loop import ProjectLoop
+from covey.app.questions import recover_question_delivery
+from covey.cards import project_card, triage_card
+from covey.cards.question_cards import HELD_NOTE, question_card, question_element
+from covey.core import butler, butler_tool_specs, project_gates, projects, recovery, triage
+from covey.core.jobs import find_job_record, upsert_job_record
+from covey.core.state import read_object, write_json
+
+from test_project_lead import CHAT, LEAD, NOW, ON, PID, Case, ToolsCase
+
+THREAD = "b" * 32
+TOKEN = "c" * 16
+SWITCH = {**ON, triage.ENV: "1"}
+CHOICE = [{"id": "0", "header": "版本", "question": "用哪个库版本？", "multiple": False,
+           "options": [{"label": "新版", "description": "推荐"}, {"label": "旧版", "description": "兼容"}]}]
+
+
+def question(topic=THREAD, **fields):
+    return {"token": TOKEN, "topic_id": topic, "chat_id": CHAT, "job_id": 41, "job_key": "k-bbbb", "status": "pending",
+            "blocking": True, "display_pending": True, "body_delivery_required": True, "body_delivery_confirmed": True,
+            "request_id": "checkpoint-k-bbbb", "created_at": NOW, "questions": CHOICE, **fields}
+
+
+class Held(Case):
+    """A project with one member topic and a question it asked, the switch on."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, SWITCH).start()
+        self.addCleanup(mock.patch.stopall)
+        self.thread(THREAD, "导出旧账单", 41, status="waiting_user")
+        self.path = self.state / "questions" / (TOKEN + ".json")
+        self.triage = flow.Triage(runtime=SimpleNamespace(log=self.logs.append), cards=mock.Mock())
+        self.ctx = SimpleNamespace(state_dir=self.state, topic_id=THREAD)
+
+    def write(self, **fields):
+        write_json(self.path, question(**fields), ensure_ascii=False)
+
+    def saved(self):
+        return read_object(self.path)
+
+    def route(self):
+        return self.triage.route(self.ctx, None, self.saved())
+
+
+class RouteTest(Held):
+    def test_a_choice_question_of_a_member_topic_is_held_for_the_lead(self):
+        self.write()
+        before = time.time()
+        self.assertEqual(self.route(), flow.LEAD)
+        found = triage.of(self.saved())
+        self.assertEqual((found["state"], found["project"], found["receipt"]), (triage.HELD, PID, False))
+        self.assertAlmostEqual(found["deadline"] - found["at"], triage.DEADLINE)
+        self.assertGreaterEqual(found["at"], before)
+        self.assertEqual(self.saved()["status"], "pending")  # Nothing that reads questions sees a new status.
+        self.assertTrue(self.saved()["display_pending"])  # And no list of pending questions has it.
+
+    def test_a_second_look_keeps_the_first_hold_and_does_not_write_again(self):
+        self.write()
+        self.route()
+        first = self.saved()
+        self.assertEqual(self.route(), flow.LEAD)
+        self.assertEqual(self.saved(), first)
+
+    def test_what_stays_the_owners(self):
+        cases = {
+            "free text": {"questions": [{"id": "0", "question": "写一句原因", "options": []}]},
+            "one free among choices": {"questions": [*CHOICE, {"id": "1", "question": "还有吗？"}]},
+            "a gate word in the question": {"questions": [{**CHOICE[0], "question": "要部署到哪台机器？"}]},
+            "a gate word in an option": {"questions": [{**CHOICE[0], "options": [{"label": "删除旧表"}, {"label": "保留"}]}]},
+            "an ascii gate word": {"questions": [{**CHOICE[0], "question": "跑 rm -rf 吗？"}]},
+            "not blocking": {"blocking": False},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name):
+                self.write(**fields)
+                self.assertEqual(self.route(), flow.OWNER)
+                self.assertNotIn("triage", self.saved())
+
+    def test_a_question_outside_a_member_topic_or_an_active_project_is_the_owners(self):
+        self.write(topic=LEAD)  # The lead's own topic.
+        self.assertEqual(self.triage.route(SimpleNamespace(state_dir=self.state, topic_id=LEAD), None, self.saved()), flow.OWNER)
+        self.write()
+        projects.set_state(self.state, PID, projects.PAUSED, "stalled")
+        self.assertEqual(self.route(), flow.OWNER)
+        self.assertNotIn("triage", self.saved())
+
+    def test_with_the_switch_off_nothing_is_written(self):
+        self.write()
+        with mock.patch.dict(os.environ, {triage.ENV: "0"}):
+            self.assertEqual(self.route(), flow.OWNER)
+        self.assertNotIn("triage", self.saved())
+        os.environ.pop(projects.ENV)
+        os.environ[triage.ENV] = "1"  # The projects switch is the first one.
+        self.assertFalse(triage.enabled())
+        self.assertEqual(self.route(), flow.OWNER)
+
+    def test_a_late_redelivery_of_a_held_question_makes_it_the_owners_and_escalated(self):
+        self.write()
+        self.route()
+        data = self.saved()
+        data["triage"]["deadline"] = time.time() - 1
+        write_json(self.path, data, ensure_ascii=False)
+        self.assertEqual(self.route(), flow.OWNER)
+        self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
+
+    def test_the_states_only_move_along_the_table(self):
+        held = {"triage": {"state": triage.HELD}}
+        self.assertEqual(triage.state(triage.moved(held, triage.ANSWERED)), triage.ANSWERED)
+        for done in (triage.ANSWERED, triage.ESCALATED):
+            with self.assertRaises(ValueError):
+                triage.moved({"triage": {"state": done}}, triage.HELD)
+        with self.assertRaises(ValueError):
+            triage.moved({"triage": {"state": triage.ANSWERED}}, triage.ESCALATED)
+
+
+class GateTest(unittest.TestCase):
+    """E4: the words that keep a question from the lead (the list was tuned against 30 days of the owner's questions)."""
+
+    def test_the_words_the_owner_named_all_hit(self):
+        for word in ("部署", "发布", "上线", "发给", "转账", "付费", "额度", "删除", "不可逆"):
+            self.assertEqual(project_gates.hit([{"question": f"要{word}吗？", "options": [{"label": "是"}]}]), word)
+        self.assertEqual(project_gates.hit([{"question": "git push --force 吗？", "options": [{"label": "是"}]}]), "force")
+        self.assertEqual(project_gates.hit([{"question": "x", "options": [{"label": "rm", "description": ""}]}]), "rm")
+
+    def test_ordinary_questions_pass(self):
+        for text in ("用哪个库版本？", "首 token 延迟要不要盯？", "覆盖检查加在第几步？", "先做①还是②？", "format 用哪种？"):
+            self.assertEqual(project_gates.hit([{"question": text, "options": [{"label": "A"}]}]), "", text)
+
+    def test_options_and_headers_are_looked_at_too(self):
+        self.assertEqual(project_gates.hit([{"header": "上线时间", "question": "什么时候？", "options": [{"label": "周一"}]}]), "上线")
+        self.assertEqual(project_gates.hit([{"question": "怎么办？", "options": [{"label": "A", "description": "会花钱"}]}]), "花钱")
+
+    def test_only_questions_with_options_are_choices(self):
+        self.assertTrue(project_gates.choice_only(CHOICE))
+        self.assertFalse(project_gates.choice_only([]))
+        self.assertFalse(project_gates.choice_only([{"question": "x"}]))
+        self.assertFalse(project_gates.choice_only("x"))
+
+
+class SweepTest(Held):
+    """The Bridge's look: the receipt for the lead, and the owner's turn once the three minutes are up."""
+
+    def setUp(self):
+        super().setUp()
+        self.shown = []
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append), topics=mock.Mock())
+        self.write()
+        self.route()
+        patch = mock.patch.object(flow, "show", side_effect=lambda env, record: self.shown.append(record["token"]) or True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def receipts(self):
+        return [item for item in project_loop.unread(self.state, PID) if item["kind"] == "question"]
+
+    def test_a_held_question_gets_one_receipt_that_names_it(self):
+        flow.sweep(self.env, time.time())
+        flow.sweep(self.env, time.time())
+        found = self.receipts()
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["thread"], THREAD)
+        self.assertIn("用哪个库版本", found[0]["text"])
+        self.assertTrue(triage.of(self.saved())["receipt"])
+        self.assertEqual(self.shown, [])
+
+    def test_a_receipt_wakes_the_lead_without_the_autowake_switch(self):
+        flow.sweep(self.env, time.time())
+        self.assertTrue(project_loop.autowake_due(self.receipts()))
+        self.assertFalse(project_loop.autowake_due([{"kind": "thread_end"}]))
+
+    def test_after_three_minutes_the_owner_gets_it(self):
+        flow.sweep(self.env, time.time() + triage.DEADLINE + 1)
+        record = self.saved()
+        self.assertEqual((triage.state(record), record["triage"]["why"], record["display_pending"]),
+                         (triage.ESCALATED, "3 分钟没人处理", True))
+        self.assertEqual(self.shown, [TOKEN])
+        row = self.reload()["triage"][-1]
+        self.assertEqual(row["kind"], "escalated")
+        self.assertIn("转给你", row["text"])
+        flow.sweep(self.env, time.time() + 1000)  # Escalated is final: nothing more is sent.
+        self.assertEqual(self.shown, [TOKEN])
+
+    def test_an_answer_on_its_way_is_not_cut_off_by_the_time(self):
+        late = time.time() + triage.DEADLINE + 1
+        data = self.saved()
+        data["triage"]["answering"] = late - 10
+        write_json(self.path, data, ensure_ascii=False)
+        flow.sweep(self.env, late)
+        self.assertEqual(triage.state(self.saved()), triage.HELD)
+        flow.sweep(self.env, late + triage.ANSWERING)
+        self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
+
+    def test_a_project_that_is_not_on_hands_its_questions_back(self):
+        projects.set_state(self.state, PID, projects.PAUSED, "stalled")
+        flow.sweep(self.env, time.time())
+        self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
+        self.assertEqual(self.shown, [TOKEN])
+
+    def test_a_card_that_cannot_be_sent_leaves_the_task_asking_for_redelivery(self):
+        write_job(self.state, "k-bbbb", topic_id=THREAD, chat_id=CHAT, job_id=41, status="waiting_user", question_delivery_ok=True,
+                  checkpoint_question_deferred=True, execution_status="waiting_user")
+        flow.show.side_effect = lambda env, record: False
+        flow.sweep(self.env, time.time() + triage.DEADLINE + 1)
+        job = find_job_record(self.state, "k-bbbb")
+        self.assertEqual((job["status"], job["question_delivery_ok"]), ("failed", False))
+        self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
+
+    def test_with_the_switch_off_the_sweep_does_nothing(self):
+        with mock.patch.dict(os.environ, {triage.ENV: ""}):
+            flow.sweep(self.env, time.time() + 1000)
+        self.assertEqual(triage.state(self.saved()), triage.HELD)
+        self.assertEqual(self.receipts(), [])
+
+    def test_the_loop_runs_the_sweep_each_look(self):
+        loop = ProjectLoop(SimpleNamespace(log=self.logs.append, shutdown=mock.Mock()), self.env)
+        loop.tick(time.time())
+        self.assertEqual(len(self.receipts()), 1)
+
+
+class AnswerTest(Held):
+    def setUp(self):
+        super().setUp()
+        self.write()
+        self.route()
+        self.submitted = []
+        self.app = SimpleNamespace(questions=SimpleNamespace(submit_answer=self.submit))
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append), topics=mock.Mock())
+        self.seen = {}
+        self.failure = None
+
+    def submit(self, ctx, chat, token, fields, event_id):
+        self.seen = self.saved()
+        self.submitted.append((chat, token, fields, event_id))
+        if self.failure:
+            raise self.failure
+        write_json(self.path, {**self.saved(), "status": "answered", "answers": {"0": {"answers": ["新版"]}}}, ensure_ascii=False)
+
+    def answer(self, answers):
+        return flow.answer(self.env, self.app, self.ctx, CHAT, self.reload(), answers, "lead-r1")
+
+    def test_the_answer_goes_the_way_the_owners_click_does_with_a_note_that_the_lead_gave_it(self):
+        done = self.answer({"0": "新版"})
+        chat, token, fields, event = self.submitted[0]
+        self.assertEqual((chat, token, event), (CHAT, TOKEN, "lead-r1"))
+        self.assertEqual(fields["option_0"], "0")
+        self.assertEqual(fields["supplement"], flow.NOTE)
+        self.assertIn("负责人", flow.NOTE)
+        # The form's own gate: shown as delivered when it was sent, and still the lead's while it went.
+        self.assertFalse(self.seen["display_pending"])
+        self.assertEqual(triage.state(self.seen), triage.HELD)
+        self.assertEqual(triage.state(self.saved()), triage.ANSWERED)
+        self.assertEqual(done["line"], "T41 · 用哪个库版本？ → 新版")
+        row = self.reload()["triage"][-1]
+        self.assertEqual((row["kind"], row["token"], row["topic"]), ("answered", TOKEN, THREAD))
+
+    def test_an_option_that_is_not_one_refuses_and_the_question_stays_held(self):
+        with self.assertRaisesRegex(ValueError, "不是"):
+            self.answer({"0": "随便"})
+        with self.assertRaisesRegex(ValueError, "单选"):
+            self.answer({"0": ["新版", "旧版"]})
+        self.assertEqual(self.submitted, [])
+        self.assertEqual((triage.state(self.saved()), self.saved()["display_pending"]), (triage.HELD, True))
+
+    def test_an_answer_that_could_not_be_sent_hands_the_question_to_the_owner(self):
+        self.failure = ValueError("原生问题已失去原执行上下文")
+        with mock.patch.object(flow, "show", return_value=True) as show, self.assertRaisesRegex(ValueError, "转给主人"):
+            self.answer({"0": "新版"})
+        self.assertEqual((triage.state(self.saved()), self.saved()["display_pending"]), (triage.ESCALATED, True))
+        show.assert_called_once()
+
+    def test_nothing_held_nothing_to_answer(self):
+        data = self.saved()
+        data["triage"]["state"] = triage.ESCALATED
+        write_json(self.path, data, ensure_ascii=False)
+        with self.assertRaisesRegex(ValueError, "没有交给你"):
+            self.answer({"0": "新版"})
+
+
+class ToolTest(ToolsCase):
+    """project_answer and project_escalate as the lead calls them."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, SWITCH).start()
+        self.addCleanup(mock.patch.stopall)
+        self.topic = self.tool("project_topic_start", request_id="m1", title="导出旧账单", prompt="把旧库账单导出", workspace="project",
+                               readonly=True, why="脚本在这个仓库")["data"]["topic_id"]
+        self.path = self.state / "questions" / (TOKEN + ".json")
+        write_json(self.path, question(topic=self.topic, job_key="x-1"), ensure_ascii=False)
+        flow.Triage(runtime=SimpleNamespace(log=print), cards=mock.Mock())._route(SimpleNamespace(state_dir=self.state), read_object(self.path))
+        self.label = "T" + str(json.loads((self.state / "topics" / self.topic / "topic.json").read_text())["topic_number"])
+
+    def test_the_lead_answers_and_the_row_is_on_the_card(self):
+        app = self.env.topics.target(self.state, self.topic, CHAT)[0]
+        with mock.patch.object(app.questions, "submit_answer", side_effect=lambda *a: write_json(
+                self.path, {**read_object(self.path), "status": "answered", "answers": {"0": {"answers": ["旧版"]}}},
+                ensure_ascii=False)) as submit:
+            answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"})
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual(submit.call_args.args[3]["supplement"], flow.NOTE)
+        self.assertEqual(triage.state(read_object(self.path)), triage.ANSWERED)
+        self.assertEqual(project_cards.triage_lines(self.reload())[0][1], TOKEN)
+
+    def test_the_lead_hands_the_question_back_with_why(self):
+        with mock.patch.object(flow, "show", return_value=True) as show:
+            answer = self.tool("project_escalate", thread=self.label, why="记忆里没有这个版本的依据")
+        self.assertTrue(answer["ok"], answer)
+        record = read_object(self.path)
+        self.assertEqual((triage.state(record), record["triage"]["why"], record["triage"]["by"]),
+                         (triage.ESCALATED, "记忆里没有这个版本的依据", "lead"))
+        self.assertTrue(record["display_pending"])
+        show.assert_called_once()
+        self.assertIn("记忆里没有这个版本的依据", json.dumps(question_card({**record, "display_pending": False}, "T1"), ensure_ascii=False))
+
+    def test_a_topic_that_is_not_the_projects_or_has_nothing_held_says_so(self):
+        again = self.tool("project_escalate", thread=self.label, why="x")  # Holds nothing once handed back.
+        with mock.patch.object(flow, "show", return_value=True):
+            again = self.tool("project_escalate", thread=self.label, why="x")
+        self.assertFalse(again["ok"])
+        self.assertIn("没有交给你", again["text"])
+
+    def test_without_the_switch_they_say_it_is_off(self):
+        os.environ.pop(triage.ENV)
+        for name, args in (("project_answer", {"thread": "T1", "answers": {"0": "新版"}}), ("project_escalate", {"thread": "T1", "why": "x"})):
+            answer = self.tool(name, **args)
+            self.assertFalse(answer["ok"])
+            self.assertIn("问题分流没有开", answer["text"])
+
+
+class LeadSideTest(Held):
+    """What the lead reads, and which tools it has."""
+
+    def test_the_lead_reads_the_held_question_in_its_state_pack(self):
+        self.write()
+        self.route()
+        pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=False)
+        self.assertIn("交给你的话题问题", pack)
+        self.assertIn("[0] 用哪个库版本？", pack)
+        self.assertIn("新版 / 旧版", pack)
+        self.assertIn("project_answer", pack)
+
+    def test_without_the_switch_the_pack_and_the_rules_are_what_they_were(self):
+        self.write()
+        self.route()
+        os.environ.pop(triage.ENV)
+        self.assertNotIn("交给你的话题问题", project_lead.state_pack(self.state, self.reload(), "lead-1", full=False))
+        rules = project_lead.lead_rules()
+        self.assertIn(project_lead.NOT_YET, rules)
+        self.assertNotIn("project_answer", rules)
+
+    def test_with_the_switch_the_rules_say_how_to_triage_and_no_longer_that_it_is_off(self):
+        rules = project_lead.lead_rules()
+        self.assertNotIn("分流还没开", rules)
+        for word in ("project_answer", "project_escalate", "不对", "自由文字"):
+            self.assertIn(word, rules)
+
+    def test_the_two_tools_are_listed_to_the_lead_only_with_the_switch(self):
+        names = lambda environ: [tool["name"] for tool in butler_tool_specs.listed({butler.LEAD_ENV: PID, **environ})]  # noqa: E731
+        self.assertNotIn("project_answer", names({}))
+        self.assertNotIn("project_escalate", names({triage.ENV: "0"}))
+        self.assertEqual(names({triage.ENV: "1"})[-2:], ["project_answer", "project_escalate"])
+        self.assertEqual(names({triage.ENV: "1"})[:-2], names({}))
+        self.assertNotIn("project_answer", [tool["name"] for tool in butler_tool_specs.listed({triage.ENV: "1"})])  # Not the butler's.
+
+    def test_the_server_is_told_the_switch_only_when_it_is_on(self):
+        config = lambda: butler.mcp_config(Path("/r"), self.state, "k", "python3", lead=PID)["mcpServers"]["bridge"]["env"]  # noqa: E731
+        self.assertIn(triage.ENV, config())
+        os.environ.pop(triage.ENV)
+        self.assertNotIn(triage.ENV, config())
+
+
+class CardTest(Held):
+    def test_the_row_of_an_answer_has_the_wrong_button_until_it_is_corrected(self):
+        flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
+        flow.log_row(self.state, PID, "转给你：T41 · 能不能停服务？", kind="escalated")
+        lines = project_cards.triage_lines(self.reload())
+        self.assertEqual(lines[1][1], TOKEN)  # The older one, the answer.
+        self.assertIsInstance(lines[0], str)  # The hand-back has no button.
+        view = project_card.Project(**{**project_card_sample().__dict__, "triage": lines})
+        buttons = [b for b in walk(project_card.triage_rows(view)) if b.get("tag") == "button"]
+        self.assertEqual([b["behaviors"][0]["value"]["kind"] for b in buttons], [project_card.TRIAGE_WRONG_KIND])
+        self.assertEqual(buttons[0]["behaviors"][0]["value"]["token"], TOKEN)
+        projects.update(self.state, PID, lambda data: data["triage"][0].__setitem__("corrected", True))
+        self.assertTrue(project_cards.triage_lines(self.reload())[1].endswith("（已纠正）"))
+
+    def test_rows_without_a_token_draw_as_they_always_did(self):
+        view = project_card.Project(**{**project_card_sample().__dict__, "triage": ("09:40 答了：用哪个库版本？",)})
+        self.assertFalse([b for b in walk(project_card.triage_rows(view)) if b.get("tag") == "button"])
+
+    def test_the_form_asks_for_one_sentence_and_calls_back_with_the_question(self):
+        built = triage_card.fix_form("T41 · 用哪个库版本？ → 新版", {"project_id": PID, "topic_id": LEAD, "token": TOKEN})
+        form = next(e for e in walk(built) if e.get("tag") == "form")
+        self.assertEqual([e["tag"] for e in form["elements"]], ["input", "button"])
+        self.assertEqual(form["elements"][1]["behaviors"][0]["value"]["kind"], triage_card.FIX_KIND)
+
+    def test_the_task_card_says_the_question_is_with_the_lead(self):
+        self.write()
+        self.route()
+        element = question_element(self.saved())
+        self.assertEqual((element["element_id"], element["content"]), ("q_" + TOKEN, HELD_NOTE))
+        self.assertIn("负责人", HELD_NOTE)
+
+    def test_a_question_handed_back_says_why_on_its_card(self):
+        record = question(display_pending=False, triage={"state": triage.ESCALATED, "why": "记忆里没有依据"})
+        self.assertIn("记忆里没有依据", json.dumps(question_card(record, "T41"), ensure_ascii=False))
+        self.assertNotIn("负责人转给你", json.dumps(question_card(question(display_pending=False), "T41"), ensure_ascii=False))
+
+
+def walk(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from walk(value)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            yield from walk(value)
+
+
+def project_card_sample():
+    return project_card.Project(project_id=PID, name="迁移账单", status="在做", lead_topic=LEAD)
+
+
+class CorrectTest(Held):
+    def setUp(self):
+        super().setUp()
+        self.queued = []
+        app = SimpleNamespace(
+            harness=SimpleNamespace(context=object()),
+            submission=SimpleNamespace(
+                event_context=lambda base, event: SimpleNamespace(topic_id=THREAD, history_path=self.state / "h.jsonl"),
+                enqueue_chat_job=lambda ctx, text, chat, message, **fields: self.queued.append((message, text)) or object()))
+        flow.attach(SimpleNamespace(state_dir=self.state, topics=SimpleNamespace(target=lambda *a: (app, self.ctx, {}))))
+        self.addCleanup(flow.attach, None)
+        flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
+
+    def test_the_correction_goes_to_the_topic_the_decision_log_and_the_row(self):
+        said = flow.correct(self.reload(), TOKEN, "这类库版本的事要等我看过再定")
+        message, text = self.queued[0]
+        self.assertEqual(message, flow.FIX_PREFIX + TOKEN)
+        self.assertFalse(projects.is_wake(message))
+        self.assertIn("这类库版本的事要等我看过再定", text)
+        record = self.reload()
+        self.assertTrue(record["triage"][0]["corrected"])
+        self.assertIn("这类库版本的事要等我看过再定", record["decisions"][-1]["text"])
+        self.assertIn("决定日志", said)
+        self.assertIn("这类库版本的事要等我看过再定", project_lead.state_pack(self.state, record, "lead-1", full=False))
+
+    def test_a_row_is_corrected_once_and_only_an_answer_is_a_row(self):
+        flow.correct(self.reload(), TOKEN, "一次")
+        with self.assertRaisesRegex(ValueError, "已经纠正过"):
+            flow.correct(self.reload(), TOKEN, "两次")
+        with self.assertRaises(ValueError):
+            flow.correct(self.reload(), "d" * 16, "没有这一行")
+        self.assertEqual(len(self.queued), 1)
+
+
+class HeldFixture(QuestionFixture):
+    """E2: the real Harness app, a task that ended waiting for the owner, and its question held for a project's lead."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, SWITCH).start()
+        self.addCleanup(mock.patch.stopall)
+        state = self.ctx_topic.state_dir
+        self.record.update(body_delivery_required=True, display_pending=True, body_delivery_confirmed=False,
+                           request_id="checkpoint-" + self.job.message_id, job_key=self.job.message_id,
+                           questions=[{"id": "0", "header": "版本", "question": "用哪个库版本？", "options": [{"label": "新版"}, {"label": "旧版"}]}])
+        self.path.write_text(json.dumps(self.record))
+        projects.create(state, projects.new_record(chat_id="oc_chat", name="迁移账单", goal="目标", project_id=PID, now=NOW))
+        projects.add_member(state, PID, self.job.topic_id)
+        topic = state / "topics" / self.job.topic_id / "topic.json"
+        data = json.loads(topic.read_text()) if topic.exists() else {}
+        write_json(topic, {**data, "topic_id": self.job.topic_id, "chat_id": "oc_chat",
+                           "project": projects.project_field(PID, projects.MEMBER)}, ensure_ascii=False)
+        projects.update(state, PID, lambda data: data.update(lead_topic_id=LEAD, chat_id="oc_chat"))
+        self.app.questions.checkpoints.result_delivered = lambda ctx, record: True
+        self.app.questions.publish_question_card = mock.Mock(return_value=True)
+        self.state = state
+        upsert_job_record(state, self.job.message_id, status="waiting_user", execution_status="waiting_user", delivery_ok=True,
+                          question_delivery_ok=True, checkpoint_question_deferred=True, topic_id=self.job.topic_id,
+                          chat_id="oc_chat", job_id=self.job.job_id, session_id="s", workdir=str(self.root))
+
+    def deliver(self):
+        return self.app.questions.deliver_checkpoint_questions(self.ctx_topic, self.job, False)
+
+
+class HeldDeliveryTest(HeldFixture):
+    """E2 (docs/butler.md): a held question is not a question that failed to go out. Bridge restart and task process alike."""
+
+    def test_a_held_question_is_delivered_as_far_as_the_task_is_concerned(self):
+        self.assertTrue(self.deliver())
+        self.assertFalse(self.app.questions.publish_question_card.called)
+        saved = json.loads(self.path.read_text())
+        self.assertEqual((triage.state(saved), saved["status"], saved["display_pending"], saved["body_delivery_confirmed"]),
+                         (triage.HELD, "pending", True, True))
+        self.app.cards.set_task_element.assert_called()  # The task card says 已交负责人.
+        self.assertEqual(self.app.cards.set_task_element.call_args.args[2]["content"], HELD_NOTE)
+
+    def test_nothing_offers_a_held_question_again(self):
+        self.deliver()
+        self.assertEqual(self.app.questions.undelivered_checkpoint_jobs(self.ctx_topic, "oc_chat"), [])
+        before = find_job_record(self.state, self.job.message_id)
+        self.assertEqual(self.deliver(), True)  # The topic's redelivery, as 重新投递 would run it.
+        self.assertFalse(self.app.questions.publish_question_card.called)
+        self.assertEqual(json.loads(self.path.read_text())["triage"]["deadline"], triage.of(json.loads(self.path.read_text()))["deadline"])
+        self.assertEqual(find_job_record(self.state, self.job.message_id)["question_delivery_ok"], before["question_delivery_ok"])
+
+    def test_the_recovery_card_of_a_held_question_is_the_one_of_a_shown_one(self):
+        self.deliver()
+        held = find_job_record(self.state, self.job.message_id)
+        shown_record = dict(held)
+        self.assertEqual(recovery.classify(held, saved=False), recovery.classify(shown_record, saved=False))
+        self.assertNotEqual(recovery.classify(held, saved=False).kind, recovery.REDELIVER_FAILED)
+
+    def test_a_bridge_restart_leaves_a_held_question_alone_and_still_fails_an_unshown_one(self):
+        self.deliver()
+        recover_question_delivery(self.ctx_topic, [self.app.questions], self.app.runtime.log)
+        job = find_job_record(self.state, self.job.message_id)
+        self.assertEqual((job["status"], job["question_delivery_ok"]), ("waiting_user", True))
+        # The same record without the hold is what the restart always treated as undelivered.
+        data = json.loads(self.path.read_text())
+        data.pop("triage")
+        self.path.write_text(json.dumps(data))
+        recover_question_delivery(self.ctx_topic, [self.app.questions], self.app.runtime.log)
+        job = find_job_record(self.state, self.job.message_id)
+        self.assertEqual((job["status"], job["question_delivery_ok"]), ("failed", False))
+
+    def test_handed_back_it_goes_out_through_the_same_door_as_any_question(self):
+        self.deliver()
+        record = json.loads(self.path.read_text())
+        self.app.questions.publish_question_card.reset_mock()
+        moved = triage.moved(record, triage.ESCALATED, why="记忆里没有依据")
+        self.path.write_text(json.dumps({**moved, "display_pending": True}))
+        self.assertTrue(self.deliver())
+        self.assertTrue(self.app.questions.publish_question_card.called)
+        saved = json.loads(self.path.read_text())
+        self.assertFalse(saved["display_pending"])
+        self.assertEqual(triage.state(saved), triage.ESCALATED)
+
+    def test_with_the_switch_off_the_card_goes_out_as_always(self):
+        os.environ.pop(triage.ENV)
+        self.assertTrue(self.deliver())
+        self.assertTrue(self.app.questions.publish_question_card.called)
+        self.assertNotIn("triage", json.loads(self.path.read_text()))
+
+    def test_a_free_text_question_goes_out_even_with_the_switch(self):
+        self.record["questions"] = [{"id": "0", "question": "写一句原因"}]
+        self.path.write_text(json.dumps(self.record))
+        self.assertTrue(self.deliver())
+        self.assertTrue(self.app.questions.publish_question_card.called)
+
+
+class HeldLiveQuestionTest(HeldFixture):
+    """The live question of Claude (the task process stays up, waiting): no card, and the job says its question is delivered."""
+
+    def test_a_live_question_is_held_without_a_card(self):
+        self.record.update(native_live_question=True, display_pending=True, body_delivery_required=False)
+        self.path.write_text(json.dumps(self.record))
+        record = json.loads(self.path.read_text())
+        self.app.cards.close_streaming_reply = mock.Mock()
+        self.app.questions.native.show(self.ctx_topic, self.job, self.rpc, self.path, record, False, True)
+        self.assertFalse(self.app.questions.publish_question_card.called)
+        self.assertFalse(self.app.cards.close_streaming_reply.called)  # The turn goes on waiting, its card as it is.
+        self.assertEqual(triage.state(json.loads(self.path.read_text())), triage.HELD)
+        self.assertTrue(find_job_record(self.state, self.job.message_id)["question_delivery_ok"])
+
+    def test_with_the_switch_off_the_form_is_sent_as_always(self):
+        os.environ.pop(triage.ENV)
+        self.record.update(native_live_question=True, display_pending=True, body_delivery_required=False)
+        self.path.write_text(json.dumps(self.record))
+        record = json.loads(self.path.read_text())
+        self.app.cards.close_streaming_reply = mock.Mock()
+        with mock.patch.object(self.app.questions.native, "live_control"):
+            self.app.questions.native.show(self.ctx_topic, self.job, self.rpc, self.path, record, False, True)
+        self.assertTrue(self.app.questions.publish_question_card.called)
+        self.assertNotIn("triage", json.loads(self.path.read_text()))
+
+
+if __name__ == "__main__":
+    unittest.main()

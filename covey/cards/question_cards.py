@@ -5,7 +5,7 @@ import re
 
 from covey.cards.elements import BUTTON_SPACING, button_look, callback_button, card, markdown_panel, plain
 from covey.cards.review import compact_text
-from covey.core import turn_words
+from covey.core import triage, turn_words
 from covey.core.stale import STALE_NOTE
 
 SKIP_VALUE = "skip"
@@ -31,6 +31,17 @@ FOLLOW_UP = turn_words.FOLLOW_UP
 # (app/questions.py fold_older_questions); without it, an older duplicate retired once a later
 # identical form was answered (app/checkpoint_questions.py).
 FOLDED = "newer_question"
+
+
+HELD_NOTE = "已交负责人：它能依据专项记忆答的就替你答，答不了或 3 分钟没处理，会转给你。"
+ESCALATED_NOTE = "负责人没有答，转给你了，见话题里的问题卡。"
+
+
+def triage_element(record):
+    """The task card's line for a question the project's lead has (held) or handed back (escalated, with its why)."""
+    why = str(triage.of(record).get("why") or "")
+    text = HELD_NOTE if triage.held(record) else ESCALATED_NOTE + (f"理由：{why}" if why else "")
+    return {"tag": "markdown", "element_id": "q_" + record["token"], "content": text}
 
 
 def folded(record):
@@ -66,6 +77,8 @@ def question_element(record, tags="", *, headed=False):
                 "content": f"相同问题已在后续卡片回答 · 后续任务 #{record['continuation_job_id']}。无需重复提交。"}
     if folded(record):
         return _settled_panel(record, token)
+    if triage.held(record):
+        return triage_element(record)
     if record.get("display_pending") or (record.get("body_delivery_required") and not record.get("body_delivery_confirmed")):
         return {"tag": "markdown", "element_id": "q_" + token,
                 "content": "完整结果或问题控件尚未送达，请使用本话题任务卡的重试按钮，重新投递后再回答。"}
@@ -199,6 +212,8 @@ def _question_form(record, token, tags="", headed=False):
     else:
         elements = [{"tag": "markdown", "content": f"**{tags + ' · ' if tags else ''}需要你补充 · {state}**"},
                     {"tag": "markdown", "content": line}]
+    if triage.state(record) == triage.ESCALATED and triage.of(record).get("why"):
+        elements.insert(1, {"tag": "markdown", "content": f"负责人转给你的理由：{triage.of(record)['why']}"})
     elements.append(markdown_panel("qh_" + token, "怎么回答", how_to_answer(record), size="notation", quiet=True))
     for i, q in enumerate(record["questions"]):
         elements.extend(_question_fields(i, q, count, record if buttons else None))

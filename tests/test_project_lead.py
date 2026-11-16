@@ -647,11 +647,11 @@ class RecordToolsTest(ToolsCase):
         self.assertIn("已经结束", self.refused("project_finish", summary="再来一次"))
         self.assertTrue(thread)
 
-    def test_the_triage_tools_only_say_it_is_off(self):
+    def test_the_triage_tools_say_it_is_off_without_the_switch(self):
         for name, args in (("project_answer", {"thread": "T1", "answers": {}}), ("project_escalate", {"thread": "T1", "why": "x"})):
             answer = self.tool(name, **args)
             self.assertFalse(answer["ok"])
-            self.assertIn("分流还没开", answer["text"])
+            self.assertIn("问题分流没有开", answer["text"])
 
 
 class RefusalTest(ToolsCase):

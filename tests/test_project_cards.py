@@ -457,8 +457,12 @@ class ButtonTest(CardCase):
         for kind, handler in (("bridge_project_steer", "steering.project_steer"), ("bridge_project_stop", "controls.project_stop"),
                               ("bridge_project_downgrade", "controls.project_downgrade"),
                               ("bridge_project_mem_del", "controls.project_mem_del"),
-                              ("bridge_project_lib_del", "controls.project_lib_del")):
+                              ("bridge_project_lib_del", "controls.project_lib_del"),
+                              ("bridge_project_triage_wrong", "controls.project_triage_wrong")):
             self.assertEqual((ACTIONS[kind].handler, ACTIONS[kind].bot_only), (handler, False), kind)
+        # The correction's submit queues a message in a member topic: bot_only, as a button that starts a task is.
+        self.assertEqual((ACTIONS["bridge_project_triage_fix"].handler, ACTIONS["bridge_project_triage_fix"].bot_only),
+                         ("controls.project_triage_fix", True))
         self.assertEqual(view.KINDS, {kind for kind in ACTIONS if kind.startswith("bridge_project_")})
 
     def test_a_click_for_another_topic_or_a_project_not_there_is_refused(self):

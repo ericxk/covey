@@ -957,7 +957,7 @@ def app_setup_cards():
 
 def project_cards():
     """The 专项卡 (cards/project_card.py): the live card in each state, and the lines it shrinks to."""
-    from covey.cards import project_card as pc
+    from covey.cards import project_card as pc, triage_card
 
     link = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
     ask = "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=76"
@@ -987,7 +987,12 @@ def project_cards():
             "line_moved": pc.moved_card("把订单库迁到新集群", link, direction="数据平台"),
             "upgraded": pc.project_card(pc.Project(**{**work.__dict__, "members": threads[:1], "direction": "",
                                                       "origin_note": "由管家转成专项"})),
-            "line_merged": pc.merged_card("把订单库迁到新集群", link)}
+            "line_merged": pc.merged_card("把订单库迁到新集群", link),
+            # COVEY_PROJECT_TRIAGE=1: a row of an answer the lead gave has the 不对 button, and the form it opens.
+            "running_triage": pc.project_card(pc.Project(**{**full.__dict__, "triage": (
+                ("09:40 答了：T501 · 用哪个库版本？ → 新版", "c" * 16), "10:05 转给你：T503 · 能不能停服务？（碰到硬闸）")})),
+            "triage_fix_form": triage_card.fix_form("T501 · 用哪个库版本？ → 新版", {"project_id": "a1b2c3d4e5f6", "topic_id": "f" * 32,
+                                                                              "token": "c" * 16})}
 
 
 GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,

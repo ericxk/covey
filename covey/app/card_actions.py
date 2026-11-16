@@ -57,6 +57,8 @@ ACTIONS = {
     "bridge_project_downgrade": CardAction("不要专项", handler="controls.project_downgrade"),
     "bridge_project_mem_del": CardAction("删专项记忆", handler="controls.project_mem_del"),
     "bridge_project_lib_del": CardAction("删专项资料", handler="controls.project_lib_del"),
+    "bridge_project_triage_wrong": CardAction("纠正分流", handler="controls.project_triage_wrong"),  # COVEY_PROJECT_TRIAGE=1
+    "bridge_project_triage_fix": CardAction("提交纠正", bot_only=True, handler="controls.project_triage_fix"),  # Queues a message in the member topic.
     "bridge_steer_status": CardAction("检查送达状态", handler=QUESTIONS),
     "bridge_steer_requeue": CardAction("重新排队执行", bot_only=True, handler=QUESTIONS),
     "bridge_steer_withdraw": CardAction("撤回补充", handler=QUESTIONS),

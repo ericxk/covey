@@ -275,6 +275,16 @@ class TaskControls(Redelivery):
         from covey.app import project_cards
         return project_cards.delete_library(self, ctx, event)
 
+    def project_triage_wrong(self, ctx, event):
+        """不对 on a row of a 专项卡's 分流记录: the form of the correction (app/project_cards.py triage_wrong)."""
+        from covey.app import project_cards
+        return project_cards.triage_wrong(self, ctx, event)
+
+    def project_triage_fix(self, ctx, event):
+        """提交纠正 on that form (app/project_cards.py triage_fix)."""
+        from covey.app import project_cards
+        return project_cards.triage_fix(self, ctx, event)
+
     def cancel_reply_job_from_card(
         self,
         ctx: BridgeContext,
