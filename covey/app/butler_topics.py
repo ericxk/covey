@@ -196,6 +196,24 @@ def _named(choices, listed, name, model):
                                       str(entry.get("label") or "").lower())), None)
 
 
+def _plain(text):
+    """``text`` lower-cased without spaces and hyphens: "Claude Code", "claude-code" and "claudecode" are one."""
+    return "".join(ch for ch in text.lower() if ch not in " -_\t")
+
+
+def _harness_id(topics, value):
+    """The Harness id a call's ``harness`` names: an id, or a Harness's display name (``spec.title``, "Claude Code")
+    compared without case, spaces and hyphens. A value naming none comes back lower-cased, for the refusal."""
+    lowered = value.lower()
+    if lowered in NAMES or not lowered:
+        return lowered
+    plain = _plain(value)
+    for name, app in topics.apps.items():
+        if plain in (_plain(name), _plain(app.spec.title)):
+            return name
+    return lowered
+
+
 def resolve(topics, state_dir, chat, defaults, args=None, choices=None):
     """The Harness, model and budget a topic the butler opens runs with, each field on its own (REVIEW 11-06:
     a Harness alone in the settings had dropped the last launch's model): the call's value, else the settings'
@@ -207,7 +225,7 @@ def resolve(topics, state_dir, chat, defaults, args=None, choices=None):
     last = last_launch(state_dir, chat)
     own = defaults.harness.lower()
     sources, name = {}, ""
-    for value, source in ((_text(args.get("harness")).lower(), CALL), (own, SETTINGS),
+    for value, source in ((_harness_id(topics, _text(args.get("harness"))), CALL), (own, SETTINGS),
                           (last[0] if last else "", LAST), (topics.default, BRIDGE)):
         if value:
             name, sources["harness"] = value, source

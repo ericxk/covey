@@ -11,12 +11,13 @@ from operator import attrgetter
 import time
 from typing import Any
 
-from covey.app import dispatch_cards, runner_ipc
+from covey.app import butler_tracks, dispatch_cards, runner_ipc
 from covey.app.binding import JOB_STARTING, STALE_CARD, stale_job_card
 from covey.app.card_actions import action_value, card_object, click_kind, moved_card_text, ACTIONS
 from covey.app.launch import SUBMIT_PREFIX
 from covey.core import timing
 from covey.core.harness import BridgeContext
+from covey.core.jobs import JOB_STOP_ACTION_KIND
 from covey.core.locks import LOCK
 from covey.core.state import claim_once, read_json, write_durable_json
 from covey.core.store import directory_store, one_scan
@@ -222,6 +223,7 @@ class CardRouting:
                 app.messenger.reply(target, event['chat_id'], '此卡片已过期，请使用本话题最新的任务卡。',
                                     app.key('stale-route', event.get('event_id') or event['message_id']), voice=app.voice)
                 return 'stale_route'
+        self.count_others(target, event, raw)
         if runner_ipc.forward_card_action(self.runtime, target, event, raw):
             timing.mark('forward')
             return 'forwarded'  # The job's task runner owns its card.
@@ -263,6 +265,19 @@ class CardRouting:
         self.dashboard.send_link(ctx, chat_id, event_id, rotate=True,
                                  shown=self.menu.shown(ctx, 'redaction_dashboard', chat_id, event_id))
         return 'dashboard_rotate'
+
+    def count_others(self, target, event, raw):
+        """A stop button on a task of the butler's, or on a 派发卡: how many other tracks of the butler are still going
+        goes into the click as ``others`` (app/butler_tracks.py ``stop_others``, the stop word's count), for the Bridge's
+        reply (app/task_controls.py) or, forwarded, the task runner's, which does not see the other tasks. Any other click
+        is left as it is."""
+        dispatched = raw.get('kind') == dispatch_cards.STOP_KIND
+        if self.runtime.in_runner or not (dispatched or raw.get('kind') == JOB_STOP_ACTION_KIND):
+            return
+        others = butler_tracks.stop_others(self.runtime, target.state_dir, str(event.get('chat_id') or ''), target.topic_id,
+                                           raw.get('job_id'), dispatched=dispatched)
+        if others > 0:
+            event['action_value'] = {**raw, 'others': str(others)}
 
     def job_route(self, app, target, event, raw):
         """A task card belongs to its job's Harness, which a model switch may have replaced.

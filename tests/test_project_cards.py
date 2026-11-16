@@ -22,7 +22,8 @@ from covey.cards import project_card as view
 from covey.cards.elements import find_element
 from covey.core import board_read, projects
 from covey.core.jobs import upsert_job_record
-from covey.core.topics import label_title, routed_topic
+from covey.core.state import write_json
+from covey.core.topics import label_title, routed_topic, topic_file
 
 CHAT = "oc_owner_dm"
 PID = "a1b2c3d4e5f6"
@@ -209,6 +210,57 @@ class CardCase(UnifiedCase):
 
     def job(self, topic, number, status, **fields):
         upsert_job_record(self.state, f"j{number}", topic_id=topic, chat_id=CHAT, job_id=number, status=status, **fields)
+
+
+class HarnessLabelTest(CardCase):
+    """The Harness a card names is the topic's own: the box (输入) is the lead's, each thread's fold says its own (2026-11-16: the
+    lead ran on Claude Code, a thread on Codex, and the box was all the card said)."""
+    TITLES = {"claude": "Claude Code", "codex": "Codex"}
+
+    def bind(self, topic, harness, **fields):
+        write_json(topic_file(self.state, topic), {"harness_id": harness, **fields})
+
+    def facts(self):
+        return project_cards.facts(self.state, self.record(), 1100.0, self.TITLES)
+
+    def test_a_threads_fold_names_the_harness_it_runs_on_not_the_leads(self):
+        self.job(LEAD, 1, "running", harness_id="claude", model="Opus", effort="high")
+        self.job(T1, 2, "running", harness_id="codex")
+        shown = self.facts()
+        self.assertEqual(shown.members[0].harness, "Codex")
+        self.assertEqual(shown.inputs[0], "Claude Code")  # The box is the lead's.
+        self.assertIn("Codex", find_element(view.project_card(shown), "pq_a1b2c3_r")["content"])
+
+    def test_a_thread_with_no_job_yet_is_named_by_its_binding(self):
+        self.bind(T1, "codex")
+        self.assertEqual(self.facts().members[0].harness, "Codex")
+        self.bind(T1, "claude")
+        self.assertEqual(self.facts().members[0].harness, "Claude Code")
+
+    def test_the_job_that_runs_wins_over_a_binding_a_switch_has_changed(self):
+        self.bind(T1, "claude")
+        self.job(T1, 2, "running", harness_id="codex")
+        self.assertEqual(self.facts().members[0].harness, "Codex")
+
+    def test_an_older_job_record_names_its_harness_as_the_backend(self):
+        self.job(T1, 2, "running", backend="codex")
+        self.assertEqual(self.facts().members[0].harness, "Codex")
+
+    def test_a_lead_without_a_job_is_its_own_binding_not_a_threads_harness(self):
+        self.bind(LEAD, "claude", model="opus", effort="high")
+        self.job(T1, 2, "running", harness_id="codex", model="gpt", effort="low")
+        shown = self.facts()
+        self.assertEqual(shown.inputs, ("Claude Code", "opus", "思考 high"))
+        self.job(LEAD, 3, "running", harness_id="claude", model="Opus")
+        self.assertEqual(self.facts().inputs[0], "Claude Code")
+
+    def test_a_lead_with_neither_job_nor_binding_has_no_harness_in_the_box(self):
+        self.job(T1, 2, "running", harness_id="codex")
+        self.assertEqual(self.facts().inputs, ())
+
+    def test_a_harness_without_a_title_is_left_out_not_guessed(self):
+        self.job(T1, 2, "running", harness_id="neeko")
+        self.assertEqual(self.facts().members[0].harness, "")
 
 
 class RefreshTest(CardCase):

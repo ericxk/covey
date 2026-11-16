@@ -238,6 +238,23 @@ class TopicDefaultsTest(ButlerTopicsCase):
         app = self.app.apps[name]
         return app.models.configured_context(app.harness.context)
 
+    def test_a_harness_the_owner_names_by_its_display_name_is_found(self):
+        # 2026-11-16: "用 Claude Code" came as the display name; only the ids (claude, codex) were known.
+        title = self.app.apps["claude"].harness.spec.title
+        self.defaults(harness="codex")
+        for spoken in (title, title.lower(), title.upper(), title.replace(" ", ""), title.replace(" ", "-"), f"  {title} ", "claude"):
+            self.assertEqual(self.resolved(harness=spoken)[0], "claude", spoken)
+            self.assertEqual(self.resolved(harness=spoken)[3]["harness"], "call")
+        codex = self.app.apps["codex"].harness.spec.title
+        self.assertEqual(self.resolved(harness=codex)[0], "codex")
+        self.assertEqual(self.opened(harness=title)[0], "claude")
+
+    def test_a_harness_neither_an_id_nor_a_display_name_is_refused_as_before(self):
+        for spoken in ("neeko", "Neeko Pro", "Claude Codex"):
+            found = butler_topics.resolve(self.app.topics, self.ctx.state_dir, CHAT,
+                                        butler_settings.load(self.ctx.state_dir).topic_defaults, {"harness": spoken})
+            self.assertEqual(found, f"没有 Harness「{spoken.lower()}」，可选：{'、'.join(self.app.topics.apps)}。")
+
     def test_a_harness_alone_in_the_settings_takes_the_last_launchs_model_and_budget(self):
         # T405 (11-06): the settings named claude only; the owner had been launching opus · max.
         self.launched("claude:opus", "max")

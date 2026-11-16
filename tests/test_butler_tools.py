@@ -400,6 +400,32 @@ class HandlerTest(unittest.TestCase):
         self.assertIn("等你回答 → 进行中 → 有结果", note)
 
 
+class OpeningArgumentsTest(unittest.TestCase):
+    """What the model reads of topic_start and project_topic_start: a Harness, model or budget the owner names must be
+    passed on (2026-11-16: "用 Claude Code" opened a topic on the default Harness)."""
+
+    def properties(self, tools, name):
+        return next(tool for tool in tools if tool["name"] == name)["input_schema"]["properties"]
+
+    def test_the_harness_model_and_budget_say_they_are_required_when_the_owner_names_them(self):
+        from covey.core.butler_tool_specs import PROJECT_TOOLS, TOOLS
+        for tools, name in ((TOOLS, "topic_start"), (PROJECT_TOOLS, "project_topic_start")):
+            properties = self.properties(tools, name)
+            for field in ("harness", "model", "effort"):
+                text = properties[field]["description"]
+                self.assertIn("点名", text, (name, field))
+                self.assertIn("必须填", text, (name, field))
+                self.assertIn("没点名就不填", text, (name, field))
+            self.assertIn("claude", properties["harness"]["description"])
+            self.assertIn("Claude Code", properties["harness"]["description"])
+
+    def test_the_butlers_rules_say_to_pass_on_what_the_owner_names(self):
+        from covey.app.prompts import BUTLER_RULES
+        rule = next(rule for rule in BUTLER_RULES if "点名" in rule)
+        for words in ("Harness", "模型", "思考预算", "topic_start", "没点名就不填"):
+            self.assertIn(words, rule)
+
+
 class AnswerFieldsTest(unittest.TestCase):
     RECORD = {"questions": [
         {"id": "ship", "question": "现在发版吗？", "options": [{"label": "发"}, {"label": "不发"}]},

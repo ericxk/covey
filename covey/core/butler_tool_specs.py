@@ -18,6 +18,10 @@ ATTACHMENTS = {"description": "可选，主人这条消息的附件交给它哪�
                               "（第一条有图片 1，补充里的图片 1 就是图片 2）。一条消息拆成几件事时，用它把附件分给对应的话题",
                "anyOf": [{"type": "string", "enum": ["all", "none"]},
                          {"type": "array", "items": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "string"}]}}]}
+HARNESS_ARG = ("主人点名用哪个 Harness 时必须填（如“用 Claude Code”“让 Codex 做”），值写 Harness 名：claude、codex 等；"
+               "主人没点名就不填，用设置里的默认")
+MODEL_ARG = "主人点名用哪个模型时必须填，写模型名；主人没点名就不填，用设置里的默认"
+EFFORT_ARG = "主人点名思考预算时必须填（如“用高预算”“max”）；主人没点名就不填，用设置里的默认"
 DONE = "结论由 Bridge 发给主人，你不用等、也不用转述。"
 
 TOOLS = (
@@ -74,9 +78,9 @@ TOOLS = (
          "readonly": {"type": "boolean", "description": "只查看、只回答，不改任何文件、不执行有副作用的命令时为 true"},
          "user_requested": {"type": "boolean", "description": "主人在最新这条消息里亲口要求做这件事（直接下令、“去做”“开个话题”）为 true；你自己推断的为 false"},
          "why": {"type": "string", "description": "一行中文：为什么选这个工作区和配置"},
-         "harness": {"type": "string", "description": "不填用设置里的默认"},
-         "model": {"type": "string", "description": "不填用设置里的默认"},
-         "effort": {"type": "string", "description": "思考预算，不填用设置里的默认"}}}},
+         "harness": {"type": "string", "description": HARNESS_ARG},
+         "model": {"type": "string", "description": MODEL_ARG},
+         "effort": {"type": "string", "description": EFFORT_ARG}}}},
     {"name": "topic_send",
      "description": "把主人的话追加给一个已有话题（同一件事，几天前的也算）：它正在跑就作为补充，已经停了就开它的下一轮。"
                     "text 写这次交给它的内容：主人要它补做或改的事，用主人的说法，去掉“接着放到 T 号里”“转给那个话题”这类路由的话"
@@ -223,9 +227,9 @@ PROJECT_TOOLS = (
          "readonly": {"type": "boolean", "description": "只查看、只回答，不改任何文件、不执行有副作用的命令时为 true"},
          "user_requested": {"type": "boolean", "description": "主人在这个专项里亲口要求做这件事为 true；你自己推断的为 false"},
          "why": {"type": "string", "description": "一行中文：为什么选这个工作区和配置"},
-         "harness": {"type": "string", "description": "不填用设置里的默认"},
-         "model": {"type": "string", "description": "不填用设置里的默认"},
-         "effort": {"type": "string", "description": "思考预算，不填用设置里的默认"}}}},
+         "harness": {"type": "string", "description": HARNESS_ARG},
+         "model": {"type": "string", "description": MODEL_ARG},
+         "effort": {"type": "string", "description": EFFORT_ARG}}}},
     {"name": "project_topic_send",
      "description": "给这个专项的一个已有话题加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"
                     "只能给这个专项自己的话题，别的话题用不了。",

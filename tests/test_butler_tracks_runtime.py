@@ -283,6 +283,124 @@ class RouteTest(TracksCase):
         self.assertEqual(self.slot_of("om_2"), 1)
 
 
+class StopButtonTest(TracksCase):
+    """The buttons stop a task as the stop word does, and say how many other tracks go on (the same count,
+    app/butler_tracks.py ``others_going``): the task card's 停止 and the 派发卡's ⏹ 停止."""
+    OTHER_TOPIC = "a" * 32  # A topic of its own, as the topic a 派发卡 hands a task to.
+
+    def two_tracks(self):
+        self.send("om_1", LONG)
+        first = self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.run_job("om_2")
+        return first
+
+    def task_click(self, job, message="om_click"):
+        runtime_tracks.move_topic_message(self.state, job.topic_id, CHAT, message)
+        action = {"kind": "bridge_job_stop", "job_id": str(job.job_id), "message_id": job.message_id}
+        return {"chat_id": CHAT, "message_id": message, "event_id": f"ev-{message}",
+                "operator_id": self.app.runtime.owner_open_id, "action_value": action}
+
+    def dispatch_click(self, job_id):
+        runtime_tracks.move_topic_message(self.state, self.OTHER_TOPIC, CHAT, "om_dispatch")
+        action = {"kind": "bridge_dispatch_stop", "topic_id": self.OTHER_TOPIC, "job_id": str(job_id)}
+        return {"chat_id": CHAT, "message_id": "om_dispatch", "event_id": "ev-dispatch",
+                "operator_id": self.app.runtime.owner_open_id, "action_value": action}
+
+    def dispatched_job(self, number=90):
+        from covey.core.jobs import BridgeReplyJob
+        job = BridgeReplyJob(job_id=number, user_text="x", chat_id=CHAT, message_id="om_job90", timeout=0,
+                             topic_id=self.OTHER_TOPIC)
+        job.execution_started, job.backend_control = True, Control()
+        self.app.runtime.jobs.register(job)
+        return job
+
+    def said(self, reply):
+        return " ".join(str(call.args[2]) for call in reply.call_args_list)
+
+    def click(self, event):
+        with mock.patch.object(self.app.messenger, "reply") as reply:
+            self.app.handle_card_action_event(event, self.ctx)
+        return reply
+
+    def test_the_task_cards_stop_says_how_many_other_tracks_go_on(self):
+        job = self.two_tracks()
+        reply = self.click(self.task_click(job))
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertFalse(self.job_of("om_2").cancel_event.is_set())
+        self.assertIn("还有 1 件事在做。", self.said(reply))
+
+    def test_the_task_cards_stop_says_nothing_when_no_other_track_goes_on(self):
+        self.send("om_1", LONG)
+        job = self.run_job("om_1")
+        reply = self.click(self.task_click(job))
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertNotIn("还有", self.said(reply))
+
+    def test_a_track_waiting_for_the_owner_is_not_one_that_goes_on(self):
+        self.send("om_1", LONG)
+        job = self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.run_job("om_2", Control(paused=True))
+        self.assertNotIn("还有", self.said(self.click(self.task_click(job))))
+
+    def test_the_forwarded_click_carries_the_count(self):
+        job = self.two_tracks()
+        with mock.patch("covey.app.card_routing.runner_ipc.forward_card_action", return_value=True) as forward:
+            self.app.handle_card_action_event(self.task_click(job), self.ctx)
+        action = forward.call_args.args[2]["action_value"]
+        self.assertEqual((action["others"], action["job_id"]), ("1", str(job.job_id)))
+
+    def test_the_forwarded_click_of_a_lone_track_carries_no_count(self):
+        self.send("om_1", LONG)
+        job = self.run_job("om_1")
+        with mock.patch("covey.app.card_routing.runner_ipc.forward_card_action", return_value=True) as forward:
+            self.app.handle_card_action_event(self.task_click(job), self.ctx)
+        self.assertNotIn("others", forward.call_args.args[2]["action_value"])
+
+    def test_the_task_runner_says_it_from_the_click(self):
+        job = self.two_tracks()
+        click = self.task_click(job)
+        click["action_value"]["others"] = "1"
+        self.assertTrue(self.claude.controls.stop_action(self.ctx, click))
+        self.assertTrue(job.cancel_event.is_set())
+
+    def test_the_dispatch_cards_stop_says_how_many_tracks_go_on(self):
+        self.two_tracks()
+        job = self.dispatched_job()
+        reply = self.click(self.dispatch_click(job.job_id))
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertFalse(self.job_of("om_1").cancel_event.is_set())
+        self.assertIn("还有 2 件事在做。", self.said(reply))
+
+    def test_the_dispatch_cards_stop_says_nothing_when_no_track_goes_on(self):
+        job = self.dispatched_job()
+        reply = self.click(self.dispatch_click(job.job_id))
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertNotIn("还有", self.said(reply))
+
+    def test_the_forwarded_dispatch_click_carries_the_count(self):
+        self.two_tracks()
+        job = self.dispatched_job()
+        with mock.patch("covey.app.card_routing.runner_ipc.forward_card_action", return_value=True) as forward:
+            self.app.handle_card_action_event(self.dispatch_click(job.job_id), self.ctx)
+        self.assertEqual(forward.call_args.args[2]["action_value"]["others"], "2")
+        self.assertEqual(forward.call_args.args[2]["action_value"]["job_id"], str(job.job_id))
+
+    def test_a_task_that_is_none_of_the_butlers_says_nothing_of_it(self):
+        self.two_tracks()
+        job = self.dispatched_job()
+        click = self.task_click(job)  # The task card of an ordinary topic: not a track of the butler's.
+        reply = self.click(click)
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertNotIn("还有", self.said(reply))
+
+    def test_with_the_switch_off_a_button_says_nothing_of_it(self):
+        job = self.two_tracks()
+        with mock.patch.dict(os.environ, {butler_tracks.ENV: "0"}):
+            self.assertNotIn("还有", self.said(self.click(self.task_click(job))))
+
+
 class CapacityTest(TracksCase):
     def test_at_the_limit_a_new_request_queues_behind_the_least_busy_track(self):
         with mock.patch.dict(os.environ, {butler_tracks.MAX_ENV: "2"}):

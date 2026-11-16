@@ -60,6 +60,60 @@ class Entry:
     ids: tuple = ()  # The messages that stand for it: the owner's, its card, the reply target.
 
 
+def live_entries(runtime, state, chat, now, last_owner=None) -> list:
+    """The family's tasks that have not ended: those in this process's registry (queued, starting, running, paused),
+    and the records of tasks waiting for the owner's answer that left it (``WAITING_FRESH``; those of the butler's
+    own slot only while something else is live). A task that is no more than a record has ``job`` None."""
+    found, last_owner = [], last_owner or {}
+    ids = core.family_ids(chat)
+    for slot, topic in enumerate(ids):
+        for job in runtime.jobs.topic_jobs(topic, chat):
+            stage = job_stage(job)
+            if stage == "ended":
+                continue
+            started = float((getattr(job, "timings", None) or {}).get("received") or 0)
+            found.append(Entry(route.LiveJob(
+                track=slot, job_id=str(job.job_id), phase=stage, request=str(job.user_text or ""), started_at=started,
+                last_owner_at=max(started, last_owner.get(job.job_id, 0)), number=int(job.job_id)), job,
+                tuple(filter(None, (job.message_id, getattr(job.progress, "message_id", ""), job.reply_to_message_id)))))
+    have = {entry.live.job_id for entry in found}
+    records = []
+    for slot, topic in enumerate(ids):
+        if slot == 0 and not found:
+            continue
+        for _, record in directory_store(state / "jobs").query(topic_id=topic, chat_id=chat, status="waiting_user"):
+            at = epoch_seconds(record.get("updated_at") or record.get("created_at"))
+            if at is None or now - at > WAITING_FRESH or str(record.get("job_id")) in have:
+                continue
+            records.append(Entry(route.LiveJob(
+                track=slot, job_id=str(record.get("job_id")), phase=route.PAUSED, request=str(record.get("user_text") or ""),
+                started_at=at, last_owner_at=at, number=int(record.get("job_id") or 0)), None,
+                tuple(filter(None, (record.get("key"), record.get("card_message_id"), record.get("reply_to_message_id"))))))
+    return found + records
+
+
+def others_going(entries, job_id) -> int:
+    """How many other tracks of the butler are still going when the task ``job_id`` stops: the tracks of ``entries``
+    (``live_entries``) other than the stopped task's own, not counting one that waits for the owner's answer. One
+    count for the stop word (``Tracks.stop``) and the buttons (``stop_others``). A task that is none of the family's
+    (a dispatched topic's) takes no track of its own off."""
+    job_id = str(job_id)
+    entry = next((entry for entry in entries if entry.live.job_id == job_id), None)
+    going = {other.live.track for other in entries if other.live.job_id != job_id and other.live.phase != route.PAUSED}
+    return len(going - {entry.live.track} if entry else going)
+
+
+def stop_others(runtime, state, chat, topic_id, job_id, *, dispatched=False, now=None) -> int:
+    """``others`` of a stop by a button (app/card_routing.py), 0 when it is none of the butler's: the click is on a
+    task of the family's topics (``core.track_of``), or on a 派发卡 (``dispatched``: its task is a topic's of its own,
+    and the butler's tracks all count). 0 too with 多路并行 or the butler off, as the stop word has no such router
+    then. Reads the registry and the job records, no lock held beyond theirs, no request."""
+    if not Tracks.enabled() or not (dispatched or core.track_of(topic_id, chat) is not None):
+        return 0
+    entries = live_entries(runtime, state, chat, time.time() if now is None else now)
+    return others_going(entries, job_id)
+
+
 class Tracks:
     """The router's side of the butler (app/butler.py ``Butler.tracks``).
 
@@ -81,35 +135,8 @@ class Tracks:
     # -- what is live ------------------------------------------------------------------------------------------------
 
     def entries(self, ctx, chat, now) -> list:
-        """The family's tasks that have not ended: those in this process's registry (queued, starting, running, paused),
-        and the records of tasks waiting for the owner's answer that left it (``WAITING_FRESH``; those of the butler's
-         own slot only while something else is live). A task that is no more than a record has ``job`` None."""
-        state, found = ctx.state_dir, []
-        ids = core.family_ids(chat)
-        for slot, topic in enumerate(ids):
-            for job in self.runtime.jobs.topic_jobs(topic, chat):
-                stage = job_stage(job)
-                if stage == "ended":
-                    continue
-                started = float((getattr(job, "timings", None) or {}).get("received") or 0)
-                found.append(Entry(route.LiveJob(
-                    track=slot, job_id=str(job.job_id), phase=stage, request=str(job.user_text or ""), started_at=started,
-                    last_owner_at=max(started, self.last_owner.get(job.job_id, 0)), number=int(job.job_id)), job,
-                    tuple(filter(None, (job.message_id, getattr(job.progress, "message_id", ""), job.reply_to_message_id)))))
-        have = {entry.live.job_id for entry in found}
-        records = []
-        for slot, topic in enumerate(ids):
-            if slot == 0 and not found:
-                continue
-            for _, record in directory_store(state / "jobs").query(topic_id=topic, chat_id=chat, status="waiting_user"):
-                at = epoch_seconds(record.get("updated_at") or record.get("created_at"))
-                if at is None or now - at > WAITING_FRESH or str(record.get("job_id")) in have:
-                    continue
-                records.append(Entry(route.LiveJob(
-                    track=slot, job_id=str(record.get("job_id")), phase=route.PAUSED, request=str(record.get("user_text") or ""),
-                    started_at=at, last_owner_at=at, number=int(record.get("job_id") or 0)), None,
-                    tuple(filter(None, (record.get("key"), record.get("card_message_id"), record.get("reply_to_message_id"))))))
-        return found + records
+        """The family's live tasks (``live_entries``)."""
+        return live_entries(self.runtime, ctx.state_dir, chat, now, self.last_owner)
 
     # -- the router's input --------------------------------------------------------------------------------------------
 
@@ -242,9 +269,7 @@ class Tracks:
         topic = core.track_topic_id(chat, entry.live.track if entry else decision.target or 0)
         move_topic_message(ctx.state_dir, topic, chat, message)
         stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
-        going = {other.live.track for other in entries
-                 if other.live.job_id != decision.job_id and other.live.phase != route.PAUSED}
-        others = len(going - {entry.live.track} if entry else going)
+        others = others_going(entries, decision.job_id)
         job = entry.job if entry else None
         action = {"kind": JOB_STOP_ACTION_KIND, "job_id": decision.job_id, "message_id": job.message_id if job else ""}
         if others > 0:
