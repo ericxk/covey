@@ -547,13 +547,36 @@ def release(state, topic, pid) -> bool:
     return True
 
 
+STOP_ALIAS = "project-stop-"  # The Bridge's own message a forwarded stop of a project's task names: an alias of its topic.
+
+
+def stop_task(host, ctx, topic, chat, job, event_id) -> None:
+    """Ask ``job`` of ``topic`` to stop as a click on its card's 停止 does. A job in a live task runner is stopped there, by
+    that click forwarded to the runner (app/runner_ipc.py forward_card_action, as app/main_tracks.py and app/proxy.py
+    stop_job do): the runner owns the job, and a stop set only in this Bridge's copy of it reaches nobody (accept8,
+    2026-11-16: the threads' commands ran on to their end). The click names an alias of the topic's own (``STOP_ALIAS``),
+    so the runner routes it to that topic whatever card the job has (a lead's quiet turn has none). Any other job (queued,
+    or in this Bridge) is stopped here."""
+    from covey.app import runner_ipc
+    from covey.core.jobs import JOB_STOP_ACTION_KIND
+
+    target = dataclasses.replace(ctx, topic_id=topic)
+    message = STOP_ALIAS + str(topic)
+    move_topic_message(ctx.state_dir, topic, chat, message)
+    action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id}
+    click = {"chat_id": chat, "message_id": message, "event_id": event_id,
+             "operator_id": host.runtime.owner_open_id or "", "action_value": action}
+    if runner_ipc.forward_card_action(host.runtime, target, click, action):
+        host.runtime.log(f"project stop job=#{job.job_id} sent to its task runner")
+        return
+    host.cancel_reply_job_from_card(target, action, chat, event_id)
+
+
 def stop_lead(host, ctx, lead, chat, pid) -> int:
-    """Stop the lead's tasks that are queued or running (as a stop on a task's own card does); how many."""
+    """Stop the lead's tasks that are queued or running (as a stop on a task's own card does, ``stop_task``); how many."""
     stopped = 0
     for job in host.runtime.jobs.open_in_topic(lead, chat):
-        host.cancel_reply_job_from_card(dataclasses.replace(ctx, topic_id=lead),
-                                        {"job_id": str(job.job_id), "message_id": job.message_id}, chat,
-                                        f"project-downgrade-{pid}-{job.job_id}")
+        stop_task(host, ctx, lead, chat, job, f"project-downgrade-{pid}-{job.job_id}")
         stopped += 1
     return stopped
 
@@ -604,9 +627,7 @@ def stop_project(host, ctx, event) -> bool:
     chat, stopped = str(event.get("chat_id") or ""), 0
     for topic in [record["lead_topic_id"], *(record.get("threads") or ())]:
         for job in host.runtime.jobs.open_in_topic(topic, chat):
-            host.cancel_reply_job_from_card(dataclasses.replace(ctx, topic_id=topic),
-                                            {"job_id": str(job.job_id), "message_id": job.message_id}, chat,
-                                            f"{event.get('event_id') or event.get('message_id')}-{job.job_id}")
+            stop_task(host, ctx, topic, chat, job, f"{event.get('event_id') or event.get('message_id')}-{job.job_id}")
             stopped += 1
     return say(host, ctx, event, f"已停住专项「{name}」，已请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）。要继续，引用这张卡回复。", "project-stop")
 

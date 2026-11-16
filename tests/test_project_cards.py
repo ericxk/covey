@@ -492,6 +492,28 @@ class ButtonTest(CardCase):
         self.assertIn("已经是停住的", self.said())  # A second click changes nothing.
         self.assertEqual(cancel.call_count, 2)
 
+    def test_stop_reaches_a_task_in_its_task_runner_as_a_click_on_its_card(self):
+        # accept8 (2026-11-16): the stop was set only in the Bridge's copy of the runners' jobs, and their commands ran on.
+        from covey.app import runner_ipc
+        from covey.core.jobs import BridgeReplyJob, JOB_STOP_ACTION_KIND
+        from covey.core.topics import message_topic
+
+        for number, topic in ((5, LEAD), (6, T1)):
+            job = BridgeReplyJob(job_id=number, user_text="x", chat_id=CHAT, message_id=f"om_job{number}", timeout=0, topic_id=topic)
+            job.execution_started = True
+            self.app.runtime.jobs.register(job)
+        in_runner = lambda runtime, target, click, action: action["job_id"] == "6"  # noqa: E731 - T1's job is a runner's
+        with mock.patch.object(runner_ipc, "forward_card_action", side_effect=in_runner) as forward, \
+                mock.patch.object(self.claude.controls, "cancel_reply_job_from_card", return_value=True) as cancel:
+            self.assertTrue(self.claude.controls.project_stop(self.lead_ctx, self.event("bridge_project_stop")))
+        sent = {call.args[3]["job_id"]: call.args for call in forward.call_args_list}
+        runtime, target, click, action = sent["6"]
+        self.assertEqual((target.topic_id, action["kind"], click["action_value"]), (T1, JOB_STOP_ACTION_KIND, action))
+        # The runner routes the click by its message: an alias of T1's own, whatever card the job has.
+        self.assertEqual(message_topic(self.state, CHAT, click["message_id"]), T1)
+        self.assertEqual([call.args[1]["job_id"] for call in cancel.call_args_list], ["5"])  # The lead's, in this Bridge.
+        self.assertIn("已请 2 个任务停下", self.said())
+
     def test_supplement_opens_the_leads_running_turns_form_and_says_so_when_it_has_none(self):
         self.assertTrue(self.claude.steering.project_steer(self.lead_ctx, self.event("bridge_project_steer")))
         self.assertEqual(self.said(), project_cards.NO_LEAD_JOB)
