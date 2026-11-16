@@ -467,11 +467,11 @@ class ButtonTest(CardCase):
         args = steer.call_args.args
         self.assertEqual((args[1], args[3], args[5]), (CHAT, {"kind": "bridge_steer", "topic_id": LEAD, "job_id": 8}, "ev1"))
 
-    def test_downgrade_says_it_is_not_wired_and_changes_nothing(self):
-        before = self.record()
+    def test_downgrade_cancels_the_project_and_says_so(self):
+        # The whole of it (threads, aliases, the lead's tasks) is tests/test_project_upgrade.py's.
         self.assertTrue(self.claude.controls.project_downgrade(self.lead_ctx, self.event("bridge_project_downgrade")))
-        self.assertIn("还没接上", self.said())
-        self.assertEqual(self.record()["state"], before["state"])
+        self.assertIn("降回普通话题", self.said())
+        self.assertEqual((self.record()["state"], self.record()["state_reason"]), ("cancelled", "downgraded"))
 
     def test_a_memory_entry_and_a_library_file_are_deleted_by_their_own_row_alone(self):
         folder = projects.folder(self.state) / PID

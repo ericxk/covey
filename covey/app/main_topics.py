@@ -94,7 +94,15 @@ def dispatch_card(env, request, topic_id, **how):
     COVEY_MAIN_DISPATCH_CARD=1: without it nothing is called and the topic's own cards are all there is. None for a
     project's lead's call: the project's card is the one (phase 2's P2-4)."""
     if dispatch_cards.enabled() and lead_of(env, request) is None:
-        dispatch_cards.created(env, request, topic_id, request.job_key, token=request_token(request), **how)
+        token = dispatch_cards.created(env, request, topic_id, request.job_key, token=request_token(request), **how)
+        if token and getattr(env, "projects", None) is not None and projects.enabled():
+            env.projects.consider(token)  # A quick job that is a long one becomes a project (app/projects.py).
+
+
+def project_hint(request) -> dict:
+    """{"project": True} when the butler called topic_send with ``project`` (this is a long job) and COVEY_PROJECTS is on: the 派发卡's
+    record keeps it for the upgrade (app/dispatch_cards.py created)."""
+    return {"project": True} if projects.enabled() and request.args.get("project") is True else {}
 
 
 def find_topic(env, chat, name):
@@ -316,6 +324,8 @@ def topic_start(env, request):
         return reply(False, "title 和 prompt 都不能为空。")
     if main_handoff.choice_error(args.get("attachments")):
         return reply(False, main_handoff.choice_error(args.get("attachments")))
+    if args.get("project") is True and getattr(env, "projects", None) is not None and projects.enabled() and lead_of(env, request) is None:
+        return env.projects.start(request, args)  # 直接开专项: a project, not a topic (COVEY_PROJECTS=1; the butler's call alone).
     path = record_path(env.state_dir, request)
     record = read_object(path)
     if record.get("answer"):
@@ -520,6 +530,10 @@ def topic_send(env, request):
         return reply(False, found)
     app, ctx, topic = found
     label = topic_label(Path(env.state_dir), ctx.topic_id) or _text(request.args.get("topic"))
+    if projects.enabled() and lead_of(env, request) is None and projects.is_thread_topic(Path(env.state_dir), ctx.topic_id):
+        # A project's thread takes words through the project's lead (project_send), which knows what the others are doing.
+        return reply(False, f"{label or '这个话题'} 是专项的线程，不能直接转话：用 projects_list 查专项的 id，"
+                            "再用 project_send 把话交给负责人，由它决定给不给线程。")
     path, token = record_path(env.state_dir, request), request_token(request)
     mid, words = "main-" + token, composed(text, note)
     record = read_object(path)
@@ -546,7 +560,7 @@ def topic_send(env, request):
         how = ("任务准备好后自动送入" if saved.get("status") == "held"
                else "并入它的请求" if saved.get("merged") else "已送达")
         hand_line(env, ctx, chat, request, record, main_handoff.STEER, owner, text, items, token)
-        dispatch_card(env, request, ctx.topic_id, kind="send", mid=job.message_id)
+        dispatch_card(env, request, ctx.topic_id, kind="send", mid=job.message_id, **project_hint(request))
         return _done(path, record, reply(True, f"已转给 {label}：作为补充送入正在跑的任务 #{job.job_id}，{how}。",
                                          **data, job_id=job.job_id, steered=True))
     if not workspace_locked(ctx):
@@ -568,7 +582,7 @@ def topic_send(env, request):
         # Its card is headed by the topic's title, not the owner's words about where it goes.
         if app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=title) is None:
             return _done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
-    dispatch_card(env, request, ctx.topic_id, kind="send")
+    dispatch_card(env, request, ctx.topic_id, kind="send", **project_hint(request))
     return _done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
 
 

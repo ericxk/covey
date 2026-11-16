@@ -100,7 +100,7 @@
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/kb-history` | 主线程多 `knowledge_*` 工具，话题首轮带知识条目，汇总多一节；主线程多 `history_search`，话题规则多一行查历史的命令 |
 | [主线程](#主线程) | 默认允许；`COVEY_MAIN_THREAD=0` 不允许 | `main-tools`、`main-search` 线程；设置卡的私聊、新话题标签 |
 | [管家规则](#管家规则) | `COVEY_MAIN_BUTLER=1` | 主线程只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
-| [专项（第 2 期，开发中，默认关）](architecture.md#专项第-2-期开发中默认关) | `COVEY_PROJECTS=1` | 底座：`projects/` 记录、负责人话题和线程话题的角色、看板并格，加负责人一轮的运行（规则、状态包、会话重建、`project_*` 工具、只留 `Read`/`Grep`/`Glob`）；还没有入口（升级、专项卡、续轮是后面的包），开了也看不到变化，负责人话题只能由测试建 |
+| [专项（第 2 期，开发中，默认关）](architecture.md#专项第-2-期开发中默认关) | `COVEY_PROJECTS=1` | 底座：`projects/` 记录、负责人话题和线程话题的角色、看板并格，加负责人一轮的运行（规则、状态包、会话重建、`project_*` 工具、只留 `Read`/`Grep`/`Glob`）；入口是升级（`COVEY_PROJECT_UPGRADE=word`：派发卡静默升级成专项）和管家直接开（`topic_start` 带 `project`）；续轮、问题分流是后面的包 |
 | [多路并行](main-thread.md#多路并行开关默认关) | `COVEY_MAIN_TRACKS=1` | 主线程一轮在做时，下一句按规则和小模型并进某一路或新开一路；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
 | [派发活卡片](#派发活卡片) | `COVEY_MAIN_DISPATCH_CARD=1` | `dispatch_cards` 线程；主线程派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
@@ -321,7 +321,7 @@
 | `COVEY_MAIN_BUTLER` | `app/prompts.py`（`butler_on`）、`core/main_thread.py`（`mcp_config` 交给主线程的 MCP 服务）、`core/main_tool_specs.py`（`listed`：MCP 服务据此换 `topic_start` 的工具说明） | 空：关；`1` 把主线程规则的前两条换成管家规则（只快答和分派），`topic_start` 的工具说明同步 | 否 |
 | `COVEY_MAIN_DISPATCH_CARD` | `app/dispatch_cards.py`（`enabled`；`app/main_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 线程） | 空：关；`1` 开派发活卡片：主线程派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
 | `COVEY_MAIN_TRACKS` | `core/main_tracks.py`（`enabled`；`core/main_thread.py` 的 `is_main_topic` 据此把槽 1 到 4 的话题也算主线程；`app/main_tracks.py` 的 `Tracks.enabled` 再加上主线程允许、模式是 Personal Agent 才分流） | 空：关；`1` 开多路并行（已接线）：家族里有任务在做时，主人的下一句先过分流（`core/track_route.py` 的规则，拿不准的交给小模型 `COVEY_TRACK_JUDGE`）：并进某一路、停止，或新开一路（槽 1 到 4，各是主线程会话的分叉，同时跑；排队、并进有表情；另几路答了什么交给管家的下一轮）。关着时消息的走法和原来一样，也不起任何判断进程。见[主线程 · 多路并行](main-thread.md#多路并行开关默认关) | 否 |
-| `COVEY_PROJECTS` | `core/projects.py`（`enabled`；`core/main_thread.py` 的 `is_lead`、`core/placement.py` 的 `plan`、`core/board_read.py` 的 `read` 据此判断负责人话题、专项线程和看板的格） | 空：关；`1` 开专项的底座和负责人的运行（第 2 期，开发中，还没有入口）：负责人话题（`topic.json` 的 `project.role` 是 `lead`）算主线程家族，它的一轮用自己的规则、状态包和 `project_*` 工具（`app/project_lead.py`、`app/project_tools.py`）；线程话题（`thread`）有自己的放置格、看板把一个专项的线程并成一格。关着时谓词全为假、放置表和看板和原来一样，也不建任何记录。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
+| `COVEY_PROJECTS` | `core/projects.py`（`enabled`；`core/main_thread.py` 的 `is_lead`、`core/placement.py` 的 `plan`、`core/board_read.py` 的 `read` 据此判断负责人话题、专项线程和看板的格）、`core/main_thread.py`（`mcp_config` 把它交给 MCP 服务）、`core/main_tool_specs.py`（`listed`：它是 `1` 时管家多出 `projects_list`、`project_send`，`topic_start`、`topic_send` 多一个 `project` 参数） | 空：关；`1` 开专项的底座和负责人的运行（第 2 期，开发中，还没有入口）：负责人话题（`topic.json` 的 `project.role` 是 `lead`）算主线程家族，它的一轮用自己的规则、状态包和 `project_*` 工具（`app/project_lead.py`、`app/project_tools.py`）；线程话题（`thread`）有自己的放置格、看板把一个专项的线程并成一格。关着时谓词全为假、放置表和看板和原来一样，也不建任何记录。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_MAIN_TRACKS_MAX` | `core/main_tracks.py`（`limit`） | 3：同时在跑的路数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
 | `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（多路并行里，规则没能定的新消息交给小模型判断是并进哪一路还是新开一路；`app/main_tracks.py` 的 `Tracks.decide` 调用，`COVEY_MAIN_TRACKS=1` 才会问） | `claude`（默认）：Claude Code 的 Haiku，一次问一条（默认用提前起好的待命进程，见 `COVEY_TRACK_JUDGE_WARM`）；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一路 | 否 |
@@ -330,6 +330,7 @@
 | `COVEY_MAIN_STATE` | `core/main_mcp.py`（主线程任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_MAIN_JOB` | `core/main_mcp.py`（主线程任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_PROJECT_LEAD` | `core/main_thread.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要 `COVEY_PROJECTS=1`）、`core/main_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`workspaces_list` 加 `project_*`，其余主线程工具都不列 | 否 |
+| `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_MAIN_DISPATCH_CARD=1`） | 空或 `off`：不升级（默认）；`word`：派发卡的请求里有“长活”“长期”“接着做”，或管家转话时带 `project`，派发卡就静默升级成专项；`auto`：再加该话题来回到第 3 轮。同时最多 3 个活专项，超了不升级。直接开专项（管家的 `topic_start` 带 `project`）不看它，只看 `COVEY_PROJECTS`。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 关；`1` 开（还要 `COVEY_PINNED_OVERVIEW=1`） | 否 |
 | `COVEY_PROXY_PROFILE` | `app/proxy.py` | 空：代答不可用 | 否 |
 | `COVEY_APP_CHECK` | `app/app_setup.py` | 开：检查飞书应用、缺了发卡；`0` 关 | 否 |

@@ -226,21 +226,23 @@ def ask_of(env, state, job_key) -> dict:
     return {"ask_at": clock(at), "ask_url": url}
 
 
-def created(env, request, topic_id, job_key="", *, token, kind="start", mid="", starts=True) -> str:
+def created(env, request, topic_id, job_key="", *, token, kind="start", mid="", starts=True, project=False) -> str:
     """Send the card of the work ``request`` (a main-thread tool call) handed to topic ``topic_id``; the record's token,
     '' when there is none. ``job_key``: the main-thread job (default the request's); ``mid``: the key of the topic's job
     the card follows (default the first turn's, "main-" + ``token``, the request's: app/main_topics.py request_token). Once a request: a second call finds
-    the card sent. Does nothing with the switch off, or when the owner's message is not known. Never raises."""
+    the card sent. Does nothing with the switch off, or when the owner's message is not known. Never raises.
+    ``project``: the butler said this work is a long job (topic_send with ``project``): ``upgrade_hint.project`` in the record,
+    which app/projects.py reads (COVEY_PROJECT_UPGRADE)."""
     if not enabled():
         return ""
     try:
-        return _created(env, request, topic_id, job_key or request.job_key, token, kind, mid, starts)
+        return _created(env, request, topic_id, job_key or request.job_key, token, kind, mid, starts, project)
     except Exception as exc:  # noqa: BLE001 - the topic is open and its work queued: only the card is missing
         env.runtime.log(f"dispatch card failed topic={str(topic_id)[:12]}: {type(exc).__name__}")
         return ""
 
 
-def _created(env, request, topic_id, job_key, token, kind, mid, starts) -> str:
+def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=False) -> str:
     from covey.app.relay_targets import main_job_owner_message
 
     chat, state = env.chat(), Path(env.state_dir)
@@ -256,6 +258,8 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts) -> str:
                                     mid=mid or "main-" + token, kind=kind, owner_message=owner,
                                     request=request_words(state, job_key), starts=starts,
                                     rounds=records.rounds_for(state, owner, topic_id), **ask_of(env, state, job_key))
+        if project:
+            record["upgrade_hint"]["project"] = True
         write_json(path, record, ensure_ascii=False, indent=1)
     card = dispatch_card(facts(state, record, time.time(), titles_of(env.topics)))
 
@@ -348,7 +352,10 @@ class DispatchCards:
         if self.write(ctx, path, record, seen, card, now):
             record.update(digest=digest, thread_url=url)
             seen["digest"] = digest
-            write_json(path, record, ensure_ascii=False, indent=1)
+            with resource_lock("record", str(path)):
+                if read_object(path).get("state") == records.SETTLED:
+                    return  # Settled while this wrote (app/projects.py: the card became a project's): not written live again.
+                write_json(path, record, ensure_ascii=False, indent=1)
 
     def ended_long_ago(self, path, record, view, seen, now) -> None:
         """A card of a job that ended, drawn as it ended and unchanged since, whose conclusion note never came (the relay
@@ -377,6 +384,11 @@ class DispatchCards:
         reused; false, with the next try pushed back, when CardKit did not confirm."""
         handle = file_card(path, record, shared=False)
         with handle.lock:
+            if read_object(path).get("state") == records.SETTLED:
+                # Settled while this tick waited for the card's lock (app/projects.py upgrade made the card a project's, or
+                # merged it): the card is not this record's to write any more, and its sequence is the project's.
+                self.done.add(path.stem)
+                return False
             sequence = reserve(handle)
             result = self.messenger.put_card(ctx.profile, record["card_id"], card, sequence=sequence,
                                              key=f"main-dispatch-{str(record.get('token'))[:20]}-{sequence}", timeout=3)

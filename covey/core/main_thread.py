@@ -249,7 +249,8 @@ def mcp_config(release: Path, state_dir: Path, job_key: str, python: str, lead: 
     handed = {STATE_ENV: str(state_dir), JOB_ENV: job_key,
               "COVEY_KNOWLEDGE": cenv.get("COVEY_KNOWLEDGE", "").strip(),  # core/main_tool_specs.py
               "COVEY_HISTORY_CMD": cenv.get("COVEY_HISTORY_CMD", "").strip(),  # KNOWLEDGE_ENV, HISTORY_ENV
-              "COVEY_MAIN_BUTLER": cenv.get("COVEY_MAIN_BUTLER", "").strip()}  # BUTLER_ENV
+              "COVEY_MAIN_BUTLER": cenv.get("COVEY_MAIN_BUTLER", "").strip(),  # BUTLER_ENV
+              "COVEY_PROJECTS": cenv.get("COVEY_PROJECTS", "").strip()}  # PROJECTS_ENV: the butler's project tools
     if lead and projects.enabled():
         handed[LEAD_ENV] = lead
     for name, value in handed.items():

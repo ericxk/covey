@@ -19,7 +19,7 @@ import threading
 
 from covey.core import env as cenv
 from covey.core import main_requests, main_thread
-from covey.core.main_tool_specs import ALL_NAMES, PROJECT_NAMES, listed
+from covey.core.main_tool_specs import ALL_NAMES, BUTLER_PROJECT_NAMES, PROJECT_NAMES, listed
 
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")  # Newest first: the answer to a version not here.
 SERVER = {"name": "harness-bridge", "title": "Harness Bridge", "version": "1"}
@@ -58,7 +58,7 @@ class Server:
     def call(self, params) -> dict:
         name, args = params.get("name"), params.get("arguments")
         args = {} if args is None else args
-        if name not in ALL_NAMES and name not in PROJECT_NAMES:
+        if name not in ALL_NAMES and name not in PROJECT_NAMES and name not in BUTLER_PROJECT_NAMES:
             return content({"ok": False, "text": f"没有这个工具：{name}"})
         if name not in {tool["name"] for tool in listed(self.environ)}:
             return content({"ok": False, "text": f"这个部署没有开 {name}，这次调用没有执行。"})

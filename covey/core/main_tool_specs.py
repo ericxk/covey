@@ -279,6 +279,43 @@ PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS)
 LEAD_READ = ("topic_read", "topics_search", "workspaces_list")  # What of TOOLS the lead has: it reads, the threads act.
 
 
+# 专项 for the butler (COVEY_PROJECTS=1 in the server's environment, which the Bridge hands on: core/main_thread.py mcp_config):
+# topic_start and topic_send take ``project``, and projects_list and project_send are listed after the others (app/projects.py).
+# With the switch off the list is exactly what it was.
+PROJECTS_ENV = "COVEY_PROJECTS"
+START_PROJECT = {"type": "boolean", "description": "主人说“长活”“长期做”“接着做”这类、要拆成几路并行跟进好几天的大事时填 true："
+                                                   "不开话题，开一个专项，由它的负责人去派线程。这时 title 是专项名，prompt 写目标和完成标准（主人的说法），"
+                                                   "workspace 是负责人和线程默认用的工作区；一般的事不要填"}
+SEND_PROJECT = {"type": "boolean", "description": "主人说这件事其实是长活（“长期做”“接着做”）时填 true：这个话题会升级成专项（只在升级打开时生效）；"
+                                                  "一般的补充不要填"}
+BUTLER_PROJECT_TOOLS = (
+    {"name": "projects_list",
+     "description": "列出主人的专项：id、名字、状态（在做、停住、做完、已取消）、线程的 T 号、负责人最近记的一句。在做的专项都列出，做完的列最近 3 个。"
+                    "主人问专项进展、要给专项加话、或要判断某件事是不是已有专项的一部分时先用它。",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "project_send",
+     "description": "把主人的话交给一个专项的负责人：它正在跑就作为补充，已经停了就开它的下一轮。专项的线程不能用 topic_send 转话，只能经负责人。"
+                    "text 写这次交给它的内容：主人要改的目标、要加的事、对某个线程的意见，用主人的说法，不含路由用语和本机路径；"
+                    "主人原话 Bridge 会附上。pid 是专项的 id（projects_list 里的，或名字）。" + DONE,
+     "input_schema": {"type": "object", "required": ["pid", "text"], "properties": {
+         "pid": {"type": "string", "description": "专项的 id（projects_list 里的），或它名字里的几个字"},
+         "text": {"type": "string", "description": "交给负责人的内容：主人这次要它做或改的事"}}}},
+)
+BUTLER_PROJECT_NAMES = tuple(tool["name"] for tool in BUTLER_PROJECT_TOOLS)
+
+
+def project_butler_tools(tools) -> tuple:
+    """``tools`` with ``project`` on topic_start and topic_send, and the projects_list and project_send tools last."""
+    changed = []
+    for tool in tools:
+        extra = {"topic_start": START_PROJECT, "topic_send": SEND_PROJECT}.get(tool["name"])
+        if extra is not None:
+            schema = tool["input_schema"]
+            tool = {**tool, "input_schema": {**schema, "properties": {**schema["properties"], "project": extra}}}
+        changed.append(tool)
+    return tuple(changed) + BUTLER_PROJECT_TOOLS
+
+
 def lead_tools() -> tuple:
     return tuple(tool for tool in TOOLS if tool["name"] in LEAD_READ) + PROJECT_TOOLS
 
@@ -294,4 +331,5 @@ def listed(environ) -> tuple:
     if str(cenv.get(HISTORY_ENV, "", environ)).strip().startswith("/"):
         extra += HISTORY_TOOLS
     tools = TOOLS + extra
-    return butler_tools(tools) if str(cenv.get(BUTLER_ENV, "", environ)).strip() == "1" else tools
+    tools = butler_tools(tools) if str(cenv.get(BUTLER_ENV, "", environ)).strip() == "1" else tools
+    return project_butler_tools(tools) if str(cenv.get(PROJECTS_ENV, "", environ)).strip() == "1" else tools
