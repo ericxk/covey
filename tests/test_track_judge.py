@@ -373,7 +373,7 @@ class CommandChannelTest(Base):
 
 class SettingsTest(unittest.TestCase):
     def test_the_hard_limit_defaults_to_two_seconds_and_is_clamped(self):
-        for value, ms in ((None, 2000), ("", 2000), ("abc", 2000), ("1500", 1500), ("50", track_judge.MIN_MS),
+        for value, ms in ((None, 3000), ("", 3000), ("abc", 3000), ("1500", 1500), ("50", track_judge.MIN_MS),
                           ("999999", track_judge.MAX_MS), (" 2500 ", 2500)):
             env = {} if value is None else {"COVEY_TRACK_JUDGE_MS": value}
             self.assertEqual(track_judge.limit_ms(env), ms, value)
@@ -385,7 +385,7 @@ class SettingsTest(unittest.TestCase):
             self.assertEqual(track_judge.mode(env), expected, value)
 
     def test_the_default_limit_is_the_documented_two_seconds_and_the_confidence_line_seven_tenths(self):
-        self.assertEqual((track_judge.DEFAULT_MS, track_judge.CONFIDENCE_MIN), (2000, 0.7))
+        self.assertEqual((track_judge.DEFAULT_MS, track_judge.CONFIDENCE_MIN), (3000, 0.7))
 
     def test_a_verdict_is_new_unless_told_otherwise(self):
         self.assertEqual(Verdict("new").target, None)

@@ -5,7 +5,7 @@ belong to one of the live tasks (``merge``) or is it a request of its own (``new
 the tasks it listed is ``new`` (a wrong merge costs the owner more than a wrong new track). It never retries and never
 raises. Reasons for ``new`` other than the model's own: the judge is ``off``, the topic redacts (the text must not reach
 the model: nothing is called), no task to choose from, the process did not start, ran past the hard limit
-(COVEY_TRACK_JUDGE_MS, default 2000; the whole process group is killed), exited with an error, or its answer was not
+(COVEY_TRACK_JUDGE_MS, default 3000; the whole process group is killed), exited with an error, or its answer was not
 one line of JSON, had a confidence below CONFIDENCE_MIN, or an index outside the list.
 
 Two channels, COVEY_TRACK_JUDGE: ``claude`` (the default) starts a one-shot Claude Code on Haiku in an empty directory of
@@ -46,7 +46,7 @@ from covey.core.track_route import LIVE_PHASES, LiveJob, Message
 
 MODEL = "haiku"
 CONFIDENCE_MIN = 0.7
-DEFAULT_MS = 2000
+DEFAULT_MS = 3000  # One Haiku call through a gateway often takes 1–2 s; with 2000 about 4 in 10 judgments timed out.
 MIN_MS, MAX_MS = 200, 10000
 MAX_TASKS = 3
 CLIP = 300

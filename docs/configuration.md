@@ -323,7 +323,7 @@
 | `COVEY_MAIN_TRACKS_MAX` | `core/main_tracks.py`（`limit`） | 3：同时在跑的路数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
 | `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（多路并行里，规则没能定的新消息交给小模型判断是并进哪一路还是新开一路；`app/main_tracks.py` 的 `Tracks.decide` 调用，`COVEY_MAIN_TRACKS=1` 才会问） | `claude`（默认）：Claude Code 的 Haiku，一次问一条（默认用提前起好的待命进程，见 `COVEY_TRACK_JUDGE_WARM`）；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一路 | 否 |
-| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 2000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一路；取值限制在 200 到 10000。目标是 1 秒内，硬上限 2 秒 | 否 |
+| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 3000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一路；取值限制在 200 到 10000。经网关调一次 Haiku 常要 1–2 秒，2 秒的上限下约四成会超时，所以默认 3 秒| 否 |
 | `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开；`0`、`off`、`false`、`no` 关。开着（且 `COVEY_MAIN_TRACKS=1`、通道是 `claude`）时，Bridge 在收到主线程消息时提前起好一个 Claude Code 待命进程并用一条虚构的消息预热，问一次就丢掉、立刻起下一个，空闲 10 分钟或 Bridge 停止时结束；关着每次问都现起一个一次性进程，慢约 1 秒多 | 否 |
 | `COVEY_MAIN_STATE` | `core/main_mcp.py`（主线程任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_MAIN_JOB` | `core/main_mcp.py`（主线程任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
