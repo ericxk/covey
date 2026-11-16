@@ -56,7 +56,7 @@ from covey.app.task_controls import TaskControls
 from covey.app.turn_export import TurnExport
 from covey.app.worker import process_bridge_reply_job
 from covey.core.harness import BridgeContext, HarnessBackend, HarnessSpec, SessionStore
-from covey.app import devices as device_turns
+from covey.app import devices as device_turns, project_loop
 from covey.core import device_reap, turn_words
 from covey.core.run_dir import run_dir
 from covey.core.jobs import BridgeReplyJob as ReplyJob
@@ -256,6 +256,7 @@ class BridgeApp:
             timing.outcome("answer")  # An answer, a held note or why neither (app/interaction.py).
             return
         timing.mark("command")
+        project_loop.heard(ctx.state_dir, ctx.topic_id, enriched.text)  # The owner's word in a project's thread: a receipt.
         prompt = (access.sender_label(event) + "\n\n" + enriched.text) if group else enriched.text
         if supplement is not None:
             taken = supplement(ctx, prompt, message_id, content=content, sender=sender)

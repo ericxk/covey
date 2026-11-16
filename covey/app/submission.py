@@ -344,5 +344,8 @@ class Submission:
             job.policy_retry = dict(policy_retry)
         if hold:
             job.start_held_until = time.time() + hold
+        from covey.app import project_loop
+
+        project_loop.owner_turn(ctx.state_dir, job.topic_id, chat_id, message_id)  # The owner's turn in a lead's topic.
         self.submit_topic_job(ctx, job)
         return job

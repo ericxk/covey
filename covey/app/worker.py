@@ -45,7 +45,7 @@ from covey.core.paths import tool_root
 from covey.feishu.transport import last_failure, set_failure
 from covey.app.outbox import AUDIT_REFUSED_NOTE, record_attempt
 from covey.app import (auto_retry, main_reactions, main_relay, main_reply, main_tracks, policy_retry, project_lead,
-                                saved_send, topic_links, track_digest)
+                                project_loop, saved_send, topic_links, track_digest)
 from covey.app.answer_delivery import AnswerParts
 from covey.app.turn_images import TurnImages
 from covey.app.quiet_delivery import QuietDelivery
@@ -148,6 +148,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         self.reacted = False  # A quiet main-thread turn's end reaction is on the owner's message (main_reply.handed_quietly).
         self.cut = False  # The card took the result cut short (send): the full text went elsewhere.
         self.in_place = False  # A main-thread turn's verified reply is on its task card, no answer card (main_reply).
+        self.silent = False  # A project lead's wake-up turn: its saved reply is not sent (app/project_loop.py silent).
         self.listed = False  # A stopped or refused main-thread turn's card (or top-level notice) lists its supplements.
         self.display_text = None  # The reply as its card shows it, once deliver has it.
         # The answer card sent on its own (_answer_apart), saved as the job's answer_message_id: the pinned board
@@ -179,7 +180,8 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         if standalone_verified and not self.in_place:
             # A quiet main-thread turn with no card that only handed work on: its Get reaction says it (D1).
             self.in_place = main_reply.handed_quietly(self)
-        self.note_standalone_result(standalone_verified and not self.in_place, standalone_question)
+        self.silent = standalone_verified and not self.in_place and project_loop.silent(self)
+        self.note_standalone_result(standalone_verified and not self.in_place and not self.silent, standalone_question)
         mark(job, 'delivery_started')
         set_failure(None)
         delivered, updated = self.send(final_card, display_text, delivery_text, standalone_verified,
@@ -282,6 +284,9 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         sent = _Sent()
         if self.in_place:
             return True, True  # The saved reply is the card's body already (deliver).
+        if self.silent:
+            self.runtime.log(f"wake-up reply kept, not sent job=#{job.job_id}")
+            return True, False  # Saved and counted as delivered: nothing redelivers it (app/project_loop.py silent).
         try:
             sent.updated = not (standalone_verified or standalone_question) and bool(job.progress) and self._paint(final_card, "final")
             if sent.updated:

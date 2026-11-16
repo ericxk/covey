@@ -1,0 +1,538 @@
+"""A project's continuing runs and guards (docs/architecture.md 专项, app/project_loop.py): what wakes the lead and what does
+not, the guards that pause a project (tokens, wake-ups, stalling), the receipts the Bridge writes when a thread's turn ends
+and when the owner speaks in a thread, the tokens counted once, the wake-up turn whose reply is not sent, and that with
+COVEY_PROJECTS off none of it changes anything."""
+from __future__ import annotations
+
+import json
+import os
+import time
+import unittest
+from types import SimpleNamespace
+from unittest import mock
+
+from support import make_job
+from support.records import write_job, write_topic
+from support.world import UnifiedCase
+
+from covey.app import project_lead, project_loop
+from covey.app.cards import Cards
+from covey.app.project_cards import facts
+from covey.app.project_loop import ProjectLoop
+from covey.core import main_thread, main_thread_settings, placement, projects
+from covey.core.jobs import job_key
+from covey.core.state import write_json
+
+from support.main_thread import CHAT as MAIN_CHAT
+from test_main_quiet import DeliverCase
+from test_project_lead import CHAT, LEAD, NOW, ON, PID, Case
+
+THREAD = "b" * 32
+HOUR = 3600
+
+
+def lead_app(case):
+    """A Harness app that queues what it is given: ``case.queued`` lists (message id, prompt) of each turn."""
+    case.queued = []
+
+    def event_context(base, event):
+        topic = main_thread_topic(case, event["message_id"])
+        return SimpleNamespace(topic_id=topic, history_path=case.state / "topics" / topic / "history.jsonl")
+
+    def enqueue(ctx, content, chat, message, **fields):
+        case.queued.append((message, fields.get("prompt_content")))
+        return SimpleNamespace(job_id=len(case.queued))
+    return SimpleNamespace(harness=SimpleNamespace(context=object()),
+                           submission=SimpleNamespace(event_context=event_context, enqueue_chat_job=enqueue))
+
+
+def main_thread_topic(case, message):
+    """The topic an alias of ``message`` names, as core/topics.py context_for_topic reads it."""
+    from covey.core.topics import message_topic
+    return message_topic(case.state, CHAT, message)
+
+
+class Loop(Case):
+    """A project with its lead topic and a loop over a fake app; ``self.loop.tick(now)``."""
+
+    def setUp(self):
+        super().setUp()
+        self.runtime = SimpleNamespace(log=self.logs.append, shutdown=mock.Mock())
+        self.app = lead_app(self)
+        self.env = SimpleNamespace(state_dir=self.state, topics=SimpleNamespace(apps={"claude": self.app}))
+        self.loop = ProjectLoop(self.runtime, self.env)
+        os.environ.pop(projects.AUTOWAKE_ENV, None)
+
+    def autowake(self):
+        mock.patch.dict(os.environ, {projects.AUTOWAKE_ENV: "1"}).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def receipt(self, kind="thread_end", text="T41 做完了", at=None):
+        return project_lead.add_receipt(self.state, PID, kind, text, thread=THREAD, at=NOW if at is None else at)
+
+    def update(self, **fields):
+        projects.update(self.state, PID, lambda record: record.update(fields))
+
+
+class WakeTest(Loop):
+    def test_a_start_receipt_wakes_the_lead_without_the_switch(self):
+        self.receipt("start", "接手一个已在进行的事")
+        self.loop.tick(NOW + 5)
+        self.assertEqual([message for message, _ in self.queued], [projects.wake_id(PID, 1)])
+        self.assertEqual(self.queued[0][0], f"lead-{PID}-1")
+        self.assertEqual(self.queued[0][1], project_loop.WAKE_TEXT)
+        self.assertEqual(self.reload()["wakes"]["count"], 1)
+        self.assertEqual(self.reload()["wakes"]["streak"], 1)
+
+    def test_other_receipts_wake_only_with_autowake(self):
+        self.receipt("thread_end")
+        self.receipt("owner_said")
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.queued, [])
+        self.autowake()
+        self.loop.tick(NOW + 5)
+        self.assertEqual(len(self.queued), 1)
+
+    def test_one_wake_at_a_time(self):
+        self.autowake()
+        self.receipt()
+        self.loop.tick(NOW + 5)
+        self.loop.tick(NOW + 6)  # Its turn is not on disk in this fake: the record says queued, as the Bridge's does.
+        write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="queued", message_id=f"lead-{PID}-1")
+        self.loop.tick(NOW + 7)
+        self.assertEqual(len(self.queued), 2)  # Without the record the second tick woke again; with it the third did not.
+        for status in ("running", "waiting_user"):
+            write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status=status, message_id=f"lead-{PID}-1")
+            self.loop.tick(NOW + 8)
+        self.assertEqual(len(self.queued), 2)
+
+    def test_the_message_id_counts_up_and_the_alias_makes_it_the_leads(self):
+        self.autowake()
+        self.receipt()
+        self.loop.tick(NOW + 5)
+        self.assertEqual(main_thread_topic(self, f"lead-{PID}-1"), LEAD)
+        self.receipt(text="T42 做完了")
+        self.loop.tick(NOW + 6)
+        self.assertEqual([message for message, _ in self.queued], [f"lead-{PID}-1", f"lead-{PID}-2"])
+
+    def test_receipts_a_good_turn_read_do_not_wake_but_a_broken_turns_do(self):
+        self.autowake()
+        self.receipt()
+        write_job(self.state, "k-good", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1")
+        project_lead.take_receipts(self.state, PID, "k-good")
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.queued, [])
+        item = self.receipt(text="T42 做完了")
+        write_job(self.state, "k-bad", topic_id=LEAD, chat_id=CHAT, job_id=2, status="interrupted", message_id=f"lead-{PID}-2")
+        project_lead.take_receipts(self.state, PID, "k-bad")
+        self.assertEqual([row["id"] for row in project_loop.unread(self.state, PID)], [item["id"]])
+        self.loop.tick(NOW + 6)
+        self.assertEqual(len(self.queued), 1)
+
+    def test_a_restart_finds_the_receipts_on_disk(self):
+        self.autowake()
+        self.receipt()
+        self.queued.clear()
+        ProjectLoop(self.runtime, self.env).tick(NOW + 5)  # A new loop: nothing in memory.
+        self.assertEqual(len(self.queued), 1)
+
+    def test_paused_done_and_cancelled_projects_are_left_alone(self):
+        self.autowake()
+        self.receipt()
+        for state in (projects.PAUSED, projects.DONE):
+            self.update(state=state)
+            self.loop.tick(NOW + 5)
+        self.assertEqual(self.queued, [])
+
+    def test_a_wake_that_could_not_be_queued_is_counted_and_looked_for_again(self):
+        self.autowake()
+        self.receipt()
+        self.app.submission.enqueue_chat_job = lambda *a, **k: None
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.reload()["wakes"]["count"], 1)
+        self.assertTrue(any("not queued" in line for line in self.logs))
+
+    def test_the_wake_is_a_turn_of_the_lead_in_its_history(self):
+        self.receipt("start")
+        self.loop.tick(NOW + 5)
+        history = self.state / "topics" / LEAD / "history.jsonl"
+        self.assertIn(project_loop.WAKE_TEXT[:12], history.read_text())
+
+    def test_without_the_switch_there_is_no_thread_and_no_wake(self):
+        self.receipt("start")
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.assertEqual(self.loop.threads(), ())
+            self.loop.tick(NOW + 5)
+        self.assertEqual(self.queued, [])
+        self.assertEqual([name for name, _ in self.loop.threads()], ["project_loop"])
+
+
+class GuardTest(Loop):
+    def test_tokens_over_the_budget_pause_the_project_and_wake_no_more(self):
+        self.receipt("start")
+        self.update(tokens_used=projects.DEFAULT_TOKENS)
+        self.loop.tick(NOW + 5)
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"]), (projects.PAUSED, "tokens"))
+        self.assertEqual(self.queued, [])
+        self.loop.tick(NOW + 6)
+        self.assertEqual(self.queued, [])
+
+    def test_the_budget_is_the_owners(self):
+        self.update(tokens_used=500)
+        with mock.patch.dict(os.environ, {projects.TOKENS_ENV: "400"}):
+            self.assertEqual(projects.token_limit(), 400)
+            self.loop.tick(NOW + 5)
+        self.assertEqual(self.reload()["state_reason"], "tokens")
+        for value in ("", "x", "0", "-5"):
+            with mock.patch.dict(os.environ, {projects.TOKENS_ENV: value}):
+                self.assertEqual(projects.token_limit(), projects.DEFAULT_TOKENS)
+
+    def test_thirty_wakes_in_a_row_pause_the_project(self):
+        self.autowake()
+        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": []})
+        self.receipt()
+        self.loop.tick(NOW + 5)
+        self.assertEqual((self.reload()["state"], self.reload()["state_reason"]), (projects.PAUSED, "wakes"))
+        self.assertEqual(self.queued, [])
+
+    def test_twelve_wakes_in_an_hour_pause_it_but_not_after_the_hour(self):
+        self.autowake()
+        self.update(wakes={"count": 12, "streak": 12, "last_at": NOW, "recent": [NOW + i for i in range(12)]})
+        self.receipt()
+        self.loop.tick(NOW + 100)
+        self.assertEqual(self.reload()["state_reason"], "wakes")
+        self.update(state=projects.ACTIVE, state_reason="")
+        self.loop.tick(NOW + 2 * HOUR)
+        self.assertEqual(len(self.queued), 1)
+
+    def test_the_owners_turn_clears_the_counts_and_starts_a_paused_project(self):
+        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW]}, state=projects.PAUSED,
+                    state_reason="wakes", stall={"at": NOW, "activity": NOW})
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_1")
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"]), (projects.ACTIVE, ""))
+        self.assertEqual((record["wakes"]["streak"], record["wakes"]["recent"], record["wakes"]["count"]), (0, [], 30))
+        self.assertNotIn("stall", record)
+
+    def test_a_wake_up_turn_is_not_the_owners(self):
+        self.update(wakes={"count": 3, "streak": 3, "last_at": NOW, "recent": []}, state=projects.PAUSED, state_reason="wakes")
+        project_loop.owner_turn(self.state, LEAD, CHAT, f"lead-{PID}-4")
+        self.assertEqual((self.reload()["state"], self.reload()["wakes"]["streak"]), (projects.PAUSED, 3))
+
+    def test_the_owners_turn_starts_what_the_owner_stopped_but_not_a_finished_project(self):
+        self.update(state=projects.PAUSED, state_reason=projects.OWNER_STOP)
+        project_loop.owner_turn(self.state, LEAD, CHAT, "main-x")
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        self.update(state=projects.DONE, state_reason="完成")
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_2")
+        self.assertEqual(self.reload()["state"], projects.DONE)
+
+    def test_after_a_tokens_pause_the_owners_turn_starts_a_new_budget(self):
+        self.update(tokens_used=projects.DEFAULT_TOKENS, state=projects.PAUSED, state_reason="tokens")
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_3")
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        self.update(tokens_used=2 * projects.DEFAULT_TOKENS)
+        self.loop.tick(NOW + 6)
+        self.assertEqual(self.reload()["state_reason"], "tokens")
+
+    def test_the_owners_turn_in_another_topic_changes_nothing(self):
+        self.update(state=projects.PAUSED, state_reason="wakes")
+        project_loop.owner_turn(self.state, THREAD, CHAT, "om_4")
+        self.assertEqual(self.reload()["state"], projects.PAUSED)
+
+
+class StallTest(Loop):
+    def setUp(self):
+        super().setUp()
+        self.autowake()
+        self.update(created_at=NOW)
+
+    def test_a_reminder_after_half_an_hour_then_a_pause_after_another(self):
+        self.loop.tick(NOW + 29 * 60)
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        self.loop.tick(NOW + 31 * 60)
+        [item] = project_loop.unread(self.state, PID)
+        self.assertEqual(item["kind"], "stalled")
+        self.loop.tick(NOW + 31 * 60 + 10)
+        self.assertEqual(self.queued[0][0], f"lead-{PID}-1")  # The reminder wakes the lead (COVEY_PROJECT_AUTOWAKE=1).
+        project_lead.take_receipts(self.state, PID, "k-w1")
+        write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1")
+        self.loop.tick(NOW + 50 * 60)
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        self.loop.tick(NOW + 62 * 60)
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"]), (projects.PAUSED, "stalled"))
+        self.assertEqual(len(self.queued), 1)
+
+    def test_nothing_without_the_switch(self):
+        mock.patch.stopall()
+        self.loop.tick(NOW + 31 * 60)
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+
+    def test_a_running_thread_is_not_a_stall(self):
+        self.thread(THREAD, "迁移", 41, status="running")
+        self.loop.tick(NOW + 5 * HOUR)
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+
+    def test_a_task_ending_after_the_reminder_starts_the_count_again(self):
+        self.loop.tick(NOW + 31 * 60)
+        project_lead.take_receipts(self.state, PID, "k-w1")
+        write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1")
+        self.thread(THREAD, "迁移", 41, status="done", timings={"execution_finished": NOW + 45 * 60})
+        self.loop.tick(NOW + 70 * 60)
+        self.assertNotIn("stall", self.reload())
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+
+    def test_the_wake_up_turn_itself_is_no_activity(self):
+        self.loop.tick(NOW + 31 * 60)
+        write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1",
+                  timings={"execution_finished": NOW + 35 * 60})
+        self.assertLess(project_loop.last_activity(self.state, self.reload(), []), NOW + 35 * 60)
+
+
+class ReceiptTest(Case):
+    def job(self, topic, key="k-t", status="done", **fields):
+        job = make_job(job_id=41, chat_id=CHAT, message_id="om_t1", topic_id=topic)
+        write_job(self.state, job_key(job.message_id, job.job_id), topic_id=topic, chat_id=CHAT, job_id=41, message_id="om_t1",
+                  status=status, input_tokens=1000, output_tokens=200,
+                  subtask_usage={"count": 1, "levels": [{"input_tokens": 300, "output_tokens": 50}]}, **fields)
+        return job
+
+    def after(self, job):
+        project_loop.after_runner(self.logs.append, self.state, job)
+
+    def test_a_threads_end_is_a_receipt_with_its_conclusion_and_its_tokens_are_counted(self):
+        self.thread(THREAD, "迁移", 41)
+        job = self.job(THREAD, final_text="已迁完\n全部 12 张表对账一致")
+        self.after(job)
+        [item] = project_loop.unread(self.state, PID)
+        self.assertEqual((item["kind"], item["thread"]), ("thread_end", THREAD))
+        self.assertIn("任务 #41 完成", item["text"])
+        self.assertIn("全部 12 张表对账一致", item["text"])
+        self.assertEqual(self.reload()["tokens_used"], 1550)
+
+    def test_counted_and_told_once(self):
+        self.thread(THREAD, "迁移", 41)
+        job = self.job(THREAD, final_text="好了")
+        self.after(job)
+        self.after(job)
+        self.assertEqual(len(project_loop.unread(self.state, PID)), 1)
+        self.assertEqual(self.reload()["tokens_used"], 1550)
+
+    def test_a_failed_or_stopped_turn_says_so(self):
+        self.thread(THREAD, "迁移", 41)
+        self.after(self.job(THREAD, status="cancelled"))
+        [item] = project_loop.unread(self.state, PID)
+        self.assertIn("已停止", item["text"])
+
+    def test_a_turn_waiting_for_the_owner_counts_its_tokens_but_leaves_no_receipt(self):
+        self.thread(THREAD, "迁移", 41)
+        self.after(self.job(THREAD, status="waiting_user"))
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        self.assertEqual(self.reload()["tokens_used"], 1550)
+
+    def test_an_interrupted_turn_leaves_no_receipt_and_a_running_one_nothing(self):
+        self.thread(THREAD, "迁移", 41)
+        self.after(self.job(THREAD, status="interrupted"))
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        write_job(self.state, "k-r", topic_id=THREAD, chat_id=CHAT, job_id=42, message_id="om_r", status="running", input_tokens=9)
+        self.after(make_job(job_id=42, chat_id=CHAT, message_id="om_r", topic_id=THREAD))
+        self.assertEqual(self.reload()["tokens_used"], 1550)
+
+    def test_the_leads_own_turn_counts_its_tokens_and_is_told_to_no_one(self):
+        job = self.job(LEAD)
+        self.after(job)
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        self.assertEqual(self.reload()["tokens_used"], 1550)
+
+    def test_another_topic_and_a_missing_project_change_nothing(self):
+        write_topic(self.state, topic_id="c" * 32, chat_id=CHAT, harness_id="claude")
+        self.after(self.job("c" * 32))
+        self.assertNotIn("tokens_used", self.reload())
+        self.logs.clear()
+        write_topic(self.state, topic_id="d" * 32, chat_id=CHAT, harness_id="claude", project=projects.project_field("zzzzzz1", "thread"))
+        self.after(self.job("d" * 32))
+        self.assertEqual(self.logs, [])
+
+    def test_with_the_switch_off_nothing_is_written(self):
+        self.thread(THREAD, "迁移", 41)
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.after(self.job(THREAD, final_text="好了"))
+            project_loop.heard(self.state, THREAD, "加一张表")
+            project_loop.owner_turn(self.state, LEAD, CHAT, "om_1")
+        self.assertFalse((projects.folder(self.state) / PID / "inbox").exists())
+        self.assertNotIn("tokens_used", self.reload())
+
+    def test_the_owner_speaking_in_a_thread_is_a_receipt_and_steps_in(self):
+        self.thread(THREAD, "迁移", 41)
+        self.update_wakes(streak=7)
+        project_loop.heard(self.state, THREAD, "先别动 orders 表")
+        [item] = project_loop.unread(self.state, PID)
+        self.assertEqual((item["kind"], item["thread"]), ("owner_said", THREAD))
+        self.assertIn("先别动 orders 表", item["text"])
+        self.assertEqual(self.reload()["wakes"]["streak"], 0)
+
+    def test_the_owner_speaking_elsewhere_is_no_receipt(self):
+        write_topic(self.state, topic_id="c" * 32, chat_id=CHAT, harness_id="claude")
+        project_loop.heard(self.state, "c" * 32, "你好")
+        project_loop.heard(self.state, LEAD, "你好")  # The lead's own topic: its turn reads the message itself.
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+
+    def update_wakes(self, **fields):
+        projects.update(self.state, PID, lambda record: record.__setitem__(
+            "wakes", {**project_loop.wakes_of(record), **fields}))
+
+
+class SilentTest(DeliverCase):
+    """The wake-up turn's reply stays saved and counts as delivered, unless the lead reported in it."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, ON).start()
+        self.addCleanup(mock.patch.stopall)
+        self.addCleanup(main_thread.configure_state, main_thread.configure_state(self.state))
+        write_json(self.state / main_thread_settings.FILE, {"mode": "agent"})
+        main_thread.forget_mode()
+        self.lead_topic = projects.lead_topic_id(MAIN_CHAT, PID)
+        projects.create(self.state, projects.new_record(chat_id=MAIN_CHAT, name="迁移账单", project_id=PID, now=NOW))
+        write_topic(self.state, topic_id=self.lead_topic, chat_id=MAIN_CHAT, harness_id="claude",
+                    project=projects.project_field(PID, projects.LEAD))
+
+    def lead(self, message=f"lead-{PID}-1"):
+        return self.job(topic=self.lead_topic, message=message)
+
+    def note(self, key, **fields):
+        row = {"id": "n1", "at": NOW, "text": "第一批迁完", "report": True, "kind": "milestone", "job": key, **fields}
+        projects.update(self.state, PID, lambda record: record.update(notes=[row]))
+
+    def test_a_wake_up_turn_is_quiet_and_never_shows_a_card(self):
+        job = self.lead()
+        self.assertTrue(placement.quiet(self.state, job))
+        self.assertFalse(placement.marked(self.state, job))
+        self.assertFalse(placement.quiet(self.state, self.job(topic=self.lead_topic, message="main-tool-1")))
+        cards = Cards.__new__(Cards)
+        cards.runtime = mock.Mock()
+        cards.create_streaming_reply = mock.Mock(return_value=SimpleNamespace(card_id="c9", message_id="om_card"))
+        job = self.lead()
+        job.card_deferred = True
+        job.timings["backend_requested"] = time.time() - 600
+        self.assertFalse(cards.reveal(self.ctx, job, "x"))
+        cards.create_streaming_reply.assert_not_called()
+        job = self.job(topic=self.lead_topic, message="om_1", card_deferred=True)
+        job.timings["backend_requested"] = time.time() - 600
+        self.assertTrue(cards.reveal(self.ctx, job, "x"))  # An owner's turn in the lead is Cards.reveal's as ever.
+
+    def test_the_reply_is_not_sent_and_counts_as_delivered(self):
+        delivery = self.deliver(self.lead(), reply="收到，等线程。")
+        self.assertTrue(delivery.silent)
+        self.send_text.assert_not_called()
+        self.artifacts.send_result_file.assert_not_called()
+        states = [call for call in delivery.record_job_state.call_args_list]
+        self.assertTrue(all(call.kwargs.get("delivery_ok") is not False for call in states[1:]), states)
+        self.assertTrue(states[-1].kwargs["delivery_ok"])
+
+    def test_a_report_note_its_style_lets_through_sends_the_reply_to_the_top_level(self):
+        job = self.lead()
+        self.note(job_key(job.message_id, job.job_id))
+        delivery = self.deliver(job, reply="第一批迁完了。")
+        self.assertFalse(delivery.silent)
+        self.send_text.assert_called_once()
+        self.assertEqual(self.send_text.call_args.args[0].reply_to_message_id, "")
+
+    def test_a_report_note_the_style_holds_back_is_not_sent_either(self):
+        job = self.lead()
+        self.note(job_key(job.message_id, job.job_id), kind="thread")
+        delivery = self.deliver(job, reply="线程做完了。")
+        self.assertTrue(delivery.silent)
+        self.send_text.assert_not_called()
+
+    def test_a_note_that_is_not_a_report_or_is_another_turns_changes_nothing(self):
+        job = self.lead()
+        self.note(job_key(job.message_id, job.job_id), report=False)
+        self.assertTrue(self.deliver(job).silent)
+        self.note("other-key")
+        self.assertTrue(self.deliver(job).silent)
+
+    def test_the_owners_turn_in_the_lead_is_sent_as_before(self):
+        delivery = self.deliver(self.lead("om_9"), reply="好的，我来拆。")
+        self.assertFalse(delivery.silent)
+        self.send_text.assert_called_once()
+
+    def test_a_failed_wake_up_turn_is_not_hidden(self):
+        delivery = self.deliver(self.lead(), status="failed", reply="出错了")
+        self.assertFalse(delivery.silent)
+        self.send_text.assert_called()
+
+    def test_without_the_switch_a_message_id_of_that_shape_is_nothing_special(self):
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.assertFalse(project_loop.silent(SimpleNamespace(job=self.lead(), turn=SimpleNamespace(), ctx=self.ctx,
+                                                                 runtime=mock.Mock())))
+
+
+class CardWordsTest(Loop):
+    def test_a_paused_project_says_why(self):
+        for reason, words in (("tokens", "token 用完了"), ("wakes", "连续唤醒次数到上限"), ("stalled", "很久没有动静")):
+            self.update(state=projects.PAUSED, state_reason=reason)
+            self.assertEqual(facts(self.state, self.reload(), NOW).lead_state, f"停住 · {words}")
+        self.update(state=projects.PAUSED, state_reason="主人停止")
+        self.assertEqual(facts(self.state, self.reload(), NOW).lead_state, "待命")
+        self.update(state=projects.ACTIVE, state_reason="tokens")
+        self.assertEqual(projects.reason_words(self.reload()), "")
+
+
+class WiringTest(UnifiedCase):
+    """The loop is one of the Bridge's feature objects, and the Bridge's own places call its hooks."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, ON).start()
+        self.addCleanup(mock.patch.stopall)
+        self.state = self.ctx.state_dir
+
+    def thread_topic(self):
+        """A topic of chat 'chat' that is a thread of a project, as it is once the lead has opened it."""
+        self.receive("om_t", "迁移第一张表")
+        topic = self.route("om_t")[1].topic_id
+        projects.create(self.state, projects.new_record(chat_id="chat", name="迁移账单", project_id=PID, now=NOW))
+        data = json.loads((self.state / "topics" / topic / "topic.json").read_text())
+        write_json(self.state / "topics" / topic / "topic.json", {**data, "project": projects.project_field(PID, "thread")})
+        projects.add_thread(self.state, PID, topic)
+        return topic
+
+    def test_the_thread_exists_only_with_the_switch(self):
+        self.assertIn("project_loop", dict(self.app.worker_targets()))
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.assertNotIn("project_loop", dict(self.app.worker_targets()))
+
+    def test_the_owner_writing_in_a_thread_leaves_a_receipt(self):
+        topic = self.thread_topic()
+        self.receive("om_t2", "先别动 orders 表", root="om_t")
+        [item] = project_loop.unread(self.state, PID)
+        self.assertEqual((item["kind"], item["thread"]), ("owner_said", topic))
+        self.assertIn("先别动 orders 表", item["text"])
+
+    def test_a_message_in_an_ordinary_topic_leaves_none(self):
+        self.receive("om_a", "你好")
+        self.receive("om_a2", "再说一句", root="om_a")
+        self.assertFalse((projects.folder(self.state) / PID / "inbox").exists())
+
+    def test_every_turn_queued_tells_the_loop_who_started_it(self):
+        with mock.patch.object(project_loop, "owner_turn") as owner:
+            self.receive("om_b", "你好")
+        topic = self.route("om_b")[1].topic_id
+        owner.assert_called_once_with(self.state, topic, "chat", "om_b")
+
+    def test_a_runner_ending_tells_the_loop(self):
+        from covey.app import main_relay
+        job = make_job(job_id=5, chat_id="chat", message_id="om_c", topic_id="t")
+        with mock.patch.object(project_loop, "after_runner") as after:
+            main_relay.after_runner(SimpleNamespace(runtime=SimpleNamespace(log=print)), job, self.ctx)
+        after.assert_called_once()
+        self.assertEqual(after.call_args.args[1:], (self.state, job))
+
+
+if __name__ == "__main__":
+    unittest.main()

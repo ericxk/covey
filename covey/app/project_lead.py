@@ -13,7 +13,7 @@ how its session lives. Only a lead topic's turn (core/main_thread.py ``is_lead``
   ``LEAD_TOOLS``) and message (rules, pack, then the turn's own message).
 - The inbox, ``projects/<id>/inbox/<n>.json`` ({id, kind, thread, text, at, taken_by}): receipts of what happened since
   the lead last looked (a thread's turn ended, a question held, the owner spoke in a thread). ``add_receipt`` writes
-  one (the task process of phase 2's P2-6 does), ``take_receipts`` gives the lead's turn what it has not read.
+  one (the Bridge does, app/project_loop.py: a thread's turn ended, the owner spoke in a thread, nothing moved), ``take_receipts`` gives the lead's turn what it has not read.
 
 Rules 1 and 6 (AGENTS.md): the records are written under their own lock and nothing here sends to Feishu."""
 from __future__ import annotations
