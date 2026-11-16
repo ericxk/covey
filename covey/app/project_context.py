@@ -20,7 +20,7 @@ from pathlib import Path
 
 from covey.app.answers import SKIPPED
 from covey.app.prompts import project_block
-from covey.core import project_library, project_memory, projects
+from covey.core import project_library, project_memory, projects, triage
 from covey.core.attachments import ATTACHMENTS_HEADER, parse_attachment_block
 from covey.core.checkpoint import checkpoint_delivery, read_checkpoint
 from covey.core.text import cut
@@ -53,9 +53,12 @@ def block(ctx, job, *, resumed: bool) -> str:
 
 
 def remember_answer(state_dir, topic_id, record, log=None) -> None:
-    """Note the owner's saved answer ``record`` (a question record with ``answers``) of ``topic_id`` as a decision of its project."""
+    """Note the owner's saved answer ``record`` (a question record with ``answers``) of ``topic_id`` as a decision of its project.
+    An answer the lead gave in the owner's place (COVEY_PROJECT_TRIAGE=1: the record is still ``held`` while it is saved,
+    app/triage.py ``answer``) is not the owner's word and is not noted; the 分流记录 and the decision log hold it, and the
+    owner's 不对 corrects it. A question the lead passed on (``escalated``) and the owner answered is noted as always."""
     try:
-        if not projects.memory_enabled() or record.get("response_kind") == "feedback":
+        if not projects.memory_enabled() or record.get("response_kind") == "feedback" or triage.state(record) == triage.HELD:
             return
         found = projects.topic_project(state_dir, topic_id)
         if found is None:

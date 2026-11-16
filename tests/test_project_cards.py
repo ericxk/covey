@@ -9,6 +9,7 @@ import itertools
 import json
 import os
 import re
+import unittest
 from types import SimpleNamespace
 from unittest import mock
 
@@ -19,7 +20,7 @@ from test_projects import Case as ProjectsCase
 from covey.app import pins, project_cards
 from covey.app.card_actions import ACTIONS
 from covey.cards import project_card as view
-from covey.cards.elements import find_element
+from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, find_element, json_size
 from covey.core import board_read, projects
 from covey.core.jobs import upsert_job_record
 from covey.core.state import write_json
@@ -210,6 +211,40 @@ class CardCase(UnifiedCase):
 
     def job(self, topic, number, status, **fields):
         upsert_job_record(self.state, f"j{number}", topic_id=topic, chat_id=CHAT, job_id=number, status=status, **fields)
+
+
+class BudgetTest(unittest.TestCase):
+    """With everything on at once (the topics' Harness names, the memory and library folds, the 分流记录, the direction tag) and every
+    list full of long lines, the card still takes what a card takes (cards/elements.py CARD_NODES, CARD_BYTES)."""
+
+    def card(self, rows, topics):
+        text = "长" * 300
+        members = tuple(view.Member(topic_id=f"{n:032x}", status=("等你", "在做", "在做", "做完")[n % 4], label=f"T{400 + n}", title=text,
+                                    body=text, took="12 分钟", url="https://example.com/t/" + "u" * 60, harness="Claude Code")
+                        for n in range(topics))
+        return view.project_card(view.Project(
+            project_id="a1b2c3d4e5f6", lead_topic="f" * 32, name=text, status="等你", direction=text, need=text, need_url="https://example.com/q",
+            members=members, elapsed="3 天 4 小时", tokens="1200 万", lead_state=text, lead_note=text,
+            triage=tuple((text, "c" * 16) for _ in range(rows)), memory=tuple((f"{n:06x}", text) for n in range(rows)),
+            library=tuple((text, f"{n:06x}") for n in range(rows)), inputs=("输入：" + text,), outputs=("输出：" + text,),
+            ask_text=text, origin_note=text))
+
+    def test_a_full_card_is_cut_down_to_the_budget_with_a_line_for_what_is_left_out(self):
+        built = self.card(40, 12)
+        self.assertLessEqual(element_count(built), CARD_NODES)
+        self.assertLessEqual(json_size(built), CARD_BYTES)
+        self.assertIsNotNone(find_element(built, "pj_more"))  # Topics left out are still said.
+        shown = [find_element(built, name) for name in ("pj_triage", "pj_mem", "pj_lib")]
+        self.assertTrue(all(shown))
+        self.assertTrue(all(any("另有" in json.dumps(each, ensure_ascii=False) for each in fold["elements"]) for fold in shown))
+
+    def test_a_card_that_fits_is_drawn_whole_as_before(self):
+        built = self.card(3, 3)
+        self.assertEqual(len(find_element(built, "pj_mem")["elements"]), 3)
+        self.assertIsNone(find_element(built, "pj_more"))
+
+    def test_the_longest_list_the_folds_take_still_leaves_every_button_of_the_card(self):
+        self.assertIsNotNone(find_element(self.card(40, 12), "pj_btns"))
 
 
 class HarnessLabelTest(CardCase):

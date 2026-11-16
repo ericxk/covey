@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -14,12 +15,12 @@ from unittest import mock
 from support.records import write_job
 from support.world import QuestionFixture
 
-from covey.app import project_cards, project_lead, project_loop, triage as flow
+from covey.app import project_cards, project_context, project_lead, project_loop, triage as flow
 from covey.app.project_loop import ProjectLoop
 from covey.app.questions import recover_question_delivery
 from covey.cards import project_card, triage_card
 from covey.cards.question_cards import HELD_NOTE, question_card, question_element
-from covey.core import butler, butler_tool_specs, project_gates, projects, recovery, triage
+from covey.core import butler, butler_tool_specs, project_gates, project_library, project_memory, projects, recovery, triage
 from covey.core.jobs import find_job_record, upsert_job_record
 from covey.core.state import read_object, write_json
 
@@ -592,6 +593,135 @@ class HeldLiveQuestionTest(HeldFixture):
             self.app.questions.native.show(self.ctx_topic, self.job, self.rpc, self.path, record, False, True)
         self.assertTrue(self.app.questions.publish_question_card.called)
         self.assertNotIn("triage", json.loads(self.path.read_text()))
+
+
+class MemoryInterplayTest(Held):
+    """COVEY_PROJECT_MEMORY=1 with the triage: what the lead answered for the owner is not noted as the owner's answer; what the
+    owner answered after a question came to them, and what they corrected, is."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, {projects.MEMORY_ENV: "1"}).start()
+        self.write()
+        self.route()
+
+    def notes(self):
+        return [(row["kind"], row["source"], row["text"]) for row in project_memory.stored(self.state, PID)]
+
+    def answered(self, record):
+        return {**record, "status": "submitting", "answers": {"0": {"answers": ["新版"]}}}
+
+    def test_the_saved_record_of_a_held_question_still_says_held_while_the_lead_answers_it(self):
+        from covey.core.store import transition_question
+        saved = transition_question(self.path, {"pending"}, status="submitting", answers={"0": {"answers": ["新版"]}})
+        self.assertEqual(triage.state(saved), triage.HELD)
+
+    def test_an_answer_the_lead_gave_is_not_noted_as_the_owners(self):
+        project_context.remember_answer(self.state, THREAD, self.answered(self.saved()), self.logs.append)
+        self.assertEqual(self.notes(), [])
+
+    def test_an_answer_the_owner_gave_to_a_question_handed_back_is_noted(self):
+        data = self.saved()
+        write_json(self.path, triage.moved(data, triage.ESCALATED, why="碰到硬闸", by="lead", at=time.time()), ensure_ascii=False)
+        project_context.remember_answer(self.state, THREAD, self.answered(self.saved()), self.logs.append)
+        self.assertEqual([(kind, source) for kind, source, _ in self.notes()], [("decision", "owner_answer")])
+        self.assertIn("新版", self.notes()[0][2])
+
+    def test_an_answer_to_a_question_the_triage_never_saw_is_noted_as_it_was(self):
+        data = self.saved()
+        data.pop("triage")
+        project_context.remember_answer(self.state, THREAD, self.answered(data), self.logs.append)
+        self.assertEqual([source for _, source, _ in self.notes()], ["owner_answer"])
+
+    def test_the_owners_correction_is_a_decision_of_the_project_when_the_memory_is_on(self):
+        queued = []
+        app = SimpleNamespace(
+            harness=SimpleNamespace(context=object()),
+            submission=SimpleNamespace(
+                event_context=lambda base, event: SimpleNamespace(topic_id=THREAD, history_path=self.state / "h.jsonl"),
+                enqueue_chat_job=lambda ctx, text, chat, message, **fields: queued.append(message) or object()))
+        flow.attach(SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append),
+                                    topics=SimpleNamespace(target=lambda *a: (app, self.ctx, {}))))
+        self.addCleanup(flow.attach, None)
+        flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
+        flow.correct(self.reload(), TOKEN, "库版本的事要等我看过")
+        self.assertEqual([(kind, source) for kind, source, _ in self.notes()], [("decision", "owner_fix")])
+        self.assertIn("库版本的事要等我看过", self.notes()[0][2])
+        with mock.patch.dict(os.environ, {projects.MEMORY_ENV: ""}):  # Off: the decision log has it, the memory does not grow.
+            flow.log_row(self.state, PID, "答了：T41 · 另一题 → 旧版", token="d" * 16, topic=THREAD, kind="answered")
+            flow.correct(self.reload(), "d" * 16, "也要等我")
+        self.assertEqual(len(self.notes()), 1)
+
+
+class PauseInterplayTest(Held):
+    """A tokens pause stops the member topics' tasks (COVEY_PROJECT_ASK=1) while a question of theirs is held for the lead: the
+    question goes to the owner once, on the sweep that finds the project no longer on hands, and is not sent again."""
+
+    def test_a_held_question_goes_to_the_owner_once_when_the_tokens_pause_comes(self):
+        from test_project_loop import lead_app
+        mock.patch.dict(os.environ, {projects.ASK_ENV: "1"}).start()
+        shown = []
+        mock.patch.object(flow, "show", side_effect=lambda env, record: shown.append(record["token"]) or True).start()
+        self.write()
+        self.route()
+        projects.update(self.state, PID, lambda data: data.update(tokens_used=projects.DEFAULT_TOKENS))
+        stop = mock.Mock(return_value=1)
+        runtime = SimpleNamespace(log=self.logs.append, shutdown=mock.Mock())
+        env = SimpleNamespace(state_dir=self.state, runtime=runtime, topics=SimpleNamespace(apps={"claude": lead_app(self)}))
+        loop = ProjectLoop(runtime, env, stop)
+        start = time.time()
+        loop.tick(start)  # The sweep looks first: the project is on hands, the question is held and gets its receipt; then the guard.
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"]), (projects.PAUSED, "tokens"))
+        self.assertEqual(stop.call_args.args[2], [THREAD])
+        self.assertEqual((triage.state(self.saved()), shown), (triage.HELD, []))
+        loop.tick(start + 10)  # The next look finds the project paused and hands the question back.
+        self.assertEqual((triage.state(self.saved()), shown), (triage.ESCALATED, [TOKEN]))
+        self.assertEqual(triage.of(self.saved())["why"], "专项现在没有在做")
+        for later in (20, 40, 600):
+            loop.tick(start + later)
+        self.assertEqual(shown, [TOKEN])  # Never sent twice.
+        rows = [row["kind"] for row in self.reload()["triage"]]
+        self.assertEqual(rows.count("escalated"), 1)
+        self.assertEqual(len([item for item in project_loop.unread(self.state, PID) if item["kind"] == "question"]), 1)
+
+    def test_the_loop_is_wired_with_the_stop_and_the_end_of_a_turn_still_gets_all_its_notes(self):
+        unified = (Path(project_loop.__file__).parent / "unified.py").read_text()
+        self.assertIn("ProjectLoop(self.runtime, self.butler_env, stop_tasks)", unified)
+        mock.patch.dict(os.environ, {projects.MEMORY_ENV: "1"}).start()
+        checkpoint = self.state / "cp.json"
+        write_json(checkpoint, {"artifacts": ["/data/out/bill.csv"]})
+        write_job(self.state, "m-1", topic_id=THREAD, chat_id=CHAT, status="done", message_id="m", checkpoint_path=str(checkpoint), job_id=1)
+        job = SimpleNamespace(topic_id=THREAD, chat_id=CHAT, message_id="m", job_id=1)
+        with mock.patch.object(project_loop, "job_key", return_value="m-1"):
+            project_loop.after_runner(self.logs.append, self.state, job)
+        self.assertEqual([item["kind"] for item in project_loop.unread(self.state, PID)], ["thread_end"])
+        self.assertEqual([row["ref"] for row in project_library.entries(self.state, PID)], ["/data/out/bill.csv"])
+        self.assertIn("m-1", self.reload()["token_jobs"])
+
+
+class ToolListInterplayTest(unittest.TestCase):
+    """The tool lists with the triage's and the directions' switches off and on together."""
+    BUTLER = {"COVEY_BUTLER_RULES": "1", "COVEY_PROJECTS": "1"}
+
+    def test_off_nothing_of_the_new_features_is_listed(self):
+        listed = {tool["name"]: tool for tool in butler_tool_specs.listed(self.BUTLER)}
+        self.assertFalse({"direction", "direction_by_owner"} & set(listed["topic_start"]["input_schema"]["properties"]))
+        lead = [tool["name"] for tool in butler_tool_specs.listed({**self.BUTLER, butler_tool_specs.LEAD_ENV: PID})]
+        self.assertFalse({"project_answer", "project_escalate"} & set(lead))
+
+    def test_on_each_adds_its_own_and_the_memory_kinds_are_there_too(self):
+        with tempfile.TemporaryDirectory() as state:
+            write_json(Path(state) / "directions.json", {"directions": [{"name": "数据平台", "aliases": [], "repos": [], "status": "active"}]})
+            butler_env = {**self.BUTLER, "COVEY_DIRECTIONS": "1", butler_tool_specs.STATE_ENV: state}
+            start = {tool["name"]: tool for tool in butler_tool_specs.listed(butler_env)}["topic_start"]["input_schema"]["properties"]
+        self.assertTrue({"direction", "direction_by_owner", "project", "harness", "model", "effort"} <= set(start))
+        self.assertIn("数据平台", start["direction"]["description"])
+        lead = {tool["name"]: tool for tool in butler_tool_specs.listed({**self.BUTLER, butler_tool_specs.LEAD_ENV: PID, triage.ENV: "1"})}
+        self.assertTrue({"project_answer", "project_escalate", "project_remember", "project_topic_start"} <= set(lead))
+        self.assertEqual(lead["project_remember"]["input_schema"]["properties"]["kind"]["enum"],
+                         ["decision", "constraint", "contact", "fact"])
+        self.assertIn("harness", lead["project_topic_start"]["input_schema"]["properties"])
 
 
 if __name__ == "__main__":

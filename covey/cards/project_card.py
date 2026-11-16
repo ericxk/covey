@@ -33,13 +33,15 @@ from dataclasses import dataclass
 
 from covey.cards import answer_card
 from covey.cards.answer_card import literal_text
-from covey.cards.elements import (button_row, card, collapsible, grey, item, md, note, panel_header, styled_panel,
-                                  text_button, topic_button)
+from covey.cards.elements import (CARD_BYTES, CARD_NODES, button_row, card, collapsible, fits, grey, item, md, note,
+                                  panel_header, styled_panel, text_button, topic_button)
 
 HEAD_CHARS = 30
 MEMBER_TITLE = 36  # Of a topic's title on its fold's title line.
 MAX_FOLDS = 8  # Folds drawn; the older ones are one line.
 MAX_ROWS = 10  # Rows of the 分流记录, 专项记忆 and 资料库 folds.
+NODES, BYTES = CARD_NODES - 10, CARD_BYTES - 2000  # The header is outside.
+FIT_STEPS = ((MAX_ROWS, MAX_FOLDS), (6, MAX_FOLDS), (4, 6), (3, 5), (2, 4), (1, 3), (0, 2))  # (rows of a fold, topic folds) tried in turn.
 ROW_CHARS = 90
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
 MEM_DEL_KIND, LIB_DEL_KIND = "bridge_project_mem_del", "bridge_project_lib_del"
@@ -168,22 +170,22 @@ def member_fold(member):
     return collapsible(f"pt_{key}", title, body, expanded=member.status in OPEN, size="normal_v2")
 
 
-def member_elements(project) -> list:
+def member_elements(project, folds=MAX_FOLDS) -> list:
     shown = ordered(project.members)
-    elements = [member_fold(member) for member in shown[:MAX_FOLDS]]
-    if len(shown) > MAX_FOLDS:
-        elements.append(note(f"更早 {len(shown) - MAX_FOLDS} 条已收起，在各自的话题里看"))
+    elements = [member_fold(member) for member in shown[:folds]]
+    if len(shown) > folds:
+        elements.append(note(f"更早 {len(shown) - folds} 条已收起，在各自的话题里看"))
         elements[-1]["element_id"] = "pj_more"
     return elements
 
 
-def row_fold(element_id, title, rows) -> dict | None:
+def row_fold(element_id, title, rows, limit=MAX_ROWS) -> dict | None:
     rows = list(rows)
     if not rows:
         return None
-    inside = rows[:MAX_ROWS]
-    if len(rows) > MAX_ROWS:
-        inside.append(note(f"另有 {len(rows) - MAX_ROWS} 条"))
+    inside = rows[:limit]
+    if len(rows) > limit:
+        inside.append(note(f"另有 {len(rows) - limit} 条"))
     return collapsible(element_id, f"{title} · {len(rows)}", inside, expanded=False, size="normal_v2")
 
 
@@ -231,19 +233,29 @@ def summary(project) -> str:
     return f"{project.status} · {clipped(project.name, HEAD_CHARS)}"
 
 
-def project_card(project):
-    """The live card: ``project`` drawn whole."""
+def project_elements(project, rows, folds) -> list:
     ask = [answer_card.ask_block(project.ask_text, at=project.ask_at, url=project.ask_url)] if project.ask_text else []
     elements = [*ask, need_element(project)]
     elements.append(md(grey(literal_text(meta_line(project))), element_id="pj_meta", size="notation"))
     elements.append(md(lead_line(project), element_id="pj_lead", size="normal_v2"))
-    elements += member_elements(project)
-    elements += [row_fold("pj_triage", "分流记录", triage_rows(project)),
-                 row_fold("pj_mem", "专项记忆", memory_rows(project)),
-                 row_fold("pj_lib", "资料库", library_rows(project)),
+    elements += member_elements(project, folds)
+    elements += [row_fold("pj_triage", "分流记录", triage_rows(project), rows),
+                 row_fold("pj_mem", "专项记忆", memory_rows(project), rows),
+                 row_fold("pj_lib", "资料库", library_rows(project), rows),
                  answer_card.box("pj_io", answer_card.input_lines(project.inputs), list(project.outputs)),
                  *buttons(project)]
-    return styled_panel(header(project), [element for element in elements if element], summary(project))
+    return [element for element in elements if element]
+
+
+def project_card(project):
+    """The live card: ``project`` drawn whole. With every list full (ten rows in each of the three folds, eight topics, the
+    texts at their longest) it would pass what a card takes (``CARD_NODES``, ``CARD_BYTES``): then the folds show fewer rows
+    and fewer topics, step by step (``FIT_STEPS``), the rest said in one line each, until it fits."""
+    for rows, folds in FIT_STEPS:
+        elements = project_elements(project, rows, folds)
+        if fits(elements, NODES, BYTES):
+            break
+    return styled_panel(header(project), elements, summary(project))
 
 
 def line_block(words, text, url=""):
