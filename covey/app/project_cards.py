@@ -35,7 +35,7 @@ from covey.cards.project_card import (DONE, PAUSED, RUNNING, WAITING, Project, M
                                       settled_card)
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
-from covey.core import project_memory, projects
+from covey.core import project_library, project_memory, projects
 from covey.core.card_sequence import CardHandle, reserve
 from covey.core.jobs import job_path, read_job_record, topic_job_records
 from covey.core.statuses import ENDED
@@ -149,19 +149,24 @@ def memory_rows(state_dir, record) -> tuple:
 
 
 def library_rows(state_dir, project_id) -> tuple:
-    """(file name,) of the files in projects/<id>/library/ (one level, no links), by name."""
+    """(label, entry id) of the project's library index (core/project_library.py), the newest first, then (file name,) of the
+    files in projects/<id>/library/ the index does not name (one level, no links), by name."""
+    indexed = project_library.entries(state_dir, project_id)
+    rows = [(words(project_library.row_label(row), 100), row["id"]) for row in reversed(indexed)]
     folder = projects.folder(state_dir) / project_id / "library"
+    named = {row["ref"] for row in indexed if row["kind"] == "file"}
     names = []
     try:
         with os.scandir(folder) as entries:
             for entry in entries:
-                if entry.is_file(follow_symlinks=False) and not entry.name.startswith("."):
+                if entry.is_file(follow_symlinks=False) and not entry.name.startswith(".") and not entry.name.endswith(".part") \
+                        and entry.name not in named:
                     names.append(entry.name)
                 if len(names) >= LIST_CAP:
                     break
     except OSError:
-        return ()
-    return tuple((name,) for name in sorted(names))
+        pass
+    return (*rows, *((name,) for name in sorted(names)))[:LIST_CAP]
 
 
 def facts(state_dir, record, now, titles=None, links=None) -> Project:
@@ -645,9 +650,12 @@ def delete_memory(host, ctx, event) -> bool:
 
 
 def delete_library(host, ctx, event) -> bool:
-    """删 on a row of 资料库: the file leaves projects/<id>/library/ (a plain name inside it, nothing else)."""
+    """删 on a row of 资料库: an entry of the index (and its copy in library/) or, for a file the index does not name, the file
+    (a plain name inside library/, nothing else)."""
     raw, record = click(ctx, event)
     name = str(raw.get("name") or "")
+    if name and project_library.delete(ctx.state_dir, record["id"], name):
+        return say(host, ctx, event, "已从资料库删掉这一条。", "project-lib-del")
     path = projects.folder(ctx.state_dir) / record["id"] / "library" / name
     if not name or "/" in name or name.startswith(".") or not path.is_file() or path.is_symlink():
         return say(host, ctx, event, "这份资料已经不在了。", "project-lib-gone")

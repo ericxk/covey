@@ -146,7 +146,7 @@ class PackTest(Case):
         pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=True)
         self.assertIn("话题（还没有）", pack)
         self.assertIn("主人没有写目标", pack)
-        self.assertEqual(project_lead.library_index(self.state, PID), [])  # P2-7's.
+        self.assertEqual(project_lead.library_index(self.state, PID), [])  # Nothing without COVEY_PROJECT_MEMORY=1.
 
 
 class InboxTest(Case):

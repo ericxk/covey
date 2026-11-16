@@ -74,6 +74,11 @@ def _file_rows(path) -> list:
     return [item for item in (_entry(row, index) for index, row in enumerate(rows if isinstance(rows, list) else ())) if item]
 
 
+def stored(state_dir, project_id) -> list:
+    """The entries of the file alone (the maintenance rule of the memory's age reads them), the oldest first."""
+    return _merge(_file_rows(memory_path(state_dir, project_id)), [])
+
+
 def _legacy_rows(record) -> list:
     rows = record.get("memory") if isinstance(record, dict) else None
     return [item for item in (_entry(row, index) for index, row in enumerate(rows if isinstance(rows, list) else ())) if item]

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from covey.core.checkpoint import read_checkpoint, release_user_wait
-from covey.app import device_files
+from covey.app import device_files, project_context
 from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
@@ -238,6 +238,7 @@ class Questions:
             # Persist intent first. Never retry an ambiguous write as another task.
             record = transition_question(path, {"pending"}, status="submitting", answers=answers, answer_event=event_id,
                                          **response)
+        project_context.remember_answer(ctx.state_dir, ctx.topic_id, record, self.runtime.log)  # A project's topic: a decision noted.
         try:
             return self._deliver_answer(ctx, chat, token, record, answers, event_id, path)
         except Exception:

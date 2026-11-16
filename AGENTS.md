@@ -129,6 +129,7 @@
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
 | `app/preselection.py` | What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read |
 | `app/project_cards.py` | 专项卡, when COVEY_PROJECTS=1 |
+| `app/project_context.py` | What a project's memory and library do in the Bridge, when COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1 |
 | `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
 | `app/project_loop.py` | Continuing runs and guards of a project |
 | `app/project_tools.py` | The tools of a project's lead, handlers as app/butler_env.py describes them |
@@ -291,6 +292,7 @@
 | `core/process.py` | Which processes belong to whom |
 | `core/process_env.py` | Environment for backend child processes, and on/off switches read from the environment |
 | `core/procfs.py` | A process's /proc/<pid>/stat and this boot's id, read one way for every reader in the package |
+| `core/project_library.py` | The library of a project |
 | `core/project_memory.py` | The memory of a project |
 | `core/projects.py` | 专项: a long job the butler hands to one lead topic (the 负责人) that dispatches and follows several member topics |
 | `core/protocol.py` | Versioned public Harness events |

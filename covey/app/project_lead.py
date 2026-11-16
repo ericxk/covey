@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from covey.app.prompts import TOOL_NOTES_LANGUAGE
-from covey.core import board_read, butler, project_memory, projects
+from covey.core import board_read, butler, project_library, project_memory, projects
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
@@ -133,8 +133,12 @@ def append(state_dir, project_id, field, item, kept) -> dict:
 
 
 def library_index(state_dir, project_id) -> list:
-    """The project's library (files the owner put in it) as index lines: none until phase 2's P2-7."""
-    return []
+    """The project's library (the files the owner gave it and what its topics delivered) as index lines, at most 2 KB
+    (core/project_library.py): none without COVEY_PROJECT_MEMORY=1."""
+    if not projects.memory_enabled():
+        return []
+    labels = {topic: topic_label(state_dir, topic) or topic[:8] for topic in {row["topic_id"] for row in project_library.entries(state_dir, project_id)} if topic}
+    return project_library.index_lines(state_dir, project_id, labels=labels)
 
 
 # The inbox.
