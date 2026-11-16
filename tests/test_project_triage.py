@@ -412,7 +412,7 @@ class CardTest(Held):
         shown = [e["content"] for e in walk(project_card.triage_rows(view)) if e.get("tag") == "markdown"]
         self.assertEqual(len(shown), 1)
         self.assertIn("…", shown[0])
-        self.assertTrue(shown[0].endswith(project_card.CORRECTED + "</font>"), shown[0])
+        self.assertTrue(shown[0].endswith("（已纠正）</font>"), shown[0])
 
     def test_rows_without_a_token_draw_as_they_always_did(self):
         view = project_card.Project(**{**project_card_sample().__dict__, "triage": ("09:40 答了：用哪个库版本？",)})
