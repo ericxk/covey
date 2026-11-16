@@ -283,7 +283,7 @@ LEAD_READ = ("topic_read", "topics_search", "workspaces_list")  # What of TOOLS 
 # topic_start and topic_send take ``project``, and projects_list and project_send are listed after the others (app/projects.py).
 # With the switch off the list is exactly what it was.
 PROJECTS_ENV = "COVEY_PROJECTS"
-START_PROJECT = {"type": "boolean", "description": "主人说“长活”“长期做”“接着做”这类、要拆成几路并行跟进好几天的大事时填 true："
+START_PROJECT = {"type": "boolean", "description": "主人说“开个专项”，或说“长活”“长期做”“接着做”这类、要拆成几路并行跟进好几天的大事时填 true："
                                                    "不开话题，开一个专项，由它的负责人去派线程。这时 title 是专项名，prompt 写目标和完成标准（主人的说法），"
                                                    "workspace 是负责人和线程默认用的工作区；一般的事不要填"}
 SEND_PROJECT = {"type": "boolean", "description": "主人说这件事其实是长活（“长期做”“接着做”）时填 true：这个话题会升级成专项（只在升级打开时生效）；"

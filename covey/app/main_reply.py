@@ -158,9 +158,10 @@ def say_outcome(delivery) -> bool:
         return False
 
 
-def reply_fold(text):
-    """The model's own words under the topic lines, folded; on a slim card in its 详情 (Cards.set_task_element)."""
-    return markdown_panel(REPLY_FOLD, "主线程的回答", text, quiet=True)
+def reply_fold(text, *, lead=False):
+    """The model's own words under the topic lines, folded; on a slim card in its 详情 (Cards.set_task_element). A
+    project's lead's turn (``lead``) says whose they are: the lead's, not the main thread's."""
+    return markdown_panel(REPLY_FOLD, "负责人的回答" if lead else "主线程的回答", text, quiet=True)
 
 
 def routed_body(lines) -> str:
@@ -193,7 +194,8 @@ def answers_in_place(delivery, final_card, display_text) -> bool:
         if not cards.update_job_streaming_reply(ctx, job, body, force=True, idempotency_prefix=f"{delivery.prefix}-final",
                                                 allow_replacement=False) or cards.body_cut(job):
             return False
-        if lines and not cards.set_task_element(ctx, job, reply_fold(display_text)):
+        lead = placement.ROLES.get(traits_of(job).name) == placement.LEAD_ROLE
+        if lines and not cards.set_task_element(ctx, job, reply_fold(display_text, lead=lead)):
             return False
     except Exception as exc:  # noqa: BLE001 - the answer card goes out instead
         delivery.runtime.log(f"main thread answer not on its card job=#{job.job_id}: {type(exc).__name__}")

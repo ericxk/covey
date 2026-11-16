@@ -394,6 +394,33 @@ class SettleTest(CardCase):
         self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
         self.assertNotIn("default_url", text(self.put.call_args.args[2]))
 
+    def finished_by(self, status, **answer):
+        # The lead's turn that called project_finish (app/project_tools.py writes state_job with the state).
+        upsert_job_record(self.state, "k-fin", topic_id=LEAD, chat_id=CHAT, job_id=9, status=status,
+                          message_id=f"lead-{PID}-2", **answer)
+        projects.update(self.state, PID, lambda record: record.update(state_job="k-fin"))
+        projects.set_state(self.state, PID, projects.DONE)
+
+    def test_done_by_a_turn_that_sent_its_answer_it_shrinks_at_once_opening_that_answer(self):
+        # accept7 (2026-11-16): nothing wrote conclusion_message_id, so each done card waited CONCLUSION_GRACE.
+        self.finished_by("done", answer_message_id="om_answer")
+        self.tick(1010.0)
+        self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
+        self.assertIn("position=9", text(self.put.call_args.args[2]))
+
+    def test_done_by_a_turn_that_ended_without_an_answer_it_shrinks_at_once_without_the_link(self):
+        self.finished_by("done")  # A quiet wake-up turn: its reply was not sent.
+        self.tick(1010.0)
+        self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
+        self.assertNotIn("default_url", text(self.put.call_args.args[2]))
+
+    def test_done_by_a_turn_still_running_it_waits_for_that_turn(self):
+        self.finished_by("running")
+        self.tick(1010.0)
+        self.assertFalse(self.put.called)
+        self.tick(1010.0 + project_cards.CONCLUSION_GRACE + 1)
+        self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
+
     def test_a_project_that_was_cancelled_says_so(self):
         projects.set_state(self.state, PID, projects.CANCELLED, "降级")
         self.tick(1010.0)
@@ -449,7 +476,7 @@ class ButtonTest(CardCase):
         self.assertEqual(self.record()["state"], "paused")
         self.assertEqual(sorted((call.args[0].topic_id, call.args[1]["job_id"]) for call in cancel.call_args_list),
                          [(LEAD, "5"), (T1, "6")])
-        self.assertIn("停了 2 个任务", self.said())
+        self.assertIn("已请 2 个任务停下", self.said())
         self.assertTrue(self.claude.controls.project_stop(self.lead_ctx, self.event("bridge_project_stop")))
         self.assertIn("已经是停住的", self.said())  # A second click changes nothing.
         self.assertEqual(cancel.call_count, 2)

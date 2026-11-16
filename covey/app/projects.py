@@ -36,7 +36,7 @@ from covey.core.jobs import find_job_record, topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.loops import every
 from covey.core.state import read_object, write_json
-from covey.core.topics import route_message, set_topic_project, topic_file, topic_label, topic_title
+from covey.core.topics import move_topic_message, route_message, set_topic_project, topic_file, topic_label, topic_title
 
 ENV = "COVEY_PROJECT_UPGRADE"
 OFF, WORD, AUTO = "off", "word", "auto"
@@ -374,7 +374,12 @@ class Projects:
             saved = read_object(path)
             if saved.get("project_id") == pid:
                 messages.add(str(saved.get("card_message_id") or ""))
+        card = projects.card_message(projects.read_record(state, pid))
         for message in sorted(messages - {""}):
+            if message == card:
+                # The card's clicks too: its buttons name the lead's topic (card_routing.py refuses a click routed to
+                # another topic), and the 派发卡 it was belonged to the topic that is now a thread (accept7, 2026-11-16).
+                move_topic_message(state, record["lead_topic_id"], chat, message)
             route_message(state, chat, message, record["lead_topic_id"], holder=topic)
         return True
 
@@ -507,7 +512,7 @@ def lead_target(env, record):
     ``Topics.target`` gives none for a lead (its Traits row is not a card target), and the lead's topic.json has no root
     message to address it by: the context comes from an alias of the Bridge's own, ``project-lead-<id>``, never a Feishu
     message's id, that belongs to the lead (the way app/main_tracks.py ``enter`` gets a track's)."""
-    from covey.core.topics import load_topic, move_topic_message
+    from covey.core.topics import load_topic
 
     state, chat, lead = Path(env.state_dir), str(record.get("chat_id") or ""), str(record.get("lead_topic_id") or "")
     try:
@@ -517,7 +522,7 @@ def lead_target(env, record):
     app = env.topics.apps.get(topic.get("harness_id"))
     if app is None or topic.get("chat_id") != chat:
         return None
-    alias = "project-lead-" + str(record["id"])
+    alias = projects.LEAD_ALIAS_PREFIX + str(record["id"])
     move_topic_message(state, lead, chat, alias)
     return app, app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": alias})
 

@@ -22,7 +22,7 @@ LIVE, SETTLED = "live", "settled"
 # Rule 4: the only way a record's state moves.
 DISPATCH_TRANSITIONS = {LIVE: {SETTLED}, SETTLED: set()}
 SCHEMA = 1
-LONG_WORDS = re.compile("长活|长期|接着做")  # What the owner says of a job that goes on: upgrade_hint.long_word.
+LONG_WORDS = re.compile("长活|长期|接着做|专项")  # What the owner says of a job that goes on: upgrade_hint.long_word.
 RELAY_SUFFIX = ".relay.json"
 REQUEST_CHARS = 200  # Of the owner's request kept in the record; the card's header shows the first 30.
 

@@ -367,6 +367,16 @@ def is_wake(message_id) -> bool:
     return isinstance(message_id, str) and message_id.startswith(WAKE_PREFIX)
 
 
+LEAD_ALIAS_PREFIX = "project-lead-"  # The alias the butler's project_send addresses a lead by (app/projects.py lead_target).
+
+
+def own_message(message_id) -> bool:
+    """Whether ``message_id`` is one the Bridge made up for a project's lead, a wake-up turn's (``wake_id``) or the alias
+    the butler's ``project_send`` hands it a message under: Feishu has no such message, so no reply quotes it (core/topics.py
+    context_for_topic) and no "你问" block shows its words (app/answer_cards.py asked)."""
+    return isinstance(message_id, str) and message_id.startswith((WAKE_PREFIX, LEAD_ALIAS_PREFIX))
+
+
 def reason_words(record) -> str:
     """What the card says of a project a guard paused ('' for any other record): the guard's words."""
     if not isinstance(record, dict) or record.get("state") != PAUSED:

@@ -199,6 +199,10 @@ def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, lo
 
     def get(name):
         return _get(record, name)
+    from covey.core import projects
+
+    if projects.own_message(str(get("message_id") or "")):
+        return None  # A project's lead woken by the Bridge or handed the butler's words: the owner asked nothing here.
     text = str(get("user_text") or "")
     answer = text.lstrip().startswith(ANSWER_HEADING)
     words = " ".join(str(get("asked_text") or "").split())

@@ -36,15 +36,16 @@ from covey.cards import answer_card
 from covey.cards.facts import tile_count
 from covey.core import projects
 from covey.core.card_sequence import CardHandle, reserve
-from covey.core.jobs import topic_job_records
+from covey.core.jobs import job_path, read_job_record, topic_job_records
+from covey.core.statuses import ENDED
 from covey.core import dispatch_records as drecords
 from covey.core.locks import resource_lock, topic_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, timings_of
 from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.store import directory_store
-from covey.core.topics import (clear_topic_project, remember_topic_message, route_message, topic_file, topic_label,
-                               topic_title)
+from covey.core.topics import (clear_topic_project, move_topic_message, remember_topic_message, route_message, topic_file,
+                               topic_label, topic_title)
 
 TICK = 1.0  # Seconds between two looks at the live records.
 MIN_GAP = 2.5  # Seconds between two writes of one card (CardKit allows 10 a second).
@@ -279,6 +280,21 @@ def _route(state, record, message) -> None:
     route_message(state, chat, message, lead, holder=lead)
 
 
+def finishing_answer(state_dir, record) -> tuple[str, bool]:
+    """(message id, ended) of the lead's turn that finished the project (``state_job``, app/project_tools.py
+    project_finish): the answer it sent at the chat's top level, once that turn has ended, and whether it has ended. A turn
+    that ended with no answer of its own (a quiet wake-up turn's reply is not sent) gives ('', True): the card shrinks at
+    once instead of waiting CONCLUSION_GRACE for a message that never comes (accept7, 2026-11-16: 10 minutes)."""
+    key = str(record.get("state_job") or "")
+    job = (read_job_record(job_path(state_dir, key)) or {}) if key else {}
+    if not job or job.get("status") not in ENDED:
+        return "", False
+    for message in (job.get("answer_message_id"), job.get("card_message_id")):
+        if str(message or "").startswith("om_"):
+            return str(message), True
+    return "", True
+
+
 class ProjectCards:
     """The Bridge's feature object (app/unified.py PARTS ``project_cards``): the refresh thread, off unless COVEY_PROJECTS=1,
     and nothing else (no menu item, no click it claims: the buttons route as the lead topic's)."""
@@ -392,7 +408,10 @@ class ProjectCards:
         conclusion = str(record.get("conclusion_message_id") or "")
         if not reason:
             seen["done_seen"] = seen["done_seen"] or now
-            if not conclusion and now - seen["done_seen"] < CONCLUSION_GRACE:
+            ended = False
+            if not conclusion:
+                conclusion, ended = finishing_answer(ctx.state_dir, record)
+            if not conclusion and not ended and now - seen["done_seen"] < CONCLUSION_GRACE:
                 return
             if conclusion:
                 url = self.message_url(ctx, record, conclusion)
@@ -496,10 +515,13 @@ def downgrade(host, ctx, record) -> str:
             saved = read_object(path)
             if saved.get("project_id") == pid:
                 messages.add(str(saved.get("card_message_id") or ""))
+        card = str((now.get("card") or {}).get("message_id") or "")
         for message in sorted(messages - {""}):
+            if message == card:
+                move_topic_message(state, back, chat, message)  # Its clicks too: the upgrade made the card the lead's.
             route_message(state, chat, message, back, holder=back)
     label = topic_label(state, back) if back else ""
-    return (f"已把专项「{name}」降回普通话题：负责人的 {stopped} 个任务已停，{len(plain)} 个线程变回普通话题"
+    return (f"已把专项「{name}」降回普通话题：已请负责人的 {stopped} 个任务停下，{len(plain)} 个线程变回普通话题"
             + (f"；之后引用这张卡回复，会回到 {label or '原话题'}" if back else "；它没有线程，没有话题可回") + "。")
 
 
@@ -580,7 +602,7 @@ def stop_project(host, ctx, event) -> bool:
                                             {"job_id": str(job.job_id), "message_id": job.message_id}, chat,
                                             f"{event.get('event_id') or event.get('message_id')}-{job.job_id}")
             stopped += 1
-    return say(host, ctx, event, f"已停住专项「{name}」，停了 {stopped} 个任务。要继续，引用这张卡回复。", "project-stop")
+    return say(host, ctx, event, f"已停住专项「{name}」，已请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）。要继续，引用这张卡回复。", "project-stop")
 
 
 def downgrade_project(host, ctx, event) -> bool:

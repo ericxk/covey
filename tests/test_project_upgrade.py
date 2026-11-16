@@ -22,7 +22,7 @@ from covey.core import main_mcp, main_thread, main_thread_settings, main_tool_sp
 from covey.core.jobs import BridgeReplyJob, find_job_record, upsert_job_record
 from covey.core.main_requests import Request
 from covey.core.state import read_object, write_json
-from covey.core.topics import load_topic, routed_topic, topic_title
+from covey.core.topics import load_topic, message_topic, routed_topic, topic_title
 
 LONG = "这件事长期做，接着做"
 
@@ -195,6 +195,9 @@ class UpgradeTest(UpCase):
         self.assertEqual(lead["workspace_name"], "project")  # The topic's, not the main thread's.
         self.assertEqual(lead["workdir"], load_topic(self.state, topic)["workdir"])
         self.assertEqual(routed_topic(self.state, CHAT, dispatch["card_message_id"]), project["lead_topic_id"])
+        # Its clicks go to the lead as well: the buttons name the lead's topic (accept7: a click on an upgraded card
+        # was refused as other_topic while the 派发卡's alias still named the thread).
+        self.assertEqual(message_topic(self.state, CHAT, dispatch["card_message_id"]), project["lead_topic_id"])
 
     def test_the_start_receipt_says_what_the_lead_takes_over(self):
         topic, dispatch, project = self.upgraded()
@@ -549,8 +552,9 @@ class DowngradeTest(UpCase):
         self.assertNotIn("project", load_topic(self.state, self.topic))
         self.assertFalse(projects.is_thread_topic(self.state, self.topic))
         self.assertEqual(routed_topic(self.state, CHAT, self.dispatch["card_message_id"]), self.topic)
+        self.assertEqual(message_topic(self.state, CHAT, self.dispatch["card_message_id"]), self.topic)
         self.assertEqual(routed_topic(self.state, CHAT, other["card_message_id"]), self.topic)
-        self.assertIn("降回普通话题：负责人的 1 个任务已停，1 个线程变回普通话题", self.said())
+        self.assertIn("降回普通话题：已请负责人的 1 个任务停下，1 个线程变回普通话题", self.said())
         self.assertEqual(projects.cells(self.state, CHAT), {})  # The board cell is gone with the project.
 
     def test_the_card_then_shrinks_to_the_line_and_a_second_click_does_the_rest_again_harmlessly(self):
@@ -709,6 +713,9 @@ class ToolTest(UpCase):
         self.assertIsNotNone(queued)
         self.assertEqual(getattr(queued, "topic_id", None) or queued.get("topic_id"), lead)
         self.assertFalse(mid.startswith("lead-"))  # The owner's turn, not a wake-up.
+        reply_to = queued.get("reply_to_message_id") if isinstance(queued, dict) else queued.reply_to_message_id
+        # Not a reply to the Bridge's own alias: accept7 saw Feishu refuse it twice before the card went to the top level.
+        self.assertEqual(reply_to, "")
         again = self.call("project_send", "send3", pid=name, text="那就继续")
         self.assertEqual(again, answer)  # Once a request.
 
@@ -738,3 +745,30 @@ class McpTest(UpCase):
             config = main_thread.mcp_config(self.ctx.state_dir, self.ctx.state_dir, "k", "python3")
         self.assertNotIn("COVEY_PROJECTS", config["mcpServers"]["bridge"]["env"])
         self.assertNotIn("LARK_BRIDGE_PROJECTS", config["mcpServers"]["bridge"]["env"])
+
+
+class AcceptanceFindingsTest(DispatchCase):
+    """What the first real acceptance of the projects (accept7, 2026-11-16) found, as small checks."""
+
+    def test_the_owner_saying_zhuanxiang_counts_as_a_long_job(self):
+        self.assertTrue(records.LONG_WORDS.search("开个专项：行数清单"))
+        self.assertIn("开个专项", main_tool_specs.START_PROJECT["description"])
+
+    def test_a_lead_turn_the_owner_did_not_start_has_no_ask_block_and_quotes_no_message(self):
+        from covey.app.answer_cards import asked
+
+        for message in (projects.wake_id(PID_X, 2), projects.LEAD_ALIAS_PREFIX + PID_X):
+            self.assertTrue(projects.own_message(message))
+            # Answered before the state directory is read: no record of the turn is needed.
+            self.assertIsNone(asked("", {"message_id": message, "user_text": "[Bridge 唤醒] 收件箱有新的回执"}))
+        self.assertFalse(projects.own_message("om_owner"))
+
+    def test_a_leads_words_under_the_topic_lines_say_they_are_the_leads(self):
+        from covey.app.main_reply import reply_fold
+
+        self.assertIn("负责人的回答", json.dumps(reply_fold("好", lead=True), ensure_ascii=False))
+        self.assertIn("主线程的回答", json.dumps(reply_fold("好"), ensure_ascii=False))
+
+
+PID_X = "f00dfeed0001"
+

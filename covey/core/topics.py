@@ -305,6 +305,8 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
     # The main thread's topic has no root: each message is answered quoting it, at the chat's top level.
     top_level = main_thread.traits(topic_id, data.get("chat_id")).top_level
     reply_to = message_id if top_level else data["root_id"]
+    if projects.own_message(reply_to):
+        reply_to = ""  # A project's lead woken or handed the butler's words: its answer is a new top-level message.
     return dataclasses.replace(
         ctx, topic_id=topic_id, reply_to_message_id=reply_to,
         workspace_name=data["workspace_name"], workdir=workdir,
