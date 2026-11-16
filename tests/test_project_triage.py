@@ -540,7 +540,6 @@ class HeldDeliveryTest(HeldFixture):
         job = find_job_record(self.state, self.job.message_id)
         self.assertEqual((job["status"], job["question_delivery_ok"]), ("waiting_user", True))
 
-    @unittest.skip("found dead in the s2 review (HeldFixture was no TestCase, so it never ran); the second half does not hold yet")
     def test_the_same_record_without_the_hold_fails_the_job_at_a_restart(self):
         self.deliver()
         patch = mock.patch("covey.app.questions.live_keys", return_value=set())
