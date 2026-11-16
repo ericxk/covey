@@ -85,6 +85,7 @@ class Project:
     ask_text: str = ""
     ask_at: str = ""
     ask_url: str = ""
+    origin_note: str = ""  # How a project that grew from a quick job says so: "由快事升级（你说了长活）" (app/projects.py).
 
 
 def clipped(text, limit) -> str:
@@ -120,7 +121,7 @@ def count_line(project) -> str:
 
 def meta_line(project) -> str:
     parts = [count_line(project), f"用时 {project.elapsed}" if project.elapsed else "",
-             f"token {project.tokens}" if project.tokens else ""]
+             f"token {project.tokens}" if project.tokens else "", clipped(project.origin_note, 40)]
     return " · ".join(part for part in parts if part)
 
 
@@ -251,3 +252,9 @@ def moved_card(name, url="", *, direction=""):
     """The old card of a project whose card was sent again (the 14 days): "已移到新卡 ›" opening the new one."""
     text = " · ".join(part for part in (direction, clipped(name, HEAD_CHARS) or "专项") if part)
     return line_block("已移到新卡" + ("　›" if url else ""), text, url)
+
+
+def merged_card(name, url="", *, direction=""):
+    """The old 派发卡 of a job that became part of a project (app/projects.py upgrade): "已并入专项 ›" opening the project's card."""
+    text = " · ".join(part for part in (direction, clipped(name, HEAD_CHARS) or "专项") if part)
+    return line_block("已并入专项" + ("　›" if url else ""), text, url)

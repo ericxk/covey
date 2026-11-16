@@ -28,6 +28,7 @@ import json
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from covey.cards.project_card import (DONE, PAUSED, RUNNING, WAITING, Project, Thread, moved_card, project_card,
                                       settled_card)
@@ -36,12 +37,14 @@ from covey.cards.facts import tile_count
 from covey.core import projects
 from covey.core.card_sequence import CardHandle, reserve
 from covey.core.jobs import topic_job_records
-from covey.core.locks import resource_lock
+from covey.core import dispatch_records as drecords
+from covey.core.locks import resource_lock, topic_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, timings_of
-from covey.core.state import epoch_seconds, write_json
+from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.store import directory_store
-from covey.core.topics import remember_topic_message, route_message, topic_label, topic_title
+from covey.core.topics import (clear_topic_project, remember_topic_message, route_message, topic_file, topic_label,
+                               topic_title)
 
 TICK = 1.0  # Seconds between two looks at the live records.
 MIN_GAP = 2.5  # Seconds between two writes of one card (CardKit allows 10 a second).
@@ -52,9 +55,9 @@ MOVE_TRIES = 3  # Writes of "已移到新卡" tried on the old card before it is
 CONCLUSION_GRACE = 600.0  # A project done this long without a conclusion message is shrunk without its link.
 THREAD_CAP = 40  # Threads read for one card (the card draws MAX_THREADS).
 LIST_CAP = 50  # Rows read of the memory and the library.
-NOT_WIRED = "降级还没接上：这一步（把专项变回普通话题）要等专项升级、降级的功能做完才能用，这次什么都没改。"
 NO_LEAD_JOB = "负责人现在没有在做的一轮。要对它说话，引用这张专项卡直接回复就行。"
 CLOSED_WORDS = {"stopped": "专项已停住", "downgraded": "专项已降为普通话题"}
+DOWNGRADED = "downgraded"  # The record's state_reason of a project the owner turned back (its state is cancelled).
 
 
 def digest_of(card) -> str:
@@ -212,7 +215,8 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
                    lead_state=lead_state(state_dir, record, now), lead_note=lead_note(record),
                    triage=triage_lines(record), memory=memory_rows(state_dir, pid), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
-                   ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""))
+                   ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""),
+                   origin_note=str((record.get("origin") or {}).get("note") or "") if isinstance(record.get("origin"), dict) else "")
 
 
 def titles_of(topics) -> dict:
@@ -456,11 +460,74 @@ class ProjectCards:
 
 # The buttons (app/card_actions.py: controls.project_*, steering.project_steer) -----------------------------------------
 
+def topic_ctx(state_dir, topic_id):
+    """What ``topic_lock`` needs of a topic: where its history is, which is the topic's directory."""
+    return SimpleNamespace(history_path=topic_file(Path(state_dir), topic_id).parent / "history.jsonl")
+
+
 def downgrade(host, ctx, record) -> str:
-    """不要专项: turn the project back into an ordinary topic. NOT WIRED: P2-3 (升级、降级) writes the body (it settles the
-    project's cells and its card, and says what became of the threads); until then it says so and changes nothing.
-    ``host`` is the component the click came to (its runtime, messenger and voice); the line it returns is said to the owner."""
-    return NOT_WIRED
+    """不要专项: the line said to the owner. The record is cancelled first (``ProjectCards`` then shrinks the card to "⏹ 专项已降为
+    普通话题"); the lead's queued and running tasks are stopped; the threads (and the topic the project grew from) lose their
+    ``project`` field; the card's message, and the lines of the 派发卡 it took in, go back to the topic the project grew from
+    (a direct project's, to its first thread; none when it has none). Every step is safe to repeat, so a click on a project that
+    was turned back half way finishes it. ``host`` is the component the click came to (its runtime, messenger and voice)."""
+    state, pid = Path(ctx.state_dir), str(record["id"])
+    now = projects.read_record(state, pid) or record
+    name = words(now.get("name"), 30) or "专项"
+    if now.get("state") == projects.DONE:
+        return f"专项「{name}」已经做完，没有要降的。"
+    if now.get("state") == projects.CANCELLED and now.get("state_reason") != DOWNGRADED:
+        return f"专项「{name}」已经取消了。"
+    if now.get("state") != projects.CANCELLED:
+        try:
+            now = projects.set_state(state, pid, projects.CANCELLED, DOWNGRADED)
+        except ValueError:  # Done, or cancelled, since it was read.
+            return f"专项「{name}」刚刚已经结束了，没有要降的。"
+    chat, lead = str(now.get("chat_id") or ""), str(now.get("lead_topic_id") or "")
+    stopped = stop_lead(host, ctx, lead, chat, pid)
+    origin = now.get("origin") if isinstance(now.get("origin"), dict) else {}
+    topics = [topic for topic in dict.fromkeys([origin.get("topic_id"), *(now.get("threads") or ())])
+              if isinstance(topic, str) and topic]
+    plain = [topic for topic in topics if release(state, topic, pid)]
+    back = origin.get("topic_id") or next(iter(topics), "")
+    if back:
+        messages = {str((now.get("card") or {}).get("message_id") or "")}
+        for path in drecords.live_paths(state):
+            saved = read_object(path)
+            if saved.get("project_id") == pid:
+                messages.add(str(saved.get("card_message_id") or ""))
+        for message in sorted(messages - {""}):
+            route_message(state, chat, message, back, holder=back)
+    label = topic_label(state, back) if back else ""
+    return (f"已把专项「{name}」降回普通话题：负责人的 {stopped} 个任务已停，{len(plain)} 个线程变回普通话题"
+            + (f"；之后引用这张卡回复，会回到 {label or '原话题'}" if back else "；它没有线程，没有话题可回") + "。")
+
+
+def release(state, topic, pid) -> bool:
+    """``topic`` is an ordinary topic again (its ``project`` field of project ``pid`` is gone); whether it is one now. A topic of
+    another project, or whose topic.json is gone, is left as it is."""
+    found = projects.topic_project(state, topic)
+    if found is None:
+        return True
+    if found.id != pid:
+        return False
+    try:
+        with topic_lock(topic_ctx(state, topic)):
+            clear_topic_project(state, topic)
+    except OSError:
+        return False
+    return True
+
+
+def stop_lead(host, ctx, lead, chat, pid) -> int:
+    """Stop the lead's tasks that are queued or running (as a stop on a task's own card does); how many."""
+    stopped = 0
+    for job in host.runtime.jobs.open_in_topic(lead, chat):
+        host.cancel_reply_job_from_card(dataclasses.replace(ctx, topic_id=lead),
+                                        {"job_id": str(job.job_id), "message_id": job.message_id}, chat,
+                                        f"project-downgrade-{pid}-{job.job_id}")
+        stopped += 1
+    return stopped
 
 
 def click(ctx, event):

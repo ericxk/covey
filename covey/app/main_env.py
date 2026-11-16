@@ -23,6 +23,7 @@ class MainEnv:
     state_dir: Path
     profile: str
     settings: Any = None  # app/settings_hub.py SettingsHub: the 设置 card (the tool settings_panel).
+    projects: Any = None  # app/projects.py Projects (COVEY_PROJECTS=1): topic_start's ``project`` and the 派发卡's upgrade.
 
     def chat(self) -> str:
         """The chat of the main thread whose call this thread runs (``serving``: each chat with a main thread has its

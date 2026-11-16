@@ -317,3 +317,12 @@ def is_thread_topic(state_dir, topic_id) -> bool:
         return False
     found = topic_project(state_dir, topic_id)
     return found is not None and found.role == THREAD
+
+
+def active_count(state_dir) -> int:
+    """How many projects are on right now (``ACTIVE``; a stopped one, ``PAUSED``, uses no turns and does not count): the
+    owner's limit is ``MAX_ACTIVE``. Read-only: the upgrade and a project opened directly ask it before they write
+    (app/projects.py). 0 without COVEY_PROJECTS."""
+    if not enabled() or not state_dir:
+        return 0
+    return sum(1 for record in records(state_dir) if (record.get("state") or ACTIVE) == ACTIVE)

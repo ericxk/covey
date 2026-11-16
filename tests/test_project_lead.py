@@ -370,7 +370,10 @@ class ConfigTest(Case):
         self.assertEqual(lead["mcpServers"]["bridge"]["env"][main_thread.LEAD_ENV], PID)
         with mock.patch.dict(os.environ, {projects.ENV: ""}):
             off = main_thread.mcp_config(Path("/r"), self.state, "k", sys.executable, lead=PID)
-        self.assertEqual(off, plain)
+            plain_off = main_thread.mcp_config(Path("/r"), self.state, "k", sys.executable)
+        self.assertEqual(off, plain_off)  # With the switch off the lead's variable and the butler's are not handed on.
+        self.assertEqual(plain["mcpServers"]["bridge"]["env"][projects.ENV], "1")
+        self.assertNotIn(projects.ENV, plain_off["mcpServers"]["bridge"]["env"])
 
     def test_the_server_lists_the_leads_tools_when_told_and_the_main_threads_otherwise(self):
         names = lambda env: [tool["name"] for tool in main_mcp.tool_list(env)]  # noqa: E731

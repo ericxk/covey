@@ -984,7 +984,10 @@ def project_cards():
             "line_done": pc.settled_card("把订单库迁到新集群", url=link, direction="数据平台"),
             "line_done_no_link": pc.settled_card("把订单库迁到新集群"),
             "line_stopped": pc.settled_card("把订单库迁到新集群", reason="专项已降为普通话题"),
-            "line_moved": pc.moved_card("把订单库迁到新集群", link, direction="数据平台")}
+            "line_moved": pc.moved_card("把订单库迁到新集群", link, direction="数据平台"),
+            "upgraded": pc.project_card(pc.Project(**{**work.__dict__, "threads": threads[:1], "direction": "",
+                                                      "origin_note": "由快事升级（你说了长活）"})),
+            "line_merged": pc.merged_card("把订单库迁到新集群", link)}
 
 
 GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,

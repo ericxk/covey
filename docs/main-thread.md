@@ -235,7 +235,10 @@ Bridge 进程 ── app/main_tools.py：pending → claim → 核对 job_key �
 | `knowledge_drop` | id*、reason* | 作废一条（同上） |
 | `knowledge_search` | query*、workspace、history | 搜当前条目；`history` 时也搜已取代、已作废的（同上） |
 | `history_search` | query*、workspace、since | 搜 Claude、Codex、Bridge 的历史轮次（只有 `COVEY_HISTORY_CMD` 是绝对路径才列） |
+| `projects_list` | 无 | 列专项：id、名字、状态、线程的 T 号、负责人最近一句（只有 `COVEY_PROJECTS=1` 才列） |
+| `project_send` | pid*、text* | 把主人的话交给专项的负责人，按主人触发的一轮处理（同上） |
 
+- `COVEY_PROJECTS=1` 时（Bridge 把它交给 MCP 服务，`core/main_thread.py` 的 `mcp_config`）：管家的清单多出 `projects_list`、`project_send`（`app/projects.py`），`topic_start`、`topic_send` 各多一个可选的 `project`。`topic_start` 带 `project: true` 不开话题，开一个专项（`Projects.start`：记录、负责人话题、专项卡、`start` 回执），`title` 是专项名，`prompt` 是目标和完成标准；`topic_send` 带 `project: true` 是告诉升级逻辑这个话题其实是长活（`COVEY_PROJECT_UPGRADE` 不是 `off` 才生效）。专项的线程不接 `topic_send`，回一句改用 `project_send`；`project_send` 的 `pid` 写 id、id 的开头或名字里的几个字，在跑的负责人那一轮收到补充，没有就开它的下一轮（消息 id `main-…`，算主人触发的一轮，不是自动唤醒）。关着时清单和原来一字不差。
 - 查询类工具（`app/main_tools.py`）只读记录，不持记录锁。`topics_list` 的“有结果未看”（`group: result`）是看板的口径（`board_results`），“最近”是 `TOOLS_AGE`（3 天）。`topic_read` 默认读 2 轮，检查点列阶段、已完成、产物、下一步、在问，以及 `steps` 和 `delivery`。
 - `question_answer` 只答最新一组 pending 的问题：每题都要答，答案是选项原文，有自由文字题就整组拒绝。经 `app/answers.py` 的 `answer_fields` 转成表单字段，补充说明写 `PROXY_NOTE`，再经 `app/questions.py` 的 `submit_answer` 提交，和卡上点“提交回答”同一条路。
 - `topic_priority` 写 `board-priority.json`；`remove` 经 `app/pins.py` 的 `dismiss` 写 `dismissed`，看板没开时回 false。
@@ -402,7 +405,9 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和主线程都�
 - **刷新**：线程每秒看一遍，摘要变了且离上次写至少 2.5 秒才整卡 PUT；每次写前从 `reserve` 取 sequence 存进 `record["card"]`，失败按 2、4、8 … 最多 60 秒退避。摘要也存在记录里，重启不会为同一张卡再写一次。
 - **做完**：专项 `done` 后卡缩成一行（`settled_card`，链到 `conclusion_message_id` 那条结论；一直没有就等 10 分钟再缩，不带链接）；`cancelled` 缩成“⏹ 专项已降为普通话题”。缩完记 `card.closed`，不再刷新。
 - **14 天翻页**：CardKit 的卡实体 14 天后不能改。卡龄过第 12 天（`FLIP_AFTER`）新发一张卡（一条新消息，键里带代数；发不出去下次用同一个 `pending_card_id` 重试），记录、别名、Pin 改指新卡（`aimed` 读记录），旧卡下一次看时缩成“已移到新卡 ›”（用它自己的 sequence），写不了 3 次就撤回。
-- **按钮**：`bridge_project_steer`、`_stop`、`_downgrade`、`_mem_del`、`_lib_del` 在 `ACTIONS` 里（`handler` 是 `steering.project_steer`、`controls.project_stop`、`controls.project_downgrade`、`controls.project_mem_del`、`controls.project_lib_del`），都不是 `bot_only`：没有一个新建任务，值带 `project_id` 和负责人的 `topic_id`，不带 `job_id`，所以任务进程不会收到。补充 = 负责人正在跑的那一轮的补充表单（`steer_action`）；负责人空闲时不新开一轮，回一句“引用这张卡回复”（引用会路由到负责人，走主线程的正常入口）。停止专项 = 记录转 `paused`（停住）并停掉负责人和各线程话题里排队或在跑的任务。不要专项调 `app/project_cards.py` 的 `downgrade`，**现在还没接上**（回一句说明、什么都不改），降级是升级、降级那个包的事。删记忆、删资料只删自己那一行（资料只认 `library/` 里的文件名，不认路径）。
+- **按钮**：`bridge_project_steer`、`_stop`、`_downgrade`、`_mem_del`、`_lib_del` 在 `ACTIONS` 里（`handler` 是 `steering.project_steer`、`controls.project_stop`、`controls.project_downgrade`、`controls.project_mem_del`、`controls.project_lib_del`），都不是 `bot_only`：没有一个新建任务，值带 `project_id` 和负责人的 `topic_id`，不带 `job_id`，所以任务进程不会收到。补充 = 负责人正在跑的那一轮的补充表单（`steer_action`）；负责人空闲时不新开一轮，回一句“引用这张卡回复”（引用会路由到负责人，走主线程的正常入口）。停止专项 = 记录转 `paused`（停住）并停掉负责人和各线程话题里排队或在跑的任务。不要专项调 `app/project_cards.py` 的 `downgrade`（降级，见下）。删记忆、删资料只删自己那一行（资料只认 `library/` 里的文件名，不认路径）。
+- **升级的卡**：派发卡升级成专项（[架构 · 专项](architecture.md#专项第-2-期开发中默认关)）时还是同一条消息、同一个 `card_id`，下一次刷新整卡换成专项卡，`pj_meta` 末尾多一句“由快事升级（你说了长活）”或“由快事升级（来回第 3 轮）”（读记录 `origin.note`）；同话题其余还活着的派发卡写成一行“已并入专项 ›”（`merged_card`）。
+- **不要专项**：点了之后专项记 `cancelled`，卡缩成“⏹ 专项已降为普通话题”，负责人在跑的任务停掉，线程变回普通话题，这条卡和并入的那几行以后被引用回复，回到原话题（见架构里的降级）。
 - **Pin**：看板的格是专项（`core/board_read.py` 的 `cells`）；在做钉专项卡，等你钉线程的问题卡，做完钉结束的那条线程的答案卡（没有就钉专项卡）；专项还没有卡时钉线程自己的卡。手上的事和早晚汇总的行用 `label_title`，格叫“专项 · 专项名”。
 
 ## 代码位置
