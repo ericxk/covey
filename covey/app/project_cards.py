@@ -34,7 +34,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.cards.project_card import (ASK_KINDS, DONE, PAUSED, RUNNING, WAITING, Project, Member, ask_card, asked_card,
+from covey.cards.project_card import (ASK_KINDS, CORRECTED, DONE, PAUSED, RUNNING, WAITING, Project, Member, ask_card, asked_card,
                                       moved_card, project_card, settled_card)
 from covey.app import project_loop
 from covey.cards import answer_card
@@ -165,7 +165,7 @@ def triage_lines(record) -> tuple:
             if isinstance(row, dict) and row.get("kind") == "answered" and row.get("token") and not row.get("corrected"):
                 lines.append((line, str(row["token"])))
             else:
-                lines.append(line + ("（已纠正）" if isinstance(row, dict) and row.get("corrected") else ""))
+                lines.append(line + (CORRECTED if isinstance(row, dict) and row.get("corrected") else ""))
     return tuple(lines)
 
 

@@ -43,6 +43,7 @@ MAX_ROWS = 10  # Rows of the 分流记录, 专项记忆 and 资料库 folds.
 NODES, BYTES = CARD_NODES - 10, CARD_BYTES - 2000  # The header is outside.
 FIT_STEPS = ((MAX_ROWS, MAX_FOLDS), (6, MAX_FOLDS), (4, 6), (3, 5), (2, 4), (1, 3), (0, 2))  # (rows of a fold, topic folds) tried in turn.
 ROW_CHARS = 90
+CORRECTED = "（已纠正）"  # The end of a 分流记录 line the owner corrected (app/project_cards.py triage_lines), kept when it is clipped.
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
 MEM_DEL_KIND, LIB_DEL_KIND = "bridge_project_mem_del", "bridge_project_lib_del"
 TRIAGE_WRONG_KIND = "bridge_project_triage_wrong"
@@ -195,7 +196,9 @@ def triage_rows(project) -> list:
     rows = []
     for line in project.triage:
         text, token = line if isinstance(line, tuple) else (line, "")
-        body = md(grey(literal_text(clipped(text, ROW_CHARS))), size="notation")
+        text = str(text)
+        mark = CORRECTED if text.endswith(CORRECTED) else ""  # Clipped, a long line kept its start and lost the mark.
+        body = md(grey(literal_text(clipped(text[:len(text) - len(mark)], ROW_CHARS - len(mark)) + mark)), size="notation")
         rows.append(item(body, text_button("不对", {"kind": TRIAGE_WRONG_KIND, "project_id": project.project_id,
                                                   "topic_id": project.lead_topic, "token": token}, tone="danger"))
                     if token else body)

@@ -402,6 +402,18 @@ class CardTest(Held):
         projects.update(self.state, PID, lambda data: data["triage"][0].__setitem__("corrected", True))
         self.assertTrue(project_cards.triage_lines(self.reload())[1].endswith("（已纠正）"))
 
+    def test_a_long_corrected_row_keeps_its_mark_when_it_is_clipped(self):
+        # The acceptance of 2026-11-17: “…→ LF（已纠…”, the mark cut off at the row's width.
+        long = "答了：T11 · g.txt 用 LF 还是 CRLF 换行？这个文件之后还要给 Windows 上的同事用，" * 3 + "→ LF"
+        flow.log_row(self.state, PID, long, token=TOKEN, topic=THREAD, kind="answered")
+        projects.update(self.state, PID, lambda data: data["triage"][-1].__setitem__("corrected", True))
+        lines = project_cards.triage_lines(self.reload())
+        view = project_card.Project(**{**project_card_sample().__dict__, "triage": lines})
+        shown = [e["content"] for e in walk(project_card.triage_rows(view)) if e.get("tag") == "markdown"]
+        self.assertEqual(len(shown), 1)
+        self.assertIn("…", shown[0])
+        self.assertTrue(shown[0].endswith(project_card.CORRECTED + "</font>"), shown[0])
+
     def test_rows_without_a_token_draw_as_they_always_did(self):
         view = project_card.Project(**{**project_card_sample().__dict__, "triage": ("09:40 答了：用哪个库版本？",)})
         self.assertFalse([b for b in walk(project_card.triage_rows(view)) if b.get("tag") == "button"])
