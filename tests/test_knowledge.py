@@ -169,7 +169,8 @@ class StoreTest(StateCase):
         procs = [subprocess.Popen([sys.executable, "-c", code, tag, str(self.state)], env=env, cwd=str(REPO))
                  for tag in ("a", "b", "c")]
         for proc in procs:
-            self.assertEqual(proc.wait(timeout=60), 0)
+            # 60 s ran out once with the machine's load near 440 (2026-11-16); an idle machine needs a few seconds.
+            self.assertEqual(proc.wait(timeout=180), 0)
         texts = sorted(e["text"] for e in knowledge.entries(self.state))
         self.assertEqual(texts, sorted(f"{t}-{i}" for t in "abc" for i in range(15)))
         self.assertEqual(len((self.state / "knowledge" / "owner.jsonl").read_text().splitlines()), 45)

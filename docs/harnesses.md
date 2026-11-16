@@ -125,7 +125,7 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 
 根任务给出最终回复后，还要等子任务、待处理消息和进程清理收尾。设了任务超时时，等待不超过任务的截止时间（`core/completion.py` 的 `CompletionBudget`）。这些限制不改变 Harness 自身的模型请求重试。
 
-- **Claude**：后台命令或子 Agent 结束时 Claude Code 会再起一轮通知，模型可以再回复一次；机器人等到后台任务全部结束，只受 `--claude-timeout` 约束。因停止或超时结束、已有完整回复的照常发出并加说明（`cancelled`、`background_timeout`，会话不续接）。
+- **Claude**：后台命令或子 Agent 结束时 Claude Code 会再起一轮通知，模型可以再回复一次；机器人等到后台任务全部结束，只受 `--claude-timeout` 约束。这一轮的回复是各轮回复按顺序用空行连起来（工具调用前的过程话不算），紧挨着的两段完全相同时只留一段：模型常在每次通知后把同一句话再说一遍（`backends/claude/completion.py` 的 `final_texts`）。因停止或超时结束、已有完整回复的照常发出并加说明（`cancelled`、`background_timeout`，会话不续接）。
 
 ## Codex
 
