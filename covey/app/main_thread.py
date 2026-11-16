@@ -16,6 +16,7 @@ enabled: COVEY_MAIN_THREAD not 0, the mode on the settings card): what the owner
   another such message joins it and holds it again. Never saved: a restart starts it.
 - ``main_turn``, in the task runner: this turn's rules and snapshot at the head of the message, and the Bridge's tools
   for this run (``options["mcp_config"]``, which backends/claude/argv.py turns into --mcp-config).
+- A project's lead (COVEY_PROJECTS, app/project_lead.py) has its own turn in ``main_turn``: ``project_lead.lead_turn``.
 - ``compact_main_thread``: past ``compact_tokens`` at the end of a turn, a compaction request: the Bridge compacts
   while the topic is idle (app/idle_compaction.py), else the next turn first (app/compaction.py).
 
@@ -32,7 +33,7 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app import idle_compaction, main_relay, pins, track_digest, track_standby
+from covey.app import idle_compaction, main_relay, pins, project_lead, track_digest, track_standby
 from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import main_tracks as tracks_module
@@ -349,8 +350,11 @@ def main_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
     compacted session, so it reads everything again. A turn of a track (slot 1.., core/main_tracks.py; ``harness``
     needed): no compaction, no idle compaction to stop, the snapshot whole and not saved (the main thread's own record
     of what it read stays), and a new session starts as a fork of the main thread's (``track_start``)."""
-    if not contract.traits_of(job).own_turn:
+    traits = contract.traits_of(job)
+    if not traits.own_turn:
         return ctx, prompt
+    if traits is contract.LEAD:  # A project's lead (app/project_lead.py): its own rules, state pack and tools.
+        return project_lead.lead_turn(ctx, job, prompt, session_id, log, RELEASE)
     track = main_tracks.track_of(job.topic_id, job.chat_id) or 0
     # Before the snapshot and the session: an idle compaction under way stops, its request back for this turn's end.
     if not track:
@@ -409,8 +413,11 @@ def compact_main_thread(compaction, ctx, job) -> None:
     """A turn of the main thread ended past ``compact_tokens``: a compaction request. One its task runner records is
     ``idle``: the Bridge compacts once the turn's runner has exited and the topic stayed idle (app/idle_compaction.py),
     and the next turn compacts first only when that did not happen in time (app/compaction.py left_for_idle)."""
-    if not contract.traits_of(job).own_turn or main_tracks.track_of(job.topic_id, job.chat_id):
-        return  # A track (slot 1..) has no compaction: the main thread's own does it for the family.
+    traits = contract.traits_of(job)
+    if not traits.own_turn or traits is contract.LEAD or main_tracks.track_of(job.topic_id, job.chat_id):
+        # A track (slot 1..) has no compaction: the main thread's own does it for the family. A project's lead has none
+        # either: its session is rebuilt from the disk (app/project_lead.py settle_session).
+        return
     try:
         threshold = main_thread_settings.load(ctx.state_dir).compact_tokens
         tokens = getattr(job.tool_trace, "context_tokens", None)

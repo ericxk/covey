@@ -73,6 +73,11 @@ class Sessions:
                 compare_and_set_session(ctx.session_path, self.harness.spec.session_pattern, revision, sid, None)
             raise ValueError("会话状态正在变化，请稍后重试")
 
+    def clear_session(self, ctx: BridgeContext, revision: int, session_id: str | None) -> bool:
+        """Drop the topic's session pointer when it is still ``session_id`` at ``revision`` (the caller holds the
+        runtime's session lock): the next turn starts a new session. Whether it was cleared."""
+        return compare_and_set_session(ctx.session_path, self.harness.spec.session_pattern, revision, session_id, None)
+
     def append_session_index(self, ctx: BridgeContext, session_id: str) -> None:
         if not ctx.workspace_name or not session_id:
             return

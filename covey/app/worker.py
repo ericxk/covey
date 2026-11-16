@@ -44,8 +44,8 @@ from covey.core.main_thread import traits_of, worded
 from covey.core.paths import tool_root
 from covey.feishu.transport import last_failure, set_failure
 from covey.app.outbox import AUDIT_REFUSED_NOTE, record_attempt
-from covey.app import (auto_retry, main_reactions, main_relay, main_reply, main_tracks, policy_retry, saved_send,
-                                topic_links, track_digest)
+from covey.app import (auto_retry, main_reactions, main_relay, main_reply, main_tracks, policy_retry, project_lead,
+                                saved_send, topic_links, track_digest)
 from covey.app.answer_delivery import AnswerParts
 from covey.app.turn_images import TurnImages
 from covey.app.quiet_delivery import QuietDelivery
@@ -495,6 +495,8 @@ def _start_turn(ctx, job, *, sessions, runtime, record_job_state):
     timing.mark("started")
     record_job_state(ctx, job, "running", "后台 worker 已开始处理")
     revision, session_id = sessions.capture_session(ctx)
+    # A project's lead keeps its session only as a cache (app/project_lead.py): rebuilt when it is old, big or on another model.
+    revision, session_id = project_lead.settle_session(ctx, job, sessions, runtime, revision, session_id)
     job.session_id = session_id
     job.bridge_run_id = str(uuid.uuid4())
     job.verified_reply = None

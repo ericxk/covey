@@ -22,6 +22,7 @@ the one a card's write needs for its sequence (rule 3).
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 import time
@@ -35,7 +36,7 @@ from covey.core.menu_choice import budget_effort, find_choice
 from covey.app.main_env import reply
 from covey.cards.topic_card import topic_card
 from covey.app.relay_targets import main_job_owner_message
-from covey.core import devices, main_thread, main_thread_settings
+from covey.core import devices, main_thread, main_thread_settings, projects
 from covey.core.attachments import attachment_block
 from covey.core.card_sequence import file_card, reserve
 from covey.core.defaults import RECOMMENDED
@@ -75,10 +76,24 @@ def _text(value, limit=0):
     return text[:limit] if limit else text
 
 
+def lead_of(env, request):
+    """The project a lead's call ``request`` is for, as (project id, its name); None when its job is not a project's lead's
+    (COVEY_PROJECTS off: never). The lead's topic_start and topic_send open and feed the project's threads."""
+    if not projects.enabled():
+        return None
+    job = find_job_record(Path(env.state_dir), request.job_key) or {}
+    topic = str(job.get("topic_id") or "")
+    if not topic or not main_thread.is_lead(topic, job.get("chat_id")):
+        return None
+    found = projects.topic_project(Path(env.state_dir), topic)
+    return (found.id, projects.read_record(Path(env.state_dir), found.id).get("name") or "") if found else None
+
+
 def dispatch_card(env, request, topic_id, **how):
     """The 派发活卡片 of the work ``request`` handed to ``topic_id`` (app/dispatch_cards.py), only with
-    COVEY_MAIN_DISPATCH_CARD=1: without it nothing is called and the topic's own cards are all there is."""
-    if dispatch_cards.enabled():
+    COVEY_MAIN_DISPATCH_CARD=1: without it nothing is called and the topic's own cards are all there is. None for a
+    project's lead's call: the project's card is the one (phase 2's P2-4)."""
+    if dispatch_cards.enabled() and lead_of(env, request) is None:
         dispatch_cards.created(env, request, topic_id, request.job_key, token=request_token(request), **how)
 
 
@@ -125,6 +140,12 @@ def handed(env, request, ctx):
     """(the owner's message the request's main-thread turn answers, the attachments of it the call hands ``ctx``'s
     topic, carried into its incoming_media)."""
     owner = main_handoff.asked(env.state_dir, request.job_key)
+    lead = lead_of(env, request)
+    if lead is not None:
+        # The words of a lead's turn are the Bridge's wake-up message unless the owner spoke in it (its message is the
+        # owner's, not a synthetic one): never quoted to a thread as the owner's.
+        owner = dataclasses.replace(owner if main_job_owner_message(env.state_dir, request.job_key) else main_handoff.Asked(),
+                                    lead=lead[1] or "专项")
     items = main_handoff.picked(owner.attachments, request.args.get("attachments"))
     return owner, main_handoff.carry(items, media_dir(ctx), owner.roots) if items else []
 
@@ -381,10 +402,13 @@ def _bind(env, app, request, path, record, args, event, config) -> str:
     origin = {"kind": "main", "request": request.id, "job_key": request.job_key, "why": record["why"],
               "readonly": args.get("readonly") is True, "user_requested": args.get("user_requested") is True,
               "title": title, "at": record["at"]}
+    lead = lead_of(env, request)
     if not record.get("topic_id"):
         with topic_lock(target), LOCK:
             data = read_topic(target)
             data.update(harness_id=plan["harness"], binding_revision=1, origin=origin)
+            if lead is not None:  # Written with the binding: the thread's first turn is queued only after it.
+                data["project"] = projects.project_field(lead[0], projects.THREAD)
             if plan["start"]:
                 data.update(model=plan["model"], effort=plan["effort"], model_settings_snapshot=True,
                             workspace_name=plan["workspace"], workdir=plan["workdir"],
@@ -470,7 +494,8 @@ def hand_line(env, ctx, chat, request, record, kind, owner, text, items, token):
 
     try:
         main_record = find_job_record(Path(env.state_dir), request.job_key) or {}
-        back = ask_url(env.state_dir, main_record, profile=env.profile, log=env.runtime.log) if main_record else ""
+        back = (ask_url(env.state_dir, main_record, profile=env.profile, log=env.runtime.log)
+                if main_record and not (owner.lead and not owner.said) else "")
     except Exception as exc:  # noqa: BLE001 - the line as text
         env.runtime.log(f"handoff line link unavailable: {type(exc).__name__}")
         back = ""

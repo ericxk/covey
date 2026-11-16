@@ -21,7 +21,7 @@ from covey.cards.elements import markdown_panel, md
 from covey.cards.review import answer_lead
 from covey.core.deliveries import CLOCK_SLACK, read_delivery, shown_preview
 from covey.core.jobs import job_key
-from covey.app import topic_links
+from covey.app import project_lead, topic_links
 from covey.core import main_opened, placement
 from covey.core.main_thread import traits_of
 from covey.core.saved_results import saved_delivery_kind
@@ -102,10 +102,12 @@ def routes(state_dir, job_key, slim=False) -> list[str]:
     return [line for _, line in sorted(rows, key=lambda row: row[0])]
 
 
-def outcome_words(state_dir, key, reply_text="") -> str:
+def outcome_words(state_dir, key, reply_text="", lead=False) -> str:
     """What the main-thread job ``key`` did, said on its card's status line and in the chat list's preview (V6/S13,
     2026-11-08): "↪ 开了 T444「标题」", "↪ 交给 T442 接着做", "↪ 补充给 T444（它正在跑）", "↪ 分叉出 T445「标题」",
-    "↪ 拆成 2 件" for more than one topic, else "✅ 已答：" and the reply's lead; "" with neither."""
+    "↪ 拆成 2 件" for more than one topic, else "✅ 已答：" and the reply's lead; "" with neither. A project's lead's turn
+    (``lead``) that opened or handed on to no thread says the note it recorded or that it finished the project first
+    (app/project_lead.py outcome_line)."""
     said = []
     for _, record in main_opened.by_job(state_dir, key):
         topic = str(main_opened.topic_of(record) or "")
@@ -126,6 +128,8 @@ def outcome_words(state_dir, key, reply_text="") -> str:
         return f"{ROUTED}拆成 {len(said)} 件"
     if said:
         return said[0]
+    if lead and project_lead.outcome_line(state_dir, key):
+        return project_lead.outcome_line(state_dir, key)
     # The words under a heading first: "## 结论" alone says nothing of the answer.
     words = "\n".join(line for line in str(reply_text or "").splitlines() if not line.lstrip().startswith("#"))
     lead = answer_lead(words, OUTCOME_LEAD) or answer_lead(reply_text, OUTCOME_LEAD)
@@ -134,18 +138,20 @@ def outcome_words(state_dir, key, reply_text="") -> str:
 
 def say_outcome(delivery) -> bool:
     """A main-thread turn done and delivered: its card's status line and preview say what it did (``outcome_words``),
-    with the main thread on (not its MAIN_OFF topic with the main thread off). Best effort."""
+    with the main thread on (not its MAIN_OFF topic with the main thread off); a project's lead's turn too (the lead
+    role, COVEY_PROJECTS), whose line names the threads it opened or the note it recorded. Best effort."""
     job, ctx, turn = delivery.job, delivery.ctx, delivery.turn
     if not getattr(job, "progress", None) or turn.status != "done":
         return False
-    if placement.ROLES.get(traits_of(job).name) != placement.MAIN_ROLE:
+    role = placement.ROLES.get(traits_of(job).name)
+    if role not in (placement.MAIN_ROLE, placement.LEAD_ROLE):
         return False
     try:
         if placement.layout() == placement.TOPICS:
             return False
         reply = turn.verified_delivery
         text = reply.text if reply is not None and saved_delivery_kind(reply, turn.verified_outcome) != "file" else ""
-        line = outcome_words(ctx.state_dir, job_key(job.message_id, job.job_id), text)
+        line = outcome_words(ctx.state_dir, job_key(job.message_id, job.job_id), text, lead=role == placement.LEAD_ROLE)
         return bool(line) and delivery.cards.say_outcome(ctx, job, line)
     except Exception as exc:  # noqa: BLE001 - the card keeps its outcome line
         delivery.runtime.log(f"main thread outcome words not shown job=#{job.job_id}: {type(exc).__name__}")

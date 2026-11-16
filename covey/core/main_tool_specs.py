@@ -204,10 +204,92 @@ def butler_tools(tools) -> tuple:
                  if tool["name"] == "topic_start" else tool for tool in tools)
 
 
+# 专项 (COVEY_PROJECTS=1, docs/architecture.md 专项): the tools of a project's lead (app/project_tools.py, app/project_lead.py).
+# The server lists them, and only them besides LEAD_READ, when COVEY_PROJECT_LEAD is set in its environment (the Bridge sets
+# it for a lead's job alone, core/main_thread.py mcp_config); the main thread's list never has them. ``thread`` names a
+# thread of this project: T number or topic id.
+LEAD_ENV = "COVEY_PROJECT_LEAD"
+THREAD = {"type": "string", "description": "线程话题：T 号（如 T412）或 topic_id，要是这个专项的线程"}
+PROJECT_TOOLS = (
+    {"name": "project_thread_start",
+     "description": "为这个专项派出一个线程（话题）去做一件事，马上返回，不要等它做完：线程结束后会有下一轮叫醒你。"
+                    "prompt 是交给线程的任务说明：做什么、范围、主人提的约束、交付什么，用清楚的话写，不抄本机路径，不加你自己的计划之外的内容。"
+                    "同时最多 4 个线程（风格里的“派活”档更低时按那档）；一件独立的事一个线程。工作区用 workspaces_list 选。"
+                    "只读的、或主人在专项里亲口要求做的会直接开工，其余会在线程里出启动卡等主人点开始。",
+     "input_schema": {"type": "object", "required": ["title", "prompt", "workspace", "readonly", "why"], "properties": {
+         "title": {"type": "string", "description": "线程的标题，说是哪件事：中文、中文标点，20 字以内"},
+         "prompt": {"type": "string", "description": "交给线程的任务说明"},
+         "workspace": {"type": "string", "description": "工作区名（workspaces_list 里的），不是任意路径"},
+         "readonly": {"type": "boolean", "description": "只查看、只回答，不改任何文件、不执行有副作用的命令时为 true"},
+         "user_requested": {"type": "boolean", "description": "主人在这个专项里亲口要求做这件事为 true；你自己推断的为 false"},
+         "why": {"type": "string", "description": "一行中文：为什么选这个工作区和配置"},
+         "harness": {"type": "string", "description": "不填用设置里的默认"},
+         "model": {"type": "string", "description": "不填用设置里的默认"},
+         "effort": {"type": "string", "description": "思考预算，不填用设置里的默认"}}}},
+    {"name": "project_thread_send",
+     "description": "给这个专项的一个已有线程加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"
+                    "只能给这个专项自己的线程，别的话题用不了。",
+     "input_schema": {"type": "object", "required": ["thread", "text"], "properties": {
+         "thread": THREAD, "text": {"type": "string", "description": "交给线程的内容：要它做或补充的事"},
+         "note": {"type": "string", "description": "可选，一句背景（最多 100 字）"}}}},
+    {"name": "project_note",
+     "description": "在专项卡上记一句进展（最多 200 字）。report 为 true 的才是要告诉主人的，按风格过滤（只在里程碑和完成、线程结束、"
+                    "或详细时才发）；kind 说它是哪一类：milestone 里程碑，thread 线程结果，note 一般进展。decision 为 true 时，"
+                    "也记进决定日志（之后每一轮都看到最近 10 条）。别每步都记。",
+     "input_schema": {"type": "object", "required": ["text"], "properties": {
+         "text": {"type": "string", "description": "一句话，最多 200 字"},
+         "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上"},
+         "kind": {"type": "string", "enum": ["milestone", "thread", "note"], "description": "默认 note"},
+         "decision": {"type": "boolean", "description": "这是一条定下来的决定为 true"}}}},
+    {"name": "project_remember",
+     "description": "记进专项记忆：这个专项里长期适用的决定、做法、坑和事实，之后每次重建会话都会带上。"
+                    "只记主人说过的或已经定下的，不写令牌、密码这类机密；同类同文的不重复记。",
+     "input_schema": {"type": "object", "required": ["kind", "text"], "properties": {
+         "kind": {"type": "string", "enum": ["decision", "practice", "pitfall", "fact"],
+                  "description": "decision 决定，practice 做法，pitfall 坑，fact 事实"},
+         "text": {"type": "string", "description": "条目本身，一句话，最多 200 字"}}}},
+    {"name": "project_style",
+     "description": "主人说“少打扰我”“多报一点”“多开几个线程”这类时，改这个专项的汇报风格；只给要改的项。"
+                    "report：ask_only 只在要主人定时说 / milestones 里程碑和完成 / each_thread 每个线程结束 / verbose 详细；"
+                    "detail：一行 / 简 / 全；spawn（派活）：保守 同时 1 个线程 / 正常 2 个 / 积极 4 个。",
+     "input_schema": {"type": "object", "properties": {
+         "report": {"type": "string", "enum": ["ask_only", "milestones", "each_thread", "verbose"]},
+         "detail": {"type": "string", "enum": ["一行", "简", "全"]},
+         "spawn": {"type": "string", "enum": ["保守", "正常", "积极"]}}}},
+    {"name": "project_finish",
+     "description": "目标和完成标准都达到、线程都结束了，收尾：专项记为完成。还有线程在跑或等主人时会拒绝。"
+                    "summary 写一句做成了什么（最多 200 字），会作为完成的汇报。",
+     "input_schema": {"type": "object", "required": ["summary"], "properties": {
+         "summary": {"type": "string", "description": "一句话：做成了什么"}}}},
+)
+# Defined for phase 2's question triage (P2-5), not listed yet: the handlers answer that it is off.
+TRIAGE_TOOLS = (
+    {"name": "project_answer",
+     "description": "替主人答一个线程的选择题（只限能依据专项记忆和已定决定回答的）。分流还没开。",
+     "input_schema": {"type": "object", "required": ["thread", "answers"], "properties": {
+         "thread": THREAD,
+         "answers": {"type": "object", "description": "题目 id（或题目原文）→ 选项原文；多选的给数组",
+                     "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}}}}},
+    {"name": "project_escalate",
+     "description": "线程的问题交给主人答。分流还没开。",
+     "input_schema": {"type": "object", "required": ["thread", "why"], "properties": {
+         "thread": THREAD, "why": {"type": "string", "description": "一句话：为什么要主人定"}}}},
+)
+PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS)
+LEAD_READ = ("topic_read", "topics_search", "workspaces_list")  # What of TOOLS the lead has: it reads, the threads act.
+
+
+def lead_tools() -> tuple:
+    return tuple(tool for tool in TOOLS if tool["name"] in LEAD_READ) + PROJECT_TOOLS
+
+
 def listed(environ) -> tuple:
     """The tools the MCP server lists in ``environ``: TOOLS, with the knowledge tools when COVEY_KNOWLEDGE is
     1 and history_search when COVEY_HISTORY_CMD is an absolute path; with COVEY_MAIN_BUTLER=1 topic_start's
-    description is the butler's (``butler_tools``). The Bridge hands the variable on (core/main_thread.py mcp_config)."""
+    description is the butler's (``butler_tools``). The Bridge hands the variable on (core/main_thread.py mcp_config).
+    A project's lead (COVEY_PROJECT_LEAD set) has ``lead_tools`` and nothing else."""
+    if str(cenv.get(LEAD_ENV, "", environ)).strip():
+        return lead_tools()
     extra = KNOWLEDGE_TOOLS if str(cenv.get(KNOWLEDGE_ENV, "", environ)).strip() == "1" else ()
     if str(cenv.get(HISTORY_ENV, "", environ)).strip().startswith("/"):
         extra += HISTORY_TOOLS

@@ -126,6 +126,8 @@
 | `app/policy_guard.py` | Independent policy stop consumer: covers adopted runners from older releases |
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
 | `app/preselection.py` | What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read |
+| `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
+| `app/project_tools.py` | The tools of a project's lead, handlers as app/main_env.py describes them |
 | `app/prompts.py` | Shared prompt builders: the bridge rules and each turn's message |
 | `app/proxy.py` | Proxy replies (代答), the Bridge's side |
 | `app/proxy_commands.py` | Proxy replies (代答): what the 代答设置 card asks for, its settings, and finding the contacts to whitelist |

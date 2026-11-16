@@ -27,6 +27,7 @@ MCP_SERVER = "bridge"  # The MCP server's name in the main thread's session: its
 MCP_ENTRY = "bin/covey_main_mcp.py"  # Relative to the release the Bridge runs from.
 STATE_ENV = "COVEY_MAIN_STATE"  # Tells the MCP server the Bridge's state directory.
 JOB_ENV = "COVEY_MAIN_JOB"  # The key of the main-thread job whose session runs the server; the Bridge checks it.
+LEAD_ENV = "COVEY_PROJECT_LEAD"  # The project's id, in the session of that project's lead only: it lists the lead's tools.
 
 
 # The owner's settings (core/main_thread_settings.py), the mode among them: the file ``enabled`` reads.
@@ -239,15 +240,18 @@ def worded(text: str, of) -> str:
     return text
 
 
-def mcp_config(release: Path, state_dir: Path, job_key: str, python: str) -> dict:
+def mcp_config(release: Path, state_dir: Path, job_key: str, python: str, lead: str = "") -> dict:
     """The --mcp-config of a main-thread job's Claude Code: the Bridge's tools and nothing else. The variables that
     switch on the knowledge and history tools and the butler's wording of topic_start (core/main_tool_specs.py listed) are
-    handed on when the Bridge has them."""
+    handed on when the Bridge has them. ``lead``: the id of the project whose lead's job it is (COVEY_PROJECTS on): the
+    server then lists the lead's tools (project_*) instead (app/project_lead.py)."""
     env = {}
     handed = {STATE_ENV: str(state_dir), JOB_ENV: job_key,
               "COVEY_KNOWLEDGE": cenv.get("COVEY_KNOWLEDGE", "").strip(),  # core/main_tool_specs.py
               "COVEY_HISTORY_CMD": cenv.get("COVEY_HISTORY_CMD", "").strip(),  # KNOWLEDGE_ENV, HISTORY_ENV
               "COVEY_MAIN_BUTLER": cenv.get("COVEY_MAIN_BUTLER", "").strip()}  # BUTLER_ENV
+    if lead and projects.enabled():
+        handed[LEAD_ENV] = lead
     for name, value in handed.items():
         if value:
             cenv.put(env, name, value)  # Both spellings: the server may be an older release's.
