@@ -27,6 +27,7 @@ from covey.cards.dispatch_card import (DONE, FAILED, RUNNING, STEER_KIND, STOP_K
                                        settled_card)
 from covey.core import dispatch_records as records
 from covey.core import env as cenv
+from covey.core import projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.checkpoint import checkpoint_steps
 from covey.core.jobs import find_job_record, topic_job_records
@@ -352,7 +353,10 @@ class DispatchCards:
         if self.write(ctx, path, record, seen, card, now):
             record.update(digest=digest, thread_url=url)
             seen["digest"] = digest
-            with resource_lock("record", str(path)):
+            if not projects.enabled():
+                write_json(path, record, ensure_ascii=False, indent=1)
+                return
+            with resource_lock("record", str(path)):  # Only a project's upgrade settles a record under a refresh's hands.
                 if read_object(path).get("state") == records.SETTLED:
                     return  # Settled while this wrote (app/projects.py: the card became a project's): not written live again.
                 write_json(path, record, ensure_ascii=False, indent=1)
@@ -384,7 +388,7 @@ class DispatchCards:
         reused; false, with the next try pushed back, when CardKit did not confirm."""
         handle = file_card(path, record, shared=False)
         with handle.lock:
-            if read_object(path).get("state") == records.SETTLED:
+            if projects.enabled() and read_object(path).get("state") == records.SETTLED:
                 # Settled while this tick waited for the card's lock (app/projects.py upgrade made the card a project's, or
                 # merged it): the card is not this record's to write any more, and its sequence is the project's.
                 self.done.add(path.stem)
