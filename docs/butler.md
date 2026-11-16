@@ -403,7 +403,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 `COVEY_PROJECTS=1` 时，每个专项有一张卡：聊天区的一条新消息（不回复主人那条消息：飞书对已有串的消息，回复一律进串；主人那句话直接开的专项，顶上带“你问”块），不开串。点击和引用它回复都按消息别名路由到专项的负责人话题（`route_message`），所以按钮是负责人话题的点击。**只有 `ProjectCards`（`app/project_cards.py`）写它**（规则 3）。
 
 - **内容**（`cards/project_card.py` 的 `project_card`，element_id 都不超过 20 个字符）：卡头 = 专项名 + 状态标签（在做、等你、停住、做完）+ 方向灰标签（读记录的 `direction`，没有就不画）；`pj_need`“需要你”（摘要 + 打开问题卡 ›）、`pj_meta`（话题数、用时、token）、`pj_lead`（负责人现状 + 最近一句 note）；话题折叠面板 `pt_<话题前 6 位>_<状态字母>`：在做和等你的展开、做完的收起，**状态变了元素 id 就换**（客户端对同一个 id 改 `expanded` 不一定重画），等你的排最前、做完的最后，最多 8 个、其余一行 `pj_more`“更早 N 条”；`pj_triage`、`pj_mem`、`pj_lib` 三个收起的面板（分流记录、专项记忆、资料库，空就不画，后两个每行一个“删”）；`pj_io` 灰框（输入是负责人自己的 Harness、模型、思考预算：取它最新任务，还没有任务时取它 topic.json 的绑定，不取话题的；各话题用的 Harness 写在自己折叠面板的末行）；`pj_btns`：补充、停止专项、不要专项（停住的没有停止，做完的没有按钮）。没有输入框：会重画的卡不放输入框，补充另发一张表单卡。体积 5–13 KB（`tests/golden/cards.json.xz` 的 `project.*` 样本）。
-- **读什么**：只读任务记录和问题（没有飞书调用，不拿锁）。话题的状态和一句话沿用派发卡（`app/dispatch_cards.py` 的 `status_of`）；记录字段 `direction`（P2-8）、`lead_note`（`{text, at}` 或字符串，P2-2）、`tokens_used`（整数，P2-2）、`conclusion_message_id`（负责人收尾报告的消息，P2-2）、`triage`（行或 `{at, text}`）、`projects/<id>/memory.json`（列表或 `{"entries": […]}`）、`projects/<id>/library/`（文件名）；空的不画。
+- **读什么**：只读任务记录和问题（没有飞书调用，不拿锁）。话题的状态和一句话沿用派发卡（`app/dispatch_cards.py` 的 `status_of`）；记录字段 `direction`（P2-8）、`lead_note`（`{text, at}` 或字符串，P2-2）、`tokens_used`（整数，P2-2）、`conclusion_message_id`（负责人收尾报告的消息，P2-2）、`triage`（行或 `{at, text}`）、专项记忆（`core/project_memory.py`：`projects/<id>/memory.json` 的 `{"entries": […]}`，也读旧版留在专项记录 `memory` 字段里的条目；删掉的和风格行不画；卡上的“删”写墓碑，不真删）、`projects/<id>/library/`（文件名）；空的不画。
 - **刷新**：后台线程每秒看一遍，摘要变了且离上次写至少 2.5 秒才整卡 PUT；每次写前从 `reserve` 取 sequence 存进 `record["card"]`，失败按 2、4、8 … 最多 60 秒退避。摘要也存在记录里，重启不会为同一张卡再写一次。
 - **做完**：专项 `done` 后卡缩成一行（`settled_card`，链到那条结论）。结论是 `conclusion_message_id`，没有就看收尾的那一轮（记录的 `state_job`，`project_finish` 写的；`finishing_answer`）：它结束了且在顶层发了回答，链到那条；结束了还没有回答的 id，再等 30 秒（`ANSWER_WAIT`：id 比状态晚一会儿写进记录），仍没有就缩、不带链接（安静的唤醒轮不发回复）；还在跑就等它，最多 10 分钟。`cancelled` 缩成“⏹ 专项已降为普通话题”。缩完记 `card.closed`，不再刷新。
 - **14 天翻页**：CardKit 的卡实体 14 天后不能改。卡龄过第 12 天（`FLIP_AFTER`）新发一张卡（一条新消息，键里带代数；发不出去下次用同一个 `pending_card_id` 重试），记录、别名、Pin 改指新卡（`aimed` 读记录），旧卡下一次看时缩成“已移到新卡 ›”（用它自己的 sequence），写不了 3 次就撤回。
@@ -411,6 +411,18 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **转成专项的卡**：派发卡转成专项（[架构 · 专项](architecture.md#专项第-2-期开发中默认关)）时还是同一条消息、同一个 `card_id`，下一次刷新整卡换成专项卡，`pj_meta` 末尾多一句“由管家转成专项”或“来回 3 轮后转成专项”（读记录 `origin.note`；2026-11-16 以前写的旧说法按新说法显示，记录不改）；同话题其余还活着的派发卡写成一行“已并入专项 ›”（`merged_card`）。
 - **不要专项**：点了之后专项记 `cancelled`，卡缩成“⏹ 专项已降为普通话题”，负责人在跑的任务停掉，专项的话题变回普通话题，这条卡和并入的那几行以后被引用回复，回到原话题（见架构里的降级）。
 - **Pin**：看板的格是专项（`core/board_read.py` 的 `cells`）；在做钉专项卡，等你钉话题的问题卡，做完钉结束的那个话题的答案卡（没有就钉专项卡）；专项还没有卡时钉话题自己的卡。手上的事和早晚汇总的行用 `label_title`，格叫“专项 · 专项名”。
+
+### 专项记忆与资料库（开关默认关）
+
+**记忆**不受开关影响：负责人的 `project_remember`、`project_style`、状态包、专项卡和卡上的“删”都经 `core/project_memory.py`，读写同一个文件 `projects/<id>/memory.json`（以前工具写进专项记录、卡读这个文件，所以卡上永远看不到记忆）。旧版留在专项记录 `memory` 字段里的条目照常读出来、和文件合并显示，下一次写入搬进文件，之后不再写那个字段。
+
+`COVEY_PROJECTS=1` 且 `COVEY_PROJECT_MEMORY=1` 时再多三件事：
+
+- **话题开工带上专项记忆**：专项的话题（不含负责人，它有自己的状态包）的新会话，规则里在原则之后多一块“专项记忆”（至多 3000 字，超了先丢最旧的），后面再跟资料库索引（至多 2 KB）；续接的会话每一轮的提醒里只带记忆（`app/prompts.py` 的 `project_block`，`app/runs.py` 的 `bridge_rules`、`_with_rules`，内容由 `app/project_context.py` 的 `block` 取）。专项取消后、代答话题、普通话题都不带。
+- **主人答问题卡记一条决定**：专项的话题或负责人发出的问题卡，主人提交回答后（`app/questions.py` 的 `_submit_answer`），记一条 `kind=decision`、`source=owner_answer`：“主人答：题目→回答”（每题题目至多 70 字、回答至多 50 字，合起来不超过 200 字）。反馈、全部跳过的不记。
+- **资料库**：`projects/<id>/library/` 放文件，`library.json` 放索引（`core/project_library.py`）。来源一，主人回复或引用专项卡带的文件：消息进负责人话题时（`app/app.py`，经 `project_context.owner_files`）复制进来、记 sha256（同内容只一条；单个文件超过 25 MiB 或总量超过 200 MiB 的不复制，只记它原来的路径）。来源二，专项的话题每轮的产物（检查点的 `artifacts`）和 `delivery`：Bridge 在任务进程结束后（`project_loop.after_runner`，规则 8：任务进程不写专项的东西）只记路径、链接或一行交付，不复制。索引不超过 2 KB（最新的在前，超了写“另有 N 条”），进两处：负责人的状态包（“资料库”）和专项的话题的第一轮。设备上的话题读不到 hub 本机的文件，这一块留给以后的多设备文件传输。专项卡的“资料库”折叠面板列索引，每行有“删”（删索引、同时删复制的文件）；索引没有登记的旧文件照旧按文件名列、按文件名删。
+
+维护（`core/maintenance_rules.py`）：专项做完 30 天后删资料库里的文件、索引留着；记忆条目 180 天；单个专项的文件不超过 200 MiB；`projects/` 不进备份。
 
 ## 代码位置
 

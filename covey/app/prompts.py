@@ -124,6 +124,34 @@ def principles_block(owner, workspace=(), workspace_name: str = "", limit: int =
     return "\n".join(lines)
 
 
+# 专项记忆 and 资料库 (core/project_memory.py, core/project_library.py), when COVEY_PROJECT_MEMORY=1: what a topic of a project reads, after
+# the principles in the rules and in each resumed turn's reminder (app/project_context.py builds the lines).
+PROJECT_CHARS = 3000  # Of the memory's lines; the oldest go first past it. The library's index has its own 2 KB.
+PROJECT_MEMORY_HEAD = ("专项记忆（这个话题属于专项「{name}」；下面是专项里已经定下的事，做事时照着办，"
+                       "和主人这一轮的话冲突时以这一轮为准）：")
+PROJECT_LIBRARY_HEAD = "专项资料库（主人给专项的文件，和专项各话题的产物、交付；需要时按路径去读，设备上的话题读不到本机的文件）："
+
+
+def project_block(name, memory=(), library=(), limit: int = PROJECT_CHARS) -> str:
+    """The project's memory and library a topic of it reads: ``memory`` (lines, oldest first; past ``limit`` characters the
+    oldest are left out and a line says how many), then ``library`` (the index's lines); '' when both are empty."""
+    kept, used = [], 0
+    for line in reversed(list(memory)):
+        if used + len(line) + 1 > limit:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    kept.reverse()
+    blocks = []
+    if kept:
+        left = len(list(memory)) - len(kept)
+        blocks.append("\n".join([PROJECT_MEMORY_HEAD.format(name=name or "这个专项"), *kept,
+                                 *([f"另有 {left} 条较早的记忆未列出。"] if left else [])]))
+    if library:
+        blocks.append("\n".join([PROJECT_LIBRARY_HEAD, *library]))
+    return "\n\n".join(blocks)
+
+
 # 知识条目 (core/knowledge.py), when COVEY_KNOWLEDGE=1: the owner's entries after the principles, and the rule
 # that a topic's turn writes ``remember`` into its checkpoint only when the owner asked in that turn (collected by
 # app/knowledge_collect.py). The history command line is there whenever COVEY_HISTORY_CMD is set.
@@ -178,16 +206,18 @@ def bridge_rules(
     runtime_note: str = "",
     notes: tuple[str, ...] = (),
     principles: str = "",
+    project: str = "",
     knowledge_text: str = "",
     remember: bool = False,
     device: str = "",
     remote_workdir: str = "",
 ) -> str:
     """Identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
-    block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block), the checkpoint
+    block), the project's memory and library (``project``, project_block; none: no block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block), the checkpoint
     contract (``remember``: and the rule for writing entries): the same every turn of a topic."""
     return "\n\n".join((constraints(backend_name, runtime_note, notes),
                         workspace_block(workspace_name, workdir, device, remote_workdir), *((principles,) if principles else ()),
+                        *((project,) if project else ()),
                         *((knowledge_text,) if knowledge_text else ()),
                         CHECKPOINT_RULES, *((REMEMBER_RULE,) if remember else ())))
 

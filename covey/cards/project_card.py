@@ -64,7 +64,7 @@ class Member:
 
 @dataclass(frozen=True)
 class Project:
-    """What one card says. ``rows`` of the three folds: ``triage`` lines, ``memory`` (id, text), ``library`` (name,).
+    """What one card says. ``rows`` of the three folds: ``triage`` lines, ``memory`` (id, text), ``library`` (label, entry id) or (file name,).
     ``lead_topic`` and ``project_id`` go into the buttons' values."""
     project_id: str
     lead_topic: str
@@ -194,8 +194,8 @@ def memory_rows(project) -> list:
 def library_rows(project) -> list:
     return [item(md(literal_text(clipped(name, ROW_CHARS)), size="normal_v2"),
                  text_button("删", {"kind": LIB_DEL_KIND, "project_id": project.project_id, "topic_id": project.lead_topic,
-                                    "name": str(name)}, tone="danger"))
-            for (name, *_) in project.library]
+                                    "name": str(rest[0] if rest else name)}, tone="danger"))
+            for (name, *rest) in project.library]
 
 
 def buttons(project) -> list:

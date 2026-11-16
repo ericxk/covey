@@ -57,6 +57,15 @@ def enabled() -> bool:
     return str(cenv.get(ENV, "")).strip() == "1"
 
 
+MEMORY_ENV = "COVEY_PROJECT_MEMORY"  # ``1``: the project's memory and library reach its topics, the lead and the card's 资料库 (docs/butler.md).
+
+
+def memory_enabled() -> bool:
+    """Whether COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1 (read on every call). Off: the memory is still one place
+    (core/project_memory.py), but nothing is put into a topic's turn, no answer is noted and no library is kept."""
+    return enabled() and str(cenv.get(MEMORY_ENV, "")).strip() == "1"
+
+
 def valid_id(project_id) -> bool:
     return isinstance(project_id, str) and ID_RE.fullmatch(project_id) is not None
 

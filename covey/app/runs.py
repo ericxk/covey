@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import device_files, knowledge_turn
+from covey.app import device_files, knowledge_turn, project_context
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
@@ -149,6 +149,7 @@ class Runs:
             runtime_note=self.harness.backend.prompt_runtime_note(ctx),
             notes=tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx)),
             principles=self.principles(ctx, job),
+            project=project_context.block(ctx, job, resumed=False),
             knowledge_text=knowledge_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job), resumed=False),
             remember=knowledge_turn.remembers(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
         )
@@ -408,12 +409,15 @@ class Runs:
             # output root, or compaction may have dropped them.
             # The principles too: one the owner gave after the session started reaches its next turn.
             principles = self.principles(ctx, job)
+            # The project's memory too (COVEY_PROJECT_MEMORY=1): one noted after the session started reaches its next turn.
+            project = project_context.block(ctx, job, resumed=True)
             # The knowledge entries (core/knowledge.py) too, only those since the topic's previous turn.
             owner = lambda: self.owner_turn(ctx, job)  # noqa: E731
             knowledge_text = knowledge_turn.block(ctx, job, owner_turn=owner, resumed=True)
             remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
             prompt += "\n\n" + RESUME_REMINDERS + (
                 "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir) + ("\n\n" + principles if principles else "")
+                + ("\n\n" + project if project else "")
                 + ("\n\n" + knowledge_text if knowledge_text else "")
                 + "\n\n" + CHECKPOINT_RULES + ("\n\n" + REMEMBER_RULE if remember else ""))
         return prompt

@@ -608,8 +608,10 @@ def inventory_rows():
 
 
 # Core modules the MCP server (bin/covey_butler_mcp.py) loads, with what they import: rule 7, only the standard library
-# and core modules that are themselves only that.
-MCP_CORE = ("covey.core.butler_mcp", "covey.core.butler", "covey.core.projects")
+# and core modules that are themselves only that. The project's memory and library are not loaded there yet; they are kept to
+# the same rule so a lead's tool can be (core/project_memory.py, core/project_library.py).
+MCP_CORE = ("covey.core.butler_mcp", "covey.core.butler", "covey.core.projects", "covey.core.project_memory",
+            "covey.core.project_library")
 
 
 class McpCoreTest(unittest.TestCase):

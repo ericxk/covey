@@ -19,12 +19,13 @@ from pathlib import Path
 
 from covey.app import butler_topics, project_lead
 from covey.app.butler_env import reply
-from covey.core import butler, projects
+from covey.core import butler, project_memory, projects
 from covey.core.jobs import find_job_record
 from covey.core.topics import topic_label
 
 KINDS = ("milestone", "thread", "note")
-MEMORY_KINDS = ("decision", "practice", "pitfall", "fact")
+MEMORY_KINDS = (*project_memory.KINDS[:-1], *project_memory.LEGACY_KINDS)  # style is project_style's; practice and pitfall are the older names of constraint.
+OFFERED_KINDS = project_memory.KINDS[:-1]
 TRIAGE_OFF = "分流还没开：负责人现在不能替主人答题，也不能转交问题；话题里的问题会直接问主人。"
 
 
@@ -113,18 +114,14 @@ def project_remember(env, request):
     pid, record = lead(env, request)
     kind = request.args.get("kind")
     if kind not in MEMORY_KINDS:
-        raise ValueError("kind 要是 " + "、".join(MEMORY_KINDS) + " 之一")
-    item = project_lead.entry(text_of(request.args), kind=kind)
-    same = next((row for row in project_lead.memory_of(record) if row.get("kind") == kind and row["text"] == item["text"]), None)
-    if same is not None:
-        return reply(True, f"专项记忆里已有这条（{same.get('id')}），没有重复记。", id=same.get("id"), new=False)
-
-    def change(data):
-        rows = data.get("memory")
-        rows = data["memory"] = rows if isinstance(rows, list) else []
-        rows.append(item)
-        del rows[:-project_lead.MEMORY_KEPT]
-    projects.update(env.state_dir, pid, change)
+        raise ValueError("kind 要是 " + "、".join(OFFERED_KINDS) + " 之一")
+    text, kind = text_of(request.args), project_memory.kind_of(kind)
+    state = Path(env.state_dir)
+    if any(row["kind"] == kind and row["text"] == text for row in project_memory.tombstones(state, record)):
+        raise ValueError("主人删掉过这条专项记忆，不再记回去。")
+    item, new = project_memory.add(state, pid, text, kind, "lead")
+    if not new:
+        return reply(True, f"专项记忆里已有这条（{item['id']}），没有重复记。", id=item["id"], new=False)
     return reply(True, f"已记进专项记忆（{item['id']}）：{item['text']}", id=item["id"], new=True)
 
 
@@ -137,13 +134,9 @@ def project_style(env, request):
     now = {**project_lead.style_of(record), **changes}
     if not changes:
         return reply(True, "现在的风格：" + "；".join(f"{name}={value}" for name, value in now.items()), style=now)
-    line = project_lead.entry("汇报风格：" + "；".join(f"{name}={value}" for name, value in now.items()), kind="style")
-
-    def change(data):
-        data["style"] = now
-        rows = [row for row in data.get("memory") or () if isinstance(row, dict) and row.get("kind") != "style"]
-        data["memory"] = [*rows, line]  # One style line in the memory: the last word the owner gave.
-    projects.update(env.state_dir, pid, change)
+    text = "汇报风格：" + "；".join(f"{name}={value}" for name, value in now.items())
+    # One style line in the memory (the last word the owner gave), written with the record's style field.
+    project_memory.set_style(env.state_dir, pid, text, also=lambda data: data.__setitem__("style", now))
     return reply(True, "已改风格：" + "；".join(f"{name}={value}" for name, value in now.items()), style=now)
 
 

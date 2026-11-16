@@ -26,7 +26,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.app import project_lead
+from covey.app import project_context, project_lead
 from covey.core import board_read, projects
 from covey.core.history_storage import append_history
 from covey.core.jobs import find_job_record, job_field, job_key, topic_job_records
@@ -213,6 +213,8 @@ def after_runner(log, state_dir, job) -> None:
             label = topic_label(Path(state_dir), topic) or topic[:8]
             text = f"{label} 的任务 #{record.get('job_id')} {RESULTS.get(status, status)}" + (f"：{cut(said, 160)}" if said else "")
             project_lead.add_receipt(state_dir, found.id, "thread_end", text, thread=topic)
+        if first and found.role == projects.MEMBER:
+            project_context.turn_to_library(state_dir, found.id, topic, record, log)  # COVEY_PROJECT_MEMORY=1: its artifacts and delivery.
     except KeyError:
         return  # The project's record is gone.
     except Exception as exc:  # noqa: BLE001 - the task's end does not depend on it

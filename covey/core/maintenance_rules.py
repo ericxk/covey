@@ -21,6 +21,7 @@ from covey.core.jobs import (FINISHED_UNREAD_FIELDS, job_file, read_job_record, 
 from covey.core.locks import LOCK, remove_unused_lock
 from covey.core.maintenance_report import mib, stale_lines, tree_bytes
 from covey.core.process import paths_in_use
+from covey.core import project_library, project_memory
 from covey.core.projects import CANCELLED, DONE, valid_id
 from covey.core.proxy import BATCH_TRANSITIONS
 from covey.core.run_dir import RUNS, runner_alive, runner_info
@@ -63,6 +64,12 @@ PROXY_BATCH_DAYS = 30
 # projects/ (core/projects.py): a 专项's record that ended (done or cancelled) goes after this many days, its folder
 # (<id>/, where its memory, library and inbox will be) with it; one still active or paused stays.
 PROJECT_DAYS = 180
+# What a project's memory and library keep (core/project_memory.py, core/project_library.py; COVEY_PROJECT_MEMORY=1): the files of
+# a project that is done go PROJECT_FILES_DAYS after it ended (the index stays), the memory's entries go PROJECT_MEMORY_DAYS after
+# they were written, one project's files stay under core/project_library.py PROJECT_LIMIT. projects/ is not in a backup
+# (core/backup.py).
+PROJECT_FILES_DAYS = 30
+PROJECT_MEMORY_DAYS = 180
 
 
 def archive_file(path):
@@ -477,6 +484,68 @@ class ProjectRecords(Rule):
                 _remove_tree(path.parent / path.stem)
 
 
+def _project_ids(state):
+    """The ids of the projects with a record in ``state``/projects (a plain file, a valid id)."""
+    folder = state / "projects"
+    if not folder.is_dir():
+        return []
+    return [p.stem for p in sorted(folder.glob("*.json")) if valid_id(p.stem) and not p.is_symlink()]
+
+
+class ProjectLibraries(Rule):
+    """The files in a project's library (projects/<id>/library/, core/project_library.py): all of them once the project is done and
+    its record unchanged PROJECT_FILES_DAYS (the index keeps their names and hashes), and the oldest ones of a library over
+    PROJECT_LIMIT bytes. The item is the library's folder."""
+    keys = ("purge_project_files",)
+    days = PROJECT_FILES_DAYS
+    title = "清理专项资料库的文件（做完 30 天后，或单个专项超过 200 MB；索引留着）"
+
+    def _due(self, run, pid):
+        folder = project_library.library_dir(run.state, pid)
+        if not folder.is_dir() or folder.is_symlink():
+            return ""
+        record = run.state / "projects" / f"{pid}.json"
+        if read_object(record).get("state") == DONE and _untouched_since(record, run.cutoff(self.days)) and project_library.used_bytes(run.state, pid):
+            return "ended"
+        return "big" if project_library.used_bytes(run.state, pid) > project_library.PROJECT_LIMIT else ""
+
+    def select(self, run):
+        return [str(project_library.library_dir(run.state, pid)) for pid in _project_ids(run.state) if self._due(run, pid)]
+
+    def apply(self, run, plan):
+        for name in plan[self.keys[0]]:
+            pid = Path(name).parent.name
+            if not valid_id(pid) or Path(name) != project_library.library_dir(run.state, pid):
+                continue
+            due = self._due(run, pid)
+            if due == "ended":
+                project_library.purge_files(run.state, pid, run.now)
+            elif due == "big":
+                project_library.trim(run.state, pid, now=run.now)
+
+
+class ProjectMemories(Rule):
+    """The entries of a project's memory (projects/<id>/memory.json, core/project_memory.py) written PROJECT_MEMORY_DAYS ago or
+    earlier, deleted ones too; the style line stays. The item is the file."""
+    keys = ("trim_project_memory",)
+    days = PROJECT_MEMORY_DAYS
+    title = "删除专项记忆里 180 天前的条目（memory.json）"
+
+    def _old(self, run, pid):
+        before = run.cutoff(self.days)
+        return any(0 < row["at"] < before and row["kind"] != "style"
+                   for row in project_memory.stored(run.state, pid))
+
+    def select(self, run):
+        return [str(project_memory.memory_path(run.state, pid)) for pid in _project_ids(run.state) if self._old(run, pid)]
+
+    def apply(self, run, plan):
+        for name in plan[self.keys[0]]:
+            pid = Path(name).parent.name
+            if valid_id(pid) and Path(name) == project_memory.memory_path(run.state, pid):
+                project_memory.forget(run.state, pid, run.cutoff(self.days))
+
+
 class TrackSessions(Rule):
     """The Claude session file of a track of the butler (core/butler_tracks.py) whose turn ended TRACK_SESSION_DAYS
     ago: removed. The track forks the butler's session on every request, so each leaves a transcript of its own
@@ -660,11 +729,12 @@ HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS = History(), Checkpoints(), Traces(),
 TEMPORARY, RUNS_DIRS, PROXY_BATCHES, JOURNALS = Temporary(), Runs(), ProxyBatches(), Journals()
 LOCKS, DIFFS, BACKUPS, STALE = Locks(), Diffs(), Backups(), Stale()
 TRACK_SESSIONS, PROJECT_RECORDS = TrackSessions(), ProjectRecords()
+PROJECT_LIBRARIES, PROJECT_MEMORIES = ProjectLibraries(), ProjectMemories()
 
 
 # Every rule, in the order of the plan's keys (then "backup", the run's own, named by maintain).
 RULES = (HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, LOCKS, DIFFS, BACKUPS, STALE,
-         JOURNALS, TRACK_SESSIONS, PROJECT_RECORDS)
+         JOURNALS, TRACK_SESSIONS, PROJECT_RECORDS, PROJECT_LIBRARIES, PROJECT_MEMORIES)
 
 
 class _NoJob(Rule):
@@ -676,12 +746,13 @@ class _NoJob(Rule):
 
 # The order the cleanup carries them out in. The steps under LOCK first; after _NoJob, outside LOCK: nothing a
 # job that starts now uses, and each item is checked again. Old backups go in maintain, stale records in close_stale.
-CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, PROJECT_RECORDS, TRACES,
+CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, PROJECT_LIBRARIES, PROJECT_MEMORIES, PROJECT_RECORDS, TRACES,
            SLIM_RECORDS, JOURNALS, LOCKS, DIFFS)
 
 
 # The plan's keys of what a cleanup removed, in RULES' order: maintenance_loop logs how many of each.
 REMOVALS = tuple(key for rule in RULES for key in rule.keys if key.startswith("remove_"))
 # The order --dry-run lists them in.
-DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, TRACK_SESSIONS, PROXY_BATCHES, PROJECT_RECORDS,
+DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, TRACK_SESSIONS, PROXY_BATCHES, PROJECT_LIBRARIES,
+           PROJECT_MEMORIES, PROJECT_RECORDS,
            RUNS_DIRS, LOCKS, DIFFS, STALE)
