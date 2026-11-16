@@ -64,6 +64,18 @@ def save_diagnostic(ctx, run_id, row, status, code, *, cleanup=True, policy_even
     )
 
 
+def final_texts(messages, progress_ids):
+    """The reply's texts in order: not the ones a tool call followed (they were progress), and a text that only says
+    the one before it again once. After each background task's notification Claude Code starts a turn, and the model
+    may write the same reply in each of them (three times in one main-thread turn on 2026-11-16)."""
+    kept, last = {}, None
+    for key, value in messages.items():
+        if key in progress_ids or value == last:
+            continue
+        kept[key] = last = value
+    return kept
+
+
 class ClaudeReplyState:
     def __init__(self, ctx, expected_session=None, *, run_id="", publish=None, on_session=None):
         self.ctx = ctx
@@ -218,7 +230,7 @@ class ClaudeReplyState:
         # Stream deltas, child text and an old transcript are never fallback data.
         if not self.messages or body != next(reversed(self.messages.values())):
             return None
-        final_messages = {key: value for key, value in self.messages.items() if key not in self.progress_ids}
+        final_messages = final_texts(self.messages, self.progress_ids)
         text = "\n\n".join(final_messages.values())
         if not text:
             return None

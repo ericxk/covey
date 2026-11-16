@@ -302,6 +302,26 @@ class ClaudeAlignmentTests(unittest.TestCase):
         # The result that predates the task's end is never offered for delivery.
         self.assertTrue(all(r.text.endswith("Final after background") for r in self.saved if r is not None))
 
+    def test_a_notification_turn_saying_the_reply_again_is_not_sent_twice(self):
+        # 2026-11-16: after each of three background notifications the model wrote the same sentence, and the reply
+        # carried it three times. Only a repeat right after the same text goes; a different text in between stays.
+        note = {"kind": "task-notification"}
+        idle = {"type": "system", "subtype": "session_state_changed", "session_id": SID, "state": "idle"}
+        state = ClaudeReplyState(self.ctx, None)
+        for row in ({"type": "system", "subtype": "init", "session_id": SID},
+                    assistant("Done at 09:47", key="a1"), result(result="Done at 09:47", uuid="r1"), idle,
+                    assistant("Done at 09:47", key="a2"), result(result="Done at 09:47", uuid="r2", origin=note), idle,
+                    assistant("Done at 09:47", key="a3"), result(result="Done at 09:47", uuid="r3", origin=note), idle):
+            state.accept(row)
+        reply = state.capture()
+        self.assertEqual((reply.text, reply.message_ids), ("Done at 09:47", ("a1",)))
+        for row in (assistant("The watch ended too.", key="a4"), assistant("Done at 09:47", key="a5"),
+                    result(result="Done at 09:47", uuid="r4", origin=note), idle):
+            state.accept(row)
+        reply = state.capture()
+        self.assertEqual(reply.text, "Done at 09:47\n\nThe watch ended too.\n\nDone at 09:47")
+        self.assertEqual(reply.message_ids, ("a1", "a4", "a5"))
+
     def test_task_end_after_the_result_is_settled_only_by_a_later_result(self):
         state = ClaudeReplyState(self.ctx, None)
         notification = {"type": "system", "subtype": "task_notification", "session_id": SID, "task_id": "bg",
