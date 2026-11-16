@@ -539,9 +539,12 @@ class ButtonTest(CardCase):
         for name in ("方案.md", "表清单.csv"):
             (folder / "library" / name).write_text("x")
         (folder / "outside.txt").write_text("keep")
-        (folder / "memory.json").write_text(json.dumps(["窗口在周六", "只读到周日"]))
-        self.assertTrue(self.claude.controls.project_mem_del(self.lead_ctx, self.event("bridge_project_mem_del", entry="0")))
-        self.assertEqual(json.loads((folder / "memory.json").read_text()), ["只读到周日"])
+        (folder / "memory.json").write_text(json.dumps({"entries": [{"id": "m1", "text": "窗口在周六"}, {"id": "m2", "text": "只读到周日"}]}))
+        self.assertTrue(self.claude.controls.project_mem_del(self.lead_ctx, self.event("bridge_project_mem_del", entry="m1")))
+        rows = json.loads((folder / "memory.json").read_text())["entries"]  # Struck out, not removed: a tombstone.
+        self.assertEqual([(row["id"], bool(row["deleted"])) for row in rows], [("m1", True), ("m2", False)])
+        self.assertTrue(self.claude.controls.project_mem_del(self.lead_ctx, self.event("bridge_project_mem_del", entry="m1")))
+        self.assertIn("已经不在了", self.said())
         self.assertTrue(self.claude.controls.project_mem_del(self.lead_ctx, self.event("bridge_project_mem_del", entry="9")))
         self.assertIn("已经不在了", self.said())
         self.assertTrue(self.claude.controls.project_lib_del(self.lead_ctx, self.event("bridge_project_lib_del", name="方案.md")))

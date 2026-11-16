@@ -24,7 +24,7 @@ from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as se
 from covey.app.butler_tools import ButlerTools
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
-from covey.core import butler_mcp, butler, butler_tool_specs, projects
+from covey.core import butler_mcp, butler, butler_tool_specs, project_memory, projects
 from covey.core import butler_settings as settings
 from covey.core.jobs import job_key
 from covey.core.butler_requests import Request
@@ -115,7 +115,7 @@ class PackTest(Case):
         self.assertIn("把账单迁到新库，对账一致", pack)
         self.assertIn("T41 · 导出旧账单 · 在做 · 导出第 3 批", pack)
         self.assertIn("T42 · 写对账脚本 · 完成 · 放在 reconcile.py", pack)
-        self.assertIn("[pitfall] 旧库时区是 UTC+0", pack)
+        self.assertIn("[constraint] 旧库时区是 UTC+0", pack)  # An older release's entry in the record, under the kind's new name.
         self.assertIn("report=milestones；detail=简；spawn=正常", pack)
         self.assertIn("没有新的。", pack)
 
@@ -617,8 +617,21 @@ class RecordToolsTest(ToolsCase):
         first = self.tool("project_remember", kind="pitfall", text="旧库时区是 UTC+0")
         again = self.tool("project_remember", kind="pitfall", text="旧库时区是 UTC+0")
         self.assertEqual((first["data"]["new"], again["data"]["new"], first["data"]["id"]), (True, False, again["data"]["id"]))
-        self.assertEqual(len(self.reload()["memory"]), 1)
+        record = self.reload()
+        self.assertEqual([(row["kind"], row["text"], row["source"]) for row in project_memory.live(self.state, record)],
+                         [("constraint", "旧库时区是 UTC+0", "lead")])
+        self.assertNotIn("memory", record)  # Not in the record any more: the card reads the file.
+        self.assertTrue(project_memory.memory_path(self.state, PID).exists())
         self.assertIn("kind 要是", self.refused("project_remember", kind="style", text="x"))
+
+    def test_a_memory_the_owner_deleted_is_not_noted_again_and_the_pack_lists_it(self):
+        entry = self.tool("project_remember", kind="decision", text="先迁 2024 年")["data"]["id"]
+        self.assertTrue(project_memory.delete(self.state, PID, entry))
+        self.assertIn("删掉过", self.refused("project_remember", kind="decision", text="先迁 2024 年"))
+        pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=True)
+        self.assertIn("主人删掉的记忆", pack)
+        self.assertIn("[decision] 先迁 2024 年", pack)
+        self.assertNotIn("专项记忆：", pack)
 
     def test_the_style_changes_by_the_items_given_and_leaves_one_line_in_the_memory(self):
         shown = self.tool("project_style")
@@ -627,8 +640,9 @@ class RecordToolsTest(ToolsCase):
         self.tool("project_style", spawn="积极")
         record = self.reload()
         self.assertEqual(record["style"], {"report": "ask_only", "detail": "简", "spawn": "积极"})
-        self.assertEqual([m["kind"] for m in record["memory"]], ["style"])
-        self.assertIn("report=ask_only", record["memory"][0]["text"])
+        rows = project_memory.live(self.state, record)
+        self.assertEqual([m["kind"] for m in rows], ["style"])
+        self.assertIn("spawn=积极", rows[0]["text"])
         self.assertIn("spawn", self.refused("project_style", spawn="疯狂"))
 
     def test_finishing_needs_the_threads_to_have_ended_and_ends_the_project_once(self):

@@ -242,11 +242,11 @@ PROJECT_TOOLS = (
          "kind": {"type": "string", "enum": ["milestone", "thread", "note"], "description": "默认 note"},
          "decision": {"type": "boolean", "description": "这是一条定下来的决定为 true"}}}},
     {"name": "project_remember",
-     "description": "记进专项记忆：这个专项里长期适用的决定、做法、坑和事实，之后每次重建会话都会带上。"
-                    "只记主人说过的或已经定下的，不写令牌、密码这类机密；同类同文的不重复记。",
+     "description": "记进专项记忆：这个专项里长期适用的决定、约束、联系人和事实，之后每次重建会话都会带上。"
+                    "只记主人说过的或已经定下的，不写令牌、密码这类机密；同类同文的不重复记；主人在专项卡上删掉的不要再记回去。",
      "input_schema": {"type": "object", "required": ["kind", "text"], "properties": {
-         "kind": {"type": "string", "enum": ["decision", "practice", "pitfall", "fact"],
-                  "description": "decision 决定，practice 做法，pitfall 坑，fact 事实"},
+         "kind": {"type": "string", "enum": ["decision", "constraint", "contact", "fact"],
+                  "description": "decision 决定，constraint 约束、做法和坑，contact 联系人，fact 事实"},
          "text": {"type": "string", "description": "条目本身，一句话，最多 200 字"}}}},
     {"name": "project_style",
      "description": "主人说“少打扰我”“多报一点”“多开几个话题”这类时，改这个专项的汇报风格；只给要改的项。"

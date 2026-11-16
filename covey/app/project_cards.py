@@ -18,7 +18,7 @@ own (cards/project_card.py), kept up to date and shrunk to one line when the pro
 The record fields this reads and nobody here writes (later packages fill them; an empty one is not drawn): ``direction``
 (P2-8), ``lead_note`` ({text, at} or a string; P2-2), ``tokens_used`` (an int; P2-2), ``conclusion_message_id`` (the
 lead's report on the project's end; P2-2), ``triage`` (a list of lines or {at, text} rows; P2-4's 分流 package),
-``projects/<id>/memory.json`` (a list, or {"entries": [...]}, of strings or {id, text}) and ``projects/<id>/library/``
+``projects/<id>/memory.json`` (core/project_memory.py: {"entries": [...]}, or a list, of strings or {id, text}) and ``projects/<id>/library/``
 (its files' names)."""
 from __future__ import annotations
 
@@ -35,15 +35,15 @@ from covey.cards.project_card import (DONE, PAUSED, RUNNING, WAITING, Project, M
                                       settled_card)
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
-from covey.core import projects
+from covey.core import project_memory, projects
 from covey.core.card_sequence import CardHandle, reserve
 from covey.core.jobs import job_path, read_job_record, topic_job_records
 from covey.core.statuses import ENDED
 from covey.core import dispatch_records as drecords
-from covey.core.locks import resource_lock, topic_lock
+from covey.core.locks import topic_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, timings_of
-from covey.core.state import epoch_seconds, read_object, write_json
+from covey.core.state import epoch_seconds, read_object
 from covey.core.store import directory_store
 from covey.core.topics import (clear_topic_project, move_topic_message, remember_topic_message, route_message, topic_file,
                                topic_label, topic_title)
@@ -141,24 +141,11 @@ def triage_lines(record) -> tuple:
     return tuple(lines)
 
 
-def memory_rows(state_dir, project_id) -> tuple:
-    """(entry id, text) of the project's memory (projects/<id>/memory.json), the newest first."""
-    data = _json(projects.folder(state_dir) / project_id / "memory.json")
-    entries = data.get("entries") if isinstance(data, dict) else data
-    rows = []
-    for index, entry in enumerate(entries if isinstance(entries, list) else ()):
-        text = entry.get("text") if isinstance(entry, dict) else entry
-        if isinstance(text, str) and text.strip():
-            entry_id = entry.get("id") if isinstance(entry, dict) and entry.get("id") else index
-            rows.append((str(entry_id), words(text, 120)))
+def memory_rows(state_dir, record) -> tuple:
+    """(entry id, text) of the project's memory (core/project_memory.py: projects/<id>/memory.json and what an older release
+    kept in the record), the newest first; a deleted entry and the style line are not rows."""
+    rows = [(row["id"], words(row["text"], 120)) for row in project_memory.live(state_dir, record, style=False)]
     return tuple(reversed(rows[-LIST_CAP:]))
-
-
-def _json(path):
-    try:
-        return json.loads(Path(path).read_text())
-    except (OSError, ValueError):
-        return {}
 
 
 def library_rows(state_dir, project_id) -> tuple:
@@ -216,7 +203,7 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
                    direction=str(record.get("direction") or "") if isinstance(record.get("direction"), str) else "",
                    need=need, need_url=str(links.get("need") or ""), members=members, elapsed=elapsed, tokens=tokens,
                    lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
-                   triage=triage_lines(record), memory=memory_rows(state_dir, pid), library=library_rows(state_dir, pid),
+                   triage=triage_lines(record), memory=memory_rows(state_dir, record), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
                    ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""),
                    origin_note=origin_words((record.get("origin") or {}).get("note") if isinstance(record.get("origin"), dict) else ""))
@@ -649,19 +636,11 @@ def downgrade_project(host, ctx, event) -> bool:
 
 
 def delete_memory(host, ctx, event) -> bool:
-    """删 on a row of 专项记忆: the entry leaves projects/<id>/memory.json."""
+    """删 on a row of 专项记忆: the entry becomes a tombstone in projects/<id>/memory.json (the lead's pack lists it for 30
+    days, so it is not noted again)."""
     raw, record = click(ctx, event)
-    path = projects.folder(ctx.state_dir) / record["id"] / "memory.json"
-    entry = str(raw.get("entry") or "")
-    with resource_lock("record", str(path)):
-        data = _json(path)
-        entries = data.get("entries") if isinstance(data, dict) else data
-        entries = entries if isinstance(entries, list) else []
-        kept = [row for index, row in enumerate(entries)
-                if str(row.get("id") if isinstance(row, dict) and row.get("id") else index) != entry]
-        if len(kept) == len(entries):
-            return say(host, ctx, event, "这条记忆已经不在了。", "project-mem-gone")
-        write_json(path, {**data, "entries": kept} if isinstance(data, dict) else kept, ensure_ascii=False, indent=1)
+    if not project_memory.delete(ctx.state_dir, record["id"], str(raw.get("entry") or "")):
+        return say(host, ctx, event, "这条记忆已经不在了。", "project-mem-gone")
     return say(host, ctx, event, "已删掉这条专项记忆。", "project-mem-del")
 
 

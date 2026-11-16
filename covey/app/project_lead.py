@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from covey.app.prompts import TOOL_NOTES_LANGUAGE
-from covey.core import board_read, butler, projects
+from covey.core import board_read, butler, project_memory, projects
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
@@ -38,7 +38,7 @@ from covey.core.turn_words import RESULTS, UNSET_PHASES
 RESET_TOKENS = 150_000  # A previous turn that read more than this: the next starts a new session.
 RESET_IDLE = 24 * 3600  # Idle this long: the cached prompt is long gone, a new session costs no more.
 DECISIONS = 10  # Entries of the decision log in the pack.
-NOTES_KEPT, DECISIONS_KEPT, MEMORY_KEPT = 100, 50, 60  # What the record keeps of each list.
+NOTES_KEPT, DECISIONS_KEPT = 100, 50  # What the record keeps of each list (the memory is core/project_memory.py's).
 TEXT = 200  # Characters of one note, decision or memory entry.
 LINE = 120
 INBOX_ROWS = 20
@@ -130,13 +130,6 @@ def append(state_dir, project_id, field, item, kept) -> dict:
         rows.append(item)
         del rows[:-kept]
     return projects.update(state_dir, project_id, change)
-
-
-def memory_of(record) -> list:
-    """The project's memory entries: what project_remember wrote into the record (phase 2's P2-7 moves them to
-    projects/<id>/memory.json, and reads them from there)."""
-    rows = record.get("memory")
-    return [row for row in rows if isinstance(row, dict) and row.get("text")] if isinstance(rows, list) else []
 
 
 def library_index(state_dir, project_id) -> list:
@@ -267,9 +260,12 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     out.append("话题（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
                + ("\n" + "\n".join(map(thread_line, rows)) if rows else ""))
     if full:
-        memory = [row for row in memory_of(record) if row.get("kind") != "style"]
+        memory = project_memory.live(state_dir, record, style=False)
         if memory:
-            out.append("专项记忆：\n" + "\n".join(f"- [{row.get('kind') or 'fact'}] {row['text']}" for row in memory[-20:]))
+            out.append("专项记忆：\n" + "\n".join(f"- [{row['kind']}] {row['text']}" for row in memory[-20:]))
+        struck = project_memory.tombstones(state_dir, record)
+        if struck:
+            out.append("主人删掉的记忆（近 30 天，不要再记回去）：\n" + "\n".join(f"- [{row['kind']}] {row['text']}" for row in struck[-10:]))
         library = library_index(state_dir, record["id"])
         if library:
             out.append("资料库：\n" + "\n".join(f"- {line}" for line in library))
