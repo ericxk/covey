@@ -396,6 +396,10 @@ def label_title(state_dir, topic_id, unknown=""):
     yet (``topic_number`` gives one), ``unknown`` for no title (``topic_title``)."""
     if not topic_id:
         return "", unknown
+    if projects.enabled():  # A project's lead is the board's cell of the project (core/projects.py cells): its name.
+        record = projects.lead_record(state_dir, topic_id)
+        if record:
+            return "专项", " ".join(str(record.get("name") or "").split()) or unknown
     number = read_object(topic_file(Path(state_dir), topic_id)).get("topic_number")
     return (f"T{number}" if type(number) is int else ""), topic_title(Path(state_dir), topic_id) or unknown
 

@@ -435,7 +435,7 @@ cancelled、superseded：终态
 
 ## 专项（第 2 期，开发中，默认关）
 
-专项是主线程管家交给一个隐藏的负责人话题、由它派发并跟进若干线程话题的长活（设计见第 2 期的专项设计稿）。**现在有底座和负责人的运行**：记录、角色、看板的格，和负责人话题一轮怎么跑；没有入口（升级、专项卡、续轮是后面的包，负责人话题现在只能由测试建）；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
+专项是主线程管家交给一个隐藏的负责人话题、由它派发并跟进若干线程话题的长活（设计见第 2 期的专项设计稿）。**现在有底座、负责人的运行和专项卡**：记录、角色、看板的格，负责人话题一轮怎么跑，和聊天区的专项卡（[专项卡](main-thread.md#专项卡开关默认关)）；没有入口（升级、续轮是后面的包，负责人话题现在只能由测试建）；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
 
 - **记录** `<state>/projects/<id>.json`（`core/projects.py`，只用标准库，MCP 服务会导入）：`id`（6 到 32 位 `0-9a-z`）、`chat_id`、`name`、`goal`、`state`、`lead_topic_id`、`threads`（线程话题 id）、`origin`、`steps`（升级逐步记账，重做时跳过已做的）、`card`（专项卡的 `card_id`、`message_id`、`sequence`）、`created_at`、`updated_at`。给第 3 期留的 `direction`、`leader`、`claims`、`agreements`、`place` 只写不读。读写在 `resource_lock("record", …)` 下，锁内不发网络请求（规则 1）。
 - **状态** 只按 `PROJECT_TRANSITIONS` 前进（规则 4）：`active` → `paused`、`done`、`cancelled`；`paused` → `active`、`done`、`cancelled`；`done`、`cancelled` 是终态。`update` 改状态前先查表，不合法抛 `ValueError`、什么都不写。
@@ -450,6 +450,7 @@ cancelled、superseded：终态
   - **工具**：只有 `Read`、`Grep`、`Glob`（`options["tools"]` 经 `backends/claude/argv.py` 变成 `--tools`；MCP 工具不属内置工具，不受影响）加 Bridge 工具 `topic_read`、`topics_search`、`workspaces_list` 和 `project_*`。MCP 配置里有 `COVEY_PROJECT_LEAD`（专项 id）时服务只列这些，主线程的列表一个字不变。`project_thread_start`、`project_thread_send` 走 `main_topics` 的 `topic_start`、`topic_send`（负责人的任务调用时开出来的话题带 `project: {role: thread}`，写在绑定里，第一轮排队之前；同时最多 4 个线程在做或等主人，风格的“派活”档更低时按那档）；`project_note`（专项卡上一句，`report` 标要告诉主人的，按风格过滤）、`project_remember`、`project_style`、`project_finish`（还有线程在做时拒绝）写记录的 `notes`、`decisions`、`memory`、`style`；`project_answer`、`project_escalate` 只有接口，回答“分流还没开”，也不列出。
   - **收件箱** `projects/<id>/inbox/<序号>.json`：`{id, kind, thread, text, at, taken_by}`，`add_receipt` 写、`take_receipts` 读并标上这一轮（上一个领它的轮没有好好结束的，下一轮重新给）。谁来写（线程一轮结束、扣住的问题、主人在线程里说话）是续轮的包。
   - **一轮的结语** 负责人的任务卡和列表预览说它做了什么（`main_reply.outcome_words`，`lead=True`）：开了或交给哪个线程，否则记了哪句进展或收尾了专项，否则回复的开头。
+- **专项卡**（`cards/project_card.py`、`app/project_cards.py`，细节见 [main-thread.md](main-thread.md#专项卡开关默认关)）：`record["card"]` 是 `{card_id, message_id, sequence, created_at, generation, digest, wrote_at, closed, old, pending_card_id}`，只由 `ProjectCards` 经 `projects.update_card` 写（单写手，规则 3；sequence 存进这一个字段，不整条记录覆盖，免得盖掉负责人和升级同时写的别的字段）。`board` 钉专项卡时读这条记录的 `message_id`（`app/pins.py` 的 `aimed`/`project_aimed`）；格的名字（手上的事、早晚汇总）在 `core/topics.py` 的 `label_title` 里换成专项名。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
 
 ## 执行指标口径

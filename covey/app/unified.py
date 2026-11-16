@@ -124,7 +124,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
              'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'main_thread_panel',
              'settings_hub', 'overview', 'main_env', 'main_tools', 'main_search', 'memguard_alerts', 'digest',
-             'topic_seen', 'app_setup', 'dispatch_cards', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
+             'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -174,6 +174,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.digest import Digest
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
+        from covey.app.project_cards import ProjectCards
         from covey.app.devices import Devices
         from covey.app.group_boards import GroupBoards
         from covey.app.group_manager import GroupManager
@@ -242,6 +243,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The 派发活卡片 (app/dispatch_cards.py), when COVEY_MAIN_DISPATCH_CARD=1: the thread that keeps the cards of
             # the work the main thread handed to topics up to date; without the switch it has no thread.
             self.dispatch_cards = DispatchCards(self.runtime, self.messenger, self.voice, self.titles)
+            self.project_cards = ProjectCards(self.runtime, self.messenger, self.voice, self.titles)  # 专项卡 (COVEY_PROJECTS=1)
             # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
             # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
             # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
@@ -255,7 +257,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
                         self.group_manager, self.overview, self.topic_seen, self.main_tools,
                         self.main_search, self.settings_hub, self.main_thread, self.digest, self.app_setup,
-                        self.dispatch_cards, self.devices,
+                        self.dispatch_cards, self.project_cards, self.devices,
                         *self.extension_features)
             # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
             # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).

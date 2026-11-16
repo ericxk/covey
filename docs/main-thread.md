@@ -393,6 +393,18 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和主线程都�
 - **结论沉底**（B8）：回带发出后，`app/relay_send.py` 的 `send_once` 调 `dispatch_note`，在运行时进程里只留一张小便条 `<token>.relay.json`（`mark_relayed`，不碰卡）；线程读到便条，把卡整卡换成一行“✅ 做完 · 结论在下方 ›”（链到结论消息，面板收起、按钮摘掉），写成功后记录转 `settled`。失败或停止同样写一行原因（主人自己停的话回带被跳过，也是这一行“⏹ 已停”）。回带发送 `uncertain` 或 `unsent` 时不留便条，卡原样留着让主人看到出了问题；等回答的回带（`WAITING`）也不留。任务结束后 10 分钟（`TERMINAL_GRACE`）还没有便条，卡就按最后的样子转 `settled`；3 天还没结束的也一样。
 - **按钮**：`bridge_dispatch_steer`、`bridge_dispatch_stop` 在 `ACTIONS` 里（`handler` 是 `steering.dispatch_steer`、`controls.dispatch_stop`，不是 `bot_only`）。卡的消息记在话题名下，点击按话题路由；按钮的值带 `topic_id` 和 `job_id`，但点击那一刻 `card_routing` 先按话题现在的状态换成**当前在跑（或排队）的最新一轮**（`dispatch_cards.click_job`：先看内存里没结束的任务，再看任务记录），这一轮结束后又开了新一轮（回答问题、补充）也不会落空；话题没有在做的任务时回一句“这个话题现在没有在做的任务”，不转给任何任务进程。话题的任务进程活着时点击转给它，和任务卡上的补充、停止一样；任务进程里收到的点击不再换。补充另发一张不刷新的补充卡（`steer_form_card`），停止走 `cancel_reply_job_from_card`。
 
+### 专项卡（开关默认关）
+
+`COVEY_PROJECTS=1` 时，每个专项有一张卡：聊天区的一条新消息（不回复主人那条消息：飞书对已有串的消息，回复一律进串；主人那句话直接开的专项，顶上带“你问”块），不开串。点击和引用它回复都按消息别名路由到专项的负责人话题（`route_message`），所以按钮是负责人话题的点击。**只有 `ProjectCards`（`app/project_cards.py`）写它**（规则 3）。
+
+- **内容**（`cards/project_card.py` 的 `project_card`，element_id 都不超过 20 个字符）：卡头 = 专项名 + 状态标签（在做、等你、停住、做完）+ 方向灰标签（读记录的 `direction`，没有就不画）；`pj_need`“需要你”（摘要 + 打开问题卡 ›）、`pj_meta`（线程数、用时、token）、`pj_lead`（负责人现状 + 最近一句 note）；线程折叠面板 `pt_<话题前 6 位>_<状态字母>`：在做和等你的展开、做完的收起，**状态变了元素 id 就换**（客户端对同一个 id 改 `expanded` 不一定重画），等你的排最前、做完的最后，最多 8 个、其余一行 `pj_more`“更早 N 条”；`pj_triage`、`pj_mem`、`pj_lib` 三个收起的面板（分流记录、专项记忆、资料库，空就不画，后两个每行一个“删”）；`pj_io` 灰框；`pj_btns`：补充、停止专项、不要专项（停住的没有停止，做完的没有按钮）。没有输入框：会重画的卡不放输入框，补充另发一张表单卡。体积 5–13 KB（`tests/golden/cards.json.xz` 的 `project.*` 样本）。
+- **读什么**：只读任务记录和问题（没有飞书调用，不拿锁）。线程的状态和一句话沿用派发卡（`app/dispatch_cards.py` 的 `status_of`）；记录字段 `direction`（P2-8）、`lead_note`（`{text, at}` 或字符串，P2-2）、`tokens_used`（整数，P2-2）、`conclusion_message_id`（负责人收尾报告的消息，P2-2）、`triage`（行或 `{at, text}`）、`projects/<id>/memory.json`（列表或 `{"entries": […]}`）、`projects/<id>/library/`（文件名）；空的不画。
+- **刷新**：线程每秒看一遍，摘要变了且离上次写至少 2.5 秒才整卡 PUT；每次写前从 `reserve` 取 sequence 存进 `record["card"]`，失败按 2、4、8 … 最多 60 秒退避。摘要也存在记录里，重启不会为同一张卡再写一次。
+- **做完**：专项 `done` 后卡缩成一行（`settled_card`，链到 `conclusion_message_id` 那条结论；一直没有就等 10 分钟再缩，不带链接）；`cancelled` 缩成“⏹ 专项已降为普通话题”。缩完记 `card.closed`，不再刷新。
+- **14 天翻页**：CardKit 的卡实体 14 天后不能改。卡龄过第 12 天（`FLIP_AFTER`）新发一张卡（一条新消息，键里带代数；发不出去下次用同一个 `pending_card_id` 重试），记录、别名、Pin 改指新卡（`aimed` 读记录），旧卡下一次看时缩成“已移到新卡 ›”（用它自己的 sequence），写不了 3 次就撤回。
+- **按钮**：`bridge_project_steer`、`_stop`、`_downgrade`、`_mem_del`、`_lib_del` 在 `ACTIONS` 里（`handler` 是 `steering.project_steer`、`controls.project_stop`、`controls.project_downgrade`、`controls.project_mem_del`、`controls.project_lib_del`），都不是 `bot_only`：没有一个新建任务，值带 `project_id` 和负责人的 `topic_id`，不带 `job_id`，所以任务进程不会收到。补充 = 负责人正在跑的那一轮的补充表单（`steer_action`）；负责人空闲时不新开一轮，回一句“引用这张卡回复”（引用会路由到负责人，走主线程的正常入口）。停止专项 = 记录转 `paused`（停住）并停掉负责人和各线程话题里排队或在跑的任务。不要专项调 `app/project_cards.py` 的 `downgrade`，**现在还没接上**（回一句说明、什么都不改），降级是升级、降级那个包的事。删记忆、删资料只删自己那一行（资料只认 `library/` 里的文件名，不认路径）。
+- **Pin**：看板的格是专项（`core/board_read.py` 的 `cells`）；在做钉专项卡，等你钉线程的问题卡，做完钉结束的那条线程的答案卡（没有就钉专项卡）；专项还没有卡时钉线程自己的卡。手上的事和早晚汇总的行用 `label_title`，格叫“专项 · 专项名”。
+
 ## 代码位置
 
 | 模块 | 职责 |
