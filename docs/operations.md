@@ -412,7 +412,7 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 | `runs/` 运行目录 | 任务进程已不在、最新文件早于 7 天的删除；任务记录和执行过程保留 |
 | 代答批次 `proxy/batches/` | 只删已结束且 30 天没改动的 |
 | 专项记录 `projects/`（`COVEY_PROJECTS`，开发中） | 只删状态是 `done` 或 `cancelled` 且 180 天没改动的，连同它的 `projects/<id>/` 目录（`remove_projects`）；`active`、`paused` 的不动 |
-| 专项的记忆和资料库 `projects/<id>/memory.json`、`library/`（`COVEY_PROJECT_MEMORY`，开发中） | 记忆条目写下 180 天后删（含墓碑，风格行留着，`trim_project_memory`）；专项 `done` 且记录 30 天没改动后，资料库的文件删掉、索引留着名字和 sha256（`purge_project_files`）；单个专项的文件超过 200 MiB 时从最旧的删。`projects/` 从不进备份（备份只收 `core/backup.py` 列的目录） |
+| 专项的记忆和资料库 `projects/<id>/memory.json`、`library/`（`COVEY_PROJECT_MEMORY`，开发中） | 已结束（做完、已取消）的专项，记忆条目写下 180 天后删（含墓碑，风格行留着，`trim_project_memory`；在做和停住的不动）；专项 `done` 且记录 30 天没改动后，资料库的文件删掉、索引留着名字和 sha256（`purge_project_files`）；单个专项的文件超过 200 MiB 时从最旧的删（话题的产物在前，主人发的文件在后）。`projects/` 从不进备份（备份只收 `core/backup.py` 列的目录） |
 | 锁文件 `.locks/` | 记录已不存在或 7 天未改动的删除；`cards/.locks/` 里没人持有的都删 |
 | `job-diffs/` | 超过 30 天的删除；总量超过 200 MiB 时从最旧的删，但只删云空间上传已确认的，一天内写的不删 |
 | 备份 | 最多 7 份、合计不超过 400 MiB，超出时从最旧的删，最新一份总保留；重启打断留下的 `.tmp` 一天后删 |
