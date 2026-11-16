@@ -607,6 +607,34 @@ def inventory_rows():
     return rows
 
 
+# Core modules the MCP server (bin/covey_main_mcp.py) loads, with what they import: rule 7, only the standard library
+# and core modules that are themselves only that.
+MCP_CORE = ("covey.core.main_mcp", "covey.core.main_thread", "covey.core.projects")
+
+
+class McpCoreTest(unittest.TestCase):
+    def test_what_the_mcp_server_imports_is_the_standard_library_and_core(self):
+        seen, todo, found = set(), list(MCP_CORE), []
+        while todo:
+            name = todo.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            for module, imported, line in imports(PACKAGE.parent / (name.replace(".", "/") + ".py")):
+                if module in ("covey", "covey.core") and imported:
+                    module = f"{module}.{imported}"
+                if module.startswith("covey."):
+                    if module.startswith("covey.core."):
+                        todo.append(module)
+                    else:
+                        found.append(f"{name}:{line} {module}")
+                elif module.split(".")[0] not in sys.stdlib_module_names:
+                    found.append(f"{name}:{line} {module}")
+        self.assertEqual(found, [])
+        self.assertLessEqual(set(MCP_CORE), seen)
+        self.assertIn("covey.core.projects", seen)
+
+
 class InventoryTest(unittest.TestCase):
     def test_every_variable_and_option_the_code_reads_has_its_row_naming_who_reads_it(self):
         variables, options, unresolved = read_inventory()

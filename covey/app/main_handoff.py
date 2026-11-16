@@ -49,6 +49,7 @@ class Asked:
     said: tuple = ()
     attachments: tuple = ()
     roots: tuple = ()
+    lead: str = ""  # A project's lead hands the work on (app/project_tools.py), not the main thread: the project's name.
 
     @property
     def words(self) -> str:
@@ -208,6 +209,8 @@ def shown(owner: Asked, task, items) -> str:
 
 def thread_head(kind, owner: Asked) -> str:
     """"主线程转来你 17:54 的消息" ("的补充" for STEER): the head of the line the topic's thread gets."""
+    if owner.lead:
+        return "负责人转来补充" if kind == STEER else "负责人转来消息"
     when = f"你 {owner.clock} 的" if owner.clock else "你的"
     return f"主线程转来{when}补充" if kind == STEER else f"主线程转来{when}消息"
 
@@ -236,6 +239,17 @@ def _spaced(name):
     return (" " if name[:1].isascii() else "") + name + (" " if name[-1:].isascii() else "")
 
 
+def lead_note(kind, name, project, noun) -> str:
+    """The note when the lead of the project ``project`` (a name) hands the work on: the topic is one of that project's threads."""
+    head = f"{NOTE} 你在{noun}{name}，这是专项「{project}」的一个线程。"
+    done = "你的回复就是这一轮的结论，由 Bridge 处理，不用转述给谁。需要主人定的事（选择、部署、对外发送、花钱、删东西）照常提问。"
+    if kind == STEER:
+        return (f"{NOTE} 专项「{project}」的负责人给{name or '本' + noun}转来补充，你仍在这一轮里：把它并进手上的工作。")
+    if kind == NEXT:
+        return f"{head}负责人把下一件事交给你，作为这个{noun}的下一轮；下面是任务说明。直接做事。{done}"
+    return f"{head}负责人把这件事交给你；下面是任务说明。直接做事，不要再试图开话题或切话题。{done}"
+
+
 def note(kind, *, label, title, owner: Asked, source="") -> str:
     """The Bridge's note at the head of what the topic's model gets, for ``kind`` (START, NEXT, STEER, FORK);
     ``source``: the topic a fork came from."""
@@ -243,6 +257,8 @@ def note(kind, *, label, title, owner: Asked, source="") -> str:
     named = _named(label, title)
     name = _spaced(named) if named else ""
     here = _spaced(label) if label else f"这个{noun}"
+    if owner.lead:
+        return lead_note(kind, name, owner.lead, noun)
     who = f"主人 {owner.clock} " if owner.clock else "主人"
     done = "你的回复就是这一轮的结论，由 Bridge 发给主人。"
     settled = (f"原话里“开个话题区”“单开一个”“放到哪个 T 号里”“转给谁”这类安排主线程已经办完了，你就是那个{noun}："
@@ -267,8 +283,9 @@ def note(kind, *, label, title, owner: Asked, source="") -> str:
 def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra="", source="") -> str:
     """What the topic's model gets: the Bridge's ``note``, the main thread's task (its ``extra`` line after it),
     the owner's words quoted, and the attachments block of ``items`` (those carried into the topic)."""
+    who = "负责人" if owner.lead else "主线程"
     parts = [note(kind, label=label, title=title, owner=owner, source=source),
-             "任务说明（主线程整理）：\n" + task + (f"\n主线程补充：{extra}" if extra else "")]
+             f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")]
     if owner.words or items:
         quoted = []
         for index, (words, at) in enumerate(owner.said):

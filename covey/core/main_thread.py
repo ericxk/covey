@@ -20,13 +20,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from covey.core import env as cenv
-from covey.core import main_tracks, metrics
+from covey.core import main_tracks, metrics, projects
 
 ENV = "COVEY_MAIN_THREAD"
 MCP_SERVER = "bridge"  # The MCP server's name in the main thread's session: its tools are mcp__bridge__<tool>.
 MCP_ENTRY = "bin/covey_main_mcp.py"  # Relative to the release the Bridge runs from.
 STATE_ENV = "COVEY_MAIN_STATE"  # Tells the MCP server the Bridge's state directory.
 JOB_ENV = "COVEY_MAIN_JOB"  # The key of the main-thread job whose session runs the server; the Bridge checks it.
+LEAD_ENV = "COVEY_PROJECT_LEAD"  # The project's id, in the session of that project's lead only: it lists the lead's tools.
 
 
 # The owner's settings (core/main_thread_settings.py), the mode among them: the file ``enabled`` reads.
@@ -114,10 +115,17 @@ def is_main_topic(topic_id, chat_id) -> bool:
     or not the switch is on now. Only app/main_thread.py MainThread.keep_topic writes that topic's topic.json, with
     ``main_thread: true``, so for every record the product writes this says the same as that flag.
     The family (core/main_tracks.py): with COVEY_MAIN_TRACKS=1 the topics of slots 1..4 count too, each a track of the
-    main thread; with it off only slot 0, as before. The call sites that mean the root alone ask ``is_main_root``."""
+    main thread; with it off only slot 0, as before. A project's lead topic (core/projects.py, COVEY_PROJECTS=1) is of
+    the family too (``is_lead``). The call sites that mean the root alone ask ``is_main_root``."""
     if not topic_id:
         return False
-    return main_tracks.track_of(topic_id, str(chat_id or "")) is not None
+    return main_tracks.track_of(topic_id, str(chat_id or "")) is not None or is_lead(topic_id, chat_id)
+
+
+def is_lead(topic_id, chat_id) -> bool:
+    """Whether ``topic_id`` is a project's lead topic in ``chat_id`` (core/projects.py is_lead_topic, read from the state
+    directory ``configure_state`` set): False with COVEY_PROJECTS off, and in a process with no state directory."""
+    return bool(topic_id) and _state is not None and projects.is_lead_topic(_state, topic_id, str(chat_id or "") or None)
 
 
 def is_main_root(topic_id, chat_id) -> bool:
@@ -171,6 +179,12 @@ MAIN = Traits("main", switch_config=False, rewind=False, card_target=False, numb
 # switch-gated id check, parted here; this row keeps what each call site did.
 MAIN_OFF = dataclasses.replace(MAIN, name="main_off", own_turn=False, answers_in_place=False, lists_supplements=False,
                                hold_seconds=0, wording=(), slim_card=False, linkify_body=False)
+# A project's lead topic (core/projects.py; COVEY_PROJECTS): the main thread's ways, as its family member, except that no
+# owner's message waits for words (its wake-up turns have none). Its session's rules and tools are phase 2's (app/project_lead.py):
+# until then ``own_turn`` only says the turn is not an ordinary topic's.
+LEAD = dataclasses.replace(MAIN, name="lead", hold_seconds=0)
+LEAD_OFF = dataclasses.replace(LEAD, name="lead_off", own_turn=False, answers_in_place=False, lists_supplements=False,
+                               wording=(), slim_card=False, linkify_body=False)
 
 
 _state = None  # The process's state directory (``configure_state``); None: the mode as main-thread.json without one.
@@ -194,7 +208,12 @@ def run_seconds(job):
 
 def traits(topic_id, chat_id) -> Traits:
     """The row of ``topic_id`` in ``chat_id``: MAIN, MAIN_OFF with the main thread off (``enabled``: the switch or
-    the mode 纯话题), TOPIC for every other (an old front-desk topic too: retired, core/topics.py retired_topic)."""
+    the mode 纯话题), TOPIC for every other (an old front-desk topic too: retired, core/topics.py retired_topic; a
+    project's thread too). A project's lead topic is LEAD, LEAD_OFF with the main thread off."""
+    if not topic_id:
+        return TOPIC
+    if is_lead(topic_id, chat_id):
+        return LEAD if enabled() else LEAD_OFF
     if not is_main_topic(topic_id, chat_id):
         return TOPIC
     return MAIN if enabled() else MAIN_OFF
@@ -221,15 +240,18 @@ def worded(text: str, of) -> str:
     return text
 
 
-def mcp_config(release: Path, state_dir: Path, job_key: str, python: str) -> dict:
+def mcp_config(release: Path, state_dir: Path, job_key: str, python: str, lead: str = "") -> dict:
     """The --mcp-config of a main-thread job's Claude Code: the Bridge's tools and nothing else. The variables that
     switch on the knowledge and history tools and the butler's wording of topic_start (core/main_tool_specs.py listed) are
-    handed on when the Bridge has them."""
+    handed on when the Bridge has them. ``lead``: the id of the project whose lead's job it is (COVEY_PROJECTS on): the
+    server then lists the lead's tools (project_*) instead (app/project_lead.py)."""
     env = {}
     handed = {STATE_ENV: str(state_dir), JOB_ENV: job_key,
               "COVEY_KNOWLEDGE": cenv.get("COVEY_KNOWLEDGE", "").strip(),  # core/main_tool_specs.py
               "COVEY_HISTORY_CMD": cenv.get("COVEY_HISTORY_CMD", "").strip(),  # KNOWLEDGE_ENV, HISTORY_ENV
               "COVEY_MAIN_BUTLER": cenv.get("COVEY_MAIN_BUTLER", "").strip()}  # BUTLER_ENV
+    if lead and projects.enabled():
+        handed[LEAD_ENV] = lead
     for name, value in handed.items():
         if value:
             cenv.put(env, name, value)  # Both spellings: the server may be an older release's.

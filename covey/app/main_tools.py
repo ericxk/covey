@@ -13,7 +13,8 @@ The handlers here, in TOOLS: the read-only ones (topics_list, topic_read, worksp
 their locks; topics_search, which looks into every turn, is app/main_search.py), topic_priority (<state>/board-priority.json; with ``remove``, the topic off the pinned board:
 app/pins.py dismiss) and question_answer, which answers a topic's pending
 choice question through the same path as 提交回答 on its card (app/questions.py submit_answer), and the owner's
-principles: principle_save, principle_delete, principles_list (core/principles.py, <state>/principles.json).
+principles: principle_save, principle_delete, principles_list (core/principles.py, <state>/principles.json). A project's lead's
+tools (project_*) are app/project_tools.py's, run by the same loop for the lead's job (it is of the family, ``is_main_topic``).
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ import re
 import time
 from pathlib import Path
 
-from covey.app import pins
+from covey.app import pins, project_tools
 from covey.core import board_read
 from covey.core.board_read import PRIORITY, TOOLS_AGE, job_number, topic_jobs, topic_questions
 from covey.app.answers import AnswerIncomplete, answer_fields
@@ -501,6 +502,9 @@ def principles_list(env, request):
     return reply(True, "\n".join(map(principle_row, rows)), count=len(rows))
 
 
+# The project tools of a lead (app/project_tools.py) are listed to a lead's session only (core/main_tool_specs.py); their
+# handlers refuse any other job.
 TOOLS = {"topics_list": topics_list, "topic_read": topic_read, "workspaces_list": workspaces_list,
          "topic_priority": topic_priority, "question_answer": question_answer,
-         "principle_save": principle_save, "principle_delete": principle_delete, "principles_list": principles_list}
+         "principle_save": principle_save, "principle_delete": principle_delete, "principles_list": principles_list,
+         **project_tools.TOOLS}

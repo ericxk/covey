@@ -33,6 +33,7 @@ import dataclasses
 from pathlib import Path
 
 from covey.core.jobs import jobs_dir, select_job_records
+from covey.core import projects
 from covey.core.main_thread import is_main_topic, traits
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
@@ -56,12 +57,14 @@ class Read:
     """One ``read`` of a chat: ``questions`` its pending questions shown (not display_pending), in the index's
     order; ``jobs`` its jobs running, written within RESULT_AGE or of a topic in ``keep``, newest first
     (core/jobs.py select_job_records); both without the main thread's topic (Traits.listed). ``seen``
-    topic-seen.json, ``priority`` board-priority.json."""
+    topic-seen.json, ``priority`` board-priority.json. ``cells``: a project's thread topic -> its lead's topic id
+    (core/projects.py cells), {} without COVEY_PROJECTS; ``groups`` takes it, so a project is one cell."""
     questions: list
     jobs: list
     seen: dict
     priority: dict
     keep: frozenset = frozenset()
+    cells: dict = dataclasses.field(default_factory=dict)
 
 
 def listed(topic_id, chat) -> bool:
@@ -106,11 +109,14 @@ def read(state, chat, now, keep=frozenset()) -> Read:
     fields (core/store.py) show it is none of those is not read (``may_be_read``): in a new process, a few hundred
     of the thousands."""
     keep = frozenset(keep)
+    cells = projects.cells(state, chat)
+    # A project's cell is its lead's id (``groups``): the board record keeps results by cell, the older jobs wanted are its threads'.
+    wanted = keep | frozenset(topic for topic, lead in cells.items() if lead in keep) if cells else keep
     questions = pending_questions(state, chat)
     jobs = select_job_records(state, lambda record: listed(record.get("topic_id"), chat) and (
-        fresh(record, now) or record.get("topic_id") in keep), chat_id=chat,
-        narrow=lambda fields: may_be_read(fields, now, keep, chat))
-    return Read(questions, jobs, read_seen(state), times(Path(state) / PRIORITY), keep)
+        fresh(record, now) or record.get("topic_id") in wanted), chat_id=chat,
+        narrow=lambda fields: may_be_read(fields, now, wanted, chat))
+    return Read(questions, jobs, read_seen(state), times(Path(state) / PRIORITY), keep, cells)
 
 
 def topic_jobs(state, chat) -> dict:
@@ -281,31 +287,49 @@ def order(record):
     return (record.get("status") not in (None, "queued"), int(record.get("job_id") or 0)) if record else (False, -1)
 
 
-def groups(questions, jobs, seen, now, rules=Rules()) -> Groups:
-    """The board's three groups of ``questions`` and ``jobs`` (a ``read``'s), a topic in the first it is in."""
+def groups(questions, jobs, seen, now, rules=Rules(), cells=None) -> Groups:
+    """The board's three groups of ``questions`` and ``jobs`` (a ``read``'s), a topic in the first it is in.
+
+    ``cells`` (a ``read``'s: a project's thread topic -> its lead's topic id, core/projects.py): the threads of one project
+    are one topic here, the lead's, so the board has a cell for the project and not one for each thread. In a cell the
+    newest question waits, the running job the board shows is the one running before one queued and then the latest
+    (``order``; job ids are the Bridge's one count, so they order jobs of different topics too), and the result is the
+    one of the cell's threads' latest jobs (as each would be a topic's) that the owner has not seen, the one that
+    ended last of them, else the one that ended last: an older result not seen is not lost behind a newer one seen,
+    but only one is pinned. With ``cells`` empty or none of a topic's, a topic is its own cell and every rule is as it
+    was before cells."""
+    cell = (lambda topic: cells.get(topic, topic)) if cells else (lambda topic: topic)
     waiting, running, results = {}, {}, {}
     for record in questions:
-        topic, at = record.get("topic_id") or "", record.get("created_at")
+        topic, at = cell(record.get("topic_id") or ""), record.get("created_at")
         if (topic and record.get("question_message_id") and isinstance(at, (int, float)) and now - at <= QUESTION_AGE
                 and at > (waiting.get(topic) or {}).get("created_at", -1)):
             waiting[topic] = record
     latest = {}
     for record in jobs:
-        topic = record.get("topic_id") or ""
-        if (topic and not unrun(record)
-                and int(record.get("job_id") or 0) > int(latest.get(topic, {}).get("job_id") or 0)):
-            latest[topic] = record
+        member = record.get("topic_id") or ""
+        topic = cell(member)
+        if (member and not unrun(record)
+                and int(record.get("job_id") or 0) > int(latest.get(member, {}).get("job_id") or 0)):
+            latest[member] = record
         if (topic and topic not in waiting and record.get("status") in RUNNING and record.get("card_message_id")
                 and order(record) > order(running.get(topic, {}))):
             running[topic] = record
-    for topic, record in latest.items():
+    members = {}
+    for member, record in latest.items():
+        members.setdefault(cell(member), []).append(record)
+    for topic, records in members.items():
         if topic in waiting or topic in running:
             continue
-        result = board_result(topic, record, seen, now, since=rules.since, relayed=rules.relayed,
-                              read_top=rules.read_top, keep_since=rules.keep_since, results=rules.results,
-                              stopped_since=rules.stopped_since, inline=rules.inline)
-        if result is not None:
-            results[topic] = (record, *result)
+        found = []
+        for record in records:
+            result = board_result(topic, record, seen, now, since=rules.since, relayed=rules.relayed,
+                                  read_top=rules.read_top, keep_since=rules.keep_since, results=rules.results,
+                                  stopped_since=rules.stopped_since, inline=rules.inline)
+            if result is not None:
+                found.append((record, *result))
+        if found:
+            results[topic] = max(found, key=lambda item: (item[2] is None, item[1], int(item[0].get("job_id") or 0)))
     return Groups(waiting, running, results)
 
 

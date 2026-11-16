@@ -135,7 +135,7 @@ def kept(state, chat):
 
 
 def board(questions, jobs, seen, priority, now, since=0.0, relayed=None, *, read_top=0.0, keep_since=None,
-          results=None, inline=None, stopped_since=None):
+          results=None, inline=None, stopped_since=None, cells=None):
     """The topics as they would be pinned, top to bottom, each {topic, group, message_id, at, record}, a result's
     with ``seen`` (when the owner first saw it, None: not yet): ``at`` is when it was asked, ended or started;
     ``record`` the question's or job's record. The groups are core/board_read.py groups with these ``Rules``: a
@@ -143,9 +143,10 @@ def board(questions, jobs, seen, priority, now, since=0.0, relayed=None, *, read
     ``inline``; first seen as ``results``, the record's, says when it holds the same end). One that ended before
     ``keep_since`` (None: none did) is as before 2026-11-07: within RESULT_AGE, not seen in its topic, and not done at
     the top level (``relayed``, a job record -> bool: app/main_relay.py relayed). A stopped one that
-    ended before ``stopped_since`` (None: none did) is not on it: before 2026-11-09 the board left them out."""
+    ended before ``stopped_since`` (None: none did) is not on it: before 2026-11-09 the board left them out.
+    ``cells``: a project's threads are one topic, the lead's (core/board_read.py groups)."""
     return rows_of(board_read.groups(questions, jobs, seen, now, board_read.Rules(
-        since, keep_since, stopped_since, results or {}, read_top, relayed, inline)), priority)
+        since, keep_since, stopped_since, results or {}, read_top, relayed, inline), cells), priority)
 
 
 def rows_of(found, priority):
@@ -169,7 +170,7 @@ def ranked(rows, priority):
 def status_pinned(state, chat, topic) -> bool:
     """Whether ``topic`` (in ``chat``) is pinned by its status card (core/placement.py Row.status_card): not in the
     话题区 layout, nor one without a thread (app/status_cards.py root)."""
-    return placement.plan(state, traits(topic, chat)).row.status_card
+    return placement.plan(state, {"topic_id": topic, "chat_id": chat}).row.status_card
 
 
 def aimed(state, chat, row):
@@ -306,7 +307,7 @@ class PinnedTopics:
         questions, self.priority = read.questions, read.priority
         found = board_read.groups(questions, read.jobs, read.seen, now, board_read.Rules(
             self.since, self.keep_since, self.stopped_since, table, top_read(read.seen, chat),
-            functools.partial(main_relay.relayed, state), functools.partial(main_relay.inline_at, state)))
+            functools.partial(main_relay.relayed, state), functools.partial(main_relay.inline_at, state)), read.cells)
         self.rows = [aimed(state, chat, row) for row in rows_of(found, self.priority)]
         self.results = {row["topic"]: {"at": row["at"], "seen": row["seen"]} for row in self.rows
                         if row["group"] == "result"}

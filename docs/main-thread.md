@@ -166,7 +166,7 @@
 `core/placement.py`：布局 × 角色 → 格子 `Row`。调用处只读格子；只有这一轮知道的事（开没开话题、多快、是不是主人自己停的）留在调用处。
 
 - **布局**（`layout()`）：主线程开着是 `area`（话题区），否则 `topics`。
-- **角色**（`ROLES`）：`main`（`MAIN`、`MAIN_OFF`）、`topic`。
+- **角色**（`ROLES`）：`main`（`MAIN`、`MAIN_OFF`）、`topic`；`COVEY_PROJECTS=1` 时再有 `lead`（`LEAD`、`LEAD_OFF`）和 `project_thread`（读 `topic.json` 的 `project.role`），见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)。
 - **位置**：`TOP` 聊天区新消息、不引用任何卡；`THREAD` 上下文的回复目标（话题串）；`NONE` 不发。
 - `plan(state_dir, of)` 返回 `Placement`（`traits`、`layout`、`role`、`row`）。
 
@@ -174,6 +174,8 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `area` × `main` | 否 | TOP | `ROUTES` | NONE | TOP | 是 | 否 | 否 | 是 |
 | `area` × `topic` | 按 `Traits` | THREAD | 无 | TOP | TOP | 是 | 否 | 是 | 否 |
+| `area` × `lead`（专项，默认关） | 否 | TOP | 无 | NONE | NONE | 是 | 否 | 否 | 是 |
+| `area` × `project_thread`（专项，默认关） | 按 `Traits` | THREAD | 无 | NONE | TOP | 是 | 否 | 是 | 否 |
 | `topics` × 任意 | 否 | THREAD | 无 | NONE | NONE | 否 | 是 | 否 | 否 |
 
 | 字段 | 含义 | 读者 |

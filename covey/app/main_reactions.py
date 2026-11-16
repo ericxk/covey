@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 
-from covey.core import main_thread, main_tracks, placement
+from covey.core import main_tracks, placement
 from covey.core.topics import message_topic
 
 ON_IT, DONE, GOT, FAILED = "OnIt", "DONE", "Get", "CrossMark"
@@ -83,7 +83,7 @@ def owner_quiet(state_dir, chat, message) -> bool:
     try:
         topic = message_topic(state_dir, chat, message)
         return message.startswith("om_") and bool(topic) and placement.plan(
-            state_dir, main_thread.traits(topic, chat)).row.quiet
+            state_dir, {"topic_id": topic, "chat_id": chat}).row.quiet
     except Exception:  # noqa: BLE001 - no reaction
         return False
 

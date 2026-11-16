@@ -63,6 +63,10 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
             config = ctx.options["mcp_config"]
             argv += ["--mcp-config", json.dumps(config, ensure_ascii=False, separators=(",", ":")),
                      "--allowedTools", ",".join("mcp__" + name for name in config.get("mcpServers", {}))]
+        if ctx.options.get("tools"):
+            # A project's lead (app/project_lead.py LEAD_TOOLS): Claude Code's own tools narrowed to these; the MCP tools
+            # above are not among the built-in ones --tools names, so they stay.
+            argv += ["--tools", ",".join(ctx.options["tools"])]
         # Its subagents' read-only Explore on Haiku (backends/claude/subagents.py), unless the setting says "same" or
         # the app sets the subagents' model (a retry after a refusal).
         argv += subagents.argv(ctx)
