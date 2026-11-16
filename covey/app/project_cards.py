@@ -770,7 +770,7 @@ def triage_wrong(host, ctx, event) -> bool:
 
 def triage_fix(host, ctx, event) -> bool:
     """提交纠正 on that form: what the owner said goes to the member topic as a message, into the project's decisions and
-    its 分流记录 row (``corrected``); app/triage.py ``correct`` does it."""
+    its 分流记录 row (``corrected``); app/triage.py ``correct`` does it. The form then becomes the card that says so."""
     from covey.app import triage
     from covey.app.card_actions import form_fields
     from covey.cards.triage_card import FIELD
@@ -779,9 +779,28 @@ def triage_fix(host, ctx, event) -> bool:
     text = " ".join(str((form_fields(event) or {}).get(FIELD) or "").split())
     if not text:
         raise ValueError("纠正的内容为空")
-    done = triage.correct(record, str(raw.get("token") or ""), text)
+    token = str(raw.get("token") or "")
+    row = next((r for r in record.get("triage") or () if isinstance(r, dict) and r.get("token") == token), {})
+    done = triage.correct(record, token, text)
     say(host, ctx, event, done, "project-triage-fixed")
+    settle_fix_form(host, ctx, event, f"{words(row.get('text'), 120)} → {words(text, 120)}")
     return True
+
+
+def settle_fix_form(host, ctx, event, summary) -> None:
+    """The submitted form, replaced whole by the card that says it was corrected and with what (AGENTS.md rule 9; the
+    acceptance of 2026-11-17 found the form open after its 提交纠正). A failed write leaves the form, whose second submit
+    ``triage.correct`` refuses."""
+    from covey.cards.triage_card import fixed_card
+
+    source = str(event.get("message_id") or "")
+    if not source:
+        return
+    try:
+        host.messenger.publish_card(ctx, str(event.get("chat_id") or ""), "triage-fixed-" + source, fixed_card(summary),
+                                    source_message=source, update_only=True, voice=host.voice)
+    except (ValueError, OSError, RuntimeError) as exc:
+        host.runtime.log(f"project triage fix form not settled: {type(exc).__name__}")
 
 
 ASK_REFUSED = {"none": "专项「{name}」现在没有要定的停住。", "answered": "专项「{name}」停住后的选择已经做过了。",

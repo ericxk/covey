@@ -472,6 +472,27 @@ class CorrectTest(Held):
             flow.correct(self.reload(), "d" * 16, "没有这一行")
         self.assertEqual(len(self.queued), 1)
 
+    def test_the_submitted_form_becomes_the_card_that_says_it_was_corrected(self):
+        # The acceptance of 2026-11-17: after 提交纠正 the form stayed open, its input and button still there.
+        host = SimpleNamespace(messenger=mock.Mock(), voice=SimpleNamespace(key=lambda name, event_id: f"{name}:{event_id}"),
+                               runtime=SimpleNamespace(log=self.logs.append))
+        ctx = SimpleNamespace(state_dir=self.state, topic_id=LEAD)
+        event = {"chat_id": CHAT, "message_id": "om_form", "event_id": "ev-fix",
+                 "action_value": {"kind": triage_card.FIX_KIND, "project_id": PID, "topic_id": LEAD, "token": TOKEN},
+                 "form_value": {triage_card.FIELD: "应该用 CRLF"}}
+        self.assertTrue(project_cards.triage_fix(host, ctx, event))
+        call = host.messenger.publish_card.call_args
+        self.assertEqual((call.args[1], call.kwargs["source_message"], call.kwargs["update_only"]), (CHAT, "om_form", True))
+        shown = json.dumps(call.args[3], ensure_ascii=False)
+        self.assertIn("已纠正", shown)
+        self.assertIn("新版 → 应该用 CRLF", shown)
+        self.assertFalse([e for e in walk(call.args[3]) if e.get("tag") in {"form", "input", "button"}])
+        host.messenger.publish_card.reset_mock()
+        with self.assertRaisesRegex(ValueError, "已经纠正过"):
+            project_cards.triage_fix(host, ctx, {**event, "event_id": "ev-fix-2"})
+        host.messenger.publish_card.assert_not_called()
+        self.assertEqual(len(self.queued), 1)
+
 
 class HeldFixture(QuestionFixture, unittest.TestCase):
     """E2: the real Harness app, a task that ended waiting for the owner, and its question held for a project's lead."""

@@ -994,6 +994,7 @@ def project_cards():
                 ("09:40 答了：T501 · 用哪个库版本？ → 新版", "c" * 16), "10:05 转给你：T503 · 能不能停服务？（碰到硬闸）")})),
             "triage_fix_form": triage_card.fix_form("T501 · 用哪个库版本？ → 新版", {"project_id": "a1b2c3d4e5f6", "topic_id": "f" * 32,
                                                                               "token": "c" * 16}),
+            "triage_fixed": triage_card.fixed_card("T501 · 用哪个库版本？ → 新版 → 这类库版本的事要等我看过再定"),
             "ask_tokens": pc.ask_card("把订单库迁到新集群", "token 用到上限 1000 万", project_id="a1b2c3d4e5f6", lead_topic="f" * 32,
                                       note="在做的 2 个话题已请它们停下。"),
             "ask_wakes": pc.ask_card("把订单库迁到新集群", "负责人连续叫醒 30 次没有你的消息", project_id="a1b2c3d4e5f6",
