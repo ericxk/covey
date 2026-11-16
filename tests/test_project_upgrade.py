@@ -32,17 +32,17 @@ def text(card) -> str:
 
 
 class UpCase(DispatchCase):
-    """A Bridge with COVEY_PROJECTS on and the upgrade on ``word``, the main thread's topic.json written."""
+    """A Bridge with COVEY_PROJECTS on and the upgrade on ``butler``, the main thread's topic.json written."""
 
     def setUp(self):
         super().setUp()
-        patcher = mock.patch.dict(os.environ, {projects.ENV: "1", upgrades.ENV: "word"})
+        patcher = mock.patch.dict(os.environ, {projects.ENV: "1", upgrades.ENV: "butler"})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.state = self.ctx.state_dir
         previous = main_thread.configure_state(self.state)
         self.addCleanup(main_thread.configure_state, previous)
-        write_json(self.state / main_thread_settings.FILE, {"mode": "agent"})  # Personal Agent: the lead needs the main thread.
+        write_json(self.state / main_thread_settings.FILE, {"mode": "agent"})  # the butler: the lead needs the main thread.
         main_thread.forget_mode()
         self.addCleanup(main_thread.forget_mode)
         write_topic(self.state, topic_id=main_thread.main_topic_id(CHAT), chat_id=CHAT, harness_id="claude", model="claude-opus-x",
@@ -55,7 +55,14 @@ class UpCase(DispatchCase):
         self.writer = project_cards.ProjectCards(self.app.runtime, self.app.messenger, self.app.voice, {"claude": "Claude Code"})
 
     def long(self, words=LONG):
+        """The butler's ``project`` flag on the 派发卡 the next topic_start leaves (``words`` are the owner's, which decide
+        nothing: only the flag turns a topic into a project)."""
         upsert_job_record(self.state, "main-job", user_text=words)
+        real = main_topics.dispatch_card
+        patcher = mock.patch.object(main_topics, "dispatch_card",
+                                    lambda env, request, topic_id, **how: real(env, request, topic_id, **{**how, "project": True}))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def plain(self, request_id="r1", **args):
         """A topic opened with the upgrade off: its 派发卡 stays live."""
@@ -84,14 +91,16 @@ class UpCase(DispatchCase):
 
 
 class SwitchTest(UpCase):
-    def test_the_upgrade_is_off_by_default_and_a_long_word_changes_nothing_then(self):
+    def test_the_upgrade_is_off_by_default_and_the_butlers_flag_changes_nothing_then(self):
         self.long()
         with mock.patch.dict(os.environ, {upgrades.ENV: ""}):
             answer = self.start()
         self.assertTrue(answer["ok"], answer)
         self.assertEqual(self.projects_on_disk(), [])
         self.assertEqual((self.record()["state"], self.record()["project_id"]), ("live", None))
-        self.assertEqual(upgrades.mode(), "word")
+        self.assertEqual(upgrades.mode(), "butler")
+        with mock.patch.dict(os.environ, {upgrades.ENV: "word"}):
+            self.assertEqual(upgrades.mode(), "butler")  # The old value, the same meaning.
         for bad in ("", "off", "yes", "1"):
             with mock.patch.dict(os.environ, {upgrades.ENV: bad}):
                 self.assertEqual(upgrades.mode(), "off", bad)
@@ -107,7 +116,7 @@ class SwitchTest(UpCase):
         self.assertFalse((self.state / "projects").exists())
         self.assertEqual(self.record()["state"], "live")
 
-    def test_word_upgrades_on_the_owners_word_and_on_the_butlers_flag_but_not_on_rounds(self):
+    def test_butler_upgrades_on_the_butlers_flag_alone_not_on_a_word_or_on_rounds(self):
         topic, dispatch = self.plain()
         self.assertEqual(self.up.consider(dispatch["token"]), "")  # No word, no flag.
         self.second_dispatch(topic, "b" * 16, state="settled")
@@ -116,7 +125,7 @@ class SwitchTest(UpCase):
         self.assertEqual(self.up.consider(dispatch["token"]), "")  # The third round is ``auto``'s.
         self.assertEqual(self.projects_on_disk(), [])
         hinted = {**dispatch, "upgrade_hint": {"long_word": False, "project": True}}
-        self.assertEqual(self.up.reason(hinted), ("word", 0))
+        self.assertEqual(self.up.reason(hinted), ("butler", 0))
 
     def test_auto_also_upgrades_on_the_third_round_and_the_card_says_which(self):
         topic, dispatch = self.plain()
@@ -127,7 +136,7 @@ class SwitchTest(UpCase):
             pid = self.up.consider(dispatch["token"])
         self.assertTrue(pid)
         project = projects.read_record(self.state, pid)
-        self.assertEqual(project["origin"]["note"], "由快事升级（来回第 3 轮）")
+        self.assertEqual(project["origin"]["note"], "来回 3 轮后转成专项")
         self.assertEqual((project["origin"]["why"], project["origin"]["rounds"]), ("rounds", 3))
 
     def test_the_rounds_are_the_larger_of_the_cards_and_the_owners_own_turns_and_the_old_field_is_not_read(self):
@@ -170,12 +179,12 @@ class UpgradeTest(UpCase):
         dispatch = self.record()
         return answer["data"]["topic_id"], dispatch, self.project(dispatch)
 
-    def test_a_long_word_turns_the_card_into_the_projects_with_all_seven_steps_done(self):
+    def test_the_butlers_flag_turns_the_card_into_the_projects_with_all_seven_steps_done(self):
         topic, dispatch, project = self.upgraded()
         self.assertEqual(set(project["steps"]), set(upgrades.UPGRADE_STEPS))
         self.assertEqual(project["name"], topic_title(self.state, topic))
         self.assertEqual((project["state"], project["threads"], project["chat_id"]), ("active", [topic], CHAT))
-        self.assertEqual(project["origin"]["note"], "由快事升级（你说了长活）")
+        self.assertEqual(project["origin"]["note"], "由管家转成专项")
         self.assertEqual(project["origin"]["topic_id"], topic)
         # The same card and message, the dispatch record settled behind it.
         self.assertEqual((project["card"]["card_id"], project["card"]["message_id"]),
@@ -218,7 +227,7 @@ class UpgradeTest(UpCase):
         self.writer.tick(self.ctx, time.time() + 5)
         args, kwargs = self.put.call_args
         self.assertEqual((args[1], kwargs["sequence"]), (dispatch["card_id"], 8))
-        self.assertIn("由快事升级（你说了长活）", find_element(args[2], "pj_meta")["content"])
+        self.assertIn("由管家转成专项", find_element(args[2], "pj_meta")["content"])
         self.assertIsNotNone(find_element(args[2], "pj_down"))  # 不要专项.
         self.assertIn("你问", text(find_element(args[2], "answer_ask")))
 
@@ -296,7 +305,7 @@ class UpgradeTest(UpCase):
         self.assertEqual(self.up.reason(again), None)
         with mock.patch.dict(os.environ, {upgrades.ENV: "auto"}):
             self.assertEqual(self.up.reason(self.second_dispatch(topic, "7" * 16)), None)
-        self.assertEqual(self.up.reason({**again, "upgrade_hint": {"project": True}}), ("word", 0))
+        self.assertEqual(self.up.reason({**again, "upgrade_hint": {"project": True}}), ("butler", 0))
         projects.create(self.state, {**projects.new_record(chat_id=CHAT, name="x", project_id="0f9e8d7c6b5a",
                                                            origin={"topic_id": "ab" * 16}), "state": "cancelled", "state_reason": "stopped"})
         self.assertFalse(self.up.turned_back("ab" * 16))
@@ -554,7 +563,7 @@ class DowngradeTest(UpCase):
         self.assertEqual(routed_topic(self.state, CHAT, self.dispatch["card_message_id"]), self.topic)
         self.assertEqual(message_topic(self.state, CHAT, self.dispatch["card_message_id"]), self.topic)
         self.assertEqual(routed_topic(self.state, CHAT, other["card_message_id"]), self.topic)
-        self.assertIn("降回普通话题：已请负责人的 1 个任务停下，1 个线程变回普通话题", self.said())
+        self.assertIn("降回普通话题：已请负责人的 1 个任务停下，1 个话题变回普通话题", self.said())
         self.assertEqual(projects.cells(self.state, CHAT), {})  # The board cell is gone with the project.
 
     def test_the_card_then_shrinks_to_the_line_and_a_second_click_does_the_rest_again_harmlessly(self):
@@ -603,7 +612,7 @@ class DowngradeTest(UpCase):
                  "action_value": {"kind": "bridge_project_downgrade", "project_id": pid, "topic_id": record["lead_topic_id"]}}
         lead_ctx = dataclasses.replace(self.ctx, topic_id=record["lead_topic_id"])
         self.assertTrue(self.claude.controls.project_downgrade(lead_ctx, event))
-        self.assertIn("它没有线程，没有话题可回", self.said())
+        self.assertIn("它没有话题，引用这张卡回复也没有话题可回", self.said())
         self.assertEqual(projects.read_record(self.state, pid)["state"], "cancelled")
 
 
@@ -677,7 +686,7 @@ class ToolTest(UpCase):
         self.assertEqual(len(rows), 1 + 3)
         self.assertTrue(rows[0].startswith(project["id"]), rows[0])
         self.assertIn("在做", rows[0])
-        self.assertIn("线程 T", rows[0])
+        self.assertIn("话题 T", rows[0])
         self.assertIn("分表方案定了", rows[0])
         self.assertEqual([row.split(" · ")[2] for row in rows[1:]], ["做完"] * 3)
         with mock.patch.object(main_topics, "lead_of", return_value=(project["id"], "p")):
@@ -754,9 +763,11 @@ class AcceptanceFindingsTest(DispatchCase):
         # 开个专项 is topic_start's project flag (the butler set it itself in accept8); 专项 as a long word upgraded
         # "开个普通话题（不要专项）" there, so it is not one, and a no right before a long word stops it too.
         self.assertIn("开个专项", main_tool_specs.START_PROJECT["description"])
-        self.assertTrue(records.LONG_WORDS.search("这是个长活，接着做"))
-        for said in ("这不是长活", "不要长期跟进", "别接着做了", "开个普通话题（不要专项，project 别带）"):
-            self.assertIsNone(records.LONG_WORDS.search(said), said)
+        self.assertFalse(hasattr(records, "LONG_WORDS"))  # No keyword of the owner's is matched any more.
+        for said in ("这是个长活，接着做", "这不是长活", "开个普通话题（不要专项，project 别带）"):
+            hint = records.new_record(token="a" * 16, chat_id=CHAT, topic_id="t", job_key="j", mid="m", kind="start",
+                                      owner_message="om", request=said, starts=True)["upgrade_hint"]
+            self.assertEqual(hint, {}, said)
 
     def test_a_lead_turn_the_owner_did_not_start_has_no_ask_block_and_quotes_no_message(self):
         from covey.app.answer_cards import asked
@@ -771,7 +782,7 @@ class AcceptanceFindingsTest(DispatchCase):
         from covey.app.main_reply import reply_fold
 
         self.assertIn("负责人的回答", json.dumps(reply_fold("好", lead=True), ensure_ascii=False))
-        self.assertIn("主线程的回答", json.dumps(reply_fold("好"), ensure_ascii=False))
+        self.assertIn("管家的回答", json.dumps(reply_fold("好"), ensure_ascii=False))
 
 
 PID_X = "f00dfeed0001"

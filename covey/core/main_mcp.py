@@ -68,7 +68,7 @@ class Server:
                    if not value]
         if missing:
             return content({"ok": False, "text": f"Bridge 工具没有配置好：缺少环境变量 {'、'.join(missing)}，"
-                                                 "这次调用没有执行。主线程任务要由 Bridge 启动。"})
+                                                 "这次调用没有执行。管家任务要由 Bridge 启动。"})
         try:
             return content(self.submit(self.state_dir, name, args, job_key=self.job_key))
         except OSError as exc:

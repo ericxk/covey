@@ -47,7 +47,7 @@ NOTE_LINE = 60  # Characters of a track's request in the parallel note.
 NOTE_ROWS = 6
 BARE_SECONDS = contract.HOLD_SECONDS  # The words that follow a forward or a file this soon join it (no router).
 FORK_NOTE = (
-    "这一轮是管家并行的一路：主人同时在别的路上还有事，那些路各自回答，不归你。上面会话里没有答完的提问（如果有）"
+    "这一轮是管家同时在做的几件事之一：主人另外还有事在做，那些事各自回答，不归你。上面会话里没有答完的提问（如果有）"
     "也不归你，只处理下面这条新消息。")
 
 
@@ -393,7 +393,7 @@ def parallel_note(state_dir, chat, topic_id, now=None) -> str:
     if not rows:
         return FORK_NOTE
     lines = [text for _, text in sorted(rows)[:NOTE_ROWS]]
-    return FORK_NOTE + "\n此刻另几路在做：\n" + "\n".join(lines)
+    return FORK_NOTE + "\n此刻另外几件事在做：\n" + "\n".join(lines)
 
 
 def release_pointer(ctx, job, harness, runtime) -> None:

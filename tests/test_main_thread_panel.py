@@ -1,4 +1,4 @@
-"""The 主线程 settings card (app/main_thread_panel.py, cards/main_thread_panel.py): what its three pages (私聊默认,
+"""The 管家 settings card (app/main_thread_panel.py, cards/main_thread_panel.py): what its three pages (私聊默认,
 新话题默认, 其他) show, each click writing its field and redrawing the whole page, the owner alone acting, and the tool
 settings_panel sending it."""
 from __future__ import annotations
@@ -127,13 +127,13 @@ class MainThreadPanelTests(UnifiedCase):
         self.ask()
         header = self.cards[-1]['header']
         self.assertEqual((header['title']['content'], header['subtitle']['content'], header['icon']['token']),
-                         ('私聊默认', 'Personal Agent · 默认模型 · 压缩 20 万', 'robot_outlined'))
+                         ('私聊默认', '管家 · 默认模型 · 压缩 20 万', 'robot_outlined'))
         text = self.text()
-        for part in ('**私聊模式**', "<text_tag color='green'>Personal Agent</text_tag> 聊天区的消息交给主线程",
+        for part in ('**私聊模式**', "<text_tag color='green'>管家</text_tag> 聊天区的消息交给管家",
                      '改成纯话题', "<font color='grey'>Harness</font>　Claude Code", panel_card.HARNESS_NOTE,
                      "<font color='grey'>供应商</font>　Claude 自带", '压缩阈值', '20 万'):
             self.assertIn(part, text)
-        for part in ('**新话题默认**', '**直接开工**', '由主线程判断'):  # Other pages'.
+        for part in ('**新话题默认**', '**直接开工**', '由管家判断'):  # Other pages'.
             self.assertNotIn(part, text)
         self.assertNotIn('select_static', text)
         # ACCEPT-325 问题 3: each page's last line says what its settings are for.
@@ -149,7 +149,7 @@ class MainThreadPanelTests(UnifiedCase):
         self.assertEqual(self.values(panel_card.TOPIC_HARNESS), [])
         self.page(panel_card.TOPIC)
         text = self.text()
-        for part in ('由主线程判断', '原目录', panel_card.TOPIC_NOTE, panel_card.NOTES_OF[panel_card.TOPIC]):
+        for part in ('由管家判断', '原目录', panel_card.TOPIC_NOTE, panel_card.NOTES_OF[panel_card.TOPIC]):
             self.assertIn(part, text)
         self.assertEqual(self.values(panel_card.TOPIC_MODEL), [])
         self.assertIn('codex', [v['option'] for v in self.values(panel_card.TOPIC_HARNESS)])
@@ -227,7 +227,7 @@ class MainThreadPanelTests(UnifiedCase):
         header = self.cards[-1]['header']
         self.assertEqual(header['subtitle']['content'], '纯话题 · claude model · 压缩 关')
         text = self.text()
-        for part in ("<text_tag color='neutral'>纯话题</text_tag> 私聊顶层一条消息开一个话题", '改成 Personal Agent',
+        for part in ("<text_tag color='neutral'>纯话题</text_tag> 私聊顶层一条消息开一个话题", '改成管家',
                      "✓ **<font color='blue'>high</font>**", '推荐 xhigh',
                      *(f"<font color='grey'>{label}</font>　{choice}" for label, choice in (
                          ('思考预算', 'high'), ('压缩阈值', '关')))):
@@ -515,7 +515,7 @@ class MainThreadPanelTests(UnifiedCase):
         self.assertEqual((self.settings().model, self.settings().effort), ('', ''))
         self.click(self.option(panel_card.REDACTION, 'on'), event_id='c5')
         self.assertTrue(self.settings().redaction)
-        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], 'Personal Agent · 默认模型 · 脱敏 · 压缩 20 万')
+        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], '管家 · 默认模型 · 脱敏 · 压缩 20 万')
         self.click({**self.option(panel_card.PROVIDER, 'kiro'), 'option': 'gone'}, event_id='c6')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.outcomes(), ['main_panel'] * 6)
@@ -527,7 +527,7 @@ class MainThreadPanelTests(UnifiedCase):
         self.assertEqual(self.values(panel_card.REDACTION), [])
 
     def test_a_row_of_a_card_drawn_before_the_pages_lands_on_its_page(self):
-        """A 设置 card sent before the pages showed every row on its one 主线程 tab (key MAIN): a click on a 新话题默认
+        """A 设置 card sent before the pages showed every row on its one 管家 tab (key MAIN): a click on a 新话题默认
         or 其他 row there redraws the page it belongs to now (直接开工 on 新话题默认 since 其他 was retired), and the
         record's tab follows."""
         self.ask()

@@ -1,7 +1,7 @@
 """专项的升级、直接开专项和降级 (docs/architecture.md 专项, phase 2, COVEY_PROJECTS=1, off by default).
 
 - **Upgrade** (``consider``, called by app/main_topics.py ``dispatch_card`` once a 派发卡 is sent and recorded): a quick job the main thread
-  handed to a topic becomes a project when COVEY_PROJECT_UPGRADE says so (``word``: the owner said 长活 or the butler passed
+  handed to a topic becomes a project when COVEY_PROJECT_UPGRADE says so (``butler``: the butler passed
   ``project``; ``auto``: also the topic's third round). Silent: the 派发卡 becomes the project's card (the same message and
   card id, drawn whole by app/project_cards.py), and the card has the 不要专项 button. ``Projects.upgrade`` is idempotent:
   each of its seven steps is ticked off in the record's ``steps`` once done, a run that stopped anywhere goes on from there
@@ -39,7 +39,8 @@ from covey.core.state import read_object, write_json
 from covey.core.topics import move_topic_message, route_message, set_topic_project, topic_file, topic_label, topic_title
 
 ENV = "COVEY_PROJECT_UPGRADE"
-OFF, WORD, AUTO = "off", "word", "auto"
+OFF, BUTLER, AUTO = "off", "butler", "auto"
+WORD = "word"  # The value the live deployments set (and the reason an older record carries): the same as ``butler``.
 ROUNDS = 3  # ``auto``: the topic's round that makes a project.
 UPGRADE_STEPS = ("record", "lead", "thread", "card", "merged", "route", "receipt")
 START_STEPS = ("record", "lead", "card", "receipt")
@@ -47,16 +48,17 @@ KINDS = {"upgrade": UPGRADE_STEPS, "direct": START_STEPS}
 RESUME_TICK = 30.0  # Seconds between two looks for a project whose steps a crash left unfinished.
 RESUME_AFTER = 60.0  # A project written to this recently is still being worked on (by a tool call): left alone.
 RESUME_GIVE_UP = 600.0  # The longest wait between two tries of one project.
-NOTES = {"word": "由快事升级（你说了长活）", "rounds": "由快事升级（来回第 {} 轮）"}
+NOTES = {"butler": "由管家转成专项", "rounds": "来回 {} 轮后转成专项"}
 LEAD_DROPS = ("topic_id", "main_thread", "track", "project", "origin", "root_id", "thread_id", "topic_number", "retired")
 NO_CHAT = "还不知道主人和机器人的私聊（主人还没在私聊里发过消息），没有执行。"
 OFF_WORDS = "专项没有开（COVEY_PROJECTS）。"
 
 
 def mode() -> str:
-    """COVEY_PROJECT_UPGRADE: ``word`` or ``auto``; anything else, unset too, is ``off`` (read on every call)."""
+    """COVEY_PROJECT_UPGRADE: ``butler`` (``word``, the old name, means the same) or ``auto``; anything else, unset too, is
+    ``off`` (read on every call)."""
     value = str(cenv.get(ENV, "")).strip().lower()
-    return value if value in (WORD, AUTO) else OFF
+    return BUTLER if value in (BUTLER, WORD) else AUTO if value == AUTO else OFF
 
 
 def project_id(kind, key) -> str:
@@ -158,17 +160,15 @@ class Projects:
         return self.upgrade(dispatch, *why) if why else ""
 
     def reason(self, dispatch):
-        """(why, rounds) when COVEY_PROJECT_UPGRADE makes ``dispatch`` a project, else None. ``word``: the owner's own word
-        (upgrade_hint.long_word) or the butler's ``project`` (upgrade_hint.project); ``auto``: also the third round."""
+        """(why, rounds) when COVEY_PROJECT_UPGRADE makes ``dispatch`` a project, else None. ``butler``: only the butler's
+        ``project`` (upgrade_hint.project); no word of the owner's is matched any more; ``auto``: also the third round."""
         if mode() == OFF or dispatch.get("state") != drecords.LIVE:
             return None
         hint = dispatch.get("upgrade_hint") if isinstance(dispatch.get("upgrade_hint"), dict) else {}
         if hint.get("project"):
-            return "word", 0  # The butler says it: the owner's own, new word.
+            return BUTLER, 0  # The butler judged it: the owner wants it followed for days, or said 开个专项 himself.
         if self.turned_back(dispatch.get("topic_id")):
-            return None  # 不要专项 was his word on this topic: a long word or a third round does not overrule it.
-        if hint.get("long_word"):
-            return "word", 0
+            return None  # 不要专项 was his word on this topic: a third round does not overrule it.
         if mode() == AUTO:
             rounds = rounds_for_topic(self.env.state_dir, str(dispatch.get("topic_id") or ""))
             if rounds >= ROUNDS:
@@ -180,7 +180,7 @@ class Projects:
         return any(record.get("state_reason") == DOWNGRADED and (record.get("origin") or {}).get("topic_id") == topic
                    for record in projects.records(self.env.state_dir) if record.get("state") == projects.CANCELLED)
 
-    def upgrade(self, dispatch, why="word", rounds=0) -> str:
+    def upgrade(self, dispatch, why=BUTLER, rounds=0) -> str:
         """Turn the 派发卡 ``dispatch`` and its topic into a project (the seven ``UPGRADE_STEPS``); the project's id, '' when
         there is none (``MAX_ACTIVE`` projects are on, or the card was not sent). Run again after a crash it goes on from
         the first step not done."""
@@ -193,7 +193,7 @@ class Projects:
             if projects.active_count(state) >= projects.MAX_ACTIVE:
                 self.env.runtime.log(f"project upgrade skipped: {projects.MAX_ACTIVE} projects are on topic={topic[:12]}")
                 return ""
-            note = NOTES["word"] if why == "word" else NOTES["rounds"].format(rounds)
+            note = NOTES["rounds"].format(rounds) if why == "rounds" else NOTES[BUTLER]
             made = projects.new_record(
                 chat_id=dispatch.get("chat_id"), name=topic_title(state, topic) or clip(dispatch.get("request"), 30) or "专项",
                 goal=str(dispatch.get("request") or ""), project_id=pid,
@@ -445,7 +445,7 @@ class Projects:
         record = projects.read_record(state, pid) or record
         sent = bool(projects.card_message(record))
         note = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "project_id": pid, "at": time.time()}
-        text = (f"已开专项「{record.get('name')}」（{pid}）：负责人会派线程去做，专项卡在聊天区，进展看卡；不用等它做完。"
+        text = (f"已开专项「{record.get('name')}」（{pid}）：负责人会开话题去做，专项卡在聊天区，进展看卡；不用等它做完。"
                 if done else f"专项「{record.get('name')}」已建（{pid}），"
                              f"{'' if sent else '专项卡还没发出去，'}有一步没做完，Bridge 会自己补；不要再开一次。")
         return main_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
@@ -465,7 +465,7 @@ def butler_only(env, request):
     if not projects.enabled():
         return reply(False, OFF_WORDS)
     if main_topics.lead_of(env, request) is not None:
-        return reply(False, "负责人不用这个工具：它只管自己的专项，线程用 project_thread_start、project_thread_send。")
+        return reply(False, "负责人不用这个工具：它只管自己的专项，话题用 project_thread_start、project_thread_send。")
     return None
 
 
@@ -481,10 +481,10 @@ def projects_list(env, request):
         return reply(True, "还没有专项。", count=0)
     rows = []
     for record in [*live, *ended]:
-        threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有线程"
+        threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有话题"
         note = project_cards.lead_note(record)
         rows.append(f"{record['id']} · {clip(record.get('name'), 30)} · {STATE_WORDS.get(state_of(record), state_of(record))}"
-                    f" · 线程 {threads}" + (f" · 最近：{clip(note, 40)}" if note else ""))
+                    f" · 话题 {threads}" + (f" · 最近：{clip(note, 40)}" if note else ""))
     return reply(True, "\n".join(rows), count=len(found),
                  projects=[{"id": record["id"], "name": record.get("name"), "state": state_of(record)}
                            for record in [*live, *ended]])
@@ -532,8 +532,8 @@ def lead_prompt(name, text, owner) -> str:
     owner's own words quoted): a turn the owner started, not a wake-up."""
     from covey.app.main_handoff import NOTE
 
-    parts = [f"{NOTE} 主人在私聊里对专项「{name}」说了话，由主线程管家转给你；这是主人触发的一轮，不是自动唤醒，你的回复会由 Bridge "
-             "发给主人。按他的意思调整专项：派线程、给线程加话、记决定或改风格就用 project_* 工具。",
+    parts = [f"{NOTE} 主人在私聊里对专项「{name}」说了话，由管家转给你；这是主人触发的一轮，不是自动唤醒，你的回复会由 Bridge "
+             "发给主人。按他的意思调整专项：开话题、给话题加话、记决定或改风格就用 project_* 工具。",
              "管家整理的说明：\n" + text]
     if owner.words:
         parts.append("主人原话：\n" + "\n".join("> " + line for line in owner.words.split("\n")))

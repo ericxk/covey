@@ -25,7 +25,7 @@ from covey.core.topics import topic_label
 
 KINDS = ("milestone", "thread", "note")
 MEMORY_KINDS = ("decision", "practice", "pitfall", "fact")
-TRIAGE_OFF = "分流还没开：负责人现在不能替主人答题，也不能转交问题；线程的问题会直接问主人。"
+TRIAGE_OFF = "分流还没开：负责人现在不能替主人答题，也不能转交问题；话题里的问题会直接问主人。"
 
 
 def lead(env, request) -> tuple:
@@ -63,29 +63,29 @@ def spawn_cap(record) -> int:
 
 def project_thread_start(env, request):
     pid, record = lead(env, request)
-    active(record, "派新线程")
+    active(record, "开新话题")
     live = project_lead.live_threads(env.state_dir, record)
     if len(live) >= spawn_cap(record):
-        return reply(False, f"同时最多 {spawn_cap(record)} 个线程在做（现在：{'、'.join(live)}）：等有线程结束再派。",
+        return reply(False, f"同时最多 {spawn_cap(record)} 个话题在做（现在：{'、'.join(live)}）：等有话题结束再开。",
                      live=live)
     args = {**request.args, "user_requested": request.args.get("user_requested") is True}
     answer = main_topics.topic_start(env, dataclasses.replace(request, args=args))
     topic = answer.get("data", {}).get("topic_id")
     if topic:
         projects.add_thread(env.state_dir, pid, topic)  # Again for a request that ran before: once only.
-    return answer if answer.get("ok") else {**answer, "text": "没有派出线程：" + answer["text"]}
+    return answer if answer.get("ok") else {**answer, "text": "没有开出话题：" + answer["text"]}
 
 
 def project_thread_send(env, request):
     pid, record = lead(env, request)
-    active(record, "给线程加话")
+    active(record, "给话题加话")
     chat = env.chat()
     found = main_topics.find_topic(env, chat, request.args.get("thread"))
     if isinstance(found, str):
         return reply(False, found)
     topic = found[1].topic_id
     if topic not in (record.get("threads") or ()):
-        return reply(False, f"{topic_label(Path(env.state_dir), topic) or topic[:8]} 不是这个专项的线程，不能从这里给它加话。")
+        return reply(False, f"{topic_label(Path(env.state_dir), topic) or topic[:8]} 不是这个专项的话题，不能从这里给它加话。")
     args = {"topic": topic, "text": request.args.get("text"), "note": request.args.get("note")}
     return main_topics.topic_send(env, dataclasses.replace(request, args=args))
 
@@ -154,7 +154,7 @@ def project_finish(env, request):
     summary = text_of(request.args, "summary")
     live = project_lead.live_threads(env.state_dir, record)
     if live:
-        return reply(False, f"还有线程在做或等主人（{'、'.join(live)}），不能收尾：等它们结束，或先处理掉。", live=live)
+        return reply(False, f"还有话题在做或等主人（{'、'.join(live)}），不能收尾：等它们结束，或先处理掉。", live=live)
     item = project_lead.entry(summary, report=True, kind="finish", job=request.job_key)
 
     def change(data):

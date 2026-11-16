@@ -1,4 +1,4 @@
-"""派发活卡片 (docs/main-thread.md 派发活卡片), when COVEY_MAIN_DISPATCH_CARD=1: the card the main thread's topic_start,
+"""派发卡 (docs/main-thread.md 派发卡), when COVEY_MAIN_DISPATCH_CARD=1: the card the main thread's topic_start,
 topic_send and topic_fork leave at the chat's top level, a message of its own with the "你问" block (cards/dispatch_card.py)
 naming the owner's message, saying how the job it handed to a topic is going, kept up to date until the conclusion comes back and the card shrinks to one line (cards/dispatch_card.py).
 

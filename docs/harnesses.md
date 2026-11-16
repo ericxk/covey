@@ -26,7 +26,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 
 - **原生问答**：Claude 的问题在原任务里等回答；Codex 必须回答的问题先结束本轮，回答排成续接任务。所有 Harness 都能经检查点提问（[回答模型的问题](usage.md#回答模型的问题)）。
 - **原生图片**：不支持时只给本地路径。Claude、Pi 单张超过 5 MiB，或 Claude 合计超出 8 MiB 帧时，放不下的只给路径（`app/runs.py` 的 `_fit_images`）。
-- **分叉**：主线程分叉出的话题（[开话题、转交、分叉](main-thread.md#开话题转交分叉)）复制原话题的原生会话；不支持或原话题正在执行时改用已完成的对话记录。
+- **分叉**：管家分叉出的话题（[开话题、转交、分叉](main-thread.md#开话题转交分叉)）复制原话题的原生会话；不支持或原话题正在执行时改用已完成的对话记录。
 - **换配置**除只改脱敏外都开新会话；**回退一步**只有 Claude Code 支持。
 
 ### 模型目录
@@ -134,14 +134,14 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 **运行方式**：每个任务一个 `codex app-server`，经 stdio 通信。
 
 - 命令、文件修改、MCP 工具、计划和子 Agent 都进执行过程。模型、推理强度、工作区和权限每轮传入。`agents.max_threads=4`。
-- 桥接规则在新线程首轮的用户输入开头，续接轮附提醒和约定（[一次运行](architecture.md#一次运行)）；`developerInstructions` 只有 Codex 自己的说明。
+- 桥接规则在新会话首轮的用户输入开头，续接轮附提醒和约定（[一次运行](architecture.md#一次运行)）；`developerInstructions` 只有 Codex 自己的说明。
 - 原生提问：不需要停下的显示在任务卡上，其他工作继续；必须先回答的让本轮先结束，回答后在同一会话继续。
 - 工作区只读工具：每个会话挂本任务专用的 `bridge_workspace` MCP 服务，可读工作区、附件目录和换配置的 `handoff/`，拒绝 `..`、符号链接和二进制；实际权限只由 `--sandbox` 决定。
-- 下载请求与结果：从 rollout 还原本轮每次请求的 `input`，子 Agent 和 fork 出的线程也算；不记的部分列在 `not_recorded`。
+- 下载请求与结果：从 rollout 还原本轮每次请求的 `input`，子 Agent 和 fork 出的会话也算；不记的部分列在 `not_recorded`。
 
 **本轮结果**：thread 和 turn 双重绑定，只用当前 turn 的完整 items，不完整时按 ID 回读；取 `final_answer` 阶段的 agentMessage。
 
-**执行指标**：token 取 `thread/tokenUsage/updated` 的累计减本轮基线（`CodexTurnUsage`），子 Agent 线程各自减基线；生成时间从 `turn/start` 计，扣除工具和提问区间（重试也在里面，token/s 会偏低）；TTFT `codex_item`、`codex_delta`。
+**执行指标**：token 取 `thread/tokenUsage/updated` 的累计减本轮基线（`CodexTurnUsage`），子 Agent 会话各自减基线；生成时间从 `turn/start` 计，扣除工具和提问区间（重试也在里面，token/s 会偏低）；TTFT `codex_item`、`codex_delta`。
 
 **网关模型**见[模型网关](#模型网关codexpi-与-dsh)。
 
@@ -155,13 +155,13 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 - 只回答本轮根任务发出、和已观察到的工具调用一致的 `AskUserQuestion`（1 至 4 题、每题 2 至 4 个选项）；保密问题、子 Agent 的提问和其他权限请求一律拒绝。待答问题属于原任务进程，进程结束后失效。
 - 补充要等 Claude 进入会话后才能接收，之前先保存；送达未确认的输入不自动重发。图片格式不支持时本轮失败。
 
-**压缩**：一轮中途（可选）`--claude-auto-compact-window TOKENS` 给子进程设 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。轮间压缩在续接会话的一轮开始前做：Bridge 要求（`compact_first`，如主线程的阈值）或设了 `--claude-compact-between-turns TOKENS` 且上一轮结束时的上下文达到它；用单独的 `claude -p --resume <会话>` 发 `/compact`，会话 ID 不变，token 算进本轮，执行过程里单独一行；失败或 20 分钟没完成时按原上下文继续。
+**压缩**：一轮中途（可选）`--claude-auto-compact-window TOKENS` 给子进程设 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。轮间压缩在续接会话的一轮开始前做：Bridge 要求（`compact_first`，如管家的阈值）或设了 `--claude-compact-between-turns TOKENS` 且上一轮结束时的上下文达到它；用单独的 `claude -p --resume <会话>` 发 `/compact`，会话 ID 不变，token 算进本轮，执行过程里单独一行；失败或 20 分钟没完成时按原上下文继续。
 
 **回退一步**（[用法](usage.md#回退一步)、[机制](architecture.md#回退一步)）：子进程带 `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=1`。去掉一轮用 `--resume <会话> --resume-session-at <保留条目>`，改回文件用 `claude -p --resume <会话> --rewind-files <提问 uuid>`。
 
-**交接摘要**（`backends/claude/handoff.py`，[用法](usage.md#换配置)）：话题从有会话的 Claude 绑定换走后，新绑定的第一轮先用原模型和原思考预算在原工作目录跑 `claude -p --resume <旧会话> --fork-session`，请它写一份不超过约 1500 字的交接摘要，最多等 180 秒。其他参数和平常一轮相同（缓存才对得上），只是不带 `--dangerously-skip-permissions` 和主线程的 Bridge 工具：问到 Bridge 的权限请求一律拒绝，只读工具和 `permissions.allow` 放行的工具挡不住，靠提示词里的“不要调用任何工具”。旧会话文件不动，分叉的会话文件用完删掉。旧绑定或话题现在开着脱敏时经中继，中继起不来、设置读不出就不发；这个字段之前换的配置、换时还有一步回退没被接走的、这一轮会因工作目录不在或脱敏被拒的、旧会话被安全拒绝或官方模型降级停过、是拒绝后的重试或已禁止续接的都不做。
+**交接摘要**（`backends/claude/handoff.py`，[用法](usage.md#换配置)）：话题从有会话的 Claude 绑定换走后，新绑定的第一轮先用原模型和原思考预算在原工作目录跑 `claude -p --resume <旧会话> --fork-session`，请它写一份不超过约 1500 字的交接摘要，最多等 180 秒。其他参数和平常一轮相同（缓存才对得上），只是不带 `--dangerously-skip-permissions` 和管家的 Bridge 工具：问到 Bridge 的权限请求一律拒绝，只读工具和 `permissions.allow` 放行的工具挡不住，靠提示词里的“不要调用任何工具”。旧会话文件不动，分叉的会话文件用完删掉。旧绑定或话题现在开着脱敏时经中继，中继起不来、设置读不出就不发；这个字段之前换的配置、换时还有一步回退没被接走的、这一轮会因工作目录不在或脱敏被拒的、旧会话被安全拒绝或官方模型降级停过、是拒绝后的重试或已禁止续接的都不做。
 
-**子 Agent 的模型**（`backends/claude/subagents.py`，设置卡“新话题”页的“子 Agent”一行，见 [main-thread.md 设置卡](main-thread.md#设置卡)）：默认“轻量”，每一轮的 Claude 子进程（话题、主线程、轮前压缩，不含目录查询）带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 把内置的 Explore 换成只读（Read、Grep、Glob、Bash）、跑在 Haiku 上的同名子 Agent；这一轮的模型是 Haiku 时不设前者。“跟主模型”两样都不加，所有子 Agent（内置 Explore 也是）跑主模型（2.1.318 实测）。Claude Code 接的网关认不出 `sonnet`、`haiku` 这两个别名的部署，把“子 Agent”设成“跟主模型”。
+**子 Agent 的模型**（`backends/claude/subagents.py`，设置卡“新话题”页的“子 Agent”一行，见 [main-thread.md 设置卡](main-thread.md#设置卡)）：默认“轻量”，每一轮的 Claude 子进程（话题、管家、轮前压缩，不含目录查询）带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 把内置的 Explore 换成只读（Read、Grep、Glob、Bash）、跑在 Haiku 上的同名子 Agent；这一轮的模型是 Haiku 时不设前者。“跟主模型”两样都不加，所有子 Agent（内置 Explore 也是）跑主模型（2.1.318 实测）。Claude Code 接的网关认不出 `sonnet`、`haiku` 这两个别名的部署，把“子 Agent”设成“跟主模型”。
 
 **下载请求与结果**：从会话记录的 `api-request*` 行还原本轮每次请求，按 `requestDigest` 核对上的记 `digest_verified`。
 
@@ -254,7 +254,7 @@ dsh 是 DeepSeek 官方开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，�
 | 后端 | 代码位置 |
 | --- | --- |
 | Claude Code（`backends/claude/`） | `runtime.py` 一轮的收发与收尾（`run_stream`、空闲压缩 `compact_only`）；`process.py` CLI 进程和 JSONL 传输（`ClaudeProcess`、`TRANSPORT_FAILURES`）；`control.py` 输入、补充、问答和权限请求（`ClaudeControl`）；`argv.py` 启动参数和环境（`stream_argv`、`turn_env`）；`events.py` 事件（`ClaudeEventAdapter`）；`completion.py` 结果边界；`usage.py` 用量和 TTFT；`models.py` 目录行；`compaction.py`、`rewind.py`、`export.py` 压缩、回退、下载；`policy.py` 官方拒绝；`redaction.py` 脱敏中继 |
-| Codex（`backends/codex/`） | `appserver.py` 一轮的开线程、起 turn、收尾（`run_appserver`）；`rpc.py` App Server 进程与 JSON-RPC（`AppServer`、`RpcError`）；`turn.py` 读一个 turn 到结束（`read_turn`、`close_turn`）；`events.py` 事件（`CodexEventAdapter`）；`usage.py` 用量；`gateway.py` 线程 provider；`workspace_reader.py` 只读 MCP；`export.py` 下载 |
+| Codex（`backends/codex/`） | `appserver.py` 一轮的开会话、起 turn、收尾（`run_appserver`）；`rpc.py` App Server 进程与 JSON-RPC（`AppServer`、`RpcError`）；`turn.py` 读一个 turn 到结束（`read_turn`、`close_turn`）；`events.py` 事件（`CodexEventAdapter`）；`usage.py` 用量；`gateway.py` 按会话分的 provider；`workspace_reader.py` 只读 MCP；`export.py` 下载 |
 | Pi（`backends/pi/`） | `home.py` 每轮私有目录、凭据和预算；`rpc.py` 一轮 RPC 的收发、补充、停止和结束判断（`run_rpc`，读循环 `_read_loop`、关闭 `_close`）；`events.py` 事件 |
 | dsh（`backends/dsh/`） | 只有 `bridge.py`：进程、补丁、事件（`DshEventAdapter`）、结果 |
 | 模型网关（`backends/gateway/`，配置在 `core/gateways.py`） | `connection.py` 密钥、目录、请求头、`BUSY_WINDOW`；`relay.py` 中继；`catalog.py` 目录行和繁忙提示（Codex、Pi 共用） |

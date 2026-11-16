@@ -242,7 +242,7 @@ class TaskControls(Redelivery):
         return True
 
     def dispatch_stop(self, ctx, event):
-        """⏹ 停止 on a 派发活卡片 (cards/dispatch_card.py): stops the job the card named, as that job's own card does
+        """⏹ 停止 on a 派发卡 (cards/dispatch_card.py): stops the job the card named, as that job's own card does
         (``cancel_reply_job_from_card``); the card's topic and the click's must be the same."""
         raw = action_value(event)
         if raw.get("topic_id") != ctx.topic_id:
@@ -285,7 +285,7 @@ class TaskControls(Redelivery):
     ) -> bool:
         """The stop of a task by its card or a stop word. ``others``: how many other tracks of the main thread are still
         going (多路并行, app/main_tracks.py), said at the end of the text reply; 0 says nothing of it."""
-        also = f"还有 {others} 路在做。" if others > 0 else ""
+        also = f"还有 {others} 件事在做。" if others > 0 else ""
         try:
             job_id = int(action.get("job_id") or "0")
         except ValueError:

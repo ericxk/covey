@@ -52,7 +52,7 @@ class OpenTest(AreaCase):
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, OWNER), data["topic_id"])
         self.assertEqual((job.topic_id, job.reply_to_message_id), (data["topic_id"], OWNER))
         self.assertTrue(reply_in_thread(CHAT, OWNER))
-        self.assertIn("话题区挂在主人这条提问下面", self.start("open")["text"])
+        self.assertIn("话题串挂在主人这条提问下面", self.start("open")["text"])
 
     def test_a_second_topic_on_the_same_question_gets_a_card_root(self):
         first, _ = self.opened("one")

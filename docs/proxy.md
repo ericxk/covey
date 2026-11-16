@@ -8,8 +8,8 @@
 
 | 部分 | 属性 | 文件 | 做什么 |
 | --- | --- | --- | --- |
-| 批次推进 | `Proxy` 本身 | `app/proxy.py` | 工作线程 `proxy`（`run` → `tick` → `advance`）：并消息、提交、判断、发前闸门、发送收尾 |
-| 收消息 | `intake` | `app/proxy_intake.py` | 工作线程 `proxy-in`（`ProxyIntake.listen`）以主人身份读会话，新消息进 `inbox` |
+| 批次推进 | `Proxy` 本身 | `app/proxy.py` | 后台线程 `proxy`（`run` → `tick` → `advance`）：并消息、提交、判断、发前闸门、发送收尾 |
+| 收消息 | `intake` | `app/proxy_intake.py` | 后台线程 `proxy-in`（`ProxyIntake.listen`）以主人身份读会话，新消息进 `inbox` |
 | 联系人话题 | `contact_topics` | `app/proxy_topics.py` | 开、重新找到、路由联系人的话题，跟着设置换模型（`sync_topics`） |
 | 设置与查找 | `commands` | `app/proxy_commands.py` | 开启、关闭、换模型、查找联系人、读群成员、加删白名单 |
 | 发送 | `web` | `app/proxy_send.py` | 经发送器以主人身份发送、读回、`owner_replied` |
@@ -22,7 +22,7 @@
 
 ## 两把锁
 
-- **`Proxy.lock`**（`core/proxy.py` 的 `LOCK`）：联系人和批次的读改写。锁内只读写记录，不发网络请求（规则 1）。设置卡、重新发送卡的点击和工作线程都经它改记录。
+- **`Proxy.lock`**（`core/proxy.py` 的 `LOCK`）：联系人和批次的读改写。锁内只读写记录，不发网络请求（规则 1）。设置卡、重新发送卡的点击和后台线程都经它改记录。
 - **`Proxy.web_lock`**：同一时刻只跑一次发送工具（发送或登录）。拿不到时这一轮不发，下一轮再试。`check_login`、维护删浏览器缓存也只在拿得到时做。
 
 顺序固定：`Proxy.send` 先不等待地拿 `web_lock`，再短暂进 `Proxy.lock` 复查闸门、把批次转 `sending`，出锁后仍持 `web_lock` 发送。`ProxySend`、`ProxyLogin` 不碰 `Proxy.lock`（`tests/test_structure.py` 检查）。
@@ -32,9 +32,9 @@
 IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.listen` 以主人身份（`settings.user_profile`，来自 `COVEY_PROXY_PROFILE`）读：
 
 - **逐个读**：每 `ROUND_SECONDS`（1 秒）一轮，对知道 chat_id 的会话调 `im +chat-messages-list`（同轮并行）。距上次满 `LIST_SECONDS`（3 秒）到期；活跃会话（`ACTIVE_SECONDS` 内收过消息或有批次在推进，`mark_active`）满 `ACTIVE_LIST_SECONDS`（2 秒）。一轮至多 `LISTS`（4）个，等得最久的先读。这样每分钟至多约 240 次，给主人这个用户应用的其他用途留出余量。
-- **搜索兜底**：每 `SEARCH_SECONDS`（60 秒）另起线程 `proxy-search`（`ProxyIntake.searching`，上一次没完就不起），调 `im +messages-search`：白名单群一次 `--is-at-me`，私聊一次 `--chat-type p2p --sender-type user`，各读至多 `SEARCH_PAGES` 页。它补上还没有 chat_id 的私聊和不在主列表里的话题回复。超过页数时日志 `proxy search truncated`。
+- **搜索兜底**：每 `SEARCH_SECONDS`（60 秒）另起后台线程 `proxy-search`（`ProxyIntake.searching`，上一次没完就不起），调 `im +messages-search`：白名单群一次 `--is-at-me`，私聊一次 `--chat-type p2p --sender-type user`，各读至多 `SEARCH_PAGES` 页。它补上还没有 chat_id 的私聊和不在主列表里的话题回复。超过页数时日志 `proxy search truncated`。
 - **过滤**（`new_messages`）：只收对方发的；群里只收 @主人的；私聊联系人只收私聊里的；`seen` 去重，`since` 之前的不收。open_id 按应用不同：联系人和 `owner_user_id` 是用户应用里的 ID，群和话题是机器人的。
-- **交接**：新消息放进内存的 `inbox`，唤醒 `Proxy.run`。批次只由 `run` 的线程写（`tick` 开头 `drain_inbox`，`add_messages` 在锁内再去重），所以收消息不会和批次推进抢记录，发送也拖不住收消息。代答关闭时不读。
+- **交接**：新消息放进内存的 `inbox`，唤醒 `Proxy.run`。批次只由 `run` 的后台线程写（`tick` 开头 `drain_inbox`，`add_messages` 在锁内再去重），所以收消息不会和批次推进抢记录，发送也拖不住收消息。代答关闭时不读。
 - **失败**（`guarded`）：每个来源单独退避，`BACKOFF_FIRST`（10 秒）起加倍到 `BACKOFF_LIMIT`（600 秒）；只在第一次失败记 `proxy take-in failed source=…`，恢复时记 `proxy take-in reads again`。Bridge 停止时被结束的读取不算失败。平时回看 `LOOKBACK`（15 分钟）；一个来源连续失败更久后，下次成功从上次成功的时间读起，至多回看 `CATCH_UP`（2 小时）。
 
 `run` 每 `POLL_SECONDS`（30 秒）一轮；收到新消息、批次到点（`Proxy.soon`）或代答群里的任务结束（`Runtime.job_ended` → `Proxy.job_ended`）时立刻一轮。
@@ -103,7 +103,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 ## 发送器
 
-代答以主人身份发消息要有一个发送器：扩展钩子 `proxy_sender`（`core/extensions.py`）提供的模块，有 `Sender`（`web_send`、`run_tool`、`problems`）、`ProxyLogin`（登录检查、失效提醒、恢复后重发、缓存清理）、`tool_dir()` 和 `send_problem(settings)`。核心的 `app/proxy_send.py` 只管读主人的聊天（读回、`owner_replied`）和把发送交给发送器；没有发送器（没有启用提供它的扩展）时不起代答的两个线程、机器人菜单没有「代答」、设置卡没有「代答」标签。
+代答以主人身份发消息要有一个发送器：扩展钩子 `proxy_sender`（`core/extensions.py`）提供的模块，有 `Sender`（`web_send`、`run_tool`、`problems`）、`ProxyLogin`（登录检查、失效提醒、恢复后重发、缓存清理）、`tool_dir()` 和 `send_problem(settings)`。核心的 `app/proxy_send.py` 只管读主人的聊天（读回、`owner_replied`）和把发送交给发送器；没有发送器（没有启用提供它的扩展）时不起代答的两个后台线程、机器人菜单没有「代答」、设置卡没有「代答」标签。
 
 公司部署的发送器，安装、运行、环境、幂等键和登录的说明在扩展自己的 README。
 
@@ -126,9 +126,9 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 `ProxyResend`（`app/proxy_resend.py`，卡 `cards/proxy_resend.py`，kind `bridge_proxy_resend`）。
 
 - **什么时候发**：`finish_send` 在 `SEND_ATTEMPTS` 次都确定没发出后，在批次的镜像消息下发这张卡：原因（`core/proxy.py` 的 `unsent` 写成一句话）、要发的原文、“重新发送”。发不出卡时退回一行字。旧版本留下的、次数用完又没有 `resend_card` 的批次，`check_held` 补发一张。
-- **记录**：`<state>/proxy/resend/<批次 id>.json`（card_id、message_id、sequence、视图）；批次另存 `resend_card`。sequence 不放批次，免得工作线程整份写批次时写回旧值。每次写都是整卡（`replace_form_card`，卡锁内 `reserve`）。
+- **记录**：`<state>/proxy/resend/<批次 id>.json`（card_id、message_id、sequence、视图）；批次另存 `resend_card`。sequence 不放批次，免得后台线程整份写批次时写回旧值。每次写都是整卡（`replace_form_card`，卡锁内 `reserve`）。
 - **点击**（`click`、`decide`，经 `PANELS` 表）：非主人写在卡上；`Proxy.lock` 内重读批次：已作废、已发出、可能已发出、已跳过的画成对应结果；正在发或已请求过的不重复；卡上的原文和批次的不同时拒绝；关闭、暂停、移出或满了 `HOURLY_LIMIT` 时写明原因。都过了就写 `resend_requested`、`resend_by`，`attempts` 清零，锁外画成“正在重新发送…”。
-- **发送**：仍在工作线程，`check_held` 见到 `resend_requested` 就照原样发 `batch["reply"]`（不跑模型、同一个幂等键），不看 `STALE_AFTER`。结果画在卡上：已发出、可能已发出（不再有按钮）、还是没发出（按钮恢复）。`check_held` 经 `Proxy.update` 写批次：锁内按磁盘上的合并，点击写的请求不会被盖掉。
+- **发送**：仍在后台线程，`check_held` 见到 `resend_requested` 就照原样发 `batch["reply"]`（不跑模型、同一个幂等键），不看 `STALE_AFTER`。结果画在卡上：已发出、可能已发出（不再有按钮）、还是没发出（按钮恢复）。`check_held` 经 `Proxy.update` 写批次：锁内按磁盘上的合并，点击写的请求不会被盖掉。
 - **收尾**：批次不经发送就结束时（`superseded`、`skipped`、主人那一轮无需回复），`ProxyResend.close` 把卡画成结果，去掉按钮。
 
 ## 网页端

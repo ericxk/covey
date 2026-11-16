@@ -8,7 +8,7 @@ Claude 的明确拒绝或 fallback 会停止当前 Bridge 任务及其本机后�
 | `core/model_policy.py` | 政策代码 `POLICY_CODES` 和给用户看的停止原因（只用标准库） |
 | `core/policy_feed.py` | 校验服务端证据（只含元数据），绑定到唯一一个任务的时间区间 |
 | `core/policy_process.py` | 核对身份后冻结并停止一棵任务进程树（pidfd，不按进程名） |
-| `app/policy_guard.py` | 独立的 `policy` 守护线程：拉取服务端证据、写停止意图、停止、通知 |
+| `app/policy_guard.py` | 独立的 `policy` 守护后台线程：拉取服务端证据、写停止意图、停止、通知 |
 | `app/policy_retry.py` | cyber、bio 拒绝停止后换旧模型重试一次：排上、取消、交给 `TaskControls.requeue` |
 
 ## 两条证据路径
@@ -47,13 +47,13 @@ Claude 的明确拒绝或 fallback 会停止当前 Bridge 任务及其本机后�
 
 ### 换旧模型重试一次
 
-主人同意（2026-11-10，按 Anthropic 的建议）：Claude 的一轮因类别 `cyber` 的拒绝停止时换 Opus 4.8（`claude-opus-4-8`），因 `bio` 停止时换 Opus 5（`claude-opus-5`），自动重试一次（`app/policy_retry.py`，模型表是 `core/model_policy.py` 的 `FALLBACK_MODELS`）。其他类别、fallback、清理未确认、主人点过停止、本就在那个模型上的，以及主线程的一轮，照旧只停止。
+主人同意（2026-11-10，按 Anthropic 的建议）：Claude 的一轮因类别 `cyber` 的拒绝停止时换 Opus 4.8（`claude-opus-4-8`），因 `bio` 停止时换 Opus 5（`claude-opus-5`），自动重试一次（`app/policy_retry.py`，模型表是 `core/model_policy.py` 的 `FALLBACK_MODELS`）。其他类别、fallback、清理未确认、主人点过停止、本就在那个模型上的，以及管家的一轮，照旧只停止。
 
 - 两条证据路径在停止确定后都经 `schedule` 决定：记录锁内只在没有 `policy_retry_state` 的记录上写 `pending`，所以重复的停止事件只排一次。停止卡和通知写“将因安全拒绝（cyber）换 Opus 4.8 在新会话里自动重试一次本轮请求”。
 - 只有这个 release 记下的停止才重试：任务进程在停止的那一刻排（`at_stop`），策略守护只排自己这个 release 认领的（停止意图里有 `fallback_retry`）。守护每 2 秒会对通知没发出去的停止再跑一遍 `finish`，更早 release 停的任务（意图里没有这个标记）因此不会在部署后排上重试。
-- outbox 线程的 `policy_retry.tick` 等原任务进程退出后，经 `TaskControls.requeue` 排一个新任务：同一条请求（原文、附件、话题），新的原生会话（被拒的已封住），带最近对话但去掉被拒的这一轮，不带检查并继续的恢复信息；模型只这一个任务换，子代理也用它（`subagent_model`，压过设置卡的子 Agent 设置，也不加跑 Haiku 的只读搜索，内置搜索子代理跟着用它，`backends/claude/subagents.py`），话题绑定不变，下一条消息照旧用话题的模型。原卡改成“已转到任务 #N 继续（已因安全拒绝（cyber）换 Opus 4.8 重试）”，新任务的输入框显示换后的模型。
+- outbox 后台线程的 `policy_retry.tick` 等原任务进程退出后，经 `TaskControls.requeue` 排一个新任务：同一条请求（原文、附件、话题），新的原生会话（被拒的已封住），带最近对话但去掉被拒的这一轮，不带检查并继续的恢复信息；模型只这一个任务换，子代理也用它（`subagent_model`，压过设置卡的子 Agent 设置，也不加跑 Haiku 的只读搜索，内置搜索子代理跟着用它，`backends/claude/subagents.py`），话题绑定不变，下一条消息照旧用话题的模型。原卡改成“已转到任务 #N 继续（已因安全拒绝（cyber）换 Opus 4.8 重试）”，新任务的输入框显示换后的模型。
 - 策略守护也认领了的任务，等它封住会话、改完原卡（记录 `policy_card_updated`）、发过通知再排；原卡一直改不成时，通知之后最多等 `CARD_WAIT`（60 秒）。重试已经把原卡改成“已转到任务 #N”的，守护之后不再按记录重画它（意图记 `moved_by_policy_retry`）。守护报进程清理待确认（记录 `policy_guard_cleanup=unconfirmed`）时取消，即使任务进程自己的清理确认了。停止通知没发出去的（记录 `failed`）照样重试。
-- 重试从头再做一遍这条请求：被拒前已做的事（改过的文件、已发的消息）可能再做一次。主线程的一轮不重试（重试不记得它开过的话题、转交、代答，会再做一次），照旧只停止，写“不会自动重试”。
+- 重试从头再做一遍这条请求：被拒前已做的事（改过的文件、已发的消息）可能再做一次。管家的一轮不重试（重试不记得它开过的话题、转交、代答，会再做一次），照旧只停止，写“不会自动重试”。
 - 话题有了更新的任务、换了配置、已重试过、清理待确认时取消，原卡状态行和记录的状态写明没有重试，原卡正文也去掉重试的预告（守护定稿的按记录重画恢复卡，任务进程交付的按记录的 `policy_retry_card` 改结果那一块），重新投递和守护之后补发的通知改回“不会自动重试”（守护补发时，上一次肯定没发出去的用新的发送键发改过的文字；可能已经发出的原样重发，不发第二条，一个发送键从不带两种文字）（守护定稿的停止，记录的正文和状态行只有这一处能改：`policy_retry_unpromised`，`core/statuses.py` 的 `merge_job_record`）。`policy_retry_state` 只按 `POLICY_RETRY_TRANSITIONS` 前进；提交抛错、或 Bridge 在提交中途重启后没找到入队的任务，都记 `uncertain`，不再发，原卡状态行写“换模型重试没有确认是否已提交”。
 - 重试任务记 `policy_retry`（原任务、类别、模型），它的检查并继续、限流和重启后的自动重试、回答问题后的续接任务也带着（同一模型、子代理也用它；任务进程请求续接时放在 `enqueue_answer` 请求里，旧 release 不带或不认这个字段时照旧入队）；其中任何一轮再被拒绝（任何类别）就照常停止、通知，不会再重试。
 

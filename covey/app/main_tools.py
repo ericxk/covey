@@ -42,7 +42,7 @@ from covey.core.text import cut
 from covey.core.workspaces import config_path
 
 TICK = 0.3
-REFUSED = "只接受正在跑的主线程任务的调用：这次调用没有执行。"
+REFUSED = "只接受正在跑的管家任务的调用：这次调用没有执行。"
 RECENT = TOOLS_AGE  # recent: what moved in the last three days (not the unseen results: ``result``).
 # A topic's group: the first of these it is in; result is 有结果未看, the board's (core/board_read.py unseen).
 GROUPS = ("waiting", "result", "running", "recent")
@@ -56,7 +56,7 @@ RESULT_CHARS = 500  # Of a result's opening in topic_read.
 JOB_RESULT_CHARS, JOB_TEXT_CHARS = 3000, 1000  # Of the result and the owner's words when topic_read is given a job.
 ARTIFACTS = 5  # Checkpoint artifacts listed per turn in topic_read.
 RECENT_TOPICS = 3  # Per workspace in workspaces_list.
-PROXY_NOTE = "（主线程按主人的话代答）"  # On every answer question_answer submits: its 补充说明.
+PROXY_NOTE = "（管家按主人的话代答）"  # On every answer question_answer submits: its 补充说明.
 
 
 class MainTools:
@@ -434,7 +434,7 @@ def question_answer(env, request):
         return reply(False, "还不知道主人的私聊。")
     topic_id, _ = resolve(env, chat, request.args.get("topic"))
     if retired_topic(Path(env.state_dir), topic_id):
-        return reply(False, f"{label(env, topic_id)} 是已下线的前台话题，没有可回答的问题；在主线程里直接做。")
+        return reply(False, f"{label(env, topic_id)} 是已下线的前台话题，没有可回答的问题；这件事你自己在这一轮里做。")
     found = env.topics.target(env.state_dir, topic_id, chat)
     if found is None:
         return reply(False, f"{label(env, topic_id)} 现在不能回答（话题的 Harness 不可用或记录读不了）。")

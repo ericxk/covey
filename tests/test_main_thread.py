@@ -900,10 +900,10 @@ class TurnTest(MainCase):
         self.other_topic('a' * 32, 'running')
         self.send('om_1')
         _, prompt = self.turn(self.job_of('om_1'))
-        self.assertTrue(prompt.startswith('[主线程规则]'))
+        self.assertTrue(prompt.startswith('[管家规则]'))
         self.assertIn('topic_start', prompt)
-        self.assertIn('不要在主线程里自己做', prompt)
-        for name in ('等你回答', '有结果', '进行中', '主线程开的话题'):
+        self.assertIn('不要在自己这一轮里做', prompt)
+        for name in ('等你回答', '有结果', '进行中', '管家开的话题'):
             self.assertIn(name, prompt)
         self.assertIn('T7 topic 7', prompt)
         self.assertIn('：全部]', prompt)
@@ -917,10 +917,10 @@ class TurnTest(MainCase):
         target, _ = self.turn(job)
         self.assertTrue(target.workspace_name)
         principles.save(self.state, 'owner', '通用的原则')
-        principles.save(self.state, 'workspace', '主线程工作区的原则', workspace=target.workspace_name)
+        principles.save(self.state, 'workspace', '管家工作区的原则', workspace=target.workspace_name)
         principles.save(self.state, 'workspace', '别处的原则', workspace='elsewhere')
         rules = app.runs.bridge_rules(target, job)
-        self.assertIn(f'通用：\n- 通用的原则\n工作区 {target.workspace_name}：\n- 主线程工作区的原则', rules)
+        self.assertIn(f'通用：\n- 通用的原则\n工作区 {target.workspace_name}：\n- 管家工作区的原则', rules)
         self.assertNotIn('别处的原则', rules)
         self.assertIn('principle_save', self.turn(job)[1])
 
@@ -1075,7 +1075,7 @@ class TurnTest(MainCase):
                 mock.patch('covey.app.runs.stop_task_leftovers'):
             app.runs.generate_reply_for_worker(target, job, None, None)
         request = run.call_args.args[0]
-        self.assertIn('[主线程规则]', request.prompt)
+        self.assertIn('[管家规则]', request.prompt)
         self.assertIn('[快照', request.prompt)
         self.assertIn('hello', request.prompt)
         self.assertEqual(request.instructions, '')

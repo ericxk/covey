@@ -46,7 +46,7 @@ class SteerForms:
         self.messenger.publish_card(ctx, chat, mid, self.steer_form_card(job, raw), on_sent=job.steer_forms.append, voice=self.voice)
 
     def dispatch_steer(self, ctx, event):
-        """📝 补充 on a 派发活卡片 (cards/dispatch_card.py): the 补充 form of the job the card named, a card of its own
+        """📝 补充 on a 派发卡 (cards/dispatch_card.py): the 补充 form of the job the card named, a card of its own
         (that card is redrawn, so it holds no field), then as a click on the job's own 补充."""
         raw = action_value(event)
         if raw.get("topic_id") != ctx.topic_id:

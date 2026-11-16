@@ -307,10 +307,10 @@ class TopicSendTest(MainTopicsCase):
         self.assertTrue(answer["ok"], answer)
         self.assertTrue(answer["data"]["steered"])
         sent = job.backend_control.steer.call_args.args[0]
-        self.assertTrue(sent.startswith("[Bridge 说明] 主线程转来主人的补充"), sent)
-        self.assertIn("任务说明（主线程整理）：\n顺便看下前天的\n主线程补充：主人说的是同一批任务", sent)
+        self.assertTrue(sent.startswith("[Bridge 说明] 管家转来主人的补充"), sent)
+        self.assertIn("任务说明（管家整理）：\n顺便看下前天的\n管家补充：主人说的是同一批任务", sent)
         # No record of the main-thread turn: the thread shows the main thread's words, never its note.
-        self.assertIn("主线程转来你的补充：\n顺便看下前天的", self.said())
+        self.assertIn("管家转来你的补充：\n顺便看下前天的", self.said())
         # The note stays in the hand-over's record: the main thread's card names it (app/main_reply.py opened_lines).
         records = [json.loads(path.read_text()) for path in (self.ctx.state_dir / "main-thread" / "opened").glob("*.json")]
         self.assertIn("主人说的是同一批任务", [record.get("note") for record in records])
@@ -323,7 +323,7 @@ class TopicSendTest(MainTopicsCase):
         self.assertFalse(answer["ok"])
         self.assertIn("任务正在收尾", answer["text"])
         self.assertEqual(job.backend_control.steer.call_count, 1)
-        self.assertFalse(any("主线程转来" in text for text in self.said()))
+        self.assertFalse(any("管家转来" in text for text in self.said()))
 
     def test_a_stopped_topic_gets_its_next_turn(self):
         data, job = self.opened()
@@ -332,7 +332,7 @@ class TopicSendTest(MainTopicsCase):
         answer = self.call("topic_send", "send-1", topic=data["label"].lower(), text="再跑一次", note="")
         self.assertTrue(answer["ok"], answer)
         self.assertFalse(answer["data"]["steered"])
-        self.assertIn("主线程转来你的消息：\n再跑一次", self.said())
+        self.assertIn("管家转来你的消息：\n再跑一次", self.said())
         nxt = self.job("send-1")
         self.assertEqual((nxt.user_text, nxt.topic_id), ("再跑一次", data["topic_id"]))
         self.assertEqual(nxt.title, "查日志")  # The topic's title heads its card.
@@ -439,10 +439,10 @@ class HandoffTest(MainTopicsCase):
         data = self.start("h1")["data"]
         job = self.job("h1")
         sent = job.prompt_text
-        self.assertTrue(sent.startswith(f"[Bridge 说明] 你在话题区 {data['label']}「查日志」。"), sent)
+        self.assertTrue(sent.startswith(f"[Bridge 说明] 你在话题 {data['label']}「查日志」。"), sent)
         self.assertIn("不要再试图开话题或切话题", sent)
         self.assertIn("由 Bridge 发给主人", sent)
-        self.assertIn("任务说明（主线程整理）：\n看看昨晚的失败", sent)
+        self.assertIn("任务说明（管家整理）：\n看看昨晚的失败", sent)
         self.assertIn(f"主人原话（{self.clock()}）：\n> {self.WORDS}", sent)
         # The attachments, carried into the topic's own folder, in backquotes: its model gets the image natively.
         carried = self.topic_media(data["topic_id"]) / self.image.name
@@ -489,11 +489,11 @@ class HandoffTest(MainTopicsCase):
         answer = self.call("topic_send", "s1", topic=data["label"], text="看看昨晚的失败", note="截图是任务卡")
         self.assertTrue(answer["ok"], answer)
         sent = job.backend_control.steer.call_args.args[0]
-        self.assertTrue(sent.startswith(f"[Bridge 说明] 主线程转来主人 {self.clock()} 的补充"), sent)
+        self.assertTrue(sent.startswith(f"[Bridge 说明] 管家转来主人 {self.clock()} 的补充"), sent)
         self.assertIn(f"你仍在 {data['label']}「查日志」的这一轮里", sent)
-        self.assertIn("主线程补充：截图是任务卡", sent)
+        self.assertIn("管家补充：截图是任务卡", sent)
         line = self.said()[before:]
-        self.assertEqual(line, [f"主线程转来你 {self.clock()} 的补充：\n{self.WORDS}\n附件：图片 1 张、文件 1 个"])
+        self.assertEqual(line, [f"管家转来你 {self.clock()} 的补充：\n{self.WORDS}\n附件：图片 1 张、文件 1 个"])
         self.assertNotIn("截图是任务卡", line[0])
         # The card's 最新补充 and the topic's history: the owner's words, not the note.
         from covey.core.deliveries import delivery_path, read_delivery, shown_text
@@ -512,14 +512,14 @@ class HandoffTest(MainTopicsCase):
         answer = self.call("topic_send", "n1", topic=data["label"], text="再跑一次", attachments="none")
         self.assertTrue(answer["ok"], answer)
         nxt = self.job("n1")
-        self.assertTrue(nxt.prompt_text.startswith(f"[Bridge 说明] 你在话题区 {data['label']}「查日志」。主线程把主人"),
+        self.assertTrue(nxt.prompt_text.startswith(f"[Bridge 说明] 你在话题 {data['label']}「查日志」。管家把主人"),
                         nxt.prompt_text)
         self.assertIn("下一轮", nxt.prompt_text)
         self.assertEqual((nxt.user_text, nxt.title), (self.WORDS, "查日志"))
-        self.assertIn(f"主线程转来你 {self.clock()} 的消息：\n{self.WORDS}", self.said())
+        self.assertIn(f"管家转来你 {self.clock()} 的消息：\n{self.WORDS}", self.said())
 
     def test_the_line_in_the_topics_thread_opens_the_owners_message_in_the_chat(self):
-        # The owner, 2026-11-10 17:59: 话题里那条主线程转来的消息，点了跳回聊天区原来那条 (it was text, no link).
+        # The owner, 2026-11-10 17:59: 话题里那条管家转来的消息，点了跳回聊天区原来那条 (it was text, no link).
         from covey.app import answer_cards
         upsert_job_record(self.ctx.state_dir, "main-job", message_id="om_owner")
         data = self.start("open")["data"]
@@ -537,7 +537,7 @@ class HandoffTest(MainTopicsCase):
             self.assertTrue(self.call("topic_send", "n1", topic=data["label"], text="再跑一次", attachments="none")["ok"])
         self.assertEqual((link.call_args.args[3], link.call_args.kwargs["chat_place"]), ("om_owner", True))
         call = next(c for c in self.app.messenger.send_message.call_args_list if c.kwargs.get("card") is not None)
-        line = f"主线程转来你 {self.clock()} 的消息"
+        line = f"管家转来你 {self.clock()} 的消息"
         self.assertEqual(call.args[2], f"{line}：\n{self.WORDS}")  # The text, as before, when the card is refused.
         box = call.kwargs["card"]["body"]["elements"][0]
         self.assertEqual((box["tag"], box["behaviors"]), ("interactive_container",
@@ -555,7 +555,7 @@ class HandoffTest(MainTopicsCase):
         self.app.runtime.unregister_reply_job(job)
         upsert_job_record(self.ctx.state_dir, job.message_id, status="done")
         self.assertTrue(self.call("topic_send", "n1", topic=data["label"], text="再跑一次", attachments="none")["ok"])
-        sent = [c for c in self.app.messenger.send_message.call_args_list if "主线程转来" in c.args[2]]
+        sent = [c for c in self.app.messenger.send_message.call_args_list if "管家转来" in c.args[2]]
         self.assertEqual([c.kwargs.get("card") for c in sent], [None])
 
     def test_a_fork_says_where_it_came_from(self):
@@ -567,8 +567,8 @@ class HandoffTest(MainTopicsCase):
                 mock.patch("covey.feishu.message_read.message_item", return_value={}):
             fork = self.call("topic_fork", "f1", topic=data["label"], title="换个思路", prompt="试试另一种做法")["data"]
         sent = self.job("f1").prompt_text
-        self.assertIn(f"从 {data['label']} 分叉出这个话题区", sent)
-        self.assertIn(f"你在话题区 {fork['label']}「换个思路」", sent)
+        self.assertIn(f"从 {data['label']} 分叉出这个话题", sent)
+        self.assertIn(f"你在话题 {fork['label']}「换个思路」", sent)
         self.assertTrue((self.topic_media(fork["topic_id"]) / self.image.name).is_file())
 
     def test_supplements_merged_before_the_turn_started_are_the_owners_words_too(self):
@@ -615,7 +615,7 @@ class HandoffTest(MainTopicsCase):
         self.assertIn(f"- 图片 1: `{carried}`", sent)
         self.assertNotIn(self.image.name, sent)
         self.assertEqual(job.user_text, f"{self.WORDS}\n这张图也交给它\n附件：图片 1 张")
-        self.assertIn(f"主线程按主人 {self.clock()}、{b_clock} 在", sent)
+        self.assertIn(f"管家按主人 {self.clock()}、{b_clock} 在", sent)
 
     def test_only_files_saved_in_the_main_threads_media_are_carried(self):
         # A1 review: a forwarded message's text goes into the prompt as it is, so a block it carries could name any

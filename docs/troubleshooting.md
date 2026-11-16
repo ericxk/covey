@@ -18,7 +18,7 @@ doctor 只读：不发消息、不调用模型、不修复状态。退出码 0 �
 
 1. **开机守护**（`boot`）：回执是否存在；守护是否在 PID 1 里运行、PID 1 的身份与安装时一致、循环延迟正常。临时独立守护和 systemd 模式在这一段都不算就绪，所以部署检查用 `--runtime-only`。
 2. **Manager**：本地 socket 能否响应、进程身份是否匹配、控制循环延迟是否小于 120 秒。
-3. **每个服务**（`services`）：进程是否存活、代次是否与清单一致；Bridge 健康快照（`bridge`）是否为 `ready`，即两个必需的消费者都就绪且单个事件处理不超过 60 秒、所有工作线程存活、事件总线不是停滞或断开；清单里有没有不再读取、会放宽权限的变量（`permission_env`，见[权限变量让诊断或部署失败](#权限变量让诊断或部署失败)）。
+3. **每个服务**（`services`）：进程是否存活、代次是否与清单一致；Bridge 健康快照（`bridge`）是否为 `ready`，即两个必需的消费者都就绪且单个事件处理不超过 60 秒、所有后台线程存活、事件总线不是停滞或断开；清单里有没有不再读取、会放宽权限的变量（`permission_env`，见[权限变量让诊断或部署失败](#权限变量让诊断或部署失败)）。
 4. **事件消费者**（除非 `--skip-events`）：`lark-cli event status --current --json` 里属于这个 Bridge 的消费者是否覆盖 `im.message.receive_v1` 和 `card.action.trigger`（`events.owned_required_consumers`），丢弃计数是否为 0。菜单和已读两个消费者是可选的，不算在内。
 
 报告的边界：
@@ -112,7 +112,7 @@ doctor 只读：不发消息、不调用模型、不修复状态。退出码 0 �
 机器人对可能已经发出的写操作不自动重发，规则见[结果授权与投递](architecture.md#结果授权与投递)。常见三类：
 
 - **自动重试未确认**：自动重试提交时出错，或 Bridge 恰在提交途中停止，任务记录写 `auto_retry_state=uncertain`，卡片写“自动重试没有确认是否已提交，不会再自动重试；…”。先看话题里是否已有新的任务卡，没有再点“检查并继续”。
-- **结果投递待处理**：任务卡写“已保存的结果尚未送达；不会重新执行模型任务。”。outbox 线程每 5 秒扫描，按退避重投已保存的结果，最多 12 次。发送结果不确定超过 3500 秒后进入待核对，之后停止自动发送。这时到飞书客户端核对结果是否已在话题里，不要手工换幂等键重发。恢复卡上的“重新投递结果”只重新发送已保存的回复，不重新执行任务。
+- **结果投递待处理**：任务卡写“已保存的结果尚未送达；不会重新执行模型任务。”。outbox 后台线程每 5 秒扫描，按退避重投已保存的结果，最多 12 次。发送结果不确定超过 3500 秒后进入待核对，之后停止自动发送。这时到飞书客户端核对结果是否已在话题里，不要手工换幂等键重发。恢复卡上的“重新投递结果”只重新发送已保存的回复，不重新执行任务。
 - **补充或回答送达未确认**：补充转交任务进程后 8 秒内没有确认，卡片显示“送达未确认”；回答 45 秒内没有确认，提示“回答已转交当前任务，暂未确认送达；…”。两者都不会重复发送，用户可点“检查送达状态”。看 `<state>/runs/<任务键>/runner.log` 和任务进程是否存活。
 
 ## 代答没有回复或没有发出
@@ -186,10 +186,10 @@ doctor 的服务行带 `permission_env`、stderr 写 `service <id>: LARK_… is 
 | `flow=message outcome=launch_card` | 新消息 → 启动卡 | `access` 谁被服务、`dedup` 去重、`route` 话题、`enrich`（`detail=fetched`、`parent=fetched`：读了消息详情、被引用的消息；`parent=saved`：被引用的是话题第一条消息，用的是第一次读到后存在话题 `incoming_media/` 里的那份）、`command` 待送达的结果和问题、`records`、`reserve`、`build`、`card_create`、`msg_reply`、`saved` |
 | `flow=message outcome=queued_card` | 话题里追发 → 排队卡 | 同上，任务卡之后 `ack_query` 查本话题等回答的任务（有则 `ack_upsert` 改它的记录）、`alias` 卡片别名、`state_write` 写任务记录、`recorded`、`queued` |
 | `flow=menu outcome=<event_key>` | 点机器人菜单 | `dedup`、`chat`（找到主人私聊），之后是那张卡的调用 |
-| `flow=click kind=bridge_launch_submit` | 开始任务 | `lane` 排到本话题的点击线程、`checked`、`bound`、`ack` 点击处理完；之后两条后续同时进行：`beside` 之后的 `card_put` 是回执，`followup` 之后是任务卡 |
+| `flow=click kind=bridge_launch_submit` | 开始任务 | `lane` 排到本话题的点击后台线程、`checked`、`bound`、`ack` 点击处理完；之后两条后续同时进行：`beside` 之后的 `card_put` 是回执，`followup` 之后是任务卡 |
 | `flow=click outcome=forwarded` | 任务进程还活着时点任务卡（停止、补充当前任务等） | `forward` 写进任务进程的收件箱。`runner.log` 里同一 `event` 的 `flow=click … runner=#N` 是任务进程处理它：`inbox_ms` 在收件箱等了多久，之后是它的卡片写入 |
 | `flow=job_start job=#N` | 调度器取到任务 → 任务进程启动 | `queued_ms` 排队、`check` 后端检查（Claude 是 `claude auth status`，1–2 秒；5 分钟内通过过就沿用，接近 0）、`spawned` |
-| `flow=runner job=#N`（`runner.log`） | 任务进程启动 → 它的第一次飞书调用 | 从 Bridge 写交接文件算起：`app`、`built`、`started`（开始执行）、`backend`（启动后端），然后是第一次调用；`snapshot`（工作目录的 git 快照）在执行中的状态线开始刷新之后、启动后端之前。`prestarted=yes` 是建任务卡之前就拉起的任务进程，`app` 接近 0。第一次状态线写入顺带清掉卡片正文的排队文字，一次调用；后端启动不等它。`sdk_client` 是这个进程建好 SDK 客户端：`COVEY_CARD_TRANSPORT=sdk` 时任务进程一启动就在后台线程 `sdk-warmup` 里建，与任务开始并行。它只加载 `lark_oapi.core`，约 0.2 秒；整个 `lark_oapi` 包会加载全部接口模块，要 2.4 秒。建好后同一线程接着预热：在直连飞书的连接上取 tenant token，连接也就建好了，第一次卡片写复用它，不再付这约 330 ms。建不成记 `CardKit SDK warmup unavailable: <异常类型>`，第一次卡片写再建或退回 CLI |
+| `flow=runner job=#N`（`runner.log`） | 任务进程启动 → 它的第一次飞书调用 | 从 Bridge 写交接文件算起：`app`、`built`、`started`（开始执行）、`backend`（启动后端），然后是第一次调用；`snapshot`（工作目录的 git 快照）在执行中的状态线开始刷新之后、启动后端之前。`prestarted=yes` 是建任务卡之前就拉起的任务进程，`app` 接近 0。第一次状态线写入顺带清掉卡片正文的排队文字，一次调用；后端启动不等它。`sdk_client` 是这个进程建好 SDK 客户端：`COVEY_CARD_TRANSPORT=sdk` 时任务进程一启动就在后台线程 `sdk-warmup` 里建，与任务开始并行。它只加载 `lark_oapi.core`，约 0.2 秒；整个 `lark_oapi` 包会加载全部接口模块，要 2.4 秒。建好后同一后台线程接着预热：在直连飞书的连接上取 tenant token，连接也就建好了，第一次卡片写复用它，不再付这约 330 ms。建不成记 `CardKit SDK warmup unavailable: <异常类型>`，第一次卡片写再建或退回 CLI |
 
 汇总看：
 

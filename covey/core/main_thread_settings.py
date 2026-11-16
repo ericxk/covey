@@ -118,7 +118,7 @@ def load(state_dir) -> Settings:
 
 # The Bridge's start logs it once when main-thread.json still says desk_topics true (app/unified.py).
 DESK_TOPICS_RETIRED = ("warning: main-thread.json desk_topics is retired (2026-11-09) and read as false: topics the "
-                       "main thread opens are 话题区; old front-desk topics are frozen (core/migrate.py desk-retire)")
+                       "main thread opens hang under the owner's question; old front-desk topics are frozen (core/migrate.py desk-retire)")
 
 
 def desk_topics_left(state_dir) -> bool:

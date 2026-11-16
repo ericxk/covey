@@ -249,9 +249,9 @@ class Handed(MainThreadCase):
         upsert_job_record(self.state, "om_run", status="running", topic_id=MAIN, chat_id=CHAT, job_id=3,
                           user_text="正在做的事")
         prompt, _ = self.turn(topic=SLOT1, mid="om_t1", job_id=9)
-        self.assertIn("此刻另几路在做", prompt)
+        self.assertIn("此刻另外几件事在做", prompt)
         self.assertIn(ledger.HEADER, prompt)
-        self.assertLess(prompt.index("此刻另几路在做"), prompt.index(ledger.HEADER))
+        self.assertLess(prompt.index("此刻另外几件事在做"), prompt.index(ledger.HEADER))
         self.assertEqual(read_object(ledger.path(self.state, "k1"))["digested_by"], "")
 
     def test_the_tracks_own_record_is_not_given_back_to_it(self):

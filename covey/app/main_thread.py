@@ -1,4 +1,4 @@
-"""The main thread's session (docs/main-thread.md), only in the private chat mode Personal Agent (core/main_thread.py
+"""The main thread's session (docs/main-thread.md), only in the private chat mode 管家 (core/main_thread.py
 enabled: COVEY_MAIN_THREAD not 0, the mode on the settings card): what the owner writes at the top level of the private chat goes to one long-lived Claude Code session, whose topic
 (main_topic_id) has no root message and no T number; its topic.json says ``main_thread: true``.
 
@@ -77,7 +77,7 @@ COMPACT_INSTRUCTIONS = (
     "快照里已有的话题列表。之后需要细节时用 topics_search、topic_read 查。")
 GOOD_ENDS = frozenset({"done", "waiting_user", "continued"})  # The turn saw the snapshot it took.
 GROUPS = (("waiting", turn_words.GROUP_NAMES["waiting"]), ("result", turn_words.GROUP_NAMES["result"]),
-          ("running", turn_words.GROUP_NAMES["running"]), ("opened", "主线程开的话题"))
+          ("running", turn_words.GROUP_NAMES["running"]), ("opened", "管家开的话题"))
 NO_RECEIPTS = "最近有结果（没有已读记录，不知道主人看没看）"
 SUPPLEMENT_UNCERTAIN = "这条补充不确定送到了没有，没有重发。没看到回应的话再发一次。"
 SUPPLEMENT_LOST = "这条补充这一轮没有读到，也没有重发。还需要的话再发一次。"

@@ -10,7 +10,7 @@ principle_delete, principles_list); the settings card will show and delete them 
      "workspaces": {"<workspace name>": [principle, ...]}}  # a topic in that workspace, the main thread in its own
 
     principle: {"id": "p1a2b3c", "text": "≤200 字，一行", "at": "2026-11-08T12:00:00Z",
-                "source": {"job_key": "<主线程任务键>", "job_id": 12}}
+                "source": {"job_key": "<管家任务键>", "job_id": 12}}
 
 Each group keeps at most GROUP_LIMIT, oldest first. A write reads, changes and replaces the whole file
 (core/state.py write_json) under its shared file lock (core/locks.py, across processes): the Bridge's main-thread

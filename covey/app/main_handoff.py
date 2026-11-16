@@ -208,11 +208,11 @@ def shown(owner: Asked, task, items) -> str:
 
 
 def thread_head(kind, owner: Asked) -> str:
-    """"主线程转来你 17:54 的消息" ("的补充" for STEER): the head of the line the topic's thread gets."""
+    """"管家转来你 17:54 的消息" ("的补充" for STEER): the head of the line the topic's thread gets."""
     if owner.lead:
         return "负责人转来补充" if kind == STEER else "负责人转来消息"
     when = f"你 {owner.clock} 的" if owner.clock else "你的"
-    return f"主线程转来{when}补充" if kind == STEER else f"主线程转来{when}消息"
+    return f"管家转来{when}补充" if kind == STEER else f"管家转来{when}消息"
 
 
 def thread_line(kind, owner: Asked, task, items) -> str:
@@ -240,8 +240,8 @@ def _spaced(name):
 
 
 def lead_note(kind, name, project, noun) -> str:
-    """The note when the lead of the project ``project`` (a name) hands the work on: the topic is one of that project's threads."""
-    head = f"{NOTE} 你在{noun}{name}，这是专项「{project}」的一个线程。"
+    """The note when the lead of the project ``project`` (a name) hands the work on: the topic is one of that project's topics."""
+    head = f"{NOTE} 你在{noun}{name}，这是专项「{project}」的一个话题。"
     done = "你的回复就是这一轮的结论，由 Bridge 处理，不用转述给谁。需要主人定的事（选择、部署、对外发送、花钱、删东西）照常提问。"
     if kind == STEER:
         return (f"{NOTE} 专项「{project}」的负责人给{name or '本' + noun}转来补充，你仍在这一轮里：把它并进手上的工作。")
@@ -253,7 +253,7 @@ def lead_note(kind, name, project, noun) -> str:
 def note(kind, *, label, title, owner: Asked, source="") -> str:
     """The Bridge's note at the head of what the topic's model gets, for ``kind`` (START, NEXT, STEER, FORK);
     ``source``: the topic a fork came from."""
-    noun, where = "话题区", "私聊聊天区"
+    noun, where = "话题", "私聊聊天区"
     named = _named(label, title)
     name = _spaced(named) if named else ""
     here = _spaced(label) if label else f"这个{noun}"
@@ -261,29 +261,29 @@ def note(kind, *, label, title, owner: Asked, source="") -> str:
         return lead_note(kind, name, owner.lead, noun)
     who = f"主人 {owner.clock} " if owner.clock else "主人"
     done = "你的回复就是这一轮的结论，由 Bridge 发给主人。"
-    settled = (f"原话里“开个话题区”“单开一个”“放到哪个 T 号里”“转给谁”这类安排主线程已经办完了，你就是那个{noun}："
-               "直接做事，不要回应这些安排，不要再试图开话题或切话题，也不要说“开不了话题区”“切不到 T 号”。"
-               "原话里如果还有别的事，主线程另有安排，你只做任务说明里的这件。")
+    settled = (f"原话里“开个话题”“单开一个”“放到哪个 T 号里”“转给谁”这类安排管家已经办完了，你就是那个{noun}："
+               "直接做事，不要回应这些安排，不要再试图开话题或切话题，也不要说“开不了话题”“切不到 T 号”。"
+               "原话里如果还有别的事，管家另有安排，你只做任务说明里的这件。")
     if kind == STEER:
         current = name or "本" + noun
-        return (f"{NOTE} 主线程转来{who}的补充（主人是在{where}说的，不是在本{noun}里），你仍在{current}的这一轮里："
-                f"把它并进手上的工作。其中“接着在{here}里做”“转给那个话题”这类安排主线程已经办完，"
+        return (f"{NOTE} 管家转来{who}的补充（主人是在{where}说的，不是在本{noun}里），你仍在{current}的这一轮里："
+                f"把它并进手上的工作。其中“接着在{here}里做”“转给那个话题”这类安排管家已经办完，"
                 "不要再试图开话题或切话题。")
     if kind == NEXT:
-        return (f"{NOTE} 你在{noun}{name}。主线程把{who}在{where}说的一条消息转给你，作为这个{noun}的下一轮；"
-                "下面是主线程整理的任务说明和主人的原话（引用）。"
-                f"原话里“接着放到{here}里做”“转给那个话题”这类安排主线程已经办完，你就在{here}里："
+        return (f"{NOTE} 你在{noun}{name}。管家把{who}在{where}说的一条消息转给你，作为这个{noun}的下一轮；"
+                "下面是管家整理的任务说明和主人的原话（引用）。"
+                f"原话里“接着放到{here}里做”“转给那个话题”这类安排管家已经办完，你就在{here}里："
                 f"直接做事，不要再试图开话题或切话题。{done}")
-    opened = (f"主线程按{who}在{where}的一条消息，从 {source} 分叉出这个{noun}（带着 {source} 的上下文），"
-              if kind == FORK and source else f"主线程按{who}在{where}的一条消息开了这个{noun}，")
-    return (f"{NOTE} 你在{noun}{name}。{opened}把这件事交给你；下面先是主线程整理的任务说明，再是主人的原话（引用）。"
+    opened = (f"管家按{who}在{where}的一条消息，从 {source} 分叉出这个{noun}（带着 {source} 的上下文），"
+              if kind == FORK and source else f"管家按{who}在{where}的一条消息开了这个{noun}，")
+    return (f"{NOTE} 你在{noun}{name}。{opened}把这件事交给你；下面先是管家整理的任务说明，再是主人的原话（引用）。"
             f"{settled}{done}")
 
 
 def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra="", source="") -> str:
     """What the topic's model gets: the Bridge's ``note``, the main thread's task (its ``extra`` line after it),
     the owner's words quoted, and the attachments block of ``items`` (those carried into the topic)."""
-    who = "负责人" if owner.lead else "主线程"
+    who = "负责人" if owner.lead else "管家"
     parts = [note(kind, label=label, title=title, owner=owner, source=source),
              f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")]
     if owner.words or items:

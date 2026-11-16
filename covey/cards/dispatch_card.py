@@ -1,4 +1,4 @@
-"""The 派发活卡片 (app/dispatch_cards.py; docs/main-thread.md 派发活卡片): the card the main thread's dispatch of a job to a
+"""The 派发卡 (app/dispatch_cards.py; docs/main-thread.md 派发卡): the card the main thread's dispatch of a job to a
 topic leaves at the chat's top level, quoting the owner's message. It is drawn whole from ``Dispatch`` (what the job
 records say), again each time that changes, and once more as a single line when the conclusion went out.
 
@@ -10,7 +10,7 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
   that message) into the thread whatever ``reply_in_thread`` says, so the block says whose question it is instead;
 - the header: the owner's request, its first ``HEAD_CHARS`` characters, and the state as a tag (在做, 等你, 做完, 失败, 已停);
 - ``dp_meta``: one grey line, "T453 · 12:41 起 · 用时 2分05秒";
-- ``dp_thread``: the fold 线程 (open while the job works or waits on the owner, closed once it ended), its title line the
+- ``dp_thread``: the fold 话题 (open while the job works or waits on the owner, closed once it ended), its title line the
   topic's T number, title and workspace; inside it ``dp_body`` (the stage or step the job is at) and ``dp_notes``;
 - ``dp_io``: the grey 输入/输出 box (cards/answer_card.py ``box``);
 - ``dp_btns``: 补充 (``dp_steer``), 停止 (``dp_stop``) and › 打开话题串 (``dp_open``), those that can be used now.
@@ -30,7 +30,7 @@ HEAD_CHARS = 30
 THREAD_TITLE = 40  # Of the topic's title on the fold's title line.
 STEER_KIND, STOP_KIND = "bridge_dispatch_steer", "bridge_dispatch_stop"
 RUNNING, WAITING, DONE, FAILED, STOPPED = "在做", "等你", "做完", "失败", "已停"
-# status -> (tag colour, header icon: one the other cards use, '' for none, whether the 线程 fold is open).
+# status -> (tag colour, header icon: one the other cards use, '' for none, whether the 话题 fold is open).
 LOOKS = {RUNNING: ("blue", "waiting_outlined", True), WAITING: ("orange", "chat_outlined", True),
          DONE: ("green", "yes_outlined", False), FAILED: ("red", "", False), STOPPED: ("neutral", "", False)}
 LINE_MARKS = {DONE: "✅", FAILED: "⚠️", STOPPED: "⏹"}
@@ -81,7 +81,7 @@ def meta_line(dispatch) -> str:
 def thread_title(dispatch) -> str:
     title = " ".join(str(dispatch.title or "").split())
     title = title if len(title) <= THREAD_TITLE else title[:THREAD_TITLE - 1] + "…"
-    return "线程 · " + " · ".join(part for part in (dispatch.label, title, dispatch.workspace) if part)
+    return "话题 · " + " · ".join(part for part in (dispatch.label, title, dispatch.workspace) if part)
 
 
 def buttons(dispatch) -> list:
@@ -118,7 +118,7 @@ def dispatch_card(dispatch):
 
 
 def settled_card(status, request, *, url="", reason="", label=""):
-    """What a card becomes once its conclusion went out (docs/main-thread.md 派发活卡片 · 结论沉底): one grey line,
+    """What a card becomes once its conclusion went out (docs/main-thread.md 派发卡 · 结论沉底): one grey line,
     "✅ 做完 · 结论在下方 ›" opening the conclusion at ``url``; for 失败 and 已停 the line says why (``reason``) and
     opens nothing. No fold, no buttons."""
     mark = LINE_MARKS.get(status, "")

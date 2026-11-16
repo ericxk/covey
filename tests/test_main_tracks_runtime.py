@@ -203,7 +203,7 @@ class RouteTest(TracksCase):
             self.app.handle_card_action_event(click, self.ctx)
         self.assertTrue(job.cancel_event.is_set())
         self.assertFalse(self.job_of("om_2").cancel_event.is_set())
-        self.assertIn("还有 1 路在做。", " ".join(str(call.args[2]) for call in reply.call_args_list))
+        self.assertIn("还有 1 件事在做。", " ".join(str(call.args[2]) for call in reply.call_args_list))
 
     def test_the_answer_to_a_track_that_asks_joins_it(self):
         self.send("om_1", LONG)
@@ -411,7 +411,7 @@ class TurnTest(TracksCase):
         self.assertEqual(harness.backend.rewind_point.call_args.args[1:], (self.SESSION, "U1"))
         self.assertIn("Latest Feishu user message:\n新问题", prompt)
         self.assertNotIn("Recent conversation", prompt)
-        self.assertIn("并行的一路", prompt)
+        self.assertIn("同时在做的几件事之一", prompt)
         self.assertIn("[快照", prompt)
         compaction.request.assert_not_called()
 
@@ -426,7 +426,7 @@ class TurnTest(TracksCase):
         upsert_job_record(self.state, "om_a", status="running", topic_id=MAIN, chat_id=CHAT, job_id=3,
                           user_text="帮我查失败任务的原因")
         (_, prompt), _ = self.turn(self.track_job(), self.harness())
-        self.assertIn("此刻另几路在做", prompt)
+        self.assertIn("此刻另外几件事在做", prompt)
         self.assertIn("#3「帮我查失败任务的原因」· 在做", prompt)
 
     def test_without_a_fork_the_track_starts_a_new_session_with_the_recent_conversation(self):
@@ -477,14 +477,14 @@ class TurnTest(TracksCase):
             with mock.patch.object(runtime_tracks, "fork_options", return_value=options):
                 prompt, rules, system, _ = self.claude.runs._prompt(_Live(ctx), job, None)
             self.assertEqual(rules in prompt, fresh, options)
-            self.assertIn("并行的一路" if options else "Recent conversation:", prompt)
+            self.assertIn("同时在做的几件事之一" if options else "Recent conversation:", prompt)
 
     def test_a_track_on_its_own_session_resumes_it_and_forks_nothing(self):
         self.root_session()
         (ctx, prompt), _ = self.turn(self.track_job(), self.harness(), session_id="22222222-2222-4222-8222-222222222222")
         self.assertNotIn("fork_session", ctx.options)
         self.assertTrue(prompt.endswith("RAW"))
-        self.assertIn("并行的一路", prompt)
+        self.assertIn("同时在做的几件事之一", prompt)
 
     def test_the_main_threads_own_turn_is_what_it_was(self):
         job = self.track_job(slot=0)

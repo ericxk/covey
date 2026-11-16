@@ -1,4 +1,4 @@
-"""The 主线程 settings card (app/main_thread_panel.py), in the bot menu panels' style: the owner changes the main
+"""The 管家 settings card (app/main_thread_panel.py), in the bot menu panels' style: the owner changes the main
 thread's settings (core/main_thread_settings.py) on it, in two pages, each a tab of the 设置 card
 (cards/settings_hub.py MAIN_PAGES): 私聊默认 (the private chat mode, then the main thread's own Harness, fixed to
 Claude Code, 供应商, 模型, 思考预算, 脱敏 and when to compact) and 新话题默认 (what a topic the main thread opens runs
@@ -54,13 +54,13 @@ PAGE_OF = {**dict.fromkeys((ENABLE, MODEL, EFFORT, PROVIDER, REDACTION, COMPACT)
                             TOPIC_WORKSPACE, SUBAGENTS, START), TOPIC),
            **dict.fromkeys((UNTRUST, NOTES), WORKSPACE)}
 
-TITLE = '主线程'  # A card of its own; on the 设置 card each page's title and icon (cards/settings_hub.py TITLES, ICONS).
+TITLE = '管家'  # A card of its own; on the 设置 card each page's title and icon (cards/settings_hub.py TITLES, ICONS).
 ICON = 'robot_outlined'
 CLAUDE = 'claude'  # The main thread is a Claude Code session (docs/main-thread.md).
 COMPACT_CHOICES = (0, 100_000, 200_000, 300_000)
 TIER_LABELS = {'readonly': '只读的', 'requested': '你在消息里亲口要的', 'trusted': '你记住过的'}
 SUBAGENT_LABELS = {'light': '轻量（Sonnet，搜索用 Haiku）', 'same': '跟主模型'}  # core/main_thread_settings.py SUBAGENTS.
-PICK = '由主线程判断'
+PICK = '由管家判断'
 FOLLOW = {'last': '跟随上次', 'bridge': 'Bridge 默认'}  # app/main_topics.py LAST, BRIDGE.
 # The 模型 row's: no 默认 beside the catalog's own "Default (recommended)" (ACCEPT-325 问题 2).
 MODEL_FOLLOW = {**FOLLOW, 'bridge': '跟随 Bridge'}
@@ -71,24 +71,24 @@ SHORT = 6  # Rows are cut to this many options before the workspaces' lines are.
 # cut last: the owner checks it against the launch card's (T444: 跟话题区选模型对齐).
 MODELS = 24
 NODES, BYTES = CARD_NODES - 10, CARD_BYTES - 2000  # The header is outside.
-NOTE = '只有你能改这张卡；主线程按这些设置开话题，自己改不了。'  # 新话题默认, and a card of its own.
+NOTE = '只有你能改这张卡；管家按这些设置开话题，自己改不了。'  # 新话题默认, and a card of its own.
 # Each page's last line (ACCEPT-325 问题 3): 私聊默认 is what the main thread itself runs with, 新话题默认 how and when
 # its topics start.
-NOTES_OF = {MAIN: '只有你能改这张卡；这些是主线程自己用的设置，它自己改不了。',
-            TOPIC: '只有你能改这张卡；主线程按这些开话题、决定哪些直接开工，自己改不了。'}
+NOTES_OF = {MAIN: '只有你能改这张卡；这些是管家自己用的设置，它自己改不了。',
+            TOPIC: '只有你能改这张卡；管家按这些开话题、决定哪些直接开工，自己改不了。'}
 # The 工作区 tab's (cards/workspace_manager.py) under 记住的工作区.
-WORKSPACE_NOTE = '记住的工作区和用途只有你能改；主线程按用途挑工作区，记住的直接开工。'
+WORKSPACE_NOTE = '记住的工作区和用途只有你能改；管家按用途挑工作区，记住的直接开工。'
 NOTES_HINT = '一句话说明这个工作区做什么'  # A 用途 input's placeholder.
 # Why the main thread's Harness is not a choice: its tools (core/main_mcp.py) are an MCP server of Claude Code's.
-HARNESS_NOTE = '主线程靠 Claude Code 的工具开话题、查记录，Harness 只能是 Claude Code。'
-TOPIC_NOTE = '主线程开的话题按这些设置；空着的一行跟随你上次在启动卡上的选择。'
-SUBAGENT_NOTE = '子 Agent 对所有 Claude Code 话题和主线程都生效；改文件和拿主意仍由主模型做。'
+HARNESS_NOTE = '管家靠 Claude Code 的工具开话题、查记录，Harness 只能是 Claude Code。'
+TOPIC_NOTE = '管家开的话题按这些设置；空着的一行跟随你上次在启动卡上的选择。'
+SUBAGENT_NOTE = '子 Agent 对所有 Claude Code 话题和管家都生效；改文件和拿主意仍由主模型做。'
 START_NOTE = '其余的话题出一张预填好的启动卡，等你点开始任务。'
-TRUSTED_EMPTY = '还没有：主线程问你“以后这类直接开工吗”，你同意后记在这里。'
+TRUSTED_EMPTY = '还没有：管家问你“以后这类直接开工吗”，你同意后记在这里。'
 NOTES_EMPTY = '还没有工作区。'
-# The private chat modes (docs/main-thread.md 私聊模式): the first row and the subtitle. True is Personal Agent.
-MODES = {True: ('Personal Agent', 'green', '聊天区的消息交给主线程', '改成纯话题'),
-         False: ('纯话题', 'neutral', '私聊顶层一条消息开一个话题', '改成 Personal Agent')}
+# The private chat modes (docs/main-thread.md 私聊模式): the first row and the subtitle. True is 管家.
+MODES = {True: ('管家', 'green', '聊天区的消息交给管家', '改成纯话题'),
+         False: ('纯话题', 'neutral', '私聊顶层一条消息开一个话题', '改成管家')}
 
 
 def compact_text(tokens):
@@ -185,7 +185,7 @@ def main_thread_panel_card(token, view, settings, choices, workspaces, top=(), f
             elements += [section('私聊模式'), item(
                 md(f"{tag(name, colour)} {line}"),
                 text_button(switch, value(ENABLE, on=not on), tone='danger' if on else 'primary'))]
-            elements += [section('主线程'), settings_block([harness_line(choices)] + [
+            elements += [section('管家'), settings_block([harness_line(choices)] + [
                 setting_row(s, token=token, stamp=stamp) for s in main_settings(settings, choices, limit)]),
                 note(HARNESS_NOTE)]
         if TOPIC in pages:

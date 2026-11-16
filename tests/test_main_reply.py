@@ -169,8 +169,8 @@ class WordingTest(DeliverCase):
         self.assertEqual(worded(STOPPED_NOTE, main), "已保存的结果和记录保留在私聊里。")
         self.assertEqual(worded("请先检查任务内容，再在本话题明确提出调整后的要求。", main_thread.MAIN),
                          "请先检查任务内容，再在私聊里明确提出调整后的要求。")
-        self.assertEqual(worded("排队中 · 本话题前方 1 个任务", main), "排队中 · 主线程前方 1 个任务")
-        self.assertEqual(worded("请查看本话题的结果卡片。", main), "请查看主线程的结果卡片。")
+        self.assertEqual(worded("排队中 · 本话题前方 1 个任务", main), "排队中 · 管家前方 1 个任务")
+        self.assertEqual(worded("请查看本话题的结果卡片。", main), "请查看管家的结果卡片。")
         self.assertEqual(worded(STOPPED_NOTE, {"topic_id": "a" * 32, "chat_id": CHAT}), STOPPED_NOTE)
         self.assertEqual(worded(STOPPED_NOTE, main_thread.TOPIC), STOPPED_NOTE)
 
@@ -568,7 +568,7 @@ class ElementIdTest(unittest.TestCase):
 
     def test_the_elements_a_main_thread_turn_adds_have_ids_cardkit_takes(self):
         from covey.cards.elements import md
-        found = [*self.ids(main_reply.reply_fold("主线程的回答正文")),
+        found = [*self.ids(main_reply.reply_fold("管家的回答正文")),
                  *self.ids(md("这一轮停了", element_id=main_reply.DROPPED))]
         self.assertIn(main_reply.DROPPED, found)
         self.assertIn(main_reply.REPLY_FOLD, found)

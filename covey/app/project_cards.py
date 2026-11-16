@@ -26,6 +26,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -218,7 +219,17 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
                    triage=triage_lines(record), memory=memory_rows(state_dir, pid), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
                    ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""),
-                   origin_note=str((record.get("origin") or {}).get("note") or "") if isinstance(record.get("origin"), dict) else "")
+                   origin_note=origin_words((record.get("origin") or {}).get("note") if isinstance(record.get("origin"), dict) else ""))
+
+
+def origin_words(note) -> str:
+    """The origin line of the card as the owner reads it today: a record written before 2026-11-16 holds the older
+    wording (由快事升级……), which is shown as the new one; the record itself is not rewritten."""
+    note = str(note or "")
+    if note.startswith("由快事升级（你说了"):
+        return "由管家转成专项"
+    rounds = re.fullmatch(r"由快事升级（来回第 (\d+) 轮）", note)
+    return f"来回 {rounds.group(1)} 轮后转成专项" if rounds else note
 
 
 def titles_of(topics) -> dict:
@@ -527,8 +538,8 @@ def downgrade(host, ctx, record) -> str:
                 move_topic_message(state, back, chat, message)  # Its clicks too: the upgrade made the card the lead's.
             route_message(state, chat, message, back, holder=back)
     label = topic_label(state, back) if back else ""
-    return (f"已把专项「{name}」降回普通话题：已请负责人的 {stopped} 个任务停下，{len(plain)} 个线程变回普通话题"
-            + (f"；之后引用这张卡回复，会回到 {label or '原话题'}" if back else "；它没有线程，没有话题可回") + "。")
+    return (f"已把专项「{name}」降回普通话题：已请负责人的 {stopped} 个任务停下，{len(plain)} 个话题变回普通话题"
+            + (f"；之后引用这张卡回复，会回到 {label or '原话题'}" if back else "；它没有话题，引用这张卡回复也没有话题可回") + "。")
 
 
 def release(state, topic, pid) -> bool:

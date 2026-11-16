@@ -1,4 +1,4 @@
-"""The 派发活卡片 (app/dispatch_cards.py, cards/dispatch_card.py, core/dispatch_records.py): sent when the main thread's
+"""The 派发卡 (app/dispatch_cards.py, cards/dispatch_card.py, core/dispatch_records.py): sent when the main thread's
 tools hand work to a topic, kept up to date by one thread (throttled, a new sequence for every write, a failed write
 backed off), one line once the conclusion went out, and none of it with COVEY_MAIN_DISPATCH_CARD off."""
 from __future__ import annotations
@@ -131,13 +131,13 @@ class RecordTest(UnifiedCase):
             with self.assertRaises(ValueError):
                 records.transition(record, state)
 
-    def test_a_new_record_leaves_the_door_for_projects_open_and_reads_none_of_it(self):
+    def test_a_new_record_leaves_the_door_for_projects_open_and_matches_no_word_of_the_owners(self):
         record = records.new_record(token="a" * 16, chat_id=CHAT, topic_id="t", job_key="main-job", mid="main-a", kind="start",
                                     owner_message=OWNER, request="这个长期做，接着做", starts=True, rounds=2)
-        self.assertEqual((record["rounds"], record["upgrade_hint"], record["project_id"]), (2, {"long_word": True}, None))
+        self.assertEqual((record["rounds"], record["upgrade_hint"], record["project_id"]), (2, {}, None))  # "长期做" is no hint: the butler decides (``project``).
         plain = records.new_record(token="b" * 16, chat_id=CHAT, topic_id="t", job_key="j", mid="m", kind="send",
                                    owner_message=OWNER, request=ASK, starts=True)
-        self.assertEqual((plain["rounds"], plain["upgrade_hint"]), (1, {"long_word": False}))
+        self.assertEqual((plain["rounds"], plain["upgrade_hint"]), (1, {}))
 
     def test_a_note_is_only_left_for_a_card_that_exists_and_only_once(self):
         state = self.ctx.state_dir
@@ -181,7 +181,7 @@ class DispatchCase(UnifiedCase):
         return kwargs.get("card_id") or f"card-{number}", f"om_card{number}"
 
     def dispatch_sends(self):
-        """The calls that sent a 派发活卡片 (the ones whose card has the 线程 fold; a topic's own root card has none)."""
+        """The calls that sent a 派发卡 (the ones whose card has the 线程 fold; a topic's own root card has none)."""
         return [call for call in self.sent.call_args_list if find_element(call.args[2], "dp_thread")]
 
     def start(self, request_id="r1", **args):

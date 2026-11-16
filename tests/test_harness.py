@@ -647,7 +647,7 @@ class RetiredHarnessTests(unittest.TestCase):
 
     def test_every_old_card_click_gets_the_notice_and_reaches_no_handler(self):
         remember_topic_message(self.state, self.topic.topic_id, 'chat', 'om_card')
-        # The 代答设置, 重新发送, 群管理, 敏感词看板, 主线程 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
+        # The 代答设置, 重新发送, 群管理, 敏感词看板, 管家 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
         # never route to a topic (tests/test_proxy_panel.py, test_group_chat.py, test_dashboard.py,
         # test_main_thread_panel.py).
         private = PROXY_PANEL_KINDS | GROUP_KINDS | MAIN_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}

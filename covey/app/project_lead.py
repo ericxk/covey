@@ -53,7 +53,7 @@ STYLE_CHOICES = {REPORT: ("ask_only", "milestones", "each_thread", "verbose"), D
                  SPAWN: ("保守", "正常", "积极")}
 STYLE_DEFAULT = {REPORT: "milestones", DETAIL: "简", SPAWN: "正常"}
 SPAWN_LIMIT = {"保守": 1, "正常": 2, "积极": 4}  # Threads at the same time (projects.MAX_THREADS caps them all).
-REPORT_WORDS = {"ask_only": "只在需要主人定的时候说", "milestones": "只报里程碑和完成", "each_thread": "每个线程结束都报一句",
+REPORT_WORDS = {"ask_only": "只在需要主人定的时候说", "milestones": "只报里程碑和完成", "each_thread": "每个话题结束都报一句",
                 "verbose": "详细，进展都报"}
 # Which of a lead's report notes reach the owner under each ``report`` (phase 2's P2-8 delivers them; the filter is here).
 REPORT_KINDS = {"ask_only": (), "milestones": ("milestone", "finish"), "each_thread": ("milestone", "finish", "thread"),
@@ -80,22 +80,22 @@ def now_of(now=None) -> float:
 
 IDENTITY = (
     "[负责人规则]",
-    "- 你是一个专项的负责人：主人交给你一件要几个线程做完的长活，你拆、派、跟进、收尾，不自己动手干活。"
-    "你的 Claude Code 工具只有 Read、Grep、Glob，只用来读文件；改东西、跑命令、联网都是线程的事。",
-    "- 每一轮开头有“专项状态”：目标和完成标准、线程表、专项记忆、风格、自上次以来的收件箱、近 10 条决定。"
+    "- 你是一个专项的负责人：主人交给你一件要分成几个话题、跨几天才能做完的事，你拆、派、跟进、收尾，不自己动手干活。"
+    "你的 Claude Code 工具只有 Read、Grep、Glob，只用来读文件；改东西、跑命令、联网都是专项的话题里做的事。",
+    "- 每一轮开头有“专项状态”：目标和完成标准、话题清单、专项记忆、风格、自上次以来的收件箱、近 10 条决定。"
     "它是磁盘上的真实状态，比你对之前几轮的印象可靠；对不上时以它为准。",
-    "- 一轮只做这一轮该做的判断，派完就结束这一轮，不要等线程做完，不要轮询：线程有了结果，会有下一轮叫醒你。",
+    "- 一轮只做这一轮该做的判断，派完就结束这一轮，不要等话题做完，不要轮询：话题有了结果，会有下一轮叫醒你。",
 )
 TOOL_RULES = (
-    "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。派线程用 project_thread_start（写干净的任务说明：做什么、范围、约束、"
-    "交付什么；不抄本机路径），给已有线程加话用 project_thread_send；同时最多 4 个线程，风格里的“派活”档更低时按那档。",
+    "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。开话题用 project_thread_start（写干净的任务说明：做什么、范围、约束、"
+    "交付什么；不抄本机路径），给已有话题加话用 project_thread_send；同时最多 4 个话题，风格里的“派活”档更低时按那档。",
     "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
     "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
-    "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”“多开几个线程”这类，"
+    "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”“多开几个话题”这类，"
     "用 project_style 改汇报风格。",
-    "- 目标和完成标准都达到、线程都结束了，才用 project_finish 收尾；还有线程在跑时它会拒绝。",
-    "- 部署、发布、对外发送、花钱、删东西、不可逆的操作，你没有工具，也不要替主人决定：这些在线程里，线程会照旧问主人。"
-    "线程问到主人的选择题，不由你答（分流还没开）。",
+    "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。",
+    "- 部署、发布、对外发送、花钱、删东西、不可逆的操作，你没有工具，也不要替主人决定：这些在话题里做，话题会照旧问主人。"
+    "话题里问到主人的选择题，不由你答（分流还没开）。",
     "- 对主人说话要克制：这一轮的回复只有主人在场触发的轮才会发给他；叫醒你的轮，回复不发，要说的话用 project_note 并标 report。",
 )
 PRACTICE = ""  # Phase 3's layer: how this kind of specialist works (project.leader.profile). Nothing reads it yet.
@@ -103,7 +103,7 @@ PRACTICE = ""  # Phase 3's layer: how this kind of specialist works (project.lea
 
 def style_rule(style) -> str:
     return (f"- 汇报风格：{REPORT_WORDS[style[REPORT]]}；说明的详细程度“{style[DETAIL]}”；派活“{style[SPAWN]}”"
-            f"（同时最多 {min(projects.MAX_THREADS, SPAWN_LIMIT[style[SPAWN]])} 个线程）。")
+            f"（同时最多 {min(projects.MAX_THREADS, SPAWN_LIMIT[style[SPAWN]])} 个话题）。")
 
 
 def lead_rules(style=None, practice=PRACTICE) -> str:
@@ -264,7 +264,7 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     if full:
         out.append("目标和完成标准：\n" + (record.get("goal") or "（主人没有写目标：第一轮先问清楚，或按专项名推断后用 project_note 记下）"))
     rows = thread_rows(state_dir, record)
-    out.append("线程（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
+    out.append("话题（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
                + ("\n" + "\n".join(map(thread_line, rows)) if rows else ""))
     if full:
         memory = [row for row in memory_of(record) if row.get("kind") != "style"]
@@ -345,7 +345,7 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
         pack = state_pack(ctx.state_dir, record, key, full=not session_id)
     except Exception as exc:  # noqa: BLE001 - the turn goes on with the rules alone
         log(f"lead state pack unavailable job=#{job.job_id}: {type(exc).__name__}")
-        pack = "[专项状态暂时读不到：先用 topic_read 看线程]"
+        pack = "[专项状态暂时读不到：先用 topic_read 看话题]"
     return ctx, "\n\n".join((lead_rules(record.get("style")), pack, prompt))
 
 

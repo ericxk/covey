@@ -326,7 +326,7 @@ class TurnTest(StateCase):
                          + "\n\n" + CHECKPOINT_RULES)
         fresh = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=True, rules_session=False)
         self.assertEqual(fresh, rules + "\n\nMSG")
-        self.assertEqual(main_thread_rules(), "\n".join(("[主线程规则]", *AREA_OPENING, *SHARED_RULES, AREA_RULE)))
+        self.assertEqual(main_thread_rules(), "\n".join(("[管家规则]", *AREA_OPENING, *SHARED_RULES, AREA_RULE)))
         self.assertEqual(main_tool_specs.listed({}), main_tool_specs.TOOLS)
         self.assertFalse(Path(self.ctx.state_dir, "knowledge", "x").exists())
 
@@ -717,7 +717,7 @@ class CollectTest(StateCase):
     def test_each_condition_that_fails_writes_nothing_and_says_why(self):
         cases = (("not-finished", dict(status="failed")), ("not-finished", dict(status="interrupted")),
                  ("not-owner", dict(sender=OTHER)), ("not-owner", dict(sender="", chat=GROUP)),
-                 ("no-trigger", dict(user_text="帮我看看这段代码")), ("handed-on", dict(prompt_text="主线程整理的说明")),
+                 ("no-trigger", dict(user_text="帮我看看这段代码")), ("handed-on", dict(prompt_text="管家整理的说明")),
                  ("main-thread", dict(chat=DM, sender="", topic=main_thread.main_topic_id(DM))))
         for reason, fields in cases:
             with self.subTest(reason, **{k: str(v)[:12] for k, v in fields.items()}):

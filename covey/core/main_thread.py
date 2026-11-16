@@ -1,4 +1,4 @@
-"""The main thread (主线程), in the private chat mode Personal Agent (docs/main-thread.md 私聊模式): the owner's private
+"""The main thread (管家), in the private chat mode 管家 (docs/main-thread.md 私聊模式): the owner's private
 chat with the bot, at its top level, talks to one long-lived Claude Code session. It answers by itself, or with the
 Bridge's tools it opens a topic, hands the message to a topic, forks one, or answers a topic's choice question for
 the owner. Topics keep working as before; a reply in a topic's thread still goes to that topic. The other mode, 纯话题,
@@ -42,7 +42,7 @@ def _switch() -> str:
 
 def available() -> bool:
     """Whether this deployment lets the main thread run: unless COVEY_MAIN_THREAD=0. Then the settings card has
-    its 主线程 tab and the main thread's workers run; whether the chat talks to it is the mode (``enabled``)."""
+    its 管家 tab and the main thread's workers run; whether the chat talks to it is the mode (``enabled``)."""
     return _switch() != "0"
 
 
@@ -160,7 +160,7 @@ class Traits:
     wording: tuple  # (topic's phrase, its own) pairs every Bridge text on its cards goes through (``worded``).
     # Where its turns' words go (core/placement.py adds the layout: the main thread on or off).
     relays: bool  # A turn the main thread started or handed on relays to the chat's top level (app/main_relay.py).
-    has_thread: bool  # It has a thread of its own: its status card (app/status_cards.py), 主线程转来 lines in it.
+    has_thread: bool  # It has a thread of its own: its status card (app/status_cards.py), 管家转来 lines in it.
     linkify_body: bool  # T numbers in its task card's body are links to those topics (app/worker.py, topic_links).
 
 
@@ -169,7 +169,7 @@ TOPIC = Traits("topic", switch_config=True, rewind=True, card_target=True, numbe
                hold_seconds=0, wording=(), slim_card=False, relays=True, has_thread=True, linkify_body=False)
 # What a text written for a topic says on the main thread, which is no topic: the private chat's top level. In
 # order, the longer phrase first.
-WORDING = (("本话题前方", "主线程前方"), ("本话题的", "主线程的"), ("本话题", "私聊里"))
+WORDING = (("本话题前方", "管家前方"), ("本话题的", "管家的"), ("本话题", "私聊里"))
 MAIN = Traits("main", switch_config=False, rewind=False, card_target=False, numbered=False,
               top_level=True, listed=False, own_turn=True, answers_in_place=True, lists_supplements=True,
               hold_seconds=HOLD_SECONDS, wording=WORDING, slim_card=True, relays=False, has_thread=False,

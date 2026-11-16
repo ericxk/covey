@@ -286,7 +286,7 @@ HANDOFF_CHARS = 3000  # Of the owner's words on the line a topic's thread gets: 
 
 def handoff_card(head, words, url):
     """The line a topic's thread gets when the main thread hands it the owner's words (app/main_topics.py topic_send,
-    app/main_handoff.py thread_card): a grey block, ``head`` ("主线程转来你 17:54 的消息") with " ›" and his words as
+    app/main_handoff.py thread_card): a grey block, ``head`` ("管家转来你 17:54 的消息") with " ›" and his words as
     written, the whole block opening ``url``, his message at its place in the chat (the owner, 2026-11-10 17:59:
     直接点那个消息跳回来). The chat list previews ``head``."""
     text = str(words or "").strip()

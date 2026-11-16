@@ -1,6 +1,8 @@
 <!-- privacy: allow-file 开发说明里描述扩展的模块表和测试命令 -->
 # 仓库合并约定
 
+名词以 [docs/glossary.md](docs/glossary.md) 为准：界面、提示词只用表里的中文名。
+
 默认主干是 `main`，GitHub `ericxk/covey` 是准源。改动在分支上做；开发完成并跑完适用检查（见下文「怎么挑测试」）后，先同步最新 `main`，再快进合并进 `main` 并推到 GitHub，不 force 推送，也不覆盖别人的提交。检查存在已确认的基线失败时，记录验证结果和限制，不把它说成全部通过。GitHub Actions（`.github/workflows`）在 `main` 上跑测试，红了先修。
 
 贡献者和 Coding Agent 都照下面几条做：
@@ -8,7 +10,7 @@
 1. **凭据不进仓库**：账号登录、令牌、SSH 配置、Codex 的 `auth.json` 等不写进代码、文档、测试和提交说明；测试用一看就是假的值。
 2. **个人环境靠配置传入，代码里不写**：主机名、路径、账号、open_id、群 ID、节点清单放自己数据根（`COVEY_DATA_HOME`，见 [数据目录](docs/operations.md#数据目录)）里的配置文件或服务的环境变量（`COVEY_*`）。
 3. **部署记录不进仓库**：`docs/` 只写对每个部署都成立的用法、规则和已知限制，例子里的路径用 `/absolute/...` 这类占位。
-4. **只有部分使用者要用的功能默认关闭**：没配置时不起线程、不加入口、不改已有行为；在对应文档写明怎么打开（如 [本机运行锁](docs/runtime-locks.md)；整块的可选功能做成[扩展](docs/architecture.md#扩展)）。
+4. **只有部分使用者要用的功能默认关闭**：没配置时不起后台线程、不加入口、不改已有行为；在对应文档写明怎么打开（如 [本机运行锁](docs/runtime-locks.md)；整块的可选功能做成[扩展](docs/architecture.md#扩展)）。
 5. **公共核心的改动对所有使用者生效**：改锁、记录与状态、调度、投递、服务管理（见下文「最容易改坏的规则」）时，开关关着的行为要和原来一样，并跑全量。
 6. 部署照 [部署新版本](docs/operations.md#部署新版本) 的步骤。
 
@@ -23,8 +25,8 @@
 | 收消息、路由、建任务 | `app/card_routing.py`、`app/topics.py`、`app/submission.py` | [一条消息的数据流](docs/architecture.md#一条消息的数据流) |
 | 卡片按钮与点击 | `app/card_actions.py`、`app/card_routing.py`、`app/card_lanes.py` | [卡片点击的数据流](docs/architecture.md#卡片点击的数据流)、[cards.md](docs/cards.md) |
 | 谁被服务、群聊 | `app/access.py`、`core/groups.py`、`app/group_manager.py` | [谁被服务](docs/architecture.md#谁被服务) |
-| 主线程（私聊模式） | `app/main_thread.py`、`core/main_thread.py`、`core/placement.py`、`app/main_tools.py` | [main-thread.md](docs/main-thread.md) |
-| 话题区与回带 | `app/main_topics.py`、`app/main_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [main-thread.md](docs/main-thread.md) |
+| 管家（私聊模式） | `app/main_thread.py`、`core/main_thread.py`、`core/placement.py`、`app/main_tools.py` | [main-thread.md](docs/main-thread.md) |
+| 话题与回带 | `app/main_topics.py`、`app/main_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [main-thread.md](docs/main-thread.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
@@ -84,7 +86,7 @@
 | `app/devices.py` | Devices at the app's edge |
 | `app/digest.py` | 早晚汇总: at the times of day COVEY_DIGEST_TIMES lists, one card at the top level of the owner's private chat … |
 | `app/directory_picker.py` | Bounded directory browsing: one listing or name search at a time, never on the event threads |
-| `app/dispatch_cards.py` | 派发活卡片, when COVEY_MAIN_DISPATCH_CARD=1 |
+| `app/dispatch_cards.py` | 派发卡, when COVEY_MAIN_DISPATCH_CARD=1 |
 | `app/forks.py` | Forks: a new topic that continues from another topic, opened by the main thread's topic_fork |
 | `app/form_cards.py` | Form cards: a card with a record of its own that every click on it reads |
 | `app/group_boards.py` | 手上的事, the pinned board and 早晚汇总 in each personal group |
@@ -106,12 +108,12 @@
 | `app/main_env.py` | What a main-thread tool handler gets besides its request |
 | `app/main_handoff.py` | What a topic gets when the main thread hands it work |
 | `app/main_knowledge.py` | The main thread's knowledge-entry tools and history_search, the one that asks the history command … |
-| `app/main_reactions.py` | Reactions on the owner's message for a main-thread turn of the 话题区 layout (core/placement.py Row.quiet, D1 … |
+| `app/main_reactions.py` | Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py … |
 | `app/main_relay.py` | A topic turn's outcome back at the private chat's top level, only with the main thread on |
 | `app/main_reply.py` | How a main-thread turn ends on its task card, for the turns whose Traits say `answers_in_place` (the main … |
 | `app/main_search.py` | topics_search, the main thread's tool that finds which topic, and which turn of it, a clue came from |
-| `app/main_thread.py` | The main thread's session, only in the private chat mode Personal Agent |
-| `app/main_thread_panel.py` | The 主线程 settings card: the owner changes the main thread's settings in the private chat |
+| `app/main_thread.py` | The main thread's session, only in the private chat mode 管家 |
+| `app/main_thread_panel.py` | The 管家 settings card: the owner changes the main thread's settings in the private chat |
 | `app/main_tools.py` | The main thread's tools as the Bridge runs them, unless COVEY_MAIN_THREAD=0 |
 | `app/main_topics.py` | The main thread's tools that change topics |
 | `app/main_tracks.py` | 多路并行 at run time (docs/main-thread.md 多路并行 |
@@ -191,14 +193,14 @@
 | `cards/cardkit_actions.py` | What a CardKit write says, as plain JSON |
 | `cards/digest.py` | The digest card: sent at the times the deployer set, at the top level of the owner's private chat |
 | `cards/directory.py` | The directory browser card |
-| `cards/dispatch_card.py` | The 派发活卡片 (app/dispatch_cards.py |
+| `cards/dispatch_card.py` | The 派发卡 (app/dispatch_cards.py |
 | `cards/elements.py` | Schema 2.0 card skeletons and the buttons several cards share |
 | `cards/facts.py` | A turn's figures from its process snapshot, worked out in one place for the task card's tiles and the answer … |
 | `cards/group_manager.py` | The 群聊 card, the bot menu's 群聊 panel |
 | `cards/held_note.py` | A held note's card: a message sent while the topic's questions wait, saved to go with the answer |
 | `cards/launch_config.py` | The launch card: its form and the model-scoped reasoning choices on it, and the settings list it shares with … |
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
-| `cards/main_thread_panel.py` | The 主线程 settings card, in the bot menu panels' style |
+| `cards/main_thread_panel.py` | The 管家 settings card, in the bot menu panels' style |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/proxy_panel.py` | The 代答 card, the bot menu's 代答 panel: on or off and the group in its title bar |
@@ -248,7 +250,7 @@
 | `core/device_transport.py` | The hub's side of the device shim's wire protocol |
 | `core/devices.py` | Devices: other machines (Linux over ssh) a topic can work on instead of this one |
 | `core/diff.py` | Per-job workspace diff capture for shared Harness bridge jobs |
-| `core/dispatch_records.py` | The records of the 派发活卡片 |
+| `core/dispatch_records.py` | The records of the 派发卡 |
 | `core/env.py` | Environment variable names: `COVEY_<X>` is the name, `LARK_BRIDGE_<X>` the old one that still works |
 | `core/extensions.py` | Optional extension packages: which are enabled, where they are found, the data and features they add |
 | `core/file_lock.py` | Explicit host-local lock files |
@@ -268,7 +270,7 @@
 | `core/main_mcp.py` | The MCP server in the main thread's session, run as bin/covey_main_mcp.py by the Claude Code of a main-thread … |
 | `core/main_opened.py` | The main thread's requests that opened, forked or handed on to a topic |
 | `core/main_requests.py` | The main thread's tool channel |
-| `core/main_thread.py` | The main thread (主线程), in the private chat mode Personal Agent |
+| `core/main_thread.py` | The main thread (管家), in the private chat mode 管家 |
 | `core/main_thread_settings.py` | The main thread's settings: <state>/main-thread.json |
 | `core/main_tool_specs.py` | The Bridge tools the main thread's session gets |
 | `core/main_tracks.py` | 多路并行 (docs/main-thread.md 多路并行 |
@@ -476,4 +478,4 @@
 ## 省 token
 
 - 不整篇读文档和大文件。可能很长的 Bash 输出写进文件，只看结尾和 `grep -E '^(FAIL|ERROR)'`；派子代理时给确切的文件和行号范围。
-- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，主线程 `docs/main-thread.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`。`docs/history/` 一般不用读。
+- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/main-thread.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`。`docs/history/` 一般不用读。

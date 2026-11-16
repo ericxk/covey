@@ -88,7 +88,7 @@ class CardTest(UnifiedCase):
         self.assertNotIn('"tag": "form"', text(card))
         self.assertIn("打开问题卡 ›", find_element(card, "pj_need")["content"])
         self.assertIn(URL, find_element(card, "pj_need")["content"])
-        self.assertIn("线程 1（在做 1） · 用时 3分00秒 · token 33万", find_element(card, "pj_meta")["content"])
+        self.assertIn("话题 1（在做 1） · 用时 3分00秒 · token 33万", find_element(card, "pj_meta")["content"])
         self.assertIn("先迁小表", find_element(card, "pj_lead")["content"])
 
     def test_what_is_empty_is_not_drawn(self):
@@ -96,7 +96,7 @@ class CardTest(UnifiedCase):
         found = ids(card)
         for name in ("pj_need", "answer_ask", "pj_triage", "pj_mem", "pj_lib", "pj_more"):
             self.assertNotIn(name, found)
-        self.assertEqual(find_element(card, "pj_meta")["content"], "<font color='grey'>线程 0 · 用时 3分00秒</font>")
+        self.assertEqual(find_element(card, "pj_meta")["content"], "<font color='grey'>话题 0 · 用时 3分00秒</font>")
         self.assertIn("待命", find_element(card, "pj_lead")["content"])
 
     def test_threads_at_work_or_waiting_are_open_those_done_shut_and_a_change_of_state_is_a_new_element(self):

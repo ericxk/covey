@@ -5,7 +5,7 @@ clicks that way), so a new button kind is added here first, with the BridgeApp c
 that takes it (``handler``: app/app.py dispatches a topic's click by it). Launch forms,
 pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 (app/rewind.py) are matched before this table and are not in it. The 代答设置 card's kinds, the
-重新发送 card's, 群管理's, 敏感词看板's 换口令, the 脱敏 tab's, the 主线程 settings card's, the 设置 card's tabs, 手上的事's
+重新发送 card's, 群管理's, 敏感词看板's 换口令, the 脱敏 tab's, the 管家 settings card's, the 设置 card's tabs, 手上的事's
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
 app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/main_thread_panel.py, app/settings_hub.py,
@@ -45,7 +45,7 @@ ACTIONS = {
     "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.
     "bridge_steer": CardAction("补充当前任务", handler=QUESTIONS),
-    # The 派发活卡片's buttons (cards/dispatch_card.py): a topic's click like the job's own, not bot_only: with a task
+    # The 派发卡's buttons (cards/dispatch_card.py): a topic's click like the job's own, not bot_only: with a task
     # process alive the click goes to it (it carries the job's id), as 补充 and 停止 on the task card do.
     "bridge_dispatch_steer": CardAction("补充派出去的任务", handler="steering.dispatch_steer"),
     "bridge_dispatch_stop": CardAction("停止派出去的任务", handler="controls.dispatch_stop"),
@@ -116,12 +116,12 @@ ACTIONS = {
     "bridge_redaction_upstream": CardAction("设置上游地址"),
     "bridge_redaction_probe": CardAction("探测上游地址"),
     "bridge_redaction_preview": CardAction("试一下脱敏"),
-    # The 主线程 settings card (cards/main_thread_panel.py KINDS).
-    "bridge_main_enable": CardAction("开关主线程"),
-    "bridge_main_model": CardAction("选择主线程模型"),
-    "bridge_main_effort": CardAction("选择主线程思考预算"),
-    "bridge_main_provider": CardAction("选择主线程供应商"),
-    "bridge_main_redaction": CardAction("选择主线程脱敏"),
+    # The 管家 settings card (cards/main_thread_panel.py KINDS).
+    "bridge_main_enable": CardAction("开关管家"),
+    "bridge_main_model": CardAction("选择管家模型"),
+    "bridge_main_effort": CardAction("选择管家思考预算"),
+    "bridge_main_provider": CardAction("选择管家供应商"),
+    "bridge_main_redaction": CardAction("选择管家脱敏"),
     "bridge_main_compact": CardAction("选择压缩阈值"),
     "bridge_main_topic_harness": CardAction("选择新话题 Harness"),
     "bridge_main_topic_provider": CardAction("选择新话题供应商"),
@@ -148,7 +148,7 @@ ACTIONS.update({kind: CardAction(label, bot_only=True) for kind, label in extens
 BOT_ONLY = frozenset(kind for kind, action in ACTIONS.items() if action.bot_only)
 # What a click on a retired button gets instead (app/task_controls.py retired_action).
 RETIRED_TEXT = {
-    "bridge_fork": "💬 侧聊和 🔀 分叉已下线：要从这个话题分出新话题，在私聊里跟主线程说。",
+    "bridge_fork": "💬 侧聊和 🔀 分叉已下线：要从这个话题分出新话题，在私聊里跟管家说。",
     "bridge_compact": "📦 压缩上下文已下线：会话快到模型窗口时，Claude Code 会自己压缩。",
 }
 # compat: cards sent by a feature that moved into an extension: (kind, the prefix of its forms' button names) -> what a click

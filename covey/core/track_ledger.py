@@ -25,7 +25,7 @@ REQUEST_CHARS, ANSWER_CHARS = 200, 600  # What a record keeps.
 SHOW_CHARS = 300  # How much of the answer the main thread's block shows.
 WINDOW = 12 * 3600  # Seconds: a record older than this is not given any more.
 MAX_ROWS = 8  # Rows in the block.
-HEADER = "[另几路这段时间答了什么]"
+HEADER = "[另外几件事这段时间答了什么]"
 
 
 def folder(state_dir) -> Path:

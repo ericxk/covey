@@ -90,7 +90,7 @@ def lead_of(env, request):
 
 
 def dispatch_card(env, request, topic_id, **how):
-    """The 派发活卡片 of the work ``request`` handed to ``topic_id`` (app/dispatch_cards.py), only with
+    """The 派发卡 of the work ``request`` handed to ``topic_id`` (app/dispatch_cards.py), only with
     COVEY_MAIN_DISPATCH_CARD=1: without it nothing is called and the topic's own cards are all there is. None for a
     project's lead's call: the project's card is the one (phase 2's P2-4)."""
     if dispatch_cards.enabled() and lead_of(env, request) is None:
@@ -121,22 +121,22 @@ def find_topic(env, chat, name):
     if not found:
         return f"没有找到话题 {text or '（空）'}：用 topics_list 查 T 号。"
     if is_main_topic(found, chat):
-        return "这是主线程自己，不是一个话题。"
+        return "这是管家自己，不是一个话题。"
     if retired_topic(Path(env.state_dir), found):
-        return (f"{text} 是已下线的前台话题（11-07 的旧布局），不再接新消息，也不能分叉：这件事就在主线程里做，"
+        return (f"{text} 是已下线的前台话题（11-07 的旧布局），不再接新消息，也不能分叉：这件事你自己在这一轮里做，"
                 "或者用 topic_start 开一个新话题。")
     target = env.topics.target(Path(env.state_dir), found, chat)
     if target is None:
         return f"话题 {text} 不在主人私聊里，或者它用的 Harness 本机器人没有启用。"
     if target[2].get("proxy"):
-        return f"{text} 是代答话题，主线程不往里转话。"
+        return f"{text} 是代答话题，管家不往里转话。"
     return target
 
 
 def composed(text, note):
     """What a topic waiting on its question takes as a message written in it: the main thread's words, and its note
     on its own line (a next turn or a supplement gets main_handoff.handoff_prompt instead)."""
-    return text + (f"\n（主线程：{note}）" if note else "")
+    return text + (f"\n（管家：{note}）" if note else "")
 
 
 def media_dir(ctx) -> Path:
@@ -290,7 +290,7 @@ def plan_start(env, args, settings):
         return f"没有登记工作区「{workspace}」，可选：{'、'.join(config['workspaces'])}。"
     if devices.is_device_value(config["workspaces"][workspace]):
         # Not built yet: the plan's workdir is resolved here, and the topic would be on a path that does not exist.
-        return f"工作区「{workspace}」在设备上，主线程本期还不能把话题开在设备上；请让主人在启动卡里选它。"
+        return f"工作区「{workspace}」在设备上，管家本期还不能把话题开在设备上；请让主人在启动卡里选它。"
     return {"harness": found["harness"], "model": found["model"], "model_key": found["model_key"],
             "effort": found["effort"], "work_mode": getattr(base, "work_mode", "") or "", "workspace": workspace,
             "workdir": str(Path(config["workspaces"][workspace]).expanduser().resolve()),
@@ -365,8 +365,8 @@ def _open(env, request, path, record, chat, prompt, args):
                      topic_id=record["topic_id"], label=label, root_message_id=root, started=False)
     dispatch_card(env, request, record["topic_id"], kind="start", starts=bool(plan["start"]))
     named = f"{label}「{title}」" if label else f"「{title}」"
-    where = ("，话题区挂在主人这条提问下面" if record.get("area_root")
-             else "，话题区的根是顶层一张小卡（主人这条提问下面已经有一个话题区）" if record.get("area_taken") else "")
+    where = ("，话题串挂在主人这条提问下面" if record.get("area_root")
+             else "，话题串的根是顶层一张小卡（主人这条提问下面已经有一个话题串）" if record.get("area_taken") else "")
     text = (f"已开 {named}：直接开工{where}" if plan["start"]
             else f"已开 {named}：启动卡在话题里，等主人点开始{where}"
             + ("（运行方式是独立 worktree，由启动卡创建）" if plan["run_mode"] == "worktree" else ""))
@@ -497,7 +497,7 @@ def live_turn(app, ctx, chat):
 def hand_line(env, ctx, chat, request, record, kind, owner, text, items, token):
     """The line the topic's thread gets when topic_send hands it the owner's words (app/main_handoff.py thread_line):
     a card whose whole block opens the owner's message at its place in the chat (thread_card; the owner, 2026-11-10
-    17:59: 话题里那条主线程转来的消息，点了跳回来), as text when that place cannot be read. The card's message id is
+    17:59: 话题里那条管家转来的消息，点了跳回来), as text when that place cannot be read. The card's message id is
     the request record's ``thread_message_id``: the hook under the owner's message opens the thread at it
     (app/main_reply.py hook_topics). Its key is the one the text always had, the card's that key's "-card"."""
     from covey.app.answer_cards import ask_url
@@ -532,8 +532,8 @@ def topic_send(env, request):
     label = topic_label(Path(env.state_dir), ctx.topic_id) or _text(request.args.get("topic"))
     if projects.enabled() and lead_of(env, request) is None and projects.is_thread_topic(Path(env.state_dir), ctx.topic_id):
         # A project's thread takes words through the project's lead (project_send), which knows what the others are doing.
-        return reply(False, f"{label or '这个话题'} 是专项的线程，不能直接转话：用 projects_list 查专项的 id，"
-                            "再用 project_send 把话交给负责人，由它决定给不给线程。")
+        return reply(False, f"{label or '这个话题'} 是专项的话题，不能直接转话：用 projects_list 查专项的 id，"
+                            "再用 project_send 把话交给负责人，由它决定要不要再开话题。")
     path, token = record_path(env.state_dir, request), request_token(request)
     mid, words = "main-" + token, composed(text, note)
     record = read_object(path)

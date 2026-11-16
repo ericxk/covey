@@ -11,7 +11,7 @@
 | `core/protocol.py` | 公开事件 `HarnessEvent`，观测类事件集合 `PROGRESS_EVENT_KINDS` |
 | `core/trace.py` | 执行过程的数据模型：收事件（`ToolTrace`）、快照与恢复、`turn_usage`、预算 `TRACE_BYTES` |
 | `core/trace_store.py` | 执行过程落盘 `traces/<任务键>.jsonl` |
-| `core/longtask.py`、`core/status_line.py` | 盯一轮的线程 `TaskMonitor`；状态行纯函数 `status_text` |
+| `core/longtask.py`、`core/status_line.py` | 盯一轮的后台线程 `TaskMonitor`；状态行纯函数 `status_text` |
 | `core/updates.py` | 合并写卡的 `CoalescedUpdates` |
 | `core/checkpoint.py` | 检查点，含可选的 `steps`、`delivery` |
 | `cards/streaming.py` | 整张任务卡 `build_stream_card`、按钮行、任务详情 |
@@ -73,7 +73,7 @@
 - “输出”运行中写 开始 ｜ 已运行 ｜ token ｜ token/s ｜ 上下文（`running_figures`、`with_ran`，顺序 `RUNNING_LINES`），结束后写 用时 ｜ token/s ｜ token ｜ 缓存命中（`output_parts`、`output_lines`），还没有数字时是“—”。没开始处理就结束的（排队中取消）照结束写，也是“—”。
 - 段间是灰色的“｜”（`SEPARATOR`），段内不断行（`unbroken`），窄屏只在“｜”后折行。
 - 话题里各卡的按钮都用 `cards/elements.py` 的 `button_look`（带边框、`medium`、宽度跟着文字）；菜单面板用 `text_button`。停止按钮不带 `confirm`（见[卡片的客户端限制](#卡片的客户端限制)）。
-- 主线程的分档卡（`Traits.slim_card`，`StreamingReply.slim`）：没有标题栏；正文、一行状态（`slim_status_markdown`）、默认收起的“详情”（`SLIM_DETAILS_ID`），灰框、本轮请求、任务详情和按钮行在“详情”里，ID 照旧；重试行、补充和问题紧跟正文（`under_body`）。详见[主线程](main-thread.md)的“分档卡”。
+- 管家的分档卡（`Traits.slim_card`，`StreamingReply.slim`）：没有标题栏；正文、一行状态（`slim_status_markdown`）、默认收起的“详情”（`SLIM_DETAILS_ID`），灰框、本轮请求、任务详情和按钮行在“详情”里，ID 照旧；重试行、补充和问题紧跟正文（`under_body`）。详见[管家](main-thread.md)的“分档卡”。
 
 ### 状态行
 
@@ -128,7 +128,7 @@
 
 - 话题列表显示最新一条消息的预览，任务卡的 `config.summary` 跟着任务走：`build_stream_card` 发卡时写“🕒 … 排队中”（任务已开始时的替换卡写“⏳ … 执行中”）；检查点阶段或原生问题变化时 `Cards.show_running_summary` 只 `PATCH settings` 的 `summary`；`show_outcome` 写“话题号或 #任务号 · 结局 · 用时”（`task_card_summary`）；`StreamingCard.close` 关流式时带上它。header 发出后只有整卡 `PUT` 能改，任务卡不整卡替换。
 - 单独发出的回答也是卡片（`cards/review.py` 的 `answer_card`，摘要由 `answer_summary` 写），见[投递、重投与 outbox](architecture.md#投递重投与-outbox)。
-- 回答单独发出时正文写成“**结论**”下一行开头（`TurnDelivery.delivered_note`；Personal Agent 话题区里答案卡已发在话题串里时正文留空）。
+- 回答单独发出时正文写成“**结论**”下一行开头（`TurnDelivery.delivered_note`；管家模式下话题里的答案卡已发在话题串里时正文留空）。
 - 回答开头跳过“## 结论”这类标题（`answer_lead` 的 `GENERIC_HEADINGS`）。
 
 ### 之前发出的卡
@@ -147,7 +147,7 @@
 
 ## 卡片控制器与动作队列
 
-启动卡、换配置等表单卡上的点击由控制器在卡片回调线程外处理，不经任务卡动作表：
+启动卡、换配置等表单卡上的点击由控制器在卡片回调后台线程外处理，不经任务卡动作表：
 
 | 控制器 | 管什么 | 按钮名或 kind | outcome |
 |---|---|---|---|
@@ -172,7 +172,7 @@
 | 重新发送卡 | `bridge_proxy_resend` | `ProxyResend.click`，见[重新发送卡](proxy.md#重新发送卡) |
 | 群管理卡 | `bridge_group_*` | `GroupManager.click`；启用、停用经 `Access.switch`，在卡锁之外，然后整卡重画 |
 | 敏感词看板链接卡 | `bridge_dashboard_rotate` | 换口令，按 event_id 只换一次 |
-| 设置卡「脱敏」标签 | `bridge_redaction_*`（带 `token`、`revision`；`_page`、`_edit` 和 `_term` 的 `op: edit` 是 2026-11-13 版的旧按钮，点了整卡按新布局重画并说“这个按钮已更新”） | `RedactionPanel.click`：`redaction_tab`；同一事件再投递 `duplicate`。改词表在卡锁之外（`update_config`），然后整卡重画；「探测」在自己的线程里，跑完再画 |
+| 设置卡「脱敏」标签 | `bridge_redaction_*`（带 `token`、`revision`；`_page`、`_edit` 和 `_term` 的 `op: edit` 是 2026-11-13 版的旧按钮，点了整卡按新布局重画并说“这个按钮已更新”） | `RedactionPanel.click`：`redaction_tab`；同一事件再投递 `duplicate`。改词表在卡锁之外（`update_config`），然后整卡重画；「探测」在自己的后台线程里，跑完再画 |
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |
 | 手上的事 | `bridge_overview_dismiss`（带 `topics`） | `Overview.claim`：只改看板记录，应答后由 `tick` 整卡重画 |
 | 飞书应用待补 | `covey_app_setup`、`bridge_app_setup_skip` | `AppSetup.claim`（表的最后）：`app_setup_start`、`app_setup_busy`、`app_setup_stale` |
@@ -184,8 +184,8 @@
 
 `app/card_actions.py` 的 `ACTIONS` 是任务卡按钮 kind 和失败提示里的名称（停止、重试、下载请求与结果、补充及其状态/重新排队/撤回、暂存消息、回答及其核查/状态、执行过程、产物），另有上节的主人卡片。
 
-- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的线程里打包上传）。
-- 卡片事件只有一个消费线程，它把点击交给 `app/card_lanes.py` 的分道：同一话题按到达顺序逐个处理，跨话题并行，不在话题里的卡片各占一道。
+- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）。
+- 卡片事件只有一个消费后台线程，它把点击交给 `app/card_lanes.py` 的分道：同一话题按到达顺序逐个处理，跨话题并行，不在话题里的卡片各占一道。
 - 处理器返回即点击已回执（`card action` 那行的 `elapsed_ms`）。`after_ack` 留下的慢活在本话题的后续道里按序执行（记 `card follow-up`），下一次点击不等它，失败按这次点击的口径回复。不在分道里（文字回答、任务进程、测试）时 `after_ack` 当场执行。停止服务时只跑后续道，`drain` 等已开始的做完或超时。
 - 飞书的卡片回调 3 秒内要应答，所以点击里只做决定和改被点的卡，发新卡、发通知都放进后续。例如开始任务的任务卡（`Submission.release_waiting`；回执在另一条后续道同时写，`after_ack(beside=True)`），重新排队执行（锁内记 `requeue_state=submitting`，后续未完时再点回复“正在重新排队”），开新话题（同一事件重投用同一 token 只开一次）。任务卡总在 `enqueue_reply_job` 之前发出，任务不会在卡片出现前开始。
 - 开始任务点击之后、后续之前在话题里发的消息，`submit_topic_job` 先放出还在 `waiting_workspace` 的消息再排自己；这时重启的，由 `release_started_launches` 放出。
@@ -206,7 +206,7 @@
 
 | kind | 原按钮 | 回复 |
 |---|---|---|
-| `bridge_fork` | 💬 侧聊、🔀 分叉 | 要从这个话题分出新话题，在私聊里跟主线程说 |
+| `bridge_fork` | 💬 侧聊、🔀 分叉 | 要从这个话题分出新话题，在私聊里跟管家说 |
 | `bridge_compact` | 📦 压缩上下文 | 会话快到模型窗口时，Claude Code 会自己压缩 |
 
 ## 卡片的客户端限制

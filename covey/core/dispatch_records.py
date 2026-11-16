@@ -1,4 +1,4 @@
-"""The records of the 派发活卡片 (docs/main-thread.md 派发活卡片): <state>/main-thread/dispatch/<token>.json, one per
+"""The records of the 派发卡 (docs/main-thread.md 派发卡): <state>/main-thread/dispatch/<token>.json, one per
 card the main thread's topic_start, topic_send or topic_fork put at the chat's top level (app/dispatch_cards.py), and
 the sidecar <token>.relay.json a task runner leaves when that card's conclusion went out (``mark_relayed``).
 
@@ -11,7 +11,6 @@ sidecar, one small file written once, which the refresh thread reads.
 read by nothing yet. Standard library and core only (a task runner imports it)."""
 from __future__ import annotations
 
-import re
 import time
 from pathlib import Path
 
@@ -22,8 +21,6 @@ LIVE, SETTLED = "live", "settled"
 # Rule 4: the only way a record's state moves.
 DISPATCH_TRANSITIONS = {LIVE: {SETTLED}, SETTLED: set()}
 SCHEMA = 1
-# What the owner says of a job that goes on (upgrade_hint.long_word), not right after a no: "不是长活" says it is not one.
-LONG_WORDS = re.compile("(?<!不)(?<!别)(?<!没)(?<!不是)(?<!不要)(?<!不用)(?:长活|长期|接着做)")
 RELAY_SUFFIX = ".relay.json"
 REQUEST_CHARS = 200  # Of the owner's request kept in the record; the card's header shows the first 30.
 
@@ -50,8 +47,9 @@ def new_record(*, token, chat_id, topic_id, job_key, mid, kind, owner_message, r
             "mid": mid, "kind": kind, "owner_message": owner_message, "request": request[:REQUEST_CHARS],
             "starts": bool(starts), "ask_at": ask_at, "ask_url": ask_url, "card_id": "", "card_message_id": "", "sequence": 0, "state": LIVE,
             "started_at": time.time() if now is None else now,
-            # For the phase after this one; nothing reads them yet.
-            "rounds": rounds, "upgrade_hint": {"long_word": bool(LONG_WORDS.search(request))}, "project_id": None}
+            # upgrade_hint: the butler's ``project`` is added by app/dispatch_cards.py. No keyword of the owner's is matched any more
+            # (older records may still carry ``long_word``; nothing reads it).
+            "rounds": rounds, "upgrade_hint": {}, "project_id": None}
 
 
 def transition(record, to) -> dict:

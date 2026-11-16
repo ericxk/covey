@@ -177,7 +177,7 @@ class SettingsHubTests(HubCase):
             self.assertIs(switch['on'], True)
             self.assertEqual(self.press(switch, 'ev-e1'), 'main_panel')
             self.assertTrue(main_thread.enabled())
-            self.assertIn('已改成 Personal Agent', json.dumps(self.card(), ensure_ascii=False))
+            self.assertIn('已改成管家', json.dumps(self.card(), ensure_ascii=False))
 
     def test_a_slow_proxy_result_after_the_card_turned_writes_nothing(self):
         with mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': ''}):
@@ -219,7 +219,7 @@ class SettingsHubTests(HubCase):
         self.assertEqual((taken['tab'], taken['card_id'], taken['sequence'], taken['view']['revision']),
                          ('groups', 'oldcard', 1_762_400_003, 6))
         self.assertEqual(read_json(folder / (old + '.json'))['status'], MOVED)
-        self.assertEqual(self.press(compact, 'ev-c2', message='om_old'), 'main_panel_unknown')  # Not on 主线程 now.
+        self.assertEqual(self.press(compact, 'ev-c2', message='om_old'), 'main_panel_unknown')  # Not on 管家 now.
         self.assertEqual(main.path(self.ctx, old), self.state / 'settings-cards' / (old + '.json'))
         self.assertEqual(self.press(self.tab('私聊'), 'ev-t2', message='om_old'), 'settings_tab')
         self.assertEqual(self.press({**compact, 'revision': 7, 'option': '100000'}, 'ev-c3', message='om_old'),
@@ -306,7 +306,7 @@ class SettingsHubTests(HubCase):
     def test_the_main_threads_pages_are_two_tabs_and_an_older_cards_tab_still_turns(self):
         """T444 (the owner, 2026-11-08: 一页是新话题默认，一页是私聊默认): the main thread's pages are tabs of one record,
         each folding on a second click; 直接开工 is on 新话题 since 其他 was retired (2026-11-09); a card drawn before
-        them, its tabs 主线程 · 代答 · 群聊, still turns: its 主线程 (key main) is 私聊默认."""
+        them, its tabs 管家 · 代答 · 群聊, still turns: its 管家 (key main) is 私聊默认."""
         self.open()
         token = self.hub.token('dm', 'ev-menu')
         self.assertEqual(self.press(self.tab('新话题'), 'ev-t1'), 'settings_tab')
@@ -320,7 +320,7 @@ class SettingsHubTests(HubCase):
         self.assertEqual(self.press(self.tab('新话题'), 'ev-t3'), 'settings_fold')
         self.assertEqual(self.title(), '新话题默认')
         self.assertEqual(self.press(self.tab('新话题'), 'ev-t4'), 'settings_unfold')
-        # The older card's tab row: 主线程 · 代答 · 群聊, values as they were.
+        # The older card's tab row: 管家 · 代答 · 群聊, values as they were.
         self.assertEqual(self.press({'kind': TAB, 'tab': 'proxy', 'from': 'main', 'token': token}, 'ev-t5'),
                          'settings_tab')
         self.assertEqual(self.title(), '代答')

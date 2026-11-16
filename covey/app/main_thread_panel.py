@@ -1,13 +1,13 @@
-"""The 主线程 settings card (docs/main-thread.md 设置卡): the owner changes the main thread's settings in the private
+"""The 管家 settings card (docs/main-thread.md 设置卡): the owner changes the main thread's settings in the private
 chat. The main thread only sends it (the tool ``settings_panel``, TOOLS); it cannot change its settings.
 
 It is two tabs of the bot menu's 设置 card (app/settings_hub.py), one a page (cards/settings_hub.py MAIN_PAGES):
 私聊默认, 新话题默认; its 记住的工作区 and 工作区用途 buttons are on the 工作区 tab, which app/workspace_manager.py draws
 (``pages``: this panel redraws that tab through it after its click). A card on the retired page 其他 (2026-11-08 to
 11-09) still acts: its 直接开工 lands on 新话题默认, the rest on 工作区 (PAGE_OF). The tool and, unless COVEY_MAIN_THREAD=0, the menu key MENU_KEY send that card on
-私聊默认; its first row is the private chat mode (Personal Agent, 纯话题); the chat keeps one 设置 card, a new one
+私聊默认; its first row is the private chat mode (管家, 纯话题); the chat keeps one 设置 card, a new one
 recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the record's
-``tab`` follows), so a click on a 设置 card drawn before the pages, all of them on its 主线程 tab, lands on the page
+``tab`` follows), so a click on a 设置 card drawn before the pages, all of them on its 管家 tab, lands on the page
 of the row it changed. No topic, no job. The 设置 card's record holds the tab's view (revision, notice); a card
 sent before there was a 设置 card (gen 286) has its own record, <state>/main-thread-panels/<token>.json, and still
 acts. The settings themselves are read from core/main_thread_settings.py at each draw and written only by
@@ -45,10 +45,10 @@ from covey.core.workspaces import RUN_MODES, config_path
 FOLDER = 'main-thread-panels'
 LOCK = 'main-thread-panel'
 MENU_KEY = 'main_thread_settings'  # The bot menu's event key that opens the 设置 card on this tab.
-OWNER_ONLY = '⚠️ 只有机器人主人能改主线程的设置。'
+OWNER_ONLY = '⚠️ 只有机器人主人能改管家的设置。'
 GONE = '⚠️ 这个选项已不可用，卡片已按最新设置重画。'
 # Said on the card once the private chat mode changed (docs/main-thread.md 私聊模式).
-MODE_NOTICES = {True: '已改成 Personal Agent：聊天区的消息交给主线程。',
+MODE_NOTICES = {True: '已改成管家：聊天区的消息交给管家。',
                 False: '已改成纯话题：私聊顶层的新消息各开一个话题；已开的话题照常在各自的话题里继续。'}
 
 
@@ -161,7 +161,7 @@ class MainThreadPanel:
         return value.get('kind') in KINDS
 
     def claim(self, ctx, event, raw, owner):
-        """The click's outcome when it is a 主线程 settings card's, else None (app/unified.py PANELS)."""
+        """The click's outcome when it is a 管家 settings card's, else None (app/unified.py PANELS)."""
         return self.click(ctx, event, raw, owner) if self.matches(raw) else None
 
     def card(self, ctx, view, tab=MAIN, chat=''):
@@ -220,7 +220,7 @@ class MainThreadPanel:
             texts['t_effort'] = follow_text([(effort['effort'] or '模型默认', effort['sources']['effort'])])
         return texts
 
-    # The 设置 card's 主线程 tab (app/settings_hub.py): its first view, its record's fields, its card, once shown.
+    # The 设置 card's 管家 tab (app/settings_hub.py): its first view, its record's fields, its card, once shown.
     @staticmethod
     def tab_view(token):
         return {'token': token, 'revision': 1, 'hub': True}
@@ -270,7 +270,7 @@ class MainThreadPanel:
                 record = {**record, 'tab': tab}
             if not self.menu.publish(ctx, path, record, view, self.card(ctx, view, tab, record.get('chat_id') or '')) \
                     and notice:
-                self.menu.unsaved(ctx, record, notice + '\n主线程设置卡未能刷新，请重新打开。', f"{token}-{view['revision']}")
+                self.menu.unsaved(ctx, record, notice + '\n管家设置卡未能刷新，请重新打开。', f"{token}-{view['revision']}")
         return outcome
 
     def changes(self, ctx, event, value):
@@ -332,7 +332,7 @@ class MainThreadPanel:
 
 
 def settings_panel(env, request):
-    """The tool ``settings_panel``: the 设置 card on its 主线程 tab in the owner's private chat (env.settings,
+    """The tool ``settings_panel``: the 设置 card on its 管家 tab in the owner's private chat (env.settings,
     app/settings_hub.py), quoting the owner's message of the main-thread job that asked (at the top level); the
     设置 card it sent before is recalled."""
     chat = env.chat()

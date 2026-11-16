@@ -230,7 +230,7 @@ class StopTest(ReactionsCase):
         return " ".join(str(call.args[2]) for call in reply.call_args_list)
 
     def test_the_stop_reply_says_how_many_tracks_are_still_going(self):
-        self.assertIn("还有 1 路在做。", self.stopped())
+        self.assertIn("还有 1 件事在做。", self.stopped())
 
     def test_a_stop_of_the_only_track_says_nothing_of_the_others(self):
         self.send("om_1", LONG)

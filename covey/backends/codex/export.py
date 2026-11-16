@@ -59,8 +59,8 @@ NOTE = ("requests：本轮每次模型请求。request.input 按 Codex 会话记
         "not_recorded 列出 Codex 发送时另加、会话记录里没有的部分。请求的其他字段（model、reasoning、prompt_cache_key 等）"
         "会话记录没有，turn_context 是那一轮的设置。response：模型输出的各项和 token_usage_record 的用量；compaction 标出"
         "压缩上下文的请求；response.id 为空表示回复没有用量记录：流到一半被子 Agent 新来的消息打断，或断流后重发。用账号模型时 Codex 经 WebSocket 只发上次回复之后的新增项，这里给的是完整 input。失败后重发的"
-        "请求不在记录里。meta：线程的 session_meta。rows：本轮时间窗内会话记录的原始行，未作改动。subagents：子 Agent "
-        "线程的同样内容。")
+        "请求不在记录里。meta：会话的 session_meta。rows：本轮时间窗内会话记录的原始行，未作改动。subagents：子 Agent "
+        "会话的同样内容。")
 
 
 def as_sent(item, lite):

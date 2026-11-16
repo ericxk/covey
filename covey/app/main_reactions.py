@@ -1,4 +1,4 @@
-"""Reactions on the owner's message for a main-thread turn of the 话题区 layout (core/placement.py Row.quiet, D1
+"""Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py Row.quiet, D1
 2026-11-08: 提问不开串; docs/main-thread.md 提问不开串). The turn opens no thread of its own, so the message says how it
 stands: OnIt once it is queued (app/submission.py, in the Bridge), then, when the turn ends (app/worker.py, in its
 task runner), DONE for an answer, Get for work handed on to topics, CrossMark for a failure or an official refusal;

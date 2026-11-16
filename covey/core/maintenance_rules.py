@@ -387,7 +387,7 @@ class Temporary(Rule):
     # proxy/shots: 代答's failed-step screenshots; main-thread/opened: which topic each main-thread topic_start opened
     # (app/main_topics.py), kept so the same call opens no second one; main-thread/relays: which topic turn's outcome
     # went back to the top level (app/main_relay.py), read for the RESULT_AGE the board and snapshot look back;
-    # main-thread/dispatch: the 派发活卡片's records and conclusion notes (app/dispatch_cards.py); main-thread/tracks: the
+    # main-thread/dispatch: the 派发卡's records and conclusion notes (app/dispatch_cards.py); main-thread/tracks: the
     # ledger of what the main thread's tracks answered (core/track_ledger.py; their session files go sooner,
     # TrackSessions); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
     folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/relays",
@@ -485,7 +485,7 @@ class TrackSessions(Rule):
     of CLAUDE_CONFIG_DIR (default ~/.claude) is touched, and not one changed or read since the cutoff."""
     keys = ("remove_track_sessions",)
     days = TRACK_SESSION_DAYS
-    title = "删除多路并行里路的 Claude 会话文件"
+    title = "删除管家同时在做的几件事用过的 Claude 会话文件"
     SESSION = re.compile(r"[0-9a-fA-F-]{8,64}")
 
     @staticmethod

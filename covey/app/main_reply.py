@@ -161,7 +161,7 @@ def say_outcome(delivery) -> bool:
 def reply_fold(text, *, lead=False):
     """The model's own words under the topic lines, folded; on a slim card in its 详情 (Cards.set_task_element). A
     project's lead's turn (``lead``) says whose they are: the lead's, not the main thread's."""
-    return markdown_panel(REPLY_FOLD, "负责人的回答" if lead else "主线程的回答", text, quiet=True)
+    return markdown_panel(REPLY_FOLD, "负责人的回答" if lead else "管家的回答", text, quiet=True)
 
 
 def routed_body(lines) -> str:

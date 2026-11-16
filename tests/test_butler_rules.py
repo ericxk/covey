@@ -70,7 +70,7 @@ class ButlerRulesTest(unittest.TestCase):
         rules = main_thread_rules().split("\n")
         self.assertEqual(rules[3:5], list(BUTLER_RULES))
         self.assertTrue(any("knowledge_save" in line for line in rules))
-        self.assertEqual(rules[0], "[主线程规则]")
+        self.assertEqual(rules[0], "[管家规则]")
 
 
 class ButlerToolsTest(unittest.TestCase):

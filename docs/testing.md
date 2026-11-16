@@ -67,21 +67,21 @@ python3 -B scripts/golden_trace.py compare $G/before $G/after --noise $G/before2
 
 | 类别 | 含义 | 计入 |
 | --- | --- | --- |
-| ORDER | 只是线程之间交错的先后不同，每个线程自己的事件和顺序一样 | 否 |
-| SEQUENCE | 同一线程里先后变了（比如先发飞书再存意图） | 是 |
-| THREADS | 事件换了线程做 | 是 |
+| ORDER | 只是后台线程之间交错的先后不同，每个后台线程自己的事件和顺序一样 | 否 |
+| SEQUENCE | 同一个后台线程里先后变了（比如先发飞书再存意图） | 是 |
+| THREADS | 事件换了后台线程做 | 是 |
 | NOISE | 两次基线之间也不同 | 否 |
 
 - `--op` 再把 op id 归一（真实任务进程的 op id 是随机的）。测试临时文件放 `/dev/shm/golden-trace-<uid>/s<N>`（`--scratch DIR` 换位置），录完删掉。
 - 临时目录名、uuid 和随机数由完整的测试 ID 定。把测试搬到另一个模块后，改动后的录制经 `child` 子命令让 `TestCase.id()` 仍报旧模块名，再把结果并回旧模块名下比较。
-- 已知噪声：`test_launch` 里备份清单的哈希（`test_a_backup_keeps_each_chats_defaults`）、`test_harness_switch` 同一秒内的会话记录先后、`test_native_questions` 和 `test_detached_runs` 里两个线程写同一条任务记录的先后。
+- 已知噪声：`test_launch` 里备份清单的哈希（`test_a_backup_keeps_each_chats_defaults`）、`test_harness_switch` 同一秒内的会话记录先后、`test_native_questions` 和 `test_detached_runs` 里两个后台线程写同一条任务记录的先后。
 - `golden_trace` 不在默认测试里跑，`test_tooling_scripts` 只做冒烟检查。
 
 搬模块或把名字移到别的模块之前，先跑 `python3 -B scripts/test_map.py patches <模块>`（`covey.app.detached`、`app.detached` 或文件路径都行）。它静态列出 `tests/` 里按这个模块的导入路径替换名字的地方（`mock.patch("模块.名字")`、`patch.object(模块, …)`、`patch.multiple`、`patch.dict`、`setattr`、写着 `"模块.名字"` 的字符串），格式是 `文件:行 方式 名字 (测试)`。运行时才拼出的目标列为 `dynamic`，要人看一眼。名字搬走后这些补丁不再生效，测试可能照样通过却不再测原来的东西，要一并改到新位置。给类的属性打的补丁跟着类走，不列出。
 
 ### 卡片 JSON 金样
 
-`test_card_golden` 用真实的卡片构造函数画一组固定样本（任务卡、执行过程各状态及其增量写、启动卡、问题卡、代答面板、补充表单、恢复卡、回退卡、导出、换配置、本周用量、菜单面板），冻结时间（UTC+8），键排序后和 `tests/golden/cards.json` 逐字节比较；不一致时列出新增、删除和变了的样本及第一处不同。
+`test_card_golden` 用真实的卡片构造函数画一组固定样本（任务卡、执行过程各状态及其增量写、启动卡、问题卡、代答面板、补充表单、恢复卡、回退卡、导出、换配置、本周用量、菜单面板），冻结时间（UTC+8），键排序后和 `tests/golden/cards.json`（仓库里是压缩的 `cards.json.xz`；`GOLDEN_CARDS=update` 写出 `cards.json`，用 `lzma` 压成 `.xz` 再删掉它）逐字节比较；不一致时列出新增、删除和变了的样本及第一处不同。
 
 有意改卡片时：确认列出的样本都是这次要改的，重写文件、和改动一起提交，再做客户端验收（[卡片的客户端限制](cards.md#卡片的客户端限制)）：
 
@@ -98,14 +98,14 @@ git diff --stat tests/golden/cards.json
 
 | 文件 | 用途 |
 | --- | --- |
-| `world.py` | 临时状态目录里的 app；删目录前停掉 app 的后台线程，有线程不停就让测试失败 |
+| `world.py` | 临时状态目录里的 app；删目录前停掉 app 的后台线程，有后台线程不停就让测试失败 |
 | `records.py` | 临时状态目录；`write_topic`、`write_job`、`run_files` 经生产的写函数写 topic.json、任务记录和 runs/ 文件；`saved` 读回 |
-| `main_thread.py` | 主线程测试的共同 setUp（`MainThreadCase`：开关、临时状态目录、话题上下文、写 main-thread/opened 记录）；只要开关时用 `switch_on` |
+| `main_thread.py` | 管家测试的共同 setUp（`MainThreadCase`：开关、临时状态目录、话题上下文、写 main-thread/opened 记录）；只要开关时用 `switch_on` |
 | `fake_lark.py` | 记录出站发送；`FakeCardKit` 替换 Messenger 查找的 CardKit 函数，记录每次请求，可逐次指定返回或失败 |
 | `fake_backends.py` | 假后端（`RecordingBackend.declare` 声明能力）、`codex_server` |
 | `backend_drivers.py` | `test_backend_contract` 的后端驱动 |
 | `worker_seams.py` | 去掉 worker 一轮之外的附带工作 |
-| `clock.py`、`processes.py`、`git.py`、`cards.py`、`sessions.py` | 不真等的时钟；`leftover_check()`（有线程或子进程活过模块就失败）；git 夹具；卡片断言；直接写会话标识 |
+| `clock.py`、`processes.py`、`git.py`、`cards.py`、`sessions.py` | 不真等的时钟；`leftover_check()`（有后台线程或子进程活过模块就失败）；git 夹具；卡片断言；直接写会话标识 |
 | `launch_fixtures.py` | 启动卡和换配置共用的模型目录、会脱敏的 Harness |
 | `form_transitions.py` | 测试期检查表单记录的状态变化（见下） |
 | `maso_*.py` | MASO 链路、传输替身（`maso_helper`、`maso_runtime`、`web_tool_options`）、进度、并发重投用例基类 |
@@ -131,7 +131,7 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 ```
 
 - 输出目录必须给出，不能在本检出、`$HOME` 或 `/tmp` 里；非空目录只接受这个脚本先前写过的（有它的 `meta.json`）。
-- `compare` 列出每个跨版本组合和同版本基线的差异，以及每次运行实际用的 release；缺结果、结果不是这次跑的、一对也没比成，都不算 all equal。时间、进程号、op id 归一化，timing 行和线程间先后不比。
+- `compare` 列出每个跨版本组合和同版本基线的差异，以及每次运行实际用的 release；缺结果、结果不是这次跑的、一对也没比成，都不算 all equal。时间、进程号、op id 归一化，timing 行和后台线程间先后不比。
 - 有差异时先看 `base-new vs base-old`：两个 release 本来就不同的地方，跨版本组合也会出现。
 - 多设备（[架构：设备](architecture.md#设备多设备默认关)）有两个只给它的场景。`devices-empty-new`：新 release 开着 `COVEY_DEVICES=1`、`devices.json` 里没有设备，把每个变体再跑一遍，要同 `base-new`、`base-old` 一样（开关开着但没有设备，行为同关着）。`device-rollback`（变体 `device_rollback`、`device_rollback_on`）：新 Bridge 建一个设备话题（`topic.json` 存 `gpu1:/home/user/proj`），旧 Bridge 和旧任务进程收到该话题的下一条消息；这一轮必须被拒绝（任务进程里没有 `backend.run`、记录是 `failed`），`compare` 打印旧 release 的说法，在本机跑了就退出 1。后一个变体是旧进程仍带着 `COVEY_DEVICES=1` 和同一份 `devices.json`。
 
@@ -141,6 +141,7 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 - `bash -n scripts/*.sh`；装了 ruff 时加 `ruff check --select F821`。
 - `python3 -B scripts/code_map.py --check`：`AGENTS.md` 的模块表和各模块 docstring 一致。加、删、搬模块或改了 docstring 首句后跑 `--write`（`test_structure` 的 `CodeMapTest` 也查）。
 - 文档引用：`test_structure.DocReferenceTest` 每次都跑，检查 `AGENTS.md`、`README.md` 和 `docs/*.md`（不含 `docs/history/`）。反引号里的仓库路径（代码地图里相对 `covey/` 的也算）和相对链接（含 `#标题`）必须存在；有意不在仓库里的路径列在 `DOC_UNTRACKED_PATHS`。代码里找不到的反引号名字只打印，外来的名字列在 `DOC_EXTERNAL_NAMES`。
+- 名词：`test_glossary` 检查[名词表](glossary.md)里“不再用”的词不出现在四处：卡片金样里所有样本的文字、管家和负责人的规则全文（含唤醒说明和交给话题的说明）、两者看到的全部工具说明，以及 `covey/` 里所有字符串字面量（不含注释和 docstring）。必须保留旧词的字面量（如认旧记录的写法）列在测试的 `ALLOWED`，写明原因。
 - 环境变量与选项：`test_structure.InventoryTest` 核对代码读的环境变量、命令行选项和 [configuration.md 的一览表](configuration.md#环境变量与选项一览)。
 
 ### 隐私检查

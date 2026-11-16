@@ -213,9 +213,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.dashboard_rotate = DashboardRotate(self)
             # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card, the web dashboard's link last.
             self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice, self.dashboard)
-            # The main thread's settings card (docs/main-thread.md 设置卡): the 设置 card's 主线程 tab.
+            # The main thread's settings card (docs/main-thread.md 设置卡): the 设置 card's 管家 tab.
             self.main_thread_panel = MainThreadPanel(self.topics)
-            # The bot menu's 设置 (app/settings_hub.py): 主线程, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
+            # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
             self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.main_thread_panel,
                                             self.proxy.panel, self.group_manager, self.workspace_manager,
                                             self.redaction_panel)
@@ -243,7 +243,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The Feishu app kept up with the Bridge (app/app_setup.py): what it lacks offered in the owner's private
             # chat, added by the developer console after a QR login.
             self.app_setup = AppSetup(self.runtime, self.messenger, self.voice)
-            # The 派发活卡片 (app/dispatch_cards.py), when COVEY_MAIN_DISPATCH_CARD=1: the thread that keeps the cards of
+            # The 派发卡 (app/dispatch_cards.py), when COVEY_MAIN_DISPATCH_CARD=1: the thread that keeps the cards of
             # the work the main thread handed to topics up to date; without the switch it has no thread.
             self.dispatch_cards = DispatchCards(self.runtime, self.messenger, self.voice, self.titles)
             self.project_cards = ProjectCards(self.runtime, self.messenger, self.voice, self.titles)  # 专项卡 (COVEY_PROJECTS=1)

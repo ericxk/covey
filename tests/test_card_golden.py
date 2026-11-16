@@ -625,11 +625,11 @@ def answer_tail_cards():
     from covey.cards.answer_card import handoff_card, hook_card
     # 2026-11-10 17:59: the line a topic's thread gets from topic_send opens the owner's message; the hook under his
     # message opens each topic it went to (one without a link: no ›).
-    handoff = handoff_card("主线程转来你 17:54 的消息", "这块代码提交到github上吧\n附件：图片 1 张",
+    handoff = handoff_card("管家转来你 17:54 的消息", "这块代码提交到github上吧\n附件：图片 1 张",
                            "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=1379")
     hook = hook_card([("T453「同步 GitHub」", "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x"
                                             "&open_thread_id=omt_x&thread_position=7"), ("T454「看板」", "")])
-    # The 派发活卡片 (cards/dispatch_card.py): the live card in each state, and the lines it shrinks to.
+    # The 派发卡 (cards/dispatch_card.py): the live card in each state, and the lines it shrinks to.
     from covey.cards import dispatch_card as dc
     from covey.cards.dispatch_card import Dispatch, dispatch_card, settled_card
     thread_url = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
@@ -797,7 +797,7 @@ def main_thread_panels():
             "follows_model": main_thread_panel_card(
                 "b" * 24, {"revision": 3}, Settings(topic_defaults=TopicDefaults(harness="claude")), MAIN_CHOICES,
                 names, follows=follows),
-            "changed": main_thread_panel_card("b" * 24, {"revision": 4, "notice": "⚠️ 只有机器人主人能改主线程的设置。"},
+            "changed": main_thread_panel_card("b" * 24, {"revision": 4, "notice": "⚠️ 只有机器人主人能改管家的设置。"},
                                               changed, MAIN_CHOICES, names)}
 
 
@@ -973,7 +973,7 @@ def project_cards():
     full = pc.Project(**{**work.__dict__, "triage": ("09:40 答了：用哪个库版本？", "10:05 转给你：能不能停服务？"),
                          "memory": (("m1", "迁移窗口在周六凌晨"), ("m2", "旧集群只读到周日")),
                          "library": (("迁移方案.md",), ("表清单.csv",))})
-    many = tuple(pc.Thread(f"{index:02x}" * 3 + "0" * 10, pc.DONE if index % 3 else pc.RUNNING, f"T{600 + index}", f"线程 {index}",
+    many = tuple(pc.Thread(f"{index:02x}" * 3 + "0" * 10, pc.DONE if index % 3 else pc.RUNNING, f"T{600 + index}", f"话题 {index}",
                            "已完成", "5分00秒") for index in range(11))
     return {"running": pc.project_card(work),
             "running_full": pc.project_card(full),
@@ -986,7 +986,7 @@ def project_cards():
             "line_stopped": pc.settled_card("把订单库迁到新集群", reason="专项已降为普通话题"),
             "line_moved": pc.moved_card("把订单库迁到新集群", link, direction="数据平台"),
             "upgraded": pc.project_card(pc.Project(**{**work.__dict__, "threads": threads[:1], "direction": "",
-                                                      "origin_note": "由快事升级（你说了长活）"})),
+                                                      "origin_note": "由管家转成专项"})),
             "line_merged": pc.merged_card("把订单库迁到新集群", link)}
 
 

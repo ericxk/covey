@@ -88,7 +88,7 @@ def digest_card(view):
     if not elements:
         elements.append(md(EMPTY.format(clock(view["since"]))))
     elements += knowledge_elements(view)
-    elements.append(note(f"只列这个{view.get('where') or '私聊'}里的话题，主线程不列"))
+    elements.append(note(f"只列这个{view.get('where') or '私聊'}里的话题，管家不列"))
     title = title_of(view)
     return styled_panel(panel_header(ICON, title, counts(view)), elements, " · ".join(filter(None, [title, counts(view)])))
 

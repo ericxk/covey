@@ -78,7 +78,7 @@ class RulesTest(Case):
         self.assertTrue(base.startswith("[负责人规则]"))
         self.assertIn("Read、Grep、Glob", base)
         self.assertIn("project_thread_start", base)
-        self.assertNotIn("主线程规则", base)
+        self.assertNotIn("管家规则", base)
         self.assertEqual(project_lead.PRACTICE, "")
         self.assertIn("专员做法层", project_lead.lead_rules(practice="专员做法层"))
         self.assertNotIn("专员做法层", base)
@@ -86,8 +86,8 @@ class RulesTest(Case):
     def test_the_rules_say_the_style_the_record_has(self):
         rules = project_lead.lead_rules({"report": "ask_only", "spawn": "积极"})
         self.assertIn("只在需要主人定的时候说", rules)
-        self.assertIn("同时最多 4 个线程", rules)
-        self.assertIn("同时最多 1 个线程", project_lead.lead_rules({"spawn": "保守"}))
+        self.assertIn("同时最多 4 个话题", rules)
+        self.assertIn("同时最多 1 个话题", project_lead.lead_rules({"spawn": "保守"}))
         self.assertIn("只报里程碑和完成", project_lead.lead_rules())
 
     def test_a_bad_style_reads_as_the_default_and_the_filter_follows_it(self):
@@ -109,7 +109,7 @@ class PackTest(Case):
             memory=[{"id": "m1", "kind": "pitfall", "text": "旧库时区是 UTC+0", "at": NOW}],
             decisions=[{"at": NOW, "text": "先迁 2024 年的账"}]))
         pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=True)
-        order = [pack.index(part) for part in ("[专项状态：迁移账单]", "目标和完成标准", "线程（2 个，1 个没结束）",
+        order = [pack.index(part) for part in ("[专项状态：迁移账单]", "目标和完成标准", "话题（2 个，1 个没结束）",
                                                "专项记忆", "风格：", "近 1 条决定", "自上次唤醒以来的收件箱")]
         self.assertEqual(order, sorted(order))
         self.assertIn("把账单迁到新库，对账一致", pack)
@@ -144,7 +144,7 @@ class PackTest(Case):
     def test_a_project_without_threads_or_a_goal_says_so(self):
         projects.update(self.state, PID, lambda r: r.update(goal=""))
         pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=True)
-        self.assertIn("线程（还没有）", pack)
+        self.assertIn("话题（还没有）", pack)
         self.assertIn("主人没有写目标", pack)
         self.assertEqual(project_lead.library_index(self.state, PID), [])  # P2-7's.
 
@@ -322,14 +322,14 @@ class TurnTest(Case):
         self.assertTrue(message.startswith("[负责人规则]"))
         self.assertLess(message.index("[专项状态：迁移账单]"), message.rindex("叫醒"))
         self.assertTrue(message.endswith("叫醒"))
-        self.assertNotIn("[主线程规则]", message)
+        self.assertNotIn("[管家规则]", message)
         self.assertNotIn("compact_instructions", ctx.options)  # No compaction: the session is rebuilt from the disk.
         self.assertIn("把账单迁到新库", message)
 
     def test_a_resumed_lead_gets_the_changing_parts_only(self):
         _, message = self.run_turn(session_id="sid")
         self.assertNotIn("把账单迁到新库", message)
-        self.assertIn("线程（还没有）", message)
+        self.assertIn("话题（还没有）", message)
 
     def test_a_lead_whose_record_is_gone_goes_on_unchanged_and_says_so(self):
         projects.record_path(self.state, PID).unlink()
@@ -346,7 +346,7 @@ class TurnTest(Case):
         self.assertNotIn(main_thread.LEAD_ENV, server["env"])
         self.assertNotIn("tools", ctx.options)
         self.assertIn("compact_instructions", ctx.options)
-        self.assertTrue(message.startswith("[主线程规则]"))
+        self.assertTrue(message.startswith("[管家规则]"))
 
     def test_a_lead_turn_of_a_stopped_main_thread_is_not_one(self):
         write_json(self.state / settings.FILE, {"mode": "topics"})
@@ -470,10 +470,10 @@ class ThreadToolsTest(ToolsCase):
         self.assertTrue(self.start("r1")["ok"])
         job = self.job("r1")
         self.assertEqual(job.user_text, "把旧库 2024 年账单导成 csv")  # The card shows the task, not 收件箱：T41 做完了.
-        self.assertIn("这是专项「迁移账单」的一个线程", job.prompt_text)
+        self.assertIn("这是专项「迁移账单」的一个话题", job.prompt_text)
         self.assertNotIn("主人原话", job.prompt_text)
         self.assertNotIn("收件箱", job.prompt_text)
-        self.assertNotIn("主线程", job.prompt_text)
+        self.assertNotIn("管家", job.prompt_text)
 
     def test_the_same_request_again_opens_nothing_new(self):
         first = self.start("r1")
@@ -501,14 +501,14 @@ class ThreadToolsTest(ToolsCase):
         write_job(self.state, "main-" + main_topics_token("r1"), status="running", phase="做事")
         second = self.start("r2", title="另一件")
         self.assertFalse(second["ok"])
-        self.assertIn("同时最多 1 个线程", second["text"])
+        self.assertIn("同时最多 1 个话题", second["text"])
         write_job(self.state, "main-" + main_topics_token("r1"), status="done", final_text="完成")
         self.assertTrue(self.start("r3", title="另一件")["ok"])
 
     def test_a_failed_start_says_so_and_records_nothing(self):
         answer = self.start("r1", workspace="nowhere")
         self.assertFalse(answer["ok"])
-        self.assertTrue(answer["text"].startswith("没有派出线程："))
+        self.assertTrue(answer["text"].startswith("没有开出话题："))
         self.assertEqual(self.reload()["threads"], [])
 
     def test_a_paused_or_finished_project_opens_no_thread(self):
@@ -538,7 +538,7 @@ class SendToolsTest(ToolsCase):
         nxt = self.job("s1")
         self.assertEqual((nxt.user_text, nxt.topic_id), ("再核对一遍金额", data["topic_id"]))
         self.assertIn("负责人把下一件事交给你", nxt.prompt_text)
-        self.assertNotIn("主线程转来你的", nxt.prompt_text)
+        self.assertNotIn("管家转来你的", nxt.prompt_text)
 
     def test_a_running_thread_takes_it_as_a_supplement(self):
         data, job = self.opened()
@@ -549,7 +549,7 @@ class SendToolsTest(ToolsCase):
         self.assertTrue(answer["data"].get("steered"), answer)
         sent = job.backend_control.steer.call_args.args[0]
         self.assertIn("专项「迁移账单」的负责人给", sent)
-        self.assertNotIn("主线程转来", sent)
+        self.assertNotIn("管家转来", sent)
 
     def test_only_the_projects_own_threads_may_be_written_to(self):
         self.opened()
@@ -557,7 +557,7 @@ class SendToolsTest(ToolsCase):
                     topic_number=77, origin={"title": "别的"}, root_id="om_other")
         answer = self.tool("project_thread_send", thread="T77", text="顺便看下这个")
         self.assertFalse(answer["ok"])
-        self.assertIn("不是这个专项的线程", answer["text"])
+        self.assertIn("不是这个专项的话题", answer["text"])
         self.assertFalse(self.tool("project_thread_send", thread="T9999", text="x")["ok"])
         self.assertFalse(self.tool("project_thread_send", thread=LEAD, text="x")["ok"])  # The lead itself is no thread.
 
@@ -694,7 +694,7 @@ class HandoffTest(unittest.TestCase):
         for kind in (main_handoff.START, main_handoff.NEXT, main_handoff.STEER):
             text = main_handoff.note(kind, label="T41", title="导出", owner=lead)
             self.assertIn("迁移账单", text)
-            self.assertNotIn("主线程", text)
+            self.assertNotIn("管家", text)
             self.assertNotIn("主人在私聊", text)
         self.assertEqual(main_handoff.thread_head(main_handoff.NEXT, lead), "负责人转来消息")
         self.assertEqual(main_handoff.thread_head(main_handoff.STEER, lead), "负责人转来补充")
@@ -704,8 +704,8 @@ class HandoffTest(unittest.TestCase):
 
     def test_the_main_threads_notes_are_as_they_were(self):
         owner = main_handoff.Asked()
-        self.assertIn("主线程", main_handoff.note(main_handoff.START, label="T41", title="导出", owner=owner))
-        self.assertEqual(main_handoff.thread_head(main_handoff.NEXT, owner), "主线程转来你的消息")
+        self.assertIn("管家", main_handoff.note(main_handoff.START, label="T41", title="导出", owner=owner))
+        self.assertEqual(main_handoff.thread_head(main_handoff.NEXT, owner), "管家转来你的消息")
 
 
 class OffTest(Case):

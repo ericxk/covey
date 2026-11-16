@@ -72,7 +72,7 @@ def proxy_topic(ctx) -> bool:
 # its cards goes to the main thread (app/main_thread.py app_for), a click on them gets RETIRED_TEXT
 # (app/task_controls.py retired_action), the main thread's tools say so (app/main_topics.py find_topic).
 RETIRED_DESK = "desk"
-RETIRED_TEXT = "这个前台话题已下线，不再接新消息；在主线程里直接说要做什么。"
+RETIRED_TEXT = "这个前台话题已下线，不再接新消息；在私聊里直接跟管家说要做什么。"
 
 
 def retired_topic(state_dir, topic_id) -> str:

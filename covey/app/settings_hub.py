@@ -28,7 +28,7 @@ A card sent before this record existed (gen 286) is held by its panel's own reco
 tab click moves that record here under the same token (``takeover``: its sequence, view and fields go on, the old
 record is MOVED) and then turns as above. A card whose record was MOVED by the scheme before finds nothing.
 
-The menu opens it on 私聊默认 (MAIN, the key of the one 主线程 tab before the pages: an older card's tab click there
+The menu opens it on 私聊默认 (MAIN, the key of the one 管家 tab before the pages: an older card's tab click there
 lands on it) unless COVEY_MAIN_THREAD=0 rules the main thread out, on 工作区 then; the two pages are tabs in the
 mode 纯话题 too (私聊默认's first row is the mode). The main thread's menu key (app/main_thread_panel.py MENU_KEY) and
 its tool settings_panel send it on 私聊默认; the bot menu's keys before 2026-11-09, 工作区

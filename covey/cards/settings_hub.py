@@ -14,7 +14,7 @@ from covey.cards.elements import callback_button, folded_panel, menu_item
 
 TAB = 'bridge_settings_tab'
 KINDS = frozenset({TAB})
-# MAIN (私聊默认) keeps the key of the one 主线程 tab before it (2026-11-08): an older card's 主线程 tab is its first page.
+# MAIN (私聊默认) keeps the key of the one 管家 tab before it (2026-11-08): an older card's 管家 tab is its first page.
 MAIN, TOPIC, WORKSPACE, REDACTION, PROXY, GROUPS = 'main', 'topic', 'workspace', 'redaction', 'proxy', 'groups'
 OTHER = 'other'  # The retired page 其他 (2026-11-08 to 11-09): an older card's tab and record name it.
 RETIRED = {OTHER: WORKSPACE}  # A retired tab -> the tab its click and its record land on.

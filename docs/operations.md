@@ -23,7 +23,7 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
 ## 服务组成
 
 ```text
-开机守护（扩展托管的 PID 1 里的线程，或 systemd 用户单元）
+开机守护（扩展托管的 PID 1 里的后台线程，或 systemd 用户单元）
 └─ Manager：bin/covey_service.py run，每个服务根一个
    └─ Bridge：bin/covey_bridge.py --harness unified，每个机器人一个
       ├─ 事件消费者（lark-cli event consume 子进程）
@@ -31,8 +31,8 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
       │   ├─ card.action.trigger            卡片点击
       │   ├─ application.bot.menu_v6        机器人菜单（可选订阅）
       │   └─ im.message.message_read_v1     已读（只在 COVEY_PINNED_TOPICS=1 时）
-      ├─ 工作线程：scheduler、cards、menu、maintenance、connections、availability、outbox、policy，
-      │   加上打开了的功能各自的线程（proxy、dashboard、overview、digest、main-tools、app-setup 等）
+      ├─ 后台线程：scheduler、cards、menu、maintenance、connections、availability、outbox、policy，
+      │   加上打开了的功能各自的后台线程（proxy、dashboard、overview、digest、main-tools、app-setup 等）
       └─ 任务进程：bin/covey_runner.py，每个任务一个，在自己的会话里运行
           └─ 后端进程（codex app-server、claude、pi、dsh，或扩展的隔离解释器）
 
@@ -44,7 +44,7 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
 | Manager | 开机守护。没有 Manager 时，`covey_service.py` 的 `launch`、`start`、`stop`、`restart` 也会用执行它的那份代码拉起一个 | Bridge 和任务进程继续运行，下一个 Manager 按进程号、启动时间和 boot ID 核对后接管 |
 | Bridge | Manager。意外退出（含退出码 0）按 5 秒到 5 分钟退避重启，稳定 5 分钟后清零失败计数；本地健康接口连续 120 秒无响应时替换 | 任务进程继续运行，新 Bridge 认领它们 |
 | 事件消费者 | Bridge。启动 60 秒内没有输出 `[event] ready` 就替换；退出后 5 秒重启，卡片回调消费者异常退出时 300 秒后重启 | 任务不受影响 |
-| 工作线程 | Bridge。异常退出 5 秒后重建，日志 `worker <名称> failed` | 任务不受影响 |
+| 后台线程 | Bridge。异常退出 5 秒后重建，日志 `worker <名称> failed` | 任务不受影响 |
 | 任务进程 | Bridge 在任务出队时启动 | 没到终态就退出时标为中断，不自动重跑，见[任务进程](#任务进程) |
 | 内存看门狗 | Manager 每 30 秒看一次，已启用而没在运行时拉起 | 见[内存看门狗](#内存看门狗) |
 
@@ -119,12 +119,12 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
 ├─ 主人的设置
 │  ├─ workspace-config.json        工作区列表和默认工作区
 │  ├─ groups/                      每个主人 @ 过机器人的群：是否外部群、是否对成员开放、免@
-│  ├─ principles.json              主人的原则（主线程的工具写）
+│  ├─ principles.json              主人的原则（管家的工具写）
 │  ├─ knowledge/                   知识条目（`COVEY_KNOWLEDGE=1` 才有）：`owner.jsonl`/`.md`、`workspaces/<工作区>.jsonl`/`.md`、`owner-brief.md`
-│  ├─ main-thread.json             私聊模式和主线程设置，子 Agent 的模型 `subagents`（`COVEY_MAIN_THREAD=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
+│  ├─ main-thread.json             私聊模式和管家设置，子 Agent 的模型 `subagents`（`COVEY_MAIN_THREAD=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
 │  └─ redaction/                   脱敏词表、看板口令、每轮替换数
 ├─ 可选功能
-│  ├─ main-thread/                 主线程的工具请求、开过的话题、回带记录
+│  ├─ main-thread/                 管家的工具请求、开过的话题、回带记录
 │  ├─ proxy/                       代答：settings.json、contacts/、style.md、batches/、send-as-user/、web/、shots/
 │  ├─ pinned-overview.json、pinned-topics.json、board-priority.json、status-cards/、topic-seen.json   手上的事和话题看板
 │  ├─ topic-links.json             卡上 T 号的话题链接
@@ -206,7 +206,7 @@ scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute
 ```
 
 - 打包改由 `scripts/assemble_release.py` 做：核心 `git archive` 到 release，每个扩展包（扩展库根目录下含清单模块的目录）`git archive` 到 `release/extensions/<包名>/`，去掉包里的 `standalone/`，包的 `bin/*.py` 入口（如扩展自己的运行时脚本）放进 `release/bin/` 盖掉核心里的转发脚本，写 `extensions/enabled`（按 `--ext-repo` 的顺序列出所有包名）和 `RELEASE_MANIFEST`（各检出的完整提交号），再重写 `AGENTS.md` 的模块表。形状和旧的单仓库 release 相同，服务清单、`runs/<任务键>/` 协议、回滚都不变。拼装按提交取，不看检出的工作区。
-- **预编译字节码**：服务的每个 Python 进程（Bridge、任务进程、主线程的 MCP 服务）都带 `-B` 并设了 `PYTHONDONTWRITEBYTECODE=1`，自己不写 `.pyc`，release 里没有 `__pycache__` 时每次启动都要把 Covey 源码从头编译一遍（`import covey.app.runner` 约多 0.4–0.5 秒）。`deploy_bridge.sh` 在 bootstrap 之前运行 `scripts/precompile_release.py`，用将要注册的那个 `python3`（`pre.command_diff` 已核对它和服务清单一致；`.pyc` 带解释器版本标签，版本不一致就白编）给 `covey/`、`extensions/` 和 `harness_bridge.py` 写 `.pyc`；release 目录已存在、跳过打包时同样会做。编译失败只在结果的 `precompile`（`ok: false`、`failed`）里报告，不让部署失败；已经编译过的文件会跳过，重复部署很快。`-B` 和环境变量保持不变，运行时只读不写。手工用 `assemble_release.py` 拼装时加 `--precompile [PYTHON]`（默认不编，文件清单不变）；手工 `git archive` 导出 release（第 2 步）后运行 `python3 -B -I scripts/precompile_release.py "$RELEASE"`（用服务的 python3）。`./install` 直接从检出目录运行服务，也会在步骤 5 先给检出预编译；`git pull` 后重跑 `./install` 刷新。
+- **预编译字节码**：服务的每个 Python 进程（Bridge、任务进程、管家的 MCP 服务）都带 `-B` 并设了 `PYTHONDONTWRITEBYTECODE=1`，自己不写 `.pyc`，release 里没有 `__pycache__` 时每次启动都要把 Covey 源码从头编译一遍（`import covey.app.runner` 约多 0.4–0.5 秒）。`deploy_bridge.sh` 在 bootstrap 之前运行 `scripts/precompile_release.py`，用将要注册的那个 `python3`（`pre.command_diff` 已核对它和服务清单一致；`.pyc` 带解释器版本标签，版本不一致就白编）给 `covey/`、`extensions/` 和 `harness_bridge.py` 写 `.pyc`；release 目录已存在、跳过打包时同样会做。编译失败只在结果的 `precompile`（`ok: false`、`failed`）里报告，不让部署失败；已经编译过的文件会跳过，重复部署很快。`-B` 和环境变量保持不变，运行时只读不写。手工用 `assemble_release.py` 拼装时加 `--precompile [PYTHON]`（默认不编，文件清单不变）；手工 `git archive` 导出 release（第 2 步）后运行 `python3 -B -I scripts/precompile_release.py "$RELEASE"`（用服务的 python3）。`./install` 直接从检出目录运行服务，也会在步骤 5 先给检出预编译；`git pull` 后重跑 `./install` 刷新。
 - release id 是 `<核心前 8 位>-<扩展前 8 位>[-<第二个扩展前 8 位>…]`，release 目录、`bridge started … release=<id>` 的匹配都用它；结果 JSON 的 `commit` 仍是核心完整提交号，另有 `ext_commits` 和 `release_id`。不给 `--ext-repo` 时一切照旧（release 目录名是核心提交号）。回滚只回一半：核心提交不变、`--ext-commit` 设成旧值，得到一个新 id 的 release。
 - 额外的预检（`--check-only` 同样做，输出里有两个或更多提交）：扩展检出是 git 仓库、提交存在（否则退出码 2）；扩展库的 `core.lock` 写的核心提交和 `--commit` 不一致时拦下（`pre.core_lock_mismatch`；试新核心时加 `--allow-core-mismatch` 放行）；服务清单和当前终端里不能有 `COVEY_EXTENSION_PATH`、`COVEY_EXTENSIONS`（`pre.extension_env`；它们会盖过 release 里的 `extensions/`，unset 后重新注册）。
 
@@ -307,7 +307,7 @@ systemctl --user restart lark-bridge-manager.service
 - 运行目录在任务结束 7 天后由空闲维护删除。单看 `runner.json` 判断不了进程是否还活着，要看 `exit.json` 或进程列表。
 - 任务结束后，任务进程还会等产物上传最多 30 分钟、卡片更新最多 60 秒再退出。
 - Bridge 一侧的日志：`task runner started job=#N pid=... dir=...`（交给任务进程）、`adopted task runner job=#N pid=...`（重启后认领仍存活的）、`task runner done job=#N`、`task runner ended job=#N status=... exit=...`（`exit=none` 表示没有 `exit.json`，进程被杀或崩溃）。
-- 主线程空闲时的压缩进程也是 `covey_runner.py`，命令行带 `--run-dir <state>/main-thread/compacting/<主线程话题> --compact-only`：不建任务、不出卡、不算 `restart_blockers`。Bridge 重启时停掉上一个 Bridge 留下的这种进程，请求放回去。
+- 管家空闲时的压缩进程也是 `covey_runner.py`，命令行带 `--run-dir <state>/main-thread/compacting/<管家话题> --compact-only`：不建任务、不出卡、不算 `restart_blockers`。Bridge 重启时停掉上一个 Bridge 留下的这种进程，请求放回去。
 
 操作：
 
@@ -320,9 +320,9 @@ systemctl --user restart lark-bridge-manager.service
 
 只在 `COVEY_DEVICES=1` 且配了设备时才有这些。现象是卡上写「失联」「已请求停止，gpu1 连上后生效」，或同一话题的新一轮因「上一轮可能还在运行，没能停掉」没有启动：
 
-1. 看 `<状态目录>/devices/<别名>/pending-reap.json`：有条目说明设备上的任务还没确认停掉。`tries` 在涨、`last_try` 在更新说明 `devices` 线程在试；`health.json` 的 `ok` 为 `false` 是设备连不上，先修 ssh（`ssh <host> true`，`known_hosts`、跳板、代理），连上后一分钟内自动收割。
+1. 看 `<状态目录>/devices/<别名>/pending-reap.json`：有条目说明设备上的任务还没确认停掉。`tries` 在涨、`last_try` 在更新说明 `devices` 后台线程在试；`health.json` 的 `ok` 为 `false` 是设备连不上，先修 ssh（`ssh <host> true`，`known_hosts`、跳板、代理），连上后一分钟内自动收割。
 2. `bridge.log` 里 `devices: <别名> reaped N pending` 是收割结果；`reap` 一直被拒（设备上进程组不是这个任务的，常见于设备重启后进程号被别的进程用了）时，登到设备上确认 `~/.covey/tasks/<hub-id>/<任务键>/state.json` 的进程组已经没有 Agent，再从 `pending-reap.json` 和 `tasks/<话题>.json` 里删掉对应条目（改文件前先停 Bridge 或确认没有任务在跑）。
-3. 设备磁盘上 `~/.covey/checkpoints/`（检查点镜像）或 `~/.covey/incoming/`（传到设备的附件）变大：线程每小时 `gc` 一次，7 天没变、也不属于运行中任务的才清；设备一直离线就不会清。
+3. 设备磁盘上 `~/.covey/checkpoints/`（检查点镜像）或 `~/.covey/incoming/`（传到设备的附件）变大：后台线程每小时 `gc` 一次，7 天没变、也不属于运行中任务的才清；设备一直离线就不会清。
 4. 设备失联后任务记录是 `interrupted`、`interrupted_by` 为 `device_lost`，不会自动重试；设备回来后点卡上的检查并继续即可（会先收割再 `--resume`）。耐心值怎么改见[多设备](configuration.md#多设备开发中默认关)的「离线、重启与恢复」。
 
 5. 回滚到旧 release：设备话题的 `topic.json` 里存的是 `gpu1:/路径`。不认设备的旧 release（或回滚时没带 `COVEY_DEVICES=1`）把它当一个不存在的相对路径，这一轮被拒绝（「本话题的工作目录不存在，后端没有启动」），不会在本机跑；带着开关的旧 release 按设备规则拒绝或照设备跑，取决于它有没有这一版的设备代码。回滚后设备上还在跑的 Agent 不受影响，也不会被停掉：升回来后同一话题的下一轮会先 `reap` 再 `--resume`。跨版本检查的 `device-rollback` 场景（[测试](testing.md#任务进程协议与跨版本检查)）每次发布前验证这一点。
@@ -393,7 +393,7 @@ python3 -B bin/covey_service_install.py --mode auto --uninstall   # 删掉单元
 
 ## 备份、归档与维护
 
-Bridge 的 maintenance 线程每小时检查一次（`core/maintenance.py`，计划里每类落盘数据一条规则 `RULES`）：
+Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`，计划里每类落盘数据一条规则 `RULES`）：
 
 - **备份**每天一次，有任务运行也做（备份只读、不持锁）。日志 `maintenance backup completed: bridge-<时间>.tar.gz; jobs are running, the cleanup waits until none is`。
 - **清理**在没有在管的任务（排队、运行中或已认领的任务进程都算）、并且距上次清理满一天时执行，完成时记 `idle maintenance backup/archive completed` 和一行 `maintenance removed ...` 计数。备份期间有任务开始时，其余清理顺延到第二天（`cleanup deferred`）。
@@ -408,7 +408,7 @@ Bridge 的 maintenance 线程每小时检查一次（`core/maintenance.py`，计
 | 执行过程 `traces/<任务键>.jsonl` | 任务已结束、30 天未更新、任务进程也不在的压缩为 `.jsonl.gz`，不删除；先写好并落盘 `.gz` 再删原文件 |
 | 任务记录 | 已结束的删掉没有代码再读的字段，其他字段和 `updated_at` 不变（`records_slimmed=`）；`jobs/`、`questions/`、`held-notes/` 的 `.journal` 超过 1 MiB 时删掉重来 |
 | `tmp/`、`artifact-upload/`、`inbound-messages/`、`proxy/shots/`、`main-thread/opened/`、`main-thread/relays/`、`main-thread/dispatch/`、`main-thread/tracks/` | 7 天内没有改动、也没有进程用着的整个删除 |
-| 多路并行里路的 Claude 会话文件 | 按 `main-thread/tracks/` 账本里的 `session_id`，那一轮结束满 3 天、文件 3 天没改没读的删（`remove_track_sessions`）；不在账本里的不动 |
+| 同时做几件事里这些事用过的 Claude 会话文件 | 按 `main-thread/tracks/` 账本里的 `session_id`，那一轮结束满 3 天、文件 3 天没改没读的删（`remove_track_sessions`）；不在账本里的不动 |
 | `runs/` 运行目录 | 任务进程已不在、最新文件早于 7 天的删除；任务记录和执行过程保留 |
 | 代答批次 `proxy/batches/` | 只删已结束且 30 天没改动的 |
 | 专项记录 `projects/`（`COVEY_PROJECTS`，开发中） | 只删状态是 `done` 或 `cancelled` 且 180 天没改动的，连同它的 `projects/<id>/` 目录（`remove_projects`）；`active`、`paused` 的不动 |
@@ -455,7 +455,7 @@ python3 -B bin/covey_maintenance.py --restore /absolute/bridge-NNN.tar.gz --dest
 - **会终止进程的两条默认关闭**：`kill_enabled` 为 false 时它们只抓现场和告警。`enable --kill on` 打开。
 - **阈值**：不设时按容器内存上限算，终止线 3.5%（至少 1 GiB），告警线 14% / 28% / 56%；读不到上限时用 8 GiB 和 32 / 64 / 128 GiB。`--search-kill-mib`、`--alert-levels-mib` 写死。
 - **rg 上限**（`rg_guard`，默认关闭，`enable --rg-guard on`）：把 Codex 自带的 `codex-path/rg` 换成 sh 包装，原程序移到同目录 `.real/rg`。包装设 4 GiB 地址空间上限和 1 字节 core 限制后 `exec` 原程序，失控的遍历几秒内自己退出（SIGABRT，退出码 134，`memory allocation of N bytes failed`）。`RG_GUARD_AS_MIB` 临时改上限（0 不限），`RG_GUARD_TIMEOUT` 加墙钟上限。Codex 重装会放回原程序，看门狗每 60 秒检查，文件稳定 120 秒后重新包装（每小时最多 3 次）。
-- **现场**：进程状态与内存分类、各线程的 state/wchan/当前系统调用、前 256 个 fd、cwd、脱敏后的命令行、祖先进程链、任务标记、容器 cgroup 计数和 PSI。环境变量只读 `COVEY_TASK_DIR` 这一项。发信号前重新核对 PID 和启动时间；PID 1、看门狗自己和它的监督进程从不处理。
+- **现场**：进程状态与内存分类、各后台线程的 state/wchan/当前系统调用、前 256 个 fd、cwd、脱敏后的命令行、祖先进程链、任务标记、容器 cgroup 计数和 PSI。环境变量只读 `COVEY_TASK_DIR` 这一项。发信号前重新核对 PID 和启动时间；PID 1、看门狗自己和它的监督进程从不处理。
 - **告警**：每条写进数据目录的 `alerts.jsonl` 和 `outbox/`。Bridge 每 5 秒取 `outbox/`：进程带本机器人某个任务的标记，发到那个任务的话题并注明任务号；没有标记的发到主人私聊（还不知道私聊时等着，超过一天丢弃）；别的机器人的任务留给它。每小时最多 6 条。
 
 ```bash
@@ -570,7 +570,7 @@ lark-cli --profile my-bot auth login --domain im,docs,drive,contact
    | 看板 | `digest_board` | 内置 `bitablekanban_outlined`；只在设了 `COVEY_DIGEST_TIMES` 时配 |
    | 设置 | `bridge_settings` | `docs/media/menu-icons/settings.png`（自动补齐用内置的 `setting_outlined`） |
 
-   “设置”是一张卡上几个标签：主线程（设了 `COVEY_MAIN_THREAD=0` 时没有；第一行是私聊模式，新部署默认 Personal Agent）、工作区、脱敏、代答、群聊，见[机器人菜单](usage.md#机器人菜单)。以前单独配的“工作区”（`manage_workspaces`）、“脱敏”（`redaction_dashboard`）照旧能点。不想合在一起的，照旧配两项单独的卡，事件 key 没变：
+   “设置”是一张卡上几个标签：管家（设了 `COVEY_MAIN_THREAD=0` 时没有；第一行是私聊模式，新部署默认管家）、工作区、脱敏、代答、群聊，见[机器人菜单](usage.md#机器人菜单)。以前单独配的“工作区”（`manage_workspaces`）、“脱敏”（`redaction_dashboard`）照旧能点。不想合在一起的，照旧配两项单独的卡，事件 key 没变：
 
    | 菜单 | 事件 key | 图标 |
    | --- | --- | --- |
@@ -695,7 +695,7 @@ grep 'ready event_key=' "$STATE_DIR/bridge.log" | tail -n 2
 | `card follow-ups not finished at stop:` | 停止时等了 6 秒仍有点击后续没做完；受影响的问题在下次启动时显示“送达未确认” |
 | `launch catalog unavailable` | 模型目录读取失败，见[启动卡里缺少某个 Harness 的模型](troubleshooting.md#启动卡里缺少某个-harness-的模型) |
 | `event bus TCP transport stalled` | 事件总线停滞后被替换，见[自动恢复](troubleshooting.md#自动恢复) |
-| `worker <名称> failed` / `maintenance deferred` | 工作线程异常并重建 / 维护出错推迟 |
+| `worker <名称> failed` / `maintenance deferred` | 后台线程异常并重建 / 维护出错推迟 |
 | `maintenance backup completed` / `idle maintenance … completed` | 每日备份 / 空闲时的清理 |
 | `env <名字> is deprecated` | 设了弃用的环境变量，见[服务清单里的环境变量](configuration.md#服务清单里的环境变量) |
 | `app setup check` / `app setup run` | 飞书应用检查和自动补齐，见[自动补齐飞书应用](#自动补齐飞书应用) |

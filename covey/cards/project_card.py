@@ -85,7 +85,7 @@ class Project:
     ask_text: str = ""
     ask_at: str = ""
     ask_url: str = ""
-    origin_note: str = ""  # How a project that grew from a quick job says so: "由快事升级（你说了长活）" (app/projects.py).
+    origin_note: str = ""  # How a project that grew from a quick job says so: "由管家转成专项" (app/projects.py).
 
 
 def clipped(text, limit) -> str:
@@ -116,7 +116,7 @@ def count_line(project) -> str:
     for thread in project.threads:
         kinds[thread.status] = kinds.get(thread.status, 0) + 1
     parts = " · ".join(f"{word} {kinds[word]}" for word in (RUNNING, WAITING, DONE) if kinds.get(word))
-    return f"线程 {len(project.threads)}" + (f"（{parts}）" if parts else "")
+    return f"话题 {len(project.threads)}" + (f"（{parts}）" if parts else "")
 
 
 def meta_line(project) -> str:

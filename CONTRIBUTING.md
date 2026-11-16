@@ -38,7 +38,7 @@ python3 scripts/privacy_check.py
 
 ## 扩展
 
-只有部分部署需要的功能做成扩展，放 `extensions/<包名>/`，不改核心：核心不按名字引用扩展，扩展通过 `manifest.py` 把数据并进核心的表。没配置时不起线程、不加入口、不改已有行为。规则见 [架构](docs/architecture.md#扩展)。需要扩展的测试用 `tests/support` 里的 `requires_extension`，扩展没启用时跳过。
+只有部分部署需要的功能做成扩展，放 `extensions/<包名>/`，不改核心：核心不按名字引用扩展，扩展通过 `manifest.py` 把数据并进核心的表。没配置时不起后台线程、不加入口、不改已有行为。规则见 [架构](docs/architecture.md#扩展)。需要扩展的测试用 `tests/support` 里的 `requires_extension`，扩展没启用时跳过。
 
 ## 约定
 

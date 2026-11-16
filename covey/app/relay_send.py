@@ -82,7 +82,7 @@ def linked(state_dir, chat_id, built, text, profile=None, cards=None):
 
 
 def dispatch_note(state_dir, target, outcome, state, message_id="", reason="") -> None:
-    """The 派发活卡片 of the work this relay concludes (app/dispatch_cards.py ``relayed``) is told the relay went out
+    """The 派发卡 of the work this relay concludes (app/dispatch_cards.py ``relayed``) is told the relay went out
     ("sent", ``message_id`` its conclusion) or was skipped, so it can shrink to a line; a relay that waits on the owner
     says nothing, and one that did not go out (uncertain, unsent) is not told: that card stays as it is. Only with
     COVEY_MAIN_DISPATCH_CARD=1."""
