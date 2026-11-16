@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from covey.app import project_lead
-from covey.app.triage_view import held_questions
+from covey.app.triage_view import held_questions, lead_held
 from covey.app.answers import AnswerIncomplete, answer_fields
 from covey.cards.question_cards import triage_element
 from covey.core import project_gates, project_memory, projects, triage
@@ -191,22 +191,57 @@ def show(env, record) -> bool:
 
 def sweep(env, now=None) -> None:
     """The Bridge's look at the held questions (app/project_loop.py ProjectLoop.tick): a receipt for each one the lead has not been
-    told of, and the owner's turn for each one that waited its 180 seconds, whose project stopped, or that was handed back."""
-    if not triage.enabled() or not getattr(env, "state_dir", None):
+    told of, and the owner's turn for each one that waited its 180 seconds, whose project stopped, or that was handed back. An
+    answer the lead sent to a task process is settled here too: ``answered_by_lead`` once the question record shows it landed,
+    the owner's turn when it did not within ANSWERING seconds. An answer on its way (ANSWERING seconds) leaves its question alone.
+    With the switch off nobody handles a held question: all of them are the owner's (``closed``; the Bridge's start does it once)."""
+    if not getattr(env, "state_dir", None):
         return
     state, now = Path(env.state_dir), time.time() if now is None else now
-    for path, record in held_questions(state):
+    closed = not triage.enabled()
+    for path, record in lead_held(state):
         try:
             found = triage.of(record)
-            project = projects.read_record(state, found.get("project") or "")
-            if project.get("state") != projects.ACTIVE:
+            answering = float(found.get("answering") or 0)
+            if record.get("status", "pending") != "pending":
+                if answering and triage.state(record) == triage.HELD:  # The lead's answer landed (or something else ended the question).
+                    update_question(path, lambda row: triage.moved(row, triage.ANSWERED, by="lead", at=now, answering=0)
+                                    if triage.state(row) == triage.HELD and row.get("status", "pending") != "pending" else None)
+                continue
+            if answering and now - answering < triage.ANSWERING:
+                continue  # The lead's answer is being sent: neither the pause, nor the time, nor the switch takes the question.
+            if closed:
+                escalate(env, record, "问题分流已关闭", by="switch")
+            elif answering:
+                escalate(env, record, "负责人的回答没有送到", by="error")
+            elif projects.read_record(state, found.get("project") or "").get("state") != projects.ACTIVE:
                 escalate(env, record, "专项现在没有在做", by="project")
             elif triage.expired(record, now):
                 escalate(env, record, "3 分钟没人处理", by="timeout")
             elif not found.get("receipt"):
-                receipt(state, project, record, now)
+                receipt(state, projects.read_record(state, found.get("project") or ""), record, now)
         except Exception as exc:  # noqa: BLE001 - the others are looked at all the same
             env.runtime.log(f"question triage sweep failed token={str(record.get('token'))[:8]}: {type(exc).__name__}")
+
+
+def settle_closed(env) -> None:
+    """The Bridge's start with the question triage off: the questions an earlier run held go to the owner, once (ProjectLoop runs
+    only with COVEY_PROJECTS=1, and the questions' directory is not a thing to scan every few seconds)."""
+    if not triage.enabled():
+        sweep(env)
+
+
+def owner_spoke(env, topic, chat) -> None:
+    """The owner wrote in ``topic``: the questions held there for the lead go to them now (their message is then the answer, or a
+    note, as with any question card of the topic). A question whose answer is on its way stays with the lead. A card that cannot be
+    sent leaves the question held and the topic's old refusal (app/interaction.py). Never raises. Nothing is sent from under a lock."""
+    try:
+        now = time.time()
+        for _, record in held_questions(Path(env.state_dir), {topic}):
+            if record.get("chat_id") == chat and not (triage.of(record).get("answering") and now - float(triage.of(record)["answering"]) < triage.ANSWERING):
+                escalate(env, record, "你在这个话题里说话了", by="owner")
+    except Exception as exc:  # noqa: BLE001 - the topic's own refusal says what to do
+        env.runtime.log(f"question triage hand-over failed: {type(exc).__name__}")
 
 
 def receipt(state_dir, project, record, now) -> None:
@@ -244,10 +279,15 @@ def answer(env, app, ctx, chat, project, answers, event_id) -> dict:
             raise ValueError(f"没有提交：{exc}") from exc
         raise ValueError(f"回答没有送出，问题已转给主人：{cut(str(exc), 80)}") from exc
     saved = read_object(path)
-    given = saved.get("answers") if isinstance(saved.get("answers"), dict) else {}
-    # Whatever the answer's own path made of its status by now (submitting, answered): the hold is the lead's, and ends here.
-    update_question(path, lambda row: triage.moved(row, triage.ANSWERED, by="lead", at=time.time(), answering=0)
-                    if triage.state(row) == triage.HELD else None)
+    if saved.get("status", "pending") == "pending":
+        # The task process that asked has the answer in its inbox and has not said it took it: the question stays the lead's
+        # (``answering``), and the sweep settles it, or hands it to the owner when it never landed.
+        given = {str(key): {"answers": [str(a) for a in (value if isinstance(value, list) else [value])]} for key, value in (answers or {}).items()}
+    else:
+        given = saved.get("answers") if isinstance(saved.get("answers"), dict) else {}
+        # What the answer's own path made of its status by now (submitting, answered): the hold is the lead's, and ends here.
+        update_question(path, lambda row: triage.moved(row, triage.ANSWERED, by="lead", at=time.time(), answering=0)
+                        if triage.state(row) == triage.HELD else None)
     label = topic_label(state, ctx.topic_id) or ctx.topic_id[:8]
     line = f"{label} · {summary(record, given)}"
     log_row(state, project["id"], "答了：" + line, token=record["token"], topic=ctx.topic_id, kind="answered")

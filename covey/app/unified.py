@@ -357,6 +357,11 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.log_startup(ctx)
             self.runtime.jobs.counter = max_job_id(ctx.state_dir)
             recover_question_delivery(ctx, [app.questions for app in self.apps.values()], self.runtime.log)
+            try:  # Questions an earlier run held for a project's lead, with the question triage off now: the owner's (app/triage.py).
+                from covey.app import triage as triage_flow
+                triage_flow.settle_closed(self.butler_env)
+            except Exception as exc:  # noqa: BLE001 - the start does not depend on it
+                self.runtime.log(f"held questions not settled at start: {type(exc).__name__}")
             self.notify_stale_jobs(ctx)
 
             for name, target in self.worker_targets():

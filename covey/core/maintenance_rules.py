@@ -525,13 +525,16 @@ class ProjectLibraries(Rule):
 
 
 class ProjectMemories(Rule):
-    """The entries of a project's memory (projects/<id>/memory.json, core/project_memory.py) written PROJECT_MEMORY_DAYS ago or
-    earlier, deleted ones too; the style line stays. The item is the file."""
+    """The entries of the memory (projects/<id>/memory.json, core/project_memory.py) of a project that has ended (done or
+    cancelled), written PROJECT_MEMORY_DAYS ago or earlier, deleted ones too; the style line stays. A project at work or paused keeps
+    its memory whatever its age. The item is the file."""
     keys = ("trim_project_memory",)
     days = PROJECT_MEMORY_DAYS
-    title = "删除专项记忆里 180 天前的条目（memory.json）"
+    title = "删除已结束专项的记忆里 180 天前的条目（memory.json）"
 
     def _old(self, run, pid):
+        if read_object(run.state / "projects" / f"{pid}.json").get("state") not in {DONE, CANCELLED}:
+            return False
         before = run.cutoff(self.days)
         return any(0 < row["at"] < before and row["kind"] != "style"
                    for row in project_memory.stored(run.state, pid))
@@ -542,7 +545,7 @@ class ProjectMemories(Rule):
     def apply(self, run, plan):
         for name in plan[self.keys[0]]:
             pid = Path(name).parent.name
-            if valid_id(pid) and Path(name) == project_memory.memory_path(run.state, pid):
+            if valid_id(pid) and Path(name) == project_memory.memory_path(run.state, pid) and self._old(run, pid):
                 project_memory.forget(run.state, pid, run.cutoff(self.days))
 
 

@@ -17,6 +17,13 @@ def held_questions(state_dir, topics=None) -> list:
     return sorted(rows, key=lambda row: row[1].get("created_at") or 0)
 
 
+def lead_held(state_dir) -> list:
+    """[(path, record)] of the questions whose triage is still ``held`` in any status (a lead's answer that left ``pending`` is one:
+    the sweep settles it), oldest first."""
+    rows = [(path, row) for path, row in directory_store(Path(state_dir) / "questions").query() if triage.state(row) == triage.HELD]
+    return sorted(rows, key=lambda row: row[1].get("created_at") or 0)
+
+
 def question_lines(record) -> list:
     """What the lead reads of a held question: each question's id, text and options."""
     lines = []

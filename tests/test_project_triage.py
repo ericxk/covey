@@ -224,10 +224,9 @@ class SweepTest(Held):
         self.assertEqual((job["status"], job["question_delivery_ok"]), ("failed", False))
         self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
 
-    def test_with_the_switch_off_the_sweep_does_nothing(self):
+    def test_with_the_switch_off_the_sweep_sends_no_receipt(self):
         with mock.patch.dict(os.environ, {triage.ENV: ""}):
-            flow.sweep(self.env, time.time() + 1000)
-        self.assertEqual(triage.state(self.saved()), triage.HELD)
+            flow.sweep(self.env, time.time())
         self.assertEqual(self.receipts(), [])
 
     def test_the_loop_runs_the_sweep_each_look(self):
@@ -722,6 +721,159 @@ class ToolListInterplayTest(unittest.TestCase):
         self.assertEqual(lead["project_remember"]["input_schema"]["properties"]["kind"]["enum"],
                          ["decision", "constraint", "contact", "fact"])
         self.assertIn("harness", lead["project_topic_start"]["input_schema"]["properties"])
+
+
+# Review fixes (s2/review): the owner speaking, the switch going off, an answer that never landed.
+
+class HeldSpeakTest(HeldFixture):
+    """The owner writes in a topic whose question the project's lead holds: the question is theirs first, then their message is handled."""
+
+    def setUp(self):
+        super().setUp()
+        self.deliver()
+        self.env = SimpleNamespace(state_dir=self.state, runtime=self.app.runtime,
+                                   topics=SimpleNamespace(target=lambda state, topic, chat: (self.app, self.ctx_topic, None)))
+        patch = mock.patch.object(flow, "ENV", self.env)
+        patch.start()
+        self.addCleanup(patch.stop)
+        caps = mock.patch("covey.core.harness.backend_capabilities", return_value=SimpleNamespace(questions=True, steering=True))
+        caps.start()
+        self.addCleanup(caps.stop)
+        self.app.questions.submit_answer = mock.Mock()
+        self.app.questions.hold_note = mock.Mock()
+        self.app.messenger.reply = mock.Mock(return_value=True)
+        self.app.questions.publish_question_card.reset_mock()
+
+    def speak(self, text="新版"):
+        return self.app.interaction.interactive_command(self.ctx_topic, text, "oc_chat", "m-owner")
+
+    def test_the_held_question_goes_to_the_owner_and_their_message_answers_it(self):
+        self.assertTrue(self.speak())
+        saved = json.loads(self.path.read_text())
+        self.assertEqual((triage.state(saved), saved["triage"]["by"], saved["triage"]["why"]), (triage.ESCALATED, "owner", "你在这个话题里说话了"))
+        self.assertTrue(self.app.questions.publish_question_card.called)
+        self.assertEqual(self.app.questions.submit_answer.call_args.args[3]["answer_0"], "新版")
+        self.app.messenger.reply.assert_not_called()
+
+    def test_several_questions_keep_the_message_as_a_note(self):
+        data = json.loads(self.path.read_text())
+        data["questions"].append({"id": "1", "header": "顺序", "question": "先做哪个？", "options": [{"label": "A"}, {"label": "B"}]})
+        self.path.write_text(json.dumps(data))
+        self.assertTrue(self.speak("另外看下日志"))
+        self.app.questions.hold_note.assert_called_once()
+        self.app.questions.submit_answer.assert_not_called()
+
+    def test_a_card_that_cannot_be_sent_leaves_the_old_refusal(self):
+        with mock.patch.object(flow, "show", return_value=False):
+            self.assertTrue(self.speak())
+        self.assertIn("尚未送达", self.app.messenger.reply.call_args.args[2])
+        self.app.questions.submit_answer.assert_not_called()
+
+    def test_an_answer_of_the_lead_on_its_way_is_not_taken_away(self):
+        data = json.loads(self.path.read_text())
+        data["triage"]["answering"] = time.time()
+        data["display_pending"] = False
+        self.path.write_text(json.dumps(data))
+        with mock.patch.object(flow, "show", return_value=True) as show:
+            flow.owner_spoke(self.env, self.job.topic_id, "oc_chat")
+        show.assert_not_called()
+        self.assertEqual(triage.state(json.loads(self.path.read_text())), triage.HELD)
+
+
+class ClosedTest(Held):
+    """The switch goes off with questions held: nobody would handle them, so they are the owner's."""
+
+    def setUp(self):
+        super().setUp()
+        self.shown = []
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append), topics=mock.Mock())
+        self.write()
+        self.route()
+        patch = mock.patch.object(flow, "show", side_effect=lambda env, record: self.shown.append(record["token"]) or True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_the_sweep_with_the_switch_off_hands_every_held_question_to_the_owner(self):
+        with mock.patch.dict(os.environ, {triage.ENV: ""}):
+            flow.sweep(self.env, time.time())
+        record = self.saved()
+        self.assertEqual((triage.state(record), record["triage"]["why"], record["display_pending"]), (triage.ESCALATED, "问题分流已关闭", True))
+        self.assertEqual(self.shown, [TOKEN])
+
+    def test_with_the_projects_switch_off_too(self):
+        with mock.patch.dict(os.environ, {projects.ENV: ""}):
+            flow.settle_closed(self.env)
+        self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
+
+    def test_the_start_settles_nothing_while_the_triage_is_on(self):
+        flow.settle_closed(self.env)
+        self.assertEqual(triage.state(self.saved()), triage.HELD)
+
+    def test_the_bridge_start_runs_the_check_after_the_question_recovery(self):
+        import inspect
+        from covey.app import unified
+        source = inspect.getsource(unified)
+        self.assertLess(source.index("recover_question_delivery(ctx,"), source.index("settle_closed(self.butler_env)"))
+
+    def test_an_answer_on_its_way_is_left_alone_when_the_switch_goes_off(self):
+        data = self.saved()
+        data["triage"]["answering"] = time.time()
+        write_json(self.path, data, ensure_ascii=False)
+        with mock.patch.dict(os.environ, {triage.ENV: ""}):
+            flow.sweep(self.env, time.time())
+        self.assertEqual(triage.state(self.saved()), triage.HELD)
+
+
+class ForwardedAnswerTest(Held):
+    """The lead's answer went to a task process that has not said it took it."""
+
+    def setUp(self):
+        super().setUp()
+        self.write()
+        self.route()
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append), topics=mock.Mock())
+        self.app = SimpleNamespace(questions=SimpleNamespace(submit_answer=lambda *args: None))  # Forwarded: the record stays pending.
+        patch = mock.patch.object(flow, "show", return_value=True)
+        self.show = patch.start()
+        self.addCleanup(patch.stop)
+        self.done = flow.answer(self.env, self.app, self.ctx, CHAT, self.reload(), {"0": "新版"}, "lead-r1")
+        self.sent = time.time()
+
+    def test_the_question_is_still_the_leads_and_the_answer_is_not_called_taken(self):
+        self.assertEqual(self.done["status"], "pending")
+        self.assertIn("新版", self.done["line"])
+        found = self.saved()
+        self.assertEqual((triage.state(found), bool(found["triage"]["answering"])), (triage.HELD, True))
+
+    def test_it_is_left_alone_while_the_answer_is_on_its_way_whatever_else_is_true(self):
+        projects.set_state(self.state, PID, projects.PAUSED, "stalled")
+        flow.sweep(self.env, self.sent + triage.ANSWERING - 5)
+        self.assertEqual(triage.state(self.saved()), triage.HELD)
+        self.show.assert_not_called()
+
+    def test_an_answer_that_never_landed_goes_to_the_owner_with_a_row_in_the_log(self):
+        flow.sweep(self.env, self.sent + triage.ANSWERING + 1)
+        record = self.saved()
+        self.assertEqual((triage.state(record), record["triage"]["why"]), (triage.ESCALATED, "负责人的回答没有送到"))
+        self.show.assert_called_once()
+        self.assertEqual(self.reload()["triage"][-1]["kind"], "escalated")
+
+    def test_an_answer_that_landed_makes_the_state_answered_by_the_lead(self):
+        write_json(self.path, {**self.saved(), "status": "submitting", "answers": {"0": {"answers": ["新版"]}}}, ensure_ascii=False)
+        flow.sweep(self.env, self.sent + 1)
+        self.assertEqual((triage.state(self.saved()), self.saved()["triage"]["by"]), (triage.ANSWERED, "lead"))
+        flow.sweep(self.env, self.sent + 10000)
+        self.show.assert_not_called()
+
+    def test_the_lead_is_told_the_answer_is_not_confirmed(self):
+        from covey.app import project_tools
+        with mock.patch.object(project_tools, "held_topic", return_value=(self.app, self.ctx, CHAT)), \
+                mock.patch.object(project_tools.triage_flow, "answer", return_value=self.done), \
+                mock.patch.object(project_tools, "lead", return_value=(PID, self.reload())), mock.patch.object(project_tools, "active"):
+            answer = project_tools.project_answer(self.env, SimpleNamespace(args={"answers": {"0": "新版"}}, id="r9"))
+        self.assertTrue(answer["ok"])
+        self.assertIn("还没确认", answer["text"])
+        self.assertNotIn("已替主人答了", answer["text"])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import threading
 import unittest
+from unittest import mock
 
 from support.records import state_dir
 
@@ -126,6 +127,61 @@ class LimitTest(Case):
         memory.set_style(self.state, PID, "汇报风格：x", now=NOW - 300 * DAY)
         self.assertEqual(memory.forget(self.state, PID, NOW - 180 * DAY), 1)
         self.assertEqual(sorted(row["text"] for row in self.stored()), ["不老", "汇报风格：x"])
+
+
+class ReviewLimitTest(Case):
+    """s2/review: what is pushed out of a full memory, and a file that cannot be read."""
+
+    def test_the_answers_notes_go_before_what_the_lead_noted(self):
+        memory.add(self.state, PID, "只能在周六发布", "constraint", "lead", now=NOW)  # The oldest, and the lead's.
+        for number in range(memory.MAX_ENTRIES):
+            memory.add(self.state, PID, f"主人答：{number}", "decision", "owner_answer", now=NOW + 1 + number)
+        texts = [row["text"] for row in memory.live(self.state, self.record())]
+        self.assertLessEqual(len(texts), memory.MAX_ENTRIES)
+        self.assertIn("只能在周六发布", texts)
+        self.assertNotIn("主人答：0", texts)
+
+    def test_with_no_answers_left_the_oldest_other_entry_goes_and_the_style_stays(self):
+        memory.set_style(self.state, PID, "汇报风格：简短", now=NOW - 1)
+        for number in range(memory.MAX_ENTRIES + 1):
+            memory.add(self.state, PID, f"事实 {number}", "fact", "lead", now=NOW + number)
+        texts = [row["text"] for row in memory.live(self.state, self.record())]
+        self.assertIn("汇报风格：简短", texts)
+        self.assertNotIn("事实 0", texts)
+
+    def test_a_tombstone_still_goes_first(self):
+        old, _ = memory.add(self.state, PID, "要删的", "fact", "lead", now=NOW)
+        memory.add(self.state, PID, "主人答：甲", "decision", "owner_answer", now=NOW + 1)
+        memory.delete(self.state, PID, old["id"], now=NOW + 2)
+        with mock.patch.object(memory, "MAX_ENTRIES", 1):
+            fitted = memory._fit(memory.entries(self.state, self.record()), NOW + 3)
+        self.assertEqual([row["text"] for row in fitted if not row["deleted"]], ["主人答：甲"])
+
+    def test_a_file_that_cannot_be_read_is_not_written_over(self):
+        memory.add(self.state, PID, "窗口在周六", "fact", "lead", now=NOW)
+        with mock.patch.object(memory, "read_json", side_effect=PermissionError("denied")):
+            self.assertEqual(memory.stored(self.state, PID), [])
+            with self.assertRaises(PermissionError):
+                memory.add(self.state, PID, "另一条", "fact", "lead", now=NOW + 1)
+        self.assertEqual([row["text"] for row in self.stored()], ["窗口在周六"])
+
+    def test_a_file_that_cannot_be_parsed_is_kept_aside_with_a_log_line(self):
+        memory.add(self.state, PID, "窗口在周六", "fact", "lead", now=NOW)
+        path = memory.memory_path(self.state, PID)
+        path.write_text('{"entries": [{"text"')
+        with mock.patch("sys.stderr") as err:
+            memory.add(self.state, PID, "另一条", "fact", "lead", now=NOW + 1)
+        kept = [p for p in path.parent.iterdir() if p.name.startswith("memory.json.bad-")]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0].read_text(), '{"entries": [{"text"')
+        self.assertEqual([row["text"] for row in self.stored()], ["另一条"])
+        self.assertTrue(err.write.called)
+
+    def test_a_missing_file_is_just_empty(self):
+        self.assertEqual(memory.stored(self.state, PID), [])
+        memory.add(self.state, PID, "第一条", "fact", "lead", now=NOW)
+        self.assertEqual(len(self.stored()), 1)
+        self.assertEqual([p.name for p in memory.memory_path(self.state, PID).parent.iterdir() if ".bad-" in p.name], [])
 
 
 class LegacyTest(Case):

@@ -352,12 +352,94 @@ class IndexTest(Case):
         self.assertNotIn("资料库", project_lead.state_pack(self.state, self.record(), "lead-1", full=True))
 
     def test_the_entries_are_capped_and_a_dropped_ones_copy_goes(self):
-        first, _ = library.add_file(self.state, PID, self.attachment("a.txt", b"a"), now=NOW - 10)
+        first, _ = library.add_file(self.state, PID, self.attachment("a.txt", b"a"), source="artifact", now=NOW - 10)
         with mock.patch.object(library, "MAX_ENTRIES", 3):
             for number in range(3):
                 library.add_ref(self.state, PID, "path", f"/p/{number}", now=NOW + number)
         self.assertEqual(len(library.entries(self.state, PID)), 3)
         self.assertEqual(list(library.library_dir(self.state, PID).iterdir()), [])
+
+
+class LibraryReviewTest(Case):
+    """s2/review: what a full library drops first, the copy that is judged, and an index that cannot be read."""
+
+    def test_a_full_index_drops_what_the_topics_made_before_the_owners_files(self):
+        mine, _ = library.add_file(self.state, PID, self.attachment("资料.md", b"mine"), now=NOW - 100)  # The oldest of all.
+        with mock.patch.object(library, "MAX_ENTRIES", 3):
+            for number in range(4):
+                library.add_ref(self.state, PID, "path", f"/p/{number}", source="artifact", now=NOW + number)
+        rows = library.entries(self.state, PID)
+        self.assertEqual(len(rows), 3)
+        self.assertIn(mine["id"], [row["id"] for row in rows])
+        self.assertTrue((library.library_dir(self.state, PID) / mine["ref"]).exists())
+        self.assertEqual(sorted(row["ref"] for row in rows if row["kind"] == "path"), ["/p/2", "/p/3"])
+
+    def test_with_only_the_owners_files_left_the_oldest_of_them_goes(self):
+        first, _ = library.add_file(self.state, PID, self.attachment("a.md", b"a"), now=NOW)
+        library.add_file(self.state, PID, self.attachment("b.md", b"b"), now=NOW + 1)
+        with mock.patch.object(library, "MAX_ENTRIES", 1):
+            library.add_file(self.state, PID, self.attachment("c.md", b"c"), now=NOW + 2)
+        self.assertEqual([row["name"] for row in library.entries(self.state, PID)], ["c.md"])
+        self.assertEqual(sorted(p.name for p in library.library_dir(self.state, PID).iterdir()), ["c.md"])
+
+    def test_trim_takes_the_topics_files_before_the_owners(self):
+        library.add_file(self.state, PID, self.attachment("资料.md", b"mine"), now=NOW - 100)
+        library.add_file(self.state, PID, self.attachment("out.csv", b"theirs"), source="artifact", now=NOW)
+        self.assertEqual(library.trim(self.state, PID, limit=4), 1)
+        self.assertEqual(sorted(p.name for p in library.library_dir(self.state, PID).iterdir()), ["资料.md"])
+
+    def test_the_copy_is_what_is_hashed_and_judged(self):
+        source = self.attachment("a.bin", b"abc")
+        row, new = library.add_file(self.state, PID, source, now=NOW)
+        copy = library.library_dir(self.state, PID) / row["ref"]
+        self.assertEqual(library.digest(copy), (row["sha256"], row["size"]))
+        self.assertEqual([p.name for p in library.library_dir(self.state, PID).iterdir()], ["a.bin"])  # No temporary file left.
+
+    def test_a_source_that_grows_while_it_is_copied_is_judged_by_what_was_copied(self):
+        source = self.attachment("g.bin", b"x" * 10)
+        with mock.patch.object(library, "FILE_LIMIT", 20):
+            reads = []
+            real_open = open
+
+            def growing(path, mode="r", *args, **kwargs):
+                handle = real_open(path, mode, *args, **kwargs)
+                if Path(path) == source and not reads:
+                    reads.append(1)
+                    source.write_bytes(b"y" * 50)  # Grew after the size was looked at.
+                    handle.close()
+                    handle = real_open(path, mode, *args, **kwargs)
+                return handle
+            with mock.patch("builtins.open", growing):
+                row, new = library.add_file(self.state, PID, source, now=NOW)
+        self.assertEqual((row["kind"], new), ("path", True))
+        self.assertEqual(list(library.library_dir(self.state, PID).iterdir()), [])
+
+    def test_the_project_total_is_judged_with_the_copy_inside_the_lock(self):
+        with mock.patch.object(library, "PROJECT_LIMIT", 10):
+            first, _ = library.add_file(self.state, PID, self.attachment("a.bin", b"a" * 6), now=NOW)
+            second, _ = library.add_file(self.state, PID, self.attachment("b.bin", b"b" * 6), now=NOW + 1)
+        self.assertEqual((first["kind"], second["kind"]), ("file", "path"))
+        self.assertEqual(sorted(p.name for p in library.library_dir(self.state, PID).iterdir()), ["a.bin"])
+
+    def test_an_index_that_cannot_be_read_is_not_written_over(self):
+        library.add_ref(self.state, PID, "path", "/p/1", source="artifact", now=NOW)
+        path = library.index_path(self.state, PID)
+        with mock.patch.object(library, "read_json", side_effect=PermissionError("denied")):
+            self.assertEqual(library.entries(self.state, PID), [])  # A reader sees nothing...
+            with self.assertRaises(PermissionError):
+                library.add_ref(self.state, PID, "path", "/p/2", source="artifact", now=NOW + 1)  # ...a writer does not go on.
+        self.assertEqual(len(library.entries(self.state, PID)), 1)
+        self.assertTrue(path.exists())
+
+    def test_an_index_that_cannot_be_parsed_is_kept_aside_and_a_new_one_started(self):
+        library.add_ref(self.state, PID, "path", "/p/1", source="artifact", now=NOW)
+        path = library.index_path(self.state, PID)
+        path.write_text('{"entries": [')
+        library.add_ref(self.state, PID, "path", "/p/2", source="artifact", now=NOW + 1)
+        kept = [p for p in path.parent.iterdir() if p.name.startswith("library.json.bad-")]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0].read_text(), '{"entries": [')
+        self.assertEqual([row["ref"] for row in library.entries(self.state, PID)], ["/p/2"])
 
 
 class CardTest(Case):
@@ -413,10 +495,23 @@ class MaintenanceTest(Case):
         memory.set_style(self.state, PID, "汇报风格：x", now=old)
         memory.add(self.state, PID, "新的", "fact", now=time.time())
         path = memory.memory_path(self.state, PID)
+        self.assertEqual(plan_maintenance(self.state, now=time.time())["trim_project_memory"], [])  # At work: kept, however old.
+        projects.set_state(self.state, PID, projects.DONE, "做完")
         self.assertEqual(plan_maintenance(self.state, now=time.time())["trim_project_memory"], [str(path)])
         maintain(self.state, apply=True, now=time.time(), backup=False)
         self.assertEqual(sorted(row["text"] for row in memory.stored(self.state, PID)), ["新的", "汇报风格：x"])
         self.assertEqual(plan_maintenance(self.state, now=time.time())["trim_project_memory"], [])
+
+    def test_a_project_at_work_or_paused_keeps_its_old_memory_a_cancelled_one_loses_it(self):
+        memory.add(self.state, PID, "很老的", "decision", now=time.time() - 400 * DAY)
+        for state in (projects.ACTIVE, projects.PAUSED):
+            projects.set_state(self.state, PID, state, "x")
+            self.assertEqual(plan_maintenance(self.state, now=time.time())["trim_project_memory"], [])
+            maintain(self.state, apply=True, now=time.time(), backup=False)
+            self.assertEqual(len(memory.stored(self.state, PID)), 1)
+        projects.set_state(self.state, PID, projects.CANCELLED, "不做了")
+        maintain(self.state, apply=True, now=time.time(), backup=False)
+        self.assertEqual(memory.stored(self.state, PID), [])
 
     def test_the_projects_folder_is_not_in_a_backup(self):
         self.put_files()

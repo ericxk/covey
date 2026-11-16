@@ -8,7 +8,7 @@ checkpoint's delivery in one line, ``ref`` the line). ``source`` is ``owner_file
 entry, with its hash, stays.
 
 Limits: one file up to ``FILE_LIMIT`` is copied (a larger one is only noted by its path), ``PROJECT_LIMIT`` bytes of files in
-all, ``MAX_ENTRIES`` entries (the oldest go with their files). ``index_lines`` is what the lead's pack and a topic's first
+all, ``MAX_ENTRIES`` entries (the oldest of the topics' go with their files first, the owner's files last). ``index_lines`` is what the lead's pack and a topic's first
 turn read: at most ``INDEX_BYTES`` bytes.
 
 Every write runs under the project record's lock (core/projects.py ``update``), the copy itself before it, so no lock is held for
@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
-import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -58,31 +58,57 @@ def _entry(row):
             "purged": purged if isinstance(purged, (int, float)) and not isinstance(purged, bool) and purged else 0}
 
 
+def _rows(state_dir, project_id, *, writing=False) -> list:
+    """The index's entries, the oldest first. A read that fails is [] (a reader shows nothing); with ``writing`` an index that cannot
+    be read raises its OSError (the write fails, the entries stay), and one that is there but cannot be parsed is moved aside
+    (``library.json.bad-<time>``, a line in the log) and read as empty."""
+    path = index_path(state_dir, project_id)
+    try:
+        data = read_json(path)
+        rows = data.get("entries") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("not a library index")
+    except FileNotFoundError:
+        return []
+    except ValueError:
+        if writing:
+            aside = path.with_name(f"{path.name}.bad-{time.strftime('%Y%m%d-%H%M%S')}")
+            os.replace(path, aside)
+            print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} project file unreadable, kept as {aside.name}", file=sys.stderr, flush=True)
+        return []
+    except OSError:
+        if writing:
+            raise
+        return []
+    found = [row for row in map(_entry, rows) if row and row["id"]]
+    return sorted(found, key=lambda row: row["at"])
+
+
 def entries(state_dir, project_id) -> list:
     """The index's entries, the oldest first; [] when there is none or it cannot be read."""
-    try:
-        data = read_json(index_path(state_dir, project_id))
-    except (OSError, ValueError):
-        return []
-    rows = data.get("entries") if isinstance(data, dict) else None
-    found = [row for row in map(_entry, rows) if row and row["id"]] if isinstance(rows, list) else []
-    return sorted(found, key=lambda row: row["at"])
+    return _rows(state_dir, project_id)
 
 
 def _write(state_dir, project_id, rows) -> None:
     write_json(index_path(state_dir, project_id), {"schema_version": SCHEMA, "entries": rows}, ensure_ascii=False, indent=1)
 
 
+def _first_out(rows) -> int:
+    """The index in ``rows`` of the entry to drop first: the oldest of the topics' (artifacts, deliveries); the owner's files
+    only when nothing else is left."""
+    return next((i for i, row in enumerate(rows) if row["source"] != "owner_file"), 0)
+
+
 def _edit(state_dir, project_id, edit):
     box = []
 
     def change(record):
-        rows = entries(state_dir, project_id)
+        rows = _rows(state_dir, project_id, writing=True)
         before = [dict(row) for row in rows]
         box.append(edit(rows))
         rows.sort(key=lambda row: row["at"])
         while len(rows) > MAX_ENTRIES:
-            _unlink(state_dir, project_id, rows.pop(0))
+            _unlink(state_dir, project_id, rows.pop(_first_out(rows)))
         if rows != before:
             _write(state_dir, project_id, rows)
     projects.update(state_dir, project_id, change)  # KeyError for a project with no record; the record itself is not written.
@@ -97,13 +123,13 @@ def _unlink(state_dir, project_id, row) -> None:
             pass
 
 
-def used_bytes(state_dir, project_id) -> int:
-    """The bytes of the files in library/ (one level)."""
+def used_bytes(state_dir, project_id, committed=False) -> int:
+    """The bytes of the files in library/ (one level); with ``committed`` the copies still being made (``.incoming-*``) left out."""
     total = 0
     try:
         with os.scandir(library_dir(state_dir, project_id)) as found:
             for item in found:
-                if item.is_file(follow_symlinks=False):
+                if item.is_file(follow_symlinks=False) and not (committed and item.name.startswith(".incoming-")):
                     total += item.stat(follow_symlinks=False).st_size
     except OSError:
         return total
@@ -141,31 +167,50 @@ def add_file(state_dir, project_id, source_path, *, name="", source="owner_file"
     src = Path(source_path)
     if not src.is_file() or src.is_symlink():
         raise ValueError("资料不是一个文件")
-    sha, size = digest(src)
     label = safe_name(name or src.name)
-    for row in entries(state_dir, project_id):
-        if row["sha256"] == sha and row["kind"] == "file" and not row["purged"]:
-            return row, False
-    if size > FILE_LIMIT or used_bytes(state_dir, project_id) + size > PROJECT_LIMIT:
-        return add_ref(state_dir, project_id, "path", str(src), name=label, source=source, topic_id=topic_id, now=now, sha256=sha, size=size)
     folder = library_dir(state_dir, project_id)
+    if src.stat().st_size > FILE_LIMIT:  # Not read: only where it is.
+        sha, size = digest(src)
+        return add_ref(state_dir, project_id, "path", str(src), name=label, source=source, topic_id=topic_id, now=now, sha256=sha, size=size)
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / label
-    if target.exists():
-        target = folder / f"{Path(label).stem[:60]}-{sha[:8]}{Path(label).suffix[:20]}"
-    partial = target.with_name(target.name + ".part")
-    shutil.copyfile(src, partial)
-    os.replace(partial, target)
-    wanted = _new("file", label, target.name, source, topic_id, now, sha256=sha, size=size)
-
-    def edit(rows):
-        rows.append(wanted)
-        return wanted, True
+    partial = folder / f".incoming-{secrets.token_hex(4)}"
+    # The copy is what is judged and hashed: the source may change while it is read.
+    sha, size = hashlib.sha256(), 0
     try:
+        with open(src, "rb") as reader, open(partial, "wb") as writer:
+            for block in iter(lambda: reader.read(1 << 20), b""):
+                size += len(block)
+                if size > FILE_LIMIT:
+                    break
+                sha.update(block)
+                writer.write(block)
+        sha = sha.hexdigest()
+        if size > FILE_LIMIT:
+            partial.unlink(missing_ok=True)
+            return add_ref(state_dir, project_id, "path", str(src), name=label, source=source, topic_id=topic_id, now=now)
+
+        def edit(rows):
+            same = next((row for row in rows if row["sha256"] == sha and row["kind"] == "file" and not row["purged"]), None)
+            if same is not None:
+                return same, False
+            if used_bytes(state_dir, project_id, committed=True) + size > PROJECT_LIMIT:  # Judged under the lock, on the copy's size.
+                wanted = _new("path", label, str(src), source, topic_id, now, sha256=sha, size=size)
+                same = next((row for row in rows if row["kind"] == "path" and row["ref"] == wanted["ref"]
+                             and row["topic_id"] == wanted["topic_id"]), None)
+                if same is not None:
+                    return same, False
+                rows.append(wanted)
+                return wanted, True
+            target = folder / label
+            if target.exists():
+                target = folder / f"{Path(label).stem[:60]}-{sha[:8]}{Path(label).suffix[:20]}"
+            os.replace(partial, target)
+            wanted = _new("file", label, target.name, source, topic_id, now, sha256=sha, size=size)
+            rows.append(wanted)
+            return wanted, True
         return _edit(state_dir, project_id, edit)
-    except KeyError:
-        target.unlink(missing_ok=True)
-        raise
+    finally:
+        partial.unlink(missing_ok=True)  # Still there: the copy was not kept (not new, over the limit, no project, an error).
 
 
 def add_ref(state_dir, project_id, kind, ref, *, name="", source="artifact", topic_id="", now=None, **more) -> tuple:
@@ -235,14 +280,14 @@ def row_label(row) -> str:
 
 
 def trim(state_dir, project_id, limit=None, now=None) -> int:
-    """The oldest files removed (their entries kept, ``purged``) until the library's files are at most ``limit`` bytes: how
+    """The oldest files removed, the topics' before the owner's (their entries kept, ``purged``) until the library's files are at most ``limit`` bytes: how
     many went. The maintenance rule behind PROJECT_LIMIT, for a library that grew by hand."""
     stamp = time.time() if now is None else now
     limit = PROJECT_LIMIT if limit is None else limit
 
     def edit(rows):
         count = 0
-        for row in rows:
+        for row in sorted(rows, key=lambda each: each["source"] == "owner_file"):  # The topics' files first, then the owner's (oldest first in each).
             if used_bytes(state_dir, project_id) <= limit:
                 break
             if row["kind"] == "file" and not row["purged"]:

@@ -5,7 +5,8 @@ tombstone and keeps the text (the lead's pack lists the last 30 days of them, so
 struck out); tombstones go after ``TOMB_DAYS``.
 
 Limits: a text of at most ``TEXT`` characters, ``MAX_ENTRIES`` live entries, ``MAX_BYTES`` for the file; past one the
-oldest tombstone goes first, then the oldest entry that is not a style line.
+oldest tombstone goes first, then the oldest entry the owner's answers made (``owner_answer``), then the oldest other entry
+that is not a style line. A file that cannot be read is not written over; one that cannot be parsed is kept as ``memory.json.bad-<time>``.
 
 Older releases kept the entries in the project record's ``memory`` field (what the card never showed). They are still read
 (``entries`` merges both); a write moves them into the file and leaves the field out of the record, and nothing writes the
@@ -17,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
+import sys
 import time
 from pathlib import Path
 
@@ -65,13 +68,41 @@ def _entry(row, index=0):
             "deleted": deleted if isinstance(deleted, (int, float)) and not isinstance(deleted, bool) and deleted else 0}
 
 
-def _file_rows(path) -> list:
+def _shaped(data):
+    rows = data.get("entries") if isinstance(data, dict) else data
+    return rows if isinstance(rows, list) else None
+
+
+def _file_rows(path, *, writing=False) -> list:
+    """The entries of the file at ``path``. A read that fails is [] (a reader shows nothing). With ``writing`` (the next step
+    writes the file whole) a file that cannot be read raises its OSError, so the write fails and the entries stay; a file that is
+    there but is not a memory is moved aside (``<name>.bad-<time>``, one line in the log) and read as empty."""
     try:
         data = read_json(path)
-    except (OSError, ValueError):
+        rows = _shaped(data)
+        if rows is None:
+            raise ValueError("not a memory file")
+    except FileNotFoundError:
         return []
-    rows = data.get("entries") if isinstance(data, dict) else data
-    return [item for item in (_entry(row, index) for index, row in enumerate(rows if isinstance(rows, list) else ())) if item]
+    except ValueError:
+        if writing:
+            _set_aside(path)
+        return []
+    except OSError:
+        if writing:
+            raise
+        return []
+    return [item for item in (_entry(row, index) for index, row in enumerate(rows)) if item]
+
+
+def _set_aside(path) -> None:
+    """A file that cannot be parsed, renamed so that what is in it is not written over."""
+    aside = path.with_name(f"{path.name}.bad-{time.strftime('%Y%m%d-%H%M%S')}")
+    try:
+        os.replace(path, aside)
+    except OSError as exc:
+        raise OSError(f"{path} 解析不了，也没能改名留底：{exc}") from exc
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} project file unreadable, kept as {aside.name}", file=sys.stderr, flush=True)
 
 
 def stored(state_dir, project_id) -> list:
@@ -115,14 +146,16 @@ def dumps(rows) -> str:
 
 
 def _fit(rows, now) -> list:
-    """``rows`` inside the limits: tombstones past ``TOMB_DAYS`` gone, then the oldest ones past ``MAX_TOMBSTONES``, then the
-    oldest tombstone and the oldest non-style entry until the count and the size fit."""
+    """``rows`` inside the limits: tombstones past ``TOMB_DAYS`` gone, then the oldest ones past ``MAX_TOMBSTONES``, then, until
+    the count and the size fit, the oldest tombstone, the oldest entry the owner's answers made (``owner_answer``: the Bridge
+    notes one for each answered question), the oldest other entry that is not a style line. What the lead noted goes last."""
     cutoff = now - TOMB_DAYS * 86400
     rows = [row for row in rows if not row["deleted"] or row["deleted"] >= cutoff]
     while sum(1 for row in rows if row["deleted"]) > MAX_TOMBSTONES:
         rows.remove(next(row for row in rows if row["deleted"]))
     while sum(1 for row in rows if not row["deleted"]) > MAX_ENTRIES or len(dumps(rows).encode()) > MAX_BYTES:
         victim = (next((row for row in rows if row["deleted"] and row["kind"] != "style"), None)
+                  or next((row for row in rows if row["source"] == "owner_answer" and row["kind"] != "style"), None)
                   or next((row for row in rows if row["kind"] != "style"), None))
         if victim is None:
             break
@@ -139,7 +172,7 @@ def _edit(state_dir, project_id, edit, also=None, now=None):
 
     def change(record):
         path = memory_path(state_dir, project_id)
-        before = _merge(_file_rows(path), [])
+        before = _merge(_file_rows(path, writing=True), [])
         rows = _merge([dict(row) for row in before], _legacy_rows(record))
         box.append(edit(rows))
         rows = _fit(rows, stamp)

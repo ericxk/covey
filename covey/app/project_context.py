@@ -58,7 +58,7 @@ def remember_answer(state_dir, topic_id, record, log=None) -> None:
     app/triage.py ``answer``) is not the owner's word and is not noted; the 分流记录 and the decision log hold it, and the
     owner's 不对 corrects it. A question the lead passed on (``escalated``) and the owner answered is noted as always."""
     try:
-        if not projects.memory_enabled() or record.get("response_kind") == "feedback" or triage.state(record) == triage.HELD:
+        if not projects.memory_enabled() or record.get("response_kind") == "feedback" or triage.state(record) in {triage.HELD, triage.ANSWERED}:
             return
         found = projects.topic_project(state_dir, topic_id)
         if found is None:

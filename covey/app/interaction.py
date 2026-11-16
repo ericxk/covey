@@ -5,7 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.core import timing
+from covey.app import triage as triage_flow
+from covey.core import timing, triage
 from covey.core.checkpoint import release_user_wait
 from covey.core.trace import CONTEXT_FIELDS, ToolTrace, finish_record_trace, task_trace
 from covey.core.turn_words import retry_hint
@@ -216,6 +217,11 @@ class Interaction:
         fold_older_questions(ctx, [self.questions], topic=(ctx.topic_id, chat))
         timing.mark("cmd_reconcile")
         rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
+        if triage_flow.ENV is not None and any(triage.held(row) for _, row in rows):
+            # The owner speaks in a topic whose question the project's lead holds: it is theirs now (the card goes out first, so
+            # their message is its answer or a note, not a refusal for a card that was never shown).
+            triage_flow.owner_spoke(triage_flow.ENV, ctx.topic_id, chat)
+            rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
         timing.mark("cmd_questions")
         undelivered = self.questions.undelivered_checkpoint_jobs(ctx, chat)
         timing.mark("cmd_undelivered")
