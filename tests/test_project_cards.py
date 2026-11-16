@@ -408,11 +408,22 @@ class SettleTest(CardCase):
         self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
         self.assertIn("position=9", text(self.put.call_args.args[2]))
 
-    def test_done_by_a_turn_that_ended_without_an_answer_it_shrinks_at_once_without_the_link(self):
+    def test_done_by_a_turn_that_ended_without_an_answer_it_shrinks_soon_without_the_link(self):
         self.finished_by("done")  # A quiet wake-up turn: its reply was not sent.
         self.tick(1010.0)
+        self.assertFalse(self.put.called)  # Its answer id may still be on its way.
+        self.tick(1010.0 + project_cards.ANSWER_WAIT + 1)
         self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
         self.assertNotIn("default_url", text(self.put.call_args.args[2]))
+
+    def test_an_answer_id_written_a_moment_after_the_turn_ended_still_gives_the_link(self):
+        # accept8 (2026-11-16): the line came out 1-3 s after the turn ended, before its answer_message_id was written.
+        self.finished_by("done")
+        self.tick(1010.0)
+        upsert_job_record(self.state, "k-fin", answer_message_id="om_answer")
+        self.tick(1015.0)
+        self.assertEqual(ids(self.put.call_args.args[2]), ["pj_line"])
+        self.assertIn("position=9", text(self.put.call_args.args[2]))
 
     def test_done_by_a_turn_still_running_it_waits_for_that_turn(self):
         self.finished_by("running")

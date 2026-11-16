@@ -750,9 +750,13 @@ class McpTest(UpCase):
 class AcceptanceFindingsTest(DispatchCase):
     """What the first real acceptance of the projects (accept7, 2026-11-16) found, as small checks."""
 
-    def test_the_owner_saying_zhuanxiang_counts_as_a_long_job(self):
-        self.assertTrue(records.LONG_WORDS.search("开个专项：行数清单"))
+    def test_opening_a_project_is_the_butlers_flag_and_a_no_is_no_long_job(self):
+        # 开个专项 is topic_start's project flag (the butler set it itself in accept8); 专项 as a long word upgraded
+        # "开个普通话题（不要专项）" there, so it is not one, and a no right before a long word stops it too.
         self.assertIn("开个专项", main_tool_specs.START_PROJECT["description"])
+        self.assertTrue(records.LONG_WORDS.search("这是个长活，接着做"))
+        for said in ("这不是长活", "不要长期跟进", "别接着做了", "开个普通话题（不要专项，project 别带）"):
+            self.assertIsNone(records.LONG_WORDS.search(said), said)
 
     def test_a_lead_turn_the_owner_did_not_start_has_no_ask_block_and_quotes_no_message(self):
         from covey.app.answer_cards import asked

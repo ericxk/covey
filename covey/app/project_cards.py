@@ -54,6 +54,7 @@ LINK_RETRY = 30.0  # Seconds before a link that could not be read is tried again
 FLIP_AFTER = 12 * 86400  # A card this old is sent again: CardKit stops taking writes at 14 days.
 MOVE_TRIES = 3  # Writes of "已移到新卡" tried on the old card before it is recalled.
 CONCLUSION_GRACE = 600.0  # A project done this long without a conclusion message is shrunk without its link.
+ANSWER_WAIT = 30.0  # How long after its finishing turn ended the card waits for that turn's answer id (written a moment later).
 THREAD_CAP = 40  # Threads read for one card (the card draws MAX_THREADS).
 LIST_CAP = 50  # Rows read of the memory and the library.
 NO_LEAD_JOB = "负责人现在没有在做的一轮。要对它说话，引用这张专项卡直接回复就行。"
@@ -411,6 +412,11 @@ class ProjectCards:
             ended = False
             if not conclusion:
                 conclusion, ended = finishing_answer(ctx.state_dir, record)
+                if ended and not conclusion:
+                    # The turn's answer id is written a moment after its status (accept8: the line came out without the
+                    # link it then had); one that never comes (a quiet wake-up turn) is given up after ANSWER_WAIT.
+                    seen["answer_wait"] = seen.get("answer_wait") or now
+                    ended = now - seen["answer_wait"] >= ANSWER_WAIT
             if not conclusion and not ended and now - seen["done_seen"] < CONCLUSION_GRACE:
                 return
             if conclusion:
