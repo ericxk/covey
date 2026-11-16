@@ -1044,7 +1044,8 @@ class CardActionTableTest(unittest.TestCase):
         # bridge_question_skip: the Bridge hands the answer on to a runner that waits for it (forward_answer).
         # bridge_fork, bridge_compact: retired buttons on older cards, answered here (app/task_controls.py retired_action).
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
-                                    "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export"})
+                                    "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export",
+                                    "bridge_project_ask_continue", "bridge_project_ask_finish"})  # The pause card's two that wake the lead.
         self.assertFalse(runner_ipc.forward_card_action(Runtime(script_path="unit"), None, {},
                                                      {"kind": "bridge_fork"}))
 

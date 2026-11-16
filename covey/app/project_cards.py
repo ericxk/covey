@@ -12,11 +12,14 @@ own (cards/project_card.py), kept up to date and shrunk to one line when the pro
 - 14 days (CardKit stops taking writes to a card then): from ``FLIP_AFTER`` (12 days) of its age the card is sent again as a
   new message; the board's pin (app/pins.py ``aimed`` reads the record) follows, the new message routes to the lead, the old
   card becomes "已移到新卡 ›" and, when that cannot be written ``MOVE_TRIES`` times, is recalled.
+- With COVEY_PROJECT_ASK=1 it also sends and settles the pause card (``ask``): a project a guard paused (``pause_ask`` in its
+  record, app/project_loop.py) gets a card of its own where the project's card is, with 继续 / 收尾 / 停; once the owner chose
+  (``ask_choice`` records it) or the project moved on some other way, that card is written once more as one line.
 - The click helpers at the end are what the card's buttons run (app/card_actions.py: ``controls.project_stop`` etc.): they
   check the click belongs to the project's lead topic, the topic the card's message routes to.
 
 The record fields this reads and nobody here writes (later packages fill them; an empty one is not drawn): ``direction``
-(P2-8), ``lead_note`` ({text, at} or a string; P2-2), ``tokens_used`` (an int; P2-2), ``conclusion_message_id`` (the
+(a text, or {name, source} with COVEY_DIRECTIONS=1: core/directions.py), ``lead_note`` ({text, at} or a string; P2-2), ``tokens_used`` (an int; P2-2), ``conclusion_message_id`` (the
 lead's report on the project's end; P2-2), ``triage`` (a list of lines or {at, text} rows; P2-4's 分流 package),
 ``projects/<id>/memory.json`` (a list, or {"entries": [...]}, of strings or {id, text}) and ``projects/<id>/library/``
 (its files' names)."""
@@ -31,11 +34,12 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.cards.project_card import (DONE, PAUSED, RUNNING, WAITING, Project, Member, moved_card, project_card,
-                                      settled_card)
+from covey.cards.project_card import (ASK_KINDS, DONE, PAUSED, RUNNING, WAITING, Project, Member, ask_card, asked_card,
+                                      moved_card, project_card, settled_card)
+from covey.app import project_loop
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
-from covey.core import projects
+from covey.core import directions, projects
 from covey.core.card_sequence import CardHandle, reserve
 from covey.core.jobs import job_path, read_job_record, topic_job_records
 from covey.core.statuses import ENDED
@@ -122,6 +126,13 @@ def lead_state(state_dir, record, now) -> str:
     if status in (dc.RUNNING, dc.WAITING):
         return ("等你 · " if status == dc.WAITING else "") + words(body, 80)
     return "待命"
+
+
+def direction_of(state_dir, record) -> str:
+    """The direction the project's cards draw: a text an older record holds as it is; {name, source} (COVEY_DIRECTIONS=1) only once
+    its name is active (core/directions.py ``shown``)."""
+    value = record.get("direction")
+    return value if isinstance(value, str) else directions.shown(state_dir, value)
 
 
 def lead_note(record) -> str:
@@ -213,7 +224,7 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
         parts.append(answer_card.figure("token", tokens))
     ask = record.get("ask") if isinstance(record.get("ask"), dict) else {}
     return Project(project_id=pid, lead_topic=lead, name=str(record.get("name") or ""), status=status,
-                   direction=str(record.get("direction") or "") if isinstance(record.get("direction"), str) else "",
+                   direction=direction_of(state_dir, record),
                    need=need, need_url=str(links.get("need") or ""), members=members, elapsed=elapsed, tokens=tokens,
                    lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
                    triage=triage_lines(record), memory=memory_rows(state_dir, pid), library=library_rows(state_dir, pid),
@@ -307,6 +318,31 @@ def finishing_answer(state_dir, record) -> tuple[str, bool]:
     return "", True
 
 
+def update_ask(state_dir, project_id, **fields) -> dict:
+    """``update`` of the card in the record's ``pause_ask`` alone (``card_id``, ``message_id``, ``sequence``, ``closed``): the
+    fields merged into it, one given as None removed; nothing when the record has no ``pause_ask``."""
+    def change(record):
+        ask = record.get("pause_ask")
+        if not isinstance(ask, dict):
+            return
+        card = ask.get("card") if isinstance(ask.get("card"), dict) else {}
+        card = {**{"card_id": "", "message_id": "", "sequence": 0}, **card}
+        for key, value in fields.items():
+            if value is None:
+                card.pop(key, None)
+            else:
+                card[key] = value
+        ask["card"] = card
+    return projects.update(state_dir, project_id, change)
+
+
+def ask_note(ask) -> str:
+    """What the pause card says of the topics that were at work: a ``tokens`` pause asked them to stop, a ``wakes`` one left them."""
+    if ask.get("reason") == "tokens":
+        return f"在做的 {int(ask['halted'])} 个话题已请它们停下。" if type(ask.get("halted")) is int and ask["halted"] > 0 else ""
+    return "在做的话题不受影响，还在继续做。" if ask.get("reason") == "wakes" else ""
+
+
 class ProjectCards:
     """The Bridge's feature object (app/unified.py PARTS ``project_cards``): the refresh thread, off unless COVEY_PROJECTS=1,
     and nothing else (no menu item, no click it claims: the buttons route as the lead topic's)."""
@@ -329,6 +365,11 @@ class ProjectCards:
             return
         now = time.time() if now is None else now
         for record in projects.records(ctx.state_dir):
+            if isinstance(record.get("pause_ask"), dict):
+                try:
+                    self.ask(ctx, record, now)
+                except Exception as exc:  # noqa: BLE001 - the project's own card still refreshes
+                    self.runtime.log(f"project pause card failed project={str(record.get('id'))[:8]}: {type(exc).__name__}")
             card = record.get("card") if isinstance(record.get("card"), dict) else {}
             if not card.get("card_id") or not card.get("message_id"):
                 continue  # Still being sent (created), or no card yet.
@@ -361,6 +402,52 @@ class ProjectCards:
         if self.write(ctx, record, card, seen, built, now):
             projects.update_card(ctx.state_dir, pid, digest=digest, wrote_at=now)
             seen["digest"] = digest
+
+    def ask(self, ctx, record, now) -> None:
+        """The pause card of a project a guard paused (COVEY_PROJECT_ASK=1): sent while the pause stands and the owner has not
+        chosen, written as one line once he has or the project moved on; each at most once, a failed write backs off."""
+        ask = record["pause_ask"]
+        card = ask.get("card") if isinstance(ask.get("card"), dict) else {}
+        pid = str(record["id"])
+        seen = self.sched.setdefault(pid + "/ask", {"next": 0.0, "failures": 0})
+        if card.get("closed") or now < seen["next"]:
+            return
+        standing = (record.get("state") == projects.PAUSED and record.get("state_reason") == ask.get("reason")
+                    and not ask.get("choice"))
+        if not card.get("message_id"):
+            return self.send_ask(ctx, record, ask, card, seen, now) if standing else update_ask(ctx.state_dir, pid, closed=True)
+        if not standing:
+            self.close_ask(ctx, record, ask, card, seen, now)
+
+    def send_ask(self, ctx, record, ask, card, seen, now) -> None:
+        pid, state = str(record["id"]), ctx.state_dir
+        built = ask_card(record.get("name"), str(ask.get("why") or ""), project_id=pid,
+                         lead_topic=str(record.get("lead_topic_id") or ""), note=ask_note(ask))
+        key = self.voice.key("project-ask", f"{pid}-{int(float(ask.get('at') or 0) * 1000)}")
+        card_id, message = self.messenger.create_and_send_card(
+            ctx.profile, str(record.get("chat_id") or ""), built, key, voice=self.voice, card_id=card.get("pending_card_id") or "",
+            on_created=lambda cid: update_ask(state, pid, pending_card_id=cid))
+        if not message:
+            seen["failures"] += 1
+            seen["next"] = now + min(BACKOFF, 2.0 ** seen["failures"])
+            self.runtime.log(f"project pause card not sent project={pid[:8]}")
+            return
+        update_ask(state, pid, card_id=card_id, message_id=message, sequence=0, pending_card_id=None)
+        _route(Path(state), record, message)
+        self.runtime.log(f"project pause card sent project={pid[:8]} reason={ask.get('reason')} message={message[-8:]}")
+
+    def close_ask(self, ctx, record, ask, card, seen, now) -> None:
+        pid = str(record["id"])
+        built = asked_card(record.get("name"), str(ask.get("why") or ""), str(ask.get("choice") or ""))
+
+        def save(sequence):
+            update_ask(ctx.state_dir, pid, sequence=sequence)
+        if self.put(ctx, pid, card["card_id"], card.get("sequence"), save, built, "a"):
+            update_ask(ctx.state_dir, pid, closed=True)
+            return
+        seen["failures"] += 1
+        seen["next"] = now + min(BACKOFF, 2.0 ** seen["failures"])
+        self.runtime.log(f"project pause card not settled project={pid[:8]} failures={seen['failures']}")
 
     def links(self, ctx, record, seen, now) -> dict:
         """The links the card names: the open question card and each thread's thread, each read from Feishu once (app/topic_links.py
@@ -432,7 +519,7 @@ class ProjectCards:
                 return
             if conclusion:
                 url = self.message_url(ctx, record, conclusion)
-        built = settled_card(record.get("name"), url=url, reason=reason, direction=str(record.get("direction") or ""))
+        built = settled_card(record.get("name"), url=url, reason=reason, direction=direction_of(ctx.state_dir, record))
         if self.write(ctx, record, card, seen, built, now):
             projects.update_card(ctx.state_dir, pid, closed=True, settled_at=now, digest=digest_of(built))
 
@@ -477,7 +564,7 @@ class ProjectCards:
             return
         pid, old = str(record["id"]), dict(card["old"])
         url = self.message_url(ctx, record, str(card.get("message_id") or ""))
-        built = moved_card(record.get("name"), url, direction=str(record.get("direction") or ""))
+        built = moved_card(record.get("name"), url, direction=direction_of(ctx.state_dir, record))
 
         def save(sequence):
             projects.update_card(ctx.state_dir, pid, old={**old, "sequence": sequence})
@@ -583,6 +670,17 @@ def stop_task(host, ctx, topic, chat, job, event_id) -> None:
     host.cancel_reply_job_from_card(target, action, chat, event_id)
 
 
+def stop_tasks(host, ctx, topics, chat, event_id) -> int:
+    """Stop the tasks of ``topics`` that are queued or running (``stop_task``, the event id of each is ``event_id`` and its
+    job number); how many."""
+    stopped = 0
+    for topic in topics:
+        for job in host.runtime.jobs.open_in_topic(topic, chat):
+            stop_task(host, ctx, topic, chat, job, f"{event_id}-{job.job_id}")
+            stopped += 1
+    return stopped
+
+
 def stop_lead(host, ctx, lead, chat, pid) -> int:
     """Stop the lead's tasks that are queued or running (as a stop on a task's own card does, ``stop_task``); how many."""
     stopped = 0
@@ -635,12 +733,36 @@ def stop_project(host, ctx, event) -> bool:
         projects.set_state(ctx.state_dir, record["id"], projects.PAUSED, "主人停止")
     except ValueError:  # Another click or the lead moved it first.
         return idle()
-    chat, stopped = str(event.get("chat_id") or ""), 0
-    for topic in [record["lead_topic_id"], *(record.get("threads") or ())]:
-        for job in host.runtime.jobs.open_in_topic(topic, chat):
-            stop_task(host, ctx, topic, chat, job, f"{event.get('event_id') or event.get('message_id')}-{job.job_id}")
-            stopped += 1
+    stopped = stop_tasks(host, ctx, [record["lead_topic_id"], *(record.get("threads") or ())], str(event.get("chat_id") or ""),
+                         str(event.get("event_id") or event.get("message_id")))
     return say(host, ctx, event, f"已停住专项「{name}」，已请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）。要继续，引用这张卡回复。", "project-stop")
+
+
+ASK_REFUSED = {"none": "专项「{name}」现在没有要定的停住。", "answered": "专项「{name}」停住后的选择已经做过了。",
+               "stale": "这是专项「{name}」之前一次停住的卡，已经过期了。",
+               "moved": "专项「{name}」已经不是因为这个停住了，没有要定的。"}
+
+
+def ask_choice(host, ctx, event) -> bool:
+    """继续, 收尾 or 停 on the pause card (COVEY_PROJECT_ASK=1): the choice is kept in the record under its lock first
+    (``project_loop.answer_pause``; ``ProjectCards`` then writes the card as one line and the project card follows the state).
+    继续 and 收尾 leave the lead a receipt that wakes it; 停 stops the tasks of the lead and the member topics as 停止专项 does."""
+    raw, record = click(ctx, event)
+    choice = next((name for name, kind in ASK_KINDS.items() if kind == raw.get("kind")), "")
+    if not choice:
+        raise ValueError("不认识的按钮")
+    pid, name = str(record["id"]), words(record.get("name"), 30) or "专项"
+    outcome = project_loop.answer_pause(ctx.state_dir, pid, choice, str(event.get("message_id") or ""))
+    if outcome != "ok":
+        return say(host, ctx, event, ASK_REFUSED[outcome].format(name=name), "project-ask-" + outcome)
+    ask = (projects.read_record(ctx.state_dir, pid) or {}).get("pause_ask") or {}
+    if choice != "stop":
+        project_loop.pause_receipt(ctx.state_dir, pid, choice, ask)
+        return True
+    stopped = stop_tasks(host, ctx, [record["lead_topic_id"], *(record.get("threads") or ())], str(event.get("chat_id") or ""),
+                         str(event.get("event_id") or event.get("message_id")))
+    return say(host, ctx, event, f"已停住专项「{name}」，已请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）。要继续，引用这张卡回复。",
+               "project-ask-stop")
 
 
 def downgrade_project(host, ctx, event) -> bool:

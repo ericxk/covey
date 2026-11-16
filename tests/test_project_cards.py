@@ -552,6 +552,171 @@ class ButtonTest(CardCase):
         self.assertTrue((folder / "outside.txt").exists())
 
 
+class AskCardTest(CardCase):
+    """COVEY_PROJECT_ASK=1: the card a guard's pause sends the owner, what a click on it does, and the line it becomes."""
+
+    def setUp(self):
+        super().setUp()
+        self.claude = self.app.apps["claude"]
+        self.lead_ctx = dataclasses.replace(self.ctx, topic_id=LEAD)
+        self.claude.messenger.reply = mock.Mock(return_value=True)
+        patcher = mock.patch.dict(os.environ, {projects.ASK_ENV: "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def pause(self, reason="tokens", why="token 用到上限 1000 万", **fields):
+        def change(record):
+            record.update(state=projects.PAUSED, state_reason=reason, **fields)
+            record["pause_ask"] = {"reason": reason, "why": why, "at": 1005.0, "choice": "", "halted": 0, "card": {}}
+        projects.update(self.state, PID, change)
+
+    def event(self, choice, **fields):
+        return {"operator_id": "ou_owner", "chat_id": CHAT, "message_id": "om_card1", "event_id": "ev1",
+                "action_value": {"kind": view.ASK_KINDS[choice], "project_id": PID, "topic_id": LEAD}, **fields}
+
+    def said(self):
+        return self.claude.messenger.reply.call_args.args[2]
+
+    def test_the_card_says_why_in_a_sentence_and_has_the_three_buttons(self):
+        built = view.ask_card("把订单库迁到新集群", "token 用到上限 1000 万", project_id=PID, lead_topic=LEAD, note="在做的 2 个话题已请它们停下。")
+        self.assertTrue(all(ELEMENT_ID.match(name) for name in ids(built)), ids(built))
+        self.assertEqual(built["header"]["text_tag_list"][0]["text"]["content"], "停住")
+        self.assertEqual(find_element(built, "pa_why")["content"], "**token 用到上限 1000 万**")
+        self.assertIn("2 个话题", find_element(built, "pa_note")["content"])
+        buttons = [(name, find_element(built, name)) for name in ("pa_go", "pa_wrap", "pa_stop")]
+        self.assertEqual([(button["text"]["content"], button["value"]["kind"]) for _, button in buttons],
+                         [("继续", "bridge_project_ask_continue"), ("收尾", "bridge_project_ask_finish"), ("停", "bridge_project_ask_stop")])
+        self.assertTrue(all(button["value"]["project_id"] == PID and button["value"]["topic_id"] == LEAD for _, button in buttons))
+        self.assertIsNone(find_element(view.ask_card("x", "y", project_id=PID, lead_topic=LEAD), "pa_note"))
+
+    def test_the_kinds_are_in_the_table_the_two_that_wake_the_lead_bot_only(self):
+        for choice, bot_only in (("continue", True), ("finish", True), ("stop", False)):
+            action = ACTIONS[view.ASK_KINDS[choice]]
+            self.assertEqual((action.handler, action.bot_only), ("controls.project_ask", bot_only), choice)
+        self.assertTrue(set(view.ASK_KINDS.values()) <= view.KINDS)
+
+    def test_a_pause_sends_one_card_where_the_project_card_is_and_routes_a_quote_of_it_to_the_lead(self):
+        self.pause()
+        self.tick(1010.0)
+        (profile, chat, card, key), kwargs = self.sent.call_args
+        self.assertEqual(chat, CHAT)
+        self.assertFalse(kwargs.get("reply_to_message_id"), kwargs)
+        self.assertIn("pa_btns", ids(card))
+        ask = self.record()["pause_ask"]["card"]
+        self.assertEqual((ask["message_id"], ask["card_id"], ask["sequence"]), ("om_card1", "card-1", 0))
+        self.assertEqual(routed_topic(self.state, CHAT, "om_card1"), LEAD)
+        self.tick(1020.0)
+        self.tick(1030.0)
+        self.assertEqual(self.sent.call_count, 1)  # Once.
+
+    def test_nothing_is_sent_without_a_question_or_for_a_project_that_moved_on_before_it_went_out(self):
+        projects.set_state(self.state, PID, projects.PAUSED, "tokens")  # A guard's pause with the switch off: no pause_ask.
+        self.tick(1010.0)
+        self.assertFalse(self.sent.called)
+        self.pause()
+        projects.update(self.state, PID, lambda record: record.update(state=projects.ACTIVE, state_reason=""))
+        self.tick(1020.0)
+        self.assertFalse(self.sent.called)
+        self.assertTrue(self.record()["pause_ask"]["card"]["closed"])
+
+    def test_a_card_that_could_not_be_sent_is_tried_again_after_a_back_off_and_keeps_its_card_id(self):
+        self.pause()
+        self.sent.side_effect = lambda *args, **kwargs: (kwargs["on_created"]("card-x"), (kwargs["card_id"] or "card-x", ""))[1]
+        self.tick(1010.0)
+        self.tick(1011.0)  # Inside the 2 s back-off.
+        self.assertEqual(self.sent.call_count, 1)
+        self.sent.side_effect = self.send_card
+        self.tick(1013.0)
+        self.assertEqual(self.sent.call_args.kwargs["card_id"], "card-x")
+        self.assertEqual(self.record()["pause_ask"]["card"]["message_id"], "om_card1")
+
+    def test_the_tokens_card_says_what_became_of_the_topics_and_the_wakes_card_that_they_go_on(self):
+        self.assertEqual(project_cards.ask_note({"reason": "tokens", "halted": 2}), "在做的 2 个话题已请它们停下。")
+        self.assertEqual(project_cards.ask_note({"reason": "tokens", "halted": 0}), "")
+        self.assertIn("还在继续做", project_cards.ask_note({"reason": "wakes"}))
+        self.assertEqual(project_cards.ask_note({"reason": "stalled"}), "")
+
+    def test_after_the_choice_the_card_is_written_as_one_line_saying_what_was_chosen_and_once(self):
+        self.pause()
+        self.tick(1010.0)
+        self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, self.event("continue")))
+        self.put.reset_mock()
+        self.tick(1020.0)
+        asked = [call for call in self.put.call_args_list if call.args[1] == "card-1"]
+        self.assertEqual(len(asked), 1)
+        self.assertEqual((asked[0].kwargs["sequence"], find_element(asked[0].args[2], "pj_line") is not None), (1, True))
+        self.assertIn("你选了继续", text(asked[0].args[2]))
+        self.assertNotIn("pa_btns", ids(asked[0].args[2]))
+        self.assertTrue(self.record()["pause_ask"]["card"]["closed"])
+        self.tick(1030.0)
+        self.assertEqual(len([call for call in self.put.call_args_list if call.args[1] == "card-1"]), 1)
+        self.assertEqual(self.record()["state"], "active")  # The project's own card says 在做 on its next write.
+
+    def test_a_project_that_moved_on_without_a_click_has_its_card_settled_as_handled_elsewhere(self):
+        self.pause()
+        self.tick(1010.0)
+        projects.update(self.state, PID, lambda record: record.update(state=projects.ACTIVE, state_reason=""))
+        self.put.reset_mock()
+        self.tick(1020.0)
+        line = [call for call in self.put.call_args_list if call.args[1] == "card-1"][0].args[2]
+        self.assertIn("已在别处处理", text(line))
+
+    def test_continue_and_finish_leave_the_lead_a_receipt_that_wakes_it_and_say_nothing_in_the_chat(self):
+        inbox = lambda: [json.loads(path.read_text()) for path in sorted((projects.folder(self.state) / PID / "inbox").glob("*.json"))]  # noqa: E731
+
+        self.pause(tokens_used=12_000_000)
+        self.tick(1010.0)
+        self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, self.event("continue")))
+        record = self.record()
+        self.assertEqual((record["state"], record["token_floor"]), ("active", 12_000_000))
+        [item] = inbox()
+        self.assertEqual(item["kind"], "owner_choice")
+        self.assertIn("选了继续", item["text"])
+        self.assertFalse(self.claude.messenger.reply.called)
+        self.pause()
+        self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, self.event("finish")))
+        self.assertEqual(sum("project_finish" in item["text"] for item in inbox()), 1)  # Two files may share a millisecond: no order.
+
+    def test_stop_is_the_project_cards_stop_and_pauses_as_the_owners_stop(self):
+        from covey.core.jobs import BridgeReplyJob
+
+        self.pause("wakes")
+        self.tick(1010.0)
+        for number, topic in ((5, LEAD), (6, T1)):
+            job = BridgeReplyJob(job_id=number, user_text="x", chat_id=CHAT, message_id=f"om_job{number}", timeout=0, topic_id=topic)
+            job.execution_started = True
+            self.app.runtime.jobs.register(job)
+        with mock.patch.object(self.claude.controls, "cancel_reply_job_from_card", return_value=True) as cancel:
+            self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, self.event("stop")))
+        self.assertEqual(sorted((call.args[0].topic_id, call.args[1]["job_id"]) for call in cancel.call_args_list),
+                         [(LEAD, "5"), (T1, "6")])
+        self.assertEqual((self.record()["state"], self.record()["state_reason"]), ("paused", projects.OWNER_STOP))
+        self.assertIn("已请 2 个任务停下", self.said())
+
+    def test_a_second_click_and_a_click_on_a_card_of_an_earlier_pause_change_nothing_and_say_so(self):
+        self.pause()
+        self.tick(1010.0)
+        self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, {**self.event("continue"), "message_id": "om_old"}))
+        self.assertIn("过期", self.said())
+        self.assertEqual(self.record()["state"], "paused")
+        self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, self.event("continue")))
+        self.assertTrue(self.claude.controls.project_ask(self.lead_ctx, self.event("stop")))
+        self.assertIn("已经做过了", self.said())
+        self.assertEqual(self.record()["state"], "active")
+
+    def test_a_click_for_another_topic_or_a_project_not_there_is_refused(self):
+        self.pause()
+        for value in ({"topic_id": "other"}, {"project_id": "0f9e8d7c6b5a"}):
+            event = self.event("stop")
+            event["action_value"] = {**event["action_value"], **value}
+            with self.assertRaises(ValueError):
+                self.claude.controls.project_ask(self.lead_ctx, event)
+        event = self.event("stop")
+        event["action_value"]["kind"] = "bridge_project_stop"
+        with self.assertRaises(ValueError):
+            self.claude.controls.project_ask(self.lead_ctx, event)
+
+
 class PinTest(ProjectsCase):
     """A project is one cell of the board (core/board_read.py groups) and its pin follows the state (app/pins.py aimed)."""
 

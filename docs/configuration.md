@@ -101,6 +101,8 @@
 | [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡的私聊、新话题标签 |
 | [管家规则](#管家规则) | `COVEY_BUTLER_RULES=1` | 管家只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
 | [专项（第 2 期，开发中，默认关）](architecture.md#专项第-2-期开发中默认关) | `COVEY_PROJECTS=1` | 底座：`projects/` 记录、负责人话题和专项的话题的角色、看板并格，加负责人一轮的运行（规则、状态包、会话重建、`project_*` 工具、只留 `Read`/`Grep`/`Glob`）；入口是转成专项（`COVEY_PROJECT_UPGRADE=butler`：管家带 `project` 的派发卡静默转成专项）和管家直接开（`topic_start` 带 `project`）；续轮、问题分流是后面的包 |
+| [专项停住后问主人](butler.md#专项停住后问主人开关默认关) | `COVEY_PROJECT_ASK=1`（要 `COVEY_PROJECTS=1`） | 专项被护栏停住时多发一张卡：继续 / 收尾 / 停；`COVEY_PROJECT_STYLE_KEEP=1` 另让新专项沿用上次设的汇报风格 |
+| [方向标签](butler.md#方向标签开关默认关) | `COVEY_DIRECTIONS=1` | 管家开话题、开专项时可以说是哪个方向；派发卡和专项卡的卡头多一个灰标签（名字用第 2 次才显示） |
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家一轮在做时，下一句按规则和小模型并进某件在做的事或新开一件；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | `dispatch_cards` 后台线程；管家派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
@@ -327,11 +329,15 @@
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS=1` 才会问） | `claude`（默认）：Claude Code 的 Haiku，一次问一条（默认用提前起好的待命进程，见 `COVEY_TRACK_JUDGE_WARM`）；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一件 | 否 |
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 3000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一件；取值限制在 200 到 10000。经网关调一次 Haiku 常要 1–2 秒，2 秒的上限下约四成会超时，所以默认 3 秒| 否 |
 | `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开；`0`、`off`、`false`、`no` 关。开着（且 `COVEY_BUTLER_TRACKS=1`、通道是 `claude`）时，Bridge 在收到管家消息时提前起好一个 Claude Code 待命进程并用一条虚构的消息预热，问一次就丢掉、立刻起下一个，空闲 10 分钟或 Bridge 停止时结束；关着每次问都现起一个一次性进程，慢约 1 秒多 | 否 |
-| `COVEY_BUTLER_STATE`（旧名 COVEY_MAIN_STATE、LARK_BRIDGE_MAIN_STATE） | `core/butler_mcp.py`（管家任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
+| `COVEY_BUTLER_STATE`（旧名 COVEY_MAIN_STATE、LARK_BRIDGE_MAIN_STATE） | `core/butler_mcp.py`、`core/butler_tool_specs.py`（`COVEY_DIRECTIONS=1` 时据此读 `directions.json` 列已知方向）（管家任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_BUTLER_JOB`（旧名 COVEY_MAIN_JOB、LARK_BRIDGE_MAIN_JOB） | `core/butler_mcp.py`（管家任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_PROJECT_LEAD` | `core/butler.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要 `COVEY_PROJECTS=1`）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`workspaces_list` 加 `project_*`，其余管家工具都不列 | 否 |
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞） | 空：关，只有专项的第一条回执（`start`）唤醒负责人，其余回执留到负责人下一次被主人叫起；`1`：专项的话题一轮结束、主人在专项的话题里说话、停滞提醒也都唤醒，同一专项同一时刻最多排 1 个唤醒，并开停滞检查。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PROJECT_TOKENS` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 10000000：一个专项的 token 上限（负责人和各话题任务的合计，缓存算在输入里）；到了专项转停住、`state_reason` 是 `tokens`，不再唤醒；不是正整数按默认值 | 否 |
+| `COVEY_PROJECT_ASK` | `core/projects.py`（`ask_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_loop.py`（`ProjectLoop.pause`）、`app/project_cards.py`（`ProjectCards.ask`、`ask_choice`） | 空：关，护栏停住的专项只在专项卡上写“停住 · 原因”；`1`：专项被护栏停住时，在专项卡所在的位置再发一张卡，一句话写原因，三个按钮 继续 / 收尾 / 停；点了以后这张卡缩成一行写选了什么，专项卡的状态跟着变。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
+| `COVEY_PROJECT_STALL_SECONDS` | `core/projects.py`（`stall_seconds`）、`app/project_loop.py`（`ProjectLoop.stall`） | 1800：专项没有任务也没有新回执多少秒后提醒负责人一次，再过同样久还没动静就停住；不是正整数按默认值。试用停滞卡时调小（如 `60`） | 否 |
+| `COVEY_PROJECT_STYLE_KEEP` | `core/projects.py`（`style_keep_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_tools.py`（`project_style`）、`app/projects.py`（`seed_style`） | 空：关，新专项的汇报风格是默认值；`1`：负责人每次用 `project_style` 改风格，就把整份风格记进 `<state>/project-style.json`，之后新开的专项（转成专项、直接开）从这份风格开始，之前的专项不动 | 否 |
+| `COVEY_DIRECTIONS` | `core/directions.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给 MCP 服务）、`core/butler_tool_specs.py`（`listed`：多 `direction`、`direction_by_owner` 两个参数，名字来自 `<state>/directions.json`）、`app/dispatch_cards.py`、`app/projects.py` | 空：关，工具说明和卡片都不变；`1`：派发卡和专项卡的卡头多一个灰标签写方向。方向的判断顺序和候选规则见[管家 · 方向标签](butler.md#方向标签开关默认关) | 否 |
 | `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_DISPATCH_CARD=1`） | 空或 `off`：不转成专项（默认）；`butler`：管家转话时带了 `project`（`topic_send` 的 `project` 参数），派发卡就静默转成专项，是不是由管家按话的意思判断（主人要长期跟进、要分成几个话题持续推进，或直接说“开个专项”“转成专项”才带，拿不准不带），不再匹配主人话里的关键词；`word`：旧值，意思同 `butler`；`auto`：再加该话题来回到第 3 轮。同时最多 3 个活专项，超了不转。直接开专项（管家的 `topic_start` 带 `project`）不看它，只看 `COVEY_PROJECTS`。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 关；`1` 开（还要 `COVEY_PINNED_OVERVIEW=1`） | 否 |
 | `COVEY_PROXY_PROFILE` | `app/proxy.py` | 空：代答不可用 | 否 |

@@ -250,7 +250,8 @@ def mcp_config(release: Path, state_dir: Path, job_key: str, python: str, lead: 
               "COVEY_KNOWLEDGE": cenv.get("COVEY_KNOWLEDGE", "").strip(),  # core/butler_tool_specs.py
               "COVEY_HISTORY_CMD": cenv.get("COVEY_HISTORY_CMD", "").strip(),  # KNOWLEDGE_ENV, HISTORY_ENV
               "COVEY_BUTLER_RULES": cenv.get("COVEY_BUTLER_RULES", "").strip(),  # BUTLER_RULES_ENV
-              "COVEY_PROJECTS": cenv.get("COVEY_PROJECTS", "").strip()}  # PROJECTS_ENV: the butler's project tools
+              "COVEY_PROJECTS": cenv.get("COVEY_PROJECTS", "").strip(),  # PROJECTS_ENV: the butler's project tools
+              "COVEY_DIRECTIONS": cenv.get("COVEY_DIRECTIONS", "").strip()}  # DIRECTIONS_ENV: topic_start's direction
     if lead and projects.enabled():
         handed[LEAD_ENV] = lead
     for name, value in handed.items():

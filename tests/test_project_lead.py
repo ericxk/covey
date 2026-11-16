@@ -631,6 +631,20 @@ class RecordToolsTest(ToolsCase):
         self.assertIn("report=ask_only", record["memory"][0]["text"])
         self.assertIn("spawn", self.refused("project_style", spawn="疯狂"))
 
+    def test_the_style_is_kept_for_the_next_project_only_with_the_switch(self):
+        self.tool("project_style", report="ask_only")
+        self.assertFalse((self.state / project_lead.STYLE_FILE).exists())  # Off: nothing is kept.
+        with mock.patch.dict(os.environ, {projects.STYLE_KEEP_ENV: "1"}):
+            self.tool("project_style", spawn="积极", detail="全")
+            self.assertEqual(project_lead.last_style(self.state), {"report": "ask_only", "detail": "全", "spawn": "积极"})
+            self.tool("project_style")  # Only reading it changes nothing.
+        self.assertEqual(json.loads((self.state / project_lead.STYLE_FILE).read_text())["spawn"], "积极")
+        (self.state / project_lead.STYLE_FILE).write_text('{"report": "bogus", "detail": "简"}')
+        self.assertEqual(project_lead.last_style(self.state), {"detail": "简"})  # Each choice is checked.
+        (self.state / project_lead.STYLE_FILE).write_text("[1]")
+        self.assertEqual(project_lead.last_style(self.state), {})
+        self.assertEqual(project_lead.last_style(self.state / "nowhere"), {})
+
     def test_finishing_needs_the_threads_to_have_ended_and_ends_the_project_once(self):
         thread = self.tool("project_topic_start", request_id="open", title="导出", prompt="导出账单", workspace="project",
                            readonly=True, why="x")["data"]["topic_id"]

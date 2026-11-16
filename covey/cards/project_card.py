@@ -20,6 +20,10 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
 - ``pj_io``: the grey 输入/输出 box (cards/answer_card.py ``box``);
 - ``pj_btns``: 补充 (``pj_steer``), 停止专项 (``pj_stop``), 不要专项 (``pj_down``).
 
+Two cards of the project's own more, with COVEY_PROJECT_ASK=1 (``ask_card``, ``asked_card``): the one a guard's pause sends the owner,
+a message of its own where the project's card is (``pa_why`` the reason in a sentence, ``pa_note``, ``pa_btns``: 继续 ``pa_go``,
+收尾 ``pa_wrap``, 停 ``pa_stop``), and what it becomes once the owner chose (one line, ``pj_line``, saying what he chose).
+
 No input field: a card that is redrawn must not hold one (docs/cards.md 卡片的客户端限制); 补充 sends a card of its own.
 Two more cards of one line: ``settled_card`` (the project is done: ``pj_line``, linking to the conclusion) and
 ``moved_card`` (a card that was replaced by a new one because CardKit stops accepting writes to a card after 14 days)."""
@@ -39,7 +43,9 @@ MAX_ROWS = 10  # Rows of the 分流记录, 专项记忆 and 资料库 folds.
 ROW_CHARS = 90
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
 MEM_DEL_KIND, LIB_DEL_KIND = "bridge_project_mem_del", "bridge_project_lib_del"
-KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND})
+# The pause card's buttons (choice -> kind): app/project_loop.py CHOICES.
+ASK_KINDS = {"continue": "bridge_project_ask_continue", "finish": "bridge_project_ask_finish", "stop": "bridge_project_ask_stop"}
+KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND, *ASK_KINDS.values()})
 RUNNING, WAITING, PAUSED, DONE = "在做", "等你", "停住", "做完"
 # state -> (tag colour, header icon: one the other cards use, '' for none).
 LOOKS = {RUNNING: ("blue", "waiting_outlined"), WAITING: ("orange", "chat_outlined"), PAUSED: ("neutral", ""),
@@ -252,6 +258,30 @@ def moved_card(name, url="", *, direction=""):
     """The old card of a project whose card was sent again (the 14 days): "已移到新卡 ›" opening the new one."""
     text = " · ".join(part for part in (direction, clipped(name, HEAD_CHARS) or "专项") if part)
     return line_block("已移到新卡" + ("　›" if url else ""), text, url)
+
+
+def ask_card(name, why, *, project_id, lead_topic, note=""):
+    """The card a guard's pause sends the owner: ``why`` in a sentence ("token 用到上限 1000 万"), ``note`` what became of the
+    running topics, and 继续 / 收尾 / 停. The buttons carry the project's id and the lead's topic, as the project card's do."""
+    head = panel_header("chat_outlined", clipped(name, HEAD_CHARS) or "专项", "", [(PAUSED, "orange")], color="orange")
+    value = {"project_id": project_id, "topic_id": lead_topic}
+    elements = [md(f"**{literal_text(clipped(why, 80))}**", element_id="pa_why", size="normal_v2")]
+    if note:
+        elements.append(md(grey(literal_text(clipped(note, 80))), element_id="pa_note", size="notation"))
+    elements.append(button_row([
+        topic_button("继续", element_id="pa_go", tone="primary", value={"kind": ASK_KINDS["continue"], **value}),
+        topic_button("收尾", element_id="pa_wrap", value={"kind": ASK_KINDS["finish"], **value}),
+        topic_button("停", element_id="pa_stop", tone="danger", value={"kind": ASK_KINDS["stop"], **value})], "pa_btns"))
+    return styled_panel(head, elements, f"{PAUSED} · {clipped(name, HEAD_CHARS)}：{clipped(why, 40)}")
+
+
+ASKED_MARKS = {"continue": "▶️ 你选了继续", "finish": "🏁 你选了收尾", "stop": "⏹ 你选了停"}
+
+
+def asked_card(name, why, choice=""):
+    """What the pause card becomes once it is answered: one grey line saying what the owner chose (``choice`` one of
+    ``ASK_KINDS``), or, for ``''``, that the project moved on some other way (the owner's own turn, the lead, a stop)."""
+    return line_block(ASKED_MARKS.get(choice, "已在别处处理"), " · ".join(part for part in (clipped(name, HEAD_CHARS) or "专项", clipped(why, 40)) if part))
 
 
 def merged_card(name, url="", *, direction=""):

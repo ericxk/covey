@@ -313,6 +313,33 @@ BUTLER_PROJECT_TOOLS = (
 BUTLER_PROJECT_NAMES = tuple(tool["name"] for tool in BUTLER_PROJECT_TOOLS)
 
 
+# 方向标签 (COVEY_DIRECTIONS=1, core/directions.py): topic_start (and topic_start with ``project``, which opens a project) takes the
+# direction the work belongs to. The server lists the names in the owner's <state>/directions.json as of the turn's start.
+DIRECTIONS_ENV = "COVEY_DIRECTIONS"
+STATE_ENV = "COVEY_BUTLER_STATE"  # core/butler.py STATE_ENV, the state directory the Bridge tells the server.
+DIRECTION_BY_OWNER = {"type": "boolean", "description": "主人在这条消息里亲口说了这件事属于哪个方向时为 true；你自己判断的不填"}
+
+
+def direction_field(known) -> dict:
+    """The ``direction`` argument of topic_start, naming the directions ``known`` ((name, aliases) pairs)."""
+    names = "；".join(name + (f"（也叫 {'、'.join(aliases)}）" if aliases else "") for name, aliases in known)
+    return {"type": "string", "description": (
+        "可选：这件事属于主人的哪个方向，一个短名（12 字以内）。" + (f"已知方向：{names}。从里面选，" if names else "现在还没有已知方向。")
+        + "确实是新方向才起新名，之后同一方向一直用同一个名。主人只说了工作区、你拿不准是哪个方向时不要填；只按工作区猜不算数")}
+
+
+def direction_tools(tools, known) -> tuple:
+    """``tools`` with ``direction`` and ``direction_by_owner`` on topic_start."""
+    changed = []
+    for tool in tools:
+        if tool["name"] == "topic_start":
+            schema = tool["input_schema"]
+            tool = {**tool, "input_schema": {**schema, "properties": {**schema["properties"], "direction": direction_field(known),
+                                                                      "direction_by_owner": DIRECTION_BY_OWNER}}}
+        changed.append(tool)
+    return tuple(changed)
+
+
 def project_butler_tools(tools) -> tuple:
     """``tools`` with ``project`` on topic_start and topic_send, and the projects_list and project_send tools last."""
     changed = []
@@ -341,4 +368,9 @@ def listed(environ) -> tuple:
         extra += HISTORY_TOOLS
     tools = TOOLS + extra
     tools = butler_tools(tools) if str(cenv.get(BUTLER_RULES_ENV, "", environ)).strip() == "1" else tools
+    if str(cenv.get(DIRECTIONS_ENV, "", environ)).strip() == "1":
+        from covey.core import directions
+
+        state = str(cenv.get(STATE_ENV, "", environ)).strip()
+        tools = direction_tools(tools, directions.known(state) if state else [])
     return project_butler_tools(tools) if str(cenv.get(PROJECTS_ENV, "", environ)).strip() == "1" else tools

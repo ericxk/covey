@@ -144,6 +144,8 @@ def project_style(env, request):
         rows = [row for row in data.get("memory") or () if isinstance(row, dict) and row.get("kind") != "style"]
         data["memory"] = [*rows, line]  # One style line in the memory: the last word the owner gave.
     projects.update(env.state_dir, pid, change)
+    if projects.style_keep_enabled():
+        project_lead.keep_style(env.state_dir, now)  # The next project starts from it.
     return reply(True, "已改风格：" + "；".join(f"{name}={value}" for name, value in now.items()), style=now)
 
 

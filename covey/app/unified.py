@@ -175,7 +175,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.digest import Digest
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
-        from covey.app.project_cards import ProjectCards
+        from covey.app.project_cards import ProjectCards, stop_tasks
         from covey.app.projects import TOOLS as PROJECT_BUTLER_TOOLS, Projects
         from covey.app.project_loop import ProjectLoop
         from covey.app.devices import Devices
@@ -250,7 +250,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.projects = Projects(self.butler_env)  # 专项的升级、直接开、降级 (COVEY_PROJECTS=1): the thread that finishes a crashed upgrade
             self.butler_env.projects = self.projects  # What topic_start's ``project`` and the 派发卡's upgrade call (app/butler_topics.py).
             # Wakes a project's lead when receipts wait and applies the guards (app/project_loop.py), COVEY_PROJECTS=1.
-            self.project_loop = ProjectLoop(self.runtime, self.butler_env)
+            self.project_loop = ProjectLoop(self.runtime, self.butler_env, stop_tasks)
             # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
             # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
             # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
