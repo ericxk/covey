@@ -109,7 +109,7 @@
 - **开了又关**：槽话题留在盘上，这时它们是普通话题（`traits` 给 TOPIC），回答、引用老卡都按 `topic_id` 找到会话指针继续；关着时槽 ≥1 不是管家，下次再开时空闲槽的遗留指针由 `enter` 清掉。
 
 - **表情**（`app/butler_reactions.py`，只给主人自己的消息、话题挂在提问下面时的管家一轮，`Tracks.noted` 是调用点；失败只记日志，都在锁外）：排在忙槽后面的消息挂 **排队中**（`OneSecond`）而不挂 OnIt（`start` 见 `HELD` 就跳过）；这一轮在任务进程里开跑时（`worker.process_bridge_reply_job` 里的 `begin`）先摘排队中、再挂 OnIt。进程之间不传状态：`begin` 用 `Messenger.reaction_ids` 查机器人自己挂的排队中，查不到就什么也不做（没排过队的消息 OnIt 已在入队时挂了）；排队时被取消的任务由 `cancel_reply_job_from_card` 摘掉。并进成功的消息挂 **并进**（`THUMBSUP`），一直留着；主人引用它说「单独答」（规则 3）时摘掉，新开的那件事照常 OnIt → 结束表情。`Get` 已表示“交给话题”，不用。表情代号用接口试过：飞书接受 `OneSecond`、`THUMBSUP`，不接受 `WAIT`。开关关着时一个都不调。
-- **停止的回复**：`stop` 把家族里其他还在做（不在等回答）的件数 k 传给 `cancel_reply_job_from_card(others=k)`，k>0 时文字回复末尾加“还有 k 件事在做。”（带任务卡的停止只改卡，不加）。k 随点击的 `action_value.others` 带到任务进程。
+- **停止的回复**：`stop` 把家族里其他还在做（不在等回答）的件数 k 传给 `cancel_reply_job_from_card(others=k)`，k>0 时文字回复末尾加“还有 k 件事在做。”（带任务卡的停止只改卡，不加）。k 随点击的 `action_value.others` 带到任务进程。任务卡的停止按钮和派发卡的 ⏹ 停止也算同一个数：点击到达 Bridge 时（`card_routing.count_others`）按 `butler_tracks.stop_others` 算（只算家族的任务，或派发卡；多路并行和管家模式没开时为 0；和停止词共用 `others_going`），写进 `action_value.others`，Bridge 自己停和转给任务进程都带着。其他话题任务卡上的停止不变。
 - **停止后不再发答案**：开关开着、属于家族的任务被主人停止（`cancel_requested_by` 有值）时，Claude 因“只剩后台任务在跑”而保留的最后一条完整回复（`backends/claude/runtime.py` 的 `keep_last_reply`）不再发出，这一轮按已停止收尾（`app/turn_settle.py`，`core/butler_tracks.py` 的 `owner_stop_drops_reply`）。开关关着、或普通话题的停止，仍然发出那条回复。Claude 收到 SIGTERM 时自己结束它的后台命令（它们不在 Claude 的进程组里）。
 
 
@@ -260,7 +260,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 - **`topic_start`**：
   - 工作区只认已登记的名字（`core/workspaces.py`），设置了 `topic_defaults.workspace` 就总用它。
-  - Harness、模型、预算逐项取值（`resolve`）：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置（`app/launch.py` 的 `launch_defaults`）> Bridge 默认。上次的值已不可用时往下找；调用给的不可用时回错误并列出可选。
+  - Harness、模型、预算逐项取值（`resolve`）：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置（`app/launch.py` 的 `launch_defaults`）> Bridge 默认。上次的值已不可用时往下找；调用给的不可用时回错误并列出可选。主人点名用哪个 Harness、模型、思考预算时，工具说明和管家规则都要求照填（`harness` 写 id，也认显示名，如 Claude Code，不分大小写、忽略空格和连字符）；没点名就不填。
   - topic.json 写 `origin`（`kind: "main"`、`request`、`job_key`、`why`、`readonly`、`user_requested`、`title`）。
   - `starts_at_once` 为真时照分叉绑定配置（`workspace_locked`、`harness_locked`），第一轮直接提交；否则（或运行方式是独立 worktree）话题里出启动卡，预选在 `origin.launch`。
 - **`topic_send`**：管家自己和代答话题不接。`text` 是任务说明，`note` 一句背景，都只给模型。
@@ -402,7 +402,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 `COVEY_PROJECTS=1` 时，每个专项有一张卡：聊天区的一条新消息（不回复主人那条消息：飞书对已有串的消息，回复一律进串；主人那句话直接开的专项，顶上带“你问”块），不开串。点击和引用它回复都按消息别名路由到专项的负责人话题（`route_message`），所以按钮是负责人话题的点击。**只有 `ProjectCards`（`app/project_cards.py`）写它**（规则 3）。
 
-- **内容**（`cards/project_card.py` 的 `project_card`，element_id 都不超过 20 个字符）：卡头 = 专项名 + 状态标签（在做、等你、停住、做完）+ 方向灰标签（读记录的 `direction`，没有就不画）；`pj_need`“需要你”（摘要 + 打开问题卡 ›）、`pj_meta`（话题数、用时、token）、`pj_lead`（负责人现状 + 最近一句 note）；话题折叠面板 `pt_<话题前 6 位>_<状态字母>`：在做和等你的展开、做完的收起，**状态变了元素 id 就换**（客户端对同一个 id 改 `expanded` 不一定重画），等你的排最前、做完的最后，最多 8 个、其余一行 `pj_more`“更早 N 条”；`pj_triage`、`pj_mem`、`pj_lib` 三个收起的面板（分流记录、专项记忆、资料库，空就不画，后两个每行一个“删”）；`pj_io` 灰框；`pj_btns`：补充、停止专项、不要专项（停住的没有停止，做完的没有按钮）。没有输入框：会重画的卡不放输入框，补充另发一张表单卡。体积 5–13 KB（`tests/golden/cards.json.xz` 的 `project.*` 样本）。
+- **内容**（`cards/project_card.py` 的 `project_card`，element_id 都不超过 20 个字符）：卡头 = 专项名 + 状态标签（在做、等你、停住、做完）+ 方向灰标签（读记录的 `direction`，没有就不画）；`pj_need`“需要你”（摘要 + 打开问题卡 ›）、`pj_meta`（话题数、用时、token）、`pj_lead`（负责人现状 + 最近一句 note）；话题折叠面板 `pt_<话题前 6 位>_<状态字母>`：在做和等你的展开、做完的收起，**状态变了元素 id 就换**（客户端对同一个 id 改 `expanded` 不一定重画），等你的排最前、做完的最后，最多 8 个、其余一行 `pj_more`“更早 N 条”；`pj_triage`、`pj_mem`、`pj_lib` 三个收起的面板（分流记录、专项记忆、资料库，空就不画，后两个每行一个“删”）；`pj_io` 灰框（输入是负责人自己的 Harness、模型、思考预算：取它最新任务，还没有任务时取它 topic.json 的绑定，不取话题的；各话题用的 Harness 写在自己折叠面板的末行）；`pj_btns`：补充、停止专项、不要专项（停住的没有停止，做完的没有按钮）。没有输入框：会重画的卡不放输入框，补充另发一张表单卡。体积 5–13 KB（`tests/golden/cards.json.xz` 的 `project.*` 样本）。
 - **读什么**：只读任务记录和问题（没有飞书调用，不拿锁）。话题的状态和一句话沿用派发卡（`app/dispatch_cards.py` 的 `status_of`）；记录字段 `direction`（P2-8）、`lead_note`（`{text, at}` 或字符串，P2-2）、`tokens_used`（整数，P2-2）、`conclusion_message_id`（负责人收尾报告的消息，P2-2）、`triage`（行或 `{at, text}`）、`projects/<id>/memory.json`（列表或 `{"entries": […]}`）、`projects/<id>/library/`（文件名）；空的不画。
 - **刷新**：后台线程每秒看一遍，摘要变了且离上次写至少 2.5 秒才整卡 PUT；每次写前从 `reserve` 取 sequence 存进 `record["card"]`，失败按 2、4、8 … 最多 60 秒退避。摘要也存在记录里，重启不会为同一张卡再写一次。
 - **做完**：专项 `done` 后卡缩成一行（`settled_card`，链到那条结论）。结论是 `conclusion_message_id`，没有就看收尾的那一轮（记录的 `state_job`，`project_finish` 写的；`finishing_answer`）：它结束了且在顶层发了回答，链到那条；结束了还没有回答的 id，再等 30 秒（`ANSWER_WAIT`：id 比状态晚一会儿写进记录），仍没有就缩、不带链接（安静的唤醒轮不发回复）；还在跑就等它，最多 10 分钟。`cancelled` 缩成“⏹ 专项已降为普通话题”。缩完记 `card.closed`，不再刷新。

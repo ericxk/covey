@@ -59,6 +59,7 @@ class Member:
     body: str = ""
     took: str = ""
     url: str = ""
+    harness: str = ""  # The Harness it runs on, as the owner reads it (Claude Code); '' when not known.
 
 
 @dataclass(frozen=True)
@@ -153,7 +154,7 @@ def member_fold(member):
     key = f"{short(member.topic_id)}_{letter}"
     title = " · ".join(part for part in (member.label, clipped(member.title, MEMBER_TITLE), member.status) if part)
     body = [md(literal_text(clipped(member.body, 200)) if member.body else grey("—"), element_id=f"pb_{key}", size="normal_v2")]
-    tail = " · ".join(part for part in (f"用时 {member.took}" if member.took else "",
+    tail = " · ".join(part for part in (member.harness, f"用时 {member.took}" if member.took else "",
                                         f"[打开话题串 ›]({member.url})" if member.url else "") if part)
     if tail:
         body.append(md(grey(tail) if not member.url else tail, element_id=f"pq_{key}", size="notation"))

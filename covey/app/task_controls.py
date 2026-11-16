@@ -251,8 +251,10 @@ class TaskControls(Redelivery):
         if not job_id.isdigit() or int(job_id) <= 0:
             raise ValueError("这件事还没有可停止的任务")
         chat_id = str(event.get("chat_id") or "")
+        others = str(raw.get("others") or "")  # Counted when the click arrived (app/card_routing.py count_others).
+        also = {"others": int(others)} if others.isdigit() else {}
         self.cancel_reply_job_from_card(ctx, {"job_id": job_id, "message_id": ""}, chat_id,
-                                        str(event.get("event_id") or event.get("message_id") or ""))
+                                        str(event.get("event_id") or event.get("message_id") or ""), **also)
         return True
 
     def project_stop(self, ctx, event):

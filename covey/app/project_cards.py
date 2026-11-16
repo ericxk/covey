@@ -96,7 +96,17 @@ def pending_question(state_dir, topic_ids):
     return (best[1], best[2]) if best else ("", "")
 
 
-def member_view(state_dir, topic_id, now, url="") -> Member:
+def harness_of(state_dir, topic_id, job=None) -> str:
+    """The id of the Harness ``topic_id`` runs on: the one its newest job ran with (a model switch replaces the topic's
+    binding for the turns after it, and the job is what runs), else the one topic.json binds it to; '' for none."""
+    for value in ((job or {}).get("harness_id"), (job or {}).get("backend")):
+        if isinstance(value, str) and value:
+            return value
+    value = read_object(topic_file(Path(state_dir), str(topic_id))).get("harness_id")
+    return value if isinstance(value, str) else ""
+
+
+def member_view(state_dir, topic_id, now, url="", titles=None) -> Member:
     from covey.app import dispatch_cards as dc
 
     job = newest_job(state_dir, topic_id)
@@ -109,7 +119,8 @@ def member_view(state_dir, topic_id, now, url="") -> Member:
         body = ("失败：" if status == dc.FAILED else "已停止：") + body
     return Member(topic_id=topic_id, status=word, label=topic_label(Path(state_dir), topic_id),
                   title=topic_title(Path(state_dir), topic_id), body=words(body), url=url,
-                  took=dc.quantize(seconds) if seconds is not None else "")
+                  took=dc.quantize(seconds) if seconds is not None else "",
+                  harness=(titles or {}).get(harness_of(state_dir, topic_id, job), "") if titles else "")
 
 
 def lead_state(state_dir, record, now) -> str:
@@ -184,7 +195,8 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
     links = links or {}
     pid, lead = str(record.get("id") or ""), str(record.get("lead_topic_id") or "")
     topics = [topic for topic in (record.get("threads") or ()) if isinstance(topic, str)][:MEMBER_CAP]
-    members = tuple(member_view(state_dir, topic, now, (links.get("threads") or {}).get(topic, "")) for topic in topics)
+    members = tuple(member_view(state_dir, topic, now, (links.get("threads") or {}).get(topic, ""), titles)
+                    for topic in topics)
     waiting = next((member for member in members if member.status == WAITING), None)
     state = record.get("state")
     if state == projects.DONE:
@@ -202,8 +214,12 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
     elapsed = dc.quantize(max(0.0, end - began))
     used = record.get("tokens_used")
     tokens = tile_count(used) if type(used) is int and used > 0 else ""
-    job = newest_job(state_dir, lead) or (newest_job(state_dir, topics[0]) if topics else None) or {}
-    harness = job.get("harness_id") or job.get("backend") or ""
+    # The box is the lead's own: its newest job, else what its topic.json binds it to (not a member's, which has its own
+    # Harness: the card lists it in its fold).
+    job = newest_job(state_dir, lead)
+    if job is None:
+        job = read_object(topic_file(Path(state_dir), lead))
+    harness = harness_of(state_dir, lead, job)
     model = str(job.get("model") or "").rsplit(" · ", 1)[-1]
     effort = str(job.get("effort") or "").strip()
     inputs = tuple(part for part in ((titles or {}).get(harness, harness), model,
