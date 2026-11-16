@@ -185,7 +185,7 @@ def main_thread_panel_card(token, view, settings, choices, workspaces, top=(), f
             elements += [section('私聊模式'), item(
                 md(f"{tag(name, colour)} {line}"),
                 text_button(switch, value(ENABLE, on=not on), tone='danger' if on else 'primary'))]
-            elements += [section('管家'), settings_block([harness_line(choices)] + [
+            elements += [section('管家用的模型'), settings_block([harness_line(choices)] + [
                 setting_row(s, token=token, stamp=stamp) for s in main_settings(settings, choices, limit)]),
                 note(HARNESS_NOTE)]
         if TOPIC in pages:

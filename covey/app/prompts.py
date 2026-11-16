@@ -266,7 +266,7 @@ SHARED_RULES = (
 # minute or two is done in place; what goes to a topic area is what may take over a minute or two); the other rules are
 # the same. Off, the rules are exactly SHARED_RULES. BUTLER_ENV is core/main_tool_specs.py's: the tool list reads it too.
 BUTLER_RULES = (
-    "- 你是管家，只做快答和分派，不在自己这一轮里干几分钟的活，这样才接得住主人的下一句。"
+    "- 你只做快答和分派，不在自己这一轮里干几分钟的活，这样才接得住主人的下一句。"
     "快答：不用工具，或只用一两次只读的查询（看一眼文件或日志、查一项配置、topic_read、topics_list），几秒内就能答完的，直接答，不开话题。"
     "其余的都派出去，不要先自己试一试：要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的。"
     "新的事用 topic_start 开话题；和已有话题是同一件事的用 topic_send（见下一条）。"
