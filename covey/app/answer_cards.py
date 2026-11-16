@@ -182,7 +182,7 @@ def ask_url(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, 
     message = owner_message(state_dir, record)
     url = ask_link(state_dir, chat, topic, message, profile, fetch, chat_place=True) if message else ""
     if not url:
-        say(f"ask link missing job={job} butler message={message[-10:] or '-'}: its place could not be read")
+        say(f"ask link missing job={job} main thread message={message[-10:] or '-'}: its place could not be read")
     return url
 
 

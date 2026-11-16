@@ -441,15 +441,15 @@ class Steering(SteerForms, SteerReceiptFlow):
                     record = self._requeue(target, chat_id, path, record, message_id=mid)
                 except ValueError as exc:  # Refused before it was queued, its reason sent: not tried again.
                     update_delivery(path, requeue_auto=False)
-                    self.runtime.log(f"butler supplement not queued message={mid[-10:]}: {exc}")
+                    self.runtime.log(f"main thread supplement not queued message={mid[-10:]}: {exc}")
                     continue
                 except Exception as exc:  # noqa: BLE001 - it may be queued: requeue_state uncertain, never again
-                    self.runtime.log(f"butler supplement queue unconfirmed message={mid[-10:]}: "
+                    self.runtime.log(f"main thread supplement queue unconfirmed message={mid[-10:]}: "
                                      f"{type(exc).__name__}")
                     unsure.append((chat_id, mid))
                     continue
                 queued.append(record.get("requeued_job_id"))
-                self.runtime.log(f"butler supplement queued as its own turn message={mid[-10:]} "
+                self.runtime.log(f"main thread supplement queued as its own turn message={mid[-10:]} "
                                  f"job=#{record.get('requeued_job_id')} after={after}")
         for chat_id, mid in unsure:
             self.tell_requeue_unsure(ctx, chat_id, mid)
@@ -464,7 +464,7 @@ class Steering(SteerForms, SteerReceiptFlow):
             self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=mid), chat, SUPPLEMENT_UNCERTAIN,
                                  self.voice.key("main-supplement-requeue", mid), voice=self.voice)
         except Exception as exc:  # noqa: BLE001 - the record says uncertain; nothing is queued again
-            self.runtime.log(f"butler supplement notice not sent message={mid[-10:]}: {type(exc).__name__}")
+            self.runtime.log(f"main thread supplement notice not sent message={mid[-10:]}: {type(exc).__name__}")
 
     def tell_butler_lost(self, ctx, job, record):
         """The butler's supplements have no receipt card (app/butler.py): one the turn did not take is

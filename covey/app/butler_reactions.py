@@ -49,13 +49,13 @@ def start(messenger, state_dir, profile, job, log, again=False) -> bool:
         if again:
             mark = messenger.react(profile, message, FAILED)  # Its id, as ``finish`` learns OnIt's.
             if mark and not messenger.unreact(profile, message, mark):
-                log(f"butler reaction not removed job=#{job.job_id} emoji={FAILED}")
+                log(f"main thread reaction not removed job=#{job.job_id} emoji={FAILED}")
         if messenger.react(profile, message, ON_IT):
             return True
     except Exception as exc:  # noqa: BLE001 - the turn goes on without it
-        log(f"butler reaction failed job=#{job.job_id}: {type(exc).__name__}")
+        log(f"main thread reaction failed job=#{job.job_id}: {type(exc).__name__}")
         return False
-    log(f"butler reaction not added job=#{job.job_id} emoji={ON_IT}")
+    log(f"main thread reaction not added job=#{job.job_id} emoji={ON_IT}")
     return False
 
 
@@ -66,12 +66,12 @@ def finish(messenger, profile, job, emoji, log) -> bool:
     try:
         mark = messenger.react(profile, message, ON_IT)  # Its id: the one there already, or a new one.
         if mark and not messenger.unreact(profile, message, mark):
-            log(f"butler reaction not removed job=#{job.job_id} emoji={ON_IT}")
+            log(f"main thread reaction not removed job=#{job.job_id} emoji={ON_IT}")
         done = bool(messenger.react(profile, message, emoji)) if emoji else bool(mark)
     except Exception as exc:  # noqa: BLE001 - the answer is the turn's, not its reaction
-        log(f"butler reaction failed job=#{job.job_id}: {type(exc).__name__}")
+        log(f"main thread reaction failed job=#{job.job_id}: {type(exc).__name__}")
         return False
-    log(f"butler reaction job=#{job.job_id} emoji={emoji or '-'} ok={done}")
+    log(f"main thread reaction job=#{job.job_id} emoji={emoji or '-'} ok={done}")
     return done
 
 
@@ -94,9 +94,9 @@ def put(messenger, profile, message, emoji, what, log) -> bool:
         if messenger.react(profile, message, emoji):
             return True
     except Exception as exc:  # noqa: BLE001 - the turn goes on without it
-        log(f"butler reaction failed {what} message={message[-10:]}: {type(exc).__name__}")
+        log(f"main thread reaction failed {what} message={message[-10:]}: {type(exc).__name__}")
         return False
-    log(f"butler reaction not added {what} message={message[-10:]} emoji={emoji}")
+    log(f"main thread reaction not added {what} message={message[-10:]} emoji={emoji}")
     return False
 
 
@@ -105,17 +105,17 @@ def take_off(messenger, profile, message, emoji, what, log) -> int | None:
     try:
         ids = messenger.reaction_ids(profile, message, emoji)
         if ids is None:
-            log(f"butler reactions not listed {what} message={message[-10:]} emoji={emoji}")
+            log(f"main thread reactions not listed {what} message={message[-10:]} emoji={emoji}")
             return None
         gone = 0
         for reaction in ids:
             if messenger.unreact(profile, message, reaction):
                 gone += 1
             else:
-                log(f"butler reaction not removed {what} message={message[-10:]} emoji={emoji}")
+                log(f"main thread reaction not removed {what} message={message[-10:]} emoji={emoji}")
         return gone
     except Exception as exc:  # noqa: BLE001 - the turn goes on without it
-        log(f"butler reaction failed {what} message={message[-10:]}: {type(exc).__name__}")
+        log(f"main thread reaction failed {what} message={message[-10:]}: {type(exc).__name__}")
         return None
 
 

@@ -192,7 +192,7 @@ def after_runner(gateway, job, ctx) -> None:
             route_message(state, str(job_field(job, "chat_id")), card, next(iter(areas)),
                           holder=str(job_field(job, "topic_id")))
     except Exception as exc:  # noqa: BLE001 - quoting the card stays the butler's
-        gateway.runtime.log(f"butler relay settle after job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
+        gateway.runtime.log(f"main thread relay settle after job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
 
 
 def question_asked(ctx, job, question, *, messenger, voice, log):
@@ -204,7 +204,7 @@ def question_asked(ctx, job, question, *, messenger, voice, log):
         return relay_question(ctx.state_dir, job, question, send=messenger_send(messenger, ctx.profile, voice),
                               profile=ctx.profile, log=log)
     except Exception as exc:  # noqa: BLE001 - the question is shown all the same
-        log(f"butler question relay of job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
+        log(f"main thread question relay of job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
         return None
 
 
@@ -231,7 +231,7 @@ def _part(log, job, name, make, default):
         return make()
     except Exception as exc:  # noqa: BLE001 - the relay goes without it
         if log is not None:
-            log(f"butler relay of job #{job_field(job, 'job_id')} goes without its {name}: {type(exc).__name__}")
+            log(f"main thread relay of job #{job_field(job, 'job_id')} goes without its {name}: {type(exc).__name__}")
         return default
 
 
@@ -282,7 +282,7 @@ def after_turn(delivery, delivered, execution_status, *, messenger, profile, voi
             delivery.artifacts.refresh_answer_cards(delivery.ctx, record)
         return state
     except Exception as exc:  # noqa: BLE001 - the relay never fails the turn's delivery
-        delivery.runtime.log(f"butler relay of job #{job_field(job, 'job_id')} failed: {type(exc).__name__}: {exc}")
+        delivery.runtime.log(f"main thread relay of job #{job_field(job, 'job_id')} failed: {type(exc).__name__}: {exc}")
         if outcome is not None:
             _unsent(delivery.ctx.state_dir, job, outcome, exc, log)
         return None

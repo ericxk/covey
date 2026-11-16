@@ -170,7 +170,7 @@
 `COVEY_BUTLER` 决定部署允不允许管家（私聊模式“管家”，见[管家](butler.md#私聊模式)和[使用指南 · 管家](usage.md#管家)）：
 
 - `0`：不允许。不起后台线程、不改消息路由，设置卡没有管家的标签。
-- 不设或 `1`：允许。用不用由主人在设置卡上选的模式定（`<state>/main-thread.json` 的 `mode`），改模式不用重启。新部署第一次启动写成管家，日志 `butler mode settled mode=agent|topics`。
+- 不设或 `1`：允许。用不用由主人在设置卡上选的模式定（`<state>/main-thread.json` 的 `mode`），改模式不用重启。新部署第一次启动写成管家，日志 `main thread mode settled mode=agent|topics`。
 - 管家的设置在 `<state>/main-thread.json`，工具请求在 `<state>/main-thread/requests/`。管家的会话只能用 Claude Code。
 - `main-thread.json` 里旧的 `"desk_topics": true` 读到也按 `false` 处理，启动时记一行 warning，见[已下架项与旧配置](#已下架项与旧配置)。
 

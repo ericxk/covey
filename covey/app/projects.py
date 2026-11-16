@@ -260,7 +260,7 @@ class Projects:
             return True
         root = read_object(topic_file(state, butler.butler_topic_id(chat)))
         if not root.get("harness_id"):
-            raise RuntimeError("the butler has no topic.json yet")
+            raise RuntimeError("the main thread has no topic.json yet")
         source = read_object(topic_file(state, origin["topic_id"])) if origin.get("topic_id") else {}
         data = {key: value for key, value in root.items() if key not in LEAD_DROPS}
         data.update(topic_id=lead, chat_id=chat, root_id="", thread_id="", binding_revision=1, project=field,

@@ -208,7 +208,7 @@ class TurnTest(unittest.TestCase):
                  ("a colleague in a group", dict(sender=OTHER), False),
                  ("a group job that kept no sender", dict(sender=""), False),
                  ("the owner's private chat, no sender", dict(chat=DM, sender=""), True),
-                 ("the butler, no sender", dict(chat=DM, sender="", topic=butler.butler_topic_id(DM)), True))
+                 ("the main thread, no sender", dict(chat=DM, sender="", topic=butler.butler_topic_id(DM)), True))
         for name, job, owner in cases:
             for sid in (None, SID):
                 with self.subTest(name, resumed=bool(sid)):

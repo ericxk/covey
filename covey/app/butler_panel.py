@@ -233,7 +233,7 @@ class ButlerPanel:
         return self.card(ctx, record['view'], record.get('tab', BUTLER), record.get('chat_id') or '')
 
     def tab_shown(self, ctx, token):
-        self.topics.runtime.log(f'butler panel shown token={token[:8]}')
+        self.topics.runtime.log(f'main thread panel shown token={token[:8]}')
 
     def refuse(self, ctx, path, event):
         """OWNER_ONLY on the card ``event`` clicked; whether it was a settings card's."""

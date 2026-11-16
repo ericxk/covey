@@ -505,7 +505,7 @@ class ClickTest(DispatchCase):
             self.assertEqual(event["action_value"]["job_id"], "37")
 
     def test_a_job_of_another_topic_is_not_the_one(self):
-        self.job(35, topic="topic-of-the-butler", running=True)
+        self.job(35, topic="topic-of-the-main-thread", running=True)
         self.job(37, running=True)
         forward, _ = self.click(view.STEER_KIND, "35")
         self.assertEqual(forward.call_args.args[3]["job_id"], "37")

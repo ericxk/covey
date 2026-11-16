@@ -154,7 +154,7 @@ def say_outcome(delivery) -> bool:
         line = outcome_words(ctx.state_dir, job_key(job.message_id, job.job_id), text, lead=role == placement.LEAD_ROLE)
         return bool(line) and delivery.cards.say_outcome(ctx, job, line)
     except Exception as exc:  # noqa: BLE001 - the card keeps its outcome line
-        delivery.runtime.log(f"butler outcome words not shown job=#{job.job_id}: {type(exc).__name__}")
+        delivery.runtime.log(f"main thread outcome words not shown job=#{job.job_id}: {type(exc).__name__}")
         return False
 
 
@@ -198,7 +198,7 @@ def answers_in_place(delivery, final_card, display_text) -> bool:
         if lines and not cards.set_task_element(ctx, job, reply_fold(display_text, lead=lead)):
             return False
     except Exception as exc:  # noqa: BLE001 - the answer card goes out instead
-        delivery.runtime.log(f"butler answer not on its card job=#{job.job_id}: {type(exc).__name__}")
+        delivery.runtime.log(f"main thread answer not on its card job=#{job.job_id}: {type(exc).__name__}")
         return False
     delivery.steering.close_task_controls(ctx, job)
     if not cards.finalize_trace(ctx, job, stopped=False):
@@ -241,13 +241,13 @@ def handed_quietly(delivery) -> bool:
         if not rows or any(WAITS_START in line for line in rows):
             return False
     except Exception as exc:  # noqa: BLE001 - the answer goes out
-        delivery.runtime.log(f"butler routes unreadable job=#{job.job_id}: {type(exc).__name__}")
+        delivery.runtime.log(f"main thread routes unreadable job=#{job.job_id}: {type(exc).__name__}")
         return False
     from covey.app.butler_reactions import GOT
     if not delivery.react(job, GOT):
         return False
     delivery.reacted = True
-    delivery.runtime.log(f"butler turn handed on, no answer sent job=#{job.job_id}")
+    delivery.runtime.log(f"main thread turn handed on, no answer sent job=#{job.job_id}")
     hook_topics(delivery)
     return True
 
@@ -301,10 +301,10 @@ def hook_topics(delivery) -> None:
             reply_to_message_id=owner, in_thread=False)
         if message_id and len(rows) == 1:
             route_message(ctx.state_dir, job.chat_id, message_id, rows[0][2], holder=rows[0][2])
-        delivery.runtime.log(f"butler hook {'sent' if message_id else 'not sent'} job=#{job.job_id} "
+        delivery.runtime.log(f"main thread hook {'sent' if message_id else 'not sent'} job=#{job.job_id} "
                              f"topics={len(rows)} message={message_id[-8:] if message_id else ''}")
     except Exception as exc:  # noqa: BLE001 - the Get reaction still says it went on
-        delivery.runtime.log(f"butler hook failed job=#{job.job_id}: {type(exc).__name__}")
+        delivery.runtime.log(f"main thread hook failed job=#{job.job_id}: {type(exc).__name__}")
 
 
 def react_end(delivery) -> None:
@@ -320,7 +320,7 @@ def react_end(delivery) -> None:
         delivery.reacted = True
         delivery.react(job, ending(turn.status, routed, refused))
     except Exception as exc:  # noqa: BLE001 - only the reaction is missing
-        delivery.runtime.log(f"butler end reaction failed job=#{job.job_id}: {type(exc).__name__}")
+        delivery.runtime.log(f"main thread end reaction failed job=#{job.job_id}: {type(exc).__name__}")
 
 
 def supplements(state_dir, job) -> list[dict]:
@@ -375,5 +375,5 @@ def show_dropped(delivery) -> bool:
         # Under the body, never folded in a slim card's 详情: the owner has to see what to send again.
         return bool(text) and delivery.cards.set_task_element(ctx, job, md(text, element_id=DROPPED), under=True)
     except Exception as exc:  # noqa: BLE001 - only the list is missing
-        delivery.runtime.log(f"butler supplements not listed job=#{job.job_id}: {type(exc).__name__}")
+        delivery.runtime.log(f"main thread supplements not listed job=#{job.job_id}: {type(exc).__name__}")
         return False

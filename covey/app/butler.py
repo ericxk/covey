@@ -132,7 +132,7 @@ class Butler:
         nothing else says (acceptance on a test bot without Claude Code, 2026-11-15). '' otherwise."""
         if not contract.enabled() or self.topics.apps.get(HARNESS) is not None:
             return ""
-        return (f"butler is on but its Harness {HARNESS} is not enabled: private chat messages open topics "
+        return (f"main thread is on but its Harness {HARNESS} is not enabled: private chat messages open topics "
                 f"instead; enable {HARNESS} in harnesses.json or choose 纯话题 on the settings card")
 
     @staticmethod
@@ -165,10 +165,10 @@ class Butler:
         try:
             mode = butler_settings.settle_mode(ctx.state_dir)
         except (OSError, ValueError) as exc:
-            log(f"butler mode not settled: {type(exc).__name__}: {exc}"[:300])
+            log(f"main thread mode not settled: {type(exc).__name__}: {exc}"[:300])
             return
         if mode:
-            log(f"butler mode settled mode={mode}")
+            log(f"main thread mode settled mode={mode}")
 
     def app_for(self, ctx, event, owner):
         """The app that runs this message as the butler's, or None when it is not the butler's: not a chat
@@ -279,7 +279,7 @@ class Butler:
         def build(saved):
             root = read_object(root_path)
             if not root.get("workdir"):
-                raise ValueError("the butler's topic.json cannot be read")
+                raise ValueError("the main thread's topic.json cannot be read")
             data = {**{key: value for key, value in root.items() if key not in ("topic_id", "track")},
                     "topic_id": topic_id, "track": slot}
             for key in ("workdir", "workspace_name", "binding_revision"):  # ``write_topic`` moves these, nothing running.
@@ -332,12 +332,12 @@ class Butler:
                                            requeue=requeue)
             if job.start_held_until and (saved or {}).get("merged"):
                 job.start_held_until = time.time() + contract.HOLD_SECONDS if bare else 0
-                self.runtime.log(f"butler hold {'renewed' if bare else 'released'} job=#{job.job_id}")
+                self.runtime.log(f"main thread hold {'renewed' if bare else 'released'} job=#{job.job_id}")
         except SteerUncertain:
-            self.runtime.log(f"butler supplement uncertain job=#{job.job_id} message={message[-10:]}")
+            self.runtime.log(f"main thread supplement uncertain job=#{job.job_id} message={message[-10:]}")
             app.reply(ctx, chat, SUPPLEMENT_UNCERTAIN, app.key("main-supplement", message))
         except SteerRefused as exc:
-            self.runtime.log(f"butler supplement queued instead job=#{job.job_id}: {exc}")
+            self.runtime.log(f"main thread supplement queued instead job=#{job.job_id}: {exc}")
             return fresh() if fresh is not None else False
         if target is not None:
             self.tracks.noted("merged", chat, message, ctx=ctx, app=app)
@@ -373,7 +373,7 @@ def butler_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
         snapshot = take_snapshot(ctx, job.chat_id, key, save=not track,
                                  full=bool(track) or not session_id or (request is not None and not left_for_idle(request)))
     except Exception as exc:  # noqa: BLE001 - the owner's message goes on without it
-        log(f"butler snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
+        log(f"main thread snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
         snapshot = "[快照暂时读不到，需要时用 topics_list]"
     return ctx, butler_message(snapshot, prompt, digest_note(ctx, job, key, track, note, log))
 
@@ -427,7 +427,7 @@ def compact_butler(compaction, ctx, job) -> None:
             compaction.set_requested(ctx, job.job_id, tokens=tokens, threshold=threshold,
                                      idle=compaction.runtime.in_runner)
     except (OSError, ValueError) as exc:
-        compaction.runtime.log(f"butler compaction not requested job=#{job.job_id}: {type(exc).__name__}")
+        compaction.runtime.log(f"main thread compaction not requested job=#{job.job_id}: {type(exc).__name__}")
 
 
 def line(*parts) -> str:

@@ -78,12 +78,12 @@ class QuietDelivery:
             try:
                 dropped = butler_reply.dropped_lines(self.ctx.state_dir, job, refused)
             except Exception as exc:  # noqa: BLE001 - the notice without the list
-                self.runtime.log(f"butler supplements not listed job=#{job.job_id}: {type(exc).__name__}")
+                self.runtime.log(f"main thread supplements not listed job=#{job.job_id}: {type(exc).__name__}")
                 dropped = ""
         else:
             dropped = ""
         if stopped and not dropped:
-            self.runtime.log(f"butler turn stopped with no card job=#{job.job_id}: nothing sent")
+            self.runtime.log(f"main thread turn stopped with no card job=#{job.job_id}: nothing sent")
             sent.delivered = True
             return
         if stopped:
@@ -117,9 +117,9 @@ class QuietDelivery:
                                 actions, [ask] if ask else [])
             if not self.send_text(self.top_ctx(), job.chat_id, text, f"{self.prefix}-undelivered-{job.message_id}",
                                   card=built):
-                self.runtime.log(f"butler undelivered notice not sent job=#{job.job_id}")
+                self.runtime.log(f"main thread undelivered notice not sent job=#{job.job_id}")
         except Exception as exc:  # noqa: BLE001 - the record keeps the failure and its retry
-            self.runtime.log(f"butler undelivered notice failed job=#{job.job_id}: {type(exc).__name__}")
+            self.runtime.log(f"main thread undelivered notice failed job=#{job.job_id}: {type(exc).__name__}")
 
     def notice_preview(self, text) -> str:
         """The chat list's preview of a ``top_notice``: how the turn ended (as its reaction says it,

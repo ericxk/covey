@@ -240,15 +240,15 @@ class Cards:
         job.card_deferred = False
         progress = self.create_streaming_reply(ctx, job, render_stream_status(job, content or "执行中"))
         if not progress:
-            self.runtime.log(f"butler card not sent job=#{job.job_id}")
+            self.runtime.log(f"main thread card not sent job=#{job.job_id}")
             return False
         job.progress = progress
         try:
             upsert_job_record(ctx.state_dir, job_key(job.message_id, job.job_id), card_id=progress.card_id,
                               card_message_id=progress.message_id)
         except OSError as exc:  # The next state write saves it (core/jobs.py job_record_fields).
-            self.runtime.log(f"butler card not recorded job=#{job.job_id}: {type(exc).__name__}")
-        self.runtime.log(f"butler card sent after {butler.CARD_AFTER}s job=#{job.job_id} "
+            self.runtime.log(f"main thread card not recorded job=#{job.job_id}: {type(exc).__name__}")
+        self.runtime.log(f"main thread card sent after {butler.CARD_AFTER}s job=#{job.job_id} "
                          f"card_id={progress.card_id}")
         return True
 

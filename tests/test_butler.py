@@ -379,10 +379,10 @@ class PrivateModeTest(ButlerUnifiedCase):
         self.assertFalse((state / butler_settings.FILE).exists())
         session.Butler.settle(ctx, self.logs.append)
         session.Butler.settle(ctx, self.logs.append)
-        self.assertEqual([line for line in self.logs if 'mode' in line], ['butler mode settled mode=agent'])
+        self.assertEqual([line for line in self.logs if 'mode' in line], ['main thread mode settled mode=agent'])
         with mock.patch.object(butler_settings, 'settle_mode', side_effect=OSError('disk')):
             session.Butler.settle(ctx, self.logs.append)
-        self.assertEqual(self.logs[-1], 'butler mode not settled: OSError: disk')
+        self.assertEqual(self.logs[-1], 'main thread mode not settled: OSError: disk')
 
 
 class SupplementTest(ButlerUnifiedCase):
@@ -1466,4 +1466,4 @@ class HarnessNoteTest(unittest.TestCase):
             self.assertIn("纯话题", note)
             self.assertEqual(self.thread({session.HARNESS: object()}).harness_note(), "")
         with mock.patch.object(session.contract, "enabled", return_value=False):
-            self.assertEqual(self.thread({}).harness_note(), "", "the butler off: nothing to warn of")
+            self.assertEqual(self.thread({}).harness_note(), "", "the main thread off: nothing to warn of")
