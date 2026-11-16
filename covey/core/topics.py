@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from covey.core import devices, main_thread
+from covey.core import devices, main_thread, projects
 from covey.core.history_storage import history_lines
 from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK
@@ -91,6 +91,41 @@ def topic_traits(ctx) -> main_thread.Traits:
     except (OSError, ValueError, AttributeError):
         return main_thread.TOPIC
     return main_thread.traits_of(data) if isinstance(data, dict) else main_thread.TOPIC
+
+
+def topic_project(state_dir, topic_id):
+    """The ``project`` field of ``topic_id``'s topic.json (core/projects.py ``TopicProject``: id, role, chat_id), None
+    without one. Read by a stat, kept until the file changes; not gated by COVEY_PROJECTS."""
+    return projects.topic_project(state_dir, topic_id)
+
+
+def set_topic_project(state_dir, topic_id, project_id, role) -> bool:
+    """Write ``project`` {id, role} (core/projects.py: ``lead`` or ``thread``) into ``topic_id``'s topic.json, leaving
+    the rest of it as it is; whether it changed (False: the field was already that). Under the same locks as
+    ``topic_number`` (workspace ``LOCK``, then ``_LOCK``): the caller holds no network call and, if it holds a topic's lock
+    (core/locks.py topic_lock), takes these after it, as every topic.json rewrite does. A missing topic.json raises."""
+    field = projects.project_field(project_id, role)
+    path = topic_file(Path(state_dir), topic_id)
+    with LOCK, _LOCK:
+        data = read_json(path)
+        if data.get("project") == field:
+            return False
+        data["project"] = field
+        write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return True
+
+
+def clear_topic_project(state_dir, topic_id) -> bool:
+    """Take ``project`` out of ``topic_id``'s topic.json (a project turned back into a plain job: 不要专项); whether
+    there was one. A missing topic.json raises."""
+    path = topic_file(Path(state_dir), topic_id)
+    with LOCK, _LOCK:
+        data = read_json(path)
+        if "project" not in data:
+            return False
+        del data["project"]
+        write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return True
 
 
 def workspace_locked(ctx) -> bool:

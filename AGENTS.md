@@ -283,6 +283,7 @@
 | `core/process.py` | Which processes belong to whom |
 | `core/process_env.py` | Environment for backend child processes, and on/off switches read from the environment |
 | `core/procfs.py` | A process's /proc/<pid>/stat and this boot's id, read one way for every reader in the package |
+| `core/projects.py` | 专项: a long job the main thread's butler hands to one lead topic (the 负责人) that dispatches and follows several … |
 | `core/protocol.py` | Versioned public Harness events |
 | `core/providers.py` | Where a Harness's models come from, in one table |
 | `core/proxy.py` | Proxy replies (代答): the owner's whitelist of chats and each batch of their messages taken in |

@@ -433,6 +433,19 @@ cancelled、superseded：终态
 
 **关着时不变**：关开关，或开了但 `devices.json` 里没有设备，不读文件、不建 `<状态目录>/devices/`、不起线程，上下文、任务记录里没有 `device` 字段，卡片 JSON 和 `runs/` 协议同旧；新增代码都以「记录或上下文里有 `device`」为前提。验证它：`tests/golden/run_dir.json` 和 `cards.json` 无 diff、`golden_trace` 对关着的模块无差异、`scripts/cross_release.py` 的 `devices-empty-new` 场景等于关着，以及回滚场景 `device-rollback`（[测试](testing.md#任务进程协议与跨版本检查)）。真机验收还在进行，所以默认关。
 
+## 专项（第 2 期，开发中，默认关）
+
+专项是主线程管家交给一个隐藏的负责人话题、由它派发并跟进若干线程话题的长活（设计见第 2 期的专项设计稿）。**现在只有底座**：记录、角色和看板的格，没有入口（升级、专项卡、负责人运行是后面的包）；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
+
+- **记录** `<state>/projects/<id>.json`（`core/projects.py`，只用标准库，MCP 服务会导入）：`id`（6 到 32 位 `0-9a-z`）、`chat_id`、`name`、`goal`、`state`、`lead_topic_id`、`threads`（线程话题 id）、`origin`、`steps`（升级逐步记账，重做时跳过已做的）、`card`（专项卡的 `card_id`、`message_id`、`sequence`）、`created_at`、`updated_at`。给第 3 期留的 `direction`、`leader`、`claims`、`agreements`、`place` 只写不读。读写在 `resource_lock("record", …)` 下，锁内不发网络请求（规则 1）。
+- **状态** 只按 `PROJECT_TRANSITIONS` 前进（规则 4）：`active` → `paused`、`done`、`cancelled`；`paused` → `active`、`done`、`cancelled`；`done`、`cancelled` 是终态。`update` 改状态前先查表，不合法抛 `ValueError`、什么都不写。
+- **角色** 写在话题自己的 `topic.json` 里：`project: {id, role}`，`role` 是 `lead` 或 `thread`（`core/topics.py` 的 `set_topic_project`、`clear_topic_project`、`topic_project`）。读 `project.role` 一次 `stat`，文件变了才重读（`core/projects.py` 的 `topic_project`，写入换 inode，所以缓存立刻失效）。
+  - **负责人**（`lead`）：话题 id 是 `lead_topic_id(chat, pid)`（`sha256("project-lead\0<pid>\0<chat>")` 取 32 位十六进制，不和主线程、路的 id 相撞，也不是任何消息的别名）；`is_lead_topic` 还核对这个 id，别的会话里抄来的 `topic.json` 不算。它属于主线程家族：`is_main_topic` 认它，`is_main_root` 不认；`Traits` 是 `LEAD`（主线程关着时 `LEAD_OFF`），放置角色 `lead`（回复只在主人触发的轮里发到顶层，不回带，不放问题卡副本，不开串）。
+  - **线程**（`thread`）：还是普通话题（`Traits` 是 `TOPIC`），放置角色 `project_thread`：答案留在话题串，结论和停止不回带到顶层（以后改投负责人收件箱），只有到主人的问题才在顶层放副本。
+  - `core/placement.py` 的 `plan(state_dir, of)` 读 `topic.json` 的角色，所以升级在跑的那一轮立即生效；传 `Traits` 行进去的人看不到线程的角色（它不带话题 id），要传任务、记录或 `{"topic_id", "chat_id"}`。
+- **看板** `core/board_read.py` 的 `groups` 收一个 `cells`（`read` 带，来自 `core/projects.py` 的 `cells`，没取消的专项的线程 → 负责人 id）：一个专项一格，格的键是负责人话题 id。同一格里最新的问题在等；在做的取先在跑再排队、再取最新（任务号是 Bridge 的全局计数，跨话题也能比）；结果取各线程最新一条里“主人没看过的最后结束的那条”，没有就取最后结束的。所以一条没看过的旧结果不会被一条看过的新结果盖掉，但一格只钉一个。手上的事、早晚汇总直接读任务记录，现在还不并格。
+- **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
+
 ## 执行指标口径
 
 任务卡和任务详情上 token、缓存、平均 token/s 和 TTFT 的共同口径（面板见[任务卡与执行过程](usage.md#任务卡与执行过程)，延迟字段见[健康诊断](troubleshooting.md#健康诊断)）；各后端从哪里取数见 [Harness 说明](harnesses.md)各节的“执行指标”。

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from covey.app import answer_cards
 from covey.cards.relay_card import WAITING
-from covey.core import main_opened, main_thread, placement
+from covey.core import main_opened, placement
 from covey.core.jobs import find_job_record, job_field, job_key
 from covey.core.store import directory_store
 from covey.core.topics import topic_label
@@ -73,7 +73,7 @@ def areas_of(state_dir, main_job_key) -> set:
 def relays(state_dir, topic_id, chat) -> bool:
     """Whether the turns of ``topic_id`` relay at all: its row of core/placement.py has a conclusion. A topic's does;
     none with the main thread off."""
-    return placement.plan(state_dir, main_thread.traits(topic_id, chat)).row.conclusion != placement.NONE
+    return placement.plan(state_dir, {"topic_id": topic_id, "chat_id": chat}).row.conclusion != placement.NONE
 
 
 def area_target(state_dir, topic_id, chat=""):

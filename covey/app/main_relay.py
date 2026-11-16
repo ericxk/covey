@@ -176,8 +176,9 @@ def after_runner(gateway, job, ctx) -> None:
     try:
         if not main_thread.available():  # Not only with it on: a card handed on before the owner chose 纯话题 too.
             return
-        if not main_thread.is_main_topic(job_field(job, "topic_id"), job_field(job, "chat_id")):
-            return
+        topic, chat = job_field(job, "topic_id"), job_field(job, "chat_id")
+        if not main_thread.is_main_topic(topic, chat) or main_thread.is_lead(topic, chat):
+            return  # A project's lead is of the family, but quoting its card stays the lead's (core/projects.py).
         state = Path(ctx.state_dir)
         key = job_key(str(job_field(job, "message_id")), job_field(job, "job_id"))
         areas = areas_of(state, key)

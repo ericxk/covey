@@ -1,8 +1,10 @@
 """Where a turn's words go in the private chat (docs/main-thread.md 放置表): one table, the layout by the role.
 
 The layout is the deployment's and the owner's (``layout``): "topics" with the main thread off (core/main_thread.py
-``enabled``), else "area" (the 话题区). The role is the topic's (core/main_thread.py Traits): the main thread ("main",
-MAIN_OFF too) or a topic ("topic"). The front-desk layout and role (desk_topics, 11-07) were retired on 2026-11-09
+``enabled``), else "area" (the 话题区). The role is the topic's: the main thread ("main", MAIN_OFF too) or a topic
+("topic") by core/main_thread.py Traits, and with COVEY_PROJECTS on a project's lead ("lead", LEAD_OFF too: Traits) or
+one of its threads ("project_thread": topic.json's ``project.role``, core/projects.py, read by a stat and kept until
+the file changes, so a topic upgraded into a project is one from its next ``plan`` on). The front-desk layout and role (desk_topics, 11-07) were retired on 2026-11-09
 and their topics frozen on 2026-11-10 (core/migrate.py desk-retire).
 
 Each cell names a place: TOP a new message at the chat's top level quoting no card (a "你问" block on it when the row
@@ -13,18 +15,20 @@ Standard library and core only: cards/streaming.py may read it.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
-from covey.core import main_thread
+from covey.core import main_thread, projects
 from covey.core.jobs import job_field
 from covey.core.main_thread import Traits
 
 TOP, THREAD, CARD, NONE = "top", "thread", "card", ""
 AREA, TOPICS = "area", "topics"  # The layouts.
-MAIN_ROLE, TOPIC_ROLE = "main", "topic"
+MAIN_ROLE, TOPIC_ROLE, LEAD_ROLE, THREAD_ROLE = "main", "topic", "lead", "project_thread"
 ROUTES = "routes"  # When an answer is its task card's body (``answer_on_card``).
 # Traits.name → role: the main thread's topic is the main thread whether its session runs (MAIN) or not (MAIN_OFF).
-ROLES = {"main": MAIN_ROLE, "main_off": MAIN_ROLE, "topic": TOPIC_ROLE}
+ROLES = {"main": MAIN_ROLE, "main_off": MAIN_ROLE, "topic": TOPIC_ROLE, "lead": LEAD_ROLE, "lead_off": LEAD_ROLE}
+# THREAD_ROLE is no Traits row's: a thread is a topic (TOPIC) by its Traits, a project's by its topic.json (``plan``).
 
 
 @dataclass(frozen=True)
@@ -66,9 +70,22 @@ TABLE = {
                            stop=NONE, question_copy=TOP, ask_block=True, status_card=False, quiet=True),
     (AREA, TOPIC_ROLE): Row(reply_top_level=None, answer=THREAD, answer_on_card=NONE, conclusion=TOP,
                             stop=TOP, question_copy=TOP, ask_block=True, status_card=False, answer_head=True),
-    # The main thread off: every reply in its thread, nothing relayed (MAIN_OFF and TOPIC are the only rows then).
+    # A project's lead (docs/architecture.md 专项): hidden, no thread of its own, quiet like the main thread; its words
+    # go to the top level only in a turn the owner started (a wake-up turn's are dropped unless it reported, phase 2's
+    # app/project_lead.py), nothing relayed, no question card copy (what the owner must answer comes by the question
+    # card of the thread's turn).
+    (AREA, LEAD_ROLE): Row(reply_top_level=False, answer=TOP, answer_on_card=NONE, conclusion=NONE,
+                           stop=NONE, question_copy=NONE, ask_block=True, status_card=False, quiet=True),
+    # A project's thread: a topic whose answer stays in its thread; its conclusion and stop do not go back to the top
+    # level (they go to the lead's inbox, phase 2), and only a question that reaches the owner is copied there.
+    (AREA, THREAD_ROLE): Row(reply_top_level=None, answer=THREAD, answer_on_card=NONE, conclusion=NONE,
+                             stop=NONE, question_copy=TOP, ask_block=True, status_card=False, answer_head=True),
+    # The main thread off: every reply in its thread, nothing relayed (MAIN_OFF and TOPIC are the only rows then; a
+    # project needs the main thread, so its rows here are for what is left of one when it is turned off).
     (TOPICS, MAIN_ROLE): _TOPICS,
     (TOPICS, TOPIC_ROLE): _TOPICS,
+    (TOPICS, LEAD_ROLE): _TOPICS,
+    (TOPICS, THREAD_ROLE): _TOPICS,
 }
 
 
@@ -89,12 +106,25 @@ def layout() -> str:
     return AREA if main_thread.enabled() else TOPICS
 
 
+def _topic_of(of) -> str:
+    """The topic id ``of`` names ('' for a Traits row, which names none)."""
+    if isinstance(of, Mapping):
+        topic = of.get("topic_id")
+    else:
+        topic = None if isinstance(of, Traits) else getattr(of, "topic_id", "")
+    return topic if isinstance(topic, str) else ""
+
+
 def plan(state_dir, of) -> Placement:
     """The placement of ``of`` (as core/main_thread.py traits_of takes it: a job, a record, topic.json or a Traits
-    row) in the layout now (``layout``; ``state_dir`` is not read, kept for the callers)."""
+    row) in the layout now (``layout``). The role is its Traits row's, and for a topic with COVEY_PROJECTS on, THREAD_ROLE
+    when its topic.json says it is a project's thread (``state_dir`` is read for that alone; a Traits row names no
+    topic, so a caller that wants the thread's role passes the job, the record or {"topic_id": ..., "chat_id": ...})."""
     traits = main_thread.traits_of(of)
     where = layout()
     role = ROLES.get(traits.name, TOPIC_ROLE)
+    if role == TOPIC_ROLE and state_dir and projects.enabled() and projects.is_thread_topic(state_dir, _topic_of(of)):
+        role = THREAD_ROLE
     return Placement(traits, where, role, TABLE[(where, role)])
 
 

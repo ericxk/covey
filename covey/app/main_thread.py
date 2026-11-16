@@ -145,7 +145,7 @@ class MainThread:
         def top_level(chat, message):
             if not contract.enabled():
                 return False
-            return placement.plan(state, contract.traits(message_topic(state, chat, message), chat)).top_level()
+            return placement.plan(state, {"topic_id": message_topic(state, chat, message), "chat_id": chat}).top_level()
 
         configure_top_level(top_level if contract.available() else None)
         contract.configure_state(state)  # The mode (core/main_thread.py enabled).

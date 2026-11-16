@@ -411,6 +411,7 @@ Bridge 的 maintenance 线程每小时检查一次（`core/maintenance.py`，计
 | 多路并行里路的 Claude 会话文件 | 按 `main-thread/tracks/` 账本里的 `session_id`，那一轮结束满 3 天、文件 3 天没改没读的删（`remove_track_sessions`）；不在账本里的不动 |
 | `runs/` 运行目录 | 任务进程已不在、最新文件早于 7 天的删除；任务记录和执行过程保留 |
 | 代答批次 `proxy/batches/` | 只删已结束且 30 天没改动的 |
+| 专项记录 `projects/`（`COVEY_PROJECTS`，开发中） | 只删状态是 `done` 或 `cancelled` 且 180 天没改动的，连同它的 `projects/<id>/` 目录（`remove_projects`）；`active`、`paused` 的不动 |
 | 锁文件 `.locks/` | 记录已不存在或 7 天未改动的删除；`cards/.locks/` 里没人持有的都删 |
 | `job-diffs/` | 超过 30 天的删除；总量超过 200 MiB 时从最旧的删，但只删云空间上传已确认的，一天内写的不删 |
 | 备份 | 最多 7 份、合计不超过 400 MiB，超出时从最旧的删，最新一份总保留；重启打断留下的 `.tmp` 一天后删 |

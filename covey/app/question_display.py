@@ -120,7 +120,7 @@ class QuestionDisplay:
         from covey.app.relay_targets import area_target, ask_for
 
         chat, token = record.get("chat_id") or "", record.get("token") or ""
-        place = placement.plan(ctx.state_dir, main_thread.traits(record.get("topic_id"), chat))
+        place = placement.plan(ctx.state_dir, {"topic_id": record.get("topic_id"), "chat_id": chat})
         if (not place.row.question_copy or record.get("status") != "pending" or record.get("display_pending")):
             return ""
         target = (area_target(ctx.state_dir, record["topic_id"], chat) if place.traits.relays

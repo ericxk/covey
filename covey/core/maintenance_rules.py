@@ -21,6 +21,7 @@ from covey.core.jobs import (FINISHED_UNREAD_FIELDS, job_file, read_job_record, 
 from covey.core.locks import LOCK, remove_unused_lock
 from covey.core.maintenance_report import mib, stale_lines, tree_bytes
 from covey.core.process import paths_in_use
+from covey.core.projects import CANCELLED, DONE, valid_id
 from covey.core.proxy import BATCH_TRANSITIONS
 from covey.core.run_dir import RUNS, runner_alive, runner_info
 from covey.core.stale import STALE_DAYS, stale_records
@@ -47,7 +48,7 @@ DIFF_BYTES = 200 * 1024 * 1024
 
 # cards/ holds only the lock files of cards (core/locks.configure_card_locks): with no record beside them, each
 # goes once no one holds it, and is made again by the next write.
-LOCK_DIRS = ("jobs", "questions", "held-notes", "interaction-deliveries", "cards", "answer-cards")
+LOCK_DIRS = ("jobs", "questions", "held-notes", "interaction-deliveries", "cards", "answer-cards", "projects")
 
 
 # main-thread/tracks (core/track_ledger.py): a track's ledger record stays this long (the Temporary rule); the track's
@@ -57,6 +58,11 @@ TRACK_SESSION_DAYS = 3
 
 # 代答 batches that ended (no state follows in BATCH_TRANSITIONS) go after this many days; open ones stay.
 PROXY_BATCH_DAYS = 30
+
+
+# projects/ (core/projects.py): a 专项's record that ended (done or cancelled) goes after this many days, its folder
+# (<id>/, where its memory, library and inbox will be) with it; one still active or paused stays.
+PROJECT_DAYS = 180
 
 
 def archive_file(path):
@@ -189,6 +195,10 @@ FINISHED_BATCHES = frozenset(state for state, following in BATCH_TRANSITIONS.ite
 
 def _ended_batch(path):
     return read_object(path).get("status") in FINISHED_BATCHES
+
+
+def _ended_project(path):
+    return read_object(path).get("state") in (DONE, CANCELLED)
 
 
 class Run:
@@ -445,6 +455,28 @@ class ProxyBatches(Rule):
                 path.unlink(missing_ok=True)
 
 
+class ProjectRecords(Rule):
+    """A 专项's record (projects/<id>.json, core/projects.py) that ended (done or cancelled) and is unchanged that long:
+    removed with its folder projects/<id>/. An active or paused one stays."""
+    keys = ("remove_projects",)
+    days = PROJECT_DAYS
+    title = "删除已结束的专项记录（projects/）"
+
+    def select(self, run):
+        folder, cutoff = run.state / "projects", run.cutoff(self.days)
+        if not folder.is_dir():
+            return []
+        return [str(p) for p in sorted(folder.glob("*.json"))
+                if valid_id(p.stem) and not p.is_symlink() and _untouched_since(p, cutoff) and _ended_project(p)]
+
+    def apply(self, run, plan):
+        for name in plan[self.keys[0]]:
+            path = Path(name)
+            if valid_id(path.stem) and _ended_project(path) and _untouched_since(path, run.cutoff(self.days)):
+                path.unlink(missing_ok=True)
+                _remove_tree(path.parent / path.stem)
+
+
 class TrackSessions(Rule):
     """The Claude session file of a track of the main thread (core/main_tracks.py) whose turn ended TRACK_SESSION_DAYS
     ago: removed. The track forks the main thread's session on every request, so each leaves a transcript of its own
@@ -627,12 +659,12 @@ class Stale(Rule):
 HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS = History(), Checkpoints(), Traces(), SlimRecords()
 TEMPORARY, RUNS_DIRS, PROXY_BATCHES, JOURNALS = Temporary(), Runs(), ProxyBatches(), Journals()
 LOCKS, DIFFS, BACKUPS, STALE = Locks(), Diffs(), Backups(), Stale()
-TRACK_SESSIONS = TrackSessions()
+TRACK_SESSIONS, PROJECT_RECORDS = TrackSessions(), ProjectRecords()
 
 
 # Every rule, in the order of the plan's keys (then "backup", the run's own, named by maintain).
 RULES = (HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, LOCKS, DIFFS, BACKUPS, STALE,
-         JOURNALS, TRACK_SESSIONS)
+         JOURNALS, TRACK_SESSIONS, PROJECT_RECORDS)
 
 
 class _NoJob(Rule):
@@ -644,12 +676,12 @@ class _NoJob(Rule):
 
 # The order the cleanup carries them out in. The steps under LOCK first; after _NoJob, outside LOCK: nothing a
 # job that starts now uses, and each item is checked again. Old backups go in maintain, stale records in close_stale.
-CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, TRACES, SLIM_RECORDS,
-           JOURNALS, LOCKS, DIFFS)
+CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, PROJECT_RECORDS, TRACES,
+           SLIM_RECORDS, JOURNALS, LOCKS, DIFFS)
 
 
 # The plan's keys of what a cleanup removed, in RULES' order: maintenance_loop logs how many of each.
 REMOVALS = tuple(key for rule in RULES for key in rule.keys if key.startswith("remove_"))
 # The order --dry-run lists them in.
-DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, TRACK_SESSIONS, PROXY_BATCHES, RUNS_DIRS, LOCKS,
-           DIFFS, STALE)
+DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, TRACK_SESSIONS, PROXY_BATCHES, PROJECT_RECORDS,
+           RUNS_DIRS, LOCKS, DIFFS, STALE)

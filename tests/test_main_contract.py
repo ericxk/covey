@@ -286,8 +286,9 @@ class PlacementTest(unittest.TestCase):
     def test_every_layout_and_role_has_a_cell(self):
         p = self.placement
         self.assertEqual(set(p.TABLE), {(layout, role) for layout in (p.AREA, p.TOPICS)
-                                        for role in (p.MAIN_ROLE, p.TOPIC_ROLE)})
-        self.assertEqual(set(p.ROLES.values()), {p.MAIN_ROLE, p.TOPIC_ROLE})
+                                        for role in (p.MAIN_ROLE, p.TOPIC_ROLE, p.LEAD_ROLE, p.THREAD_ROLE)})
+        # A project's thread is no Traits row's (core/placement.py plan reads its topic.json); the lead is (LEAD).
+        self.assertEqual(set(p.ROLES.values()), {p.MAIN_ROLE, p.TOPIC_ROLE, p.LEAD_ROLE})
 
     def test_the_cells_the_call_sites_read(self):
         p = self.placement
@@ -324,7 +325,7 @@ class NoNameComparisonTest(unittest.TestCase):
     """The call sites read Traits fields and placement cells; only core/main_thread.py and core/placement.py compare
     a row's name with a role (docs/main-thread.md 和话题的不同)."""
 
-    ROLES = {"main", "main_off", "topic"}
+    ROLES = {"main", "main_off", "topic", "lead", "lead_off", "project_thread"}
     ALLOWED = {"core/main_thread.py", "core/placement.py"}
 
     def roles_in(self, node):
