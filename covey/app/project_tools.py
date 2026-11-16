@@ -139,6 +139,8 @@ def project_style(env, request):
     text = "汇报风格：" + "；".join(f"{name}={value}" for name, value in now.items())
     # One style line in the memory (the last word the owner gave), written with the record's style field.
     project_memory.set_style(env.state_dir, pid, text, also=lambda data: data.__setitem__("style", now))
+    if projects.style_keep_enabled():
+        project_lead.keep_style(env.state_dir, now)  # The next project starts from it.
     return reply(True, "已改风格：" + "；".join(f"{name}={value}" for name, value in now.items()), style=now)
 
 

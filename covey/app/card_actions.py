@@ -59,6 +59,12 @@ ACTIONS = {
     "bridge_project_lib_del": CardAction("删专项资料", handler="controls.project_lib_del"),
     "bridge_project_triage_wrong": CardAction("纠正分流", handler="controls.project_triage_wrong"),  # COVEY_PROJECT_TRIAGE=1
     "bridge_project_triage_fix": CardAction("提交纠正", bot_only=True, handler="controls.project_triage_fix"),  # Queues a message in the member topic.
+    # The pause card's buttons (COVEY_PROJECT_ASK=1, cards/project_card.py ask_card): 继续 and 收尾 start the project again and
+    # wake its lead (a turn of the bot's own schedule: bot_only, never forwarded to a task runner); 停 stops tasks as
+    # 停止专项 does, which is not bot_only. The value names a project like the 专项卡's.
+    "bridge_project_ask_continue": CardAction("专项停住后继续", bot_only=True, handler="controls.project_ask"),
+    "bridge_project_ask_finish": CardAction("专项停住后收尾", bot_only=True, handler="controls.project_ask"),
+    "bridge_project_ask_stop": CardAction("专项停住后停下", handler="controls.project_ask"),
     "bridge_steer_status": CardAction("检查送达状态", handler=QUESTIONS),
     "bridge_steer_requeue": CardAction("重新排队执行", bot_only=True, handler=QUESTIONS),
     "bridge_steer_withdraw": CardAction("撤回补充", handler=QUESTIONS),

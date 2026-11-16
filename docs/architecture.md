@@ -466,7 +466,7 @@ cancelled、superseded：终态
   - **回执谁写**：`thread_end`（专项的话题的一轮结束：一句话结论、状态、任务号）和 token 累加都由 **Bridge** 在任务进程退出后写（`butler_relay.after_runner` 的第一步调 `project_loop.after_runner`，所有任务结束的路径都经过它；规则 8 让任务进程只改本任务的卡和记录，写别的专项的收件箱和记录不算在内，所以放 Bridge 这边，旧任务进程也一样有回执）；`owner_said`（主人在专项的话题里直接说话）在 Bridge 收消息处（`app/app.py` `handle_event`）写；`stalled` 由循环写。`question` 留给 P2-5。回执一律经 `add_receipt`。
   - **主人触发的轮**：负责人话题里 message id 不以 `lead-` 开头的轮（主人引用专项卡回复、管家 `project_send` 转交、回答的续接）。它入队时（`submission.enqueue_chat_job` → `project_loop.owner_turn`）把 `wakes` 的连续计数和最近一小时的记录清零、清掉停滞标记，并把因护栏（`tokens`、`wakes`、`stalled`）或主人点了停止专项而停住的专项恢复成 `active`；`tokens` 停住的从已用的数目重新开一份预算（`token_floor`），否则下一遍就又停了。主人在专项的话题里说话（`owner_said`）也清连续计数。
   - **Bridge 自造的消息 id**：唤醒轮的 `lead-<pid>-<n>` 和管家转交用的别名 `project-lead-<id>`（`projects.own_message`）在飞书里没有：回复不引用它（`core/topics.py` 的 `context_for_topic` 把 `reply_to` 留空，答案是聊天区的新消息），答案顶上也不画“你问”块（`app/answer_cards.py` 的 `asked`）。accept7 时转交那一轮的卡先回复别名两次被拒，才改发到顶层。
-  - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`；设计稿里停滞时发问题卡的一段没做）。
+  - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`）。`COVEY_PROJECT_ASK=1` 时还发一张停住卡问主人继续、收尾还是停（见[管家 · 专项停住后问主人](butler.md#专项停住后问主人开关默认关)）；`COVEY_PROJECT_STALL_SECONDS` 能调小停滞的时间。
     - token：负责人和各话题任务的合计（任务的输入含缓存加输出，子任务算在内）每个任务结束时累加进 `tokens_used`，每个任务只算一次（`token_jobs` 记键）；到 `COVEY_PROJECT_TOKENS`（默认 1000 万）停。
     - 唤醒：无人介入连续 30 次，或最近一小时 12 次，停。
     - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：专项 `active`，负责人和话题都没有没结束的任务，没有未读回执，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是话题任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。

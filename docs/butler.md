@@ -437,6 +437,30 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **实验 E2**（扣住的问题会不会被当成“没投出去”）：`undelivered_jobs` 看任务记录的 `delivery_ok`、`question_delivery_ok`、`checkpoint_question_error`，扣住时 `deliver` 照样返回真、任务记录的 `question_delivery_ok` 是真，所以不重投；恢复判定 `core/recovery.py` 的 `classify` 只读任务记录，结果和问题卡已发出的一样。**Bridge 重启**：`recover_question_delivery` 原来把“有 `display_pending` 的检查点问题”当成没送出去，把任务改成 `failed`、`question_delivery_ok: false`，所以这里加了一条：扣住的问题跳过（重启后由 `sweep` 照常接着数 180 秒）。**任务进程**：问题记录是它自己的文件，`route` 只写这一个文件；扣住时任务进程不发卡也不碰收件箱，活问题的任务进程照常等答案，答案经 Bridge 的 `submit_answer` 转给它。`tests/test_project_triage.py` 的 `HeldDeliveryTest`、`HeldLiveQuestionTest` 逐条验证。
 - **实验 E4**（词表回放）：用现网近 30 天的 1162 条问题记录的文字回放（只读，文中只写计数）：755 条全是选择题、407 条有自由文字的；词表第一版（含“线上”“token”“预算”“清理”“回滚”“覆盖”）命中 358 条，抽 45 条人工看约 20% 是误报（`token` 多是模型 token、`清理`多是“清理阶段”、`线上` 多是“线上已有 3 次”）；去掉这几个、加上漏报里看到的“停用”“排空”“批一份”“覆盖画板”后命中 301 条（选择题的 40%），其余 454 条会交给负责人；对这 454 条抽 40 条人工看，约 3 条（7%）该是主人的，补进词表后剩下的靠负责人自己判断、3 分钟超时和“不对”兜底。
 
+### 专项停住后问主人（开关默认关）
+
+`COVEY_PROJECT_ASK=1` 时，护栏停住专项（`state_reason` 是 `tokens`、`wakes`、`stalled`，见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)），`ProjectLoop.pause` 在同一次写记录里加一份 `pause_ask`：`{reason, why, at, choice, halted, card}`；`ProjectCards`（`ask`）看到它，在专项卡所在的位置（聊天区的一条新消息，不回复，别名路由到负责人话题）发一张**停住卡**（`cards/project_card.py` 的 `ask_card`）：卡头专项名 + 橙色“停住”标签；`pa_why` 用一句话写为什么停（`project_loop.pause_words`：“token 用到上限 1000 万”“负责人连续叫醒 30 次没有你的消息”“负责人一小时内叫醒了 12 次”“62 分钟没有进展”）；`pa_note` 写在做的话题怎么样了；三个按钮 `pa_go` 继续、`pa_wrap` 收尾、`pa_stop` 停。
+
+- **三个按钮**：`bridge_project_ask_continue`、`_finish`（`bot_only`：它们让负责人再跑一轮，是 Bridge 自己的安排，不转给任务进程）、`_stop`（不是 `bot_only`，和停止专项一样），`handler` 都是 `controls.project_ask`（`project_cards.ask_choice`）。点击先在记录锁里记选择（`project_loop.answer_pause`：只有专项还因这个原因停着、这张卡是当前这次停住的卡、还没选过才算数；否则回一句“选择已经做过了”“这是之前一次停住的卡”等，什么都不改），再做事：
+  - **继续**：专项回到 `active`，唤醒计数清零（和主人自己在负责人话题里说话一样，`project_loop.reopen`）；`tokens` 停住再给一份预算（`token_floor`）；给负责人一条 `owner_choice` 回执，它永远唤醒负责人。
+  - **收尾**：同样把专项重新开起来（否则没有人叫醒负责人），回执要负责人总结做完了什么、还有什么没做完，用 `project_note` 标 report 告诉主人，然后调 `project_finish`（还有话题在做时它会拒绝，等它们结束再收尾）。
+  - **停**：记录仍是 `paused`，`state_reason` 改成“主人停止”，并停掉负责人和各话题里排队或在跑的任务（`project_cards.stop_tasks`，和停止专项同一个做法）；`tokens` 停住后选停的，之后主人在负责人话题里说话把它开起来时，照样给一份新预算（`token_floor`），不会马上又停。
+- **在做的话题**：`tokens` 停住时 `ProjectLoop` 同时请专项的话题里排队、在跑的任务停下（`stop_tasks`，把卡上“停止”的点击转给任务进程），数记进 `pause_ask.halted`，卡上写“在做的 N 个话题已请它们停下”；`wakes` 停住不停它们，卡上写“不受影响”；`stalled` 本来就没有。
+- **点了以后**：`ProjectCards` 把这张卡整卡写成一行（“你选了继续 / 收尾 / 停”），专项卡下一次刷新自然变成在做或停住。专项被别处处理了（主人在负责人话题里直接说话、负责人收尾）而没点，这张卡缩成“已在别处处理”。每张卡的写入用它自己的 sequence（`pause_ask.card`），不会和专项卡的混。
+- **试用**：`COVEY_PROJECT_TOKENS=<小数>` 一会儿就停住；`COVEY_PROJECT_STALL_SECONDS=60` 并开 `COVEY_PROJECT_AUTOWAKE=1`，一个没有任务的专项约两分钟后停住。唤醒次数的上限不能调。
+
+### 汇报风格的默认值（开关默认关）
+
+`COVEY_PROJECT_STYLE_KEEP=1` 时，负责人用 `project_style` 改风格时，整份风格（`report`、`detail`、`spawn`）也记进 `<state>/project-style.json`；之后转成专项、直接开的新专项的记录从这份风格开始（`Projects.seed_style`），负责人的规则和状态包里就是它。已有的专项不动，负责人随时还能改。
+
+### 方向标签（开关默认关）
+
+`COVEY_DIRECTIONS=1` 时：主人的事分成几个方向（`<state>/directions.json`：`{"directions": [{name, aliases[], repos[], status}]}`，`core/directions.py`）；开着时派发卡和专项卡的卡头多一个灰色标签写方向，记录里写 `direction: {name, source}`（`source` 是 `owner`、`repo`、`butler`）。
+
+- **谁说了算**，从高到低：主人明确说了（管家 `topic_start` 的 `direction` 带 `direction_by_owner: true`）；工作目录或仓库命中某个方向的 `repos`（绝对路径：目录在它下面；`owner/repo` 这样的名字：路径里有这几级目录）；管家开话题、开专项时填的 `direction`（从工具说明里列的已知方向里选，也可以起新名）；都没有就不显示。**只按工作区不判断**：工作区不会产生方向，只有方向自己的 `repos` 会命中。
+- **新名先当候选**：第一次出现写成 `candidate`，第二次用到（另一次请求、另一个专项）变 `active`，只有 `active` 的才画标签；同一个请求重做不算第二次。方向的种子和别名由主人自己写进 `directions.json`。
+- **在哪**：派发卡 `Dispatch.direction`、专项卡 `Project.direction`，都是卡头的 `text_tag`（`neutral`，最多 12 个字）；派发记录的 `direction` 转成专项时原样带过去（那一次使用已经记过）。卡头多一个标签，要真客户端验收。
+
 ## 代码位置
 
 | 模块 | 职责 |

@@ -352,6 +352,41 @@ RESUMABLE = (*GUARD_REASONS, OWNER_STOP)
 REASON_WORDS = {"tokens": "token 用完了", "wakes": "连续唤醒次数到上限", "stalled": "很久没有动静"}
 
 
+ASK_ENV = "COVEY_PROJECT_ASK"  # ``1``: a project a guard paused sends the owner a card (继续 / 收尾 / 停); else it only shows 停住.
+STALL_ENV = "COVEY_PROJECT_STALL_SECONDS"  # Seconds of idle for one reminder (and as long again for the pause); STALL_SECONDS when unset.
+STYLE_KEEP_ENV = "COVEY_PROJECT_STYLE_KEEP"  # ``1``: a new project starts with the style last set on any project.
+
+
+def ask_enabled() -> bool:
+    """Whether COVEY_PROJECT_ASK=1 (and COVEY_PROJECTS=1): a guard's pause is put to the owner on a card of its own."""
+    return enabled() and str(cenv.get(ASK_ENV, "")).strip() == "1"
+
+
+def style_keep_enabled() -> bool:
+    """Whether COVEY_PROJECT_STYLE_KEEP=1 (and COVEY_PROJECTS=1): the style set last is the next project's start."""
+    return enabled() and str(cenv.get(STYLE_KEEP_ENV, "")).strip() == "1"
+
+
+def stall_seconds() -> int:
+    """How long a project may be idle before the lead is reminded (and as long again before it is paused):
+    COVEY_PROJECT_STALL_SECONDS, else STALL_SECONDS (also for a value that is not a positive integer)."""
+    try:
+        value = int(str(cenv.get(STALL_ENV, "")).strip())
+    except ValueError:
+        return STALL_SECONDS
+    return value if value > 0 else STALL_SECONDS
+
+
+def count_words(number) -> str:
+    """A token count as the owner says it: 1000 万, 2.5 亿, 8000."""
+    number = int(number)
+    for unit, word in ((10 ** 8, "亿"), (10 ** 4, "万")):
+        if number >= unit:
+            value = number / unit
+            return f"{int(value) if value == int(value) else round(value, 1)} {word}"
+    return str(number)
+
+
 def autowake_enabled() -> bool:
     """Whether every kind of receipt wakes the lead (COVEY_PROJECTS=1 and COVEY_PROJECT_AUTOWAKE=1)."""
     return enabled() and str(cenv.get(AUTOWAKE_ENV, "")).strip() == "1"

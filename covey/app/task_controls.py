@@ -262,6 +262,11 @@ class TaskControls(Redelivery):
         from covey.app import project_cards
         return project_cards.stop_project(self, ctx, event)
 
+    def project_ask(self, ctx, event):
+        """继续, 收尾 or 停 on the card a guard's pause sent (COVEY_PROJECT_ASK=1): see app/project_cards.py ask_choice."""
+        from covey.app import project_cards
+        return project_cards.ask_choice(self, ctx, event)
+
     def project_downgrade(self, ctx, event):
         """不要专项 on a 专项卡: P2-3's (app/project_cards.py downgrade); says so while it is not wired."""
         from covey.app import project_cards

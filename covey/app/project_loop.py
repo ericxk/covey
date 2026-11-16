@@ -13,6 +13,11 @@ when something happened since it last looked, and the mechanical checks that sto
   receipt for 30 minutes, which first wakes the lead with a ``stalled`` receipt and, as long again with nothing moving,
   pauses. The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
   owner's stop paused (a ``tokens`` pause gets a new budget from there, ``token_floor``).
+- With COVEY_PROJECT_ASK=1 a pause a guard made is also put to the owner (``pause``): the record gets ``pause_ask`` ({reason,
+  why, at, choice, card}), app/project_cards.py sends the card (继续 / 收尾 / 停) and ``answer_pause`` is what a click does
+  to the record. A ``tokens`` pause also stops the member topics' running tasks; a ``wakes`` pause leaves them running; a
+  ``stalled`` one has none. 继续 and 收尾 start the project again (``reopen``, what the owner's own turn does too) and leave an
+  ``owner_choice`` receipt, which always wakes the lead.
 - Receipts: ``after_runner`` (the Bridge, once a task's runner is gone: rule 8 keeps a task process to its own card and
   record) writes ``thread_end`` (the receipt kind keeps its name on disk) for a member's turn that ended and counts the tokens; ``heard`` (the Bridge, on the owner's
   message in a member's topic) writes ``owner_said``; the loop writes ``stalled``; the Bridge's sweep of the held questions (app/triage.py, COVEY_PROJECT_TRIAGE=1) writes ``question``.
@@ -47,6 +52,12 @@ TOKEN_JOBS_KEPT = 300  # Task keys the record remembers it has counted (``tokens
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
 RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a member's receipt says; an interrupted turn goes on by itself.
 SAID = 300  # Characters of the owner's words in an ``owner_said`` receipt.
+ALWAYS_WAKE = ("start", "owner_choice", "question")  # The receipts that wake the lead without COVEY_PROJECT_AUTOWAKE=1.
+CHOICE_RECEIPT = {
+    "continue": "主人看了停住的原因（{why}），选了继续：专项已经重新开始，叫醒次数清零。接着按状态包判断下一步。",
+    "finish": "主人看了停住的原因（{why}），选了收尾：这个专项不再开新的话题。请总结做完了什么、还有什么没做完，"
+              "用 project_note 标 report 告诉主人，然后调 project_finish（还有话题在做时它会拒绝，等它们结束再收尾）。",
+}
 
 
 def wakes_of(record) -> dict:
@@ -150,17 +161,81 @@ def owner_turn(state_dir, topic_id, chat_id, message_id) -> None:
         if not projects.enabled() or projects.is_wake(message_id) or not projects.is_lead_topic(state_dir, topic_id, chat_id):
             return
         found = projects.topic_project(state_dir, topic_id)
-
-        def change(record):
-            record["wakes"] = {**wakes_of(record), "streak": 0, "recent": []}
-            record.pop("stall", None)
-            if record.get("state") == projects.PAUSED and record.get("state_reason") in projects.RESUMABLE:
-                if record.get("state_reason") == "tokens":
-                    record["token_floor"] = int(record.get("tokens_used") or 0)
-                record["state"], record["state_reason"] = projects.ACTIVE, ""
-        projects.update(state_dir, found.id, change)
+        projects.update(state_dir, found.id, reopen)
     except (KeyError, ValueError, OSError):
         return
+
+
+def reopen(record) -> None:
+    """Edit ``record`` in place (``projects.update``'s ``change``): the counts of wake-ups start again, the stall reminder is
+    forgotten, and a project a guard (or the owner's stop) paused is active again; a ``tokens`` pause gets a new budget from
+    the tokens used so far."""
+    record["wakes"] = {**wakes_of(record), "streak": 0, "recent": []}
+    record.pop("stall", None)
+    if record.get("state") == projects.PAUSED and record.get("state_reason") in projects.RESUMABLE:
+        if record.get("state_reason") == "tokens":
+            record["token_floor"] = int(record.get("tokens_used") or 0)
+        record["state"], record["state_reason"] = projects.ACTIVE, ""
+
+
+def answer_pause(state_dir, project_id, choice, message="", now=None) -> str:
+    """What a click on the pause card (``pause_ask``, cards/project_card.py ask_card) does to the record, once and under the
+    record's lock: 'ok' with the choice kept in ``pause_ask`` (``continue`` and ``finish`` start the project again,
+    ``reopen``; ``stop`` leaves it paused with the owner's stop as the reason, and after a ``tokens`` pause the new budget it will start with), else why not: 'none' (no pause was put to the
+    owner), 'answered' (a choice was made already), 'stale' (the click is on another pause's card), 'moved' (the project
+    is not paused for that reason any more: the owner's own turn, the lead, a stop got there first)."""
+    outcome = []
+
+    def change(record):
+        ask = record.get("pause_ask") if isinstance(record.get("pause_ask"), dict) else None
+        card = ask.get("card") if ask and isinstance(ask.get("card"), dict) else {}
+        if ask is None:
+            return outcome.append("none")
+        if ask.get("choice"):
+            return outcome.append("answered")
+        if message and card.get("message_id") and card["message_id"] != message:
+            return outcome.append("stale")
+        if record.get("state") != projects.PAUSED or record.get("state_reason") != ask.get("reason"):
+            return outcome.append("moved")
+        ask["choice"], ask["chosen_at"] = choice, time.time() if now is None else now
+        if choice == "stop":
+            record["state_reason"] = projects.OWNER_STOP
+            if ask.get("reason") == "tokens":
+                record["token_floor"] = int(record.get("tokens_used") or 0)  # Started again later, it has a budget (as ``reopen`` gives).
+        else:
+            reopen(record)
+        outcome.append("ok")
+    projects.update(state_dir, project_id, change)
+    return outcome[0]
+
+
+def pause_receipt(state_dir, project_id, choice, ask) -> None:
+    """The lead's receipt of the owner's choice on the pause card ``ask`` (``pause_ask``): ``owner_choice``, which wakes it; 继续 and
+    收尾 only, a stop leaves none. A ``tokens`` pause that asked the member topics' tasks to stop says so, and that 继续 does not
+    start them again: the lead hands them their work again."""
+    if choice not in CHOICE_RECEIPT:
+        return
+    text = CHOICE_RECEIPT[choice].format(why=str(ask.get("why") or ""))
+    if ask.get("reason") == "tokens" and type(ask.get("halted")) is int and ask["halted"] > 0:
+        text += f"停住时有 {ask['halted']} 个话题的任务被请停了，不会自己接着做；要接着做的用 project_topic_send 再交给它们。"
+    project_lead.add_receipt(state_dir, project_id, "owner_choice", text)
+
+
+def idle_words(seconds) -> str:
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60} 分钟" if seconds >= 120 else f"{seconds} 秒"
+
+
+def pause_words(record, reason, now, idle=0) -> str:
+    """Why a guard paused ``record`` in a sentence for the owner (the pause card, cards/project_card.py ask_card)."""
+    if reason == "tokens":
+        return f"token 用到上限 {projects.count_words(projects.token_limit())}"
+    if reason == "wakes":
+        wakes = wakes_of(record)
+        if wakes["streak"] >= projects.DEFAULT_WAKES:
+            return f"负责人连续叫醒 {wakes['streak']} 次没有你的消息"
+        return f"负责人一小时内叫醒了 {sum(1 for t in wakes['recent'] if now - t < HOUR)} 次"
+    return f"{idle_words(idle)}没有进展"
 
 
 def heard(state_dir, topic_id, text) -> None:
@@ -228,8 +303,9 @@ class ProjectLoop:
     apps, the state directory)."""
     name = "project_loop"
 
-    def __init__(self, runtime, env) -> None:
-        self.runtime, self.env = runtime, env
+    def __init__(self, runtime, env, stop=None) -> None:
+        """``stop``: app/project_cards.py ``stop_tasks`` (it imports this module, so the wiring hands it over); none, no task is stopped."""
+        self.runtime, self.env, self.stop = runtime, env, stop
         triage_flow.attach(env)  # The 专项卡's 不对 click reaches the member topic through it (app/triage.py correct).
 
     def threads(self):
@@ -255,29 +331,68 @@ class ProjectLoop:
             except Exception as exc:  # noqa: BLE001 - the others are looked at all the same
                 self.runtime.log(f"project loop failed project={str(record.get('id'))[:8]}: {type(exc).__name__}")
 
-    def pause(self, record, reason) -> None:
+    def pause(self, record, reason, now=None, idle=0) -> None:
+        """The project paused by a guard (``reason``: tokens, wakes, stalled). With COVEY_PROJECT_ASK=1 the same write keeps
+        ``pause_ask`` for app/project_cards.py to put to the owner, and a ``tokens`` pause stops the member topics' tasks."""
+        ask = projects.ask_enabled()
+        now = time.time() if now is None else now
+        kept = []
+
+        def change(data):
+            fresh = data.get("state") == projects.ACTIVE
+            data["state"], data["state_reason"] = projects.PAUSED, str(reason)[:200]
+            if ask and fresh:
+                data["pause_ask"] = {"reason": reason, "why": pause_words(data, reason, now, idle), "at": now, "choice": "",
+                                     "halted": 0, "card": {}}
+                kept.append(True)
         try:
-            projects.set_state(self.env.state_dir, record["id"], projects.PAUSED, reason)
+            projects.update(self.env.state_dir, record["id"], change)
         except (KeyError, ValueError):
             return  # Moved on already (the owner stopped it, the lead finished it).
         self.runtime.log(f"project paused project={record['id'][:8]} reason={reason}")
+        if kept and reason == "tokens":
+            self.halt_members(record)
+
+    def halt_members(self, record) -> None:
+        """A ``tokens`` pause the owner is asked about: the member topics' queued and running tasks are stopped as a stop on their
+        cards does (``stop``), so the budget is not spent on while the card waits. Never raises."""
+        if self.stop is None:
+            return
+        try:
+            state, chat, lead = Path(self.env.state_dir), str(record.get("chat_id") or ""), str(record["lead_topic_id"])
+            app = self.env.topics.apps.get(load_topic(state, lead).get("harness_id") or HARNESS)
+            if app is None:
+                return
+            message = f"project-pause-{record['id']}"
+            remember_topic_message(state, lead, chat, message)
+            ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
+            members = [topic for topic in record.get("threads") or () if isinstance(topic, str)]
+            stopped = self.stop(app.controls, ctx, members, chat, message)
+
+            def count(data):
+                if isinstance(data.get("pause_ask"), dict):
+                    data["pause_ask"]["halted"] = stopped
+            projects.update(state, record["id"], count)
+            self.runtime.log(f"project pause stopped {stopped} tasks project={record['id'][:8]}")
+        except Exception as exc:  # noqa: BLE001 - the pause stands; the tasks can be stopped from their cards
+            self.runtime.log(f"project pause could not stop its tasks project={str(record.get('id'))[:8]}: {type(exc).__name__}")
 
     def look(self, record, now) -> None:
         state, pid, lead = Path(self.env.state_dir), record["id"], str(record.get("lead_topic_id") or "")
         if hold(record, now) == "tokens":
-            return self.pause(record, "tokens")
+            return self.pause(record, "tokens", now)
         pending = unread(state, pid)
         if pending:
             due = autowake_due(pending)
             if due and not open_turns(state, [lead]):
                 reason = hold(record, now)
-                return self.pause(record, reason) if reason else self.wake(record, now)
+                return self.pause(record, reason, now) if reason else self.wake(record, now)
             return
         if projects.autowake_enabled():
             self.stall(record, state, now, lead)
 
     def stall(self, record, state, now, lead) -> None:
-        """No task, no receipt: a reminder after STALL_SECONDS of it (a ``stalled`` receipt, which wakes the lead), and as long
+        """No task, no receipt: a reminder after ``projects.stall_seconds()`` of it (a ``stalled`` receipt, which wakes the lead), and as long
         again with nothing moving the project is paused."""
         if open_turns(state, [lead, *(record.get("threads") or ())]):
             return
@@ -292,13 +407,13 @@ class ProjectLoop:
             marker = {}  # Something moved since the reminder: a new idle begins.
             projects.update(state, pid, lambda data: data.pop("stall", None))
         if not marker:
-            if now - activity > projects.STALL_SECONDS:
+            if now - activity > projects.stall_seconds():
                 minutes = int((now - activity) // 60)
                 project_lead.add_receipt(state, pid, "stalled", f"专项已经 {minutes} 分钟没有任务在做，也没有新的回执。", at=now)
                 projects.update(state, pid, lambda data: data.__setitem__("stall", {"at": now, "activity": activity}))
             return
-        if now - float(marker.get("at") or now) > projects.STALL_SECONDS:
-            self.pause(record, "stalled")
+        if now - float(marker.get("at") or now) > projects.stall_seconds():
+            self.pause(record, "stalled", now, now - activity)
 
     def wake(self, record, now) -> None:
         """One wake-up turn queued (its number counted first: a lost one is looked for again, never doubled)."""
@@ -332,6 +447,6 @@ class ProjectLoop:
 
 
 def autowake_due(pending) -> bool:
-    """Whether ``pending`` receipts wake the lead: a ``start`` always does, and so does a ``question`` (a held question waits only
-    180 seconds, app/triage.py), the others with COVEY_PROJECT_AUTOWAKE=1."""
-    return any(item.get("kind") in ("start", "question") for item in pending) or projects.autowake_enabled()
+    """Whether ``pending`` receipts wake the lead: a ``start``, the owner's choice on a pause card or a ``question`` (a held
+    question waits only 180 seconds, app/triage.py) always does, the others with COVEY_PROJECT_AUTOWAKE=1."""
+    return any(item.get("kind") in ALWAYS_WAKE for item in pending) or projects.autowake_enabled()

@@ -25,6 +25,7 @@ from pathlib import Path
 from covey.cards import answer_card
 from covey.cards.dispatch_card import (DONE, FAILED, RUNNING, STEER_KIND, STOP_KIND, STOPPED, WAITING, Dispatch, dispatch_card,
                                        settled_card)
+from covey.core import directions
 from covey.core import dispatch_records as records
 from covey.core import env as cenv
 from covey.core import projects
@@ -37,7 +38,7 @@ from covey.core.metrics import run_seconds, timings_of, took_text
 from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.store import directory_store
 from covey.core.status_line import step_text
-from covey.core.topics import remember_topic_message, route_message, topic_label, topic_title
+from covey.core.topics import load_topic, remember_topic_message, route_message, topic_label, topic_title
 from covey.core.turn_words import UNSET_PHASES, ask_words, request_line
 
 ENV = "COVEY_DISPATCH_CARD"
@@ -187,7 +188,8 @@ def facts(state_dir, record, now, titles, url="") -> Dispatch:
                     workspace=str((job or {}).get("workspace_name") or ""), started=clock(record.get("started_at")),
                     took=took, body=body, inputs=inputs, outputs=outputs,
                     job_id=str(job_number(job)) if job is not None and job_number(job) else "", url=url,
-                    ask_at=str(record.get("ask_at") or ""), ask_url=str(record.get("ask_url") or ""))
+                    ask_at=str(record.get("ask_at") or ""), ask_url=str(record.get("ask_url") or ""),
+                    direction=directions.shown(state_dir, record.get("direction")))
 
 
 def titles_of(topics) -> dict:
@@ -261,6 +263,9 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=
                                     rounds=records.rounds_for(state, owner, topic_id), **ask_of(env, state, job_key))
         if project:
             record["upgrade_hint"]["project"] = True
+        direction = direction_of(state, request, topic_id, token)
+        if direction:
+            record["direction"] = direction  # {name, source}, core/directions.py: drawn once the name is active.
         write_json(path, record, ensure_ascii=False, indent=1)
     card = dispatch_card(facts(state, record, time.time(), titles_of(env.topics)))
 
@@ -280,6 +285,22 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=
     route_message(state, chat, message, topic_id, holder=topic_id)
     env.runtime.log(f"dispatch card sent topic={str(topic_id)[:12]} kind={kind} message={message[-8:]}")
     return token
+
+
+def direction_of(state, request, topic_id, token) -> dict | None:
+    """The direction of the work ``request`` handed to ``topic_id`` as the record keeps it ({name, source}), None without
+    COVEY_DIRECTIONS=1 or when nothing says one: the owner's word (``direction`` with ``direction_by_owner``), the topic's
+    work directory against the directions' repos, the butler's ``direction``. The use is counted under ``token``."""
+    if not directions.enabled():
+        return None
+    args = request.args if isinstance(getattr(request, "args", None), dict) else {}
+    named = str(args.get("direction") or "")
+    try:
+        workdir = str(load_topic(state, topic_id).get("workdir") or "")
+    except (OSError, ValueError):
+        workdir = ""
+    by_owner = args.get("direction_by_owner") is True
+    return directions.claim(state, token, said=named if by_owner else "", workdir=workdir, declared="" if by_owner else named)
 
 
 def relayed(state_dir, target, outcome, state, message_id="", reason="") -> None:

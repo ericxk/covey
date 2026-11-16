@@ -521,6 +521,80 @@ class DirectTest(UpCase):
         self.assertIn("project_id", answer["data"])
 
 
+class DirectionStyleTest(UpCase):
+    """COVEY_DIRECTIONS=1 and COVEY_PROJECT_STYLE_KEEP=1 on the project's two entrances; off, a project is what it was."""
+
+    def on(self, **env):
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_off_no_record_carries_a_direction_or_a_style(self):
+        answer = self.start("p1", project=True, direction="数据平台", direction_by_owner=True)
+        project = projects.read_record(self.state, answer["data"]["project_id"])
+        self.assertIsNone(project["direction"])
+        self.assertNotIn("style", project)
+        self.assertFalse((self.state / "directions.json").exists())
+
+    def test_a_project_opened_directly_keeps_the_direction_the_butler_gave_and_shows_it_from_the_second_use(self):
+        self.on(COVEY_DIRECTIONS="1")
+        first = self.start("p1", project=True, direction="数据平台")["data"]["project_id"]
+        self.assertEqual(projects.read_record(self.state, first)["direction"], {"name": "数据平台", "source": "butler"})
+        self.assertEqual(self.sent.call_args.args[2]["header"]["text_tag_list"][0]["text"]["content"], "在做")
+        self.assertEqual(len(self.sent.call_args.args[2]["header"]["text_tag_list"]), 1)  # A candidate is not drawn.
+        second = self.start("p2", project=True, direction="数据平台", direction_by_owner=True)["data"]["project_id"]
+        self.assertEqual(projects.read_record(self.state, second)["direction"], {"name": "数据平台", "source": "owner"})
+        tags = [tag["text"]["content"] for tag in self.sent.call_args.args[2]["header"]["text_tag_list"]]
+        self.assertEqual(tags, ["在做", "数据平台"])
+        self.start("p2", project=True, direction="别的")  # The same request again counts nothing and changes nothing.
+        saved = json.loads((self.state / "directions.json").read_text())["directions"]
+        self.assertEqual([(item["name"], item["status"]) for item in saved], [("数据平台", "active")])
+
+    def test_a_direction_drawn_by_the_project_card_is_the_records_name_once_it_is_active(self):
+        from covey.app.project_cards import facts
+
+        self.on(COVEY_DIRECTIONS="1")
+        pid = self.start("p1", project=True, direction="数据平台")["data"]["project_id"]
+        record = projects.read_record(self.state, pid)
+        self.assertEqual(facts(self.state, record, time.time()).direction, "")
+        write_json(self.state / "directions.json", {"directions": [{"name": "数据平台", "aliases": [], "repos": [], "status": "active"}]})
+        self.assertEqual(facts(self.state, record, time.time()).direction, "数据平台")
+        with mock.patch.dict(os.environ, {"COVEY_DIRECTIONS": ""}):
+            self.assertEqual(facts(self.state, record, time.time()).direction, "")
+        projects.update(self.state, pid, lambda data: data.update(direction="旧的说法"))
+        self.assertEqual(facts(self.state, projects.read_record(self.state, pid), time.time()).direction, "旧的说法")
+
+    def test_a_card_upgraded_to_a_project_brings_its_direction_along_without_counting_a_use(self):
+        self.on(COVEY_DIRECTIONS="1")
+        self.long()
+        self.start("r1", direction="数据平台")
+        dispatch = self.record("r1")
+        self.assertEqual(dispatch["direction"], {"name": "数据平台", "source": "butler"})
+        project = self.project(dispatch)
+        self.assertEqual(project["direction"], dispatch["direction"])
+        saved = json.loads((self.state / "directions.json").read_text())["directions"]
+        self.assertEqual([(item["name"], item["status"]) for item in saved], [("数据平台", "candidate")])
+
+    def test_a_new_project_starts_from_the_style_last_set_only_with_the_switch(self):
+        project_lead.keep_style(self.state, {"report": "ask_only", "detail": "全", "spawn": "积极"})
+        off = projects.read_record(self.state, self.start("p1", project=True)["data"]["project_id"])
+        self.assertNotIn("style", off)
+        self.on(COVEY_PROJECT_STYLE_KEEP="1")
+        made = projects.read_record(self.state, self.start("p2", project=True)["data"]["project_id"])
+        self.assertEqual(made["style"], {"report": "ask_only", "detail": "全", "spawn": "积极"})
+        self.assertEqual(project_lead.style_of(made)["spawn"], "积极")
+        (self.state / project_lead.STYLE_FILE).unlink()
+        none = projects.read_record(self.state, self.start("p3", project=True)["data"]["project_id"])
+        self.assertNotIn("style", none)  # Nothing was set yet: the defaults.
+
+    def test_an_upgraded_project_starts_from_the_style_last_set_too(self):
+        self.on(COVEY_PROJECT_STYLE_KEEP="1")
+        project_lead.keep_style(self.state, {"spawn": "保守"})
+        self.long()
+        self.start("r1")
+        self.assertEqual(self.project(self.record("r1"))["style"], {"spawn": "保守"})
+
+
 class DowngradeTest(UpCase):
     def setUp(self):
         super().setUp()

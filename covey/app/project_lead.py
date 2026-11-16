@@ -68,6 +68,21 @@ def style_of(record) -> dict:
             for name, choices in STYLE_CHOICES.items()}
 
 
+STYLE_FILE = "project-style.json"  # <state>/: the style last set on any project (COVEY_PROJECT_STYLE_KEEP=1).
+
+
+def last_style(state_dir) -> dict:
+    """The style ``keep_style`` saved last, each choice valid ({} when there is none): what a new project starts with."""
+    saved = read_object(Path(state_dir) / STYLE_FILE)
+    return {name: saved[name] for name, choices in STYLE_CHOICES.items() if saved.get(name) in choices}
+
+
+def keep_style(state_dir, style) -> None:
+    """Keep ``style`` (a record's, valid choices only) as the one a new project starts with."""
+    write_json(Path(state_dir) / STYLE_FILE, {name: style[name] for name, choices in STYLE_CHOICES.items() if style.get(name) in choices},
+               ensure_ascii=False, indent=1)
+
+
 def reportable(style, kind) -> bool:
     """Whether a report note of ``kind`` (milestone, finish, thread, note) is for the owner under ``style`` (a record's style)."""
     return kind in REPORT_KINDS.get(style_of({"style": style})[REPORT], ())

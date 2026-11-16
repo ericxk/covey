@@ -42,7 +42,7 @@ def lead_app(case):
     def enqueue(ctx, content, chat, message, **fields):
         case.queued.append((message, fields.get("prompt_content")))
         return SimpleNamespace(job_id=len(case.queued))
-    return SimpleNamespace(harness=SimpleNamespace(context=object()),
+    return SimpleNamespace(harness=SimpleNamespace(context=object()), controls=object(),
                            submission=SimpleNamespace(event_context=event_context, enqueue_chat_job=enqueue))
 
 
@@ -60,7 +60,8 @@ class Loop(Case):
         self.runtime = SimpleNamespace(log=self.logs.append, shutdown=mock.Mock())
         self.app = lead_app(self)
         self.env = SimpleNamespace(state_dir=self.state, topics=SimpleNamespace(apps={"claude": self.app}))
-        self.loop = ProjectLoop(self.runtime, self.env)
+        self.stop = mock.Mock(return_value=0)
+        self.loop = ProjectLoop(self.runtime, self.env, self.stop)
         os.environ.pop(projects.AUTOWAKE_ENV, None)
 
     def autowake(self):
@@ -241,6 +242,151 @@ class GuardTest(Loop):
         self.update(state=projects.PAUSED, state_reason="wakes")
         project_loop.owner_turn(self.state, THREAD, CHAT, "om_4")
         self.assertEqual(self.reload()["state"], projects.PAUSED)
+
+
+class PauseAskTest(Loop):
+    """COVEY_PROJECT_ASK=1 (the owner is asked what to do with a pause a guard made, app/project_cards.py sends the card); with
+    it off the record is what it always was."""
+
+    def ask_on(self):
+        patcher = mock.patch.dict(os.environ, {projects.ASK_ENV: "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def paused(self, reason, **fields):
+        self.update(state=projects.PAUSED, state_reason=reason, **fields)
+        self.update(pause_ask={"reason": reason, "why": "为了测试", "at": NOW, "choice": "", "halted": 0,
+                               "card": {"card_id": "c1", "message_id": "om_ask", "sequence": 0}})
+
+    def test_off_a_guards_pause_leaves_no_question_and_stops_no_task(self):
+        self.update(tokens_used=projects.DEFAULT_TOKENS, threads=[THREAD])
+        self.loop.tick(NOW + 5)
+        self.assertEqual((self.reload()["state"], self.reload()["state_reason"]), (projects.PAUSED, "tokens"))
+        self.assertNotIn("pause_ask", self.reload())
+        self.stop.assert_not_called()
+
+    def test_a_tokens_pause_asks_in_the_owners_words_and_stops_the_member_topics_tasks(self):
+        self.ask_on()
+        self.update(tokens_used=projects.DEFAULT_TOKENS, threads=[THREAD])
+        self.stop.return_value = 2
+        self.loop.tick(NOW + 5)
+        ask = self.reload()["pause_ask"]
+        self.assertEqual((ask["reason"], ask["why"], ask["choice"], ask["halted"]), ("tokens", "token 用到上限 1000 万", "", 2))
+        self.assertEqual(self.stop.call_args.args[2:4], ([THREAD], CHAT))  # The member topics, not the lead.
+
+    def test_a_wakes_pause_leaves_the_running_topics_alone(self):
+        self.ask_on()
+        self.autowake()
+        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": []}, threads=[THREAD])
+        self.receipt()
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人连续叫醒 30 次没有你的消息")
+        self.stop.assert_not_called()
+        self.update(state=projects.ACTIVE, state_reason="", wakes={"count": 12, "streak": 3, "last_at": NOW, "recent": [NOW] * 12})
+        self.loop.tick(NOW + 100)
+        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人一小时内叫醒了 12 次")
+
+    def test_a_stall_pause_says_how_long_nothing_moved(self):
+        self.ask_on()
+        self.autowake()
+        self.update(created_at=NOW)
+        self.loop.tick(NOW + 31 * 60)
+        project_lead.take_receipts(self.state, PID, "k-w1")
+        write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1")
+        self.loop.tick(NOW + 62 * 60)
+        self.assertEqual(self.reload()["pause_ask"]["why"], "62 分钟没有进展")
+        self.stop.assert_not_called()  # Nothing was running.
+
+    def test_the_stall_time_can_be_set_for_a_trial(self):
+        self.ask_on()
+        self.autowake()
+        self.update(created_at=NOW)
+        self.assertEqual(projects.stall_seconds(), projects.STALL_SECONDS)
+        with mock.patch.dict(os.environ, {projects.STALL_ENV: "60"}):
+            self.assertEqual(projects.stall_seconds(), 60)
+            self.loop.tick(NOW + 61)
+            self.assertEqual([item["kind"] for item in project_loop.unread(self.state, PID)], ["stalled"])
+        for value in ("", "x", "0", "-5"):
+            with mock.patch.dict(os.environ, {projects.STALL_ENV: value}):
+                self.assertEqual(projects.stall_seconds(), projects.STALL_SECONDS)
+
+    def test_a_project_the_owner_stopped_meanwhile_is_not_asked_about(self):
+        self.ask_on()
+        self.update(tokens_used=projects.DEFAULT_TOKENS)
+        record = self.reload()
+        self.update(state=projects.PAUSED, state_reason=projects.OWNER_STOP)  # The loop's look is of the old record.
+        self.loop.pause(record, "tokens", NOW + 5)
+        self.assertNotIn("pause_ask", self.reload())
+
+    def test_continue_starts_again_clears_the_counts_and_gives_a_tokens_pause_a_new_budget(self):
+        self.paused("tokens", tokens_used=projects.DEFAULT_TOKENS + 7, wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW]})
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "continue", "om_ask"), "ok")
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"], record["token_floor"]), (projects.ACTIVE, "", projects.DEFAULT_TOKENS + 7))
+        self.assertEqual((record["wakes"]["streak"], record["wakes"]["recent"]), (0, []))
+        self.assertEqual(record["pause_ask"]["choice"], "continue")
+        project_loop.pause_receipt(self.state, PID, "continue", self.reload()["pause_ask"])
+        self.loop.tick(NOW + 5)  # The receipt wakes the lead without COVEY_PROJECT_AUTOWAKE.
+        self.assertEqual(len(self.queued), 1)
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+
+    def test_finish_starts_it_again_and_asks_the_lead_for_the_summary(self):
+        self.paused("stalled", stall={"at": NOW, "activity": NOW})
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "finish"), "ok")
+        project_loop.pause_receipt(self.state, PID, "finish", self.reload()["pause_ask"])
+        [item] = project_loop.unread(self.state, PID)
+        self.assertEqual(item["kind"], "owner_choice")
+        self.assertIn("project_finish", item["text"])
+        self.assertNotIn("stall", self.reload())
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+
+    def test_a_tokens_receipt_says_the_stopped_topics_do_not_start_by_themselves(self):
+        self.paused("tokens")
+        projects.update(self.state, PID, lambda record: record["pause_ask"].update(halted=2))
+        project_loop.pause_receipt(self.state, PID, "continue", self.reload()["pause_ask"])
+        [item] = project_loop.unread(self.state, PID)
+        self.assertIn("2 个话题的任务被请停了", item["text"])
+        self.assertIn("project_topic_send", item["text"])
+
+    def test_stop_keeps_it_paused_as_the_owners_stop_and_leaves_no_receipt(self):
+        self.paused("wakes")
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "stop", "om_ask"), "ok")
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"]), (projects.PAUSED, projects.OWNER_STOP))
+        self.assertNotIn("token_floor", record)
+        project_loop.pause_receipt(self.state, PID, "stop", self.reload()["pause_ask"])
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+
+    def test_a_stop_after_a_tokens_pause_gives_the_budget_the_later_start_needs(self):
+        self.paused("tokens", tokens_used=projects.DEFAULT_TOKENS + 5)
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "stop"), "ok")
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_later")  # The owner speaks to the lead some time after.
+        self.assertEqual((self.reload()["state"], self.reload()["token_floor"]), (projects.ACTIVE, projects.DEFAULT_TOKENS + 5))
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)  # Not paused again at once.
+
+    def test_a_second_click_another_pauses_card_and_a_project_that_moved_on_change_nothing(self):
+        self.paused("tokens")
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "continue", "om_old"), "stale")
+        self.assertEqual(self.reload()["state"], projects.PAUSED)
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "continue", "om_ask"), "ok")
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "stop", "om_ask"), "answered")
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        self.paused("tokens")
+        self.update(state=projects.ACTIVE, state_reason="")  # The owner's own turn got there first.
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "stop"), "moved")
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        projects.update(self.state, PID, lambda record: record.pop("pause_ask"))
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "stop"), "none")
+
+    def test_a_start_or_owner_choice_receipt_wakes_without_the_switch_and_a_thread_end_does_not(self):
+        self.assertTrue(project_loop.autowake_due([{"kind": "owner_choice"}]))
+        self.assertTrue(project_loop.autowake_due([{"kind": "start"}]))
+        self.assertFalse(project_loop.autowake_due([{"kind": "thread_end"}]))
+
+    def test_the_words_of_a_count(self):
+        self.assertEqual([projects.count_words(n) for n in (8000, 10_000_000, 25_000_000, 150_000_000, 20_000)],
+                         ["8000", "1000 万", "2500 万", "1.5 亿", "2 万"])
 
 
 class StallTest(Loop):

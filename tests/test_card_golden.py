@@ -647,6 +647,7 @@ def answer_tail_cards():
                                                           "body": "等你回答：推哪几个提交？"})),
             "dispatch_done": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.DONE, "body": "已完成",
                                                        "outputs": ("**用时** 2分00秒",)})),
+            "dispatch_running_direction": dispatch_card(Dispatch(**{**work.__dict__, "direction": "数据平台"})),
             "dispatch_failed": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.FAILED, "body": "后端退出",
                                                          "outputs": ("**用时** 2分00秒",)})),
             "dispatch_stopped": dispatch_card(Dispatch(**{**work.__dict__, "status": dc.STOPPED, "body": "已停止"})),
@@ -992,7 +993,16 @@ def project_cards():
             "running_triage": pc.project_card(pc.Project(**{**full.__dict__, "triage": (
                 ("09:40 答了：T501 · 用哪个库版本？ → 新版", "c" * 16), "10:05 转给你：T503 · 能不能停服务？（碰到硬闸）")})),
             "triage_fix_form": triage_card.fix_form("T501 · 用哪个库版本？ → 新版", {"project_id": "a1b2c3d4e5f6", "topic_id": "f" * 32,
-                                                                              "token": "c" * 16})}
+                                                                              "token": "c" * 16}),
+            "ask_tokens": pc.ask_card("把订单库迁到新集群", "token 用到上限 1000 万", project_id="a1b2c3d4e5f6", lead_topic="f" * 32,
+                                      note="在做的 2 个话题已请它们停下。"),
+            "ask_wakes": pc.ask_card("把订单库迁到新集群", "负责人连续叫醒 30 次没有你的消息", project_id="a1b2c3d4e5f6",
+                                     lead_topic="f" * 32, note="在做的话题不受影响，还在继续做。"),
+            "ask_stalled": pc.ask_card("把订单库迁到新集群", "62 分钟没有进展", project_id="a1b2c3d4e5f6", lead_topic="f" * 32),
+            "line_asked_continue": pc.asked_card("把订单库迁到新集群", "token 用到上限 1000 万", "continue"),
+            "line_asked_finish": pc.asked_card("把订单库迁到新集群", "62 分钟没有进展", "finish"),
+            "line_asked_stop": pc.asked_card("把订单库迁到新集群", "负责人连续叫醒 30 次没有你的消息", "stop"),
+            "line_asked_elsewhere": pc.asked_card("把订单库迁到新集群", "62 分钟没有进展")}
 
 
 GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,
