@@ -16,7 +16,7 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
   that state says (a changed ``expanded`` on the same id is kept as the owner left it); at most ``MAX_FOLDS``, the rest
   one grey line ``pj_more``. Inside, ``pb_<topic>_<s>``, what it is doing and the link that opens its thread;
 - ``pj_triage``, ``pj_mem``, ``pj_lib``: the 分流记录, 专项记忆 and 资料库 folds (closed), drawn only with rows; each row of
-  the last two has a 删 button;
+  the last two has a 删 button, and a row of the first that the lead answered for the owner a 不对 button (``triage_rows``);
 - ``pj_io``: the grey 输入/输出 box (cards/answer_card.py ``box``);
 - ``pj_btns``: 补充 (``pj_steer``), 停止专项 (``pj_stop``), 不要专项 (``pj_down``).
 
@@ -39,7 +39,8 @@ MAX_ROWS = 10  # Rows of the 分流记录, 专项记忆 and 资料库 folds.
 ROW_CHARS = 90
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
 MEM_DEL_KIND, LIB_DEL_KIND = "bridge_project_mem_del", "bridge_project_lib_del"
-KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND})
+TRIAGE_WRONG_KIND = "bridge_project_triage_wrong"
+KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND, TRIAGE_WRONG_KIND, "bridge_project_triage_fix"})
 RUNNING, WAITING, PAUSED, DONE = "在做", "等你", "停住", "做完"
 # state -> (tag colour, header icon: one the other cards use, '' for none).
 LOOKS = {RUNNING: ("blue", "waiting_outlined"), WAITING: ("orange", "chat_outlined"), PAUSED: ("neutral", ""),
@@ -181,7 +182,16 @@ def row_fold(element_id, title, rows) -> dict | None:
 
 
 def triage_rows(project) -> list:
-    return [md(grey(literal_text(clipped(line, ROW_CHARS))), size="notation") for line in project.triage]
+    """The 分流记录: a line each; a line that is (text, token) is a question the lead answered for the owner, and has the 不对
+    button that opens the form of the correction (cards/triage_card.py)."""
+    rows = []
+    for line in project.triage:
+        text, token = line if isinstance(line, tuple) else (line, "")
+        body = md(grey(literal_text(clipped(text, ROW_CHARS))), size="notation")
+        rows.append(item(body, text_button("不对", {"kind": TRIAGE_WRONG_KIND, "project_id": project.project_id,
+                                                  "topic_id": project.lead_topic, "token": token}, tone="danger"))
+                    if token else body)
+    return rows
 
 
 def memory_rows(project) -> list:

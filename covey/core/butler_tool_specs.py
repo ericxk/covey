@@ -266,16 +266,21 @@ PROJECT_TOOLS = (
      "input_schema": {"type": "object", "required": ["summary"], "properties": {
          "summary": {"type": "string", "description": "一句话：做成了什么"}}}},
 )
-# Defined for phase 2's question triage (P2-5), not listed yet: the handlers answer that it is off.
+# The lead's two tools of the question triage (COVEY_PROJECT_TRIAGE=1 in the server's environment: ``lead_tools``; app/triage.py):
+# a member topic's choice question is held for the lead, which answers it or hands it back to the owner.
+TRIAGE_ENV = "COVEY_PROJECT_TRIAGE"
 TRIAGE_TOOLS = (
     {"name": "project_answer",
-     "description": "替主人答专项里一个话题的选择题（只限能依据专项记忆和已定决定回答的）。分流还没开。",
+     "description": "替主人答专项里一个话题交给你的选择题（题目在“专项状态”的“交给你的话题问题”里）。只答能依据专项记忆和主人定过的事回答的；"
+                    "每题都要答，答案必须是选项原文，多选的给数组。拿不准就用 project_escalate，不要猜。回答会注明是负责人替主人答的，话题照常往下做，"
+                    "也会记进专项卡的分流记录，主人看得到、可以点“不对”。",
      "input_schema": {"type": "object", "required": ["thread", "answers"], "properties": {
          "thread": THREAD,
          "answers": {"type": "object", "description": "题目 id（或题目原文）→ 选项原文；多选的给数组",
                      "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}}}}},
     {"name": "project_escalate",
-     "description": "专项里一个话题的问题交给主人答。分流还没开。",
+     "description": "专项里一个话题交给你的问题，你答不了或不该替主人答，转给主人：问题卡马上发给主人，卡上带上你写的 why。"
+                    "拿不准、涉及部署、发布、对外发送、花钱、删东西、不可逆的操作，都转。3 分钟没人处理也会自动转给主人。",
      "input_schema": {"type": "object", "required": ["thread", "why"], "properties": {
          "thread": THREAD, "why": {"type": "string", "description": "一句话：为什么要主人定"}}}},
 )
@@ -329,8 +334,10 @@ def project_butler_tools(tools) -> tuple:
     return tuple(changed) + BUTLER_PROJECT_TOOLS
 
 
-def lead_tools() -> tuple:
-    return tuple(tool for tool in TOOLS if tool["name"] in LEAD_READ) + PROJECT_TOOLS
+def lead_tools(environ=None) -> tuple:
+    """The lead's tools; the two of the question triage with COVEY_PROJECT_TRIAGE=1 in ``environ``."""
+    triage = environ is not None and str(cenv.get(TRIAGE_ENV, "", environ)).strip() == "1"
+    return tuple(tool for tool in TOOLS if tool["name"] in LEAD_READ) + PROJECT_TOOLS + (TRIAGE_TOOLS if triage else ())
 
 
 def listed(environ) -> tuple:
@@ -339,7 +346,7 @@ def listed(environ) -> tuple:
     description is the butler's (``butler_tools``). The Bridge hands the variable on (core/butler.py mcp_config).
     A project's lead (COVEY_PROJECT_LEAD set) has ``lead_tools`` and nothing else."""
     if str(cenv.get(LEAD_ENV, "", environ)).strip():
-        return lead_tools()
+        return lead_tools(environ)
     extra = KNOWLEDGE_TOOLS if str(cenv.get(KNOWLEDGE_ENV, "", environ)).strip() == "1" else ()
     if str(cenv.get(HISTORY_ENV, "", environ)).strip().startswith("/"):
         extra += HISTORY_TOOLS

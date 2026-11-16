@@ -176,6 +176,8 @@
 | `app/track_digest.py` | Memory merge for 多路并行 |
 | `app/track_judge.py` | The small model that decides a new butler message the rules could not |
 | `app/track_standby.py` | A Claude Code kept ready for the track judge |
+| `app/triage.py` | 专项的问题分流 (docs/butler.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1 |
+| `app/triage_view.py` | The questions held for a project's lead, as the lead reads them (app/triage.py is the rest of the question … |
 | `app/turn_export.py` | 下载请求与结果: a button at the bottom of an ended task card that packs the turn's model requests and the model's … |
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
@@ -226,6 +228,7 @@
 | `cards/trace.py` | Text helpers the process panel is drawn with |
 | `cards/trace_updates.py` | Keep the process panel mounted while its content changes |
 | `cards/trace_view.py` | Feishu rendering from an isolated execution snapshot |
+| `cards/triage_card.py` | The 不对 form of the 专项卡's 分流记录: a card of its own with one input, because the 专项卡 is redrawn and holds no field |
 | `cards/turn_export.py` | The 下载请求与结果 element at the bottom of an ended task card |
 | `cards/weekly_usage.py` | The 本周用量 card, the bot menu's 用量 panel: the window in its title bar |
 | `cards/workspace_manager.py` | The 工作区 card, the bot menu's 工作区 panel and the launch card's ⚙️ 添加或管理工作区… |
@@ -292,6 +295,7 @@
 | `core/process.py` | Which processes belong to whom |
 | `core/process_env.py` | Environment for backend child processes, and on/off switches read from the environment |
 | `core/procfs.py` | A process's /proc/<pid>/stat and this boot's id, read one way for every reader in the package |
+| `core/project_gates.py` | 专项问题分流的硬闸（docs/butler.md 专项的问题分流）: the words that keep a project's topic's question from the lead |
 | `core/project_library.py` | The library of a project |
 | `core/project_memory.py` | The memory of a project |
 | `core/projects.py` | 专项: a long job the butler hands to one lead topic (the 负责人) that dispatches and follows several member topics |
@@ -330,6 +334,7 @@
 | `core/trace_store.py` | Process records on disk: one append-only file per task, outside the job record |
 | `core/track_ledger.py` | The family ledger of 多路并行: what the butler's other tracks answered, for the butler's next turn to read |
 | `core/track_route.py` | Where a new butler message goes when the family already has live tasks: the rule layer of the message router |
+| `core/triage.py` | 问题分流的记录和开关: what a question record says about being held for a project's lead, and the switch |
 | `core/ttft.py` | Numeric first-output timing |
 | `core/turn_export_rows.py` | The rows of a turn export |
 | `core/turn_words.py` | The words the cards, the pinned board and the butler say about a turn and a topic, in one place |

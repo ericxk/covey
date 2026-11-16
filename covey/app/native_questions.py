@@ -17,6 +17,7 @@ from covey.core.proxy import NO_QUESTION
 from covey.core.roster import LIVE_QUESTIONS
 from covey.cards.question_cards import question_element
 from covey.app import butler_relay
+from covey.app.triage import LEAD
 from covey.app.question_display import question_card_lock
 from covey.core.state import write_private_text
 from covey.core.store import directory_store, transition_question
@@ -163,6 +164,9 @@ class NativeQuestions:
             cp = read_checkpoint(Path(job.checkpoint_path))
             cp.update(requires_user=True, question="\n".join(q["question"] for q in record["questions"]))
             write_private_text(Path(job.checkpoint_path), json.dumps(cp, ensure_ascii=False))
+        if live_question and self.questions.triage.route(ctx, job, record) == LEAD:
+            self.hold(ctx, job, record)
+            return
         if live_question:
             self.cards.close_streaming_reply(ctx, job.progress) if job.progress else None
             with question_card_lock(path):
@@ -186,6 +190,12 @@ class NativeQuestions:
             self.questions.publish_question_card(ctx, record)
         if record["blocking"] and rpc is not None and not getattr(rpc, "native_blocking_questions", False):
             rpc.wait_for_answer("\n".join(q["question"] for q in record["questions"]))
+
+    def hold(self, ctx, job, record):
+        """A live question the project's lead has (app/triage.py): no card; the task's record says its question is delivered
+        (nothing offers a retry for it) and its card says where it is. The turn goes on waiting for the answer."""
+        upsert_job_record(ctx.state_dir, job.message_id, question_delivery_ok=True)
+        self.questions.triage.note(ctx, job, record)
 
     def live_control(self, ctx, job, record):
         proof = record.get("live_question_proof")

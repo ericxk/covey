@@ -8,8 +8,10 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
   ``project_remember`` (the project's memory), ``project_style``, ``project_finish`` write the project's record
   (core/projects.py update, under its record lock; no Feishu call).
-- ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5): the tools are defined and answer that
-  it is off.
+- ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5, COVEY_PROJECT_TRIAGE=1; they are listed
+  to the lead only then, and answer that it is off otherwise): the lead answers a member topic's held choice question as the
+  owner would (the question's own submit path, with a note that the lead answered) or hands it to the owner with a reason
+  (app/triage.py).
 
 A refusal is a ValueError, which app/butler_tools.py ButlerTools.execute turns into an answer the lead reads."""
 from __future__ import annotations
@@ -17,16 +19,16 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from covey.app import butler_topics, project_lead
+from covey.app import butler_topics, project_lead, triage as triage_flow
 from covey.app.butler_env import reply
-from covey.core import butler, project_memory, projects
+from covey.core import butler, project_memory, projects, triage
 from covey.core.jobs import find_job_record
 from covey.core.topics import topic_label
 
 KINDS = ("milestone", "thread", "note")
 MEMORY_KINDS = (*project_memory.KINDS[:-1], *project_memory.LEGACY_KINDS)  # style is project_style's; practice and pitfall are the older names of constraint.
 OFFERED_KINDS = project_memory.KINDS[:-1]
-TRIAGE_OFF = "分流还没开：负责人现在不能替主人答题，也不能转交问题；话题里的问题会直接问主人。"
+TRIAGE_OFF = "问题分流没有开：负责人不能替主人答题，也不能转交问题；话题里的问题会直接问主人。"
 
 
 def lead(env, request) -> tuple:
@@ -160,14 +162,50 @@ def project_finish(env, request):
     return reply(True, f"专项已记为完成：{summary}", state=projects.DONE)
 
 
+def held_topic(env, request, record):
+    """(app, context, chat) of the member topic ``thread`` names; ValueError saying why not."""
+    chat = env.chat()
+    found = butler_topics.find_topic(env, chat, request.args.get("thread"))
+    if isinstance(found, str):
+        raise ValueError(found)
+    app, ctx, _ = found
+    if ctx.topic_id not in (record.get("threads") or ()):
+        raise ValueError(f"{topic_label(Path(env.state_dir), ctx.topic_id) or ctx.topic_id[:8]} 不是这个专项的话题。")
+    return app, ctx, chat
+
+
 def project_answer(env, request):
-    lead(env, request)
-    return reply(False, TRIAGE_OFF)
+    """Answer the member topic's held choice question for the owner (app/triage.py answer)."""
+    pid, record = lead(env, request)
+    if not triage.enabled():
+        return reply(False, TRIAGE_OFF)
+    active(record, "替主人答题")
+    try:
+        app, ctx, chat = held_topic(env, request, record)
+        done = triage_flow.answer(env, app, ctx, chat, record, request.args.get("answers"), f"lead-{request.id}")
+    except ValueError as exc:
+        return reply(False, str(exc))
+    if done["status"] == "uncertain":
+        return reply(False, f"{done['label']} 的回答已保存，但送达状态未确认：先用 topic_read 核对，别再答一次。", status="uncertain")
+    return reply(True, f"已替主人答了 {done['line']}（话题照常往下做，记在专项卡的分流记录里，主人可以点“不对”纠正）。", status=done["status"])
 
 
 def project_escalate(env, request):
-    lead(env, request)
-    return reply(False, TRIAGE_OFF)
+    """Hand the member topic's held question to the owner now, with ``why`` on the card (app/triage.py escalate)."""
+    pid, record = lead(env, request)
+    if not triage.enabled():
+        return reply(False, TRIAGE_OFF)
+    why = text_of(request.args, "why", limit=120)
+    try:
+        app, ctx, chat = held_topic(env, request, record)
+    except ValueError as exc:
+        return reply(False, str(exc))
+    rows = triage_flow.held_questions(env.state_dir, {ctx.topic_id})
+    if not rows:
+        return reply(False, "这个话题现在没有交给你的问题（可能已经转给主人，或超过 3 分钟了）。")
+    sent = [triage_flow.escalate(env, row, why, by="lead") for _, row in rows]
+    label = topic_label(Path(env.state_dir), ctx.topic_id) or ctx.topic_id[:8]
+    return reply(True, f"已转给主人：{label} 的问题卡" + ("已发出。" if all(sent) else "还没发出去，系统会请主人重新投递。"), sent=all(sent))
 
 
 TOOLS = {"project_topic_start": project_topic_start, "project_topic_send": project_topic_send,
