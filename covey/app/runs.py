@@ -18,7 +18,7 @@ from pathlib import Path
 
 from covey.app import device_files, knowledge_turn
 from covey.app.leftovers import stop_task_leftovers
-from covey.app.main_thread import main_turn
+from covey.app.butler import butler_turn
 from covey.app.prompts import (REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
                                         first_turn_message, principles_block, resume_message, workspace_block)
 from covey.app.sessions import mark_system_rules, started_with_system_rules
@@ -34,7 +34,7 @@ from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunIn
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import upsert_job_record
 from covey.core import principles as owner_principles
-from covey.core.main_thread import is_main_topic
+from covey.core.butler import is_butler_topic
 from covey.core.metrics import mark
 from covey.core.proxy import owner_turn_note
 from covey.core.redaction import topic_redaction
@@ -110,7 +110,7 @@ def proxy_turn_note(ctx, job) -> str:
 @dataclasses.dataclass
 class _Live:
     """What a run's callbacks (Runs._callbacks) read when they are called, not when they are made: the context the
-    turn runs in, which a fork, the main thread, a ↩️ 回退 and a compaction replace, and whether its session has the
+    turn runs in, which a fork, the butler, a ↩️ 回退 and a compaction replace, and whether its session has the
     bridge rules at system level."""
     ctx: BridgeContext
     rules_session: bool = False
@@ -123,7 +123,7 @@ class Runs:
     - ``forks`` / ``switch``: the first run of a forked or switched topic.
     - ``cards``: the card of the answered task a checkpoint continuation continues.
     - ``questions``: a checkpoint question the turn leaves behind.
-    - ``compaction``: a compaction request (the main thread's) the turn takes.
+    - ``compaction``: a compaction request (the butler's) the turn takes.
     - ``rewinds``: a ↩️ 回退 the turn resumes for, and its prompt.
     - ``record_job_state``: the Harness's job-state recorder (late-bound: it sits above).
     """
@@ -164,11 +164,11 @@ class Runs:
         return principles_block(owner if self.owner_turn(ctx, job) else [], workspace, ctx.workspace_name)
 
     def owner_turn(self, ctx: BridgeContext, job: ReplyJob | None) -> bool:
-        """Whether ``job`` is the owner's own turn: the main thread's always, else as app/access.py says from its
+        """Whether ``job`` is the owner's own turn: the butler's always, else as app/access.py says from its
         sender (rule 11); a task runner has the Bridge's owner and state too (app/runner.py). No job: not."""
         if job is None:
             return False
-        if is_main_topic(job.topic_id or ctx.topic_id, job.chat_id):
+        if is_butler_topic(job.topic_id or ctx.topic_id, job.chat_id):
             return True
         return self.runtime.access.owner_turn(job.chat_id, getattr(job, "sender_id", ""))
 
@@ -208,7 +208,7 @@ class Runs:
         """The run's callbacks: the backend's control, native sessions (claimed; marked as having the bridge rules
         at system level when ``live`` says so), process and verified reply, and its structured events (the status
         line's model requests and a ↩️ 回退's prompt here, the rest to Interaction). They read ``live`` when they are
-        called: a fork, the main thread, a 回退 and a compaction replace the context after they are made."""
+        called: a fork, the butler, a 回退 and a compaction replace the context after they are made."""
 
         def observe_control(control):
             job.backend_control = control
@@ -260,14 +260,14 @@ class Runs:
 
     def _prompt(self, live: _Live, job: ReplyJob, session_id: str | None):
         """(prompt, rules, whether the backend takes them at system level, image attachments) of the turn; sets
-        ``live``'s context (a fork's first run and the main thread's turn replace it) and whether its session has the
+        ``live``'s context (a fork's first run and the butler's turn replace it) and whether its session has the
         rules at system level."""
         fresh = not session_id
         # A fork replaces ctx; the callbacks read it when they are called.
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
-        # The main thread's turn (app/main_thread.py): its rules and snapshot open the message, its Bridge tools
+        # The butler's turn (app/butler.py): its rules and snapshot open the message, its Bridge tools
         # join the run; the whole snapshot on a new session and on one compacted before this turn.
-        live.ctx, prompt = main_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log, self.harness)
+        live.ctx, prompt = butler_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log, self.harness)
         ctx = live.ctx
         fresh = fresh and not ctx.options.get("track_fork")  # A track's fork has its source's conversation and rules.
         rules = self.bridge_rules(ctx, job)

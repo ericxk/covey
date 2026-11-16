@@ -1,4 +1,4 @@
-"""话题区 (docs/main-thread.md 话题区, the owner's choice of 2026-11-07 noon): a topic the main thread opens hangs its
+"""话题区 (docs/butler.md 话题区, the owner's choice of 2026-11-07 noon): a topic the butler opens hangs its
 thread under the owner's question; a second one on the same question gets a topic card at the top level as its root;
 the relay is a message of its own at the top level and is the topic's; quoting the card handed on to one topic alone goes to that topic. main-thread.json's
 desk_topics, retired on 2026-11-09, opens no front-desk topic."""
@@ -11,31 +11,31 @@ from unittest import mock
 
 from support import make_job
 from test_compat_desk_topics import OWNER, DeskCase
-from test_main_topics import CHAT
+from test_butler_topics import CHAT
 
-from covey.app import answer_cards, main_relay, main_topics, relay_targets
+from covey.app import answer_cards, butler_relay, butler_topics, relay_targets
 from covey.cards import relay_card
 from covey.app.artifacts import answer_files, artifact_key
 from covey.cards.answer_card import ARTIFACTS_ID, tail
 from covey.cards.review import answer_card
 from covey.app.question_display import standalone_card
-from covey.app.prompts import MAIN_THREAD_RULES, main_thread_message
-from covey.core import main_thread, main_thread_settings
+from covey.app.prompts import BUTLER_RULES_TEXT, butler_message
+from covey.core import butler, butler_settings
 from covey.core.jobs import job_key, upsert_job_record
-from covey.core.main_thread import TOPIC
+from covey.core.butler import TOPIC
 from covey.core.state import read_object, write_json
-from covey.app.main_thread import MainThread
+from covey.app.butler import Butler
 from covey.core.topics import (context_for_topic, load_topic, message_topic, remember_topic_message, route_message,
                                         routed_topic, topic_key)
 from covey.feishu.message_request import reply_in_thread
 
-MAIN_CARD = "om_main_card"  # The main-thread job's card, quoting the owner's question at the top level.
+BUTLER_CARD = "om_main_card"  # The butler job's card, quoting the owner's question at the top level.
 
 
 class AreaCase(DeskCase):
     def setUp(self):
         super().setUp()
-        upsert_job_record(self.ctx.state_dir, "main-job", card_id="card-main", card_message_id=MAIN_CARD)
+        upsert_job_record(self.ctx.state_dir, "main-job", card_id="card-main", card_message_id=BUTLER_CARD)
 
 
 class OpenTest(AreaCase):
@@ -44,7 +44,7 @@ class OpenTest(AreaCase):
         self.app.messenger.create_and_send_card.assert_not_called()  # No topic card.
         self.assertEqual(data["root_message_id"], OWNER)
         self.assertEqual(data["topic_id"], topic_key(CHAT, OWNER))
-        self.assertIs(main_thread.traits(data["topic_id"], CHAT), TOPIC)
+        self.assertIs(butler.traits(data["topic_id"], CHAT), TOPIC)
         topic = load_topic(self.ctx.state_dir, data["topic_id"])
         self.assertEqual(topic["root_id"], OWNER)
         self.assertNotIn("quote", topic)
@@ -65,7 +65,7 @@ class OpenTest(AreaCase):
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, OWNER), first["topic_id"])
 
     def test_the_place_is_decided_once(self):
-        record = main_topics.record_path(self.ctx.state_dir, SimpleNamespace(id="once"))
+        record = butler_topics.record_path(self.ctx.state_dir, SimpleNamespace(id="once"))
         self.opened("once")
         saved = read_object(record)
         self.assertEqual((saved["area_root"], saved["area_taken"]), (OWNER, False))
@@ -73,9 +73,9 @@ class OpenTest(AreaCase):
 
     def test_desk_topics_left_true_opens_a_topic_area_all_the_same(self):
         # Retired on 2026-11-09 (the owner: 下线): front-desk topics opened as before no more.
-        (self.ctx.state_dir / main_thread_settings.FILE).write_text(json.dumps({"mode": "agent", "desk_topics": True}))
+        (self.ctx.state_dir / butler_settings.FILE).write_text(json.dumps({"mode": "agent", "desk_topics": True}))
         data, _ = self.opened("desk")
-        self.assertIs(main_thread.traits(data["topic_id"], CHAT), TOPIC)
+        self.assertIs(butler.traits(data["topic_id"], CHAT), TOPIC)
         self.assertNotIn("desk", load_topic(self.ctx.state_dir, data["topic_id"])["origin"])
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, OWNER), data["topic_id"])
         self.assertFalse((self.ctx.state_dir / "main-thread" / "desk").exists())  # No registry entry either.
@@ -84,7 +84,7 @@ class OpenTest(AreaCase):
 class RelayTest(AreaCase):
     def opened_turn(self, request="open", **timings):
         data, job = self.opened(request)
-        token = main_topics.request_token(SimpleNamespace(id=request))
+        token = butler_topics.request_token(SimpleNamespace(id=request))
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=data["topic_id"],
                         timings=timings)
         return data, turn
@@ -92,7 +92,7 @@ class RelayTest(AreaCase):
     def test_it_quotes_the_main_card_and_is_the_topics(self):
         data, turn = self.opened_turn()
         target = relay_targets.relay_target(self.ctx.state_dir, turn)
-        self.assertEqual((target["reply_to"], target["topic_id"], target["main_key"]), (MAIN_CARD, data["topic_id"],
+        self.assertEqual((target["reply_to"], target["topic_id"], target["main_key"]), (BUTLER_CARD, data["topic_id"],
                                                                                          "main-job"))
 
     def test_the_second_topic_of_a_message_links_its_you_asked_to_its_own_root(self):
@@ -113,82 +113,82 @@ class RelayTest(AreaCase):
     def test_threaded_a_quick_answer_is_a_message_of_its_own_quoting_no_card(self):
         _, turn = self.opened_turn(backend_requested=100.0, execution_finished=130.0)
         send = mock.Mock(side_effect=lambda chat, text, key, reply_to, card, on_sent: on_sent("om_relay") or True)
-        self.assertEqual("sent", main_relay.relay(self.ctx.state_dir, turn, relay_card.DONE, send=send, text="答案",
+        self.assertEqual("sent", butler_relay.relay(self.ctx.state_dir, turn, relay_card.DONE, send=send, text="答案",
                                                   at=130.0, took=30.0, artifacts=0, inputs=["Claude Code"], outputs=[]))
         self.assertEqual(send.call_args.args[3], "")
 
 
 class SettleTest(AreaCase):
-    """after_runner: the main thread's card handed on to one topic alone routes quotes to it."""
+    """after_runner: the butler's card handed on to one topic alone routes quotes to it."""
 
     def test_a_card_handed_on_to_one_topic_routes_quotes_to_it(self):
         data, _ = self.opened()
         upsert_job_record(self.ctx.state_dir, "main-job", status="done")
         gateway = SimpleNamespace(apps=self.app.topics.apps, runtime=self.app.runtime)
-        main_job = SimpleNamespace(message_id="main-job", job_id=1, chat_id=CHAT, topic_id=self.main)
+        butler_job = SimpleNamespace(message_id="main-job", job_id=1, chat_id=CHAT, topic_id=self.main)
         messenger = self.app.topics.apps["claude"].messenger
         with mock.patch.object(messenger, "send_message") as send:
-            main_relay.after_runner(gateway, main_job, self.ctx)
+            butler_relay.after_runner(gateway, butler_job, self.ctx)
         send.assert_not_called()
-        # Quoting it goes there, a reply to it stays the main thread's.
-        self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, MAIN_CARD), data["topic_id"])
-        self.assertEqual(message_topic(self.ctx.state_dir, CHAT, MAIN_CARD), self.main)
-        quote = {"chat_id": CHAT, "message_id": "om_quote", "root_id": OWNER, "parent_id": MAIN_CARD}
+        # Quoting it goes there, a reply to it stays the butler's.
+        self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, BUTLER_CARD), data["topic_id"])
+        self.assertEqual(message_topic(self.ctx.state_dir, CHAT, BUTLER_CARD), self.main)
+        quote = {"chat_id": CHAT, "message_id": "om_quote", "root_id": OWNER, "parent_id": BUTLER_CARD}
         self.assertEqual(context_for_topic(self.ctx, quote, lambda w: w).topic_id, data["topic_id"])
 
     def test_a_topic_turn_routes_nothing(self):
         data, job = self.opened()
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="om_next", topic_id=data["topic_id"])
         gateway = SimpleNamespace(apps=self.app.topics.apps, runtime=self.app.runtime)
-        main_relay.after_runner(gateway, turn, self.ctx)
-        self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, MAIN_CARD), "")
+        butler_relay.after_runner(gateway, turn, self.ctx)
+        self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, BUTLER_CARD), "")
 
     def test_in_the_mode_topics_a_turn_is_not_relayed(self):
         data, job = self.opened()
-        main_thread_settings.update(self.ctx.state_dir, enabled=False)
+        butler_settings.update(self.ctx.state_dir, enabled=False)
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="om_next", topic_id=data["topic_id"],
                         timings={"backend_requested": 1.0, "execution_finished": 200.0})
         send = mock.Mock()
-        self.assertIsNone(main_relay.relay(self.ctx.state_dir, turn, relay_card.DONE, send=send, text="答案", at=200.0,
+        self.assertIsNone(butler_relay.relay(self.ctx.state_dir, turn, relay_card.DONE, send=send, text="答案", at=200.0,
                                            took=199.0, artifacts=0))
         send.assert_not_called()
-        self.assertTrue(reply_in_thread(CHAT, OWNER))  # Replies go in threads again, the main thread's too.
+        self.assertTrue(reply_in_thread(CHAT, OWNER))  # Replies go in threads again, the butler's too.
 
     def test_a_quick_relay_is_held_no_more(self):
         # The desk_topics layout's hold (a quick turn the card handed on to alone, written on it) went with it.
         data, job = self.opened()
-        token = main_topics.request_token(SimpleNamespace(id="open"))
+        token = butler_topics.request_token(SimpleNamespace(id="open"))
         quick = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=data["topic_id"],
                          timings={"backend_requested": 100.0, "execution_finished": 110.0})
         upsert_job_record(self.ctx.state_dir, "main-job", status="running")
         send = mock.Mock(side_effect=lambda chat, text, key, reply_to, card, on_sent: on_sent("om_quick") or True)
-        self.assertEqual("sent", main_relay.relay(self.ctx.state_dir, quick, relay_card.DONE, send=send, text="快",
+        self.assertEqual("sent", butler_relay.relay(self.ctx.state_dir, quick, relay_card.DONE, send=send, text="快",
                                                   at=110.0, took=10.0, artifacts=0))
         self.assertEqual(send.call_args.args[3], "")
 
-    def test_a_card_handed_on_to_two_topics_stays_the_main_threads(self):
+    def test_a_card_handed_on_to_two_topics_stays_the_butlers(self):
         self.opened("one")
         self.opened("two")
         upsert_job_record(self.ctx.state_dir, "main-job", status="done")
         gateway = SimpleNamespace(apps=self.app.topics.apps, runtime=self.app.runtime)
-        main_relay.after_runner(gateway, SimpleNamespace(message_id="main-job", job_id=1, chat_id=CHAT, topic_id=self.main),
+        butler_relay.after_runner(gateway, SimpleNamespace(message_id="main-job", job_id=1, chat_id=CHAT, topic_id=self.main),
                                 self.ctx)
-        self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, MAIN_CARD), "")
+        self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, BUTLER_CARD), "")
 
 
 class QuoteTest(AreaCase):
     def test_quoting_a_card_routed_to_an_appended_area_goes_there_and_its_card_goes_in_its_thread(self):
         data, _ = self.opened()
-        # A later question the main thread appended to this area (topic_send): its card is routed, the question is
-        # the main thread's.
+        # A later question the butler appended to this area (topic_send): its card is routed, the question is
+        # the butler's.
         remember_topic_message(self.ctx.state_dir, self.main, CHAT, "om_q2")
         remember_topic_message(self.ctx.state_dir, self.main, CHAT, "om_card2")
         route_message(self.ctx.state_dir, CHAT, "om_card2", data["topic_id"], holder=self.main)
         event = {"chat_id": CHAT, "chat_type": "p2p", "message_id": "om_follow", "root_id": "om_q2",
                  "parent_id": "om_card2"}
-        thread = MainThread(self.app.topics)
+        thread = Butler(self.app.topics)
         with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
-            self.assertIsNone(thread.app_for(self.ctx, event, True))  # Not the main thread's.
+            self.assertIsNone(thread.app_for(self.ctx, event, True))  # Not the butler's.
         ctx = context_for_topic(self.ctx, event, lambda w: w)
         self.assertEqual((ctx.topic_id, ctx.reply_to_message_id), (data["topic_id"], OWNER))  # In its thread.
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "om_q2"), self.main)
@@ -202,22 +202,22 @@ class QuoteTest(AreaCase):
 
 
     def test_quoting_the_main_card_in_a_thread_goes_to_the_topic_it_handed_on_to(self):
-        # S8 (T444, 2026-11-08): the main thread's card is in the owner's message's thread, so a quote of it carries
-        # a thread_id; it went to the main thread, while the rest of that thread went to the topic.
+        # S8 (T444, 2026-11-08): the butler's card is in the owner's message's thread, so a quote of it carries
+        # a thread_id; it went to the butler, while the rest of that thread went to the topic.
         data, _ = self.opened()
-        thread = MainThread(self.app.topics)
-        remember_topic_message(self.ctx.state_dir, self.main, CHAT, MAIN_CARD)
-        route_message(self.ctx.state_dir, CHAT, MAIN_CARD, data["topic_id"], holder=self.main)
+        thread = Butler(self.app.topics)
+        remember_topic_message(self.ctx.state_dir, self.main, CHAT, BUTLER_CARD)
+        route_message(self.ctx.state_dir, CHAT, BUTLER_CARD, data["topic_id"], holder=self.main)
         # In the area's own thread (its root is the owner's question).
         event = {"chat_id": CHAT, "chat_type": "p2p", "message_id": "om_q_in", "root_id": OWNER,
-                 "parent_id": MAIN_CARD, "thread_id": "omt_1"}
+                 "parent_id": BUTLER_CARD, "thread_id": "omt_1"}
         with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
             self.assertIsNone(thread.app_for(self.ctx, event, True))
         ctx = context_for_topic(self.ctx, event, lambda w: w)
         self.assertEqual((ctx.topic_id, ctx.reply_to_message_id), (data["topic_id"], OWNER))
-        self.assertEqual(message_topic(self.ctx.state_dir, CHAT, MAIN_CARD), self.main)  # Still the main thread's.
-        # In the thread of a later question the main thread handed on to this area (topic_send): the topic's, its
-        # reply in the topic's own thread; the question and its thread stay the main thread's.
+        self.assertEqual(message_topic(self.ctx.state_dir, CHAT, BUTLER_CARD), self.main)  # Still the butler's.
+        # In the thread of a later question the butler handed on to this area (topic_send): the topic's, its
+        # reply in the topic's own thread; the question and its thread stay the butler's.
         remember_topic_message(self.ctx.state_dir, self.main, CHAT, "om_q2")
         remember_topic_message(self.ctx.state_dir, self.main, CHAT, "om_card2")
         route_message(self.ctx.state_dir, CHAT, "om_card2", data["topic_id"], holder=self.main)
@@ -231,10 +231,10 @@ class QuoteTest(AreaCase):
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "om_q2"), self.main)
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "omt_2"), "")
         # The mode 纯话题: a thread stays its root's, as before.
-        with mock.patch.object(main_thread, "enabled", return_value=False):
+        with mock.patch.object(butler, "enabled", return_value=False):
             off = context_for_topic(self.ctx, {**handed, "message_id": "om_q2_off"}, lambda w: w)
         self.assertEqual(off.topic_id, self.main)
-        # Not quoting anything there is the main thread's, as before (left to the owner, VERIFY-edges S8 point 2).
+        # Not quoting anything there is the butler's, as before (left to the owner, VERIFY-edges S8 point 2).
         plain = {"chat_id": CHAT, "chat_type": "p2p", "message_id": "om_q2_plain", "root_id": "om_q2",
                  "parent_id": "om_q2", "thread_id": "omt_2"}
         with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
@@ -248,7 +248,7 @@ class EveryTurnTest(AreaCase):
         answered = make_job(job_id=job.job_id + 1, chat_id=CHAT, message_id="answer-tok", topic_id=data["topic_id"],
                             timings={"backend_requested": 1.0, "execution_finished": 5.0})
         target = relay_targets.relay_target(self.ctx.state_dir, answered)
-        self.assertEqual((target["kind"], target["reply_to"], target["main_key"]), ("follow", MAIN_CARD, "main-job"))
+        self.assertEqual((target["kind"], target["reply_to"], target["main_key"]), ("follow", BUTLER_CARD, "main-job"))
         # A topic no request touched is not relayed.
         self.assertIsNone(relay_targets.area_target(self.ctx.state_dir, "f" * 64, CHAT))
 
@@ -307,7 +307,7 @@ class MirrorTest(MirrorCase):
         answer = self.start("two")
         second, job = answer["data"], type(self).job(self, "two")  # setUp's self.job is the first topic's.
         self.assertTrue(second["root_message_id"].startswith("om_root"))
-        token = main_topics.request_token(SimpleNamespace(id="two"))
+        token = butler_topics.request_token(SimpleNamespace(id="two"))
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=second["topic_id"],
                         user_text="去做 B")
         record = {**self.record, "token": "q2", "topic_id": second["topic_id"], "job_id": job.job_id}
@@ -352,7 +352,7 @@ class MirrorTest(MirrorCase):
                                                         status_message=""))
         send = mock.Mock()
         with mock.patch.object(self.app.messenger, "send_message", send):
-            state = main_relay.after_turn(delivery, True, "waiting_user", messenger=self.app.messenger,
+            state = butler_relay.after_turn(delivery, True, "waiting_user", messenger=self.app.messenger,
                                           profile="p", voice=self.app_.voice)
         self.assertEqual(state, "mirrored")
         send.assert_not_called()
@@ -528,11 +528,11 @@ class MirrorFilesTest(MirrorCase):
             click("bridge_question_status")
         self.assertIn(ARTIFACTS_ID, json.dumps(publish.call_args.args[3]))
 
-    def test_the_main_thread_s_own_question_s_copy_leaves_them_to_its_answer_card(self):
-        """The main thread's own turn answers at the top level, its 产物 there: its question's copy has none."""
+    def test_the_butler_s_own_question_s_copy_leaves_them_to_its_answer_card(self):
+        """The butler's own turn answers at the top level, its 产物 there: its question's copy has none."""
         self.ledger("done")
         self.answer_card()
-        own = {**self.record, "topic_id": main_thread.main_topic_id(CHAT)}
+        own = {**self.record, "topic_id": butler.butler_topic_id(CHAT)}
         self.assertEqual(self.app_.questions.display.copy_files(self.tctx, own), (None, None))
         self.assertIsNotNone(self.app_.questions.display.copy_files(self.tctx, self.record)[0])
 
@@ -547,13 +547,13 @@ class MirrorFilesTest(MirrorCase):
 
 class RulesTest(AreaCase):
     def test_the_rules_say_by_which_matter(self):
-        self.assertIn("放哪儿按“是哪件事”分，不按它会跑多久", MAIN_THREAD_RULES)
-        self.assertIn("AskUserQuestion", MAIN_THREAD_RULES)
-        self.assertIn("放到 T432「标题」里做", main_thread_message("快照", "消息"))
+        self.assertIn("放哪儿按“是哪件事”分，不按它会跑多久", BUTLER_RULES_TEXT)
+        self.assertIn("AskUserQuestion", BUTLER_RULES_TEXT)
+        self.assertIn("放到 T432「标题」里做", butler_message("快照", "消息"))
 
     def test_the_opening_says_the_chat_area_and_no_rule_says_the_top_level_or_one_card(self):
         """T444 S2: the 话题区 rules say the chat area and a new message."""
-        rules = main_thread_message("快照", "消息").split("\n\n")[0]
+        rules = butler_message("快照", "消息").split("\n\n")[0]
         for stale in ("顶层", "一分钟内", "一张回复卡", "写在你这张卡上"):
             self.assertNotIn(stale, rules)
         self.assertIn("主人在私聊聊天区发的每条消息是你的一轮", rules)
@@ -564,7 +564,7 @@ class RulesTest(AreaCase):
     def test_tool_notes_are_in_the_owners_language_everywhere(self):
         """T444 V11: commands' and subtasks' descriptions show on the card's 执行过程."""
         from covey.app.prompts import RESUME_REMINDERS, constraints
-        for text in (constraints("Claude"), RESUME_REMINDERS, main_thread_message("快照", "消息")):
+        for text in (constraints("Claude"), RESUME_REMINDERS, butler_message("快照", "消息")):
             self.assertIn("工具调用里写给人看的说明（命令和子任务的 description、待办条目）也用用户提问的语言写", text)
 
 if __name__ == "__main__":

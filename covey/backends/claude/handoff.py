@@ -22,7 +22,7 @@ from covey.core.harness import UUID_RE, JobCancelled
 
 SUMMARY_SECONDS = 180  # The new turn waits at most this long for the summary, then starts without it.
 # Options of a turn that have no place in the summary call: a rewind point (a switch with a ↩️ 回退 pending is not
-# summarized, app/switch_handoff.py), a compaction, the main thread's tools.
+# summarized, app/switch_handoff.py), a compaction, the butler's tools.
 DROPPED = ("resume_at", "compact_first", "compact_instructions", "mcp_config", "fork_session")
 DENIED = "Bridge 交接摘要只要文字回答，不能调用工具。"
 

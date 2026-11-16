@@ -32,7 +32,7 @@ from covey.cards.cardkit_actions import (batch_body, delete, element_body, inser
 from covey.cards.review import (compact_text, outcome_line, render_stream_final, render_stream_status,
                                          running_summary, task_card_summary)
 from covey.cards.elements import grey
-from covey.core import main_thread, projects
+from covey.core import butler, projects
 from covey.cards.streaming import (ACTION_ROW_ELEMENT_ID, SIDE_CHAT_ELEMENT_ID, answer_element,
                                             card_title_for_question)
 from covey.cards.card_cost import exceeds_stream_card_limit
@@ -109,7 +109,7 @@ class Cards:
 
     def card_facts(self, ctx: BridgeContext, job: ReplyJob) -> None:
         """What a task card is drawn with besides the job's own fields (app/task_card.py CARD_FACTS); registers
-        the job. No request: also set on a main-thread turn whose card is held back (app/submission.py), so its
+        the job. No request: also set on a butler turn whose card is held back (app/submission.py), so its
         answer card's 输入 (app/answer_cards.py inputs) says what a sent card's would; its task runner reads them
         from the handoff's extras and sets them again when it sends the card (``reveal``)."""
         if hasattr(self.harness.backend, "capabilities"):
@@ -193,7 +193,7 @@ class Cards:
                                       record_replacement=record_replacement, allow_replacement=allow_replacement)
 
     def render_stream_status(self, job: ReplyJob, status: str, events: list[str] | None = None) -> str:
-        """A queued or stopping card's body: on a slim card that has one already (the main thread's) one small grey
+        """A queued or stopping card's body: on a slim card that has one already (the butler's) one small grey
         line, its status line says the rest; a slim card being created takes the whole text in its status line
         (cards/task_status.py slim_start)."""
         if job.progress and getattr(job.progress, "slim", False):
@@ -226,29 +226,29 @@ class Cards:
             return self.stream.update_activity(ctx.profile, job.progress, content)
 
     def reveal(self, ctx: BridgeContext, job: ReplyJob, content: str) -> bool:
-        """The task card of a main-thread turn held back (``job.card_deferred``, core/placement.py Row.quiet), sent by
-        its task runner once the turn has run main_thread.CARD_AFTER seconds, as any task card is (in the owner's
-        message's thread, app/main_thread.py configure), its status line ``content``; the job record gets its address
+        """The task card of a butler turn held back (``job.card_deferred``, core/placement.py Row.quiet), sent by
+        its task runner once the turn has run butler.CARD_AFTER seconds, as any task card is (in the owner's
+        message's thread, app/butler.py configure), its status line ``content``; the job record gets its address
         (stop clicks, recovery and the board find it there). Tried once; not for a turn stopping or delivering."""
         if not getattr(job, "card_deferred", False) or job.cancel_requested_at or job.answer_finalized:
             return False
         if projects.is_wake(job.message_id):
             return False  # A lead's wake-up turn (app/project_loop.py): the project's card says what it does.
         begun = run_start(getattr(job, "timings", None))
-        if begun is None or time.time() - begun < main_thread.CARD_AFTER:
+        if begun is None or time.time() - begun < butler.CARD_AFTER:
             return False
         job.card_deferred = False
         progress = self.create_streaming_reply(ctx, job, render_stream_status(job, content or "执行中"))
         if not progress:
-            self.runtime.log(f"main thread card not sent job=#{job.job_id}")
+            self.runtime.log(f"butler card not sent job=#{job.job_id}")
             return False
         job.progress = progress
         try:
             upsert_job_record(ctx.state_dir, job_key(job.message_id, job.job_id), card_id=progress.card_id,
                               card_message_id=progress.message_id)
         except OSError as exc:  # The next state write saves it (core/jobs.py job_record_fields).
-            self.runtime.log(f"main thread card not recorded job=#{job.job_id}: {type(exc).__name__}")
-        self.runtime.log(f"main thread card sent after {main_thread.CARD_AFTER}s job=#{job.job_id} "
+            self.runtime.log(f"butler card not recorded job=#{job.job_id}: {type(exc).__name__}")
+        self.runtime.log(f"butler card sent after {butler.CARD_AFTER}s job=#{job.job_id} "
                          f"card_id={progress.card_id}")
         return True
 
@@ -371,7 +371,7 @@ class Cards:
         return " · ".join([content, clock(snapshot.get("ended_at") or time.time()) + " 结束"])
 
     def say_outcome(self, ctx, job, line) -> bool:
-        """A main-thread card's last status line and chat-list preview: what the turn did, ``line`` (app/main_reply.py
+        """A butler card's last status line and chat-list preview: what the turn did, ``line`` (app/butler_reply.py
         outcome_words, V6, 2026-11-08), in the place of "✅ 已完成 · 用时 …" and "#12 · 已完成 · 用时 …". One batch of
         the status elements alone (the 输入/输出 box keeps its 用时); the preview goes with the card's close. Whether
         CardKit took it."""

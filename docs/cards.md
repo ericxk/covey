@@ -73,7 +73,7 @@
 - “输出”运行中写 开始 ｜ 已运行 ｜ token ｜ token/s ｜ 上下文（`running_figures`、`with_ran`，顺序 `RUNNING_LINES`），结束后写 用时 ｜ token/s ｜ token ｜ 缓存命中（`output_parts`、`output_lines`），还没有数字时是“—”。没开始处理就结束的（排队中取消）照结束写，也是“—”。
 - 段间是灰色的“｜”（`SEPARATOR`），段内不断行（`unbroken`），窄屏只在“｜”后折行。
 - 话题里各卡的按钮都用 `cards/elements.py` 的 `button_look`（带边框、`medium`、宽度跟着文字）；菜单面板用 `text_button`。停止按钮不带 `confirm`（见[卡片的客户端限制](#卡片的客户端限制)）。
-- 管家的分档卡（`Traits.slim_card`，`StreamingReply.slim`）：没有标题栏；正文、一行状态（`slim_status_markdown`）、默认收起的“详情”（`SLIM_DETAILS_ID`），灰框、本轮请求、任务详情和按钮行在“详情”里，ID 照旧；重试行、补充和问题紧跟正文（`under_body`）。详见[管家](main-thread.md)的“分档卡”。
+- 管家的分档卡（`Traits.slim_card`，`StreamingReply.slim`）：没有标题栏；正文、一行状态（`slim_status_markdown`）、默认收起的“详情”（`SLIM_DETAILS_ID`），灰框、本轮请求、任务详情和按钮行在“详情”里，ID 照旧；重试行、补充和问题紧跟正文（`under_body`）。详见[管家](butler.md)的“分档卡”。
 
 ### 状态行
 
@@ -114,7 +114,7 @@
 
 - 容错：类型不对的项丢掉，未知状态和第二个 `doing` 当 `todo`，最多 `MAX_STEPS` 步。
 - `clock_steps` 按 Bridge 的时钟记每步第一次 `doing` 和 `done`；有过步骤后 `persist` 带 `steps`、`step_times`，没有过不写这些键。
-- 状态行、状态卡（`app/status_cards.py`）、快照（`app/main_thread.py`）、`topic_read`（`app/main_tools.py` 的 `step_lines`）用同一套说法（`step_words`）。
+- 状态行、状态卡（`app/status_cards.py`）、快照（`app/butler.py`）、`topic_read`（`app/butler_tools.py` 的 `step_lines`）用同一套说法（`step_words`）。
 - `delivery` 每项读原文，最多 `DELIVERY_CHARS` 字。改了代码的轮次（`shows_change`：有提交号，或 `core/diff.py` 记到这一轮改了文件且 `delivery` 有内容），答案卡、结论卡在产物折叠下面、灰框上面加“改动”折叠（`change_element`，`CHANGE_ID`）：标题“改动 · ”加 `change_summary`（最多 `CHANGE_LINE_WIDTH` 显示宽度），点开是提交（`delivery_commits`）、部署、验收三行原文。回带卡加上它超过 `ANSWER_CARD_BYTES` 时正文改发 Markdown、后面跟尾卡（`cards/relay_card.py`）。不改代码的轮次卡片 JSON 不变。
 
 ### 停止与结束

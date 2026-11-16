@@ -1,8 +1,8 @@
-"""知识条目 (core/knowledge.py, docs/main-thread.md 知识库) and the history search's Bridge side
-(app/main_knowledge.py history_search, COVEY_HISTORY_CMD): the store (replay, same text once, rewrite and drop,
+"""知识条目 (core/knowledge.py, docs/butler.md 知识库) and the history search's Bridge side
+(app/butler_knowledge.py history_search, COVEY_HISTORY_CMD): the store (replay, same text once, rewrite and drop,
 a bad file, a torn line, two processes writing), the block every new session reads and what a resumed one is told
 (app/knowledge_turn.py, app/prompts.py), a topic's 记一下 collected by the Bridge (app/knowledge_collect.py: each of
-the five conditions, once per turn, a failure harmless), the main thread's tools and its MCP server's list, the
+the five conditions, once per turn, a failure harmless), the butler's tools and its MCP server's list, the
 digest's part, and that with both variables unset every prompt, tool list, view and MCP config is what it was."""
 from __future__ import annotations
 
@@ -21,15 +21,15 @@ from support.fake_backends import FakeBackend
 from support.records import write_job, write_topic
 from support.world import harness_app
 from covey.core import env as cenv
-from covey.app import digest, knowledge_collect, knowledge_turn, main_knowledge, main_tools
-from covey.app.main_env import MainEnv
+from covey.app import digest, knowledge_collect, knowledge_turn, butler_knowledge, butler_tools
+from covey.app.butler_env import ButlerEnv
 from covey.app.prompts import (AREA_OPENING, AREA_RULE, KNOWLEDGE_HEAD, KNOWLEDGE_NEW_HEAD, REMEMBER_RULE,
                                         RESUME_REMINDERS, SHARED_RULES, constraints, history_line,
-                                        knowledge_block, main_thread_rules, workspace_block)
+                                        knowledge_block, butler_rules, workspace_block)
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.cards.digest import digest_card, digest_text
-from covey.core import knowledge, main_mcp, main_requests, main_thread, main_tool_specs
+from covey.core import knowledge, butler_mcp, butler_requests, butler, butler_tool_specs
 from covey.core.checkpoint import CHECKPOINT_RULES
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import find_job_record
@@ -234,7 +234,7 @@ class StoreTest(StateCase):
         self.assertEqual(knowledge.history_cmd({knowledge.HISTORY_ENV: " /a/kb-history "}), "/a/kb-history")
         self.assertEqual(knowledge.history_cmd({knowledge.HISTORY_ENV: "kb-history"}), "")
         self.assertEqual(knowledge.history_cmd({}), "")
-        self.assertEqual((main_tool_specs.KNOWLEDGE_ENV, main_tool_specs.HISTORY_ENV), (knowledge.ENV, knowledge.HISTORY_ENV))
+        self.assertEqual((butler_tool_specs.KNOWLEDGE_ENV, butler_tool_specs.HISTORY_ENV), (knowledge.ENV, knowledge.HISTORY_ENV))
 
 
 def entry(text, at, **fields):
@@ -326,8 +326,8 @@ class TurnTest(StateCase):
                          + "\n\n" + CHECKPOINT_RULES)
         fresh = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=True, rules_session=False)
         self.assertEqual(fresh, rules + "\n\nMSG")
-        self.assertEqual(main_thread_rules(), "\n".join(("[管家规则]", *AREA_OPENING, *SHARED_RULES, AREA_RULE)))
-        self.assertEqual(main_tool_specs.listed({}), main_tool_specs.TOOLS)
+        self.assertEqual(butler_rules(), "\n".join(("[管家规则]", *AREA_OPENING, *SHARED_RULES, AREA_RULE)))
+        self.assertEqual(butler_tool_specs.listed({}), butler_tool_specs.TOOLS)
         self.assertFalse(Path(self.ctx.state_dir, "knowledge", "x").exists())
 
     def test_a_new_session_reads_the_entries_before_the_checkpoint_rules_with_the_remember_rule_after_them(self):
@@ -367,11 +367,11 @@ class TurnTest(StateCase):
         self.assertIn(history_line("/absolute/kb-history"), rules)
         self.assertNotIn(REMEMBER_RULE, rules)
 
-    def test_a_proxy_topic_a_redacted_topic_and_the_main_thread_get_no_remember_rule_and_a_proxy_topic_nothing(self):
+    def test_a_proxy_topic_a_redacted_topic_and_the_butler_get_no_remember_rule_and_a_proxy_topic_nothing(self):
         self.env(**ON, **{knowledge.HISTORY_ENV: "/absolute/kb-history"})
         self.save()
         runs = self.app().runs
-        main = self.job(chat=DM, sender="", topic=main_thread.main_topic_id(DM))
+        main = self.job(chat=DM, sender="", topic=butler.butler_topic_id(DM))
         self.assertNotIn(REMEMBER_RULE, runs.bridge_rules(self.ctx, main))
         self.assertIn(KNOWLEDGE_HEAD, runs.bridge_rules(self.ctx, main))
         write_topic(self.ctx, redaction=True)
@@ -436,8 +436,8 @@ class TurnTest(StateCase):
 
 class SpecsTest(StateCase):
     def test_the_tools_are_listed_only_where_the_variables_say_so(self):
-        names = lambda env: [t["name"] for t in main_tool_specs.listed(env)]  # noqa: E731
-        base = [t["name"] for t in main_tool_specs.TOOLS]
+        names = lambda env: [t["name"] for t in butler_tool_specs.listed(env)]  # noqa: E731
+        base = [t["name"] for t in butler_tool_specs.TOOLS]
         self.assertEqual(names({}), base)
         self.assertEqual(names({knowledge.ENV: "0"}), base)
         self.assertEqual(names({knowledge.ENV: "1"}), base + ["knowledge_save", "knowledge_update", "knowledge_drop",
@@ -445,20 +445,20 @@ class SpecsTest(StateCase):
         self.assertEqual(names({knowledge.HISTORY_ENV: "/a/kb-history"}), base + ["history_search"])
         self.assertEqual(names({knowledge.HISTORY_ENV: "kb-history"}), base)
         self.assertEqual(len(names({knowledge.ENV: "1", knowledge.HISTORY_ENV: "/a"})), len(base) + 5)
-        for tool in main_tool_specs.KNOWLEDGE_TOOLS + main_tool_specs.HISTORY_TOOLS:
+        for tool in butler_tool_specs.KNOWLEDGE_TOOLS + butler_tool_specs.HISTORY_TOOLS:
             self.assertEqual(set(tool), {"name", "description", "input_schema"})
             for required in tool["input_schema"].get("required", ()):
                 self.assertIn(required, tool["input_schema"]["properties"], tool["name"])
-        self.assertEqual(set(main_tool_specs.ALL_NAMES) - set(main_tool_specs.NAMES), set(main_knowledge.TOOLS))
+        self.assertEqual(set(butler_tool_specs.ALL_NAMES) - set(butler_tool_specs.NAMES), set(butler_knowledge.TOOLS))
 
     def test_the_mcp_server_lists_and_accepts_what_its_environment_says(self):
         seen = []
         submit = lambda state, name, args, job_key: seen.append(name) or {"ok": True, "text": "ok", "data": {}}  # noqa: E731
-        plain = main_mcp.Server({main_thread.STATE_ENV: str(self.state), main_thread.JOB_ENV: "j"}, submit=submit)
-        on = main_mcp.Server({main_thread.STATE_ENV: str(self.state), main_thread.JOB_ENV: "j", **ON,
+        plain = butler_mcp.Server({butler.STATE_ENV: str(self.state), butler.JOB_ENV: "j"}, submit=submit)
+        on = butler_mcp.Server({butler.STATE_ENV: str(self.state), butler.JOB_ENV: "j", **ON,
                               knowledge.HISTORY_ENV: "/absolute/kb-history"}, submit=submit)
-        self.assertEqual(len(main_mcp.tool_list(plain.environ)), len(main_tool_specs.TOOLS))
-        self.assertEqual(len(main_mcp.tool_list(on.environ)), len(main_tool_specs.TOOLS) + 5)
+        self.assertEqual(len(butler_mcp.tool_list(plain.environ)), len(butler_tool_specs.TOOLS))
+        self.assertEqual(len(butler_mcp.tool_list(on.environ)), len(butler_tool_specs.TOOLS) + 5)
         refused = plain.call({"name": "knowledge_save", "arguments": {}})
         self.assertTrue(refused["isError"])
         self.assertIn("没有开 knowledge_save", refused["content"][0]["text"])
@@ -468,29 +468,29 @@ class SpecsTest(StateCase):
 
     def test_the_mcp_config_hands_the_variables_on_only_when_the_bridge_has_them(self):
         self.env(**{knowledge.ENV: "", knowledge.HISTORY_ENV: ""})
-        plain = main_thread.mcp_config(Path("/r"), Path("/s"), "job-1", "/usr/bin/python3")
+        plain = butler.mcp_config(Path("/r"), Path("/s"), "job-1", "/usr/bin/python3")
         self.assertEqual(plain["mcpServers"]["bridge"]["env"],
-                         cenv.mirrored({main_thread.STATE_ENV: "/s", main_thread.JOB_ENV: "job-1"}))
+                         cenv.mirrored({butler.STATE_ENV: "/s", butler.JOB_ENV: "job-1"}))
         self.env(**ON, **{knowledge.HISTORY_ENV: " /absolute/kb-history "})
-        env = main_thread.mcp_config(Path("/r"), Path("/s"), "job-1", "/usr/bin/python3")["mcpServers"]["bridge"]["env"]
-        self.assertEqual(env, cenv.mirrored({main_thread.STATE_ENV: "/s", main_thread.JOB_ENV: "job-1", knowledge.ENV: "1",
+        env = butler.mcp_config(Path("/r"), Path("/s"), "job-1", "/usr/bin/python3")["mcpServers"]["bridge"]["env"]
+        self.assertEqual(env, cenv.mirrored({butler.STATE_ENV: "/s", butler.JOB_ENV: "job-1", knowledge.ENV: "1",
                                              knowledge.HISTORY_ENV: "/absolute/kb-history"}))
 
-    def test_the_main_threads_rules_name_the_order_of_looking_things_up(self):
+    def test_the_butlers_rules_name_the_order_of_looking_things_up(self):
         self.env(**{knowledge.ENV: "", knowledge.HISTORY_ENV: ""})
-        self.assertNotIn("knowledge_search", main_thread_rules())
-        self.assertNotIn("history_search", main_thread_rules())
+        self.assertNotIn("knowledge_search", butler_rules())
+        self.assertNotIn("history_search", butler_rules())
         self.env(**ON)
-        rules = main_thread_rules()
+        rules = butler_rules()
         for words in ("knowledge_save", "“记一下……”", "topic_read", "列出 id 和正文", "knowledge_update", "knowledge_drop",
                       "principle_save", "knowledge_search → topics_search，"):
             self.assertIn(words, rules)
         self.assertNotIn("history_search", rules)
         self.env(**{knowledge.HISTORY_ENV: "/absolute/kb-history"})
-        self.assertIn("knowledge_search → topics_search → history_search", main_thread_rules())
+        self.assertIn("knowledge_search → topics_search → history_search", butler_rules())
         self.env(**{knowledge.ENV: ""})
-        self.assertIn("topics_search → history_search", main_thread_rules())
-        self.assertNotIn("knowledge_save", main_thread_rules())
+        self.assertIn("topics_search → history_search", butler_rules())
+        self.assertNotIn("knowledge_save", butler_rules())
 
 
 class ToolTest(StateCase):
@@ -499,14 +499,14 @@ class ToolTest(StateCase):
     def setUp(self):
         super().setUp()
         (self.state / "workspace-config.json").write_text(json.dumps({"workspaces": {"bridge": "/x", "kb": "/y"}}))
-        write_job(self.state, "main-1", chat_id=self.CHAT, topic_id=main_thread.main_topic_id(self.CHAT), job_id=12,
+        write_job(self.state, "main-1", chat_id=self.CHAT, topic_id=butler.butler_topic_id(self.CHAT), job_id=12,
                   status="running")
         runtime = type("R", (), {"log": staticmethod(lambda line: None),
                                  "access": type("A", (), {"owner_chat": staticmethod(lambda: self.CHAT)})()})()
-        self.env_ = MainEnv(runtime, None, None, None, state_dir=self.state, profile="unit")
+        self.env_ = ButlerEnv(runtime, None, None, None, state_dir=self.state, profile="unit")
 
     def call(self, name, **args):
-        return main_knowledge.TOOLS[name](self.env_, main_requests.Request("r1", name, args, "main-1", time.time()))
+        return butler_knowledge.TOOLS[name](self.env_, butler_requests.Request("r1", name, args, "main-1", time.time()))
 
     def test_every_tool_says_so_when_the_switch_is_off(self):
         self.env(**{knowledge.ENV: ""})
@@ -570,8 +570,8 @@ class ToolTest(StateCase):
 
     def test_the_loop_answers_a_refusal_in_words(self):
         self.env(**ON)
-        answer = main_tools.MainTools(self.env_, main_knowledge.TOOLS).execute(
-            main_requests.Request("r2", "knowledge_drop", {"id": "k123456", "reason": "r"}, "main-1", time.time()))
+        answer = butler_tools.ButlerTools(self.env_, butler_knowledge.TOOLS).execute(
+            butler_requests.Request("r2", "knowledge_drop", {"id": "k123456", "reason": "r"}, "main-1", time.time()))
         self.assertFalse(answer["ok"])
         self.assertEqual(answer["text"], "knowledge_drop 没有完成：没有 id 为 k123456 的条目：用 knowledge_search 找")
 
@@ -584,7 +584,7 @@ class HistoryTest(StateCase):
         tmp = exec_tempdir()
         self.addCleanup(tmp.cleanup)
         self.bin = Path(tmp.name)
-        self.env_ = MainEnv(mock.Mock(), None, None, None, state_dir=self.state, profile="unit")
+        self.env_ = ButlerEnv(mock.Mock(), None, None, None, state_dir=self.state, profile="unit")
 
     def script(self, body, name="kb-history"):
         path = self.bin / name
@@ -594,7 +594,7 @@ class HistoryTest(StateCase):
         return path
 
     def call(self, **args):
-        return main_knowledge.history_search(self.env_, main_requests.Request("r1", "history_search", args, "main-1", time.time()))
+        return butler_knowledge.history_search(self.env_, butler_requests.Request("r1", "history_search", args, "main-1", time.time()))
 
     def test_it_runs_the_command_with_the_query_after_double_dash_and_returns_its_output(self):
         self.script('printf "%s|" "$@"')
@@ -634,7 +634,7 @@ class HistoryTest(StateCase):
     def test_a_command_over_the_time_is_stopped_with_its_whole_group(self):
         pidfile = self.bin / "child.pid"
         self.script(f'sleep 60 &\necho $! > {pidfile}\nwait\n')
-        with mock.patch.object(main_knowledge, "HISTORY_TIMEOUT", 1):
+        with mock.patch.object(butler_knowledge, "HISTORY_TIMEOUT", 1):
             started = time.monotonic()
             answer = self.call(query="x")
         self.assertLess(time.monotonic() - started, 20)
@@ -659,7 +659,7 @@ class HistoryTest(StateCase):
         self.assertEqual((answer["ok"], answer["data"]["truncated"]), (True, True))
         self.assertIn("已截断", answer["text"])
         body = answer["text"].split("\n\n（输出超过")[0]
-        self.assertEqual(len(body), main_knowledge.HISTORY_BYTES)
+        self.assertEqual(len(body), butler_knowledge.HISTORY_BYTES)
 
 
 class CollectTest(StateCase):
@@ -718,7 +718,7 @@ class CollectTest(StateCase):
         cases = (("not-finished", dict(status="failed")), ("not-finished", dict(status="interrupted")),
                  ("not-owner", dict(sender=OTHER)), ("not-owner", dict(sender="", chat=GROUP)),
                  ("no-trigger", dict(user_text="帮我看看这段代码")), ("handed-on", dict(prompt_text="管家整理的说明")),
-                 ("main-thread", dict(chat=DM, sender="", topic=main_thread.main_topic_id(DM))))
+                 ("main-thread", dict(chat=DM, sender="", topic=butler.butler_topic_id(DM))))
         for reason, fields in cases:
             with self.subTest(reason, **{k: str(v)[:12] for k, v in fields.items()}):
                 self.logs.clear()

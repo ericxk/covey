@@ -118,7 +118,7 @@ def native_image_attachments(prompt: str, media_dir: Path) -> list[dict[str, str
 
 
 # The text a received message's attachments and the Bridge's other blocks are listed in for the model (feishu/media.py
-# enrich_incoming_event writes it; the main thread's handoff and topics read it back).
+# enrich_incoming_event writes it; the butler's handoff and topics read it back).
 ATTACHMENTS_HEADER = "收到的附件（已下载到本地）："
 ATTACHMENTS_HINT = "请在需要理解图片或文件内容时读取上述本地路径。"
 FAILED_HEADER = "附件下载失败（内容未传给模型）："

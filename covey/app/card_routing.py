@@ -1,5 +1,5 @@
 """Routing what Feishu sends the Bridge: a message (handle_event: pairing, access, the duplicate check, then the
-enabled extensions', main-thread and topic routes), a bot menu click (handle_menu_event) and a card click (handle_card_action_event:
+enabled extensions', butler and topic routes), a bot menu click (handle_menu_event) and a card click (handle_card_action_event:
 access, the enabled extensions' claims, the EARLY and PANELS controller tables, the topic and job routes, then the job's task runner or its Harness's
 app). CardRouting is a part of app/unified.py's UnifiedBridgeApp, whose controllers and apps it reads."""
 from __future__ import annotations
@@ -94,7 +94,7 @@ class CardRouting:
         if any(feature.handle_event(ctx, event, admitted.owner) for feature in self.extension_features
                if hasattr(feature, 'handle_event')):
             return
-        if self.main_thread.handle_event(ctx, event, admitted.owner):
+        if self.butler.handle_event(ctx, event, admitted.owner):
             return
         # Every other text is a task, a supplement or a group message.
         routed = self.topics.route_or_refuse(ctx, event)

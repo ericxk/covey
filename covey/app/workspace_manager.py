@@ -11,8 +11,8 @@ there: a topic stores its own path when it starts. The card itself is cards/work
 
 The 设置 card's 工作区 tab (app/settings_hub.py) is the same manager on the 设置 card's record
 (<state>/settings-cards/<token>.json, its view in ``view`` with ``hub``; changed under that record's one lock and only
-while the card shows this tab): the tab row on top, no 完成管理, and with the main thread's settings each row's 用途
-and 记住的工作区 under the list (their buttons are app/main_thread_panel.py's, which draws this tab through
+while the card shows this tab): the tab row on top, no 完成管理, and with the butler's settings each row's 用途
+and 记住的工作区 under the list (their buttons are app/butler_panel.py's, which draws this tab through
 ``tab_card``). The bot menu's 工作区 key (MENU_KEY) opens the 设置 card on this tab since 2026-11-09; a standalone card
 sent before still acts.
 """
@@ -31,13 +31,13 @@ from covey.app.directory_picker import (DeviceGate, DirectoryCache, listed_paths
 from covey.app.menu_panel import FOLDED, HUB_FOLDER, OPEN, MenuPanel, hub_top
 from covey.cards.directory import directory_card
 from covey.core.text import literal
-from covey.cards.main_thread_panel import WORKSPACE_NOTE, notes_button, trusted_section
+from covey.cards.butler_panel import WORKSPACE_NOTE, notes_button, trusted_section
 from covey.cards.settings_hub import WORKSPACE
 from covey.cards.launch_config import MANAGE_OPTION, WORKSPACE_ACTION
 from covey.cards.elements import note
 from covey.cards.workspace_manager import (BROWSE_HOST, BROWSE_VERBS, FILTERS, MANAGER_PREFIX, ROW_VERBS,
                                                    closed_card, manager_card, markdown_lines, row_key)
-from covey.core import devices, main_thread, main_thread_settings
+from covey.core import devices, butler, butler_settings
 from covey.core.workspaces import (add_workspace, directory_status, load_config, missing_workspaces,
                                            remove_workspaces, set_default_workspace)
 from covey.app.card_actions import action_value, form_fields
@@ -118,8 +118,8 @@ class WorkspaceManager(CardActionQueue):
             return directory_card(token, {**view['browse'], 'revision': view['revision']}, BROWSE_HOST,
                                   listed_paths(config, view['browse'].get('device', '')), top=top)
         notes, after = None, ()
-        if main_thread.available():
-            settings = main_thread_settings.load(ctx.state_dir)
+        if butler.available():
+            settings = butler_settings.load(ctx.state_dir)
 
             def value(kind, **more):
                 return {'kind': kind, 'token': token, 'revision': view['revision'], **more}

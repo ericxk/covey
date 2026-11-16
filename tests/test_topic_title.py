@@ -1,5 +1,5 @@
 """A topic's title has one source (C9/V13, 2026-11-08): core/topics.py topic_title. T442 read "验收:睡 70 秒…" on its
-Pin and status card and the owner's own words in 手上的事 and the main thread's tools."""
+Pin and status card and the owner's own words in 手上的事 and the butler's tools."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ import types
 import unittest
 from pathlib import Path
 
-from covey.app import main_reply, main_tools, status_cards
+from covey.app import butler_reply, butler_tools, status_cards
 from covey.app.overview import Overview
 from covey.core.topics import shown_title, topic_title
 from support.records import write_topic
@@ -28,11 +28,11 @@ class TopicTitleTest(unittest.TestCase):
         env = types.SimpleNamespace(state_dir=self.state)
         overview = types.SimpleNamespace(topics={})
         return {"status card": status_cards.title_of(self.state, topic_id).split(" · ", 1)[-1],
-                "main card": main_reply._topic_title(self.state, topic_id),
-                "main tools": main_tools.title(env, topic_id),
+                "main card": butler_reply._topic_title(self.state, topic_id),
+                "main tools": butler_tools.title(env, topic_id),
                 "手上的事": Overview.topic(overview, self.state, topic_id)[1]}
 
-    def test_the_main_thread_s_title_first_line_with_chinese_punctuation(self):
+    def test_the_butler_s_title_first_line_with_chinese_punctuation(self):
         write_topic(self.state, {"topic_number": 442, "chat_id": "oc_dm",
                                  "origin": {"title": "验收:睡 70 秒并写 REPORT-2.md,登记产物\n第二行"}}, topic_id="t442")
         self.history("t442", {"role": "user", "content": "【验收 T419 答案卡第二次】另开一个话题区：先运行…"})

@@ -188,7 +188,7 @@ class AskTest(unittest.TestCase):
 
 class AskLinkRulesTest(unittest.TestCase):
     """Where the "你问"/"你答" block opens (the owner, 2026-11-10 16:55: 都能跳转到话题上，除非这个任务不是话题任务，是主
-    Agent任务): a topic's turn its topic's thread, the main thread's own turn the owner's message in the chat."""
+    Agent任务): a topic's turn its topic's thread, the butler's own turn the owner's message in the chat."""
 
     PLACES = {"om_root": {"thread_id": "omt_topic", "message_position": "40", "thread_message_position": "-1"},
               "om_card": {"thread_id": "omt_topic", "message_position": "41", "thread_message_position": "5"},
@@ -197,11 +197,11 @@ class AskLinkRulesTest(unittest.TestCase):
               "om_flat": {"message_position": "90"}}
 
     def setUp(self):
-        from covey.core.main_thread import main_topic_id
+        from covey.core.butler import butler_topic_id
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.state = Path(temporary.name)
-        self.main = main_topic_id("oc_1")
+        self.main = butler_topic_id("oc_1")
         write_json(self.state / "topics" / "t1" / "topic.json", {"chat_id": "oc_1", "root_id": "om_root"})
         self.read, self.logs = [], []
         patcher = mock.patch("covey.feishu.message_read.message_item",
@@ -226,7 +226,7 @@ class AskLinkRulesTest(unittest.TestCase):
         self.assertIn("open_thread_id=omt_topic", url)
         self.assertIn("thread_position=5", url)
         self.assertIn("　›", block["elements"][0]["content"])
-        # Not its owner's message, which is the main thread's: the topic's root and the turn's card are read.
+        # Not its owner's message, which is the butler's: the topic's root and the turn's card are read.
         self.assertNotIn("om_owner", self.read)
 
     def test_without_a_card_in_it_the_thread_itself_and_a_card_elsewhere_is_not_taken(self):
@@ -235,9 +235,9 @@ class AskLinkRulesTest(unittest.TestCase):
         self.assertIn("open_thread_id=omt_topic", url)
         self.assertNotIn("thread_position", url)
 
-    def test_a_relay_speaks_for_its_topic_with_the_main_threads_words(self):
-        main_record = {"user_text": "A 和 B 两件事", "topic_id": self.main, "message_id": "om_owner"}
-        block = self.asked(main_record, topic_id="t1", at=["om_card"])
+    def test_a_relay_speaks_for_its_topic_with_the_butlers_words(self):
+        butler_record = {"user_text": "A 和 B 两件事", "topic_id": self.main, "message_id": "om_owner"}
+        block = self.asked(butler_record, topic_id="t1", at=["om_card"])
         self.assertIn("thread_position=5", block["behaviors"][0]["default_url"])
         self.assertIn("A 和 B 两件事", block["elements"][1]["content"])
 
@@ -254,7 +254,7 @@ class AskLinkRulesTest(unittest.TestCase):
         self.assertNotIn("›", block["elements"][0]["content"])
         self.assertTrue(any("ask link missing job=#9" in line for line in self.logs), self.logs)
 
-    def test_the_main_threads_own_turn_opens_the_owners_message_in_the_chat(self):
+    def test_the_butlers_own_turn_opens_the_owners_message_in_the_chat(self):
         block = self.asked({"user_text": "几点了", "topic_id": self.main, "message_id": "om_owner"})
         url = block["behaviors"][0]["default_url"]
         self.assertIn("position=77", url)
@@ -267,7 +267,7 @@ class AskLinkRulesTest(unittest.TestCase):
         self.assertIn("你答 · ", topic["elements"][0]["content"])
         self.assertIn("　›", topic["elements"][0]["content"])
         self.assertIn("thread_position=5", topic["behaviors"][0]["default_url"])
-        # The main thread's: the message of the turn that asked, at its place in the chat.
+        # The butler's: the message of the turn that asked, at its place in the chat.
         upsert_job_record(self.state, "asking", message_id="om_owner", job_id=8, topic_id=self.main, chat_id="oc_1")
         write_json(self.state / "questions" / "tok.json", {"token": "tok", "job_key": "asking"})
         main = self.asked({**answer, "topic_id": self.main})
@@ -524,7 +524,7 @@ class AttachTest(Case):
         self.assertTrue(cards.set_task_element.call_args.kwargs["under"])
 
     def test_a_quiet_turn_with_no_task_card_still_uploads_its_answer_cards_files(self):
-        # A main-thread turn of the 话题区 layout that sent no task card (core/placement.py Row.quiet, B4): its
+        # A butler turn of the 话题区 layout that sent no task card (core/placement.py Row.quiet, B4): its
         # answer card said 上传中 until the owner clicked 重新上传 (2026-11-09 14:25, #3395).
         artifacts, cards = self.artifacts()
         artifacts.in_background = lambda target, *args: target(*args)  # The upload thread, run in place.
@@ -782,7 +782,7 @@ class RedeliveryTest(Case):
         saved = read_object(answer_cards.record_path(self.state, self.key))
         self.assertEqual([entry["where"] for entry in saved["cards"]], ["answer"])  # Kept for the upload.
 
-    def test_the_main_threads_answer_goes_again_to_the_top_level_with_its_you_asked_block(self):
+    def test_the_butlers_answer_goes_again_to_the_top_level_with_its_you_asked_block(self):
         from covey.core import placement
         top = SimpleNamespace(row=SimpleNamespace(answer=placement.TOP, answer_head=False))
         with mock.patch.object(placement, "plan", return_value=top), \

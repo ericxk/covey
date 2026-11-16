@@ -1,4 +1,4 @@
-"""Forks (the main thread's topic_fork) open a new topic bound to the source topic's settings; the 💬 侧聊,
+"""Forks (the butler's topic_fork) open a new topic bound to the source topic's settings; the 💬 侧聊,
 🔀 分叉 and 📦 压缩上下文 buttons left the cards (2026-11-08), and a click on an older card only says so."""
 import sys
 import unittest
@@ -216,7 +216,7 @@ class ForkTests(UnifiedCase):
 
 
 class CompactionTests(UnifiedCase):
-    """The main thread's compaction request (app/compaction.py): the next resumed turn takes it."""
+    """The butler's compaction request (app/compaction.py): the next resumed turn takes it."""
 
     def setUp(self):
         super().setUp()

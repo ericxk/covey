@@ -1,4 +1,4 @@
-"""Links that open a topic from a card (docs/main-thread.md 话题链接; the owner, 2026-11-07 02:00: 卡上的“转给 T404”
+"""Links that open a topic from a card (docs/butler.md 话题链接; the owner, 2026-11-07 02:00: 卡上的“转给 T404”
 要能点，直接跳到话题，不要让我去看板翻; 2026-11-08 06:40: 点 T439 要到那张答案卡上，不只是话题).
 
 Feishu's applinks open inside its clients: a message in a thread with ``client/thread/open`` (open_chat_id,
@@ -11,8 +11,8 @@ a card that cannot be read opens the thread at its root message, as before 2026-
 <state>/topic-links.json, under its topic (``messages``, the newest KEPT). A topic not found, or a read that fails,
 gets no link: its T number stays plain text, as before.
 
-``linkify`` turns the T numbers in a card's Markdown into links, outside code; only the main thread's cards and the
-relay's call it (app/main_reply.py, app/main_relay.py).
+``linkify`` turns the T numbers in a card's Markdown into links, outside code; only the butler's cards and the
+relay's call it (app/butler_reply.py, app/butler_relay.py).
 """
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def _active(folder, now) -> bool:
 
 def topic_numbers(state_dir, chat_id) -> dict:
     """{T number: topic id} of ``chat_id``'s topics active within RECENT (``_active``), read again when a topic is
-    added (the topics directory's mtime changes) or an hour on. A main-thread answer quotes other bots' topics too
+    added (the topics directory's mtime changes) or an hour on. A butler answer quotes other bots' topics too
     (2026-11-07: 小娜's "T13" linked to this chat's month-old T13)."""
     base = Path(state_dir) / "topics"
     try:

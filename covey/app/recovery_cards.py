@@ -8,13 +8,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from covey.app import auto_retry
-from covey.app.main_reply import dropped_lines
+from covey.app.butler_reply import dropped_lines
 from covey.app.outbox import AUDIT_REFUSED_NOTE, REDELIVER_LABEL, REDELIVER_NOTE, RETRY_NOTE
 from covey.cards.elements import md
 from covey.cards.recovery import recovery_view
 from covey.core import recovery, turn_words
 from covey.core.checkpoint import read_checkpoint
-from covey.core.main_thread import traits_of, worded
+from covey.core.butler import traits_of, worded
 from covey.core.metrics import ended, job_took, took_text
 from covey.core.topics import topic_label
 from covey.core.trace_store import load_trace
@@ -98,11 +98,11 @@ def recovery_card(record, *, continued=False, state_dir=None, moved_to=None, aut
 
 def recovery_text(record, state, label, cp, *, continued, state_dir):
     """What the recovery card of ``record`` (its recovery ``state`` and button ``label``, its checkpoint ``cp``) says:
-    the text starts with what to know next. In the main thread's words (worded), but a reply or a checkpoint keeps
-    the model's; a main-thread turn the policy guard stopped lists the supplements it took."""
+    the text starts with what to know next. In the butler's words (worded), but a reply or a checkpoint keeps
+    the model's; a butler turn the policy guard stopped lists the supplements it took."""
     text = ""
     refused = not continued and record.get('delivery_error') == 'audit_rejected' and not record.get('delivery_ok')
-    main = traits_of(record)  # The main thread is no topic (worded).
+    main = traits_of(record)  # The butler is no topic (worded).
     if continued:
         text += str(record.get("final_text") or "")
     elif state in SAVED_TEXT:
@@ -135,7 +135,7 @@ def recovery_text(record, state, label, cp, *, continued, state_dir):
     if not continued and state != recovery.INTERRUPTED:  # Not a reply or a checkpoint: the model's words stay.
         text = worded(text, main)
     if main.lists_supplements and state == recovery.POLICY_STOP and state_dir and not continued:
-        # A main-thread turn stopped by the policy guard: the supplements it took, in the owner's words (app/main_reply.py).
+        # A butler turn stopped by the policy guard: the supplements it took, in the owner's words (app/butler_reply.py).
         try:
             dropped = dropped_lines(state_dir, {**record, "job_key": record.get("message_id")}, True)
         except OSError:

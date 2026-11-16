@@ -27,7 +27,7 @@ class WorkspaceScheduler:
         job = self.pending[index]
         key = topic_key(job)
         if (getattr(job, "start_held_until", 0) or 0) > time.time():
-            return False  # Held for the owner's words (app/main_thread.py); its topic's later jobs wait behind it.
+            return False  # Held for the owner's words (app/butler.py); its topic's later jobs wait behind it.
         return key not in self.active.values() and not any(topic_key(j) == key for j in self.pending[:index])
 
     def execute(self, job):

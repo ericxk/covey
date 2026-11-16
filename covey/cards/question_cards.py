@@ -288,7 +288,7 @@ def question_card(record, topic=""):
     the form. No 🔁 换配置 since 2026-11-04: the task card above it has one (the owner: 为啥要这么多选项).
     ``refusal`` (not saved: app/interaction.py adds it) says under it why a click on its form sent nothing."""
     pending = record.get('status') == 'pending'
-    # A quiet main-thread turn's own card at the top level (app/question_display.py ask_block_for) has no task
+    # A quiet butler turn's own card at the top level (app/question_display.py ask_block_for) has no task
     # number: the owner saw no card with it (B4 review).
     number = "" if record.get("mirror_state") == "at_top" else f"#{record.get('job_id', '')}"
     tags = " · ".join(filter(None, [topic, number]))

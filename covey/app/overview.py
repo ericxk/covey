@@ -151,8 +151,8 @@ class Overview:
 
     def view(self, ctx, chat, now):
         state = ctx.state_dir
-        # The indexes read once (core/board_read.py): with the board on, the read its look judges too. The main
-        # thread (app/main_thread.py) talks at the chat's top level: not listed.
+        # The indexes read once (core/board_read.py): with the board on, the read its look judges too. The butler
+        #  (app/butler.py) talks at the chat's top level: not listed.
         read = board_read.read(state, chat, now, keep=kept(state, chat)) if self.pins.enabled() else None
         questions = sorted(read.questions if read else board_read.pending_questions(state, chat),
                            key=lambda row: row.get("created_at") or 0,
@@ -225,7 +225,7 @@ class Overview:
                 "started": timings.get("backend_started") or timings.get("dispatched"),
                 "phase": "" if phase in UNSET_PHASES else phase,
                 # The checkpoint's steps and when each started, as the task monitor keeps them on the record
-                # (core/longtask.py step_fields): the main thread's snapshot says which step (app/main_thread.py).
+                # (core/longtask.py step_fields): the butler's snapshot says which step (app/butler.py).
                 "steps": record.get("steps"), "step_times": record.get("step_times")}
 
     def topic(self, state, topic_id):

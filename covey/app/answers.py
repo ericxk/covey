@@ -272,8 +272,8 @@ def answer_message(record, answers, feedback, notes):
 
 def answer_fields(record, answers, note):
     """The form fields 提交回答 would send for ``answers`` (question id or text -> option label, or labels for a
-    multiple choice), with ``note`` as the 补充说明: ``form_answers`` the other way, for the main thread's
-    question_answer (app/main_tools.py, its PROXY_NOTE). ValueError says what does not fit."""
+    multiple choice), with ``note`` as the 补充说明: ``form_answers`` the other way, for the butler's
+    question_answer (app/butler_tools.py, its PROXY_NOTE). ValueError says what does not fit."""
     if not isinstance(answers, dict) or not answers:
         raise ValueError("answers 要是“题目 id → 选项原文”的对象")
     questions = [q for q in record.get("questions") or [] if isinstance(q, dict)]

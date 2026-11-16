@@ -12,7 +12,7 @@ from covey.core.deliveries import delivery_path, read_delivery, reconcile
 from covey.cards.steer_form import closed_card, steer_form
 from covey.app.card_actions import action_value
 from covey.core.jobs import upsert_job_record
-from covey.core.main_thread import traits, worded
+from covey.core.butler import traits, worded
 from covey.core.state import read_json
 from covey.core.steer import SteerRefused
 from covey.app.detached import update_queued

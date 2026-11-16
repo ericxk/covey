@@ -4,7 +4,7 @@ digest before (cards/digest.py). Off unless the variable holds a valid time (doc
 it there is no thread.
 
 What it lists is read from the records, as the pinned board reads them (core/board_read.py read: the indexes of
-questions/ and jobs/, no record lock, no Feishu call, the main thread's topics left out), never from a model:
+questions/ and jobs/, no record lock, no Feishu call, the butler's topics left out), never from a model:
 - 等你: each topic's newest pending question asked within pins.QUESTION_AGE (one day, as 手上的事 and the board
   have it), and the tasks waiting to be started (waiting_workspace, never old: 手上的事 has no such rule for them);
   the newest questions asked before that are not listed one by one but as one line of topic numbers (``stale``),
@@ -285,7 +285,7 @@ class Digest:
         return {**view, "asked": True, **self.where(chat)}
 
     def where(self, chat):
-        """The card's word for ``chat`` when it is a group with a main thread (cards/digest.py), else nothing."""
+        """The card's word for ``chat`` when it is a group with a butler (cards/digest.py), else nothing."""
         return {"where": "群"} if chat in getattr(self.runtime.access, "agent_groups", ()) else {}
 
     def path(self, ctx):

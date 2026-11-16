@@ -49,7 +49,7 @@ def launch_selection(choices, usage, config, *, model, workspace, work_mode, fre
     ``work_mode`` the topic's binding; ``fresh`` whether it is the topic's first binding, the only one
     preferences prefill, with ``saved`` the chat's last launch (launch_defaults; anything but a dict is
     none); ``draft`` a rebuilt card's own choices. ``topic_budget`` (Harness, budget): the 设置卡's 新话题默认
-    budget (core/main_thread_settings.py TopicDefaults; its Harness '' for any), ('', '') without one.
+    budget (core/butler_settings.py TopicDefaults; its Harness '' for any), ('', '') without one.
     ``device_harnesses`` (workspace name → the Harnesses its device declares, device workspaces only): a card that
     nobody has chosen a model on (no ``draft`` model) whose workspace is such a one does not start from a Harness the
     device lacks but from its first declared one, with that model's own budget (``device_fit``); a model the owner

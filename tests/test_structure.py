@@ -38,7 +38,7 @@ from covey.app.dashboard import ROTATE_KIND
 from covey.cards.directory import DIRECTORY_FORM_PREFIX
 from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.app.group_menu import KIND as GROUP_MENU_KIND
-from covey.cards.main_thread_panel import KINDS as MAIN_PANEL_KINDS
+from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
@@ -68,13 +68,13 @@ class CardActionTableTest(unittest.TestCase):
         literal = re.compile(r"""["']kind["']\s*:\s*["'](bridge_[a-z_]+)["']""")
         emitted = {kind for path in PACKAGE.rglob("*.py") for kind in literal.findall(path.read_text())}
         constants = {JOB_STOP_ACTION_KIND, NOTE_KIND, CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND,
-                     *PROXY_PANEL_KINDS, *MAIN_PANEL_KINDS}
+                     *PROXY_PANEL_KINDS, *BUTLER_PANEL_KINDS}
         self.assertEqual((emitted | constants) - OTHER_ROUTES - set(ACTIONS), set())
 
     def test_every_topic_kind_names_one_component_method(self):
         # The reverse: BridgeApp hands a topic's click to the method its kind names (card_handler), which takes
         # (ctx, event). The owner's cards the Bridge takes before topic routing name none (app/unified.py).
-        before_routing = PROXY_PANEL_KINDS | GROUP_KINDS | MAIN_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
+        before_routing = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
         before_routing |= set(extensions.card_kinds())  # An enabled extension's cards (its features claim them).
         before_routing |= {OVERVIEW_DISMISS}  # 手上的事's 这些都不用回答了 (app/overview.py).
         before_routing |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (app/app_setup.py).
@@ -166,7 +166,7 @@ class CardSequenceScanTest(unittest.TestCase):
 ENTRIES = {
     "covey_app_setup.py": "covey.service.app_check",
     "covey_doctor.py": "covey.service.doctor",
-    "covey_main_mcp.py": "covey.core.main_mcp",
+    "covey_butler_mcp.py": "covey.core.butler_mcp",
     "covey_memguard.py": "covey.service.memguard",
     "covey_pairing.py": "covey.service.pairing",
     "covey_service.py": "covey.service.manager",
@@ -185,10 +185,10 @@ ENTRIES = {
 }
 
 
-# The names before the rename (2026-11-14): forwarders, what service manifests, boot hooks, crontabs and scripts call.
+# The names before the rename (2026-11-14; covey_main_mcp.py 2026-11-16): forwarders, what service manifests, boot hooks, crontabs and scripts call.
 OLD_ENTRIES = {
     "bridge_app_setup.py": "covey_app_setup.py", "bridge_doctor.py": "covey_doctor.py",
-    "bridge_main_mcp.py": "covey_main_mcp.py", "bridge_memguard.py": "covey_memguard.py",
+    "bridge_main_mcp.py": "covey_butler_mcp.py", "covey_main_mcp.py": "covey_butler_mcp.py", "bridge_memguard.py": "covey_memguard.py",
     "bridge_pairing.py": "covey_pairing.py", "bridge_service.py": "covey_service.py",
     "bridge_service_install.py": "covey_service_install.py", "lark_install_browser.py": "covey_install_browser.py",
     "lark_bridge_maintenance.py": "covey_maintenance.py", "lark_bridge_paths.py": "covey_paths.py",
@@ -607,9 +607,9 @@ def inventory_rows():
     return rows
 
 
-# Core modules the MCP server (bin/covey_main_mcp.py) loads, with what they import: rule 7, only the standard library
+# Core modules the MCP server (bin/covey_butler_mcp.py) loads, with what they import: rule 7, only the standard library
 # and core modules that are themselves only that.
-MCP_CORE = ("covey.core.main_mcp", "covey.core.main_thread", "covey.core.projects")
+MCP_CORE = ("covey.core.butler_mcp", "covey.core.butler", "covey.core.projects")
 
 
 class McpCoreTest(unittest.TestCase):
@@ -815,7 +815,7 @@ class OldestPythonTest(unittest.TestCase):
 
     def test_no_f_string_reuses_an_enclosing_quote(self):
         # T444 A1: f"…{name or "本" + noun}…" parses only from Python 3.12 (PEP 701); on 3.10 and 3.11 importing
-        # app/main_topics.py failed and with it every main-thread tool.
+        # app/butler_topics.py failed and with it every butler tool.
         import io
         import tokenize
         if not hasattr(tokenize, "FSTRING_START"):

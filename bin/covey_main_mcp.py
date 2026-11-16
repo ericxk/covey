@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""Stable entry path; the implementation is covey.core.main_mcp."""
+"""Old entry name, kept for MCP configs an older release wrote and a running session may still hold: it runs covey_butler_mcp.py."""
 import runpy
-import sys
 from pathlib import Path
 
 if __name__ == "__main__":
-    # First on sys.path: an empty PYTHONPATH entry puts the cwd ahead of anything
-    # appended, and the cwd may hold another checkout of this package.
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    runpy.run_module("covey.core.main_mcp", run_name="__main__", alter_sys=True)
+    runpy.run_path(str(Path(__file__).resolve().with_name("covey_butler_mcp.py")), run_name="__main__")

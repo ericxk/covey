@@ -1,8 +1,8 @@
-"""派发卡 (docs/main-thread.md 派发卡), when COVEY_MAIN_DISPATCH_CARD=1: the card the main thread's topic_start,
+"""派发卡 (docs/butler.md 派发卡), when COVEY_DISPATCH_CARD=1: the card the butler's topic_start,
 topic_send and topic_fork leave at the chat's top level, a message of its own with the "你问" block (cards/dispatch_card.py)
 naming the owner's message, saying how the job it handed to a topic is going, kept up to date until the conclusion comes back and the card shrinks to one line (cards/dispatch_card.py).
 
-- ``created`` (called by app/main_topics.py once a topic took the work): sends the card, records it
+- ``created`` (called by app/butler_topics.py once a topic took the work): sends the card, records it
   (core/dispatch_records.py), and makes a quote of it go to the topic (``route_message``). Never raises: the topic is
   open and its work queued already.
 - ``DispatchCards`` (a feature object of the Bridge: ``threads()`` gives the refresh thread): each second it looks at the
@@ -40,7 +40,7 @@ from covey.core.status_line import step_text
 from covey.core.topics import remember_topic_message, route_message, topic_label, topic_title
 from covey.core.turn_words import UNSET_PHASES, ask_words, request_line
 
-ENV = "COVEY_MAIN_DISPATCH_CARD"
+ENV = "COVEY_DISPATCH_CARD"
 TICK = 1.0  # Seconds between two looks at the live records.
 MIN_GAP = 2.5  # Seconds between two writes of one card (CardKit allows 10 a second; v3's finding: one in 2 to 3 is enough).
 BACKOFF = 60.0  # The longest wait after a failed write (2, 4, 8 ... seconds).
@@ -62,7 +62,7 @@ LIVE_STATUS = frozenset({"queued", "running", "waiting_user", "cancel_requested"
 def click_job(runtime, state_dir, topic_id, chat_id) -> str:
     """The job a click on a 派发卡 button acts on, as the topic is when the button is clicked (the one the card names was
     the newest when the card was last drawn: an answer to a question or a 补充 that started a turn since then makes a
-    newer one, and the main thread's own turn that handed the work over is a job of another topic): the newest one that
+    newer one, and the butler's own turn that handed the work over is a job of another topic): the newest one that
     has started (starting, running, waiting for an answer), else the newest queued one. A message queued behind the
     running turn does not take the click: 停止 stopped only the queued one and the running turn went on (check 4,
     2026-11-16). The registry first, then the job records, as a task runner this Bridge has not adopted yet is only in
@@ -139,7 +139,7 @@ def status_of(state_dir, record, job, now) -> tuple[str, str]:
         return FAILED, message or ("执行失败" if status == "failed" else "任务中断")
     if status == "cancelled":
         return STOPPED, message or "已停止"
-    # The step under way, as the main thread's snapshot says it (app/main_thread.py snapshot_groups), else the phase.
+    # The step under way, as the butler's snapshot says it (app/butler.py snapshot_groups), else the phase.
     if status == "cancel_requested":
         return RUNNING, "正在停止…"
     step, doing = step_text(checkpoint_steps({"steps": job.get("steps")}), job.get("step_times"), now)
@@ -205,13 +205,13 @@ def digest_of(card) -> str:
 # Sending the card ---------------------------------------------------------------------------------------------------
 
 def request_words(state_dir, job_key) -> str:
-    """The owner's words the main-thread job ``job_key`` started from, one line."""
+    """The owner's words the butler job ``job_key`` started from, one line."""
     record = find_job_record(Path(state_dir), str(job_key or "")) or {}
     return request_line(record.get("user_text")) or str(record.get("title") or "")
 
 
 def ask_of(env, state, job_key) -> dict:
-    """{ask_at, ask_url} of the main-thread job ``job_key``'s owner message: when he wrote it and the link that opens it at
+    """{ask_at, ask_url} of the butler job ``job_key``'s owner message: when he wrote it and the link that opens it at
     its place in the chat (app/answer_cards.py ask_url, one read of Feishu, kept under the topic); '' for what cannot be
     read: the "你问" block then has no link."""
     from covey.app import answer_cards
@@ -228,9 +228,9 @@ def ask_of(env, state, job_key) -> dict:
 
 
 def created(env, request, topic_id, job_key="", *, token, kind="start", mid="", starts=True, project=False) -> str:
-    """Send the card of the work ``request`` (a main-thread tool call) handed to topic ``topic_id``; the record's token,
-    '' when there is none. ``job_key``: the main-thread job (default the request's); ``mid``: the key of the topic's job
-    the card follows (default the first turn's, "main-" + ``token``, the request's: app/main_topics.py request_token). Once a request: a second call finds
+    """Send the card of the work ``request`` (a butler tool call) handed to topic ``topic_id``; the record's token,
+    '' when there is none. ``job_key``: the butler job (default the request's); ``mid``: the key of the topic's job
+    the card follows (default the first turn's, "main-" + ``token``, the request's: app/butler_topics.py request_token). Once a request: a second call finds
     the card sent. Does nothing with the switch off, or when the owner's message is not known. Never raises.
     ``project``: the butler said this work is a long job (topic_send with ``project``): ``upgrade_hint.project`` in the record,
     which app/projects.py reads (COVEY_PROJECT_UPGRADE)."""
@@ -244,10 +244,10 @@ def created(env, request, topic_id, job_key="", *, token, kind="start", mid="", 
 
 
 def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=False) -> str:
-    from covey.app.relay_targets import main_job_owner_message
+    from covey.app.relay_targets import butler_job_owner_message
 
     chat, state = env.chat(), Path(env.state_dir)
-    owner = main_job_owner_message(state, job_key)
+    owner = butler_job_owner_message(state, job_key)
     if not chat or not owner or not topic_id:
         return ""
     path = records.record_path(state, token)
@@ -363,7 +363,7 @@ class DispatchCards:
 
     def ended_long_ago(self, path, record, view, seen, now) -> None:
         """A card of a job that ended, drawn as it ended and unchanged since, whose conclusion note never came (the relay
-        did not go out, or its turn is none the main thread relays): settled as it is after TERMINAL_GRACE."""
+        did not go out, or its turn is none the butler relays): settled as it is after TERMINAL_GRACE."""
         if view.status not in (DONE, FAILED, STOPPED):
             seen.pop("ended", None)
             return

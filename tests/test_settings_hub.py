@@ -1,4 +1,4 @@
-"""The 设置 card (app/settings_hub.py, cards/settings_hub.py): the bot menu's one card for the main thread's two pages
+"""The 设置 card (app/settings_hub.py, cards/settings_hub.py): the bot menu's one card for the butler's two pages
 (私聊默认, 新话题默认), 工作区, 脱敏, 代答 and 群聊, a tab row on top, held by one record; a tab turns the same record's card to another panel in place, the panels' own
 buttons keep the row and act only on their tab, a card sent under the scheme before (a record each panel) is taken
 over or finds nothing, and the standalone 代答 and 群聊 cards stay as they were."""
@@ -10,20 +10,20 @@ from unittest import mock
 
 from support.proxy import ProxyCase
 from support import requires_extension
-from covey.app import main_thread_panel
-from covey.app.main_thread_panel import OWNER_ONLY, TOOLS
+from covey.app import butler_panel
+from covey.app.butler_panel import OWNER_ONLY, TOOLS
 from covey.app.menu_panel import MOVED
 from covey.app.settings_hub import MENU_KEY, SettingsHub
-from covey.cards import main_thread_panel as main_card
+from covey.cards import butler_panel as butler_card
 from covey.cards import proxy_panel as proxy_card
 from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, json_size
 from covey.cards.group_manager import PAGE
 from covey.cards.settings_hub import TAB, tab_row
-from covey.core import main_thread
-from covey.core import main_thread_settings as settings
+from covey.core import butler
+from covey.core import butler_settings as settings
 from covey.core import proxy as records
 from covey.core.jobs import upsert_job_record
-from covey.core.main_requests import Request
+from covey.core.butler_requests import Request
 from covey.core.groups import group_path
 from covey.core.state import read_json, write_json
 
@@ -55,7 +55,7 @@ def values(card, kind=None):
 
 class HubCase(ProxyCase):
     def setUp(self):
-        self.enterContext(mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': '1'}))  # The menu is built with it.
+        self.enterContext(mock.patch.dict(os.environ, {'COVEY_BUTLER': '1'}))  # The menu is built with it.
         super().setUp()
         self.access = self.app.runtime.access
         self.access.remember_owner_chat('dm')
@@ -104,7 +104,7 @@ class SettingsHubTests(HubCase):
         self.assertEqual(self.title(), '私聊默认')
         self.assertEqual(self.tabs(), row_of('私聊'))
         self.assertEqual(self.card()['body']['elements'][0]['flex_mode'], 'flow')  # The row on top, labels never cut.
-        with mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': '0'}):  # The deployment rules it out.
+        with mock.patch.dict(os.environ, {'COVEY_BUTLER': '0'}):  # The deployment rules it out.
             self.app.menu.owner_said('dm')  # The owner wrote since: a new card (app/bot_menu.py).
             self.open('ev2')
             self.assertEqual(self.title(), '工作区')
@@ -143,7 +143,7 @@ class SettingsHubTests(HubCase):
         # The same click delivered again: nothing written; the main tab's buttons, gone from the card, find nothing.
         drawn = len(self.puts)
         self.assertEqual(self.press(click, 'ev-t1'), 'settings_fold')  # On the tab shown now; this click turned it.
-        compact = next(v for _, v in values(self.puts[0][1], main_card.COMPACT) if v.get('option') == '0')
+        compact = next(v for _, v in values(self.puts[0][1], butler_card.COMPACT) if v.get('option') == '0')
         self.assertEqual(self.press(compact, 'ev-c1'), 'main_panel_unknown')
         self.assertEqual(len(self.puts), drawn)
         self.assertEqual(settings.load(self.state).compact_tokens, settings.Settings().compact_tokens)
@@ -156,7 +156,7 @@ class SettingsHubTests(HubCase):
         self.assertEqual((len(self.puts), self.hub_record()['tab']), (drawn, 'groups'))
         self.assertEqual(self.press(self.tab('私聊'), 'ev-t4'), 'settings_tab')
         self.assertEqual(self.title(), '私聊默认')
-        self.assertEqual(self.press(next(v for _, v in values(self.card(), main_card.COMPACT) if v.get('option') == '0'),
+        self.assertEqual(self.press(next(v for _, v in values(self.card(), butler_card.COMPACT) if v.get('option') == '0'),
                                     'ev-c2'), 'main_panel')
         self.assertEqual([s for _, _, s in self.puts[1:]], list(range(1, len(self.puts))))
         self.assertEqual(self.hub_record()['sequence'], len(self.puts) - 1)
@@ -166,21 +166,21 @@ class SettingsHubTests(HubCase):
     def test_in_the_mode_topics_the_menu_opens_on_main_whose_first_row_turns_personal_agent_on(self):
         """The menu opens on 私聊默认 in either mode (T444, the owner 2026-11-08); in 纯话题 its first row turns it on."""
         settings.update(self.state, enabled=False)
-        self.addCleanup(main_thread.configure_state, main_thread.configure_state(self.state))
-        with mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': ''}):  # Allowed: the mode decides.
-            self.assertFalse(main_thread.enabled())
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
+        with mock.patch.dict(os.environ, {'COVEY_BUTLER': ''}):  # Allowed: the mode decides.
+            self.assertFalse(butler.enabled())
             self.open('ev1')
             self.assertEqual((self.title(), self.tabs()[0]), ('私聊默认', ('私聊', 'primary_filled')))
             self.assertEqual(self.tabs(), row_of('私聊'))  # 私聊 turns the mode back.
-            self.assertIn(main_thread_panel.MENU_KEY, self.hub.menu_items())
-            switch, = [v for _, v in values(self.card(), main_card.ENABLE)]
+            self.assertIn(butler_panel.MENU_KEY, self.hub.menu_items())
+            switch, = [v for _, v in values(self.card(), butler_card.ENABLE)]
             self.assertIs(switch['on'], True)
             self.assertEqual(self.press(switch, 'ev-e1'), 'main_panel')
-            self.assertTrue(main_thread.enabled())
+            self.assertTrue(butler.enabled())
             self.assertIn('已改成管家', json.dumps(self.card(), ensure_ascii=False))
 
     def test_a_slow_proxy_result_after_the_card_turned_writes_nothing(self):
-        with mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': ''}):
+        with mock.patch.dict(os.environ, {'COVEY_BUTLER': ''}):
             self.open()
         token = self.hub.token('dm', 'ev-menu')
         proxy = self.hub.panel('proxy')
@@ -204,7 +204,7 @@ class SettingsHubTests(HubCase):
         write_json(folder / (old + '.json'), record)
         write_json(folder / ('e' * 24 + '.json'), {**record, 'status': MOVED, 'message_id': 'om_moved',
                                                     'view': {'token': 'e' * 24, 'revision': 1, 'hub': True}})
-        compact = {'kind': main_card.COMPACT, 'token': old, 'revision': 3, 'option': '0'}
+        compact = {'kind': butler_card.COMPACT, 'token': old, 'revision': 3, 'option': '0'}
         # Its own buttons act on its own record, as before.
         self.assertEqual(self.press(compact, 'ev-c1', message='om_old'), 'main_panel')
         self.assertEqual((self.puts[-1][0], self.puts[-1][2]), ('oldcard', 1_762_400_001))
@@ -250,7 +250,7 @@ class SettingsHubTests(HubCase):
     @requires_extension()
     def test_the_panels_own_buttons_keep_the_tab_row(self):
         self.open()
-        compact = next(v for _, v in values(self.card(), main_card.COMPACT) if v.get('option') == '0')
+        compact = next(v for _, v in values(self.card(), butler_card.COMPACT) if v.get('option') == '0')
         self.assertEqual(self.press(compact, 'ev-c1'), 'main_panel')
         self.assertEqual((settings.load(self.state).compact_tokens, self.tabs()[0]), (0, ('私聊', 'primary_filled')))
         self.press(self.tab('群聊'), 'ev-t1')
@@ -288,9 +288,9 @@ class SettingsHubTests(HubCase):
         self.assertEqual(self.press({**on_hub, 'revision': 4}, 'ev-r3', message='om_s3'), 'proxy_panel')
 
     @requires_extension()
-    def test_the_tool_and_the_main_threads_menu_key_send_the_settings_card_on_main(self):
+    def test_the_tool_and_the_butlers_menu_key_send_the_settings_card_on_main(self):
         upsert_job_record(self.state, 'main-job', chat_id='dm', message_id='om_owner')
-        answer = TOOLS['settings_panel'](self.app.main_env, Request('r1', 'settings_panel', {}, 'main-job', 0.0))
+        answer = TOOLS['settings_panel'](self.app.butler_env, Request('r1', 'settings_panel', {}, 'main-job', 0.0))
         self.assertTrue(answer['ok'], answer)
         send = self.app.messenger.create_and_send_card
         self.assertEqual((send.call_args.kwargs['reply_to_message_id'], send.call_args.kwargs['in_thread']),
@@ -303,8 +303,8 @@ class SettingsHubTests(HubCase):
         self.open('ev-menu')
         self.assertEqual(self.app.messenger.recall.call_args.args[1], 'om_s2')
 
-    def test_the_main_threads_pages_are_two_tabs_and_an_older_cards_tab_still_turns(self):
-        """T444 (the owner, 2026-11-08: 一页是新话题默认，一页是私聊默认): the main thread's pages are tabs of one record,
+    def test_the_butlers_pages_are_two_tabs_and_an_older_cards_tab_still_turns(self):
+        """T444 (the owner, 2026-11-08: 一页是新话题默认，一页是私聊默认): the butler's pages are tabs of one record,
         each folding on a second click; 直接开工 is on 新话题 since 其他 was retired (2026-11-09); a card drawn before
         them, its tabs 管家 · 代答 · 群聊, still turns: its 管家 (key main) is 私聊默认."""
         self.open()
@@ -312,9 +312,9 @@ class SettingsHubTests(HubCase):
         self.assertEqual(self.press(self.tab('新话题'), 'ev-t1'), 'settings_tab')
         self.assertEqual((self.title(), self.hub_record()['tab'], self.tabs()[1]),
                          ('新话题默认', 'topic', ('新话题', 'primary_filled')))
-        self.assertTrue(values(self.card(), main_card.TOPIC_HARNESS))
-        self.assertEqual(len(values(self.card(), main_card.START)), 3)
-        start = next(v for _, v in values(self.card(), main_card.START) if v['tier'] == 'readonly')
+        self.assertTrue(values(self.card(), butler_card.TOPIC_HARNESS))
+        self.assertEqual(len(values(self.card(), butler_card.START)), 3)
+        start = next(v for _, v in values(self.card(), butler_card.START) if v['tier'] == 'readonly')
         self.assertEqual(self.press(start, 'ev-s1'), 'main_panel')
         self.assertEqual((self.title(), self.hub_record()['tab']), ('新话题默认', 'topic'))
         self.assertEqual(self.press(self.tab('新话题'), 'ev-t3'), 'settings_fold')
@@ -339,9 +339,9 @@ class SettingsHubTests(HubCase):
                                          'display_name': f'C{i}', 'levels': ['high', 'max']} for i in range(10)})
         current = settings.Settings(model='c9', topic_defaults=settings.TopicDefaults(harness='codex', model='m39'),
                                     trusted=tuple(f'w{i}|edit' for i in range(8)))
-        for page in main_card.PAGES:  # Each page of the main thread's.
+        for page in butler_card.PAGES:  # Each page of the butler's.
             row = [tab_row(page, 'a' * 24, tabs)]
-            card = main_card.main_thread_panel_card('a' * 24, {'revision': 1, 'hub': True}, current, choices,
+            card = butler_card.butler_panel_card('a' * 24, {'revision': 1, 'hub': True}, current, choices,
                                                     [f'w{i}' for i in range(30)], top=row, page=page)
             self.assertEqual(card['body']['elements'][0], row[0])
             self.assertLessEqual(element_count(card), CARD_NODES)
@@ -350,7 +350,7 @@ class SettingsHubTests(HubCase):
             records.write_contact(self.state, {**dict(key=f'p2p:ou_{i:03d}', kind='p2p', target=f'ou_{i:03d}',
                                                       name=f'联系人{i:03d}', chat_id=f'oc_p{i:03d}'),
                                                'paused': False, 'since': 0, 'added_at': i, 'seen': []})
-        with mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': '0'}):
+        with mock.patch.dict(os.environ, {'COVEY_BUTLER': '0'}):
             self.open()
             self.press(self.tab('代答'), 'ev-t1')
         self.assertEqual(self.tabs()[2], ('代答', 'primary_filled'))
@@ -392,7 +392,7 @@ class SixTabsTests(HubCase):
         self.assertEqual(rotate, {'kind': 'bridge_dashboard_rotate', 'token': self.hub.token('dm', 'ev-r')})
 
     @requires_extension()
-    def test_the_workspace_tab_is_the_manager_with_the_main_threads_notes_and_trusted(self):
+    def test_the_workspace_tab_is_the_manager_with_the_butlers_notes_and_trusted(self):
         settings.update(self.state, trusted=('alpha|read',), workspace_notes=(('alpha', '甲'),))
         self.open()
         self.assertEqual(self.press(self.tab('工作区'), 'ev-t1'), 'settings_tab')
@@ -413,11 +413,11 @@ class SixTabsTests(HubCase):
         self.assertEqual((self.title(), self.tabs()[2], self.puts[-1][0]), ('工作区', ('工作区', 'primary_filled'), 'hubcard'))
         self.assertIn('已把 beta 设为默认工作区', json.dumps(self.card(), ensure_ascii=False))
         self.assertEqual([s for _, _, s in self.puts[1:]], list(range(1, len(self.puts))))  # One record's sequence.
-        # The main thread's buttons on it: 删除 a trusted one, 保存用途; the tab stays.
-        untrust, = [v for _, v in values(self.card(), main_card.UNTRUST)]
+        # The butler's buttons on it: 删除 a trusted one, 保存用途; the tab stays.
+        untrust, = [v for _, v in values(self.card(), butler_card.UNTRUST)]
         self.assertEqual(self.press(untrust, 'ev-u1'), 'main_panel')
         self.assertEqual((settings.load(self.state).trusted, self.title()), ((), '工作区'))
-        save, = [v for _, v in values(self.card(), main_card.NOTES)]
+        save, = [v for _, v in values(self.card(), butler_card.NOTES)]
         typed = {'beta': '乙'}
         self.assertEqual(self.press(save, 'ev-n1', form_value={f'note_{i}': typed.get(n, '') for i, n in
                                                               enumerate(save['workspaces'])}), 'main_panel')
@@ -432,8 +432,8 @@ class SixTabsTests(HubCase):
         self.assertEqual(len(self.puts), drawn)
 
     @requires_extension()
-    def test_without_the_main_thread_the_workspace_tab_is_the_list_alone(self):
-        with mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': '0'}):
+    def test_without_the_butler_the_workspace_tab_is_the_list_alone(self):
+        with mock.patch.dict(os.environ, {'COVEY_BUTLER': '0'}):
             self.open()
             self.assertEqual((self.title(), self.tabs()), ('工作区', row_of('工作区')[2:]))
             text = json.dumps(self.card(), ensure_ascii=False)
@@ -470,7 +470,7 @@ class SixTabsTests(HubCase):
         path = self.hub.path(self.ctx, token)
         write_json(path, {**read_json(path), 'tab': 'other'})  # Shown on 其他, before it was retired.
         # Its 直接开工 lands on 新话题.
-        start = {'kind': main_card.START, 'token': token, 'revision': 1, 'tier': 'readonly', 'on': True}
+        start = {'kind': butler_card.START, 'token': token, 'revision': 1, 'tier': 'readonly', 'on': True}
         self.assertEqual(self.press(start, 'ev-s1'), 'main_panel')
         self.assertEqual((self.title(), self.hub_record()['tab']), ('新话题默认', 'topic'))
         # Its 其他 tab (clicked on another page) lands on 工作区, and a tab click from 其他 turns as any.
@@ -483,7 +483,7 @@ class SixTabsTests(HubCase):
         self.assertEqual(self.title(), '代答')
         # 记住的工作区 removed from it lands on 工作区; the menu's 设置 folds a record on 其他 as 工作区.
         write_json(path, {**read_json(path), 'tab': 'other'})
-        untrust = {'kind': main_card.UNTRUST, 'token': token, 'revision': 1, 'key': 'alpha|read'}
+        untrust = {'kind': butler_card.UNTRUST, 'token': token, 'revision': 1, 'key': 'alpha|read'}
         self.assertEqual(self.press(untrust, 'ev-u1'), 'main_panel')
         self.assertEqual((self.title(), self.hub_record()['tab']), ('工作区', 'workspace'))
         write_json(path, {**read_json(path), 'tab': 'other'})

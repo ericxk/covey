@@ -1,18 +1,18 @@
-"""专项 (docs/architecture.md 专项, phase 2, in development, off by default): a long job the main thread's butler hands to
-one lead topic (the 负责人) that dispatches and follows several thread topics. This module is the foundation and nothing
+"""专项 (docs/architecture.md 专项, phase 2, in development, off by default): a long job the butler hands to
+one lead topic (the 负责人) that dispatches and follows several member topics. This module is the foundation and nothing
 else: the record <state>/projects/<id>.json, its state machine (``PROJECT_TRANSITIONS``), the lead topic's id and the
-topic.json ``project`` field ({id, role}) that says a topic is a project's lead or one of its threads. No entry builds a
+topic.json ``project`` field ({id, role}) that says a topic is a project's lead or one of its members. No entry builds a
 record yet (upgrade, the card and the lead's runs are later packages); with COVEY_PROJECTS unset every predicate here
 is False and ``cells`` is empty, so nothing else in the product changes.
 
-Roles: a ``lead`` topic belongs to the main thread's family (core/main_thread.py ``is_main_topic`` counts it, ``is_main_root``
-does not; its Traits row is LEAD); a ``thread`` topic is an ordinary topic that core/placement.py gives its own role
-(project_thread). The lead's topic id comes from the chat and the project (``lead_topic_id``), so it is never a
+Roles: a ``lead`` topic belongs to the butler's family (core/butler.py ``is_butler_topic`` counts it, ``is_butler_root``
+does not; its Traits row is LEAD); a member topic (``role`` "thread" on disk, ``MEMBER`` in the code) is an ordinary topic that core/placement.py gives
+its own role (project_member). The lead's topic id comes from the chat and the project (``lead_topic_id``), so it is never a
 message's alias and no event routes to it by accident.
 
 Fields written for phase 3 and read by nothing now: ``direction``, ``leader``, ``claims``, ``agreements``, ``place``.
 
-Standard library and core only: the MCP server imports core/main_thread.py, which imports this."""
+Standard library and core only: the MCP server imports core/butler.py, which imports this."""
 from __future__ import annotations
 
 import copy
@@ -37,13 +37,13 @@ ACTIVE, PAUSED, DONE, CANCELLED = "active", "paused", "done", "cancelled"
 PROJECT_TRANSITIONS = {ACTIVE: {PAUSED, DONE, CANCELLED}, PAUSED: {ACTIVE, DONE, CANCELLED}, DONE: set(), CANCELLED: set()}
 STATES = frozenset(PROJECT_TRANSITIONS)
 
-LEAD, THREAD = "lead", "thread"  # topic.json project.role.
-ROLES = (LEAD, THREAD)
+LEAD, MEMBER = "lead", "thread"  # topic.json project.role. A project topic is a ``member`` in the code; its role stays "thread" on disk, as an older release's task runner reads it.
+ROLES = (LEAD, MEMBER)
 
 # The owner's defaults of 2026-11-16 for the guards of a later package (the lead's runs, the loop): not read here.
 DEFAULT_TOKENS = 10_000_000  # One project's token budget.
 DEFAULT_WAKES = 30  # Wake-ups in a row with no one stepping in.
-MAX_THREADS = 4  # Threads of one project at the same time.
+MAX_MEMBERS = 4  # Member topics of one project at the same time.
 MAX_ACTIVE = 3  # Projects active at the same time.
 
 NAME_CHARS = 60
@@ -69,7 +69,7 @@ def new_id() -> str:
 def lead_topic_id(chat_id, project_id) -> str:
     """The topic id of project ``project_id``'s lead in ``chat_id``: hex like every topic id (app/topics.py Topics.target
     takes [0-9a-f]{16,128} only), and no message's alias. The digest's input names the kind, so it cannot meet the
-    main thread's (core/main_tracks.py) or a track's. Stable: the same chat and project always give the same id."""
+    butler's (core/butler_tracks.py) or a track's. Stable: the same chat and project always give the same id."""
     return hashlib.sha256(f"project-lead\0{project_id}\0{chat_id or ''}".encode()).hexdigest()[:32]
 
 
@@ -186,8 +186,8 @@ def set_state(state_dir, project_id, to, reason="") -> dict:
     return update(state_dir, project_id, change)
 
 
-def add_thread(state_dir, project_id, topic_id) -> dict:
-    """``topic_id`` in the record's ``threads``, once (the list keeps the order they came in)."""
+def add_member(state_dir, project_id, topic_id) -> dict:
+    """``topic_id`` in the record's ``threads`` (the member topics; the name stays on disk), once (the list keeps the order they came in)."""
     if not isinstance(topic_id, str) or not TOPIC_RE.fullmatch(topic_id):
         raise ValueError(f"topic id {topic_id!r} is not a topic id")
 
@@ -232,8 +232,8 @@ def update_card(state_dir, project_id, **fields) -> dict:
 
 
 def cells(state_dir, chat_id) -> dict:
-    """thread topic id -> its project's lead topic id, for ``chat_id``'s projects that are not cancelled (a cancelled
-    one's threads are ordinary topics again): the board's cell of a thread is its lead's (core/board_read.py groups).
+    """member topic id -> its project's lead topic id, for ``chat_id``'s projects that are not cancelled (a cancelled
+    one's members are ordinary topics again): the board's cell of a member is its lead's (core/board_read.py groups).
     {} without COVEY_PROJECTS, reading nothing."""
     if not enabled() or not state_dir:
         return {}
@@ -310,13 +310,13 @@ def is_lead_topic(state_dir, topic_id, chat_id=None) -> bool:
             and lead_topic_id(chat_id or found.chat_id, found.id) == topic_id)
 
 
-def is_thread_topic(state_dir, topic_id) -> bool:
-    """Whether ``topic_id`` is one of a project's threads: COVEY_PROJECTS on and its topic.json says ``project.role``
-    thread."""
+def is_member_topic(state_dir, topic_id) -> bool:
+    """Whether ``topic_id`` is one of a project's members: COVEY_PROJECTS on and its topic.json says ``project.role``
+    thread (what the code calls MEMBER)."""
     if not enabled():
         return False
     found = topic_project(state_dir, topic_id)
-    return found is not None and found.role == THREAD
+    return found is not None and found.role == MEMBER
 
 
 def active_count(state_dir) -> int:

@@ -1,4 +1,4 @@
-"""The small model that decides a new main-thread message the rules could not (rule 9 of core/track_route.py): does it
+"""The small model that decides a new butler message the rules could not (rule 9 of core/track_route.py): does it
 belong to one of the live tasks (``merge``) or is it a request of its own (``new``).
 
 ``judge`` asks once and always answers a ``Verdict``: anything that is not a clear, confident ``merge`` into one of
@@ -19,7 +19,7 @@ message replies to), each text cut to CLIP characters. The answer is ``{"route":
 "confidence":0-1}``.
 
 On the ``claude`` channel the process is, when it can be, a standby started and primed before the question
-(``warm``, called by app/main_tracks.py; app/track_standby.py): it saves the CLI's start and the slow first request, answers
+(``warm``, called by app/butler_tracks.py; app/track_standby.py): it saves the CLI's start and the slow first request, answers
 this one question and is killed, and ``warm`` starts the next. Without one the call starts a one-shot as above.
 COVEY_TRACK_JUDGE_WARM=0 never starts a standby.
 

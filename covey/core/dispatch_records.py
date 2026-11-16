@@ -1,5 +1,5 @@
-"""The records of the 派发卡 (docs/main-thread.md 派发卡): <state>/main-thread/dispatch/<token>.json, one per
-card the main thread's topic_start, topic_send or topic_fork put at the chat's top level (app/dispatch_cards.py), and
+"""The records of the 派发卡 (docs/butler.md 派发卡): <state>/main-thread/dispatch/<token>.json, one per
+card the butler's topic_start, topic_send or topic_fork put at the chat's top level (app/dispatch_cards.py), and
 the sidecar <token>.relay.json a task runner leaves when that card's conclusion went out (``mark_relayed``).
 
 The record is written by the Bridge alone: first by the tool that sends the card, then by the refresh thread. The task
@@ -38,7 +38,7 @@ def relay_note_path(state_dir, token) -> Path:
 
 
 def new_record(*, token, chat_id, topic_id, job_key, mid, kind, owner_message, request, starts, rounds=1, now=None, ask_at="", ask_url="") -> dict:
-    """A fresh live record. ``job_key`` the main-thread job that sent the card, ``mid`` the key or message id of the
+    """A fresh live record. ``job_key`` the butler job that sent the card, ``mid`` the key or message id of the
     topic's job it follows, ``kind`` start, send or fork, ``starts`` whether the topic starts at once (else it waits
     on its launch card). ``ask_at``, ``ask_url``: the owner's message the card's "你问" block names (the time he wrote it,
     the link that opens it)."""

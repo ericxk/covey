@@ -1,14 +1,14 @@
-"""The family ledger of 多路并行 (docs/main-thread.md 记忆合并): what the main thread's other tracks (core/main_tracks.py,
-slots 1..) answered, for the main thread's next turn to read. A track is a fork of the main thread's session, so what it answered
-is not in the main thread's own session: each turn of a track that ended writes one record here, and the main thread's
+"""The family ledger of 多路并行 (docs/butler.md 记忆合并): what the butler's other tracks (core/butler_tracks.py,
+slots 1..) answered, for the butler's next turn to read. A track is a fork of the butler's session, so what it answered
+is not in the butler's own session: each turn of a track that ended writes one record here, and the butler's
 next turn (slot 0) is given the ones it has not read yet, in one block of its message.
 
 main-thread/tracks/<job key>.json: {key, chat_id, track (slot), owner_message (the owner's message id), request (at
 most REQUEST_CHARS), answer (at most ANSWER_CHARS, the delivered reply and only that: "" when none went out), status
 (the turn's), ended_at, session_id (the track's session: maintenance removes its file, core/maintenance_rules.py),
-opened (the T numbers of the topics the turn opened or handed on to), digested_by (the key of the main-thread turn that
-was given it, "" while none was)}. Written once, when the turn's result is delivered (app/track_digest.py); the main
-thread's turn then only sets ``digested_by``, by compare-and-set under the record lock (``claim``).
+opened (the T numbers of the topics the turn opened or handed on to), digested_by (the key of the butler turn that
+was given it, "" while none was)}. Written once, when the turn's result is delivered (app/track_digest.py); the butler's
+ turn then only sets ``digested_by``, by compare-and-set under the record lock (``claim``).
 
 Standard library and core only: nothing here talks to Feishu or holds a lock across anything but its own file.
 """
@@ -22,7 +22,7 @@ from covey.core.state import read_object, write_json
 
 FOLDER = Path("main-thread") / "tracks"
 REQUEST_CHARS, ANSWER_CHARS = 200, 600  # What a record keeps.
-SHOW_CHARS = 300  # How much of the answer the main thread's block shows.
+SHOW_CHARS = 300  # How much of the answer the butler's block shows.
 WINDOW = 12 * 3600  # Seconds: a record older than this is not given any more.
 MAX_ROWS = 8  # Rows in the block.
 HEADER = "[另外几件事这段时间答了什么]"

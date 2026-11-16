@@ -186,7 +186,7 @@ def render_stream_final(job: Any, final_text: str, *, status: str = "done", answ
                         outcome_shown: bool = False, bare: bool = False) -> str:
     """The result under 任务详情. Its title says how the run ended, unless the status line at the top
     already does (``outcome_shown``): then only what that line lacks stays. An answer keeps its title, except
-    on a slim card (``bare``, the main thread's): the answer is the card, its status line under it says ✅."""
+    on a slim card (``bare``, the butler's): the answer is the card, its status line under it says ✅."""
     state, title = {
         "failed": ("执行失败", "⚠️ 执行失败"),
         "cancelled": ("已停止", "已停止"),
@@ -216,9 +216,9 @@ def answer_summary(label: str, status: str, lead: str) -> str:
 
 
 def bare_answer_summary(status: str, lead: str) -> str:
-    """The chat-list preview of the answer card of a main-thread turn that sent no card (app/worker.py
+    """The chat-list preview of the answer card of a butler turn that sent no card (app/worker.py
     TurnDelivery.bare): no task number, which the owner never saw (ACCEPT-322: "✅ #3308 · 5"); "✅ 已答：" and the
-    reply's lead as its card's status line would say it (app/main_reply.py outcome_words), another outcome's mark
+    reply's lead as its card's status line would say it (app/butler_reply.py outcome_words), another outcome's mark
     and words before the lead; without a lead, the outcome's words."""
     mark, _, words = outcome_line(status).partition(" ")
     if not lead:

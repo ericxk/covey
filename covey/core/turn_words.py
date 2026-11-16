@@ -1,4 +1,4 @@
-"""The words the cards, the pinned board and the main thread say about a turn and a topic, in one place (C10,
+"""The words the cards, the pinned board and the butler say about a turn and a topic, in one place (C10,
 2026-11-08). Each table keeps the words its readers showed before; which of them should read alike is the owner's
 choice (VERIFY-board.md C10), not this module's.
 
@@ -8,17 +8,17 @@ choice (VERIFY-board.md C10), not this module's.
   已停止 for a stopped one (on the board since 2026-11-09, core/board_read.py BOARD_RESULTS);
   ``answer_head``: the same words with the outcome's mark, atop a 话题区's answer card in its thread (✅ 做完);
   ``BOARD``: how its other rows read there (在做, 排队, 等你回答);
-- ``RESULTS``: how one reads in the main thread's snapshot (app/main_thread.py), 完成 among them, 已停止 too
+- ``RESULTS``: how one reads in the butler's snapshot (app/butler.py), 完成 among them, 已停止 too
   (core/board_read.py BOARD_RESULTS: the board's results, the snapshot's since 2026-11-10);
 - ``OVERVIEW_OUTCOMES``, ``OVERVIEW_GROUPS``: 手上的事's (cards/overview.py);
 - ``DIGEST_START``: how 早晚汇总 (cards/digest.py) says a task waits for the owner to start it (waiting_workspace);
-- ``GROUP_NAMES``: the main thread's groups of topics, its snapshot's and its tools' (app/main_thread.py,
-  app/main_tools.py);
+- ``GROUP_NAMES``: the butler's groups of topics, its snapshot's and its tools' (app/butler.py,
+  app/butler_tools.py);
 - ``START_PHASE``, ``SEED_PHASE``, ``UNSET_PHASES``: the phases a running task shows before its model wrote one
-  (core/longtask.py TaskMonitor), as the status line, the board and the main thread's tools read them;
+  (core/longtask.py TaskMonitor), as the status line, the board and the butler's tools read them;
   ``BLANK_PHASES``, the status card's, also takes an empty phase as none;
 - ``request_line``: the round's request in one line (the status card's line, the answer card's "你问" block, a
-  topic's title without one of the main thread's: core/topics.py topic_title).
+  topic's title without one of the butler's: core/topics.py topic_title).
 
 Standard library only, importing nothing of the Bridge's.
 """
@@ -165,7 +165,7 @@ def interrupted_notice(job_id) -> str:
 
 def ask_words(record, listed=0) -> str:
     """What a question record (app/questions.py) asks, in a line: its one question (or its header), else "3 个问题";
-    with ``listed``, "3 个问题：" and each question cut to that many characters (the main thread's topic_read)."""
+    with ``listed``, "3 个问题：" and each question cut to that many characters (the butler's topic_read)."""
     asked = [q for q in record.get("questions") or [] if isinstance(q, dict)]
     if len(asked) == 1:
         return str(asked[0].get("question") or asked[0].get("header") or "")

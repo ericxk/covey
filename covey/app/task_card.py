@@ -19,7 +19,7 @@ from covey.cards.streaming import (CardLook, SLIM_DETAILS_ID, STOP_ACTION_ELEMEN
 from covey.cards.task_figures import FIGURES_ELEMENT_ID, IO_BOX_ID, io_figures, io_lines
 from covey.cards.task_status import (STATUS_MORE_ID, activity_element, more_element, ran_of, status_elements,
                                               slim_status_markdown, status_markdown, status_rows)
-from covey.core import main_thread
+from covey.core import butler
 from covey.core.card_sequence import LEASE, adopt, raise_card_sequence, reserve
 from covey.core.jobs import job_path, read_job_record
 from covey.core.locks import card_lock
@@ -92,7 +92,7 @@ class StreamingReply:
     # The rest of the status line this card shows (status_rows), as plain text: unchanged, only the line beside
     # the tiles is written.
     more_text: str = ""
-    # The card is the slim one (cards/streaming.py SLIM_DETAILS_ID, the main thread's since 2026-11-06): the body,
+    # The card is the slim one (cards/streaming.py SLIM_DETAILS_ID, the butler's since 2026-11-06): the body,
     # one status line, and 详情 folded with the tiles, 本轮请求, 任务详情 and the buttons; what goes "after the
     # body" or "at the bottom" goes in 详情 (``body_anchor``, ``bottom_anchor``). False for every other card and
     # for one sent before, which keep their order; a release before reads the record and leaves it as an attribute.
@@ -155,7 +155,7 @@ def body_anchor(progress: Any) -> str:
     """The element that what goes "after the body" is inserted after: the body, or, once the body moved
     up to the top (``lead_first``), 任务详情, the element it was under, so those keep their place. On a slim card
     the tiles, the first of its 详情: what goes after the body goes in there (the process panel, 最新补充,
-    产物, the main thread's own words), above 本轮请求; on one with the 输入/输出 box, after the box (after its 输出
+    产物, the butler's own words), above 本轮请求; on one with the 输入/输出 box, after the box (after its 输出
     text it would go in the box)."""
     if getattr(progress, "slim", False):
         return IO_BOX_ID if getattr(progress, "io_box", False) else FIGURES_ELEMENT_ID
@@ -169,7 +169,7 @@ def details_anchor(progress: Any) -> str:
 
 def under_body(progress: Any) -> str:
     """What an element that must show without opening anything goes after: the body itself. On a slim card that is
-    a failed turn's 重试 / 检查并继续 row, the main thread's list of dropped supplements and a question on the card;
+    a failed turn's 重试 / 检查并继续 row, the butler's list of dropped supplements and a question on the card;
     on any other card the same place as ``body_anchor``."""
     return progress.element_id if getattr(progress, "slim", False) else body_anchor(progress)
 
@@ -270,9 +270,9 @@ def card_failure_notice(job: Any) -> str:
 def card_look(job: Any, steers: bool = False) -> CardLook:
     """How ``job``'s task card is drawn (cards/streaming.py build_stream_card): 补充 when its Harness steers (its
     recorded capabilities, else ``steers``: a Codex job recorded without them), 换配置 for a job with a Harness
-    in a topic that offers it (none on the main thread), and the main thread's slim look (core/main_thread.py
+    in a topic that offers it (none on the butler), and the butler's slim look (core/butler.py
     Traits)."""
-    traits = main_thread.traits_of(job)
+    traits = butler.traits_of(job)
     return CardLook(steer=getattr(getattr(job, "harness_capabilities", None), "steering", steers),
                     switch=bool(getattr(job, "harness_id", "")) and traits.switch_config,
                     slim=traits.slim_card)

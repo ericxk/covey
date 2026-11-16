@@ -1,8 +1,8 @@
 """Claude Code's subagents on lighter models than the turn's (main-thread.json ``subagents``, the 设置 card's 新话题
-tab; core/main_thread_settings.py SUBAGENTS). Without it, every subagent, even the built-in Explore, runs on the
+tab; core/butler_settings.py SUBAGENTS). Without it, every subagent, even the built-in Explore, runs on the
 turn's model (claude 2.1.318, measured 2026-11-10).
 
-"light" (the default): every turn's claude, topics and the main thread alike, its compaction included, gets
+"light" (the default): every turn's claude, topics and the butler alike, its compaction included, gets
 CLAUDE_CODE_SUBAGENT_MODEL=sonnet and, through ``--agents``, a read-only Explore on Haiku (EXPLORE) in place of the
 built-in one; editing and decisions stay with the turn's model. A turn on Haiku keeps its subagents on Haiku (no
 CLAUDE_CODE_SUBAGENT_MODEL): they are never bigger than the turn's model. "same": nothing is added, Claude Code's own
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 
-from covey.core import main_thread_settings
+from covey.core import butler_settings
 
 MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
 LIGHT = "sonnet"  # The general-purpose subagent's model with "light".
@@ -38,11 +38,11 @@ def mode(ctx) -> str:
     """The setting for ``ctx``'s Bridge: "light" where it cannot be read (a context without a state dir)."""
     state_dir = getattr(ctx, "state_dir", None)
     if not state_dir:
-        return main_thread_settings.SUBAGENTS[0]
+        return butler_settings.SUBAGENTS[0]
     try:
-        return main_thread_settings.load(state_dir).subagents
+        return butler_settings.load(state_dir).subagents
     except (OSError, ValueError):
-        return main_thread_settings.SUBAGENTS[0]
+        return butler_settings.SUBAGENTS[0]
 
 
 def light(ctx) -> bool:

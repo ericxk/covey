@@ -182,7 +182,7 @@ class _Uncounted:
 
 
 def compact_only(backend, request, env):
-    """``compact_before_turn`` with no turn after it (the main thread's idle compaction, app/idle_compaction.py): the
+    """``compact_before_turn`` with no turn after it (the butler's idle compaction, app/idle_compaction.py): the
     claude process the turn would start (its argv, environment and, in ``request.context``, the term relay of a
     redacted topic), its step and events dropped. Whether the session was compacted; ``request.inputs.cancel_event``
     stops it (JobCancelled), as the task's deadline does."""

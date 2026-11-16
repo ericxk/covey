@@ -182,7 +182,7 @@ class UnifiedCase(unittest.TestCase):
                            'levels': ['low', 'high', 'xhigh', 'max'], 'default': 'high'}}}))
         self.app.messenger.send_message = mock.Mock(return_value=True)
         self.app.messenger.recall = mock.Mock(return_value=True)  # The bot menu's Panels: never a real recall.
-        # A quiet main-thread turn's reactions (app/main_reactions.py): never a real one.
+        # A quiet butler turn's reactions (app/butler_reactions.py): never a real one.
         self.app.messenger.react = mock.Mock(return_value='reaction-1')
         self.app.messenger.unreact = mock.Mock(return_value=True)
         self.app.messenger.reaction_ids = mock.Mock(return_value=[])

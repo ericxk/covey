@@ -1,4 +1,4 @@
-"""The main thread's idle compaction runner (app/idle_compaction.py): ``bin/covey_runner.py --compact-only``.
+"""The butler's idle compaction runner (app/idle_compaction.py): ``bin/covey_runner.py --compact-only``.
 
 No job, no card: the Bridge rebuilt from the finished turn's handoff in ``compacting.json`` (the same arguments,
 gateway and credentials), the backend's ``compact_session`` on the topic's session as its pointer names it now (the
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from covey.app import runner_ipc, runner_spawn
 from covey.app import idle_compaction as idle
-from covey.app.main_thread import COMPACT_INSTRUCTIONS
+from covey.app.butler import COMPACT_INSTRUCTIONS
 from covey.app.unified import UnifiedBridgeApp
 from covey.core.harness import RunCallbacks, RunInputs, RunRequest
 from covey.core.jobs import context_for_job

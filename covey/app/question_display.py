@@ -2,8 +2,8 @@
 survives task completion and restart), the notice for an answer not submitted yet, and the
 continuation's state on the card. ``question_card_lock`` orders one question's publishing and repainting.
 
-A 话题区's question (a topic the main thread opened, with COVEY_MAIN_THREAD=1) is also shown at the private
-chat's top level (``mirror``; the owner, 2026-11-07: 两处都放): the same form, quoting the main thread's card, with
+A 话题区's question (a topic the butler opened, with COVEY_BUTLER=1) is also shown at the private
+chat's top level (``mirror``; the owner, 2026-11-07: 两处都放): the same form, quoting the butler's card, with
 what the turn wrote before it asked above it; one longer than MIRROR_OUTPUT_BYTES goes as its own message first.
 Its record keeps mirror_message_id, mirror_card_id and mirror_output; every repaint of the question repaints it
 too, so answering either folds both. Sent once (mirror_state creating, then sent or uncertain: rule 1). When the
@@ -22,7 +22,7 @@ from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.cards.elements import card, md, note
 from covey.cards.question_cards import answer_notice_card, mirror_card, question_card, question_element
-from covey.core import main_thread, placement
+from covey.core import butler, placement
 from covey.core.jobs import find_job_record
 from covey.core.state import write_private_text
 from covey.core.store import update_question
@@ -99,7 +99,7 @@ class QuestionDisplay:
 
     @staticmethod
     def _asked_target(ctx, job, target):
-        """Whose words and link the copy's "你问" block has: those of the request the main thread started or handed
+        """Whose words and link the copy's "你问" block has: those of the request the butler started or handed
         ``job`` on with (app/relay_targets.py relay_target), as its relay's block has, the second topic of one message
         linking to its own root (S6); else the latest request on the topic (``target``, kind "follow": a turn the
         owner started there, its own words)."""
@@ -112,9 +112,9 @@ class QuestionDisplay:
 
     # The top-level copy of a 话题区's question.
     def mirror(self, ctx, record, output="", job=None):
-        """Show the pending question ``record`` at the top level too, once, when its topic is a 话题区, or the main
-        thread's, whose card is in the owner's message's thread (core/placement.py question_copy); its message id,
-        '' when it is not shown there (another topic, no main-thread request it came from, already tried). Threaded,
+        """Show the pending question ``record`` at the top level too, once, when its topic is a 话题区, or the butler's
+        , whose card is in the owner's message's thread (core/placement.py question_copy); its message id,
+        '' when it is not shown there (another topic, no butler request it came from, already tried). Threaded,
         it is a message of its own with a "你问" block (``job``: the turn that asks), quoting no card. Each try is one
         log line ``main relay state=… outcome=question``, as a relay's (app/relay_send.py send_once)."""
         from covey.app.relay_targets import area_target, ask_for
@@ -210,10 +210,10 @@ class QuestionDisplay:
         (``job_key``), as its answer card in the topic shows them (app/artifacts.py answer_files), only when that
         card shows them (app/answer_cards.py holds_files: not a turn still running, whose question asks mid-turn;
         a native question asked mid-turn gets them on a repaint once its turn's answer card is out); (None, None)
-        otherwise, for a question at the top level itself (``at_top``: its answer card has them) and for the main
-        thread's own (its answer card is at the top level already)."""
+        otherwise, for a question at the top level itself (``at_top``: its answer card has them) and for the butler's
+         own (its answer card is at the top level already)."""
         key = str(record.get("job_key") or "")
-        if not key or record.get("at_top") or main_thread.is_main_topic(record.get("topic_id"), record.get("chat_id")):
+        if not key or record.get("at_top") or butler.is_butler_topic(record.get("topic_id"), record.get("chat_id")):
             return None, None
         from covey.app import answer_cards
         from covey.app.artifacts import answer_files
@@ -271,7 +271,7 @@ class QuestionDisplay:
     @staticmethod
     def ask_block_for(ctx, record, log=None):
         """The "你问" block ({} without one) when ``record``'s standalone card goes to the chat's top level itself, a
-        message of its own drawn as the top-level copy (``top_card``): the question of a quiet main-thread turn whose
+        message of its own drawn as the top-level copy (``top_card``): the question of a quiet butler turn whose
         card has not gone out (core/placement.py Row.quiet, D1 2026-11-08), so asking opens no thread and needs no copy
         (``mirror``); None for any other question."""
         key = str(record.get("job_key") or "")

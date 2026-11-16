@@ -1,5 +1,5 @@
-"""Where a new main-thread message goes when the family already has live tasks: the rule layer of the message router
-(a pure function, docs/main-thread.md 多路并行).
+"""Where a new butler message goes when the family already has live tasks: the rule layer of the message router
+(a pure function, docs/butler.md 多路并行).
 
 ``route`` takes one ``Message`` (the text, what it quotes, the family's live tasks, the clock), applies the nine rules in
 order, and answers a ``Decision(action, target, why)``; the first rule that matches wins:
@@ -20,7 +20,7 @@ order, and answers a ``Decision(action, target, why)``; the first rule that matc
 9. the rest: ``ask_judge`` (app/track_judge.py asks a small model); with ``judge`` false (switch off, the topic
    redacts, no model) it is ``new``.
 
-Who a quote points at is the caller's work (app/main_tracks.py reads the topic aliases and the supplement delivery
+Who a quote points at is the caller's work (app/butler_tracks.py reads the topic aliases and the supplement delivery
 records); this module reads no file and calls no interface. A quote it cannot place (``unknown``) skips rules 3 to 8:
 it is not a plain message, and not what any of them recognises, so only the judge or ``new`` may decide it.
 
@@ -77,8 +77,8 @@ CORRECTION_PREFIXES = ("不对", "不是", "错了", "我是说", "我的意思�
 
 @dataclasses.dataclass(frozen=True)
 class LiveJob:
-    """One task of the family that has not ended. ``track`` is its slot (1 to 4 when it ran on a track, 0 the main
-    thread), ``request`` the text the owner asked, the times epoch seconds (0 when unknown), ``number`` its number
+    """One task of the family that has not ended. ``track`` is its slot (1 to 4 when it ran on a track, 0 the butler
+    ), ``request`` the text the owner asked, the times epoch seconds (0 when unknown), ``number`` its number
     on the cards (0 when unknown)."""
 
     track: int
@@ -104,7 +104,7 @@ class Quote:
 @dataclasses.dataclass(frozen=True)
 class Message:
     """What the caller assembles for ``route``. ``live`` is the family's tasks that have not ended, in any order;
-    ``now`` epoch seconds; ``bare`` the message is only a forward, images, files or a link (core/main_thread.py
+    ``now`` epoch seconds; ``bare`` the message is only a forward, images, files or a link (core/butler.py
     bare_message); ``judge`` whether a small model may be asked (the judge switch, no redaction, a model to call)."""
 
     text: str

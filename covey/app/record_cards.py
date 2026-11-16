@@ -9,7 +9,7 @@ import functools
 from covey.app.task_card import note_element
 from covey.cards.cardkit_actions import content_body, element_body, settings_body
 from covey.cards.task_status import slim_status_markdown, status_markdown
-from covey.core import main_thread
+from covey.core import butler
 from covey.core.card_sequence import file_card, job_card, reserve
 from covey.core.locks import resource_lock
 from covey.core.state import read_json
@@ -121,9 +121,9 @@ class RecordCards:
         the run's outcome once the job ended, styled as every status line, ``status_markdown``); whether
         CardKit took it. The line alone on a card whose line is in two parts too (STATUS_MORE_ID): what comes
         here (↪ 已回答 → #N, the stale note) has nothing for under the tiles, and the run's end emptied it. On the
-        main thread's card as its slim line (``slim_status_markdown``; the record does not say which look its card has,
+        butler's card as its slim line (``slim_status_markdown``; the record does not say which look its card has,
         and either line reads right on the other)."""
-        traits = main_thread.traits_of(record)
+        traits = butler.traits_of(record)
         styled = slim_status_markdown(content) if traits.slim_card else status_markdown(content)
         return self._record_part(ctx, record, "record-activity", "PATCH", "elements/activity", content_body(styled))
 

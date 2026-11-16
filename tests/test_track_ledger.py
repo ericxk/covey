@@ -1,6 +1,6 @@
-"""记忆合并 (core/track_ledger.py, app/track_digest.py, docs/main-thread.md 多路并行): a track's delivered answer is saved
-to the ledger, the main thread's next turn is given what it has not read, and the tracks' session files are
-maintained away. The main thread's compaction does not change what is given."""
+"""记忆合并 (core/track_ledger.py, app/track_digest.py, docs/butler.md 多路并行): a track's delivered answer is saved
+to the ledger, the butler's next turn is given what it has not read, and the tracks' session files are
+maintained away. The butler's compaction does not change what is given."""
 from __future__ import annotations
 
 import dataclasses
@@ -12,20 +12,20 @@ from types import SimpleNamespace
 from unittest import mock
 
 from support import make_job
-from support.main_thread import CHAT, MAIN, MainThreadCase, switch_on
+from support.butler import CHAT, BUTLER, ButlerCase, switch_on
 from support.records import state_dir
-from covey.app import main_thread as session
+from covey.app import butler as session
 from covey.app import track_digest
 from covey.app.worker import TurnDelivery
-from covey.core import main_tracks
+from covey.core import butler_tracks
 from covey.core import track_ledger as ledger
 from covey.core.jobs import job_key, upsert_job_record
 from covey.core.maintenance import maintain
 from covey.core.state import read_object, write_json
 from covey.core.topics import topic_file
 
-SLOT1 = main_tracks.track_topic_id(CHAT, 1)
-SLOT2 = main_tracks.track_topic_id(CHAT, 2)
+SLOT1 = butler_tracks.track_topic_id(CHAT, 1)
+SLOT2 = butler_tracks.track_topic_id(CHAT, 2)
 NOW = 1_800_000_000.0
 SESSION = "33333333-3333-4333-8333-333333333333"
 
@@ -44,7 +44,7 @@ class Switched(unittest.TestCase):
 
     def setUp(self):
         switch_on(self, "1")
-        patch = mock.patch.dict(os.environ, {main_tracks.ENV: self.tracks})
+        patch = mock.patch.dict(os.environ, {butler_tracks.ENV: self.tracks})
         patch.start()
         self.addCleanup(patch.stop)
         self.state = state_dir(self)
@@ -151,18 +151,18 @@ class Delivered(Switched):
         track_digest.record(self.delivery(job), False, "done", now=NOW)
         self.assertEqual(self.saved(job)["answer"], "")
 
-    def test_failed_and_stopped_turns_are_saved_a_question_waiting_and_the_main_thread_are_not(self):
+    def test_failed_and_stopped_turns_are_saved_a_question_waiting_and_the_butler_are_not(self):
         for status, expected in (("failed", True), ("cancelled", True), ("waiting_user", False), ("interrupted", False)):
             job = self.job(mid=f"om_{status}")
             track_digest.record(self.delivery(job, status=status), True, status, now=NOW)
             self.assertEqual(ledger.path(self.state, job_key(job.message_id, job.job_id)).exists(), expected, status)
-        job = self.job(topic=MAIN, mid="om_root")
+        job = self.job(topic=BUTLER, mid="om_root")
         track_digest.record(self.delivery(job), True, "done", now=NOW)
         self.assertFalse(ledger.path(self.state, job_key("om_root", 7)).exists())
 
     def test_with_the_switch_off_nothing_is_written(self):
         job = self.job()
-        with mock.patch.dict(os.environ, {main_tracks.ENV: ""}):
+        with mock.patch.dict(os.environ, {butler_tracks.ENV: ""}):
             track_digest.record(self.delivery(job), True, "done", now=NOW)
         self.assertFalse((self.state / "main-thread" / "tracks").exists())
 
@@ -198,32 +198,32 @@ class Delivered(Switched):
         self.assertEqual(calls, [("relay", (True, "done")), ("ledger", (True, "done"))])
 
 
-class Handed(MainThreadCase):
-    """main_turn: the block after the snapshot, for the main thread's turn and a track's."""
+class Handed(ButlerCase):
+    """butler_turn: the block after the snapshot, for the butler's turn and a track's."""
 
     def setUp(self):
         super().setUp()
-        patch = mock.patch.dict(os.environ, {main_tracks.ENV: "1"})
+        patch = mock.patch.dict(os.environ, {butler_tracks.ENV: "1"})
         patch.start()
         self.addCleanup(patch.stop)
         self.logs = []
 
-    def turn(self, topic=MAIN, mid="om_m2", job_id=11, request=None, session_id=None):
+    def turn(self, topic=BUTLER, mid="om_m2", job_id=11, request=None, session_id=None):
         job = SimpleNamespace(topic_id=topic, chat_id=CHAT, message_id=mid, job_id=job_id, kind="chat",
                               prompt_text=None, user_text="新问题", cancel_event=threading.Event())
         compaction = SimpleNamespace(request=mock.Mock(return_value=request))
         ctx = dataclasses.replace(self.ctx, state_dir=self.state)
-        harness = None if topic == MAIN else SimpleNamespace(backend=None, spec=SimpleNamespace(session_filename="s"))
+        harness = None if topic == BUTLER else SimpleNamespace(backend=None, spec=SimpleNamespace(session_filename="s"))
         with mock.patch.object(session.contract, "traits_of",
-                               return_value=session.contract.MAIN), \
+                               return_value=session.contract.BUTLER), \
                 mock.patch.object(session.tracks_module, "fork_options", return_value=None), \
                 mock.patch.object(session.tracks_module, "context_pack", return_value=[]):
-            return session.main_turn(ctx, job, "RAW", session_id, compaction, self.logs.append, harness)[1], compaction
+            return session.butler_turn(ctx, job, "RAW", session_id, compaction, self.logs.append, harness)[1], compaction
 
     def given(self, key, status):
-        upsert_job_record(self.state, key, status=status, topic_id=MAIN, chat_id=CHAT, job_id=1)
+        upsert_job_record(self.state, key, status=status, topic_id=BUTLER, chat_id=CHAT, job_id=1)
 
-    def test_the_main_thread_gets_what_the_tracks_answered_after_the_snapshot_and_once(self):
+    def test_the_butler_gets_what_the_tracks_answered_after_the_snapshot_and_once(self):
         ledger.write(self.state, ledger.make("k1", CHAT, 1, "om_a", "查失败原因", "有三类：超时、权限、配置。", "done",
                                              time.time() - 120, SESSION, ["T5"]))
         first, _ = self.turn(mid="om_m2", job_id=11)
@@ -246,7 +246,7 @@ class Handed(MainThreadCase):
 
     def test_a_new_track_gets_the_block_with_the_note_and_marks_nothing(self):
         ledger.write(self.state, ledger.make("k1", CHAT, 2, "om_a", "查失败原因", "有三类", "done", time.time() - 5, "", ()))
-        upsert_job_record(self.state, "om_run", status="running", topic_id=MAIN, chat_id=CHAT, job_id=3,
+        upsert_job_record(self.state, "om_run", status="running", topic_id=BUTLER, chat_id=CHAT, job_id=3,
                           user_text="正在做的事")
         prompt, _ = self.turn(topic=SLOT1, mid="om_t1", job_id=9)
         self.assertIn("此刻另外几件事在做", prompt)
@@ -261,7 +261,7 @@ class Handed(MainThreadCase):
 
     def test_with_the_switch_off_the_message_is_what_it_was(self):
         ledger.write(self.state, ledger.make("k1", CHAT, 1, "om_a", "查失败原因", "有三类", "done", time.time() - 5, "", ()))
-        with mock.patch.dict(os.environ, {main_tracks.ENV: ""}):
+        with mock.patch.dict(os.environ, {butler_tracks.ENV: ""}):
             prompt, _ = self.turn()
         self.assertNotIn(ledger.HEADER, prompt)
         self.assertEqual(read_object(ledger.path(self.state, "k1"))["digested_by"], "")
@@ -272,8 +272,8 @@ class Handed(MainThreadCase):
         self.assertNotIn(ledger.HEADER, prompt)
         self.assertTrue(any("ledger block unavailable" in line for line in self.logs))
 
-    def test_after_the_main_threads_compaction_the_block_is_still_given(self):
-        """Compaction is the main thread's alone (a track never asks): a turn that compacts first reads everything
+    def test_after_the_butlers_compaction_the_block_is_still_given(self):
+        """Compaction is the butler's alone (a track never asks): a turn that compacts first reads everything
         again, the ledger's rows included; rows it was not given before stay open, and the summary the compaction
         writes is of its own session, which holds only what it was given."""
         ledger.write(self.state, ledger.make("k1", CHAT, 1, "om_a", "查失败原因", "有三类", "done", time.time() - 60, "", ()))
@@ -296,7 +296,7 @@ class Handed(MainThreadCase):
         self.assertIn("请求「查权限」", last)
         self.assertNotIn("请求「查部署」", last)
 
-    def test_a_track_never_marks_even_after_the_main_thread_compacted(self):
+    def test_a_track_never_marks_even_after_the_butler_compacted(self):
         ledger.write(self.state, ledger.make("k1", CHAT, 2, "om_a", "查失败原因", "有三类", "done", time.time() - 5, "", ()))
         with mock.patch.object(session.idle_compaction, "compacted_at", return_value=time.time() + 5):
             prompt, compaction = self.turn(topic=SLOT1, mid="om_t1", job_id=9)

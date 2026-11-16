@@ -1,4 +1,4 @@
-"""T numbers on the main thread's cards link to their topics (app/topic_links.py)."""
+"""T numbers on the butler's cards link to their topics (app/topic_links.py)."""
 import json
 import os
 import time
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from covey.app import topic_links
 from covey.app.relay_send import linked
-from covey.core import main_thread
+from covey.core import butler
 from covey.core.jobs import upsert_job_record
 
 CHAT = "oc_chat"
@@ -32,8 +32,8 @@ class Case(unittest.TestCase):
         self.calls = []
         topic_links._index_cache.clear()
         self.addCleanup(self.tmp.cleanup)
-        previous = main_thread.configure_state(self.state)
-        self.addCleanup(main_thread.configure_state, previous)
+        previous = butler.configure_state(self.state)
+        self.addCleanup(butler.configure_state, previous)
 
     def topic(self, topic_id, number, root="", chat=CHAT):
         folder = self.state / "topics" / topic_id

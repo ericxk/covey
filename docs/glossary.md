@@ -21,7 +21,7 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 | 每一轮的流式卡片 | 任务卡 | task card | — | 不变。 |
 | 要分成几个话题、跨几天才做完的事 | 专项 | project | 长活 | |
 | 带一个专项的那个 Agent，只拆、派、跟进、收尾 | 负责人 | lead | — | |
-| 属于某个专项的话题 | 专项的话题 | project topic（代码角色 member） | 线程、project thread | topic.json 里 project.role 写 member，旧值 thread 照认。 |
+| 属于某个专项的话题 | 专项的话题 | project topic（代码角色 member） | 线程、project thread | 盘上仍写 thread（topic.json 的 project.role），代码里叫 member：新旧版本混跑时，老版本的任务进程认不出新值。 |
 | 专项在聊天区的卡片 | 专项卡 | project card | — | |
 | 普通话题后来变成专项 | 转成专项 | upgrade | 由快事升级、升级（界面上） | 由管家判断：主人要长期跟进、要分成几个话题持续推进，或直接说“开个专项”“转成专项”时，管家带上 project。不再匹配关键词。 |
 | 一件只交给一个话题、做完就结束的事 | 普通的事 / 普通话题 | — | 快事 | 只在需要和专项对比时说。 |
@@ -53,12 +53,14 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 |---|---|
 | 模块 main_thread、main_tools、main_topics、main_relay、main_reply、main_search、main_handoff、main_reactions、main_env、main_knowledge、main_tracks、main_thread_panel、main_mcp、main_requests、main_opened、main_tool_specs、main_thread_settings | butler、butler_tools、butler_topics、butler_relay、butler_reply、butler_search、butler_handoff、butler_reactions、butler_env、butler_knowledge、butler_tracks、butler_panel、butler_mcp、butler_requests、butler_opened、butler_tool_specs、butler_settings |
 | 类和函数里的 main_thread、MainThread、main_turn、is_main_topic 等 | butler、Butler、butler_turn、is_butler_topic 等 |
-| 专项角色 THREAD = "thread"、project_thread、is_thread_topic | MEMBER = "member"（读时 "thread" 也认）、project_member、is_member_topic |
-| 开关 COVEY_MAIN_THREAD、COVEY_MAIN_BUTLER、COVEY_MAIN_TRACKS、COVEY_MAIN_TRACKS_MAX、COVEY_MAIN_DISPATCH_CARD、COVEY_MAIN_JOB、COVEY_MAIN_STATE | COVEY_BUTLER、COVEY_BUTLER_RULES、COVEY_BUTLER_TRACKS、COVEY_BUTLER_TRACKS_MAX、COVEY_DISPATCH_CARD、COVEY_BUTLER_JOB、COVEY_BUTLER_STATE。读的时候新名优先，再认旧名（COVEY_MAIN_*、LARK_BRIDGE_MAIN_*）。 |
+| 专项角色 THREAD = "thread"、project_thread、is_thread_topic、THREAD_ROLE | MEMBER = "thread"（代码里叫 member，盘上的值不改）、project_member、is_member_topic、MEMBER_ROLE |
+| 负责人的工具 project_thread_start、project_thread_send | project_topic_start、project_topic_send。工具清单只列新名；MCP 服务和 Bridge 收到旧名照样执行（`core/butler_tool_specs.py` 的 `RENAMED_TOOLS`），在跑的会话可能还带着旧名。 |
+| 开关 COVEY_MAIN_THREAD、COVEY_MAIN_BUTLER、COVEY_MAIN_TRACKS、COVEY_MAIN_TRACKS_MAX、COVEY_MAIN_DISPATCH_CARD、COVEY_MAIN_JOB、COVEY_MAIN_STATE | COVEY_BUTLER、COVEY_BUTLER_RULES、COVEY_BUTLER_TRACKS、COVEY_BUTLER_TRACKS_MAX、COVEY_DISPATCH_CARD、COVEY_BUTLER_JOB、COVEY_BUTLER_STATE。读的时候新名优先，其次 COVEY_MAIN_*，最后 LARK_BRIDGE_MAIN_*（`core/env.py` 的 `RENAMED`）。服务清单仍存 LARK_BRIDGE_MAIN_*（旧版本认得的名字），所以升级不改清单、回滚照样能读。 |
 | COVEY_PROJECT_UPGRADE 的值 word | butler（word 照认，意思相同） |
 
 **盘上的旧名不改，照常读写**：
 - 文件和目录：状态目录下的 main-thread.json、main-thread/；
 - 字段：topic.json 里的 main_thread、任务记录里的字段名；
-- 名字：MCP 服务名 bridge，以及给模型看的工具名（topic_start、topic_send 等）；
+- 名字：MCP 服务名 bridge，以及给模型看的其余工具名和参数名（topic_start、topic_send 等；project_topic_send 的参数仍叫 thread）；
+- 数据目录里的名字：`bridge_main_*` 卡片按钮、锁名、合成消息 id 的 `main-` 前缀、后台线程名 `main-tools`、`main-search`；
 - 任务进程协议（runs/）里的文件名和字段。

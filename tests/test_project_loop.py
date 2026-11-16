@@ -19,12 +19,12 @@ from covey.app import project_lead, project_loop
 from covey.app.cards import Cards
 from covey.app.project_cards import facts
 from covey.app.project_loop import ProjectLoop
-from covey.core import main_thread, main_thread_settings, placement, projects
+from covey.core import butler, butler_settings, placement, projects
 from covey.core.jobs import job_key
 from covey.core.state import write_json
 
-from support.main_thread import CHAT as MAIN_CHAT
-from test_main_quiet import DeliverCase
+from support.butler import CHAT as BUTLER_CHAT
+from test_butler_quiet import DeliverCase
 from test_project_lead import CHAT, LEAD, NOW, ON, PID, Case
 
 THREAD = "b" * 32
@@ -36,7 +36,7 @@ def lead_app(case):
     case.queued = []
 
     def event_context(base, event):
-        topic = main_thread_topic(case, event["message_id"])
+        topic = butler_topic(case, event["message_id"])
         return SimpleNamespace(topic_id=topic, history_path=case.state / "topics" / topic / "history.jsonl")
 
     def enqueue(ctx, content, chat, message, **fields):
@@ -46,7 +46,7 @@ def lead_app(case):
                            submission=SimpleNamespace(event_context=event_context, enqueue_chat_job=enqueue))
 
 
-def main_thread_topic(case, message):
+def butler_topic(case, message):
     """The topic an alias of ``message`` names, as core/topics.py context_for_topic reads it."""
     from covey.core.topics import message_topic
     return message_topic(case.state, CHAT, message)
@@ -110,7 +110,7 @@ class WakeTest(Loop):
         self.autowake()
         self.receipt()
         self.loop.tick(NOW + 5)
-        self.assertEqual(main_thread_topic(self, f"lead-{PID}-1"), LEAD)
+        self.assertEqual(butler_topic(self, f"lead-{PID}-1"), LEAD)
         self.receipt(text="T42 做完了")
         self.loop.tick(NOW + 6)
         self.assertEqual([message for message, _ in self.queued], [f"lead-{PID}-1", f"lead-{PID}-2"])
@@ -393,12 +393,12 @@ class SilentTest(DeliverCase):
         super().setUp()
         mock.patch.dict(os.environ, ON).start()
         self.addCleanup(mock.patch.stopall)
-        self.addCleanup(main_thread.configure_state, main_thread.configure_state(self.state))
-        write_json(self.state / main_thread_settings.FILE, {"mode": "agent"})
-        main_thread.forget_mode()
-        self.lead_topic = projects.lead_topic_id(MAIN_CHAT, PID)
-        projects.create(self.state, projects.new_record(chat_id=MAIN_CHAT, name="迁移账单", project_id=PID, now=NOW))
-        write_topic(self.state, topic_id=self.lead_topic, chat_id=MAIN_CHAT, harness_id="claude",
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
+        write_json(self.state / butler_settings.FILE, {"mode": "agent"})
+        butler.forget_mode()
+        self.lead_topic = projects.lead_topic_id(BUTLER_CHAT, PID)
+        projects.create(self.state, projects.new_record(chat_id=BUTLER_CHAT, name="迁移账单", project_id=PID, now=NOW))
+        write_topic(self.state, topic_id=self.lead_topic, chat_id=BUTLER_CHAT, harness_id="claude",
                     project=projects.project_field(PID, projects.LEAD))
 
     def lead(self, message=f"lead-{PID}-1"):
@@ -499,7 +499,7 @@ class WiringTest(UnifiedCase):
         projects.create(self.state, projects.new_record(chat_id="chat", name="迁移账单", project_id=PID, now=NOW))
         data = json.loads((self.state / "topics" / topic / "topic.json").read_text())
         write_json(self.state / "topics" / topic / "topic.json", {**data, "project": projects.project_field(PID, "thread")})
-        projects.add_thread(self.state, PID, topic)
+        projects.add_member(self.state, PID, topic)
         return topic
 
     def test_the_thread_exists_only_with_the_switch(self):
@@ -526,10 +526,10 @@ class WiringTest(UnifiedCase):
         owner.assert_called_once_with(self.state, topic, "chat", "om_b")
 
     def test_a_runner_ending_tells_the_loop(self):
-        from covey.app import main_relay
+        from covey.app import butler_relay
         job = make_job(job_id=5, chat_id="chat", message_id="om_c", topic_id="t")
         with mock.patch.object(project_loop, "after_runner") as after:
-            main_relay.after_runner(SimpleNamespace(runtime=SimpleNamespace(log=print)), job, self.ctx)
+            butler_relay.after_runner(SimpleNamespace(runtime=SimpleNamespace(log=print)), job, self.ctx)
         after.assert_called_once()
         self.assertEqual(after.call_args.args[1:], (self.state, job))
 

@@ -1,4 +1,4 @@
-"""Sending what goes back to the main thread's top level (app/main_relay.py): each relay once (``send_once``, rule 6:
+"""Sending what goes back to the butler's top level (app/butler_relay.py): each relay once (``send_once``, rule 6:
 its card made first, then main-thread/relays/<job key>.json says ``submitting`` under a file lock no Feishu call is
 made under, rules 1 and 2, then ``sent`` with the message id, or ``uncertain``; a job with a record is never sent
 again), ``unsent`` for one that failed before any Feishu call (``record_unsent``: kept and logged, never sent later),
@@ -13,16 +13,16 @@ from covey.app import answer_cards
 from covey.app.relay_targets import ask_for, turn_card
 from covey.cards.answer_card import tail as answer_tail, tail_card
 from covey.cards.relay_card import WAITING as WAITING_OUTCOME, relay_card, summary
-from covey.core import main_thread
+from covey.core import butler
 from covey.core.jobs import job_field
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
 from covey.core.topics import remember_topic_message, route_message
 
 RELAYS = Path("main-thread") / "relays"
-QUESTION_RELAYS = RELAYS / "questions"  # A question relayed as it was asked (app/main_relay.py relay_question).
+QUESTION_RELAYS = RELAYS / "questions"  # A question relayed as it was asked (app/butler_relay.py relay_question).
 UNSENT = "unsent"  # Failed before it reached any Feishu call: the record says why; nothing sends it later.
-SKIPPED = "skipped"  # Not sent by rule (``why``: owner_stop, the owner pressed 停止 himself, app/main_relay.py relay).
+SKIPPED = "skipped"  # Not sent by rule (``why``: owner_stop, the owner pressed 停止 himself, app/butler_relay.py relay).
 
 
 def relay_path(state_dir, key) -> Path:
@@ -44,12 +44,12 @@ def messenger_send(messenger, profile, voice):
 
 
 def remember_sent(state_dir, chat_id, topic_id, messages, *, skip_errors=False) -> None:
-    """Each relay message sent is the topic ``topic_id``'s (the main thread's without one), and a quote of it goes to
+    """Each relay message sent is the topic ``topic_id``'s (the butler's without one), and a quote of it goes to
     that topic (core/topics.py context_for_topic), whose waiting question takes it as the answer. ``skip_errors``:
     a message whose alias cannot be written is left as it is, the next ones still are."""
     for message in messages:
         try:
-            remember_topic_message(Path(state_dir), topic_id or main_thread.main_topic_id(chat_id), chat_id, message)
+            remember_topic_message(Path(state_dir), topic_id or butler.butler_topic_id(chat_id), chat_id, message)
             if topic_id:
                 route_message(Path(state_dir), chat_id, message, topic_id)
         except OSError:
@@ -85,7 +85,7 @@ def dispatch_note(state_dir, target, outcome, state, message_id="", reason="") -
     """The 派发卡 of the work this relay concludes (app/dispatch_cards.py ``relayed``) is told the relay went out
     ("sent", ``message_id`` its conclusion) or was skipped, so it can shrink to a line; a relay that waits on the owner
     says nothing, and one that did not go out (uncertain, unsent) is not told: that card stays as it is. Only with
-    COVEY_MAIN_DISPATCH_CARD=1."""
+    COVEY_DISPATCH_CARD=1."""
     from covey.app import dispatch_cards
 
     if outcome != WAITING_OUTCOME and dispatch_cards.enabled():
@@ -119,7 +119,7 @@ def record_only(state_dir, path, key, job, outcome, state, log=None, target=None
 
 
 def send_once(state_dir, job, path, key, target, outcome, send, profile=None, log=None, **facts):
-    """app/main_relay.py ``relay``'s steps for the record at ``path``, its send's key from ``key``: its card made, the
+    """app/butler_relay.py ``relay``'s steps for the record at ``path``, its send's key from ``key``: its card made, the
     record ``submitting`` under the lock, the send outside it, then ``sent`` or ``uncertain``, which ``log`` (the
     runtime's log, None: none) gets as one line ``main relay state=…``; the record's state. A card that cannot be made
     leaves the record ``unsent`` (``record_unsent``): ``submitting`` only ever says it is about to go or went."""

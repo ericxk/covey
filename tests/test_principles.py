@@ -1,5 +1,5 @@
 """The owner's principles (core/principles.py): the store, the block every turn reads (app/prompts.py
-principles_block, app/runs.py), and the main thread's three tools (app/main_tools.py)."""
+principles_block, app/runs.py), and the butler's three tools (app/butler_tools.py)."""
 from __future__ import annotations
 
 import json
@@ -12,18 +12,18 @@ from support import make_context, quiet
 from support.fake_backends import FakeBackend
 from support.records import write_job, write_topic
 from support.world import harness_app
-from covey.app import main_tools
+from covey.app import butler_tools
 from covey.app.harnesses import components
-from covey.app.main_env import MainEnv
-from covey.app.prompts import (MAIN_THREAD_RULES, PRINCIPLES_HEAD, bridge_rules, constraints,
-                                        main_thread_rules, principles_block, workspace_block)
+from covey.app.butler_env import ButlerEnv
+from covey.app.prompts import (BUTLER_RULES_TEXT, PRINCIPLES_HEAD, bridge_rules, constraints,
+                                        butler_rules, principles_block, workspace_block)
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
-from covey.core import main_requests, main_thread, principles
+from covey.core import butler_requests, butler, principles
 from covey.core.checkpoint import CHECKPOINT_RULES
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import BridgeReplyJob as ReplyJob
-from covey.core.main_tool_specs import TOOLS
+from covey.core.butler_tool_specs import TOOLS
 from covey.core.roster import NAMES
 from covey.core.session_guard import finish_native_session
 
@@ -146,8 +146,8 @@ class BlockTest(unittest.TestCase):
         self.assertFalse(any(line.startswith("- 工作区") for line in listed))
         self.assertNotIn("工作区 w：", lines)
 
-    def test_the_main_thread_is_told_when_to_save_and_delete(self):
-        for rules in (MAIN_THREAD_RULES, main_thread_rules()):
+    def test_the_butler_is_told_when_to_save_and_delete(self):
+        for rules in (BUTLER_RULES_TEXT, butler_rules()):
             for words in ("principle_save", "“以后……”", "已记下：……", "不记", "principle_delete", "principles_list"):
                 self.assertIn(words, rules)
 
@@ -159,7 +159,7 @@ WORKSPACE_ONLY = PRINCIPLES_HEAD + "\n工作区 ws：\n- ws 的原则"
 
 class TurnTest(unittest.TestCase):
     """Every Harness's turn carries the block in its message: the fresh session's rules, each resumed turn's
-    reminder, the main thread's too (its workspace's group). 通用 only on the owner's own turn (app/access.py
+    reminder, the butler's too (its workspace's group). 通用 only on the owner's own turn (app/access.py
     owner_turn); a 代答 topic none."""
 
     def setUp(self):
@@ -208,7 +208,7 @@ class TurnTest(unittest.TestCase):
                  ("a colleague in a group", dict(sender=OTHER), False),
                  ("a group job that kept no sender", dict(sender=""), False),
                  ("the owner's private chat, no sender", dict(chat=DM, sender=""), True),
-                 ("the main thread, no sender", dict(chat=DM, sender="", topic=main_thread.main_topic_id(DM)), True))
+                 ("the butler, no sender", dict(chat=DM, sender="", topic=butler.butler_topic_id(DM)), True))
         for name, job, owner in cases:
             for sid in (None, SID):
                 with self.subTest(name, resumed=bool(sid)):
@@ -263,14 +263,14 @@ class ToolTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.state = Path(tmp.name)
         (self.state / "workspace-config.json").write_text(json.dumps({"workspaces": {"bridge": "/x", "kb": "/y"}}))
-        write_job(self.state, "main-1", chat_id=self.CHAT, topic_id=main_thread.main_topic_id(self.CHAT), job_id=12,
+        write_job(self.state, "main-1", chat_id=self.CHAT, topic_id=butler.butler_topic_id(self.CHAT), job_id=12,
                   status="running")
         runtime = type("R", (), {"log": staticmethod(lambda line: None),
                                  "access": type("A", (), {"owner_chat": staticmethod(lambda: self.CHAT)})()})()
-        self.env = MainEnv(runtime, None, None, None, state_dir=self.state, profile="unit")
+        self.env = ButlerEnv(runtime, None, None, None, state_dir=self.state, profile="unit")
 
     def call(self, name, **args):
-        return main_tools.TOOLS[name](self.env, main_requests.Request("r1", name, args, "main-1", time.time()))
+        return butler_tools.TOOLS[name](self.env, butler_requests.Request("r1", name, args, "main-1", time.time()))
 
     def test_save_list_delete(self):
         saved = self.call("principle_save", scope="owner", text="回复用中文")
@@ -310,15 +310,15 @@ class ToolTest(unittest.TestCase):
         self.assertFalse(principles.path(self.state).exists())
 
     def test_the_loop_answers_a_refusal_in_words(self):
-        answer = main_tools.MainTools(self.env, main_tools.TOOLS).execute(
-            main_requests.Request("r2", "principle_save", {"scope": "owner", "text": ""}, "main-1", time.time()))
+        answer = butler_tools.ButlerTools(self.env, butler_tools.TOOLS).execute(
+            butler_requests.Request("r2", "principle_save", {"scope": "owner", "text": ""}, "main-1", time.time()))
         self.assertFalse(answer["ok"])
         self.assertEqual(answer["text"], "principle_save 没有完成：原则的正文是空的")
 
     def test_the_specs_name_every_handler(self):
         specs = {tool["name"]: tool for tool in TOOLS}
         for name in ("principle_save", "principle_delete", "principles_list"):
-            self.assertIn(name, main_tools.TOOLS)
+            self.assertIn(name, butler_tools.TOOLS)
             self.assertIn(name, specs)
         self.assertEqual(specs["principle_save"]["input_schema"]["required"], ["scope", "text"])
         self.assertIn("一次性的要求", specs["principle_save"]["description"])

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from covey.app import detached
 from covey.app.access import Access
-from covey.core import main_tracks, timing
+from covey.core import butler_tracks, timing
 from covey.core.jobs import job_key
 from covey.core.scheduler import topic_key
 
@@ -126,11 +126,11 @@ class JobRegistry:
                     if j.topic_id == topic_id and j.chat_id == chat_id and job_stage(j) != "ended"]
 
     def family_live(self, chat_id) -> list:
-        """The main thread family's tasks in ``chat_id`` (core/main_tracks.py: slot 0, with COVEY_MAIN_TRACKS=1 the
+        """The butler family's tasks in ``chat_id`` (core/butler_tracks.py: slot 0, with COVEY_BUTLER_TRACKS=1 the
         tracks too) that are not ended and not waiting for an answer, as ``job_stage`` says (queued, starting,
-        running), oldest first. The tracks that are running count against COVEY_MAIN_TRACKS_MAX; a task waiting for the
+        running), oldest first. The tracks that are running count against COVEY_BUTLER_TRACKS_MAX; a task waiting for the
         owner's answer holds its slot but is not one of them. Reads this registry only, no file and no call."""
-        topics = frozenset(main_tracks.family_ids(chat_id))
+        topics = frozenset(butler_tracks.family_ids(chat_id))
         with self.lock:
             live = [job for job in self.by_id.values()
                     if job.chat_id == chat_id and job.topic_id in topics

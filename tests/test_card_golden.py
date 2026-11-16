@@ -688,24 +688,24 @@ def main_topic_cards():
 
 
 def main_task_cards():
-    """The main thread's slim task card (core/main_thread.py Traits.slim_card) as it is sent, and as its writes
+    """The butler's slim task card (core/butler.py Traits.slim_card) as it is sent, and as its writes
     leave it: queued and held, running, a direct answer, a turn that opened and handed over topics, stopped with
     the supplements it took, failed with its 重试 row. The writes are drawn by the builders the Bridge writes with."""
-    from covey.app.main_reply import DROPPED, reply_fold, routed_body
+    from covey.app.butler_reply import DROPPED, reply_fold, routed_body
     from covey.cards.elements import md
     from covey.cards.recovery import result_actions
     from covey.cards.review import render_stream_final, render_stream_status
     from covey.cards.streaming import ACTION_ROW_ELEMENT_ID, build_stream_card
     from covey.cards.task_figures import IO_BOX_ID
     from covey.cards.task_status import status_elements
-    from covey.core import main_thread
+    from covey.core import butler
 
     run = stream_runtime()
     snapshot = {"started_at": FROZEN - 13, "ended_at": FROZEN, "input_tokens": 52000, "output_tokens": 900,
                 "measured_output_tokens": 800, "generation_seconds": 10.0, "steps": {}}
 
     def job():
-        return sample_job(topic_id=main_thread.main_topic_id("chat"), topic_label="", harness_id="claude",
+        return sample_job(topic_id=butler.butler_topic_id("chat"), topic_label="", harness_id="claude",
                           user_text="帮我看看昨晚的失败日志", title="")
 
     def ended(body, status, *, under=(), inside=()):
@@ -720,13 +720,13 @@ def main_task_cards():
         elements[1:1] = list(under)  # Right under the body (task_card.under_body).
         return card
 
-    with mock.patch.dict(os.environ, {main_thread.ENV: "1"}):
+    with mock.patch.dict(os.environ, {butler.ENV: "1"}):
         lines = ["↪ 开了 **T410**「查昨晚的失败日志」· work · 只读", "↪ 转给 **T388**「迁移数据」：顺便把日志也看一下"]
         bare = SimpleNamespace(job_id=431, progress=SimpleNamespace(slim=True))
         return {
             "queued": build_stream_card(render_stream_status(job(), "已入队"), "任务", run, job=job(),
                                         include_stop_action=True),
-            "held": build_stream_card(render_stream_status(job(), main_thread.HOLD_STATUS), "任务", run, job=job(),
+            "held": build_stream_card(render_stream_status(job(), butler.HOLD_STATUS), "任务", run, job=job(),
                                       include_stop_action=True),
             "running_status": status_elements("执行中 · 已运行 6 秒 · 阶段：读日志\n当前：Read bridge.log", False, True),
             "done": ended(render_stream_final(bare, "昨晚失败是**磁盘满**。", bare=True), "✅ 已完成 · 用时 13 秒"),
@@ -736,7 +736,7 @@ def main_task_cards():
                              under=[md("**这一轮停了，期间你发的 1 条补充也一起停了**，不会自动重发；要的话改一改再发：\n"
                                        "- 14:36 · 看看这两个样本", element_id=DROPPED)]),
             "failed": ended("任务 #431 处理出错（RuntimeError），未满足结果发布条件。", "⚠️ 执行失败 · 用时 13 秒",
-                            under=[result_actions(main_thread.main_topic_id("chat"), 431, "检查并继续")]),
+                            under=[result_actions(butler.butler_topic_id("chat"), 431, "检查并继续")]),
         }
 
 
@@ -764,7 +764,7 @@ def status_cards_samples():
 
 # As app/launch_models.py available_models names them: each with its provider (core/providers.py).
 CLAUDE_OWN = {"provider": "anthropic", "provider_title": "Claude 自带"}
-MAIN_CHOICES = {"claude:claude-opus-5-5": {"harness": "claude", "model": "claude-opus-5-5", "title": "Claude Code",
+BUTLER_CHOICES = {"claude:claude-opus-5-5": {"harness": "claude", "model": "claude-opus-5-5", "title": "Claude Code",
                                           "display_name": "Opus 5.5", "levels": ["low", "high", "xhigh", "max"],
                                           "redaction": True, **CLAUDE_OWN},
                "claude:claude-sonnet-5-5": {"harness": "claude", "model": "claude-sonnet-5-5", "title": "Claude Code",
@@ -778,9 +778,9 @@ MAIN_CHOICES = {"claude:claude-opus-5-5": {"harness": "claude", "model": "claude
                                             "display_name": "GPT-6 Astra", "levels": ["high"]}}
 
 
-def main_thread_panels():
-    from covey.cards.main_thread_panel import main_thread_panel_card
-    from covey.core.main_thread_settings import Settings, TopicDefaults
+def butler_panels():
+    from covey.cards.butler_panel import butler_panel_card
+    from covey.core.butler_settings import Settings, TopicDefaults
 
     names = ["bridge", "docs", "scratch"]
     changed = Settings(enabled=False, model="claude-opus-5-5", effort="high", compact_tokens=300_000, redaction=True,
@@ -790,28 +790,28 @@ def main_thread_panels():
                        workspace_notes=(("bridge", "Harness Bridge 本体"), ("docs", "文档")))
     follows = {"t_harness": "跟随上次：Claude Code · Opus · max", "t_model": "跟随上次：Opus · max",
                "t_effort": "Bridge 默认：high"}
-    return {"default": main_thread_panel_card("b" * 24, {"revision": 1}, Settings(), MAIN_CHOICES, names),
-            # Empty defaults say what they resolve to now (app/main_thread_panel.py follows).
-            "follows": main_thread_panel_card("b" * 24, {"revision": 2}, Settings(), MAIN_CHOICES, names,
+    return {"default": butler_panel_card("b" * 24, {"revision": 1}, Settings(), BUTLER_CHOICES, names),
+            # Empty defaults say what they resolve to now (app/butler_panel.py follows).
+            "follows": butler_panel_card("b" * 24, {"revision": 2}, Settings(), BUTLER_CHOICES, names,
                                               follows=follows),
-            "follows_model": main_thread_panel_card(
-                "b" * 24, {"revision": 3}, Settings(topic_defaults=TopicDefaults(harness="claude")), MAIN_CHOICES,
+            "follows_model": butler_panel_card(
+                "b" * 24, {"revision": 3}, Settings(topic_defaults=TopicDefaults(harness="claude")), BUTLER_CHOICES,
                 names, follows=follows),
-            "changed": main_thread_panel_card("b" * 24, {"revision": 4, "notice": "⚠️ 只有机器人主人能改管家的设置。"},
-                                              changed, MAIN_CHOICES, names)}
+            "changed": butler_panel_card("b" * 24, {"revision": 4, "notice": "⚠️ 只有机器人主人能改管家的设置。"},
+                                              changed, BUTLER_CHOICES, names)}
 
 
 def settings_cards():
-    """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the main thread's
-    two pages, 私聊默认 and 新话题默认, 工作区 (with the main thread's 用途 and 记住的工作区, and without) and 脱敏."""
+    """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the butler's
+    two pages, 私聊默认 and 新话题默认, 工作区 (with the butler's 用途 and 记住的工作区, and without) and 脱敏."""
     from covey.cards.group_manager import group_manager_card
-    from covey.cards.main_thread_panel import WORKSPACE_NOTE, main_thread_panel_card, notes_button, trusted_section
+    from covey.cards.butler_panel import WORKSPACE_NOTE, butler_panel_card, notes_button, trusted_section
     from covey.cards.elements import note
     from covey.cards.proxy_panel import proxy_panel_card
     from covey.cards.redaction_panel import redaction_card
     from covey.cards.settings_hub import folded_hub, tab_row
     from covey.cards.workspace_manager import manager_card
-    from covey.core.main_thread_settings import Settings
+    from covey.core.butler_settings import Settings
 
     tabs = ["main", "topic", "workspace", "redaction", "proxy", "groups"]
 
@@ -830,7 +830,7 @@ def settings_cards():
         return {"kind": kind, "token": "c" * 24, "revision": 1, **more}
 
     return {
-        **{page: main_thread_panel_card("c" * 24, view, Settings(), MAIN_CHOICES, ["bridge", "docs"],
+        **{page: butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
                                         top=row(page), page=page) for page in ("main", "topic")},
         "workspace": manager_card("c" * 24, view, config, {}, standalone=True, hub=True, top=row("workspace"),
                                   notes=(dict(kept.workspace_notes), lambda names: notes_button(value, names)),
@@ -961,31 +961,31 @@ def project_cards():
 
     link = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
     ask = "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=76"
-    threads = (pc.Thread("a1b2c3" + "0" * 10, pc.RUNNING, "T501", "拆分 SQL 迁移脚本", "第 2/5 步：改写第 3 张表", "12分00秒", link),
-               pc.Thread("b2c3d4" + "0" * 10, pc.DONE, "T502", "梳理旧表结构", "已完成", "8分00秒", link),
-               pc.Thread("c3d4e5" + "0" * 10, pc.WAITING, "T503", "决定分区键", "等你回答：按日期还是按租户分区？", "3分00秒", link))
+    threads = (pc.Member("a1b2c3" + "0" * 10, pc.RUNNING, "T501", "拆分 SQL 迁移脚本", "第 2/5 步：改写第 3 张表", "12分00秒", link),
+               pc.Member("b2c3d4" + "0" * 10, pc.DONE, "T502", "梳理旧表结构", "已完成", "8分00秒", link),
+               pc.Member("c3d4e5" + "0" * 10, pc.WAITING, "T503", "决定分区键", "等你回答：按日期还是按租户分区？", "3分00秒", link))
     work = pc.Project(
         project_id="a1b2c3d4e5f6", lead_topic="f" * 32, name="把订单库迁到新集群", status=pc.RUNNING, direction="数据平台",
-        threads=threads[:2], elapsed="2小时3分", tokens="33万", lead_state="在做 · 第 3/6 步：核对迁移结果",
+        members=threads[:2], elapsed="2小时3分", tokens="33万", lead_state="在做 · 第 3/6 步：核对迁移结果",
         lead_note="先迁小表，大表等周末窗口", inputs=("Claude Code", "Opus 5.5", "思考 high"),
         outputs=("**开始** 09:12　**已运行** 2小时3分", "**token** 33万"), ask_text="把订单库迁到新集群，周末前要有结果",
         ask_at="09:10", ask_url=ask)
     full = pc.Project(**{**work.__dict__, "triage": ("09:40 答了：用哪个库版本？", "10:05 转给你：能不能停服务？"),
                          "memory": (("m1", "迁移窗口在周六凌晨"), ("m2", "旧集群只读到周日")),
                          "library": (("迁移方案.md",), ("表清单.csv",))})
-    many = tuple(pc.Thread(f"{index:02x}" * 3 + "0" * 10, pc.DONE if index % 3 else pc.RUNNING, f"T{600 + index}", f"话题 {index}",
+    many = tuple(pc.Member(f"{index:02x}" * 3 + "0" * 10, pc.DONE if index % 3 else pc.RUNNING, f"T{600 + index}", f"话题 {index}",
                            "已完成", "5分00秒") for index in range(11))
     return {"running": pc.project_card(work),
             "running_full": pc.project_card(full),
-            "waiting": pc.project_card(pc.Project(**{**full.__dict__, "status": pc.WAITING, "threads": threads,
+            "waiting": pc.project_card(pc.Project(**{**full.__dict__, "status": pc.WAITING, "members": threads,
                                                      "need": "T503 按日期还是按租户分区？", "need_url": ask})),
             "paused": pc.project_card(pc.Project(**{**work.__dict__, "status": pc.PAUSED, "direction": ""})),
-            "many_threads": pc.project_card(pc.Project(**{**full.__dict__, "threads": many})),
+            "many_threads": pc.project_card(pc.Project(**{**full.__dict__, "members": many})),
             "line_done": pc.settled_card("把订单库迁到新集群", url=link, direction="数据平台"),
             "line_done_no_link": pc.settled_card("把订单库迁到新集群"),
             "line_stopped": pc.settled_card("把订单库迁到新集群", reason="专项已降为普通话题"),
             "line_moved": pc.moved_card("把订单库迁到新集群", link, direction="数据平台"),
-            "upgraded": pc.project_card(pc.Project(**{**work.__dict__, "threads": threads[:1], "direction": "",
+            "upgraded": pc.project_card(pc.Project(**{**work.__dict__, "members": threads[:1], "direction": "",
                                                       "origin_note": "由管家转成专项"})),
             "line_merged": pc.merged_card("把订单库迁到新集群", link)}
 
@@ -994,7 +994,7 @@ GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "qu
           "proxy": proxy_cards, "steer": steer_cards, "recovery": recovery_cards, "rewind": rewind_cards,
           "turn_export": turn_export_panels, "switch": switch_cards, "topic": topic_panels,
           "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
-          "main_thread": main_thread_panels, "settings": settings_cards,
+          "main_thread": butler_panels, "settings": settings_cards,
           "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards,
           "project": project_cards}
 

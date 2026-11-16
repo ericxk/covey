@@ -9,7 +9,7 @@ app/access.py (rule 11), which reads these settings.
 
 Settings come from the ``spaces`` section of harnesses.json (docs/configuration.md); a file without it is read as the
 defaults, which behave as before spaces existed. The NAS profile's older keys are read as aliases (``ALIASES``) and
-each is noted once at startup; the keys of its features that need the personal-space main thread, menu card and
+each is noted once at startup; the keys of its features that need the personal-space butler, menu card and
 boards (``LATER``) are read and noted: personal groups have them without a switch.
 
 Records (``<state>/spaces/<sha256(chat_id)>.json``): each bound group's ``kind`` and ``title``, written where the Bridge
@@ -32,7 +32,7 @@ OPEN_ID = re.compile(r'ou_[A-Za-z0-9_-]{1,120}')
 ALIASES = {'owner_only': 'allow_team_spaces', 'owner_aliases': 'owner_accounts', 'home_chat': 'notify_space',
            'agent_groups': 'personal_groups'}
 # Read and noted, with no effect of their own: a personal group has its menu card, its boards and the status-line
-# heads on answer cards, the main thread's besides (app/group_menu.py, app/group_boards.py, app/saved_send.py).
+# heads on answer cards, the butler's besides (app/group_menu.py, app/group_boards.py, app/saved_send.py).
 LATER = ('group_menu', 'group_boards', 'owner_headed')
 
 

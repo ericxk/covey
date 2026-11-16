@@ -103,13 +103,13 @@ class BridgeReplyJob:
     detached_run_dir: Any = _state()
     early_runner: Any = _state()  # Started before its handoff (app/detached.py prestart_runner); never saved.
     runner_relaunched: bool = _state(False)
-    # Not before this time.time() (core/scheduler.py): a main-thread turn waiting for the owner's words
-    # (app/main_thread.py). Never saved: a restart starts it.
+    # Not before this time.time() (core/scheduler.py): a butler turn waiting for the owner's words
+    # (app/butler.py). Never saved: a restart starts it.
     start_held_until: float = _state(0.0)
     # The owner's words that joined such a turn's request while it waited (app/steering.py merge_before_start), one
     # per line: its "你问" block shows them, not the forward or link that started it (app/answer_cards.py asked).
     asked_text: str = _state("")
-    # A main-thread turn of the 话题区 layout whose card is held back until it has run main_thread.CARD_AFTER seconds
+    # A butler turn of the 话题区 layout whose card is held back until it has run butler.CARD_AFTER seconds
     # (core/placement.py Row.quiet; app/cards.py Cards.reveal); False once it has one, or for any other job. Saved: the
     # task runner sends the card.
     card_deferred: bool = _state(False)
@@ -146,7 +146,7 @@ class BridgeReplyJob:
     card_missing: bool = _state(False)
     card_resends: int = _state(0)
     card_resend_after: float = _state(0.0)
-    # A stopped or refused main-thread turn's card listed its supplements (app/main_reply.py show_dropped).
+    # A stopped or refused butler turn's card listed its supplements (app/butler_reply.py show_dropped).
     supplements_listed: bool = _state(False)
     held_thread: Any = _state()
     steer_forms: list = _state(factory=list)
@@ -295,7 +295,7 @@ def parse_job_stop_action_value(raw: Any) -> dict[str, str] | None:
     action = {"kind": JOB_STOP_ACTION_KIND, "job_id": job_id, "message_id": message_id}
     others = str(raw.get("others") or "").strip()
     if others.isdigit() and int(others) > 0:
-        action["others"] = others  # A stop word of the main thread's tracks: how many other tracks are still going.
+        action["others"] = others  # A stop word of the butler's tracks: how many other tracks are still going.
     return action
 
 

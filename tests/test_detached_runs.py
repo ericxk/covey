@@ -373,7 +373,7 @@ class WakeTests(unittest.TestCase):
 class RunnerFinishTests(unittest.TestCase):
     def test_a_supplement_held_at_the_end_is_settled_before_exit_json(self):
         # ACCEPT-344-A L7: one held as the job left the registry died with the runner; settled before exit.json,
-        # the Bridge's finish_detached queues the main thread's.
+        # the Bridge's finish_detached queues the butler's.
         order = []
         app, job = mock.Mock(), mock.Mock(interrupted=False)
         app.steering.settle_held_at_end.side_effect = lambda ctx, held: order.append("settle")
@@ -583,7 +583,7 @@ class BridgeSideTests(UnifiedCase):
         stub.stop()
         with mock.patch.dict(os.environ, {knowledge.ENV: "1"}), \
                 mock.patch.object(self.app.runtime.access, "owner_turn", return_value=True), \
-                mock.patch.object(detached.main_relay, "after_runner") as after:
+                mock.patch.object(detached.butler_relay, "after_runner") as after:
             with mock.patch.object(knowledge, "remember", side_effect=OSError("NAS gone")):
                 detached.finish_detached(self.app, app, job, ctx, directory)
             self.assertEqual(knowledge.entries(ctx.state_dir), [])

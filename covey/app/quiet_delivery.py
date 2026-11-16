@@ -1,4 +1,4 @@
-"""The quiet main-thread turn's side of delivering a result (core/placement.py Row.quiet): a turn whose task card has
+"""The quiet butler turn's side of delivering a result (core/placement.py Row.quiet): a turn whose task card has
 not gone out (``bare``) says its failure, refusal or stop in a few words at the chat's top level with its "你问"
 block (``top_notice``), and an answer that could not be sent there too (``undelivered_notice``). ``QuietDelivery``
 is a part of app/worker.py TurnDelivery, which it reads its job, context, turn and senders from."""
@@ -6,26 +6,26 @@ from __future__ import annotations
 
 import dataclasses
 
-from covey.app import auto_retry, main_reply
+from covey.app import auto_retry, butler_reply
 from covey.app.outbox import AUDIT_REFUSED_NOTE, REDELIVER_LABEL, retry_label
 from covey.cards.recovery import result_actions
 from covey.cards.review import answer_card, answer_lead
 from covey.core import placement
 from covey.core.jobs import find_job_record
-from covey.core.main_thread import worded
+from covey.core.butler import worded
 from covey.core.saved_results import saved_delivery_kind
 from covey.core.text import safe_text
 from covey.feishu.message_request import optimize_markdown
 
 
-UNFINISHED = "这一轮没做完。"  # A quiet main-thread turn's failure notice begins so (TurnDelivery.notice_words).
+UNFINISHED = "这一轮没做完。"  # A quiet butler turn's failure notice begins so (TurnDelivery.notice_words).
 
 
 class QuietDelivery:
-    """TurnDelivery's methods for a quiet main-thread turn (``bare``) and its top-level notices."""
+    """TurnDelivery's methods for a quiet butler turn (``bare``) and its top-level notices."""
 
     def bare(self) -> bool:
-        """A quiet main-thread turn (core/placement.py Row.quiet) whose card has not gone out: nothing of it may reply
+        """A quiet butler turn (core/placement.py Row.quiet) whose card has not gone out: nothing of it may reply
         to the owner's message, which would open its thread."""
         return not self.job.progress and placement.quiet(self.ctx.state_dir, self.job)
 
@@ -67,23 +67,23 @@ class QuietDelivery:
 
     def _quiet_fallback(self, sent, final_card, display_text, delivery_text):
         """``_fallback`` of a ``bare`` turn: a failure's or a refusal's few words (``notice_words``; a refusal's with
-        the supplements it took, main_reply.dropped_lines) at the top level with its "你问" block (``top_notice``); a
+        the supplements it took, butler_reply.dropped_lines) at the top level with its "你问" block (``top_notice``); a
         stop says only the supplements it took, there the same way, and with none nothing (its reaction goes,
-        app/main_reactions.py). Supplements listed there get no line of their own (``listed``): a reply under each
+        app/butler_reactions.py). Supplements listed there get no line of their own (``listed``): a reply under each
         would open its thread (D1)."""
         job, turn = self.job, self.turn
         refused = self.refused()
         stopped = turn.status == "cancelled" and not refused
         if stopped or refused:
             try:
-                dropped = main_reply.dropped_lines(self.ctx.state_dir, job, refused)
+                dropped = butler_reply.dropped_lines(self.ctx.state_dir, job, refused)
             except Exception as exc:  # noqa: BLE001 - the notice without the list
-                self.runtime.log(f"main thread supplements not listed job=#{job.job_id}: {type(exc).__name__}")
+                self.runtime.log(f"butler supplements not listed job=#{job.job_id}: {type(exc).__name__}")
                 dropped = ""
         else:
             dropped = ""
         if stopped and not dropped:
-            self.runtime.log(f"main thread turn stopped with no card job=#{job.job_id}: nothing sent")
+            self.runtime.log(f"butler turn stopped with no card job=#{job.job_id}: nothing sent")
             sent.delivered = True
             return
         if stopped:
@@ -117,13 +117,13 @@ class QuietDelivery:
                                 actions, [ask] if ask else [])
             if not self.send_text(self.top_ctx(), job.chat_id, text, f"{self.prefix}-undelivered-{job.message_id}",
                                   card=built):
-                self.runtime.log(f"main thread undelivered notice not sent job=#{job.job_id}")
+                self.runtime.log(f"butler undelivered notice not sent job=#{job.job_id}")
         except Exception as exc:  # noqa: BLE001 - the record keeps the failure and its retry
-            self.runtime.log(f"main thread undelivered notice failed job=#{job.job_id}: {type(exc).__name__}")
+            self.runtime.log(f"butler undelivered notice failed job=#{job.job_id}: {type(exc).__name__}")
 
     def notice_preview(self, text) -> str:
         """The chat list's preview of a ``top_notice``: how the turn ended (as its reaction says it,
-        app/main_reactions.py: a refusal is a failure, not a stop) and the notice's lead, no task number."""
+        app/butler_reactions.py: a refusal is a failure, not a stop) and the notice's lead, no task number."""
         status = self.turn.status
         head = ("❌ 被拒" if self.refused() else "⏹ 已停止" if status == "cancelled"
                 else "⚠️ 没做完" if status in {"failed", "timed_out"} else "")

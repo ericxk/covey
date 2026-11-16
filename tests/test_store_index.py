@@ -265,19 +265,19 @@ class IndexedStorageTest(unittest.TestCase):
             self.assertEqual(bridge.query(status=set()), [])
 
     def test_the_boards_read_leaves_old_records_unread_and_says_the_same_as_reading_them_all(self):
-        # P1: the main thread's snapshot read ~3400 job records in a new process for the ~150 written within three
+        # P1: the butler's snapshot read ~3400 job records in a new process for the ~150 written within three
         # days; updated_at rides in .index (store.CARRIED) so board_read.read does not read the rest.
         import datetime
         from covey.core import board_read, store as store_module
         from covey.core.jobs import select_job_records
-        from covey.core.main_thread import main_topic_id
+        from covey.core.butler import butler_topic_id
         now = time.time()
 
         def stamp(days):
             return datetime.datetime.fromtimestamp(now - days * 86400).isoformat()
         chat = 'chat-1'
         rows = [('old', 'done', 10, 't1'), ('recent', 'done', 1, 't1'), ('running', 'running', 20, 't2'),
-                ('old-kept', 'done', 10, 't3'), ('main', 'done', 1, main_topic_id(chat)), ('other', 'done', 1, 't4'),
+                ('old-kept', 'done', 10, 't3'), ('main', 'done', 1, butler_topic_id(chat)), ('other', 'done', 1, 't4'),
                 ('no-time', 'done', None, 't5'), ('odd-time', 'done', 7, 't6'), ('queued', 'queued', 2, 't7')]
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
@@ -313,7 +313,7 @@ class IndexedStorageTest(unittest.TestCase):
                 return asked, [r['key'] for r in got]
             asked, keys = run()
             self.assertEqual(sorted(keys), ['no-time', 'odd-time', 'queued', 'recent', 'running'])
-            # Not read: the old one, the one of another chat, the main thread's, and the not-kept old one.
+            # Not read: the old one, the one of another chat, the butler's, and the not-kept old one.
             self.assertEqual(asked, ['no-time.json', 'odd-time.json', 'queued.json', 'recent.json', 'running.json'])
             asked, keys = run(keep=frozenset({'t3', 't1'}))
             self.assertEqual(sorted(keys), ['no-time', 'odd-time', 'old', 'old-kept', 'queued', 'recent', 'running'])
@@ -324,7 +324,7 @@ class IndexedStorageTest(unittest.TestCase):
             (state / 'jobs' / '.index').write_text(json.dumps(saved))
             asked, keys = run()
             self.assertEqual(sorted(keys), ['no-time', 'odd-time', 'queued', 'recent', 'running'])
-            self.assertEqual(len(asked), len(rows) - 2)  # All but the other chat's (indexed) and the main thread's.
+            self.assertEqual(len(asked), len(rows) - 2)  # All but the other chat's (indexed) and the butler's.
             # A ``narrow`` that cannot tell leaves the record to ``where``.
             def broken(fields):
                 raise TypeError('cannot tell')

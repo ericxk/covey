@@ -48,11 +48,11 @@ def ids(value):
 def thread(topic=T1, status=view.RUNNING, **fields):
     base = dict(topic_id=topic, status=status, label="T501", title="拆分 SQL 迁移脚本", body="第 2/5 步", took="1分00秒", url=URL)
     base.update(fields)
-    return view.Thread(**base)
+    return view.Member(**base)
 
 
 def project(status=view.RUNNING, **fields):
-    base = dict(project_id=PID, lead_topic=LEAD, name="把订单库迁到新集群", status=status, threads=(thread(),), elapsed="3分00秒",
+    base = dict(project_id=PID, lead_topic=LEAD, name="把订单库迁到新集群", status=status, members=(thread(),), elapsed="3分00秒",
                 tokens="33万", lead_state="在做 · 核对", inputs=("Claude Code", "Opus"), outputs=("**开始** 09:12",))
     base.update(fields)
     return view.Project(**base)
@@ -92,7 +92,7 @@ class CardTest(UnifiedCase):
         self.assertIn("先迁小表", find_element(card, "pj_lead")["content"])
 
     def test_what_is_empty_is_not_drawn(self):
-        card = view.project_card(project(tokens="", lead_state="", threads=()))
+        card = view.project_card(project(tokens="", lead_state="", members=()))
         found = ids(card)
         for name in ("pj_need", "answer_ask", "pj_triage", "pj_mem", "pj_lib", "pj_more"):
             self.assertNotIn(name, found)
@@ -101,19 +101,19 @@ class CardTest(UnifiedCase):
 
     def test_threads_at_work_or_waiting_are_open_those_done_shut_and_a_change_of_state_is_a_new_element(self):
         threads = (thread(T1, view.RUNNING), thread(T2, view.DONE, label="T502"), thread(T3, view.WAITING, label="T503"))
-        card = view.project_card(project(threads=threads))
+        card = view.project_card(project(members=threads))
         folds = [element for element in card["body"]["elements"] if element.get("tag") == "collapsible_panel"
                  and element["element_id"].startswith("pt_")]
         self.assertEqual([(fold["element_id"], fold["expanded"]) for fold in folds],
                          [("pt_c3d4e5_w", True), ("pt_a1b2c3_r", True), ("pt_b2c3d4_d", False)])  # Waiting first, done last.
-        ended = view.project_card(project(threads=(thread(T1, view.DONE),)))
+        ended = view.project_card(project(members=(thread(T1, view.DONE),)))
         self.assertEqual(ids(ended).count("pt_a1b2c3_d"), 1)
         self.assertNotIn("pt_a1b2c3_r", ids(ended))  # The same thread, another state: another id, so the client redraws it.
         self.assertNotIn("pb_a1b2c3_r", ids(ended))
 
     def test_at_most_eight_threads_are_folds_and_the_rest_is_one_line(self):
         many = tuple(thread(f"{index:02x}" * 3 + "0" * 10, view.DONE if index % 3 else view.RUNNING) for index in range(11))
-        card = view.project_card(project(threads=many))
+        card = view.project_card(project(members=many))
         folds = [name for name in ids(card) if name.startswith("pt_")]
         self.assertEqual(len(folds), 8)
         self.assertIn("更早 3 条", find_element(card, "pj_more")["content"])
@@ -193,7 +193,7 @@ class CardCase(UnifiedCase):
             self.addCleanup(patch.stop)
         record = projects.new_record(chat_id=CHAT, name="把订单库迁到新集群", project_id=PID, now=1000.0)
         projects.create(self.state, record)
-        projects.add_thread(self.state, PID, T1)
+        projects.add_member(self.state, PID, T1)
         projects.update_card(self.state, PID, card_id="card-0", message_id="om_card0", sequence=40, created_at=1000.0)
         self.writer = project_cards.ProjectCards(self.app.runtime, self.app.messenger, self.app.voice, {"claude": "Claude Code"})
 
@@ -283,8 +283,8 @@ class RefreshTest(CardCase):
 
 class SendTest(CardCase):
     def env(self):
-        from covey.app.main_env import MainEnv
-        return MainEnv(runtime=self.app.runtime, topics=self.app.topics, messenger=self.app.messenger, voice=self.app.voice,
+        from covey.app.butler_env import ButlerEnv
+        return ButlerEnv(runtime=self.app.runtime, topics=self.app.topics, messenger=self.app.messenger, voice=self.app.voice,
                        state_dir=self.state, profile="test-bot")
 
     def test_created_sends_a_message_of_its_own_and_routes_a_quote_of_it_to_the_lead(self):
@@ -561,7 +561,7 @@ class PinTest(ProjectsCase):
 
         self.pid, self.lead_id, self.thread_id = PROJECT, self.lead(), self.thread()
         projects.create(self.state, projects.new_record(chat_id="oc_dm", name="迁库", project_id=PROJECT, now=1000.0))
-        projects.add_thread(self.state, PROJECT, THREAD_ID)
+        projects.add_member(self.state, PROJECT, THREAD_ID)
         projects.update_card(self.state, PROJECT, card_id="card-p", message_id="om_project_card", sequence=3)
 
     def row(self, group, **record):

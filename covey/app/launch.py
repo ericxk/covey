@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.core import devices, main_thread_settings, timing
+from covey.core import devices, butler_settings, timing
 from covey.core.state import read_json
 from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.workspaces import (RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding,
@@ -103,11 +103,11 @@ def launch_defaults(state_dir, chat_id):
 
 
 def topic_budget(state_dir):
-    """(Harness, budget) of the 设置卡's 新话题默认 (core/main_thread_settings.py TopicDefaults), which the launch
+    """(Harness, budget) of the 设置卡's 新话题默认 (core/butler_settings.py TopicDefaults), which the launch
     card's budget row preselects (app/preselection.py launch_selection); ('', '') where it says none or can't be
     read."""
     try:
-        defaults = main_thread_settings.load(state_dir).topic_defaults
+        defaults = butler_settings.load(state_dir).topic_defaults
     except (OSError, ValueError):
         return '', ''
     return (defaults.harness.lower(), defaults.effort) if defaults.effort else ('', '')
@@ -151,7 +151,7 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
     # A device's workspaces only where its ``spaces`` say (devices.json; app/access.py allows_device).
     config = visible_workspaces(config, lambda alias: topics.runtime.access.allows_device(chat_id, alias))
     if draft is None:
-        # A topic the main thread opened shows what it chose (app/main_topics.py launch_draft).
+        # A topic the butler opened shows what it chose (app/butler_topics.py launch_draft).
         draft = (topic.get('origin') or {}).get('launch') or None
     # The chat's recent launches and switches order the menu and give each model its usual budget.
     usage = model_usage.recent(ctx.state_dir, chat_id)

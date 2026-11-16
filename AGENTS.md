@@ -25,8 +25,8 @@
 | 收消息、路由、建任务 | `app/card_routing.py`、`app/topics.py`、`app/submission.py` | [一条消息的数据流](docs/architecture.md#一条消息的数据流) |
 | 卡片按钮与点击 | `app/card_actions.py`、`app/card_routing.py`、`app/card_lanes.py` | [卡片点击的数据流](docs/architecture.md#卡片点击的数据流)、[cards.md](docs/cards.md) |
 | 谁被服务、群聊 | `app/access.py`、`core/groups.py`、`app/group_manager.py` | [谁被服务](docs/architecture.md#谁被服务) |
-| 管家（私聊模式） | `app/main_thread.py`、`core/main_thread.py`、`core/placement.py`、`app/main_tools.py` | [main-thread.md](docs/main-thread.md) |
-| 话题与回带 | `app/main_topics.py`、`app/main_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [main-thread.md](docs/main-thread.md) |
+| 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
+| 话题与回带 | `app/butler_topics.py`、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
@@ -39,8 +39,8 @@
 | 失败、恢复与自动重试 | `core/recovery.py`、`app/recovery_cards.py`、`app/auto_retry.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
 | 设置卡与机器人菜单 | `app/bot_menu.py`、`app/menu_panel.py`、`app/settings_hub.py`、`feishu/events.py` | [机器人菜单](docs/usage.md#机器人菜单) |
 | 代答 | `app/proxy.py`（批次）、`app/proxy_intake.py`（收消息）、`app/proxy_topics.py`（联系人话题）、`app/proxy_commands.py`（查找、群成员）、`app/proxy_send.py`（读回和发送器接口；发送器 `extensions/covey_internal/proxy_sender.py`、`extensions/covey_internal/proxy_login.py`）、`core/proxy.py` | [proxy.md](docs/proxy.md)、[代答](docs/architecture.md#代答) |
-| 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/main_tools.py` | [main-thread.md](docs/main-thread.md) |
-| 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/main_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [main-thread.md](docs/main-thread.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
+| 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
+| 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/butler_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [butler.md](docs/butler.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
 | 敏感词脱敏 | `core/redaction.py`、`core/redactor.py`、`backends/claude/redaction.py`、`app/redaction_panel.py`（设置卡「脱敏」标签）、`app/dashboard.py`（可选的网页看板） | [敏感词脱敏](docs/architecture.md#敏感词脱敏) |
 | 官方拒绝与停止 | `app/policy_guard.py`、`core/model_policy.py`、`backends/claude/policy.py`；cyber/bio 拒绝换旧模型重试一次 `app/policy_retry.py` | [policy-stop.md](docs/policy-stop.md) |
 | 任务进程与 `runs/` 协议 | `app/detached.py`、`app/runner_spawn.py`、`app/runner_ipc.py`、`app/runner.py`、`core/run_dir.py` | [排队与任务进程](docs/architecture.md#排队与任务进程)、[跨版本检查](docs/testing.md#任务进程协议与跨版本检查) |
@@ -70,14 +70,26 @@
 | `app/availability.py` | Separate local backend readiness from recently observed model access |
 | `app/binding.py` | A topic's binding (Harness, model, budget, work mode, place and 敏感词脱敏) and what may change it |
 | `app/bot_menu.py` | The bot's custom menu (机器人自定义菜单): the owner's commands, since typed ones misfired |
+| `app/butler.py` | The butler's session, only in the private chat mode 管家 |
+| `app/butler_env.py` | What a butler tool handler gets besides its request |
+| `app/butler_handoff.py` | What a topic gets when the butler hands it work |
+| `app/butler_knowledge.py` | The butler's knowledge-entry tools and history_search, the one that asks the history command … |
+| `app/butler_panel.py` | The 管家 settings card: the owner changes the butler's settings in the private chat |
+| `app/butler_reactions.py` | Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py … |
+| `app/butler_relay.py` | A topic turn's outcome back at the private chat's top level, only with the butler on |
+| `app/butler_reply.py` | How a butler turn ends on its task card, for the turns whose Traits say `answers_in_place` (the butler's) |
+| `app/butler_search.py` | topics_search, the butler's tool that finds which topic, and which turn of it, a clue came from |
+| `app/butler_tools.py` | The butler's tools as the Bridge runs them, unless COVEY_BUTLER=0 |
+| `app/butler_topics.py` | The butler's tools that change topics |
+| `app/butler_tracks.py` | 多路并行 at run time (docs/butler.md 多路并行 |
 | `app/card_actions.py` | Task-card button kinds the unified bot accepts, in one table |
 | `app/card_lanes.py` | Card clicks run in order within a topic and in parallel across topics |
 | `app/card_queue.py` | A bounded queue of card clicks and the worker threads that run them |
 | `app/card_routing.py` | Routing what Feishu sends the Bridge |
 | `app/cards.py` | Cards: the one place that writes a Harness's task and process cards |
 | `app/checkpoint_questions.py` | A question that comes with a checkpoint result |
-| `app/compact_runner.py` | The main thread's idle compaction runner: `bin/covey_runner.py --compact-only` |
-| `app/compaction.py` | The main thread's compaction requests: its next turn compacts its native session first |
+| `app/compact_runner.py` | The butler's idle compaction runner: `bin/covey_runner.py --compact-only` |
+| `app/compaction.py` | The butler's compaction requests: its next turn compacts its native session first |
 | `app/dashboard.py` | The sensitive-term dashboard: a page on the intranet where the owner edits the redaction term list |
 | `app/dashboard_entry.py` | Where the sensitive-term dashboard is |
 | `app/dashboard_http.py` | The sensitive-term dashboard's HTTP side: its server, each request's route and access |
@@ -86,8 +98,8 @@
 | `app/devices.py` | Devices at the app's edge |
 | `app/digest.py` | 早晚汇总: at the times of day COVEY_DIGEST_TIMES lists, one card at the top level of the owner's private chat … |
 | `app/directory_picker.py` | Bounded directory browsing: one listing or name search at a time, never on the event threads |
-| `app/dispatch_cards.py` | 派发卡, when COVEY_MAIN_DISPATCH_CARD=1 |
-| `app/forks.py` | Forks: a new topic that continues from another topic, opened by the main thread's topic_fork |
+| `app/dispatch_cards.py` | 派发卡, when COVEY_DISPATCH_CARD=1 |
+| `app/forks.py` | Forks: a new topic that continues from another topic, opened by the butler's topic_fork |
 | `app/form_cards.py` | Form cards: a card with a record of its own that every click on it reads |
 | `app/group_boards.py` | 手上的事, the pinned board and 早晚汇总 in each personal group |
 | `app/group_manager.py` | The 群聊 card: the owner turns groups on and off in the private chat |
@@ -96,7 +108,7 @@
 | `app/harnesses.py` | The Harnesses of one Bridge, one object each |
 | `app/health.py` | Read-only, bounded local health snapshots |
 | `app/held_notes.py` | A message sent while several questions wait for answers is kept, not refused |
-| `app/idle_compaction.py` | The main thread's compaction while it is idle: the owner no longer waits for it |
+| `app/idle_compaction.py` | The butler's compaction while it is idle: the owner no longer waits for it |
 | `app/interaction.py` | Backend event dispatch and task-card callbacks |
 | `app/job_dispatch.py` | Running a dequeued job (process_reply_job |
 | `app/knowledge_collect.py` | A topic's turn writes what the owner asked it to remember |
@@ -105,18 +117,6 @@
 | `app/launch_models.py` | Local launch choices |
 | `app/launch_receipt.py` | Replace a submitted launch form with its immutable topic configuration |
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
-| `app/main_env.py` | What a main-thread tool handler gets besides its request |
-| `app/main_handoff.py` | What a topic gets when the main thread hands it work |
-| `app/main_knowledge.py` | The main thread's knowledge-entry tools and history_search, the one that asks the history command … |
-| `app/main_reactions.py` | Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py … |
-| `app/main_relay.py` | A topic turn's outcome back at the private chat's top level, only with the main thread on |
-| `app/main_reply.py` | How a main-thread turn ends on its task card, for the turns whose Traits say `answers_in_place` (the main … |
-| `app/main_search.py` | topics_search, the main thread's tool that finds which topic, and which turn of it, a clue came from |
-| `app/main_thread.py` | The main thread's session, only in the private chat mode 管家 |
-| `app/main_thread_panel.py` | The 管家 settings card: the owner changes the main thread's settings in the private chat |
-| `app/main_tools.py` | The main thread's tools as the Bridge runs them, unless COVEY_MAIN_THREAD=0 |
-| `app/main_topics.py` | The main thread's tools that change topics |
-| `app/main_tracks.py` | 多路并行 at run time (docs/main-thread.md 多路并行 |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
 | `app/menu_panel.py` | A card the bot menu sends to the owner's private chat: no topic, no job, one card a menu click |
 | `app/model_picker.py` | The launch card's choices |
@@ -131,7 +131,7 @@
 | `app/project_cards.py` | 专项卡, when COVEY_PROJECTS=1 |
 | `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
 | `app/project_loop.py` | Continuing runs and guards of a project |
-| `app/project_tools.py` | The tools of a project's lead, handlers as app/main_env.py describes them |
+| `app/project_tools.py` | The tools of a project's lead, handlers as app/butler_env.py describes them |
 | `app/projects.py` | 专项的升级、直接开专项和降级 |
 | `app/prompts.py` | Shared prompt builders: the bridge rules and each turn's message |
 | `app/proxy.py` | Proxy replies (代答), the Bridge's side |
@@ -143,13 +143,13 @@
 | `app/proxy_topics.py` | Proxy replies (代答): each contact's topic in the proxy group |
 | `app/question_display.py` | Where a question is shown |
 | `app/questions.py` | Durable questions: the Questions component, answers and delivery recovery |
-| `app/quiet_delivery.py` | The quiet main-thread turn's side of delivering a result |
+| `app/quiet_delivery.py` | The quiet butler turn's side of delivering a result |
 | `app/record_cards.py` | Writes to a job's card from its record once its own writer has ended (finished, or the job is in another … |
 | `app/recovery_cards.py` | The card of a task that did not end as it should (interrupted, failed, or its result not delivered) and the … |
 | `app/redaction_panel.py` | The 设置 card's 脱敏 tab |
 | `app/redelivery.py` | Sending a recorded task's saved result or question again, without running the model (检查并继续 on a task whose … |
-| `app/relay_send.py` | Sending what goes back to the main thread's top level |
-| `app/relay_targets.py` | Where a topic turn's outcome goes back to at the main thread's top level |
+| `app/relay_send.py` | Sending what goes back to the butler's top level |
+| `app/relay_targets.py` | Where a topic turn's outcome goes back to at the butler's top level |
 | `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code |
 | `app/runner.py` | The task runner process: one job of the Bridge, to completion |
 | `app/runner_ipc.py` | Messages between the Bridge and a job's task runner through its run directory |
@@ -158,7 +158,7 @@
 | `app/runtime.py` | Process-wide Bridge state, one object passed by reference to every part that needs it |
 | `app/saved_send.py` | A turn's saved reply, paused question or canonical text sent the same way on its first send and on each … |
 | `app/sessions.py` | Sessions: one Harness's native-session pointer of a topic |
-| `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the main thread's settings in two pages, 私聊默认 and … |
+| `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 私聊默认 and 新话题默认 … |
 | `app/stale.py` | Close the records daily maintenance found waiting too long (core.stale.stale_records) |
 | `app/status_cards.py` | Topic status cards: what the pinned board pins for a topic with a thread in the owner's private chat, in … |
 | `app/steer_forms.py` | The 补充 forms of a task: a 补充 click, the form (steer_form_card), a submitted form (submit_steer_form |
@@ -169,11 +169,11 @@
 | `app/task_card.py` | The streaming task card on CardKit |
 | `app/task_controls.py` | Task-card stop and retry controls, and showing a task's recovery card |
 | `app/task_details.py` | 任务详情 and the process panel (执行过程) on a job's live task card, and the dashboard card's tiles or the 输入/输出 … |
-| `app/topic_links.py` | Links that open a topic from a card (docs/main-thread.md 话题链接 |
+| `app/topic_links.py` | Links that open a topic from a card (docs/butler.md 话题链接 |
 | `app/topic_seen.py` | Which topics the owner has seen, from Feishu's read receipts |
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
 | `app/track_digest.py` | Memory merge for 多路并行 |
-| `app/track_judge.py` | The small model that decides a new main-thread message the rules could not |
+| `app/track_judge.py` | The small model that decides a new butler message the rules could not |
 | `app/track_standby.py` | A Claude Code kept ready for the track judge |
 | `app/turn_export.py` | 下载请求与结果: a button at the bottom of an ended task card that packs the turn's model requests and the model's … |
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
@@ -189,6 +189,7 @@
 | --- | --- |
 | `cards/answer_card.py` | What follows a finished turn's answer on its answer card in the topic and on its relay at the private chat's … |
 | `cards/app_setup.py` | The 飞书应用待补 card: what the app lacks, then the run's steps, then what it added |
+| `cards/butler_panel.py` | The 管家 settings card, in the bot menu panels' style |
 | `cards/card_cost.py` | What a card costs CardKit, which refuses one over its size (code 200860) |
 | `cards/cardkit_actions.py` | What a CardKit write says, as plain JSON |
 | `cards/digest.py` | The digest card: sent at the times the deployer set, at the top level of the owner's private chat |
@@ -200,7 +201,6 @@
 | `cards/held_note.py` | A held note's card: a message sent while the topic's questions wait, saved to go with the answer |
 | `cards/launch_config.py` | The launch card: its form and the model-scoped reasoning choices on it, and the settings list it shares with … |
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
-| `cards/main_thread_panel.py` | The 管家 settings card, in the bot menu panels' style |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/proxy_panel.py` | The 代答 card, the bot menu's 代答 panel: on or off and the group in its title bar |
@@ -209,7 +209,7 @@
 | `cards/recovery.py` | The buttons that rerun a stopped task, and the card of one whose task card cannot take them any more … |
 | `cards/redaction_link.py` | The web dashboard's link card |
 | `cards/redaction_panel.py` | The 设置 card's 脱敏 tab, one layer |
-| `cards/relay_card.py` | The card a topic turn's outcome takes back to the main thread's top level |
+| `cards/relay_card.py` | The card a topic turn's outcome takes back to the butler's top level |
 | `cards/review.py` | Shared history and chat-card rendering helpers |
 | `cards/rewind.py` | The ↩️ 回退 button and card |
 | `cards/settings_hub.py` | The 设置 card's tab row |
@@ -221,7 +221,7 @@
 | `cards/task_figures.py` | The task card's figures: the tiles (开始 or 用时, token, 速度, 上下文 |
 | `cards/task_status.py` | The task card's status line |
 | `cards/topic_actions.py` | Buttons that act on a whole topic: 换配置 and 回退 |
-| `cards/topic_card.py` | The topic card (话题卡): the root message of a topic the main thread opens |
+| `cards/topic_card.py` | The topic card (话题卡): the root message of a topic the butler opens |
 | `cards/trace.py` | Text helpers the process panel is drawn with |
 | `cards/trace_updates.py` | Keep the process panel mounted while its content changes |
 | `cards/trace_view.py` | Feishu rendering from an isolated execution snapshot |
@@ -239,6 +239,13 @@
 | `core/backup.py` | The daily backup of a state directory |
 | `core/board_read.py` | What the owner's private chat's topics are doing, as the records say it |
 | `core/browser_env.py` | Where the headless browser lives and how it starts |
+| `core/butler.py` | The butler (管家), in the private chat mode 管家 |
+| `core/butler_mcp.py` | The MCP server in the butler's session, run as bin/covey_butler_mcp.py by the Claude Code of a butler job |
+| `core/butler_opened.py` | The butler's requests that opened, forked or handed on to a topic |
+| `core/butler_requests.py` | The butler's tool channel |
+| `core/butler_settings.py` | The butler's settings: <state>/main-thread.json |
+| `core/butler_tool_specs.py` | The Bridge tools the butler's session gets |
+| `core/butler_tracks.py` | 多路并行 (docs/butler.md 多路并行 |
 | `core/card_sequence.py` | One rule for the sequence of every CardKit write to an existing card |
 | `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge |
 | `core/completion.py` | One post-root deadline, independent of model-request retry policy |
@@ -267,13 +274,6 @@
 | `core/logs.py` | Logs of a state directory |
 | `core/longtask.py` | Long-task status: the thread that watches a running turn (TaskMonitor) |
 | `core/loops.py` | The Bridge's background threads: `supervised` keeps one running, `every` is the loop most of them run |
-| `core/main_mcp.py` | The MCP server in the main thread's session, run as bin/covey_main_mcp.py by the Claude Code of a main-thread … |
-| `core/main_opened.py` | The main thread's requests that opened, forked or handed on to a topic |
-| `core/main_requests.py` | The main thread's tool channel |
-| `core/main_thread.py` | The main thread (管家), in the private chat mode 管家 |
-| `core/main_thread_settings.py` | The main thread's settings: <state>/main-thread.json |
-| `core/main_tool_specs.py` | The Bridge tools the main thread's session gets |
-| `core/main_tracks.py` | 多路并行 (docs/main-thread.md 多路并行 |
 | `core/maintenance.py` | Daily maintenance of a state directory: a verifiable backup, archival and bounded storage |
 | `core/maintenance_report.py` | How maintenance's --dry-run words what it would do |
 | `core/maintenance_rules.py` | The rules of daily maintenance |
@@ -291,7 +291,7 @@
 | `core/process.py` | Which processes belong to whom |
 | `core/process_env.py` | Environment for backend child processes, and on/off switches read from the environment |
 | `core/procfs.py` | A process's /proc/<pid>/stat and this boot's id, read one way for every reader in the package |
-| `core/projects.py` | 专项: a long job the main thread's butler hands to one lead topic (the 负责人) that dispatches and follows several … |
+| `core/projects.py` | 专项: a long job the butler hands to one lead topic (the 负责人) that dispatches and follows several member topics |
 | `core/protocol.py` | Versioned public Harness events |
 | `core/providers.py` | Where a Harness's models come from, in one table |
 | `core/proxy.py` | Proxy replies (代答): the owner's whitelist of chats and each batch of their messages taken in |
@@ -325,11 +325,11 @@
 | `core/topics.py` | Durable, chat-scoped Feishu topic -> Harness session bindings, and the readers and writers of a topic's … |
 | `core/trace.py` | A turn's execution trace as data (ToolTrace) |
 | `core/trace_store.py` | Process records on disk: one append-only file per task, outside the job record |
-| `core/track_ledger.py` | The family ledger of 多路并行 |
-| `core/track_route.py` | Where a new main-thread message goes when the family already has live tasks |
+| `core/track_ledger.py` | The family ledger of 多路并行: what the butler's other tracks answered, for the butler's next turn to read |
+| `core/track_route.py` | Where a new butler message goes when the family already has live tasks: the rule layer of the message router |
 | `core/ttft.py` | Numeric first-output timing |
 | `core/turn_export_rows.py` | The rows of a turn export |
-| `core/turn_words.py` | The words the cards, the pinned board and the main thread say about a turn and a topic, in one place |
+| `core/turn_words.py` | The words the cards, the pinned board and the butler say about a turn and a topic, in one place |
 | `core/updates.py` | Per-task coalesced UI updates, isolated from backend event handling |
 | `core/usage.py` | Numeric-only output throughput |
 | `core/web_profile.py` | 代答's Feishu web login (its browser profile) |
@@ -438,9 +438,9 @@
 
 ### bin
 
-入口壳，只解析参数后调 `covey` 里的函数：`covey_app_console.py`、`covey_app_setup.py`、`covey_bridge.py`、`covey_devices.py`、`covey_doctor.py`、`covey_feishu_web.py`、`covey_install.py`、`covey_install_browser.py`、`covey_main_mcp.py`、`covey_maintenance.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_paths.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_workspace_reader.py`、`covey_workspaces.py`。
+入口壳，只解析参数后调 `covey` 里的函数：`covey_app_console.py`、`covey_app_setup.py`、`covey_bridge.py`、`covey_butler_mcp.py`、`covey_devices.py`、`covey_doctor.py`、`covey_feishu_web.py`、`covey_install.py`、`covey_install_browser.py`、`covey_maintenance.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_paths.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_workspace_reader.py`、`covey_workspaces.py`。
 
-改名前的入口名留作转发壳，服务清单、开机钩子和各部署的脚本还在用：`bridge_app_setup.py`、`bridge_doctor.py`、`bridge_main_mcp.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_service.py`、`bridge_service_install.py`、`lark_app_console.py`、`lark_bridge_maintenance.py`、`lark_bridge_paths.py`、`lark_bridge_workspaces.py`、`lark_feishu_web.py`、`lark_harness_bridge.py`、`lark_install_browser.py`、`lark_task_runner.py`、`lark_workspace_reader.py`。
+改名前的入口名留作转发壳，服务清单、开机钩子和各部署的脚本还在用：`bridge_app_setup.py`、`bridge_doctor.py`、`bridge_main_mcp.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_service.py`、`bridge_service_install.py`、`covey_main_mcp.py`、`lark_app_console.py`、`lark_bridge_maintenance.py`、`lark_bridge_paths.py`、`lark_bridge_workspaces.py`、`lark_feishu_web.py`、`lark_harness_bridge.py`、`lark_install_browser.py`、`lark_task_runner.py`、`lark_workspace_reader.py`。
 <!-- code-map:end -->
 
 ## 最容易改坏的规则
@@ -478,4 +478,4 @@
 ## 省 token
 
 - 不整篇读文档和大文件。可能很长的 Bash 输出写进文件，只看结尾和 `grep -E '^(FAIL|ERROR)'`；派子代理时给确切的文件和行号范围。
-- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/main-thread.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`。`docs/history/` 一般不用读。
+- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`。`docs/history/` 一般不用读。

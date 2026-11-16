@@ -24,7 +24,7 @@ from covey.feishu.transport import Failure, last_failure, set_failure
 
 def delivery_context(ctx, record, saved_job):
     """The context ``record``'s saved result goes out again in: its own reply target, or, where the placement table
-    puts the answer at the top level (core/placement.py ``answer`` TOP: the 话题区 layout's main thread, whose answers
+    puts the answer at the top level (core/placement.py ``answer`` TOP: the 话题区 layout's butler, whose answers
     are new messages in the chat, D1), none."""
     top = placement.plan(ctx.state_dir, record).row.answer == placement.TOP
     return dataclasses.replace(ctx, reply_to_message_id="" if top else saved_job.reply_to_message_id)
@@ -136,7 +136,7 @@ class Redelivery:
                 text = current["final_text"]
                 if current.get("delivery_ok") is not True:
                     # Where its first send puts it (app/worker.py TurnDelivery._question_apart): at the top level
-                    # only for a quiet main-thread turn that sent no card, a long one as a file where it replies.
+                    # only for a quiet butler turn that sent no card, a long one as a file where it replies.
                     replying = dataclasses.replace(ctx, reply_to_message_id=saved_job.reply_to_message_id)
                     bare = not current.get("card_message_id") and placement.quiet(ctx.state_dir, current)
                     sent = saved_send.send_paused(

@@ -1,19 +1,19 @@
-"""Memory merge for 多路并行 (docs/main-thread.md): what the main thread's tracks answered, from the track's turn to the
-main thread's next one (COVEY_MAIN_TRACKS=1; the record is core/track_ledger.py).
+"""Memory merge for 多路并行 (docs/butler.md): what the butler's tracks answered, from the track's turn to the
+butler's next one (COVEY_BUTLER_TRACKS=1; the record is core/track_ledger.py).
 
 - ``record``: TurnDelivery's ``ledger`` hook, once a turn's result is delivered. A turn of a track (slot 1..) that ended
   (not one that waits for the owner's answer: its answer turn writes) saves its record; the answer is the delivered,
   authorized reply and nothing else (rule 5). Never raises: a failure is a log line, the delivery stands.
-- ``block``: the text a turn's message carries after the snapshot. The main thread's own turn (slot 0) gets what it has
+- ``block``: the text a turn's message carries after the snapshot. The butler's own turn (slot 0) gets what it has
   not been given yet and marks it given (``mark``), once the text is made; a track's turn gets the same block without
-  marking, as the main thread has not read it. The turn that took it ending badly gives it again (``settled``).
+  marking, as the butler has not read it. The turn that took it ending badly gives it again (``settled``).
 """
 from __future__ import annotations
 
 import time
 
-from covey.core import main_opened
-from covey.core import main_tracks as core
+from covey.core import butler_opened
+from covey.core import butler_tracks as core
 from covey.core import track_ledger as ledger
 from covey.core.jobs import job_key
 from covey.core.state import read_object
@@ -23,11 +23,11 @@ ENDED = frozenset({"done", "failed", "cancelled"})  # The statuses a track's tur
 
 
 def opened_numbers(state_dir, key) -> list:
-    """The T numbers (T12) of the topics the main-thread job ``key`` opened, forked or handed on to, by number."""
+    """The T numbers (T12) of the topics the butler job ``key`` opened, forked or handed on to, by number."""
     numbers = set()
-    for _, entry in main_opened.by_job(state_dir, key):
-        topic = main_opened.topic_of(entry)
-        if main_opened.answered(entry) and topic:
+    for _, entry in butler_opened.by_job(state_dir, key):
+        topic = butler_opened.topic_of(entry)
+        if butler_opened.answered(entry) and topic:
             number = read_object(topic_file(state_dir, topic)).get("topic_number")
             if type(number) is int:
                 numbers.add(number)
@@ -56,7 +56,7 @@ def record(delivery, delivered, status, *, now=None) -> None:
 
 def block(state_dir, chat_id, key, settled, *, mark, log=None, now=None) -> str:
     """The block of what the other tracks answered for the turn ``key``, "" when there is none (or the ledger cannot
-    be read). ``mark``: the main thread's own turn, which is then given them (``digested_by`` set to ``key``);
+    be read). ``mark``: the butler's own turn, which is then given them (``digested_by`` set to ``key``);
     ``settled(turn key)``: whether that turn ended well enough to have read what it was given."""
     try:
         rows, more = ledger.pending(state_dir, chat_id, key, time.time() if now is None else now, settled)

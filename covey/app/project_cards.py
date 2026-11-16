@@ -1,8 +1,8 @@
-"""专项卡 (docs/main-thread.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's top level, a message of its
+"""专项卡 (docs/butler.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's top level, a message of its
 own (cards/project_card.py), kept up to date and shrunk to one line when the project is done.
 
 - ``ProjectCards`` (a feature object of the Bridge: ``threads()`` gives the refresh thread, none with the switch off): each
-  second it looks at the projects that are on, reads the lead's and the threads' job records and questions (no Feishu call, no
+  second it looks at the projects that are on, reads the lead's and the members' job records and questions (no Feishu call, no
   lock) and draws the card; when what it would say differs from what it last wrote and at least ``MIN_GAP`` seconds have
   passed it writes the whole card (one CardKit write, the sequence ``reserve`` hands out first and never again, rule 3; a
   failed write backs off and goes on with the next sequence). It is the one writer of every project card: sending it
@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.cards.project_card import (DONE, PAUSED, RUNNING, WAITING, Project, Thread, moved_card, project_card,
+from covey.cards.project_card import (DONE, PAUSED, RUNNING, WAITING, Project, Member, moved_card, project_card,
                                       settled_card)
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
@@ -56,7 +56,7 @@ FLIP_AFTER = 12 * 86400  # A card this old is sent again: CardKit stops taking w
 MOVE_TRIES = 3  # Writes of "已移到新卡" tried on the old card before it is recalled.
 CONCLUSION_GRACE = 600.0  # A project done this long without a conclusion message is shrunk without its link.
 ANSWER_WAIT = 30.0  # How long after its finishing turn ended the card waits for that turn's answer id (written a moment later).
-THREAD_CAP = 40  # Threads read for one card (the card draws MAX_THREADS).
+MEMBER_CAP = 40  # Member topics read for one card (the card draws MAX_FOLDS).
 LIST_CAP = 50  # Rows read of the memory and the library.
 NO_LEAD_JOB = "负责人现在没有在做的一轮。要对它说话，引用这张专项卡直接回复就行。"
 CLOSED_WORDS = {"stopped": "专项已停住", "downgraded": "专项已降为普通话题"}
@@ -96,7 +96,7 @@ def pending_question(state_dir, topic_ids):
     return (best[1], best[2]) if best else ("", "")
 
 
-def thread_view(state_dir, topic_id, now, url="") -> Thread:
+def member_view(state_dir, topic_id, now, url="") -> Member:
     from covey.app import dispatch_cards as dc
 
     job = newest_job(state_dir, topic_id)
@@ -107,7 +107,7 @@ def thread_view(state_dir, topic_id, now, url="") -> Thread:
     word = DONE if ended else (WAITING if status == dc.WAITING else RUNNING)
     if status in (dc.FAILED, dc.STOPPED):
         body = ("失败：" if status == dc.FAILED else "已停止：") + body
-    return Thread(topic_id=topic_id, status=word, label=topic_label(Path(state_dir), topic_id),
+    return Member(topic_id=topic_id, status=word, label=topic_label(Path(state_dir), topic_id),
                   title=topic_title(Path(state_dir), topic_id), body=words(body), url=url,
                   took=dc.quantize(seconds) if seconds is not None else "")
 
@@ -183,9 +183,9 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
 
     links = links or {}
     pid, lead = str(record.get("id") or ""), str(record.get("lead_topic_id") or "")
-    topics = [topic for topic in (record.get("threads") or ()) if isinstance(topic, str)][:THREAD_CAP]
-    threads = tuple(thread_view(state_dir, topic, now, (links.get("threads") or {}).get(topic, "")) for topic in topics)
-    waiting = next((thread for thread in threads if thread.status == WAITING), None)
+    topics = [topic for topic in (record.get("threads") or ()) if isinstance(topic, str)][:MEMBER_CAP]
+    members = tuple(member_view(state_dir, topic, now, (links.get("threads") or {}).get(topic, "")) for topic in topics)
+    waiting = next((member for member in members if member.status == WAITING), None)
     state = record.get("state")
     if state == projects.DONE:
         status = DONE
@@ -214,7 +214,7 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
     ask = record.get("ask") if isinstance(record.get("ask"), dict) else {}
     return Project(project_id=pid, lead_topic=lead, name=str(record.get("name") or ""), status=status,
                    direction=str(record.get("direction") or "") if isinstance(record.get("direction"), str) else "",
-                   need=need, need_url=str(links.get("need") or ""), threads=threads, elapsed=elapsed, tokens=tokens,
+                   need=need, need_url=str(links.get("need") or ""), members=members, elapsed=elapsed, tokens=tokens,
                    lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
                    triage=triage_lines(record), memory=memory_rows(state_dir, pid), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
@@ -563,7 +563,7 @@ STOP_ALIAS = "project-stop-"  # The Bridge's own message a forwarded stop of a p
 
 def stop_task(host, ctx, topic, chat, job, event_id) -> None:
     """Ask ``job`` of ``topic`` to stop as a click on its card's 停止 does. A job in a live task runner is stopped there, by
-    that click forwarded to the runner (app/runner_ipc.py forward_card_action, as app/main_tracks.py and app/proxy.py
+    that click forwarded to the runner (app/runner_ipc.py forward_card_action, as app/butler_tracks.py and app/proxy.py
     stop_job do): the runner owns the job, and a stop set only in this Bridge's copy of it reaches nobody (accept8,
     2026-11-16: the threads' commands ran on to their end). The click names an alias of the topic's own (``STOP_ALIAS``),
     so the runner routes it to that topic whatever card the job has (a lead's quiet turn has none). Any other job (queued,

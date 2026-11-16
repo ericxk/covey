@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from covey.core import devices, main_thread, projects
+from covey.core import devices, butler, projects
 from covey.core.history_storage import history_lines
 from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK
@@ -69,8 +69,8 @@ def proxy_topic(ctx) -> bool:
 
 # topic.json's ``retired``: "desk" for a front-desk topic (前台话题, the desk_topics layout of 11-07) that
 # core/migrate.py desk-retire froze (2026-11-10, the owner: 整块删除). Nothing goes into it any more: a message quoting
-# its cards goes to the main thread (app/main_thread.py app_for), a click on them gets RETIRED_TEXT
-# (app/task_controls.py retired_action), the main thread's tools say so (app/main_topics.py find_topic).
+# its cards goes to the butler (app/butler.py app_for), a click on them gets RETIRED_TEXT
+# (app/task_controls.py retired_action), the butler's tools say so (app/butler_topics.py find_topic).
 RETIRED_DESK = "desk"
 RETIRED_TEXT = "这个前台话题已下线，不再接新消息；在私聊里直接跟管家说要做什么。"
 
@@ -83,14 +83,14 @@ def retired_topic(state_dir, topic_id) -> str:
     return retired if isinstance(retired, str) else ""
 
 
-def topic_traits(ctx) -> main_thread.Traits:
-    """What ctx's topic does as the main thread's or a topic's (core/main_thread.py Traits): a context has no chat,
+def topic_traits(ctx) -> butler.Traits:
+    """What ctx's topic does as the butler's or a topic's (core/butler.py Traits): a context has no chat,
     so its topic.json names it. TOPIC when that cannot be read."""
     try:
         data = read_topic(ctx)
     except (OSError, ValueError, AttributeError):
-        return main_thread.TOPIC
-    return main_thread.traits_of(data) if isinstance(data, dict) else main_thread.TOPIC
+        return butler.TOPIC
+    return butler.traits_of(data) if isinstance(data, dict) else butler.TOPIC
 
 
 def topic_project(state_dir, topic_id):
@@ -166,8 +166,8 @@ def topic_number(state_dir: Path, topic_id: str) -> int:
             data = json.loads(path.read_text())
         except (OSError, ValueError):
             return 0
-        if not main_thread.traits(topic_id, data.get("chat_id")).numbered:
-            return 0  # The main thread (app/main_thread.py) is no numbered topic.
+        if not butler.traits(topic_id, data.get("chat_id")).numbered:
+            return 0  # The butler (app/butler.py) is no numbered topic.
         if type(data.get("topic_number")) is not int:
             data["topic_number"] = _next_topic_number(state_dir)
             write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
@@ -194,8 +194,8 @@ def shown_title(text: Any) -> str:
 
 
 def topic_title(state_dir: Path, topic_id: str) -> str:
-    """The topic's title, the one every card, the board and the main thread name it by (C9, 2026-11-08): the first
-    line of the title the main thread gave it (topic.json ``origin.title``, app/main_topics.py), else the first line
+    """The topic's title, the one every card, the board and the butler name it by (C9, 2026-11-08): the first
+    line of the title the butler gave it (topic.json ``origin.title``, app/butler_topics.py), else the first line
     that says something of its first user message (core/turn_words.py request_line: not a heading the Bridge put
     before the words), as ``shown_title`` writes it; "" without either. The caller cuts it to its own length. Kept
     until topic.json changes."""
@@ -256,13 +256,13 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
     base = ctx.state_dir / "topics"
     with _LOCK:
         topic_id = _key(chat_id, root_id or parent_id or message_id)
-        # In a thread, with the main thread on, only the quoted message's routes_to counts (S8, 2026-11-08: the main
-        # thread's card is in the owner's message's thread, so quoting it there is the topic it handed on to; the
+        # In a thread, with the butler on, only the quoted message's routes_to counts (S8, 2026-11-08: the butler's
+        #  card is in the owner's message's thread, so quoting it there is the topic it handed on to; the
         # thread is not that topic's). The mode 纯话题 keeps a thread its root's.
-        quoted = _routes_to(base, chat_id, parent_id) if not thread_id or main_thread.enabled() else ""
+        quoted = _routes_to(base, chat_id, parent_id) if not thread_id or butler.enabled() else ""
         if quoted:
             # A reply quoting a message routed to a topic (``route_message``): its chain's root is the owner's
-            # message, the main thread's, so the quoted message decides, and only this message becomes the topic's
+            # message, the butler's, so the quoted message decides, and only this message becomes the topic's
             # alias.
             topic_id, identifiers = quoted, [message_id]
         for identifier in [] if quoted else [*identifiers, parent_id]:
@@ -272,9 +272,9 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
             if alias.exists():
                 topic_id = json.loads(alias.read_text())["topic_id"]
                 break
-        if not thread_id and main_thread.is_main_topic(topic_id, chat_id) and not main_thread.enabled():
-            # The mode 纯话题 (docs/main-thread.md 私聊模式): a top-level reply quoting one of the main thread's
-            # messages is a new message like any other, its own topic; the main thread's messages stay its own.
+        if not thread_id and butler.is_butler_topic(topic_id, chat_id) and not butler.enabled():
+            # The mode 纯话题 (docs/butler.md 私聊模式): a top-level reply quoting one of the butler's
+            # messages is a new message like any other, its own topic; the butler's messages stay its own.
             root_id = parent_id = ""
             topic_id, identifiers = _key(chat_id, message_id), [message_id]
         path = base / topic_id / "topic.json"
@@ -302,8 +302,8 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
     # devices.json no longer lists still does (refused by name when a turn starts, app/runs.py).
     binding = devices.bind_workdir(ctx, data["workdir"], strict=False)
     workdir = binding.workdir
-    # The main thread's topic has no root: each message is answered quoting it, at the chat's top level.
-    top_level = main_thread.traits(topic_id, data.get("chat_id")).top_level
+    # The butler's topic has no root: each message is answered quoting it, at the chat's top level.
+    top_level = butler.traits(topic_id, data.get("chat_id")).top_level
     reply_to = message_id if top_level else data["root_id"]
     if projects.own_message(reply_to):
         reply_to = ""  # A project's lead woken or handed the butler's words: its answer is a new top-level message.
@@ -354,9 +354,9 @@ def move_topic_message(state_dir: Path, topic_id: str, chat_id: str, message_id:
 
 def route_message(state_dir: Path, chat_id: str, message_id: str, topic_id: str, *, holder: str = "") -> None:
     """A top-level reply quoting the message ``message_id`` goes to ``topic_id`` (``context_for_topic``,
-    app/main_thread.py app_for), while the message stays whose it was: a reply the Bridge sends to it stays where that
-    topic's replies go (feishu/message_request.py reply_in_thread). For the main thread's card that handed work to one
-    话题区 alone, and a relay quoting it (app/main_relay.py: the owner, 2026-11-07, 引用直达)."""
+    app/butler.py app_for), while the message stays whose it was: a reply the Bridge sends to it stays where that
+    topic's replies go (feishu/message_request.py reply_in_thread). For the butler's card that handed work to one
+    话题区 alone, and a relay quoting it (app/butler_relay.py: the owner, 2026-11-07, 引用直达)."""
     if not topic_id or not chat_id or not message_id:
         return
     path = _alias_path(state_dir / "topics", chat_id, message_id)
@@ -365,7 +365,7 @@ def route_message(state_dir: Path, chat_id: str, message_id: str, topic_id: str,
             alias = json.loads(path.read_text())
         except (OSError, ValueError):
             alias = {}
-        # A message no topic knew yet is ``holder``'s (the main thread's card), else the topic's.
+        # A message no topic knew yet is ``holder``'s (the butler's card), else the topic's.
         alias = alias if isinstance(alias, dict) and alias.get("topic_id") else {"topic_id": holder or topic_id}
         if alias.get("routes_to") != topic_id:
             write_private_text(path, json.dumps({**alias, "routes_to": topic_id}) + "\n")
@@ -407,8 +407,8 @@ def label_title(state_dir, topic_id, unknown=""):
 
 
 def claim_area_root(state_dir, chat_id: str, message_id: str) -> str:
-    """The owner's message ``message_id`` made the root of a 话题区 (app/main_topics.py topic_start, app/forks.py
-    a fork the main thread opens): the main thread's message until now, from now on the topic's whose key it makes
+    """The owner's message ``message_id`` made the root of a 话题区 (app/butler_topics.py topic_start, app/forks.py
+    a fork the butler opens): the butler's message until now, from now on the topic's whose key it makes
     (its first context makes the topic, replies to it go in its thread). That topic's id."""
     topic_id = topic_key(chat_id, message_id)
     move_topic_message(Path(state_dir), topic_id, chat_id, message_id)

@@ -7,7 +7,7 @@ relay card he had replied to: they landed in that card's thread, not the topic's
 Bridge sends them, where its own messages for the turn go (the task's context, ``ctx.reply_to_message_id``: the
 topic's thread), each a line of what it is and the image itself (an image message: a phone reads a QR code in it).
 One marked ``urgent``, and one whose thread send failed, also goes to the chat's top level, its line naming the
-topic and linking its thread (the owner, 23:35: 需要主人马上处理的图片……同时发到私聊聊天区); the main thread's
+topic and linking its thread (the owner, 23:35: 需要主人马上处理的图片……同时发到私聊聊天区); the butler's
 own go to the top level only (no thread under the owner's message, D1).
 
 Each image is sent once a turn: its digest (path, size, modification time) is kept in the job record's
@@ -24,7 +24,7 @@ from covey.app import device_files
 from covey.app.artifacts import device_policy
 from covey.core import background
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
-from covey.core.main_thread import is_main_topic
+from covey.core.butler import is_butler_topic
 from covey.core.topics import topic_label
 from covey.feishu.outgoing_images import IMAGE_SUFFIXES
 
@@ -116,10 +116,10 @@ class TurnImages:
 
     def send(self, path, note, urgent, mark) -> None:
         """One image: in the turn's thread (a topic's), then at the top level when it is urgent, the thread send
-        failed or the turn is the main thread's. Each step's outcome is one log line. Never raises."""
+        failed or the turn is the butler's. Each step's outcome is one log line. Never raises."""
         ctx, job, voice = self.ctx, self.job, self.voice
         chat, topic = str(job.chat_id or ""), str(job.topic_id or "")
-        main = is_main_topic(topic, chat)
+        main = is_butler_topic(topic, chat)
         base = f"image-{job.message_id}-{mark}"
         try:
             if isinstance(path, device_files.RemoteImage):  # The hub's copy of the device's file is what is sent.

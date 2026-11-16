@@ -109,7 +109,7 @@ class ClaudeBackend(BackendRuntime):
             type=_token_count,
             metavar="TOKENS",
             help="compact a resumed session before the turn when its context at the end of the last turn "
-                 "reached TOKENS (default: only when the Bridge asks, as the main thread's threshold does)",
+                 "reached TOKENS (default: only when the Bridge asks, as the butler's threshold does)",
         )
 
     def build_config(self, args: Any) -> BackendConfig:
@@ -197,7 +197,7 @@ class ClaudeBackend(BackendRuntime):
         return redacted_stream(self, request, self.child_env(request.context))
 
     def compact_session(self, request: RunRequest) -> bool:
-        """``/compact`` on ``request.session_id`` and nothing else (the main thread's idle compaction): the turn's
+        """``/compact`` on ``request.session_id`` and nothing else (the butler's idle compaction): the turn's
         environment and, for a redacted topic, its term relay (backends/claude/runtime.py compact_only)."""
         from covey.backends.claude.runtime import compact_only
         if device_of(request.context):

@@ -25,7 +25,7 @@ try:
     from covey.app import policy_retry
 except ImportError:  # A release before it: the behaviour the assertions check is what fails.
     policy_retry = None
-from covey.core import main_thread, run_dir
+from covey.core import butler, run_dir
 from covey.core.harness import RunResult
 from covey.core.jobs import context_for_job, find_job_record, upsert_job_record
 from covey.core.model_policy import POLICY_RECOVERY, retry_recovery
@@ -256,7 +256,7 @@ class PolicyRetryTest(UnifiedCase):
         self.assertEqual((after['policy_retry_state'], after['policy_retry_note']), ('cancelled', 'new_message'))
         self.assertTrue(after['status_message'].endswith('没有换模型重试：本话题有了新任务。'), after['status_message'])
         self.assertNotIn('将换', after['status_message'])
-        self.assertTrue(after['final_text'].endswith(main_thread.worded(POLICY_RECOVERY, after)), after['final_text'])
+        self.assertTrue(after['final_text'].endswith(butler.worded(POLICY_RECOVERY, after)), after['final_text'])
         # Its recovery card is drawn again from the record, without the promise in its body.
         repainted = self.claude.controls.repaint_recovery_card.call_args.args[1]
         self.assertEqual((repainted['key'], repainted['final_text']), (record['key'], after['final_text']))
@@ -424,7 +424,7 @@ class PolicyRetryTest(UnifiedCase):
     def test_a_cancelled_retry_takes_its_promise_off_the_cards_body(self):
         with mock.patch.object(TurnDelivery, 'send', return_value=(True, True)):  # The task card took the result.
             record = self.stopped()
-        promise = main_thread.worded(retry_recovery('cyber', 'Opus 4.8'), record)
+        promise = butler.worded(retry_recovery('cyber', 'Opus 4.8'), record)
         self.assertIn(promise, record['policy_retry_card'])  # The result as the task card shows it.
         self.receive('next', 'another request', root='task')
         after = self.tick(record)
@@ -433,7 +433,7 @@ class PolicyRetryTest(UnifiedCase):
         self.assertEqual((painted['key'], element['element_id']), (record['key'], 'answer'))
         self.assertNotIn(promise, element['content'])
         self.assertEqual(element['content'], record['policy_retry_card'].replace(
-            promise, main_thread.worded(POLICY_RECOVERY, record)))
+            promise, butler.worded(POLICY_RECOVERY, record)))
         self.assertEqual(self.claude.cards.set_record_activity.call_args.args[2], '没有换模型重试：本话题有了新任务。')
 
     def test_an_answer_continuation_of_the_retry_keeps_its_mark(self):
@@ -502,20 +502,20 @@ class PolicyRetryTest(UnifiedCase):
             policy_retry.advance(self.ctx.state_dir, record['key'], 'pending', 'queued')
 
 
-class MainThreadStopTest(unittest.TestCase):
-    """A main-thread turn is not retried: its opened topics, hand-offs and 代答 would run again, without memory of
+class ButlerStopTest(unittest.TestCase):
+    """A butler turn is not retried: its opened topics, hand-offs and 代答 would run again, without memory of
     them. It only stops, as before."""
 
-    def test_a_main_thread_refusal_only_stops(self):
-        with mock.patch.dict(os.environ, {main_thread.ENV: '1'}), tempfile.TemporaryDirectory() as temp:
+    def test_a_butler_refusal_only_stops(self):
+        with mock.patch.dict(os.environ, {butler.ENV: '1'}), tempfile.TemporaryDirectory() as temp:
             state = Path(temp)
-            topic = main_thread.main_topic_id('oc_main')
+            topic = butler.butler_topic_id('oc_main')
             upsert_job_record(state, 'main-1', job_id=1, message_id='main-1', chat_id='oc_main', topic_id=topic,
                               backend='claude', kind='chat', model='opus', status='running')
             job = SimpleNamespace(message_id='main-1', job_id=1, chat_id='oc_main', topic_id=topic, policy_retry={},
                                   cancel_event=threading.Event())
             usual = ExecutionOutcome('cancelled', 'policy_refusal', True, True, True, policy_event=event())
-            said = main_thread.worded(usual.failure_reply(), job)
+            said = butler.worded(usual.failure_reply(), job)
             turn = SimpleNamespace(outcome=usual, final_text=said, status_message=usual.summary())
             self.assertIsNone(policy_retry.at_stop(SimpleNamespace(state_dir=state), job, turn))
             self.assertEqual((turn.final_text, turn.status_message), (said, usual.summary()))

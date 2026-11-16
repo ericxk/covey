@@ -3,7 +3,7 @@
 
     PYTHON -B -I scripts/precompile_release.py RELEASE_DIR
 
-The service runs every Python process with -B and PYTHONDONTWRITEBYTECODE=1 (Bridge, task runners, the main thread's
+The service runs every Python process with -B and PYTHONDONTWRITEBYTECODE=1 (Bridge, task runners, the butler's
 MCP server), so a release without __pycache__ is compiled from source again at each start (about 0.4 s of
 `import covey.app.runner`). Run this with the interpreter the service runs (a .pyc carries the interpreter's version
 tag; another version just ignores it) after the release is complete: scripts/deploy_bridge.sh does it for every

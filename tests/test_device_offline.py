@@ -410,7 +410,7 @@ class HooksTest(unittest.TestCase):
         ctx = SimpleNamespace(state_dir=self.state, topic_id="topic-1")
         with mock.patch.object(detached, "context_for_job", return_value=ctx), \
                 mock.patch.object(detached, "close_forms_sent_after_handoff"), \
-                mock.patch.object(detached.knowledge_collect, "collect"), mock.patch.object(detached.main_relay, "after_runner"), \
+                mock.patch.object(detached.knowledge_collect, "collect"), mock.patch.object(detached.butler_relay, "after_runner"), \
                 mock.patch.object(detached, "_compact_when_idle"):
             detached.finish_detached(gateway, app, job, ctx, self.directory)
         entry = self.entries()["dev-job-1-ab12"]
@@ -431,7 +431,7 @@ class HooksTest(unittest.TestCase):
         ctx = SimpleNamespace(state_dir=self.state, topic_id="topic-1")
         with mock.patch.object(detached, "context_for_job", return_value=ctx), \
                 mock.patch.object(detached, "close_forms_sent_after_handoff"), \
-                mock.patch.object(detached.knowledge_collect, "collect"), mock.patch.object(detached.main_relay, "after_runner"), \
+                mock.patch.object(detached.knowledge_collect, "collect"), mock.patch.object(detached.butler_relay, "after_runner"), \
                 mock.patch.object(detached, "_compact_when_idle"):
             detached.finish_detached(gateway, app, job, ctx, self.directory)
         record = find_job_record(self.state, self.key)

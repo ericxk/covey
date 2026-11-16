@@ -44,7 +44,7 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         elif ctx.options.get("fork_session"):
             argv += ["--resume", ctx.options["fork_session"]]
             if ctx.options.get("fork_at"):
-                # A track of the main thread (core/main_tracks.py): the fork's chain ends at this entry, so a turn of
+                # A track of the butler (core/butler_tracks.py): the fork's chain ends at this entry, so a turn of
                 # the source that is still running (its question already written) is not carried over.
                 argv += ["--resume-session-at", ctx.options["fork_at"]]
             argv += ["--fork-session"]
@@ -58,7 +58,7 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         if ctx.skip_permissions:
             argv += ["--dangerously-skip-permissions"]
         if ctx.options.get("mcp_config"):
-            # The main thread's turn (the app sets it): its Bridge tools beside the user's own MCP servers, each
+            # The butler's turn (the app sets it): its Bridge tools beside the user's own MCP servers, each
             # allowed without asking. Every other run has none of this.
             config = ctx.options["mcp_config"]
             argv += ["--mcp-config", json.dumps(config, ensure_ascii=False, separators=(",", ":")),
@@ -89,7 +89,7 @@ def subagents_dir(ctx, session_id, env):
 
 
 def turn_env(ctx, env):
-    """The environment of a turn's Claude Code: ``env`` with the session state events on. The main thread's turn
+    """The environment of a turn's Claude Code: ``env`` with the session state events on. The butler's turn
     (its Bridge tools in ``ctx.options["mcp_config"]``) loads every tool with the session instead of finding them
     through tool search, as Persona's assistant does: a Bridge tool called beside that search went out with no
     arguments and was refused (2026-11-06, the first call of topic_start and of topic_send). Its subagents' model as

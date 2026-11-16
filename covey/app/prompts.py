@@ -19,7 +19,7 @@ from covey.cards.review import render_history
 from covey.core import env as cenv
 from covey.core import knowledge
 from covey.core.checkpoint import CHECKPOINT_RULES
-from covey.core.main_tool_specs import BUTLER_ENV
+from covey.core.butler_tool_specs import BUTLER_RULES_ENV
 
 # Commands' and subtasks' descriptions show on the task card's 执行过程 (core/text.py step_action): the owner
 # reads them, so they are in the owner's language too (T444 V11: 27 of #3288's 33 were English).
@@ -228,9 +228,9 @@ def resume_message(user_text: str) -> str:
     ))
 
 
-# The butler's rules (app/main_thread.py), at the head of each of its turns' messages: the owner wants the
+# The butler's rules (app/butler.py), at the head of each of its turns' messages: the owner wants the
 # Bridge's rules in the user message, not the system prompt. Without "do the work in a topic" a single session in
-# DeepSeek's experiment never handed any work on. One layout (core/placement.py), the 话题区: the main thread's card
+# DeepSeek's experiment never handed any work on. One layout (core/placement.py), the 话题区: the butler's card
 # in the owner's message's thread, answers and conclusions new messages in the chat area. The rules of the front-desk
 # layout (desk_topics) went with it on 2026-11-09.
 AREA_OPENING = (
@@ -261,10 +261,10 @@ SHARED_RULES = (
     "记下的原则每一轮都附在 Bridge 的规则里，你和各个话题都会看到。",
     "- " + TOOL_NOTES_LANGUAGE,
 )
-# 管家 (COVEY_MAIN_BUTLER=1, docs/main-thread.md 管家规则): the main thread only answers quickly and hands the rest on, so
+# 管家 (COVEY_BUTLER_RULES=1, docs/butler.md 管家规则): the butler only answers quickly and hands the rest on, so
 # it is free for the owner's next question. It takes the place of SHARED_RULES' first two rules (everything under a
 # minute or two is done in place; what goes to a topic area is what may take over a minute or two); the other rules are
-# the same. Off, the rules are exactly SHARED_RULES. BUTLER_ENV is core/main_tool_specs.py's: the tool list reads it too.
+# the same. Off, the rules are exactly SHARED_RULES. BUTLER_RULES_ENV is core/butler_tool_specs.py's: the tool list reads it too.
 BUTLER_RULES = (
     "- 你只做快答和分派，不在自己这一轮里干几分钟的活，这样才接得住主人的下一句。"
     "快答：不用工具，或只用一两次只读的查询（看一眼文件或日志、查一项配置、topic_read、topics_list），几秒内就能答完的，直接答，不开话题。"
@@ -281,12 +281,12 @@ assert BUTLER_RULES[1] != SHARED_RULES[1]
 
 
 def butler_on(environ=None) -> bool:
-    """Whether COVEY_MAIN_BUTLER=1 (only ``1``; read on every call)."""
-    return str(cenv.get(BUTLER_ENV, "", environ)).strip() == "1"
+    """Whether COVEY_BUTLER_RULES=1 (only ``1``; read on every call)."""
+    return str(cenv.get(BUTLER_RULES_ENV, "", environ)).strip() == "1"
 
 
 def shared_rules(environ=None) -> tuple[str, ...]:
-    """SHARED_RULES, the butler's two rules in place of the first two when COVEY_MAIN_BUTLER=1."""
+    """SHARED_RULES, the butler's two rules in place of the first two when COVEY_BUTLER_RULES=1."""
     return BUTLER_RULES + SHARED_RULES[2:] if butler_on(environ) else SHARED_RULES
 
 
@@ -294,7 +294,7 @@ AREA_RULE = ("- 交给话题后，你只用一句话说放到了哪里：新开�
              "不写进度，不写“结论会带回来”之类的话，也不用再报结论：话题每一轮结束，Bridge 都会把它的结论作为新消息发到聊天区；"
              "进度主人看 Pin。被问到时用下面的快照和 topic_read 回答。")
 def knowledge_rules() -> tuple[str, ...]:
-    """The main thread's rules for the knowledge entries (COVEY_KNOWLEDGE=1) and the history search
+    """The butler's rules for the knowledge entries (COVEY_KNOWLEDGE=1) and the history search
     (COVEY_HISTORY_CMD); none when neither is on, so the rules are then what they were."""
     rules = []
     if knowledge.enabled():
@@ -314,15 +314,15 @@ def knowledge_rules() -> tuple[str, ...]:
     return tuple(rules)
 
 
-def main_thread_rules() -> str:
-    """The main thread's rules."""
+def butler_rules() -> str:
+    """The butler's rules."""
     return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), AREA_RULE))
 
 
-MAIN_THREAD_RULES = main_thread_rules()
+BUTLER_RULES_TEXT = butler_rules()
 
 
-def main_thread_message(snapshot: str, message: str, note: str = "") -> str:
-    """A main-thread turn's message: its rules, the snapshot of the owner's topics, then the turn's own message.
-    ``note``: a track's parallel note (app/main_tracks.py), between the snapshot and the message."""
-    return "\n\n".join((main_thread_rules(), snapshot, *((note,) if note else ()), message))
+def butler_message(snapshot: str, message: str, note: str = "") -> str:
+    """A butler turn's message: its rules, the snapshot of the owner's topics, then the turn's own message.
+    ``note``: a track's parallel note (app/butler_tracks.py), between the snapshot and the message."""
+    return "\n\n".join((butler_rules(), snapshot, *((note,) if note else ()), message))

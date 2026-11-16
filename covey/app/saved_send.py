@@ -164,7 +164,7 @@ def tail_parts(state_dir, record, topic_id, voice, job, harness, snapshot, ctx):
 
 def owner_headed(row, runtime, chat_id) -> bool:
     """Whether a turn's answer card in its thread leads with its status line (``row.answer_head``, D3): only in the
-    owner's private chat (app/access.py owner_chat), and in the other chats with a main thread (Access.agent_chat:
+    owner's private chat (app/access.py owner_chat), and in the other chats with a butler (Access.agent_chat:
     the personal groups, each owner account's private chat: the board's Pin shows answers without it); as before
     when that chat cannot be told."""
     if not row.answer_head:

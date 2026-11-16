@@ -291,7 +291,7 @@ def checked_target(gateway, owner, record, records, *, due=True):
         reason = blocker(gateway, record, records, topic)
         if not reason and due:
             # The topic's context, as a click on its card builds it.
-            # The main thread's topic has no root: the job's own message routes to it.
+            # The butler's topic has no root: the job's own message routes to it.
             event = {"chat_id": record["chat_id"], "message_id": topic["root_id"] or record["message_id"],
                      "root_id": topic["root_id"]}
             target = owner.models.configured_context(context_for_topic(base, event, owner.store.sessions_dir))

@@ -1,7 +1,7 @@
 """The lead's runs (docs/architecture.md 专项, phase 2, COVEY_PROJECTS=1): what a project's lead topic (the 负责人) reads and
-how its session lives. Only a lead topic's turn (core/main_thread.py ``is_lead``) comes here; with the switch off nothing does.
+how its session lives. Only a lead topic's turn (core/butler.py ``is_lead``) comes here; with the switch off nothing does.
 
-- ``state_pack``: the project's state read from disk, put in front of every turn: the goal, the threads (status, one
+- ``state_pack``: the project's state read from disk, put in front of every turn: the goal, the members (status, one
   sentence, deliverables), the project's memory and library (phase 2's P2-7 fills both; here the memory the lead wrote
   with project_remember, the library empty), the style, the inbox since its last wake-up and the last ten decisions. The
   session is only a cache of it: a new one gets the whole pack, a resumed one the changing parts.
@@ -9,11 +9,11 @@ how its session lives. Only a lead topic's turn (core/main_thread.py ``is_lead``
   specialist: nothing now).
 - ``settle_session`` (app/worker.py ``_start_turn``): the session is dropped, and the pack sent again, when the previous
   turn read over ``RESET_TOKENS``, the topic has been idle ``RESET_IDLE`` seconds, or the model changed.
-- ``lead_turn`` (app/main_thread.py ``main_turn``): the turn's context (its tools, the built-in ones narrowed to
+- ``lead_turn`` (app/butler.py ``butler_turn``): the turn's context (its tools, the built-in ones narrowed to
   ``LEAD_TOOLS``) and message (rules, pack, then the turn's own message).
 - The inbox, ``projects/<id>/inbox/<n>.json`` ({id, kind, thread, text, at, taken_by}): receipts of what happened since
-  the lead last looked (a thread's turn ended, a question held, the owner spoke in a thread). ``add_receipt`` writes
-  one (the Bridge does, app/project_loop.py: a thread's turn ended, the owner spoke in a thread, nothing moved), ``take_receipts`` gives the lead's turn what it has not read.
+  the lead last looked (a member topic's turn ended, a question held, the owner spoke in a member topic). ``add_receipt`` writes
+  one (the Bridge does, app/project_loop.py: a member's turn ended, the owner spoke in a member topic, nothing moved), ``take_receipts`` gives the lead's turn what it has not read.
 
 Rules 1 and 6 (AGENTS.md): the records are written under their own lock and nothing here sends to Feishu."""
 from __future__ import annotations
@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from covey.app.prompts import TOOL_NOTES_LANGUAGE
-from covey.core import board_read, main_thread, projects
+from covey.core import board_read, butler, projects
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
@@ -52,7 +52,7 @@ REPORT, DETAIL, SPAWN = "report", "detail", "spawn"
 STYLE_CHOICES = {REPORT: ("ask_only", "milestones", "each_thread", "verbose"), DETAIL: ("一行", "简", "全"),
                  SPAWN: ("保守", "正常", "积极")}
 STYLE_DEFAULT = {REPORT: "milestones", DETAIL: "简", SPAWN: "正常"}
-SPAWN_LIMIT = {"保守": 1, "正常": 2, "积极": 4}  # Threads at the same time (projects.MAX_THREADS caps them all).
+SPAWN_LIMIT = {"保守": 1, "正常": 2, "积极": 4}  # Member topics at the same time (projects.MAX_MEMBERS caps them all).
 REPORT_WORDS = {"ask_only": "只在需要主人定的时候说", "milestones": "只报里程碑和完成", "each_thread": "每个话题结束都报一句",
                 "verbose": "详细，进展都报"}
 # Which of a lead's report notes reach the owner under each ``report`` (phase 2's P2-8 delivers them; the filter is here).
@@ -87,8 +87,8 @@ IDENTITY = (
     "- 一轮只做这一轮该做的判断，派完就结束这一轮，不要等话题做完，不要轮询：话题有了结果，会有下一轮叫醒你。",
 )
 TOOL_RULES = (
-    "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。开话题用 project_thread_start（写干净的任务说明：做什么、范围、约束、"
-    "交付什么；不抄本机路径），给已有话题加话用 project_thread_send；同时最多 4 个话题，风格里的“派活”档更低时按那档。",
+    "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。开话题用 project_topic_start（写干净的任务说明：做什么、范围、约束、"
+    "交付什么；不抄本机路径），给已有话题加话用 project_topic_send；同时最多 4 个话题，风格里的“派活”档更低时按那档。",
     "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
     "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
     "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”“多开几个话题”这类，"
@@ -103,7 +103,7 @@ PRACTICE = ""  # Phase 3's layer: how this kind of specialist works (project.lea
 
 def style_rule(style) -> str:
     return (f"- 汇报风格：{REPORT_WORDS[style[REPORT]]}；说明的详细程度“{style[DETAIL]}”；派活“{style[SPAWN]}”"
-            f"（同时最多 {min(projects.MAX_THREADS, SPAWN_LIMIT[style[SPAWN]])} 个话题）。")
+            f"（同时最多 {min(projects.MAX_MEMBERS, SPAWN_LIMIT[style[SPAWN]])} 个话题）。")
 
 
 def lead_rules(style=None, practice=PRACTICE) -> str:
@@ -151,7 +151,7 @@ def inbox_dir(state_dir, project_id) -> Path:
 
 
 def add_receipt(state_dir, project_id, kind, text, thread="", at=None) -> dict:
-    """One receipt in the inbox (what a thread's turn did, a question held, what the owner said in a thread): a file of
+    """One receipt in the inbox (what a member's turn did, a question held, what the owner said in a member topic): a file of
     its own, named in the order they came, so writers never share one."""
     stamp = now_of(at)
     item = {"id": f"{int(stamp * 1000):013d}-{secrets.token_hex(2)}", "kind": str(kind)[:20], "thread": str(thread or ""),
@@ -202,8 +202,8 @@ def last_line(text) -> str:
     return lines[-1] if lines else ""
 
 
-def thread_row(state_dir, topic_id) -> dict:
-    """One thread as the pack's table has it: label, title, status words, one sentence, deliverables, whether a turn runs."""
+def member_row(state_dir, topic_id) -> dict:
+    """One member topic as the pack's table has it: label, title, status words, one sentence, deliverables, whether a turn runs."""
     records = sorted(topic_job_records(state_dir, topic_id), key=lambda r: int(r.get("job_id") or 0))
     latest = records[-1] if records else {}
     status = str(latest.get("status") or "")
@@ -226,13 +226,13 @@ def thread_row(state_dir, topic_id) -> dict:
             "live": status in RUNNING or status == "waiting_user"}
 
 
-def thread_rows(state_dir, record) -> list:
-    return [thread_row(state_dir, topic_id) for topic_id in record.get("threads") or () if isinstance(topic_id, str)]
+def member_rows(state_dir, record) -> list:
+    return [member_row(state_dir, topic_id) for topic_id in record.get("threads") or () if isinstance(topic_id, str)]
 
 
-def live_threads(state_dir, record) -> list:
-    """The labels of the threads with a turn running or waiting for the owner."""
-    return [row["label"] for row in thread_rows(state_dir, record) if row["live"]]
+def live_members(state_dir, record) -> list:
+    """The labels of the members with a turn running or waiting for the owner."""
+    return [row["label"] for row in member_rows(state_dir, record) if row["live"]]
 
 
 def thread_line(row) -> str:
@@ -255,7 +255,7 @@ def topic_label_of(item) -> str:
 
 def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     """The pack at the head of the lead's turn ``key``. ``full``: the whole of it (a new session); else the parts that
-    change between turns (threads, style, inbox, decisions), the goal and the memory being in the session already.
+    change between turns (members, style, inbox, decisions), the goal and the memory being in the session already.
     ``receipts``: the inbox's items when the caller has taken them."""
     style = style_of(record)
     if receipts is None:
@@ -263,7 +263,7 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     out = [f"[专项状态：{record.get('name') or record['id']}]"]
     if full:
         out.append("目标和完成标准：\n" + (record.get("goal") or "（主人没有写目标：第一轮先问清楚，或按专项名推断后用 project_note 记下）"))
-    rows = thread_rows(state_dir, record)
+    rows = member_rows(state_dir, record)
     out.append("话题（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
                + ("\n" + "\n".join(map(thread_line, rows)) if rows else ""))
     if full:
@@ -314,7 +314,7 @@ def settle_session(ctx, job, sessions, runtime, revision, session_id, now=None):
     """(revision, session_id) a lead's turn starts with (app/worker.py ``_start_turn``): the pointer cleared when
     ``rebuild_reason`` says so, so the turn starts a new session and the pack goes in whole. Other topics, and a lead
     topic with the switch off, are not touched."""
-    if not session_id or not main_thread.is_lead(job.topic_id, job.chat_id):
+    if not session_id or not butler.is_lead(job.topic_id, job.chat_id):
         return revision, session_id
     reason = rebuild_reason(ctx.state_dir, job.topic_id, job_key(job.message_id, job.job_id), job.model or ctx.model, now)
     if not reason:
@@ -330,14 +330,14 @@ def settle_session(ctx, job, sessions, runtime, revision, session_id, now=None):
 def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
     """(context, message) of a lead's turn: the Bridge's tools of the lead ,
     the built-in tools narrowed to LEAD_TOOLS, and the message headed by the rules and the state pack. A turn whose
-    project record is gone (``read_record``) goes on as the main thread's would not: no tools, the message as it is."""
+    project record is gone (``read_record``) goes on as the butler's would not: no tools, the message as it is."""
     found = projects.topic_project(ctx.state_dir, job.topic_id)
     record = projects.read_record(ctx.state_dir, found.id) if found is not None else {}
     if not record:
         log(f"lead turn without a project record job=#{job.job_id}")
         return ctx, prompt
     key = job_key(job.message_id, job.job_id)
-    config = main_thread.mcp_config(release, ctx.state_dir, key, sys.executable, lead=record["id"])
+    config = butler.mcp_config(release, ctx.state_dir, key, sys.executable, lead=record["id"])
     ctx = dataclasses.replace(ctx, options={**ctx.options, "mcp_config": config, "tools": LEAD_TOOLS})
     if job.kind != "chat":
         return ctx, prompt
@@ -352,7 +352,7 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
 # What the turn did.
 
 def outcome_line(state_dir, key) -> str:
-    """The lead's turn ``key`` in a line when it opened or handed on to no thread (app/main_reply.py outcome_words says
+    """The lead's turn ``key`` in a line when it opened or handed on to no thread (app/butler_reply.py outcome_words says
     those): the note it recorded or the project it finished; '' with neither."""
     job = read_job_record(job_path(state_dir, key)) or {}
     found = projects.topic_project(state_dir, str(job.get("topic_id") or ""))

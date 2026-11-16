@@ -1,7 +1,7 @@
 """The cards a finished turn's answer went out on (cards/answer_card.py): what they say under the answer and keeping
 their 产物 up to date.
 
-- ``inputs`` and ``outputs``: the 输入 and 输出 lines of a job (app/answer_delivery.py ``AnswerParts``, app/main_relay.py).
+- ``inputs`` and ``outputs``: the 输入 and 输出 lines of a job (app/answer_delivery.py ``AnswerParts``, app/butler_relay.py).
 - The 产物 panel itself is app/artifacts.py answer_files (drive_artifact_panel by ARTIFACTS_ID, folded unless
   something failed).
 - The record <state>/answer-cards/<job key>.json lists each card the turn's answer went out on that shows 产物: the
@@ -44,7 +44,7 @@ def record_path(state_dir, key) -> Path:
 def inputs(job, harness, snapshot=None, ctx=None) -> list:
     """输入 of ``job`` run by the Harness ``harness`` (its spec: name, title), always its six parts (V9,
     2026-11-08): the Harness, the provider as the 换配置 card names it, the model's name, the reasoning budget, 脱敏
-    and the workspace. No model chosen (the main thread runs the Harness's default): the one the turn ran as its
+    and the workspace. No model chosen (the butler runs the Harness's default): the one the turn ran as its
     process ``snapshot`` names it (Claude's, app/launch_models.py shown_model), else 默认模型; no budget chosen, the
     one its context ``ctx`` (core/jobs.py context_for_job) ran with, else 默认."""
     from covey.app.launch_models import shown_model
@@ -111,7 +111,7 @@ ANSWER_HEADING = "用户补充回答"  # How an answer form's turn begins (app/a
 def ask_link(state_dir, chat, topic_id, message_id, profile=None, fetch=None, chat_place=False) -> str:
     """The applink that opens the owner's message ``message_id``: its thread at it (its root when it is one), else
     its place in the chat (app/topic_links.py, the message read once and kept under ``topic_id``); '' when it
-    cannot be read. ``chat_place``: its place in the chat first (the main thread's own turns, ``ask_url``)."""
+    cannot be read. ``chat_place``: its place in the chat first (the butler's own turns, ``ask_url``)."""
     from covey.app.topic_links import message_link, place_of, thread_link
 
     if not str(message_id or "").startswith("om_"):
@@ -162,17 +162,17 @@ def ask_url(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, 
     """Where the "你问"/"你答" block of ``record``'s turn opens (the owner, 2026-11-10 16:55: 都能跳转到话题上，除非
     这个任务不是话题任务，是主Agent任务). A topic's turn (``topic_id``: the topic the block speaks for, a relay's or a
     question copy's, else the record's own): that topic's thread, at ``at`` or the turn's own card or answer when they
-    are in it (app/topic_links.py topic_thread_link), else the root's place in the chat. The main thread's own turn:
+    are in it (app/topic_links.py topic_thread_link), else the root's place in the chat. The butler's own turn:
     the owner's message (``owner_message``) at its place in the chat. A fallback and a missing link are each one log
     line (``log``); '' only when nothing could be read."""
     from covey.app.topic_links import topic_thread_link
-    from covey.core.main_thread import is_main_topic
+    from covey.core.butler import is_butler_topic
 
     chat = str(_get(record, "chat_id") or "")
     topic = str(topic_id or _get(record, "topic_id") or "")
     say = log or (lambda line: None)
     job = f"#{_get(record, 'job_id') or '?'}"
-    if topic and not is_main_topic(topic, chat):
+    if topic and not is_butler_topic(topic, chat):
         url, how = topic_thread_link(state_dir, topic, at=[*at, *turn_messages(record)], profile=profile, fetch=fetch)
         if how == "chat":
             say(f"ask link fell back to the chat job={job} topic={topic[:12]}: its root's thread could not be read")
@@ -182,7 +182,7 @@ def ask_url(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, 
     message = owner_message(state_dir, record)
     url = ask_link(state_dir, chat, topic, message, profile, fetch, chat_place=True) if message else ""
     if not url:
-        say(f"ask link missing job={job} main thread message={message[-10:] or '-'}: its place could not be read")
+        say(f"ask link missing job={job} butler message={message[-10:] or '-'}: its place could not be read")
     return url
 
 
@@ -334,7 +334,7 @@ def saved_answer_card(ctx, job_id, status, reply, text, tail=(), head=(), bare=F
     delivered, in lark-cli's Markdown style but with its headings' levels kept (``answer_card`` bolds the
     small ones), and the chat list's preview "✅ T304 · lead" (``answer_summary``; the task card's names the time). Made
     of the saved reply, the topic and the turn's status alone, so each retry sends the same card under the
-    same key. ``bare``: a main-thread turn that sent no card (app/quiet_delivery.py QuietDelivery.bare), previewed without its task number
+    same key. ``bare``: a butler turn that sent no card (app/quiet_delivery.py QuietDelivery.bare), previewed without its task number
     (cards/review.py bare_answer_summary)."""
     lead = answer_lead(reply.text)
     label = topic_label(ctx.state_dir, ctx.topic_id) or f"#{job_id}"

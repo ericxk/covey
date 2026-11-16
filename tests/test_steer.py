@@ -429,7 +429,7 @@ class FormSteerTest(TopicFixture, unittest.TestCase):
         self.assertEqual(record["status"], "refused")
         self.assertIn("没有发出", record["error"])
         self.assertIn("没有补充到", text_of(receipt_card(record)))
-        # A topic's keeps its receipt and 重新排队执行; only the main thread's queue by themselves (requeue_auto).
+        # A topic's keeps its receipt and 重新排队执行; only the butler's queue by themselves (requeue_auto).
         self.assertNotIn("requeue_auto", record)
         self.assertEqual(self.app.runtime.jobs.topic_jobs(self.job.topic_id, self.job.chat_id), [self.job])
 

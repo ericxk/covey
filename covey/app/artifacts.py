@@ -419,7 +419,7 @@ class Artifacts:
     def attach_artifact_controls(self, ctx, job):
         """A finished turn's 产物 go up to Drive: on the answer card when it shows them (app/answer_cards.py; the
         task card then leaves them out), else on the task card right under its body (a slim card's too, not in
-        its folded 详情: the owner, 2026-11-08, 产物得从过程中挪下来). A quiet main-thread turn that sent no task card
+        its folded 详情: the owner, 2026-11-08, 产物得从过程中挪下来). A quiet butler turn that sent no task card
         (core/placement.py Row.quiet, job.progress None) still has its answer card's 产物 uploaded and redrawn."""
         if job.artifact_controls_attached:
             return
@@ -620,7 +620,7 @@ class Artifacts:
 
     def send_result_file(self, ctx, job, text):
         """``text``, a result too long for a card, as a file in reply to ``job``'s message, or, when ``ctx`` replies
-        to none (a quiet main-thread turn's answer at the top level, app/worker.py top_ctx, D1), to the chat
+        to none (a quiet butler turn's answer at the top level, app/worker.py top_ctx, D1), to the chat
         itself; whether it went."""
         key = job_key(job.message_id, job.job_id)
         path = ctx.state_dir / "result-files" / (key + ".md")

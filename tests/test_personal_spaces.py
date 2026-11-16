@@ -1,4 +1,4 @@
-"""Personal spaces (core/spaces.py, app/access.py ``agent_chat``): a main thread of its own in each personal group and in
+"""Personal spaces (core/spaces.py, app/access.py ``agent_chat``): a butler of its own in each personal group and in
 each private chat of the owner's other accounts, the menu card pinned in a personal group (app/group_menu.py), a board
 and 早晚汇总 of its own there (app/group_boards.py), the space records, and the 群聊 tab's space types."""
 from __future__ import annotations
@@ -15,13 +15,13 @@ from types import SimpleNamespace
 
 from support.world import UnifiedCase
 from test_group_chat import MEMBER, GroupFixture, group_event
-from test_main_thread import MainCase
+from test_butler import ButlerUnifiedCase
 from test_pins import NOW, ON, FakePins
 from support.records import write_topic
 from covey.app import digest, group_menu, pins, saved_send
 from covey.app.overview import RECORD as OVERVIEW_RECORD
 from covey.cards.overview import DISMISS
-from covey.core import main_thread, placement, spaces
+from covey.core import butler, placement, spaces
 from covey.core.jobs import upsert_job_record
 from covey.core.state import write_json
 
@@ -32,9 +32,9 @@ def setspaces(access, **fields):
     access.spaces = dataclasses.replace(access.spaces, **fields)
 
 
-class AgentChatTests(MainCase):
-    """Personal groups and the private chats of the owner's other accounts: each chat has a main thread of its own, and
-    a tool call runs for the chat of the main thread that made it."""
+class AgentChatTests(ButlerUnifiedCase):
+    """Personal groups and the private chats of the owner's other accounts: each chat has a butler of its own, and
+    a tool call runs for the chat of the butler that made it."""
 
     def setUp(self):
         super().setUp()
@@ -43,21 +43,21 @@ class AgentChatTests(MainCase):
         setspaces(self.access, notify_space='oc_home')
         setspaces(self.access, personal_groups=frozenset({'oc_room'}))
 
-    def test_each_owner_private_chat_and_an_agent_group_have_a_main_thread_of_their_own(self):
+    def test_each_owner_private_chat_and_an_agent_group_have_a_butler_of_their_own(self):
         self.send('om_1')
         self.send('om_2', chat_id='oc_alias', sender_id=ALIAS)
-        self.assertEqual(self.job_of('om_1').topic_id, main_thread.main_topic_id('oc_main'))
-        self.assertEqual(self.job_of('om_2').topic_id, main_thread.main_topic_id('oc_alias'))
+        self.assertEqual(self.job_of('om_1').topic_id, butler.butler_topic_id('oc_main'))
+        self.assertEqual(self.job_of('om_2').topic_id, butler.butler_topic_id('oc_alias'))
         room = {**self.event('om_3'), 'chat_id': 'oc_room', 'chat_type': 'group'}
-        self.assertIsNotNone(self.app.main_thread.app_for(self.ctx, room, True))
-        self.assertIsNone(self.app.main_thread.app_for(self.ctx, {**room, 'chat_id': 'oc_other'}, True))
-        self.assertIsNone(self.app.main_thread.app_for(self.ctx, room, False))
-        self.assertIsNone(self.app.main_thread.app_for(self.ctx, {**room, 'chat_type': 'p2p'}, True))
+        self.assertIsNotNone(self.app.butler.app_for(self.ctx, room, True))
+        self.assertIsNone(self.app.butler.app_for(self.ctx, {**room, 'chat_id': 'oc_other'}, True))
+        self.assertIsNone(self.app.butler.app_for(self.ctx, room, False))
+        self.assertIsNone(self.app.butler.app_for(self.ctx, {**room, 'chat_type': 'p2p'}, True))
 
-    def test_a_tool_call_runs_for_the_chat_of_its_main_thread(self):
+    def test_a_tool_call_runs_for_the_chat_of_its_butler(self):
         self.send('om_1')
         self.send('om_2', chat_id='oc_alias', sender_id=ALIAS)
-        tools, env = self.app.main_tools, self.app.main_env
+        tools, env = self.app.butler_tools, self.app.butler_env
         self.assertEqual(tools.request_chat(SimpleNamespace(job_key='om_2')), 'oc_alias')
         self.assertEqual(tools.request_chat(SimpleNamespace(job_key='om_none')), '')
         seen = []
@@ -224,7 +224,7 @@ class GroupBoardTests(GroupFixture, UnifiedCase):
 
 
 class AgentChatAnswerHeadTests(UnifiedCase):
-    """saved_send.owner_headed: a 话题区's answer card leads with "✅ 做完 · T11 · 标题" in every chat with a main thread
+    """saved_send.owner_headed: a 话题区's answer card leads with "✅ 做完 · T11 · 标题" in every chat with a butler
     (personal groups, the other accounts' private chats), not only the owner's private chat."""
 
     def test_agent_chats_are_headed_and_other_groups_are_not(self):
@@ -237,7 +237,7 @@ class AgentChatAnswerHeadTests(UnifiedCase):
         headed = {chat: saved_send.owner_headed(row, self.app.runtime, chat)
                   for chat in ('oc_home', 'oc_room', 'oc_alias', 'oc_group', '')}
         self.assertEqual(headed, {'oc_home': True, 'oc_room': True, 'oc_alias': True, 'oc_group': False, '': False})
-        self.assertFalse(saved_send.owner_headed(placement.TABLE[(placement.AREA, placement.MAIN_ROLE)],
+        self.assertFalse(saved_send.owner_headed(placement.TABLE[(placement.AREA, placement.BUTLER_ROLE)],
                                                  self.app.runtime, 'oc_room'))
 
 
@@ -308,14 +308,14 @@ class SettingsCardChatTests(UnifiedCase):
     """The 设置 card's 新话题 defaults follow the last launch of the chat the card is in."""
 
     def test_the_card_resolves_with_its_own_chat(self):
-        panel = self.app.main_thread_panel
+        panel = self.app.butler_panel
         with mock.patch.object(panel, 'card', return_value={}) as card:
             panel.tab_card(self.ctx, 'tok', {'view': {'token': 'tok'}, 'tab': 'topic', 'chat_id': 'oc_room'})
         self.assertEqual(card.call_args.args[3], 'oc_room')
         seen = []
-        with mock.patch('covey.app.main_thread_panel.resolve',
+        with mock.patch('covey.app.butler_panel.resolve',
                         side_effect=lambda topics, state, chat, defaults, **kw: (seen.append(chat), 'no')[1]):
-            from covey.core.main_thread_settings import load
+            from covey.core.butler_settings import load
             panel.follows(self.ctx, load(self.ctx.state_dir).topic_defaults, {}, 'oc_room')
             panel.follows(self.ctx, load(self.ctx.state_dir).topic_defaults, {})
         self.assertEqual(set(seen[:3]), {'oc_room'})
@@ -396,7 +396,7 @@ class PersonalGroupAccessTests(GroupFixture, UnifiedCase):
         self.assertEqual(self.access.agent_chat('oc_room', True), True)
 
 
-class MainThreadSpacesTests(MainCase):
+class ButlerSpacesTests(ButlerUnifiedCase):
     def test_a_private_chat_of_another_account_is_saved_once_and_not_the_owners(self):
         self.access = self.app.runtime.access
         setspaces(self.access, owner_accounts=frozenset({ALIAS}))

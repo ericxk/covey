@@ -5,10 +5,10 @@ Its record is <state>/<folder>/<token>.json, changed under the resource lock ``l
 card's view in ``view_field``. ``via`` is what sends for the card: its ``messenger`` and ``voice``, looked up
 at each call.
 
-The bot menu's 设置 (app/settings_hub.py) is one card showing one of the main thread's three pages, the 代答 or the
+The bot menu's 设置 (app/settings_hub.py) is one card showing one of the butler's three pages, the 代答 or the
 群聊 panel under a tab row, held by one record of its own: <state>/HUB_FOLDER/<token>.json, with the tab it shows
 (``tab``) and that tab's view (``hub`` in it: ``hub_top`` draws the row). A panel made with its ``tab`` (or tabs: the
-main thread's pages) finds that record by the token its buttons carry (``path``), changes it under the one lock
+butler's pages) finds that record by the token its buttons carry (``path``), changes it under the one lock
 HUB_LOCK (``lock``) and acts on a click only while the card shows its tab (``clicked``, ``shows``); its writes take
 their sequence from that one record (rule 3).
 
@@ -20,8 +20,8 @@ first view, as a new card would be. Every write takes the record's next sequence
 from __future__ import annotations
 
 from covey.app.form_cards import click_token, publish_form, settle
-from covey.cards.settings_hub import LABELS, MAIN_PAGES, PROXY, tab_row
-from covey.core import extensions, main_thread
+from covey.cards.settings_hub import LABELS, BUTLER_PAGES, PROXY, tab_row
+from covey.core import extensions, butler
 from covey.core.locks import resource_lock
 from covey.core.state import read_json
 
@@ -36,7 +36,7 @@ FOLDED = 'folded'  # True while the card is folded to one line (absent: unfolded
 
 def hub_top(tab, token, view):
     """The 设置 card's tab row above the body of panel ``tab`` (cards/settings_hub.py LABELS) when its record
-    holds that card (``hub`` in its view); nothing on a standalone card. The main thread's pages only with its switch
+    holds that card (``hub`` in its view); nothing on a standalone card. The butler's pages only with its switch
     on."""
     if not view.get('hub'):
         return []
@@ -44,11 +44,11 @@ def hub_top(tab, token, view):
 
 
 def hub_tabs():
-    """The 设置 card's tabs: the main thread's pages unless the deployment rules the main thread out
-    (COVEY_MAIN_THREAD=0); in the mode 纯话题 too, where 私聊默认's first row turns Personal Agent on. 代答
+    """The 设置 card's tabs: the butler's pages unless the deployment rules the butler out
+    (COVEY_BUTLER=0); in the mode 纯话题 too, where 私聊默认's first row turns 管家 on. 代答
     only where a sender is (the extension hook ``proxy_sender``)."""
     sender = extensions.hook("proxy_sender") is not None
-    return [t for t in LABELS if (t not in MAIN_PAGES or main_thread.available()) and (t != PROXY or sender)]
+    return [t for t in LABELS if (t not in BUTLER_PAGES or butler.available()) and (t != PROXY or sender)]
 
 
 class MenuPanel:

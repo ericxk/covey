@@ -342,7 +342,7 @@ class Access:
 
     @property
     def agent_groups(self) -> frozenset:
-        """The personal groups (``spaces.personal_groups``): each has a main thread, a menu card and a board of its own."""
+        """The personal groups (``spaces.personal_groups``): each has a butler, a menu card and a board of its own."""
         return self.spaces.personal_groups
 
     def board_groups(self) -> frozenset:
@@ -350,7 +350,7 @@ class Access:
         return self.spaces.personal_groups - {self.spaces.notify_space}
 
     def agent_chat(self, chat_id, group=None) -> bool:
-        """Whether the owner's top-level messages in ``chat_id`` go to its main thread (app/main_thread.py): a personal
+        """Whether the owner's top-level messages in ``chat_id`` go to its butler (app/butler.py): a personal
         group, the owner's private chat as last seen, or the private chat of one of the owner's other accounts.
         ``group`` None: either; True: only a group; False: only a private chat."""
         chat_id = str(chat_id or '')

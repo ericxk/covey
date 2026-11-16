@@ -100,7 +100,7 @@ git diff --stat tests/golden/cards.json
 | --- | --- |
 | `world.py` | 临时状态目录里的 app；删目录前停掉 app 的后台线程，有后台线程不停就让测试失败 |
 | `records.py` | 临时状态目录；`write_topic`、`write_job`、`run_files` 经生产的写函数写 topic.json、任务记录和 runs/ 文件；`saved` 读回 |
-| `main_thread.py` | 管家测试的共同 setUp（`MainThreadCase`：开关、临时状态目录、话题上下文、写 main-thread/opened 记录）；只要开关时用 `switch_on` |
+| `butler.py` | 管家测试的共同 setUp（`ButlerCase`：开关、临时状态目录、话题上下文、写 main-thread/opened 记录）；只要开关时用 `switch_on` |
 | `fake_lark.py` | 记录出站发送；`FakeCardKit` 替换 Messenger 查找的 CardKit 函数，记录每次请求，可逐次指定返回或失败 |
 | `fake_backends.py` | 假后端（`RecordingBackend.declare` 声明能力）、`codex_server` |
 | `backend_drivers.py` | `test_backend_contract` 的后端驱动 |

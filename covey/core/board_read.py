@@ -1,13 +1,13 @@
 """What the owner's private chat's topics are doing, as the records say it: one read of the indexes of questions/ and
 jobs/ (no record lock, no Feishu call) and the topic-seen and board-priority files (``read``), and the pure
 functions its readers judge the records with. Its readers: the pinned board (app/pins.py board, look), 手上的事
-(app/overview.py view), 早晚汇总 (app/digest.py collect), the main thread's snapshot (app/main_thread.py
-snapshot_groups) and its tool topics_list (app/main_tools.py topic_row, from ``topic_jobs`` and ``topic_questions``:
+(app/overview.py view), 早晚汇总 (app/digest.py collect), the butler's snapshot (app/butler.py
+snapshot_groups) and its tool topics_list (app/butler_tools.py topic_row, from ``topic_jobs`` and ``topic_questions``:
 every job of the chat, not a window).
 
 A reader that also needs the board's ``taken off`` reads once with the board record's ``keep`` (app/pins.py kept)
 and hands the read to the board's look; the jobs it judges itself are those ``fresh`` picks, as read without it. So
-a main-thread turn reads jobs/ once (before 2026-11-10: three times, 手上的事's running ones, the board's, and its
+a butler turn reads jobs/ once (before 2026-11-10: three times, 手上的事's running ones, the board's, and its
 own results), as do 手上的事 with the board on and 早晚汇总 (each twice before).
 
 "A result the owner has not seen" (有结果未看) is one rule, the board's (the owner, 2026-11-10: 以看板为准), and
@@ -22,7 +22,7 @@ was first seen; one that ended before the board's rules (keep_since) as before t
 its topic, not done at the top level. ``unseen``: the results not seen yet, without the topics the owner took off
 the board. The board's record gives the rules (``rules``, app/pins.py board_rules); without the board
 (COVEY_PINNED_TOPICS unset) there is no record and no read receipt: every result ``read`` reaches (RESULT_AGE)
-is unseen. The group is named ``result`` everywhere (the main thread's snapshot and topics_list: 有结果未看, only
+is unseen. The group is named ``result`` everywhere (the butler's snapshot and topics_list: 有结果未看, only
 the unseen ones; the board and 手上的事: 有结果, with the ones seen within KEEP_SEEN). The windows of RESULT_AGE and
 TOOLS_AGE left elsewhere are for what was done lately (topics_list's recent, 早晚汇总's 做完 since the digest
 before), never for what is unseen.
@@ -34,7 +34,7 @@ from pathlib import Path
 
 from covey.core.jobs import jobs_dir, select_job_records
 from covey.core import projects
-from covey.core.main_thread import is_main_topic, traits
+from covey.core.butler import is_butler_topic, traits
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import RUNNING
@@ -56,7 +56,7 @@ TOOLS_AGE = 3 * 86400  # topics_list's recent: what moved in the last three days
 class Read:
     """One ``read`` of a chat: ``questions`` its pending questions shown (not display_pending), in the index's
     order; ``jobs`` its jobs running, written within RESULT_AGE or of a topic in ``keep``, newest first
-    (core/jobs.py select_job_records); both without the main thread's topic (Traits.listed). ``seen``
+    (core/jobs.py select_job_records); both without the butler's topic (Traits.listed). ``seen``
     topic-seen.json, ``priority`` board-priority.json. ``cells``: a project's thread topic -> its lead's topic id
     (core/projects.py cells), {} without COVEY_PROJECTS; ``groups`` takes it, so a project is one cell."""
     questions: list
@@ -68,7 +68,7 @@ class Read:
 
 
 def listed(topic_id, chat) -> bool:
-    """Whether ``topic_id`` is on the board and 手上的事: not the main thread's, which talks at the top level."""
+    """Whether ``topic_id`` is on the board and 手上的事: not the butler's, which talks at the top level."""
     return traits(topic_id, chat).listed
 
 
@@ -120,11 +120,11 @@ def read(state, chat, now, keep=frozenset()) -> Read:
 
 
 def topic_jobs(state, chat) -> dict:
-    """Every job record of ``chat``'s topics by topic id, each topic's oldest first; not the main thread's."""
+    """Every job record of ``chat``'s topics by topic id, each topic's oldest first; not the butler's."""
     topics = {}
     for _, record in directory_store(jobs_dir(state)).query(chat_id=chat):
         topic_id = record.get("topic_id")
-        if isinstance(topic_id, str) and topic_id and not is_main_topic(topic_id, chat):
+        if isinstance(topic_id, str) and topic_id and not is_butler_topic(topic_id, chat):
             topics.setdefault(topic_id, []).append(record)
     for records in topics.values():
         records.sort(key=job_number)
@@ -149,7 +149,7 @@ def topic_questions(state, chat) -> dict:
 
 
 def topic_label(state, topic_id):
-    """(T number, title) of ``topic_id`` as 手上的事 (app/overview.py Overview.topic) and the main thread's snapshot
+    """(T number, title) of ``topic_id`` as 手上的事 (app/overview.py Overview.topic) and the butler's snapshot
     write it: "" without a number yet, and then （话题未知） for no title (core/topics.py label_title)."""
     label, title = label_title(state, topic_id)
     return (label, title) if label else ("", title or "（话题未知）")
@@ -201,14 +201,14 @@ def times(path):
 
 def top_read(seen, chat):
     """The owner's last read of a message at ``chat``'s top level, epoch seconds (0.0: none known): the latest of
-    ``seen`` (topic-seen.json) over the topics there (the main thread's)."""
+    ``seen`` (topic-seen.json) over the topics there (the butler's)."""
     return max((value for topic, value in seen.items() if traits(topic, chat).top_level), default=0.0)
 
 
 def seen_at(record, seen, read_top=0.0, inline=None):
     """When the owner has seen the result of ``record`` (a job record that ended), None when not yet: its topic read
     at or after its end (``seen``), or, for an answer written on a top-level card (a conclusion an older release
-    wrote on the main thread's card: ``inline``, a job record -> when, or None), the top
+    wrote on the butler's card: ``inline``, a job record -> when, or None), the top
     level read (``read_top``) once it was there, never before its end."""
     topic, at = record.get("topic_id") or "", ended_at(record)
     if topic in seen and seen[topic] >= at:
@@ -257,7 +257,7 @@ class Rules:
     stopped_since: float | None = None
     results: dict = dataclasses.field(default_factory=dict)
     read_top: float = 0.0
-    relayed: object = None  # A job record -> whether its done conclusion went to the top level (app/main_relay.py).
+    relayed: object = None  # A job record -> whether its done conclusion went to the top level (app/butler_relay.py).
     inline: object = None  # A job record -> when its conclusion was written on a top-level card, or None.
 
 

@@ -159,7 +159,7 @@ def entry_of(choices, harness, model):
 
 
 def default_entry(choices, harness):
-    """The menu entry of the model ``harness`` runs with none chosen: the main thread's topic.json then has no model
+    """The menu entry of the model ``harness`` runs with none chosen: the butler's topic.json then has no model
     and Claude Code runs without --model (backends/claude/argv.py), its catalog's NATIVE entry, "Default
     (recommended)"; else the one its catalog names recommended; None when there is neither."""
     entry = entry_of(choices, harness, NATIVE)

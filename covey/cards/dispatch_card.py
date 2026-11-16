@@ -1,4 +1,4 @@
-"""The 派发卡 (app/dispatch_cards.py; docs/main-thread.md 派发卡): the card the main thread's dispatch of a job to a
+"""The 派发卡 (app/dispatch_cards.py; docs/butler.md 派发卡): the card the butler's dispatch of a job to a
 topic leaves at the chat's top level, quoting the owner's message. It is drawn whole from ``Dispatch`` (what the job
 records say), again each time that changes, and once more as a single line when the conclusion went out.
 
@@ -27,7 +27,7 @@ from covey.cards.elements import (button_row, card, collapsible, grey, md, note,
                                   topic_button)
 
 HEAD_CHARS = 30
-THREAD_TITLE = 40  # Of the topic's title on the fold's title line.
+TOPIC_TITLE = 40  # Of the topic's title on the fold's title line.
 STEER_KIND, STOP_KIND = "bridge_dispatch_steer", "bridge_dispatch_stop"
 RUNNING, WAITING, DONE, FAILED, STOPPED = "在做", "等你", "做完", "失败", "已停"
 # status -> (tag colour, header icon: one the other cards use, '' for none, whether the 话题 fold is open).
@@ -80,7 +80,7 @@ def meta_line(dispatch) -> str:
 
 def thread_title(dispatch) -> str:
     title = " ".join(str(dispatch.title or "").split())
-    title = title if len(title) <= THREAD_TITLE else title[:THREAD_TITLE - 1] + "…"
+    title = title if len(title) <= TOPIC_TITLE else title[:TOPIC_TITLE - 1] + "…"
     return "话题 · " + " · ".join(part for part in (dispatch.label, title, dispatch.workspace) if part)
 
 
@@ -118,7 +118,7 @@ def dispatch_card(dispatch):
 
 
 def settled_card(status, request, *, url="", reason="", label=""):
-    """What a card becomes once its conclusion went out (docs/main-thread.md 派发卡 · 结论沉底): one grey line,
+    """What a card becomes once its conclusion went out (docs/butler.md 派发卡 · 结论沉底): one grey line,
     "✅ 做完 · 结论在下方 ›" opening the conclusion at ``url``; for 失败 and 已停 the line says why (``reason``) and
     opens nothing. No fold, no buttons."""
     mark = LINE_MARKS.get(status, "")

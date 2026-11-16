@@ -1,4 +1,4 @@
-"""The card a topic turn's outcome takes back to the main thread's top level (app/main_relay.py, docs/main-thread.md
+"""The card a topic turn's outcome takes back to the butler's top level (app/butler_relay.py, docs/butler.md
 结论回到顶层): ``relay_card``, pure, and what it shares with the question card's copy there
 (cards/question_cards.py mirror_card): a topic's reply as card Markdown (``reply_body``)."""
 from __future__ import annotations

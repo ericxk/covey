@@ -24,7 +24,7 @@ class AnswerParts:
         # Do not switch transports after an ambiguous send result.
         tail, files, status = self.answer_tail()
         key = saved_delivery_key(self.prefix, job_key(job.message_id, job.job_id), turn.verified_delivery)
-        # The main thread's card is in the owner's message's thread (core/placement.py Row.answer TOP): its
+        # The butler's card is in the owner's message's thread (core/placement.py Row.answer TOP): its
         # answer goes to the top level as a message of its own, a "你问" link to that message above it.
         row = placement.plan(ctx.state_dir, job).row
         top = row.answer == placement.TOP
@@ -40,7 +40,7 @@ class AnswerParts:
 
     def process_snapshot(self):
         """The turn's process snapshot (core/trace.py; ``deliver``'s snapshot is the workdir's, for the diff):
-        the answer card's 输出 line, its relay's too (app/main_relay.py). None without a trace."""
+        the answer card's 输出 line, its relay's too (app/butler_relay.py). None without a trace."""
         trace = getattr(self.job, "tool_trace", None)
         try:
             return trace.snapshot() if trace is not None else None
@@ -79,7 +79,7 @@ class AnswerParts:
     def ask_block(self):
         """The "你问" block of this turn (cards/answer_card.py ask_block); None when it cannot be told."""
         try:
-            # The main thread's own turn: the owner's message in the chat (answer_cards.ask_url).
+            # The butler's own turn: the owner's message in the chat (answer_cards.ask_url).
             return answer_cards.asked(self.ctx.state_dir, self.job, profile=self.ctx.profile, log=self.runtime.log)
         except Exception as exc:  # noqa: BLE001 - the answer goes without it
             self.runtime.log(f"answer card 你问 unavailable: {type(exc).__name__}")

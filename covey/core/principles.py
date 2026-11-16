@@ -1,19 +1,19 @@
-"""The owner's principles (docs/main-thread.md 主人的原则): long-standing rules and preferences the owner stated once,
-so that every topic's turn and the main thread's read them again (app/prompts.py principles_block) and the owner
-need not repeat "按照之前的设计理念". The main thread records them with its tools (app/main_tools.py principle_save,
+"""The owner's principles (docs/butler.md 主人的原则): long-standing rules and preferences the owner stated once,
+so that every topic's turn and the butler's read them again (app/prompts.py principles_block) and the owner
+need not repeat "按照之前的设计理念". The butler records them with its tools (app/butler_tools.py principle_save,
 principle_delete, principles_list); the settings card will show and delete them through ``entries`` and ``delete``.
 
 <state>/principles.json::
 
     {"version": 1,
-     "owner": [principle, ...],                      # 通用: every topic and the main thread
-     "workspaces": {"<workspace name>": [principle, ...]}}  # a topic in that workspace, the main thread in its own
+     "owner": [principle, ...],                      # 通用: every topic and the butler
+     "workspaces": {"<workspace name>": [principle, ...]}}  # a topic in that workspace, the butler in its own
 
     principle: {"id": "p1a2b3c", "text": "≤200 字，一行", "at": "2026-11-08T12:00:00Z",
                 "source": {"job_key": "<管家任务键>", "job_id": 12}}
 
 Each group keeps at most GROUP_LIMIT, oldest first. A write reads, changes and replaces the whole file
-(core/state.py write_json) under its shared file lock (core/locks.py, across processes): the Bridge's main-thread
+(core/state.py write_json) under its shared file lock (core/locks.py, across processes): the Bridge's butler
 tools and, later, the settings card. Nothing inside the lock sends to Feishu. Readers take no lock: a replace is
 atomic. A file that cannot be read, or holds anything else, reads as empty; the first write over it keeps it as
 principles.json.bad-<epoch> rather than lose it. Standard library only.

@@ -226,11 +226,11 @@ class StopTest(Base):
         self.assertTrue(self.gone(pid))
 
     def test_the_bridges_stop_shuts_it_down(self):
-        from covey.app.main_thread import MainThread
+        from covey.app.butler import Butler
         track_judge.warm(self.backend, self.ctx)
         self.ready()
         pid = self.started()[0]
-        MainThread.close()
+        Butler.close()
         self.assertTrue(self.gone(pid))
 
     def test_an_idle_standby_kills_itself(self):

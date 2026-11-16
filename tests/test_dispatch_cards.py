@@ -1,6 +1,6 @@
-"""The 派发卡 (app/dispatch_cards.py, cards/dispatch_card.py, core/dispatch_records.py): sent when the main thread's
+"""The 派发卡 (app/dispatch_cards.py, cards/dispatch_card.py, core/dispatch_records.py): sent when the butler's
 tools hand work to a topic, kept up to date by one thread (throttled, a new sequence for every write, a failed write
-backed off), one line once the conclusion went out, and none of it with COVEY_MAIN_DISPATCH_CARD off."""
+backed off), one line once the conclusion went out, and none of it with COVEY_DISPATCH_CARD off."""
 from __future__ import annotations
 
 import itertools
@@ -13,15 +13,15 @@ from unittest import mock
 from support.fake_lark import FakeCardKit
 from support.world import UnifiedCase
 
-from covey.app import dispatch_cards, main_topics, relay_send, runner_ipc
+from covey.app import dispatch_cards, butler_topics, relay_send, runner_ipc
 from covey.app.card_actions import ACTIONS
-from covey.app.main_env import MainEnv
+from covey.app.butler_env import ButlerEnv
 from covey.cards import dispatch_card as view
 from covey.cards.elements import find_element
 from covey.core import dispatch_records as records
-from covey.core import main_thread_settings
+from covey.core import butler_settings
 from covey.core.jobs import BridgeReplyJob, upsert_job_record
-from covey.core.main_requests import Request
+from covey.core.butler_requests import Request
 from covey.core.state import read_object
 from covey.core.topics import routed_topic
 
@@ -163,7 +163,7 @@ class DispatchCase(UnifiedCase):
         self.app.messenger.create_and_send_card = self.sent
         self.put = mock.Mock(return_value={"code": 0})
         self.app.messenger.put_card = self.put
-        self.env = MainEnv(runtime=self.app.runtime, topics=self.app.topics, messenger=self.app.messenger,
+        self.env = ButlerEnv(runtime=self.app.runtime, topics=self.app.topics, messenger=self.app.messenger,
                            voice=self.app.voice, state_dir=self.ctx.state_dir, profile="test-bot")
         self.ids = itertools.count(1)
         upsert_job_record(self.ctx.state_dir, "main-job", message_id=OWNER, reply_to_message_id=OWNER, chat_id=CHAT,
@@ -189,10 +189,10 @@ class DispatchCase(UnifiedCase):
                       why="日志在这个仓库")
         fields.update(args)
         request = Request(request_id, "topic_start", fields, "main-job", 0.0)
-        return main_topics.TOOLS["topic_start"](self.env, request)
+        return butler_topics.TOOLS["topic_start"](self.env, request)
 
     def token(self, request_id="r1"):
-        return main_topics.request_token(SimpleNamespace(id=request_id))
+        return butler_topics.request_token(SimpleNamespace(id=request_id))
 
     def record(self, request_id="r1"):
         return read_object(records.record_path(self.ctx.state_dir, self.token(request_id)))
@@ -256,7 +256,7 @@ class CreatedTest(DispatchCase):
         self.assertEqual(records.rounds_for(self.ctx.state_dir, OWNER, self.record("one")["topic_id"]), 2)
 
     def test_a_topic_that_waits_on_its_launch_card_says_it_waits_for_the_owner(self):
-        main_thread_settings.update(self.ctx.state_dir, start=())
+        butler_settings.update(self.ctx.state_dir, start=())
         self.start(harness="codex")
         self.assertEqual(self.dispatch_sends()[-1].args[2]["header"]["text_tag_list"][0]["text"]["content"], "等你")
 
@@ -505,7 +505,7 @@ class ClickTest(DispatchCase):
             self.assertEqual(event["action_value"]["job_id"], "37")
 
     def test_a_job_of_another_topic_is_not_the_one(self):
-        self.job(35, topic="topic-of-the-main-thread", running=True)
+        self.job(35, topic="topic-of-the-butler", running=True)
         self.job(37, running=True)
         forward, _ = self.click(view.STEER_KIND, "35")
         self.assertEqual(forward.call_args.args[3]["job_id"], "37")

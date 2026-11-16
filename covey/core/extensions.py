@@ -14,7 +14,7 @@ package, imported when the core asks for it: ``hook``; the names are the ``HOOK_
 button kinds the package's cards carry: the Bridge accepts them (app/card_actions.py) and the package's features claim
 the clicks. Its optional ``features`` module has ``features(app)``, returning the
 feature objects app/unified.py appends to its own; a feature object may also have ``handle_event(ctx, event, owner)``
-(a top-level message it takes before the main thread and topic routing: True when taken), ``claim(ctx, event, raw,
+(a top-level message it takes before the butler and topic routing: True when taken), ``claim(ctx, event, raw,
 owner)`` (a card click before the core's controllers: the outcome, or None when it is not its own) and ``close()``
 (when the Bridge stops), besides ``threads()`` and ``menu_items()``. The core never names an extension
 (docs/architecture.md, 扩展); the one table that does is ``MOVED_ENV``, for variables of features that moved out.

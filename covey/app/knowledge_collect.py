@@ -1,4 +1,4 @@
-"""A topic's turn writes what the owner asked it to remember (docs/main-thread.md 知识库, COVEY_KNOWLEDGE=1):
+"""A topic's turn writes what the owner asked it to remember (docs/butler.md 知识库, COVEY_KNOWLEDGE=1):
 the model puts ``remember`` ([{kind, text, why, scope}], at most five) into its checkpoint when the owner's words in
 that turn said 记一下 / 记住 / 记下来 (app/prompts.py REMEMBER_RULE), and the Bridge, not the task runner (rule 8: a
 task process changes only its own task's card and record), reads it here once the runner has exited and the record
@@ -6,8 +6,8 @@ is settled (app/detached.py finish_detached, app/job_dispatch.py for a run in th
 
 It writes only when all of these hold, else it drops the list and logs ``knowledge remember ignored reason=…``:
 the turn ended normally (done, or waiting for the owner's answer); it is the owner's own turn (app/access.py
-owner_turn); the owner's words (user_text) hold a trigger word; it is not a turn the main thread handed on
-(prompt_text: the main thread recorded with its tool); the topic is not a 代答 topic and has no redaction (a setting
+owner_turn); the owner's words (user_text) hold a trigger word; it is not a turn the butler handed on
+(prompt_text: the butler recorded with its tool); the topic is not a 代答 topic and has no redaction (a setting
 that cannot be read counts as on). The entries are ``by=topic`` with the turn as their source; the same turn
 (job key) never writes twice (core/knowledge.py collected). Never raises: a failure is a log line and the turn's
 other ending steps go on.
@@ -19,7 +19,7 @@ from pathlib import Path
 from covey.core import knowledge
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record
-from covey.core.main_thread import is_main_topic
+from covey.core.butler import is_butler_topic
 from covey.core.redaction import topic_redaction
 from covey.core.topics import proxy_topic, topic_file
 from covey.core.state import read_object
@@ -40,7 +40,7 @@ def reason_to_ignore(runtime, ctx, job, record) -> str:
         return "no-trigger"
     if record.get("prompt_text") or getattr(job, "prompt_text", None):
         return "handed-on"
-    if is_main_topic(topic_id, str(record.get("chat_id") or getattr(job, "chat_id", ""))):
+    if is_butler_topic(topic_id, str(record.get("chat_id") or getattr(job, "chat_id", ""))):
         return "main-thread"
     try:
         if proxy_topic(ctx) or topic_redaction(ctx.state_dir, topic_id):

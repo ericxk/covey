@@ -23,7 +23,7 @@ from covey.app.digest import (CATCH_UP, ENV, RECORD, ZONE, Digest, collect, due,
 from covey.cards.digest import SHOWN, digest_card, digest_text
 from covey.cards.overview import DISMISS
 from covey.core.jobs import upsert_job_record
-from covey.core.main_thread import main_topic_id
+from covey.core.butler import butler_topic_id
 from covey.core.state import write_json, write_private_text
 from covey.core.topic_seen import PINNED_TOPICS_ENV
 from covey.feishu.messenger import Voice
@@ -126,7 +126,7 @@ class CollectTests(Records, unittest.TestCase):
         self.job("j-again", 7, "done", "again", timings={"execution_finished": now - 900})
         self.job("j-again2", 8, "running", "again", timings={"backend_started": now - 30})  # Runs again: 在做.
         self.job("j-late", 10, "done", "old", timings={"execution_finished": now - 10})  # After this digest's time.
-        self.job("j-main", 9, "done", main_topic_id(CHAT), timings={"execution_finished": now - 100})
+        self.job("j-main", 9, "done", butler_topic_id(CHAT), timings={"execution_finished": now - 100})
         write_json(self.state / "topic-seen.json", {"seen": now - 3000})
         view = collect(self.state, CHAT, slot, since, now)
         self.assertEqual([(row["label"], row["state"], row["took"]) for row in view["waiting"]],

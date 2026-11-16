@@ -29,7 +29,7 @@ from covey.core.trace import has_subtasks, turn_usage
 
 class CardLook(NamedTuple):
     """How a job's task card is drawn, worked out by app/task_card.py card_look: ``steer``, its 补充 button (the
-    Harness steers); ``switch``, its 换配置 button; ``slim``, the main thread's slim card."""
+    Harness steers); ``switch``, its 换配置 button; ``slim``, the butler's slim card."""
 
     steer: bool = False
     switch: bool = False
@@ -57,7 +57,7 @@ BOXED_PANELS = {"current_question", "task_details"}
 # a panel the user opened stays open. A card sent before it had one gets the whole panel when the turn ends.
 TASK_DETAILS_TEXT_ID = "task_details_text"
 STEER_LABEL = "补充当前任务"
-# The slim card's fold (the main thread's, core/main_thread.py Traits.slim_card; the owner, 2026-11-06 22:42): the
+# The slim card's fold (the butler's, core/butler.py Traits.slim_card; the owner, 2026-11-06 22:42): the
 # tiles, 本轮请求, 任务详情 and the running buttons, folded under 详情 below the body and its status line; what a
 # card puts "after the body" or "at the bottom" goes in it too (app/task_card.py body_anchor, bottom_anchor).
 SLIM_DETAILS_ID = "slim_details"
@@ -198,7 +198,7 @@ def build_stream_card(
     the buttons at the bottom. Every element keeps the ID it had on cards sent before, which keep their order
     (app/task_card.py StreamingReply.dashboard, io_box).
 
-    The main thread's card is slim (core/main_thread.py Traits.slim_card, the owner, 2026-11-06 22:42): no title
+    The butler's card is slim (core/butler.py Traits.slim_card, the owner, 2026-11-06 22:42): no title
     bar (the quoted message says it, and a sent one never changes), the body first (a queued card's stage goes in
     the status line instead, ``slim_start``), the status line as one line (``slim_status_markdown``), then 详情
     folded (``slim_details``): the 输入/输出 box (its 输出 without 已运行, which the status line says), 本轮请求,

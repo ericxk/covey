@@ -444,7 +444,7 @@ class TaskRunnerPartsTests(UnifiedCase):
     BRIDGE_ONLY = ('covey.app.bot_menu', 'covey.app.proxy', 'covey.app.dashboard', 'covey.app.digest',
                    'covey.app.settings_hub', 'covey.app.overview', 'covey.app.group_manager', 'covey.app.group_menu',
                    'covey.app.group_boards', 'covey.app.weekly_usage', 'covey.app.workspace_manager',
-                   'covey.app.main_tools', 'covey.app.app_setup', 'covey.app.topic_seen', 'covey.app.health',
+                   'covey.app.butler_tools', 'covey.app.app_setup', 'covey.app.topic_seen', 'covey.app.health',
                    'covey.app.stale', 'covey.core.maintenance', 'covey.core.migrate', 'covey.service.manager',
                    'covey.service.boot', 'covey.feishu.connections', 'covey.core.serving', 'urllib.request')
 
@@ -485,14 +485,14 @@ class TaskRunnerPartsTests(UnifiedCase):
         for name in runner.PARTS:
             if name != 'extension_features':
                 self.assertNotIn(name, runner.__dict__, name)
-        self.assertEqual(runner.main_paths, (ctx.state_dir, ctx.profile or ''))
+        self.assertEqual(runner.butler_paths, (ctx.state_dir, ctx.profile or ''))
         before = set(runner.__dict__)
         menu = runner.menu  # One use builds them all, in the Bridge's order.
         self.assertEqual(set(runner.__dict__) - before - {'extension_features'}, set(runner.PARTS) - {'extension_features'},
                          'PARTS names exactly what _build_parts sets')
         self.assertEqual([type(f).__name__ for f in runner.features], [type(f).__name__ for f in self.app.features])
         self.assertEqual(sorted(menu.actions), sorted(self.app.menu.actions))
-        self.assertEqual((runner.main_env.state_dir, runner.main_env.profile), (ctx.state_dir, ctx.profile or ''))
+        self.assertEqual((runner.butler_env.state_dir, runner.butler_env.profile), (ctx.state_dir, ctx.profile or ''))
         self.assertIs(runner.menu, menu)  # Built once.
         # What build_context set before a part exists reaches it; after, it reaches the part itself.
         self.assertEqual(runner.titles, self.app.titles)

@@ -13,7 +13,7 @@ SPANS = {'selection_ms': ('received', 'submitted'), 'submission_ms': ('submitted
          'delivery_ms': ('delivery_started', 'delivered'), 'total_ms': ('received', 'delivered')}
 # Where a turn's run starts (``run_start``): the first of these stages that is known. Its 用时 is from there to the
 # end of its execution (``run_seconds``), the same span as SPANS["execution_ms"]: one figure on every card (C8,
-# 2026-11-08: the task card, the answer card, the relay, the status card and Pin, the main thread's one-minute rule).
+# 2026-11-08: the task card, the answer card, the relay, the status card and Pin, the butler's one-minute rule).
 RUN_START = ('backend_requested', 'backend_started', 'dispatched', 'queued')
 
 

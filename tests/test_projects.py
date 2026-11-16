@@ -1,5 +1,5 @@
 """专项's foundation (docs/architecture.md 专项, core/projects.py): the lead topic's id, the record and its state machine, the
-topic.json ``project`` field and its cached read, the predicates and Traits row of the lead (core/main_thread.py), the
+topic.json ``project`` field and its cached read, the predicates and Traits row of the lead (core/butler.py), the
 two placement roles (core/placement.py), a project as one cell of the board (core/board_read.py) and the maintenance rule;
 and that with COVEY_PROJECTS unset none of it changes anything."""
 from __future__ import annotations
@@ -15,11 +15,11 @@ from unittest import mock
 from support import enter_context
 from support.records import state_dir, write_job, write_topic
 
-from covey.app import answer_cards, main_tools, pins, policy_retry
-from covey.app.main_env import MainEnv
-from covey.app.main_tools import MainTools, reply
-from covey.core import board_read, main_thread, main_tracks, placement, projects, topics
-from covey.core import main_thread_settings as settings
+from covey.app import answer_cards, butler_tools, pins, policy_retry
+from covey.app.butler_env import ButlerEnv
+from covey.app.butler_tools import ButlerTools, reply
+from covey.core import board_read, butler, butler_tracks, placement, projects, topics
+from covey.core import butler_settings as settings
 from covey.core.maintenance import maintain
 from covey.core.state import DAY, write_json
 
@@ -31,14 +31,14 @@ THREAD = "ab" * 16
 
 
 class Case(unittest.TestCase):
-    """A state directory the main thread is configured on (mode agent) and COVEY_PROJECTS set as ``flag`` says."""
+    """A state directory the butler is configured on (mode agent) and COVEY_PROJECTS set as ``flag`` says."""
 
     flag = "1"
 
     def setUp(self):
         self.state = state_dir(self)
-        previous = main_thread.configure_state(self.state)
-        self.addCleanup(main_thread.configure_state, previous)
+        previous = butler.configure_state(self.state)
+        self.addCleanup(butler.configure_state, previous)
         env = {name: value for name, value in os.environ.items() if not name.startswith(("COVEY_", "LARK_BRIDGE_"))}
         enter_context(self, mock.patch.dict(os.environ, env, clear=True))
         if self.flag:
@@ -47,7 +47,7 @@ class Case(unittest.TestCase):
 
     def mode(self, mode):
         write_json(self.state / settings.FILE, {"mode": mode})
-        main_thread.forget_mode()
+        butler.forget_mode()
 
     def topic(self, topic_id, **fields):
         return write_topic(self.state, topic_id=topic_id, chat_id=CHAT, harness_id="claude", **fields)
@@ -60,7 +60,7 @@ class Case(unittest.TestCase):
 
     def thread(self, topic_id=THREAD, pid=PID):
         write_topic(self.state, topic_id=topic_id, chat_id=CHAT, harness_id="claude",
-                    project=projects.project_field(pid, projects.THREAD))
+                    project=projects.project_field(pid, projects.MEMBER))
         return topic_id
 
 
@@ -72,8 +72,8 @@ class IdTest(unittest.TestCase):
         self.assertNotEqual(one, projects.lead_topic_id("oc_b", PID))
         self.assertNotEqual(one, projects.lead_topic_id("oc_a", OTHER))
 
-    def test_it_meets_no_id_of_the_main_threads_family(self):
-        family = set(main_tracks._slots("oc_a"))
+    def test_it_meets_no_id_of_the_butlers_family(self):
+        family = set(butler_tracks._slots("oc_a"))
         ids = {projects.lead_topic_id("oc_a", f"{n:012x}") for n in range(200)}
         self.assertEqual(len(ids), 200)
         self.assertTrue(ids.isdisjoint(family))
@@ -173,11 +173,11 @@ class RecordTest(Case):
     def test_add_thread_keeps_each_once_in_order_and_takes_topic_ids_only(self):
         projects.create(self.state, projects.new_record(chat_id=CHAT, name="n", project_id=PID))
         for topic in (THREAD, "cd" * 16, THREAD):
-            record = projects.add_thread(self.state, PID, topic)
+            record = projects.add_member(self.state, PID, topic)
         self.assertEqual(record["threads"], [THREAD, "cd" * 16])
         for bad in ("", "x", "../" + "a" * 20, None):
             with self.assertRaises(ValueError):
-                projects.add_thread(self.state, PID, bad)
+                projects.add_member(self.state, PID, bad)
 
     def test_records_of_a_chat_oldest_first_and_without_what_is_not_one(self):
         for n, (pid, chat) in enumerate(((PID, CHAT), (OTHER, "oc_b"), ("0123456789ab", CHAT))):
@@ -197,7 +197,7 @@ class RecordTest(Case):
 
         def add(topic):
             try:
-                projects.add_thread(self.state, PID, topic)
+                projects.add_member(self.state, PID, topic)
                 projects.update(self.state, PID, lambda record: record["steps"].__setitem__(topic[-4:], True))
             except Exception as exc:  # noqa: BLE001 - reported below
                 errors.append(exc)
@@ -271,9 +271,9 @@ class PredicateTest(Case):
         self.assertTrue(projects.is_lead_topic(self.state, lead, CHAT))
         self.assertTrue(projects.is_lead_topic(self.state, lead))  # The chat from the file.
         self.assertFalse(projects.is_lead_topic(self.state, lead, "oc_other"))
-        self.assertFalse(projects.is_thread_topic(self.state, lead))
+        self.assertFalse(projects.is_member_topic(self.state, lead))
         self.thread()
-        self.assertTrue(projects.is_thread_topic(self.state, THREAD))
+        self.assertTrue(projects.is_member_topic(self.state, THREAD))
         self.assertFalse(projects.is_lead_topic(self.state, THREAD, CHAT))
 
     def test_a_topic_json_copied_to_another_topic_is_no_lead(self):
@@ -292,10 +292,10 @@ class PredicateTest(Case):
             self.assertEqual(read.call_count, 1)
             topics.set_topic_project(self.state, lead, PID, "thread")  # Role changed: the next ask sees it.
             self.assertFalse(projects.is_lead_topic(self.state, lead, CHAT))
-            self.assertTrue(projects.is_thread_topic(self.state, lead))
+            self.assertTrue(projects.is_member_topic(self.state, lead))
             self.assertEqual(read.call_count, 2)
             topics.clear_topic_project(self.state, lead)
-            self.assertFalse(projects.is_thread_topic(self.state, lead))
+            self.assertFalse(projects.is_member_topic(self.state, lead))
             topics.set_topic_project(self.state, lead, PID, "lead")
             self.assertTrue(projects.is_lead_topic(self.state, lead, CHAT))
 
@@ -324,29 +324,29 @@ class FlagOffTest(Case):
     def test_every_predicate_is_false_and_cells_are_empty(self):
         lead, thread = self.lead(), self.thread()
         projects.create(self.state, {**projects.new_record(chat_id=CHAT, name="n", project_id=PID), "threads": [thread]})
-        self.assertEqual([projects.is_lead_topic(self.state, lead, CHAT), projects.is_thread_topic(self.state, thread),
-                          main_thread.is_lead(lead, CHAT), main_thread.is_main_topic(lead, CHAT)], [False] * 4)
+        self.assertEqual([projects.is_lead_topic(self.state, lead, CHAT), projects.is_member_topic(self.state, thread),
+                          butler.is_lead(lead, CHAT), butler.is_butler_topic(lead, CHAT)], [False] * 4)
         self.assertEqual(projects.cells(self.state, CHAT), {})
         for flag in ("0", "true", "yes", "2"):
             os.environ[projects.ENV] = flag
             self.assertFalse(projects.enabled(), flag)
-            self.assertFalse(main_thread.is_main_topic(lead, CHAT), flag)
+            self.assertFalse(butler.is_butler_topic(lead, CHAT), flag)
 
     def test_traits_and_placement_are_the_old_ones(self):
         lead, thread = self.lead(), self.thread()
-        self.assertEqual((main_thread.traits(lead, CHAT), main_thread.traits(thread, CHAT)),
-                         (main_thread.TOPIC, main_thread.TOPIC))
+        self.assertEqual((butler.traits(lead, CHAT), butler.traits(thread, CHAT)),
+                         (butler.TOPIC, butler.TOPIC))
         for topic in (lead, thread):
             plan = placement.plan(self.state, {"topic_id": topic, "chat_id": CHAT})
             self.assertEqual((plan.role, plan.row), (placement.TOPIC_ROLE, placement.TABLE[(placement.AREA, "topic")]))
-        main = main_thread.main_topic_id(CHAT)
-        self.assertEqual((main_thread.traits(main, CHAT), placement.plan(self.state, {"topic_id": main, "chat_id": CHAT}).role),
-                         (main_thread.MAIN, placement.MAIN_ROLE))
+        main = butler.butler_topic_id(CHAT)
+        self.assertEqual((butler.traits(main, CHAT), placement.plan(self.state, {"topic_id": main, "chat_id": CHAT}).role),
+                         (butler.BUTLER, placement.BUTLER_ROLE))
 
     def test_no_stat_is_made_for_a_topic_with_the_flag_off(self):
         with mock.patch.object(projects, "topic_project") as read:
-            main_thread.is_main_topic("ab" * 16, CHAT)
-            main_thread.traits("ab" * 16, CHAT)
+            butler.is_butler_topic("ab" * 16, CHAT)
+            butler.traits("ab" * 16, CHAT)
             placement.plan(self.state, {"topic_id": "ab" * 16, "chat_id": CHAT})
         read.assert_not_called()
 
@@ -357,59 +357,59 @@ class FlagOffTest(Case):
         self.assertEqual(board_read.read(self.state, CHAT, 1000.0).cells, {})
 
 
-class MainThreadTest(Case):
+class ButlerTest(Case):
     def test_the_lead_is_of_the_family_but_not_its_root(self):
         lead = self.lead()
-        self.assertTrue(main_thread.is_main_topic(lead, CHAT))
-        self.assertTrue(main_thread.is_lead(lead, CHAT))
-        self.assertFalse(main_thread.is_main_root(lead, CHAT))
-        self.assertTrue(main_thread.is_main_root(main_thread.main_topic_id(CHAT), CHAT))
-        self.assertFalse(main_thread.is_lead(main_thread.main_topic_id(CHAT), CHAT))
-        self.assertFalse(main_thread.is_main_topic(lead, "oc_other"))
-        self.assertFalse(main_thread.is_main_topic("", CHAT))
+        self.assertTrue(butler.is_butler_topic(lead, CHAT))
+        self.assertTrue(butler.is_lead(lead, CHAT))
+        self.assertFalse(butler.is_butler_root(lead, CHAT))
+        self.assertTrue(butler.is_butler_root(butler.butler_topic_id(CHAT), CHAT))
+        self.assertFalse(butler.is_lead(butler.butler_topic_id(CHAT), CHAT))
+        self.assertFalse(butler.is_butler_topic(lead, "oc_other"))
+        self.assertFalse(butler.is_butler_topic("", CHAT))
 
     def test_a_thread_is_a_topic_and_a_track_is_still_a_track(self):
         thread = self.thread()
-        self.assertEqual((main_thread.is_main_topic(thread, CHAT), main_thread.traits(thread, CHAT)),
-                         (False, main_thread.TOPIC))
-        os.environ[main_tracks.ENV] = "1"
-        slot = main_tracks.track_topic_id(CHAT, 2)
-        self.assertEqual((main_thread.is_main_topic(slot, CHAT), main_thread.is_lead(slot, CHAT), main_thread.traits(slot, CHAT)),
-                         (True, False, main_thread.MAIN))
+        self.assertEqual((butler.is_butler_topic(thread, CHAT), butler.traits(thread, CHAT)),
+                         (False, butler.TOPIC))
+        os.environ[butler_tracks.ENV] = "1"
+        slot = butler_tracks.track_topic_id(CHAT, 2)
+        self.assertEqual((butler.is_butler_topic(slot, CHAT), butler.is_lead(slot, CHAT), butler.traits(slot, CHAT)),
+                         (True, False, butler.BUTLER))
 
-    def test_the_lead_row_is_the_main_threads_without_a_wait_for_words(self):
+    def test_the_lead_row_is_the_butlers_without_a_wait_for_words(self):
         lead = self.lead()
-        row = main_thread.traits(lead, CHAT)
-        self.assertIs(row, main_thread.LEAD)
+        row = butler.traits(lead, CHAT)
+        self.assertIs(row, butler.LEAD)
         self.assertEqual((row.name, row.hold_seconds, row.own_turn, row.listed, row.numbered, row.relays, row.has_thread,
                           row.card_target, row.switch_config, row.rewind, row.top_level),
                          ("lead", 0, True, False, False, False, False, False, False, False, True))
-        self.assertEqual({field.name: getattr(row, field.name) for field in main_thread.dataclasses.fields(row)
+        self.assertEqual({field.name: getattr(row, field.name) for field in butler.dataclasses.fields(row)
                           if field.name not in ("name", "hold_seconds")},
-                         {field.name: getattr(main_thread.MAIN, field.name) for field in main_thread.dataclasses.fields(row)
+                         {field.name: getattr(butler.BUTLER, field.name) for field in butler.dataclasses.fields(row)
                           if field.name not in ("name", "hold_seconds")})
-        self.assertIs(main_thread.traits_of({"topic_id": lead, "chat_id": CHAT}), main_thread.LEAD)
+        self.assertIs(butler.traits_of({"topic_id": lead, "chat_id": CHAT}), butler.LEAD)
 
-    def test_with_the_main_thread_off_it_is_the_off_row(self):
+    def test_with_the_butler_off_it_is_the_off_row(self):
         lead = self.lead()
         self.mode("topics")
-        row = main_thread.traits(lead, CHAT)
-        self.assertIs(row, main_thread.LEAD_OFF)
+        row = butler.traits(lead, CHAT)
+        self.assertIs(row, butler.LEAD_OFF)
         self.assertEqual((row.own_turn, row.answers_in_place, row.lists_supplements, row.wording, row.slim_card, row.linkify_body),
                          (False, False, False, (), False, False))
 
     def test_without_a_state_directory_nothing_is_a_lead(self):
         lead = self.lead()
-        main_thread.configure_state(None)
-        self.assertFalse(main_thread.is_lead(lead, CHAT))
-        self.assertEqual(main_thread.traits(lead, CHAT), main_thread.TOPIC)
+        butler.configure_state(None)
+        self.assertFalse(butler.is_lead(lead, CHAT))
+        self.assertEqual(butler.traits(lead, CHAT), butler.TOPIC)
 
     def test_a_lead_is_found_from_a_context_by_its_topic_json(self):
         lead = self.lead()
         path = topics.topic_file(self.state, lead)  # The Bridge's topic.json names its topic and chat (context_for_topic).
         write_json(path, {**json.loads(path.read_text()), "topic_id": lead})
         ctx = mock.Mock(history_path=path.parent / "history.jsonl")
-        self.assertIs(topics.topic_traits(ctx), main_thread.LEAD)
+        self.assertIs(topics.topic_traits(ctx), butler.LEAD)
 
     def test_the_lead_is_no_numbered_topic(self):
         lead = self.lead()
@@ -422,15 +422,15 @@ class PlacementTest(Case):
 
     def test_every_layout_and_role_has_a_cell_and_the_two_new_ones_are_the_spec(self):
         p = placement
-        roles = (p.MAIN_ROLE, p.TOPIC_ROLE, p.LEAD_ROLE, p.THREAD_ROLE)
+        roles = (p.BUTLER_ROLE, p.TOPIC_ROLE, p.LEAD_ROLE, p.MEMBER_ROLE)
         self.assertEqual(set(p.TABLE), {(layout, role) for layout in (p.AREA, p.TOPICS) for role in roles})
-        self.assertEqual(set(p.ROLES.values()), {p.MAIN_ROLE, p.TOPIC_ROLE, p.LEAD_ROLE})  # A thread has no Traits row.
-        lead, thread = p.TABLE[(p.AREA, p.LEAD_ROLE)], p.TABLE[(p.AREA, p.THREAD_ROLE)]
+        self.assertEqual(set(p.ROLES.values()), {p.BUTLER_ROLE, p.TOPIC_ROLE, p.LEAD_ROLE})  # A thread has no Traits row.
+        lead, thread = p.TABLE[(p.AREA, p.LEAD_ROLE)], p.TABLE[(p.AREA, p.MEMBER_ROLE)]
         self.assertEqual((lead.answer, lead.conclusion, lead.stop, lead.question_copy, lead.quiet, lead.reply_top_level),
                          (p.TOP, p.NONE, p.NONE, p.NONE, True, False))
         self.assertEqual((thread.answer, thread.conclusion, thread.stop, thread.question_copy, thread.quiet),
                          (p.THREAD, p.NONE, p.NONE, p.TOP, False))
-        for role in (p.LEAD_ROLE, p.THREAD_ROLE):
+        for role in (p.LEAD_ROLE, p.MEMBER_ROLE):
             self.assertIs(p.TABLE[(p.TOPICS, role)], p.TABLE[(p.TOPICS, p.TOPIC_ROLE)])
 
     def test_a_topics_role_is_read_from_its_topic_json(self):
@@ -438,24 +438,24 @@ class PlacementTest(Case):
         plain = "cd" * 16
         self.topic(plain)
         got = [(plan.role, plan.row.quiet, plan.row.conclusion) for plan in map(self.plan, (lead, thread, plain))]
-        self.assertEqual(got, [("lead", True, ""), ("project_thread", False, ""), ("topic", False, placement.TOP)])
-        self.assertIs(self.plan(lead).traits, main_thread.LEAD)
-        self.assertIs(self.plan(thread).traits, main_thread.TOPIC)
+        self.assertEqual(got, [("lead", True, ""), ("project_member", False, ""), ("topic", False, placement.TOP)])
+        self.assertIs(self.plan(lead).traits, butler.LEAD)
+        self.assertIs(self.plan(thread).traits, butler.TOPIC)
 
     def test_a_job_or_a_record_or_topic_json_all_name_the_topic(self):
         thread = self.thread()
         job_like = mock.Mock(topic_id=thread, chat_id=CHAT)
         for of in (job_like, {"topic_id": thread, "chat_id": CHAT}, write_job(self.state, "k", chat_id=CHAT, topic_id=thread)):
-            self.assertEqual(placement.plan(self.state, of).role, "project_thread")
+            self.assertEqual(placement.plan(self.state, of).role, "project_member")
         # A Traits row names no topic: the thread's role cannot be told from it.
-        self.assertEqual(placement.plan(self.state, main_thread.traits(thread, CHAT)).role, "topic")
+        self.assertEqual(placement.plan(self.state, butler.traits(thread, CHAT)).role, "topic")
 
     def test_an_upgrade_takes_effect_on_the_next_plan(self):
         topic = "cd" * 16
         self.topic(topic)
         self.assertEqual(self.plan(topic).role, "topic")
         topics.set_topic_project(self.state, topic, PID, "thread")
-        self.assertEqual(self.plan(topic).role, "project_thread")
+        self.assertEqual(self.plan(topic).role, "project_member")
         topics.clear_topic_project(self.state, topic)
         self.assertEqual(self.plan(topic).role, "topic")
 
@@ -472,13 +472,13 @@ class PlacementTest(Case):
         self.assertEqual(placement.plan(self.state, {"chat_id": CHAT}).role, "topic")
         self.assertEqual(placement.plan(self.state, {"topic_id": 5, "chat_id": CHAT}).role, "topic")
 
-    def test_the_main_threads_are_unchanged(self):
-        main = main_thread.main_topic_id(CHAT)
+    def test_the_butlers_are_unchanged(self):
+        main = butler.butler_topic_id(CHAT)
         plan = self.plan(main)
-        self.assertEqual((plan.role, plan.row.answer_on_card, plan.row.quiet), ("main", placement.ROUTES, True))
+        self.assertEqual((plan.role, plan.row.answer_on_card, plan.row.quiet), ("butler", placement.ROUTES, True))
         self.mode("topics")
         plan = self.plan(self.thread())
-        self.assertEqual((plan.layout, plan.role, plan.row), (placement.TOPICS, "project_thread",
+        self.assertEqual((plan.layout, plan.role, plan.row), (placement.TOPICS, "project_member",
                                                               placement.TABLE[(placement.TOPICS, "topic")]))
 
     def test_a_threads_conclusion_does_not_relay(self):
@@ -650,7 +650,7 @@ class MaintenanceTest(Case):
 
 
 class AuditTest(Case):
-    """The call sites of is_main_topic and what they do with a lead (of the family) and a thread (a topic): the audit of
+    """The call sites of is_butler_topic and what they do with a lead (of the family) and a thread (a topic): the audit of
     docs/architecture.md 专项, one case each where a lead's answer differs from a thread's."""
 
     def setUp(self):
@@ -658,19 +658,19 @@ class AuditTest(Case):
         self.lead_id, self.thread_id = self.lead(), self.thread()
         self.env = make_env(self.state)
 
-    def test_main_tools_run_for_the_lead_and_refuse_a_thread(self):
-        tools = MainTools(self.env, {"topics_list": lambda env, request: reply(True, "ok")})
+    def test_butler_tools_run_for_the_lead_and_refuse_a_thread(self):
+        tools = ButlerTools(self.env, {"topics_list": lambda env, request: reply(True, "ok")})
         request = mock.Mock(tool="topics_list")
-        for topic, allowed in ((self.lead_id, True), (self.thread_id, False), (main_thread.main_topic_id(CHAT), True)):
+        for topic, allowed in ((self.lead_id, True), (self.thread_id, False), (butler.butler_topic_id(CHAT), True)):
             write_job(self.state, "k", chat_id=CHAT, topic_id=topic, job_id=1, status="running")
             request.job_key = "k"
             self.assertEqual(tools.refusal(request) is None, allowed, topic)
 
     def test_a_tool_cannot_open_the_lead_as_a_topic_but_can_a_thread(self):
         write_job(self.state, "j1", chat_id=CHAT, topic_id=THREAD, job_id=1, status="done")
-        self.assertEqual(main_tools.resolve(self.env, CHAT, self.thread_id)[0], self.thread_id)
+        self.assertEqual(butler_tools.resolve(self.env, CHAT, self.thread_id)[0], self.thread_id)
         with self.assertRaises(ValueError):
-            main_tools.resolve(self.env, CHAT, self.lead_id)
+            butler_tools.resolve(self.env, CHAT, self.lead_id)
 
     def test_the_board_read_leaves_the_lead_out_and_lists_the_thread(self):
         write_job(self.state, "j1", chat_id=CHAT, topic_id=THREAD, job_id=1, status="done")
@@ -684,11 +684,11 @@ class AuditTest(Case):
                 record = {"backend": "claude", "topic_id": topic, "chat_id": CHAT, "model": "claude-new"}
                 self.assertEqual(policy_retry.eligible(record, event), found, topic)
 
-    def test_a_message_quoting_a_leads_card_stays_with_the_main_thread_app_and_a_threads_does_not(self):
+    def test_a_message_quoting_a_leads_card_stays_with_the_butler_app_and_a_threads_does_not(self):
         write_json(topics_alias(self.state, "om_leadcard"), {"topic_id": self.lead_id})
         write_json(topics_alias(self.state, "om_threadcard"), {"topic_id": self.thread_id})
         known = [topics.message_topic(self.state, CHAT, mid) for mid in ("om_leadcard", "om_threadcard")]
-        self.assertEqual([main_thread.is_main_topic(topic, CHAT) for topic in known], [True, False])
+        self.assertEqual([butler.is_butler_topic(topic, CHAT) for topic in known], [True, False])
 
     def test_the_answer_link_of_a_lead_turn_is_the_owners_message_not_a_thread(self):
         with mock.patch("covey.app.topic_links.topic_thread_link", return_value=("https://thread", "thread")) as thread_link, \
@@ -709,23 +709,23 @@ class AuditTest(Case):
         self.assertEqual(owners, [True, False])
 
     def test_the_lead_cards_quote_stays_the_leads(self):
-        from covey.app import main_relay
+        from covey.app import butler_relay
 
         gateway = mock.Mock()
         job = {"topic_id": self.lead_id, "chat_id": CHAT, "message_id": "om_x", "job_id": 3}
-        with mock.patch.object(main_relay, "areas_of", return_value={THREAD}) as areas, \
-                mock.patch.object(main_relay, "find_job_record", return_value={"card_message_id": "om_card"}), \
-                mock.patch.object(main_relay, "route_message") as route:
-            main_relay.after_runner(gateway, job, mock.Mock(state_dir=self.state))
+        with mock.patch.object(butler_relay, "areas_of", return_value={THREAD}) as areas, \
+                mock.patch.object(butler_relay, "find_job_record", return_value={"card_message_id": "om_card"}), \
+                mock.patch.object(butler_relay, "route_message") as route:
+            butler_relay.after_runner(gateway, job, mock.Mock(state_dir=self.state))
             areas.assert_not_called()
             route.assert_not_called()
-            main_relay.after_runner(gateway, {**job, "topic_id": main_thread.main_topic_id(CHAT)}, mock.Mock(state_dir=self.state))
+            butler_relay.after_runner(gateway, {**job, "topic_id": butler.butler_topic_id(CHAT)}, mock.Mock(state_dir=self.state))
             route.assert_called_once()
 
 
 def make_env(state):
     runtime = mock.Mock(log=lambda line: None, access=mock.Mock(owner_chat=lambda: CHAT))
-    return MainEnv(runtime, mock.Mock(harnesses={}, default="claude", target=lambda *args: None), None, None,
+    return ButlerEnv(runtime, mock.Mock(harnesses={}, default="claude", target=lambda *args: None), None, None,
                    state_dir=Path(state), profile="unit")
 
 

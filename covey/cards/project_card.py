@@ -1,4 +1,4 @@
-"""The 专项卡 (app/project_cards.py; docs/main-thread.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's
+"""The 专项卡 (app/project_cards.py; docs/butler.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's
 top level, a message of its own (never a reply: Feishu puts a reply to a message that has a thread into the thread, see
 cards/dispatch_card.py). It is drawn whole from ``Project`` (what the project's record and its topics' job records say),
 again each time that changes, and once more as a single line when the project is done.
@@ -9,11 +9,11 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
 - the header: the project's name, its state as a tag (在做, 等你, 停住, 做完) and its direction (a grey tag; P2-8, drawn only
   when the record has one);
 - ``pj_need``: 需要你 and what waits, with › 打开问题卡 when the question card has a link;
-- ``pj_meta``: one grey line, threads and how they stand, 用时, token;
+- ``pj_meta``: one grey line, member topics and how they stand, 用时, token;
 - ``pj_lead``: the lead as it is now and the last line it noted;
-- ``pt_<topic>_<s>``: one fold a thread, open while it works or waits on the owner and closed once it ended; ``s`` is the
-  state's letter, so a thread that moves from one to the other is a new element and the client draws the fold as
-  that state says (a changed ``expanded`` on the same id is kept as the owner left it); at most ``MAX_THREADS``, the rest
+- ``pt_<topic>_<s>``: one fold a member, open while it works or waits on the owner and closed once it ended; ``s`` is the
+  state's letter, so a member that moves from one to the other is a new element and the client draws the fold as
+  that state says (a changed ``expanded`` on the same id is kept as the owner left it); at most ``MAX_FOLDS``, the rest
   one grey line ``pj_more``. Inside, ``pb_<topic>_<s>``, what it is doing and the link that opens its thread;
 - ``pj_triage``, ``pj_mem``, ``pj_lib``: the 分流记录, 专项记忆 and 资料库 folds (closed), drawn only with rows; each row of
   the last two has a 删 button;
@@ -33,8 +33,8 @@ from covey.cards.elements import (button_row, card, collapsible, grey, item, md,
                                   text_button, topic_button)
 
 HEAD_CHARS = 30
-THREAD_TITLE = 36  # Of a topic's title on its fold's title line.
-MAX_THREADS = 8  # Folds drawn; the older ones are one line.
+MEMBER_TITLE = 36  # Of a topic's title on its fold's title line.
+MAX_FOLDS = 8  # Folds drawn; the older ones are one line.
 MAX_ROWS = 10  # Rows of the 分流记录, 专项记忆 and 资料库 folds.
 ROW_CHARS = 90
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
@@ -49,8 +49,8 @@ OPEN = frozenset({RUNNING, WAITING})  # The folds that are open.
 
 
 @dataclass(frozen=True)
-class Thread:
-    """One thread topic of the project. ``status`` is one of 在做, 等你, 做完 (a thread that failed or was stopped is 做完
+class Member:
+    """One member topic of the project. ``status`` is one of 在做, 等你, 做完 (a member that failed or was stopped is 做完
     too, its ``body`` says what happened); ``url`` opens its thread ('' while it is not known)."""
     topic_id: str
     status: str
@@ -72,7 +72,7 @@ class Project:
     direction: str = ""
     need: str = ""
     need_url: str = ""
-    threads: tuple = ()
+    members: tuple = ()
     elapsed: str = ""
     tokens: str = ""
     lead_state: str = ""
@@ -113,10 +113,10 @@ def short(topic_id) -> str:
 
 def count_line(project) -> str:
     kinds = {}
-    for thread in project.threads:
-        kinds[thread.status] = kinds.get(thread.status, 0) + 1
+    for member in project.members:
+        kinds[member.status] = kinds.get(member.status, 0) + 1
     parts = " · ".join(f"{word} {kinds[word]}" for word in (RUNNING, WAITING, DONE) if kinds.get(word))
-    return f"话题 {len(project.threads)}" + (f"（{parts}）" if parts else "")
+    return f"话题 {len(project.members)}" + (f"（{parts}）" if parts else "")
 
 
 def meta_line(project) -> str:
@@ -141,30 +141,30 @@ def need_element(project):
     return md(text, element_id="pj_need", size="normal_v2")
 
 
-def ordered(threads) -> tuple:
-    """The threads as the card lists them: the ones that wait for the owner, then the ones at work, then the ones that
+def ordered(members) -> tuple:
+    """The members as the card lists them: the ones that wait for the owner, then the ones at work, then the ones that
     ended; each in the order they came in (the record's)."""
     rank = {WAITING: 0, RUNNING: 1, DONE: 2}
-    return tuple(sorted(threads, key=lambda thread: rank.get(thread.status, 2)))
+    return tuple(sorted(members, key=lambda member: rank.get(member.status, 2)))
 
 
-def thread_fold(thread):
-    letter = LETTER.get(thread.status, "d")
-    key = f"{short(thread.topic_id)}_{letter}"
-    title = " · ".join(part for part in (thread.label, clipped(thread.title, THREAD_TITLE), thread.status) if part)
-    body = [md(literal_text(clipped(thread.body, 200)) if thread.body else grey("—"), element_id=f"pb_{key}", size="normal_v2")]
-    tail = " · ".join(part for part in (f"用时 {thread.took}" if thread.took else "",
-                                        f"[打开话题串 ›]({thread.url})" if thread.url else "") if part)
+def member_fold(member):
+    letter = LETTER.get(member.status, "d")
+    key = f"{short(member.topic_id)}_{letter}"
+    title = " · ".join(part for part in (member.label, clipped(member.title, MEMBER_TITLE), member.status) if part)
+    body = [md(literal_text(clipped(member.body, 200)) if member.body else grey("—"), element_id=f"pb_{key}", size="normal_v2")]
+    tail = " · ".join(part for part in (f"用时 {member.took}" if member.took else "",
+                                        f"[打开话题串 ›]({member.url})" if member.url else "") if part)
     if tail:
-        body.append(md(grey(tail) if not thread.url else tail, element_id=f"pq_{key}", size="notation"))
-    return collapsible(f"pt_{key}", title, body, expanded=thread.status in OPEN, size="normal_v2")
+        body.append(md(grey(tail) if not member.url else tail, element_id=f"pq_{key}", size="notation"))
+    return collapsible(f"pt_{key}", title, body, expanded=member.status in OPEN, size="normal_v2")
 
 
-def thread_elements(project) -> list:
-    shown = ordered(project.threads)
-    elements = [thread_fold(thread) for thread in shown[:MAX_THREADS]]
-    if len(shown) > MAX_THREADS:
-        elements.append(note(f"更早 {len(shown) - MAX_THREADS} 条已收起，在各自的话题里看"))
+def member_elements(project) -> list:
+    shown = ordered(project.members)
+    elements = [member_fold(member) for member in shown[:MAX_FOLDS]]
+    if len(shown) > MAX_FOLDS:
+        elements.append(note(f"更早 {len(shown) - MAX_FOLDS} 条已收起，在各自的话题里看"))
         elements[-1]["element_id"] = "pj_more"
     return elements
 
@@ -220,7 +220,7 @@ def project_card(project):
     elements = [*ask, need_element(project)]
     elements.append(md(grey(literal_text(meta_line(project))), element_id="pj_meta", size="notation"))
     elements.append(md(lead_line(project), element_id="pj_lead", size="normal_v2"))
-    elements += thread_elements(project)
+    elements += member_elements(project)
     elements += [row_fold("pj_triage", "分流记录", triage_rows(project)),
                  row_fold("pj_mem", "专项记忆", memory_rows(project)),
                  row_fold("pj_lib", "资料库", library_rows(project)),

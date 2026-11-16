@@ -20,7 +20,7 @@ from covey.app.task_card import StreamingReply
 from covey.app.recovery_cards import asked_took
 from covey.cards.answer_card import output_parts
 from covey.cards.task_figures import figure_cells
-from covey.core import main_thread, metrics
+from covey.core import butler, metrics
 from covey.core.harness import RunResult
 from covey.core.longtask import TaskMonitor
 
@@ -51,12 +51,12 @@ class EveryCardTest(unittest.TestCase):
     def job(self):
         return types.SimpleNamespace(timings=dict(TIMINGS))
 
-    def test_task_card_answer_card_relay_status_card_and_main_thread_say_the_same(self):
+    def test_task_card_answer_card_relay_status_card_and_butler_say_the_same(self):
         job = self.job()
         seconds = FINISHED - REQUESTED
         self.assertAlmostEqual(Cards._took(job, SNAPSHOT), seconds)  # The status line's 用时 and the tile's.
         self.assertAlmostEqual(answer_cards.took(job, SNAPSHOT), seconds)  # The answer card and the relay.
-        self.assertAlmostEqual(main_thread.run_seconds(job), seconds)  # The main thread's one-minute rule.
+        self.assertAlmostEqual(butler.run_seconds(job), seconds)  # The butler's one-minute rule.
         self.assertAlmostEqual(asked_took("", {"timings": dict(TIMINGS)}), seconds)
         self.assertIn("<font color='grey'>用时</font> **1分30秒**", output_parts(SNAPSHOT, answer_cards.took(job, SNAPSHOT)))
         self.assertEqual(figure_cells(SNAPSHOT, Cards._took(job, SNAPSHOT))[0], ("用时", "1分30秒", ""))
@@ -99,21 +99,21 @@ class WordsTest(unittest.TestCase):
     """The state words are defined once (core/turn_words.py, C10) and read as before."""
 
     def test_every_reader_takes_the_one_table(self):
-        from covey.app import main_thread as main_app, main_tools, overview, status_cards
+        from covey.app import butler as butler_app, butler_tools, overview, status_cards
         from covey.cards import overview as overview_card, question_cards, review
         from covey.core import longtask, turn_words
 
         self.assertIs(review.outcome_line, turn_words.outcome_line)
         self.assertIs(question_cards.FOLLOW_UP, turn_words.FOLLOW_UP)
         self.assertIs(overview_card.OUTCOMES, turn_words.OVERVIEW_OUTCOMES)
-        self.assertIs(main_tools.GROUP_NAMES, turn_words.GROUP_NAMES)
-        self.assertIs(main_app.RESULTS, turn_words.RESULTS)
+        self.assertIs(butler_tools.GROUP_NAMES, turn_words.GROUP_NAMES)
+        self.assertIs(butler_app.RESULTS, turn_words.RESULTS)
         self.assertIs(overview.UNSET_PHASES, turn_words.UNSET_PHASES)
         self.assertIs(status_cards.UNSET_PHASES, turn_words.BLANK_PHASES)
         self.assertEqual(longtask.SEED_PHASE, turn_words.SEED_PHASE)
         self.assertEqual([review.outcome_line(s) for s in ("done", "failed", "cancelled", "waiting_user", "x")],
                          ["✅ 已完成", "⚠️ 执行失败", "⏹ 已停止", "❓ 需要你回答", "✅ 已完成"])
-        self.assertEqual(dict(main_app.GROUPS)["result"], "有结果未看")
+        self.assertEqual(dict(butler_app.GROUPS)["result"], "有结果未看")
 
 
 class TraceEndsFirstBackend(RecordingBackend):

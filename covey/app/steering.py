@@ -21,14 +21,14 @@ from covey.core.deliveries import (REQUEUE, delivery_path, delivery_token, end_u
 from covey.cards.steer_form import closed_card, latest_request
 from covey.core.jobs import upsert_job_record, find_job_record
 from covey.core import background, timing
-from covey.core.main_thread import traits_of
+from covey.core.butler import traits_of
 from covey.core.harness import backend_capabilities
 from covey.core.locks import resource_lock
 from covey.core.history_storage import append_history
 from covey.core.text import literal
 from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
 from covey.app import device_files
-from covey.app.main_thread import SUPPLEMENT_LOST, SUPPLEMENT_UNCERTAIN
+from covey.app.butler import SUPPLEMENT_LOST, SUPPLEMENT_UNCERTAIN
 from covey.app.runtime import job_stage
 from covey.app.submission import queue_hint
 from covey.app.detached import update_queued
@@ -51,7 +51,7 @@ class Steering(SteerForms, SteerReceiptFlow):
     - ``cards``: the task card a supplement is shown on.
     - ``record_job_state``: records a queued task that took a supplement into its request.
     - ``enqueue_chat_job``: queues a refused or withdrawn supplement again as its own task.
-    - ``event_context``: the context a message starts a turn in (app/submission.py), for a main-thread
+    - ``event_context``: the context a message starts a turn in (app/submission.py), for a butler
       supplement its turn never took, queued as a turn of its own (``queue_lost``).
     They are late-bound: they sit above Steering.
     """
@@ -204,7 +204,7 @@ class Steering(SteerForms, SteerReceiptFlow):
         (sent by itself once it can take it); SteerRefused means nothing was sent, SteerUncertain that it
         may have arrived (it is never sent again automatically). A list ``later`` gets the task card's
         note of it instead of the note being written now: the caller shows its receipt first. ``shown``: what the
-        card and the topic's history say instead of ``text`` (the main thread's hand-on, app/main_handoff.py). ``asked``:
+        card and the topic's history say instead of ``text`` (the butler's hand-on, app/butler_handoff.py). ``asked``:
         the owner's words of it, which a turn held for them notes for its "你问" block once it takes it in
         (``merge_before_start``); '' (a forward, an image, a link with no words) notes nothing."""
         stage = self.steer_stage(job)
@@ -301,7 +301,7 @@ class Steering(SteerForms, SteerReceiptFlow):
             job.prompt_text = (job.prompt_text or job.user_text) + "\n\n用户在任务开始前补充：\n" + text
             fields = {}
             if asked.strip() and job.start_held_until:
-                # A turn held for the owner's words (app/main_thread.py hold_for): these are what he asked.
+                # A turn held for the owner's words (app/butler.py hold_for): these are what he asked.
                 job.asked_text = "\n".join(part for part in (job.asked_text, asked.strip()) if part)
                 fields = {"asked_text": job.asked_text}
             upsert_job_record(ctx.state_dir, job.message_id, prompt_text=job.prompt_text, **fields)
@@ -373,10 +373,10 @@ class Steering(SteerForms, SteerReceiptFlow):
         elif record and record.get("status") in {"refused", "uncertain"} and traits_of(job).lists_supplements:
             # Refused was never sent: a turn of its own. Uncertain may have arrived (rule 6): only said.
             if not (record.get("status") == "refused" and self.requeue_lost(ctx, job, [record])):
-                background.start(background.CARD_UPDATES, self.tell_main_thread_lost, ctx, job, record)
+                background.start(background.CARD_UPDATES, self.tell_butler_lost, ctx, job, record)
 
     def requeue_lost(self, ctx, job, records):
-        """Main-thread supplements the turn ``job`` certainly never took (refused: never sent; or ended unread on a
+        """Butler supplements the turn ``job`` certainly never took (refused: never sent; or ended unread on a
         harness that reports reads) become turns of their own, as if the owner had just sent them: each is marked
         ``requeue_auto`` (core/deliveries.py) and queued by ``queue_lost``, here at once, from a task runner by
         its Bridge once the runner is done (app/detached.py), or at the Bridge's next start when none was there to
@@ -398,7 +398,7 @@ class Steering(SteerForms, SteerReceiptFlow):
         return marked
 
     def queue_lost(self, ctx, job):
-        """Queue the main-thread supplements of ``job`` marked ``requeue_auto`` as turns of their own, oldest first,
+        """Queue the butler supplements of ``job`` marked ``requeue_auto`` as turns of their own, oldest first,
         each once: its message id is the new turn's, so its reactions, card and answer are a new message's. The
         Bridge's only (a task runner never queues a job). The intent is saved under the record's lock and queuing
         runs outside it (rule 1), the same ``requeue_state`` a 重新排队执行 click keeps: one that went is never
@@ -441,15 +441,15 @@ class Steering(SteerForms, SteerReceiptFlow):
                     record = self._requeue(target, chat_id, path, record, message_id=mid)
                 except ValueError as exc:  # Refused before it was queued, its reason sent: not tried again.
                     update_delivery(path, requeue_auto=False)
-                    self.runtime.log(f"main thread supplement not queued message={mid[-10:]}: {exc}")
+                    self.runtime.log(f"butler supplement not queued message={mid[-10:]}: {exc}")
                     continue
                 except Exception as exc:  # noqa: BLE001 - it may be queued: requeue_state uncertain, never again
-                    self.runtime.log(f"main thread supplement queue unconfirmed message={mid[-10:]}: "
+                    self.runtime.log(f"butler supplement queue unconfirmed message={mid[-10:]}: "
                                      f"{type(exc).__name__}")
                     unsure.append((chat_id, mid))
                     continue
                 queued.append(record.get("requeued_job_id"))
-                self.runtime.log(f"main thread supplement queued as its own turn message={mid[-10:]} "
+                self.runtime.log(f"butler supplement queued as its own turn message={mid[-10:]} "
                                  f"job=#{record.get('requeued_job_id')} after={after}")
         for chat_id, mid in unsure:
             self.tell_requeue_unsure(ctx, chat_id, mid)
@@ -457,17 +457,17 @@ class Steering(SteerForms, SteerReceiptFlow):
 
     def tell_requeue_unsure(self, ctx, chat, mid):
         """A lost supplement whose queuing raised may be a turn of its own already: never queued again (rule 6), so
-        the owner hears it once under the message, as one the turn may have taken (app/main_thread.py)."""
+        the owner hears it once under the message, as one the turn may have taken (app/butler.py)."""
         if not mid or not chat:
             return
         try:
             self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=mid), chat, SUPPLEMENT_UNCERTAIN,
                                  self.voice.key("main-supplement-requeue", mid), voice=self.voice)
         except Exception as exc:  # noqa: BLE001 - the record says uncertain; nothing is queued again
-            self.runtime.log(f"main thread supplement notice not sent message={mid[-10:]}: {type(exc).__name__}")
+            self.runtime.log(f"butler supplement notice not sent message={mid[-10:]}: {type(exc).__name__}")
 
-    def tell_main_thread_lost(self, ctx, job, record):
-        """The main thread's supplements have no receipt card (app/main_thread.py): one the turn did not take is
+    def tell_butler_lost(self, ctx, job, record):
+        """The butler's supplements have no receipt card (app/butler.py): one the turn did not take is
         said in a line under the owner's message, which is never sent again by itself (rule 6)."""
         mid = str(record.get("mid") or "")
         if not mid:
@@ -482,8 +482,8 @@ class Steering(SteerForms, SteerReceiptFlow):
     def end_unread_steers(self, ctx, job, *, listed=False):
         """The task ended. On a harness that reports reads (Claude), a supplement still "sent" was never
         read: its receipt says so and offers 重新排队执行. Others never report reads: theirs stay as they are.
-        The main thread's have no receipt: they become turns of their own (``requeue_lost``). ``listed``: a
-        stopped or refused main-thread turn's card listed its supplements (app/main_reply.py), so they get
+        The butler's have no receipt: they become turns of their own (``requeue_lost``). ``listed``: a
+        stopped or refused butler turn's card listed its supplements (app/butler_reply.py), so they get
         neither a turn nor a line of their own under the owner's message."""
         since = (getattr(job, "timings", None) or {}).get("backend_requested", 0)
         main = []
@@ -495,13 +495,13 @@ class Steering(SteerForms, SteerReceiptFlow):
         requeued = {record.get("mid") for record in self.requeue_lost(ctx, job, main)} if main else set()
         for record in main:
             if record.get("mid") not in requeued:
-                background.start(background.CARD_UPDATES, self.tell_main_thread_lost, ctx, job, record)
+                background.start(background.CARD_UPDATES, self.tell_butler_lost, ctx, job, record)
 
     def settle_held_at_end(self, ctx, job):
         """The task ``job`` left the registry (app/app.py process_reply_job; a task runner's end once more after its
         inbox stops, app/runner.py): the supplements it still held were never sent (one that came after its result
-        is held, the backend no longer taking any) and are settled at once (``drop_held_steers``: the main
-        thread's become turns of their own, marked for the Bridge in a task runner), not on the steer-hold
+        is held, the backend no longer taking any) and are settled at once (``drop_held_steers``: the butler's
+         become turns of their own, marked for the Bridge in a task runner), not on the steer-hold
         thread's next tick, which a task runner's exit cut off: they stayed held and the owner heard nothing
         (ACCEPT-344-A). Never raises."""
         reason = "任务已经在收尾，这条补充没有发出" if job.execution_started else "任务在准备好之前就结束了，这条补充没有发出"
@@ -512,11 +512,11 @@ class Steering(SteerForms, SteerReceiptFlow):
 
     def drop_held_steers(self, ctx, job, reason="任务在准备好之前就结束了，这条补充没有发出", *, listed=False):
         """The task ended before it could take them: they were never sent. ``listed``: a stopped or refused
-        main-thread turn's card listed them (app/main_reply.py show_dropped): no turn and no line of their own,
+        butler turn's card listed them (app/butler_reply.py show_dropped): no turn and no line of their own,
         as ``end_unread_steers`` has it."""
         with job.held_lock:
             held, job.held_steers = dict(job.held_steers), {}
-        for mid in held:  # In order: the main thread's queue as turns of their own in the order they came.
+        for mid in held:  # In order: the butler's queue as turns of their own in the order they came.
             if listed and traits_of(job).lists_supplements:
                 update_delivery(delivery_path(ctx.state_dir, job.topic_id, mid), status="refused", error=reason)
                 continue

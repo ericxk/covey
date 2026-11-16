@@ -243,7 +243,7 @@ class SwitchHandoff:
         """An ended turn's 换配置 alone: failed, stopped or interrupted."""
         if (not job.progress or job.switch_controls_attached or job.topic_controls_attached
                 or not ctx.topic_id or not ctx.options.get("harness_id") or not topic_traits(ctx).switch_config):
-            return  # The main thread's settings are on its settings card.
+            return  # The butler's settings are on its settings card.
         job.switch_controls_attached = bool(self.cards.set_task_element(ctx, job, switch_panel(
             ctx.topic_id, job.job_id, ctx.options["harness_id"], ctx.options.get("binding_revision", 1)), at_bottom=True))
 

@@ -9,7 +9,7 @@ means it may have arrived, so it is never sent again automatically. A ``sent``
 record whose task ended unread, on a harness that reports reads, stays ``sent``
 and gains ``target_ended`` (``end_unread``); ``reads`` on a record says its task
 reports reads, so a 检查送达状态 click on one still "sent" after its task ended
-marks it the same way (``app/steering.py``). A main-thread supplement (no receipt) that its turn
+marks it the same way (``app/steering.py``). A butler supplement (no receipt) that its turn
 certainly never took, refused or ended unread, gains ``requeue_auto``: the Bridge queues it as a
 turn of its own once (``lost``, app/steering.py ``queue_lost``; at the Bridge's start, those whose turn ended
 while no Bridge watched it, ``queue_stranded``), through the same ``requeue_state``
@@ -111,7 +111,7 @@ def end_unread(state_dir, job_key, since=0.0):
 
 
 def lost(state_dir, job_key=None, since=0.0):
-    """The main-thread supplements of the task ``job_key`` (None: of every task, a Bridge's start) its turn never took
+    """The butler supplements of the task ``job_key`` (None: of every task, a Bridge's start) its turn never took
     and that wait to be queued as turns of their own (``requeue_auto``, not tried yet: ``offers`` still has REQUEUE),
     oldest first, as (path, record). Files last written before ``since`` (less CLOCK_SLACK) are skipped unread, as in
     ``end_unread``."""
@@ -184,8 +184,8 @@ def offers(record):
 
 
 def shown_text(record):
-    """What the user wrote. A queued message is sent with its topic background, the main thread's hand-on with the
-    Bridge's note (``shown``, app/main_handoff.py); cards show only this."""
+    """What the user wrote. A queued message is sent with its topic background, the butler's hand-on with the
+    Bridge's note (``shown``, app/butler_handoff.py); cards show only this."""
     return (record.get("receipt") or {}).get("text") or record.get("shown") or record.get("text") or ""
 
 

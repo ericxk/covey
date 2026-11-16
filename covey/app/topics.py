@@ -12,7 +12,7 @@ import dataclasses
 import re
 
 from covey.core.jobs import topic_job_records, upsert_job_record
-from covey.core.main_thread import traits
+from covey.core.butler import traits
 from covey.core.roster import NAMES, RETIRED
 from covey.core.state import write_json
 from covey.core.topics import load_topic, read_topic, retired_topic
@@ -96,7 +96,7 @@ class Topics:
     def target(self, state_dir, topic_id, chat_id):
         """(app, context, topic.json) of the topic a card names, or None when the id is not a topic's, its
         topic.json cannot be read, its Harness has no app, the topic is another chat's, a frozen front-desk one
-        (core/topics.py retired_topic) or it is the main thread's (app/main_thread.py: no root message to address it
+        (core/topics.py retired_topic) or it is the butler's (app/butler.py: no root message to address it
         by)."""
         if not isinstance(topic_id, str) or not re.fullmatch("[0-9a-f]{16,128}", topic_id):
             return None

@@ -115,7 +115,7 @@ class SteerReceiptFlow:
     def _requeue(self, ctx, chat, path, record, *, message_id=""):
         """Queue the supplement's message as a task of its own, then record the job. An error may
         have queued it: it is unconfirmed and never queued again by itself. ``message_id``: the new task's, the
-        owner's message itself for a main-thread one (app/steering.py queue_lost); else its own requeue key."""
+        owner's message itself for a butler one (app/steering.py queue_lost); else its own requeue key."""
         again, token = record["requeue"], record["token"]
         try:
             job = self.enqueue_chat_job(ctx, again["text"], chat, message_id or "requeue-" + token[:24],

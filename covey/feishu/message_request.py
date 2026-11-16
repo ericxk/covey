@@ -32,7 +32,7 @@ _MESSAGE_ID = re.compile(r"om_[A-Za-z0-9_-]+")
 _VALUE_FLAGS = {"--as", "--chat-id", "--message-id", "--msg-type", "--content", "--text", "--markdown",
                 "--idempotency-key", "--format"}
 # (chat_id, message_id) -> whether a reply to that message stays at the chat's top level, quoting it, instead of
-# opening or joining its thread: the main thread's (app/main_thread.py). None, as without COVEY_MAIN_THREAD:
+# opening or joining its thread: the butler's (app/butler.py). None, as without COVEY_BUTLER:
 # every reply is in its thread.
 _top_level = None
 
@@ -45,7 +45,7 @@ def configure_top_level(predicate):
 
 
 def reply_in_thread(chat_id, reply_to) -> bool:
-    """Whether a reply to ``reply_to`` goes in that message's thread: all do but the main thread's."""
+    """Whether a reply to ``reply_to`` goes in that message's thread: all do but the butler's."""
     return _top_level is None or not _top_level(chat_id, reply_to)
 
 
@@ -53,7 +53,7 @@ def message_argv(profile, *, chat_id="", user_id="", reply_to="", in_thread=True
     """The lark-cli argv of one message the bot writes under the idempotency ``key`` (already safe): ``flag``
     ``value`` its content (``--markdown`` or ``--text`` and the text; ``--content`` and a card's JSON, an
     interactive message), sent to ``chat_id`` or in reply to ``reply_to``, in its thread (a quote at the chat's
-    top level instead when ``in_thread`` is False or configure_top_level's predicate says so: the main thread's
+    top level instead when ``in_thread`` is False or configure_top_level's predicate says so: the butler's
     replies). ``user_id``: to that user, the owner's first private message (app/bot_menu.py), with its flags in
     the order it always had.
     The argv is the write's receipt fingerprint, shared with task runners of older releases: never reorder."""

@@ -62,5 +62,78 @@ class NamesTest(unittest.TestCase):
         self.assertEqual((env["COVEY_MANAGED"], env["LARK_BRIDGE_MANAGED"]), ("1", "1"))
 
 
+# The names the main thread's variables had before it became the butler (2026-11-16): (new tail, old tail).
+RENAMED = (("BUTLER", "MAIN_THREAD"), ("BUTLER_RULES", "MAIN_BUTLER"), ("BUTLER_TRACKS", "MAIN_TRACKS"),
+           ("BUTLER_TRACKS_MAX", "MAIN_TRACKS_MAX"), ("DISPATCH_CARD", "MAIN_DISPATCH_CARD"), ("BUTLER_JOB", "MAIN_JOB"),
+           ("BUTLER_STATE", "MAIN_STATE"))
+
+
+class RenamedTest(unittest.TestCase):
+    """Seven variables changed their name as well as their prefix: the new name wins, then COVEY_<old>, then
+    LARK_BRIDGE_<old>; manifests keep LARK_BRIDGE_<old>, the name every older release reads."""
+
+    def test_the_new_name_wins_then_the_old_name_under_either_prefix(self):
+        for new, old in RENAMED:
+            for asked in (f"COVEY_{new}", f"COVEY_{old}", f"LARK_BRIDGE_{old}"):  # Asked under any of its names.
+                self.assertEqual(cenv.get(asked, None, {f"COVEY_{new}": "n", f"COVEY_{old}": "m", f"LARK_BRIDGE_{old}": "l"}), "n")
+                self.assertEqual(cenv.get(asked, None, {f"COVEY_{old}": "m", f"LARK_BRIDGE_{old}": "l"}), "m")
+                self.assertEqual(cenv.get(asked, None, {f"LARK_BRIDGE_{old}": "l"}), "l")
+                self.assertIsNone(cenv.get(asked, None, {}))
+        self.assertTrue(cenv.has("COVEY_BUTLER", {"LARK_BRIDGE_MAIN_THREAD": ""}))  # Set to empty is set.
+
+    def test_reading_an_old_name_from_the_process_environment_points_to_the_new_one(self):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {"COVEY_MAIN_TRACKS": "1", "LARK_BRIDGE_MAIN_DISPATCH_CARD": "1"}), \
+                contextlib.redirect_stderr(err):
+            cenv._warned.clear()
+            self.assertEqual(cenv.get("COVEY_BUTLER_TRACKS"), "1")
+            self.assertEqual(cenv.get("COVEY_DISPATCH_CARD"), "1")
+            self.assertEqual(cenv.get("COVEY_BUTLER_TRACKS"), "1")
+        lines = err.getvalue().splitlines()
+        self.assertEqual(lines, ["COVEY_MAIN_TRACKS is the old name of COVEY_BUTLER_TRACKS: set COVEY_BUTLER_TRACKS instead "
+                                 "(the old name still works)",
+                                 "LARK_BRIDGE_MAIN_DISPATCH_CARD is the old name of COVEY_DISPATCH_CARD: set COVEY_DISPATCH_CARD "
+                                 "instead (the old name still works)"])
+
+    def test_canonical_mirrored_and_put_use_every_spelling(self):
+        self.assertEqual(cenv.canonical({"COVEY_BUTLER": "1", "COVEY_MAIN_TRACKS": "1", "LARK_BRIDGE_MAIN_JOB": "j", "PATH": "/b"}),
+                         {"LARK_BRIDGE_MAIN_THREAD": "1", "LARK_BRIDGE_MAIN_TRACKS": "1", "LARK_BRIDGE_MAIN_JOB": "j", "PATH": "/b"})
+        # The new name beats an old one, whatever the order they came in.
+        for order in ({"LARK_BRIDGE_MAIN_THREAD": "old", "COVEY_BUTLER": "new"}, {"COVEY_BUTLER": "new", "LARK_BRIDGE_MAIN_THREAD": "old"},
+                      {"COVEY_MAIN_THREAD": "mid", "COVEY_BUTLER": "new", "LARK_BRIDGE_MAIN_THREAD": "old"}):
+            self.assertEqual(cenv.canonical(order), {"LARK_BRIDGE_MAIN_THREAD": "new"})
+        self.assertEqual(cenv.canonical({"COVEY_MAIN_THREAD": "mid", "LARK_BRIDGE_MAIN_THREAD": "old"}), {"LARK_BRIDGE_MAIN_THREAD": "mid"})
+        self.assertEqual(cenv.mirrored({"LARK_BRIDGE_MAIN_STATE": "/s"}),
+                         {"LARK_BRIDGE_MAIN_STATE": "/s", "COVEY_MAIN_STATE": "/s", "COVEY_BUTLER_STATE": "/s"})
+        self.assertEqual(cenv.mirrored({"COVEY_BUTLER_STATE": "/new", "LARK_BRIDGE_MAIN_STATE": "/old"}),
+                         dict.fromkeys(("COVEY_BUTLER_STATE", "COVEY_MAIN_STATE", "LARK_BRIDGE_MAIN_STATE"), "/new"))
+        child = {}
+        cenv.put(child, "COVEY_BUTLER_JOB", "k")
+        self.assertEqual(child, {"COVEY_BUTLER_JOB": "k", "COVEY_MAIN_JOB": "k", "LARK_BRIDGE_MAIN_JOB": "k"})
+
+    def test_the_manifest_of_the_live_deployment_means_the_same_under_the_new_names(self):
+        live = {"LARK_BRIDGE_MAIN_THREAD": "1", "LARK_BRIDGE_MAIN_TRACKS": "1", "LARK_BRIDGE_MAIN_DISPATCH_CARD": "1",
+                "LARK_BRIDGE_MAIN_BUTLER": "1", "LARK_BRIDGE_PINNED_TOPICS": "1"}
+        for name in live:
+            self.assertTrue(persistable(name), name)
+        self.assertEqual(runtime_environment(live), live)
+        # The shell says the same under the new names, or the middle ones: the deploy comparison finds no difference.
+        new = {"COVEY_BUTLER": "1", "COVEY_BUTLER_TRACKS": "1", "COVEY_DISPATCH_CARD": "1", "COVEY_BUTLER_RULES": "1",
+               "COVEY_PINNED_TOPICS": "1"}
+        middle = {"COVEY_MAIN_THREAD": "1", "COVEY_MAIN_TRACKS": "1", "COVEY_MAIN_DISPATCH_CARD": "1", "COVEY_MAIN_BUTLER": "1",
+                  "COVEY_PINNED_TOPICS": "1"}
+        self.assertTrue(all(persistable(name) for name in (*new, *middle)))
+        self.assertEqual(runtime_environment(new), live)
+        self.assertEqual(runtime_environment(middle), live)
+        # The service started from that manifest has every spelling, so the code reads the new name and a task runner of
+        # an older release the old one; its own environment's spelling of the same setting does not survive.
+        env = service_environment({"COVEY_BUTLER": "0", "PATH": "/b"}, live)
+        for new_name, old_name in (("COVEY_BUTLER", "MAIN_THREAD"), ("COVEY_BUTLER_TRACKS", "MAIN_TRACKS"),
+                                   ("COVEY_DISPATCH_CARD", "MAIN_DISPATCH_CARD"), ("COVEY_BUTLER_RULES", "MAIN_BUTLER")):
+            self.assertEqual((env[new_name], env["COVEY_" + old_name], env["LARK_BRIDGE_" + old_name]), ("1", "1", "1"), new_name)
+        self.assertEqual(cenv.get("COVEY_BUTLER", None, env), "1")
+        self.assertEqual(env["PATH"], "/b")
+
+
 if __name__ == "__main__":
     unittest.main()

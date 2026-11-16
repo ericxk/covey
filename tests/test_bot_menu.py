@@ -14,7 +14,7 @@ from covey.app.bot_menu import FIRST_TEXT, open_owner_chat
 from covey.app.health import bridge_snapshot
 from covey.feishu import events, messenger, transport
 
-# The menu keys every deployment wires (app/unified.py ``menu``): the main thread's own key comes with its switch, 看板
+# The menu keys every deployment wires (app/unified.py ``menu``): the butler's own key comes with its switch, 看板
 # with the digest's times.
 KEYS = ('weekly_usage', 'manage_workspaces', 'proxy_settings', 'redaction_dashboard', 'manage_groups', 'bridge_settings')
 
@@ -47,14 +47,14 @@ class MenuTests(UnifiedCase):
     @requires_extension()
     def test_the_real_features_are_wired_to_the_keys(self):
         fresh = type(self.app)(script_path=self.app.runtime.script_path)
-        # The main thread's old key too, unless COVEY_MAIN_THREAD=0 (docs/main-thread.md 私聊模式).
+        # The butler's old key too, unless COVEY_BUTLER=0 (docs/butler.md 私聊模式).
         self.assertEqual(set(fresh.menu.actions), set(KEYS) | {'main_thread_settings'})
         self.assertEqual({key: action.__func__ for key, action in fresh.menu.actions.items()}, {
             'weekly_usage': type(fresh.weekly_usage).send, 'manage_workspaces': type(fresh.settings_hub).open_workspaces,
             'proxy_settings': type(fresh.proxy.panel).open, 'redaction_dashboard': type(fresh.settings_hub).open_redaction,
             'manage_groups': type(fresh.group_manager).open, 'bridge_settings': type(fresh.settings_hub).open,
             'main_thread_settings': type(fresh.settings_hub).open_main})
-        with mock.patch.dict('os.environ', {'COVEY_MAIN_THREAD': '0'}):
+        with mock.patch.dict('os.environ', {'COVEY_BUTLER': '0'}):
             ruled_out = type(self.app)(script_path=self.app.runtime.script_path)
         self.assertEqual(set(ruled_out.menu.actions), set(KEYS))
         # Each folds its newest card in place (app/bot_menu.py); the old 工作区 and 脱敏 keys send a 设置 card.

@@ -94,7 +94,7 @@ def interrupt(job) -> None:
     shutdown sends every process one: read as the stop button, it ended a task "已停止" and its card
     offered only 重新投递结果 (T331 #2407, 2026-11-02). The worker leaves the turn unsettled and the
     record running; the Bridge marks it interrupted with 检查并继续, as after a runner that died. A stop
-    already asked for stays a stop. Flags only: the handler runs in the middle of the main thread's work."""
+    already asked for stays a stop. Flags only: the handler runs in the middle of the butler's work."""
     if not job.cancel_event.is_set():
         job.interrupted = True
     job.cancel_event.set()
@@ -129,7 +129,7 @@ def runner_main(argv=None) -> int:
     parser.add_argument("--await-handoff", default="", help=argparse.SUPPRESS)  # runner_spawn.prestart_runner
     parser.add_argument("--compact-only", action="store_true", help=argparse.SUPPRESS)  # app/idle_compaction.py
     args = parser.parse_args(argv)
-    if args.compact_only:  # No job: the main thread's session compacted while it is idle, in its own directory.
+    if args.compact_only:  # No job: the butler's session compacted while it is idle, in its own directory.
         from covey.app.compact_runner import compact_main
         return compact_main(args.run_dir)
     original = cenv.get(runner_spawn.RUNNER_PYTHONPATH)
@@ -243,7 +243,7 @@ def _finish(setup, directory, inbox, status) -> None:
             lambda: runner_ipc.release_wake(inbox.woken),
             lambda: runner_ipc.take_inbox(gateway, app, job, ctx, directory),
             # One held as the job left the registry (its process_reply_job settled those before): marked before
-            # exit.json, so the Bridge's finish_detached queues the main thread's.
+            # exit.json, so the Bridge's finish_detached queues the butler's.
             lambda: app.steering.settle_held_at_end(context_for_job(app.harness.context, job), job),
             lambda: _wait_background(before),
             lambda: mark_exit(directory, status),

@@ -1,13 +1,13 @@
 """Running a dequeued job (process_reply_job: its Harness's checks, then a task runner or this process) and the
 start-up pass over jobs a restart left (notify_stale_jobs: adopted runners, waiting launches, retired Harnesses'
-jobs, the main thread's lost supplements). JobDispatch is a part of app/unified.py's UnifiedBridgeApp, whose apps
+jobs, the butler's lost supplements). JobDispatch is a part of app/unified.py's UnifiedBridgeApp, whose apps
 and runtime it reads."""
 from __future__ import annotations
 
-from covey.app import detached, knowledge_collect, main_relay
+from covey.app import detached, knowledge_collect, butler_relay
 from covey.app.availability import check_or_raise
 from covey.app.launch import recover_worktree_launches
-from covey.app.main_thread import HARNESS as MAIN_HARNESS
+from covey.app.butler import HARNESS as BUTLER_HARNESS
 from covey.app.topics import retired_notice, topic_target
 from covey.core import timing
 from covey.core.jobs import (context_for_job, find_job_record, harness_of, running_job_records,
@@ -79,7 +79,7 @@ class JobDispatch:
             return detached.run_detached(self, app, job, app.harness.context)
         app.process_reply_job(job, app.harness.context)
         knowledge_collect.collect(self.runtime, job, ctx)
-        main_relay.after_runner(self, job, ctx)
+        butler_relay.after_runner(self, job, ctx)
         if not job.progress:
             # A text fallback must still offer topic-scoped recovery now that
             # slash commands are retired. Never infer or rerun a failed send.
@@ -97,8 +97,8 @@ class JobDispatch:
             app.notify_stale_jobs(app.harness.context)
         self.close_retired_jobs(ctx)
         self.release_started_launches(ctx)
-        # The main thread's messages a turn that ended while no Bridge watched never took: turns of their own now.
-        detached.queue_stranded(self, ctx, self.apps.get(MAIN_HARNESS))
+        # The butler's messages a turn that ended while no Bridge watched never took: turns of their own now.
+        detached.queue_stranded(self, ctx, self.apps.get(BUTLER_HARNESS))
 
     def release_started_launches(self, ctx):
         """A restart between 开始任务's acknowledgement and its follow-up left a bound topic's

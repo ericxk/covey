@@ -9,7 +9,7 @@ import time
 
 from covey.cards.elements import button_row, card, markdown_panel, topic_button
 from covey.core.deliveries import CHECK, REQUEUE, WITHDRAW, offers, shown_text
-from covey.core.main_thread import worded
+from covey.core.butler import worded
 
 CHECK_KIND = "bridge_steer_status"
 REQUEUE_KIND = "bridge_steer_requeue"
@@ -104,7 +104,7 @@ def receipt_card(record, *, source=""):
         details.append("不会自动重发。点“检查送达状态”重新核对；确认没有发出后可重新排队。")
     if status == "held":
         details.append("任务开始接收补充后自动送入，只送一次；送入前可以撤回。任务在那之前结束时显示“没有发出”。")
-    # The main thread is no topic: its receipts say so (the owner's own words below stay as written).
+    # The butler is no topic: its receipts say so (the owner's own words below stay as written).
     details = [worded(line, record) for line in details]
     details.append("补充内容：\n" + "\n".join("> " + line for line in str(shown_text(record)).splitlines()[:40]))
     elements = [{"tag": "markdown", "element_id": "steer_receipt_line", "content": head + stage},

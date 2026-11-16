@@ -1,7 +1,7 @@
-"""Front-desk topics (前台话题, docs/main-thread.md 前台话题（已下线）): the topics the main thread opened with
+"""Front-desk topics (前台话题, docs/butler.md 前台话题（已下线）): the topics the butler opened with
 main-thread.json's desk_topics on (11-07) are frozen by core/migrate.py desk-retire (2026-11-10). ``old_desk`` makes
 one as a release before left it. The migration marks it once; from then on a top-level message quoting its card goes
-to the main thread, a click on its cards gets one notice and does nothing, and the main thread's tools say it is
+to the butler, a click on its cards gets one notice and does nothing, and the butler's tools say it is
 retired."""
 from __future__ import annotations
 
@@ -10,36 +10,36 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
-from test_main_topics import CHAT, MainTopicsCase
-from support.main_thread import switch_on
+from test_butler_topics import CHAT, ButlerTopicsCase
+from support.butler import switch_on
 
-from covey.app import main_topics
-from covey.app.main_env import reply
-from covey.app.main_thread import HARNESS, MainThread
-from covey.app.main_tools import TOOLS as MAIN_TOOLS
-from covey.core import main_thread, main_thread_settings, migrate
+from covey.app import butler_topics
+from covey.app.butler_env import reply
+from covey.app.butler import HARNESS, Butler
+from covey.app.butler_tools import TOOLS as BUTLER_TOOLS
+from covey.core import butler, butler_settings, migrate
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
-from covey.core.main_requests import Request
-from covey.core.main_thread import main_topic_id
+from covey.core.butler_requests import Request
+from covey.core.butler import butler_topic_id
 from covey.core.state import read_object, write_json
 from covey.core.topics import (RETIRED_TEXT, context_for_topic, load_topic, message_topic, read_topic,
                                         remember_topic_message, retired_topic, topic_key, topic_label)
 from covey.core.workspaces import topic_context
 from covey.feishu.message_request import configure_top_level
 
-OWNER = "om_owner1"  # The owner's top-level message the main-thread job "main-job" answers.
+OWNER = "om_owner1"  # The owner's top-level message the butler job "main-job" answers.
 
 
-class DeskCase(MainTopicsCase):
+class DeskCase(ButlerTopicsCase):
     def setUp(self):
         super().setUp()
         switch_on(self)
-        previous_top, previous_state = configure_top_level(None), main_thread.configure_state(None)
+        previous_top, previous_state = configure_top_level(None), butler.configure_state(None)
         self.addCleanup(configure_top_level, previous_top)
-        self.addCleanup(main_thread.configure_state, previous_state)
-        MainThread.configure(self.ctx)  # As the Bridge and every task runner do (app/unified.py build_context).
-        self.main = main_topic_id(CHAT)
-        remember_topic_message(self.ctx.state_dir, self.main, CHAT, OWNER)  # app/main_thread.py handle_event.
+        self.addCleanup(butler.configure_state, previous_state)
+        Butler.configure(self.ctx)  # As the Bridge and every task runner do (app/unified.py build_context).
+        self.main = butler_topic_id(CHAT)
+        remember_topic_message(self.ctx.state_dir, self.main, CHAT, OWNER)  # app/butler.py handle_event.
         upsert_job_record(self.ctx.state_dir, "main-job", job_id=1, message_id=OWNER, chat_id=CHAT,
                           topic_id=self.main, reply_to_message_id=OWNER)
 
@@ -50,15 +50,15 @@ class DeskCase(MainTopicsCase):
         return answer["data"], self.job(request_id)
 
     def old_desk(self, request_id="open", **args):
-        """A front-desk topic as a release before 2026-11-09 left it, opened on OWNER by the main-thread job
+        """A front-desk topic as a release before 2026-11-09 left it, opened on OWNER by the butler job
         "main-job" (desk_topics on): registered, its root "main-<token>" no message, topic.json quoting OWNER, its
         request's record answered, its task card om_card1."""
         fields = dict(title="查日志", prompt="看看昨晚的失败", workspace="project", readonly=True,
                       user_requested=False, why="日志在这个仓库")
         fields.update(args)
         request = Request(request_id, "topic_start", fields, "main-job", 0.0)
-        root = "main-" + main_topics.request_token(request)
-        plan = main_topics.plan_start(self.env, fields, main_thread_settings.load(self.ctx.state_dir))
+        root = "main-" + butler_topics.request_token(request)
+        plan = butler_topics.plan_start(self.env, fields, butler_settings.load(self.ctx.state_dir))
         app = self.env.topics.apps[plan["harness"]]
         registry = self.ctx.state_dir / migrate.DESK_REGISTRY
         registry.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ class DeskCase(MainTopicsCase):
         label = topic_label(self.ctx.state_dir, target.topic_id)
         answer = reply(True, f"已开 {label}「{fields['title']}」：直接开工，它的卡在顶层引用主人这条消息",
                        topic_id=target.topic_id, label=label, root_message_id=root, started=True)
-        write_json(main_topics.record_path(self.ctx.state_dir, request),
+        write_json(butler_topics.record_path(self.ctx.state_dir, request),
                    {"request": request_id, "job_key": "main-job", "chat_id": CHAT, "title": fields["title"],
                     "why": fields["why"], "plan": {**plan, "start": True}, "at": time.time(), "sequence": 0,
                     "desk": OWNER, "area_root": "", "area_taken": False, "root_message_id": root,
@@ -136,11 +136,11 @@ class FrozenTest(DeskCase):
         super().setUp()
         self.setUp_send()
 
-    def test_a_message_quoting_its_card_goes_to_the_main_thread(self):
+    def test_a_message_quoting_its_card_goes_to_the_butler(self):
         data = self.frozen()
         event = {"chat_id": CHAT, "chat_type": "p2p", "message_id": "om_follow1", "root_id": OWNER,
                  "parent_id": "om_card1"}
-        thread = MainThread(self.app.topics)
+        thread = Butler(self.app.topics)
         with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
             self.assertIs(thread.app_for(self.ctx, event, True), self.app.topics.apps[HARNESS])
         remember_topic_message(self.ctx.state_dir, self.main, CHAT, "om_follow1")  # handle_event, before the context.
@@ -148,13 +148,13 @@ class FrozenTest(DeskCase):
         self.assertEqual(ctx.topic_id, self.main)
         self.assertNotEqual(message_topic(self.ctx.state_dir, CHAT, "om_follow1"), data["topic_id"])
 
-    def test_a_message_whose_reply_chain_starts_at_its_card_runs_in_the_main_thread(self):
+    def test_a_message_whose_reply_chain_starts_at_its_card_runs_in_the_butler(self):
         # Review ra P4 (r4): the chain's root alias is the frozen topic's, and context_for_topic looks at it first.
         data = self.frozen()
         event = {"chat_id": CHAT, "chat_type": "p2p", "sender_id": "owner", "message_id": "om_follow2",
                  "root_id": "om_card1", "parent_id": "om_card1", "content": "接着查"}
         claude = self.app.topics.apps[HARNESS]
-        thread = MainThread(self.app.topics)
+        thread = Butler(self.app.topics)
         enriched = SimpleNamespace(text="接着查", display_text="接着查", event=event)
         with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT), \
                 mock.patch.object(self.app.runtime.access, "allows", return_value=True), \
@@ -166,7 +166,7 @@ class FrozenTest(DeskCase):
             self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "om_follow2"), self.main)
             frozen = self.ctx.state_dir / "topics" / data["topic_id"] / "history.jsonl"
             self.assertNotIn("接着查", frozen.read_text() if frozen.exists() else "")
-            # Claude Code not available: no main thread, so the message is routed as any other and only refused.
+            # Claude Code not available: no butler, so the message is routed as any other and only refused.
             with mock.patch.object(claude.harness, "refuse_while_unavailable", side_effect=RuntimeError("off")):
                 follow = {**event, "message_id": "om_follow3", "event_id": "ev-follow3"}
                 self.assertFalse(thread.handle_event(self.ctx, follow, True))
@@ -194,7 +194,7 @@ class FrozenTest(DeskCase):
         self.assertEqual(self.notices(), [RETIRED_TEXT] * 4)
         self.assertEqual(self.app.messenger.put_card.call_count, 0)
 
-    def test_the_main_threads_tools_say_it_is_retired(self):
+    def test_the_butlers_tools_say_it_is_retired(self):
         data = self.frozen()
         label = topic_label(self.ctx.state_dir, data["topic_id"])
         for tool, args in (("topic_send", {"topic": label, "text": "再跑一次"}),
@@ -203,25 +203,25 @@ class FrozenTest(DeskCase):
                 answer = self.call(tool, **args)
                 self.assertFalse(answer["ok"])
                 self.assertIn("已下线的前台话题", answer["text"])
-        answer = MAIN_TOOLS["question_answer"](self.env, Request("qa", "question_answer", {"topic": label}, "main-job",
+        answer = BUTLER_TOOLS["question_answer"](self.env, Request("qa", "question_answer", {"topic": label}, "main-job",
                                                                 0.0))
         self.assertFalse(answer["ok"])
         self.assertIn("已下线的前台话题", answer["text"])
         self.assertEqual(self.notices(), [])
 
-    def test_desk_topics_true_in_main_thread_json_is_read_as_false(self):
-        path = self.ctx.state_dir / main_thread_settings.FILE
+    def test_desk_topics_true_in_butler_json_is_read_as_false(self):
+        path = self.ctx.state_dir / butler_settings.FILE
         path.write_text(json.dumps({"mode": "agent", "desk_topics": True}))
-        self.assertTrue(main_thread_settings.desk_topics_left(self.ctx.state_dir))
-        self.assertNotIn("desk_topics", main_thread_settings.to_json(main_thread_settings.load(self.ctx.state_dir)))
-        main_thread_settings.update(self.ctx.state_dir, model="opus")
+        self.assertTrue(butler_settings.desk_topics_left(self.ctx.state_dir))
+        self.assertNotIn("desk_topics", butler_settings.to_json(butler_settings.load(self.ctx.state_dir)))
+        butler_settings.update(self.ctx.state_dir, model="opus")
         self.assertIs(read_object(path)["desk_topics"], True)  # Kept for an older release.
 
 
 class OwnerMessageTest(DeskCase):
-    def test_owner_message_reads_the_main_job(self):
-        from covey.app.relay_targets import main_job_owner_message
-        self.assertEqual(main_job_owner_message(self.ctx.state_dir, "main-job"), OWNER)
-        self.assertEqual(main_job_owner_message(self.ctx.state_dir, "nothing"), "")
+    def test_owner_message_reads_the_butler_job(self):
+        from covey.app.relay_targets import butler_job_owner_message
+        self.assertEqual(butler_job_owner_message(self.ctx.state_dir, "main-job"), OWNER)
+        self.assertEqual(butler_job_owner_message(self.ctx.state_dir, "nothing"), "")
         upsert_job_record(self.ctx.state_dir, job_key("om_9", 9), job_id=9, message_id="om_9", reply_to_message_id="")
-        self.assertEqual(main_job_owner_message(self.ctx.state_dir, job_key("om_9", 9)), "om_9")
+        self.assertEqual(butler_job_owner_message(self.ctx.state_dir, job_key("om_9", 9)), "om_9")

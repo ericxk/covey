@@ -12,8 +12,8 @@ from covey.app.availability import observe
 from covey.core.checkpoint import read_checkpoint
 from covey.core.harness import JobCancelled
 from covey.core.jobs import harness_of
-from covey.core.main_thread import traits_of, worded
-from covey.core.main_tracks import owner_stop_drops_reply
+from covey.core.butler import traits_of, worded
+from covey.core.butler_tracks import owner_stop_drops_reply
 from covey.core.result import INCOMPLETE_STATUS, STATUS_MESSAGES
 from covey.core.saved_results import (authorize_verified_reply, mark_paused_question_delivery,
                                                observe_verified_reply)
@@ -143,7 +143,7 @@ def _finalize_without_public_reply(turn, result, ctx, job, reply, claimed_roots,
 
 def _settle_status(turn, result, job, outcome, reply, is_error):
     """Set ``turn``'s reply, status and final text from how the turn ended."""
-    main = traits_of(job)  # The Bridge's own texts below say the main thread's words (worded).
+    main = traits_of(job)  # The Bridge's own texts below say the butler's words (worded).
     if outcome is not None and result.public_reply is None:
         reply = worded(outcome.failure_reply(result.failure_detail), main)
     if result.public_reply is not None and turn.verified_delivery is None:

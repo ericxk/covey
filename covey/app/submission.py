@@ -12,13 +12,13 @@ from covey.core.metrics import mark, run_start, took_text
 from covey.core.model_settings import recorded_model_settings, recorded_work_mode
 from covey.cards.review import recent_user_questions, render_stream_status
 from covey.core.scheduler import MAX_WORKERS
-from covey.core.main_thread import HOLD_STATUS
+from covey.core.butler import HOLD_STATUS
 from covey.core.state import write_json
 from covey.core.history_storage import recent_history
 from covey.core.topics import bind_topic, read_topic, workspace_locked
 from covey.core.locks import LOCK, topic_lock
 from covey.core.workspaces import load_config, resolve_selection, topic_context, touch_workspace
-from covey.app import main_reactions
+from covey.app import butler_reactions
 from covey.app.card_lanes import after_ack
 from covey.app.runner_spawn import prestart_runner
 from covey.app.task_card import card_failure_notice
@@ -175,7 +175,7 @@ class Submission:
             # It runs next: its task runner starts while its card and record are written (S35).
             prestart_runner(self.runtime, job, ctx)
         try:
-            # A main-thread turn of the 话题区 layout (core/placement.py Row.quiet): none yet either; its task runner
+            # A butler turn of the 话题区 layout (core/placement.py Row.quiet): none yet either; its task runner
             # sends it once the turn has run CARD_AFTER seconds (Cards.reveal), the owner's message gets OnIt below.
             job.card_deferred = placement.quiet(ctx.state_dir, job)
             if job.card_deferred:
@@ -212,7 +212,7 @@ class Submission:
                 timing.drop(repaint)
                 self._repaint_answered(answered)
         if job.card_deferred:
-            main_reactions.start(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
+            butler_reactions.start(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
         if carded:
             return  # The queued card says all of it and changes with the message; no second notice.
         if card_notice:
@@ -309,7 +309,7 @@ class Submission:
         sender_id: str = "", hold: float = 0, policy_retry: dict | None = None,
     ) -> BridgeReplyJob | None:
         """Submit one message of ctx's topic as a new job of this Harness; ``sender_id`` is who sent it.
-        ``hold``: seconds it waits before it starts (the main thread's, app/main_thread.py). ``policy_retry``: an
+        ``hold``: seconds it waits before it starts (the butler's, app/butler.py). ``policy_retry``: an
         answer's continuation of a retry after a safety refusal keeps its mark (app/policy_retry.py)."""
         try:
             ctx = self.models.prepare_submission_context(ctx)

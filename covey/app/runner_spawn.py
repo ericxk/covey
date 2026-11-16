@@ -1,7 +1,7 @@
 """Starting a job's task runner, the Bridge side of app/detached.py: the job as a handoff or queued file
 saves it (dump_job, load_job), the runner's command line and environment (runner_argv, runner_env), a
 runner started before its job's card and record (prestart_runner, await_handoff), the handoff itself
-(start_runner, register_runner) and the main thread's compaction runner (compaction_launch)."""
+(start_runner, register_runner) and the butler's compaction runner (compaction_launch)."""
 from __future__ import annotations
 
 import dataclasses
@@ -241,7 +241,7 @@ def await_handoff(directory: Path, nonce: str, wait: float | None = None) -> dic
 
 
 def compaction_launch(runtime, app, job, ctx) -> SimpleNamespace:
-    """How app/idle_compaction.py starts the main thread's compaction runner: this turn's ``handoff()`` (as
+    """How app/idle_compaction.py starts the butler's compaction runner: this turn's ``handoff()`` (as
     start_runner writes one) and ``spawn(directory)``, a runner of this release with ``--compact-only``."""
     def handoff():
         return {"harness": app.spec.name, "argv": runner_argv(runtime.cli_argv, ctx),

@@ -3,9 +3,9 @@
 its state as coloured tags and 设为默认 / 移除 text buttons; ＋ 添加工作区… shows the directory browser
 of cards/directory.py under BROWSE_HOST. One form: every button submits the search with it.
 
-On the 设置 card's 工作区 tab (``hub``) the tab row is on top and there is no 完成管理; with the main thread's settings
+On the 设置 card's 工作区 tab (``hub``) the tab row is on top and there is no 完成管理; with the butler's settings
 (``notes``) each row has its 用途 input (note_<i>) and the form 保存用途, and ``after`` (记住的工作区,
-cards/main_thread_panel.py trusted_section) comes under the form."""
+cards/butler_panel.py trusted_section) comes under the form."""
 from __future__ import annotations
 
 import hashlib
@@ -15,7 +15,7 @@ import time
 from covey.cards.directory import Host, label
 from covey.core import devices
 from covey.core.text import literal
-from covey.cards.main_thread_panel import NOTE_LENGTH, NOTES_HINT
+from covey.cards.butler_panel import NOTE_LENGTH, NOTES_HINT
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, fits, folded_panel, form_button, item, markdown_panel,
                                             md, menu_item, note, notice_card, panel_header, plain, row, styled_panel, tag, text_submit)
 from covey.core.workspaces import missing_workspaces

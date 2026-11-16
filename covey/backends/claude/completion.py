@@ -67,7 +67,7 @@ def save_diagnostic(ctx, run_id, row, status, code, *, cleanup=True, policy_even
 def final_texts(messages, progress_ids):
     """The reply's texts in order: not the ones a tool call followed (they were progress), and a text that only says
     the one before it again once. After each background task's notification Claude Code starts a turn, and the model
-    may write the same reply in each of them (three times in one main-thread turn on 2026-11-16)."""
+    may write the same reply in each of them (three times in one butler turn on 2026-11-16)."""
     kept, last = {}, None
     for key, value in messages.items():
         if key in progress_ids or value == last:

@@ -1,25 +1,25 @@
-"""The tools of a project's lead (docs/architecture.md 专项, core/main_tool_specs.py PROJECT_TOOLS), handlers as
-app/main_env.py describes them; app/main_tools.py puts them with the main thread's. Only the job of a project's lead
+"""The tools of a project's lead (docs/architecture.md 专项, core/butler_tool_specs.py PROJECT_TOOLS), handlers as
+app/butler_env.py describes them; app/butler_tools.py puts them with the butler's. Only the job of a project's lead
 (app/project_lead.py, COVEY_PROJECTS=1) may call them: ``lead`` finds the project from the job's topic and refuses any other.
 
-- ``project_thread_start``, ``project_thread_send`` hand the work to the project's threads through the main thread's own
-  functions (app/main_topics.py topic_start, topic_send: a call from a lead's job opens or feeds a thread, ``lead_of``).
-  At most MAX_THREADS threads (or what the style's 派活 allows) have a turn running or waiting at once.
+- ``project_topic_start``, ``project_topic_send`` hand the work to the project's member topics through the butler's own
+  functions (app/butler_topics.py topic_start, topic_send: a call from a lead's job opens or feeds a member topic, ``lead_of``).
+  At most MAX_MEMBERS member topics (or what the style's 派活 allows) have a turn running or waiting at once.
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
   ``project_remember`` (the project's memory), ``project_style``, ``project_finish`` write the project's record
   (core/projects.py update, under its record lock; no Feishu call).
 - ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5): the tools are defined and answer that
   it is off.
 
-A refusal is a ValueError, which app/main_tools.py MainTools.execute turns into an answer the lead reads."""
+A refusal is a ValueError, which app/butler_tools.py ButlerTools.execute turns into an answer the lead reads."""
 from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
 
-from covey.app import main_topics, project_lead
-from covey.app.main_env import reply
-from covey.core import main_thread, projects
+from covey.app import butler_topics, project_lead
+from covey.app.butler_env import reply
+from covey.core import butler, projects
 from covey.core.jobs import find_job_record
 from covey.core.topics import topic_label
 
@@ -36,7 +36,7 @@ def lead(env, request) -> tuple:
     state = Path(env.state_dir)
     job = find_job_record(state, request.job_key) or {}
     topic = str(job.get("topic_id") or "")
-    if not topic or not main_thread.is_lead(topic, job.get("chat_id")):
+    if not topic or not butler.is_lead(topic, job.get("chat_id")):
         raise ValueError("只有专项的负责人能用这个工具")
     found = projects.topic_project(state, topic)
     record = projects.read_record(state, found.id) if found is not None else {}
@@ -58,36 +58,36 @@ def text_of(args, name="text", limit=project_lead.TEXT) -> str:
 
 
 def spawn_cap(record) -> int:
-    return min(projects.MAX_THREADS, project_lead.SPAWN_LIMIT[project_lead.style_of(record)[project_lead.SPAWN]])
+    return min(projects.MAX_MEMBERS, project_lead.SPAWN_LIMIT[project_lead.style_of(record)[project_lead.SPAWN]])
 
 
-def project_thread_start(env, request):
+def project_topic_start(env, request):
     pid, record = lead(env, request)
     active(record, "开新话题")
-    live = project_lead.live_threads(env.state_dir, record)
+    live = project_lead.live_members(env.state_dir, record)
     if len(live) >= spawn_cap(record):
         return reply(False, f"同时最多 {spawn_cap(record)} 个话题在做（现在：{'、'.join(live)}）：等有话题结束再开。",
                      live=live)
     args = {**request.args, "user_requested": request.args.get("user_requested") is True}
-    answer = main_topics.topic_start(env, dataclasses.replace(request, args=args))
+    answer = butler_topics.topic_start(env, dataclasses.replace(request, args=args))
     topic = answer.get("data", {}).get("topic_id")
     if topic:
-        projects.add_thread(env.state_dir, pid, topic)  # Again for a request that ran before: once only.
+        projects.add_member(env.state_dir, pid, topic)  # Again for a request that ran before: once only.
     return answer if answer.get("ok") else {**answer, "text": "没有开出话题：" + answer["text"]}
 
 
-def project_thread_send(env, request):
+def project_topic_send(env, request):
     pid, record = lead(env, request)
     active(record, "给话题加话")
     chat = env.chat()
-    found = main_topics.find_topic(env, chat, request.args.get("thread"))
+    found = butler_topics.find_topic(env, chat, request.args.get("thread"))
     if isinstance(found, str):
         return reply(False, found)
     topic = found[1].topic_id
     if topic not in (record.get("threads") or ()):
         return reply(False, f"{topic_label(Path(env.state_dir), topic) or topic[:8]} 不是这个专项的话题，不能从这里给它加话。")
     args = {"topic": topic, "text": request.args.get("text"), "note": request.args.get("note")}
-    return main_topics.topic_send(env, dataclasses.replace(request, args=args))
+    return butler_topics.topic_send(env, dataclasses.replace(request, args=args))
 
 
 def project_note(env, request):
@@ -152,7 +152,7 @@ def project_finish(env, request):
     if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
         raise ValueError(f"专项现在是 {record.get('state')}，已经结束了")
     summary = text_of(request.args, "summary")
-    live = project_lead.live_threads(env.state_dir, record)
+    live = project_lead.live_members(env.state_dir, record)
     if live:
         return reply(False, f"还有话题在做或等主人（{'、'.join(live)}），不能收尾：等它们结束，或先处理掉。", live=live)
     item = project_lead.entry(summary, report=True, kind="finish", job=request.job_key)
@@ -177,6 +177,6 @@ def project_escalate(env, request):
     return reply(False, TRIAGE_OFF)
 
 
-TOOLS = {"project_thread_start": project_thread_start, "project_thread_send": project_thread_send,
+TOOLS = {"project_topic_start": project_topic_start, "project_topic_send": project_topic_send,
          "project_note": project_note, "project_remember": project_remember, "project_style": project_style,
          "project_finish": project_finish, "project_answer": project_answer, "project_escalate": project_escalate}

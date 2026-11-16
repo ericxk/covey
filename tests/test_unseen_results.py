@@ -1,6 +1,6 @@
 """有结果未看 is one set (the owner, 2026-11-10: 以看板为准): the same records fed to the board (app/pins.py), 手上的事
-(app/overview.py), 早晚汇总 (app/digest.py), the main thread's snapshot (app/main_thread.py) and its tool topics_list
-(app/main_tools.py) give the same topics, the board's (core/board_read.py unseen)."""
+(app/overview.py), 早晚汇总 (app/digest.py), the butler's snapshot (app/butler.py) and its tool topics_list
+(app/butler_tools.py) give the same topics, the board's (core/board_read.py unseen)."""
 from __future__ import annotations
 
 import json
@@ -13,12 +13,12 @@ from unittest import mock
 
 from support.records import state_dir, write_job, write_topic
 
-from covey.app import digest, main_thread, main_tools, overview, pins
-from covey.app.main_env import MainEnv
+from covey.app import digest, butler, butler_tools, overview, pins
+from covey.app.butler_env import ButlerEnv
 from covey.app.relay_send import relay_path
-from covey.core import main_requests
+from covey.core import butler_requests
 from covey.core.jobs import job_path
-from covey.core.main_thread import main_topic_id
+from covey.core.butler import butler_topic_id
 from covey.core.state import write_json
 
 CHAT = "oc_dm"
@@ -44,14 +44,14 @@ class OneSetTest(unittest.TestCase):
         self.job(3, "done", now - 2 * HOUR)
         # T4 seen thirteen hours ago: off the board.
         self.job(4, "done", now - 14 * HOUR)
-        # T5's conclusion was written on the main thread's card (a release before 2026-11-09), and the owner read the
+        # T5's conclusion was written on the butler's card (a release before 2026-11-09), and the owner read the
         # top level since: seen.
         record = self.job(5, "done", now - 1200)
         write_json(relay_path(self.state, record["key"]), {"state": "inline", "outcome": "done", "sent_at": now - 1140})
         # T6 done ten minutes ago, never seen.
         self.job(6, "done", now - 600)
         write_json(self.state / "topic-seen.json", {self.topics[3]: now - HOUR, self.topics[4]: now - 13 * HOUR,
-                                                    main_topic_id(CHAT): now - 60})
+                                                    butler_topic_id(CHAT): now - 60})
         long_ago = now - 30 * DAY
         write_json(self.state / pins.RECORD, {
             "schema_version": 1, "chat_id": CHAT, "since": long_ago, "keep_since": long_ago,
@@ -91,14 +91,14 @@ class OneSetTest(unittest.TestCase):
         return self.numbers(row["topic"] for row in view["done"] if not row["seen"])
 
     def snapshot(self):
-        groups = main_thread.snapshot_groups(SimpleNamespace(state_dir=self.state), CHAT, self.now)
+        groups = butler.snapshot_groups(SimpleNamespace(state_dir=self.state), CHAT, self.now)
         return self.numbers(groups.get("result", {}))
 
     def topics_list(self):
         runtime = SimpleNamespace(log=lambda line: None, access=SimpleNamespace(owner_chat=lambda: CHAT))
-        env = MainEnv(runtime, SimpleNamespace(harnesses={}, default="claude", target=lambda *args: None), None, None,
+        env = ButlerEnv(runtime, SimpleNamespace(harnesses={}, default="claude", target=lambda *args: None), None, None,
                       state_dir=self.state, profile="unit")
-        answer = main_tools.topics_list(env, main_requests.Request("r1", "topics_list", {"group": "result", "limit": 60},
+        answer = butler_tools.topics_list(env, butler_requests.Request("r1", "topics_list", {"group": "result", "limit": 60},
                                                                    "main-1", self.now))
         lines = answer["text"].splitlines() if answer["data"].get("total") else []
         return self.numbers(line.split(" · ")[-1] for line in lines if " · " in line)
@@ -114,9 +114,9 @@ class OneSetTest(unittest.TestCase):
     def test_topics_list_still_takes_the_old_group_name(self):
         with mock.patch.dict(os.environ, ON):
             runtime = SimpleNamespace(log=lambda line: None, access=SimpleNamespace(owner_chat=lambda: CHAT))
-            env = MainEnv(runtime, SimpleNamespace(harnesses={}, default="claude", target=lambda *args: None), None,
+            env = ButlerEnv(runtime, SimpleNamespace(harnesses={}, default="claude", target=lambda *args: None), None,
                           None, state_dir=self.state, profile="unit")
-            answer = main_tools.topics_list(env, main_requests.Request("r1", "topics_list", {"group": "unread"},
+            answer = butler_tools.topics_list(env, butler_requests.Request("r1", "topics_list", {"group": "unread"},
                                                                        "main-1", self.now))
         self.assertEqual(answer["data"]["total"], 3)
 

@@ -1,7 +1,7 @@
-"""Where a topic turn's outcome goes back to at the main thread's top level (app/main_relay.py, docs/main-thread.md
-结论回到顶层): which turns came from the main thread (``relay_target``: a request's opened record, a supplement it
+"""Where a topic turn's outcome goes back to at the butler's top level (app/butler_relay.py, docs/butler.md
+结论回到顶层): which turns came from the butler (``relay_target``: a request's opened record, a supplement it
 gave, or an automatic retry of either; ``area_target``: the latest request that touched a 话题区), the message a relay
-quotes (``relay_quote``, ``main_job_owner_message``), its "你问" block (``ask_for``) and the card its T number opens
+quotes (``relay_quote``, ``butler_job_owner_message``), its "你问" block (``ask_for``) and the card its T number opens
 (``turn_card``). Reads records only: nothing here sends or writes."""
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from pathlib import Path
 
 from covey.app import answer_cards
 from covey.cards.relay_card import WAITING
-from covey.core import main_opened, placement
+from covey.core import butler_opened, placement
 from covey.core.jobs import find_job_record, job_field, job_key
 from covey.core.store import directory_store
 from covey.core.topics import topic_label
 
-PREFIX = "main-"  # A main-thread tool's synthetic message id (app/main_topics.py).
+PREFIX = "main-"  # A butler tool's synthetic message id (app/butler_topics.py).
 RETRY_HOPS = 5
 
 
@@ -23,10 +23,10 @@ def _opened(state_dir, message_id, job_id, topic_id):
     more than once: the latest owner message."""
     if message_id.startswith(PREFIX):
         token = message_id[len(PREFIX):]
-        record = main_opened.by_token(state_dir, token)
+        record = butler_opened.by_token(state_dir, token)
         if record:
-            return token, main_opened.kind_of(record), record
-    found = main_opened.steered(state_dir, job_id, topic_id)
+            return token, butler_opened.kind_of(record), record
+    found = butler_opened.steered(state_dir, job_id, topic_id)
     return None if found is None else (found[0], "steer", found[1])
 
 
@@ -42,47 +42,47 @@ def _origin_job(state_dir, job):
     return message_id, job_id
 
 
-def main_job_owner_message(state_dir, main_job_key) -> str:
-    """The owner's top-level message the main-thread job ``main_job_key`` answers (the one its card quotes); ''
+def butler_job_owner_message(state_dir, butler_job_key) -> str:
+    """The owner's top-level message the butler job ``butler_job_key`` answers (the one its card quotes); ''
     when its record is gone or names no Feishu message."""
-    main_job = find_job_record(Path(state_dir), str(main_job_key or "")) or {}
-    reply_to = str(main_job.get("reply_to_message_id") or "")
+    butler_job = find_job_record(Path(state_dir), str(butler_job_key or "")) or {}
+    reply_to = str(butler_job.get("reply_to_message_id") or "")
     if not reply_to.startswith("om_"):
-        reply_to = str(main_job.get("message_id") or "")
+        reply_to = str(butler_job.get("message_id") or "")
     return reply_to if reply_to.startswith("om_") else ""
 
 
-def relay_quote(state_dir, main_job_key) -> str:
-    """What a relay of the main-thread job ``main_job_key``'s hand-on quotes: its card at the top level (``relay``),
+def relay_quote(state_dir, butler_job_key) -> str:
+    """What a relay of the butler job ``butler_job_key``'s hand-on quotes: its card at the top level (``relay``),
     else the owner's message it answers; '' when neither is known."""
-    main_job = find_job_record(Path(state_dir), str(main_job_key or "")) or {}
-    card = str(main_job.get("card_message_id") or "")
-    return card if card.startswith("om_") else main_job_owner_message(state_dir, main_job_key)
+    butler_job = find_job_record(Path(state_dir), str(butler_job_key or "")) or {}
+    card = str(butler_job.get("card_message_id") or "")
+    return card if card.startswith("om_") else butler_job_owner_message(state_dir, butler_job_key)
 
 
-def areas_of(state_dir, main_job_key) -> set:
-    """The topics the main-thread job ``main_job_key`` opened, forked or handed words to (main-thread/opened/), done."""
+def areas_of(state_dir, butler_job_key) -> set:
+    """The topics the butler job ``butler_job_key`` opened, forked or handed words to (main-thread/opened/), done."""
     found = set()
-    for _, record in main_opened.by_job(state_dir, main_job_key) if main_job_key else ():
-        topic = main_opened.topic_of(record)
-        if topic and main_opened.answered(record):
+    for _, record in butler_opened.by_job(state_dir, butler_job_key) if butler_job_key else ():
+        topic = butler_opened.topic_of(record)
+        if topic and butler_opened.answered(record):
             found.add(str(topic))
     return found
 
 
 def relays(state_dir, topic_id, chat) -> bool:
     """Whether the turns of ``topic_id`` relay at all: its row of core/placement.py has a conclusion. A topic's does;
-    none with the main thread off."""
+    none with the butler off."""
     return placement.plan(state_dir, {"topic_id": topic_id, "chat_id": chat}).row.conclusion != placement.NONE
 
 
 def area_target(state_dir, topic_id, chat=""):
-    """Where a turn of the 话题区 ``topic_id`` relays when no request of the main thread started it: the latest one
+    """Where a turn of the 话题区 ``topic_id`` relays when no request of the butler started it: the latest one
     (main-thread/opened/) that opened, forked or handed on to it, as ``relay_target`` gives it, kind "follow"; None
     for a topic no request touched."""
     if not topic_id or not relays(state_dir, topic_id, chat):
         return None
-    best = main_opened.latest_for_topic(state_dir, topic_id)
+    best = butler_opened.latest_for_topic(state_dir, topic_id)
     if best is None:
         return None
     reply_to = relay_quote(state_dir, best[1].get("job_key"))
@@ -95,7 +95,7 @@ def area_target(state_dir, topic_id, chat=""):
 
 def ask_for(state_dir, job, target, profile=None, *, at="", log=None):
     """The "你问"/"你答" block of the topic turn ``job`` its relay or question copy carries (app/answer_cards.py
-    asked): the words of the owner's message the main thread took it from (its job record, target ``main_key``), or,
+    asked): the words of the owner's message the butler took it from (its job record, target ``main_key``), or,
     for a turn the owner started in the topic (kind "follow"), the turn's own words; None when it cannot be told.
     Never raises. Whatever the kind, the block opens the topic's thread (target ``topic_id``; the owner, 2026-11-10:
     都能跳转到话题上), at ``at`` (the relay's turn card or question card, ``turn_card``) or the turn's own card when
@@ -114,9 +114,9 @@ def ask_for(state_dir, job, target, profile=None, *, at="", log=None):
 
 
 def relay_target(state_dir, job):
-    """Where a topic turn the main thread started or handed on relays to: {chat_id, reply_to (the main-thread card,
+    """Where a topic turn the butler started or handed on relays to: {chat_id, reply_to (the butler card,
     ``relay_quote``), label (its T number), token (the request's), kind (start, send, steer, fork), topic_id, main_key
-    (the main-thread job's key)}; None for any other turn, the main thread's own, or one whose main-thread job is not
+    (the butler job's key)}; None for any other turn, the butler's own, or one whose butler job is not
     known."""
     topic_id, chat = str(job_field(job, "topic_id")), str(job_field(job, "chat_id"))
     if not relays(state_dir, topic_id, chat):

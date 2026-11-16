@@ -20,17 +20,17 @@ from support import enter_context
 from support.fake_backends import codex_context
 from support.records import state_dir, write_job, write_topic
 
-from covey.app import dispatch_cards, main_handoff, main_reply, main_thread as session, main_tools, project_lead
-from covey.app.main_tools import MainTools
+from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as session, butler_tools, project_lead
+from covey.app.butler_tools import ButlerTools
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
-from covey.core import main_mcp, main_thread, main_tool_specs, projects
-from covey.core import main_thread_settings as settings
+from covey.core import butler_mcp, butler, butler_tool_specs, projects
+from covey.core import butler_settings as settings
 from covey.core.jobs import job_key
-from covey.core.main_requests import Request
+from covey.core.butler_requests import Request
 from covey.core.state import write_json
 
-from test_main_topics import MainTopicsCase
+from test_butler_topics import ButlerTopicsCase
 
 CHAT = "oc_owner_dm"
 PID = "a1b2c3d4e5f6"
@@ -38,20 +38,20 @@ LEAD = projects.lead_topic_id(CHAT, PID)
 ON = {projects.ENV: "1"}
 NOW = 1_800_000_000.0
 LEAD_NAMES = ["topics_search", "topic_read", "workspaces_list",
-              "project_thread_start", "project_thread_send", "project_note", "project_remember", "project_style",
+              "project_topic_start", "project_topic_send", "project_note", "project_remember", "project_style",
               "project_finish"]
 
 
 class Case(unittest.TestCase):
-    """A state directory with the main thread on (mode agent) and a project with its lead topic."""
+    """A state directory with the butler on (mode agent) and a project with its lead topic."""
 
     def setUp(self):
         self.state = state_dir(self)
-        self.addCleanup(main_thread.configure_state, main_thread.configure_state(self.state))
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
         env = {name: value for name, value in os.environ.items() if not name.startswith(("COVEY_", "LARK_BRIDGE_"))}
         enter_context(self, mock.patch.dict(os.environ, {**env, **ON}, clear=True))
         write_json(self.state / settings.FILE, {"mode": "agent"})
-        main_thread.forget_mode()
+        butler.forget_mode()
         self.record = projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", goal="把账单迁到新库，对账一致",
                                                                       project_id=PID, now=NOW))[0]
         write_topic(self.state, topic_id=LEAD, chat_id=CHAT, harness_id="claude",
@@ -60,8 +60,8 @@ class Case(unittest.TestCase):
 
     def thread(self, topic_id, title, number, **job):
         write_topic(self.state, {"topic_id": topic_id}, topic_id=topic_id, chat_id=CHAT, harness_id="claude",
-                    topic_number=number, origin={"title": title}, project=projects.project_field(PID, projects.THREAD))
-        projects.add_thread(self.state, PID, topic_id)
+                    topic_number=number, origin={"title": title}, project=projects.project_field(PID, projects.MEMBER))
+        projects.add_member(self.state, PID, topic_id)
         if job:
             write_job(self.state, f"k-{topic_id[:4]}", topic_id=topic_id, chat_id=CHAT, job_id=number, **job)
 
@@ -77,7 +77,7 @@ class RulesTest(Case):
         base = project_lead.lead_rules()
         self.assertTrue(base.startswith("[负责人规则]"))
         self.assertIn("Read、Grep、Glob", base)
-        self.assertIn("project_thread_start", base)
+        self.assertIn("project_topic_start", base)
         self.assertNotIn("管家规则", base)
         self.assertEqual(project_lead.PRACTICE, "")
         self.assertIn("专员做法层", project_lead.lead_rules(practice="专员做法层"))
@@ -311,14 +311,14 @@ class TurnTest(Case):
         return SimpleNamespace(topic_id=LEAD, chat_id=CHAT, message_id="lead-1", job_id=1, kind="chat", **fields)
 
     def run_turn(self, session_id=None, **fields):
-        return session.main_turn(self.context(), self.job(**fields), "叫醒", session_id, mock.Mock(), self.logs.append)
+        return session.butler_turn(self.context(), self.job(**fields), "叫醒", session_id, mock.Mock(), self.logs.append)
 
     def test_a_lead_turn_has_its_tools_narrowed_and_its_message_headed_by_rules_and_pack(self):
         ctx, message = self.run_turn()
         self.assertEqual(ctx.options["tools"], ("Read", "Grep", "Glob"))
-        server = ctx.options["mcp_config"]["mcpServers"][main_thread.MCP_SERVER]
-        self.assertEqual(server["env"][main_thread.LEAD_ENV], PID)
-        self.assertEqual(server["env"][main_thread.JOB_ENV], job_key("lead-1", 1))
+        server = ctx.options["mcp_config"]["mcpServers"][butler.MCP_SERVER]
+        self.assertEqual(server["env"][butler.LEAD_ENV], PID)
+        self.assertEqual(server["env"][butler.JOB_ENV], job_key("lead-1", 1))
         self.assertTrue(message.startswith("[负责人规则]"))
         self.assertLess(message.index("[专项状态：迁移账单]"), message.rindex("叫醒"))
         self.assertTrue(message.endswith("叫醒"))
@@ -338,19 +338,19 @@ class TurnTest(Case):
         self.assertNotIn("tools", ctx.options)
         self.assertTrue(any("without a project record" in line for line in self.logs))
 
-    def test_the_main_thread_turn_has_no_project_tools(self):
-        main = SimpleNamespace(topic_id=main_thread.main_topic_id(CHAT), chat_id=CHAT, message_id="om_1", job_id=3, kind="chat")
+    def test_the_butler_turn_has_no_project_tools(self):
+        main = SimpleNamespace(topic_id=butler.butler_topic_id(CHAT), chat_id=CHAT, message_id="om_1", job_id=3, kind="chat")
         with mock.patch.object(session, "take_snapshot", return_value="SNAP"):
-            ctx, message = session.main_turn(self.context(), main, "你好", None, mock.Mock(), self.logs.append)
-        server = ctx.options["mcp_config"]["mcpServers"][main_thread.MCP_SERVER]
-        self.assertNotIn(main_thread.LEAD_ENV, server["env"])
+            ctx, message = session.butler_turn(self.context(), main, "你好", None, mock.Mock(), self.logs.append)
+        server = ctx.options["mcp_config"]["mcpServers"][butler.MCP_SERVER]
+        self.assertNotIn(butler.LEAD_ENV, server["env"])
         self.assertNotIn("tools", ctx.options)
         self.assertIn("compact_instructions", ctx.options)
         self.assertTrue(message.startswith("[管家规则]"))
 
-    def test_a_lead_turn_of_a_stopped_main_thread_is_not_one(self):
+    def test_a_lead_turn_of_a_stopped_butler_is_not_one(self):
         write_json(self.state / settings.FILE, {"mode": "topics"})
-        main_thread.forget_mode()
+        butler.forget_mode()
         ctx, message = self.run_turn()
         self.assertEqual(message, "叫醒")
         self.assertNotIn("tools", ctx.options)
@@ -358,44 +358,44 @@ class TurnTest(Case):
     def test_the_lead_has_no_compaction_request(self):
         compaction = mock.Mock()
         job = self.job(tool_trace=SimpleNamespace(context_tokens=10 ** 7))
-        session.compact_main_thread(compaction, self.context(), job)
+        session.compact_butler(compaction, self.context(), job)
         compaction.set_requested.assert_not_called()
 
 
 class ConfigTest(Case):
     def test_the_lead_environment_is_handed_on_only_with_the_switch_on_and_a_lead(self):
-        plain = main_thread.mcp_config(Path("/r"), self.state, "k", sys.executable)
-        self.assertNotIn(main_thread.LEAD_ENV, plain["mcpServers"]["bridge"]["env"])
-        lead = main_thread.mcp_config(Path("/r"), self.state, "k", sys.executable, lead=PID)
-        self.assertEqual(lead["mcpServers"]["bridge"]["env"][main_thread.LEAD_ENV], PID)
+        plain = butler.mcp_config(Path("/r"), self.state, "k", sys.executable)
+        self.assertNotIn(butler.LEAD_ENV, plain["mcpServers"]["bridge"]["env"])
+        lead = butler.mcp_config(Path("/r"), self.state, "k", sys.executable, lead=PID)
+        self.assertEqual(lead["mcpServers"]["bridge"]["env"][butler.LEAD_ENV], PID)
         with mock.patch.dict(os.environ, {projects.ENV: ""}):
-            off = main_thread.mcp_config(Path("/r"), self.state, "k", sys.executable, lead=PID)
-            plain_off = main_thread.mcp_config(Path("/r"), self.state, "k", sys.executable)
+            off = butler.mcp_config(Path("/r"), self.state, "k", sys.executable, lead=PID)
+            plain_off = butler.mcp_config(Path("/r"), self.state, "k", sys.executable)
         self.assertEqual(off, plain_off)  # With the switch off the lead's variable and the butler's are not handed on.
         self.assertEqual(plain["mcpServers"]["bridge"]["env"][projects.ENV], "1")
         self.assertNotIn(projects.ENV, plain_off["mcpServers"]["bridge"]["env"])
 
-    def test_the_server_lists_the_leads_tools_when_told_and_the_main_threads_otherwise(self):
-        names = lambda env: [tool["name"] for tool in main_mcp.tool_list(env)]  # noqa: E731
-        self.assertEqual(names({main_thread.LEAD_ENV: PID}), LEAD_NAMES)
-        self.assertEqual(names({}), list(main_tool_specs.NAMES))
-        self.assertFalse(set(main_tool_specs.PROJECT_NAMES) & set(names({"COVEY_KNOWLEDGE": "1", "COVEY_MAIN_BUTLER": "1"})))
-        self.assertNotIn("project_answer", names({main_thread.LEAD_ENV: PID}))  # Phase 2's triage: defined, not listed.
-        self.assertNotIn("project_escalate", names({main_thread.LEAD_ENV: PID}))
-        self.assertEqual(main_tool_specs.listed({}), main_tool_specs.TOOLS)
+    def test_the_server_lists_the_leads_tools_when_told_and_the_butlers_otherwise(self):
+        names = lambda env: [tool["name"] for tool in butler_mcp.tool_list(env)]  # noqa: E731
+        self.assertEqual(names({butler.LEAD_ENV: PID}), LEAD_NAMES)
+        self.assertEqual(names({}), list(butler_tool_specs.NAMES))
+        self.assertFalse(set(butler_tool_specs.PROJECT_NAMES) & set(names({"COVEY_KNOWLEDGE": "1", "COVEY_BUTLER_RULES": "1"})))
+        self.assertNotIn("project_answer", names({butler.LEAD_ENV: PID}))  # Phase 2's triage: defined, not listed.
+        self.assertNotIn("project_escalate", names({butler.LEAD_ENV: PID}))
+        self.assertEqual(butler_tool_specs.listed({}), butler_tool_specs.TOOLS)
 
     def test_the_lead_has_none_of_the_tools_that_start_topics_for_the_owner_or_change_settings(self):
-        listed = set(names["name"] for names in main_tool_specs.lead_tools())
+        listed = set(names["name"] for names in butler_tool_specs.lead_tools())
         self.assertFalse(listed & {"topic_start", "topic_send", "topic_fork", "question_answer", "principle_save",
                                    "settings_panel", "topic_priority"})
 
     def test_a_call_to_a_project_tool_outside_a_lead_session_is_refused_by_the_server(self):
-        server = main_mcp.Server({main_thread.STATE_ENV: str(self.state), main_thread.JOB_ENV: "k"}, submit=mock.Mock())
+        server = butler_mcp.Server({butler.STATE_ENV: str(self.state), butler.JOB_ENV: "k"}, submit=mock.Mock())
         answer = server.call({"name": "project_note", "arguments": {"text": "x"}})
         self.assertTrue(answer["isError"])
         self.assertIn("没有开 project_note", answer["content"][0]["text"])
         server.submit.assert_not_called()
-        lead = main_mcp.Server({main_thread.STATE_ENV: str(self.state), main_thread.JOB_ENV: "k", main_thread.LEAD_ENV: PID},
+        lead = butler_mcp.Server({butler.STATE_ENV: str(self.state), butler.JOB_ENV: "k", butler.LEAD_ENV: PID},
                                submit=mock.Mock(return_value={"ok": True, "text": "好"}))
         self.assertFalse(lead.call({"name": "project_note", "arguments": {"text": "x"}})["isError"])
         self.assertTrue(lead.call({"name": "project_answer", "arguments": {}})["isError"])  # Not listed: not callable.
@@ -413,12 +413,12 @@ class ArgvTest(Case):
         self.assertEqual(argv[argv.index("--allowedTools") + 1], "mcp__bridge")
         self.assertIn("--mcp-config", argv)
 
-    def test_without_the_option_there_is_no_tools_flag_and_the_main_threads_argv_is_as_it_was(self):
+    def test_without_the_option_there_is_no_tools_flag_and_the_butlers_argv_is_as_it_was(self):
         self.assertNotIn("--tools", self.argv())
         self.assertNotIn("--tools", self.argv(mcp_config={"mcpServers": {"bridge": {}}}))
 
 
-class ToolsCase(MainTopicsCase):
+class ToolsCase(ButlerTopicsCase):
     """The handlers against a live Bridge world: a lead's job, its project, the topics it opens."""
 
     def setUp(self):
@@ -426,7 +426,7 @@ class ToolsCase(MainTopicsCase):
         self.state = self.ctx.state_dir
         enter_context(self, mock.patch.dict(os.environ, ON))
         settings.update(self.state, enabled=True)
-        main_thread.forget_mode()
+        butler.forget_mode()
         self.record = projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", goal="目标",
                                                                       project_id=PID, now=NOW))[0]
         write_topic(self.state, topic_id=LEAD, chat_id=CHAT, harness_id="claude",
@@ -436,10 +436,10 @@ class ToolsCase(MainTopicsCase):
 
     def tool(self, name, job="lead-job", request_id=None, **args):
         request = Request(request_id or f"r{next(self.ids)}", name, args, job, 0.0)
-        return main_tools.TOOLS[name](self.env, request)
+        return butler_tools.TOOLS[name](self.env, request)
 
     def refused(self, name, **args):
-        answer = MainTools(self.env, main_tools.TOOLS).execute(Request("rx", name, args, "lead-job", 0.0))
+        answer = ButlerTools(self.env, butler_tools.TOOLS).execute(Request("rx", name, args, "lead-job", 0.0))
         self.assertFalse(answer["ok"], answer)
         return answer["text"]
 
@@ -447,11 +447,39 @@ class ToolsCase(MainTopicsCase):
         return projects.read_record(self.state, PID)
 
 
-class ThreadToolsTest(ToolsCase):
+class ToolNamesTest(ToolsCase):
+    """project_thread_start and project_thread_send became project_topic_start and project_topic_send (2026-11-16): the list
+    names only the new ones, a call under an old name still runs (a session that began earlier, an older server)."""
+
+    def test_the_list_has_only_the_new_names_and_a_call_under_an_old_one_runs_as_the_new(self):
+        listed = [tool["name"] for tool in butler_mcp.tool_list({butler.LEAD_ENV: PID})]
+        self.assertIn("project_topic_start", listed)
+        self.assertIn("project_topic_send", listed)
+        self.assertFalse({"project_thread_start", "project_thread_send"} & set(listed))
+        sent = []
+        server = butler_mcp.Server({butler.STATE_ENV: "/s", butler.JOB_ENV: "k", butler.LEAD_ENV: PID},
+                                   submit=lambda state, name, args, job_key: sent.append(name) or {"ok": True, "text": "好"})
+        for old, new in (("project_thread_start", "project_topic_start"), ("project_thread_send", "project_topic_send")):
+            answer = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": old, "arguments": {}}})
+            self.assertFalse(answer["result"]["isError"], answer)
+            self.assertEqual(sent[-1], new)
+        self.assertEqual(butler_tool_specs.current_name("topic_start"), "topic_start")
+
+    def test_a_request_file_an_older_server_wrote_under_an_old_name_is_read_under_the_new(self):
+        from covey.core import butler_requests
+        for old, new in (("project_thread_start", "project_topic_start"), ("project_thread_send", "project_topic_send")):
+            path = butler_requests.folder(self.state) / f"{old}.json"
+            butler_requests._write(path, {"id": old, "tool": old, "args": {}, "job_key": "lead-job", "created_at": time.time()})
+            self.assertEqual(butler_requests._request(path).tool, new)
+            self.assertIn(new, butler_tools.TOOLS)
+            self.assertNotIn(old, butler_tools.TOOLS)
+
+
+class MemberToolsTest(ToolsCase):
     def start(self, request_id=None, **args):
         fields = dict(title="导出旧账单", prompt="把旧库 2024 年账单导成 csv", workspace="project", readonly=True, why="脚本在这个仓库")
         fields.update(args)
-        return self.tool("project_thread_start", request_id=request_id, **fields)
+        return self.tool("project_topic_start", request_id=request_id, **fields)
 
     def test_a_thread_is_opened_marked_as_the_projects_and_recorded_before_its_first_turn(self):
         answer = self.start("r1")
@@ -460,7 +488,7 @@ class ThreadToolsTest(ToolsCase):
         data = json.loads((self.state / "topics" / topic / "topic.json").read_text())
         self.assertEqual(data["project"], {"id": PID, "role": "thread"})
         self.assertEqual(self.reload()["threads"], [topic])
-        self.assertTrue(projects.is_thread_topic(self.state, topic))
+        self.assertTrue(projects.is_member_topic(self.state, topic))
         # The first turn waits in the queue: the thread's marker was written with its binding, not after.
         job = self.job("r1")
         self.assertEqual(job.topic_id, topic)
@@ -487,7 +515,7 @@ class ThreadToolsTest(ToolsCase):
             self.start("r1")
         created.assert_not_called()
 
-    def test_the_main_threads_own_topic_start_is_still_no_thread(self):
+    def test_the_butlers_own_topic_start_is_still_no_thread(self):
         answer = self.call("topic_start", "m1", title="查日志", prompt="看看", workspace="project", readonly=True,
                            user_requested=False, why="x")
         self.assertTrue(answer["ok"], answer)
@@ -498,11 +526,11 @@ class ThreadToolsTest(ToolsCase):
         projects.update(self.state, PID, lambda r: r.update(style={"spawn": "保守"}))
         first = self.start("r1")
         self.assertTrue(first["ok"])
-        write_job(self.state, "main-" + main_topics_token("r1"), status="running", phase="做事")
+        write_job(self.state, "main-" + butler_topics_token("r1"), status="running", phase="做事")
         second = self.start("r2", title="另一件")
         self.assertFalse(second["ok"])
         self.assertIn("同时最多 1 个话题", second["text"])
-        write_job(self.state, "main-" + main_topics_token("r1"), status="done", final_text="完成")
+        write_job(self.state, "main-" + butler_topics_token("r1"), status="done", final_text="完成")
         self.assertTrue(self.start("r3", title="另一件")["ok"])
 
     def test_a_failed_start_says_so_and_records_nothing(self):
@@ -513,19 +541,19 @@ class ThreadToolsTest(ToolsCase):
 
     def test_a_paused_or_finished_project_opens_no_thread(self):
         projects.set_state(self.state, PID, projects.PAUSED)
-        self.assertIn("paused", self.refused("project_thread_start", title="x", prompt="y", workspace="project",
+        self.assertIn("paused", self.refused("project_topic_start", title="x", prompt="y", workspace="project",
                                              readonly=True, why="z"))
 
 
-def main_topics_token(request_id):
-    from covey.app import main_topics
+def butler_topics_token(request_id):
+    from covey.app import butler_topics
 
-    return main_topics.request_token(SimpleNamespace(id=request_id))
+    return butler_topics.request_token(SimpleNamespace(id=request_id))
 
 
 class SendToolsTest(ToolsCase):
     def opened(self):
-        data = self.tool("project_thread_start", request_id="open", title="导出", prompt="导出账单", workspace="project",
+        data = self.tool("project_topic_start", request_id="open", title="导出", prompt="导出账单", workspace="project",
                          readonly=True, why="x")["data"]
         return data, self.job("open")
 
@@ -533,7 +561,7 @@ class SendToolsTest(ToolsCase):
         data, job = self.opened()
         self.app.runtime.unregister_reply_job(job)
         write_job(self.state, job.message_id, status="done")
-        answer = self.tool("project_thread_send", request_id="s1", thread=data["label"], text="再核对一遍金额", note="对账时发现的")
+        answer = self.tool("project_topic_send", request_id="s1", thread=data["label"], text="再核对一遍金额", note="对账时发现的")
         self.assertTrue(answer["ok"], answer)
         nxt = self.job("s1")
         self.assertEqual((nxt.user_text, nxt.topic_id), ("再核对一遍金额", data["topic_id"]))
@@ -544,7 +572,7 @@ class SendToolsTest(ToolsCase):
         data, job = self.opened()
         job.execution_started = True
         job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
-        answer = self.tool("project_thread_send", thread=data["topic_id"], text="顺便导出 2023 年的")
+        answer = self.tool("project_topic_send", thread=data["topic_id"], text="顺便导出 2023 年的")
         self.assertTrue(answer["ok"], answer)
         self.assertTrue(answer["data"].get("steered"), answer)
         sent = job.backend_control.steer.call_args.args[0]
@@ -555,11 +583,11 @@ class SendToolsTest(ToolsCase):
         self.opened()
         write_topic(self.state, {"topic_id": "ef" * 16}, topic_id="ef" * 16, chat_id=CHAT, harness_id="claude",
                     topic_number=77, origin={"title": "别的"}, root_id="om_other")
-        answer = self.tool("project_thread_send", thread="T77", text="顺便看下这个")
+        answer = self.tool("project_topic_send", thread="T77", text="顺便看下这个")
         self.assertFalse(answer["ok"])
         self.assertIn("不是这个专项的话题", answer["text"])
-        self.assertFalse(self.tool("project_thread_send", thread="T9999", text="x")["ok"])
-        self.assertFalse(self.tool("project_thread_send", thread=LEAD, text="x")["ok"])  # The lead itself is no thread.
+        self.assertFalse(self.tool("project_topic_send", thread="T9999", text="x")["ok"])
+        self.assertFalse(self.tool("project_topic_send", thread=LEAD, text="x")["ok"])  # The lead itself is no thread.
 
 
 class RecordToolsTest(ToolsCase):
@@ -604,13 +632,13 @@ class RecordToolsTest(ToolsCase):
         self.assertIn("spawn", self.refused("project_style", spawn="疯狂"))
 
     def test_finishing_needs_the_threads_to_have_ended_and_ends_the_project_once(self):
-        thread = self.tool("project_thread_start", request_id="open", title="导出", prompt="导出账单", workspace="project",
+        thread = self.tool("project_topic_start", request_id="open", title="导出", prompt="导出账单", workspace="project",
                            readonly=True, why="x")["data"]["topic_id"]
-        write_job(self.state, "main-" + main_topics_token("open"), status="running")
+        write_job(self.state, "main-" + butler_topics_token("open"), status="running")
         blocked = self.tool("project_finish", summary="都做完了")
         self.assertFalse(blocked["ok"])
         self.assertEqual(self.reload()["state"], projects.ACTIVE)
-        write_job(self.state, "main-" + main_topics_token("open"), status="done", final_text="完成")
+        write_job(self.state, "main-" + butler_topics_token("open"), status="done", final_text="完成")
         done = self.tool("project_finish", summary="账单迁完，对账一致")
         self.assertTrue(done["ok"], done)
         record = self.reload()
@@ -628,36 +656,36 @@ class RecordToolsTest(ToolsCase):
 
 class RefusalTest(ToolsCase):
     def test_only_a_leads_job_may_call_them(self):
-        main_job = write_job(self.state, "main-job-2", topic_id=main_thread.main_topic_id(CHAT), chat_id=CHAT, job_id=5, status="running")
-        self.assertTrue(main_job)
+        butler_job = write_job(self.state, "main-job-2", topic_id=butler.butler_topic_id(CHAT), chat_id=CHAT, job_id=5, status="running")
+        self.assertTrue(butler_job)
         request = Request("q1", "project_note", {"text": "x"}, "main-job-2", 0.0)
-        answer = MainTools(self.env, main_tools.TOOLS).execute(request)
+        answer = ButlerTools(self.env, butler_tools.TOOLS).execute(request)
         self.assertFalse(answer["ok"])
         self.assertIn("只有专项的负责人", answer["text"])
         write_job(self.state, "thread-job", topic_id="ab" * 16, chat_id=CHAT, job_id=6, status="running")
-        gone = MainTools(self.env, main_tools.TOOLS).execute(Request("q2", "project_note", {"text": "x"}, "thread-job", 0.0))
+        gone = ButlerTools(self.env, butler_tools.TOOLS).execute(Request("q2", "project_note", {"text": "x"}, "thread-job", 0.0))
         self.assertFalse(gone["ok"])
 
     def test_with_the_switch_off_they_are_refused(self):
         with mock.patch.dict(os.environ, {projects.ENV: ""}):
-            answer = MainTools(self.env, main_tools.TOOLS).execute(Request("q3", "project_note", {"text": "x"}, "lead-job", 0.0))
+            answer = ButlerTools(self.env, butler_tools.TOOLS).execute(Request("q3", "project_note", {"text": "x"}, "lead-job", 0.0))
         self.assertFalse(answer["ok"])
         self.assertEqual(self.reload().get("notes"), None)
 
     def test_the_loop_runs_a_lead_job_and_not_a_finished_one(self):
-        ok = MainTools(self.env, main_tools.TOOLS).execute(Request("q4", "project_note", {"text": "一句"}, "lead-job", 0.0))
+        ok = ButlerTools(self.env, butler_tools.TOOLS).execute(Request("q4", "project_note", {"text": "一句"}, "lead-job", 0.0))
         self.assertTrue(ok["ok"], ok)
         write_job(self.state, "lead-job", status="done")
-        late = MainTools(self.env, main_tools.TOOLS).execute(Request("q5", "project_note", {"text": "二句"}, "lead-job", 0.0))
+        late = ButlerTools(self.env, butler_tools.TOOLS).execute(Request("q5", "project_note", {"text": "二句"}, "lead-job", 0.0))
         self.assertFalse(late["ok"])
 
 
 class OutcomeTest(ToolsCase):
     def line(self, text="", job="lead-job"):
-        return main_reply.outcome_words(self.state, job, text, lead=True)
+        return butler_reply.outcome_words(self.state, job, text, lead=True)
 
-    def test_a_turn_that_opened_a_thread_says_so_as_the_main_thread_would(self):
-        self.tool("project_thread_start", request_id="r1", title="导出旧账单", prompt="导出", workspace="project",
+    def test_a_turn_that_opened_a_thread_says_so_as_the_butler_would(self):
+        self.tool("project_topic_start", request_id="r1", title="导出旧账单", prompt="导出", workspace="project",
                   readonly=True, why="x")
         self.assertRegex(self.line(), r"^↪ 开了 T\d+「导出旧账单」")
 
@@ -668,9 +696,9 @@ class OutcomeTest(ToolsCase):
         self.tool("project_finish", summary="账单迁完")
         self.assertEqual(self.line("好的"), "🏁 专项完成：账单迁完")
 
-    def test_the_main_threads_line_never_looks_for_a_project(self):
+    def test_the_butlers_line_never_looks_for_a_project(self):
         self.tool("project_note", text="一句")
-        self.assertEqual(main_reply.outcome_words(self.state, "lead-job", "好的"), "✅ 已答：好的")
+        self.assertEqual(butler_reply.outcome_words(self.state, "lead-job", "好的"), "✅ 已答：好的")
 
     def test_say_outcome_takes_the_lead_role_and_not_a_topic(self):
         said = []
@@ -679,46 +707,46 @@ class OutcomeTest(ToolsCase):
         job = SimpleNamespace(progress=object(), topic_id=LEAD, chat_id=CHAT, message_id="lead-pid-1", job_id=1)
         self.tool("project_note", text="一句")
         delivery = SimpleNamespace(job=job, ctx=self.ctx, turn=turn, cards=cards, runtime=self.app.runtime)
-        with mock.patch.object(main_reply.placement, "layout", return_value=main_reply.placement.AREA), \
-                mock.patch.object(main_reply, "job_key", return_value="lead-job"):
-            self.assertTrue(main_reply.say_outcome(delivery))
+        with mock.patch.object(butler_reply.placement, "layout", return_value=butler_reply.placement.AREA), \
+                mock.patch.object(butler_reply, "job_key", return_value="lead-job"):
+            self.assertTrue(butler_reply.say_outcome(delivery))
         self.assertEqual(said, ["📌 记进展：一句"])
         job.topic_id = "ab" * 16
-        with mock.patch.object(main_reply.placement, "layout", return_value=main_reply.placement.AREA):
-            self.assertFalse(main_reply.say_outcome(delivery))
+        with mock.patch.object(butler_reply.placement, "layout", return_value=butler_reply.placement.AREA):
+            self.assertFalse(butler_reply.say_outcome(delivery))
 
 
 class HandoffTest(unittest.TestCase):
-    def test_a_lead_hands_work_on_in_its_own_words_not_as_the_main_thread_for_the_owner(self):
-        lead = main_handoff.Asked(lead="迁移账单")
-        for kind in (main_handoff.START, main_handoff.NEXT, main_handoff.STEER):
-            text = main_handoff.note(kind, label="T41", title="导出", owner=lead)
+    def test_a_lead_hands_work_on_in_its_own_words_not_as_the_butler_for_the_owner(self):
+        lead = butler_handoff.Asked(lead="迁移账单")
+        for kind in (butler_handoff.START, butler_handoff.NEXT, butler_handoff.STEER):
+            text = butler_handoff.note(kind, label="T41", title="导出", owner=lead)
             self.assertIn("迁移账单", text)
             self.assertNotIn("管家", text)
             self.assertNotIn("主人在私聊", text)
-        self.assertEqual(main_handoff.thread_head(main_handoff.NEXT, lead), "负责人转来消息")
-        self.assertEqual(main_handoff.thread_head(main_handoff.STEER, lead), "负责人转来补充")
-        self.assertEqual(main_handoff.shown(lead, "做这个", ()), "做这个")
-        prompt = main_handoff.handoff_prompt(main_handoff.START, label="T41", title="导出", task="做这个", owner=lead)
+        self.assertEqual(butler_handoff.thread_head(butler_handoff.NEXT, lead), "负责人转来消息")
+        self.assertEqual(butler_handoff.thread_head(butler_handoff.STEER, lead), "负责人转来补充")
+        self.assertEqual(butler_handoff.shown(lead, "做这个", ()), "做这个")
+        prompt = butler_handoff.handoff_prompt(butler_handoff.START, label="T41", title="导出", task="做这个", owner=lead)
         self.assertNotIn("主人原话", prompt)
 
-    def test_the_main_threads_notes_are_as_they_were(self):
-        owner = main_handoff.Asked()
-        self.assertIn("管家", main_handoff.note(main_handoff.START, label="T41", title="导出", owner=owner))
-        self.assertEqual(main_handoff.thread_head(main_handoff.NEXT, owner), "管家转来你的消息")
+    def test_the_butlers_notes_are_as_they_were(self):
+        owner = butler_handoff.Asked()
+        self.assertIn("管家", butler_handoff.note(butler_handoff.START, label="T41", title="导出", owner=owner))
+        self.assertEqual(butler_handoff.thread_head(butler_handoff.NEXT, owner), "管家转来你的消息")
 
 
 class OffTest(Case):
-    def test_with_the_switch_off_the_turn_and_the_tool_list_are_the_main_threads_as_before(self):
+    def test_with_the_switch_off_the_turn_and_the_tool_list_are_the_butlers_as_before(self):
         with mock.patch.dict(os.environ, {projects.ENV: ""}):
             job = SimpleNamespace(topic_id=LEAD, chat_id=CHAT, message_id="lead-1", job_id=1, kind="chat")
             ctx = dataclasses.replace(codex_context(self.state, "stream-json"), state_dir=self.state)
-            out, message = session.main_turn(ctx, job, "叫醒", None, mock.Mock(), self.logs.append)
+            out, message = session.butler_turn(ctx, job, "叫醒", None, mock.Mock(), self.logs.append)
             self.assertIs(out, ctx)
             self.assertEqual(message, "叫醒")
-            self.assertEqual([tool["name"] for tool in main_mcp.tool_list({})], list(main_tool_specs.NAMES))
+            self.assertEqual([tool["name"] for tool in butler_mcp.tool_list({})], list(butler_tool_specs.NAMES))
             self.assertEqual(project_lead.settle_session(ctx, job, SimpleNamespace(), SimpleNamespace(), 1, "s"), (1, "s"))
-            self.assertFalse(main_thread.is_lead(LEAD, CHAT))
+            self.assertFalse(butler.is_lead(LEAD, CHAT))
 
 
 if __name__ == "__main__":

@@ -384,11 +384,11 @@ class Temporary(Rule):
     or holds a file of it open (paths_in_use): removed."""
     keys = ("remove_temporary",)
     days = TEMPORARY_DAYS
-    # proxy/shots: 代答's failed-step screenshots; main-thread/opened: which topic each main-thread topic_start opened
-    # (app/main_topics.py), kept so the same call opens no second one; main-thread/relays: which topic turn's outcome
-    # went back to the top level (app/main_relay.py), read for the RESULT_AGE the board and snapshot look back;
+    # proxy/shots: 代答's failed-step screenshots; main-thread/opened: which topic each butler topic_start opened
+    # (app/butler_topics.py), kept so the same call opens no second one; main-thread/relays: which topic turn's outcome
+    # went back to the top level (app/butler_relay.py), read for the RESULT_AGE the board and snapshot look back;
     # main-thread/dispatch: the 派发卡's records and conclusion notes (app/dispatch_cards.py); main-thread/tracks: the
-    # ledger of what the main thread's tracks answered (core/track_ledger.py; their session files go sooner,
+    # ledger of what the butler's tracks answered (core/track_ledger.py; their session files go sooner,
     # TrackSessions); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
     folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/relays",
                "main-thread/dispatch", "main-thread/tracks", "answer-cards")
@@ -478,9 +478,9 @@ class ProjectRecords(Rule):
 
 
 class TrackSessions(Rule):
-    """The Claude session file of a track of the main thread (core/main_tracks.py) whose turn ended TRACK_SESSION_DAYS
-    ago: removed. The track forks the main thread's session on every request, so each leaves a transcript of its own
-    (the pointer to it is cleared when the turn ends, app/main_tracks.py release_pointer); the ledger record
+    """The Claude session file of a track of the butler (core/butler_tracks.py) whose turn ended TRACK_SESSION_DAYS
+    ago: removed. The track forks the butler's session on every request, so each leaves a transcript of its own
+    (the pointer to it is cleared when the turn ends, app/butler_tracks.py release_pointer); the ledger record
     (main-thread/tracks/<job key>.json) names it by ``session_id``. Only a file of that name under the projects store
     of CLAUDE_CONFIG_DIR (default ~/.claude) is touched, and not one changed or read since the cutoff."""
     keys = ("remove_track_sessions",)

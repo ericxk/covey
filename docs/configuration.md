@@ -50,7 +50,7 @@
 | `owner_accounts` | `[]` | 主人在这个应用里的其他 open_id；每个都按主人处理（消息、点击、菜单、已读）。记录里仍只有一个 `owner_open_id`；只有主人本人的私聊算“主人私聊”，另一个账号的私聊按普通私聊处理 |
 | `notify_space` | `""`（主人私聊） | Bridge 自己发的通知去哪个 chat：早晚汇总、手上的事和话题看板、已读事件对应的聊天、没有任务可回的内存看门狗告警、应用待补卡、代答登录提示（扩展）。设了以后，它们对应的话题也按这个 chat 算 |
 | `allow_team_spaces` | `true` | `false`：不激活任何群，群里 @ 也不服务（群管理卡的“启用”给出说明），只服务主人 |
-| `personal_groups` | `[]` | chat_id 列表：这些群是主人的个人空间，只服务主人（含 `owner_accounts`），不会被激活。个人群里：主人不用 @ 机器人（飞书要把群里全部消息发给机器人，应用需有 `im:message.group_msg` 权限；没有时仍要 @）；顶层消息交给该群自己的管家（话题、回带、问题卡都在群里；管家按 chat 分开记录，不和私聊的混）；机器人置顶一张菜单卡（用量、看板、设置），点击仍只认主人；手上的事、话题看板、早晚汇总各自有一份（记录名带 chat_id，见 `docs/main-thread.md`）；答案卡顶上带状态行，和私聊一样 |
+| `personal_groups` | `[]` | chat_id 列表：这些群是主人的个人空间，只服务主人（含 `owner_accounts`），不会被激活。个人群里：主人不用 @ 机器人（飞书要把群里全部消息发给机器人，应用需有 `im:message.group_msg` 权限；没有时仍要 @）；顶层消息交给该群自己的管家（话题、回带、问题卡都在群里；管家按 chat 分开记录，不和私聊的混）；机器人置顶一张菜单卡（用量、看板、设置），点击仍只认主人；手上的事、话题看板、早晚汇总各自有一份（记录名带 chat_id，见 `docs/butler.md`）；答案卡顶上带状态行，和私聊一样 |
 
 - 旧键 `owner_only`（取反即 `allow_team_spaces`）、`owner_aliases`、`home_chat`、`agent_groups` 仍可读，各映射到上表的字段，`spaces` 里写了同名字段时以它为准；启动日志每个旧键记一行 `… is deprecated: write spaces.…`。`group_menu`、`group_boards`、`owner_headed` 不再是开关：个人群自带这些，旧键只读入，启动日志各记一行说明。手上的事、看板、早晚汇总仍照原来的环境变量（`COVEY_PINNED_OVERVIEW`、`COVEY_PINNED_TOPICS`、`COVEY_DIGEST_TIMES`）开关。
 - `owner_accounts` 里的账号私聊机器人时也走管家：每个账号的私聊记在 `<state>/owner-chats.json`（open_id → chat_id），不覆盖主人本人的 `owner-chat.json`；它点机器人菜单，回在它自己的私聊里。
@@ -69,7 +69,7 @@
 | 保存：本项目的设置 | 所有 `COVEY_*` 和 `LARK_<名称>_BRIDGE_*`，例如 `COVEY_DATA_HOME`、`COVEY_CARD_TRANSPORT` |
 | 不保存 | `COVEY_MANAGED`（Manager 启动 Bridge 时设置）、`COVEY_REQUIRED_MOUNT`（开机守护设置）、`COVEY_SERVICE_ROOT`（也不传给 Bridge）；名字像凭据的（含 `SECRET`、`TOKEN`、`PASSWORD`、`CREDENTIAL`，或以 `KEY` 为一段）；其他所有变量 |
 
-- **关掉一个开关，光在终端里去掉变量不够。** Bridge 的环境是 Manager 自己的环境加清单（见下），而 Manager 是第一次 `launch` 时从那个终端拉起的（`ensure_manager`），带着当时终端里的变量一直跑下去；之后的 `launch` 只换清单，Manager 不退出，它自己环境里的旧开关就还在，新 Bridge 照旧带着（`service_environment` 只覆盖清单里有的名字）。二选一：① 在终端里把变量设成关闭值（如 `COVEY_MAIN_TRACKS=0`），重新 `launch`，清单里的值盖过 Manager 的；只对“不是 `1` 就关”的开关有效，别的开关看各自一节写的取值；② 先结束 Manager 再 `launch`：`python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["process"]["pid"])' "$SERVICE_ROOT/manager.json"` 取 pid，`kill -TERM -- -<pid>` 结束它的进程组（Manager 在自己的会话里，进程组号就是它的 pid；Bridge 和任务进程各在自己的会话里，不受影响，下一个 Manager 接管），用 `pgrep -g <pid>` 确认没有残留，然后在没有该变量的终端里 `launch`。托管方式（systemd 等）拉起的 Manager 不带终端变量，重启单元即可，见[部署新版本](operations.md#部署新版本)第 6 步。
+- **关掉一个开关，光在终端里去掉变量不够。** Bridge 的环境是 Manager 自己的环境加清单（见下），而 Manager 是第一次 `launch` 时从那个终端拉起的（`ensure_manager`），带着当时终端里的变量一直跑下去；之后的 `launch` 只换清单，Manager 不退出，它自己环境里的旧开关就还在，新 Bridge 照旧带着（`service_environment` 只覆盖清单里有的名字）。二选一：① 在终端里把变量设成关闭值（如 `COVEY_BUTLER_TRACKS=0`），重新 `launch`，清单里的值盖过 Manager 的；只对“不是 `1` 就关”的开关有效，别的开关看各自一节写的取值；② 先结束 Manager 再 `launch`：`python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["process"]["pid"])' "$SERVICE_ROOT/manager.json"` 取 pid，`kill -TERM -- -<pid>` 结束它的进程组（Manager 在自己的会话里，进程组号就是它的 pid；Bridge 和任务进程各在自己的会话里，不受影响，下一个 Manager 接管），用 `pgrep -g <pid>` 确认没有残留，然后在没有该变量的终端里 `launch`。托管方式（systemd 等）拉起的 Manager 不带终端变量，重启单元即可，见[部署新版本](operations.md#部署新版本)第 6 步。
 - 终端里没有的变量，清单里也就没了。在没有代理变量的终端里重新注册，清单里的代理就会丢；终端里多出的 `LARK_*BRIDGE_*` 也会被保存。重新注册前先对比，见[部署新版本](operations.md#部署新版本)第 3 步。
 - 变量值不能含换行。代理 URL 只能是 `http`、`https`、`socks4`、`socks4a`、`socks5`、`socks5h`，要有主机名，不能带用户名、密码、路径、查询参数或片段（`NO_PROXY` 不校验）。不符合时 `launch` 拒绝写入，报 `only explicit non-secret runtime paths/settings can be persisted` 或 `only non-secret proxy URLs without credentials can be persisted`。带凭据的代理不能托管。
 - Bridge 进程的环境是 Manager 自己的环境，加上清单里的变量，再加 `PYTHONDONTWRITEBYTECODE=1`、`COVEY_MANAGED=1` 和 `TMPDIR=<state>/tmp`。开机后 Manager 由开机守护拉起，不读交互 shell 的初始化文件，所以 `PATH`、代理和本项目的设置只能靠清单。`restart` 不会补上清单里缺的变量，要重新 `launch`。
@@ -98,11 +98,11 @@
 | [手上的事与话题看板](#手上的事与话题看板) | `COVEY_PINNED_OVERVIEW=1`、`COVEY_PINNED_TOPICS=1` | `overview` 后台线程；Pin 话题时多一个已读事件消费者 |
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES` | `digest` 后台线程、菜单「看板」 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/kb-history` | 管家多 `knowledge_*` 工具，话题首轮带知识条目，汇总多一节；管家多 `history_search`，话题规则多一行查历史的命令 |
-| [管家](#管家) | 默认允许；`COVEY_MAIN_THREAD=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡的私聊、新话题标签 |
-| [管家规则](#管家规则) | `COVEY_MAIN_BUTLER=1` | 管家只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
+| [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡的私聊、新话题标签 |
+| [管家规则](#管家规则) | `COVEY_BUTLER_RULES=1` | 管家只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
 | [专项（第 2 期，开发中，默认关）](architecture.md#专项第-2-期开发中默认关) | `COVEY_PROJECTS=1` | 底座：`projects/` 记录、负责人话题和专项的话题的角色、看板并格，加负责人一轮的运行（规则、状态包、会话重建、`project_*` 工具、只留 `Read`/`Grep`/`Glob`）；入口是转成专项（`COVEY_PROJECT_UPGRADE=butler`：管家带 `project` 的派发卡静默转成专项）和管家直接开（`topic_start` 带 `project`）；续轮、问题分流是后面的包 |
-| [同时做几件事](main-thread.md#同时做几件事开关默认关) | `COVEY_MAIN_TRACKS=1` | 管家一轮在做时，下一句按规则和小模型并进某件在做的事或新开一件；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
-| [派发卡](#派发卡) | `COVEY_MAIN_DISPATCH_CARD=1` | `dispatch_cards` 后台线程；管家派出话题后多一张聊天区的活卡片 |
+| [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家一轮在做时，下一句按规则和小模型并进某件在做的事或新开一件；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
+| [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | `dispatch_cards` 后台线程；管家派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
 | [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 设备上能跑 Claude Code 和 Codex 的话题（经 ssh）；默认关，真机验收在进行。开了才有 `devices` 后台线程；关着，或开了但没有设备时，后台线程、文件和行为都同没有这个功能 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
@@ -158,7 +158,7 @@
 
 ### 知识条目与历史搜索
 
-两个变量互相独立，都只在主人自己的部署里设；没设时不建目录、不改规则和提示词、管家的工具清单里没有对应的工具、汇总里没有这一节。设计和实现见[管家 · 知识库](main-thread.md#知识库)，主人怎么用见[使用指南 · 知识条目](usage.md#知识条目)。
+两个变量互相独立，都只在主人自己的部署里设；没设时不建目录、不改规则和提示词、管家的工具清单里没有对应的工具、汇总里没有这一节。设计和实现见[管家 · 知识库](butler.md#知识库)，主人怎么用见[使用指南 · 知识条目](usage.md#知识条目)。
 
 - `COVEY_KNOWLEDGE=1`（只认 `1`）：打开知识条目。记录在 `<state>/knowledge/`；管家多 `knowledge_save`、`knowledge_update`、`knowledge_drop`、`knowledge_search`；每个话题的新会话带上条目，续接的会话只补上一轮之后新增或改动的；主人在话题里明确说“记一下 / 记住 / 记下来”时，Bridge 在那一轮结束后把检查点的 `remember` 记下来；早晚汇总多“新记的知识”。
 - `COVEY_HISTORY_CMD=/absolute/path/to/kb-history`：历史搜索命令的**绝对路径**（相对路径等于没设）。设了以后，主人自己的话题规则里多一行“要查以前做过的事用 `<命令> search <一句话>`”，管家多 `history_search`（跑 `<命令> search [--workspace W] [--since Nd] -- <一句话>`，自己的进程组里最多等 70 秒，超时整组杀，输出最多 20 KB）。命令本身不在这个仓库。
@@ -167,25 +167,25 @@
 
 ### 管家
 
-`COVEY_MAIN_THREAD` 决定部署允不允许管家（私聊模式“管家”，见[管家](main-thread.md#私聊模式)和[使用指南 · 管家](usage.md#管家)）：
+`COVEY_BUTLER` 决定部署允不允许管家（私聊模式“管家”，见[管家](butler.md#私聊模式)和[使用指南 · 管家](usage.md#管家)）：
 
 - `0`：不允许。不起后台线程、不改消息路由，设置卡没有管家的标签。
-- 不设或 `1`：允许。用不用由主人在设置卡上选的模式定（`<state>/main-thread.json` 的 `mode`），改模式不用重启。新部署第一次启动写成管家，日志 `main thread mode settled mode=agent|topics`。
+- 不设或 `1`：允许。用不用由主人在设置卡上选的模式定（`<state>/main-thread.json` 的 `mode`），改模式不用重启。新部署第一次启动写成管家，日志 `butler mode settled mode=agent|topics`。
 - 管家的设置在 `<state>/main-thread.json`，工具请求在 `<state>/main-thread/requests/`。管家的会话只能用 Claude Code。
 - `main-thread.json` 里旧的 `"desk_topics": true` 读到也按 `false` 处理，启动时记一行 warning，见[已下架项与旧配置](#已下架项与旧配置)。
 
 ### 管家规则
 
-`COVEY_MAIN_BUTLER=1`（只认 `1`）：管家的规则里，“只读的、一两分钟能做完的自己做完直接答”和“可能超过一两分钟的交给话题”这两条换成管家规则：几秒能答完的直接答，要查、要跑、要改、预计超过半分钟的用 `topic_start`、`topic_send` 派给话题，对主人只说一句放到哪个 T 号、大概多久。主人明确说“你直接做”时例外。`topic_start` 的工具说明也换成同样的说法（Bridge 把变量交给管家会话里的 MCP 服务，由它列工具）。其余规则一条不动；没设时每轮提示词和工具说明都和原来逐字节相同（`tests/golden/main_thread_prompt.txt`）。规则全文和旧会话什么时候用上新规则，见[管家 · 管家规则](main-thread.md#管家规则)。
+`COVEY_BUTLER_RULES=1`（只认 `1`）：管家的规则里，“只读的、一两分钟能做完的自己做完直接答”和“可能超过一两分钟的交给话题”这两条换成管家规则：几秒能答完的直接答，要查、要跑、要改、预计超过半分钟的用 `topic_start`、`topic_send` 派给话题，对主人只说一句放到哪个 T 号、大概多久。主人明确说“你直接做”时例外。`topic_start` 的工具说明也换成同样的说法（Bridge 把变量交给管家会话里的 MCP 服务，由它列工具）。其余规则一条不动；没设时每轮提示词和工具说明都和原来逐字节相同（`tests/golden/butler_prompt.txt`）。规则全文和旧会话什么时候用上新规则，见[管家 · 管家规则](butler.md#管家规则)。
 
-- 打开：在注册服务的终端里设 `COVEY_MAIN_BUTLER=1`，重新 `launch`。关掉：去掉变量、重新 `launch`。
+- 打开：在注册服务的终端里设 `COVEY_BUTLER_RULES=1`，重新 `launch`。关掉：去掉变量、重新 `launch`。
 - 不影响话题的规则、工具清单（只换 `topic_start` 的说明）和卡片；跑过 `CARD_AFTER`（90 秒）才出卡的兜底照旧，没有另设变量。
 
 ### 派发卡
 
-`COVEY_MAIN_DISPATCH_CARD=1`（只认 `1`）：管家用 `topic_start`、`topic_send`、`topic_fork` 把一件事交给话题后，在私聊的聊天区发一张**活卡片**（一条新消息，顶上“你问”块链到主人那条提问；不能回复那条提问，它下面已有话题串）：卡头是主人请求的前 30 字加状态（在做、等你、做完、失败、已停），一行灰字写 T 号、开始时间和用时，折叠面板“话题”写话题的标题、工作区和当前步骤，下面是输入/输出灰框，按钮是补充、停止、› 打开话题串。`dispatch_cards` 后台线程每秒读一次话题的任务记录，内容变了且离上次写超过 2.5 秒才整卡刷新一次。话题的结论回带发出后，卡缩成一行“✅ 做完 · 结论在下方 ›”（链到结论），之后不再刷新。说明见[管家 · 派发卡](main-thread.md#派发卡开关默认关)。
+`COVEY_DISPATCH_CARD=1`（只认 `1`）：管家用 `topic_start`、`topic_send`、`topic_fork` 把一件事交给话题后，在私聊的聊天区发一张**活卡片**（一条新消息，顶上“你问”块链到主人那条提问；不能回复那条提问，它下面已有话题串）：卡头是主人请求的前 30 字加状态（在做、等你、做完、失败、已停），一行灰字写 T 号、开始时间和用时，折叠面板“话题”写话题的标题、工作区和当前步骤，下面是输入/输出灰框，按钮是补充、停止、› 打开话题串。`dispatch_cards` 后台线程每秒读一次话题的任务记录，内容变了且离上次写超过 2.5 秒才整卡刷新一次。话题的结论回带发出后，卡缩成一行“✅ 做完 · 结论在下方 ›”（链到结论），之后不再刷新。说明见[管家 · 派发卡](butler.md#派发卡开关默认关)。
 
-- 打开：在注册服务的终端里设 `COVEY_MAIN_DISPATCH_CARD=1`，重新 `launch`。关掉：去掉变量、重新 `launch`；关着时不起后台线程、不发这张卡，话题的任务卡、回带和小卡（`hook_card`）和原来一样。
+- 打开：在注册服务的终端里设 `COVEY_DISPATCH_CARD=1`，重新 `launch`。关掉：去掉变量、重新 `launch`；关着时不起后台线程、不发这张卡，话题的任务卡、回带和小卡（`hook_card`）和原来一样。
 - 记录在 `<state>/main-thread/dispatch/`，7 天没动的由维护删。
 
 ### 群聊免@
@@ -279,10 +279,10 @@
 
 ## 环境变量与选项一览
 
-**命名（改名 Covey 后）**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置。`covey/core/env.py` 的 `get` 先读 `COVEY_<X>`、再读 `LARK_BRIDGE_<X>`（新名优先；只设了旧名时，进程的环境里读到旧名会在 stderr 记一行弃用，每个名字一次）。下表只写新名；每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`。`LARK_<HARNESS>_BRIDGE_*`（`LARK_CLAUDE_BRIDGE_*` 等 Harness 自己的前缀）和已不再读取的名字不变。
+**命名（改名 Covey 后）**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置。`covey/core/env.py` 的 `get` 先读 `COVEY_<X>`、再读 `LARK_BRIDGE_<X>`（新名优先；只设了旧名时，进程的环境里读到旧名会在 stderr 记一行弃用，每个名字一次）。下表只写新名；每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`。主线程改名为管家（2026-11-16）时有七个开关连名字一起改了，表里每行注明旧名；它们有三种写法，读取顺序是新名 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`covey/core/env.py` 的 `RENAMED`）：`COVEY_BUTLER`（旧 `MAIN_THREAD`）、`COVEY_BUTLER_RULES`（`MAIN_BUTLER`）、`COVEY_BUTLER_TRACKS`（`MAIN_TRACKS`）、`COVEY_BUTLER_TRACKS_MAX`（`MAIN_TRACKS_MAX`）、`COVEY_DISPATCH_CARD`（`MAIN_DISPATCH_CARD`）、`COVEY_BUTLER_JOB`（`MAIN_JOB`）、`COVEY_BUTLER_STATE`（`MAIN_STATE`）。`LARK_<HARNESS>_BRIDGE_*`（`LARK_CLAUDE_BRIDGE_*` 等 Harness 自己的前缀）和已不再读取的名字不变。
 
-- **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的 `COVEY_` 名都当旧名比，只改了名字不算变化。Manager 启动服务时两种名字都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
-- **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_MAIN_STATE`、`COVEY_MAIN_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）两种名字都设；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
+- **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`；上面七个存成 `LARK_BRIDGE_MAIN_*`，如 `COVEY_BUTLER` 存成 `LARK_BRIDGE_MAIN_THREAD`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的名字都折成旧名再比（`env.canonical`），只改了名字不算变化。Manager 启动服务时所有写法都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
+- **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_BUTLER_STATE`、`COVEY_BUTLER_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）所有写法都设（管家的两个另设 `COVEY_MAIN_*`、`LARK_BRIDGE_MAIN_*`）；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
 - 下一个版本起清单才改存新名，旧名读取再保留至少一个版本。
 
 代码在 `covey/` 和 `bin/` 里读的每个环境变量和命令行参数都列在这里，`tests/test_structure.py` 的 `InventoryTest` 核对：代码读了就要有一行，行里写出读它的文件；表里写了的代码也要读。不列 `HOME`、`PATH`、`PYTHONPATH`、`XDG_CONFIG_HOME`、`NO_PROXY`/`no_proxy` 这类系统变量。不再读取的环境变量不在表里，只有两个权限变量还为拦截而读（见[服务清单里的环境变量](#服务清单里的环境变量)）。
@@ -312,27 +312,27 @@
 | `COVEY_HARNESS_PROBE` | `app/availability.py`（`PROBE_ENV`；探测本身在 `core/harness_probe.py`） | 关；开了才每 60 秒的可用性检查里对 Claude、Codex 各做一次真实调用（缓存 6 小时，失败 10 分钟）。缓存里是“没登录”时该 Harness 在启动卡上不可用，网络、超时等只写进健康检查。可由服务清单保存 | 否 |
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
 | `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它才要菜单「看板」） | 空：不发早晚汇总 | 否 |
-| `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/main_thread.py`（`mcp_config` 交给管家的 MCP 服务）、`core/main_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：不开知识条目 | 否 |
-| `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/main_thread.py`（`mcp_config` 同上）、`core/main_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
+| `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：不开知识条目 | 否 |
+| `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/butler.py`（`mcp_config` 同上）、`core/butler_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根的 `extensions/enabled`（没有这个文件就没有扩展）；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
 | `COVEY_DEVICES` | `core/devices.py`（`enabled`） | 空：关；`1` 才读 `devices.json`，见[多设备](#多设备开发中默认关) | 否 |
 | `COVEY_DEVICES_FILE` | `core/devices.py`（`config_path`） | 空：`<数据根>/devices.json` | 否 |
-| `COVEY_MAIN_BUTLER` | `app/prompts.py`（`butler_on`）、`core/main_thread.py`（`mcp_config` 交给管家的 MCP 服务）、`core/main_tool_specs.py`（`listed`：MCP 服务据此换 `topic_start` 的工具说明） | 空：关；`1` 把管家规则的前两条换成管家规则（只快答和分派），`topic_start` 的工具说明同步 | 否 |
-| `COVEY_MAIN_DISPATCH_CARD` | `app/dispatch_cards.py`（`enabled`；`app/main_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 后台线程） | 空：关；`1` 开派发卡：管家派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
-| `COVEY_MAIN_TRACKS` | `core/main_tracks.py`（`enabled`；`core/main_thread.py` 的 `is_main_topic` 据此把槽 1 到 4 的话题也算管家；`app/main_tracks.py` 的 `Tracks.enabled` 再加上管家允许、模式是管家 才分流） | 空：关；`1` 开同时做几件事（已接线）：家族里有任务在做时，主人的下一句先过分流（`core/track_route.py` 的规则，拿不准的交给小模型 `COVEY_TRACK_JUDGE`）：并进某件在做的事、停止，或新开一件（槽 1 到 4，各是管家会话的分叉，同时跑；排队、并进有表情；另外几件事答了什么交给管家的下一轮）。关着时消息的走法和原来一样，也不起任何判断进程。见[管家 · 同时做几件事](main-thread.md#同时做几件事开关默认关) | 否 |
-| `COVEY_PROJECTS` | `core/projects.py`（`enabled`；`core/main_thread.py` 的 `is_lead`、`core/placement.py` 的 `plan`、`core/board_read.py` 的 `read` 据此判断负责人话题、专项的话题和看板的格）、`core/main_thread.py`（`mcp_config` 把它交给 MCP 服务）、`core/main_tool_specs.py`（`listed`：它是 `1` 时管家多出 `projects_list`、`project_send`，`topic_start`、`topic_send` 多一个 `project` 参数） | 空：关；`1` 开专项的底座和负责人的运行（第 2 期，开发中，还没有入口）：负责人话题（`topic.json` 的 `project.role` 是 `lead`）算管家家族，它的一轮用自己的规则、状态包和 `project_*` 工具（`app/project_lead.py`、`app/project_tools.py`）；专项的话题（`thread`）有自己的放置格、看板把一个专项的话题并成一格。关着时谓词全为假、放置表和看板和原来一样，也不建任何记录。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
-| `COVEY_MAIN_TRACKS_MAX` | `core/main_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
-| `COVEY_MAIN_THREAD` | `core/main_thread.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
-| `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/main_tracks.py` 的 `Tracks.decide` 调用，`COVEY_MAIN_TRACKS=1` 才会问） | `claude`（默认）：Claude Code 的 Haiku，一次问一条（默认用提前起好的待命进程，见 `COVEY_TRACK_JUDGE_WARM`）；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一件 | 否 |
+| `COVEY_BUTLER_RULES`（旧名 COVEY_MAIN_BUTLER、LARK_BRIDGE_MAIN_BUTLER） | `app/prompts.py`（`butler_on`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此换 `topic_start` 的工具说明） | 空：关；`1` 把管家规则的前两条换成管家规则（只快答和分派），`topic_start` 的工具说明同步 | 否 |
+| `COVEY_DISPATCH_CARD`（旧名 COVEY_MAIN_DISPATCH_CARD、LARK_BRIDGE_MAIN_DISPATCH_CARD） | `app/dispatch_cards.py`（`enabled`；`app/butler_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 后台线程） | 空：关；`1` 开派发卡：管家派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
+| `COVEY_BUTLER_TRACKS`（旧名 COVEY_MAIN_TRACKS、LARK_BRIDGE_MAIN_TRACKS） | `core/butler_tracks.py`（`enabled`；`core/butler.py` 的 `is_butler_topic` 据此把槽 1 到 4 的话题也算管家；`app/butler_tracks.py` 的 `Tracks.enabled` 再加上管家允许、模式是管家 才分流） | 空：关；`1` 开同时做几件事（已接线）：家族里有任务在做时，主人的下一句先过分流（`core/track_route.py` 的规则，拿不准的交给小模型 `COVEY_TRACK_JUDGE`）：并进某件在做的事、停止，或新开一件（槽 1 到 4，各是管家会话的分叉，同时跑；排队、并进有表情；另外几件事答了什么交给管家的下一轮）。关着时消息的走法和原来一样，也不起任何判断进程。见[管家 · 同时做几件事](butler.md#同时做几件事开关默认关) | 否 |
+| `COVEY_PROJECTS` | `core/projects.py`（`enabled`；`core/butler.py` 的 `is_lead`、`core/placement.py` 的 `plan`、`core/board_read.py` 的 `read` 据此判断负责人话题、专项的话题和看板的格）、`core/butler.py`（`mcp_config` 把它交给 MCP 服务）、`core/butler_tool_specs.py`（`listed`：它是 `1` 时管家多出 `projects_list`、`project_send`，`topic_start`、`topic_send` 多一个 `project` 参数） | 空：关；`1` 开专项的底座和负责人的运行（第 2 期，开发中，还没有入口）：负责人话题（`topic.json` 的 `project.role` 是 `lead`）算管家家族，它的一轮用自己的规则、状态包和 `project_*` 工具（`app/project_lead.py`、`app/project_tools.py`）；专项的话题（`thread`）有自己的放置格、看板把一个专项的话题并成一格。关着时谓词全为假、放置表和看板和原来一样，也不建任何记录。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
+| `COVEY_BUTLER_TRACKS_MAX`（旧名 COVEY_MAIN_TRACKS_MAX、LARK_BRIDGE_MAIN_TRACKS_MAX） | `core/butler_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
+| `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
+| `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS=1` 才会问） | `claude`（默认）：Claude Code 的 Haiku，一次问一条（默认用提前起好的待命进程，见 `COVEY_TRACK_JUDGE_WARM`）；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一件 | 否 |
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 3000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一件；取值限制在 200 到 10000。经网关调一次 Haiku 常要 1–2 秒，2 秒的上限下约四成会超时，所以默认 3 秒| 否 |
-| `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开；`0`、`off`、`false`、`no` 关。开着（且 `COVEY_MAIN_TRACKS=1`、通道是 `claude`）时，Bridge 在收到管家消息时提前起好一个 Claude Code 待命进程并用一条虚构的消息预热，问一次就丢掉、立刻起下一个，空闲 10 分钟或 Bridge 停止时结束；关着每次问都现起一个一次性进程，慢约 1 秒多 | 否 |
-| `COVEY_MAIN_STATE` | `core/main_mcp.py`（管家任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
-| `COVEY_MAIN_JOB` | `core/main_mcp.py`（管家任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
-| `COVEY_PROJECT_LEAD` | `core/main_thread.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要 `COVEY_PROJECTS=1`）、`core/main_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`workspaces_list` 加 `project_*`，其余管家工具都不列 | 否 |
+| `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开；`0`、`off`、`false`、`no` 关。开着（且 `COVEY_BUTLER_TRACKS=1`、通道是 `claude`）时，Bridge 在收到管家消息时提前起好一个 Claude Code 待命进程并用一条虚构的消息预热，问一次就丢掉、立刻起下一个，空闲 10 分钟或 Bridge 停止时结束；关着每次问都现起一个一次性进程，慢约 1 秒多 | 否 |
+| `COVEY_BUTLER_STATE`（旧名 COVEY_MAIN_STATE、LARK_BRIDGE_MAIN_STATE） | `core/butler_mcp.py`（管家任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
+| `COVEY_BUTLER_JOB`（旧名 COVEY_MAIN_JOB、LARK_BRIDGE_MAIN_JOB） | `core/butler_mcp.py`（管家任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
+| `COVEY_PROJECT_LEAD` | `core/butler.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要 `COVEY_PROJECTS=1`）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`workspaces_list` 加 `project_*`，其余管家工具都不列 | 否 |
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞） | 空：关，只有专项的第一条回执（`start`）唤醒负责人，其余回执留到负责人下一次被主人叫起；`1`：专项的话题一轮结束、主人在专项的话题里说话、停滞提醒也都唤醒，同一专项同一时刻最多排 1 个唤醒，并开停滞检查。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PROJECT_TOKENS` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 10000000：一个专项的 token 上限（负责人和各话题任务的合计，缓存算在输入里）；到了专项转停住、`state_reason` 是 `tokens`，不再唤醒；不是正整数按默认值 | 否 |
-| `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_MAIN_DISPATCH_CARD=1`） | 空或 `off`：不转成专项（默认）；`butler`：管家转话时带了 `project`（`topic_send` 的 `project` 参数），派发卡就静默转成专项，是不是由管家按话的意思判断（主人要长期跟进、要分成几个话题持续推进，或直接说“开个专项”“转成专项”才带，拿不准不带），不再匹配主人话里的关键词；`word`：旧值，意思同 `butler`；`auto`：再加该话题来回到第 3 轮。同时最多 3 个活专项，超了不转。直接开专项（管家的 `topic_start` 带 `project`）不看它，只看 `COVEY_PROJECTS`。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
+| `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_DISPATCH_CARD=1`） | 空或 `off`：不转成专项（默认）；`butler`：管家转话时带了 `project`（`topic_send` 的 `project` 参数），派发卡就静默转成专项，是不是由管家按话的意思判断（主人要长期跟进、要分成几个话题持续推进，或直接说“开个专项”“转成专项”才带，拿不准不带），不再匹配主人话里的关键词；`word`：旧值，意思同 `butler`；`auto`：再加该话题来回到第 3 轮。同时最多 3 个活专项，超了不转。直接开专项（管家的 `topic_start` 带 `project`）不看它，只看 `COVEY_PROJECTS`。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 关；`1` 开（还要 `COVEY_PINNED_OVERVIEW=1`） | 否 |
 | `COVEY_PROXY_PROFILE` | `app/proxy.py` | 空：代答不可用 | 否 |
 | `COVEY_APP_CHECK` | `app/app_setup.py` | 开：检查飞书应用、缺了发卡；`0` 关 | 否 |
@@ -407,7 +407,7 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | Codex 的 Magpie 供应商（`magpie/<分组>/<模型>`，`core/providers.py` 的 `RETIRED_PREFIXES`） | 启动卡和换配置卡不再列出它的模型，`COVEY_MAGPIE_URL` 不再读。停在它的模型上的话题发消息时回复“本话题的模型来自已下线的供应商「Magpie」…请点任务卡上的“🔁 换配置”…”。服务命令行里的 `--codex-magpie-url` 还能解析，值被忽略，设了非空值时启动记一行 `no longer used`。旧的 `<state>/native-models/magpie.json` 缓存留在盘上，不再读 |
 | `main-thread.json` 的 `desk_topics`（前台话题布局） | 读到 `true` 也按 `false` 处理，启动时记一行 warning，保存设置时原值留着。以前开的前台话题（登记在 `<state>/main-thread/desk/`）由启动时的迁移 `desk-retire` 冻结，不再接新消息 |
 | 文字命令、斜杠命令 | 以 `/` 开头的消息和以前的命令词（“代答”“本周用量”“管理工作区”“换配置”“停用本群”等）当作普通任务或补充。只有配对口令 `/pair` 还认。应用里残留的原生斜杠命令要在开发者后台删除并发布 |
-| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`proxy_settings`、`manage_groups`、`main_thread_settings` | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
+| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`proxy_settings`、`manage_groups`、`butler_settings` | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
 | 两卡式或 schema 3 之前的旧启动卡 | 点了只回“此启动卡已失效，请在主聊天重新发送消息开始任务。”，不改表单和等着的消息 |
 | 其他已下线卡片的按钮 | 见[已下线的功能](usage.md#已下线的功能) |
 

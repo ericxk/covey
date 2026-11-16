@@ -87,6 +87,30 @@ class DeployScriptTests(DeployFixture):
         self.assertTrue(out["run_dir"].startswith(str(self.root / "bridge-deploy-")))
         self.assertFalse((self.data / "releases").exists())
 
+    def test_the_live_manifests_old_names_for_the_butler_switches_are_no_difference_under_the_new_ones(self):
+        # 2026-11-16: COVEY_MAIN_THREAD and the others became COVEY_BUTLER...; a manifest keeps what older releases read.
+        live = {"LARK_BRIDGE_MAIN_THREAD": "1", "LARK_BRIDGE_MAIN_TRACKS": "1", "LARK_BRIDGE_MAIN_DISPATCH_CARD": "1",
+                "LARK_BRIDGE_MAIN_BUTLER": "1"}
+        shells = {"the old names": live,
+                  "the middle names": {"COVEY_MAIN_THREAD": "1", "COVEY_MAIN_TRACKS": "1", "COVEY_MAIN_DISPATCH_CARD": "1",
+                                       "COVEY_MAIN_BUTLER": "1"},
+                  "the new names": {"COVEY_BUTLER": "1", "COVEY_BUTLER_TRACKS": "1", "COVEY_DISPATCH_CARD": "1",
+                                    "COVEY_BUTLER_RULES": "1"}}
+        for what, shell in shells.items():
+            self.manifest({**runtime_environment(self.env), **live}, self.args)
+            code, out = self.deploy("--check-only", "--workdir", str(self.workdir), "--profile", "bot", "--",
+                                    "--sandbox", "danger-full-access", env={**self.env, **shell})
+            self.assertEqual(code, 0, (what, out))
+            pre = out["pre"]
+            self.assertEqual((pre["env_missing"], pre["env_extra"], pre["env_value_diff"]), ([], [], []), what)
+            self.assertEqual(pre["env_names"], len(runtime_environment(self.env)) + 4, what)
+        # A manifest holding the new names (written by hand) is compared as the old ones.
+        self.manifest({**runtime_environment(self.env), **shells["the new names"]}, self.args)
+        code, out = self.deploy("--check-only", "--workdir", str(self.workdir), "--profile", "bot", "--",
+                                "--sandbox", "danger-full-access", env={**self.env, **live})
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["pre"]["env_missing"], out["pre"]["env_extra"], out["pre"]["env_value_diff"]), ([], [], []))
+
     def test_each_pre_check_blocks_and_a_command_change_needs_leave(self):
         (self.state / "proxy" / "batches").mkdir(parents=True)
         (self.state / "proxy" / "batches" / "b1.json").write_text('{"status": "sending"}')

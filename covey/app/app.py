@@ -10,8 +10,8 @@ its own module that receives its collaborators here:
 - ``models`` (core/model_settings.py): the model and effort a job runs with.
 - ``artifacts``, ``switch`` (app/artifacts.py, app/switch_handoff.py): the artifact and the 换配置/回退
   controls of a finished task card.
-- ``forks`` (app/forks.py): the topics the main thread's topic_fork opens, and their first run.
-- ``compaction`` (app/compaction.py): the main thread's compaction requests, taken by its next turn.
+- ``forks`` (app/forks.py): the topics the butler's topic_fork opens, and their first run.
+- ``compaction`` (app/compaction.py): the butler's compaction requests, taken by its next turn.
 - ``rewinds`` (app/rewind.py): a ↩️ 回退 the topic's next turn resumes for, and each turn's prompt.
 - ``turn_export`` (app/turn_export.py): 下载请求与结果 on an ended task card.
 - ``questions`` (app/questions.py): native and checkpoint questions, answers, held notes.
@@ -43,7 +43,7 @@ from covey.app.forks import Forks
 from covey.app.switch_handoff import SwitchHandoff
 from covey.app.harnesses import Harness
 from covey.app.interaction import Interaction
-from covey.app.main_thread import compact_main_thread
+from covey.app.butler import compact_butler
 from covey.app.questions import Questions
 from covey.app.rewind import Rewinds
 from covey.app.runs import Runs
@@ -170,8 +170,8 @@ class BridgeApp:
         )
         timing.mark("state_write")
         if status in {'done', 'waiting_user'} and fields.get('delivery_ok') is True:
-            # The main thread's context past its threshold: its next turn compacts first.
-            compact_main_thread(self.compaction, ctx, job)
+            # The butler's context past its threshold: its next turn compacts first.
+            compact_butler(self.compaction, ctx, job)
             try:
                 self.artifacts.attach_artifact_controls(ctx, job)
             except Exception as exc:
@@ -225,11 +225,11 @@ class BridgeApp:
         """A message of a topic of this Harness: access check, attachments and forwards, history, then a job.
         In a group each prompt starts with who sent it (app/access.py). ``fetch_message_details``
         False skips looking up quoted messages (tests). ``supplement(ctx, prompt, message_id, content=, sender=)``:
-        True when it took the message into a running task instead (the main thread's, app/main_thread.py); it
+        True when it took the message into a running task instead (the butler's, app/butler.py); it
         writes the history line then. ``content`` and ``sender`` are what a new task of the message would be queued
-        with, should the turn never take it (app/steering.py requeue_lost). ``supplement`` may instead answer the context of another topic: the message is queued there (多路并行). ``hold``: seconds the new task waits before it starts (the main thread's, for the
+        with, should the turn never take it (app/steering.py requeue_lost). ``supplement`` may instead answer the context of another topic: the message is queued there (多路并行). ``hold``: seconds the new task waits before it starts (the butler's, for the
         owner's words after a forward). ``routed``: ``ctx`` is the message's topic already, not looked up again from the
-        event (the main thread's, for a message whose reply chain starts in a frozen front-desk topic, app/main_thread.py)."""
+        event (the butler's, for a message whose reply chain starts in a frozen front-desk topic, app/butler.py)."""
         sender = str(event.get("sender_id") or "")
         chat_id = str(event.get("chat_id") or "")
         message_id = str(event.get("message_id") or event.get("id") or "")
@@ -261,7 +261,7 @@ class BridgeApp:
         if supplement is not None:
             taken = supplement(ctx, prompt, message_id, content=content, sender=sender)
             if isinstance(taken, type(ctx)):
-                ctx = taken  # A supplement the task refused: a track of its own, queued in its topic (app/main_tracks.py).
+                ctx = taken  # A supplement the task refused: a track of its own, queued in its topic (app/butler_tracks.py).
             elif taken:
                 timing.outcome("supplement")
                 return

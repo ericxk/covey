@@ -1,6 +1,6 @@
 """手上的事, the pinned board and 早晚汇总 in each personal group (core/spaces.py ``personal_groups``).
 
-The owner may talk to the main thread in a group more than in a private chat, and follows its topics in the group's
+The owner may talk to the butler in a group more than in a private chat, and follows its topics in the group's
 pins too, the private chat keeping its own. Each personal group but the notify space (whose board is the default one,
 ``Access.board_groups``) gets an Overview of its own (app/overview.py: ``chat`` fixed to the group, its
 thread ``overview-<chat_id tail>``, the card saying 群), which lays that group's board (app/pins.py) over it, both in

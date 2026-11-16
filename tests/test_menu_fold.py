@@ -43,7 +43,7 @@ def tab_values(card):
 
 class MenuFoldTests(ProxyCase):
     def setUp(self):
-        self.enterContext(mock.patch.dict(os.environ, {'COVEY_MAIN_THREAD': '1', DASHBOARD_ENV: '127.0.0.1:10601',
+        self.enterContext(mock.patch.dict(os.environ, {'COVEY_BUTLER': '1', DASHBOARD_ENV: '127.0.0.1:10601',
                                                        ENTRY_ENV: ''}))
         super().setUp()
         self.access = self.app.runtime.access
@@ -114,7 +114,7 @@ class MenuFoldTests(ProxyCase):
 
     def test_an_owners_top_level_message_after_the_card_means_a_new_card(self):
         handled = []
-        self.app.main_thread.handle_event = lambda ctx, event, owner: handled.append(event['message_id']) or True
+        self.app.butler.handle_event = lambda ctx, event, owner: handled.append(event['message_id']) or True
         self.click('weekly_usage', 'ev1')
         self.app.handle_event({'chat_id': 'dm', 'chat_type': 'p2p', 'sender_type': 'user', 'sender_id': 'owner',
                                'message_id': 'm-thread', 'thread_id': 'omt_1', 'content': '话题里'}, self.ctx)

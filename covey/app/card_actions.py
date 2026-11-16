@@ -8,7 +8,7 @@ pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 重新发送 card's, 群管理's, 敏感词看板's 换口令, the 脱敏 tab's, the 管家 settings card's, the 设置 card's tabs, 手上的事's
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
-app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/main_thread_panel.py, app/settings_hub.py,
+app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
 app/overview.py, app/app_setup.py, app/group_menu.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
@@ -116,7 +116,7 @@ ACTIONS = {
     "bridge_redaction_upstream": CardAction("设置上游地址"),
     "bridge_redaction_probe": CardAction("探测上游地址"),
     "bridge_redaction_preview": CardAction("试一下脱敏"),
-    # The 管家 settings card (cards/main_thread_panel.py KINDS).
+    # The 管家 settings card (cards/butler_panel.py KINDS).
     "bridge_main_enable": CardAction("开关管家"),
     "bridge_main_model": CardAction("选择管家模型"),
     "bridge_main_effort": CardAction("选择管家思考预算"),
@@ -141,7 +141,7 @@ ACTIONS = {
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).
     "bridge_app_setup": CardAction("补齐飞书应用配置"),
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),
-    # The menu card of a group with a main thread (app/group_menu.py KIND).
+    # The menu card of a group with a butler (app/group_menu.py KIND).
     "bridge_group_menu": CardAction("群里的菜单"),
 }
 ACTIONS.update({kind: CardAction(label, bot_only=True) for kind, label in extensions.card_kinds().items()})

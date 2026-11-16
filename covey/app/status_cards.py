@@ -29,7 +29,7 @@ from covey.core.checkpoint import checkpoint_steps, read_checkpoint, step_words
 from covey.core.jobs import topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.metrics import run_seconds, timings_of, took_text
-from covey.core.main_thread import traits
+from covey.core.butler import traits
 from covey.core.state import read_object, write_json
 from covey.core.text import cut
 from covey.core.topics import remember_topic_message, topic_file, topic_label, topic_title
@@ -126,7 +126,7 @@ class StatusCards:
 
     @staticmethod
     def root(state_dir, topic_id, chat):
-        """The topic's thread root when it has a thread in ``chat`` (a topic, not the main thread), else ''."""
+        """The topic's thread root when it has a thread in ``chat`` (a topic, not the butler), else ''."""
         if not traits(topic_id, chat).has_thread:
             return ""
         data = read_object(topic_file(Path(state_dir), topic_id))

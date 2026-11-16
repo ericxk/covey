@@ -16,7 +16,7 @@ from covey.app import turn_images
 from covey.app.turn_images import FIELD, MOST, TurnImages, wanted
 from covey.core.jobs import find_job_record, job_key
 from covey.core.longtask import TaskMonitor
-from covey.core.main_thread import main_topic_id
+from covey.core.butler import butler_topic_id
 from covey.core.state import write_json
 from covey.feishu.messenger import Messenger, Voice
 
@@ -96,8 +96,8 @@ class SendTest(Case):
         self.assertEqual([where for where, _ in self.sent()], ["om_topic_root", "om_topic_root", "", ""])
         self.assertTrue(any("thread=- top=om_top" in line for line in self.logs), self.logs)
 
-    def test_the_main_threads_own_go_to_the_chat_only(self):
-        self.images(topic=main_topic_id(CHAT))({FIELD: [{"path": str(self.image), "note": "看这张", "urgent": True}]})
+    def test_the_butlers_own_go_to_the_chat_only(self):
+        self.images(topic=butler_topic_id(CHAT))({FIELD: [{"path": str(self.image), "note": "看这张", "urgent": True}]})
         self.assertEqual(self.sent(), [("", "note: 看这张"), ("", "qr.png")])  # No thread under his message (D1).
 
     def test_each_image_once_a_restart_too_and_a_file_written_again_is_new(self):

@@ -1,9 +1,9 @@
-"""Where a turn's words go in the private chat (docs/main-thread.md 放置表): one table, the layout by the role.
+"""Where a turn's words go in the private chat (docs/butler.md 放置表): one table, the layout by the role.
 
-The layout is the deployment's and the owner's (``layout``): "topics" with the main thread off (core/main_thread.py
-``enabled``), else "area" (the 话题区). The role is the topic's: the main thread ("main", MAIN_OFF too) or a topic
-("topic") by core/main_thread.py Traits, and with COVEY_PROJECTS on a project's lead ("lead", LEAD_OFF too: Traits) or
-one of its threads ("project_thread": topic.json's ``project.role``, core/projects.py, read by a stat and kept until
+The layout is the deployment's and the owner's (``layout``): "topics" with the butler off (core/butler.py
+``enabled``), else "area" (the 话题区). The role is the topic's: the butler ("butler", BUTLER_OFF too) or a topic
+("topic") by core/butler.py Traits, and with COVEY_PROJECTS on a project's lead ("lead", LEAD_OFF too: Traits) or
+one of its members ("project_member": topic.json's ``project.role``, core/projects.py, read by a stat and kept until
 the file changes, so a topic upgraded into a project is one from its next ``plan`` on). The front-desk layout and role (desk_topics, 11-07) were retired on 2026-11-09
 and their topics frozen on 2026-11-10 (core/migrate.py desk-retire).
 
@@ -18,17 +18,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from covey.core import main_thread, projects
+from covey.core import butler, projects
 from covey.core.jobs import job_field
-from covey.core.main_thread import Traits
+from covey.core.butler import Traits
 
 TOP, THREAD, CARD, NONE = "top", "thread", "card", ""
 AREA, TOPICS = "area", "topics"  # The layouts.
-MAIN_ROLE, TOPIC_ROLE, LEAD_ROLE, THREAD_ROLE = "main", "topic", "lead", "project_thread"
+BUTLER_ROLE, TOPIC_ROLE, LEAD_ROLE, MEMBER_ROLE = "butler", "topic", "lead", "project_member"
 ROUTES = "routes"  # When an answer is its task card's body (``answer_on_card``).
-# Traits.name → role: the main thread's topic is the main thread whether its session runs (MAIN) or not (MAIN_OFF).
-ROLES = {"main": MAIN_ROLE, "main_off": MAIN_ROLE, "topic": TOPIC_ROLE, "lead": LEAD_ROLE, "lead_off": LEAD_ROLE}
-# THREAD_ROLE is no Traits row's: a thread is a topic (TOPIC) by its Traits, a project's by its topic.json (``plan``).
+# Traits.name → role: the butler's topic is the butler whether its session runs (BUTLER) or not (BUTLER_OFF).
+ROLES = {"butler": BUTLER_ROLE, "butler_off": BUTLER_ROLE, "topic": TOPIC_ROLE, "lead": LEAD_ROLE, "lead_off": LEAD_ROLE}
+# MEMBER_ROLE is no Traits row's: a member is a topic (TOPIC) by its Traits, a project's by its topic.json (``plan``).
 
 
 @dataclass(frozen=True)
@@ -36,14 +36,14 @@ class Row:
     """Where each of a turn's words goes, for one layout and role."""
 
     # A reply to the owner's message at the top level (True) or in its thread (False); None: Traits.top_level
-    # (app/main_thread.py MainThread.configure).
+    # (app/butler.py Butler.configure).
     reply_top_level: bool | None
     answer: str  # The verified reply sent on its own, not on the task card (app/worker.py TurnDelivery.send).
-    # When the reply is the task card's body (app/main_reply.py answers_in_place): ROUTES only when the turn opened
+    # When the reply is the task card's body (app/butler_reply.py answers_in_place): ROUTES only when the turn opened
     # or handed on to topics; "" never (Traits.answers_in_place False).
     answer_on_card: str
-    conclusion: str  # A finished turn's relay (app/main_relay.py after_turn); NONE none.
-    stop: str  # A stopped or failed turn's relay; NONE none (the main thread's card lists its supplements).
+    conclusion: str  # A finished turn's relay (app/butler_relay.py after_turn); NONE none.
+    stop: str  # A stopped or failed turn's relay; NONE none (the butler's card lists its supplements).
     question_copy: str  # A waiting turn's question cards copied to the top level (app/question_display.py mirror).
     ask_block: bool  # A new top-level message carries the "你问" link to the message it answers.
     # Its status card is pinned on the board when it has a thread (app/status_cards.py); else its turn's own card:
@@ -54,9 +54,9 @@ class Row:
     # private chat only (TurnDelivery ``headed``: a group's topic has this row too, its cards as before): its answer card
     # is the turn's result and the board's Pin.
     answer_head: bool = False
-    # The main thread's turn opens no thread of its own (D1, 2026-11-08: 提问不开串): its task card goes out only once
-    # it has run main_thread.CARD_AFTER seconds (app/cards.py Cards.reveal), the owner's message gets a reaction
-    # instead (app/main_reactions.py: OnIt, then DONE, Get or CrossMark), a turn that only handed work on to topics
+    # The butler's turn opens no thread of its own (D1, 2026-11-08: 提问不开串): its task card goes out only once
+    # it has run butler.CARD_AFTER seconds (app/cards.py Cards.reveal), the owner's message gets a reaction
+    # instead (app/butler_reactions.py: OnIt, then DONE, Get or CrossMark), a turn that only handed work on to topics
     # sends no answer of its own, a failed or refused one a short top-level notice, its question cards go to the top
     # level (an answer's continuation, ``quiet``, too: no thread under the question card, no reaction), and
     # its "你问" links open the owner's message in the chat, not a thread (app/answer_cards.py ask_link chat_place).
@@ -66,11 +66,11 @@ class Row:
 _TOPICS = Row(reply_top_level=False, answer=THREAD, answer_on_card=NONE, conclusion=NONE, stop=NONE,
               question_copy=NONE, ask_block=False, status_card=True)
 TABLE = {
-    (AREA, MAIN_ROLE): Row(reply_top_level=False, answer=TOP, answer_on_card=ROUTES, conclusion=NONE,
+    (AREA, BUTLER_ROLE): Row(reply_top_level=False, answer=TOP, answer_on_card=ROUTES, conclusion=NONE,
                            stop=NONE, question_copy=TOP, ask_block=True, status_card=False, quiet=True),
     (AREA, TOPIC_ROLE): Row(reply_top_level=None, answer=THREAD, answer_on_card=NONE, conclusion=TOP,
                             stop=TOP, question_copy=TOP, ask_block=True, status_card=False, answer_head=True),
-    # A project's lead (docs/architecture.md 专项): hidden, no thread of its own, quiet like the main thread; its words
+    # A project's lead (docs/architecture.md 专项): hidden, no thread of its own, quiet like the butler; its words
     # go to the top level only in a turn the owner started (a wake-up turn's are dropped unless it reported, phase 2's
     # app/project_lead.py), nothing relayed, no question card copy (what the owner must answer comes by the question
     # card of the thread's turn).
@@ -78,14 +78,14 @@ TABLE = {
                            stop=NONE, question_copy=NONE, ask_block=True, status_card=False, quiet=True),
     # A project's thread: a topic whose answer stays in its thread; its conclusion and stop do not go back to the top
     # level (they go to the lead's inbox, phase 2), and only a question that reaches the owner is copied there.
-    (AREA, THREAD_ROLE): Row(reply_top_level=None, answer=THREAD, answer_on_card=NONE, conclusion=NONE,
+    (AREA, MEMBER_ROLE): Row(reply_top_level=None, answer=THREAD, answer_on_card=NONE, conclusion=NONE,
                              stop=NONE, question_copy=TOP, ask_block=True, status_card=False, answer_head=True),
-    # The main thread off: every reply in its thread, nothing relayed (MAIN_OFF and TOPIC are the only rows then; a
-    # project needs the main thread, so its rows here are for what is left of one when it is turned off).
-    (TOPICS, MAIN_ROLE): _TOPICS,
+    # The butler off: every reply in its thread, nothing relayed (BUTLER_OFF and TOPIC are the only rows then; a
+    # project needs the butler, so its rows here are for what is left of one when it is turned off).
+    (TOPICS, BUTLER_ROLE): _TOPICS,
     (TOPICS, TOPIC_ROLE): _TOPICS,
     (TOPICS, LEAD_ROLE): _TOPICS,
-    (TOPICS, THREAD_ROLE): _TOPICS,
+    (TOPICS, MEMBER_ROLE): _TOPICS,
 }
 
 
@@ -102,8 +102,8 @@ class Placement:
 
 
 def layout() -> str:
-    """TOPICS with the main thread off, else AREA: the mode as core/main_thread.py reads it (set up per process)."""
-    return AREA if main_thread.enabled() else TOPICS
+    """TOPICS with the butler off, else AREA: the mode as core/butler.py reads it (set up per process)."""
+    return AREA if butler.enabled() else TOPICS
 
 
 def _topic_of(of) -> str:
@@ -116,15 +116,15 @@ def _topic_of(of) -> str:
 
 
 def plan(state_dir, of) -> Placement:
-    """The placement of ``of`` (as core/main_thread.py traits_of takes it: a job, a record, topic.json or a Traits
-    row) in the layout now (``layout``). The role is its Traits row's, and for a topic with COVEY_PROJECTS on, THREAD_ROLE
+    """The placement of ``of`` (as core/butler.py traits_of takes it: a job, a record, topic.json or a Traits
+    row) in the layout now (``layout``). The role is its Traits row's, and for a topic with COVEY_PROJECTS on, MEMBER_ROLE
     when its topic.json says it is a project's thread (``state_dir`` is read for that alone; a Traits row names no
     topic, so a caller that wants the thread's role passes the job, the record or {"topic_id": ..., "chat_id": ...})."""
-    traits = main_thread.traits_of(of)
+    traits = butler.traits_of(of)
     where = layout()
     role = ROLES.get(traits.name, TOPIC_ROLE)
-    if role == TOPIC_ROLE and state_dir and projects.enabled() and projects.is_thread_topic(state_dir, _topic_of(of)):
-        role = THREAD_ROLE
+    if role == TOPIC_ROLE and state_dir and projects.enabled() and projects.is_member_topic(state_dir, _topic_of(of)):
+        role = MEMBER_ROLE
     return Placement(traits, where, role, TABLE[(where, role)])
 
 
@@ -143,9 +143,9 @@ def owner_message(job) -> str:
 
 
 def quiet(state_dir, job) -> bool:
-    """Whether ``job`` (a job, or its record) is a main-thread turn of the 话题区 layout (``Row.quiet``), and one
+    """Whether ``job`` (a job, or its record) is a butler turn of the 话题区 layout (``Row.quiet``), and one
     of the owner's own messages (a Feishu message id, ``owner_message``) or an answer's continuation (``CONTINUATION``: answering the
-    question card at the top level opens no thread under it either); a main-thread tool's turn is not. Never raises:
+    question card at the top level opens no thread under it either); a butler tool's turn is not. Never raises:
     False when it cannot be told."""
     try:
         return owner_message(job).startswith(("om_", CONTINUATION, projects.WAKE_PREFIX)) and plan(state_dir, job).row.quiet
@@ -155,6 +155,6 @@ def quiet(state_dir, job) -> bool:
 
 def marked(state_dir, job) -> bool:
     """Whether ``job`` is ``quiet`` and one of the owner's own messages, which takes the turn's reactions
-    (app/main_reactions.py): an answer's continuation has no message of the owner's, its question card says how it
+    (app/butler_reactions.py): an answer's continuation has no message of the owner's, its question card says how it
     goes (app/question_display.py update_continuation). Never raises."""
     return owner_message(job).startswith("om_") and quiet(state_dir, job)

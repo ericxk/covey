@@ -8,14 +8,14 @@ when something happened since it last looked, and the mechanical checks that sto
   ``wakes``). A ``start`` receipt always wakes; the others only with COVEY_PROJECT_AUTOWAKE=1. After a restart the same
   look finds the receipts on disk again (``take_receipts`` gives back what a turn that did not end well had taken).
 - Guards, any of which pauses the project with ``state_reason`` ``tokens``, ``wakes`` or ``stalled`` (core/projects.py
-  GUARD_REASONS) and wakes it no more: the lead's and the threads' tokens over COVEY_PROJECT_TOKENS (``tokens_used``, added
+  GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_TOKENS (``tokens_used``, added
   once per task by ``after_runner``); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
   receipt for 30 minutes, which first wakes the lead with a ``stalled`` receipt and, as long again with nothing moving,
   pauses. The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
   owner's stop paused (a ``tokens`` pause gets a new budget from there, ``token_floor``).
 - Receipts: ``after_runner`` (the Bridge, once a task's runner is gone: rule 8 keeps a task process to its own card and
-  record) writes ``thread_end`` for a thread's turn that ended and counts the tokens; ``heard`` (the Bridge, on the owner's
-  message in a thread's topic) writes ``owner_said``; the loop writes ``stalled``. ``question`` is phase 2's P2-5.
+  record) writes ``thread_end`` (the receipt kind keeps its name on disk) for a member's turn that ended and counts the tokens; ``heard`` (the Bridge, on the owner's
+  message in a member's topic) writes ``owner_said``; the loop writes ``stalled``. ``question`` is phase 2's P2-5.
 - ``silent`` (app/worker.py TurnDelivery): a wake-up turn's reply is not sent to the owner, unless the lead recorded a
   report note in it that its style lets through (``project_lead.reportable``); then it goes as the lead's reply does.
 
@@ -37,7 +37,7 @@ from covey.core.text import cut
 from covey.core.topics import load_topic, remember_topic_message, topic_label
 from covey.core.turn_words import RESULTS
 
-HARNESS = "claude"  # A lead runs on Claude Code (app/main_thread.py HARNESS: not imported, it imports project_lead).
+HARNESS = "claude"  # A lead runs on Claude Code (app/butler.py HARNESS: not imported, it imports project_lead).
 TICK = 10  # Seconds between two looks.
 START_WAIT = 20  # After the Bridge starts: its own recovery of interrupted turns goes first.
 HOUR = 3600
@@ -45,7 +45,7 @@ WAKE_TEXT = ("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主�
              "要告诉主人的用 project_note 并标 report，这一轮的回复不会发给主人。")
 TOKEN_JOBS_KEPT = 300  # Task keys the record remembers it has counted (``tokens_used``).
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
-RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a thread's receipt says; an interrupted turn goes on by itself.
+RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a member's receipt says; an interrupted turn goes on by itself.
 SAID = 300  # Characters of the owner's words in an ``owner_said`` receipt.
 
 
@@ -100,7 +100,7 @@ def open_turns(state_dir, topics) -> bool:
 
 
 def last_activity(state_dir, record, receipts) -> float:
-    """When something last happened in the project that was not the lead's own wake-up: a thread's task or the lead's
+    """When something last happened in the project that was not the lead's own wake-up: a member's task or the lead's
     turn the owner started ending, a receipt other than ``stalled`` coming in, the project beginning."""
     lead = str(record.get("lead_topic_id") or "")
     times = [float(record.get("created_at") or 0)]
@@ -164,10 +164,10 @@ def owner_turn(state_dir, topic_id, chat_id, message_id) -> None:
 
 
 def heard(state_dir, topic_id, text) -> None:
-    """The owner wrote ``text`` in the topic ``topic_id`` (app/app.py handle_event): a thread of a project gets an
+    """The owner wrote ``text`` in the topic ``topic_id`` (app/app.py handle_event): a member of a project gets an
     ``owner_said`` receipt, and the wake-ups in a row start again (someone stepped in). Never raises."""
     try:
-        if not projects.enabled() or not projects.is_thread_topic(state_dir, topic_id):
+        if not projects.enabled() or not projects.is_member_topic(state_dir, topic_id):
             return
         found = projects.topic_project(state_dir, topic_id)
         record = projects.read_record(state_dir, found.id)
@@ -182,8 +182,8 @@ def heard(state_dir, topic_id, text) -> None:
 
 
 def after_runner(log, state_dir, job) -> None:
-    """The Bridge, once ``job``'s run has ended (app/main_relay.py after_runner): a task of a project's lead or one of its
-    threads has its tokens added once to ``tokens_used``, and a thread's turn that ended says so in a ``thread_end`` receipt
+    """The Bridge, once ``job``'s run has ended (app/butler_relay.py after_runner): a task of a project's lead or one of its
+    threads has its tokens added once to ``tokens_used``, and a member's turn that ended says so in a ``thread_end`` receipt
     (what became of it in a sentence, its status and number). Never raises."""
     try:
         topic, chat = str(job_field(job, "topic_id")), str(job_field(job, "chat_id"))
@@ -208,7 +208,7 @@ def after_runner(log, state_dir, job) -> None:
             data["tokens_used"] = int(data.get("tokens_used") or 0) + used
             first.append(True)
         projects.update(state_dir, found.id, change)
-        if first and found.role == projects.THREAD and status in RECEIPT_ENDS:
+        if first and found.role == projects.MEMBER and status in RECEIPT_ENDS:
             said = project_lead.last_line(record.get("final_text"))
             label = topic_label(Path(state_dir), topic) or topic[:8]
             text = f"{label} 的任务 #{record.get('job_id')} {RESULTS.get(status, status)}" + (f"：{cut(said, 160)}" if said else "")
@@ -222,7 +222,7 @@ def after_runner(log, state_dir, job) -> None:
 # The loop.
 
 class ProjectLoop:
-    """The feature object: the thread that wakes leads and applies the guards. ``env``: app/main_env.py MainEnv (the Harness
+    """The feature object: the thread that wakes leads and applies the guards. ``env``: app/butler_env.py ButlerEnv (the Harness
     apps, the state directory)."""
     name = "project_loop"
 
@@ -277,7 +277,7 @@ class ProjectLoop:
         if open_turns(state, [lead, *(record.get("threads") or ())]):
             return
         pid = record["id"]
-        try:  # Every receipt, read or not: a thread's end the lead has read is activity all the same.
+        try:  # Every receipt, read or not: a member's end the lead has read is activity all the same.
             receipts = [read_object(path) for path in project_lead.inbox_dir(state, pid).glob("*.json")]
         except OSError:
             receipts = []

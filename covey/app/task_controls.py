@@ -8,7 +8,7 @@ import functools
 from pathlib import Path
 
 from covey.core import placement, recovery, timing
-from covey.core.main_thread import traits, worded
+from covey.core.butler import traits, worded
 from covey.core.checkpoint import read_checkpoint
 from covey.core.harness import BridgeContext
 from covey.core.jobs import BridgeReplyJob as ReplyJob
@@ -39,13 +39,13 @@ RETRY_REFUSALS = {
 }
 
 
-# A record whose card a quiet main-thread turn's recovery card is, sent at the top level (TaskControls.show_recovery_card).
+# A record whose card a quiet butler turn's recovery card is, sent at the top level (TaskControls.show_recovery_card).
 TOP_CARD = "card_top_level"
 
 
 @dataclasses.dataclass
 class _Marked:
-    """A record as app/main_reactions.py takes a job."""
+    """A record as app/butler_reactions.py takes a job."""
     record: dict
 
     @property
@@ -91,7 +91,7 @@ class TaskControls(Redelivery):
         self.record_job_state = record_job_state
 
     def asked_card(self, ctx, record, card):
-        """``card`` with the 你问 block of ``record`` on top when its card is one of a quiet main-thread turn's at the
+        """``card`` with the 你问 block of ``record`` on top when its card is one of a quiet butler turn's at the
         top level (``TOP_CARD``, ``show_recovery_card``): it quotes nothing, the block says what it answers."""
         if not record.get(TOP_CARD):
             return card
@@ -111,7 +111,7 @@ class TaskControls(Redelivery):
             record, state_dir=ctx.state_dir)))
 
     def show_recovery_card(self, ctx, record):
-        """``record``'s card redrawn as its recovery card, else a new one. A quiet main-thread turn with no card yet
+        """``record``'s card redrawn as its recovery card, else a new one. A quiet butler turn with no card yet
         (core/placement.py Row.quiet, D1 2026-11-08: 提问不开串) gets it at the top level, quoting nothing, with its
         你问 block (``TOP_CARD``), and the OnIt on the owner's message comes off (a resume puts it back,
         ``requeue``)."""
@@ -136,8 +136,8 @@ class TaskControls(Redelivery):
             upsert_job_record(ctx.state_dir, record["key"], card_id=card_id, card_message_id=outgoing,
                               **({TOP_CARD: True} if top else {}))
         if top and placement.marked(ctx.state_dir, record):
-            from covey.app import main_reactions
-            main_reactions.finish(self.messenger, ctx.profile, _Marked(record), "", self.runtime.log)
+            from covey.app import butler_reactions
+            butler_reactions.finish(self.messenger, ctx.profile, _Marked(record), "", self.runtime.log)
         return bool(outgoing)
 
     def report_unfinished(self, ctx, record, notice, key, *, keep_question_forms, restart=True):
@@ -283,8 +283,8 @@ class TaskControls(Redelivery):
         message_id: str,
         others: int = 0,
     ) -> bool:
-        """The stop of a task by its card or a stop word. ``others``: how many other tracks of the main thread are still
-        going (多路并行, app/main_tracks.py), said at the end of the text reply; 0 says nothing of it."""
+        """The stop of a task by its card or a stop word. ``others``: how many other tracks of the butler are still
+        going (多路并行, app/butler_tracks.py), said at the end of the text reply; 0 says nothing of it."""
         also = f"还有 {others} 件事在做。" if others > 0 else ""
         try:
             job_id = int(action.get("job_id") or "0")
@@ -324,8 +324,8 @@ class TaskControls(Redelivery):
             self.record_job_state(ctx, job, "cancelled", "已取消排队，未执行")
             self.close_unstarted_job(ctx, job, "已取消排队", "本条消息不会执行；其他任务继续。",
                                      self.voice.key("cancel-queued", message_id))
-            from covey.app import main_reactions
-            main_reactions.unqueue(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
+            from covey.app import butler_reactions
+            butler_reactions.unqueue(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
             self.messenger.reply(ctx, chat_id, f"已取消排队任务 #{job.job_id}，其他任务继续。{also}",
                                  self.voice.key("cancel-queued-ack", message_id), voice=self.voice)
             return True
@@ -451,7 +451,7 @@ class TaskControls(Redelivery):
             job.policy_retry = dict(record["policy_retry"])
         moved = retried_line(fallback["category"], fallback["name"]) if fallback else ""
         queued = moved or (auto_retry.queued_line(kind, automatic) if automatic else "重试已入队")
-        # A quiet main-thread turn's (core/placement.py Row.quiet, D1): no card of its own yet (one at the top level
+        # A quiet butler turn's (core/placement.py Row.quiet, D1): no card of its own yet (one at the top level
         # is its recovery card), its card held back as the first turn's was, its reactions on the owner's message.
         quiet = ((not record.get("card_message_id") or bool(record.get(TOP_CARD)))
                  and placement.quiet(ctx.state_dir, record))
@@ -477,8 +477,8 @@ class TaskControls(Redelivery):
             raise
         upsert_job_record(ctx.state_dir, record["key"], retried_by=job.message_id)
         if quiet:
-            from covey.app import main_reactions
-            main_reactions.start(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log, again=True)
+            from covey.app import butler_reactions
+            butler_reactions.start(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log, again=True)
         self.cards.replace_record_card(ctx, record, self.asked_card(ctx, record, recovery_card(
             record, state_dir=ctx.state_dir, moved_to=job.job_id, automatic=kind, moved=moved)))
         queued_line = f"本话题任务已重新入队，任务 #{job.job_id}。"

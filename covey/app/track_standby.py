@@ -2,7 +2,7 @@
 that needs it, used for exactly one question and thrown away; the next one is started right after.
 
 Why: a cold one-shot spends about a second on starting the CLI and its first request is slower than the ones after it
-(measured 2026-11-16, docs/main-thread.md 多路并行). The standby is started in ``stream-json`` mode, answers one fixed,
+(measured 2026-11-16, docs/butler.md 多路并行). The standby is started in ``stream-json`` mode, answers one fixed,
 invented priming message (so its first request and its connection are warm, and no word of the owner is ever in it),
 and then waits on standard input. ``take`` hands it out once; ``Standby.ask`` writes the one real question and reads
 the answer. Because it answers one question, nothing of an earlier message is in its context.
@@ -11,7 +11,7 @@ Safety: the process leads a process group of its own, killed outright (SIGKILL o
 limit, idle for IDLE_S (a timer thread, one per standby, only while one exists), older than MAX_AGE_S when the next
 ``warm`` comes, at ``shutdown`` (the Bridge's stop, app/unified.py ``stop_children``) and at interpreter exit. A Bridge that
 dies hard closes its standard input, which ends the child on its own. Nothing here starts a process unless ``warm`` is
-called, and only the track router calls it (COVEY_MAIN_TRACKS=1). Standard library and core/process.py only.
+called, and only the track router calls it (COVEY_BUTLER_TRACKS=1). Standard library and core/process.py only.
 """
 from __future__ import annotations
 

@@ -11,7 +11,7 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   ``tool_steps``, ``agents`` and ``child_steps`` were only ever written beside it). It goes to
   traces/<key>.jsonl (trace_store.save_embedded) unless load_trace finds one there; load_trace then reads
   only the file. No release since ff57531 writes ``trace_snapshot`` into a record.
-- desk-retire: a front-desk topic (前台话题: one the main thread opened with main-thread.json's desk_topics on,
+- desk-retire: a front-desk topic (前台话题: one the butler opened with main-thread.json's desk_topics on,
   11-07, registered by an empty file <state>/main-thread/desk/<topic_id>) is frozen: its topic.json gets
   ``retired: "desk"`` (core/topics.py RETIRED_DESK), every field it had kept, and nothing goes into it from then on
   (core/topics.py retired_topic). The registry stays as it is; no release since 2026-11-09 adds to it.

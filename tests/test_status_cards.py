@@ -16,7 +16,7 @@ from covey.app.status_cards import StatusCards, lines, record_path
 from covey.cards.status_card import status_card
 from covey.core.state import read_object, write_json
 from covey.core.topics import message_topic
-from support.main_thread import switch_on
+from support.butler import switch_on
 from support.records import write_topic
 
 
@@ -191,14 +191,14 @@ class BoardPinsTheCardTest(Base):
 
 
 class AreaBoardTest(Base):
-    """The 话题区 layout (Personal Agent; the owner's D3, 2026-11-08): a topic with a thread is pinned
+    """The 话题区 layout (管家; the owner's D3, 2026-11-08): a topic with a thread is pinned
     by its own cards in its thread, never a status card; one pinned by its status card before moves to them."""
 
     def setUp(self):
         super().setUp()
-        from covey.core import main_thread
+        from covey.core import butler
         switch_on(self)
-        self.addCleanup(main_thread.configure_state, main_thread.configure_state(self.state))
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
         write_topic(self.state, {"topic_number": 401, "chat_id": "oc_dm", "root_id": "om_root_t1"}, topic_id="t1")
         self.sent = []
 

@@ -16,7 +16,7 @@ CHECKPOINT_STEP = "更新检查点"
 CHECKPOINT_TOOLS = {"bash", "edit", "write", "multiedit"}  # Codex commands and file changes; Claude's tools.
 USAGE_FIELDS = ("input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens")
 # The main task's latest request (its input and output) and its model's window: the context the next
-# turn resumes with (the 上下文 tile; the main thread's compaction threshold reads it, app/main_thread.py).
+# turn resumes with (the 上下文 tile; the butler's compaction threshold reads it, app/butler.py).
 CONTEXT_FIELDS = ("context_tokens", "context_window")
 SUBTASK_ROWS = 5  # Up to this many subtasks are listed one by one; more are summed per level.
 SUBTASK_LEVELS = 10  # Deeper levels are summed into the last one.

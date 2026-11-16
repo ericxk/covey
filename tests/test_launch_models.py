@@ -19,7 +19,7 @@ from support.launch_fixtures import MASO_MENU, redacting, write_maso_catalog
 from support.processes import leftover_check
 from support.world import TopicFixture, UnifiedCase
 
-from covey.core import main_thread_settings
+from covey.core import butler_settings
 from covey.core.jobs import context_for_job
 from covey.app.launch import (
     SUBMIT_PREFIX,
@@ -130,7 +130,7 @@ class ModelOrderTests(UnifiedCase):
         self.remembered_launch_card()
         maso_before = self.model_select('maso:gpt55')[1]['selected_effort']
         self.assertNotEqual(self.model_select('claude:fable')[1]['selected_effort'], 'max')  # Its last launch's.
-        main_thread_settings.update(self.ctx.state_dir, topic_defaults=main_thread_settings.TopicDefaults(
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(
             harness='claude', model='opus', effort='max'))
         record = self.model_select('claude:fable')[1]
         self.assertEqual((record['selected_model'], record['selected_effort']), ('claude:fable', 'max'))

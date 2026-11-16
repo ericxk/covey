@@ -1,16 +1,16 @@
 """Compacting a resumed Claude Code session before a turn: ``/compact`` in a claude process of its own,
 then the turn as usual (``backends/claude/runtime.py``).
 
-A turn compacts first when the Bridge asks (``compact_first``: the main thread's context passed its threshold) or
+A turn compacts first when the Bridge asks (``compact_first``: the butler's context passed its threshold) or
 when the session's context at the end of its last turn reached ``compact_between_turns`` tokens. Claude
 Code's own compaction near the model's window still happens within a turn; this one runs only between
 turns, after the previous task ended. It never fails the turn: without a compaction the turn runs on the
 session as it was. Claude Code 2.1.310 answers ``/compact`` over stream-json with ``status: compacting``,
 a ``compact_boundary`` (``pre_tokens``, ``post_tokens``) and a result with ``local_command: compact``
-and no text; the session keeps its ID. ``options["compact_instructions"]`` (the main thread's, app/main_thread.py)
+and no text; the session keeps its ID. ``options["compact_instructions"]`` (the butler's, app/butler.py)
 follows the command as Claude Code's ``/compact <instructions>``: what the summary keeps and how long it runs.
 ``compact_only`` (backends/claude/runtime.py) is the same compaction with no turn after it and nothing on a card: the
-main thread's while it is idle (app/idle_compaction.py, through the backend's ``compact_session``).
+butler's while it is idle (app/idle_compaction.py, through the backend's ``compact_session``).
 """
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
-"""Forks: a new topic that continues from another topic, opened by the main thread's topic_fork
-(app/main_topics.py). The 🔀 分叉 and 💬 侧聊 buttons that opened them from a task card left on 2026-11-08.
+"""Forks: a new topic that continues from another topic, opened by the butler's topic_fork
+(app/butler_topics.py). The 🔀 分叉 and 💬 侧聊 buttons that opened them from a task card left on 2026-11-08.
 
 A 话题区 fork hangs under the owner's question. Without one
 (the question already has a topic, or it is not known) the source topic's thread is forwarded into the chat as a
@@ -65,9 +65,9 @@ class Forks:
         self.sessions = sessions
 
     def create_fork(self, ctx, chat, record, click_id, *, area=""):
-        """Open the new topic once per ``click_id`` (the main thread's request, app/main_topics.py topic_fork);
+        """Open the new topic once per ``click_id`` (the butler's request, app/butler_topics.py topic_fork);
         returns this source topic's forks. ``area``:
-        the owner's question a 话题区 fork hangs under (app/main_topics.py place): no forwarded thread, no root
+        the owner's question a 话题区 fork hangs under (app/butler_topics.py place): no forwarded thread, no root
         card; the question becomes the fork's root and its header goes in the question's thread."""
         if record.get("status") not in FINISHED:
             raise ValueError("本轮完成后才能分叉")
@@ -81,7 +81,7 @@ class Forks:
             from covey.feishu.message_read import message_item, fetch_message_detail
             source_label = topic_label(ctx.state_dir, ctx.topic_id)
             root, forwarded = area, False
-            if area:  # The main thread's message until now: from now on the fork's (its context makes the topic).
+            if area:  # The butler's message until now: from now on the fork's (its context makes the topic).
                 claim_area_root(ctx.state_dir, chat, area)
             if not area:
                 item = message_item(fetch_message_detail(source["root_id"], ctx.profile), source["root_id"]) or {}

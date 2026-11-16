@@ -1,6 +1,6 @@
-"""知识条目 (docs/main-thread.md 知识库): short entries the owner asked to be remembered ("记一下"), kept in one place so
-every Harness reads them (app/prompts.py knowledge_block: a new topic's first turn carries them) and the main thread
-searches and changes them (app/main_knowledge.py knowledge_save, knowledge_update, knowledge_drop, knowledge_search).
+"""知识条目 (docs/butler.md 知识库): short entries the owner asked to be remembered ("记一下"), kept in one place so
+every Harness reads them (app/prompts.py knowledge_block: a new topic's first turn carries them) and the butler
+searches and changes them (app/butler_knowledge.py knowledge_save, knowledge_update, knowledge_drop, knowledge_search).
 Off unless COVEY_KNOWLEDGE=1: without it nothing here is called, no directory is made and no prompt, tool list
 or digest changes.
 
@@ -17,7 +17,7 @@ An event is one JSON line, never rewritten::
      "entry":{"kind":"decision","text":"≤200 字","why":""}}
 
 ``op`` is ``add``; ``update`` (a new ``id`` with ``replaces``: the old one turns superseded); ``drop`` (``id`` is the
-entry dropped, ``reason`` is required). ``by`` is main (the main thread's tool), topic (a topic's turn, collected by
+entry dropped, ``reason`` is required). ``by`` is main (the butler's tool), topic (a topic's turn, collected by
 the Bridge from its checkpoint's ``remember``: app/knowledge_collect.py) or import. A group is read by replaying its
 file from the top: every entry ends current, superseded or dropped. A line that is not an event is skipped; a file
 that cannot be read at all reads as empty and the first write after it keeps it as <file>.bad-<epoch>.
@@ -421,7 +421,7 @@ def where_words(entry) -> str:
 
 
 def row(entry, *, state=False) -> str:
-    """One line for the main thread: id · group · kind · date · text · (why) · source T number."""
+    """One line for the butler: id · group · kind · date · text · (why) · source T number."""
     parts = [entry["id"], where_words(entry), KINDS[entry["kind"]], entry["at"][:10] or "-"]
     text = entry["text"] + (f"（原因：{entry['why']}）" if entry["why"] else "")
     parts.append(text)

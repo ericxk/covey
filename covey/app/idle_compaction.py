@@ -1,12 +1,12 @@
-"""The main thread's compaction while it is idle (docs/main-thread.md 会话): the owner no longer waits for it.
+"""The butler's compaction while it is idle (docs/butler.md 会话): the owner no longer waits for it.
 
-Until 2026-11-09 a main-thread turn that ended past ``compact_tokens`` left a request (app/compaction.py) that the
+Until 2026-11-09 a butler turn that ended past ``compact_tokens`` left a request (app/compaction.py) that the
 next turn took: the owner's next message waited for the summary first (#3275: 85 s of 109 s). Now its task runner
 marks the request ``idle`` and the Bridge compacts between the turns:
 
 - ``after_runner`` (app/detached.py finish_detached, once the turn's runner has exited): with a request waiting, a
   thread waits IDLE_SECONDS (the owner's quick follow-up goes first; still within the prompt cache's 5 minutes); a
-  later turn's exit supersedes it. Then ``start``: the main thread still on, the turn ``done`` (a turn waiting for an
+  later turn's exit supersedes it. Then ``start``: the butler still on, the turn ``done`` (a turn waiting for an
   answer keeps its session as it is), no job of the topic here (queued, held or running), the request not ``failed``.
 - Under the request's record lock it checks the jobs once more, takes the request, starts a runner of the Bridge's
   release that only compacts (``bin/covey_runner.py --compact-only``) and writes
@@ -16,9 +16,9 @@ marks the request ``idle`` and the Bridge compacts between the turns:
 - ``compact_main`` (app/compact_runner.py): the Bridge rebuilt from the finished turn's handoff (the same arguments, gateway, credentials),
   the backend's ``compact_session`` on the topic's session (the turn's environment and term relay; the session keeps
   its ID). Done: ``compacted.json`` in the topic's directory, from which the next turn's snapshot is whole
-  (app/main_thread.py take_snapshot). Not done: the request back, ``failed``, which the next turn takes and compacts
+  (app/butler.py take_snapshot). Not done: the request back, ``failed``, which the next turn takes and compacts
   first, as before. SIGTERM: the request back as it was.
-- ``stop_for_turn`` (app/main_thread.py main_turn, in the next turn's runner): a compaction under way stops (its
+- ``stop_for_turn`` (app/butler.py butler_turn, in the next turn's runner): a compaction under way stops (its
   process group, at most STOP_SECONDS), the request back, and the turn runs on the session as it is; its end asks
   again. A context FALLBACK times the threshold compacts before the turn whatever happens here.
 - ``clear_left`` (the Bridge's start): a compaction runner left behind is stopped, its request put back.
@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 
 from covey.app.compaction import Compaction
-from covey.core import main_thread as contract
+from covey.core import butler as contract
 from covey.core.jobs import context_for_job, find_job_record, job_key
 from covey.core.locks import resource_lock
 from covey.core.process import is_owned, process_identity, terminate_owned
@@ -74,8 +74,8 @@ def put_back(request_path: Path, request, *, failed) -> None:
 # The Bridge's side ----------------------------------------------------------
 
 def after_runner(gateway, app, job, ctx, launch) -> None:
-    """A main-thread turn's runner has exited: with a request waiting, compact once the topic was idle IDLE_SECONDS.
-    Only the live Bridge, only the main thread's own turns (core/main_thread.py own_turn: the main thread on).
+    """A butler turn's runner has exited: with a request waiting, compact once the topic was idle IDLE_SECONDS.
+    Only the live Bridge, only the butler's own turns (core/butler.py own_turn: the butler on).
     ``launch`` (app/runner_spawn.py compaction_launch): the turn's ``handoff()`` and ``spawn(directory)`` of a runner."""
     runtime = gateway.runtime
     if not runtime.detached() or not contract.traits_of(job).own_turn or not hasattr(app.backend, "compact_session"):
@@ -103,7 +103,7 @@ def after_runner(gateway, app, job, ctx, launch) -> None:
 
 def start(gateway, app, job, ctx, launch):
     """Start the compaction runner and wait for it (on the caller's thread); its exit status, or None when it did not
-    start: the main thread off, the turn not ``done``, a job of the topic here, no request, or one that failed."""
+    start: the butler off, the turn not ``done``, a job of the topic here, no request, or one that failed."""
     runtime, state = gateway.runtime, ctx.state_dir
     if not contract.traits_of(job).own_turn or ctx.device:  # The runner below reads process.pid: a device's has none.
         return None
@@ -160,7 +160,7 @@ def stop(mark: Path, marker: dict, log, why: str) -> None:
 
 
 def stop_for_turn(ctx, job, log) -> None:
-    """A turn of the main thread starts: a compaction of its session under way stops first."""
+    """A turn of the butler starts: a compaction of its session under way stops first."""
     mark = run_dir(ctx.state_dir, job.topic_id) / MARK
     marker = read_object(mark)
     if marker.get("request_path"):

@@ -4,7 +4,7 @@ A Claude turn stopped by a refusal of a category in core/model_policy.py FALLBAC
 bio → Opus 5) runs again once: the same request as a new job on that model, in a new native session (the refused
 one is blocked), its subagents on the same model (``subagent_model``, core/jobs.py context_for_job). The topic's
 binding stays: its next message runs on the topic's model. Fallbacks, other categories, a turn the owner stopped, a
-main-thread turn (its topics opened, hand-offs and 代答 would run again without memory of them) and the retry itself
+butler turn (its topics opened, hand-offs and 代答 would run again without memory of them) and the retry itself
 (its record's ``policy_retry``, which its continuations carry too) are not retried.
 
 Both stop paths decide it the same way once the stop is final, through ``schedule``: the worker that delivers a
@@ -25,11 +25,11 @@ import time
 
 from covey.app import auto_retry
 from covey.cards.streaming import answer_element
-from covey.core import main_thread
+from covey.core import butler
 from covey.core.jobs import (context_for_record, find_job_record, job_key, select_job_records,
                                       update_job_record_if)
 from covey.core.locks import topic_lock
-from covey.core.main_thread import worded
+from covey.core.butler import worded
 from covey.core.model_policy import FALLBACK_MODELS, POLICY_RECOVERY, fallback_model, retry_recovery
 
 # Where a retry's policy_retry_state ("pending", written by schedule) may go, each step through advance under the
@@ -56,12 +56,12 @@ BODY_ELEMENT_ID = "answer"
 
 def eligible(record, event):
     """The (model, name) ``record``'s stop on ``event`` is retried on, or None: a Claude chat turn in a topic
-    other than the main thread's, refused for a category FALLBACK_MODELS names, not already scheduled, not itself
+    other than the butler's, refused for a category FALLBACK_MODELS names, not already scheduled, not itself
     such a retry, not stopped by the owner, not retried otherwise, not already on that model or another provider's."""
     found = fallback_model(event)
     model = str(record.get("model") or "")
     if (found is None or record.get("backend") != "claude" or (record.get("kind") or "chat") != "chat"
-            or not record.get("topic_id") or main_thread.is_main_topic(record.get("topic_id"), record.get("chat_id"))
+            or not record.get("topic_id") or butler.is_butler_topic(record.get("topic_id"), record.get("chat_id"))
             or record.get("policy_retry") or record.get("policy_retry_state")
             or record.get("cancel_requested_by") or record.get("retried_by") or "/" in model or model == found[0]):
         return None

@@ -16,7 +16,7 @@ from covey.core.locks import resource_lock
 from covey.core.proxy import NO_QUESTION
 from covey.core.roster import LIVE_QUESTIONS
 from covey.cards.question_cards import question_element
-from covey.app import main_relay
+from covey.app import butler_relay
 from covey.app.question_display import question_card_lock
 from covey.core.state import write_private_text
 from covey.core.store import directory_store, transition_question
@@ -77,8 +77,8 @@ class NativeQuestions:
             if self.questions.display.mirror(ctx, record, turn_output(job), job=job):
                 return
             if record.get("status") == "pending" and not json.loads(Path(path).read_text()).get("mirror_state"):
-                # Not copied (the card not shown, no main-thread card to quote): the question as a line, once.
-                main_relay.question_asked(ctx, job, record, messenger=self.cards.messenger, voice=self.harness.voice,
+                # Not copied (the card not shown, no butler card to quote): the question as a line, once.
+                butler_relay.question_asked(ctx, job, record, messenger=self.cards.messenger, voice=self.harness.voice,
                                           log=self.runtime.log)
         except Exception as exc:  # noqa: BLE001 - the question stands in the topic
             self.runtime.log(f"question top-level copy of job #{job.job_id} failed: {type(exc).__name__}")

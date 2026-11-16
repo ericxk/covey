@@ -1,6 +1,6 @@
 """专项的升级、直接开专项和降级 (docs/architecture.md 专项, phase 2, COVEY_PROJECTS=1, off by default).
 
-- **Upgrade** (``consider``, called by app/main_topics.py ``dispatch_card`` once a 派发卡 is sent and recorded): a quick job the main thread
+- **Upgrade** (``consider``, called by app/butler_topics.py ``dispatch_card`` once a 派发卡 is sent and recorded): a quick job the butler
   handed to a topic becomes a project when COVEY_PROJECT_UPGRADE says so (``butler``: the butler passed
   ``project``; ``auto``: also the topic's third round). Silent: the 派发卡 becomes the project's card (the same message and
   card id, drawn whole by app/project_cards.py), and the card has the 不要专项 button. ``Projects.upgrade`` is idempotent:
@@ -8,11 +8,11 @@
   (``advance``; the thread ``Projects.threads`` gives retries what a crash left, with a backoff), and every step does the
   same again harmlessly when its tick was lost.
 - **Direct** (``start``, from topic_start with ``project`` true): a record, the lead's topic, the project's card with the
-  "你问" block, the start receipt; the lead decides which threads to open.
+  "你问" block, the start receipt; the lead decides which member topics to open.
 - **Downgrade** is app/project_cards.py ``downgrade`` (the card's 不要专项 button; it lives there so that module and this one do
   not import each other).
-- The butler's two tools ``projects_list`` and ``project_send`` (``TOOLS``, listed to the main thread when COVEY_PROJECTS=1,
-  core/main_tool_specs.py): the second hands the owner's words to a project's lead as a turn the owner started.
+- The butler's two tools ``projects_list`` and ``project_send`` (``TOOLS``, listed to the butler when COVEY_PROJECTS=1,
+  core/butler_tool_specs.py): the second hands the owner's words to a project's lead as a turn the owner started.
 
 The receipts go to the lead's inbox through app/project_lead.py ``add_receipt`` (kind ``start``, written here; the lead's
 wake-up is the project loop's, not this module's). Locks (rules 1 and 2): none is held across a Feishu call; a topic's lock is
@@ -26,11 +26,11 @@ from pathlib import Path
 
 from covey.app import dispatch_cards, project_cards, project_lead
 from covey.app.project_cards import DOWNGRADED, topic_ctx
-from covey.app.main_env import reply
+from covey.app.butler_env import reply
 from covey.cards.project_card import merged_card
 from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
-from covey.core import main_thread, main_thread_settings, projects
+from covey.core import butler, butler_settings, projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.jobs import find_job_record, topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
@@ -101,7 +101,7 @@ _busy_lock = threading.Lock()
 class Projects:
     """The Bridge's feature object (app/unified.py PARTS ``projects``): ``threads()`` gives the thread that finishes what a
     crash left half done; none with COVEY_PROJECTS unset. The upgrade and the direct start are called with the same ``env``
-    (app/main_env.py MainEnv) the main thread's tools get."""
+    (app/butler_env.py ButlerEnv) the butler's tools get."""
     name = "projects"
 
     def __init__(self, env) -> None:
@@ -155,7 +155,7 @@ class Projects:
         if isinstance(dispatch, str):
             dispatch = read_object(drecords.record_path(state, dispatch))
         if projects.topic_project(state, str(dispatch.get("topic_id") or "")) is not None:
-            return ""  # A project's thread, or a lead: not a quick job.
+            return ""  # A project's member, or a lead: not a quick job.
         why = self.reason(dispatch)
         return self.upgrade(dispatch, *why) if why else ""
 
@@ -249,18 +249,18 @@ class Projects:
         return True  # Written when the project was made; the tick is part of that write.
 
     def step_lead(self, record) -> bool:
-        """The lead's topic: topic.json with ``project`` {id, role lead}, the main thread's own model settings (Claude Code,
+        """The lead's topic: topic.json with ``project`` {id, role lead}, the butler's own model settings (Claude Code,
         its model and budget: the butler's), the workspace of the topic the project grew from (else the one the direct start
-        chose, else the main thread's), locked."""
+        chose, else the butler's), locked."""
         state, chat, pid = Path(self.env.state_dir), str(record["chat_id"]), record["id"]
         lead, origin = record["lead_topic_id"], record.get("origin") or {}
         field = projects.project_field(pid, projects.LEAD)
         path = topic_file(state, lead)
         if read_object(path).get("project") == field:
             return True
-        root = read_object(topic_file(state, main_thread.main_topic_id(chat)))
+        root = read_object(topic_file(state, butler.butler_topic_id(chat)))
         if not root.get("harness_id"):
-            raise RuntimeError("the main thread has no topic.json yet")
+            raise RuntimeError("the butler has no topic.json yet")
         source = read_object(topic_file(state, origin["topic_id"])) if origin.get("topic_id") else {}
         data = {key: value for key, value in root.items() if key not in LEAD_DROPS}
         data.update(topic_id=lead, chat_id=chat, root_id="", thread_id="", binding_revision=1, project=field,
@@ -272,12 +272,12 @@ class Projects:
         return True
 
     def step_thread(self, record) -> bool:
-        """The topic the project grew from is its first thread: ``project`` {id, role thread} in its topic.json, under its
+        """The topic the project grew from is its first member: ``project`` {id, role thread (MEMBER)} in its topic.json, under its
         topic lock, and in the record's ``threads``."""
         state, topic = Path(self.env.state_dir), record["origin"]["topic_id"]
         with topic_lock(topic_ctx(state, topic)):
-            set_topic_project(state, topic, record["id"], projects.THREAD)
-        projects.add_thread(state, record["id"], topic)
+            set_topic_project(state, topic, record["id"], projects.MEMBER)
+        projects.add_member(state, record["id"], topic)
         return True
 
     def step_card(self, record) -> bool:
@@ -378,7 +378,7 @@ class Projects:
         for message in sorted(messages - {""}):
             if message == card:
                 # The card's clicks too: its buttons name the lead's topic (card_routing.py refuses a click routed to
-                # another topic), and the 派发卡 it was belonged to the topic that is now a thread (accept7, 2026-11-16).
+                # another topic), and the 派发卡 it was belonged to the topic that is now a member (accept7, 2026-11-16).
                 move_topic_message(state, record["lead_topic_id"], chat, message)
             route_message(state, chat, message, record["lead_topic_id"], holder=topic)
         return True
@@ -410,31 +410,31 @@ class Projects:
 
     def start(self, request, args) -> dict:
         """topic_start with ``project`` true: the project's record, the lead's topic, the project's card (the owner's message
-        above it) and the start receipt carrying his words; the lead then decides which threads to open. Once a request
-        (rule 6 of app/main_topics.py: its answer is kept in the request's record)."""
-        from covey.app import main_handoff, main_topics
+        above it) and the start receipt carrying his words; the lead then decides which member topics to open. Once a request
+        (rule 6 of app/butler_topics.py: its answer is kept in the request's record)."""
+        from covey.app import butler_handoff, butler_topics
 
         env, state = self.env, Path(self.env.state_dir)
         chat = env.chat()
-        path = main_topics.record_path(state, request)
+        path = butler_topics.record_path(state, request)
         saved = read_object(path)
         if saved.get("answer"):
             return saved["answer"]
-        pid = project_id("direct", main_topics.request_token(request))
+        pid = project_id("direct", butler_topics.request_token(request))
         record = projects.read_record(state, pid)
         if not record:
             if projects.active_count(state) >= projects.MAX_ACTIVE:
                 return reply(False, f"已经有 {projects.MAX_ACTIVE} 个专项在做，不再开新的：先让主人收尾或停掉一个，"
                                     "或把这件事当普通话题开（topic_start 不带 project）。")
-            plan = main_topics.plan_start(env, args, main_thread_settings.load(state))
+            plan = butler_topics.plan_start(env, args, butler_settings.load(state))
             if isinstance(plan, str):
                 return reply(False, plan)
-            title, prompt = main_topics._text(args.get("title"), 40), main_topics._text(args.get("prompt"))
-            words = main_handoff.asked(state, request.job_key).words
+            title, prompt = butler_topics._text(args.get("title"), 40), butler_topics._text(args.get("prompt"))
+            words = butler_handoff.asked(state, request.job_key).words
             made = projects.new_record(
                 chat_id=chat, name=title, goal=prompt, project_id=pid,
                 origin={"kind": "direct", "request": request.id, "job_key": request.job_key, "workspace": plan["workspace"],
-                        "workdir": plan["workdir"], "why": main_topics._text(args.get("why"), 200), "text": words or prompt})
+                        "workdir": plan["workdir"], "why": butler_topics._text(args.get("why"), 200), "text": words or prompt})
             made["steps"] = {"record": round(time.time(), 3)}
             ask = dispatch_cards.ask_of(env, state, request.job_key)
             asked = dispatch_cards.request_words(state, request.job_key)
@@ -448,7 +448,7 @@ class Projects:
         text = (f"已开专项「{record.get('name')}」（{pid}）：负责人会开话题去做，专项卡在聊天区，进展看卡；不用等它做完。"
                 if done else f"专项「{record.get('name')}」已建（{pid}），"
                              f"{'' if sent else '专项卡还没发出去，'}有一步没做完，Bridge 会自己补；不要再开一次。")
-        return main_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
+        return butler_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
                                                    card=sent, finished=done))
 
 
@@ -459,13 +459,13 @@ LISTED_ENDED = 3  # Projects that ended, listed after the ones that are on.
 
 
 def butler_only(env, request):
-    """A refusal (the answer), or None when the call is the main thread's: the lead has its own tools."""
-    from covey.app import main_topics
+    """A refusal (the answer), or None when the call is the butler's: the lead has its own tools."""
+    from covey.app import butler_topics
 
     if not projects.enabled():
         return reply(False, OFF_WORDS)
-    if main_topics.lead_of(env, request) is not None:
-        return reply(False, "负责人不用这个工具：它只管自己的专项，话题用 project_thread_start、project_thread_send。")
+    if butler_topics.lead_of(env, request) is not None:
+        return reply(False, "负责人不用这个工具：它只管自己的专项，话题用 project_topic_start、project_topic_send。")
     return None
 
 
@@ -511,7 +511,7 @@ def lead_target(env, record):
     """(app, context) of the project's lead topic, or None when its topic.json cannot be read or its Harness has no app here.
     ``Topics.target`` gives none for a lead (its Traits row is not a card target), and the lead's topic.json has no root
     message to address it by: the context comes from an alias of the Bridge's own, ``project-lead-<id>``, never a Feishu
-    message's id, that belongs to the lead (the way app/main_tracks.py ``enter`` gets a track's)."""
+    message's id, that belongs to the lead (the way app/butler_tracks.py ``enter`` gets a track's)."""
     from covey.core.topics import load_topic
 
     state, chat, lead = Path(env.state_dir), str(record.get("chat_id") or ""), str(record.get("lead_topic_id") or "")
@@ -530,7 +530,7 @@ def lead_target(env, record):
 def lead_prompt(name, text, owner) -> str:
     """What the lead's model gets when the butler hands it the owner's words (the Bridge's note, the butler's task text, the
     owner's own words quoted): a turn the owner started, not a wake-up."""
-    from covey.app.main_handoff import NOTE
+    from covey.app.butler_handoff import NOTE
 
     parts = [f"{NOTE} 主人在私聊里对专项「{name}」说了话，由管家转给你；这是主人触发的一轮，不是自动唤醒，你的回复会由 Bridge "
              "发给主人。按他的意思调整专项：开话题、给话题加话、记决定或改风格就用 project_* 工具。",
@@ -543,7 +543,7 @@ def lead_prompt(name, text, owner) -> str:
 def project_send(env, request):
     """Hand the owner's words to a project's lead: a supplement to the turn it is in, else its next turn (message id
     "main-<token>": the owner's, not a wake-up). Once a request."""
-    from covey.app import main_handoff, main_topics
+    from covey.app import butler_handoff, butler_topics
     from covey.core.history_storage import append_history
     from covey.core.steer import SteerRefused, SteerUncertain
 
@@ -553,10 +553,10 @@ def project_send(env, request):
     chat, state = env.chat(), Path(env.state_dir)
     if not chat:
         return reply(False, NO_CHAT)
-    text = main_topics._text(request.args.get("text"))
+    text = butler_topics._text(request.args.get("text"))
     if not text:
         return reply(False, "text 不能为空：写这次交给负责人的事。")
-    path, token = main_topics.record_path(state, request), main_topics.request_token(request)
+    path, token = butler_topics.record_path(state, request), butler_topics.request_token(request)
     saved = read_object(path)
     if saved.get("answer"):
         return saved["answer"]
@@ -568,32 +568,32 @@ def project_send(env, request):
     if found is None:
         return reply(False, f"专项「{name}」的负责人话题读不到，这次没有转。")
     app, ctx = found
-    # No ``topic_id``: the readers of main-thread/opened (core/main_opened.py) take a record with one for a topic the request handed
+    # No ``topic_id``: the readers of main-thread/opened (core/butler_opened.py) take a record with one for a topic the request handed
     # on to, and the lead is not one (it is not relayed, has no T number and no thread of its own).
     note = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "lead_topic_id": lead, "project_id": record["id"],
             "at": time.time()}
-    main_topics._save(path, note)
-    owner = main_handoff.asked(state, request.job_key)
+    butler_topics._save(path, note)
+    owner = butler_handoff.asked(state, request.job_key)
     sent = lead_prompt(name, text, owner)
     shown = owner.words or text
     data = {"project_id": record["id"], "lead_topic_id": lead}
-    job = main_topics.live_turn(app, ctx, chat)
+    job = butler_topics.live_turn(app, ctx, chat)
     if job is not None:
         try:
             app.steering.deliver_steer(ctx, job, sent, mid, shown=shown)
         except SteerUncertain as exc:
-            return main_topics._done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
+            return butler_topics._done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
                                                       "不会重发，别再转一次。", **data, uncertain=True))
         except SteerRefused as exc:  # Nothing was sent (rule 6).
-            return main_topics._done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
+            return butler_topics._done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
                                                       "等这一轮结束后再转。", **data))
-        return main_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：作为补充送入它正在跑的任务 #{job.job_id}。",
+        return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：作为补充送入它正在跑的任务 #{job.job_id}。",
                                                   **data, steered=True))
     if not (find_job_record(state, mid) or app.runtime.jobs.settling(mid)):
         append_history(ctx.history_path, "user", shown, {"message_id": mid})
         if app.submission.enqueue_chat_job(ctx, shown, chat, mid, prompt_content=sent, title=name) is None:
-            return main_topics._done(path, note, reply(False, f"专项「{name}」负责人的下一轮没有提交：模型配置无法确认。", **data))
-    return main_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：它开了新的一轮，结果会由 Bridge 发给主人。",
+            return butler_topics._done(path, note, reply(False, f"专项「{name}」负责人的下一轮没有提交：模型配置无法确认。", **data))
+    return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：它开了新的一轮，结果会由 Bridge 发给主人。",
                                               **data, steered=False))
 
 

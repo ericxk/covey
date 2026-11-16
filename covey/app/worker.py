@@ -1,7 +1,7 @@
 """Ordinary topic-job execution, local records and in-topic final delivery: ``process_bridge_reply_job`` runs a
 turn, settles how it ended (app/turn_settle.py) and delivers its result (``TurnDelivery``: the task card, the topic,
 question forms, the card's closing state). TurnDelivery's answer card sent on its own is app/answer_delivery.py
-AnswerParts, a quiet main-thread turn's top-level notices app/quiet_delivery.py QuietDelivery."""
+AnswerParts, a quiet butler turn's top-level notices app/quiet_delivery.py QuietDelivery."""
 from __future__ import annotations
 
 from covey.core.trace import task_trace
@@ -40,11 +40,11 @@ from covey.core.state import write_json
 from covey.core.history_storage import append_history
 from covey.core.logs import append_private_text
 from covey.core.text import safe_text
-from covey.core.main_thread import traits_of, worded
+from covey.core.butler import traits_of, worded
 from covey.core.paths import tool_root
 from covey.feishu.transport import last_failure, set_failure
 from covey.app.outbox import AUDIT_REFUSED_NOTE, record_attempt
-from covey.app import (auto_retry, main_reactions, main_relay, main_reply, main_tracks, policy_retry, project_lead,
+from covey.app import (auto_retry, butler_reactions, butler_relay, butler_reply, butler_tracks, policy_retry, project_lead,
                                 project_loop, saved_send, topic_links, track_digest)
 from covey.app.answer_delivery import AnswerParts
 from covey.app.turn_images import TurnImages
@@ -131,12 +131,12 @@ class TurnDelivery(AnswerParts, QuietDelivery):
     """Delivering one finished turn: its result on the task card and in the topic, its question
     forms, and the card's closing state. ``retry``: the automatic retry (app/auto_retry.py
     ``Planned``) the turn gets once its failure is delivered. ``relay``: called with the delivery, whether it was
-    delivered and the run's status once the card is finished (app/main_relay.py after_turn). ``react``: puts a
-    reaction on the owner's message of the job (app/main_reactions.py finish), for a quiet main-thread turn. Its
+    delivered and the run's status once the card is finished (app/butler_relay.py after_turn). ``react``: puts a
+    reaction on the owner's message of the job (app/butler_reactions.py finish), for a quiet butler turn. Its
     answer card sent on its own is AnswerParts (app/answer_delivery.py), a quiet turn's top-level notices QuietDelivery
     (app/quiet_delivery.py). ``retry_promised``: its text promises a retry on an older model (app/policy_retry.py
     at_stop): the record keeps the result as the card shows it, for the card to take the promise back if it does
-    not run. ``ledger``: called like ``relay`` once the result is delivered, to save what a track of the main thread
+    not run. ``ledger``: called like ``relay`` once the result is delivered, to save what a track of the butler
     answered (app/track_digest.py record; never raises)."""
 
     def __init__(self, job, ctx, turn, *, prefix, cards, runtime, artifacts, questions, steering,
@@ -145,11 +145,11 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         self.cards, self.runtime, self.artifacts, self.questions, self.steering = cards, runtime, artifacts, questions, steering
         self.record_job_state, self.send_text, self.retry = record_job_state, send_text, retry
         self.relay, self.react, self.retry_promised, self.ledger = relay, react, retry_promised, ledger
-        self.reacted = False  # A quiet main-thread turn's end reaction is on the owner's message (main_reply.handed_quietly).
+        self.reacted = False  # A quiet butler turn's end reaction is on the owner's message (butler_reply.handed_quietly).
         self.cut = False  # The card took the result cut short (send): the full text went elsewhere.
-        self.in_place = False  # A main-thread turn's verified reply is on its task card, no answer card (main_reply).
+        self.in_place = False  # A butler turn's verified reply is on its task card, no answer card (butler_reply).
         self.silent = False  # A project lead's wake-up turn: its saved reply is not sent (app/project_loop.py silent).
-        self.listed = False  # A stopped or refused main-thread turn's card (or top-level notice) lists its supplements.
+        self.listed = False  # A stopped or refused butler turn's card (or top-level notice) lists its supplements.
         self.display_text = None  # The reply as its card shows it, once deliver has it.
         # The answer card sent on its own (_answer_apart), saved as the job's answer_message_id: the pinned board
         # pins it for a 话题区's result (app/pins.py).
@@ -171,15 +171,15 @@ class TurnDelivery(AnswerParts, QuietDelivery):
                              **({"policy_stop": turn.outcome.policy_event, "auto_retry_state": "cancelled"}
                                 if turn.outcome and turn.outcome.policy_event else {}))
         display_text, delivery_text, question_omitted = self.texts(snapshot)
-        # Above a 话题区's question copied to the top level (main_relay.after_turn); none for a question alone.
+        # Above a 话题区's question copied to the top level (butler_relay.after_turn); none for a question alone.
         self.display_text = "" if display_text == QUESTION_ONLY_REPLY else display_text
         final_card = cards.render_stream_final(job, display_text, status=turn.status)
         standalone_verified = turn.verified_delivery is not None
         standalone_question = turn.status == "waiting_user" and job.paused_question_delivery is not None
-        self.in_place = standalone_verified and main_reply.answers_in_place(self, final_card, display_text)
+        self.in_place = standalone_verified and butler_reply.answers_in_place(self, final_card, display_text)
         if standalone_verified and not self.in_place:
-            # A quiet main-thread turn with no card that only handed work on: its Get reaction says it (D1).
-            self.in_place = main_reply.handed_quietly(self)
+            # A quiet butler turn with no card that only handed work on: its Get reaction says it (D1).
+            self.in_place = butler_reply.handed_quietly(self)
         self.silent = standalone_verified and not self.in_place and project_loop.silent(self)
         self.note_standalone_result(standalone_verified and not self.in_place and not self.silent, standalone_question)
         mark(job, 'delivery_started')
@@ -215,7 +215,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
                                       question_omitted, standalone_verified, standalone_question)
         self.finish_card(delivered, execution_status, final_card, standalone_verified, standalone_question)
         if self.relay is not None:
-            # A turn the main thread started or handed on: its outcome back at the top level (after_turn never raises).
+            # A turn the butler started or handed on: its outcome back at the top level (after_turn never raises).
             self.relay(self, delivered, execution_status)
         if self.ledger is not None:
             self.ledger(self, delivered, execution_status)
@@ -234,7 +234,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
             delivery_text = display_text
         display_text = outgoing_markdown(display_text, ctx)
         if traits_of(job).linkify_body:
-            # The owner taps a T number on the main thread's card to open that topic (display only:
+            # The owner taps a T number on the butler's card to open that topic (display only:
             # delivery_text, the saved reply, stays as it was; app/topic_links.py).
             display_text = topic_links.linkify(display_text, ctx.state_dir, job.chat_id, profile=ctx.profile,
                                                skip=(job.topic_id,))
@@ -448,7 +448,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
                         status="failed"), "result-delivered")
             except Exception as exc:
                 runtime.log("partial delivery receipt update failed: " + type(exc).__name__)
-        # A quiet main-thread turn's refusal is said at the top level as its failure is (D1).
+        # A quiet butler turn's refusal is said at the top level as its failure is (D1).
         refused = execution_status != "failed" and self.refused() and placement.quiet(ctx.state_dir, job)
         if (job.progress and delivered and not (self.cut or cards.exceeds_stream_card_limit(final_card))
                 and (execution_status == "failed" or refused)):
@@ -458,7 +458,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
                                else f"任务 #{job.job_id}：任务失败。请查看本话题的结果卡片。")
                 if refused or placement.quiet(ctx.state_dir, job):
                     # The card is in the owner's message's thread: a failure or a refusal is said at the top level too
-                    # (D1); the card lists the supplements a refusal took (main_reply.show_dropped).
+                    # (D1); the card lists the supplements a refusal took (butler_reply.show_dropped).
                     notified = self.top_notice(worded(self.notice_words(), job), f"{prefix}-terminal-{job.message_id}")
                 else:
                     notified = send_text(ctx, job.chat_id, worded(notice_text, job),
@@ -478,16 +478,16 @@ class TurnDelivery(AnswerParts, QuietDelivery):
                 self._paint(failed_display, "delivery-failed")
             except Exception as exc:
                 runtime.log(f"delivery failure label unavailable: {exc}")
-        # A main-thread turn stopped or refused: its card lists the supplements it took (a bare turn's top-level
+        # A butler turn stopped or refused: its card lists the supplements it took (a bare turn's top-level
         # notice did already, _quiet_fallback).
-        self.listed = main_reply.show_dropped(self) or self.listed
+        self.listed = butler_reply.show_dropped(self) or self.listed
         if job.progress and (delivered or turn.status == "failed"):
             try:
                 cards.finish_result_controls(ctx, job, turn.status)
             except Exception as exc:
                 runtime.log(f"result controls unavailable: {exc}")
         if job.progress and delivered:
-            main_reply.say_outcome(self)  # A main-thread card says what the turn did (V6), not 已完成 · 用时.
+            butler_reply.say_outcome(self)  # A butler card says what the turn did (V6), not 已完成 · 用时.
         if job.progress:
             # Closing disables further updates; finish delivery labels and controls first.
             close_streaming_reply_async(ctx, job.progress, cards)
@@ -596,15 +596,15 @@ def process_bridge_reply_job(job: Any, ctx: Any, *, harness, runtime, messenger,
         if job.cancelled_before_start:
             return
         job.execution_started = True
-    main_reactions.begin(messenger, ctx.state_dir, ctx.profile, job, runtime.log)  # 排队中 off, OnIt on (多路并行).
+    butler_reactions.begin(messenger, ctx.state_dir, ctx.profile, job, runtime.log)  # 排队中 off, OnIt on (多路并行).
     capabilities = backend_capabilities(getattr(harness, "backend", None), ctx)
     revision, session_id = _start_turn(ctx, job, sessions=sessions, runtime=runtime, record_job_state=record_job_state)
     timing.mark("turn")
     turn, snapshot = _run_turn(job, ctx, harness=harness, runtime=runtime, cards=cards, sessions=sessions, runs=runs,
                                record_job_state=record_job_state, send_text=send_text, capabilities=capabilities,
                                revision=revision, session_id=session_id)
-    if turn.status != "waiting_user":  # A track of the main thread forgets its session (app/main_tracks.py).
-        main_tracks.release_pointer(ctx, job, harness, runtime)
+    if turn.status != "waiting_user":  # A track of the butler forgets its session (app/butler_tracks.py).
+        butler_tracks.release_pointer(ctx, job, harness, runtime)
     if turn.status == "interrupted":
         leave_interrupted(ctx, job, harness=harness, runtime=runtime, record_job_state=record_job_state)
         return
@@ -732,13 +732,13 @@ def _deliver_turn(job, ctx, turn, snapshot, *, harness, runtime, messenger, card
     delivery = TurnDelivery(job, ctx, turn, prefix=harness.spec.idempotency_prefix, cards=cards, runtime=runtime,
                             artifacts=artifacts, questions=questions, steering=steering,
                             record_job_state=record_job_state, send_text=send_text, retry=retry,
-                            relay=functools.partial(main_relay.after_turn, messenger=messenger, profile=ctx.profile,
+                            relay=functools.partial(butler_relay.after_turn, messenger=messenger, profile=ctx.profile,
                                                     voice=harness.voice),
-                            react=functools.partial(main_reactions.finish, messenger, ctx.profile, log=runtime.log),
+                            react=functools.partial(butler_reactions.finish, messenger, ctx.profile, log=runtime.log),
                             ledger=track_digest.record, retry_promised=promised is not None)
     try:
         delivery.deliver(snapshot)
-        main_reply.react_end(delivery)  # A quiet main-thread turn: OnIt on the owner's message becomes its end (D1).
+        butler_reply.react_end(delivery)  # A quiet butler turn: OnIt on the owner's message becomes its end (D1).
     finally:
         job.supplements_listed = delivery.listed  # Those still held at its end too (settle_held_at_end).
         if capabilities.steer_reads:  # After the result: the scan never holds it back.

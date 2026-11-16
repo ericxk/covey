@@ -30,7 +30,7 @@ from pathlib import Path
 
 from covey.core import timing
 from covey.core.state import read_json, write_json
-from covey.app import idle_compaction, knowledge_collect, main_relay
+from covey.app import idle_compaction, knowledge_collect, butler_relay
 from covey.core import turn_words
 from covey.core.turn_words import interrupted_notice, retry_hint
 from covey.app.task_card import bind_record
@@ -38,7 +38,7 @@ from covey.core.card_sequence import adopt
 from covey.app import devices as device_turns
 from covey.core.jobs import (DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, find_job_record,
                                       interrupted_fields, job_key, upsert_job_record)
-from covey.core.main_thread import traits_of
+from covey.core.butler import traits_of
 from covey.core.statuses import RUNNING
 from covey.core.run_dir import (DONE, EXIT, HANDOFF, INBOX, QUEUED, RUNS, ack, live_keys as _live_keys,
                                          queued_path, read_exit, restart_blockers as _restart_blockers,
@@ -226,7 +226,7 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
     if requested(ctx.state_dir, job.message_id):
         app.runtime.unregister_reply_job(job)
         queue_lost(app, job, ctx)
-        main_relay.after_runner(gateway, job, ctx)
+        butler_relay.after_runner(gateway, job, ctx)
         return  # The guard owns the stopped runner's final card and notice.
     try:
         record = find_job_record(ctx.state_dir, job.message_id)
@@ -265,7 +265,7 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
             ack(directory, payload["id"], False, local=True)
     queue_lost(app, job, ctx)
     knowledge_collect.collect(gateway.runtime, job, ctx)  # The owner's 记一下 in a topic's turn (off without COVEY_KNOWLEDGE).
-    main_relay.after_runner(gateway, job, ctx)
+    butler_relay.after_runner(gateway, job, ctx)
     _compact_when_idle(gateway, app, job, ctx)
 
 
@@ -275,7 +275,7 @@ def device_notice(record, job_id, directory) -> str:
 
 
 def queue_lost(app, job, ctx) -> None:
-    """A main-thread turn's runner is done or gone: the owner's messages its turn never took, which the runner marked
+    """A butler turn's runner is done or gone: the owner's messages its turn never took, which the runner marked
     (app/steering.py requeue_lost), become turns of their own here; a runner never queues a job."""
     if not traits_of(job).lists_supplements:
         return
@@ -286,11 +286,11 @@ def queue_lost(app, job, ctx) -> None:
 
 
 def queue_stranded(gateway, ctx, app) -> None:
-    """At start, after ``adopt_runners``: the owner's messages a main-thread turn never took, marked by its runner or
+    """At start, after ``adopt_runners``: the owner's messages a butler turn never took, marked by its runner or
     this Bridge (app/steering.py requeue_lost), whose turn ended with no Bridge to queue them (the runner exited
     while the Bridge was down, or the Bridge stopped before its ``queue_lost`` ran), become turns of their own now,
     once. An adopted or still live runner's wait for its end here (``release_done``, ``finish_detached``). ``app``:
-    the main thread's Harness app, None when this Bridge has none."""
+    the butler's Harness app, None when this Bridge has none."""
     if app is None:
         return
     try:
@@ -301,7 +301,7 @@ def queue_stranded(gateway, ctx, app) -> None:
 
 
 def _compact_when_idle(gateway, app, job, ctx) -> None:
-    """The main thread's session compacted once its topic stays idle (app/idle_compaction.py after_runner)."""
+    """The butler's session compacted once its topic stays idle (app/idle_compaction.py after_runner)."""
     try:
         idle_compaction.after_runner(gateway, app, job, ctx, compaction_launch(gateway.runtime, app, job, ctx))
     except Exception as exc:  # noqa: BLE001 - the request stays for the next turn

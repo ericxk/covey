@@ -37,7 +37,7 @@ from covey.app.unified import UnifiedBridgeApp
 from covey.backends.claude.bridge import AUTO_COMPACT_ENV, CLAUDE_SPEC, GATEWAY_MODELS_ENV, ClaudeBackend
 from covey.backends.claude.rewind import FILE_CHECKPOINTS_ENV
 from covey.backends.claude import argv as claude_argv, runtime, subagents
-from covey.core import main_thread_settings
+from covey.core import butler_settings
 from covey.backends.claude.completion import ClaudeReplyState
 from covey.backends.claude.events import ClaudeEventAdapter
 from covey.backends.claude.models import GATEWAY_KEEP, keep_gateway_models, normalize_catalog
@@ -864,7 +864,7 @@ class ClaudeSubagentTests(unittest.TestCase):
             self.assertIn("Never edit", explore["prompt"])
 
     def test_same_adds_nothing(self):
-        main_thread_settings.update(self.ctx.state_dir, subagents="same")
+        butler_settings.update(self.ctx.state_dir, subagents="same")
         for argv, env in self.spawned():
             self.assertNotIn(subagents.MODEL_ENV, env)
             self.assertNotIn("--agents", argv)
@@ -882,11 +882,11 @@ class ClaudeSubagentTests(unittest.TestCase):
         for argv, env in self.spawned(subagent_model="claude-opus-4-8"):
             self.assertEqual(env[subagents.MODEL_ENV], "claude-opus-4-8")
             self.assertNotIn("--agents", argv)
-        main_thread_settings.update(self.ctx.state_dir, subagents="same")
+        butler_settings.update(self.ctx.state_dir, subagents="same")
         argv, env = self.spawned(subagent_model="claude-opus-4-8")[0]
         self.assertEqual(env[subagents.MODEL_ENV], "claude-opus-4-8")
         self.assertNotIn("--agents", argv)
-        main_thread_settings.update(self.ctx.state_dir, subagents="light")
+        butler_settings.update(self.ctx.state_dir, subagents="light")
         # "": none, even the Bridge's own environment's.
         self.assertNotIn(subagents.MODEL_ENV, claude_argv.turn_env(dataclasses.replace(
             self.ctx, options={"subagent_model": ""}), {subagents.MODEL_ENV: "opus"}))
@@ -1019,7 +1019,7 @@ class ClaudeCompactionTests(unittest.TestCase):
         self.assertLess(kinds.index("tool"), kinds.index("answer_snapshot"))
 
     def test_the_command_carries_the_instructions_it_was_given_and_only_those(self):
-        # The main thread's (app/main_thread.py COMPACT_INSTRUCTIONS) on one line; a topic's compaction has none.
+        # The butler's (app/butler.py COMPACT_INSTRUCTIONS) on one line; a topic's compaction has none.
         for instructions, expected in (("摘要不超过\n约 2000 token", "/compact 摘要不超过 约 2000 token"),
                                        (None, "/compact"), ("  ", "/compact")):
             with self.subTest(instructions=instructions):
@@ -1054,7 +1054,7 @@ class ClaudeCompactionTests(unittest.TestCase):
         self.assertEqual(self.steps()[-1]["detail"], "按任务卡上的安排 · Claude Code 报告压缩失败，本轮按原上下文继续")
 
     def test_compacting_alone_runs_one_process_and_shows_nothing(self):
-        """compact_session (the main thread's idle compaction, app/idle_compaction.py): /compact on the session with
+        """compact_session (the butler's idle compaction, app/idle_compaction.py): /compact on the session with
         the turn's argv and nothing after it; no step, no usage, no answer; a failure is False."""
         for scenario, expected in (("success", True), ("compact-error", False)):
             with self.subTest(scenario=scenario):
@@ -1174,7 +1174,7 @@ class ClaudeHandoffSummaryTests(unittest.TestCase):
         argv = self.argv()
         self.assertEqual(argv[argv.index("--resume") + 1: argv.index("--resume") + 3], [SID, "--fork-session"])
         self.assertEqual((argv[argv.index("--model") + 1], argv[argv.index("--effort") + 1]), ("claude-opus-4-8", "max"))
-        # No tool runs without asking, and the main thread's Bridge tools are not loaded.
+        # No tool runs without asking, and the butler's Bridge tools are not loaded.
         self.assertNotIn("--dangerously-skip-permissions", argv)
         self.assertNotIn("--mcp-config", argv)
         self.assertEqual((self.root / "handoff-prompt.txt").read_text(), "[Bridge 交接请求] 写摘要")

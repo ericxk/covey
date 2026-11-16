@@ -27,9 +27,9 @@ top to bottom:
   passed (the owner, 2026-11-07: as a phone keeps a notification seen; one not seen stays, however old). Seen
   (``seen_at``): <state>/topic-seen.json (topic_id -> when the owner last read the bot's messages there, epoch
   seconds) at or after its end: the answer card in its thread, or its conclusion sent back to the top level as a
-  message of its own (app/main_relay.py, the topic's message too). An answer written on a top-level card already
+  message of its own (app/butler_relay.py, the topic's message too). An answer written on a top-level card already
   read brings no read receipt: for a top-level topic's, the owner's last read of any top-level topic's message
-  (the main thread's) counts too, once at or after the answer was there (its ``delivered``; T419 on 2026-11-08 was taken as seen 2 s before its relay went out). When it was first seen
+  (the butler's) counts too, once at or after the answer was there (its ``delivered``; T419 on 2026-11-08 was taken as seen 2 s before its relay went out). When it was first seen
   is kept (the record's ``results``), so a later read does not start KEEP_SEEN again. A result that ended before
   these rules (the record's ``keep_since``, set by the first round with them) is on the board as before: within
   RESULT_AGE, not seen in its topic, and not a relayed one done; a stopped one that
@@ -37,7 +37,7 @@ top to bottom:
   before. Ended last first.
 
 What each topic's pin is (``aimed``, by the placement table's ``status_card``, core/placement.py): in the 话题区
-layout (Personal Agent), a topic's own cards in its thread (the owner's D3, 2026-11-08): its
+layout (管家), a topic's own cards in its thread (the owner's D3, 2026-11-08): its
 question card while it waits, its task card while it runs, the answer card its round sent into its thread once
 done or stopped (the job's ``answer_message_id``: a stopped turn's last full reply, under ⏹ 已停止; its task card
 when the answer is on it or went otherwise, or a stopped turn had none). In the other
@@ -53,7 +53,7 @@ take off are pinned (``choose``), the results seen giving way first, the earlies
 rest.
 
 Taken off (``dismissed``): a topic the owner unpinned by hand, or took off with 手上的事's 这些都不用回答了 or
-through the main thread's topic_priority (``dismiss``). It is not pinned, and neither 手上的事 nor the main thread's
+through the butler's topic_priority (``dismiss``). It is not pinned, and neither 手上的事 nor the butler's
 snapshot counts it, until it has something new: a question asked or a result ended after the time it was taken off
 as of (``active_dismissed``). A topic with no row and no pending question left is forgotten.
 
@@ -80,12 +80,12 @@ import functools
 from pathlib import Path
 
 from covey.core import env as cenv
-from covey.app import main_relay
+from covey.app import butler_relay
 from covey.app.status_cards import StatusCards, card_message
 from covey.core import board_read, placement, projects
 from covey.core.board_read import seconds, started_at, top_read
 from covey.core.locks import resource_lock
-from covey.core.main_thread import traits
+from covey.core.butler import traits
 from covey.core.state import read_object, write_json
 from covey.core.topic_seen import enabled
 
@@ -142,7 +142,7 @@ def board(questions, jobs, seen, priority, now, since=0.0, relayed=None, *, read
     result that ended before ``since`` is not on it, nor one seen KEEP_SEEN ago (``seen_at``, ``read_top``,
     ``inline``; first seen as ``results``, the record's, says when it holds the same end). One that ended before
     ``keep_since`` (None: none did) is as before 2026-11-07: within RESULT_AGE, not seen in its topic, and not done at
-    the top level (``relayed``, a job record -> bool: app/main_relay.py relayed). A stopped one that
+    the top level (``relayed``, a job record -> bool: app/butler_relay.py relayed). A stopped one that
     ended before ``stopped_since`` (None: none did) is not on it: before 2026-11-09 the board left them out.
     ``cells``: a project's threads are one topic, the lead's (core/board_read.py groups)."""
     return rows_of(board_read.groups(questions, jobs, seen, now, board_read.Rules(
@@ -327,7 +327,7 @@ class PinnedTopics:
         questions, self.priority = read.questions, read.priority
         found = board_read.groups(questions, read.jobs, read.seen, now, board_read.Rules(
             self.since, self.keep_since, self.stopped_since, table, top_read(read.seen, chat),
-            functools.partial(main_relay.relayed, state), functools.partial(main_relay.inline_at, state)), read.cells)
+            functools.partial(butler_relay.relayed, state), functools.partial(butler_relay.inline_at, state)), read.cells)
         self.rows = [aimed(state, chat, row) for row in rows_of(found, self.priority)]
         self.results = {row["topic"]: {"at": row["at"], "seen": row["seen"]} for row in self.rows
                         if row["group"] == "result"}
@@ -463,8 +463,8 @@ class PinnedTopics:
 def board_results(state, chat, now, read=None):
     """(有结果未看 of ``chat`` now, topic -> job record; the topics the owner took off the board, {topic: {group,
     at}}), as the board's own look finds them (PinnedTopics.look: the same record, rules and ``active_dismissed``;
-    ``read`` as there), for a reader without the board's loop (app/overview.py, app/digest.py, app/main_thread.py,
-    app/main_tools.py). Without the board's loop (``laid``) its rules' defaults. Only reads: no Feishu call, no
+    ``read`` as there), for a reader without the board's loop (app/overview.py, app/digest.py, app/butler.py,
+    app/butler_tools.py). Without the board's loop (``laid``) its rules' defaults. Only reads: no Feishu call, no
     write."""
     looked = PinnedTopics(None, None)
     looked.look(state, chat, now, read, board=laid())

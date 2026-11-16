@@ -26,7 +26,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 
 - **原生问答**：Claude 的问题在原任务里等回答；Codex 必须回答的问题先结束本轮，回答排成续接任务。所有 Harness 都能经检查点提问（[回答模型的问题](usage.md#回答模型的问题)）。
 - **原生图片**：不支持时只给本地路径。Claude、Pi 单张超过 5 MiB，或 Claude 合计超出 8 MiB 帧时，放不下的只给路径（`app/runs.py` 的 `_fit_images`）。
-- **分叉**：管家分叉出的话题（[开话题、转交、分叉](main-thread.md#开话题转交分叉)）复制原话题的原生会话；不支持或原话题正在执行时改用已完成的对话记录。
+- **分叉**：管家分叉出的话题（[开话题、转交、分叉](butler.md#开话题转交分叉)）复制原话题的原生会话；不支持或原话题正在执行时改用已完成的对话记录。
 - **换配置**除只改脱敏外都开新会话；**回退一步**只有 Claude Code 支持。
 
 ### 模型目录
@@ -161,7 +161,7 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 
 **交接摘要**（`backends/claude/handoff.py`，[用法](usage.md#换配置)）：话题从有会话的 Claude 绑定换走后，新绑定的第一轮先用原模型和原思考预算在原工作目录跑 `claude -p --resume <旧会话> --fork-session`，请它写一份不超过约 1500 字的交接摘要，最多等 180 秒。其他参数和平常一轮相同（缓存才对得上），只是不带 `--dangerously-skip-permissions` 和管家的 Bridge 工具：问到 Bridge 的权限请求一律拒绝，只读工具和 `permissions.allow` 放行的工具挡不住，靠提示词里的“不要调用任何工具”。旧会话文件不动，分叉的会话文件用完删掉。旧绑定或话题现在开着脱敏时经中继，中继起不来、设置读不出就不发；这个字段之前换的配置、换时还有一步回退没被接走的、这一轮会因工作目录不在或脱敏被拒的、旧会话被安全拒绝或官方模型降级停过、是拒绝后的重试或已禁止续接的都不做。
 
-**子 Agent 的模型**（`backends/claude/subagents.py`，设置卡“新话题”页的“子 Agent”一行，见 [main-thread.md 设置卡](main-thread.md#设置卡)）：默认“轻量”，每一轮的 Claude 子进程（话题、管家、轮前压缩，不含目录查询）带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 把内置的 Explore 换成只读（Read、Grep、Glob、Bash）、跑在 Haiku 上的同名子 Agent；这一轮的模型是 Haiku 时不设前者。“跟主模型”两样都不加，所有子 Agent（内置 Explore 也是）跑主模型（2.1.318 实测）。Claude Code 接的网关认不出 `sonnet`、`haiku` 这两个别名的部署，把“子 Agent”设成“跟主模型”。
+**子 Agent 的模型**（`backends/claude/subagents.py`，设置卡“新话题”页的“子 Agent”一行，见 [butler.md 设置卡](butler.md#设置卡)）：默认“轻量”，每一轮的 Claude 子进程（话题、管家、轮前压缩，不含目录查询）带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 把内置的 Explore 换成只读（Read、Grep、Glob、Bash）、跑在 Haiku 上的同名子 Agent；这一轮的模型是 Haiku 时不设前者。“跟主模型”两样都不加，所有子 Agent（内置 Explore 也是）跑主模型（2.1.318 实测）。Claude Code 接的网关认不出 `sonnet`、`haiku` 这两个别名的部署，把“子 Agent”设成“跟主模型”。
 
 **下载请求与结果**：从会话记录的 `api-request*` 行还原本轮每次请求，按 `requestDigest` 核对上的记 `digest_verified`。
 

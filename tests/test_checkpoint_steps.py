@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from support import make_job
 
-from covey.app import answer_cards, main_tools
+from covey.app import answer_cards, butler_tools
 from covey.cards.answer_card import CHANGE_ID, tail
 from covey.cards.relay_card import DONE, relay_card
 from covey.core.checkpoint import (CHECKPOINT_RULES, MAX_STEPS, checkpoint_delivery, checkpoint_steps,
@@ -287,21 +287,21 @@ class TopicReadTest(unittest.TestCase):
             record = {"checkpoint_path": str(point), "status": "running",
                       "step_times": {"读代码": {"started": t0, "ended": t0 + 1800}, "跳过的": {"ended": t0 + 1800},
                                      "改卡片": {"started": t0 + 1800}}}
-            lines = main_tools.checkpoint_lines(record)
+            lines = butler_tools.checkpoint_lines(record)
             at = lines.index("  检查点步骤（第 3/4 步）：")
-            clock = main_tools.clock
+            clock = butler_tools.clock
             self.assertEqual(lines[at + 1:at + 5], [
                 f"    1. [完成] 读代码 · {clock(t0)} 开始 · {clock(t0 + 1800)} 完成 · 用时 30 分钟",
                 f"    2. [完成] 跳过的 · {clock(t0 + 1800)} 完成",
                 f"    3. [在做] 改卡片 · {clock(t0 + 1800)} 开始 · 已 " + lines[at + 3].rsplit("已 ", 1)[1],
                 "    4. [待做] 写测试"])
             self.assertEqual(lines[-1], "  检查点改动：提交 a6bc148；部署 未部署；验收 全量测试")
-            ended = main_tools.checkpoint_lines({**record, "status": "done"})
+            ended = butler_tools.checkpoint_lines({**record, "status": "done"})
             self.assertEqual(ended[at + 3], f"    3. [在做] 改卡片 · {clock(t0 + 1800)} 开始")
             point.write_text(json.dumps({"phase": "改卡片"}, ensure_ascii=False))
-            self.assertEqual(main_tools.checkpoint_lines({"checkpoint_path": str(point)}), ["  检查点阶段：改卡片"])
+            self.assertEqual(butler_tools.checkpoint_lines({"checkpoint_path": str(point)}), ["  检查点阶段：改卡片"])
             # The checkpoint gone (an older turn's), the record's copy.
-            kept = main_tools.checkpoint_lines({"steps": [{"title": "读代码", "state": "done"}], "status": "done",
+            kept = butler_tools.checkpoint_lines({"steps": [{"title": "读代码", "state": "done"}], "status": "done",
                                                 "delivery": {"commit": "a6bc148"}})
             self.assertEqual(kept, ["  检查点步骤（1/1 步已完成）：", "    1. [完成] 读代码",
                                     "  检查点改动：提交 a6bc148；部署 未部署；验收 未验收"])

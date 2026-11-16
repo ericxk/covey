@@ -48,7 +48,7 @@ from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.backends.codex.bridge import CODEX_SPEC
 from covey.app.dashboard import ROTATE_KIND
 from covey.cards.group_manager import KINDS as GROUP_KINDS
-from covey.cards.main_thread_panel import KINDS as MAIN_PANEL_KINDS
+from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
@@ -649,8 +649,8 @@ class RetiredHarnessTests(unittest.TestCase):
         remember_topic_message(self.state, self.topic.topic_id, 'chat', 'om_card')
         # The 代答设置, 重新发送, 群管理, 敏感词看板, 管家 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
         # never route to a topic (tests/test_proxy_panel.py, test_group_chat.py, test_dashboard.py,
-        # test_main_thread_panel.py).
-        private = PROXY_PANEL_KINDS | GROUP_KINDS | MAIN_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
+        # test_butler_panel.py).
+        private = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
         private |= set(extensions.card_kinds())  # An enabled extension's cards (tests/test_extension_cards.py).
         private |= {OVERVIEW_DISMISS}  # 手上的事's 这些都不用回答了 (tests/test_pins.py).
         private |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (tests/test_app_setup.py).

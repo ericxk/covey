@@ -14,7 +14,7 @@ from covey.app.prompts import knowledge_block
 from covey.core import knowledge
 from covey.core.board_read import ended_at
 from covey.core.jobs import jobs_dir
-from covey.core.main_thread import is_main_topic
+from covey.core.butler import is_butler_topic
 from covey.core.redaction import topic_redaction
 from covey.core.statuses import RUNNING
 from covey.core.store import directory_store
@@ -63,12 +63,12 @@ def block(ctx, job, *, owner_turn, resumed: bool) -> str:
 
 def remembers(ctx, job, *, owner_turn) -> bool:
     """Whether the turn's rules carry the ``remember`` rule: entries are on, it is the owner's own turn in a topic of
-    their own (not the main thread's, which has tools; not a 代答 topic; not one with redaction on, or whose setting
+    their own (not the butler's, which has tools; not a 代答 topic; not one with redaction on, or whose setting
     cannot be read), the cases app/knowledge_collect.py would collect from."""
     if not knowledge.enabled() or not owner_turn() or proxy_topic(ctx):
         return False
     topic_id = getattr(job, "topic_id", "") or ctx.topic_id
-    if is_main_topic(topic_id, getattr(job, "chat_id", "")):
+    if is_butler_topic(topic_id, getattr(job, "chat_id", "")):
         return False
     try:
         return not topic_redaction(ctx.state_dir, topic_id)

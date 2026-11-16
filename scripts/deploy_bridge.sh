@@ -205,9 +205,10 @@ manifest = json.loads(Path(manifests[0]).read_text())
 env_code = ("import json; from covey.service.manager import runtime_environment; "
             "print(json.dumps(runtime_environment()))")
 mine = json_of(["python3", "-B", "-c", env_code], repo, "runtime_environment()")
-# A manifest keeps the old LARK_BRIDGE_ names (runtime_environment() saves them so); a COVEY_ one is read as its old name.
-theirs = {("LARK_BRIDGE_" + k[len("COVEY_"):] if k.startswith("COVEY_") else k): v
-          for k, v in (manifest.get("environment") or {}).items()}
+# A manifest keeps the old LARK_BRIDGE_ names (runtime_environment() saves them so, a renamed variable under its old name,
+# LARK_BRIDGE_MAIN_THREAD for COVEY_BUTLER); a COVEY_ one is read as its old name (core/env.py canonical).
+canon_code = "import json, sys; from covey.core import env; print(json.dumps(env.canonical(json.loads(sys.argv[1]))))"
+theirs = json_of(["python3", "-B", "-c", canon_code, json.dumps(manifest.get("environment") or {})], repo, "env.canonical()")
 pre["env_names"] = len(theirs)
 pre["env_missing"] = sorted(set(theirs) - set(mine))
 pre["env_extra"] = sorted(set(mine) - set(theirs))

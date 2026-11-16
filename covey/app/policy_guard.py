@@ -14,7 +14,7 @@ import time
 from covey.core.jobs import context_for_record, find_job_record, select_job_records, upsert_job_record
 from covey.core.loops import every
 from covey.app import policy_retry
-from covey.core.main_thread import worded
+from covey.core.butler import worded
 from covey.core.model_policy import policy_summary
 from covey.core.policy_feed import match_task, valid_observation
 from covey.app import devices as device_turns
@@ -140,7 +140,7 @@ def finish(gateway, ctx, path):
     # A refusal of cyber or bio, its tree stopped, claimed by this release: one retry on an older model
     # (app/policy_retry.py), said here.
     found = policy_retry.schedule(ctx.state_dir, key, event) if cleanup_ok and intent.get('fallback_retry') else None
-    # In the main thread's words (T3027's card said 再在本话题明确提出): the record keeps the text a 重新投递 sends.
+    # In the butler's words (T3027's card said 再在本话题明确提出): the record keeps the text a 重新投递 sends.
     text = policy_retry.stop_text(policy_summary(event, cleanup=cleanup_ok), event, found, record)
     record = upsert_job_record(ctx.state_dir, key, status='cancelled', execution_status='cancelled',
         status_message=('官方拒绝／降级，任务已停止' + ('；' + policy_retry.will_retry(found) if found else '')

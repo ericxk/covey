@@ -28,7 +28,7 @@ from covey.app.availability import watch as watch_availability
 from covey.app.card_lanes import CardLanes
 from covey.app.card_routing import INBOUND_DIR, CardRouting
 from covey.app.job_dispatch import JobDispatch
-from covey.app.main_thread import MainThread
+from covey.app.butler import Butler
 from covey.app.harnesses import Harness, components, enabled_names, models_first
 from covey.app.outbox import run as run_outbox
 from covey.app.pins import configure_boards
@@ -51,7 +51,7 @@ from covey.feishu.transport import CliFailed, cli_json, configure_receipts, lark
 from covey.core.jobs import max_job_id
 from covey.core.roster import NAMES
 from covey.core.state import write_private_text, read_json, write_json
-from covey.core import background, main_thread_settings, timing
+from covey.core import background, butler_settings, timing
 from covey.core.store import save_indexes
 
 # A task runner (``task_runner=True``) imports what the Bridge alone uses only when it first needs it: the
@@ -117,13 +117,13 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel',
-              'main_thread_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu')
+              'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
-             'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'main_thread_panel',
-             'settings_hub', 'overview', 'main_env', 'main_tools', 'main_search', 'memguard_alerts', 'digest',
+             'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'butler_panel',
+             'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects',
              'project_loop', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
 
@@ -138,7 +138,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         for name, harness in self.harnesses.items():
             self.apps[name] = BridgeApp(harness, runtime=self.runtime, messenger=self.messenger, topics=self.topics)
         self.voice = self.topics.voice
-        self.main_thread = MainThread(self.topics)  # Personal Agent (docs/main-thread.md 私聊模式).
+        self.butler = Butler(self.topics)  # 管家 (docs/butler.md 私聊模式).
         self.owner = ''
         self.expected_app_id = ''
         self.pairing_file = None
@@ -147,7 +147,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         # As the Harnesses were when the Bridge was built: build_context drops the ones a bot does not enable.
         self.titles = {name: h.spec.title for name, h in self.harnesses.items()}
         self.claude = self.harnesses['claude']
-        self.main_paths = None  # (state directory, profile) for the main thread's tools, set by build_context
+        self.butler_paths = None  # (state directory, profile) for the butler's tools, set by build_context
         self.parts_lock = threading.RLock()
         if task_runner:
             # The enabled extensions' feature objects take what the Bridge hands them (runtime, messenger, voice),
@@ -183,10 +183,10 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.group_manager import GroupManager
         from covey.app.group_menu import GroupMenu
         from covey.app.harness_switch import HarnessSwitch
-        from covey.app import main_knowledge, main_search, main_thread_panel, main_tools, main_topics
-        from covey.app.main_env import MainEnv
-        from covey.app.main_thread_panel import MainThreadPanel
-        from covey.app.main_tools import MainTools
+        from covey.app import butler_knowledge, butler_search, butler_panel, butler_tools, butler_topics
+        from covey.app.butler_env import ButlerEnv
+        from covey.app.butler_panel import ButlerPanel
+        from covey.app.butler_tools import ButlerTools
         from covey.app.memguard_alerts import MemguardAlerts
         from covey.app.model_picker import LaunchModelPicker
         from covey.app.overview import Overview
@@ -213,25 +213,25 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.dashboard_rotate = DashboardRotate(self)
             # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card, the web dashboard's link last.
             self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice, self.dashboard)
-            # The main thread's settings card (docs/main-thread.md 设置卡): the 设置 card's 管家 tab.
-            self.main_thread_panel = MainThreadPanel(self.topics)
+            # The butler's settings card (docs/butler.md 设置卡): the 设置 card's 管家 tab.
+            self.butler_panel = ButlerPanel(self.topics)
             # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
-            self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.main_thread_panel,
+            self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.butler_panel,
                                             self.proxy.panel, self.group_manager, self.workspace_manager,
                                             self.redaction_panel)
             # 手上的事 (app/overview.py): the card pinned in the owner's private chat, when COVEY_PINNED_OVERVIEW=1.
             self.overview = Overview(self.runtime, self.messenger, self.voice, self.titles)
-            # The main thread's tools (app/main_tools.py), unless COVEY_MAIN_THREAD=0: the state directory and
+            # The butler's tools (app/butler_tools.py), unless COVEY_BUTLER=0: the state directory and
             # profile are filled in by build_context, before any thread runs.
-            self.main_env = MainEnv(self.runtime, self.topics, self.messenger, self.voice, state_dir=None, profile='',
+            self.butler_env = ButlerEnv(self.runtime, self.topics, self.messenger, self.voice, state_dir=None, profile='',
                                     settings=self.settings_hub)
-            if self.main_paths is not None:
-                self.main_env.state_dir, self.main_env.profile = self.main_paths
-            # Every tool core/main_tool_specs.py names, by the module that runs it.
-            self.main_tools = MainTools(self.main_env, handlers={**main_tools.TOOLS, **main_search.TOOLS,
-                                                                 **main_topics.TOOLS, **main_thread_panel.TOOLS,
-                                                                 **main_knowledge.TOOLS, **PROJECT_BUTLER_TOOLS})
-            self.main_search = main_search.MainSearch(self.main_env)  # Reads the checkpoints topics_search looks into.
+            if self.butler_paths is not None:
+                self.butler_env.state_dir, self.butler_env.profile = self.butler_paths
+            # Every tool core/butler_tool_specs.py names, by the module that runs it.
+            self.butler_tools = ButlerTools(self.butler_env, handlers={**butler_tools.TOOLS, **butler_search.TOOLS,
+                                                                 **butler_topics.TOOLS, **butler_panel.TOOLS,
+                                                                 **butler_knowledge.TOOLS, **PROJECT_BUTLER_TOOLS})
+            self.butler_search = butler_search.ButlerSearch(self.butler_env)  # Reads the checkpoints topics_search looks into.
             # The memory watchdog's alerts (service/memguard.py), to a task's topic or the owner's private chat.
             self.memguard_alerts = MemguardAlerts(self.runtime, self.messenger, self.voice)
             # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
@@ -243,14 +243,14 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The Feishu app kept up with the Bridge (app/app_setup.py): what it lacks offered in the owner's private
             # chat, added by the developer console after a QR login.
             self.app_setup = AppSetup(self.runtime, self.messenger, self.voice)
-            # The 派发卡 (app/dispatch_cards.py), when COVEY_MAIN_DISPATCH_CARD=1: the thread that keeps the cards of
-            # the work the main thread handed to topics up to date; without the switch it has no thread.
+            # The 派发卡 (app/dispatch_cards.py), when COVEY_DISPATCH_CARD=1: the thread that keeps the cards of
+            # the work the butler handed to topics up to date; without the switch it has no thread.
             self.dispatch_cards = DispatchCards(self.runtime, self.messenger, self.voice, self.titles)
             self.project_cards = ProjectCards(self.runtime, self.messenger, self.voice, self.titles)  # 专项卡 (COVEY_PROJECTS=1)
-            self.projects = Projects(self.main_env)  # 专项的升级、直接开、降级 (COVEY_PROJECTS=1): the thread that finishes a crashed upgrade
-            self.main_env.projects = self.projects  # What topic_start's ``project`` and the 派发卡's upgrade call (app/main_topics.py).
+            self.projects = Projects(self.butler_env)  # 专项的升级、直接开、降级 (COVEY_PROJECTS=1): the thread that finishes a crashed upgrade
+            self.butler_env.projects = self.projects  # What topic_start's ``project`` and the 派发卡's upgrade call (app/butler_topics.py).
             # Wakes a project's lead when receipts wait and applies the guards (app/project_loop.py), COVEY_PROJECTS=1.
-            self.project_loop = ProjectLoop(self.runtime, self.main_env)
+            self.project_loop = ProjectLoop(self.runtime, self.butler_env)
             # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
             # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
             # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
@@ -262,8 +262,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The devices thread (app/devices.py): probes, replays the pending reaps, gc; none while COVEY_DEVICES is off.
             self.devices = Devices(self.runtime)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
-                        self.group_manager, self.overview, self.topic_seen, self.main_tools,
-                        self.main_search, self.settings_hub, self.main_thread, self.digest, self.app_setup,
+                        self.group_manager, self.overview, self.topic_seen, self.butler_tools,
+                        self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
                         self.dispatch_cards, self.project_cards, self.projects,
                         self.project_loop, self.devices,
                         *self.extension_features)
@@ -339,9 +339,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # Old records migrated before anything reads them (core/migrate.py); once done, one file read.
             from covey.core.migrate import migrate
             migrate(ctx.state_dir, log=self.runtime.log)
-            self.main_thread.settle(ctx, self.runtime.log)  # The private chat mode, once (docs/main-thread.md 私聊模式).
-            if main_thread_settings.desk_topics_left(ctx.state_dir):  # Retired 2026-11-09 (docs/main-thread.md 前台话题).
-                self.runtime.log(main_thread_settings.DESK_TOPICS_RETIRED)
+            self.butler.settle(ctx, self.runtime.log)  # The private chat mode, once (docs/butler.md 私聊模式).
+            if butler_settings.desk_topics_left(ctx.state_dir):  # Retired 2026-11-09 (docs/butler.md 前台话题).
+                self.runtime.log(butler_settings.DESK_TOPICS_RETIRED)
             from covey.feishu.sdk import enabled, lark_cli_direct
             lark_cli_direct(ctx.profile, self.runtime.log)  # Before any child starts: they inherit it (S48).
             if enabled():
@@ -386,10 +386,10 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         for note in notes:
             self.runtime.log(note)
         configure_boards(self.runtime.access.board_groups())  # Each keeps a board record of its own (app/pins.py).
-        self.main_paths = ctx.state_dir, ctx.profile or ''
-        if 'main_env' in self.__dict__:  # Built already (the Bridge's); a task runner's is built later, with these.
-            self.main_env.state_dir, self.main_env.profile = self.main_paths
-        self.main_thread.configure(ctx)  # Here, so a task runner's replies stay where the Bridge's do.
+        self.butler_paths = ctx.state_dir, ctx.profile or ''
+        if 'butler_env' in self.__dict__:  # Built already (the Bridge's); a task runner's is built later, with these.
+            self.butler_env.state_dir, self.butler_env.profile = self.butler_paths
+        self.butler.configure(ctx)  # Here, so a task runner's replies stay where the Bridge's do.
         ignored = sorted(set(config.get('harnesses', {})) - set(NAMES))
         if ignored:
             self.runtime.log('harness config ignores Harnesses not in the roster: ' + ', '.join(ignored))
@@ -512,7 +512,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.runtime.log(f"history={ctx.history_path}")
         self.runtime.log(f"session_path={ctx.session_path}")
         self.runtime.log(f"state_dir={ctx.state_dir}")
-        note = self.main_thread.harness_note()
+        note = self.butler.harness_note()
         if note:
             self.runtime.log(note)
         start_catalog_refresh(self.topics)
@@ -541,7 +541,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.consume_events(ctx, MENU_EVENT_KEY, self.handle_menu_event)
 
     def stop_children(self) -> None:
-        for feature in (self.main_thread, *self.extension_features):
+        for feature in (self.butler, *self.extension_features):
             if hasattr(feature, 'close'):
                 feature.close()
         stop_processes([(sub.stop_label, self.event_procs.get(key)) for key, sub in SUBSCRIPTIONS.items()],
