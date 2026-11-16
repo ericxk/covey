@@ -200,6 +200,37 @@ def add_thread(state_dir, project_id, topic_id) -> dict:
     return update(state_dir, project_id, change)
 
 
+def lead_record(state_dir, topic_id, chat_id=None) -> dict:
+    """The record of the project whose lead topic is ``topic_id`` ({} for any other topic, and without COVEY_PROJECTS):
+    what the board's cell of a project (``cells``) and a click on its card (app/project_cards.py) are looked up by."""
+    if not is_lead_topic(state_dir, topic_id, chat_id):
+        return {}
+    found = topic_project(state_dir, topic_id)
+    return read_record(state_dir, found.id) if found is not None else {}
+
+
+def card_message(record) -> str:
+    """The message id of the project's card ('' while it has none): the board pins it (app/pins.py aimed)."""
+    card = record.get("card") if isinstance(record, dict) else None
+    message = card.get("message_id") if isinstance(card, dict) else ""
+    return message if isinstance(message, str) else ""
+
+
+def update_card(state_dir, project_id, **fields) -> dict:
+    """``update`` of the record's ``card`` alone: ``fields`` merged into it (``card_id``, ``message_id``, ``sequence``, and
+    what app/project_cards.py keeps there), a field given as None removed."""
+    def change(record):
+        card = record.get("card") if isinstance(record.get("card"), dict) else {}
+        card = {**{"card_id": "", "message_id": "", "sequence": 0}, **card}
+        for key, value in fields.items():
+            if value is None:
+                card.pop(key, None)
+            else:
+                card[key] = value
+        record["card"] = card
+    return update(state_dir, project_id, change)
+
+
 def cells(state_dir, chat_id) -> dict:
     """thread topic id -> its project's lead topic id, for ``chat_id``'s projects that are not cancelled (a cancelled
     one's threads are ordinary topics again): the board's cell of a thread is its lead's (core/board_read.py groups).

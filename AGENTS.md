@@ -126,6 +126,7 @@
 | `app/policy_guard.py` | Independent policy stop consumer: covers adopted runners from older releases |
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
 | `app/preselection.py` | What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read |
+| `app/project_cards.py` | 专项卡, when COVEY_PROJECTS=1 |
 | `app/prompts.py` | Shared prompt builders: the bridge rules and each turn's message |
 | `app/proxy.py` | Proxy replies (代答), the Bridge's side |
 | `app/proxy_commands.py` | Proxy replies (代答): what the 代答设置 card asks for, its settings, and finding the contacts to whitelist |
@@ -195,6 +196,7 @@
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
 | `cards/main_thread_panel.py` | The 主线程 settings card, in the bot menu panels' style |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
+| `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/proxy_panel.py` | The 代答 card, the bot menu's 代答 panel: on or off and the group in its title bar |
 | `cards/proxy_resend.py` | The 重新发送 card: in a contact's 代答 topic, a reply that never went out (Enter never pressed, every try), with … |
 | `cards/question_cards.py` | The question form, its standalone card, the feedback card and the answer notices |

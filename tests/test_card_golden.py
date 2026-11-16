@@ -955,12 +955,45 @@ def app_setup_cards():
             "unavailable": unavailable_card(view, "没有装了 Playwright 的 Python（COVEY_PLAYWRIGHT_PYTHON）")}
 
 
+def project_cards():
+    """The 专项卡 (cards/project_card.py): the live card in each state, and the lines it shrinks to."""
+    from covey.cards import project_card as pc
+
+    link = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
+    ask = "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=76"
+    threads = (pc.Thread("a1b2c3" + "0" * 10, pc.RUNNING, "T501", "拆分 SQL 迁移脚本", "第 2/5 步：改写第 3 张表", "12分00秒", link),
+               pc.Thread("b2c3d4" + "0" * 10, pc.DONE, "T502", "梳理旧表结构", "已完成", "8分00秒", link),
+               pc.Thread("c3d4e5" + "0" * 10, pc.WAITING, "T503", "决定分区键", "等你回答：按日期还是按租户分区？", "3分00秒", link))
+    work = pc.Project(
+        project_id="a1b2c3d4e5f6", lead_topic="f" * 32, name="把订单库迁到新集群", status=pc.RUNNING, direction="数据平台",
+        threads=threads[:2], elapsed="2小时3分", tokens="33万", lead_state="在做 · 第 3/6 步：核对迁移结果",
+        lead_note="先迁小表，大表等周末窗口", inputs=("Claude Code", "Opus 5.5", "思考 high"),
+        outputs=("**开始** 09:12　**已运行** 2小时3分", "**token** 33万"), ask_text="把订单库迁到新集群，周末前要有结果",
+        ask_at="09:10", ask_url=ask)
+    full = pc.Project(**{**work.__dict__, "triage": ("09:40 答了：用哪个库版本？", "10:05 转给你：能不能停服务？"),
+                         "memory": (("m1", "迁移窗口在周六凌晨"), ("m2", "旧集群只读到周日")),
+                         "library": (("迁移方案.md",), ("表清单.csv",))})
+    many = tuple(pc.Thread(f"{index:02x}" * 3 + "0" * 10, pc.DONE if index % 3 else pc.RUNNING, f"T{600 + index}", f"线程 {index}",
+                           "已完成", "5分00秒") for index in range(11))
+    return {"running": pc.project_card(work),
+            "running_full": pc.project_card(full),
+            "waiting": pc.project_card(pc.Project(**{**full.__dict__, "status": pc.WAITING, "threads": threads,
+                                                     "need": "T503 按日期还是按租户分区？", "need_url": ask})),
+            "paused": pc.project_card(pc.Project(**{**work.__dict__, "status": pc.PAUSED, "direction": ""})),
+            "many_threads": pc.project_card(pc.Project(**{**full.__dict__, "threads": many})),
+            "line_done": pc.settled_card("把订单库迁到新集群", url=link, direction="数据平台"),
+            "line_done_no_link": pc.settled_card("把订单库迁到新集群"),
+            "line_stopped": pc.settled_card("把订单库迁到新集群", reason="专项已降为普通话题"),
+            "line_moved": pc.moved_card("把订单库迁到新集群", link, direction="数据平台")}
+
+
 GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,
           "proxy": proxy_cards, "steer": steer_cards, "recovery": recovery_cards, "rewind": rewind_cards,
           "turn_export": turn_export_panels, "switch": switch_cards, "topic": topic_panels,
           "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
           "main_thread": main_thread_panels, "settings": settings_cards,
-          "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards}
+          "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards,
+          "project": project_cards}
 
 
 def render():

@@ -60,6 +60,20 @@ class SteerForms:
                           str(event.get("event_id") or event.get("message_id") or ""))
         return True
 
+    def project_steer(self, ctx, event):
+        """📝 补充 on a 专项卡 (cards/project_card.py): the 补充 form of the lead's running turn, a card of its own (the project's
+        card is redrawn, so it holds no field). The lead with no turn running has nothing to steer: the owner is told to
+        quote the card, which routes to the lead (app/project_cards.py), and no task is started here."""
+        from covey.app import project_cards
+
+        job_id = project_cards.steer_job(self, ctx, event)
+        if not job_id:
+            return project_cards.say(self, ctx, event, project_cards.NO_LEAD_JOB, "project-steer-idle")
+        self.steer_action(ctx, str(event.get("chat_id") or ""), event,
+                          {"kind": "bridge_steer", "topic_id": ctx.topic_id, "job_id": int(job_id)}, {},
+                          str(event.get("event_id") or event.get("message_id") or ""))
+        return True
+
     def steer_form_card(self, job, raw, *, text="", notice=""):
         """The 补充 form names the task it feeds; it is replaced by a receipt or closed when the task ends."""
         return steer_form(job.job_id, " · ".join(x for x in (job.topic_label, f"#{job.job_id}") if x), raw,

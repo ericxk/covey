@@ -82,7 +82,7 @@ from pathlib import Path
 from covey.core import env as cenv
 from covey.app import main_relay
 from covey.app.status_cards import StatusCards, card_message
-from covey.core import board_read, placement
+from covey.core import board_read, placement, projects
 from covey.core.board_read import seconds, started_at, top_read
 from covey.core.locks import resource_lock
 from covey.core.main_thread import traits
@@ -176,12 +176,32 @@ def status_pinned(state, chat, topic) -> bool:
 def aimed(state, chat, row):
     """``row`` with the message its topic's pin is: a result's, for a topic with a thread pinned by no status card
     (a 话题区's), the answer card its round sent into its thread (the job's answer_message_id), else its task card;
-    every other row as ``board`` has it (the question card, the task card)."""
+    every other row as ``board`` has it (the question card, the task card). A project's cell (core/projects.py cells: the
+    row's topic is its lead's) is aimed by ``project_aimed``."""
+    lead = projects.lead_record(state, row["topic"], chat)
+    if lead:
+        return project_aimed(state, chat, row, lead)
     answer = str((row.get("record") or {}).get("answer_message_id") or "")
     if (row["group"] != "result" or not answer.startswith("om_") or not traits(row["topic"], chat).has_thread
             or status_pinned(state, chat, row["topic"])):
         return row
     return {**row, "message_id": answer}
+
+
+def project_aimed(state, chat, row, project):
+    """A project's one cell: at work the project's card (the thread's task card is one of several), waiting the
+    question card, done the conclusion (the answer card of the thread that ended, else the project's card); the
+    row is as it was, with the lead's topic id, when the project has no card yet (the thread's own)."""
+    card = projects.card_message(project)
+    if row["group"] == "waiting" or (not card and row["group"] != "result"):
+        return row
+    if row["group"] == "running":
+        return {**row, "message_id": card}
+    thread = str((row.get("record") or {}).get("topic_id") or "")
+    answer = str((row.get("record") or {}).get("answer_message_id") or "")
+    if answer.startswith("om_") and thread and traits(thread, chat).has_thread and not status_pinned(state, chat, thread):
+        return {**row, "message_id": answer}
+    return {**row, "message_id": card} if card else row
 
 
 def entry(topic, group, message_id, at, record):

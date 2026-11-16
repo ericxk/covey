@@ -435,7 +435,7 @@ cancelled、superseded：终态
 
 ## 专项（第 2 期，开发中，默认关）
 
-专项是主线程管家交给一个隐藏的负责人话题、由它派发并跟进若干线程话题的长活（设计见第 2 期的专项设计稿）。**现在只有底座**：记录、角色和看板的格，没有入口（升级、专项卡、负责人运行是后面的包）；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
+专项是主线程管家交给一个隐藏的负责人话题、由它派发并跟进若干线程话题的长活（设计见第 2 期的专项设计稿）。**现在是底座和专项卡**：记录、角色、看板的格，和聊天区的专项卡（[专项卡](main-thread.md#专项卡开关默认关)）；没有入口（升级、负责人运行是后面的包）；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
 
 - **记录** `<state>/projects/<id>.json`（`core/projects.py`，只用标准库，MCP 服务会导入）：`id`（6 到 32 位 `0-9a-z`）、`chat_id`、`name`、`goal`、`state`、`lead_topic_id`、`threads`（线程话题 id）、`origin`、`steps`（升级逐步记账，重做时跳过已做的）、`card`（专项卡的 `card_id`、`message_id`、`sequence`）、`created_at`、`updated_at`。给第 3 期留的 `direction`、`leader`、`claims`、`agreements`、`place` 只写不读。读写在 `resource_lock("record", …)` 下，锁内不发网络请求（规则 1）。
 - **状态** 只按 `PROJECT_TRANSITIONS` 前进（规则 4）：`active` → `paused`、`done`、`cancelled`；`paused` → `active`、`done`、`cancelled`；`done`、`cancelled` 是终态。`update` 改状态前先查表，不合法抛 `ValueError`、什么都不写。
@@ -444,6 +444,7 @@ cancelled、superseded：终态
   - **线程**（`thread`）：还是普通话题（`Traits` 是 `TOPIC`），放置角色 `project_thread`：答案留在话题串，结论和停止不回带到顶层（以后改投负责人收件箱），只有到主人的问题才在顶层放副本。
   - `core/placement.py` 的 `plan(state_dir, of)` 读 `topic.json` 的角色，所以升级在跑的那一轮立即生效；传 `Traits` 行进去的人看不到线程的角色（它不带话题 id），要传任务、记录或 `{"topic_id", "chat_id"}`。
 - **看板** `core/board_read.py` 的 `groups` 收一个 `cells`（`read` 带，来自 `core/projects.py` 的 `cells`，没取消的专项的线程 → 负责人 id）：一个专项一格，格的键是负责人话题 id。同一格里最新的问题在等；在做的取先在跑再排队、再取最新（任务号是 Bridge 的全局计数，跨话题也能比）；结果取各线程最新一条里“主人没看过的最后结束的那条”，没有就取最后结束的。所以一条没看过的旧结果不会被一条看过的新结果盖掉，但一格只钉一个。手上的事、早晚汇总直接读任务记录，现在还不并格。
+- **专项卡**（`cards/project_card.py`、`app/project_cards.py`，细节见 [main-thread.md](main-thread.md#专项卡开关默认关)）：`record["card"]` 是 `{card_id, message_id, sequence, created_at, generation, digest, wrote_at, closed, old, pending_card_id}`，只由 `ProjectCards` 经 `projects.update_card` 写（单写手，规则 3；sequence 存进这一个字段，不整条记录覆盖，免得盖掉负责人和升级同时写的别的字段）。`board` 钉专项卡时读这条记录的 `message_id`（`app/pins.py` 的 `aimed`/`project_aimed`）；格的名字（手上的事、早晚汇总）在 `core/topics.py` 的 `label_title` 里换成专项名。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
 
 ## 执行指标口径
