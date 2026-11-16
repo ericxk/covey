@@ -633,6 +633,13 @@ def _stop_note(job) -> str:
     return f"\n\n{note}" if note else ""
 
 
+def _others_note(job) -> str:
+    """``还有 N 件事在做。`` after a stopped turn's text when its stop counted other tracks of the butler's still going
+    (app/task_controls.py ``cancel_reply_job_from_card``: the 停止 button, the 派发卡's, the stop word), else ''."""
+    others = getattr(job, "stop_others", 0)
+    return f"还有 {others} 件事在做。" if isinstance(others, int) and others > 0 else ""
+
+
 def _turn_from_exception(exc, job, settling) -> dict:
     """The TurnResult fields of a turn the exception ``exc`` ended (its native session is never resumed then):
     a timeout fails it; a SIGTERM before the backend finished (``settling`` False) leaves it interrupted, whatever
@@ -650,7 +657,7 @@ def _turn_from_exception(exc, job, settling) -> dict:
     if isinstance(exc, JobCancelled):
         # Like a finished card since P1: no "直接回复本话题即可继续" (repo review U10).
         return {"status": "cancelled", "status_message": "用户停止了任务",
-                "final_text": stopped_sentence(job.job_id) + worded(STOPPED_NOTE, job) + _stop_note(job)}
+                "final_text": stopped_sentence(job.job_id) + worded(STOPPED_NOTE, job) + _others_note(job) + _stop_note(job)}
     name = type(exc).__name__
     return {"status": "failed", "status_message": "任务异常（" + name + "）",
             "final_text": f"任务 #{job.job_id} 处理出错（{name}），未满足结果发布条件。"}

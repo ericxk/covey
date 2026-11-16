@@ -73,6 +73,8 @@ class BridgeReplyJob:
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     cancel_requested_at: str = ""
     cancel_requested_by: str = ""
+    # How many other tracks of the butler's went on when the stop came (app/task_controls.py): the stopped text says it.
+    stop_others: int = _state(0)
     topic_id: str = ""
     reply_to_message_id: str = ""
     checkpoint_path: str = ""

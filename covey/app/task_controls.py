@@ -332,6 +332,9 @@ class TaskControls(Redelivery):
                 voice=self.voice,
             )
             return True
+        if others > 0:
+            # A task with a card gets no text reply: its stopped text says it (app/worker.py ``_others_note``).
+            job.stop_others = others
         with job.execution_lock:
             queued_cancel = not job.execution_started
             if queued_cancel:

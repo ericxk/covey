@@ -337,6 +337,28 @@ class StopButtonTest(TracksCase):
         self.assertTrue(job.cancel_event.is_set())
         self.assertNotIn("还有", self.said(reply))
 
+    def stopped_text(self, job):
+        from covey.app import worker
+        from covey.core.harness import JobCancelled
+        return worker._turn_from_exception(JobCancelled("stopped"), job, True)["final_text"]
+
+    def test_the_stopped_text_on_the_card_says_how_many_other_tracks_go_on(self):
+        # A task that has its card gets no text reply, only its stopped text (the 2026-11-17 acceptance: #17 stopped,
+        # #16 going on, and the card said nothing of it). The click here is the one its task runner gets.
+        job = self.two_tracks()
+        click = self.task_click(job)
+        click["action_value"]["others"] = "1"
+        self.click(click)
+        self.assertEqual(job.stop_others, 1)
+        self.assertIn("已保存的结果和记录保留在私聊里。还有 1 件事在做。", self.stopped_text(job))
+
+    def test_the_stopped_text_says_nothing_of_other_tracks_when_none_goes_on(self):
+        self.send("om_1", LONG)
+        job = self.run_job("om_1")
+        self.click(self.task_click(job))
+        self.assertEqual(job.stop_others, 0)
+        self.assertNotIn("还有", self.stopped_text(job))
+
     def test_a_track_waiting_for_the_owner_is_not_one_that_goes_on(self):
         self.send("om_1", LONG)
         job = self.run_job("om_1")
