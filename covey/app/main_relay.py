@@ -173,6 +173,9 @@ def after_runner(gateway, job, ctx) -> None:
     """The Bridge, once ``job``'s run has ended (app/detached.py finish_detached; app/unified.py for a run here). A
     main-thread turn whose card handed on to one topic alone gives the card to it: quoting the card goes there (the
     owner, 2026-11-07: 引用直达). Never raises."""
+    from covey.app import project_loop
+
+    project_loop.after_runner(gateway.runtime.log, ctx.state_dir, job)  # A project's task: its tokens, a thread's receipt.
     try:
         if not main_thread.available():  # Not only with it on: a card handed on before the owner chose 纯话题 too.
             return

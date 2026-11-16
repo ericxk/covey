@@ -178,6 +178,8 @@
 | `area` × `project_thread`（专项，默认关） | 按 `Traits` | THREAD | 无 | NONE | TOP | 是 | 否 | 是 | 否 |
 | `topics` × 任意 | 否 | THREAD | 无 | NONE | NONE | 否 | 是 | 否 | 否 |
 
+专项负责人的**唤醒轮**（消息 id 以 `lead-` 开头，`core/projects.py` 的 `is_wake`）也算安静轮（`quiet`）：不显示任务卡（`Cards.reveal` 对它不发）、没有表情；它的已授权回复默认不发（`TurnDelivery.silent`，见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)的续轮与护栏），除非负责人在这一轮里记了一条按风格该报的 `report` 进展。
+
 | 字段 | 含义 | 读者 |
 | --- | --- | --- |
 | `reply_top_level` | 回复主人消息放顶层还是进串（None 按 `Traits.top_level`） | `MainThread.configure` |

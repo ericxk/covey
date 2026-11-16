@@ -128,6 +128,7 @@
 | `app/preselection.py` | What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read |
 | `app/project_cards.py` | 专项卡, when COVEY_PROJECTS=1 |
 | `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
+| `app/project_loop.py` | Continuing runs and guards of a project |
 | `app/project_tools.py` | The tools of a project's lead, handlers as app/main_env.py describes them |
 | `app/prompts.py` | Shared prompt builders: the bridge rules and each turn's message |
 | `app/proxy.py` | Proxy replies (代答), the Bridge's side |

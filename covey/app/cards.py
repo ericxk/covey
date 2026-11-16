@@ -32,7 +32,7 @@ from covey.cards.cardkit_actions import (batch_body, delete, element_body, inser
 from covey.cards.review import (compact_text, outcome_line, render_stream_final, render_stream_status,
                                          running_summary, task_card_summary)
 from covey.cards.elements import grey
-from covey.core import main_thread
+from covey.core import main_thread, projects
 from covey.cards.streaming import (ACTION_ROW_ELEMENT_ID, SIDE_CHAT_ELEMENT_ID, answer_element,
                                             card_title_for_question)
 from covey.cards.card_cost import exceeds_stream_card_limit
@@ -232,6 +232,8 @@ class Cards:
         (stop clicks, recovery and the board find it there). Tried once; not for a turn stopping or delivering."""
         if not getattr(job, "card_deferred", False) or job.cancel_requested_at or job.answer_finalized:
             return False
+        if projects.is_wake(job.message_id):
+            return False  # A lead's wake-up turn (app/project_loop.py): the project's card says what it does.
         begun = run_start(getattr(job, "timings", None))
         if begun is None or time.time() - begun < main_thread.CARD_AFTER:
             return False

@@ -317,3 +317,50 @@ def is_thread_topic(state_dir, topic_id) -> bool:
         return False
     found = topic_project(state_dir, topic_id)
     return found is not None and found.role == THREAD
+
+
+# Continuing runs and their guards (phase 2's P2-6, app/project_loop.py): the switches, the owner's numbers, the id of a
+# wake-up turn and the words of a stop. Pure, and nothing here reads a record.
+
+AUTOWAKE_ENV = "COVEY_PROJECT_AUTOWAKE"  # ``1``: every receipt wakes the lead; else only a project's first one (start) does.
+TOKENS_ENV = "COVEY_PROJECT_TOKENS"  # One project's token budget; DEFAULT_TOKENS when unset or not a positive integer.
+WAKE_PREFIX = "lead-"  # A wake-up turn's message id is ``lead-<project id>-<n>`` (``wake_id``).
+MAX_WAKES_HOUR = 12  # Wake-ups in the last hour, whoever stepped in or not.
+STALL_SECONDS = 30 * 60  # Idle this long: one reminder; as long again with nothing moving: the project is paused.
+# state_reason of a project a guard stopped, and what the owner's own turn may start again (a click on 停止专项 too).
+GUARD_REASONS = ("tokens", "wakes", "stalled")
+OWNER_STOP = "主人停止"
+RESUMABLE = (*GUARD_REASONS, OWNER_STOP)
+REASON_WORDS = {"tokens": "token 用完了", "wakes": "连续唤醒次数到上限", "stalled": "很久没有动静"}
+
+
+def autowake_enabled() -> bool:
+    """Whether every kind of receipt wakes the lead (COVEY_PROJECTS=1 and COVEY_PROJECT_AUTOWAKE=1)."""
+    return enabled() and str(cenv.get(AUTOWAKE_ENV, "")).strip() == "1"
+
+
+def token_limit() -> int:
+    """One project's token budget: COVEY_PROJECT_TOKENS, else DEFAULT_TOKENS (also for a value that is not a positive integer)."""
+    try:
+        value = int(str(cenv.get(TOKENS_ENV, "")).strip())
+    except ValueError:
+        return DEFAULT_TOKENS
+    return value if value > 0 else DEFAULT_TOKENS
+
+
+def wake_id(project_id, number) -> str:
+    """The message id of project ``project_id``'s ``number``-th wake-up turn."""
+    return f"{WAKE_PREFIX}{project_id}-{int(number)}"
+
+
+def is_wake(message_id) -> bool:
+    """Whether a job's message id is a wake-up turn's (the Bridge woke the lead, the owner did not speak)."""
+    return isinstance(message_id, str) and message_id.startswith(WAKE_PREFIX)
+
+
+def reason_words(record) -> str:
+    """What the card says of a project a guard paused ('' for any other record): the guard's words."""
+    if not isinstance(record, dict) or record.get("state") != PAUSED:
+        return ""
+    words = REASON_WORDS.get(record.get("state_reason"))
+    return f"停住 · {words}" if words else ""

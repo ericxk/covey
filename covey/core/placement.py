@@ -148,7 +148,7 @@ def quiet(state_dir, job) -> bool:
     question card at the top level opens no thread under it either); a main-thread tool's turn is not. Never raises:
     False when it cannot be told."""
     try:
-        return owner_message(job).startswith(("om_", CONTINUATION)) and plan(state_dir, job).row.quiet
+        return owner_message(job).startswith(("om_", CONTINUATION, projects.WAKE_PREFIX)) and plan(state_dir, job).row.quiet
     except Exception:  # noqa: BLE001 - as before: the card at once
         return False
 

@@ -209,7 +209,7 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
     return Project(project_id=pid, lead_topic=lead, name=str(record.get("name") or ""), status=status,
                    direction=str(record.get("direction") or "") if isinstance(record.get("direction"), str) else "",
                    need=need, need_url=str(links.get("need") or ""), threads=threads, elapsed=elapsed, tokens=tokens,
-                   lead_state=lead_state(state_dir, record, now), lead_note=lead_note(record),
+                   lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
                    triage=triage_lines(record), memory=memory_rows(state_dir, pid), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
                    ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""))

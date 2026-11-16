@@ -451,6 +451,15 @@ cancelled、superseded：终态
   - **收件箱** `projects/<id>/inbox/<序号>.json`：`{id, kind, thread, text, at, taken_by}`，`add_receipt` 写、`take_receipts` 读并标上这一轮（上一个领它的轮没有好好结束的，下一轮重新给）。谁来写（线程一轮结束、扣住的问题、主人在线程里说话）是续轮的包。
   - **一轮的结语** 负责人的任务卡和列表预览说它做了什么（`main_reply.outcome_words`，`lead=True`）：开了或交给哪个线程，否则记了哪句进展或收尾了专项，否则回复的开头。
 - **专项卡**（`cards/project_card.py`、`app/project_cards.py`，细节见 [main-thread.md](main-thread.md#专项卡开关默认关)）：`record["card"]` 是 `{card_id, message_id, sequence, created_at, generation, digest, wrote_at, closed, old, pending_card_id}`，只由 `ProjectCards` 经 `projects.update_card` 写（单写手，规则 3；sequence 存进这一个字段，不整条记录覆盖，免得盖掉负责人和升级同时写的别的字段）。`board` 钉专项卡时读这条记录的 `message_id`（`app/pins.py` 的 `aimed`/`project_aimed`）；格的名字（手上的事、早晚汇总）在 `core/topics.py` 的 `label_title` 里换成专项名。
+- **续轮与护栏**（`app/project_loop.py`，第 2 期 P2-6；开关 `COVEY_PROJECT_AUTOWAKE`、`COVEY_PROJECT_TOKENS`，见[配置](configuration.md)）：
+  - **谁唤醒**：`ProjectLoop`（功能对象，`COVEY_PROJECTS=1` 才起线程，启动后等 20 秒让 Bridge 自己先恢复被打断的任务，之后每 10 秒看一遍）对每个 `active` 专项：有没人读过的回执（收件箱里没被领、或领它的那一轮没好好结束，即 `take_receipts` 的判定）、负责人没有排队、在跑或等主人的任务时，入队 1 个唤醒轮——和负责人话题里的任何消息一样走 `enqueue_chat_job`，消息 id `lead-<专项 id>-<n>`（`n` 数在记录的 `wakes` 里；先记数再入队，丢一个下次再找，不会重复），消息内容只有 Bridge 的一句说明，状态包和收件箱由 `lead_turn` 自己加。`start` 回执总是唤醒（只要 `COVEY_PROJECTS=1`）；其余都要 `COVEY_PROJECT_AUTOWAKE=1`，关着时它们留在收件箱，等负责人下一次被主人叫起时一起读。重启后同一遍查找就把盘上的未领回执重新入队。
+  - **回执谁写**：`thread_end`（线程话题的一轮结束：一句话结论、状态、任务号）和 token 累加都由 **Bridge** 在任务进程退出后写（`main_relay.after_runner` 的第一步调 `project_loop.after_runner`，所有任务结束的路径都经过它；规则 8 让任务进程只改本任务的卡和记录，写别的专项的收件箱和记录不算在内，所以放 Bridge 这边，旧任务进程也一样有回执）；`owner_said`（主人在线程话题里直接说话）在 Bridge 收消息处（`app/app.py` `handle_event`）写；`stalled` 由循环写。`question` 留给 P2-5。回执一律经 `add_receipt`。
+  - **主人触发的轮**：负责人话题里 message id 不以 `lead-` 开头的轮（主人引用专项卡回复、管家 `project_send` 转交、回答的续接）。它入队时（`submission.enqueue_chat_job` → `project_loop.owner_turn`）把 `wakes` 的连续计数和最近一小时的记录清零、清掉停滞标记，并把因护栏（`tokens`、`wakes`、`stalled`）或主人点了停止专项而停住的专项恢复成 `active`；`tokens` 停住的从已用的数目重新开一份预算（`token_floor`），否则下一遍就又停了。主人在线程里说话（`owner_said`）也清连续计数。
+  - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`；设计稿里停滞时发问题卡的一段没做）。
+    - token：负责人和各线程任务的合计（任务的输入含缓存加输出，子任务算在内）每个任务结束时累加进 `tokens_used`，每个任务只算一次（`token_jobs` 记键）；到 `COVEY_PROJECT_TOKENS`（默认 1000 万）停。
+    - 唤醒：无人介入连续 30 次，或最近一小时 12 次，停。
+    - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：专项 `active`，负责人和线程都没有没结束的任务，没有未读回执，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是线程任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。
+  - **唤醒轮的回复默认不发**：唤醒轮算安静轮（`placement.quiet` 认 `lead-` 前缀）：不显示任务卡（`Cards.reveal` 不发），没有表情。已授权回复保存、记为已送达（`TurnDelivery.silent`：`send` 直接返回），所以重投不重试、恢复卡不把它当未送达；没做完的轮（失败、停止、被拒）照旧在顶层说一句，不藏。例外：负责人在这一轮用 `project_note` 记了 `report`、且按风格该报（`project_lead.reportable`；`project_finish` 的收尾也算），这时和负责人主人触发的轮一样发到顶层。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
 
 ## 执行指标口径
