@@ -181,13 +181,24 @@ class GuardTest(Loop):
 
     def test_the_budget_is_the_owners(self):
         self.update(tokens_used=500)
-        with mock.patch.dict(os.environ, {projects.TOKENS_ENV: "400"}):
+        with mock.patch.dict(os.environ, {projects.BUDGET_ENV: "400"}):
             self.assertEqual(projects.token_limit(), 400)
             self.loop.tick(NOW + 5)
         self.assertEqual(self.reload()["state_reason"], "tokens")
         for value in ("", "x", "0", "-5"):
-            with mock.patch.dict(os.environ, {projects.TOKENS_ENV: value}):
+            with mock.patch.dict(os.environ, {projects.BUDGET_ENV: value}):
                 self.assertEqual(projects.token_limit(), projects.DEFAULT_TOKENS)
+
+    def test_a_launch_keeps_the_budget_and_the_older_name_still_counts(self):
+        # The acceptance of 2026-11-17: COVEY_PROJECT_TOKENS has TOKEN in its name, the service manifest took it for a
+        # secret and dropped it, so the budget a launch set never reached the Bridge.
+        from covey.service import manager
+        self.assertTrue(manager.persistable(projects.BUDGET_ENV))
+        self.assertTrue([k for k in manager.runtime_environment({projects.BUDGET_ENV: "400"}) if k.endswith("PROJECT_BUDGET")])
+        with mock.patch.dict(os.environ, {projects.TOKENS_ENV: "300"}):
+            self.assertEqual(projects.token_limit(), 300)
+            with mock.patch.dict(os.environ, {projects.BUDGET_ENV: "400"}):
+                self.assertEqual(projects.token_limit(), 400)
 
     def test_thirty_wakes_in_a_row_pause_the_project(self):
         self.autowake()

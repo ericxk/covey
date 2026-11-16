@@ -453,7 +453,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
   - **停**：记录仍是 `paused`，`state_reason` 改成“主人停止”，并停掉负责人和各话题里排队或在跑的任务（`project_cards.stop_tasks`，和停止专项同一个做法）；`tokens` 停住后选停的，之后主人在负责人话题里说话把它开起来时，照样给一份新预算（`token_floor`），不会马上又停。
 - **在做的话题**：`tokens` 停住时 `ProjectLoop` 同时请专项的话题里排队、在跑的任务停下（`stop_tasks`，把卡上“停止”的点击转给任务进程），数记进 `pause_ask.halted`，卡上写“在做的 N 个话题已请它们停下”；`wakes` 停住不停它们，卡上写“不受影响”；`stalled` 本来就没有。
 - **点了以后**：`ProjectCards` 把这张卡整卡写成一行（“你选了继续 / 收尾 / 停”），专项卡下一次刷新自然变成在做或停住。专项被别处处理了（主人在负责人话题里直接说话、负责人收尾）而没点，这张卡缩成“已在别处处理”。每张卡的写入用它自己的 sequence（`pause_ask.card`），不会和专项卡的混。
-- **试用**：`COVEY_PROJECT_TOKENS=<小数>` 一会儿就停住；`COVEY_PROJECT_STALL_SECONDS=60` 并开 `COVEY_PROJECT_AUTOWAKE=1`，一个没有任务的专项约两分钟后停住。唤醒次数的上限不能调。
+- **试用**：`COVEY_PROJECT_BUDGET=<小数>` 一会儿就停住；`COVEY_PROJECT_STALL_SECONDS=60` 并开 `COVEY_PROJECT_AUTOWAKE=1`，一个没有任务的专项约两分钟后停住。唤醒次数的上限不能调。
 
 ### 汇报风格的默认值（开关默认关）
 

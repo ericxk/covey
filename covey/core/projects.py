@@ -341,7 +341,10 @@ def active_count(state_dir) -> int:
 # wake-up turn and the words of a stop. Pure, and nothing here reads a record.
 
 AUTOWAKE_ENV = "COVEY_PROJECT_AUTOWAKE"  # ``1``: every receipt wakes the lead; else only a project's first one (start) does.
-TOKENS_ENV = "COVEY_PROJECT_TOKENS"  # One project's token budget; DEFAULT_TOKENS when unset or not a positive integer.
+BUDGET_ENV = "COVEY_PROJECT_BUDGET"  # One project's token budget; DEFAULT_TOKENS when unset or not a positive integer.
+# The older name: TOKEN in it makes the service manifest take it for a secret (service/manager.py SECRET_NAME), so a
+# ``launch`` dropped it without a word; still read when BUDGET_ENV is unset (a Manager started with it in its own environment).
+TOKENS_ENV = "COVEY_PROJECT_TOKENS"
 WAKE_PREFIX = "lead-"  # A wake-up turn's message id is ``lead-<project id>-<n>`` (``wake_id``).
 MAX_WAKES_HOUR = 12  # Wake-ups in the last hour, whoever stepped in or not.
 STALL_SECONDS = 30 * 60  # Idle this long: one reminder; as long again with nothing moving: the project is paused.
@@ -393,9 +396,11 @@ def autowake_enabled() -> bool:
 
 
 def token_limit() -> int:
-    """One project's token budget: COVEY_PROJECT_TOKENS, else DEFAULT_TOKENS (also for a value that is not a positive integer)."""
+    """One project's token budget: COVEY_PROJECT_BUDGET, else the older COVEY_PROJECT_TOKENS, else DEFAULT_TOKENS (also for a
+    value that is not a positive integer)."""
+    raw = str(cenv.get(BUDGET_ENV, "") or "").strip() or str(cenv.get(TOKENS_ENV, "") or "").strip()
     try:
-        value = int(str(cenv.get(TOKENS_ENV, "")).strip())
+        value = int(raw)
     except ValueError:
         return DEFAULT_TOKENS
     return value if value > 0 else DEFAULT_TOKENS

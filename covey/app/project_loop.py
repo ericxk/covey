@@ -8,7 +8,7 @@ when something happened since it last looked, and the mechanical checks that sto
   ``wakes``). A ``start`` receipt always wakes; the others only with COVEY_PROJECT_AUTOWAKE=1. After a restart the same
   look finds the receipts on disk again (``take_receipts`` gives back what a turn that did not end well had taken).
 - Guards, any of which pauses the project with ``state_reason`` ``tokens``, ``wakes`` or ``stalled`` (core/projects.py
-  GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_TOKENS (``tokens_used``, added
+  GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_BUDGET (``tokens_used``, added
   once per task by ``after_runner``); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
   receipt for 30 minutes, which first wakes the lead with a ``stalled`` receipt and, as long again with nothing moving,
   pauses. The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
