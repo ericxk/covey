@@ -46,7 +46,7 @@ class UpCase(DispatchCase):
         butler.forget_mode()
         self.addCleanup(butler.forget_mode)
         write_topic(self.state, topic_id=butler.butler_topic_id(CHAT), chat_id=CHAT, harness_id="claude", model="claude-opus-x",
-                    effort="medium", butler=True, workspace_name="main-space", workdir="/absolute/main", root_id="")
+                    effort="medium", main_thread=True, workspace_name="main-space", workdir="/absolute/main", root_id="")
         self.up = upgrades.Projects(self.env)
         self.env.projects = self.up
         place = mock.patch("covey.app.topic_links.place_of", return_value={"position": 9})

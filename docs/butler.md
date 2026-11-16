@@ -52,7 +52,7 @@
 
 `app/card_routing.py` 在启用的扩展的 `handle_event` 之后调 `Butler.handle_event`，主人身份来自 `Runtime.access`（规则 11）。消息的 `root_id`、`thread_id`、`parent_id` 按别名查话题：查到别的话题交给它；查到管家留在管家；都没填是管家的新一轮；填了但谁也不认识就照旧开话题。
 
-管家话题的 `topic.json` 带 `butler: true`，没有根消息和 `topic_number`。每条消息都同步设置：模型和预算下一轮生效；换工作区要等没有任务在跑，并开新会话。
+管家话题的 `topic.json` 带 `main_thread: true`（字段名沿用旧名，不改），没有根消息和 `topic_number`。每条消息都同步设置：模型和预算下一轮生效；换工作区要等没有任务在跑，并开新会话。
 
 - **补充**：有任务没结束时，新消息用 `deliver_steer` 并进最新一轮，不发回执卡（开了[同时做几件事](#同时做几件事开关默认关)时，并进哪件在做的事由分流定，`Butler.supplement` 接目标任务，被拒改成新开一件）。可能已送达的不重发（规则 6），在主人消息下说一句；卡上已列出的不再各说（`TurnDelivery.listed`）。
 - **收尾时发来的消息**：确定这一轮没读到的补充，自动排成管家的新一轮，和主人刚发一条新消息一样：同一个 message_id 作为这一轮的请求，放置、表情和回答都落在它上面，不开话题串、不说 `SUPPLEMENT_LOST`。“确定没读到”有两种：held 后被拒（从没发出，`drop_held_steers`、`_send_held`），和已发出但 Claude 到结束都没报告读取（`end_unread`）。Claude 交回结果之后到这一轮离开登记表之间来的补充也会 held（后端不再收）；任务离开登记表时（`BridgeApp.process_reply_job` 末尾，任务进程在收件箱停下后再一次）由 `Steering.settle_held_at_end` 当场按被拒结算，不等 steer-hold 后台线程下一秒的检查（任务进程退出会把它切断）。不确定的（`uncertain`）、主人停止的一轮（`cancel_event`）、没存 `requeue` 的旧记录照旧说一句；卡上已列出的（`listed`）不排也不说。做法：`Butler.supplement` 在送达记录里存 `requeue`（原文、发给模型的文字、发送人）；发现丢了的一方（`Steering.requeue_lost`）给记录标 `requeue_auto`，在 Bridge 里马上、在任务进程里由 Bridge 在任务进程交还或退出时（`app/detached.py` 的 `queue_lost`）按 `saved_at` 先后各排一轮（`Steering.queue_lost`，走“重新排队执行”的 `_requeue`，`requeue_state`、`requeued_job_id` 保证只排一次，重启后也不再排）。那一轮在没有 Bridge 看着时结束的（Bridge 停着时任务进程退出了，或 Bridge 没来得及排就停了），由 Bridge 启动时在收养任务进程之后补排（`app/detached.py` 的 `queue_stranded`），还在跑的任务进程的留给它结束时排。排队出错的（可能已经排上，`requeue_state` 为 `uncertain`）不再排，在主人那条消息下说一句 `SUPPLEMENT_UNCERTAIN`。已经单独成轮的不再算进旧一轮的“你问”和交接（`app/butler_handoff.py` 的 `_supplements`）。同一条消息的事件再来，`deliver_steer` 看到 `requeue_auto` 不再当补充。

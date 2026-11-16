@@ -113,7 +113,7 @@ CARD_AFTER = 90
 def is_butler_topic(topic_id, chat_id) -> bool:
     """The one predicate: whether ``topic_id`` is the butler's topic in ``chat_id`` (butler_topic_id), whether
     or not the switch is on now. Only app/butler.py Butler.keep_topic writes that topic's topic.json, with
-    ``butler: true``, so for every record the product writes this says the same as that flag.
+    ``main_thread: true``, so for every record the product writes this says the same as that flag.
     The family (core/butler_tracks.py): with COVEY_BUTLER_TRACKS=1 the topics of slots 1..4 count too, each a track of the
     butler; with it off only slot 0, as before. A project's lead topic (core/projects.py, COVEY_PROJECTS=1) is of
     the family too (``is_lead``). The call sites that mean the root alone ask ``is_butler_root``."""

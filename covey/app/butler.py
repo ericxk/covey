@@ -1,6 +1,6 @@
 """The butler's session (docs/butler.md), only in the private chat mode 管家 (core/butler.py
 enabled: COVEY_BUTLER not 0, the mode on the settings card): what the owner writes at the top level of the private chat goes to one long-lived Claude Code session, whose topic
-(butler_topic_id) has no root message and no T number; its topic.json says ``butler: true``.
+(butler_topic_id) has no root message and no T number; its topic.json says ``main_thread: true`` (the field keeps its old name on disk).
 
 - ``Butler.handle_event``, called after the extensions' in app/card_routing.py: claims the message, keeps the topic's binding
   to the settings and hands it to the usual submission (app/app.py handle_event).

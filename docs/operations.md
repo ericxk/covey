@@ -124,7 +124,7 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
 │  ├─ main-thread.json             私聊模式和管家设置，子 Agent 的模型 `subagents`（`COVEY_BUTLER=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
 │  └─ redaction/                   脱敏词表、看板口令、每轮替换数
 ├─ 可选功能
-│  ├─ main-thread/                 管家的工具请求、开过的话题、回带记录
+│  ├─ main-thread/                 管家的工具请求、开过的话题、回带记录（目录名和上面的 main-thread.json 沿用旧名，不改：新旧版本混跑时互相认得）
 │  ├─ proxy/                       代答：settings.json、contacts/、style.md、batches/、send-as-user/、web/、shots/
 │  ├─ pinned-overview.json、pinned-topics.json、board-priority.json、status-cards/、topic-seen.json   手上的事和话题看板
 │  ├─ topic-links.json             卡上 T 号的话题链接
@@ -335,7 +335,7 @@ systemctl --user restart lark-bridge-manager.service
 | --- | --- | --- |
 | Python 包 `harness_bridge` | `covey` | 仓库根的 `harness_bridge.py`（单文件，不是包，`covey/__init__.py` 仍为空）装一个导入别名：`harness_bridge.X` 就是 `covey.X` 同一个模块对象，首次导入在 stderr 记一行弃用。给外部扩展用 |
 | `LARK_BRIDGE_<X>` | `COVEY_<X>` | 两个名字都读，见[环境变量与选项一览](configuration.md#环境变量与选项一览) |
-| `bin/lark_harness_bridge.py`、`lark_task_runner.py`、`bridge_service.py`、`bridge_service_install.py`、`bridge_doctor.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_main_mcp.py`、`bridge_app_setup.py`、`lark_bridge_paths.py`、`lark_bridge_maintenance.py`、`lark_bridge_workspaces.py`、`lark_app_console.py`、`lark_feishu_web.py`、`lark_install_browser.py`、`lark_workspace_reader.py`（扩展的入口见扩展 README，同样留了旧名转发壳） | `bin/covey_bridge.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_doctor.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_butler_mcp.py`、`covey_app_setup.py`、`covey_paths.py`、`covey_maintenance.py`、`covey_workspaces.py`、`covey_app_console.py`、`covey_feishu_web.py`、`covey_install_browser.py`、`covey_workspace_reader.py`（`covey_install.py 本来就是新名） | 旧名留作两行转发壳（`runpy.run_path` 新名），服务清单、开机钩子、crontab、systemd 单元、各部署的脚本里写死的旧路径继续有效；新注册（bootstrap、installer、`bridge_service_install` 写的单元和 crontab 行）用新名 |
+| `bin/lark_harness_bridge.py`、`lark_task_runner.py`、`bridge_service.py`、`bridge_service_install.py`、`bridge_doctor.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_main_mcp.py`、`covey_main_mcp.py`（2026-11-16 起，原来的 `covey_main_mcp.py` 也成了转发壳）、`bridge_app_setup.py`、`lark_bridge_paths.py`、`lark_bridge_maintenance.py`、`lark_bridge_workspaces.py`、`lark_app_console.py`、`lark_feishu_web.py`、`lark_install_browser.py`、`lark_workspace_reader.py`（扩展的入口见扩展 README，同样留了旧名转发壳） | `bin/covey_bridge.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_doctor.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_butler_mcp.py`、`covey_app_setup.py`、`covey_paths.py`、`covey_maintenance.py`、`covey_workspaces.py`、`covey_app_console.py`、`covey_feishu_web.py`、`covey_install_browser.py`、`covey_workspace_reader.py`（`covey_install.py 本来就是新名） | 旧名留作两行转发壳（`runpy.run_path` 新名），服务清单、开机钩子、crontab、systemd 单元、各部署的脚本里写死的旧路径继续有效；新注册（bootstrap、installer、`bridge_service_install` 写的单元和 crontab 行）用新名 |
 | `lark-bridge-manager.service` | `covey-manager.service` | 新装用新名；已装旧单元的机器继续用旧单元名（`unit_name()` 看 `~/.config/systemd/user/` 里有没有旧文件），不停不换；单元里的 `ExecStart` 下次装时改成新入口 |
 | 抽象套接字 `\0lark-bridge-…`、`~/.config/lark-bridge-service/`、`~/.local/libexec/lark-bridge/memguard.py`、crontab 标记 | 不变 | 新旧 Manager、看门狗要互相认得，数据和注册位置都不改名 |
 | `scripts/setup_harness_bridge.sh`、`scripts/bootstrap_harness_bridge.sh` | 不变 | 现网 `deploy_bridge.sh` 还用；保留到 P6 |
