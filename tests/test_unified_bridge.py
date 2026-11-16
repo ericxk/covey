@@ -20,6 +20,7 @@ from covey.core.jobs import find_job_record
 from covey.core.model_settings import settings_path
 from covey.core.topics import read_topic, remember_topic_message
 from covey.service.pairing import issue
+from types import SimpleNamespace
 
 
 class UnifiedTests(UnifiedCase):
@@ -381,6 +382,18 @@ class IgnoredEnvTests(UnifiedCase):
                 mock.patch("covey.app.model_usage.start"):
             self.app.log_startup(self.ctx)
         return [line for line in self.logs if line.startswith("env ")]
+
+    def test_the_start_names_the_extensions_it_runs_with(self):
+        self.logs.clear()
+        with mock.patch("covey.app.launch_models.start_catalog_refresh"), mock.patch("covey.app.model_usage.start"), \
+                mock.patch("covey.core.extensions.manifests", return_value=(SimpleNamespace(package="pkg_a"),)):
+            self.app.log_startup(self.ctx)
+        self.assertIn("extensions loaded=pkg_a", self.logs)
+        self.logs.clear()
+        with mock.patch("covey.app.launch_models.start_catalog_refresh"), mock.patch("covey.app.model_usage.start"), \
+                mock.patch("covey.core.extensions.manifests", return_value=()):
+            self.app.log_startup(self.ctx)
+        self.assertIn("extensions loaded=none", self.logs)
 
     def test_the_bridge_names_each_variable_that_is_set_once_at_startup(self):
         self.assertEqual(self.startup_lines(self.ENV), [

@@ -489,6 +489,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.runtime.log(line)
         for line in extensions.unused_env():  # Variables of a feature that moved into an extension that is not enabled.
             self.runtime.log(line)
+        # Which extensions this Bridge runs with, so a deploy check can see them (none: the open core alone).
+        self.runtime.log("extensions loaded=" + (",".join(ext.package for ext in extensions.manifests()) or "none"))
         self.runtime.log(
             f"{default.spec.name}_timeout={format_timeout(ctx.timeout)} async_replies=true "
             f"streaming_card={default.cards.streaming}"

@@ -214,6 +214,18 @@ class RouteTest(TracksCase):
         self.assertEqual(control.sent, [])  # A paused task takes no supplement: the usual continuation, queued behind.
         self.assertEqual([job.message_id for job in self.app.runtime.jobs.topic_jobs(MAIN, CHAT)], ["om_1", "om_2"])
 
+    def test_the_judge_runs_claude_code_with_its_own_context_not_the_default_harness(self):
+        # Deploy check 2026-11-16: with Codex the default Harness the event's context made the judge run `codex -p`.
+        self.ctx = dataclasses.replace(self.ctx, backend_cmd=["codex"])
+        own = list(self.claude.harness.context.backend_cmd)
+        self.assertNotEqual(own, ["codex"])
+        self.send("om_1", LONG)
+        self.run_job("om_1")
+        self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
+        self.assertTrue(self.judge.called)
+        self.assertEqual(list(self.judge.call_args.kwargs["ctx"].backend_cmd), own)
+        self.assertTrue(all(list(call.args[1].backend_cmd) == own for call in self.warm.call_args_list))
+
     def test_a_judge_merge_is_a_supplement_to_that_track(self):
         self.send("om_1", LONG)
         self.run_job("om_1")

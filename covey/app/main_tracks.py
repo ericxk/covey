@@ -158,8 +158,9 @@ class Tracks:
             redacted = topic_redaction(ctx.state_dir, core.root_topic_id(chat))
         except ValueError:
             redacted = True
-        verdict = track_judge.judge(message, redacted=redacted, backend=app.harness.backend, ctx=ctx, log=self.runtime.log)
-        track_judge.warm(app.harness.backend, ctx)  # The standby it used is gone; the next one starts now.
+        own = judge_context(app, ctx)
+        verdict = track_judge.judge(message, redacted=redacted, backend=app.harness.backend, ctx=own, log=self.runtime.log)
+        track_judge.warm(app.harness.backend, own)  # The standby it used is gone; the next one starts now.
         if verdict.route == "merge" and verdict.target is not None:
             fresh = self.entries(ctx, chat, now)  # The model took a while: the task may have ended meanwhile.
             target = self.newest_of(fresh, verdict.target)
@@ -212,7 +213,7 @@ class Tracks:
         now = time.time()
         # A Claude Code ready for the judge of the next message (app/track_standby.py): this message may start the task
         # that message will have to be told from.
-        track_judge.warm(app.harness.backend, ctx)
+        track_judge.warm(app.harness.backend, judge_context(app, ctx))
         entries = self.entries(ctx, chat, now)
         if not entries:
             self.remember_bare(chat, 0, bare, now)
@@ -321,6 +322,14 @@ def quoted_id(event) -> str:
     the reply context (1.0.69 and later, feishu/events.py REPLY_CONTEXT) gives ``reply_to`` and no ``parent_id`` at all,
     so reading ``parent_id`` alone saw no quote and a "停止" quoting a track stopped the newest one (2026-11-15)."""
     return str(event.get("parent_id") or event.get("reply_to") or "")
+
+
+def judge_context(app, ctx):
+    """What the judge's Claude Code and its standby run with: the Claude Harness's own context (its command and its
+    environment), not the event's, which is the default Harness's: where Codex is the default the judge ran
+    ``codex -p`` and failed every time (deploy check, 2026-11-16). The event's while the Harness has none (a test)."""
+    own = getattr(getattr(app, "harness", None), "context", None)
+    return own if own is not None and getattr(own, "backend_cmd", None) else ctx
 
 
 def clear_pointer(harness, state_dir, topic_id) -> None:
