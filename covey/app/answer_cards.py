@@ -22,7 +22,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.cards.answer_card import ARTIFACTS_ID, input_parts, output_parts
+from covey.cards.answer_card import ARTIFACTS_ID, MEMORY_ID, input_parts, output_parts
 from covey.cards.elements import replace_element
 from covey.cards.review import answer_card, answer_lead, answer_summary, bare_answer_summary
 from covey.core.checkpoint import checkpoint_delivery, read_checkpoint, shows_change
@@ -320,6 +320,36 @@ def refresh(state_dir, profile, messenger, key, panel, status, log, *, force=Fal
                 write_json(path, saved, ensure_ascii=False)
         else:
             log(f"answer card 产物 not updated job={key[-10:]} where={entry.get('where')}")
+    return written
+
+
+def put_memory(state_dir, profile, messenger, key, element, log) -> int:
+    """The memory lines ``element`` (cards/answer_card.py memory_element, COVEY_MEMORY=1) put at the bottom of each of the job
+    ``key``'s answer cards, or in place of the ones there from before; the cards written. Never raises."""
+    path = record_path(state_dir, key)
+    written = 0
+    try:
+        with resource_lock("answer-cards", str(path)):
+            entries = [dict(entry) for entry in read_object(path).get("cards") or []]
+        for entry in entries:
+            built = entry.get("card")
+            if entry.get("where") == COPY or not isinstance(built, dict):
+                continue
+            if not replace_element(built, MEMORY_ID, element):
+                body = built.setdefault("body", {})
+                body.setdefault("elements", []).append(element)
+            if messenger.patch_card(profile, entry["message_id"], built):
+                written += 1
+                with resource_lock("answer-cards", str(path)):
+                    saved = read_object(path)
+                    for kept in saved.get("cards") or []:
+                        if kept.get("message_id") == entry["message_id"]:
+                            kept.update(card=built)
+                    write_json(path, saved, ensure_ascii=False)
+            else:
+                log(f"answer card memory lines not written job={key[-10:]} where={entry.get('where')}")
+    except Exception as exc:  # noqa: BLE001 - the memory is noted whether or not the card says so
+        log(f"answer card memory lines failed: {type(exc).__name__}")
     return written
 
 

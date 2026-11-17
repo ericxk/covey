@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from covey.cards.elements import card, chevron, collapsible, grey, json_size, md
+from covey.cards.elements import card, chevron, collapsible, grey, item, json_size, md, text_button
 from covey.core.checkpoint import change_summary, delivery_commits
 from covey.cards.facts import context_text, start_text, token_total, usage_figures
 from covey.core.metrics import took_text
@@ -232,6 +232,34 @@ def box(element_id, inputs, outputs, outputs_id=""):
     return {"tag": "column_set", "element_id": element_id, "columns": [
         {"tag": "column", "width": "weighted", "weight": 1, "background_style": "grey-50",
          "padding": "6px 10px 6px 10px", "vertical_spacing": "2px", "elements": rows}]}
+
+
+MEMORY_ID = "answer_memory"
+MEMORY_WRONG_KIND = "bridge_memory_wrong"
+MEMORY_LINES = {"remembered": "记下了", "voided": "作废了", "undone": "已撤销"}
+
+
+def memory_element(notes, topic_id="", job_id=""):
+    """The grey lines at the bottom of a turn's answer card (COVEY_MEMORY=1, app/memory_collect.py): one per note of the job
+    record's ``memory_notes`` ({kind, text, scope, entry_id}), "记下了：<text> · 管这个专项" and a 不对 button that takes it back
+    (``MEMORY_WRONG_KIND``), "作废了：<text>", "已撤销：<text>" once taken back. None without a note."""
+    rows = []
+    for note in notes or ():
+        kind = note.get("kind")
+        if kind not in MEMORY_LINES:
+            continue
+        text = literal_text(note.get("text"))
+        words = f"{MEMORY_LINES[kind]}：{text}" + (f" · {note.get('scope')}" if kind == "remembered" and note.get("scope") else "")
+        line = md(grey(words), size="notation")
+        if kind == "remembered":
+            rows.append(item(line, text_button("不对", {"kind": MEMORY_WRONG_KIND, "topic_id": topic_id, "job_id": job_id,
+                                                        "entry_id": str(note.get("entry_id") or "")})))
+        else:
+            rows.append(line)
+    if not rows:
+        return None
+    return {"tag": "column_set", "element_id": MEMORY_ID, "columns": [
+        {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": rows}]}
 
 
 def tail(files=None, inputs=(), outputs=(), link="", change=None):

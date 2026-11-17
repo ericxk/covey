@@ -63,9 +63,12 @@ def _entry(row, index=0):
     if not isinstance(row, dict) or not clean(row.get("text")):
         return None
     at, deleted = row.get("at"), row.get("deleted")
-    return {"id": str(row.get("id") or f"i{index}"), "text": clean(row.get("text")), "kind": kind_of(row.get("kind")),
-            "source": str(row.get("source") or "lead")[:30], "at": at if isinstance(at, (int, float)) else 0,
-            "deleted": deleted if isinstance(deleted, (int, float)) and not isinstance(deleted, bool) and deleted else 0}
+    entry = {"id": str(row.get("id") or f"i{index}"), "text": clean(row.get("text")), "kind": kind_of(row.get("kind")),
+             "source": str(row.get("source") or "lead")[:30], "at": at if isinstance(at, (int, float)) else 0,
+             "deleted": deleted if isinstance(deleted, (int, float)) and not isinstance(deleted, bool) and deleted else 0}
+    if row.get("redacted") is True:  # COVEY_MEMORY=1: a line from a topic with redaction on (core/memory.py); no key otherwise.
+        entry["redacted"] = True
+    return entry
 
 
 def _shaped(data):
@@ -103,6 +106,11 @@ def _set_aside(path) -> None:
     except OSError as exc:
         raise OSError(f"{path} 解析不了，也没能改名留底：{exc}") from exc
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} project file unreadable, kept as {aside.name}", file=sys.stderr, flush=True)
+
+
+def rows_at(path, *, writing=False) -> list:
+    """The entries of the memory file at ``path`` (core/topic_memory.py keeps a topic's the same way); [] when there is none."""
+    return _file_rows(Path(path), writing=writing)
 
 
 def stored(state_dir, project_id) -> list:
@@ -185,12 +193,13 @@ def _edit(state_dir, project_id, edit, also=None, now=None):
     return box[0]
 
 
-def add(state_dir, project_id, text, kind="fact", source="lead", *, now=None, also=None) -> tuple:
+def add(state_dir, project_id, text, kind="fact", source="lead", *, now=None, also=None, redacted=False) -> tuple:
     """(the entry, whether it is new): ``text`` as an entry of ``kind``. The same text of the same kind that is still
-    there is the one returned, not noted twice. ``also(record)``: more to change in the project's record in the same write."""
+    there is the one returned, not noted twice. ``also(record)``: more to change in the project's record in the same write.
+    ``redacted``: the line came from a topic with redaction on (it is only read back by such a topic, core/memory.py)."""
     stamp = time.time() if now is None else now
     wanted = {"id": secrets.token_hex(3), "text": clean(text), "kind": kind_of(kind), "source": str(source or "lead")[:30],
-              "at": stamp, "deleted": 0}
+              "at": stamp, "deleted": 0, **({"redacted": True} if redacted else {})}
     if not wanted["text"]:
         raise ValueError("text 不能为空")
 

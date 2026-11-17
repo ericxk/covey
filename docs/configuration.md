@@ -98,6 +98,7 @@
 | [手上的事与话题看板](#手上的事与话题看板) | `COVEY_PINNED_OVERVIEW=1`、`COVEY_PINNED_TOPICS=1` | `overview` 后台线程；Pin 话题时多一个已读事件消费者 |
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES` | `digest` 后台线程、菜单「看板」 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/kb-history` | 管家多 `knowledge_*` 工具，话题首轮带知识条目，汇总多一节；管家多 `history_search`，话题规则多一行查历史的命令 |
+| [记忆](#记忆) | `COVEY_MEMORY=1` | 每轮规则里原则、知识条目、专项记忆合成一块“记忆”；话题里主人明说的长期要求在一轮结束后记下，答案卡底部露一行和“不对”按钮 |
 | [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡的私聊、新话题标签 |
 | [管家规则](#管家规则) | `COVEY_BUTLER_RULES=1` | 管家只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
 | [专项（第 2 期，开发中，默认关）](architecture.md#专项第-2-期开发中默认关) | `COVEY_PROJECTS=1` | 底座：`projects/` 记录、负责人话题和专项的话题的角色、看板并格，加负责人一轮的运行（规则、状态包、会话重建、`project_*` 工具、只留 `Read`/`Grep`/`Glob`）；入口是转成专项（`COVEY_PROJECT_UPGRADE=butler`：管家带 `project` 的派发卡静默转成专项）和管家直接开（`topic_start` 带 `project`）；续轮、问题分流是后面的包 |
@@ -157,6 +158,13 @@
 - 数据从记录读（`questions/`、`jobs/` 的索引），不持记录锁、不调模型，管家话题不列。
 - 菜单「看板」（事件 key `digest_board`）只在设了这个变量时有：发同一张卡、按现在取数，不改 `last_slot`。卡的记录在 `<state>/digest-boards/`。要在开发者后台的机器人菜单里加这一项（自动补齐会加）。
 - 日志：`digest sent slot=HH:MM`、`digest not sent: nothing to list`、`digest not sent try=N`、`digest not sent after N tries; given up`、`digest card redrawn message=… cleared=N`、`digest board sent`。
+
+### 记忆
+
+- `COVEY_MEMORY=1`（只认 `1`）：打开“记忆”（[管家 · 记忆](butler.md#记忆开关默认关)）。不依赖别的开关：原则一直有，`COVEY_KNOWLEDGE=1` 时知识条目也进来，`COVEY_PROJECTS=1` 且 `COVEY_PROJECT_MEMORY=1` 时专项记忆也进来；话题自己的记忆放在 `<state>/topics/<话题>/memory.json`，打开后才会有。
+- 关着（默认）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`。
+- 关掉：去掉变量、重新 `launch`；已经写下的记忆留着。
+- 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`。
 
 ### 知识条目与历史搜索
 
@@ -337,6 +345,7 @@
 | `COVEY_PROJECT_LEAD` | `core/butler.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要 `COVEY_PROJECTS=1`）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`workspaces_list` 加 `project_*`，其余管家工具都不列 | 否 |
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞） | 空：关，只有专项的第一条回执（`start`）唤醒负责人，其余回执留到负责人下一次被主人叫起；`1`：专项的话题一轮结束、主人在专项的话题里说话、停滞提醒也都唤醒，同一专项同一时刻最多排 1 个唤醒，并开停滞检查。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PROJECT_MEMORY` | `core/projects.py`（`memory_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_context.py`（专项的话题开工带上记忆和资料库索引、主人答专项的问题卡记一条决定、主人发给负责人的文件和各话题的产物、交付进资料库）、`app/project_lead.py`（`library_index`：状态包的资料库）、`app/runs.py`（`bridge_rules`、`_with_rules` 取专项块） | 空：关，专项的话题开工什么都不多带，不自动记记忆，不收资料库；记忆本身（`core/project_memory.py`，卡上、状态包、负责人工具都读它）不受开关影响。`1`：专项的话题开工带上专项记忆（新会话再加不超过 2 KB 的资料库索引），主人答专项的话题或负责人发出的问题卡后记一条 `decision`（来源 `owner_answer`），主人引用专项卡发的文件复制进 `projects/<id>/library/`（记 sha256），话题每轮的产物和检查点交付只记路径或链接。见[管家 · 专项记忆与资料库](butler.md#专项记忆与资料库开关默认关) | 否 |
+| `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py` | 空：关，规则、续接提醒和答案卡与没有这个功能时逐字相同，不读不写话题的 `memory.json`。`1`：原则、知识条目、专项记忆、话题记忆拼成一块“记忆”，每条带编号、管哪儿、谁说的，话题里主人说了“以后”“每次”“别再”之类时，一轮结束后记下并在答案卡底部露一行。见[管家 · 记忆](butler.md#记忆开关默认关) | 否 |
 | `COVEY_PROJECT_TRIAGE` | `core/triage.py`（`enabled`，要 `COVEY_PROJECTS=1`）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`）、`app/triage.py`、`app/project_loop.py`（`ProjectLoop.tick` 扫扣住的问题） | 空：关，专项的话题的问题照旧直接发给主人，负责人没有 `project_answer`、`project_escalate`；`1`：专项的话题问的选择题先交给负责人，3 分钟内它能依据专项记忆和已定的事回答的就替主人答，答不了、碰到硬闸词、转给主人或 3 分钟没处理的才发问题卡。自由文字的问题始终直接问主人。见[管家 · 专项的问题分流](butler.md#专项的问题分流开关默认关) | 否 |
 | `COVEY_PROJECT_BUDGET` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 10000000：一个专项的 token 上限（负责人和各话题任务的合计，缓存算在输入里）；到了专项转停住、`state_reason` 是 `tokens`，不再唤醒；不是正整数按默认值 | 否 |
 | `COVEY_PROJECT_TOKENS` | `core/projects.py`（`token_limit`） | `COVEY_PROJECT_BUDGET` 的旧名，它没设时才读。名字里有 TOKEN，服务清单把它当成密钥不保存，重新 `launch` 带不进去：要改上限用 `COVEY_PROJECT_BUDGET` | 否 |

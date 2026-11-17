@@ -16,10 +16,10 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import device_files, knowledge_turn, project_context
+from covey.app import device_files, knowledge_turn, memory_turn, project_context
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
-from covey.app.prompts import (REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
+from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
                                         first_turn_message, principles_block, resume_message, workspace_block)
 from covey.app.sessions import mark_system_rules, started_with_system_rules
 from covey.app.recovery_cards import paint_answered
@@ -33,6 +33,7 @@ from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunIn
                                          backend_capabilities, normalize_run_result)
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import upsert_job_record
+from covey.core import memory
 from covey.core import principles as owner_principles
 from covey.core.butler import is_butler_topic
 from covey.core.metrics import mark
@@ -152,6 +153,8 @@ class Runs:
             project=project_context.block(ctx, job, resumed=False),
             knowledge_text=knowledge_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job), resumed=False),
             remember=knowledge_turn.remembers(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
+            memory_text=memory_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
+            memory_fix=memory_turn.fix_rule(ctx, job, lambda: self.owner_turn(ctx, job)),
         )
 
     def principles(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
@@ -159,7 +162,7 @@ class Runs:
         project's conventions, whoever asks), 通用 only on the owner's own turn (``owner_turn``: a colleague's topic
         in a group does not read the owner's personal preferences); '' when there are none, and for a 代答 topic,
         whose replies go to other people as the owner."""
-        if proxy_topic(ctx):
+        if proxy_topic(ctx) or memory.enabled():  # With COVEY_MEMORY=1 they are in the one memory block (app/memory_turn.py).
             return ""
         owner, workspace = owner_principles.for_turn(ctx.state_dir, ctx.workspace_name)
         return principles_block(owner if self.owner_turn(ctx, job) else [], workspace, ctx.workspace_name)
@@ -402,6 +405,8 @@ class Runs:
 
     def _with_rules(self, ctx: BridgeContext, job: ReplyJob, prompt: str, rules: str, *,
                     system: bool, fresh: bool, rules_session: bool) -> str:
+        if fresh or not rules_session:
+            memory_turn.record(ctx, job, lambda: self.owner_turn(ctx, job), self.runtime.log)  # COVEY_MEMORY=1: the numbers carried.
         if not system and fresh:
             prompt = rules + "\n\n" + prompt
         elif not rules_session:
@@ -415,11 +420,15 @@ class Runs:
             owner = lambda: self.owner_turn(ctx, job)  # noqa: E731
             knowledge_text = knowledge_turn.block(ctx, job, owner_turn=owner, resumed=True)
             remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
+            memory_text = memory_turn.block(ctx, job, owner_turn=owner)
+            memory_fix = memory_turn.fix_rule(ctx, job, owner)
             prompt += "\n\n" + RESUME_REMINDERS + (
-                "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir) + ("\n\n" + principles if principles else "")
+                "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir) + ("\n\n" + memory_text if memory_text else "")
+                + ("\n\n" + principles if principles else "")
                 + ("\n\n" + project if project else "")
                 + ("\n\n" + knowledge_text if knowledge_text else "")
-                + "\n\n" + CHECKPOINT_RULES + ("\n\n" + REMEMBER_RULE if remember else ""))
+                + "\n\n" + CHECKPOINT_RULES + ("\n\n" + REMEMBER_RULE if remember else "")
+                + ("\n\n" + MEMORY_FIX_RULE if memory_fix else ""))
         return prompt
 
     def _checkpoint_note(self, ctx: BridgeContext, job: ReplyJob) -> str:

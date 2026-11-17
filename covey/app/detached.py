@@ -30,7 +30,7 @@ from pathlib import Path
 
 from covey.core import timing
 from covey.core.state import read_json, write_json
-from covey.app import idle_compaction, knowledge_collect, butler_relay
+from covey.app import idle_compaction, knowledge_collect, memory_collect, butler_relay
 from covey.core import turn_words
 from covey.core.turn_words import interrupted_notice, retry_hint
 from covey.app.task_card import bind_record
@@ -265,6 +265,7 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
             ack(directory, payload["id"], False, local=True)
     queue_lost(app, job, ctx)
     knowledge_collect.collect(gateway.runtime, job, ctx)  # The owner's 记一下 in a topic's turn (off without COVEY_KNOWLEDGE).
+    memory_collect.collect(gateway.runtime, getattr(app, "messenger", None), job, ctx)  # The owner's 以后 / 别再 … (off without COVEY_MEMORY).
     butler_relay.after_runner(gateway, job, ctx)
     _compact_when_idle(gateway, app, job, ctx)
 

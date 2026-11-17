@@ -18,6 +18,7 @@ from typing import Any
 from covey.cards.review import render_history
 from covey.core import env as cenv
 from covey.core import knowledge, projects
+from covey.core import memory as core_memory
 from covey.core.checkpoint import CHECKPOINT_RULES
 from covey.core.butler_tool_specs import BUTLER_RULES_ENV
 
@@ -198,6 +199,37 @@ def knowledge_block(owner, workspace=(), workspace_name: str = "", *, state_dir=
     return "\n".join(lines)
 
 
+# 记忆 (core/memory.py), when COVEY_MEMORY=1: one block of what the owner said and what the project noted, in place of the
+# principles', the knowledge entries' and the project memory's own blocks; and, on a turn whose owner's words carry a
+# 以后 / 每次 / 别再 …, the rule for writing ``memory`` and ``memory_void`` into the checkpoint (app/memory_collect.py reads them).
+MEMORY_HEAD = "记忆（主人说过的话，和专项里记下的约定；每条前面是它的编号、管哪儿、谁说的；做事时照着办）："
+MEMORY_RULES = (
+    "怎么用这些记忆：谁说了算，主人这一轮的话最大，其次是标“你说的”的，再其次是标“它总结的”的；同一类里管得窄的压过管得宽的，新的压过旧的。",
+    "标“它总结的”的，默认照做；和主人的话冲突时让路。",
+    "标“它总结的”的，不能成为多问主人的理由；部署、删除、花钱这些要主人点头的事，不看这里，照常问。",
+    "这里的记忆和你自己记下的笔记冲突时，以这里为准。",
+)
+MEMORY_FIX_RULE = (
+    "记忆纠正：主人这一轮的话里说了“以后”“每次”“别再”“不要再”“记住”这类长期适用的话，才在检查点里加 memory："
+    '[{"quote":"主人原话里的一段","text":"一句话，最多 200 字，把“这个”“那个”写成所指的事"}]，最多 3 条；'
+    "上面标“它总结的”的某条被主人这一轮的话否定了，再加 memory_void："
+    '[{"id":"编号，如 M12","quote":"主人原话里的一段"}]。quote 必须是主人这一轮原话里连续的一段，不是你的转述。'
+    "只记主人说的，不记“要先问主人”；主人没明说就不要写。"
+)
+
+
+def memory_block(kept, left: int = 0) -> str:
+    """The memory block of a turn: its items (core/memory.py select), each "- M12 · 管这个专项 · 你说的：…", then how many
+    were left out and the four rules that say who counts; '' with none."""
+    if not kept:
+        return ""
+    lines = [MEMORY_HEAD]
+    lines += [f"- {item['n']} · 管{core_memory.WORDS[item['scope']]} · {core_memory.OWNER_WORDS[item['by']]}：{item['text']}" for item in kept]
+    if left:
+        lines.append(f"另有 {left} 条放不下，没有列出。")
+    return "\n".join([*lines, *MEMORY_RULES])
+
+
 def bridge_rules(
     *,
     backend_name: str,
@@ -211,15 +243,18 @@ def bridge_rules(
     remember: bool = False,
     device: str = "",
     remote_workdir: str = "",
+    memory_text: str = "",
+    memory_fix: bool = False,
 ) -> str:
     """Identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
     block), the project's memory and library (``project``, project_block; none: no block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block), the checkpoint
     contract (``remember``: and the rule for writing entries): the same every turn of a topic."""
     return "\n\n".join((constraints(backend_name, runtime_note, notes),
-                        workspace_block(workspace_name, workdir, device, remote_workdir), *((principles,) if principles else ()),
+                        workspace_block(workspace_name, workdir, device, remote_workdir), *((memory_text,) if memory_text else ()),
+                        *((principles,) if principles else ()),
                         *((project,) if project else ()),
                         *((knowledge_text,) if knowledge_text else ()),
-                        CHECKPOINT_RULES, *((REMEMBER_RULE,) if remember else ())))
+                        CHECKPOINT_RULES, *((REMEMBER_RULE,) if remember else ()), *((MEMORY_FIX_RULE,) if memory_fix else ())))
 
 
 def earlier_history(rows: list[dict[str, Any]], message_id: str, user_text: str) -> list[dict[str, Any]]:

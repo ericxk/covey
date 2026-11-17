@@ -41,6 +41,7 @@
 | 代答 | `app/proxy.py`（批次）、`app/proxy_intake.py`（收消息）、`app/proxy_topics.py`（联系人话题）、`app/proxy_commands.py`（查找、群成员）、`app/proxy_send.py`（读回和发送器接口；发送器 `extensions/covey_internal/proxy_sender.py`、`extensions/covey_internal/proxy_login.py`）、`core/proxy.py` | [proxy.md](docs/proxy.md)、[代答](docs/architecture.md#代答) |
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/butler_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [butler.md](docs/butler.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
+| 记忆（`COVEY_MEMORY=1`） | `core/memory.py`（读口：条目、编号、范围上限）、`core/topic_memory.py`（话题的记忆）、`app/memory_turn.py`（每轮的块、`memory_ids`、纠正规则）、`app/memory_collect.py`（一轮结束后记下 `memory`、作废 `memory_void`，“不对”点击 `undo`）、`app/prompts.py` 的 `memory_block`、`cards/answer_card.py` 的 `memory_element`、`app/answer_cards.py` 的 `put_memory` | [butler.md](docs/butler.md#记忆开关默认关)、[配置](docs/configuration.md#记忆) |
 | 敏感词脱敏 | `core/redaction.py`、`core/redactor.py`、`backends/claude/redaction.py`、`app/redaction_panel.py`（设置卡「脱敏」标签）、`app/dashboard.py`（可选的网页看板） | [敏感词脱敏](docs/architecture.md#敏感词脱敏) |
 | 官方拒绝与停止 | `app/policy_guard.py`、`core/model_policy.py`、`backends/claude/policy.py`；cyber/bio 拒绝换旧模型重试一次 `app/policy_retry.py` | [policy-stop.md](docs/policy-stop.md) |
 | 任务进程与 `runs/` 协议 | `app/detached.py`、`app/runner_spawn.py`、`app/runner_ipc.py`、`app/runner.py`、`core/run_dir.py` | [排队与任务进程](docs/architecture.md#排队与任务进程)、[跨版本检查](docs/testing.md#任务进程协议与跨版本检查) |
@@ -118,6 +119,8 @@
 | `app/launch_receipt.py` | Replace a submitted launch form with its immutable topic configuration |
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
+| `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on becomes memory, and a click takes it back |
+| `app/memory_turn.py` | What a turn reads of the owner's memory, for app/runs.py |
 | `app/menu_panel.py` | A card the bot menu sends to the owner's private chat: no topic, no job, one card a menu click |
 | `app/model_picker.py` | The launch card's choices |
 | `app/model_usage.py` | What each chat chose on the model selects: the order they list models in, and each model's usual budget |
@@ -284,6 +287,7 @@
 | `core/maintenance.py` | Daily maintenance of a state directory: a verifiable backup, archival and bounded storage |
 | `core/maintenance_report.py` | How maintenance's --dry-run words what it would do |
 | `core/maintenance_rules.py` | The rules of daily maintenance |
+| `core/memory.py` | The one read port of the owner's memory |
 | `core/menu_choice.py` | A model menu's entries and the choices on them |
 | `core/metrics.py` | Content-free job timings |
 | `core/migrate.py` | One-time migrations of old records, so the code that reads records needs no compat branch for them |
@@ -332,6 +336,7 @@
 | `core/task_processes.py` | What a task's commands leave running once its Harness has closed, found by the marker its runner puts in its … |
 | `core/text.py` | Text shown on a card from what a task or a tool said: secrets hidden, bounded, escaped |
 | `core/timing.py` | Millisecond timing of the live flows |
+| `core/topic_memory.py` | The memory of one topic |
 | `core/topic_seen.py` | When the owner last saw each topic |
 | `core/topics.py` | Durable, chat-scoped Feishu topic -> Harness session bindings, and the readers and writers of a topic's … |
 | `core/trace.py` | A turn's execution trace as data (ToolTrace) |
