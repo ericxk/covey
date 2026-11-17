@@ -31,7 +31,7 @@ from pathlib import Path
 
 from covey.app import pins, project_lead, project_loop, web_turns
 from covey.app.web_ops import Ops
-from covey.core import board_read, http_upstream, project_library, project_memory, projects, web_sync
+from covey.core import board_read, http_upstream, project_library, project_memory, projects, triage, web_sync
 from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
 from covey.core.jobs import job_key, select_job_records, topic_job_records
@@ -477,6 +477,8 @@ class Collector:
         said = "；".join("、".join(str(a) for a in (value.get("answers") if isinstance(value, dict) else [value]) or ())
                         for value in answers.values())
         state = QUESTION_STATES.get(status, "answered")
+        if state == "open" and triage.held(row):
+            state = "held"  # The lead has it first (COVEY_PROJECT_TRIAGE): not the owner's to answer, so not 等你 on the page.
         # The record has no answer time of its own: the last write of an answered question is the nearest to it.
         answered = (moment(row.get("answered_at")) or moment(row.get("updated_at")) or None) if state == "answered" else None
         return {"topic_key": topic, "turn_key": f"{topic}:{count + 1}" if status == "pending" else "", "questions": shown,

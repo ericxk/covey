@@ -825,6 +825,16 @@ class ExtrasTest(WebCase):
         pushed = {item["key"]: item["data"] for item in self.web.items("turn")}
         self.assertEqual([data.get("notes") for data in pushed.values() if data.get("notes")], [[note]], pushed)
 
+    def test_a_question_the_lead_holds_is_not_the_owners_to_answer_until_passed_on(self):
+        self.topic()
+        self.question(triage={"state": "held", "deadline": T0 + 180})
+        self.sync.push_once(T0 + 1)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "held")
+        self.question(triage={"state": "escalated"})
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 61)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "open")
+
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()
         self.question(status="answered", updated_at=T0 + 30, answers={"q1": {"answers": ["A"]}})
