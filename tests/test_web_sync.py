@@ -947,6 +947,16 @@ class ExtrasTest(WebCase):
         self.sync.push_once(T0 + 61)
         self.assertEqual(self.web.items("question")[-1]["data"]["state"], "open")
 
+    def test_a_continued_turn_is_not_running_and_an_unknown_status_is_idle(self):
+        """2026-11-18: T75 (its last turn ``continued`` on 10-22) showed 在做 on the page for a month; so did a waiting_workspace task."""
+        self.topic()
+        write_job(self.state, "k-cont", topic_id=TOPIC, chat_id=CHAT, job_id=8, status="continued", model="opus")
+        write_topic(self.state, topic_id=OTHER, chat_id=CHAT, harness_id="claude", topic_number=8, origin={"title": "开工前"})
+        write_job(self.state, "k-ws", topic_id=OTHER, chat_id=CHAT, job_id=9, status="waiting_workspace", model="opus")
+        self.sync.push_once(T0 + 1)
+        states = {item["key"]: item["data"]["state"] for item in self.web.items("topic")}
+        self.assertEqual((states[TOPIC], states[OTHER]), ("做完", "空闲"))
+
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()
         self.question(status="answered", updated_at=T0 + 30, answers={"q1": {"answers": ["A"]}})

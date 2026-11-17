@@ -267,13 +267,17 @@ class Collector:
 
     @staticmethod
     def word(records, latest, questions) -> str:
+        """The topic's state word. Running is what RUNNING says; a ``continued`` turn's outcome is its follow-up's, so the
+        turn before it speaks; any other status (waiting_workspace, one this does not know) is not running: 空闲."""
         if any(row.get("status", "pending") == "pending" and not row.get("display_pending") for row in questions):
             return "等你"
         if any(record.get("status") in RUNNING for record in records):
             return "在做"
+        if latest is not None and latest.get("status") == "continued":
+            latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
         if latest is None:
             return "空闲"
-        return STATE_WORDS.get(latest.get("status"), "在做")
+        return STATE_WORDS.get(latest.get("status"), "空闲")
 
     def rows(self, state, topic) -> list:
         """The user and assistant lines of the topic's history, from a cache that is read again when the file changed."""
