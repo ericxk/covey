@@ -218,7 +218,7 @@ PROJECT_TOOLS = (
     {"name": "project_topic_start",
      "description": "为这个专项开一个话题去做一件事，马上返回，不要等它做完：话题结束后会有下一轮叫醒你。"
                     "prompt 是交给话题的任务说明：做什么、范围、主人提的约束、交付什么，用清楚的话写，不抄本机路径，不加你自己的计划之外的内容。"
-                    "同时最多 4 个话题（风格里的“派活”档更低时按那档）；一件独立的事一个话题。工作区用 workspaces_list 选。"
+                    "同时最多 4 个话题在做（排队和在跑的，等主人回答的不占名额；风格里的“派活”档更低时按那档）；一件独立的事一个话题。工作区用 workspaces_list 选。"
                     "只读的、或主人在专项里亲口要求做的会直接开工，其余会在话题里出启动卡等主人点开始。",
      "input_schema": {"type": "object", "required": ["title", "prompt", "workspace", "readonly", "why"], "properties": {
          "title": {"type": "string", "description": "话题的标题，说是哪件事：中文、中文标点，20 字以内"},
@@ -236,6 +236,12 @@ PROJECT_TOOLS = (
      "input_schema": {"type": "object", "required": ["thread", "text"], "properties": {
          "thread": THREAD, "text": {"type": "string", "description": "交给话题的内容：要它做或补充的事"},
          "note": {"type": "string", "description": "可选，一句背景（最多 100 字）"}}}},
+    {"name": "project_topic_stop",
+     "description": "主人要停这个专项里的某个话题时用：停掉它排队和在跑的任务，也收掉它还在等主人回答的问题（话题不再等回答），"
+                    "话题仍记在专项里、算结束。只能停这个专项自己的话题；停掉的话题要接着做，再用 project_topic_send 给它加话。"
+                    "why 写主人为什么要停（可选，一句话）。",
+     "input_schema": {"type": "object", "required": ["thread"], "properties": {
+         "thread": THREAD, "why": {"type": "string", "description": "可选，一句话：主人为什么要停"}}}},
     {"name": "project_note",
      "description": "在专项卡上记一句进展（最多 200 字）。report 为 true 的才是要告诉主人的，按风格过滤（只在里程碑和完成、话题结束、"
                     "或详细时才发）；kind 说它是哪一类：milestone 里程碑，thread 话题的结果，note 一般进展。decision 为 true 时，"

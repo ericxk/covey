@@ -30,6 +30,17 @@ class NamesTest(unittest.TestCase):
             self.assertEqual(cenv.get("COVEY_ONLY_OLD"), "1")
         self.assertEqual(err.getvalue().count("LARK_BRIDGE_ONLY_OLD is the old name of COVEY_ONLY_OLD"), 1, err.getvalue())
 
+    def test_a_setting_born_after_the_rename_has_no_old_name_to_warn_about(self):
+        """The manifest stores COVEY_PATROL as LARK_BRIDGE_PATROL; reading it that way must not claim an old name."""
+        err = io.StringIO()
+        env = {"LARK_BRIDGE_PATROL": "shadow", "LARK_BRIDGE_PROJECTS": "1", "LARK_BRIDGE_TRACK_JUDGE": "1", "LARK_BRIDGE_DEVICES": "1"}
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stderr(err):
+            cenv._warned.clear()
+            for name in ("COVEY_PATROL", "COVEY_PROJECTS", "COVEY_PROJECT_BUDGET", "COVEY_TRACK_JUDGE", "COVEY_DEVICES"):
+                cenv.get(name)
+            self.assertEqual(cenv.get("COVEY_PATROL"), "shadow")  # Still read.
+        self.assertEqual(err.getvalue(), "")
+
     def test_mirrored_and_canonical_forms(self):
         self.assertEqual(cenv.mirrored({"LARK_BRIDGE_A": "1", "COVEY_B": "2", "COVEY_C": "n", "LARK_BRIDGE_C": "o", "PATH": "/b"}),
                          {"LARK_BRIDGE_A": "1", "COVEY_A": "1", "COVEY_B": "2", "LARK_BRIDGE_B": "2",

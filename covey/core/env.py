@@ -32,6 +32,10 @@ RENAMED = {
     "BUTLER_STATE": "MAIN_STATE",
 }
 _BY_OLD = {old: new for new, old in RENAMED.items()}
+# Settings born after the rename (devices, patrol, projects, the track judge): they never had a LARK_BRIDGE_ name. The
+# Manager manifest still stores them as ``LARK_BRIDGE_<X>`` (``canonical``), so reading that spelling is no sign of an
+# old configuration and says nothing. Prefixes of the name without the COVEY_ / LARK_BRIDGE_ prefix.
+BORN_NEW = ("DEVICES", "PATROL", "PROJECT", "TRACK_JUDGE")
 _warned = set()
 
 
@@ -54,8 +58,13 @@ def spellings(name):
     return tuple(names)
 
 
+def _has_old_name(new):
+    tail = new[len(NEW_PREFIX):] if new.startswith(NEW_PREFIX) else new
+    return not tail.startswith(BORN_NEW)
+
+
 def _warn(old, new):
-    if old not in _warned:
+    if old not in _warned and _has_old_name(new):
         _warned.add(old)
         print(f"{old} is the old name of {new}: set {new} instead (the old name still works)", file=sys.stderr, flush=True)
 

@@ -207,9 +207,11 @@ def set_redaction(topic, on):
         topic.pop(REDACTION_KEY, None)
 
 
-def retire_open_questions(topics, old_app, ctx, chat, *, reason="switched", message="话题已更换配置，由新模型接着处理"):
+def retire_open_questions(topics, old_app, ctx, chat, *, reason="switched", message="话题已更换配置，由新模型接着处理",
+                          job_status="continued"):
     """Questions of the old binding (or of a turn ↩️ 回退 dropped, ``reason`` "rewound") are void: cancel them
-    and end the jobs waiting on them."""
+    and end the jobs waiting on them (``job_status``: "continued", the turn goes on elsewhere; "cancelled" when it is stopped,
+    as a project's lead does for the owner)."""
     for path, record in directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat):
         if record.get("status") != "pending":
             continue
@@ -222,7 +224,7 @@ def retire_open_questions(topics, old_app, ctx, chat, *, reason="switched", mess
     for _, record in directory_store(ctx.state_dir / "jobs").query(topic_id=ctx.topic_id, chat_id=chat):
         if record.get("status") != "waiting_user" or not record.get("key"):
             continue
-        upsert_job_record(ctx.state_dir, record["key"], status="continued", status_message=message)
+        upsert_job_record(ctx.state_dir, record["key"], status=job_status, status_message=message)
         if record.get("checkpoint_path"):
             try:
                 release_user_wait(Path(record["checkpoint_path"]))

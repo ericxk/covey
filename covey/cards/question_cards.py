@@ -98,7 +98,7 @@ def settled_title(record):
         return title + f" · 已收起 → #{record.get('superseded_by_job')} 又提了问题"
     if status == "cancelled":
         reason = {"switched": "话题已换配置，直接在话题里回复新模型即可", "rewound": "这一轮已回退，问题作废",
-                  "stale": STALE_NOTE}.get(record.get("cancel_reason"), "")  # stale: closed by daily maintenance.
+                  "stale": STALE_NOTE, "lead_stop": "负责人按你的意思停了这个话题"}.get(record.get("cancel_reason"), "")  # stale: closed by daily maintenance.
         return title + " · 已取消" + (" · " + reason if reason else "")
     answer = "反馈" if record.get("response_kind") == "feedback" else "回答"
     if status == "submitting":

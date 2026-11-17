@@ -281,10 +281,11 @@
 
 ## 环境变量与选项一览
 
-**命名（改名 Covey 后）**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置。`covey/core/env.py` 的 `get` 先读 `COVEY_<X>`、再读 `LARK_BRIDGE_<X>`（新名优先；只设了旧名时，进程的环境里读到旧名会在 stderr 记一行弃用，每个名字一次）。下表只写新名；每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`。主线程改名为管家（2026-11-16）时有七个开关连名字一起改了，表里每行注明旧名；它们有三种写法，读取顺序是新名 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`covey/core/env.py` 的 `RENAMED`）：`COVEY_BUTLER`（旧 `MAIN_THREAD`）、`COVEY_BUTLER_RULES`（`MAIN_BUTLER`）、`COVEY_BUTLER_TRACKS`（`MAIN_TRACKS`）、`COVEY_BUTLER_TRACKS_MAX`（`MAIN_TRACKS_MAX`）、`COVEY_DISPATCH_CARD`（`MAIN_DISPATCH_CARD`）、`COVEY_BUTLER_JOB`（`MAIN_JOB`）、`COVEY_BUTLER_STATE`（`MAIN_STATE`）。`LARK_<HARNESS>_BRIDGE_*`（`LARK_CLAUDE_BRIDGE_*` 等 Harness 自己的前缀）和已不再读取的名字不变。
+**命名（改名 Covey 后）**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置。`covey/core/env.py` 的 `get` 先读 `COVEY_<X>`、再读 `LARK_BRIDGE_<X>`（新名优先；只设了旧名时，进程的环境里读到旧名会在 stderr 记一行弃用，每个名字一次）。下表只写新名；每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`（改名之后才有的开关没有旧名，见下面的“启动时只对真有旧名的变量打印”一条）。主线程改名为管家（2026-11-16）时有七个开关连名字一起改了，表里每行注明旧名；它们有三种写法，读取顺序是新名 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`covey/core/env.py` 的 `RENAMED`）：`COVEY_BUTLER`（旧 `MAIN_THREAD`）、`COVEY_BUTLER_RULES`（`MAIN_BUTLER`）、`COVEY_BUTLER_TRACKS`（`MAIN_TRACKS`）、`COVEY_BUTLER_TRACKS_MAX`（`MAIN_TRACKS_MAX`）、`COVEY_DISPATCH_CARD`（`MAIN_DISPATCH_CARD`）、`COVEY_BUTLER_JOB`（`MAIN_JOB`）、`COVEY_BUTLER_STATE`（`MAIN_STATE`）。`LARK_<HARNESS>_BRIDGE_*`（`LARK_CLAUDE_BRIDGE_*` 等 Harness 自己的前缀）和已不再读取的名字不变。
 
 - **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`；上面七个存成 `LARK_BRIDGE_MAIN_*`，如 `COVEY_BUTLER` 存成 `LARK_BRIDGE_MAIN_THREAD`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的名字都折成旧名再比（`env.canonical`），只改了名字不算变化。Manager 启动服务时所有写法都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
 - **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_BUTLER_STATE`、`COVEY_BUTLER_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）所有写法都设（管家的两个另设 `COVEY_MAIN_*`、`LARK_BRIDGE_MAIN_*`）；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
+- 启动时只对真有旧名的变量打印“`LARK_BRIDGE_X` is the old name of `COVEY_X`”；改名之后才有的开关（`COVEY_PROJECT*`、`COVEY_PATROL*`、`COVEY_TRACK_JUDGE*`、`COVEY_DEVICES*`，`core/env.py` 的 `BORN_NEW`）没有旧名，服务清单里存成的 `LARK_BRIDGE_X` 只是存放写法，读到也不提示。
 - 下一个版本起清单才改存新名，旧名读取再保留至少一个版本。
 
 代码在 `covey/` 和 `bin/` 里读的每个环境变量和命令行参数都列在这里，`tests/test_structure.py` 的 `InventoryTest` 核对：代码读了就要有一行，行里写出读它的文件；表里写了的代码也要读。不列 `HOME`、`PATH`、`PYTHONPATH`、`XDG_CONFIG_HOME`、`NO_PROXY`/`no_proxy` 这类系统变量。不再读取的环境变量不在表里，只有两个权限变量还为拦截而读（见[服务清单里的环境变量](#服务清单里的环境变量)）。

@@ -4,7 +4,9 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 
 - ``project_topic_start``, ``project_topic_send`` hand the work to the project's member topics through the butler's own
   functions (app/butler_topics.py topic_start, topic_send: a call from a lead's job opens or feeds a member topic, ``lead_of``).
-  At most MAX_MEMBERS member topics (or what the style's 派活 allows) have a turn running or waiting at once.
+  At most MAX_MEMBERS member topics (or what the style's 派活 allows) have a turn running or queued at once; one waiting for the owner's answer holds no place.
+- ``project_topic_stop`` stops one member topic for the owner (its tasks, and the question it waits on, which is cancelled
+  with the reason ``lead_stop``); the topic stays in the project's list and counts as ended.
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
   ``project_remember`` (the project's memory), ``project_style``, ``project_finish`` write the project's record
   (core/projects.py update, under its record lock; no Feishu call).
@@ -67,9 +69,9 @@ def spawn_cap(record) -> int:
 def project_topic_start(env, request):
     pid, record = lead(env, request)
     active(record, "开新话题")
-    live = project_lead.live_members(env.state_dir, record)
+    live = project_lead.busy_members(env.state_dir, record)
     if len(live) >= spawn_cap(record):
-        return reply(False, f"同时最多 {spawn_cap(record)} 个话题在做（现在：{'、'.join(live)}）：等有话题结束再开。",
+        return reply(False, f"同时最多 {spawn_cap(record)} 个话题在做（现在：{'、'.join(live)}；等主人回答的不占名额）：等有话题结束再开。",
                      live=live)
     args = {**request.args, "user_requested": request.args.get("user_requested") is True}
     answer = butler_topics.topic_start(env, dataclasses.replace(request, args=args))
@@ -91,6 +93,36 @@ def project_topic_send(env, request):
         return reply(False, f"{topic_label(Path(env.state_dir), topic) or topic[:8]} 不是这个专项的话题，不能从这里给它加话。")
     args = {"topic": topic, "text": request.args.get("text"), "note": request.args.get("note")}
     return butler_topics.topic_send(env, dataclasses.replace(request, args=args))
+
+
+STOP_NOTE = "负责人按主人的意思停了这个话题"
+
+
+def project_topic_stop(env, request):
+    """Stop one member topic for the owner: its queued and running tasks (app/project_cards.py ``stop_tasks``, forwarded to the
+    task runner as a stop on the card is), then the question it waits on and its waiting turn, as a switch of configuration voids
+    them (app/binding.py ``retire_open_questions``, here ``cancelled`` with the reason ``lead_stop``). The topic stays in
+    the project's list and counts as ended. No lock is held across a call."""
+    from covey.app import binding, project_cards
+
+    pid, record = lead(env, request)
+    if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
+        raise ValueError(f"专项现在是 {record.get('state')}，已经结束了")
+    chat = env.chat()
+    found = butler_topics.find_topic(env, chat, request.args.get("thread"))
+    if isinstance(found, str):
+        return reply(False, found)
+    app, ctx, _ = found
+    topic = ctx.topic_id
+    label = topic_label(Path(env.state_dir), topic) or topic[:8]
+    if topic not in (record.get("threads") or ()):
+        return reply(False, f"{label} 不是这个专项的话题，不能从这里停它。")
+    stopped = project_cards.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}")
+    why = " ".join(str(request.args.get("why") or "").split())[:120]
+    binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled",
+                                  message=STOP_NOTE + (f"：{why}" if why else ""))
+    return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉；"
+                 "它仍记在专项里、算结束。要接着做，用 project_topic_send。", stopped=stopped, topic_id=topic)
 
 
 def project_note(env, request):
@@ -214,5 +246,6 @@ def project_escalate(env, request):
 
 
 TOOLS = {"project_topic_start": project_topic_start, "project_topic_send": project_topic_send,
+         "project_topic_stop": project_topic_stop,
          "project_note": project_note, "project_remember": project_remember, "project_style": project_style,
          "project_finish": project_finish, "project_answer": project_answer, "project_escalate": project_escalate}

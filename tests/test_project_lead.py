@@ -38,8 +38,8 @@ LEAD = projects.lead_topic_id(CHAT, PID)
 ON = {projects.ENV: "1"}
 NOW = 1_800_000_000.0
 LEAD_NAMES = ["topics_search", "topic_read", "workspaces_list",
-              "project_topic_start", "project_topic_send", "project_note", "project_remember", "project_style",
-              "project_finish"]
+              "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_remember",
+              "project_style", "project_finish"]
 
 
 class Case(unittest.TestCase):
@@ -533,6 +533,17 @@ class MemberToolsTest(ToolsCase):
         write_job(self.state, "main-" + butler_topics_token("r1"), status="done", final_text="完成")
         self.assertTrue(self.start("r3", title="另一件")["ok"])
 
+    def test_a_topic_waiting_for_the_owners_answer_holds_no_place(self):
+        projects.update(self.state, PID, lambda r: r.update(style={"spawn": "保守"}))
+        first = self.start("r1")
+        write_job(self.state, "main-" + butler_topics_token("r1"), status="waiting_user", status_message="等你回答")
+        self.assertTrue(self.start("r2", title="另一件")["ok"])  # The waiting one is not counted.
+        self.assertFalse(self.start("r3", title="再一件")["ok"])  # The queued one is: the limit is 1.
+        # project_finish still refuses while a topic waits (it counts the waiting ones).
+        self.assertEqual(project_lead.busy_members(self.state, self.reload()), [project_lead.member_row(self.state, self.job("r2").topic_id)["label"]])
+        self.assertEqual(len(project_lead.live_members(self.state, self.reload())), 2)
+        self.assertTrue(first["ok"])
+
     def test_a_failed_start_says_so_and_records_nothing(self):
         answer = self.start("r1", workspace="nowhere")
         self.assertFalse(answer["ok"])
@@ -588,6 +599,79 @@ class SendToolsTest(ToolsCase):
         self.assertIn("不是这个专项的话题", answer["text"])
         self.assertFalse(self.tool("project_topic_send", thread="T9999", text="x")["ok"])
         self.assertFalse(self.tool("project_topic_send", thread=LEAD, text="x")["ok"])  # The lead itself is no thread.
+
+
+class StopToolTest(ToolsCase):
+    """project_topic_stop: the lead stops one member topic for the owner (acceptance 2026-11-17: a topic waiting for an answer
+    could not be stopped, and the project never wound up)."""
+
+    def opened(self):
+        data = self.tool("project_topic_start", request_id="open", title="导出", prompt="导出账单", workspace="project",
+                         readonly=True, why="x")["data"]
+        return data, self.job("open")
+
+    def ask(self, data, job, token="q1"):
+        """The job waits on a question, as a checkpoint or native question leaves it."""
+        write_job(self.state, job.message_id, status="waiting_user", topic_id=data["topic_id"], chat_id=CHAT)
+        write_json(self.state / "questions" / (token + ".json"), {
+            "token": token, "topic_id": data["topic_id"], "chat_id": CHAT, "job_id": job.job_id, "job_key": job.message_id,
+            "status": "pending", "created_at": 1.0, "questions": [{"question": "用哪个库？"}]})
+
+    def question(self, token="q1"):
+        return json.loads((self.state / "questions" / (token + ".json")).read_text())
+
+    def test_it_is_listed_to_the_lead_and_not_to_the_butler(self):
+        self.assertIn("project_topic_stop", [tool["name"] for tool in butler_tool_specs.lead_tools()])
+        self.assertNotIn("project_topic_stop", butler_tool_specs.NAMES)
+
+    def test_a_queued_task_is_stopped_and_the_topic_stays_in_the_project(self):
+        data, job = self.opened()
+        answer = self.tool("project_topic_stop", thread=data["label"], why="主人不要这个了")
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual(answer["data"]["stopped"], 1)
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertEqual(self.reload()["threads"], [data["topic_id"]])
+
+    def test_a_topic_waiting_for_the_owners_answer_is_stopped_its_question_cancelled_for_the_reason(self):
+        data, job = self.opened()
+        self.app.runtime.unregister_reply_job(job)  # Waiting for the answer: no task runs (or its runner is gone, as after a restart).
+        self.ask(data, job)
+        answer = self.tool("project_topic_stop", thread=data["topic_id"])
+        self.assertTrue(answer["ok"], answer)
+        question = self.question()
+        self.assertEqual((question["status"], question["cancel_reason"]), ("cancelled", "lead_stop"))
+        record = json.loads((self.state / "jobs" / (job.message_id + ".json")).read_text())
+        self.assertEqual(record["status"], "cancelled")
+        self.assertIn("负责人按主人的意思停了这个话题", record["status_message"])
+        # It counts as ended now: the project can wind up.
+        self.assertEqual(project_lead.live_members(self.state, self.reload()), [])
+
+    def test_only_the_projects_own_topics_can_be_stopped(self):
+        data, job = self.opened()
+        write_topic(self.state, {"topic_id": "ef" * 16}, topic_id="ef" * 16, chat_id=CHAT, harness_id="claude",
+                    topic_number=77, origin={"title": "别的"}, root_id="om_other")
+        answer = self.tool("project_topic_stop", thread="T77")
+        self.assertFalse(answer["ok"])
+        self.assertIn("不是这个专项的话题", answer["text"])
+        self.assertFalse(job.cancel_event.is_set())
+        self.assertFalse(self.tool("project_topic_stop", thread=LEAD)["ok"])
+        self.assertIn("没有执行", self.refused_as_butler())  # Not a lead's job.
+
+    def refused_as_butler(self):
+        answer = ButlerTools(self.env, butler_tools.TOOLS).execute(Request("rb", "project_topic_stop", {"thread": "T1"}, "other-job", 0.0))
+        self.assertFalse(answer["ok"])
+        return answer["text"]
+
+    def test_a_finished_project_refuses(self):
+        data, job = self.opened()
+        projects.set_state(self.state, PID, projects.DONE)
+        self.assertIn("已经结束", self.refused("project_topic_stop", thread=data["label"]))
+
+    def test_the_lead_rules_and_the_butlers_say_how_to_stop_a_topic(self):
+        from covey.app import prompts
+        self.assertIn("project_topic_stop", project_lead.lead_rules())
+        self.assertIn("project_send", prompts.PROJECT_RULE)
+        self.assertIn("停", prompts.PROJECT_RULE)
 
 
 class RecordToolsTest(ToolsCase):

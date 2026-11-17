@@ -104,12 +104,13 @@ IDENTITY = (
 )
 TOOL_RULES = (
     "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。开话题用 project_topic_start（写干净的任务说明：做什么、范围、约束、"
-    "交付什么；不抄本机路径），给已有话题加话用 project_topic_send；同时最多 4 个话题，风格里的“派活”档更低时按那档。",
+    "交付什么；不抄本机路径），给已有话题加话用 project_topic_send；同时最多 4 个话题在做（排队和在跑的；等主人回答的不占名额），风格里的“派活”档更低时按那档。",
     "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
     "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
     "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”“多开几个话题”这类，"
     "用 project_style 改汇报风格。",
-    "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。",
+    "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。主人要停专项里的某个话题（包括停掉"
+    "一个还在等主人回答的话题），用 project_topic_stop：它停掉那个话题排队和在跑的任务、收掉它等主人回答的问题，话题仍记在专项里、算结束。",
     "- 部署、发布、对外发送、花钱、删东西、不可逆的操作，你没有工具，也不要替主人决定：这些在话题里做，话题会照旧问主人。"
     "话题里问到主人的选择题，不由你答（分流还没开）。",
     "- 对主人说话要克制：这一轮的回复只有主人在场触发的轮才会发给他；叫醒你的轮，回复不发，要说的话用 project_note 并标 report。",
@@ -245,7 +246,7 @@ def member_row(state_dir, topic_id) -> dict:
     return {"topic_id": topic_id, "label": topic_label(state_dir, topic_id) or topic_id[:8],
             "title": topic_title(state_dir, topic_id) or "（没有标题）", "status": status_words,
             "said": cut(said, LINE), "artifacts": [cut(item, LINE) for item in artifacts[:3]],
-            "live": status in RUNNING or status == "waiting_user"}
+            "live": status in RUNNING or status == "waiting_user", "waiting": status == "waiting_user"}
 
 
 def member_rows(state_dir, record) -> list:
@@ -255,6 +256,12 @@ def member_rows(state_dir, record) -> list:
 def live_members(state_dir, record) -> list:
     """The labels of the members with a turn running or waiting for the owner."""
     return [row["label"] for row in member_rows(state_dir, record) if row["live"]]
+
+
+def busy_members(state_dir, record) -> list:
+    """The labels of the members with a turn queued or running: one waiting for the owner's answer holds no place (the
+    spawn limit counts the turns that work)."""
+    return [row["label"] for row in member_rows(state_dir, record) if row["live"] and not row["waiting"]]
 
 
 def thread_line(row) -> str:

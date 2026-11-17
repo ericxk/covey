@@ -138,6 +138,24 @@ class CollectTests(Records, unittest.TestCase):
         self.assertEqual(view["waiting"][0]["title"], "话题 401")
 
 
+    def test_a_task_the_owner_stopped_reads_已停止_in_the_words_of_turn_words_and_never_做完(self):
+        """Acceptance 2026-11-17: a stopped T3 read 做完 · 用时 40秒. A stopped task (its card's stop, or the lead's stop of a
+        topic that waited for an answer: app/project_tools.py project_topic_stop) is ``cancelled`` and reads as turn_words says."""
+        from covey.core import turn_words
+        now = self.now
+        for number, topic in enumerate(("stopped", "waited", "queued"), 421):
+            self.topic(topic, number)
+        ran = {"backend_started": now - 100, "execution_finished": now - 60}
+        self.job("j-stopped", 1, "cancelled", "stopped", cancel_requested_by="card", timings=ran)
+        self.job("j-waited", 2, "cancelled", "waited", status_message="负责人按主人的意思停了这个话题", timings=ran)
+        self.job("j-queued", 3, "cancelled", "queued", timings={"received": now - 100})  # Never ran: not a result.
+        view = collect(self.state, CHAT, now - 10, now - 3600, now)
+        rows = {row["label"]: row for row in view["done"]}
+        self.assertEqual(set(rows), {"T421", "T422"})
+        for row in rows.values():
+            self.assertEqual(row["state"], turn_words.STATES["cancelled"])
+            self.assertEqual(row["state"], "已停止")
+
     def test_a_day_old_question_is_on_the_stale_line_not_its_own_row(self):
         now = self.now
         for number, topic in enumerate(("day", "over", "start"), 411):
