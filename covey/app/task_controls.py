@@ -282,6 +282,11 @@ class TaskControls(Redelivery):
         from covey.app import project_cards
         return project_cards.delete_library(self, ctx, event)
 
+    def memory_wrong(self, ctx, event):
+        """不对 on a "记下了" line of an answer card (COVEY_MEMORY=1): the entry is taken back (app/memory_collect.py undo)."""
+        from covey.app import memory_collect
+        return memory_collect.undo(self, ctx, event)
+
     def project_triage_wrong(self, ctx, event):
         """不对 on a row of a 专项卡's 分流记录: the form of the correction (app/project_cards.py triage_wrong)."""
         from covey.app import project_cards

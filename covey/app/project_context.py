@@ -20,6 +20,7 @@ from pathlib import Path
 
 from covey.app.answers import SKIPPED
 from covey.app.prompts import project_block
+from covey.core import memory as core_memory
 from covey.core import project_library, project_memory, projects, triage
 from covey.core.attachments import ATTACHMENTS_HEADER, parse_attachment_block
 from covey.core.checkpoint import checkpoint_delivery, read_checkpoint
@@ -32,21 +33,43 @@ ARTIFACTS_PER_TURN = 8
 FILES_PER_MESSAGE = 5
 
 
+def member_record(ctx, job):
+    """(project id, its record) of the project ``job``'s topic is an ordinary topic of, that is not cancelled; None otherwise
+    (also with COVEY_PROJECTS or COVEY_PROJECT_MEMORY off, and for a 代答 topic)."""
+    if not projects.memory_enabled() or proxy_topic(ctx):
+        return None
+    state = ctx.state_dir
+    found = projects.topic_project(state, getattr(job, "topic_id", "") or ctx.topic_id)
+    if found is None or found.role != projects.MEMBER:
+        return None
+    record = projects.read_record(state, found.id)
+    if not record or record.get("state") == projects.CANCELLED:
+        return None
+    return found.id, record
+
+
+def memory_rows(ctx, job) -> tuple[str, list]:
+    """(project id, its live memory lines without the style line) for COVEY_MEMORY=1's one block (app/memory_turn.py); ('', [])
+    when ``member_record`` has none. Never raises."""
+    try:
+        found = member_record(ctx, job)
+        return (found[0], project_memory.live(ctx.state_dir, found[1], style=False)) if found else ("", [])
+    except Exception:  # noqa: BLE001 - the turn goes on without it
+        return "", []
+
+
 def block(ctx, job, *, resumed: bool) -> str:
     """The project block for ``job``'s turn in ``ctx``'s topic: '' unless it is a topic of a project that is not cancelled.
-    ``resumed``: the memory alone (the session read the library's index when it began)."""
+    ``resumed``: the memory alone (the session read the library's index when it began). With COVEY_MEMORY=1 the memory is in
+    the one memory block (app/memory_turn.py), so only the library's index is here."""
     try:
-        if not projects.memory_enabled() or proxy_topic(ctx):
+        found = member_record(ctx, job)
+        if found is None:
             return ""
+        pid, record = found
         state = ctx.state_dir
-        found = projects.topic_project(state, getattr(job, "topic_id", "") or ctx.topic_id)
-        if found is None or found.role != projects.MEMBER:
-            return ""
-        record = projects.read_record(state, found.id)
-        if not record or record.get("state") == projects.CANCELLED:
-            return ""
-        memory = [f"- [{row['kind']}] {row['text']}" for row in project_memory.live(state, record, style=False)]
-        library = [] if resumed else ["- " + line for line in project_library.index_lines(state, found.id)]
+        memory = [] if core_memory.enabled() else [f"- [{row['kind']}] {row['text']}" for row in project_memory.live(state, record, style=False)]
+        library = [] if resumed else ["- " + line for line in project_library.index_lines(state, pid)]
         return project_block(record.get("name"), memory, library)
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from covey.app.prompts import knowledge_block
 from covey.core import knowledge
+from covey.core import memory as core_memory
 from covey.core.board_read import ended_at
 from covey.core.jobs import jobs_dir
 from covey.core.butler import is_butler_topic
@@ -47,7 +48,7 @@ def block(ctx, job, *, owner_turn, resumed: bool) -> str:
     # The history command is a path on this machine: a device topic's agent cannot run it.
     command = knowledge.history_cmd() if owner and not getattr(ctx, "device", "") else ""
     mine, theirs = [], []
-    if on:
+    if on and not core_memory.enabled():  # With COVEY_MEMORY=1 the entries are in the one memory block (app/memory_turn.py).
         topic_id = getattr(job, "topic_id", "") or ctx.topic_id
         if resumed:
             since, keys = previous_turn(ctx.state_dir, topic_id, getattr(job, "job_id", 0))

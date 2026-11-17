@@ -4,7 +4,7 @@ jobs, the butler's lost supplements). JobDispatch is a part of app/unified.py's 
 and runtime it reads."""
 from __future__ import annotations
 
-from covey.app import detached, knowledge_collect, butler_relay
+from covey.app import detached, knowledge_collect, memory_collect, butler_relay
 from covey.app.availability import check_or_raise
 from covey.app.launch import recover_worktree_launches
 from covey.app.butler import HARNESS as BUTLER_HARNESS
@@ -79,6 +79,7 @@ class JobDispatch:
             return detached.run_detached(self, app, job, app.harness.context)
         app.process_reply_job(job, app.harness.context)
         knowledge_collect.collect(self.runtime, job, ctx)
+        memory_collect.collect(self.runtime, getattr(app, "messenger", None), job, ctx)
         butler_relay.after_runner(self, job, ctx)
         if not job.progress:
             # A text fallback must still offer topic-scoped recovery now that

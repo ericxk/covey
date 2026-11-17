@@ -593,7 +593,7 @@ def answer_tail_cards():
     """The answer card with its 产物 and 输入/输出 (cards/answer_card.py, 2026-11-08), its relay at the top level and
     the small card after an answer sent as a file."""
     from covey.cards.relay_card import DONE, relay_card
-    from covey.cards.answer_card import ARTIFACTS_ID, input_parts, output_parts, tail, tail_card
+    from covey.cards.answer_card import ARTIFACTS_ID, input_parts, memory_element, output_parts, tail, tail_card
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_card
 
@@ -654,6 +654,11 @@ def answer_tail_cards():
             "dispatch_line_failed": settled_card(dc.FAILED, asked_words, reason="后端退出", label="T453"),
             "dispatch_line_stopped": settled_card(dc.STOPPED, asked_words, label="T453"),
             "answer_card_tail": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs)),
+            # COVEY_MEMORY=1: the memory lines at the bottom (cards/answer_card.py memory_element, app/memory_collect.py).
+            "answer_card_memory": answer_card(text, "✅ T439 · 结论", [*tail(files, inputs, outputs), memory_element([
+                {"kind": "remembered", "text": "选型类的事不用先问侧重点", "scope": "管这个专项", "entry_id": "a1b2c3"},
+                {"kind": "voided", "text": "选型前先问侧重点", "scope": "管这个专项", "entry_id": "d4e5f6"},
+                {"kind": "undone", "text": "产物放 out/", "scope": "管这个话题", "entry_id": "0a1b2c"}], "tf0001", 439)]),
             "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
             "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),
                                                       [head_element("⏹ 已停止", "T443", "改看板的 Pin 目标")]),
