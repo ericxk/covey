@@ -95,6 +95,18 @@ class AttachTest(unittest.TestCase):
             for old in ("方向", "专员", "长活", "快事", "线程"):
                 self.assertNotIn(old, text)
 
+    def test_no_prompt_tool_or_card_text_says_方向_or_专员_as_a_noun(self):
+        import json
+        import lzma
+
+        golden = Path(__file__).resolve().parent / "golden" / "cards.json.xz"
+        self.assertNotIn("方向", lzma.decompress(golden.read_bytes()).decode("utf-8"))
+        texts = [prompts.butler_rules(), json.dumps(butler_tool_specs.listed({"COVEY_PROJECTS": "1", "COVEY_BUTLER_RULES": "1"}),
+                                                   ensure_ascii=False)]
+        for text in texts:
+            for word in ("方向", "专员"):
+                self.assertNotIn(word, text)
+
 
 if __name__ == "__main__":
     unittest.main()

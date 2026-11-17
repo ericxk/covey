@@ -453,7 +453,16 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
   - **停**：记录仍是 `paused`，`state_reason` 改成“主人停止”，并停掉负责人和各话题里排队或在跑的任务（`project_cards.stop_tasks`，和停止专项同一个做法）；`tokens` 停住后选停的，之后主人在负责人话题里说话把它开起来时，照样给一份新预算（`token_floor`），不会马上又停。
 - **在做的话题**：`tokens` 停住时 `ProjectLoop` 同时请专项的话题里排队、在跑的任务停下（`stop_tasks`，把卡上“停止”的点击转给任务进程），数记进 `pause_ask.halted`，卡上写“在做的 N 个话题已请它们停下”；`wakes` 停住不停它们，卡上写“不受影响”；`stalled` 本来就没有。
 - **点了以后**：`ProjectCards` 把这张卡整卡写成一行（“你选了继续 / 收尾 / 停”），专项卡下一次刷新自然变成在做或停住。专项被别处处理了（主人在负责人话题里直接说话、负责人收尾）而没点，这张卡缩成“已在别处处理”。每张卡的写入用它自己的 sequence（`pause_ask.card`），不会和专项卡的混。
-- **试用**：`COVEY_PROJECT_BUDGET=<小数>` 一会儿就停住；`COVEY_PROJECT_STALL_SECONDS=60` 并开 `COVEY_PROJECT_AUTOWAKE=1`，一个没有任务的专项约两分钟后停住。唤醒次数的上限不能调。
+- **试用**：`COVEY_PROJECT_BUDGET=<小数>` 一会儿就停住；`COVEY_PROJECT_STALL_SECONDS=60` 并开 `COVEY_PROJECT_AUTOWAKE=1`，一个有任务排队或等回答、却没有动静的专项约两分钟后停住（没有要做的事的专项不会停滞）。唤醒次数的上限不能调。
+
+### 一个词：专项（开关同 `COVEY_PROJECTS`）
+
+专项不分长期和临时：可长可短，没活放久了收起，有新的事再展开。2026-11-17 起没有“方向”这一层。
+
+- **新的事自动归进已有专项**：管家每一轮的快照里多一栏“专项”（`app/butler.py` 的 `project_rows`：id、名字、状态——在做、停住、收起——和一句目标；做完和取消的不列），不用每次调 `projects_list`。管家规则（`app/prompts.py` 的 `PROJECT_RULE`）和 `project_send`、`projects_list` 的说明写清：新的事和某个专项是同一件事，就用 `project_send` 交给它的负责人（收起的随之重新展开）；拿不准就开普通话题（`topic_start`）；主人说“这是 X 的事”就归进 X，不再判断。没开 `COVEY_PROJECTS` 时规则和快照逐字不变。
+- **空闲收起**：专项没有要做的事（负责人和各专项的话题都没有排队或在跑的任务、没有等回答的问题、没有没读的回执）、主人也没提它，满 `COVEY_PROJECT_IDLE_DAYS` 天（默认 7）就收起：`paused` + `state_reason: idle`，专项卡缩成一行“收起 · N 天没有新的事”，再写“有新的事会自动展开”，不弹停住卡、不发问题卡。主人对它说话、管家把新的事交给它时自动回到在做，专项卡整张画回来。试用：`COVEY_PROJECT_IDLE_DAYS=0.001`（约 86 秒）。细节见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)的护栏。
+- **停滞只管有活没动**：见架构里的停滞一条。
+- **旧记录**：记录里已有的 `direction` 字段照读不画；环境里还设着 `COVEY_DIRECTIONS` 也不出错（不再读它）。
 
 ### 汇报风格的默认值（开关默认关）
 

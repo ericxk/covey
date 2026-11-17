@@ -437,7 +437,7 @@ cancelled、superseded：终态
 
 专项是管家交给一个隐藏的负责人话题、由它开话题并跟进、要分成几个话题跨几天做完的事（设计见第 2 期的专项设计稿）。**现在有底座、负责人的运行、专项卡和入口**：记录、角色、看板的格，负责人话题一轮怎么跑，聊天区的专项卡（[专项卡](butler.md#专项卡开关默认关)），以及三个入口——派发卡转成专项、管家直接开、不要专项降级（见下）；续轮、问题分流是后面的包；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
 
-- **记录** `<state>/projects/<id>.json`（`core/projects.py`，只用标准库，MCP 服务会导入）：`id`（6 到 32 位 `0-9a-z`）、`chat_id`、`name`、`goal`、`state`、`lead_topic_id`、`threads`（专项的话题 id）、`origin`、`steps`（升级逐步记账，重做时跳过已做的）、`card`（专项卡的 `card_id`、`message_id`、`sequence`）、`created_at`、`updated_at`。给第 3 期留的（旧记录里的 `direction` 没人读，也不再写）`leader`、`claims`、`agreements`、`place` 只写不读。读写在 `resource_lock("record", …)` 下，锁内不发网络请求（规则 1）。
+- **记录** `<state>/projects/<id>.json`（`core/projects.py`，只用标准库，MCP 服务会导入）：`id`（6 到 32 位 `0-9a-z`）、`chat_id`、`name`、`goal`、`state`、`lead_topic_id`、`threads`（专项的话题 id）、`origin`、`steps`（升级逐步记账，重做时跳过已做的）、`card`（专项卡的 `card_id`、`message_id`、`sequence`）、`created_at`、`updated_at`。给第 3 期留的（旧记录里的 `direction` 没人读也不画，新记录不再写）`leader`、`claims`、`agreements`、`place` 只写不读。读写在 `resource_lock("record", …)` 下，锁内不发网络请求（规则 1）。
 - **状态** 只按 `PROJECT_TRANSITIONS` 前进（规则 4）：`active` → `paused`、`done`、`cancelled`；`paused` → `active`、`done`、`cancelled`；`done`、`cancelled` 是终态。`update` 改状态前先查表，不合法抛 `ValueError`、什么都不写。
 - **角色** 写在话题自己的 `topic.json` 里：`project: {id, role}`，`role` 是 `lead` 或 `thread`（盘上的值不改，代码里叫 `MEMBER`；`core/topics.py` 的 `set_topic_project`、`clear_topic_project`、`topic_project`）。读 `project.role` 一次 `stat`，文件变了才重读（`core/projects.py` 的 `topic_project`，写入换 inode，所以缓存立刻失效）。
   - **负责人**（`lead`）：话题 id 是 `lead_topic_id(chat, pid)`（`sha256("project-lead\0<pid>\0<chat>")` 取 32 位十六进制，不和管家、同时在做的事的 id 相撞，也不是任何消息的别名）；`is_lead_topic` 还核对这个 id，别的会话里抄来的 `topic.json` 不算。它属于管家家族：`is_butler_topic` 认它，`is_butler_root` 不认；`Traits` 是 `LEAD`（管家关着时 `LEAD_OFF`），放置角色 `lead`（回复只在主人触发的轮里发到顶层，不回带，不放问题卡副本，不开串）。
@@ -469,7 +469,8 @@ cancelled、superseded：终态
   - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`）。`COVEY_PROJECT_ASK=1` 时还发一张停住卡问主人继续、收尾还是停（见[管家 · 专项停住后问主人](butler.md#专项停住后问主人开关默认关)）；`COVEY_PROJECT_STALL_SECONDS` 能调小停滞的时间。
     - token：负责人和各话题任务的合计（任务的输入含缓存加输出，子任务算在内）每个任务结束时累加进 `tokens_used`，每个任务只算一次（`token_jobs` 记键）；到 `COVEY_PROJECT_TOKENS`（默认 1000 万）停。
     - 唤醒：无人介入连续 30 次，或最近一小时 12 次，停。
-    - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：专项 `active`，负责人和话题都没有没结束的任务，没有未读回执，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是话题任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。
+    - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：只管**有活没动**。专项 `active`，还有要做的事（负责人或话题有排队的任务、有等主人回答的任务或问题、有没读的回执，`project_loop.has_work`），没有任务在跑，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是话题任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。任务在跑不算停滞；**没有要做的事不提醒、不停住**，只按下面的空闲算。
+    - 空闲收起：没有要做的事（同上）、也没有动静，满 `COVEY_PROJECT_IDLE_DAYS` 天（默认 7，可写小数试用；不是正数用默认）就收起：状态仍是 `paused`，`state_reason` 写 `idle`（`projects.IDLE`，不新增状态，`PROJECT_TRANSITIONS` 不变），记录多一个 `idle: {at, days}`；不弹停住卡、不发问题卡（`ProjectLoop.rest`，不走 `pause`）。专项卡缩成一行“收起 · N 天没有新的事 / 有新的事会自动展开”（`ProjectCards.fold`，不关闭，不受 12 天重发影响）。主人在负责人话题里说话、在专项的话题里说话（`heard`）、管家 `project_send` 转来新的事（都经 `reopen`）时回到 `active`，下一次刷新把整张卡画回来；`idle_reopened_at` 让它在又有动静前不会再次收起。`idle` 算 `RESUMABLE`，不算守卫停住（`GUARD_REASONS`）。
   - **唤醒轮的回复默认不发**：唤醒轮算安静轮（`placement.quiet` 认 `lead-` 前缀）：不显示任务卡（`Cards.reveal` 不发），没有表情。已授权回复保存、记为已送达（`TurnDelivery.silent`：`send` 直接返回），所以重投不重试、恢复卡不把它当未送达；没做完的轮（失败、停止、被拒）照旧在顶层说一句，不藏。例外：负责人在这一轮用 `project_note` 记了 `report`、且按风格该报（`project_lead.reportable`；`project_finish` 的收尾也算），这时和负责人主人触发的轮一样发到顶层。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
 
