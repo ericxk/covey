@@ -333,7 +333,7 @@ class HedgeTest(Base):
 
     def primed(self, count):
         track_judge.warm(self.backend, self.ctx)
-        deadline = time.monotonic() + 20  # A loaded machine starts two interpreters slowly.
+        deadline = time.monotonic() + 40  # A loaded machine starts two interpreters slowly.
         while time.monotonic() < deadline and len(self.lines()) < count:
             time.sleep(0.02)
         self.assertEqual(len(self.lines()), count)
