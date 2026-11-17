@@ -120,18 +120,31 @@ def payload(message: Message, tasks: list[LiveJob], question: str) -> dict:
     return out
 
 
-def claude_argv(backend, ctx, with_flag: bool, stream: bool = False) -> list[str]:
+def claude_argv(backend, ctx, with_flag: bool, stream: bool = False, system: str = SYSTEM) -> list[str]:
     """The Claude Code's argv, like the model catalog's (backends/claude/argv.py stream_argv catalog): no MCP servers,
     hooks or tools. One-shot: the prompt arrives on standard input and the answer is one JSON object. ``stream``
-    (the standby, app/track_standby.py): messages in and events out as stream-json lines."""
+    (the standby, app/track_standby.py): messages in and events out as stream-json lines. ``system``: another
+    question for the same small model (app/patrol_judge.py)."""
     kind = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] if stream \
         else ["--output-format", "json"]
     argv = [*ctx.backend_cmd, "-p", "--model", MODEL, *kind, "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings", '{"disableAllHooks":true}',
-            "--tools", "", "--system-prompt", SYSTEM]
+            "--tools", "", "--system-prompt", system]
     if with_flag:
         argv.append(FLAG)
     return backend.wrap_argv(argv, ctx)
+
+
+def use_flag() -> bool:
+    """Whether FLAG is passed: not once a Claude Code has refused it."""
+    return not _refused_flag
+
+
+def refused(exc: Failed) -> None:
+    """Remember that this Claude Code does not know FLAG when ``exc`` says so (the caller then asks without it)."""
+    global _refused_flag
+    if exc.reason == "exit_nonzero" and FLAG in exc.detail and "unknown option" in exc.detail:
+        _refused_flag = True
 
 
 def warm_enabled(environ=None) -> bool:

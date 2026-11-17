@@ -301,7 +301,7 @@ class PauseAskTest(Loop):
         self.ask_on()
         self.autowake()
         self.update(created_at=NOW)
-        self.thread(THREAD, "迁移", 41, status="waiting_user")  # Something to do that does not move.
+        self.thread(THREAD, "迁移", 41, status="queued")  # Something to do that does not move.
         self.loop.tick(NOW + 31 * 60)
         project_lead.take_receipts(self.state, PID, "k-w1")
         write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1")
@@ -495,9 +495,18 @@ class IdleTest(Loop):
         self.loop.tick(NOW + 3 * HOUR)
         self.assertEqual(project_loop.unread(self.state, PID), [])
         self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
-        self.thread(THREAD, "迁移", 41, status="waiting_user")
+        self.thread(THREAD, "迁移", 41, status="queued")
         self.loop.tick(NOW + 3 * HOUR + 10)
         self.assertEqual([item["kind"] for item in project_loop.unread(self.state, PID)], ["stalled"])
+
+    def test_waiting_for_the_owner_neither_stalls_nor_folds_away(self):
+        # A question the owner has not answered is theirs to move: no reminder for the lead, no pause card, and not idle either.
+        self.autowake()
+        self.thread(THREAD, "迁移", 41, status="waiting_user")
+        for at in (NOW + 31 * 60, NOW + 3 * HOUR, NOW + 30 * self.DAY):
+            self.loop.tick(at)
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
 
 
 class StallTest(Loop):
@@ -505,7 +514,7 @@ class StallTest(Loop):
         super().setUp()
         self.autowake()
         self.update(created_at=NOW)
-        self.thread(THREAD, "迁移", 41, status="waiting_user")  # Something to do that does not move: only that stalls.
+        self.thread(THREAD, "迁移", 41, status="queued")  # Something to do that does not move: only that stalls.
 
     def test_a_reminder_after_half_an_hour_then_a_pause_after_another(self):
         self.loop.tick(NOW + 29 * 60)

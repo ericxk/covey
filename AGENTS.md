@@ -124,6 +124,9 @@
 | `app/native_questions.py` | A backend's question as it arrives |
 | `app/outbox.py` | Resume delivery of authorized saved replies only |
 | `app/overview.py` | 手上的事: one card in the owner's private chat with the bot, pinned (Pin 消息), that lists what waits for the owner … |
+| `app/patrol.py` | The feature object of "what the butler would have told the owner", COVEY_PATROL=shadow |
+| `app/patrol_judge.py` | The second layer: the small model reads the candidates app/patrol_rules.py found and says, for each, drop it … |
+| `app/patrol_rules.py` | The rules of the first layer |
 | `app/pins.py` | The pinned board: the owner's private chat's topics pinned (Pin 消息) in the order the Bridge keeps, under … |
 | `app/policy_guard.py` | Independent policy stop consumer: covers adopted runners from older releases |
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
@@ -288,6 +291,7 @@
 | `core/model_policy.py` | Bounded model safety metadata and user-facing stop reasons |
 | `core/model_settings.py` | Persisted model defaults with per-job configuration snapshots |
 | `core/paths.py` | Resolve service storage independently of the execution workspace |
+| `core/patrol.py` | What the butler noticed and would have done: records and numbers, no judging |
 | `core/placement.py` | Where a turn's words go in the private chat: one table, the layout by the role |
 | `core/policy_feed.py` | Validate metadata-only policy observations and bind them to a single task interval |
 | `core/policy_process.py` | Stop one identity-checked task tree, including children with their own sessions |

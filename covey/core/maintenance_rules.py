@@ -69,6 +69,10 @@ PROJECT_DAYS = 180
 # they were written, one project's files stay under core/project_library.py PROJECT_LIMIT. projects/ is not in a backup
 # (core/backup.py).
 PROJECT_FILES_DAYS = 30
+
+
+# patrol/ (core/patrol.py; COVEY_PATROL=shadow): the day files of candidates and decisions stay this long.
+PATROL_DAYS = 14
 PROJECT_MEMORY_DAYS = 180
 
 
@@ -462,6 +466,25 @@ class ProxyBatches(Rule):
                 path.unlink(missing_ok=True)
 
 
+class PatrolRecords(Rule):
+    """The day files of what the butler noticed and would have done (patrol/candidates/, patrol/decisions/,
+    core/patrol.py) unchanged that long: removed. state.json and the small model's directory stay."""
+    keys = ("remove_patrol",)
+    days = PATROL_DAYS
+    title = "删除 14 天前的主动记录（patrol/）"
+
+    def select(self, run):
+        cutoff = run.cutoff(self.days)
+        return [str(p) for part in ("candidates", "decisions") if (run.state / "patrol" / part).is_dir()
+                for p in sorted((run.state / "patrol" / part).glob("*.jsonl")) if not p.is_symlink() and _untouched_since(p, cutoff)]
+
+    def apply(self, run, plan):
+        for name in plan[self.keys[0]]:
+            path = Path(name)
+            if _untouched_since(path, run.cutoff(self.days)):
+                path.unlink(missing_ok=True)
+
+
 class ProjectRecords(Rule):
     """A 专项's record (projects/<id>.json, core/projects.py) that ended (done or cancelled) and is unchanged that long:
     removed with its folder projects/<id>/. An active or paused one stays."""
@@ -731,13 +754,13 @@ class Stale(Rule):
 HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS = History(), Checkpoints(), Traces(), SlimRecords()
 TEMPORARY, RUNS_DIRS, PROXY_BATCHES, JOURNALS = Temporary(), Runs(), ProxyBatches(), Journals()
 LOCKS, DIFFS, BACKUPS, STALE = Locks(), Diffs(), Backups(), Stale()
-TRACK_SESSIONS, PROJECT_RECORDS = TrackSessions(), ProjectRecords()
+TRACK_SESSIONS, PROJECT_RECORDS, PATROL_RECORDS = TrackSessions(), ProjectRecords(), PatrolRecords()
 PROJECT_LIBRARIES, PROJECT_MEMORIES = ProjectLibraries(), ProjectMemories()
 
 
 # Every rule, in the order of the plan's keys (then "backup", the run's own, named by maintain).
 RULES = (HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, LOCKS, DIFFS, BACKUPS, STALE,
-         JOURNALS, TRACK_SESSIONS, PROJECT_RECORDS, PROJECT_LIBRARIES, PROJECT_MEMORIES)
+         JOURNALS, TRACK_SESSIONS, PROJECT_RECORDS, PROJECT_LIBRARIES, PROJECT_MEMORIES, PATROL_RECORDS)
 
 
 class _NoJob(Rule):
@@ -749,7 +772,7 @@ class _NoJob(Rule):
 
 # The order the cleanup carries them out in. The steps under LOCK first; after _NoJob, outside LOCK: nothing a
 # job that starts now uses, and each item is checked again. Old backups go in maintain, stale records in close_stale.
-CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, PROJECT_LIBRARIES, PROJECT_MEMORIES, PROJECT_RECORDS, TRACES,
+CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS, PROXY_BATCHES, PROJECT_LIBRARIES, PROJECT_MEMORIES, PROJECT_RECORDS, PATROL_RECORDS, TRACES,
            SLIM_RECORDS, JOURNALS, LOCKS, DIFFS)
 
 
@@ -757,5 +780,5 @@ CLEANUP = (HISTORY, CHECKPOINTS, _NoJob(), TRACK_SESSIONS, TEMPORARY, RUNS_DIRS,
 REMOVALS = tuple(key for rule in RULES for key in rule.keys if key.startswith("remove_"))
 # The order --dry-run lists them in.
 DRY_RUN = (BACKUPS, HISTORY, CHECKPOINTS, TRACES, SLIM_RECORDS, TEMPORARY, TRACK_SESSIONS, PROXY_BATCHES, PROJECT_LIBRARIES,
-           PROJECT_MEMORIES, PROJECT_RECORDS,
+           PROJECT_MEMORIES, PROJECT_RECORDS, PATROL_RECORDS,
            RUNS_DIRS, LOCKS, DIFFS, STALE)

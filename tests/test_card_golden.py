@@ -924,7 +924,11 @@ def digest_cards():
             "asked": digest_card({**old, "asked": True}),
             "asked_empty": digest_card({"slot": FROZEN, "since": FROZEN - 3 * 3600, "waiting": [], "stale": [],
                                         "running": [], "done": [], "asked": True}),
-            "asked_folded": folded_board()}
+            "asked_folded": folded_board(),
+            # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
+            "wanted": digest_card({**view, "wanted": [
+                {"what": "T396 你为啥没有pin？：有个问题等了你 3小时0分", "why": "你一直没回，像是卡住了", "would": "主动来问你"},
+                {"what": "专项「重构」有事没人动，已经 1天0小时 没有进展", "why": "收件箱有回执没人读", "would": "叫醒负责人看一眼"}]})}
 
 
 def app_setup_cards():
@@ -988,6 +992,8 @@ def project_cards():
             "upgraded": pc.project_card(pc.Project(**{**work.__dict__, "members": threads[:1],
                                                       "origin_note": "由管家转成专项"})),
             "line_merged": pc.merged_card("把订单库迁到新集群", link),
+            # Nothing to do for COVEY_PROJECT_IDLE_DAYS: the project folds away into one line until new work opens it again.
+            "line_idle": pc.idle_card("把订单库迁到新集群", 7),
             # COVEY_PROJECT_TRIAGE=1: a row of an answer the lead gave has the 不对 button, and the form it opens.
             "running_triage": pc.project_card(pc.Project(**{**full.__dict__, "triage": (
                 ("09:40 答了：T501 · 用哪个库版本？ → 新版", "c" * 16), "10:05 转给你：T503 · 能不能停服务？（碰到硬闸）")})),

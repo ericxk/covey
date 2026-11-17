@@ -8,7 +8,7 @@ numbers, 手上的事's (cards/overview.py stale_line), with its button 这些�
 clicked, the line is 已撤下 N 个 (dismissed_line), grey, without the button.
 
 ``view`` is plain data: ``slot`` and ``since`` (epoch seconds), ``waiting``, ``running`` and ``done`` rows, each
-{label (Markdown, maybe a link), title, state, took, seen}, ``older``; ``stale`` rows {topic, label, title}, ``dismissable``
+{label (Markdown, maybe a link), title, state, took, seen}, ``older``; ``stale`` rows {topic, label, title}, ``knowledge`` and ``wanted`` (rows {what, why, would}: 我本来想找你的事), ``dismissable``
 and ``cleared`` (the labels taken off from this card) — a view saved before them has none. ``asked``: the bot menu's
 看板 at any time (app/digest.py board), 随时查看 in the title; with nothing to list it says so (EMPTY)."""
 from __future__ import annotations
@@ -88,6 +88,7 @@ def digest_card(view):
     if not elements:
         elements.append(md(EMPTY.format(clock(view["since"]))))
     elements += knowledge_elements(view)
+    elements += wanted_elements(view)
     elements.append(note(f"只列这个{view.get('where') or '私聊'}里的话题，管家不列"))
     title = title_of(view)
     return styled_panel(panel_header(ICON, title, counts(view)), elements, " · ".join(filter(None, [title, counts(view)])))
@@ -107,6 +108,21 @@ def knowledge_elements(view):
     more = (view.get("knowledge") or {}).get("more") or 0
     return [section(f"新记的知识（{len(lines) + more}）"), *(md(text) for text in lines),
             *([note(f"另有 {more} 条")] if more else [])]
+
+
+WANTED_TITLE = "我本来想找你的事"
+WANTED_HINT = "这类该找你，或这类不用，在私聊里告诉我一句，我会记下。"
+
+
+def wanted_lines(view):
+    """我本来想找你的事's rows (app/digest.py wanted_view): what · why · would; none when the view has no such part."""
+    return [" · ".join(part for part in (row.get("what"), row.get("why"), f"本来会：{row.get('would')}" if row.get("would") else "") if part)
+            for row in view.get("wanted") or []]
+
+
+def wanted_elements(view):
+    lines = wanted_lines(view)
+    return [section(f"{WANTED_TITLE}（{len(lines)}）"), *(md(text) for text in lines), note(WANTED_HINT)] if lines else []
 
 
 def folded_board():
@@ -131,4 +147,7 @@ def digest_text(view):
     if new:
         more = (view.get("knowledge") or {}).get("more") or 0
         lines += [f"**新记的知识（{len(new) + more}）**", *new, *([f"另有 {more} 条"] if more else [])]
+    found = wanted_lines(view)
+    if found:
+        lines += [f"**{WANTED_TITLE}（{len(found)}）**", *found, WANTED_HINT]
     return "\n".join(lines)

@@ -469,10 +469,11 @@ cancelled、superseded：终态
   - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`）。`COVEY_PROJECT_ASK=1` 时还发一张停住卡问主人继续、收尾还是停（见[管家 · 专项停住后问主人](butler.md#专项停住后问主人开关默认关)）；`COVEY_PROJECT_STALL_SECONDS` 能调小停滞的时间。
     - token：负责人和各话题任务的合计（任务的输入含缓存加输出，子任务算在内）每个任务结束时累加进 `tokens_used`，每个任务只算一次（`token_jobs` 记键）；到 `COVEY_PROJECT_TOKENS`（默认 1000 万）停。
     - 唤醒：无人介入连续 30 次，或最近一小时 12 次，停。
-    - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：只管**有活没动**。专项 `active`，还有要做的事（负责人或话题有排队的任务、有等主人回答的任务或问题、有没读的回执，`project_loop.has_work`），没有任务在跑，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是话题任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。任务在跑不算停滞；**没有要做的事不提醒、不停住**，只按下面的空闲算。
+    - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：只管**有活没动**。专项 `active`，还有负责人能推动的事（负责人或话题有排队的任务、有没读的回执，`project_loop.movable`），没有任务在跑，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是话题任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。任务在跑不算停滞；只在等主人回答的任务或问题不算停滞（主人看得到问题卡，负责人没事可做），但算有活，不会收起；**没有要做的事不提醒、不停住**，只按下面的空闲算。
     - 空闲收起：没有要做的事（同上）、也没有动静，满 `COVEY_PROJECT_IDLE_DAYS` 天（默认 7，可写小数试用；不是正数用默认）就收起：状态仍是 `paused`，`state_reason` 写 `idle`（`projects.IDLE`，不新增状态，`PROJECT_TRANSITIONS` 不变），记录多一个 `idle: {at, days}`；不弹停住卡、不发问题卡（`ProjectLoop.rest`，不走 `pause`）。专项卡缩成一行“收起 · N 天没有新的事 / 有新的事会自动展开”（`ProjectCards.fold`，不关闭，不受 12 天重发影响）。主人在负责人话题里说话、在专项的话题里说话（`heard`）、管家 `project_send` 转来新的事（都经 `reopen`）时回到 `active`，下一次刷新把整张卡画回来；`idle_reopened_at` 让它在又有动静前不会再次收起。`idle` 算 `RESUMABLE`，不算守卫停住（`GUARD_REASONS`）。
   - **唤醒轮的回复默认不发**：唤醒轮算安静轮（`placement.quiet` 认 `lead-` 前缀）：不显示任务卡（`Cards.reveal` 不发），没有表情。已授权回复保存、记为已送达（`TurnDelivery.silent`：`send` 直接返回），所以重投不重试、恢复卡不把它当未送达；没做完的轮（失败、停止、被拒）照旧在顶层说一句，不藏。例外：负责人在这一轮用 `project_note` 记了 `report`、且按风格该报（`project_lead.reportable`；`project_finish` 的收尾也算），这时和负责人主人触发的轮一样发到顶层。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
+- **主动记录**（`COVEY_PATROL=shadow`，只记不打扰）：规则每分钟、小模型每 30 分钟，写 `patrol/`，早晚汇总多一块；说明、可调数值和关法见[管家 · 我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰)。维护 `patrol/candidates/`、`patrol/decisions/` 里 14 天没改的日文件（`PatrolRecords`，`remove_patrol`）。
 
 ## 执行指标口径
 

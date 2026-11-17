@@ -129,6 +129,15 @@ def has_work(state_dir, record, pending) -> bool:
     return open_turns(state_dir, topics) or has_question(state_dir, topics) or any(item.get("kind") != "stalled" for item in pending)
 
 
+def movable(state_dir, topics, pending) -> bool:
+    """Whether the project has work the lead or the Bridge can move: a task queued, or a receipt (``pending``: the unread ones)
+    other than the stall reminder. A task or question waiting for the owner is work, so the project does not fold away, but it is
+    the owner's to move, not the lead's: a project that only waits for the owner never stalls (the owner sees the question card)."""
+    if any(item.get("kind") != "stalled" for item in pending):
+        return True
+    return any(record.get("status") == "queued" for topic in topics for record in topic_job_records(state_dir, topic))
+
+
 def running_turns(state_dir, topics) -> bool:
     """Whether any of ``topics`` has a task executing (one still queued or waiting for the owner's answer is work that is not moving)."""
     return any(record.get("status") in EXECUTING for topic in topics for record in topic_job_records(state_dir, topic))
@@ -422,7 +431,7 @@ class ProjectLoop:
         if not has_work(state, record, pending):
             return self.rest(record, state, now)
         if projects.autowake_enabled():
-            self.stall(record, state, now, lead)
+            self.stall(record, state, now, lead, pending)
 
     def inbox(self, state, pid) -> list:
         try:  # Every receipt, read or not: a member's end the lead has read is activity all the same.
@@ -434,6 +443,7 @@ class ProjectLoop:
         """Nothing to do: folded away once ``projects.idle_seconds()`` have passed since anything happened (a task ended, a receipt came, the
         owner spoke, the project was opened or opened again). The pause card is not sent and nothing is asked."""
         pid = record["id"]
+        self.unstall(record, state)  # Nothing left to do: a reminder of a stall is over.
         activity = max(last_activity(state, record, self.inbox(state, pid)), float(record.get("idle_reopened_at") or 0))
         if now - activity < projects.idle_seconds():
             return
@@ -451,11 +461,23 @@ class ProjectLoop:
             return
         self.runtime.log(f"project folded away project={str(pid)[:8]} days={days}")
 
-    def stall(self, record, state, now, lead) -> None:
+    def unstall(self, record, state) -> None:
+        """Drop the stall reminder's marker of a project that has nothing the lead could move any more."""
+        if isinstance(record.get("stall"), dict):
+            try:
+                projects.update(state, record["id"], lambda data: data.pop("stall", None))
+            except (KeyError, ValueError):
+                pass
+
+    def stall(self, record, state, now, lead, pending=()) -> None:
         """Something to do and nothing moving: a reminder after ``projects.stall_seconds()`` of it (a ``stalled`` receipt, which wakes the lead),
-        and as long again with nothing moving the project is paused. A task running is movement; a project with nothing to do never stalls."""
-        if running_turns(state, [lead, *(record.get("threads") or ())]):
+        and as long again with nothing moving the project is paused. A task running is movement; a project with nothing to do never stalls,
+        nor one that only waits for the owner's answer (``movable``: the owner, not the lead, moves it)."""
+        topics = [lead, *(record.get("threads") or ())]
+        if running_turns(state, topics):
             return
+        if not movable(state, topics, pending):
+            return self.unstall(record, state)  # Only the owner's answer is awaited now: no stall, and none left over.
         pid = record["id"]
         receipts = self.inbox(state, pid)
         activity = last_activity(state, record, receipts)

@@ -52,7 +52,7 @@ from covey.app.topic_links import linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
-from covey.core import board_read, knowledge, turn_words
+from covey.core import board_read, knowledge, patrol, projects, turn_words
 from covey.core.board_read import ended_at, order, started_at, unrun
 from covey.core.locks import resource_lock
 from covey.core.loops import every
@@ -221,8 +221,8 @@ def collect(state, chat, slot, since, now, *, board=False):
                         f"用时 {took_text(took)}" if took is not None else "", topic not in unseen))
     view = {"slot": slot, "since": since, "waiting": waiting, "stale": stale, "running": running_rows, "done": done,
             "older": older, "dismissable": bool(board and stale)}
-    new = knowledge_view(state, since, slot)
-    return {**view, "knowledge": new} if new else view
+    new, wanted = knowledge_view(state, since, slot), wanted_view(state, chat, since, slot)
+    return {**view, **({"knowledge": new} if new else {}), **({"wanted": wanted} if wanted else {})}
 
 
 KNOWLEDGE_SHOWN = 10  # Rows of 新记的知识; the rest is one line.
@@ -242,6 +242,28 @@ def knowledge_view(state, since, slot):
              "text": change["text"][:KNOWLEDGE_TEXT] + ("…" if len(change["text"]) > KNOWLEDGE_TEXT else "")}
             for change in found[:KNOWLEDGE_SHOWN]]
     return {"rows": rows, "more": len(found) - len(rows)} if rows else {}
+
+
+WANTED_SHOWN = 5  # Rows of 我本来想找你的事; the rest is left out.
+
+
+def wanted_view(state, chat, since, slot):
+    """The 我本来想找你的事 part (core/patrol.py decisions, COVEY_PATROL=shadow): rows {what, why, would} of what the butler
+    would have acted on in ``chat`` (verdict ``handle``) decided after ``since`` up to ``slot``, the newest first, an
+    object once, at most WANTED_SHOWN; [] when there are none (or the patrol is off): the card then has no such part. It
+    never makes a card be sent."""
+    if not patrol.enabled():
+        return []
+    rows, seen = [], set()
+    for row in reversed(patrol.rows(state, "decisions", since, slot)):
+        if row.get("verdict") != "handle" or row.get("chat") != chat or row.get("key") in seen:
+            continue
+        seen.add(row.get("key"))
+        would = patrol.ACTION_WORDS.get(row.get("action"), patrol.ACTION_WORDS["none"])
+        name = str(projects.read_record(state, row["project"]).get("name") or "") if row.get("action") == "join" and row.get("project") else ""
+        rows.append({"what": str(row.get("what") or ""), "why": str(row.get("why") or ""),
+                     "would": f"{would}「{name}」" if name else would})
+    return rows[:WANTED_SHOWN]
 
 
 def cleared(view, topics):
