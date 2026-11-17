@@ -378,6 +378,55 @@ class StuckTest(WebCase):
         self.assertGreaterEqual(starts[1] - began, 0.55)
 
 
+    def test_a_long_step_that_keeps_moving_is_not_left_behind(self):
+        """The first push of a big chat: many batches, longer in all than STUCK_SECONDS, each one progress."""
+        stamps, threads = [], []
+
+        def step():
+            threads.append(threading.current_thread())
+            for _ in range(6):
+                time.sleep(0.08)
+                stamps.append(time.monotonic())
+            self.runtime.shutdown.set()
+        with mock.patch.object(app_web, "STUCK_SECONDS", 0.2):
+            began = time.monotonic()
+            self.sync.loop("push", step, lambda: 0.01, lambda: self.fail("reset"), lambda: stamps[-1] if stamps else 0.0)
+        self.assertGreater(time.monotonic() - began, 0.4)
+        self.assertEqual(len(threads), 1)
+        self.assertFalse([line for line in self.logs if "stuck" in line])
+
+    def test_progress_from_before_the_step_does_not_count(self):
+        release, threads = threading.Event(), []
+
+        def step():
+            threads.append(threading.current_thread())
+            if len(threads) == 1:
+                release.wait(10)
+            else:
+                self.runtime.shutdown.set()
+        early = time.monotonic()
+        with mock.patch.object(app_web, "STUCK_SECONDS", 0.2):
+            self.sync.loop("push", step, lambda: 0.01, None, lambda: early)
+        release.set()
+        threads[0].join(5)
+        self.assertEqual(len([line for line in self.logs if "web sync push stuck" in line]), 1)
+
+    def test_each_batch_of_a_push_and_each_topic_of_a_look_is_progress(self):
+        self.topic()
+        self.topic(OTHER, number=8, title="写周报")
+        stamps = []
+        real = self.sync.client.request
+
+        def request(method, path, body=None):
+            stamps.append(self.sync.collector.moved)
+            return real(method, path, body)
+        with mock.patch.object(self.sync.client, "request", request), mock.patch.object(web_sync, "BATCH_ITEMS", 1):
+            self.sync.push_once(T0 + 1)
+        self.assertGreaterEqual(len(stamps), 4)
+        self.assertGreater(stamps[0], 0)
+        self.assertTrue(all(later > earlier for earlier, later in zip(stamps, stamps[1:])), stamps)
+
+
 class BackoffTest(WebCase):
     def test_a_failing_page_is_waited_out_with_a_growing_delay_and_logged_once(self):
         waits = []

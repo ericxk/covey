@@ -46,7 +46,7 @@ TOPIC_DAYS = 30  # A full look takes the topics with a job written within this m
 TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
 MAX_BACKOFF = 30
 TIMEOUT = 20
-STUCK_SECONDS = 60  # A step not ended in this long is left behind (an NFS read can hold its thread for good); the next runs in a new thread.
+STUCK_SECONDS = 60  # A step with no progress in this long is left behind (an NFS read can hold its thread for good); the next runs in a new thread.
 MAX_LEFT = 3  # Left-behind steps still stuck: with this many no new thread is started until one of them ends.
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
 BUTLER_TITLE = "管家"
@@ -94,13 +94,21 @@ class Worker:
             except Exception as exc:  # noqa: BLE001 - raised in the caller's thread
                 self.ends.put((None, exc))
 
-    def call(self, step, seconds):
+    def call(self, step, seconds, moved=None):
+        """``step``'s value (its exception is raised here). Stuck when it has not ended ``seconds`` after it began, or, with ``moved`` (the
+        monotonic time of the step's last progress), ``seconds`` after its last progress: a long first push that keeps sending is not stuck."""
         self.steps.put(step)
-        try:
-            value, exc = self.ends.get(timeout=seconds)
-        except queue.Empty:
-            self.steps.put(None)
-            raise Stuck from None
+        last = time.monotonic()
+        while True:
+            try:
+                value, exc = self.ends.get(timeout=max(0.0, last + seconds - time.monotonic()))
+                break
+            except queue.Empty:
+                newer = moved() if moved is not None else 0.0
+                if newer <= last:
+                    self.steps.put(None)
+                    raise Stuck from None
+                last = newer
         if exc is not None:
             raise exc
         return value
@@ -154,6 +162,7 @@ class Collector:
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
         self.extra = {}  # (job key, updated_at) -> the optional fields of an ended turn (web_turns.extras).
         self.receipts = {}  # project id -> {receipt file name: its row} (thread_end only).
+        self.moved = 0.0  # Monotonic time of the last progress of a look and its push: a topic built, a batch sent (WebSync.loop's stuck check).
         self.lock = threading.Lock()
 
     def touch(self, topic) -> None:
@@ -189,8 +198,10 @@ class Collector:
         items = []
         for topic, jobs in by_topic.items():
             items += self.topic_items(state, chat, topic, jobs, now)
+            self.moved = time.monotonic()
         for topic in looked:
             mine = self.topic_items(state, chat, topic, sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number), now)
+            self.moved = time.monotonic()
             items += mine
             if mine:
                 by_topic[topic] = []
@@ -559,23 +570,25 @@ class WebSync:
     def threads(self):
         if not web_sync.enabled():
             return ()
-        return (("web-push", lambda ctx: self.loop("push", self.push_once, lambda: self.client.settings().push_seconds, self.start_over)),
+        return (("web-push", lambda ctx: self.loop("push", self.push_once, lambda: self.client.settings().push_seconds, self.start_over,
+                                                   lambda: self.collector.moved)),
                 ("web-inbox", lambda ctx: self.loop("inbox", self.inbox_once, lambda: self.client.settings().poll_seconds)))
 
-    def loop(self, label, step, seconds, reset=None) -> None:
+    def loop(self, label, step, seconds, reset=None, moved=None) -> None:
         """``step`` every ``seconds()``, in a Worker; a failure is logged (the first, then every tenth) and waited out 2, 4 ... MAX_BACKOFF
-        seconds. A step not ended in STUCK_SECONDS is logged and left behind: ``reset()`` drops what it was building and the next step
-        runs in a new Worker (none while MAX_LEFT left-behind ones are still stuck)."""
+        seconds. A step with no progress in STUCK_SECONDS (``moved()``: the monotonic time of its last; without it, the step's start) is
+        logged and left behind: ``reset()`` drops what it was building and the next step runs in a new Worker (none while MAX_LEFT
+        left-behind ones are still stuck)."""
         worker, left = Worker(f"web-{label}-step"), []
         while not self.runtime.shutdown.is_set():
             try:
-                worker.call(step, STUCK_SECONDS)
+                worker.call(step, STUCK_SECONDS, moved)
                 if self.down.pop(label, 0):
                     self.runtime.log(f"web sync {label} recovered")
                 wait = seconds()
             except Stuck:
                 left = [each for each in (*left, worker) if each.thread.is_alive()]
-                self.runtime.log(f"web sync {label} stuck: a step has not ended in {STUCK_SECONDS} s; left behind ({len(left)} so far)")
+                self.runtime.log(f"web sync {label} stuck: a step has not moved in {STUCK_SECONDS} s; left behind ({len(left)} so far)")
                 while len(left) >= MAX_LEFT and not self.runtime.shutdown.wait(STUCK_SECONDS):
                     left = [each for each in left if each.thread.is_alive()]
                 if reset is not None:
@@ -615,6 +628,7 @@ class WebSync:
         count = 0
         for batch in web_sync.batches(changed):
             self.client.request("POST", "/sync/upsert", {"items": batch, "deleted": []})
+            collector.moved = time.monotonic()  # The first push of a big chat is many batches: each one taken is progress.
             for each in batch:
                 sent[(each["type"], each["key"])] = each["rev"]
             count += len(batch)
