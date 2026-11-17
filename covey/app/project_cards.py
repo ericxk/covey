@@ -416,7 +416,8 @@ class ProjectCards:
         """A project folded away for being idle (``projects.folded``): its card is one line, written once (a card that is not changed
         is not written again); the card is not closed, so the next look after the project opens again draws it whole."""
         idle = record.get("idle") if isinstance(record.get("idle"), dict) else {}
-        days = idle.get("days") if type(idle.get("days")) is int and idle["days"] > 0 else projects.idle_days()
+        days = idle.get("days") if isinstance(idle.get("days"), (int, float)) and not isinstance(idle.get("days"), bool) \
+            and idle["days"] > 0 else projects.idle_days()
         built = idle_card(record.get("name"), days)
         digest = digest_of(built)
         if digest == seen["digest"] or now - seen["wrote"] < MIN_GAP:

@@ -429,12 +429,20 @@ class IdleTest(Loop):
         self.assertEqual(self.queued, [])
         self.assertTrue(projects.folded(record))
 
-    def test_the_days_can_be_set_and_a_bad_value_is_seven(self):
+    def test_the_days_can_be_set_down_to_a_fraction_for_a_trial_and_a_bad_value_is_seven(self):
         self.assertEqual(projects.idle_days(), 7)
         with mock.patch.dict(os.environ, {projects.IDLE_ENV: "2"}):
             self.loop.tick(NOW + 2 * self.DAY + 1)
         self.assertEqual((self.state_of(), self.reload()["idle"]["days"]), ((projects.PAUSED, projects.IDLE), 2))
-        for value in ("", "x", "0", "-3", "1.5"):
+        self.update(state=projects.ACTIVE, state_reason="", created_at=NOW)
+        with mock.patch.dict(os.environ, {projects.IDLE_ENV: "0.001"}):  # About 86 seconds.
+            self.loop.tick(NOW + 80)
+            self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+            self.loop.tick(NOW + 90)
+            self.assertEqual((self.state_of(), self.reload()["idle"]["days"]), ((projects.PAUSED, projects.IDLE), 0.001))
+        with mock.patch.dict(os.environ, {projects.IDLE_ENV: "1.5"}):
+            self.assertEqual(projects.idle_seconds(), 1.5 * self.DAY)
+        for value in ("", "x", "0", "-3", "nan", "inf", "1e9"):
             with mock.patch.dict(os.environ, {projects.IDLE_ENV: value}):
                 self.assertEqual((projects.idle_days(), projects.idle_seconds()), (7, 7 * self.DAY))
 

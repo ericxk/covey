@@ -385,17 +385,21 @@ IDLE_ENV = "COVEY_PROJECT_IDLE_DAYS"  # Days a project may have nothing to do (a
 DEFAULT_IDLE_DAYS = 7
 
 
-def idle_days() -> int:
-    """COVEY_PROJECT_IDLE_DAYS, else DEFAULT_IDLE_DAYS (also for a value that is not a positive integer)."""
+def idle_days():
+    """COVEY_PROJECT_IDLE_DAYS, else DEFAULT_IDLE_DAYS (also for a value that is not a positive number). A fraction is fine:
+    0.001 is about 86 seconds, for trying the fold out; a whole number comes back as an int."""
     try:
-        value = int(str(cenv.get(IDLE_ENV, "")).strip())
+        value = float(str(cenv.get(IDLE_ENV, "")).strip())
     except ValueError:
         return DEFAULT_IDLE_DAYS
-    return value if value > 0 else DEFAULT_IDLE_DAYS
+    if not 0 < value < 36500:  # Also NaN and infinity.
+        return DEFAULT_IDLE_DAYS
+    return int(value) if value == int(value) else value
 
 
-def idle_seconds() -> int:
+def idle_seconds() -> float:
     return idle_days() * 86400
+
 
 
 def folded(record) -> bool:

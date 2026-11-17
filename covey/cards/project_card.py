@@ -278,7 +278,7 @@ def settled_card(name, *, url="", reason=""):
 def idle_card(name, days):
     """What the card of a project folded away for being idle becomes (state_reason ``idle``): one grey line, "收起 · 7 天没有新的事", and
     that new work opens it again. Not final: the next look draws the whole card once the project is active again."""
-    return line_block(f"💤 收起 · {int(days)} 天没有新的事", f"{clipped(name, HEAD_CHARS) or '专项'} · 有新的事会自动展开")
+    return line_block(f"💤 收起 · {days:g} 天没有新的事", f"{clipped(name, HEAD_CHARS) or '专项'} · 有新的事会自动展开")
 
 
 def moved_card(name, url=""):

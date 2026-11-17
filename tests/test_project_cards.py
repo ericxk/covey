@@ -888,6 +888,11 @@ class FoldedCardTest(CardCase):
         self.assertFalse(self.sent.called)
         self.assertIn("收起", text(self.put.call_args.args[2]))
 
+    def test_a_fraction_of_a_day_reads_as_it_is(self):
+        projects.update(self.state, PID, lambda record: record.update(state="paused", state_reason="idle", idle={"at": 1.0, "days": 0.001}))
+        self.tick(1010.0)
+        self.assertIn("收起 · 0.001 天没有新的事", text(self.put.call_args.args[2]))
+
     def test_an_old_record_without_the_days_uses_the_setting(self):
         projects.update(self.state, PID, lambda record: record.update(state="paused", state_reason="idle"))
         with mock.patch.dict(os.environ, {projects.IDLE_ENV: "3"}):
