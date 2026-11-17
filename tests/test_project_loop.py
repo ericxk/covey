@@ -511,8 +511,9 @@ class IdleTest(Loop):
         self.assertEqual(self.state_of(), (projects.PAUSED, projects.IDLE))
 
     def test_a_question_card_waiting_folds_away_after_the_idle_days_too(self):
-        write_json(self.state / "questions" / "q1.json",
-                   {"question_id": "q1", "topic_id": THREAD, "chat_id": CHAT, "status": "pending", "created_at": NOW})
+        write_json(self.state / "questions" / ("c" * 16 + ".json"),
+                   {"token": "c" * 16, "topic_id": THREAD, "chat_id": CHAT, "status": "pending", "created_at": NOW})
+        self.assertTrue(project_loop.has_question(self.state, [THREAD]))  # The card counts as work: it is waiting.
         self.loop.tick(NOW + 6 * self.DAY)
         self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
         self.loop.tick(NOW + 7 * self.DAY + 60)
