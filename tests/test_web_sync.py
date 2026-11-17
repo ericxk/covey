@@ -250,6 +250,68 @@ class PushTest(WebCase):
         self.assertNotIn(OTHER, [item["key"] for item in self.web.items("topic")])
 
 
+    def test_a_quiet_full_look_still_posts_an_empty_batch_so_the_page_sees_it_alive(self):
+        self.topic()
+        self.sync.push_once(T0)
+        sent = len(self.web.upserts)
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)
+        self.assertEqual(len(self.web.upserts), sent)
+        self.assertEqual(self.sync.push_once(T0 + 61), 0)
+        self.assertEqual(self.web.upserts[sent:], [{"items": [], "deleted": []}])
+
+    def test_starting_over_pushes_everything_again_and_the_old_look_keeps_to_its_own_records(self):
+        self.topic()
+        first = self.sync.push_once(T0)
+        old = self.sync.sent
+        self.sync.start_over()
+        self.assertEqual(self.sync.push_once(T0 + 1), first)
+        self.assertIsNot(self.sync.sent, old)
+        self.assertEqual(len(old), first)
+
+
+class StuckTest(WebCase):
+    """A step stuck in the file system (an NFS open that never returns holds its thread) is left behind; the next runs in a new thread."""
+
+    def test_a_stuck_step_is_left_behind_and_the_next_runs_in_a_new_thread(self):
+        release, threads, resets = threading.Event(), [], []
+
+        def step():
+            threads.append(threading.current_thread())
+            if len(threads) == 1:
+                release.wait(10)
+            elif len(threads) >= 3:
+                self.runtime.shutdown.set()
+        with mock.patch.object(app_web, "STUCK_SECONDS", 0.2):
+            self.sync.loop("push", step, lambda: 0.01, lambda: resets.append(1))
+        release.set()
+        threads[0].join(5)
+        threads[1].join(5)
+        self.assertEqual(len([line for line in self.logs if "web sync push stuck" in line]), 1)
+        self.assertEqual(resets, [1])
+        self.assertIsNot(threads[0], threads[1])
+        self.assertIs(threads[1], threads[2])
+        self.assertFalse(threads[0].is_alive())
+        self.assertFalse(threads[1].is_alive())
+
+    def test_no_new_thread_while_too_many_are_still_stuck(self):
+        release, starts = threading.Event(), []
+
+        def step():
+            starts.append(time.monotonic())
+            if len(starts) == 1:
+                release.wait(10)
+            else:
+                self.runtime.shutdown.set()
+        timer = threading.Timer(0.6, release.set)
+        timer.start()
+        self.addCleanup(timer.cancel)
+        with mock.patch.object(app_web, "STUCK_SECONDS", 0.1), mock.patch.object(app_web, "MAX_LEFT", 1):
+            began = time.monotonic()
+            self.sync.loop("push", step, lambda: 0.01)
+        self.assertEqual(len(starts), 2)
+        self.assertGreaterEqual(starts[1] - began, 0.55)
+
+
 class BackoffTest(WebCase):
     def test_a_failing_page_is_waited_out_with_a_growing_delay_and_logged_once(self):
         waits = []

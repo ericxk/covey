@@ -17,6 +17,7 @@ Rule 1 (AGENTS.md): no lock is held across a request; records are read, not lock
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import time
 from pathlib import Path
@@ -37,6 +38,8 @@ TOPIC_DAYS = 30  # A full look takes the topics with a job written within this m
 TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
 MAX_BACKOFF = 30
 TIMEOUT = 20
+STUCK_SECONDS = 60  # A step not ended in this long is left behind (an NFS read can hold its thread for good); the next runs in a new thread.
+MAX_LEFT = 3  # Left-behind steps still stuck: with this many no new thread is started until one of them ends.
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
 
@@ -47,6 +50,41 @@ class WebError(Exception):
     def __init__(self, text, status=0) -> None:
         super().__init__(text)
         self.status = status
+
+
+class Stuck(Exception):
+    """A step that did not end within its time."""
+
+
+class Worker:
+    """A thread that runs the steps it is handed, one at a time. A step stuck in a system call is left to it: the caller hands the
+    next steps to a new Worker, and this thread ends when the stuck step does."""
+
+    def __init__(self, name) -> None:
+        self.steps, self.ends = queue.Queue(), queue.Queue()
+        self.thread = threading.Thread(target=self.run, name=name, daemon=True)
+        self.thread.start()
+
+    def run(self) -> None:
+        while True:
+            step = self.steps.get()
+            if step is None:
+                return
+            try:
+                self.ends.put((step(), None))
+            except Exception as exc:  # noqa: BLE001 - raised in the caller's thread
+                self.ends.put((None, exc))
+
+    def call(self, step, seconds):
+        self.steps.put(step)
+        try:
+            value, exc = self.ends.get(timeout=seconds)
+        except queue.Empty:
+            self.steps.put(None)
+            raise Stuck from None
+        if exc is not None:
+            raise exc
+        return value
 
 
 class Client:
@@ -307,17 +345,28 @@ class WebSync:
     def threads(self):
         if not web_sync.enabled():
             return ()
-        return (("web-push", lambda ctx: self.loop("push", self.push_once, lambda: self.client.settings().push_seconds)),
+        return (("web-push", lambda ctx: self.loop("push", self.push_once, lambda: self.client.settings().push_seconds, self.start_over)),
                 ("web-inbox", lambda ctx: self.loop("inbox", self.inbox_once, lambda: self.client.settings().poll_seconds)))
 
-    def loop(self, label, step, seconds) -> None:
-        """``step`` every ``seconds()``; a failure is logged (the first, then every tenth) and waited out 2, 4 ... MAX_BACKOFF seconds."""
+    def loop(self, label, step, seconds, reset=None) -> None:
+        """``step`` every ``seconds()``, in a Worker; a failure is logged (the first, then every tenth) and waited out 2, 4 ... MAX_BACKOFF
+        seconds. A step not ended in STUCK_SECONDS is logged and left behind: ``reset()`` drops what it was building and the next step
+        runs in a new Worker (none while MAX_LEFT left-behind ones are still stuck)."""
+        worker, left = Worker(f"web-{label}-step"), []
         while not self.runtime.shutdown.is_set():
             try:
-                step()
+                worker.call(step, STUCK_SECONDS)
                 if self.down.pop(label, 0):
                     self.runtime.log(f"web sync {label} recovered")
                 wait = seconds()
+            except Stuck:
+                left = [each for each in (*left, worker) if each.thread.is_alive()]
+                self.runtime.log(f"web sync {label} stuck: a step has not ended in {STUCK_SECONDS} s; left behind ({len(left)} so far)")
+                while len(left) >= MAX_LEFT and not self.runtime.shutdown.wait(STUCK_SECONDS):
+                    left = [each for each in left if each.thread.is_alive()]
+                if reset is not None:
+                    reset()
+                worker, wait = Worker(f"web-{label}-step"), 0
             except Exception as exc:  # noqa: BLE001 - a failing page must not stop anything else
                 failed = self.down[label] = self.down.get(label, 0) + 1
                 if failed == 1 or failed % 10 == 0:
@@ -325,6 +374,7 @@ class WebSync:
                 wait = min(MAX_BACKOFF, 2 ** min(failed, 5))
             if self.runtime.shutdown.wait(wait):
                 break
+        worker.steps.put(None)
 
     @staticmethod
     def why(exc) -> str:
@@ -332,26 +382,33 @@ class WebSync:
 
     # -- push -----------------------------------------------------------------------------------------------------------
 
+    def start_over(self) -> None:
+        """After a look was left behind: a new collector, nothing counted as sent, so the next look is a full one. The left-behind
+        look keeps writing only to the old ones."""
+        self.collector, self.sent, self.last_full = Collector(self.env), {}, 0.0
+
     def push_once(self, now=None) -> int:
-        """One look and one push; how many items went out. Raises WebError when the page did not take a batch (the batches before it count)."""
+        """One look and one push; how many items went out. Raises WebError when the page did not take a batch (the batches before it count).
+        A full look that has nothing to send still posts an empty batch, so the page's 最后同步 moves on in a quiet minute."""
         chat = self.runtime.access.owner_chat()
         if not chat or not self.env.state_dir:
             return 0
+        collector, sent = self.collector, self.sent
         now = time.time() if now is None else now
         full = now - self.last_full >= FULL_SECONDS
-        items, deleted = self.collector.collect(chat, now, full)
-        changed = [each for each in items if self.sent.get((each["type"], each["key"])) != each["rev"]]
+        items, deleted = collector.collect(chat, now, full)
+        changed = [each for each in items if sent.get((each["type"], each["key"])) != each["rev"]]
         count = 0
         for batch in web_sync.batches(changed):
             self.client.request("POST", "/sync/upsert", {"items": batch, "deleted": []})
             for each in batch:
-                self.sent[(each["type"], each["key"])] = each["rev"]
+                sent[(each["type"], each["key"])] = each["rev"]
             count += len(batch)
-        if deleted:
+        if deleted or (full and not count):
             self.client.request("POST", "/sync/upsert", {"items": [], "deleted": deleted})
             for each in deleted:
-                self.sent.pop((each["type"], each["key"]), None)
-        if full:
+                sent.pop((each["type"], each["key"]), None)
+        if full and collector is self.collector:
             self.last_full = now
         return count
 
@@ -379,7 +436,7 @@ class WebSync:
                 if row.get("topic_key"):
                     self.collector.touch(row["topic_key"])
             elif known.get("state") == "received":
-                ledger.finish(op_id, "failed", "Covey 重启时这条正在执行，结果不确定，没有重发")
+                ledger.finish(op_id, "failed", "这条执行到一半没有结果（Covey 重启或卡住了），结果不确定，没有重发")
             saved = ledger.get(op_id)
             results.append({"seq": seq, "op_id": op_id, "state": saved["state"], "message": saved["message"]})
         if results:
