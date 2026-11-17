@@ -6,8 +6,7 @@ again each time that changes, and once more as a single line when the project is
 Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the order drawn:
 
 - ``answer_ask`` (only for a project the owner's own message started): the grey "你问" block;
-- the header: the project's name, its state as a tag (在做, 等你, 停住, 做完) and its direction (a grey tag; P2-8, drawn only
-  when the record has one);
+- the header: the project's name, its state as a tag (在做, 等你, 停住, 做完);
 - ``pj_need``: 需要你 and what waits, with › 打开问题卡 when the question card has a link;
 - ``pj_meta``: one grey line, member topics and how they stand, 用时, token;
 - ``pj_lead``: the lead as it is now and the last line it noted;
@@ -80,7 +79,6 @@ class Project:
     lead_topic: str
     name: str
     status: str
-    direction: str = ""
     need: str = ""
     need_url: str = ""
     members: tuple = ()
@@ -107,9 +105,6 @@ def clipped(text, limit) -> str:
 def header(project):
     color, icon = LOOKS[project.status]
     tags = [{"tag": "text_tag", "text": {"tag": "plain_text", "content": project.status}, "color": color}]
-    if project.direction:
-        tags.append({"tag": "text_tag", "text": {"tag": "plain_text", "content": clipped(project.direction, 12)},
-                     "color": "neutral"})
     head = panel_header(icon or "waiting_outlined", clipped(project.name, HEAD_CHARS) or "专项", "", [(project.status, color)],
                         color=color)
     head["text_tag_list"] = tags
@@ -272,17 +267,17 @@ def line_block(words, text, url=""):
     return built
 
 
-def settled_card(name, *, url="", reason="", direction=""):
+def settled_card(name, *, url="", reason=""):
     """What the card of a project that is done becomes: one grey line, "✅ 做完 · 结论在下方 ›" opening the conclusion at
     ``url``. ``reason``: said instead for a project that ended some other way (stopped, no longer a project); no link."""
     words = f"✅ {DONE} · 结论在下方" + ("　›" if url else "") if not reason else f"⏹ {reason}"
-    text = " · ".join(part for part in (direction, clipped(name, HEAD_CHARS) or "专项") if part)
+    text = clipped(name, HEAD_CHARS) or "专项"
     return line_block(words, text, url if not reason else "")
 
 
-def moved_card(name, url="", *, direction=""):
+def moved_card(name, url=""):
     """The old card of a project whose card was sent again (the 14 days): "已移到新卡 ›" opening the new one."""
-    text = " · ".join(part for part in (direction, clipped(name, HEAD_CHARS) or "专项") if part)
+    text = clipped(name, HEAD_CHARS) or "专项"
     return line_block("已移到新卡" + ("　›" if url else ""), text, url)
 
 
@@ -310,7 +305,7 @@ def asked_card(name, why, choice=""):
     return line_block(ASKED_MARKS.get(choice, "已在别处处理"), " · ".join(part for part in (clipped(name, HEAD_CHARS) or "专项", clipped(why, 40)) if part))
 
 
-def merged_card(name, url="", *, direction=""):
+def merged_card(name, url=""):
     """The old 派发卡 of a job that became part of a project (app/projects.py upgrade): "已并入专项 ›" opening the project's card."""
-    text = " · ".join(part for part in (direction, clipped(name, HEAD_CHARS) or "专项") if part)
+    text = clipped(name, HEAD_CHARS) or "专项"
     return line_block("已并入专项" + ("　›" if url else ""), text, url)

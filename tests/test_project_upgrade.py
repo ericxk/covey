@@ -521,59 +521,30 @@ class DirectTest(UpCase):
         self.assertIn("project_id", answer["data"])
 
 
-class DirectionStyleTest(UpCase):
-    """COVEY_DIRECTIONS=1 and COVEY_PROJECT_STYLE_KEEP=1 on the project's two entrances; off, a project is what it was."""
+class StyleKeepTest(UpCase):
+    """COVEY_PROJECT_STYLE_KEEP=1 on the project's two entrances; off, a project is what it was. The direction layer is gone:
+    COVEY_DIRECTIONS and the direction arguments change nothing."""
 
     def on(self, **env):
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_off_no_record_carries_a_direction_or_a_style(self):
+    def test_off_no_record_carries_a_style_and_the_direction_arguments_change_nothing(self):
+        self.on(COVEY_DIRECTIONS="1")
         answer = self.start("p1", project=True, direction="数据平台", direction_by_owner=True)
         project = projects.read_record(self.state, answer["data"]["project_id"])
-        self.assertIsNone(project["direction"])
+        self.assertNotIn("direction", project)
         self.assertNotIn("style", project)
         self.assertFalse((self.state / "directions.json").exists())
+        self.assertEqual(len(self.sent.call_args.args[2]["header"]["text_tag_list"]), 1)
 
-    def test_a_project_opened_directly_keeps_the_direction_the_butler_gave_and_shows_it_from_the_second_use(self):
-        self.on(COVEY_DIRECTIONS="1")
-        first = self.start("p1", project=True, direction="数据平台")["data"]["project_id"]
-        self.assertEqual(projects.read_record(self.state, first)["direction"], {"name": "数据平台", "source": "butler"})
-        self.assertEqual(self.sent.call_args.args[2]["header"]["text_tag_list"][0]["text"]["content"], "在做")
-        self.assertEqual(len(self.sent.call_args.args[2]["header"]["text_tag_list"]), 1)  # A candidate is not drawn.
-        second = self.start("p2", project=True, direction="数据平台", direction_by_owner=True)["data"]["project_id"]
-        self.assertEqual(projects.read_record(self.state, second)["direction"], {"name": "数据平台", "source": "owner"})
-        tags = [tag["text"]["content"] for tag in self.sent.call_args.args[2]["header"]["text_tag_list"]]
-        self.assertEqual(tags, ["在做", "数据平台"])
-        self.start("p2", project=True, direction="别的")  # The same request again counts nothing and changes nothing.
-        saved = json.loads((self.state / "directions.json").read_text())["directions"]
-        self.assertEqual([(item["name"], item["status"]) for item in saved], [("数据平台", "active")])
-
-    def test_a_direction_drawn_by_the_project_card_is_the_records_name_once_it_is_active(self):
+    def test_an_old_records_direction_is_neither_drawn_nor_an_error(self):
         from covey.app.project_cards import facts
 
-        self.on(COVEY_DIRECTIONS="1")
-        pid = self.start("p1", project=True, direction="数据平台")["data"]["project_id"]
-        record = projects.read_record(self.state, pid)
-        self.assertEqual(facts(self.state, record, time.time()).direction, "")
-        write_json(self.state / "directions.json", {"directions": [{"name": "数据平台", "aliases": [], "repos": [], "status": "active"}]})
-        self.assertEqual(facts(self.state, record, time.time()).direction, "数据平台")
-        with mock.patch.dict(os.environ, {"COVEY_DIRECTIONS": ""}):
-            self.assertEqual(facts(self.state, record, time.time()).direction, "")
-        projects.update(self.state, pid, lambda data: data.update(direction="旧的说法"))
-        self.assertEqual(facts(self.state, projects.read_record(self.state, pid), time.time()).direction, "旧的说法")
-
-    def test_a_card_upgraded_to_a_project_brings_its_direction_along_without_counting_a_use(self):
-        self.on(COVEY_DIRECTIONS="1")
-        self.long()
-        self.start("r1", direction="数据平台")
-        dispatch = self.record("r1")
-        self.assertEqual(dispatch["direction"], {"name": "数据平台", "source": "butler"})
-        project = self.project(dispatch)
-        self.assertEqual(project["direction"], dispatch["direction"])
-        saved = json.loads((self.state / "directions.json").read_text())["directions"]
-        self.assertEqual([(item["name"], item["status"]) for item in saved], [("数据平台", "candidate")])
+        pid = self.start("p1", project=True)["data"]["project_id"]
+        projects.update(self.state, pid, lambda data: data.update(direction={"name": "数据平台", "source": "owner"}))
+        self.assertFalse(hasattr(facts(self.state, projects.read_record(self.state, pid), time.time()), "direction"))
 
     def test_a_new_project_starts_from_the_style_last_set_only_with_the_switch(self):
         project_lead.keep_style(self.state, {"report": "ask_only", "detail": "全", "spawn": "积极"})

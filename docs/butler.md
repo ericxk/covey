@@ -402,8 +402,8 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 `COVEY_PROJECTS=1` 时，每个专项有一张卡：聊天区的一条新消息（不回复主人那条消息：飞书对已有串的消息，回复一律进串；主人那句话直接开的专项，顶上带“你问”块），不开串。点击和引用它回复都按消息别名路由到专项的负责人话题（`route_message`），所以按钮是负责人话题的点击。**只有 `ProjectCards`（`app/project_cards.py`）写它**（规则 3）。
 
-- **内容**（`cards/project_card.py` 的 `project_card`，element_id 都不超过 20 个字符）：卡头 = 专项名 + 状态标签（在做、等你、停住、做完）+ 方向灰标签（读记录的 `direction`，没有就不画）；`pj_need`“需要你”（摘要 + 打开问题卡 ›）、`pj_meta`（话题数、用时、token）、`pj_lead`（负责人现状 + 最近一句 note）；话题折叠面板 `pt_<话题前 6 位>_<状态字母>`：在做和等你的展开、做完的收起，**状态变了元素 id 就换**（客户端对同一个 id 改 `expanded` 不一定重画），等你的排最前、做完的最后，最多 8 个、其余一行 `pj_more`“更早 N 条”；`pj_triage`、`pj_mem`、`pj_lib` 三个收起的面板（分流记录、专项记忆、资料库，空就不画，后两个每行一个“删”）；`pj_io` 灰框（输入是负责人自己的 Harness、模型、思考预算：取它最新任务，还没有任务时取它 topic.json 的绑定，不取话题的；各话题用的 Harness 写在自己折叠面板的末行）；`pj_btns`：补充、停止专项、不要专项（停住的没有停止，做完的没有按钮）。没有输入框：会重画的卡不放输入框，补充另发一张表单卡。体积 5–13 KB（`tests/golden/cards.json.xz` 的 `project.*` 样本）。各个开关全开、每份清单都满时会超过一张卡的容量（`CARD_NODES`、`CARD_BYTES`，各留一点余量）：`project_card` 按 `FIT_STEPS` 一步步让三个折叠面板少画几行、话题折叠面板少画几个（每处剩下的写成一行“另有 N 条”“更早 N 条已收起”），直到放得下；放得下时一个字不变。
-- **读什么**：只读任务记录和问题（没有飞书调用，不拿锁）。话题的状态和一句话沿用派发卡（`app/dispatch_cards.py` 的 `status_of`）；记录字段 `direction`（P2-8）、`lead_note`（`{text, at}` 或字符串，P2-2）、`tokens_used`（整数，P2-2）、`conclusion_message_id`（负责人收尾报告的消息，P2-2）、`triage`（行或 `{at, text}`）、专项记忆（`core/project_memory.py`：`projects/<id>/memory.json` 的 `{"entries": […]}`，也读旧版留在专项记录 `memory` 字段里的条目；删掉的和风格行不画；卡上的“删”写墓碑，不真删）、`projects/<id>/library/`（文件名）；空的不画。
+- **内容**（`cards/project_card.py` 的 `project_card`，element_id 都不超过 20 个字符）：卡头 = 专项名 + 状态标签（在做、等你、停住、做完）；`pj_need`“需要你”（摘要 + 打开问题卡 ›）、`pj_meta`（话题数、用时、token）、`pj_lead`（负责人现状 + 最近一句 note）；话题折叠面板 `pt_<话题前 6 位>_<状态字母>`：在做和等你的展开、做完的收起，**状态变了元素 id 就换**（客户端对同一个 id 改 `expanded` 不一定重画），等你的排最前、做完的最后，最多 8 个、其余一行 `pj_more`“更早 N 条”；`pj_triage`、`pj_mem`、`pj_lib` 三个收起的面板（分流记录、专项记忆、资料库，空就不画，后两个每行一个“删”）；`pj_io` 灰框（输入是负责人自己的 Harness、模型、思考预算：取它最新任务，还没有任务时取它 topic.json 的绑定，不取话题的；各话题用的 Harness 写在自己折叠面板的末行）；`pj_btns`：补充、停止专项、不要专项（停住的没有停止，做完的没有按钮）。没有输入框：会重画的卡不放输入框，补充另发一张表单卡。体积 5–13 KB（`tests/golden/cards.json.xz` 的 `project.*` 样本）。各个开关全开、每份清单都满时会超过一张卡的容量（`CARD_NODES`、`CARD_BYTES`，各留一点余量）：`project_card` 按 `FIT_STEPS` 一步步让三个折叠面板少画几行、话题折叠面板少画几个（每处剩下的写成一行“另有 N 条”“更早 N 条已收起”），直到放得下；放得下时一个字不变。
+- **读什么**：只读任务记录和问题（没有飞书调用，不拿锁）。话题的状态和一句话沿用派发卡（`app/dispatch_cards.py` 的 `status_of`）；记录字段 `lead_note`（`{text, at}` 或字符串，P2-2）、`tokens_used`（整数，P2-2）、`conclusion_message_id`（负责人收尾报告的消息，P2-2）、`triage`（行或 `{at, text}`）、专项记忆（`core/project_memory.py`：`projects/<id>/memory.json` 的 `{"entries": […]}`，也读旧版留在专项记录 `memory` 字段里的条目；删掉的和风格行不画；卡上的“删”写墓碑，不真删）、`projects/<id>/library/`（文件名）；空的不画。
 - **刷新**：后台线程每秒看一遍，摘要变了且离上次写至少 2.5 秒才整卡 PUT；每次写前从 `reserve` 取 sequence 存进 `record["card"]`，失败按 2、4、8 … 最多 60 秒退避。摘要也存在记录里，重启不会为同一张卡再写一次。
 - **做完**：专项 `done` 后卡缩成一行（`settled_card`，链到那条结论）。结论是 `conclusion_message_id`，没有就看收尾的那一轮（记录的 `state_job`，`project_finish` 写的；`finishing_answer`）：它结束了且在顶层发了回答，链到那条；结束了还没有回答的 id，再等 30 秒（`ANSWER_WAIT`：id 比状态晚一会儿写进记录），仍没有就缩、不带链接（安静的唤醒轮不发回复）；还在跑就等它，最多 10 分钟。`cancelled` 缩成“⏹ 专项已降为普通话题”。缩完记 `card.closed`，不再刷新。
 - **14 天翻页**：CardKit 的卡实体 14 天后不能改。卡龄过第 12 天（`FLIP_AFTER`）新发一张卡（一条新消息，键里带代数；发不出去下次用同一个 `pending_card_id` 重试），记录、别名、Pin 改指新卡（`aimed` 读记录），旧卡下一次看时缩成“已移到新卡 ›”（用它自己的 sequence），写不了 3 次就撤回。
@@ -458,14 +458,6 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 ### 汇报风格的默认值（开关默认关）
 
 `COVEY_PROJECT_STYLE_KEEP=1` 时，负责人用 `project_style` 改风格时，整份风格（`report`、`detail`、`spawn`）也记进 `<state>/project-style.json`；之后转成专项、直接开的新专项的记录从这份风格开始（`Projects.seed_style`），负责人的规则和状态包里就是它。已有的专项不动，负责人随时还能改。
-
-### 方向标签（开关默认关）
-
-`COVEY_DIRECTIONS=1` 时：主人的事分成几个方向（`<state>/directions.json`：`{"directions": [{name, aliases[], repos[], status}]}`，`core/directions.py`）；开着时派发卡和专项卡的卡头多一个灰色标签写方向，记录里写 `direction: {name, source}`（`source` 是 `owner`、`repo`、`butler`）。
-
-- **谁说了算**，从高到低：主人明确说了（管家 `topic_start` 的 `direction` 带 `direction_by_owner: true`）；工作目录或仓库命中某个方向的 `repos`（绝对路径：目录在它下面；`owner/repo` 这样的名字：路径里有这几级目录）；管家开话题、开专项时填的 `direction`（从工具说明里列的已知方向里选，也可以起新名）；都没有就不显示。**只按工作区不判断**：工作区不会产生方向，只有方向自己的 `repos` 会命中。
-- **新名先当候选**：第一次出现写成 `candidate`，第二次用到（另一次请求、另一个专项）变 `active`，只有 `active` 的才画标签；同一个请求重做不算第二次。方向的种子和别名由主人自己写进 `directions.json`。
-- **在哪**：派发卡 `Dispatch.direction`、专项卡 `Project.direction`，都是卡头的 `text_tag`（`neutral`，最多 12 个字）；派发记录的 `direction` 转成专项时原样带过去（那一次使用已经记过）。卡头多一个标签，要真客户端验收。
 
 ## 代码位置
 

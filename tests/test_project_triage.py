@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import threading
 import time
 import unittest
@@ -745,7 +744,7 @@ class PauseInterplayTest(Held):
 
 
 class ToolListInterplayTest(unittest.TestCase):
-    """The tool lists with the triage's and the directions' switches off and on together."""
+    """The tool lists with the triage's switch off and on, and COVEY_DIRECTIONS (gone) doing nothing."""
     BUTLER = {"COVEY_BUTLER_RULES": "1", "COVEY_PROJECTS": "1"}
 
     def test_off_nothing_of_the_new_features_is_listed(self):
@@ -755,12 +754,9 @@ class ToolListInterplayTest(unittest.TestCase):
         self.assertFalse({"project_answer", "project_escalate"} & set(lead))
 
     def test_on_each_adds_its_own_and_the_memory_kinds_are_there_too(self):
-        with tempfile.TemporaryDirectory() as state:
-            write_json(Path(state) / "directions.json", {"directions": [{"name": "数据平台", "aliases": [], "repos": [], "status": "active"}]})
-            butler_env = {**self.BUTLER, "COVEY_DIRECTIONS": "1", butler_tool_specs.STATE_ENV: state}
-            start = {tool["name"]: tool for tool in butler_tool_specs.listed(butler_env)}["topic_start"]["input_schema"]["properties"]
-        self.assertTrue({"direction", "direction_by_owner", "project", "harness", "model", "effort"} <= set(start))
-        self.assertIn("数据平台", start["direction"]["description"])
+        start = {tool["name"]: tool for tool in butler_tool_specs.listed({**self.BUTLER, "COVEY_DIRECTIONS": "1"})}["topic_start"]["input_schema"]["properties"]
+        self.assertTrue({"project", "harness", "model", "effort"} <= set(start))
+        self.assertFalse({"direction", "direction_by_owner"} & set(start))  # COVEY_DIRECTIONS is not read any more.
         lead = {tool["name"]: tool for tool in butler_tool_specs.listed({**self.BUTLER, butler_tool_specs.LEAD_ENV: PID, triage.ENV: "1"})}
         self.assertTrue({"project_answer", "project_escalate", "project_remember", "project_topic_start"} <= set(lead))
         self.assertEqual(lead["project_remember"]["input_schema"]["properties"]["kind"]["enum"],

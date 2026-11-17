@@ -138,8 +138,8 @@ class RecordTest(Case):
         self.assertEqual((record["state"], record["name"], record["lead_topic_id"], record["threads"], record["origin"]),
                          ("active", "整理 专项", LEAD, [], {"kind": "upgrade"}))
         self.assertEqual((record["created_at"], record["updated_at"]), (5.0, 5.0))
-        self.assertEqual((record["direction"], record["leader"], record["claims"], record["agreements"], record["place"]),
-                         (None, {"kind": "temp", "profile": None}, [], [], {"chat_id": CHAT}))
+        self.assertEqual((record["leader"], record["claims"], record["agreements"], record["place"]),
+                         ({"kind": "temp", "profile": None}, [], [], {"chat_id": CHAT}))
         self.assertEqual(record["card"], {"card_id": "", "message_id": "", "sequence": 0})
         self.assertEqual(len(projects.new_record(chat_id=CHAT, name="x" * 99)["name"]), projects.NAME_CHARS)
         with self.assertRaises(ValueError):

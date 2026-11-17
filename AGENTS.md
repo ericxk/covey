@@ -261,7 +261,6 @@
 | `core/device_transport.py` | The hub's side of the device shim's wire protocol |
 | `core/devices.py` | Devices: other machines (Linux over ssh) a topic can work on instead of this one |
 | `core/diff.py` | Per-job workspace diff capture for shared Harness bridge jobs |
-| `core/directions.py` | 方向标签, when COVEY_DIRECTIONS=1 |
 | `core/dispatch_records.py` | The records of the 派发卡 |
 | `core/env.py` | Environment variable names: `COVEY_<X>` is the name, `LARK_BRIDGE_<X>` the old one that still works |
 | `core/extensions.py` | Optional extension packages: which are enabled, where they are found, the data and features they add |

@@ -18,8 +18,7 @@ own (cards/project_card.py), kept up to date and shrunk to one line when the pro
 - The click helpers at the end are what the card's buttons run (app/card_actions.py: ``controls.project_stop`` etc.): they
   check the click belongs to the project's lead topic, the topic the card's message routes to.
 
-The record fields this reads and nobody here writes (later packages fill them; an empty one is not drawn): ``direction``
-(a text, or {name, source} with COVEY_DIRECTIONS=1: core/directions.py), ``lead_note`` ({text, at} or a string; P2-2), ``tokens_used`` (an int; P2-2), ``conclusion_message_id`` (the
+The record fields this reads and nobody here writes (later packages fill them; an empty one is not drawn): ``lead_note`` ({text, at} or a string; P2-2), ``tokens_used`` (an int; P2-2), ``conclusion_message_id`` (the
 lead's report on the project's end; P2-2), ``triage`` (a list of lines or {at, text} rows; P2-4's 分流 package),
 ``projects/<id>/memory.json`` (core/project_memory.py: {"entries": [...]}, or a list, of strings or {id, text}) and ``projects/<id>/library/``
 (its files' names)."""
@@ -39,7 +38,7 @@ from covey.cards.project_card import (ASK_KINDS, CORRECTED, DONE, PAUSED, RUNNIN
 from covey.app import project_loop
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
-from covey.core import directions, project_library, project_memory, projects
+from covey.core import project_library, project_memory, projects
 from covey.core.card_sequence import CardHandle, reserve
 from covey.core.jobs import job_path, read_job_record, topic_job_records
 from covey.core.statuses import ENDED
@@ -139,13 +138,6 @@ def lead_state(state_dir, record, now) -> str:
     return "待命"
 
 
-def direction_of(state_dir, record) -> str:
-    """The direction the project's cards draw: a text an older record holds as it is; {name, source} (COVEY_DIRECTIONS=1) only once
-    its name is active (core/directions.py ``shown``)."""
-    value = record.get("direction")
-    return value if isinstance(value, str) else directions.shown(state_dir, value)
-
-
 def lead_note(record) -> str:
     note = record.get("lead_note")
     text = note.get("text") if isinstance(note, dict) else note
@@ -238,7 +230,6 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
         parts.append(answer_card.figure("token", tokens))
     ask = record.get("ask") if isinstance(record.get("ask"), dict) else {}
     return Project(project_id=pid, lead_topic=lead, name=str(record.get("name") or ""), status=status,
-                   direction=direction_of(state_dir, record),
                    need=need, need_url=str(links.get("need") or ""), members=members, elapsed=elapsed, tokens=tokens,
                    lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
                    triage=triage_lines(record), memory=memory_rows(state_dir, record), library=library_rows(state_dir, pid),
@@ -533,7 +524,7 @@ class ProjectCards:
                 return
             if conclusion:
                 url = self.message_url(ctx, record, conclusion)
-        built = settled_card(record.get("name"), url=url, reason=reason, direction=direction_of(ctx.state_dir, record))
+        built = settled_card(record.get("name"), url=url, reason=reason)
         if self.write(ctx, record, card, seen, built, now):
             projects.update_card(ctx.state_dir, pid, closed=True, settled_at=now, digest=digest_of(built))
 
@@ -578,7 +569,7 @@ class ProjectCards:
             return
         pid, old = str(record["id"]), dict(card["old"])
         url = self.message_url(ctx, record, str(card.get("message_id") or ""))
-        built = moved_card(record.get("name"), url, direction=direction_of(ctx.state_dir, record))
+        built = moved_card(record.get("name"), url)
 
         def save(sequence):
             projects.update_card(ctx.state_dir, pid, old={**old, "sequence": sequence})

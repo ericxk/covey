@@ -9,7 +9,6 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
   message: Feishu puts a reply to a message that has a thread already (the topic the work was handed to hangs under
   that message) into the thread whatever ``reply_in_thread`` says, so the block says whose question it is instead;
 - the header: the owner's request, its first ``HEAD_CHARS`` characters, and the state as a tag (在做, 等你, 做完, 失败, 已停);
-  with COVEY_DIRECTIONS=1 and a direction that is active (core/directions.py) a second, grey tag names it;
 - ``dp_meta``: one grey line, "T453 · 12:41 起 · 用时 2分05秒";
 - ``dp_thread``: the fold 话题 (open while the job works or waits on the owner, closed once it ended), its title line the
   topic's T number, title and workspace; inside it ``dp_body`` (the stage or step the job is at) and ``dp_notes``;
@@ -58,7 +57,6 @@ class Dispatch:
     url: str = ""
     ask_at: str = ""
     ask_url: str = ""
-    direction: str = ""  # The work's direction as the card draws it ('' for none: core/directions.py shown).
 
 
 def head_words(request) -> str:
@@ -71,9 +69,6 @@ def header(dispatch):
     head = panel_header(icon or "waiting_outlined", head_words(dispatch.request), "", [(dispatch.status, color)], color=color)
     if not icon:
         head.pop("icon")
-    if dispatch.direction:
-        head["text_tag_list"] = [*head["text_tag_list"], {"tag": "text_tag", "text": {"tag": "plain_text", "content": dispatch.direction[:12]},
-                                                            "color": "neutral"}]
     return head
 
 

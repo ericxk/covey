@@ -10,7 +10,7 @@ does not; its Traits row is LEAD); a member topic (``role`` "thread" on disk, ``
 its own role (project_member). The lead's topic id comes from the chat and the project (``lead_topic_id``), so it is never a
 message's alias and no event routes to it by accident.
 
-Fields written for phase 3 and read by nothing now: ``direction``, ``leader``, ``claims``, ``agreements``, ``place``.
+Fields written for phase 3 and read by nothing now: ``leader``, ``claims``, ``agreements``, ``place``.
 
 Standard library and core only: the MCP server imports core/butler.py, which imports this."""
 from __future__ import annotations
@@ -110,7 +110,7 @@ def new_record(*, chat_id, name, goal="", project_id=None, origin=None, now=None
         "card": {"card_id": "", "message_id": "", "sequence": 0},
         "created_at": stamp, "updated_at": stamp,
         # For phase 3 (docs/architecture.md 专项); nothing reads them yet.
-        "direction": None, "leader": {"kind": "temp", "profile": None}, "claims": [], "agreements": [],
+        "leader": {"kind": "temp", "profile": None}, "claims": [], "agreements": [],
         "place": {"chat_id": str(chat_id or "")},
     }
 

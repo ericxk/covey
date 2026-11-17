@@ -24,7 +24,7 @@ from covey.core import butler_settings
 from covey.core.jobs import BridgeReplyJob, upsert_job_record
 from covey.core.butler_requests import Request
 from covey.core.state import read_object, write_json
-from covey.core.topics import load_topic, routed_topic
+from covey.core.topics import routed_topic
 
 CHAT = "oc_owner_dm"
 OWNER = "om_owner_question"
@@ -211,58 +211,25 @@ class DispatchCase(UnifiedCase):
         return self.put.call_args.args[2]
 
 
-class DirectionTest(DispatchCase):
-    """COVEY_DIRECTIONS=1: the direction on the card's header and in its record (core/directions.py); off, neither."""
+class DirectionGoneTest(DispatchCase):
+    """The direction layer is gone: the switch and the arguments do nothing, an old record's field is kept and not drawn."""
 
-    def setUp(self):
-        super().setUp()
-        patcher = mock.patch.dict(os.environ, {"COVEY_DIRECTIONS": "1"})
-        patcher.start()
-        self.addCleanup(patcher.stop)
+    def tags(self):
+        return [tag["text"]["content"] for tag in self.dispatch_sends()[-1].args[2]["header"]["text_tag_list"]]
 
-    def tags(self, call=None):
-        card = (call or self.dispatch_sends()[-1]).args[2]
-        return [tag["text"]["content"] for tag in card["header"]["text_tag_list"]]
-
-    def test_the_header_has_a_grey_tag_for_the_direction_and_none_without_one(self):
-        card = view.dispatch_card(dispatch(direction="数据平台"))
-        self.assertEqual([(tag["text"]["content"], tag["color"]) for tag in card["header"]["text_tag_list"]],
-                         [("在做", "blue"), ("数据平台", "neutral")])
-        self.assertEqual(view.dispatch_card(dispatch())["header"], view.dispatch_card(dispatch(direction=""))["header"])
-        self.assertEqual(len(view.dispatch_card(dispatch())["header"]["text_tag_list"]), 1)
-        self.assertEqual(view.dispatch_card(dispatch(direction="方向" * 10))["header"]["text_tag_list"][1]["text"]["content"], "方向" * 6)
-
-    def test_a_new_name_is_kept_in_the_record_and_shown_from_its_second_use(self):
-        self.start("r1", direction="数据平台")
-        self.assertEqual(self.record("r1")["direction"], {"name": "数据平台", "source": "butler"})
-        self.assertEqual(self.tags(), ["在做"])
-        self.start("r2", direction="数据平台", direction_by_owner=True)
-        self.assertEqual(self.record("r2")["direction"], {"name": "数据平台", "source": "owner"})
-        self.assertEqual(self.tags(), ["在做", "数据平台"])
-        # The first card reads the file again on its next look and draws the name too.
-        self.tick(time.time() + 10)
-        first = [call for call in self.put.call_args_list if call.args[1] == self.record("r1")["card_id"]]
-        self.assertEqual(self.tags(first[-1]), ["在做", "数据平台"])
-
-    def test_the_work_directory_decides_only_through_a_directions_own_repos(self):
-        self.start("r0")
-        workdir = load_topic(self.ctx.state_dir, self.record("r0")["topic_id"])["workdir"]
-        self.assertNotIn("direction", self.record("r0"))
-        self.assertFalse((self.ctx.state_dir / "directions.json").exists())  # The workspace made no direction.
-        write_json(self.ctx.state_dir / "directions.json", {"directions": [
-            {"name": "订单", "aliases": [], "repos": [workdir], "status": "active"}]})
-        self.start("r1", direction="别的方向")
-        self.assertEqual(self.record("r1")["direction"], {"name": "订单", "source": "repo"})  # The repo beats the butler.
-        self.assertEqual(self.tags(), ["在做", "订单"])
-        self.start("r2", direction="别的方向", direction_by_owner=True)
-        self.assertEqual(self.record("r2")["direction"], {"name": "别的方向", "source": "owner"})  # The owner's word beats it.
-
-    def test_off_the_record_and_the_card_are_what_they_were(self):
-        with mock.patch.dict(os.environ, {"COVEY_DIRECTIONS": ""}):
+    def test_the_old_switch_and_arguments_change_nothing_and_make_no_file(self):
+        with mock.patch.dict(os.environ, {"COVEY_DIRECTIONS": "1"}):
             self.start("r1", direction="数据平台", direction_by_owner=True)
         self.assertNotIn("direction", self.record("r1"))
         self.assertEqual(self.tags(), ["在做"])
         self.assertFalse((self.ctx.state_dir / "directions.json").exists())
+
+    def test_an_old_record_with_a_direction_is_read_and_its_card_draws_none(self):
+        self.start("r2")
+        path = records.record_path(self.ctx.state_dir, self.token("r2"))
+        write_json(path, {**self.record("r2"), "direction": {"name": "数据平台", "source": "owner"}})
+        self.tick(time.time() + 10)
+        self.assertEqual(self.tags(), ["在做"])
 
 
 class CreatedTest(DispatchCase):

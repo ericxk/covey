@@ -30,7 +30,7 @@ from covey.app.butler_env import reply
 from covey.cards.project_card import merged_card
 from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
-from covey.core import butler, butler_settings, directions, projects
+from covey.core import butler, butler_settings, projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.jobs import find_job_record, topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
@@ -201,8 +201,6 @@ class Projects:
             made["steps"] = {"record": round(time.time(), 3)}
             made["ask"] = {key: value for key, value in (("text", dispatch.get("request")), ("at", dispatch.get("ask_at")),
                                                          ("url", dispatch.get("ask_url"))) if value}
-            if isinstance(dispatch.get("direction"), dict):
-                made["direction"] = dispatch["direction"]  # The 派发卡's direction: its use was counted there.
             self.seed_style(made)
             projects.create(state, made)
         self.advance(pid)
@@ -441,7 +439,6 @@ class Projects:
             if isinstance(plan, str):
                 return reply(False, plan)
             title, prompt = butler_topics._text(args.get("title"), 40), butler_topics._text(args.get("prompt"))
-            declared, by_owner = str(args.get("direction") or ""), args.get("direction_by_owner") is True
             words = butler_handoff.asked(state, request.job_key).words
             made = projects.new_record(
                 chat_id=chat, name=title, goal=prompt, project_id=pid,
@@ -452,10 +449,6 @@ class Projects:
             asked = dispatch_cards.request_words(state, request.job_key)
             made["ask"] = {key: value for key, value in (("text", asked), ("at", ask.get("ask_at")), ("url", ask.get("ask_url")))
                            if value}
-            direction = directions.claim(state, pid, said=declared if by_owner else "", workdir=plan["workdir"],
-                                         declared="" if by_owner else declared)
-            if direction:
-                made["direction"] = direction
             self.seed_style(made)
             record, _ = projects.create(state, made)
         done = self.advance(pid)

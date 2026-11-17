@@ -65,11 +65,11 @@ def text(card):
 
 
 class CardTest(UnifiedCase):
-    def test_the_header_names_the_project_its_state_and_the_direction_when_there_is_one(self):
-        head = view.project_card(project(direction="数据平台"))["header"]
+    def test_the_header_names_the_project_and_its_state(self):
+        head = view.project_card(project())["header"]
         self.assertEqual(head["title"]["content"], "把订单库迁到新集群")
-        self.assertEqual([tag["text"]["content"] for tag in head["text_tag_list"]], ["在做", "数据平台"])
-        self.assertEqual([tag["color"] for tag in head["text_tag_list"]], ["blue", "neutral"])
+        self.assertEqual([tag["text"]["content"] for tag in head["text_tag_list"]], ["在做"])
+        self.assertEqual([tag["color"] for tag in head["text_tag_list"]], ["blue"])
         plain = view.project_card(project(status=view.WAITING))["header"]
         self.assertEqual([tag["text"]["content"] for tag in plain["text_tag_list"]], ["等你"])
         self.assertEqual(plain["text_tag_list"][0]["color"], "orange")
@@ -77,7 +77,7 @@ class CardTest(UnifiedCase):
             self.assertEqual(view.project_card(project(status))["header"]["text_tag_list"][0]["text"]["content"], status)
 
     def test_the_elements_in_order_and_every_id_is_valid_and_there_is_no_input(self):
-        card = view.project_card(project(need="T503 按日期还是按租户分区？", need_url=URL, direction="数据平台",
+        card = view.project_card(project(need="T503 按日期还是按租户分区？", need_url=URL,
                                          lead_note="先迁小表", triage=("答了 一条",), memory=(("m1", "窗口在周六"),),
                                          library=(("方案.md",),), ask_text="迁库", ask_at="09:10", ask_url=URL))
         found = ids(card["body"]["elements"])
@@ -147,7 +147,7 @@ class CardTest(UnifiedCase):
         self.assertEqual(find_element(card, "pj_stop")["value"], {"kind": "bridge_project_stop", "project_id": PID, "topic_id": LEAD})
 
     def test_the_lines_a_card_shrinks_to(self):
-        done = view.settled_card("迁库", url=URL, direction="数据平台")
+        done = view.settled_card("迁库", url=URL)
         self.assertIn("✅ 做完 · 结论在下方　›", text(done))
         self.assertEqual(find_element(done, "pj_line")["behaviors"], [{"type": "open_url", "default_url": URL}])
         self.assertEqual(done["config"]["width_mode"], "compact")
@@ -214,7 +214,7 @@ class CardCase(UnifiedCase):
 
 
 class BudgetTest(unittest.TestCase):
-    """With everything on at once (the topics' Harness names, the memory and library folds, the 分流记录, the direction tag) and every
+    """With everything on at once (the topics' Harness names, the memory and library folds, the 分流记录) and every
     list full of long lines, the card still takes what a card takes (cards/elements.py CARD_NODES, CARD_BYTES)."""
 
     def card(self, rows, topics):
@@ -223,7 +223,7 @@ class BudgetTest(unittest.TestCase):
                                     body=text, took="12 分钟", url="https://example.com/t/" + "u" * 60, harness="Claude Code")
                         for n in range(topics))
         return view.project_card(view.Project(
-            project_id="a1b2c3d4e5f6", lead_topic="f" * 32, name=text, status="等你", direction=text, need=text, need_url="https://example.com/q",
+            project_id="a1b2c3d4e5f6", lead_topic="f" * 32, name=text, status="等你", need=text, need_url="https://example.com/q",
             members=members, elapsed="3 天 4 小时", tokens="1200 万", lead_state=text, lead_note=text,
             triage=tuple((text, "c" * 16) for _ in range(rows)), memory=tuple((f"{n:06x}", text) for n in range(rows)),
             library=tuple((text, f"{n:06x}") for n in range(rows)), inputs=("输入：" + text,), outputs=("输出：" + text,),
@@ -347,7 +347,7 @@ class RefreshTest(CardCase):
         self.assertIsNone(find_element(self.put.call_args.args[2], "pj_stop"))
 
     def test_the_card_says_what_the_record_and_the_files_say(self):
-        projects.update(self.state, PID, lambda record: record.update(direction="数据平台", lead_note={"text": "先迁小表"},
+        projects.update(self.state, PID, lambda record: record.update(direction="旧的方向", lead_note={"text": "先迁小表"},
                                                                    tokens_used=330000, triage=["答了：用哪个版本？"]))
         folder = projects.folder(self.state) / PID
         (folder / "library").mkdir(parents=True)
@@ -355,7 +355,7 @@ class RefreshTest(CardCase):
         (folder / "memory.json").write_text(json.dumps({"entries": [{"id": "m1", "text": "窗口在周六"}]}))
         self.tick(1010.0)
         card = self.put.call_args.args[2]
-        self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["在做", "数据平台"])
+        self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["在做"])
         self.assertIn("先迁小表", find_element(card, "pj_lead")["content"])
         self.assertIn("token 33万", find_element(card, "pj_meta")["content"])
         self.assertTrue(all(name in ids(card) for name in ("pj_triage", "pj_mem", "pj_lib")))
