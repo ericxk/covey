@@ -35,6 +35,7 @@ from test_project_lead import CHAT, LEAD, PID, Case
 @dataclasses.dataclass
 class Ctx:
     topic_id: str = ""
+    state_dir: object = None
 
 
 T0 = time.time()
@@ -90,11 +91,12 @@ class FakeApp:
 
     def __init__(self, case):
         self.case = case
-        self.queued, self.steered, self.answers, self.stopped = [], [], [], []
+        self.queued, self.steered, self.answers, self.stopped, self.painted = [], [], [], [], []
         self.harness = SimpleNamespace(context=object())
         self.submission = SimpleNamespace(event_context=self.event_context, enqueue_chat_job=self.enqueue)
         self.steering = SimpleNamespace(steer_stage=lambda job: "running", deliver_steer=self.deliver)
-        self.questions = SimpleNamespace(submit_answer=lambda ctx, chat, token, fields, event: self.answers.append((ctx.topic_id, token, fields, event)))
+        self.questions = SimpleNamespace(submit_answer=lambda ctx, chat, token, fields, event: self.answers.append((ctx.topic_id, token, fields, event)),
+                                         paint_question_state=lambda ctx, record: self.painted.append((record["token"], record["status"])))
         self.controls = SimpleNamespace(cancel_reply_job_from_card=lambda ctx, action, chat, message, others=0: self.stopped.append(action))
 
     def event_context(self, base, event):
@@ -132,7 +134,7 @@ class WebCase(Case):
     def target(self, state, topic, chat):
         if topic != TOPIC or chat != CHAT:
             return None
-        return self.app, Ctx(topic), {}
+        return self.app, Ctx(topic, state), {}
 
     def topic(self, topic=TOPIC, number=7, title="整理账单", status="done", lines=(("user", "你好"), ("assistant", "好的"))):
         write_topic(self.state, topic_id=topic, chat_id=CHAT, harness_id="claude", topic_number=number, origin={"title": title},
@@ -495,14 +497,52 @@ class InboxTest(WebCase):
         self.assertEqual(self.app.steered, [(3, "web-op-2", "补一句")])
         self.assertEqual(self.app.queued, [])
 
-    def test_say_to_a_topic_waiting_for_an_answer_is_refused(self):
+    def test_say_to_a_topic_waiting_for_an_answer_is_its_note_only_answer(self):
+        """只发补充说明, as the card's button: the owner wrote in the topic instead of answering (2026-11-18: refused before, and the
+        free-text question it waited on could not be answered on the page either)."""
         self.topic()
         self.question()
+        self.web.op("say", 1, "op-3", TOPIC, text="这个先不做了，我再想想")
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "done")
+        self.assertIn("补充说明", self.web.acks[0]["message"])
+        self.assertEqual(self.app.answers, [(TOPIC, TOKEN, {"skip_0": True, "supplement": "这个先不做了，我再想想"}, "web-op-3")])
+        self.assertEqual(self.app.queued, [])
+        self.assertEqual(self.app.steered, [])
+
+    def test_say_with_two_questions_waiting_is_refused(self):
+        self.topic()
+        self.question()
+        self.question(token="tok223456789", created_at=T0 + 5)
         self.web.op("say", 1, "op-3", TOPIC, text="我来说")
         self.sync.inbox_once()
         self.assertEqual(self.web.acks[0]["state"], "failed")
-        self.assertIn("答题", self.web.acks[0]["message"])
-        self.assertEqual(self.app.queued, [])
+        self.assertIn("几道题", self.web.acks[0]["message"])
+        self.assertEqual((self.app.answers, self.app.queued), ([], []))
+
+    def test_a_question_without_options_takes_the_owners_written_answer(self):
+        self.topic()
+        self.question(questions=[{"id": "answer", "header": "补充信息", "question": "请核对样例集表格", "options": []}])
+        self.web.op("answer", 1, "op-4", TOPIC, token=TOKEN, answers={"answer": "12 改成等断点"})
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "done")
+        self.assertEqual(self.app.answers[0][2], {"answer_0": "12 改成等断点", "supplement": ""})
+
+    def test_only_the_note_is_sent_when_asked_and_it_needs_one(self):
+        self.topic()
+        self.question()
+        self.web.op("answer", 1, "op-4", TOPIC, token=TOKEN, skip=True, note="")
+        self.web.op("answer", 2, "op-5", TOPIC, token=TOKEN, skip=True, note="先放一放")
+        self.sync.inbox_once()
+        self.assertEqual([(r["state"], r["message"][:6]) for r in self.web.acks], [("failed", "只发补充说明"), ("done", "补充说明已交")])
+        self.assertEqual([a[2] for a in self.app.answers], [{"skip_0": True, "supplement": "先放一放"}])
+
+    def test_the_butlers_proxy_answer_still_refuses_a_free_text_question(self):
+        from covey.app.answers import answer_fields
+        record = {"questions": [{"id": "answer", "question": "写点什么", "options": []}]}
+        with self.assertRaises(ValueError):
+            answer_fields(record, {"answer": "随便"}, "")
+        self.assertEqual(answer_fields(record, {"answer": "随便"}, "", owner=True), {"answer_0": "随便", "supplement": ""})
 
     def test_answer_goes_to_the_questions_own_path(self):
         self.topic()
@@ -543,6 +583,21 @@ class InboxTest(WebCase):
         self.web.op("stop", 1, "op-10", TOPIC)
         self.sync.inbox_once()
         self.assertEqual(self.web.acks[0]["state"], "failed")
+
+    def test_stop_closes_the_question_a_topic_waits_on(self):
+        """The page's 停止 on a topic waiting for the owner (no task runs): its question cancelled (web_stop), its waiting turn cancelled."""
+        self.topic(status="waiting_user")
+        self.question()
+        self.web.op("stop", 1, "op-10", TOPIC)
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "done")
+        self.assertIn("等你回答的题已收掉", self.web.acks[0]["message"])
+        saved = read_object(self.state / "questions" / f"{TOKEN}.json")
+        self.assertEqual((saved["status"], saved.get("cancel_reason")), ("cancelled", "web_stop"))
+        self.assertEqual(self.app.painted, [(TOKEN, "cancelled")])
+        job = read_object(job_file(self.state, f"k-{TOPIC[:4]}"))
+        self.assertEqual(job["status"], "cancelled")
+        self.assertEqual(self.app.stopped, [])
 
     def test_reopen_unfolds_a_folded_project_and_refuses_the_rest(self):
         projects.update(self.state, PID, lambda record: record.update(state="paused", state_reason="idle", idle={"at": T0, "days": 7}))

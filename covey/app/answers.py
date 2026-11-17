@@ -270,15 +270,18 @@ def answer_message(record, answers, feedback, notes):
     return shown, text, delivered
 
 
-def answer_fields(record, answers, note):
+def answer_fields(record, answers, note, owner=False):
     """The form fields 提交回答 would send for ``answers`` (question id or text -> option label, or labels for a
     multiple choice), with ``note`` as the 补充说明: ``form_answers`` the other way, for the butler's
-    question_answer (app/butler_tools.py, its PROXY_NOTE). ValueError says what does not fit."""
+    question_answer (app/butler_tools.py, its PROXY_NOTE). ``owner``: the owner's own answer (the web page,
+    app/web_ops.py): a question without options takes the text given, and a text that is no option of its question
+    is a written answer, as the card's answer box is (a written answer wins in form_answers). ValueError says what
+    does not fit."""
     if not isinstance(answers, dict) or not answers:
         raise ValueError("answers 要是“题目 id → 选项原文”的对象")
     questions = [q for q in record.get("questions") or [] if isinstance(q, dict)]
     free = [str(q.get("question") or "")[:40] for q in questions if not q.get("options")]
-    if free:
+    if free and not owner:
         raise ValueError("这组问题里有自由回答的题（" + "；".join(free) + "），不能代答：改用 topic_send 把主人的话交给话题。")
     by_name = {}
     for i, q in enumerate(questions):
@@ -299,6 +302,10 @@ def answer_fields(record, answers, note):
     fields = {}
     for i, q in enumerate(questions):
         value = given[i]
+        labels = [str(o.get("label") or "") for o in q.get("options") or [] if isinstance(o, dict)]
+        if owner and isinstance(value, str) and value.strip() and value.strip() not in labels:
+            fields[f"answer_{i}"] = value.strip()  # Written, as in the card's answer box.
+            continue
         values = value if isinstance(value, list) else [value]
         if not values or not all(isinstance(item, str) and item.strip() for item in values):
             raise ValueError(f"“{str(q.get('question'))[:40]}”的答案要是选项原文" + ("或原文的列表" if q.get("multiple") else ""))

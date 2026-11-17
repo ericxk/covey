@@ -3,8 +3,9 @@ KINDS) as the owner's own and says (state, message) for the ack.
 
 - ``say``: the words are the owner's, in the topic: a running task takes them as a supplement (app/steering.py deliver_steer, as
   app/butler.py supplement does), else they are queued as the topic's next turn (app/triage.py ``correct`` does the same: alias the message
-  ``web-<op_id>`` to the topic, event_context, append_history, enqueue_chat_job). A topic that waits for an answer is answered by
-  ``answer``, not by words. To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
+  ``web-<op_id>`` to the topic, event_context, append_history, enqueue_chat_job). To a topic that waits for the owner's answer the words
+  are its 只发补充说明 (app/answers.py skip_all_fields through the question's own submit path): its questions unanswered, the words sent
+  as the note, as the card's button does; with several questions waiting, or one the project's lead holds, they are refused. To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
   the private chat: ``hear`` (app/unified.py web_message) takes it through the entry of a Feishu message, access, the duplicate check,
   the extensions and the butler, so the butler answers, opens a topic or hands on as ever. The message id ``web-<op_id>`` is no Feishu
   message: nothing quotes it, replies in its thread or reacts on it (core/topics.py context_for_topic gives the turn no reply target,
@@ -16,10 +17,12 @@ KINDS) as the owner's own and says (state, message) for the ack.
   the start of its text, an entry that is not there is ``failed``.
 - ``seen``: the topic's latest result is marked as seen, as the owner's read receipt in Feishu does (core/topic_seen.py record_reads), so
   the board, the Pins and 手上的事 and the next push (``unseen`` false) follow. Asked again it says done and writes nothing.
-- ``answer``: the question's own submit path (app/questions.py submit_answer) with the fields of app/answers.py answer_fields. A question
-  with a free-text item cannot be answered from the page (answer_fields refuses it); the owner answers it in Feishu.
+- ``answer``: the question's own submit path (app/questions.py submit_answer) with the fields of app/answers.py answer_fields as the owner's
+  own answer (``owner``: a question without options takes the text written). ``skip`` true: 只发补充说明, its ``note`` required.
 - ``stop``: the topic's task stops as a click on its card's 停止 does: forwarded to its task runner when it has one (app/runner_ipc.py), else
-  stopped here (app/task_controls.py cancel_reply_job_from_card), as app/butler_tracks.py Tracks.stop does.
+  stopped here (app/task_controls.py cancel_reply_job_from_card), as app/butler_tracks.py Tracks.stop does. A question the topic waits on is
+  closed too, as a project's lead stops a member topic (app/binding.py retire_open_questions: cancelled with the reason ``web_stop``, the
+  turn waiting on it cancelled); a topic with neither is ``failed``.
 - ``reopen``: a project that is folded away or paused opens again by the path the owner's own turn takes (app/project_loop.py reopen).
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
 
@@ -34,7 +37,7 @@ import time
 from pathlib import Path
 
 from covey.app import project_loop
-from covey.app.answers import answer_fields
+from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields
 from covey.app.runtime import job_stage
 from covey.core import board_read, project_memory, projects, triage, web_sync
 from covey.core.attachments import message_words
@@ -46,10 +49,12 @@ from covey.core.statuses import RUNNING
 from covey.core.steer import SteerRefused, SteerUncertain
 from covey.core.topic_seen import read_seen, record_reads
 from covey.core.topics import remember_topic_message, topic_file
+from covey.cards.question_cards import SUPPLEMENT
 from covey.feishu.events import REPLY_CONTEXT
 
 DONE, FAILED = "done", "failed"
 SAY_CHARS = 20000
+WEB_STOP_NOTE = "你在网页上停了这个话题"
 PREFIX = web_sync.PREFIX  # The message id of the owner's words from the page: ``web-<op_id>``.
 TOPIC_ID = re.compile(r"[0-9a-f]{16,128}")
 TOKEN = re.compile(r"[0-9A-Za-z_-]{6,128}")
@@ -108,7 +113,9 @@ class Ops:
         lead = projects.lead_record(state, topic, chat)
         app = self.lead_app(state, lead) if lead else self.topic(state, chat, topic)[0]
         if self.asking(state, chat, topic):
-            raise ValueError("这个话题正在等你答题，请在页面上答题，不要用话回答")
+            if lead:
+                raise ValueError("负责人正在等你答题，请在题目里回答")
+            return self.note_to_question(state, chat, topic, row, text)
         message = PREFIX + str(row.get("op_id"))
         owner = self.runtime.owner_open_id or ""
         remember_topic_message(state, topic, chat, message)
@@ -160,6 +167,22 @@ class Ops:
             raise ValueError(why)
         return "已交给管家"
 
+    def note_to_question(self, state, chat, topic, row, text) -> str:
+        """The owner's words to a topic waiting on a question: its 只发补充说明 (every question unanswered, the words the note)."""
+        from covey.core.store import directory_store
+        waiting = sorted((record for _, record in directory_store(state / "questions").query(chat_id=chat, topic_id=topic, status="pending")
+                          if record.get("status", "pending") == "pending" and not record.get("display_pending")),
+                         key=lambda record: record.get("created_at") or 0)
+        if any(triage.held(record) for record in waiting):
+            raise ValueError("这个问题还在专项负责人手上，到时间会转给你")
+        if len(waiting) != 1:
+            raise ValueError("有几道题在等你，请在题目里回答，或在题目里只发补充说明")
+        record = waiting[0]
+        app, ctx = self.topic(state, chat, topic)
+        fields = skip_all_fields(record.get("questions") or [], {SUPPLEMENT: text})
+        app.questions.submit_answer(ctx, chat, str(record.get("token")), fields, PREFIX + str(row.get("op_id")))
+        return "已作为补充说明交给等你回答的任务（题目算没答）"
+
     @staticmethod
     def asking(state, chat, topic) -> bool:
         """Whether a question of ``topic`` is shown to the owner and waits for the answer."""
@@ -185,7 +208,15 @@ class Ops:
             raise ValueError("管家的问题请在飞书里回答")
         app, ctx = self.topic(state, chat, topic)
         note = payload.get("note")
-        fields = answer_fields(record, payload.get("answers"), str(note).strip() if isinstance(note, str) else "")
+        note = str(note).strip() if isinstance(note, str) else ""
+        if payload.get("skip") is True:
+            try:
+                fields = skip_all_fields(record.get("questions") or [], {SUPPLEMENT: note})
+            except AnswerIncomplete:
+                raise ValueError("只发补充说明要先写上补充说明") from None
+            app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
+            return "补充说明已交给任务（题目算没答）"
+        fields = answer_fields(record, payload.get("answers"), note, owner=True)
         app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
         return "答案已交给任务"
 
@@ -233,18 +264,29 @@ class Ops:
         app, ctx = self.topic(state, chat, topic)
         jobs = sorted(self.runtime.jobs.topic_jobs(topic, chat), key=lambda job: int(job.job_id))
         job = next((job for job in reversed(jobs) if job_stage(job) != "ended"), None)
-        if job is None:
-            raise ValueError("这个话题现在没有在做或排队的任务")
-        message = PREFIX + str(row.get("op_id"))
-        remember_topic_message(state, topic, chat, message)
-        stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
-        action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id}
-        click = {"chat_id": chat, "message_id": message, "event_id": f"web-stop-{row.get('op_id')}",
-                 "operator_id": self.runtime.owner_open_id or "", "action_value": action}
-        if runner_ipc.forward_card_action(self.runtime, stop_ctx, click, action):
-            return f"已转给任务进程停止 #{job.job_id}"
-        app.controls.cancel_reply_job_from_card(stop_ctx, action, chat, message)
-        return f"已请求停止 #{job.job_id}"
+        waiting = self.asking(state, chat, topic) or any(
+            record.get("status") == "waiting_user" for record in topic_job_records(state, topic, chat_id=chat))
+        if job is None and not waiting:
+            raise ValueError("这个话题现在没有在做、排队或等你回答的任务")
+        said = []
+        if job is not None:
+            message = PREFIX + str(row.get("op_id"))
+            remember_topic_message(state, topic, chat, message)
+            stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
+            action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id}
+            click = {"chat_id": chat, "message_id": message, "event_id": f"web-stop-{row.get('op_id')}",
+                     "operator_id": self.runtime.owner_open_id or "", "action_value": action}
+            if runner_ipc.forward_card_action(self.runtime, stop_ctx, click, action):
+                said.append(f"已转给任务进程停止 #{job.job_id}")
+            else:
+                app.controls.cancel_reply_job_from_card(stop_ctx, action, chat, message)
+                said.append(f"已请求停止 #{job.job_id}")
+        if waiting:
+            from covey.app import binding
+            binding.retire_open_questions(self.env.topics, app, ctx, chat, reason="web_stop", job_status="cancelled",
+                                          message=WEB_STOP_NOTE)
+            said.append("等你回答的题已收掉")
+        return "；".join(said)
 
     # -- reopen ------------------------------------------------------------------------------------------------------------
 
