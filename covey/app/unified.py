@@ -125,7 +125,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
              'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects',
-             'project_loop', 'patrol', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
+             'project_loop', 'patrol', 'devices', 'web_sync', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -180,6 +180,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.project_loop import ProjectLoop
         from covey.app.patrol import Patrol
         from covey.app.devices import Devices
+        from covey.app.web_sync import WebSync
         from covey.app.group_boards import GroupBoards
         from covey.app.group_manager import GroupManager
         from covey.app.group_menu import GroupMenu
@@ -264,11 +265,13 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                 self.extension_features = extensions.features(self)
             # The devices thread (app/devices.py): probes, replays the pending reaps, gc; none while COVEY_DEVICES is off.
             self.devices = Devices(self.runtime)
+            # The web workbench's sync (app/web_sync.py): two threads with COVEY_WEB=1, none without.
+            self.web_sync = WebSync(self.runtime, self.butler_env)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
                         self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
                         self.dispatch_cards, self.project_cards, self.projects,
-                        self.project_loop, self.patrol, self.devices,
+                        self.project_loop, self.patrol, self.devices, self.web_sync,
                         *self.extension_features)
             # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
             # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).

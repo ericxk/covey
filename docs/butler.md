@@ -490,6 +490,21 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **怎么关**。不设 `COVEY_PATROL` 重新 `launch`（见[配置](configuration.md#服务清单里的环境变量)第一条），后台线程和汇总里的这一块都没有；已写的记录留到 14 天后被维护清掉。
 - **可调数值**：`COVEY_PATROL_ASK_MINUTES`、`COVEY_PATROL_UNSEEN_MINUTES`、`COVEY_PATROL_STALL_MINUTES`、`COVEY_PATROL_FAILS`、`COVEY_PATROL_PROJECT_MINUTES`、`COVEY_PATROL_TICK_SECONDS`、`COVEY_PATROL_JUDGE_MINUTES`、`COVEY_PATROL_DAILY_CALLS`、`COVEY_PATROL_JUDGE_MS`，默认值和范围见[配置](configuration.md)的一览；真实验收时把时间都调到几分钟、小模型间隔调到 1 分钟，几分钟内就能看到结果。专项的空闲收起是专项自己的循环做的，这里只读专项的状态。
 
+### 网页工作台（开关默认关）
+
+`COVEY_WEB=1` 且 `COVEY_WEB_CONFIG` 指向配置文件时，Covey 把状态推给妙搭上的网页（工作台），并取回网页上发来的话和操作去执行。网页是主工作台，飞书管提醒和快速回复；两边读的是同一份记录，Covey 不对外开端口，只主动请求网页应用的 `/openapi`。不开时没有线程、没有请求，行为和以前一样。
+
+- **配置**：`COVEY_WEB_CONFIG` 指向一个 JSON：`base_url`（形如 `https://<域名>/app/<应用 id>/openapi`，不带末尾斜杠）、`key_file`（存开放接口密钥的文件，建议权限 600）、`push_seconds`（默认 1）、`poll_seconds`（默认 1）。密钥只从 `key_file` 读，不进日志、记录和报告；换了密钥文件，10 秒内自动读到。
+- **推**（`web-push` 线程）：专项、话题、一轮、问题四类条目，各带内容哈希（`rev`），只推变了的，一批最多 500 条或 1 MB，POST `/sync/upsert`。每秒只看在跑的任务和等回答的问题，以及刚停下或刚被网页操作过的话题；每 60 秒全量对一次（最近 30 天有任务的话题、全部专项），并发现该删的。话题的状态和“做完没看”用看板的读法（`core/board_read.py`、`app/pins.py` 的 `board_results`），不每秒扫全部任务记录。在跑的一轮，正文是已落盘的进展说明，变了就推。管家自己那一路不推。每话题推最近 100 轮，单轮正文超过 64 KB 截断并写明。
+- **取和执行**（`web-inbox` 线程）：每秒 GET `/sync/inbox?after=<seq>`；先把 seq 和 op_id 记进 `<state>/web/inbox.json`，再执行，按 op_id 去重（重启后也一样；记了没记结果的算“结果不确定”，回 failed，不重发）；执行完 POST `/sync/ack`。四种操作：
+  - `say`：作为主人的话进这个话题。话题有任务在跑就是补充，没在跑就开下一轮（消息 id `web-<op_id>`）。话题在等你答题时拒绝，请答题。
+  - `answer`：交给问题自己的提交路径（`answer_fields`）；含自由文字的题不能在网页答，回 failed，请在飞书里答。
+  - `stop`：停这个话题在跑的任务；任务在任务进程里时转给任务进程，同卡片上的停止。
+  - `reopen`：把收起（`idle`）或被护栏、主人停住的专项重新展开，同主人自己说话时走的重开。已结束的专项回 failed。
+  - 话题、专项必须属于主人的私聊；不认识的、已结束的回 failed 并写原因，网页按 op_id 显示。
+- **失败**：请求失败按 2、4、8、16、30 秒退避重试，只记第一次和每第十次，不影响 Bridge 别的线程。
+- **关法**：不设 `COVEY_WEB`（或设成别的值）重新 `launch`。
+
 ## 代码位置
 
 | 模块 | 职责 |
@@ -503,6 +518,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 | `core/board_read.py` | 私聊话题的一次读和三种“未看”规则 |
 | `core/turn_words.py` | 状态词、请求行 |
 | `core/principles.py` | 主人的原则 |
+| `core/web_sync.py`、`app/web_sync.py`、`app/web_ops.py` | 网页工作台同步：配置和条目、推与取的线程、四种操作的执行 |
 | `core/patrol.py`、`app/patrol_rules.py`、`app/patrol_judge.py`、`app/patrol.py` | 我本来想找你的事：记录和数值、规则、小模型、后台线程 |
 | `core/knowledge.py` | 知识条目：存储、重放、搜索、生成的 `.md` |
 | `app/knowledge_turn.py`、`app/knowledge_collect.py` | 一轮读哪些条目、话题里“记一下”的收集 |
