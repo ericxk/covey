@@ -18,7 +18,8 @@ from support.records import write_job, write_topic
 
 from covey.app import web_ops, web_sync as app_web
 from covey.app.web_sync import WebError, WebSync
-from covey.core import http_upstream, placement, projects, web_sync
+from covey.app import project_lead, web_turns
+from covey.core import http_upstream, placement, project_library, project_memory, projects, web_sync
 from covey.core.butler import butler_topic_id
 from covey.core.history_storage import append_history
 from covey.core.serving import LoopbackServer
@@ -28,7 +29,7 @@ from covey.core.topics import context_for_topic, message_topic, remember_topic_m
 from support.fake_backends import codex_context
 from test_butler import ButlerUnifiedCase
 
-from test_project_lead import CHAT, PID, Case
+from test_project_lead import CHAT, LEAD, PID, Case
 
 @dataclasses.dataclass
 class Ctx:
@@ -732,6 +733,233 @@ class SwitchTest(WebCase):
     def test_the_bridge_lists_the_threads_only_with_the_switch(self):
         from covey.app.unified import UnifiedBridgeApp
         self.assertIn("web_sync", UnifiedBridgeApp.PARTS)
+
+
+def snapshot_of(now):
+    """A running turn's process snapshot: a read that ended, a command that runs, a note, and the figures."""
+    return {"steps": {"s1": {"title": "读取文件", "detail": "/x/a.py", "status": "done", "started": now, "ended": now + 1},
+                      "s2": {"title": "执行命令", "detail": "ls", "status": "running", "started": now + 2},
+                      "n1": {"title": "进展说明", "detail": "先看了文件", "status": "note", "started": now}},
+            "step_order": ["s1", "n1", "s2"], "started_at": now, "ended_at": None, "input_tokens": 1200, "output_tokens": 300,
+            "cache_read_tokens": 900, "measured_output_tokens": 300, "generation_seconds": 10, "context_tokens": 5000, "context_window": 200000}
+
+
+class ExtrasTest(WebCase):
+    """Data contract v3: a turn's process, plan and figures, a question's times, a project's memory and library."""
+
+    def traced(self, snapshot, **fields):
+        for module in (app_web, web_turns):
+            patch = mock.patch.object(module, "load_trace", side_effect=lambda *args: snapshot)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_a_running_turn_carries_its_steps_plan_and_figures(self):
+        self.topic(status="running", lines=(("user", "做一下"),))
+        plan = self.state / "plan.json"
+        write_json(plan, {"steps": [{"title": "读代码", "state": "done"}, {"title": "改代码", "state": "doing"}, {"title": "测试", "state": "todo"}]})
+        write_job(self.state, f"k-{TOPIC[:4]}", checkpoint_path=str(plan), timings={"backend_started": T0})
+        self.traced(snapshot_of(T0))
+        self.sync.push_once(T0 + 13)
+        turn = self.web.items("turn")[-1]["data"]
+        self.assertEqual([(row["id"], row["kind"], row["status"], row["ended_at"]) for row in turn["steps"]],
+                         [("s1", "read", "done", T0 + 1), ("s2", "command", "running", None)])
+        self.assertEqual(turn["steps"][0]["label"], "读取文件：/x/a.py")
+        self.assertEqual([(row["title"], row["state"]) for row in turn["plan"]], [("读代码", "done"), ("改代码", "doing"), ("测试", "todo")])
+        self.assertEqual(turn["usage"], {"input": 1200, "output": 300, "cache_read": 900, "total": 1500})
+        self.assertEqual((turn["speed"], turn["context"], turn["seconds"]), (30, {"used": 5000, "limit": 200000}, 10.0))
+        topic = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
+        self.assertEqual((topic["round"], topic["context"]), (1, {"used": 5000, "limit": 200000}))
+        self.assertEqual(turn["body"], "先看了文件")
+
+    def test_a_quiet_running_turn_does_not_change_its_rev_every_second(self):
+        self.topic(status="running", lines=(("user", "做一下"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", timings={"backend_started": T0})
+        self.traced(snapshot_of(T0))
+        self.sync.push_once(T0 + 11)
+        self.assertEqual([self.sync.push_once(T0 + 11 + second) for second in range(1, 8)], [0] * 7)
+        self.assertEqual(self.sync.push_once(T0 + 21), 1)
+        self.assertEqual(self.web.items("turn")[-1]["data"]["seconds"], 20.0)
+
+    def test_an_ended_turn_has_its_figures_once_and_a_turn_without_them_none(self):
+        self.topic(lines=(("user", "你好"), ("assistant", "好的")))
+        write_job(self.state, f"k-{TOPIC[:4]}", message_id="m你好", timings={"backend_started": T0, "execution_finished": T0 + 42})
+        done = dict(snapshot_of(T0), ended_at=T0 + 42)
+        done["steps"] = {key: dict(step, status="done" if step["status"] == "running" else step["status"]) for key, step in done["steps"].items()}
+        self.traced(done)
+        self.sync.push_once(T0 + 60)
+        turns = {item["key"]: item["data"] for item in self.web.items("turn")}
+        self.assertNotIn("usage", turns[f"{TOPIC}:1"])
+        self.assertEqual((turns[f"{TOPIC}:2"]["seconds"], turns[f"{TOPIC}:2"]["usage"]["total"], turns[f"{TOPIC}:2"]["speed"]), (42.0, 1500, 30.0))
+        self.assertEqual(self.sync.push_once(T0 + 61), 0)
+
+    def test_without_a_trace_the_turn_is_as_before(self):
+        self.topic(lines=(("user", "你好"), ("assistant", "好的")))
+        self.sync.push_once(T0)
+        for item in self.web.items("turn"):
+            self.assertFalse({"steps", "plan", "usage", "speed", "context", "notes", "started_topics"} & set(item["data"]))
+
+    def test_memory_notes_of_the_record_go_as_they_are_and_none_without(self):
+        self.topic(status="running", lines=(("user", "做一下"),))
+        self.traced(snapshot_of(T0))
+        self.sync.push_once(T0)
+        self.assertNotIn("notes", self.web.items("turn")[-1]["data"])
+        note = {"kind": "remembered", "text": "用新库", "scope": "管这个专项", "entry_id": "ab12"}
+        write_job(self.state, f"k-{TOPIC[:4]}", memory_notes=[note, {"kind": "unknown", "text": "x"}, {"kind": "voided", "text": ""}])
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 1)
+        self.assertEqual(self.web.items("turn")[-1]["data"]["notes"], [note])
+
+    def test_a_question_has_its_times_and_where_it_belongs(self):
+        self.topic()
+        self.question(status="answered", updated_at=T0 + 30, answers={"q1": {"answers": ["A"]}})
+        self.question("tok-two-000001", created_at=T0 + 5)
+        self.sync.push_once(T0 + 40)
+        asked = {item["key"]: item["data"] for item in self.web.items("question")}
+        self.assertEqual((asked[TOKEN]["asked_at"], asked[TOKEN]["answered_at"], asked[TOKEN]["project_key"], asked[TOKEN]["topic_number"]),
+                         (T0, T0 + 30, "", 7))
+        self.assertEqual((asked["tok-two-000001"]["asked_at"], asked["tok-two-000001"]["answered_at"]), (T0 + 5, None))
+
+    def test_the_memory_and_library_of_a_project_say_who_wrote_them(self):
+        self.thread(OTHER, "对账", 8, status="done")
+        mine, _ = project_memory.add(self.state, PID, "用新库", "decision", "owner_answer", now=T0)
+        lead, _ = project_memory.add(self.state, PID, "对账一致才算完", "constraint", "lead", now=T0 + 1)
+        project_library.add_ref(self.state, PID, "link", "https://example.invalid/doc", name="设计稿", topic_id=OTHER, now=T0 + 2)
+        project_library.add_ref(self.state, PID, "path", "/x/shot.png", name="shot.png", now=T0 + 3)
+        self.sync.push_once(T0 + 5)
+        data = self.web.items("project")[-1]["data"]
+        rows = {row["id"]: row for row in data["memory"]}
+        self.assertEqual((rows[mine["id"]]["said_by"], rows[lead["id"]]["said_by"], rows[mine["id"]]["origin"]), ("你说的", "它总结的", {"at": T0}))
+        self.assertEqual([(row["kind"], row.get("topic_number"), row["name"]) for row in data["library"]], [("link", 8, "设计稿"), ("image", None, "shot.png")])
+        self.assertEqual(data["started_at"], self.record["created_at"])
+
+
+class LeadTest(WebCase):
+    """The lead's conversation is a topic of kind lead; the page can speak to it."""
+
+    def history(self, *lines):
+        for role, text, message in lines:
+            append_history(self.state / "topics" / LEAD / "history.jsonl", role, text, {"message_id": message})
+
+    def conversation(self):
+        now = time.time()
+        self.lead_job("lead-1", job_id=1, status="done", message_id="om_l1", timings={"backend_started": now - 100})
+        self.lead_job("lead-2", job_id=2, status="done", message_id=projects.wake_id(PID, 1), timings={"backend_started": now - 50})
+        self.history(("user", "把页面改版做了", "om_l1"), ("assistant", "好，我先拆一下", ""),
+                     ("user", project_lead_wake(), projects.wake_id(PID, 1)), ("assistant", "已派出 T831", ""))
+        self.thread(OTHER, "页面改版", 831, status="running")
+        return now
+
+    def test_the_lead_is_a_topic_of_kind_lead_with_the_owners_words_and_its_answers(self):
+        now = self.conversation()
+        project_lead.add_receipt(self.state, PID, "thread_end", "T831 的任务 #831 完成：改完了", thread=OTHER, at=now)
+        project_lead.add_receipt(self.state, PID, "stalled", "专项还有要做的事", at=now)
+        project_lead.add_receipt(self.state, PID, "owner_said", "主人在 T831 里说：好", thread=OTHER, at=now)
+        self.sync.push_once(T0)
+        by = {(item["type"], item["key"]): item["data"] for item in self.web.items()}
+        topic = by[("topic", LEAD)]
+        self.assertEqual((topic["kind"], topic["title"], topic["project_key"], topic["number"], topic["unseen"], topic["round"]),
+                         ("lead", "负责人", PID, 0, False, 2))
+        turns = sorted((item["data"] for item in self.web.items("turn") if item["data"]["topic_key"] == LEAD), key=lambda turn: turn["seq"])
+        self.assertEqual([(turn["role"], turn["body"]) for turn in turns if turn["role"] != "event"],
+                         [("owner", "把页面改版做了"), ("agent", "好，我先拆一下")])
+        events = [turn for turn in turns if turn["role"] == "event"]
+        self.assertEqual(sorted(turn["body"] for turn in events), ["T831 做完了", "负责人派出了 T831 页面改版"])
+        started = next(turn for turn in events if turn.get("started_topics"))["started_topics"]
+        self.assertEqual(started, [{"key": OTHER, "number": 831, "title": "页面改版", "harness": "claude"}])
+        self.assertEqual([turn["seq"] for turn in turns], list(range(1, len(turns) + 1)))
+        self.assertNotIn(("topic", OTHER + "x"), by)
+
+    def test_a_wake_up_reply_the_lead_meant_for_the_owner_is_its_answer(self):
+        self.conversation()
+        with mock.patch.object(app_web.project_loop, "reported", return_value=True):
+            self.sync.push_once(T0)
+        bodies = [item["data"]["body"] for item in self.web.items("turn") if item["data"]["role"] == "agent"]
+        self.assertIn("已派出 T831", bodies)
+        agent = next(item["data"] for item in self.web.items("turn") if item["data"]["body"] == "已派出 T831")
+        self.assertEqual([row["number"] for row in agent["started_topics"]], [831])
+        self.assertFalse([item for item in self.web.items("turn") if item["data"]["role"] == "event" and "派出" in item["data"]["body"]])
+
+    def test_a_lead_is_not_pushed_without_projects_and_not_before_it_has_spoken(self):
+        self.sync.push_once(T0)
+        self.assertEqual([item["key"] for item in self.web.items("topic")], [])
+        self.conversation()
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.sync = WebSync(self.runtime, self.env)
+            self.sync.client.opener = http_upstream.opener(direct=True)
+            self.sync.push_once(T0 + 1)
+        self.assertNotIn("lead", [item["data"]["kind"] for item in self.web.items("topic")])
+        self.assertFalse([item for item in self.web.items("turn") if item["data"]["role"] == "event"])
+
+    def test_a_running_lead_turn_is_looked_at_every_second_and_is_a_running_turn(self):
+        now = self.conversation()
+        self.lead_job("lead-3", job_id=3, status="running", message_id="om_l3", timings={"backend_started": now - 5})
+        self.history(("user", "再加一个对账", "om_l3"))
+        self.sync.push_once(T0)
+        self.assertEqual(self.web.items("turn")[-1]["data"]["status"], "running")
+        self.assertEqual(self.web.items("turn")[-1]["data"]["topic_key"], LEAD)
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)
+
+    def test_say_to_the_lead_is_the_owners_reply_to_the_project_card(self):
+        self.conversation()
+        self.env.topics.apps = {"claude": self.app}
+        self.web.op("say", 1, "op-l1", LEAD, text="先别碰数据库")
+        self.sync.inbox_once()
+        self.assertEqual(self.app.queued, [(LEAD, "web-op-l1", "先别碰数据库")])
+        self.assertEqual([(r["op_id"], r["state"]) for r in self.web.acks], [("op-l1", "done")])
+        self.assertEqual(message_topic(self.state, CHAT, "web-op-l1"), LEAD)
+        self.assertTrue(web_sync.is_web_message("web-op-l1"))
+
+    def test_say_to_a_running_lead_is_a_supplement(self):
+        self.env.topics.apps = {"claude": self.app}
+        self.jobs[LEAD] = [SimpleNamespace(job_id=4)]
+        self.web.op("say", 1, "op-l2", LEAD, text="补一句")
+        self.sync.inbox_once()
+        self.assertEqual((self.app.steered, self.app.queued), ([(4, "web-op-l2", "补一句")], []))
+
+    def test_say_to_the_lead_of_a_finished_project_or_without_projects_fails_with_a_reason(self):
+        self.env.topics.apps = {"claude": self.app}
+        projects.update(self.state, PID, lambda record: record.update(state="done"))
+        self.web.op("say", 1, "op-l3", LEAD, text="还在吗")
+        self.sync.inbox_once()
+        self.assertEqual((self.web.acks[-1]["state"], "已经结束" in self.web.acks[-1]["message"]), ("failed", True))
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.web.op("say", 2, "op-l4", LEAD, text="还在吗")
+            self.sync.inbox_once()
+        self.assertEqual((self.web.acks[-1]["state"], self.app.queued), ("failed", []))
+
+    def test_forget_voids_one_memory_entry_like_the_card_does(self):
+        mine, _ = project_memory.add(self.state, PID, "数据库先别动，等对账脚本出来以后再说，这一条写得很长很长很长很长很长很长很长", "constraint", "owner")
+        self.web.op("forget", 1, "f-1", project=PID, entry_id=mine["id"])
+        self.web.op("forget", 2, "f-2", project=PID, entry_id=mine["id"])
+        self.web.op("forget", 3, "f-3", project=PID, entry_id="nope")
+        self.web.op("forget", 4, "f-4", project="zzzzzz999999", entry_id=mine["id"])
+        self.sync.inbox_once()
+        states = {row["op_id"]: (row["state"], row["message"]) for row in self.web.acks}
+        self.assertEqual(states["f-1"], ("done", "已作废：" + mine["text"][:40]))
+        self.assertEqual([states[name][0] for name in ("f-2", "f-3", "f-4")], ["failed"] * 3)
+        self.assertEqual(project_memory.live(self.state, self.reload()), [])
+        self.assertEqual(len(project_memory.tombstones(self.state, self.reload())), 1)
+
+    def test_forget_of_another_chats_project_fails(self):
+        mine, _ = project_memory.add(self.state, PID, "x", "fact", "owner")
+        projects.update(self.state, PID, lambda record: record.update(chat_id="oc_other"))
+        self.web.op("forget", 1, "f-5", project=PID, entry_id=mine["id"])
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[-1]["state"], "failed")
+        self.assertEqual(len(project_memory.live(self.state, self.reload())), 1)
+
+
+def project_lead_wake():
+    from covey.app.project_loop import WAKE_TEXT
+    return WAKE_TEXT
+
+
+class OffTest(WebCase):
+    def test_forget_is_one_of_the_kinds_and_the_off_switch_still_means_no_request(self):
+        self.assertIn("forget", web_sync.KINDS)
+        with mock.patch.dict(os.environ, {web_sync.ENV: "0"}):
+            self.assertEqual(self.sync.threads(), ())
+        self.assertEqual(self.web.seen, [])
 
 
 if __name__ == "__main__":

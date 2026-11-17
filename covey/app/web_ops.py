@@ -9,6 +9,11 @@ KINDS) as the owner's own and says (state, message) for the ack.
   the extensions and the butler, so the butler answers, opens a topic or hands on as ever. The message id ``web-<op_id>`` is no Feishu
   message: nothing quotes it, replies in its thread or reacts on it (core/topics.py context_for_topic gives the turn no reply target,
   core/placement.py quiet and ``marked``); the butler's words are new top-level messages.
+  To a project's lead (core/projects.py lead_record; COVEY_PROJECTS=1) the words are the owner's quoted reply to the project card: the lead's
+  topic is spoken to as any (a running turn takes them as a supplement), the project's own word wake-ups aside; a project that is over, or
+  a lead that cannot be read, is ``failed``.
+- ``forget``: one entry of a project's memory is voided as 删 on the project card does it (core/project_memory.py delete); ``done`` says 已作废 with
+  the start of its text, an entry that is not there is ``failed``.
 - ``seen``: the topic's latest result is marked as seen, as the owner's read receipt in Feishu does (core/topic_seen.py record_reads), so
   the board, the Pins and 手上的事 and the next push (``unseen`` false) follow. Asked again it says done and writes nothing.
 - ``answer``: the question's own submit path (app/questions.py submit_answer) with the fields of app/answers.py answer_fields. A question
@@ -31,7 +36,7 @@ from pathlib import Path
 from covey.app import project_loop
 from covey.app.answers import answer_fields
 from covey.app.runtime import job_stage
-from covey.core import board_read, projects, triage, web_sync
+from covey.core import board_read, project_memory, projects, triage, web_sync
 from covey.core.attachments import message_words
 from covey.core.butler import is_butler_root
 from covey.core.history_storage import append_history
@@ -67,8 +72,8 @@ class Ops:
         """(state, message) of one outbox row; never raises."""
         kind = str(row.get("kind") or "")
         try:
-            handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen,
-                                                 "seen": self.seen}.get(kind)
+            handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
+                       "forget": self.forget}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -100,7 +105,8 @@ class Ops:
             raise ValueError(f"话太长（超过 {SAY_CHARS} 字）")
         if is_butler_root(topic, chat):
             return self.tell_butler(chat, row, text)
-        app, _ = self.topic(state, chat, topic)
+        lead = projects.lead_record(state, topic, chat)
+        app = self.lead_app(state, lead) if lead else self.topic(state, chat, topic)[0]
         if self.asking(state, chat, topic):
             raise ValueError("这个话题正在等你答题，请在页面上答题，不要用话回答")
         message = PREFIX + str(row.get("op_id"))
@@ -127,6 +133,17 @@ class Ops:
         if queued is None:
             raise ValueError("话题现在排不上这一轮，话已记进历史但没有开始")
         return "已开下一轮"
+
+    def lead_app(self, state, record):
+        """The Harness app of the project's lead, whose topic is the page's say target as the project card's quoted reply is in Feishu
+        (app/projects.py lead_target); ValueError for a project that is over or whose lead cannot be spoken to."""
+        from covey.app.projects import lead_target
+        if record.get("state") in (projects.DONE, projects.CANCELLED):
+            raise ValueError("这个专项已经结束，负责人不再收话")
+        found = lead_target(self.env, record)
+        if found is None:
+            raise ValueError("这个专项的负责人话题读不到，话没有发出")
+        return found[0]
 
     def tell_butler(self, chat, row, text) -> str:
         """``text`` as the owner's message at the top level of the private chat (``hear``); the butler's route is the one a Feishu
@@ -190,6 +207,23 @@ class Ops:
             return "已经记为看过"
         record_reads(state, {topic: max(time.time(), ended)})
         return "已记为看过"
+
+    # -- forget ------------------------------------------------------------------------------------------------------------
+
+    def forget(self, state, chat, row, payload) -> str:
+        """One entry of a project's memory voided, as 删 on the project card does it (core/project_memory.py delete: a tombstone the lead's
+        pack keeps for 30 days, so it is not noted again)."""
+        pid = str(row.get("project_key") or payload.get("project_key") or "")
+        entry = str(payload.get("entry_id") or "")
+        if not projects.valid_id(pid):
+            raise ValueError("没有专项编号")
+        record = projects.read_record(state, pid)
+        if not record or record.get("chat_id") != chat:
+            raise ValueError("这个专项不认识，或不在你的私聊里")
+        found = next((each for each in project_memory.live(state, record) if each["id"] == entry), None)
+        if found is None or not project_memory.delete(state, pid, entry):
+            raise ValueError("这条记忆已经不在了")
+        return "已作废：" + found["text"][:40]
 
     # -- stop --------------------------------------------------------------------------------------------------------------
 

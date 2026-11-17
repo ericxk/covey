@@ -497,8 +497,14 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **配置**：`COVEY_WEB_CONFIG` 指向一个 JSON：`base_url`（形如 `https://<域名>/app/<应用 id>/openapi`，不带末尾斜杠）、`key_file`（存开放接口密钥的文件，建议权限 600）、`push_seconds`（默认 1）、`poll_seconds`（默认 1）。密钥只从 `key_file` 读，不进日志、记录和报告；换了密钥文件，10 秒内自动读到。
 - **推**（`web-push` 线程）：专项、话题、一轮、问题四类条目，各带内容哈希（`rev`），只推变了的，一批最多 500 条或 1 MB，POST `/sync/upsert`。每秒只看在跑的任务和等回答的问题，以及刚停下或刚被网页操作过的话题；每 60 秒全量对一次（最近 30 天有任务的话题、全部专项），并发现该删的。话题的状态和“做完没看”用看板的读法（`core/board_read.py`、`app/pins.py` 的 `board_results`），不每秒扫全部任务记录。在跑的一轮，正文是已落盘的进展说明，变了就推。每话题推最近 100 轮，单轮正文超过 64 KB 截断并写明。
 - **管家的对话**：管家话题（`butler_topic_id`，只推这一个，管家并行时的其余位置和专项负责人的话题不推）推成一个话题条目：`kind` 为 `butler`（普通话题条目也带 `kind: topic`），`number` 为 0，标题“管家”，不属于专项，`unseen` 恒为 false，状态照话题的算（有任务在跑就是“在做”，管家在等你答题是“等你”）。它的各轮来自它的历史：主人在私聊顶层说的话（`owner`）和管家的回答（`agent`）；管家的任务在跑时，和话题一样推一条进行中的一轮（进展说明）。管家开了话题、转交时，正文里照原样写 T 号，网页把 `T\d+` 链到那个话题。管家不在看板和“手上的事”里，所以单独看：它的任务在跑或在等你答题时每秒看一次，被网页操作碰过之后看一次，每 60 秒全量对时再看一次；没有历史也没有任务就不推。
-- **取和执行**（`web-inbox` 线程）：每秒 GET `/sync/inbox?after=<seq>`；先把 seq 和 op_id 记进 `<state>/web/inbox.json`，再执行，按 op_id 去重（重启后也一样；记了没记结果的算“结果不确定”，回 failed，不重发）；执行完 POST `/sync/ack`。五种操作：
+- **专项负责人**（`COVEY_PROJECTS=1` 且专项有负责人话题时才推）：每个专项的负责人话题推成 `kind: lead` 的话题条目，`number` 为 0，标题“负责人”，`project_key` 是专项 id，`unseen` 恒为 false。它的各轮来自负责人话题的历史：主人在里面说的话（`owner`）、负责人的回答（`agent`）；Bridge 叫醒负责人的那一轮（回执，不是主人说话）不推，它的回复只有负责人标了要告诉主人（`project_loop.reported`）才算回答。主人看得懂的回执变成一行 `role: event`：话题做完、失败、中断、停住（`T834 做完了`，来自 `thread_end` 回执）；负责人在没人看见的唤醒轮里派出话题时，也有一行 `负责人派出了 T831 …`。每轮的 `started_topics`（`{key, number, title, harness}`）是这一轮派出去的话题：话题第一个任务进来时，哪一轮负责人最近开始过，就归哪一轮。负责人在跑或有问题等你时每秒看一次，被网页碰过后看一次，每 60 秒全量对时再看一次。
+- **每轮的过程和用量**（所有话题的各轮，条目里都是可选字段，没有就不带）：`steps`（最近 80 步 `{id, kind, label, started_at, ended_at, status}`，`kind` 按步骤标题归为 read、edit、command、search、subagent、web、think、other，进展说明不算步骤，在跑的一步 `ended_at` 为 null）、`plan`（检查点里的 steps，`{title, state}`）、`usage`（`input`、`output`、`cache_read`、`total`）、`seconds`、`speed`（token/s）、`context`（`{used, limit}`）、`notes`（任务记录的 `memory_notes` 字段，记忆那一路写，原样推，没有就不带）。在跑的一轮随每秒的推送更新：`seconds` 每 10 秒才变一次、`speed` 取整，没有实质变化时 `rev` 不变。已结束的轮只带最近 20 轮的，每轮读一次后记住。话题条目另带 `round`（已有几轮）、`started_at`、`context`（最近一轮的）。
+- **问题**：`question` 条目另带 `asked_at`、`answered_at`（没答为 null；记录里没有单独的答题时间，取最后一次写入）、`project_key`、`topic_number`。
+- **专项的记忆和资料**：`project.memory` 每条另带 `id`、`said_by`（来源是 owner、owner_answer、owner_fix 的为“你说的”，lead 的为“它总结的”）、`origin`（`{at}`，记录不记来自哪个话题，所以没有 `topic_number`）；`library` 每条另带 `kind`（file、link、image、video，路径和交付按扩展名归）、`size`（知道才给）、`topic_number`（来自哪个话题知道才给）；专项另带 `started_at`。
+- **取和执行**（`web-inbox` 线程）：每秒 GET `/sync/inbox?after=<seq>`；先把 seq 和 op_id 记进 `<state>/web/inbox.json`，再执行，按 op_id 去重（重启后也一样；记了没记结果的算“结果不确定”，回 failed，不重发）；执行完 POST `/sync/ack`。六种操作：
   - `say`：作为主人的话进这个话题。话题有任务在跑就是补充，没在跑就开下一轮（消息 id `web-<op_id>`）。话题在等你答题时拒绝，请答题。话题是管家（`topic_key` 为管家的 key）时，当作主人在私聊顶层发了这句话：走和飞书消息同一个入口（`UnifiedBridgeApp.handle_event`：准入、按消息 id 去重、扩展、管家），所以管家照常直接答、开话题、交给专项。管家没开（私聊是纯话题模式，或它的 Harness 不可用）时回 failed 写原因，不会变成一个新话题。`web-<op_id>` 不是飞书里的消息：这一轮的回复不引用它、不进它的话题串、不加表情，全部作为私聊里新的顶层消息（任务卡同主人自己的消息一样，跑过一阵才发）。
+  - `say` 到负责人（`topic_key` 为负责人话题的 key）：等于在飞书里引用专项卡回复：负责人在跑就作为补充，没在跑就开它的下一轮（同样的 `web-<op_id>` 规矩，不引用、不加表情）；专项已结束、负责人话题读不到、没开 `COVEY_PROJECTS` 时回 failed 写原因。
+  - `forget`（`project_key`、`payload.entry_id`）：把一条专项记忆作废，和专项卡上的删除是同一处（`project_memory.delete`，留一条墓碑，负责人 30 天内不会再记回去）；回 done“已作废：<前 40 字>”，找不到（已删、不是这个专项的）回 failed。
   - `answer`：交给问题自己的提交路径（`answer_fields`）；含自由文字的题不能在网页答，回 failed，请在飞书里答。管家自己的问题也只能在飞书里答。
   - `seen`：把话题最新的结果记为看过，同主人在飞书里读到它（读回执写入 `topic-seen.json`），看板、Pin、手上的事随之更新，下一次推送这个话题的 `unseen` 为 false。已经看过的再来一次，回 done 且不写文件。话题必须属于主人的私聊，不认识的回 failed 写原因；管家没有“没看”的结果，回 done。
   - `stop`：停这个话题在跑的任务；任务在任务进程里时转给任务进程，同卡片上的停止。
@@ -521,7 +527,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 | `core/board_read.py` | 私聊话题的一次读和三种“未看”规则 |
 | `core/turn_words.py` | 状态词、请求行 |
 | `core/principles.py` | 主人的原则 |
-| `core/web_sync.py`、`app/web_sync.py`、`app/web_ops.py` | 网页工作台同步：配置和条目、推与取的线程、五种操作的执行 |
+| `core/web_sync.py`、`app/web_sync.py`、`app/web_turns.py`、`app/web_ops.py` | 网页工作台同步：配置和条目、推与取的线程、每轮的过程和用量、六种操作的执行 |
 | `core/patrol.py`、`app/patrol_rules.py`、`app/patrol_judge.py`、`app/patrol.py` | 我本来想找你的事：记录和数值、规则、小模型、后台线程 |
 | `core/knowledge.py` | 知识条目：存储、重放、搜索、生成的 `.md` |
 | `app/knowledge_turn.py`、`app/knowledge_collect.py` | 一轮读哪些条目、话题里“记一下”的收集 |
