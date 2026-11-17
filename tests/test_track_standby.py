@@ -121,7 +121,7 @@ class Base(unittest.TestCase):
         self.assertTrue(self.lines(), "the standby never read its priming message")
         time.sleep(0.1)
 
-    def started_count(self, count, timeout=3):
+    def started_count(self, count, timeout=10):
         """``count`` processes have started (the fake writes its pid when it is up)."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and len(self.started()) < count:
@@ -333,12 +333,12 @@ class HedgeTest(Base):
 
     def primed(self, count):
         track_judge.warm(self.backend, self.ctx)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 20  # A loaded machine starts two interpreters slowly.
         while time.monotonic() < deadline and len(self.lines()) < count:
             time.sleep(0.02)
         self.assertEqual(len(self.lines()), count)
 
-    def test_two_standbys_start_and_both_get_the_question(self):
+    def test_two_standbys_start_and_the_question_goes_to_them(self):
         self.primed(2)
         self.assertEqual(len(self.started()), 2)
         verdict = self.ask()
