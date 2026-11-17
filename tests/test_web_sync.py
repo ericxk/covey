@@ -23,7 +23,8 @@ from covey.core import http_upstream, placement, project_library, project_memory
 from covey.core.butler import butler_topic_id
 from covey.core.history_storage import append_history
 from covey.core.serving import LoopbackServer
-from covey.core.state import write_json
+from covey.core.jobs import job_file
+from covey.core.state import read_object, write_json
 from covey.core.topic_seen import read_seen
 from covey.core.topics import context_for_topic, message_topic, remember_topic_message
 from support.fake_backends import codex_context
@@ -809,6 +810,20 @@ class ExtrasTest(WebCase):
         self.sync.collector.touch(TOPIC)
         self.sync.push_once(T0 + 1)
         self.assertEqual(self.web.items("turn")[-1]["data"]["notes"], [note, undone])
+
+    def test_memory_notes_written_after_the_turn_ended_reach_the_page(self):
+        self.topic(status="done")
+        write_job(self.state, f"k-{TOPIC[:4]}", message_id="m你好")  # The turn of the owner's "你好".
+        self.sync.push_once(T0)
+        self.assertNotIn("notes", self.web.items("turn")[-1]["data"])
+        note = {"kind": "remembered", "text": "用新库", "scope": "管这个专项", "entry_id": "ab12"}
+        ended = read_object(job_file(self.state, f"k-{TOPIC[:4]}"))["updated_at"]
+        with mock.patch("covey.core.jobs.utc_now_iso", return_value=ended):  # Written within the second the turn ended.
+            write_job(self.state, f"k-{TOPIC[:4]}", memory_notes=[note])
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 1)
+        pushed = {item["key"]: item["data"] for item in self.web.items("turn")}
+        self.assertEqual([data.get("notes") for data in pushed.values() if data.get("notes")], [[note]], pushed)
 
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()

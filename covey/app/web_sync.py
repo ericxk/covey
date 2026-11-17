@@ -305,6 +305,13 @@ class Collector:
             turn = {"topic_key": topic, "seq": seq, **data}
             if job is not None and seq > total - EXTRA_TURNS:
                 turn.update(self.ended_extras(state, job))
+                # The memory notes are written after the turn has ended (app/memory_collect.py), maybe within the same
+                # second as its end: read them from the record every time, not from the cache.
+                notes = web_turns.notes_of(job)
+                if notes:
+                    turn["notes"] = notes
+                else:
+                    turn.pop("notes", None)
             if job is not None and wakes.get(job_key(job.get("message_id"), job.get("job_id"))):
                 turn["started_topics"] = wakes[job_key(job.get("message_id"), job.get("job_id"))]
             out.append(turn)
