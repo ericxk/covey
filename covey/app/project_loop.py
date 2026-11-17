@@ -11,8 +11,13 @@ when something happened since it last looked, and the mechanical checks that sto
   GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_BUDGET (``tokens_used``, added
   once per task by ``after_runner``); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
   receipt for 30 minutes, which first wakes the lead with a ``stalled`` receipt and, as long again with nothing moving,
-  pauses. The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
+  pauses (only a project with something to do, ``has_work``, can stall). The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
   owner's stop paused (a ``tokens`` pause gets a new budget from there, ``token_floor``).
+- A project with nothing to do (``has_work``: no task queued, running or waiting for the owner in the lead's or a member's topic, no
+  question waiting, no receipt unread) and nothing said or done for COVEY_PROJECT_IDLE_DAYS days (default 7, ``fold``) is
+  folded away: PAUSED with ``state_reason`` ``idle`` (``projects.IDLE``) and ``idle`` ({at, days}); no pause card, no question. The owner's own
+  turn in the lead's topic, his word in a member's topic (``heard``) or the butler's ``project_send`` (all go through ``reopen``)
+  open it again; ``idle_reopened_at`` keeps it from folding again before something has happened.
 - With COVEY_PROJECT_ASK=1 a pause a guard made is also put to the owner (``pause``): the record gets ``pause_ask`` ({reason,
   why, at, choice, card}), app/project_cards.py sends the card (继续 / 收尾 / 停) and ``answer_pause`` is what a click does
   to the record. A ``tokens`` pause also stops the member topics' running tasks; a ``wakes`` pause leaves them running; a
@@ -38,6 +43,7 @@ from covey.core.jobs import find_job_record, job_field, job_key, topic_job_recor
 from covey.core.loops import every
 from covey.core.state import read_object
 from covey.core.statuses import ENDED, NOT_ENDED
+from covey.core.store import directory_store
 from covey.core.text import cut
 from covey.core.topics import load_topic, remember_topic_message, topic_label
 from covey.core.turn_words import RESULTS
@@ -49,6 +55,7 @@ HOUR = 3600
 WAKE_TEXT = ("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主人不在场：按回执判断下一步。"
              "要告诉主人的用 project_note 并标 report，这一轮的回复不会发给主人。")
 TOKEN_JOBS_KEPT = 300  # Task keys the record remembers it has counted (``tokens_used``).
+EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
 RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a member's receipt says; an interrupted turn goes on by itself.
 SAID = 300  # Characters of the owner's words in an ``owner_said`` receipt.
@@ -108,6 +115,23 @@ def unread(state_dir, project_id) -> list:
 def open_turns(state_dir, topics) -> bool:
     """Whether any of ``topics`` has a task not ended: queued, running, or waiting for the owner."""
     return any(record.get("status") in NOT_ENDED for topic in topics for record in topic_job_records(state_dir, topic))
+
+
+def has_question(state_dir, topics) -> bool:
+    """Whether any of ``topics`` has a question card shown and not answered."""
+    return any(True for topic in topics for _ in directory_store(Path(state_dir) / "questions").query(topic_id=topic, status="pending"))
+
+
+def has_work(state_dir, record, pending) -> bool:
+    """Whether ``record``'s project has something to do: a task queued, running or waiting for the owner in the lead's or a member's
+    topic, a question waiting for an answer, or a receipt (``pending``: the unread ones) other than the stall reminder."""
+    topics = [str(record.get("lead_topic_id") or ""), *(topic for topic in record.get("threads") or () if isinstance(topic, str))]
+    return open_turns(state_dir, topics) or has_question(state_dir, topics) or any(item.get("kind") != "stalled" for item in pending)
+
+
+def running_turns(state_dir, topics) -> bool:
+    """Whether any of ``topics`` has a task executing (one still queued or waiting for the owner's answer is work that is not moving)."""
+    return any(record.get("status") in EXECUTING for topic in topics for record in topic_job_records(state_dir, topic))
 
 
 def last_activity(state_dir, record, receipts) -> float:
@@ -175,6 +199,9 @@ def reopen(record) -> None:
     if record.get("state") == projects.PAUSED and record.get("state_reason") in projects.RESUMABLE:
         if record.get("state_reason") == "tokens":
             record["token_floor"] = int(record.get("tokens_used") or 0)
+        if record.get("state_reason") == projects.IDLE:
+            record.pop("idle", None)
+            record["idle_reopened_at"] = time.time()
         record["state"], record["state_reason"] = projects.ACTIVE, ""
 
 
@@ -250,8 +277,11 @@ def heard(state_dir, topic_id, text) -> None:
             return
         label = topic_label(Path(state_dir), topic_id) or topic_id[:8]
         project_lead.add_receipt(state_dir, found.id, "owner_said", f"主人在 {label} 里说：{cut(text, SAID)}", thread=topic_id)
-        projects.update(state_dir, found.id,
-                        lambda data: data.__setitem__("wakes", {**wakes_of(data), "streak": 0, "recent": []}))
+        def change(data):
+            if projects.folded(data):
+                reopen(data)  # A project folded away for being idle: his word opens it again.
+            data["wakes"] = {**wakes_of(data), "streak": 0, "recent": []}
+        projects.update(state_dir, found.id, change)
     except (KeyError, ValueError, OSError):
         return
 
@@ -387,20 +417,47 @@ class ProjectLoop:
             if due and not open_turns(state, [lead]):
                 reason = hold(record, now)
                 return self.pause(record, reason, now) if reason else self.wake(record, now)
-            return
+            if not due:
+                return
+        if not has_work(state, record, pending):
+            return self.rest(record, state, now)
         if projects.autowake_enabled():
             self.stall(record, state, now, lead)
 
+    def inbox(self, state, pid) -> list:
+        try:  # Every receipt, read or not: a member's end the lead has read is activity all the same.
+            return [read_object(path) for path in project_lead.inbox_dir(state, pid).glob("*.json")]
+        except OSError:
+            return []
+
+    def rest(self, record, state, now) -> None:
+        """Nothing to do: folded away once ``projects.idle_seconds()`` have passed since anything happened (a task ended, a receipt came, the
+        owner spoke, the project was opened or opened again). The pause card is not sent and nothing is asked."""
+        pid = record["id"]
+        activity = max(last_activity(state, record, self.inbox(state, pid)), float(record.get("idle_reopened_at") or 0))
+        if now - activity < projects.idle_seconds():
+            return
+        days = projects.idle_days()
+
+        def change(data):
+            if data.get("state") != projects.ACTIVE:
+                return
+            data["state"], data["state_reason"] = projects.PAUSED, projects.IDLE
+            data["idle"] = {"at": now, "days": days}
+            data.pop("stall", None)
+        try:
+            projects.update(state, pid, change)
+        except (KeyError, ValueError):
+            return
+        self.runtime.log(f"project folded away project={str(pid)[:8]} days={days}")
+
     def stall(self, record, state, now, lead) -> None:
-        """No task, no receipt: a reminder after ``projects.stall_seconds()`` of it (a ``stalled`` receipt, which wakes the lead), and as long
-        again with nothing moving the project is paused."""
-        if open_turns(state, [lead, *(record.get("threads") or ())]):
+        """Something to do and nothing moving: a reminder after ``projects.stall_seconds()`` of it (a ``stalled`` receipt, which wakes the lead),
+        and as long again with nothing moving the project is paused. A task running is movement; a project with nothing to do never stalls."""
+        if running_turns(state, [lead, *(record.get("threads") or ())]):
             return
         pid = record["id"]
-        try:  # Every receipt, read or not: a member's end the lead has read is activity all the same.
-            receipts = [read_object(path) for path in project_lead.inbox_dir(state, pid).glob("*.json")]
-        except OSError:
-            receipts = []
+        receipts = self.inbox(state, pid)
         activity = last_activity(state, record, receipts)
         marker = record.get("stall") if isinstance(record.get("stall"), dict) else {}
         if marker and activity > float(marker.get("activity") or 0):
@@ -409,7 +466,7 @@ class ProjectLoop:
         if not marker:
             if now - activity > projects.stall_seconds():
                 minutes = int((now - activity) // 60)
-                project_lead.add_receipt(state, pid, "stalled", f"专项已经 {minutes} 分钟没有任务在做，也没有新的回执。", at=now)
+                project_lead.add_receipt(state, pid, "stalled", f"专项还有要做的事，已经 {minutes} 分钟没有任务在跑，也没有新的回执。", at=now)
                 projects.update(state, pid, lambda data: data.__setitem__("stall", {"at": now, "activity": activity}))
             return
         if now - float(marker.get("at") or now) > projects.stall_seconds():

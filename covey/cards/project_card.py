@@ -25,7 +25,7 @@ a message of its own where the project's card is (``pa_why`` the reason in a sen
 
 No input field: a card that is redrawn must not hold one (docs/cards.md 卡片的客户端限制); 补充 sends a card of its own.
 Two more cards of one line: ``settled_card`` (the project is done: ``pj_line``, linking to the conclusion) and
-``moved_card`` (a card that was replaced by a new one because CardKit stops accepting writes to a card after 14 days)."""
+``idle_card`` (a project with nothing to do for COVEY_PROJECT_IDLE_DAYS days, folded away; the whole card is drawn again when it opens), ``moved_card`` (a card that was replaced by a new one because CardKit stops accepting writes to a card after 14 days)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -273,6 +273,12 @@ def settled_card(name, *, url="", reason=""):
     words = f"✅ {DONE} · 结论在下方" + ("　›" if url else "") if not reason else f"⏹ {reason}"
     text = clipped(name, HEAD_CHARS) or "专项"
     return line_block(words, text, url if not reason else "")
+
+
+def idle_card(name, days):
+    """What the card of a project folded away for being idle becomes (state_reason ``idle``): one grey line, "收起 · 7 天没有新的事", and
+    that new work opens it again. Not final: the next look draws the whole card once the project is active again."""
+    return line_block(f"💤 收起 · {int(days)} 天没有新的事", f"{clipped(name, HEAD_CHARS) or '专项'} · 有新的事会自动展开")
 
 
 def moved_card(name, url=""):

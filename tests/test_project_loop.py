@@ -301,6 +301,7 @@ class PauseAskTest(Loop):
         self.ask_on()
         self.autowake()
         self.update(created_at=NOW)
+        self.thread(THREAD, "迁移", 41, status="waiting_user")  # Something to do that does not move.
         self.loop.tick(NOW + 31 * 60)
         project_lead.take_receipts(self.state, PID, "k-w1")
         write_job(self.state, "k-w1", topic_id=LEAD, chat_id=CHAT, job_id=1, status="done", message_id=f"lead-{PID}-1")
@@ -312,6 +313,7 @@ class PauseAskTest(Loop):
         self.ask_on()
         self.autowake()
         self.update(created_at=NOW)
+        self.thread(THREAD, "迁移", 41, status="queued")
         self.assertEqual(projects.stall_seconds(), projects.STALL_SECONDS)
         with mock.patch.dict(os.environ, {projects.STALL_ENV: "60"}):
             self.assertEqual(projects.stall_seconds(), 60)
@@ -400,11 +402,102 @@ class PauseAskTest(Loop):
                          ["8000", "1000 万", "2500 万", "1.5 亿", "2 万"])
 
 
+class IdleTest(Loop):
+    """A project with nothing to do and nothing said for COVEY_PROJECT_IDLE_DAYS days is folded away (PAUSED + ``idle``), and its
+    word, new work or the owner's turn open it again; only a project with something to do can stall."""
+    DAY = 86400
+
+    def setUp(self):
+        super().setUp()
+        self.update(created_at=NOW)
+
+    def state_of(self):
+        record = self.reload()
+        return record["state"], record["state_reason"]
+
+    def test_nothing_to_do_for_seven_days_folds_it_without_a_question_or_a_receipt(self):
+        mock.patch.dict(os.environ, {projects.ASK_ENV: "1", projects.AUTOWAKE_ENV: "1"}).start()
+        self.addCleanup(mock.patch.stopall)
+        self.loop.tick(NOW + 7 * self.DAY - 60)
+        self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+        self.loop.tick(NOW + 7 * self.DAY + 60)
+        self.assertEqual(self.state_of(), (projects.PAUSED, projects.IDLE))
+        record = self.reload()
+        self.assertEqual(record["idle"], {"at": NOW + 7 * self.DAY + 60, "days": 7})
+        self.assertNotIn("pause_ask", record)  # No pause card, no question.
+        self.assertEqual(project_loop.unread(self.state, PID), [])  # And no reminder on the way.
+        self.assertEqual(self.queued, [])
+        self.assertTrue(projects.folded(record))
+
+    def test_the_days_can_be_set_and_a_bad_value_is_seven(self):
+        self.assertEqual(projects.idle_days(), 7)
+        with mock.patch.dict(os.environ, {projects.IDLE_ENV: "2"}):
+            self.loop.tick(NOW + 2 * self.DAY + 1)
+        self.assertEqual((self.state_of(), self.reload()["idle"]["days"]), ((projects.PAUSED, projects.IDLE), 2))
+        for value in ("", "x", "0", "-3", "1.5"):
+            with mock.patch.dict(os.environ, {projects.IDLE_ENV: value}):
+                self.assertEqual((projects.idle_days(), projects.idle_seconds()), (7, 7 * self.DAY))
+
+    def test_anything_to_do_keeps_it_open(self):
+        for name, setup in (("a queued task", lambda: self.thread(THREAD, "迁移", 41, status="queued")),
+                            ("a task waiting for the owner", lambda: self.thread(THREAD, "迁移", 41, status="waiting_user")),
+                            ("a receipt nobody read", lambda: self.receipt("thread_end", "T41 做完了", at=NOW)),
+                            ("a question waiting", lambda: write_json(self.state / "questions" / "q1.json", {
+                                "question_id": "q1", "topic_id": THREAD, "chat_id": CHAT, "status": "pending", "created_at": NOW}))):
+            with self.subTest(name):
+                self.update(state=projects.ACTIVE, state_reason="")
+                setup()
+                self.loop.tick(NOW + 30 * self.DAY)
+                self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+
+    def test_a_task_that_ended_or_a_word_from_the_owner_counts_from_then(self):
+        self.thread(THREAD, "迁移", 41, status="done", timings={"execution_finished": NOW + 5 * self.DAY})
+        self.loop.tick(NOW + 8 * self.DAY)
+        self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+        self.loop.tick(NOW + 12 * self.DAY + 60)
+        self.assertEqual(self.state_of(), (projects.PAUSED, projects.IDLE))
+
+    def test_the_owners_turn_the_butlers_send_and_his_word_in_a_topic_of_it_open_it_again(self):
+        self.thread(THREAD, "迁移", 41, status="done", timings={"execution_finished": NOW})
+        for opener in (lambda: project_loop.owner_turn(self.state, LEAD, CHAT, "om_1"),  # What project_send's turn goes through too.
+                       lambda: project_loop.heard(self.state, THREAD, "迁移再看看")):
+            self.update(state=projects.PAUSED, state_reason=projects.IDLE, idle={"at": NOW, "days": 7})
+            opener()
+            self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+            self.assertNotIn("idle", self.reload())
+
+    def test_a_project_just_opened_again_is_not_folded_before_something_has_happened(self):
+        self.update(state=projects.PAUSED, state_reason=projects.IDLE, idle={"at": NOW, "days": 7})
+        with mock.patch("covey.app.project_loop.time.time", return_value=NOW + 20 * self.DAY):
+            project_loop.owner_turn(self.state, LEAD, CHAT, "om_1")
+        self.loop.tick(NOW + 20 * self.DAY + 5)
+        self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+        self.loop.tick(NOW + 27 * self.DAY + 10)
+        self.assertEqual(self.state_of(), (projects.PAUSED, projects.IDLE))
+
+    def test_a_guards_pause_is_not_reopened_by_the_idle_logic_and_the_loop_skips_a_folded_project(self):
+        self.update(state=projects.PAUSED, state_reason="stalled")
+        self.loop.tick(NOW + 30 * self.DAY)
+        self.assertEqual(self.state_of(), (projects.PAUSED, "stalled"))
+        self.assertNotIn("idle", self.reload())
+
+    def test_nothing_to_do_never_stalls_but_something_that_does_not_move_does(self):
+        self.autowake()
+        self.loop.tick(NOW + 31 * 60)
+        self.loop.tick(NOW + 3 * HOUR)
+        self.assertEqual(project_loop.unread(self.state, PID), [])
+        self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+        self.thread(THREAD, "迁移", 41, status="waiting_user")
+        self.loop.tick(NOW + 3 * HOUR + 10)
+        self.assertEqual([item["kind"] for item in project_loop.unread(self.state, PID)], ["stalled"])
+
+
 class StallTest(Loop):
     def setUp(self):
         super().setUp()
         self.autowake()
         self.update(created_at=NOW)
+        self.thread(THREAD, "迁移", 41, status="waiting_user")  # Something to do that does not move: only that stalls.
 
     def test_a_reminder_after_half_an_hour_then_a_pause_after_another(self):
         self.loop.tick(NOW + 29 * 60)

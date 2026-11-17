@@ -351,7 +351,8 @@ STALL_SECONDS = 30 * 60  # Idle this long: one reminder; as long again with noth
 # state_reason of a project a guard stopped, and what the owner's own turn may start again (a click on 停止专项 too).
 GUARD_REASONS = ("tokens", "wakes", "stalled")
 OWNER_STOP = "主人停止"
-RESUMABLE = (*GUARD_REASONS, OWNER_STOP)
+IDLE = "idle"  # state_reason of a project folded away for want of work (PAUSED + this; the owner's word or new work opens it again).
+RESUMABLE = (*GUARD_REASONS, OWNER_STOP, IDLE)
 REASON_WORDS = {"tokens": "token 用完了", "wakes": "连续唤醒次数到上限", "stalled": "很久没有动静"}
 
 
@@ -378,6 +379,28 @@ def stall_seconds() -> int:
     except ValueError:
         return STALL_SECONDS
     return value if value > 0 else STALL_SECONDS
+
+
+IDLE_ENV = "COVEY_PROJECT_IDLE_DAYS"  # Days a project may have nothing to do (and the owner not mention it) before it is folded away.
+DEFAULT_IDLE_DAYS = 7
+
+
+def idle_days() -> int:
+    """COVEY_PROJECT_IDLE_DAYS, else DEFAULT_IDLE_DAYS (also for a value that is not a positive integer)."""
+    try:
+        value = int(str(cenv.get(IDLE_ENV, "")).strip())
+    except ValueError:
+        return DEFAULT_IDLE_DAYS
+    return value if value > 0 else DEFAULT_IDLE_DAYS
+
+
+def idle_seconds() -> int:
+    return idle_days() * 86400
+
+
+def folded(record) -> bool:
+    """Whether ``record`` is a project folded away for being idle (paused with the reason ``IDLE``)."""
+    return isinstance(record, dict) and record.get("state") == PAUSED and record.get("state_reason") == IDLE
 
 
 def count_words(number) -> str:

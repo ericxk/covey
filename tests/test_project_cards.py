@@ -852,3 +852,44 @@ class PinTest(ProjectsCase):
             self.assertEqual(label_title(self.state, self.lead_id, "（话题未知）"), ("", "（话题未知）"))
             row = self.row("running")
             self.assertEqual(pins.aimed(self.state, "oc_dm", row), row)
+
+
+class FoldedCardTest(CardCase):
+    """A project folded away for being idle draws one line (``idle_card``) and the whole card again once it is active."""
+
+    def fold(self, **fields):
+        projects.update(self.state, PID, lambda record: record.update(state="paused", state_reason="idle", idle={"at": 1.0, "days": 7}, **fields))
+
+    def test_the_line_says_the_days_and_that_new_work_opens_it_and_is_written_once(self):
+        self.fold()
+        self.tick(1010.0)
+        card = self.put.call_args.args[2]
+        self.assertEqual(self.put.call_count, 1)
+        self.assertIn("收起 · 7 天没有新的事", text(card))
+        self.assertIn("有新的事会自动展开", text(card))
+        self.assertIsNone(find_element(card, "pj_btns"))
+        self.assertFalse(self.record()["card"].get("closed"))
+        self.tick(1020.0)
+        self.assertEqual(self.put.call_count, 1)
+        self.assertFalse(self.sent.called)  # No pause card: nothing is asked.
+
+    def test_active_again_the_whole_card_is_drawn_over_the_line(self):
+        self.fold()
+        self.tick(1010.0)
+        projects.update(self.state, PID, lambda record: record.update(state="active", state_reason=""))
+        self.tick(1020.0)
+        self.assertEqual(self.put.call_count, 2)
+        self.assertIn("pj_btns", ids(self.put.call_args.args[2]))
+        self.assertEqual([call.kwargs["sequence"] for call in self.put.call_args_list], [41, 42])
+
+    def test_a_card_older_than_the_flip_is_not_sent_again_while_folded(self):
+        self.fold()
+        self.tick(1000.0 + project_cards.FLIP_AFTER + 10)
+        self.assertFalse(self.sent.called)
+        self.assertIn("收起", text(self.put.call_args.args[2]))
+
+    def test_an_old_record_without_the_days_uses_the_setting(self):
+        projects.update(self.state, PID, lambda record: record.update(state="paused", state_reason="idle"))
+        with mock.patch.dict(os.environ, {projects.IDLE_ENV: "3"}):
+            self.tick(1010.0)
+        self.assertIn("收起 · 3 天没有新的事", text(self.put.call_args.args[2]))

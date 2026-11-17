@@ -12,6 +12,8 @@ own (cards/project_card.py), kept up to date and shrunk to one line when the pro
 - 14 days (CardKit stops taking writes to a card then): from ``FLIP_AFTER`` (12 days) of its age the card is sent again as a
   new message; the board's pin (app/pins.py ``aimed`` reads the record) follows, the new message routes to the lead, the old
   card becomes "已移到新卡 ›" and, when that cannot be written ``MOVE_TRIES`` times, is recalled.
+- A project folded away for being idle (state_reason ``idle``, app/project_loop.py ``rest``) is drawn as one line (``fold``, 收起 · N 天没有新的事),
+  before the 14 days are looked at; the card is not closed, so once the project is active again the next look draws it whole.
 - With COVEY_PROJECT_ASK=1 it also sends and settles the pause card (``ask``): a project a guard paused (``pause_ask`` in its
   record, app/project_loop.py) gets a card of its own where the project's card is, with 继续 / 收尾 / 停; once the owner chose
   (``ask_choice`` records it) or the project moved on some other way, that card is written once more as one line.
@@ -34,7 +36,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from covey.cards.project_card import (ASK_KINDS, CORRECTED, DONE, PAUSED, RUNNING, WAITING, Project, Member, ask_card, asked_card,
-                                      moved_card, project_card, settled_card)
+                                      idle_card, moved_card, project_card, settled_card)
 from covey.app import project_loop
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
@@ -397,6 +399,8 @@ class ProjectCards:
             return self.settle(ctx, record, card, seen, now)
         if state == projects.CANCELLED:
             return self.settle(ctx, record, card, seen, now, reason=CLOSED_WORDS["downgraded"])
+        if projects.folded(record):
+            return self.fold(ctx, record, card, seen, now)
         if now - float(card.get("created_at") or record.get("created_at") or now) > FLIP_AFTER:
             return self.flip(ctx, record, card, seen, now)
         view = facts(ctx.state_dir, record, now, self.titles, self.links(ctx, record, seen, now))
@@ -406,6 +410,19 @@ class ProjectCards:
             return
         if self.write(ctx, record, card, seen, built, now):
             projects.update_card(ctx.state_dir, pid, digest=digest, wrote_at=now)
+            seen["digest"] = digest
+
+    def fold(self, ctx, record, card, seen, now) -> None:
+        """A project folded away for being idle (``projects.folded``): its card is one line, written once (a card that is not changed
+        is not written again); the card is not closed, so the next look after the project opens again draws it whole."""
+        idle = record.get("idle") if isinstance(record.get("idle"), dict) else {}
+        days = idle.get("days") if type(idle.get("days")) is int and idle["days"] > 0 else projects.idle_days()
+        built = idle_card(record.get("name"), days)
+        digest = digest_of(built)
+        if digest == seen["digest"] or now - seen["wrote"] < MIN_GAP:
+            return
+        if self.write(ctx, record, card, seen, built, now):
+            projects.update_card(ctx.state_dir, str(record["id"]), digest=digest, wrote_at=now)
             seen["digest"] = digest
 
     def ask(self, ctx, record, now) -> None:
