@@ -55,7 +55,7 @@ def reason_to_ignore(runtime, ctx, job, record) -> str:
         return "not-finished"
     if not runtime.access.owner_turn(chat, str(record.get("sender_id") or getattr(job, "sender_id", "") or "")):
         return "not-owner"
-    if record.get("prompt_text") or getattr(job, "prompt_text", None):
+    if memory_turn.handed_on(record.get("message_id") or getattr(job, "message_id", "")):
         return "handed-on"
     if is_butler_topic(topic_id, chat):
         return "butler"

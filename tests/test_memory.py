@@ -148,8 +148,8 @@ class TurnCase(Case):
         app.runtime.access.remember_owner_chat(DM)
         return app
 
-    def job(self, text="帮我检查代码", job_id=5, topic="", **fields):
-        return ReplyJob(job_id=job_id, user_text=text, chat_id=DM, message_id=f"om{job_id}", timeout=0, sender_id=OWNER,
+    def job(self, text="帮我检查代码", job_id=5, topic="", message_id="", **fields):
+        return ReplyJob(job_id=job_id, user_text=text, chat_id=DM, message_id=message_id or f"om{job_id}", timeout=0, sender_id=OWNER,
                         topic_id=topic, **fields)
 
     def seed(self):
@@ -242,7 +242,10 @@ class TurnTest(TurnCase):
         with mock.patch.object(memory_turn, "is_butler_topic", return_value=True):
             self.assertFalse(memory_turn.fix_rule(self.ctx, butler_job, lambda: True))
         self.assertFalse(memory_turn.fix_rule(self.ctx, said, lambda: False))
-        self.assertFalse(memory_turn.fix_rule(self.ctx, self.job("以后别再问", prompt_text="管家转来的"), lambda: True))
+        self.assertFalse(memory_turn.fix_rule(self.ctx, self.job("以后别再问", message_id="main-tok1", prompt_text="管家转来的"), lambda: True))
+        # A page's words and a reply in a topic's thread carry prompt_text too: still the owner's own turn.
+        self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("以后别再问", message_id="web-op1", prompt_text="以后别再问"), lambda: True))
+        self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("以后别再问", prompt_text="话题起始消息：…\n\n以后别再问"), lambda: True))
 
     def test_knowledge_keeps_its_own_remember_words(self):
         self.env(**ON, **{knowledge.ENV: "1"})
@@ -270,9 +273,9 @@ class CollectCase(Case):
         self.count = 4
 
     def turn(self, *, memory_lines=None, void=None, user_text="以后别再先问侧重点，直接开工", status="done", sender=OWNER,
-             prompt_text="", topic="t1", ids=(), **record):
+             prompt_text="", topic="t1", ids=(), key="", **record):
         self.count += 1
-        key = f"om{self.count}"
+        key = key or f"om{self.count}"
         path = self.state / f"cp-{key}.json"
         data = {"phase": "完成"}
         if memory_lines is not None:
@@ -312,6 +315,15 @@ class CollectTest(CollectCase):
         self.assertEqual(self.collect(job)["memory_notes"], record["memory_notes"])  # Not twice.
         self.assertEqual(len(topic_memory.live(self.state, "t1")), 1)
 
+    def test_words_from_the_page_or_a_reply_in_the_thread_are_taken_too(self):
+        # Both fill prompt_text (the page's words; a reply carries the thread's first message as background): not handed on.
+        for n, (key, prompt) in enumerate((("web-op7", "以后别再先问侧重点，直接开工"),
+                                           ("om_reply", "话题起始消息：…\n\n以后别再先问侧重点，直接开工"))):
+            with self.subTest(key):
+                line = {**self.LINE, "text": f"{self.LINE['text']}（第 {n + 1} 次）"}
+                record = self.collect(self.turn(memory_lines=[line], prompt_text=prompt, key=key))
+                self.assertEqual([note["kind"] for note in record["memory_notes"]], ["remembered"])
+
     def test_in_a_project_topic_it_goes_to_the_project_as_the_owners(self):
         projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", project_id=PID, now=NOW))
         write_topic(self.state, topic_id="t1", topic_number=7, project=projects.project_field(PID, projects.MEMBER))
@@ -327,7 +339,7 @@ class CollectTest(CollectCase):
                  "no-trigger": dict(memory_lines=[self.LINE], user_text="帮我看看这个"),
                  "not-finished": dict(memory_lines=[self.LINE], status="failed"),
                  "not-owner": dict(memory_lines=[self.LINE], sender="ou_other"),
-                 "handed-on": dict(memory_lines=[self.LINE], prompt_text="管家转来的"),
+                 "handed-on": dict(memory_lines=[self.LINE], prompt_text="管家转来的", key="main-tok9"),
                  "none": dict(memory_lines=[])}
         for name, fields in cases.items():
             with self.subTest(name):
