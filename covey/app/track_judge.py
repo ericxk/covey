@@ -20,8 +20,11 @@ message replies to), each text cut to CLIP characters. The answer is ``{"route":
 
 On the ``claude`` channel the process is, when it can be, a standby started and primed before the question
 (``warm``, called by app/butler_tracks.py; app/track_standby.py): it saves the CLI's start and the slow first request, answers
-this one question and is killed, and ``warm`` starts the next. Without one the call starts a one-shot as above.
-COVEY_TRACK_JUDGE_WARM=0 never starts a standby.
+this one question and is killed. COVEY_TRACK_JUDGE_HEDGE (default 2) standbys are kept and all asked at once, the first
+usable answer wins (the gateway's slow requests are each request's own); the next ones are started as these are taken, so a
+second question meanwhile does not fall back to a one-shot. Without one the call starts a one-shot as above.
+COVEY_TRACK_JUDGE_WARM=0 never starts a standby. COVEY_TRACK_JUDGE_SLIM (default on) adds SLIM to the argv: about 800
+input tokens instead of 4800.
 
 One log line per call, never with the owner's text: ``track judge route=… target=… conf=… why=… ms=… via=…`` or
 ``track judge failed|skipped reason=… ms=… via=…``. Needs a Claude Code that takes ``--no-session-persistence``
@@ -48,10 +51,14 @@ MODEL = "haiku"
 CONFIDENCE_MIN = 0.7
 DEFAULT_MS = 3000  # One Haiku call through a gateway often takes 1–2 s; with 2000 about 4 in 10 judgments timed out.
 MIN_MS, MAX_MS = 200, 10000
+DEFAULT_HEDGE, MAX_HEDGE = 2, 3  # The gateway's latency spikes are per request: the second of two asked at once usually misses them.
 MAX_TASKS = 3
 CLIP = 300
 STDERR_KEPT = 300
 FLAG = "--no-session-persistence"
+# What keeps the model's input small: without them Claude Code puts the working directory's project settings and
+# memory files and the skill list in front of every question (about 4800 input tokens against 800, measured 2026-11-17).
+SLIM = ["--setting-sources", "user", "--disable-slash-commands"]
 SYSTEM = (
     "You route one new chat message of a user to one of the user's running assistant tasks. The input is a JSON "
     "object: message (the new message), tasks (each with index, phase, request), question (what a waiting task asks, "
@@ -62,6 +69,7 @@ SYSTEM = (
     '{"route":"merge"|"new","target":<task index or null>,"confidence":<0 to 1>}'
 )
 _refused_flag = False  # This Claude Code does not know FLAG.
+_refused_slim = False  # This Claude Code does not know SLIM's options.
 
 
 @dataclasses.dataclass(frozen=True)
@@ -132,6 +140,8 @@ def claude_argv(backend, ctx, with_flag: bool, stream: bool = False, system: str
             "--tools", "", "--system-prompt", system]
     if with_flag:
         argv.append(FLAG)
+    if not _refused_slim and slim_enabled():
+        argv.extend(SLIM)
     return backend.wrap_argv(argv, ctx)
 
 
@@ -141,16 +151,37 @@ def use_flag() -> bool:
 
 
 def refused(exc: Failed) -> None:
-    """Remember that this Claude Code does not know FLAG when ``exc`` says so (the caller then asks without it)."""
-    global _refused_flag
-    if exc.reason == "exit_nonzero" and FLAG in exc.detail and "unknown option" in exc.detail:
+    """Remember that this Claude Code does not know FLAG, or an option of SLIM, when ``exc`` says so (the caller then
+    asks without it)."""
+    global _refused_flag, _refused_slim
+    if exc.reason != "exit_nonzero" or "unknown option" not in exc.detail:
+        return
+    if FLAG in exc.detail:
         _refused_flag = True
+    if any(option in exc.detail for option in SLIM if option.startswith("--")):
+        _refused_slim = True
+
+
+def slim_enabled(environ=None) -> bool:
+    """COVEY_TRACK_JUDGE_SLIM: the question goes without the working directory's settings, memory files and skills (the
+    default); 0, off, false or no: the full context, as before."""
+    return (cenv.get("COVEY_TRACK_JUDGE_SLIM", "", environ) or "").strip().lower() not in ("0", "off", "false", "no")
 
 
 def warm_enabled(environ=None) -> bool:
     """COVEY_TRACK_JUDGE_WARM: a Claude Code kept ready for the next question (the default); 0, off, false or no: a
     one-shot is started at each question, as before."""
     return (cenv.get("COVEY_TRACK_JUDGE_WARM", "", environ) or "").strip().lower() not in ("0", "off", "false", "no")
+
+
+def hedge(environ=None) -> int:
+    """How many standbys are asked the same question at once (the first answer wins): COVEY_TRACK_JUDGE_HEDGE, 1 to
+    MAX_HEDGE, DEFAULT_HEDGE when unset or not a number."""
+    try:
+        value = int(str(cenv.get("COVEY_TRACK_JUDGE_HEDGE", "", environ) or "").strip() or DEFAULT_HEDGE)
+    except ValueError:
+        return DEFAULT_HEDGE
+    return max(1, min(MAX_HEDGE, value))
 
 
 def standby_target(backend, ctx):
@@ -169,7 +200,7 @@ def warm(backend, ctx, environ=None) -> bool:
     try:
         if mode(environ) != "claude" or not warm_enabled(environ) or backend is None or ctx is None:
             return False
-        return track_standby.warm(*standby_target(backend, ctx))
+        return track_standby.warm(*standby_target(backend, ctx), spares=hedge(environ) - 1)
     except Exception:  # noqa: BLE001  A standby that cannot start is a one-shot later.
         return False
 
@@ -252,7 +283,6 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
     """The small model's verdict on ``message`` (core/track_route.Message, its ``live`` and ``quote.text`` are what the
     model sees) given what the waiting task asks (``question``). ``redacted``: the topic redacts, nothing is sent.
     ``backend`` and ``ctx``: the Claude backend and a context for it (``claude`` channel only)."""
-    global _refused_flag
     started = time.monotonic()
     via = mode(environ)
 
@@ -282,19 +312,22 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
             if backend is None or ctx is None:
                 raise Failed("no_backend")
             try:
-                standby = None
+                standbys = []
                 if warm_enabled(environ):
-                    standby = track_standby.take(standby_target(backend, ctx)[3])
-                if standby is not None:
-                    raw = standby.ask(data, limit)
+                    signature = standby_target(backend, ctx)[3]
+                    first = track_standby.take(signature)
+                    if first is not None:
+                        standbys = [first, *track_standby.take_spares(signature)]
+                        warm(backend, ctx, environ)  # The next question (another chat's, or this one's next) finds them ready.
+                if standbys:
+                    raw = track_standby.ask_first(standbys, data, limit, lambda text: parse(answer_text(text, via), tasks))
                 else:
                     cwd = Path(ctx.state_dir) / "track-judge"
                     cwd.mkdir(parents=True, exist_ok=True)
                     env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
                     raw = run(claude_argv(backend, ctx, not _refused_flag), data, env, cwd, limit)
             except Failed as exc:
-                if exc.reason == "exit_nonzero" and FLAG in exc.detail and "unknown option" in exc.detail:
-                    _refused_flag = True
+                refused(exc)
                 raise
         else:
             raw = run([via[4:]], data, os.environ.copy(), None, limit)

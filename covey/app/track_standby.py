@@ -154,32 +154,54 @@ class Standby:
 
 _lock = threading.Lock()
 _current: Standby | None = None
+_spares: list[Standby] = []  # Further ones asked together with ``_current`` (the judge's hedge): the first answer wins.
 _exit_hook = False
 
 
-def warm(argv, env, cwd, signature, idle_s: float = IDLE_S) -> bool:
+def usable(have: Standby | None, signature) -> bool:
+    return have is not None and not have.used and have.alive() and have.signature == signature \
+        and time.monotonic() - have.started < MAX_AGE_S
+
+
+def warm(argv, env, cwd, signature, idle_s: float = IDLE_S, spares: int = 0) -> bool:
     """Make sure a standby is on its way: a live unused one with this ``signature`` is only kept (its idle count starts
-    again) unless it is older than MAX_AGE_S; otherwise it is replaced by a new one. True when a process was started.
+    again) unless it is older than MAX_AGE_S; otherwise it is replaced by a new one. ``spares`` more of them are kept
+    the same way (they are asked together with it, ``ask_first``). True when a process was started.
     A process that cannot start is not an error here (the judge starts a one-shot instead)."""
-    global _current, _exit_hook
-    stale = None
+    global _current, _spares, _exit_hook
+    stale, started = [], False
     with _lock:
-        have = _current
-        if have is not None and not have.used and have.alive() and have.signature == signature \
-                and time.monotonic() - have.started < MAX_AGE_S:
-            have.touch()
-            return False
-        stale, _current = have, None
-        try:
-            _current = Standby(argv, env, cwd, signature, idle_s)
-        except OSError:
-            _current = None
+        def keep(have):
+            if usable(have, signature):
+                have.touch()
+                return have
+            if have is not None:
+                stale.append(have)
+            return None
+
+        def start():
+            nonlocal started
+            try:
+                have = Standby(argv, env, cwd, signature, idle_s)
+            except OSError:
+                return None
+            started = True
+            return have
+
+        _current = keep(_current) or start()
+        kept = [have for have in (keep(have) for have in _spares) if have is not None][:spares]
+        stale.extend(have for have in _spares if have not in kept and have not in stale)
+        while _current is not None and len(kept) < spares:
+            have = start()
+            if have is None:
+                break
+            kept.append(have)
+        _spares = kept
         if not _exit_hook:
             _exit_hook = True
             atexit.register(shutdown)
-        started = _current is not None
-    if stale is not None:
-        stale.kill()
+    for have in stale:
+        have.kill()
     return started
 
 
@@ -198,10 +220,56 @@ def take(signature) -> Standby | None:
     return have
 
 
-def shutdown() -> None:
-    """Kill the standby, if any (the Bridge's stop, interpreter exit)."""
-    global _current
+def take_spares(signature) -> list[Standby]:
+    """The spare standbys, handed out once, each alive, unused and started with ``signature``; the others are killed."""
+    global _spares
     with _lock:
-        have, _current = _current, None
-    if have is not None:
-        have.kill()
+        have, _spares = _spares, []
+    out = []
+    for one in have:
+        if one.signature == signature and one.alive():
+            one.used = True
+            out.append(one)
+        else:
+            one.kill()
+    return out
+
+
+def ask_first(standbys, text: str, limit: float, check) -> str:
+    """The first answer to ``text`` that ``check`` (raises Failed for an answer that cannot be used) accepts, asking every
+    one of ``standbys`` at once (each is killed after its answer, the others as soon as one has won). Failed with the
+    first failure when none gives one; each ask is bound by ``limit``."""
+    answers: queue.Queue = queue.Queue()
+
+    def one(standby):
+        try:
+            raw = standby.ask(text, limit)
+            check(raw)
+            answers.put((raw, None))
+        except Failed as exc:
+            answers.put((None, exc))
+        except Exception as exc:  # noqa: BLE001  A broken ask is a failure of this one only.
+            answers.put((None, Failed("error", type(exc).__name__)))
+
+    for standby in standbys:
+        threading.Thread(target=one, args=(standby,), name="track-standby-ask", daemon=True).start()
+    first = None
+    for _ in standbys:
+        raw, exc = answers.get()
+        if exc is None:
+            for standby in standbys:
+                threading.Thread(target=standby.kill, name="track-standby-kill", daemon=True).start()
+            return raw
+        first = first or exc
+    raise first
+
+
+def shutdown() -> None:
+    """Kill the standbys, if any (the Bridge's stop, interpreter exit)."""
+    global _current, _spares
+    with _lock:
+        have, _current = [_current, *_spares], None
+        _spares = []
+    for one in have:
+        if one is not None:
+            one.kill()

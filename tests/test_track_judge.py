@@ -65,8 +65,10 @@ class Base(unittest.TestCase):
         patch = mock.patch.dict(os.environ, {"FAKE_RECORD": str(self.record), "FAKE_PIDS": str(self.pids)})
         patch.start()
         self.addCleanup(patch.stop)
-        for name in ("COVEY_TRACK_JUDGE", "COVEY_TRACK_JUDGE_MS", "LARK_BRIDGE_TRACK_JUDGE", "LARK_BRIDGE_TRACK_JUDGE_MS"):
+        for name in ("COVEY_TRACK_JUDGE", "COVEY_TRACK_JUDGE_MS", "LARK_BRIDGE_TRACK_JUDGE", "LARK_BRIDGE_TRACK_JUDGE_MS",
+                     "COVEY_TRACK_JUDGE_SLIM", "COVEY_TRACK_JUDGE_HEDGE"):
             os.environ.pop(name, None)
+        os.environ["COVEY_TRACK_JUDGE_WARM"] = "0"  # These are one-shots; the standby has its own tests.
         self.addCleanup(setattr, track_judge, "_refused_flag", False)
         track_judge._refused_flag = False
         self.logs = []
