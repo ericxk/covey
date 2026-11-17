@@ -25,7 +25,7 @@ from covey.core.trace_store import load_trace
 STEPS_KEPT = 80
 RUNNING_STEP = 10  # Seconds: the 用时 of a running turn moves by this much.
 LABEL_CHARS = 80
-NOTE_KINDS = ("remembered", "voided", "skipped_ask", "reference")
+NOTE_KINDS = ("remembered", "voided", "undone", "skipped_ask", "reference")
 NOTES_KEPT = 20
 STEP_KINDS = {"读取文件": "read", "浏览目录": "read", "修改文件": "edit", "写入文件": "edit", "执行命令": "command", "后台命令": "command",
               "启动后台命令": "command", "更新检查点": "command", "查找文件": "search", "搜索文件": "search", "分配子任务": "subagent",

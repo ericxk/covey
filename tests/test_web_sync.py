@@ -804,10 +804,11 @@ class ExtrasTest(WebCase):
         self.sync.push_once(T0)
         self.assertNotIn("notes", self.web.items("turn")[-1]["data"])
         note = {"kind": "remembered", "text": "用新库", "scope": "管这个专项", "entry_id": "ab12"}
-        write_job(self.state, f"k-{TOPIC[:4]}", memory_notes=[note, {"kind": "unknown", "text": "x"}, {"kind": "voided", "text": ""}])
+        undone = {"kind": "undone", "text": "先别动卡片", "scope": "管这个话题", "entry_id": "cd34"}
+        write_job(self.state, f"k-{TOPIC[:4]}", memory_notes=[note, {"kind": "unknown", "text": "x"}, {"kind": "voided", "text": ""}, undone])
         self.sync.collector.touch(TOPIC)
         self.sync.push_once(T0 + 1)
-        self.assertEqual(self.web.items("turn")[-1]["data"]["notes"], [note])
+        self.assertEqual(self.web.items("turn")[-1]["data"]["notes"], [note, undone])
 
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()
