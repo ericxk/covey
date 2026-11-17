@@ -179,6 +179,14 @@ class ConfigTest(WebCase):
         big = [web_sync.item("turn", str(n), {"body": "y" * 400_000}) for n in range(5)]
         self.assertEqual([len(batch) for batch in web_sync.batches(big)], [2, 2, 1])
 
+    def test_a_batch_of_chinese_text_is_cut_by_its_bytes_as_sent(self):
+        """The page refuses a request over 1 MiB; 300 000 Chinese characters are 900 000 bytes in UTF-8."""
+        wide = [web_sync.item("turn", str(n), {"body": "汉" * 300_000}) for n in range(3)]
+        cut = web_sync.batches(wide)
+        self.assertEqual([len(batch) for batch in cut], [1, 1, 1])
+        for batch in cut:
+            self.assertLessEqual(len(json.dumps({"items": batch, "deleted": []}, ensure_ascii=False).encode()), 1_048_576)
+
     def test_a_long_body_is_cut_and_says_so(self):
         body = web_sync.clip("好" * 40000)
         self.assertLessEqual(len(body.encode()), web_sync.BODY_BYTES)

@@ -25,7 +25,7 @@ CONFIG_ENV = "COVEY_WEB_CONFIG"  # The JSON file of the config.
 FOLDER = "web"
 LEDGER = "inbox.json"
 PUSH_SECONDS, POLL_SECONDS, FULL_SECONDS = 1.0, 1.0, 60.0
-BATCH_ITEMS, BATCH_BYTES = 500, 1_000_000
+BATCH_ITEMS, BATCH_BYTES = 500, 1_000_000  # Bytes as sent (UTF-8): the page's body parser refuses a request over 1 MiB.
 BODY_BYTES = 64 * 1024
 CUT_NOTE = "\n\n（内容太长，已截断）"
 LEDGER_KEPT = 2000
@@ -97,10 +97,11 @@ def clip(text) -> str:
 
 
 def batches(items) -> list:
-    """``items`` in batches of at most BATCH_ITEMS items and BATCH_BYTES bytes (one item over the size is a batch of its own)."""
+    """``items`` in batches of at most BATCH_ITEMS items and BATCH_BYTES bytes as sent, UTF-8 with the separator (a Chinese character
+    is three; one item over the size is a batch of its own)."""
     out, current, size = [], [], 0
     for each in items:
-        weight = len(json.dumps(each, ensure_ascii=False))
+        weight = len(json.dumps(each, ensure_ascii=False).encode()) + 2
         if current and (len(current) >= BATCH_ITEMS or size + weight > BATCH_BYTES):
             out.append(current)
             current, size = [], 0
