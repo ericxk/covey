@@ -115,6 +115,13 @@ class Reader:
         cells = seen.read.cells
         self.leads = {projects.lead_topic_id(seen.chat, record["id"]) for record in seen.projects if projects.valid_id(record.get("id"))}
         self.members = set(cells) | {topic for record in seen.projects for topic in record.get("threads") or () if isinstance(topic, str)}
+        self.project_by_topic = {}  # A project topic (a member or the lead's) → its project's id: the model is told the work is in one.
+        for record in seen.projects:
+            pid = str(record.get("id") or "")
+            if pid:
+                self.project_by_topic.update({topic: pid for topic in record.get("threads") or () if isinstance(topic, str)})
+            if projects.valid_id(pid):
+                self.project_by_topic[projects.lead_topic_id(seen.chat, pid)] = pid
         self.latest = {}
         for record in seen.read.jobs:
             topic = record.get("topic_id") or ""
@@ -127,6 +134,10 @@ class Reader:
 
     def ordinary(self, topic) -> bool:
         return topic and topic not in self.members and topic not in self.leads and topic not in self.seen.off
+
+    def project_of(self, topic) -> str:
+        """The id of the project ``topic`` belongs to, '' for a topic of none."""
+        return self.project_by_topic.get(topic, "")
 
     def workspace(self, topic) -> str:
         return str(self.latest.get(topic, {}).get("workspace_name") or "")
@@ -143,7 +154,8 @@ def asks(reader: Reader, config) -> list:
         if waited >= config["ask_minutes"] * 60:
             label, title = reader.label(topic)
             found.append(Candidate("ask", f"ask:{topic}", str(record.get("token") or record.get("created_at")), seen.chat, title,
-                                   f"{label}：有个问题等了你 {hours(waited)}", (topic,), wait=waited))
+                                   f"{label}：有个问题等了你 {hours(waited)}", (topic,), wait=waited,
+                                   project=reader.project_of(topic)))
     return found
 
 
@@ -154,7 +166,8 @@ def unseen(reader: Reader, config) -> list:
         if waited >= config["unseen_minutes"] * 60:
             label, title = reader.label(topic)
             found.append(Candidate("unseen", f"unseen:{topic}", str(record.get("job_id")), seen.chat, title,
-                                   f"{label}：做完的结果放了 {hours(waited)} 还没看", (topic,), wait=waited))
+                                   f"{label}：做完的结果放了 {hours(waited)} 还没看", (topic,), wait=waited,
+                                   project=reader.project_of(topic)))
     return found
 
 
@@ -174,7 +187,7 @@ def fails(reader: Reader, config) -> list:
         if run >= config["fails"] and reader.latest.get(topic, {}).get("status") == "failed":
             label, title = reader.label(topic)
             found.append(Candidate("fails", f"fails:{topic}", str(board_read.job_number(records[-1])), seen.chat, title,
-                                   f"{label}：连着失败了 {run} 次", (topic,)))
+                                   f"{label}：连着失败了 {run} 次", (topic,), project=reader.project_of(topic)))
     return found
 
 
@@ -191,7 +204,8 @@ def stuck(reader: Reader, config) -> list:
         if quiet >= config["stall_minutes"] * 60:
             label, title = reader.label(topic)
             found.append(Candidate("stuck", f"stuck:{topic}", str(record.get("job_id")), seen.chat, title,
-                                   f"{label}：任务 {hours(quiet)} 没有动静", (topic,), wait=quiet))
+                                   f"{label}：任务 {hours(quiet)} 没有动静", (topic,), wait=quiet,
+                                   project=reader.project_of(topic)))
     return found
 
 

@@ -446,12 +446,11 @@ class IdleTest(Loop):
             with mock.patch.dict(os.environ, {projects.IDLE_ENV: value}):
                 self.assertEqual((projects.idle_days(), projects.idle_seconds()), (7, 7 * self.DAY))
 
-    def test_anything_to_do_keeps_it_open(self):
+    def test_anything_the_lead_can_move_keeps_it_open(self):
+        # What only waits for the owner (a task waiting_user, a question card) folds away after the idle days all the same:
+        # test_waiting_for_the_owner_never_stalls_and_folds_away_after_the_idle_days.
         for name, setup in (("a queued task", lambda: self.thread(THREAD, "迁移", 41, status="queued")),
-                            ("a task waiting for the owner", lambda: self.thread(THREAD, "迁移", 41, status="waiting_user")),
-                            ("a receipt nobody read", lambda: self.receipt("thread_end", "T41 做完了", at=NOW)),
-                            ("a question waiting", lambda: write_json(self.state / "questions" / "q1.json", {
-                                "question_id": "q1", "topic_id": THREAD, "chat_id": CHAT, "status": "pending", "created_at": NOW}))):
+                            ("a receipt nobody read", lambda: self.receipt("thread_end", "T41 做完了", at=NOW))):
             with self.subTest(name):
                 self.update(state=projects.ACTIVE, state_reason="")
                 setup()
@@ -499,14 +498,25 @@ class IdleTest(Loop):
         self.loop.tick(NOW + 3 * HOUR + 10)
         self.assertEqual([item["kind"] for item in project_loop.unread(self.state, PID)], ["stalled"])
 
-    def test_waiting_for_the_owner_neither_stalls_nor_folds_away(self):
-        # A question the owner has not answered is theirs to move: no reminder for the lead, no pause card, and not idle either.
+    def test_waiting_for_the_owner_never_stalls_and_folds_away_after_the_idle_days(self):
+        # A question the owner has not answered is theirs to move: no reminder for the lead, no pause card. Left for the idle days
+        # it folds away like a project with nothing to do (2026-11-17 acceptance: a waiting topic kept a project open for good).
         self.autowake()
         self.thread(THREAD, "迁移", 41, status="waiting_user")
-        for at in (NOW + 31 * 60, NOW + 3 * HOUR, NOW + 30 * self.DAY):
+        for at in (NOW + 31 * 60, NOW + 3 * HOUR, NOW + 6 * self.DAY):
             self.loop.tick(at)
         self.assertEqual(project_loop.unread(self.state, PID), [])
         self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+        self.loop.tick(NOW + 7 * self.DAY + 60)
+        self.assertEqual(self.state_of(), (projects.PAUSED, projects.IDLE))
+
+    def test_a_question_card_waiting_folds_away_after_the_idle_days_too(self):
+        write_json(self.state / "questions" / "q1.json",
+                   {"question_id": "q1", "topic_id": THREAD, "chat_id": CHAT, "status": "pending", "created_at": NOW})
+        self.loop.tick(NOW + 6 * self.DAY)
+        self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
+        self.loop.tick(NOW + 7 * self.DAY + 60)
+        self.assertEqual(self.state_of(), (projects.PAUSED, projects.IDLE))
 
 
 class StallTest(Loop):

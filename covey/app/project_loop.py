@@ -428,7 +428,10 @@ class ProjectLoop:
                 return self.pause(record, reason, now) if reason else self.wake(record, now)
             if not due:
                 return
-        if not has_work(state, record, pending):
+        topics = [lead, *(record.get("threads") or ())]
+        if not has_work(state, record, pending) or not (running_turns(state, topics) or movable(state, topics, pending)):
+            # Nothing to do, or only the owner's answer awaited (the lead can move nothing): no stall, and it folds away
+            # after the idle days all the same (the question card stays; the owner's answer opens the project again).
             return self.rest(record, state, now)
         if projects.autowake_enabled():
             self.stall(record, state, now, lead, pending)

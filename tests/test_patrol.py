@@ -120,6 +120,18 @@ class RuleTests(Records, unittest.TestCase):
         self.question("q1", "a", self.now + 4 * HOUR - 60)
         self.assertEqual(self.kinds(later=4 * HOUR), [])  # It waits for the owner, which is not stuck.
 
+    def test_a_candidate_of_a_projects_topic_names_its_project(self):
+        # The acceptance of 2026-11-17: questions waiting in a project's topics came with "project": "", so the model could not
+        # tell they were in one (and could not propose waking its lead).
+        self.topic("a", 1)
+        self.topic("b", 2)
+        self.question("qa", "a", self.now - 3 * HOUR)
+        self.question("qb", "b", self.now - 3 * HOUR)
+        with mock.patch.dict(os.environ, {"COVEY_PROJECTS": "1"}):
+            self.project("proj001", "整理资料", threads=["a"])
+            found = {candidate.key: candidate.project for candidate in self.find() if candidate.kind == "ask"}
+        self.assertEqual(found, {"ask:a": "proj001", "ask:b": ""})
+
     def test_topics_of_one_workspace_with_alike_titles_are_one_matter(self):
         for number, (topic, title) in enumerate((("a", "整理发布流程文档"), ("b", "发布流程文档补充"), ("c", "买机票")), 1):
             self.topic(topic, number, title)
@@ -263,7 +275,8 @@ class JudgeTests(Records, unittest.TestCase):
             {"index": 3, "verdict": "handle", "why": "归进去", "action": "join"},  # No project: it cannot join.
             {"index": 1, "verdict": "drop", "why": "again", "action": "none"}]})
         found = patrol_judge.parse("好的 " + text, batch)
-        self.assertEqual([(d["candidate"], d["verdict"], d["action"]) for d in found], [("id1", "handle", "ask"), ("id3", "handle", "none")])
+        # id3 could not join (no project): nothing it would have done, so only noted (the acceptance of 2026-11-17 saw handle + none).
+        self.assertEqual([(d["candidate"], d["verdict"], d["action"]) for d in found], [("id1", "handle", "ask"), ("id3", "note", "none")])
         self.assertEqual(len(found[0]["why"]), patrol_judge.WHY_CHARS + 1)
         with self.assertRaises(Failed):
             patrol_judge.parse("没有 JSON", batch)

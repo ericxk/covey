@@ -98,6 +98,8 @@ def parse(text, batch) -> list:
             continue
         if action in ("join", "tidy", "wake") and not row.get("project"):
             action = "none"
+        if verdict == "handle" and action == "none":
+            verdict = "note"  # Nothing it would have done: only worth noting (the digest lists what it would have done).
         chosen[item["index"]] = {"candidate": row["id"], "verdict": verdict, "why": cut(item.get("why"), WHY_CHARS),
                                  "action": action}
     return list(chosen.values())
