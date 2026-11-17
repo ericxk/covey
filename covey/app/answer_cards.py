@@ -19,6 +19,7 @@ their 产物 up to date.
   no sequence). A failed write is a log line: the card keeps 上传中 and its 重新上传."""
 from __future__ import annotations
 
+import copy
 import time
 from pathlib import Path
 
@@ -323,14 +324,23 @@ def refresh(state_dir, profile, messenger, key, panel, status, log, *, force=Fal
     return written
 
 
-def put_memory(state_dir, profile, messenger, key, element, log) -> int:
+def put_memory(state_dir, profile, messenger, key, element, log, answer_message_id="") -> int:
     """The memory lines ``element`` (cards/answer_card.py memory_element, COVEY_MEMORY=1) put at the bottom of each of the job
-    ``key``'s answer cards, or in place of the ones there from before; the cards written. Never raises."""
+    ``key``'s answer cards, or in place of the ones there from before; the cards written. Never raises.
+
+    An answer card that shows no 产物 is not listed (see above): ``answer_message_id`` (the job record's) is then written
+    from the card as it went out (the record's ``outgoing``, app/saved_send.py keep), each time from that card, so a
+    redraw (不对) gives the same card with the new lines."""
     path = record_path(state_dir, key)
     written = 0
     try:
         with resource_lock("answer-cards", str(path)):
-            entries = [dict(entry) for entry in read_object(path).get("cards") or []]
+            saved = read_object(path)
+            entries = [dict(entry) for entry in saved.get("cards") or []]
+            sent = saved.get("outgoing") if isinstance(saved.get("outgoing"), dict) else {}
+            if (answer_message_id and isinstance(sent.get("answer"), dict)
+                    and not any(entry.get("message_id") == answer_message_id for entry in entries)):
+                entries.append({"where": "answer", "message_id": answer_message_id, "card": copy.deepcopy(sent["answer"])})
         for entry in entries:
             built = entry.get("card")
             if entry.get("where") == COPY or not isinstance(built, dict):

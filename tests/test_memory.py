@@ -324,6 +324,20 @@ class CollectTest(CollectCase):
                 record = self.collect(self.turn(memory_lines=[line], prompt_text=prompt, key=key))
                 self.assertEqual([note["kind"] for note in record["memory_notes"]], ["remembered"])
 
+    def test_an_answer_card_without_files_gets_the_lines_too(self):
+        # Not listed in the answer-cards record (it shows no 产物): written from the card as it went out.
+        job = self.turn(memory_lines=[self.LINE], answer_message_id="om_answer")
+        sent = {"schema": "2.0", "body": {"elements": [{"tag": "markdown", "content": "答"}]}}
+        write_json(answer_cards.record_path(self.state, job.message_id), {"schema_version": 1, "job_key": job.message_id, "cards": [],
+                                                                           "outgoing": {"key": "k", "answer": sent}})
+        self.collect(job)
+        profile, message_id, built = self.messenger.patch_card.call_args.args[:3]
+        self.assertEqual(message_id, "om_answer")
+        self.assertEqual(built["body"]["elements"][0], sent["body"]["elements"][0])
+        self.assertEqual(built["body"]["elements"][-1]["element_id"], cards.MEMORY_ID)
+        self.assertIn("记下了：", json.dumps(built["body"]["elements"][-1], ensure_ascii=False))
+        self.assertEqual(sent["body"]["elements"], [{"tag": "markdown", "content": "答"}])  # The kept card is not changed.
+
     def test_in_a_project_topic_it_goes_to_the_project_as_the_owners(self):
         projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", project_id=PID, now=NOW))
         write_topic(self.state, topic_id="t1", topic_number=7, project=projects.project_field(PID, projects.MEMBER))

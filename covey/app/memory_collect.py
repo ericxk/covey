@@ -148,7 +148,8 @@ def show(ctx, messenger, record, notes, log) -> None:
     """The memory lines of ``notes`` put on the job's answer cards."""
     element = memory_element(notes, str(record.get("topic_id") or ""), str(record.get("job_id") or ""))
     if element is not None and messenger is not None:
-        answer_cards.put_memory(ctx.state_dir, ctx.profile, messenger, str(record["key"]), element, log)
+        answer_cards.put_memory(ctx.state_dir, ctx.profile, messenger, str(record["key"]), element, log,
+                                answer_message_id=str(record.get("answer_message_id") or ""))
 
 
 def undo(host, ctx, event) -> bool:
