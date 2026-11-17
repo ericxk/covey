@@ -465,6 +465,7 @@ class Projects:
 # The butler's tools ----------------------------------------------------------------------------------------------------
 
 STATE_WORDS = {projects.ACTIVE: "在做", projects.PAUSED: "停住", projects.DONE: "做完", projects.CANCELLED: "已取消"}
+FOLDED_WORDS = "收起"  # A project paused for being idle (core/projects.py ``folded``): the state the butler hears.
 LISTED_ENDED = 3  # Projects that ended, listed after the ones that are on.
 
 
@@ -493,7 +494,7 @@ def projects_list(env, request):
     for record in [*live, *ended]:
         threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有话题"
         note = project_cards.lead_note(record)
-        rows.append(f"{record['id']} · {clip(record.get('name'), 30)} · {STATE_WORDS.get(state_of(record), state_of(record))}"
+        rows.append(f"{record['id']} · {clip(record.get('name'), 30)} · {FOLDED_WORDS if projects.folded(record) else STATE_WORDS.get(state_of(record), state_of(record))}"
                     f" · 话题 {threads}" + (f" · 最近：{clip(note, 40)}" if note else ""))
     return reply(True, "\n".join(rows), count=len(found),
                  projects=[{"id": record["id"], "name": record.get("name"), "state": state_of(record)}

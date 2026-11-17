@@ -41,7 +41,7 @@ from covey.app.butler_tracks import Tracks
 from covey.app.prompts import first_turn_message, butler_message, resume_message, earlier_history
 from covey.core import butler as contract
 from covey.core import butler_tracks
-from covey.core import board_read, butler_opened, butler_settings, placement, timing, turn_words
+from covey.core import board_read, butler_opened, butler_settings, placement, projects, timing, turn_words
 from covey.core.board_read import ended_at, topic_label as topic_words
 from covey.core.attachments import message_words
 from covey.core.checkpoint import checkpoint_steps
@@ -491,17 +491,37 @@ def snapshot_groups(ctx, chat, now) -> dict:
                  else "")
         where = "主人从看板撤下了" if topic in off else turn_words.GROUP_NAMES[group] if group else "没在动"
         opened[topic] = line(label, f"{record.get('title') or ''}（{where}）")
-    return {"waiting": waiting, "result": results, "running": running, "opened": opened}
+    groups = {"waiting": waiting, "result": results, "running": running, "opened": opened}
+    if projects.enabled():  # COVEY_PROJECTS=1: the projects on and folded away, so a new matter can be put into one.
+        groups["projects"] = project_rows(state, chat)
+    return groups
+
+
+PROJECT_GROUP = ("projects", "专项")
+PROJECT_STATE_WORDS = {"active": "在做", "paused": "停住"}
+
+
+def project_rows(state, chat) -> dict:
+    """The chat's projects that are on or folded away, project id -> its line: id, name, state (在做, 停住, 收起), one sentence of the goal."""
+    rows = {}
+    for record in projects.records(state, chat):
+        state = record.get("state") or projects.ACTIVE
+        if state not in (projects.ACTIVE, projects.PAUSED):
+            continue
+        word = "收起" if projects.folded(record) else PROJECT_STATE_WORDS[state]
+        goal = str(record.get("goal") or "").strip().splitlines()[0][:40] if str(record.get("goal") or "").strip() else ""
+        rows[record["id"]] = line(record["id"], "·", str(record.get("name") or "专项"), "·", word, goal and f"· 目标：{goal}")
+    return rows
 
 
 def render_snapshot(groups, previous, *, full, at, receipts) -> str:
     """``previous``: the groups the last turn read, when this one says only what changed."""
     sections, shown = [], 0
-    for key, name in GROUPS:
+    for key, name in (*GROUPS, *((PROJECT_GROUP,) if "projects" in groups else ())):
         rows = groups[key]
         changed = rows if full else {topic: text for topic, text in rows.items() if previous.get(key, {}).get(topic) != text}
         name = name if receipts or key != "result" else NO_RECEIPTS
-        if changed or full:
+        if changed or (full and (rows or key != PROJECT_GROUP[0])):
             items = [f"- {text}" for text in list(changed.values())[:ROWS]]
             if len(changed) > ROWS:
                 items.append(f"- 另有 {len(changed) - ROWS} 个，用 topics_list 看")

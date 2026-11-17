@@ -773,6 +773,18 @@ class ToolTest(UpCase):
         again = self.call("project_send", "send3", pid=name, text="那就继续")
         self.assertEqual(again, answer)  # Once a request.
 
+    def test_project_send_to_a_folded_project_opens_it_again_and_the_list_says_收起_before(self):
+        topic, project = self.upgraded()
+        projects.update(self.state, project["id"], lambda record: record.update(
+            state="paused", state_reason=projects.IDLE, idle={"at": 1.0, "days": 7}))
+        self.assertIn("· 收起 ·", self.call("projects_list", "f1")["text"])
+        answer = self.call("project_send", "f2", pid=project["id"], text="这件事也算它的")
+        self.assertTrue(answer["ok"], answer)
+        opened = projects.read_record(self.state, project["id"])
+        self.assertEqual((opened["state"], opened["state_reason"]), ("active", ""))
+        self.assertNotIn("idle", opened)
+        self.assertIn("· 在做 ·", self.call("projects_list", "f3")["text"])
+
     def test_project_send_refuses_what_it_cannot_send(self):
         topic, project = self.upgraded()
         self.assertFalse(self.call("project_send", "x1", pid="", text="y")["ok"])

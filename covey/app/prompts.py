@@ -17,7 +17,7 @@ from typing import Any
 
 from covey.cards.review import render_history
 from covey.core import env as cenv
-from covey.core import knowledge
+from covey.core import knowledge, projects
 from covey.core.checkpoint import CHECKPOINT_RULES
 from covey.core.butler_tool_specs import BUTLER_RULES_ENV
 
@@ -345,9 +345,22 @@ def knowledge_rules() -> tuple[str, ...]:
     return tuple(rules)
 
 
+PROJECT_RULE = (
+    "- 聊天里有专项时（快照的“专项”一栏列着在做的和收起的，带 id、名字和一句目标），每件新的事先看它是不是其中某个专项的同一件事："
+    "是的，用 project_send 交给那个专项的负责人（pid 用快照里的 id），收起的专项会随之重新展开，不要另开话题；"
+    "拿不准是不是同一件事，就开普通话题（topic_start），不要硬归；主人说“这是 X 的事”“放到 X 里”，就归进 X，不用再判断。"
+    "做完的专项不在快照里，不往里交。")
+
+
+def project_rules() -> tuple[str, ...]:
+    """The butler's rule for putting a new matter into a project that already exists (COVEY_PROJECTS=1); none without it, so
+    the rules are then what they were."""
+    return (PROJECT_RULE,) if projects.enabled() else ()
+
+
 def butler_rules() -> str:
     """The butler's rules."""
-    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), AREA_RULE))
+    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), *project_rules(), AREA_RULE))
 
 
 BUTLER_RULES_TEXT = butler_rules()
