@@ -104,7 +104,7 @@
 | [专项停住后问主人](butler.md#专项停住后问主人开关默认关) | `COVEY_PROJECT_ASK=1`（要 `COVEY_PROJECTS=1`） | 专项被护栏停住时多发一张卡：继续 / 收尾 / 停；`COVEY_PROJECT_STYLE_KEEP=1` 另让新专项沿用上次设的汇报风格 |
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家一轮在做时，下一句按规则和小模型并进某件在做的事或新开一件；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
 | [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰) | `COVEY_PATROL=shadow` | `patrol` 后台线程：每分钟用规则找候选，每 30 分钟让小模型筛，只写 `patrol/` 记录；汇总和「看板」多一块“我本来想找你的事”；不发消息、不动专项 |
-| [网页工作台](butler.md#网页工作台开关默认关) | `COVEY_WEB=1` 加 `COVEY_WEB_CONFIG=/absolute/path/to/web.json` | `web-push`、`web-inbox` 后台线程：把专项、话题、一轮、问题推给妙搭网页，取回网页上的说话、答题、停止、重开 |
+| [网页工作台](butler.md#网页工作台开关默认关) | `COVEY_WEB=1` 加 `COVEY_WEB_CONFIG=/absolute/path/to/web.json` | `web-push`、`web-inbox` 后台线程：把专项、话题（含管家的对话）、一轮、问题推给妙搭网页，取回网页上的说话（含对管家说）、答题、停止、重开、记为看过 |
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | `dispatch_cards` 后台线程；管家派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
 | [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 设备上能跑 Claude Code 和 Codex 的话题（经 ssh）；默认关，真机验收在进行。开了才有 `devices` 后台线程；关着，或开了但没有设备时，后台线程、文件和行为都同没有这个功能 |

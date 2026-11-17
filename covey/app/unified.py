@@ -266,7 +266,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The devices thread (app/devices.py): probes, replays the pending reaps, gc; none while COVEY_DEVICES is off.
             self.devices = Devices(self.runtime)
             # The web workbench's sync (app/web_sync.py): two threads with COVEY_WEB=1, none without.
-            self.web_sync = WebSync(self.runtime, self.butler_env)
+            self.web_sync = WebSync(self.runtime, self.butler_env, self.web_message)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
                         self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
@@ -286,6 +286,16 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # 手上的事, the pinned board and 早晚汇总 in each of those groups too (app/group_boards.py).
             self.group_boards = GroupBoards(self.runtime, self.messenger, self.voice, self.titles, self.overview)
             self.features = features  # Last: 'features' in the instance says the build is done.
+
+    def web_message(self, event) -> str:
+        """The owner's words from the web page (app/web_ops.py tell_butler) as the message of a Feishu event at the top level of the
+        private chat: the same ``handle_event`` (access, the duplicate check on its id, the extensions, the butler). '' when it went in,
+        else why not: the butler cannot take it, so it must not become a topic of its own."""
+        ctx = self.topics.apps[self.topics.default].harness.context
+        if self.butler.app_for(ctx, event, self.runtime.access.is_owner(str(event.get('sender_id') or ''))) is None:
+            return '管家现在没有开（私聊是纯话题模式，或管家的 Harness 不可用），话没有发出'
+        self.handle_event(event, ctx)
+        return ''
 
     def main(self, argv=None):
         # Task runners rebuild this Bridge from the same arguments.

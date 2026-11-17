@@ -9,8 +9,10 @@ there is no thread and no request.
 - What is read, and how often: every ``push_seconds`` only the running tasks and the pending questions (two index queries, the records they
   name), plus the topics that stopped running a moment ago or that the page just acted on; every FULL_SECONDS all topics of the last
   TOPIC_DAYS days, the projects, and the deletions. A topic's state and "做完没看" are the board's reading (core/board_read.py, app/pins.py
-  board_results), not a scan of every job record each second. The butler's own track is not pushed. A running turn's body is its progress
-  notes as the trace file has them, each time it changes.
+  board_results), not a scan of every job record each second. The butler's conversation (core/butler.py butler_topic_id; the other tracks
+  of the family and the leads are not) is one more topic item, ``kind`` "butler", number 0, title 管家, no project, never unseen: its
+  turns are its history's (the owner's top-level words, the butler's answers), looked at while its task runs, after an operation of the page
+  touched it and in the full look. A running turn's body is its progress notes as the trace file has them, each time it changes.
 - The key is read from the config's key_file and appears in no log line and no record.
 
 Rule 1 (AGENTS.md): no lock is held across a request; records are read, not locked."""
@@ -26,7 +28,8 @@ from covey.app import pins
 from covey.app.web_ops import Ops
 from covey.core import board_read, http_upstream, project_library, project_memory, projects, web_sync
 from covey.core.history_storage import history_lines
-from covey.core.jobs import topic_job_records
+from covey.core.butler import butler_topic_id
+from covey.core.jobs import select_job_records, topic_job_records
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import RUNNING
 from covey.core.store import directory_store
@@ -41,6 +44,7 @@ TIMEOUT = 20
 STUCK_SECONDS = 60  # A step not ended in this long is left behind (an NFS read can hold its thread for good); the next runs in a new thread.
 MAX_LEFT = 3  # Left-behind steps still stuck: with this many no new thread is started until one of them ends.
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
+BUTLER_TITLE = "管家"
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
 
 
@@ -145,22 +149,31 @@ class Collector:
         state = Path(self.env.state_dir)
         running = board_read.running_jobs(state, chat)
         asking = board_read.pending_questions(state, chat)
+        butler = butler_topic_id(chat)
         hot = {row.get("topic_id") for row in (*running, *asking) if row.get("topic_id")}
-        if full or hot != self.hot:
-            read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
-            self.unseen = set(pins.board_results(state, chat, now, read)[0])
+        if self.butler_live(state, chat, butler):
+            hot.add(butler)  # The butler's turn runs or asks (the board does not list it).
         with self.lock:
             touched, self.dirty = self.dirty, set()
+        if full or hot != self.hot or touched:
+            read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
+            self.unseen = set(pins.board_results(state, chat, now, read)[0])
         if full:
             by_topic = {topic: records for topic, records in board_read.topic_jobs(state, chat).items()
                         if topic in hot or topic in touched or self.recent(records, now)}
         else:
             by_topic = {topic: sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number)
-                        for topic in hot | self.hot | touched}
+                        for topic in hot | self.hot | touched if topic != butler}
+        look_butler = full or butler in hot or butler in self.hot or butler in touched
         self.hot = hot
         items = []
         for topic, records in by_topic.items():
             items += self.topic_items(state, chat, topic, records, now)
+        if look_butler:
+            mine = self.topic_items(state, chat, butler, sorted(topic_job_records(state, butler, chat_id=chat), key=board_read.job_number), now)
+            items += mine
+            if mine:
+                by_topic[butler] = []
         deleted = []
         if full:
             seen = {("topic", topic) for topic in by_topic}
@@ -172,29 +185,37 @@ class Collector:
         return items, deleted
 
     @staticmethod
+    def butler_live(state, chat, butler) -> bool:
+        """Whether the butler's task runs or a question of it waits: two index queries."""
+        return bool(select_job_records(state, lambda record: record.get("topic_id") == butler, chat_id=chat, status=frozenset(RUNNING))
+                    or directory_store(state / "questions").query(chat_id=chat, topic_id=butler, status="pending"))
+
+    @staticmethod
     def recent(records, now) -> bool:
         return any((epoch_seconds(record.get("updated_at")) or now) >= now - TOPIC_DAYS * 86400 for record in records)
 
     # -- topics ---------------------------------------------------------------------------------------------------------
 
     def topic_items(self, state, chat, topic, records, now) -> list:
-        if not records:
+        butler = topic == butler_topic_id(chat)
+        if not records and not (butler and self.rows(state, topic)):
             return []  # A topic with no task has nothing the page shows (and a name the page made up is not looked up).
         asking = sorted(directory_store(state / "questions").query(chat_id=chat, topic_id=topic), key=lambda pair: pair[1].get("created_at") or 0)
         questions = [row for _, row in asking]
         latest = next((record for record in reversed(records) if not board_read.unrun(record)), None)
         word = self.word(records, latest, questions)
         self.states[topic] = word
-        label, title = board_read.topic_label(state, topic)
+        label, title = ("", BUTLER_TITLE) if butler else board_read.topic_label(state, topic)
         data = read_object(topic_file(state, topic))
-        found = projects.topic_project(state, topic)
+        found = None if butler else projects.topic_project(state, topic)
         turns, count = self.turns(state, topic, records, latest, word)
         number = int(label[1:]) if label[1:].isdigit() else 0
         updated = max((epoch_seconds(record.get("updated_at")) or 0 for record in records), default=0)
         out = [web_sync.item("topic", topic, {
             "number": number, "title": title, "project_key": found.id if found else "", "state": word,
             "workspace": str(data.get("workspace_name") or ""), "harness": str(data.get("harness_id") or ""),
-            "model": str((latest or {}).get("model") or ""), "updated_at": updated, "unseen": topic in self.unseen})]
+            "model": str((latest or {}).get("model") or ""), "updated_at": updated, "unseen": topic in self.unseen and not butler,
+            "kind": "butler" if butler else "topic"})]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:
             made = self.question(row, topic, count)
@@ -329,14 +350,15 @@ class Collector:
 
 
 class WebSync:
-    """The feature object (``threads()``). ``runtime``: app/runtime.py Runtime; ``env``: app/butler_env.py ButlerEnv."""
+    """The feature object (``threads()``). ``runtime``: app/runtime.py Runtime; ``env``: app/butler_env.py ButlerEnv; ``hear``: app/unified.py
+    web_message, how the owner's words to the butler get in (None: none can)."""
     name = "web-sync"
 
-    def __init__(self, runtime, env) -> None:
+    def __init__(self, runtime, env, hear=None) -> None:
         self.runtime, self.env = runtime, env
         self.client = Client()
         self.collector = Collector(env)
-        self.ops = Ops(env)
+        self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.last_full = 0.0
         self.ledger = None

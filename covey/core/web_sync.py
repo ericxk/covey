@@ -29,8 +29,14 @@ BATCH_ITEMS, BATCH_BYTES = 500, 1_000_000
 BODY_BYTES = 64 * 1024
 CUT_NOTE = "\n\n（内容太长，已截断）"
 LEDGER_KEPT = 2000
-KINDS = ("say", "answer", "stop", "reopen")
+KINDS = ("say", "answer", "stop", "reopen", "seen")
 TYPES = ("project", "topic", "turn", "question")
+PREFIX = "web-"  # The message id of the owner's words from the page: ``web-<op_id>``. Feishu has no such message.
+
+
+def is_web_message(message_id) -> bool:
+    """Whether ``message_id`` is the id of words that came from the page (``PREFIX``): nothing is quoted, replied to or reacted on."""
+    return isinstance(message_id, str) and message_id.startswith(PREFIX)
 
 
 def enabled() -> bool:

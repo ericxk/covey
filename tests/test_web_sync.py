@@ -1,7 +1,8 @@
 """网页工作台同步 (app/web_sync.py, app/web_ops.py, core/web_sync.py, COVEY_WEB=1): against a fake /openapi of the page (core/serving.py's
 loopback server): the items pushed are right and only the changed ones go again, batches are cut, the page's say / answer / stop / reopen are
 each done once (an op_id seen again is only acknowledged), a failing page is backed off and does not stop the thread, the key is in no log line, and
-with the switch off there is no thread and no request."""
+with the switch off there is no thread and no request. The butler's conversation is one topic of ``kind`` "butler" and a say to it is the owner's message at the top
+level of the private chat (the id ``web-<op_id>`` is quoted, replied to and reacted on by nothing); ``seen`` marks a topic's result as read."""
 from __future__ import annotations
 
 import dataclasses
@@ -17,11 +18,15 @@ from support.records import write_job, write_topic
 
 from covey.app import web_ops, web_sync as app_web
 from covey.app.web_sync import WebError, WebSync
-from covey.core import http_upstream, projects, web_sync
+from covey.core import http_upstream, placement, projects, web_sync
+from covey.core.butler import butler_topic_id
 from covey.core.history_storage import append_history
 from covey.core.serving import LoopbackServer
 from covey.core.state import write_json
-from covey.core.topics import message_topic
+from covey.core.topic_seen import read_seen
+from covey.core.topics import context_for_topic, message_topic, remember_topic_message
+from support.fake_backends import codex_context
+from test_butler import ButlerUnifiedCase
 
 from test_project_lead import CHAT, PID, Case
 
@@ -34,6 +39,7 @@ T0 = time.time()
 KEY = "fake-key-do-not-log-0123456789"
 TOPIC = "c" * 32
 OTHER = "d" * 32
+BUTLER = butler_topic_id(CHAT)
 TOKEN = "tok123456789"
 
 
@@ -132,6 +138,18 @@ class WebCase(Case):
         write_job(self.state, f"k-{topic[:4]}", topic_id=topic, chat_id=CHAT, job_id=number, status=status, model="opus", card_message_id="om_card")
         for role, text in lines:
             append_history(self.state / "topics" / topic / "history.jsonl", role, text, {"message_id": "m" + text})
+
+    def butler_topic(self, status="done", lines=(("user", "今天先做什么"), ("assistant", "先整理账单，开了 T7")), job_id=3):
+        write_topic(self.state, topic_id=BUTLER, chat_id=CHAT, harness_id="claude", main_thread=True, workspace_name="ws1",
+                    workdir=str(self.state))
+        write_job(self.state, "k-butler", topic_id=BUTLER, chat_id=CHAT, job_id=job_id, status=status, model="opus", message_id="om_b1")
+        for role, text in lines:
+            append_history(self.state / "topics" / BUTLER / "history.jsonl", role, text, {"message_id": "m" + text})
+
+    def hearing(self, why=""):
+        """The butler's door is a recorder: the events it was given."""
+        self.heard = []
+        self.sync.ops.hear = lambda event: self.heard.append(event) or why
 
     def question(self, token=TOKEN, **fields):
         row = {"token": token, "chat_id": CHAT, "topic_id": TOPIC, "status": "pending", "created_at": T0, "question_message_id": "om_q",
@@ -241,6 +259,52 @@ class PushTest(WebCase):
         self.sync.loop("inbox", self.sync.inbox_once, lambda: 1)
         self.assertTrue(self.logs)
         self.assertNotIn(KEY, "\n".join(self.logs))
+
+    def test_the_butler_conversation_is_one_topic_of_kind_butler_and_topics_say_topic(self):
+        self.topic()
+        self.butler_topic()
+        self.sync.push_once(T0)
+        by = {(item["type"], item["key"]): item["data"] for item in self.web.items()}
+        mine = by[("topic", BUTLER)]
+        self.assertEqual((mine["kind"], mine["number"], mine["title"], mine["project_key"], mine["state"], mine["unseen"]),
+                         ("butler", 0, "管家", "", "做完", False))
+        self.assertEqual([(by[("turn", f"{BUTLER}:{n}")]["role"], by[("turn", f"{BUTLER}:{n}")]["body"]) for n in (1, 2)],
+                         [("owner", "今天先做什么"), ("agent", "先整理账单，开了 T7")])
+        self.assertEqual(by[("topic", TOPIC)]["kind"], "topic")
+        self.assertEqual([item["key"] for item in self.web.items("topic")].count(BUTLER), 1)
+        for item in self.web.items():
+            self.assertEqual(item["rev"], web_sync.rev(item["data"]))
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)  # Nothing changed, nothing goes again.
+
+    def test_a_butler_with_no_history_and_no_task_is_not_pushed(self):
+        write_topic(self.state, topic_id=BUTLER, chat_id=CHAT, harness_id="claude", main_thread=True)
+        self.sync.push_once(T0)
+        self.assertEqual(self.web.items("topic"), [])
+        self.butler_topic()
+        self.sync.push_once(T0 + 100)
+        self.assertEqual([item["key"] for item in self.web.items("topic")], [BUTLER])
+
+    def test_the_butlers_running_turn_is_looked_at_every_second_with_no_touch(self):
+        self.butler_topic(status="running", lines=(("user", "做一下"),))
+        notes = {"steps": {"a": {"title": "进展说明", "detail": "先看了日志", "status": "note"}}, "step_order": ["a"]}
+        with mock.patch.object(app_web, "load_trace", side_effect=lambda *args: notes):
+            self.sync.push_once(T0)
+            self.assertEqual(self.sync.push_once(T0 + 1), 0)
+            notes["steps"]["b"] = {"title": "进展说明", "detail": "再看了配置", "status": "note"}
+            notes["step_order"].append("b")
+            self.assertEqual(self.sync.push_once(T0 + 2), 1)
+        live = self.web.items("turn")[-1]
+        self.assertEqual((live["key"], live["data"]["status"], live["data"]["body"]), (f"{BUTLER}:2", "running", "先看了日志\n\n再看了配置"))
+        self.assertEqual([item["data"]["state"] for item in self.web.items("topic")][-1], "在做")
+
+    def test_a_quiet_butler_is_looked_at_again_only_after_a_web_op_touched_it_or_in_a_full_look(self):
+        self.butler_topic()
+        self.sync.push_once(T0)
+        append_history(self.state / "topics" / BUTLER / "history.jsonl", "user", "再来一句")
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)
+        self.sync.collector.touch(BUTLER)
+        self.assertEqual(self.sync.push_once(T0 + 2), 1)
+        self.assertEqual((self.web.items()[-1]["key"], self.web.items()[-1]["data"]["body"]), (f"{BUTLER}:3", "再来一句"))
 
     def test_the_butler_topic_and_other_chats_are_not_pushed(self):
         self.topic()
@@ -484,6 +548,163 @@ class InboxTest(WebCase):
         self.assertEqual(ledger.after(), 5)
 
 
+class ButlerSayTest(WebCase):
+    def test_say_to_the_butler_is_the_owners_top_level_message_and_reaches_it_once(self):
+        self.butler_topic()
+        self.hearing()
+        self.web.op("say", 1, "op-b1", BUTLER, text="帮我看下账单")
+        self.assertEqual(self.sync.inbox_once(), 1)
+        self.assertEqual(len(self.heard), 1)
+        event = self.heard[0]
+        self.assertEqual((event["message_id"], event["chat_id"], event["chat_type"], event["sender_id"], event["message_type"]),
+                         ("web-op-b1", CHAT, "p2p", "ou_owner", "text"))
+        self.assertEqual(json.loads(event["content"]), {"text": "帮我看下账单"})
+        for field in ("root_id", "parent_id", "thread_id"):
+            self.assertNotIn(field, event)  # At the top level, quoting nothing.
+        self.assertEqual([(r["op_id"], r["state"]) for r in self.web.acks], [("op-b1", "done")])
+        self.assertEqual(self.app.queued, [])  # Not the topic path.
+        self.web.outbox[0]["state"] = "new"  # The ack did not take: handed out again.
+        self.sync.ledger.ops["op-b1"]["acked"] = False
+        self.assertEqual(self.sync.inbox_once(), 0)
+        self.assertEqual(len(self.heard), 1)
+
+    def test_say_to_the_butler_fails_with_the_reason_when_it_cannot_take_it(self):
+        self.butler_topic()
+        self.hearing("管家现在没有开")
+        self.web.op("say", 1, "op-b2", BUTLER, text="喂")
+        self.sync.inbox_once()
+        self.assertEqual([(r["state"], r["message"]) for r in self.web.acks], [("failed", "管家现在没有开")])
+        self.sync.ops.hear = None
+        self.web.op("say", 2, "op-b3", BUTLER, text="喂")
+        self.web.op("say", 3, "op-b4", BUTLER, text="  ")
+        self.sync.inbox_once()
+        self.assertEqual([r["state"] for r in self.web.acks], ["failed"] * 3)
+
+    def test_an_answer_to_the_butlers_question_is_left_to_feishu_with_a_reason(self):
+        self.butler_topic()
+        self.question("tok-butler-001", topic_id=BUTLER)
+        self.web.op("answer", 1, "op-b5", BUTLER, token="tok-butler-001", answers={"q1": "A"})
+        self.sync.inbox_once()
+        self.assertEqual([r["state"] for r in self.web.acks], ["failed"])
+        self.assertIn("飞书", self.web.acks[0]["message"])
+        self.assertEqual(self.app.answers, [])
+
+
+class NoReplyToTheWebMessageTest(WebCase):
+    """``web-<op_id>`` is no Feishu message: no reply quotes it, no thread opens under it, no reaction goes on it."""
+
+    def job(self, message, topic=BUTLER):
+        return {"message_id": message, "topic_id": topic, "chat_id": CHAT, "job_id": 5}
+
+    def test_the_turn_replies_at_the_top_level_and_is_quiet_with_no_reaction(self):
+        self.butler_topic()
+        remember_topic_message(self.state, BUTLER, CHAT, "web-op-1")
+        remember_topic_message(self.state, BUTLER, CHAT, "om_real")
+        ctx = dataclasses.replace(codex_context(self.state, "stream-json"), state_dir=self.state)
+        web = context_for_topic(ctx, {"chat_id": CHAT, "chat_type": "p2p", "message_id": "web-op-1"}, lambda w: w)
+        real = context_for_topic(ctx, {"chat_id": CHAT, "chat_type": "p2p", "message_id": "om_real"}, lambda w: w)
+        self.assertEqual((web.topic_id, web.reply_to_message_id), (BUTLER, ""))
+        self.assertEqual((real.topic_id, real.reply_to_message_id), (BUTLER, "om_real"))  # A Feishu message is quoted as ever.
+        job = self.job("web-op-1")
+        self.assertTrue(placement.quiet(self.state, job))  # No card until it has run a while, as the owner's own message.
+        self.assertFalse(placement.marked(self.state, job))  # No message to react on.
+        self.assertTrue(placement.marked(self.state, self.job("om_real")))
+        self.assertFalse(placement.quiet(self.state, self.job("main-tool-1")))  # What was not quiet is not.
+        self.assertFalse(placement.quiet(self.state, self.job("web-op-1", topic=OTHER)))  # A topic's turn is its own.
+        from covey.app import butler_reactions
+        messenger = mock.Mock()
+        started = SimpleNamespace(job_id=5, message_id="web-op-1", topic_id=BUTLER, chat_id=CHAT)
+        self.assertFalse(butler_reactions.start(messenger, self.state, "p", started, self.logs.append))
+        self.assertFalse(butler_reactions.owner_quiet(self.state, CHAT, "web-op-1"))
+        messenger.react.assert_not_called()
+
+
+class ButlerWebTest(ButlerUnifiedCase):
+    """Through the real Bridge: the page's words are the owner's top-level message, the butler's turn is queued once, nothing is sent."""
+
+    def test_say_to_the_butler_queues_one_turn_of_the_butler_and_sends_nothing(self):
+        env = SimpleNamespace(runtime=self.app.runtime, state_dir=self.state, topics=self.app.topics)
+        ops = web_ops.Ops(env, self.app.web_message)
+        row = {"kind": "say", "op_id": "op-e1", "topic_key": BUTLER, "payload": {"text": "帮我看下账单"}}
+        with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
+            self.assertEqual(ops.run(row), ("done", "已交给管家"))
+            self.assertEqual(ops.run(row)[0], "done")  # The same message again: the duplicate check takes it, no second turn.
+        jobs = self.app.runtime.jobs.topic_jobs(BUTLER, CHAT)
+        self.assertEqual([(job.message_id, job.topic_id, job.reply_to_message_id) for job in jobs], [("web-op-e1", BUTLER, "")])
+        history = [json.loads(line) for line in (self.state / "topics" / BUTLER / "history.jsonl").read_text().splitlines()]
+        self.assertEqual([(row["role"], row["content"]) for row in history], [("user", "帮我看下账单")])
+        self.assertFalse(placement.marked(self.state, jobs[0]))
+        self.app.messenger.react.assert_not_called()
+        self.app.messenger.send_message.assert_not_called()
+
+    def test_it_is_refused_with_a_reason_when_the_butler_is_off(self):
+        env = SimpleNamespace(runtime=self.app.runtime, state_dir=self.state, topics=self.app.topics)
+        ops = web_ops.Ops(env, self.app.web_message)
+        self.settings(enabled=False)  # 纯话题: a message of the private chat would open a topic of its own.
+        with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
+            state, message = ops.run({"kind": "say", "op_id": "op-e2", "topic_key": BUTLER, "payload": {"text": "喂"}})
+        self.assertEqual(state, "failed")
+        self.assertIn("管家", message)
+        self.assertEqual(self.app.runtime.jobs.topic_jobs(BUTLER, CHAT), [])
+
+
+class SeenTest(WebCase):
+    def test_seen_marks_the_latest_result_as_read_and_the_next_push_says_so(self):
+        self.topic(lines=())
+        self.sync.push_once(T0)
+        self.assertTrue(self.web.items("topic")[-1]["data"]["unseen"])
+        self.web.op("seen", 1, "op-s1", TOPIC)
+        self.assertEqual(self.sync.inbox_once(), 1)
+        self.assertEqual([(r["state"], r["message"]) for r in self.web.acks], [("done", "已记为看过")])
+        self.assertIn(TOPIC, read_seen(self.state))
+        self.sync.push_once(T0 + 1)
+        last = self.web.items("topic")[-1]
+        self.assertEqual((last["key"], last["data"]["unseen"]), (TOPIC, False))
+
+    def test_seen_again_is_done_and_writes_nothing(self):
+        self.topic(lines=())
+        self.web.op("seen", 1, "op-s2", TOPIC)
+        self.web.op("seen", 2, "op-s3", TOPIC)
+        self.sync.inbox_once()
+        self.assertEqual([(r["state"], r["message"]) for r in self.web.acks], [("done", "已记为看过"), ("done", "已经记为看过")])
+        saved = read_seen(self.state)
+        self.web.op("seen", 3, "op-s4", TOPIC)
+        self.sync.inbox_once()
+        self.assertEqual((self.web.acks[-1]["state"], read_seen(self.state)), ("done", saved))
+
+    def test_a_result_that_comes_later_is_unseen_again(self):
+        self.topic(lines=())
+        self.web.op("seen", 1, "op-s5", TOPIC)
+        self.sync.inbox_once()
+        self.sync.push_once(time.time())
+        self.assertFalse(self.web.items("topic")[-1]["data"]["unseen"])
+        time.sleep(1.1)  # A record's updated_at has a second's resolution.
+        write_job(self.state, "k-later", topic_id=TOPIC, chat_id=CHAT, job_id=70, status="done", card_message_id="om_card2")
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(time.time())
+        self.assertTrue(self.web.items("topic")[-1]["data"]["unseen"])
+
+    def test_an_unknown_topic_another_chats_topic_and_a_bad_id_fail_with_a_reason(self):
+        write_topic(self.state, topic_id=OTHER, chat_id="oc_other", harness_id="claude", topic_number=9)
+        self.topic()
+        self.web.op("seen", 1, "op-s6", "e" * 32)
+        self.web.op("seen", 2, "op-s7", OTHER)
+        self.web.op("seen", 3, "op-s8", "../x")
+        self.web.op("seen", 4, "op-s9", "")
+        self.web.op("seen", 5, "op-s0", TOPIC)
+        self.sync.inbox_once()
+        self.assertEqual([r["state"] for r in self.web.acks], ["failed"] * 4 + ["done"])
+        self.assertTrue(all(r["message"] for r in self.web.acks))
+        self.assertEqual(list(read_seen(self.state)), [TOPIC])
+
+    def test_the_butler_has_nothing_unseen_and_the_answer_is_done(self):
+        self.butler_topic()
+        self.web.op("seen", 1, "op-s10", BUTLER)
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "done")
+        self.assertEqual(read_seen(self.state), {})
+
+
 class SwitchTest(WebCase):
     def test_off_means_no_thread_and_no_request(self):
         with mock.patch.dict(os.environ, {web_sync.ENV: "0"}):
@@ -492,6 +713,18 @@ class SwitchTest(WebCase):
             os.environ.pop(web_sync.ENV)
             self.assertEqual(self.sync.threads(), ())
         self.assertEqual(self.web.seen, [])
+
+    def test_off_the_butler_and_web_messages_behave_as_before(self):
+        self.butler_topic()
+        with mock.patch.dict(os.environ, {web_sync.ENV: "0"}):
+            self.assertEqual(self.sync.threads(), ())
+            self.assertEqual(self.web.seen, [])
+        self.assertTrue(placement.quiet(self.state, {"message_id": "om_1", "topic_id": BUTLER, "chat_id": CHAT}))
+        self.assertFalse(placement.quiet(self.state, {"message_id": "main-tool-1", "topic_id": BUTLER, "chat_id": CHAT}))
+        ctx = dataclasses.replace(codex_context(self.state, "stream-json"), state_dir=self.state)
+        remember_topic_message(self.state, BUTLER, CHAT, "om_real")
+        self.assertEqual(context_for_topic(ctx, {"chat_id": CHAT, "chat_type": "p2p", "message_id": "om_real"}, lambda w: w).reply_to_message_id, "om_real")
+        self.assertTrue(web_sync.is_web_message("web-x") and not web_sync.is_web_message("om_web-x"))
 
     def test_on_there_are_two_threads(self):
         self.assertEqual([name for name, _ in self.sync.threads()], ["web-push", "web-inbox"])

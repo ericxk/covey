@@ -4,7 +4,13 @@ KINDS) as the owner's own and says (state, message) for the ack.
 - ``say``: the words are the owner's, in the topic: a running task takes them as a supplement (app/steering.py deliver_steer, as
   app/butler.py supplement does), else they are queued as the topic's next turn (app/triage.py ``correct`` does the same: alias the message
   ``web-<op_id>`` to the topic, event_context, append_history, enqueue_chat_job). A topic that waits for an answer is answered by
-  ``answer``, not by words.
+  ``answer``, not by words. To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
+  the private chat: ``hear`` (app/unified.py web_message) takes it through the entry of a Feishu message, access, the duplicate check,
+  the extensions and the butler, so the butler answers, opens a topic or hands on as ever. The message id ``web-<op_id>`` is no Feishu
+  message: nothing quotes it, replies in its thread or reacts on it (core/topics.py context_for_topic gives the turn no reply target,
+  core/placement.py quiet and ``marked``); the butler's words are new top-level messages.
+- ``seen``: the topic's latest result is marked as seen, as the owner's read receipt in Feishu does (core/topic_seen.py record_reads), so
+  the board, the Pins and 手上的事 and the next push (``unseen`` false) follow. Asked again it says done and writes nothing.
 - ``answer``: the question's own submit path (app/questions.py submit_answer) with the fields of app/answers.py answer_fields. A question
   with a free-text item cannot be answered from the page (answer_fields refuses it); the owner answers it in Feishu.
 - ``stop``: the topic's task stops as a click on its card's 停止 does: forwarded to its task runner when it has one (app/runner_ipc.py), else
@@ -17,31 +23,41 @@ operation from running twice); a task process is not touched except through the 
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
+import time
 from pathlib import Path
 
 from covey.app import project_loop
 from covey.app.answers import answer_fields
 from covey.app.runtime import job_stage
-from covey.core import projects, triage
+from covey.core import board_read, projects, triage, web_sync
 from covey.core.attachments import message_words
+from covey.core.butler import is_butler_root
 from covey.core.history_storage import append_history
-from covey.core.jobs import JOB_STOP_ACTION_KIND
+from covey.core.jobs import JOB_STOP_ACTION_KIND, topic_job_records
 from covey.core.state import read_object
+from covey.core.statuses import RUNNING
 from covey.core.steer import SteerRefused, SteerUncertain
-from covey.core.topics import remember_topic_message
+from covey.core.topic_seen import read_seen, record_reads
+from covey.core.topics import remember_topic_message, topic_file
+from covey.feishu.events import REPLY_CONTEXT
 
 DONE, FAILED = "done", "failed"
 SAY_CHARS = 20000
-PREFIX = "web-"  # The message id of the owner's words from the page: ``web-<op_id>``.
+PREFIX = web_sync.PREFIX  # The message id of the owner's words from the page: ``web-<op_id>``.
+TOPIC_ID = re.compile(r"[0-9a-f]{16,128}")
 TOKEN = re.compile(r"[0-9A-Za-z_-]{6,128}")
 
 
 class Ops:
-    """The page's operations done in this Bridge. ``env``: app/butler_env.py ButlerEnv (runtime, topics, state_dir)."""
+    """The page's operations done in this Bridge. ``env``: app/butler_env.py ButlerEnv (runtime, topics, state_dir). ``hear(event)``: takes
+    the owner's top-level message ``event`` as the Feishu consumer would give it and answers why it did not take it ('' when it did);
+    None: the butler cannot be spoken to from the page."""
 
-    def __init__(self, env) -> None:
+    def __init__(self, env, hear=None) -> None:
         self.env = env
+        self.hear = hear
 
     @property
     def runtime(self):
@@ -51,7 +67,8 @@ class Ops:
         """(state, message) of one outbox row; never raises."""
         kind = str(row.get("kind") or "")
         try:
-            handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen}.get(kind)
+            handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen,
+                                                 "seen": self.seen}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -81,6 +98,8 @@ class Ops:
             raise ValueError("话是空的")
         if len(text) > SAY_CHARS:
             raise ValueError(f"话太长（超过 {SAY_CHARS} 字）")
+        if is_butler_root(topic, chat):
+            return self.tell_butler(chat, row, text)
         app, _ = self.topic(state, chat, topic)
         if self.asking(state, chat, topic):
             raise ValueError("这个话题正在等你答题，请在页面上答题，不要用话回答")
@@ -109,6 +128,21 @@ class Ops:
             raise ValueError("话题现在排不上这一轮，话已记进历史但没有开始")
         return "已开下一轮"
 
+    def tell_butler(self, chat, row, text) -> str:
+        """``text`` as the owner's message at the top level of the private chat (``hear``); the butler's route is the one a Feishu
+        message takes. ValueError (said to the page) when the butler is off or cannot take it."""
+        owner = self.runtime.owner_open_id or ""
+        if self.hear is None or not owner:
+            raise ValueError("管家现在收不了网页上的话")
+        message = PREFIX + str(row.get("op_id"))
+        event = {"message_id": message, "chat_id": chat, "chat_type": "p2p", "sender_id": owner, "sender_type": "user",
+                 "message_type": "text", "content": json.dumps({"text": text}, ensure_ascii=False),
+                 REPLY_CONTEXT: True, "create_time": str(int(time.time() * 1000))}
+        why = self.hear(event)
+        if why:
+            raise ValueError(why)
+        return "已交给管家"
+
     @staticmethod
     def asking(state, chat, topic) -> bool:
         """Whether a question of ``topic`` is shown to the owner and waits for the answer."""
@@ -130,11 +164,32 @@ class Ops:
         if triage.held(record):
             raise ValueError("这个问题还在专项负责人手上，到时间会转给你")
         topic = str(record.get("topic_id") or topic)
+        if is_butler_root(topic, chat):
+            raise ValueError("管家的问题请在飞书里回答")
         app, ctx = self.topic(state, chat, topic)
         note = payload.get("note")
         fields = answer_fields(record, payload.get("answers"), str(note).strip() if isinstance(note, str) else "")
         app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
         return "答案已交给任务"
+
+    # -- seen --------------------------------------------------------------------------------------------------------------
+
+    def seen(self, state, chat, row, payload) -> str:
+        topic = str(row.get("topic_key") or "")
+        if not TOPIC_ID.fullmatch(topic):
+            raise ValueError("没有话题编号")
+        data = read_object(topic_file(state, topic))
+        if not data or data.get("chat_id") != chat:
+            raise ValueError("这个话题不认识，或不在你的私聊里")
+        if is_butler_root(topic, chat):
+            return "管家的对话没有“没看”的结果"
+        ended = max((board_read.ended_at(record) for record in topic_job_records(state, topic, chat_id=chat)
+                     if record.get("status") not in RUNNING and not board_read.unrun(record)), default=0.0)
+        read = read_seen(state)
+        if topic in read and read[topic] >= ended:
+            return "已经记为看过"
+        record_reads(state, {topic: max(time.time(), ended)})
+        return "已记为看过"
 
     # -- stop --------------------------------------------------------------------------------------------------------------
 
