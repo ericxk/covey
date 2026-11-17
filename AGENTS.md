@@ -185,6 +185,9 @@
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
 | `app/unified.py` | The Bridge: one Feishu ingress, immutable topic routes, one app per Harness |
+| `app/web_ops.py` | 网页上发来的操作怎么执行: `Ops.run` does one operation of the page's outbox as the owner's own and says (state, message) … |
+| `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (the 妙搭 app) … |
+| `app/web_turns.py` | What a turn tells the web page beside its words (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |
 | `app/worker.py` | Ordinary topic-job execution, local records and in-topic final delivery |
 | `app/workspace_manager.py` | Manage the saved workspace list |
@@ -345,6 +348,7 @@
 | `core/updates.py` | Per-task coalesced UI updates, isolated from backend event handling |
 | `core/usage.py` | Numeric-only output throughput |
 | `core/web_profile.py` | 代答's Feishu web login (its browser profile) |
+| `core/web_sync.py` | 网页工作台同步的数据: the config, the four kinds of items pushed to the web page, and the ledger of the operations … |
 | `core/workspaces.py` | Local allowlist and immutable topic workspace bindings |
 
 ### feishu

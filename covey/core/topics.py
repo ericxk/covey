@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from covey.core import devices, butler, projects
+from covey.core import devices, butler, projects, web_sync
 from covey.core.history_storage import history_lines
 from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK
@@ -305,8 +305,10 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
     # The butler's topic has no root: each message is answered quoting it, at the chat's top level.
     top_level = butler.traits(topic_id, data.get("chat_id")).top_level
     reply_to = message_id if top_level else data["root_id"]
-    if projects.own_message(reply_to):
-        reply_to = ""  # A project's lead woken or handed the butler's words: its answer is a new top-level message.
+    if projects.own_message(reply_to) or web_sync.is_web_message(reply_to):
+        # A project's lead woken or handed the butler's words, or words typed on the web page: Feishu has no such message,
+        # so the answer is a new top-level message.
+        reply_to = ""
     return dataclasses.replace(
         ctx, topic_id=topic_id, reply_to_message_id=reply_to,
         workspace_name=data["workspace_name"], workdir=workdir,
