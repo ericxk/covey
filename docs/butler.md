@@ -467,6 +467,16 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **新名先当候选**：第一次出现写成 `candidate`，第二次用到（另一次请求、另一个专项）变 `active`，只有 `active` 的才画标签；同一个请求重做不算第二次。方向的种子和别名由主人自己写进 `directions.json`。
 - **在哪**：派发卡 `Dispatch.direction`、专项卡 `Project.direction`，都是卡头的 `text_tag`（`neutral`，最多 12 个字）；派发记录的 `direction` 转成专项时原样带过去（那一次使用已经记过）。卡头多一个标签，要真客户端验收。
 
+### 我本来想找你的事（开关默认关，只记不打扰）
+
+`COVEY_PATROL=shadow` 时，管家会替主人盯着手上的事，但这一版只记下来、不打扰：不发消息、不叫醒负责人、不动专项。`on` 留给以后的版本，现在当作 `shadow`；其他值和不设都是关，关着时不起后台线程、不调模型、汇总不变。
+
+- **三层**。第一层是规则，每分钟一次（间隔可调）、不调模型，从看板、手上的事、汇总已经在读的记录里找候选（`app/patrol_rules.py`）：问题等了很久没回（默认 120 分钟）；做完的结果没人看（360 分钟，用已读记录）；同一个话题连着失败 2 次，或任务 180 分钟没有动静；最近三天的话题里看起来是同一件事的（同一工作目录且标题有两个词相同，或四个词相同），或该归进某个在做的专项的；专项有回执没人读或被护栏停住后 720 分钟没有进展，或专项有 6 个话题以上、话题分散在 3 个工作目录以上。同一件事状态没变不重复记，状态变了或一天没再出现后再出现算新的。第二层是小模型，每 30 分钟一次（间隔可调），有新候选才调，走建议归并用的那条 Haiku 的路（`app/patrol_judge.py`）：给它候选和精简的上下文（标题、一句话状态、等了多久）和主人的原则，它对每条给“丢掉 / 记下 / 该处理”、一句理由（不超过 40 个字）和本来要做的动作（主动找主人、归进专项、建议收起或拆开专项、叫醒负责人、无）；每天最多 48 次，超时或失败下一轮再试，同一条试 4 轮仍不成就放弃。要脱敏的话题标题不外发。第三层是管家核查执行，这一版没有。
+- **怎么看**。记录在 `<state>/patrol/`：`candidates/<日期>.jsonl` 是规则找到的，`decisions/<日期>.jsonl` 是小模型的决定，`state.json` 记去重和当天调用次数；保留 14 天。早晚汇总和「看板」在有“该处理”的决定时多一块“我本来想找你的事”：最多 5 条，每条一句，写什么事、为什么、本来会怎么做；只列上次汇总之后的。这一块自己不会让汇总发出来。
+- **怎么教它**。看了之后在私聊里说“这类该找我”或“这类不用”，管家照常用 `principle_save` 记成原则，小模型下一轮读得到；没有新按钮。
+- **怎么关**。不设 `COVEY_PATROL` 重新 `launch`（见[配置](configuration.md#服务清单里的环境变量)第一条），后台线程和汇总里的这一块都没有；已写的记录留到 14 天后被维护清掉。
+- **可调数值**：`COVEY_PATROL_ASK_MINUTES`、`COVEY_PATROL_UNSEEN_MINUTES`、`COVEY_PATROL_STALL_MINUTES`、`COVEY_PATROL_FAILS`、`COVEY_PATROL_PROJECT_MINUTES`、`COVEY_PATROL_TICK_SECONDS`、`COVEY_PATROL_JUDGE_MINUTES`、`COVEY_PATROL_DAILY_CALLS`、`COVEY_PATROL_JUDGE_MS`，默认值和范围见[配置](configuration.md)的一览；真实验收时把时间都调到几分钟、小模型间隔调到 1 分钟，几分钟内就能看到结果。专项的空闲收起是专项自己的循环做的，这里只读专项的状态。
+
 ## 代码位置
 
 | 模块 | 职责 |
@@ -480,6 +490,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 | `core/board_read.py` | 私聊话题的一次读和三种“未看”规则 |
 | `core/turn_words.py` | 状态词、请求行 |
 | `core/principles.py` | 主人的原则 |
+| `core/patrol.py`、`app/patrol_rules.py`、`app/patrol_judge.py`、`app/patrol.py` | 我本来想找你的事：记录和数值、规则、小模型、后台线程 |
 | `core/knowledge.py` | 知识条目：存储、重放、搜索、生成的 `.md` |
 | `app/knowledge_turn.py`、`app/knowledge_collect.py` | 一轮读哪些条目、话题里“记一下”的收集 |
 | `app/butler_knowledge.py` | `knowledge_*` 和 `history_search` 工具 |

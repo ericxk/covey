@@ -125,7 +125,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
              'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects',
-             'project_loop', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
+             'project_loop', 'patrol', 'devices', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -178,6 +178,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.project_cards import ProjectCards, stop_tasks
         from covey.app.projects import TOOLS as PROJECT_BUTLER_TOOLS, Projects
         from covey.app.project_loop import ProjectLoop
+        from covey.app.patrol import Patrol
         from covey.app.devices import Devices
         from covey.app.group_boards import GroupBoards
         from covey.app.group_manager import GroupManager
@@ -251,6 +252,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.butler_env.projects = self.projects  # What topic_start's ``project`` and the 派发卡's upgrade call (app/butler_topics.py).
             # Wakes a project's lead when receipts wait and applies the guards (app/project_loop.py), COVEY_PROJECTS=1.
             self.project_loop = ProjectLoop(self.runtime, self.butler_env, stop_tasks)
+            # What the butler would have told the owner, only recorded (app/patrol.py), COVEY_PATROL=shadow; the digest lists it.
+            self.patrol = Patrol(self.runtime, self.butler_env)
             # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
             # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
             # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
@@ -265,7 +268,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
                         self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
                         self.dispatch_cards, self.project_cards, self.projects,
-                        self.project_loop, self.devices,
+                        self.project_loop, self.patrol, self.devices,
                         *self.extension_features)
             # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
             # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).
