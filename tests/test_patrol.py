@@ -388,11 +388,14 @@ class TickTests(Records, unittest.TestCase):
 
     def test_the_days_calls_are_limited(self):
         self.on()
+        now = self.now
+        if store.day_of(now) != store.day_of(now + 2 * patrol.JUDGE_EVERY + 2):
+            now += 2 * patrol.JUDGE_EVERY + 2  # Run between 23:00 and midnight: keep the three ticks in one day.
         with mock.patch.dict(os.environ, {"COVEY_PATROL_DAILY_CALLS": "1"}), \
                 mock.patch.object(track_judge, "run", side_effect=Failed("timeout")) as run:
-            self.feature.tick(self.now)
-            self.feature.tick(self.now + patrol.JUDGE_EVERY + 1)
-            self.feature.tick(self.now + 2 * patrol.JUDGE_EVERY + 2)
+            self.feature.tick(now)
+            self.feature.tick(now + patrol.JUDGE_EVERY + 1)
+            self.feature.tick(now + 2 * patrol.JUDGE_EVERY + 2)
         self.assertEqual(run.call_count, 1)
         self.assertTrue(any("skipped" in line for line in self.logs))
         # The next day it asks again.
