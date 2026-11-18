@@ -8,7 +8,9 @@
   (``advance``; the thread ``Projects.threads`` gives retries what a crash left, with a backoff), and every step does the
   same again harmlessly when its tick was lost.
 - **Direct** (``start``, from topic_start with ``project`` true): a record, the lead's topic, the project's card with the
-  "你问" block, the start receipt; the lead decides which member topics to open.
+  "你问" block, the start receipt; the lead decides which member topics to open. The existing topics the butler names in
+  ``topics`` (the owner said to take them in) become members before the receipt (JOIN_STEPS); one that cannot (not found, a
+  lead's, another project's) is named in the answer and the receipt, never dropped silently.
 - **Downgrade** is app/project_cards.py ``downgrade`` (the card's 不要专项 button; it lives there so that module and this one do
   not import each other).
 - **Gathered** (``gather``, 整理专项's 建专项, app/project_tidy.py): a project of topics that are there already (GATHER_STEPS: the
@@ -26,6 +28,7 @@ taken before LOCK (``set_topic_project`` takes LOCK inside it) and the card's lo
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 import time
 from pathlib import Path
@@ -51,7 +54,9 @@ ROUNDS = 3  # ``auto``: the topic's round that makes a project.
 UPGRADE_STEPS = ("record", "lead", "thread", "card", "merged", "route", "receipt")
 START_STEPS = ("record", "lead", "card", "receipt")
 GATHER_STEPS = ("record", "lead", "card", "members", "receipt")  # 整理专项's 建专项: topics that are there already.
+JOIN_STEPS = ("record", "lead", "card", "members", "receipt")  # A direct start that takes in existing topics (``topics``).
 KINDS = {"upgrade": UPGRADE_STEPS, "direct": START_STEPS, "tidy": GATHER_STEPS}
+MAX_JOINED = 10  # Existing topics one direct start takes in.
 RESUME_TICK = 30.0  # Seconds between two looks for a project whose steps a crash left unfinished.
 RESUME_AFTER = 60.0  # A project written to this recently is still being worked on (by a tool call): left alone.
 RESUME_GIVE_UP = 600.0  # The longest wait between two tries of one project.
@@ -97,6 +102,15 @@ def has_receipt(state_dir, pid, kind) -> bool:
     return any(read_object(path).get("kind") == kind for path in paths)
 
 
+def steps_of(record):
+    """The steps of ``record``'s kind (KINDS), None for a record none of ours made; a direct start with ``topics`` has JOIN_STEPS
+    (one without has START_STEPS, so the records of a release before them are as finished as they were)."""
+    origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
+    if origin.get("kind") == "direct" and origin.get("topics"):
+        return JOIN_STEPS
+    return KINDS.get(origin.get("kind"))
+
+
 def state_of(record) -> str:
     return str(record.get("state") or projects.ACTIVE)
 
@@ -130,8 +144,7 @@ class Projects:
             return
         now = time.time() if now is None else now
         for record in projects.records(self.env.state_dir):
-            origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
-            steps = KINDS.get(origin.get("kind"))
+            steps = steps_of(record)
             if steps is None or state_of(record) != projects.ACTIVE or all(name in (record.get("steps") or {}) for name in steps):
                 self.tries.pop(record.get("id"), None)
                 continue
@@ -238,8 +251,7 @@ class Projects:
     def _advance(self, pid) -> bool:
         state, log = Path(self.env.state_dir), self.env.runtime.log
         record = projects.read_record(state, pid)
-        origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
-        steps = KINDS.get(origin.get("kind"))
+        steps = steps_of(record)
         if steps is None or state_of(record) != projects.ACTIVE:
             return False
         for name in steps:
@@ -400,7 +412,9 @@ class Projects:
         return True
 
     def step_members(self, record) -> bool:
-        """整理专项's 建专项: each topic it gathers is a member (``join_topic`` without its receipt: the start receipt names them)."""
+        """整理专项's 建专项 and a direct start with ``topics``: each topic it gathers is a member (``join_topic`` without its
+        receipt: the start receipt names them). Its topic.json and the record's threads only: a running turn goes on and a
+        question waiting for the owner stays his (app/triage.py routes a question when it is shown, not afterwards)."""
         state, pid = Path(self.env.state_dir), record["id"]
         for topic in (record.get("origin") or {}).get("topics") or ():
             found = projects.topic_project(state, topic)
@@ -418,9 +432,26 @@ class Projects:
         if not has_receipt(state, pid, "start"):
             text = (self.handover(state, record) if origin.get("kind") == "upgrade"
                     else self.gathered(state, record) if origin.get("kind") == "tidy"
-                    else origin.get("text") or record.get("goal") or record.get("name"))
+                    else self.started(state, record))
             project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "")
         return True
+
+    @staticmethod
+    def started(state, record) -> str:
+        """What the lead of a direct start is told: the owner's request as he wrote it, then the topics it took in, each with
+        where it stands, and the ones it could not with why."""
+        origin = record.get("origin") or {}
+        text = origin.get("text") or record.get("goal") or record.get("name")
+        threads = record.get("threads") or ()
+        joined = [topic_line(state, topic) for topic in origin.get("topics") or () if topic in threads]
+        missed = [f"{item.get('ref')}（{item.get('why')}）" for item in origin.get("refused") or ()]
+        missed += [f"{topic_label(state, topic) or topic[:6]}（已经在别的专项里）" for topic in origin.get("topics") or ()
+                   if topic not in threads]
+        if joined:
+            text += "\n已挂进这个专项的话题（主人要收进来的，你接手跟进）：" + "；".join(joined)
+        if missed:
+            text += "\n主人要收、但没挂上的：" + "；".join(missed)
+        return text
 
     @staticmethod
     def gathered(state, record) -> str:
@@ -428,10 +459,7 @@ class Projects:
         parts = [f"主人同意把这几个已有的话题建成专项「{clip(record.get('name'), 30)}」，你接手跟进"]
         if record.get("goal"):
             parts.append("目标：" + clip(record["goal"], 160))
-        for topic in record.get("threads") or ():
-            job = project_cards.newest_job(state, topic) or {}
-            now = " ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part)
-            parts.append(f"{topic_label(state, topic) or topic[:6]}「{clip(topic_title(state, topic), 30)}」" + (f"：{clip(now, 60)}" if now else ""))
+        parts.extend(topic_line(state, topic) for topic in record.get("threads") or ())
         return "；".join(parts)
 
     def gather(self, *, chat, name, goal, topics, key, why="", owner_named=False) -> str:
@@ -496,12 +524,14 @@ class Projects:
             plan = butler_topics.plan_start(env, args, butler_settings.load(state))
             if isinstance(plan, str):
                 return reply(False, plan)
+            joins, refused = wanted_topics(env, chat, args.get("topics"))
             title, prompt = butler_topics._text(args.get("title"), 40), butler_topics._text(args.get("prompt"))
             words = butler_handoff.asked(state, request.job_key).words
             made = projects.new_record(
                 chat_id=chat, name=title, goal=prompt, project_id=pid,
                 origin={"kind": "direct", "request": request.id, "job_key": request.job_key, "workspace": plan["workspace"],
-                        "workdir": plan["workdir"], "why": butler_topics._text(args.get("why"), 200), "text": words or prompt})
+                        "workdir": plan["workdir"], "why": butler_topics._text(args.get("why"), 200), "text": words or prompt,
+                        **({"topics": joins} if joins else {}), **({"refused": refused} if refused else {})})
             made["steps"] = {"record": round(time.time(), 3)}
             ask = dispatch_cards.ask_of(env, state, request.job_key)
             asked = dispatch_cards.request_words(state, request.job_key)
@@ -516,8 +546,60 @@ class Projects:
         text = (f"已开专项「{record.get('name')}」（{pid}）：负责人会开话题去做，专项卡在聊天区，进展看卡；不用等它做完。"
                 if done else f"专项「{record.get('name')}」已建（{pid}），"
                              f"{'' if sent else '专项卡还没发出去，'}有一步没做完，Bridge 会自己补；不要再开一次。")
+        origin, threads = record.get("origin") or {}, record.get("threads") or ()
+        joined = [topic for topic in origin.get("topics") or () if topic in threads]
+        waiting = [topic for topic in origin.get("topics") or () if topic not in threads]
+        refused = list(origin.get("refused") or ())
+        if joined:
+            text += "挂进专项的已有话题：" + "、".join(topic_label(state, topic) or topic[:6] for topic in joined) + "（不打断它们）。"
+        if waiting:
+            text += ("还没挂上：" if not done else "没挂上（已在别的专项里）：") + "、".join(
+                topic_label(state, topic) or topic[:6] for topic in waiting) + "。"
+        if refused:
+            text += "没挂上：" + "；".join(f"{item['ref']}，{item['why']}" for item in refused) + "。把这些告诉主人。"
         return butler_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
-                                                   card=sent, finished=done))
+                                                   card=sent, finished=done, joined=joined,
+                                                   refused=[item["ref"] for item in refused] + waiting))
+
+
+def topic_line(state, topic) -> str:
+    """T531「title」：where its newest job stands, for the lead's start receipt."""
+    job = project_cards.newest_job(state, topic) or {}
+    now = " ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part)
+    return f"{topic_label(state, topic) or topic[:6]}「{clip(topic_title(state, topic), 30)}」" + (f"：{clip(now, 60)}" if now else "")
+
+
+def wanted_topics(env, chat, raw):
+    """([topic id], [{ref, why}]): the existing topics a direct start takes in, from topic_start's ``topics`` (T numbers or ids,
+    a list or one string of them), and the ones it cannot with why (app/butler_topics.py topic_ref's reasons, a lead's, another
+    project's, too many)."""
+    from covey.app import butler_topics
+
+    if isinstance(raw, str):
+        raw = re.split(r"[\s,，、;；]+", raw)
+    if not isinstance(raw, (list, tuple)):
+        return [], []
+    state, joins, refused = Path(env.state_dir), [], []
+    for item in raw:
+        ref = butler_topics._text(item, 80)
+        if not ref:
+            continue
+        found = butler_topics.topic_ref(env, chat, ref)
+        if isinstance(found, str):
+            refused.append({"ref": ref, "why": found})
+            continue
+        topic = found[0]
+        if topic in joins:
+            continue
+        other = projects.topic_project(state, topic)
+        if other is not None:
+            name = clip(projects.read_record(state, other.id).get("name"), 30) or other.id
+            refused.append({"ref": ref, "why": f"是专项「{name}」的负责人" if other.role == projects.LEAD else f"已经在专项「{name}」里"})
+        elif len(joins) >= MAX_JOINED:
+            refused.append({"ref": ref, "why": f"一次最多收 {MAX_JOINED} 个话题"})
+        else:
+            joins.append(topic)
+    return joins, refused
 
 
 # 整理专项's joins and 移出 (docs/butler.md 整理专项) -----------------------------------------------------------------------

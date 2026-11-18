@@ -309,7 +309,12 @@ PROJECTS_ENV = "COVEY_PROJECTS"
 START_PROJECT = {"type": "boolean", "description": "这件事要分成几个话题、跨几天持续推进（例如主人要长期跟进、反复推进），"
                                                    "或主人直接说“开个专项”“转成专项”时填 true：不开普通话题，开一个专项，由它的负责人去开专项的话题。"
                                                    "这时 title 是专项名，prompt 写目标和完成标准（主人的说法），"
-                                                   "workspace 是负责人和专项的话题默认用的工作区；拿不准就不要填"}
+                                                   "workspace 是负责人和专项的话题默认用的工作区；"
+                                                   "主人要把已有的话题收进这个专项时，把它们的 T 号放进 topics；拿不准就不要填"}
+START_TOPICS = {"type": "array", "items": {"type": "string"},
+                "description": "只在 project 为 true 时用：主人要收进这个专项的已有话题，T 号（如 T531）或话题 id，一个一项。"
+                               "它们会直接挂进专项、交给负责人跟进，正在跑的不打断，等主人回答的问题仍归主人；"
+                               "挂不上的（没找到、已在别的专项里）回复里会逐个说，要转告主人。只写在 prompt 里不会挂上"}
 SEND_PROJECT = {"type": "boolean", "description": "主人要把这件事长期跟进、分成几个话题跨几天推进，或直接说“转成专项”“开个专项”时填 true："
                                                   "这个话题会转成专项（只在转成专项打开时生效）；一般的补充、拿不准的都不要填"}
 BUTLER_PROJECT_TOOLS = (
@@ -342,14 +347,15 @@ def tidy_listed(environ) -> bool:
 
 
 def project_butler_tools(tools, tidy=False) -> tuple:
-    """``tools`` with ``project`` on topic_start and topic_send, and the projects_list and project_send tools last (and
-    projects_tidy, ``tidy``)."""
+    """``tools`` with ``project`` on topic_start (and ``topics``, the existing topics a project takes in) and topic_send, and
+    the projects_list and project_send tools last (and projects_tidy, ``tidy``)."""
     changed = []
     for tool in tools:
-        extra = {"topic_start": START_PROJECT, "topic_send": SEND_PROJECT}.get(tool["name"])
+        extra = {"topic_start": {"project": START_PROJECT, "topics": START_TOPICS},
+                 "topic_send": {"project": SEND_PROJECT}}.get(tool["name"])
         if extra is not None:
             schema = tool["input_schema"]
-            tool = {**tool, "input_schema": {**schema, "properties": {**schema["properties"], "project": extra}}}
+            tool = {**tool, "input_schema": {**schema, "properties": {**schema["properties"], **extra}}}
         changed.append(tool)
     return tuple(changed) + BUTLER_PROJECT_TOOLS + ((TIDY_TOOL,) if tidy else ())
 

@@ -107,6 +107,12 @@ def project_hint(request) -> dict:
 
 def find_topic(env, chat, name):
     """(app, context, topic.json) of the owner's topic ``name`` (T412, 412 or its id); a str saying why not."""
+    found = topic_ref(env, chat, name)
+    return found if isinstance(found, str) else found[1]
+
+
+def topic_ref(env, chat, name):
+    """(topic id, (app, context, topic.json)) of the owner's topic ``name`` as ``find_topic`` finds it; a str saying why not."""
     text = _text(name)
     found = None
     number = re.fullmatch(r"[Tt]?(\d+)", text)
@@ -130,7 +136,7 @@ def find_topic(env, chat, name):
         return f"话题 {text} 不在主人私聊里，或者它用的 Harness 本机器人没有启用。"
     if target[2].get("proxy"):
         return f"{text} 是代答话题，管家不往里转话。"
-    return target
+    return found, target
 
 
 def composed(text, note):

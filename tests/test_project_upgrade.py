@@ -22,7 +22,7 @@ from covey.core import butler_mcp, butler, butler_settings, butler_tool_specs, p
 from covey.core.jobs import BridgeReplyJob, find_job_record, upsert_job_record
 from covey.core.butler_requests import Request
 from covey.core.state import read_object, write_json
-from covey.core.topics import load_topic, message_topic, routed_topic, topic_title
+from covey.core.topics import load_topic, message_topic, routed_topic, topic_number, topic_title
 
 LONG = "这件事长期做，接着做"
 
@@ -464,6 +464,45 @@ class DirectTest(UpCase):
         self.assertEqual((lead["project"]["role"], lead["workspace_name"], lead["model"]), ("lead", "project", "claude-opus-x"))
         self.assertEqual(routed_topic(self.state, CHAT, project["card"]["message_id"]), project["lead_topic_id"])
         self.assertIn("已开专项「迁移订单库」", answer["text"])
+
+    def test_the_existing_topics_the_butler_names_are_taken_in_and_the_ones_it_cannot_are_said(self):
+        tool = next(tool for tool in butler_tool_specs.project_butler_tools(butler_tool_specs.TOOLS) if tool["name"] == "topic_start")
+        self.assertEqual(tool["input_schema"]["properties"]["topics"]["type"], "array")
+        first, _ = self.plain("a1")
+        second, _ = self.plain("a2")
+        taken, _ = self.plain("a3")
+        upsert_job_record(self.state, "job-first", topic_id=first, chat_id=CHAT, status="running")
+        projects.create(self.state, projects.new_record(chat_id=CHAT, name="别的专项", project_id="0" * 12))
+        upgrades.join_topic(self.state, "0" * 12, taken)
+        label = lambda topic: f"T{topic_number(self.state, topic)}"
+        self.sent.reset_mock()
+        answer = self.start("p7", project=True, title="收拢三件事", prompt="把这几个收进来",
+                            topics=[label(first), second, label(taken), "T9999", label(first)])
+        self.assertTrue(answer["ok"], answer)
+        pid = answer["data"]["project_id"]
+        project = projects.read_record(self.state, pid)
+        self.assertEqual(project["threads"], [first, second])
+        self.assertEqual(set(project["steps"]), set(upgrades.JOIN_STEPS))
+        for topic in (first, second):
+            self.assertEqual(load_topic(self.state, topic)["project"], {"id": pid, "role": projects.MEMBER})
+        self.assertEqual(projects.topic_project(self.state, taken).id, "0" * 12)  # Left where it was.
+        self.assertEqual(find_job_record(self.state, "job-first")["status"], "running")  # Not stopped.
+        self.assertEqual(answer["data"]["joined"], [first, second])
+        self.assertEqual(answer["data"]["refused"], [label(taken), "T9999"])
+        self.assertIn(f"挂进专项的已有话题：{label(first)}、{label(second)}", answer["text"])
+        self.assertIn(f"{label(taken)}，已经在专项「别的专项」里", answer["text"])
+        self.assertIn("T9999，没有找到话题 T9999", answer["text"])
+        (receipt,) = self.receipts(pid)
+        self.assertIn(f"已挂进这个专项的话题（主人要收进来的，你接手跟进）：{label(first)}", receipt["text"])
+        self.assertIn("主人要收、但没挂上的：", receipt["text"])
+        self.assertEqual(self.start("p7", project=True, topics=["T1"]), answer)  # Once a request.
+
+    def test_a_direct_project_without_topics_keeps_the_steps_it_had(self):
+        pid = self.start("p8", project=True)["data"]["project_id"]
+        project = projects.read_record(self.state, pid)
+        self.assertEqual(set(project["steps"]), set(upgrades.START_STEPS))
+        self.assertNotIn("topics", project["origin"])
+        self.assertEqual(upgrades.steps_of(project), upgrades.START_STEPS)
 
     def test_a_request_asked_twice_makes_one_project(self):
         first = self.start("p1", project=True)
