@@ -9,7 +9,7 @@ pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
 app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
-app/overview.py, app/app_setup.py, app/group_menu.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
+app/overview.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
 from __future__ import annotations
@@ -157,6 +157,12 @@ ACTIONS = {
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),
     # The menu card of a group with a butler (app/group_menu.py KIND).
     "bridge_group_menu": CardAction("群里的菜单"),
+    # 以后这类按推荐走 under a question card and its own card's 记下 / 改一下 / 算了 (app/standing_answers.py): the Bridge
+    # takes them before topic routing (PANELS); 记下 answers the question through its own submit path.
+    "bridge_question_standing": CardAction("以后这类按推荐走"),
+    "bridge_standing_save": CardAction("记下原则"),
+    "bridge_standing_edit": CardAction("改一下原则"),
+    "bridge_standing_cancel": CardAction("不记原则"),
 }
 ACTIONS.update({kind: CardAction(label, bot_only=True) for kind, label in extensions.card_kinds().items()})
 BOT_ONLY = frozenset(kind for kind, action in ACTIONS.items() if action.bot_only)

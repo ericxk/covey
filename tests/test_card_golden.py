@@ -327,6 +327,16 @@ def question_cards():
     cards["feedback"] = question_feedback_card(question_record())
     cards["answer_notice"] = answer_notice_card("已提交回答")
     cards["folded_refusal"] = folded_refusal(question_record("superseded", superseded_by_job=432))
+    # 以后这类按推荐走 (app/standing_answers.py): the button under a form whose every question has one recommended
+    # option, and its own card: the sentence with 记下 / 改一下 / 算了, the box to change it, what became of it.
+    from covey.cards.question_cards import standing_card
+    cards["card_standing_offer"] = question_card(question_record(
+        questions=[{"id": "q", "header": "合并", "question": "测试过了，要合并进 main 并推送吗？",
+                    "options": [{"label": "合并并推送（推荐）"}, {"label": "先不合并"}]}], answers={}), "T70")
+    standing = {"token": "e" * 24, "workspace": "covey", "picks": ["合并并推送"],
+                "text": "covey 工作区：测试通过就合并进 main 并推送；没有在跑的任务时直接部署，不用再问"}
+    for status in ("ready", "editing", "saved", "cancelled"):
+        cards[f"standing_{status}"] = standing_card({**standing, "status": status, "answered": True})
     return cards
 
 

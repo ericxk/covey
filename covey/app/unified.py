@@ -117,7 +117,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel',
-              'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu')
+              'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu', 'standing_answers')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
@@ -125,7 +125,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
              'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects',
-             'project_loop', 'patrol', 'devices', 'web_sync', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
+             'project_loop', 'patrol', 'devices', 'web_sync', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
+             'standing_answers')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -195,6 +196,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.proxy import Proxy
         from covey.app.redaction_panel import RedactionPanel
         from covey.app.rewind import RewindCards
+        from covey.app.standing_answers import StandingAnswers
         from covey.app.settings_hub import SettingsHub
         from covey.app.topic_seen import TopicSeen
         from covey.app.weekly_usage import WeeklyUsage
@@ -207,6 +209,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.workspace_manager = WorkspaceManager(self.topics, self.directory_picker.cache)
             self.harness_switch = HarnessSwitch(self.topics)
             self.rewind = RewindCards(self.topics)
+            # 以后这类按推荐走 under a question card (app/standing_answers.py): a principle of the workspace, then the answer.
+            self.standing_answers = StandingAnswers(self.topics)
             self.proxy = Proxy(self.topics)
             self.dashboard = Dashboard(self.runtime, self.messenger, self.voice,
                                        detect=lambda harness=self.claude: detect_upstream(harness))

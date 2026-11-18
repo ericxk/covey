@@ -88,7 +88,7 @@ class SelectTest(Case):
         self.assertEqual([row["text"] for row in memory.items(topic=[marked, plain])], ["普通的"])
         self.assertEqual(len(memory.items(topic=[marked, plain], redacted=True)), 2)
 
-    def test_the_block_says_number_scope_and_speaker_then_the_four_rules(self):
+    def test_the_block_says_number_scope_and_speaker_then_the_five_rules(self):
         kept, left = memory.select([item("project:x:o1", memory.PROJECT, memory.OWNER, "先做迁移"),
                                     item("topic:t1", memory.TOPIC, memory.LEAD, "产物放 out/")])
         block = memory_block(kept, left)
@@ -97,7 +97,7 @@ class SelectTest(Case):
         self.assertRegex(lines[1], r"^- M\d+ · 管这个专项 · 你说的：先做迁移$")
         self.assertRegex(lines[2], r"^- M\d+ · 管这个话题 · 它总结的：产物放 out/$")
         self.assertEqual(lines[3:], list(MEMORY_RULES))
-        self.assertEqual(len(MEMORY_RULES), 4)
+        self.assertEqual(len(MEMORY_RULES), 5)  # The fifth: what the owner allowed is not asked again.
         self.assertEqual(memory_block([], 0), "")
 
     def test_the_words_are_in_the_glossary(self):
