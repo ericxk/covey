@@ -80,6 +80,9 @@ class TaskMonitor:
         # The turn's progress (core/progress.py): the earlier turns' 用时, the stuck threshold, what it last did and
         # when (the trace's newest step, ``trace_activity``; the checkpoint's change), and whether ``stuck`` was told.
         self.history, self.stuck, self.shown_stuck = list(history or ()), stuck, False
+        # The turn's first estimate of its whole 用时 (run so far + eta), kept on the record as ``estimate_seconds``
+        # for the web page's 预计 vs 实际 (app/web_sync.py): the first, since the later ones close in on the actual.
+        self.estimate = None
         self.stuck_after = turn_progress.stuck_seconds()
         self.newest, self.checkpoint_at = (None, ""), None
 
@@ -111,6 +114,8 @@ class TaskMonitor:
             found = facts.progress
             if found is not None:
                 self.job.turn_progress = {**found, "at": int(facts.wall)}  # 任务详情 (cards/streaming.py progress_lines).
+                if self.estimate is None and found["eta_seconds"] is not None:
+                    self.estimate = int(facts.elapsed) + int(found["eta_seconds"])
             if self.stuck is not None and found is not None and found["maybe_stuck"] != self.shown_stuck:
                 self.shown_stuck = found["maybe_stuck"]  # Not retried when the write fails: the card shows the line.
                 self.stuck(self.shown_stuck)
@@ -128,6 +133,7 @@ class TaskMonitor:
                 **({"last_activity_at": found["last_activity_at"], "last_activity": found["last_activity"]}
                    if found is not None and found["last_activity_at"] is not None else {}),
                 **self.step_fields(),
+                **({"estimate_seconds": self.estimate} if self.estimate is not None else {}),
                 **({"device_state": facts.device} if facts.device else {}),
             )
             if facts.elapsed >= self.long_after and not self.long_mode:

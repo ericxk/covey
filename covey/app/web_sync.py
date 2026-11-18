@@ -67,6 +67,16 @@ def moment(value) -> float:
     return epoch_seconds(value) or 0.0
 
 
+def estimate_of(job, turn) -> None:
+    """``turn`` takes ``estimate_seconds``, the first estimate of its whole 用时 the task monitor kept on the job record
+    (core/longtask.py), or loses it: a turn whose task never had one has none."""
+    value = job.get("estimate_seconds")
+    if type(value) is int and value > 0:
+        turn["estimate_seconds"] = value
+    else:
+        turn.pop("estimate_seconds", None)
+
+
 class WebError(Exception):
     """A request the page did not take: its HTTP status, or the connection."""
 
@@ -358,6 +368,8 @@ class Collector:
                     turn["failure"] = fail
                 else:
                     turn.pop("failure", None)
+            if job is not None:
+                estimate_of(job, turn)
             if job is not None and wakes.get(job_key(job.get("message_id"), job.get("job_id"))):
                 turn["started_topics"] = wakes[job_key(job.get("message_id"), job.get("job_id"))]
             out.append(turn)
@@ -548,6 +560,7 @@ class Collector:
                 "status": "waiting" if job.get("status") == "waiting_user" else "running", "job_id": str(job.get("job_id") or ""),
                 "started_at": board_read.started_at(job), "ended_at": 0, "artifacts": []}
         turn.update(web_turns.extras(state, job, job.get("status") in RUNNING, now or time.time(), snapshot))
+        estimate_of(job, turn)
         started = (wakes or {}).get(job_key(job.get("message_id"), job.get("job_id")))
         if started:
             turn["started_topics"] = started

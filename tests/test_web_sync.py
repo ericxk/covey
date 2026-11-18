@@ -905,6 +905,21 @@ class ExtrasTest(WebCase):
         self.assertEqual((turns[f"{TOPIC}:2"]["seconds"], turns[f"{TOPIC}:2"]["usage"]["total"], turns[f"{TOPIC}:2"]["speed"]), (42.0, 1500, 30.0))
         self.assertEqual(self.sync.push_once(T0 + 61), 0)
 
+    def test_a_turn_carries_the_first_estimate_its_task_kept_and_one_without_none(self):
+        self.topic(lines=(("user", "你好"), ("assistant", "好的")))
+        write_job(self.state, f"k-{TOPIC[:4]}", message_id="m你好", estimate_seconds=3000)
+        self.sync.push_once(T0)
+        turns = {item["key"]: item["data"] for item in self.web.items("turn")}
+        self.assertNotIn("estimate_seconds", turns[f"{TOPIC}:1"])
+        self.assertEqual(turns[f"{TOPIC}:2"]["estimate_seconds"], 3000)
+
+    def test_a_running_turn_carries_its_first_estimate(self):
+        self.topic(status="running", lines=(("user", "做一下"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", timings={"backend_started": T0}, estimate_seconds=1800)
+        self.traced(snapshot_of(T0))
+        self.sync.push_once(T0 + 13)
+        self.assertEqual(self.web.items("turn")[-1]["data"]["estimate_seconds"], 1800)
+
     def test_without_a_trace_the_turn_is_as_before(self):
         self.topic(lines=(("user", "你好"), ("assistant", "好的")))
         self.sync.push_once(T0)

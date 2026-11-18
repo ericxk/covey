@@ -175,6 +175,23 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual((records[-1]["last_activity"], records[-1]["last_activity_at"]), ("在跑测试", int(NOW)))
         self.assertEqual(job.turn_progress["plan_total"], 5)
 
+    def test_the_record_keeps_the_turns_first_estimate_of_its_whole_time(self):
+        # 预计 vs 实际 on the web page: run so far + the first eta (1200 s, 2 of 5 steps: 1800 s more), not a later one.
+        wall, records = [NOW], []
+        _, monitor = self.monitor(wall, records=records)
+        monitor.tick()
+        wall[0] = NOW + 150
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+        self.assertEqual([fields["estimate_seconds"] for fields in records], [3000, 3000])
+
+    def test_a_turn_with_no_estimate_yet_writes_none(self):
+        records = []
+        with mock.patch.object(progress, "estimate", return_value=None):
+            _, monitor = self.monitor([NOW], records=records)
+            monitor.tick()
+        self.assertNotIn("estimate_seconds", records[-1])
+
     def test_a_command_purpose_the_line_names_already_is_not_said_twice(self):
         # accept15: "当前：执行命令 · 前台睡眠 300 秒 · 2 分钟前在跑命令：前台睡眠 300 秒".
         wall, updates = [NOW], []
