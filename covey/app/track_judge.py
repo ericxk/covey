@@ -35,6 +35,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -227,7 +228,11 @@ def run(argv, stdin: str, env, cwd, limit: float) -> str:
         signal_group(proc, signal.SIGKILL)
         raise
     if proc.returncode != 0:
-        raise Failed("exit_nonzero", f"code={proc.returncode} " + err.decode("utf-8", "replace").strip()[-STDERR_KEPT:])
+        said = err.decode("utf-8", "replace").strip()
+        # Claude Code says a refusal on stdout (its envelope's "stop_reason":"refusal") and nothing on stderr.
+        stop = re.search(r'"stop_reason"\s*:\s*"([a-z_]+)"', out.decode("utf-8", "replace")[:4000])
+        said = (said + (f" stop_reason={stop.group(1)}" if stop else "")).strip()
+        raise Failed("exit_nonzero", f"code={proc.returncode} " + said[-STDERR_KEPT:])
     return out.decode("utf-8", "replace")
 
 

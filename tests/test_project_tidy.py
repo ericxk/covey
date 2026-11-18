@@ -478,6 +478,17 @@ class TidyCardTest(TidyCase):
         self.assertIn("projects_tidy", [tool["name"] for tool in butler_tool_specs.listed({"COVEY_PROJECTS": "1", proposals.ENV: "suggest"})])
 
 
+class WhyUnreadTest(UpCase):
+    def test_a_refusal_and_a_topic_too_long_are_told_apart_from_other_exits(self):
+        """The owner, 2026-11-18: “读不了”的话题，要写清为什么 — Claude Code says a refusal only on stdout."""
+        self.assertEqual(sorter.why_failed(Failed("exit_nonzero", "code=1 stop_reason=refusal")), "refused")
+        self.assertEqual(sorter.why_failed(Failed("exit_nonzero", "code=1 Prompt is too long")), "too_long")
+        self.assertEqual(sorter.why_failed(Failed("exit_nonzero", "code=1 boom")), "exit_nonzero")
+        self.assertEqual(sorter.why_failed(Failed("timeout")), "timeout")
+        for reason in ("refused", "too_long", "exit_nonzero", "timeout", "model_error", "empty", "redacted"):
+            self.assertIn(reason, tidy_module.UNREADABLE_WORDS)
+
+
 class MomentTest(TidyCase):
     def test_the_digest_times_start_one_whole_tidy_each(self):
         self.filler()
