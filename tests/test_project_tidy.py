@@ -136,7 +136,7 @@ class GistTest(TidyCase):
         self.tidy.tick(self.ctx)  # The first look only sets the cursor: the turn before it is not read.
         self.assertEqual(topic_gist.read(self.state, topic), {})
         self.turn(topic, "这题包的问题其实在 Prompt", gist={"本质": A, "现在的目标": "复现"})
-        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [])  # The first essence is no change.
+        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [(topic, "turn")])  # The first essence is no change.
         self.assertEqual(topic_gist.read(self.state, topic)["essence"], A)
         self.turn(topic, "那就改 Prompt 吧", gist="本质：" + B + "\n和上次比变了什么：从修一个题包变成改 Prompt")
         fired = self.tidy.scan(self.state, CHAT, time.time())
@@ -167,11 +167,11 @@ class GistTest(TidyCase):
         reasons = {}
         for topic, why in self.tidy.scan(self.state, CHAT, time.time()):
             reasons.setdefault(topic, set()).add(why)
-        self.assertEqual(reasons[fresh], {"new"})
-        self.assertEqual(reasons[old], {"age"})
-        self.assertEqual(reasons[talky], {"age", "words"})
+        self.assertEqual(reasons[fresh], {"new", "turn"})
+        self.assertEqual(reasons[old], {"age", "turn"})
+        self.assertEqual(reasons[talky], {"age", "words", "turn"})
         self.turn(old, "又来一轮")
-        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [])
+        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [(old, "turn")])  # Each turn the owner started.
 
     def test_the_turns_message_carries_the_rule_and_the_current_gist_only_with_the_switch_on(self):
         from covey.app.runs import Runs
@@ -241,6 +241,97 @@ class JoinTest(TidyCase):
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "像", "confidence": 0.6}]})
         self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "new", time.time()), "none")
         self.assertIsNone(projects.topic_project(self.state, topic))
+
+
+class AutoJoinTest(TidyCase):
+    """自动收话题 (the owner, 2026-11-19): a project takes in the topics that belong to it as they go on, without a click — by
+    the 话题要点's related topics, after each turn he started, and when the project is made; one 移出 keeps a topic out."""
+
+    def number(self, topic):
+        return read_object(self.state / "topics" / topic / "topic.json")["topic_number"]
+
+    def gisted(self, title, gist):
+        """A topic whose 话题要点 is ``gist`` already (as a scan of its turn keeps it)."""
+        topic = self.topic(title)
+        topic_gist.save(self.state, topic, gist, source="turn", job="x")
+        return topic
+
+    def test_a_topic_whose_gist_names_a_projects_topic_joins_without_the_model(self):
+        member = self.topic("一轮")
+        pid = self.project("EnvReplay Prompt 优化", [member])
+        topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
+        self.assertEqual(self.judged(), [])  # The rule: no judge call, and not held back by the chat having few topics.
+        self.assertEqual(projects.topic_project(self.state, topic).id, pid)
+        joins = projects.read_record(self.state, pid)["joins"]
+        self.assertEqual([(row["topic"], row["by"]) for row in joins], [(topic, "rule")])
+        self.assertIn(f"T{self.number(member)}", joins[0]["why"])
+
+    def test_each_owner_turn_is_judged_against_the_projects_once_a_gist_and_a_sure_join_is_done(self):
+        member = self.topic("一轮")
+        pid = self.project("EnvReplay Prompt 优化", [member])
+        topic = self.gisted(A, {"essence": A})
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "none")
+        self.assertEqual(len(self.judged()), 1)
+        given = self.judged()[0]
+        self.assertEqual([row["index"] for row in given["topics"]], [1])  # This topic alone, against the live projects.
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "same")  # Gist unchanged: no call.
+        self.assertEqual(len(self.judged()), 1)
+        topic_gist.save(self.state, topic, {"essence": B}, source="turn", job="x")
+        self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
+        self.assertEqual(projects.topic_project(self.state, topic).id, pid)
+        self.assertEqual(projects.read_record(self.state, pid)["joins"][-1]["by"], "tidy")
+
+    def test_a_topic_taken_out_is_not_joined_by_the_rule_nor_after_its_turns(self):
+        member = self.topic("一轮")
+        pid = self.project("EnvReplay Prompt 优化", [member])
+        topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
+        self.tidy.leave(self.ctx, CHAT, topic, pid)
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "kept_out")
+        self.assertIsNone(projects.topic_project(self.state, topic))
+        self.assertEqual(self.judged(), [])
+        record = projects.read_record(self.state, pid)
+        self.assertTrue(record["joins"][-1]["left_at"])
+
+    def test_a_project_just_made_takes_in_the_recent_topics_the_judge_is_sure_of(self):
+        member = self.topic("一轮")
+        pid = self.project("EnvReplay Prompt 优化", [member])
+        other = self.project("别的专项", [self.topic("别的一轮")])
+        sure, unsure = self.gisted(A, {"essence": B}), self.gisted("杂事", {"essence": "杂事"})
+        self.verdicts.append({"suggestions": [
+            {"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.95},
+            {"kind": "join", "topic": 2, "project": 1, "why": "沾边", "confidence": 0.5}]})
+        items = []
+        original = sorter.material
+        with mock.patch.object(sorter, "material", side_effect=lambda *a, **k: items.append(a[2]) or original(*a, **k)):
+            proposals.queue_sweep(self.state, pid)
+            self.tidy.drain(self.ctx, CHAT, time.time())
+        given = self.judged()[-1]
+        self.assertEqual([row["name"] for row in given["projects"]], ["EnvReplay Prompt 优化"])  # This project alone.
+        self.assertNotIn(member, items)  # Topics already in a project are not read.
+        self.assertEqual(set(items), {unsure, sure})
+        self.assertEqual(projects.topic_project(self.state, sure).id, pid)
+        self.assertIsNone(projects.topic_project(self.state, unsure))  # Not sure enough: left alone, nothing proposed.
+        self.assertNotIn(other, [row["name"] for row in given["projects"]])
+
+    def test_the_projects_card_lists_who_took_each_topic_in_with_a_leave_button_while_it_is_in(self):
+        from covey.app import project_cards
+
+        member = self.topic("一轮")
+        pid = self.project("EnvReplay Prompt 优化", [member])
+        topic = self.topic(A)
+        self.assertTrue(self.tidy.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid, why="同一件事"), CHAT))
+        lines = project_cards.join_lines(self.state, projects.read_record(self.state, pid))
+        self.assertEqual(len(lines), 1)
+        self.assertIn("整理专项归入", lines[0][0])
+        self.assertIn("同一件事", lines[0][0])
+        self.assertEqual(lines[0][1], topic)
+        self.tidy.leave(self.ctx, CHAT, topic, pid)
+        lines = project_cards.join_lines(self.state, projects.read_record(self.state, pid))
+        self.assertIn("已移出", lines[0][0])
+        self.assertEqual(lines[0][1], "")
 
 
 class ProposalTest(TidyCase):

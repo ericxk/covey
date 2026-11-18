@@ -259,6 +259,15 @@ def declined_like(state_dir, kind, topics, project="", projects_=()) -> bool:
     return False
 
 
+QUEUE_MAX = 20  # The real-time 整理 waiting in state.json's ``queue`` (app/project_tidy.py drain).
+
+
+def queue_sweep(state_dir, project, now=None) -> None:
+    """A look over the recent topics for ones that belong in ``project`` (just made), for app/project_tidy.py to take next."""
+    item = {"project": project, "reason": "project", "at": time.time() if now is None else now}
+    change(state_dir, lambda data: data.update(queue=[*(data.get("queue") or []), item][-QUEUE_MAX:]))
+
+
 def open_with(state_dir, topic) -> list:
     """The open proposals that are about ``topic``."""
     return [record for record in proposals(state_dir, (OPEN,)) if topic in (record.get("topics") or ())]

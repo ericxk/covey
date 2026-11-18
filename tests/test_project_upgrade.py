@@ -482,6 +482,7 @@ class DirectTest(UpCase):
         pid = answer["data"]["project_id"]
         project = projects.read_record(self.state, pid)
         self.assertEqual(project["threads"], [first, second])
+        self.assertEqual([(row["topic"], row["by"]) for row in project["joins"]], [(first, "start"), (second, "start")])
         self.assertEqual(set(project["steps"]), set(upgrades.JOIN_STEPS))
         for topic in (first, second):
             self.assertEqual(load_topic(self.state, topic)["project"], {"id": pid, "role": projects.MEMBER})

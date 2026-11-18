@@ -24,6 +24,7 @@ from pathlib import Path
 from covey.app import butler_topics, project_lead, triage as triage_flow
 from covey.app.butler_env import reply
 from covey.core import butler, project_memory, projects, triage
+from covey.core import project_proposals as proposals
 from covey.core.jobs import find_job_record
 from covey.core.topics import topic_label
 
@@ -90,9 +91,35 @@ def project_topic_send(env, request):
         return reply(False, found)
     topic = found[1].topic_id
     if topic not in (record.get("threads") or ()):
-        return reply(False, f"{topic_label(Path(env.state_dir), topic) or topic[:8]} 不是这个专项的话题，不能从这里给它加话。")
+        refused = take_in(env, chat, pid, topic, request.args.get("text"))
+        if refused:
+            return reply(False, refused)
     args = {"topic": topic, "text": request.args.get("text"), "note": request.args.get("note")}
     return butler_topics.topic_send(env, dataclasses.replace(request, args=args))
+
+
+def take_in(env, chat, pid, topic, text) -> str:
+    """An ordinary topic the lead gives work to joins the project first (the owner, 2026-11-19: 加话时顺带收进专项): app/projects.py
+    join_topic, its running turn and the question it waits on left as they are. '' when it joined; else why it cannot (a lead's,
+    another project's, the butler's, one the owner took out of a project)."""
+    from covey.app.projects import join_topic, wanted_topics
+
+    state = Path(env.state_dir)
+    label = topic_label(state, topic) or topic[:8]
+    joins, refused = wanted_topics(env, chat, [topic])
+    if refused or joins != [topic]:
+        why = refused[0]["why"] if refused else "不是主人私聊里的普通话题"
+        return f"{label} {why}，不能从这里给它加话。"
+    if proposals.never_auto(state, topic):
+        return f"{label} 被主人移出过专项，不能从这里收进来；要它做事，请主人自己决定。"
+    try:
+        join_topic(state, pid, topic, why=f"负责人给它加话：{' '.join(str(text or '').split())[:60]}", by="lead")
+    except (ValueError, KeyError) as exc:
+        return f"{label} 收不进这个专项：{exc}。"
+    tidy = getattr(env, "tidy", None)
+    if tidy is not None:
+        tidy.show_joined(topic, pid)
+    return ""
 
 
 STOP_NOTE = "负责人按主人的意思停了这个话题"

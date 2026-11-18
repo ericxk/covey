@@ -231,10 +231,12 @@ PROJECT_TOOLS = (
          "model": {"type": "string", "description": MODEL_ARG},
          "effort": {"type": "string", "description": EFFORT_ARG}}}},
     {"name": "project_topic_send",
-     "description": "给这个专项的一个已有话题加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"
-                    "只能给这个专项自己的话题，别的话题用不了。",
+     "description": "给一个已有话题加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"
+                    "可以是这个专项的话题，也可以是主人私聊里还不在任何专项的普通话题：那样它先被收进这个专项（在跑的任务照跑，"
+                    "等主人回答的问题仍归主人），再加话。别的专项的话题、负责人话题、主人移出过专项的话题用不了。",
      "input_schema": {"type": "object", "required": ["thread", "text"], "properties": {
-         "thread": THREAD, "text": {"type": "string", "description": "交给话题的内容：要它做或补充的事"},
+         "thread": {"type": "string", "description": "话题的 T 号（如 T412）或 topic_id：这个专项的，或还不在任何专项的普通话题"},
+         "text": {"type": "string", "description": "交给话题的内容：要它做或补充的事"},
          "note": {"type": "string", "description": "可选，一句背景（最多 100 字）"}}}},
     {"name": "project_topic_stop",
      "description": "主人要停这个专项里的某个话题时用：停掉它排队和在跑的任务，也收掉它还在等主人回答的问题（话题不再等回答），"
@@ -299,7 +301,7 @@ RENAMED_TOOLS = {"project_thread_start": "project_topic_start", "project_thread_
 def current_name(name):
     """``name``, or the new name of a tool the list no longer has under it (RENAMED_TOOLS)."""
     return RENAMED_TOOLS.get(name, name) if isinstance(name, str) else name
-LEAD_READ = ("topic_read", "topics_search", "workspaces_list")  # What of TOOLS the lead has: it reads, the topics act.
+LEAD_READ = ("topics_list", "topic_read", "topics_search", "workspaces_list")  # What of TOOLS the lead has: it reads, the topics act.
 
 
 # 专项 for the butler (COVEY_PROJECTS=1 in the server's environment, which the Bridge hands on: core/butler.py mcp_config):

@@ -164,6 +164,30 @@ def triage_lines(record) -> tuple:
     return tuple(lines)
 
 
+JOIN_WORDS = {"start": "建专项时收进", "tidy": "整理专项归入", "rule": "整理专项按话题要点归入", "lead": "负责人加话时收进"}
+
+
+def join_lines(state_dir, record) -> tuple:
+    """The 归入记录's lines, the newest first: (T531「标题」 · 谁收进的 · 为什么, topic id for its 移出 or '' once it left or
+    while 整理专项 is off)."""
+    from covey.core import project_proposals
+
+    tidy = project_proposals.enabled()
+    threads = set(record.get("threads") or ())
+    lines = []
+    for row in reversed([row for row in record.get("joins") or () if isinstance(row, dict)][-LIST_CAP:]):
+        topic = str(row.get("topic") or "")
+        if not projects.TOPIC_RE.fullmatch(topic):
+            continue
+        title = words(topic_title(Path(state_dir), topic), 20)
+        name = (topic_label(Path(state_dir), topic) or topic[:6]) + (f"「{title}」" if title else "")
+        gone = bool(row.get("left_at")) or topic not in threads
+        parts = [clock(row.get("at")) if isinstance(row.get("at"), (int, float)) else "", name,
+                 JOIN_WORDS.get(row.get("by"), JOIN_WORDS["tidy"]), words(row.get("why") or "", 60), "已移出" if gone else ""]
+        lines.append((" · ".join(part for part in parts if part), topic if tidy and not gone else ""))
+    return tuple(lines)
+
+
 def memory_rows(state_dir, record) -> tuple:
     """(entry id, text) of the project's memory (core/project_memory.py: projects/<id>/memory.json and what an older release
     kept in the record), the newest first; a deleted entry and the style line are not rows."""
@@ -235,7 +259,7 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
     return Project(project_id=pid, lead_topic=lead, name=str(record.get("name") or ""), status=status,
                    need=need, need_url=str(links.get("need") or ""), members=members, elapsed=elapsed, tokens=tokens,
                    lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
-                   triage=triage_lines(record), memory=memory_rows(state_dir, record), library=library_rows(state_dir, pid),
+                   triage=triage_lines(record), joins=join_lines(state_dir, record), memory=memory_rows(state_dir, record), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
                    ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""),
                    origin_note=origin_words((record.get("origin") or {}).get("note") if isinstance(record.get("origin"), dict) else ""))

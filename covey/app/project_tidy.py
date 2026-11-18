@@ -8,6 +8,9 @@ topics by a mechanism, not by the one look the butler takes when it opens a topi
 - **Real time** (``realtime``), for one topic against the projects and the topics of the last COVEY_PROJECT_TIDY_DAYS days: a new
   topic's first turn ended; its essence changed (core/topic_gist.py ``moved``); its turn ended on its third day or later
   (COVEY_PROJECT_TIDY_AGE_DAYS), or it has COVEY_PROJECT_TIDY_WORDS turns the owner started. Each of the last two once a topic.
+  自动收话题 (the owner, 2026-11-19): a join needs no click. The rule first (``by_rule``: its 话题要点's related topics are one
+  live project's); each turn the owner started (TURN) the judge reads this topic alone against the live projects when its gist
+  changed (``turn_judge``); a project just made looks over the recent topics once (``sweep``).
   A join the judge is sure of (JOIN_SURE) is done at once (app/projects.py join_topic) and the topic's cards get 已归进「X」 · 移出;
   a new project is proposed on a card (建专项 / 改个名再建 / 不用 / 以后别提议), or made at once with ``auto`` (or after the owner's
   以后直接建). Not with fewer than COVEY_PROJECT_TIDY_MIN_TOPICS topics in the chat, not for a topic taken out of a project (移出)
@@ -26,6 +29,7 @@ across a model or Feishu call; cards here are message cards replaced whole (patc
 written with their own records' sequence."""
 from __future__ import annotations
 
+import hashlib
 import re
 import threading
 import time
@@ -54,7 +58,8 @@ TICK = 20
 START_WAIT = 30
 PROGRESS_GAP = 3.0  # Seconds between two redraws of the card while it reads.
 COUNT_KEPT = 600.0  # The chat's topic count is read again after this.
-QUEUE_MAX = 20
+QUEUE_MAX = proposals.QUEUE_MAX
+TURN = "turn"  # The reason a turn the owner started gives (``saw``): a join only, and only when the 话题要点 changed.
 BOARD_FROM = "board"  # A proposal's 建专项 / 暂不考虑 clicked on the 看板 (cards/board.py).
 CHOICES = 20  # Topics the proposal card's select offers: the proposal's, then the recent others.
 NOW_CHARS = 80  # Of a topic's latest conclusion on the proposal card (现在：…).
@@ -150,7 +155,7 @@ class ProjectTidy:
             data["cursor"] = newest
             data["seen"] = [*(data.get("seen") or []), *keys][-proposals.SEEN_KEPT:]
         proposals.change(state, move)
-        return fired
+        return list(dict.fromkeys(fired))  # Two turns of one topic since the last look: one real-time 整理.
 
     def saw(self, state, chat, topic, record, data, now) -> list:
         """One ended turn: its gist kept; the reasons it gives for a real-time 整理 (each moment once a topic, the essence each time)."""
@@ -175,7 +180,9 @@ class ProjectTidy:
             why.append("age")
         if "words" not in fired and owner_turns >= proposals.number("words"):
             why.append("words")
-        once = [reason for reason in why if reason != "essence"]
+        if record.get("user_text"):
+            why.append(TURN)  # Each turn the owner started: may it join a project now (``realtime``, once a 话题要点).
+        once = [reason for reason in why if reason not in ("essence", TURN)]
         if once:
             proposals.change_topic(state, topic, lambda flags: flags.update(fired={**(flags.get("fired") or {}),
                                                                                     **{reason: now for reason in once}}))
@@ -198,6 +205,12 @@ class ProjectTidy:
         proposals.change(state, lambda data: (taken.extend(data.get("queue") or []), data.update(queue=[])))
         done = set()
         for item in taken:
+            if item.get("project"):
+                try:
+                    self.sweep(ctx, chat, str(item["project"]), now)
+                except Exception as exc:  # noqa: BLE001 - the topics' own turns still bring them in
+                    self.runtime.log(f"project tidy sweep failed project={str(item['project'])[:8]}: {type(exc).__name__}")
+                continue
             topic = str(item.get("topic") or "")
             if topic in done or not projects.TOPIC_RE.fullmatch(topic):
                 continue
@@ -250,13 +263,21 @@ class ProjectTidy:
         state = Path(ctx.state_dir)
         if not proposals.enabled() or projects.topic_project(state, topic) is not None:
             return "skipped"
+        if sorter.hidden(state, topic):
+            return "redacted"
+        records = self.live_projects(state, chat)
+        kept_out = proposals.never_auto(state, topic)
+        if records and not kept_out:
+            pid, why = self.by_rule(state, chat, topic, records)
+            if pid and self.join(ctx, self.rule_join(topic, pid, why), chat, by="rule"):
+                self.runtime.log(f"project tidy realtime topic={topic[:12]} reason={reason} outcome=joined by=rule")
+                return "joined"
+        if reason == TURN:
+            return "kept_out" if kept_out else self.turn_judge(ctx, chat, topic, records, now)
         if self.topic_count(state, chat, now) < proposals.number("min_topics"):
             return "few"
         if proposals.open_with(state, topic):
             return "open"
-        if sorter.hidden(state, topic):
-            return "redacted"
-        records = self.live_projects(state, chat)
         topics = [topic] + [other for other in self.recent_topics(state, chat, now, records=records) if other != topic]
         backend, context = self.judge_tools()
         # The topic judged is read whole first when it has no 话题要点 (the owner, 2026-11-18: T252's proposal only had its
@@ -266,7 +287,8 @@ class ProjectTidy:
         items = [sorter.material(state, chat, other, now) for other in topics[:sorter.MAX_TOPICS] if not sorter.hidden(state, other)]
         verdict = sorter.judge(state, records, items, backend=backend, ctx=context, focus=topic,
                                lessons=proposals.lessons(state), source="realtime", log=self.runtime.log)
-        proposals.change_topic(state, topic, lambda flags: flags.update(judged_at=now, judged_for=reason))
+        sign = gist_sign(state, topic)
+        proposals.change_topic(state, topic, lambda flags: flags.update(judged_at=now, judged_for=reason, judged_sign=sign))
         outcome = "none"
         for made in verdict.suggestions:
             if made["kind"] == proposals.JOIN and made["confidence"] >= proposals.JOIN_SURE and not proposals.never_auto(state, topic):
@@ -278,6 +300,81 @@ class ProjectTidy:
                 break
         self.runtime.log(f"project tidy realtime topic={topic[:12]} reason={reason} outcome={outcome} why={verdict.why}")
         return outcome
+
+    # Joins without a click: the rule, each turn, a new project's sweep ---------------------------------------------------
+
+    @staticmethod
+    def by_rule(state, chat, topic, records) -> tuple:
+        """(project id, why) when the 话题要点 of ``topic`` names in ``related`` topics of one live project of ``records``, and
+        of no other; ('', '') otherwise. No model call."""
+        related = topic_gist.gist_of(topic_gist.read(state, topic)).get("related") or ()
+        numbers = topic_links.topic_numbers(state, chat)
+        members = {other: record["id"] for record in records for other in record.get("threads") or ()}
+        hits = {}
+        for ref in related if isinstance(related, list) else ():
+            found = re.fullmatch(r"[Tt](\d+)", str(ref).strip())
+            other = numbers.get(int(found.group(1))) if found else None
+            if other and other != topic and other in members:
+                hits.setdefault(members[other], []).append(f"T{found.group(1)}")
+        if len(hits) != 1:
+            return "", ""
+        pid, refs = next(iter(hits.items()))
+        return pid, f"它的话题要点说和 {'、'.join(refs[:3])} 相关，那是这个专项的话题"
+
+    @staticmethod
+    def rule_join(topic, pid, why) -> dict:
+        return proposals.new_proposal(proposals.JOIN, topics=[topic], project=pid, why=why, source="rule", confidence=1.0)
+
+    def turn_judge(self, ctx, chat, topic, records, now) -> str:
+        """After a turn the owner started: the judge reads this topic alone against the live projects (one call, only when its
+        话题要点 changed since it was last judged) and a join it is sure of (JOIN_SURE) is done. Nothing is proposed here."""
+        state = Path(ctx.state_dir)
+        if not records:
+            return "no_projects"
+        sign = gist_sign(state, topic)
+        if not sign or proposals.topic_flags(state, topic).get("judged_sign") == sign:
+            return "same"
+        backend, context = self.judge_tools()
+        verdict = sorter.judge(state, records, [sorter.material(state, chat, topic, now)], backend=backend, ctx=context,
+                               focus=topic, lessons=proposals.lessons(state), source="realtime", log=self.runtime.log)
+        proposals.change_topic(state, topic, lambda flags: flags.update(judged_at=now, judged_for=TURN, judged_sign=sign))
+        outcome = "none"
+        for made in verdict.suggestions:
+            if made["kind"] == proposals.JOIN and made["confidence"] >= proposals.JOIN_SURE and self.join(ctx, made, chat):
+                outcome = "joined"
+                break
+        self.runtime.log(f"project tidy realtime topic={topic[:12]} reason={TURN} outcome={outcome} why={verdict.why}")
+        return outcome
+
+    def sweep(self, ctx, chat, pid, now) -> int:
+        """A project just made (app/projects.py queue_sweep) takes in the recent topics that belong to it: by the rule, then one
+        judge call over the rest against this project alone, the joins it is sure of. How many joined."""
+        state = Path(ctx.state_dir)
+        record = projects.read_record(state, pid)
+        if not proposals.enabled() or record.get("state") not in (projects.ACTIVE, projects.PAUSED):
+            return 0
+        records = self.live_projects(state, chat)
+        joined, rest = 0, []
+        for topic in self.recent_topics(state, chat, now, records=records):
+            if (projects.topic_project(state, topic) is not None or proposals.never_auto(state, topic)
+                    or sorter.hidden(state, topic)):
+                continue
+            found, why = self.by_rule(state, chat, topic, records)
+            if found == pid and self.join(ctx, self.rule_join(topic, pid, why), chat, by="rule"):
+                joined += 1
+            elif not found:
+                rest.append(topic)
+        if rest:
+            backend, context = self.judge_tools()
+            items = [sorter.material(state, chat, topic, now) for topic in rest]
+            verdict = sorter.judge(state, [record], items, backend=backend, ctx=context, lessons=proposals.lessons(state),
+                                   source="sweep", log=self.runtime.log)
+            for made in verdict.suggestions:
+                if (made["kind"] == proposals.JOIN and made["project"] == pid and made["confidence"] >= proposals.JOIN_SURE
+                        and self.join(ctx, made, chat)):
+                    joined += 1
+        self.runtime.log(f"project tidy sweep project={pid[:8]} looked={len(rest)} joined={joined}")
+        return joined
 
     def propose(self, ctx, chat, made) -> str:
         """A new project the judge sees: made at once (``auto``, or the owner's 以后直接建), else a proposal card; '' when it
@@ -402,18 +499,19 @@ class ProjectTidy:
                                 topics=record.get("topics") or (), key=record["id"], why=record.get("why") or "",
                                 owner_named=owner_named)
 
-    def join(self, ctx, made, chat) -> bool:
-        """A sure join done (app/projects.py join_topic) and the topic's cards marked; whether it was."""
+    def join(self, ctx, made, chat, *, by="tidy") -> bool:
+        """A sure join done (app/projects.py join_topic; ``by`` "rule" when the 话题要点 decided it) and the topic's cards marked;
+        whether it was."""
         from covey.app.projects import join_topic
 
         state, topic, pid = Path(ctx.state_dir), made["topics"][0], made["project"]
         try:
-            record = join_topic(state, pid, topic, why=made.get("why") or "")
+            record = join_topic(state, pid, topic, why=made.get("why") or "", by=by)
         except (ValueError, KeyError) as exc:
             self.runtime.log(f"project tidy join skipped topic={topic[:12]}: {exc}")
             return False
         proposals.put_proposal(state, {**made, "state": proposals.DONE, "decided_at": time.time()})
-        proposals.change_topic(state, topic, lambda flags: flags.update(joined={"project": pid, "at": time.time(), "by": "tidy"}))
+        proposals.change_topic(state, topic, lambda flags: flags.update(joined={"project": pid, "at": time.time(), "by": by}))
         self.mark(ctx, chat, topic, pid, record.get("name") or "")
         self.runtime.log(f"project tidy joined topic={topic[:12]} project={pid[:8]}")
         return True
@@ -494,6 +592,18 @@ class ProjectTidy:
         projects.update(state, pid, change)
 
     # The topic's cards ---------------------------------------------------------------------------------------------
+
+    def show_joined(self, topic, pid) -> None:
+        """The topic's cards marked 已归进「X」 · 移出 after a join made elsewhere (a direct start's ``topics``, the lead's send),
+        so the owner can take it back with one click as he can a join of 整理专项; never raises."""
+        ctx = SimpleNamespace(state_dir=Path(self.env.state_dir), profile=self.env.profile)
+        try:
+            chat = self.chat()
+            name = projects.read_record(ctx.state_dir, pid).get("name") or ""
+            if chat and name:
+                self.mark(ctx, chat, topic, pid, name)
+        except Exception as exc:  # noqa: BLE001 - the 归入记录 on the project's card still says it
+            self.runtime.log(f"project tidy mark failed topic={topic[:12]}: {type(exc).__name__}")
 
     def mark(self, ctx, chat, topic, pid, name) -> None:
         """The topic card and the status card of ``topic`` drawn with 已归进「name」 · 移出 (``name`` '': without it); a topic that has
@@ -989,6 +1099,15 @@ class ProjectTidy:
             self.messenger.patch_card(ctx.profile, message, cards.tidy_card(saved["view"]))
         after_ack(act)
         return {cards.OK_KIND: "tidy_ok", cards.ALL_KIND: "tidy_all"}.get(raw["kind"], "tidy_row_decline")
+
+
+def gist_sign(state, topic) -> str:
+    """What the judge reads of a topic's 话题要点 that may change its project, as a short hash ('' without one)."""
+    gist = topic_gist.gist_of(topic_gist.read(state, topic))
+    if not gist:
+        return ""
+    text = "\n".join([str(gist.get("essence") or ""), str(gist.get("goal") or ""), ",".join(map(str, gist.get("related") or ()))])
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def cut(text) -> str:

@@ -24,7 +24,7 @@ from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as se
 from covey.app.butler_tools import ButlerTools
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
-from covey.core import butler_mcp, butler, butler_tool_specs, project_memory, projects
+from covey.core import butler_mcp, butler, butler_tool_specs, project_memory, project_proposals, projects
 from covey.core import butler_settings as settings
 from covey.core.jobs import job_key
 from covey.core.butler_requests import Request
@@ -37,7 +37,7 @@ PID = "a1b2c3d4e5f6"
 LEAD = projects.lead_topic_id(CHAT, PID)
 ON = {projects.ENV: "1"}
 NOW = 1_800_000_000.0
-LEAD_NAMES = ["topics_search", "topic_read", "workspaces_list",
+LEAD_NAMES = ["topics_list", "topics_search", "topic_read", "workspaces_list",
               "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_remember",
               "project_style", "project_finish"]
 
@@ -590,13 +590,41 @@ class SendToolsTest(ToolsCase):
         self.assertIn("专项「迁移账单」的负责人给", sent)
         self.assertNotIn("管家转来", sent)
 
-    def test_only_the_projects_own_threads_may_be_written_to(self):
+    def ordinary(self, root, number, **fields):
+        """An ordinary topic of the owner's private chat whose root message is ``root``: its id as the Bridge derives it."""
+        from covey.app.topics import topic_target
+
+        topic = topic_target(self.app.topics.apps["claude"], CHAT, {"root_id": root}).topic_id  # Writes its topic.json.
+        path = self.state / "topics" / topic / "topic.json"
+        write_topic(self.state, json.loads(path.read_text()), topic_id=topic, harness_id="claude", topic_number=number,
+                    origin={"title": "别的"}, **fields)
+        return topic
+
+    def test_an_ordinary_topic_the_lead_writes_to_joins_the_project_first(self):
+        """The owner, 2026-11-19: the lead opened new topics for two bugs T519 already covered, since it could not write to a
+        topic outside the project. Now project_topic_send takes it in (join_topic, by the lead), then sends."""
         self.opened()
-        write_topic(self.state, {"topic_id": "ef" * 16}, topic_id="ef" * 16, chat_id=CHAT, harness_id="claude",
-                    topic_number=77, origin={"title": "别的"}, root_id="om_other")
+        other = self.ordinary("om_other", 77)
+        answer = self.tool("project_topic_send", request_id="s77", thread="T77", text="顺便看下这个")
+        found = projects.topic_project(self.state, other)
+        self.assertIsNotNone(found, answer)
+        self.assertEqual((found.id, found.role), (PID, projects.MEMBER))
+        record = projects.read_record(self.state, PID)
+        self.assertIn(other, record["threads"])
+        self.assertEqual([(row["topic"], row["by"]) for row in record["joins"]][-1], (other, "lead"))
+
+    def test_another_projects_topic_a_topic_taken_out_and_the_lead_are_refused(self):
+        self.opened()
+        other = self.ordinary("om_other", 77, project={"id": "0" * 12, "role": "thread"})
         answer = self.tool("project_topic_send", thread="T77", text="顺便看下这个")
         self.assertFalse(answer["ok"])
-        self.assertIn("不是这个专项的话题", answer["text"])
+        self.assertNotIn(other, projects.read_record(self.state, PID)["threads"])
+        kept = self.ordinary("om_kept", 78)
+        project_proposals.change_topic(self.state, kept, lambda flags: flags.update(never_auto=True))
+        answer = self.tool("project_topic_send", thread="T78", text="x")
+        self.assertFalse(answer["ok"])
+        self.assertIn("移出过", answer["text"])
+        self.assertIsNone(projects.topic_project(self.state, kept))
         self.assertFalse(self.tool("project_topic_send", thread="T9999", text="x")["ok"])
         self.assertFalse(self.tool("project_topic_send", thread=LEAD, text="x")["ok"])  # The lead itself is no thread.
 

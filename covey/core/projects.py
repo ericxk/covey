@@ -209,6 +209,30 @@ def add_member(state_dir, project_id, topic_id) -> dict:
     return update(state_dir, project_id, change)
 
 
+JOINS_KEPT = 30  # Entries of a record's ``joins``, the 归入记录 on the project's card.
+JOIN_BY = ("start", "tidy", "rule", "lead")  # Who took a topic in: the direct start, the judge, the 话题要点 rule, the lead's send.
+
+
+def log_join(state_dir, project_id, topic_id, by, why="", now=None) -> dict:
+    """One line of the record's ``joins`` (the 归入记录 on its card): who took ``topic_id`` in (JOIN_BY), why, when."""
+    entry = {"topic": topic_id, "by": by if by in JOIN_BY else "tidy", "why": " ".join(str(why or "").split())[:120],
+             "at": round(time.time() if now is None else now, 3)}
+
+    def change(record):
+        joins = [item for item in record.get("joins") or () if isinstance(item, dict) and item.get("topic") != topic_id]
+        record["joins"] = [*joins, entry][-JOINS_KEPT:]
+    return update(state_dir, project_id, change)
+
+
+def log_leave(state_dir, project_id, topic_id, now=None) -> dict:
+    """The 归入记录 line of ``topic_id`` marked 已移出 (it stays on the card)."""
+    def change(record):
+        for item in record.get("joins") or ():
+            if isinstance(item, dict) and item.get("topic") == topic_id and not item.get("left_at"):
+                item["left_at"] = round(time.time() if now is None else now, 3)
+    return update(state_dir, project_id, change)
+
+
 def remove_member(state_dir, project_id, topic_id) -> dict:
     """``topic_id`` out of the record's ``threads`` (移出 of 整理专项, app/projects.py leave_topic); the record as it is when it
     was not there."""

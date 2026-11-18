@@ -422,7 +422,13 @@ class Projects:
                 continue  # Another project's since it was proposed: left there.
             with topic_lock(topic_ctx(state, topic)):
                 set_topic_project(state, topic, pid, projects.MEMBER)
-            projects.add_member(state, pid, topic)
+            logged = projects.add_member(state, pid, topic).get("joins") or ()
+            if not any(isinstance(item, dict) and item.get("topic") == topic for item in logged):
+                direct = (record.get("origin") or {}).get("kind") == "direct"
+                projects.log_join(state, pid, topic, "start" if direct else "tidy", "主人建专项时说要收进来" if direct else "")
+                tidy = getattr(self.env, "tidy", None)
+                if direct and tidy is not None:
+                    tidy.show_joined(topic, pid)  # 已归进「X」 · 移出 on its cards, as a join of 整理专项 has.
         return True
 
     def step_receipt(self, record) -> bool:
@@ -434,6 +440,8 @@ class Projects:
                     else self.gathered(state, record) if origin.get("kind") == "tidy"
                     else self.started(state, record))
             project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "")
+            if project_proposals.enabled():
+                project_proposals.queue_sweep(state, pid)  # The recent topics that belong in it join too (app/project_tidy.py sweep).
         return True
 
     @staticmethod
@@ -607,11 +615,16 @@ def wanted_topics(env, chat, raw):
 JOINED, LEFT = "joined", "left"  # The receipts the lead gets.
 
 
-def join_topic(state, pid, topic, *, why="") -> dict:
+BY_WORDS = {"start": "建专项时", "tidy": "整理专项", "rule": "整理专项", "lead": "负责人加话时"}  # Who took a topic in, in the
+# lead's receipt and on the card's 归入记录 (core/projects.py JOIN_BY; "rule" is 整理专项 going by the 话题要点's related topics).
+
+
+def join_topic(state, pid, topic, *, why="", by="tidy") -> dict:
     """An ordinary topic becomes a topic of project ``pid``: ``project`` {id, role thread} in its topic.json (under its topic lock),
-    in the record's ``threads`` (so the board and the Pins show it in the project's cell, core/projects.py cells) and a ``joined``
-    receipt in the lead's inbox; a project folded away opens again (app/project_loop.py reopen). The record; ValueError when the
-    project is over or the topic is a lead's or another project's."""
+    in the record's ``threads`` (so the board and the Pins show it in the project's cell, core/projects.py cells), a line of
+    its ``joins`` (the card's 归入记录, ``by`` who took it in) and a ``joined`` receipt in the lead's inbox; a project folded
+    away opens again (app/project_loop.py reopen). Its running turn goes on and a question waiting for the owner stays his.
+    The record; ValueError when the project is over or the topic is a lead's or another project's."""
     from covey.app import project_loop
 
     record = projects.read_record(state, pid)
@@ -624,10 +637,11 @@ def join_topic(state, pid, topic, *, why="") -> dict:
         with topic_lock(topic_ctx(state, topic)):
             set_topic_project(state, topic, pid, projects.MEMBER)
     if topic not in (record.get("threads") or ()):
-        record = projects.add_member(state, pid, topic)
+        projects.add_member(state, pid, topic)
+        record = projects.log_join(state, pid, topic, by, why)
         title = clip(topic_title(state, topic), 30)
-        project_lead.add_receipt(state, pid, JOINED, f"整理专项把话题{f'「{title}」' if title else ''}归进了这个专项"
-                                 + (f"：{clip(why, 120)}" if why else ""), thread=topic)
+        project_lead.add_receipt(state, pid, JOINED, f"{BY_WORDS.get(by, BY_WORDS['tidy'])}把话题{f'「{title}」' if title else ''}"
+                                 "归进了这个专项" + (f"：{clip(why, 120)}" if why else ""), thread=topic)
     if projects.folded(record):
         record = projects.update(state, pid, project_loop.reopen)
     return record
@@ -643,6 +657,7 @@ def leave_topic(state, pid, topic, *, why="") -> bool:
             return False
     project_cards.release(state, topic, pid)
     projects.remove_member(state, pid, topic)
+    projects.log_leave(state, pid, topic)
     title = clip(topic_title(state, topic), 30)
     project_lead.add_receipt(state, pid, LEFT, f"主人把话题{f'「{title}」' if title else ''}移出了这个专项，以后它不再归进来"
                              + (f"：{clip(why, 120)}" if why else ""), thread=topic)

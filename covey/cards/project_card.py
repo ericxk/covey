@@ -87,6 +87,7 @@ class Project:
     lead_state: str = ""
     lead_note: str = ""
     triage: tuple = ()
+    joins: tuple = ()  # The 归入记录: (line, topic id) each, the newest first; a topic id '' when the line has no 移出 button.
     memory: tuple = ()
     library: tuple = ()
     inputs: tuple = ()
@@ -200,6 +201,19 @@ def triage_rows(project) -> list:
     return rows
 
 
+def join_rows(project) -> list:
+    """The 归入记录: who took which topic in and why, a line each; one still in the project has 移出 when 整理专项 is on (its
+    click is 整理专项's, the topic card's 移出: kept out for good)."""
+    from covey.cards.project_proposal import LEAVE_KIND
+
+    rows = []
+    for text, topic in project.joins:
+        body = md(grey(literal_text(clipped(str(text), ROW_CHARS))), size="notation")
+        rows.append(item(body, text_button("移出", {"kind": LEAVE_KIND, "topic_id": topic, "project_id": project.project_id}))
+                    if topic else body)
+    return rows
+
+
 def memory_rows(project) -> list:
     return [item(md(literal_text(clipped(text, ROW_CHARS)), size="normal_v2"),
                  text_button("删", {"kind": MEM_DEL_KIND, "project_id": project.project_id, "topic_id": project.lead_topic,
@@ -237,7 +251,8 @@ def project_elements(project, rows, folds) -> list:
     elements.append(md(grey(literal_text(meta_line(project))), element_id="pj_meta", size="notation"))
     elements.append(md(lead_line(project), element_id="pj_lead", size="normal_v2"))
     elements += member_elements(project, folds)
-    elements += [row_fold("pj_triage", "分流记录", triage_rows(project), rows),
+    elements += [row_fold("pj_join", "归入记录", join_rows(project), rows),
+                 row_fold("pj_triage", "分流记录", triage_rows(project), rows),
                  row_fold("pj_mem", "专项记忆", memory_rows(project), rows),
                  row_fold("pj_lib", "资料库", library_rows(project), rows),
                  answer_card.box("pj_io", answer_card.input_lines(project.inputs), list(project.outputs)),
