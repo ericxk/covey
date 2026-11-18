@@ -34,6 +34,7 @@
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
 | 问题卡与回答 | `app/questions.py`、`app/native_questions.py`、`app/checkpoint_questions.py`；「以后这类按推荐走」`app/standing_answers.py` | [问题与回答](docs/architecture.md#问题与回答) |
 | 补充 | `app/steering.py`、`core/deliveries.py`、`core/steer.py` | [补充投递](docs/architecture.md#补充投递) |
+| 主人撤回或编辑消息（`COVEY_SOURCE_WATCH`，默认开） | `app/source_watch.py`（读回、停止、补充）、`core/source_book.py`（登记的消息）、`cards/source_note.py` | [撤回与编辑](docs/architecture.md#撤回与编辑) |
 | 换配置 | `app/harness_switch.py`、`app/binding.py`、`app/switch_handoff.py` | [话题中途换配置](docs/architecture.md#话题中途换配置) |
 | 回退一步（Claude） | `app/rewind.py`、`backends/claude/rewind.py` | [回退一步](docs/architecture.md#回退一步) |
 | 结果、投递与重投 | `app/turn_settle.py`、`app/worker.py`、`app/redelivery.py`、`app/outbox.py` | [结果授权与投递](docs/architecture.md#结果授权与投递) |
@@ -174,6 +175,7 @@
 | `app/saved_send.py` | A turn's saved reply, paused question or canonical text sent the same way on its first send and on each … |
 | `app/sessions.py` | Sessions: one Harness's native-session pointer of a topic |
 | `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 私聊默认 and 新话题默认 … |
+| `app/source_watch.py` | The owner recalled or edited a message the Bridge acts on |
 | `app/stale.py` | Close the records daily maintenance found waiting too long (core.stale.stale_records) |
 | `app/standing_answers.py` | 以后这类按推荐走: the button under a question card whose every question has one recommended option |
 | `app/status_cards.py` | Topic status cards: what the pinned board pins for a topic with a thread in the owner's private chat, in … |
@@ -239,6 +241,7 @@
 | `cards/review.py` | Shared history and chat-card rendering helpers |
 | `cards/rewind.py` | The ↩️ 回退 button and card |
 | `cards/settings_hub.py` | The 设置 card's tab row |
+| `cards/source_note.py` | The line a topic's thread gets when the owner recalled the message it was opened or handed work from |
 | `cards/status_card.py` | The topic's status card |
 | `cards/steer_form.py` | The 补充 form, what stands in for it once it can send nothing, and the task card's 最新补充 line |
 | `cards/steer_receipts.py` | The receipt card of a supplement sent into a running task |
@@ -348,6 +351,7 @@
 | `core/serving.py` | The thread a local HTTP server serves on |
 | `core/session_guard.py` | Block only the affected native identity |
 | `core/session_state.py` | A topic's native session id in its state file, read (read_session_id) and replaced only from the revision it … |
+| `core/source_book.py` | The owner's messages the Bridge still acts on, kept so a recall or an edit of one is noticed |
 | `core/spaces.py` | Spaces: the chats the Bridge works in, and what each is for |
 | `core/stale.py` | Which waiting jobs and pending questions waited too long (`stale_records`), and the notes they are closed with |
 | `core/state.py` | Shared local state and workspace helpers for Feishu bridge scripts |

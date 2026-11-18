@@ -89,6 +89,20 @@ def _merge_child_parts(item: dict[str, Any]) -> tuple[str, list[tuple[str, str]]
     return quote_label_lines(with_mention_names(text, item)), specs
 
 
+def message_text(item: dict[str, Any]) -> str:
+    """The words of a message as Feishu returns it read back (its images and files only named by their keys' absence):
+    what app/source_watch.py gives a task once the owner edited the message."""
+    return _merge_child_parts(item)[0]
+
+
+def changed_words(item: dict[str, Any]) -> str:
+    """What a quoted message's header adds when the message was recalled (``deleted``) or edited (``updated``) since it
+    was sent, else ''."""
+    if item.get("deleted") is True:
+        return "，已被发送者撤回"
+    return "，发出后编辑过（下面是编辑后的内容）" if item.get("updated") is True else ""
+
+
 def _child_parts(item: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
     """Return display text plus resource specs for one merged-forward child."""
     msg_type = str(item.get("msg_type") or item.get("message_type") or "").lower()
@@ -158,7 +172,10 @@ def render_replied_message_context(
     header = f"{'话题起始消息' if topic_root else '被回复消息'}：发送者 {sender}，类型 `{msg_type}`"
     if created:
         header += f"，时间戳 `{created}`"
+    header += changed_words(item)
     lines.append(header)
+    if item.get("deleted") is True:
+        return "\n".join(lines)  # What is left of it is Feishu's placeholder, not the sender's words.
 
     if msg_type == MERGE_FORWARD_TYPE:
         lines.append(render_merge_forward_detail(parent_detail, parent_message_id=parent_id,

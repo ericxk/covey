@@ -14,7 +14,7 @@ from covey.core.butler import traits, worded
 from covey.core.checkpoint import read_checkpoint
 from covey.core.harness import BridgeContext
 from covey.core.jobs import BridgeReplyJob as ReplyJob
-from covey.core.jobs import carry_device, context_for_job, parse_job_stop_action_value, upsert_job_record
+from covey.core.jobs import RECALLED, carry_device, context_for_job, parse_job_stop_action_value, upsert_job_record
 from covey.core.model_settings import recorded_work_mode, strict_recorded_model_settings
 from covey.core.model_policy import retried_line
 from covey.core.process import signal_group
@@ -49,6 +49,8 @@ TOP_CARD = "card_top_level"
 # disk (T525 #4664, 2026-11-18: held on a job record's lock for minutes, Claude ran on).
 HARD_STOP_AFTER = 5.0
 
+
+RECALLED_QUEUED = "原消息已撤回，未执行"  # The record of a queued task whose message the owner recalled.
 
 def hard_stop_later(job, log, after=None):
     """Arm the stop that does not wait for the turn's thread: ``after`` seconds on, the backend process this process
@@ -338,8 +340,11 @@ class TaskControls(Redelivery):
         others: int = 0,
     ) -> bool:
         """The stop of a task by its card or a stop word. ``others``: how many other tracks of the butler are still
-        going (多路并行, app/butler_tracks.py), said at the end of the text reply; 0 says nothing of it."""
+        going (多路并行, app/butler_tracks.py), said at the end of the text reply; 0 says nothing of it. An action ``by``
+        RECALLED is the owner's recall of the task's message (app/source_watch.py): the card says so, and no text reply
+        goes out (it would quote a message that is gone)."""
         also = f"还有 {others} 件事在做。" if others > 0 else ""
+        recalled = action.get("by") == RECALLED
         try:
             job_id = int(action.get("job_id") or "0")
         except ValueError:
@@ -347,6 +352,8 @@ class TaskControls(Redelivery):
         if job_id <= 0:
             return False
         job = self.runtime.jobs.find(job_id, action.get("message_id") or "")
+        if job is None and recalled:
+            return True
         if job is None:
             self.messenger.reply(
                 ctx,
@@ -360,6 +367,8 @@ class TaskControls(Redelivery):
             self.runtime.log(f"ignored job stop action for mismatched chat job=#{job.job_id} chat={chat_id}")
             return True
         ctx = context_for_job(ctx, job)
+        if job.cancel_event.is_set() and recalled:
+            return True
         if job.cancel_event.is_set():
             self.messenger.reply(
                 ctx,
@@ -378,20 +387,26 @@ class TaskControls(Redelivery):
                 job.cancelled_before_start = True
             job.cancel_event.set()
         if queued_cancel:
-            self.record_job_state(ctx, job, "cancelled", "已取消排队，未执行")
-            self.close_unstarted_job(ctx, job, "已取消排队", "本条消息不会执行；其他任务继续。",
+            if recalled:
+                job.cancel_requested_by = RECALLED
+            self.record_job_state(ctx, job, "cancelled", RECALLED_QUEUED if recalled else "已取消排队，未执行")
+            self.close_unstarted_job(ctx, job, "原消息已撤回" if recalled else "已取消排队",
+                                     "你撤回了这条消息，它不会执行；其他任务继续。" if recalled else "本条消息不会执行；其他任务继续。",
                                      self.voice.key("cancel-queued", message_id))
             from covey.app import butler_reactions
             butler_reactions.unqueue(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
+            if recalled:
+                self.runtime.log(f"job cancelled for its recalled message job=#{job.job_id}")
+                return True
             self.messenger.reply(ctx, chat_id, f"已取消排队任务 #{job.job_id}，其他任务继续。{also}",
                                  self.voice.key("cancel-queued-ack", message_id), voice=self.voice)
             return True
         hard_stop_later(job, self.runtime.log)  # Before any record or card write: those may wait on the disk.
         job.cancel_requested_at = utc_now_iso()
-        job.cancel_requested_by = "card"
+        job.cancel_requested_by = RECALLED if recalled else "card"
         # What the user looks at changes first: the status line and the buttons at the top of the card.
         shown = bool(job.progress) and self.cards.show_stopping(ctx, job)
-        self.record_job_state(ctx, job, "cancel_requested", "用户点击卡片停止按钮")
+        self.record_job_state(ctx, job, "cancel_requested", "原消息已撤回，停止任务" if recalled else "用户点击卡片停止按钮")
         if job.progress:
             if not shown:  # A card without the status line (or a failed write) says it in its body.
                 content = self.cards.render_stream_status(job, "正在停止", ["已收到停止请求，正在中断后台任务。"])
@@ -404,7 +419,7 @@ class TaskControls(Redelivery):
                     allow_replacement=False,
                 )
             self.steering.close_task_controls(ctx, job)
-        else:
+        elif not recalled:
             self.messenger.reply(
                 ctx,
                 chat_id,

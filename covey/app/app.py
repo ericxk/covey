@@ -58,7 +58,7 @@ from covey.app.turn_export import TurnExport
 from covey.app.stuck_check import StuckCheck
 from covey.app.worker import process_bridge_reply_job
 from covey.core.harness import BridgeContext, HarnessBackend, HarnessSpec, SessionStore
-from covey.app import devices as device_turns, project_context, project_loop
+from covey.app import devices as device_turns, project_context, project_loop, source_watch
 from covey.core import device_reap, turn_words
 from covey.core.run_dir import run_dir
 from covey.core.jobs import BridgeReplyJob as ReplyJob
@@ -269,12 +269,14 @@ class BridgeApp:
                 ctx = taken  # A supplement the task refused: a track of its own, queued in its topic (app/butler_tracks.py).
             elif taken:
                 timing.outcome("supplement")
+                source_watch.note(self, ctx, event, message_id, chat_id, sender, enriched.text, steered=True)
                 return
         append_history(ctx.history_path, "user", prompt, {**enriched.event, "display_content": content})
         timing.mark("history")
         submit = dict(prompt_content=prompt, received_at=received_at, sender_id=sender, **({"hold": hold} if hold else {}))
         try:
             self.submission.enqueue_chat_job(ctx, content, chat_id, message_id, **submit)
+            source_watch.note(self, ctx, event, message_id, chat_id, sender, enriched.text)
         except HarnessChanged:
             # 换配置 committed while this message was read: it goes to the topic's Harness now, once (its
             # history line is the topic's, already written).

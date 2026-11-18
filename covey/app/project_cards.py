@@ -673,8 +673,9 @@ def release(state, topic, pid) -> bool:
 STOP_ALIAS = "project-stop-"  # The Bridge's own message a forwarded stop of a project's task names: an alias of its topic.
 
 
-def stop_task(host, ctx, topic, chat, job, event_id) -> None:
-    """Ask ``job`` of ``topic`` to stop as a click on its card's 停止 does. A job in a live task runner is stopped there, by
+def stop_task(host, ctx, topic, chat, job, event_id, by="") -> None:
+    """Ask ``job`` of ``topic`` to stop as a click on its card's 停止 does; ``by`` RECALLED: the owner recalled the message
+    the task came from (app/source_watch.py), so its card says that instead of a click. A job in a live task runner is stopped there, by
     that click forwarded to the runner (app/runner_ipc.py forward_card_action, as app/butler_tracks.py and app/proxy.py
     stop_job do): the runner owns the job, and a stop set only in this Bridge's copy of it reaches nobody (accept8,
     2026-11-16: the threads' commands ran on to their end). The click names an alias of the topic's own (``STOP_ALIAS``),
@@ -686,7 +687,7 @@ def stop_task(host, ctx, topic, chat, job, event_id) -> None:
     target = dataclasses.replace(ctx, topic_id=topic)
     message = STOP_ALIAS + str(topic)
     move_topic_message(ctx.state_dir, topic, chat, message)
-    action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id}
+    action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id, **({"by": by} if by else {})}
     click = {"chat_id": chat, "message_id": message, "event_id": event_id,
              "operator_id": host.runtime.owner_open_id or "", "action_value": action}
     if runner_ipc.forward_card_action(host.runtime, target, click, action):

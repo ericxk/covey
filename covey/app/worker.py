@@ -27,7 +27,7 @@ from covey.core.saved_results import (display_saved_reply, reruns_after_withdraw
                                                observe_verified_reply, saved_delivery_kind,
                                                paused_question_delivery_key)
 from covey.app import devices as device_turns
-from covey.core.jobs import DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, job_key, topic_job_records
+from covey.core.jobs import DEVICE_LOST_STATUS, RECALLED, SIGTERM_STATUS, context_for_job, job_key, topic_job_records
 from covey.core.progress import turn_seconds
 from covey.core import background, failure, placement, timing
 from covey.core.metrics import mark, mark_first_output
@@ -59,6 +59,7 @@ DELIVERED_ELSEWHERE = "回答已单独发送在下方。"
 # what it said and its questions are below the card, also once they are answered (repo review U1).
 ASKED_ELSEWHERE = "正文和问题已单独发送在下方。"
 STOPPED_NOTE = "已保存的结果和记录保留在本话题。"  # After "任务 #N 已停止。" (stopped_sentence).
+RECALLED_NOTE = "你撤回了这条消息，任务随之停下。" + STOPPED_NOTE  # A stop by the recall (app/source_watch.py).
 
 
 def format_received_progress_event(event: str, received_at: float) -> str:
@@ -697,6 +698,9 @@ def _turn_from_exception(exc, job, settling) -> dict:
     if isinstance(exc, JobCancelled) or (stopped and not settling):
         # A stop before the backend finished cancels the turn whatever the backend raised as it stopped (its process
         # may have been stopped from outside, app/task_controls.py hard_stop_later). Like a finished card since P1: no "直接回复本话题即可继续" (repo review U10).
+        if getattr(job, "cancel_requested_by", "") == RECALLED:
+            return {"status": "cancelled", "status_message": "原消息已撤回，任务已停止",
+                    "final_text": stopped_sentence(job.job_id) + worded(RECALLED_NOTE, job) + _stop_note(job)}
         return {"status": "cancelled", "status_message": "用户停止了任务",
                 "final_text": stopped_sentence(job.job_id) + worded(STOPPED_NOTE, job) + _others_note(job) + _stop_note(job)}
     name = type(exc).__name__

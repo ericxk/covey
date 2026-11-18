@@ -365,6 +365,20 @@ cancelled、superseded：终态
 - 收起旧问题（`fold_older_questions`，只在 Bridge 做）：较新的问题卡显示后，更早的仍是 `pending` 的问题转 `superseded`，卡整卡重画成收起样式；来源任务还在的不收。等它的暂存消息改等新问题（`HeldNotes.wait_instead`）。
 - 停止任务时本任务的待答问题转 `cancelled`。启动时 `recover_question_delivery` 把 `submitting`、`awaiting_ack` 记 `uncertain` 等用户核查，不自动重发。
 
+## 撤回与编辑
+
+主人撤回或编辑了已经发出的消息时，Bridge 跟着改（`app/source_watch.py`，`COVEY_SOURCE_WATCH=0` 关掉）。lark-cli 的事件总线既没有撤回事件也没有编辑事件，但消息读回来带着两个标记：撤回后 `deleted` 为真，编辑后 `updated` 为真、`update_time` 变新。所以靠读回。
+
+- **登记**：`BridgeApp.handle_event` 把主人的一条消息变成任务或补充之后，记进 `Runtime.sources`（`core/source_book.py`，只在内存里）。只认主人（`Access.is_owner`）和 `om_` 开头的消息 ID（网页上发来的不算）；补充要能找到它进了哪个在跑的任务（那个任务的补充记录 `interaction-deliveries/`）。任务进程里不登记。
+- **读回**：后台线程 `source-watch` 每 `WATCH_SECONDS`（15 秒）读一遍登记的消息（`GET /open-apis/im/v1/messages/<id>`，锁外）。任务还活着就一直读，结束后再读 `GRACE_SECONDS`（10 分钟），超过一天的不再读，最多同时登记 200 条。读失败下一轮再读；读回说消息已撤回（`deleted`，或接口拒绝时报 230011）就按撤回处理。
+- **撤回**：
+  - 消息自己的任务还在排队：取消，不执行；在跑：像点了停止一样停下（`app/project_cards.py` 的 `stop_task`，任务进程活着时转给它）。停止带 `by: recall`（`core/jobs.py` 的 `RECALLED`），记录的 `cancel_requested_by` 是 `recall`，卡上写“原消息已撤回”，不回文字（那条消息已经没了，回不了）。
+  - 是一条补充：再给那个任务送一条补充，说主人撤回了它、不要再按它做。
+  - 不管任务结没结束：这一轮记下的记忆（回答卡上的“记下了”，同“不对”）和知识条目（`by=topic`、`source.job_key` 是它）作废；管家这一轮开的、分叉的、交过活的话题（`core/butler_opened.py`）各在话题串里收到一张小卡“来源消息已撤回”，话题还有排队或在跑的任务时带一个停止按钮（就是任务卡的 `bridge_job_stop`，带 `by: recall`）。话题不自动停：主人选的（2026-11-19）。答案已经发出的不撤回。
+- **编辑**：改后的全文作为一条补充交给这条消息的任务（`Steering.deliver_steer`，补充 ID 是 `edit-<消息>-<update_time>`，同一次编辑只送一次）：排队中的并入它的请求，在跑的读到它的下一步。任务已结束、在等回答，或后端不收补充时，在话题串里（管家的私聊在聊天区）发一句“你改了这条消息……这一轮是按改之前的内容做的，没有重做”，不自动再跑。
+- **被引用的消息**（`feishu/forward.py`）：回复一条已撤回的消息时，上下文写“已被发送者撤回”、不带它剩下的占位正文；编辑过的写“发出后编辑过”，正文是改后的。
+- **限制**：登记只在内存里，Bridge 重启后，重启前的消息不再读回。还在等启动卡（`waiting_workspace`）的任务、管家已经交给话题的任务说明、管家会话里的原文都不跟着改；编辑后的消息只取文字，新加的图片和文件不带。
+
 ## 结果授权与投递
 
 公开回复、执行结果和续接权限是三个独立的事实：

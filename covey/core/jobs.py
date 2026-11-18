@@ -18,6 +18,9 @@ from covey.core.statuses import NOT_ENDED, RUNNING, merge_job_record
 from covey.core.store import directory_store
 
 JOB_STOP_ACTION_KIND = "bridge_job_stop"
+# A stop's ``by`` (the click's value) when the owner recalled the message the task came from (app/source_watch.py):
+# its record's cancel_requested_by and the wording of its card say that instead of a click.
+RECALLED = "recall"
 # Timing stages (core/metrics.py) marked once a backend was asked to run the job.
 RUN_STAGES = ("backend_requested", "backend_started")
 
@@ -301,6 +304,8 @@ def parse_job_stop_action_value(raw: Any) -> dict[str, str] | None:
     others = str(raw.get("others") or "").strip()
     if others.isdigit() and int(others) > 0:
         action["others"] = others  # A stop word of the butler's tracks: how many other tracks are still going.
+    if raw.get("by") == RECALLED:
+        action["by"] = RECALLED
     return action
 
 

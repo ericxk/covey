@@ -15,6 +15,7 @@ from covey.app.access import Access
 from covey.core import butler_tracks, timing
 from covey.core.jobs import job_key
 from covey.core.scheduler import topic_key
+from covey.core.source_book import SourceBook
 
 
 def print_log(message: str) -> None:
@@ -181,6 +182,7 @@ class Runtime:
     - ``adopted_keys``: jobs whose live task runner survived a restart.
     - ``connection_health`` / ``availability_health``: the latest samples of the
       connection and model-access watchers, reported by the health endpoint.
+    - ``sources``: the owner's messages read back for a recall or an edit (core/source_book.py, app/source_watch.py).
     """
 
     def __init__(self, *, script_path: str | Path, log_sink=print_log) -> None:
@@ -199,6 +201,7 @@ class Runtime:
         self.availability_health: dict = {}
         self.job_ended: list = []
         self.card_queues: list = []
+        self.sources = SourceBook()
 
     @property
     def in_runner(self) -> bool:

@@ -165,13 +165,32 @@ def undo(host, ctx, event) -> bool:
     note = next((note for note in notes if note.get("kind") == "remembered" and note.get("entry_id") == entry_id), None)
     if note is None:
         return True  # Taken back already (a second click), or not this turn's.
-    state = ctx.state_dir
-    found = projects.topic_project(state, ctx.topic_id) if projects.memory_enabled() else None
-    if found is not None:
-        project_memory.delete(state, found.id, entry_id)
-    topic_memory.delete(state, ctx.topic_id, entry_id)
+    _forget(ctx.state_dir, ctx.topic_id, entry_id)
     note["kind"] = "undone"
     notes = [note if old.get("entry_id") == entry_id and old.get("kind") == "remembered" else old for old in notes]
-    upsert_job_record(state, str(record["key"]), memory_notes=notes)
+    upsert_job_record(ctx.state_dir, str(record["key"]), memory_notes=notes)
     after_ack(lambda: show(ctx, host.messenger, record, notes, host.runtime.log))
     return True
+
+
+def _forget(state, topic_id, entry_id) -> None:
+    """The entry ``entry_id`` a turn of ``topic_id`` wrote, a tombstone in its project's memory or the topic's."""
+    found = projects.topic_project(state, topic_id) if projects.memory_enabled() else None
+    if found is not None:
+        project_memory.delete(state, found.id, entry_id)
+    topic_memory.delete(state, topic_id, entry_id)
+
+
+def void_turn(runtime, messenger, ctx, record) -> int:
+    """The owner recalled the message of the turn ``record`` (app/source_watch.py): every line it 记下了 is taken back as
+    不对 does, its answer cards redrawn; how many."""
+    notes = [dict(note) for note in record.get("memory_notes") or () if isinstance(note, dict)]
+    topic, taken = str(record.get("topic_id") or ""), 0
+    for note in notes:
+        if note.get("kind") == "remembered" and note.get("entry_id"):
+            _forget(ctx.state_dir, topic, str(note["entry_id"]))
+            note["kind"], taken = "undone", taken + 1
+    if taken:
+        upsert_job_record(ctx.state_dir, str(record["key"]), memory_notes=notes)
+        show(ctx, messenger, record, notes, runtime.log)
+    return taken
