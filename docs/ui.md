@@ -96,6 +96,7 @@
 | **数字磁贴** `tiles` | 大号等宽数字加一行小字 | `column_set` 平分 | grid |
 | **输入/输出框** `io_box` | 两行灰字，项和项之间用“｜”隔开 | 现有的 `cards/answer_card.py`，不动 | 同样的两行 |
 | **折叠行** `fold_row` | 产物、改动、做完的话题 | 现有的 `collapsible` | 可展开的行 |
+| **说话人** `speaker` | 私聊区每条顶层消息的第一行：“谁 · 在干什么 · 时间 ›”，和“你问”块合成一行。谁：`管家`、`专项「名字」· 负责人`、`T531 标题` | `cards/ui.py` 一个 `markdown` 元素：名字加粗、品牌靛色，其余灰色，› 打开那个话题或专项；词表在 `core/look.py` 的 SPEAKERS | 消息气泡顶上一行，同样的词 |
 | **标题栏** `panel_header` | 图标、标题、副标题，右边是计数标签 | 现有的 `panel_header`，标题栏一律 `default` 模板，不用彩色标题栏 | 面包屑加同步状态 |
 
 **光球选色**：按“等你 → 停住了 → 可能卡住 → 有结果 → 在做”的顺序，取第一个有的。一件都没有时不放光球，结论带写“都在掌握中”。结果卡上的光球用这一轮自己的状态色。
@@ -125,7 +126,14 @@
 | 菜单「设置」 | 不放结论带，标题栏加标签行 | 开关和选项；保存后用一句灰字回执 |
 | 网页首屏 | “2 件事要你处理”，大号数字，外加光球 | 要你处理的卡片 → 在做（带进度条）→ 有结果没看；右栏放专项、本周用量 |
 
-### 5.3 信息分三层
+### 5.3 私聊区：谁在说、话交给谁、要你定的事
+
+- **谁在说**：管家、专项负责人、各个话题都用同一个机器人发消息，每条顶层消息都带说话人（第 4 节 `speaker`）。
+- **话交给谁**：回复哪条消息，就交给发它的那一方：话题的回带交给那个话题，负责人的回答和专项卡交给负责人，管家的回答交给管家；不经管家转。
+- **负责人说什么**：你发起的轮次每轮都发；负责人自己醒来的轮次，派了活、停了话题、替你答了或转交了问题、记了按风格该报的进展才发，没变化只更新专项卡。
+- **要你定的事**：谁问都走问题卡、进“等你”，不只在回复末尾问一句；管家也一样。
+
+### 5.4 信息分三层
 
 | 层 | 卡片 | 网页 |
 | --- | --- | --- |
@@ -223,8 +231,8 @@
 
 | 路 | 改什么 | 主要文件 | 验收 |
 | --- | --- | --- | --- |
-| ① 聊天卡片 | 任务卡状态行、结果卡、回带卡、问题卡、恢复卡：加结论带，统一词和按钮 | `cards/task_status.py`、`cards/streaming.py`、`cards/answer_card.py`、`cards/relay_card.py`、`cards/question_cards.py`、`cards/recovery.py`、`core/failure.py`、`core/turn_words.py` | 金样 diff 逐张过；真机手机、侧栏、深色各看一次 |
-| ② 菜单结果卡 | 看板：加结论带和分段状态条，块改成话题行，`cancelled` 按谁停的分开。用量：结论带、磁贴、每日趋势、统一结束词。设置：标签行和回执的文案 | `cards/board.py`、`cards/weekly_usage.py`、`cards/settings_hub.py`、`cards/butler_panel.py`、`cards/workspace_manager.py`、`cards/redaction_panel.py`、`cards/proxy_panel.py`、`cards/group_manager.py` | 同上；看板等它当前的改动验收完再动 |
+| ① 聊天卡片 | 先给私聊区每条顶层消息加说话人（5.3）；任务卡状态行、结果卡、回带卡、问题卡、恢复卡、补充回执卡：加结论带，统一词和按钮 | `cards/task_status.py`、`cards/streaming.py`、`cards/answer_card.py`、`cards/relay_card.py`、`cards/question_cards.py`、`cards/recovery.py`、`core/failure.py`、`core/turn_words.py` | 金样 diff 逐张过；真机手机、侧栏、深色各看一次 |
+| ② 菜单结果卡 | 看板：加结论带和分段状态条，块改成话题行，`cancelled` 按谁停的分开，管家的问题也进“等你”（显示“管家”）。用量：结论带、磁贴、每日趋势、统一结束词。设置：标签行和回执的文案 | `cards/board.py`、`cards/weekly_usage.py`、`cards/settings_hub.py`、`cards/butler_panel.py`、`cards/workspace_manager.py`、`cards/redaction_panel.py`、`cards/proxy_panel.py`、`cards/group_manager.py` | 同上；看板等它当前的改动验收完再动 |
 | ③ 网页工作台 | 深色主题 token、首屏结论加光球、话题行、进度条流光、手机单栏、按 `tone` 着色 | 妙搭应用 `client/src/tailwind-theme.css`、`cv/ui.tsx`、`cv/Board.tsx`、`cv/Shell.tsx`、`cv/TopicPage.tsx`、`cv/ProjectPage.tsx` | 电脑、手机各截一屏，和样张对照 |
 
 - 三路只通过 `core/look.py` 和 `cards/ui.py` 共用东西。哪一路要加组件，先加进这两个文件，再用。
