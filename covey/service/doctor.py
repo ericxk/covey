@@ -62,15 +62,23 @@ def boot_report(root):
         return hosted or {'status': 'unverified', 'mode': receipt.get('mode', 'not_installed')}
     config = read_json(Path(path), {})
     health = boot_health(path)
-    active = bool(health and health.get('mode') == 'pid1' and health.get('init_identity') == init_identity()
-                  and health.get('lag', 999) < config.get('watchdog_seconds', 120))
-    return {'status': 'ready' if active else 'degraded',
+    fresh = bool(health and health.get('lag', 999) < config.get('watchdog_seconds', 120))
+    active = fresh and health.get('mode') == 'pid1' and health.get('init_identity') == init_identity()
+    # A host whose PID 1 loads no hook (the extension's rh2 case) starts the standalone watchdog from a login file
+    # the receipt names; a running one is then the hosting itself, not a stopgap until the next restart.
+    login = receipt.get('login_hook')
+    try:
+        by_login = bool(login) and str(path) in Path(login).read_text(errors='replace')
+    except OSError:
+        by_login = False
+    hosted = active or (fresh and by_login and health.get('mode') == 'standalone')
+    return {'status': 'ready' if hosted else 'degraded',
             'registered': config.get('enabled') is True and Path(receipt.get('hook', '')).is_file(),
-            'active_pid1_hook': active, 'watchdog': health,
+            'active_pid1_hook': active, 'login_hook': login if by_login else None, 'watchdog': health,
             'new_init_since_install': bool(config.get('installed_init_identity')
                                           and config['installed_init_identity'] != init_identity()),
             'reboot_verified': receipt.get('reboot_verified', False),
-            'reason': None if active else 'PID-1 hook takes effect at the next platform restart; standalone watchdog is temporary'}
+            'reason': None if hosted else 'PID-1 hook takes effect at the next platform restart; standalone watchdog is temporary'}
 
 
 def event_report(profile):

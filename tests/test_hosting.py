@@ -180,6 +180,29 @@ class MainAutoTests(unittest.TestCase):
         self.assertEqual(doctor.boot_report(self.root)['status'], 'unverified')
 
 
+    def test_doctor_takes_a_standalone_watchdog_a_login_file_starts_as_the_hosting(self):
+        # A dev machine whose PID 1 loads no hook starts the watchdog from ~/.bashrc; doctor called that
+        # "temporary until the next restart" for ever.
+        self.root.mkdir(parents=True, exist_ok=True)
+        config, login = self.root / 'boot.json', self.root / 'bashrc'
+        config.write_text(json.dumps({'enabled': True, 'watchdog_seconds': 120}))
+        receipt = {'mode': 'ext-pid1', 'hook': str(self.root / 'hook.pth'), 'config': str(config)}
+        (self.root / 'boot-installation.json').write_text(json.dumps(receipt))
+        standalone = {'mode': 'standalone', 'lag': 3, 'init_identity': None}
+        with mock.patch.object(doctor, 'boot_health', return_value=standalone):
+            self.assertEqual(doctor.boot_report(self.root)['status'], 'degraded')
+            login.write_text(f'run-the-watchdog {config}\n')
+            (self.root / 'boot-installation.json').write_text(json.dumps({**receipt, 'login_hook': str(login)}))
+            report = doctor.boot_report(self.root)
+            self.assertEqual((report['status'], report['login_hook'], report['reason']), ('ready', str(login), None))
+            self.assertFalse(report['active_pid1_hook'])
+            login.write_text('something else\n')
+            self.assertEqual(doctor.boot_report(self.root)['status'], 'degraded')
+        with mock.patch.object(doctor, 'boot_health', return_value={**standalone, 'lag': 500}):
+            login.write_text(f'run-the-watchdog {config}\n')
+            self.assertEqual(doctor.boot_report(self.root)['status'], 'degraded')
+
+
 class ProbeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = exec_tempdir()  # 假的 claude/codex 要能直接执行

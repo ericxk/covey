@@ -363,7 +363,7 @@ python3 -B bin/covey_service_install.py --mode auto --status      # 现在注册
 python3 -B bin/covey_service_install.py --mode auto --uninstall   # 删掉单元或 plist（auto 要先选出 systemd 或 launchd）
 ```
 
-不带 `--activate` 只写文件，不启动、不加载。重复运行安全：launchd 先 `bootout` 旧的再 `bootstrap`，systemd 重写单元后 `daemon-reload`。回执写在 `<root>/boot-installation.json`，`covey_doctor` 的 `boot` 一节按它读：systemd 看单元是否 `enabled` 且 `active`，launchd 看 `launchctl print` 能否查到，`cron` 看 crontab 里这个服务根的那一行还在不在，`manager` 回执算 `ready` 但带 `autostart: false`。
+不带 `--activate` 只写文件，不启动、不加载。重复运行安全：launchd 先 `bootout` 旧的再 `bootstrap`，systemd 重写单元后 `daemon-reload`。回执写在 `<root>/boot-installation.json`，`covey_doctor` 的 `boot` 一节按它读：systemd 看单元是否 `enabled` 且 `active`，launchd 看 `launchctl print` 能否查到，`cron` 看 crontab 里这个服务根的那一行还在不在，`manager` 回执算 `ready` 但带 `autostart: false`。扩展的托管模式：PID 1 里的守护在跑算 `ready`；回执带 `login_hook`（登录时由 shell 启动文件起独立守护，见扩展 README）且那个文件确实启动这份配置时，独立守护在跑也算 `ready`，报告里的 `login_hook` 是该文件。
 
 **systemd 模式**
 
