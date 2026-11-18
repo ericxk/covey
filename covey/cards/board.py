@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from covey.cards.elements import collapsible, grey, md, note, plain, styled_panel
 from covey.cards.overview import DISMISS, dismissed_line, stale_line
-from covey.cards.project_proposal import START_KIND
+from covey.cards.project_proposal import CREATE_KIND, DECLINE_KIND, START_KIND
 from covey.core.text import literal as literal_text
 
+BOARD_FROM = "board"  # As app/project_tidy.py BOARD_FROM: a proposal decided on the 看板.
 ORIGIN = "digest"  # As cards/digest.py: app/overview.py claim hands a 不管了 on this card to app/digest.py.
 ICON = "bitablekanban_outlined"
 STOPPED = frozenset({"failed", "cancelled", "interrupted"})
@@ -115,6 +116,23 @@ def project_block(project):
                                              if project.get("url") else {})}
 
 
+def proposal_block(item):
+    """A proposal waiting for him: its name, its topics (each a link), its goal, and 建专项 / 暂不考虑 that act on it from
+    here (app/project_tidy.py BOARD_FROM). Not one clickable block: its topics are links of their own."""
+    topics = " · ".join((f"[{literal_text(row.get('label') or '话题')}]({row['url']})" if row.get("url")
+                         else literal_text(row.get("label") or "话题")) + f" {literal_text(row.get('title') or '')}"
+                        for row in item.get("rows") or ())
+    left = [md(f"<text_tag color='violet'>提议</text_tag> **「{literal_text(item.get('name') or '')}」**", size="normal_v2"),
+            md(topics, size="normal_v2")]
+    if item.get("goal"):
+        left.append(md(grey("目标：" + literal_text(item["goal"])), size="notation"))
+    value = {"proposal": item.get("id") or "", "from": BOARD_FROM}
+    block_ = body(left, [button("建专项", tone="primary", value={"kind": CREATE_KIND, **value}),
+                         button("暂不考虑", value={"kind": DECLINE_KIND, **value})])
+    block_.update(background_style="violet-50", margin="0px")
+    return block_
+
+
 def board_card(view):
     found = groups(view)
     elements = []
@@ -137,13 +155,19 @@ def board_card(view):
         elements.append(heading("在做", len(found["running"]), "loading_outlined"))
         elements += blocks("running", found["running"])
     if view.get("tidy") is not None or view.get("projects"):
-        projects = view.get("projects") or []
-        elements.append(heading("专项", len(projects), "folder_outlined"))
+        projects, pending = view.get("projects") or [], view.get("pending") or []
+        # One count of each, said the same way as the 整理专项 card and the butler's projects_list: 专项 that exist, and
+        # proposals waiting for him, decided right here (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
+        content = f"**专项**  <font color='grey'>{len(projects)} 个</font>" + (
+            f"　<text_tag color='violet'>{len(pending)} 个提议等你定</text_tag>" if pending else "")
+        elements.append({"tag": "markdown", "content": content, "text_size": "normal_v2",
+                         "icon": {"tag": "standard_icon", "token": "folder_outlined", "color": "grey"}})
         elements += [project_block(project) for project in projects]
+        elements += [proposal_block(item) for item in pending[:SHOWN]]
         if view.get("tidy") is not None:
-            waiting_cards = int(view.get("proposals") or 0)
-            line = (f"有 {waiting_cards} 张提议卡等你定，在聊天里往上翻" if waiting_cards else
-                    "还没有专项" if not projects else "把专项和最近 7 天动过的话题重新看一遍")
+            line = ("「建专项」按提议里的话题和名字建，建好后话题可以移出、名字可以改" if pending else
+                    "还没有专项，点右边把最近 7 天动过的话题看一遍" if not projects else
+                    "把专项和最近 7 天动过的话题重新看一遍")
             elements.append(body([md(grey(line), size="notation")], [button("整理专项", tone="primary", value={"kind": START_KIND})]))
     if found["seen"]:
         rows = found["seen"]
@@ -152,7 +176,8 @@ def board_card(view):
                  for row in rows[:DONE_SHOWN]]
         if len(rows) > DONE_SHOWN:
             lines.append(note(f"另有 {len(rows) - DONE_SHOWN} 个"))
-        elements.append(collapsible("board_done", f"做完 {len(rows)} 个，都看过了", lines, quiet=True))
+        since = f"{view['done_since']} 以来" if view.get("done_since") else ""
+        elements.append(collapsible("board_done", f"{since}做完的话题 {len(rows)} 个，都看过了", lines, quiet=True))
     if not elements:
         elements.append(md(grey("现在没有在等你、在做或停住的事。")))
     if view.get("stamp"):

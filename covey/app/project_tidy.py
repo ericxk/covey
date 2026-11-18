@@ -55,6 +55,7 @@ START_WAIT = 30
 PROGRESS_GAP = 3.0  # Seconds between two redraws of the card while it reads.
 COUNT_KEPT = 600.0  # The chat's topic count is read again after this.
 QUEUE_MAX = 20
+BOARD_FROM = "board"  # A proposal's 建专项 / 暂不考虑 clicked on the 看板 (cards/board.py).
 CHOICES = 20  # Topics the proposal card's select offers: the proposal's, then the recent others.
 NOW_CHARS = 80  # Of a topic's latest conclusion on the proposal card (现在：…).
 INBOUND = "inbound-messages"
@@ -77,6 +78,7 @@ class ProjectTidy:
 
     def __init__(self, runtime, messenger, voice, env) -> None:
         self.runtime, self.messenger, self.voice, self.env = runtime, messenger, voice, env
+        self.handed = {}  # BOARD_FROM: the 看板 redrawn after a proposal decided on it (app/unified.py fills it).
         self.busy = threading.Lock()
         self.progress = {"done": 0, "total": 0}
         self.counted = (0.0, 0)
@@ -663,6 +665,7 @@ class ProjectTidy:
             view.update(state="failed", why=FAILED_WORDS.get(verdict.why, "判断没有结果"))
             return
         self.settle(ctx, chat, record, verdict.suggestions)
+        self.expire_alone(ctx)
         view["state"] = "done"
 
     def settle(self, ctx, chat, record, suggestions) -> None:
@@ -693,12 +696,33 @@ class ProjectTidy:
                 # 附摘要；不准用“等”；能自己增删话题、改名再确认): the 整理专项 card only names it.
                 if self.propose(ctx, chat, {**made, "run": record["run"]}) == "proposed":
                     view.setdefault("proposed", []).append(str(made.get("name") or ""))
+                else:
+                    # The same proposal already waits for him (the owner, 2026-11-18 23:19: 为啥现在我点了整理专项说不需要呢 —
+                    # it was dropped as nothing new): named as still waiting, to decide on the 看板.
+                    found = proposals.read_proposal(state, made["id"])
+                    if found.get("state") == proposals.OPEN and (found.get("card") or {}).get("message_id"):
+                        view.setdefault("pending", []).append(str(found.get("name") or made.get("name") or ""))
                 continue
             saved, _ = proposals.put_proposal(state, made)
             if saved.get("state") != proposals.OPEN or any(row["proposal"] == saved["id"] for row in view["rows"]):
                 continue
             proposals.update_proposal(state, saved["id"], lambda data: data.update(run=record["run"]))
             view["rows"].append({"proposal": saved["id"], "line": self.line(state, saved, ctx), "md": True, "state": proposals.OPEN})
+
+    def expire_alone(self, ctx) -> int:
+        """The open proposals of one topic, made before a project needed two (app/project_sorter.py MIN_CREATE): 已过时,
+        their cards redrawn so; how many."""
+        state, gone = Path(ctx.state_dir), 0
+        for record in proposals.proposals(state, [proposals.OPEN]):
+            if record.get("kind") != proposals.CREATE or len(set(record.get("topics") or ())) >= sorter.MIN_CREATE:
+                continue
+            view = {**(record.get("view") or self.proposal_view(state, record)), "state": proposals.EXPIRED,
+                    "note": "已过时：专项要两个以上话题，这条不再提。", "lesson": False}
+            proposals.update_proposal(state, record["id"], lambda data: data.update(state=proposals.EXPIRED,
+                                                                                      decided_at=time.time(), view=view))
+            self.patch_own(ctx, str((record.get("card") or {}).get("message_id") or ""), cards.proposal_card(view))
+            gone += 1
+        return gone
 
     def foldable(self, state, pid) -> bool:
         from covey.core.jobs import topic_job_records
@@ -820,35 +844,49 @@ class ProjectTidy:
             view = {**(record.get("view") or self.proposal_view(state, record)), "lesson": False,
                     "note": str((record.get("view") or {}).get("note") or "") + ("（理由已记下）" if text else "")}
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=view))
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.proposal_card(view)))
+            after_ack(lambda: self.patch_own(ctx, message, cards.proposal_card(view)))
         else:
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.lesson_card(
+            after_ack(lambda: self.patch_own(ctx, message, cards.lesson_card(
                 "理由已记下，整理专项以后照这个来。" if text else "好的，没记理由。")))
         return "tidy_lesson"
 
     def proposal_click(self, ctx, chat, event, raw, message) -> str:
+        """A click on the proposal card, or on its block on the 看板 (``from`` BOARD_FROM): the 看板 then redrawn after
+        whatever the click does (its follow-ups run in order in this lane)."""
+        outcome = self.decide(ctx, chat, event, raw, message)
+        hand = self.handed.get(BOARD_FROM)
+        if raw.get("from") == BOARD_FROM and hand is not None and message and outcome != "tidy_stale":
+            after_ack(lambda: hand(ctx, message))
+        return outcome
+
+    def decide(self, ctx, chat, event, raw, message) -> str:
         """A click on the proposal card."""
         from covey.app.card_actions import form_fields
 
         state, kind = Path(ctx.state_dir), raw["kind"]
         record = proposals.read_proposal(state, str(raw.get("proposal") or ""))
-        if not record or (record.get("card") or {}).get("message_id") not in ("", message):
+        # 建专项 and 暂不考虑 on the 看板 (cards/board.py, ``from`` "board"; the owner, 2026-11-18: 还在等主人定的提议卡要在看板上
+        # 直接能点开处理): the proposal's own card is the one redrawn, then the 看板 (``handed``).
+        board = raw.get("from") == BOARD_FROM and kind in (cards.CREATE_KIND, cards.DECLINE_KIND)
+        own = str((record or {}).get("card", {}).get("message_id") or "") if record else ""
+        if not record or (not board and own not in ("", message)):
             return "tidy_stale"
+        board_message, message = (message, own) if board else ("", message)
         view = dict(record.get("view") or self.proposal_view(state, record))
         if kind == cards.AUTO_KIND:
             proposals.set_pref(state, auto_create=True)
             view["ask_auto"] = False
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=view))
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.proposal_card(view)))
+            after_ack(lambda: self.patch_own(ctx, message, cards.proposal_card(view)))
             return "tidy_auto"
         if record.get("state") != proposals.OPEN:
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.proposal_card({**view, "state": record["state"]})))
+            after_ack(lambda: self.patch_own(ctx, message, cards.proposal_card({**view, "state": record["state"]})))
             return "tidy_decided"
         if kind == cards.RENAME_KIND:
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.rename_form(view)))
+            after_ack(lambda: self.patch_own(ctx, message, cards.rename_form(view)))
             return "tidy_rename"
         if kind == cards.BACK_KIND:
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.proposal_card(view)))
+            after_ack(lambda: self.patch_own(ctx, message, cards.proposal_card(view)))
             return "tidy_back"
         if kind in (cards.DECLINE_KIND, cards.NEVER_KIND):
             never = kind == cards.NEVER_KIND
@@ -859,7 +897,7 @@ class ProjectTidy:
                         note="以后不再提议建专项；要开专项，跟管家说“开个专项”。" if never else
                         "暂不考虑：这几个话题不会再这样提，等又多出相关的话题才会再提。")
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=view))
-            after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.proposal_card(view)))
+            after_ack(lambda: self.patch_own(ctx, message, cards.proposal_card(view)))
             return "tidy_never" if never else "tidy_decline"
         # 建专项, or the rename form's 建专项.
         fields = form_fields(event) or {}
@@ -900,9 +938,13 @@ class ProjectTidy:
             shown = {**view, "name": name, "goal": goal, "state": proposals.DONE if pid else proposals.FAILED, "note": words,
                      "ask_auto": False, "rows": rows, "labels": [label_title(state, topic) for topic in topics]}
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=shown))
-            self.messenger.patch_card(ctx.profile, message, cards.proposal_card(shown))
+            self.patch_own(ctx, message, cards.proposal_card(shown))
         after_ack(build)
         return "tidy_named" if named else "tidy_create"
+
+    def patch_own(self, ctx, message, card):
+        """A proposal's own card redrawn; none when it has no card (a row of an older 整理专项 card, clicked on the 看板)."""
+        return self.messenger.patch_card(ctx.profile, message, card) if message else False
 
     def row_click(self, ctx, chat, event, raw, message) -> str:
         """好, 不用 and 全部照办 on the 整理专项 card."""

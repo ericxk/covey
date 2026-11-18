@@ -259,6 +259,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # 整理专项 (app/project_tidy.py), COVEY_PROJECT_TIDY: 话题要点, the real-time and scheduled 整理, its cards' clicks.
             self.project_tidy = ProjectTidy(self.runtime, self.messenger, self.voice, self.butler_env)
             self.butler_env.tidy = self.project_tidy  # The butler's projects_tidy and the web page's ``tidy``.
+            self.project_tidy.handed["board"] = self.digest.board_refresh  # A proposal decided on the 看板: it is redrawn.
             # Wakes a project's lead when receipts wait and applies the guards (app/project_loop.py), COVEY_PROJECTS=1.
             self.project_loop = ProjectLoop(self.runtime, self.butler_env, stop_tasks)
             # What the butler would have told the owner, only recorded (app/patrol.py), COVEY_PATROL=shadow; the digest lists it.

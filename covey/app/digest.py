@@ -385,6 +385,7 @@ class Digest:
                 row["url"] = urls.get(topic, "")
         self.linked(ctx, chat, view["stale"])
         return {**view, "asked": True, "stamp": clock_words(now, now), "can_dismiss": dismissable(),
+                "done_since": clock_words(view["since"], now) if view.get("since") else "",
                 **self.where(chat), **self.tidy(ctx, chat),
                 **self.projects_view(ctx, chat, view)}
 
@@ -410,9 +411,28 @@ class Digest:
                           "waiting": len(rows["waiting"] & set(topics)), "running": len(rows["running"] & set(topics)),
                           "stopped": len(stopped & set(topics)),
                           "url": self.url(ctx, record["lead_topic_id"]) if record.get("lead_topic_id") else ""})
-        waiting_cards = sum(1 for record in project_proposals.proposals(ctx.state_dir, [project_proposals.OPEN])
-                            if (record.get("card") or {}).get("message_id")) if project_proposals.enabled() else 0
-        return {"projects": found, "proposals": waiting_cards}
+        # The proposals waiting for him, each with its topics, to decide right on the 看板 (the owner, 2026-11-18: 不要让我
+        # 去聊天里往上翻). One of a single topic is no project any more (app/project_sorter.py MIN_CREATE): left out.
+        pending, seen = [], set()
+        if project_proposals.enabled():
+            for record in sorted(project_proposals.proposals(ctx.state_dir, [project_proposals.OPEN]),
+                                 key=lambda record: record.get("created_at") or 0, reverse=True):
+                topics = list(dict.fromkeys(record.get("topics") or ()))
+                # Only those on a proposal card of their own: a row of an older 整理专项 card (before 2026-11-18 20:00, when
+                # a catch-all could still be proposed there) stays on that card.
+                if record.get("kind") != project_proposals.CREATE or len(topics) < 2 or not (record.get("card") or {}).get("message_id"):
+                    continue
+                mine = frozenset(topics)
+                if any(mine <= other or other <= mine for other in seen):
+                    continue  # The same topics, or some of them, proposed twice: the newest one.
+                seen.add(mine)
+                rows = []
+                for topic in topics:
+                    label, title = label_title(ctx.state_dir, topic)
+                    rows.append({"topic": topic, "label": label, "title": title, "url": self.url(ctx, topic)})
+                pending.append({"id": record["id"], "name": record.get("name") or "",
+                                "goal": record.get("goal") or "", "why": record.get("why") or "", "rows": rows})
+        return {"projects": found, "proposals": len(pending), "pending": pending}
 
     def tidy(self, ctx, chat):
         """The 专项 part (cards/project_proposal.py board_rows): with 整理专项 on, in the owner's private chat (a group's
@@ -439,6 +459,28 @@ class Digest:
         return self.menu.toggle(ctx, chat_id, source, message_id, lambda token, record: board_card(record["digest"]),
                                 lambda token, record: folded_board(),
                                 fields=lambda: {"digest": self.board_view(ctx, chat_id)})
+
+    def board_refresh(self, ctx, message_id):
+        """A 看板 card redrawn from a fresh view, after a proposal on it was decided (app/project_tidy.py ``handed``)."""
+        chat = self.fixed or self.runtime.access.notify_chat()
+        folder = self.menu.directory(ctx)
+        try:
+            paths = sorted(folder.glob("*.json"), key=lambda path: path.stat().st_mtime)[-BOARD_SCANNED:]
+        except OSError:
+            return False
+        for path in reversed(paths):
+            if read_object(path).get("message_id") != message_id or not chat:
+                continue
+            view = self.board_view(ctx, chat)  # Feishu reads for the links: outside the lock.
+            with self.menu.lock(path):
+                record = read_object(path)
+                if record.get("message_id") != message_id or not isinstance((record.get("view") or {}).get("revision"), int):
+                    return True
+                changed = {**record, "digest": view, "view": {**record["view"], "revision": record["view"]["revision"] + 1}}
+                confirmed = settle(ctx, path, record, changed, board_card(view), self.messenger, BOARD_KIND)
+            self.runtime.log(f"digest board refreshed message={message_id[-8:]} confirmed={bool(confirmed)}")
+            return True
+        return False
 
     def board_dismissed(self, ctx, message_id, topics):
         """``dismissed`` on a 看板 card: its record's view redrawn with those topics taken off; whether it was one."""

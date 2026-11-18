@@ -983,7 +983,11 @@ def digest_cards():
                           "state": "做完", "took": "用时 11分26秒"}],
                 "projects": [{"name": "题包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入", "topics": ["g"],
                               "waiting": 1, "running": 0, "stopped": 0, "url": "https://applink.feishu.cn/t/600"}],
-                "proposals": 1, "tidy": {}, "stamp": "20:59"}),
+                "proposals": 1, "tidy": {}, "stamp": "20:59", "done_since": "09:30",
+                "pending": [{"id": "b84c9a1e00000000", "name": "题包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入 !248",
+                             "why": "", "rows": [{"topic": "h", "label": "T488", "title": "修 064 采购审批题包",
+                                                  "url": "https://applink.feishu.cn/t/488"},
+                                                 {"topic": "i", "label": "T505", "title": "优化 Bootstrap 下一环节", "url": ""}]}]}),
             "board_empty": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00"}),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
@@ -1115,6 +1119,8 @@ def tidy_cards():
             "tidy_done": tc.tidy_card(done),
             # 2026-11-18: each new project on its own proposal card, rows Markdown with every topic linked, no 全部照办, the
             # topics not read named with why.
+            "tidy_pending": tc.tidy_card({"run": "r", "state": "done", "did": [], "rows": [],
+                                          "pending": ["题包生产链路提示词优化", "Covey 网页工作台完善"]}),
             "tidy_done_v2": tc.tidy_card({
                 "run": "20261118200000-def456", "state": "done", "did": [], "proposed": ["Golden Localize 提示词优化", "提议卡与整理专项"],
                 "rows": [{"proposal": "4" * 16, "md": True, "state": "open",

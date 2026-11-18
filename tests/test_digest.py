@@ -493,7 +493,7 @@ class BoardTests(UnifiedCase):
         # Its own card now (cards/board.py, the owner's 样张 A, 2026-11-18): coloured blocks by what they ask of him.
         self.assertEqual(card["header"]["title"]["content"], "看板")
         text = json.dumps(card, ensure_ascii=False)
-        for part in ("T501", "T502", "T503", "这些都不用回答了", "等你", "在做", "做完 1 个，都看过了", "orange-50", "blue-50"):
+        for part in ("T501", "T502", "T503", "这些都不用回答了", "等你", "在做", "做完的话题 1 个，都看过了", "orange-50", "blue-50"):
             self.assertIn(part, text)
         self.assertNotIn("T504", text)
         self.assertNotIn("我本来想找你的事", text)

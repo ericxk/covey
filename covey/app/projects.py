@@ -36,7 +36,7 @@ from covey.app.butler_env import reply
 from covey.cards.project_card import merged_card
 from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
-from covey.core import butler, butler_settings, projects
+from covey.core import butler, butler_settings, project_proposals, projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.jobs import find_job_record, topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
@@ -593,15 +593,24 @@ def projects_list(env, request):
     found = projects.records(state, chat)
     live = [record for record in found if state_of(record) in (projects.ACTIVE, projects.PAUSED)]
     ended = [record for record in found if record not in live][-LISTED_ENDED:]
+    # The proposals waiting for him, said the same way as the 看板 (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
+    waiting = []
+    if project_proposals.enabled():
+        waiting = [record for record in project_proposals.proposals(state, [project_proposals.OPEN])
+                   if record.get("kind") == project_proposals.CREATE and len(set(record.get("topics") or ())) >= 2
+                   and (record.get("card") or {}).get("message_id")]  # As the 看板 lists them (app/digest.py projects_view).
+    pending = ("；还有 " + str(len(waiting)) + " 个提议等主人定（在看板的专项区）：" + "、".join(
+        f"「{clip(record.get('name'), 20)}」（{'、'.join(topic_label(state, topic) or topic[:6] for topic in record.get('topics') or ())}）"
+        for record in waiting[:6])) if waiting else ""
     if not live and not ended:
-        return reply(True, "还没有专项。", count=0)
+        return reply(True, "还没有专项" + (pending or "。"), count=0, waiting=len(waiting))
     rows = []
     for record in [*live, *ended]:
         threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有话题"
         note = project_cards.lead_note(record)
         rows.append(f"{record['id']} · {clip(record.get('name'), 30)} · {FOLDED_WORDS if projects.folded(record) else STATE_WORDS.get(state_of(record), state_of(record))}"
                     f" · 话题 {threads}" + (f" · 最近：{clip(note, 40)}" if note else ""))
-    return reply(True, "\n".join(rows), count=len(found),
+    return reply(True, "\n".join(rows) + (f"\n{pending.lstrip('；')}" if pending else ""), count=len(found), waiting=len(waiting),
                  projects=[{"id": record["id"], "name": record.get("name"), "state": state_of(record)}
                            for record in [*live, *ended]])
 

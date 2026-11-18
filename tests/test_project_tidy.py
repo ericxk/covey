@@ -478,6 +478,67 @@ class TidyCardTest(TidyCase):
         self.assertIn("projects_tidy", [tool["name"] for tool in butler_tool_specs.listed({"COVEY_PROJECTS": "1", proposals.ENV: "suggest"})])
 
 
+class PendingTest(TidyCase):
+    """The owner, 2026-11-18 23:17-23:19: 怎么可能没有专项呢 / 为啥现在我点了整理专项说不需要呢 — a proposal still waiting is
+    said so, decided right on the 看板, and the three places say the same."""
+
+    def setUp(self):
+        super().setUp()
+        self.filler(3)
+        self.one, self.two = self.topic("修 064 采购审批题包"), self.topic("优化 Bootstrap 下一环节")
+        self.tidy.recent_topics = lambda state, chat, now, **kw: [self.one, self.two]
+        self.suggest = {"suggestions": [{"kind": "create", "topics": [1, 2], "name": "题包提示词优化", "goal": "合入 !248",
+                                         "why": "同一条流水线", "confidence": 0.8}]}
+
+    def test_a_suggestion_already_waiting_is_named_not_called_nothing_to_change(self):
+        self.verdicts.append(self.suggest)
+        first = self.tidy.whole(self.ctx, CHAT, "run-a", "test", "")
+        self.assertEqual(first["view"]["proposed"], ["题包提示词优化"])
+        self.verdicts.append(self.suggest)
+        second = self.tidy.whole(self.ctx, CHAT, "run-b", "test", "")
+        self.assertEqual(second["view"].get("pending"), ["题包提示词优化"])
+        card = text(cards.tidy_card(second["view"]))
+        self.assertIn("还在等你定", card)
+        self.assertNotIn("没有要改的", card)
+
+    def test_a_proposal_of_one_topic_left_from_before_expires_at_the_next_tidy(self):
+        alone = proposals.new_proposal(proposals.CREATE, topics=[self.one], name="单独一个", goal="做完", source="realtime")
+        proposals.put_proposal(self.state, alone)
+        self.tidy.whole(self.ctx, CHAT, "run-c", "test", "")
+        self.assertEqual(proposals.read_proposal(self.state, alone["id"])["state"], proposals.EXPIRED)
+
+    def test_build_on_the_board_creates_it_redraws_its_own_card_and_the_board(self):
+        self.verdicts.append(self.suggest)
+        self.tidy.whole(self.ctx, CHAT, "run-d", "test", "")
+        record = [r for r in proposals.proposals(self.state, [proposals.OPEN]) if r.get("name") == "题包提示词优化"][0]
+        own = record["card"]["message_id"]
+        redrawn = []
+        self.tidy.handed["board"] = lambda ctx, message: redrawn.append(message)
+        self.assertEqual(self.click({"kind": cards.CREATE_KIND, "proposal": record["id"], "from": "board"}, "om_board9"),
+                         "tidy_create")
+        made = projects.read_record(self.state, upgrades.project_id("tidy", record["id"]))
+        self.assertEqual(made["threads"], [self.one, self.two])
+        self.assertEqual(redrawn, ["om_board9"])
+        self.assertEqual(self.app.messenger.patch_card.call_args.args[1], own)  # Its own card, not the board.
+        answer = upgrades.projects_list(self.env, SimpleNamespace(args={}, id="r1", job_key="main-job"))
+        self.assertIn("题包提示词优化", answer["text"])
+
+    def test_the_board_lists_the_waiting_proposals_with_build_and_not_now(self):
+        from covey.cards.board import board_card
+        self.verdicts.append(self.suggest)
+        self.tidy.whole(self.ctx, CHAT, "run-e", "test", "")
+        record = [r for r in proposals.proposals(self.state, [proposals.OPEN]) if r.get("name") == "题包提示词优化"][0]
+        pending = [{"id": record["id"], "name": record["name"], "goal": record["goal"], "why": "",
+                    "rows": [{"topic": self.one, "label": "T1", "title": "修 064", "url": "https://applink.example/1"},
+                             {"topic": self.two, "label": "T2", "title": "Bootstrap", "url": ""}]}]
+        card = text(board_card({"waiting": [], "running": [], "done": [], "stale": [], "tidy": {}, "projects": [],
+                                "pending": pending, "proposals": 1}))
+        for word in ("专项", "0 个", "1 个提议等你定", "「题包提示词优化」", "https://applink.example/1", "建专项", "暂不考虑",
+                     cards.CREATE_KIND, cards.DECLINE_KIND, '"from": "board"'):
+            self.assertIn(word, card)
+        self.assertNotIn("往上翻", card)
+
+
 class WhyUnreadTest(UpCase):
     def test_a_refusal_and_a_topic_too_long_are_told_apart_from_other_exits(self):
         """The owner, 2026-11-18: “读不了”的话题，要写清为什么 — Claude Code says a refusal only on stdout."""

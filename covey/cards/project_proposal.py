@@ -211,11 +211,18 @@ def tidy_card(view):
             else:
                 elements.append(md(f"· {line} <font color='grey'>{literal_text(row.get('note') or OUTCOME.get(row.get('state'), ''))}</font>"))
         # No 全部照办: each one is the owner's own yes (the owner, 2026-11-18). A card sent before keeps its button.
-    if state == "done" and not did and not rows and not proposed:
+    pending = [name for name in view.get("pending") or () if name]
+    if pending:
+        # What this 整理 would propose again and still waits for him (the owner, 2026-11-18 23:19: 为啥现在我点了整理专项
+        # 说不需要呢): named, to decide on the 看板 — never “没有要改的” while they wait.
+        elements += [section(f"还在等你定（{len(pending)} 个）"),
+                     md("、".join(f"「{literal_text(name)}」" for name in pending)),
+                     note("之前提过、你还没定。在看板的专项区可以直接点「建专项」或「暂不考虑」。")]
+    if state == "done" and not did and not rows and not proposed and not pending:
         elements.append(md("专项和最近动过的话题都看过了，没有要改的。"))
     for words in view.get("skipped") or ():
         elements.append(note(words if view.get("skipped_md") else literal_text(words)))
-    count = len(rows) + len(proposed)
+    count = len(rows) + len(proposed) + len(pending)
     tags = ((("正在整理", "blue"),) if state == "running" else (("没整理成", "red"),) if state == "failed"
             else ((f"{count} 条建议", "orange"),) if count else (("整理好了", "green"),))
     head = panel_header(TIDY_ICON, "整理专项", subtitle=f"专项和{TIDY_SPAN}", tags=tags)
