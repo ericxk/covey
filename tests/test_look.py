@@ -150,6 +150,8 @@ class PartsTest(unittest.TestCase):
         images = [element for _, _, element in walk([band]) if element.get("tag") == "img"]
         self.assertEqual([image["img_key"] for image in images], ["img_x"])
         self.assertIs(images[0]["preview"], False)
+        # Feishu takes a px size only with crop_center or crop_top (a card with fit_horizontal was refused, 230099).
+        self.assertIn(images[0]["scale_type"], {"crop_center", "crop_top"})
 
     def test_no_orb_without_its_key(self):
         band = ui.conclusion_band("要你处理", "都在掌握中")

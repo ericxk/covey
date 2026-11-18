@@ -19,7 +19,7 @@ from covey.core.text import literal
 BAND_PADDING = "10px 12px 10px 12px"
 SEG_WIDTH = 24  # Characters of the segment bar: wide enough to read the parts, narrow enough for a topic's side panel.
 SEG_CHAR = "━"
-ORB_SIZE = "40px 40px"
+ORB_SIZE = "40px 40px"  # A size in px only with crop_center or crop_top: Feishu refuses it with fit_horizontal (230099).
 
 
 def font(text, color) -> str:
@@ -69,7 +69,7 @@ def side_by_side(left, right, *, align="top") -> dict:
 
 
 def orb(image_key) -> dict:
-    return {"tag": "img", "img_key": image_key, "size": ORB_SIZE, "scale_type": "fit_horizontal", "transparent": True,
+    return {"tag": "img", "img_key": image_key, "size": ORB_SIZE, "scale_type": "crop_center", "transparent": True,
             "preview": False, "alt": {"tag": "plain_text", "content": ""}}
 
 
