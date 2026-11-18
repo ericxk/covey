@@ -1391,7 +1391,8 @@ class FlowTests(ProxyCase):
         self.assertEqual(([m['id'] for m in carrier['messages']], carrier['restarts'], 'stop_job' in carrier),
                          (['m1', 'm2'], 1, False))
         # Its job asked to stop the way its card's 停止 does: the runner first, else the Bridge.
-        action = {'kind': 'bridge_job_stop', 'job_id': str(first['job_id']), 'message_id': 'om_mirror'}
+        # ``by``: who stopped it (core/jobs.py STOP_SOURCES), so the record says 代答 replaced the batch, not the owner.
+        action = {'kind': 'bridge_job_stop', 'job_id': str(first['job_id']), 'message_id': 'om_mirror', 'by': 'proxy'}
         self.assertEqual(calls, [(action, 'oc_proxy', f"proxy-stop-{first['id']}")])
         event = forward.call_args.args[2]
         self.assertEqual((event['message_id'], event['action_value'], forward.call_args.args[3]), ('om_mirror', action, action))
