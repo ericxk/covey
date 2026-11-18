@@ -32,7 +32,7 @@ from pathlib import Path
 from covey.app import pins, project_lead, project_loop, web_turns
 from covey.app.answers import SKIPPED
 from covey.app.web_ops import Ops
-from covey.core import board_read, failure, http_upstream, project_library, project_memory, projects, triage, web_sync
+from covey.core import board_read, failure, http_upstream, look, project_library, project_memory, projects, triage, web_sync
 from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
@@ -275,6 +275,7 @@ class Collector:
         if live is not None:  # Its running turn's progress (core/progress.py), from the record the task monitor keeps.
             body["progress"] = turn_progress.progress(live, now=now or time.time(), history=turn_progress.turn_seconds(
                 records, exclude=live.get("job_id")))
+        body["tone"] = self.tone(records, latest, questions, body["unseen"], body.get("progress"))
         gist = self.gist(state, topic) if not (butler or project) else None
         if gist:
             body["gist"] = gist
@@ -311,6 +312,23 @@ class Collector:
         if latest is None:
             return "空闲"
         return STATE_WORDS.get(latest.get("status"), "空闲")
+
+    @staticmethod
+    def tone(records, latest, questions, unseen, progress) -> str:
+        """The topic's state as a core/look.py STATES key (data contract v5 ``tone``): the page colours by it, and says
+        its word. As ``word`` reads the records, and more: 可能卡住 for a running turn that may be stuck, 有结果 for an
+        ended one not seen (``unseen``) and 做完 once seen, 停住了 for a failed one and for one stopped by anyone but the
+        owner (core/look.py owner_stopped), 已停止 for his own."""
+        if any(row.get("status", "pending") == "pending" and not row.get("display_pending") for row in questions):
+            return "waiting"
+        live = next((record for record in reversed(records) if record.get("status") in RUNNING), None)
+        if live is not None:
+            return look.record_tone(live, stuck=bool((progress or {}).get("maybe_stuck")))
+        if latest is not None and latest.get("status") == "continued":
+            latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
+        if latest is None or latest.get("status") not in STATE_WORDS:
+            return "idle"
+        return look.record_tone(latest, seen=not unseen)
 
     def rows(self, state, topic) -> list:
         """The user and assistant lines of the topic's history, from a cache that is read again when the file changed."""

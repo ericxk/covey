@@ -409,7 +409,7 @@ class ProjectLoop:
             remember_topic_message(state, lead, chat, message)
             ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
             members = [topic for topic in record.get("threads") or () if isinstance(topic, str)]
-            stopped = self.stop(app.controls, ctx, members, chat, message)
+            stopped = self.stop(app.controls, ctx, members, chat, message, by="guard")
 
             def count(data):
                 if isinstance(data.get("pause_ask"), dict):

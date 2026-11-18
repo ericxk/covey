@@ -271,7 +271,7 @@ class Tracks:
         stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
         others = others_going(entries, decision.job_id)
         job = entry.job if entry else None
-        action = {"kind": JOB_STOP_ACTION_KIND, "job_id": decision.job_id, "message_id": job.message_id if job else ""}
+        action = {"kind": JOB_STOP_ACTION_KIND, "job_id": decision.job_id, "message_id": job.message_id if job else "", "by": "word"}
         if others > 0:
             action["others"] = str(others)  # The runner's reply says it (task_controls.py ``stop_action``).
         click = {"chat_id": chat, "message_id": message, "event_id": f"track-stop-{message}",

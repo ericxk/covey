@@ -286,6 +286,13 @@ def job_stop_action_value(job: Any) -> dict[str, str]:
     }
 
 
+# Who asked a job to stop, kept as its record's ``cancel_requested_by`` (core/look.py OWNER_STOPS reads it): the
+# owner's click on its card (a click names no one: "card"), his stop word to the butler, his stop on the web page or on
+# a project's card, his recall of the task's message (RECALLED); a project's lead or its budget guard; 代答 stopping a
+# batch it replaces.
+STOP_SOURCES = frozenset({"card", "word", "web", "project", "lead", "guard", "proxy", RECALLED})
+
+
 def parse_job_stop_action_value(raw: Any) -> dict[str, str] | None:
     if isinstance(raw, str):
         try:
@@ -304,8 +311,8 @@ def parse_job_stop_action_value(raw: Any) -> dict[str, str] | None:
     others = str(raw.get("others") or "").strip()
     if others.isdigit() and int(others) > 0:
         action["others"] = others  # A stop word of the butler's tracks: how many other tracks are still going.
-    if raw.get("by") == RECALLED:
-        action["by"] = RECALLED
+    if raw.get("by") in STOP_SOURCES:
+        action["by"] = raw["by"]  # Who stopped it, when not a click on the task card (STOP_SOURCES).
     return action
 
 

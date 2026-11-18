@@ -14,7 +14,7 @@ from covey.core.butler import traits, worded
 from covey.core.checkpoint import read_checkpoint
 from covey.core.harness import BridgeContext
 from covey.core.jobs import BridgeReplyJob as ReplyJob
-from covey.core.jobs import RECALLED, carry_device, context_for_job, parse_job_stop_action_value, upsert_job_record
+from covey.core.jobs import RECALLED, STOP_SOURCES, carry_device, context_for_job, parse_job_stop_action_value, upsert_job_record
 from covey.core.model_settings import recorded_work_mode, strict_recorded_model_settings
 from covey.core.model_policy import retried_line
 from covey.core.process import signal_group
@@ -403,7 +403,7 @@ class TaskControls(Redelivery):
             return True
         hard_stop_later(job, self.runtime.log)  # Before any record or card write: those may wait on the disk.
         job.cancel_requested_at = utc_now_iso()
-        job.cancel_requested_by = RECALLED if recalled else "card"
+        job.cancel_requested_by = action.get("by") if action.get("by") in STOP_SOURCES else "card"
         # What the user looks at changes first: the status line and the buttons at the top of the card.
         shown = bool(job.progress) and self.cards.show_stopping(ctx, job)
         self.record_job_state(ctx, job, "cancel_requested", "原消息已撤回，停止任务" if recalled else "用户点击卡片停止按钮")

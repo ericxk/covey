@@ -256,6 +256,7 @@
 | `cards/trace_view.py` | Feishu rendering from an isolated execution snapshot |
 | `cards/triage_card.py` | The 不对 form of the 专项卡's 分流记录: a card of its own with one input, because the 专项卡 is redrawn and holds no field |
 | `cards/turn_export.py` | The 下载请求与结果 element at the bottom of an ended task card |
+| `cards/ui.py` | The shared parts of the 夜航 look as schema 2.0 card elements |
 | `cards/weekly_usage.py` | The 本周用量 card, the bot menu's 用量 panel: the window in its title bar |
 | `cards/workspace_manager.py` | The 工作区 card, the bot menu's 工作区 panel and the launch card's ⚙️ 添加或管理工作区… |
 
@@ -304,6 +305,7 @@
 | `core/locks.py` | Resource-scoped locks |
 | `core/logs.py` | Logs of a state directory |
 | `core/longtask.py` | Long-task status: the thread that watches a running turn (TaskMonitor) |
+| `core/look.py` | How a state looks on all three surfaces: the chat's cards, the bot menu's panels and the web page |
 | `core/loops.py` | The Bridge's background threads: `supervised` keeps one running, `every` is the loop most of them run |
 | `core/maintenance.py` | Daily maintenance of a state directory: a verifiable backup, archival and bounded storage |
 | `core/maintenance_report.py` | How maintenance's --dry-run words what it would do |
@@ -318,6 +320,7 @@
 | `core/node_agent.py` | The Node: the program that stays on a device (and on the hub itself) and keeps one connection to its hub |
 | `core/node_rules.py` | The rules that turn a node's samples into alerts, as pure functions |
 | `core/nodes.py` | Nodes (节点): the machines that keep a connection to this hub, the hub itself included, and what they report |
+| `core/orb_image.py` | The conclusion band's orb as a PNG |
 | `core/paths.py` | Resolve service storage independently of the execution workspace |
 | `core/patrol.py` | What the butler noticed and would have done: records and numbers, no judging |
 | `core/placement.py` | Where a turn's words go in the private chat: one table, the layout by the role |
@@ -399,6 +402,7 @@
 | `feishu/message_read.py` | Reading from Feishu through lark-cli |
 | `feishu/message_request.py` | The argv of the bot's `im +messages-send` / `+messages-reply` (message_argv), and the request lark-cli makes … |
 | `feishu/messenger.py` | The Bridge's outbound Feishu boundary: text messages, card messages, published cards and CardKit writes |
+| `feishu/orb_images.py` | The orbs' image keys |
 | `feishu/outgoing_images.py` | The local images an answer's Markdown links to, uploaded to Feishu and linked by their image key instead … |
 | `feishu/sdk.py` | Opt-in long-lived bot SDK for CardKit writes and message sends and reads |
 | `feishu/transport.py` | Structured delivery failures and durable, bounded idempotent CLI writes |
@@ -524,4 +528,4 @@
 ## 省 token
 
 - 不整篇读文档和大文件。可能很长的 Bash 输出写进文件，只看结尾和 `grep -E '^(FAIL|ERROR)'`；派子代理时给确切的文件和行号范围。
-- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`。`docs/history/` 一般不用读。
+- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`；卡片和网页的词、颜色、组件 `docs/ui.md`。`docs/history/` 一般不用读。

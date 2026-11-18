@@ -697,9 +697,10 @@ def release(state, topic, pid) -> bool:
 STOP_ALIAS = "project-stop-"  # The Bridge's own message a forwarded stop of a project's task names: an alias of its topic.
 
 
-def stop_task(host, ctx, topic, chat, job, event_id, by="") -> None:
-    """Ask ``job`` of ``topic`` to stop as a click on its card's 停止 does; ``by`` RECALLED: the owner recalled the message
-    the task came from (app/source_watch.py), so its card says that instead of a click. A job in a live task runner is stopped there, by
+def stop_task(host, ctx, topic, chat, job, event_id, by="project") -> None:
+    """Ask ``job`` of ``topic`` to stop as a click on its card's 停止 does; ``by`` says who (core/jobs.py STOP_SOURCES),
+    RECALLED: the owner recalled the message the task came from (app/source_watch.py), so its card says that instead of
+    a click. A job in a live task runner is stopped there, by
     that click forwarded to the runner (app/runner_ipc.py forward_card_action, as app/butler_tracks.py and app/proxy.py
     stop_job do): the runner owns the job, and a stop set only in this Bridge's copy of it reaches nobody (accept8,
     2026-11-16: the threads' commands ran on to their end). The click names an alias of the topic's own (``STOP_ALIAS``),
@@ -711,7 +712,7 @@ def stop_task(host, ctx, topic, chat, job, event_id, by="") -> None:
     target = dataclasses.replace(ctx, topic_id=topic)
     message = STOP_ALIAS + str(topic)
     move_topic_message(ctx.state_dir, topic, chat, message)
-    action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id, **({"by": by} if by else {})}
+    action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id, "by": by}
     click = {"chat_id": chat, "message_id": message, "event_id": event_id,
              "operator_id": host.runtime.owner_open_id or "", "action_value": action}
     if runner_ipc.forward_card_action(host.runtime, target, click, action):
@@ -720,13 +721,13 @@ def stop_task(host, ctx, topic, chat, job, event_id, by="") -> None:
     host.cancel_reply_job_from_card(target, action, chat, event_id)
 
 
-def stop_tasks(host, ctx, topics, chat, event_id) -> int:
+def stop_tasks(host, ctx, topics, chat, event_id, by="project") -> int:
     """Stop the tasks of ``topics`` that are queued or running (``stop_task``, the event id of each is ``event_id`` and its
-    job number); how many."""
+    job number, ``by`` who stopped them: core/jobs.py STOP_SOURCES); how many."""
     stopped = 0
     for topic in topics:
         for job in host.runtime.jobs.open_in_topic(topic, chat):
-            stop_task(host, ctx, topic, chat, job, f"{event_id}-{job.job_id}")
+            stop_task(host, ctx, topic, chat, job, f"{event_id}-{job.job_id}", by)
             stopped += 1
     return stopped
 

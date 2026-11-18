@@ -287,7 +287,7 @@ class Proxy:
         app, routed, target = self.contact_topics.topic_context(ctx, settings, contact, batch["mirror_id"])
         group, job_id = settings["group_chat_id"], int(record["job_id"])
         action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job_id),
-                  "message_id": str(record.get("message_id") or batch["mirror_id"])}
+                  "message_id": str(record.get("message_id") or batch["mirror_id"]), "by": "proxy"}
         # The click on its task card, as the owner's: the runner routes it to the job like any click there.
         event = {**routed, "message_id": str(record.get("card_message_id") or batch["mirror_id"]),
                  "event_id": f"proxy-stop-{batch['id']}", "operator_id": self.runtime.owner_open_id or "",

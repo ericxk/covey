@@ -144,7 +144,7 @@ def project_topic_stop(env, request):
     label = topic_label(Path(env.state_dir), topic) or topic[:8]
     if topic not in (record.get("threads") or ()):
         return reply(False, f"{label} 不是这个专项的话题，不能从这里停它。")
-    stopped = project_cards.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}")
+    stopped = project_cards.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}", by="lead")
     why = " ".join(str(request.args.get("why") or "").split())[:120]
     binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled",
                                   message=STOP_NOTE + (f"：{why}" if why else ""))

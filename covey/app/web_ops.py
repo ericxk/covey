@@ -275,7 +275,7 @@ class Ops:
             message = PREFIX + str(row.get("op_id"))
             remember_topic_message(state, topic, chat, message)
             stop_ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
-            action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id}
+            action = {"kind": JOB_STOP_ACTION_KIND, "job_id": str(job.job_id), "message_id": job.message_id, "by": "web"}
             click = {"chat_id": chat, "message_id": message, "event_id": f"web-stop-{row.get('op_id')}",
                      "operator_id": self.runtime.owner_open_id or "", "action_value": action}
             if runner_ipc.forward_card_action(self.runtime, stop_ctx, click, action):

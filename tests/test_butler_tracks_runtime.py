@@ -187,7 +187,7 @@ class RouteTest(TracksCase):
         runtime, target, click, action = forward.call_args.args
         self.assertEqual((target.topic_id, click["message_id"], click["chat_id"]), (BUTLER, "om_3", CHAT))
         self.assertEqual(action, {"kind": "bridge_job_stop", "job_id": str(self.job_of("om_1").job_id),
-                                  "message_id": "om_1", "others": "1"})
+                                  "message_id": "om_1", "by": "word", "others": "1"})
         self.assertEqual(click["action_value"], action)
 
     def test_the_forwarded_stop_stops_the_job_and_says_how_many_tracks_go_on(self):
