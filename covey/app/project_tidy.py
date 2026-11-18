@@ -41,6 +41,7 @@ from covey.core.butler import is_butler_topic
 from covey.core.card_sequence import file_card, reserve
 from covey.core.checkpoint import checkpoint_gist, read_checkpoint
 from covey.core.jobs import job_key, jobs_dir, select_job_records
+from covey.core.locks import resource_lock
 from covey.core.loops import every
 from covey.core.state import claim_once, epoch_seconds, read_object, write_json
 from covey.core.statuses import RUNNING
@@ -478,7 +479,8 @@ class ProjectTidy:
                                              key=f"status-{topic[:16]}-{sequence}", timeout=10)
         if result is None:
             return False
-        write_json(path, {**read_object(path), "shown": now_shown, "written_at": time.time()}, ensure_ascii=False, indent=1)
+        with resource_lock("status-card", str(path)):  # The board's loop writes the record under the same lock.
+            write_json(path, {**read_object(path), "shown": now_shown, "written_at": time.time()}, ensure_ascii=False, indent=1)
         return True
 
     # Scheduled and asked for ---------------------------------------------------------------------------------------
