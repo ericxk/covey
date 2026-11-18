@@ -1093,6 +1093,15 @@ def tidy_cards():
             "rename_form": tc.rename_form(view),
             "tidy_reading": tc.tidy_card({"run": "r", "state": "running", "progress": {"done": 12, "total": 40, "current": "T488"}}),
             "tidy_done": tc.tidy_card(done),
+            # 2026-11-18: each new project on its own proposal card, rows Markdown with every topic linked, no 全部照办, the
+            # topics not read named with why.
+            "tidy_done_v2": tc.tidy_card({
+                "run": "20261118200000-def456", "state": "done", "did": [], "proposed": ["Golden Localize 提示词优化", "提议卡与整理专项"],
+                "rows": [{"proposal": "4" * 16, "md": True, "state": "open",
+                          "line": "把 [T518](https://applink.feishu.cn/client/thread/open?t=518) 升级 Merlin 开发机的 MASO 移出「Covey 产品完善」（不是在完善 Covey）"}],
+                "skipped": ["2 个话题读不了，没参与这次整理：[未编号话题](https://applink.feishu.cn/client/thread/open?t=1) 看一下 maso 的日志（内容太长，一次读不完）；"
+                            "[T301](https://applink.feishu.cn/client/thread/open?t=301) 对齐评测（官方内容安全拦了）"],
+                "skipped_md": True}),
             "tidy_nothing": tc.tidy_card({"run": "r", "state": "done", "scope": "Covey"}),
             "tidy_failed": tc.tidy_card({"run": "r", "state": "failed", "why": "判断超时了"}),
             "leave_answer": tc.lesson_card("已把这个话题移出专项「EnvReplay Prompt 优化」，以后它不会再被自动归进专项。",

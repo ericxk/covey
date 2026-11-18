@@ -42,6 +42,7 @@ FULL_CONCLUSION = 600  # Of each conclusion in a read in full.
 MAX_TOPICS = 40
 MAX_PROJECTS = 12
 LESSONS = 12
+MIN_CREATE = 2  # Topics a new project is made of at least.
 SUGGESTIONS = 12  # Read of an answer (the card shows at most app/project_tidy.py CARD_ROWS).
 
 JUDGE_SYSTEM = (
@@ -49,10 +50,13 @@ JUDGE_SYSTEM = (
     "topics（最近的话题：index、label、title、gist 话题要点、owner 他在话题里说过的话、conclusions 每轮结论的第一段、"
     "project 所在专项的 index、days 开了几天、turns 他说了几次、workspace）、lessons（他以前说过的整理规则，以它为准）、"
     "focus（只整理这一个话题时它的 index，否则为 null）、scope（只整理和这个词有关的，空就是全部）、full（你要求全文的话题）。"
-    "专项是一个目标：要跨几天或分几个话题推进、有说得出的终点，或是一份持续的职责。一次性的总结、查询、验收测试、闲聊都不算专项，"
-    "反复出现也只是同一类事，不是同一件事。按本质判断，不按标题：标题写的往往是第一件具体的事，本质要看要点和他说的话。"
+    "专项是一个具体的目标：分几个话题、跨几天推进，有说得出的终点（做到什么就算完）。一次性的总结、查询、验收测试、闲聊都不算专项，"
+    "反复出现也只是同一类事，不是同一件事。长期值守、日常运维、没有终点的事不建专项。只有一个话题的不建专项（至少两个话题是同一个目标）。"
+    "不要按大主题把沾边的话题都塞进一个筐（比如“完善某产品”）：按具体目标拆开，一个专项一个终点；一个话题只在它真正服务这个目标时才放进来，"
+    "在同一个仓库或系统上干活不等于同一个目标（升级某台机器上的软件、读文章做调研，都不是“完善这个产品”）。"
+    "按本质判断，不按标题：标题写的往往是第一件具体的事，本质要看要点和他说的话。"
     "专项名取本质：对象 + 要达成的事，12 个字以内，不带编号和日期，不取标题里第一件具体的事，也不取所在的环节。"
-    "能给的建议（kind）：create 把几个话题建成新专项（topics、name、goal 写终点；topics 要列全和它是同一件事的话题，看要点的 related 和他说的话里提到的 T 号，只有真找不到别的才只放一个）；join 把一个话题归进已有专项（topic、project）；"
+    "能给的建议（kind）：create 把几个话题建成新专项（topics、name、goal 写终点：做到什么就算完；topics 列全服务这个目标的话题，至少两个，看要点的 related 和他说的话里提到的 T 号）；join 把一个话题归进已有专项（topic、project）；"
     "leave 把一个话题移出它的专项；merge 合并几个专项（projects，第一个留下，name 新名可空）；split 从一个专项拆出几个话题另建（project、topics、name、goal）；"
     "rename 改专项名（project、name）；fold 收起没事可做的专项（project）。每条都写 why 和 confidence（0 到 1）：why 是写给他看的一句人话，30 字以内，说这几个话题为什么是同一件事、为什么值得建成专项；不写天数和轮数（卡上另有），不用缩写和行话。"
     "拿不准就不建议：建错比不建代价大。拿不准某几个话题是不是同一件事时，可以先只回 {\"read\":[话题 index]}（最多 3 个）要它们的全文，"
@@ -198,9 +202,12 @@ def backfill(state, chat, topic, *, backend, ctx, log=print, now=None, call=None
         if not gist:
             raise Failed("bad_output")
     except Failed as exc:
-        topic_gist.mark_unreadable(state, topic, exc.reason, job=found.last_job, now=now)
-        log(f"project tidy backfill failed topic={topic[:12]} reason={exc.reason} ms={round((time.monotonic() - started) * 1000)}")
-        return exc.reason
+        reason = why_failed(exc)
+        topic_gist.mark_unreadable(state, topic, reason, job=found.last_job, now=now)
+        detail = " ".join(str(getattr(exc, "detail", "") or "").split())[:160]
+        log(f"project tidy backfill failed topic={topic[:12]} reason={reason} ms={round((time.monotonic() - started) * 1000)}"
+            + (f" detail={detail}" if detail else ""))
+        return reason
     except Exception as exc:  # noqa: BLE001 - this topic only
         topic_gist.mark_unreadable(state, topic, "error", job=found.last_job, now=now)
         log(f"project tidy backfill failed topic={topic[:12]} reason=error detail={type(exc).__name__}")
@@ -208,6 +215,17 @@ def backfill(state, chat, topic, *, backend, ctx, log=print, now=None, call=None
     topic_gist.save(state, topic, gist, source="backfill", job=found.last_job, now=now)
     log(f"project tidy backfill topic={topic[:12]} ms={round((time.monotonic() - started) * 1000)}")
     return ""
+
+
+def why_failed(exc) -> str:
+    """A failed read's reason, told apart by what the CLI said when it exited non-zero: ``too_long`` (the topic does not fit
+    one read), ``refused`` (an official safety refusal), else the reason as it came."""
+    detail = str(getattr(exc, "detail", "") or "").lower()
+    if exc.reason == "exit_nonzero" and ("too long" in detail or "context length" in detail or "too many tokens" in detail):
+        return "too_long"
+    if exc.reason == "exit_nonzero" and ("usage policy" in detail or "refus" in detail or "safety" in detail):
+        return "refused"
+    return exc.reason
 
 
 def needs_gist(state, topic, last_job) -> bool:
@@ -297,10 +315,12 @@ def parse(text, records, items, *, focus=None, run="", source="tidy") -> list:
         common = {"why": raw.get("why"), "confidence": confidence, "run": run, "source": source, "now": now}
         try:
             if kind == proposals.CREATE:
-                if not topics or any(by_id[t].project for t in topics):
+                # A project is one goal with an end, over two topics at least (the owner, 2026-11-18: 只有一个话题的不提专项;
+                # 长期值守、没有终点的事也不建议): one topic, or no goal to end at, is no project.
+                if len(set(topics)) < MIN_CREATE or any(by_id[t].project for t in topics):
                     continue
                 made = proposals.new_proposal(kind, topics=topics, name=raw.get("name"), goal=raw.get("goal"), **common)
-                if not made["name"]:
+                if not made["name"] or not made["goal"]:
                     continue
             elif kind in (proposals.JOIN, proposals.LEAVE):
                 if topic is None or not pid:
@@ -317,7 +337,7 @@ def parse(text, records, items, *, focus=None, run="", source="tidy") -> list:
                 made = proposals.new_proposal(kind, topics=members, project=chosen[0], projects_=chosen, name=raw.get("name"), **common)
             elif kind == proposals.SPLIT:
                 record = records[project - 1] if project else None
-                if record is None or not topics or not set(topics) <= set(record.get("threads") or ()) \
+                if record is None or len(set(topics)) < MIN_CREATE or not set(topics) <= set(record.get("threads") or ()) \
                         or set(topics) == set(record.get("threads") or ()):
                     continue
                 made = proposals.new_proposal(kind, topics=topics, project=pid, name=raw.get("name"), goal=raw.get("goal"), **common)

@@ -311,23 +311,27 @@ class ProposalTest(TidyCase):
         self.assertIn("为什么提：都在改 Prompt", card)
         self.assertEqual([row["essence"] for row in record["view"]["rows"]], [B, B])
 
-    def test_one_long_topic_without_a_gist_is_read_whole_before_it_is_judged_and_its_card_says_so(self):
+    def test_one_long_topic_without_a_gist_is_read_whole_before_it_is_judged_and_alone_it_is_no_project(self):
         """A topic grown long (reason age) with no 话题要点 yet is read whole first: the judge sees its 本质 and so does the
         card, which speaks of one topic, not of 这几个."""
         alone = self.topic("阅读这个session，继续我们未完成的事情", words=[f"第 {n} 句" for n in range(3)], days_ago=19)
         self.tidy.recent_topics = lambda state, chat, now, **kw: [alone]
         self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1], "name": "账号额度运行台", "goal": "额度看得准",
                                                "why": "一直在改运行台", "confidence": 0.8}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, alone, "age", time.time()), "proposed")
+        # Read whole first, so the judge sees what it is about; and a project of one topic is no project (the owner,
+        # 2026-11-18: 只有一个话题的不提专项), so nothing is proposed.
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, alone, "age", time.time()), "none")
         systems = [system for system, _ in self.asked]
         self.assertEqual(systems[:2], [sorter.GIST_SYSTEM, sorter.JUDGE_SYSTEM])
         self.assertEqual(self.judged()[0]["topics"][0]["gist"]["essence"], "阅读这个session，继续我们未完成的事情")
-        card = text(self.sent_cards()[-1])
+        self.assertEqual(self.sent_cards(), [])
+
+    def test_a_kept_one_topic_view_still_draws(self):
+        """A proposal card of one topic sent before 2026-11-18 is redrawn on a click as before."""
+        row = {"label": "T252", "title": "阅读这个session", "link": "", "essence": "运行台", "now": "做完", "days": 19, "turns": 3}
+        card = text(cards.proposal_card({"proposal": "1" * 16, "rows": [row], "name": "运行台", "state": "declined"}))
         self.assertIn("这个话题推了很久", card)
         self.assertIn("19 天 · 3 轮", card)
-        self.assertIn("在做：阅读这个session", card)
-        self.assertIn("现在：做完", card)  # Its newest checkpoint's phase.
-        self.assertNotIn("这几个话题", card)
 
     def test_the_owner_unticks_a_topic_adds_one_by_its_number_and_renames_before_building(self):
         """The owner, 2026-11-18: 在页面增删一下话题…让人微操一波 — the card's select and T number box decide the topics."""
@@ -410,33 +414,58 @@ class TidyCardTest(TidyCase):
         self.assertEqual(len(judged["topics"]), 5)  # The refused one sat out, the others went on.
         view = read_object(next((proposals.folder(self.state) / "runs").glob("*.json")))["view"]
         self.assertEqual(view["state"], "done")
-        self.assertIn("1 个话题读不了，没参与这次整理", view["skipped"])
+        # Which one and why (the owner, 2026-11-18: “读不了”的话题，要写清是哪几个、为什么读不了).
+        self.assertEqual(len(view["skipped"]), 1)
+        self.assertIn("1 个话题读不了，没参与这次整理：", view["skipped"][0])
+        self.assertIn("老话题 2（模型调用出错）", view["skipped"][0])
+        self.assertIn(f"https://applink.example/{topics[2][-6:]}", view["skipped"][0])
         self.assertTrue(any("已收起「回流周报」" in line for line in view["did"]))
         self.assertTrue(projects.folded(projects.read_record(self.state, pid)))
-        self.assertEqual([row["state"] for row in view["rows"]], ["open", "open"])
+        self.assertEqual([row["state"] for row in view["rows"]], ["open"])  # The rename; the new project has its own card.
+        self.assertEqual(view["proposed"], ["推理网关稳定"])
+        proposal = text(self.sent_cards()[-1])
+        for topic in topics[:2]:
+            self.assertIn(f"https://applink.example/{topic[-6:]}", proposal)
+        self.assertIn("建专项", proposal)
         card = text(cards.tidy_card(view))
-        for word in ("整理专项", "新建「推理网关稳定」", "好", "不用", "全部照办", "已经做了"):
+        for word in ("整理专项", "新专项的提议", "「推理网关稳定」", "好", "不用", "已经做了", "最近 7 天动过的话题"):
             self.assertIn(word, card)
+        self.assertNotIn("全部照办", card)
         self.assertIn("正在读", text(self.app.messenger.patch_card.call_args_list[0].args[2]))
 
-    def test_ok_no_and_all_on_the_card(self):
+    def test_rows_list_every_topic_and_are_confirmed_one_by_one_and_no_project_of_one_topic_or_no_end(self):
+        """The owner, 2026-11-18: 不准用“等”字省略; 只有一个话题的不提专项; 去掉「全部照办」，每条逐条确认."""
+        self.filler(3)
+        one, two, three = self.topic("网关失联"), self.topic("网关扩容"), self.topic("头像")
+        members = [self.topic(f"周报 {n}") for n in range(8)]
+        pid = self.project("回流周报", members)
+        self.verdicts.append({"suggestions": [
+            {"kind": "create", "topics": [1, 2], "name": "推理网关稳定", "goal": "一周不失联", "why": "", "confidence": 0.8},
+            {"kind": "create", "topics": [3], "name": "做头像", "goal": "换上新头像", "why": "", "confidence": 0.9},
+            {"kind": "create", "topics": [1, 3], "name": "值守", "goal": "", "why": "", "confidence": 0.9},
+            {"kind": "rename", "project": 1, "name": "回流周报汇报", "why": "", "confidence": 0.7}]})
+        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two, three, *members]
+        record = self.tidy.whole(self.ctx, CHAT, "run-1", "test", "")
+        view = record["view"]
+        self.assertEqual(view["proposed"], ["推理网关稳定"])  # One topic, or no end to reach: no project.
+        self.assertEqual(len(view["rows"]), 1)
+        line = view["rows"][0]["line"]
+        self.assertNotIn("等", line)
+        card = text(cards.tidy_card(view))
+        self.assertNotIn("全部照办", card)
+        self.assertEqual(self.click({"kind": cards.OK_KIND, "run": "run-1", "proposal": view["rows"][0]["proposal"]},
+                                    record["message_id"]), "tidy_ok")
+        self.assertEqual(projects.read_record(self.state, pid)["name"], "回流周报汇报")
+
+    def test_a_card_sent_before_keeps_its_all_button_working(self):
         self.filler(3)
         one, two = self.topic("网关失联"), self.topic("网关扩容")
-        three = self.topic("头像")
-        self.verdicts.append({"suggestions": [
-            {"kind": "create", "topics": [1, 2], "name": "推理网关稳定", "goal": "", "why": "", "confidence": 0.8},
-            {"kind": "create", "topics": [3], "name": "做头像", "goal": "", "why": "", "confidence": 0.5}]})
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two, three]
-        record = self.tidy.whole(self.ctx, CHAT, "run-1", "test", "")
-        rows = record["view"]["rows"]
-        self.assertEqual(self.click({"kind": cards.DECLINE_KIND, "run": "run-1", "proposal": rows[1]["proposal"]},
-                                    record["message_id"]), "tidy_row_decline")
-        self.assertEqual(self.click({"kind": cards.ALL_KIND, "run": "run-1"}, record["message_id"]), "tidy_all")
-        view = read_object(self.tidy.run_path(self.state, "run-1"))["view"]
-        self.assertEqual([row["state"] for row in view["rows"]], ["done", "declined"])
-        self.assertEqual(projects.read_record(self.state, upgrades.project_id("tidy", rows[0]["proposal"]))["threads"], [one, two])
-        self.assertEqual(self.click({"kind": cards.OK_KIND, "run": "run-1", "proposal": rows[1]["proposal"]},
-                                    record["message_id"]), "tidy_decided")
+        pid = self.project("回流周报", [self.topic("周报 1")])
+        self.verdicts.append({"suggestions": [{"kind": "rename", "project": 1, "name": "回流周报汇报", "why": "", "confidence": 0.7}]})
+        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two]
+        record = self.tidy.whole(self.ctx, CHAT, "run-2", "test", "")
+        self.assertEqual(self.click({"kind": cards.ALL_KIND, "run": "run-2"}, record["message_id"]), "tidy_all")
+        self.assertEqual(projects.read_record(self.state, pid)["name"], "回流周报汇报")
 
     def test_one_tidy_at_a_time_and_the_tool_and_the_web_page_say_where_it_is(self):
         self.filler()

@@ -642,13 +642,18 @@ class ProjectTidy:
             if time.monotonic() - drawn >= PROGRESS_GAP:
                 self.redraw(ctx, record)
                 drawn = time.monotonic()
-            if sorter.backfill(state, chat, topic, backend=backend, ctx=context, log=self.runtime.log, now=now):
-                unreadable.append(topic)
-        topics = [topic for topic in topics if topic not in unreadable]
+            reason = sorter.backfill(state, chat, topic, backend=backend, ctx=context, log=self.runtime.log, now=now)
+            if reason:
+                unreadable.append((topic, reason))
+        topics = [topic for topic in topics if topic not in {topic for topic, _ in unreadable}]
+        # Which ones and why (the owner, 2026-11-18: “读不了”的话题，要写清是哪几个、为什么读不了).
         if unreadable:
-            view["skipped"].append(f"{len(unreadable)} 个话题读不了，没参与这次整理")
+            view["skipped"].append(f"{len(unreadable)} 个话题读不了，没参与这次整理：" + "；".join(
+                f"{self.linked(ctx, [topic])}（{UNREADABLE_WORDS.get(reason, '读的时候出错')}）" for topic, reason in unreadable))
+            view["skipped_md"] = True
         if hidden:
-            view["skipped"].append(f"{len(hidden)} 个话题脱敏，内容不外发，没参与这次整理")
+            view["skipped"].append(f"{len(hidden)} 个话题开了脱敏，内容不外发，没参与这次整理：" + self.linked(ctx, hidden))
+            view["skipped_md"] = True
         view["progress"] = {"done": len(missing), "total": len(topics), "current": ""}
         self.redraw(ctx, record)
         items = [sorter.material(state, chat, topic, now) for topic in topics]
@@ -683,13 +688,17 @@ class ProjectTidy:
                 break
             if proposals.declined_like(state, kind, made["topics"], made.get("project") or "", made.get("projects") or ()):
                 continue
-            if kind == proposals.CREATE and proposals.prefs(state).get("no_proposals"):
+            if kind == proposals.CREATE:
+                # Each new project its own proposal card, the same as a real-time one (the owner, 2026-11-18: 每个话题都要能点开，
+                # 附摘要；不准用“等”；能自己增删话题、改名再确认): the 整理专项 card only names it.
+                if self.propose(ctx, chat, {**made, "run": record["run"]}) == "proposed":
+                    view.setdefault("proposed", []).append(str(made.get("name") or ""))
                 continue
             saved, _ = proposals.put_proposal(state, made)
             if saved.get("state") != proposals.OPEN or any(row["proposal"] == saved["id"] for row in view["rows"]):
                 continue
             proposals.update_proposal(state, saved["id"], lambda data: data.update(run=record["run"]))
-            view["rows"].append({"proposal": saved["id"], "line": self.line(state, saved), "state": proposals.OPEN})
+            view["rows"].append({"proposal": saved["id"], "line": self.line(state, saved, ctx), "md": True, "state": proposals.OPEN})
 
     def foldable(self, state, pid) -> bool:
         from covey.core.jobs import topic_job_records
@@ -707,22 +716,42 @@ class ProjectTidy:
 
     @staticmethod
     def labels(state, topics) -> str:
-        return "、".join(label_title(state, topic)[0] or "话题" for topic in topics[:6]) + (" 等" if len(topics) > 6 else "")
+        """Every topic's T number (the owner, 2026-11-18: 不准用“等”字省略), plain: the log's and a proposal's text."""
+        return "、".join(label_title(state, topic)[0] or "话题" for topic in topics)
 
-    def line(self, state, record) -> str:
-        """One row of the 整理专项 card in words."""
+    def linked(self, ctx, topics) -> str:
+        """Every topic as Markdown, its T number a link that opens it and its title after it."""
+        state, words = Path(ctx.state_dir), []
+        for topic in topics:
+            label, title = label_title(state, topic)
+            if not label:  # A topic without a number (an old one, or a Harness's own): what the owner said first names it.
+                said = sorter.material(state, self.chat() or "", topic, time.time()).owner
+                label, title = "未编号话题", title or (sorter._cut(said[0], 24) if said else "")
+            try:
+                link = self.link(state, topic, profile=getattr(ctx, "profile", None))
+            except Exception:  # noqa: BLE001 - a T number without its link
+                link = ""
+            shown = f"[{label}]({link})" if link else label
+            words.append(f"{shown} {cards.literal_text(title)}" if title else shown)
+        return "、".join(words)
+
+    def line(self, state, record, ctx=None) -> str:
+        """One row of the 整理专项 card: Markdown with every topic linked when ``ctx`` is given (a row marked ``md``), else plain
+        words (the log's, and rows kept before)."""
         kind, why = record["kind"], record.get("why") or ""
-        name = self.project_name(state, record.get("project")) if record.get("project") else ""
+        esc = cards.literal_text if ctx is not None else (lambda text: text)
+        topics = self.linked(ctx, record.get("topics") or ()) if ctx is not None else self.labels(state, record.get("topics") or ())
+        name = esc(self.project_name(state, record.get("project"))) if record.get("project") else ""
         said = {
-            proposals.CREATE: f"新建「{record.get('name')}」：{self.labels(state, record['topics'])}",
-            proposals.LEAVE: f"把 {self.labels(state, record['topics'])} 移出「{name}」",
-            proposals.MERGE: "合并" + "、".join(f"「{self.project_name(state, pid)}」" for pid in record.get("projects") or ())
-                             + (f"，叫「{record['name']}」" if record.get("name") else ""),
-            proposals.SPLIT: f"从「{name}」拆出 {self.labels(state, record['topics'])}，另建「{record.get('name')}」",
-            proposals.RENAME: f"「{name}」改名「{record.get('name')}」",
-            proposals.JOIN: f"把 {self.labels(state, record['topics'])} 归进「{name}」",
+            proposals.CREATE: f"新建「{esc(record.get('name') or '')}」：{topics}",
+            proposals.LEAVE: f"把 {topics} 移出「{name}」",
+            proposals.MERGE: "合并" + "、".join(f"「{esc(self.project_name(state, pid))}」" for pid in record.get("projects") or ())
+                             + (f"，叫「{esc(record['name'])}」" if record.get("name") else ""),
+            proposals.SPLIT: f"从「{name}」拆出 {topics}，另建「{esc(record.get('name') or '')}」",
+            proposals.RENAME: f"「{name}」改名「{esc(record.get('name') or '')}」",
+            proposals.JOIN: f"把 {topics} 归进「{name}」",
             proposals.FOLD: f"收起「{name}」"}.get(kind, kind)
-        return said + (f"（{why}）" if why else "")
+        return said + (f"（{esc(why)}）" if why else "")
 
     def send_tidy(self, ctx, chat, run, view) -> str:
         sent = []
@@ -945,5 +974,9 @@ def latest(conclusions) -> str:
     return cut(first) if len(first) >= 6 else ""
 
 
+UNREADABLE_WORDS = {"model_error": "模型调用出错", "refused": "官方内容安全拦了", "too_long": "内容太长，一次读不完",
+                    "exit_nonzero": "读它的 Claude Code 出错退出了", "timeout": "读超时了",
+                    "bad_output": "模型的回答看不懂", "empty": "里面还没有你说的话", "redacted": "开了脱敏，内容不外发",
+                    "no_backend": "没有可用的 Claude Code 来读", "error": "读的时候出错"}
 FAILED_WORDS = {"timeout": "判断超时了", "no_backend": "没有可用的 Claude Code 来判断", "bad_output": "判断的回答看不懂",
                 "model_error": "模型拒绝了这次判断", "exit_nonzero": "判断的进程出错了", "spawn_failed": "判断的进程没起来"}

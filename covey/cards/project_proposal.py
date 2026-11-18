@@ -5,7 +5,7 @@ The buttons' kinds are in app/card_actions.py ACTIONS, handled before topic rout
 from __future__ import annotations
 
 from covey.cards.elements import (button_row, card, callback, item, md, note, panel_header, plain, section, styled_panel,
-                                  text_button, topic_button)
+                                  text_button)
 from covey.core.text import literal as literal_text
 
 CREATE_KIND = "bridge_tidy_create"  # 建专项
@@ -16,7 +16,7 @@ DECLINE_KIND = "bridge_tidy_decline"  # 暂不考虑 (a proposal card's), 不用
 NEVER_KIND = "bridge_tidy_never"  # 以后别提议 (a card sent before name_form)
 AUTO_KIND = "bridge_tidy_auto"  # 以后直接建
 OK_KIND = "bridge_tidy_ok"  # 好 on one row of the 整理专项 card
-ALL_KIND = "bridge_tidy_all"  # 全部照办
+ALL_KIND = "bridge_tidy_all"  # 全部照办 (a card sent before 2026-11-18: no new card has it)
 LEAVE_KIND = "bridge_tidy_leave"  # 移出 on a topic's card
 LESSON_KIND = "bridge_tidy_lesson"  # 记下 under a 不用 or 移出: the owner's reason
 START_KIND = "bridge_tidy_start"  # 整理专项 on the 设置 card
@@ -193,10 +193,16 @@ def tidy_card(view):
     did = list(view.get("did") or ())
     if did:
         elements += [section("已经做了")] + [md("· " + literal_text(line)) for line in did]
+    proposed = [name for name in view.get("proposed") or () if name]
+    if proposed:
+        # Each new project is a proposal card of its own, with its topics linked and summed up, to change and confirm one by one.
+        elements += [section(f"新专项的提议（{len(proposed)} 个）"),
+                     md("、".join(f"「{literal_text(name)}」" for name in proposed)),
+                     note("每个一张提议卡，在下面：话题都列全、能点开、带摘要，可以增删话题、改名，再逐个确认。")]
     if rows:
         elements.append(section(f"要你定的（{len(rows)} 条）"))
         for row in rows:
-            line = literal_text(row.get("line") or "")
+            line = row.get("line") or "" if row.get("md") else literal_text(row.get("line") or "")
             if (row.get("state") or "open") == "open":
                 elements.append(item(md("· " + line), text_button("好", {"kind": OK_KIND, "run": view.get("run", ""),
                                                                         "proposal": row.get("proposal", "")}, tone="primary"),
@@ -204,16 +210,15 @@ def tidy_card(view):
                                                         "proposal": row.get("proposal", "")})))
             else:
                 elements.append(md(f"· {line} <font color='grey'>{literal_text(row.get('note') or OUTCOME.get(row.get('state'), ''))}</font>"))
-        if any((row.get("state") or "open") == "open" for row in rows):
-            elements.append(button_row([topic_button("全部照办", tone="primary",
-                                                     behaviors=callback({"kind": ALL_KIND, "run": view.get("run", "")}))]))
-    if state == "done" and not did and not rows:
-        elements.append(md("专项和最近的话题都看过了，没有要改的。"))
+        # No 全部照办: each one is the owner's own yes (the owner, 2026-11-18). A card sent before keeps its button.
+    if state == "done" and not did and not rows and not proposed:
+        elements.append(md("专项和最近动过的话题都看过了，没有要改的。"))
     for words in view.get("skipped") or ():
-        elements.append(note(literal_text(words)))
+        elements.append(note(words if view.get("skipped_md") else literal_text(words)))
+    count = len(rows) + len(proposed)
     tags = ((("正在整理", "blue"),) if state == "running" else (("没整理成", "red"),) if state == "failed"
-            else ((f"{len(rows)} 条建议", "orange"),) if rows else (("整理好了", "green"),))
-    head = panel_header(TIDY_ICON, "整理专项", subtitle="专项和最近 7 天的话题", tags=tags)
+            else ((f"{count} 条建议", "orange"),) if count else (("整理好了", "green"),))
+    head = panel_header(TIDY_ICON, "整理专项", subtitle=f"专项和{TIDY_SPAN}", tags=tags)
     return styled_panel(head, elements, "整理专项")
 
 
@@ -229,7 +234,8 @@ def joined_card(name, topic, pid):
                 padding="8px 12px 8px 12px")
 
 
-START_LINE = "把专项和最近 7 天的话题重新看一遍，给出建议"
+TIDY_SPAN = "最近 7 天动过的话题"  # Topics with a turn in the last 7 days, not the ones opened then (the owner, 2026-11-18).
+START_LINE = f"把专项和{TIDY_SPAN}重新看一遍，给出建议"
 
 
 def settings_row():
