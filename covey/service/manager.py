@@ -188,6 +188,7 @@ class Manager:
         self.children = {}
         self.last_tick = time.monotonic()
         self.unresponsive = {}
+        self.reported = {}  # The error last said for each service, for when it cannot be saved (a full disk).
 
     def health_server(self, sock):
         serve(sock, lambda: {"process": process_identity(os.getpid()), "lag": time.monotonic() - self.last_tick},
@@ -201,10 +202,15 @@ class Manager:
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, KeyError, TypeError) as exc:
                 # A broken backend/config, or a manifest removed mid-pass, must not take other
                 # services down: the boot watchdog would restart into the same file.
-                if (read_json(error, None) or {}).get("error") != str(exc):
+                if self.reported.get(path.name) != str(exc) and (read_json(error, None) or {}).get("error") != str(exc):
                     say(f"service {path.stem[:8]}: {exc}")  # Once, not at every pass while it lasts.
-                    save(error, {"error": str(exc), "checked_at": time.time()})
+                    # A disk that takes no writes (a full quota) fails this save too: the error is said once
+                    # all the same, and the Manager goes on supervising (2026-11-18: it ended here instead).
+                    with contextlib.suppress(OSError):
+                        save(error, {"error": str(exc), "checked_at": time.time()})
+                self.reported[path.name] = str(exc)
             else:
+                self.reported.pop(path.name, None)
                 with contextlib.suppress(OSError):  # It has ended: the same error again is news.
                     error.unlink()
 
@@ -330,12 +336,25 @@ class Manager:
         if outcome not in {"running", "disabled", "not_installed", "waiting"}:
             say(f"memory watchdog: {outcome}")
 
+    def record(self):
+        """Write manager.json (who the Manager is, for deploys and the status command); False when it cannot
+        be written yet, and the next pass tries again."""
+        try:
+            save(self.root / "manager.json", {"process": process_identity(os.getpid()), "status": "running"})
+        except OSError as exc:
+            if self.reported.get('manager.json') != str(exc):
+                say(f"manager.json not written: {exc}")
+            self.reported['manager.json'] = str(exc)
+            return False
+        self.reported.pop('manager.json', None)
+        return True
+
     def run(self):
         lock = instance_lock("manager-" + service_key(self.root))
         if lock is None:
             return 0
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        save(self.root / "manager.json", {"process": process_identity(os.getpid()), "status": "running"})
+        recorded = self.record()
         signal.signal(signal.SIGTERM, lambda *_: self.stop.set())
         signal.signal(signal.SIGINT, lambda *_: self.stop.set())
         threading.Thread(target=self.health_server, args=(lock,), daemon=True).start()
@@ -349,9 +368,19 @@ class Manager:
                         self.last_tick = time.monotonic()
                         self.stop.wait(self.interval)
                         continue
-                self.reconcile_all()
-                self.ensure_memguard()
-                rotate_live(self.root / 'manager.log', LOG_BYTES, LOG_KEEP)
+                try:
+                    recorded = recorded or self.record()
+                    self.reconcile_all()
+                    self.ensure_memguard()
+                    rotate_live(self.root / 'manager.log', LOG_BYTES, LOG_KEEP)
+                except OSError as exc:
+                    # Storage that takes no writes or reads for a while (a full quota, a stalled mount) is no
+                    # reason to stop supervising: the services go on and the next pass tries again.
+                    if self.reported.get('') != str(exc):
+                        say(f"manager pass failed: {exc}")
+                    self.reported[''] = str(exc)
+                else:
+                    self.reported.pop('', None)
                 self.last_tick = time.monotonic()
                 self.stop.wait(self.interval)
         finally:

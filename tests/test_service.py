@@ -103,6 +103,51 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual([line.split('] ', 1)[1] for line in said.getvalue().splitlines()
                           if 'unmanaged' in line], [f"service {manifest['id'][:8]}: state has a live unmanaged PID"] * 2)
 
+    def test_a_disk_that_takes_no_writes_never_stops_the_manager(self):
+        # 2026-11-18: the shared disk's quota filled; saving the service's error failed inside the handler of the
+        # status write's failure, and the Manager ended, leaving the Bridge unsupervised.
+        import contextlib
+        import errno
+        import io
+        manifest = self.register()
+        self.manager.reconcile_all()
+        full = OSError(errno.EDQUOT, 'Disk quota exceeded')
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said), mock.patch('covey.service.manager.save', side_effect=full):
+            for _ in range(3):
+                self.manager.reconcile_all()
+        self.assertEqual([line.split('] ', 1)[1] for line in said.getvalue().splitlines()],
+                         [f"service {manifest['id'][:8]}: [Errno {errno.EDQUOT}] Disk quota exceeded"])
+        self.manager.reconcile_all()  # Writable again: the error is over.
+        self.assertEqual(self.manager.reported, {})
+        self.assertTrue(is_owned(self.status()['process']))
+        # The loop: manager.json and a whole pass that fail are said once, and the loop goes on.
+        passes, stop = [], self.manager.stop
+
+        def failing_pass():
+            passes.append(1)
+            if len(passes) >= 3:
+                stop.set()
+            raise full
+        said = io.StringIO()
+        saves = iter([full] * 3 + [None] * 10)
+
+        def save(*_args, **_kwargs):
+            failure = next(saves)
+            if failure:
+                raise failure
+        manager = Manager(self.root / 'another-root', interval=0)
+        manager.stop = stop
+        with contextlib.redirect_stdout(said), mock.patch('covey.service.manager.save', side_effect=save), \
+                mock.patch.object(Manager, 'reconcile_all', side_effect=failing_pass), \
+                mock.patch('covey.service.manager.signal.signal'):
+            self.assertEqual(manager.run(), 0)
+        self.assertEqual(len(passes), 3)
+        lines = [line.split('] ', 1)[1] for line in said.getvalue().splitlines()]
+        self.assertEqual([line for line in lines if 'quota' in line],
+                         [f'manager.json not written: [Errno {errno.EDQUOT}] Disk quota exceeded',
+                          f'manager pass failed: [Errno {errno.EDQUOT}] Disk quota exceeded'])
+
     def test_stop_is_durable_and_start_reenables(self):
         manifest = self.register()
         self.manager.reconcile(manifest)

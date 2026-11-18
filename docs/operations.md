@@ -41,7 +41,7 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
 
 | 组件 | 谁拉起、谁重启它 | 它退出时 |
 | --- | --- | --- |
-| Manager | 开机守护。没有 Manager 时，`covey_service.py` 的 `launch`、`start`、`stop`、`restart` 也会用执行它的那份代码拉起一个 | Bridge 和任务进程继续运行，下一个 Manager 按进程号、启动时间和 boot ID 核对后接管 |
+| Manager | 开机守护。没有 Manager 时，`covey_service.py` 的 `launch`、`start`、`stop`、`restart` 也会用执行它的那份代码拉起一个。服务根写不进去（配额满、挂载卡住）时它不退出：`manager.json`、状态和错误文件写不成只在 `manager.log` 记一次，下一轮再试 | Bridge 和任务进程继续运行，下一个 Manager 按进程号、启动时间和 boot ID 核对后接管 |
 | Bridge | Manager。意外退出（含退出码 0）按 5 秒到 5 分钟退避重启，稳定 5 分钟后清零失败计数；本地健康接口连续 120 秒无响应时替换 | 任务进程继续运行，新 Bridge 认领它们 |
 | 事件消费者 | Bridge。启动 60 秒内没有输出 `[event] ready` 就替换；退出后 5 秒重启，卡片回调消费者异常退出时 300 秒后重启 | 任务不受影响 |
 | 后台线程 | Bridge。异常退出 5 秒后重建，日志 `worker <名称> failed` | 任务不受影响 |
