@@ -438,6 +438,17 @@ cancelled、superseded：终态
 
 **关着时不变**：关开关，或开了但 `devices.json` 里没有设备，不读文件、不建 `<状态目录>/devices/`、不起后台线程，上下文、任务记录里没有 `device` 字段，卡片 JSON 和 `runs/` 协议同旧；新增代码都以「记录或上下文里有 `device`」为前提。验证它：`tests/golden/run_dir.json` 和 `cards.json` 无 diff、`golden_trace` 对关着的模块无差异、`scripts/cross_release.py` 的 `devices-empty-new` 场景等于关着，以及回滚场景 `device-rollback`（[测试](testing.md#任务进程协议与跨版本检查)）。真机验收还在进行，所以默认关。
 
+## 节点（默认关）
+
+每台机器（Hub 本机和每台设备）上一个常驻的节点，主动连 Hub、一直连着，报告机器状况；设了 `COVEY_NODE_LISTEN` 才有（[配置](configuration.md#节点与机器状况默认关)）。第 1 期只做连接、加入、采样、记录和告警；设备上的任务仍走[设备](#设备多设备默认关)的 ssh 方式，改走这条连接是下一期。
+
+- **节点程序**：`core/node_agent.py`，和设备端小程序同样的约束（单文件、只用标准库、Python 3.9，`scripts/check_shim_compat.py` 检查），不导入 `covey`。装在 `~/.covey/node/`，`flock` 保证一台机器一个；`join`、`run`、`ensure`、`status`、`uninstall`。
+- **连接**：节点拨 Hub（TLS，按 Hub 证书 DER 的 SHA-256 固定），Hub 不连设备。`hello`（别名和密钥）→ `welcome`（Hub 已有的序号、应跑的版本）→ 补传 → 每个新样本一行；Hub 每 30 秒回 `ack`。断了按 1 秒起、翻倍到 60 秒重连；版本不同时节点从 `/node.py` 取新文件、校验哈希后重启自己，所以部署后各节点跟着升级。
+- **加入**：一次性口令（`core/nodes.py` 的 `open_join`/`claim`）换一把设备密钥，Hub 只存哈希；粘贴的命令是 `curl --pinnedpubkey … /join/<口令> | python3 -`。同一个端口上 `GET` 走 HTTP（只有 `/join/<口令>` 和 `/node.py`），其余是节点协议。
+- **采样**（`Sampler`）：每 10 秒一份；内存到上限 80%、60 秒涨上限的 5%、OOM 计数增加时改 2 秒一份至少 5 分钟。cgroup v1/v2 的内存与 CPU（没有上限时用整机）、PSI、load、各路径的空间（加每 10 分钟一次试写，单独线程，卡住的路径报 `hung`）、`nvidia-smi`、RSS 和 CPU 最多的进程（环境里只读 `COVEY_TASK_DIR`，每个进程读一次，带时限）。先写本地环形缓冲，再发 Hub。
+- **Hub 端**：`app/node_gateway.py` 在 Bridge 里起 TLS 服务（`nodes-gateway` 线程），写 `<状态目录>/nodes/<节点>/` 的记录、折每分钟一行、按 `core/node_rules.py` 判规则，事件写进 `nodes/events/`；`app/node_alerts.py`（`nodes-alerts`）发卡、恢复时原地改卡、判失联；`app/nodes.py`（`nodes-local`）拉起本机节点、每小时清旧文件。Bridge 重启时连接断开，节点几秒到一分钟内重连并补传，样本不丢不重。
+- **不变量**：关着时不读不写任何文件、不起线程；节点不监听端口、不读别的环境变量；没有记录锁被跨网络持有；告警只发一次，恢复只改原卡。
+
 ## 专项（第 2 期，开发中，默认关）
 
 专项是管家交给一个隐藏的负责人话题、由它开话题并跟进、要分成几个话题跨几天做完的事（设计见第 2 期的专项设计稿）。**现在有底座、负责人的运行、专项卡和入口**：记录、角色、看板的格，负责人话题一轮怎么跑，聊天区的专项卡（[专项卡](butler.md#专项卡开关默认关)），以及三个入口——派发卡转成专项、管家直接开、不要专项降级（见下）；续轮、问题分流是后面的包；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。

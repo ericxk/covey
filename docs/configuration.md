@@ -110,6 +110,7 @@
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | `dispatch_cards` 后台线程；管家派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
 | [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 设备上能跑 Claude Code 和 Codex 的话题（经 ssh）；默认关，真机验收在进行。开了才有 `devices` 后台线程；关着，或开了但没有设备时，后台线程、文件和行为都同没有这个功能 |
+| [节点与机器状况（默认关）](#节点与机器状况默认关) | `COVEY_NODE_LISTEN=<监听地址>` | `nodes-gateway`、`nodes-alerts`、`nodes-local` 后台线程：设备和本机各跑一个常驻节点，主动连 Hub，每 10 秒报一次 CPU、内存、盘、GPU 和占用最多的进程；内存、OOM、盘满或写不进、失联时发告警卡，恢复后原卡改成已恢复 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
 | [自动补齐飞书应用](operations.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 后台线程 |
 | [内存看门狗](operations.md#内存看门狗) | `bin/covey_memguard.py enable` | 独立进程；`memguard` 后台线程转发告警 |
@@ -290,6 +291,17 @@
 - 设置卡上设备的状态行读的是最近一次 `covey_devices.py check` 的结果，不会自己去自检；没有近期自检的设备也不会因此被拒绝。
 - 设备上的 Codex 模型目录取自 `~/.codex/models_cache.json`（设备上设了别的 `CODEX_HOME` 就取不到）；设备上的话题不用 hub 上模型网关的检查结果。
 
+### 节点与机器状况（默认关）
+
+设了 `COVEY_NODE_LISTEN` 才有；结构和不变量见[架构 · 节点](architecture.md#节点默认关)。
+
+- **监听**：`COVEY_NODE_LISTEN='[::]:$ARNOLD_RESERVED_N_CURRENT_PORT'`（写法同 `COVEY_DASHBOARD`）。节点主动连这个端口（TLS，Hub 自签证书，节点按证书指纹认 Hub），设备上不开端口。设备连不到 Hub 推算的地址时用 `COVEY_NODE_ADDRESS=主机:端口` 指定。
+- **本机**：开了就有一个本机节点（名字 `local`，显示为“本机”）：Bridge 每分钟确认 `~/.covey/node/` 里的节点在跑，没在跑就拉起；它独立于 Bridge 运行，样本先写本地盘（`~/.covey/node/data/`，最多 256 MiB、7 天），并每 10 分钟试写一次数据根，写不进（配额满、挂了）会告警。
+- **加设备**：`core/nodes.py` 的 `open_join` 发一个 30 分钟有效、只能用一次的口令；设备上执行 `app/node_gateway.py` 的 `paste_command` 给出的那行命令（`curl … | python3 -`，按 Hub 公钥固定，不走代理），节点就装好、写自启（`~/.bashrc` 顶部的登录钩子；有 systemd 用户服务或 launchd 时也装）并连上来。设置卡的「设备」页（开发中）会给出这行命令。
+- **数据**：`<状态目录>/nodes/`：`registry.json`（节点名单，只存密钥的哈希）、`<节点>/latest.json`、`link.json`、`raw/`（原样，3 天）、`minutes/`（每分钟一行，30 天）、`alerts.jsonl`；`events/`、`alerts/` 是告警的待发和已发记录。
+- **告警**：内存工作集到上限的 90% 持续 1 分钟、发生 OOM、盘用到 90%、试写失败、设备 10 分钟没消息；能对上任务的发到那个话题，否则发到私聊；恢复后原卡改成“已恢复”；每小时最多 6 张。
+- **移除**：`core/nodes.py` 的 `revoke`：节点下次连上来（或在线时立刻）被告知，它删掉自启和 `~/.covey/node/` 后退出。
+
 ### 飞书 SDK 与直连
 
 - `COVEY_CARD_TRANSPORT=sdk`：CardKit 卡片接口、消息的发送和回复、读消息详情都用常驻的 `lark-oapi` 客户端；上传文件和图片、转发话题等只有 lark-cli 做得了的仍走 lark-cli（见[投递、重投与 outbox](architecture.md#投递重投与-outbox)）。先在运行 Bridge 的那个 Python 里 `python3 -m pip install '.[feishu-sdk]'`。SDK 只支持显式命名的 profile，应用密钥只在内存里读取。请求发出前取不到凭据时退回 CLI（日志 `CardKit SDK unavailable locally; using CLI`）；请求已发出后不换传输重发。
@@ -307,7 +319,7 @@
 
 - **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`；上面七个存成 `LARK_BRIDGE_MAIN_*`，如 `COVEY_BUTLER` 存成 `LARK_BRIDGE_MAIN_THREAD`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的名字都折成旧名再比（`env.canonical`），只改了名字不算变化。Manager 启动服务时所有写法都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
 - **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_BUTLER_STATE`、`COVEY_BUTLER_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）所有写法都设（管家的两个另设 `COVEY_MAIN_*`、`LARK_BRIDGE_MAIN_*`）；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
-- 启动时只对真有旧名的变量打印“`LARK_BRIDGE_X` is the old name of `COVEY_X`”；改名之后才有的开关（`COVEY_PROJECT*`、`COVEY_PATROL*`、`COVEY_PROGRESS*`、`COVEY_TRACK_JUDGE*`、`COVEY_DEVICES*`，`core/env.py` 的 `BORN_NEW`）没有旧名，服务清单里存成的 `LARK_BRIDGE_X` 只是存放写法，读到也不提示。
+- 启动时只对真有旧名的变量打印“`LARK_BRIDGE_X` is the old name of `COVEY_X`”；改名之后才有的开关（`COVEY_PROJECT*`、`COVEY_PATROL*`、`COVEY_PROGRESS*`、`COVEY_TRACK_JUDGE*`、`COVEY_DEVICES*`、`COVEY_NODE*`，`core/env.py` 的 `BORN_NEW`）没有旧名，服务清单里存成的 `LARK_BRIDGE_X` 只是存放写法，读到也不提示。
 - 下一个版本起清单才改存新名，旧名读取再保留至少一个版本。
 
 代码在 `covey/` 和 `bin/` 里读的每个环境变量和命令行参数都列在这里，`tests/test_structure.py` 的 `InventoryTest` 核对：代码读了就要有一行，行里写出读它的文件；表里写了的代码也要读。不列 `HOME`、`PATH`、`PYTHONPATH`、`XDG_CONFIG_HOME`、`NO_PROXY`/`no_proxy` 这类系统变量。不再读取的环境变量不在表里，只有两个权限变量还为拦截而读（见[服务清单里的环境变量](#服务清单里的环境变量)）。
@@ -344,6 +356,9 @@
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
 | `COVEY_DEVICES` | `core/devices.py`（`enabled`） | 空：关；`1` 才读 `devices.json`，见[多设备](#多设备开发中默认关) | 否 |
 | `COVEY_DEVICES_FILE` | `core/devices.py`（`config_path`） | 空：`<数据根>/devices.json` | 否 |
+| `COVEY_NODE_LISTEN` | `core/nodes.py`（`enabled`、`listen_spec`）、`app/node_gateway.py`、`app/nodes.py` | 空：关；设了就在这里等节点连上来（写法同 `COVEY_DASHBOARD`：`[::]:端口`、`IPv4:端口` 或端口，`$变量` 取环境），起 `nodes-gateway`、`nodes-alerts`、`nodes-local` 三个后台线程，见[节点与机器状况](#节点与机器状况默认关) | 否 |
+| `COVEY_NODE_ADDRESS` | `app/node_gateway.py`（`hub_address`） | 空：本机默认路由的 IPv6 地址加监听端口（同脱敏看板的推算）；设备连不到这个地址时写成 `主机:端口` | 否 |
+| `COVEY_NODE_AUTOSTART` | `core/node_agent.py`（`install_autostart`，设备上读） | 空：登录钩子、systemd 用户服务、launchd 有哪个装哪个；`hook`：只装登录钩子（测试用临时 HOME 时） | 否 |
 | `COVEY_BUTLER_RULES`（旧名 COVEY_MAIN_BUTLER、LARK_BRIDGE_MAIN_BUTLER） | `app/prompts.py`（`butler_on`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此换 `topic_start` 的工具说明） | 空：关；`1` 把管家规则的前两条换成管家规则（只快答和分派），`topic_start` 的工具说明同步 | 否 |
 | `COVEY_DISPATCH_CARD`（旧名 COVEY_MAIN_DISPATCH_CARD、LARK_BRIDGE_MAIN_DISPATCH_CARD） | `app/dispatch_cards.py`（`enabled`；`app/butler_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 后台线程） | 空：关；`1` 开派发卡：管家派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
 | `COVEY_BUTLER_TRACKS`（旧名 COVEY_MAIN_TRACKS、LARK_BRIDGE_MAIN_TRACKS） | `core/butler_tracks.py`（`enabled`；`core/butler.py` 的 `is_butler_topic` 据此把槽 1 到 4 的话题也算管家；`app/butler_tracks.py` 的 `Tracks.enabled` 再加上管家允许、模式是管家 才分流） | 空：关；`1` 开同时做几件事（已接线）：家族里有任务在做时，主人的下一句先过分流（`core/track_route.py` 的规则，拿不准的交给小模型 `COVEY_TRACK_JUDGE`）：并进某件在做的事、停止，或新开一件（槽 1 到 4，各是管家会话的分叉，同时跑；排队、并进有表情；另外几件事答了什么交给管家的下一轮）。关着时消息的走法和原来一样，也不起任何判断进程。见[管家 · 同时做几件事](butler.md#同时做几件事开关默认关) | 否 |
