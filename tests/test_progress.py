@@ -175,6 +175,21 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual((records[-1]["last_activity"], records[-1]["last_activity_at"]), ("在跑测试", int(NOW)))
         self.assertEqual(job.turn_progress["plan_total"], 5)
 
+    def test_a_command_purpose_the_line_names_already_is_not_said_twice(self):
+        # accept15: "当前：执行命令 · 前台睡眠 300 秒 · 2 分钟前在跑命令：前台睡眠 300 秒".
+        wall, updates = [NOW], []
+        job, monitor = self.monitor(wall, updates=updates)
+        job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "running",
+                                       "detail": "前台睡眠 300 秒 · python3 -c 'import time; time.sleep(300)'",
+                                       "started_at": NOW})
+        monitor.tick()
+        wall[0] = NOW + 150
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+        line = updates[-1].split("当前：")[1].split("\n")[0]
+        self.assertEqual(line.count("前台睡眠 300 秒"), 1, line)
+        self.assertTrue(line.endswith(" · 2 分钟前"), line)
+
     def test_the_card_is_told_once_when_it_may_be_stuck_and_once_when_it_moves_again(self):
         wall, told, updates = [NOW], [], []
         with mock.patch.dict(os.environ, {progress.STUCK_ENV: "2"}):

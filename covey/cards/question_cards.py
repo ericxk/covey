@@ -78,7 +78,7 @@ def standing_row(record):
 def standing_card(form):
     """The card of one 以后这类按推荐走 (``form``, app/standing_answers.py): the sentence to keep as a principle of the
     workspace with 记下 / 改一下 / 算了, the same in a box to change, or what became of it."""
-    status, text, where = form.get("status"), str(form.get("text") or ""), f"工作区 {form.get('workspace')}"
+    status, text, where = form.get("status"), str(form.get("text") or ""), f"工作区 {form.get('workspace')} "
     value = {"token": form["token"]}
     picks = "；".join(str(row) for row in form.get("picks") or [])
     if status == "saved":

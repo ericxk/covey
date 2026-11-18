@@ -177,7 +177,7 @@ def facts_lines(found, now=None) -> list:
     if progress.get("last_activity_at") is not None:
         lines.append("最近动静：" + turn_progress.activity_line(progress, now))
     if found["detached"]:
-        lines.append("任务进程：" + ("在" if found["runner"] else "不在了"))
+        lines.append("任务进程：" + ("还在" if found["runner"] else "不在了"))
     if found["processes"]:
         shown = [f"{row['name']}（{'在用 CPU' if row['busy'] else '空闲'}）" for row in found["processes"][:SHOWN]]
         more = len(found["processes"]) - SHOWN

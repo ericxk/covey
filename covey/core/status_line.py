@@ -184,7 +184,11 @@ def trace_summary(facts):
         # What it last did and when, to the minute (2 分钟前在跑测试), never a command line; when the line names the
         # newest step already (a sub-task's), its age alone.
         if (newest is not None or facts.stirred) and quiet >= ACTIVITY_SHOWN:
-            line += " · " + (ago_words(quiet) if said else activity_line(facts.progress, facts.wall))
+            # A command's purpose the line names already is not said twice (accept15: "当前：执行命令 · 前台睡眠 300 秒 ·
+            # 2 分钟前在跑命令：前台睡眠 300 秒"): its age alone.
+            purpose = str(facts.progress.get("last_activity") or "").partition("：")[2].rstrip("…")
+            named = said or bool(purpose) and purpose in line
+            line += " · " + (ago_words(quiet) if named else activity_line(facts.progress, facts.wall))
     elif (newest is not None or facts.stirred) and quiet >= QUIET_SHOWN:
         line += f" · 最近进展 {clock_text(quiet)}前"
     if quiet >= LONG_QUIET and facts.alive is True:
