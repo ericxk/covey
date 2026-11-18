@@ -275,7 +275,9 @@ class WorkerTargetsTest(unittest.TestCase):
         paseo = ["paseo"] if extension_enabled("covey_paseo") else []  # The Paseo extension's worker, with its fleet set.
         # The butler's workers and menu key, unless the deployment rules it out (docs/butler.md 私聊模式).
         main, ruled_out = ["main-tools", "main-search"], {"COVEY_BUTLER": "0"}
-        app_setup = ["app-setup"]  # The Feishu app's check (app/app_setup.py), on unless COVEY_APP_CHECK=0.
+        # The Feishu app's check (app/app_setup.py), on unless COVEY_APP_CHECK=0; the owner's recalled or edited messages
+        # (app/source_watch.py), on unless COVEY_SOURCE_WATCH=0.
+        app_setup = ["app-setup", "source-watch"]
         # 工作区 and 脱敏 are tabs of 设置 since 2026-11-09; their old keys open it there.
         menu = ["weekly_usage", "proxy_settings", "manage_groups", "bridge_settings", "manage_workspaces",
                 "redaction_dashboard"]
