@@ -67,6 +67,7 @@ class TidyCase(UpCase):
         self.addCleanup(ask.stop)
         self.numbers = iter(range(400, 1000))
         self.jobs = iter(range(5000, 9000))
+        self.tidy.link = lambda state, topic, **kw: f"https://applink.example/{topic[-6:]}"
 
     def send_message(self, profile, chat, words, key, *, voice, card=None, on_card=None, reply_to_message_id="", **kwargs):
         message = next(self.messages)
@@ -292,6 +293,37 @@ class ProposalTest(TidyCase):
         self.assertEqual(proposals.prefs(self.state)["accepted_in_row"], 0)
         rename = {"suggestions": [{"kind": "rename", "project": 1, "name": "别的名字", "why": "", "confidence": 0.9}]}
         self.assertEqual(sorter.parse(json.dumps(rename), [made], []), [])
+
+    def test_the_proposal_card_links_each_topic_and_says_what_it_is_about(self):
+        """The owner, 2026-11-18: 我都不知道 T252 在哪，这里就写了一个 19天118轮…这个是啥 — each topic opens from the card and
+        reads as its 本质, with how long it has gone on."""
+        for topic in self.pair:
+            topic_gist.save(self.state, topic, topic_gist.parse({"essence": B}), source="turn", job="", now=time.time())
+        self.propose(self.pair)
+        card = text(self.sent_cards()[-1])
+        record, _ = self.card_and_record()
+        for topic in self.pair:
+            self.assertIn(f"https://applink.example/{topic[-6:]}", card)
+        self.assertIn("这 2 个话题像是一件事", card)
+        self.assertIn(B, card)  # Their 本质, not their first titles' words alone.
+        self.assertIn("为什么提：都在改 Prompt", card)
+        self.assertEqual([row["essence"] for row in record["view"]["rows"]], [B, B])
+
+    def test_one_long_topic_without_a_gist_is_read_whole_before_it_is_judged_and_its_card_says_so(self):
+        """A topic grown long (reason age) with no 话题要点 yet is read whole first: the judge sees its 本质 and so does the
+        card, which speaks of one topic, not of 这几个."""
+        alone = self.topic("阅读这个session，继续我们未完成的事情", words=[f"第 {n} 句" for n in range(3)], days_ago=19)
+        self.tidy.recent_topics = lambda state, chat, now, **kw: [alone]
+        self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1], "name": "账号额度运行台", "goal": "额度看得准",
+                                               "why": "一直在改运行台", "confidence": 0.8}]})
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, alone, "age", time.time()), "proposed")
+        systems = [system for system, _ in self.asked]
+        self.assertEqual(systems[:2], [sorter.GIST_SYSTEM, sorter.JUDGE_SYSTEM])
+        self.assertEqual(self.judged()[0]["topics"][0]["gist"]["essence"], "阅读这个session，继续我们未完成的事情")
+        card = text(self.sent_cards()[-1])
+        self.assertIn("已经推了 19 天、3 轮，它在做：阅读这个session", card)
+        self.assertIn("话题标题：阅读这个session", card)
+        self.assertNotIn("这几个话题", card)
 
     def test_decline_keeps_the_same_proposal_away_until_two_more_topics_and_never_stops_them(self):
         self.propose(self.pair)

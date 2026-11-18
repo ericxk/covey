@@ -53,6 +53,7 @@ from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
 from covey.core import board_read, knowledge, patrol, projects, turn_words
+from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
 from covey.core.locks import resource_lock
@@ -309,7 +310,16 @@ class Digest:
         view = collect(ctx.state_dir, chat, now, board_since(self.times(), now, last), now, board=dismissable())
         for key in ("waiting", "stale", "running", "done"):
             self.linked(ctx, chat, view[key])
-        return {**view, "asked": True, **self.where(chat)}
+        return {**view, "asked": True, **self.where(chat), **self.tidy(ctx, chat)}
+
+    def tidy(self, ctx, chat):
+        """The 专项 part (cards/project_proposal.py board_rows): with 整理专项 on, in the owner's private chat (a group's
+        看板 has none: 整理专项 sorts the private chat's topics)."""
+        if not project_proposals.enabled() or self.where(chat):
+            return {}
+        names = [str(record.get("name") or "") for record in projects.records(ctx.state_dir, chat)
+                 if record.get("state") in (projects.ACTIVE, projects.PAUSED)]
+        return {"tidy": {"projects": [name for name in names if name]}}
 
     def where(self, chat):
         """The card's word for ``chat`` when it is a group with a butler (cards/digest.py), else nothing."""
@@ -384,7 +394,7 @@ class Digest:
         if not chat:
             return  # No private chat with the owner known yet: tried again until the time is CATCH_UP old.
         view = {**collect(ctx.state_dir, chat, slot, since_of(times, slot, last), now, board=dismissable()),
-                **self.where(chat)}
+                **self.where(chat), **self.tidy(ctx, chat)}
         if not (view["waiting"] or view["stale"] or view["running"] or view["done"]):
             self.save(ctx, last_slot=slot, pending=None)
             self.runtime.log("digest not sent: nothing to list")

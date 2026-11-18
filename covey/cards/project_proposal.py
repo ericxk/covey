@@ -28,7 +28,8 @@ LABELS = {CREATE_KIND: "建专项", RENAME_KIND: "改个名再建专项", NAMED_
 
 ICON = "folder-add_outlined"
 INTRO = "专项是一件要分几个话题、跨几天推进的事，由一个负责人带着。"
-AFTER = "建成专项后：看板上这几个话题并成一格；这件事里的问题由负责人先过一遍，例行的它替你答；进展由它汇报。"
+AFTER = ("建成专项后：这件事的话题（以后分出去的也算）在看板上并成一格；这件事里的问题由负责人先过一遍，"
+         "例行的它替你答；进展由它汇报。")
 ASK_AUTO = "你已经连着 {} 次直接点了建：以后这种直接建，只留撤回？"
 NAME_FIELD, GOAL_FIELD, WHY_FIELD = "name", "goal", "why"
 CARD_ROWS = 5
@@ -46,13 +47,53 @@ def _value(kind, view, **more):
     return {"kind": kind, "proposal": view.get("proposal", ""), **more}
 
 
+def topic_link(row) -> str:
+    """The T number as a link that opens the topic (app/topic_links.py), or plain when there is no link."""
+    label = literal_text(row.get("label") or "话题")
+    return f"[{label}]({row['link']})" if row.get("link") else label
+
+
+def span(row) -> str:
+    """"19 天 · 118 轮" of a row (its days and the owner's turns), or ''."""
+    days, turns = row.get("days"), row.get("turns")
+    parts = ([f"{max(1, round(days))} 天"] if isinstance(days, (int, float)) and days >= 1 else []) + \
+            ([f"{turns} 轮"] if isinstance(turns, int) and turns > 0 else [])
+    return " · ".join(parts)
+
+
+def topic_lines(view) -> list:
+    """The topics of a proposal as the owner can tell them (the owner, 2026-11-18: 我都不知道 T252 在哪，这里就写了一个
+    19天118轮…这个是啥): each a link that opens it, what it is about (its 话题要点's 本质; its title only when it has none)
+    and how long it has gone on; one topic says so. A view kept before rows (labels only) is drawn as before."""
+    rows = view.get("rows")
+    if not rows:
+        return [md("这几个话题像是一件事：" + literal_text(topics_line(view.get("labels") or ())))]
+    if len(rows) == 1:
+        row = rows[0]
+        how_long = span(row)
+        head = f"**{topic_link(row)}**" + (f" 已经推了 {how_long.replace(' · ', '、')}" if how_long else "")
+        about = ("，它在做：" + literal_text(row["essence"]) if row.get("essence")
+                 else "：" + literal_text(row.get("title") or "（没有标题）"))
+        lines = [md(head + about)]
+        if row.get("essence") and row.get("title"):
+            lines.append(note("话题标题：" + literal_text(row["title"])))
+        return lines
+    lines = [md(f"这 {len(rows)} 个话题像是一件事：")]
+    for row in rows:
+        about = literal_text(row.get("essence") or row.get("title") or "（没有标题）")
+        how_long = span(row)
+        lines.append(md(f"- {topic_link(row)} {about}" + (f"<font color='grey'>（{how_long}）</font>" if how_long else "")))
+    return lines
+
+
 def proposal_card(view):
-    """建个专项？ ``view``: proposal (id), labels [(T 号, 标题)], name, goal, why, first (the first proposal ever: one sentence of what
-    a project is), ask_auto (5 in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), note (the line
-    under it once decided), lesson (a reason form under a 不用)."""
-    elements = [md("这几个话题像是一件事：" + literal_text(topics_line(view.get("labels") or ())))]
+    """建个专项？ ``view``: proposal (id), rows [{label, title, link, essence, days, turns}] (``topic_lines``; labels [(T 号, 标题)]
+    in a view kept before them), name, goal, why, first (the first proposal ever: one sentence of what a project is), ask_auto (5
+    in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), note (the line under it once decided),
+    lesson (a reason form under a 不用)."""
+    elements = topic_lines(view)
     if view.get("why"):
-        elements.append(note(literal_text(view["why"])))
+        elements.append(note("为什么提：" + literal_text(view["why"])))
     name, goal = literal_text(view.get("name") or ""), literal_text(view.get("goal") or "")
     elements.append(md(f"**建成专项「{name}」？**" + (f" 目标：{goal}" if goal else "")))
     if view.get("first"):
@@ -86,7 +127,7 @@ def rename_form(view):
               "text": plain("建专项"), "behaviors": callback(_value(NAMED_KIND, view))}
     back = {"tag": "button", "name": "tidy_back", "type": "default", "text": plain("取消"),
             "behaviors": callback(_value(BACK_KIND, view))}
-    elements = [md("这几个话题建成一个专项：" + literal_text(topics_line(view.get("labels") or ()))),
+    elements = [md("建成一个专项：" + literal_text(topics_line(view.get("labels") or ()))),
                 {"tag": "form", "name": "tidy_rename", "elements": [name, goal, button_row([submit, back])]},
                 note("你取的名字以后不会被整理专项改掉。")]
     return styled_panel(panel_header(ICON, "改个名再建", subtitle="整理专项"), elements, "改个名再建专项")
@@ -166,7 +207,17 @@ def joined_card(name, topic, pid):
                 padding="8px 12px 8px 12px")
 
 
+START_LINE = "把专项和最近 7 天的话题重新看一遍，给出建议"
+
+
 def settings_row():
     """The 设置 card's row (私聊默认, COVEY_PROJECT_TIDY on): 整理专项 at once."""
-    return [section("专项"), item(md("把专项和最近 7 天的话题重新看一遍，给出建议"),
-                                   text_button("整理专项", {"kind": START_KIND}, tone="primary"))]
+    return [section("专项"), item(md(START_LINE), text_button("整理专项", {"kind": START_KIND}, tone="primary"))]
+
+
+def board_rows(names):
+    """The 专项 part of the bot menu's 看板 and of 早晚汇总 (cards/digest.py, COVEY_PROJECT_TIDY on; the owner, 2026-11-18: 不是说
+    给专项整理做一个按钮么，咋没有呢): the projects by name, and 整理专项 at once."""
+    shown = "、".join(f"「{literal_text(name)}」" for name in names[:6]) + (f" 等 {len(names)} 个" if len(names) > 6 else "")
+    return [section(f"专项（{len(names)}）"), md(shown if names else "<font color='grey'>还没有专项</font>"),
+            item(md(START_LINE), text_button("整理专项", {"kind": START_KIND}, tone="primary"))]

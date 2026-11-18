@@ -966,6 +966,9 @@ def digest_cards():
                                         "running": [], "done": [], "asked": True}),
             "asked_folded": folded_board(),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
+            # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
+            "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "EnvReplay Prompt 优化"]}}),
+            "tidy_none": digest_card({**view, "tidy": {"projects": []}}),
             "wanted": digest_card({**view, "wanted": [
                 {"what": "T396 你为啥没有pin？：有个问题等了你 3小时0分", "why": "你一直没回，像是卡住了", "would": "主动来问你"},
                 {"what": "专项「重构」有事没人动，已经 1天0小时 没有进展", "why": "收件箱有回执没人读", "would": "叫醒负责人看一眼"}]})}
@@ -1068,7 +1071,15 @@ def tidy_cards():
                                                                       "已收起「回流周报」：本周的已交，有新的事会自动展开"],
             "rows": rows, "skipped": ["3 个话题读不了，没参与这次整理"], "scope": ""}
     joined = tc.joined_element("EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6")
-    return {"proposal_first": tc.proposal_card(view),
+    rows = [{"label": "T488", "title": "修 064 采购审批题包", "link": "https://applink.feishu.cn/client/thread/open?t=488",
+             "essence": "优化 EnvReplay 的 Prompt，让题包一次跑对", "days": 7.2, "turns": 93},
+            {"label": "T505", "title": "优化 Bootstrap 下一环节", "link": "", "essence": "", "days": 0.4, "turns": 12}]
+    one = [{"label": "T252", "title": "阅读这个session，继续我们未完成的事情", "link": "https://applink.feishu.cn/client/thread/open?t=252",
+            "essence": "把账号额度运行台做成能一眼看清各账号额度和可用性的页面", "days": 19.0, "turns": 118}]
+    cards_ = {"proposal_rows": tc.proposal_card({**view, "rows": rows}),
+              "proposal_one_topic": tc.proposal_card({**view, "rows": one, "first": False, "name": "账号额度运行台",
+                                                      "goal": "额度看得准、异常即时置顶", "why": "一直在迭代同一个运行台"})}
+    return {**cards_, "proposal_first": tc.proposal_card(view),
             "proposal_ask_auto": tc.proposal_card({**view, "first": False, "ask_auto": True, "accepted": 5}),
             "proposal_declined": tc.proposal_card({**view, "state": "declined", "lesson": True,
                                                    "note": "不建了：这几个话题不会再这样提，等又多出相关的话题才会再提。"}),

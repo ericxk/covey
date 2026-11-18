@@ -13,6 +13,7 @@ and ``cleared`` (the labels taken off from this card) — a view saved before th
 看板 at any time (app/digest.py board), 随时查看 in the title; with nothing to list it says so (EMPTY)."""
 from __future__ import annotations
 
+from covey.cards.project_proposal import board_rows
 from covey.cards.elements import folded_panel, grey, md, menu_item, note, panel_header, section, styled_panel
 from covey.cards.overview import clock, dismissed_line, named, stale_line
 from covey.core.text import safe_text
@@ -89,6 +90,8 @@ def digest_card(view):
         elements.append(md(EMPTY.format(clock(view["since"]))))
     elements += knowledge_elements(view)
     elements += wanted_elements(view)
+    if isinstance(view.get("tidy"), dict):
+        elements += board_rows([str(name) for name in view["tidy"].get("projects") or ()])
     elements.append(note(f"只列这个{view.get('where') or '私聊'}里的话题，管家不列"))
     title = title_of(view)
     return styled_panel(panel_header(ICON, title, counts(view)), elements, " · ".join(filter(None, [title, counts(view)])))

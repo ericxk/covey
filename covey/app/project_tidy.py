@@ -33,6 +33,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from covey.app import project_sorter as sorter
+from covey.app import topic_links
 from covey.app.card_lanes import after_ack
 from covey.cards import project_proposal as cards
 from covey.core import project_proposals as proposals
@@ -68,6 +69,8 @@ class ProjectTidy:
     """The Bridge's feature object (app/unified.py ``project_tidy``): one thread with the switch on, none without, and the
     claim of its cards' clicks (PANELS). ``env``: app/butler_env.py ButlerEnv (``projects`` the projects' feature object)."""
     name = "project_tidy"
+
+    link = staticmethod(topic_links.link_for)  # A topic's applink for the proposal card (tests stand in for it).
 
     def __init__(self, runtime, messenger, voice, env) -> None:
         self.runtime, self.messenger, self.voice, self.env = runtime, messenger, voice, env
@@ -250,8 +253,12 @@ class ProjectTidy:
             return "redacted"
         records = self.live_projects(state, chat)
         topics = [topic] + [other for other in self.recent_topics(state, chat, now, records=records) if other != topic]
-        items = [sorter.material(state, chat, other, now) for other in topics[:sorter.MAX_TOPICS] if not sorter.hidden(state, other)]
         backend, context = self.judge_tools()
+        # The topic judged is read whole first when it has no 话题要点 (the owner, 2026-11-18: T252's proposal only had its
+        # first title, 阅读这个session…, to go on): the judge then sees what it is about, and so does its proposal card.
+        if sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job):
+            sorter.backfill(state, chat, topic, backend=backend, ctx=context, log=self.runtime.log, now=now)
+        items = [sorter.material(state, chat, other, now) for other in topics[:sorter.MAX_TOPICS] if not sorter.hidden(state, other)]
         verdict = sorter.judge(state, records, items, backend=backend, ctx=context, focus=topic,
                                lessons=proposals.lessons(state), source="realtime", log=self.runtime.log)
         proposals.change_topic(state, topic, lambda flags: flags.update(judged_at=now, judged_for=reason))
@@ -289,7 +296,36 @@ class ProjectTidy:
         saved, new = proposals.put_proposal(state, made)
         if not new or saved.get("state") != proposals.OPEN or (saved.get("card") or {}).get("message_id"):
             return ""
+        self.gists(ctx, chat, saved.get("topics") or ())
         return "proposed" if self.send_proposal(ctx, chat, saved) else ""
+
+    def gists(self, ctx, chat, topics) -> None:
+        """The 话题要点 of each of ``topics`` that has none, so its proposal card says what each is about (one read a topic;
+        one that cannot be read keeps its title on the card)."""
+        state, now = Path(ctx.state_dir), time.time()
+        missing = [topic for topic in topics if not sorter.hidden(state, topic)
+                   and sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job)]
+        if not missing:
+            return
+        backend, context = self.judge_tools()
+        for topic in missing:
+            sorter.backfill(state, chat, topic, backend=backend, ctx=context, log=self.runtime.log, now=now)
+
+    def topic_rows(self, ctx, chat, topics) -> list:
+        """The proposal card's rows (cards/project_proposal.py topic_lines): the T number and its link, the title, the
+        本质 of its 话题要点, the days it has gone on and the owner's turns. The links read Feishu: outside every lock."""
+        state, now, rows = Path(ctx.state_dir), time.time(), []
+        for topic in topics:
+            label, title = label_title(state, topic)
+            found = sorter.material(state, chat, topic, now)
+            try:
+                link = self.link(state, topic, profile=getattr(ctx, "profile", None)) if label else ""
+            except Exception:  # noqa: BLE001 - a T number without its link, as before
+                link = ""
+            rows.append({"label": label, "title": title, "link": link,
+                         "essence": str(found.gist.get("essence") or ""),
+                         "days": round(found.days, 1), "turns": found.turns})
+        return rows
 
     def proposal_view(self, state, record) -> dict:
         prefs = proposals.prefs(state)
@@ -302,7 +338,7 @@ class ProjectTidy:
 
     def send_proposal(self, ctx, chat, record) -> str:
         state = Path(ctx.state_dir)
-        view = self.proposal_view(state, record)
+        view = {**self.proposal_view(state, record), "rows": self.topic_rows(ctx, chat, record.get("topics") or ())}
         sent = []
         text = f"这几个话题像是一件事：{cards.topics_line(view['labels'])}。建成专项「{view['name']}」？"
         if not self.messenger.send_message(ctx.profile, chat, text, self.voice.safe_key(self.voice.key("tidy-proposal", record["id"])),

@@ -422,6 +422,22 @@ class BoardTests(UnifiedCase):
     def card(self):
         return self.puts[-1][1]
 
+    def test_with_tidy_on_the_board_lists_the_projects_and_has_the_tidy_button(self):
+        """The owner, 2026-11-18: 不是说给专项整理做一个按钮么，咋没有呢 — 看板 has 整理专项 when it is on, and not when it is off."""
+        from covey.cards import project_proposal
+        from covey.core import project_proposals, projects
+        record = projects.new_record(chat_id=CHAT, name="账号额度运行台", goal="额度看得准")
+        projects.create(self.state, record)
+        with mock.patch.dict(os.environ, {projects.ENV: "1", project_proposals.ENV: "suggest"}):
+            view = self.app.digest.board_view(self.ctx, CHAT)
+            card = json.dumps(digest_card(view), ensure_ascii=False)
+        self.assertEqual(view["tidy"], {"projects": ["账号额度运行台"]})
+        self.assertIn("专项（1）", card)
+        self.assertIn("「账号额度运行台」", card)
+        self.assertIn(project_proposal.START_KIND, card)
+        with mock.patch.dict(os.environ, {projects.ENV: "1", project_proposals.ENV: ""}):
+            self.assertNotIn("tidy", self.app.digest.board_view(self.ctx, CHAT))
+
     def test_off_without_a_time(self):
         with mock.patch.dict(os.environ, {ENV: ""}):
             self.assertEqual((self.app.digest.menu_items(), self.app.digest.menu_folds()), ({}, {}))
