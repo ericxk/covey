@@ -20,7 +20,8 @@ What it does, in one process (``run``):
 Commands: ``join`` (with a one-time token: ask the hub for this device's key, write config.json, install the
 autostart, start), ``run`` (the daemon, foreground), ``ensure`` (start it unless it runs; what the login hook and
 the hub's ssh call), ``status`` (one JSON line), ``uninstall`` (stop, remove the autostart and ~/.covey/node).
-Exactly one daemon runs per home: it holds ``flock`` on ``lock``.
+Exactly one daemon runs per home: it holds ``flock`` on ``lock``. ``COVEY_NODE_AUTOSTART=hook`` limits the autostart to
+the login hook (no systemd unit, no launchd agent).
 
 Wire (one JSON object a line, both ways, LINE_MAX at most): node -> hub ``{"k":"join",...}``, ``{"k":"hello",...}``,
 ``{"k":"s","seq":N,...}`` (a sample); hub -> node ``{"k":"welcome","ack":N,"version":"<sha16>"}``, ``{"k":"ack",
@@ -30,6 +31,7 @@ added.
 from __future__ import annotations
 
 import fcntl
+import getpass
 import hashlib
 import json
 import os
@@ -632,11 +634,11 @@ class Lines:
         self.sock.sendall((json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8"))
 
     def read(self, timeout):
-        self.sock.settimeout(timeout)
+        self.sock.settimeout(max(timeout, 0.01))  # A zero timeout makes an SSL socket raise SSLWantReadError.
         while b"\n" not in self.buf:
             try:
                 chunk = self.sock.recv(65536)
-            except socket.timeout:
+            except (socket.timeout, ssl.SSLWantReadError):
                 return None
             if not chunk:
                 raise EOFError("closed")
@@ -650,7 +652,7 @@ class Lines:
 def host_info():
     return {"hostname": socket.gethostname(), "os": platform.system(), "release": platform.release(),
             "machine": platform.machine(), "python": list(sys.version_info[:3]), "cpus": os.cpu_count(),
-            "boot": boot_id(), "user": os.environ.get("USER", ""), "home": HOME}
+            "boot": boot_id(), "user": getpass.getuser(), "home": HOME}
 
 
 class Link:
@@ -880,6 +882,8 @@ def install_autostart():
             done.append(rc)
         except OSError:
             pass
+    if os.environ.get("COVEY_NODE_AUTOSTART") == "hook":
+        return done  # The login hook alone (tests: a temporary HOME must not reach the user's service manager).
     if platform.system() == "Darwin":
         agents = os.path.join(HOME, "Library", "LaunchAgents")
         os.makedirs(agents, exist_ok=True)

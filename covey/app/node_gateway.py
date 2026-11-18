@@ -46,7 +46,7 @@ def hub_address(bind, environ=None):
 
 def paste_command(address, spki, token):
     """What a device owner pastes: the bootstrap fetched over TLS pinned by the hub's public key, run by python3."""
-    return "curl -fsSk --pinnedpubkey 'sha256//%s' 'https://%s/join/%s' | python3 -" % (spki, address, token)
+    return "curl -fsSk --noproxy '*' --pinnedpubkey 'sha256//%s' 'https://%s/join/%s' | python3 -" % (spki, address, token)
 
 
 def bootstrap(address, pin, token):
@@ -241,15 +241,16 @@ class Gateway:
                     continue
                 if not isinstance(msg, dict) or msg.get("k") != "s":
                     continue
-                seq = max(seq, int(msg.get("seq") or 0))
+                number = int(msg.get("seq") or 0)
+                if number <= seq:
+                    continue  # Already recorded (sent again after a reconnect).
+                seq = number
                 self.sample(alias, msg)
                 now = time.time()
+                nodes.write_link(self.state_dir, alias, heard=now, seq=seq)
                 if now - acked_at >= ACK_EVERY:
-                    nodes.write_link(self.state_dir, alias, heard=now, seq=seq)
                     self.send(sock, {"k": "ack", "seq": seq})
                     acked_at = now
-                elif int(msg.get("seq") or 0) % 3 == 0:
-                    nodes.write_link(self.state_dir, alias, heard=now, seq=seq)
         finally:
             with self.lock:
                 mine = self.live.get(alias, (None,))[0] == conn

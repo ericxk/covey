@@ -49,6 +49,7 @@
 | 记录、状态与锁 | `core/jobs.py`、`core/statuses.py`、`core/store.py`、`core/locks.py` | [状态与并发](docs/architecture.md#状态与并发) |
 | Harness 与后端 | `core/harness.py`、`core/roster.py`、`core/providers.py`、`backends/<名字>/bridge.py` | [Harness 接口](docs/architecture.md#harness-接口)、[harnesses.md](docs/harnesses.md) |
 | 扩展（`COVEY_EXTENSIONS` 或 `extensions/enabled` 启用的包，核心不按名字引用；扩展自带 README） | `core/extensions.py`（manifest 并进 `core/roster.py`、`core/providers.py` 的表，`features(app)` 并进 `app/unified.py` 的 `self.features`） | [扩展](docs/architecture.md#扩展) |
+| 节点与机器状况（`COVEY_NODE_LISTEN`） | `core/node_agent.py`（设备和本机上常驻的节点）、`core/nodes.py`（名单、口令、记录）、`core/node_rules.py`（告警规则）、`app/node_gateway.py`（TLS 服务）、`app/node_alerts.py`、`app/nodes.py`、`cards/node_cards.py` | [节点](docs/architecture.md#节点默认关)、[配置](docs/configuration.md#节点与机器状况默认关) |
 | 维护与备份 | `core/maintenance.py`（规则表在 `core/maintenance_rules.py`，备份在 `core/backup.py`）、`app/stale.py`、`core/migrate.py` | [备份、归档与维护](docs/operations.md#备份归档与维护) |
 | 服务、看门狗、诊断 | `service/manager.py`、`service/boot.py`、`service/memguard.py`、`service/doctor.py` | [服务组成](docs/operations.md#服务组成)、[troubleshooting.md](docs/troubleshooting.md) |
 
@@ -126,6 +127,9 @@
 | `app/model_picker.py` | The launch card's choices |
 | `app/model_usage.py` | What each chat chose on the model selects: the order they list models in, and each model's usual budget |
 | `app/native_questions.py` | A backend's question as it arrives |
+| `app/node_alerts.py` | The nodes' alerts, sent by the Bridge |
+| `app/node_gateway.py` | The hub's side of the nodes' connections: a TLS server in the Bridge, when COVEY_NODE_LISTEN says where |
+| `app/nodes.py` | 节点 at the Bridge: the gateway the nodes dial, the hub's own node, the alerts |
 | `app/outbox.py` | Resume delivery of authorized saved replies only |
 | `app/overview.py` | 手上的事: one card in the owner's private chat with the bot, pinned (Pin 消息), that lists what waits for the owner … |
 | `app/patrol.py` | The feature object of "what the butler would have told the owner", COVEY_PATROL=shadow |
@@ -219,6 +223,7 @@
 | `cards/held_note.py` | A held note's card: a message sent while the topic's questions wait, saved to go with the answer |
 | `cards/launch_config.py` | The launch card: its form and the model-scoped reasoning choices on it, and the settings list it shares with … |
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
+| `cards/node_cards.py` | The cards of nodes: an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most) and the same … |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/project_proposal.py` | 整理专项's cards: the proposal card (建个专项？), its rename form, the 整理专项 card of a scheduled or asked-for 整理, and … |
@@ -305,6 +310,9 @@
 | `core/model_names.py` | How model ids read: a readable name from an id, the budget a preset id ends with, and where a budget ranks |
 | `core/model_policy.py` | Bounded model safety metadata and user-facing stop reasons |
 | `core/model_settings.py` | Persisted model defaults with per-job configuration snapshots |
+| `core/node_agent.py` | The Node: the program that stays on a device (and on the hub itself) and keeps one connection to its hub |
+| `core/node_rules.py` | The rules that turn a node's samples into alerts, as pure functions |
+| `core/nodes.py` | Nodes (节点): the machines that keep a connection to this hub, the hub itself included, and what they report |
 | `core/paths.py` | Resolve service storage independently of the execution workspace |
 | `core/patrol.py` | What the butler noticed and would have done: records and numbers, no judging |
 | `core/placement.py` | Where a turn's words go in the private chat: one table, the layout by the role |

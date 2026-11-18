@@ -42,7 +42,7 @@ def evaluate(state, sample, now):
         if entry.get("raised"):
             state[rule] = {"raised": False, "since": now}
             events.append(dict({"rule": rule, "kind": "clear", "at": now, "raised_at": entry.get("since")}, **detail))
-        elif entry.get("over"):
+        elif "over" in entry:
             state[rule] = {"raised": False}
 
     mem = sample.get("mem") or {}
@@ -51,13 +51,13 @@ def evaluate(state, sample, now):
         entry = state.get("mem") or {}
         if pct >= MEM_RAISE:
             if not entry.get("raised"):
-                over = entry.get("over") or now
+                over = entry["over"] if isinstance(entry.get("over"), (int, float)) else now
                 state["mem"] = {"raised": False, "over": over}
                 if now - over >= MEM_HOLD:
                     raise_("mem", pct=pct, used=mem.get("used"), limit=mem.get("limit"))
         elif pct < MEM_CLEAR:
             clear("mem", pct=pct)
-        elif entry.get("over") and not entry.get("raised"):
+        elif "over" in entry and not entry.get("raised"):
             state["mem"] = {"raised": False}
 
     oom = mem.get("oom_kill")
