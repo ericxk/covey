@@ -29,6 +29,7 @@ from test_project_lead import CHAT, LEAD, NOW, ON, PID, Case
 
 THREAD = "b" * 32
 HOUR = 3600
+BUDGET = 10_000_000  # The budget the guard tests set (COVEY_PROJECT_BUDGET): without one no project is paused for its tokens.
 
 
 def lead_app(case):
@@ -63,6 +64,14 @@ class Loop(Case):
         self.stop = mock.Mock(return_value=0)
         self.loop = ProjectLoop(self.runtime, self.env, self.stop)
         os.environ.pop(projects.AUTOWAKE_ENV, None)
+        budget = mock.patch.dict(os.environ, {projects.BUDGET_ENV: str(BUDGET)})
+        budget.start()
+        self.addCleanup(budget.stop)
+
+    def no_budget(self):
+        """The default: neither COVEY_PROJECT_BUDGET nor the older COVEY_PROJECT_TOKENS."""
+        os.environ.pop(projects.BUDGET_ENV, None)
+        os.environ.pop(projects.TOKENS_ENV, None)
 
     def autowake(self):
         mock.patch.dict(os.environ, {projects.AUTOWAKE_ENV: "1"}).start()
@@ -171,7 +180,7 @@ class WakeTest(Loop):
 class GuardTest(Loop):
     def test_tokens_over_the_budget_pause_the_project_and_wake_no_more(self):
         self.receipt("start")
-        self.update(tokens_used=projects.DEFAULT_TOKENS)
+        self.update(tokens_used=BUDGET)
         self.loop.tick(NOW + 5)
         record = self.reload()
         self.assertEqual((record["state"], record["state_reason"]), (projects.PAUSED, "tokens"))
@@ -187,12 +196,13 @@ class GuardTest(Loop):
         self.assertEqual(self.reload()["state_reason"], "tokens")
         for value in ("", "x", "0", "-5"):
             with mock.patch.dict(os.environ, {projects.BUDGET_ENV: value}):
-                self.assertEqual(projects.token_limit(), projects.DEFAULT_TOKENS)
+                self.assertEqual(projects.token_limit(), 0)  # No budget, not a default one.
 
     def test_a_launch_keeps_the_budget_and_the_older_name_still_counts(self):
         # The acceptance of 2026-11-17: COVEY_PROJECT_TOKENS has TOKEN in its name, the service manifest took it for a
         # secret and dropped it, so the budget a launch set never reached the Bridge.
         from covey.service import manager
+        self.no_budget()
         self.assertTrue(manager.persistable(projects.BUDGET_ENV))
         self.assertTrue([k for k in manager.runtime_environment({projects.BUDGET_ENV: "400"}) if k.endswith("PROJECT_BUDGET")])
         with mock.patch.dict(os.environ, {projects.TOKENS_ENV: "300"}):
@@ -241,11 +251,11 @@ class GuardTest(Loop):
         self.assertEqual(self.reload()["state"], projects.DONE)
 
     def test_after_a_tokens_pause_the_owners_turn_starts_a_new_budget(self):
-        self.update(tokens_used=projects.DEFAULT_TOKENS, state=projects.PAUSED, state_reason="tokens")
+        self.update(tokens_used=BUDGET, state=projects.PAUSED, state_reason="tokens")
         project_loop.owner_turn(self.state, LEAD, CHAT, "om_3")
         self.loop.tick(NOW + 5)
         self.assertEqual(self.reload()["state"], projects.ACTIVE)
-        self.update(tokens_used=2 * projects.DEFAULT_TOKENS)
+        self.update(tokens_used=2 * BUDGET)
         self.loop.tick(NOW + 6)
         self.assertEqual(self.reload()["state_reason"], "tokens")
 
@@ -253,6 +263,43 @@ class GuardTest(Loop):
         self.update(state=projects.PAUSED, state_reason="wakes")
         project_loop.owner_turn(self.state, THREAD, CHAT, "om_4")
         self.assertEqual(self.reload()["state"], projects.PAUSED)
+
+
+class NoBudgetTest(Loop):
+    """The owner, 2026-11-19: no project is paused for its tokens unless COVEY_PROJECT_BUDGET is set; the other guards stay."""
+
+    def test_without_a_budget_tokens_pause_nothing_stop_no_task_and_ask_nothing(self):
+        self.no_budget()
+        mock.patch.dict(os.environ, {projects.ASK_ENV: "1"}).start()
+        self.addCleanup(mock.patch.stopall)
+        self.receipt("start")
+        self.update(tokens_used=50 * BUDGET, threads=[THREAD])
+        self.loop.tick(NOW + 5)
+        record = self.reload()
+        self.assertEqual((record["state"], record.get("state_reason") or ""), (projects.ACTIVE, ""))
+        self.assertNotIn("pause_ask", record)
+        self.stop.assert_not_called()
+        self.assertEqual(len(self.queued), 1)  # The start receipt wakes the lead as it always did.
+        self.assertEqual(project_loop.hold(record, NOW + 5), "")
+
+    def test_without_a_budget_the_wakes_guard_still_pauses(self):
+        self.no_budget()
+        self.autowake()
+        self.update(tokens_used=50 * BUDGET, wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": []})
+        self.receipt()
+        self.loop.tick(NOW + 5)
+        self.assertEqual((self.reload()["state"], self.reload()["state_reason"]), (projects.PAUSED, "wakes"))
+
+    def test_an_older_tokens_pause_card_still_answers_and_reads_once_the_budget_is_gone(self):
+        self.no_budget()
+        self.update(state=projects.PAUSED, state_reason="tokens", tokens_used=BUDGET)
+        self.update(pause_ask={"reason": "tokens", "why": "token 用到上限 1000 万", "at": NOW, "choice": "", "halted": 1,
+                               "card": {"card_id": "c1", "message_id": "om_ask", "sequence": 0}})
+        self.assertEqual(project_loop.pause_words(self.reload(), "tokens", NOW), "token 用到上限")
+        self.assertEqual(project_loop.answer_pause(self.state, PID, "continue", "om_ask", now=NOW), "ok")
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        self.loop.tick(NOW + 5)
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)  # And it is not paused again for its tokens.
 
 
 class PauseAskTest(Loop):
@@ -270,7 +317,7 @@ class PauseAskTest(Loop):
                                "card": {"card_id": "c1", "message_id": "om_ask", "sequence": 0}})
 
     def test_off_a_guards_pause_leaves_no_question_and_stops_no_task(self):
-        self.update(tokens_used=projects.DEFAULT_TOKENS, threads=[THREAD])
+        self.update(tokens_used=BUDGET, threads=[THREAD])
         self.loop.tick(NOW + 5)
         self.assertEqual((self.reload()["state"], self.reload()["state_reason"]), (projects.PAUSED, "tokens"))
         self.assertNotIn("pause_ask", self.reload())
@@ -278,7 +325,7 @@ class PauseAskTest(Loop):
 
     def test_a_tokens_pause_asks_in_the_owners_words_and_stops_the_member_topics_tasks(self):
         self.ask_on()
-        self.update(tokens_used=projects.DEFAULT_TOKENS, threads=[THREAD])
+        self.update(tokens_used=BUDGET, threads=[THREAD])
         self.stop.return_value = 2
         self.loop.tick(NOW + 5)
         ask = self.reload()["pause_ask"]
@@ -325,17 +372,17 @@ class PauseAskTest(Loop):
 
     def test_a_project_the_owner_stopped_meanwhile_is_not_asked_about(self):
         self.ask_on()
-        self.update(tokens_used=projects.DEFAULT_TOKENS)
+        self.update(tokens_used=BUDGET)
         record = self.reload()
         self.update(state=projects.PAUSED, state_reason=projects.OWNER_STOP)  # The loop's look is of the old record.
         self.loop.pause(record, "tokens", NOW + 5)
         self.assertNotIn("pause_ask", self.reload())
 
     def test_continue_starts_again_clears_the_counts_and_gives_a_tokens_pause_a_new_budget(self):
-        self.paused("tokens", tokens_used=projects.DEFAULT_TOKENS + 7, wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW]})
+        self.paused("tokens", tokens_used=BUDGET + 7, wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW]})
         self.assertEqual(project_loop.answer_pause(self.state, PID, "continue", "om_ask"), "ok")
         record = self.reload()
-        self.assertEqual((record["state"], record["state_reason"], record["token_floor"]), (projects.ACTIVE, "", projects.DEFAULT_TOKENS + 7))
+        self.assertEqual((record["state"], record["state_reason"], record["token_floor"]), (projects.ACTIVE, "", BUDGET + 7))
         self.assertEqual((record["wakes"]["streak"], record["wakes"]["recent"]), (0, []))
         self.assertEqual(record["pause_ask"]["choice"], "continue")
         project_loop.pause_receipt(self.state, PID, "continue", self.reload()["pause_ask"])
@@ -371,10 +418,10 @@ class PauseAskTest(Loop):
         self.assertEqual(project_loop.unread(self.state, PID), [])
 
     def test_a_stop_after_a_tokens_pause_gives_the_budget_the_later_start_needs(self):
-        self.paused("tokens", tokens_used=projects.DEFAULT_TOKENS + 5)
+        self.paused("tokens", tokens_used=BUDGET + 5)
         self.assertEqual(project_loop.answer_pause(self.state, PID, "stop"), "ok")
         project_loop.owner_turn(self.state, LEAD, CHAT, "om_later")  # The owner speaks to the lead some time after.
-        self.assertEqual((self.reload()["state"], self.reload()["token_floor"]), (projects.ACTIVE, projects.DEFAULT_TOKENS + 5))
+        self.assertEqual((self.reload()["state"], self.reload()["token_floor"]), (projects.ACTIVE, BUDGET + 5))
         self.loop.tick(NOW + 5)
         self.assertEqual(self.reload()["state"], projects.ACTIVE)  # Not paused again at once.
 

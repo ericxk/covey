@@ -702,12 +702,12 @@ class PauseInterplayTest(Held):
 
     def test_a_held_question_goes_to_the_owner_once_when_the_tokens_pause_comes(self):
         from test_project_loop import lead_app
-        mock.patch.dict(os.environ, {projects.ASK_ENV: "1"}).start()
+        mock.patch.dict(os.environ, {projects.ASK_ENV: "1", projects.BUDGET_ENV: "10000000"}).start()
         shown = []
         mock.patch.object(flow, "show", side_effect=lambda env, record: shown.append(record["token"]) or True).start()
         self.write()
         self.route()
-        projects.update(self.state, PID, lambda data: data.update(tokens_used=projects.DEFAULT_TOKENS))
+        projects.update(self.state, PID, lambda data: data.update(tokens_used=10_000_000))
         stop = mock.Mock(return_value=1)
         runtime = SimpleNamespace(log=self.logs.append, shutdown=mock.Mock())
         env = SimpleNamespace(state_dir=self.state, runtime=runtime, topics=SimpleNamespace(apps={"claude": lead_app(self)}))

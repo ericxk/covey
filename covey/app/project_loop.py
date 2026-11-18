@@ -8,8 +8,8 @@ when something happened since it last looked, and the mechanical checks that sto
   ``wakes``). A ``start`` receipt always wakes; the others only with COVEY_PROJECT_AUTOWAKE=1. After a restart the same
   look finds the receipts on disk again (``take_receipts`` gives back what a turn that did not end well had taken).
 - Guards, any of which pauses the project with ``state_reason`` ``tokens``, ``wakes`` or ``stalled`` (core/projects.py
-  GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_BUDGET (``tokens_used``, added
-  once per task by ``after_runner``); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
+  GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_BUDGET, only when a deployment
+  sets it (``tokens_used`` is added once per task by ``after_runner`` all the same, the 专项卡 shows it); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
   receipt for 30 minutes, which first wakes the lead with a ``stalled`` receipt and, as long again with nothing moving,
   pauses (only a project with something to do, ``has_work``, can stall). The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
   owner's stop paused (a ``tokens`` pause gets a new budget from there, ``token_floor``).
@@ -77,10 +77,12 @@ def wakes_of(record) -> dict:
 
 
 def hold(record, now) -> str:
-    """The guard a project is over now ('' for none): ``tokens``, or ``wakes`` (30 in a row, or 12 in the last hour)."""
+    """The guard a project is over now ('' for none): ``tokens`` (only with a budget, COVEY_PROJECT_BUDGET), or ``wakes`` (30
+    in a row, or 12 in the last hour)."""
     floor = record.get("token_floor") if type(record.get("token_floor")) is int else 0
     used = record.get("tokens_used") if type(record.get("tokens_used")) is int else 0
-    if used - floor >= projects.token_limit():
+    limit = projects.token_limit()
+    if limit and used - floor >= limit:
         return "tokens"
     wakes = wakes_of(record)
     if wakes["streak"] >= projects.DEFAULT_WAKES or sum(1 for t in wakes["recent"] if now - t < HOUR) >= projects.MAX_WAKES_HOUR:
@@ -265,7 +267,8 @@ def idle_words(seconds) -> str:
 def pause_words(record, reason, now, idle=0) -> str:
     """Why a guard paused ``record`` in a sentence for the owner (the pause card, cards/project_card.py ask_card)."""
     if reason == "tokens":
-        return f"token 用到上限 {projects.count_words(projects.token_limit())}"
+        limit = projects.token_limit()  # 0 once the budget is gone again: an older pause is still worded.
+        return f"token 用到上限 {projects.count_words(limit)}" if limit else "token 用到上限"
     if reason == "wakes":
         wakes = wakes_of(record)
         if wakes["streak"] >= projects.DEFAULT_WAKES:
