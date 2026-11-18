@@ -68,7 +68,7 @@ def task_cards():
     from covey.cards.card_cost import exceeds_stream_card_limit
     from covey.cards.streaming import build_stream_card, card_details_text, task_details_panel, usage_lines
     from covey.cards.task_figures import figure_cells, figures_element
-    from covey.cards.task_status import status_elements
+    from covey.cards.task_status import look_element, status_elements
 
     from covey.cards.answer_card import output_lines, output_parts, running_figures
     from covey.cards.task_figures import io_box, io_lines
@@ -94,6 +94,16 @@ def task_cards():
         "task_details": task_details_panel(sample_job(), snapshot),
         "task_details_redacting": task_details_panel(sample_job(), {**snapshot, "redaction": {
             "terms": 1, "hits": 2, "requests": 3}}),
+        # A running turn's progress (core/progress.py, cards/streaming.py progress_lines): 阶段, 步骤, 最近动静 at a time
+        # of day and the estimate with when it was made; and one that may be stuck.
+        "task_details_progress": task_details_panel(sample_job(turn_progress={
+            "phase": "改卡片", "plan_done": 3, "plan_total": 5, "last_activity_at": FROZEN - 120,
+            "last_activity": "在跑测试", "eta_seconds": 2400, "maybe_stuck": False, "at": FROZEN}), running),
+        "task_details_stuck": task_details_panel(sample_job(turn_progress={
+            "phase": "", "plan_done": None, "plan_total": None, "last_activity_at": FROZEN - 2400,
+            "last_activity": "在跑测试", "eta_seconds": None, "maybe_stuck": True, "at": FROZEN}), running),
+        # 看看 under the status line of a turn that may be stuck (Cards.show_stuck).
+        "look_button": look_element(sample_job()),
         "status_block": status_block("⏳ 执行中 · 已运行 1 分\n第二行", figures_element(snapshot)),
         # The 输入/输出 box (the "E" sample, 2026-11-08): running (开始 · 已运行 / token · token/s / 上下文), on a slim
         # card (no 已运行), and ended (用时 · token/s / token · 缓存命中).
@@ -764,6 +774,11 @@ def status_cards_samples():
         # The checkpoint's steps in place of its phase (app/status_cards.py lines).
         "running_steps": status_card("T445 · 检查点里的步骤与交付进度", "在做", "第 2 轮 · 14:25 开始 · 第 3/5 步：改卡片",
                                      "这一轮：长任务看得出走到第几步"),
+        # With its estimate as a time of day (core/progress.py finish_words), and one that may be stuck.
+        "running_estimate": status_card("T484 · 进度和预计时间", "在做",
+                                        "第 3 轮 · 14:25 开始 · 第 3/5 步：改卡片 · 预计 15:20 左右做完", "这一轮：加上进度"),
+        "running_stuck": status_card("T484 · 进度和预计时间", "在做", "第 3 轮 · 14:25 开始 · 阶段：跑全量 · 可能卡住了",
+                                     "这一轮：加上进度"),
     }
 
 
@@ -890,7 +905,8 @@ def overview_cards():
              "running": [{"label": "T391", "title": "logid", "harness": "Codex", "workspace": "EnvReplay",
                           "status": "queued", "started": None, "phase": ""},
                          {"label": "T390", "title": "重构", "harness": "Claude Code", "workspace": "algo-agent-devskills",
-                          "status": "running", "started": FROZEN - 3900, "phase": "跑全量"}],
+                          "status": "running", "started": FROZEN - 3900, "phase": "跑全量",
+                          "progress": ["预计 19:40 左右做完"]}],
              "stale": [{"label": f"T{n}", "title": "旧", "topic": f"topic-{n}", "ask": "补充信息",
                         "since": FROZEN - 2 * 86400} for n in (380, 381)],
              "dismissed": ["T401", "T402"]}
@@ -911,7 +927,7 @@ def digest_cards():
             "waiting": [row("[T396](https://applink.feishu.cn/client/thread/open?open_chat_id=oc_fake_chat)",
                             "你为啥没有pin？", "等你回答：置顶汇总卡", "等了 3分00秒"),
                         row("T397", "新话题", "等你开工", "等了 40秒")],
-            "running": [row("T390", "重构", "跑全量", "已运行 1小时5分")],
+            "running": [row("T390", "重构", "跑全量 · 预计还要约 40 分钟", "已运行 1小时5分")],
             "done": [row("T394", "群晖公钥", "失败", "用时 2分10秒"),
                      row("T393", "日志", "做完", "用时 45秒", seen=True)]
                     + [row(f"T{n}", "旧", "做完", "用时 1秒") for n in range(380, 388)]}

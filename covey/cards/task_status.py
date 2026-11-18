@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from covey.cards.elements import grey
+from covey.cards.elements import button_row, grey, topic_button
 
 
 ACTIVITY_ELEMENT_ID = "activity"
@@ -14,6 +14,11 @@ ACTIVITY_ELEMENT_ID = "activity"
 # status and the tiles and as wide as the card (the "A 一行仪表" sample, the owner, 2026-11-04 21:47). A card
 # sent before has no such element: its status line says it all (StreamingReply.status_rows).
 STATUS_MORE_ID = "activity_more"
+# The 看看 button under the status line of a turn that may be stuck (core/progress.py maybe_stuck; Cards.show_stuck): a
+# read-only look at its processes, log and latest output (app/stuck_check.py), its kind LOOK_KIND in app/card_actions.py.
+LOOK_ID = "stuck_look"
+LOOK_KIND = "bridge_job_look"
+LOOK_LABEL = "🔍 看看"
 RAN = "已运行 "
 RAN_MINUTES = 3  # From this many minutes on, 已运行 says minutes alone: the line is written once a minute then.
 STATUS_MARKS = {"执行中": "⏳"}
@@ -127,3 +132,9 @@ def status_elements(content: str, rows: bool, slim: bool = False, io: bool = Fal
         return [activity_element(content)]
     top, more = status_rows(content, io)
     return [activity_element(top), more_element(more)]
+
+
+def look_element(job: Any) -> dict[str, Any]:
+    """The 看看 button (LOOK_ID) of ``job``'s task card, in a row of its own under the status line."""
+    value = {"kind": LOOK_KIND, "topic_id": getattr(job, "topic_id", "") or "", "job_id": getattr(job, "job_id", 0)}
+    return button_row([topic_button(LOOK_LABEL, element_id="stuck_look_button", value=value)], LOOK_ID)

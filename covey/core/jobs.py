@@ -130,6 +130,9 @@ class BridgeReplyJob:
     # patience, ...), read by the activity monitor each tick (core/longtask.py) and saved in the record only for a turn on
     # a device (as ``device_state``). {} on this machine.
     device_state: dict = _state(factory=dict)
+    # The turn's progress as the activity monitor last worked it out (core/progress.py progress, with ``at`` its time),
+    # for 任务详情 (cards/streaming.py progress_lines). {} before its first tick.
+    turn_progress: dict = _state(factory=dict)
     native_session_claims: set = _state(factory=set)
     verified_reply: Any = _state()
     verified_result_key: str | None = _state()

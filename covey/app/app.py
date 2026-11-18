@@ -14,6 +14,7 @@ its own module that receives its collaborators here:
 - ``compaction`` (app/compaction.py): the butler's compaction requests, taken by its next turn.
 - ``rewinds`` (app/rewind.py): a ↩️ 回退 the topic's next turn resumes for, and each turn's prompt.
 - ``turn_export`` (app/turn_export.py): 下载请求与结果 on an ended task card.
+- ``stuck_check`` (app/stuck_check.py): 看看 on the task card of a turn that may be stuck.
 - ``questions`` (app/questions.py): native and checkpoint questions, answers, held notes.
 - ``steering`` (app/steering.py): supplements (补充) and the end of a task's controls.
 - ``controls`` (app/task_controls.py): stop, retry, redelivery and recovery cards.
@@ -54,6 +55,7 @@ from covey.app.submission import HarnessChanged, Submission
 from covey.app.topics import RetiredHarness
 from covey.app.task_controls import TaskControls
 from covey.app.turn_export import TurnExport
+from covey.app.stuck_check import StuckCheck
 from covey.app.worker import process_bridge_reply_job
 from covey.core.harness import BridgeContext, HarnessBackend, HarnessSpec, SessionStore
 from covey.app import devices as device_turns, project_context, project_loop
@@ -105,6 +107,7 @@ class BridgeApp:
         self.artifacts = Artifacts(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                    copies=self.questions)
         self.turn_export = TurnExport(harness, runtime=runtime, cards=self.cards, artifacts=self.artifacts)
+        self.stuck_check = StuckCheck(harness, runtime=runtime, messenger=messenger)
         self.switch = SwitchHandoff(harness, runtime=runtime, cards=self.cards, topics=topics)
         self.steering = Steering(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                  record_job_state=record_job_state, enqueue_chat_job=enqueue_chat_job,

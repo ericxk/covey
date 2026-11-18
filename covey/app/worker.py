@@ -27,7 +27,8 @@ from covey.core.saved_results import (display_saved_reply, reruns_after_withdraw
                                                observe_verified_reply, saved_delivery_kind,
                                                paused_question_delivery_key)
 from covey.app import devices as device_turns
-from covey.core.jobs import DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, job_key
+from covey.core.jobs import DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, job_key, topic_job_records
+from covey.core.progress import turn_seconds
 from covey.core import background, placement, timing
 from covey.core.metrics import mark, mark_first_output
 from covey.core.longtask import SEED_PHASE, TaskMonitor
@@ -530,7 +531,20 @@ def _task_monitor(ctx, job, *, cards, runtime, record_job_state, send_text, pref
         runtime.log, lambda: job.progress and cards.close_streaming_reply(ctx, job.progress),
         starting=STARTING.format(starting) if starting else "",
         state=lambda phase, asking: cards.show_running_summary(ctx, job, phase, asking),
-        images=images)
+        images=images, history=_earlier_turns(ctx, job, runtime.log),
+        stuck=(lambda on: cards.show_stuck(ctx, job, on)) if callable(getattr(cards, "show_stuck", None)) else None)
+
+
+def _earlier_turns(ctx, job, log):
+    """The 用时 of the topic's earlier turns (core/progress.py turn_seconds), read once as the turn starts, for its
+    estimate; none when they cannot be read."""
+    if not getattr(job, "topic_id", ""):
+        return []
+    try:
+        return turn_seconds(topic_job_records(ctx.state_dir, job.topic_id, chat_id=job.chat_id), exclude=job.job_id)
+    except (OSError, ValueError) as exc:
+        log(f"earlier turns of job #{job.job_id} not read: {type(exc).__name__}")
+        return []
 
 
 def _generate_reply(ctx, job, session_id, progress, *, runs, record_job_state):

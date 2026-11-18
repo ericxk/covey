@@ -32,6 +32,7 @@ from covey.cards.cardkit_actions import (batch_body, delete, element_body, inser
 from covey.cards.review import (compact_text, outcome_line, render_stream_final, render_stream_status,
                                          running_summary, task_card_summary)
 from covey.cards.elements import grey
+from covey.cards.task_status import ACTIVITY_ELEMENT_ID, LOOK_ID, STATUS_MORE_ID, look_element
 from covey.core import butler, projects
 from covey.cards.streaming import (ACTION_ROW_ELEMENT_ID, SIDE_CHAT_ELEMENT_ID, answer_element,
                                             card_title_for_question)
@@ -153,10 +154,35 @@ class Cards:
         """Whether the body the job's card took last is cut short to fit the card's size."""
         return bool(job.progress and getattr(job.progress, "cut", False))
 
+    def show_stuck(self, ctx: BridgeContext, job: ReplyJob, stuck: bool) -> bool:
+        """The 看看 button (cards/task_status.py look_element) under the status line while the turn may be stuck
+        (core/longtask.py TaskMonitor's ``stuck``), taken off when it moves again and at its end (``delete_stop_action``).
+        Not on a card stopping or delivering; each change tried once (the status line says it may be stuck either way)."""
+        progress = job.progress
+        if not progress or (stuck and (job.cancel_requested_at or job.answer_finalized)):
+            return False
+        with card_lock(progress):
+            if getattr(progress, "disabled", False) or bool(stuck) == getattr(progress, "look_shown", False):
+                return False
+            if stuck:
+                element = look_element(job)
+                anchor = STATUS_MORE_ID if getattr(progress, "status_rows", False) else ACTIVITY_ELEMENT_ID
+                if self._write(ctx, job, "POST", "elements", insert_body([element], anchor), LOOK_ID) is None:
+                    return False
+                note_element(progress, element)
+            else:
+                if self._write(ctx, job, "DELETE", f"elements/{LOOK_ID}", {}, "remove-" + LOOK_ID) is None:
+                    return False
+                drop_element(progress, LOOK_ID)
+            progress.look_shown = bool(stuck)
+            return True
+
     def delete_stop_action(self, ctx: BridgeContext, job: ReplyJob) -> bool:
         """Remove the task card's action row (its 补充 forms are closed by Steering first)."""
         if not job.progress:
             return False
+        if getattr(job.progress, "look_shown", False):
+            self.show_stuck(ctx, job, False)
         if job.action_controls_removed:
             return True  # Stopping removed them; the job's end must not delete them again.
         with card_lock(job.progress):

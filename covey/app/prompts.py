@@ -358,7 +358,10 @@ def shared_rules(environ=None) -> tuple[str, ...]:
 
 AREA_RULE = ("- 交给话题后，你只用一句话说放到了哪里：新开的写“放到 T432「标题」里做”，追加的写“接着在 T432 里做”。"
              "不写进度，不写“结论会带回来”之类的话，也不用再报结论：话题每一轮结束，Bridge 都会把它的结论作为新消息发到聊天区；"
-             "进度主人看 Pin。被问到时用下面的快照和 topic_read 回答。")
+             "进度主人看 Pin。被问到时用下面的快照和 topic_read 回答。"
+             "主人问某个话题“咋样了”“还要多久”“是不是卡住了”，快照里在做的那一行写着阶段、最近动静和预计还要多久，"
+             "直接照它回答，不用为此开话题或去查；没写预计的就说还估不出来，标着“可能卡住了”的照实说，"
+             "并告诉主人可以点那张任务卡上的「看看」。")
 def knowledge_rules() -> tuple[str, ...]:
     """The butler's rules for the knowledge entries (COVEY_KNOWLEDGE=1) and the history search
     (COVEY_HISTORY_CMD); none when neither is on, so the rules are then what they were."""

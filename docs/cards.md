@@ -82,7 +82,9 @@
 - 每一轮一开始就有执行记录（五个后端都报告结构化事件），状态行从第一次刷新起写“执行中 · 已运行 …”。有灰框的卡“已运行”不在状态行（`status_rows(io=True)`），在“输出”里；过了 3 分钟只写到分钟（`ran_of`、`ran_shown`），内容没变不写。
 - `StreamingCard.update_activity` 只写变了的部分：平时只 PATCH `task_figures`。
 - 没有步骤的执行记录：有输出时写 `THINKING`，只有推理开始时写 `REASONING`，都没有时写 `WAITING_FOR_MODEL`；声明 `model_requests` 的后端在 `model_request` 到达前写 `STARTING`（这个事件由 `app/runs.py` 只交给状态行）。后端进程退出码为 0 时写 `COLLECTING`“正在整理本轮结果”，非 0 才写“后端进程已退出”。
-- 进展取整棵执行过程树里最新的一件事，写模型的命令说明或粗分类，不写原始命令；“当前”行写最近一步和“最近进展 N 前”（`QUIET_SHOWN` 以内不写）；进程活着不算进展。
+- 进展取整棵执行过程树里最新的一件事，写模型的命令说明或粗分类，不写原始命令；“当前”行写最近一步和最近一次动静（`core/progress.py` 的 `activity_line`：“2 分钟前在跑测试”，只到分钟，`ACTIVITY_SHOWN` 以内不写；“当前”写的已经是这件事本身时只写“2 分钟前”）；进程活着不算进展。没有 `Facts.progress` 的调用方照旧写“最近进展 N 前”。
+- 进度（`core/progress.py` 的 `progress`，一个纯函数，任务卡、看板、手上的事、早晚汇总、管家快照和网页共用）：阶段、步骤、最近动静、预计（`eta_seconds`，估不出来为 None）、可能卡住（`maybe_stuck`）。`TaskMonitor` 每次刷新算一遍，`last_activity_at`、`last_activity` 写进任务记录（旧任务进程没有这两个字段，读的时候用 `health_checked_at` 减 `last_progress_age_seconds`），整份放进 `job.turn_progress` 给任务详情。预计写在状态行第一行末尾；任务详情写时刻（“14:05 在跑测试”“（14:20 估）”），因为它只随执行过程面板一起写。看板、手上的事、汇总只写阶段和预计（`board_words`；Pin 的话题卡和手上的事写成“预计 15:20 左右做完”，只在预计变了才重画），不写最近动静。
+- 可能卡住（最近动静已过 `COVEY_PROGRESS_STUCK_MINUTES` 分钟，默认 30；等回答、模型请求重试时不算）：状态行最后一行写 `stuck_words`，代替“较长时间没有新进展”；`TaskMonitor` 的 `stuck` 回调在它变化时调一次 `Cards.show_stuck`：在 `activity_more`（老卡在 `activity`）后面插入 `stuck_look` 按钮行（`cards/task_status.py` 的 `look_element`，kind `bridge_job_look`），有了新动静或这一轮结束（`delete_stop_action`）时删掉；每个方向只试一次。
 - 排队中取消写“⏹ 已取消排队”；回答过的提问任务，状态行随正文改为“↪ 已收到回答”。
 - 有在做的一步（检查点的 `steps`，见下文）时，状态行用它代替阶段（`step_text`）。
 
@@ -184,7 +186,7 @@
 
 `app/card_actions.py` 的 `ACTIONS` 是任务卡按钮 kind 和失败提示里的名称（停止、重试、下载请求与结果、补充及其状态/重新排队/撤回、暂存消息、回答及其核查/状态、执行过程、产物），另有上节的主人卡片。
 
-- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）。
+- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）、看看（`bridge_job_look`，`app/stuck_check.py`：不建任务，但要由 Bridge 从外面看这一轮的任务进程，不能交给可能卡住的它）。
 - 卡片事件只有一个消费后台线程，它把点击交给 `app/card_lanes.py` 的分道：同一话题按到达顺序逐个处理，跨话题并行，不在话题里的卡片各占一道。
 - 处理器返回即点击已回执（`card action` 那行的 `elapsed_ms`）。`after_ack` 留下的慢活在本话题的后续道里按序执行（记 `card follow-up`），下一次点击不等它，失败按这次点击的口径回复。不在分道里（文字回答、任务进程、测试）时 `after_ack` 当场执行。停止服务时只跑后续道，`drain` 等已开始的做完或超时。
 - 飞书的卡片回调 3 秒内要应答，所以点击里只做决定和改被点的卡，发新卡、发通知都放进后续。例如开始任务的任务卡（`Submission.release_waiting`；回执在另一条后续道同时写，`after_ack(beside=True)`），重新排队执行（锁内记 `requeue_state=submitting`，后续未完时再点回复“正在重新排队”），开新话题（同一事件重投用同一 token 只开一次）。任务卡总在 `enqueue_reply_job` 之前发出，任务不会在卡片出现前开始。

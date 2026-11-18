@@ -44,6 +44,9 @@ ACTIONS = {
     "bridge_fork": CardAction("侧聊或分叉", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.
+    # 看看 under the status line of a turn that may be stuck (cards/task_status.py LOOK_KIND): the Bridge looks at the task
+    # runner from outside (app/stuck_check.py), so never forwarded to it; it starts no task.
+    "bridge_job_look": CardAction("看看卡住的任务", bot_only=True, handler="stuck_check.look_action"),
     "bridge_steer": CardAction("补充当前任务", handler=QUESTIONS),
     # The 派发卡's buttons (cards/dispatch_card.py): a topic's click like the job's own, not bot_only: with a task
     # process alive the click goes to it (it carries the job's id), as 补充 and 停止 on the task card do.

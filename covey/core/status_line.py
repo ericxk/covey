@@ -9,6 +9,7 @@ from covey.core.checkpoint import current_step, step_words
 from covey.core.metrics import clock_text, duration, step_age, took_text
 from covey.core.text import safe_text, step_event, step_label
 from covey.core import turn_words
+from covey.core.progress import activity_line, ago_words, eta_words, stuck_words
 from covey.core.turn_words import UNSET_PHASES
 
 
@@ -26,6 +27,10 @@ BACKEND_ALIVE = "后端进程仍在运行"
 COLLECTING = "正在整理本轮结果"
 # Progress more recent than this goes without its age on the status line ("最近进展 1 秒前" said nothing).
 QUIET_SHOWN = 10
+# A line with the turn's progress (Facts.progress, core/progress.py) says its last activity to the minute (2 分钟前在跑测试),
+# from a minute on: the card is written when its words change, not with every second (AGENTS.md rule 3).
+ACTIVITY_SHOWN = 60
+LONG_QUIET = 900  # 较长时间没有新进展 from this many seconds on, until the turn may be stuck (core/progress.py).
 
 
 def step_text(steps, times, wall):
@@ -117,6 +122,26 @@ class Facts(NamedTuple):
     steps: str = ""  # The checkpoint's steps (``step_text``), '' without.
     step_doing: bool = False  # One of them is under way: ``steps`` stands for the phase.
     device: dict | None = None  # The link to the device of a turn there (core/device_link.py details()); None here.
+    # The turn's progress (core/progress.py progress, TaskMonitor.progress): its estimate, its last activity in words
+    # and whether it may be stuck. None: the lines as before it (a caller with no monitor).
+    progress: dict | None = None
+    stuck_after: int | None = None  # The monitor's threshold in seconds (core/progress.py stuck_seconds); None: the environment's.
+
+
+def quiet_note(facts):
+    """The line under a turn quiet for long: it may be stuck (core/progress.py maybe_stuck, with the 看看 button on its
+    card), else, from LONG_QUIET, that it may be waiting for something; '' otherwise."""
+    if facts.progress is not None and facts.progress.get("maybe_stuck"):
+        return stuck_words(facts.stuck_after)
+    if facts.quiet >= LONG_QUIET:
+        return "较长时间没有新进展，可能正在等待外部任务；尚不能据此判定失败。"
+    return ""
+
+
+def estimate_part(facts):
+    """" · 预计还要约 40 分钟" of the turn's estimate, '' without one."""
+    words = eta_words((facts.progress or {}).get("eta_seconds"))
+    return f" · {words}" if words else ""
 
 
 def plain_summary(facts):
@@ -126,14 +151,13 @@ def plain_summary(facts):
         else ("后端进程已退出" if facts.alive is False else "未取得后端进程状态")
     )
     summary = (
-        f"执行中 · 已运行 {took_text(facts.elapsed)}\n当前阶段：{facts.phase}\n"
+        f"执行中 · 已运行 {took_text(facts.elapsed)}{estimate_part(facts)}\n当前阶段：{facts.phase}\n"
         + (f"当前步骤：{facts.steps}\n" if facts.steps else "") +
         f"最近进展：{duration(facts.quiet)}前 · {facts.last_event}\n"
         f"最近检查：{facts.checked} · {health}"
     )
-    if facts.quiet >= 900:
-        summary += "\n较长时间没有新进展，可能正在等待外部任务；尚不能据此判定失败。"
-    return summary
+    note = quiet_note(facts)
+    return summary + ("\n" + note if note else "")
 
 
 def trace_summary(facts):
@@ -146,20 +170,29 @@ def trace_summary(facts):
         summary += f" · 阶段：{facts.phase}"
     if facts.steps:
         summary += f" · {facts.steps}"
+    if not facts.finished:
+        summary += estimate_part(facts)
     if facts.finished:
         # S27 #843 read "等待模型开始输出 · … 后端进程已退出，正在收尾" for the second before its ✅ 已完成.
         return summary + "\n当前：" + COLLECTING
     # The latest step only: a sub-task's newest event when it is the latest progress, else what runs
     # now. T182 #1128 wrapped "子任务「…」运行中，已 2 分 18 秒 · 最近进展 1 秒前 · 子任务运行命令结束：…"
     # over three lines; the sub-task's own time is on its entry in 执行过程.
-    line = "当前：" + (phrase if phrase and facts.wall - newest <= quiet + 1 else current)
-    if (newest is not None or facts.stirred) and quiet >= QUIET_SHOWN:
+    said = bool(phrase and facts.wall - newest <= quiet + 1)
+    line = "当前：" + (phrase if said else current)
+    if facts.progress is not None:
+        # What it last did and when, to the minute (2 分钟前在跑测试), never a command line; when the line names the
+        # newest step already (a sub-task's), its age alone.
+        if (newest is not None or facts.stirred) and quiet >= ACTIVITY_SHOWN:
+            line += " · " + (ago_words(quiet) if said else activity_line(facts.progress, facts.wall))
+    elif (newest is not None or facts.stirred) and quiet >= QUIET_SHOWN:
         line += f" · 最近进展 {clock_text(quiet)}前"
-    if quiet >= 900 and facts.alive is True:
+    if quiet >= LONG_QUIET and facts.alive is True:
         line += " · 进程仍在运行"
     summary += "\n" + line
-    if quiet >= 900:
-        summary += "\n较长时间没有新进展，可能正在等待外部任务；尚不能据此判定失败。"
+    note = quiet_note(facts)
+    if note:
+        summary += "\n" + note
     if facts.alive is False:
         summary += "\n后端进程已退出，正在收尾。"
     return summary
