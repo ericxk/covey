@@ -231,6 +231,15 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.outbox.iterdir()), [other.name])  # Left for its Bridge.
         self.assertTrue(all(key.startswith('memguard-20261104T') for *_, key in self.sent))
 
+    def test_with_the_nodes_on_the_container_alert_is_left_to_them(self):
+        container = self.alert('【内存看门狗】容器匿名内存已达 81%', rule='container')
+        self.alert('【内存看门狗】已终止失控搜索进程（killed）')
+        with mock.patch.dict(os.environ, {'COVEY_NODE_LISTEN': '[::]:1'}):
+            self.alerts.send_pending(self.ctx)
+        self.assertEqual([text for _, _, text, _ in self.sent], ['【内存看门狗】已终止失控搜索进程（killed）'])
+        self.assertFalse(container.exists())
+        self.assertIn('memory watchdog alert dropped (the nodes alert on memory)', self.log)
+
     def test_an_alert_waits_for_the_owners_chat_and_old_ones_are_dropped(self):
         self.owner = ''
         waiting = self.alert('等主人私聊')

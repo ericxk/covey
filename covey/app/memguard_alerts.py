@@ -4,6 +4,8 @@ An alert names the task whose marker the process carried (COVEY_TASK_DIR, core/t
 this Bridge's tasks goes to that task's topic; one without a task to the owner's private chat; another Bridge's
 is left for it. A file is claimed by renaming it, so of two Bridges on one machine only one sends it. At most
 PER_HOUR are sent; the next one sent says how many were not. alerts.jsonl beside the outbox keeps every alert.
+With the nodes on (COVEY_NODE_LISTEN) the container-memory alert is dropped: the hub's own node alerts on the
+same memory (core/node_rules.py), and the owner would get two cards for one thing. Its other rules are sent.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import os
 import time
 from pathlib import Path
 
+from covey.core import nodes
 from covey.core.jobs import find_job_record
 from covey.core.loops import every
 from covey.core.state import read_object
@@ -79,6 +82,9 @@ class MemguardAlerts:
             return
         except (OSError, ValueError, UnicodeDecodeError):
             self.drop(path, "unreadable")
+            return
+        if alert.get("rule") == "container" and nodes.enabled():
+            self.drop(path, "the nodes alert on memory")
             return
         target = self.target(ctx, alert)
         if target is None:
