@@ -55,8 +55,46 @@ def enabled() -> bool:
 
 
 KINDS = frozenset({STEER_KIND, STOP_KIND})
+STOP_SHOWN = 600.0  # Seconds a stop click is shown as 正在停止 while the job's record has not said so.
+# Stop clicks this Bridge passed on, (topic id, job number) -> when: the card says 正在停止 at the next tick, not once the
+# task runner has written the job's record (a stalled disk held that write for minutes: T525 #4664, 2026-11-18).
+_stopping: dict = {}
 NO_JOB = "这个话题现在没有在做的任务，上一轮已经结束了。要继续，直接在话题里发消息，或引用这张卡回复。"
 LIVE_STATUS = frozenset({"queued", "running", "waiting_user", "cancel_requested"})
+
+
+def stop_clicked(topic_id, job_id, now=None) -> None:
+    """A 停止 on job ``job_id`` of topic ``topic_id`` (the 派发卡's or the task card's) reached this Bridge: its 派发卡 says
+    正在停止 from the next tick on (``status_of``), whatever the job's record says yet. Nothing with the switch off."""
+    if not enabled() or not str(job_id or "").isdigit():
+        return
+    now = time.time() if now is None else now
+    for key, at in list(_stopping.items()):
+        if now - at > STOP_SHOWN:
+            _stopping.pop(key, None)
+    _stopping[(str(topic_id), int(job_id))] = now
+
+
+def stopping(topic_id, job, now) -> bool:
+    """Whether a stop of ``job`` (its record) was clicked less than STOP_SHOWN seconds ago (``stop_clicked``)."""
+    at = _stopping.get((str(topic_id), job_number(job)))
+    return at is not None and now - at <= STOP_SHOWN
+
+
+def following(state_dir, chat_id, topic_id, mid) -> str:
+    """The token of a live 派发卡 of ``topic_id`` that follows the topic's job ``mid`` already (``current_job``), '' when
+    there is none. A card whose conclusion note came is settling and follows nothing any more."""
+    for path in records.live_paths(state_dir):
+        saved = read_object(path)
+        if (saved.get("state", records.LIVE) != records.LIVE or not saved.get("card_message_id")
+                or saved.get("topic_id") != topic_id or saved.get("chat_id") != chat_id):
+            continue
+        token = str(saved.get("token") or path.stem)
+        if records.relay_note(state_dir, token):
+            continue
+        if saved.get("mid") == mid or str((current_job(state_dir, saved) or {}).get("key") or "") == mid:
+            return token
+    return ""
 
 
 def click_job(runtime, state_dir, topic_id, chat_id) -> str:
@@ -140,7 +178,7 @@ def status_of(state_dir, record, job, now) -> tuple[str, str]:
     if status == "cancelled":
         return STOPPED, message or "已停止"
     # The step under way, as the butler's snapshot says it (app/butler.py snapshot_groups), else the phase.
-    if status == "cancel_requested":
+    if status == "cancel_requested" or stopping(record.get("topic_id"), job, now):
         return RUNNING, "正在停止…"
     step, doing = step_text(checkpoint_steps({"steps": job.get("steps")}), job.get("step_times"), now)
     phase = str(job.get("phase") or "")
@@ -254,6 +292,12 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=
     record = read_object(path)
     if record.get("card_message_id"):
         return token  # The same request again: the card is there.
+    kept = following(state, chat, topic_id, mid) if mid and not record else ""
+    if kept:
+        # A 补充 into a job whose card is out already: that card follows it, a second one would say the same and never
+        # get the conclusion's note (it goes to the token of the job's own request), T525 #4664, 2026-11-18.
+        env.runtime.log(f"dispatch card kept topic={str(topic_id)[:12]} kind={kind} token={kept[:8]}")
+        return kept
     if not record:
         record = records.new_record(token=token, chat_id=chat, topic_id=topic_id, job_key=job_key,
                                     mid=mid or "main-" + token, kind=kind, owner_message=owner,

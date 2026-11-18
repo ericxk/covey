@@ -224,6 +224,8 @@ class CardRouting:
                                     app.key('stale-route', event.get('event_id') or event['message_id']), voice=app.voice)
                 return 'stale_route'
         self.count_others(target, event, raw)
+        if not self.runtime.in_runner and raw.get('kind') in (dispatch_cards.STOP_KIND, JOB_STOP_ACTION_KIND):
+            dispatch_cards.stop_clicked(target.topic_id, raw.get('job_id'))  # Its 派发卡 says 正在停止 at the next tick.
         if runner_ipc.forward_card_action(self.runtime, target, event, raw):
             timing.mark('forward')
             return 'forwarded'  # The job's task runner owns its card.

@@ -158,6 +158,7 @@ class DispatchCase(UnifiedCase):
         patcher = mock.patch.dict(os.environ, {dispatch_cards.ENV: "1"})
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.addCleanup(dispatch_cards._stopping.clear)
         self.app.runtime.access.remember_owner_chat(CHAT)
         self.numbers = itertools.count(1)
         self.sent = mock.Mock(side_effect=self.send_card)
@@ -277,6 +278,34 @@ class CreatedTest(DispatchCase):
         self.assertEqual((self.record("one")["rounds"], self.record("two")["rounds"]), (1, 1))  # Two topics.
         self.assertEqual(records.rounds_for(self.ctx.state_dir, OWNER, self.record("one")["topic_id"]), 2)
 
+    def send(self, request_id, topic, text):
+        request = Request(request_id, "topic_send", {"topic": topic, "text": text}, "main-job", 0.0)
+        return butler_topics.TOOLS["topic_send"](self.env, request)
+
+    def test_a_supplement_into_the_job_a_card_follows_sends_no_second_card(self):
+        # T525 #4664 (2026-11-18): topic_send started the turn, the next one went in as its 补充 and sent a second card that
+        # said the same, and that the conclusion never settled (its note goes to the token of the job's own request).
+        topic = self.start()["data"]["topic_id"]
+        job = self.app.runtime.jobs.find(0, self.job_key())
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
+        answer = self.send("r2", topic, "我是指做成插件")
+        self.assertTrue(answer["ok"] and answer["data"]["steered"], answer)
+        job.backend_control.steer.assert_called_once()
+        self.assertEqual(len(self.dispatch_sends()), 1)
+        self.assertEqual(self.record("r2"), {})
+        self.assertTrue(any("dispatch card kept" in line for line in self.logs))
+
+    def test_a_supplement_after_the_card_settled_sends_a_card_of_its_own(self):
+        topic = self.start()["data"]["topic_id"]
+        job = self.app.runtime.jobs.find(0, self.job_key())
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
+        self.assertTrue(records.mark_relayed(self.ctx.state_dir, self.token(), outcome="done", state="sent"))
+        self.assertTrue(self.send("r2", topic, "再加一条")["data"]["steered"])
+        self.assertEqual(len(self.dispatch_sends()), 2)
+        self.assertEqual(self.record("r2")["mid"], self.job_key())
+
     def test_a_topic_that_waits_on_its_launch_card_says_it_waits_for_the_owner(self):
         butler_settings.update(self.ctx.state_dir, start=())
         self.start(harness="codex")
@@ -333,6 +362,21 @@ class RefreshTest(DispatchCase):
         self.set_job(status="done", status_message="已完成")
         self.assertEqual(tag(self.base + 15), "做完")
         self.assertFalse(find_element(self.last_card(), "dp_thread")["expanded"])
+
+    def test_a_stop_click_says_stopping_before_the_jobs_record_does(self):
+        # T525 #4664 (2026-11-18): the task runner's write of cancel_requested waited minutes on a stalled disk, and the
+        # card the owner clicked went on saying the job worked.
+        self.tick(self.base + 3)
+        self.assertNotIn("正在停止", json.dumps(self.last_card(), ensure_ascii=False))
+        number = dispatch_cards.current_job(self.ctx.state_dir, self.record())["job_id"]
+        dispatch_cards.stop_clicked(self.record()["topic_id"], str(number), now=self.base + 4)
+        self.tick(self.base + 6)
+        self.assertIn("正在停止", find_element(self.last_card(), "dp_body")["content"])
+        self.set_job(status="cancelled", status_message="用户停止了任务")
+        self.tick(self.base + 9)
+        self.assertEqual(self.last_card()["header"]["text_tag_list"][0]["text"]["content"], "已停")
+        self.assertFalse(dispatch_cards.stopping(self.record()["topic_id"], {"job_id": number},
+                                                 self.base + 4 + dispatch_cards.STOP_SHOWN + 1))
 
     def test_a_step_under_way_is_what_the_fold_says(self):
         steps = [{"title": "读代码", "state": "done"}, {"title": "改接缝", "state": "doing"}, {"title": "跑测试", "state": "todo"}]
@@ -559,6 +603,12 @@ class ClickTest(DispatchCase):
                           topic_id=self.topic)
         forward, _ = self.click(view.STEER_KIND, "36")
         self.assertEqual(forward.call_args.args[3]["job_id"], "41")
+
+    def test_a_stop_reaching_the_bridge_marks_the_card_stopping_at_once(self):
+        self.job(37, running=True)
+        self.click(view.STOP_KIND, "36")
+        self.assertTrue(dispatch_cards.stopping(self.topic, {"job_id": 37}, time.time()))
+        self.assertFalse(dispatch_cards.stopping(self.topic, {"job_id": 36}, time.time()))
 
     def test_the_task_runner_takes_the_click_as_it_is(self):
         self.app.runtime.runner = object()  # In a task runner: the Bridge has named the job already.

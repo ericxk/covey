@@ -148,6 +148,7 @@ continued、done、failed、cancelled、interrupted：终态
 - 每条消息是原子写入的一个 JSON 文件，读方按文件名顺序取一条删一条。
 - 预先拉起：接着就运行的任务在建任务卡之前由 `prestart_runner` 先起任务进程，它预热后等写明同一随机串的 `handoff.json`，30 秒没等到就退出。
 - 任务进程从不自己建任务，续答经 `RunnerLink.enqueue` 请 Bridge 入队。`runner_argv()` 把路径改成绝对路径，`runner_env()` 清理 `PYTHONPATH`。
+- 停止不只靠这一轮的线程：`cancel_reply_job_from_card` 设好 `cancel_event` 后、写卡和记录之前先 `hard_stop_later`，`HARD_STOP_AFTER`（5 秒）后后端进程还在就给它的进程组发 SIGTERM。平时这一轮的线程一两秒内自己看到停止、先关掉后端，这一下什么也不做；盘卡住时那条线程可能在记录锁上等几分钟（T525 #4664，2026-11-18），后端照样停。停止之后、后端还没做完时后端抛什么都按停止结算（`worker._turn_from_exception`）。
 - `SIGTERM` 是中断，不是停止（`app/runner.py` 的 `interrupt`）：没做完的一轮不结算（`leave_interrupted`），记录留在 `running`，退出后由 Bridge 标 `interrupted`；已做完的结果照常投递。
 - 没起来：退出时仍是 `queued` 且无 `exit.json` 时 `relaunch_unstarted` 再起一次；`start_runner` 抛错时 `not_started` 把记录写成 `failed`（`runner_start_failed`）并出恢复卡。
 - `done.json`：Bridge 见到它（`job_done`）先交还调度槽位，同话题的下一条照常进行；点击仍转给活着的任务进程；outbox 和自动重试等它退出。

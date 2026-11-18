@@ -292,6 +292,18 @@ class TurnFromExceptionTest(unittest.TestCase):
         self.assertEqual(_turn_from_exception(JobCancelled("x"), job, True)["status"], "cancelled")
         self.assertEqual(_turn_from_exception(timeout, job, False)["status"], "failed")
 
+    def test_a_backend_that_fails_as_a_stop_ends_it_is_stopped(self):
+        # A 停止 SIGTERMs a backend whose turn's thread is held (app/task_controls.py hard_stop_later): whatever it
+        # raises as it goes, the turn is stopped, not failed; once it finished (settling), a failure is still one.
+        import threading
+        from covey.app.worker import _turn_from_exception
+        job = SimpleNamespace(job_id=7, interrupted=False, topic_id="", chat_id="", cancel_event=threading.Event())
+        self.assertEqual(_turn_from_exception(RuntimeError("closed"), job, False)["status"], "failed")
+        job.cancel_event.set()
+        self.assertEqual(_turn_from_exception(RuntimeError("closed"), job, False)["status"], "cancelled")
+        self.assertEqual(_turn_from_exception(ValueError("x"), job, True)["status"], "failed")
+        self.assertEqual(_turn_from_exception(subprocess.TimeoutExpired("x", 1), job, False)["status"], "failed")
+
 
 if __name__ == '__main__':
     unittest.main()

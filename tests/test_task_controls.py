@@ -48,6 +48,30 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job.progress = StreamingReply("card-a", "om_card", sequence=1)
         return job, self.topic("om_a")
 
+    def test_a_stop_ends_the_backend_itself_when_the_turn_does_not(self):
+        # T525 #4664 (2026-11-18): the turn's thread waited minutes on a job record's lock (a stalled disk) and never
+        # looked at the stop; Claude ran on. The stop SIGTERMs the backend's group once HARD_STOP_AFTER has passed.
+        import signal
+        import subprocess
+        from covey.app import task_controls
+        job, ctx = self.running_with_card()
+        job.backend_process = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        self.addCleanup(lambda: job.backend_process.poll() is None and job.backend_process.kill())
+        with FakeCardKit(), mock.patch.object(task_controls, "HARD_STOP_AFTER", 0.05):
+            self.app.controls.cancel_reply_job_from_card(ctx, {"job_id": str(job.job_id)}, "oc_chat", "stop")
+            self.assertEqual(job.backend_process.wait(timeout=10), -signal.SIGTERM)
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertTrue(any("SIGTERM job=#" in line for line in self.logs), self.logs)
+
+    def test_a_backend_that_ended_gets_no_signal(self):
+        from covey.app import task_controls
+        process = mock.Mock(**{"poll.return_value": 0})
+        with mock.patch.object(task_controls, "signal_group") as signal_group:
+            timer = task_controls.hard_stop_later(SimpleNamespace(job_id=1, backend_process=process), self.logs.append, 0.01)
+            timer.join(5)
+        signal_group.assert_not_called()
+        self.assertIsNone(task_controls.hard_stop_later(SimpleNamespace(job_id=1, backend_process=None), self.logs.append))
+
     def test_stop_changes_the_top_of_the_card_in_its_first_write(self):
         job, ctx = self.running_with_card()
         with FakeCardKit() as lark:

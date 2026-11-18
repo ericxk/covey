@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import signal
+import threading
 from pathlib import Path
 
 from covey.core import placement, recovery, timing
@@ -15,6 +17,7 @@ from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import carry_device, context_for_job, parse_job_stop_action_value, upsert_job_record
 from covey.core.model_settings import recorded_work_mode, strict_recorded_model_settings
 from covey.core.model_policy import retried_line
+from covey.core.process import signal_group
 from covey.core.state import utc_now_iso
 from covey.core.history_storage import recent_history
 from covey.core.topics import RETIRED_TEXT as TOPIC_RETIRED, remember_topic_message, retired_topic
@@ -41,6 +44,35 @@ RETRY_REFUSALS = {
 
 # A record whose card a quiet butler turn's recovery card is, sent at the top level (TaskControls.show_recovery_card).
 TOP_CARD = "card_top_level"
+# Seconds after a 停止 before the backend's process group gets SIGTERM from the stop itself. The turn's own thread stops
+# it within a second or two (it checks the stop between rows); this is for when that thread is held, as on a stalled
+# disk (T525 #4664, 2026-11-18: held on a job record's lock for minutes, Claude ran on).
+HARD_STOP_AFTER = 5.0
+
+
+def hard_stop_later(job, log, after=None):
+    """Arm the stop that does not wait for the turn's thread: ``after`` seconds on, the backend process this process
+    started for ``job`` (``backend_process``) gets SIGTERM on its process group if it is still running. The thread, once
+    free, finds the stop asked (cancel_event) and ends the turn as stopped. None when this process runs no backend for
+    it (a task runner's job seen from the Bridge: the click went on to the runner)."""
+    process = getattr(job, "backend_process", None)
+    if process is None:
+        return None
+    after = HARD_STOP_AFTER if after is None else after
+
+    def stop():
+        try:
+            if process.poll() is None:
+                log(f"job stop: backend still running {after:g}s after 停止, SIGTERM job=#{job.job_id}")
+                signal_group(process, signal.SIGTERM)
+        except Exception as exc:  # noqa: BLE001 - the turn's own thread still stops it
+            log(f"job stop: SIGTERM failed job=#{job.job_id}: {type(exc).__name__}")
+
+    timer = threading.Timer(after, stop)
+    timer.daemon = True
+    timer.name = "hard-stop"
+    timer.start()
+    return timer
 
 
 @dataclasses.dataclass
@@ -354,6 +386,7 @@ class TaskControls(Redelivery):
             self.messenger.reply(ctx, chat_id, f"已取消排队任务 #{job.job_id}，其他任务继续。{also}",
                                  self.voice.key("cancel-queued-ack", message_id), voice=self.voice)
             return True
+        hard_stop_later(job, self.runtime.log)  # Before any record or card write: those may wait on the disk.
         job.cancel_requested_at = utc_now_iso()
         job.cancel_requested_by = "card"
         # What the user looks at changes first: the status line and the buttons at the top of the card.

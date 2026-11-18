@@ -681,7 +681,8 @@ def _others_note(job) -> str:
 def _turn_from_exception(exc, job, settling) -> dict:
     """The TurnResult fields of a turn the exception ``exc`` ended (its native session is never resumed then):
     a timeout fails it; a SIGTERM before the backend finished (``settling`` False) leaves it interrupted, whatever
-    the backend raised as it stopped; a stop cancels it; anything else fails it, its type named."""
+    the backend raised as it stopped; a stop cancels it, before the backend finished whatever it raised; anything else
+    fails it, its type named."""
     if isinstance(exc, subprocess.TimeoutExpired):
         return {"status": "failed", "status_message": "任务超时",
                 "final_text": worded(f"任务 #{job.job_id} 超时未完成，可在本话题{retry_hint()} 重试。", job)}
@@ -692,8 +693,10 @@ def _turn_from_exception(exc, job, settling) -> dict:
     if isinstance(exc, device_turns.DeviceGone):
         text = device_restarted(str(exc))
         return {"status": "failed", "status_message": text, "final_text": worded(f"任务 #{job.job_id}：{text}", job)}
-    if isinstance(exc, JobCancelled):
-        # Like a finished card since P1: no "直接回复本话题即可继续" (repo review U10).
+    stopped = getattr(job, "cancel_event", None) is not None and job.cancel_event.is_set()
+    if isinstance(exc, JobCancelled) or (stopped and not settling):
+        # A stop before the backend finished cancels the turn whatever the backend raised as it stopped (its process
+        # may have been stopped from outside, app/task_controls.py hard_stop_later). Like a finished card since P1: no "直接回复本话题即可继续" (repo review U10).
         return {"status": "cancelled", "status_message": "用户停止了任务",
                 "final_text": stopped_sentence(job.job_id) + worded(STOPPED_NOTE, job) + _others_note(job) + _stop_note(job)}
     name = type(exc).__name__
