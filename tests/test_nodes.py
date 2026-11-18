@@ -17,6 +17,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from support import REPO, make_context
 
@@ -380,6 +381,78 @@ class AlertsTest(unittest.TestCase):
             self.event("once", rule=f"oom{i}", count=1)
         self.alerts.round(self.ctx)
         self.assertEqual(len(self.messenger.sent), node_alerts.PER_HOUR)
+
+
+class FakeGateway:
+    address = "[::1]:9"
+    tls = nodes.Tls(Path("/c"), Path("/k"), "ab" * 32, "AAAA")
+
+    def __init__(self):
+        self.revoked = []
+
+    def revoke_now(self, alias):
+        self.revoked.append(alias)
+
+
+class PanelTest(unittest.TestCase):
+    def setUp(self):
+        from covey.app import node_panel
+        self.node_panel = node_panel
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.ctx = make_context(self.root)
+        self.gateway = FakeGateway()
+        self.started = []
+        self.panel = node_panel.NodePanel(Runtime(), FakeMessenger(), Voice(), self.gateway, start=self.started.append)
+
+    def click(self, kind, **value):
+        return self.panel.act(self.ctx, {"kind": kind, **value}, {"form_value": value.pop("form", {})}, {})
+
+    def test_add_without_ssh_shows_the_command(self):
+        with mock.patch.object(self.node_panel, "form_fields", return_value={"node_name": "GPU1", "node_title": "训练机"}):
+            changes, later = self.panel.act(self.ctx, {"kind": "bridge_nodes_add"}, {}, {})
+        self.assertIsNone(later)
+        self.assertEqual(changes["adding"]["alias"], "gpu1")
+        self.assertIn("--pinnedpubkey 'sha256//AAAA' 'https://[::1]:9/join/", changes["adding"]["command"])
+        self.assertEqual(nodes.active(self.ctx.state_dir), {})  # Only a join is open until the device comes.
+
+    def test_add_over_ssh_runs_off_the_click(self):
+        with mock.patch.object(self.node_panel, "form_fields",
+                               return_value={"node_name": "gpu1", "node_ssh": "me@host -p 2222"}):
+            changes, later = self.panel.act(self.ctx, {"kind": "bridge_nodes_add"}, {}, {})
+        self.assertIn("正在经 ssh", changes["notice"])
+        self.assertIsNotNone(later)
+        with mock.patch("subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, '{"ok": true, "alias": "gpu1"}\n', "")
+            notice = self.panel.ssh_join("gpu1", ["me@host", "-p", "2222"], "curl x | python3 -")
+        self.assertIn("已装好", notice)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:5], ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"])
+        self.assertEqual(argv[-1], "curl x | python3 -")
+
+    def test_ssh_addresses_that_would_run_something_here_are_refused(self):
+        for bad in ("-oProxyCommand=sh host", "host -o LocalCommand=x", "'unclosed", "-p 22", ""):
+            with self.assertRaises(ValueError, msg=bad):
+                self.node_panel.ssh_args(bad)
+        self.assertEqual(self.node_panel.ssh_args("me@host -p 22 -i ~/.ssh/k"), ["me@host", "-p", "22", "-i", "~/.ssh/k"])
+
+    def test_remove_asks_first_and_never_the_hub(self):
+        nodes.claim(self.ctx.state_dir, nodes.open_join(self.ctx.state_dir, "box", ""), {})
+        self.assertEqual(self.panel.act(self.ctx, {"kind": "bridge_nodes_remove", "alias": "box", "op": "ask"}, {}, {})[0],
+                         {"confirm": "box"})
+        changes, _ = self.panel.act(self.ctx, {"kind": "bridge_nodes_remove", "alias": "box", "op": "confirm"}, {}, {})
+        self.assertIn("已移除", changes["notice"])
+        self.assertEqual(self.gateway.revoked, ["box"])
+        self.assertNotIn("box", nodes.active(self.ctx.state_dir))
+        self.assertEqual(self.panel.act(self.ctx, {"kind": "bridge_nodes_remove", "alias": "local", "op": "confirm"}, {},
+                                        {}), ({}, None))
+
+    def test_facts_put_the_hub_first(self):
+        nodes.ensure_local(self.ctx.state_dir)
+        nodes.claim(self.ctx.state_dir, nodes.open_join(self.ctx.state_dir, "abox", "A 盒"), {})
+        rows = self.node_panel.facts(self.ctx.state_dir, "addr")["rows"]
+        self.assertEqual([(r["alias"], r["title"], r["local"]) for r in rows],
+                         [("local", "本机", True), ("abox", "A 盒（abox）", False)])
 
 
 class CardsTest(unittest.TestCase):

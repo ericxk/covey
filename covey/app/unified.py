@@ -116,7 +116,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # its own. EARLY match the event (a form button's name or the value's kind); PANELS, the value
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
-    PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel',
+    PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'nodes.panel',
               'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu', 'project_tidy', 'standing_answers')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
@@ -224,9 +224,12 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The butler's settings card (docs/butler.md 设置卡): the 设置 card's 管家 tab.
             self.butler_panel = ButlerPanel(self.topics)
             # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
+            # 节点 (app/nodes.py): the gateway the nodes dial, the hub's own node, their alerts and the 设置 card's 设备
+            # tab; no thread and no tab unless COVEY_NODE_LISTEN is set.
+            self.nodes = Nodes(self.runtime, self.messenger, self.voice)
             self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.butler_panel,
                                             self.proxy.panel, self.group_manager, self.workspace_manager,
-                                            self.redaction_panel)
+                                            self.redaction_panel, nodes=self.nodes.panel)
             # 手上的事 (app/overview.py): the card pinned in the owner's private chat, when COVEY_PINNED_OVERVIEW=1.
             self.overview = Overview(self.runtime, self.messenger, self.voice, self.titles)
             # The butler's tools (app/butler_tools.py), unless COVEY_BUTLER=0: the state directory and
@@ -275,9 +278,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                 self.extension_features = extensions.features(self)
             # The devices thread (app/devices.py): probes, replays the pending reaps, gc; none while COVEY_DEVICES is off.
             self.devices = Devices(self.runtime)
-            # 节点 (app/nodes.py): the gateway the nodes dial, the hub's own node and their alerts; no thread unless
-            # COVEY_NODE_LISTEN is set.
-            self.nodes = Nodes(self.runtime, self.messenger, self.voice)
             # The web workbench's sync (app/web_sync.py): two threads with COVEY_WEB=1, none without.
             self.web_sync = WebSync(self.runtime, self.butler_env, self.web_message)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,

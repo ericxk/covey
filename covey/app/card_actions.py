@@ -115,6 +115,10 @@ ACTIONS = {
     "bridge_proxy_refresh": CardAction("刷新代答"),
     "bridge_proxy_resend": CardAction("重新发送代答"),
     "bridge_proxy_suggest": CardAction("按建议回复"),  # The 重新发送 card of a turn that would not answer (U5).
+    # The 设置 card's 设备 tab (app/node_panel.py, COVEY_NODE_LISTEN): handled before topic routing.
+    "bridge_nodes_add": CardAction("添加设备"),
+    "bridge_nodes_remove": CardAction("移除设备"),
+    "bridge_nodes_refresh": CardAction("刷新设备"),
     "bridge_group_switch": CardAction("启用或停用群"),
     "bridge_group_page": CardAction("翻页"),
     "bridge_group_view": CardAction("打开群的免@设置"),

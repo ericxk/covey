@@ -16,15 +16,18 @@ TAB = 'bridge_settings_tab'
 KINDS = frozenset({TAB})
 # BUTLER (私聊默认) keeps the key of the one 管家 tab before it (2026-11-08): an older card's 管家 tab is its first page.
 BUTLER, TOPIC, WORKSPACE, REDACTION, PROXY, GROUPS = 'main', 'topic', 'workspace', 'redaction', 'proxy', 'groups'
+NODES = 'nodes'  # 设备 (app/node_panel.py), only with COVEY_NODE_LISTEN.
 OTHER = 'other'  # The retired page 其他 (2026-11-08 to 11-09): an older card's tab and record name it.
 RETIRED = {OTHER: WORKSPACE}  # A retired tab -> the tab its click and its record land on.
 BUTLER_PAGES = (BUTLER, TOPIC)  # The butler's pages (app/butler_panel.py), shown with it only.
 # In the row's order.
-LABELS = {BUTLER: '私聊', TOPIC: '新话题', WORKSPACE: '工作区', REDACTION: '脱敏', PROXY: '代答', GROUPS: '群聊'}
+LABELS = {BUTLER: '私聊', TOPIC: '新话题', WORKSPACE: '工作区', NODES: '设备', REDACTION: '脱敏', PROXY: '代答', GROUPS: '群聊'}
 # Each panel's title (cards/butler_panel.py TITLES, cards/workspace_manager.py, cards/redaction_panel.py,
 # cards/proxy_panel.py, cards/group_manager.py) and icon.
-TITLES = {BUTLER: '私聊默认', TOPIC: '新话题默认', WORKSPACE: '工作区', REDACTION: '脱敏看板', PROXY: '代答', GROUPS: '群聊'}
-ICONS = {BUTLER: 'robot_outlined', TOPIC: 'launch', WORKSPACE: 'workspaces', REDACTION: 'redaction', PROXY: 'proxy',
+TITLES = {BUTLER: '私聊默认', TOPIC: '新话题默认', WORKSPACE: '工作区', NODES: '设备', REDACTION: '脱敏看板', PROXY: '代答',
+          GROUPS: '群聊'}
+ICONS = {BUTLER: 'robot_outlined', TOPIC: 'launch', WORKSPACE: 'workspaces', NODES: 'computer_outlined', REDACTION: 'redaction',
+         PROXY: 'proxy',
          GROUPS: 'groups'}
 SPACING = '0px'  # Between two tabs: the text buttons' own padding parts them; 8px wrapped 群聊 in a side panel (2026-11-09).
 

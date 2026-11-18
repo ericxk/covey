@@ -48,7 +48,7 @@ from covey.app.card_lanes import after_ack
 from covey.app.form_cards import save_record, settle
 from covey.app.menu_panel import FOLDED, HUB_FOLDER, HUB_LOCK, MOVED, OPEN, MenuPanel, hub_tabs
 from covey.app.proxy_panel import EXPIRED
-from covey.cards.settings_hub import (GROUPS, KINDS, LABELS, BUTLER, BUTLER_PAGES, PROXY, REDACTION, WORKSPACE,
+from covey.cards.settings_hub import (GROUPS, KINDS, LABELS, BUTLER, BUTLER_PAGES, NODES, PROXY, REDACTION, WORKSPACE,
                                                folded_hub, successor)
 from covey.core import butler
 from covey.core.state import read_json
@@ -63,13 +63,13 @@ TURNS = 8  # The last tab clicks' event_ids the record keeps.
 
 
 class SettingsHub:
-    def __init__(self, runtime, messenger, voice, main, proxy, groups, workspaces, redaction):
+    def __init__(self, runtime, messenger, voice, main, proxy, groups, workspaces, redaction, nodes=None):
         """``main``, ``workspaces``, ``redaction``, ``proxy``, ``groups``: the ButlerPanel (its two pages),
         WorkspaceManager, RedactionPanel, ProxyPanel and GroupManager the tabs show. The butler's buttons on the 工作区
         tab redraw it through the WorkspaceManager (ButlerPanel.pages)."""
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
         self.panels = {**dict.fromkeys(BUTLER_PAGES, main), WORKSPACE: workspaces, REDACTION: redaction, PROXY: proxy,
-                       GROUPS: groups}
+                       GROUPS: groups, **({NODES: nodes} if nodes is not None else {})}
         main.pages[WORKSPACE] = workspaces.tab_card
         self.redaction = redaction
         self.recalls = Panels(runtime, messenger)
@@ -149,7 +149,7 @@ class SettingsHub:
         """A tab click; the outcome its ``card action`` line records."""
         tab, here, token = value.get('tab'), value.get('from'), value.get('token')
         tab, here = successor(tab), successor(here)  # An older card's 其他 is 工作区 now.
-        if tab not in LABELS or here not in LABELS or not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        if tab not in self.panels or here not in self.panels or not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
             return 'settings_unknown'
         path = self.path(ctx, token)
         if not path.exists() and not self.takeover(ctx, event, here, token, owner):

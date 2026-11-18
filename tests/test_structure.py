@@ -40,6 +40,7 @@ from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.app.group_menu import KIND as GROUP_MENU_KIND
 from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
+from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
 from covey.cards.project_proposal import KINDS as TIDY_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
@@ -82,6 +83,7 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (app/app_setup.py).
         before_routing |= {GROUP_MENU_KIND}  # A personal group's menu card (app/group_menu.py).
         before_routing |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (app/redaction_panel.py).
+        before_routing |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (app/node_panel.py).
         before_routing |= set(TIDY_KINDS)  # 整理专项's cards (app/project_tidy.py).
         before_routing |= STANDING_KINDS  # 以后这类按推荐走 and its card (app/standing_answers.py).
         init = next(node for node in ast.walk(ast.parse((PACKAGE / "app" / "app.py").read_text()))

@@ -129,6 +129,7 @@
 | `app/native_questions.py` | A backend's question as it arrives |
 | `app/node_alerts.py` | The nodes' alerts, sent by the Bridge |
 | `app/node_gateway.py` | The hub's side of the nodes' connections: a TLS server in the Bridge, when COVEY_NODE_LISTEN says where |
+| `app/node_panel.py` | The 设置 card's 设备 tab, shown when COVEY_NODE_LISTEN is set: the nodes and their state now, 添加 and 移除 |
 | `app/nodes.py` | 节点 at the Bridge: the gateway the nodes dial, the hub's own node, the alerts |
 | `app/outbox.py` | Resume delivery of authorized saved replies only |
 | `app/overview.py` | 手上的事: one card in the owner's private chat with the bot, pinned (Pin 消息), that lists what waits for the owner … |
@@ -224,6 +225,7 @@
 | `cards/launch_config.py` | The launch card: its form and the model-scoped reasoning choices on it, and the settings list it shares with … |
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
 | `cards/node_cards.py` | The cards of nodes: an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most) and the same … |
+| `cards/node_panel.py` | The 设置 card's 设备 tab: every node with its state now, adding a device, removing one |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/project_proposal.py` | 整理专项's cards: the proposal card (建个专项？), its rename form, the 整理专项 card of a scheduled or asked-for 整理, and … |
