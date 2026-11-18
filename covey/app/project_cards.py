@@ -64,7 +64,8 @@ ANSWER_WAIT = 30.0  # How long after its finishing turn ended the card waits for
 MEMBER_CAP = 40  # Member topics read for one card (the card draws MAX_FOLDS).
 LIST_CAP = 50  # Rows read of the memory and the library.
 NO_LEAD_JOB = "负责人现在没有在做的一轮。要对它说话，引用这张专项卡直接回复就行。"
-CLOSED_WORDS = {"stopped": "专项已停住", "downgraded": "专项已降为普通话题"}
+CLOSED_WORDS = {"stopped": "专项已停住", "downgraded": "专项已降为普通话题", "merged": "专项已并入另一个专项"}
+MERGED = "merged"  # state_reason of a project 整理专项 merged into another (cancelled; its topics are the other's now).
 DOWNGRADED = "downgraded"  # The record's state_reason of a project the owner turned back (its state is cancelled).
 
 
@@ -398,7 +399,8 @@ class ProjectCards:
         if state == projects.DONE:
             return self.settle(ctx, record, card, seen, now)
         if state == projects.CANCELLED:
-            return self.settle(ctx, record, card, seen, now, reason=CLOSED_WORDS["downgraded"])
+            return self.settle(ctx, record, card, seen, now, reason=CLOSED_WORDS[
+                MERGED if record.get("state_reason") == MERGED else "downgraded"])
         if projects.folded(record):
             return self.fold(ctx, record, card, seen, now)
         if now - float(card.get("created_at") or record.get("created_at") or now) > FLIP_AFTER:

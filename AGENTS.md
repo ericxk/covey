@@ -28,6 +28,7 @@
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 话题与回带 | `app/butler_topics.py`、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
+| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（时机、整理、卡片点击）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`/`join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
@@ -138,6 +139,8 @@
 | `app/project_context.py` | What a project's memory and library do in the Bridge, when COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1 |
 | `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
 | `app/project_loop.py` | Continuing runs and guards of a project |
+| `app/project_sorter.py` | 整理专项's judging: what the small model reads and what it may say |
+| `app/project_tidy.py` | 整理专项: projects grow out of the topics by a mechanism, not by the one look the butler takes when it opens a … |
 | `app/project_tools.py` | The tools of a project's lead, handlers as app/butler_env.py describes them |
 | `app/projects.py` | 专项的升级、直接开专项和降级 |
 | `app/prompts.py` | Shared prompt builders: the bridge rules and each turn's message |
@@ -216,6 +219,7 @@
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
+| `cards/project_proposal.py` | 整理专项's cards: the proposal card (建个专项？), its rename form, the 整理专项 card of a scheduled or asked-for 整理, and … |
 | `cards/proxy_panel.py` | The 代答 card, the bot menu's 代答 panel: on or off and the group in its title bar |
 | `cards/proxy_resend.py` | The 重新发送 card: in a contact's 代答 topic, a reply that never went out (Enter never pressed, every try), with … |
 | `cards/question_cards.py` | The question form, its standalone card, the feedback card and the answer notices |
@@ -311,6 +315,7 @@
 | `core/project_gates.py` | 专项问题分流的硬闸（docs/butler.md 专项的问题分流）: the words that keep a project's topic's question from the lead |
 | `core/project_library.py` | The library of a project |
 | `core/project_memory.py` | The memory of a project |
+| `core/project_proposals.py` | 整理专项's records and switches: what was proposed, what the owner decided and what 整理专项 must not do again |
 | `core/projects.py` | 专项: a long job the butler hands to one lead topic (the 负责人) that dispatches and follows several member topics |
 | `core/protocol.py` | Versioned public Harness events |
 | `core/providers.py` | Where a Harness's models come from, in one table |
@@ -341,6 +346,7 @@
 | `core/task_processes.py` | What a task's commands leave running once its Harness has closed, found by the marker its runner puts in its … |
 | `core/text.py` | Text shown on a card from what a task or a tool said: secrets hidden, bounded, escaped |
 | `core/timing.py` | Millisecond timing of the live flows |
+| `core/topic_gist.py` | 话题要点: a few lines each topic keeps of what it is about at heart, written by the topic's own model at the end … |
 | `core/topic_memory.py` | The memory of one topic |
 | `core/topic_seen.py` | When the owner last saw each topic |
 | `core/topics.py` | Durable, chat-scoped Feishu topic -> Harness session bindings, and the readers and writers of a topic's … |

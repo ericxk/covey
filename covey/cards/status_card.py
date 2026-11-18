@@ -17,12 +17,17 @@ def status_tag(state):
     return f"<text_tag color='{STATE_COLORS.get(state, 'neutral')}'>{state}</text_tag>"
 
 
-def status_card(title, state, facts, line):
+def status_card(title, state, facts, line, joined=None):
     """``title`` "T432 · 调研…"; ``state`` a STATE_COLORS key; ``facts`` the rest of its line ("13:01 · 2 轮 · 用时 5 分
-    49 秒"); ``line`` the small last line, '' for none. Plain text in each: no Markdown of theirs takes effect."""
+    49 秒"); ``line`` the small last line, '' for none. Plain text in each: no Markdown of theirs takes effect.
+    ``joined``: [project name, topic id, project id] of a topic 整理专项 put into a project: 已归进「X」 · 移出 last
+    (cards/project_proposal.py joined_element; clickable in the thread, not in the Pin panel)."""
     elements = [md(f"**{_shown(title)}**"), md(" ".join(part for part in (status_tag(state), _shown(facts)) if part))]
     if line:
         elements.append(md(_shown(line), size="notation"))
+    if joined:
+        from covey.cards.project_proposal import joined_element
+        elements.append(joined_element(*joined))
     return card(elements, f"{_one_line(title)} · {state}", default_width=True, update_multi=True,
                 padding="8px 12px 8px 12px", spacing="4px")
 

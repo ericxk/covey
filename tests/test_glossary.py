@@ -33,7 +33,7 @@ PACKED = GOLDEN.with_name("cards.json.xz")
 # What is not said any more (docs/glossary.md 名词 · 不再用). ``线程`` covers every sense: the butler, a project's topic and
 # the Bridge's own threads, which the docs call 后台线程 and the interface never mentions. ``一路`` and ``多路`` are not words
 # of a path (同一路径, 多路径).
-RETIRED = re.compile("主线程|线程|话题区|长活|快事|路在做|一路(?!径)|多路(?!径)|Personal Agent|由快事升级|派发活卡片")
+RETIRED = re.compile("主线程|线程|话题区|长活|快事|路在做|一路(?!径)|多路(?!径)|Personal Agent|由快事升级|派发活卡片|专项整理|话题摘要")
 
 # (path, the literal as it is written, why it keeps the old word)
 ALLOWED = (
@@ -46,7 +46,8 @@ ALLOWED = (
 )
 
 # Switches that list every optional tool and rule.
-ALL_ON = {"COVEY_BUTLER_RULES": "1", "COVEY_KNOWLEDGE": "1", "COVEY_HISTORY_CMD": "/absolute/history", "COVEY_PROJECTS": "1"}
+ALL_ON = {"COVEY_BUTLER_RULES": "1", "COVEY_KNOWLEDGE": "1", "COVEY_HISTORY_CMD": "/absolute/history", "COVEY_PROJECTS": "1",
+          "COVEY_PROJECT_TIDY": "suggest"}
 OLD_NAMES = ("LARK_BRIDGE_MAIN_BUTLER", "LARK_BRIDGE_KNOWLEDGE", "LARK_BRIDGE_HISTORY_CMD", "LARK_BRIDGE_PROJECTS")
 
 

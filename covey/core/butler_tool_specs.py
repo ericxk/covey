@@ -325,11 +325,25 @@ BUTLER_PROJECT_TOOLS = (
          "pid": {"type": "string", "description": "专项的 id（projects_list 里的），或它名字里的几个字"},
          "text": {"type": "string", "description": "交给负责人的内容：主人这次要它做或改的事"}}}},
 )
-BUTLER_PROJECT_NAMES = tuple(tool["name"] for tool in BUTLER_PROJECT_TOOLS)
+# 整理专项 (COVEY_PROJECT_TIDY suggest or auto, with COVEY_PROJECTS=1; app/project_tidy.py): listed after the project tools.
+TIDY_ENV = "COVEY_PROJECT_TIDY"
+TIDY_TOOL = {
+    "name": "projects_tidy",
+    "description": "整理专项：把现有专项和最近 7 天的话题重新看一遍，在后台跑，结果是私聊里的一张“整理专项”卡（能归进已有专项的直接归，"
+                   "新建、合并、拆开、改名等主人点「好」才做）。主人说“整理一下专项”“看看哪些该建专项”时用它；只整理某一部分时把那个词或专项 id 放进 scope。"
+                   "正在整理时它只回现在读到第几个，不会再开一次。用了以后告诉主人已经开始、结果会发到私聊，不要自己列建议。",
+    "input_schema": {"type": "object", "properties": {
+        "scope": {"type": "string", "description": "只整理和这个有关的：一个词（如“Covey”）或专项 id；空就是全部"}}}}
+BUTLER_PROJECT_NAMES = tuple(tool["name"] for tool in BUTLER_PROJECT_TOOLS) + (TIDY_TOOL["name"],)
 
 
-def project_butler_tools(tools) -> tuple:
-    """``tools`` with ``project`` on topic_start and topic_send, and the projects_list and project_send tools last."""
+def tidy_listed(environ) -> bool:
+    return str(cenv.get(TIDY_ENV, "", environ)).strip().lower() in ("suggest", "auto")
+
+
+def project_butler_tools(tools, tidy=False) -> tuple:
+    """``tools`` with ``project`` on topic_start and topic_send, and the projects_list and project_send tools last (and
+    projects_tidy, ``tidy``)."""
     changed = []
     for tool in tools:
         extra = {"topic_start": START_PROJECT, "topic_send": SEND_PROJECT}.get(tool["name"])
@@ -337,7 +351,7 @@ def project_butler_tools(tools) -> tuple:
             schema = tool["input_schema"]
             tool = {**tool, "input_schema": {**schema, "properties": {**schema["properties"], "project": extra}}}
         changed.append(tool)
-    return tuple(changed) + BUTLER_PROJECT_TOOLS
+    return tuple(changed) + BUTLER_PROJECT_TOOLS + ((TIDY_TOOL,) if tidy else ())
 
 
 def lead_tools(environ=None) -> tuple:
@@ -358,4 +372,4 @@ def listed(environ) -> tuple:
         extra += HISTORY_TOOLS
     tools = TOOLS + extra
     tools = butler_tools(tools) if str(cenv.get(BUTLER_RULES_ENV, "", environ)).strip() == "1" else tools
-    return project_butler_tools(tools) if str(cenv.get(PROJECTS_ENV, "", environ)).strip() == "1" else tools
+    return project_butler_tools(tools, tidy_listed(environ)) if str(cenv.get(PROJECTS_ENV, "", environ)).strip() == "1" else tools

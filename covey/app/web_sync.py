@@ -265,6 +265,9 @@ class Collector:
         if live is not None:  # Its running turn's progress (core/progress.py), from the record the task monitor keeps.
             body["progress"] = turn_progress.progress(live, now=now or time.time(), history=turn_progress.turn_seconds(
                 records, exclude=live.get("job_id")))
+        gist = self.gist(state, topic) if not (butler or project) else None
+        if gist:
+            body["gist"] = gist
         out = [web_sync.item("topic", topic, body)]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:
@@ -272,6 +275,18 @@ class Collector:
             if made:
                 out.append(web_sync.item("question", row.get("token"), made))
         return out
+
+    @staticmethod
+    def gist(state, topic):
+        """The topic's 话题要点 (core/topic_gist.py) as the page shows it, COVEY_PROJECT_TIDY on: {essence, goal, involves, related,
+        changed, updated_at}; None without one."""
+        from covey.core import project_proposals, topic_gist
+
+        if not project_proposals.enabled():
+            return None
+        record = topic_gist.read(state, topic)
+        found = topic_gist.gist_of(record)
+        return {**found, "updated_at": record.get("updated_at") or 0} if found else None
 
     @staticmethod
     def word(records, latest, questions) -> str:

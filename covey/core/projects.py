@@ -209,6 +209,16 @@ def add_member(state_dir, project_id, topic_id) -> dict:
     return update(state_dir, project_id, change)
 
 
+def remove_member(state_dir, project_id, topic_id) -> dict:
+    """``topic_id`` out of the record's ``threads`` (移出 of 整理专项, app/projects.py leave_topic); the record as it is when it
+    was not there."""
+    def change(record):
+        threads = record.get("threads")
+        if isinstance(threads, list) and topic_id in threads:
+            record["threads"] = [topic for topic in threads if topic != topic_id]
+    return update(state_dir, project_id, change)
+
+
 def lead_record(state_dir, topic_id, chat_id=None) -> dict:
     """The record of the project whose lead topic is ``topic_id`` ({} for any other topic, and without COVEY_PROJECTS):
     what the board's cell of a project (``cells``) and a click on its card (app/project_cards.py) are looked up by."""

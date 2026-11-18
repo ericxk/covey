@@ -117,14 +117,14 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel',
-              'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu')
+              'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu', 'project_tidy')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
              'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
-             'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects',
+             'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
              'project_loop', 'patrol', 'devices', 'web_sync', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
@@ -178,6 +178,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.project_cards import ProjectCards, stop_tasks
         from covey.app.projects import TOOLS as PROJECT_BUTLER_TOOLS, Projects
         from covey.app.project_loop import ProjectLoop
+        from covey.app.project_tidy import ProjectTidy
         from covey.app.patrol import Patrol
         from covey.app.devices import Devices
         from covey.app.web_sync import WebSync
@@ -251,6 +252,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.project_cards = ProjectCards(self.runtime, self.messenger, self.voice, self.titles)  # 专项卡 (COVEY_PROJECTS=1)
             self.projects = Projects(self.butler_env)  # 专项的升级、直接开、降级 (COVEY_PROJECTS=1): the thread that finishes a crashed upgrade
             self.butler_env.projects = self.projects  # What topic_start's ``project`` and the 派发卡's upgrade call (app/butler_topics.py).
+            # 整理专项 (app/project_tidy.py), COVEY_PROJECT_TIDY: 话题要点, the real-time and scheduled 整理, its cards' clicks.
+            self.project_tidy = ProjectTidy(self.runtime, self.messenger, self.voice, self.butler_env)
+            self.butler_env.tidy = self.project_tidy  # The butler's projects_tidy and the web page's ``tidy``.
             # Wakes a project's lead when receipts wait and applies the guards (app/project_loop.py), COVEY_PROJECTS=1.
             self.project_loop = ProjectLoop(self.runtime, self.butler_env, stop_tasks)
             # What the butler would have told the owner, only recorded (app/patrol.py), COVEY_PATROL=shadow; the digest lists it.
@@ -270,7 +274,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
                         self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
-                        self.dispatch_cards, self.project_cards, self.projects,
+                        self.dispatch_cards, self.project_cards, self.projects, self.project_tidy,
                         self.project_loop, self.patrol, self.devices, self.web_sync,
                         *self.extension_features)
             # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card

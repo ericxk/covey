@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass
 
 from covey.cards.launch_config import SUBMIT_PREFIX
+from covey.cards.project_proposal import LABELS as tidy_labels
 from covey.core import extensions
 
 
@@ -157,6 +158,9 @@ ACTIONS = {
     # The menu card of a group with a butler (app/group_menu.py KIND).
     "bridge_group_menu": CardAction("群里的菜单"),
 }
+# 整理专项's cards (cards/project_proposal.py KINDS, COVEY_PROJECT_TIDY): the proposal card, its rename form, the 整理专项 card,
+# 移出 on a topic's card and the 设置 card's 整理专项. The Bridge takes them before topic routing (app/project_tidy.py claim).
+ACTIONS.update({kind: CardAction(label) for kind, label in tidy_labels.items()})
 ACTIONS.update({kind: CardAction(label, bot_only=True) for kind, label in extensions.card_kinds().items()})
 BOT_ONLY = frozenset(kind for kind, action in ACTIONS.items() if action.bot_only)
 # What a click on a retired button gets instead (app/task_controls.py retired_action).

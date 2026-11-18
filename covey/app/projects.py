@@ -11,8 +11,14 @@
   "你问" block, the start receipt; the lead decides which member topics to open.
 - **Downgrade** is app/project_cards.py ``downgrade`` (the card's 不要专项 button; it lives there so that module and this one do
   not import each other).
-- The butler's two tools ``projects_list`` and ``project_send`` (``TOOLS``, listed to the butler when COVEY_PROJECTS=1,
-  core/butler_tool_specs.py): the second hands the owner's words to a project's lead as a turn the owner started.
+- **Gathered** (``gather``, 整理专项's 建专项, app/project_tidy.py): a project of topics that are there already (GATHER_STEPS: the
+  record, the lead, the card, each topic a member, the start receipt naming them).
+- **Joined and left** (``join_topic``, ``leave_topic``, 整理专项): an ordinary topic becomes a member of a project that is there
+  (topic.json, the record's threads, so the board and the Pins show it in the project's cell, and a ``joined`` receipt for the
+  lead), and 移出 makes it an ordinary topic again (a ``left`` receipt).
+- The butler's tools ``projects_list``, ``project_send`` and ``projects_tidy`` (``TOOLS``, listed to the butler when COVEY_PROJECTS=1,
+  the last with COVEY_PROJECT_TIDY too, core/butler_tool_specs.py): the second hands the owner's words to a project's lead as a
+  turn the owner started, the third starts 整理专项.
 
 The receipts go to the lead's inbox through app/project_lead.py ``add_receipt`` (kind ``start``, written here; the lead's
 wake-up is the project loop's, not this module's). Locks (rules 1 and 2): none is held across a Feishu call; a topic's lock is
@@ -44,7 +50,8 @@ WORD = "word"  # The value the live deployments set (and the reason an older rec
 ROUNDS = 3  # ``auto``: the topic's round that makes a project.
 UPGRADE_STEPS = ("record", "lead", "thread", "card", "merged", "route", "receipt")
 START_STEPS = ("record", "lead", "card", "receipt")
-KINDS = {"upgrade": UPGRADE_STEPS, "direct": START_STEPS}
+GATHER_STEPS = ("record", "lead", "card", "members", "receipt")  # 整理专项's 建专项: topics that are there already.
+KINDS = {"upgrade": UPGRADE_STEPS, "direct": START_STEPS, "tidy": GATHER_STEPS}
 RESUME_TICK = 30.0  # Seconds between two looks for a project whose steps a crash left unfinished.
 RESUME_AFTER = 60.0  # A project written to this recently is still being worked on (by a tool call): left alone.
 RESUME_GIVE_UP = 600.0  # The longest wait between two tries of one project.
@@ -392,15 +399,66 @@ class Projects:
             route_message(state, chat, message, record["lead_topic_id"], holder=topic)
         return True
 
+    def step_members(self, record) -> bool:
+        """整理专项's 建专项: each topic it gathers is a member (``join_topic`` without its receipt: the start receipt names them)."""
+        state, pid = Path(self.env.state_dir), record["id"]
+        for topic in (record.get("origin") or {}).get("topics") or ():
+            found = projects.topic_project(state, topic)
+            if found is not None and found.id != pid:
+                continue  # Another project's since it was proposed: left there.
+            with topic_lock(topic_ctx(state, topic)):
+                set_topic_project(state, topic, pid, projects.MEMBER)
+            projects.add_member(state, pid, topic)
+        return True
+
     def step_receipt(self, record) -> bool:
         """The start receipt in the lead's inbox: an upgrade says what the lead takes over, a direct start has the owner's
-        request as he wrote it. Once, whatever happened to the step before."""
+        request as he wrote it, 整理专项's the topics it gathered. Once, whatever happened to the step before."""
         state, pid, origin = Path(self.env.state_dir), record["id"], record.get("origin") or {}
         if not has_receipt(state, pid, "start"):
-            project_lead.add_receipt(state, pid, "start", self.handover(state, record) if origin.get("kind") == "upgrade"
-                                     else origin.get("text") or record.get("goal") or record.get("name"),
-                                     thread=origin.get("topic_id") or "")
+            text = (self.handover(state, record) if origin.get("kind") == "upgrade"
+                    else self.gathered(state, record) if origin.get("kind") == "tidy"
+                    else origin.get("text") or record.get("goal") or record.get("name"))
+            project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "")
         return True
+
+    @staticmethod
+    def gathered(state, record) -> str:
+        """What the lead of a project 整理专项 made is told: the goal and the topics it takes over, each with where it stands."""
+        parts = [f"主人同意把这几个已有的话题建成专项「{clip(record.get('name'), 30)}」，你接手跟进"]
+        if record.get("goal"):
+            parts.append("目标：" + clip(record["goal"], 160))
+        for topic in record.get("threads") or ():
+            job = project_cards.newest_job(state, topic) or {}
+            now = " ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part)
+            parts.append(f"{topic_label(state, topic) or topic[:6]}「{clip(topic_title(state, topic), 30)}」" + (f"：{clip(now, 60)}" if now else ""))
+        return "；".join(parts)
+
+    def gather(self, *, chat, name, goal, topics, key, why="", owner_named=False) -> str:
+        """整理专项's 建专项: a project of the existing ``topics`` (GATHER_STEPS), named ``name``; its id, '' when MAX_ACTIVE
+        projects are on. ``key`` (the proposal's id) makes the id: the same click twice finds the same project."""
+        state = Path(self.env.state_dir)
+        topics = [topic for topic in dict.fromkeys(topics) if isinstance(topic, str) and projects.TOPIC_RE.fullmatch(topic)]
+        if not topics:
+            return ""
+        pid = project_id("tidy", key)
+        if not projects.read_record(state, pid):
+            if projects.active_count(state) >= projects.MAX_ACTIVE:
+                self.env.runtime.log(f"project gather skipped: {projects.MAX_ACTIVE} projects are on")
+                return ""
+            source = read_object(topic_file(state, topics[0]))
+            made = projects.new_record(chat_id=chat, name=name or topic_title(state, topics[0]) or "专项", goal=goal,
+                                       project_id=pid, origin={"kind": "tidy", "proposal": key, "topic_id": topics[0],
+                                                               "topics": topics, "why": clip(why, 200),
+                                                               "workspace": source.get("workspace_name") or "",
+                                                               "workdir": source.get("workdir") or ""})
+            made["steps"] = {"record": round(time.time(), 3)}
+            if owner_named:
+                made["name_by"] = "owner"  # 改个名再建: 整理专项 never renames it (core/project_proposals.py owner_named).
+            self.seed_style(made)
+            projects.create(state, made)
+        self.advance(pid)
+        return pid
 
     @staticmethod
     def handover(state, record) -> str:
@@ -460,6 +518,53 @@ class Projects:
                              f"{'' if sent else '专项卡还没发出去，'}有一步没做完，Bridge 会自己补；不要再开一次。")
         return butler_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
                                                    card=sent, finished=done))
+
+
+# 整理专项's joins and 移出 (docs/butler.md 整理专项) -----------------------------------------------------------------------
+
+JOINED, LEFT = "joined", "left"  # The receipts the lead gets.
+
+
+def join_topic(state, pid, topic, *, why="") -> dict:
+    """An ordinary topic becomes a topic of project ``pid``: ``project`` {id, role thread} in its topic.json (under its topic lock),
+    in the record's ``threads`` (so the board and the Pins show it in the project's cell, core/projects.py cells) and a ``joined``
+    receipt in the lead's inbox; a project folded away opens again (app/project_loop.py reopen). The record; ValueError when the
+    project is over or the topic is a lead's or another project's."""
+    from covey.app import project_loop
+
+    record = projects.read_record(state, pid)
+    if not record or state_of(record) not in (projects.ACTIVE, projects.PAUSED):
+        raise ValueError("这个专项已经结束了")
+    found = projects.topic_project(state, topic)
+    if found is not None and (found.id != pid or found.role != projects.MEMBER):
+        raise ValueError("这个话题已经在别的专项里")
+    if found is None:
+        with topic_lock(topic_ctx(state, topic)):
+            set_topic_project(state, topic, pid, projects.MEMBER)
+    if topic not in (record.get("threads") or ()):
+        record = projects.add_member(state, pid, topic)
+        title = clip(topic_title(state, topic), 30)
+        project_lead.add_receipt(state, pid, JOINED, f"整理专项把话题{f'「{title}」' if title else ''}归进了这个专项"
+                                 + (f"：{clip(why, 120)}" if why else ""), thread=topic)
+    if projects.folded(record):
+        record = projects.update(state, pid, project_loop.reopen)
+    return record
+
+
+def leave_topic(state, pid, topic, *, why="") -> bool:
+    """移出: ``topic`` an ordinary topic again (app/project_cards.py release), out of the record's ``threads``, and a ``left``
+    receipt for the lead; whether it was the project's."""
+    record = projects.read_record(state, pid)
+    if not record or topic not in (record.get("threads") or ()):
+        found = projects.topic_project(state, topic)
+        if found is None or found.id != pid:
+            return False
+    project_cards.release(state, topic, pid)
+    projects.remove_member(state, pid, topic)
+    title = clip(topic_title(state, topic), 30)
+    project_lead.add_receipt(state, pid, LEFT, f"主人把话题{f'「{title}」' if title else ''}移出了这个专项，以后它不再归进来"
+                             + (f"：{clip(why, 120)}" if why else ""), thread=topic)
+    return True
 
 
 # The butler's tools ----------------------------------------------------------------------------------------------------
@@ -608,4 +713,20 @@ def project_send(env, request):
                                               **data, steered=False))
 
 
-TOOLS = {"projects_list": projects_list, "project_send": project_send}
+def projects_tidy(env, request):
+    """整理专项 now (app/project_tidy.py start), in its own thread: what the butler tells the owner (started, or how far the one
+    running has got)."""
+    from covey.core import project_proposals
+
+    refused = butler_only(env, request)
+    if refused is not None:
+        return refused
+    tidy = getattr(env, "tidy", None)
+    if tidy is None or not project_proposals.enabled():
+        return reply(False, "整理专项没有开（COVEY_PROJECT_TIDY）。")
+    scope = " ".join(str(request.args.get("scope") or "").split())[:40]
+    words = tidy.start(origin="butler", scope=scope)
+    return reply(words == project_proposals.STARTED_WORDS or words.startswith(project_proposals.BUSY_PREFIX), words, scope=scope)
+
+
+TOOLS = {"projects_list": projects_list, "project_send": project_send, "projects_tidy": projects_tidy}
