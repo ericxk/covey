@@ -41,6 +41,10 @@ ACTIONS = {
     "bridge_job_stop": CardAction("停止任务", handler="controls.stop_action"),
     "bridge_job_retry": CardAction("重试任务", bot_only=True, handler=RETRIES),
     "bridge_job_retry_cancel": CardAction("停止自动重试", bot_only=True, handler=RETRIES),
+    # A task that did not succeed (core/failure.py): a read-only turn that looks into why, and the same in smaller
+    # steps. Each queues a turn of the topic.
+    "bridge_job_diagnose": CardAction("查原因", bot_only=True, handler="submission.follow_up"),
+    "bridge_job_split": CardAction("拆小再试", bot_only=True, handler="submission.follow_up"),
     "bridge_fork": CardAction("侧聊或分叉", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.

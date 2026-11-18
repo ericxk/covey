@@ -167,6 +167,10 @@ continued、done、failed、cancelled、interrupted：终态
 - 卡由 `app/recovery_cards.py` 画（kind 都是 `bridge_job_retry`），状态、按钮和点击后做什么由 `core/recovery.py` 的纯函数 `classify` 判定；按钮和点击之间有意保留的分歧写在该模块开头。
 - 已授权或已保存的正文没送达 → 重新投递结果；暂停问题没送达 → 重新投递问题；其余失败或中断 → 检查并继续（按原模型快照新建任务）；未授权、已送达、需核对或已 `native_answer_once` → 无按钮。
 - 话题还有运行或排队的任务时拒绝；每条记录只重试一次（`retried_by`）。任务没跑完时告诉用户：`app/task_controls.py` 的 `report_unfinished`。
+- **原因和下一步**（2026-11-18）：没成功的一轮（失败、超时、重启打断、官方拒绝；主人自己停的不算）由 `core/failure.py` 的纯函数 `failure_view(record)` 给出 `{title, detail, actions}`：`title` 一句人话，说原因和接下来会怎样或能做什么；`detail` 收内部用语（记录的状态行、错误码、子代理标识）；`actions` 是 continue（检查并继续）、retry（现在重试，同一个点击）、diagnose（查原因）、split（拆小再试）、switch_model（换配置）里这条记录能做的。记录靠 `failure_code`（这一轮 `ExecutionOutcome` 的错误码）和 `failure_detail`（谁在做什么时被拦）说原因，二者由 `app/worker.py` 写（守护停的由 `app/policy_guard.py` 写 `failure_detail`）；更早的记录按状态和状态行推断。
+  - 任务卡：失败的一轮正文换成这句（`TurnDelivery.card_text`，加粗一行），原来的那段话收进正文下的“技术详情”（`failure_details`，元素 `failure_details`），再是按钮行（`auto_retry.failed_controls`）：限流的检查并继续叫“现在重试”，另加“查原因”“拆小再试”；换配置用已有的 🔁 换配置。官方拒绝的正文本来就写谁在做什么时被拦（[policy-stop.md](policy-stop.md)），正文不换，只加“拆小再试”（换旧模型重试排上时什么都不加）。恢复卡（中断的）正文第一行也是这句，按钮后加同样的“查原因”“拆小再试”。
+  - “查原因”（`bridge_job_diagnose`）和“拆小再试”（`bridge_job_split`）都是 `bot_only`，由 `Submission.follow_up` 在本话题排一轮：话题里显示“查原因：任务 #N 为什么没成功”“拆小再试：任务 #N”，模型读到的是 `core/failure.py` 的 `follow_up`：查原因是只读排查（不改文件、不重跑、不动任务和服务，最后说清哪一步、为什么、建议怎么做），拆小再试先核对已做的，再一小块一小块做，被拦的那块先跳过。话题还有任务在跑或排队时不排，告诉主人；这条记录不提供这一步时也不排。
+  - 网页：每轮的 `failure` 字段同一个 `failure_view`（`app/web_sync.py`）。
 
 ### 重启与维护
 

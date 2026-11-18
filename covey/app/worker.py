@@ -28,7 +28,7 @@ from covey.core.saved_results import (display_saved_reply, reruns_after_withdraw
                                                paused_question_delivery_key)
 from covey.app import devices as device_turns
 from covey.core.jobs import DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, job_key
-from covey.core import background, placement, timing
+from covey.core import background, failure, placement, timing
 from covey.core.metrics import mark, mark_first_output
 from covey.core.longtask import SEED_PHASE, TaskMonitor
 from covey.core.status_line import STARTING
@@ -169,11 +169,12 @@ class TurnDelivery(AnswerParts, QuietDelivery):
                              checkpoint_question_error=job.checkpoint_question_error,
                              checkpoint_question_registration_pending=job.checkpoint_question_registration_pending,
                              **({"policy_stop": turn.outcome.policy_event, "auto_retry_state": "cancelled"}
-                                if turn.outcome and turn.outcome.policy_event else {}))
+                                if turn.outcome and turn.outcome.policy_event else {}),
+                             **self.failure_fields())
         display_text, delivery_text, question_omitted = self.texts(snapshot)
         # Above a 话题区's question copied to the top level (butler_relay.after_turn); none for a question alone.
         self.display_text = "" if display_text == QUESTION_ONLY_REPLY else display_text
-        final_card = cards.render_stream_final(job, display_text, status=turn.status)
+        final_card = cards.render_stream_final(job, self.card_text(display_text), status=turn.status)
         standalone_verified = turn.verified_delivery is not None
         standalone_question = turn.status == "waiting_user" and job.paused_question_delivery is not None
         self.in_place = standalone_verified and butler_reply.answers_in_place(self, final_card, display_text)
@@ -219,6 +220,28 @@ class TurnDelivery(AnswerParts, QuietDelivery):
             self.relay(self, delivered, execution_status)
         if self.ledger is not None:
             self.ledger(self, delivered, execution_status)
+
+    def failure_fields(self):
+        """Why the turn did not succeed, for its record (core/failure.py failure_view reads them); {} when it did."""
+        turn = self.turn
+        if turn.status not in ("failed", "cancelled") or turn.verified_delivery is not None:
+            return {}
+        outcome = getattr(turn, "outcome", None)
+        code = str(getattr(outcome, "error_code", "") or "root_failed") if outcome is not None else "root_failed"
+        return {"failure_code": code, "failure_detail": str(getattr(turn, "failure_detail", "") or "")}
+
+    def card_text(self, display_text):
+        """The body of a failed task card: the reason and what comes next in one line (core/failure.py), its old
+        words in 技术详情 under it (app/auto_retry.py failed_controls). Not a policy stop's: its words say who was
+        refused doing what already, and a retry's promise in them is taken back there (app/policy_retry.py)."""
+        job, turn = self.job, self.turn
+        if (turn.status != "failed" or turn.verified_delivery is not None
+                or getattr(getattr(turn, "outcome", None), "policy_event", None) is not None or not job.progress):
+            return display_text
+        view = failure.failure_view({"status": turn.status, "topic_id": job.topic_id, "job_id": job.job_id,
+                                     "status_message": turn.status_message, **self.failure_fields(),
+                                     **auto_retry.schedule_fields(self.retry)}, now=time.time())
+        return failure.card_body(view) if view else display_text
 
     def texts(self, snapshot):
         """The text shown for the result and the text kept as delivered, and whether the shown one

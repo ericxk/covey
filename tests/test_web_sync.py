@@ -947,6 +947,17 @@ class ExtrasTest(WebCase):
         self.sync.push_once(T0 + 61)
         self.assertEqual(self.web.items("question")[-1]["data"]["state"], "open")
 
+    def test_a_turn_that_did_not_succeed_says_why_and_what_next(self):
+        """C4 (data contract v4, turn.data failure): the card's reason and next steps, read from the record."""
+        self.topic(status="failed", lines=(("user", "做一下"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", failure_code="rate_limited", status_message="模型服务限流，本轮没有产出回复")
+        self.sync.push_once(T0)
+        ended = self.web.items("turn")[-1]["data"]
+        self.assertEqual(ended["status"], "failed")
+        self.assertEqual(ended["failure"]["actions"], ["retry", "switch_model"])
+        self.assertTrue(ended["failure"]["title"].startswith("上游限流，和任务内容无关"))
+        self.assertIn("错误码 rate_limited", ended["failure"]["detail"])
+
     def test_a_continued_turn_is_not_running_and_an_unknown_status_is_idle(self):
         """2026-11-18: T75 (its last turn ``continued`` on 10-22) showed 在做 on the page for a month; so did a waiting_workspace task."""
         self.topic()

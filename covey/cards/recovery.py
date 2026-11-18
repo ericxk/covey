@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import datetime as _dt
 
-from covey.cards.elements import card, column_button, md, plain
+from covey.cards.elements import card, column_button, grey, markdown_panel, md, plain
 from covey.cards.topic_actions import switch_panel
 from covey.cards.trace_view import TraceView
 from covey.core.trace import ToolTrace, finish_record_trace
 from covey.cards.trace_updates import panel_json
 
 RETRY_KIND = "bridge_job_retry"
+# The next steps of a task that did not succeed that start a turn of their own (core/failure.py actions):
+# 查原因, a read-only turn that looks into why, and 拆小再试 (app/task_controls.py follow_up).
+DIAGNOSE_KIND, SPLIT_KIND = "bridge_job_diagnose", "bridge_job_split"
+FOLLOW_UPS = {"diagnose": ("查原因", DIAGNOSE_KIND), "split": ("拆小再试", SPLIT_KIND)}
+FOLLOW_UP_NOTES = {"diagnose": "查原因：开一轮只读排查，看看这一轮为什么没成功，不改文件、不重跑。",
+                   "split": "拆小再试：把这件事拆成更小的几步重新做，被拦下的那块先跳过。"}
+DETAILS_ID = "failure_details"
 
 
 def interrupted_summary(name, label="", due_at=None):
@@ -38,14 +45,21 @@ def stopped_card(text, *, retry=None, actions=(), panels=(), header=None, summar
     return card(elements + list(panels), summary, header=header)
 
 
-def result_actions(topic_id, job_id, label, *, stop_kind=""):
-    """The row after a failed task's answer: ``label`` (检查并继续, 重新投递结果) and, with ``stop_kind``,
-    停止自动重试."""
+def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=()):
+    """The row after a failed task's answer: ``label`` (检查并继续, 现在重试, 重新投递结果; "" for none), with
+    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 查原因, 拆小再试)."""
     value = {"topic_id": topic_id, "job_id": job_id}
-    columns = [column_button(label, {"kind": RETRY_KIND, **value})]
+    columns = [column_button(label, {"kind": RETRY_KIND, **value})] if label else []
     if stop_kind:
         columns.append(column_button("停止自动重试", {"kind": stop_kind, **value}))
+    columns.extend(column_button(FOLLOW_UPS[name][0], {"kind": FOLLOW_UPS[name][1], **value})
+                   for name in follow_ups if name in FOLLOW_UPS)
     return {"tag": "column_set", "element_id": "result_actions", "columns": columns}
+
+
+def failure_details(text):
+    """技术详情 under a failed task card's one-line reason: the words it said before (core/failure.py card_body)."""
+    return markdown_panel(DETAILS_ID, grey("技术详情"), text[:6000], boxed=True, size="notation")
 
 
 def retry_status(content):
@@ -86,6 +100,7 @@ def recovery_view(record, text, *, title, topic, label, continued, moved_to, how
     elif title != "任务已中断":
         summary = f"⚠️ {name} · {title}"
     else:
-        summary = interrupted_summary(name, label, record["auto_retry_at"] if actions else None)
+        pending = actions and record.get("auto_retry_state") == "pending"  # Else they are 查原因 and 拆小再试 alone.
+        summary = interrupted_summary(name, label, record["auto_retry_at"] if pending else None)
     return stopped_card(text.lstrip("\n") or header[1], retry=retry, actions=actions, panels=panels, header=header,
                         summary=summary)

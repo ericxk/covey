@@ -36,7 +36,7 @@
 | 换配置 | `app/harness_switch.py`、`app/binding.py`、`app/switch_handoff.py` | [话题中途换配置](docs/architecture.md#话题中途换配置) |
 | 回退一步（Claude） | `app/rewind.py`、`backends/claude/rewind.py` | [回退一步](docs/architecture.md#回退一步) |
 | 结果、投递与重投 | `app/turn_settle.py`、`app/worker.py`、`app/redelivery.py`、`app/outbox.py` | [结果授权与投递](docs/architecture.md#结果授权与投递) |
-| 失败、恢复与自动重试 | `core/recovery.py`、`app/recovery_cards.py`、`app/auto_retry.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
+| 失败、恢复与自动重试 | `core/recovery.py`、`core/failure.py`（原因和下一步）、`app/recovery_cards.py`、`app/auto_retry.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
 | 设置卡与机器人菜单 | `app/bot_menu.py`、`app/menu_panel.py`、`app/settings_hub.py`、`feishu/events.py` | [机器人菜单](docs/usage.md#机器人菜单) |
 | 代答 | `app/proxy.py`（批次）、`app/proxy_intake.py`（收消息）、`app/proxy_topics.py`（联系人话题）、`app/proxy_commands.py`（查找、群成员）、`app/proxy_send.py`（读回和发送器接口；发送器 `extensions/covey_internal/proxy_sender.py`、`extensions/covey_internal/proxy_login.py`）、`core/proxy.py` | [proxy.md](docs/proxy.md)、[代答](docs/architecture.md#代答) |
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
@@ -273,6 +273,7 @@
 | `core/dispatch_records.py` | The records of the 派发卡 |
 | `core/env.py` | Environment variable names: `COVEY_<X>` is the name, `LARK_BRIDGE_<X>` the old one that still works |
 | `core/extensions.py` | Optional extension packages: which are enabled, where they are found, the data and features they add |
+| `core/failure.py` | Why a turn did not succeed and what can be done next, in plain words |
 | `core/file_lock.py` | Explicit host-local lock files |
 | `core/gateways.py` | 模型网关的配置：一个网关是“OpenAI Responses / Anthropic Messages 兼容”的上游，由数据描述，可以有多个。 |
 | `core/groups.py` | The group records: one per group, `<state>/groups/<sha256(chat_id)>.json`, with `chat_id`, `active` … |

@@ -560,10 +560,14 @@ class Cards:
 
 
     def finish_result_controls(self, ctx, job, status):
-        if status != "failed":
+        """A failed task card's 技术详情 and next steps (app/auto_retry.py failed_controls); a policy stop's
+        (cancelled) next steps too."""
+        if status not in ("failed", "cancelled"):
             return
-        elements = auto_retry.failed_controls(job.topic_id, job.job_id,
-                                              find_job_record(ctx.state_dir, job.message_id) or {})
+        record = find_job_record(ctx.state_dir, job.message_id) or {}
+        if status == "cancelled" and not record.get("policy_stop"):
+            return
+        elements = auto_retry.failed_controls(job.topic_id, job.job_id, record)
         if not elements:
             return
         with card_lock(job.progress):

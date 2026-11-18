@@ -247,7 +247,7 @@ def finish(gateway, ctx, path):
     record = upsert_job_record(ctx.state_dir, key, status='cancelled', execution_status='cancelled',
         status_message=('官方拒绝／降级，任务已停止' + ('；' + policy_retry.will_retry(found) if found else '')
                         if cleanup_ok else '官方拒绝／降级，进程清理待确认'),
-        policy_stop=intent['observation']['event'], policy_guard_finalized=True,
+        policy_stop=intent['observation']['event'], policy_guard_finalized=True, failure_detail=detail,
         # A retry scheduled by the task runner (app/policy_retry.py at_stop) waits for this and does not start
         # while it says unconfirmed (policy_retry.tick).
         policy_guard_cleanup='confirmed' if cleanup_ok else 'unconfirmed',
