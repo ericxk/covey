@@ -9,11 +9,11 @@ from covey.cards.elements import (button_row, card, callback, item, md, note, pa
 from covey.core.text import literal as literal_text
 
 CREATE_KIND = "bridge_tidy_create"  # 建专项
-RENAME_KIND = "bridge_tidy_rename"  # 改个名再建: the card becomes the rename form
-NAMED_KIND = "bridge_tidy_named"  # The rename form's 建专项
-BACK_KIND = "bridge_tidy_back"  # The rename form's 取消: the proposal again
-DECLINE_KIND = "bridge_tidy_decline"  # 不用 (a proposal card's, or one row's of the 整理专项 card)
-NEVER_KIND = "bridge_tidy_never"  # 以后别提议
+RENAME_KIND = "bridge_tidy_rename"  # 改个名再建 (a card sent before name_form): the card becomes the rename form
+NAMED_KIND = "bridge_tidy_named"  # 建专项 with the name on the card (name_form), or the rename form's
+BACK_KIND = "bridge_tidy_back"  # The rename form's 取消: the proposal again (a card sent before name_form)
+DECLINE_KIND = "bridge_tidy_decline"  # 暂不考虑 (a proposal card's), 不用 (one row's of the 整理专项 card)
+NEVER_KIND = "bridge_tidy_never"  # 以后别提议 (a card sent before name_form)
 AUTO_KIND = "bridge_tidy_auto"  # 以后直接建
 OK_KIND = "bridge_tidy_ok"  # 好 on one row of the 整理专项 card
 ALL_KIND = "bridge_tidy_all"  # 全部照办
@@ -31,9 +31,10 @@ INTRO = "专项是一件要分几个话题、跨几天推进的事，由一个�
 AFTER = ("建成专项后：这件事的话题（以后分出去的也算）在看板上并成一格；这件事里的问题由负责人先过一遍，"
          "例行的它替你答；进展由它汇报。")
 ASK_AUTO = "你已经连着 {} 次直接点了建：以后这种直接建，只留撤回？"
-NAME_FIELD, GOAL_FIELD, WHY_FIELD = "name", "goal", "why"
+NAME_FIELD, GOAL_FIELD, WHY_FIELD, TOPICS_FIELD, MORE_FIELD = "name", "goal", "why", "topics", "more"
 CARD_ROWS = 5
 OUTCOME = {"done": "已照办", "declined": "不用", "never": "以后不再提议", "failed": "没做成", "expired": "已过时"}
+PROPOSAL_OUTCOME = {**OUTCOME, "declined": "暂不考虑"}  # The proposal card's word for its 暂不考虑
 KIND_WORDS = {"create": "新建", "join": "归进", "leave": "移出", "merge": "合并", "split": "拆开", "rename": "改名", "fold": "收起"}
 TIDY_ICON = "folder_outlined"
 
@@ -62,58 +63,79 @@ def span(row) -> str:
 
 
 def topic_lines(view) -> list:
-    """The topics of a proposal as the owner can tell them (the owner, 2026-11-18: 我都不知道 T252 在哪，这里就写了一个
-    19天118轮…这个是啥): each a link that opens it, what it is about (its 话题要点's 本质; its title only when it has none)
-    and how long it has gone on; one topic says so. A view kept before rows (labels only) is drawn as before."""
+    """The topics of a proposal as the owner can tell them and judge (the owner, 2026-11-18: 我都不知道 T252 在哪…哪几个话题，
+    这些话题我应该能点开看，同时你应该有这些话题的 Summary，不然我咋判断能建专项呢？): every topic of it, each its T number as a
+    link that opens it, its title and how long it has gone on, then a summary: what it is doing (its 话题要点's 本质) and
+    where it is now (its latest conclusion). A view kept before rows (labels only) is drawn as before."""
     rows = view.get("rows")
     if not rows:
         return [md("这几个话题像是一件事：" + literal_text(topics_line(view.get("labels") or ())))]
-    if len(rows) == 1:
-        row = rows[0]
-        how_long = span(row)
-        head = f"**{topic_link(row)}**" + (f" 已经推了 {how_long.replace(' · ', '、')}" if how_long else "")
-        about = ("，它在做：" + literal_text(row["essence"]) if row.get("essence")
-                 else "：" + literal_text(row.get("title") or "（没有标题）"))
-        lines = [md(head + about)]
-        if row.get("essence") and row.get("title"):
-            lines.append(note("话题标题：" + literal_text(row["title"])))
-        return lines
-    lines = [md(f"这 {len(rows)} 个话题像是一件事：")]
+    lines = [md(f"这 {len(rows)} 个话题像是一件事：" if len(rows) > 1 else "这个话题推了很久，像是一件要长期做的事：")]
     for row in rows:
-        about = literal_text(row.get("essence") or row.get("title") or "（没有标题）")
         how_long = span(row)
-        lines.append(md(f"- {topic_link(row)} {about}" + (f"<font color='grey'>（{how_long}）</font>" if how_long else "")))
+        lines.append(md(f"**{topic_link(row)}** {literal_text(row.get('title') or '（没有标题）')}"
+                        + (f" <font color='grey'>· {how_long}</font>" if how_long else "")))
+        summary = ([f"在做：{literal_text(row['essence'])}"] if row.get("essence") else []) + \
+                  ([f"现在：{literal_text(row['now'])}"] if row.get("now") else [])
+        if summary:
+            lines.append(md("\n".join(summary)))
     return lines
 
 
+def choice_text(choice) -> str:
+    return " ".join(part for part in (choice.get("label"), choice.get("title")) if part)[:80] or "话题"
+
+
+def name_form(view):
+    """建专项 after the owner's own touches (the owner, 2026-11-18: 直接给一个可编辑的名字然后一个确认按钮就行…一个暂不考虑就行;
+    在页面增删一下话题…让人微操一波): which topics (``choices``: the proposal's, ticked, then the recent others; a select's
+    options are fixed when the card is sent, so any other topic goes in by its T number), the name ready to change, and
+    建专项 / 暂不考虑. A view without choices (kept before them) has the name alone."""
+    elements = []
+    choices = view.get("choices") or []
+    if choices:
+        chosen = [str(index) for index, choice in enumerate(choices) if choice.get("chosen")]
+        elements += [md("**哪些话题**：勾掉不要的，或从最近的话题里加；不在里面的填 T 号"),
+                     {"tag": "multi_select_static", "name": TOPICS_FIELD, "width": "fill", "placeholder": plain("选话题"),
+                      "options": [{"text": plain(choice_text(choice)), "value": str(index)}
+                                  for index, choice in enumerate(choices)], "selected_values": chosen},
+                     {"tag": "input", "name": MORE_FIELD, "width": "fill", "max_length": 100,
+                      "placeholder": plain("再加话题：填 T 号，比如 T488 T505")}]
+    elements += [md("**专项名**：可以直接改"),
+                 {"tag": "input", "name": NAME_FIELD, "required": True, "width": "fill", "max_length": 30,
+                  "default_value": view.get("name") or "", "placeholder": plain("专项名：对象 + 要达成的事，12 个字以内")}]
+    submit = {"tag": "button", "name": "tidy_build", "form_action_type": "submit", "type": "primary",
+              "text": plain("建专项"), "behaviors": callback(_value(NAMED_KIND, view))}
+    later = {"tag": "button", "name": "tidy_later", "type": "default", "text": plain("暂不考虑"),
+             "behaviors": callback(_value(DECLINE_KIND, view))}
+    return {"tag": "form", "name": "tidy_name", "elements": [*elements, button_row([submit, later])]}
+
+
 def proposal_card(view):
-    """建个专项？ ``view``: proposal (id), rows [{label, title, link, essence, days, turns}] (``topic_lines``; labels [(T 号, 标题)]
-    in a view kept before them), name, goal, why, first (the first proposal ever: one sentence of what a project is), ask_auto (5
-    in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), note (the line under it once decided),
-    lesson (a reason form under a 不用)."""
+    """建个专项？ ``view``: proposal (id), rows [{label, title, link, essence, now, days, turns}] (``topic_lines``; labels [(T 号,
+    标题)] in a view kept before them), name, goal, why, first (the first proposal ever: one sentence of what a project is),
+    ask_auto (5 in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), note (the line under it once
+    decided), lesson (a reason form under a 暂不考虑). Open, it ends with the name to change and 建专项 / 暂不考虑 (``name_form``)."""
     elements = topic_lines(view)
     if view.get("why"):
         elements.append(note("为什么提：" + literal_text(view["why"])))
-    name, goal = literal_text(view.get("name") or ""), literal_text(view.get("goal") or "")
-    elements.append(md(f"**建成专项「{name}」？**" + (f" 目标：{goal}" if goal else "")))
+    goal = literal_text(view.get("goal") or "")
+    state = view.get("state") or "open"
+    if goal:
+        elements.append(md(f"**目标**：{goal}"))
     if view.get("first"):
         elements.append(note(INTRO))
     elements.append(note(AFTER))
-    state = view.get("state") or "open"
     if state == "open":
         if view.get("ask_auto"):
             elements.append(item(md(ASK_AUTO.format(view.get("accepted") or 5)),
                                  text_button("以后直接建", _value(AUTO_KIND, view), tone="primary")))
-        elements.append(button_row([
-            topic_button("建专项", tone="primary", behaviors=callback(_value(CREATE_KIND, view))),
-            topic_button("改个名再建", behaviors=callback(_value(RENAME_KIND, view))),
-            topic_button("不用", behaviors=callback(_value(DECLINE_KIND, view))),
-            topic_button("以后别提议", behaviors=callback(_value(NEVER_KIND, view)))]))
+        elements.append(name_form(view))
     else:
-        elements.append(md(f"<font color='grey'>{literal_text(view.get('note') or OUTCOME.get(state, ''))}</font>"))
+        elements.append(md(f"<font color='grey'>{literal_text(view.get('note') or PROPOSAL_OUTCOME.get(state, ''))}</font>"))
         if view.get("lesson"):
             elements.append(lesson_form(_value(LESSON_KIND, view)))
-    title = "建个专项？" if state == "open" else f"专项提议 · {OUTCOME.get(state, '已处理')}"
+    title = "建个专项？" if state == "open" else f"专项提议 · {PROPOSAL_OUTCOME.get(state, '已处理')}"
     return styled_panel(panel_header(ICON, title, subtitle="整理专项"), elements, f"{title} · {view.get('name') or ''}")
 
 

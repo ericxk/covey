@@ -26,6 +26,7 @@ across a model or Feishu call; cards here are message cards replaced whole (patc
 written with their own records' sequence."""
 from __future__ import annotations
 
+import re
 import threading
 import time
 import uuid
@@ -41,7 +42,7 @@ from covey.core import projects, topic_gist
 from covey.core.butler import is_butler_topic
 from covey.core.card_sequence import file_card, reserve
 from covey.core.checkpoint import checkpoint_gist, read_checkpoint
-from covey.core.jobs import job_key, jobs_dir, select_job_records
+from covey.core.jobs import job_key, jobs_dir, select_job_records, topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.loops import every
 from covey.core.state import claim_once, epoch_seconds, read_object, write_json
@@ -54,6 +55,8 @@ START_WAIT = 30
 PROGRESS_GAP = 3.0  # Seconds between two redraws of the card while it reads.
 COUNT_KEPT = 600.0  # The chat's topic count is read again after this.
 QUEUE_MAX = 20
+CHOICES = 20  # Topics the proposal card's select offers: the proposal's, then the recent others.
+NOW_CHARS = 80  # Of a topic's latest conclusion on the proposal card (现在：…).
 INBOUND = "inbound-messages"
 BUSY_PREFIX, STARTED_WORDS = proposals.BUSY_PREFIX, proposals.STARTED_WORDS
 BUSY_WORDS = BUSY_PREFIX + "（{done}/{total}）"
@@ -322,10 +325,41 @@ class ProjectTidy:
                 link = self.link(state, topic, profile=getattr(ctx, "profile", None)) if label else ""
             except Exception:  # noqa: BLE001 - a T number without its link, as before
                 link = ""
-            rows.append({"label": label, "title": title, "link": link,
-                         "essence": str(found.gist.get("essence") or ""),
+            essence = str(topic_gist.read(state, topic).get("essence") or found.gist.get("essence") or "")
+            rows.append({"label": label, "title": title, "link": link, "essence": essence,
+                         "now": where_now(state, chat, topic) or latest(found.conclusions),
                          "days": round(found.days, 1), "turns": found.turns})
         return rows
+
+    def choices(self, ctx, chat, topics) -> list:
+        """What the proposal card's topic select offers: ``topics`` ticked, then the recent others (CHOICES in all)."""
+        state, now = Path(ctx.state_dir), time.time()
+        others = [topic for topic in self.recent_topics(state, chat, now) if topic not in topics and not sorter.hidden(state, topic)]
+        found = []
+        for topic in [*topics, *others][:CHOICES]:
+            label, title = label_title(state, topic)
+            found.append({"topic": topic, "label": label, "title": title, "chosen": topic in topics})
+        return found
+
+    @staticmethod
+    def chosen(state, chat, view, fields) -> tuple:
+        """(the topics the owner left ticked or added on the proposal card, the T numbers he typed that are no topic of his).
+        A card without choices (sent before them) keeps the proposal's topics."""
+        choices = view.get("choices") or []
+        if not choices or (cards.TOPICS_FIELD not in fields and cards.MORE_FIELD not in fields):  # 建专项 or the rename form
+            return None, []
+        picked = fields.get(cards.TOPICS_FIELD)
+        picked = picked if isinstance(picked, list) else ([picked] if isinstance(picked, str) and picked else [])
+        topics = [choices[int(value)]["topic"] for value in picked
+                  if str(value).isdigit() and int(value) < len(choices)]
+        numbers, unknown = topic_links.topic_numbers(state, chat), []
+        for word in re.findall(r"[Tt]?\d+", str(fields.get(cards.MORE_FIELD) or "")):
+            topic = numbers.get(int(word.lstrip("Tt")))
+            if topic and not sorter.hidden(state, topic) and not is_butler_topic(topic, chat):
+                topics.append(topic)
+            else:
+                unknown.append("T" + word.lstrip("Tt"))
+        return list(dict.fromkeys(topics)), unknown
 
     def proposal_view(self, state, record) -> dict:
         prefs = proposals.prefs(state)
@@ -338,7 +372,9 @@ class ProjectTidy:
 
     def send_proposal(self, ctx, chat, record) -> str:
         state = Path(ctx.state_dir)
-        view = {**self.proposal_view(state, record), "rows": self.topic_rows(ctx, chat, record.get("topics") or ())}
+        topics = record.get("topics") or ()
+        view = {**self.proposal_view(state, record), "rows": self.topic_rows(ctx, chat, topics),
+                "choices": self.choices(ctx, chat, topics)}
         sent = []
         text = f"这几个话题像是一件事：{cards.topics_line(view['labels'])}。建成专项「{view['name']}」？"
         if not self.messenger.send_message(ctx.profile, chat, text, self.voice.safe_key(self.voice.key("tidy-proposal", record["id"])),
@@ -792,19 +828,29 @@ class ProjectTidy:
             proposals.set_pref(state, accepted_in_row=0, **({"no_proposals": True} if never else {}))
             view.update(state=proposals.NEVER if never else proposals.DECLINED, lesson=True,
                         note="以后不再提议建专项；要开专项，跟管家说“开个专项”。" if never else
-                        "不建了：这几个话题不会再这样提，等又多出相关的话题才会再提。")
+                        "暂不考虑：这几个话题不会再这样提，等又多出相关的话题才会再提。")
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=view))
             after_ack(lambda: self.messenger.patch_card(ctx.profile, message, cards.proposal_card(view)))
             return "tidy_never" if never else "tidy_decline"
         # 建专项, or the rename form's 建专项.
-        named = kind == cards.NAMED_KIND
         fields = form_fields(event) or {}
-        name = proposals.clean_name(fields.get(cards.NAME_FIELD)) if named else record.get("name")
-        goal = " ".join(str(fields.get(cards.GOAL_FIELD) or "").split())[:200] if named else record.get("goal")
-        if named and not name:
+        name = proposals.clean_name(fields.get(cards.NAME_FIELD)) if kind == cards.NAMED_KIND else record.get("name")
+        goal = (" ".join(str(fields.get(cards.GOAL_FIELD) or "").split())[:200] if cards.GOAL_FIELD in fields
+                else record.get("goal"))
+        if kind == cards.NAMED_KIND and not name:
             return "tidy_no_name"
+        named = name != record.get("name")  # The owner's own name: 整理专项 never renames it, and 以后直接建 is not offered for it.
+        topics, unknown = self.chosen(state, chat, view, fields)
+        if topics is None:
+            topics = list(record.get("topics") or ())
+        if not topics:
+            after_ack(lambda: self.messenger.send_message(ctx.profile, chat, "没选话题，专项没建：在卡上勾上话题或填 T 号再点「建专项」。",
+                                                          self.voice.safe_key(self.voice.key("tidy-none", str(event.get("event_id") or ""))),
+                                                          voice=self.voice))
+            return "tidy_no_topics"
+        record = {**record, "topics": topics}
         proposals.update_proposal(state, record["id"], lambda data: data.update(state=proposals.ACCEPTED, decided_at=time.time(),
-                                                                                  name=name, goal=goal or ""))
+                                                                                  name=name, goal=goal or "", topics=topics))
 
         def build():
             if projects.active_count(state) >= projects.MAX_ACTIVE:
@@ -812,6 +858,8 @@ class ProjectTidy:
             else:
                 pid = self.create(ctx, chat, {**record, "name": name, "goal": goal}, owner_named=named, name=name, goal=goal)
                 words = f"已建专项「{name}」：专项卡在聊天区，负责人接着跟进。" if pid else "专项没建成，过一会儿再说“整理一下专项”。"
+                if pid and unknown:
+                    words += f"（{'、'.join(unknown)} 不是你最近的话题，没加）"
             proposals.update_proposal(state, record["id"], lambda data: data.update(
                 state=proposals.DONE if pid else proposals.FAILED, project_made=pid))
 
@@ -819,8 +867,9 @@ class ProjectTidy:
                 prefs = data.get("prefs") or {}
                 data["prefs"] = {**prefs, "accepted_in_row": 0 if named or not pid else int(prefs.get("accepted_in_row") or 0) + 1}
             proposals.change(state, count)
+            rows = self.topic_rows(ctx, chat, topics) if view.get("rows") else view.get("rows")
             shown = {**view, "name": name, "goal": goal, "state": proposals.DONE if pid else proposals.FAILED, "note": words,
-                     "ask_auto": False}
+                     "ask_auto": False, "rows": rows, "labels": [label_title(state, topic) for topic in topics]}
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=shown))
             self.messenger.patch_card(ctx.profile, message, cards.proposal_card(shown))
         after_ack(build)
@@ -869,6 +918,31 @@ class ProjectTidy:
             self.messenger.patch_card(ctx.profile, message, cards.tidy_card(saved["view"]))
         after_ack(act)
         return {cards.OK_KIND: "tidy_ok", cards.ALL_KIND: "tidy_all"}.get(raw["kind"], "tidy_row_decline")
+
+
+def cut(text) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= NOW_CHARS else text[:NOW_CHARS - 1] + "…"
+
+
+def where_now(state, chat, topic) -> str:
+    """Where ``topic`` is now, in its own words: the phase its newest turn's checkpoint says (a short phrase in the owner's
+    language, what the task card's status line shows), or ''."""
+    jobs = sorted(topic_job_records(Path(state), topic, chat_id=chat), key=lambda job: int(job.get("job_id") or 0))
+    for job in reversed(jobs[-3:]):
+        path = str(job.get("checkpoint_path") or "")
+        phase = read_checkpoint(Path(path)).get("phase") if path else ""
+        if isinstance(phase, str) and phase.strip():
+            return cut(phase)
+    return ""
+
+
+def latest(conclusions) -> str:
+    """The first sentence of a topic's latest conclusion when it has no phase to say: where it is now, on the proposal card
+    ('' for one too short to say anything, as a lone "!")."""
+    text = " ".join(str(conclusions[-1] if conclusions else "").split())
+    first = re.split(r"(?<=[。！？!?])", text, maxsplit=1)[0] if text else ""
+    return cut(first) if len(first) >= 6 else ""
 
 
 FAILED_WORDS = {"timeout": "判断超时了", "no_backend": "没有可用的 Claude Code 来判断", "bad_output": "判断的回答看不懂",

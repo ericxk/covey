@@ -262,8 +262,10 @@ class ProposalTest(TidyCase):
     def test_the_first_proposal_card_says_what_a_project_is_and_has_the_four_buttons(self):
         self.assertEqual(self.propose(self.pair), "proposed")
         card = text(self.sent_cards()[-1])
-        for word in ("建成专项「EnvReplay Prompt 优化」", cards.INTRO, cards.AFTER, "建专项", "改个名再建", "不用", "以后别提议"):
+        for word in ("EnvReplay Prompt 优化", cards.INTRO, cards.AFTER, "建专项", "暂不考虑", "tidy_name"):
             self.assertIn(word, card)
+        for word in ("改个名再建", "以后别提议"):  # The owner, 2026-11-18: 4 个按钮太冗余了.
+            self.assertNotIn(word, card)
         self.assertEqual(self.propose(self.pair), "open")  # One open proposal about a topic at a time.
         self.assertTrue(proposals.prefs(self.state)["first_sent"])
 
@@ -321,9 +323,41 @@ class ProposalTest(TidyCase):
         self.assertEqual(systems[:2], [sorter.GIST_SYSTEM, sorter.JUDGE_SYSTEM])
         self.assertEqual(self.judged()[0]["topics"][0]["gist"]["essence"], "阅读这个session，继续我们未完成的事情")
         card = text(self.sent_cards()[-1])
-        self.assertIn("已经推了 19 天、3 轮，它在做：阅读这个session", card)
-        self.assertIn("话题标题：阅读这个session", card)
+        self.assertIn("这个话题推了很久", card)
+        self.assertIn("19 天 · 3 轮", card)
+        self.assertIn("在做：阅读这个session", card)
+        self.assertIn("现在：结论：第 2 句", card)
         self.assertNotIn("这几个话题", card)
+
+    def test_the_owner_unticks_a_topic_adds_one_by_its_number_and_renames_before_building(self):
+        """The owner, 2026-11-18: 在页面增删一下话题…让人微操一波 — the card's select and T number box decide the topics."""
+        third = self.topic("顺手查的一件事")
+        self.tidy.recent_topics = lambda state, chat, now, **kw: [*self.pair, third]
+        self.propose(self.pair)
+        record, message = self.card_and_record()
+        choices = record["view"]["choices"]
+        self.assertEqual([choice["topic"] for choice in choices][:3], [*self.pair, third])
+        self.assertEqual([choice["chosen"] for choice in choices][:3], [True, True, False])
+        number = read_object(self.state / "topics" / third / "topic.json")["topic_number"]
+        with mock.patch.object(tidy_module.topic_links, "topic_numbers", return_value={number: third}):
+            self.assertEqual(self.click({"kind": cards.NAMED_KIND, "proposal": record["id"]}, message,
+                                        topics=["0"], more=f"T{number} T99999", name="Prompt 提效"), "tidy_named")
+        made = projects.read_record(self.state, upgrades.project_id("tidy", record["id"]))
+        self.assertEqual((made["name"], made["threads"]), ("Prompt 提效", [self.pair[0], third]))
+        self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], [self.pair[0], third])
+        self.assertIn("T99999 不是你最近的话题", text(self.patched()))
+
+    def test_the_name_left_as_it_was_counts_as_a_plain_build_and_none_ticked_builds_nothing(self):
+        self.propose(self.pair)
+        record, message = self.card_and_record()
+        self.assertEqual(self.click({"kind": cards.NAMED_KIND, "proposal": record["id"]}, message, topics=[], more="",
+                                    name="EnvReplay Prompt 优化"), "tidy_no_topics")
+        self.assertEqual(proposals.read_proposal(self.state, record["id"])["state"], proposals.OPEN)
+        self.assertEqual(self.click({"kind": cards.NAMED_KIND, "proposal": record["id"]}, message, topics=["0", "1"],
+                                    name="EnvReplay Prompt 优化"), "tidy_create")
+        made = projects.read_record(self.state, upgrades.project_id("tidy", record["id"]))
+        self.assertNotEqual(made.get("name_by"), "owner")
+        self.assertEqual(proposals.prefs(self.state)["accepted_in_row"], 1)
 
     def test_decline_keeps_the_same_proposal_away_until_two_more_topics_and_never_stops_them(self):
         self.propose(self.pair)

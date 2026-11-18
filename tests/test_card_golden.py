@@ -1072,10 +1072,16 @@ def tidy_cards():
             "rows": rows, "skipped": ["3 个话题读不了，没参与这次整理"], "scope": ""}
     joined = tc.joined_element("EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6")
     rows = [{"label": "T488", "title": "修 064 采购审批题包", "link": "https://applink.feishu.cn/client/thread/open?t=488",
-             "essence": "优化 EnvReplay 的 Prompt，让题包一次跑对", "days": 7.2, "turns": 93},
-            {"label": "T505", "title": "优化 Bootstrap 下一环节", "link": "", "essence": "", "days": 0.4, "turns": 12}]
+             "essence": "优化 EnvReplay 的 Prompt，让题包一次跑对", "now": "v1.1 和旧版各跑 3 遍的对跑在跑，预计 19:35 跑完。",
+             "days": 7.2, "turns": 93},
+            {"label": "T505", "title": "优化 Bootstrap 下一环节", "link": "", "essence": "", "now": "", "days": 0.4, "turns": 12}]
     one = [{"label": "T252", "title": "阅读这个session，继续我们未完成的事情", "link": "https://applink.feishu.cn/client/thread/open?t=252",
-            "essence": "把账号额度运行台做成能一眼看清各账号额度和可用性的页面", "days": 19.0, "turns": 118}]
+            "essence": "把账号额度运行台做成能一眼看清各账号额度和可用性的页面", "now": "第 7 期上线：额度读数改成按账号分组。",
+            "days": 19.0, "turns": 118}]
+    choices = [{"topic": "a" * 64, "label": "T488", "title": "修 064 采购审批题包", "chosen": True},
+               {"topic": "b" * 64, "label": "T505", "title": "优化 Bootstrap 下一环节", "chosen": True},
+               {"topic": "c" * 64, "label": "T523", "title": "T488、T505 验证加速方案", "chosen": False}]
+    view = {**view, "choices": choices}
     cards_ = {"proposal_rows": tc.proposal_card({**view, "rows": rows}),
               "proposal_one_topic": tc.proposal_card({**view, "rows": one, "first": False, "name": "账号额度运行台",
                                                       "goal": "额度看得准、异常即时置顶", "why": "一直在迭代同一个运行台"})}
