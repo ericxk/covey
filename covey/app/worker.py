@@ -225,9 +225,10 @@ class TurnDelivery(AnswerParts, QuietDelivery):
     def failure_fields(self):
         """Why the turn did not succeed, for its record (core/failure.py failure_view reads them); {} when it did."""
         turn = self.turn
-        if turn.status not in ("failed", "cancelled") or turn.verified_delivery is not None:
-            return {}
         outcome = getattr(turn, "outcome", None)
+        policy = getattr(outcome, "policy_event", None) is not None
+        if not (turn.status == "failed" or (turn.status == "cancelled" and policy)) or turn.verified_delivery is not None:
+            return {}  # Done, or stopped by the owner: no reason to give.
         code = str(getattr(outcome, "error_code", "") or "root_failed") if outcome is not None else "root_failed"
         return {"failure_code": code, "failure_detail": str(getattr(turn, "failure_detail", "") or "")}
 
