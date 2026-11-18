@@ -2,6 +2,7 @@
 
 Off unless COVEY_NODE_LISTEN is set (core/nodes.py): then there is no thread and nothing here runs. On:
 - ``nodes-gateway`` (app/node_gateway.py): the TLS server.
+- the 设置 card's 设备 tab (``panel``, app/node_panel.py): the nodes, 添加 and 移除.
 - ``nodes-alerts`` (app/node_alerts.py): the alert cards.
 - ``nodes-local`` (``keep_local``, every LOCAL_EVERY seconds): the hub's own node, so the hub is watched like any
   device: ``~/.covey/node/`` gets core/node_agent.py and a config that dials the gateway on the loopback address,
@@ -21,6 +22,7 @@ from pathlib import Path
 from covey.app.dashboard_entry import parse_bind
 from covey.app.node_alerts import NodeAlerts
 from covey.app.node_gateway import Gateway, local_config
+from covey.app.node_panel import NodePanel
 from covey.core import nodes
 from covey.core.loops import every
 from covey.core.state import ensure_private_dir, read_object, write_json
@@ -38,6 +40,7 @@ class Nodes:
         self.runtime, self.environ = runtime, environ
         self.alerts = NodeAlerts(runtime, messenger, voice, environ=environ)
         self.gateway = Gateway(runtime, environ=environ, events=lambda: None)
+        self.panel = NodePanel(runtime, messenger, voice, self.gateway, environ=environ)  # The 设置 card's 设备 tab.
         self.pruned = 0.0
 
     def threads(self):

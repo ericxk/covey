@@ -1138,13 +1138,48 @@ def tidy_cards():
                                               ["EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6"])}
 
 
+def node_cards_samples():
+    from covey.cards.node_cards import alert_card, alert_text, cleared_card, machine_lines
+    from covey.cards.node_panel import node_panel_card
+    from covey.cards.settings_hub import tab_row
+
+    top = [{"comm": "rg", "rss": 160 << 30, "cpu": 98.5, "task": "k1"}, {"comm": "python3", "rss": 3 << 30}]
+    mem = {"rule": "mem", "kind": "raise", "at": FROZEN - 300, "pct": 93.5, "used": 215 << 30, "limit": 230 << 30,
+           "top": top}
+    tasks = {"k1": "T512 · 任务 #4664"}
+    latest = {"cpu": {"pct": 12.0, "cores": 56.0}, "mem": {"pct": 41.0, "used": 94 << 30, "limit": 230 << 30},
+              "disk": [{"path": "/", "pct": 87.0}], "gpu": [{"util": 90}, {"util": 3}]}
+    rows = [{"alias": "local", "title": "本机", "local": True,
+             "line": machine_lines("本机", {"connected": True, "heard": FROZEN}, latest, online=True)[0], "grey": "内存 94.0 GiB / 230.0 GiB · 56 核"},
+            {"alias": "gpu1", "title": "训练机（gpu1）", "local": False,
+             "line": machine_lines("训练机（gpu1）", {"heard": FROZEN - 2220}, latest, online=False)[0], "grey": "最后：CPU 12% · 内存 41%"}]
+    data = {"address": "[2001:db8::1]:10603", "rows": rows}
+    view = {"token": "d" * 24, "revision": 3, "hub": True}
+    row = [tab_row("nodes", "d" * 24, ["workspace", "nodes", "redaction"])]
+    return {
+        "alert_mem": alert_card(mem, "本机", tasks),
+        "alert_oom_text": alert_text({"rule": "oom", "kind": "once", "at": FROZEN, "count": 2, "pct": 97.0, "top": top},
+                                     "gpu1", tasks),
+        "alert_write": alert_card({"rule": "write:/absolute/data", "kind": "raise", "at": FROZEN, "path": "/absolute/data",
+                                   "error": "Disk quota exceeded"}, "本机", {}),
+        "cleared_mem": cleared_card(mem, "本机", tasks, FROZEN + 1500),
+        "panel": node_panel_card("d" * 24, view, data, top=row),
+        "panel_adding": node_panel_card("d" * 24, {**view, "adding": {"alias": "gpu2", "until": "19:30",
+                                        "command": "curl -fsSk --noproxy '*' --pinnedpubkey 'sha256//AAAA' "
+                                                   "'https://[2001:db8::1]:10603/join/TOKEN' | python3 -"}}, data, top=row),
+        "panel_confirm": node_panel_card("d" * 24, {**view, "confirm": "gpu1", "notice": "⏳ 正在经 ssh 登上 gpu2 安装节点…"},
+                                         data, top=row),
+        "panel_empty": node_panel_card("d" * 24, view, {"address": "", "rows": []}, top=row),
+    }
+
+
 GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,
           "proxy": proxy_cards, "steer": steer_cards, "recovery": recovery_cards, "rewind": rewind_cards,
           "turn_export": turn_export_panels, "switch": switch_cards, "topic": topic_panels,
           "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
           "main_thread": butler_panels, "settings": settings_cards,
           "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards,
-          "project": project_cards, "tidy": tidy_cards}
+          "project": project_cards, "tidy": tidy_cards, "nodes": node_cards_samples}
 
 
 def render():

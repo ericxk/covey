@@ -20,8 +20,8 @@ first view, as a new card would be. Every write takes the record's next sequence
 from __future__ import annotations
 
 from covey.app.form_cards import click_token, publish_form, settle
-from covey.cards.settings_hub import LABELS, BUTLER_PAGES, PROXY, tab_row
-from covey.core import extensions, butler
+from covey.cards.settings_hub import LABELS, BUTLER_PAGES, NODES, PROXY, tab_row
+from covey.core import extensions, butler, nodes
 from covey.core.locks import resource_lock
 from covey.core.state import read_json
 
@@ -46,9 +46,10 @@ def hub_top(tab, token, view):
 def hub_tabs():
     """The 设置 card's tabs: the butler's pages unless the deployment rules the butler out
     (COVEY_BUTLER=0); in the mode 纯话题 too, where 私聊默认's first row turns 管家 on. 代答
-    only where a sender is (the extension hook ``proxy_sender``)."""
+    only where a sender is (the extension hook ``proxy_sender``); 设备 only with COVEY_NODE_LISTEN (core/nodes.py)."""
     sender = extensions.hook("proxy_sender") is not None
-    return [t for t in LABELS if (t not in BUTLER_PAGES or butler.available()) and (t != PROXY or sender)]
+    return [t for t in LABELS if (t not in BUTLER_PAGES or butler.available()) and (t != PROXY or sender)
+            and (t != NODES or nodes.enabled())]
 
 
 class MenuPanel:
