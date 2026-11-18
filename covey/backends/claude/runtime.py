@@ -24,6 +24,7 @@ from covey.backends.claude.process import (ClaudeProcess, IMAGE_FRAME, failure_e
 from covey.core.attachments import MAX_IMAGE_BYTES, read_images
 from covey.core.completion import CompletionBudget
 from covey.core.harness import JobCancelled
+from covey.core.model_policy import policy_where, stop_detail, tolerated_line
 
 # Seconds the CLI has to exit once its output ends; still running then, the run failed (process_exit).
 EXIT_AFTER_EOF = 3
@@ -226,6 +227,21 @@ def run_stream(backend, request, env):
         return False
 
     adapter = ClaudeEventAdapter(emit)
+    tolerated = []  # Where the subagent's refusal let through was (core/model_policy.py policy_where).
+
+    def on_policy(signal, let_through):
+        """A refusal as it comes (ClaudeReplyState.accept): a subagent's first is a 执行过程 line and the record's
+        (``policy_tolerated``, app/interaction.py); one that stops the turn gets its words for the stop."""
+        try:
+            where = adapter.policy_where(signal)
+        except Exception:  # noqa: BLE001 - words only: the stop or the let-through stands without them
+            where = policy_where(signal.get("scope"))
+        if let_through:
+            tolerated.append(where)
+            emit("policy_tolerated", {"event": dict(signal), "where": where, "text": tolerated_line(signal, where)})
+        else:
+            state.policy_detail = stop_detail(signal, where, tolerated[0] if tolerated else "")
+    state.on_policy = on_policy
     # An ended subagent's transcript is read while the turn runs (repo review S1), from the session's store.
     adapter.subtasks.locate = lambda: (subagents_dir(ctx, state.session_id, env), adapter.usage.start)
     child_env = turn_env(ctx, env)

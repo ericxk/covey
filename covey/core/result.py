@@ -212,9 +212,10 @@ class ExecutionOutcome:
         return {"completed": "done", "cancelled": "cancelled"}.get(self.status, "failed")
 
     def summary(self, detail=""):
-        """The failure's label and detail; ``detail``, a route's own words for the error, replaces the shared detail."""
+        """The failure's label and detail; ``detail``, a route's own words for the error, replaces the shared detail
+        (of a policy stop: who was refused doing what, core/model_policy.py stop_detail)."""
         if self.policy_event is not None:
-            return policy_summary(self.policy_event, cleanup=self.cleanup_confirmed)
+            return policy_summary(self.policy_event, cleanup=self.cleanup_confirmed, detail=detail)
         if self.status == "completed":
             return ""
         label = {"cancelled": "本轮任务已停止", "timed_out": "本轮任务已超时"}.get(self.status, "本轮任务未全部完成")
@@ -228,5 +229,5 @@ class ExecutionOutcome:
     def failure_reply(self, detail=""):
         """The task card's text when the run produced no reply that may be sent; ``detail`` as in summary."""
         if self.policy_event is not None:
-            return self.summary() + POLICY_RECOVERY
+            return self.summary(detail) + POLICY_RECOVERY
         return self.summary(detail) + RECOVERY.get(self.error_code, RECOVERY_DEFAULT)

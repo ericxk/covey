@@ -337,6 +337,16 @@ def question_cards():
     cards["feedback"] = question_feedback_card(question_record())
     cards["answer_notice"] = answer_notice_card("已提交回答")
     cards["folded_refusal"] = folded_refusal(question_record("superseded", superseded_by_job=432))
+    # 以后这类按推荐走 (app/standing_answers.py): the button under a form whose every question has one recommended
+    # option, and its own card: the sentence with 记下 / 改一下 / 算了, the box to change it, what became of it.
+    from covey.cards.question_cards import standing_card
+    cards["card_standing_offer"] = question_card(question_record(
+        questions=[{"id": "q", "header": "合并", "question": "测试过了，要合并进 main 并推送吗？",
+                    "options": [{"label": "合并并推送（推荐）"}, {"label": "先不合并"}]}], answers={}), "T70")
+    standing = {"token": "e" * 24, "workspace": "covey", "picks": ["合并并推送"],
+                "text": "covey 工作区：测试通过就合并进 main 并推送；没有在跑的任务时直接部署，不用再问"}
+    for status in ("ready", "editing", "saved", "cancelled"):
+        cards[f"standing_{status}"] = standing_card({**standing, "status": status, "answered": True})
     return cards
 
 
@@ -430,6 +440,7 @@ def steer_cards():
 
 
 def recovery_cards():
+    from covey.app.auto_retry import failed_controls
     from covey.app.recovery_cards import recovery_card
     from covey.cards.recovery import result_actions, result_note, retry_status, stopped_card
 
@@ -444,6 +455,13 @@ def recovery_cards():
                                 actions=[result_actions(TOPIC, 431, "重新执行")], header="T70 · #431",
                                 summary="⏹ T70 · #431"),
         "result_actions_auto_retry": result_actions(TOPIC, 431, "检查并继续", stop_kind="bridge_auto_retry_stop"),
+        # A failed task card's 技术详情 and next steps (core/failure.py): 检查并继续 and 查原因; a policy stop's 拆小再试.
+        "failed_controls": failed_controls(TOPIC, 431, {**record, "status": "failed", "execution_status": "failed",
+                                                        "failure_code": "root_failed", "final_text": "本轮任务未全部完成。主任务后续执行失败。"}),
+        "failed_controls_policy": failed_controls(TOPIC, 431, {**record, "status": "cancelled", "final_text": "本轮已停止。",
+                                                               "policy_stop": {"kind": "refusal", "category": "cyber", "scope": "main",
+                                                                               "child_id": "", "response_id": "", "source_model": "",
+                                                                               "target_model": "", "evidence": "refusal_stop"}}),
         "retry_status": retry_status("自动重试 · 10:00"),
         "result_note": result_note("说明"),
     }

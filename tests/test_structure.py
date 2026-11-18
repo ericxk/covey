@@ -54,6 +54,7 @@ from covey.cards.steer_receipts import CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND
 from covey.core import extensions
 from covey.core.harness import HARNESS_REGISTRY
 from covey.core.jobs import JOB_STOP_ACTION_KIND
+from covey.app.standing_answers import KINDS as STANDING_KINDS
 from covey.core.paths import BIN_DIR, entry_script, tool_root
 from covey.core.roster import CORE_HARNESSES, HARNESSES, LIVE_QUESTIONS, NAMES, PAUSED_QUESTIONS, RETIRED
 
@@ -82,6 +83,7 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= {GROUP_MENU_KIND}  # A personal group's menu card (app/group_menu.py).
         before_routing |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (app/redaction_panel.py).
         before_routing |= set(TIDY_KINDS)  # 整理专项's cards (app/project_tidy.py).
+        before_routing |= STANDING_KINDS  # 以后这类按推荐走 and its card (app/standing_answers.py).
         init = next(node for node in ast.walk(ast.parse((PACKAGE / "app" / "app.py").read_text()))
                     if isinstance(node, ast.FunctionDef) and node.name == "__init__")
         components = {node.targets[0].attr: getattr(bridge_app, node.value.func.id) for node in ast.walk(init)

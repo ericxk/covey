@@ -1048,7 +1048,7 @@ class CardActionTableTest(unittest.TestCase):
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
                                     "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export",
                                     "bridge_project_triage_fix", "bridge_project_ask_continue", "bridge_project_ask_finish",
-                                    "bridge_job_look"})  # Triage: the correction queues a message in a member topic; the pause card's two wake the lead.
+                                    "bridge_job_look", "bridge_job_diagnose", "bridge_job_split"})  # 看看 reads a stuck task; 查原因 and 拆小再试 queue a turn. Triage: the correction queues a message in a member topic; the pause card's two wake the lead.
         self.assertFalse(runner_ipc.forward_card_action(Runtime(script_path="unit"), None, {},
                                                      {"kind": "bridge_fork"}))
 

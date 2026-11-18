@@ -32,7 +32,7 @@ from pathlib import Path
 from covey.app import pins, project_lead, project_loop, web_turns
 from covey.app.answers import SKIPPED
 from covey.app.web_ops import Ops
-from covey.core import board_read, http_upstream, project_library, project_memory, projects, triage, web_sync
+from covey.core import board_read, failure, http_upstream, project_library, project_memory, projects, triage, web_sync
 from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
@@ -352,6 +352,12 @@ class Collector:
                     turn["notes"] = notes
                 else:
                     turn.pop("notes", None)
+            if job is not None:
+                fail = failure.failure_view(job)  # Why it did not succeed and what next (core/failure.py).
+                if fail:
+                    turn["failure"] = fail
+                else:
+                    turn.pop("failure", None)
             if job is not None and wakes.get(job_key(job.get("message_id"), job.get("job_id"))):
                 turn["started_topics"] = wakes[job_key(job.get("message_id"), job.get("job_id"))]
             out.append(turn)
@@ -360,9 +366,13 @@ class Collector:
             out.append(self.live_turn(state, topic, total + 1, job, wakes, now))
         elif latest is not None and latest.get("status") in ("failed", "interrupted", "cancelled") and (not rows or rows[-1].get("role") == "user"):
             at = epoch_seconds(latest.get("updated_at")) or 0
-            out.append({"topic_key": topic, "seq": total + 1, "role": "agent", "body": web_sync.clip(latest.get("status_message") or ""),
-                        "status": "stopped" if latest.get("status") == "cancelled" else "failed", "job_id": str(latest.get("job_id") or ""),
-                        "started_at": board_read.started_at(latest), "ended_at": at, "artifacts": []})
+            ended = {"topic_key": topic, "seq": total + 1, "role": "agent", "body": web_sync.clip(latest.get("status_message") or ""),
+                     "status": "stopped" if latest.get("status") == "cancelled" else "failed", "job_id": str(latest.get("job_id") or ""),
+                     "started_at": board_read.started_at(latest), "ended_at": at, "artifacts": []}
+            fail = failure.failure_view(latest)
+            if fail:
+                ended["failure"] = fail
+            out.append(ended)
         return out, total
 
     @staticmethod

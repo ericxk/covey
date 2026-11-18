@@ -26,7 +26,9 @@ import time
 from typing import NamedTuple
 
 from covey.app.outbox import RETRY_NOTE, retry_label
-from covey.cards.recovery import interrupted_summary, result_actions, result_note, retry_status
+from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, failure_details, interrupted_summary, result_actions,
+                                  result_note, retry_status)
+from covey.core import failure
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record, job_key, select_job_records, update_job_record_if
 from covey.core.result import INCOMPLETE_STATUS, STATUS_MESSAGES
@@ -199,21 +201,38 @@ def chain_counts(record, attempt):
     return counts
 
 
-def actions(topic_id, job_id, can_stop):
-    """The 检查并继续 row of a failed task card; a pending automatic retry adds 停止自动重试."""
-    return result_actions(topic_id, job_id, "检查并继续", stop_kind=CANCEL_KIND if can_stop else "")
+def next_steps(record):
+    """(the label of the 检查并继续 click on ``record``'s failed task card, its follow-ups): what core/failure.py
+    failure_view offers. A rate limit's click reads 现在重试; 查原因 and 拆小再试 start turns of their own."""
+    view = failure.failure_view(record) if record else None
+    actions = (view or {}).get("actions", [])
+    label = failure.LABELS[failure.RETRY] if failure.RETRY in actions else "检查并继续"
+    return label, tuple(name for name in actions if name in FOLLOW_UPS)
+
+
+def actions(topic_id, job_id, can_stop, record=None):
+    """The 检查并继续 row of a failed task card (``next_steps`` of ``record``); a pending automatic retry adds
+    停止自动重试."""
+    label, follow = next_steps(record)
+    return result_actions(topic_id, job_id, label, stop_kind=CANCEL_KIND if can_stop else "", follow_ups=follow)
+
+
+def result_note_text(label, follow):
+    note = RETRY_NOTE if label == "检查并继续" else label + "：" + RETRY_NOTE.split("：", 1)[1]
+    return "\n".join([note, *(FOLLOW_UP_NOTES[name] for name in follow)])
 
 
 def result_elements(topic_id, job_id, record):
     """What a failed task card shows after its answer when 检查并继续 applies: a pending
     automatic retry's status, the buttons and the note."""
-    elements = [actions(topic_id, job_id, pending(record)), result_note(RETRY_NOTE)]
+    label, follow = next_steps(record)
+    elements = [actions(topic_id, job_id, pending(record), record), result_note(result_note_text(label, follow))]
     if pending(record):
         kind = kind_of(record)
         how = "，做法同“检查并继续”" if kind == RATE_LIMITED else ""
         elements.insert(0, retry_status(
             f"⏳ {status_line(record['auto_retry_at'], record['auto_retry_attempt'], kind)}{how}。"
-            "现在点“检查并继续”会立即重试；点“停止自动重试”、在本话题发消息或换配置会取消这次自动重试。"))
+            f"现在点“{label}”会立即重试；点“停止自动重试”、在本话题发消息或换配置会取消这次自动重试。"))
     return elements
 
 
@@ -222,7 +241,7 @@ def show(app, ctx, record, text):
     (RESTARTED) said in its chat-list preview when it would continue: that goes too."""
     try:
         ok = app.cards.update_record_elements(ctx, record, [retry_status(text), actions(record["topic_id"],
-                                                                                   record["job_id"], False)])
+                                                                                   record["job_id"], False, record)])
         if kind_of(record) == RESTARTED:
             name = topic_label(ctx.state_dir, record.get("topic_id", "")) or f"#{record.get('job_id')}"
             ok = app.cards.set_record_summary(ctx, record, interrupted_summary(name, "检查并继续")) and ok
@@ -349,12 +368,20 @@ def fire(app, ctx, target, record):
 
 def failed_controls(topic_id, job_id, record) -> list:
     """The elements a failed task card gets after its answer (app/cards.py Cards.finish_result_controls inserts
-    them): its retry button as ``retry_label`` names it, with a pending automatic retry's status and 停止自动重试
-    when that is 检查并继续 (``result_elements``); [] when the record offers none."""
+    them): 技术详情, the words its body said before its one-line reason (app/worker.py card_text); its retry
+    button as ``retry_label`` names it, with a pending automatic retry's status and 停止自动重试 when that is
+    检查并继续 (``result_elements``), and the follow-ups core/failure.py offers (查原因, 拆小再试; a policy stop
+    gets 拆小再试 alone); [] when the record offers none."""
+    view = failure.failure_view(record) if record else None
+    # Only where the body says the reason instead (app/worker.py card_text, which wrote failure_code).
+    details = ([failure_details(str(record["final_text"]))]
+               if view and record.get("failure_code") and record.get("execution_status") == "failed"
+               and not record.get("policy_stop") and record.get("final_text") else [])
     label = retry_label(record)
-    if not label:
-        return []
     if label == "检查并继续":
-        return result_elements(topic_id, job_id, record)
-    return [result_actions(topic_id, job_id, label)]
+        return details + result_elements(topic_id, job_id, record)
+    follow = next_steps(record)[1]
+    if not label and not follow:
+        return details
+    return details + [result_actions(topic_id, job_id, label, follow_ups=follow)]
 

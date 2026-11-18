@@ -5,23 +5,27 @@ The read-only adapter accepts a JSON cursor on stdin and returns {cursor, events
 health}. No model or Feishu call in adapters. Intent and delivery are durable;
 only the Bridge writes the card, after the task runner has stopped.
 """
+import copy
 import hashlib
 import json
 from pathlib import Path
 import subprocess
 import time
 
-from covey.core.jobs import context_for_record, find_job_record, select_job_records, upsert_job_record
+from covey.core.jobs import (context_for_record, find_job_record, select_job_records, update_job_record_if,
+                             upsert_job_record)
 from covey.core.loops import every
 from covey.app import policy_retry
 from covey.core.butler import worded
-from covey.core.model_policy import policy_summary
-from covey.core.policy_feed import match_task, valid_observation
+from covey.core.model_policy import policy_summary, policy_where, same_refusal, stop_detail
+from covey.core.policy_feed import match_task, stamp, valid_observation
 from covey.app import devices as device_turns
 from covey.core import device_reap
 from covey.core.policy_process import stop_tree
 from covey.core.run_dir import run_dir, runner_alive, runner_info
 from covey.core.state import read_json, write_json
+from covey.core.text import cut
+from covey.core.trace_store import load_trace
 from covey.feishu.transport import last_failure, set_failure
 
 
@@ -77,10 +81,100 @@ def fetch(state):
     return True
 
 
+# A subagent's first refusal in a task does not stop it (docs/policy-stop.md): the record's ``policy_tolerated`` lists
+# the refusals let through, each seen by the task's stream ('stream', app/interaction.py) and/or the policy source
+# ('server', claim). One refusal seen by both is one: the server's request started before the stream saw it
+# (CLOCK_SLACK for the two clocks) or names the same subagent and response.
+CLOCK_SLACK = 30
+TOLERATED_KEPT = 4
+
+
+def _tolerated(record):
+    rows = record.get('policy_tolerated')
+    return [row for row in rows if isinstance(row, dict) and isinstance(row.get('event'), dict)] if isinstance(rows, list) else []
+
+
+def _same(entry, event, source, request_time, now):
+    """Whether ``event``, seen by ``source`` now, is the refusal ``entry`` records (seen by the other path)."""
+    if event.get('scope') != 'subagent' or source in entry.get('seen_by', ()):
+        return False
+    if same_refusal(entry['event'], event):
+        return True
+    if source == 'server':  # A stream entry: the request started before the stream saw its refusal.
+        at = entry.get('at')
+        return (entry.get('request_time') is None and request_time is not None and isinstance(at, (int, float))
+                and request_time <= at + CLOCK_SLACK)
+    started = entry.get('request_time')  # A server entry: the stream sees its refusal after the request started.
+    return isinstance(started, (int, float)) and started <= now + CLOCK_SLACK
+
+
+def tolerate(state, key, event, source, *, where='', request_time=None, now=None):
+    """Note a subagent's refusal on job ``key``'s record, seen by ``source`` ('stream' or 'server'), under its record
+    lock (written only over the list it read): 'seen' when the other path recorded the same one, 'tolerated' when it is the task's first (it is let
+    through), 'stop' when the policy source saw a main task's refusal or a second one (it stops the task). The
+    stream decides itself (backends/claude/completion.py): for it this only records."""
+    now = time.time() if now is None else now
+    verdict = 'tolerated'
+    for _ in range(5):  # The other path may have just added to the list: decide again on what it holds now.
+        before = (find_job_record(state, key) or {}).get('policy_tolerated')
+        rows = copy.deepcopy(_tolerated({'policy_tolerated': before}))
+        verdict = 'tolerated'
+        for entry in rows:
+            if _same(entry, event, source, request_time, now):
+                entry['seen_by'] = sorted({*entry.get('seen_by', ()), source})
+                entry['where'] = entry.get('where') or where
+                verdict = 'seen'
+                break
+        else:
+            if source == 'server' and (rows or event.get('scope') != 'subagent'):
+                return 'stop'
+            rows.append({'event': dict(event), 'where': where, 'seen_by': [source], 'at': now,
+                         **({'request_time': request_time} if request_time is not None else {})})
+        if update_job_record_if(state, key, lambda r: r.get('policy_tolerated') == before,
+                                policy_tolerated=rows[-TOLERATED_KEPT:]) is not None:
+            return verdict
+        if find_job_record(state, key) is None:
+            break
+    return verdict
+
+
+def trace_where(state, record, event):
+    """Who the refused ``event`` stopped and what it was doing, from the task's process record (the policy source names
+    a subagent its own way: one the record does not know is 一个子代理)."""
+    try:
+        snapshot = load_trace(Path(state), record) or {}
+    except (OSError, ValueError, TypeError):
+        snapshot = {}
+    node, name = snapshot, ''
+    if event.get('scope') == 'subagent':
+        child = event.get('child_id') or ''
+        found = None
+        stack = [snapshot]
+        while stack and found is None:
+            here = stack.pop()
+            if child and child in (here.get('children') or {}):
+                found = (here['children'][child], str((here.get('agents') or {}).get(child, {}).get('name') or ''))
+            stack.extend((here.get('children') or {}).values())
+        node, name = found if found else ({}, '')
+    steps = [step for step in (node.get('steps') or {}).values()
+             if isinstance(step, dict) and step.get('status') != 'note' and step.get('title')]
+    doing = '、'.join(cut(f"{step['title']} {step.get('detail') or ''}".strip(), 60) for step in steps[-3:])
+    return policy_where(event.get('scope'), '' if name == '子任务' else name, doing)
+
+
+def earlier_where(record):
+    """Where the refusal let through before was, for the stop's words; '' when none was."""
+    rows = _tolerated(record)
+    return (rows[0].get('where') or policy_where('subagent')) if rows else ''
+
+
 def claim(state, row, record):
     path = intent_path(state, record['key'])
     if path.exists() or record.get('policy_stop'):
         return 'already_stopped'
+    if row['event'].get('scope') == 'subagent' and tolerate(
+            state, record['key'], row['event'], 'server', request_time=stamp(row.get('request_time'))) != 'stop':
+        return 'policy_tolerated'  # A subagent's first refusal, or the one the task's stream let through.
     directory = run_dir(state, record['key'])
     identity = runner_info(directory)
     if (not identity or identity.get('key') != record['key']
@@ -141,11 +235,19 @@ def finish(gateway, ctx, path):
     # (app/policy_retry.py), said here.
     found = policy_retry.schedule(ctx.state_dir, key, event) if cleanup_ok and intent.get('fallback_retry') else None
     # In the butler's words (T3027's card said 再在本话题明确提出): the record keeps the text a 重新投递 sends.
-    text = policy_retry.stop_text(policy_summary(event, cleanup=cleanup_ok), event, found, record)
+    detail = intent.get('detail')
+    if detail is None:  # Worded once, at the first finish: a repaint or a later notice says the same.
+        try:
+            detail = stop_detail(event, trace_where(ctx.state_dir, record, event), earlier_where(record))
+        except Exception:  # noqa: BLE001 - words only: the stop stands without them
+            detail = ''
+        intent['detail'] = detail
+        write_json(path, intent)
+    text = policy_retry.stop_text(policy_summary(event, cleanup=cleanup_ok, detail=detail), event, found, record)
     record = upsert_job_record(ctx.state_dir, key, status='cancelled', execution_status='cancelled',
         status_message=('官方拒绝／降级，任务已停止' + ('；' + policy_retry.will_retry(found) if found else '')
                         if cleanup_ok else '官方拒绝／降级，进程清理待确认'),
-        policy_stop=intent['observation']['event'], policy_guard_finalized=True,
+        policy_stop=intent['observation']['event'], policy_guard_finalized=True, failure_detail=detail,
         # A retry scheduled by the task runner (app/policy_retry.py at_stop) waits for this and does not start
         # while it says unconfirmed (policy_retry.tick).
         policy_guard_cleanup='confirmed' if cleanup_ok else 'unconfirmed',

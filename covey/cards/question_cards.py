@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import re
 
-from covey.cards.elements import BUTTON_SPACING, button_look, callback_button, card, markdown_panel, plain
+from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callback, callback_button, card, markdown_panel,
+                                  notice_card, plain, topic_button)
 from covey.cards.review import compact_text
+from covey.cards.streaming import RECOMMENDED
 from covey.core import triage, turn_words
 from covey.core.stale import STALE_NOTE
 
@@ -31,6 +33,82 @@ FOLLOW_UP = turn_words.FOLLOW_UP
 # (app/questions.py fold_older_questions); without it, an older duplicate retired once a later
 # identical form was answered (app/checkpoint_questions.py).
 FOLDED = "newer_question"
+
+
+# 以后这类按推荐走 (app/standing_answers.py): under an open form whose every question has one recommended option, a
+# button that turns this kind of question into a principle of the workspace once the owner confirms the sentence
+# a small model wrote; then the question is answered with the recommended options. Its own card, so the form stays.
+STANDING_KIND = "bridge_question_standing"
+STANDING_LABEL = "以后这类按推荐走"
+STANDING_SAVE, STANDING_EDIT, STANDING_CANCEL = "bridge_standing_save", "bridge_standing_edit", "bridge_standing_cancel"
+STANDING_FIELD = "principle"
+
+
+def recommended(questions):
+    """[(question index, option index)] of the one recommended option of each question (its label marked （推荐） or
+    (Recommended)), or None unless every question has exactly one; a multiple choice has none to go by."""
+    picked = []
+    for i, q in enumerate(questions or []):
+        options = q.get("options") or [] if isinstance(q, dict) else []
+        marked = [j for j, o in enumerate(options) if isinstance(o, dict) and RECOMMENDED.search(str(o.get("label") or ""))]
+        if len(marked) != 1 or q.get("multiple") or q.get("multiSelect"):
+            return None
+        picked.append((i, marked[0]))
+    return picked or None
+
+
+STANDING_ENV = "COVEY_STANDING_ANSWERS"  # 0 takes the button off the cards; on by default.
+
+
+def standing_offered(record):
+    """Whether ``record``'s open form gets 以后这类按推荐走: the switch is on, its every question has one recommended
+    option, and it is a topic's (a card can name it: not the butler's, whose questions are not a workspace's)."""
+    from covey.core.butler import traits
+    from covey.core.process_env import env_flag
+    return (env_flag(STANDING_ENV, True) and bool(record.get("topic_id")) and recommended(record.get("questions")) is not None
+            and traits(record.get("topic_id"), record.get("chat_id")).card_target)
+
+
+def standing_row(record):
+    """The 以后这类按推荐走 button under an open form (``recommended``), outside the form, which it does not submit."""
+    return button_row([topic_button(STANDING_LABEL, element_id="standing_action", behaviors=callback(
+        {"kind": STANDING_KIND, "topic_id": record["topic_id"], "token": record["token"]}))], "standing_actions")
+
+
+def standing_card(form):
+    """The card of one 以后这类按推荐走 (``form``, app/standing_answers.py): the sentence to keep as a principle of the
+    workspace with 记下 / 改一下 / 算了, the same in a box to change, or what became of it."""
+    status, text, where = form.get("status"), str(form.get("text") or ""), f"工作区 {form.get('workspace')}"
+    value = {"token": form["token"]}
+    picks = "；".join(str(row) for row in form.get("picks") or [])
+    if status == "saved":
+        done = f"已记下（{where}的原则）：{text}\n\n" + (
+            f"这道题已按推荐回答：{picks}" if form.get("answered") else "这道题已经答过或取消了，没有再答。")
+        return notice_card(done, "已记下原则")
+    if status == "cancelled":
+        return notice_card("算了，没有记下。这道题还在上面等你回答。", "没有记下原则")
+    notice = [{"tag": "markdown", "content": form["notice"]}] if form.get("notice") else []
+    lead = {"tag": "markdown", "content": f"**以后这类按推荐走**：记成{where}的一条原则，以后这类问题按它直接做，不再问你。"
+                                          + (f"\n这道题会按推荐回答：{picks}" if picks else "")}
+    if status == "editing":
+        return card([lead, *notice, {"tag": "form", "name": "standing_" + form["token"], "elements": [
+            {"tag": "input", "name": STANDING_FIELD, "input_type": "multiline_text", "rows": 3, "width": "fill",
+             "max_length": 200, "default_value": text, "placeholder": plain("一句话，最多 200 字")},
+            {"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": [
+                {"tag": "column", "width": "weighted", "weight": 1, "elements": [
+                    {"tag": "button", "text": plain("记下"), "type": "primary_filled", "width": "fill",
+                     "form_action_type": "submit", "name": "standing_save",
+                     "behaviors": [{"type": "callback", "value": {"kind": STANDING_SAVE, **value}}]}]},
+                {"tag": "column", "width": "weighted", "weight": 1, "elements": [
+                    {"tag": "button", "text": plain("算了"), "type": "default", "width": "fill",
+                     "form_action_type": "submit", "name": "standing_cancel",
+                     "behaviors": [{"type": "callback", "value": {"kind": STANDING_CANCEL, **value}}]}]}]}]}],
+                    "改一下这条原则", default_width=True)
+    return card([lead, {"tag": "markdown", "content": f"> {text}"}, *notice, button_row([
+        topic_button("记下", tone="primary", behaviors=callback({"kind": STANDING_SAVE, **value})),
+        topic_button("改一下", behaviors=callback({"kind": STANDING_EDIT, **value})),
+        topic_button("算了", behaviors=callback({"kind": STANDING_CANCEL, **value}))], "standing_choices")],
+        "以后这类按推荐走？", default_width=True)
 
 
 HELD_NOTE = "已交负责人：它能依据专项记忆答的就替你答，答不了或 3 分钟没处理，会转给你。"
@@ -321,6 +399,8 @@ def question_card(record, topic=""):
                if record.get('status') == 'superseded' and not folded(record)
                else element.get('header', {}).get('title', {}).get('content', '回答已保存'))
     elements = [element]
+    if form and record.get("token") and standing_offered(record):
+        elements.append(standing_row(record))
     if record.get('refusal'):
         elements.append({"tag": "markdown", "content": "⚠️ " + record['refusal']})
     return card(elements, summary, default_width=True, header=header)

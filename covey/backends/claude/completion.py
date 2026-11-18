@@ -10,6 +10,7 @@ from covey.core.harness import RunResult, UUID_RE
 from covey.core.result import ExecutionOutcome, MAX_REPLY_BYTES, VerifiedRootReply
 from covey.core.state import write_private_text
 from covey.backends.claude.policy import policy_signal
+from covey.core.model_policy import same_refusal
 
 TERMINAL_TASK_STATES = frozenset({"completed", "failed", "stopped"})
 # Failures that say only that the turn did not end well: a rate limit Claude Code gave up on
@@ -77,7 +78,7 @@ def final_texts(messages, progress_ids):
 
 
 class ClaudeReplyState:
-    def __init__(self, ctx, expected_session=None, *, run_id="", publish=None, on_session=None):
+    def __init__(self, ctx, expected_session=None, *, run_id="", publish=None, on_session=None, on_policy=None):
         self.ctx = ctx
         self.run_id = run_id or str(uuid.uuid4())
         if str(uuid.UUID(self.run_id)) != self.run_id:
@@ -104,6 +105,13 @@ class ClaudeReplyState:
         # Claude Code gave up on a rate limit in the current turn (an assistant row's error).
         self.rate_limited = False
         self.policy_event = None
+        # A subagent's first refusal in this task is let through (docs/policy-stop.md): the main task gets the
+        # subagent's error and goes on. The next refusal, the main task's or a subagent's, latches policy_event.
+        self.policy_tolerated = None
+        # on_policy(signal, tolerated) as each refusal comes, before a stop is latched; the run sets
+        # policy_detail (core/model_policy.py stop_detail) for the stop's words.
+        self.on_policy = on_policy or (lambda signal, tolerated: None)
+        self.policy_detail = ""
 
     def invalidate(self):
         self.publish(None)
@@ -121,9 +129,14 @@ class ClaudeReplyState:
     def accept(self, row):
         if self.session_id and row.get("session_id") == self.session_id and not self.policy_event:
             signal = policy_signal(row)
-            if signal:
-                self.policy_event = signal
-                self.invalidate()
+            if signal and not same_refusal(self.policy_tolerated, signal):
+                if signal["scope"] == "subagent" and self.policy_tolerated is None:
+                    self.policy_tolerated = signal
+                    self.on_policy(signal, True)
+                else:
+                    self.policy_event = signal
+                    self.on_policy(signal, False)
+                    self.invalidate()
         if self.policy_event:
             return False
         if row.get("parent_tool_use_id") is not None:
@@ -306,10 +319,12 @@ class ClaudeReplyState:
             candidate.fingerprint if candidate else "",
             self.policy_event,
         )
+        detail = self.policy_detail if self.policy_event else ""
         return RunResult(
-            candidate.text if candidate else outcome.summary(),
+            candidate.text if candidate else outcome.summary(detail),
             self.session_id,
             status != "completed",
             candidate,
             outcome,
+            failure_detail=detail,
         )

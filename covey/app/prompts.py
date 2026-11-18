@@ -97,8 +97,11 @@ def workspace_block(workspace_name: str, workdir: Path, device: str = "", remote
 
 # The owner's principles (core/principles.py), after the workspace in the rules and in each resumed turn's reminder.
 PRINCIPLES_CHARS = 2000  # Of the principles' lines; the oldest go first past it.
+# 以后这类按推荐走 (app/standing_answers.py) records the owner's standing go-ahead as a principle: what it allows is not
+# asked again. Said in the principles' head and, with COVEY_MEMORY=1, in the memory's rules.
+ASK_AFTER_PRINCIPLES = "要问主人之前，先看这些原则：原则里已经同意的事（比如测试通过就合并、空闲时直接部署）照着做，不要再问。"
 PRINCIPLES_HEAD = ("主人的原则（主人说过、长期适用的原则和偏好；做事时照着做，不用再问主人“之前的思路”是什么。"
-                   "和主人这一轮的话冲突时，以这一轮为准）：")
+                   "和主人这一轮的话冲突时，以这一轮为准。" + ASK_AFTER_PRINCIPLES + "）：")
 
 
 def principles_block(owner, workspace=(), workspace_name: str = "", limit: int = PRINCIPLES_CHARS) -> str:
@@ -208,6 +211,7 @@ MEMORY_RULES = (
     "标“它总结的”的，默认照做；和主人的话冲突时让路。",
     "标“它总结的”的，不能成为多问主人的理由；部署、删除、花钱这些要主人点头的事，不看这里，照常问。",
     "这里的记忆和你自己记下的笔记冲突时，以这里为准。",
+    "要问主人之前，先看标“你说的”的记忆：主人已经同意的事（比如测试通过就合并、空闲时直接部署）照着做，不要再问。",
 )
 MEMORY_FIX_RULE = (
     "记忆纠正：主人这一轮的话里说了“以后”“每次”“别再”“不要再”“记住”这类长期适用的话，才在检查点里加 memory："

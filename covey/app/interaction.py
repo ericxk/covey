@@ -5,12 +5,13 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from covey.app import policy_guard
 from covey.app import triage as triage_flow
 from covey.core import timing, triage
 from covey.core.checkpoint import release_user_wait
 from covey.core.trace import CONTEXT_FIELDS, ToolTrace, finish_record_trace, task_trace
 from covey.core.turn_words import retry_hint
-from covey.core.jobs import upsert_job_record
+from covey.core.jobs import job_key, upsert_job_record
 from covey.core.locks import card_lock
 from covey.cards.elements import md
 from covey.cards.question_cards import PICK, SKIP_ALL_KIND, folded, folded_refusal, question_feedback_card
@@ -26,7 +27,7 @@ from covey.core.statuses import ENDED
 from covey.app.card_actions import action_value, form_fields
 from covey.core.text import literal
 from covey.cards.trace_updates import panel_json
-from covey.cards.trace_view import TraceView
+from covey.cards.trace_view import BRIDGE_NOTE, TraceView
 from covey.core.metrics import mark_first_output
 from covey.core.trace_store import load_trace
 
@@ -194,6 +195,9 @@ class Interaction:
         if kind in {"first_token", "token_usage", "subtask_usage", "redaction"}:
             _record_turn_metric(self.cards, ctx, job, kind, data)
             return
+        if kind == "policy_tolerated":
+            self._policy_tolerated(ctx, job, data)
+            return
         if kind == "trace_finished":
             trace = job.tool_trace
             if trace is not None and trace.steps:
@@ -203,6 +207,21 @@ class Interaction:
             return
         if kind in {"question", "turn_finished", "cancel_questions"}:
             self.questions.dispatch_question_event(ctx, job, kind, data, rpc)
+
+    def _policy_tolerated(self, ctx, job, data):
+        """A subagent's first refusal, let through (docs/policy-stop.md): a line of the Bridge's in 执行过程, and the
+        record's ``policy_tolerated`` so the policy guard counts it once (app/policy_guard.py tolerate)."""
+        event, text = data.get("event"), str(data.get("text") or "")
+        if isinstance(event, dict):
+            try:
+                policy_guard.tolerate(ctx.state_dir, job_key(job.message_id, job.job_id), event, "stream",
+                                      where=str(data.get("where") or ""))
+            except (OSError, ValueError) as exc:
+                self.runtime.log(f"policy tolerated record failed: {type(exc).__name__}")
+        if text:
+            at = time.strftime("%H:%M")
+            self._dispatch_structured_event(ctx, job, "progress_note", {
+                "id": f"policy-tolerated-{time.time_ns()}", "title": BRIDGE_NOTE, "text": f"机器人 {at}：{text}"}, None)
 
     def interactive_command(self, ctx, content, chat, mid, attachments=""):
         try:

@@ -6,7 +6,7 @@ import functools
 import time
 from typing import Any
 
-from covey.core import background, devices, placement, timing
+from covey.core import background, devices, failure, placement, timing
 from covey.core.jobs import BridgeReplyJob, carry_device, find_job_record
 from covey.core.metrics import mark, run_start, took_text
 from covey.core.model_settings import recorded_model_settings, recorded_work_mode
@@ -19,7 +19,9 @@ from covey.core.topics import bind_topic, read_topic, workspace_locked
 from covey.core.locks import LOCK, topic_lock
 from covey.core.workspaces import load_config, resolve_selection, topic_context, touch_workspace
 from covey.app import butler_reactions
+from covey.app.card_actions import action_value
 from covey.app.card_lanes import after_ack
+from covey.cards.recovery import DIAGNOSE_KIND, SPLIT_KIND
 from covey.app.runner_spawn import prestart_runner
 from covey.app.task_card import card_failure_notice
 from covey.app.launch import WAITING_STATUS, launch_in_progress, publish_launch_cards
@@ -98,6 +100,39 @@ class Submission:
         ctx = self.models.configured_context(ctx)
         # Again inside the topic: its own snapshot overrides the Harness defaults.
         return self.models.configured_context(topic_context(ctx, event, self.harness.store.sessions_dir))
+
+    def follow_up(self, ctx, event):
+        """查原因 and 拆小再试 on a task card that did not succeed (core/failure.py actions): a turn of their own in the
+        topic, queued as a message of the owner's would be, after the click is acknowledged."""
+        raw = action_value(event)
+        name = {DIAGNOSE_KIND: failure.DIAGNOSE, SPLIT_KIND: failure.SPLIT}.get(raw.get("kind"))
+        if not name or not ctx.topic_id or raw.get("topic_id") != ctx.topic_id:
+            return True
+        chat_id = str(event.get("chat_id") or "")
+        event_id = str(event.get("event_id") or event.get("message_id") or "")
+        try:
+            job_id = int(raw.get("job_id") or 0)
+        except (ValueError, TypeError):
+            return True
+
+        def run():
+            text = self.queue_follow_up(ctx, chat_id, event_id, job_id, name)
+            if text:
+                self.messenger.reply(ctx, chat_id, text, self.voice.key("follow-up", event_id), voice=self.voice)
+        after_ack(run)
+        return True
+
+    def queue_follow_up(self, ctx, chat_id, message_id, job_id, name):
+        """Queue the follow-up ``name`` of task #``job_id``; what to tell the owner when it was not queued, else ""."""
+        if self.runtime.jobs.topic_jobs(ctx.topic_id, chat_id):
+            return "本话题还有运行或排队的任务，完成或停止后再点。"
+        record = next((r for r in self.harness.topic_records(ctx, chat_id) if r.get("job_id") == job_id), None)
+        view = failure.failure_view(record) if record else None
+        if view is None or name not in view["actions"]:
+            return "这个任务现在没有这一步可做。"
+        content, prompt = failure.follow_up(name, record, view)
+        self.enqueue_chat_job(ctx, content, chat_id, message_id, prompt_content=prompt)
+        return ""
 
     def submit_topic_job(self, ctx, job):
         """Decide and register under LOCK; the cards and notices after it, in this topic's order."""

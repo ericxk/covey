@@ -9,7 +9,7 @@ pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
 app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
-app/overview.py, app/app_setup.py, app/group_menu.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
+app/overview.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
 from __future__ import annotations
@@ -42,6 +42,10 @@ ACTIONS = {
     "bridge_job_stop": CardAction("停止任务", handler="controls.stop_action"),
     "bridge_job_retry": CardAction("重试任务", bot_only=True, handler=RETRIES),
     "bridge_job_retry_cancel": CardAction("停止自动重试", bot_only=True, handler=RETRIES),
+    # A task that did not succeed (core/failure.py): a read-only turn that looks into why, and the same in smaller
+    # steps. Each queues a turn of the topic.
+    "bridge_job_diagnose": CardAction("查原因", bot_only=True, handler="submission.follow_up"),
+    "bridge_job_split": CardAction("拆小再试", bot_only=True, handler="submission.follow_up"),
     "bridge_fork": CardAction("侧聊或分叉", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.
@@ -157,6 +161,12 @@ ACTIONS = {
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),
     # The menu card of a group with a butler (app/group_menu.py KIND).
     "bridge_group_menu": CardAction("群里的菜单"),
+    # 以后这类按推荐走 under a question card and its own card's 记下 / 改一下 / 算了 (app/standing_answers.py): the Bridge
+    # takes them before topic routing (PANELS); 记下 answers the question through its own submit path.
+    "bridge_question_standing": CardAction("以后这类按推荐走"),
+    "bridge_standing_save": CardAction("记下原则"),
+    "bridge_standing_edit": CardAction("改一下原则"),
+    "bridge_standing_cancel": CardAction("不记原则"),
 }
 # 整理专项's cards (cards/project_proposal.py KINDS, COVEY_PROJECT_TIDY): the proposal card, its rename form, the 整理专项 card,
 # 移出 on a topic's card and the 设置 card's 整理专项. The Bridge takes them before topic routing (app/project_tidy.py claim).

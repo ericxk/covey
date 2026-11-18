@@ -49,12 +49,14 @@ class PolicyTests(unittest.TestCase):
         self.assertIsNone(state.policy_event)
 
     def test_root_child_and_whole_refusal_latch_before_later_success(self):
-        for row in (refusal(), refusal("frontier_llm", parent_tool_use_id="child-1"),
-                    {"type": "assistant", "session_id": SID, "message": {"id": "msg-1", "stop_reason": "refusal"}},
-                    result(stop_reason="refusal")):
-            with self.subTest(row=row):
+        child = refusal("frontier_llm", parent_tool_use_id="child-1")
+        for rows in ((refusal(),), (child, refusal("frontier_llm", parent_tool_use_id="child-2")), (child, refusal()),
+                     ({"type": "assistant", "session_id": SID, "message": {"id": "msg-1", "stop_reason": "refusal"}},),
+                     (result(stop_reason="refusal"),)):
+            with self.subTest(rows=rows):
                 state = self.state()
-                state.accept(row)
+                for row in rows:
+                    state.accept(row)
                 state.accept(assistant())
                 state.accept(result())
                 ended = state.finish(0, cleanup=True)
@@ -63,6 +65,60 @@ class PolicyTests(unittest.TestCase):
                 self.assertIsNone(ended.public_reply)
                 self.assertNotIn("PRIVATE", ended.outcome.failure_reply())
                 self.assertIsNone(plan(None, None, None, SimpleNamespace(outcome=ended.outcome)))
+
+    def test_a_subagents_first_refusal_is_let_through_and_the_next_one_stops(self):
+        """C1 (2026-11-18): one of four subagents refused stopped the turn and the other three with it. The first
+        subagent refusal of a task is let through, seen once however many rows say it; the next stops the turn."""
+        seen = []
+        state = ClaudeReplyState(self.ctx, run_id=RUN, on_policy=lambda signal, tolerated: seen.append(
+            (signal["child_id"], tolerated)))
+        state.accept({"type": "system", "subtype": "init", "session_id": SID})
+        state.accept(refusal("frontier_llm", parent_tool_use_id="child-1"))
+        state.accept({"type": "assistant", "session_id": SID, "parent_tool_use_id": "child-1",
+                      "message": {"id": "msg-child", "stop_reason": "refusal", "content": []}})
+        self.assertIsNone(state.policy_event)
+        self.assertEqual(seen, [("child-1", True)])
+        state.accept(assistant())
+        state.accept(result())
+        state.accept({"type": "system", "subtype": "session_state_changed", "session_id": SID, "state": "idle"})
+        ended = state.finish(0, cleanup=True)
+        self.assertEqual(ended.outcome.status, "completed")
+        self.assertIsNotNone(ended.public_reply)
+        for second in (refusal("cyber", parent_tool_use_id="child-2"), refusal("cyber")):
+            with self.subTest(second=second):
+                state = ClaudeReplyState(self.ctx, run_id=RUN)
+                state.accept({"type": "system", "subtype": "init", "session_id": SID})
+                state.accept(refusal("frontier_llm", parent_tool_use_id="child-1"))
+                state.accept(second)
+                self.assertEqual(state.policy_event["category"], "cyber")
+                state.accept(assistant())
+                state.accept(result())
+                self.assertEqual(state.finish(0, cleanup=True).outcome.error_code, "policy_refusal")
+
+    def test_the_wire_lets_one_subagent_refusal_through_and_says_who_and_doing_what(self):
+        def run(scenario):
+            events = []
+            ctx = dataclasses.replace(self.ctx, timeout=5, backend_cmd=[sys.executable, str(CLAUDE_JSONL), scenario])
+            answer = ClaudeBackend().run(RunRequest(ctx, "synthetic", callbacks=RunCallbacks(
+                event=lambda kind, data, control: events.append((kind, data))),
+                inputs=RunInputs(threading.Event(), run_id=RUN)))
+            return answer, [data for kind, data in events if kind == "policy_tolerated"]
+        answer, tolerated = run("policy-child-once")
+        self.assertEqual(answer.outcome.status, "completed")
+        self.assertEqual(answer.text, "主任务绕开了被拦的那块")
+        self.assertEqual([row["text"] for row in tolerated],
+                         ["子代理「标注第 1 块」在读 chunk01.txt 第 1201–1600 行时被拦（cyber），主任务继续"])
+        self.assertNotIn("PRIVATE", json.dumps(tolerated, ensure_ascii=False))
+        answer, tolerated = run("policy-child-refusal")
+        self.assertEqual(answer.outcome.error_code, "policy_refusal")
+        self.assertEqual(len(tolerated), 1)
+        self.assertIn("本轮已停止：子代理「标注第 2 块」在读 chunk02.txt 第 1201–1600 行时被拦（cyber）。"
+                      "这是本任务第 2 次被拦（之前子代理「标注第 1 块」在读 chunk01.txt 第 1201–1600 行时被拦过一次）",
+                      answer.outcome.failure_reply(answer.failure_detail))
+        self.assertTrue(answer.text.startswith("本轮已停止：子代理「标注第 2 块」"))
+        answer, _ = run("policy-child-main")
+        self.assertEqual(answer.outcome.policy_event["scope"], "main")
+        self.assertIn("本轮已停止：主任务", answer.text)
 
     def test_fallback_blocks_and_iterations_are_not_name_comparisons(self):
         block = {"type": "fallback", "from": {"model": "claude-opus-5-5"}, "to": {"model": "claude-opus-5"},

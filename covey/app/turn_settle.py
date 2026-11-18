@@ -31,6 +31,7 @@ class TurnResult:
     verified_delivery: Any = None
     verified_outcome: Any = None
     outcome: Any = None  # The backend's ExecutionOutcome as settled, when it gave one.
+    failure_detail: str = ""  # The backend's own words for a failure (RunResult.failure_detail): a refusal's who and what.
 
 
 def settle_turn(turn, result, ctx, job, *, sessions, session_id, revision, runtime, prefix):
@@ -149,12 +150,13 @@ def _settle_status(turn, result, job, outcome, reply, is_error):
     if result.public_reply is not None and turn.verified_delivery is None:
         reply = "本轮未完成，公开回复仅已保全，尚未满足发送条件。原生会话不可续接。"
     turn.outcome = outcome
+    turn.failure_detail = str(getattr(result, "failure_detail", "") or "")
     if outcome is not None:
         turn.status = outcome.job_status
         turn.status_message = "任务完成" if turn.status == "done" else STATUS_MESSAGES.get(
             outcome.error_code, INCOMPLETE_STATUS)
         if outcome.policy_event is not None:
-            turn.status_message = outcome.summary()
+            turn.status_message = outcome.summary(result.failure_detail)
         if turn.verified_delivery is None and turn.status == "done":
             turn.status, turn.status_message = "failed", "未取得可交付的完整公开回复"
         turn.final_text = reply

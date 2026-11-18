@@ -113,6 +113,31 @@ class PolicySourceTests(unittest.TestCase):
                 self.assertEqual(runtime.log.called, failed, command)
 
 
+class ToleratedRefusalLineTests(unittest.TestCase):
+    def test_the_stream_s_let_through_refusal_is_a_bridge_line_and_on_the_record(self):
+        """The task runner's side of C1: 执行过程 shows the line, the record counts it for the policy guard."""
+        from support import make_job
+        from support.world import build_claude_app
+        from covey.cards.trace_view import BRIDGE_NOTE
+        with tempfile.TemporaryDirectory() as tmp:
+            app = build_claude_app()
+            app.cards.queue_trace = mock.Mock()
+            ctx = SimpleNamespace(topic_id='topic', state_dir=Path(tmp))
+            job = make_job(progress=SimpleNamespace(card_id='card_test'))
+            key = job.message_id
+            upsert_job_record(Path(tmp), key, job_id=job.job_id, backend='claude', status='running')
+            text = '子代理「标注第 1 块」在读 chunk01.txt 第 1201–1600 行时被拦（frontier_llm），主任务继续'
+            app.interaction.structured_harness_event(ctx, job, 'policy_tolerated', {
+                'event': event('refusal', 'frontier_llm', 'toolu_1', evidence='refusal_stop'),
+                'where': '子代理「标注第 1 块」在读 chunk01.txt 第 1201–1600 行时', 'text': text}, None)
+            notes = [step for step in job.tool_trace.steps.values() if step.get('title') == BRIDGE_NOTE]
+            self.assertEqual(len(notes), 1)
+            self.assertIn('标注第 1 块', notes[0]['detail'])
+            self.assertIn('主任务继续', notes[0]['detail'])
+            rows = find_job_record(Path(tmp), key)['policy_tolerated']
+            self.assertEqual([row['seen_by'] for row in rows], [['stream']])
+
+
 class OldRunnerPolicyTests(TopicFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
@@ -148,8 +173,13 @@ time.sleep(300)
         claim_native_session(self.ctx, 'claude', 'session', 'old-run')
         unrelated = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(300)'], start_new_session=True)
         self.addCleanup(lambda: (unrelated.kill(), unrelated.wait()))
-        row = observation(child=digest('child'))
-        self.assertEqual(policy_guard.claim(self.ctx.state_dir, row, self.record), 'stop_requested')
+        # A subagent's first refusal is let through (C1); the main task's after it stops the task.
+        first = observation(child=digest('child'), ident='audit:run:1')
+        self.assertEqual(policy_guard.claim(self.ctx.state_dir, first, self.record), 'policy_tolerated')
+        self.assertFalse(policy_guard.requested(self.ctx.state_dir, self.key))
+        row = observation()
+        self.assertEqual(policy_guard.claim(self.ctx.state_dir, row, find_job_record(self.ctx.state_dir, self.key)),
+                         'stop_requested')
         path = policy_guard.intent_path(self.ctx.state_dir, self.key)
         original_read = Path.read_text
         def stale_child_list(p, *args, **kwargs):
@@ -167,7 +197,8 @@ time.sleep(300)
         self.assertTrue(record['delivery_ok'])
         self.assertEqual(retry_label(record), '')
         self.assertIn('frontier_llm', record['final_text'])
-        self.assertIn('SubAgent', record['final_text'])
+        self.assertIn('本轮已停止：主任务被拦（frontier_llm）。这是本任务第 2 次被拦（之前一个子代理被拦过一次）',
+                      record['final_text'])
         self.assertEqual(self.app.messenger.send_message.call_count, 1)
         self.assertEqual(policy_guard.claim(self.ctx.state_dir, row, record), 'already_stopped')
         policy_guard.finish(self.gateway, self.ctx, path)
@@ -223,9 +254,10 @@ time.sleep(300)
     def replay_feed(self, audit):
         root = self.root / 'remote'
         root.mkdir()
-        row = (observation(child=digest('child'), ident='audit:r:2') if audit
-               else observation(evidence='http_refusal', ident='http:1:0'))
-        (root / 'page.json').write_text(json.dumps({'cursor': {'n': 1}, 'events': [row], 'health': {}}))
+        # Two subagents' refusals: the first is let through, the second stops the task (C1).
+        rows = ([observation(child=digest('child'), ident='audit:r:1'), observation(child=digest('child-2'), ident='audit:r:2')]
+                if audit else [observation(evidence='http_refusal', ident='http:1:0')])
+        (root / 'page.json').write_text(json.dumps({'cursor': {'n': 1}, 'events': rows, 'health': {}}))
         write_json(self.ctx.state_dir/'policy-source.json',
                    {'command': [sys.executable, '-B', '-c', FAKE_SOURCE, str(root / 'page.json')]})
         policy_guard.tick(self.gateway, self.ctx)
@@ -244,6 +276,35 @@ time.sleep(300)
 
     def test_end_to_end_server_audit_subagent_replay(self):
         self.replay_feed(True)
+
+    def test_one_subagent_refusal_seen_by_the_stream_and_the_source_is_let_through_once(self):
+        """C1: the task's stream let a subagent's refusal through (app/interaction.py records it); the policy source's
+        report of the same refusal is that one, in either order. A second refusal stops the task."""
+        state = self.ctx.state_dir
+        refused = event('refusal', 'frontier_llm', 'toolu_child', evidence='refusal_stop')
+        for stream_first in (True, False):
+            with self.subTest(stream_first=stream_first):
+                upsert_job_record(state, self.key, policy_tolerated=None)
+                server = observation(child=digest('child'), ident=f'audit:once:{stream_first}')
+                if stream_first:
+                    self.assertEqual(policy_guard.tolerate(state, self.key, refused, 'stream', where='子代理「标注」'),
+                                     'tolerated')
+                    self.assertEqual(policy_guard.claim(state, server, find_job_record(state, self.key)),
+                                     'policy_tolerated')
+                else:
+                    self.assertEqual(policy_guard.claim(state, server, find_job_record(state, self.key)),
+                                     'policy_tolerated')
+                    self.assertEqual(policy_guard.tolerate(state, self.key, refused, 'stream', where='子代理「标注」'),
+                                     'seen')
+                rows = find_job_record(state, self.key)['policy_tolerated']
+                self.assertEqual([(row['seen_by'], row['where']) for row in rows], [(['server', 'stream'], '子代理「标注」')])
+                self.assertFalse(policy_guard.requested(state, self.key))
+        later = observation(child=digest('child-2'), ident='audit:later')
+        self.assertEqual(policy_guard.claim(state, later, find_job_record(state, self.key)), 'stop_requested')
+        policy_guard.finish(self.gateway, self.ctx, policy_guard.intent_path(state, self.key))
+        self.proc.wait(timeout=5)
+        self.assertIn('这是本任务第 2 次被拦（之前子代理「标注」被拦过一次）',
+                      find_job_record(state, self.key)['final_text'])
 
     def test_crash_after_kill_reconciles_without_signalling_new_pid(self):
         policy_guard.claim(self.ctx.state_dir, observation(), self.record)

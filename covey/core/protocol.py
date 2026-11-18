@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 #   backend_failure: status, code, stage; optional exception, reason, errno, process_exit_code / exit_code, write_size,
 #     write_offset, stderr (the CLI's last lines of stderr, credentials hidden, at most a few dozen): why a run that did
 #     not complete failed, once, for the Bridge's log (app/runs.py log_backend_failure); never shown on a card.
+#   policy_tolerated: event (backends/claude/policy.py policy_signal), where, text: a subagent's first refusal, let
+#     through (docs/policy-stop.md); the Bridge shows ``text`` in 执行过程 and records it (app/policy_guard.py tolerate).
 #   redaction: terms, hits, requests; once per turn of a redacted topic, before trace_finished: the number of
 #     listed terms, the replacements made in this turn's requests and the requests relayed (core/redaction.py).
 
