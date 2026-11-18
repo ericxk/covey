@@ -57,7 +57,7 @@ def recommended(questions):
     return picked or None
 
 
-STANDING_ENV = "COVEY_STANDING_ANSWERS"  # 0 takes the button off the cards; on by default.
+STANDING_ENV = "COVEY_STANDING_ANSWERS"  # 1 puts the button on the cards; off unset (rule 4), ./install writes 1.
 
 
 def standing_offered(record):
@@ -65,7 +65,7 @@ def standing_offered(record):
     option, and it is a topic's (a card can name it: not the butler's, whose questions are not a workspace's)."""
     from covey.core.butler import traits
     from covey.core.process_env import env_flag
-    return (env_flag(STANDING_ENV, True) and bool(record.get("topic_id")) and recommended(record.get("questions")) is not None
+    return (env_flag(STANDING_ENV, False) and bool(record.get("topic_id")) and recommended(record.get("questions")) is not None
             and traits(record.get("topic_id"), record.get("chat_id")).card_target)
 
 

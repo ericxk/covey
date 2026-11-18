@@ -31,6 +31,18 @@ def question(**fields):
 
 
 class CardTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {question_cards.STANDING_ENV: "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_switch_is_off_unset_and_install_writes_it(self):
+        from covey.service import installer
+        with mock.patch.dict(os.environ):
+            os.environ.pop(question_cards.STANDING_ENV, None)
+            self.assertNotIn(STANDING_KIND, json.dumps(question_card(question()), ensure_ascii=False))
+        self.assertEqual("1", installer.INSTALL_SWITCHES[question_cards.STANDING_ENV])
+
     def test_the_button_is_offered_only_where_every_question_has_one_recommended_option(self):
         self.assertEqual(recommended(question()["questions"]), [(0, 0)])
         two = [{"question": "x", "options": [{"label": "A (Recommended)"}, {"label": "B（推荐）"}]}]
@@ -55,6 +67,9 @@ class CardTest(unittest.TestCase):
 
 class FlowTest(unittest.TestCase):
     def setUp(self):
+        patcher = mock.patch.dict(os.environ, {question_cards.STANDING_ENV: "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.state = Path(tmp.name)

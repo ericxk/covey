@@ -440,7 +440,7 @@ class OffTest(TidyCase):
             self.assertEqual(proposals.mode(), proposals.OFF)
         ins = SimpleNamespace(env={"COVEY_PROJECT_TIDY": "off"})
         installer.Installer.default_switches(ins)
-        self.assertEqual(ins.env, {"COVEY_PROJECT_TIDY": "off", "COVEY_PROJECTS": "1"})
+        self.assertEqual(ins.env, {**installer.INSTALL_SWITCHES, "COVEY_PROJECT_TIDY": "off"})
         ins = SimpleNamespace(env={})
         installer.Installer.default_switches(ins)
         self.assertEqual(ins.env, installer.INSTALL_SWITCHES)

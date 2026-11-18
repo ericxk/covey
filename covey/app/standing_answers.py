@@ -9,7 +9,7 @@ sends a card of its own (the question's form stays as it is) with the sentence a
 the principle (core/principles.py save, the workspace's) and answers the question with its recommended options through
 the question's own submit path (app/questions.py submit_answer, as the web page's answer does); 改一下 redraws the card
 with the sentence in a box. The record of a card is <state>/standing-forms/<token>.json; its card changes only whole
-(app/form_cards.py). Only the owner's clicks count. ``COVEY_STANDING_ANSWERS=0`` takes the button off the cards.
+(app/form_cards.py). Only the owner's clicks count. ``COVEY_STANDING_ANSWERS=1`` puts the button on the cards (off unset; ./install writes 1).
 """
 from __future__ import annotations
 
