@@ -331,8 +331,7 @@ class BoardTest(unittest.TestCase):
                          last_activity_at=time.time() - 60)
         _, _, facts, _ = status_cards.lines(state, "oc_chat", {"topic": "t" * 32, "group": "running", "record": record},
                                             time.time())
-        self.assertIn("预计 ", facts)
-        self.assertIn(" 左右做完", facts)
+        self.assertRegex(facts, r"预计(明天)? ?\d\d:\d\d 左右做完")  # 预计明天 00:10 near midnight (failed at 23:42 before)
         row = overview.Overview.__new__(overview.Overview)
         row.history, row.now, row.topics, row.titles = {}, time.time(), {}, {}
         self.assertTrue(row.running_row(state, record)["progress"][0].endswith("左右做完"))
