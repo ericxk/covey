@@ -781,6 +781,21 @@ class SilentTest(DeliverCase):
         self.note("other-key")
         self.assertTrue(self.deliver(job).silent)
 
+    def test_a_wake_up_turn_that_handed_out_work_is_sent_and_one_that_did_nothing_is_not(self):
+        # 2026-11-19 (the owner: 有变化才发): a wake-up turn that started, fed or stopped a topic, or answered or handed on a
+        # question (app/project_tools.py acted) tells the owner, as a report note does; the others stay on the card.
+        from covey.app import project_tools
+
+        job, other = self.lead(), self.lead(f"lead-{PID}-2")
+        for turn in (job, job):  # Once a turn, however many tools it called.
+            project_tools.acted(SimpleNamespace(state_dir=self.state), PID,
+                                SimpleNamespace(job_key=job_key(turn.message_id, turn.job_id)), "start")
+        self.assertEqual(len(projects.read_record(self.state, PID)["acted"]), 1)
+        delivery = self.deliver(job, reply="开了 T12 去迁第二批。")
+        self.assertFalse(delivery.silent)
+        self.send_text.assert_called_once()
+        self.assertTrue(self.deliver(other, reply="还在等 T12。").silent)
+
     def test_the_owners_turn_in_the_lead_is_sent_as_before(self):
         delivery = self.deliver(self.lead("om_9"), reply="好的，我来拆。")
         self.assertFalse(delivery.silent)

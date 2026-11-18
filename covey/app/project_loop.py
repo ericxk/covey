@@ -160,10 +160,13 @@ def last_activity(state_dir, record, receipts) -> float:
 
 
 def reported(state_dir, topic_id, key) -> bool:
-    """Whether the turn ``key`` of the lead topic ``topic_id`` recorded a report note its project's style lets through (the
-    reply of a wake-up turn is sent then, as an owner's turn's is)."""
+    """Whether the turn ``key`` of the lead topic ``topic_id`` recorded a report note its project's style lets through, or
+    changed something (handed out work, stopped a topic, answered or handed on a question: the record's ``acted``,
+    app/project_tools.py): the reply of a wake-up turn is sent then, as an owner's turn's is (有变化才发, 2026-11-19)."""
     found = projects.topic_project(state_dir, str(topic_id or ""))
     record = projects.read_record(state_dir, found.id) if found is not None else {}
+    if any(isinstance(row, dict) and row.get("job") == key for row in record.get("acted") or ()):
+        return True
     return any(isinstance(row, dict) and row.get("job") == key and row.get("report") is True
                and project_lead.reportable(record.get("style"), row.get("kind"))
                for row in record.get("notes") or ())

@@ -188,7 +188,7 @@
 | `area` × `project_member`（专项，默认关） | 按 `Traits` | THREAD | 无 | NONE | TOP | 是 | 否 | 是 | 否 |
 | `topics` × 任意 | 否 | THREAD | 无 | NONE | NONE | 否 | 是 | 否 | 否 |
 
-专项负责人的**唤醒轮**（消息 id 以 `lead-` 开头，`core/projects.py` 的 `is_wake`）也算安静轮（`quiet`）：不显示任务卡（`Cards.reveal` 对它不发）、没有表情；它的已授权回复默认不发（`TurnDelivery.silent`，见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)的续轮与护栏），除非负责人在这一轮里记了一条按风格该报的 `report` 进展。
+专项负责人的**唤醒轮**（消息 id 以 `lead-` 开头，`core/projects.py` 的 `is_wake`）也算安静轮（`quiet`）：不显示任务卡（`Cards.reveal` 对它不发）、没有表情；它的已授权回复默认不发（`TurnDelivery.silent`，见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)的续轮与护栏），除非负责人在这一轮里记了一条按风格该报的 `report` 进展，或这一轮派了活、停了话题、替主人答了或转交了问题（专项记录的 `acted`）。
 
 | 字段 | 含义 | 读者 |
 | --- | --- | --- |

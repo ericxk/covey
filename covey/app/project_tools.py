@@ -15,10 +15,14 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
   owner would (the question's own submit path, with a note that the lead answered) or hands it to the owner with a reason
   (app/triage.py).
 
+A tool that hands out, stops or answers (``acted``) marks the lead's turn as one that changed something, so the reply of
+a wake-up turn that did is sent to the owner (app/project_loop.py reported; 2026-11-19, the owner: 有变化才发).
+
 A refusal is a ValueError, which app/butler_tools.py ButlerTools.execute turns into an answer the lead reads."""
 from __future__ import annotations
 
 import dataclasses
+import time
 from pathlib import Path
 
 from covey.app import butler_topics, project_lead, triage as triage_flow
@@ -31,6 +35,7 @@ from covey.core.topics import topic_label
 KINDS = ("milestone", "thread", "note")
 MEMORY_KINDS = (*project_memory.KINDS[:-1], *project_memory.LEGACY_KINDS)  # style is project_style's; practice and pitfall are the older names of constraint.
 OFFERED_KINDS = project_memory.KINDS[:-1]
+ACTED_KEPT = 40  # The record's ``acted`` rows kept: one a lead turn that handed out, stopped or answered.
 TRIAGE_OFF = "问题分流没有开：负责人不能替主人答题，也不能转交问题；话题里的问题会直接问主人。"
 
 
@@ -67,6 +72,22 @@ def spawn_cap(record) -> int:
     return min(projects.MAX_MEMBERS, project_lead.SPAWN_LIMIT[project_lead.style_of(record)[project_lead.SPAWN]])
 
 
+def acted(env, pid, request, what) -> None:
+    """Mark the lead's turn ``request.job_key`` as one that changed something the owner is to hear of (``what``: start,
+    send, stop, answer, escalate), once a turn: app/project_loop.py ``reported`` sends a wake-up turn's reply then."""
+    key = str(getattr(request, "job_key", "") or "")
+    if not key:
+        return
+
+    def change(data):
+        rows = data.get("acted")
+        rows = data["acted"] = rows if isinstance(rows, list) else []
+        if not any(isinstance(row, dict) and row.get("job") == key for row in rows):
+            rows.append({"job": key, "what": what, "at": time.time()})
+        del rows[:-ACTED_KEPT]
+    projects.update(env.state_dir, pid, change)
+
+
 def project_topic_start(env, request):
     pid, record = lead(env, request)
     active(record, "开新话题")
@@ -79,6 +100,7 @@ def project_topic_start(env, request):
     topic = answer.get("data", {}).get("topic_id")
     if topic:
         projects.add_member(env.state_dir, pid, topic)  # Again for a request that ran before: once only.
+        acted(env, pid, request, "start")
     return answer if answer.get("ok") else {**answer, "text": "没有开出话题：" + answer["text"]}
 
 
@@ -95,7 +117,10 @@ def project_topic_send(env, request):
         if refused:
             return reply(False, refused)
     args = {"topic": topic, "text": request.args.get("text"), "note": request.args.get("note")}
-    return butler_topics.topic_send(env, dataclasses.replace(request, args=args))
+    answer = butler_topics.topic_send(env, dataclasses.replace(request, args=args))
+    if answer.get("ok"):
+        acted(env, pid, request, "send")
+    return answer
 
 
 def take_in(env, chat, pid, topic, text) -> str:
@@ -148,6 +173,7 @@ def project_topic_stop(env, request):
     why = " ".join(str(request.args.get("why") or "").split())[:120]
     binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled",
                                   message=STOP_NOTE + (f"：{why}" if why else ""))
+    acted(env, pid, request, "stop")
     return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉；"
                  "它仍记在专项里、算结束。要接着做，用 project_topic_send。", stopped=stopped, topic_id=topic)
 
@@ -246,6 +272,7 @@ def project_answer(env, request):
         done = triage_flow.answer(env, app, ctx, chat, record, request.args.get("answers"), f"lead-{request.id}")
     except ValueError as exc:
         return reply(False, str(exc))
+    acted(env, pid, request, "answer")
     if done["status"] == "uncertain":
         return reply(False, f"{done['label']} 的回答已保存，但送达状态未确认：先用 topic_read 核对，别再答一次。", status="uncertain")
     if done["status"] == "pending":
@@ -268,6 +295,7 @@ def project_escalate(env, request):
     if not rows:
         return reply(False, "这个话题现在没有交给你的问题（可能已经转给主人，或超过 3 分钟了）。")
     sent = [triage_flow.escalate(env, row, why, by="lead") for _, row in rows]
+    acted(env, pid, request, "escalate")
     label = topic_label(Path(env.state_dir), ctx.topic_id) or ctx.topic_id[:8]
     return reply(True, f"已转给主人：{label} 的问题卡" + ("已发出。" if all(sent) else "还没发出去，系统会请主人重新投递。"), sent=all(sent))
 
