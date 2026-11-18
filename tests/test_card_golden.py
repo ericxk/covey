@@ -1016,13 +1016,48 @@ def project_cards():
             "line_asked_elsewhere": pc.asked_card("把订单库迁到新集群", "62 分钟没有进展")}
 
 
+def tidy_cards():
+    """整理专项's cards (cards/project_proposal.py): the proposal card (the first one, the one asking 以后直接建, decided), its
+    rename form, the 整理专项 card while it reads and with its result, and the 已归进 line on a topic's cards."""
+    from covey.cards import project_proposal as tc
+    from covey.cards.status_card import status_card
+    from covey.cards.topic_card import topic_card
+
+    view = {"proposal": "0123456789abcdef", "labels": [("T488", "修 064 采购审批题包"), ("T505", "优化 Bootstrap 下一环节")],
+            "name": "EnvReplay Prompt 优化", "goal": "新旧 Prompt 对率可比", "why": "两个话题都在改 Prompt", "first": True,
+            "accepted": 0, "ask_auto": False, "state": "open"}
+    rows = [{"proposal": "1" * 16, "line": "新建「推理网关稳定」：T484、T485、T499（都在这个网关上）", "state": "open"},
+            {"proposal": "2" * 16, "line": "「Covey 工作台与体验」改名「Covey 工作台」", "state": "done", "note": "已改名「Covey 工作台」"},
+            {"proposal": "3" * 16, "line": "合并「回流周报」「回流汇报」", "state": "declined"}]
+    done = {"run": "20261118093000-abc123", "state": "done", "did": ["已把 T512 归进「EnvReplay Prompt 优化」",
+                                                                      "已收起「回流周报」：本周的已交，有新的事会自动展开"],
+            "rows": rows, "skipped": ["3 个话题读不了，没参与这次整理"], "scope": ""}
+    joined = tc.joined_element("EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6")
+    return {"proposal_first": tc.proposal_card(view),
+            "proposal_ask_auto": tc.proposal_card({**view, "first": False, "ask_auto": True, "accepted": 5}),
+            "proposal_declined": tc.proposal_card({**view, "state": "declined", "lesson": True,
+                                                   "note": "不建了：这几个话题不会再这样提，等又多出相关的话题才会再提。"}),
+            "proposal_done": tc.proposal_card({**view, "state": "done", "note": "已建专项「EnvReplay Prompt 优化」：专项卡在聊天区，负责人接着跟进。"}),
+            "rename_form": tc.rename_form(view),
+            "tidy_reading": tc.tidy_card({"run": "r", "state": "running", "progress": {"done": 12, "total": 40, "current": "T488"}}),
+            "tidy_done": tc.tidy_card(done),
+            "tidy_nothing": tc.tidy_card({"run": "r", "state": "done", "scope": "Covey"}),
+            "tidy_failed": tc.tidy_card({"run": "r", "state": "failed", "why": "判断超时了"}),
+            "leave_answer": tc.lesson_card("已把这个话题移出专项「EnvReplay Prompt 优化」，以后它不会再被自动归进专项。",
+                                           {"kind": tc.LESSON_KIND, "topic": "f" * 32, "project": "a1b2c3d4e5f6"}),
+            "joined_line": tc.joined_card("EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6"),
+            "topic_card_joined": topic_card("修 064 采购审批题包", label="T488", config=("Claude Code", "Opus 5.5"), joined=joined),
+            "status_card_joined": status_card("T488 · 修 064 采购审批题包", "做完", "13:01 · 2 轮", "结论：改 Prompt",
+                                              ["EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6"])}
+
+
 GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "question": question_cards,
           "proxy": proxy_cards, "steer": steer_cards, "recovery": recovery_cards, "rewind": rewind_cards,
           "turn_export": turn_export_panels, "switch": switch_cards, "topic": topic_panels,
           "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
           "main_thread": butler_panels, "settings": settings_cards,
           "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards,
-          "project": project_cards}
+          "project": project_cards, "tidy": tidy_cards}
 
 
 def render():

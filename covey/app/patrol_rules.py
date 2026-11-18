@@ -315,11 +315,33 @@ def project_rows(reader: Reader, config) -> list:
     return found
 
 
+def tidied(reader: Reader, config) -> list:
+    """With 整理专项 on (COVEY_PROJECT_TIDY, core/project_proposals.py), what looks like one matter is its judgment, not these
+    words: its open proposals to make a project are ``group`` candidates (the joins it is sure of it does itself; the others it
+    puts to the owner on its card)."""
+    from covey.core import project_proposals
+
+    found = []
+    for record in project_proposals.proposals(reader.seen.state, (project_proposals.OPEN,)):
+        members = sorted(record.get("topics") or ())
+        if record.get("kind") != project_proposals.CREATE or len(members) < 1:
+            continue
+        labels = [reader.label(topic)[0] for topic in members[:4]]
+        found.append(Candidate("group", f"group:{record['id'][:10]}", record["id"][:10], reader.seen.chat,
+                               clipped(record.get("name")), f"整理专项提议建专项「{clipped(record.get('name'))}」："
+                               + "、".join(label for label in labels if label), tuple(members)))
+    return found
+
+
 def find(seen: Look, config=None) -> list:
-    """Every candidate ``seen`` holds, one per object and kind."""
+    """Every candidate ``seen`` holds, one per object and kind. With 整理专项 on, ``tidied`` stands in for ``groups`` and
+    ``joins``."""
+    from covey.core import project_proposals
+
     config = config or {name: patrol.number(name) for name in patrol.NUMBERS}
     reader = Reader(seen)
     found = []
-    for rule in (asks, unseen, fails, stuck, groups, joins, project_rows):
+    alike = (tidied,) if project_proposals.enabled() else (groups, joins)
+    for rule in (asks, unseen, fails, stuck, *alike, project_rows):
         found += rule(reader, config)
     return found

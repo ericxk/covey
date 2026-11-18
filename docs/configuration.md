@@ -102,6 +102,7 @@
 | [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡的私聊、新话题标签 |
 | [管家规则](#管家规则) | `COVEY_BUTLER_RULES=1` | 管家只快答和分派，不在自己这一轮里干几分钟的活；其余规则不变 |
 | [专项（第 2 期，开发中，默认关）](architecture.md#专项第-2-期开发中默认关) | `COVEY_PROJECTS=1` | 底座：`projects/` 记录、负责人话题和专项的话题的角色、看板并格，加负责人一轮的运行（规则、状态包、会话重建、`project_*` 工具、只留 `Read`/`Grep`/`Glob`）；入口是转成专项（`COVEY_PROJECT_UPGRADE=butler`：管家带 `project` 的派发卡静默转成专项）和管家直接开（`topic_start` 带 `project`）；续轮、问题分流是后面的包 |
+| [整理专项](#整理专项) | `COVEY_PROJECT_TIDY=suggest`（要 `COVEY_PROJECTS=1`；`./install` 新装的服务默认写上这两个） | `project_tidy` 后台线程：每轮结束读话题要点、到时机就整理一次；管家多 `projects_tidy`，设置卡「私聊默认」多「整理专项」，网页发件箱认 `tidy`，网页推送的话题多 `gist`；提议卡、整理专项卡 |
 | [专项停住后问主人](butler.md#专项停住后问主人开关默认关) | `COVEY_PROJECT_ASK=1`（要 `COVEY_PROJECTS=1`） | 专项被护栏停住时多发一张卡：继续 / 收尾 / 停；`COVEY_PROJECT_STYLE_KEEP=1` 另让新专项沿用上次设的汇报风格 |
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家一轮在做时，下一句按规则和小模型并进某件在做的事或新开一件；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
 | [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰) | `COVEY_PATROL=shadow` | `patrol` 后台线程：每分钟用规则找候选，每 30 分钟让小模型筛，只写 `patrol/` 记录；汇总和「看板」多一块“我本来想找你的事”；不发消息、不动专项 |
@@ -159,6 +160,18 @@
 - 数据从记录读（`questions/`、`jobs/` 的索引），不持记录锁、不调模型，管家话题不列。
 - 菜单「看板」（事件 key `digest_board`）只在设了这个变量时有：发同一张卡、按现在取数，不改 `last_slot`。卡的记录在 `<state>/digest-boards/`。要在开发者后台的机器人菜单里加这一项（自动补齐会加）。
 - 日志：`digest sent slot=HH:MM`、`digest not sent: nothing to list`、`digest not sent try=N`、`digest not sent after N tries; given up`、`digest card redrawn message=… cleared=N`、`digest board sent`。
+
+### 整理专项
+
+`COVEY_PROJECT_TIDY`（要 `COVEY_PROJECTS=1`；用户看到什么见[整理专项](usage.md#整理专项)，机制见[管家 · 整理专项](butler.md#整理专项开关默认关装好就开只提议)）：
+
+- `suggest`（只提议）：每轮结束时话题自己的模型更新话题要点；到实时时机、早晚汇总的时间点（`COVEY_DIGEST_TIMES`）、或主人手动叫时整理一次。能归进已有专项、把握很高的直接归，收起没事的专项也直接做；新建、合并、拆开、改名都发卡问，主人点了才做。
+- `auto`：再加新建专项也直接做（专项卡上留「不要专项」撤回）。主人在提议卡上点了「以后直接建」，效果和 `auto` 一样。
+- 不设、`off` 或别的值：关。没有后台线程、管家没有 `projects_tidy`、设置卡没有这一行、每轮的消息里没有话题要点那段，行为和原来一样。
+
+仓库代码里不设就是关（AGENTS.md 规则 4）；`./install` 写服务清单时，终端里没设这两个变量就写上 `COVEY_PROJECTS=1`、`COVEY_PROJECT_TIDY=suggest`（`service/installer.py` 的 `INSTALL_SWITCHES`），已有的值不动。要关，在注册服务的终端里设 `COVEY_PROJECT_TIDY=off` 再 `launch`。
+
+可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_AGE_DAYS`（3，话题跨进第几天算一次实时时机）、`COVEY_PROJECT_TIDY_WORDS`（15，主人在话题里说到第几句算一次）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。判断用 Claude Code 的 Haiku，走 Claude Harness 自己的包装，和多路并行的小模型判断同一套做法；没有 Claude Harness 时判断不了，整理卡写“没有可用的 Claude Code 来判断”。
 
 ### 记忆
 
@@ -323,7 +336,7 @@
 | `COVEY_PINNED_OVERVIEW` | `app/overview.py`（`app/pins.py` 的 `laid` 也读：两个开关都开时看板记录的规则才算数） | 关；`1` 开 | 否 |
 | `COVEY_HARNESS_PROBE` | `app/availability.py`（`PROBE_ENV`；探测本身在 `core/harness_probe.py`） | 关；开了才每 60 秒的可用性检查里对 Claude、Codex 各做一次真实调用（缓存 6 小时，失败 10 分钟）。缓存里是“没登录”时该 Harness 在启动卡上不可用，网络、超时等只写进健康检查。可由服务清单保存 | 否 |
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
-| `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它才要菜单「看板」） | 空：不发早晚汇总 | 否 |
+| `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它才要菜单「看板」）、`app/project_tidy.py`（`scheduled`：整理专项的定时也按这些时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
 | `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：不开知识条目 | 否 |
 | `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/butler.py`（`mcp_config` 同上）、`core/butler_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根的 `extensions/enabled`（没有这个文件就没有扩展）；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
@@ -366,6 +379,13 @@
 | `COVEY_PATROL_JUDGE_MS` | `core/patrol.py`（`number`） | 30000：小模型一次调用的硬上限，毫秒（1000 到 120000） | 否 |
 | `COVEY_WEB` | `core/web_sync.py`（`enabled`）、`app/web_sync.py`（`WebSync.threads`） | 空：关。`1`：开网页工作台同步，`web-push`、`web-inbox` 两条线程；要同时设 `COVEY_WEB_CONFIG` | 否 |
 | `COVEY_WEB_CONFIG` | `core/web_sync.py`（`load_config`） | 空。指向一个 JSON：`base_url`、`key_file`（只从这个文件读密钥）、`push_seconds`（默认 1）、`poll_seconds`（默认 1）；文件缺了或写错只记一行失败、退避重试 | 否 |
+| `COVEY_PROJECT_TIDY` | `core/project_proposals.py`（`mode`、`enabled`，要 `COVEY_PROJECTS=1`）、`app/project_tidy.py`（`ProjectTidy.threads`）、`app/runs.py`（`_gist_note`：每轮消息里的话题要点规则）、`core/butler.py`（`mcp_config` 交给 MCP 服务）、`core/butler_tool_specs.py`（`tidy_listed`：管家多 `projects_tidy`）、`app/web_sync.py`（话题的 `gist`）、`app/butler_panel.py`（设置卡的「整理专项」） | 空或 `off`：关。`suggest`：只提议（能归进已有专项的直接归，新建要点「建专项」）；`auto`：新建也直接做。`./install` 新装的服务写 `suggest`。见[整理专项](#整理专项) | 否 |
+| `COVEY_PROJECT_TIDY_DAYS` | `core/project_proposals.py`（`number`） | 7：整理看最近几天有过一轮的话题（专项里的话题不论多久都看） | 否 |
+| `COVEY_PROJECT_TIDY_AGE_DAYS` | `core/project_proposals.py`（`number`） | 3：话题开了这么多天后又有一轮结束，算一次实时时机（每个话题一次） | 否 |
+| `COVEY_PROJECT_TIDY_WORDS` | `core/project_proposals.py`（`number`） | 15：主人在话题里说到这么多句（他开的轮数），算一次实时时机（每个话题一次） | 否 |
+| `COVEY_PROJECT_TIDY_MIN_TOPICS` | `core/project_proposals.py`（`number`）、`app/project_tidy.py`（`realtime`、`start`） | 5：聊天里的话题少于这个数时不整理（实时、定时、手动都不） | 否 |
+| `COVEY_PROJECT_TIDY_JUDGE_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`judge`） | 90：一次判断调用的硬上限，秒；超了这次判断作废，什么都不改 | 否 |
+| `COVEY_PROJECT_TIDY_READ_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`backfill`） | 60：补一个老话题的要点那次调用的上限，秒；超了只跳过这个话题 | 否 |
 | `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_DISPATCH_CARD=1`） | 空或 `off`：不转成专项（默认）；`butler`：管家转话时带了 `project`（`topic_send` 的 `project` 参数），派发卡就静默转成专项，是不是由管家按话的意思判断（主人要长期跟进、要分成几个话题持续推进，或直接说“开个专项”“转成专项”才带，拿不准不带），不再匹配主人话里的关键词；`word`：旧值，意思同 `butler`；`auto`：再加该话题来回到第 3 轮。同时最多 3 个活专项，超了不转。直接开专项（管家的 `topic_start` 带 `project`）不看它，只看 `COVEY_PROJECTS`。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 关；`1` 开（还要 `COVEY_PINNED_OVERVIEW=1`） | 否 |
 | `COVEY_PROXY_PROFILE` | `app/proxy.py` | 空：代答不可用 | 否 |

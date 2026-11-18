@@ -41,6 +41,9 @@ from covey.service import browser_setup, install_probe
 from covey.service.app_check import draw, profile_app_id, profile_app_name
 from covey.service.manager import PROXY_ENV_KEYS, persistable, validate_environment
 
+# What ./install switches on in the service it registers (docs/install.md): the code's default stays off (AGENTS.md rule 4).
+INSTALL_SWITCHES = {"COVEY_PROJECTS": "1", "COVEY_PROJECT_TIDY": "suggest"}
+
 DEFAULT_PROFILE = "covey"
 DEFAULT_APP_NAME = "Covey"
 LARK_DOMAINS = "im,docs,drive,contact"
@@ -631,6 +634,13 @@ class Installer:
                 "harnesses": sorted(self.working + self.extra), "proxy": proxy, "config": str(config_path),
                 "repo": str(REPO_ROOT), "settings": settings}
 
+    def default_switches(self):
+        """The switches a new service starts with on (INSTALL_SWITCHES: 专项 and 整理专项 只提议, the owner 2026-11-18: 装好就开只提议):
+        put into this shell's environment, which the launch saves in the manifest; one the environment already sets stays."""
+        for key, value in INSTALL_SWITCHES.items():
+            if not str(self.env.get(key, "")).strip():
+                self.env[key] = value
+
     def service_up(self):
         root = self.data / "bridge-services"
         code = subprocess.run([sys.executable, "-B", str(REPO_ROOT / "bin" / "covey_doctor.py"), "--root", str(root),
@@ -654,6 +664,7 @@ class Installer:
     def start_service(self, config_path):
         self.step(5, "注册并启动服务")
         self.precompile()
+        self.default_switches()
         record = self.data / "install.json"
         now = self.fingerprint(config_path)
         try:

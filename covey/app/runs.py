@@ -27,7 +27,7 @@ from covey.app.switch_handoff import capped
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
 from covey.core import devices, turn_words
-from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, read_checkpoint,
+from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, gist_note, read_checkpoint,
                                             release_user_wait)
 from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
                                          backend_capabilities, normalize_run_result)
@@ -446,7 +446,18 @@ class Runs:
             prior = {**prior, "bridge_preflight": audit}
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
         shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
-        return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown)
+        return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
+
+    @staticmethod
+    def _gist_note(ctx: BridgeContext, job: ReplyJob) -> str:
+        """话题要点's rule and the topic's current gist (COVEY_PROJECT_TIDY on, an ordinary topic or a project's topic: not the
+        butler's family, not a lead), '' otherwise (core/checkpoint.py TOPIC_GIST_RULE)."""
+        from covey.core import project_proposals, topic_gist
+
+        topic = job.topic_id or ctx.topic_id
+        if not project_proposals.enabled() or not topic or is_butler_topic(topic, job.chat_id):
+            return ""
+        return "\n\n" + gist_note(topic_gist.lines(topic_gist.read(ctx.state_dir, topic)))
 
     def _continue_previous(self, ctx: BridgeContext, job: ReplyJob) -> dict | None:
         """A task of the topic waiting for answers when ``job`` starts without being one: it becomes continued and

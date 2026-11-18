@@ -14,10 +14,11 @@ def heading(label, title):
     return f"{label} · {title}" if label else title
 
 
-def topic_card(title, *, label="", why="", config=()):
+def topic_card(title, *, label="", why="", config=(), joined=None):
     """``label`` the topic's number (T412, '' before it has one), ``config`` the parts of the configuration line
     (Harness, model, budget, workspace, run mode), shown literally: no Markdown or Feishu tag of theirs takes
-    effect. ``why``, the butler's one line on its choice, is no longer shown (its record keeps it)."""
+    effect. ``why``, the butler's one line on its choice, is no longer shown (its record keeps it). ``joined``: the line
+    of a topic 整理专项 put into a project (cards/project_proposal.py joined_element: 已归进「X」 · 移出), last."""
     head = heading(label, title)
     line = " · ".join(literal(part) for part in config if part)
-    return styled_panel(panel_header("launch", head), [note(line)] if line else [], head)
+    return styled_panel(panel_header("launch", head), ([note(line)] if line else []) + ([joined] if joined else []), head)

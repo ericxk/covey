@@ -24,6 +24,8 @@ KINDS) as the owner's own and says (state, message) for the ack.
   closed too, as a project's lead stops a member topic (app/binding.py retire_open_questions: cancelled with the reason ``web_stop``, the
   turn waiting on it cancelled); a topic with neither is ``failed``.
 - ``reopen``: a project that is folded away or paused opens again by the path the owner's own turn takes (app/project_loop.py reopen).
+- ``tidy``: 整理专项 (app/project_tidy.py start, COVEY_PROJECT_TIDY on): ``scope`` "" for everything, a project id or a word; ``done`` says
+  已开始整理，结果发到私聊 (the 整理专项 card goes to the private chat), or 正在整理（12/40） while one runs; off, or too few topics, is ``failed``.
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
 
 Rules (AGENTS.md): nothing is sent from under a record's lock; a write to a task is not replayed (the ledger, core/web_sync.py, keeps an
@@ -78,7 +80,7 @@ class Ops:
         kind = str(row.get("kind") or "")
         try:
             handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
-                       "forget": self.forget}.get(kind)
+                       "forget": self.forget, "tidy": self.tidy}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -287,6 +289,21 @@ class Ops:
                                           message=WEB_STOP_NOTE)
             said.append("等你回答的题已收掉")
         return "；".join(said)
+
+    # -- tidy --------------------------------------------------------------------------------------------------------------
+
+    def tidy(self, state, chat, row, payload) -> str:
+        """整理专项 from the page (app/project_tidy.py start): ``scope`` empty for all, else a project id or a word. done with
+        已开始整理，结果发到私聊, or with how far the one running has got (正在整理（12/40））; off, ``failed``."""
+        from covey.core import project_proposals
+
+        tidy = getattr(self.env, "tidy", None)
+        if tidy is None or not project_proposals.enabled():
+            raise ValueError("整理专项没有开（COVEY_PROJECT_TIDY）")
+        words = tidy.start(origin="web", scope=" ".join(str(payload.get("scope") or "").split())[:40])
+        if words != project_proposals.STARTED_WORDS and not words.startswith(project_proposals.BUSY_PREFIX):
+            raise ValueError(words)
+        return words
 
     # -- reopen ------------------------------------------------------------------------------------------------------------
 

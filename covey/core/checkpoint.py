@@ -66,6 +66,28 @@ CHECKPOINT_RULES = (
     "没做的项留空；调研、报告、问答的轮次不写 delivery。"
 )
 
+# 话题要点 (COVEY_PROJECT_TIDY, core/topic_gist.py): put in each turn's message of an ordinary topic or a project's topic, after
+# the checkpoint file (app/runs.py), never into the rules above, so a topic's rules stay the same with the switch on or off.
+TOPIC_GIST_RULE = (
+    "话题要点：每一轮结束前都在检查点里写 topic_gist（短任务、问答也写；检查点里别的字段照常保留），写这个话题本质上在做什么："
+    '{"essence":"本质，对象 + 要达成的事，一句话","goal":"现在的目标","involves":"涉及的仓库、系统、环节",'
+    '"related":["相关话题的 T 号"],"changed":"和上次比变了什么，没变写“没变”"}。'
+    "本质要读了整段对话再写，不写标题里第一件具体的事，也不写这件事现在所在的环节；开头聊的是一件事、后来改成了另一件，就写现在这件。"
+    "下面是上次的话题要点：没变就原样照抄，变了就改，本质变了在 changed 里写清从什么变成什么。"
+)
+
+
+def gist_note(previous_lines: str) -> str:
+    """TOPIC_GIST_RULE with the topic's current gist (core/topic_gist.py lines), or the words for a topic that has none."""
+    return TOPIC_GIST_RULE + "\n" + (previous_lines if previous_lines else "（这个话题还没有话题要点，这一轮第一次写。）")
+
+
+def checkpoint_gist(cp):
+    """The checkpoint's ``topic_gist`` as written (an object or text; None without one): core/topic_gist.py parse reads it."""
+    raw = cp.get("topic_gist") if isinstance(cp, dict) else None
+    return raw if isinstance(raw, (dict, str)) and raw else None
+
+
 # The optional ``steps`` and ``delivery`` of CHECKPOINT_RULES, as the Bridge reads them (``checkpoint_steps``,
 # ``checkpoint_delivery``): a model's slip (a wrong type, an unknown state, a second doing, a long title) is cut to
 # what can be shown, never an error.
