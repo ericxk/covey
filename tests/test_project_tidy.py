@@ -326,7 +326,7 @@ class ProposalTest(TidyCase):
         self.assertIn("这个话题推了很久", card)
         self.assertIn("19 天 · 3 轮", card)
         self.assertIn("在做：阅读这个session", card)
-        self.assertIn("现在：结论：第 2 句", card)
+        self.assertIn("现在：做完", card)  # Its newest checkpoint's phase.
         self.assertNotIn("这几个话题", card)
 
     def test_the_owner_unticks_a_topic_adds_one_by_its_number_and_renames_before_building(self):
