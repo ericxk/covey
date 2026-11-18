@@ -69,6 +69,10 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         "  filter of a pipeline, then check that nothing you started is still running, including processes",
         "  adopted by PID 1. A search that ends with 134 (`memory allocation ... failed`) or 137 walked too",
         "  much: narrow it; do not rerun it unchanged or raise a memory limit.",
+        # 2026-11-19 (T531): a supplement 'the QR code expired, send a new one' waited 280 s for a 540 s wait loop to end.
+        "- What the user sends while you work reaches you only between tool calls. To wait for the user (a scan, a",
+        "  confirmation) or for something outside (a deploy, a job, a page), poll with short commands of at most",
+        "  30 seconds each, not one long blocking command or loop, so a new instruction is read within seconds.",
         "- This Feishu topic is one persistent session. Ask follow-up questions here and continue here.",
         "- Do not automatically publish process, diff or review documents to Feishu; keep local reports",
         "  unless the user requests publication. Never select another topic's latest review run.",
