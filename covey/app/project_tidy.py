@@ -15,6 +15,10 @@ topics by a mechanism, not by the one look the butler takes when it opens a topi
   a new project is proposed on a card (建专项 / 改个名再建 / 不用 / 以后别提议), or made at once with ``auto`` (or after the owner's
   以后直接建). Not with fewer than COVEY_PROJECT_TIDY_MIN_TOPICS topics in the chat, not for a topic taken out of a project (移出)
   as far as joining goes, never twice for an open proposal.
+- **Proposals follow the joins** (``follow``, each tick; the owner, 2026-11-19): an open proposal some of whose topics are now in
+  a project, however they got there, keeps the rest (its card redrawn) or, with fewer than MIN_CREATE left, ends 已过时 with
+  where they went. A new 新建 leaves out the topics already in a project and goes onto the card of a waiting proposal it mostly
+  overlaps (core/project_proposals.py ``overlapping``) instead of a card of its own.
 - **Scheduled and asked for** (``start``): with the 早晚汇总 (COVEY_DIGEST_TIMES, the same times, a record of its own), the
   butler's projects_tidy, the 设置 card's 整理专项 and the web page's ``tidy``. One at a time (``busy``): asked while one runs,
   the answer is where it is. The 整理专项 card goes out first and shows 正在读 T488（12/40） while the topics without a 话题要点
@@ -114,6 +118,7 @@ class ProjectTidy:
                 data["queue"] = [*(data.get("queue") or []), *({"topic": topic, "reason": why, "at": now} for topic, why in fired)
                                  ][-QUEUE_MAX:]
             proposals.change(state, queue)
+        self.follow(ctx, chat)
         self.scheduled(ctx, chat, now)
         if not self.busy.locked():
             self.drain(ctx, chat, now)
@@ -381,10 +386,25 @@ class ProjectTidy:
         is not proposed (以后别提议, turned down before, MAX_ACTIVE projects on)."""
         state = Path(ctx.state_dir)
         prefs = proposals.prefs(state)
+        # Topics already in a project are not proposed again (the owner, 2026-11-19: 已经归进专项的话题还挂在提议卡上).
+        topics = proposals.free(state, made["topics"])
+        if len(topics) < proposals.MIN_CREATE:
+            return ""
+        if topics != list(made["topics"]):
+            made = {**made, "topics": topics, "id": proposals.proposal_id(proposals.CREATE, topics)}
         if projects.active_count(state) >= projects.MAX_ACTIVE:
             return ""
         if proposals.declined_like(state, proposals.CREATE, made["topics"]):
             return ""
+        same = proposals.overlapping(state, topics)
+        if same:
+            # Mostly the topics of a proposal already waiting for him: no second card; its topics it lacks go onto that card.
+            more = [topic for topic in topics if topic not in (same.get("topics") or ())]
+            if not more:
+                return ""
+            note = f"又发现 {self.labels(state, more)} 也是这件事，补进来了。"
+            merged = proposals.free(state, [*same["topics"], *more])
+            return "merged" if self.retopic(ctx, chat, same, merged, note) else ""
         if proposals.mode() == proposals.AUTO or prefs.get("auto_create"):
             saved, _ = proposals.put_proposal(state, {**made, "state": proposals.ACCEPTED, "decided_at": time.time()})
             if saved.get("state") != proposals.ACCEPTED:
@@ -810,8 +830,11 @@ class ProjectTidy:
                     # The same proposal already waits for him (the owner, 2026-11-18 23:19: 为啥现在我点了整理专项说不需要呢 —
                     # it was dropped as nothing new): named as still waiting, to decide on the 看板.
                     found = proposals.read_proposal(state, made["id"])
-                    if found.get("state") == proposals.OPEN and (found.get("card") or {}).get("message_id"):
-                        view.setdefault("pending", []).append(str(found.get("name") or made.get("name") or ""))
+                    if found.get("state") != proposals.OPEN or not (found.get("card") or {}).get("message_id"):
+                        found = proposals.overlapping(state, proposals.free(state, made["topics"]))  # Merged into it.
+                    name = str(found.get("name") or made.get("name") or "")
+                    if found and name not in view.get("pending", ()):
+                        view.setdefault("pending", []).append(name)
                 continue
             saved, _ = proposals.put_proposal(state, made)
             if saved.get("state") != proposals.OPEN or any(row["proposal"] == saved["id"] for row in view["rows"]):
@@ -833,6 +856,97 @@ class ProjectTidy:
             self.patch_own(ctx, str((record.get("card") or {}).get("message_id") or ""), cards.proposal_card(view))
             gone += 1
         return gone
+
+    # Proposals that follow the joins ------------------------------------------------------------------------------------
+
+    def follow(self, ctx, chat) -> int:
+        """The open proposals some of whose topics are now in a project, however they got there (建专项, 自动收, the lead's
+        加话, a merge, by hand): a 新建 one keeps the rest when MIN_CREATE are left (its card redrawn with them), else it ends
+        (已过时, the card says where they went); a 归进 one ends. Each tick; how many changed. Rules 1 and 3: each record is
+        changed under its own lock, its card written after."""
+        state, changed = Path(ctx.state_dir), 0
+        for record in proposals.proposals(state, [proposals.OPEN]):
+            kind, topics = record.get("kind"), list(dict.fromkeys(record.get("topics") or ()))
+            if kind not in (proposals.CREATE, proposals.JOIN) or not topics:
+                continue
+            left = proposals.free(state, topics)
+            if len(left) == len(topics):
+                continue
+            went = self.went(state, [topic for topic in topics if topic not in left])
+            try:
+                if kind == proposals.CREATE and len(left) >= proposals.MIN_CREATE:
+                    done = self.retopic(ctx, chat, record, left, f"{went}，这张卡只剩下面 {len(left)} 个话题。")
+                else:
+                    rest = (f"；剩下的 {self.labels(state, left)} 一个话题成不了专项" if left else "") if kind == proposals.CREATE else ""
+                    done = self.retire(ctx, record, f"{went}{rest}，这条不再提。")
+            except Exception as exc:  # noqa: BLE001 - the next tick tries again
+                self.runtime.log(f"project tidy follow failed proposal={record['id'][:8]}: {type(exc).__name__}")
+                continue
+            if done:
+                changed += 1
+                self.runtime.log(f"project tidy proposal followed proposal={record['id'][:8]} left={len(left)}")
+        return changed + self.unrepeat(ctx)
+
+    def unrepeat(self, ctx) -> int:
+        """The cards of the same topics (or some of them) as a newer proposal still waiting, ended so only that one stays: the
+        看板 already lists only it (core/project_proposals.py ``waiting``). How many."""
+        state, gone = Path(ctx.state_dir), 0
+        kept = proposals.waiting(state)
+        for record in proposals.proposals(state, [proposals.OPEN]):
+            mine = set(record.get("topics") or ())
+            if (record.get("kind") != proposals.CREATE or not (record.get("card") or {}).get("message_id")
+                    or any(record["id"] == other["id"] for other in kept)):
+                continue
+            other = next((other for other in kept if mine <= set(other["topics"]) or set(other["topics"]) <= mine), None)
+            if other is not None and self.retire(ctx, record, f"和提议「{other.get('name') or ''}」是同一件事，留那一张，这条不再提。"):
+                gone += 1
+        return gone
+
+    def went(self, state, topics) -> str:
+        """Where ``topics`` went: T519、T531 已归进专项「X」 (one clause a project)."""
+        by = {}
+        for topic in topics:
+            found = projects.topic_project(state, topic)
+            by.setdefault(found.id if found is not None else "", []).append(topic)
+        return "；".join(f"{self.labels(state, group)} 已归进专项「{self.project_name(state, pid)}」" if pid
+                        else f"{self.labels(state, group)} 已归进专项" for pid, group in by.items())
+
+    def retopic(self, ctx, chat, record, topics, changed) -> bool:
+        """An open proposal now about ``topics``, its card redrawn with them and ``changed`` said on it; whether it was (False:
+        decided meanwhile)."""
+        state = Path(ctx.state_dir)
+        topics = list(dict.fromkeys(topics))
+        message = str((record.get("card") or {}).get("message_id") or "")
+        view = {**(record.get("view") or self.proposal_view(state, record)), "changed": changed,
+                "labels": [label_title(state, topic) for topic in topics]}
+        if message:  # A row of an older 整理专项 card has no card of its own to draw.
+            view.update(rows=self.topic_rows(ctx, chat, topics), choices=self.choices(ctx, chat, topics))
+        done = []
+
+        def edit(data):
+            if data.get("state") == proposals.OPEN:
+                data.update(topics=topics, view=view)
+                done.append(True)
+        proposals.update_proposal(state, record["id"], edit)
+        if done:
+            self.patch_own(ctx, message, cards.proposal_card(view))
+        return bool(done)
+
+    def retire(self, ctx, record, note) -> bool:
+        """An open proposal ended as 已过时 with ``note``, its card redrawn so; whether it was (False: decided meanwhile)."""
+        state = Path(ctx.state_dir)
+        view = {**(record.get("view") or self.proposal_view(state, record)), "state": proposals.EXPIRED, "note": note,
+                "lesson": False}
+        done = []
+
+        def edit(data):
+            if data.get("state") == proposals.OPEN:
+                data.update(state=proposals.EXPIRED, decided_at=time.time(), view=view)
+                done.append(True)
+        proposals.update_proposal(state, record["id"], edit)
+        if done:
+            self.patch_own(ctx, str((record.get("card") or {}).get("message_id") or ""), cards.proposal_card(view))
+        return bool(done)
 
     def foldable(self, state, pid) -> bool:
         from covey.core.jobs import topic_job_records

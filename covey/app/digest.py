@@ -413,19 +413,10 @@ class Digest:
                           "url": self.url(ctx, record["lead_topic_id"]) if record.get("lead_topic_id") else ""})
         # The proposals waiting for him, each with its topics, to decide right on the 看板 (the owner, 2026-11-18: 不要让我
         # 去聊天里往上翻). One of a single topic is no project any more (app/project_sorter.py MIN_CREATE): left out.
-        pending, seen = [], set()
+        pending = []
         if project_proposals.enabled():
-            for record in sorted(project_proposals.proposals(ctx.state_dir, [project_proposals.OPEN]),
-                                 key=lambda record: record.get("created_at") or 0, reverse=True):
+            for record in project_proposals.waiting(ctx.state_dir):  # The same list as projects_list and 整理专项's 还在等你定.
                 topics = list(dict.fromkeys(record.get("topics") or ()))
-                # Only those on a proposal card of their own: a row of an older 整理专项 card (before 2026-11-18 20:00, when
-                # a catch-all could still be proposed there) stays on that card.
-                if record.get("kind") != project_proposals.CREATE or len(topics) < 2 or not (record.get("card") or {}).get("message_id"):
-                    continue
-                mine = frozenset(topics)
-                if any(mine <= other or other <= mine for other in seen):
-                    continue  # The same topics, or some of them, proposed twice: the newest one.
-                seen.add(mine)
                 rows = []
                 for topic in topics:
                     label, title = label_title(ctx.state_dir, topic)

@@ -114,13 +114,16 @@ def name_form(view):
 def proposal_card(view):
     """建个专项？ ``view``: proposal (id), rows [{label, title, link, essence, now, days, turns}] (``topic_lines``; labels [(T 号,
     标题)] in a view kept before them), name, goal, why, first (the first proposal ever: one sentence of what a project is),
-    ask_auto (5 in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), note (the line under it once
-    decided), lesson (a reason form under a 暂不考虑). Open, it ends with the name to change and 建专项 / 暂不考虑 (``name_form``)."""
+    ask_auto (5 in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), changed (what became of
+    its topics since it was sent, while open: app/project_tidy.py follow), note (the line under it once decided), lesson (a
+    reason form under a 暂不考虑). Open, it ends with the name to change and 建专项 / 暂不考虑 (``name_form``)."""
     elements = topic_lines(view)
     if view.get("why"):
         elements.append(note("为什么提：" + literal_text(view["why"])))
     goal = literal_text(view.get("goal") or "")
     state = view.get("state") or "open"
+    if state == "open" and view.get("changed"):
+        elements.append(note(literal_text(view["changed"])))
     if goal:
         elements.append(md(f"**目标**：{goal}"))
     if view.get("first"):

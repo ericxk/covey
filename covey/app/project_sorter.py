@@ -42,7 +42,7 @@ FULL_CONCLUSION = 600  # Of each conclusion in a read in full.
 MAX_TOPICS = 40
 MAX_PROJECTS = 12
 LESSONS = 12
-MIN_CREATE = 2  # Topics a new project is made of at least.
+MIN_CREATE = proposals.MIN_CREATE  # Topics a new project is made of at least.
 SUGGESTIONS = 12  # Read of an answer (the card shows at most app/project_tidy.py CARD_ROWS).
 
 JUDGE_SYSTEM = (

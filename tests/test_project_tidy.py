@@ -630,6 +630,99 @@ class PendingTest(TidyCase):
         self.assertNotIn("往上翻", card)
 
 
+class FollowTest(TidyCase):
+    """The owner, 2026-11-19: 已经归进专项的话题，提议卡不会失效 — four cards stayed on the 看板 after T519、T525、T531 joined a project,
+    two of them nearly the same. A proposal follows the joins, however they happen, and a new one does not repeat a waiting one."""
+
+    def setUp(self):
+        super().setUp()
+        self.filler(3)
+        self.trio = [self.topic("C队重启后自启"), self.topic("开发机重启"), self.topic("自启脚本")]
+        self.tidy.recent_topics = lambda state, chat, now, **kw: list(self.trio)
+        self.pid = self.project("Covey 体验与节点改进", [self.topic("节点第一期")])
+
+    def suggest(self, picks, name):
+        self.verdicts.append({"suggestions": [{"kind": "create", "topics": picks, "name": name, "goal": "自启恢复",
+                                               "why": "都在修重启", "confidence": 0.9}]})
+
+    def open_card(self, picks=(1, 2, 3), name="C队重启后自启恢复"):
+        self.suggest(list(picks), name)
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, self.trio[0], "new", time.time()), "proposed")
+        return proposals.waiting(self.state)[0]
+
+    def test_a_topic_the_lead_takes_in_leaves_the_card_with_the_rest_and_the_card_says_where_it_went(self):
+        record = self.open_card()
+        upgrades.join_topic(self.state, self.pid, self.trio[2], by="lead")
+        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 1)
+        now = proposals.read_proposal(self.state, record["id"])
+        self.assertEqual((now["state"], now["topics"]), (proposals.OPEN, self.trio[:2]))
+        card = text(self.patched())
+        self.assertEqual(self.app.messenger.patch_card.call_args.args[1], record["card"]["message_id"])
+        for word in ("已归进专项「Covey 体验与节点改进」", "只剩下面 2 个话题", "建专项"):
+            self.assertIn(word, card)
+        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 0)  # Nothing new: the card is not written again.
+
+    def test_too_few_left_ends_it_off_the_board_the_list_and_the_tidy_card(self):
+        record = self.open_card((1, 2), "C队开发机重启后自启修复")
+        upgrades.join_topic(self.state, self.pid, self.trio[1], by="tidy")
+        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 1)
+        self.assertEqual(proposals.read_proposal(self.state, record["id"])["state"], proposals.EXPIRED)
+        card = text(self.patched())
+        for word in ("已过时", "已归进专项「Covey 体验与节点改进」", "成不了专项", "这条不再提"):
+            self.assertIn(word, card)
+        self.assertNotIn(cards.CREATE_KIND, card)
+        self.assertEqual(proposals.waiting(self.state), [])
+        answer = upgrades.projects_list(self.env, SimpleNamespace(args={}, id="r1", job_key="main-job"))
+        self.assertNotIn("C队开发机重启后自启修复", answer["text"])
+        self.assertNotIn("等主人定", answer["text"])
+        self.assertEqual(self.click({"kind": cards.CREATE_KIND, "proposal": record["id"]}, record["card"]["message_id"]),
+                         "tidy_decided")  # A click on the card from before builds nothing.
+
+    def test_a_new_proposal_inside_a_waiting_one_is_not_sent_and_one_with_more_goes_onto_its_card(self):
+        record = self.open_card((1, 2))
+        sent = len(self.sent_cards())
+        self.assertEqual(self.tidy.propose(self.ctx, CHAT, proposals.new_proposal(
+            proposals.CREATE, topics=self.trio[1::-1], name="C队开发机重启后自启修复")), "")
+        self.assertEqual(self.tidy.propose(self.ctx, CHAT, proposals.new_proposal(
+            proposals.CREATE, topics=self.trio, name="C队重启后自启恢复")), "merged")
+        self.assertEqual(len(self.sent_cards()), sent)
+        self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio)
+        self.assertEqual(len(proposals.waiting(self.state)), 1)
+        self.assertIn("也是这件事，补进来了", text(self.patched()))
+
+    def test_two_cards_left_with_the_same_topics_keep_only_the_newer(self):
+        """The owner's four cards: 「C队重启后自启恢复」 (T525、T526、T524) and the newer 「C队开发机重启后自启修复」 (T524、T526)."""
+        older = proposals.new_proposal(proposals.CREATE, topics=self.trio, name="C队重启后自启恢复", now=time.time() - 60)
+        newer = proposals.new_proposal(proposals.CREATE, topics=self.trio[:2], name="C队开发机重启后自启修复")
+        for record, message in ((older, "om_old"), (newer, "om_new")):
+            proposals.put_proposal(self.state, {**record, "card": {"message_id": message, "chat_id": CHAT}})
+        upgrades.join_topic(self.state, self.pid, self.trio[2], by="lead")
+        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 2)
+        self.assertEqual(proposals.read_proposal(self.state, older["id"])["state"], proposals.EXPIRED)
+        self.assertEqual(proposals.read_proposal(self.state, newer["id"])["state"], proposals.OPEN)
+        self.assertEqual([record["id"] for record in proposals.waiting(self.state)], [newer["id"]])
+        self.assertEqual(self.app.messenger.patch_card.call_args.args[1], "om_old")
+        self.assertIn("和提议「C队开发机重启后自启修复」是同一件事", text(self.patched()))
+
+    def test_a_proposal_mostly_of_a_projects_topics_is_not_made(self):
+        for topic in self.trio[1:]:
+            upgrades.join_topic(self.state, self.pid, topic, by="rule")
+        self.assertEqual(self.tidy.propose(self.ctx, CHAT, proposals.new_proposal(
+            proposals.CREATE, topics=self.trio, name="C队重启后自启恢复")), "")
+        self.assertEqual(proposals.proposals(self.state, [proposals.OPEN]), [])
+
+    def test_each_tick_follows_and_a_whole_tidy_names_the_one_it_merged_into_as_waiting(self):
+        record = self.open_card((1, 2))
+        self.suggest([1, 2, 3], "C队重启后自启恢复")
+        view = self.tidy.whole(self.ctx, CHAT, "run-f", "test", "")["view"]
+        self.assertEqual(view.get("pending"), ["C队重启后自启恢复"])
+        self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio)
+        upgrades.join_topic(self.state, self.pid, self.trio[0], by="lead")
+        with mock.patch.object(self.tidy, "scan", return_value=[]), mock.patch.object(self.tidy, "scheduled"):
+            self.tidy.tick(self.ctx)
+        self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio[1:])
+
+
 class WhyUnreadTest(UpCase):
     def test_a_refusal_and_a_topic_too_long_are_told_apart_from_other_exits(self):
         """The owner, 2026-11-18: “读不了”的话题，要写清为什么 — Claude Code says a refusal only on stdout."""

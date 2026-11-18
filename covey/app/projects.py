@@ -693,9 +693,7 @@ def projects_list(env, request):
     # The proposals waiting for him, said the same way as the 看板 (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
     waiting = []
     if project_proposals.enabled():
-        waiting = [record for record in project_proposals.proposals(state, [project_proposals.OPEN])
-                   if record.get("kind") == project_proposals.CREATE and len(set(record.get("topics") or ())) >= 2
-                   and (record.get("card") or {}).get("message_id")]  # As the 看板 lists them (app/digest.py projects_view).
+        waiting = project_proposals.waiting(state)  # As the 看板 lists them (app/digest.py projects_view).
     pending = ("；还有 " + str(len(waiting)) + " 个提议等主人定（在看板的专项区）：" + "、".join(
         f"「{clip(record.get('name'), 20)}」（{'、'.join(topic_label(state, topic) or topic[:6] for topic in record.get('topics') or ())}）"
         for record in waiting[:6])) if waiting else ""

@@ -43,6 +43,7 @@ PROPOSAL_TRANSITIONS = {OPEN: {ACCEPTED, DECLINED, NEVER, EXPIRED, DONE, FAILED}
                         DECLINED: set(), NEVER: set(), DONE: set(), FAILED: {ACCEPTED}, EXPIRED: set()}
 
 EVIDENCE = 2  # A declined proposal is made again once it would take in this many more topics.
+MIN_CREATE = 2  # Topics a new project is made of at least (app/project_sorter.py, the 看板 and the proposal cards).
 ACCEPTS_TO_ASK = 5  # 建专项 clicked as proposed this many times in a row: the card asks 以后直接建？
 LESSONS_KEPT = 30
 SEEN_KEPT = 400
@@ -271,6 +272,39 @@ def queue_sweep(state_dir, project, now=None) -> None:
 def open_with(state_dir, topic) -> list:
     """The open proposals that are about ``topic``."""
     return [record for record in proposals(state_dir, (OPEN,)) if topic in (record.get("topics") or ())]
+
+
+def free(state_dir, topics) -> list:
+    """``topics`` without the ones already in a project (core/projects.py topic_project), each once, in order."""
+    return [topic for topic in dict.fromkeys(topics or ()) if projects.topic_project(state_dir, topic) is None]
+
+
+def waiting(state_dir) -> list:
+    """The proposals waiting for the owner, the newest first: the open 新建 ones on a proposal card of their own with at least
+    MIN_CREATE topics, the same topics (or some of them) once. The 看板 (app/digest.py), the butler's projects_list
+    (app/projects.py) and 整理专项's 还在等你定 say these, so all three say the same."""
+    found, seen = [], []
+    for record in sorted(proposals(state_dir, (OPEN,)), key=lambda record: record.get("created_at") or 0, reverse=True):
+        mine = frozenset(record.get("topics") or ())
+        if record.get("kind") != CREATE or len(mine) < MIN_CREATE or not (record.get("card") or {}).get("message_id"):
+            continue  # A row of an older 整理专项 card (before 2026-11-18 20:00) stays on that card.
+        if any(mine <= other or other <= mine for other in seen):
+            continue
+        seen.append(mine)
+        found.append(record)
+    return found
+
+
+def overlapping(state_dir, topics) -> dict:
+    """The proposal waiting for the owner (``waiting``) that is mostly about ``topics``: they share at least half of the
+    smaller of the two; {} when none. A new 新建 proposal goes into it instead of a card of its own (the owner, 2026-11-19:
+    C队重启后自启 proposed twice)."""
+    wanted = set(topics or ())
+    for record in waiting(state_dir):
+        shared = wanted & set(record.get("topics") or ())
+        if shared and 2 * len(shared) >= min(len(wanted), len(set(record.get("topics") or ()))):
+            return record
+    return {}
 
 
 # Topics --------------------------------------------------------------------------------------------------------------
