@@ -464,3 +464,27 @@ class NameTest(TidyCase):
         self.assertEqual(proposals.clean_name("T488 Bootstrap 题包提效 2026-11-18"), "Bootstrap 题包提效")
         self.assertLessEqual(proposals.name_width(proposals.clean_name("一个非常非常非常非常长的专项名字超过十二个字")), 12)
         self.assertEqual(Path(proposals.state_path(self.state)).parent.name, "tidy")
+
+
+class TidyModelTest(UpCase):
+    """整理 reads whole conversations and names what a matter really is: Sonnet by default, not the small judge's Haiku."""
+
+    def test_the_model_is_sonnet_unless_set(self):
+        from covey.core import project_proposals as proposals
+        self.assertEqual("sonnet", proposals.model({}))
+        self.assertEqual("opus", proposals.model({"COVEY_PROJECT_TIDY_MODEL": "opus"}))
+        self.assertEqual("sonnet", proposals.model({"COVEY_PROJECT_TIDY_MODEL": "bad model; rm"}))
+
+    def test_the_call_asks_that_model(self):
+        seen = {}
+
+        def argv(backend, ctx, flag, **kwargs):
+            seen.update(kwargs)
+            return ["claude"]
+
+        ctx = SimpleNamespace(state_dir=self.state)
+        with mock.patch.dict(os.environ, {"COVEY_PROJECT_TIDY_MODEL": "opus"}), \
+                mock.patch.object(sorter.track_judge, "claude_argv", argv), \
+                mock.patch.object(sorter.track_judge, "run", return_value="{}"):
+            sorter.ask("system", "data", SimpleNamespace(), ctx, 5)
+        self.assertEqual("opus", seen.get("model"))

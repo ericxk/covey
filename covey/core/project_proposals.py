@@ -67,6 +67,18 @@ def raw(name, environ=None) -> str:
     }[name]
 
 
+MODEL_ENV = "COVEY_PROJECT_TIDY_MODEL"
+DEFAULT_MODEL = "sonnet"
+MODEL_RE = re.compile(r"[A-Za-z0-9._:\[\]-]{1,80}")
+
+
+def model(environ=None) -> str:
+    """The Claude Code model that writes a 话题要点 from a whole topic and judges a 整理: COVEY_PROJECT_TIDY_MODEL, else
+    DEFAULT_MODEL (more than the small one: both read whole conversations and name what a matter really is)."""
+    value = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
+    return value if MODEL_RE.fullmatch(value) else DEFAULT_MODEL
+
+
 def mode(environ=None) -> str:
     """``suggest``, ``auto`` or ``off`` (read on every call; off without COVEY_PROJECTS=1)."""
     if str(cenv.get(projects.ENV, "", environ)).strip() != "1":

@@ -171,7 +171,7 @@
 
 仓库代码里不设就是关（AGENTS.md 规则 4）；`./install` 写服务清单时，终端里没设这两个变量就写上 `COVEY_PROJECTS=1`、`COVEY_PROJECT_TIDY=suggest`（`service/installer.py` 的 `INSTALL_SWITCHES`），已有的值不动。要关，在注册服务的终端里设 `COVEY_PROJECT_TIDY=off` 再 `launch`。
 
-可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_AGE_DAYS`（3，话题跨进第几天算一次实时时机）、`COVEY_PROJECT_TIDY_WORDS`（15，主人在话题里说到第几句算一次）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。判断用 Claude Code 的 Haiku，走 Claude Harness 自己的包装，和多路并行的小模型判断同一套做法；没有 Claude Harness 时判断不了，整理卡写“没有可用的 Claude Code 来判断”。
+可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_AGE_DAYS`（3，话题跨进第几天算一次实时时机）、`COVEY_PROJECT_TIDY_WORDS`（15，主人在话题里说到第几句算一次）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。补话题要点和判断用 Claude Code 的 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），走 Claude Harness 自己的包装，和多路并行的小模型判断同一套做法；没有 Claude Harness 时判断不了，整理卡写“没有可用的 Claude Code 来判断”。
 
 ### 记忆
 
@@ -381,6 +381,7 @@
 | `COVEY_WEB` | `core/web_sync.py`（`enabled`）、`app/web_sync.py`（`WebSync.threads`） | 空：关。`1`：开网页工作台同步，`web-push`、`web-inbox` 两条线程；要同时设 `COVEY_WEB_CONFIG` | 否 |
 | `COVEY_WEB_CONFIG` | `core/web_sync.py`（`load_config`） | 空。指向一个 JSON：`base_url`、`key_file`（只从这个文件读密钥）、`push_seconds`（默认 1）、`poll_seconds`（默认 1）；文件缺了或写错只记一行失败、退避重试 | 否 |
 | `COVEY_PROJECT_TIDY` | `core/project_proposals.py`（`mode`、`enabled`，要 `COVEY_PROJECTS=1`）、`app/project_tidy.py`（`ProjectTidy.threads`）、`app/runs.py`（`_gist_note`：每轮消息里的话题要点规则）、`core/butler.py`（`mcp_config` 交给 MCP 服务）、`core/butler_tool_specs.py`（`tidy_listed`：管家多 `projects_tidy`）、`app/web_sync.py`（话题的 `gist`）、`app/butler_panel.py`（设置卡的「整理专项」） | 空或 `off`：关。`suggest`：只提议（能归进已有专项的直接归，新建要点「建专项」）；`auto`：新建也直接做。`./install` 新装的服务写 `suggest`。见[整理专项](#整理专项) | 否 |
+| `COVEY_PROJECT_TIDY_MODEL` | `core/project_proposals.py`（`model`）、`app/project_sorter.py`（`ask`） | `sonnet`：补话题要点和整理判断用的 Claude Code 模型别名或 id；写错按默认 | 否 |
 | `COVEY_PROJECT_TIDY_DAYS` | `core/project_proposals.py`（`number`） | 7：整理看最近几天有过一轮的话题（专项里的话题不论多久都看） | 否 |
 | `COVEY_PROJECT_TIDY_AGE_DAYS` | `core/project_proposals.py`（`number`） | 3：话题开了这么多天后又有一轮结束，算一次实时时机（每个话题一次） | 否 |
 | `COVEY_PROJECT_TIDY_WORDS` | `core/project_proposals.py`（`number`） | 15：主人在话题里说到这么多句（他开的轮数），算一次实时时机（每个话题一次） | 否 |
