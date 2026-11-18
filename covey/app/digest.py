@@ -48,14 +48,16 @@ import time
 from covey.core import env as cenv
 from covey.app.overview import dismissable
 from covey.app.pins import QUESTION_AGE, board_results, kept, laid, record_path
-from covey.app.topic_links import linkify
+from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
+from covey.cards.board import board_card
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
 from covey.core import board_read, knowledge, patrol, projects, turn_words
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
+from covey.core.failure import failure_view
 from covey.core.locks import resource_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, took_text
@@ -129,6 +131,28 @@ def since_of(times, slot, last):
     return max(start, slot - LOOKBACK)
 
 
+def clock_words(at, now) -> str:
+    """When ``at`` was, as the 看板 says it: "20:31" today, "昨天 02:40", else "11-16 09:05"."""
+    then, today = datetime.datetime.fromtimestamp(at, ZONE), datetime.datetime.fromtimestamp(now, ZONE).date()
+    if then.date() == today:
+        return then.strftime("%H:%M")
+    if then.date() == today - datetime.timedelta(days=1):
+        return "昨天 " + then.strftime("%H:%M")
+    return then.strftime("%m-%d %H:%M")
+
+
+LINE_CHARS = 60  # Of a result's first line on the 看板.
+
+
+def first_line(text) -> str:
+    """A result's first line in words, its Markdown marks off, cut to LINE_CHARS."""
+    for line in str(text or "").splitlines():
+        line = re.sub(r"^[#>*\-\s]+|[*`]", "", line).strip()
+        if len(line) >= 4:
+            return line if len(line) <= LINE_CHARS else line[:LINE_CHARS - 1] + "…"
+    return ""
+
+
 def board_since(times, now, last):
     """Where 看板's 做完 starts at ``now``: the last digest time done (``last``, digest.json's last_slot), else the latest
     past time, never more than LOOKBACK back."""
@@ -169,12 +193,25 @@ def collect(state, chat, slot, since, now, *, board=False):
         label, title = topic_label(state, topic)
         return {"topic": topic, "label": label, "title": title, "state": state_words, "took": took, "seen": seen_it}
 
+    newest = {}
+    for record in read.jobs:
+        topic = record.get("topic_id") or ""
+        if topic and (topic not in newest or order(record) > order(newest[topic])):
+            newest[topic] = record
+
+    def phase_of(record) -> str:
+        phase = " ".join(str((record or {}).get("phase") or "").split())
+        return "" if phase in turn_words.UNSET_PHASES else phase
+
     waiting = []
     for topic, record in sorted(asked.items(), key=lambda item: item[1].get("created_at") or 0, reverse=True):
         ask = turn_words.ask_words(record)
         waited = now - (record.get("created_at") or now)
-        waiting.append(row(topic, f"{turn_words.BOARD['waiting']}：{ask}" if ask else turn_words.BOARD["waiting"],
-                           f"等了 {took_text(waited)}"))
+        waiting.append({**row(topic, f"{turn_words.BOARD['waiting']}：{ask}" if ask else turn_words.BOARD["waiting"],
+                              f"等了 {took_text(waited)}"),
+                        # The 看板's words (cards/board.py): what he is asked to decide, then how long it waited.
+                        "line": f"要你定：{phase_of(newest.get(topic))}" if phase_of(newest.get(topic)) else
+                        (f"等你回答：{ask}" if ask else "等你回答"), "meta": [f"等了 {took_text(waited)}"]})
     starting = {}
     for record in jobs:
         topic = record.get("topic_id") or ""
@@ -203,9 +240,19 @@ def collect(state, chat, slot, since, now, *, board=False):
         # The estimate or 可能卡住了 after the phase (core/progress.py board_words), the topic's earlier turns as read.
         found = turn_progress.progress(record, now=now, history=turn_progress.turn_seconds(
             [job for job in jobs if job.get("topic_id") == topic], exclude=record.get("job_id")))
-        words = " · ".join([words, *turn_progress.board_words(found, now)])
+        figures = turn_progress.board_words(found, now)
+        words = " · ".join([words, *figures])
         ran = run_seconds(record.get("timings"), now=now) if status != "queued" else None
-        running_rows.append(row(topic, words, f"已运行 {took_text(ran)}" if ran is not None else ""))
+        plan = (f"{'▰' * found['plan_done']}{'▱' * (found['plan_total'] - found['plan_done'])} {found['plan_done']}/{found['plan_total']}"
+                if found.get("plan_total") and found.get("plan_done") is not None and found["plan_total"] <= 12 else "")
+        moved = found.get("last_activity_at")
+        running_rows.append({**row(topic, words, f"已运行 {took_text(ran)}" if ran is not None else ""),
+                             "line": f"现在：{phase_of(record)}" if phase_of(record) else
+                             ("正在停止" if status == "cancel_requested" else turn_words.BOARD["queued" if status == "queued" else "running"]),
+                             "meta": [plan, *(figure for figure in figures if "卡住" not in figure),
+                                      f"{turn_progress.ago_words(now - moved)}有动静" if moved else "",
+                                      f"已跑 {took_text(ran)}" if ran is not None else ""],
+                             "stuck": bool(found.get("maybe_stuck"))})
     busy |= set(running)
 
     ended = {}
@@ -223,8 +270,16 @@ def collect(state, chat, slot, since, now, *, board=False):
     done = []
     for topic, record in sorted(ended.items(), key=lambda item: ended_at(item[1]), reverse=True):
         took = run_seconds(record.get("timings"), now=ended_at(record))
-        done.append(row(topic, turn_words.STATES.get(record["status"], record["status"]),
-                        f"用时 {took_text(took)}" if took is not None else "", topic not in unseen))
+        status = record["status"]
+        line, meta = "", [f"用时 {took_text(took)}" if took is not None else ""]
+        if status in ("failed", "cancelled", "interrupted"):  # 停住了 on the 看板: why, and where it stopped.
+            failed = failure_view(record, now)
+            line = (failed["title"] if failed else "被停止了") + (f"；停在：{phase_of(record)}" if phase_of(record) else "")
+            meta = [f"{clock_words(ended_at(record), now)} 停"]
+        elif status == "done":
+            line = first_line(record.get("final_text"))
+        done.append({**row(topic, turn_words.STATES.get(status, status), f"用时 {took_text(took)}" if took is not None else "",
+                           topic not in unseen), "status": status, "line": line, "meta": meta})
     view = {"slot": slot, "since": since, "waiting": waiting, "stale": stale, "running": running_rows, "done": done,
             "older": older, "dismissable": bool(board and stale)}
     new, wanted = knowledge_view(state, since, slot), wanted_view(state, chat, since, slot)
@@ -282,6 +337,17 @@ def cleared(view, topics):
             "cleared": [*(view.get("cleared") or []), *(row.get("label") or "" for row in taken)]}
 
 
+def taken_off(view, topics):
+    """A 看板's ``view`` once ``topics`` were taken off (这些都不用回答了, or a stopped topic's 不管了): their stale rows
+    under ``cleared`` and their blocks gone; None when none of them is on it."""
+    on = any(row.get("topic") in topics for key in ("stale", "waiting", "running", "done") for row in view.get(key) or ())
+    if not on:
+        return None
+    view = cleared(view, topics) or dict(view)
+    return {**view, **{key: [row for row in view.get(key) or () if row.get("topic") not in topics]
+                       for key in ("waiting", "running", "done")}}
+
+
 class Digest:
     """``chat``: the chat it is sent to, '' the owner's private chat (Access.owner_chat); a personal group has one of
     its own (app/group_boards.py), its record its own (app/pins.py record_path) and
@@ -308,18 +374,52 @@ class Digest:
         now = time.time() if now is None else now
         last = read_object(record_path(ctx.state_dir, chat, RECORD)).get("last_slot")
         view = collect(ctx.state_dir, chat, now, board_since(self.times(), now, last), now, board=dismissable())
-        for key in ("waiting", "stale", "running", "done"):
-            self.linked(ctx, chat, view[key])
-        return {**view, "asked": True, **self.where(chat), **self.tidy(ctx, chat)}
+        view.pop("wanted", None)  # 我本来想找你的事 is the 早晚汇总's, not the 看板's (the owner, 2026-11-18).
+        # Each block of the 看板 opens its topic (cards/board.py): the topic's applink, read outside any lock.
+        urls = {}
+        for key in ("waiting", "running", "done"):
+            for row in view[key]:
+                topic = row.get("topic") or ""
+                if topic and topic not in urls:
+                    urls[topic] = self.url(ctx, topic)
+                row["url"] = urls.get(topic, "")
+        self.linked(ctx, chat, view["stale"])
+        return {**view, "asked": True, "stamp": clock_words(now, now), "can_dismiss": dismissable(),
+                **self.where(chat), **self.tidy(ctx, chat),
+                **self.projects_view(ctx, chat, view)}
+
+    def url(self, ctx, topic) -> str:
+        try:
+            return link_for(ctx.state_dir, topic, profile=getattr(ctx, "profile", None))
+        except Exception:  # noqa: BLE001 - a block that opens nothing, as a topic without a link
+            return ""
+
+    def projects_view(self, ctx, chat, view):
+        """The 看板's 专项 part (cards/board.py): each live project of ``chat`` with how its topics stand in ``view``,
+        and how many proposal cards wait (整理专项 on); nothing in a group's 看板 or with 专项 off."""
+        if self.where(chat) or not projects.enabled():
+            return {}
+        rows = {key: {row.get("topic") for row in view.get(key) or ()} for key in ("waiting", "running")}
+        stopped = {row.get("topic") for row in view.get("done") or () if row.get("status") in ("failed", "cancelled", "interrupted")}
+        found = []
+        for record in projects.records(ctx.state_dir, chat):
+            if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
+                continue
+            topics = [topic for topic in (record.get("lead_topic_id"), *(record.get("threads") or ())) if topic]
+            found.append({"name": record.get("name") or "", "goal": record.get("goal") or "", "topics": topics,
+                          "waiting": len(rows["waiting"] & set(topics)), "running": len(rows["running"] & set(topics)),
+                          "stopped": len(stopped & set(topics)),
+                          "url": self.url(ctx, record["lead_topic_id"]) if record.get("lead_topic_id") else ""})
+        waiting_cards = sum(1 for record in project_proposals.proposals(ctx.state_dir, [project_proposals.OPEN])
+                            if (record.get("card") or {}).get("message_id")) if project_proposals.enabled() else 0
+        return {"projects": found, "proposals": waiting_cards}
 
     def tidy(self, ctx, chat):
         """The 专项 part (cards/project_proposal.py board_rows): with 整理专项 on, in the owner's private chat (a group's
         看板 has none: 整理专项 sorts the private chat's topics)."""
         if not project_proposals.enabled() or self.where(chat):
             return {}
-        names = [str(record.get("name") or "") for record in projects.records(ctx.state_dir, chat)
-                 if record.get("state") in (projects.ACTIVE, projects.PAUSED)]
-        return {"tidy": {"projects": [name for name in names if name]}}
+        return {"tidy": {}}
 
     def where(self, chat):
         """The card's word for ``chat`` when it is a group with a butler (cards/digest.py), else nothing."""
@@ -330,13 +430,13 @@ class Digest:
 
     def board(self, ctx, chat_id, source, shown=None):
         """The bot menu's 看板: a new card in ``chat_id`` (the owner's private chat) for the click ``source``."""
-        self.menu.open(ctx, chat_id, source, lambda token, record: digest_card(record["digest"]), BOARD_FAILED,
+        self.menu.open(ctx, chat_id, source, lambda token, record: board_card(record["digest"]), BOARD_FAILED,
                        fields=lambda: {"digest": self.board_view(ctx, chat_id)}, shown=shown)
         self.runtime.log(f"digest board sent event={source[-10:]}")
 
     def fold_board(self, ctx, chat_id, source, message_id):
         """看板 again on its card, the newest in the chat: folded, or unfolded with a fresh view (MenuPanel toggle)."""
-        return self.menu.toggle(ctx, chat_id, source, message_id, lambda token, record: digest_card(record["digest"]),
+        return self.menu.toggle(ctx, chat_id, source, message_id, lambda token, record: board_card(record["digest"]),
                                 lambda token, record: folded_board(),
                                 fields=lambda: {"digest": self.board_view(ctx, chat_id)})
 
@@ -352,12 +452,12 @@ class Digest:
                 continue
             with self.menu.lock(path):
                 record = read_object(path)
-                view = cleared(record.get("digest"), set(topics)) if isinstance(record.get("digest"), dict) else None
+                view = taken_off(record.get("digest"), set(topics)) if isinstance(record.get("digest"), dict) else None
                 if view is None or record.get("message_id") != message_id or not isinstance(
                         (record.get("view") or {}).get("revision"), int):
                     return True
                 changed = {**record, "digest": view, "view": {**record["view"], "revision": record["view"]["revision"] + 1}}
-                confirmed = settle(ctx, path, record, changed, digest_card(view), self.messenger, BOARD_KIND)
+                confirmed = settle(ctx, path, record, changed, board_card(view), self.messenger, BOARD_KIND)
             self.runtime.log(f"digest board redrawn message={message_id[-8:]} confirmed={confirmed}")
             return True
         return False
@@ -394,7 +494,7 @@ class Digest:
         if not chat:
             return  # No private chat with the owner known yet: tried again until the time is CATCH_UP old.
         view = {**collect(ctx.state_dir, chat, slot, since_of(times, slot, last), now, board=dismissable()),
-                **self.where(chat), **self.tidy(ctx, chat)}
+                **self.where(chat)}  # 整理专项 is the 看板's alone (the owner, 2026-11-18).
         if not (view["waiting"] or view["stale"] or view["running"] or view["done"]):
             self.save(ctx, last_slot=slot, pending=None)
             self.runtime.log("digest not sent: nothing to list")

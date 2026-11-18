@@ -937,6 +937,7 @@ def overview_cards():
 
 
 def digest_cards():
+    from covey.cards.board import board_card
     from covey.cards.digest import digest_card, folded_board
 
     def row(label, title, state, took, seen=False):
@@ -965,6 +966,25 @@ def digest_cards():
             "asked_empty": digest_card({"slot": FROZEN, "since": FROZEN - 3 * 3600, "waiting": [], "stale": [],
                                         "running": [], "done": [], "asked": True}),
             "asked_folded": folded_board(),
+            # The 看板 (cards/board.py, the owner's 样张 A, 2026-11-18): a coloured block a topic, by what it asks of him.
+            "board": board_card({
+                "waiting": [{"topic": "a", "label": "T505", "title": "优化 Bootstrap 下一环节", "url": "https://applink.feishu.cn/t/505",
+                             "line": "要你定：Prompt 问题清单已出，等你定 6 件事", "meta": ["等了 45分28秒"]}],
+                "stale": [{"topic": "s", "label": "T370", "title": "旧问题"}], "dismissable": True, "can_dismiss": True,
+                "running": [{"topic": "b", "label": "T488", "title": "修 064 采购审批题包", "url": "https://applink.feishu.cn/t/488",
+                             "line": "现在：梳理 Service 还剩哪些要收尾", "meta": ["▰▰▰▰▱▱▱ 4/7", "预计还要约 35 分钟", "2 分钟前有动静"]},
+                            {"topic": "c", "label": "T519", "title": "从追问记录盘点 Covey 痛点", "url": "",
+                             "line": "现在：在审看板", "meta": ["35 分钟前有动静"], "stuck": True}],
+                "done": [{"topic": "d", "label": "T525", "title": "修 C队开发机重启后自启", "url": "https://applink.feishu.cn/t/525",
+                          "status": "cancelled", "line": "被停止了；停在：等你选插件形态", "meta": ["20:31 停"], "seen": False},
+                         {"topic": "e", "label": "T528", "title": "提炼两群 AI 高手的认知", "status": "done", "line": "炼化完了",
+                          "meta": [], "seen": False, "state": "做完", "took": "用时 19分22秒"},
+                         {"topic": "f", "label": "T527", "title": "修停止慢和任务卡重复", "status": "done", "seen": True,
+                          "state": "做完", "took": "用时 11分26秒"}],
+                "projects": [{"name": "题包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入", "topics": ["g"],
+                              "waiting": 1, "running": 0, "stopped": 0, "url": "https://applink.feishu.cn/t/600"}],
+                "proposals": 1, "tidy": {}, "stamp": "20:59"}),
+            "board_empty": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00"}),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
             "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "EnvReplay Prompt 优化"]}}),

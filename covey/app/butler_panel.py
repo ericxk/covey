@@ -36,7 +36,7 @@ from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, KINDS, MODEL, MOD
                                                     butler_panel_card)
 from covey.cards.launch_config import effort_choices
 from covey.cards.settings_hub import BUTLER, BUTLER_PAGES, OTHER, RETIRED, TOPIC, WORKSPACE
-from covey.core import butler_settings, project_proposals
+from covey.core import butler_settings
 from covey.core.jobs import job_file, read_job_record
 from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES, TIERS
 from covey.core.state import read_object
@@ -178,8 +178,7 @@ class ButlerPanel:
         return butler_panel_card(view['token'], view, settings, choices, workspace_names(ctx.state_dir),
                                       top=hub_top(page or BUTLER, view['token'], view), page=page,
                                       follows=self.follows(ctx, defaults, choices, chat) if topic else {},
-                                      fallback=self.fallback(ctx, defaults, choices, chat) if topic else None,
-                                      tidy=project_proposals.enabled())
+                                      fallback=self.fallback(ctx, defaults, choices, chat) if topic else None)
 
     def resolved(self, ctx, defaults, choices, chat=''):
         """What a topic the butler of ``chat`` opens now runs with over ``defaults`` (app/butler_topics.py resolve,

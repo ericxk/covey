@@ -164,12 +164,12 @@ def subagent_setting(settings):
 
 
 def butler_panel_card(token, view, settings, choices, workspaces, top=(), follows=None, page=None,
-                           fallback=None, tidy=False):
+                           fallback=None):
     """The whole card for ``view`` (revision, notice) over ``settings`` (core/butler_settings.py Settings),
     ``choices`` (app/launch_models.py available_models) and ``workspaces``, the saved workspace names: ``page``
     (PAGES) on the 设置 card, the three one under the other on a card of its own (None). ``top``: elements above
-    the body (the 设置 card's tab row), within the same budget; ``follows`` and ``fallback`` as topic_settings. ``tidy``
-    (COVEY_PROJECT_TIDY on): the 专项 row with 整理专项 under 管家用的模型 (cards/project_proposal.py settings_row)."""
+    the body (the 设置 card's tab row), within the same budget; ``follows`` and ``fallback`` as topic_settings. 整理专项 is not
+    here: the 看板's alone (cards/board.py; the owner, 2026-11-18)."""
     revision = view['revision']
     stamp = f'r{revision % 10000}'
     pages = PAGES if page is None else (page,)
@@ -189,9 +189,6 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
             elements += [section('管家用的模型'), settings_block([harness_line(choices)] + [
                 setting_row(s, token=token, stamp=stamp) for s in butler_setting_list(settings, choices, limit)]),
                 note(HARNESS_NOTE)]
-            if tidy:
-                from covey.cards.project_proposal import settings_row
-                elements += settings_row()
         if TOPIC in pages:
             # 子 Agent only on the 设置 card's page: a card of its own (gen 286) is full already.
             bot_wide = [subagent_setting(settings)] if page == TOPIC else []

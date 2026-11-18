@@ -130,7 +130,7 @@ def wanted_elements(view):
 
 def folded_board():
     """看板's card folded in place (a second menu click, app/digest.py fold_board)."""
-    return folded_panel(ICON, f"{TITLE} · {ASKED}", menu_item("看板"))
+    return folded_panel("bitablekanban_outlined", "看板", menu_item("看板"))
 
 
 def digest_text(view):

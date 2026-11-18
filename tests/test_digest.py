@@ -423,20 +423,48 @@ class BoardTests(UnifiedCase):
         return self.puts[-1][1]
 
     def test_with_tidy_on_the_board_lists_the_projects_and_has_the_tidy_button(self):
-        """The owner, 2026-11-18: 不是说给专项整理做一个按钮么，咋没有呢 — 看板 has 整理专项 when it is on, and not when it is off."""
+        """The owner, 2026-11-18: 整理专项 only on the 看板 — not on the 设置 card, not on 早晚汇总."""
         from covey.cards import project_proposal
+        from covey.cards.board import board_card
         from covey.core import project_proposals, projects
         record = projects.new_record(chat_id=CHAT, name="账号额度运行台", goal="额度看得准")
         projects.create(self.state, record)
         with mock.patch.dict(os.environ, {projects.ENV: "1", project_proposals.ENV: "suggest"}):
             view = self.app.digest.board_view(self.ctx, CHAT)
-            card = json.dumps(digest_card(view), ensure_ascii=False)
-        self.assertEqual(view["tidy"], {"projects": ["账号额度运行台"]})
-        self.assertIn("专项（1）", card)
-        self.assertIn("「账号额度运行台」", card)
+            card = json.dumps(board_card(view), ensure_ascii=False)
+            timed = json.dumps(digest_card(collect(self.state, CHAT, self.now, self.last, self.now)), ensure_ascii=False)
+        self.assertEqual([project["name"] for project in view["projects"]], ["账号额度运行台"])
+        self.assertIn("专项", card)
+        self.assertIn("账号额度运行台", card)
+        self.assertIn("目标：额度看得准", card)
         self.assertIn(project_proposal.START_KIND, card)
+        self.assertNotIn(project_proposal.START_KIND, timed)
         with mock.patch.dict(os.environ, {projects.ENV: "1", project_proposals.ENV: ""}):
             self.assertNotIn("tidy", self.app.digest.board_view(self.ctx, CHAT))
+
+    def test_a_stopped_topic_has_its_own_group_with_why_and_its_not_my_concern_takes_it_off(self):
+        write_topic(self.state, {"topic_number": 525}, topic_id="stop")
+        write_topic(self.state, {"topic_number": 526}, topic_id="run")
+        checkpoint = self.state / "checkpoints" / "job-7.json"
+        write_json(checkpoint, {"phase": "等主人选插件形态", "steps": [{"title": "a", "state": "done"}]})
+        upsert_job_record(self.state, "j-stop", job_id=7, status="cancelled", chat_id=CHAT, topic_id="stop",
+                          card_message_id="om_stop", harness_id="claude", phase="等主人选插件形态",
+                          timings={"backend_started": self.now - 900, "execution_finished": self.now - 600})
+        upsert_job_record(self.state, "j-run", job_id=8, status="running", chat_id=CHAT, topic_id="run",
+                          card_message_id="om_run", harness_id="claude", phase="梳理还剩哪些要收尾",
+                          timings={"backend_started": self.now - 300})
+        with mock.patch("time.time", return_value=self.now):
+            self.press("ev1")
+        text = json.dumps(self.card(), ensure_ascii=False)
+        for part in ("停住了", "T525", "被停止了；停在：等主人选插件形态", "red-50", "不管了", "现在：梳理还剩哪些要收尾", "已跑"):
+            self.assertIn(part, text)
+        off, = [v for v in buttons(self.card()) if v.get("kind") == DISMISS]
+        self.assertEqual(off["topics"], ["stop"])
+        self.app.handle_card_action_event({"event_id": "c2", "operator_id": "owner", "chat_id": CHAT,
+                                           "message_id": "om_board1", "action_value": off}, self.ctx)
+        redrawn = json.dumps([c for cid, c, _ in self.puts if cid == "bcard"][-1], ensure_ascii=False)
+        self.assertNotIn("T525", redrawn)
+        self.assertIn("T526", redrawn)
 
     def test_off_without_a_time(self):
         with mock.patch.dict(os.environ, {ENV: ""}):
@@ -462,14 +490,13 @@ class BoardTests(UnifiedCase):
             self.press("ev1")
         self.assertEqual(self.app.messenger.create_and_send_card.call_count, 1)
         card = self.card()
-        title = card["header"]["title"]["content"]
-        self.assertTrue(title.startswith("汇总 · 随时查看 · "), title)
-        expected = collect(self.state, CHAT, self.now, self.last, self.now, board=True)
-        self.assertEqual(card["body"], digest_card(expected)["body"])  # The timed card's body, line for line.
+        # Its own card now (cards/board.py, the owner's 样张 A, 2026-11-18): coloured blocks by what they ask of him.
+        self.assertEqual(card["header"]["title"]["content"], "看板")
         text = json.dumps(card, ensure_ascii=False)
-        for part in ("T501", "T502", "T503", "这些都不用回答了"):
+        for part in ("T501", "T502", "T503", "这些都不用回答了", "等你", "在做", "做完 1 个，都看过了", "orange-50", "blue-50"):
             self.assertIn(part, text)
         self.assertNotIn("T504", text)
+        self.assertNotIn("我本来想找你的事", text)
         self.assertEqual((self.state / RECORD).read_bytes(), before)  # last_slot, pending and sent as they were.
         # 这些都不用回答了 on it: 手上的事's click, then this card redrawn in place from its record.
         dismiss, = [v for v in buttons(card) if v.get("kind") == DISMISS]
@@ -484,12 +511,12 @@ class BoardTests(UnifiedCase):
     def test_nothing_to_list_says_so_and_a_second_click_folds_and_unfolds(self):
         self.press("ev1")
         text = json.dumps(self.card(), ensure_ascii=False)
-        self.assertIn("现在没有要你处理的", text)
+        self.assertIn("现在没有在等你、在做或停住的事", text)
         self.press("ev2")
-        self.assertEqual((self.puts[-1][0], self.card()["header"]["title"]["content"]), ("bcard", "汇总 · 随时查看"))
+        self.assertEqual((self.puts[-1][0], self.card()["header"]["title"]["content"]), ("bcard", "看板"))
         self.assertIn("再点菜单「看板」展开", json.dumps(self.card(), ensure_ascii=False))
         self.press("ev3")
-        self.assertIn("现在没有要你处理的", json.dumps(self.card(), ensure_ascii=False))
+        self.assertIn("现在没有在等你、在做或停住的事", json.dumps(self.card(), ensure_ascii=False))
         self.assertEqual([seq for _, _, seq in self.puts], [0, 1, 2])
         self.assertEqual(self.app.messenger.create_and_send_card.call_count, 1)
         # Once the owner wrote at the top level, the card is not the newest: a new one, the one before recalled.

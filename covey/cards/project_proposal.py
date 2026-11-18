@@ -238,11 +238,6 @@ TIDY_SPAN = "最近 7 天动过的话题"  # Topics with a turn in the last 7 da
 START_LINE = f"把专项和{TIDY_SPAN}重新看一遍，给出建议"
 
 
-def settings_row():
-    """The 设置 card's row (私聊默认, COVEY_PROJECT_TIDY on): 整理专项 at once."""
-    return [section("专项"), item(md(START_LINE), text_button("整理专项", {"kind": START_KIND}, tone="primary"))]
-
-
 def board_rows(names):
     """The 专项 part of the bot menu's 看板 and of 早晚汇总 (cards/digest.py, COVEY_PROJECT_TIDY on; the owner, 2026-11-18: 不是说
     给专项整理做一个按钮么，咋没有呢): the projects by name, and 整理专项 at once."""
