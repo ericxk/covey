@@ -1102,6 +1102,52 @@ def project_lead_wake():
     return WAKE_TEXT
 
 
+class ProgressAndAnswersTest(WebCase):
+    """Data contract v4: topic.data ``progress`` (core/progress.py) and turn.data ``answers`` (from the question records)."""
+
+    def by(self):
+        return {(item["type"], item["key"]): item["data"] for item in self.web.items()}
+
+    def test_a_running_topic_carries_its_progress_and_an_idle_one_none(self):
+        self.topic(status="running", lines=(("user", "做一下"),))
+        steps = [{"title": "读", "state": "done"}, {"title": "改", "state": "done"}, {"title": "测", "state": "doing"}]
+        write_job(self.state, f"k-{TOPIC[:4]}", phase="改卡片", steps=steps, timings={"backend_requested": T0 - 1200},
+                  last_activity_at=T0 - 120, last_activity="在跑测试")
+        self.sync.push_once(T0)
+        found = self.by()[("topic", TOPIC)]["progress"]
+        self.assertEqual(found, {"phase": "改卡片", "plan_done": 2, "plan_total": 3, "last_activity_at": int(T0 - 120),
+                                 "last_activity": "在跑测试", "eta_seconds": 600, "maybe_stuck": False})
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)  # To the minute: not pushed again a second later.
+        write_job(self.state, f"k-{TOPIC[:4]}", status="done")
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 2)
+        self.assertNotIn("progress", [item for item in self.web.items("topic") if item["key"] == TOPIC][-1]["data"])
+
+    def test_the_turn_that_answered_a_question_card_says_what_was_chosen(self):
+        self.topic(lines=(("user", "你好"), ("assistant", "选哪个？")))
+        self.question(status="answered", questions=[
+            {"id": "q1", "question": "用哪个库？", "options": [{"label": "A"}, {"label": "B"}]},
+            {"id": "q2", "question": "要不要部署？", "options": [{"label": "要"}, {"label": "不要"}]},
+            {"id": "q3", "question": "测哪些？", "multiple": True, "options": [{"label": "单测"}, {"label": "回放"}]}],
+            answers={"q1": {"answers": ["B"]}, "q2": {"answers": [app_web.SKIPPED]}, "q3": {"answers": ["单测", "回放"]}})
+        write_job(self.state, "k-answer", topic_id=TOPIC, chat_id=CHAT, job_id=9, status="done", message_id="answer-" + TOKEN)
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        append_history(history, "user", "用哪个库？ → B", {"message_id": "answer-" + TOKEN})
+        append_history(history, "assistant", "好，用 B", {"message_id": "om_reply"})
+        self.sync.push_once(T0)
+        by = self.by()
+        self.assertEqual(by[("turn", f"{TOPIC}:3")]["answers"], [
+            {"question": "用哪个库？", "choice": "B"}, {"question": "要不要部署？", "choice": "没答"},
+            {"question": "测哪些？", "choice": "单测、回放"}])
+        for seq in (1, 2, 4):  # Only the owner's turn of the answer.
+            self.assertNotIn("answers", by[("turn", f"{TOPIC}:{seq}")])
+
+    def test_feedback_instead_of_answers_is_not_answered(self):
+        self.question(status="answered", response_kind="feedback", answers={"q1": {"answers": ["用户选择反馈问题"]}})
+        self.assertEqual(app_web.answer_rows(read_object(self.state / "questions" / f"{TOKEN}.json")),
+                         [{"question": "用哪个库？", "choice": "没答"}])
+
+
 class OffTest(WebCase):
     def test_forget_is_one_of_the_kinds_and_the_off_switch_still_means_no_request(self):
         self.assertIn("forget", web_sync.KINDS)

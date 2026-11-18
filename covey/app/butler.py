@@ -42,6 +42,7 @@ from covey.app.prompts import first_turn_message, butler_message, resume_message
 from covey.core import butler as contract
 from covey.core import butler_tracks
 from covey.core import board_read, butler_opened, butler_settings, placement, projects, timing, turn_words
+from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, topic_label as topic_words
 from covey.core.attachments import message_words
 from covey.core.checkpoint import checkpoint_steps
@@ -435,6 +436,20 @@ def line(*parts) -> str:
     return text[:LINE] + ("…" if len(text) > LINE else "")
 
 
+def progress_words(record, jobs, now) -> list:
+    """What the snapshot says of a running job ``record``'s progress (core/progress.py): 最近动静 (2 分钟前在跑测试) and
+    the estimate, or that it may be stuck; ``jobs``: the read's, the topic's earlier turns among them."""
+    if record.get("status") != "running":
+        return []
+    found = turn_progress.progress(record, now=now, history=turn_progress.turn_seconds(
+        [job for job in jobs if job.get("topic_id") == record.get("topic_id")], exclude=record.get("job_id")))
+    if found["maybe_stuck"]:
+        return [f"可能卡住了（{turn_progress.stuck_words().split('，')[0]}）"]
+    activity = turn_progress.activity_line(found, now)
+    return [part for part in ("最近动静 " + activity if activity else "", turn_progress.eta_words(found["eta_seconds"]))
+            if part]
+
+
 def snapshot_groups(ctx, chat, now) -> dict:
     """Each group's rows, topic id -> its line, as a turn should read them; the butler's own topic in none, nor
     one the owner took off the board (app/pins.py dismissed, read only with the board on). The indexes are read once
@@ -464,11 +479,13 @@ def snapshot_groups(ctx, chat, now) -> dict:
         phase = str(record.get("phase") or "")
         phase = "" if phase in turn_words.UNSET_PHASES else phase
         harness = record.get("harness_id") or record.get("backend") or ""
-        # The step under way ("第 3/5 步：<title> · 本步 40 分钟") in place of the phase, as the task card says it.
+        # The step under way ("第 3/5 步：<title> · 本步 40 分钟") in place of the phase, as the task card says it; then
+        # what it last did, the estimate or that it may be stuck (core/progress.py), before what it runs with, so the
+        # butler answers "T484 咋样了" from here (the line is cut at LINE).
         step, doing = step_text(checkpoint_steps({"steps": record.get("steps")}), record.get("step_times"), now)
         running.setdefault(topic, line(label, " · ".join(part for part in (
-            title, harness, record.get("workspace_name") or "", not doing and phase and "阶段：" + phase,
-            step) if part)))
+            title, not doing and phase and "阶段：" + phase, step, *progress_words(record, read.jobs, now), harness,
+            record.get("workspace_name") or "") if part)))
     results = {}
     for topic, record in sorted(unseen.items(), key=lambda item: ended_at(item[1]), reverse=True):
         if topic in off:

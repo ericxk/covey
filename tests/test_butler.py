@@ -976,9 +976,9 @@ class TurnTest(ButlerUnifiedCase):
         self.other_topic('a' * 32, 'running', phase='改卡片中', steps=steps, step_times={'改卡片': {'started': now - 2400}})
         self.other_topic('b' * 32, 'running', number=8, phase='排查')
         running = session.snapshot_groups(self.ctx, CHAT, now)['running']
-        self.assertTrue(running['a' * 32].endswith('第 2/3 步：改卡片 · 本步 40 分钟'), running['a' * 32])
+        self.assertIn('第 2/3 步：改卡片 · 本步 40 分钟', running['a' * 32])
         self.assertNotIn('阶段：', running['a' * 32])  # The step under way stands for the phase.
-        self.assertTrue(running['b' * 32].endswith('阶段：排查'))  # Without steps as before.
+        self.assertIn('阶段：排查', running['b' * 32])  # Without steps as before.
         self.assertNotIn('步', running['b' * 32])
 
     def test_a_result_the_owner_read_is_not_listed(self):

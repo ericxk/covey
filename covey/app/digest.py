@@ -53,6 +53,7 @@ from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
 from covey.core import board_read, knowledge, patrol, projects, turn_words
+from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
 from covey.core.locks import resource_lock
 from covey.core.loops import every
@@ -198,6 +199,10 @@ def collect(state, chat, slot, since, now, *, board=False):
             words = phase
         else:
             words = turn_words.BOARD["queued" if status == "queued" else "running"]
+        # The estimate or 可能卡住了 after the phase (core/progress.py board_words), the topic's earlier turns as read.
+        found = turn_progress.progress(record, now=now, history=turn_progress.turn_seconds(
+            [job for job in jobs if job.get("topic_id") == topic], exclude=record.get("job_id")))
+        words = " · ".join([words, *turn_progress.board_words(found, now)])
         ran = run_seconds(record.get("timings"), now=now) if status != "queued" else None
         running_rows.append(row(topic, words, f"已运行 {took_text(ran)}" if ran is not None else ""))
     busy |= set(running)

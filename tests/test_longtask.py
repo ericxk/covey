@@ -37,7 +37,8 @@ class LongTaskTest(unittest.TestCase):
             self.assertEqual(len(closed), 1)
             self.assertEqual(len(updates), 6)
             self.assertIn("8 小时 0 分钟", updates[-1])
-            self.assertIn("较长时间没有新进展", updates[-1])
+            # Eight hours without any progress: it may be stuck (core/progress.py), the card's 看看 under it.
+            self.assertIn("超过 30 分钟没有动静，可能卡住了", updates[-1])
             self.assertIn(BACKEND_ALIVE, updates[-1])
             self.assertNotIn("%", updates[-1])
             self.assertTrue(records[-1]["process_alive"])
@@ -133,7 +134,7 @@ class RunningStatusTest(unittest.TestCase):
         from covey.core.trace import ToolTrace
         trace = ToolTrace()
         trace.accept("tool", {"id": "a", "name": "bash", "status": "running", "detail": "运行全量测试 · python3 -m unittest",
-                              "started_at": time.time() - 42})
+                              "started_at": time.time() - 130})
         job = make_job(tool_trace=trace, backend_process=SimpleNamespace(poll=lambda: None))
         updates = []
         monitor = self.monitor(job, updates)
@@ -142,7 +143,8 @@ class RunningStatusTest(unittest.TestCase):
         self.assertIn("已运行 2分05秒", updates[-1])
         self.assertIn("当前：", updates[-1])
         self.assertIn("运行全量测试", updates[-1])
-        self.assertRegex(updates[-1], r"最近进展 4\d 秒前")
+        # Its last activity to the minute, in words: never the command (core/progress.py activity_words).
+        self.assertIn(" · 2 分钟前在跑测试", updates[-1])
         self.assertNotIn(BACKEND_ALIVE, updates[-1])
         job.backend_process = SimpleNamespace(poll=lambda: 1)
         monitor.last_ui = float("-inf")  # The card refreshes at most every 2 s.
@@ -199,9 +201,9 @@ class RunningStatusTest(unittest.TestCase):
                               lambda *a: True, lambda _: None, lambda: None, clock=lambda: 125.0, wall=lambda: wall[0])
         job.activity_monitor = monitor
         Interaction._dispatch_structured_event(SimpleNamespace(), SimpleNamespace(), job, "model_reasoning", {}, None)
-        wall[0] += 20
+        wall[0] += 80
         monitor.tick()
-        self.assertIn("当前：模型思考中 · 最近进展 20 秒前", updates[-1])
+        self.assertIn("当前：模型思考中 · 1 分钟前在思考", updates[-1])
         self.assertEqual(job.tool_trace.steps, {})  # Nothing for 执行过程 to show.
         # Codex's TTFT can be that reasoning start (S30): still only thinking.
         self.assertTrue(job.tool_trace.accept("first_token", {"ttft_seconds": 25.0, "ttft_source": "codex_item"}))
@@ -249,7 +251,11 @@ class RunningStatusTest(unittest.TestCase):
         wall[0] += 9
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertIn("\n当前：" + WAITING_FOR_MODEL + " · 最近进展 12 秒前", updates[-1])
+        self.assertTrue(updates[-1].endswith("\n当前：" + WAITING_FOR_MODEL), updates[-1])  # Under a minute: no age.
+        wall[0] += 60
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+        self.assertIn("\n当前：" + WAITING_FOR_MODEL + " · 1 分钟前在等模型回复", updates[-1])
         monitor.output()  # Output after it as before.
         monitor.last_ui = float("-inf")
         monitor.tick()
@@ -322,16 +328,15 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor.tick()
         # T182 #1128 wrapped the sub-task's name, its time, the age and its last step over three lines:
         # now its latest step and the age only.
-        self.assertTrue(updates[-1].endswith("\n当前：子任务正在运行测试：运行问题卡测试 · 最近进展 2 分 00 秒前"),
-                        updates[-1])
-        self.assertNotRegex(updates[-1], r"最近进展 \d+ 小时")
+        self.assertTrue(updates[-1].endswith("\n当前：子任务正在运行测试：运行问题卡测试 · 2 分钟前"), updates[-1])
+        self.assertNotRegex(updates[-1], r"\d+ 小时")
         self.assertNotIn("unittest", updates[-1])
         self.assertNotIn("较长时间没有新进展", updates[-1])
         self.assertEqual(records[-1]["last_progress_age_seconds"], 120)
         self.child_tool(trace, "c1", command, self.T0 + 7190, status="done")
         wall[0], monitor.last_ui = self.T0 + 7200, float("-inf")
         monitor.tick()
-        self.assertIn("当前：子任务运行测试结束：运行问题卡测试 · 最近进展 10 秒前", updates[-1])
+        self.assertTrue(updates[-1].endswith("当前：子任务运行测试结束：运行问题卡测试"), updates[-1])  # 10 s: no age.
         self.child_tool(trace, "c2", "git commit -qm 'fix: progress'", self.T0 + 7195)
         trace.accept("progress_note", {"id": "n1", "text": "Tests pass; committing.", "child_id": "a1",
                                        "received_at": self.T0 + 7194})
@@ -359,7 +364,8 @@ class SubtaskProgressTest(unittest.TestCase):
             wall[0], monitor.last_ui = self.T0 + minute * 60 + 30, float("-inf")
             monitor.tick()
             self.assertIn("当前：子任务正在查看代码：Step", updates[-1])
-            self.assertIn("最近进展 30 秒前", updates[-1])
+            self.assertNotIn("分钟前", updates[-1])  # 30 s ago each time.
+            self.assertNotIn("可能卡住了", updates[-1])
             self.assertNotIn("较长时间没有新进展", updates[-1])
 
     def test_a_live_process_without_progress_says_only_that_it_is_alive(self):
@@ -371,8 +377,10 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor, updates = self.monitor(trace, wall, records)
         monitor.tick()
         # The model's purpose without the command (2026-11-02 review); the kind still comes from the command.
-        self.assertIn("当前：执行命令 · 运行全量测试 · 最近进展 1 小时 1 分前 · 进程仍在运行", updates[-1])
-        self.assertIn("较长时间没有新进展", updates[-1])
+        self.assertIn("当前：执行命令 · 运行全量测试 · 1 小时 1 分钟前在跑测试 · 进程仍在运行", updates[-1])
+        self.assertIn("超过 30 分钟没有动静，可能卡住了", updates[-1])
+        self.assertEqual(records[-1]["last_activity"], "在跑测试")
+        self.assertEqual(records[-1]["last_activity_at"], int(self.T0))
         self.assertEqual(records[-1]["last_progress_age_seconds"], 3700)
         monitor.output()  # Streamed answer text is progress too.
         monitor.last_ui = float("-inf")

@@ -1044,9 +1044,11 @@ class CardActionTableTest(unittest.TestCase):
         # bridge_question_skip: the Bridge hands the answer on to a runner that waits for it (forward_answer).
         # bridge_fork, bridge_compact: retired buttons on older cards, answered here (app/task_controls.py retired_action).
         # bridge_project_triage_fix: the owner's correction of the lead's answer queues a message in a member topic (COVEY_PROJECT_TRIAGE).
+        # bridge_job_look: 看看 looks at the task runner from outside (app/stuck_check.py), which may be the stuck one.
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
                                     "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export",
-                                    "bridge_project_triage_fix", "bridge_project_ask_continue", "bridge_project_ask_finish"})  # Triage: the correction queues a message in a member topic; the pause card's two wake the lead.
+                                    "bridge_project_triage_fix", "bridge_project_ask_continue", "bridge_project_ask_finish",
+                                    "bridge_job_look"})  # Triage: the correction queues a message in a member topic; the pause card's two wake the lead.
         self.assertFalse(runner_ipc.forward_card_action(Runtime(script_path="unit"), None, {},
                                                      {"kind": "bridge_fork"}))
 

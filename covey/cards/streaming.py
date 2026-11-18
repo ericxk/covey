@@ -23,7 +23,8 @@ from covey.cards.card_cost import card_cost, truncate_card_content
 from covey.cards.task_figures import FIGURES_ELEMENT_ID, IO_BOX_ID, STATUS_BLOCK_ID, io_box
 from covey.cards.task_status import (activity_element, more_element, slim_activity_element,
                                               slim_start)
-from covey.cards.trace_view import ttft_line
+from covey.cards.trace_view import clock, ttft_line
+from covey.core.progress import eta_words, stuck_words
 from covey.core.trace import has_subtasks, turn_usage
 
 
@@ -142,7 +143,29 @@ def task_details_text(job, usage=None) -> str:
         lines += usage_lines(usage)
     if usage is not None:
         lines += [line for line in (ttft_line(usage),) if line]
+    if usage is not None and usage.get("ended_at") is None:
+        lines += progress_lines(getattr(job, "turn_progress", None))
     return "\n".join(lines)
+
+
+def progress_lines(found) -> list[str]:
+    """A running turn's progress (core/progress.py, kept on the job by core/longtask.py TaskMonitor) as 任务详情 says it:
+    阶段, 步骤 3/5, its last activity at a time of day (14:05 在跑测试: the panel is written with the process panel, not
+    every minute) and the estimate with when it was made; [] without any."""
+    if not isinstance(found, dict):
+        return []
+    lines = [f"阶段：{safe_text(found['phase'], 120)}"] if found.get("phase") else []
+    if found.get("plan_total"):
+        lines.append(f"步骤：已完成 {found.get('plan_done') or 0}/{found['plan_total']}")
+    at = found.get("last_activity_at")
+    if at is not None:
+        lines.append(f"最近动静：{clock(at)} {safe_text(found.get('last_activity') or '有动静', 60)}")
+    if found.get("maybe_stuck"):
+        lines.append(stuck_words())
+    elif found.get("eta_seconds") is not None:
+        made = found.get("at")
+        lines.append(eta_words(found["eta_seconds"]) + (f"（{clock(made)} 估）" if made is not None else ""))
+    return lines
 
 
 def task_details_panel(job, usage=None):

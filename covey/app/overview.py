@@ -44,6 +44,7 @@ from covey.core.card_sequence import CardHandle, file_card, reserve
 from covey.core.jobs import job_path, read_job_record
 from covey.core.locks import resource_lock
 from covey.core import board_read, turn_words
+from covey.core import progress as turn_progress
 from covey.core.loops import every
 from covey.core.state import read_object, write_json
 from covey.core.statuses import RUNNING, TERMINAL
@@ -82,6 +83,7 @@ class Overview:
         self.others = {}  # chat_id -> the Overview pinned there (app/group_boards.py): its clicks are its own.
         self.topics = {}  # topic_id -> its label (T12): it never changes once known.
         self.seen = {}  # The running rows of the last look, by job key: one that is gone may have ended.
+        self.history, self.now = {}, 0.0  # The last view's jobs by topic and its time (``progress_of``).
         self.ended = {}  # job key -> its 刚结束 row.
         self.drawn = None  # What the card last drawn showed, without its 更新于.
         self.drawn_at = 0.0
@@ -159,6 +161,11 @@ class Overview:
                            reverse=True)  # The latest first: older ones may have been left for good.
         jobs = sorted([record for record in read.jobs if record.get("status") in RUNNING] if read
                       else board_read.running_jobs(state, chat), key=lambda record: int(record.get("job_id") or 0))
+        # The topics' earlier turns as the read has them, for the estimate (core/progress.py): none without the board.
+        self.history = {}
+        for record in read.jobs if read else ():
+            self.history.setdefault(record.get("topic_id") or "", []).append(record)
+        self.now = now
         running = {record.get("key") or str(record.get("job_id")): self.running_row(state, record) for record in jobs}
         for key, row in self.seen.items():
             if key not in running:
@@ -226,7 +233,14 @@ class Overview:
                 "phase": "" if phase in UNSET_PHASES else phase,
                 # The checkpoint's steps and when each started, as the task monitor keeps them on the record
                 # (core/longtask.py step_fields): the butler's snapshot says which step (app/butler.py).
-                "steps": record.get("steps"), "step_times": record.get("step_times")}
+                "steps": record.get("steps"), "step_times": record.get("step_times"),
+                # Its estimate as a time of day, or 可能卡住了 (core/progress.py board_words): times of day, not durations.
+                "progress": turn_progress.board_words(self.progress_of(record), self.now, clock=True)}
+
+    def progress_of(self, record):
+        """The progress of a running job ``record`` (core/progress.py), its topic's earlier turns as the last view read."""
+        history = turn_progress.turn_seconds(self.history.get(record.get("topic_id") or "", ()), exclude=record.get("job_id"))
+        return turn_progress.progress(record, history=history, now=self.now)
 
     def topic(self, state, topic_id):
         """(T number, the topic's title: core/topics.py topic_title); the number kept once the topic has it."""

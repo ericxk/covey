@@ -107,6 +107,8 @@ class StreamingReply:
     figures_parts: list = field(default_factory=list)
     # The status line's first part this card shows (io_box, not slim), as plain text: not written again unchanged.
     top_text: str = ""
+    # The 看看 button is under the status line (Cards.show_stuck): the turn may be stuck.
+    look_shown: bool = False
 
     def save_sequence(self, sequence):
         """Keep the job record's card_sequence at least LEASE ahead of what this card has used."""

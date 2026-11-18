@@ -7,7 +7,7 @@ minute). Questions waiting over STALE seconds are one grey line of topic numbers
 chat's eight had waited 21 hours to five days).
 
 ``view`` is plain data from app/overview.py: ``waiting`` rows (label, title, ask, since), newest first, ``running``
-rows (label, title, harness, workspace, status, started, phase) and ``ended`` rows (label, title, status, at); times
+rows (label, title, harness, workspace, status, started, phase, progress: its estimate as a time of day or 可能卡住了) and ``ended`` rows (label, title, status, at); times
 are epoch seconds, ``started`` None while the task waits in the queue.
 
 With the pinned board on (app/pins.py) ``view`` also has ``board``: ``counts`` (group -> how many), ``pinned`` (how
@@ -68,7 +68,8 @@ def _running(row, now):
     else:
         time_part = f"{when(row['started'], now)} 开始"
     stopping = "正在停止" if row.get("status") == "cancel_requested" else ""
-    parts = (time_part, stopping, row.get("phase") or "", row.get("harness") or "", row.get("workspace") or "")
+    parts = (time_part, stopping, row.get("phase") or "", *(row.get("progress") or ()), row.get("harness") or "",
+             row.get("workspace") or "")
     return _row(row["label"], row["title"], " · ".join(part for part in parts if part))
 
 

@@ -159,7 +159,8 @@ class StatusLineTest(unittest.TestCase):
             wall[0] += 60
             monitor.tick()
             first = updates[-1].split("\n")[0]
-            self.assertTrue(first.endswith(" · 阶段：收尾 · 已完成 2/3 步"), first)
+            # Two steps done in 41 minutes, one left: the estimate follows them (core/progress.py estimate).
+            self.assertTrue(first.endswith(" · 阶段：收尾 · 已完成 2/3 步 · 预计还要约 20 分钟"), first)
             self.assertEqual(records[-1]["step_times"]["改卡片"], {"started": self.T0, "ended": self.T0 + 2460})
             self.assertEqual(records[-1]["delivery"]["commit"], "a6bc148")  # Kept once seen.
             point.write_text(json.dumps({"phase": "收尾"}, ensure_ascii=False))

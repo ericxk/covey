@@ -171,6 +171,7 @@
 | `app/steer_forms.py` | The 补充 forms of a task: a 补充 click, the form (steer_form_card), a submitted form (submit_steer_form |
 | `app/steer_receipts_flow.py` | What became of a supplement, on its receipt card |
 | `app/steering.py` | Supplements (补充) to a task of this topic: which task takes one, and how it gets there |
+| `app/stuck_check.py` | 看看: a read-only look at a turn that may be stuck, from the button under its task card's status line, answered … |
 | `app/submission.py` | Submitting a topic's message as a job |
 | `app/switch_handoff.py` | A topic's first run after 🔁 换配置 rebinds it |
 | `app/task_card.py` | The streaming task card on CardKit |
@@ -306,6 +307,7 @@
 | `core/process.py` | Which processes belong to whom |
 | `core/process_env.py` | Environment for backend child processes, and on/off switches read from the environment |
 | `core/procfs.py` | A process's /proc/<pid>/stat and this boot's id, read one way for every reader in the package |
+| `core/progress.py` | A running turn's progress worked out in one place (`progress`), for every reader that says how a turn is going |
 | `core/project_gates.py` | 专项问题分流的硬闸（docs/butler.md 专项的问题分流）: the words that keep a project's topic's question from the lead |
 | `core/project_library.py` | The library of a project |
 | `core/project_memory.py` | The memory of a project |

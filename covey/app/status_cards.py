@@ -26,6 +26,7 @@ from covey.cards.review import answer_lead
 from covey.cards.status_card import status_card
 from covey.core.card_sequence import file_card, reserve
 from covey.core.checkpoint import checkpoint_steps, read_checkpoint, step_words
+from covey.core import progress as turn_progress
 from covey.core.jobs import topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.metrics import run_seconds, timings_of, took_text
@@ -115,8 +116,11 @@ def lines(state_dir, chat, row, now):
     # its phase; without steps, the phase as before.
     steps = step_words(checkpoint_steps(point))
     at = cut(steps, 30) if steps else f"阶段：{cut(phase, 30)}" if phase not in UNSET_PHASES else ""
+    # Its estimate as a time of day, or that it may be stuck (core/progress.py): the card changes only when they do.
+    found = turn_progress.progress(record, checkpoint=point, history=turn_progress.turn_seconds(jobs, exclude=job_id),
+                                   now=now)
     facts = " · ".join(part for part in (f"第 {turn} 轮", f"{when(start, now)} 开始" if when(start, now) else "",
-                                         at) if part)
+                                         at, *turn_progress.board_words(found, now, clock=True)) if part)
     return title, BOARD["running"], facts, cut(f"这一轮：{request}", LINE_CHARS) if request else ""
 
 

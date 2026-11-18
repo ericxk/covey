@@ -30,8 +30,10 @@ import time
 from pathlib import Path
 
 from covey.app import pins, project_lead, project_loop, web_turns
+from covey.app.answers import SKIPPED
 from covey.app.web_ops import Ops
 from covey.core import board_read, http_upstream, project_library, project_memory, projects, triage, web_sync
+from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
 from covey.core.jobs import job_key, select_job_records, topic_job_records
@@ -54,6 +56,8 @@ LEAD_TITLE = "负责人"
 EXTRA_TURNS = 20  # The newest turns of a topic that get their process, plan and figures (each one read from its trace file, once when it ended).
 RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked at.
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
+NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
+LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
 
 
 def moment(value) -> float:
@@ -243,7 +247,7 @@ class Collector:
         label, title = ("", BUTLER_TITLE) if butler else ("", LEAD_TITLE) if project else board_read.topic_label(state, topic)
         data = read_object(topic_file(state, topic))
         found = None if butler else projects.topic_project(state, topic)
-        turns, count = self.turns(state, topic, records, latest, word, project, now)
+        turns, count = self.turns(state, topic, records, latest, word, project, now, questions)
         number = int(label[1:]) if label[1:].isdigit() else 0
         updated = max((epoch_seconds(record.get("updated_at")) or 0 for record in records), default=0)
         ran = [record for record in records if not board_read.unrun(record)]
@@ -257,6 +261,10 @@ class Collector:
         context = next((turn["context"] for turn in reversed(turns) if turn.get("context")), None)
         if context:
             body["context"] = context
+        live = next((record for record in reversed(records) if record.get("status") in LIVE), None)
+        if live is not None:  # Its running turn's progress (core/progress.py), from the record the task monitor keeps.
+            body["progress"] = turn_progress.progress(live, now=now or time.time(), history=turn_progress.turn_seconds(
+                records, exclude=live.get("job_id")))
         out = [web_sync.item("topic", topic, body)]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:
@@ -303,7 +311,7 @@ class Collector:
         self.history[topic] = (stamp, rows)
         return rows
 
-    def turns(self, state, topic, records, latest, word, project=None, now=0.0) -> tuple:
+    def turns(self, state, topic, records, latest, word, project=None, now=0.0, questions=()) -> tuple:
         """([turn data with seq], number of turns in the history) for ``topic``: the newest TURNS_KEPT, and one more for the task that runs
         (its progress notes as the body), waits or ended without an answer. The newest EXTRA_TURNS answers of a task also carry its process,
         plan and figures (core web_turns.py). A project's lead (``project``, its record) has its own reading: ``lead_turns``."""
@@ -311,7 +319,9 @@ class Collector:
         wakes = {}
         if project is not None:
             wakes = self.lead_starts(state, topic, project, records)
-        entries = self.lead_entries(state, topic, project, rows, records, wakes) if project is not None else self.entries(rows, records)
+        answered = self.answered(questions, records)
+        entries = (self.lead_entries(state, topic, project, rows, records, wakes, answered) if project is not None
+                   else self.entries(rows, records, answered))
         total = len(entries)
         out = []
         for seq, (at, data, job) in enumerate(entries, 1):
@@ -354,20 +364,57 @@ class Collector:
                 yield row, job
                 job = None
 
-    def entries(self, rows, records) -> list:
-        """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line."""
+    def entries(self, rows, records, answered=None) -> list:
+        """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
+        (``answered``): the turns that answered a question card get its ``answers``."""
         out = []
         for row, job in self.pair(rows, records):
             at = epoch_seconds(row.get("time")) or 0
             owner = row.get("role") == "user"
             body = row.get("display_content") if owner and row.get("display_content") else row.get("content")
-            out.append((at, {"role": "owner" if owner else "agent", "body": web_sync.clip(body), "status": "done", "job_id": "",
-                             "started_at": at, "ended_at": at, "artifacts": []}, None if owner else job))
+            data = {"role": "owner" if owner else "agent", "body": web_sync.clip(body), "status": "done", "job_id": "",
+                    "started_at": at, "ended_at": at, "artifacts": []}
+            self.put_answers(data, answered, job, owner)
+            out.append((at, data, None if owner else job))
         return out
+
+    @staticmethod
+    def answered(questions, records) -> dict:
+        """{("owner"|"agent", job key): [{question, choice}]} of the topic's answered question cards (data contract v4), from
+        the question records alone, never a turn's words: an answer sent on as a follow-up task (its message ``answer-<token>``)
+        is the owner's turn of that task; one handed to the task that asked it, which went on (a native question), is that
+        task's own turn. A question skipped (不回答此题, 只发补充说明, or feedback on the questions) is NOT_ANSWERED."""
+        follow = {str(record.get("message_id") or ""): record for record in records}
+        found = {}
+        for row in questions:
+            answers = row.get("answers")
+            if not isinstance(answers, dict) or not answers or not row.get("token"):
+                continue
+            listed = answer_rows(row)
+            if not listed:
+                continue
+            after = follow.get("answer-" + str(row["token"]))
+            if after is not None:
+                found[("owner", job_key(after.get("message_id"), after.get("job_id")))] = listed
+                continue
+            if row.get("continuation_job_id"):
+                continue  # Its follow-up task is not among the records: no turn to put it on.
+            asked = next((record for record in records if record.get("job_id") == row.get("job_id")), None)
+            if asked is not None:
+                found.setdefault(("agent", job_key(asked.get("message_id"), asked.get("job_id"))), []).extend(listed)
+        return found
+
+    @staticmethod
+    def put_answers(data, answered, job, owner) -> None:
+        if not answered or job is None:
+            return
+        listed = answered.get(("owner" if owner else "agent", job_key(job.get("message_id"), job.get("job_id"))))
+        if listed:
+            data["answers"] = listed
 
     # -- a project's lead ---------------------------------------------------------------------------------------------------
 
-    def lead_entries(self, state, topic, project, rows, records, wakes) -> list:
+    def lead_entries(self, state, topic, project, rows, records, wakes, answered=None) -> list:
         """The lead's conversation: the owner's words and the lead's answers, as ``entries``; a wake-up turn (the Bridge's, not the owner's
         words) is left out, with its answer unless the lead meant it for the owner (project_loop.reported), and what it started is a line of
         the page's own (role event); so is a member's end (the inbox's ``thread_end`` receipt). All in the order they happened."""
@@ -378,8 +425,10 @@ class Collector:
             if row.get("role") == "user":
                 waking = projects.is_wake(row.get("message_id"))
                 if not waking:
-                    out.append((at, {"role": "owner", "body": web_sync.clip(row.get("display_content") or row.get("content")), "status": "done",
-                                     "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}, None))
+                    data = {"role": "owner", "body": web_sync.clip(row.get("display_content") or row.get("content")), "status": "done",
+                            "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}
+                    self.put_answers(data, answered, job, True)
+                    out.append((at, data, None))
                 continue
             key = job_key(job.get("message_id"), job.get("job_id")) if job is not None else ""
             if waking and (job is None or not project_loop.reported(state, topic, key)):
@@ -388,8 +437,10 @@ class Collector:
             waking = False
             if key:
                 shown.add(key)
-            out.append((at, {"role": "agent", "body": web_sync.clip(row.get("content")), "status": "done", "job_id": "", "started_at": at,
-                             "ended_at": at, "artifacts": []}, job))
+            data = {"role": "agent", "body": web_sync.clip(row.get("content")), "status": "done", "job_id": "", "started_at": at,
+                    "ended_at": at, "artifacts": []}
+            self.put_answers(data, answered, job, False)
+            out.append((at, data, job))
         for key, started in wakes.items():  # What a wake-up turn nobody sees started.
             if key in shown or key in running or not started:
                 continue
@@ -675,3 +726,19 @@ class WebSync:
             self.client.request("POST", "/sync/ack", {"results": results})
             ledger.acked([each["op_id"] for each in results])
         return fresh
+
+
+def answer_rows(record) -> list:
+    """[{question, choice}] of a question record's saved answers, in its questions' order: the options chosen or the words
+    written, several joined with "、"; NOT_ANSWERED for a question skipped or one the owner gave feedback on instead."""
+    answers = record.get("answers") if isinstance(record.get("answers"), dict) else {}
+    feedback = record.get("response_kind") == "feedback"
+    out = []
+    for index, question in enumerate(q for q in record.get("questions") or () if isinstance(q, dict)):
+        given = answers.get(question.get("id"), answers.get(str(index)))
+        given = given.get("answers") if isinstance(given, dict) else given
+        parts = [str(part) for part in (given if isinstance(given, list) else [given] if given else []) if str(part).strip()]
+        parts = [part for part in parts if part != SKIPPED]
+        out.append({"question": str(question.get("question") or question.get("header") or "")[:500],
+                    "choice": NOT_ANSWERED if feedback or not parts else "、".join(parts)[:500]})
+    return out

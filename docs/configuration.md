@@ -294,7 +294,7 @@
 
 - **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`；上面七个存成 `LARK_BRIDGE_MAIN_*`，如 `COVEY_BUTLER` 存成 `LARK_BRIDGE_MAIN_THREAD`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的名字都折成旧名再比（`env.canonical`），只改了名字不算变化。Manager 启动服务时所有写法都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
 - **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_BUTLER_STATE`、`COVEY_BUTLER_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）所有写法都设（管家的两个另设 `COVEY_MAIN_*`、`LARK_BRIDGE_MAIN_*`）；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
-- 启动时只对真有旧名的变量打印“`LARK_BRIDGE_X` is the old name of `COVEY_X`”；改名之后才有的开关（`COVEY_PROJECT*`、`COVEY_PATROL*`、`COVEY_TRACK_JUDGE*`、`COVEY_DEVICES*`，`core/env.py` 的 `BORN_NEW`）没有旧名，服务清单里存成的 `LARK_BRIDGE_X` 只是存放写法，读到也不提示。
+- 启动时只对真有旧名的变量打印“`LARK_BRIDGE_X` is the old name of `COVEY_X`”；改名之后才有的开关（`COVEY_PROJECT*`、`COVEY_PATROL*`、`COVEY_PROGRESS*`、`COVEY_TRACK_JUDGE*`、`COVEY_DEVICES*`，`core/env.py` 的 `BORN_NEW`）没有旧名，服务清单里存成的 `LARK_BRIDGE_X` 只是存放写法，读到也不提示。
 - 下一个版本起清单才改存新名，旧名读取再保留至少一个版本。
 
 代码在 `covey/` 和 `bin/` 里读的每个环境变量和命令行参数都列在这里，`tests/test_structure.py` 的 `InventoryTest` 核对：代码读了就要有一行，行里写出读它的文件；表里写了的代码也要读。不列 `HOME`、`PATH`、`PYTHONPATH`、`XDG_CONFIG_HOME`、`NO_PROXY`/`no_proxy` 这类系统变量。不再读取的环境变量不在表里，只有两个权限变量还为拦截而读（见[服务清单里的环境变量](#服务清单里的环境变量)）。
@@ -358,6 +358,7 @@
 | `COVEY_PATROL_ASK_MINUTES` | `core/patrol.py`（`number`） | 120：问题等主人这么多分钟算久（1 到 10080）；试用时调小，如 `3` | 否 |
 | `COVEY_PATROL_UNSEEN_MINUTES` | `core/patrol.py`（`number`） | 360：做完的结果这么多分钟没看算久（1 到 10080） | 否 |
 | `COVEY_PATROL_STALL_MINUTES` | `core/patrol.py`（`number`） | 180：在做的任务记录这么多分钟没变算没动静（1 到 10080） | 否 |
+| `COVEY_PROGRESS_STUCK_MINUTES` | `core/progress.py`（`stuck_seconds`）、`core/longtask.py`（`TaskMonitor`） | 30：在跑的一轮最近一次动静（执行过程的一步、流式输出、模型请求、检查点更新）已经过去这么多分钟，就算“可能卡住了”：任务卡状态行写“超过 30 分钟没有动静，可能卡住了”，状态行下面出「看看」按钮，看板、手上的事、早晚汇总和管家快照里写“可能卡住了”，网页推送的 `progress.maybe_stuck` 为 true。整数，1 到 1440，超出或不是整数按默认值；试用时调小，如 `2` | 否 |
 | `COVEY_PATROL_FAILS` | `core/patrol.py`（`number`） | 2：同一个话题连着失败几次算（2 到 20） | 否 |
 | `COVEY_PATROL_PROJECT_MINUTES` | `core/patrol.py`（`number`） | 720：专项有事没人动这么多分钟算（1 到 43200） | 否 |
 | `COVEY_PATROL_TICK_SECONDS` | `core/patrol.py`（`number`） | 60：规则看一次记录的间隔，秒（5 到 3600） | 否 |
