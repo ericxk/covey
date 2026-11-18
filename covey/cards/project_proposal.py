@@ -96,7 +96,8 @@ def lesson_form(value):
     """One line for why (optional): the judge reads it as a rule of 整理专项 from then on."""
     field = {"tag": "input", "name": WHY_FIELD, "width": "fill", "max_length": 200,
              "placeholder": plain("为什么不对（可以不写）：这句话会记进整理的规则")}
-    submit = {"tag": "button", "name": "tidy_lesson", "form_action_type": "submit", "type": "default", "size": "small",
+    # Not the form's own name: Feishu refuses a card whose two components share one (code 230099, ErrCode 11310).
+    submit = {"tag": "button", "name": "tidy_lesson_save", "form_action_type": "submit", "type": "default", "size": "small",
               "text": plain("记下"), "behaviors": callback(value)}
     return {"tag": "form", "name": "tidy_lesson", "elements": [field, submit]}
 

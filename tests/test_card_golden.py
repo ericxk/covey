@@ -1164,6 +1164,22 @@ class CardGoldenTests(unittest.TestCase):
                   "\nIf the change is meant, rewrite the file (GOLDEN_CARDS=update, docs/testing.md) and check the "
                   "cards in a real Feishu client (docs/cards.md 卡片的客户端限制).")
 
+    def test_no_card_names_two_components_alike(self):
+        # Feishu refuses such a card (230099, ErrCode 11310); accept15's 移出 answer named its form and its button alike.
+        def names(node, found):
+            if isinstance(node, dict):
+                if "tag" in node and isinstance(node.get("name"), str):
+                    found.append(node["name"])
+                for value in node.values():
+                    names(value, found)
+            elif isinstance(node, list):
+                for value in node:
+                    names(value, found)
+            return found
+        twice = {sample: sorted({name for name in found if found.count(name) > 1})
+                 for sample, card in render().items() for found in [names(card, [])]}
+        self.assertEqual({sample: dup for sample, dup in twice.items() if dup}, {})
+
     def test_rendering_twice_gives_the_same_bytes(self):
         self.assertEqual(encode(render()), encode(render()))
 
