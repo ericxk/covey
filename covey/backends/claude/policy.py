@@ -7,6 +7,13 @@ from __future__ import annotations
 
 import re
 import json
+import posixpath
+
+from covey.core.text import cut, redact
+
+# How many of a subagent's last tool calls a refusal's words name (call_words), and how long each may be.
+CALLS_SHOWN = 3
+CALL_CHARS = 80
 
 
 def http_refusal(row, payload):
@@ -82,3 +89,37 @@ def policy_signal(row):
         "response_id": identifier(payload.get("id")),
         "evidence": "fallback_block" if fallback is not None else "fallback_iteration" if inherited else "http_refusal" if api_refusal else "refusal_stop",
     }
+
+
+def _number(value):
+    return value if type(value) is int and value >= 0 else None
+
+
+def call_words(name, inputs):
+    """One tool call of Claude Code in words, for what a refused agent was doing (core/model_policy.py
+    policy_where): 读 chunk01.txt 第 1201–1600 行, 跑 pytest -q. Secrets hidden, one line, bounded."""
+    inputs = inputs if isinstance(inputs, dict) else {}
+    path = str(inputs.get("file_path") or inputs.get("notebook_path") or inputs.get("path") or "")
+    base = posixpath.basename(path.rstrip("/")) or path
+    if name == "Read" and base:
+        offset, limit = _number(inputs.get("offset")), _number(inputs.get("limit"))
+        lines = (f" 第 {offset}–{offset + limit - 1} 行" if offset is not None and limit else
+                 f" 第 {offset} 行起" if offset is not None else f" 前 {limit} 行" if limit else "")
+        words = f"读 {base}{lines}"
+    elif name in {"Edit", "MultiEdit", "Write", "NotebookEdit"} and base:
+        words = ("写 " if name == "Write" else "改 ") + base
+    elif name == "Bash" and inputs.get("command"):
+        words = "跑 " + str(inputs.get("description") or inputs["command"])
+    elif name == "Grep" and inputs.get("pattern"):
+        words = f"搜“{inputs['pattern']}”" + (f"（{base}）" if base else "")
+    elif name == "Glob" and inputs.get("pattern"):
+        words = f"找文件 {inputs['pattern']}"
+    elif name == "WebFetch" and inputs.get("url"):
+        words = "读网页 " + str(inputs["url"]).split("?", 1)[0].split("#", 1)[0]
+    elif name == "WebSearch" and inputs.get("query"):
+        words = f"搜网页“{inputs['query']}”"
+    elif name in {"Agent", "Task"}:
+        words = f"派子代理「{inputs.get('description') or '子任务'}」"
+    else:
+        words = "调用 " + (str(name) or "工具")
+    return cut(redact(words), CALL_CHARS)

@@ -13,14 +13,54 @@ def valid_policy_event(value):
             and value["evidence"] in {"fallback_block", "fallback_iteration", "refusal_stop", "http_refusal", "server_audit"})
 
 
-def policy_summary(event, *, cleanup=True):
+def category_words(event):
+    category = event.get("category")
+    return category if category and category != "unspecified" else "上游未提供类别"
+
+
+def policy_where(scope, name="", doing=""):
+    """Who was refused and what it was doing then, as the stop and the 执行过程 line say it: 子代理「标注第 1 块」在读
+    chunk01.txt 第 1201–1600 行时. ``name``: the subagent's description; ``doing``: its last tool calls in words."""
+    who = (f"子代理「{name}」" if name else "一个子代理") if scope == "subagent" else "主任务"
+    return who + (f"在{doing}时" if doing else "")
+
+
+def blocked_words(event):
+    """被拦 for a refusal, 被降级 for a fallback."""
+    return "被降级" if event.get("kind") == "fallback" else "被拦"
+
+
+def tolerated_line(event, where):
+    """The 执行过程 line of a subagent's first refusal, which does not stop the turn (docs/policy-stop.md)."""
+    return f"{where}{blocked_words(event)}（{category_words(event)}），主任务继续"
+
+
+def stop_detail(event, where, earlier=""):
+    """What a stop says of the refusal that stopped the turn: ``where`` (policy_where) and, when a subagent's refusal
+    was let through before in this task, ``earlier``, where that one was."""
+    text = f"{where}{blocked_words(event)}（{category_words(event)}）。"
+    if earlier:
+        text += f"这是本任务第 2 次被拦（之前{earlier}被拦过一次），连续被拒可能让账号被拦，所以停下。"
+    return text
+
+
+def same_refusal(seen, event):
+    """Whether ``event`` is the refusal ``seen`` again (one refusal comes as a stream delta and as its message): a
+    subagent's, of the same subagent, and the same response where both name one."""
+    return (isinstance(seen, dict) and isinstance(event, dict) and seen.get("scope") == event.get("scope") == "subagent"
+            and seen.get("child_id") == event.get("child_id")
+            and (not seen.get("response_id") or not event.get("response_id") or seen["response_id"] == event["response_id"]))
+
+
+def policy_summary(event, *, cleanup=True, detail=""):
+    """The stop's first line. ``detail`` (stop_detail) says who was refused doing what; without it the event says
+    only whether it was the main task or a subagent."""
     action = "官方模型降级" if event["kind"] == "fallback" else "官方内容安全拒绝"
-    category = event["category"] if event["category"] != "unspecified" else "上游未提供类别"
-    where = "SubAgent " + event["child_id"] if event["scope"] == "subagent" else "主任务"
+    where = "一个子代理" if event["scope"] == "subagent" else "主任务"
     transition = (f"\n模型：{event['source_model']} → {event['target_model']}。"
                   if event["source_model"] and event["target_model"] else "")
     state = "本轮已停止" if cleanup else "已请求停止，进程清理尚未确认"
-    return f"{state}：{where}触发{action}（{category}）。" + transition
+    return f"{state}：" + (detail or f"{where}触发{action}（{category_words(event)}）。") + transition
 
 
 POLICY_RECOVERY = ("\n\n不会自动重试或自动检查并继续。已产生的文件和过程记录保留；"

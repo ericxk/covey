@@ -160,9 +160,36 @@ for line in sys.stdin:
             else:
                 event = {"type": "message_delta", "delta": {"stop_reason": "refusal", "stop_details": {
                     "type": "refusal", "category": "cyber", "explanation": "PRIVATE_POLICY_TEXT"}}}
+            if child:
+                # The main task sends two subagents; each reads its chunk (C1: a subagent's first refusal is let
+                # through, the next one, a subagent's or the main task's, stops the turn).
+                for n, name in ((1, "policy"), (2, "policy-2")):
+                    emit({"type": "assistant", "session_id": SID, "uuid": f"spawn-{n}", "message": {"id": f"spawn-{n}",
+                          "content": [{"type": "tool_use", "id": "child-" + name, "name": "Agent",
+                                       "input": {"description": f"标注第 {n} 块", "prompt": "PRIVATE_PROMPT"}}]}})
+                    emit({"type": "assistant", "session_id": SID, "parent_tool_use_id": "child-" + name,
+                          "uuid": f"read-{n}", "message": {"id": f"read-{n}", "content": [
+                              {"type": "tool_use", "id": f"read-call-{n}", "name": "Read", "input": {
+                                  "file_path": f"/work/chunk0{n}.txt", "offset": 1201, "limit": 400}}]}})
             emit({"type": "stream_event", "session_id": SID, "event": event, **child})
-            finish("THIS LATER SUCCESS MUST NOT BE DELIVERED")
-            time.sleep(30)  # The bridge must stop the process rather than wait for a result/timeout.
+            if child:
+                # The same refusal again, as its message: still one.
+                emit({"type": "assistant", "session_id": SID, "uuid": "refused-1", **child,
+                      "message": {"id": "refused-msg-1", "stop_reason": "refusal", "content": []}})
+            if "once" in scenario:
+                emit({"type": "user", "session_id": SID, "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": "child-policy", "is_error": True, "content": "refused"}]}})
+                emit({"type": "user", "session_id": SID, "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": "child-policy-2", "content": "chunk 2 done"}]}})
+                finish("主任务绕开了被拦的那块")
+            else:
+                if child and "main" in scenario:
+                    emit({"type": "stream_event", "session_id": SID, "event": event})
+                elif child:
+                    emit({"type": "stream_event", "session_id": SID, "event": event,
+                          "parent_tool_use_id": "child-policy-2"})
+                finish("THIS LATER SUCCESS MUST NOT BE DELIVERED")
+                time.sleep(30)  # The bridge must stop the process rather than wait for a result/timeout.
         elif scenario in {"cancel", "timeout"}:
             assistant("working", "progress")
             time.sleep(30)

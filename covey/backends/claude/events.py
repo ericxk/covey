@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 
+from covey.backends.claude.policy import CALLS_SHOWN, call_words
 from covey.backends.claude.usage import ClaudeSubtaskUsage, ClaudeTurnUsage
+from covey.core.model_policy import policy_where
 from covey.core.steps import AnswerNotes, Steps
 from covey.core.text import short_count, tool_detail
 
@@ -45,6 +47,9 @@ class ClaudeEventAdapter:
         self.commands = {}
         self.usage = ClaudeTurnUsage(emit)
         self.subtasks = ClaudeSubtaskUsage(emit)
+        # The last CALLS_SHOWN tool calls of the main task (None) and of each subagent, in words: what one was doing
+        # when it was refused (policy_where).
+        self.calls = {}
 
     @property
     def tools(self):
@@ -138,12 +143,25 @@ class ClaudeEventAdapter:
                                   ("" if manual else "Claude Code 自动压缩 · ") + compacted_sizes(meta),
                                   name="context_compaction")
 
+    def policy_where(self, signal):
+        """Who a refusal ``signal`` (backends/claude/policy.py policy_signal) stopped and what it was doing, in words:
+        the subagent's description from the Agent call that started it, the last tool calls of the one refused."""
+        child = signal.get("child_id") or None if signal.get("scope") == "subagent" else None
+        name = str(self.agents.get(child, {}).get("name") or "") if child else ""
+        calls = list(self.calls.get(child, {}).values())
+        return policy_where(signal.get("scope"), "" if name == "子任务" else name, "、".join(calls[-CALLS_SHOWN:]))
+
     def tool_started(self, block, row, child):
         """A tool_use block; a root one first publishes the notes written before it."""
         if child is None:
             self.notes.to_notes()
         inputs = block.get("input")
         inputs = inputs if isinstance(inputs, dict) else {}
+        calls = self.calls.setdefault(child, {})
+        calls.pop(block["id"], None)
+        calls[block["id"]] = call_words(block.get("name", ""), inputs)
+        while len(calls) > CALLS_SHOWN:
+            calls.pop(next(iter(calls)))
         detail = tool_detail(inputs, DETAIL_KEYS, block.get("name", ""))
         if self.steps.start(block["id"], block.get("name", "tool").lower(), str(detail), time.time(),
                             child_id=row.get("parent_tool_use_id")) is None:

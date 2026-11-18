@@ -196,7 +196,7 @@ class WordingTest(DeliverCase):
         from covey.app.turn_settle import TurnResult, _settle_status
         refusal = "本轮因官方拒绝已停止。请先检查任务内容，再在本话题明确提出调整后的要求。"
         outcome = SimpleNamespace(failure_reply=lambda detail: refusal, job_status="failed", error_code="policy",
-                                  policy_event={"kind": "refusal"}, summary=lambda: "官方拒绝")
+                                  policy_event={"kind": "refusal"}, summary=lambda detail="": "官方拒绝")
         for topic, expected in ((BUTLER, "再在私聊里明确提出"), ("a" * 32, "再在本话题明确提出")):
             turn = TurnResult()
             _settle_status(turn, SimpleNamespace(public_reply=None, failure_detail=""), self.job(topic), outcome, "", False)

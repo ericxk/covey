@@ -154,7 +154,7 @@ def _settle_status(turn, result, job, outcome, reply, is_error):
         turn.status_message = "任务完成" if turn.status == "done" else STATUS_MESSAGES.get(
             outcome.error_code, INCOMPLETE_STATUS)
         if outcome.policy_event is not None:
-            turn.status_message = outcome.summary()
+            turn.status_message = outcome.summary(result.failure_detail)
         if turn.verified_delivery is None and turn.status == "done":
             turn.status, turn.status_message = "failed", "未取得可交付的完整公开回复"
         turn.final_text = reply
