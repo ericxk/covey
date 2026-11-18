@@ -123,7 +123,7 @@ def _later(record, now, doing, total):
     minutes = ""
     if now is not None and isinstance(at, (int, float)) and at > now:
         minutes = f"约 {max(1, math.ceil((at - now) / 60))} 分钟后"
-    when = f"{minutes}（{when}）" if minutes and when else minutes or when or "稍后"
+    when = f"{minutes}（{when}）" if minutes and when else minutes or (when + " " if when else "") or "稍后"
     count = f"（第 {attempt}/{total} 次）" if isinstance(attempt, int) and total else ""
     return f"{when}会{doing}{count}"
 
