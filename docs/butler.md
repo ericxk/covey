@@ -143,7 +143,7 @@
 - **结束表情**（`butler_reply.react_end`）：DONE（自己答的）、Get（交给话题）、CrossMark（失败、被拒）；停止和等回答只去掉 OnIt。失败只记日志。
 - **答案**：聊天区新消息，带“你问”块。只做了交接的一轮（`handed_quietly`）不发答案，Get 就是回执；转给了已有话题（topic_send）的，再在主人那条消息下回一个小卡（`hook_topics`，`cards/answer_card.py` 的 `hook_card`）：每个话题一行“→ T453「标题」 ›”，点了打开那个话题串、定位到转入的那条（`hook_rows`，转交记录的 `thread_message_id`）。它是引用主人消息的顶层回复，不开串（D1）；只挂一个话题时，引用这张小卡说话进那个话题。新开或分叉的话题串本来就挂在主人那条消息下面，不列。
 - **没卡时的失败**：发一条带“你问”的短消息（`app/quiet_delivery.py` 的 `top_notice`），被拒或停止时列出收下的补充；答案没发出去时另发一条带按钮的（`undelivered_notice`）。
-- **问题卡**：还没有卡时，问题卡本身作为聊天区新消息发出（`QuestionDisplay.ask_block_for`）。
+- **问题卡**：还没有卡时，问题卡本身作为聊天区新消息发出（`QuestionDisplay.ask_block_for`）。要主人定的事，`AREA_OPENING` 的第三条要求管家写进检查点的 `requires_user`、`question` 和 `questions`，不只在回复末尾问一句（2026-11-19：管家最近 79 轮回答里 9 轮这样问，主人都没看到）。管家的问题还不进看板和手上的事（`core/board_read.py` 按 `listed` 筛掉了管家），这一步跟着看板那一路改（`docs/ui.md`）。
 - **重试、续跑、续接**：原来没卡的同样延后发卡，表情落在主人原来的消息上（`reaction_message`，`placement.owner_message`）；回答问题后的续接一轮不加表情（`placement.marked` 只认 `om_`）。
 
 ### 一次请求一张卡
@@ -296,7 +296,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 - **开**：管家开着、查得到提问、提问的别名还指向管家时（`butler_topics.place`，`core/topics.py` 的 `claim_area_root`），以这条提问为根：先把别名改给新话题（`move_topic_message`），再建上下文，不发话题卡。`opened/` 记 `area_root`、`area_taken`。
 - **一条提问只挂一个串**：同一条提问的第二个话题、查不到提问时，根是顶层新发的话题卡；分叉挂不上时把源话题合并转发到私聊当根。第二个话题的“你问”仍写那条提问，链接打开它自己的串（`ask_for` 读 `area_taken`）。
-- **引用直达**：管家这一轮的卡只交给了一个话题时，卡的别名记上 `routes_to`（`butler_relay.after_runner` 调 `route_message`）。回带的结论、问题卡副本也记成话题的消息并带 `routes_to`。引用它们就是对那个话题说话（`context_for_topic` 先看 `routes_to`），不经管家。纯话题模式下串里不看 `routes_to`。
+- **引用直达**：引用专项负责人的回答，交给负责人（`app/butler.py` 的 `app_for`：负责人算管家一家，`core/butler.py` 的 `is_lead`，原来留在管家这里，管家忙时还会新开一路）。管家这一轮的卡只交给了一个话题时，卡的别名记上 `routes_to`（`butler_relay.after_runner` 调 `route_message`）。回带的结论、问题卡副本也记成话题的消息并带 `routes_to`。引用它们就是对那个话题说话（`context_for_topic` 先看 `routes_to`），不经管家。纯话题模式下串里不看 `routes_to`。
 
 ## 结论回到顶层
 

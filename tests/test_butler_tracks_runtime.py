@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from support.butler import switch_on
+from support.records import write_topic
 from support.world import UnifiedCase
 from covey.app import butler as session
 from covey.app import butler_tracks as runtime_tracks
@@ -23,7 +24,7 @@ from covey.core.jobs import upsert_job_record
 from covey.core.locks import LOCK
 from covey.core.state import write_json
 from covey.core.steer import SteerRefused
-from covey.core.topics import message_topic
+from covey.core.topics import message_topic, remember_topic_message
 from covey.feishu import message_request
 
 CHAT = "oc_main"
@@ -140,6 +141,23 @@ class RouteTest(TracksCase):
         self.send("om_2", "明天北京天气怎么样，要不要带伞呢")
         self.assertEqual([call[0] for call in order.mock_calls], ["warm", "warm", "judge", "warm"])
         self.assertIs(self.warm.call_args.args[0], self.claude.harness.backend)
+
+    def test_a_reply_to_the_leads_message_goes_to_the_lead_while_a_track_runs(self):
+        # 2026-11-19 (T531): the lead is of the family (core/butler.py is_lead), so a reply to its answer stayed the
+        # butler's: a new track while the butler ran, a turn of the butler's root otherwise; never the lead's.
+        lead = "1ead" * 8
+        write_topic(self.state, topic_id=lead, chat_id=CHAT, harness_id="claude", root_id="", project={"role": "lead"},
+                    workspace_name=self.ctx.workspace_name, workdir=str(self.ctx.workdir))
+        remember_topic_message(self.state, lead, CHAT, "om_lead_answer")
+        self.send("om_1", LONG)
+        self.run_job("om_1")
+        with mock.patch.object(butler, "is_lead", side_effect=lambda topic, chat: topic == lead):
+            self.send("om_2", "这条按你说的办", parent_id="om_lead_answer")
+        self.judge.assert_not_called()
+        self.assertEqual(self.app.runtime.jobs.topic_jobs(SLOT1, CHAT), [])
+        self.assertEqual(message_topic(self.state, CHAT, "om_2"), lead)  # The lead's, not the butler's root.
+        self.assertEqual([job.message_id for job in self.app.runtime.jobs.topic_jobs(butler.butler_topic_id(CHAT), CHAT)],
+                         ["om_1"])
 
     def test_stop_word_stops_the_newest_track_and_starts_nothing(self):
         self.send("om_1", LONG)

@@ -192,6 +192,10 @@ class Butler:
             # butler's, as a new one at the top level (its chain's root is the owner's message, the butler's
             # ; core/topics.py context_for_topic finds that first).
             known = [butler_topic_id(chat)]
+        if known and contract.is_lead(known[0], chat):
+            # A reply to a project lead's answer: the lead's (引用直达), as a quote of its 专项卡 is. The lead is of the
+            # butler's family (core/butler.py is_butler_topic), so it stayed here and reached the butler (2026-11-19).
+            return None
         # A reply to a message no topic knows opens a topic on it, as ever; to one of the butler's stays here.
         if (not is_butler_topic(known[0], chat)) if known else any(above):
             return None

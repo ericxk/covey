@@ -15,7 +15,7 @@ from covey.core import butler
 from covey.core.butler_tool_specs import BUTLER_RULES_ENV as TOOLS_BUTLER_ENV
 from covey.core.butler_tool_specs import START_BUTLER, START_OWN, TOOLS, listed
 
-from covey.app.prompts import (BUTLER_RULES_ENV, BUTLER_RULES, SHARED_RULES, butler_on, butler_message,
+from covey.app.prompts import (AREA_OPENING, BUTLER_RULES_ENV, BUTLER_RULES, SHARED_RULES, butler_on, butler_message,
                                 butler_rules, shared_rules)
 from covey.core import knowledge
 
@@ -69,7 +69,8 @@ class ButlerRulesTest(unittest.TestCase):
     def test_the_knowledge_rules_still_follow_the_butler_rule(self):
         self.env(**{BUTLER_RULES_ENV: "1", knowledge.ENV: "1"})
         rules = butler_rules().split("\n")
-        self.assertEqual(rules[3:5], list(BUTLER_RULES))
+        start = 1 + len(AREA_OPENING)  # After the heading and the opening lines.
+        self.assertEqual(rules[start:start + 2], list(BUTLER_RULES))
         self.assertTrue(any("knowledge_save" in line for line in rules))
         self.assertEqual(rules[0], "[管家规则]")
 
