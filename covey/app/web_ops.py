@@ -24,6 +24,9 @@ KINDS) as the owner's own and says (state, message) for the ack.
   closed too, as a project's lead stops a member topic (app/binding.py retire_open_questions: cancelled with the reason ``web_stop``, the
   turn waiting on it cancelled); a topic with neither is ``failed``.
 - ``reopen``: a project that is folded away or paused opens again by the path the owner's own turn takes (app/project_loop.py reopen).
+- ``settings``: one change on the page's 设置 (app/web_settings.py ``change``: a row of 新话题 or 管家, 记住的工作区's 移除, a workspace's
+  用途, 脱敏's switches, a group's 停用 / 启用) through the 设置 card's own code, the owner only (app/access.py ``is_owner``); ``done`` says the
+  card's receipt (已保存：之后新开的话题照这个来。), a row the page may not change (私聊顶层的消息, 免@, ...) is ``failed``.
 - ``tidy``: 整理专项 (app/project_tidy.py start, COVEY_PROJECT_TIDY on): ``scope`` "" for everything, a project id or a word; ``done`` says
   已开始整理，结果发到私聊 (the 整理专项 card goes to the private chat), or 正在整理（12/40） while one runs; off, or too few topics, is ``failed``.
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
@@ -41,6 +44,7 @@ from pathlib import Path
 from covey.app import project_loop
 from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields
 from covey.app.runtime import job_stage
+from covey.app.web_settings import WebSettings
 from covey.core import board_read, project_memory, projects, triage, web_sync
 from covey.core.attachments import message_words
 from covey.core.butler import is_butler_root
@@ -68,6 +72,7 @@ class Ops:
     def __init__(self, env, hear=None) -> None:
         self.env = env
         self.hear = hear
+        self.web_settings = WebSettings(env)  # The 设置 page's snapshot (app/web_sync.py) and its changes (``settings``).
 
     @property
     def runtime(self):
@@ -78,7 +83,7 @@ class Ops:
         kind = str(row.get("kind") or "")
         try:
             handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
-                       "forget": self.forget, "tidy": self.tidy}.get(kind)
+                       "forget": self.forget, "tidy": self.tidy, "settings": self.settings}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -296,6 +301,12 @@ class Ops:
         if words != project_proposals.STARTED_WORDS and not words.startswith(project_proposals.BUSY_PREFIX):
             raise ValueError(words)
         return words
+
+    # -- settings ----------------------------------------------------------------------------------------------------------
+
+    def settings(self, state, chat, row, payload) -> str:
+        """One change on the page's 设置 (app/web_settings.py ``change``), as the owner app/access.py knows; the card's receipt."""
+        return self.web_settings.change(payload, self.runtime.access.is_owner(self.runtime.owner_open_id or ""))
 
     # -- reopen ------------------------------------------------------------------------------------------------------------
 

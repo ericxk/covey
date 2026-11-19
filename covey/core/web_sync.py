@@ -4,8 +4,8 @@ does what the page asked for).
 
 - ``COVEY_WEB_CONFIG`` names a JSON {base_url, key_file, push_seconds, poll_seconds}: the key is read from ``key_file`` alone and never
   stored in the config object's repr, a log line or a record.
-- Items: ``project``, ``topic``, ``turn``, ``question`` (the contract's fields, in Chinese words for states); ``rev`` is the hash of an
-  item's data, so only what changed is pushed. A batch is at most ``BATCH_ITEMS`` items or ``BATCH_BYTES`` bytes.
+- Items: ``project``, ``topic``, ``turn``, ``question`` (the contract's fields, in Chinese words for states) and one ``settings`` (the 设置
+  card's tabs, app/web_settings.py); ``rev`` is the hash of an item's data, so only what changed is pushed. A batch is at most ``BATCH_ITEMS`` items or ``BATCH_BYTES`` bytes.
 - The ledger (``<state>/web/inbox.json``): an operation's op_id and seq are written before it is done, so a restart does not do it
   twice; an operation found "received" without a result is not done again (rule 6 of AGENTS.md: a write is not replayed).
 """
@@ -29,8 +29,9 @@ BATCH_ITEMS, BATCH_BYTES = 500, 1_000_000  # Bytes as sent (UTF-8): the page's b
 BODY_BYTES = 64 * 1024
 CUT_NOTE = "\n\n（内容太长，已截断）"
 LEDGER_KEPT = 2000
-KINDS = ("say", "answer", "stop", "reopen", "seen", "forget", "tidy")
-TYPES = ("project", "topic", "turn", "question")
+KINDS = ("say", "answer", "stop", "reopen", "seen", "forget", "tidy", "settings")
+TYPES = ("project", "topic", "turn", "question", "settings")
+SETTINGS_KEY = "settings"  # The one ``settings`` item's key (app/web_settings.py).
 PREFIX = "web-"  # The message id of the owner's words from the page: ``web-<op_id>``. Feishu has no such message.
 
 

@@ -202,6 +202,7 @@
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
 | `app/unified.py` | The Bridge: one Feishu ingress, immutable topic routes, one app per Harness |
 | `app/web_ops.py` | 网页上发来的操作怎么执行: `Ops.run` does one operation of the page's outbox as the owner's own and says (state, message) … |
+| `app/web_settings.py` | 网页工作台的设置页 (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (the 妙搭 app) … |
 | `app/web_turns.py` | What a turn tells the web page beside its words (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |

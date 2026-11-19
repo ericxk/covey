@@ -697,6 +697,7 @@ class WebSync:
         self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.last_full = 0.0
+        self.settings_due, self.settings_stamps = True, None  # The 设置 item: built on a full look, after the page changed one, or when its files did.
         self.ledger = None
         self.down = {}  # thread name -> failures in a row.
 
@@ -769,6 +770,7 @@ class WebSync:
         now = time.time() if now is None else now
         full = now - self.last_full >= FULL_SECONDS
         items, deleted = collector.collect(chat, now, full)
+        items += self.settings_items(chat, now, full)
         changed = [each for each in items if sent.get((each["type"], each["key"])) != each["rev"]]
         count = 0
         for batch in web_sync.batches(changed):
@@ -788,6 +790,22 @@ class WebSync:
         if full and collector is self.collector:
             self.last_full = now
         return count
+
+    def settings_items(self, chat, now, full) -> list:
+        """The ``settings`` item (app/web_settings.py), built on a full look, after the page changed a setting and when main-thread.json
+        or the workspace list changed (two stats a look), else none; never raises (a 设置 that cannot be read stops no push)."""
+        if getattr(self.env, "settings", None) is None:
+            return []
+        builder = self.ops.web_settings
+        try:
+            stamps = builder.stamps()
+            if not (full or self.settings_due or stamps != self.settings_stamps):
+                return []
+            self.settings_due, self.settings_stamps = False, stamps
+            return [web_sync.item("settings", web_sync.SETTINGS_KEY, builder.snapshot(chat, now))]
+        except Exception as exc:  # noqa: BLE001 - logged; the next full look tries again
+            self.runtime.log(f"web settings not built: {type(exc).__name__}")
+            return []
 
     # -- inbox ----------------------------------------------------------------------------------------------------------
 
@@ -812,6 +830,8 @@ class WebSync:
                 ledger.finish(op_id, state, message)
                 if row.get("topic_key"):
                     self.collector.touch(row["topic_key"])
+                if row.get("kind") == "settings":
+                    self.settings_due = True
             elif known.get("state") == "received":
                 ledger.finish(op_id, "failed", "这条执行到一半没有结果（Covey 重启或卡住了），结果不确定，没有重发")
             saved = ledger.get(op_id)

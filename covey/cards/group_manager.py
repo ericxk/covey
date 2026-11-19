@@ -49,13 +49,18 @@ def ordered(groups, names):
     return sorted(groups, key=lambda g: (not g.get('active'), name_of(g, names)))
 
 
-def state(record):
-    """The group's state as a tag: what it is and its colour."""
+def state_words(record):
+    """The group's state: what it is and its colour (the card's tag, the web page's pill)."""
     if record.get('external') is True:
-        return tag('外部群 · 只处理你的消息', 'neutral')
+        return '外部群 · 只处理你的消息', 'neutral'
     if record.get('active') is True:
-        return tag('已启用', 'green')
-    return tag('未确认', 'orange') if record.get('external') is None and not record.get('deactivated_at') else tag('已停用', 'neutral')
+        return '已启用', 'green'
+    return ('未确认', 'orange') if record.get('external') is None and not record.get('deactivated_at') else ('已停用', 'neutral')
+
+
+def state(record):
+    """The group's state as a tag (``state_words``)."""
+    return tag(*state_words(record))
 
 
 def free_mode(record):
@@ -64,16 +69,21 @@ def free_mode(record):
     return mode if mode in FREE_CHOICES and mode else ''
 
 
-def free_tag(record):
-    """The row's 免@ tag: who talks without the @ now ('' none). Members only in an active group."""
+def free_words(record):
+    """Who talks without the @ in the group now, '免@ · 只有你' ('' none). Members only in an active group."""
     mode = free_mode(record)
     if not mode:
         return ''
     if mode != 'owner' and not (record.get('active') is True and record.get('external') is False):
         mode = 'owner'
     picked = len(record.get('free_talk_members') or [])
-    words = {'owner': '只有你', 'some': f'你和 {picked} 人', 'all': '所有人'}[mode]
-    return ' ' + tag(f'免@ · {words}', 'blue')
+    return '免@ · ' + {'owner': '只有你', 'some': f'你和 {picked} 人', 'all': '所有人'}[mode]
+
+
+def free_tag(record):
+    """The row's 免@ tag (``free_words``), '' for none."""
+    words = free_words(record)
+    return ' ' + tag(words, 'blue') if words else ''
 
 
 def free_limit(record, blocked):

@@ -92,10 +92,15 @@ def tail(path, size=120):
     return path if len(path) <= size else '…' + path[-(size - 1):]
 
 
+def tag_words(entry, default):
+    """The row's tags as (text, colour): the card's and the web page's."""
+    return ([('兜底', 'neutral')] if entry['name'] == default else []) + (
+        [('设备 ' + entry['device'], 'blue')] if entry.get('device') else []) + (
+        [('目录不存在', 'red')] if entry['state'] is False else [('未确认', 'orange')] if entry['state'] is None else [])
+
+
 def entry_tags(entry, default):
-    return ([tag('兜底', 'neutral')] if entry['name'] == default else []) + (
-        [tag('设备 ' + entry['device'], 'blue')] if entry.get('device') else []) + (
-        [tag('目录不存在', 'red')] if entry['state'] is False else [tag('未确认', 'orange')] if entry['state'] is None else [])
+    return [tag(text, colour) for text, colour in tag_words(entry, default)]
 
 
 def manager_card(token, view, config, status, *, standalone, hub=False, top=(), notes=None, after=(), device_lines=()):
