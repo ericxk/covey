@@ -1,20 +1,16 @@
-"""docs/ui.md's shared look: core/look.py's table and tone, the orb's image, cards/ui.py's parts and who stopped a job."""
+"""docs/ui.md's shared look: core/look.py's table, tone and band colours, cards/ui.py's parts and who stopped a job."""
 from __future__ import annotations
 
 import json
-import struct
+import re
 import subprocess
 import sys
-import tempfile
 import unittest
-import zlib
 from pathlib import Path
-from unittest import mock
 
 from covey.cards import board, ui
 from covey.cards.elements import walk
-from covey.core import jobs, look, orb_image
-from covey.feishu import orb_images
+from covey.core import jobs, look
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -31,10 +27,8 @@ class TableTest(unittest.TestCase):
             self.assertIn(key, look.STATES)
             self.assertFalse(words & set(old), key)
 
-    def test_orb_order_is_states_with_an_orb_image(self):
-        self.assertEqual(set(look.ORB_ORDER), set(orb_image.COLORS))
-        for key in look.ORB_ORDER:
-            self.assertEqual("#%02X%02X%02X" % orb_image.COLORS[key], look.STATES[key].web)
+    def test_pressing_names_states(self):
+        self.assertTrue(set(look.PRESSING) <= set(look.STATES))
 
     def test_export_is_json_of_the_table(self):
         out = subprocess.run([sys.executable, "-B", str(REPO / "scripts" / "export_look.py")], capture_output=True,
@@ -69,11 +63,23 @@ class ToneTest(unittest.TestCase):
         self.assertEqual(look.record_tone({"status": "cancelled", "never_started": True, "cancel_requested_by": "lead"}),
                          "stopped")
 
-    def test_orb(self):
-        self.assertEqual(look.orb({"running": 3, "result": 1, "stopped": 1}), "stopped")
-        self.assertEqual(look.orb(["running", "waiting"]), "waiting")
-        self.assertEqual(look.orb({"done": 4, "queued": 1}), None)
-        self.assertEqual(look.orb({}), None)
+    def test_pressing(self):
+        self.assertEqual(look.pressing({"running": 3, "result": 1, "stopped": 1}), "stopped")
+        self.assertEqual(look.pressing(["running", "waiting"]), "waiting")
+        self.assertEqual(look.pressing({"done": 4, "queued": 1}), None)
+        self.assertEqual(look.pressing({}), None)
+
+    def test_band_steps_are_too_fine_to_see(self):
+        """The owner, 2026-11-19: stripes of 3% showed; 1% did not. Each row lighter than the one above, by at most 1%,
+        never under the floor; dark mode stronger; every colour has both modes."""
+        colors = look.band_colors()
+        alphas = [float(re.search(r",([0-9.]+)\)$", colors[f"band-{n}"]["light_mode"]).group(1))
+                  for n in range(look.BAND["rows"])]
+        for upper, lower in zip(alphas, alphas[1:]):
+            self.assertTrue(0 <= upper - lower <= 0.0101, alphas)
+        self.assertGreaterEqual(min(alphas), look.BAND["floor"])
+        for name, value in colors.items():
+            self.assertEqual(set(value), {"light_mode", "dark_mode"}, name)
 
 
 class StopSourceTest(unittest.TestCase):
@@ -93,69 +99,29 @@ class StopSourceTest(unittest.TestCase):
             self.assertIn(needle, (REPO / "covey" / path).read_text(encoding="utf-8"), path)
 
 
-def pixels(data):
-    """(width, height, RGBA rows) of an 8-bit RGBA PNG with unfiltered rows, as core/orb_image.py writes it."""
-    width, height = struct.unpack(">II", data[16:24])
-    start = data.index(b"IDAT") + 4
-    size = struct.unpack(">I", data[start - 8:start - 4])[0]
-    raw = zlib.decompress(data[start:start + size])
-    stride = 1 + width * 4
-    return width, height, [raw[y * stride + 1:(y + 1) * stride] for y in range(height)]
-
-
-class OrbImageTest(unittest.TestCase):
-    def test_a_ball_on_a_clear_ground(self):
-        data = orb_image.png("waiting")
-        self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
-        width, height, rows = pixels(data)
-        self.assertEqual((width, height), (orb_image.SIZE, orb_image.SIZE))
-        self.assertEqual(rows[0][3], 0)  # A corner is clear.
-        middle = rows[height // 2][width // 2 * 4:width // 2 * 4 + 4]
-        self.assertEqual(tuple(middle), (255, 255, 255, 255))  # The core is white.
-
-    def test_same_bytes_every_time(self):
-        self.assertEqual(orb_image.png("result"), orb_image.png("result"))
-        self.assertNotEqual(orb_image.digest("result"), orb_image.digest("stopped"))
-
-
-class OrbKeyTest(unittest.TestCase):
-    def test_uploaded_once_per_profile_and_drawing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            upload = mock.Mock(side_effect=["img_a", "img_b"])
-            self.assertEqual(orb_images.orb_key(tmp, "bot", "waiting", upload=upload), "img_a")
-            self.assertEqual(orb_images.orb_key(tmp, "bot", "waiting", upload=upload), "img_a")
-            self.assertEqual(orb_images.orb_key(tmp, "other", "waiting", upload=upload), "img_b")
-            self.assertEqual(upload.call_count, 2)
-            sent = upload.call_args_list[0].args[0]
-            self.assertEqual(sent.read_bytes(), orb_image.png("waiting"))
-
-    def test_a_failed_upload_is_no_orb_and_is_tried_again(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            upload = mock.Mock(side_effect=[None, "img_a"])
-            self.assertEqual(orb_images.orb_key(tmp, "bot", "stopped", upload=upload), "")
-            self.assertEqual(orb_images.orb_key(tmp, "bot", "stopped", upload=upload), "img_a")
-            self.assertEqual(orb_images.orb_key(tmp, "bot", "done", upload=upload), "")  # No orb for 做完.
-            self.assertEqual(upload.call_count, 2)
-
-
 class PartsTest(unittest.TestCase):
-    def test_band_rings_and_orb(self):
+    def test_band_is_rows_a_step_lighter_inside_one_line(self):
         band = ui.conclusion_band("要你处理", ui.number(2, "件事"), "T531 等你选风格", below=ui.seg_bar({"waiting": 1}),
-                                  orb_key="img_x")
-        self.assertEqual(band["background_style"], look.BRAND["halo"][0])
-        ring = band["elements"][0]
-        self.assertEqual(ring["background_style"], look.BRAND["halo"][1])
-        inner = ring["elements"][0]
-        self.assertEqual(inner["background_style"], look.BRAND["band"])
-        images = [element for _, _, element in walk([band]) if element.get("tag") == "img"]
-        self.assertEqual([image["img_key"] for image in images], ["img_x"])
-        self.assertIs(images[0]["preview"], False)
-        # Feishu takes a px size only with crop_center or crop_top (a card with fit_horizontal was refused, 230099).
-        self.assertIn(images[0]["scale_type"], {"crop_center", "crop_top"})
-
-    def test_no_orb_without_its_key(self):
-        band = ui.conclusion_band("要你处理", "都在掌握中")
+                                  url="https://x/y")
+        self.assertEqual((band["border_color"], band["has_border"]), ("band-line", True))
+        self.assertNotIn("background_style", band)  # One line, no ring around it (the owner: no blur at the edge).
+        self.assertEqual([row["background_style"] for row in band["elements"]], ["band-0", "band-1", "band-2", "band-3"])
+        self.assertEqual(len(band["elements"][3]["elements"]), 2)  # The segment bar and its legend: one row.
+        self.assertEqual(band["behaviors"][0]["default_url"], "https://x/y")
         self.assertFalse([element for _, _, element in walk([band]) if element.get("tag") == "img"])
+        short = ui.conclusion_band("要你处理", "都在掌握中")
+        self.assertEqual(len(short["elements"]), 2)
+        self.assertTrue(short["elements"][1]["padding"].endswith(f"{ui.EDGE} {ui.SIDE}"))
+
+    def test_styled_names_every_colour_the_band_uses(self):
+        card = ui.styled({"schema": "2.0", "config": {"style": {"color": {"mine": {"light_mode": "rgba(0,0,0,1)",
+                                                                                     "dark_mode": "rgba(0,0,0,1)"}}}},
+                          "body": {"elements": [ui.conclusion_band("看板", "2 件事", "x", below=[ui.todo_bar("y")])]}})
+        named = card["config"]["style"]["color"]
+        self.assertIn("mine", named)
+        used = {element.get(key) for _, _, element in walk(card["body"]["elements"])
+                for key in ("background_style", "border_color")} - {None, "bg-white"}
+        self.assertTrue(used <= set(named), used - set(named))
 
     def test_seg_bar_is_as_long_as_its_counts(self):
         bar, legend = ui.seg_bar({"waiting": 1, "stopped": 1, "result": 1, "running": 3})

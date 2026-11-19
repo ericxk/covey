@@ -10,7 +10,11 @@ own (cards/board.py LOOKS), so that it can move here without a change (tests/tes
   second line; one he stopped himself is 已停止, background.
 - ``owner_stopped``: whether a cancelled record was stopped by the owner, from ``cancel_requested_by``
   (core/jobs.py STOP_SOURCES); one cancelled while queued is his. An older running one without it is not known to be.
-- ``orb``: the state whose colour the conclusion band's orb takes, the most pressing one there is (``ORB_ORDER``).
+- ``pressing``: the most pressing state there is (``PRESSING``): what a summary leads with.
+- ``BAND``, ``band_colors``: the conclusion band's background, a vertical gradient in steps too fine to see (the owner,
+  2026-11-19 08:10, after four sample cards: no orb, no glow around the edge, no visible stripes). A Feishu container
+  takes one solid colour, so the band is rows, each a step lighter than the one above, inside one thin line. The
+  colours are the card's own (``config.style.color``), each with a light and a dark mode value.
 - ``RETIRED``: words the surfaces said before for these states, to be replaced as each surface moves.
 
 Standard library only, importing nothing of the Bridge's."""
@@ -46,12 +50,17 @@ STATES = {
 GROUP_WORDS = {"result": "有结果没看"}
 # Objects, not states.
 PROJECT = Look("专项", BACK, "violet", "violet-50", "#A78BFA", "folder_outlined")
-# The order the orb picks from, the most pressing first; none of them: no orb.
-ORB_ORDER = ("waiting", "stopped", "stuck", "result", "running")
+# The most pressing state first: what a summary (the 看板's conclusion, the web page's first screen) leads with.
+PRESSING = ("waiting", "stopped", "stuck", "result", "running")
 
 # The brand: the visual centre and what can be clicked. Cards in Feishu's colour names (light and dark mode are
 # Feishu's), the web page in its own colours.
-BRAND = {"color": "indigo", "band": "indigo-50", "halo": ("indigo-50", "indigo-100"), "web": "#7C83FF"}
+BRAND = {"color": "indigo", "web": "#7C83FF"}
+# The conclusion band: rows from ``top`` alpha down by ``step`` (never under ``floor``) of ``rgb`` in light mode, ``dark``
+# times as strong of ``dark_rgb`` in dark mode, inside a ``line`` (light, dark) alpha border. A step of 1% shows no
+# stripe; 3% did (the third sample card).
+BAND = {"rgb": (94, 106, 210), "dark_rgb": (124, 131, 255), "top": 0.085, "step": 0.01, "floor": 0.035, "dark": 2.0,
+        "line": (0.20, 0.38), "rows": 6}
 WEB = {"surface": "#08090C", "panel": "#0F1116", "line": "#1F2229", "ink": "#E6E8EB", "muted": "#8A8F98"}
 
 # core/jobs.py STOP_SOURCES that are the owner's own: his card's 停止, his stop word to the butler, his stop on
@@ -117,21 +126,40 @@ def group_word(key) -> str:
     return GROUP_WORDS.get(key, STATES[key].word)
 
 
-def orb(counts) -> str | None:
-    """The state the orb shows of ``counts`` ({key: how many}, or an iterable of keys): the first of ORB_ORDER there
+def pressing(counts) -> str | None:
+    """The most pressing state of ``counts`` ({key: how many}, or an iterable of keys): the first of PRESSING there
     is, None when there is none of them."""
     if not isinstance(counts, dict):
         found: dict = {}
         for key in counts or ():
             found[key] = found.get(key, 0) + 1
         counts = found
-    return next((key for key in ORB_ORDER if counts.get(key)), None)
+    return next((key for key in PRESSING if counts.get(key)), None)
+
+
+def _rgba(rgb, alpha) -> str:
+    return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{min(alpha, 1.0):.3f})"
+
+
+def band_alpha(row) -> float:
+    """The light mode alpha of the band's row ``row`` (0 at the top)."""
+    return max(BAND["floor"], BAND["top"] - BAND["step"] * row)
+
+
+def band_colors() -> dict:
+    """The card colours the band uses (``config.style.color``): ``band-0`` .. ``band-<rows-1>`` and ``band-line``."""
+    rgb, dark_rgb, dark = BAND["rgb"], BAND["dark_rgb"], BAND["dark"]
+    colors = {f"band-{row}": {"light_mode": _rgba(rgb, band_alpha(row)), "dark_mode": _rgba(dark_rgb, band_alpha(row) * dark)}
+              for row in range(BAND["rows"])}
+    colors["band-line"] = {"light_mode": _rgba(rgb, BAND["line"][0]), "dark_mode": _rgba(dark_rgb, BAND["line"][1])}
+    return colors
 
 
 def export() -> dict:
-    """The table as the web page reads it (look.json): each state's word, group and colours, the orb's order, the
-    brand and the web page's own colours."""
+    """The table as the web page reads it (look.json): each state's word, group and colours, the order of the most
+    pressing, the brand, the band's gradient and the web page's own colours."""
     return {"version": 1,
             "states": {key: {**look._asdict(), "heading": group_word(key)} for key, look in STATES.items()},
-            "project": PROJECT._asdict(), "orb_order": list(ORB_ORDER), "brand": dict(BRAND, halo=list(BRAND["halo"])),
+            "project": PROJECT._asdict(), "pressing": list(PRESSING), "brand": dict(BRAND),
+            "band": {**BAND, "rgb": list(BAND["rgb"]), "dark_rgb": list(BAND["dark_rgb"]), "line": list(BAND["line"])},
             "web": dict(WEB)}

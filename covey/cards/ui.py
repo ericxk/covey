@@ -1,11 +1,10 @@
-"""The shared parts of the 夜航 look (docs/ui.md) as schema 2.0 card elements: the conclusion band with its halo and
-orb, the 要你做 bar, the segment bar, a state's dot and pill, a topic row. Words and colours come from core/look.py;
+"""The shared parts of the 夜航 look (docs/ui.md) as schema 2.0 card elements: the conclusion band, the 要你做 bar, the segment bar, a state's dot and pill, a topic row. Words and colours come from core/look.py;
 no card here is sent by itself, the cards that move to this look use these parts (docs/ui.md 怎么开工).
 
 - ``conclusion_band``: the visual centre of a card. A small label, the headline, a grey line, then ``below`` (a
-  ``todo_bar`` or a ``seg_bar``), on core/look.py BRAND's band colour, inside two rings of its halo colours (the halo:
-  Feishu has no shadow, so rings of nested containers stand for it). ``orb_key``: the image key of the orb
-  (feishu/orb_images.py), shown at the right of the label and headline; none: no orb.
+  ``todo_bar`` or a ``seg_bar``), each a row of its own on a background a step lighter than the row above (core/look.py
+  BAND: a gradient in steps too fine to see), inside one thin line. Its colours are the card's own: a card with a band
+  goes through ``styled``, which puts them in its ``config.style.color``.
 - ``seg_bar``: how many of each state, as one line of coloured bars as long as their counts, and a legend under it.
 - ``topic_row``: a state's dot and word, ``T531 title ›``, a line in words, grey figures; buttons at the right; the
   whole opens ``url``.
@@ -16,10 +15,10 @@ from covey.cards.elements import grey, md
 from covey.core import look
 from covey.core.text import literal
 
-BAND_PADDING = "10px 12px 10px 12px"
+EDGE, GAP = "10px", "3px"  # A band row's padding at the band's top and bottom edge, and between two rows.
+SIDE = "14px"
 SEG_WIDTH = 24  # Characters of the segment bar: wide enough to read the parts, narrow enough for a topic's side panel.
 SEG_CHAR = "━"
-ORB_SIZE = "40px 40px"  # A size in px only with crop_center or crop_top: Feishu refuses it with fit_horizontal (230099).
 
 
 def font(text, color) -> str:
@@ -68,24 +67,29 @@ def side_by_side(left, right, *, align="top") -> dict:
     return {"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": columns}
 
 
-def orb(image_key) -> dict:
-    return {"tag": "img", "img_key": image_key, "size": ORB_SIZE, "scale_type": "crop_center", "transparent": True,
-            "preview": False, "alt": {"tag": "plain_text", "content": ""}}
-
-
-def conclusion_band(label, headline, line="", *, below=(), orb_key="", url="") -> dict:
+def conclusion_band(label, headline, line="", *, below=(), url="") -> dict:
     """The conclusion band: ``label`` (small, the brand's colour), ``headline`` (Markdown, large), ``line`` (grey),
-    then ``below``; the orb at the right of the first two when ``orb_key``; inside the halo's two rings."""
-    top = [md(font(label, look.BRAND["color"]), size="notation"), md(headline, size="heading")]
-    head = side_by_side(top, [orb(orb_key)]) if orb_key else None
-    elements = [head] if head else top
+    then ``below`` (elements, one row together), each row a step lighter than the one above, inside one thin line.
+    The card it is on goes through ``styled``."""
+    rows = [[md(font(label, look.BRAND["color"]), size="notation")], [md(headline, size="heading")]]
     if line:
-        elements.append(md(grey(line), size="notation"))
-    elements += list(below)
-    outer, inner = look.BRAND["halo"]
-    band = container(elements, background=look.BRAND["band"], padding=BAND_PADDING, spacing="4px", url=url)
-    ring = container([band], background=inner, radius="12px", padding="2px")
-    return container([ring], background=outer, radius="14px", padding="3px")
+        rows.append([md(grey(line), size="notation")])
+    if below:
+        rows.append(list(below))
+    rows = rows[:look.BAND["rows"]]
+    last = len(rows) - 1
+    boxes = [container(row, background=f"band-{n}", radius="0px", spacing="4px",
+                       padding=f"{EDGE if n == 0 else GAP} {SIDE} {EDGE if n == last else GAP} {SIDE}")
+             for n, row in enumerate(rows)]
+    return container(boxes, border="band-line", radius="10px", spacing="0px", url=url)
+
+
+def styled(card) -> dict:
+    """``card`` (cards/elements.py card) with the colours of the band in its ``config.style.color``, beside any it has."""
+    config = card.setdefault("config", {})
+    style = config.setdefault("style", {})
+    style["color"] = {**style.get("color", {}), **look.band_colors()}
+    return card
 
 
 def number(value, unit) -> str:

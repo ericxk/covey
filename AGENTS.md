@@ -320,7 +320,6 @@
 | `core/node_agent.py` | The Node: the program that stays on a device (and on the hub itself) and keeps one connection to its hub |
 | `core/node_rules.py` | The rules that turn a node's samples into alerts, as pure functions |
 | `core/nodes.py` | Nodes (节点): the machines that keep a connection to this hub, the hub itself included, and what they report |
-| `core/orb_image.py` | The conclusion band's orb as a PNG |
 | `core/paths.py` | Resolve service storage independently of the execution workspace |
 | `core/patrol.py` | What the butler noticed and would have done: records and numbers, no judging |
 | `core/placement.py` | Where a turn's words go in the private chat: one table, the layout by the role |
@@ -402,7 +401,6 @@
 | `feishu/message_read.py` | Reading from Feishu through lark-cli |
 | `feishu/message_request.py` | The argv of the bot's `im +messages-send` / `+messages-reply` (message_argv), and the request lark-cli makes … |
 | `feishu/messenger.py` | The Bridge's outbound Feishu boundary: text messages, card messages, published cards and CardKit writes |
-| `feishu/orb_images.py` | The orbs' image keys |
 | `feishu/outgoing_images.py` | The local images an answer's Markdown links to, uploaded to Feishu and linked by their image key instead … |
 | `feishu/sdk.py` | Opt-in long-lived bot SDK for CardKit writes and message sends and reads |
 | `feishu/transport.py` | Structured delivery failures and durable, bounded idempotent CLI writes |
