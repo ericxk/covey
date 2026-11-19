@@ -189,4 +189,4 @@ doctor 的服务行带 `permission_env`、stderr 写 `service <id>: LARK_… is 
 python3 -B scripts/bridge_timing.py --state "$STATE_DIR" --since 19:30   # 可加 --until 20:00，或直接给日志文件
 ```
 
-它读 `bridge.log`（含轮转的几份）和每个 `runs/*/runner.log`，按流程打印次数和 p50/最大值：飞书侧延迟、总耗时、飞书 API 时间、Bridge 本地时间（总耗时减 API）和每个阶段。转给任务进程的点击按事件接上任务进程那一行；开始任务接上它的任务交接和任务进程启动，给出到任务进程启动、到它第一次飞书调用的毫秒数。最后是按操作的飞书调用耗时。`--since`、`--until` 是最新一行那天的 HH:MM，也可以写完整时间。
+它读 `bridge.log`（含轮转的几份）和每个 `runs/*/runner.log`，按流程打印次数和 p50/最大值：飞书侧延迟、第一次写卡或发消息（first write）、两者之和（seen，约等于主人看到点击有反应的时间）、总耗时、飞书 API 时间、Bridge 本地时间（总耗时减 API）和每个阶段。转给任务进程的点击按事件接上任务进程那一行；开始任务接上它的任务交接和任务进程启动，给出到任务进程启动、到它第一次飞书调用的毫秒数。最后是按操作的飞书调用耗时。`--since`、`--until` 是最新一行那天的 HH:MM，也可以写完整时间。

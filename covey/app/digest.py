@@ -44,10 +44,12 @@ from __future__ import annotations
 import datetime
 import re
 import time
+from concurrent import futures as concurrent_futures
 
 from covey.core import env as cenv
 from covey.app.overview import dismissable
 from covey.app.pins import board_results, kept, laid, record_path
+from covey.app import topic_links
 from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
@@ -76,6 +78,7 @@ SEND_TRIES = 3
 SENT_KEPT = 6  # Cards whose view is kept for 这些都不用回答了: three days at two a day.
 LOOKBACK = 3 * 86400  # 做完 reaches back this far at most (board_read.read reads jobs written within it).
 TIME = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
+LINK_READS = 6  # The 看板's links read at once (``Digest.urls``), as topic_links reads a text's T numbers.
 BOARD_KEY = "digest_board"  # The bot menu's 看板 (docs/usage.md 机器人菜单).
 BOARD_KIND = "digest-board"
 BOARD_FOLDER = "digest-boards"  # Its cards' records (app/menu_panel.py).
@@ -389,22 +392,33 @@ class Digest:
         view.pop("wanted", None)  # 我本来想找你的事 is the 早晚汇总's, not the 看板's (the owner, 2026-11-18).
         # Each block of the 看板 opens its topic (cards/board.py): the topic's applink, read outside any lock.
         # A 等你 row's opens the card it is acted on (core/board_read.py waits): the question card, the launch card.
-        urls = {}
-        for key in ("waiting", "running", "done"):
-            for row in view[key]:
-                topic, card = row.get("topic") or "", row.get("card") or ""
-                if topic and (topic, card) not in urls:
-                    urls[(topic, card)] = self.url(ctx, topic, card)
-                row["url"] = urls.get((topic, card), "")
-                if row.get("kind") == "start":
-                    row["act"] = turn_words.START_ACT
         # The old ones' labels link through their ``url`` (cards/overview.py stale_line), plain for the band to lead with.
-        for row in view["stale"]:
-            row["url"] = self.url(ctx, row["topic"], row.get("card") or "")
+        # All of them read at once (``urls``): one by one, eight topics whose cards were not kept took four seconds.
+        rows = [row for key in ("waiting", "running", "done", "stale") for row in view[key]]
+        urls = self.urls(ctx, [(row.get("topic") or "", row.get("card") or "") for row in rows])
+        for row in rows:
+            row["url"] = urls.get((row.get("topic") or "", row.get("card") or ""), "")
+            if row.get("kind") == "start":
+                row["act"] = turn_words.START_ACT
         return {**view, "asked": True, "stamp": clock_words(now, now), "can_dismiss": dismissable(),
                 "done_since": clock_words(view["since"], now) if view.get("since") else "",
                 **self.where(chat), **self.tidy(ctx, chat),
                 **self.projects_view(ctx, chat, view)}
+
+    def urls(self, ctx, pairs) -> dict:
+        """{(topic, card): ``url``} for each pair with a topic, read in parallel (a Feishu read each when the link is
+        not kept, app/topic_links.py) within topic_links.BUDGET seconds; one not read by then has ''. Outside any lock."""
+        wanted = list(dict.fromkeys((topic, card) for topic, card in pairs if topic))
+        if len(wanted) < 2:
+            return {pair: self.url(ctx, *pair) for pair in wanted}
+        pool = concurrent_futures.ThreadPoolExecutor(max_workers=min(LINK_READS, len(wanted)),
+                                                     thread_name_prefix="board-link")
+        try:
+            reads = {pool.submit(self.url, ctx, *pair): pair for pair in wanted}
+            done, _ = concurrent_futures.wait(reads, timeout=topic_links.BUDGET)
+            return {reads[read]: read.result() for read in done if not read.exception()}
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def url(self, ctx, topic, card="") -> str:
         try:
@@ -426,8 +440,7 @@ class Digest:
             topics = [topic for topic in (record.get("lead_topic_id"), *(record.get("threads") or ())) if topic]
             found.append({"name": record.get("name") or "", "goal": record.get("goal") or "", "topics": topics,
                           "waiting": len(rows["waiting"] & set(topics)), "running": len(rows["running"] & set(topics)),
-                          "stopped": len(stopped & set(topics)),
-                          "url": self.url(ctx, record["lead_topic_id"]) if record.get("lead_topic_id") else ""})
+                          "stopped": len(stopped & set(topics)), "lead": record.get("lead_topic_id") or ""})
         # The proposals waiting for him, each with its topics, to decide right on the 看板 (the owner, 2026-11-18: 不要让我
         # 去聊天里往上翻). One of a single topic is no project any more (app/project_sorter.py MIN_CREATE): left out.
         pending = []
@@ -437,9 +450,16 @@ class Digest:
                 rows = []
                 for topic in topics:
                     label, title = label_title(ctx.state_dir, topic)
-                    rows.append({"topic": topic, "label": label, "title": title, "url": self.url(ctx, topic)})
+                    rows.append({"topic": topic, "label": label, "title": title})
                 pending.append({"id": record["id"], "name": record.get("name") or "",
                                 "goal": record.get("goal") or "", "why": record.get("why") or "", "rows": rows})
+        urls = self.urls(ctx, [(entry["lead"], "") for entry in found]
+                         + [(row["topic"], "") for entry in pending for row in entry["rows"]])
+        for entry in found:
+            entry["url"] = urls.get((entry.pop("lead"), ""), "")
+        for entry in pending:
+            for row in entry["rows"]:
+                row["url"] = urls.get((row["topic"], ""), "")
         return {"projects": found, "proposals": len(pending), "pending": pending}
 
     def tidy(self, ctx, chat):

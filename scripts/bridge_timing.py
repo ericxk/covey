@@ -142,13 +142,16 @@ def flows_report(flows) -> list:
     groups = defaultdict(list)
     for at, fields, side in flows:
         groups[group_of(fields, side)].append(fields)
-    out = ["Flows (ms, p50/max)", table([
+    out = ["Flows (ms, p50/max)",
+           "first write: the flow's first card or message write ended; seen: Feishu's delay plus it, about when the "
+           "owner sees what he did answered", table([
         (name, len(items), stats(feishu_delay(f) for f in items),
+         stats(first_card_write(f["phases"]) for f in items), stats(seen(f) for f in items),
          stats(number(f, "total_ms") for f in items), stats(number(f, "api_ms") for f in items),
          stats((number(f, "total_ms") or 0) - (number(f, "api_ms") or 0) for f in items),
          stats(number(f, "calls") for f in items))
         for name, items in sorted(groups.items())],
-        ("flow", "n", "feishu delay", "total", "feishu api", "bridge local", "calls"))]
+        ("flow", "n", "feishu delay", "first write", "seen", "total", "feishu api", "bridge local", "calls"))]
     for name, items in sorted(groups.items()):
         steps, order = defaultdict(list), []
         for fields in items:
@@ -165,7 +168,14 @@ def flows_report(flows) -> list:
 
 
 def first_card_write(phases):
-    return next((ms for phase, ms in phases if phase.startswith(("card_", "msg_"))), None)
+    """When the flow's first card or message write ended (ms into it), None without one: msg_get is a read."""
+    return next((ms for phase, ms in phases if phase.startswith(("card_", "msg_")) and phase != "msg_get"), None)
+
+
+def seen(fields):
+    """Feishu's delay plus the first write: about when the owner sees what he did answered; None without either."""
+    delay, first = feishu_delay(fields), first_card_write(fields["phases"])
+    return None if delay is None or first is None else delay + first
 
 
 def joins_report(flows) -> list:

@@ -197,6 +197,27 @@ def runner_for(runtime, state_dir: Path, *, job_id=None, key="") -> Path | None:
     return directory if alive(directory) else None  # A runner this bridge did not adopt.
 
 
+def _forward_to_live(runtime, target, event, job_id) -> bool:
+    """Send the click to the runner of job ``job_id`` when this Bridge runs it for the clicked topic: no read of the
+    jobs records, whose shared scan a click once waited 149 s behind on a stalled NFS read (wait=jobs:149419). True
+    when sent; False leaves the click to the records, as before."""
+    jobs = getattr(runtime, "jobs", None)
+    if job_id is None or jobs is None:
+        return False
+    try:
+        job = jobs.find(int(job_id))
+    except (TypeError, ValueError):
+        return False
+    if job is None or job.topic_id != target.topic_id or job.chat_id != event.get("chat_id", "") or not job.message_id:
+        return False
+    directory = runner_for(runtime, target.state_dir, job_id=job_id, key=job.message_id)
+    timing.mark("fwd_live")
+    if directory is None:
+        return False
+    write_inbox(directory, {"kind": "card_event", "event": event})
+    return True
+
+
 def forward_card_action(runtime, target, event: dict, raw: dict) -> bool:
     """Send a click on a job whose task runner is alive to that runner; True when sent."""
     if runtime.in_runner:
@@ -208,6 +229,8 @@ def forward_card_action(runtime, target, event: dict, raw: dict) -> bool:
     job_id = raw.get("job_id")
     if str(raw.get("kind") or "").startswith("bridge_question"):
         job_id = _question_job_id(target.state_dir, raw.get("token")) or job_id
+    if _forward_to_live(runtime, target, event, job_id):
+        return True
     records = [r for _, r in directory_store(target.state_dir / "jobs").query(
         topic_id=target.topic_id, chat_id=event.get("chat_id", ""))]
     timing.mark("fwd_records")

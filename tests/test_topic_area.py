@@ -528,6 +528,25 @@ class MirrorFilesTest(MirrorCase):
         self.assertIn("https://drive.invalid/a.png", json.dumps(put.call_args.args[2], ensure_ascii=False))
 
 
+    def test_an_answer_on_the_copy_repaints_the_copy_first(self):
+        """The owner sees the card he clicked change one CardKit write (~0.3 s) sooner; any other click, or a paint
+        off a click, keeps the order: the card in the topic first."""
+        from covey.app import card_lanes
+        display, order = self.app_.questions.display, []
+        record = {**self.record, "mirror_message_id": "om_copy", "question_message_id": "om_form"}
+        with mock.patch.object(display, "paint_mirror", side_effect=lambda ctx, r: order.append("copy")), \
+                mock.patch.object(display.questions, "paint_standalone_question",
+                                  side_effect=lambda ctx, r: order.append("topic")):
+            for clicked, expected in (("om_copy", ["copy", "topic"]), ("om_form", ["topic", "copy"]),
+                                      ("", ["topic", "copy"])):
+                order.clear()
+                card_lanes._click.message = clicked
+                try:
+                    display.paint(self.tctx, record)
+                finally:
+                    card_lanes._click.message = ""
+                self.assertEqual(order, expected, clicked)
+
     def test_clicks_redrawing_the_copy_keep_its_files(self):
         """An empty 只发补充说明 (refused on the card while the question waits), 查看提交状态 and a click on a folded
         question each redraw the clicked copy: the pictures stay on it."""

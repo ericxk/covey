@@ -53,6 +53,12 @@ def after_ack(work, *, beside=False):
         pending.append((work, getattr(_click, "report", None), beside))
 
 
+def clicked_message() -> str:
+    """The message id of the card whose click this thread is handling (before its acknowledgement), '' elsewhere: a
+    write to several cards puts the one the owner is looking at first."""
+    return getattr(_click, "message", "") or ""
+
+
 @contextmanager
 def reporting(report):
     """Inside this block, a follow-up that fails calls ``report(exc)``: the reply its click's handler
@@ -119,13 +125,13 @@ class CardLanes:
                 flow.mark("lane")
             if self.health is not None:
                 self.health.begin(token)
-            _click.pending, _click.report = [], None
+            _click.pending, _click.report, _click.message = [], None, str(event.get("message_id") or "")
             try:
                 self.handle(event, ctx)
             except Exception as exc:  # noqa: BLE001 - one click must not end a lane
                 self.log(f"handle_card_action_event error: {exc}")
             finally:
-                follow_ups, _click.pending = _click.pending, None
+                follow_ups, _click.pending, _click.message = _click.pending, None, ""
                 timing.mark("ack")
                 if self.health is not None:
                     self.health.end(token)

@@ -155,6 +155,32 @@ class ReloadTests(unittest.TestCase):
                     {"kind": "bridge_question", "mode": mode, "token": "a" * 16}))
 
 
+    def test_a_click_on_a_job_this_bridge_runs_goes_to_its_runner_without_reading_the_records(self):
+        runtime = Runtime(script_path="unit")
+        job = BridgeReplyJob(job_id=7, user_text="hi", chat_id="chat", message_id="m7", timeout=0, model="m",
+                             effort="high", workdir=Path("/w"), history_path=Path("/h/history.jsonl"), topic_id="t")
+        runtime.jobs.register(job)
+        with tempfile.TemporaryDirectory() as tmp:
+            job.detached_run_dir = Path(tmp)
+            target = SimpleNamespace(state_dir=Path(tmp), topic_id="t")
+            with mock.patch.object(runner_ipc, "alive", return_value=True), \
+                    mock.patch.object(runner_ipc, "write_inbox") as inbox, \
+                    mock.patch.object(runner_ipc, "directory_store", side_effect=AssertionError("records read")):
+                self.assertTrue(runner_ipc.forward_card_action(runtime, target, {"chat_id": "chat", "event_id": "e"},
+                                                               {"kind": "bridge_job_stop", "job_id": 7}))
+            inbox.assert_called_once_with(Path(tmp), {"kind": "card_event", "event": {"chat_id": "chat", "event_id": "e"}})
+            # Another topic's or chat's click on that number, or a runner not alive, reads the records as before.
+            for event, target_topic, is_alive in (({"chat_id": "other"}, "t", True), ({"chat_id": "chat"}, "u", True),
+                                                  ({"chat_id": "chat"}, "t", False)):
+                with mock.patch.object(runner_ipc, "alive", return_value=is_alive), \
+                        mock.patch.object(runner_ipc, "directory_store") as store:
+                    store.return_value.query.return_value = []
+                    self.assertFalse(runner_ipc.forward_card_action(
+                        runtime, SimpleNamespace(state_dir=Path(tmp), topic_id=target_topic), event,
+                        {"kind": "bridge_job_stop", "job_id": 7}))
+                    store.return_value.query.assert_called_once()
+
+
 class HandoffTests(unittest.TestCase):
     def test_a_job_survives_the_handoff(self):
         job = BridgeReplyJob(job_id=7, user_text="hi", chat_id="chat", message_id="m7", timeout=0, model="m",

@@ -19,6 +19,7 @@ import json
 import time
 from pathlib import Path
 
+from covey.app.card_lanes import clicked_message
 from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.cards.elements import card, md, note
@@ -78,10 +79,15 @@ class QuestionDisplay:
         if record.get("display_pending") or (record.get("body_delivery_required")
                 and not self.questions.checkpoints.result_delivered(ctx, record)):
             return
+        # The card clicked first (an answer on the top-level copy): the owner sees it change a CardKit write (~0.3 s) sooner.
+        mirror_first = bool(record.get("mirror_message_id")) and clicked_message() == record["mirror_message_id"]
         try:
+            if mirror_first:
+                self.paint_mirror(ctx, record)
             if record.get("question_message_id"):
                 self.questions.paint_standalone_question(ctx, record)
-                self.paint_mirror(ctx, record)
+                if not mirror_first:
+                    self.paint_mirror(ctx, record)
                 return
             with self.runtime.jobs.lock:
                 job = self.runtime.jobs.by_id.get(int(record["job_id"]))
@@ -94,7 +100,8 @@ class QuestionDisplay:
                 if original:
                     self.cards.update_record_panel(ctx, record["chat_id"], "answer-state-" + str(time.time_ns()),
                         {"message_id": original.get("card_message_id", "")}, original, question_element(record))
-            self.paint_mirror(ctx, record)
+            if not mirror_first:
+                self.paint_mirror(ctx, record)
         except Exception as exc:  # noqa: BLE001 - answer delivery is independent from UI
             self.runtime.log(f"Answer state display failed: {exc}")
 

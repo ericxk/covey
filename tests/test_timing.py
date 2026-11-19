@@ -248,8 +248,8 @@ class LiveFlowsTest(unittest.TestCase):
             self.click(stop)
             bridge = self.flow_line("click", event="ev-stop")
         self.assertEqual(fields(bridge)["outcome"], "forwarded")
-        self.assertEqual(phase_names(bridge)[-7:], ["job_route", "fwd_records", "fwd_runner", "inbox", "wake",
-                                                    "forward", "ack"])
+        # A job this Bridge runs: its runner found without reading the jobs records (runner_ipc._forward_to_live).
+        self.assertEqual(phase_names(bridge)[-6:], ["job_route", "fwd_live", "inbox", "wake", "forward", "ack"])
         # The runner takes it from its inbox: its own line says how long it waited there.
         [path] = (run / rd.INBOX).glob("*.json")
         payload = json.loads(path.read_text())
@@ -496,7 +496,7 @@ class ReaderTest(unittest.TestCase):
         self.assertIn("Flows (ms, p50/max)", text)
         row = next(line for line in text.splitlines() if line.startswith("message:launch_card "))
         # n, then p50/max of: Feishu's delay, total, Feishu API, Bridge local, calls.
-        self.assertEqual(row.split()[1:], ["2", "640/910", "2115/2410", "640/700", "1475/1710", "2/2"])
+        self.assertEqual(row.split()[1:], ["2", "640/910", "690/740", "1330/1650", "2115/2410", "640/700", "1475/1710", "2/2"])
         phases = text.split("Phases of message:launch_card")[1].split("\n\n")[0]
         self.assertRegex(phases, r"command\s+2\s+260/262")
         self.assertRegex(phases, r"msg_reply\s+2\s+410/430")

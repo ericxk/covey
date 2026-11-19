@@ -109,6 +109,29 @@ class MenuFoldTests(ProxyCase):
         self.app.messenger.recall.assert_not_called()
         self.assertEqual(self.app.messenger.send_message.call_count, 0)
 
+    def test_a_click_made_before_the_card_was_out_is_clicking_twice_not_folding(self):
+        # 2026-11-20 00:32: a cold 看板 took 5.7 s; the owner clicked again meanwhile and that click folded the new card.
+        made = int(time.time() * 1000)
+        self.assertEqual(self.click('weekly_usage', 'ev1'), ('weekly_usage', 'new'))
+        self.app.handle_menu_event({'event_id': 'ev2', 'event_key': 'weekly_usage', 'operator_open_id': 'owner',
+                                    'timestamp': str(made)}, self.ctx)
+        self.assertIn('bot menu key=weekly_usage event=ev2 outcome=twice', self.logs)
+        self.assertIn('menu panel weekly_usage twice', self.logs)
+        self.assertEqual((self.count, len(self.puts)), (1, 1))  # Neither folded nor sent again.
+        later = str(int((self.entry('weekly_usage')['sent'] + 1) * 1000))
+        self.app.handle_menu_event({'event_id': 'ev3', 'event_key': 'weekly_usage', 'operator_open_id': 'owner',
+                                    'menu_timestamp': later}, self.ctx)
+        self.assertEqual(self.puts[-1][::2], ('cid1', 1))  # Made after the card was out: folds as before.
+        self.assertIn('menu panel weekly_usage fold', self.logs)
+
+    def test_click_time_reads_feishus_stamp_in_any_unit(self):
+        for stamp in ('1763569966123', '1763569966123456', 1763569966, '1763569966123000000'):
+            self.assertAlmostEqual(bot_menu.click_time({'timestamp': stamp}), 1763569966, delta=1)
+        self.assertEqual(bot_menu.click_time({'menu_timestamp': '1763569900000', 'timestamp': '1763569966000'}),
+                         1763569900.0)
+        for event in ({}, {'timestamp': ''}, {'timestamp': 'x'}, {'timestamp': '0'}):
+            self.assertIsNone(bot_menu.click_time(event))
+
     def test_an_owners_top_level_message_after_the_card_means_a_new_card(self):
         handled = []
         self.app.butler.handle_event = lambda ctx, event, owner: handled.append(event['message_id']) or True

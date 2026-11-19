@@ -85,6 +85,21 @@ class Panels:
         return entry
 
 
+def click_time(event):
+    """When the menu click ``event`` was made, epoch seconds, from Feishu's stamp on it (milliseconds, or finer: the unit
+    is told by size, as core/timing.py ``delay_ms``); None without one."""
+    for name in ('menu_timestamp', 'timestamp'):
+        try:
+            value = int(str(event.get(name)))
+        except (TypeError, ValueError):
+            continue
+        while value >= 10 ** 11:  # Epoch seconds stay below this until the year 5138.
+            value /= 1000
+        if value > 0:
+            return float(value)
+    return None
+
+
 def open_owner_chat(profile, open_id, key, log):
     """Send FIRST_TEXT to ``open_id``: the private chat it went to, '' when unknown."""
     result = Messenger(log).send_to_user(profile, open_id, FIRST_TEXT, key)
@@ -137,26 +152,30 @@ class BotMenu:
         timing.mark('chat')
         if not chat_id:
             return 'no_chat'
-        self.run(ctx, key, chat_id, event_id)
-        return key
+        how = self.run(ctx, key, chat_id, event_id, clicked=click_time(event))
+        return 'twice' if how == 'twice' else key
 
-    def run(self, ctx, key, chat_id, source):
+    def run(self, ctx, key, chat_id, source, clicked=None):
         """Item ``key``'s card in ``chat_id`` for the click ``source``: its last card there folded or unfolded while it
-        is the newest, else a new one."""
-        how = self.fold(ctx, key, chat_id)
+        is the newest, else a new one. A click made (``clicked``, epoch seconds) before that card was out is the owner
+        clicking again while it was on its way (a cold 看板 took seven seconds): 'twice', nothing done, where it used to
+        fold the card he was waiting for. What it did is the return value."""
+        entry = self.panels.newest(ctx, key, chat_id, max(self.started, self.said.get(chat_id, 0)))
+        if entry is not None and clicked is not None and entry['sent'] > clicked:
+            how = 'twice'
+        else:
+            how = self.fold(ctx, key, chat_id, entry)
         if not how:
             how = 'new'
             self.actions[key](ctx, chat_id, source, shown=self.shown(ctx, key, chat_id, source))
         self.runtime.log(f'menu panel {key} {how}')
+        return how
 
-    def fold(self, ctx, key, chat_id):
-        """'fold' or 'unfold' when ``key``'s last card was the newest in ``chat_id`` and its feature turned it; ''
-        when a new card is to be sent."""
+    def fold(self, ctx, key, chat_id, entry):
+        """'fold' or 'unfold' when ``key``'s last card (``entry``, Panels ``newest``) was the newest in ``chat_id`` and
+        its feature turned it; '' when a new card is to be sent."""
         fold = self.folds.get(key)
-        if fold is None:
-            return ''
-        entry = self.panels.newest(ctx, key, chat_id, max(self.started, self.said.get(chat_id, 0)))
-        if entry is None:
+        if fold is None or entry is None:
             return ''
         return fold(ctx, chat_id, entry['source'], entry['message_id']) or ''
 
