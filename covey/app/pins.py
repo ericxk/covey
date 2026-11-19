@@ -111,6 +111,19 @@ def configure_boards(chats):
     GROUP_BOARDS = frozenset(chats)
 
 
+def panel_message(state, chat, message) -> bool:
+    """Whether ``message`` is a card the Bridge itself keeps at ``chat``'s top level: 手上的事 (app/overview.py) or one
+    of the last 早晚汇总 cards (app/digest.py). No topic sent it, so a reply to it is the butler's (app/butler.py app_for:
+    回复谁的消息就交给谁, docs/ui.md 5.3), not a new topic opened on it. Never raises."""
+    if not message:
+        return False
+    for name in ("pinned-overview.json", "digest.json"):  # app/overview.py RECORD, app/digest.py RECORD
+        record = read_object(record_path(state, chat, name))
+        if record.get("message_id") == message or (isinstance(record.get("sent"), dict) and message in record["sent"]):
+            return True
+    return False
+
+
 def record_path(state, chat, name=RECORD):
     """The board's record ``name`` (RECORD, app/overview.py's) for ``chat``: a chat of GROUP_BOARDS has its own
     (``pinned-topics.<chat_id>.json``), every other the one file as ever."""

@@ -154,11 +154,14 @@ class Overview:
     def view(self, ctx, chat, now):
         state = ctx.state_dir
         # The indexes read once (core/board_read.py): with the board on, the read its look judges too. The butler
-        #  (app/butler.py) talks at the chat's top level: not listed.
+        #  (app/butler.py) talks at the chat's top level: not listed; what it asks the owner waits under 等你 all the
+        # same, under its speaker (board_read.top_questions, docs/ui.md 5.3).
         read = board_read.read(state, chat, now, keep=kept(state, chat)) if self.pins.enabled() else None
+        top = board_read.top_questions(state, chat)
         questions = sorted(read.questions if read else board_read.pending_questions(state, chat),
                            key=lambda row: row.get("created_at") or 0,
                            reverse=True)  # The latest first: older ones may have been left for good.
+        asks = sorted([*questions, *top], key=lambda row: row.get("created_at") or 0, reverse=True)
         jobs = sorted([record for record in read.jobs if record.get("status") in RUNNING] if read
                       else board_read.running_jobs(state, chat), key=lambda record: int(record.get("job_id") or 0))
         # The topics' earlier turns as the read has them, for the estimate (core/progress.py): none without the board.
@@ -175,7 +178,7 @@ class Overview:
                                        "status": status, "at": now}
         self.seen = running
         self.ended = {key: row for key, row in self.ended.items() if now - row["at"] < RECENT and key not in running}
-        waiting = [self.waiting_row(state, row) for row in questions]
+        waiting = [self.waiting_row(state, row) for row in asks]
         # A topic that runs again or asks: its row there says enough.
         busy = {row["topic"] for row in (*running.values(), *waiting)}
         view = {"waiting": waiting, "running": list(running.values()),
@@ -215,7 +218,12 @@ class Overview:
                 "at": row["at"], "seen": row["topic"] not in self.pins.unseen}
 
     def waiting_row(self, state, record):
-        label, title = self.topic(state, record.get("topic_id") or "")
+        topic = record.get("topic_id") or ""
+        chat = record.get("chat_id") or ""
+        if topic and chat and not board_read.listed(topic, chat):  # The butler or a lead: its speaker, no T number.
+            label, title = board_read.speaker_of(state, topic, chat) or "管家", ""
+        else:
+            label, title = self.topic(state, topic)
         # The question itself: most headers are the generic 补充信息.
         ask = turn_words.ask_words(record)
         return {"label": label, "title": title, "topic": record.get("topic_id") or "", "ask": ask,

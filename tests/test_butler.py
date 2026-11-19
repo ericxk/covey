@@ -30,6 +30,8 @@ from covey.core.session_state import capture_session_state, compare_and_set_sess
 from covey.core.steer import SteerRefused
 from covey.core.topic_seen import SEEN_FILE
 from covey.core.topics import remember_topic_message, topic_number
+from covey.core.state import write_json
+from covey.app.pins import record_path
 from covey.core.workspaces import add_workspace
 from covey.feishu import message_request
 
@@ -148,6 +150,15 @@ class RoutingTest(ButlerUnifiedCase):
     def test_a_reply_to_a_message_no_topic_knows_opens_a_topic_as_ever(self):
         self.send('om_2', root='om_old', parent_id='om_old')
         self.assertNotEqual(self.record('om_2')['topic_id'], BUTLER)
+
+    def test_a_reply_to_the_pinned_overview_or_a_digest_goes_to_the_butler(self):
+        # No topic sent them (the Bridge's own cards): a reply to one is not a new topic on it (docs/ui.md 5.3).
+        write_json(record_path(self.state, CHAT, 'pinned-overview.json'), {'chat_id': CHAT, 'message_id': 'om_board'})
+        write_json(record_path(self.state, CHAT, 'digest.json'), {'message_id': 'om_d2', 'sent': {'om_d1': {}, 'om_d2': {}}})
+        for parent in ('om_board', 'om_d1'):
+            self.send('om_r' + parent, root=parent, parent_id=parent)
+            self.assertEqual(self.job_of('om_r' + parent).topic_id, BUTLER, parent)
+            self.done(self.job_of('om_r' + parent))
 
     def test_a_group_message_is_not_taken(self):
         self.send('om_1')  # The owner's private chat is known.

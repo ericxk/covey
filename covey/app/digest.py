@@ -176,21 +176,30 @@ def collect(state, chat, slot, since, now, *, board=False):
     read = board_read.read(state, chat, now, keep=kept(state, chat) if laid() else ())
     unseen, off = board_results(state, chat, now, read)  # 有结果未看, as the board has it (core/board_read.py).
     off = off if board else {}
-    questions = [record for record in read.questions if record.get("topic_id") not in off]
+    # The butler's and the leads' questions too (board_read.top_questions): 要你定的事 waits under 等你 whoever asks.
+    questions = [record for record in (*read.questions, *board_read.top_questions(state, chat))
+                 if record.get("topic_id") not in off]
     jobs = [record for record in read.jobs if board_read.fresh(record, now) and record.get("topic_id") not in off]
     asked, stale = {}, []
+
+    def named(topic):
+        """(label, title) of ``topic``: the butler or a lead asking at the top level by its speaker, no T number."""
+        if not board_read.listed(topic, chat):
+            return board_read.speaker_of(state, topic, chat) or "管家", ""
+        return topic_label(state, topic)
+
     for record in questions:
         topic = record.get("topic_id") or ""
         if topic and (record.get("created_at") or 0) > (asked.get(topic, {}).get("created_at") or -1):
             asked[topic] = record
     for topic, record in sorted(asked.items(), key=lambda item: item[1].get("created_at") or 0, reverse=True):
         if now - (record.get("created_at") or now) > QUESTION_AGE:  # As pins.board and Overview.board split them.
-            label, title = topic_label(state, topic)
+            label, title = named(topic)
             stale.append({"topic": topic, "label": label, "title": title})
     asked = {topic: record for topic, record in asked.items() if topic not in {row["topic"] for row in stale}}
 
     def row(topic, state_words, took, seen_it=False):
-        label, title = topic_label(state, topic)
+        label, title = named(topic)
         return {"topic": topic, "label": label, "title": title, "state": state_words, "took": took, "seen": seen_it}
 
     newest = {}

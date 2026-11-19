@@ -707,6 +707,14 @@ def answer_tail_cards():
                                                 ask=answered)[0],
             "question_copy_answered": mirror_card(question_record(), "T439", "先说结论：两种都行。", ask=answered),
             "answer_relay_tail": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files)[0],
+            # Who speaks (docs/ui.md 5.3 speaker): a topic's relay, the butler's answer, a lead's wake-up turn (no 你问).
+            "answer_relay_speaker": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
+                                               ask=ask_block("看板改成彩色块", at="12:31", url="https://applink.feishu.cn/t/439",
+                                                             who="T439 改看板的颜色"))[0],
+            "answer_card_butler": answer_card(text, "✅ 结论", tail(files, inputs, outputs),
+                                              [ask_block("看板改成彩色块", at="12:31", who="管家")]),
+            "answer_card_lead": answer_card(text, "✅ 结论", tail(files, inputs, outputs),
+                                            [ask_block("", at="12:40", who="专项「Covey 体验」· 负责人")]),
             "answer_tail_card": tail_card(tail(files, inputs, outputs), "T439 · 产物与详情",
                                           "上面是这一轮的回答，产物和详情在这里"),
             # A turn that changed code: its 改动 folded under 产物 (cards/answer_card.py change_element).
@@ -939,7 +947,12 @@ def overview_cards():
     empty = {"counts": {"waiting": 0, "result": 0, "running": 0}, "pinned": 0, "waiting": [], "result": [],
              "running": [], "stale": []}
     view = {"waiting": [], "running": [], "ended": []}
+    # The butler's question waits under 等你 too, under its speaker (core/board_read.py top_questions).
+    butler_waiting = {"waiting": [{"label": "管家", "title": "", "ask": "现在部署吗？", "since": FROZEN - 60},
+                                  {"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": FROZEN - 180}],
+                      "running": [], "ended": []}
     return {"pinned_board": overview_card({**view, "board": board}, FROZEN, "14:40"),
+            "overview_butler_waiting": overview_card(butler_waiting, FROZEN, "14:40"),
             "pinned_board_empty": overview_card({**view, "board": empty}, FROZEN, "14:40")}
 
 
@@ -996,6 +1009,9 @@ def digest_cards():
                                                   "url": "https://applink.feishu.cn/t/488"},
                                                  {"topic": "i", "label": "T505", "title": "优化 Bootstrap 下一环节", "url": ""}]}]}),
             "board_empty": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00"}),
+            "board_butler_waiting": board_card({"waiting": [{"topic": "m", "label": "管家", "title": "", "url": "",
+                                                             "line": "等你回答：现在部署吗？", "meta": ["等了 1分"]}],
+                                                "stale": [], "running": [], "done": [], "stamp": "08:00"}),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
             "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "EnvReplay Prompt 优化"]}}),

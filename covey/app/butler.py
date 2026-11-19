@@ -196,8 +196,10 @@ class Butler:
             # A reply to a project lead's answer: the lead's (引用直达), as a quote of its 专项卡 is. The lead is of the
             # butler's family (core/butler.py is_butler_topic), so it stayed here and reached the butler (2026-11-19).
             return None
-        # A reply to a message no topic knows opens a topic on it, as ever; to one of the butler's stays here.
-        if (not is_butler_topic(known[0], chat)) if known else any(above):
+        # A reply to a message no topic knows opens a topic on it, as ever; to one of the butler's stays here, and to
+        # 手上的事 or an 早晚汇总 (no topic's: the Bridge's own, app/pins.py panel_message) too.
+        if (not is_butler_topic(known[0], chat)) if known else (
+                any(above) and not pins.panel_message(ctx.state_dir, chat, above[0])):
             return None
         app = self.topics.apps.get(HARNESS)
         if app is None:

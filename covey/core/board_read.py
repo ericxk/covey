@@ -33,7 +33,7 @@ import dataclasses
 from pathlib import Path
 
 from covey.core.jobs import jobs_dir, select_job_records
-from covey.core import projects
+from covey.core import look, projects
 from covey.core.butler import is_butler_topic, traits
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
@@ -95,6 +95,28 @@ def pending_questions(state, chat) -> list:
     """``chat``'s pending questions shown, of the topics ``listed``, in the index's order."""
     return [row for _, row in directory_store(Path(state) / "questions").query(chat_id=chat, status="pending")
             if not row.get("display_pending") and listed(row.get("topic_id"), chat)]
+
+
+def top_questions(state, chat) -> list:
+    """``chat``'s pending questions shown of the topics not ``listed``: the butler's and the project leads', which ask
+    at the chat's top level. 要你定的事 waits under 等你 whoever asks (docs/ui.md 5.3), so 手上的事 and the 看板 list
+    these too, under their speaker (``speaker_of``)."""
+    return [row for _, row in directory_store(Path(state) / "questions").query(chat_id=chat, status="pending")
+            if row.get("topic_id") and not row.get("display_pending") and not listed(row.get("topic_id"), chat)]
+
+
+def speaker_of(state, topic_id, chat) -> str:
+    """Who speaks for ``topic_id`` at ``chat``'s top level (core/look.py ``speaker``): 管家, 专项「名」· 负责人, or the
+    topic's T number and title; '' for the butler's topic with the butler off (its answers are a topic's then)."""
+    role = traits(topic_id, chat).name
+    if role == "butler":
+        return look.speaker("butler")
+    if role == "lead":
+        return look.speaker("lead", name=projects.lead_record(state, topic_id, chat).get("name") or "")
+    if role in {"butler_off", "lead_off"}:
+        return ""
+    label, title = label_title(state, topic_id)
+    return look.speaker("topic", label=label, title=title)
 
 
 def running_jobs(state, chat) -> list:

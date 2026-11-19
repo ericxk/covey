@@ -25,6 +25,12 @@ def font(text, color) -> str:
     return f"<font color='{color}'>{text}</font>"
 
 
+def speaker(who) -> str:
+    """说话人 (docs/ui.md 第 4 节 ``speaker``): who speaks, bold in the brand colour; '' for no one. What follows it
+    on the line (what it does, when, ›) is grey, as the caller writes it."""
+    return font("**" + literal(" ".join(str(who or "").split())) + "**", look.BRAND["color"]) if who else ""
+
+
 def dot(key) -> str:
     """A state's dot, in its colour."""
     return font("●", look.STATES[key].color)

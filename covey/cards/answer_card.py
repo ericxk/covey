@@ -290,19 +290,24 @@ ASK_ID = "answer_ask"
 ASK_CHARS = 70
 
 
-def ask_block(text, *, verb="你问", at="", url=""):
+def ask_block(text, *, verb="你问", at="", url="", who=""):
     """The block above an answer, a conclusion or a question's copy at the private chat's top level saying which
     message of the owner's it answers (the owner, 2026-11-08: 不用飞书的引用，给个像引用、能点过去的链接): grey, two
     lines, "你问 · 12:31 ›" and the message's words (two lines at most); the whole block opens ``url`` (the
-    message's thread, app/answer_cards.py ask_link). Style "A" of four samples. None without words."""
+    message's thread, app/answer_cards.py ask_link). Style "A" of four samples. ``who``: its speaker (docs/ui.md 5.3,
+    cards/ui.py ``speaker``) leads the first line, "**管家** · 你问 · 12:31 ›"; with no words then, that line alone.
+    None without words or a speaker."""
+    from covey.cards.ui import speaker
+
     words = " ".join(str(text or "").split())
-    if not words:
+    if not words and not who:
         return None
     words = words if len(words) <= ASK_CHARS else words[:ASK_CHARS - 1] + "…"
-    head = " · ".join(part for part in (verb, at) if part) + ("　›" if url else "")
+    rest = " · ".join(part for part in (verb if words else "", at) if part) + ("　›" if url else "")
+    head = (speaker(who) + (" " + grey("· " + rest.lstrip("　")) if rest.strip() else "")) if who else grey(rest)
+    lines = [md(head, size="notation")] + ([md(grey(literal_text(words)), size="normal_v2")] if words else [])
     box = {"tag": "interactive_container", "element_id": ASK_ID, "width": "fill", "padding": "6px 10px 6px 10px",
-           "corner_radius": "6px", "background_style": "grey-50", "vertical_spacing": "2px",
-           "elements": [md(grey(head), size="notation"), md(grey(literal_text(words)), size="normal_v2")]}
+           "corner_radius": "6px", "background_style": "grey-50", "vertical_spacing": "2px", "elements": lines}
     if url:
         box["behaviors"] = [{"type": "open_url", "default_url": url}]
     return box

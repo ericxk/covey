@@ -202,8 +202,18 @@ def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, lo
         return _get(record, name)
     from covey.core import projects
 
+    def time_of_day():
+        at_time = epoch_seconds(get("created_at")) or 0
+        if not at_time:  # A job, not its record: when it was taken in.
+            timings = get("timings") or {}
+            at_time = next((timings[stage] for stage in ("received", "queued", "dispatched", "backend_started")
+                            if isinstance(timings.get(stage), (int, float))), 0)
+        return time.strftime("%H:%M", time.localtime(at_time)) if at_time else ""
+
+    who = speaker(state_dir, str(topic_id or get("topic_id") or ""), str(get("chat_id") or ""), log)
     if projects.own_message(str(get("message_id") or "")):
-        return None  # A project's lead woken by the Bridge or handed the butler's words: the owner asked nothing here.
+        # A project's lead woken by the Bridge or handed the butler's words: the owner asked nothing here; who speaks.
+        return ask_block("", at=time_of_day(), who=who)
     text = str(get("user_text") or "")
     answer = text.lstrip().startswith(ANSWER_HEADING)
     words = " ".join(str(get("asked_text") or "").split())
@@ -214,12 +224,7 @@ def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, lo
 
         words = " ".join(str(get("title") or "").split()) or shown_answer_title(text)
     words = words or request_line(text)
-    at_time = epoch_seconds(get("created_at")) or 0
-    if not at_time:  # A job, not its record: when it was taken in.
-        timings = get("timings") or {}
-        at_time = next((timings[stage] for stage in ("received", "queued", "dispatched", "backend_started")
-                        if isinstance(timings.get(stage), (int, float))), 0)
-    when = time.strftime("%H:%M", time.localtime(at_time)) if at_time else ""
+    when = time_of_day()
     try:
         url = ask_url(state_dir, record, topic_id=topic_id, at=at, profile=profile, fetch=fetch, log=log)
     except Exception as exc:  # noqa: BLE001 - the block without its link, said
@@ -233,7 +238,22 @@ def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, lo
         parts = answer_parts(text, asked_questions(state_dir, str(get("message_id") or "")))
         added = str(get("asked_text") or "").strip()
         return answer_block([*parts, *([("heading", "另外说的"), ("note", added)] if added else [])], words, at=when)
-    return ask_block(words, verb="你答" if answer else "你问", at=when, url=url)
+    return ask_block(words, verb="你答" if answer else "你问", at=when, url=url, who=who)
+
+
+def speaker(state_dir, topic_id, chat_id, log=None) -> str:
+    """Who speaks for ``topic_id`` on a message at ``chat_id``'s top level (core/board_read.py speaker_of); '' when it
+    cannot be told. Never raises."""
+    if not topic_id or not chat_id:
+        return ""
+    try:
+        from covey.core.board_read import speaker_of
+
+        return speaker_of(state_dir, topic_id, chat_id)
+    except Exception as exc:  # noqa: BLE001 - the block without its speaker
+        if log is not None:
+            log(f"speaker unavailable topic={topic_id[:12]}: {type(exc).__name__}")
+        return ""
 
 
 def asked_questions(state_dir, message_id) -> list:

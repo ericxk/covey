@@ -94,7 +94,7 @@
 | **数字磁贴** `tiles` | 大号等宽数字加一行小字 | `column_set` 平分 | grid |
 | **输入/输出框** `io_box` | 两行灰字，项和项之间用“｜”隔开 | 现有的 `cards/answer_card.py`，不动 | 同样的两行 |
 | **折叠行** `fold_row` | 产物、改动、做完的话题 | 现有的 `collapsible` | 可展开的行 |
-| **说话人** `speaker` | 私聊区每条顶层消息的第一行：“谁 · 在干什么 · 时间 ›”，和“你问”块合成一行。谁：`管家`、`专项「名字」· 负责人`、`T531 标题` | `cards/ui.py` 一个 `markdown` 元素：名字加粗、品牌靛色，其余灰色，› 打开那个话题或专项；词表在 `core/look.py` 的 SPEAKERS | 消息气泡顶上一行，同样的词 |
+| **说话人** `speaker` | 私聊区每条顶层消息的第一行：“谁 · 在干什么 · 时间 ›”，和“你问”块合成一行。谁：`管家`、`专项「名字」· 负责人`、`T531 标题` | `cards/ui.py` 的 `speaker(who)`：名字加粗、品牌靛色，其余灰色，写在“你问”块（`cards/answer_card.py` 的 `ask_block(who=)`）第一行，› 打开那个话题；没有“你问”时这一行单独成块。词表在 `core/look.py` 的 `SPEAKERS`，谁在说由 `core/board_read.py` 的 `speaker_of` 判断 | 消息气泡顶上一行，同样的词 |
 | **标题栏** `panel_header` | 图标、标题、副标题，右边是计数标签 | 现有的 `panel_header`，标题栏一律 `default` 模板，不用彩色标题栏 | 面包屑加同步状态 |
 
 **最急的那件**（`look.pressing`）：按“等你 → 停住了 → 可能卡住 → 有结果 → 在做”的顺序，取第一个有的，结论带先说它。一件都没有时写“都在掌握中”。结论带的颜色不跟状态变（光球和状态色光晕都试过，主人觉得突兀），状态只用文字和分段状态条的颜色说。
@@ -224,8 +224,8 @@
 
 | 路 | 改什么 | 主要文件 | 验收 |
 | --- | --- | --- | --- |
-| ① 聊天卡片 | 先给私聊区每条顶层消息加说话人（5.3）；任务卡状态行、结果卡、回带卡、问题卡、恢复卡、补充回执卡：加结论带，统一词和按钮 | `cards/task_status.py`、`cards/streaming.py`、`cards/answer_card.py`、`cards/relay_card.py`、`cards/question_cards.py`、`cards/recovery.py`、`core/failure.py`、`core/turn_words.py` | 金样 diff 逐张过；真机手机、侧栏、深色各看一次 |
-| ② 菜单结果卡 | 看板：加结论带和分段状态条，块改成话题行，`cancelled` 按谁停的分开，管家的问题也进“等你”（显示“管家”）。用量：结论带、磁贴、每日趋势、统一结束词。设置：标签行和回执的文案 | `cards/board.py`、`cards/weekly_usage.py`、`cards/settings_hub.py`、`cards/butler_panel.py`、`cards/workspace_manager.py`、`cards/redaction_panel.py`、`cards/proxy_panel.py`、`cards/group_manager.py` | 同上；看板等它当前的改动验收完再动 |
+| ① 聊天卡片 | 说话人（5.3）已加在答案、回带和问题卡副本的“你问”块上（T538）；任务卡状态行、结果卡、回带卡、问题卡、恢复卡、补充回执卡：加结论带，统一词和按钮 | `cards/task_status.py`、`cards/streaming.py`、`cards/answer_card.py`、`cards/relay_card.py`、`cards/question_cards.py`、`cards/recovery.py`、`core/failure.py`、`core/turn_words.py` | 金样 diff 逐张过；真机手机、侧栏、深色各看一次 |
+| ② 菜单结果卡 | 看板：加结论带和分段状态条，块改成话题行，`cancelled` 按谁停的分开（管家的问题进“等你”、显示“管家”已由 T538 做了）。用量：结论带、磁贴、每日趋势、统一结束词。设置：标签行和回执的文案 | `cards/board.py`、`cards/weekly_usage.py`、`cards/settings_hub.py`、`cards/butler_panel.py`、`cards/workspace_manager.py`、`cards/redaction_panel.py`、`cards/proxy_panel.py`、`cards/group_manager.py` | 同上；看板等它当前的改动验收完再动 |
 | ③ 网页工作台 | 深色主题 token、首屏结论带真渐变、话题行、进度条流光、手机单栏、按 `tone` 着色 | 妙搭应用 `client/src/tailwind-theme.css`、`cv/ui.tsx`、`cv/Board.tsx`、`cv/Shell.tsx`、`cv/TopicPage.tsx`、`cv/ProjectPage.tsx` | 电脑、手机各截一屏，和样张对照 |
 
 - 三路只通过 `core/look.py` 和 `cards/ui.py` 共用东西。哪一路要加组件，先加进这两个文件，再用。

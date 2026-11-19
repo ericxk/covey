@@ -82,6 +82,24 @@ RUNS = frozenset({"running", "cancel_requested"})
 WAITS = frozenset({"waiting_user", "waiting_workspace"})
 
 
+# 说话人 (docs/ui.md 第 4 节 speaker, 5.3): who speaks on a message at the private chat's top level. The butler, a
+# project's lead (its project's name) and a topic (its T number and title) all send as the one bot.
+SPEAKERS = {"butler": "管家", "lead": "专项「{name}」· 负责人", "topic": "{label} {title}"}
+SPEAKER_TITLE = 24  # Characters of a topic's title a speaker shows.
+
+
+def speaker(role, *, name="", label="", title="") -> str:
+    """The words of ``role`` (a key of SPEAKERS) as a speaker: "管家", "专项「发布」· 负责人", "T531 统一 UI 规范";
+    '' for an unknown role or a topic with neither number nor title."""
+    title = " ".join(str(title or "").split())
+    title = title if len(title) <= SPEAKER_TITLE else title[:SPEAKER_TITLE - 1] + "…"
+    if role == "topic" and not (label or title):
+        return ""
+    words = SPEAKERS.get(role, "").format(name=" ".join(str(name or "").split()) or "专项", label=label or "",
+                                          title=title)
+    return " ".join(words.split()) if role == "topic" else words
+
+
 def owner_stopped(record) -> bool | None:
     """Whether the owner stopped this cancelled record himself: True, False, or None when the record does not say. One
     taken out of the queue or merged into a running task as a supplement (``never_started``, ``merged_into_job_id``)

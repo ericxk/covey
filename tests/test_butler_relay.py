@@ -328,7 +328,11 @@ class DeliverTest(Case):
         self.assertEqual(("unit", CHAT), args[:2])
         self.assertEqual(f"bot-main-relay-{job_key('main-t1', 9)}", args[3])
         self.assertEqual("", kwargs["reply_to_message_id"])  # Its own message at the top level, quoting no card.
-        self.assertIn("两种做法都行", kwargs["card"]["body"]["elements"][0]["content"])
+        # Who speaks first (docs/ui.md 5.3): the topic, by its T number, alone on the line when no words are quoted.
+        speaker = kwargs["card"]["body"]["elements"][0]
+        self.assertEqual(speaker["element_id"], "answer_ask")
+        self.assertIn("**T410", str(speaker))
+        self.assertIn("两种做法都行", kwargs["card"]["body"]["elements"][1]["content"])
         # The answer card's 输入/输出 box (cards/answer_card.py), 输出 ending in the T number.
         facts = kwargs["card"]["body"]["elements"][-1]
         self.assertEqual(facts["element_id"], "answer_facts")
@@ -355,7 +359,7 @@ class DeliverTest(Case):
 
     def test_a_stopped_turn_without_one_says_it_stopped(self):
         send = self.deliver(self.job(progress=SimpleNamespace()), status="cancelled")
-        self.assertEqual("**T410 停了**：用户停止了任务", send.call_args.kwargs["card"]["body"]["elements"][0]["content"])
+        self.assertEqual("**T410 停了**：用户停止了任务", send.call_args.kwargs["card"]["body"]["elements"][1]["content"])
 
     def test_an_undelivered_result_sends_nothing(self):
         send = self.deliver(self.job(progress=SimpleNamespace()), sent=False)
@@ -373,7 +377,7 @@ class DeliverTest(Case):
             with mock.patch.object(answer_cards, name, side_effect=AttributeError("x")):
                 send = self.deliver(self.job(progress=SimpleNamespace()))
             send.assert_called_once()
-            self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][0]["content"])
+            self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][1]["content"])
             saved = read_object(relay_send.relay_path(self.state, job_key("main-t1", 9)))
             self.assertEqual("sent", saved["state"])
 

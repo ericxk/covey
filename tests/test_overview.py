@@ -381,3 +381,37 @@ class OverviewTests(OverviewCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TopLevelQuestionsTest(OverviewCase):
+    """要你定的事 waits under 等你 whoever asks (docs/ui.md 5.3): the butler's question too, under its speaker."""
+
+    def test_the_butlers_question_is_listed_under_its_speaker(self):
+        from support.butler import switch_on
+        from covey.core import board_read, butler
+
+        switch_on(self)
+        top = butler.butler_topic_id("oc_dm")
+        self.question("a" * 16)
+        self.question("b" * 16, topic=top, created_at=NOW - 30,
+                      questions=[{"id": "q", "header": "部署", "question": "现在部署吗？"}])
+        view = self.overview.view(self.ctx, "oc_dm", NOW)
+        self.assertEqual([row["label"] for row in view["waiting"]], ["管家", "T395"])  # The latest first.
+        self.assertEqual(view["waiting"][0]["title"], "")
+        self.assertEqual([row["topic_id"] for row in board_read.pending_questions(self.state, "oc_dm")], ["t1"])
+        self.assertEqual([row["topic_id"] for row in board_read.top_questions(self.state, "oc_dm")], [top])
+        from covey.app.digest import collect
+        rows = collect(self.state, "oc_dm", NOW, NOW - 3600, NOW)["waiting"]
+        self.assertEqual([row["label"] for row in rows], ["管家", "T395"])
+
+
+class SpeakerTest(unittest.TestCase):
+    def test_the_words_of_each_speaker(self):
+        from covey.core import look
+
+        self.assertEqual(look.speaker("butler"), "管家")
+        self.assertEqual(look.speaker("lead", name="Covey 体验"), "专项「Covey 体验」· 负责人")
+        self.assertEqual(look.speaker("topic", label="T531", title="统一 UI 规范"), "T531 统一 UI 规范")
+        self.assertEqual(look.speaker("topic", label="T9", title="一" * 40), "T9 " + "一" * 23 + "…")
+        self.assertEqual(look.speaker("topic"), "")
+
