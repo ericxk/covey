@@ -46,7 +46,7 @@ from covey.core.statuses import MANAGING  # A launch card that became the manage
 from covey.core.topics import load_topic
 
 CHANGES = ('add', 'remove', 'prune', 'default')  # add: the absolute-path row of cards sent before the browser.
-END_STATUS = '用户结束工作区管理，未启动任务'
+END_STATUS = '你结束了工作区管理，没有启动任务'
 MENU_KEY = 'manage_workspaces'  # The bot menu's 工作区 before 2026-11-09: the 设置 card on this tab now.
 
 
@@ -403,7 +403,7 @@ class WorkspaceManager(CardActionQueue):
 
     def _done_message(self, ctx, record, topic, view, summary, tag='workspace-manager-done'):
         """The change is applied but the card still shows the previous view: say it succeeded."""
-        self.topics.messenger.send_message(ctx.profile, record['chat_id'], f'操作已完成：{summary}。卡片未能刷新，请点卡片上的“刷新”。',
+        self.topics.messenger.send_message(ctx.profile, record['chat_id'], f'{summary}。卡片没能刷新，点卡片上的“刷新”再看。',
             self.topics.voice.key(tag, f"{record.get('card_id', '')}-{view['revision']}"),
             reply_to_message_id='' if topic is None else topic['root_id'], voice=self.topics.voice)  # Standalone: the main chat.
 
@@ -468,8 +468,8 @@ class WorkspaceManager(CardActionQueue):
                  else f"本次移除 {view.get('removed', 0)} 项")
         changes = f"{count} · 默认工作区：{literal(config['default'])}"
         if topic is None:
-            text = '**工作区管理已完成** · ' + changes
-            summary = f"工作区管理已完成，{count}"
+            text = '**工作区管理结束** · ' + changes
+            summary = f"工作区管理结束，{count}"
             record.update(status=CLOSED, closed_text=text)
             save_record(path, record)
         else:

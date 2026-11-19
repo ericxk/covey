@@ -258,7 +258,7 @@
 | `cards/triage_card.py` | The 不对 form of the 专项卡's 分流记录: a card of its own with one input, because the 专项卡 is redrawn and holds no field |
 | `cards/turn_export.py` | The 下载请求与结果 element at the bottom of an ended task card |
 | `cards/ui.py` | The shared parts of the 夜航 look as schema 2.0 card elements |
-| `cards/weekly_usage.py` | The 本周用量 card, the bot menu's 用量 panel: the window in its title bar |
+| `cards/weekly_usage.py` | The 本周用量 card, the bot menu's 用量 panel, in the 夜航 look: the window in its title bar |
 | `cards/workspace_manager.py` | The 工作区 card, the bot menu's 工作区 panel and the launch card's ⚙️ 添加或管理工作区… |
 
 ### core

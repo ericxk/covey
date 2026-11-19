@@ -156,7 +156,7 @@ class PanelTests(ProxyCase):
         self.open()
         self.assertEqual(self.click(panel.DISABLE), 'proxy_panel')
         self.assertFalse(records.read_settings(self.state)['enabled'])
-        self.assertIn('✓ 代答已关闭', self.text())
+        self.assertIn('代答已关闭', self.text())
         self.assertEqual(self.shown()['header']['text_tag_list'][0]['text']['content'], '已关闭')
         self.assertIn(panel.ENABLE, {k for k, *_ in controls(self.shown())})
         # 开启 reads the owner as the owner's profile: after the click returned, on a real lane, while
@@ -292,7 +292,7 @@ class PanelTests(ProxyCase):
         self.assertEqual(self.click(panel.ADD_ALL, lookup=self.lookup_id()), 'proxy_panel')
         added = self.contact('p2p:ou_li')
         self.assertEqual((added['chat_id'], added['name']), ('oc_li', '李四'))
-        self.assertIn('✓ 已加入白名单 1 个：李四', self.text())
+        self.assertIn('已加入白名单 1 个：李四', self.text())
         # Added: the result leaves the card (UI review P12: it stayed under the new row); the query stays.
         self.assertNotIn('查找结果', self.text())
         self.assertNotIn('待添加', self.text())
@@ -348,7 +348,7 @@ class PanelTests(ProxyCase):
             'token': self.token(), 'revision': 3, 'group': 'oc_acc', 'name': 'C队 验收测试'}))
         self.click(panel.ADD_ALL, lookup=self.lookup_id())
         self.assertEqual(self.contact('group:oc_acc')['kind'], 'group')
-        self.assertIn('✓ 已加入白名单 1 个：C队 验收测试（群里 @你的消息）', self.text())
+        self.assertIn('已加入白名单 1 个：C队 验收测试（群里 @你的消息）', self.text())
 
     def test_a_search_without_a_query_or_a_result_says_so_on_the_card(self):
         self.open()
@@ -394,7 +394,7 @@ class PanelTests(ProxyCase):
         self.assertEqual([(c['target'], c['kind'], c['source']) for c in added],
                          [('ou_a', 'p2p', {'chat_id': 'oc_team', 'name': '项目群'}),
                           ('ou_b', 'p2p', {'chat_id': 'oc_team', 'name': '项目群'})])
-        self.assertIn('✓ 已把群「项目群」的 2 人加入白名单', self.text())
+        self.assertIn('已把群「项目群」的 2 人加入白名单', self.text())
         self.assertIn(f"**群「项目群」的成员** {tag('2 人', 'violet')} {tag('运行中 2', 'green')}", self.text())
         # The search the group came from left the card with the add: its 全员 button with it.
         self.assertEqual([label for kind in (panel.SOURCE_PAUSE, panel.SOURCE_REMOVE, panel.MEMBERS)
@@ -427,7 +427,7 @@ class PanelTests(ProxyCase):
         self.assertEqual(self.click(panel.SOURCE_PAUSE, source='oc_team'), 'proxy_panel')
         self.assertTrue(all(c['paused'] for c in records.read_contacts(self.state) if records.source_of(c)))
         self.assertFalse(self.contact()['paused'])
-        self.assertIn('✓ 群「项目群」的成员：3 人已暂停代答。', self.text())
+        self.assertIn('群「项目群」的成员：3 人已暂停代答。', self.text())
         self.assertIn(f"{tag('3 人', 'violet')} {tag('已暂停 3', 'neutral')}", self.text())  # Nobody 运行中.
         self.assertEqual([label for label, _, _ in self.buttons(panel.SOURCE_RESUME)], ['恢复全部'])
         self.assertEqual(self.buttons(panel.SOURCE_PAUSE), [])
@@ -442,7 +442,7 @@ class PanelTests(ProxyCase):
         self.assertIn(f"**群「项目群」的成员** {tag('4 人', 'violet')}", self.text())
         self.assertEqual(self.click(panel.SOURCE_REMOVE, source='oc_team'), 'proxy_panel')
         self.assertEqual([c['key'] for c in records.read_contacts(self.state)], ['p2p:ou_zhang'])
-        self.assertIn('✓ 已把群「项目群」的 4 位成员移出白名单', self.text())
+        self.assertIn('已把群「项目群」的 4 位成员移出白名单', self.text())
         self.click(panel.SOURCE_PAUSE, source='oc_team')
         self.assertIn(GONE, self.text())
 
@@ -606,7 +606,7 @@ class PanelTests(ProxyCase):
         records.write_contact(self.state, dict(GROUP))
         self.assertEqual(self.click(panel.REFRESH, revision=1), 'proxy_panel')
         self.assertIn('白名单 2 个', self.text())
-        self.assertNotIn('✓ 代答已关闭', self.text())  # 刷新 clears the last notice.
+        self.assertNotIn('代答已关闭', self.text())  # 刷新 clears the last notice.
 
     def test_a_click_from_before_the_last_redraw_acts_while_it_still_applies(self):
         self.open()

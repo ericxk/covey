@@ -20,6 +20,7 @@ import time
 
 from covey.app.menu_panel import MenuPanel
 from covey.cards.weekly_usage import folded_card, total_tokens, usage_card, usage_text
+from covey.core import look
 from covey.core.jobs import never_started, select_job_records
 from covey.core.state import epoch_seconds
 from covey.core.statuses import ENDED, NOT_ENDED
@@ -49,8 +50,32 @@ def job_tokens(record):
 
 
 def outcome(status):
-    """The card's outcome for a job status (cards/weekly_usage.py OUTCOMES)."""
+    """A job status as the card counts it apart from ``ended``: done, continued, failed, cancelled, interrupted,
+    active (any that a later one can follow) or other; the card reads ``continued`` (a turn after an answer)."""
     return status if status in ENDED else "active" if status in NOT_ENDED else "other"
+
+
+def ended(record):
+    """How the job ended as a state of docs/ui.md's word table (core/look.py STATES): 做完 (its result seen or not),
+    停住了, 已停止 (the owner stopped it himself), 在做, 等你, 排队; ``idle`` for a status the table does not know."""
+    return look.record_tone(record, seen=True)
+
+
+def day_of(seconds):
+    """The local date a job was created on, as the trend's label (``11-13``)."""
+    return time.strftime("%m-%d", time.localtime(seconds))
+
+
+def days(since, now):
+    """The local dates from ``since`` to ``now``, oldest first: the trend's bars, the first and the last only part of
+    a day."""
+    found, at = [], since
+    while at < now + 86400:
+        label = day_of(min(at, now))
+        if label not in found:
+            found.append(label)
+        at += 86400
+    return found
 
 
 def harness_of(record):
@@ -67,14 +92,18 @@ def summarize(records, now, titles):
     tokens = dict.fromkeys(TOKEN_FIELDS, 0)
     harnesses = collections.defaultdict(lambda: {"tasks": 0, "tokens": 0, "input": 0, "cache": 0, "untracked": 0})
     untracked = 0
+    daily = {label: {"day": label, "tasks": 0, "tokens": 0} for label in days(since, now)}
     for record in tasks:
         name = harness_of(record)
         harnesses[name]["tasks"] += 1
+        day = daily.setdefault(day_of(created_at(record)), {"day": day_of(created_at(record)), "tasks": 0, "tokens": 0})
+        day["tasks"] += 1
         counts = job_tokens(record)
         if counts is None:
             untracked += 1
             harnesses[name]["untracked"] += 1
             continue
+        day["tokens"] += total_tokens(counts)
         for key in TOKEN_FIELDS:
             tokens[key] += counts[key]
         harnesses[name]["tokens"] += total_tokens(counts)
@@ -85,6 +114,7 @@ def summarize(records, now, titles):
     return {"days": WINDOW_DAYS, "since": since, "until": now, "tasks": len(tasks),
             "topics": len({r.get("topic_id") for r in tasks if r.get("topic_id")}),
             "outcomes": collections.Counter(outcome(r.get("status")) for r in tasks),
+            "ended": collections.Counter(ended(r) for r in tasks), "daily": list(daily.values()),
             "harnesses": rows, "tokens": tokens, "untracked": untracked}
 
 

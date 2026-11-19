@@ -10,6 +10,7 @@ submit button carries one too (as cards/proxy_panel.py's 查找). PAGE and EDIT,
 2026-11-13 layout, stay in KINDS so a card sent then still answers."""
 from __future__ import annotations
 
+from covey.cards import ui
 from covey.core.text import literal
 from covey.cards.elements import (callback_button, collapsible, grey, item, md, note, panel_header, plain, styled_panel,
                                   tag, text_button)
@@ -84,8 +85,8 @@ def redaction_card(token, view, data, *, top=(), web=None):
 
     elements = [*top, note(f"{data['count']} 个词 · 近 7 天替换 {data['week']} 次 · {len(data['topics'])} 个话题开着")]
     if view.get('notice'):
-        elements.append(item(md(view['notice']), text_button('撤销', value(UNDO), tone='primary'))
-                        if view.get('undo') else md(view['notice']))
+        elements.append(item(ui.receipt(view['notice']), text_button('撤销', value(UNDO), tone='primary'))
+                        if view.get('undo') else ui.receipt(view['notice']))
     if data['error']:
         elements.append(md('⚠️ ' + data['error']))  # app/redaction_panel.py UNREADABLE: it names no term.
     else:
@@ -160,7 +161,7 @@ def switches_part(value, view, config, opened=()):
     if view.get('probing'):
         said = '正在探测…'
     elif probe.get('error'):
-        said = '⚠️ 探测没成功：' + literal(probe['error'])
+        said = '⚠️ 没探测到：' + literal(probe['error'])
     elif probe.get('upstream'):
         said = f"探测结果：{literal(probe['upstream'])}（{literal(probe.get('source', ''))}）"
     else:

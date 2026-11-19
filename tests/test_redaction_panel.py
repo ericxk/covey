@@ -182,7 +182,7 @@ class RedactionTabTests(HubCase):
         self.assertEqual([(r['term'], r['stand_in']) for r in load_config(self.state)['terms']],
                          [(SECRET[0], ''), (SECRET[1], '')])
         text = self.text()
-        for words in ('✓ 加入了 「机··（6 字）」、「P··（11 字）」', '第 3 行没加（替身词自动生成，不用写 =>）',
+        for words in ('加入了 「机··（6 字）」、「P··（11 字）」', '第 3 行没加（替身词自动生成，不用写 =>）',
                       '第 4 行没加（原词至少要 2 个字）', '第 5 行没加（词表里已经有这个词）'):
             self.assertIn(words, text)
         self.assertNoTerm()
@@ -293,7 +293,7 @@ class RedactionTabTests(HubCase):
         self.panel.dashboard.http.detect_now.return_value = (504, {'error': '探测超时，稍后再试'})
         self.press(self.button(cards.PROBE), 'ev-p6')
         held[-1]()
-        self.assertIn('探测没成功：探测超时', self.text())
+        self.assertIn('没探测到：探测超时', self.text())
 
     def test_a_try_out_shows_what_goes_out_and_not_the_text_typed(self):
         save_config(self.state, {'terms': rows(SECRET[0])})

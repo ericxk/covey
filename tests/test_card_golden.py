@@ -550,11 +550,15 @@ def usage_cards():
     summary = {"since": FROZEN - 7 * 86400, "until": FROZEN, "days": 7, "tasks": 200, "topics": 3, "untracked": 1,
                "tokens": {"input_tokens": 330000000, "cache_read_tokens": 270000000, "output_tokens": 3100000},
                "outcomes": {"done": 3, "continued": 195, "failed": 1, "active": 1},
+               "ended": {"done": 197, "stopped": 1, "cancelled": 1, "running": 1},
+               "daily": [{"day": f"10-{28 + i}" if i < 4 else f"11-0{i - 3}", "tasks": 25,
+                          "tokens": [0, 4100000, 12000000, 3300000, 9800000, 1500000, 2200000, 300000][i]}
+                         for i in range(8)],
                "harnesses": [{"title": "Codex", "tasks": 197, "tokens": 30300000, "input": 30200000, "cache": 0,
                               "untracked": 1},
                              {"title": "Claude", "tasks": 3, "tokens": 33000000, "input": 300000000,
                               "cache": 270000000, "untracked": 0}]}
-    empty = {**summary, "tasks": 0, "topics": 0, "untracked": 0, "outcomes": {}, "harnesses": [],
+    empty = {**summary, "tasks": 0, "topics": 0, "untracked": 0, "outcomes": {}, "ended": {}, "daily": [], "harnesses": [],
              "tokens": {"input_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0}}
     return {"card": usage_card(summary), "card_empty": usage_card(empty), "text": usage_text(summary)}
 
