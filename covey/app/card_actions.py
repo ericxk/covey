@@ -78,6 +78,7 @@ ACTIONS = {
     "bridge_steer_status": CardAction("检查送达状态", handler=QUESTIONS),
     "bridge_steer_requeue": CardAction("重新排队执行", bot_only=True, handler=QUESTIONS),
     "bridge_steer_withdraw": CardAction("撤回补充", handler=QUESTIONS),
+    "bridge_steer_interrupt": CardAction("打断命令读补充", handler=QUESTIONS),
     "bridge_note": CardAction("处理暂存消息", bot_only=True, handler=QUESTIONS),
     "bridge_question": CardAction("提交回答", handler=QUESTIONS),
     # Handled by the Bridge, which hands the answer on to a runner that still waits for it (forward_answer);

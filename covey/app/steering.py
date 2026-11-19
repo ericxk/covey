@@ -15,7 +15,7 @@ import functools
 import threading
 import time
 
-from covey.cards.steer_receipts import CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND
+from covey.cards.steer_receipts import CHECK_KIND, INTERRUPT_KIND, REQUEUE_KIND, WITHDRAW_KIND
 from covey.core.deliveries import (REQUEUE, delivery_path, delivery_token, end_unread, lost, offers,
                                             read_delivery, reconcile, save_delivery, shown_preview, update_delivery)
 from covey.cards.steer_form import closed_card, latest_request
@@ -34,13 +34,14 @@ from covey.app.submission import queue_hint
 from covey.app.detached import update_queued
 from covey.app.steer_forms import SteerForms
 from covey.app.steer_receipts_flow import SteerReceiptFlow
+from covey.app.steer_interrupt import SteerInterrupt
 
 
 STEER_WATCH_SECONDS = 120
-STEER_KINDS = frozenset({"bridge_steer", CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND})
+STEER_KINDS = frozenset({"bridge_steer", CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND, INTERRUPT_KIND})
 
 
-class Steering(SteerForms, SteerReceiptFlow):
+class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
     """One Harness's supplements (补充): the forms on a task card, where each supplement goes
     for the task's stage, its delivery record and receipt card, and closing the forms when
     the task ends.
@@ -187,15 +188,18 @@ class Steering(SteerForms, SteerReceiptFlow):
             # Off the event thread: a card update must not hold back the task's next events.
             background.start(background.CARD_UPDATES, self.show_steer_receipt, ctx, record)
 
-    def note_latest_request(self, ctx, job, text, mid=""):
+    def note_latest_request(self, ctx, job, text, mid="", *, after=""):
         """The task card names the newest supplement it received, above the original request, in the
-        words of its delivery record: what the user wrote, not the background sent with it."""
+        words of its delivery record: what the user wrote, not the background sent with it. ``after``: what became of
+        it since (app/steer_interrupt.py: the command it waited on was stopped)."""
         if not job.progress:
             return
         record = read_delivery(delivery_path(ctx.state_dir, job.topic_id, mid)) if mid else None
         preview = " ".join(shown_preview(record if record else text).split())
         preview = preview[:80] + ("…" if len(preview) > 80 else "")
-        self.cards.set_task_element(ctx, job, latest_request(f"📝 **最新补充** {time.strftime('%H:%M')} · {literal(preview)}"),
+        at = time.strftime('%H:%M', time.localtime(float((record or {}).get("sent_at") or time.time())))
+        self.cards.set_task_element(ctx, job, latest_request(f"📝 **最新补充** {at} · {literal(preview)}"
+                                                             + (f" · {after}" if after else "")),
                                     before="current_question")
 
     def deliver_steer(self, ctx, job, text, mid, *, record_history=True, receipt=None, requeue=None, later=None,
@@ -229,6 +233,7 @@ class Steering(SteerForms, SteerReceiptFlow):
                      "job_id": job.job_id, "job_key": job.message_id, "token": delivery_token(job.topic_id, mid),
                      "mid": mid, "saved_at": time.time(), **({"receipt": receipt} if receipt else {}),
                      **({"requeue": requeue} if requeue else {}), **({"reads": True} if self.reports_reads(ctx) else {}),
+                     **({"stops": True} if self.stops_commands(ctx) else {}),
                      **({"shown": shown} if shown else {})}
             save_delivery(path, saved)
         merged = self.merge_before_start(ctx, job, text, mid, path, asked=asked)
@@ -269,12 +274,13 @@ class Steering(SteerForms, SteerReceiptFlow):
         current = update_delivery(path, status="sent", error="") or read_delivery(path) or saved
         if record_history:
             append_history(ctx.history_path, "user", shown or text, {"message_id": mid})
-        if not getattr(control, "remote", False):  # A task runner notes it on its own card.
+        if not getattr(control, "remote", False):  # A task runner notes it on its own card, and watches it.
             note = functools.partial(self.note_latest_request, ctx, job, text, mid)
             if later is None:
                 note()
             else:
                 later.append(note)
+            self.watch_unread(ctx, job, mid)
         return current
 
     def device_text(self, ctx, job, text, mid):
@@ -365,6 +371,7 @@ class Steering(SteerForms, SteerReceiptFlow):
                             self.note_latest_request(ctx, job, text, mid)
                         except Exception as exc:  # noqa: BLE001 - the supplement is delivered
                             self.runtime.log(f"latest supplement not shown: {type(exc).__name__}")
+                        self.watch_unread(ctx, job, mid)
 
     def settle_steer(self, ctx, job, mid, **changes):
         record = update_delivery(delivery_path(ctx.state_dir, job.topic_id, mid), **changes)
@@ -474,6 +481,11 @@ class Steering(SteerForms, SteerReceiptFlow):
             return
         self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=mid), job.chat_id, SUPPLEMENT_LOST,
                              self.voice.key("main-supplement-lost", mid), voice=self.voice)
+
+    def stops_commands(self, ctx):
+        """Whether this Harness's tasks can have the command they wait on stopped for a supplement: Claude's on this
+        machine can (app/steer_interrupt.py)."""
+        return getattr(backend_capabilities(getattr(self.harness, "backend", None), ctx), "command_stop", False) is True
 
     def reports_reads(self, ctx):
         """Whether this Harness's tasks report a supplement read (steer_read): Claude's do."""

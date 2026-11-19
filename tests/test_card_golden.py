@@ -413,6 +413,13 @@ def steer_cards():
         "held": {"status": "held", "held_at": FROZEN - 15, "sent_at": None, "error": "任务刚开始"},
         "uncertain": {"status": "uncertain", "error": "飞书超时"},
         "sent_with_reads": {"reads": True},
+        # Unread in a task whose command can be stopped: 已等 N 秒 and 打断它，马上读; then what the stop did.
+        "unread_stops": {"reads": True, "stops": True, "receipt": {"kind": "job"}},
+        "interrupted": {"reads": True, "stops": True, "interrupt_at": FROZEN - 3, "interrupt_by": "click",
+                        "interrupt": "已停掉正在跑的命令，模型马上读到", "interrupted": "sleep 600"},
+        "interrupt_kept": {"reads": True, "stops": True, "interrupt_at": FROZEN - 3, "interrupt_by": "auto",
+                           "interrupt": "正在跑的是推送、部署这类命令，不打断；它结束后模型读到"},
+        "unread_long": {"reads": True, "stops": True, "sent_at": FROZEN - 200},
         "read": {"status": "read", "read_at": FROZEN - 5, "reads": True},
         "unread_requeue": {"target_ended": True, "ended_at": FROZEN - 2, "requeue": True},
         "unread": {"target_ended": True, "ended_at": FROZEN - 2},

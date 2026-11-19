@@ -1,11 +1,12 @@
 """What became of a supplement, on its receipt card (cards/steer_receipts.py draws it): repainting the card that shows
-it (show_steer_receipt) and its buttons, 检查状态, 重新排队 and 撤回 (steer_receipt_action, withdraw_steer).
+it (show_steer_receipt) and its buttons, 检查状态, 重新排队, 打断它，马上读 (steer_receipt_action) and 撤回
+(withdraw_steer).
 SteerReceiptFlow is a part of app/steering.py's Steering."""
 from __future__ import annotations
 
 import time
 
-from covey.cards.steer_receipts import REQUEUE_KIND, receipt_card, stage_line
+from covey.cards.steer_receipts import INTERRUPT_KIND, REQUEUE_KIND, receipt_card, stage_line
 from covey.core.deliveries import REQUEUE, offers, read_delivery, reconcile, update_delivery
 from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
@@ -98,7 +99,29 @@ class SteerReceiptFlow:
             # The new task's card and the receipt took 2.9 s in the click (2026-10-26): after the acknowledgement.
             after_ack(lambda: self._requeue_and_show(ctx, chat, path, record, mid))
             return
+        if kind == INTERRUPT_KIND:
+            self._interrupt_click(ctx, chat, path, record, mid)
+            return
         self._show_receipt(ctx, chat, record, mid)
+
+    def _interrupt_click(self, ctx, chat, path, record, mid):
+        """打断它，马上读: the process that holds the task's backend stops the command it waits on (its runner, which the
+        click is forwarded to; app/steer_interrupt.py). Here with no such task: it ended, or runs elsewhere."""
+        job = self.runtime.jobs.find(int(record["job_id"])) if record.get("job_id") is not None else None
+        control = getattr(job, "backend_control", None) if job is not None else None
+        if (job is None or job.message_id != record.get("job_key") or control is None
+                or getattr(control, "remote", False) or not callable(getattr(control, "stop_command", None))):
+            if record.get("status") == "sent" and record.get("reads") and not record.get("target_ended"):
+                raise ValueError(f"任务 #{record.get('job_id')} 现在不在这里运行，打断不了；它结束后可以重新排队")
+            self._show_receipt(ctx, chat, record, mid)
+            return
+        def interrupt():
+            after = self.interrupt(ctx, job, path, by="click")  # It repaints the receipt.
+            if not after.get("receipt"):
+                self.messenger.reply(ctx, chat, f"补充任务 #{after.get('job_id')}：{stage_line(after)}。",
+                                     self.voice.key("steer-interrupt", mid), voice=self.voice)
+        # Stopping waits for the command to exit (seconds): after the acknowledgement.
+        after_ack(interrupt)
 
     def _requeue_and_show(self, ctx, chat, path, record, mid):
         try:

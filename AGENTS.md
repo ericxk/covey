@@ -180,6 +180,7 @@
 | `app/standing_answers.py` | 以后这类按推荐走: the button under a question card whose every question has one recommended option |
 | `app/status_cards.py` | Topic status cards: what the pinned board pins for a topic with a thread in the owner's private chat, in … |
 | `app/steer_forms.py` | The 补充 forms of a task: a 补充 click, the form (steer_form_card), a submitted form (submit_steer_form |
+| `app/steer_interrupt.py` | A supplement the model has not read yet: how long it has waited, and stopping the command that holds it back |
 | `app/steer_receipts_flow.py` | What became of a supplement, on its receipt card |
 | `app/steering.py` | Supplements (补充) to a task of this topic: which task takes one, and how it gets there |
 | `app/stuck_check.py` | 看看: a read-only look at a turn that may be stuck, from the button under its task card's status line, answered … |
@@ -359,7 +360,7 @@
 | `core/state.py` | Shared local state and workspace helpers for Feishu bridge scripts |
 | `core/status_line.py` | The task card's status line as pure functions of what one TaskMonitor tick saw |
 | `core/statuses.py` | The status machines of the records |
-| `core/steer.py` | What became of a supplement sent into a running task |
+| `core/steer.py` | What became of a supplement sent into a running task, and which are urgent |
 | `core/steps.py` | The steps an adapter publishes as `tool` events (a tool call, a command, a compaction) and the words a model … |
 | `core/store.py` | Indexed JSON records with legacy-compatible reads and isolated invalid files |
 | `core/task_processes.py` | What a task's commands leave running once its Harness has closed, found by the marker its runner puts in its … |
@@ -430,6 +431,7 @@
 | --- | --- |
 | `backends/claude/argv.py` | How a turn's Claude CLI is started |
 | `backends/claude/bridge.py` | The Claude Code Harness: its spec and backend |
+| `backends/claude/command_stop.py` | Stopping the shell command a Claude Code turn waits on, so a supplement it was sent is read now |
 | `backends/claude/compaction.py` | Compacting a resumed Claude Code session before a turn |
 | `backends/claude/completion.py` | Claude result boundaries |
 | `backends/claude/control.py` | The control side of a running Claude CLI (ClaudeControl) |

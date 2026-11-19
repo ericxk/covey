@@ -45,6 +45,9 @@ class ClaudeEventAdapter:
         self.partial_text = ""
         self.agents = {}
         self.commands = {}
+        # The main task's Bash calls by tool id: their command, and whether the call asked to run in the background
+        # (foreground_commands).
+        self.shells = {}
         self.usage = ClaudeTurnUsage(emit)
         self.subtasks = ClaudeSubtaskUsage(emit)
         # The last CALLS_SHOWN tool calls of the main task (None) and of each subagent, in words: what one was doing
@@ -166,12 +169,28 @@ class ClaudeEventAdapter:
         if self.steps.start(block["id"], block.get("name", "tool").lower(), str(detail), time.time(),
                             child_id=row.get("parent_tool_use_id")) is None:
             return  # It ended: a repeat of its call changes nothing.
+        if block.get("name") == "Bash" and child is None and isinstance(inputs.get("command"), str):
+            self.shells[block["id"]] = {"command": inputs["command"], "background": inputs.get("run_in_background") is True}
         if block.get("name") in {"Agent", "Task"}:
             agent = self.agents.setdefault(block["id"], {"id": block["id"],
                 "name": str(inputs.get("description") or "子任务")[:80],
                 "started_at": time.time(), "status": "running", "parent_id": child,
                 "background": inputs.get("run_in_background") is True})
             self.emit("agent_state", agent.copy())
+
+    def foreground_commands(self):
+        """The commands of the main task's Bash calls running now that it waits on: not one started in the background
+        or moved there (backends/claude/command_stop.py)."""
+        found = []
+        for key, shell in list(self.shells.items()):
+            step = self.steps.get(key) or {}
+            if step.get("status") not in (None, "running"):
+                del self.shells[key]  # Ended: never waited on again.
+                continue
+            if (step.get("status") == "running" and step.get("name") == "bash" and not shell["background"]
+                    and not self.commands.get(key, {}).get("background")):
+                found.append(shell["command"])
+        return found
 
     def tool_finished(self, block, row):
         """A tool_result block for a known tool."""

@@ -9,7 +9,8 @@ import threading
 import time
 import uuid
 
-from covey.core.steer import SteerNotReady, refuse_steer, steer_text
+from covey.backends.claude import command_stop
+from covey.core.steer import SteerNotReady, keeps_running, refuse_steer, steer_text
 
 
 def normalized_questions(raw):
@@ -64,6 +65,7 @@ class ClaudeControl:
         self.steers = {}  # input uuid -> the bridge's event id, until Claude replays it
         self.prompt_id = ""  # The turn's own prompt, until Claude replays it (prompt_read).
         self.control_error = False
+        self.foreground = lambda: []  # The commands the main task waits on (run_stream: its event adapter's).
         if getattr(process, "device", False) is True:
             # The CLI runs on a device: its patience while the link is down is the longer one for as long as a
             # question waits for the user (core/device_link.py).
@@ -104,6 +106,32 @@ class ClaudeControl:
             input_id = str(uuid.uuid4())
             self.send_user(steer_text(text), input_id)
             self.steers[input_id] = event_id
+
+    def stop_command(self, note=""):
+        """Stop the shell commands the main task waits on, so the supplements sent to it are read now
+        (app/steer_interrupt.py); ``note`` goes in first, as a supplement of its own, saying why the command ended.
+        Returns {"stopped": [commands]}, {"kept": command} for one never stopped (core/steer.py ``keeps_running``),
+        or {"reason": why nothing was stopped}."""
+        with self.control_lock:
+            if getattr(self.transport, "device", False) is True:
+                return {"reason": "任务在设备上运行，不能从这里停命令"}
+            if self.closing:
+                return {"reason": "任务正在收尾"}
+            if self.user_requests:
+                return {"reason": "任务正在等待回答问题"}
+            commands = list(self.foreground())
+            if not commands:
+                return {"reason": "模型现在没有在等命令"}
+            kept = next((command for command in commands if keeps_running(command)), None)
+            if kept is not None:
+                return {"kept": kept}
+            found = command_stop.shells(self.transport.process.pid, commands)
+            if not found:
+                return {"reason": "没找到这条命令的进程"}
+            if note:
+                self.send_user(steer_text(note), str(uuid.uuid4()))
+        command_stop.stop(found)  # Outside the lock: it waits for the shells to exit.
+        return {"stopped": commands}
 
     def verify_question_request(self, proof):
         rid = proof.get("request_id") if isinstance(proof, dict) else None

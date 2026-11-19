@@ -162,21 +162,30 @@ def reconcile(path, record):
 
 
 # What a receipt offers: its buttons (cards/steer_receipts.py), and the 重新排队执行 clicks app/steering.py takes.
-WITHDRAW, CHECK, REQUEUE = "withdraw", "check", "requeue"
+WITHDRAW, CHECK, REQUEUE, INTERRUPT = "withdraw", "check", "requeue", "interrupt"
+
+
+def unread(record) -> bool:
+    """In a running task that reports reads (``reads``), sent and not read yet: not in its request, its task not ended."""
+    return (record.get("status") == "sent" and bool(record.get("reads")) and not record.get("merged")
+            and not record.get("target_ended"))
 
 
 def offers(record):
     """What the record's receipt offers now. WITHDRAW while held. CHECK while unconfirmed, and while
     "sent" and unread on a harness that reports reads: a check after its task ended elsewhere (a task
     runner lost, a Harness retired, a restart) marks it unread, so it can be queued again. REQUEUE once
-    refused, withdrawn or its task ended, when it can be queued and no requeue was tried."""
+    refused, withdrawn or its task ended, when it can be queued and no requeue was tried. INTERRUPT (打断它，马上读) while
+    ``unread`` in a task whose command can be stopped (``stops``), until a stop was tried (``interrupt_at``: one that
+    found nothing to stop clears it, app/steer_interrupt.py)."""
     status = record.get("status", "submitting")
     offered = set()
     if status == "held":
         offered.add(WITHDRAW)
-    if status in {"submitting", "uncertain"} or (status == "sent" and record.get("reads") and not record.get("merged")
-                                                  and not record.get("target_ended")):
+    if status in {"submitting", "uncertain"} or unread(record):
         offered.add(CHECK)
+    if unread(record) and record.get("stops") and not record.get("interrupt_at"):
+        offered.add(INTERRUPT)
     if (record.get("requeue") and not record.get("requeued_job_id") and not record.get("requeue_state")
             and (status in {"refused", "withdrawn"} or record.get("target_ended"))):
         offered.add(REQUEUE)

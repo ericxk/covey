@@ -102,6 +102,9 @@ class HarnessCapabilities:
     incomplete_retry: bool = False  # a turn ended incomplete (settle_timeout) with no reply is continued once, too
     model_requests: bool = False  # sends model_request when the main task's first model call starts (after its setup)
     steer_reads: bool = False  # sends steer_read when the model takes a supplement in (Claude replays it)
+    # its control's stop_command(note) stops the command the model waits on, so a supplement is read now
+    # (app/steer_interrupt.py)
+    command_stop: bool = False
     compaction: bool = False  # compacts a resumed session before the turn on ``compact_first`` (the butler's threshold)
     turn_export: bool = False  # export_turn(ctx, session_id, since, until): the turn's model requests (下载请求与结果)
     redaction: bool = False  # runs a topic that chose redaction through the term relay (core/redaction.py)
@@ -117,7 +120,7 @@ def backend_capabilities(backend, ctx):
 
 # What a Harness process on a device cannot do: each reads files of the hub (the session store, the request log, the
 # file snapshots) or runs the hub's relay, none of which exist there.
-DEVICE_OFF = ("native_fork", "compaction", "turn_export", "redaction", "rewind")
+DEVICE_OFF = ("native_fork", "compaction", "turn_export", "redaction", "rewind", "command_stop")
 
 
 def for_device(capabilities, ctx):

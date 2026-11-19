@@ -255,6 +255,7 @@ def run_stream(backend, request, env):
         stage = "initialize"
         process.initialize()
         control = ClaudeControl(process, state, emit)
+        control.foreground = adapter.foreground_commands
         for row in process.prelude:
             state.accept(row)
         request.observers.control(control)

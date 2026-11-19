@@ -8,15 +8,16 @@ from __future__ import annotations
 import time
 
 from covey.cards.elements import button_row, card, markdown_panel, topic_button
-from covey.core.deliveries import CHECK, REQUEUE, WITHDRAW, offers, shown_text
+from covey.core.deliveries import CHECK, INTERRUPT, REQUEUE, WITHDRAW, offers, shown_text, unread as unread_now
 from covey.core.butler import worded
 
 CHECK_KIND = "bridge_steer_status"
 REQUEUE_KIND = "bridge_steer_requeue"
 WITHDRAW_KIND = "bridge_steer_withdraw"
+INTERRUPT_KIND = "bridge_steer_interrupt"
 # The receipt's buttons in their order, each shown while the record offers it (core/deliveries.py offers).
-BUTTONS = ((WITHDRAW, "撤回", WITHDRAW_KIND, ""), (CHECK, "检查送达状态", CHECK_KIND, ""),
-           (REQUEUE, "重新排队执行", REQUEUE_KIND, "primary"))
+BUTTONS = ((INTERRUPT, "打断它，马上读", INTERRUPT_KIND, "primary"), (WITHDRAW, "撤回", WITHDRAW_KIND, ""),
+           (CHECK, "检查送达状态", CHECK_KIND, ""), (REQUEUE, "重新排队执行", REQUEUE_KIND, "primary"))
 STAGE = {
     "submitting": "⏳ 已保存，正在送达",
     "held": "⏳ 已保存，任务准备好后自动送入",
@@ -34,10 +35,32 @@ def _clock(value):
     return time.strftime("%H:%M:%S", time.localtime(value)) if isinstance(value, (int, float)) else ""
 
 
+def waited(seconds) -> str:
+    """How long a supplement has waited unread: "20 秒", "3 分 20 秒", "1 小时 5 分"."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds} 秒"
+    if seconds < 3600:
+        return f"{seconds // 60} 分" + (f" {seconds % 60} 秒" if seconds % 60 else "")
+    return f"{seconds // 3600} 小时" + (f" {seconds % 3600 // 60} 分" if seconds % 3600 // 60 else "")
+
+
+def unread_line(record, now=None) -> str:
+    """A supplement in a task that reports reads, not read yet: 已送达、还没读到、已等 N 秒, and what a stop did."""
+    line = "已送达 · 还没读到"
+    if isinstance(record.get("sent_at"), (int, float)):
+        line += " · 已等 " + waited((time.time() if now is None else now) - record["sent_at"])
+    if record.get("interrupt"):
+        line += " · " + str(record["interrupt"])
+    return line
+
+
 def stage_line(record):
     status = record.get("status", "submitting")
     if status == "sent" and record.get("target_ended") and not record.get("merged"):
         return "⚠️ 任务已结束，模型没有读到"
+    if unread_now(record):
+        return "✓ " + unread_line(record)
     line = STAGE.get(status, status)
     if status in {"refused", "uncertain"} and record.get("error"):
         line += "：" + str(record["error"])
@@ -48,6 +71,7 @@ def history_lines(record):
     """What happened to it, in the order it happened."""
     steps = [(record.get("saved_at"), "已保存"), (record.get("held_at"), "等任务准备好"),
              (record.get("sent_at"), "并入本轮请求" if record.get("merged") else "后端已接收"),
+             (record.get("interrupt_at"), "打断正在跑的命令" if record.get("interrupted") else "试过打断"),
              (record.get("read_at"), "模型已读取"),
              (record.get("withdrawn_at") if record.get("status") == "withdrawn" else None, "已撤回"),
              (record.get("ended_at") if record.get("status") == "sent" else None, "任务结束，模型未读取")]
@@ -84,6 +108,8 @@ def receipt_card(record, *, source=""):
         head = f"⏳ **补充 #{job_id} 送达未确认**" + (f"：{record['error']}" if record.get("error") else "")
         summary = f"补充 #{job_id} 送达未确认"
     stage = " · " + STAGE[status] if status in {"sent", "read"} and not unread else ""
+    if unread_now(record):
+        stage = " · " + unread_line(record)
     if record.get("merged"):
         stage = " · ✓ 任务开始前收到，已并入本轮请求"
     details = []
@@ -97,6 +123,14 @@ def receipt_card(record, *, source=""):
     if unread:
         details.append("后端接收了这条补充，但任务在模型读到它之前就结束了（停止、完成或中断）。需要时"
                        + ("点“重新排队执行”，或" if record.get("requeue") else "") + "直接在本话题再发送一次。")
+    elif unread_now(record):
+        details.append("模型在手上这一步（一条命令、一个子任务）结束后才读到补充，长命令在跑时要等它结束。"
+                       + ("点“打断它，马上读”会停掉它正在等的那条命令（不停这一轮），模型马上读到；推送、部署这类命令不打断。"
+                          if INTERRUPT in offers(record) else "")
+                       + ("急的补充（带“马上”“立刻”“停”“过期”这类词）送达 20 秒还没读到，会自动打断。"
+                          if record.get("stops") else ""))
+        if record.get("interrupted"):
+            details.append("停掉的命令：`" + str(record["interrupted"]).replace("`", "'") + "`")
     elif status in {"sent"} and not record.get("merged"):
         details.append("“后端已接收”表示任务进程已把补充交给模型后端。模型在手上这一步（一条命令、一个子任务）结束后才读到它，"
                        "长命令或子任务在跑时要等它们结束。Claude 读到后这里变成“模型已读取”；其他后端不提供读取回执，状态停在这里。")

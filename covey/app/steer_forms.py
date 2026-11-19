@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 from types import SimpleNamespace
 
-from covey.cards.steer_receipts import CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND, receipt_card, stage_line
+from covey.cards.steer_receipts import CHECK_KIND, INTERRUPT_KIND, REQUEUE_KIND, WITHDRAW_KIND, receipt_card, stage_line
 from covey.core.deliveries import delivery_path, read_delivery, reconcile
 from covey.cards.steer_form import closed_card, steer_form
 from covey.app.card_actions import action_value
@@ -25,7 +25,7 @@ class SteerForms:
 
     def steer_action(self, ctx, chat, event, raw, fields, mid):
         kind = raw.get("kind")
-        if kind in {CHECK_KIND, REQUEUE_KIND}:
+        if kind in {CHECK_KIND, REQUEUE_KIND, INTERRUPT_KIND}:
             return self.steer_receipt_action(ctx, chat, kind, raw, mid)
         if kind == WITHDRAW_KIND:
             return self.withdraw_steer(ctx, chat, raw, mid)
