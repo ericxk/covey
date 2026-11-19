@@ -139,3 +139,31 @@ class WebSettingsTest(UnifiedCase):
             again = sync.settings_items("dm", 2.0, False)
             self.assertNotEqual(again[0]["rev"], first[0]["rev"])
             self.assertEqual(sync.settings_items("dm", 3.0, True)[0]["rev"], again[0]["rev"])  # A full look: the same rev.
+
+    def test_a_change_from_the_page_is_pushed_before_its_ack_and_one_on_the_card_within_a_second(self):
+        """2026-11-19 T554 on the live page: the push thread's full look took minutes, so the page's own change came back 3 min 40 s later
+        and a second click on the old option did nothing. The inbox thread posts the settings itself, before the ack."""
+        with mock.patch.dict(os.environ, {web_sync.ENV: "1"}):
+            sync = WebSync(self.app.runtime, self.env)
+        calls, outbox = [], [{"seq": 1, "op_id": "op-1", "kind": "settings", "topic_key": "", "project_key": "",
+                              "payload": {"what": "row", "kind": cards.TOPIC_RUN_MODE, "option": "worktree"}}]
+
+        def request(method, path, body=None):
+            calls.append((path.split("?")[0], body))
+            return {"items": outbox} if path.startswith("/sync/inbox") else {"ok": True}
+
+        sync.client.request = request
+        with mock.patch.object(self.app.runtime.access, "owner_chat", return_value="oc_dm"):
+            sync.inbox_once()
+            paths = [path for path, _ in calls]
+            self.assertEqual(paths, ["/sync/inbox", "/sync/upsert", "/sync/ack"])
+            pushed, = calls[1][1]["items"]
+            run_mode, = [r for r in pushed["data"]["topic"]["rows"] if r["kind"] == cards.TOPIC_RUN_MODE]
+            self.assertEqual(run_mode["current"], "worktree")
+            outbox.clear()
+            calls.clear()
+            sync.inbox_once()  # Nothing changed: no post.
+            self.assertEqual([path for path, _ in calls], ["/sync/inbox"])
+            settings.update(self.ctx.state_dir, subagents="same")  # The card wrote main-thread.json.
+            sync.inbox_once()
+            self.assertEqual([path for path, _ in calls], ["/sync/inbox", "/sync/inbox", "/sync/upsert"])

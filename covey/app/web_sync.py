@@ -729,6 +729,7 @@ class WebSync:
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.last_full = 0.0
         self.settings_due, self.settings_stamps = True, None  # The 设置 item: built on a full look, after the page changed one, or when its files did.
+        self.settings_lock = threading.Lock()  # push_settings runs in both threads.
         self.ledger = None
         self.down = {}  # thread name -> failures in a row.
 
@@ -801,7 +802,8 @@ class WebSync:
         now = time.time() if now is None else now
         full = now - self.last_full >= FULL_SECONDS
         items, deleted = collector.collect(chat, now, full)
-        items += self.settings_items(chat, now, full)
+        if full:
+            self.push_settings(chat, now, full=True)
         changed = [each for each in items if sent.get((each["type"], each["key"])) != each["rev"]]
         count = 0
         for batch in web_sync.batches(changed):
@@ -823,8 +825,8 @@ class WebSync:
         return count
 
     def settings_items(self, chat, now, full) -> list:
-        """The ``settings`` item (app/web_settings.py), built on a full look, after the page changed a setting and when main-thread.json
-        or the workspace list changed (two stats a look), else none; never raises (a 设置 that cannot be read stops no push)."""
+        """The ``settings`` item (app/web_settings.py) when it is due: on a full look, after the page changed a setting, when main-thread.json
+        or the workspace list changed (two stats); else none. Never raises (a 设置 that cannot be read stops nothing)."""
         if getattr(self.env, "settings", None) is None:
             return []
         builder = self.ops.web_settings
@@ -834,9 +836,33 @@ class WebSync:
                 return []
             self.settings_due, self.settings_stamps = False, stamps
             return [web_sync.item("settings", web_sync.SETTINGS_KEY, builder.snapshot(chat, now))]
-        except Exception as exc:  # noqa: BLE001 - logged; the next full look tries again
+        except Exception as exc:  # noqa: BLE001 - logged; the next look tries again
             self.runtime.log(f"web settings not built: {type(exc).__name__}")
             return []
+
+    def push_settings(self, chat, now, full=False) -> int:
+        """The ``settings`` item posted on its own when it is due and changed (``settings_items``): from the inbox thread each second, so a
+        change the page made is on the page before its ack, and a change on the card a second later, however long the push thread's full look
+        takes (minutes in a big chat on a network disk: 2026-11-19 T554, the page's change came back after 3 min 40 s); and from the push
+        thread's full look. One at a time (``settings_lock``). How many went (0 or 1); a failed post is logged and tried on the next look."""
+        if not self.settings_lock.acquire(blocking=False):
+            return 0  # The other thread posts it, or a look left behind still holds it (a read on the network disk that hangs).
+        try:
+            due = [each for each in self.settings_items(chat, now, full)
+                   if self.sent.get((each["type"], each["key"])) != each["rev"]]
+            if not due:
+                return 0
+            try:
+                self.client.request("POST", "/sync/upsert", {"items": due, "deleted": []})
+            except Exception as exc:  # noqa: BLE001 - the inbox goes on; the settings are due again
+                self.settings_due = True
+                self.runtime.log(f"web settings not pushed: {type(exc).__name__}: {self.why(exc)}")
+                return 0
+            for each in due:
+                self.sent[(each["type"], each["key"])] = each["rev"]
+            return len(due)
+        finally:
+            self.settings_lock.release()
 
     # -- inbox ----------------------------------------------------------------------------------------------------------
 
@@ -862,11 +888,14 @@ class WebSync:
                 if row.get("topic_key"):
                     self.collector.touch(row["topic_key"])
                 if row.get("kind") == "settings":
-                    self.settings_due = True
+                    self.settings_due = True  # Pushed below, before the ack: the page reads the new settings when it sees done.
             elif known.get("state") == "received":
                 ledger.finish(op_id, "failed", "这条执行到一半没有结果（Covey 重启或卡住了），结果不确定，没有重发")
             saved = ledger.get(op_id)
             results.append({"seq": seq, "op_id": op_id, "state": saved["state"], "message": saved["message"]})
+        chat = self.runtime.access.owner_chat()
+        if chat:
+            self.push_settings(chat, time.time())
         if results:
             self.client.request("POST", "/sync/ack", {"results": results})
             ledger.acked([each["op_id"] for each in results])
