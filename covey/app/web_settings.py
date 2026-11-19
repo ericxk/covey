@@ -26,7 +26,7 @@ from covey.app import butler_panel as panel_rules
 from covey.app.menu_panel import hub_tabs
 from covey.cards import butler_panel as cards
 from covey.cards.group_manager import KIND_WORDS, name_of, ordered, state_words, free_words
-from covey.cards.redaction_panel import SWITCH_ROWS
+from covey.cards.redaction_panel import SWITCH_ROWS, TOPICS
 from covey.cards.settings_hub import BUTLER, GROUPS, LABELS, NODES, REDACTION, TOPIC, WORKSPACE
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app.access import free_talk_on
@@ -172,8 +172,9 @@ class WebSettings:
             return {"error": data["error"]}
         return {"summary": f"{data['count']} 个词 · 近 7 天替换 {data['week']} 次 · {len(data['topics'])} 个话题开着",
                 "count": data["count"], "week": data["week"],
-                "topics": [{"number": t.get("number"), "title": t.get("title", ""), "hits": t.get("hits", 0), "last": t.get("last", "")}
-                           for t in data["topics"]],
+                # The card's first TOPICS, newest first; ``last`` in epoch seconds (the card's own words are its time of day).
+                "topics": [{"number": t.get("number"), "title": t.get("title", ""), "hits": t.get("hits", 0), "last": t.get("at")}
+                           for t in data["topics"][:TOPICS]],
                 "switches": [{"name": name, "label": label, "hint": hint, "on": data["config"].get(name) is True, "editable": True}
                              for name, (label, hint) in SWITCH_ROWS.items()]}
 

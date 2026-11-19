@@ -92,7 +92,8 @@ def facts(state_dir, key, now=None) -> dict:
     hits = {row['term']: row for row in stats['terms']}
     data = {'error': '', 'config': {}, 'rows': [], 'count': 0, 'week': stats['week_hits'], 'updated': '',
             'topics': [{'number': t.get('number'), 'title': t.get('title', ''), 'turns': t.get('turns', 0),
-                        'hits': t.get('hits', 0), 'last': when(t.get('last'))} for t in stats['topics']],
+                        'hits': t.get('hits', 0), 'last': when(t.get('last')), 'at': t.get('last') or None}
+                       for t in stats['topics']],
             'turns': [{'time': when(t.get('ts')), 'number': t.get('number'), 'model': str(t.get('model') or ''),
                        'requests': t.get('requests', 0), 'replaced': t.get('replaced', 0)} for t in stats['turns']]}
     try:
