@@ -166,7 +166,7 @@
 
 - **回复位置**：`Butler.configure` 在 `build_context` 里（Bridge 和任务进程都走）给 `feishu/message_request.py` 的 `reply_in_thread` 设判断：对管家消息的回复进那条消息的话题串。开话题就用这个串。
 - **说法**：`worded` 按 `WORDING` 改 Bridge 自己写的文字（“本话题” → “私聊里”），模型的回答和主人原话不动。
-- **快照**：紧接规则，`snapshot_groups` 从 `core/board_read.py` 读（不调飞书，不持记录锁）。四组：等你回答、有结果未看（`result`，看板的口径，见[看板与 Pin](#看板与-pin)；等了一天以上的问题和没看的结果可以同时在两组）、进行中、管家开的话题。存到 `topics/<id>/main-snapshot.json`，下一轮只列变了的行；新会话、压缩过（`compacted.json` 更新）、上一轮没正常结束时带全量。检查点有 `steps` 时写第几步和本步用时。看板撤下的话题不进前三组。
+- **快照**：紧接规则，`snapshot_groups` 从 `core/board_read.py` 读（不调飞书，不持记录锁）。四组：等你回答（`core/board_read.py` 的 `waits`，和汇总、看板、手上的事同一批：问题和等点开始的消息，不论多久）、有结果未看（`result`，看板的口径，见[看板与 Pin](#看板与-pin)；等了一天以上的问题和没看的结果可以同时在两组）、进行中、管家开的话题。存到 `topics/<id>/main-snapshot.json`，下一轮只列变了的行；新会话、压缩过（`compacted.json` 更新）、上一轮没正常结束时带全量。检查点有 `steps` 时写第几步和本步用时。看板撤下的话题不进前三组。
 - **MCP 配置**：不改 `runs/` 协议。`butler_turn` 算出 `mcp_config(...)` 放进 `ctx.options["mcp_config"]`；`backends/claude/runtime.py` 据此加 `--mcp-config`、`--allowedTools mcp__bridge`，并设 `ENABLE_TOOL_SEARCH=false`（`turn_env`），让工具随会话加载（否则模型会发出不带参数的调用）。不加 `--strict-mcp-config`。所有后端都不走系统级，规则和原则都在 `RunRequest.prompt` 里。
 - **压缩**：一轮送达后上下文到了 `compact_tokens`（默认 20 万，0 不压），`compact_butler` 写压缩请求（`Compaction.set_requested`）。`/compact` 带 `COMPACT_INSTRUCTIONS`：摘要约 2000 token 以内，只留待办、话题、未决问题和偏好。话题没有自动阈值。
 - **空闲压缩**（`app/idle_compaction.py`）：任务进程退出后（`finish_detached` 末尾调 `after_runner`）等 `IDLE_SECONDS`（90 秒）；那时这一轮是 `done`、话题里没有任务、请求没标 `failed`，就起一个只压缩的任务进程（`covey_runner.py --compact-only`），标记写在 `<state>/main-thread/compacting/<话题>/`，不建任务、不出卡。成了写 `compacted.json`，没成标 `failed`、下一轮开头先压。压缩中主人发来新消息时，新一轮（`stop_for_turn`）停掉它、放回请求。上下文到阈值 `FALLBACK`（1.5）倍的、`failed` 的，在下一轮开头压缩（`Compaction.turn_context`）。Bridge 启动时（`Butler.settle`）清理遗留标记。

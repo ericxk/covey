@@ -91,23 +91,31 @@ def tone(row) -> str:
 
 
 def groups(view):
-    """{waiting, stopped, result, running, seen}: the rows of each group, a live project's topics left out."""
+    """{waiting, stale, stopped, result, running, seen}: the rows of each group, a live project's topics left out but
+    from 等你 (``waiting``, and ``stale`` the ones waiting over a day): what waits for him is listed whoever's it is,
+    so the count is the 早晚汇总's and 手上的事's (core/board_read.py waits)."""
     member = {topic for project in view.get("projects") or () for topic in project.get("topics") or ()}
 
     def mine(rows):
         return [row for row in rows or () if row.get("topic") not in member]
     done = mine(view.get("done"))
-    return {"waiting": mine(view.get("waiting")), "running": mine(view.get("running")),
+    return {"waiting": list(view.get("waiting") or ()), "stale": list(view.get("stale") or ()),
+            "running": mine(view.get("running")),
             "stopped": [row for row in done if tone(row) == "stopped"],
             "result": [row for row in done if tone(row) == "result"],
             "seen": [row for row in done if tone(row) == "done"],
             "cancelled": [row for row in done if tone(row) == "cancelled"]}
 
 
+def waiting_count(found) -> int:
+    """How many wait for him: the 等你 rows and the ones waiting over a day (core/board_read.py Waits.count)."""
+    return len(found["waiting"]) + len(found.get("stale") or ())
+
+
 def state_counts(found) -> dict:
     """{state key: how many} in core/look.py PRESSING's order: the band's segment bar and its most pressing."""
     stuck = sum(1 for row in found["running"] if row.get("stuck"))
-    return {"waiting": len(found["waiting"]), "stopped": len(found["stopped"]), "stuck": stuck,
+    return {"waiting": waiting_count(found), "stopped": len(found["stopped"]), "stuck": stuck,
             "result": len(found["result"]), "running": len(found["running"]) - stuck}
 
 
@@ -118,7 +126,8 @@ def band(found):
     asked = sum(counts[key] for key in ACT)
     first = look.pressing(counts)
     rows = ([row for row in found["running"] if row.get("stuck")] if first == "stuck" else
-            found["running"] if first == "running" else found.get(first) or []) if first else []
+            found["running"] if first == "running" else found.get(first) or
+            (found.get("stale") if first == "waiting" else None) or []) if first else []  # Only old 等你: the newest of them.
     lead = rows[0] if rows else None
     line = ""
     if lead:
@@ -131,8 +140,9 @@ def band(found):
 
 def counts(found) -> list:
     """The title bar's tags: (text, color) of the groups that have someone, most pressing first."""
-    tags = [(f"{len(found[key])} {look.word(key)}", look.STATES[key].color) for key in ("waiting", "stopped", "running")
-            if found[key]]
+    sizes = {"waiting": waiting_count(found), "stopped": len(found["stopped"]), "running": len(found["running"])}
+    tags = [(f"{sizes[key]} {look.word(key)}", look.STATES[key].color) for key in ("waiting", "stopped", "running")
+            if sizes[key]]
     return tags or [("都在掌握中", "green")]
 
 
@@ -171,8 +181,9 @@ def board_card(view):
     elements = [band(found)]
     waiting = found["waiting"]
     if waiting or view.get("stale") or view.get("cleared"):
-        elements.append(heading("waiting", len(waiting)))
-        elements += blocks("waiting", waiting, lambda row: [button("去回答", tone="primary", url=row["url"])] if row.get("url") else [])
+        elements.append(heading("waiting", waiting_count(found)))
+        elements += blocks("waiting", waiting, lambda row: [button(row.get("act") or "去回答", tone="primary", url=row["url"])]
+                           if row.get("url") else [])
         if view.get("stale"):
             elements.append(stale_line(view["stale"], button=bool(view.get("dismissable")), origin=ORIGIN))
         elif view.get("cleared"):

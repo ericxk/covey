@@ -12,6 +12,8 @@ choice (VERIFY-board.md C10), not this module's.
   (core/board_read.py BOARD_RESULTS: the board's results, the snapshot's since 2026-11-10);
 - ``OVERVIEW_OUTCOMES``, ``OVERVIEW_GROUPS``: 手上的事's (cards/overview.py);
 - ``DIGEST_START``: how 早晚汇总 (cards/digest.py) says a task waits for the owner to start it (waiting_workspace);
+  ``START_LINE`` what such a row says it waits for on the 看板 and 手上的事, the butler's snapshot too, and ``START_ACT``
+  its button (core/board_read.py waits: every 等我 opens the card it is acted on);
 - ``GROUP_NAMES``: the butler's groups of topics, its snapshot's and its tools' (app/butler.py,
   app/butler_tools.py);
 - ``START_PHASE``, ``SEED_PHASE``, ``UNSET_PHASES``: the phases a running task shows before its model wrote one
@@ -33,6 +35,8 @@ RESULTS = {"done": "完成", "failed": "失败", "interrupted": "中断", "cance
 OVERVIEW_OUTCOMES = {"done": "✅ 完成", "failed": "❌ 失败", "cancelled": "⏹ 已停止", "interrupted": "⚠️ 中断"}
 OVERVIEW_GROUPS = {"waiting": "等你回答", "result": "有结果", "running": "进行中"}
 DIGEST_START = "等你开工"
+START_LINE = "等你在启动卡上点开始"
+START_ACT = "去开始"
 GROUP_NAMES = {"waiting": "等你回答", "result": "有结果未看", "running": "进行中", "recent": "最近", "": "更早"}
 START_PHASE = "处理本轮请求"  # TaskMonitor's phase before the checkpoint names one.
 # The phase written to a run's checkpoint before its model writes one (app/worker.py): the status line names none.

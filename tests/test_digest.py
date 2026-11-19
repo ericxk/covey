@@ -109,6 +109,11 @@ class Records:
             "token": token, "topic_id": topic, "chat_id": CHAT, "job_id": 9, "status": "pending",
             "created_at": asked_at, "question_message_id": f"om_{token}", "questions": [{"question": text}]}))
 
+    def launch(self, topic, status="ready"):
+        """``topic``'s launch card (app/launch.py): a task waiting for 开始 is 等我 only with one that can start it."""
+        write_private_text(self.state / "launch-forms" / f"form-{topic}.json", json.dumps({
+            "topic_id": topic, "chat_id": CHAT, "status": status, "message_id": f"om_launch_{topic}"}))
+
 
 class CollectTests(Records, unittest.TestCase):
     def test_three_parts(self):
@@ -117,6 +122,7 @@ class CollectTests(Records, unittest.TestCase):
             self.topic(topic, number)
         self.question("q1", "ask", now - 600, "用表格吗？")
         self.job("j-start", 1, "waiting_workspace", "start", timings={"received": now - 120})
+        self.launch("start")
         self.job("j-run", 2, "running", "run", phase="跑测试", timings={"backend_started": now - 300})
         self.job("j-run-next", 3, "queued", "run")
         self.job("j-seen", 4, "done", "seen", timings={"backend_started": now - 7200, "execution_finished": now - 3600})
@@ -129,13 +135,17 @@ class CollectTests(Records, unittest.TestCase):
         self.job("j-main", 9, "done", butler_topic_id(CHAT), timings={"execution_finished": now - 100})
         write_json(self.state / "topic-seen.json", {"seen": now - 3000})
         view = collect(self.state, CHAT, slot, since, now)
+        # The newest first, a question or a task waiting for 开始 alike (core/board_read.py waits).
         self.assertEqual([(row["label"], row["state"], row["took"]) for row in view["waiting"]],
-                         [("T401", "等你回答：用表格吗？", "等了 10分00秒"), ("T402", "等你开工", "等了 2分00秒")])
+                         [("T402", "等你开工", "等了 2分00秒"), ("T401", "等你回答：用表格吗？", "等了 10分00秒")])
         self.assertEqual([(row["label"], row["state"], row["took"]) for row in view["running"]],
                          [("T407", "在做", "已运行 30秒"), ("T403", "跑测试", "已运行 5分00秒")])
         self.assertEqual([(row["label"], row["state"], row["took"], row["seen"]) for row in view["done"]],
                          [("T405", "失败", "用时 1分40秒", False), ("T404", "做完", "用时 1小时0分", True)])
-        self.assertEqual(view["waiting"][0]["title"], "话题 401")
+        self.assertEqual(view["waiting"][1]["title"], "话题 401")
+        # Each 等我 keeps the card it is acted on: the question card, the launch card (core/board_read.py waits).
+        self.assertEqual([(row["kind"], row["card"]) for row in view["waiting"]],
+                         [("start", "om_launch_start"), ("question", "om_q1")])
 
 
     def test_a_task_the_owner_stopped_reads_已停止_in_the_words_of_turn_words_and_never_做完(self):
@@ -162,10 +172,12 @@ class CollectTests(Records, unittest.TestCase):
             self.topic(topic, number)
         self.question("q-day", "day", now - pins.QUESTION_AGE)  # Exactly a day: still a row, as on the board.
         self.question("q-over", "over", now - pins.QUESTION_AGE - 1)  # Just over: the line.
-        self.job("j-start", 1, "waiting_workspace", "start", timings={"received": now - 3 * 86400})  # Never stale.
+        # A task waiting for 开始 as long goes on the line too: 等我 has one rule of age (core/board_read.py waits).
+        self.job("j-start", 1, "waiting_workspace", "start", timings={"received": now - 3 * 86400})
+        self.launch("start")
         view = collect(self.state, CHAT, now, now - 3600, now)
-        self.assertEqual([row["label"] for row in view["waiting"]], ["T411", "T413"])
-        self.assertEqual([(row["topic"], row["label"]) for row in view["stale"]], [("over", "T412")])
+        self.assertEqual([row["label"] for row in view["waiting"]], ["T411"])
+        self.assertEqual([(row["topic"], row["label"]) for row in view["stale"]], [("over", "T412"), ("start", "T413")])
         self.assertFalse(view["dismissable"])  # Board off: the line without its button.
 
     def test_the_topics_taken_off_the_board_are_in_no_part(self):
@@ -221,7 +233,7 @@ class TickTests(Records, unittest.TestCase):
 
     def bridge(self):
         feature = Digest(self.runtime, self.messenger, Voice("lark-bridge", "LARK_BRIDGE"))
-        feature.link = lambda ctx, chat, text: "\n".join(f"[{label}](https://link/{label})" for label in text.split("\n"))
+        feature.link = lambda ctx, chat, text, cards=None: "\n".join(f"[{label}](https://link/{label})" for label in text.split("\n"))
         return feature
 
     def record(self):
@@ -404,7 +416,7 @@ class BoardTests(UnifiedCase):
             setattr(messenger, name, mock.Mock(return_value=True))
         messenger.pin_info = mock.Mock(return_value={"create_time": "1"})
         self.app.runtime.access.remember_owner_chat(CHAT)
-        self.app.digest.link = lambda ctx, chat, text: text  # No T links to look up.
+        self.app.digest.link = lambda ctx, chat, text, cards=None: text  # No T links to look up.
         menu = self.app.menu
         self.assertEqual(set(self.app.digest.menu_items()), {"digest_board"})
         menu.actions.update(self.app.digest.menu_items())  # As a Bridge launched with the times set (test_bot_menu).

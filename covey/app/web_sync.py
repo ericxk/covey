@@ -252,7 +252,10 @@ class Collector:
         asking = sorted(directory_store(state / "questions").query(chat_id=chat, topic_id=topic), key=lambda pair: pair[1].get("created_at") or 0)
         questions = [row for _, row in asking]
         latest = next((record for record in reversed(records) if not board_read.unrun(record)), None)
-        word = self.word(records, latest, questions)
+        # 等我 as every reader counts it (core/board_read.py waits): a question that asks, else a task waiting for 开始
+        # on a launch card that can still start it.
+        starts = bool(latest and latest.get("status") == board_read.START and board_read.launch_card(state, topic, chat))
+        word = self.word(records, latest, questions, starts)
         self.states[topic] = word
         label, title = ("", BUTLER_TITLE) if butler else ("", LEAD_TITLE) if project else board_read.topic_label(state, topic)
         data = read_object(topic_file(state, topic))
@@ -275,7 +278,7 @@ class Collector:
         if live is not None:  # Its running turn's progress (core/progress.py), from the record the task monitor keeps.
             body["progress"] = turn_progress.progress(live, now=now or time.time(), history=turn_progress.turn_seconds(
                 records, exclude=live.get("job_id")))
-        body["tone"] = self.tone(records, latest, questions, body["unseen"], body.get("progress"))
+        body["tone"] = self.tone(records, latest, questions, body["unseen"], body.get("progress"), starts)
         gist = self.gist(state, topic) if not (butler or project) else None
         if gist:
             body["gist"] = gist
@@ -300,10 +303,11 @@ class Collector:
         return {**found, "updated_at": record.get("updated_at") or 0} if found else None
 
     @staticmethod
-    def word(records, latest, questions) -> str:
-        """The topic's state word. Running is what RUNNING says; a ``continued`` turn's outcome is its follow-up's, so the
-        turn before it speaks; any other status (waiting_workspace, one this does not know) is not running: 空闲."""
-        if any(row.get("status", "pending") == "pending" and not row.get("display_pending") for row in questions):
+    def word(records, latest, questions, starts=False) -> str:
+        """The topic's state word. 等你 for 等我 (core/board_read.py waits: a question that ``asks``, or ``starts``, its
+        task waiting for 开始 on a launch card); running is what RUNNING says; a ``continued`` turn's outcome is its
+        follow-up's, so the turn before it speaks; any other status (one this does not know) is not running: 空闲."""
+        if starts or any(board_read.asks(row) for row in questions):
             return "等你"
         if any(record.get("status") in RUNNING for record in records):
             return "在做"
@@ -314,12 +318,12 @@ class Collector:
         return STATE_WORDS.get(latest.get("status"), "空闲")
 
     @staticmethod
-    def tone(records, latest, questions, unseen, progress) -> str:
+    def tone(records, latest, questions, unseen, progress, starts=False) -> str:
         """The topic's state as a core/look.py STATES key (data contract v5 ``tone``): the page colours by it, and says
         its word. As ``word`` reads the records, and more: 可能卡住 for a running turn that may be stuck, 有结果 for an
         ended one not seen (``unseen``) and 做完 once seen, 停住了 for a failed one and for one stopped by anyone but the
         owner (core/look.py owner_stopped), 已停止 for his own."""
-        if any(row.get("status", "pending") == "pending" and not row.get("display_pending") for row in questions):
+        if starts or any(board_read.asks(row) for row in questions):  # 等我, as ``word``.
             return "waiting"
         live = next((record for record in reversed(records) if record.get("status") in RUNNING), None)
         if live is not None:

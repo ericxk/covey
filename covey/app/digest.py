@@ -5,10 +5,10 @@ it there is no thread.
 
 What it lists is read from the records, as the pinned board reads them (core/board_read.py read: the indexes of
 questions/ and jobs/, no record lock, no Feishu call, the butler's topics left out), never from a model:
-- 等你: each topic's newest pending question asked within pins.QUESTION_AGE (one day, as 手上的事 and the board
-  have it), and the tasks waiting to be started (waiting_workspace, never old: 手上的事 has no such rule for them);
-  the newest questions asked before that are not listed one by one but as one line of topic numbers (``stale``),
-  as on 手上的事;
+- 等你: 等我 as every reader counts it (core/board_read.py waits): each topic's newest question shown, the butler's
+  and the leads' too, else its task waiting for 开始 on a launch card, asked within QUESTION_AGE (one day); those
+  waiting longer are not listed one by one but as one line of topic numbers (``stale``), as on 手上的事. Each row
+  keeps the card it is acted on (``card``): its T number, and its button on the 看板, open that card;
 - 在做: each other topic's running job (board_read.order), the latest started first;
 - 做完: each other topic's latest turn (not one cancelled before it ran: board_read.unrun) that ended after the
   digest before (``since``) and by this one's time, and every result the owner has not seen however old (有结果未看,
@@ -47,7 +47,7 @@ import time
 
 from covey.core import env as cenv
 from covey.app.overview import dismissable
-from covey.app.pins import QUESTION_AGE, board_results, kept, laid, record_path
+from covey.app.pins import board_results, kept, laid, record_path
 from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
@@ -168,19 +168,18 @@ def topic_label(state, topic_id):
 
 def collect(state, chat, slot, since, now, *, board=False):
     """The three parts' rows for ``chat`` (``view`` of cards/digest.py without links): {label, title, state,
-    took, seen, topic}, ``older`` (the 做完 rows of results not seen that ended before ``since``), and ``stale``,
-    the topics whose newest question waits over QUESTION_AGE; ``board``: 手上的事
+    took, seen, topic}, a 等你 row's ``kind`` and ``card`` too, ``older`` (the 做完 rows of results not seen that ended
+    before ``since``), and ``stale``, 等我 waiting over QUESTION_AGE (core/board_read.py waits); ``board``: 手上的事
     and the board are on (overview.dismissable), the topics taken off left out and the stale line's button shown."""
     # One read of the indexes (core/board_read.py): with the board, the one its look judges too; the jobs judged
     # here are those read without the board's ``keep``.
     read = board_read.read(state, chat, now, keep=kept(state, chat) if laid() else ())
     unseen, off = board_results(state, chat, now, read)  # 有结果未看, as the board has it (core/board_read.py).
     off = off if board else {}
-    # The butler's and the leads' questions too (board_read.top_questions): 要你定的事 waits under 等你 whoever asks.
-    questions = [record for record in (*read.questions, *board_read.top_questions(state, chat))
-                 if record.get("topic_id") not in off]
     jobs = [record for record in read.jobs if board_read.fresh(record, now) and record.get("topic_id") not in off]
-    asked, stale = {}, []
+    # 等你: 等我 as every reader counts it (core/board_read.py waits): the questions, the butler's and the leads' too,
+    # and the tasks waiting for 开始, each with the card it is acted on; those waiting over QUESTION_AGE one line.
+    found = board_read.waits(state, chat, now, off=off)
 
     def named(topic):
         """(label, title) of ``topic``: the butler or a lead asking at the top level by its speaker, no T number."""
@@ -188,15 +187,8 @@ def collect(state, chat, slot, since, now, *, board=False):
             return board_read.speaker_of(state, topic, chat) or "管家", ""
         return topic_label(state, topic)
 
-    for record in questions:
-        topic = record.get("topic_id") or ""
-        if topic and (record.get("created_at") or 0) > (asked.get(topic, {}).get("created_at") or -1):
-            asked[topic] = record
-    for topic, record in sorted(asked.items(), key=lambda item: item[1].get("created_at") or 0, reverse=True):
-        if now - (record.get("created_at") or now) > QUESTION_AGE:  # As pins.board and Overview.board split them.
-            label, title = named(topic)
-            stale.append({"topic": topic, "label": label, "title": title})
-    asked = {topic: record for topic, record in asked.items() if topic not in {row["topic"] for row in stale}}
+    stale = [{"topic": wait.topic, "label": label, "title": title, "card": wait.card}
+             for wait in found.stale for label, title in [named(wait.topic)]]
 
     def row(topic, state_words, took, seen_it=False):
         label, title = named(topic)
@@ -213,22 +205,20 @@ def collect(state, chat, slot, since, now, *, board=False):
         return "" if phase in turn_words.UNSET_PHASES else phase
 
     waiting = []
-    for topic, record in sorted(asked.items(), key=lambda item: item[1].get("created_at") or 0, reverse=True):
+    for wait in found.live:
+        topic, record = wait.topic, wait.record
+        took = f"等了 {took_text(now - wait.since)}"
+        if wait.kind == "start":
+            waiting.append({**row(topic, turn_words.DIGEST_START, took), "kind": "start", "card": wait.card,
+                            "line": turn_words.START_LINE, "meta": [took]})
+            continue
         ask = turn_words.ask_words(record)
-        waited = now - (record.get("created_at") or now)
-        waiting.append({**row(topic, f"{turn_words.BOARD['waiting']}：{ask}" if ask else turn_words.BOARD["waiting"],
-                              f"等了 {took_text(waited)}"),
+        waiting.append({**row(topic, f"{turn_words.BOARD['waiting']}：{ask}" if ask else turn_words.BOARD["waiting"], took),
+                        "kind": "question", "card": wait.card,
                         # The 看板's words (cards/board.py): what he is asked to decide, then how long it waited.
                         "line": f"要你定：{phase_of(newest.get(topic))}" if phase_of(newest.get(topic)) else
-                        (f"等你回答：{ask}" if ask else "等你回答"), "meta": [f"等了 {took_text(waited)}"]})
-    starting = {}
-    for record in jobs:
-        topic = record.get("topic_id") or ""
-        if topic and topic not in asked and record.get("status") == "waiting_workspace":
-            starting.setdefault(topic, record)  # Newest first already.
-    for topic, record in starting.items():
-        waiting.append(row(topic, turn_words.DIGEST_START, f"等了 {took_text(now - started_at(record))}"))
-    busy = set(asked) | set(starting)
+                        (f"等你回答：{ask}" if ask else "等你回答"), "meta": [took]})
+    busy = {wait.topic for wait in found.live}
 
     running = {}
     for record in jobs:
@@ -369,7 +359,7 @@ class Digest:
     def __init__(self, runtime, messenger, voice, *, chat="", name="digest") -> None:
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
         self.fixed, self.name = chat, name
-        self.link = lambda ctx, chat, text: linkify(text, ctx.state_dir, chat, profile=ctx.profile)
+        self.link = lambda ctx, chat, text, cards=None: linkify(text, ctx.state_dir, chat, profile=ctx.profile, cards=cards)
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
 
     def menu_items(self):
@@ -388,22 +378,27 @@ class Digest:
         view = collect(ctx.state_dir, chat, now, board_since(self.times(), now, last), now, board=dismissable())
         view.pop("wanted", None)  # 我本来想找你的事 is the 早晚汇总's, not the 看板's (the owner, 2026-11-18).
         # Each block of the 看板 opens its topic (cards/board.py): the topic's applink, read outside any lock.
+        # A 等你 row's opens the card it is acted on (core/board_read.py waits): the question card, the launch card.
         urls = {}
         for key in ("waiting", "running", "done"):
             for row in view[key]:
-                topic = row.get("topic") or ""
-                if topic and topic not in urls:
-                    urls[topic] = self.url(ctx, topic)
-                row["url"] = urls.get(topic, "")
-        self.linked(ctx, chat, view["stale"])
+                topic, card = row.get("topic") or "", row.get("card") or ""
+                if topic and (topic, card) not in urls:
+                    urls[(topic, card)] = self.url(ctx, topic, card)
+                row["url"] = urls.get((topic, card), "")
+                if row.get("kind") == "start":
+                    row["act"] = turn_words.START_ACT
+        # The old ones' labels link through their ``url`` (cards/overview.py stale_line), plain for the band to lead with.
+        for row in view["stale"]:
+            row["url"] = self.url(ctx, row["topic"], row.get("card") or "")
         return {**view, "asked": True, "stamp": clock_words(now, now), "can_dismiss": dismissable(),
                 "done_since": clock_words(view["since"], now) if view.get("since") else "",
                 **self.where(chat), **self.tidy(ctx, chat),
                 **self.projects_view(ctx, chat, view)}
 
-    def url(self, ctx, topic) -> str:
+    def url(self, ctx, topic, card="") -> str:
         try:
-            return link_for(ctx.state_dir, topic, profile=getattr(ctx, "profile", None))
+            return link_for(ctx.state_dir, topic, card=card, profile=getattr(ctx, "profile", None))
         except Exception:  # noqa: BLE001 - a block that opens nothing, as a topic without a link
             return ""
 
@@ -553,14 +548,21 @@ class Digest:
         self.send(ctx, slot, pending, now)
 
     def linked(self, ctx, chat, rows):
-        """Each row's T number as a link to its topic, where one is found (app/topic_links.py)."""
+        """Each row's T number as a link to its topic, where one is found (app/topic_links.py): a 等我 row's to the
+        card it is acted on (its ``card``)."""
         labels = [row["label"] for row in rows if row["label"]]
         if not labels:
             return
-        done = iter(self.link(ctx, chat, "\n".join(labels)).split("\n"))
+        cards = {row["topic"]: row["card"] for row in rows if row.get("topic") and row.get("card")}
+        done = iter(self.link(ctx, chat, "\n".join(labels), cards or None).split("\n"))
         for row in rows:
             if row["label"]:
-                row["label"] = next(done, row["label"])
+                label = next(done, row["label"])
+                if label == row["label"] and row.get("card") and not board_read.listed(row.get("topic") or "", chat):
+                    # The butler or a lead, no T number: its name opens the card at the top level.
+                    url = self.url(ctx, row["topic"], row["card"])
+                    label = f"[{label}]({url})" if url else label
+                row["label"] = label
 
     def send(self, ctx, slot, pending, now):
         pending = {**pending, "tries": int(pending.get("tries") or 0) + 1, "tried_at": now}

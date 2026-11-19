@@ -176,18 +176,20 @@ def topic_thread_link(state_dir, topic_id, *, at=(), profile=None, fetch=None) -
 
 
 def link_for(state_dir, topic_id, *, card="", profile=None, fetch=None) -> str:
-    """The applink that opens ``topic_id`` at ``card`` (one of its cards), else at its newest card; '' when it
-    cannot be told."""
+    """The applink that opens ``topic_id`` at ``card`` (one of its cards: in its thread, or at the chat's top level),
+    else at its newest card; '' when it cannot be told."""
     if fetch is None:
         from covey.feishu.message_read import fetch_message_detail as fetch
     topic = read_object(Path(state_dir) / "topics" / str(topic_id) / "topic.json")
     chat = str(topic.get("chat_id") or "")
     if not chat:
         return ""
-    card = card or _newest_card(state_dir, topic_id)
+    asked, card = bool(card), card or _newest_card(state_dir, topic_id)
     at = _where(state_dir, topic_id, card, profile, fetch)
     if at.get("thread_id") and at.get("thread_position"):
         return thread_link(chat, at["thread_id"], at["thread_position"])
+    if asked and not at.get("thread_id") and at.get("position"):  # A card asked for at the chat's top level (the butler's question).
+        return message_link(chat, at["position"])
     root = _where(state_dir, topic_id, str(topic.get("root_id") or ""), profile, fetch)
     if root.get("thread_id"):
         return thread_link(chat, root["thread_id"])

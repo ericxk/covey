@@ -5,6 +5,11 @@ functions its readers judge the records with. Its readers: the pinned board (app
 snapshot_groups) and its tool topics_list (app/butler_tools.py topic_row, from ``topic_jobs`` and ``topic_questions``:
 every job of the chat, not a window).
 
+What waits for the owner (等我) is one count too, ``waits``: every reader above, the 看板 (app/digest.py board_view),
+the project card (``asks``) and the web page (app/web_sync.py) take it, and each 等我 carries the card it is acted on
+(the question card, the launch card), so whatever lists it can open it (the owner, 2026-11-19: 汇总说 6 个、看板
+3 个、管家 4 个，在私聊里也找不到).
+
 A reader that also needs the board's ``taken off`` reads once with the board record's ``keep`` (app/pins.py kept)
 and hands the read to the board's look; the jobs it judges itself are those ``fresh`` picks, as read without it. So
 a butler turn reads jobs/ once (before 2026-11-10: three times, 手上的事's running ones, the board's, and its
@@ -37,7 +42,7 @@ from covey.core import look, projects
 from covey.core.butler import is_butler_topic, traits
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
-from covey.core.statuses import RUNNING
+from covey.core.statuses import OPEN_FORMS, RUNNING
 from covey.core.store import directory_store
 from covey.core.topic_seen import read_seen
 from covey.core.topics import label_title
@@ -50,6 +55,7 @@ QUESTION_AGE = 86400  # A pending question asked longer ago is not the board's w
 STOPPED = "cancelled"  # A board result only since the board record's stopped_since (the owner, 2026-11-09).
 RAN = ("backend_requested", "backend_started", "execution_finished")  # Timings of a job whose run began.
 TOOLS_AGE = 3 * 86400  # topics_list's recent: what moved in the last three days (not its unseen: ``unseen``).
+START = "waiting_workspace"  # A job waiting for the owner to press 开始 on its topic's launch card.
 
 
 @dataclasses.dataclass(frozen=True)
@@ -141,6 +147,83 @@ def read(state, chat, now, keep=frozenset()) -> Read:
     return Read(questions, jobs, read_seen(state), times(Path(state) / PRIORITY), keep, cells)
 
 
+def asks(record) -> bool:
+    """Whether question ``record`` waits for the owner (等我): pending; shown (not ``display_pending``, so not one held
+    for a project's lead, app/triage.py, nor one whose result must come first and has not); its card sent (the card
+    every reader opens). The one test of a question every reader of 等我 takes (``waits``, and the web page's word)."""
+    return (record.get("status", "pending") == "pending" and not record.get("display_pending")
+            and (not record.get("body_delivery_required") or record.get("body_delivery_confirmed") is True)
+            and bool(record.get("question_message_id")) and bool(record.get("topic_id")))
+
+
+def launch_card(state, topic_id, chat) -> str:
+    """The message id of ``topic_id``'s newest launch card that can still start it (OPEN_FORMS), '' when none."""
+    rows = directory_store(Path(state) / "launch-forms").query(topic_id=topic_id, chat_id=chat)
+    cards = [(row.get("updated_at") or row.get("created_at") or "", str(row.get("message_id") or ""))
+             for _, row in rows if row.get("status") in OPEN_FORMS and row.get("message_id")]
+    return max(cards, key=lambda item: str(item[0]))[1] if cards else ""
+
+
+@dataclasses.dataclass(frozen=True)
+class Wait:
+    """One thing that waits for the owner: ``kind`` "question" (``record`` the question's, ``card`` its question card)
+    or "start" (``record`` the job's, waiting for 开始 on its topic's launch card, ``card`` that card); ``since`` when
+    it began to wait, epoch seconds."""
+    topic: str
+    kind: str
+    record: dict
+    since: float
+    card: str
+
+
+@dataclasses.dataclass(frozen=True)
+class Waits:
+    """``waits``: ``live`` asked within QUESTION_AGE, ``stale`` before it, each newest first."""
+    live: list
+    stale: list
+
+    @property
+    def all(self) -> list:
+        return [*self.live, *self.stale]
+
+    def count(self) -> int:
+        """The number of 等我 every reader says: the live ones and the old ones (the 早晚汇总's 等你 since 2026-11-09)."""
+        return len(self.live) + len(self.stale)
+
+
+def waits(state, chat, now, off=()) -> Waits:
+    """等我 of ``chat`` now: the one count of what waits for the owner, which the 早晚汇总, the 看板, 手上的事, the
+    butler's snapshot and the web page all take (the owner, 2026-11-19: 汇总 6 个、看板 3 个、管家 4 个，对不上也找不到).
+
+    Per topic one: its newest question that ``asks`` (the butler's and the leads' at the top level too: 要你定的事
+    waits under 等你 whoever asks), else its newest job waiting for 开始 (START) whose topic has a launch card that can
+    still start it (``launch_card``). Each has the card the owner acts on (``Wait.card``), so a reader links right to
+    it; one without such a card is not his to act on and not counted (a launch card that never reached Feishu: the
+    stale closer's, core/stale.py). ``off``: topics the owner took off the board (app/pins.py dismissed), not counted.
+    One that has waited over QUESTION_AGE is ``stale``: listed apart as one line, still counted. Index queries only (the
+    pending questions, the jobs in START, and the launch forms of those topics): no record lock, no Feishu call."""
+    found = {}
+    for _, row in directory_store(Path(state) / "questions").query(chat_id=chat, status="pending"):
+        topic, at = row.get("topic_id") or "", row.get("created_at")
+        if (asks(row) and topic not in off and isinstance(at, (int, float))
+                and at > (found[topic].since if topic in found else -1)):
+            found[topic] = Wait(topic, "question", row, float(at), str(row["question_message_id"]))
+    starts = {}
+    for record in select_job_records(state, None, chat_id=chat, status=frozenset({START})):
+        topic = record.get("topic_id") or ""
+        if topic and topic not in found and topic not in off and listed(topic, chat):
+            at = started_at(record)
+            if at > (starts[topic].since if topic in starts else -1):
+                starts[topic] = Wait(topic, "start", record, at, "")
+    for topic, wait in starts.items():
+        card = launch_card(state, topic, chat)
+        if card:
+            found[topic] = dataclasses.replace(wait, card=card)
+    rows = sorted(found.values(), key=lambda wait: wait.since, reverse=True)
+    return Waits([wait for wait in rows if now - wait.since <= QUESTION_AGE],
+                 [wait for wait in rows if now - wait.since > QUESTION_AGE])
+
+
 def topic_jobs(state, chat) -> dict:
     """Every job record of ``chat``'s topics by topic id, each topic's oldest first; not the butler's."""
     topics = {}
@@ -161,11 +244,11 @@ def job_number(record):
 
 
 def topic_questions(state, chat) -> dict:
-    """topic_id -> its pending question records shown to the owner, oldest first."""
+    """topic_id -> its pending question records that wait for the owner (``asks``), oldest first."""
     found = {}
     rows = directory_store(Path(state) / "questions").query(chat_id=chat, status="pending")
     for _, row in sorted(rows, key=lambda item: item[1].get("created_at") or 0):
-        if not row.get("display_pending") and row.get("topic_id"):
+        if asks(row):  # As 等我 counts a question (``waits``).
             found.setdefault(row["topic_id"], []).append(row)
     return found
 
@@ -324,7 +407,7 @@ def groups(questions, jobs, seen, now, rules=Rules(), cells=None) -> Groups:
     waiting, running, results = {}, {}, {}
     for record in questions:
         topic, at = cell(record.get("topic_id") or ""), record.get("created_at")
-        if (topic and record.get("question_message_id") and isinstance(at, (int, float)) and now - at <= QUESTION_AGE
+        if (topic and asks(record) and isinstance(at, (int, float)) and now - at <= QUESTION_AGE
                 and at > (waiting.get(topic) or {}).get("created_at", -1)):
             waiting[topic] = record
     latest = {}

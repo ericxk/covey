@@ -309,7 +309,7 @@ class RoundTests(UnifiedCase):
         self.assertEqual(len(self.feishu.calls), calls)
         # The card redrawn as the index: counts, one line for the pins, the old question.
         card = json.dumps(self.last_card(), ensure_ascii=False)
-        self.assertIn("等你回答 1 · 进行中 1 · 有结果 1", card)
+        self.assertIn("等你回答 2 · 进行中 1 · 有结果 1", card)  # 等我: the pinned one and the old one (core/board_read.py waits).
         self.assertIn("Pin 着 3 个话题", card)  # Once, in the header.
         self.assertEqual(card.count("Pin 着 3 个话题"), 1)
         self.assertIn("在 Pin 页里点话题的卡片，直接打开那个话题", card)

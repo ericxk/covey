@@ -261,7 +261,7 @@ class GroupDigestTests(unittest.TestCase):
         self.dm = digest.Digest(self.runtime, self.messenger, voice)
         self.room = digest.Digest(self.runtime, self.messenger, voice, chat='oc_room', name='digest-oc_room')
         for feature in (self.dm, self.room):
-            feature.link = lambda ctx, chat, text: text
+            feature.link = lambda ctx, chat, text, cards=None: text
         self.now = time.time()
         local = digest.datetime.datetime.fromtimestamp(self.now, digest.ZONE)
         self.slot = local.replace(second=0, microsecond=0).timestamp()

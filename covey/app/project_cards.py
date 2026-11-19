@@ -40,7 +40,7 @@ from covey.cards.project_card import (ASK_KINDS, CORRECTED, DONE, PAUSED, RUNNIN
 from covey.app import project_loop
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
-from covey.core import project_library, project_memory, projects
+from covey.core import board_read, project_library, project_memory, projects
 from covey.core.card_sequence import CardHandle, reserve
 from covey.core.jobs import job_path, read_job_record, topic_job_records
 from covey.core.statuses import ENDED
@@ -91,11 +91,12 @@ def newest_job(state_dir, topic_id):
 
 
 def pending_question(state_dir, topic_ids):
-    """(topic id, question message id) of the newest question shown and not answered, among ``topic_ids``; ('', '') for none."""
+    """(topic id, question message id) of the newest question that waits for the owner (core/board_read.py asks), among
+    ``topic_ids``; ('', '') for none."""
     best = None
     for topic in topic_ids:
         for _, row in directory_store(Path(state_dir) / "questions").query(topic_id=topic, status="pending"):
-            if row.get("display_pending") or not row.get("question_message_id"):
+            if not board_read.asks(row):  # As 等我 counts a question (core/board_read.py waits).
                 continue
             if best is None or (row.get("created_at") or 0) > (best[0] or 0):
                 best = (row.get("created_at"), topic, str(row["question_message_id"]))

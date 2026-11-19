@@ -53,12 +53,21 @@ def clock(seconds):
 
 
 def _row(label, title, detail):
-    head = " ".join(part for part in (f"**{label}**" if label else "", safe_text(title, TITLE_CHARS)) if part)
+    shown = label if label.startswith("[") else f"**{label}**" if label else ""  # A link (``linked``) is bold inside.
+    head = " ".join(part for part in (shown, safe_text(title, TITLE_CHARS)) if part)
     return md(f"{head}\n{grey(safe_text(detail, DETAIL_CHARS))}" if detail else head)
 
 
+def linked(row, bold=False) -> str:
+    """A row's label as a link to the card it is acted on when it has one (``url``: a 等我's, core/board_read.py waits)."""
+    label = row.get("label") or ""
+    if not row.get("url") or label.startswith("["):
+        return label
+    return f"[**{label or '话题'}**]({row['url']})" if bold else f"[{label or '话题'}]({row['url']})"
+
+
 def _waiting(row, now):
-    return _row(row["label"], row["title"], " · ".join(part for part in (
+    return _row(linked(row, bold=True), row["title"], " · ".join(part for part in (
         f"{when(row['since'], now)} 问的" if row.get("since") else "", row.get("ask") or "") if part))
 
 
@@ -120,7 +129,7 @@ def stale_line(rows, button=False, origin=""):
     """The questions waiting over STALE as one line, here and on the 早晚汇总 card (cards/digest.py); ``button``:
     with 这些都不用回答了, which names these topics; ``origin``, the card it is on when not this one (its value's
     ``from``: app/overview.py claim hands the click on, app/digest.py redraws that card)."""
-    line = note(f"另有 {len(rows)} 个等了一天以上：{named([row['label'] for row in rows])}")
+    line = note(f"另有 {len(rows)} 个等了一天以上：{named([linked(row) for row in rows])}")
     topics = list(dict.fromkeys(row["topic"] for row in rows if row.get("topic")))[:DISMISS_MAX]
     if not button or not topics:
         return line

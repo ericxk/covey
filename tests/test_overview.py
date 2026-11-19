@@ -119,7 +119,7 @@ class OverviewCase(UnifiedCase):
         write_private_text(self.state / "questions" / (token + ".json"), json.dumps({
             "token": token, "topic_id": topic, "chat_id": chat, "job_id": 9, "status": status,
             "created_at": NOW - 120, "questions": [{"id": "q", "header": "置顶汇总卡", "question": "要不要做？"}],
-            **fields}))
+            "question_message_id": f"om_{token}", **fields}))
 
     def record(self):
         return json.loads((self.state / RECORD).read_text())

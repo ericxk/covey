@@ -459,22 +459,25 @@ def progress_words(record, jobs, now) -> list:
 def snapshot_groups(ctx, chat, now) -> dict:
     """Each group's rows, topic id -> its line, as a turn should read them; the butler's own topic in none, nor
     one the owner took off the board (app/pins.py dismissed, read only with the board on). The indexes are read once
-    (core/board_read.py read): the questions and running jobs as 手上的事 lists them (app/overview.py view), the
-    results not seen (``result``, 有结果未看) the board's (app/pins.py board_results: core/board_read.py unseen,
-    however old; a topic waiting on a question older than the board's QUESTION_AGE is in both groups), and with the
-    board on its look's taken off."""
+    (core/board_read.py read): ``waiting`` 等我 as every reader counts it (core/board_read.py waits: the questions,
+    the butler's and the leads' too, and the tasks waiting for 开始, however old), the running jobs as 手上的事 lists
+    them (app/overview.py view), the results not seen (``result``, 有结果未看) the board's (app/pins.py board_results:
+    core/board_read.py unseen, however old), and with the board on its look's taken off."""
     state = ctx.state_dir
     board = pins.PinnedTopics.enabled()
     read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
     unseen, off = pins.board_results(state, chat, now, read)
     off = off if board else {}
     waiting, running = {}, {}
-    for record in sorted(read.questions, key=lambda row: row.get("created_at") or 0, reverse=True):
-        topic = record.get("topic_id") or ""
-        if topic in off:
-            continue
-        label, title = topic_words(state, topic)
-        waiting.setdefault(topic, line(label, f"{title}：{turn_words.ask_words(record)}"))
+    # 等我 as every reader counts it (core/board_read.py waits): the 看板 and 手上的事 list the same, however old.
+    for wait in board_read.waits(state, chat, now, off=off).all:
+        topic = wait.topic
+        if board_read.listed(topic, chat):
+            label, title = topic_words(state, topic)
+        else:  # The butler's own or a lead's question at the top level: its speaker, no T number.
+            label, title = board_read.speaker_of(state, topic, chat) or "管家", ""
+        ask = turn_words.ask_words(wait.record) if wait.kind == "question" else turn_words.START_LINE
+        waiting.setdefault(topic, line(label, f"{title}：{ask}" if title else ask))
     jobs = sorted((record for record in read.jobs if record.get("status") in RUNNING),
                   key=lambda record: int(record.get("job_id") or 0))
     for record in {record.get("key") or str(record.get("job_id")): record for record in jobs}.values():

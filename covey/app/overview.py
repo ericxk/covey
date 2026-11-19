@@ -38,7 +38,8 @@ from pathlib import Path
 
 from covey.core import env as cenv
 from covey.app.card_lanes import after_ack
-from covey.app.pins import GROUPS, QUESTION_AGE, PinnedTopics, dismiss, kept, record_path
+from covey.app.pins import GROUPS, PinnedTopics, dismiss, kept, record_path
+from covey.app.topic_links import link_for
 from covey.cards.overview import DISMISS, DISMISS_MAX, clock, overview_card, retired_card
 from covey.core.card_sequence import CardHandle, file_card, reserve
 from covey.core.jobs import job_path, read_job_record
@@ -61,6 +62,7 @@ SEND_RETRY = 60
 PIN_RETRY = 1800
 ROTATE = 7 * 86400
 FAILS = 20  # About five minutes of redraws, GAP apart.
+LINK_RETRY = 600  # A 等我 card's link that could not be read: tried again this much later.
 TIMEOUT = 15  # Of one CardKit write; the loop is in no hurry.
 # The phase a running task shows before its model wrote one (core/turn_words.py): no phase yet.
 UNSET_PHASES = turn_words.UNSET_PHASES
@@ -91,6 +93,7 @@ class Overview:
         self.send_tried = 0.0
         self.pin_tried = 0.0
         self.pins = PinnedTopics(runtime, messenger, voice)
+        self.links, self.profile = {}, None  # A 等我 card -> (its applink, when read); the profile of the last view.
         self.turn = threading.Lock()  # One tick at a time: the loop's, or one after a click.
         # A card other than this one with the line of old questions (its value's ``from``) -> what it does once a
         # click there is acknowledged: (ctx, the clicked message's id, the topics taken off).
@@ -157,11 +160,11 @@ class Overview:
         #  (app/butler.py) talks at the chat's top level: not listed; what it asks the owner waits under 等你 all the
         # same, under its speaker (board_read.top_questions, docs/ui.md 5.3).
         read = board_read.read(state, chat, now, keep=kept(state, chat)) if self.pins.enabled() else None
-        top = board_read.top_questions(state, chat)
-        questions = sorted(read.questions if read else board_read.pending_questions(state, chat),
-                           key=lambda row: row.get("created_at") or 0,
-                           reverse=True)  # The latest first: older ones may have been left for good.
-        asks = sorted([*questions, *top], key=lambda row: row.get("created_at") or 0, reverse=True)
+        # 等我 as every reader counts it (core/board_read.py waits), the latest first: the questions, the butler's and
+        # the leads' too, and the tasks waiting for 开始; with the board on, its topics taken off left out (its look).
+        self.profile = getattr(ctx, "profile", None)
+        looked = self.pins.look(state, chat, now, read) if read is not None else None
+        found = board_read.waits(state, chat, now, off=self.pins.dismissed if read is not None else ())
         jobs = sorted([record for record in read.jobs if record.get("status") in RUNNING] if read
                       else board_read.running_jobs(state, chat), key=lambda record: int(record.get("job_id") or 0))
         # The topics' earlier turns as the read has them, for the estimate (core/progress.py): none without the board.
@@ -178,56 +181,71 @@ class Overview:
                                        "status": status, "at": now}
         self.seen = running
         self.ended = {key: row for key, row in self.ended.items() if now - row["at"] < RECENT and key not in running}
-        waiting = [self.waiting_row(state, row) for row in asks]
+        waiting = [self.waiting_row(state, wait) for wait in found.all]
         # A topic that runs again or asks: its row there says enough.
         busy = {row["topic"] for row in (*running.values(), *waiting)}
         view = {"waiting": waiting, "running": list(running.values()),
                 "ended": sorted((row for row in self.ended.values() if row["topic"] not in busy),
                                 key=lambda row: row["at"], reverse=True)}
         if read is not None:
-            view["board"] = self.board(state, chat, questions, now, read)
+            view["board"] = self.board(state, chat, found, looked)
         return view
 
-    def board(self, state, chat, questions, now, read=None):
-        """What the card shows over the pinned board: each group's count, how many are pinned, the rows without a
-        pin by group, and the questions waiting too long to be on the board (newest first, as ``questions``);
-        ``read``: the indexes as read for it (PinnedTopics.look)."""
-        rows, held = self.pins.look(state, chat, now, read)
+    def board(self, state, chat, found, looked):
+        """What the card shows over the pinned board: each group's count (``waiting`` 等我's, ``found``: core/board_read.py
+        waits), how many are pinned, the rows without a pin by group (under 等你回答 every 等我 whose card is not
+        pinned), and 等我 waiting too long to be on the board (newest first); ``looked``: the board's look (PinnedTopics.look
+        of the indexes as read for it)."""
+        rows, held = looked
         off = self.pins.dismissed
         rows = [row for row in rows if row["topic"] not in off]
         listed = {group: [self.board_row(state, row) for row in rows if row["group"] == group
                           and row["topic"] not in held] for group in GROUPS}
-        asking = {row["topic"] for row in rows if row["group"] == "waiting"}
-        old = [self.waiting_row(state, record) for record in questions if record.get("topic_id") not in asking
-               and record.get("topic_id") not in off and now - (record.get("created_at") or 0) > QUESTION_AGE]
+        pinned = {row["message_id"] for row in rows if row["group"] == "waiting" and row["topic"] in held}
+        listed["waiting"] = [self.waiting_row(state, wait) for wait in found.live if wait.card not in pinned]
+        old = [self.waiting_row(state, wait) for wait in found.stale]
         gone = sorted(off, key=lambda topic: off[topic]["at"], reverse=True)
         # 有结果未看 (core/board_read.py unseen): the results on it not seen yet, the topics taken off left out.
         counts = {group: sum(row["group"] == group for row in rows) for group in GROUPS}
+        counts["waiting"] = found.count()  # 等我, the number every reader says (not the board's cells).
         return {"counts": {**counts, "unseen": len(self.pins.unseen)},
                 "pinned": sum(row["topic"] in held for row in rows), **listed, "stale": old,
                 "dismissed": [self.topic(state, topic)[0] for topic in gone]}
 
     def board_row(self, state, row):
         record = row["record"]
-        if row["group"] == "waiting":
-            return self.waiting_row(state, record)
         if row["group"] == "running":
             return self.running_row(state, record)
         label, title = self.topic(state, row["topic"])
         return {"label": label, "title": title, "topic": row["topic"], "status": record.get("status"),
                 "at": row["at"], "seen": row["topic"] not in self.pins.unseen}
 
-    def waiting_row(self, state, record):
-        topic = record.get("topic_id") or ""
+    def waiting_row(self, state, wait):
+        """The row of ``wait`` (core/board_read.py Wait): who asks, what (or that it waits for 开始), since when, and
+        the link that opens the card it is acted on (``url``, '' while it cannot be read)."""
+        record, topic = wait.record, wait.topic
         chat = record.get("chat_id") or ""
         if topic and chat and not board_read.listed(topic, chat):  # The butler or a lead: its speaker, no T number.
             label, title = board_read.speaker_of(state, topic, chat) or "管家", ""
         else:
             label, title = self.topic(state, topic)
         # The question itself: most headers are the generic 补充信息.
-        ask = turn_words.ask_words(record)
-        return {"label": label, "title": title, "topic": record.get("topic_id") or "", "ask": ask,
-                "since": record.get("created_at")}
+        ask = turn_words.ask_words(record) if wait.kind == "question" else turn_words.START_LINE
+        return {"label": label, "title": title, "topic": topic, "ask": ask, "since": wait.since,
+                "url": self.link(state, topic, wait.card)}
+
+    def link(self, state, topic, card):
+        """The applink of ``card`` in ``topic`` (app/topic_links.py link_for: one read of the message, then kept), this
+        process's memory first; one that could not be read is tried again LINK_RETRY seconds later."""
+        known = self.links.get(card)
+        if known and (known[0] or time.monotonic() - known[1] < LINK_RETRY):
+            return known[0]
+        try:
+            url = link_for(state, topic, card=card, profile=self.profile)
+        except Exception:  # noqa: BLE001 - a row without a link, as before
+            url = ""
+        self.links[card] = (url, time.monotonic())
+        return url
 
     def running_row(self, state, record):
         label, title = self.topic(state, record.get("topic_id") or "")
