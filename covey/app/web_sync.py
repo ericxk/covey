@@ -7,8 +7,9 @@ there is no thread and no request.
   /sync/upsert in batches; ``web-inbox`` asks /sync/inbox, writes each operation's seq and op_id into the ledger before it is done, does it
   (``Ops.run``) and acknowledges it at /sync/ack. A failed request backs off (2, 4 ... 30 seconds) and touches no other thread.
 - What is read, and how often: every ``push_seconds`` only the running tasks and the pending questions (two index queries, the records they
-  name), plus the topics that stopped running a moment ago or that the page just acted on; every FULL_SECONDS all topics of the last
-  TOPIC_DAYS days, the projects, and the deletions. A topic's state and "做完没看" are the board's reading (core/board_read.py, app/pins.py
+  name), plus the topics that stopped running a moment ago or that the page just acted on; every FULL_SECONDS a full pass of all topics
+  of the last TOPIC_DAYS days, PASS_SLICE of them a step before the hot ones (a pass of hundreds of topics is many steps, not one look of
+  minutes in which nothing else goes out), the projects, and the deletions once the pass ends. A topic's state and "做完没看" are the board's reading (core/board_read.py, app/pins.py
   board_results), not a scan of every job record each second. The butler's conversation (core/butler.py butler_topic_id; the other tracks
   of the family and the leads are not) is one more topic item, ``kind`` "butler", number 0, title 管家, no project, never unseen: its
   turns are its history's (the owner's top-level words, the butler's answers), looked at while its task runs, after an operation of the page
@@ -45,6 +46,7 @@ from covey.core.topics import topic_file
 from covey.core.trace_store import load_trace
 
 FULL_SECONDS = web_sync.FULL_SECONDS
+PASS_SLICE = 25  # Topics of a full pass looked at per step, after the hot ones: a pass is many steps, never one long look.
 TOPIC_DAYS = 30  # A full look takes the topics with a job written within this many days.
 TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
 MAX_BACKOFF = 30
@@ -182,6 +184,8 @@ class Collector:
         self.board = None  # topic id -> its group on the board (``board_groups``); None without the board (COVEY_PINNED_TOPICS unset).
         self.states = {}  # topic id -> its state word, from its last build (a project's 等你 reads it).
         self.pushed_topics = set()
+        # The full pass under way: the topics still to look at, the ones looked at so far, and whether the last step ended it.
+        self.pass_left, self.pass_seen, self.pass_done = [], set(), False
         self.history = {}  # topic id -> ((mtime_ns, size), rows)
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
         self.projects = {}  # project id -> its record, from this look (a member topic's ``joined_at``).
@@ -219,20 +223,30 @@ class Collector:
         hot |= self.family_live(state, chat, family)  # A turn of one runs or asks (the board does not list them).
         with self.lock:
             touched, self.dirty = self.dirty | back, set()
-        if full or hot != self.hot or touched:
+        start = full and not self.pass_left  # A new pass only once the last one has ended (``full``: one is due).
+        if start or hot != self.hot or touched:
             read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
             looked = pins.PinnedTopics(None, None)
             looked.look(state, chat, now, read, board=pins.laid())
             self.unseen = set(looked.unseen)
             self.board = board_groups(looked.rows, looked.dismissed) if pins.laid() else None
-        if full:
-            by_topic = {topic: records_ for topic, records_ in board_read.topic_jobs(state, chat).items()
-                        if topic in hot or topic in touched or self.recent(records_, now)}
-        else:
-            by_topic = {topic: sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number)
-                        for topic in hot | self.hot | touched if topic not in family}
-        by_topic = {topic: jobs for topic, jobs in by_topic.items() if topic not in out}
-        looked = [topic for topic in family if (full or topic in hot or topic in self.hot or topic in touched) and topic not in out]
+        quick = [topic for topic in hot | self.hot | touched if topic not in family]
+        if start:
+            self.pass_left = [topic for topic, records_ in board_read.topic_jobs(state, chat).items()
+                              if topic in hot or topic in touched or self.recent(records_, now)]
+            self.pass_seen = set()
+        passing = bool(self.pass_left) or start
+        slice_ = []
+        while self.pass_left and len(slice_) < PASS_SLICE:
+            topic = self.pass_left.pop(0)
+            if topic not in quick:
+                slice_.append(topic)
+        # The pass's slice first, then the topics that run, ask, just did or the page just acted on: their records are read now, at
+        # the end, so what they pushed is never older than what a pass read (T554, 2026-11-19: answered at 23:53:06, a look of every
+        # topic that had read it before pushed 等你 at 23:56:20, and nothing else went out meanwhile).
+        by_topic = {topic: sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number)
+                    for topic in [*slice_, *quick] if topic not in out}
+        looked = [topic for topic in family if (start or topic in hot or topic in self.hot or topic in touched) and topic not in out]
         self.hot = hot
         items = []
         for topic, jobs in by_topic.items():
@@ -248,12 +262,16 @@ class Collector:
                 by_topic[topic] = []
         self.at = ""
         deleted = []
-        if full:
-            seen = {("topic", topic) for topic in (*by_topic, *out)}  # A topic left out is still on the page: not deleted.
+        built = {("topic", topic) for topic in by_topic}
+        if passing:
+            self.pass_seen |= built
+        self.pass_done = passing and not self.pass_left
+        if self.pass_done:
+            seen = self.pass_seen | {("topic", topic) for topic in out}  # A topic left out is still on the page: not deleted.
             deleted += [{"type": kind, "key": key} for kind, key in sorted(self.pushed_topics - seen)]
             self.pushed_topics = seen
-        elif by_topic:
-            self.pushed_topics |= {("topic", topic) for topic in by_topic}
+        elif built:
+            self.pushed_topics |= built
         items += self.project_items(state, chat, records)
         return items, deleted
 
@@ -353,7 +371,7 @@ class Collector:
         if latest is not None and latest.get("status") == "continued":
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
         if latest is None:
-            return "空闲"
+            return "已停止" if never_started(records) else "空闲"
         return STATE_WORDS.get(latest.get("status"), "空闲")
 
     @staticmethod
@@ -369,6 +387,8 @@ class Collector:
             return look.record_tone(live, stuck=bool((progress or {}).get("maybe_stuck")))
         if latest is not None and latest.get("status") == "continued":
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
+        if latest is None and never_started(records):
+            return "cancelled"  # Nothing ever ran and the last task was cancelled before it started (T561, T562): 已停止, not 空闲.
         if latest is None or latest.get("status") not in STATE_WORDS:
             return "idle"
         return look.record_tone(latest, seen=not unseen)
@@ -897,7 +917,7 @@ class WebSync:
     # -- push -----------------------------------------------------------------------------------------------------------
 
     def start_over(self) -> None:
-        """After a look was left behind: a new collector, nothing counted as sent, so the next look is a full one. The left-behind
+        """After a look was left behind: a new collector, so the next look starts a full pass. The left-behind
         look keeps writing only to the old ones and sends nothing (2026-11-19 14:36 one that came back an hour late put T542 back to 在做
         on the page). The topic it was stuck reading (an NFS open of its topic.json that never returned,
         2026-11-19) is left out of the looks while that thread lives, so the next look does not get stuck on it again."""
@@ -907,7 +927,9 @@ class WebSync:
             stuck[old.at] = old.thread
             self.runtime.log(f"web sync push leaves topic {old.at[:12]} out while its read is stuck")
         self.stuck = stuck
-        self.collector, self.sent, self.last_full = Collector(self.env, stuck, self.runtime.log), {}, 0.0
+        # What the page took stays known (``sent``): only what changed goes again, not every item (2026-11-19 23:52: a stuck read
+        # made the next look push all ~7000 items again, minutes in which nothing new went out).
+        self.collector, self.last_full = Collector(self.env, stuck, self.runtime.log), 0.0
 
     def push_once(self, now=None) -> int:
         """One look and one push; how many items went out. Raises WebError when the page did not take a batch (the batches before it count).
@@ -917,7 +939,7 @@ class WebSync:
             return 0
         collector, sent = self.collector, self.sent
         now = time.time() if now is None else now
-        full = now - self.last_full >= FULL_SECONDS
+        full = not collector.pass_left and now - self.last_full >= FULL_SECONDS  # A full pass is due and none is under way.
         items, deleted = collector.collect(chat, now, full)
         if full:
             self.push_settings(chat, now, full=True)
@@ -933,7 +955,7 @@ class WebSync:
             count += len(batch)
         if collector is not self.collector:
             return count
-        if deleted or (full and not count):
+        if deleted or (collector.pass_done and not count):
             self.client.request("POST", "/sync/upsert", {"items": [], "deleted": deleted})
             for each in deleted:
                 sent.pop((each["type"], each["key"]), None)
@@ -1020,6 +1042,11 @@ class WebSync:
             self.client.request("POST", "/sync/ack", {"results": results})
             ledger.acked([each["op_id"] for each in results])
         return fresh
+
+
+def never_started(records) -> bool:
+    """Whether a topic's last task was cancelled before it started (a launch card closed by a stop, one taken out of the queue)."""
+    return bool(records) and records[-1].get("status") == "cancelled" and bool(records[-1].get("never_started"))
 
 
 def board_groups(rows, dismissed) -> dict:

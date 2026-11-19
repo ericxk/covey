@@ -336,14 +336,40 @@ class PushTest(WebCase):
         self.assertEqual(self.sync.push_once(T0 + 61), 0)
         self.assertEqual(self.web.upserts[sent:], [{"items": [], "deleted": []}])
 
-    def test_starting_over_pushes_everything_again_and_the_old_look_keeps_to_its_own_records(self):
+    def test_starting_over_pushes_only_what_changed(self):
+        """2026-11-19 23:52: after a stuck read the next look pushed all ~7000 items again, minutes in which nothing new went out."""
         self.topic()
-        first = self.sync.push_once(T0)
-        old = self.sync.sent
+        self.assertGreater(self.sync.push_once(T0), 0)
         self.sync.start_over()
-        self.assertEqual(self.sync.push_once(T0 + 1), first)
-        self.assertIsNot(self.sync.sent, old)
-        self.assertEqual(len(old), first)
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)
+
+    def test_a_full_pass_goes_a_slice_a_step_and_the_hot_topics_every_step(self):
+        """T554, 2026-11-19: one look of every topic took minutes and pushed only at its end, with what it had read before the owner's
+        answer. A pass now takes PASS_SLICE topics a step, the running ones after them every step."""
+        quiet = [f"{n:02d}" * 16 for n in range(10, 16)]
+        for number, topic in enumerate(quiet, 20):
+            self.topic(topic, number=number, title=f"话题{number}")
+        self.topic(status="running", lines=(("user", "做一下"),))
+        with mock.patch.object(app_web, "PASS_SLICE", 2, create=True):
+            self.sync.push_once(T0)
+            first = {item["key"] for item in self.web.items("topic")}
+            self.assertIn(TOPIC, first)
+            self.assertEqual(len(first & set(quiet)), 2)
+            write_job(self.state, f"k-{TOPIC[:4]}", status="done")
+            self.sync.push_once(T0 + 1)
+            last = [item for item in self.web.items("topic") if item["key"] == TOPIC][-1]["data"]
+            self.assertNotEqual(last["state"], "在做")
+            for step in range(2, 6):
+                self.sync.push_once(T0 + step)
+        self.assertEqual({item["key"] for item in self.web.items("topic")} & set(quiet), set(quiet))
+
+    def test_a_topic_whose_only_task_never_started_reads_stopped(self):
+        """T561, T562 (2026-11-19): their launch cards closed by a stop, nothing ever ran; the page's 全图 listed them under 空闲."""
+        self.topic(status="cancelled", lines=(("user", "修专项右栏"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", never_started=True)
+        self.sync.push_once(T0)
+        data = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
+        self.assertEqual((data["state"], data["tone"]), ("已停止", "cancelled"))
 
 
 class StuckTest(WebCase):
