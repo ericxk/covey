@@ -4,8 +4,9 @@ from its view (a dict kept in the record), so a click redraws it the same way (r
 The buttons' kinds are in app/card_actions.py ACTIONS, handled before topic routing (app/unified.py PANELS)."""
 from __future__ import annotations
 
-from covey.cards.elements import (button_row, card, callback, item, md, note, panel_header, plain, section, styled_panel,
-                                  text_button)
+from covey.cards import ui
+from covey.cards.elements import (button_row, callback, callback_button, card, collapsible, grey, item, md, note, panel_header,
+                                  plain, section, styled_panel, text_button)
 from covey.core.text import literal as literal_text
 
 CREATE_KIND = "bridge_tidy_create"  # 建专项
@@ -37,6 +38,10 @@ OUTCOME = {"done": "已照办", "declined": "不用", "never": "以后不再提�
 PROPOSAL_OUTCOME = {**OUTCOME, "declined": "不管了"}  # The proposal card's word for its 不管了 (暂不考虑 before 2026-11-19)
 KIND_WORDS = {"create": "新建", "join": "归进", "leave": "移出", "merge": "合并", "split": "拆开", "rename": "改名", "fold": "收起"}
 TIDY_ICON = "folder_outlined"
+# A suggestion of the 整理专项 card (a row with ``item``, 2026-11-19 T572, the owner's pick A 一条一块): its tag and its button's verb.
+TAGS = {"split": "拆出", "create": "新建", "leave": "移出", "join": "归进", "merge": "合并", "rename": "改名", "fold": "收起"}
+VERBS = {"split": "拆出来", "create": "新建", "leave": "移出", "join": "归进", "merge": "合并", "rename": "改名", "fold": "收起"}
+SHOWN_TOPICS = 4  # Up to this many topics listed; more: the first SHOWN_TOPICS - 1, the rest folded (“还有 8 个话题”, never “等”).
 
 
 def topics_line(labels) -> str:
@@ -176,6 +181,79 @@ def lesson_card(text, value=None):
     return card(elements, "整理专项", default_width=True, update_multi=True, padding="10px 12px 10px 12px", spacing="6px")
 
 
+def suggestion_words(found) -> dict:
+    """What a suggestion says, plain (the card escapes it, the web page shows it as it is): {tag, verb, headline, from}. ``found``: a
+    row's ``item`` (app/project_tidy.py row_item): kind, name, project (its project's name), projects (a merge's names), topics."""
+    kind, name, project = found.get("kind") or "", found.get("name") or "", found.get("project") or ""
+    topics = found.get("topics") or ()
+    one = topics[0] if len(topics) == 1 else None
+    who = " ".join(part for part in ((one or {}).get("label"), (one or {}).get("title")) if part) if one else f"{len(topics)} 个话题"
+    merged = "和".join(f"「{each}」" for each in found.get("projects") or ())
+    headline = {"split": f"拆出新专项「{name}」", "create": f"新建专项「{name}」", "leave": f"把 {who} 移出「{project}」",
+                "join": f"把 {who} 归进「{project}」", "merge": f"合并{merged}" + (f"，叫「{name}」" if name else ""),
+                "rename": f"「{project}」改名「{name}」", "fold": f"收起「{project}」"}.get(kind, kind)
+    origin = f"从「{project}」移过去 {len(topics)} 个话题" if kind == "split" and project else ""
+    return {"tag": TAGS.get(kind, kind), "verb": VERBS.get(kind, "好"), "headline": headline, "from": origin}
+
+
+def topic_entry(topic) -> str:
+    """``T566 飞书设置卡脱敏批量编辑``, the T number a link that opens the topic when it has one."""
+    label = literal_text(topic.get("label") or "话题")
+    shown = f"[{label}]({topic['link']})" if topic.get("link") else label
+    return f"{shown} {literal_text(topic['title'])}" if topic.get("title") else shown
+
+
+def topic_list(topics, fold_id) -> list:
+    """Every topic, one a line: all of them up to SHOWN_TOPICS, else the first few and the rest in a fold (还有 N 个话题)."""
+    if not topics:
+        return []
+    if len(topics) <= SHOWN_TOPICS:
+        return [md("\n".join(topic_entry(each) for each in topics), size="notation")]
+    head, rest = topics[:SHOWN_TOPICS - 1], topics[SHOWN_TOPICS - 1:]
+    return [md("\n".join(topic_entry(each) for each in head), size="notation"),
+            collapsible(fold_id, f"还有 {len(rest)} 个话题", [md("\n".join(topic_entry(each) for each in rest), size="notation")],
+                        quiet=True, border=False, padding="0px 0px 0px 0px", icon_position="follow_text")]
+
+
+def suggestion_block(row, run, index):
+    """One suggestion of the 整理专项 card in a thin frame: its tag and what it does in bold, where its topics come from, 原因, 目标,
+    its topics, then its verb and 不用 at the left under them; once decided, what came of it in grey instead of the buttons."""
+    found = row["item"]
+    words = suggestion_words(found)
+    elements = [md(f"<text_tag color='violet'>{words['tag']}</text_tag> **{literal_text(words['headline'])}**")]
+    if words["from"]:
+        elements.append(md(grey(literal_text(words["from"])), size="notation"))
+    if found.get("why"):
+        elements.append(md("原因：" + literal_text(found["why"])))
+    if found.get("goal"):
+        elements.append(md(grey("目标：" + literal_text(found["goal"])), size="notation"))
+    elements += topic_list(list(found.get("topics") or ()), f"tidy_more_{index}")
+    state = row.get("state") or "open"
+    if state == "open":
+        value = {"run": run, "proposal": row.get("proposal", "")}
+        elements.append({"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": [
+            {"tag": "column", "width": "auto", "elements": [callback_button(words["verb"], {"kind": OK_KIND, **value},
+                                                                              style="primary", size="small")]},
+            {"tag": "column", "width": "auto", "elements": [callback_button("不用", {"kind": DECLINE_KIND, **value},
+                                                                              style="text", size="small")]}]})
+    else:
+        said = literal_text(row.get("note") or OUTCOME.get(state, ""))
+        elements.append(md(f"<font color='red'>{said}</font>" if state == "failed" else grey(said), size="notation"))
+    return ui.container(elements, border="grey", radius="8px", padding="10px 12px 10px 12px", spacing="6px")
+
+
+TIDY_SPAN_COUNT = "最近 7 天动过的 {} 个话题"
+
+
+def tidy_band(view, rows):
+    """The 整理专项 card's conclusion band (docs/ui.md 5.1) over its suggestions: how many wait for the owner, and what was read."""
+    waiting = sum(1 for row in rows if (row.get("state") or "open") == "open")
+    total = (view.get("progress") or {}).get("total") or 0
+    read = "看了" + (TIDY_SPAN_COUNT.format(total) if total else TIDY_SPAN) + ("，每条单独定" if waiting > 1 else "")
+    headline = ui.number(waiting, "条建议") if waiting else "**这次的建议都定好了**"
+    return ui.conclusion_band("要你定 · 整理专项" if waiting else "整理专项", headline, read)
+
+
 def tidy_card(view):
     """The 整理专项 card. ``view``: run (id), state (running, done, failed), progress {done, total, current} while it runs, why (the
     failure in words), did [lines done at once], rows [{proposal, line, state, note}] (at most CARD_ROWS), skipped {words},
@@ -202,7 +280,12 @@ def tidy_card(view):
         elements += [section(f"新专项的提议（{len(proposed)} 个）"),
                      md("、".join(f"「{literal_text(name)}」" for name in proposed)),
                      note("每个一张提议卡，在下面：话题都列全、能点开、带摘要，可以增删话题、改名，再逐个确认。")]
-    if rows:
+    if rows and all(row.get("item") for row in rows):
+        # Each suggestion a block of its own (2026-11-19 T572: one long line of a dozen T numbers, the action and its reason mixed and
+        # the buttons beside the middle of it read as a mess). Rows kept before ``item`` are drawn as before, below.
+        elements.insert(0, tidy_band(view, rows))
+        elements += [suggestion_block(row, view.get("run", ""), index) for index, row in enumerate(rows)]
+    elif rows:
         elements.append(section(f"要你定的（{len(rows)} 条）"))
         for row in rows:
             line = row.get("line") or "" if row.get("md") else literal_text(row.get("line") or "")
@@ -229,7 +312,7 @@ def tidy_card(view):
     tags = ((("正在整理", "blue"),) if state == "running" else (("没整理成", "red"),) if state == "failed"
             else ((f"{count} 条建议", "orange"),) if count else (("整理好了", "green"),))
     head = panel_header(TIDY_ICON, "整理专项", subtitle=f"专项和{TIDY_SPAN}", tags=tags)
-    return styled_panel(head, elements, "整理专项")
+    return ui.banded(styled_panel(head, elements, "整理专项", spacing="8px" if ui.has_band(elements) else "6px"))
 
 
 def joined_element(name, topic, pid):

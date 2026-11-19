@@ -29,6 +29,7 @@ from covey.core import project_proposals as proposals
 from covey.core.checkpoint import TOPIC_GIST_RULE
 from covey.core.jobs import upsert_job_record
 from covey.core.state import read_object, write_json
+from covey.core.topics import label_title
 
 A = "修 064 采购审批题包"
 B = "优化 EnvReplay 的 Prompt"
@@ -519,7 +520,7 @@ class TidyCardTest(TidyCase):
             self.assertIn(f"https://applink.example/{topic[-6:]}", proposal)
         self.assertIn("建专项", proposal)
         card = text(cards.tidy_card(view))
-        for word in ("整理专项", "新专项的提议", "「推理网关稳定」", "好", "不用", "已经做了", "最近 7 天动过的话题"):
+        for word in ("整理专项", "新专项的提议", "「推理网关稳定」", "改名", "不用", "已经做了", "最近 7 天动过的话题"):
             self.assertIn(word, card)
         self.assertNotIn("全部照办", card)
         self.assertIn("正在读", text(self.app.messenger.patch_card.call_args_list[0].args[2]))
@@ -567,6 +568,87 @@ class TidyCardTest(TidyCase):
         self.assertEqual(answer["text"], "正在整理（12/40）")
         self.assertEqual(Ops(self.env).run({"kind": "tidy", "op_id": "o1", "payload": {"scope": ""}}), ("done", "正在整理（12/40）"))
         self.assertIn("projects_tidy", [tool["name"] for tool in butler_tool_specs.listed({"COVEY_PROJECTS": "1", proposals.ENV: "suggest"})])
+
+
+class SuggestionLayoutTest(TidyCase):
+    """2026-11-19 T572, the owner's pick A 一条一块: each suggestion a block (what it does in bold, where from, 原因, its topics, its
+    verb and 不用 under them), the same suggestions on the web page's 看板, decided there through the card's own click."""
+
+    def split_run(self, run="run-s"):
+        self.filler(3)
+        members = [self.topic(f"评审改动 {n}") for n in range(6)] + [self.topic("体验 1"), self.topic("体验 2")]
+        pid = self.project("体验改进", members)
+        self.verdicts.append({"suggestions": [{"kind": "split", "project": 1, "topics": [1, 2, 3, 4, 5, 6], "name": "评审改动上线",
+                                               "goal": "评审的改动都上线", "why": "都是同一份评审报告拆出的改动", "confidence": 0.8}]})
+        self.tidy.recent_topics = lambda state, chat, now, **kw: members
+        return self.tidy.whole(self.ctx, CHAT, run, "test", ""), pid, members
+
+    def test_a_suggestion_is_a_block_its_topics_listed_then_folded_and_a_row_kept_before_draws_as_before(self):
+        record, pid, members = self.split_run()
+        row = record["view"]["rows"][0]
+        self.assertEqual(row["item"]["kind"], "split")
+        self.assertEqual(row["item"]["project"], "体验改进")
+        self.assertEqual(len(row["item"]["topics"]), 6)
+        card = text(cards.tidy_card(record["view"]))
+        for word in ("要你定 · 整理专项", "条建议", "拆出", "拆出新专项「评审改动上线」", "从「体验改进」移过去 6 个话题",
+                     "原因：都是同一份评审报告拆出的改动", "目标：评审的改动都上线", "还有 3 个话题", "拆出来", "不用", "band-line"):
+            self.assertIn(word, card)
+        self.assertNotIn("等", card.replace("等你", ""))  # Never “T550 等 11 个” (the owner, 2026-11-18).
+        for topic in members[:6]:
+            self.assertIn(f"https://applink.example/{topic[-6:]}", card)
+        old = {**record["view"], "rows": [{key: value for key, value in row.items() if key != "item"}]}
+        drawn = text(cards.tidy_card(old))
+        self.assertIn("要你定的（1 条）", drawn)
+        self.assertIn('"好"', drawn)
+        self.assertNotIn("band-line", drawn)
+
+    def test_the_web_page_lists_the_suggestion_and_decides_it_through_the_cards_click(self):
+        record, pid, members = self.split_run()
+        shown = self.tidy.web_view()["proposals"]
+        self.assertEqual([(each["kind"], each["tag"], each["verb"], each["state"]) for each in shown], [("split", "拆出", "拆出来", "open")])
+        self.assertEqual(shown[0]["headline"], "拆出新专项「评审改动上线」")
+        self.assertEqual([each["label"] for each in shown[0]["topics"]][:1], [label_title(self.state, members[0])[0]])
+        self.assertNotIn("link", shown[0]["topics"][0])
+        before = self.tidy.web_stamps()
+        state, words = Ops(self.env).run({"kind": "tidy_decide", "op_id": "o1", "payload": {"proposal": shown[0]["id"], "choice": "ok"}})
+        self.assertEqual(state, "done", words)
+        self.assertEqual(proposals.read_proposal(self.state, shown[0]["id"])["state"], proposals.DONE)
+        self.assertNotEqual(self.tidy.web_stamps(), before)
+        self.assertEqual(self.app.messenger.patch_card.call_args.args[1], record["message_id"])  # The card redrawn the same.
+        self.assertNotIn("拆出来", text(self.patched()))
+        after = self.tidy.web_view()["proposals"][0]
+        self.assertEqual((after["state"], after["note"]), ("done", words))
+        again = Ops(self.env).run({"kind": "tidy_decide", "op_id": "o2", "payload": {"proposal": shown[0]["id"], "choice": "decline"}})
+        self.assertEqual(again[0], "failed")
+        self.assertIn("已经定过了", again[1])
+        self.assertEqual(Ops(self.env).run({"kind": "tidy_decide", "op_id": "o3", "payload": {"proposal": "nope", "choice": "maybe"}})[0],
+                         "failed")
+
+    def test_a_click_on_the_card_and_one_on_the_page_carry_a_suggestion_out_once(self):
+        record, pid, members = self.split_run()
+        pid_ = record["view"]["rows"][0]["proposal"]
+        self.assertEqual(self.click({"kind": cards.DECLINE_KIND, "run": "run-s", "proposal": pid_}, record["message_id"]),
+                         "tidy_row_decline")
+        self.assertEqual(proposals.read_proposal(self.state, pid_)["state"], proposals.DECLINED)
+        state, words = Ops(self.env).run({"kind": "tidy_decide", "op_id": "o1", "payload": {"proposal": pid_, "choice": "ok"}})
+        self.assertEqual(state, "failed")
+        self.assertEqual(proposals.read_proposal(self.state, pid_)["state"], proposals.DECLINED)
+        self.assertEqual(self.tidy.web_view()["proposals"][0]["state"], "declined")
+
+    def test_a_new_project_waiting_on_its_own_card_is_declined_from_the_page(self):
+        self.filler(3)
+        one, two = self.topic("网关失联"), self.topic("网关扩容")
+        self.verdicts.append({"suggestions": [
+            {"kind": "create", "topics": [1, 2], "name": "推理网关稳定", "goal": "一周不失联", "why": "同一个网关", "confidence": 0.8}]})
+        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two]
+        self.tidy.whole(self.ctx, CHAT, "run-c", "test", "")
+        shown = self.tidy.web_view()["proposals"]
+        self.assertEqual([(each["kind"], each["headline"], each["run"]) for each in shown], [("create", "新建专项「推理网关稳定」", "")])
+        state, words = Ops(self.env).run({"kind": "tidy_decide", "op_id": "o1", "payload": {"proposal": shown[0]["id"], "choice": "decline"}})
+        self.assertEqual(state, "done", words)
+        self.assertEqual(proposals.read_proposal(self.state, shown[0]["id"])["state"], proposals.DECLINED)
+        self.assertIn("不管了", text(self.patched()))
+        self.assertEqual(self.tidy.web_view()["proposals"][0]["state"], "declined")
 
 
 class PendingTest(TidyCase):

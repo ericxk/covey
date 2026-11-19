@@ -20,7 +20,7 @@ from support.records import write_job, write_topic
 from covey.app import answers as answer_words, source_watch, web_ops, web_said, web_sync as app_web
 from covey.app.web_sync import WebError, WebSync
 from covey.app import project_lead, web_turns
-from covey.core import butler_opened, http_upstream, model_names, placement, project_library, project_memory, projects, triage, web_sync
+from covey.core import butler_opened, http_upstream, model_names, placement, project_library, project_memory, project_proposals, projects, triage, web_sync
 from covey.core.butler import butler_topic_id
 from covey.core.history_storage import append_history
 from covey.core.serving import LoopbackServer
@@ -1784,3 +1784,62 @@ class OffTest(WebCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeTidy:
+    """整理专项 as the web sync sees it (app/project_tidy.py web_stamps, web_view, web_decide)."""
+
+    def __init__(self):
+        self.stamp, self.decided = 1, []
+        self.data = {"proposals": [{"id": "p1", "kind": "split", "headline": "拆出新专项「A」", "state": "open"}], "running": None,
+                     "updated_at": 1.0}
+
+    def web_stamps(self):
+        return (self.stamp,)
+
+    def web_view(self, now=None):
+        return self.data
+
+    def web_decide(self, pid, choice):
+        self.decided.append((pid, choice))
+        self.data = {**self.data, "proposals": [{**self.data["proposals"][0], "state": "done", "note": "已拆出专项「A」"}]}
+        self.stamp += 1
+        return True, "已拆出专项「A」"
+
+
+class TidyPushTest(WebCase):
+    """Data contract v16: 整理专项's suggestions as the ``settings`` item ``tidy``, in a request of their own."""
+
+    def setUp(self):
+        super().setUp()
+        self.env.tidy = FakeTidy()
+        patch = mock.patch.dict(os.environ, {project_proposals.ENV: "suggest"})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_pushed_when_it_changed_alone_in_its_request_and_a_page_that_refuses_it_holds_nothing_up(self):
+        self.assertEqual(self.sync.push_tidy(T0), 1)
+        self.assertEqual([(each["type"], each["key"]) for batch in self.web.upserts for each in batch["items"]], [("settings", "tidy")])
+        self.assertEqual(self.sync.push_tidy(T0 + 1), 0)  # Nothing changed.
+        self.assertEqual(self.sync.push_tidy(T0 + 2, full=True), 0)  # A full look: the same rev is not sent again.
+        self.env.tidy.stamp += 1
+        self.env.tidy.data = {**self.env.tidy.data, "running": {"done": 1, "total": 9}}
+        self.web.fail = 400  # A page older than v16 refuses the key.
+        self.assertEqual(self.sync.push_tidy(T0 + 3), 0)
+        self.assertEqual(self.sync.push_tidy(T0 + 4), 0)  # Not again each second: only on a change or a full look.
+        self.assertEqual(len([line for line in self.logs if "web tidy not pushed" in line]), 1)
+        self.web.fail = 0
+        self.assertEqual(self.sync.push_tidy(T0 + 5, full=True), 1)
+
+    def test_a_decision_from_the_page_goes_through_the_tidy_and_the_new_item_is_pushed_before_the_ack(self):
+        self.sync.push_tidy(T0)
+        self.web.op("tidy_decide", 1, "op-t1", proposal="p1", choice="ok")
+        self.assertEqual(self.sync.inbox_once(), 1)
+        self.assertEqual(self.env.tidy.decided, [("p1", "ok")])
+        self.assertEqual(self.web.acks[-1]["state"], "done")
+        self.assertEqual(self.web.acks[-1]["message"], "已拆出专项「A」")
+        last = [each for batch in self.web.upserts for each in batch["items"] if each["key"] == "tidy"][-1]
+        self.assertEqual(last["data"]["proposals"][0]["state"], "done")
+        self.web.op("tidy_decide", 2, "op-t2", proposal="p1", choice="later")
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[-1]["state"], "failed")

@@ -867,6 +867,7 @@ class WebSync:
         self.last_full = 0.0
         self.settings_due, self.settings_stamps = True, None  # The 设置 item: built on a full look, after the page changed one, or when its files did.
         self.settings_lock = threading.Lock()  # push_settings runs in both threads.
+        self.tidy_stamps, self.tidy_lock, self.tidy_failed = None, threading.Lock(), 0  # The 整理专项 item (push_tidy).
         self.ledger = None
         self.down = {}  # thread name -> failures in a row.
 
@@ -943,6 +944,7 @@ class WebSync:
         items, deleted = collector.collect(chat, now, full)
         if full:
             self.push_settings(chat, now, full=True)
+            self.push_tidy(now, full=True)
         changed = [each for each in items if sent.get((each["type"], each["key"])) != each["rev"]]
         count = 0
         for batch in web_sync.batches(changed):
@@ -1006,6 +1008,41 @@ class WebSync:
         finally:
             self.settings_lock.release()
 
+    def push_tidy(self, now, full=False) -> int:
+        """The ``settings`` item ``tidy`` (整理专项's suggestions, app/project_tidy.py web_view, data contract v16), posted on its own: when
+        the runs or the proposals changed (a stat of two folders, from the inbox thread each second) and on a full look. A page older than
+        v16 refuses the key: that is logged (the first time, then every tenth) and tried again only on the next full look or change, and
+        never holds up the settings, which go in a request of their own. How many went (0 or 1)."""
+        tidy = getattr(self.env, "tidy", None)
+        if tidy is None or not getattr(self.env, "state_dir", None) or not self.tidy_lock.acquire(blocking=False):
+            return 0
+        try:
+            stamps = tidy.web_stamps()
+            if not full and stamps == self.tidy_stamps:
+                return 0
+            self.tidy_stamps = stamps
+            data = tidy.web_view(now)
+            if data is None:
+                return 0
+            each = web_sync.item("settings", web_sync.TIDY_KEY, data)
+            if self.sent.get((each["type"], each["key"])) == each["rev"]:
+                return 0
+            try:
+                self.client.request("POST", "/sync/upsert", {"items": [each], "deleted": []})
+            except Exception as exc:  # noqa: BLE001 - logged; the next full look or change tries again
+                self.tidy_failed += 1
+                if self.tidy_failed == 1 or self.tidy_failed % 10 == 0:
+                    self.runtime.log(f"web tidy not pushed ({self.tidy_failed}): {type(exc).__name__}: {self.why(exc)}")
+                return 0
+            self.tidy_failed = 0
+            self.sent[(each["type"], each["key"])] = each["rev"]
+            return 1
+        except Exception as exc:  # noqa: BLE001 - a 整理专项 that cannot be read stops nothing
+            self.runtime.log(f"web tidy not built: {type(exc).__name__}")
+            return 0
+        finally:
+            self.tidy_lock.release()
+
     # -- inbox ----------------------------------------------------------------------------------------------------------
 
     def inbox_once(self) -> int:
@@ -1031,6 +1068,8 @@ class WebSync:
                     self.collector.touch(row["topic_key"])
                 if row.get("kind") == "settings":
                     self.settings_due = True  # Pushed below, before the ack: the page reads the new settings when it sees done.
+                if row.get("kind") == "tidy_decide":
+                    self.tidy_stamps = None  # Pushed below, before the ack, as the settings are.
             elif known.get("state") == "received":
                 ledger.finish(op_id, "failed", "这条执行到一半没有结果（Covey 重启或卡住了），结果不确定，没有重发")
             saved = ledger.get(op_id)
@@ -1038,6 +1077,7 @@ class WebSync:
         chat = self.runtime.access.owner_chat()
         if chat:
             self.push_settings(chat, time.time())
+            self.push_tidy(time.time())
         if results:
             self.client.request("POST", "/sync/ack", {"results": results})
             ledger.acked([each["op_id"] for each in results])

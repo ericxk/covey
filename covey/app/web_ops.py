@@ -30,6 +30,8 @@ KINDS) as the owner's own and says (state, message) for the ack.
   用途, 脱敏's switches and terms (many at once), a group's 停用 / 启用) through the 设置 card's own code, the owner only (app/access.py ``is_owner``); ``done`` says the
   card's receipt (已保存：之后新开的话题照这个来。), a row the page may not change (私聊顶层的消息, 免@, ...) is ``failed``.
 - ``dismiss``: 不管了, the topic taken off the board as the 看板 card's 不管了 does (app/pins.py dismiss); without the board ``failed``.
+- ``tidy_decide``: 好 (``choice`` ok) or 不用 (decline) on the 整理专项 panel's suggestion ``proposal`` (data contract v16), through its
+  card's own click (app/project_tidy.py web_decide); done says what came of it, failed why nothing was done (decided already, ...).
 - ``tidy``: 整理专项 (app/project_tidy.py start, COVEY_PROJECT_TIDY on): ``scope`` "" for everything, a project id or a word; ``done`` says
   已开始整理，结果发到私聊 (the 整理专项 card goes to the private chat), or 正在整理（12/40） while one runs; off, or too few topics, is ``failed``.
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
@@ -87,7 +89,7 @@ class Ops:
         try:
             handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
                        "forget": self.forget, "tidy": self.tidy, "settings": self.settings,
-                       "dismiss": self.dismiss}.get(kind)
+                       "dismiss": self.dismiss, "tidy_decide": self.tidy_decide}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -329,6 +331,23 @@ class Ops:
             raise ValueError("整理专项没有开（COVEY_PROJECT_TIDY）")
         words = tidy.start(origin="web", scope=" ".join(str(payload.get("scope") or "").split())[:40])
         if words != project_proposals.STARTED_WORDS and not words.startswith(project_proposals.BUSY_PREFIX):
+            raise ValueError(words)
+        return words
+
+    def tidy_decide(self, state, chat, row, payload) -> str:
+        """好 or 不用 on one suggestion of the 整理专项 panel (data contract v16): ``proposal`` its id, ``choice`` ok or decline, through
+        the click of its card (app/project_tidy.py web_decide), which is redrawn the same. done says what came of it (已拆出专项「…」),
+        failed why nothing was done."""
+        from covey.core import project_proposals
+
+        tidy = getattr(self.env, "tidy", None)
+        if tidy is None or not project_proposals.enabled():
+            raise ValueError("整理专项没有开（COVEY_PROJECT_TIDY）")
+        choice = str(payload.get("choice") or "")
+        if choice not in ("ok", "decline"):
+            raise ValueError("choice 只能是 ok 或 decline")
+        done, words = tidy.web_decide(str(payload.get("proposal") or "")[:64], choice)
+        if not done:
             raise ValueError(words)
         return words
 

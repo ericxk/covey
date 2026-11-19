@@ -29,10 +29,11 @@ BATCH_ITEMS, BATCH_BYTES = 500, 1_000_000  # Bytes as sent (UTF-8): the page's b
 BODY_BYTES = 64 * 1024
 CUT_NOTE = "\n\n（内容太长，已截断）"
 LEDGER_KEPT = 2000
-KINDS = ("say", "answer", "stop", "reopen", "seen", "forget", "tidy", "settings", "dismiss")
+KINDS = ("say", "answer", "stop", "reopen", "seen", "forget", "tidy", "settings", "dismiss", "tidy_decide")
 TYPES = ("project", "topic", "turn", "question", "settings")
 SETTINGS_KEY = "settings"  # The one ``settings`` item's key (app/web_settings.py).
 USAGE_KEY = "usage"  # The ``settings`` item of 本周用量 as the bot menu's card counts it (app/web_settings.py usage).
+TIDY_KEY = "tidy"  # The ``settings`` item of 整理专项's suggestions (app/project_tidy.py web_view, data contract v16).
 PREFIX = "web-"  # The message id of the owner's words from the page: ``web-<op_id>``. Feishu has no such message.
 
 

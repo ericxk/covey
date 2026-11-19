@@ -72,6 +72,11 @@ BUSY_PREFIX, STARTED_WORDS = proposals.BUSY_PREFIX, proposals.STARTED_WORDS
 BUSY_WORDS = BUSY_PREFIX + "（{done}/{total}）"
 FEW_WORDS = "话题还不多（不到 {} 个），先不整理专项。"
 OFF_WORDS = "整理专项没有开（COVEY_PROJECT_TIDY）。"
+WEB_RUNS, WEB_OPEN_DAYS, WEB_DECIDED_HOURS = 30, 7, 24  # The web page's 整理专项: the runs looked at, how long open and decided ones stay.
+WEB_STATES = {proposals.ACCEPTED: "done"}  # Being carried out: no buttons; the next look says done or failed.
+WEB_DOING = "正在照办……"
+WEB_REFUSED = {"tidy_stale": "这条建议的卡已经过时了", "tidy_running": "正在整理，等这次整理完再定", "tidy_decided": "这条已经定过了",
+               "tidy_bad_value": "这条建议找不到了", "tidy_no_topics": "没有话题，专项没建"}
 
 
 def ended(record) -> bool:
@@ -888,7 +893,8 @@ class ProjectTidy:
             if saved.get("state") != proposals.OPEN or any(row["proposal"] == saved["id"] for row in view["rows"]):
                 continue
             proposals.update_proposal(state, saved["id"], lambda data: data.update(run=record["run"]))
-            view["rows"].append({"proposal": saved["id"], "line": self.line(state, saved, ctx), "md": True, "state": proposals.OPEN})
+            view["rows"].append({"proposal": saved["id"], "line": self.line(state, saved, ctx), "md": True, "state": proposals.OPEN,
+                                 "item": self.row_item(ctx, saved)})
 
     def expire_alone(self, ctx) -> int:
         """The open proposals of one topic, made before a project needed two (app/project_sorter.py MIN_CREATE): 已过时,
@@ -1072,21 +1078,39 @@ class ProjectTidy:
         """Every topic's T number (the owner, 2026-11-18: 不准用“等”字省略), plain: the log's and a proposal's text."""
         return "、".join(label_title(state, topic)[0] or "话题" for topic in topics)
 
-    def linked(self, ctx, topics) -> str:
-        """Every topic as Markdown, its T number a link that opens it and its title after it."""
-        state, words = Path(ctx.state_dir), []
+    def topic_entries(self, ctx, topics) -> list:
+        """Every topic as {key, label, title, link}: its T number (a topic without one, an old one or a Harness's own, is named by
+        what the owner said first), its title and the link that opens it ('' when there is none)."""
+        state, entries = Path(ctx.state_dir), []
         for topic in topics:
             label, title = label_title(state, topic)
-            if not label:  # A topic without a number (an old one, or a Harness's own): what the owner said first names it.
+            if not label:
                 said = sorter.material(state, self.chat() or "", topic, time.time()).owner
                 label, title = "未编号话题", title or (sorter._cut(said[0], 24) if said else "")
             try:
                 link = self.link(state, topic, profile=getattr(ctx, "profile", None))
             except Exception:  # noqa: BLE001 - a T number without its link
                 link = ""
-            shown = f"[{label}]({link})" if link else label
-            words.append(f"{shown} {cards.literal_text(title)}" if title else shown)
+            entries.append({"key": topic, "label": label, "title": title or "", "link": link or ""})
+        return entries
+
+    def linked(self, ctx, topics) -> str:
+        """Every topic as Markdown, its T number a link that opens it and its title after it."""
+        words = []
+        for entry in self.topic_entries(ctx, topics):
+            shown = f"[{entry['label']}]({entry['link']})" if entry["link"] else entry["label"]
+            words.append(f"{shown} {cards.literal_text(entry['title'])}" if entry["title"] else shown)
         return "、".join(words)
+
+    def row_item(self, ctx, record) -> dict:
+        """What a row of the 整理专项 card shows of its proposal, as data (cards/project_proposal.py suggestion_block draws it, the web
+        page's 整理专项 panel says the same): kind, name, the project's name, a merge's projects' names, why, goal, the topics."""
+        state = Path(ctx.state_dir)
+        return {"kind": record["kind"], "name": record.get("name") or "",
+                "project": self.project_name(state, record["project"]) if record.get("project") else "",
+                "projects": [self.project_name(state, pid) for pid in record.get("projects") or ()],
+                "why": record.get("why") or "", "goal": record.get("goal") or "",
+                "topics": self.topic_entries(ctx, record.get("topics") or ())}
 
     def line(self, state, record, ctx=None) -> str:
         """One row of the 整理专项 card: Markdown with every topic linked when ``ctx`` is given (a row marked ``md``), else plain
@@ -1219,8 +1243,10 @@ class ProjectTidy:
             return "tidy_back"
         if kind in (cards.DECLINE_KIND, cards.NEVER_KIND):
             never = kind == cards.NEVER_KIND
-            proposals.update_proposal(state, record["id"], lambda data: data.update(
-                state=proposals.NEVER if never else proposals.DECLINED, decided_at=time.time()))
+            try:
+                proposals.update_proposal(state, record["id"], claim(proposals.NEVER if never else proposals.DECLINED))
+            except Taken:
+                return "tidy_decided"
             proposals.set_pref(state, accepted_in_row=0, **({"no_proposals": True} if never else {}))
             view.update(state=proposals.NEVER if never else proposals.DECLINED, lesson=True,
                         note="以后不再提议建专项；要开专项，跟管家说“开个专项”。" if never else
@@ -1254,8 +1280,15 @@ class ProjectTidy:
                                                           voice=self.voice))
             return "tidy_no_topics"
         record = {**record, "topics": topics}
-        proposals.update_proposal(state, record["id"], lambda data: data.update(state=proposals.ACCEPTED, decided_at=time.time(),
-                                                                                  name=name, goal=goal or "", topics=topics))
+        taking = claim(proposals.ACCEPTED)
+
+        def accept(data):
+            taking(data)
+            data.update(name=name, goal=goal or "", topics=topics)
+        try:
+            proposals.update_proposal(state, record["id"], accept)
+        except Taken:
+            return "tidy_decided"
 
         def build():
             if projects.active_count(state) >= projects.MAX_ACTIVE:
@@ -1286,6 +1319,106 @@ class ProjectTidy:
         """A proposal's own card redrawn; none when it has no card (a row of an older 整理专项 card, clicked on the 看板)."""
         return self.messenger.patch_card(ctx.profile, message, card) if message else False
 
+    # The web page -------------------------------------------------------------------------------------------------------
+
+    def web_stamps(self) -> tuple:
+        """When the runs and the proposals last changed (their folders' mtimes: every write is a rename into them), so the web
+        page's 整理专项 is built again only then (app/web_sync.py push_tidy)."""
+        found = []
+        for folder in (proposals.folder(Path(self.env.state_dir)) / "runs", proposals.proposals_dir(Path(self.env.state_dir))):
+            try:
+                found.append(folder.stat().st_mtime_ns)
+            except OSError:
+                found.append(0)
+        return (*found, self.busy.locked())
+
+    def web_view(self, now=None) -> dict | None:
+        """The 整理专项 panel of the web page's 看板 (data contract v16, ``settings`` item ``tidy``): the suggestions as the 整理专项 card
+        draws them (cards/project_proposal.py suggestion_words) and the 新建 proposals waiting on a card of their own; the ones still
+        open from the runs of the last WEB_OPEN_DAYS, the decided ones for WEB_DECIDED_HOURS. None with 整理专项 off."""
+        if not proposals.enabled() or not self.env.state_dir:
+            return None
+        state, now = Path(self.env.state_dir), time.time() if now is None else now
+        ctx = SimpleNamespace(state_dir=state, profile=getattr(self.env, "profile", None))
+        shown, seen = [], set()
+
+        def put(record, found, run, note=""):
+            status = record.get("state") or proposals.OPEN
+            if status != proposals.OPEN and now - float(record.get("decided_at") or 0) > WEB_DECIDED_HOURS * 3600:
+                return
+            seen.add(record["id"])
+            words = cards.suggestion_words(found)
+            shown.append({"id": record["id"], "run": run, "kind": found["kind"], **words,
+                          "why": found.get("why") or "", "goal": found.get("goal") or "",
+                          "topics": [{"key": each["key"], "label": each["label"], "title": each["title"]} for each in found["topics"]],
+                          "state": WEB_STATES.get(status, status), "note": "" if status == proposals.OPEN else
+                          (record.get("note") or note or (record.get("view") or {}).get("note") or cards.OUTCOME.get(status, "")
+                           or (WEB_DOING if status == proposals.ACCEPTED else "")),
+                          "at": float(record.get("created_at") or 0)})
+
+        try:
+            paths = sorted((proposals.folder(state) / "runs").glob("*.json"), reverse=True)[:WEB_RUNS]
+        except OSError:
+            paths = []
+        for path in paths:
+            run = read_object(path)
+            if now - float(run.get("started_at") or 0) > WEB_OPEN_DAYS * 86400:
+                break
+            for row in (run.get("view") or {}).get("rows") or ():
+                pid = row.get("proposal")
+                if not row.get("item") or pid in seen:
+                    continue  # A row kept before ``item`` (its words are the card's line alone) stays on its card.
+                record = proposals.read_proposal(state, pid)
+                if record.get("id") == pid:
+                    put(record, row["item"], run.get("run") or path.stem, row.get("note") or "")
+        decided = [record for record in proposals.proposals(state, (proposals.DONE, proposals.FAILED, proposals.DECLINED,
+                                                                     proposals.NEVER))
+                   if record.get("kind") == proposals.CREATE and (record.get("card") or {}).get("message_id")]
+        for record in [*proposals.waiting(state), *decided]:
+            if record["id"] not in seen and (record.get("state") == proposals.OPEN
+                                             or now - float(record.get("decided_at") or 0) <= WEB_DECIDED_HOURS * 3600):
+                put(record, self.row_item(ctx, record), "")
+        shown.sort(key=lambda each: (each["state"] != "open", -each["at"]))
+        running = dict(self.progress) if self.busy.locked() else None
+        return {"proposals": shown, "running": running, "updated_at": now}
+
+    def web_decide(self, pid, choice) -> tuple:
+        """好 (``choice`` "ok") or 不用 ("decline") on one suggestion, from the web page (app/web_ops.py ``tidy_decide``): through the
+        click of its card (a 整理专项 card's row, or a 新建 proposal's own card), which is redrawn the same. (whether it was done, the
+        words: what came of it, or why nothing was done)."""
+        state, pid = Path(self.env.state_dir), str(pid or "")
+        record = proposals.read_proposal(state, pid) if pid.isalnum() else {}
+        if record.get("id") != pid:
+            return False, "这条建议找不到了"
+        if record.get("state") != proposals.OPEN:
+            return False, "这条已经定过了：" + (record.get("note") or cards.OUTCOME.get(record.get("state"), "") or "已处理")
+        chat = self.chat()
+        if not chat:
+            return False, "还不知道你的私聊，先在飞书里和机器人说句话"
+        ctx, ok = SimpleNamespace(state_dir=state, profile=getattr(self.env, "profile", None)), choice == "ok"
+        own = str((record.get("card") or {}).get("message_id") or "")
+        if record.get("kind") == proposals.CREATE and own:
+            outcome = self.decide(ctx, chat, {}, {"kind": cards.CREATE_KIND if ok else cards.DECLINE_KIND, "proposal": pid}, own)
+        else:
+            run = str(record.get("run") or "")
+            saved = read_object(self.run_path(state, run)) if run.replace("-", "").isalnum() else {}
+            if not saved:
+                return False, "这条建议的整理卡找不到了"
+            outcome = self.row_click(ctx, chat, {}, {"kind": cards.OK_KIND if ok else cards.DECLINE_KIND, "run": run, "proposal": pid},
+                                     str(saved.get("message_id") or ""))
+        if outcome in WEB_REFUSED:
+            return False, WEB_REFUSED[outcome]
+        after = proposals.read_proposal(state, pid)
+        status = after.get("state")
+        note = after.get("note") or (after.get("view") or {}).get("note") or ""
+        if status == proposals.DONE:
+            return True, note or "已照办"
+        if status in (proposals.DECLINED, proposals.NEVER):
+            return True, "不用：这条不会再这样提"
+        if status == proposals.FAILED:
+            return False, "没做成：" + (note or "出错了")
+        return False, "这条已经定过了"
+
     def row_click(self, ctx, chat, event, raw, message) -> str:
         """好, 不用 and 全部照办 on the 整理专项 card."""
         state, run = Path(ctx.state_dir), str(raw.get("run") or "")
@@ -1304,31 +1437,55 @@ class ProjectTidy:
             return "tidy_decided"
 
         def act():
+            done = {}  # proposal id -> what its row says now
             for row in chosen:
-                proposal = proposals.read_proposal(state, row["proposal"])
-                if not proposal or proposal.get("state") != proposals.OPEN:
-                    row.update(state=proposal.get("state") or proposals.EXPIRED)
+                pid, decline = row["proposal"], raw["kind"] == cards.DECLINE_KIND
+                try:  # Taken only while still open, under its record's lock: the card and the web page may click it at once.
+                    proposal = proposals.update_proposal(state, pid, claim(proposals.DECLINED if decline else proposals.ACCEPTED))
+                except Taken as taken:
+                    done[pid] = {"state": taken.state or proposals.EXPIRED}
                     continue
-                if raw["kind"] == cards.DECLINE_KIND:
-                    proposals.update_proposal(state, proposal["id"], lambda data: data.update(state=proposals.DECLINED,
-                                                                                              decided_at=time.time()))
-                    row.update(state=proposals.DECLINED, note="不用")
+                except KeyError:
+                    done[pid] = {"state": proposals.EXPIRED}
                     continue
-                proposals.update_proposal(state, proposal["id"], lambda data: data.update(state=proposals.ACCEPTED,
-                                                                                          decided_at=time.time()))
+                if decline:
+                    done[pid] = {"state": proposals.DECLINED, "note": "不用"}
+                    continue
                 try:
                     ok, words = self.apply(ctx, chat, proposal)
                 except Exception as exc:  # noqa: BLE001 - this row only
                     ok, words = False, f"出错了（{type(exc).__name__}）"
-                proposals.update_proposal(state, proposal["id"], lambda data: data.update(
+                proposals.update_proposal(state, pid, lambda data: data.update(
                     state=proposals.DONE if ok else proposals.FAILED, note=words))
-                row.update(state=proposals.DONE if ok else proposals.FAILED, note=words)
-            saved = read_object(path)
-            saved["view"] = {**saved.get("view", {}), "rows": rows}
-            write_json(path, saved, ensure_ascii=False, indent=1)
-            self.messenger.patch_card(ctx.profile, message, cards.tidy_card(saved["view"]))
+                done[pid] = {"state": proposals.DONE if ok else proposals.FAILED, "note": words}
+            with resource_lock("record", str(path)):  # Only these rows: another click may have decided another one meanwhile.
+                saved = read_object(path)
+                view = dict(saved.get("view") or {})
+                view["rows"] = [{**row, **done.get(row.get("proposal"), {})} for row in view.get("rows") or ()]
+                saved["view"] = view
+                write_json(path, saved, ensure_ascii=False, indent=1)
+            if message:  # A 整理 whose card was never sent has nothing to redraw.
+                self.messenger.patch_card(ctx.profile, message, cards.tidy_card(view))
         after_ack(act)
         return {cards.OK_KIND: "tidy_ok", cards.ALL_KIND: "tidy_all"}.get(raw["kind"], "tidy_row_decline")
+
+
+class Taken(Exception):
+    """A proposal some other click decided first: ``state`` is what it is now."""
+
+    def __init__(self, state) -> None:
+        super().__init__(state)
+        self.state = state
+
+
+def claim(to):
+    """The edit (core/project_proposals.py update_proposal) that takes an open proposal to ``to`` and raises Taken for one that is not
+    open any more, so two clicks at once (the card's and the web page's) do not both carry it out."""
+    def edit(data):
+        if data.get("state") != proposals.OPEN:
+            raise Taken(data.get("state") or "")
+        data.update(state=to, decided_at=time.time())
+    return edit
 
 
 def gist_sign(state, topic) -> str:
