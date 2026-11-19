@@ -247,6 +247,13 @@ class Ops:
             raise ValueError("只有机器人主人能开话题")
         return web_launch.launch(self.env, row.get("op_id"), chat, payload)
 
+    def opened_topic(self, row) -> str:
+        """The topic a ``launch`` row opened ('' for none): the push builds it on its next step, so the page can open it at once."""
+        from covey.app import web_launch
+        if row.get("kind") != "launch" or not self.env.state_dir:
+            return ""
+        return str(read_object(web_launch.record_path(self.env.state_dir, row.get("op_id"))).get("topic_id") or "")
+
     # -- dismiss -----------------------------------------------------------------------------------------------------------
 
     def dismiss(self, state, chat, row, payload) -> str:

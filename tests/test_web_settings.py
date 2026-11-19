@@ -389,3 +389,18 @@ class WebSettingsTest(UnifiedCase):
         self.assertEqual(self.launch("op-b4", **{**base, "text": " "}), ("failed", "要先写这个话题做什么"))
         if not model["redaction"]:
             self.assertEqual(self.launch("op-b5", **{**base, "redaction": "on"}), ("failed", "这个模型不能脱敏"))
+
+    def test_the_topic_a_launch_opened_is_built_on_the_next_push(self):
+        """2026-11-20 live (T576): the page waited over a minute for the topic it had just opened; the inbox now touches it."""
+        model = self.snap()["launch"]["models"][0]
+        self.app.messenger.create_and_send_card = mock.Mock(return_value=("card1", "om_root9"))
+        with mock.patch.dict(os.environ, {web_sync.ENV: "1"}):
+            sync = WebSync(self.app.runtime, self.env)
+        outbox = [{"seq": 1, "op_id": "op-l9", "kind": "launch", "topic_key": "", "project_key": "",
+                   "payload": {"text": "看一眼", "model": model["key"], "effort": model["start_budget"], "workspace": "docs",
+                               "run_mode": "direct", "redaction": "off"}}]
+        sync.client.request = lambda method, path, body=None: {"items": outbox} if path.startswith("/sync/inbox") else {"ok": True}
+        with mock.patch.object(self.app.runtime.access, "owner_chat", return_value="oc_dm"):
+            sync.inbox_once()
+        record = json.loads((self.ctx.state_dir / "web" / "launches" / "op-l9.json").read_text())
+        self.assertIn(record["topic_id"], sync.collector.dirty)

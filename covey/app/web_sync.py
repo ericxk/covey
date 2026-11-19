@@ -1066,6 +1066,9 @@ class WebSync:
                 ledger.finish(op_id, state, message)
                 if row.get("topic_key"):
                     self.collector.touch(row["topic_key"])
+                opened = self.ops.opened_topic(row)
+                if opened:  # 2026-11-20 live: the page waited a minute for the topic it had just opened.
+                    self.collector.touch(opened)
                 if row.get("kind") in ("settings", "launch"):  # A launch changes what the next one preselects.
                     self.settings_due = True  # Pushed below, before the ack: the page reads the new settings when it sees done.
                 if row.get("kind") == "tidy_decide":
