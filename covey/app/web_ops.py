@@ -4,8 +4,10 @@ KINDS) as the owner's own and says (state, message) for the ack.
 - ``say``: the words are the owner's, in the topic: a running task takes them as a supplement (app/steering.py deliver_steer, as
   app/butler.py supplement does), else they are queued as the topic's next turn (app/triage.py ``correct`` does the same: alias the message
   ``web-<op_id>`` to the topic, event_context, append_history, enqueue_chat_job). To a topic that waits for the owner's answer the words
-  are its 只发补充说明 (app/answers.py skip_all_fields through the question's own submit path): its questions unanswered, the words sent
-  as the note, as the card's button does; with several questions waiting, or one the project's lead holds, they are refused. To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
+  are taken as a message in its thread is in Feishu (app/interaction.py _interactive_command): with one question waiting they are its
+  answer, written (``answer_0``, through the question's own submit path); with several waiting, or one the project's lead holds, they are
+  refused, to be answered on the question, and the question is never closed by them (2026-11-19: they were its 只发补充说明 before, and
+  the page's handiest box closed the question). To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
   the private chat: ``hear`` (app/unified.py web_message) takes it through the entry of a Feishu message, access, the duplicate check,
   the extensions and the butler, so the butler answers, opens a topic or hands on as ever. The message id ``web-<op_id>`` is no Feishu
   message: nothing quotes it, replies in its thread or reacts on it (core/topics.py context_for_topic gives the turn no reply target,
@@ -120,7 +122,7 @@ class Ops:
         if self.asking(state, chat, topic):
             if lead:
                 raise ValueError("负责人正在等你答题，请在题目里回答")
-            return self.note_to_question(state, chat, topic, row, text)
+            return self.answer_with_words(state, chat, topic, row, text)
         message = PREFIX + str(row.get("op_id"))
         owner = self.runtime.owner_open_id or ""
         remember_topic_message(state, topic, chat, message)
@@ -172,21 +174,21 @@ class Ops:
             raise ValueError(why)
         return "已交给管家"
 
-    def note_to_question(self, state, chat, topic, row, text) -> str:
-        """The owner's words to a topic waiting on a question: its 只发补充说明 (every question unanswered, the words the note)."""
+    def answer_with_words(self, state, chat, topic, row, text) -> str:
+        """The owner's words to a topic waiting on a question, as a message in its thread in Feishu: the answer of the one question waiting
+        (written, as the card's answer box takes it); several, or one the lead holds, are refused and stay open."""
         from covey.core.store import directory_store
         waiting = sorted((record for _, record in directory_store(state / "questions").query(chat_id=chat, topic_id=topic, status="pending")
                           if record.get("status", "pending") == "pending" and not record.get("display_pending")),
                          key=lambda record: record.get("created_at") or 0)
         if any(triage.held(record) for record in waiting):
             raise ValueError("这个问题还在专项负责人手上，到时间会转给你")
-        if len(waiting) != 1:
-            raise ValueError("有几道题在等你，请在题目里回答，或在题目里只发补充说明")
+        if len(waiting) != 1 or len(waiting[0].get("questions") or []) != 1:
+            raise ValueError("有几道题在等你，请在题目里逐题回答")
         record = waiting[0]
         app, ctx = self.topic(state, chat, topic)
-        fields = skip_all_fields(record.get("questions") or [], {SUPPLEMENT: text})
-        app.questions.submit_answer(ctx, chat, str(record.get("token")), fields, PREFIX + str(row.get("op_id")))
-        return "已作为补充说明交给等你回答的任务（题目算没答）"
+        app.questions.submit_answer(ctx, chat, str(record.get("token")), {"answer_0": text}, PREFIX + str(row.get("op_id")))
+        return "已作为这道题的回答交给任务"
 
     @staticmethod
     def asking(state, chat, topic) -> bool:

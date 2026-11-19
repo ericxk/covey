@@ -588,18 +588,29 @@ class InboxTest(WebCase):
         self.assertEqual(self.app.steered, [(3, "web-op-2", "补一句")])
         self.assertEqual(self.app.queued, [])
 
-    def test_say_to_a_topic_waiting_for_an_answer_is_its_note_only_answer(self):
-        """只发补充说明, as the card's button: the owner wrote in the topic instead of answering (2026-11-18: refused before, and the
-        free-text question it waited on could not be answered on the page either)."""
+    def test_say_to_a_topic_waiting_for_one_answer_is_that_answer(self):
+        """As a message in the topic's thread in Feishu (app/interaction.py): with one question waiting, the words are its answer, written.
+        2026-11-19: they were its 只发补充说明 before, so the page's handiest box closed the question unanswered."""
         self.topic()
         self.question()
-        self.web.op("say", 1, "op-3", TOPIC, text="这个先不做了，我再想想")
+        self.web.op("say", 1, "op-3", TOPIC, text="都不合适，用标准库")
         self.sync.inbox_once()
         self.assertEqual(self.web.acks[0]["state"], "done")
-        self.assertIn("补充说明", self.web.acks[0]["message"])
-        self.assertEqual(self.app.answers, [(TOPIC, TOKEN, {"skip_0": True, "supplement": "这个先不做了，我再想想"}, "web-op-3")])
+        self.assertIn("回答", self.web.acks[0]["message"])
+        self.assertEqual(self.app.answers, [(TOPIC, TOKEN, {"answer_0": "都不合适，用标准库"}, "web-op-3")])
         self.assertEqual(self.app.queued, [])
         self.assertEqual(self.app.steered, [])
+
+    def test_say_to_a_question_of_several_items_is_refused_and_leaves_it_open(self):
+        self.topic()
+        self.question(questions=[{"id": "q1", "question": "用哪个库？", "options": [{"label": "A"}, {"label": "B"}]},
+                                 {"id": "q2", "question": "放哪？", "options": []}])
+        self.web.op("say", 1, "op-3", TOPIC, text="我再想想")
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "failed")
+        self.assertIn("逐题回答", self.web.acks[0]["message"])
+        self.assertEqual((self.app.answers, self.app.queued, self.app.steered), ([], [], []))
+        self.assertEqual(json.loads((self.state / "questions" / f"{TOKEN}.json").read_text())["status"], "pending")
 
     def test_say_with_two_questions_waiting_is_refused(self):
         self.topic()
