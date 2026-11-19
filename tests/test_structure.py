@@ -386,24 +386,35 @@ class EntrypointTests(unittest.TestCase):
             "covey.backends.codex.sessions", "covey.backends.claude", "covey.app.detached",
             "covey.cards.streaming", "covey.app.unified"])
 
-    def test_the_only_import_cycles_are_the_known_ones(self):
-        # Inside functions too. Round 2 B1 broke app.detached <-> app.policy_guard; a new cycle fails here.
+    @staticmethod
+    def import_cycles(prefix=""):
+        """The groups of modules that import each other, ``prefix`` limiting the graph to a package; inside
+        functions too."""
         graph = {}
         for path in PACKAGE.rglob("*.py"):
             graph[module_name(path)] = {
                 f"{module}.{name}" if name and (PACKAGE.parent / module.replace(".", "/") / f"{name}.py").exists()
                 else module for module, name, _ in imports(path) if module.startswith("covey.")}
+        graph = {name: {dep for dep in deps if dep.startswith(prefix)} for name, deps in graph.items()
+                 if name.startswith(prefix)}
         reach = {}
         for start in graph:
             seen, todo = set(), [start]
             while todo:
                 todo += [dep for dep in graph.get(todo.pop(), ()) if dep not in seen and not seen.add(dep)]
             reach[start] = seen
-        cycles = {tuple(sorted(other for other in reach[name] if name in reach.get(other, ())))
-                  for name in graph if name in reach[name]}
-        self.assertEqual(sorted(cycles), [
+        return sorted({tuple(sorted(other for other in reach[name] if name in reach.get(other, ())))
+                       for name in graph if name in reach[name]})
+
+    def test_the_only_import_cycles_are_the_known_ones(self):
+        # Inside functions too. Round 2 B1 broke app.detached <-> app.policy_guard; a new cycle fails here.
+        self.assertEqual(self.import_cycles(), [
             ("covey.core.state", "covey.core.store"),
             ("covey.feishu.web_client", "covey.feishu.web_service")])
+
+    def test_app_has_no_import_cycle(self):
+        # The app's modules, function-level imports counted: every strongly connected group is one module.
+        self.assertEqual(self.import_cycles("covey.app."), [])
 
     def test_no_module_imports_another_ones_private_names(self):
         # Repo review R3: app/ took feishu.media's and launch's underscored helpers; they are public now.

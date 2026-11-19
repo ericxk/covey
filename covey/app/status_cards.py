@@ -31,7 +31,7 @@ from covey.core.jobs import topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.metrics import run_seconds, timings_of, took_text
 from covey.core.butler import traits
-from covey.core.state import read_object, write_json
+from covey.core.state import keyed_json_path, read_object, write_json
 from covey.core.text import cut
 from covey.core.topics import remember_topic_message, topic_file, topic_label, topic_title
 from covey.core.turn_words import BLANK_PHASES, BOARD, STATES, request_line
@@ -46,7 +46,7 @@ UNSET_PHASES = BLANK_PHASES
 
 
 def record_path(state_dir, topic_id) -> Path:
-    return Path(state_dir) / FOLDER / f"{topic_id}.json"
+    return keyed_json_path(state_dir, FOLDER, topic_id)
 
 
 def card_message(state_dir, topic_id) -> str:

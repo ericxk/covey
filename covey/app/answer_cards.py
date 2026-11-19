@@ -29,7 +29,7 @@ from covey.cards.review import answer_card, answer_lead, answer_summary, bare_an
 from covey.core.checkpoint import checkpoint_delivery, read_checkpoint, shows_change
 from covey.core.locks import resource_lock
 from covey.core.metrics import job_took
-from covey.core.state import read_json, read_object, write_json
+from covey.core.state import keyed_json_path, read_json, read_object, write_json
 from covey.core.topics import topic_label
 from covey.feishu.message_request import optimize_markdown
 
@@ -39,7 +39,7 @@ COPY = "question"  # ``where`` of a 话题区 question's top-level copy (app/que
 
 
 def record_path(state_dir, key) -> Path:
-    return Path(state_dir) / FOLDER / f"{key}.json"
+    return keyed_json_path(state_dir, FOLDER, key)
 
 
 def inputs(job, harness, snapshot=None, ctx=None) -> list:

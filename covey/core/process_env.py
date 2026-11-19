@@ -65,7 +65,8 @@ def process_device(ctx) -> dict | None:
 FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
 
-def env_flag(name: str, default: bool) -> bool:
-    """Unset gives the default; 0/false/no/off in any case turn a switch off, any other value on."""
-    raw = cenv.get(name)
+def env_flag(name: str, default: bool, environ=None) -> bool:
+    """Unset gives the default; 0/false/no/off in any case turn a switch off, any other value on. ``environ`` as in
+    ``cenv.get``."""
+    raw = cenv.get(name, None, environ)
     return default if raw is None else raw.strip().lower() not in FALSE_VALUES

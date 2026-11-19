@@ -46,6 +46,7 @@ from covey.app import track_standby
 from covey.app.track_standby import Failed
 from covey.core import env as cenv
 from covey.core.process import signal_group
+from covey.core.process_env import env_flag
 from covey.core.text import cut
 from covey.core.track_route import LIVE_PHASES, LiveJob, Message
 
@@ -167,13 +168,13 @@ def refused(exc: Failed) -> None:
 def slim_enabled(environ=None) -> bool:
     """COVEY_TRACK_JUDGE_SLIM: the question goes without the working directory's settings, memory files and skills (the
     default); 0, off, false or no: the full context, as before."""
-    return (cenv.get("COVEY_TRACK_JUDGE_SLIM", "", environ) or "").strip().lower() not in ("0", "off", "false", "no")
+    return env_flag("COVEY_TRACK_JUDGE_SLIM", True, environ)
 
 
 def warm_enabled(environ=None) -> bool:
     """COVEY_TRACK_JUDGE_WARM: a Claude Code kept ready for the next question (the default); 0, off, false or no: a
     one-shot is started at each question, as before."""
-    return (cenv.get("COVEY_TRACK_JUDGE_WARM", "", environ) or "").strip().lower() not in ("0", "off", "false", "no")
+    return env_flag("COVEY_TRACK_JUDGE_WARM", True, environ)
 
 
 def hedge(environ=None) -> int:

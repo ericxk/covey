@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.core.state import read_object, write_json
+from covey.core.state import keyed_json_path, read_object, write_json
 
 FOLDER = Path("main-thread") / "dispatch"
 LIVE, SETTLED = "live", "settled"
@@ -30,7 +30,7 @@ def folder(state_dir) -> Path:
 
 
 def record_path(state_dir, token) -> Path:
-    return folder(state_dir) / f"{token}.json"
+    return keyed_json_path(state_dir, FOLDER, token)
 
 
 def relay_note_path(state_dir, token) -> Path:

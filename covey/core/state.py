@@ -104,6 +104,11 @@ def read_json(path: Path, default=_RAISE):
         return default
 
 
+def keyed_json_path(state_dir, folder, key) -> Path:
+    """``<state_dir>/<folder>/<key>.json``, the record of one key in a records folder."""
+    return Path(state_dir) / folder / f"{key}.json"
+
+
 def read_object(path: Path) -> dict:
     """The JSON object in ``path``; {} when the file is missing, cannot be read or holds anything else."""
     try:
