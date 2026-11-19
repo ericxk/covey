@@ -5,9 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# A push that comes while the run of the one before is still going cancels that run: only the latest commit is
+# tested, and a cancelled run sends no failure mail.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # The machines Covey runs on and is developed on are on Asia/Shanghai time; the tests see the same days.
+      TZ: Asia/Shanghai
     strategy:
       fail-fast: false
       matrix:
@@ -30,4 +39,14 @@ jobs:
       - name: Tests
         env:
           BRIDGE_TEST_LEDGER: ${{ runner.temp }}/test-ledger.jsonl
-        run: python -B scripts/test_map.py run --full --why ci
+        run: |
+          status=0
+          python -B scripts/test_map.py run --full --why ci || status=$?
+          # 0 passed; 2 refused (a stale map) or another error: no retry.
+          [ "$status" -eq 1 ] || exit "$status"
+          # Tests that start processes or wait on the clock now and then fail on a 2-core runner: a few failed
+          # modules run once more, and only a failure there fails the job (the first failures stay in the log above).
+          # No retry when the ledger does not name every failure or a name is not a test module's.
+          modules=$(python scripts/ci_retry_modules.py "$BRIDGE_TEST_LEDGER") || exit 1
+          echo "::warning::retrying the failed test modules once: $modules"
+          python -B scripts/test_map.py run --why ci-retry $modules

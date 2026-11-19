@@ -467,6 +467,31 @@ class StaleTest(unittest.TestCase):
             "test ids (3 recorded, 4 now)"])
         self.assertEqual(test_map.stale(None, state), ["no map"])
 
+    def test_modules_that_skip_whole_without_the_extension_are_not_compared(self):
+        # A map built with the company extension on lists their cases, CI without it none (T570).
+        self.assertTrue({"test_proxy", "test_steer", "test_ttft"} <= set(test_map.gated_modules()))
+        self.assertNotIn("test_web_sync", test_map.gated_modules())
+
+        def state(gated_cases):
+            class Case(unittest.TestCase):
+                def test_x(self):
+                    pass
+            loaded = {"test_a": unittest.TestSuite([Case("test_x")]),
+                      "test_g": unittest.TestSuite([Case("test_x")] * gated_cases)}
+            with mock.patch.object(test_map, "test_modules", return_value=["test_a", "test_g"]), \
+                    mock.patch.object(test_map, "gated_modules", return_value=["test_g"]), \
+                    mock.patch.object(test_map, "test_roots", return_value=[test_map.TESTS]), \
+                    mock.patch.object(test_map, "git", return_value=""), \
+                    mock.patch.object(unittest.TestLoader, "loadTestsFromName", lambda _, name: loaded[name]):
+                return test_map.suite_state()[1]
+
+        with_extension, without = state(3), state(0)
+        self.assertEqual(with_extension["tests"], without["tests"])
+        data = dict(a_map({}), modules=with_extension["modules"], tests=with_extension["tests"], sources=[])
+        self.assertEqual(test_map.stale(data, without), [])
+        with mock.patch.object(test_map, "gated_modules", return_value=["test_g"]):
+            self.assertEqual(test_map.stale(dict(data, tests="old"), without), ["test ids (1 recorded, 1 now)"])
+
 
 class LedgerTest(unittest.TestCase):
     def entry(self, command="run", scope="full", slow=False, tree="t1", result="pass"):

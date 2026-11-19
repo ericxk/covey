@@ -6,6 +6,7 @@ level of the private chat (the id ``web-<op_id>`` is quoted, replied to and reac
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import json
 import os
 import threading
@@ -1614,7 +1615,7 @@ class SpeakerTest(WebCase):
 
 def at(seconds):
     """T0 + ``seconds`` as a history line's ``time`` and a record's ``updated_at`` write it."""
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(T0 + seconds))
+    return datetime.datetime.fromtimestamp(T0 + seconds).astimezone().isoformat(timespec="seconds")  # +08:00, 3.10 reads it.
 
 
 def ran(job_id, message, start, end, **fields):

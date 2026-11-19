@@ -160,6 +160,16 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 - 子进程导入时读 NFS 上的 `.py` 可能卡在 D 状态（约 10 秒的整数倍），所以新起子进程的用例用宽的等待上限（`CHILD_DEADLINE`），模块耗时偶尔多出 10–30 秒是正常的。
 - 已知偶发：`test_claude.ClaudeLiveQuestionDeliveryTests` 在同机并发跑多个全量时失败；`test_native_questions` 在并行下偶尔卡约 185 秒（NFSv4.1 委托等待）。单独重跑确认，`flaky` 看历史。
 
+### GitHub 上的 CI
+
+`.github/workflows/ci.yml` 在推 `main` 和 PR 时用 Python 3.10、3.11、3.12 各跑一遍静态检查、隐私检查、文档链接和 `run --full`。
+
+- 时区设成 `Asia/Shanghai`，和跑 Covey 的机器一样；测试里写死的日期、时刻按 UTC+8 写。新测试仍别依赖机器时区：代码按固定 +08:00 算的（如早晚汇总的时刻）就用同一个时区算期望值，按本机时间算的就在测试里固定 `TZ`。
+- 测试里的时间串按线上写法 `+08:00` 带冒号；`%z` 写出的 `+0800` 在 3.10 的 `fromisoformat` 上读不出。
+- CI 不装公司扩展，整模块 `require_extension()` 的测试在那里收不到用例；`test_map.py` 比对用例清单时不算这些模块，开着扩展 `build` 出的地图在 CI 上也不算过期。
+- 全量有失败时，`scripts/ci_retry_modules.py` 从台账最后一行取失败的模块（最多 4 个，台账要列全每个失败），再跑一次，第二次还失败才算 CI 失败；第一次的失败留在日志里，并有一条 warning。
+- 连着推时，后一次推送取消前一次还没跑完的运行（`concurrency`），被取消的运行不发失败邮件。
+
 ## 真实环境验证
 
 - Claude CLI 契约：`CLAUDE_BRIDGE_REAL_CLI=1 python3 -B -m unittest discover -s tests -p test_claude.py -k InstalledClaudeContractTests`，本机 `claude` 连本地模拟接口，配置隔离。升级 Claude Code 后跑一次。

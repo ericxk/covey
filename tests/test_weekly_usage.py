@@ -3,6 +3,7 @@ and the card the bot menu's 本周用量 sends to the owner's private chat."""
 from __future__ import annotations
 
 import json
+import os
 import time
 import unittest
 from unittest import mock
@@ -15,6 +16,23 @@ from covey.core.jobs import upsert_job_record
 
 NOW = 1793635200.0  # 2026-11-03T00:00:00+08:00
 DAY = 86400
+ZONE = "Asia/Shanghai"  # The days below are UTC+8's, as the card's days are the machine's local ones.
+_zone = None
+
+
+def setUpModule():
+    global _zone
+    _zone = os.environ.get("TZ")
+    os.environ["TZ"] = ZONE
+    time.tzset()
+
+
+def tearDownModule():
+    if _zone is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = _zone
+    time.tzset()
 
 
 def iso(seconds):

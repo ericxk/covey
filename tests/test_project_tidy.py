@@ -23,7 +23,7 @@ from covey.app.project_tidy import ProjectTidy
 from covey.app.track_standby import Failed
 from covey.app.web_ops import Ops
 from covey.cards import project_proposal as cards
-from covey.app import project_lead
+from covey.app import digest, project_lead
 from covey.core import butler_tool_specs, projects, topic_gist
 from covey.core import project_proposals as proposals
 from covey.core.checkpoint import TOPIC_GIST_RULE
@@ -738,8 +738,8 @@ class MomentTest(TidyCase):
     def test_the_digest_times_start_one_whole_tidy_each(self):
         self.filler()
         self.tidy.tick(self.ctx)  # The cursor.
-        clock = time.localtime(time.time() - 60)
-        with mock.patch.dict(os.environ, {"COVEY_DIGEST_TIMES": f"{clock.tm_hour:02d}:{clock.tm_min:02d}"}):
+        clock = datetime.datetime.fromtimestamp(time.time() - 60, digest.ZONE)  # The digest times are Asia/Shanghai's.
+        with mock.patch.dict(os.environ, {"COVEY_DIGEST_TIMES": f"{clock.hour:02d}:{clock.minute:02d}"}):
             self.tidy.tick(self.ctx)
             self.tidy.tick(self.ctx)
         runs = list((proposals.folder(self.state) / "runs").glob("*.json"))

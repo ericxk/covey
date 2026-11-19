@@ -230,6 +230,16 @@ def test_modules() -> list[str]:
     return sorted(path.stem for root in test_roots() for path in root.glob("test*.py"))
 
 
+GATED = re.compile(r"^require_extension\(", re.MULTILINE)
+
+
+def gated_modules() -> list[str]:
+    """The core test modules that skip whole without the company extension (a top-level require_extension()):
+    their cases depend on whether it is enabled, so the case list a map compares leaves them out and a map built
+    with the extension on describes the suite CI runs without it."""
+    return sorted(path.stem for path in TESTS.glob("test*.py") if GATED.search(path.read_text(encoding="utf-8")))
+
+
 TEST_PATH = re.compile(r"(?:tests|extensions/[^/]+/tests)/test")
 SUPPORT_PATH = re.compile(r"(?:tests|extensions/[^/]+/tests)/support/")
 
@@ -264,10 +274,12 @@ def suite_state():
     # describes the tree, so those modules are listed apart and left out of the staleness check (and of the case list, which is not compared then).
     outside = sorted(name for root in test_roots() if not root.resolve().is_relative_to(REPO.resolve())
                      for name in (path.stem for path in root.glob("test*.py")))
+    gated = set(gated_modules())
     sources = [path for path in git("ls-files", "--cached", "--others", "--exclude-standard", "--", "covey",
                                     "bin", "extensions").splitlines() if "/tests/" not in path]
     return suites, {"modules": {name: len(found) for name, found in ids.items()},
-                    "tests": digest(test for name in ids if name not in outside for test in ids[name]),
+                    "tests": digest(test for name in ids if name not in outside and name not in gated
+                                    for test in ids[name]),
                     "outside": outside,
                     "sources": sorted(path for path in sources if path.endswith(".py"))}
 
@@ -295,7 +307,9 @@ def stale(data, state) -> list[str]:
     # With an extension from outside this tree on, core tests that need it run more cases than the map recorded
     # (requires_extension), so the case list cannot be compared; the module and file lists above still are.
     if data["tests"] != state["tests"] and not state.get("outside"):
-        reasons.append(f"test ids ({sum(data['modules'].values())} recorded, {sum(now_modules.values())} now)")
+        gated = set(gated_modules())
+        count = lambda modules: sum(n for name, n in modules.items() if name not in gated)
+        reasons.append(f"test ids ({count(data['modules'])} recorded, {count(now_modules)} now)")
     return reasons
 
 
