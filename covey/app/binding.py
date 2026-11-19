@@ -208,10 +208,11 @@ def set_redaction(topic, on):
 
 
 def retire_open_questions(topics, old_app, ctx, chat, *, reason="switched", message="话题已更换配置，由新模型接着处理",
-                          job_status="continued"):
+                          job_status="continued", by=""):
     """Questions of the old binding (or of a turn ↩️ 回退 dropped, ``reason`` "rewound") are void: cancel them
     and end the jobs waiting on them (``job_status``: "continued", the turn goes on elsewhere; "cancelled" when it is stopped,
-    as a project's lead does for the owner)."""
+    as a project's lead does for the owner). ``by``: who stopped them (core/jobs.py STOP_SOURCES), the cancelled jobs'
+    ``cancel_requested_by``: core/look.py says 已停止 for the owner's own stop, 停住了 for any other."""
     for path, record in directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat):
         if record.get("status") != "pending":
             continue
@@ -224,7 +225,8 @@ def retire_open_questions(topics, old_app, ctx, chat, *, reason="switched", mess
     for _, record in directory_store(ctx.state_dir / "jobs").query(topic_id=ctx.topic_id, chat_id=chat):
         if record.get("status") != "waiting_user" or not record.get("key"):
             continue
-        upsert_job_record(ctx.state_dir, record["key"], status=job_status, status_message=message)
+        stopper = {"cancel_requested_by": by} if by and job_status == "cancelled" else {}
+        upsert_job_record(ctx.state_dir, record["key"], status=job_status, status_message=message, **stopper)
         if record.get("checkpoint_path"):
             try:
                 release_user_wait(Path(record["checkpoint_path"]))

@@ -4,7 +4,8 @@ the checkpoint's plan, the token figures, the time it took and the notes of the 
 
 - ``steps``: the newest ``STEPS_KEPT`` steps of the main task as {id, kind, label, started_at, ended_at, status}; ``kind`` is by the step's
   title (``STEP_KINDS``), a running step's ``ended_at`` is None. A note (the progress note) is no step: it is the turn's body.
-- ``plan``: the checkpoint's ``steps`` ({title, state}, core/checkpoint.py ``checkpoint_steps``).
+- ``plan``: the checkpoint's ``steps`` ({title, state}, core/checkpoint.py ``checkpoint_steps``); once the turn has ended, a step left
+  ``doing`` is ``todo`` (it was not done, and nothing does it now).
 - ``usage`` {input, output, cache_read, total}, ``seconds``, ``speed``, ``context`` {used, limit}: as the cards show them (cards/facts.py
   ``usage_figures``, core/metrics.py ``run_seconds``). While the turn runs ``seconds`` moves in steps of ``RUNNING_STEP`` and ``speed`` is a
   whole number, so a quiet minute does not change the item's ``rev`` every second.
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from covey.cards import facts
 from covey.core.checkpoint import checkpoint_steps, read_checkpoint
+from covey.core.look import WAITS
 from covey.core.metrics import run_seconds, timings_of
 from covey.core.trace_store import load_trace
 
@@ -115,6 +117,9 @@ def extras(state, record, running, now=None, snapshot=None) -> dict:
         steps, plan = steps_of(snapshot), plan_of(record)
         if steps:
             out["steps"] = steps
+        if plan and not running and record.get("status") not in WAITS:
+            # The turn has ended: a step its checkpoint left ``doing`` was not done, and nothing does it now.
+            plan = [{**step, "state": "todo"} if step.get("state") == "doing" else step for step in plan]
         if plan:
             out["plan"] = plan
         out.update(figures(record, snapshot, running, now))

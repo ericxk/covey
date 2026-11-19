@@ -690,6 +690,20 @@ class InboxTest(WebCase):
         self.assertEqual(job["status"], "cancelled")
         self.assertEqual(self.app.stopped, [])
 
+    def test_a_topic_the_owner_stopped_on_the_page_is_his_stop_not_stopped_by_someone(self):
+        """2026-11-18 T478: stopped on the page while it waited for an answer, it showed 停住了 (red, counted in 要你处理, with
+        检查并继续): the cancelled turn did not say who stopped it. It says web now, and reads 已停止."""
+        self.topic(status="waiting_user")
+        write_job(self.state, f"k-{TOPIC[:4]}", timings={"backend_started": T0 - 60})
+        self.question()
+        self.web.op("stop", 1, "op-10", TOPIC)
+        self.sync.inbox_once()
+        job = read_object(job_file(self.state, f"k-{TOPIC[:4]}"))
+        self.assertEqual((job["status"], job.get("cancel_requested_by")), ("cancelled", "web"))
+        self.sync.push_once(T0)
+        topic = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
+        self.assertEqual(topic["tone"], "cancelled")
+
     def test_reopen_unfolds_a_folded_project_and_refuses_the_rest(self):
         projects.update(self.state, PID, lambda record: record.update(state="paused", state_reason="idle", idle={"at": T0, "days": 7}))
         self.web.op("reopen", 1, "op-11", project=PID)
@@ -974,6 +988,29 @@ class ExtrasTest(WebCase):
         topic = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
         self.assertEqual((topic["round"], topic["context"]), (1, {"used": 5000, "limit": 200000}))
         self.assertEqual(turn["body"], "先看了文件")
+
+    def test_an_ended_turn_has_no_step_doing(self):
+        """T542 2026-11-19: its 4th turn ended with 真机验收 still doing in its checkpoint, and the page drew it 在做 with a
+        spinner on a topic that was done. The step was not done: todo."""
+        self.topic(lines=(("user", "你好"), ("assistant", "好的")))
+        plan = self.state / "plan.json"
+        write_json(plan, {"steps": [{"title": "读代码", "state": "done"}, {"title": "真机验收", "state": "doing"}, {"title": "部署", "state": "todo"}]})
+        write_job(self.state, f"k-{TOPIC[:4]}", message_id="m你好", checkpoint_path=str(plan),
+                  timings={"backend_started": T0, "execution_finished": T0 + 42})
+        self.traced(dict(snapshot_of(T0), ended_at=T0 + 42))
+        self.sync.push_once(T0 + 60)
+        turn = {item["key"]: item["data"] for item in self.web.items("turn")}[f"{TOPIC}:2"]
+        self.assertEqual([(row["title"], row["state"]) for row in turn["plan"]], [("读代码", "done"), ("真机验收", "todo"), ("部署", "todo")])
+
+    def test_a_turn_waiting_for_an_answer_keeps_its_step_doing(self):
+        self.topic(status="waiting_user", lines=(("user", "做一下"),))
+        plan = self.state / "plan.json"
+        write_json(plan, {"steps": [{"title": "读代码", "state": "done"}, {"title": "改代码", "state": "doing"}]})
+        write_job(self.state, f"k-{TOPIC[:4]}", checkpoint_path=str(plan), timings={"backend_started": T0})
+        self.traced(snapshot_of(T0))
+        self.sync.push_once(T0 + 13)
+        turn = self.web.items("turn")[-1]["data"]
+        self.assertEqual([row["state"] for row in turn["plan"]], ["done", "doing"])
 
     def test_a_quiet_running_turn_does_not_change_its_rev_every_second(self):
         self.topic(status="running", lines=(("user", "做一下"),))

@@ -277,7 +277,7 @@ class Ops:
                 said.append(f"已请求停止 #{job.job_id}")
         if waiting:
             from covey.app import binding
-            binding.retire_open_questions(self.env.topics, app, ctx, chat, reason="web_stop", job_status="cancelled",
+            binding.retire_open_questions(self.env.topics, app, ctx, chat, reason="web_stop", job_status="cancelled", by="web",
                                           message=WEB_STOP_NOTE)
             said.append("等你回答的题已收掉")
         return "；".join(said)

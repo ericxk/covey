@@ -163,7 +163,7 @@ def project_topic_stop(env, request):
         return reply(False, f"{label} 不是这个专项的话题，不能从这里停它。")
     stopped = project_cards.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}", by="lead")
     why = " ".join(str(request.args.get("why") or "").split())[:120]
-    binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled",
+    binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled", by="lead",
                                   message=STOP_NOTE + (f"：{why}" if why else ""))
     acted(env, pid, request, "stop")
     return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉；"
