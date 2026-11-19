@@ -1,10 +1,12 @@
 #!/bin/bash
 # Deploy Covey from a git checkout, following docs/operations.md#部署新版本 steps 1-4.
-# Prints one JSON line on stdout (exit 0: ok, 1: a check failed, 2: bad arguments); command logs go to the run dir.
+# Prints one JSON line on stdout (exit 0: ok, 1: a check failed, 2: bad arguments, 3: another deploy is running);
+# command logs go to the run dir.
 #
 #   deploy_bridge.sh --workdir DIR --profile NAME [--app-id ID] [--state-dir DIR] [--harness-config FILE]
 #                    [--check-only] [--repo CHECKOUT] [--commit REV] [--run-dir DIR] [--allow-command-change]
-#                    [--ext-repo CHECKOUT [--ext-commit REV]]... [--allow-core-mismatch] [-- BRIDGE_OPTION ...]
+#                    [--ext-repo CHECKOUT [--ext-commit REV]]... [--allow-core-mismatch] [--allow-rollback]
+#                    [-- BRIDGE_OPTION ...]
 #
 # Names as in docs/operations.md: COVEY_DATA_HOME (required), APP_ID and STATE_DIR when --app-id and
 # --state-dir are absent (STATE_DIR defaults to $COVEY_DATA_HOME/harness-$APP_ID), the service root from
@@ -12,13 +14,22 @@
 # The options after -- go to bootstrap as they are (e.g. --sandbox workspace-write). The run dir defaults to
 # $TMPDIR/bridge-deploy-<time>; its tmp/ becomes TMPDIR. HTTPS_PROXY is unset (a task shell inherits the Manager's).
 #
+# One deploy at a time: a deploy (not --check-only) takes the lock <service root>/deploy.lock (flock, released when
+# this process exits, also on a crash) before its pre-checks and keeps it to the end. The lock file says who holds it
+# (pid, host, commit, release, start, run dir, task). When another deploy holds it, the script exits 3 at once with
+# "deploy_running" (that holder) and touches nothing: wait and run it again, each try a short command (that is the
+# queue). --check-only takes no lock; it reports "pre.deploy_running" (the holder or null) and is not blocked by it.
 # Pre-checks (abort on any): status.restart_blockers empty, no launch form creating_worktree, no 代答 batch with
 # status sending, the manifest's environment == runtime_environment() (names and values), neither of them nor the
 # manifest of another running service in the service root keeping a permission variable the backends no longer
 # read with a value that restricted them (core/ignored_env.py loosened: LARK_BRIDGE_CODEX_SANDBOX other than
 # danger-full-access, LARK_CLAUDE_BRIDGE_SKIP_PERMISSIONS off; the services covey_doctor --runtime-only fails on), and
 # the Bridge command bootstrap would register == the manifest's (python, arguments; --allow-command-change lets
-# it differ).
+# it differ), and no rollback: the live release's commits (the manifest's entry script under
+# $COVEY_DATA_HOME/releases/<id>/, its RELEASE_MANIFEST or the id) must be ancestors of --commit (and of each
+# --ext-commit, in order, when the live release has as many extensions); "pre.rollback" says which is not, or which
+# the checkout does not have (fetch it); --allow-rollback lets it go back on purpose. A live service not run from a
+# release under releases/ is not compared ("pre.live_release" is null).
 # --check-only stops there. Then: git archive REV into releases/<sha>, write its .pyc files (below), bootstrap from it.
 # Precompiling: the service runs every Python process with -B, so a release without __pycache__ is compiled from source
 # again at each process start. Before bootstrap, scripts/precompile_release.py runs under the python3 bootstrap
@@ -39,7 +50,7 @@ set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 unset HTTPS_PROXY
 exec python3 -I - "$ROOT" "$@" <<'PY'
-import argparse, glob, json, os, re, shutil, subprocess, sys, time
+import argparse, fcntl, glob, json, os, re, shutil, socket, subprocess, sys, time
 from pathlib import Path
 
 result = {"ok": False}
@@ -60,6 +71,7 @@ ap.add_argument("--allow-command-change", action="store_true")
 ap.add_argument("--ext-repo", action="append", default=[])
 ap.add_argument("--ext-commit", action="append", default=[])
 ap.add_argument("--allow-core-mismatch", action="store_true")
+ap.add_argument("--allow-rollback", action="store_true")
 ap.add_argument("--app-id", default=os.environ.get("APP_ID"))
 ap.add_argument("--state-dir", default=os.environ.get("STATE_DIR"))
 ap.add_argument("--workdir")
@@ -172,8 +184,46 @@ result.update(commit=commit, release=str(release))
 if exts:
     result.update(ext_commits=[sha for _, sha, _ in exts], release_id=release_id)
 
+service_root = Path(sh(["python3", "-B", "bin/covey_paths.py", "service-root"], cwd=repo).stdout.strip())
+
+
+def deploy_lock():
+    """(fd, None) with <service root>/deploy.lock held, or (None, what its holder wrote). On NFS flock is a POSIX
+    lock, which any close of the file in this process drops: the holder never opens the file again."""
+    path = service_root / "deploy.lock"
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    except OSError as exc:
+        finish(error=f"cannot open {path}: {exc}")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        try:
+            said = json.loads(os.pread(fd, 4096, 0) or b"null")
+        except ValueError:
+            said = None
+        os.close(fd)
+        return None, said if isinstance(said, dict) else {"holder": "unknown (it is starting)"}
+    return fd, None
+
+
+# ---- one deploy at a time
+held, running = deploy_lock()
+if args.check_only:
+    if held is not None:
+        os.close(held)  # A check only looks.
+        held = None
+elif held is not None:
+    os.ftruncate(held, 0)
+    os.pwrite(held, json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "commit": commit,
+                                "release_id": release_id, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                                "run_dir": str(run), "task": os.environ.get("COVEY_TASK_DIR")},
+                               ensure_ascii=False).encode(), 0)
+else:
+    finish(3, deploy_running=running, error="another deploy is running (deploy_running): wait and run this again")
+
 # ---- pre-checks
-pre = {}
+pre = {"deploy_running": running}
 before = status(repo)
 pre["restart_blockers"] = before.get("restart_blockers")
 pre["creating_worktree"] = [Path(p).name for p in glob.glob(str(S / "launch-forms" / "*.json"))
@@ -186,7 +236,6 @@ for p in glob.glob(str(S / "proxy" / "batches" / "*.json")):
     except (OSError, ValueError):
         sending.append(Path(p).stem + ":unreadable")
 pre["proxy_sending"] = sending
-service_root = Path(sh(["python3", "-B", "bin/covey_paths.py", "service-root"], cwd=repo).stdout.strip())
 manifests, others = [], {}
 for p in glob.glob(str(service_root / "services" / "*.json")):
     try:
@@ -232,12 +281,49 @@ if exts:
     if pre["extension_env"]:
         pre["extension_env_note"] = ("COVEY_EXTENSION_PATH / COVEY_EXTENSIONS override the release's extensions/: "
                                      "unset them in the shell and re-register without them")
+
+
+def live_commits(entry):
+    """(release id, [core commit, extension commits...]) of the live entry script, (None, []) when it is not run
+    from a release under $COVEY_DATA_HOME/releases/."""
+    try:
+        rel = Path(entry).resolve().relative_to((DATA / "releases").resolve())
+    except (ValueError, OSError, TypeError):
+        return None, []
+    rid = rel.parts[0] if len(rel.parts) > 1 else None
+    if not rid:
+        return None, []
+    try:
+        lines = (DATA / "releases" / rid / "RELEASE_MANIFEST").read_text().splitlines()
+        found = [ln.split()[1] for ln in lines if ln.split()[:1] in (["core"], ["extension"]) and len(ln.split()) > 1]
+    except OSError:
+        found = []
+    return rid, found or rid.split("-")
+
+
+def not_after(live_sha, checkout, new_sha, what):
+    """Why deploying new_sha would go back from live_sha (None when it contains it)."""
+    full = sh(["git", "rev-parse", "--verify", "--quiet", f"{live_sha}^{{commit}}"], cwd=checkout).stdout.strip()
+    if not full:
+        return f"{what}: the live {live_sha[:12]} is not in {checkout} (fetch it first)"
+    if sh(["git", "merge-base", "--is-ancestor", full, new_sha], cwd=checkout).returncode:
+        return f"{what}: {new_sha[:8]} does not contain the live {full[:8]} (an older or another line)"
+    return None
+
+
+live_id, live_shas = live_commits(live[2] if len(live) > 2 else None)
+pre["live_release"] = live_id
+pairs = [(live_shas[0], repo, commit, "core")] if live_shas else []
+if live_shas and len(live_shas) - 1 == len(exts):
+    pairs += [(sha, path, new, f"extension {path.name}") for sha, (path, new, _) in zip(live_shas[1:], exts)]
+pre["rollback"] = [why for why in (not_after(*pair) for pair in pairs) if why]
 old = before.get("status") or {}
 result.update(pre=pre, old={"generation": old.get("generation"), "pid": (old.get("process") or {}).get("pid")})
 blocked = [k for k in ("restart_blockers", "creating_worktree", "proxy_sending",
                        "env_missing", "env_extra", "env_value_diff", "permission_env", "command_diff",
-                       "extension_env", "core_lock_mismatch") if pre.get(k)
+                       "extension_env", "core_lock_mismatch", "rollback") if pre.get(k)
            and not (k == "command_diff" and args.allow_command_change)
+           and not (k == "rollback" and args.allow_rollback)
            and not (k == "core_lock_mismatch" and args.allow_core_mismatch)]
 if blocked:
     finish(error=f"pre-checks failed: {blocked}")

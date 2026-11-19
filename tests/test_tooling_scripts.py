@@ -198,6 +198,124 @@ class DeployScriptTests(DeployFixture):
         self.assertIn("expected one manifest", out["error"])
 
 
+
+class DeployQueueTests(DeployFixture):
+    """One deploy at a time (<service root>/deploy.lock) and no rollback of the live release (pre.rollback)."""
+
+    def hold_lock(self, said):
+        import fcntl
+
+        fd = os.open(self.services / "deploy.lock", os.O_RDWR | os.O_CREAT, 0o644)
+        os.write(fd, json.dumps(said).encode())
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+
+    def test_a_deploy_while_another_runs_exits_3_at_once_and_a_check_only_reports_it(self):
+        holder = {"pid": 4242, "commit": "f" * 40, "task": "/absolute/runs/x"}
+        fd = self.hold_lock(holder)
+        try:
+            code, out = self.deploy("--workdir", str(self.workdir), "--profile", "bot", "--", "--sandbox", "danger-full-access")
+            self.assertEqual((code, out["ok"], out["deploy_running"]), (3, False, holder), out)
+            self.assertIn("another deploy is running", out["error"])
+            self.assertNotIn("pre", out)  # Nothing was checked, packed or bootstrapped.
+            self.assertFalse((self.data / "releases").exists())
+            code, out = self.deploy("--check-only", "--workdir", str(self.workdir), "--profile", "bot", "--",
+                                    "--sandbox", "danger-full-access")
+            self.assertEqual((code, out["ok"], out["pre"]["deploy_running"]), (0, True, holder), out)
+        finally:
+            os.close(fd)
+        code, out = self.deploy("--check-only", "--workdir", str(self.workdir), "--profile", "bot", "--",
+                                "--sandbox", "danger-full-access")
+        self.assertEqual((code, out["pre"]["deploy_running"]), (0, None), out)
+
+    def test_a_deploy_holds_the_lock_and_says_who_it_is_until_it_exits(self):
+        import fcntl
+
+        # The bootstrap stub of a release that exists already fails at once; while it runs the lock is held.
+        spare = exec_tempdir()
+        self.addCleanup(spare.cleanup)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+        release = fake_release(Path(spare.name) / "release")
+        (self.data / "releases").mkdir(parents=True)
+        (self.data / "releases" / head).symlink_to(release)
+        probe, seen_file = self.root / "probe.py", self.root / "probe.json"
+        probe.write_text("import fcntl, json, os, sys\n"
+                         "fd = os.open(sys.argv[1], os.O_RDWR)\n"
+                         "try:\n    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n    held = False\n"
+                         "except BlockingIOError:\n    held = True\n"
+                         "json.dump({'held': held, 'said': json.loads(os.pread(fd, 4096, 0))}, open(sys.argv[2], 'w'))\n")
+        stub = release / "scripts" / "bootstrap_harness_bridge.sh"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text(f"#!/bin/bash\n'{sys.executable}' -I '{probe}' '{self.services / 'deploy.lock'}' '{seen_file}'\nexit 1\n")
+        stub.chmod(0o755)
+        code, out = self.deploy("--workdir", str(self.workdir), "--profile", "bot", "--", "--sandbox", "danger-full-access")
+        self.assertEqual((code, out["error"]), (1, "bootstrap failed, see bootstrap.log"), out)
+        seen = json.loads(seen_file.read_text())
+        self.assertTrue(seen["held"])  # The bootstrap (and the Bridge it starts) does not inherit the lock.
+        self.assertEqual((seen["said"]["commit"], seen["said"]["run_dir"]), (head, out["run_dir"]))
+        fd = os.open(self.services / "deploy.lock", os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # Released when the deploy exited.
+        finally:
+            os.close(fd)
+
+    def objects(self):
+        """A git environment whose new objects go to a temporary store over this checkout's (no history needed)."""
+        store = self.root / "objects"
+        store.mkdir()
+        mine = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-path", "objects"], cwd=REPO,
+                              capture_output=True, text=True).stdout.strip()
+        return {**self.env, "GIT_OBJECT_DIRECTORY": str(store), "GIT_ALTERNATE_OBJECT_DIRECTORIES": mine,
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@localhost", "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@localhost"}
+
+    def live(self, release_id):
+        python = shutil.which("python3", path=self.env["PATH"])
+        entry = self.data / "releases" / release_id / "bin" / "covey_bridge.py"
+        (self.services / "services" / "a.json").write_text(json.dumps({
+            "state_dir": str(self.state.resolve()), "environment": runtime_environment(self.env),
+            "command": [python, "-B", str(entry), *self.args]}))
+
+    def check(self, env, *args):
+        return self.deploy("--check-only", "--workdir", str(self.workdir), "--profile", "bot", *args, "--",
+                           "--sandbox", "danger-full-access", env=env)
+
+    def test_an_older_commit_than_the_live_release_is_refused_unless_asked_for(self):
+        env = self.objects()
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, env=env, capture_output=True, text=True).stdout.strip()
+        newer = subprocess.run(["git", "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "newer"], cwd=REPO, env=env,
+                               capture_output=True, text=True).stdout.strip()
+        self.assertTrue(newer)
+        self.live(newer)  # Live is a commit after HEAD: deploying HEAD would go back.
+        code, out = self.check(env)
+        self.assertEqual((code, out["ok"], out["pre"]["live_release"]), (1, False, newer), out)
+        self.assertEqual(out["pre"]["rollback"], [f"core: {head[:8]} does not contain the live {newer[:8]} (an older or another line)"])
+        self.assertIn("'rollback'", out["error"])
+        code, out = self.check(env, "--allow-rollback")
+        self.assertEqual((code, out["ok"]), (0, True), out)
+        self.live(head)  # Live is HEAD: its child, and HEAD again, go forward.
+        for rev in (newer, "HEAD"):
+            code, out = self.check(env, "--commit", rev)
+            self.assertEqual((code, out["ok"], out["pre"]["rollback"], out["pre"]["live_release"]), (0, True, [], head), out)
+
+    def test_the_live_release_manifest_names_its_commits_and_an_unknown_one_needs_a_fetch(self):
+        env = self.objects()
+        newer = subprocess.run(["git", "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "newer"], cwd=REPO, env=env,
+                               capture_output=True, text=True).stdout.strip()
+        rid = newer[:8] + "-0123abcd"
+        (self.data / "releases" / rid).mkdir(parents=True)
+        (self.data / "releases" / rid / "RELEASE_MANIFEST").write_text(f"core {newer}\nextension {'0' * 40} covey_internal\n")
+        self.live(rid)
+        code, out = self.check(env)  # No --ext-repo: only the core is compared, from the manifest's full commit.
+        self.assertEqual(out["pre"]["rollback"], [f"core: {subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=REPO, capture_output=True, text=True).stdout.strip()[:8]} does not contain the live {newer[:8]} (an older or another line)"])
+        self.live("0123456789abcdef0123456789abcdef01234567")
+        code, out = self.check(env)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(len(out["pre"]["rollback"]), 1)
+        self.assertIn("core: the live 0123456789ab is not in", out["pre"]["rollback"][0])
+        self.assertIn("fetch it first", out["pre"]["rollback"][0])
+
+
 def make_repo(path, files, message="init"):
     """A git repository at path with the given files ({relative path: text}, one commit); returns its commit."""
     for name, text in files.items():
