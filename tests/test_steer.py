@@ -222,17 +222,17 @@ class ReceiptCardTest(unittest.TestCase):
         record = {"status": "sent", "job_id": 1190, "text": "x", "saved_at": 1.0, "sent_at": 2.0,
                   "topic_id": "t", "token": "a" * 64}
         card = text_of(receipt_card(record))
-        self.assertIn("✓ **已补充到 #1190** · ✓ 后端已接收 · 当前一步结束后读到", card)
+        self.assertIn("**已补充到 #1190** · 后端已接收 · 当前一步结束后读到", card)
         self.assertIn("一个子任务）结束后才读到它", card)
         read = text_of(receipt_card({**record, "status": "read", "read_at": 3.0}))
-        self.assertIn("· ✓ 模型已读取", read)
+        self.assertIn("· 模型已读取", read)
         self.assertNotIn("当前一步结束后读到", read)
 
     def test_one_line_with_details_and_a_check_button_only_while_unconfirmed(self):
         record = {"status": "sent", "job_id": 252, "text": "第一行\n第二行", "saved_at": 1.0, "sent_at": 2.0,
                   "topic_id": "t", "token": "a" * 64}
         card = receipt_card(record, source="来源：#253 排队的消息")
-        self.assertIn("✓ **已补充到 #252**，不再单独排队", text_of(card))
+        self.assertIn("**已补充到 #252**，不再单独排队", text_of(card))
         self.assertIn("后端已接收", text_of(card))
         self.assertNotIn(CHECK_KIND, text_of(card))
         self.assertNotIn("排队中", text_of(card))
@@ -251,9 +251,9 @@ class ReceiptCardTest(unittest.TestCase):
         self.assertIn("任务结束，模型未读取", card)
         self.assertIn(REQUEUE_KIND, card)
         self.assertNotIn(REQUEUE_KIND, text_of(receipt_card({**record, "target_ended": False})))
-        self.assertEqual(stage_line(record), "⚠️ 任务已结束，模型没有读到")  # The text reply of a click.
-        self.assertEqual(stage_line({**record, "target_ended": False}), "✓ 后端已接收 · 当前一步结束后读到")
-        self.assertEqual(stage_line({**record, "merged": True}), "✓ 后端已接收 · 当前一步结束后读到")
+        self.assertEqual(stage_line(record), "任务已结束，模型没有读到")  # The text reply of a click.
+        self.assertEqual(stage_line({**record, "target_ended": False}), "后端已接收 · 当前一步结束后读到")
+        self.assertEqual(stage_line({**record, "merged": True}), "后端已接收 · 当前一步结束后读到")
         unread = {**record, "target_ended": False, "reads": True}
         self.assertIn(CHECK_KIND, text_of(receipt_card(unread)))  # Its task may end outside the worker.
         self.assertNotIn(CHECK_KIND, text_of(receipt_card({**unread, "reads": False})))

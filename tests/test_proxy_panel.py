@@ -178,7 +178,7 @@ class PanelTests(ProxyCase):
         self.assertIn('⏳ 正在开启代答…', json.dumps(busy, ensure_ascii=False))
         self.assertEqual({k for k, _, _, e in controls(busy) if e['tag'] == 'button' and not e['disabled']}, {panel.REFRESH})
         self.assertTrue(records.read_settings(self.state)['enabled'])
-        self.assertIn('✓ 代答已开启', json.dumps(result, ensure_ascii=False))
+        self.assertIn('代答已开启', json.dumps(result, ensure_ascii=False))
         self.assertNotIn('⏳', self.text())
         self.assertEqual([call.data['sequence'] for call in self.puts()], [1, 2, 3])
         self.assertEqual(len({call.data['uuid'] for call in self.puts()}), 3)
