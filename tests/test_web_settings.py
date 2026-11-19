@@ -318,3 +318,18 @@ class WebSettingsTest(UnifiedCase):
             self.assertEqual(run(topic_key="f" * 32)[0], "failed")
         record = json.loads(pins.record_path(self.ctx.state_dir, "oc_dm").read_text())
         self.assertIn(topic, record["dismissed"])
+
+    def test_the_proxy_pages_model_rows_are_the_pages_to_change(self):
+        """2026-11-19 live: the rows came out read only (the 设置 rows' EDITABLE knows no 代答 kind)."""
+        from covey.app import web_panels
+        from covey.cards import proxy_panel as proxy_cards
+        from covey.cards.launch_config import Setting
+        proxy = mock.Mock(settings=lambda ctx: {"enabled": True, "user_profile": "me"}, web_login=mock.Mock(login_seen=(True, 1.0)),
+                          web=mock.Mock(problems=lambda ctx, settings: []))
+        panel = mock.Mock(proxy=proxy, current=lambda settings, choices: None)
+        rows = [Setting("p_model", "模型", proxy_cards.TIER_MODEL, "m1", [("m1", "M1"), ("m2", "M2")])]
+        with mock.patch("covey.app.launch_models.available_models", return_value={}), \
+                mock.patch("covey.cards.proxy_panel.model_rows", return_value=rows):
+            data = web_panels.proxy_tab(self.web.context(), panel, web_settings.row, web_settings.LIMIT)
+        self.assertEqual([(r["kind"], r["editable"]) for r in data["rows"]], [(proxy_cards.TIER_MODEL, True)])
+        self.assertTrue(data["login_ok"])

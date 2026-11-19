@@ -134,7 +134,8 @@ def proxy_tab(ctx, panel, row, limit) -> dict:
     return {"summary": " · ".join(["开着" if enabled else "关着", f"白名单 {len(contacts)} 个"] + ([f"暂停 {paused} 个"] if paused else [])),
             "enabled": enabled, "group": settings.get("group_name") or "", "login_ok": bool(enabled and seen and seen[0]),
             "problems": problems,
-            "rows": [row(each, True) for each in model_rows(settings, choices, panel.current(settings, choices), limit)],
+            # Every model row is the page's to change, through the card's ``pick`` (``proxy_change``), not the 设置 rows' EDITABLE.
+            "rows": [{**row(each), "editable": True} for each in model_rows(settings, choices, panel.current(settings, choices), limit)],
             "contacts": [{"key": c["key"], "name": c.get("name") or "", "kind": kind_label(c), "paused": bool(c.get("paused")),
                           "from": groups.get(records.source_of(c) or "", "")} for c in contacts]}
 
