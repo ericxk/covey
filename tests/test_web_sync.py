@@ -388,6 +388,61 @@ class StuckTest(WebCase):
         self.assertGreaterEqual(starts[1] - began, 0.55)
 
 
+    def test_at_the_cap_it_goes_on_after_a_while_even_if_none_ends(self):
+        """2026-11-19: three opens on the network disk never returned and the push waited for one of them for good, so the page
+        kept a topic 在做 an hour after its turn had ended."""
+        hang, starts = threading.Event(), []
+        self.addCleanup(hang.set)
+
+        def step():
+            starts.append(time.monotonic())
+            if len(starts) == 1:
+                hang.wait(10)
+            else:
+                self.runtime.shutdown.set()
+        guard = threading.Timer(3, self.runtime.shutdown.set)
+        guard.start()
+        self.addCleanup(guard.cancel)
+        with mock.patch.object(app_web, "STUCK_SECONDS", 0.1), mock.patch.object(app_web, "MAX_LEFT", 1), \
+                mock.patch.object(app_web, "LEFT_WAIT", 0.3, create=True):
+            self.sync.loop("push", step, lambda: 0.01)
+        self.assertEqual(len(starts), 2)
+        self.assertTrue(any("still stuck" in line for line in self.logs))
+
+    def test_a_topic_whose_read_hangs_is_left_out_until_it_returns(self):
+        """The next look does not hang on the same topic again: the others are pushed, it is not deleted from the page, and once
+        its read returns it is looked at again."""
+        self.topic()
+        self.topic(OTHER, number=8, title="写周报")
+        hang, order = threading.Event(), []
+        self.addCleanup(hang.set)
+        real = app_web.Collector.topic_items
+
+        def topic_items(collector, state, chat, topic, records, now):
+            if topic == TOPIC and not hang.is_set():
+                hang.wait(10)
+            return real(collector, state, chat, topic, records, now)
+
+        def step():
+            count = self.sync.push_once()
+            for key in (item["key"] for item in self.web.items("topic")):
+                if key not in order:
+                    order.append(key)
+            if OTHER in order:
+                hang.set()
+            if TOPIC in order:
+                self.runtime.shutdown.set()
+            return count
+        guard = threading.Timer(8, self.runtime.shutdown.set)
+        guard.start()
+        self.addCleanup(guard.cancel)
+        with mock.patch.object(app_web.Collector, "topic_items", topic_items), mock.patch.object(app_web, "STUCK_SECONDS", 0.2), \
+                mock.patch.object(app_web, "MAX_LEFT", 2):
+            self.sync.loop("push", step, lambda: 0.01, self.sync.start_over, lambda: self.sync.collector.moved)
+        self.assertEqual(order[:2], [OTHER, TOPIC])
+        self.assertFalse([gone for batch in self.web.upserts for gone in batch["deleted"] if gone["key"] == TOPIC])
+        self.assertTrue(any("leaves topic" in line for line in self.logs))
+
     def test_a_long_step_that_keeps_moving_is_not_left_behind(self):
         """The first push of a big chat: many batches, longer in all than STUCK_SECONDS, each one progress."""
         stamps, threads = [], []

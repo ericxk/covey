@@ -49,7 +49,8 @@ TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
 MAX_BACKOFF = 30
 TIMEOUT = 20
 STUCK_SECONDS = 60  # A step with no progress in this long is left behind (an NFS read can hold its thread for good); the next runs in a new thread.
-MAX_LEFT = 3  # Left-behind steps still stuck: with this many no new thread is started until one of them ends.
+MAX_LEFT = 3  # Left-behind steps still stuck: with this many no new thread is started until one of them ends, or LEFT_WAIT has passed.
+LEFT_WAIT = 300  # Seconds waited at MAX_LEFT; then the next step runs in a new thread anyway (an open stuck for good must not stop the push).
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
 BUTLER_TITLE = "管家"
 LEAD_TITLE = "负责人"
@@ -166,8 +167,11 @@ class Client:
 class Collector:
     """The items of the owner's chat from the records (see the module's reading rules). One thread uses it."""
 
-    def __init__(self, env) -> None:
+    def __init__(self, env, stuck=None) -> None:
         self.env = env
+        self.stuck = {} if stuck is None else stuck  # topic id -> the left-behind thread stuck reading it (WebSync.start_over).
+        self.left = set()  # The topics the last look left out because their read is stuck.
+        self.at, self.thread = "", None  # The topic being built now, and the thread that looks.
         self.hot, self.dirty = set(), set()
         self.unseen = set()
         self.states = {}  # topic id -> its state word, from its last build (a project's 等你 reads it).
@@ -188,6 +192,9 @@ class Collector:
         """(items, deleted): ``items`` the topics looked at, their turns and questions, and all projects; ``deleted`` (full looks only)
         the topics and projects pushed before that are not any more (a list of {type, key}; ``seen`` is updated by the caller)."""
         state = Path(self.env.state_dir)
+        self.thread = threading.current_thread()
+        out = {topic for topic, thread in list(self.stuck.items()) if thread.is_alive()}
+        back, self.left = self.left - out, out  # A stuck read that came back: its topic is looked at again now.
         running = board_read.running_jobs(state, chat)
         asking = board_read.pending_questions(state, chat)
         butler = butler_topic_id(chat)
@@ -197,7 +204,7 @@ class Collector:
         hot = {row.get("topic_id") for row in (*running, *asking) if row.get("topic_id")}
         hot |= self.family_live(state, chat, family)  # A turn of one runs or asks (the board does not list them).
         with self.lock:
-            touched, self.dirty = self.dirty, set()
+            touched, self.dirty = self.dirty | back, set()
         if full or hot != self.hot or touched:
             read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
             self.unseen = set(pins.board_results(state, chat, now, read)[0])
@@ -207,21 +214,25 @@ class Collector:
         else:
             by_topic = {topic: sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number)
                         for topic in hot | self.hot | touched if topic not in family}
-        looked = [topic for topic in family if full or topic in hot or topic in self.hot or topic in touched]
+        by_topic = {topic: jobs for topic, jobs in by_topic.items() if topic not in out}
+        looked = [topic for topic in family if (full or topic in hot or topic in self.hot or topic in touched) and topic not in out]
         self.hot = hot
         items = []
         for topic, jobs in by_topic.items():
+            self.at = topic
             items += self.topic_items(state, chat, topic, jobs, now)
             self.moved = time.monotonic()
         for topic in looked:
+            self.at = topic
             mine = self.topic_items(state, chat, topic, sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number), now)
             self.moved = time.monotonic()
             items += mine
             if mine:
                 by_topic[topic] = []
+        self.at = ""
         deleted = []
         if full:
-            seen = {("topic", topic) for topic in by_topic}
+            seen = {("topic", topic) for topic in (*by_topic, *out)}  # A topic left out is still on the page: not deleted.
             deleted += [{"type": kind, "key": key} for kind, key in sorted(self.pushed_topics - seen)]
             self.pushed_topics = seen
         elif by_topic:
@@ -675,7 +686,8 @@ class WebSync:
     def __init__(self, runtime, env, hear=None) -> None:
         self.runtime, self.env = runtime, env
         self.client = Client()
-        self.collector = Collector(env)
+        self.stuck = {}  # topic id -> the left-behind thread stuck reading it: looks leave the topic out while that thread lives.
+        self.collector = Collector(env, self.stuck)
         self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.last_full = 0.0
@@ -704,8 +716,12 @@ class WebSync:
             except Stuck:
                 left = [each for each in (*left, worker) if each.thread.is_alive()]
                 self.runtime.log(f"web sync {label} stuck: a step has not moved in {STUCK_SECONDS} s; left behind ({len(left)} so far)")
-                while len(left) >= MAX_LEFT and not self.runtime.shutdown.wait(STUCK_SECONDS):
+                began = time.monotonic()
+                while len(left) >= MAX_LEFT and time.monotonic() - began < LEFT_WAIT and not self.runtime.shutdown.wait(
+                        min(STUCK_SECONDS, LEFT_WAIT)):
                     left = [each for each in left if each.thread.is_alive()]
+                if len(left) >= MAX_LEFT:
+                    self.runtime.log(f"web sync {label}: {len(left)} left-behind steps still stuck after {LEFT_WAIT} s; going on in a new thread")
                 if reset is not None:
                     reset()
                 worker, wait = Worker(f"web-{label}-step"), 0
@@ -726,8 +742,15 @@ class WebSync:
 
     def start_over(self) -> None:
         """After a look was left behind: a new collector, nothing counted as sent, so the next look is a full one. The left-behind
-        look keeps writing only to the old ones."""
-        self.collector, self.sent, self.last_full = Collector(self.env), {}, 0.0
+        look keeps writing only to the old ones. The topic it was stuck reading (an NFS open of its topic.json that never returned,
+        2026-11-19) is left out of the looks while that thread lives, so the next look does not get stuck on it again."""
+        old = self.collector
+        stuck = {topic: thread for topic, thread in self.stuck.items() if thread.is_alive()}
+        if old.at and old.thread is not None and old.thread.is_alive():
+            stuck[old.at] = old.thread
+            self.runtime.log(f"web sync push leaves topic {old.at[:12]} out while its read is stuck")
+        self.stuck = stuck
+        self.collector, self.sent, self.last_full = Collector(self.env, stuck), {}, 0.0
 
     def push_once(self, now=None) -> int:
         """One look and one push; how many items went out. Raises WebError when the page did not take a batch (the batches before it count).
