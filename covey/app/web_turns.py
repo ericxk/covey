@@ -4,6 +4,7 @@ the checkpoint's plan, the token figures, the time it took and the notes of the 
 
 - ``steps``: the newest ``STEPS_KEPT`` steps of the main task as {id, kind, label, started_at, ended_at, status}; ``kind`` is by the step's
   title (``STEP_KINDS``), a running step's ``ended_at`` is None. A note (the progress note) is no step: it is the turn's body.
+  A subtask is one step from its start to its end, in its own words (data contract v8, ``steps_of``).
 - ``plan``: the checkpoint's ``steps`` ({title, state}, core/checkpoint.py ``checkpoint_steps``); once the turn has ended, a step left
   ``doing`` is ``todo`` (it was not done, and nothing does it now).
 - ``usage`` {input, output, cache_read, total}, ``seconds``, ``speed``, ``context`` {used, limit}: as the cards show them (cards/facts.py
@@ -30,9 +31,12 @@ LABEL_CHARS = 80
 NOTE_KINDS = ("remembered", "voided", "undone", "skipped_ask", "reference")
 NOTES_KEPT = 20
 STEP_KINDS = {"读取文件": "read", "浏览目录": "read", "修改文件": "edit", "写入文件": "edit", "执行命令": "command", "后台命令": "command",
-              "启动后台命令": "command", "更新检查点": "command", "查找文件": "search", "搜索文件": "search", "分配子任务": "subagent",
+              "启动后台命令": "command", "更新检查点": "command", "查找文件": "search", "搜索文件": "search", "分配子任务": "subagent", "子任务": "subagent",
               "读取网页": "web", "搜索网页": "web"}
 STEP_STATES = {"running": "running", "done": "done", "failed": "failed", "stopped": "failed"}
+AGENT_STATES = {"running": "running", "pendingInit": "running", "completed": "done", "errored": "failed", "interrupted": "failed",
+                "cancelled": "failed", "shutdown": "done"}
+SUBTASK = "子任务"
 SAID_BY = {"owner": "你说的", "owner_answer": "你说的", "owner_fix": "你说的", "lead": "它总结的"}
 RESULT_WORDS = {"完成": "做完了", "失败": "失败了", "中断": "中断了", "已停止": "停住了"}
 
@@ -43,15 +47,29 @@ def step_kind(title) -> str:
 
 
 def steps_of(snapshot) -> list:
-    """The newest STEPS_KEPT steps of the snapshot's main task, oldest first."""
-    steps = (snapshot or {}).get("steps")
+    """The newest STEPS_KEPT steps of the snapshot's main task, oldest first.
+
+    A subtask is one step (data contract v8): the ``agent-<id>`` step the trace keeps for it, with kind ``subagent``, the
+    subtask's own words (``agent_words``) and its end from the agent's state; the ``分配子任务`` call that started it is left
+    out, as it is the same subtask (one started in the background ends that call in a tenth of a second). 2026-11-19 T488:
+    two subtasks ran 35 of the turn's 46 minutes, and the page drew 子任务：子任务 at 0 and 分配子任务：Agent at 0.1 s."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    steps = snapshot.get("steps")
     if not isinstance(steps, dict):
         return []
-    order = [key for key in ((snapshot or {}).get("step_order") or list(steps)) if key in steps]
+    agents = snapshot.get("agents") if isinstance(snapshot.get("agents"), dict) else {}
+    ended = snapshot.get("ended_at") if isinstance(snapshot.get("ended_at"), (int, float)) else None
+    order = [key for key in (snapshot.get("step_order") or list(steps)) if key in steps]
     out = []
     for key in order:
         step = steps[key]
-        if not isinstance(step, dict) or step.get("status") == "note":
+        if not isinstance(step, dict) or ("agent-" + str(key)) in steps:
+            continue
+        agent = agents.get(str(key)[len("agent-"):]) if str(key).startswith("agent-") else None
+        if isinstance(agent, dict):
+            out.append(agent_step(key, step, agent, ended))
+            continue
+        if step.get("status") == "note":
             continue
         title = "调用工具" if step.get("title") == "tool" else str(step.get("title") or "")
         detail = " ".join(str(step.get("detail") or "").split())
@@ -61,6 +79,29 @@ def steps_of(snapshot) -> list:
                     "ended_at": None if status == "running" else step.get("ended") if isinstance(step.get("ended"), (int, float)) else None,
                     "status": status})
     return out[-STEPS_KEPT:]
+
+
+def agent_words(agent) -> str:
+    """What a subtask is about: its name unless that is the placeholder (Claude Code names it by the Agent call's
+    description, Codex by its path), else the prompt Codex started it with, else 子任务."""
+    for value in (agent.get("name"), agent.get("description")):
+        words = " ".join(str(value or "").split())
+        if words and not words.startswith(SUBTASK):
+            return words
+    return SUBTASK
+
+
+def agent_step(key, step, agent, ended) -> dict:
+    """The step of one subtask, from its agent state; one still live when the trace has ended ends with it."""
+    status = AGENT_STATES.get(agent.get("status"), "done")
+    end = agent.get("ended_at") if isinstance(agent.get("ended_at"), (int, float)) else None
+    if status == "running" and ended is not None:
+        status = "done"
+    if status != "running" and end is None:
+        end = ended
+    start = agent.get("started_at") if isinstance(agent.get("started_at"), (int, float)) else step.get("started")
+    return {"id": str(key), "kind": "subagent", "label": f"{SUBTASK}：{agent_words(agent)}"[:LABEL_CHARS],
+            "started_at": start if isinstance(start, (int, float)) else 0, "ended_at": None if status == "running" else end, "status": status}
 
 
 def plan_of(record) -> list:

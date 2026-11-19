@@ -1064,6 +1064,30 @@ class ExtrasTest(WebCase):
         turn = self.web.items("turn")[-1]["data"]
         self.assertEqual([row["state"] for row in turn["plan"]], ["done", "doing"])
 
+    def test_a_subtask_is_one_step_from_its_start_to_its_end_in_its_own_words(self):
+        """T488 2026-11-19: two subtasks started in the background ran 35 of the turn's 46 minutes; the page drew
+        子任务：子任务 at 0 and 分配子任务：Agent at 0.1 s, and the time looked spent on nothing."""
+        snapshot = {"steps": {"s1": {"title": "读取文件", "detail": "/x/a.py", "status": "done", "started": T0, "ended": T0 + 1},
+                              "toolu_a": {"title": "分配子任务", "detail": "Agent", "status": "done", "started": T0 + 2, "ended": T0 + 2.1},
+                              "agent-toolu_a": {"title": "子任务", "detail": "子任务", "status": "done", "started": T0 + 2},
+                              "toolu_b": {"title": "分配子任务", "detail": "Agent", "status": "done", "started": T0 + 3, "ended": T0 + 3.1},
+                              "agent-toolu_b": {"title": "子任务", "detail": "子任务", "status": "running", "started": T0 + 3},
+                              "agent-th1": {"title": "子任务", "detail": "子任务", "status": "done", "started": T0 + 4}},
+                    "step_order": ["s1", "toolu_a", "agent-toolu_a", "toolu_b", "agent-toolu_b", "agent-th1"],
+                    "started_at": T0, "ended_at": None,
+                    "agents": {"toolu_a": {"name": "v1.4 剩余失败题找根因", "started_at": T0 + 2, "status": "completed", "ended_at": T0 + 2100},
+                               "toolu_b": {"name": "子任务", "started_at": T0 + 3, "status": "running"},
+                               "th1": {"name": "子任务 3", "description": "找出 卡片 的根因", "started_at": T0 + 4, "status": "errored",
+                                       "ended_at": T0 + 50}}}
+        rows = [(row["id"], row["kind"], row["label"], row["started_at"], row["ended_at"], row["status"]) for row in web_turns.steps_of(snapshot)]
+        self.assertEqual(rows, [("s1", "read", "读取文件：/x/a.py", T0, T0 + 1, "done"),
+                                ("agent-toolu_a", "subagent", "子任务：v1.4 剩余失败题找根因", T0 + 2, T0 + 2100, "done"),
+                                ("agent-toolu_b", "subagent", "子任务：子任务", T0 + 3, None, "running"),
+                                ("agent-th1", "subagent", "子任务：找出 卡片 的根因", T0 + 4, T0 + 50, "failed")])
+        # The turn ended with a subtask still live: it ended with the turn, not at 0.
+        rows = web_turns.steps_of(dict(snapshot, ended_at=T0 + 2400))
+        self.assertEqual([(row["ended_at"], row["status"]) for row in rows if row["id"] == "agent-toolu_b"], [(T0 + 2400, "done")])
+
     def test_a_quiet_running_turn_does_not_change_its_rev_every_second(self):
         self.topic(status="running", lines=(("user", "做一下"),))
         write_job(self.state, f"k-{TOPIC[:4]}", timings={"backend_started": T0})
