@@ -36,11 +36,13 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(r.restore_text(auto_stand_in("CONTOSO").lower()), "CONTOSO")
         self.assertEqual(r.hits, {"Contoso": 3})
 
-    def test_a_listed_stand_in_replaces_its_spelling_and_comes_back_in_its_own_case_only(self):
+    def test_a_stand_in_an_older_version_let_the_owner_name_is_not_used(self):
+        # The owner names none (T566): the term goes out as its automatic stand-in, never as "Widget" (which could hold
+        # another term) and comes back from it.
         r = redactor({"term": "Acme", "stand_in": "Widget"})
-        self.assertEqual(r.redact_text("Acme ACME"), "Widget " + auto_stand_in("ACME"))
-        self.assertEqual(r.restore_text("Widget widget"), "Acme widget")
-        self.assertEqual(r.effective_stand_in("Acme"), "Widget")
+        self.assertEqual(r.redact_text("Acme ACME"), auto_stand_in("Acme") + " " + auto_stand_in("ACME"))
+        self.assertEqual(r.restore_text(f"Widget {auto_stand_in('Acme')}"), "Widget Acme")
+        self.assertEqual(r.effective_stand_in("Acme"), auto_stand_in("Acme"))
         self.assertTrue(r.restorable("Acme"))
 
     def test_ascii_ends_match_only_as_words_unless_anywhere(self):
@@ -56,11 +58,11 @@ class MatchingTests(unittest.TestCase):
         r = redactor("Alpha", "Alpha Beta", ignore_case=False)
         self.assertEqual(r.redact_text("Alpha Beta alpha"), auto_stand_in("Alpha Beta") + " alpha")
 
-    def test_a_shared_stand_in_only_replaces_and_restore_off_restores_nothing(self):
+    def test_terms_once_sharing_a_stand_in_each_come_back_and_restore_off_restores_nothing(self):
         r = redactor({"term": "a1", "stand_in": "Zed"}, {"term": "b2", "stand_in": "Zed"}, "c3")
-        self.assertEqual(r.redact_text("a1 b2"), "Zed Zed")
-        self.assertEqual(r.restore_text("Zed"), "Zed")
-        self.assertFalse(r.restorable("a1"))
+        self.assertEqual(r.redact_text("a1 b2"), f"{auto_stand_in('a1')} {auto_stand_in('b2')}")
+        self.assertEqual(r.restore_text(r.redact_text("a1 b2 Zed")), "a1 b2 Zed")
+        self.assertTrue(r.restorable("a1"))
         off = redactor("c3", restore=False)
         out = off.redact_text("c3")
         self.assertEqual(off.restore_text(out), out)

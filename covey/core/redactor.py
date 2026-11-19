@@ -4,16 +4,14 @@ One ``Redactor`` serves one turn's relay (backends/claude/redaction.py) and the 
 built from ``core.redaction.load_config``. Standard library only.
 
 Forward: one regular expression over the listed terms, longest first. A term that starts (ends) with an
-ASCII letter or digit does not match where one adjoins it there, unless the term is ``anywhere``; with
-``ignore_case`` any case matches. Each spelling has a stand-in of its own: the listed spelling its
-``stand_in`` (or ``auto_stand_in`` of it), every other spelling ``auto_stand_in`` of that spelling, kept
-in the spelling table so a reply's copy turns back into exactly that spelling (an Edit's old_string, a
-path). Requests are redacted whole every time: Claude Code holds the restored history, so the same
+ASCII letter or digit does not match where one adjoins it there, unless the term is ``anywhere`` (a flag
+only an older version could set); with ``ignore_case`` any case matches. Each spelling has a stand-in of its own,
+``auto_stand_in`` of that spelling (the owner names none: core/redaction.py), kept in the spelling table so a
+reply's copy turns back into exactly that spelling (an Edit's old_string, a path). Requests are redacted whole every time: Claude Code holds the restored history, so the same
 history becomes the same request again and the vendor's prompt cache still matches.
 
-Back: a stand-in used by one term turns back into it; an automatic one (``RX`` and 8 hex digits) in any
-case, by the spelling table; one shared by several terms stays, as nothing tells which term it was; with
-``restore`` off nothing turns back.
+Back: a stand-in (``RX`` and 8 hex digits) turns back in any case, by the spelling table; with ``restore`` off
+nothing turns back.
 
 Bodies are Anthropic Messages JSON. Structural keys (``STRUCTURAL``) stay as they are, except the
 ``data`` of a document's text source; thinking blocks are signed and stay whole; every string of a tool
@@ -66,23 +64,14 @@ class Redactor:
             # Longest first, so a term inside a longer one never wins; one group per row tells which.
             order = sorted(range(len(self.terms)), key=lambda i: len(self.terms[i]["term"]), reverse=True)
             self._forward = re.compile(
-                "|".join(f"(?P<t{i}>{_guarded(self.terms[i]['term'], self.terms[i]['anywhere'])})" for i in order),
+                "|".join(f"(?P<t{i}>{_guarded(self.terms[i]['term'], self.terms[i].get('anywhere') is True)})"
+                         for i in order),
                 re.IGNORECASE if self.ignore_case else 0)
-        uses = collections.Counter(row["stand_in"] for row in self.terms if row["stand_in"])
-        self._listed = {}  # Unique listed stand-in -> its term's row.
         for row in self.terms:
-            if not row["stand_in"]:
-                self._spellings[auto_stand_in(row["term"]).upper()] = row["term"]
-            elif uses[row["stand_in"]] == 1:
-                self._listed[row["stand_in"]] = row
+            self._spellings[auto_stand_in(row["term"]).upper()] = row["term"]
         self._back = self._back_json = None
-        self._tokens = []  # The listed stand-ins that turn back, longest first.
         if self.restore and self.terms:
-            self._tokens = sorted(self._listed, key=len, reverse=True)
-            auto = "(?i:" + _AUTO.pattern + ")"  # Listed stand-ins match in their own case only.
-            self._back = re.compile("|".join([_guarded(s, self._listed[s]["anywhere"]) for s in self._tokens]
-                                             + [auto]))
-            self._back_json = re.compile("|".join([re.escape(_json_inner(s)) for s in self._tokens] + [auto]))
+            self._back = self._back_json = _AUTO
 
     @property
     def active(self):
@@ -91,17 +80,11 @@ class Redactor:
 
     def effective_stand_in(self, term):
         """The stand-in the listed spelling of ``term`` goes out as; None for a term not listed."""
-        for row in self.terms:
-            if row["term"] == term:
-                return row["stand_in"] or auto_stand_in(term)
-        return None
+        return auto_stand_in(term) if any(row["term"] == term for row in self.terms) else None
 
     def restorable(self, term):
         """Whether ``term``'s stand-in turns back into it in replies."""
-        for row in self.terms:
-            if row["term"] == term:
-                return self.restore and (not row["stand_in"] or row["stand_in"] in self._listed)
-        return False
+        return self.restore and any(row["term"] == term for row in self.terms)
 
     # Strings.
 
@@ -115,11 +98,8 @@ class Redactor:
             spelling = match.group(0)
             with self._lock:
                 self.hits[row["term"]] += 1
-                if spelling == row["term"]:
-                    stand_in = row["stand_in"] or auto_stand_in(spelling)
-                else:
-                    stand_in = auto_stand_in(spelling)
-                    self._spellings[stand_in.upper()] = spelling
+                stand_in = auto_stand_in(spelling)
+                self._spellings.setdefault(stand_in.upper(), spelling)
             if tally is not None:
                 tally[row["term"]] += 1
             return stand_in
@@ -128,9 +108,6 @@ class Redactor:
 
     def _back_one(self, match, encode=None):
         token = match.group(0)
-        if token in self._listed:
-            term = self._listed[token]["term"]
-            return encode(term) if encode else term
         with self._lock:
             spelling = self._spellings.get(token.upper())
         if spelling is None:
@@ -159,14 +136,7 @@ class Redactor:
         if self._back is None:
             return 0
         auto = _AUTO_TAIL.search(text)
-        best = len(auto.group(0)) if auto else 0
-        for token in self._tokens:
-            # A whole stand-in at the end waits too: the next character decides its boundary.
-            for n in range(min(len(token), len(text)), best, -1):
-                if text.endswith(token[:n]):
-                    best = n
-                    break
-        return best
+        return len(auto.group(0)) if auto else 0
 
     # Anthropic Messages bodies.
 

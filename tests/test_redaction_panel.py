@@ -16,16 +16,23 @@ from covey.app.redaction_panel import CASE_CLASH, GONE, UNREADABLE, card_key, ro
 from covey.cards import redaction_panel as cards
 from covey.cards.elements import walk
 from covey.cards.redaction_link import ROTATE_KIND
-from covey.core.redaction import (Refused, auto_stand_in, config_path, load_config, masked, record_turn,
-                                  row_problem, save_config, term_lines, update_config, upstream_problem)
+from covey.core import migrate
+from covey.core.redaction import (ALREADY, Refused, TermEdit, auto_stand_in, config_path, edit_terms, load_config, masked,
+                                  put_back, record_turn, save_config, term_lines, term_problem, update_config,
+                                  upstream_problem)
 from covey.core.state import write_json
 from covey.core.text import literal
 
 SECRET = ('机密项目甲乙', 'ProjectZeta', '张三丰')  # No card, record or log line may hold these.
 
 
-def rows(*terms, **stand_ins):
-    return [{'term': term, 'stand_in': stand_ins.get(f't{i}', ''), 'anywhere': False} for i, term in enumerate(terms)]
+def rows(*terms, anywhere=()):
+    """List rows of ``terms``; those at the indexes ``anywhere`` carry an older version's ``anywhere``."""
+    return [{'term': term, 'anywhere': i in anywhere} for i, term in enumerate(terms)]
+
+
+def saved(state):
+    return json.loads(config_path(state).read_text(encoding='utf-8'))
 
 
 class ListEditTests(unittest.TestCase):
@@ -44,50 +51,91 @@ class ListEditTests(unittest.TestCase):
     def test_each_non_empty_line_is_a_term_with_its_number(self):
         self.assertEqual(term_lines('甲乙丙\n\n  丁戊 \n'), [(1, '甲乙丙'), (3, '丁戊')])
         self.assertEqual(term_lines(None), [])
+        self.assertEqual(term_lines(['Project Atlas ', '', '鹰眼']), [(1, 'Project Atlas'), (3, '鹰眼')])  # A list's own lines.
 
-    def test_a_new_stand_in_or_anywhere_is_refused_and_an_old_one_kept(self):
+    def test_a_stand_in_is_never_kept_and_a_new_anywhere_is_refused_an_old_one_kept(self):
+        # The owner names no stand-in (T566): one an older version saved is dropped on reading and on writing; an older
+        # version's ``anywhere`` keeps working (dropping it would let the term out inside a word), a new one is refused.
         save_config(self.state, {'terms': [{'term': '旧词旧', 'stand_in': '代号甲', 'anywhere': True},
-                                           {'term': 'abc词', 'stand_in': '', 'anywhere': False}]})
-
-        def give(config):
-            config['terms'][1]['stand_in'] = '代号乙'
+                                           {'term': 'abc词', 'stand_in': '代号乙', 'anywhere': False}]})
+        self.assertEqual(saved(self.state)['terms'], [{'term': '旧词旧', 'anywhere': True}, {'term': 'abc词'}])
+        self.assertEqual(load_config(self.state)['terms'], rows('旧词旧', 'abc词', anywhere=(0,)))
 
         def widen(config):
             config['terms'][1]['anywhere'] = True
 
         def append(config):
-            config['terms'].append({'term': '新词新', 'stand_in': '代号丙', 'anywhere': False})
+            config['terms'].append({'term': '新词新', 'anywhere': True})
 
         def delete(config):
             return config['terms'].pop(0)
 
-        for change in (give, widen, append):
+        for change in (widen, append):
             with self.assertRaises(Refused) as caught:
                 update_config(self.state, change)
-            self.assertIn('自动生成', str(caught.exception))
-        self.assertEqual(load_config(self.state)['terms'][0]['stand_in'], '代号甲')  # Unchanged rows keep working.
-        row = update_config(self.state, delete)  # A delete is no new stand-in.
+            self.assertIn('旧版本', str(caught.exception))
+        row = update_config(self.state, delete)
         with self.assertRaises(Refused):
             update_config(self.state, lambda config: config['terms'].insert(0, dict(row)))
         update_config(self.state, lambda config: config['terms'].insert(0, dict(row)), allow=[row])  # Put back whole.
         self.assertEqual(load_config(self.state)['terms'][0], row)
 
-    def test_why_a_row_cannot_join_names_no_term(self):
-        terms = rows('机密项目', t0='代号甲')
-        cases = {('机', ''): '至少要 2 个字', ('机密项目', ''): '已经有', ('另一个词', '含机密项目的'): '替身词里含有',
-                 ('代号', ''): '别的词的替身词里', ('x' * 201, ''): '不能超过', ('甲\t乙', ''): '控制字符',
-                 ('自己的词', '自己的词二'): '替身词里含有'}
-        for (term, stand_in), words in cases.items():
+    def test_why_a_term_cannot_join_names_no_term(self):
+        terms = rows('机密项目')
+        cases = {'机': '至少要 2 个字', '机密项目': ALREADY, 'x' * 201: '不能超过', '甲\t乙': '控制字符'}
+        for term, words in cases.items():
             with self.subTest(term=term[:6]):
-                why = row_problem(terms, term, stand_in, ignore_case=True)
+                why = term_problem(terms, term, ignore_case=True)
                 self.assertIn(words, why)
                 self.assertNotIn('机密项目', why)
-        self.assertEqual(row_problem(terms, '新词', '', ignore_case=True), '')
-        self.assertIn('已经有', row_problem(rows('Mimi'), 'MIMI', '', ignore_case=True))
-        self.assertEqual(row_problem(rows('Mimi'), 'MIMI', '', ignore_case=False), '')
-        self.assertEqual(row_problem(terms, '机密项目', '代号乙', ignore_case=True, skip=0), '')  # Its own row.
-        self.assertIn('最多 1000 个词', row_problem(rows(*(f'词{i:04d}' for i in range(1000))), '新词', '',
-                                                 ignore_case=True))
+        self.assertEqual(term_problem(terms, '新词', ignore_case=True), '')
+        self.assertEqual(term_problem(terms, '机密', ignore_case=True), '')  # Inside a term is no stand-in's business now.
+        self.assertEqual(term_problem(rows('Mimi'), 'MIMI', ignore_case=True), ALREADY)
+        self.assertEqual(term_problem(rows('Mimi'), 'MIMI', ignore_case=False), '')
+        self.assertIn('最多 1000 个词', term_problem(rows(*(f'词{i:04d}' for i in range(1000))), '新词', ignore_case=True))
+
+    def test_terms_are_added_and_removed_many_at_once(self):
+        save_config(self.state, {'terms': rows('机密项目', 'Project Zeta', '张三丰', anywhere=(2,))})
+        edit = edit_terms(self.state, add='新词一\n\nproject zeta\n新词一\n甲\n旧 => 新\n带 空格 的词',
+                          remove=['PROJECT ZETA', '没有的词', '', '张三丰'])
+        self.assertEqual(edit, TermEdit(added=('新词一', 'project zeta', '带 空格 的词'),
+                                        removed=(({'term': 'Project Zeta', 'anywhere': False}, 1),
+                                                 ({'term': '张三丰', 'anywhere': True}, 2)),
+                                        already=(4,), missing=(2,),
+                                        skipped=((5, '原词至少要 2 个字'), (6, '替身词自动生成，不用写 =>'))))
+        # Removes went first: a term in both is written anew, at the end, with its automatic stand-in.
+        self.assertEqual(saved(self.state)['terms'],
+                         [{'term': t} for t in ('机密项目', '新词一', 'project zeta', '带 空格 的词')])
+        back, left = put_back(self.state, edit.removed)
+        self.assertEqual((back, left), ([{'term': '张三丰', 'anywhere': True}], [({'term': 'Project Zeta', 'anywhere': False},
+                                                                                ALREADY)]))
+        self.assertEqual([r['term'] for r in load_config(self.state)['terms']],
+                         ['机密项目', '新词一', '张三丰', 'project zeta', '带 空格 的词'])
+        self.assertTrue(load_config(self.state)['terms'][2]['anywhere'])  # Back whole.
+
+    def test_an_edit_that_changes_nothing_saves_nothing_and_whole_saves_all_or_nothing(self):
+        save_config(self.state, {'terms': rows('机密项目')})
+        before = config_path(self.state).read_text()
+        edit = edit_terms(self.state, add=['机密项目'], remove=['没有的词'])
+        self.assertEqual((edit.changed, edit.already, edit.missing), (False, (1,), (1,)))
+        self.assertEqual(config_path(self.state).read_text(), before)
+        with self.assertRaises(Refused) as caught:
+            edit_terms(self.state, add=['新词', '机'], whole=True)
+        self.assertEqual(str(caught.exception), '没有保存：第 2 行（原词至少要 2 个字）')
+        self.assertEqual(config_path(self.state).read_text(), before)
+        self.assertEqual(put_back(self.state, [({'term': '机密项目', 'anywhere': False}, 0)]),
+                         ([], [({'term': '机密项目', 'anywhere': False}, ALREADY)]))
+        self.assertEqual(config_path(self.state).read_text(), before)
+
+    def test_the_migration_drops_the_stand_ins_of_a_list_once(self):
+        path = config_path(self.state)
+        write_json(path, {'ignore_case': True, 'terms': [{'term': '旧词旧', 'stand_in': '代号甲', 'anywhere': True},
+                                                         {'term': 'abc词', 'stand_in': '', 'anywhere': False}]})
+        self.assertEqual(migrate.pending(self.state)[migrate.REDACTION_STAND_IN], 1)
+        self.assertEqual(migrate.migrate(self.state)[migrate.REDACTION_STAND_IN], {'written': 1, 'failed': 0})
+        self.assertEqual(saved(self.state)['terms'], [{'term': '旧词旧', 'anywhere': True}, {'term': 'abc词'}])
+        self.assertIn(migrate.REDACTION_STAND_IN, migrate.done(self.state))
+        self.assertEqual(migrate.migrate(self.state), {})
 
     def test_a_change_is_saved_and_a_refused_one_leaves_the_file(self):
         save_config(self.state, {'terms': rows('机密项目')})
@@ -101,7 +149,7 @@ class ListEditTests(unittest.TestCase):
         self.assertEqual(config_path(self.state).read_text(), before)
 
         def add(config):
-            config['terms'].append({'term': '张三丰', 'stand_in': '', 'anywhere': False})
+            config['terms'].append({'term': '张三丰', 'anywhere': False})
             return 'added'
 
         self.assertEqual(update_config(self.state, add), 'added')
@@ -151,14 +199,13 @@ class RedactionTabTests(HubCase):
                 self.assertNotIn(term, where)
 
     def test_the_tab_is_one_layer_the_terms_one_line_each_masked_newest_first(self):
-        save_config(self.state, {'terms': rows(*SECRET, t2='代号丙')})
+        save_config(self.state, {'terms': rows(*SECRET, anywhere=(2,))})
         self.show()
         text = self.text()
         self.assertLess(text.index('张··（3 字）'), text.index('P··（11 字）'))
         self.assertLess(text.index('P··（11 字）'), text.index('机··（6 字）'))
         self.assertIn('3 个词 · 近 7 天替换 0 次 · 0 个话题开着', text)
-        self.assertIn('自定义替身', text)  # An older version's stand-in: said, not shown.
-        self.assertNotIn('代号丙', text)
+        self.assertIn('任意位置匹配', text)  # An older version's flag: said.
         self.assertEqual(text.count('近 7 天 0 次'), 3)
         self.assertEqual(values(self.card(), cards.PAGE), [])  # No second layer of tabs.
         self.assertEqual([v['op'] for _, v in values(self.card(), cards.TERM)], ['delete'] * 3)
@@ -179,8 +226,7 @@ class RedactionTabTests(HubCase):
         add = self.button(cards.ADD)
         lines = f'{SECRET[0]}\n\n{SECRET[1]} => 代号乙\n甲\n{SECRET[0]}\n{SECRET[1]}'
         self.assertEqual(self.press(add, 'ev-a1', form_value={cards.LINES: lines}), 'redaction_tab')
-        self.assertEqual([(r['term'], r['stand_in']) for r in load_config(self.state)['terms']],
-                         [(SECRET[0], ''), (SECRET[1], '')])
+        self.assertEqual(self.terms(), [SECRET[0], SECRET[1]])
         text = self.text()
         for words in ('加入了 「机··（6 字）」、「P··（11 字）」', '第 3 行没加（替身词自动生成，不用写 =>）',
                       '第 4 行没加（原词至少要 2 个字）', '第 5 行没加（词表里已经有这个词）'):
@@ -232,6 +278,48 @@ class RedactionTabTests(HubCase):
         self.press(delete, 'ev-d2')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.terms(), [SECRET[0]])
+        self.assertNoTerm()
+
+    def test_terms_pasted_in_the_box_are_deleted_at_once_and_undo_puts_them_all_back(self):
+        save_config(self.state, {'terms': rows(*SECRET, '另一个词')})
+        self.show()
+        remove = self.button(cards.REMOVE)  # The same box as 加入词表: a line a term.
+        lines = f'{SECRET[2]}\n\nprojectzeta\n没有的词'
+        self.assertEqual(self.press(remove, 'ev-r1', form_value={cards.LINES: lines}), 'redaction_tab')
+        self.assertEqual(self.terms(), [SECRET[0], '另一个词'])  # 不区分大小写 is on.
+        self.assertIn('已删除「P··（11 字）」、「张··（3 字）」；第 4 行没删（词表里没有）。', self.text())
+        self.press(self.button(cards.UNDO), 'ev-r2')
+        self.assertEqual(self.terms(), [*SECRET, '另一个词'])  # Each back where it was.
+        self.assertIn('放回了「P··（11 字）」、「张··（3 字）」', self.text())
+        self.press(self.button(cards.REMOVE), 'ev-r3', form_value={cards.LINES: '没有的词\n机密项目'})
+        self.assertIn('一个也没删：第 1、2 行没删（词表里没有）', self.text())  # Only a whole term is deleted.
+        self.assertEqual(self.terms(), [*SECRET, '另一个词'])
+        self.press(self.button(cards.REMOVE), 'ev-r4', form_value={})
+        self.assertIn('先在框里填要删的词', self.text())
+        self.assertNoTerm()
+
+    def test_a_click_is_answered_before_the_card_is_drawn_and_quick_clicks_draw_it_once(self):
+        # The spinner lasted until the whole card was drawn, about a second a click (T566): the list changes and the
+        # record keeps what happened before the answer; the card is drawn after it, once for the clicks before it.
+        from covey.app import card_lanes
+        save_config(self.state, {'terms': rows(*SECRET)})
+        self.show()
+        drawn = len(self.puts)
+        card_lanes._click.pending = []
+        try:
+            for n, term in enumerate(SECRET[:2]):
+                self.press(self.button(cards.TERM, key=self.key(term)), f'ev-q{n}')
+            follow_ups = card_lanes._click.pending
+        finally:
+            card_lanes._click.pending = None
+        self.assertEqual(self.terms(), [SECRET[2]])
+        self.assertEqual(len(self.puts), drawn)  # Nothing drawn before the answer.
+        self.assertEqual(self.hub_record()['view']['seen'][-2:], ['ev-q0', 'ev-q1'])
+        for work, _, _ in follow_ups:
+            work()
+        self.assertEqual(len(self.puts), drawn + 1)
+        self.assertIn('已删除「P··（11 字）」', self.text())
+        self.assertEqual(self.text().count('近 7 天 0 次'), 1)
         self.assertNoTerm()
 
     def test_a_button_of_the_older_layout_draws_the_card_again_and_changes_nothing(self):

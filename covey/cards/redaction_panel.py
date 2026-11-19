@@ -1,4 +1,5 @@
-"""The 设置 card's 脱敏 tab (app/redaction_panel.py), one layer: a small stats line, 填词 (a box a term a line, 加入词表),
+"""The 设置 card's 脱敏 tab (app/redaction_panel.py), one layer: a small stats line, 填词 (a box a term a line, 加入词表 or
+从词表删除),
 a search box, the list a term a line each with its 删除, then folds for 开关与上游地址, 试一下 and 记录 (closed), and
 last the web dashboard's link when the deployment serves one (its 换口令 is cards/redaction_link.py ROTATE_KIND).
 
@@ -12,8 +13,8 @@ from __future__ import annotations
 
 from covey.cards import ui
 from covey.core.text import literal
-from covey.cards.elements import (callback_button, collapsible, grey, item, md, note, panel_header, plain, styled_panel,
-                                  tag, text_button)
+from covey.cards.elements import (button_row, callback_button, collapsible, grey, item, md, note, panel_header, plain,
+                                  styled_panel, tag, text_button)
 from covey.cards.redaction_link import ROTATE_KIND
 
 TITLE = '脱敏看板'
@@ -23,6 +24,7 @@ PAGE = 'bridge_redaction_page'  # Retired: the tab row of the four pages (a card
 LIST = 'bridge_redaction_list'  # The list's page (``at``); ``clear`` ends a search.
 FIND = 'bridge_redaction_find'  # 查找: the form's QUERY.
 ADD = 'bridge_redaction_add'  # 加入词表: the form's LINES.
+REMOVE = 'bridge_redaction_remove'  # 从词表删除: the same form's LINES, each line a whole term (2026-11-19, T566).
 TERM = 'bridge_redaction_term'  # A row's 删除 (``op`` delete), by its ``key``; ``op`` edit is retired.
 EDIT = 'bridge_redaction_edit'  # Retired: the row editor's buttons (stand-in, match, done).
 UNDO = 'bridge_redaction_undo'  # 撤销 the card's last 删除.
@@ -32,7 +34,7 @@ PROBE = 'bridge_redaction_probe'  # 探测.
 PREVIEW = 'bridge_redaction_preview'  # 试一下: the form's TEXT.
 OPEN = 'bridge_redaction_open'  # 试一下 or 修改地址 (``name`` try, upstream) opened or closed (``on``): a form cannot sit in a fold.
 RETIRED = frozenset({PAGE, EDIT})  # Their click draws the card again with RETIRED_WORDS.
-KINDS = frozenset({PAGE, LIST, OPEN, FIND, ADD, TERM, EDIT, UNDO, SWITCH, UPSTREAM, PROBE, PREVIEW})
+KINDS = frozenset({PAGE, LIST, OPEN, FIND, ADD, REMOVE, TERM, EDIT, UNDO, SWITCH, UPSTREAM, PROBE, PREVIEW})
 QUERY, LINES, UPSTREAM_FIELD, TEXT = 'query', 'lines', 'upstream', 'text'
 INPUT_LIMIT = 1000  # The most a Feishu input takes.
 PAGE_SIZE = 10  # A row is one line.
@@ -46,7 +48,7 @@ FOLDS = {'switches': '开关与上游地址', 'records': '记录'}  # element_id
 EMPTY = '词表是空的：在上面的框里填词。'
 IDLE = '⚠️ 词表是空的：开着脱敏的 {} 个话题现在什么都不替换。'
 NOT_FOUND = '没有找到。'
-ADD_HINT = '每行一个词，一次最多 1000 字；替身词自动生成。'
+ADD_HINT = '每行一个词，一次最多 1000 字，可以整批粘贴；删除时每行要和词表里的词一字不差。替身词自动生成。'
 RETIRED_WORDS = 'ℹ️ 这个按钮已更新：卡片按新布局重画了（替身词现在自动生成，不再手动指定）。'
 TRY_HINT = '用已保存的词表和开关替换一段文字。卡片上只显示替换后的样子，不显示原文和还原结果。'
 NOTE = '改动从下一轮起生效。卡上的词只显示首字和字数，框里输入的内容不留在卡片上。'
@@ -109,7 +111,9 @@ def terms_part(value, view, data):
     """填词 (a box a term a line, 加入词表), the search box (always there; what it found under it) and a page of rows,
     newest first."""
     rows, found = data['rows'], view.get('found')
-    parts = [form('redaction_add', box(LINES, '每行一个词', lines=3), submit('加入词表', value(ADD), 'add', primary=True)),
+    parts = [form('redaction_add', box(LINES, '每行一个词', lines=4),
+                  button_row([submit('加入词表', value(ADD), 'add', primary=True),
+                              submit('从词表删除', value(REMOVE), 'remove')])),
              note(ADD_HINT),
              form('redaction_find', item(box(QUERY, '搜索词表里的词'), submit('查找', value(FIND), 'find')))]
     if found is not None:
@@ -136,9 +140,9 @@ def terms_part(value, view, data):
 
 def term_line(r):
     """A row's one line: the masked term, its hits in the last 7 days, and a tag only where something is out of the
-    ordinary (a stand-in an older version set, a stand-in shared with another term, replies not turned back)."""
-    tags = [tag('自定义替身')] if r['stand_in'] or r['anywhere'] else []
-    tags += [tag(r['restore'])] if r['restore'] in ('共用·不还原', '不还原') else []
+    ordinary (任意位置匹配 an older version set, replies not turned back)."""
+    tags = [tag('任意位置匹配')] if r['anywhere'] else []
+    tags += [tag(r['restore'])] if r['restore'] == '不还原' else []
     return md(f"**{literal(r['label'])}** " + ' '.join(tags) + (' ' if tags else '') + grey(f"近 7 天 {r['week']} 次"))
 
 

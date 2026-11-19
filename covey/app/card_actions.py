@@ -132,6 +132,7 @@ ACTIONS = {
     "bridge_redaction_open": CardAction("展开脱敏的试一下或上游地址"),
     "bridge_redaction_find": CardAction("查找敏感词"),
     "bridge_redaction_add": CardAction("加入敏感词"),
+    "bridge_redaction_remove": CardAction("批量删除敏感词"),
     "bridge_redaction_term": CardAction("修改或删除敏感词"),
     "bridge_redaction_edit": CardAction("修改敏感词"),  # Retired 2026-11-14 as well.
     "bridge_redaction_undo": CardAction("撤销删除敏感词"),

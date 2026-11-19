@@ -225,8 +225,7 @@ def status_block(content, figures):
 def redaction_facts(rows=3, upstream=""):
     """What app/redaction_panel.py ``facts`` gives the 脱敏 tab: no term, rows by masked name and a fake key."""
     labels = ["机··（4 字）", "P··（11 字）", "张··（3 字）"]
-    made = [{"key": "abcdef"[i % 6] * 12, "label": labels[i % 3], "stand_in": "代号乙" if i % 3 == 1 else "",
-             "anywhere": i % 2 == 0, "restore": "还原" if i % 3 else "共用·不还原",
+    made = [{"key": "abcdef"[i % 6] * 12, "label": labels[i % 3], "anywhere": i % 2 == 0, "restore": "还原" if i % 3 else "不还原",
              "hits": i * 3, "week": i} for i in range(rows)]
     return {"error": "", "config": {"default_on": True, "ignore_case": True, "restore": False, "upstream": upstream},
             "rows": made, "count": rows, "week": 4, "updated": "11-04 18:30",

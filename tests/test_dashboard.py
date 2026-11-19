@@ -170,14 +170,15 @@ class ApiTests(Server):
                             {"term": "Vega", "stand_in": "Star", "anywhere": False}]}
         response, body = self.api("PUT", "/api/config", config)
         self.assertEqual(response.status, 200)
-        self.assertEqual(body["config"], config)
+        # A stand-in an older page sends is dropped (T566): every term goes out as its automatic one.
+        kept = {**config, "terms": [{"term": t["term"], "anywhere": t["anywhere"]} for t in config["terms"]]}
+        self.assertEqual(body["config"], kept)
         _, body = self.api("GET", "/api/config")
-        self.assertEqual(body["config"], config)
+        self.assertEqual(body["config"], kept)
         terms = {t["term"]: t for t in body["terms"]}
         self.assertEqual(terms["Project Atlas"]["effective"], auto_stand_in("Project Atlas"))
-        self.assertEqual(terms["阿特拉斯"]["effective"], "甲项目")
-        self.assertEqual([terms[t]["restore"] for t in ("Project Atlas", "阿特拉斯", "Orion")],
-                         ["还原", "还原", "共用·不还原"])
+        self.assertEqual(terms["阿特拉斯"]["effective"], auto_stand_in("阿特拉斯"))
+        self.assertEqual([terms[t]["restore"] for t in ("Project Atlas", "阿特拉斯", "Orion")], ["还原"] * 3)
         self.assertTrue(body["updated_at"])
         _, body = self.api("PUT", "/api/config", {**config, "restore": False})
         self.assertEqual({t["restore"] for t in body["terms"]}, {"不还原"})
@@ -196,13 +197,13 @@ class ApiTests(Server):
     def test_preview_redacts_and_restores(self):
         self.api("PUT", "/api/config", {"terms": [{"term": "Atlas", "stand_in": "Delta"}]})
         _, body = self.api("POST", "/api/preview", {"text": "Atlas and atlas, not Atlases"})
-        self.assertEqual(body["redacted"], f"Delta and {auto_stand_in('atlas')}, not Atlases")
+        self.assertEqual(body["redacted"], f"{auto_stand_in('Atlas')} and {auto_stand_in('atlas')}, not Atlases")
         self.assertEqual(body["restored"], "Atlas and atlas, not Atlases")
         self.assertEqual(body["hits"], {"Atlas": 2})
         # The page's unsaved config, when it sends one.
         _, body = self.api("POST", "/api/preview", {"text": "Atlas", "config": {"terms": [{"term": "Atlas",
                                                                                           "stand_in": "Mu"}]}})
-        self.assertEqual(body["redacted"], "Mu")
+        self.assertEqual(body["redacted"], auto_stand_in("Atlas"))
         response, body = self.api("POST", "/api/preview", {"text": "x" * (redaction_views.MAX_PREVIEW + 1)})
         self.assertEqual(response.status, 400)
         response, body = self.api("POST", "/api/preview", {"text": "a", "config": {"terms": "no"}})

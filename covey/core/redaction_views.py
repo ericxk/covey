@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import collections
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -13,17 +14,19 @@ from covey.core.jobs import find_job_record
 from covey.core.redaction import load_config, normalize, recent_turns
 from covey.core.redactor import Redactor
 from covey.core.state import read_object
-from covey.core.topics import load_topic
+from covey.core.topics import load_topic, topic_file
 
 MAX_PREVIEW = 20000
 RECENT = 50  # Turns the page lists.
 _TOPIC_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+TOPICS_KEPT = 2000  # topic_info's cache: (state dir, topic id) -> (topic.json's mtime, what it read).
+_topics, _topics_lock = {}, threading.Lock()
 
 
 def restore_tag(config, redactor, term):
     if not config["restore"]:
         return "不还原"
-    return "还原" if redactor.restorable(term) else "共用·不还原"
+    return "还原" if redactor.restorable(term) else "不还原"
 
 
 def term_hits(rows, since=0.0):
@@ -67,9 +70,30 @@ def preview(state_dir, body):
 
 
 def topic_info(state_dir, topic_id):
-    """A topic's number, title and switch, from its topic.json and first job; {} when unreadable."""
+    """A topic's number, title and switch, from its topic.json and first job; {} when unreadable. Kept while topic.json's
+    mtime stays (its first job's words never change): the 脱敏 tab draws the topics of the last 500 turns on each click,
+    and reading them took 0.3 s on the NAS."""
     if not _TOPIC_ID.fullmatch(topic_id):
         return {}
+    key = (str(state_dir), topic_id)
+    try:
+        stamp = topic_file(Path(state_dir), topic_id).stat().st_mtime_ns
+    except OSError:
+        return {}
+    with _topics_lock:
+        kept = _topics.get(key)
+    if kept and kept[0] == stamp:
+        return dict(kept[1])
+    info = _topic_info(state_dir, topic_id)
+    if info:
+        with _topics_lock:
+            if len(_topics) >= TOPICS_KEPT:
+                _topics.clear()
+            _topics[key] = (stamp, dict(info))
+    return info
+
+
+def _topic_info(state_dir, topic_id):
     try:
         topic = load_topic(Path(state_dir), topic_id)
     except (OSError, ValueError):

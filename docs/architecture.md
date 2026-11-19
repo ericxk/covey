@@ -293,7 +293,8 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 - 开关是 `topic.json` 的 `redaction`，词表在 `<state>/redaction/config.json`（`core/redaction.py`），每轮开始时读。只有 capability `redaction` 为真的 Harness（Claude）能跑；`app/runs.py` 在 `backend.run` 前兜底。
 - 每轮（`backends/claude/redaction.py`）在 127.0.0.1 起一个只活这一轮的中继，`--settings` 把 `ANTHROPIC_BASE_URL` 指向它，所有请求都走中继。不能脱敏就不发：出错抛 `Unavailable`，本轮 `redaction_failed`，Claude Code 不启动。
 - 匹配和还原在 `core/redactor.py`（规则见其模块说明）。每轮结束发 `redaction` 事件（卡上只显示个数），`turns.jsonl` 和 `relay.log` 不含内容和请求头。
-- 词表在设置卡的「脱敏」标签上改（一层，没有页签；替身词自动生成，`update_config` 只放行词表里本来就有的自定义替身；`app/redaction_panel.py`，`PANELS` 里认领它的按钮）：点击在记录锁外经 `core/redaction.py` 的 `update_config`（`EDIT_LOCK`，一次一处）改词表，再在设置卡记录的锁里整卡重画；「探测」在自己的后台线程里跑。卡片、卡片记录和日志里都不出现原词：行名是 `masked`，按钮按 `card-key` 下的 HMAC 指认行，拒绝原因是不提原词的 `Refused`。
+- 替身词一律是自动的（`auto_stand_in`），词表每项只有 `term`（旧版本的 `"anywhere": true` 保留生效、不能新设）。改词表的接口在 `core/redaction.py`：`edit_terms(state_dir, add=, remove=, whole=)` 一次加、删一批（先删后加，删除按整词、按 `ignore_case` 比较；返回 `TermEdit`：加了哪些、删掉的行和原位置、已在词表里的、没找到的、加不进去的行号和不提原词的原因），`put_back` 把删掉的行放回原位，开关和上游地址用 `update_config`；三者都在 `EDIT_LOCK` 里读、改、存，没有变化就不写文件。
+- 词表在设置卡的「脱敏」标签上改（一层，没有页签；`app/redaction_panel.py`，`PANELS` 里认领它的按钮）：点击在记录锁外改词表，在设置卡记录的锁里记下结果就回执，整卡重画在回执之后（`card_lanes.after_ack`；记录的 revision 已被后一次点击推进时这次不画）；「探测」在自己的后台线程里跑。卡片、卡片记录和日志里都不出现原词：行名是 `masked`，按钮按 `card-key` 下的 HMAC 指认行，拒绝原因是不提原词的 `Refused`。
 - 网页看板（`app/dashboard.py`，见[敏感词看板](configuration.md#敏感词看板)）可选，是 Bridge 的后台线程，链接在「脱敏」标签最后；入口记录在 `app/dashboard_entry.py`，持 `ENTRY_LOCK` 时不调外部命令、不发消息。
 
 ### 已下架的 Harness

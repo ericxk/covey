@@ -73,16 +73,12 @@ function termRow(row, index) {
   const term = el("input", { type: "text", "aria-label": "原词", placeholder: "原词", spellcheck: "false" });
   term.value = row.term;
   term.addEventListener("input", () => { row.term = term.value; row.saved = false; markDirty(); });
-  const standIn = el("input", { type: "text", "aria-label": "替身词", placeholder: "留空自动生成", spellcheck: "false" });
-  standIn.value = row.stand_in;
-  if (!row.stand_in && row.effective && row.saved) standIn.placeholder = "自动：" + row.effective;
-  standIn.addEventListener("input", () => { row.stand_in = standIn.value; row.saved = false; markDirty(); });
-  const match = el("select", { "aria-label": "匹配" });
-  match.append(el("option", { value: "word" }, "整词"), el("option", { value: "anywhere" }, "任意位置"));
-  match.value = row.anywhere ? "anywhere" : "word";
-  match.addEventListener("change", () => { row.anywhere = match.value === "anywhere"; markDirty(); });
+  // The stand-in is the automatic one, shown, never typed; ``anywhere`` (an older version's) goes back as it came.
+  const standIn = el("span", { class: "stand-in", title: "替身词由系统自动生成" },
+                     row.saved && row.effective ? row.effective : "保存后生成");
+  const match = el("span", { class: "hint" }, row.anywhere ? "任意位置（旧设置）" : "整词");
   const tag = row.saved && row.restore ? row.restore : "—";
-  const restore = el("span", { class: "tag " + ({ "还原": "tag-yes", "共用·不还原": "tag-shared", "不还原": "tag-no" }[tag] || "") }, tag);
+  const restore = el("span", { class: "tag " + ({ "还原": "tag-yes", "不还原": "tag-no" }[tag] || "") }, tag);
   restore.title = "还原：回复里的替身词换回原词";
   const hits = el("span", { class: "hits", title: "近期记录里的命中次数" }, row.saved ? String(row.hits || 0) : "—");
   const remove = el("button", { type: "button", class: "remove", "aria-label": "删除这一行" }, "删除");
@@ -99,25 +95,16 @@ function cell(label, child) {
 }
 
 function blankRow() {
-  return { term: "", stand_in: "", anywhere: false, saved: false };
+  return { term: "", anywhere: false, saved: false };
 }
 
 function bulkAdd() {
   const fold = (s) => ($("ignore-case").checked ? s.toLowerCase() : s);
   let added = 0;
   for (const raw of $("bulk-text").value.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const at = line.indexOf("=>");
-    const term = (at >= 0 ? line.slice(0, at) : line).trim();
-    const standIn = at >= 0 ? line.slice(at + 2).trim() : "";
-    if (!term) continue;
-    const same = state.rows.find((r) => fold(r.term.trim()) === fold(term));
-    if (same) {
-      if (standIn) { same.stand_in = standIn; same.saved = false; }
-    } else {
-      state.rows.push({ ...blankRow(), term, stand_in: standIn });
-    }
+    const term = raw.trim();  // A line a term: a term may hold spaces. The stand-in is automatic.
+    if (!term || state.rows.some((r) => fold(r.term.trim()) === fold(term))) continue;
+    state.rows.push({ ...blankRow(), term });
     added += 1;
   }
   if (added) {
@@ -135,8 +122,8 @@ function currentConfig() {
     ignore_case: $("ignore-case").checked,
     restore: $("restore").checked,
     upstream: $("upstream").value.trim(),
-    terms: state.rows.filter((r) => r.term.trim() || r.stand_in.trim())
-      .map((r) => ({ term: r.term.trim(), stand_in: r.stand_in.trim(), anywhere: Boolean(r.anywhere) })),
+    terms: state.rows.filter((r) => r.term.trim())
+      .map((r) => ({ term: r.term.trim(), anywhere: Boolean(r.anywhere) })),
   };
 }
 
@@ -219,7 +206,7 @@ async function preview() {
   const hits = Object.entries(data.hits);
   $("preview-hits").textContent = hits.length
     ? "替换了：" + hits.map(([term, n]) => term + " × " + n).join("，")
-      + (data.restored === $("preview-text").value ? "；还原后和原文一样。" : "；还原后和原文不同（共用或不还原的替身词留着）。")
+      + (data.restored === $("preview-text").value ? "；还原后和原文一样。" : "；还原后和原文不同（回复还原关着时替身词留着）。")
     : "没有命中词表里的词。";
   show("preview-out", true);
 }

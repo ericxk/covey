@@ -25,6 +25,10 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   migration, unless ``token_jobs`` is full (its oldest keys dropped), then the project's ``created_at``. The web page's
   专项报告 counts a member's turns from then, as the 专项卡 does; without it the turns of T531, T525 and T519 from before they
   came in were counted too (62M).
+- redaction-stand-in: a term list's rows held a ``stand_in`` (<state>/redaction/config.json) until 2026-11-19 (T566): the
+  owner's own stand-in, an older version's, or "" for the automatic one. Every term goes out as its automatic stand-in now
+  (core/redaction.py): the list is written again without them (``anywhere`` stays), once. An older release reads a row
+  without one as automatic.
 """
 # compat(ff57531): the one place that reads a job record's embedded process snapshot; retire when every job record
 # that embeds one has its traces/ file in every deployment (compat_report: embedded-trace)
@@ -44,6 +48,7 @@ EMBEDDED_TRACE = "embedded-trace"
 DESK_RETIRE = "desk-retire"
 REDACTION_DEFAULT = "redaction-default"
 PROJECT_JOINED = "project-joined"
+REDACTION_STAND_IN = "redaction-stand-in"
 DESK_REGISTRY = Path("main-thread") / "desk"  # One empty file per front-desk topic id (releases of 11-07 to 11-09).
 RETIRED, RETIRED_DESK = "retired", "desk"  # topic.json's key and value (core/topics.py RETIRED_DESK).
 FAILED_KEYS = 20  # Keys named in the summary line per step.
@@ -226,7 +231,26 @@ def stamp_joined(state_dir: Path) -> tuple[int, list[str]]:
     return written, failed
 
 
+def _stand_ins_left(state_dir: Path) -> int:
+    """1 when config.json's rows still hold a ``stand_in``, else 0 (none, or a list that cannot be read: a redacted turn
+    then fails as it would)."""
+    rows = read_object(redaction.config_path(state_dir)).get("terms")
+    return int(isinstance(rows, list) and any(isinstance(row, dict) and "stand_in" in row for row in rows))
+
+
+def drop_stand_ins(state_dir: Path) -> tuple[int, list[str]]:
+    """config.json written again without its rows' ``stand_in``: (files written, [] or the file it could not write)."""
+    if not _stand_ins_left(state_dir):
+        return 0, []
+    try:
+        redaction.update_config(state_dir, lambda config: None)
+    except Exception:  # noqa: BLE001 - tried again at the next start
+        return 0, ["redaction/config.json"]
+    return 1, []
+
+
 # The steps in the order they run: name -> (what it does: files written and the keys of the records it could not
 # write; what it would still do: records, reading only). A new step is one more row.
 STEPS = {EMBEDDED_TRACE: (embedded_traces, _unwritten), DESK_RETIRE: (retire_desk_topics, _desk_left),
-         REDACTION_DEFAULT: (merge_redaction_default, _redaction_default_left), PROJECT_JOINED: (stamp_joined, _joined_left)}
+         REDACTION_DEFAULT: (merge_redaction_default, _redaction_default_left), PROJECT_JOINED: (stamp_joined, _joined_left),
+         REDACTION_STAND_IN: (drop_stand_ins, _stand_ins_left)}
