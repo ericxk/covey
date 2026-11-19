@@ -111,6 +111,22 @@ class InPlaceTest(DeliverCase):
         send_text.assert_called_once()
 
 
+class LeadInPlaceTest(DeliverCase):
+    def test_a_leads_conclusion_is_a_message_of_its_own_never_its_card(self):
+        # T538: the lead's turn the owner started has a task card once it runs long; its answer went onto it, an edit
+        # the owner is not told of. Its row says never (answer_on_card NONE): the answer card goes out instead.
+        from covey.core import butler as roles, placement
+
+        row = placement.TABLE[(placement.AREA, placement.LEAD_ROLE)]
+        cards = self.cards()
+        with mock.patch("covey.app.butler_reply.traits_of", return_value=roles.LEAD), \
+                mock.patch("covey.app.butler_reply.placement.plan", return_value=SimpleNamespace(row=row)):
+            delivery, send_text = self.deliver(self.job(), cards)
+        self.assertFalse(delivery.in_place)
+        send_text.assert_called_once()
+        self.assertNotIn("✅ " + REPLY, self.bodies(cards))
+
+
 class SwitchOffTest(DeliverCase):
     switch = "0"
 

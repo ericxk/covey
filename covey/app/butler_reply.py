@@ -180,7 +180,12 @@ def answers_in_place(delivery, final_card, display_text) -> bool:
         return False
     if saved_delivery_kind(reply, outcome) == "file":
         return False
-    if (placement.plan(ctx.state_dir, job).row.answer_on_card == placement.ROUTES
+    on_card = placement.plan(ctx.state_dir, job).row.answer_on_card
+    if on_card == placement.NONE:
+        # Never on its card (a project's lead, docs/ui.md 5.3): its conclusion is a message of its own at the top
+        # level, which the owner is told of, not an edit of a card he may have scrolled past.
+        return False
+    if (on_card == placement.ROUTES
             and not routes(ctx.state_dir, job_key(job.message_id, job.job_id))):
         # Its card is in the owner's message's thread: the answer goes to the top level as a message of its own,
         # with a "你问" link (app/worker.py TurnDelivery.send); the card says the conclusion's lead.
