@@ -141,7 +141,7 @@ class RunningStatusTest(unittest.TestCase):
         monitor.started = 0.0
         monitor.tick()
         self.assertIn("已运行 2分05秒", updates[-1])
-        self.assertIn("当前：", updates[-1])
+        self.assertIn("现在：", updates[-1])
         self.assertIn("运行全量测试", updates[-1])
         # Its last activity to the minute, in words: never the command (core/progress.py activity_words).
         self.assertIn(" · 2 分钟前在跑测试", updates[-1])
@@ -152,15 +152,15 @@ class RunningStatusTest(unittest.TestCase):
         self.assertIn("后端进程已退出", updates[-1])
 
     def test_a_backend_that_exited_normally_reads_as_collecting_the_result(self):
-        # S27 #843 (MASO): "当前：等待模型开始输出 · 最近进展 13 秒前 / 后端进程已退出，正在收尾。" just before ✅ 已完成.
+        # S27 #843 (MASO): "现在：等待模型开始输出 · 最近进展 13 秒前 / 后端进程已退出，正在收尾。" just before ✅ 已完成.
         from covey.core.trace import ToolTrace
         trace = ToolTrace()
         trace.accept("first_token", {"ttft_seconds": 1.68, "ttft_source": "maso_native"})
         job = make_job(tool_trace=trace, backend_process=SimpleNamespace(poll=lambda: 0))
         updates = []
         self.monitor(job, updates).tick()
-        self.assertTrue(updates[-1].startswith("执行中 · 已运行"))
-        self.assertTrue(updates[-1].endswith("\n当前：" + COLLECTING))
+        self.assertTrue(updates[-1].startswith("在做 · 已运行"))
+        self.assertTrue(updates[-1].endswith("\n现在：" + COLLECTING))
         self.assertNotIn("已退出", updates[-1])
         self.assertNotIn("等待模型开始输出", updates[-1])
 
@@ -176,8 +176,8 @@ class RunningStatusTest(unittest.TestCase):
                               lambda: None, clock=lambda: 125.0)
         monitor.started = 0.0
         monitor.tick()
-        self.assertIn("当前：", updates[-1])
-        self.assertNotIn("阶段", updates[-1])  # It said 阶段：准备处理本轮请求 beside 当前：执行命令 (S25).
+        self.assertIn("现在：", updates[-1])
+        self.assertNotIn("阶段", updates[-1])  # It said 阶段：准备处理本轮请求 beside 现在：执行命令 (S25).
         path.write_text(json.dumps({"phase": "跑测试"}, ensure_ascii=False))
         monitor.last_ui = float("-inf")
         monitor.tick()
@@ -188,7 +188,7 @@ class RunningStatusTest(unittest.TestCase):
         job = make_job(tool_trace=ToolTrace())
         updates = []
         self.monitor(job, updates).tick()
-        self.assertIn("当前：已提交给模型，等待首个输出", updates[-1])
+        self.assertIn("现在：已提交给模型，等待首个输出", updates[-1])
         self.assertNotIn("等待模型开始输出", updates[-1])  # It read as if nothing were happening (S28 #850).
 
     def test_a_reasoning_start_says_the_model_is_thinking(self):
@@ -203,17 +203,17 @@ class RunningStatusTest(unittest.TestCase):
         Interaction._dispatch_structured_event(SimpleNamespace(), SimpleNamespace(), job, "model_reasoning", {}, None)
         wall[0] += 80
         monitor.tick()
-        self.assertIn("当前：模型思考中 · 1 分钟前在思考", updates[-1])
+        self.assertIn("现在：模型思考中 · 1 分钟前在思考", updates[-1])
         self.assertEqual(job.tool_trace.steps, {})  # Nothing for 执行过程 to show.
         # Codex's TTFT can be that reasoning start (S30): still only thinking.
         self.assertTrue(job.tool_trace.accept("first_token", {"ttft_seconds": 25.0, "ttft_source": "codex_item"}))
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertIn("当前：模型思考中", updates[-1])
+        self.assertIn("现在：模型思考中", updates[-1])
         monitor.output()  # Then streamed output: no longer only thinking.
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertTrue(updates[-1].endswith("当前：" + THINKING), updates[-1])  # Progress under 10 s has no age.
+        self.assertTrue(updates[-1].endswith("现在：" + THINKING), updates[-1])  # Progress under 10 s has no age.
 
     def test_output_without_steps_says_the_model_is_at_work(self):
         # MASO reports a first token and token usage but no steps; Claude or Codex answering without a tool
@@ -231,7 +231,7 @@ class RunningStatusTest(unittest.TestCase):
                 else:
                     monitor.output()
                 monitor.tick()
-                self.assertIn("当前：" + THINKING, updates[-1])
+                self.assertIn("现在：" + THINKING, updates[-1])
 
     def test_a_backend_still_setting_up_says_so_until_its_model_request(self):
         # S29 #863 (MASO): "已提交给模型" for about 8 s before the SDK made its first model call.
@@ -242,24 +242,24 @@ class RunningStatusTest(unittest.TestCase):
                               lambda *a: True, lambda _: None, lambda: None, clock=lambda: 125.0,
                               wall=lambda: wall[0], starting=STARTING.format("MASO"))
         monitor.tick()
-        self.assertIn("\n当前：正在启动 MASO…", updates[-1])
+        self.assertIn("\n现在：正在启动 MASO…", updates[-1])
         monitor.request()
         wall[0] += 3
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertTrue(updates[-1].endswith("\n当前：" + WAITING_FOR_MODEL), updates[-1])
+        self.assertTrue(updates[-1].endswith("\n现在：" + WAITING_FOR_MODEL), updates[-1])
         wall[0] += 9
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertTrue(updates[-1].endswith("\n当前：" + WAITING_FOR_MODEL), updates[-1])  # Under a minute: no age.
+        self.assertTrue(updates[-1].endswith("\n现在：" + WAITING_FOR_MODEL), updates[-1])  # Under a minute: no age.
         wall[0] += 60
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertIn("\n当前：" + WAITING_FOR_MODEL + " · 1 分钟前在等模型回复", updates[-1])
+        self.assertIn("\n现在：" + WAITING_FOR_MODEL + " · 1 分钟前在等模型回复", updates[-1])
         monitor.output()  # Output after it as before.
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertIn("\n当前：" + THINKING, updates[-1])
+        self.assertIn("\n现在：" + THINKING, updates[-1])
 
     def test_streamed_output_is_not_held_back_by_a_missing_model_request(self):
         from covey.core.trace import ToolTrace
@@ -270,7 +270,7 @@ class RunningStatusTest(unittest.TestCase):
                               starting=STARTING.format("MASO"))
         monitor.output()
         monitor.tick()
-        self.assertIn("\n当前：" + THINKING, updates[-1])
+        self.assertIn("\n现在：" + THINKING, updates[-1])
 
     def test_the_backend_s_model_request_reaches_only_the_status_line(self):
         from unittest import mock
@@ -328,7 +328,7 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor.tick()
         # T182 #1128 wrapped the sub-task's name, its time, the age and its last step over three lines:
         # now its latest step and the age only.
-        self.assertTrue(updates[-1].endswith("\n当前：子任务正在运行测试：运行问题卡测试 · 2 分钟前"), updates[-1])
+        self.assertTrue(updates[-1].endswith("\n现在：子任务正在运行测试：运行问题卡测试 · 2 分钟前"), updates[-1])
         self.assertNotRegex(updates[-1], r"\d+ 小时")
         self.assertNotIn("unittest", updates[-1])
         self.assertNotIn("较长时间没有新进展", updates[-1])
@@ -336,13 +336,13 @@ class SubtaskProgressTest(unittest.TestCase):
         self.child_tool(trace, "c1", command, self.T0 + 7190, status="done")
         wall[0], monitor.last_ui = self.T0 + 7200, float("-inf")
         monitor.tick()
-        self.assertTrue(updates[-1].endswith("当前：子任务运行测试结束：运行问题卡测试"), updates[-1])  # 10 s: no age.
+        self.assertTrue(updates[-1].endswith("现在：子任务运行测试结束：运行问题卡测试"), updates[-1])  # 10 s: no age.
         self.child_tool(trace, "c2", "git commit -qm 'fix: progress'", self.T0 + 7195)
         trace.accept("progress_note", {"id": "n1", "text": "Tests pass; committing.", "child_id": "a1",
                                        "received_at": self.T0 + 7194})
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertIn("当前：子任务正在提交代码", updates[-1])
+        self.assertIn("现在：子任务正在提交代码", updates[-1])
         self.assertNotIn("最近进展", updates[-1])
         self.assertNotIn("fix: progress", updates[-1])
 
@@ -353,7 +353,7 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor, updates = self.monitor(trace, wall)
         monitor.output()  # The newest progress is the main task's: the line names what runs now.
         monitor.tick()
-        self.assertTrue(updates[-1].endswith("\n当前：子任务「S5 进展修复」运行中"), updates[-1])
+        self.assertTrue(updates[-1].endswith("\n现在：子任务「S5 进展修复」运行中"), updates[-1])
 
     def test_a_child_only_active_hour_never_reads_as_an_hour_without_progress(self):
         trace = self.subtask_trace()
@@ -363,7 +363,7 @@ class SubtaskProgressTest(unittest.TestCase):
             self.child_tool(trace, f"c{minute}", f"Step {minute} · ls", self.T0 + minute * 60)
             wall[0], monitor.last_ui = self.T0 + minute * 60 + 30, float("-inf")
             monitor.tick()
-            self.assertIn("当前：子任务正在查看代码：Step", updates[-1])
+            self.assertIn("现在：子任务正在查看代码：Step", updates[-1])
             self.assertNotIn("分钟前", updates[-1])  # 30 s ago each time.
             self.assertNotIn("可能卡住了", updates[-1])
             self.assertNotIn("较长时间没有新进展", updates[-1])
@@ -377,7 +377,7 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor, updates = self.monitor(trace, wall, records)
         monitor.tick()
         # The model's purpose without the command (2026-11-02 review); the kind still comes from the command.
-        self.assertIn("当前：执行命令 · 运行全量测试 · 1 小时 1 分钟前在跑测试 · 进程仍在运行", updates[-1])
+        self.assertIn("现在：执行命令 · 运行全量测试 · 1 小时 1 分钟前在跑测试 · 进程仍在运行", updates[-1])
         self.assertIn("超过 30 分钟没有动静，可能卡住了", updates[-1])
         self.assertEqual(records[-1]["last_activity"], "在跑测试")
         self.assertEqual(records[-1]["last_activity_at"], int(self.T0))
@@ -430,7 +430,7 @@ class SubtaskProgressTest(unittest.TestCase):
              "input": {"command": "python3 -B -m unittest tests.test_questions", "description": "运行问题卡测试"}}]}})
         monitor, updates = self.monitor(trace, [time.time() + 3])
         monitor.tick()
-        self.assertIn("当前：子任务正在运行测试：运行问题卡测试", updates[-1])
+        self.assertIn("现在：子任务正在运行测试：运行问题卡测试", updates[-1])
         adapter.accept({"type": "user", "parent_tool_use_id": "toolu_a", "message": {"content": [
             {"type": "tool_result", "tool_use_id": "toolu_b", "content": "OK"}]}})
         monitor.last_ui = float("-inf")
@@ -453,25 +453,25 @@ class StatusTextTest(unittest.TestCase):
         self.assertEqual(status_text(self.facts(frame=4)), "正在处理本轮消息 · ·")
         self.assertEqual(status_text(self.facts(last_event="阶段记录已更新：读代码")), "阶段记录已更新：读代码")
         # Its record has the full summary all the same; a long task's line is that summary.
-        plain = ("执行中 · 已运行 1分05秒\n当前阶段：处理本轮请求\n最近进展：0 分钟前 · 尚无阶段进展\n"
+        plain = ("在做 · 已运行 1分05秒\n阶段：处理本轮请求\n最近进展：0 分钟前 · 尚无阶段进展\n"
                  "最近检查：01-02 03:04:05 · " + BACKEND_ALIVE)
         self.assertEqual(status_summary(self.facts()), plain)
         self.assertEqual(status_text(self.facts(long_mode=True)), plain)
 
     def test_a_retry_then_a_question_then_the_trace(self):
         traced = dict(traced=True, activity=(THINKING, None, None))
-        self.assertEqual(status_text(self.facts(**traced)), "执行中 · 已运行 1分05秒\n当前：" + THINKING)
+        self.assertEqual(status_text(self.facts(**traced)), "在做 · 已运行 1分05秒\n现在：" + THINKING)
         retry = {"attempt": 2, "next": 1_030_000, "reason": "429"}
         self.assertEqual(status_text(self.facts(retry=retry, **traced)),
-                         "模型请求重试中 · 第 2 次 · 已运行 1分05秒\n本次模型请求尚未成功，约 30 秒后再次尝试。\n"
+                         "在做 · 已运行 1分05秒 · 模型请求重试第 2 次\n本次模型请求尚未成功，约 30 秒后再次尝试。\n"
                          "上游返回：429\n可使用停止按钮结束等待。")
         asked = dict(waiting=True, question="用哪个数据集？")
         self.assertEqual(status_text(self.facts(retry=retry, native_question_active=True, **asked, **traced)),
-                         "需要你回答：\n用哪个数据集？")
+                         "等你\n要你定：用哪个数据集？")
         self.assertEqual(status_text(self.facts(retry=retry, **asked, **traced)),
                          "正在整理本轮结果，完成后将展示需要确认的内容。")
 
     def test_the_same_facts_give_the_same_line(self):
         facts = self.facts(traced=True, activity=("运行命令", 990.0, "子任务运行命令结束"), quiet=12, stirred=True)
         self.assertEqual(status_text(facts), status_text(facts))
-        self.assertEqual(status_text(facts), "执行中 · 已运行 1分05秒\n当前：子任务运行命令结束 · 最近进展 12 秒前")
+        self.assertEqual(status_text(facts), "在做 · 已运行 1分05秒\n现在：子任务运行命令结束 · 最近进展 12 秒前")

@@ -109,6 +109,28 @@ def styled(card) -> dict:
     return card
 
 
+def has_band(elements) -> bool:
+    """Whether ``elements`` (a card body's) have a conclusion band among them."""
+    return any(isinstance(e, dict) and e.get("border_color") == "band-line" for e in elements or ())
+
+
+def banded(card) -> dict:
+    """``card`` ``styled`` when its body has a conclusion band (``has_band``), else as it is: for the cards that
+    take a band from their caller (an answer card's head, a question card's copy)."""
+    return styled(card) if has_band(card.get("body", {}).get("elements")) else card
+
+
+TITLE_CHARS = 24  # Characters of a topic's title a band's label shows (as core/look.py SPEAKER_TITLE).
+
+
+def band_label(key, *parts) -> str:
+    """A band's label: ``key``'s word (core/look.py STATES), then ``parts`` (a T number, a title, a task's number)
+    that say something, "有结果 · T12 改看板"; a part over TITLE_CHARS ends with "…"."""
+    shown = [" ".join(str(part or "").split()) for part in parts]
+    shown = [part if len(part) <= TITLE_CHARS else part[:TITLE_CHARS - 1] + "…" for part in shown if part]
+    return literal(" · ".join([look.word(key), " ".join(shown)] if shown else [look.word(key)]))
+
+
 def number(value, unit) -> str:
     """A headline figure: the number in the brand's colour, its unit after it (``2 件事``)."""
     return f"{font('**' + str(value) + '**', look.BRAND['color'])} **{unit}**"

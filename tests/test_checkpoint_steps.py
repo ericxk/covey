@@ -190,7 +190,7 @@ class StatusLineTest(unittest.TestCase):
                       long_mode=True, frame=0)
         plain = status_summary(facts)
         self.assertNotIn("步骤", plain)
-        self.assertIn("当前阶段：改\n当前步骤：第 1/1 步：第1项\n", status_summary(facts._replace(steps="第 1/1 步：第1项")))
+        self.assertIn("阶段：改\n步骤：第 1/1 步：第1项\n", status_summary(facts._replace(steps="第 1/1 步：第1项")))
 
 
 class AnswerCardTest(unittest.TestCase):

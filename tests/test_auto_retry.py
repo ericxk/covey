@@ -12,6 +12,7 @@ from unittest import mock
 from support.fake_backends import SID, RecordingBackend
 from support.world import UnifiedCase
 from support.records import write_topic
+from support.cards import text_of
 
 from covey.app import auto_retry
 from covey.core.result import STATUS_MESSAGES
@@ -478,7 +479,7 @@ class AutoRetryTest(UnifiedCase):
         after = find_job_record(self.ctx.state_dir, record['key'])
         self.assertEqual((after['auto_retry_state'], after['auto_retry_note']), ('cancelled', 'stopped'))
         summary = self.claude.cards.set_record_summary.call_args.args[2]
-        self.assertRegex(summary, r'^⚠️ (T\d+|#\d+) · 已中断 · 待检查并继续$')
+        self.assertRegex(summary, r'^(T\d+|#\d+) 停住了 · 可以检查并继续$')
         self.tick(record)
         self.assertEqual(self.queued(), [])
 
@@ -513,8 +514,10 @@ class AutoRetryCardTest(unittest.TestCase):
         for kind, text in (('', '已转到任务 #8 继续'), ('rate_limited', '已转到任务 #8 继续（限流后自动重试）'),
                            ('incomplete', '已转到任务 #8 继续（未全部完成后自动检查并继续）')):
             with self.subTest(kind=kind):
-                header = recovery_card(record, moved_to=8, automatic=kind)['header']
-                self.assertEqual((header['template'], header['title']['content']), ('grey', '#7 · ' + text))
+                card = recovery_card(record, moved_to=8, automatic=kind)
+                self.assertNotIn('header', card)  # The band leads: 停住了 · #7, then where it went.
+                self.assertIn(text.replace('#', '&#35;'), text_of(card))
+                self.assertIn('停住了 · &#35;7', text_of(card))
 
     def test_an_interrupted_card_says_when_it_continues_and_previews_it(self):
         from covey.app.recovery_cards import recovery_card
@@ -522,19 +525,19 @@ class AutoRetryCardTest(unittest.TestCase):
         at = time.strftime('%H:%M', time.localtime(due))
         record = {'job_id': 7, 'topic_id': 'topic', 'status': 'interrupted', 'interrupted_by': 'restart', 'kind': 'chat'}
         plain = recovery_card(record)
-        self.assertEqual(plain['config']['summary']['content'], '⚠️ #7 · 已中断 · 待检查并继续')
+        self.assertEqual(plain['config']['summary']['content'], '#7 停住了 · 可以检查并继续')
         self.assertIn('recovery_actions', json.dumps(plain))
         pending = recovery_card({**record, 'auto_retry_state': 'pending', 'auto_retry_at': due, 'auto_retry_attempt': 1,
                                  'auto_retry_kind': 'restarted'})
-        self.assertEqual(pending['config']['summary']['content'], f'⏳ #7 · 已中断 · {at} 自动检查并继续')
+        self.assertEqual(pending['config']['summary']['content'], f'#7 停住了 · {at} 自动检查并继续')
         ids = [e.get('element_id') for e in pending['body']['elements']]
-        self.assertEqual(ids[1:4], ['auto_retry_status', 'result_actions', 'result_actions_note'])  # What show repaints.
+        self.assertEqual(ids[2:5], ['auto_retry_status', 'result_actions', 'result_actions_note'])  # What show repaints.
         self.assertNotIn('recovery_actions', ids)
-        self.assertIn(f'本轮被重启打断，将于 {at} 自动检查并继续（第 1/1 次）', pending['body']['elements'][1]['content'])
+        self.assertIn(f'本轮被重启打断，将于 {at} 自动检查并继续（第 1/1 次）', pending['body']['elements'][2]['content'])
         self.assertEqual(json.dumps(pending, ensure_ascii=False).count('检查并继续：新开一个任务'), 1)  # The note once.
         moved = recovery_card(record, moved_to=8, automatic='restarted')
-        self.assertEqual((moved['header']['title']['content'], moved['config']['summary']['content']),
-                         ('#7 · 已转到任务 #8 继续（重启后自动检查并继续）', '#7 · 已转到 #8 继续'))
+        self.assertIn('已转到任务 &#35;8 继续（重启后自动检查并继续）', text_of(moved))
+        self.assertEqual(moved['config']['summary']['content'], '#7 · 已转到 #8 继续')
 
     def test_the_failed_card_gets_the_retry_controls(self):
         from support.world import build_claude_app

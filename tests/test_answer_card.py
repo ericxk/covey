@@ -15,12 +15,12 @@ from covey.feishu.delivery import safe_idempotency_key, send_message_with_fallba
 from covey.feishu.message_request import optimize_markdown
 from covey.feishu.transport import last_failure
 
-CARD = answer_card("#### 先确认数据集\n正文", "✅ T304 · 先确认数据集")
+CARD = answer_card("#### 先确认数据集\n正文", "T304 有结果 · 先确认数据集")
 
 
 class AnswerCardTests(unittest.TestCase):
     def test_the_card_is_the_answer_with_its_preview(self):
-        self.assertEqual(CARD, {"schema": "2.0", "config": {"summary": {"content": "✅ T304 · 先确认数据集"}},
+        self.assertEqual(CARD, {"schema": "2.0", "config": {"summary": {"content": "T304 有结果 · 先确认数据集"}},
                                 "body": {"elements": [{"tag": "markdown", "content": "#### **先确认数据集**\n正文",
                                                        "text_size": "normal_v2"}]}})
 
@@ -49,15 +49,15 @@ class AnswerCardTests(unittest.TestCase):
 
     def test_the_task_card_s_preview_is_the_outcome_and_time_the_answer_card_s_the_lead(self):
         # Both read "✅ T325 · 1102 回流" under the topic in the chat (2026-11-02 review).
-        self.assertEqual(task_card_summary("T325", "done", "✅ 已完成 · 用时 3 分 39 秒"), "T325 · 已完成 · 用时 3 分 39 秒")
-        self.assertEqual(task_card_summary("#12", "waiting_user"), "❓ #12 · 需要你回答")
-        self.assertEqual(task_card_summary("T3", "failed", "⚠️ 执行失败 · 用时 5 秒"), "⚠️ T3 · 执行失败 · 用时 5 秒")
+        self.assertEqual(task_card_summary("T325", "done", "有结果 · 用时 3 分 39 秒"), "T325 有结果 · 用时 3 分 39 秒")
+        self.assertEqual(task_card_summary("#12", "waiting_user"), "#12 等你")
+        self.assertEqual(task_card_summary("T3", "failed", "停住了 · 用时 5 秒"), "T3 停住了 · 用时 5 秒")
 
     def test_the_preview_is_the_outcome_the_topic_and_the_lead(self):
-        self.assertEqual(answer_summary("T304", "done", "先确认数据集"), "✅ T304 · 先确认数据集")
-        self.assertEqual(answer_summary("#12", "waiting_user", "选哪个"), "❓ #12 · 选哪个")
-        self.assertEqual(answer_summary("T3", "failed", ""), "⚠️ T3 · 执行失败")
-        self.assertEqual(answer_summary("T3", "done", "token=abc123 已换"), "✅ T3 · token=[已隐藏] 已换")
+        self.assertEqual(answer_summary("T304", "done", "先确认数据集"), "T304 有结果 · 先确认数据集")
+        self.assertEqual(answer_summary("#12", "waiting_user", "选哪个"), "#12 等你 · 选哪个")
+        self.assertEqual(answer_summary("T3", "failed", ""), "T3 停住了")
+        self.assertEqual(answer_summary("T3", "done", "token=abc123 已换"), "T3 有结果 · token=[已隐藏] 已换")
 
 
 class CardFirstSendTests(unittest.TestCase):

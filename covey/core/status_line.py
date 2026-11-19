@@ -10,7 +10,7 @@ from covey.core.metrics import clock_text, duration, step_age, took_text
 from covey.core.text import safe_text, step_event, step_label
 from covey.core import turn_words
 from covey.core.progress import activity_line, ago_words, eta_words, stuck_words
-from covey.core.turn_words import UNSET_PHASES
+from covey.core.turn_words import RUNNING, STUCK, UNSET_PHASES
 
 
 THINKING = "模型思考或生成回复中"
@@ -30,6 +30,8 @@ QUIET_SHOWN = 10
 # A line with the turn's progress (Facts.progress, core/progress.py) says its last activity to the minute (2 分钟前在跑测试),
 # from a minute on: the card is written when its words change, not with every second (AGENTS.md rule 3).
 ACTIVITY_SHOWN = 60
+NOW = "现在："  # What the turn does now (docs/ui.md 第 7 节's fixed prefixes).
+WAITING = "等你\n要你定："  # A model's question waiting for the owner's answer.
 LONG_QUIET = 900  # 较长时间没有新进展 from this many seconds on, until the turn may be stuck (core/progress.py).
 
 
@@ -138,6 +140,11 @@ def quiet_note(facts):
     return ""
 
 
+def head(facts):
+    """The status line's first word for a running turn: 可能卡住 when core/progress.py says it may be stuck, else 在做."""
+    return STUCK if facts.progress is not None and facts.progress.get("maybe_stuck") else RUNNING
+
+
 def estimate_part(facts):
     """" · 预计还要约 40 分钟" of the turn's estimate, '' without one."""
     words = eta_words((facts.progress or {}).get("eta_seconds"))
@@ -151,8 +158,8 @@ def plain_summary(facts):
         else ("后端进程已退出" if facts.alive is False else "未取得后端进程状态")
     )
     summary = (
-        f"执行中 · 已运行 {took_text(facts.elapsed)}{estimate_part(facts)}\n当前阶段：{facts.phase}\n"
-        + (f"当前步骤：{facts.steps}\n" if facts.steps else "") +
+        f"{head(facts)} · 已运行 {took_text(facts.elapsed)}{estimate_part(facts)}\n阶段：{facts.phase}\n"
+        + (f"步骤：{facts.steps}\n" if facts.steps else "") +
         f"最近进展：{duration(facts.quiet)}前 · {facts.last_event}\n"
         f"最近检查：{facts.checked} · {health}"
     )
@@ -164,7 +171,7 @@ def trace_summary(facts):
     """What the trace says the task is doing now and when it last progressed."""
     current, newest, phrase = facts.activity
     quiet = facts.quiet
-    summary = f"执行中 · 已运行 {took_text(facts.elapsed)}"
+    summary = f"{head(facts)} · 已运行 {took_text(facts.elapsed)}"
     # The step under way says where the task is better than its phase, and keeps the line one line (2026-11-08).
     if facts.phase not in UNSET_PHASES and not facts.step_doing:
         summary += f" · 阶段：{facts.phase}"
@@ -174,17 +181,17 @@ def trace_summary(facts):
         summary += estimate_part(facts)
     if facts.finished:
         # S27 #843 read "等待模型开始输出 · … 后端进程已退出，正在收尾" for the second before its ✅ 已完成.
-        return summary + "\n当前：" + COLLECTING
+        return summary + "\n" + NOW + COLLECTING
     # The latest step only: a sub-task's newest event when it is the latest progress, else what runs
     # now. T182 #1128 wrapped "子任务「…」运行中，已 2 分 18 秒 · 最近进展 1 秒前 · 子任务运行命令结束：…"
     # over three lines; the sub-task's own time is on its entry in 执行过程.
     said = bool(phrase and facts.wall - newest <= quiet + 1)
-    line = "当前：" + (phrase if said else current)
+    line = NOW + (phrase if said else current)
     if facts.progress is not None:
         # What it last did and when, to the minute (2 分钟前在跑测试), never a command line; when the line names the
         # newest step already (a sub-task's), its age alone.
         if (newest is not None or facts.stirred) and quiet >= ACTIVITY_SHOWN:
-            # A command's purpose the line names already is not said twice (accept15: "当前：执行命令 · 前台睡眠 300 秒 ·
+            # A command's purpose the line names already is not said twice (accept15: "现在：执行命令 · 前台睡眠 300 秒 ·
             # 2 分钟前在跑命令：前台睡眠 300 秒"): its age alone.
             purpose = str(facts.progress.get("last_activity") or "").partition("：")[2].rstrip("…")
             named = said or bool(purpose) and purpose in line
@@ -211,7 +218,7 @@ def retry_summary(retry, elapsed, epoch):
         limit = f"，最长 {int(retry['limit']) // 60} 分钟" if retry.get("limit") else ""
         suffix += f"（已持续 {clock_text(epoch - retry['since'] / 1000)}{limit}）"
     reason = f"上游返回：{safe_text(retry['reason'], 200)}\n" if retry.get("reason") else ""
-    return (f"模型请求重试中 · 第 {int(retry.get('attempt') or 0)} 次 · 已运行 {took_text(elapsed)}\n"
+    return (f"{RUNNING} · 已运行 {took_text(elapsed)} · 模型请求重试第 {int(retry.get('attempt') or 0)} 次\n"
             f"本次模型请求尚未成功，{suffix}。\n{reason}可使用停止按钮结束等待。")
 
 
@@ -234,7 +241,7 @@ def _summary(facts):
     if facts.retry and not facts.waiting:
         return retry_summary(facts.retry, facts.elapsed, facts.epoch)
     if facts.waiting:
-        return ("需要你回答：\n" + facts.question if facts.native_question_active
+        return (WAITING + facts.question if facts.native_question_active
                 else "正在整理本轮结果，完成后将展示需要确认的内容。")
     if facts.activity is not None:
         # A live process only proves the backend is up; show what it last did instead.

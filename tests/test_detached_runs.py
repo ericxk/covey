@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from support import REPO
+from support.cards import text_of
 from support.fake_backends import SID, RecordingBackend
 from support.processes import leftover_check
 from support.world import UnifiedCase
@@ -599,12 +600,14 @@ class BridgeSideTests(UnifiedCase):
         self.assertEqual((len(handoffs), record["status"], record["runner_start_failed"]), (2, "interrupted", True))
         recovery.assert_called_once()
         card = recovery_card(record)
-        text = card["body"]["elements"][0]["content"]
-        self.assertEqual((card["header"]["template"], card["header"]["title"]["content"]), ("red", "#7 · 任务未能启动"))
+        text = card["body"]["elements"][1]["content"]  # The band leads: 停住了 · #7, 任务进程没能启动.
+        self.assertNotIn("header", card)
+        self.assertIn("停住了 · &#35;7", text_of(card))
+        self.assertIn("任务进程没能启动", text_of(card))
         self.assertIn("没有执行任何操作", text)
         self.assertNotIn("尚无检查点", text)
         moved = recovery_card(record, moved_to=8)
-        self.assertEqual(moved["header"]["title"]["content"], "#7 · 已转到任务 #8 继续")
+        self.assertIn("已转到任务 &#35;8 继续", text_of(moved))
         self.assertNotIn("recovery_actions", json.dumps(moved))
 
     def test_a_runner_that_cannot_be_started_ends_its_job_as_failed(self):
@@ -631,7 +634,8 @@ class BridgeSideTests(UnifiedCase):
         self.assertFalse(detached.queued_path(ctx.state_dir, "task-7").exists())
         recovery.assert_called_once()
         text = json.dumps(recovery_card(record), ensure_ascii=False)
-        self.assertIn("#7 · 任务未能启动", text)
+        self.assertIn("停住了 · &#35;7", text)
+        self.assertIn("任务进程没能启动", text)
         self.assertIn("任务进程启动失败（BlockingIOError: Resource temporarily unavailable）", text)
         self.assertIn('"content": "检查并继续"', text)
         # Its stop button now finds it ended; nothing is left to hold a deploy.
@@ -704,8 +708,10 @@ class BridgeSideTests(UnifiedCase):
         self.assertEqual((len(handoffs), record["status"], record["runner_start_failed"]), (1, "interrupted", False))
         recovery.assert_called_once()
         from covey.app.recovery_cards import recovery_card
-        header = recovery_card(record)["header"]
-        self.assertEqual((header["template"], header["title"]["content"]), ("orange", "#7 · 任务已中断"))
+        card = recovery_card(record)
+        self.assertNotIn("header", card)
+        self.assertIn("停住了 · &#35;7", text_of(card))
+        self.assertIn("这一轮被打断了", text_of(card))
 
     def test_restart_blockers_name_only_jobs_a_restart_would_interrupt(self):
         app, ctx, directory, _ = self.running_job()

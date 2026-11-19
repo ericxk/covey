@@ -632,10 +632,10 @@ def menu_panels():
 def answer_tail_cards():
     """The answer card with its 产物 and 输入/输出 (cards/answer_card.py, 2026-11-08), its relay at the top level and
     the small card after an answer sent as a file."""
-    from covey.cards.relay_card import DONE, relay_card
+    from covey.cards.relay_card import DONE, STOPPED, WAITING, relay_card
     from covey.cards.answer_card import ARTIFACTS_ID, input_parts, memory_element, output_parts, tail, tail_card
     from covey.cards.elements import markdown_panel
-    from covey.cards.review import answer_card
+    from covey.cards.review import answer_band, answer_card
 
     files = markdown_panel(ARTIFACTS_ID, "产物 2 个 · REPORT.md 等", "- [REPORT.md](https://example.invalid/a) · 12 KB\n"
                            "- [本轮改动.diff](https://example.invalid/b) · 3 KB", quiet=True)
@@ -702,6 +702,15 @@ def answer_tail_cards():
             "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
             "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),
                                                       [head_element("⏹ 已停止", "T443", "改看板的 Pin 目标")]),
+            # Atop a 话题区's answer card in its thread since docs/ui.md 5.2: the conclusion band (app/saved_send.py
+            # status_head).
+            "answer_card_thread_band": answer_card(text, "T443 有结果 · 结论", tail(files, inputs, outputs),
+                                                   [answer_band("done", "T443", "改看板的 Pin 目标", "结论：一和二都做完了")]),
+            "answer_card_thread_band_stopped": answer_card(
+                text, "T443 已停止 · 结论", tail(None, inputs, outputs),
+                [answer_band("cancelled", "T443", "改看板的 Pin 目标", "停在了第二步")]),
+            "relay_waiting": relay_card("T439", WAITING, question="用哪种格式输出？表格还是列表，表格方便对比、列表方便手机上看")[0],
+            "relay_stopped": relay_card("T439", STOPPED, reason="到了任务的时间上限，这一轮停在这里；可以接着做，或拆小再试")[0],
             "answer_card_asked": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [ask]),
             "answer_relay_asked": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
                                              ask=ask)[0],

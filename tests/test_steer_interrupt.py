@@ -153,7 +153,7 @@ class ReceiptTest(unittest.TestCase):
     def test_unread_it_says_how_long_and_offers_the_interrupt_once(self):
         self.assertIn(INTERRUPT, offers(self.RECORD))
         with mock.patch("time.time", return_value=100.0 + 200):
-            self.assertEqual(stage_line(self.RECORD), "✓ 已送达 · 还没读到 · 已等 3 分 20 秒")
+            self.assertEqual(stage_line(self.RECORD), "已送达 · 还没读到 · 已等 3 分 20 秒")
             card = receipt_card(self.RECORD)
         self.assertIn(INTERRUPT_KIND, str(card))
         tried = {**self.RECORD, "interrupt_at": 120.0, "interrupt": "已停掉正在跑的命令，模型马上读到"}

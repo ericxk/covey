@@ -482,10 +482,12 @@ class SlimCardTest(Case):
 
     def test_the_status_line(self):
         from covey.cards.task_status import slim_status_markdown, status_elements
-        self.assertEqual(slim_status_markdown("执行中 · 已运行 6 秒 · 阶段：读日志\n当前：Read"),
-                         "⏳ 执行中 · 已运行 6 秒 · <font color='grey'>阶段：读日志 · 当前：Read</font>")
-        self.assertEqual(slim_status_markdown("✅ 已完成 · 用时 13 秒"), "✅ 已完成 · 用时 13 秒")
-        self.assertEqual(status_elements("⏹ 已停止 · 用时 2 秒", False, True)[0]["content"], "⏹ 已停止 · 用时 2 秒")
+        from covey.cards.ui import state_word
+        self.assertEqual(slim_status_markdown("在做 · 已运行 6 秒 · 阶段：读日志\n现在：Read"),
+                         state_word("running") + " · 已运行 6 秒 · <font color='grey'>阶段：读日志 · 现在：Read</font>")
+        self.assertEqual(slim_status_markdown("有结果 · 用时 13 秒"), state_word("result") + " · 用时 13 秒")
+        self.assertEqual(status_elements("已停止 · 用时 2 秒", False, True)[0]["content"],
+                         state_word("cancelled") + " · 用时 2 秒")
 
     def test_the_progress_knows_it_and_anchors_in_the_details(self):
         from covey.app.task_card import StreamingCard, StreamingReply, body_anchor, bottom_anchor, under_body
@@ -517,8 +519,8 @@ class SlimCardTest(Case):
         from covey.cards.review import render_stream_final
         job = SimpleNamespace(job_id=7)
         self.assertEqual(render_stream_final(job, "正文", bare=True), "正文")
-        self.assertEqual(render_stream_final(job, "正文"), "**✅ 答案**\n正文")
-        self.assertEqual(render_stream_final(job, "出错", status="failed", bare=True), "**⚠️ 执行失败**\n出错")
+        self.assertEqual(render_stream_final(job, "正文"), "**答案**\n正文")
+        self.assertEqual(render_stream_final(job, "出错", status="failed", bare=True), "**停住了**\n出错")
 
     def test_what_stays_under_the_body_and_what_goes_in_the_details(self):
         from covey.app.cards import Cards

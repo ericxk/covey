@@ -64,9 +64,14 @@ def paint_answered(cards, log, ctx, chat, job_id, previous, *, answered=True):
         log(f"Previous question task display failed: {type(exc).__name__}")
 
 
-RECOVERY_TITLES = {recovery.SAVED_FAILED: "执行失败", recovery.SAVED_DELIVERED: "结果已送达",
-                   recovery.SAVED_PENDING: "结果投递待处理", recovery.START_FAILED: "任务未能启动",
-                   recovery.POLICY_STOP: "任务已中断", recovery.INTERRUPTED: "任务已中断"}
+# What became of the task, by its recovery state (core/recovery.py classify): the state's word (docs/ui.md 第 3 节) and
+# the band's headline; an interrupted or refused one says why (core/failure.py failure_view).
+RECOVERY_WORDS = {recovery.SAVED_FAILED: ("stopped", "这一轮没有能发出的结果"),
+                  recovery.SAVED_DELIVERED: ("result", "结果已经发出"),
+                  recovery.SAVED_PENDING: ("stopped", "结果已保存，还没发出去"),
+                  recovery.START_FAILED: ("stopped", "任务进程没能启动"),
+                  recovery.POLICY_STOP: ("stopped", "被官方安全策略拦下"),
+                  recovery.INTERRUPTED: ("stopped", "这一轮被打断了")}
 SAVED_TEXT = {recovery.SAVED_FAILED: '本轮未取得获准发布的结果，不支持重新投递。',
               recovery.SAVED_DELIVERED: '执行结果见本话题已发送的正文或文件。',
               recovery.SAVED_PENDING: '已保存的结果尚未送达；不会重新执行模型任务。'}
@@ -81,7 +86,15 @@ def recovery_card(record, *, continued=False, state_dir=None, moved_to=None, aut
     decided = recovery.classify(record)
     state, label = decided.card, decided.label
     cp = read_checkpoint(Path(record["checkpoint_path"])) if record.get("checkpoint_path") else {}
-    title = "已收到回答 · 继续处理中" if continued else RECOVERY_TITLES[state]
+    key, headline = ("running", "收到回答，接着做") if continued else RECOVERY_WORDS[state]
+    line = ""
+    view = None if continued or state not in (recovery.POLICY_STOP, recovery.INTERRUPTED) else failure.failure_view(record)
+    lead = "" if continued or state != recovery.INTERRUPTED else turn_words.device_interrupted(record)
+    if lead:  # A turn on a device: where its Agent is, and what continuing does.
+        headline, line = failure.split_title(lead.rstrip("。"))
+    elif view:
+        headline, line = failure.split_title(view["title"])
+    headline, line = worded(headline, record), worded(line, record)  # The butler is no topic.
     how = f"（{moved or auto_retry.KINDS[automatic].moved}）" if automatic or moved else ""
     topic = topic_label(Path(state_dir), record.get("topic_id", "")) if state_dir and record.get("topic_id") else ""
     text = recovery_text(record, state, label, cp, continued=continued, state_dir=state_dir)
@@ -93,10 +106,10 @@ def recovery_card(record, *, continued=False, state_dir=None, moved_to=None, aut
         # element IDs auto_retry.show repaints when it is cancelled or refused.
         actions, retry = auto_retry.result_elements(record["topic_id"], record["job_id"], record), None
     elif not continued and moved_to is None and record.get("topic_id"):
-        # 查原因 and 拆小再试 (core/failure.py) after its button, as a failed task card has them.
+        # 看原因 and 拆小再试 (core/failure.py) after its button, as a failed task card has them.
         follow = auto_retry.next_steps(record)[1]
         actions = (result_actions(record["topic_id"], record["job_id"], "", follow_ups=follow),) if follow else ()
-    return recovery_view(record, text, title=title, topic=topic, label=label, continued=continued, moved_to=moved_to,
+    return recovery_view(record, text, word=key, headline=headline, line=line, topic=topic, label=label, continued=continued, moved_to=moved_to,
                          how=how, retry=retry, actions=actions, snapshot=snapshot)
 
 
@@ -123,10 +136,8 @@ def recovery_text(record, state, label, cp, *, continued, state_dir):
     elif state == recovery.POLICY_STOP:
         text += str(record.get("final_text") or "本轮因官方拒绝或降级已停止，请检查任务内容后提出新的要求。")
     else:
-        lead = turn_words.device_interrupted(record)  # A turn on a device: where its Agent is, and what continuing does.
-        view = None if lead else failure.failure_view(record)  # Else why, in one line (core/failure.py).
-        text += lead + "\n\n" if lead else f"**{view['title']}**\n\n" if view else ""
-        text += f"当前阶段：{cp.get('phase') or '尚无检查点'}\n"
+        # Why is the band's (recovery_card): a turn on a device's words, else core/failure.py's.
+        text += f"停在：{cp.get('phase') or '尚无检查点'}\n"
         completed = cp.get("completed", [])
         text += "已完成：" + (
             "；".join(map(str, completed)) if isinstance(completed, list) and completed else "尚无记录"

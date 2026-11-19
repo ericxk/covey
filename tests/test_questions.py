@@ -619,11 +619,11 @@ class QuestionCardLookTest(unittest.TestCase):
                                answers={"ws": {"answers": ["维持排除"]}, "more": {"answers": ["没有"]}})
         single = {**record, "questions": record["questions"][:1]}
         self.assertEqual(question_card(single, "T182")["config"]["summary"]["content"],
-                         "❓ #1084 的提问 · 已回答 → #1111 ✅ 已完成")
+                         "❓ #1084 的提问 · 已回答 → #1111 有结果")
         cases = {
             "❓ #1084 的 2 道题 · 你提了反馈 → #1125 又提了问题": {"response_kind": "feedback", "feedback": "意思不大",
                                                      "delivery_state": "waiting_user", "continuation_job_id": 1125},
-            "❓ #1084 的 2 道题 · 已回答 → #1111 ⚠️ 执行失败": {"delivery_state": "failed"},
+            "❓ #1084 的 2 道题 · 已回答 → #1111 停住了": {"delivery_state": "failed"},
             "❓ #1084 的 2 道题 · 回答已保存，送达未确认，请先核查，不会自动重复发送": {"status": "uncertain"},
             "❓ #1084 的 2 道题 · 已取消 · 话题已换配置，直接在话题里回复新模型即可": {"status": "cancelled",
                                                                  "cancel_reason": "switched"},
@@ -653,17 +653,19 @@ class QuestionCardLookTest(unittest.TestCase):
     def test_an_open_form_numbers_its_questions_and_folds_its_rules(self):
         # T191 #1084: ten lines of rules before the first question, no numbers, options in the questions' type.
         card = question_card(two_questions(), "T191")
-        # An orange title bar names the topic and the task (2026-11-02 review: a bold line read like any notice).
-        self.assertEqual((card["header"]["template"], card["header"]["title"]["content"]),
-                         ("orange", "❓ T191 · #1084 · 需要你回答 · 2 题"))
-        form = card["body"]["elements"][0]
+        # No title bar: a conclusion band names the topic and the task, what the owner decides and what the turn waits for.
+        self.assertNotIn("header", card)
+        band = json.dumps(card["body"]["elements"][0], ensure_ascii=False)
+        for words in ("等你 · T191 &#35;1084", "要你定：2 件事", "等你回答后继续"):
+            self.assertIn(words, band)
+        form = card["body"]["elements"][1]
         texts = [e.get("content", "") for e in form["elements"] if e.get("tag") == "markdown"]
-        self.assertEqual(texts[0], "**等待回答后继续** · 共 2 道题：逐题选择或填写，最后点“提交回答”。")
+        self.assertEqual(texts[0], "共 2 道题：逐题选择或填写，最后点“提交回答”。")  # The band says what it waits for.
         self.assertEqual(texts[1], "**1/2 · /workspace 口径**\n按什么口径建 workspace？")
         self.assertEqual(texts[2], "- **按会话单独建（推荐）**：每个会话自成一个\n- **维持排除**：暂不放开")
         self.assertEqual(texts[3], "**2/2**\n还有什么要说明的？")
         # On the task card the form says whose it is itself; once settled the card has no bar.
-        self.assertEqual(question_element(two_questions())["elements"][0]["content"], "**需要你补充 · 等待回答后继续**")
+        self.assertEqual(question_element(two_questions())["elements"][0]["content"], "**等你 · 等你回答后继续**")
         self.assertNotIn("header", question_card({**two_questions(), "status": "answered"}, "T191"))
         help_panel = next(e for e in form["elements"] if e.get("tag") == "collapsible_panel")
         self.assertEqual(help_panel["header"]["title"]["content"], "怎么回答")
@@ -675,7 +677,7 @@ class QuestionCardLookTest(unittest.TestCase):
         fields = {e["name"]: e for e in walk_dicts(form["elements"]) if e.get("name")}
         self.assertEqual(set(fields), {"option_0", "answer_0", "answer_1", "skip_1", "supplement", "skip_all", "submit"})
         self.assertEqual([o["value"] for o in fields["option_0"]["options"]], ["0", "1", "skip"])
-        self.assertEqual(question_element(two_questions())["elements"][0]["content"], "**需要你补充 · 等待回答后继续**")
+        self.assertEqual(question_element(two_questions())["elements"][0]["content"], "**等你 · 等你回答后继续**")
 
 
 class QuestionStatusClickTest(QuestionFixture, unittest.TestCase):
@@ -690,7 +692,7 @@ class QuestionStatusClickTest(QuestionFixture, unittest.TestCase):
             self.app.interaction.interaction_action(self.ctx_topic, event)
         card = publish.call_args.args[3]
         self.assertEqual(publish.call_args.kwargs["source_message"], "om_old_card")
-        self.assertIn("已回答 → #9 ✅ 已完成", text_of(card))
+        self.assertIn("已回答 → #9 有结果", text_of(card))
 
 
 class SkipAllTest(QuestionFixture, unittest.TestCase):
@@ -738,7 +740,7 @@ class SkipAllTest(QuestionFixture, unittest.TestCase):
                 self.click({"option_0": "0", "supplement": supplement}, "om_qcard")
                 _, chat, _, source, card = self.app.cards.repaint_browse_card.call_args.args
                 self.assertEqual((chat, source), ("oc_chat", "om_qcard"))
-                self.assertEqual(card["body"]["elements"][1]["content"],
+                self.assertEqual(card["body"]["elements"][2]["content"],
                                  f"⚠️ 补充说明是空的，这次没有提交。点“{SKIP_ALL_LABEL}”前，先在最下面的“补充说明”里写上你想说的")
                 self.assertIn('"tag": "form"', json.dumps(card))  # Still open: written and sent again.
         self.rpc.answer.assert_not_called()
@@ -941,7 +943,7 @@ class QuestionCardLifecycleTest(TopicFixture, unittest.TestCase):
         self.assertGreater(calls[1].data['sequence'], calls[0].data['sequence'])
         card = calls[1].card
         self.assertNotIn('提交回答', json.dumps(card, ensure_ascii=False))
-        self.assertIn('已回答 → 后续任务 ✅ 已完成', json.dumps(card, ensure_ascii=False))
+        self.assertIn('已回答 → 后续任务 有结果', json.dumps(card, ensure_ascii=False))
         self.assertIn('英文\nUTF-8', card['body']['elements'][0]['elements'][0]['content'])
 
     def test_a_question_left_a_week_is_closed_once_with_a_note_on_its_card(self):
@@ -1052,7 +1054,7 @@ class QuestionCardLifecycleTest(TopicFixture, unittest.TestCase):
         monitor = TaskMonitor(job, self.root/'cp.json', rendered.append, lambda **kw: None,
                               lambda *a: None, lambda *a: None, lambda: None)
         monitor.tick()
-        self.assertIn('模型请求重试中 · 第 3 次', rendered[-1])
+        self.assertIn('模型请求重试第 3 次', rendered[-1])
         self.assertIn('停止按钮', rendered[-1])
         self.assertNotIn('上游返回', rendered[-1])
         job.backend_retry = {**job.backend_retry, 'reason': 'Internal Server Error: unknown error'}
@@ -1062,7 +1064,7 @@ class QuestionCardLifecycleTest(TopicFixture, unittest.TestCase):
         # Acme's relay tries again at once and says since when and for how long at most.
         job.backend_retry = {'attempt': 41, 'since': (time.time() - 125) * 1000, 'limit': 3600}
         monitor.tick()
-        self.assertIn('模型请求重试中 · 第 41 次', rendered[-1])
+        self.assertIn('模型请求重试第 41 次', rendered[-1])
         self.assertIn('正在再次尝试（已持续 2 分 0', rendered[-1])
         self.assertIn('，最长 60 分钟）', rendered[-1])
         job.backend_retry = {}
@@ -1519,7 +1521,7 @@ class QuestionRecoveryTest(QuestionFixture, unittest.TestCase):
         upsert_job_record(self.ctx.state_dir, "answer-" + self.token, status="interrupted", **follow_up)
         record = self.recover()
         self.assertEqual(record["delivery_state"], "interrupted")
-        self.assertIn("已回答 → #99 已中断", json.dumps(question_card(record), ensure_ascii=False))
+        self.assertIn("已回答 → #99 停住了", json.dumps(question_card(record), ensure_ascii=False))
 
     def test_a_cancelled_question_stays_cancelled_through_a_restart(self):
         # A live native question the backend withdrew after 提交回答 keeps the submit's awaiting_ack.

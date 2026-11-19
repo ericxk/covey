@@ -11,7 +11,7 @@ way of asking: Haiku, no tools, no session, killed at MODEL_SECONDS) words that 
 rules' sentence stands when it cannot. The reply is that sentence and the facts it rests on. Nothing is stopped,
 changed or started, and no task runs.
 
-The stops route's 查原因 (a turn that ended) is the same kind of read-only look; the two are to be merged.
+The stops route's 看原因 (a turn that ended) is the same kind of read-only look; the two are to be merged.
 """
 from __future__ import annotations
 

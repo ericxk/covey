@@ -8,8 +8,9 @@ import re
 from typing import Any
 
 from covey.cards.elements import card
+from covey.cards.ui import band_label, banded, conclusion_band
 from covey.core import turn_words
-from covey.core.text import redact
+from covey.core.text import literal, redact
 
 STREAM_PROGRESS_STATUS_MAX_CHARS = 22000
 
@@ -177,6 +178,9 @@ def render_stream_progress_lines(events: list[str], *, max_chars: int) -> list[s
     return head + [placeholder.format(omitted=omitted)] + tail
 
 
+ANSWER = "答案"  # The title of an answer on the card its run streamed it on.
+
+
 def stopped_sentence(job_id: Any) -> str:
     """How a stopped run's result text starts (app/worker.py)."""
     return f"任务 #{job_id} 已停止。"
@@ -186,15 +190,12 @@ def render_stream_final(job: Any, final_text: str, *, status: str = "done", answ
                         outcome_shown: bool = False, bare: bool = False) -> str:
     """The result under 任务详情. Its title says how the run ended, unless the status line at the top
     already does (``outcome_shown``): then only what that line lacks stays. An answer keeps its title, except
-    on a slim card (``bare``, the butler's): the answer is the card, its status line under it says ✅."""
-    state, title = {
-        "failed": ("执行失败", "⚠️ 执行失败"),
-        "cancelled": ("已停止", "已停止"),
-        "waiting_user": ("等待回答", "需要你回答"),
-    }.get(status, ("已完成", "✅ 已完成" if answer_elsewhere else "✅ 答案"))
-    if bare and title == "✅ 答案":
+    on a slim card (``bare``, the butler's): the answer is the card, its status line under it says 有结果."""
+    title = {"failed": "停住了", "cancelled": "已停止", "waiting_user": "等你"}.get(
+        status, "有结果" if answer_elsewhere else ANSWER)
+    if bare and title == ANSWER:
         return final_text
-    if outcome_shown and title != "✅ 答案":
+    if outcome_shown and title != ANSWER:
         if status == "cancelled":
             final_text = final_text.removeprefix(stopped_sentence(getattr(job, "job_id", ""))) or final_text
         return final_text
@@ -209,21 +210,20 @@ ANSWER_CARD_BYTES = 25_000
 
 
 def answer_summary(label: str, status: str, lead: str) -> str:
-    """The chat-list preview of a turn's task card once it closes and of its answer card: the outcome's
-    mark, the topic (or task) and the reply's lead, "✅ T298 · lead"; without a lead, the outcome's words."""
-    mark, _, words = outcome_line(status).partition(" ")
-    return f"{mark} {label} · {redact(lead) if lead else words}"
+    """The chat-list preview of a turn's task card once it closes and of its answer card: the topic (or task), the
+    outcome's word and the reply's lead, "T298 有结果 · lead"; without a lead, the outcome's word alone."""
+    return f"{label} {outcome_line(status)}" + (f" · {redact(lead)}" if lead else "")
 
 
 def bare_answer_summary(status: str, lead: str) -> str:
     """The chat-list preview of the answer card of a butler turn that sent no card (app/worker.py
-    TurnDelivery.bare): no task number, which the owner never saw (ACCEPT-322: "✅ #3308 · 5"); "✅ 已答：" and the
-    reply's lead as its card's status line would say it (app/butler_reply.py outcome_words), another outcome's mark
-    and words before the lead; without a lead, the outcome's words."""
-    mark, _, words = outcome_line(status).partition(" ")
+    TurnDelivery.bare): no task number, which the owner never saw (ACCEPT-322: "✅ #3308 · 5"); "已答：" and the
+    reply's lead as its card's status line would say it (app/butler_reply.py outcome_words), another outcome's word
+    before the lead; without a lead, the outcome's word."""
+    words = outcome_line(status)
     if not lead:
-        return f"{mark} {words}"
-    return f"{mark} {'已答' if status == 'done' else words}：{redact(lead)}"
+        return words
+    return f"{'已答' if status == 'done' else words}：{redact(lead)}"
 
 
 # A topic's row in the topic list shows its latest message's preview, and a task card's title cannot change
@@ -234,25 +234,24 @@ SUMMARY_PHASE_CHARS = 30
 
 
 def queued_summary(label: str, title: str) -> str:
-    """The chat-list preview of a task card while its task waits: "🕒 T298 · 排队中 · " and the card's title."""
-    return f"🕒 {label} · 排队中 · {title}"
+    """The chat-list preview of a task card while its task waits: "T298 排队 · " and the card's title."""
+    return f"{label} 排队 · {title}"
 
 
 def running_summary(label: str, title: str, phase: str = "", asking: bool = False) -> str:
-    """The chat-list preview of a task card while its task runs: "⏳ T298 · 执行中 · " and the checkpoint's phase,
-    else the card's title; "❓ T298 · 需要你回答" while a question of the model waits for the answer."""
+    """The chat-list preview of a task card while its task runs: "T298 在做 · " and the checkpoint's phase, else the
+    card's title; "T298 等你" while a question of the model waits for the answer."""
     if asking:
-        return f"❓ {label} · 需要你回答"
-    return f"⏳ {label} · 执行中 · {compact_text(phase, SUMMARY_PHASE_CHARS) if phase else title}"
+        return f"{label} {turn_words.BOARD['waiting']}"
+    return f"{label} {turn_words.RUNNING} · {compact_text(phase, SUMMARY_PHASE_CHARS) if phase else title}"
 
 
 def task_card_summary(label: str, status: str, line: str = "") -> str:
     """The chat-list preview of a closed task card whose reply went out as its own answer card: the topic and
-    the outcome with its time, "T298 · 已完成 · 用时 3 分 39 秒" (``line``: the status line, else the outcome's
-    words). The answer card keeps "✅ T298 · lead": with the lead on both, a topic's replies read it twice
-    in the chat (2026-11-02 review). Only an outcome other than 已完成 keeps its mark."""
-    mark, _, words = (line or outcome_line(status)).partition(" ")
-    return f"{label} · {words}" if status == "done" else f"{mark} {label} · {words}"
+    the outcome with its time, "T298 有结果 · 用时 3 分 39 秒" (``line``: the status line, else the outcome's
+    words). The answer card keeps "T298 有结果 · lead": with the lead on both, a topic's replies read it twice
+    in the chat (2026-11-02 review)."""
+    return f"{label} {line or outcome_line(status)}"
 
 
 # A level 3-6 heading, its closing #s apart; up to 3 spaces before it, as Markdown allows.
@@ -300,6 +299,12 @@ def inline_one_line_code(text: str) -> str:
     return "\n".join(out)
 
 
+def answer_band(status: str, label: str, title: str, lead: str) -> dict:
+    """The conclusion band atop a turn's answer card in its thread (docs/ui.md 5.2 聊天结果卡): its outcome's word, its
+    T number ``label`` and its topic's ``title``, "有结果 · T443 改看板", over the reply's ``lead``."""
+    return conclusion_band(band_label(turn_words.TONES.get(outcome_line(status), "result"), label, title), literal(lead))
+
+
 def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | tuple = ()) -> dict | None:
     """A turn's answer sent on its own, as a card of one Markdown block (``bold_minor_headings``,
     ``inline_one_line_code``): the chat list previews ``summary`` where a Markdown message showed its first
@@ -307,6 +312,6 @@ def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | t
     输入/输出 box), a card that can be updated then (its 产物 once uploaded); ``head``: what goes above it (the
     "你问" block of an answer at the private chat's top level). None when it would not fit one card message; it then
     goes as Markdown."""
-    built = card([*head, {"tag": "markdown", "content": bold_minor_headings(inline_one_line_code(text)),
-                          "text_size": "normal_v2"}, *tail], summary, update_multi=bool(tail))
+    built = banded(card([*head, {"tag": "markdown", "content": bold_minor_headings(inline_one_line_code(text)),
+                                 "text_size": "normal_v2"}, *tail], summary, update_multi=bool(tail)))
     return built if len(json.dumps(built, ensure_ascii=False).encode("utf-8")) <= ANSWER_CARD_BYTES else None

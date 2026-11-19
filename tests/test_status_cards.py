@@ -87,14 +87,14 @@ class LinesTest(Base):
         self.assertIn("2 轮 · 用时 5分39秒", facts)
         self.assertEqual(line, "结论：没找到完全对口的实测")
         failed = {**done, "status": "failed", "status_message": "后端调用失败"}
-        self.assertEqual(lines(self.state, "oc_dm", self.row("result", failed), NOW)[1:4:2], ("失败", "原因：后端调用失败"))
+        self.assertEqual(lines(self.state, "oc_dm", self.row("result", failed), NOW)[1:4:2], ("停住了", "原因：后端调用失败"))
         stopped = {**done, "status": "cancelled", "status_message": "用户停止了任务"}
         self.assertEqual(lines(self.state, "oc_dm", self.row("result", stopped), NOW)[1:4:2],
                          ("已停止", "原因：用户停止了任务"))
         asked = {"topic_id": "tq", "job_id": 1, "created_at": NOW - 60,
                  "questions": [{"question": "要不要做？"}, {"question": "哪个仓库？"}]}
         _, state, facts, line = lines(self.state, "oc_dm", self.row("waiting", asked), NOW)
-        self.assertEqual((state, line), ("等你回答", "问题：要不要做？（共 2 题）"))
+        self.assertEqual((state, line), ("等你", "问题：要不要做？（共 2 题）"))
         self.assertIn("第 1 轮", facts)
         point = self.state / "point.json"
         write_json(point, {"phase": "看图并用浏览器复现"})

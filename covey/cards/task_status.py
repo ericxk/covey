@@ -7,6 +7,8 @@ import re
 from typing import Any
 
 from covey.cards.elements import button_row, grey, topic_button
+from covey.cards.ui import state_word
+from covey.core.turn_words import TONES
 
 
 ACTIVITY_ELEMENT_ID = "activity"
@@ -18,10 +20,15 @@ STATUS_MORE_ID = "activity_more"
 # read-only look at its processes, log and latest output (app/stuck_check.py), its kind LOOK_KIND in app/card_actions.py.
 LOOK_ID = "stuck_look"
 LOOK_KIND = "bridge_job_look"
-LOOK_LABEL = "🔍 看看"
+LOOK_LABEL = "看看"
 RAN = "已运行 "
 RAN_MINUTES = 3  # From this many minutes on, 已运行 says minutes alone: the line is written once a minute then.
-STATUS_MARKS = {"执行中": "⏳"}
+
+
+def marked(head: str) -> str:
+    """A status line's first word (core/turn_words.py TONES) as its state's dot and word in its colour (cards/ui.py
+    state_word); any other words as they are (an older card's ✅ 已完成, a device's line)."""
+    return state_word(TONES[head]) if head in TONES else head
 
 
 def status_markdown(text: str) -> str:
@@ -30,15 +37,14 @@ def status_markdown(text: str) -> str:
     line's status as a ``##`` heading, which a card's Markdown draws bold and a little larger (the 2026-11-02
     probe, cards/review.py bold_minor_headings); its words after the first " · " and the lines under it (what
     the task does now) small and grey below it: beside the heading they were drawn as large and wrapped in a
-    topic's side panel (the 2026-11-04 client check). 执行中 leads with ⏳. Text already styled is left as it is."""
+    topic's side panel (the 2026-11-04 client check). The status word (在做, 有结果, 停住了 …) is its state's dot and
+    word in its colour (``marked``). Text already styled is left as it is."""
     text = str(text or "")
     if not text.strip() or text.startswith("## "):
         return text or " "
     first, _, rest = text.partition("\n")
     head, _, details = first.partition(" · ")
-    if head in STATUS_MARKS:
-        head = f"{STATUS_MARKS[head]} {head}"
-    return "\n".join(["## " + head] + [grey(line) for line in [details, *rest.split("\n")] if line.strip()])
+    return "\n".join(["## " + marked(head)] + [grey(line) for line in [details, *rest.split("\n")] if line.strip()])
 
 
 def activity_element(content: str = "等待处理") -> dict[str, Any]:
@@ -50,14 +56,14 @@ def activity_element(content: str = "等待处理") -> dict[str, Any]:
 def slim_status_markdown(text: str) -> str:
     """The slim card's status line (SLIM_DETAILS_ID's card) from the plain text its producers write, on one line:
     the status and its time (``status_rows``) in the card's text, the rest grey after " · ", its lines joined
-    with " · " too (⏳ 执行中 · 已运行 6 秒 · 当前：…; ✅ 已完成 · 用时 13 秒). No ``##`` heading. Text already styled is left as it is."""
+    with " · " too (在做 · 已运行 6 秒 · 现在：…; 有结果 · 用时 13 秒), its status word ``marked``. No ``##`` heading.
+    Text already styled is left as it is."""
     text = str(text or "")
     if not text.strip() or text.startswith("## "):
         return text or " "
     first, _, more = text.partition("\n")
     head, *segments = first.split(" · ")
-    if head in STATUS_MARKS:
-        head = f"{STATUS_MARKS[head]} {head}"
+    head = marked(head)
     timed = [part for part in segments
              if part.startswith(("已运行 ", "用时 ")) or re.search(r"\d{1,2}:\d{2} 结束$", part)]
     rest = [part.strip() for part in [*(part for part in segments if part not in timed), *more.split("\n")]
@@ -85,7 +91,7 @@ def slim_start(content: str) -> tuple[str, str]:
 
 def status_rows(text: str, io: bool = False) -> tuple[str, str]:
     """``text``, a status line as its producers write it, split for a card with STATUS_MORE_ID: the status with
-    how long it has run or when it ended (执行中 · 已运行 6 分 19 秒, ✅ 已完成 · 20:01 结束), beside the tiles;
+    how long it has run or when it ended (在做 · 已运行 6 分 19 秒, 有结果 · 20:01 结束), beside the tiles;
     the rest (阶段, 当前, why it stops, a retry's attempt and reason), under them. Both as plain text. On a card
     with the 输入/输出 box (``io``) 已运行 is in 输出 (``ran_of``), on neither part."""
     text = str(text or "")

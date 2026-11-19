@@ -29,7 +29,10 @@ from covey.app.access import Access
 from covey.app.artifacts import answer_files
 from covey.cards.answer_card import head_element, tail as answer_tail
 from covey.cards.answer_card import tail_card as answer_tail_card
+from covey.cards.review import answer_band, answer_lead
+from covey.cards.ui import banded
 from covey.core import placement
+from covey.core.failure import HEADLINE_CHARS as HEADLINE
 from covey.core.jobs import job_key
 from covey.core.locks import resource_lock
 from covey.core.saved_results import FILE_BYTES
@@ -78,8 +81,8 @@ def plan(ctx, job_id, status, reply, text, *, key, file, top, tail, head, bare, 
     ``tail``."""
     head, tail = list(head), list(tail)
     if file:
-        small = (answer_tail_card([*head, *tail], f"{label_of(ctx, job_id)} · 产物与详情",
-                                  TOP_FILE_LEAD if top else TAIL_LEAD) if tail else None)
+        small = (banded(answer_tail_card([*head, *tail], f"{label_of(ctx, job_id)} · 产物与详情",
+                                         TOP_FILE_LEAD if top else TAIL_LEAD)) if tail else None)
         return signed(Outgoing(key, top, True, None, small, files, upload_status), text)
     built = answer_cards.saved_answer_card(ctx, job_id, status, reply, text, tail, head, bare=bare)
     return signed(Outgoing(key, top, False, built, None, files, upload_status), text)
@@ -179,9 +182,14 @@ def owner_headed(row, runtime, chat_id) -> bool:
     return bool(agent) or isinstance(chat, str) and bool(chat) and chat == chat_id
 
 
-def status_head(state_dir, topic_id, status):
-    """The status line atop an answer card in its thread (cards/answer_card.py head_element)."""
-    return head_element(answer_head(status), topic_label(state_dir, topic_id), topic_title(state_dir, topic_id))
+def status_head(state_dir, topic_id, status, lead=""):
+    """What leads an answer card in its thread: its conclusion band (docs/ui.md 5.2 聊天结果卡, cards/ui.py
+    conclusion_band), "有结果 · T443 改看板" over the reply's ``lead`` (cards/review.py answer_lead); without a lead the
+    status line it had before (cards/answer_card.py head_element)."""
+    label, title = topic_label(state_dir, topic_id), topic_title(state_dir, topic_id)
+    if not lead:
+        return head_element(answer_head(status), label, title)
+    return answer_band("failed" if status == "interrupted" else status, label, title, lead)
 
 
 def heads(top, headed, ask, status):
@@ -239,7 +247,7 @@ def rebuilt(ctx, record, saved_job, reply, text, *, key, file, bare, harness, ca
 
     def status_line():
         try:
-            return status_head(state_dir, ctx.topic_id, record.get("execution_status"))
+            return status_head(state_dir, ctx.topic_id, record.get("execution_status"), answer_lead(reply.text, HEADLINE))
         except Exception as exc:  # noqa: BLE001 - the answer goes without it
             log(f"answer card status line unavailable: {type(exc).__name__}")
             return None

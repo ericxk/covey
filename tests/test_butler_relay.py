@@ -99,8 +99,10 @@ class CardTest(unittest.TestCase):
         reply = "先说结论。\n\n" + "细节。" * 300 + "\n\n## 逐层结果\n\n最后一段。"
         card, text = relay_card("T410", DONE, text=reply, inputs=["Claude Code"], outputs=[])
         self.assertNotIn("header", card)
-        self.assertEqual("T410 · 有结论：先说结论", card["config"]["summary"]["content"])
-        elements = card["body"]["elements"]
+        self.assertEqual("T410 · 有结果：先说结论", card["config"]["summary"]["content"])
+        band, *elements = card["body"]["elements"]  # The conclusion band first (docs/ui.md 5.2).
+        self.assertIn("有结果 · T410", str(band))
+        self.assertIn("先说结论", str(band))
         self.assertTrue(elements[0]["content"].startswith("先说结论。"))
         self.assertTrue(elements[0]["content"].endswith("最后一段。"))  # Not cut: no "…", no 全文在 T410.
         self.assertIn("T410 ›", str(elements[-1]))  # The answer card's 输入/输出 box, 输出 ending in its T number.
@@ -115,11 +117,21 @@ class CardTest(unittest.TestCase):
 
     def test_a_question_and_a_stop(self):
         card, _ = relay_card("T408", WAITING, question="选 A 还是 B？")
-        self.assertEqual(["**T408 需要你回答**", "选 A 还是 B？"], [e["content"] for e in card["body"]["elements"][:2]])
-        self.assertIn("在 T408 的问题卡里答，或在这里回「T408 …」", card["body"]["elements"][2]["content"])
-        card, _ = relay_card("T408", STOPPED, reason="用户停止了任务")
-        self.assertEqual("**T408 停了**：用户停止了任务", card["body"]["elements"][0]["content"])
-        self.assertEqual("T408 · 停了：用户停止了任务", card["config"]["summary"]["content"])
+        band, rest = card["body"]["elements"][0], card["body"]["elements"][1:]
+        self.assertIn("等你 · T408", str(band))
+        self.assertIn("要你定：选 A 还是 B？", str(band))  # A short question is the band's alone, not said twice.
+        self.assertEqual(1, json.dumps(card["body"], ensure_ascii=False).count("选 A 还是 B？"))
+        self.assertIn("在 T408 的问题卡里答，或在这里回「T408 …」", rest[0]["content"])
+        long = "选 A 还是 B？" + "A 快一些但要改接口，B 慢一些但不动接口。" * 2
+        card, text = relay_card("T408", WAITING, question=long)
+        self.assertIn("要你定：下面这个问题", str(card["body"]["elements"][0]))
+        self.assertEqual(long, card["body"]["elements"][1]["content"])
+        self.assertTrue(text.startswith("**T408 等你**"))
+        card, text = relay_card("T408", STOPPED, reason="用户停止了任务")
+        self.assertIn("停住了 · T408", str(card["body"]["elements"][0]))
+        self.assertIn("用户停止了任务", str(card["body"]["elements"][0]))
+        self.assertTrue(text.startswith("**T408 停住了**：用户停止了任务"))
+        self.assertEqual("T408 · 停住了：用户停止了任务", card["config"]["summary"]["content"])
 
 
 class SendTest(Case):
@@ -241,7 +253,7 @@ class AskedTest(Case):
         self.assertEqual("sent", butler_relay.relay_question(self.state, self.job(), self.question, send=send))
         chat, text, key, reply_to, card, _ = send.call_args.args
         self.assertEqual((chat, key, reply_to), (CHAT, job_key("main-t1", 9) + "--q1", ""))
-        self.assertIn("T410 需要你回答", text)
+        self.assertIn("T410 等你", text)
         self.assertIn("选 A 还是 B？", text)
         saved = read_object(butler_relay.question_relay_path(self.state, job_key("main-t1", 9), "q1"))
         self.assertEqual((saved["state"], saved["outcome"]), ("sent", WAITING))
@@ -332,7 +344,8 @@ class DeliverTest(Case):
         speaker = kwargs["card"]["body"]["elements"][0]
         self.assertEqual(speaker["element_id"], "answer_ask")
         self.assertIn("**T410", str(speaker))
-        self.assertIn("两种做法都行", kwargs["card"]["body"]["elements"][1]["content"])
+        self.assertIn("有结果 · T410", str(kwargs["card"]["body"]["elements"][1]))  # The conclusion band.
+        self.assertIn("两种做法都行", kwargs["card"]["body"]["elements"][2]["content"])
         # The answer card's 输入/输出 box (cards/answer_card.py), 输出 ending in the T number.
         facts = kwargs["card"]["body"]["elements"][-1]
         self.assertEqual(facts["element_id"], "answer_facts")
@@ -359,7 +372,9 @@ class DeliverTest(Case):
 
     def test_a_stopped_turn_without_one_says_it_stopped(self):
         send = self.deliver(self.job(progress=SimpleNamespace()), status="cancelled")
-        self.assertEqual("**T410 停了**：用户停止了任务", send.call_args.kwargs["card"]["body"]["elements"][1]["content"])
+        band = send.call_args.kwargs["card"]["body"]["elements"][1]
+        self.assertIn("停住了 · T410", str(band))
+        self.assertIn("用户停止了任务", str(band))
 
     def test_an_undelivered_result_sends_nothing(self):
         send = self.deliver(self.job(progress=SimpleNamespace()), sent=False)
@@ -377,7 +392,7 @@ class DeliverTest(Case):
             with mock.patch.object(answer_cards, name, side_effect=AttributeError("x")):
                 send = self.deliver(self.job(progress=SimpleNamespace()))
             send.assert_called_once()
-            self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][1]["content"])
+            self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][2]["content"])
             saved = read_object(relay_send.relay_path(self.state, job_key("main-t1", 9)))
             self.assertEqual("sent", saved["state"])
 

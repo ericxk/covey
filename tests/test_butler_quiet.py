@@ -314,7 +314,7 @@ class DeliverTest(DeliverCase):
         self.assertIn("#12", json.dumps(question_card(record), ensure_ascii=False))
         top = json.dumps(question_card({**record, "mirror_state": "at_top"}), ensure_ascii=False)
         self.assertNotIn("#12", top)
-        self.assertIn("❓ 需要你回答", top)
+        self.assertIn("等你", top)
 
     def test_a_refusal_with_its_late_card_is_said_at_the_top_level_too(self):
         self.deliver(self.job(progress=SimpleNamespace(slim=True)), status="cancelled", reply=REFUSAL, verified=False,
@@ -378,18 +378,18 @@ class DeliverTest(DeliverCase):
     def test_an_answer_with_no_card_is_previewed_without_its_task_number(self):
         # ACCEPT-322 problem 3: the chat list read "✅ #3308 · 5", a task number the owner never saw.
         self.deliver(self.job(), reply="5")
-        self.assertEqual(self.send_text.call_args.kwargs["card"]["config"]["summary"]["content"], "✅ 已答：5")
+        self.assertEqual(self.send_text.call_args.kwargs["card"]["config"]["summary"]["content"], "已答：5")
         # With its late card, or in a topic, as before.
         self.deliver(self.job(progress=SimpleNamespace(slim=True)), reply="5")
         summaries = [call.kwargs["card"]["config"]["summary"]["content"] for call in self.send_text.call_args_list
                      if call.kwargs.get("card")]
-        self.assertEqual(summaries, ["✅ #7 · 5"])
+        self.assertEqual(summaries, ["#7 有结果 · 5"])
 
     def test_the_bare_preview_words(self):
         from covey.cards.review import bare_answer_summary
-        self.assertEqual(bare_answer_summary("done", "两种做法都行"), "✅ 已答：两种做法都行")
-        self.assertEqual(bare_answer_summary("done", ""), "✅ 已完成")
-        self.assertEqual(bare_answer_summary("waiting_user", "查哪台"), "❓ 需要你回答：查哪台")
+        self.assertEqual(bare_answer_summary("done", "两种做法都行"), "已答：两种做法都行")
+        self.assertEqual(bare_answer_summary("done", ""), "有结果")
+        self.assertEqual(bare_answer_summary("waiting_user", "查哪台"), "等你：查哪台")
 
     def test_a_topic_and_an_answers_continuation_get_no_reaction(self):
         self.deliver(self.job(topic="a" * 32, progress=SimpleNamespace()))
@@ -593,8 +593,8 @@ class RedeliveryTest(Case):
                 controls.redeliver_verified_result(self.ctx, CHAT, record)
             return controls.messenger.reply.call_args.kwargs["card"]["config"]["summary"]["content"]
 
-        self.assertEqual(redeliver(record), "✅ 已答：5")
-        self.assertEqual(redeliver({**record, "card_message_id": "om_card"}), "✅ #7 · 5")
+        self.assertEqual(redeliver(record), "已答：5")
+        self.assertEqual(redeliver({**record, "card_message_id": "om_card"}), "#7 有结果 · 5")
 
     def test_a_paused_question_goes_again_where_its_first_send_put_it(self):
         # B1 (2026-11-10): as app/worker.py TurnDelivery._question_apart puts it: at the top level only when the quiet

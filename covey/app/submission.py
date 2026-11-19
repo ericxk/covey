@@ -102,7 +102,7 @@ class Submission:
         return self.models.configured_context(topic_context(ctx, event, self.harness.store.sessions_dir))
 
     def follow_up(self, ctx, event):
-        """查原因 and 拆小再试 on a task card that did not succeed (core/failure.py actions): a turn of their own in the
+        """看原因 and 拆小再试 on a task card that did not succeed (core/failure.py actions): a turn of their own in the
         topic, queued as a message of the owner's would be, after the click is acknowledged."""
         raw = action_value(event)
         name = {DIAGNOSE_KIND: failure.DIAGNOSE, SPLIT_KIND: failure.SPLIT}.get(raw.get("kind"))

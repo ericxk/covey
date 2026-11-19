@@ -112,7 +112,7 @@ class WordsTest(unittest.TestCase):
         self.assertIs(status_cards.UNSET_PHASES, turn_words.BLANK_PHASES)
         self.assertEqual(longtask.SEED_PHASE, turn_words.SEED_PHASE)
         self.assertEqual([review.outcome_line(s) for s in ("done", "failed", "cancelled", "waiting_user", "x")],
-                         ["✅ 已完成", "⚠️ 执行失败", "⏹ 已停止", "❓ 需要你回答", "✅ 已完成"])
+                         ["有结果", "停住了", "已停止", "等你", "有结果"])
         self.assertEqual(dict(butler_app.GROUPS)["result"], "有结果未看")
 
 

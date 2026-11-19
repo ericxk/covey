@@ -118,7 +118,7 @@ class PolicyRetryTest(UnifiedCase):
                          ('已因安全拒绝（cyber）换 Opus 4.8 重试', record['key'], 'claude-opus-4-8'))
         self.assertEqual(after['retried_by'], job.message_id)
         moved = json.dumps(self.claude.cards.replace_record_card.call_args.args[2], ensure_ascii=False)
-        self.assertIn(f"已转到任务 #{job.job_id} 继续（已因安全拒绝（cyber）换 Opus 4.8 重试）", moved)
+        self.assertIn(f"已转到任务 &#35;{job.job_id} 继续（已因安全拒绝（cyber）换 Opus 4&#46;8 重试）", moved)
         self.assertEqual(read_topic(self.topic_ctx).get('model'), topic_model)  # The binding stays.
         self.tick(record)
         self.assertEqual(len(self.queued()), 1)
@@ -406,7 +406,7 @@ class PolicyRetryTest(UnifiedCase):
         policy_guard.finish(gateway, self.ctx, intent)  # As its tick does while card_updated is False.
         self.assertEqual(self.claude.cards.replace_record_card.call_count, 2)
         last = json.dumps(self.claude.cards.replace_record_card.call_args.args[2], ensure_ascii=False)
-        self.assertIn(f'已转到任务 #{job.job_id} 继续（已因安全拒绝（cyber）换 Opus 4.8 重试）', last)
+        self.assertIn(f'已转到任务 &#35;{job.job_id} 继续（已因安全拒绝（cyber）换 Opus 4&#46;8 重试）', last)
         self.assertNotIn('检查并继续', last)
         self.assertTrue(json.loads(Path(intent).read_text())['card_updated'])
         self.assertTrue(find_job_record(self.ctx.state_dir, record['key'])['policy_card_updated'])

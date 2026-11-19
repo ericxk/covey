@@ -187,7 +187,7 @@ doctor 的服务行带 `permission_env`、stderr 写 `service <id>: LARK_… is 
 | `flow=message outcome=queued_card` | 话题里追发 → 排队卡 | 同上，任务卡之后 `ack_query` 查本话题等回答的任务（有则 `ack_upsert` 改它的记录）、`alias` 卡片别名、`state_write` 写任务记录、`recorded`、`queued` |
 | `flow=menu outcome=<event_key>` | 点机器人菜单 | `dedup`、`chat`（找到主人私聊），之后是那张卡的调用 |
 | `flow=click kind=bridge_launch_submit` | 开始任务 | `lane` 排到本话题的点击后台线程、`checked`、`bound`、`ack` 点击处理完；之后两条后续同时进行：`beside` 之后的 `card_put` 是回执，`followup` 之后是任务卡 |
-| `flow=click outcome=forwarded` | 任务进程还活着时点任务卡（停止、补充当前任务等） | `forward` 写进任务进程的收件箱。`runner.log` 里同一 `event` 的 `flow=click … runner=#N` 是任务进程处理它：`inbox_ms` 在收件箱等了多久，之后是它的卡片写入 |
+| `flow=click outcome=forwarded` | 任务进程还活着时点任务卡（停止、补充等） | `forward` 写进任务进程的收件箱。`runner.log` 里同一 `event` 的 `flow=click … runner=#N` 是任务进程处理它：`inbox_ms` 在收件箱等了多久，之后是它的卡片写入 |
 | `flow=job_start job=#N` | 调度器取到任务 → 任务进程启动 | `queued_ms` 排队、`check` 后端检查（Claude 是 `claude auth status`，1–2 秒；5 分钟内通过过就沿用，接近 0）、`spawned` |
 | `flow=runner job=#N`（`runner.log`） | 任务进程启动 → 它的第一次飞书调用 | 从 Bridge 写交接文件算起：`app`、`built`、`started`（开始执行）、`backend`（启动后端），然后是第一次调用；`snapshot`（工作目录的 git 快照）在执行中的状态线开始刷新之后、启动后端之前。`prestarted=yes` 是建任务卡之前就拉起的任务进程，`app` 接近 0。第一次状态线写入顺带清掉卡片正文的排队文字，一次调用；后端启动不等它。`sdk_client` 是这个进程建好 SDK 客户端：`COVEY_CARD_TRANSPORT=sdk` 时任务进程一启动就在后台线程 `sdk-warmup` 里建，与任务开始并行。它只加载 `lark_oapi.core`，约 0.2 秒；整个 `lark_oapi` 包会加载全部接口模块，要 2.4 秒。建好后同一后台线程接着预热：在直连飞书的连接上取 tenant token，连接也就建好了，第一次卡片写复用它，不再付这约 330 ms。建不成记 `CardKit SDK warmup unavailable: <异常类型>`，第一次卡片写再建或退回 CLI |
 

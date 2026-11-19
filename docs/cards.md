@@ -122,7 +122,7 @@
 ### 停止与结束
 
 - 停止的第一次写卡是 `Cards.show_stopping`：一次 `batch_update` 改状态行并删按钮行；没有按钮行的旧卡或批量写失败时分两次写；状态行写不成时才在正文写“📌 阶段：正在停止”。点了停止以后 `TaskMonitor` 不会用“执行中”盖掉“正在停止…”（`Cards.update_card_activity` 在卡片锁里看 `cancel_requested_at`）。
-- 运行结束时 `TaskMonitor.stop` 不再写卡，worker 用 `Cards.show_outcome(…, timed=True)` 一次 `batch_update`：状态行写结局（`outcome_line`：✅ 已完成、⏹ 已停止、⚠️ 执行失败、❓ 需要你回答）和结束时刻（`Cards._ended_line`），删按钮行，结束执行过程面板，“输出”换成结束的数字。没有按钮行时先写面板再写状态行。之后 `finalize_trace` 只剩任务详情要写，然后才准备和发出结果，状态行不会空着。
+- 运行结束时 `TaskMonitor.stop` 不再写卡，worker 用 `Cards.show_outcome(…, timed=True)` 一次 `batch_update`：状态行写结局（`outcome_line`：有结果、已停止、停住了、等你，`cards/task_status.py` 的 `marked` 画成带颜色圆点的状态词）和结束时刻（`Cards._ended_line`），删按钮行，结束执行过程面板，“输出”换成结束的数字。没有按钮行时先写面板再写状态行。之后 `finalize_trace` 只剩任务详情要写，然后才准备和发出结果，状态行不会空着。
 - 用时是 `core/metrics.py` 的 `run_seconds`（起点 `run_start`，终点 `execution_finished`），写法 `took_text`；答案卡、回带、状态卡和 Pin 用同一个函数。
 - 写成后 `StreamingReply.outcome` 记下结局，`Cards.render_stream_final` 据此让正文不重复结局；没写成时正文以结局开头。
 
@@ -156,8 +156,8 @@
 | `WorkspaceManager` | 工作区管理卡、启动卡的“添加或管理工作区”、管理卡打开的目录浏览页 | `bridge_wsm_<token>:<revision>:dir-<动作>` | `workspace_manager` |
 | `LaunchModelPicker` | 启动卡的模型、预算、工作模式、脱敏、工作区、运行方式 | 值带 `option`；脱敏 `bridge_launch_redaction` | `launch_option` |
 | `DirectoryPicker` | 选择其他目录和目录浏览页（`app/directory_picker.py`） | `bridge_dir_<token>:<revision>:<动作>` | `directory` |
-| `HarnessSwitch` | 任务卡 🔁 换配置和更换卡 | `bridge_switch_` 开头 | `harness_switch` |
-| `RewindCards` | 结束任务卡的 ↩️ 回退和回退卡（`app/rewind.py`），不转给任务进程 | `bridge_rewind_` 开头 | `rewind` |
+| `HarnessSwitch` | 任务卡的换配置和更换卡 | `bridge_switch_` 开头 | `harness_switch` |
+| `RewindCards` | 结束任务卡的回退和回退卡（`app/rewind.py`），不转给任务进程 | `bridge_rewind_` 开头 | `rewind` |
 
 - 启动卡和换配置卡没有下拉框：清单每行是一个 `collapsible_panel`（`element_id` `set_<项>_<token 前 4 位>`：客户端按 ID 记住开合，换 ID 才能让选完的一行收起），每个选项是一个 `interactive_container`，值带 `option`，`app/card_routing.py` 把它当作事件的 `option`。每个选择都整卡重画。
 - 旧卡兼容：整卡换成选项页的 `bridge_launch_page`、`bridge_switch_page`（值带 `page`）重画成那一行展开，`page` 为空即全部收起；更早的下拉框回调照旧。

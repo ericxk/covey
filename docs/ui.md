@@ -231,6 +231,7 @@
 - ② 菜单结果卡（11-19）：看板、用量用上了结论带和分段状态条，看板的块换成话题行、`cancelled` 按谁停的分开（汇总行带 `tone`，`app/digest.py` collect）；设置一组卡的回执经 `cards/ui.py` 的 `receipt` 变成一行灰字。
 - 三路只通过 `core/look.py` 和 `cards/ui.py` 共用东西。哪一路要加组件，先加进这两个文件，再用。
 - 每一路照仓库规则：在分支上开发，跑适用的测试，快进合进 `main`；卡片 JSON 一变就要真机验收（规则 9）。
+- **① 聊天卡片做了什么**（2026-11-19）：状态词、按钮叫法换成第 3、6 节的（`core/turn_words.py`、`core/status_line.py`、`core/failure.py`）；任务卡状态行的首词是带颜色圆点的状态词（`cards/task_status.py` 的 `marked`），可能卡住时首词就是“可能卡住”，在跑时不加结论带（第 11 节）。结论带加在：话题区答案卡的头部（`cards/review.py` 的 `answer_band`，有回答首句时；没有时仍是原来的状态行）、回带卡三种结局（`cards/relay_card.py`）、开着的问题卡和它的顶层副本（替换橙色标题栏）、恢复卡（替换彩色标题栏）。`cards/ui.py` 加了 `band_label`（“有结果 · T12 标题”这种小字）、`has_band`、`banded`（带结论带的卡才过 `styled`）。
 
 ---
 

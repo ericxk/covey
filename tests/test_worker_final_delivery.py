@@ -12,6 +12,7 @@ from support.fake_lark import FakeCardKit
 from support.final_delivery import FinalDeliveryHarness, make_reply_job
 from support.git import commit_all, init_git_repo
 from covey.core.harness import RunResult
+from covey.cards.ui import state_word
 from covey.cards.review import render_stream_final, render_stream_progress_lines
 from covey.app.task_card import StreamingCard
 from covey.cards.streaming import STOP_ACTION_ELEMENT_ID, build_stream_card, task_details_panel
@@ -36,7 +37,7 @@ class ChatFinalDeliveryTest(unittest.TestCase):
             self.assertNotIn("执行进度：", rendered)
             self.assertNotIn("07-06 01:12:00：我开始读实际 diff", rendered)
             self.assertNotIn("07-06 01:12:04：看到新卡片缓存", rendered)
-            self.assertIn("✅ 答案", rendered)
+            self.assertIn("**答案**", rendered)
             self.assertNotIn("✅ 最终答案", rendered)
             self.assertNotIn("该session最近历史问题", rendered)
             self.assertNotIn("**最近历史问题（最多3个）**", rendered)
@@ -46,9 +47,10 @@ class ChatFinalDeliveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             job = make_reply_job("chat", root=Path(tmp), with_progress=False)
             rendered = render_stream_final(job, "调用 Codex 失败", status="failed")
-            self.assertIn("执行失败", rendered)
+            self.assertIn("停住了", rendered)
             self.assertNotIn("✅", rendered)
             self.assertNotIn("已完成", rendered)
+            self.assertNotIn("有结果", rendered)
 
     def test_progress_lines_do_not_drop_history_by_fixed_count(self) -> None:
         events = [f"07-06 01:12:{idx:02d}：进度 {idx}" for idx in range(40)]
@@ -142,7 +144,7 @@ class ChatFinalDeliveryTest(unittest.TestCase):
         self.assertTrue(all(column["width"] == "auto" for column in row["columns"]))
         button = row["columns"][-1]["elements"][0]  # Ending the task is the last, separate action.
         self.assertEqual(button["element_id"], STOP_ACTION_ELEMENT_ID)
-        self.assertEqual(button["text"]["content"], "⏹ 停止")
+        self.assertEqual(button["text"]["content"], "停止")
         # Bordered in red and medium (the owner, 2026-11-04 14:05: A 中号线框). No confirm: on a running card,
         # redrawn every few seconds, the client dropped 确定 (gen 257's real 停止 never reached the Bridge).
         self.assertEqual((button["type"], button["size"]), ("danger", "medium"))
@@ -249,9 +251,9 @@ class ChatFinalDeliveryTest(unittest.TestCase):
         self.assertEqual([c["elements"][0]["element_id"] for c in essential["body"]["elements"][-1]["columns"]], ["job_stop_action"])
         # The status line: its status a heading, the details and what runs now small and grey under it (beside the
         # heading they were drawn large and wrapped in the side panel, 2026-11-04).
-        self.assertEqual(status_markdown("执行中 · 已运行 48 秒\n当前：执行命令"),
-                         "## ⏳ 执行中\n<font color='grey'>已运行 48 秒</font>\n<font color='grey'>当前：执行命令</font>")
-        self.assertEqual(status_markdown(status_markdown("✅ 已完成")), "## ✅ 已完成")
+        self.assertEqual(status_markdown("在做 · 已运行 48 秒\n现在：执行命令"),
+                         f"## {state_word('running')}\n<font color='grey'>已运行 48 秒</font>\n<font color='grey'>现在：执行命令</font>")
+        self.assertEqual(status_markdown(status_markdown("有结果")), f"## {state_word('result')}")
         self.assertEqual(status_markdown(""), " ")
 
     def test_a_status_line_splits_into_the_status_beside_the_tiles_and_the_rest_under_them(self) -> None:
@@ -259,19 +261,19 @@ class ChatFinalDeliveryTest(unittest.TestCase):
         # as the card (the owner, 2026-11-04 20:21: 执行中下面的文案感觉占的面积比较小，右侧留白比较多).
         from covey.app.cards import STOPPING
         from covey.cards.task_status import status_elements, status_rows
-        self.assertEqual(status_rows("执行中 · 已运行 6 分 19 秒 · 阶段：合入主干\n当前：模型思考或生成回复中"),
-                         ("执行中 · 已运行 6 分 19 秒", "阶段：合入主干\n当前：模型思考或生成回复中"))
-        self.assertEqual(status_rows("✅ 已完成 · 20:01 结束"), ("✅ 已完成 · 20:01 结束", ""))
+        self.assertEqual(status_rows("在做 · 已运行 6 分 19 秒 · 阶段：合入主干\n现在：模型思考或生成回复中"),
+                         ("在做 · 已运行 6 分 19 秒", "阶段：合入主干\n现在：模型思考或生成回复中"))
+        self.assertEqual(status_rows("有结果 · 20:01 结束"), ("有结果 · 20:01 结束", ""))
         self.assertEqual(status_rows(STOPPING), ("正在停止…", "已收到停止请求，正在中断后台任务。"))
-        self.assertEqual(status_rows("模型请求重试中 · 第 3 次 · 已运行 2 分 05 秒\n本次模型请求尚未成功。"),
-                         ("模型请求重试中 · 已运行 2 分 05 秒", "第 3 次\n本次模型请求尚未成功。"))
-        for whole in ("等待处理", "↪ 已回答 → #2806", "## ✅ 已完成", ""):
+        self.assertEqual(status_rows("在做 · 已运行 2 分 05 秒 · 模型请求重试第 3 次\n本次模型请求尚未成功。"),
+                         ("在做 · 已运行 2 分 05 秒", "模型请求重试第 3 次\n本次模型请求尚未成功。"))
+        for whole in ("等待处理", "↪ 已回答 → #2806", f"## {state_word('result')}", ""):
             self.assertEqual(status_rows(whole), (whole, ""))
-        top, more = status_elements("执行中 · 已运行 5 秒 · 阶段：读代码\n当前：执行命令", True)
+        top, more = status_elements("在做 · 已运行 5 秒 · 阶段：读代码\n现在：执行命令", True)
         self.assertEqual((top["element_id"], top["content"]),
-                         ("activity", "## ⏳ 执行中\n<font color='grey'>已运行 5 秒</font>"))
-        self.assertEqual((more["element_id"], more["content"]), ("activity_more", "阶段：读代码\n<font color='grey'>当前：执行命令</font>"))
-        self.assertEqual(status_elements("✅ 已完成 · 20:01 结束", True)[1]["content"], "")
+                         ("activity", f"## {state_word('running')}\n<font color='grey'>已运行 5 秒</font>"))
+        self.assertEqual((more["element_id"], more["content"]), ("activity_more", "阶段：读代码\n<font color='grey'>现在：执行命令</font>"))
+        self.assertEqual(status_elements("有结果 · 20:01 结束", True)[1]["content"], "")
         # A card sent before: the whole line in its one element, as it always was.
         self.assertEqual([e["element_id"] for e in status_elements(STOPPING, False)], ["activity"])
 
@@ -338,8 +340,8 @@ class ChatFinalDeliveryTest(unittest.TestCase):
             root = Path(tmp)
             harness = FinalDeliveryHarness(root, card_update_ok=True, overflow=False)
             harness.run(make_reply_job("chat", root=root, with_progress=True))
-            self.assertEqual(self.outcomes(harness), ["✅ 已完成"])
-            self.assertLess(harness.card_events.index(("outcome", "✅ 已完成")),
+            self.assertEqual(self.outcomes(harness), ["有结果"])
+            self.assertLess(harness.card_events.index(("outcome", "有结果")),
                             harness.card_events.index(("update", "unit-final")))
 
     def test_a_stopped_run_shows_stopped_at_the_top(self) -> None:
@@ -349,7 +351,7 @@ class ChatFinalDeliveryTest(unittest.TestCase):
             job = make_reply_job("chat", root=root, with_progress=True)
             job.cancel_event.set()  # Stopped before it started: the top said 正在停止… until now.
             harness.run(job)
-            self.assertEqual(self.outcomes(harness), ["⏹ 已停止"])
+            self.assertEqual(self.outcomes(harness), ["已停止"])
 
     def test_a_backend_with_structured_events_has_a_trace_and_a_timer_from_the_start(self) -> None:
         # S28 #849 (MASO): until its first event the top said only "MASO 已开始处理", with no 已运行.
@@ -375,8 +377,8 @@ class ChatFinalDeliveryTest(unittest.TestCase):
             harness.run(make_reply_job("chat", root=root, with_progress=True))
             # Every turn has a trace, whatever the backend declares (all of them report structured events).
             self.assertEqual(traced, [True])
-            self.assertTrue(lines[-1].startswith("执行中 · 已运行 "), lines[-1])
-            self.assertIn("\n当前：已提交给模型，等待首个输出", lines[-1])
+            self.assertTrue(lines[-1].startswith("在做 · 已运行 "), lines[-1])
+            self.assertIn("\n现在：已提交给模型，等待首个输出", lines[-1])
 
     def test_the_backend_starts_before_any_card_write_and_the_monitor_before_the_git_snapshot(self) -> None:
         # S33: a task runner's first card write held the backend's start for 3 s. S34: 执行中 came a
@@ -430,8 +432,8 @@ class ChatFinalDeliveryTest(unittest.TestCase):
 
             harness.app.runs.generate_reply_for_worker = generate_reply
             harness.run(make_reply_job("chat", root=root, with_progress=True))
-            self.assertIn("\n当前：正在启动 MASO…", lines[-2])
-            self.assertIn("\n当前：已提交给模型，等待首个输出", lines[-1])
+            self.assertIn("\n现在：正在启动 MASO…", lines[-2])
+            self.assertIn("\n现在：已提交给模型，等待首个输出", lines[-1])
 
     def test_the_final_trace_knows_whether_the_task_was_stopped(self) -> None:
         from covey.core.harness import HarnessCapabilities, JobCancelled
@@ -477,10 +479,10 @@ class ChatFinalDeliveryTest(unittest.TestCase):
             harness.app.messenger = SimpleNamespace(reply=lambda *_args, **_kwargs: False)
             harness.run(make_reply_job("chat", root=root, with_progress=True))
             self.assertTrue(harness.close_finished.wait(timeout=1))
-            self.assertEqual(self.outcomes(harness), ["✅ 已完成", "⚠️ 执行失败"])
-            self.assertLess(harness.card_events.index(("outcome", "⚠️ 执行失败")), harness.card_events.index(("close", "")))
-            # The top first: the failure label drawn after it need not say 执行失败 again (cards.render_stream_final).
-            self.assertLess(harness.card_events.index(("outcome", "⚠️ 执行失败")),
+            self.assertEqual(self.outcomes(harness), ["有结果", "停住了"])
+            self.assertLess(harness.card_events.index(("outcome", "停住了")), harness.card_events.index(("close", "")))
+            # The top first: the failure label drawn after it need not say 停住了 again (cards.render_stream_final).
+            self.assertLess(harness.card_events.index(("outcome", "停住了")),
                             harness.card_events.index(("update", "unit-delivery-failed")))
 
     def test_cancelled_job_stops_before_generating_reply(self) -> None:

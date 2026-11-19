@@ -83,8 +83,8 @@ class DeliveryStatusTests(CodexNativeQuestionCase):
         # The card says what came of the turn: the lead of the verified reply that was sent (its heading).
         self.assertEqual(sent[0].args[2], '**↓ Codex verified report**')
         self.assertIn('# Codex verified report', [e['text'] for e in c.tx.events if e['kind'] == 'text'][0])
-        # The status line at the top says ✅ 已完成; the receipt below doesn't say it again (S28).
-        self.assertEqual(c.job.progress.outcome, '✅ 已完成')
+        # The status line at the top says 有结果; the receipt below doesn't say it again (S28).
+        self.assertEqual(c.job.progress.outcome, '有结果')
         self.assertNotIn('已完成', sent[0].args[2])
         self.assertFalse(sent[0].kwargs['allow_replacement'])
         self.assertTrue(find_job_record(c.ctx.state_dir, c.job.message_id)['delivery_ok'])
@@ -102,7 +102,7 @@ class DeliveryStatusTests(CodexNativeQuestionCase):
         self.assertEqual(c.job.progress.last_content, '**↓ Codex verified report**')
         # The chat list's preview of the closed card names the outcome and time: the answer card sent beside it has the
         # lead (T288; both had it, 2026-11-02 review).
-        self.assertRegex(c.job.progress.summary, r'^(T\d+|#\d+) · 已完成 · 用时 \d+秒$')
+        self.assertRegex(c.job.progress.summary, r'^(T\d+|#\d+) 有结果 · 用时 \d+秒$')
         self.assertTrue(c.job.progress.disabled)
         closer.assert_called_once()
         self.assertTrue(find_job_record(c.ctx.state_dir, c.job.message_id)['delivery_ok'])

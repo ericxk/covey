@@ -24,7 +24,7 @@ UNDO_NOTE = "发下一条消息之前，可以撤销这次回退。"
 
 
 def rewind_button(topic_id, job_id, harness_id, revision):
-    return topic_button("↩️ 回退", element_id="rewind_action", behaviors=callback(
+    return topic_button("回退", element_id="rewind_action", behaviors=callback(
         {"kind": OPEN, "topic_id": topic_id, "job_id": job_id, "harness_id": harness_id, "binding_revision": revision}))
 
 

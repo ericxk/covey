@@ -57,7 +57,7 @@ class ViewTest(unittest.TestCase):
 
     def test_an_old_record_is_read_from_its_status_line(self):
         view = failure.failure_view(failed(status_message="本轮执行未全部完成，原生会话不可续接"))
-        self.assertEqual(view["title"], "这一轮没做完，已做的部分保留着；可以在新会话里接着做，或先查原因")
+        self.assertEqual(view["title"], "这一轮没做完，已做的部分保留着；可以在新会话里接着做，或先看原因")
         self.assertEqual(failure.failure_view(failed(status_message="模型服务限流，本轮没有产出回复"))["actions"],
                          ["retry", "switch_model"])
 
@@ -70,7 +70,7 @@ class ViewTest(unittest.TestCase):
 
     def test_steps_the_record_does_not_allow_are_left_out(self):
         self.assertEqual(failure.failure_view(failed(failure_code="root_failed", topic_id=""))["actions"], [])
-        # 检查并继续 would redeliver a result that did not go out, not run it again: no 继续, no 查原因.
+        # 检查并继续 would redeliver a result that did not go out, not run it again: no 继续, no 看原因.
         undelivered = failed(execution_status="done", delivery_ok=False, final_text="回答")
         self.assertEqual(failure.failure_view(undelivered)["actions"], ["continue"])
         self.assertIn("结果没能发出去", failure.failure_view(undelivered)["title"])
@@ -84,7 +84,7 @@ class ViewTest(unittest.TestCase):
         record = failed(failure_code="timeout")
         view = failure.failure_view(record)
         shown, prompt = failure.follow_up(failure.DIAGNOSE, record, view)
-        self.assertEqual(shown, "查原因：任务 #7 为什么没成功")
+        self.assertEqual(shown, "看原因：任务 #7 为什么没成功")
         self.assertIn("只读排查", prompt)
         self.assertIn("不要改文件", prompt)
         self.assertIn(view["title"], prompt)
@@ -118,7 +118,7 @@ class CardTest(unittest.TestCase):
         delivery = SimpleNamespace(job=SimpleNamespace(topic_id="topic", job_id=7, progress=object()), turn=turn, retry=None)
         delivery.failure_fields = lambda: TurnDelivery.failure_fields(delivery)
         self.assertEqual(TurnDelivery.card_text(delivery, turn.final_text),
-                         "**这一轮没做完（主任务中途出错），已做的部分保留着；可以在新会话里接着做，或先查原因**")
+                         "**这一轮没做完（主任务中途出错），已做的部分保留着；可以在新会话里接着做，或先看原因**")
         turn.outcome = SimpleNamespace(error_code="policy_refusal", policy_event=POLICY)
         self.assertEqual(TurnDelivery.card_text(delivery, "本轮已停止：……"), "本轮已停止：……")
 
@@ -134,7 +134,7 @@ class CardTest(unittest.TestCase):
         self.assertEqual(Submission.queue_follow_up(submission, ctx, "chat", "ev1", 7, failure.SPLIT), "")
         self.assertEqual(queued[0][0], "拆小再试：任务 #7")
         self.assertEqual(Submission.queue_follow_up(submission, ctx, "chat", "ev2", 7, failure.DIAGNOSE),
-                         "这个任务现在没有这一步可做。")  # A timeout offers 拆小再试, not 查原因.
+                         "这个任务现在没有这一步可做。")  # A timeout offers 拆小再试, not 看原因.
         submission.runtime.jobs.topic_jobs = lambda topic, chat: [object()]
         self.assertIn("还有运行或排队的任务", Submission.queue_follow_up(submission, ctx, "chat", "ev3", 7, failure.SPLIT))
         self.assertEqual(len(queued), 1)

@@ -2,12 +2,12 @@
 2026-11-08). Each table keeps the words its readers showed before; which of them should read alike is the owner's
 choice (VERIFY-board.md C10), not this module's.
 
-- ``OUTCOME_LINES``, ``outcome_line``: a task card's status line once its run ended (cards/review.py), ✅ 已完成
-  among them; ``FOLLOW_UP``: where an answered question went, by its follow-up task's state (cards/question_cards.py);
+- ``OUTCOME_LINES``, ``outcome_line``: a task card's status line once its run ended (cards/review.py), 有结果
+  among them, and ``TONES``, the state key a card colours a status line's first word by; ``FOLLOW_UP``: where an answered question went, by its follow-up task's state (cards/question_cards.py);
 - ``STATES``: how an ended turn reads on a topic status card and its Pin (app/status_cards.py), 做完 among them,
   已停止 for a stopped one (on the board since 2026-11-09, core/board_read.py BOARD_RESULTS);
-  ``answer_head``: the same words with the outcome's mark, atop a 话题区's answer card in its thread (✅ 做完);
-  ``BOARD``: how its other rows read there (在做, 排队, 等你回答);
+  ``answer_head``: the status line's word atop a 话题区's answer card in its thread (有结果);
+  ``BOARD``: how its other rows read there (在做, 排队, 等你);
 - ``RESULTS``: how one reads in the butler's snapshot (app/butler.py), 完成 among them, 已停止 too
   (core/board_read.py BOARD_RESULTS: the board's results, the snapshot's since 2026-11-10);
 - ``OVERVIEW_OUTCOMES``, ``OVERVIEW_GROUPS``: 手上的事's (cards/overview.py);
@@ -26,11 +26,17 @@ Standard library only, importing nothing of the Bridge's.
 """
 from __future__ import annotations
 
-OUTCOME_LINES = {"done": "✅ 已完成", "failed": "⚠️ 执行失败", "cancelled": "⏹ 已停止", "waiting_user": "❓ 需要你回答"}
-FOLLOW_UP = {"queued": "排队中", "running": "进行中", "done": OUTCOME_LINES["done"], "failed": OUTCOME_LINES["failed"],
-             "cancelled": OUTCOME_LINES["cancelled"], "interrupted": "已中断", "waiting_user": "又提了问题"}
-STATES = {"done": "做完", "failed": "失败", "interrupted": "中断", "cancelled": "已停止"}
-BOARD = {"running": "在做", "queued": "排队", "waiting": "等你回答"}
+# The words of docs/ui.md 第 3 节 (core/look.py STATES; tests/test_look.py checks they are its words): no mark before
+# them since 2026-11-19, a card colours them (cards/task_status.py, cards/ui.py state_word).
+OUTCOME_LINES = {"done": "有结果", "failed": "停住了", "cancelled": "已停止", "waiting_user": "等你"}
+# A status line's first word as a key of core/look.py STATES: how a card colours it.
+TONES = {"有结果": "result", "停住了": "stopped", "已停止": "cancelled", "等你": "waiting", "在做": "running",
+         "可能卡住": "stuck", "排队": "queued", "做完": "done"}
+RUNNING, STUCK = "在做", "可能卡住"
+FOLLOW_UP = {"queued": "排队", "running": "在做", "done": OUTCOME_LINES["done"], "failed": OUTCOME_LINES["failed"],
+             "cancelled": OUTCOME_LINES["cancelled"], "interrupted": "停住了", "waiting_user": "又提了问题"}
+STATES = {"done": "做完", "failed": "停住了", "interrupted": "停住了", "cancelled": "已停止"}
+BOARD = {"running": "在做", "queued": "排队", "waiting": "等你"}
 RESULTS = {"done": "完成", "failed": "失败", "interrupted": "中断", "cancelled": "已停止"}
 OVERVIEW_OUTCOMES = {"done": "✅ 完成", "failed": "❌ 失败", "cancelled": "⏹ 已停止", "interrupted": "⚠️ 中断"}
 OVERVIEW_GROUPS = {"waiting": "等你回答", "result": "有结果", "running": "进行中"}
@@ -51,10 +57,9 @@ def outcome_line(status: str) -> str:
 
 
 def answer_head(status: str) -> str:
-    """How a turn that ended with ``status`` reads atop its answer card in a 话题区's thread: ``outcome_line``'s mark
-    and STATES's word (✅ 做完, ⚠️ 失败, ⏹ 已停止); a turn waiting for an answer as its status line says it."""
-    mark = "⚠️" if status == "interrupted" else outcome_line(status).partition(" ")[0]  # As 执行失败's.
-    return f"{mark} {STATES[status]}" if status in STATES else outcome_line(status)
+    """How a turn that ended with ``status`` reads atop its answer card in a 话题区's thread: its status line's word
+    (有结果, 停住了, 已停止, 等你)."""
+    return outcome_line("failed" if status == "interrupted" else status)
 
 
 def request_line(text):

@@ -7,8 +7,11 @@ from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callb
                                   notice_card, plain, topic_button)
 from covey.cards.review import compact_text
 from covey.cards.streaming import RECOMMENDED
-from covey.core import triage, turn_words
+from covey.cards.ui import band_label, conclusion_band, styled
+from covey.core import look, triage, turn_words
 from covey.core.stale import STALE_NOTE
+from covey.core.text import literal
+from covey.core.turn_words import ask_words
 
 SKIP_VALUE = "skip"
 SKIP_LABEL = "不回答此题"
@@ -29,6 +32,7 @@ PICK = "pick"
 GENERIC_HEADER = re.compile(r"(补充信息|补充|信息|问题|说明|确认|选择|其他|第[一二三四五六七八九十\d]+题)")
 # Where an answered question went: its follow-up task (continuation_job_id) in this state.
 FOLLOW_UP = turn_words.FOLLOW_UP
+ASK_HEADLINE = 36  # Characters of the question the band's 要你定 shows; the whole question is in the form under it.
 # The superseded_reason of a question folded once a newer question card of its topic was shown
 # (app/questions.py fold_older_questions); without it, an older duplicate retired once a later
 # identical form was answered (app/checkpoint_questions.py).
@@ -275,21 +279,26 @@ def _reply_where(record):
     return "引用这张卡直接回复" if top_level_card(record) else "直接在话题里回复"
 
 
+def waiting_state(record):
+    """What the task does while ``record``'s questions wait: it waits for the answer, its turn ended, or it goes on."""
+    return ("等你回答后继续" if record["blocking"] else "本轮已结束，可继续补充" if record.get("task_finished")
+            else "其他工作继续")
+
+
 def _question_form(record, token, tags="", headed=False):
     """The open form: whose questions they are, one line on how to answer and the rest folded, each
     question's fields, 补充说明 and the buttons. T191 #1084's three questions came after ten lines of
     rules, without numbers or headers, their options in the same type as the questions."""
-    state = ("等待回答后继续" if record["blocking"] else "本轮已结束，可继续补充" if record.get("task_finished")
-             else "其他工作继续")
+    state = waiting_state(record)
     count = len(record["questions"])
     buttons = picks(record)
     line = (f"共 {count} 道题：逐题选择或填写，最后点“提交回答”。" if count > 1
             else f"点选项就提交；都不合适时写在回答框再点“提交回答”，也可以{_reply_where(record)}。" if buttons
             else f"在卡里选择或填写后点“提交回答”，也可以{_reply_where(record)}。")
-    if headed:
-        elements = [{"tag": "markdown", "content": f"**{state}** · {line}"}]
+    if headed:  # The band above says whose question it is and the state.
+        elements = [{"tag": "markdown", "content": line}]
     else:
-        elements = [{"tag": "markdown", "content": f"**{tags + ' · ' if tags else ''}需要你补充 · {state}**"},
+        elements = [{"tag": "markdown", "content": f"**{tags + ' · ' if tags else ''}{look.word('waiting')} · {state}**"},
                     {"tag": "markdown", "content": line}]
     if triage.state(record) == triage.ESCALATED and triage.of(record).get("why"):
         elements.insert(1, {"tag": "markdown", "content": f"负责人转给你的理由：{triage.of(record)['why']}"})
@@ -391,19 +400,28 @@ def question_card(record, topic=""):
     count = len(record['questions'])
     form = pending and not record.get("display_pending") and not (
         record.get("body_delivery_required") and not record.get("body_delivery_confirmed"))
-    header = ("orange", "❓ " + " · ".join(filter(None, [tags, "需要你回答"])) + (f" · {count} 题" if count > 1 else "")
-              ) if form else None
-    element = question_element(record, tags, headed=bool(header))
-    # The topic list's preview while the card is the topic's latest message: what the open form's bar says.
-    summary = (header[1] if header else f"需要回答 · {count} 项" if pending else "相同问题已回答 · 无需重复提交"
+    # The open form leads with its conclusion band (docs/ui.md 5.2 问题卡: "等你 · T12 #431", 要你定：…), which took
+    # the orange title bar's place on 2026-11-19.
+    asked = ask_words(record)
+    asked = asked if len(asked) <= ASK_HEADLINE else asked[:ASK_HEADLINE - 1] + "…"
+    # The band names what is asked without saying a question twice on the card: one question's own header
+    # (question_header), else how many there are; the questions themselves are in the form under it.
+    own = question_header(record['questions'][0]) if count == 1 else ""
+    band = conclusion_band(band_label("waiting", topic, number), literal("要你定：" + (own or f"{count} 件事")),
+                           waiting_state(record)) if form else None
+    element = question_element(record, tags, headed=bool(band))
+    # The topic list's preview while the card is the topic's latest message: what the open form's band says.
+    summary = (f"{tags + ' ' if tags else ''}{look.word('waiting')} · 要你定：{asked}" if band
+               else f"{look.word('waiting')} · {count} 题" if pending else "相同问题已回答 · 无需重复提交"
                if record.get('status') == 'superseded' and not folded(record)
                else element.get('header', {}).get('title', {}).get('content', '回答已保存'))
-    elements = [element]
+    elements = ([band] if band else []) + [element]
     if form and record.get("token") and standing_offered(record):
         elements.append(standing_row(record))
     if record.get('refusal'):
         elements.append({"tag": "markdown", "content": "⚠️ " + record['refusal']})
-    return card(elements, summary, default_width=True, header=header)
+    built = card(elements, summary, default_width=True)
+    return styled(built) if band else built
 
 
 def mirror_card(record, topic="", output="", ask=None, files=None):

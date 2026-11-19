@@ -423,12 +423,12 @@ class CardTest(unittest.TestCase):
 
     def test_the_answer_card_and_the_relay_are_the_same_but_for_the_link(self):
         parts = tail(self.files, ["Claude Code"], ["**1**"])
-        built = answer_card("## 结论\n好了", "✅ T439 · 结论", parts)
+        built = answer_card("## 结论\n好了", "T439 有结果 · 结论", parts)
         self.assertEqual(ids(built), [None, ARTIFACTS_ID, FACTS_ID])
         self.assertTrue(built["config"]["update_multi"])  # Its 产物 are written in later.
         relay, _ = relay_card("T439", DONE, text="## 结论\n好了", inputs=["Claude Code"], outputs=["**1**"],
                               files=self.files)
-        self.assertEqual(ids(relay), [None, ARTIFACTS_ID, FACTS_ID])
+        self.assertEqual(ids(relay), [None, None, ARTIFACTS_ID, FACTS_ID])  # The conclusion band leads the relay.
         self.assertIn("T439 ›", json.dumps(relay, ensure_ascii=False))
         self.assertNotIn("T439 ›", json.dumps(built, ensure_ascii=False))
         # Without artifacts: the box alone; a plain answer card without a tail as before.
@@ -440,7 +440,7 @@ class CardTest(unittest.TestCase):
         # Held by a release before 2026-11-08: at, took and artifacts, no inputs. The reply and its T number's box,
         # no grey line.
         old, text = relay_card("T439", DONE, text="好了", at=1.0, took=60, artifacts=2)
-        self.assertEqual(ids(old), [None, FACTS_ID])
+        self.assertEqual(ids(old), [None, None, FACTS_ID])  # The band, the reply, the box.
         self.assertIn("T439 ›", json.dumps(old, ensure_ascii=False))
         self.assertNotIn("产物 2 个", json.dumps(old, ensure_ascii=False))
         self.assertEqual(text, "好了")
@@ -644,16 +644,15 @@ class DeliveryTest(Case):
     def test_a_topic_area_s_answer_card_leads_with_its_status_and_the_task_card_keeps_no_lead(self):
         # D3 (the owner, 2026-11-08): in a 话题区's thread the answer card is the turn's result and its Pin; the
         # task card keeps its status line and 输入/输出, no 结论.
-        from covey.cards.answer_card import HEAD_ID
         from covey.core import placement
         from covey.core.topics import topic_file
         write_json(topic_file(self.state, "t1"), {"topic_number": 443, "origin": {"title": "改看板"}})
         with mock.patch.object(placement, "layout", return_value=placement.AREA):
             send_text = self.deliver("## 结论\n好了")
         built = send_text.call_args.kwargs["card"]
-        self.assertEqual(ids(built), [HEAD_ID, None, ARTIFACTS_ID, FACTS_ID])
-        head = built["body"]["elements"][0]["content"]
-        self.assertEqual(re.sub(r"<[^>]*>|\*\*", "", head), "✅ 做完 · T443 · 改看板")
+        self.assertEqual(ids(built), [None, None, ARTIFACTS_ID, FACTS_ID])  # A reply with a lead: the conclusion band.
+        head = json.dumps(built["body"]["elements"][0], ensure_ascii=False)
+        self.assertIn("有结果 · T443 改看板", re.sub(r"<[^>]*>|\*\*", "", head).replace("&#35;", "#"))
         self.assertEqual(self.receipts()[-1], " ")
         for where in (placement.TOPICS,):  # The other layout as before: no line, the lead.
             with self.subTest(where), mock.patch.object(placement, "layout", return_value=where):
@@ -685,9 +684,9 @@ class DeliveryTest(Case):
         from covey.cards.answer_card import head_element
         from covey.core.turn_words import answer_head
         self.assertEqual([answer_head(status) for status in ("done", "failed", "cancelled", "interrupted", "waiting_user")],
-                         ["✅ 做完", "⚠️ 失败", "⏹ 已停止", "⚠️ 中断", "❓ 需要你回答"])
-        self.assertEqual(head_element("✅ 做完")["content"], "**✅ 做完**")
-        self.assertNotIn("**改**", head_element("✅ 做完", "T1", "**改** <b>看板</b>")["content"])  # Shown as written.
+                         ["有结果", "停住了", "已停止", "停住了", "等你"])
+        self.assertEqual(head_element("有结果")["content"], "**有结果**")
+        self.assertNotIn("**改**", head_element("有结果", "T1", "**改** <b>看板</b>")["content"])  # Shown as written.
 
     def test_a_reply_sent_as_a_file_gets_a_small_card_after_it(self):
         send_text = self.deliver("字" * (ANSWER_CARD_BYTES // 2))  # Over 20,000 bytes: a Markdown file.

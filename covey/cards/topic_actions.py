@@ -33,7 +33,7 @@ def topic_panel(topic_id, job_id, route, *, rewind=False, switch=True):
 
 
 def switch_button(topic_id, job_id, harness_id, revision):
-    return topic_button("🔁 换配置", element_id="switch_action", behaviors=callback(
+    return topic_button("换配置", element_id="switch_action", behaviors=callback(
         {"kind": SWITCH_OPEN, "topic_id": topic_id, "job_id": job_id, "harness_id": harness_id,
          "binding_revision": revision}))
 

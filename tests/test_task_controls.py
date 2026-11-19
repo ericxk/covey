@@ -15,6 +15,7 @@ from covey.app.task_card import StreamingReply
 from covey.app.recovery_cards import recovery_card
 from covey.cards.review import stopped_sentence
 from covey.cards.task_status import status_markdown
+from covey.cards.ui import state_word
 from covey.core.harness import RunResult
 from covey.core.jobs import find_job_record, upsert_job_record
 from covey.core.history_storage import append_history
@@ -186,17 +187,17 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
                 self.app.cards.trace_updates(job).close()
                 job.card_updates = None
             self.assertFalse(job.progress.disabled)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
         self.assertTrue(self.app.cards.body_cut(job))
         status, _ = json.loads(lark.calls[-1].data["actions"])
-        self.assertEqual(json.loads(status["params"]["element"])["content"], status_markdown("✅ 已完成"))
+        self.assertEqual(json.loads(status["params"]["element"])["content"], status_markdown("有结果"))
 
     def test_a_card_disabled_by_failed_writes_still_gets_its_outcome_once(self):
         job, ctx = self.running_with_card()
         job.progress.disabled = job.progress.failed_off = True  # Three failed body writes.
         job.progress.others = {"action_row": 900, "activity": 200}
         with FakeCardKit() as lark:
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.assertTrue(self.app.cards.update_streaming_reply(ctx, job.progress, "↓ 结论", force=True))
         self.assertEqual([c.path.rsplit("/", 1)[-1] for c in lark.calls], ["batch_update", "answer"])
         self.assertNotIn("action_row", job.progress.others)  # The row went: the body's room counts it no more.
@@ -204,7 +205,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job, ctx = self.running_with_card()
         job.progress.disabled = True
         with FakeCardKit() as lark:
-            self.assertFalse(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertFalse(self.app.cards.show_outcome(ctx, job, "有结果"))
         self.assertEqual(lark.calls, [])
 
     def test_the_outcome_says_how_long_the_run_took(self):
@@ -214,24 +215,24 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
             job.tool_trace.started_at -= 6460.3
             job.timings["backend_requested"] = job.tool_trace.started_at  # The trace starts at the request (worker).
             drawn = len(lark.calls)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成", timed=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果", timed=True))
             self.assertTrue(job.trace_card_updates.close())
         status = json.loads(json.loads(lark.calls[drawn].data["actions"])[0]["params"]["element"])
-        self.assertEqual(status["content"], status_markdown("✅ 已完成 · 用时 1小时47分"))
+        self.assertEqual(status["content"], status_markdown("有结果 · 用时 1小时47分"))
         # The outcome alone is kept: the result below still leaves it to the status line.
-        self.assertEqual(job.progress.outcome, "✅ 已完成")
+        self.assertEqual(job.progress.outcome, "有结果")
         self.assertEqual(self.app.cards.render_stream_final(job, "↓ 结论", status="done", answer_elsewhere=True), "↓ 结论")
         job, ctx = self.running_with_card()  # Without a trace: from the backend request to the end of the run.
         job.timings = {"backend_requested": 1000.0, "execution_finished": 1125.0}
         with FakeCardKit() as lark:
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "⏹ 已停止", stopped=True, timed=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "已停止", stopped=True, timed=True))
         status = json.loads(json.loads(lark.calls[0].data["actions"])[0]["params"]["element"])
-        self.assertEqual(status["content"], status_markdown("⏹ 已停止 · 用时 2分05秒"))
+        self.assertEqual(status["content"], status_markdown("已停止 · 用时 2分05秒"))
         job, ctx = self.running_with_card()  # Never reached the backend: the outcome alone.
         with FakeCardKit() as lark:
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "⚠️ 执行失败", timed=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "停住了", timed=True))
         self.assertEqual(json.loads(json.loads(lark.calls[0].data["actions"])[0]["params"]["element"])["content"],
-                         status_markdown("⚠️ 执行失败"))
+                         status_markdown("停住了"))
 
     def dashboard_trace(self):
         """drawn_trace on a card with the dashboard look (since 2026-11-04): its figure tiles under the status."""
@@ -285,12 +286,12 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
             trace.generation_seconds, trace.measured_output_tokens = 26.0, 2184
             trace.started_at -= 60  # A minute on: the end's 用时 differs from the running tile's.
             job.timings["backend_requested"] = trace.started_at
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成", timed=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果", timed=True))
             self.assertTrue(job.trace_card_updates.close())
         end = lark.calls[drawn]
         status = json.loads(json.loads(end.data["actions"])[0]["params"]["element"])
         # The end time under the outcome; its time is the 用时 tile's, its speed 任务详情's (2026-11-04 15:07).
-        self.assertRegex(status["content"], r"^## ✅ 已完成\n<font color='grey'>\d\d:\d\d 结束</font>$")
+        self.assertRegex(status["content"], "^## " + re.escape(state_word("result")) + r"\n<font color='grey'>\d\d:\d\d 结束</font>$")
         self.assertEqual(self.tiles(end)[0], ("用时", "1分48秒"))  # Without spaces: a side panel wrapped "1 分 20 秒".
         # The speed in its own tile, as large as the others (the owner, 2026-11-04 20:21: token/s的数字也比较小).
         self.assertEqual(self.tiles(end)[1:], [("token", "4.2万"), ("速度 · token/s", "84"), ("上下文", "4%")])
@@ -316,19 +317,19 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job, ctx = self.running_with_card()
         job.progress.dashboard = job.progress.status_rows = True
         with FakeCardKit() as lark:
-            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "执行中 · 已运行 5 秒 · 阶段：读代码\n当前：执行命令"))
-            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "执行中 · 已运行 6 秒 · 阶段：读代码\n当前：执行命令"))
-            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "执行中 · 已运行 7 秒 · 阶段：读代码\n当前：模型思考"))
+            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "在做 · 已运行 5 秒 · 阶段：读代码\n现在：执行命令"))
+            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "在做 · 已运行 6 秒 · 阶段：读代码\n现在：执行命令"))
+            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "在做 · 已运行 7 秒 · 阶段：读代码\n现在：模型思考"))
         both, tick, changed = lark.calls
         self.assertTrue(both.path.endswith("/batch_update"))
         written = {a["params"]["element_id"]: json.loads(a["params"]["element"])["content"]
                    for a in json.loads(both.data["actions"])}
-        self.assertEqual(written, {"activity": "## ⏳ 执行中\n<font color='grey'>已运行 5 秒</font>",
-                                   "activity_more": "阶段：读代码\n<font color='grey'>当前：执行命令</font>"})
+        self.assertEqual(written, {"activity": f"## {state_word('running')}\n<font color='grey'>已运行 5 秒</font>",
+                                   "activity_more": "阶段：读代码\n<font color='grey'>现在：执行命令</font>"})
         self.assertTrue(tick.path.endswith("/elements/activity"))
-        self.assertEqual(json.loads(tick.data["partial_element"])["content"], "## ⏳ 执行中\n<font color='grey'>已运行 6 秒</font>")
+        self.assertEqual(json.loads(tick.data["partial_element"])["content"], f"## {state_word('running')}\n<font color='grey'>已运行 6 秒</font>")
         self.assertTrue(changed.path.endswith("/batch_update"))
-        self.assertEqual(job.progress.more_text, "阶段：读代码\n当前：模型思考")
+        self.assertEqual(job.progress.more_text, "阶段：读代码\n现在：模型思考")
         # Stopping: 正在停止… beside the tiles and why under them, with the buttons' removal in the same batch.
         with FakeCardKit() as lark:
             self.app.controls.cancel_reply_job_from_card(ctx, {"job_id": str(job.job_id)}, "oc_chat", "stop")
@@ -357,7 +358,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         progress = job.progress
         progress.dashboard = progress.status_rows = progress.io_box = True
         progress.figures_parts = [["开始", figure("开始", "14:14")], ["token", figure("token", "58万")]]
-        line = "执行中 · 已运行 {} · 阶段：读代码\n当前：执行命令"
+        line = "在做 · 已运行 {} · 阶段：读代码\n现在：执行命令"
         with FakeCardKit() as lark:
             for ran in ("5秒", "6秒", "3分05秒", "3分09秒", "3分09秒"):
                 self.assertTrue(self.app.cards.update_card_activity(ctx, job, line.format(ran)))
@@ -366,15 +367,15 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         self.assertTrue(first.path.endswith("/batch_update"))
         written = {a["params"]["element_id"]: json.loads(a["params"]["element"])["content"]
                    for a in json.loads(first.data["actions"])}
-        self.assertEqual(written["activity"], "## ⏳ 执行中")  # Without 已运行: it is in 输出.
-        self.assertEqual(written["activity_more"], "阶段：读代码\n<font color='grey'>当前：执行命令</font>")
+        self.assertEqual(written["activity"], f"## {state_word('running')}")  # Without 已运行: it is in 输出.
+        self.assertEqual(written["activity_more"], "阶段：读代码\n<font color='grey'>现在：执行命令</font>")
         self.assertEqual(self.outputs(first), "开始 14:14 ｜ 已运行 5秒 ｜ token 58万")  # One line (2026-11-09).
         self.assertTrue(tick.path.endswith("/elements/task_figures"))
         self.assertEqual(self.outputs(tick), "开始 14:14 ｜ 已运行 6秒 ｜ token 58万")
         self.assertEqual(self.outputs(minutes), "开始 14:14 ｜ 已运行 3分 ｜ token 58万")
-        self.assertTrue(changed.path.endswith("/batch_update"))  # 当前 changed: the line under the status, alone.
+        self.assertTrue(changed.path.endswith("/batch_update"))  # 现在 changed: the line under the status, alone.
         self.assertEqual([a["params"]["element_id"] for a in json.loads(changed.data["actions"])], ["activity_more"])
-        self.assertEqual(progress.top_text, "执行中")
+        self.assertEqual(progress.top_text, "在做")
 
     def test_an_io_card_s_outputs_go_with_its_process_panel_and_its_end(self):
         with FakeCardKit() as lark:
@@ -395,11 +396,11 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
             drawn = len(lark.calls)
             trace.generation_seconds, trace.measured_output_tokens = 26.0, 2184
             trace.cache_read_tokens = 30000
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成", timed=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果", timed=True))
             self.assertTrue(job.trace_card_updates.close())
         end = lark.calls[drawn]
         status = json.loads(json.loads(end.data["actions"])[0]["params"]["element"])
-        self.assertRegex(status["content"], r"^## ✅ 已完成\n<font color='grey'>\d\d:\d\d 结束</font>$")
+        self.assertRegex(status["content"], "^## " + re.escape(state_word("result")) + r"\n<font color='grey'>\d\d:\d\d 结束</font>$")
         # As its answer card's: 用时 ｜ token/s ｜ token ｜ 缓存命中, one line.
         self.assertRegex(self.outputs(end), r"^用时 4\d秒 ｜ 84 token/s ｜ token 4.2万 ｜ 缓存命中 76%$")
 
@@ -432,13 +433,13 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
     def test_the_end_of_a_card_in_two_parts_empties_the_line_under_the_tiles(self):
         with FakeCardKit() as lark:
             job, ctx = self.dashboard_trace()
-            job.progress.status_rows, job.progress.more_text = True, "当前：执行命令"
+            job.progress.status_rows, job.progress.more_text = True, "现在：执行命令"
             drawn = len(lark.calls)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成", timed=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果", timed=True))
             self.assertTrue(job.trace_card_updates.close())
         actions = json.loads(lark.calls[drawn].data["actions"])
         status, more = (json.loads(a["params"]["element"]) for a in actions[:2])
-        self.assertRegex(status["content"], r"^## ✅ 已完成\n<font color='grey'>\d\d:\d\d 结束</font>$")
+        self.assertRegex(status["content"], "^## " + re.escape(state_word("result")) + r"\n<font color='grey'>\d\d:\d\d 结束</font>$")
         self.assertEqual((more["element_id"], more["content"]), ("activity_more", ""))
         self.assertEqual(actions[2], {"action": "delete_elements", "params": {"element_ids": ["action_row"]}})
         self.assertEqual(job.progress.more_text, "")
@@ -446,7 +447,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
     def test_a_dashboard_card_keeps_its_body_and_its_finished_buttons_go_after_its_details(self):
         with FakeCardKit() as lark:
             job, ctx = self.dashboard_trace()
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.assertTrue(job.trace_card_updates.close())
             written = len(lark.calls)
             self.assertTrue(self.app.cards.lead_first(ctx, job))  # The body is under the tiles already.
@@ -467,7 +468,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         # T182 #1111: the buttons (then 🔀 💬 🔁) sat between the result and its artifacts and figures.
         with FakeCardKit() as lark:
             job, ctx = self.drawn_trace()
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.assertTrue(job.trace_card_updates.close())
             self.app.switch.attach_topic_controls(ctx, job)
         insert = lark.calls[-1]
@@ -483,11 +484,11 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         # S26 client run: the top of the card went blank for about a second before the answer came.
         job, ctx = self.running_with_card()
         with FakeCardKit() as lark:
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.app.steering.close_task_controls(ctx, job)
         self.assertEqual(lark.calls[0].path, "/open-apis/cardkit/v1/cards/card-a/batch_update")
         status, buttons = json.loads(lark.calls[0].data["actions"])
-        self.assertEqual(json.loads(status["params"]["element"])["content"], status_markdown("✅ 已完成"))
+        self.assertEqual(json.loads(status["params"]["element"])["content"], status_markdown("有结果"))
         self.assertEqual(buttons, {"action": "delete_elements", "params": {"element_ids": ["action_row"]}})
         self.assertFalse([c for c in lark.calls if c.method == "DELETE"])  # Closing the controls keeps it.
 
@@ -496,19 +497,19 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         with FakeCardKit() as lark:
             self.app.controls.cancel_reply_job_from_card(ctx, {"job_id": str(job.job_id)}, "oc_chat", "stop")
             stopping = len(lark.calls)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "⏹ 已停止"))  # Not a monitor tick: not held back.
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "已停止"))  # Not a monitor tick: not held back.
         end = lark.calls[stopping:]
         self.assertEqual([c.path.rsplit("/", 1)[-1] for c in end], ["activity"])
-        self.assertEqual(json.loads(end[0].data["partial_element"])["content"], status_markdown("⏹ 已停止"))
+        self.assertEqual(json.loads(end[0].data["partial_element"])["content"], status_markdown("已停止"))
         sequences = [c.data["sequence"] for c in lark.calls]
         self.assertEqual(sequences, sorted(set(sequences)))
 
     def test_an_old_card_without_the_action_row_still_gets_its_outcome(self):
         job, ctx = self.running_with_card()
         with FakeCardKit(side_effect=[None] + [{"code": 0}] * 5) as lark:  # Old card: the batch is refused.
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
         self.assertTrue(lark.calls[1].path.endswith("/elements/activity"))
-        self.assertEqual(json.loads(lark.calls[1].data["partial_element"])["content"], status_markdown("✅ 已完成"))
+        self.assertEqual(json.loads(lark.calls[1].data["partial_element"])["content"], status_markdown("有结果"))
         self.assertFalse(job.action_controls_removed)  # close_task_controls removes its buttons as before.
 
     def drawn_trace(self):
@@ -526,11 +527,11 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
             job, ctx = self.drawn_trace()
             self.assertIn("等待进展", json.dumps(lark.calls[-1].data, ensure_ascii=False))
             drawn = len(lark.calls)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.assertTrue(self.app.cards.finalize_trace(ctx, job))
         end = lark.calls[drawn:]
         status, buttons, *panel = json.loads(end[0].data["actions"])
-        self.assertEqual(json.loads(status["params"]["element"])["content"], status_markdown("✅ 已完成"))
+        self.assertEqual(json.loads(status["params"]["element"])["content"], status_markdown("有结果"))
         self.assertEqual(buttons, {"action": "delete_elements", "params": {"element_ids": ["action_row"]}})
         panel = json.dumps(panel, ensure_ascii=False)
         self.assertIn("无执行记录", panel)
@@ -549,7 +550,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
             job, ctx = self.drawn_trace()
             self.app.controls.cancel_reply_job_from_card(ctx, {"job_id": str(job.job_id)}, "oc_chat", "stop")
             drawn = len(lark.calls)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "⏹ 已停止", stopped=True))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "已停止", stopped=True))
             end = lark.calls[drawn:]
             self.assertTrue(self.app.cards.finalize_trace(ctx, job, stopped=True))
         self.assertEqual([c.path.rsplit("/", 1)[-1] for c in end], ["batch_update", "activity"])
@@ -560,7 +561,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         with FakeCardKit() as lark:
             job, ctx = self.drawn_trace()
             running = job.tool_trace.snapshot()
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             drawn = len(lark.calls)
             job.tool_trace.snapshot = lambda: running  # As a flush that read the trace before it ended.
             self.app.cards.queue_trace(ctx, job, urgent=True)
@@ -625,7 +626,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         self.assertEqual(len(lark.calls), 3)
         # The end: 任务详情's text alone when it changed (no 总耗时 since 2026-11-04 15:07: the 用时 tile has it),
         # never the whole panel (that would fold it).
-        self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+        self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
         ended = len(lark.calls)
         self.assertTrue(self.app.cards.finalize_trace(ctx, job))
         end = lark.calls[ended:]
@@ -641,7 +642,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "running", "detail": "ls", "started_at": 100.0})
         self.flush(ctx, job)
         self.assertIsNone(self.details_written(lark.calls[-1]))
-        self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+        self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
         self.assertTrue(self.app.cards.finalize_trace(ctx, job))
         whole = lark.calls[-1]
         self.assertEqual((whole.method, whole.path.rsplit("/", 1)[-1]), ("PUT", "task_details"))
@@ -678,7 +679,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job.tool_trace.accept("token_usage", self.USAGE)
         with FakeCardKit() as lark:
             self.flush(ctx, job)
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.assertTrue(self.app.cards.finalize_trace(ctx, job))
         self.assertFalse([c for c in lark.calls if "task_details" in json.dumps(c.data)])
         self.assertEqual(job.progress.update_failures, 0)
@@ -694,13 +695,13 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
             self.assertTrue(self.app.cards.show_running_summary(ctx, job, "改代码", asking=True))
         self.assertTrue(all((c.method, c.path.rsplit("/", 1)[-1]) == ("PATCH", "settings") for c in lark.calls))
         self.assertEqual([json.loads(c.data["settings"])["config"] for c in lark.calls],
-                         [{"summary": {"content": f"⏳ {label} · 执行中 · 改代码"}},
-                          {"summary": {"content": f"❓ {label} · 需要你回答"}}])
+                         [{"summary": {"content": f"{label} 在做 · 改代码"}},
+                          {"summary": {"content": f"{label} 等你"}}])
         with FakeCardKit() as lark:
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "⚠️ 执行失败"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "停住了"))
             self.app.cards.stream.close(ctx.profile, job.progress)
         config = json.loads(lark.calls[-1].data["settings"])["config"]
-        self.assertEqual(config, {"streaming_mode": False, "summary": {"content": f"⚠️ {label} · 执行失败"}})
+        self.assertEqual(config, {"streaming_mode": False, "summary": {"content": f"{label} 停住了"}})
 
     NOTE ="回答已单独发送在下方；直接回复本话题即可继续。"
     NEXT = "已保存的结果和记录保留在本话题。"
@@ -710,15 +711,15 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job, ctx = self.running_with_card()
         render = self.app.cards.render_stream_final
         with FakeCardKit():
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
         self.assertEqual(render(job, self.NOTE, status="done", answer_elsewhere=True), self.NOTE)
-        self.assertEqual(render(job, "好", status="done"), "**✅ 答案**\n好")  # An answer keeps its title.
-        self.assertIn("⚠️ 执行失败", render(job, "出错", status="failed"))  # Not what the top says.
+        self.assertEqual(render(job, "好", status="done"), "**答案**\n好")  # An answer keeps its title.
+        self.assertIn("停住了", render(job, "出错", status="failed"))  # Not what the top says.
         with FakeCardKit():
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "⏹ 已停止"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "已停止"))
         # "已停止 · 任务 #844 已停止。…" said it twice more; what the top lacks stays.
         self.assertEqual(render(job, stopped_sentence(job.job_id) + self.NEXT, status="cancelled"), self.NEXT)
-        for status, outcome in (("failed", "⚠️ 执行失败"), ("waiting_user", "❓ 需要你回答")):
+        for status, outcome in (("failed", "停住了"), ("waiting_user", "等你")):
             with FakeCardKit():
                 self.assertTrue(self.app.cards.show_outcome(ctx, job, outcome))
             self.assertEqual(render(job, "正文", status=status), "正文")
@@ -727,18 +728,18 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         job, ctx = self.running_with_card()
         render = self.app.cards.render_stream_final
         with FakeCardKit(None) as lark:  # An old card without the status line, or CardKit refused both writes.
-            self.assertFalse(self.app.cards.show_outcome(ctx, job, "⏹ 已停止"))
+            self.assertFalse(self.app.cards.show_outcome(ctx, job, "已停止"))
         self.assertEqual(len(lark.calls), 2)
         stopped = stopped_sentence(job.job_id) + self.NEXT
         self.assertEqual(render(job, stopped, status="cancelled"), "**已停止**\n" + stopped)
         with FakeCardKit():
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
             self.app.cards.update_card_activity(ctx, job, "")  # Any later status-line write.
-        self.assertIn("✅ 已完成", render(job, self.NOTE, status="done", answer_elsewhere=True))
+        self.assertIn("有结果", render(job, self.NOTE, status="done", answer_elsewhere=True))
         with FakeCardKit():
-            self.assertTrue(self.app.cards.show_outcome(ctx, job, "✅ 已完成"))
+            self.assertTrue(self.app.cards.show_outcome(ctx, job, "有结果"))
         job.progress = StreamingReply("card-b", "om_card_b", sequence=1)  # A replacement card has its own line.
-        self.assertIn("✅ 已完成", render(job, self.NOTE, status="done", answer_elsewhere=True))
+        self.assertIn("有结果", render(job, self.NOTE, status="done", answer_elsewhere=True))
 
     def test_cancelling_a_queued_task_says_so_at_the_top_first(self):
         self.receive("om_a", "one")
@@ -903,14 +904,16 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         ctx = self.topic("om_a")
         self.app.record_job_state(ctx, job, "interrupted", "restart")
         record = next(r for r in self.app.harness.topic_records(ctx, "oc_chat") if r["job_id"] == job.job_id)
-        self.assertIn("检查并继续：新开一个任务", recovery_card(record)["body"]["elements"][0]["content"])
+        self.assertIn("检查并继续：新开一个任务", recovery_card(record)["body"]["elements"][1]["content"])
         event = {"chat_id": "oc_chat", "event_id": "retry",
                  "action_value": {"kind": "bridge_job_retry", "job_id": job.job_id, "topic_id": ctx.topic_id}}
         with mock.patch.object(type(self.app.cards), "replace_record_card") as replace:
             self.app.controls.task_action(ctx, event)
         new = self.app.runtime.jobs.queue.queue[0]
-        text = replace.call_args.args[2]["body"]["elements"][0]["content"]
-        self.assertIn(f"#{job.job_id} · 已转到任务 #{new.job_id} 继续", replace.call_args.args[2]["header"]["title"]["content"])
+        card = replace.call_args.args[2]
+        text = card["body"]["elements"][1]["content"]
+        self.assertNotIn("header", card)
+        self.assertIn(f"已转到任务 &#35;{new.job_id} 继续", json.dumps(card, ensure_ascii=False))
         self.assertNotIn("恢复已入队", text)
 
     def stopped_while_sending(self, **fields):
@@ -965,10 +968,10 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
         path = self.root / "checkpoint.json"
         path.write_text(json.dumps({"phase": "训练", "completed": ["数据准备"], "next_step": "查询 train-1"}))
         card = recovery_card({"job_id": 7, "topic_id": "topic", "checkpoint_path": str(path)})
-        text = card["body"]["elements"][0]["content"]
+        text = card["body"]["elements"][1]["content"]
         self.assertIn("数据准备", text)
         self.assertIn("查询 train-1", text)
-        button = card["body"]["elements"][1]["columns"][0]["elements"][0]
+        button = card["body"]["elements"][2]["columns"][0]["elements"][0]
         self.assertEqual(button["value"]["job_id"], 7)
         for continued in (False, True):
             view = recovery_card({"job_id": 7, "topic_id": "topic"}, continued=continued)
@@ -1067,13 +1070,13 @@ class TurnBodyTest(unittest.TestCase):
         # The list names the outcome and time: the answer card sent beside it has the lead, which read twice under the
         # topic in the chat (2026-11-02 review).
         cards, job = self.finish("done", "## 界面验收结果（只读）\n细节……", topic_label="T298",
-                                 timed="✅ 已完成 · 用时 3 分 39 秒")
+                                 timed="有结果 · 用时 3 分 39 秒")
         cards.lead_first.assert_called_once()
         cards.set_lead_summary.assert_called_once_with(job, "done")  # Computed in Cards alone (rule 3).
-        self.assertEqual(job.progress.summary, "T298 · 已完成 · 用时 3 分 39 秒")
+        self.assertEqual(job.progress.summary, "T298 有结果 · 用时 3 分 39 秒")
         cards, job = self.finish("waiting_user", "先确认*数据集*。还有别的。")
         self.assertEqual(cards.update_job_streaming_reply.call_args.args[2], "**↓ 先确认\\*数据集\\***")
-        self.assertEqual(job.progress.summary, "❓ #7 · 需要你回答")
+        self.assertEqual(job.progress.summary, "#7 等你")
         # A fixed sentence is not a lead: the card keeps its order and the list its preview.
         for status, text, kwargs in [("waiting_user", None, {"question": True}), ("done", "x" * 30000, {}),
                                      ("done", "[不回复]\n这事要你定。", {"proxy": True})]:
@@ -1083,7 +1086,7 @@ class TurnBodyTest(unittest.TestCase):
         # A body the card did not take is not moved; the list still says what came of the turn.
         cards, job = self.finish("done", "## 好了", taken=False)
         cards.lead_first.assert_not_called()
-        self.assertEqual(job.progress.summary, "#7 · 已完成")
+        self.assertEqual(job.progress.summary, "#7 有结果")
 
 
 class RedeliveryKeyTest(unittest.TestCase):

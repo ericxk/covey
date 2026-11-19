@@ -267,11 +267,11 @@ class CardIdTests(unittest.TestCase):
     def test_open_question_and_supplement_cards_preview_the_topics_state(self):
         # T314 2026-11-02: the topic list shows a topic's latest message's preview.
         card = question_card(question_record(), "T191")
-        self.assertEqual(card["config"]["summary"]["content"], card["header"]["title"]["content"])
-        self.assertTrue(card["config"]["summary"]["content"].startswith("❓ T191 · #"))
+        self.assertNotIn("header", card)  # The band leads (cards/question_cards.py), the preview says it too.
+        self.assertRegex(card["config"]["summary"]["content"], r"^T191 · #\d+ 等你 · 要你定：")
         from covey.cards.steer_form import steer_form
         form = steer_form(2431, "T314 · #2431", {"kind": "bridge_steer_submit"})
-        self.assertEqual(form["config"]["summary"]["content"], "⏳ T314 · #2431 · 执行中 · 补充表单")
+        self.assertEqual(form["config"]["summary"]["content"], "T314 · #2431 在做 · 补充表单")
 
     def test_the_essential_task_card_keeps_only_the_stop_control(self):
         cards = sample_cards()
@@ -340,10 +340,10 @@ class TaskCardFallbackTests(unittest.TestCase):
         # title cannot change once sent: a running topic read the same as a stopped or failed one.
         progress, cards, _ = self.create(["card_full"])
         title = card_title_for_question(sample_job().user_text, stream_runtime())  # As the title bar writes it.
-        self.assertEqual(progress["summary"], f"🕒 T70 · 排队中 · {title}")
+        self.assertEqual(progress["summary"], f"T70 排队 · {title}")
         self.assertEqual(cards[0]["config"]["summary"]["content"], progress["summary"])
         running = build_stream_card("", sample_job().user_text, stream_runtime(), job=sample_job(execution_started=True))
-        self.assertEqual(running["config"]["summary"]["content"], f"⏳ T70 · 执行中 · {title}")
+        self.assertEqual(running["config"]["summary"]["content"], f"T70 在做 · {title}")
         self.assertTrue(running["config"]["streaming_mode"])
 
     def test_a_new_card_takes_its_task_details_text_alone(self):

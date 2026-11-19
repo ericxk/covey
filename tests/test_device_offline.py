@@ -22,7 +22,7 @@ from covey.app import availability, detached
 from covey.app import devices as device_turns
 from covey.app import policy_guard, worker
 from covey.app.app import BridgeApp
-from covey.app.recovery_cards import recovery_text
+from covey.app.recovery_cards import recovery_card, recovery_text
 from covey.core import device_link as dl
 from covey.core import device_transport as dt
 from covey.core import device_reap, devices, turn_words
@@ -85,7 +85,8 @@ class WordsTest(unittest.TestCase):
             decided = core_recovery.classify(record)
             self.assertEqual((decided.card, decided.label), (core_recovery.INTERRUPTED, "检查并继续"))
             text = recovery_text(record, decided.card, decided.label, {}, continued=False, state_dir=None)
-            self.assertTrue(text.startswith(words), text)
+            self.assertTrue(text.startswith('停在：'), text)  # Where the Agent is leads the band instead (recovery_card).
+            self.assertIn(words, json.dumps(recovery_card(record), ensure_ascii=False))
         decided = core_recovery.classify(local)
         self.assertNotIn("gpu1", recovery_text(local, decided.card, decided.label, {}, continued=False, state_dir=None))
 

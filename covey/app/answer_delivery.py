@@ -4,7 +4,9 @@ cards for the upload) and the line or "你问" block atop it, through app/saved_
 from __future__ import annotations
 
 from covey.app import answer_cards, saved_send
+from covey.cards.review import answer_lead
 from covey.core import placement
+from covey.core.failure import HEADLINE_CHARS
 from covey.core.jobs import find_job_record, job_key
 from covey.core.saved_results import saved_delivery_key, saved_delivery_kind
 
@@ -29,7 +31,8 @@ class AnswerParts:
         row = placement.plan(ctx.state_dir, job).row
         top = row.answer == placement.TOP
         # In a 话题区's thread it leads with the turn's status, T number and title instead (D3, 2026-11-08).
-        head = saved_send.heads(top, not top and self.headed(row), self.ask_block, self.answer_head)
+        head = saved_send.heads(top, not top and self.headed(row), self.ask_block,
+                                lambda: self.answer_head(answer_lead(turn.verified_delivery.text, HEADLINE_CHARS)))
         outgoing = saved_send.plan(
             ctx, job.job_id, turn.status, turn.verified_delivery, delivery_text, key=key,
             file=saved_delivery_kind(turn.verified_delivery, turn.verified_outcome) == "file", top=top, tail=tail,
@@ -67,11 +70,11 @@ class AnswerParts:
         the private chat cannot be told."""
         return saved_send.owner_headed(row, self.runtime, self.job.chat_id)
 
-    def answer_head(self):
-        """The status line atop this turn's answer card in its thread (app/saved_send.py status_head); None when
-        it cannot be told."""
+    def answer_head(self, lead=""):
+        """What leads this turn's answer card in its thread, its conclusion band over the reply's ``lead`` (app/saved_send.py
+        status_head); None when it cannot be told."""
         try:
-            return saved_send.status_head(self.ctx.state_dir, self.ctx.topic_id, self.turn.status)
+            return saved_send.status_head(self.ctx.state_dir, self.ctx.topic_id, self.turn.status, lead)
         except Exception as exc:  # noqa: BLE001 - the answer goes without it
             self.runtime.log(f"answer card status line unavailable: {type(exc).__name__}")
             return None

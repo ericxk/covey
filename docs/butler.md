@@ -310,7 +310,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | 结果 | 回带 |
 | --- | --- |
 | 完成，回答已送达 | 结论卡（`cards/relay_card.py` 的 `relay_card`）：回答全文、产物、输入/输出灰框，末尾 T 号链接（`relay_send.linked`）。只用 `turn.verified_delivery`（规则 5）。超过 `CARD_TEXT_BYTES` 分几条 Markdown 发，再补一张小卡 |
-| 等你回答 | 问题卡顶层副本；放不了时发“**T410 需要你回答**”（`relay_question`） |
+| 等你回答 | 问题卡顶层副本；放不了时发回带卡：结论带“等你 · T410”和“要你定：”问题（`relay_question`） |
 | 失败或停止，没排上自动重试 | “**T410 停了**：状态行”；主人自己点的停止不发，记 `skipped`、`why: owner_stop` |
 | 没送达、排上了自动重试 | 不回带 |
 

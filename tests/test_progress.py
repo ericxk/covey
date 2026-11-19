@@ -203,7 +203,7 @@ class MonitorTest(unittest.TestCase):
         wall[0] = NOW + 150
         monitor.last_ui = float("-inf")
         monitor.tick()
-        line = updates[-1].split("当前：")[1].split("\n")[0]
+        line = updates[-1].split("现在：")[1].split("\n")[0]
         self.assertEqual(line.count("前台睡眠 300 秒"), 1, line)
         self.assertTrue(line.endswith(" · 2 分钟前"), line)
 

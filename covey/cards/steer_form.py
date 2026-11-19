@@ -24,7 +24,7 @@ def steer_form(job_id, label, raw, *, text="", notice=""):
             "tag": "button", "name": "submit", "form_action_type": "submit", "type": "primary",
             "text": plain(f"提交补充到 #{job_id}"),
             # Open only while the task runs (closed when it ends): the topic list's preview says so.
-            "behaviors": [{"type": "callback", "value": raw}]}]}], f"⏳ {label} · 执行中 · 补充表单")
+            "behaviors": [{"type": "callback", "value": raw}]}]}], f"{label} 在做 · 补充表单")
 
 
 def closed_card(text, summary, *, unsent=None):

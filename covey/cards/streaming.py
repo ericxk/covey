@@ -57,7 +57,7 @@ BOXED_PANELS = {"current_question", "task_details"}
 # 任务详情's text, by its own ID: a running turn's figures replace it in place (app/cards.py queue_trace), so
 # a panel the user opened stays open. A card sent before it had one gets the whole panel when the turn ends.
 TASK_DETAILS_TEXT_ID = "task_details_text"
-STEER_LABEL = "补充当前任务"
+STEER_LABEL = "补充"  # docs/ui.md 第 6 节; "📝 补充当前任务" before 2026-11-19.
 # The slim card's fold (the butler's, core/butler.py Traits.slim_card; the owner, 2026-11-06 22:42): the
 # tiles, 本轮请求, 任务详情 and the running buttons, folded under 详情 below the body and its status line; what a
 # card puts "after the body" or "at the bottom" goes in it too (app/task_card.py body_anchor, bottom_anchor).
@@ -188,19 +188,19 @@ def build_stop_action_row(job: Any, include_steer: bool = False, *, essential: b
     dialog was open (2026-11-04, gen 257: a running card's status line redraws every few seconds, and a
     real 停止 → 确定 never reached the Bridge; a probe card redrawn under an open dialog did the same). An
     `essential` row has only 停止: the card to fall back on when CardKit rejects the full one. ``switch``: with
-    🔁 换配置 (CardLook.switch). The element IDs and values are those of every card before (the status line was under the row
+    换配置 (CardLook.switch). The element IDs and values are those of every card before (the status line was under the row
     until 2026-11-04; it is in the status block at the top now)."""
     buttons = []
     if essential:
         include_steer = False
     if include_steer:
-        buttons.append(topic_button("📝 " + STEER_LABEL, element_id="steer_action", tone="primary", value={
+        buttons.append(topic_button(STEER_LABEL, element_id="steer_action", tone="primary", value={
             "kind": "bridge_steer", "topic_id": getattr(job, "topic_id", ""), "job_id": job.job_id}))
     if getattr(job, "topic_id", "") and not essential and switch:
         button = switch_button(job.topic_id, job.job_id, job.harness_id, job.binding_revision)
         button["element_id"] = "running_switch"  # CardKit element IDs must fit 20 characters.
         buttons.append(button)
-    buttons.append(topic_button("⏹ 停止", element_id=STOP_ACTION_ELEMENT_ID, tone="danger",
+    buttons.append(topic_button("停止", element_id=STOP_ACTION_ELEMENT_ID, tone="danger",
                                 value=job_stop_action_value(job)))
     return [button_row(buttons, ACTION_ROW_ELEMENT_ID)]
 

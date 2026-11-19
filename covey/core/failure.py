@@ -4,7 +4,7 @@ function for the task card's body and buttons (app/worker.py, app/auto_retry.py 
 
 ``title`` is one sentence: the reason and what happens or can be done next. ``detail`` keeps the internal words (the
 record's status line, the error code, the subagent's id) the title leaves out. ``actions`` are the next steps, in
-order: continue (检查并继续), retry (现在重试, the same click), diagnose (查原因, a read-only turn that looks into it),
+order: continue (检查并继续), retry (现在重试, the same click), diagnose (看原因, a read-only turn that looks into it),
 split (拆小再试), switch_model (换配置). The card offers the ones its record allows (core/recovery.py classify).
 
 The record says why through ``failure_code`` (the turn's ExecutionOutcome error code, app/worker.py) and
@@ -24,7 +24,7 @@ CONTINUE, RETRY, DIAGNOSE, SPLIT, SWITCH_MODEL = "continue", "retry", "diagnose"
 ACTIONS = (CONTINUE, RETRY, DIAGNOSE, SPLIT, SWITCH_MODEL)
 # The button of each, on cards (cards/recovery.py); continue and retry are the 检查并继续 click (重新投递结果 for a
 # result that did not go out).
-LABELS = {CONTINUE: RETRY_LABEL, RETRY: "现在重试", DIAGNOSE: "查原因", SPLIT: "拆小再试", SWITCH_MODEL: "换配置"}
+LABELS = {CONTINUE: RETRY_LABEL, RETRY: "现在重试", DIAGNOSE: "看原因", SPLIT: "拆小再试", SWITCH_MODEL: "换个模型"}
 
 # A task's error went wrong at this step (任务异常: one sentence says which).
 BROKE = {
@@ -172,7 +172,7 @@ def failure_view(record, now=None):
     elif code == "undelivered":
         title, actions = "这一轮做完了，但结果没能发出去（已保存）；可以重新投递", (CONTINUE,)
     elif code == "interrupted":
-        title, actions = "这一轮被打断了；可以接着做，或先查原因", (CONTINUE, DIAGNOSE)
+        title, actions = "这一轮被打断了；可以接着做，或先看原因", (CONTINUE, DIAGNOSE)
     elif code in OWN:
         title, actions = OWN[code]
         if code == "rate_limited":
@@ -181,14 +181,14 @@ def failure_view(record, now=None):
     elif code in LIMITS:
         title, actions = LIMITS[code] + "，这一轮停在这里；可以接着做，或拆小再试", (CONTINUE, SPLIT)
     elif code in BROKE:
-        title, actions = f"任务异常：{BROKE[code]}；可以接着做，或先查原因", (CONTINUE, DIAGNOSE)
+        title, actions = f"任务异常：{BROKE[code]}；可以接着做，或先看原因", (CONTINUE, DIAGNOSE)
     elif code in UNFINISHED:
         later = _later(record, now, "自动接着做", 1) if code == "settle_timeout" else ""
         title = ("这一轮没做完" + (f"（{UNFINISHED[code]}）" if UNFINISHED[code] else "") + "，已做的部分保留着；"
-                 + (later if later else "可以在新会话里接着做，或先查原因"))
+                 + (later if later else "可以在新会话里接着做，或先看原因"))
         actions = (CONTINUE, DIAGNOSE)
     else:
-        title, actions = "这一轮没有成功；可以接着做，或先查原因", (CONTINUE, DIAGNOSE)
+        title, actions = "这一轮没有成功；可以接着做，或先看原因", (CONTINUE, DIAGNOSE)
     if not record.get("topic_id"):
         actions = ()
     else:
@@ -198,6 +198,21 @@ def failure_view(record, now=None):
     return {"title": title, "detail": _detail(record, code), "actions": list(actions)}
 
 
+HEADLINE_CHARS = 40  # docs/ui.md 第 7 节: a sentence over 40 characters is split, its second part on the next line.
+
+
+def split_title(title):
+    """(headline, line) of a ``failure_view`` title for a conclusion band (cards/ui.py conclusion_band): the reason
+    before the first "；", what can be done next after it; a reason over HEADLINE_CHARS splits at its last "，" before
+    then too, the rest going first on the line."""
+    head, _, rest = str(title or "").partition("；")
+    if len(head) > HEADLINE_CHARS:
+        cut = head.rfind("，", 0, HEADLINE_CHARS)
+        if cut > 0:
+            head, rest = head[:cut], head[cut + 1:] + ("；" + rest if rest else "")
+    return head, rest
+
+
 def card_body(view):
     """A failed task card's body: the reason and what comes next, in one line (the internal words go to 技术详情)."""
     return f"**{view['title']}**"
@@ -205,15 +220,15 @@ def card_body(view):
 
 def follow_up(name, record, view):
     """(what the topic shows as the owner's message, what the model reads) for the follow-up ``name`` (DIAGNOSE,
-    SPLIT) of ``record``'s task, whose ``view`` is failure_view's. 查原因 is a read-only look into why; 拆小再试
+    SPLIT) of ``record``'s task, whose ``view`` is failure_view's. 看原因 is a read-only look into why; 拆小再试
     does the same work in smaller steps, the refused part left for last."""
     number = record.get("job_id")
     title = (view or {}).get("title") or "这一轮没有成功"
     detail = (view or {}).get("detail") or ""
     said = f"上一轮（任务 #{number}）的结局：{title}" + (f"\n技术详情：{detail}" if detail else "")
     if name == DIAGNOSE:
-        return (f"查原因：任务 #{number} 为什么没成功",
-                f"主人点了「查原因」，想知道上一轮为什么没成功。\n\n{said}\n\n"
+        return (f"看原因：任务 #{number} 为什么没成功",
+                f"主人点了「看原因」，想知道上一轮为什么没成功。\n\n{said}\n\n"
                 "这是一轮只读排查：看日志、进程、检查点、输出和相关文件找原因；不要改文件，不要重跑上一轮的工作，"
                 "不要提交、停止或重启任何任务和服务。最后用几句话说清：哪一步出的错、为什么、下一步建议怎么做"
                 "（接着做、拆小再试还是换个模型）。")

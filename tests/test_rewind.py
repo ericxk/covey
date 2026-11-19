@@ -400,9 +400,9 @@ class RewindTests(UnifiedCase):
 class RewindCardTest(unittest.TestCase):
     def test_the_panel_of_a_turn_has_the_button_where_the_harness_can_rewind(self):
         with_button = json.dumps(topic_panel("t" * 16, 7, ("claude", 2), rewind=True), ensure_ascii=False)
-        self.assertIn("↩️ 回退", with_button)
+        self.assertIn("\"回退\"", with_button)
         self.assertIn(cards.OPEN, with_button)
-        self.assertNotIn("↩️ 回退", json.dumps(topic_panel("t" * 16, 7, ("codex", 2)), ensure_ascii=False))
+        self.assertNotIn("\"回退\"", json.dumps(topic_panel("t" * 16, 7, ("codex", 2)), ensure_ascii=False))
 
     def test_the_card_offers_files_only_when_there_are_some(self):
         form = {"token": "a" * 24, "job_id": 7, "topic": "T9", "user_text": "改 a.txt", "workdir": "/w",

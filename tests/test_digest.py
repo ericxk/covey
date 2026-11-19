@@ -137,11 +137,11 @@ class CollectTests(Records, unittest.TestCase):
         view = collect(self.state, CHAT, slot, since, now)
         # The newest first, a question or a task waiting for 开始 alike (core/board_read.py waits).
         self.assertEqual([(row["label"], row["state"], row["took"]) for row in view["waiting"]],
-                         [("T402", "等你开工", "等了 2分00秒"), ("T401", "等你回答：用表格吗？", "等了 10分00秒")])
+                         [("T402", "等你开工", "等了 2分00秒"), ("T401", "等你：用表格吗？", "等了 10分00秒")])
         self.assertEqual([(row["label"], row["state"], row["took"]) for row in view["running"]],
                          [("T407", "在做", "已运行 30秒"), ("T403", "跑测试", "已运行 5分00秒")])
         self.assertEqual([(row["label"], row["state"], row["took"], row["seen"]) for row in view["done"]],
-                         [("T405", "失败", "用时 1分40秒", False), ("T404", "做完", "用时 1小时0分", True)])
+                         [("T405", "停住了", "用时 1分40秒", False), ("T404", "做完", "用时 1小时0分", True)])
         self.assertEqual(view["waiting"][1]["title"], "话题 401")
         # Each 等我 keeps the card it is acted on: the question card, the launch card (core/board_read.py waits).
         self.assertEqual([(row["kind"], row["card"]) for row in view["waiting"]],
