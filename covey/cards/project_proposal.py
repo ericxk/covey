@@ -229,6 +229,8 @@ def suggestion_block(row, run, index):
         elements.append(md(grey("目标：" + literal_text(found["goal"])), size="notation"))
     elements += topic_list(list(found.get("topics") or ()), f"tidy_more_{index}")
     state = row.get("state") or "open"
+    if state == "open" and row.get("note"):  # What changed since it was proposed (T574: 已归进别处的话题不再拆，只拆剩下的).
+        elements.append(md(grey(literal_text(row["note"])), size="notation"))
     if state == "open":
         value = {"run": run, "proposal": row.get("proposal", "")}
         elements.append({"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": [

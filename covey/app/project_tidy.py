@@ -973,7 +973,8 @@ class ProjectTidy:
                 done.append(True)
         saved = proposals.update_proposal(state, record["id"], edit)
         if done:
-            self.redraw_row(ctx, saved, line=self.line(state, saved, ctx), note=saved["note"], state=proposals.OPEN)
+            self.redraw_row(ctx, saved, line=self.line(state, saved, ctx), note=saved["note"], state=proposals.OPEN,
+                            item=self.row_item(ctx, saved))
         return int(bool(done))
 
     def redraw_row(self, ctx, record, **row) -> bool:

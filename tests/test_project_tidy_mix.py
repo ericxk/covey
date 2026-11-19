@@ -182,6 +182,7 @@ class SplitTest(TidyCase):
         self.assertEqual(rows[gone["id"]]["state"], proposals.EXPIRED)
         self.assertIn("剩下的不够另建一个专项", rows[gone["id"]]["note"])
         self.assertIn("只拆剩下的 2 个", rows[kept["id"]]["note"])
+        self.assertEqual(len(rows[kept["id"]]["item"]["topics"]), 2)  # The block lists the 2 left (T572).
         self.assertIn("已经结束或并走了", rows[rename["id"]]["note"])
         self.assertEqual(self.app.messenger.patch_card.call_args.args[1], "om_run")  # The 整理专项 card, redrawn.
         self.assertEqual(self.tidy.follow(self.ctx, CHAT), 0)  # Once.
