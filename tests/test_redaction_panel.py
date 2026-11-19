@@ -256,9 +256,12 @@ class RedactionTabTests(HubCase):
     def test_the_switches_and_a_case_clash_refused(self):
         save_config(self.state, {'ignore_case': False, 'terms': rows('Mimi', 'MIMI')})
         self.show()
-        self.press(self.button(cards.SWITCH, name='default_on'), 'ev-s1')
-        self.assertTrue(load_config(self.state)['default_on'])
-        self.assertIn('「新话题默认开」打开了', self.text())
+        # 新话题默认开 is the 新话题 page's 脱敏 row now (T546): not on this tab; an older card's switch says where it is.
+        self.assertNotIn('新话题默认开', self.text())
+        token = self.button(cards.SWITCH, name='restore')['token']
+        self.press({**self.button(cards.SWITCH, name='restore'), 'name': 'default_on', 'on': True, 'token': token}, 'ev-s1')
+        self.assertFalse(load_config(self.state)['default_on'])
+        self.assertIn('挪到了设置卡「新话题」页', self.text())
         self.press(self.button(cards.SWITCH, name='ignore_case'), 'ev-s2')
         self.assertFalse(load_config(self.state)['ignore_case'])
         self.assertIn(CASE_CLASH, self.text())

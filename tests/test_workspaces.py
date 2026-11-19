@@ -384,8 +384,12 @@ class WorkspaceManagerTests(LaunchCardCase):
         return updates[-1] if updates else self.sent
 
     def act(self, verb, name, **fields):
-        """A click of 移除 (remove) or 设为默认 (default) on the row of ``name``, drawn on the card shown."""
-        self.assertIn(verb, entry_buttons(self.shown(), name))
+        """A click of 移除 (remove) on the row of ``name``, drawn on the card shown, or of 设为默认 (default), which only
+        an older card has (T546: the 设置 card's 新话题 page names a new topic's workspace)."""
+        if verb == 'default':
+            self.assertNotIn(verb, entry_buttons(self.shown(), name))
+        else:
+            self.assertIn(verb, entry_buttons(self.shown(), name))
         self.click(f'{verb}-{row_key(name)}', **fields)
 
     def text(self):
@@ -437,7 +441,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         # In the launch card's place too, under the title bar the launch card and the browser have.
         head = card['header']
         self.assertEqual((head['title']['content'], head['subtitle']['content'], head['text_tag_list'][0]['text']['content']),
-                         ('工作区', '共 4 个 · 默认 project', '1 个目录不存在'))
+                         ('工作区', '共 4 个', '1 个目录不存在'))
         self.assertEqual([e['tag'] for e in elements], ['form'])
         # A row a workspace, the default first: its name and tags, its path and last use below.
         self.assertEqual(listed(card)[0], 'project')
@@ -446,18 +450,18 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.assertEqual([e['content'] for e in gone['columns'][0]['elements']],
                          ["**gone** <text_tag color='red'>目录不存在</text_tag>",
                           f"<font color='grey'>{literal(self.root / 'gone')} · 未用于任务</font>"])
-        self.assertIn("**project** <text_tag color='blue'>默认</text_tag>", self.text())
+        self.assertIn("**project** <text_tag color='neutral'>兜底</text_tag>", self.text())
         # The default has no buttons; a missing directory can be removed, not made the default.
         self.assertEqual(entry_buttons(card, 'project'), set())
         self.assertEqual(entry_buttons(card, self.dirs['gone']), {'remove'})
-        self.assertEqual(entry_buttons(card, self.dirs['kept']), {'remove', 'default'})
+        self.assertEqual(entry_buttons(card, self.dirs['kept']), {'remove'})
         kept = buttons(card)['remove-' + row_key(self.dirs['kept'])]
         self.assertEqual((kept['text']['content'], kept['type'], kept['form_action_type']), ('移除', 'danger_text', 'submit'))
-        self.assertEqual(buttons(card)['default-' + row_key(self.dirs['kept'])]['type'], 'primary_text')
-        self.assertEqual(find(card, 'input', 'query')['placeholder']['content'], QUERY_PLACEHOLDER)
-        self.assertEqual(values(find(card, 'select_static', 'filter')), ['all', 'missing', 'stale', 'unused'])
+        # A page or less (T546): no search box, no filter; 设为默认 is gone (the 新话题 page names the workspace).
+        self.assertNotIn('default-' + row_key(self.dirs['kept']), buttons(card))
+        self.assertNotIn('select_static', json.dumps(card))
         labels = {verb: b['text']['content'] for verb, b in buttons(card).items() if '-' not in verb}
-        self.assertEqual(labels, {'browse': '＋ 添加工作区…', 'filter': '筛选', 'prune': '移除不存在的（1）',
+        self.assertEqual(labels, {'browse': '＋ 添加工作区…', 'prune': '移除不存在的（1）',
                                   'refresh': '刷新', 'back': '返回启动卡', 'end': '结束，不启动任务'})
         self.assertNotIn('第 1/', self.text())  # One page.
         text = self.text()
@@ -493,7 +497,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         # The bot menu's panels' look: a white title bar with the blue folder icon and the count.
         self.assertEqual((card['header']['title']['content'], card['header']['subtitle']['content'],
                           card['header']['icon']['token'], card['config']['summary']['content']),
-                         ('工作区', '共 4 个 · 默认 project', 'folder_outlined', '工作区'))
+                         ('工作区', '共 4 个', 'folder_outlined', '工作区'))
         self.assertNotIn('text_tag_list', card['header'])  # Nothing is missing.
         # The same click again reaches the manager, which sends no second card. The old text is an ordinary message.
         open_standalone(self.manager, self.ctx, 'chat', 'wsm')
@@ -585,6 +589,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.click('filter', query='KEP')
         self.assertEqual(drawn(), {self.dirs['kept']})
         self.assertEqual(find(self.shown(), 'input', 'query')['default_value'], 'KEP')
+        self.assertEqual(find(self.shown(), 'input', 'query')['placeholder']['content'], QUERY_PLACEHOLDER)
         self.assertIn('搜索“KEP” · 全部 1 个', self.text())
         self.click('filter', query=str(self.root / 'STA')[-8:])  # Part of the full path, any case.
         self.assertEqual(drawn(), {self.dirs['stale']})
@@ -593,7 +598,9 @@ class WorkspaceManagerTests(LaunchCardCase):
         for kind, names in expected.items():
             self.click('filter', query='', filter=kind)
             self.assertEqual(drawn(), names, kind)
-            self.assertEqual(find(self.shown(), 'select_static', 'filter')['initial_option'], kind)
+            if kind != 'all':  # A list of a page or less shows the search only while one is in use.
+                self.assertEqual(find(self.shown(), 'select_static', 'filter')['initial_option'], kind)
+        self.assertNotIn('select_static', self.text())
         self.click('filter', filter='unused')
         self.assertEqual(listed(self.shown()), ['project', self.dirs['gone']])  # The default first, without buttons.
         self.assertEqual(entry_buttons(self.shown(), 'project'), set())
@@ -739,7 +746,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.act('default', self.dirs['kept'])
         self.assertEqual(self.config()['default'], self.dirs['kept'])
         self.assertEqual(listed(self.shown())[0], self.dirs['kept'])
-        self.assertEqual(entry_buttons(self.shown(), 'project'), {'remove', 'default'})
+        self.assertEqual(entry_buttons(self.shown(), 'project'), {'remove'})
         self.act('remove', self.work.name)
         self.assertNotIn(self.work.name, self.config()['workspaces'])
 

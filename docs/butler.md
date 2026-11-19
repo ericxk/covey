@@ -13,8 +13,8 @@
 
 `core/butler.py` 的 `enabled` 是唯一的判断，各处都问它。两层：
 
-1. **部署允许**（`available`）：`COVEY_BUTLER=0` 时不允许：管家的后台线程不起，菜单键不认，设置卡没有「私聊」「新话题」页。其他值都允许。
-2. **主人选的模式**（`agent_mode`）：`main-thread.json` 的 `mode`，`agent` 是管家，`topics` 是纯话题。主人在设置卡「私聊」页第一行切换，马上生效；Bridge 和任务进程每次 stat 一下，变了才重读。保存时同时写 `enabled` 给旧版本。
+1. **部署允许**（`available`）：`COVEY_BUTLER=0` 时不允许：管家的后台线程不起，菜单键不认，设置卡没有「管家」页，「新话题」页没有直接开工。其他值都允许。
+2. **主人选的模式**（`agent_mode`）：`main-thread.json` 的 `mode`，`agent` 是管家，`topics` 是纯话题。主人在设置卡「管家」页“更多”里的“私聊顶层的消息”一行切换（选“每条直接开一个话题”要再点“确定改”），保存即生效；Bridge 和任务进程每次 stat 一下，变了才重读。保存时同时写 `enabled` 给旧版本。
 
 **默认值只写一次**：Bridge 启动、处理事件之前（`Butler.settle` → `settle_mode`），文件里没有 `mode` 就写：状态目录里没有任务也没有话题时写管家；否则 `COVEY_BUTLER=1` 且设置没关的写管家，其余写纯话题。之后只看 `mode`。
 
@@ -382,16 +382,19 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 ### 设置卡
 
-管家的设置是设置卡（`app/settings_hub.py`，菜单键 `bridge_settings`）的前两个标签，标签行见 `cards/settings_hub.py` 的 `LABELS`。画卡和点击在 `app/butler_panel.py`、`cards/butler_panel.py`。
+管家的设置是设置卡（`app/settings_hub.py`，菜单键 `bridge_settings`）的前两个标签，标签行见 `cards/settings_hub.py` 的 `LABELS`：新话题 · 管家 · 工作区 · 脱敏 · 群聊（· 设备）。菜单打开时停在新话题。画卡和点击在 `app/butler_panel.py`、`cards/butler_panel.py`。2026-11-19（T546）主人定下这套分法：新话题一页管所有新话题，代答回到菜单单独一项，私聊模式收进管家页的“更多”。
 
 | 页 | 内容 |
 | --- | --- |
-| 私聊 | 私聊模式；管家的供应商、模型、思考预算、脱敏、压缩阈值（Harness 固定 Claude Code） |
-| 新话题 | Harness、供应商、模型、思考预算、运行方式、脱敏、工作区；子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型；直接开工三档 |
-| 工作区 | 工作区列表和每行的用途；记住的工作区，每项可删 |
+| 新话题 | 所有新话题的预选（启动卡 `app/preselection.py` 和管家开的话题 `resolve` 都照它）：Harness、供应商、模型、思考预算、运行方式、脱敏、工作区；管家开着时“直接开工”一行（`START_CHOICES`：都直接开工 = 三档全开，只读的直接开工 = `readonly` + `trusted`，都等你点开始 = 不开），中间那档下面列记住的工作区，每项可删；“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
+| 管家 | 管家的供应商、模型、思考预算、脱敏（Harness 固定 Claude Code，写在副标题）；“更多”里压缩阈值和私聊模式（`MODE_CHOICES`）。纯话题模式下只有私聊模式一行 |
+| 工作区 | 工作区列表；每行一行灰字写用途，“改用途”换成输入框（视图里的 `notes_edit`），“保存用途”存 |
 
-- 不用下拉框：每行点开是选项，点一个就记下并整卡重画。可选项和启动卡同源（`cards/launch_config.py` 的 `tiers`、`budget_options`）。留空的项写实际会用什么（同 `resolve`）。
-- **子 Agent** 在新话题页，但对整个机器人生效：Bridge 起的每一轮 Claude Code（话题和管家，连同轮前压缩）都照它。`subagents` 是 `light`（默认，没有这一项或值不认识也算）时，进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 换掉内置的 Explore：只读（Read、Grep、Glob、Bash），跑在 Haiku 上，只找文件、搜代码、看日志，报路径、行号和摘录，不改东西、不下判断；改文件和拿主意还是主模型。这一轮的模型是 Haiku 时不设 `CLAUDE_CODE_SUBAGENT_MODEL`，子 Agent 不比主模型大。`same` 什么都不加，每个子 Agent 都跑主模型。`backends/claude/subagents.py` 读这个设置；`ctx.options` 的 `subagent_model` 有值时压过设置（空字符串是不设），也不加 Haiku 的 Explore，内置的 Explore 跟着它（安全拒绝后的重试）。旧版本的任务进程不受影响。部署不允许管家时没有这一页，按默认 `light`；要跟主模型，手动在 `main-thread.json` 里写 `"subagents": "same"`。
+- 不用下拉框：每行点开是选项，点一个就记下并整卡重画。可选项和启动卡同源（`cards/launch_config.py` 的 `tiers`、`budget_options`）。留空的项（“跟上次一样”）写实际会用什么（同 `resolve`）。
+- **私聊模式**：管家模式下选“每条直接开一个话题”不马上存，记录的视图记下 `confirm`，卡上出一句后果（`MODE_CONFIRM`）和“取消”“确定改”；“确定改”是 `bridge_main_enable`（`on: false`），点别的任何一项都收起这句。选“交给管家”马上存。旧卡上的“改成纯话题 / 改成管家”按钮（同一个 kind）照旧马上生效。
+- **直接开工**：三档不是 `START_CHOICES` 之一时（以前一档一档开关过），这一行照实写开着的几档，选一项后换成那一项。旧卡上一档一个的按钮（`bridge_main_start`）照旧能点。
+- **脱敏默认**：只有新话题页这一行（`topic_defaults.redaction`）。脱敏标签以前的“新话题默认开”（`redaction/config.json` 的 `default_on`）不再读；`core/migrate.py` 的 `redaction-default` 在它开着时把这一行打开一次，`config.json` 里的值留给旧版本。
+- **子 Agent** 在新话题页，但对整个机器人生效：Bridge 起的每一轮 Claude Code（话题和管家，连同轮前压缩）都照它。`subagents` 是 `light`（默认，没有这一项或值不认识也算）时，进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 换掉内置的 Explore：只读（Read、Grep、Glob、Bash），跑在 Haiku 上，只找文件、搜代码、看日志，报路径、行号和摘录，不改东西、不下判断；改文件和拿主意还是主模型。这一轮的模型是 Haiku 时不设 `CLAUDE_CODE_SUBAGENT_MODEL`，子 Agent 不比主模型大。`same` 什么都不加，每个子 Agent 都跑主模型。`backends/claude/subagents.py` 读这个设置；`ctx.options` 的 `subagent_model` 有值时压过设置（空字符串是不设），也不加 Haiku 的 Explore，内置的 Explore 跟着它（安全拒绝后的重试）。旧版本的任务进程不受影响。
 - 只有主人能改。旧卡的按钮照写：旧行按 `PAGE_OF` 落到对应页，下线的标签按 `RETIRED` 落到工作区页，更早的面板卡由 `SettingsHub.takeover` 接管。
 - 旧菜单键 `butler_settings` 还认，发的也是设置卡；新卡发出后撤回上一张（`app/bot_menu.py` 的 `Panels`）。
 

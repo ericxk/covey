@@ -2,11 +2,12 @@
 chat. The butler only sends it (the tool ``settings_panel``, TOOLS); it cannot change its settings.
 
 It is two tabs of the bot menu's 设置 card (app/settings_hub.py), one a page (cards/settings_hub.py BUTLER_PAGES):
-私聊默认, 新话题默认; its 记住的工作区 and 工作区用途 buttons are on the 工作区 tab, which app/workspace_manager.py draws
-(``pages``: this panel redraws that tab through it after its click). A card on the retired page 其他 (2026-11-08 to
-11-09) still acts: its 直接开工 lands on 新话题默认, the rest on 工作区 (PAGE_OF). The tool and, unless COVEY_BUTLER=0, the menu key MENU_KEY send that card on
-私聊默认; its first row is the private chat mode (管家, 纯话题); the chat keeps one 设置 card, a new one
-recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the record's
+新话题 (every new topic's preselection, 直接开工 and 记住的工作区) and 管家 (the butler's own, and under 更多 the private
+chat mode: 每条直接开一个话题 is saved only after 确定改, the record's view keeping ``confirm`` meanwhile); its 保存用途
+button is on the 工作区 tab, which app/workspace_manager.py draws (``pages``: this panel redraws that tab through it
+after its click). A card on the retired page 其他 (2026-11-08 to 11-09) still acts: its 直接开工 and 记住的工作区 land on
+新话题, its 用途 on 工作区 (PAGE_OF). The tool and, unless COVEY_BUTLER=0, the menu key MENU_KEY send that card on
+管家; the chat keeps one 设置 card, a new one recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the record's
 ``tab`` follows), so a click on a 设置 card drawn before the pages, all of them on its 管家 tab, lands on the page
 of the row it changed. No topic, no job. The 设置 card's record holds the tab's view (revision, notice); a card
 sent before there was a 设置 card (gen 286) has its own record, <state>/main-thread-panels/<token>.json, and still
@@ -29,14 +30,15 @@ from covey.core.menu_choice import (budget_effort, default_entry, entry_of, mode
 from covey.app.butler_env import reply
 from covey.app.butler_topics import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
-from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, KINDS, MODEL, MODEL_FOLLOW, NOTE_LENGTH,
-                                                    NOTES, PAGE_OF, PROVIDER, REDACTION, START, SUBAGENTS,
+from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
+                                                    NOTE_LENGTH, NOTES, PAGE_OF, PROVIDER, REDACTION, START,
+                                                    START_CHOICES, START_ROW, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
                                                     TOPIC_RUN_MODE, TOPIC_WORKSPACE, UNTRUST, CLAUDE, follow_text,
                                                     butler_panel_card)
 from covey.cards.launch_config import effort_choices
 from covey.cards.settings_hub import BUTLER, BUTLER_PAGES, OTHER, RETIRED, TOPIC, WORKSPACE
-from covey.core import butler_settings
+from covey.core import butler, butler_settings
 from covey.core.jobs import job_file, read_job_record
 from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES, TIERS
 from covey.core.state import read_object
@@ -48,8 +50,8 @@ MENU_KEY = 'main_thread_settings'  # The bot menu's event key that opens the 设
 OWNER_ONLY = '⚠️ 只有机器人主人能改管家的设置。'
 GONE = '⚠️ 这个选项已不可用，卡片已按最新设置重画。'
 # Said on the card once the private chat mode changed (docs/butler.md 私聊模式).
-MODE_NOTICES = {True: '已改成管家：聊天区的消息交给管家。',
-                False: '已改成纯话题：私聊顶层的新消息各开一个话题；已开的话题照常在各自的话题里继续。'}
+MODE_NOTICES = {True: '已改成交给管家：私聊顶层的消息交给管家。',
+                False: '已改成每条直接开一个话题；已开的话题照常在各自的话题串里继续。'}
 # Said on the card once another setting was saved (docs/ui.md 5.2: 保存后用一句灰字回执), by the page of the row.
 SAVED = {BUTLER: '已保存：管家下一轮起照这个来。', TOPIC: '已保存：之后新开的话题照这个来。', WORKSPACE: '已保存。'}
 
@@ -143,6 +145,8 @@ ROW_CHANGES = {
     # 子 Agent: bot-wide (backends/claude/subagents.py), not a new topic's default, though on that page.
     SUBAGENTS: (TOPIC, lambda rows, choices, option, state_dir: (
         {'subagents': option} if option in SUBAGENT_MODES else None)),
+    START_ROW: (TOPIC, lambda rows, choices, option, state_dir: (
+        {'start': START_CHOICES[option][0]} if option in START_CHOICES else {} if option == 'custom' else None)),
 }
 
 
@@ -180,7 +184,8 @@ class ButlerPanel:
         return butler_panel_card(view['token'], view, settings, choices, workspace_names(ctx.state_dir),
                                       top=hub_top(page or BUTLER, view['token'], view), page=page,
                                       follows=self.follows(ctx, defaults, choices, chat) if topic else {},
-                                      fallback=self.fallback(ctx, defaults, choices, chat) if topic else None)
+                                      fallback=self.fallback(ctx, defaults, choices, chat) if topic else None,
+                                      butler_on=butler.available() and settings.enabled)
 
     def resolved(self, ctx, defaults, choices, chat=''):
         """What a topic the butler of ``chat`` opens now runs with over ``defaults`` (app/butler_topics.py resolve,
@@ -198,9 +203,9 @@ class ButlerPanel:
         return choices.get(found['model_key']) if found and found['harness'] == defaults.harness else None
 
     def follows(self, ctx, defaults, choices, chat=''):
-        """{row key: text} of what each 新话题默认 row's empty option sets (ACCEPT-325 问题 2): ``defaults`` with the
-        row and those under it empty (a click on it empties them: changes), resolved now: '跟随上次：opus · max',
-        'Bridge 默认：high'. A row whose text cannot be said is left out (默认)."""
+        """{row key: text} of what each 新话题 row's empty option sets (ACCEPT-325 问题 2): ``defaults`` with the
+        row and those under it empty (a click on it empties them: changes), resolved now: '跟上次一样：opus · max',
+        '系统默认：high'. A row whose text cannot be said is left out (默认)."""
         empty = {'t_harness': dict(harness='', model='', effort=''), 't_model': dict(model='', effort=''),
                  't_effort': dict(effort='')}
         found = {key: self.resolved(ctx, dataclasses.replace(defaults, **fields), choices, chat)
@@ -251,9 +256,12 @@ class ButlerPanel:
         path = self.path(ctx, token)
         if self.menu.clicked(path, event) is None:
             return 'main_panel_unknown'
-        outcome = 'main_panel'
+        outcome, confirm = 'main_panel', False
         if not owner:
             outcome, notice = 'owner_only', OWNER_ONLY
+        elif value['kind'] == MODE and MODE_CHOICES.get(value.get('option'), (True,))[0] is False \
+                and butler_settings.load(ctx.state_dir).enabled:
+            notice, confirm = '', True  # 每条直接开一个话题 is saved by 确定改 only (mode_confirm).
         else:
             changes = self.changes(ctx, event, value)
             notice = GONE if changes is None else ''
@@ -266,6 +274,11 @@ class ButlerPanel:
                 return 'main_panel_unknown'
             view = {**record['view'], 'token': token, 'notice': notice}
             view['revision'] += 1
+            view.pop('confirm', None)  # Any other click closes the question 每条直接开一个话题 asked.
+            if confirm:
+                view['confirm'] = True
+            if value['kind'] == NOTES:
+                view.pop('notes_edit', None)  # 保存用途 ends the 工作区 tab's editing (app/workspace_manager.py).
             tab = record.get('tab', BUTLER)
             if view.get('hub') and outcome == 'main_panel':
                 tab = PAGE_OF.get(value['kind'], tab)  # The page of the row it changed (a card from before the pages).
@@ -282,6 +295,9 @@ class ButlerPanel:
         kind, option = value['kind'], value.get('option')
         if kind == ENABLE:
             return {'enabled': value.get('on')} if isinstance(value.get('on'), bool) else None
+        if kind == MODE:  # 交给管家 (每条直接开一个话题 waits for 确定改: click); the mode it is already: nothing.
+            on = MODE_CHOICES.get(option, (None,))[0]
+            return None if on is None else {} if on == settings.enabled else {'enabled': on}
         if kind == START:
             tier, on = value.get('tier'), value.get('on')
             if tier not in TIERS or not isinstance(on, bool):

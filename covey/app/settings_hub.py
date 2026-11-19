@@ -1,8 +1,9 @@
-"""The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 私聊默认 and
-新话题默认 (app/butler_panel.py), the workspace list (app/workspace_manager.py, with the butler's 记住的工作区
-and 用途), the redaction term list (app/redaction_panel.py), the 代答 (app/proxy_panel.py) and 群聊 (app/group_manager.py)
-panels on one card in the owner's private chat, a tab row on top (cards/settings_hub.py: 私聊 · 新话题 · 工作区 · 脱敏
-· 代答 · 群聊). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
+"""The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 新话题 and 管家
+(app/butler_panel.py), the workspace list with each workspace's 用途 (app/workspace_manager.py), the redaction term
+list (app/redaction_panel.py), the 群聊 (app/group_manager.py) and, with nodes, 设备 (app/node_panel.py) panels on one
+card in the owner's private chat, a tab row on top (cards/settings_hub.py: 新话题 · 管家 · 工作区 · 脱敏 · 群聊 · 设备;
+the owner, 2026-11-19). 代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
+there (app/proxy_panel.py). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
 retired (2026-11-09): an older card's tab click on it, or a record still on it, lands on 工作区 (cards/settings_hub.py
 RETIRED), its buttons on the page that has their row now (app/butler_panel.py PAGE_OF).
 
@@ -28,13 +29,13 @@ A card sent before this record existed (gen 286) is held by its panel's own reco
 tab click moves that record here under the same token (``takeover``: its sequence, view and fields go on, the old
 record is MOVED) and then turns as above. A card whose record was MOVED by the scheme before finds nothing.
 
-The menu opens it on 私聊默认 (BUTLER, the key of the one 管家 tab before the pages: an older card's tab click there
-lands on it) unless COVEY_BUTLER=0 rules the butler out, on 工作区 then; the two pages are tabs in the
-mode 纯话题 too (私聊默认's first row is the mode). The butler's menu key (app/butler_panel.py MENU_KEY) and
-its tool settings_panel send it on 私聊默认; the bot menu's keys before 2026-11-09, 工作区
+The menu opens it on 新话题 (``first_tab``), in either private chat mode and with COVEY_BUTLER=0 too. 管家 (BUTLER,
+the key of the one 管家 tab before the pages: an older card's tab click there lands on it) is a tab unless
+COVEY_BUTLER=0 rules the butler out, in the mode 纯话题 too (its row of the mode turns the butler on). The butler's menu
+key (app/butler_panel.py MENU_KEY) and its tool settings_panel send it on 管家; the bot menu's keys before 2026-11-09, 工作区
 (app/workspace_manager.py MENU_KEY) and 脱敏 (app/dashboard.py MENU_KEY), on their tabs (``opens``: the console's
 menu shows them until the owner publishes the new one). The chat keeps one 设置 card (app/bot_menu.py Panels, key
-MENU_KEY). The bot menu's 代答 and 群聊 keys still send their own cards, without tabs. 换口令 in the 脱敏 tab's web
+MENU_KEY). The bot menu's 代答 and 群聊 keys send their own cards, without tabs. 换口令 in the 脱敏 tab's web
 dashboard part carries the card's token: the token rotates and the same card shows the new link (``rotate``).
 """
 from __future__ import annotations
@@ -100,12 +101,12 @@ class SettingsHub:
 
     @staticmethod
     def first_tab():
-        """私聊默认, in either private chat mode (its first row turns it), unless the deployment rules it out: 工作区."""
+        """新话题, always the first tab (app/menu_panel.py hub_tabs)."""
         return hub_tabs()[0]
 
     def open(self, ctx, chat_id, source, shown=None, tab='', quote=''):
         """Send a new 设置 card to ``chat_id`` (the owner's private chat) on ``tab`` (first_tab by default);
-        ``source`` keys it, ``shown`` hears its message id, ``quote`` (私聊默认 only) the message it quotes."""
+        ``source`` keys it, ``shown`` hears its message id, ``quote`` (管家 only) the message it quotes."""
         tab = tab or self.first_tab()
         panel = self.panels[tab]
         self.menu.open(ctx, chat_id, source, lambda token, record: panel.tab_card(ctx, token, record),
@@ -114,7 +115,7 @@ class SettingsHub:
                        opened=lambda token: panel.tab_shown(ctx, token), shown=shown, quote=quote if tab == BUTLER else '')
 
     def open_main(self, ctx, chat_id, source, shown=None, quote=''):
-        """The card on 私聊默认, replacing the 设置 card before (not the item's own: there is one 设置 card)."""
+        """The card on 管家, replacing the 设置 card before (not the item's own: there is one 设置 card)."""
         self.open_on(ctx, chat_id, source, BUTLER, quote=quote)
 
     def open_workspaces(self, ctx, chat_id, source, shown=None):

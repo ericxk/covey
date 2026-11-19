@@ -151,6 +151,33 @@ class LaunchSelectionTests(unittest.TestCase):
         ])
 
 
+    def test_the_new_topic_page_names_a_model_and_a_workspace(self):
+        # T546 (the owner, 2026-11-19): the 设置 card's 新话题 page preselects every new topic, the launch card's too;
+        # an empty row (跟上次一样) keeps the last launch's. Only a first binding is prefilled; a card's own draft wins.
+        last = {'model_choice': 'codex:gpt', 'effort': 'low', 'workdir': '/absolute/other'}
+        fresh = {'fresh': True, 'saved': last}
+        self.check([
+            ('its model over the last launch', {**fresh, 'topic_model': ('claude', 'opus')},
+             {'model': 'claude:opus', 'effort': RECOMMENDED, 'workspace': 'other', 'first': 'claude:opus'}),
+            ('with its budget', {**fresh, 'topic_model': ('claude', 'opus'), 'topic_budget': ('claude', 'max')},
+             {'model': 'claude:opus', 'effort': 'max'}),
+            ('a Harness alone keeps the last model where it is that Harness', {**fresh, 'topic_model': ('codex', '')},
+             {'model': 'codex:gpt', 'effort': 'low'}),
+            ('a Harness alone, the last launch another: its first model', {**fresh, 'topic_model': ('maso', '')},
+             {'model': 'maso:gpt56_sol', 'work_mode': 'focus', 'first': 'maso:gpt56_sol'}),
+            ('a model gone from the menu: its Harness', {**fresh, 'topic_model': ('claude', 'gone')},
+             {'model': 'claude:opus'}),
+            ('a Harness off the menu: the last launch', {**fresh, 'topic_model': ('pi', '')}, {'model': 'codex:gpt'}),
+            ('its workspace over the last launch', {**fresh, 'topic_workspace': 'project'}, {'workspace': 'project'}),
+            ('a workspace off the list: the last launch', {**fresh, 'topic_workspace': 'gone'}, {'workspace': 'other'}),
+            ('a later binding keeps its own', {'saved': last, 'topic_model': ('claude', 'opus'), 'topic_workspace': 'other'},
+             {'model': 'codex:gpt', 'workspace': 'project'}),
+            ('the card keeps its own', {**fresh, 'topic_model': ('claude', 'opus'),
+                                        'draft': {'model': 'codex:gpt', 'workspace': 'other'}},
+             {'model': 'codex:gpt', 'workspace': 'other'}),
+        ])
+
+
 class SwitchSelectionTests(unittest.TestCase):
     def check(self, cases):
         for name, topic, usage, expected in cases:

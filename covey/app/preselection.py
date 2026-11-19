@@ -1,8 +1,8 @@
 """What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read.
 
 launch_selection is app/launch.py build_launch_card's order of preference (the binding, the chat's last launch,
-its latest selection, the card's own draft, then what the menu still offers; a budget the 设置卡's 新话题默认 names
-comes before the chat's usual one); switch_selection is
+its latest selection, then what the 设置 card's 新话题 page names, the card's own draft, then what the menu still
+offers; a budget the 新话题 page names comes before the chat's usual one); switch_selection is
 app/harness_switch.py HarnessSwitch.open's (the topic's binding, what a redacting topic may keep, the chat's
 usual budgets). The callers read the catalog, the chat's selections, the saved launch and the workspace list,
 and write the form record and the card from the result. The two stay apart: the cards differ on purpose, and
@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from covey.app import model_usage
-from covey.core.menu_choice import effort_options, find_choice, preset_choice, work_modes
+from covey.core.menu_choice import default_entry, effort_options, find_choice, harness_of, preset_choice, work_modes
 from covey.core.defaults import RECOMMENDED
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 
@@ -42,14 +42,35 @@ def device_fit(choices, model, declared):
     return model
 
 
+def harness_model(choices, harness, model, current):
+    """(key, budget) of the menu entry the 新话题 page's ``harness`` and ``model`` name: that model; with the Harness
+    alone, ``current`` (the last launch's) where it is that Harness's, else its default entry (core/menu_choice.py
+    default_entry), else its first on the menu. None with no Harness named, or none of it on the menu."""
+    if not harness:
+        return None
+    if model:
+        found = find_choice(choices, f'{harness}:{model}')
+        if found:
+            return found
+    if current in choices and harness_of(current, choices[current]) == harness:
+        return current, ''
+    entry = default_entry(choices, harness)
+    keys = [key for key, value in choices.items() if harness_of(key, value) == harness]
+    key = next((key for key in keys if choices[key] is entry), keys[0] if keys else None)
+    return (key, '') if key else None
+
+
 def launch_selection(choices, usage, config, *, model, workspace, work_mode, fresh, saved=None, draft=None,
-                     notice='', topic_budget=('', ''), device_harnesses=None):
+                     notice='', topic_budget=('', ''), device_harnesses=None, topic_model=('', ''), topic_workspace=''):
     """The launch card's preselection. ``choices`` available_models' menu, ``usage`` the chat's selections
     (model_usage.recent), ``config`` the workspace config; ``model`` (harness:model), ``workspace`` and
     ``work_mode`` the topic's binding; ``fresh`` whether it is the topic's first binding, the only one
     preferences prefill, with ``saved`` the chat's last launch (launch_defaults; anything but a dict is
     none); ``draft`` a rebuilt card's own choices. ``topic_budget`` (Harness, budget): the 设置卡's 新话题默认
-    budget (core/butler_settings.py TopicDefaults; its Harness '' for any), ('', '') without one.
+    budget (core/butler_settings.py TopicDefaults; its Harness '' for any), ('', '') without one. ``topic_model``
+    (Harness, model) and ``topic_workspace``: what that page names, '' for 跟上次一样 (the owner, 2026-11-19, T546:
+    the page preselects every new topic): a fresh card starts from its model (with a Harness alone, the last launch's
+    model where it is that Harness's, else the Harness's default one, ``harness_model``) and its workspace.
     ``device_harnesses`` (workspace name → the Harnesses its device declares, device workspaces only): a card that
     nobody has chosen a model on (no ``draft`` model) whose workspace is such a one does not start from a Harness the
     device lacks but from its first declared one, with that model's own budget (``device_fit``); a model the owner
@@ -72,6 +93,11 @@ def launch_selection(choices, usage, config, *, model, workspace, work_mode, fre
         latest = None if first else model_usage.last_selection(choices, usage)
         if latest:  # No saved launch: the latest selection.
             (model, budget, mode), first = latest, latest[0]
+        named = harness_model(choices, *topic_model, model)
+        if named and named[0] != model:  # The 新话题 page's model over the last one.
+            (model, budget), first, mode = named, named[0], ''
+        if topic_workspace in config['workspaces']:
+            workspace = topic_workspace
     # The preselected model first, then the ones the chat chose most lately; a rebuilt card keeps this order.
     choices = model_usage.ranked(choices, usage, first)
     if workspace not in config['workspaces']:

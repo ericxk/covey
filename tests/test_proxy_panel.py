@@ -101,13 +101,17 @@ class PanelTests(ProxyCase):
         card = call.args[2]
         head = card['header']
         self.assertEqual((head['title']['content'], head['subtitle']['content'], head['text_tag_list'][0]['text']['content']),
-                         ('代答', '群「C队 代答」 · 白名单 1 个', '已开启'))
-        figures = [e['content'] for e in walk(card['body']['elements'][0]) if e.get('tag') == 'markdown']
-        self.assertEqual(figures[:4], ["<font color='grey'>白名单 · 运行中 1</font>", '**1**',
-                                       "<font color='grey'>处理中 · 条待回复</font>", '**0**'])
+                         ('代答', '群「C队 代答」', '已开启'))
+        # The status line first (no tiles), the model rows last under a heading that names the model.
+        lines = [e['content'] for e in walk(card['body']['elements'][0]) if e.get('tag') == 'markdown']
+        self.assertEqual(lines[0], "**代答开着** <font color='grey'>｜</font> 白名单 1 个")
+        self.assertNotIn('tile', json.dumps(card['body']['elements'][:2]))
+        order = [e['content'] for e in card['body']['elements'] if e.get('tag') == 'markdown' and 'icon' in e]
+        self.assertEqual([c.split('**')[1].split(' · ')[0].split('（')[0] for c in order], ['白名单', '添加', '代答话题的模型'])
+        self.assertIn('代答话题的模型 · Codex Model · 思考 high', order[-1])
         kinds = {(kind, label) for kind, label, _, _ in controls(card)}
         rows = {panel.HARNESS, panel.PROVIDER, panel.TIER_MODEL, panel.TIER_BUDGET}
-        self.assertEqual(kinds, {(panel.DISABLE, '关闭代答'), (panel.LOGIN, '网页端登录'), (panel.REFRESH, '刷新'),
+        self.assertEqual(kinds, {(panel.DISABLE, '关闭代答'), (panel.LOGIN, '去登录'), (panel.REFRESH, '刷新'),
                                  *((kind, 'interactive_container') for kind in rows),
                                  (panel.PAUSE, '暂停'), (panel.REMOVE, '删除'), (panel.FIND, '查找')})
         token = self.token()
@@ -151,6 +155,18 @@ class PanelTests(ProxyCase):
         self.assertNotIn(f"乙 {tag('运行中', 'green')}", self.text())
         self.click(panel.SOURCE_OPEN, source='oc_gone')
         self.assertIn('白名单里已经没有这一项', self.text())
+
+    def test_a_login_seen_good_is_a_grey_line_not_a_button_and_closing_is_no_primary_button(self):
+        self.app.proxy.web_login.login_seen = (True, 1)
+        card = self.open().args[2]
+        self.assertNotIn(panel.LOGIN, {k for k, *_ in controls(card)})
+        self.assertIn("<font color='grey'>网页登录正常</font>", json.dumps(card, ensure_ascii=False))
+        [(_, _, _, close)] = [c for c in controls(card) if c[0] == panel.DISABLE]
+        self.assertEqual(close['type'], 'text')
+        self.app.proxy.web_login.login_seen = (False, 1)
+        self.click(panel.REFRESH)
+        self.assertIn(panel.LOGIN, {k for k, *_ in controls(self.shown())})
+        self.assertNotIn('网页登录正常', json.dumps(self.shown(), ensure_ascii=False))
 
     def test_switching_off_and_on_redraws_the_card_and_on_works_after_the_click_returns(self):
         self.open()

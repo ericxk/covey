@@ -152,6 +152,16 @@ def update(state_dir, **changes) -> Settings:
     return settings
 
 
+def merge_topic_defaults(state_dir, **fields) -> None:
+    """``fields`` of topic_defaults written as they are, the rest of the file left as it is (no field it lacks, the mode
+    least of all: ``settle_mode`` writes that), for a migration (core/migrate.py redaction-default)."""
+    with resource_lock("main-thread-settings", str(path(state_dir))):
+        data = read_object(path(state_dir))
+        topic = data.get("topic_defaults") if isinstance(data.get("topic_defaults"), dict) else {}
+        write_json(path(state_dir), {**data, "topic_defaults": {**topic, **fields}}, ensure_ascii=False, indent=1)
+    contract.forget_mode()
+
+
 def _fresh(state_dir) -> bool:
     """No job and no topic yet: a new deployment's first start."""
     jobs, topics = Path(state_dir) / "jobs", Path(state_dir) / "topics"

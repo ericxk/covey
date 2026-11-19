@@ -480,8 +480,9 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | Ferry 自动加速（`COVEY_FERRY_AUTO_ACCELERATE`） | 不再读这个变量。Codex 话题运行 `ferry-*` 模型时单独发的“加速”“超频”和别的消息一样，按普通消息或补充处理 |
 | Codex 的 Magpie 供应商（`magpie/<分组>/<模型>`，`core/providers.py` 的 `RETIRED_PREFIXES`） | 启动卡和换配置卡不再列出它的模型，`COVEY_MAGPIE_URL` 不再读。停在它的模型上的话题发消息时回复“本话题的模型来自已下线的供应商「Magpie」…请点任务卡上的“🔁 换配置”…”。服务命令行里的 `--codex-magpie-url` 还能解析，值被忽略，设了非空值时启动记一行 `no longer used`。旧的 `<state>/native-models/magpie.json` 缓存留在盘上，不再读 |
 | `main-thread.json` 的 `desk_topics`（前台话题布局） | 读到 `true` 也按 `false` 处理，启动时记一行 warning，保存设置时原值留着。以前开的前台话题（登记在 `<state>/main-thread/desk/`）由启动时的迁移 `desk-retire` 冻结，不再接新消息 |
+| 脱敏标签的“新话题默认开”（`redaction/config.json` 的 `default_on`） | 不再读：新话题默认开不开脱敏是设置卡「新话题」页的“脱敏”一行（`main-thread.json` 的 `topic_defaults.redaction`）。启动时的迁移 `redaction-default` 在它开着时把那一行打开一次；值留在 `config.json` 给旧版本。旧卡上点这个开关只说它挪到了哪里 |
 | 文字命令、斜杠命令 | 以 `/` 开头的消息和以前的命令词（“代答”“本周用量”“管理工作区”“换配置”“停用本群”等）当作普通任务或补充。只有配对口令 `/pair` 还认。应用里残留的原生斜杠命令要在开发者后台删除并发布 |
-| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`proxy_settings`、`manage_groups`、`butler_settings` | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
+| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`manage_groups`、`butler_settings`（`proxy_settings` 2026-11-19 起又是正式的「代答」项） | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
 | 两卡式或 schema 3 之前的旧启动卡 | 点了只回“此启动卡已失效，请在主聊天重新发送消息开始任务。”，不改表单和等着的消息 |
 | 其他已下线卡片的按钮 | 见[已下线的功能](usage.md#已下线的功能) |
 

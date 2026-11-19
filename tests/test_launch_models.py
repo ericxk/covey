@@ -130,11 +130,20 @@ class ModelOrderTests(UnifiedCase):
         self.remembered_launch_card()
         maso_before = self.model_select('maso:gpt55')[1]['selected_effort']
         self.assertNotEqual(self.model_select('claude:fable')[1]['selected_effort'], 'max')  # Its last launch's.
+        # A Harness and a budget alone: the last launch's model of that Harness, with that budget.
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(
+            harness='claude', effort='max'))
+        record = self.model_select('claude:fable')[1]
+        self.assertEqual((record['selected_model'], record['selected_effort']), ('claude:fable', 'max'))
+        # The last launch on another Harness: the page's Harness wins (T546), the budget stays its own elsewhere.
+        self.assertEqual(self.model_select('maso:gpt55')[1]['selected_model'].split(':')[0], 'claude')
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults())
+        self.assertEqual(self.model_select('maso:gpt55')[1]['selected_effort'], maso_before)
+        # A model named on the page wins over the last launch (T546).
         butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(
             harness='claude', model='opus', effort='max'))
         record = self.model_select('claude:fable')[1]
-        self.assertEqual((record['selected_model'], record['selected_effort']), ('claude:fable', 'max'))
-        self.assertEqual(self.model_select('maso:gpt55')[1]['selected_effort'], maso_before)
+        self.assertEqual((record['selected_model'], record['selected_effort']), ('claude:opus', 'max'))
         self.assertEqual(topic_budget(self.ctx.state_dir), ('claude', 'max'))
         (self.ctx.state_dir / 'main-thread.json').write_text('{')  # Unreadable: as before.
         self.assertEqual(topic_budget(self.ctx.state_dir), ('', ''))
@@ -491,16 +500,25 @@ class RedactionLaunchTests(InChat, UnifiedCase):
                                                          'action_name': SUBMIT_PREFIX + token, 'form_value': {'path': ''}})
         return self.app.runtime.jobs.queue.get_nowait()
 
-    def test_the_select_shows_only_for_a_model_that_can_redact_and_starts_from_the_config(self):
+    def test_the_select_shows_only_for_a_model_that_can_redact_and_starts_from_the_new_topic_page(self):
         card, token, _ = self.card('claude')
         row = settings_rows(card)['redaction']
         self.assertEqual((row['current'], [text for _, text in row['options']]), ('off', self.LABELS))
         self.assertEqual({(tap['kind'], tap['token']) for tap in row['taps'].values()}, {(REDACTION_ACTION, token)})
         self.assertNotIn('redaction', selects(self.card('codex', 'codex:codex-model')[0]))
+        # T546: the 新话题 page's 脱敏 row; the 脱敏 tab's old 新话题默认开 is not read any more.
         save_redaction_config(self.ctx.state_dir, {'default_on': True})
+        card, token, _ = self.card('old-switch')
+        self.assertEqual(selects(card)['redaction']['initial_option'], 'off')
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(redaction=True))
         card, token, _ = self.card('default-on')
         self.assertEqual(selects(card)['redaction']['initial_option'], 'on')
         self.assertEqual(self.launch_form(token)['selected_redaction'], 'on')
+
+    def test_the_run_mode_starts_from_the_new_topic_page(self):
+        self.assertEqual(self.launch_form(self.card('direct')[1])['form_defaults'].get('run_mode', 'direct'), 'direct')
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(run_mode='worktree'))
+        self.assertEqual(settings_rows(self.card('worktree')[0])['run_mode']['current'], 'worktree')
 
     def test_the_choice_survives_a_model_change_and_starts_the_topic_redacted(self):
         card, token, _ = self.card('task')
@@ -521,7 +539,7 @@ class RedactionLaunchTests(InChat, UnifiedCase):
         self.assertIn('敏感词脱敏：开', receipt)
 
     def test_off_or_without_the_select_the_topic_does_not_redact(self):
-        save_redaction_config(self.ctx.state_dir, {'default_on': True})
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(redaction=True))
         for mid, model, record, shown in (('off', 'claude:claude-model', {'selected_redaction': 'off'}, '敏感词脱敏：关'),
                                           ('codex', 'codex:codex-model', {}, ''),  # 'on' recorded, never shown.
                                           ('old', 'claude:claude-model', None, '敏感词脱敏：关')):  # A card from before the select.

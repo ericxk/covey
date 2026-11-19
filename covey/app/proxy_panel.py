@@ -154,6 +154,8 @@ class ProxyPanel:
         proxy = self.proxy
         settings = proxy.settings(ctx)
         settings['send_problems'] = proxy.web.problems(ctx, settings)
+        seen = proxy.web_login.login_seen  # (logged in, epoch) of the sender's last +status, None before one
+        settings['login_ok'] = bool(settings.get('enabled') and seen and seen[0])
         choices = available_models(proxy.topics, ctx)
         return proxy_panel_card(token, view, settings=settings, contacts=records.read_contacts(ctx.state_dir),
                                 batches=records.read_batches(ctx.state_dir), choices=choices,

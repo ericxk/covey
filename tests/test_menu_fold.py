@@ -23,7 +23,7 @@ from covey.core.state import read_json, write_json
 
 # Each item: its title on the card unfolded, the menu word its folded line names.
 ITEMS = {'weekly_usage': ('本周用量', '用量'), 'proxy_settings': ('代答', '代答'), 'manage_groups': ('群聊', '群聊'),
-         MENU_KEY: ('私聊默认', '设置')}
+         MENU_KEY: ('新话题', '设置')}  # 设置 opens on 新话题 (T546).
 
 
 def tab_values(card):
@@ -99,7 +99,7 @@ class MenuFoldTests(ProxyCase):
                 self.assertEqual((card_id, sequence, folded['header']['title']['content']), (cid, 1, title))
                 lines = folded['body']['elements']
                 self.assertEqual(lines[-1]['content'], f"<font color='grey'>已收起 · 再点"
-                                 f"{'「私聊」或' if key == MENU_KEY else ''}菜单「{word}」展开</font>")
+                                 f"{'「新话题」或' if key == MENU_KEY else ''}菜单「{word}」展开</font>")
                 self.assertEqual(len(lines), 2 if key == MENU_KEY else 1)  # 设置: the tab row above the line.
                 self.assertEqual(self.click(key, f'{key}-3'), (key, 'unfold'))
                 card_id, whole, sequence = self.puts[-1]
@@ -207,15 +207,15 @@ class MenuFoldTests(ProxyCase):
     def test_the_tab_shown_folds_and_unfolds_another_tab_turns_unfolded(self):
         self.click(MENU_KEY, 'ev1')
         tabs = tab_values(self.card())
-        main = next(v for v in tabs if v['tab'] == 'main')
+        main = next(v for v in tabs if v['tab'] == 'topic')  # The tab shown.
         path = self.app.settings_hub.path(self.ctx, main['token'])
         self.assertEqual(self.press(main, 'ev-t1', 'om_1'), 'settings_fold')
         card_id, folded, sequence = self.puts[-1]
-        self.assertEqual((card_id, sequence, folded['header']['title']['content']), ('cid1', 1, '私聊默认'))
-        self.assertEqual([v['tab'] for v in tab_values(folded)], ['main', 'topic', 'workspace', 'redaction', 'proxy', 'groups'])
+        self.assertEqual((card_id, sequence, folded['header']['title']['content']), ('cid1', 1, '新话题'))
+        self.assertEqual([v['tab'] for v in tab_values(folded)], ['topic', 'main', 'workspace', 'redaction', 'groups'])
         self.assertEqual(len(folded['body']['elements']), 2)  # The tab row and the line, none of the panel.
         record = read_json(path)
-        self.assertEqual((record[FOLDED], record['tab'], record['turned']), (True, 'main', ['ev-t1']))
+        self.assertEqual((record[FOLDED], record['tab'], record['turned']), (True, 'topic', ['ev-t1']))
         self.assertEqual(self.press(main, 'ev-t1', 'om_1'), 'settings_unfold')  # Delivered again: nothing more.
         self.assertEqual(len(self.puts), 2)
         self.assertEqual(self.press(main, 'ev-t2', 'om_1'), 'settings_unfold')
@@ -224,18 +224,18 @@ class MenuFoldTests(ProxyCase):
         self.assertNotIn(FOLDED, read_json(path))
         self.assertEqual(self.press(main, 'ev-t3', 'om_1'), 'settings_fold')
         # Another tab, from the folded card: that tab, unfolded.
-        proxy = next(v for v in tab_values(self.card()) if v['tab'] == 'proxy')
-        self.assertEqual(self.press(proxy, 'ev-t4', 'om_1'), 'settings_tab')
+        groups = next(v for v in tab_values(self.card()) if v['tab'] == 'groups')
+        self.assertEqual(self.press(groups, 'ev-t4', 'om_1'), 'settings_tab')
         self.assertEqual((self.puts[-1][0], self.puts[-1][2], self.card()['header']['title']['content']),
-                         ('cid1', 4, '代答'))
+                         ('cid1', 4, '群聊'))
         self.assertNotIn('已收起', self.text())
         record = read_json(path)
-        self.assertEqual((FOLDED in record, record['tab'], record['sequence']), (False, 'proxy', 4))
+        self.assertEqual((FOLDED in record, record['tab'], record['sequence']), (False, 'groups', 4))
         # The menu's 设置 folds it on the tab it shows; the tab unfolds it.
         self.assertEqual(self.click(MENU_KEY, 'ev2'), (MENU_KEY, 'fold'))
-        self.assertEqual((self.card()['header']['title']['content'], self.puts[-1][2]), ('代答', 5))
-        self.assertIn('再点「代答」或菜单「设置」展开', self.text())
-        self.assertEqual(self.press(proxy, 'ev-t5', 'om_1'), 'settings_unfold')
+        self.assertEqual((self.card()['header']['title']['content'], self.puts[-1][2]), ('群聊', 5))
+        self.assertIn('再点「群聊」或菜单「设置」展开', self.text())
+        self.assertEqual(self.press(groups, 'ev-t5', 'om_1'), 'settings_unfold')
         self.assertEqual(self.puts[-1][2], 6)
         self.assertEqual(self.count, 1)
         self.app.messenger.recall.assert_not_called()

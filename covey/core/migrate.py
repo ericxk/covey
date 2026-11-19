@@ -15,6 +15,10 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   11-07, registered by an empty file <state>/main-thread/desk/<topic_id>) is frozen: its topic.json gets
   ``retired: "desk"`` (core/topics.py RETIRED_DESK), every field it had kept, and nothing goes into it from then on
   (core/topics.py retired_topic). The registry stays as it is; no release since 2026-11-09 adds to it.
+- redaction-default: the 脱敏 tab's 新话题默认开 (<state>/redaction/config.json ``default_on``) and the 新话题 page's 脱敏
+  row (main-thread.json ``topic_defaults.redaction``) were two defaults until 2026-11-19 (T546), the launch card's and
+  the butler's topics'. One is left, the row: a ``default_on`` true sets it on, once. config.json keeps its value for
+  an older release.
 """
 # compat(ff57531): the one place that reads a job record's embedded process snapshot; retire when every job record
 # that embeds one has its traces/ file in every deployment (compat_report: embedded-trace)
@@ -23,6 +27,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from covey.core import butler_settings, redaction
 from covey.core.jobs import read_job_record
 from covey.core.locks import LOCK, resource_lock
 from covey.core.state import read_object, write_json
@@ -31,6 +36,7 @@ from covey.core.trace_store import has_trace, save_embedded
 MIGRATIONS = "migrations.json"
 EMBEDDED_TRACE = "embedded-trace"
 DESK_RETIRE = "desk-retire"
+REDACTION_DEFAULT = "redaction-default"
 DESK_REGISTRY = Path("main-thread") / "desk"  # One empty file per front-desk topic id (releases of 11-07 to 11-09).
 RETIRED, RETIRED_DESK = "retired", "desk"  # topic.json's key and value (core/topics.py RETIRED_DESK).
 FAILED_KEYS = 20  # Keys named in the summary line per step.
@@ -153,6 +159,26 @@ def migrate(state_dir: Path, log=None) -> dict:
     return summary
 
 
+def _redaction_default_left(state_dir: Path) -> int:
+    """1 when config.json's ``default_on`` is on and the 新话题 page's 脱敏 is not, else 0."""
+    try:
+        return int(redaction.default_on(state_dir) and not butler_settings.load(state_dir).topic_defaults.redaction)
+    except Exception:  # noqa: BLE001 - unreadable: nothing to carry over
+        return 0
+
+
+def merge_redaction_default(state_dir: Path) -> tuple[int, list[str]]:
+    """The 新话题 page's 脱敏 on where ``default_on`` was: (files written, [] or the file it could not write)."""
+    if not _redaction_default_left(state_dir):
+        return 0, []
+    try:
+        butler_settings.merge_topic_defaults(state_dir, redaction=True)
+    except Exception:  # noqa: BLE001 - tried again at the next start
+        return 0, [butler_settings.FILE]
+    return 1, []
+
+
 # The steps in the order they run: name -> (what it does: files written and the keys of the records it could not
 # write; what it would still do: records, reading only). A new step is one more row.
-STEPS = {EMBEDDED_TRACE: (embedded_traces, _unwritten), DESK_RETIRE: (retire_desk_topics, _desk_left)}
+STEPS = {EMBEDDED_TRACE: (embedded_traces, _unwritten), DESK_RETIRE: (retire_desk_topics, _desk_left),
+         REDACTION_DEFAULT: (merge_redaction_default, _redaction_default_left)}

@@ -1,11 +1,12 @@
 """The 代答 card (app/proxy_panel.py), the bot menu's 代答 panel: on or off and the group in its title
-bar; tiles for the whitelist, the batches being handled and the model; 开启/关闭, web login and refresh;
-the model as the launch card's settings rows (Harness, 供应商, 模型, 思考预算; no select); the whitelist, a row each with its state as coloured tags and pause/resume/remove
+bar; a status line (开着/关着 ｜ 白名单 ｜ 在处理); 开启 (primary) or 关闭 (a text button), 去登录 only when the
+web login is gone or unknown (else a grey 网页登录正常) and refresh; the whitelist, a row each with its state as coloured tags and pause/resume/remove
 text buttons (a group's members added together fold into one row with buttons for all of them, and
 逐个管理 lists them under it, each with 删除; long lists turn pages; over FOLD_ROWS rows it is a folded
 panel); a search for several names at once whose result lists each name (全部添加 adds every unique
 match, each candidate of an ambiguous one has its own button, a group can also be added with all its
-members after a confirmation; gone from the card once something is added). Every control's value
+members after a confirmation; gone from the card once something is added); last, the model as the launch
+card's settings rows (Harness, 供应商, 模型, 思考预算; no select) under a heading that names it. Every control's value
 carries its kind, the panel's token and the revision drawn."""
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from covey.cards.ui import receipt
 from covey.core.text import literal
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, callback_button, collapsible, element_count, fits,
                                             folded_panel, grey, item, json_size, md, menu_item, note, panel_header, plain, row, section,
-                                            styled_panel, tag, tiles)
+                                            styled_panel, tag)
 from covey.cards.launch_config import harness_setting, setting_row, settings_block, tier_rows
 from covey.core.menu_choice import harness_of
 from covey.core.proxy import GROUP_NAME, NAMES, source_of
@@ -191,49 +192,69 @@ def proxy_panel_card(token, view, *, settings, contacts, batches, choices, curre
         rows.append(source_row(ui, entry, pending, opened))
         rows += [member_row(ui, contact, pending) for contact in entry] if opened else []
     add, group_rows, candidate_rows = add_part(ui, view, {c['key'] for c in contacts})
-    head = title_bar(settings, contacts)
-    above = list(top) + top_part(ui, view, settings, choices, current, contacts, pending)
+    head = title_bar(settings)
+    above = list(top) + top_part(ui, view, settings, contacts, pending)
     # A search's candidates first: the 模型 row lists fewer models (the chosen one kept) when they would not all fit.
     for limit in MODEL_ROWS:
-        elements, whole = fitted(ui, view, contacts, head, above + model_part(ui, settings, choices, current, limit),
-                                 rows, add, group_rows, candidate_rows)
+        elements, whole = fitted(ui, view, contacts, head, above, rows, add, group_rows, candidate_rows,
+                                 model_part(ui, settings, choices, current, limit))
         if whole:
             break
     return styled_panel(head, elements, f"{TITLE} · {'已开启' if settings.get('enabled') else '已关闭'}")
 
 
-def title_bar(settings, contacts):
-    """On or off as a tag; the group and the whitelist's size under the title."""
+def title_bar(settings):
+    """On or off as a tag; the group under the title (the whitelist's size is on the status line)."""
     group_name = settings.get('group_name') or GROUP_NAME
     where = f'群「{group_name}」' if settings.get('group_chat_id') else '尚未建群'
-    return panel_header('proxy', TITLE, f'{where} · 白名单 {len(contacts)} 个',
+    return panel_header('proxy', TITLE, where,
                         [('已开启', 'green') if settings.get('enabled') else ('已关闭', 'neutral')])
 
 
-def model_figure(settings, choices, current):
-    """The model tile: the model's name on the menu without its Harness and provider, and the budget."""
+def model_name(settings, choices, current):
+    """The model's name on the menu without its Harness and provider, and the budget."""
     if current:
         entry = choices[current[0]]
         name = entry.get('display_name') or entry['label'].rsplit(' · ', 1)[-1]
     else:
         name = settings.get('model') or ('默认模型' if settings.get('harness') else '未设置')
-    return '模型', literal(name), f"思考预算 {literal(settings.get('effort') or '模型默认')}"
+    return literal(name), literal(settings.get('effort') or '模型默认')
 
 
-def top_part(ui, view, settings, choices, current, contacts, pending):
-    """What a click is doing or did, missing setup, the tiles, and 开启/关闭, 网页端登录, 刷新."""
+SEPARATOR = ' ' + grey('｜') + ' '
+ENV_NOTE = {'user_profile': ('代答还读不到你的消息：部署没配好你的飞书身份', 'COVEY_PROXY_PROFILE')}
+
+
+def status_line(settings, contacts, pending):
+    """代答开着 ｜ 白名单 12 个 ｜ 暂停 2 个 ｜ 3 条在处理 (the last two only when there is something to say)."""
+    paused = sum(1 for c in contacts if c.get('paused'))
+    waiting = sum(pending.values())
+    parts = ['**代答开着**' if settings.get('enabled') else '**代答关着**', f'白名单 {len(contacts)} 个']
+    parts += [f'暂停 {paused} 个'] if paused else []
+    parts += [f'{waiting} 条在处理'] if waiting else []
+    return md(SEPARATOR.join(parts))
+
+
+def top_part(ui, view, settings, contacts, pending):
+    """What a click is doing or did, missing setup, the status line, and 开启/关闭, 去登录 (only when the login is
+    gone or unknown, else a grey line), 刷新."""
     top = ([md(ui.busy)] if ui.busy else []) + ([receipt(view['notice'])] if view.get('notice') else [])
-    warnings = ([] if settings.get('user_profile') else ['⚠️ 未配置以你身份读消息的 lark-cli profile（COVEY_PROXY_PROFILE）'])
+    warnings = []
+    if not settings.get('user_profile'):
+        words, name = ENV_NOTE['user_profile']
+        warnings.append(f'⚠️ {words}（{name}）')
     warnings += ['⚠️ ' + problem for problem in settings.get('send_problems') or ()]
     if warnings:
         top.append(note('\n'.join(warnings)))
-    paused = sum(1 for c in contacts if c.get('paused'))
-    top.append(tiles(('白名单', f'{len(contacts)}', f'运行中 {len(contacts) - paused}' + (f' · 暂停 {paused}' if paused else '')),
-                     ('处理中', f'{sum(pending.values())}', '条待回复'), model_figure(settings, choices, current)))
+    top.append(status_line(settings, contacts, pending))
     enabled = bool(settings.get('enabled'))
-    top.append(flow(ui.button(DISABLE, '关闭代答', fit=True, small=True) if enabled
-                    else ui.button(ENABLE, '开启代答', primary=True, fit=True, small=True),
-                    ui.button(LOGIN, '网页端登录', fit=True, small=True), ui.button(REFRESH, '刷新', fit=True, small=True)))
+    login_ok = settings.get('login_ok')  # True: seen logged in; False or None: gone or not known.
+    if login_ok:
+        top.append(note('网页登录正常'))
+    top.append(flow(*([ui.button(DISABLE, '关闭代答', tone='') if enabled
+                       else ui.button(ENABLE, '开启代答', primary=True, fit=True, small=True)]
+                      + ([] if login_ok else [ui.button(LOGIN, '去登录', fit=True, small=True)])
+                      + [ui.button(REFRESH, '刷新', fit=True, small=True)])))
     return top
 
 
@@ -255,7 +276,8 @@ def model_rows(settings, choices, current, limit=MODEL_ROWS[0]):
 
 def model_part(ui, settings, choices, current, limit=MODEL_ROWS[0]):
     """The model rows of the 代答 topics (at most ``limit`` models)."""
-    part = [heading('model', '代答话题的模型')]
+    name, budget = model_name(settings, choices, current)
+    part = [heading('model', f'代答话题的模型 · {name} · 思考 {budget}')]
     model, effort = settings.get('model') or '默认模型', settings.get('effort') or '模型默认'
     if not choices:
         part.append(note(f"当前：{literal(settings.get('harness') or '未设置')} / {literal(model)} / {literal(effort)}。"
@@ -414,7 +436,7 @@ def results(group_rows, candidate_rows, counts):
     return shown
 
 
-def fitted(ui, view, contacts, head, top, rows, add, group_rows, candidate_rows):
+def fitted(ui, view, contacts, head, top, rows, add, group_rows, candidate_rows, footer=()):
     """The card's elements within CardKit's limits, less what the title bar ``head`` takes.
 
     The parts above always; the whitelist page up to PAGE_NODES of what is left, leaving up to
@@ -426,7 +448,7 @@ def fitted(ui, view, contacts, head, top, rows, add, group_rows, candidate_rows)
     folded = len(rows) > FOLD_ROWS
     whole = [len(group_rows)] + [len(block) for _, block, _ in candidate_rows]
     first = whole[:1] + [min(count, FIRST_CHOICES) for count in whole[1:]]
-    footer = []
+    footer = list(footer)
 
     fixed = top + whitelist_part(view, contacts, folded, []) + add + footer
     left = nodes - element_count(fixed) - element_count(pager(ui, 0, 2))

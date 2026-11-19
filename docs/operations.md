@@ -575,13 +575,13 @@ lark-cli --profile my-bot auth login --domain im,docs,drive,contact
    | --- | --- | --- |
    | 用量 | `weekly_usage` | `docs/media/menu-icons/usage.png`（自动补齐用飞书内置的 `insert-chart_outlined`） |
    | 看板 | `digest_board` | 内置 `bitablekanban_outlined`；只在设了 `COVEY_DIGEST_TIMES` 时配 |
+   | 代答 | `proxy_settings` | `docs/media/menu-icons/proxy.png`（自动补齐用内置的 `robot_outlined`）；只在启用的扩展有代答发送器时配 |
    | 设置 | `bridge_settings` | `docs/media/menu-icons/settings.png`（自动补齐用内置的 `setting_outlined`） |
 
-   “设置”是一张卡上几个标签：管家（设了 `COVEY_BUTLER=0` 时没有；第一行是私聊模式，新部署默认管家）、工作区、脱敏、代答、群聊，见[机器人菜单](usage.md#机器人菜单)。以前单独配的“工作区”（`manage_workspaces`）、“脱敏”（`redaction_dashboard`）照旧能点。不想合在一起的，照旧配两项单独的卡，事件 key 没变：
+   “设置”是一张卡上几个标签：新话题、管家（设了 `COVEY_BUTLER=0` 时没有；“更多”里是私聊模式，新部署默认管家）、工作区、脱敏、群聊（开了节点再加设备），见[机器人菜单](usage.md#机器人菜单)。以前单独配的“工作区”（`manage_workspaces`）、“脱敏”（`redaction_dashboard`）照旧能点。群聊也想单独一项的，照旧配一项单独的卡，事件 key 没变：
 
    | 菜单 | 事件 key | 图标 |
    | --- | --- | --- |
-   | 代答 | `proxy_settings` | `docs/media/menu-icons/proxy.png` |
    | 群聊 | `manage_groups` | `docs/media/menu-icons/groups.png` |
 
    展示形式选“悬浮菜单”（浮在输入框上方，不挡输入），都是一级菜单（飞书最多 5 个一级菜单），不用带子菜单的“更多”：手机上一行放不下时左右滑动。菜单只对主人有反应，结果发在主人和机器人的私聊里，见[机器人菜单](usage.md#机器人菜单)。

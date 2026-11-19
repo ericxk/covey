@@ -12,7 +12,8 @@ The list lives in <state>/redaction/config.json (0600). The 设置 card's 脱敏
 (app/redaction_panel.py, ``update_config``) and the optional web dashboard as a whole (app/dashboard.py); every
 turn reads it when it starts, so an edit applies from the next turn::
 
-    {"default_on": false,   # the launch card's initial choice for a new topic
+    {"default_on": false,   # the launch card's initial choice before 2026-11-19: the 新话题 page's 脱敏 row now
+                            # (core/migrate.py redaction-default); kept for an older release
      "ignore_case": true,   # a term matches in any case; each spelling gets a stand-in of its own
      "restore": true,       # stand-ins in replies and tool calls turn back into the terms
      "upstream": "",        # where the Claude account's requests go; "" finds it each turn
@@ -210,7 +211,8 @@ def row_problem(terms, term, stand_in, *, ignore_case, skip=None) -> str:
 
 
 def default_on(state_dir) -> bool:
-    """The launch card's initial choice; off when the config cannot be read."""
+    """The launch card's initial choice before 2026-11-19 (an older release still reads it); off when the config cannot
+    be read. Only core/migrate.py redaction-default reads it now: the 新话题 page's 脱敏 row took its place."""
     try:
         return load_config(state_dir)["default_on"]
     except ValueError:

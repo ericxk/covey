@@ -11,6 +11,8 @@ The samples carry only fake open_ids, chat and message IDs and /absolute/... pat
 
 from __future__ import annotations
 
+import dataclasses
+
 import json
 import lzma
 import os
@@ -874,9 +876,10 @@ def butler_panels():
 
 def settings_cards():
     """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the butler's
-    two pages, 私聊默认 and 新话题默认, 工作区 (with the butler's 用途 and 记住的工作区, and without) and 脱敏."""
+    two pages, 新话题 (with 记住的工作区 under 直接开工 too) and 管家 (its question before 每条直接开一个话题, and in the
+    mode 纯话题), 工作区 (with the butler's 用途, being edited, and without) and 脱敏. 代答 is an older card's tab."""
     from covey.cards.group_manager import group_manager_card
-    from covey.cards.butler_panel import WORKSPACE_NOTE, butler_panel_card, notes_button, trusted_section
+    from covey.cards.butler_panel import WORKSPACE_NOTE, butler_panel_card, notes_button
     from covey.cards.elements import note
     from covey.cards.proxy_panel import proxy_panel_card
     from covey.cards.redaction_panel import redaction_card
@@ -884,7 +887,7 @@ def settings_cards():
     from covey.cards.workspace_manager import manager_card
     from covey.core.butler_settings import Settings
 
-    tabs = ["main", "topic", "workspace", "redaction", "proxy", "groups"]
+    tabs = ["topic", "main", "workspace", "redaction", "groups"]
 
     def row(tab):
         return [tab_row(tab, "c" * 24, tabs)]
@@ -903,11 +906,21 @@ def settings_cards():
     return {
         **{page: butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
                                         top=row(page), page=page) for page in ("main", "topic")},
+        "topic_trusted": butler_panel_card("c" * 24, view, dataclasses.replace(kept, start=("readonly", "trusted")),
+                                           BUTLER_CHOICES, ["bridge", "docs"], top=row("topic"), page="topic"),
+        "main_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,
+                                          ["bridge", "docs"], top=row("main"), page="main"),
+        "main_topics": butler_panel_card("c" * 24, view, Settings(enabled=False), BUTLER_CHOICES, ["bridge", "docs"],
+                                         top=row("main"), page="main"),
         "workspace": manager_card("c" * 24, view, config, {}, standalone=True, hub=True, top=row("workspace"),
                                   notes=(dict(kept.workspace_notes), lambda names: notes_button(value, names)),
-                                  after=[*trusted_section(kept, value), note(WORKSPACE_NOTE)]),
+                                  after=[note(WORKSPACE_NOTE)]),
+        "workspace_notes": manager_card("c" * 24, {**view, "notes_edit": True}, config, {}, standalone=True, hub=True,
+                                        top=row("workspace"),
+                                        notes=(dict(kept.workspace_notes), lambda names: notes_button(value, names)),
+                                        after=[note(WORKSPACE_NOTE)]),
         "workspace_no_main": manager_card("c" * 24, view, config, {}, standalone=True, hub=True,
-                                          top=[tab_row("workspace", "c" * 24, tabs[2:])]),
+                                          top=[tab_row("workspace", "c" * 24, [t for t in tabs if t != "main"])]),
         # 脱敏 (cards/redaction_panel.py): no term, only its first character and length.
         "redaction": redaction_card("c" * 24, {**view, "notice": "已删除「机··（4 字）」。", "undo": True},
                                     redaction_facts(), top=row("redaction"), web=redaction_web()),
@@ -939,7 +952,7 @@ def settings_cards():
         "main_folded": folded_hub("main", "c" * 24, tabs),
         "topic_folded": folded_hub("topic", "c" * 24, tabs),
         "proxy_folded": folded_hub("proxy", "c" * 24, tabs),
-        "groups_folded_no_main": folded_hub("groups", "c" * 24, tabs[2:]),
+        "groups_folded_no_main": folded_hub("groups", "c" * 24, [t for t in tabs if t != "main"]),
         "workspace_folded": folded_hub("workspace", "c" * 24, tabs),
         # A record still on the retired 其他 folds as 工作区.
         "other_folded": folded_hub("other", "c" * 24, tabs),

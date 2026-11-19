@@ -17,9 +17,9 @@ import tempfile
 import textwrap
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 
 from covey.app import app_setup
 from covey.app.app_setup import AppSetup, need_dict
@@ -34,7 +34,7 @@ from covey.service import app_check
 FULL = {"scopes": {name for name, _ in manifest.SCOPES + manifest.PIN_SCOPES + manifest.GROUP_ALL_SCOPES},
         "events": {manifest.MESSAGE_EVENT, manifest.MENU_EVENT, manifest.READ_EVENT},
         "callbacks": {manifest.CARD_CALLBACK}, "bot": True, "menu_enable": True,
-        "menu_keys": ["weekly_usage", "digest_board", "bridge_settings"], "version": "1.0.11"}
+        "menu_keys": ["weekly_usage", "digest_board", "proxy_settings", "bridge_settings"], "version": "1.0.11"}
 SWITCHES = {"COVEY_PINNED_TOPICS": "1", "COVEY_DIGEST_TIMES": "09:30"}
 
 
@@ -56,6 +56,15 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("scope:im:message.pins:write_only", ids(on))
         self.assertEqual([n.name for n in on if n.review], ["im:message.group_msg"])
 
+    def test_the_proxy_menu_item_only_where_an_extension_has_the_sender(self):
+        with mock.patch.object(manifest, "proxy_sender", return_value=False):
+            self.assertNotIn("menu:proxy_settings", ids(manifest.required({})))
+        with mock.patch.object(manifest, "proxy_sender", return_value=True):
+            menu = [n for n in manifest.required({}) if n.kind == "menu"]
+        self.assertEqual([n.name for n in menu], ["weekly_usage", "proxy_settings", "bridge_settings"])
+        with mock.patch("covey.core.extensions.manifests", side_effect=OSError):
+            self.assertFalse(manifest.proxy_sender())
+
     def test_nothing_missing_but_the_reviewed_scope(self):
         lacking, full = manifest.missing({**SWITCHES, "COVEY_GROUP_ALL_MESSAGES": "1"}, FULL)
         self.assertEqual(ids(lacking), ["scope:im:message.group_msg"])
@@ -64,7 +73,8 @@ class ManifestTests(unittest.TestCase):
 
     def test_menu_items_past_five_are_not_offered(self):
         online = {**FULL, "menu_keys": ["a", "b", "c", "manage_workspaces"], "menu_enable": True}
-        lacking, full = manifest.missing(SWITCHES, online)
+        with mock.patch.object(manifest, "proxy_sender", return_value=False):
+            lacking, full = manifest.missing(SWITCHES, online)
         self.assertEqual(ids(full), ["menu:digest_board", "menu:bridge_settings"])
         self.assertEqual(ids(manifest.offered(lacking, full)), ["menu:weekly_usage"])
 

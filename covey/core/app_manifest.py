@@ -67,11 +67,22 @@ PIN_SCOPES = (("im:message.pins:read", "置顶看板"), ("im:message.pins:write_
 GROUP_ALL_SCOPES = (("im:chat.members:read", "群聊免@ 选人"),)
 GROUP_ALL_REVIEW = ("im:message.group_msg", "群聊免@ 收群里全部消息")
 
-# The bot menu (docs/usage.md 机器人菜单, the owner 2026-11-09: 用量 · 看板 · 设置). 看板 only with the digest.
+# The bot menu (docs/usage.md 机器人菜单, the owner 2026-11-19: 看板 · 用量 · 代答 · 设置). 看板 only with the digest,
+# 代答 only where an enabled extension has the proxy_sender hook (``proxy_sender``).
 MENU = (("weekly_usage", "用量", "insert-chart_outlined"), ("digest_board", "看板", "bitablekanban_outlined"),
-        ("bridge_settings", "设置", "setting_outlined"))
+        ("proxy_settings", "代答", "robot_outlined"), ("bridge_settings", "设置", "setting_outlined"))
 # Older items that still work (app/bot_menu.py KEYS): counted toward the limit, never replaced or removed.
-OLD_MENU_KEYS = ("manage_workspaces", "proxy_settings", "redaction_dashboard", "manage_groups", "main_thread_settings")
+OLD_MENU_KEYS = ("manage_workspaces", "redaction_dashboard", "manage_groups", "main_thread_settings")
+
+
+def proxy_sender():
+    """Whether an enabled extension has the proxy_sender hook (read from the manifests, no module imported);
+    False when they cannot be read."""
+    try:
+        from covey.core import extensions
+        return any("proxy_sender" in extension.hooks for extension in extensions.manifests())
+    except Exception:
+        return False
 
 
 def switch(env, name):
@@ -100,7 +111,7 @@ def required(env=None):
     needs.append(Need("menu_enable", "menu", "自定义菜单"))
     digest = bool(str(cenv.get("COVEY_DIGEST_TIMES", "", env)).strip())
     for key, label, icon in MENU:
-        if key != "digest_board" or digest:
+        if (key != "digest_board" or digest) and (key != "proxy_settings" or proxy_sender()):
             needs.append(Need("menu", key, f"菜单「{label}」", label=label, icon=icon))
     return needs
 

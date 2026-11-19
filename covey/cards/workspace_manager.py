@@ -1,11 +1,13 @@
 """The 工作区 card (app/workspace_manager.py), the bot menu's 工作区 panel and the launch card's
-⚙️ 添加或管理工作区…: the saved list PAGE_SIZE a page under a search box and a filter, a row each with
-its state as coloured tags and 设为默认 / 移除 text buttons; ＋ 添加工作区… shows the directory browser
-of cards/directory.py under BROWSE_HOST. One form: every button submits the search with it.
+⚙️ 添加或管理工作区…: the saved list PAGE_SIZE a page (a search box and a filter above it once there are more than a page), a row
+each with its state as coloured tags and a 移除 text button; ＋ 添加工作区… shows the directory browser of
+cards/directory.py under BROWSE_HOST. One form: every button submits the search with it. 设为默认 is gone (the owner,
+2026-11-19, T546: the 设置 card's 新话题 page names a new topic's workspace); the list's default is the one a launch card
+falls back to without a last launch, tagged 兜底 and not removable (an older card's 设为默认 still acts).
 
 On the 设置 card's 工作区 tab (``hub``) the tab row is on top and there is no 完成管理; with the butler's settings
-(``notes``) each row has its 用途 input (note_<i>) and the form 保存用途, and ``after`` (记住的工作区,
-cards/butler_panel.py trusted_section) comes under the form."""
+(``notes``) each row says its 用途 in a grey line, and 改用途 (``view['notes_edit']``) turns those lines into inputs
+(note_<i>) with 保存用途 and 取消; ``after`` comes under the form."""
 from __future__ import annotations
 
 import hashlib
@@ -33,8 +35,9 @@ REMOVED_TITLE = '查看移除详情'
 QUERY_PLACEHOLDER = '搜索名称或路径'
 ADD_LABEL = '＋ 添加工作区…'
 NOTE = '添加只登记已有目录，名称取目录名；移除只改列表，不删除目录；已开始的话题不受影响。'
+FALLBACK_NOTE = '标「兜底」的：启动卡没有上次可跟时用它，不能移除。'
 # A row's buttons: bridge_wsm_<token>:<revision>:<verb>-<key>, the key naming the workspace (row_key).
-ROW_VERBS = ('remove', 'default')
+ROW_VERBS = ('remove', 'default')  # default: an older card's 设为默认.
 BROWSE_VERBS = 'dir-'  # The browser's buttons: bridge_wsm_<token>:<revision>:dir-<verb>[<row or page>].
 BROWSE_HOST = Host(MANAGER_PREFIX, BROWSE_VERBS, '添加工作区', '添加', '添加此目录', '返回管理页', True)
 
@@ -90,7 +93,7 @@ def tail(path, size=120):
 
 
 def entry_tags(entry, default):
-    return ([tag('默认', 'blue')] if entry['name'] == default else []) + (
+    return ([tag('兜底', 'neutral')] if entry['name'] == default else []) + (
         [tag('设备 ' + entry['device'], 'blue')] if entry.get('device') else []) + (
         [tag('目录不存在', 'red')] if entry['state'] is False else [tag('未确认', 'orange')] if entry['state'] is None else [])
 
@@ -121,7 +124,7 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
     entries = list_entries(config, status)
     missing = missing_workspaces(config, status)
     gone, unknown = [e for e in entries if e['state'] is False], [e for e in entries if e['state'] is None]
-    subtitle = f'共 {len(entries)} 个 · 默认 {label(default)}'
+    subtitle = f'共 {len(entries)} 个'
     tags = ([(f'{len(gone)} 个目录不存在', 'red')] if gone else []) + (
         [(f'{len(unknown)} 个未确认', 'orange')] if unknown else [])
     elements = []
@@ -136,12 +139,15 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
     shown = visible(entries, view)
     pages = max(1, -(-len(shown) // PAGE_SIZE))
     page = min(max(int(view.get('page') or 0), 0), pages - 1)
-    head = list_head(view, shown, button, text_button)
-    rows, names = entry_rows(shown[page * PAGE_SIZE:(page + 1) * PAGE_SIZE], default, notes, text_button)
+    searched = len(entries) > PAGE_SIZE or view.get('query') or view.get('filter', 'all') != 'all'
+    head = list_head(view, shown, button, text_button, search=bool(searched))
+    editing = notes is not None and bool(view.get('notes_edit'))
+    rows, names = entry_rows(shown[page * PAGE_SIZE:(page + 1) * PAGE_SIZE], default, notes, text_button, editing)
     foot = list_foot(page, pages, missing, button, text_button)
 
     def form(small):
-        ends = end_buttons(button, standalone=standalone, hub=hub, notes=notes, names=names[:len(rows)])
+        ends = end_buttons(button, standalone=standalone, hub=hub, notes=notes, names=names[:len(rows)],
+                           editing=editing)
         # In the topic side panel "stretch" gave every control a line of its own and "bisect" cut 结束，不启动任务
         # to "…" (2026-11-02 review): the buttons keep their width and wrap ("flow").
         return {'tag': 'form', 'name': 'workspace_manager_form', 'vertical_spacing': '6px',
@@ -149,16 +155,20 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
 
     count = len(rows)
     top, after = list(top), list(after)
-    while len(rows) > 1 and not fits(top + elements + [form(NOTE)] + after, NODE_LIMIT, SIZE_LIMIT):
+    while len(rows) > 1 and not fits(top + elements + [form(NOTE + FALLBACK_NOTE)] + after, NODE_LIMIT, SIZE_LIMIT):
         rows.pop()
-    elements.append(form(NOTE + (f'本页只列出前 {len(rows)} 个，可搜索缩小范围。' if len(rows) < count else '')))
+    small = NOTE + ('\n' + FALLBACK_NOTE if default in [e['name'] for e in entries] else '')
+    elements.append(form(small + (f'本页只列出前 {len(rows)} 个，可搜索缩小范围。' if len(rows) < count else '')))
     return styled_panel(panel_header('workspaces', TITLE, subtitle, tags), top + elements + after, TITLE)
 
 
-def list_head(view, shown, button, text_button):
-    """The list's head: the search box, the filter and 筛选, then the count and ＋ 添加工作区…."""
+def list_head(view, shown, button, text_button, search=True):
+    """The list's head: with ``search`` the search box, the filter and 筛选, then the count and ＋ 添加工作区…."""
     query, kind = view.get('query', ''), view.get('filter', 'all')
     scope = (f'搜索“{literal(query)}” · ' if query else '') + f'{FILTERS[kind]} {len(shown)} 个'
+    adding = item(note(scope), text_button(ADD_LABEL, 'browse', 'primary'))
+    if not search:
+        return [adding]
     # The search box takes what the filter and 筛选 leave ("none" keeps them on one line); ＋ 添加工作区… sits
     # by the count, as wide as its label.
     return [row(({'tag': 'input', 'name': 'query', 'width': 'fill', 'max_length': 100, 'default_value': query,
@@ -166,23 +176,25 @@ def list_head(view, shown, button, text_button):
                 ({'tag': 'select_static', 'name': 'filter', 'width': 'fill', 'initial_option': kind,
                   'options': [{'text': plain(text), 'value': key} for key, text in FILTERS.items()]}, 2),
                 (button('筛选', 'filter'), None), flex='none', align='center'),
-            item(note(scope), text_button(ADD_LABEL, 'browse', 'primary'))]
+            adding]
 
 
-def entry_rows(listed, default, notes, text_button):
-    """(a row for each remembered workspace of the page ``listed``: its name and tags, path and last use, 设为默认
-    and 移除, and with ``notes`` its 用途 box; the workspaces' names), a line saying so when none is listed."""
+def entry_rows(listed, default, notes, text_button, editing=False):
+    """(a row for each remembered workspace of the page ``listed``: its name and tags, path and last use and 移除, and
+    with ``notes`` its 用途, a grey line or, ``editing``, its box; the workspaces' names), a line saying so when none is
+    listed."""
     rows, names = [], []
     for i, entry in enumerate(listed):
         used = time.strftime('最近 %m-%d', time.localtime(entry['used'])) if entry['used'] else '未用于任务'
         line = md(' '.join([f"**{literal(label(entry['name']))}**", *entry_tags(entry, default)]))
         key = row_key(entry['name'])
-        actions = ([text_button('设为默认', f'default-{key}', 'primary')]
-                   if entry['name'] != default and entry['state'] is not False else []) + (
-            [text_button('移除', f'remove-{key}', 'danger')] if entry['name'] != default else [])
+        actions = [text_button('移除', f'remove-{key}', 'danger')] if entry['name'] != default else []
         listing = item(line, *actions)
         listing['columns'][0].update(vertical_spacing='2px', elements=[line, note(f"{literal(tail(entry['path']))} · {used}")])
-        if notes is not None:
+        if notes is not None and not editing:
+            purpose = notes[0].get(entry['name'], '')
+            listing['columns'][0]['elements'].append(note('用途：' + (literal(purpose) if purpose else '还没写')))
+        elif notes is not None:
             listing['columns'][0]['elements'].append(
                 {'tag': 'input', 'name': f'note_{i}', 'width': 'fill', 'max_length': NOTE_LENGTH,
                  'default_value': notes[0].get(entry['name'], ''), 'placeholder': plain('用途：' + NOTES_HINT)})
@@ -207,14 +219,17 @@ def list_foot(page, pages, missing, button, text_button):
     return foot
 
 
-def end_buttons(button, *, standalone, hub, notes, names):
+def end_buttons(button, *, standalone, hub, notes, names, editing=False):
     """The form's buttons: 刷新, then 完成管理 (``standalone``), or 返回启动卡 and 结束，不启动任务 (a launch
-    card's), none more on the 设置 card (``hub``); 保存用途 first when ``notes`` and the rows ``names`` listed."""
+    card's), none more on the 设置 card (``hub``). With ``notes`` and the rows ``names`` listed, 改用途 first, or while
+    ``editing`` 保存用途 and 取消 instead of them all."""
     ends = ([button('刷新', 'refresh')] if hub else
             [button('刷新', 'refresh'), button('完成管理', 'done', primary=True)] if standalone else
             [button('刷新', 'refresh'), button('返回启动卡', 'back', primary=True), button('结束，不启动任务', 'end')])
+    if notes is not None and names and editing:
+        return [notes[1](names), button('取消', 'unnotes')]
     if notes is not None and names:
-        ends.insert(0, notes[1](names))
+        ends.insert(0, button('改用途', 'notes'))
     return ends
 
 

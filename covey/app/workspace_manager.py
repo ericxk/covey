@@ -31,7 +31,7 @@ from covey.app.directory_picker import (DeviceGate, DirectoryCache, listed_paths
 from covey.app.menu_panel import FOLDED, HUB_FOLDER, OPEN, MenuPanel, hub_top
 from covey.cards.directory import directory_card
 from covey.core.text import literal
-from covey.cards.butler_panel import WORKSPACE_NOTE, notes_button, trusted_section
+from covey.cards.butler_panel import WORKSPACE_NOTE, notes_button
 from covey.cards.settings_hub import WORKSPACE
 from covey.cards.launch_config import MANAGE_OPTION, WORKSPACE_ACTION
 from covey.cards.elements import note
@@ -125,7 +125,7 @@ class WorkspaceManager(CardActionQueue):
                 return {'kind': kind, 'token': token, 'revision': view['revision'], **more}
 
             notes = dict(settings.workspace_notes), lambda names: notes_button(value, names)
-            after = [*trusted_section(settings, value), note(WORKSPACE_NOTE)]
+            after = [note(WORKSPACE_NOTE)]
         return manager_card(token, view, config, self.status(config, fresh), standalone=True, hub=True, top=top,
                             notes=notes, after=after, device_lines=self.device_lines(ctx, record.get('chat_id', '')))
 
@@ -258,6 +258,13 @@ class WorkspaceManager(CardActionQueue):
         elif verb == 'browse':
             view.update(notice='', details='', processing=False)
             self._browse(ctx, path, record, view, 'open', None, fields, topic, event)
+        elif verb in ('notes', 'unnotes') and hub:  # 改用途 and its 取消 (cards/workspace_manager.py end_buttons).
+            view.update(revision=view['revision'] + 1, processing=False, notice='', details='')
+            if verb == 'notes':
+                view['notes_edit'] = True
+            else:
+                view.pop('notes_edit', None)
+            self._render(ctx, path, record, view, standalone, fresh=False)
 
     def _refuse(self, ctx, path, record, standalone, verb):
         """A group member's click: the launch card, or the manager it became, says only the owner

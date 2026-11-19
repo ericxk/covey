@@ -141,6 +141,8 @@ ACTIONS = {
     "bridge_redaction_preview": CardAction("试一下脱敏"),
     # The 管家 settings card (cards/butler_panel.py KINDS).
     "bridge_main_enable": CardAction("开关管家"),
+    "bridge_main_mode": CardAction("选择私聊模式"),
+    "bridge_main_start_row": CardAction("选择直接开工"),
     "bridge_main_model": CardAction("选择管家模型"),
     "bridge_main_effort": CardAction("选择管家思考预算"),
     "bridge_main_provider": CardAction("选择管家供应商"),

@@ -109,7 +109,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 ## 设置卡
 
-代答设置是设置卡（`app/settings_hub.py`）的「代答」标签；旧菜单键 `proxy_settings` 还认（`ProxyPanel.open`，再点收起 `fold`）。画卡在 `cards/proxy_panel.py`。
+代答设置是机器人菜单单独的一项「代答」（事件键 `proxy_settings`，`ProxyPanel.open`，再点收起 `fold`；`core/app_manifest.py` 只在启用的扩展有 `proxy_sender` hook 时要求这一项）。设置卡里记录还停在「代答」标签的旧卡，仍由 `app/settings_hub.py` 经 `tab_card` 画。画卡在 `cards/proxy_panel.py`：状态行、开关与登录、白名单、添加，最后是模型行；网页登录有效与否取自发送器登录状态 `web_login.login_seen`（开着代答时才轮询，`ProxyPanel.card` 算成 `login_ok`），没确认过按失效画“去登录”。
 
 - **记录**：独立发的卡记在 `<state>/proxy/panels/<token>.json`，从设置卡打开时记在设置卡的记录里（`app/menu_panel.py`）；`latest.json` 指向最新的一张，只有它能操作，点旧卡整卡换成过期提示。
 - **点击**：控件的值带 `bridge_proxy_*` kind（都在 `ACTIONS`，不是 `bot_only`）、token 和画出时的 revision。`app/card_routing.py` 按 `PANELS` 表交给 `ProxyPanel`（`claim`、`click`），不经话题路由，不转发任务进程。点击在本卡的锁内判断，记录改动经 `Proxy` 的方法，然后整卡重画（`replace_form_card`，`reserve` 取 sequence），从不 PUT 表单里的单个组件。非主人写在卡上（`OWNER_ONLY`）。
@@ -168,7 +168,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 | 现象 | 看哪里 |
 | --- | --- |
-| 设置卡顶部有警告 | `ProxySend.problems`：没装 uv、工具和安装时不同（重跑扩展里的发送工具安装脚本）、登录失效（点“网页端登录”） |
+| 代答卡顶部有警告 | `ProxySend.problems`：没装 uv、工具和安装时不同（重跑扩展里的发送工具安装脚本）、登录失效（点“去登录”） |
 | 卡上写没有 profile | 服务没设 `COVEY_PROXY_PROFILE`，或那个 lark-cli profile 没有用户登录 |
 | 对方发了消息但没有批次 | 日志 `proxy take-in failed source=…`（读取在退避）、`proxy search truncated`；联系人是否暂停；群消息是否 @了主人 |
 | 话题里跑了但没发 | 批次的 `status` 和 `history`：`held` 的原因（暂停、`STALE_AFTER`、`HOURLY_LIMIT`、`LATER_TURN`、`SKIP_MARK`）；`proxy batch=… waits` 是登录占着 `web_lock` |

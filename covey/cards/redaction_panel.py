@@ -38,8 +38,8 @@ INPUT_LIMIT = 1000  # The most a Feishu input takes.
 PAGE_SIZE = 10  # A row is one line.
 RECENT = 10  # Turns the 记录 fold lists.
 TOPICS = 10  # Topics it lists.
-SWITCH_ROWS = {'default_on': ('新话题默认开', '启动卡上「敏感词脱敏」的初始选择'),
-               'ignore_case': ('不区分大小写', '其他大小写写法各有自己的自动替身，还原成原样写法'),
+# 新话题默认开 moved to the 新话题 page's 脱敏 row (the owner, 2026-11-19, T546; core/migrate.py redaction-default).
+SWITCH_ROWS = {'ignore_case': ('不区分大小写', '其他大小写写法各有自己的自动替身，还原成原样写法'),
                'restore': ('回复还原', '关掉后模型回复里的替身词原样留着')}
 FOLDS = {'switches': '开关与上游地址', 'records': '记录'}  # element_id -> title: collapsible_panel can hold no form (the client
 #   refuses the card: 10002), so 试一下 and the upstream address's box open by a click and a redraw (OPEN).

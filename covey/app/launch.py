@@ -16,7 +16,7 @@ from covey.core.workspaces import (RUN_MODES, add_topic_worktree, load_config, p
                                     visible_workspaces)
 
 
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY, default_on as redaction_default_on
+from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.cards.launch_config import PAGES, SUBMIT_PREFIX, launch_form_card
 from covey.cards.launch_receipt import build_preparing_card
 from covey.app.card_actions import form_fields
@@ -102,14 +102,19 @@ def launch_defaults(state_dir, chat_id):
     return read_json(state_dir / LATEST_DEFAULTS)
 
 
-def topic_budget(state_dir):
-    """(Harness, budget) of the 设置卡's 新话题默认 (core/butler_settings.py TopicDefaults), which the launch
-    card's budget row preselects (app/preselection.py launch_selection); ('', '') where it says none or can't be
-    read."""
+def topic_defaults(state_dir):
+    """The 设置 card's 新话题 page (core/butler_settings.py TopicDefaults), which the launch card preselects (the owner,
+    2026-11-19, T546); its defaults where it can't be read."""
     try:
-        defaults = butler_settings.load(state_dir).topic_defaults
+        return butler_settings.load(state_dir).topic_defaults
     except (OSError, ValueError):
-        return '', ''
+        return butler_settings.TopicDefaults()
+
+
+def topic_budget(state_dir):
+    """(Harness, budget) of the 新话题 page (``topic_defaults``), which the launch card's budget row preselects
+    (app/preselection.py launch_selection); ('', '') where it says none."""
+    defaults = topic_defaults(state_dir)
     return (defaults.harness.lower(), defaults.effort) if defaults.effort else ('', '')
 
 
@@ -155,6 +160,7 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
         draft = (topic.get('origin') or {}).get('launch') or None
     # The chat's recent launches and switches order the menu and give each model its usual budget.
     usage = model_usage.recent(ctx.state_dir, chat_id)
+    defaults = topic_defaults(ctx.state_dir)
     fresh = ctx.options.get('binding_revision', 1) == 1
     try:
         saved = launch_defaults(ctx.state_dir, chat_id) if fresh else None
@@ -163,13 +169,15 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
     selection = launch_selection(available_models(topics, ctx), usage, config, device_harnesses=device_harnesses(config),
                                  model=ctx.options['harness_id'] + ':' + ctx.model, workspace=ctx.workspace_name,
                                  work_mode=ctx.work_mode, fresh=fresh, saved=saved, draft=draft, notice=notice,
-                                 topic_budget=topic_budget(ctx.state_dir))
+                                 topic_budget=topic_budget(ctx.state_dir), topic_model=(defaults.harness.lower(), defaults.model),
+                                 topic_workspace=defaults.workspace)
     draft = draft or {}
-    # 敏感词脱敏 keeps the card's choice across rebuilds; a new card starts from the config's default.
+    # 敏感词脱敏 and 运行方式 keep the card's choice across rebuilds; a new card starts from the 新话题 page's.
     redaction = draft.get('redaction') if draft.get('redaction') in ('on', 'off') else (
-        'on' if redaction_default_on(ctx.state_dir) else 'off')
+        'on' if defaults.redaction else 'off')
     token = secrets.token_hex(12)
-    run_mode = draft.get('run_mode') if draft.get('run_mode') in RUN_MODES else 'direct'
+    run_mode = draft.get('run_mode') if draft.get('run_mode') in RUN_MODES else (
+        defaults.run_mode if defaults.run_mode in RUN_MODES else 'direct')
     page = draft.get('page') if draft.get('page') in PAGES else ''  # The row drawn open.
     # Budget, work mode, workspace and run mode are selects outside the form: each choice is
     # recorded when made, so a model change (a whole new card) can keep them.

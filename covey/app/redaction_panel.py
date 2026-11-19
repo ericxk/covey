@@ -51,6 +51,10 @@ UNREADABLE = '词表文件读不了或有错。细节里可能有原词，卡片
 CASE_CLASH = '打开后词表里会有只差大小写的重复词，或替身词含有别的词：先在词表里改掉再打开。'
 UNSAVED = '\n设置卡没能刷新：再点机器人菜单「设置」看「脱敏」。'
 
+# 新话题默认开 is the 新话题 page's 脱敏 row now (cards/redaction_panel.py SWITCH_ROWS): an older card's switch says so.
+MOVED_SWITCH = 'default_on'
+MOVED_NOTICE = '「新话题默认开」挪到了设置卡「新话题」页的「脱敏」一行。'
+
 
 def card_key(state_dir) -> bytes:
     """The key ``row_key`` hashes a term under, made on first use."""
@@ -328,8 +332,10 @@ class RedactionPanel:
 
     @staticmethod
     def switch(ctx, value):
-        """新话题默认开, 不区分大小写 or 回复还原 set."""
+        """不区分大小写 or 回复还原 set; an older card's 新话题默认开 says where it is now."""
         name, on = value.get('name'), value.get('on')
+        if name == MOVED_SWITCH:
+            return {'notice': MOVED_NOTICE}
         if name not in SWITCH_ROWS or not isinstance(on, bool):
             return {}
         label = SWITCH_ROWS[name][0]
