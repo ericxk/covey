@@ -952,7 +952,10 @@ class WebSync:
             if not (full or self.settings_due or stamps != self.settings_stamps):
                 return []
             self.settings_due, self.settings_stamps = False, stamps
-            return [web_sync.item("settings", web_sync.SETTINGS_KEY, builder.snapshot(chat, now))]
+            items = [web_sync.item("settings", web_sync.SETTINGS_KEY, builder.snapshot(chat, now))]
+            if full:  # 本周用量 as the card counts it (data contract v15): once a full look, its rev changes as tasks run.
+                items.append(web_sync.item("settings", web_sync.USAGE_KEY, builder.usage(now)))
+            return items
         except Exception as exc:  # noqa: BLE001 - logged; the next look tries again
             self.runtime.log(f"web settings not built: {type(exc).__name__}")
             return []
