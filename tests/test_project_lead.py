@@ -671,6 +671,28 @@ class StopToolTest(ToolsCase):
         # It counts as ended now: the project can wind up.
         self.assertEqual(project_lead.live_members(self.state, self.reload()), [])
 
+    def test_a_launch_card_not_started_is_closed_and_waits_no_more(self):
+        """T561, T562 (2026-11-19): opened twice by mistake, never started (their launch cards waited for a workspace), stopped
+        twice by the lead with 请 0 个任务停下; the cards could still start them and kept them under 等我 and the web page's 待办."""
+        from covey.core import board_read
+        data, job = self.opened()
+        self.app.runtime.unregister_reply_job(job)
+        from covey.core.jobs import read_job_record, job_path
+        write_job(self.state, "k-launch", topic_id=data["topic_id"], chat_id=CHAT, job_id=999, status="waiting_workspace")
+        form = self.state / "launch-forms" / "f1.json"
+        write_json(form, {"topic_id": data["topic_id"], "chat_id": CHAT, "status": "ready", "message_id": "om_launch",
+                          "harness_id": "claude", "schema_version": 3})
+        self.assertTrue(board_read.launch_card(self.state, data["topic_id"], CHAT))
+        answer = self.tool("project_topic_stop", thread=data["label"])
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual(answer["data"]["launches"], 1)
+        self.assertIn("启动卡", answer["text"])
+        self.assertEqual(json.loads(form.read_text())["status"], "closed")
+        record = read_job_record(job_path(self.state, "k-launch"))
+        self.assertEqual((record["status"], record.get("never_started")), ("cancelled", True))
+        self.assertEqual(board_read.launch_card(self.state, data["topic_id"], CHAT), "")
+        self.assertNotIn(data["topic_id"], [wait.topic for wait in board_read.waits(self.state, CHAT, time.time()).all])
+
     def test_only_the_projects_own_topics_can_be_stopped(self):
         data, job = self.opened()
         write_topic(self.state, {"topic_id": "ef" * 16}, topic_id="ef" * 16, chat_id=CHAT, harness_id="claude",

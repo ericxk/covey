@@ -166,9 +166,12 @@ def project_topic_stop(env, request):
     why = " ".join(str(request.args.get("why") or "").split())[:120]
     binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled", by="lead",
                                   message=STOP_NOTE + (f"：{why}" if why else ""))
+    from covey.app.launch import close_open_launches
+    launches = close_open_launches(ctx, chat, getattr(env, "messenger", None), STOP_NOTE)
     acted(env, pid, request, "stop")
-    return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉；"
-                 "它仍记在专项里、算结束。要接着做，用 project_topic_send。", stopped=stopped, topic_id=topic)
+    cards = f"，没开工的启动卡收掉 {launches} 张" if launches else ""
+    return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉{cards}；"
+                 "它仍记在专项里、算结束。要接着做，用 project_topic_send。", stopped=stopped, launches=launches, topic_id=topic)
 
 
 def project_note(env, request):

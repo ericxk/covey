@@ -717,6 +717,24 @@ class InboxTest(WebCase):
         self.assertEqual(job["status"], "cancelled")
         self.assertEqual(self.app.stopped, [])
 
+    def test_stop_closes_a_launch_card_not_started(self):
+        """A topic whose only task waits for 开始 on its launch card (T561, 2026-11-19): the page's 停止 closes the card, the
+        task is cancelled as never started, and the topic waits no more."""
+        self.topic(status="waiting_workspace")
+        form = self.state / "launch-forms" / "f1.json"
+        write_json(form, {"topic_id": TOPIC, "chat_id": CHAT, "status": "ready", "message_id": "om_launch", "harness_id": "claude",
+                          "schema_version": 3})
+        self.web.op("stop", 1, "op-launch", TOPIC)
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "done", self.web.acks)
+        self.assertIn("启动卡", self.web.acks[0]["message"])
+        self.assertEqual(read_object(form)["status"], "closed")
+        job = read_object(job_file(self.state, f"k-{TOPIC[:4]}"))
+        self.assertEqual((job["status"], job.get("never_started")), ("cancelled", True))
+        self.sync.push_once(T0)
+        topic = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
+        self.assertNotEqual(topic["tone"], "waiting")
+
     def test_a_topic_the_owner_stopped_on_the_page_is_his_stop_not_stopped_by_someone(self):
         """2026-11-18 T478: stopped on the page while it waited for an answer, it showed 停住了 (red, counted in 要你处理, with
         检查并继续): the cancelled turn did not say who stopped it. It says web now, and reads 已停止."""

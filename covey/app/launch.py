@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from covey.core import devices, butler_settings, timing
 from covey.core.state import read_json
@@ -652,6 +653,35 @@ def close_launch_form(ctx, path, record, text, reason):
         for job in topic_job_records(ctx.state_dir, record['topic_id'], chat_id=record['chat_id'],
                                      status='waiting_workspace'):
             upsert_job_record(ctx.state_dir, job['key'], status='cancelled', status_message=reason, never_started=True)
+
+
+def close_open_launches(ctx, chat_id, messenger, text, title='已取消'):
+    """Close the launch cards of ``ctx``'s topic in ``chat_id`` that can still start it (OPEN_FORMS) as a stop of the topic:
+    the form is closed and its waiting messages cancelled first (``close_launch_form``, so 开始任务 can never start them),
+    then the card says ``text`` instead of the form; how many were closed. Its lock order is a 开始任务 click's (the form's,
+    then the topic's), as the stale closer's (app/stale.py). T561 and T562 (2026-11-19): a lead stopped them twice, nothing
+    of theirs ran, so 请 0 个任务停下, and their launch cards kept them under 等我 and the web page's 待办."""
+    from covey.cards.elements import notice_card
+    from covey.core.statuses import OPEN_FORMS
+    from covey.core.store import directory_store
+
+    closed = 0
+    state = Path(ctx.state_dir)
+    rows = directory_store(state / 'launch-forms').query(topic_id=ctx.topic_id, chat_id=chat_id)
+    # The topic's lock by its history's folder, as the stale closer takes it for a topic without its context.
+    topic = SimpleNamespace(history_path=state / 'topics' / str(ctx.topic_id) / 'history.jsonl')
+    for path, row in sorted(rows, key=lambda pair: str(pair[0])):
+        if row.get('status') not in OPEN_FORMS:
+            continue
+        with resource_lock(LAUNCH_FORM_LOCK, path), topic_lock(topic):
+            record = read_json(path)
+            if record.get('status') not in OPEN_FORMS:
+                continue  # Started or closed meanwhile.
+            close_launch_form(ctx, path, record, text, text)
+            if record.get('card_id') and messenger is not None:
+                replace_form_card(ctx, path, record, record, notice_card(text, title), messenger, 'stop-launch')
+        closed += 1
+    return closed
 
 
 RETIRED_TEXT = '此启动卡已失效，请在主聊天重新发送消息开始任务。'

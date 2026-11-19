@@ -268,7 +268,9 @@ class Ops:
         job = next((job for job in reversed(jobs) if job_stage(job) != "ended"), None)
         waiting = self.asking(state, chat, topic) or any(
             record.get("status") == "waiting_user" for record in topic_job_records(state, topic, chat_id=chat))
-        if job is None and not waiting:
+        from covey.app.launch import close_open_launches
+        starts = bool(board_read.launch_card(state, topic, chat))
+        if job is None and not waiting and not starts:
             raise ValueError("这个话题现在没有在做、排队或等你回答的任务")
         said = []
         if job is not None:
@@ -288,6 +290,8 @@ class Ops:
             binding.retire_open_questions(self.env.topics, app, ctx, chat, reason="web_stop", job_status="cancelled", by="web",
                                           message=WEB_STOP_NOTE)
             said.append("等你回答的题已收掉")
+        if starts and close_open_launches(ctx, chat, getattr(self.env, "messenger", None), WEB_STOP_NOTE):
+            said.append("没开工的启动卡已收掉")
         return "；".join(said)
 
     # -- tidy --------------------------------------------------------------------------------------------------------------
