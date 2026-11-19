@@ -870,7 +870,7 @@ def board_groups(rows, dismissed) -> dict:
 
 
 def closed(row, state, records=(), rows=()) -> tuple:
-    """(closed_at, closed_by) of a question record whose web ``state`` is ``state`` (data contract v10): when it stopped waiting
+    """(closed_at, closed_by) of a question record whose web ``state`` is ``state`` (data contract v9): when it stopped waiting
     (epoch seconds, None when not known) and how. ``closed_by``: owner (answered), feedback (只发补充说明 or feedback on the
     questions), skipped (每题都选了不回答), lead (the project's lead answered it, COVEY_PROJECT_TRIAGE), superseded (a later
     question of the topic folded it), stale (daily maintenance closed it), switched, rewound, lead_stop, web_stop or cancelled;
