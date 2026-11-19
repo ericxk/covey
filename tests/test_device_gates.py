@@ -53,7 +53,7 @@ HUB_ENV = {"LARK_APP_SECRET": "hub-secret-lark", "LARK_BRIDGE_TOKEN": "hub-token
 DOC = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-gates",
        "devices": {"gpu1": {"ssh": {"host": "gpu1.example"}, "harnesses": ["claude", "codex"],
                             "spaces": ["owner_private"]}}}
-REMOVED = {"native_fork", "compaction", "turn_export", "redaction", "rewind"}
+REMOVED = {"native_fork", "compaction", "turn_export", "redaction", "rewind", "command_stop"}
 
 
 def checkpoint_text(**fields):
@@ -65,7 +65,7 @@ class Capabilities(unittest.TestCase):
     def ctx(self, **fields):
         return make_context(Path("/nonexistent-root"), **fields)
 
-    def test_a_device_turns_off_exactly_the_five_that_need_the_hubs_files(self):
+    def test_a_device_turns_off_exactly_the_six_that_need_the_hubs_files_or_its_processes(self):
         self.assertEqual(set(DEVICE_OFF), REMOVED)
         for backend in (ClaudeBackend(), CodexBackend()):
             local = backend_capabilities(backend, self.ctx())
@@ -87,7 +87,7 @@ class Capabilities(unittest.TestCase):
         self.assertEqual(backend_capabilities(ClaudeBackend(), object()), HarnessCapabilities(
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, steer_reads=True, compaction=True,
-            turn_export=True, redaction=True, rewind=True))
+            command_stop=True, turn_export=True, redaction=True, rewind=True))
 
 
 def claude_caps():

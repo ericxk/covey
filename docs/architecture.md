@@ -437,7 +437,7 @@ cancelled、superseded：终态
 - **开关与名单**：`devices.enabled()` 和 `devices.json` 里有这个别名；开关关着时 `gpu1:/x` 只是一个普通（相对）路径，一切同旧。
 - **谁能用、哪个 Harness**：`Access.allows_device(chat, device)`（规则 11：谁被服务只经 `app/access.py`）和设备声明的 `harnesses`；启动卡、换配置卡只列能用的设备，点击和每一轮开始前各再查一次（`app/runs.py` 的 `_device_refusal`）。
 - **目录和可用性**：设备经 `stat` 答复目录在不在（5 秒，设备的话，不是 hub 的 `Path.exists`）；`app/availability.py` 读设备最近的 `hello` 和自检结果，不在 hub 上找命令。
-- **能力位**：`core/harness.py` 的 `for_device(caps, ctx)`（`DEVICE_OFF`）在设备上关掉 `native_fork`、`compaction`、`turn_export`、`redaction`、`rewind`；各入口（回退、下载、压缩、分叉、启动卡的脱敏选项）都经 `backend_capabilities` 取值，所以按钮不出现、不是出现后点了才拒。几处没有 `pid` 的地方有闸门：Claude 的轮前压缩、`ClaudeBackend.compact_session`、管家的空闲压缩和压缩子进程在设备上直接返回。话题开着脱敏时设备上的这一轮拒绝，不会不脱敏地发出去。
+- **能力位**：`core/harness.py` 的 `for_device(caps, ctx)`（`DEVICE_OFF`）在设备上关掉 `native_fork`、`compaction`、`turn_export`、`redaction`、`rewind`、`command_stop`（补充打断命令要在本机找命令的进程）；各入口（回退、下载、压缩、分叉、启动卡的脱敏选项）都经 `backend_capabilities` 取值，所以按钮不出现、不是出现后点了才拒。几处没有 `pid` 的地方有闸门：Claude 的轮前压缩、`ClaudeBackend.compact_session`、管家的空闲压缩和压缩子进程在设备上直接返回。话题开着脱敏时设备上的这一轮拒绝，不会不脱敏地发出去。
 - **hub 上的副作用**：设备话题不取 git diff 快照，不在占位目录里跑 `git`、不写文件；`tests/test_device_gates.py` 在整轮执行期间用审计钩子（`tests/support/device_guard.py`）记录所有 `open`、`stat`、`subprocess`，断言占位目录从未被碰、spawn 规格的环境里没有 hub 的 `LARK_*`、`FEISHU_*`、`COVEY_*`、提示词和后台线程参数里没有 hub 的路径。设备话题里新加的任何 hub 侧文件操作都要走这个审计。
 
 **检查点镜像**：`job.checkpoint_path` 仍是 hub 路径，hub 侧所有读写不变；提示词里写的是设备上的镜像路径（`~` 下 `.covey/checkpoints/<hub-id>/<任务键>.json`，`devices.checkpoint_mirror`）。首轮把 hub 当前的检查点作为种子文件随 `spawn` 放过去，设备端每秒比较文件的 mtime、大小和 inode，变了就写一条 `cp` 记录，链路后台线程原子写回 hub 那份（上限 1 MiB，超了只标记不截断）；Agent 退出后再比较一次才写 `exit`。hub 对检查点的改写（如 `release_user_wait`）只改 hub 那份，下一轮是新任务键、新文件，不需要回写。

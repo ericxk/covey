@@ -61,6 +61,13 @@ class SteerInterrupt:
             return
         threading.Thread(target=self._watch, args=(ctx, job, control, path), daemon=True, name="steer-unread").start()
 
+    def watch_unread_safely(self, ctx, job, mid):
+        """``watch_unread`` for a sender that has delivered: a failure is logged, never raised to it."""
+        try:
+            self.watch_unread(ctx, job, mid)
+        except Exception as exc:  # noqa: BLE001 - the supplement is delivered; only its watch is not
+            self.runtime.log(f"unread supplement not watched: {type(exc).__name__}")
+
     def _unread(self, job, control, path):
         """The record while it is unread and its task still runs on ``control``; else None."""
         if self.runtime.jobs.find(job.job_id) is not job or job.backend_control is not control:

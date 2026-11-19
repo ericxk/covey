@@ -21,6 +21,7 @@ from covey.backends.claude.control import ClaudeControl
 from covey.backends.claude.events import ClaudeEventAdapter
 from covey.cards.steer_receipts import INTERRUPT_KIND, receipt_card, stage_line
 from covey.core.deliveries import INTERRUPT, delivery_path, offers, read_delivery
+from covey.core import procfs
 from covey.core.harness import HarnessCapabilities, for_device
 from covey.core.steer import is_urgent, keeps_running
 
@@ -56,6 +57,16 @@ class CommandStopTest(unittest.TestCase):
         return process
 
     @staticmethod
+    def group_alive(pgid):
+        """Whether a process of group ``pgid`` still runs (a zombie not reaped yet does not)."""
+        for entry in os.listdir("/proc"):
+            if entry.isdigit():
+                row = procfs.stat(int(entry))
+                if row is not None and row.pgrp == pgid and row.state != "Z":
+                    return True
+        return False
+
+    @staticmethod
     def reap(process):
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -72,8 +83,7 @@ class CommandStopTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 3)
         self.assertIsNotNone(waited_on.wait(5))
         self.assertIsNone(background.poll())  # Not the command waited on: it goes on.
-        with self.assertRaises(ProcessLookupError):
-            os.killpg(waited_on.pid, 0)  # Its sleep, in its group, went with it.
+        wait_for(self, lambda: not self.group_alive(waited_on.pid))  # Its sleep, in its group, went with it.
 
     def test_a_command_with_no_shell_finds_nothing(self):
         self.assertEqual(command_stop.shells(os.getpid(), ["sleep 99 # never started"]), [])

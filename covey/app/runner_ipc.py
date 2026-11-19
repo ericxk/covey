@@ -359,7 +359,10 @@ def take_inbox(gateway, app, job, ctx, directory: Path) -> None:
                 except Exception as exc:  # noqa: BLE001 - the supplement is delivered; only the card note failed
                     gateway.runtime.log(f"latest supplement not shown: {type(exc).__name__}")
                 # Its record says "sent" once the Bridge reads this ack: the watch starts from the record it finds.
-                app.steering.watch_unread(job_ctx, job, payload["event_id"])
+                # It never raises (app/steer_interrupt.py): the acknowledgement above stands.
+                watch = getattr(app.steering, "watch_unread_safely", None)
+                if callable(watch):
+                    watch(job_ctx, job, payload["event_id"])
             elif kind == "answer":
                 app.questions.submit_answer(job_ctx, payload["chat_id"], payload["token"], payload["fields"], payload["event_id"])
                 ack(directory, payload["id"], True)

@@ -280,7 +280,7 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                 note()
             else:
                 later.append(note)
-            self.watch_unread(ctx, job, mid)
+            self.watch_unread_safely(ctx, job, mid)
         return current
 
     def device_text(self, ctx, job, text, mid):
@@ -371,7 +371,7 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                             self.note_latest_request(ctx, job, text, mid)
                         except Exception as exc:  # noqa: BLE001 - the supplement is delivered
                             self.runtime.log(f"latest supplement not shown: {type(exc).__name__}")
-                        self.watch_unread(ctx, job, mid)
+                        self.watch_unread_safely(ctx, job, mid)
 
     def settle_steer(self, ctx, job, mid, **changes):
         record = update_delivery(delivery_path(ctx.state_dir, job.topic_id, mid), **changes)
