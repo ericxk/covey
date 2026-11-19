@@ -128,6 +128,16 @@ class QuestionDisplay:
         except Exception:  # noqa: BLE001 - the block as for a turn the owner started
             return target
 
+    def member_speaker(self, ctx, record):
+        """The speaker line atop a project topic's question copy at the top level: the topic asks, for work its lead
+        handed it (cards/answer_card.py ask_block, ``doing`` member); None when the topic cannot be named."""
+        from covey.app.answer_cards import speaker
+        from covey.cards.answer_card import ask_block
+
+        who = speaker(ctx.state_dir, str(record.get("topic_id") or ""), str(record.get("chat_id") or ""),
+                      self.runtime.log)
+        return ask_block("", who=who, doing="member") if who else None
+
     # The top-level copy of a 话题区's question.
     def mirror(self, ctx, record, output="", job=None):
         """Show the pending question ``record`` at the top level too, once, when its topic is a 话题区, or the butler's
@@ -150,11 +160,15 @@ class QuestionDisplay:
             target = {"chat_id": chat, "reply_to": "", "label": "", "kind": "member", "topic_id": record["topic_id"]}
         if not target:
             return ""
-        # A member's turn was asked for by the lead, not by the owner: no "你问" block (its words would be the lead's).
-        ask = (ask_for(ctx.state_dir, job, self._asked_target(ctx, job, target) if place.traits.relays else target,
-                       ctx.profile, at=str(record.get("question_message_id") or ""), log=self.runtime.log,
-                       doing="waiting")
-               if place.row.ask_block and job is not None and target["kind"] != "member" else None)
+        # A member's turn was asked for by the lead, not by the owner: no words of his are quoted (they would be the
+        # lead's), only who asks, "T546 标题 办负责人派的事，要你定" (cards/answer_card.py says, docs/ui.md 5.3).
+        if target["kind"] == "member":
+            ask = self.member_speaker(ctx, record)
+        else:
+            ask = (ask_for(ctx.state_dir, job, self._asked_target(ctx, job, target) if place.traits.relays else target,
+                           ctx.profile, at=str(record.get("question_message_id") or ""), log=self.runtime.log,
+                           doing="waiting")
+                   if place.row.ask_block and job is not None else None)
         reply_to = "" if place.row.question_copy == placement.TOP else target["reply_to"]
         path = ctx.state_dir / "questions" / (token + ".json")
         text = str(output or "").strip()

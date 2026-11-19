@@ -57,6 +57,7 @@ class Dispatch:
     url: str = ""
     ask_at: str = ""
     ask_url: str = ""
+    who: str = ""  # Its topic as the speaker of the "你问" line (core/look.py speaker): "T548 查 Verifier 合成的思考档位".
 
 
 def head_words(request) -> str:
@@ -109,7 +110,10 @@ def dispatch_card(dispatch):
     if dispatch.notes:
         inside.append(md("\n".join(grey(literal_text(line)) for line in dispatch.notes), element_id="dp_notes",
                          size="notation"))
-    elements = [answer_card.ask_block(dispatch.request, at=dispatch.ask_at, url=dispatch.ask_url),
+    # Who speaks and what it does with the owner's words (样卡 B, cards/answer_card.py says): the topic, by its state.
+    doing = {DONE: "done", FAILED: "stopped", STOPPED: "stopped", WAITING: "waiting"}.get(dispatch.status, "running")
+    elements = [answer_card.ask_block(dispatch.request, at=dispatch.ask_at, url=dispatch.ask_url, who=dispatch.who,
+                                      doing=doing),
                 md(grey(literal_text(meta_line(dispatch))), element_id="dp_meta", size="notation"),
                 collapsible("dp_thread", thread_title(dispatch), inside, expanded=opened, size="normal_v2"),
                 answer_card.box("dp_io", answer_card.input_lines(dispatch.inputs), list(dispatch.outputs)),

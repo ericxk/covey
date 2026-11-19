@@ -27,7 +27,7 @@ from covey.cards.dispatch_card import (DONE, FAILED, RUNNING, STEER_KIND, STOP_K
                                        settled_card)
 from covey.core import dispatch_records as records
 from covey.core import env as cenv
-from covey.core import projects
+from covey.core import look, projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.checkpoint import checkpoint_steps
 from covey.core.jobs import find_job_record, topic_job_records
@@ -220,8 +220,9 @@ def facts(state_dir, record, now, titles, url="") -> Dispatch:
         seconds = at - float(record.get("started_at") or at)
     took = quantize(seconds) if job is not None or status != WAITING else ""
     inputs, outputs = figures(state_dir, record, job, status, now, took, titles)
+    label, title = topic_label(Path(state_dir), topic), topic_title(Path(state_dir), topic)
     return Dispatch(token=str(record.get("token") or ""), topic_id=topic, request=str(record.get("request") or ""),
-                    status=status, label=topic_label(Path(state_dir), topic), title=topic_title(Path(state_dir), topic),
+                    status=status, label=label, title=title, who=look.speaker("topic", label=label, title=title),
                     workspace=str((job or {}).get("workspace_name") or ""), started=clock(record.get("started_at")),
                     took=took, body=body, inputs=inputs, outputs=outputs,
                     job_id=str(job_number(job)) if job is not None and job_number(job) else "", url=url,

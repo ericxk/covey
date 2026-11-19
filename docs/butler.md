@@ -141,7 +141,7 @@
 - **入队**：`app/submission.py` 设 `job.card_deferred`，不发卡；主人那条消息加表情 OnIt（`app/butler_reactions.py`，`Messenger.react`）。
 - **卡什么时候出**：跑过 `CARD_AFTER`（90 秒）还没结束，任务进程发卡（`Cards.reveal`），进主人那句话的话题串。只试一次。
 - **结束表情**（`butler_reply.react_end`）：DONE（自己答的）、Get（交给话题）、CrossMark（失败、被拒）；停止和等回答只去掉 OnIt。失败只记日志。
-- **说话人**：聊天区每条顶层的答案、结论、问题卡副本和通知，“你问”块的第一行用一句话写谁对你哪句话做了什么（`app/answer_cards.py` 的 `asked` → `core/board_read.py` 的 `speaker_of`，词表 `core/look.py` 的 `SPEAKERS`，句子 `cards/answer_card.py` 的 `SAYS`）：“**管家** 答复你 12:31 的问题 ›”，话题回带按结果写“**T531 标题** 做完了你 09:12 交代的事”“……要你定”“……时停了”，下一行是「你的原话」；负责人自己醒来的一轮写“**专项「名」· 负责人** 主动来汇报 · 09:40”，单独一行。
+- **说话人**：聊天区每条顶层的答案、结论、问题卡副本和通知，“你问”块的第一行用一句话写谁对你哪句话做了什么（`app/answer_cards.py` 的 `asked` → `core/board_read.py` 的 `speaker_of`，词表 `core/look.py` 的 `SPEAKERS`，句子 `cards/answer_card.py` 的 `SAYS`）：“**管家** 答复你 12:31 的问题 ›”，话题回带按结果写“**T531 标题** 做完了你 09:12 交代的事”“……要你定”“……时停了”，下一行是「你的原话」；负责人自己醒来的一轮写“**专项「名」· 负责人** 主动来汇报 · 09:40”，单独一行。派发卡（`cards/dispatch_card.py`）按任务状态写“在办你…交代的事”“做完了…”“…要你定”“…时停了”；专项话题的问题卡副本（`QuestionDisplay.member_speaker`）不引原话，只写“**T546 标题** 办负责人派的事，要你定”。
 - **回复交给谁**：引用话题的回带交给那个话题，引用负责人的回答或专项卡交给负责人，引用管家的回答交给管家；引用手上的事或早晚汇总卡（Bridge 自己发的，`app/pins.py` 的 `panel_message`）也交给管家，不在它上面开新话题（`Butler.app_for`）。
 - **答案**：聊天区新消息，带“你问”块。只做了交接的一轮（`handed_quietly`）不发答案，Get 就是回执；转给了已有话题（topic_send）的，再在主人那条消息下回一个小卡（`hook_topics`，`cards/answer_card.py` 的 `hook_card`）：每个话题一行“→ T453「标题」 ›”，点了打开那个话题串、定位到转入的那条（`hook_rows`，转交记录的 `thread_message_id`）。它是引用主人消息的顶层回复，不开串（D1）；只挂一个话题时，引用这张小卡说话进那个话题。新开或分叉的话题串本来就挂在主人那条消息下面，不列。
 - **没卡时的失败**：发一条带“你问”的短消息（`app/quiet_delivery.py` 的 `top_notice`），被拒或停止时列出收下的补充；答案没发出去时另发一条带按钮的（`undelivered_notice`）。

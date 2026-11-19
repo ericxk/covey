@@ -298,6 +298,9 @@ SAYS = {
     ("你问", "waiting"): "办你{at}交代的事，要你定", ("你答", "waiting"): "按你{at}的回答接着办，要你定",
     ("你问", "stopped"): "办你{at}交代的事时停了", ("你答", "stopped"): "按你{at}的回答接着办时停了",
     ("你问", "about"): "关于你{at}的问题", ("你答", "about"): "关于你{at}的回答",
+    ("你问", "running"): "在办你{at}交代的事", ("你答", "running"): "按你{at}的回答在办",
+    # A project's topic: the lead handed it the work, so no words of the owner's are quoted (app/question_display.py).
+    ("你问", "member"): "办负责人派的事，要你定", ("你答", "member"): "办负责人派的事，要你定",
 }
 ALONE = "主动来汇报{at}"  # A speaker that answers no message of the owner's (a lead woken by the Bridge).
 
@@ -317,7 +320,7 @@ def ask_block(text, *, verb="你问", at="", url="", who="", doing="answer"):
     lines, "你问 · 12:31 ›" and the message's words (two lines at most); the whole block opens ``url`` (the
     message's thread, app/answer_cards.py ask_link). Style "A" of four samples. ``who``: its speaker (docs/ui.md 5.3,
     cards/ui.py ``speaker``) and what it did with that message in one sentence (``says``, by ``doing``: answer, done,
-    waiting, stopped, about, report), "**管家** 答复你 12:31 的问题 ›" over 「his words」; with no words, that line
+    waiting, stopped, about, running, member, report), "**管家** 答复你 12:31 的问题 ›" over 「his words」; with no words, that line
     alone (a lead's wake-up turn: "主动来汇报 · 09:40"). None without words or a speaker."""
     from covey.cards.ui import speaker
 

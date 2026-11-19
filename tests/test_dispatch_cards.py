@@ -247,6 +247,11 @@ class CreatedTest(DispatchCase):
         ask = find_element(card, "answer_ask")
         self.assertEqual(ask["behaviors"][0]["default_url"], ASK_URL)  # His message at its place in the chat.
         self.assertIn(ASK, json.dumps(ask, ensure_ascii=False))
+        # Who speaks (样卡 B): the topic, doing what the owner asked; not "你问 · 时间", which read as its own question.
+        speaker = json.dumps(ask, ensure_ascii=False)
+        self.assertRegex(speaker, r"\*\*T\d+")
+        self.assertRegex(speaker, "在办你|办你.*要你定")
+        self.assertNotIn("你问 ·", speaker)
         record = self.record()
         message = record["card_message_id"]
         self.assertEqual((record["state"], record["topic_id"], record["owner_message"], record["rounds"],

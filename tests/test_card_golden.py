@@ -676,7 +676,8 @@ def answer_tail_cards():
     from covey.cards.dispatch_card import Dispatch, dispatch_card, settled_card
     thread_url = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
     work = Dispatch(token="d" * 16, topic_id="topic-fake", request="把这块代码提交到 GitHub 上吧，推之前先问我推哪些", status=dc.RUNNING,
-                    label="T453", title="比对公司主干和 GitHub 快照", workspace="covey", started="12:41", took="2分00秒",
+                    label="T453", title="比对公司主干和 GitHub 快照", who="T453 比对公司主干和 GitHub 快照",
+                    workspace="covey", started="12:41", took="2分00秒",
                     body="第 2/4 步：列出待推提交 · 本步 1 分钟", job_id="7", url=thread_url, ask_at="12:31",
                     ask_url="https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=76",
                     inputs=("Claude Code", "Sonnet 5.5", "思考 high", "covey"),
@@ -717,6 +718,9 @@ def answer_tail_cards():
             "answer_relay_asked": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
                                              ask=ask)[0],
             "question_copy_asked": mirror_card(question_record(), "T439", "先说结论：两种都行。", ask=ask),
+            # A project's topic asks at the top level: who asks, no words of the owner's (the lead handed it the work).
+            "question_copy_member": mirror_card(question_record(), "T546", "设置卡已按你选的改法改完。",
+                                                ask=ask_block("", who="T546 设置的使用逻辑梳理", doing="member")),
             "answer_card_answered": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [answered]),
             "answer_relay_answered": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
                                                 ask=answered)[0],
