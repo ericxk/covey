@@ -1178,6 +1178,33 @@ class ExtrasTest(WebCase):
         self.assertTrue(ended["failure"]["title"].startswith("上游限流，和任务内容无关"))
         self.assertIn("错误码 rate_limited", ended["failure"]["detail"])
 
+    def test_a_turn_the_policy_stopped_is_failed_not_done(self):
+        """2026-11-19 T514 (data contract v10): a 官方拒绝 stop writes its words as the turn's answer line; the page read it as a
+        finished turn whose conclusion was the raw stop message, with no reason and no next step."""
+        stop = "本轮已停止：SubAgent toolu_01 触发官方内容安全拒绝（frontier_llm）。"
+        policy = {"kind": "refusal", "category": "frontier_llm", "scope": "subagent", "evidence": "refusal_stop"}
+        self.topic(status="cancelled", lines=(("user", "改一下"), ("assistant", stop)))
+        write_job(self.state, f"k-{TOPIC[:4]}", message_id="m改一下", status_message=stop, policy_stop=policy,
+                  timings={"backend_started": T0 - 60})
+        self.sync.push_once(T0)
+        answer = self.web.items("turn")[-1]["data"]
+        self.assertEqual((answer["role"], answer["status"]), ("agent", "failed"))
+        self.assertIn("官方安全策略", answer["failure"]["title"])
+        self.assertEqual(answer["failure"]["actions"], ["split", "switch_model"])
+
+    def test_a_stop_without_an_answer_line_is_failed_unless_the_owner_made_it(self):
+        policy = {"kind": "refusal", "category": "frontier_llm", "scope": "main", "evidence": "refusal_stop"}
+        self.topic(status="cancelled", lines=(("user", "改一下"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", status_message="本轮已停止", policy_stop=policy, timings={"backend_started": T0 - 60})
+        self.sync.push_once(T0)
+        self.assertEqual(self.web.items("turn")[-1]["data"]["status"], "failed")
+        write_job(self.state, f"k-{TOPIC[:4]}", policy_stop=None, cancel_requested_by="owner")
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 1)
+        ended = self.web.items("turn")[-1]["data"]
+        self.assertEqual(ended["status"], "stopped")
+        self.assertNotIn("failure", ended)
+
     def test_a_continued_turn_is_not_running_and_an_unknown_status_is_idle(self):
         """2026-11-18: T75 (its last turn ``continued`` on 10-22) showed 在做 on the page for a month; so did a waiting_workspace task."""
         self.topic()

@@ -406,6 +406,10 @@ class Collector:
                 fail = failure.failure_view(job)  # Why it did not succeed and what next (core/failure.py).
                 if fail:
                     turn["failure"] = fail
+                    if turn.get("role") == "agent":
+                        # The line the history has is the stop's own words (or an answer that never went out), not an answer
+                        # (data contract v10): T514's 官方拒绝 read as a finished turn with the stop message as its conclusion.
+                        turn["status"] = "failed"
                 else:
                     turn.pop("failure", None)
             if job is not None:
@@ -422,8 +426,8 @@ class Collector:
                      "status": "stopped" if latest.get("status") == "cancelled" else "failed", "job_id": str(latest.get("job_id") or ""),
                      "started_at": board_read.started_at(latest), "ended_at": at, "artifacts": []}
             fail = failure.failure_view(latest)
-            if fail:
-                ended["failure"] = fail
+            if fail:  # A stop the owner did not make (官方拒绝, a guard) did not succeed either (data contract v10).
+                ended["failure"], ended["status"] = fail, "failed"
             out.append(ended)
         return out, total
 
@@ -866,7 +870,7 @@ def board_groups(rows, dismissed) -> dict:
 
 
 def closed(row, state, records=(), rows=()) -> tuple:
-    """(closed_at, closed_by) of a question record whose web ``state`` is ``state`` (data contract v9): when it stopped waiting
+    """(closed_at, closed_by) of a question record whose web ``state`` is ``state`` (data contract v10): when it stopped waiting
     (epoch seconds, None when not known) and how. ``closed_by``: owner (answered), feedback (只发补充说明 or feedback on the
     questions), skipped (每题都选了不回答), lead (the project's lead answered it, COVEY_PROJECT_TRIAGE), superseded (a later
     question of the topic folded it), stale (daily maintenance closed it), switched, rewound, lead_stop, web_stop or cancelled;
