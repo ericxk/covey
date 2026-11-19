@@ -252,7 +252,8 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 
 不是每个部署都要的功能放在核心之外的 Python 包里（`core/extensions.py`，只用标准库）。没有启用的扩展时，名单、供应商表和功能列表与没有这个机制时完全一样。
 
-- **启用**：环境变量 `COVEY_EXTENSIONS`（逗号分隔的包名；设成空串表示一个都不要），没设时读仓库根的 `extensions/enabled`（每行一个包名，`#` 起注释，空行忽略；文件不存在就没有扩展）。
+- **启用**：环境变量 `COVEY_EXTENSIONS`（逗号分隔的包名；设成空串表示一个都不要），没设时读仓库根的 `extensions/enabled`（每行一个包名，`#` 起注释，空行忽略；文件不存在就没有扩展），再按数据根的 `extensions/enabled` 加减：`+包`（或只写包名）启用、`-包` 停用，同一个包以后一行为准，加的排在 release 的后面。release 的名单随部署换，数据根这份是这个部署自己的选择，部署不动它。
+- **装和卸**：`python3 -B bin/covey_plugins.py list` 看找到了哪些扩展、哪些启用、来自哪一层；`enable <包>`、`disable <包>` 只改数据根那份名单，写之前按 Bridge 的方式加载新名单（manifest、Harness 和供应商合并、卡片 kind），加载不了或冲突就拒绝、什么都不写；`doctor` 检查现在的名单能否一起加载。改完 `covey_service.py restart`（或下一次部署）生效，命令本身不启停任何东西。设了 `COVEY_EXTENSIONS` 时它盖过两份文件，命令会提示。扩展包本身随 release 带着（`scripts/assemble_release.py` 把扩展库里每个带 manifest 的包都放进 `extensions/`），所以启用一个包不用改核心代码，也不用改服务清单。
 - **查找**：`COVEY_EXTENSION_PATH`（`os.pathsep` 分隔的目录），没设时是仓库根的 `extensions/`。有启用的包时才把这些目录幂等地放到 `sys.path` 前面。
 - **`<包>.manifest`**：只放纯数据（`dict`、`list`、`str`），不导入 `covey`（它会被扩展的隔离解释器里的 `core/roster.py` 间接导入，也要避免循环）。可选的几项：`HARNESSES`（名字 → `module`、`store`、`store_module`、`live_questions`、`paused_questions`、`after`，字段同 `RosterEntry`；`after` 是它在 `NAMES` 里排在哪个 Harness 之后，启动卡和换配置卡的 Harness 顺序跟着它，不写就接在最后）、`PROVIDERS`（字典列表，字段同 `Provider`）、`RETIRED_PREFIXES`、`RETIRED_HARNESSES`，以及核心读的几张小表：`WORK_MODES`（模式 ID → [名称, 说明]）和 `DEFAULT_WORK_MODE`（`core/defaults.py`）、`AGENT_DIRS`（Agent 在工作区里放工作副本的隐藏目录，`app/artifacts.py` 不上传）、`IGNORED_ENV`（不再读取的变量 → [Harness, 替代选项]，`core/ignored_env.py`）。`core/roster.py`、`core/providers.py` 的纯函数 `merged` 把它们接在核心表后面，`NAMES`、`LIVE_QUESTIONS`、`PAUSED_QUESTIONS` 从合并后的表派生。
 - **`<包>.features`**（可选）：`features(app)` 返回功能对象的列表，形状同 `app/unified.py` 的 `self.features`：可有 `threads()`、`menu_items()`、`menu_folds()`；排在核心功能后面。

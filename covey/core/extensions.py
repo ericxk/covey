@@ -37,6 +37,9 @@ ENABLED_ENV = "COVEY_EXTENSIONS"  # Comma-separated package names; set to '' for
 PATH_ENV = "COVEY_EXTENSION_PATH"  # os.pathsep-separated directories the packages are found in.
 ROOT = Path(__file__).resolve().parents[2]
 ENABLED_FILE = "extensions/enabled"  # Under the repository root: one package per line, '#' comments.
+# Under the data home (COVEY_DATA_HOME): the deployment's own choice over the release's list, kept across deploys and
+# written by bin/covey_plugins.py: a line '+package' (or 'package') enables one, '-package' disables one, '#' comments.
+CHOICE_FILE = "extensions/enabled"
 DEFAULT_DIR = "extensions"
 PACKAGE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
 HARNESS_FIELDS = {"module", "store", "store_module", "live_questions", "paused_questions", "after"}
@@ -85,19 +88,28 @@ class Extension:
 
 
 def enabled(environ=None, root: Path = ROOT) -> list[str]:
-    """The enabled package names, in order, without repeats: ``COVEY_EXTENSIONS`` when set (even to ''),
-    else the lines of ``extensions/enabled`` under ``root`` (none when the file is missing)."""
+    """The enabled package names, in order, without repeats: ``COVEY_EXTENSIONS`` when set (even to ''), else the
+    lines of ``extensions/enabled`` under ``root`` (none when the file is missing) with the data home's choices
+    (``choices``) applied: a package it enables comes after the release's, one it disables is left out."""
     environ = os.environ if environ is None else environ
     if cenv.has(ENABLED_ENV, environ):
-        names = cenv.get(ENABLED_ENV, "", environ).split(",")
-    else:
-        try:
-            lines = (root / ENABLED_FILE).read_text().splitlines()
-        except FileNotFoundError:
-            return []
-        names = [line.split("#", 1)[0] for line in lines]
+        return _names(cenv.get(ENABLED_ENV, "", environ).split(","))
+    names = _names(_lines(root / ENABLED_FILE))
+    on, off = choices(environ, root)
+    return [name for name in names + [n for n in on if n not in names] if name not in off]
+
+
+def _lines(path: Path) -> list[str]:
+    """The lines of ``path`` without their '#' comments, none when it is missing."""
+    try:
+        return [line.split("#", 1)[0] for line in path.read_text().splitlines()]
+    except FileNotFoundError:
+        return []
+
+
+def _names(names) -> list[str]:
     found = []
-    for name in (n.strip() for n in names):
+    for name in (str(n).strip() for n in names):
         if not name:
             continue
         if not PACKAGE_NAME.fullmatch(name):
@@ -105,6 +117,37 @@ def enabled(environ=None, root: Path = ROOT) -> list[str]:
         if name not in found:
             found.append(name)
     return found
+
+
+def data_home(environ=None, root: Path = ROOT) -> Path:
+    """The data home as core/paths.py ``data_home`` says (``COVEY_DATA_HOME``, else ``<root>-data``), read from
+    ``environ``."""
+    environ = os.environ if environ is None else environ
+    home = cenv.get("COVEY_DATA_HOME", "", environ).strip()
+    if home:
+        return Path(home).expanduser().resolve()
+    root = Path(root).resolve()
+    return root.with_name(root.name + "-data")
+
+
+def choice_path(environ=None, root: Path = ROOT) -> Path:
+    return data_home(environ, root) / CHOICE_FILE
+
+
+def choices(environ=None, root: Path = ROOT) -> tuple[list[str], list[str]]:
+    """(enabled, disabled) by the data home's CHOICE_FILE, each in its order; a later line about a package
+    replaces an earlier one. Both empty when the file is missing."""
+    chosen = {}
+    for line in _lines(choice_path(environ, root)):
+        line = line.strip()
+        if not line:
+            continue
+        sign, name = (line[0], line[1:].strip()) if line[0] in "+-" else ("+", line)
+        [name] = _names([name]) or [""]
+        if name:
+            chosen.pop(name, None)
+            chosen[name] = sign
+    return [n for n, sign in chosen.items() if sign == "+"], [n for n, sign in chosen.items() if sign == "-"]
 
 
 def search_path(environ=None, root: Path = ROOT) -> list[str]:
@@ -269,8 +312,8 @@ def unused_env(environ=None) -> list[str]:
     """One line for each ``MOVED_ENV`` variable that is set while its package is not enabled."""
     environ = os.environ if environ is None else environ
     on = {extension.package for extension in manifests()}
-    return [f"{name} is set but the {package} extension is not enabled: ignored (enable it with {ENABLED_ENV}, "
-            f"the extension's README)" for name, package in MOVED_ENV.items()
+    return [f"{name} is set but the {package} extension is not enabled: ignored (enable it with "
+            f"bin/covey_plugins.py enable {package}, the extension's README)" for name, package in MOVED_ENV.items()
             if package not in on and cenv.get(name, "", environ).strip()]
 
 

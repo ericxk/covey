@@ -118,6 +118,95 @@ class EnabledTest(ExtensionCase):
         self.assertEqual(sys.path, before)
 
 
+class ChoiceTest(ExtensionCase):
+    """The data home's choices over the release's list (bin/covey_plugins.py writes them)."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = self.root / "data"
+        self.environ = {"COVEY_DATA_HOME": str(self.home)}
+
+    def choose(self, text):
+        (self.home / "extensions").mkdir(parents=True, exist_ok=True)
+        (self.home / "extensions" / "enabled").write_text(text)
+
+    def test_no_choice_file_leaves_the_releases_list(self):
+        self.enable_file("alpha\nbeta\n")
+        self.assertEqual(extensions.enabled(self.environ, self.root), ["alpha", "beta"])
+        self.assertEqual(extensions.choices(self.environ, self.root), ([], []))
+
+    def test_choices_add_after_and_take_out(self):
+        self.enable_file("alpha\nbeta\n")
+        self.choose("# mine\n+gamma\n-alpha\ndelta\n+alpha\n-alpha # off again\n\n")
+        self.assertEqual(extensions.choices(self.environ, self.root), (["gamma", "delta"], ["alpha"]))
+        self.assertEqual(extensions.enabled(self.environ, self.root), ["beta", "gamma", "delta"])
+
+    def test_the_variable_still_wins_over_both(self):
+        self.enable_file("alpha\n")
+        self.choose("+gamma\n")
+        self.assertEqual(extensions.enabled({**self.environ, "COVEY_EXTENSIONS": "beta"}, self.root), ["beta"])
+
+    def test_a_chosen_name_that_is_not_a_package_is_refused(self):
+        self.choose("+a-b\n")
+        with self.assertRaisesRegex(extensions.ExtensionError, "not a Python package name"):
+            extensions.enabled(self.environ, self.root)
+
+    def test_the_data_home_defaults_beside_the_code(self):
+        self.assertEqual(extensions.choice_path({}, self.root),
+                         self.root.resolve().with_name(self.root.name + "-data") / "extensions" / "enabled")
+
+
+class PluginsCommandTest(ExtensionCase):
+    """bin/covey_plugins.py (covey/service/plugins.py): list, enable, disable, doctor."""
+
+    def setUp(self):
+        super().setUp()
+        from covey.service import plugins
+        self.plugins = plugins
+        self.environ = {"COVEY_DATA_HOME": str(self.root / "data")}
+        make_package(self.root / "extensions")
+        (self.root / "extensions" / PACKAGE / "README.md").write_text("# fake：一个假扩展\n")
+
+    def test_enable_writes_the_data_home_and_disable_takes_it_back(self):
+        self.enable_file("")
+        result = self.plugins.turn(PACKAGE, True, self.environ, self.root)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["enabled"], [PACKAGE])
+        self.assertIn("重启 Bridge 生效", result["message"])
+        listing = self.plugins.listing(self.environ, self.root)
+        self.assertEqual([(r["package"], r["enabled"], r["source"], r["summary"]) for r in listing["packages"]],
+                         [(PACKAGE, True, "数据根启用", "fake：一个假扩展")])
+        self.assertEqual(self.plugins.doctor(self.environ, self.root)["ok"], True)
+        self.assertTrue(self.plugins.turn(PACKAGE, False, self.environ, self.root)["ok"])
+        self.assertEqual(extensions.enabled(self.environ, self.root), [])
+        lines = (self.root / "data" / "extensions" / "enabled").read_text().splitlines()
+        self.assertEqual([line for line in lines if not line.startswith("#")], ["-" + PACKAGE])  # One line each.
+        self.assertEqual((self.root / "extensions" / "enabled").read_text(), "")  # The release's list untouched.
+
+    def test_a_package_not_found_or_not_loading_is_refused_and_nothing_is_written(self):
+        result = self.plugins.turn("missing_pkg", True, self.environ, self.root)
+        self.assertFalse(result["ok"])
+        self.assertIn("找不到扩展 missing_pkg", result["message"])
+        make_package(self.root / "extensions", name="broken_pkg", manifest="HARNESSES = 1\n")
+        result = self.plugins.turn("broken_pkg", True, self.environ, self.root)
+        self.assertFalse(result["ok"])
+        self.assertIn("manifest HARNESSES must be a dict", result["message"])
+        self.assertFalse((self.root / "data" / "extensions" / "enabled").exists())
+
+    def test_a_package_that_collides_with_an_enabled_one_is_refused(self):
+        make_package(self.root / "extensions", name="twin_pkg")  # The same Harness names as PACKAGE.
+        self.assertTrue(self.plugins.turn(PACKAGE, True, self.environ, self.root)["ok"])
+        result = self.plugins.turn("twin_pkg", True, self.environ, self.root)
+        self.assertFalse(result["ok"])
+        self.assertIn("already used by " + PACKAGE, result["message"])
+        self.assertEqual(extensions.enabled(self.environ, self.root), [PACKAGE])
+
+    def test_the_variable_overriding_the_choice_is_said(self):
+        result = self.plugins.turn(PACKAGE, True, {**self.environ, "COVEY_EXTENSIONS": ""}, self.root)
+        self.assertTrue(result["ok"])
+        self.assertIn("COVEY_EXTENSIONS", result["message"])
+
+
 class ManifestTest(ExtensionCase):
     def test_the_default_directory_and_the_enabled_file_find_a_package(self):
         make_package(self.root / "extensions")

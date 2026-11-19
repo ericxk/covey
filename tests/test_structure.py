@@ -188,6 +188,7 @@ ENTRIES = {
     "covey_app_console.py": "covey.feishu.app_console",
     "covey_workspaces.py": "covey.core.workspaces",
     "covey_devices.py": "covey.service.device_check",
+    "covey_plugins.py": "covey.service.plugins",
     "covey_feishu_web.py": "covey.feishu.web_client",
     "covey_maso_runtime.py": "covey_internal.maso.runtime",  # compat shim for the company extension (extensions/covey_internal/)
     "covey_paseo_fleet.py": "covey_paseo.fleet",  # compat shim for the Paseo extension (extensions/covey_paseo/)
