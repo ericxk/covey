@@ -58,6 +58,7 @@ EXTRA_TURNS = 20  # The newest turns of a topic that get their process, plan and
 RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked at.
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
 NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
+CANCEL_REASONS = ("stale", "switched", "rewound", "lead_stop", "web_stop")  # A cancelled question's cancel_reason, pushed as its closed_by.
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
 
 
@@ -302,7 +303,7 @@ class Collector:
         out = [web_sync.item("topic", topic, body)]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:
-            made = self.question(row, topic, count, body["project_key"], number)
+            made = self.question(row, topic, count, body["project_key"], number, records, questions)
             if made:
                 out.append(web_sync.item("question", row.get("token"), made))
         return out
@@ -606,7 +607,7 @@ class Collector:
         return turn
 
     @staticmethod
-    def question(row, topic, count, project="", number=0):
+    def question(row, topic, count, project="", number=0, records=(), rows=()):
         status = row.get("status", "pending")
         if status == "pending" and row.get("display_pending"):
             return None  # Held for a project's lead: not the owner's yet.
@@ -622,10 +623,10 @@ class Collector:
         state = QUESTION_STATES.get(status, "answered")
         if state == "open" and triage.held(row):
             state = "held"  # The lead has it first (COVEY_PROJECT_TRIAGE): not the owner's to answer, so not 等你 on the page.
-        # The record has no answer time of its own: the last write of an answered question is the nearest to it.
-        answered = (moment(row.get("answered_at")) or moment(row.get("updated_at")) or None) if state == "answered" else None
+        closed_at, closed_by = closed(row, state, records, rows)
         return {"topic_key": topic, "turn_key": f"{topic}:{count + 1}" if status == "pending" else "", "questions": shown,
-                "state": state, "answer": said, "asked_at": moment(row.get("created_at")), "answered_at": answered,
+                "state": state, "answer": said, "asked_at": moment(row.get("created_at")),
+                "answered_at": closed_at if state == "answered" else None, "closed_at": closed_at, "closed_by": closed_by,
                 "project_key": project, "topic_number": number}
 
     # -- projects -------------------------------------------------------------------------------------------------------
@@ -862,6 +863,37 @@ def board_groups(rows, dismissed) -> dict:
         else:
             out[topic] = look.record_tone(record, seen=row.get("seen") is not None)
     return out
+
+
+def closed(row, state, records=(), rows=()) -> tuple:
+    """(closed_at, closed_by) of a question record whose web ``state`` is ``state`` (data contract v9): when it stopped waiting
+    (epoch seconds, None when not known) and how. ``closed_by``: owner (answered), feedback (只发补充说明 or feedback on the
+    questions), skipped (每题都选了不回答), lead (the project's lead answered it, COVEY_PROJECT_TRIAGE), superseded (a later
+    question of the topic folded it), stale (daily maintenance closed it), switched, rewound, lead_stop, web_stop or cancelled;
+    "" while it is open or held. The time is the record's own (core/store.py SETTLED_STAMPS); a record from before it has none,
+    so: an answer's follow-up task (``answer-<token>``) was created then, the lead's triage move, the newer question that folded
+    it, the asking task's last write when it was cancelled with it."""
+    if state not in ("answered", "cancelled"):
+        return None, ""
+    found = triage.of(row)
+    if state == "answered":
+        if found.get("state") == triage.ANSWERED:
+            how = "lead"
+        elif row.get("response_kind") == "feedback":
+            how = "feedback"
+        else:
+            how = "skipped" if all(each["choice"] == NOT_ANSWERED for each in answer_rows(row) or [{"choice": ""}]) else "owner"
+        follow = next((record for record in records if record.get("message_id") == "answer-" + str(row.get("token") or "")), None)
+        at = (moment(row.get("answered_at")) or moment((follow or {}).get("created_at"))
+              or (moment(found.get("at")) if how == "lead" else 0.0))
+        return at or None, how
+    if row.get("status") == "superseded":
+        newer = next((other for other in rows if other.get("token") and other.get("token") == row.get("superseded_by")), None)
+        return (moment(row.get("cancelled_at")) or moment((newer or {}).get("created_at"))) or None, "superseded"
+    asked = next((record for record in records if record.get("job_id") == row.get("job_id")), None)
+    at = moment(row.get("cancelled_at")) or (moment((asked or {}).get("updated_at")) if asked else 0.0)
+    reason = str(row.get("cancel_reason") or "")
+    return at or None, reason if reason in CANCEL_REASONS else "cancelled"
 
 
 def answer_rows(record) -> list:

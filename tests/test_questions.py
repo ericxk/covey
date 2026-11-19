@@ -1631,3 +1631,34 @@ class QuestionRecordTest(unittest.TestCase):
                                                             ensure_ascii=False))
         release_user_wait(checkpoint, drop_questions=True)
         self.assertEqual(json.loads(checkpoint.read_text()), {"phase": "等", "requires_user": False, "question": ""})
+
+
+class SettledStampTest(unittest.TestCase):
+    """core/store.py SETTLED_STAMPS: a question record says when it stopped waiting. 2026-11-19 T550: it said nothing, so the
+    web page's 专项报告 drew every answered or cancelled question as waiting until now."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.path = Path(folder.name) / "q.json"
+        write_private_text(self.path, json.dumps({"token": "q", "status": "pending", "created_at": 1.0}))
+
+    def test_an_answer_is_stamped_when_submitted_and_keeps_it(self):
+        before = time.time()
+        submitted = transition_question(self.path, {"pending"}, status="submitting")
+        self.assertGreaterEqual(submitted["answered_at"], before)
+        answered = transition_question(self.path, {"submitting"}, status="answered")
+        self.assertEqual(answered["answered_at"], submitted["answered_at"])
+        self.assertNotIn("cancelled_at", answered)
+
+    def test_a_cancellation_and_a_fold_are_stamped_unless_the_change_wrote_its_own(self):
+        cancelled = transition_question(self.path, {"pending"}, status="cancelled")
+        self.assertGreater(cancelled["cancelled_at"], 1.0)
+        write_private_text(self.path, json.dumps({"token": "q", "status": "pending"}))
+        self.assertEqual(transition_question(self.path, {"pending"}, status="cancelled", cancelled_at=5.0)["cancelled_at"], 5.0)
+        write_private_text(self.path, json.dumps({"token": "q", "status": "pending"}))
+        self.assertIn("cancelled_at", transition_question(self.path, {"pending"}, status="superseded"))
+
+    def test_a_write_that_does_not_move_the_status_stamps_nothing(self):
+        record = update_question(self.path, lambda row: {**row, "mirror_state": "sent"})
+        self.assertEqual(set(record) - {"mirror_state"}, {"token", "status", "created_at"})

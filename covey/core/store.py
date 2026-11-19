@@ -426,11 +426,28 @@ def update_question(path, change, *, expected=None):
         old, new = before.get('status', 'pending'), after.get('status', 'pending')
         if old != new and new not in QUESTION_TRANSITIONS.get(old, set()):
             raise ValueError(f'无效的问题状态转换：{old} → {new}')
+        if old != new:
+            _stamp_settled(before, after, new)
         if after != before:
             if 'revision' in after:
                 after['revision'] = int(after['revision']) + 1
             write_private_text(path, json.dumps(after, ensure_ascii=False))
         return after
+
+
+# The time a question stopped waiting, written as its status moves there unless the change wrote it itself: an answer's
+# when it is submitted (an uncertain one answered later keeps it), a cancellation's or a fold's when it happens. The
+# records have no other time of it (the web page's 专项报告 drew every closed question as waiting until now, T550).
+SETTLED_STAMPS = {'submitting': 'answered_at', 'answered': 'answered_at', 'cancelled': 'cancelled_at', 'superseded': 'cancelled_at'}
+
+
+def _stamp_settled(before, after, new):
+    field = SETTLED_STAMPS.get(new)
+    if not field or after.get(field) != before.get(field):
+        return
+    if new == 'answered' and after.get(field):
+        return
+    after[field] = time.time()
 
 
 def transition_question(path, expected=None, **changes):

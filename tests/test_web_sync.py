@@ -24,7 +24,7 @@ from covey.core.butler import butler_topic_id
 from covey.core.history_storage import append_history
 from covey.core.serving import LoopbackServer
 from covey.core.jobs import job_file
-from covey.core.state import read_object, write_json
+from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.topic_seen import read_seen
 from covey.core.topics import context_for_topic, message_topic, remember_topic_message
 from support.fake_backends import codex_context
@@ -696,6 +696,7 @@ class InboxTest(WebCase):
         self.assertIn("等你回答的题已收掉", self.web.acks[0]["message"])
         saved = read_object(self.state / "questions" / f"{TOKEN}.json")
         self.assertEqual((saved["status"], saved.get("cancel_reason")), ("cancelled", "web_stop"))
+        self.assertGreaterEqual(saved["cancelled_at"], T0)  # core/store.py SETTLED_STAMPS: the page's report ends its 等你 there.
         self.assertEqual(self.app.painted, [(TOKEN, "cancelled")])
         job = read_object(job_file(self.state, f"k-{TOPIC[:4]}"))
         self.assertEqual(job["status"], "cancelled")
@@ -1189,13 +1190,42 @@ class ExtrasTest(WebCase):
 
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()
-        self.question(status="answered", updated_at=T0 + 30, answers={"q1": {"answers": ["A"]}})
+        self.question(status="answered", answered_at=T0 + 30, answers={"q1": {"answers": ["A"]}})
         self.question("tok-two-000001", created_at=T0 + 5)
         self.sync.push_once(T0 + 40)
         asked = {item["key"]: item["data"] for item in self.web.items("question")}
         self.assertEqual((asked[TOKEN]["asked_at"], asked[TOKEN]["answered_at"], asked[TOKEN]["project_key"], asked[TOKEN]["topic_number"]),
                          (T0, T0 + 30, "", 7))
         self.assertEqual((asked["tok-two-000001"]["asked_at"], asked["tok-two-000001"]["answered_at"]), (T0 + 5, None))
+
+    def test_a_closed_question_says_when_and_how_it_stopped_waiting(self):
+        """2026-11-19 T550: question records had no answer time, every pushed ``answered_at`` was null, and the page's 专项报告
+        drew all 59 questions of a project as waiting until now (等你 31 小时) while the board said none waited. Each closed
+        question now says when (``closed_at``) and how (``closed_by``); a record from before the stamp takes its answer's
+        follow-up task, the lead's triage move or the question that folded it."""
+        self.topic(status="waiting_user")
+        write_job(self.state, "answer-tok-old-0001", topic_id=TOPIC, chat_id=CHAT, job_id=8, status="done",
+                  message_id="answer-tok-old-0001", created_at="2026-11-19T01:00:00Z")
+        self.question("tok-old-0001", status="answered", answers={"q1": {"answers": ["A"]}}, continuation_job_id=8)
+        self.question("tok-new-0001", status="answered", answers={"q1": {"answers": ["B"]}}, answered_at=T0 + 50, response_kind="feedback")
+        self.question("tok-lead-001", status="answered", answers={"q1": {"answers": ["A"]}},
+                      triage={"state": "answered_by_lead", "at": T0 + 70, "by": "lead"})
+        self.question("tok-skip-001", status="answered", answers={"q1": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}}, answered_at=T0 + 80)
+        self.question("tok-fold-001", status="superseded", superseded_by="tok-open-001")
+        self.question("tok-open-001", created_at=T0 + 90)
+        self.question("tok-stale-01", status="cancelled", cancel_reason="stale", cancelled_at=T0 + 100)
+        self.sync.push_once(T0 + 200)
+        by = {item["key"]: item["data"] for item in self.web.items("question")}
+        old = epoch_seconds("2026-11-19T01:00:00Z")
+        self.assertEqual({key: (row["state"], row["closed_at"], row["closed_by"], row["answered_at"]) for key, row in by.items()}, {
+            "tok-old-0001": ("answered", old, "owner", old),
+            "tok-new-0001": ("answered", T0 + 50, "feedback", T0 + 50),
+            "tok-lead-001": ("answered", T0 + 70, "lead", T0 + 70),
+            "tok-skip-001": ("answered", T0 + 80, "skipped", T0 + 80),
+            "tok-fold-001": ("cancelled", T0 + 90, "superseded", None),
+            "tok-open-001": ("open", None, "", None),
+            "tok-stale-01": ("cancelled", T0 + 100, "stale", None),
+        })
 
     def test_the_memory_and_library_of_a_project_say_who_wrote_them(self):
         self.thread(OTHER, "对账", 8, status="done")
