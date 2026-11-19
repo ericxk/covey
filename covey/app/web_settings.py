@@ -51,7 +51,6 @@ GONE = "这个选项已不可用，页面会按最新设置重画"
 READ_ONLY = "这一项网页上只读，请到飞书设置卡上改"
 TERMS_SHAPE = "词表改动的格式不对，页面会按最新词表重画"
 TERMS_UNREADABLE = "词表读不出来，请到飞书设置卡上看"
-ALREADY = "词表里已经有这个词"  # core/redaction.py row_problem's words for a term already in the list.
 
 
 def group_key(chat_id) -> str:
@@ -295,10 +294,11 @@ class WebSettings:
         return notice.lstrip("✓ ").strip() or "已保存。"
 
     def change_terms(self, ctx, payload) -> str:
-        """Terms added and removed at once (``add``, ``remove``: lists of terms as written), in one ``update_config``: the removed go
-        first (a term written again in another case is a remove and an add), a term not in the list is passed over, as is an added one
-        already there; an added term the list cannot take (core/redaction.py ``row_problem``) saves nothing. The receipt counts."""
-        from covey.core.redaction import Refused, row_problem, update_config
+        """Terms added and removed at once (``add``, ``remove``: lists of terms as written), in one save (core/redaction.py
+        ``edit_terms``, ``whole``): the removed go first (a term written again in another case is a remove and an add), a term not in
+        the list is passed over, as is an added one already there; an added term the list cannot take saves nothing. The receipt
+        counts."""
+        from covey.core.redaction import Refused, edit_terms
         add, remove = payload.get("add"), payload.get("remove")
         if not isinstance(add, list) or not isinstance(remove, list) or not all(isinstance(t, str) for t in add + remove):
             raise ValueError(TERMS_SHAPE)
@@ -307,35 +307,19 @@ class WebSettings:
         if not add and not remove:
             return "没有变化"
 
-        def change(config):
-            fold = str.casefold if config["ignore_case"] else (lambda t: t)
-            gone = {fold(t) for t in remove}
-            kept = [row for row in config["terms"] if fold(row["term"]) not in gone]
-            removed, config["terms"] = len(config["terms"]) - len(kept), kept
-            added, there, wrong = 0, 0, {}
-            for number, term in enumerate(add, 1):
-                why = "替身词自动生成，不用写 =>" if "=>" in term else row_problem(
-                    config["terms"], term, "", ignore_case=config["ignore_case"])
-                if why == ALREADY:
-                    there += 1
-                elif why:
-                    wrong.setdefault(why, []).append(number)
-                else:
-                    config["terms"].append({"term": term, "stand_in": "", "anywhere": False})
-                    added += 1
-            if wrong:
-                raise Refused("没有保存：" + "；".join(f"新加的第 {'、'.join(map(str, n[:5]))}{' 等' if len(n) > 5 else ''} 个词{why}"
-                                                   for why, n in wrong.items()))
-            return added, removed, there, len(gone) - removed
-
         try:
-            added, removed, there, missing = update_config(ctx.state_dir, change)
+            edit = edit_terms(ctx.state_dir, add=add, remove=remove, whole=True)
         except Refused as exc:
-            raise ValueError(str(exc)) from None
+            wrong = {}
+            for number, why in exc.skipped:
+                wrong.setdefault(why, []).append(number)
+            raise ValueError("没有保存：" + "；".join(f"新加的第 {'、'.join(map(str, n[:5]))}{' 等' if len(n) > 5 else ''} 个词{why}"
+                                                for why, n in wrong.items()) if wrong else str(exc)) from None
         except ValueError:  # Its words may quote a term, and the receipt is kept in the page's outbox.
             raise ValueError(TERMS_UNREADABLE) from None
         except OSError:
             raise ValueError("没有保存：词表写不进去") from None
+        added, removed, there, missing = len(edit.added), len(edit.removed), len(edit.already), len(edit.missing)
         done = "、".join(f"{verb} {n} 个" for verb, n in (("加", added), ("删", removed)) if n)
         passed = "，".join(words for words, n in ((f"{there} 个已在词表里", there), (f"{missing} 个已经不在词表里", missing)) if n)
         words = (f"已保存：{done}" if done else "没有变化") + (f"（{passed}）" if passed else "")

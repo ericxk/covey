@@ -56,7 +56,12 @@ EDIT_LOCK = threading.Lock()  # update_config: one change of the saved list at a
 
 
 class Refused(ValueError):
-    """Why a change of the list was not made, in words that name no term: a card may show them."""
+    """Why a change of the list was not made, in words that name no term: a card may show them. ``skipped``: what
+    ``edit_terms(whole=True)`` refused, (number, why) pairs, for a caller with words of its own."""
+
+    def __init__(self, words, skipped=()):
+        super().__init__(words)
+        self.skipped = tuple(skipped)
 
 
 def masked(term: str) -> str:
@@ -266,7 +271,7 @@ def edit_terms(state_dir, *, add=(), remove=(), whole=False) -> TermEdit:
                 config["terms"].append({"term": term, "anywhere": False})
                 added.append(term)
         if whole and skipped:
-            raise Refused("没有保存：" + said_lines(skipped))
+            raise Refused("没有保存：" + said_lines(skipped), skipped)
         edit = TermEdit(tuple(added), removed, tuple(already), missing, tuple(skipped))
         if not edit.changed:
             raise _Unchanged(edit)
