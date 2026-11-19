@@ -125,7 +125,7 @@ class WebSettings:
                  WORKSPACE: lambda: self.workspaces(ctx, settings), REDACTION: lambda: self.redaction(ctx),
                  GROUPS: lambda: self.groups(ctx, now), NODES: lambda: self.nodes(ctx),
                  PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT)}
-        try:  # 开新话题's choices for the page's chat box (data contract v16), not a tab.
+        try:  # 开新话题's choices for the page's chat box (data contract v17), not a tab.
             data["launch"] = web_launch.catalog(self.env, ctx, chat)
         except Exception as exc:  # noqa: BLE001 - the rest of the settings go on
             self.env.runtime.log(f"web settings launch unreadable: {type(exc).__name__}")

@@ -1,4 +1,4 @@
-"""网页开新话题 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v16 ``launch``): what the launch card offers a new topic of the
+"""网页开新话题 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v17 ``launch``): what the launch card offers a new topic of the
 owner's private chat, pushed for the page's chat box (``catalog``), and the page's ``launch`` that opens one with the choices made there
 (``launch``), started at once (the owner, 2026-11-19 T554: 网页上选好就直接开工).
 
@@ -76,7 +76,7 @@ def _selection(env, choices, config, harnesses, reads, draft=None):
 
 
 def catalog(env, ctx, chat) -> dict:
-    """The data contract v16 ``launch`` block (see the module's docstring)."""
+    """The data contract v17 ``launch`` block (see the module's docstring)."""
     from covey.app.launch_models import available_models
     from covey.core.menu_choice import budget_options, harness_of, tiers
     from covey.core.defaults import WORK_MODES
