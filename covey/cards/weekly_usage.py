@@ -18,6 +18,7 @@ EMPTY = "这 7 天没有任务。"
 # How the tasks ended, in the order the band's bar and the text list them: core/look.py STATES keys. A status the table
 # does not know (``idle``) is left out of the bar.
 ENDED = ("done", "running", "waiting", "queued", "stopped", "cancelled")
+LABEL_COLOR = "#8F959E"  # The bars' figures: Feishu's grey, readable on a light and a dark card.
 BAR_COLOR = "#5E6AD2"  # The trend's bars: the band's indigo (core/look.py BAND rgb), the same in light and dark mode.
 RING_FLOOR = 2  # Percent of the tokens a Harness needs for a slice of its own; the rest is one 其他.
 
@@ -154,7 +155,8 @@ def trend(daily):
     return [section(f"每天的 token（{unit}）"),
             {"tag": "chart", "aspect_ratio": "2:1", "height": "150px", "chart_spec": {
                 "type": "bar", "data": {"values": values}, "xField": "day", "yField": "value", "color": [BAR_COLOR],
-                "label": {"visible": True}, "axes": [{"orient": "left", "visible": False},
+                # Grey figures without an outline: the default outline read as a blur in dark mode (2026-11-19).
+                "label": {"visible": True, "style": {"fill": LABEL_COLOR, "lineWidth": 0}}, "axes": [{"orient": "left", "visible": False},
                                                      {"orient": "bottom", "label": {"visible": True}}],
                 "barMaxWidth": 28}}]
 
