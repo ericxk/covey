@@ -996,7 +996,7 @@ def digest_cards():
                              "line": "要你定：Prompt 问题清单已出，等你定 6 件事", "meta": ["等了 45分28秒"]}],
                 "stale": [{"topic": "s", "label": "T370", "title": "旧问题"}], "dismissable": True, "can_dismiss": True,
                 "running": [{"topic": "b", "label": "T488", "title": "修 064 采购审批题包", "url": "https://applink.feishu.cn/t/488",
-                             "line": "现在：梳理 Service 还剩哪些要收尾", "meta": ["▰▰▰▰▱▱▱ 4/7", "预计还要约 35 分钟", "2 分钟前有动静"]},
+                             "line": "现在：梳理 Service 还剩哪些要收尾", "meta": ["4/7 步", "预计还要约 35 分钟", "2 分钟前有动静"]},
                             {"topic": "c", "label": "T519", "title": "从追问记录盘点 Covey 痛点", "url": "",
                              "line": "现在：在审看板", "meta": ["35 分钟前有动静"], "stuck": True}],
                 "done": [{"topic": "d", "label": "T525", "title": "修 C队开发机重启后自启", "url": "https://applink.feishu.cn/t/525",

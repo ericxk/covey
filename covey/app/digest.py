@@ -252,8 +252,9 @@ def collect(state, chat, slot, since, now, *, board=False):
         figures = turn_progress.board_words(found, now)
         words = " · ".join([words, *figures])
         ran = run_seconds(record.get("timings"), now=now) if status != "queued" else None
-        plan = (f"{'▰' * found['plan_done']}{'▱' * (found['plan_total'] - found['plan_done'])} {found['plan_done']}/{found['plan_total']}"
-                if found.get("plan_total") and found.get("plan_done") is not None and found["plan_total"] <= 12 else "")
+        # Steps as words, not a bar (docs/ui.md 4 progress: 话题行里不放，用“5/8 步”的文字代替).
+        plan = (f"{found['plan_done']}/{found['plan_total']} 步"
+                if found.get("plan_total") and found.get("plan_done") is not None else "")
         moved = found.get("last_activity_at")
         running_rows.append({**row(topic, words, f"已运行 {took_text(ran)}" if ran is not None else ""),
                              "line": f"现在：{phase_of(record)}" if phase_of(record) else

@@ -31,15 +31,26 @@ def speaker(who) -> str:
     return font("**" + literal(" ".join(str(who or "").split())) + "**", look.BRAND["color"]) if who else ""
 
 
+# Feishu's ``neutral`` is a grey tag but near-black text: a background state's words, dot and bar part are ``grey``
+# (docs/ui.md 2.2: neutral 或 grey; the 用量 sample card, 2026-11-19, read 做完 as a black bar).
+INK = {"neutral": "grey"}
+
+
+def ink(key) -> str:
+    """A state's colour for text, a dot or a bar part (``<font>``)."""
+    color = look.STATES[key].color
+    return INK.get(color, color)
+
+
 def dot(key) -> str:
     """A state's dot, in its colour."""
-    return font("●", look.STATES[key].color)
+    return font("●", ink(key))
 
 
 def state_word(key, *, heading=False) -> str:
     """A state's dot and its word in bold, both in its colour: how a row says its state."""
     found = look.STATES[key]
-    return f"{dot(key)} {font('**' + (look.group_word(key) if heading else found.word) + '**', found.color)}"
+    return f"{dot(key)} {font('**' + (look.group_word(key) if heading else found.word) + '**', ink(key))}"
 
 
 def state_pill(key) -> str:
@@ -118,7 +129,7 @@ def seg_bar(counts) -> list:
     total = sum(n for _, n in parts)
     widths = [max(1, round(SEG_WIDTH * n / total)) for _, n in parts]
     widths[widths.index(max(widths))] += SEG_WIDTH - sum(widths)  # The longest part takes the rounding.
-    bar = "".join(font(SEG_CHAR * width, look.STATES[key].color) for (key, _), width in zip(parts, widths))
+    bar = "".join(font(SEG_CHAR * width, ink(key)) for (key, _), width in zip(parts, widths))
     legend = "　".join(f"{dot(key)} {grey(f'{n} {look.STATES[key].word}')}" for key, n in parts)
     return [md(bar, size="notation"), md(legend, size="notation")]
 
