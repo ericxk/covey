@@ -290,22 +290,49 @@ ASK_ID = "answer_ask"
 ASK_CHARS = 70
 
 
-def ask_block(text, *, verb="你问", at="", url="", who=""):
+# What the speaker did with the owner's message, as one sentence (the owner, 2026-11-19, 样卡 B: 一句话写清关系 —
+# "管家 · 你问 · 12:31" read as if the butler asked). Keyed by (``verb``, ``doing``); {at} is " 12:31 " or "".
+SAYS = {
+    ("你问", "answer"): "答复你{at}的问题", ("你答", "answer"): "收到你{at}的回答",
+    ("你问", "done"): "做完了你{at}交代的事", ("你答", "done"): "按你{at}的回答做完了",
+    ("你问", "waiting"): "办你{at}交代的事，要你定", ("你答", "waiting"): "按你{at}的回答接着办，要你定",
+    ("你问", "stopped"): "办你{at}交代的事时停了", ("你答", "stopped"): "按你{at}的回答接着办时停了",
+    ("你问", "about"): "关于你{at}的问题", ("你答", "about"): "关于你{at}的回答",
+}
+ALONE = "主动来汇报{at}"  # A speaker that answers no message of the owner's (a lead woken by the Bridge).
+
+
+def says(verb, doing, at) -> str:
+    """The sentence after the speaker: "答复你 12:31 的问题", "做完了你 09:12 交代的事"; "主动来汇报 · 09:40" for
+    ``doing`` "report", a turn no message of the owner's started."""
+    if doing == "report":
+        return ALONE.format(at=f" · {at}" if at else "")
+    template = SAYS.get((verb, doing)) or SAYS.get((verb, "answer")) or SAYS[("你问", "answer")]
+    return template.format(at=f" {at} " if at else "")
+
+
+def ask_block(text, *, verb="你问", at="", url="", who="", doing="answer"):
     """The block above an answer, a conclusion or a question's copy at the private chat's top level saying which
     message of the owner's it answers (the owner, 2026-11-08: 不用飞书的引用，给个像引用、能点过去的链接): grey, two
     lines, "你问 · 12:31 ›" and the message's words (two lines at most); the whole block opens ``url`` (the
     message's thread, app/answer_cards.py ask_link). Style "A" of four samples. ``who``: its speaker (docs/ui.md 5.3,
-    cards/ui.py ``speaker``) leads the first line, "**管家** · 你问 · 12:31 ›"; with no words then, that line alone.
-    None without words or a speaker."""
+    cards/ui.py ``speaker``) and what it did with that message in one sentence (``says``, by ``doing``: answer, done,
+    waiting, stopped, about, report), "**管家** 答复你 12:31 的问题 ›" over 「his words」; with no words, that line
+    alone (a lead's wake-up turn: "主动来汇报 · 09:40"). None without words or a speaker."""
     from covey.cards.ui import speaker
 
     words = " ".join(str(text or "").split())
     if not words and not who:
         return None
     words = words if len(words) <= ASK_CHARS else words[:ASK_CHARS - 1] + "…"
-    rest = " · ".join(part for part in (verb if words else "", at) if part) + ("　›" if url else "")
-    head = (speaker(who) + (" " + grey("· " + rest.lstrip("　")) if rest.strip() else "")) if who else grey(rest)
-    lines = [md(head, size="notation")] + ([md(grey(literal_text(words)), size="normal_v2")] if words else [])
+    arrow = "　›" if url else ""
+    if who:
+        head = speaker(who) + " " + grey(says(verb, doing, at) + arrow)
+        quoted = f"「{words}」"
+    else:
+        head = grey(" · ".join(part for part in (verb if words else "", at) if part) + arrow)
+        quoted = words
+    lines = [md(head, size="notation")] + ([md(grey(literal_text(quoted)), size="normal_v2")] if words else [])
     box = {"tag": "interactive_container", "element_id": ASK_ID, "width": "fill", "padding": "6px 10px 6px 10px",
            "corner_radius": "6px", "background_style": "grey-50", "vertical_spacing": "2px", "elements": lines}
     if url:

@@ -344,6 +344,9 @@ class DeliverTest(Case):
         speaker = kwargs["card"]["body"]["elements"][0]
         self.assertEqual(speaker["element_id"], "answer_ask")
         self.assertIn("**T410", str(speaker))
+        # One sentence says what the topic did with the owner's words (样卡 B): not "T410 · 你问", which read as its own.
+        self.assertIn("做完了你", str(speaker))
+        self.assertNotIn("· 你问", str(speaker))
         self.assertIn("有结果 · T410", str(kwargs["card"]["body"]["elements"][1]))  # The conclusion band.
         self.assertIn("两种做法都行", kwargs["card"]["body"]["elements"][2]["content"])
         # The answer card's 输入/输出 box (cards/answer_card.py), 输出 ending in the T number.

@@ -131,7 +131,7 @@ class TaskControls(Redelivery):
             return card
         from covey.app.answer_cards import asked
         try:
-            block = asked(ctx.state_dir, record, profile=ctx.profile, log=self.runtime.log)
+            block = asked(ctx.state_dir, record, profile=ctx.profile, log=self.runtime.log, doing="stopped")
         except Exception as exc:  # noqa: BLE001 - the card without it
             self.runtime.log(f"recovery card 你问 unavailable: {type(exc).__name__}")
             block = None

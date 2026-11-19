@@ -125,7 +125,8 @@ def send_once(state_dir, job, path, key, target, outcome, send, profile=None, lo
     leaves the record ``unsent`` (``record_unsent``): ``submitting`` only ever says it is about to go or went."""
     try:
         card = turn_card(state_dir, job, outcome)
-        facts = {**facts, "ask": ask_for(state_dir, job, target, profile, at=card, log=log)}
+        # What the topic did with the owner's words, in the speaker's sentence (cards/answer_card.py says).
+        facts = {**facts, "ask": ask_for(state_dir, job, target, profile, at=card, log=log, doing=outcome)}
         reply_to = ""  # A message of its own at the top level, quoting no card.
         built, text = relay_card(target["label"], outcome, **facts)
         topic = str(target.get("topic_id") or job_field(job, "topic_id"))

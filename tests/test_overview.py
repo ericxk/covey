@@ -415,3 +415,14 @@ class SpeakerTest(unittest.TestCase):
         self.assertEqual(look.speaker("topic", label="T9", title="一" * 40), "T9 " + "一" * 23 + "…")
         self.assertEqual(look.speaker("topic"), "")
 
+
+class SpeakerSentenceTest(unittest.TestCase):
+    def test_the_speaker_says_what_it_did_with_the_owners_words(self):
+        from covey.cards.answer_card import says
+
+        self.assertEqual(says("你问", "answer", "12:31"), "答复你 12:31 的问题")
+        self.assertEqual(says("你问", "done", ""), "做完了你交代的事")
+        self.assertEqual(says("你答", "waiting", "09:12"), "按你 09:12 的回答接着办，要你定")
+        self.assertEqual(says("你问", "unknown", "09:12"), "答复你 09:12 的问题")
+        self.assertEqual(says("你问", "report", "09:40"), "主动来汇报 · 09:40")
+

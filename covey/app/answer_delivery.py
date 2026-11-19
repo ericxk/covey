@@ -79,11 +79,13 @@ class AnswerParts:
             self.runtime.log(f"answer card status line unavailable: {type(exc).__name__}")
             return None
 
-    def ask_block(self):
-        """The "你问" block of this turn (cards/answer_card.py ask_block); None when it cannot be told."""
+    def ask_block(self, doing="answer"):
+        """The "你问" block of this turn (cards/answer_card.py ask_block), the speaker saying ``doing`` (``says``); None
+        when it cannot be told."""
         try:
             # The butler's own turn: the owner's message in the chat (answer_cards.ask_url).
-            return answer_cards.asked(self.ctx.state_dir, self.job, profile=self.ctx.profile, log=self.runtime.log)
+            return answer_cards.asked(self.ctx.state_dir, self.job, profile=self.ctx.profile, log=self.runtime.log,
+                                      doing=doing)
         except Exception as exc:  # noqa: BLE001 - the answer goes without it
             self.runtime.log(f"answer card 你问 unavailable: {type(exc).__name__}")
             return None

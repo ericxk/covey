@@ -93,7 +93,7 @@ def area_target(state_dir, topic_id, chat=""):
             "topic_id": topic_id, "main_key": str(best[1].get("job_key") or "")}
 
 
-def ask_for(state_dir, job, target, profile=None, *, at="", log=None):
+def ask_for(state_dir, job, target, profile=None, *, at="", log=None, doing="about"):
     """The "你问"/"你答" block of the topic turn ``job`` its relay or question copy carries (app/answer_cards.py
     asked): the words of the owner's message the butler took it from (its job record, target ``main_key``), or,
     for a turn the owner started in the topic (kind "follow"), the turn's own words; None when it cannot be told.
@@ -106,7 +106,7 @@ def ask_for(state_dir, job, target, profile=None, *, at="", log=None):
             record = find_job_record(Path(state_dir), str(target["main_key"]))
         from covey.app.answer_cards import turn_messages
 
-        return answer_cards.asked(state_dir, record or job, profile=profile, log=log,
+        return answer_cards.asked(state_dir, record or job, profile=profile, log=log, doing=doing,
                                   topic_id=str(target.get("topic_id") or job_field(job, "topic_id") or ""),
                                   at=[m for m in (at, *turn_messages(job)) if m])
     except Exception:  # noqa: BLE001 - the relay goes without it

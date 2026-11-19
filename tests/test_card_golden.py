@@ -723,11 +723,15 @@ def answer_tail_cards():
             # Who speaks (docs/ui.md 5.3 speaker): a topic's relay, the butler's answer, a lead's wake-up turn (no 你问).
             "answer_relay_speaker": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
                                                ask=ask_block("看板改成彩色块", at="12:31", url="https://applink.feishu.cn/t/439",
-                                                             who="T439 改看板的颜色"))[0],
+                                                             who="T439 改看板的颜色", doing="done"))[0],
             "answer_card_butler": answer_card(text, "✅ 结论", tail(files, inputs, outputs),
                                               [ask_block("看板改成彩色块", at="12:31", who="管家")]),
+            # The speaker's sentence by what it did (cards/answer_card.py says, 样卡 B): a relay waiting, a stopped one.
+            "ask_speaker_waiting": ask_block("选哪种样式", verb="你答", at="09:12", url="https://applink.feishu.cn/t/439",
+                                             who="T439 改看板的颜色", doing="waiting"),
+            "ask_speaker_stopped": ask_block("看板改成彩色块", at="09:12", who="T439 改看板的颜色", doing="stopped"),
             "answer_card_lead": answer_card(text, "✅ 结论", tail(files, inputs, outputs),
-                                            [ask_block("", at="12:40", who="专项「Covey 体验」· 负责人")]),
+                                            [ask_block("", at="12:40", who="专项「Covey 体验」· 负责人", doing="report")]),
             "answer_tail_card": tail_card(tail(files, inputs, outputs), "T439 · 产物与详情",
                                           "上面是这一轮的回答，产物和详情在这里"),
             # A turn that changed code: its 改动 folded under 产物 (cards/answer_card.py change_element).

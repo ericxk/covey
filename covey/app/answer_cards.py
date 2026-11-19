@@ -187,13 +187,14 @@ def ask_url(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, 
     return url
 
 
-def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, log=None):
+def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, log=None, doing="answer"):
     """The "你问" block (cards/answer_card.py ask_block) for the job ``record`` (a job record or a job): the owner's
     words that started it (``asked_text`` first: the words he added to a turn that waited for them, app/steering.py
     merge_before_start), when, and the link ``ask_url`` gives (``topic_id``, ``at``, ``log`` as it takes them). An
     answer's turn says "你答" and "question → answer" as its task card's title, the same block with the same link;
     with no link at all it folds out the whole answer instead (answer_block, the question record's words split it,
-    ``asked_questions``), so the words are still there. None without words."""
+    ``asked_questions``), so the words are still there. ``doing``: what the speaker did with it (cards/answer_card.py
+    ``says``). None without words."""
     from covey.core.turn_words import request_line
     from covey.cards.answer_card import ask_block
     from covey.core.state import epoch_seconds
@@ -213,7 +214,7 @@ def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, lo
     who = speaker(state_dir, str(topic_id or get("topic_id") or ""), str(get("chat_id") or ""), log)
     if projects.own_message(str(get("message_id") or "")):
         # A project's lead woken by the Bridge or handed the butler's words: the owner asked nothing here; who speaks.
-        return ask_block("", at=time_of_day(), who=who)
+        return ask_block("", at=time_of_day(), who=who, doing="report")
     text = str(get("user_text") or "")
     answer = text.lstrip().startswith(ANSWER_HEADING)
     words = " ".join(str(get("asked_text") or "").split())
@@ -238,7 +239,7 @@ def asked(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, lo
         parts = answer_parts(text, asked_questions(state_dir, str(get("message_id") or "")))
         added = str(get("asked_text") or "").strip()
         return answer_block([*parts, *([("heading", "另外说的"), ("note", added)] if added else [])], words, at=when)
-    return ask_block(words, verb="你答" if answer else "你问", at=when, url=url, who=who)
+    return ask_block(words, verb="你答" if answer else "你问", at=when, url=url, who=who, doing=doing)
 
 
 def speaker(state_dir, topic_id, chat_id, log=None) -> str:

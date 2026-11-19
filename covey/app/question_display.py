@@ -145,7 +145,8 @@ class QuestionDisplay:
         if not target:
             return ""
         ask = (ask_for(ctx.state_dir, job, self._asked_target(ctx, job, target) if place.traits.relays else target,
-                       ctx.profile, at=str(record.get("question_message_id") or ""), log=self.runtime.log)
+                       ctx.profile, at=str(record.get("question_message_id") or ""), log=self.runtime.log,
+                       doing="waiting")
                if place.row.ask_block and job is not None else None)
         reply_to = "" if place.row.question_copy == placement.TOP else target["reply_to"]
         path = ctx.state_dir / "questions" / (token + ".json")
@@ -297,7 +298,7 @@ class QuestionDisplay:
             return None
         from covey.app.answer_cards import asked
         try:
-            return asked(ctx.state_dir, job, profile=ctx.profile, log=log) or {}
+            return asked(ctx.state_dir, job, profile=ctx.profile, log=log, doing="waiting") or {}
         except Exception:  # noqa: BLE001 - the card without it
             return {}
 

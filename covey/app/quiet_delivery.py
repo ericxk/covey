@@ -112,7 +112,7 @@ class QuietDelivery:
             elif label:
                 text += "点下面的按钮检查并继续。"
             actions = [result_actions(job.topic_id, job.job_id, label)] if label else []
-            ask = self.ask_block()
+            ask = self.ask_block("about")
             built = answer_card(optimize_markdown(text, step_headings=False), f"⚠️ 没发出去：{answer_lead(text)}",
                                 actions, [ask] if ask else [])
             if not self.send_text(self.top_ctx(), job.chat_id, text, f"{self.prefix}-undelivered-{job.message_id}",
@@ -137,7 +137,7 @@ class QuietDelivery:
         """``text``, a few words the Bridge wrote (a failure, a refusal, a timeout), as a card at the chat's top level
         with this turn's "你问" block above it (core/placement.py Row.quiet); whether it went."""
         job = self.job
-        ask = self.ask_block()
+        ask = self.ask_block("about")
         built = answer_card(optimize_markdown(text, step_headings=False), self.notice_preview(text), (),
                             [ask] if ask else [])
         return bool(self.send_text(self.top_ctx(), job.chat_id, text, key, card=built))
