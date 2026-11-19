@@ -55,7 +55,9 @@ class WebSettingsTest(UnifiedCase):
         if FIXTURE:
             with open(FIXTURE, "w") as out:
                 json.dump(data, out, ensure_ascii=False, indent=1)
-        self.assertEqual([t["label"] for t in data["tabs"]], ["新话题", "管家", "工作区", "脱敏", "群聊"])  # 设备 only with nodes.
+        from covey.app.proxy_send import available
+        # 设备 only with nodes; 代答 only where a sender is (an extension, covey_internal).
+        self.assertEqual([t["label"] for t in data["tabs"]], ["新话题", "管家", "工作区", "脱敏", "群聊"] + (["代答"] if available() else []))
         self.assertNotIn("nodes", data)
         topic = data["topic"]
         self.assertEqual([r["label"] for r in topic["rows"]][-3:], ["脱敏", "工作区", "直接开工"])
