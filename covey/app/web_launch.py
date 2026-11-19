@@ -79,6 +79,7 @@ def catalog(env, ctx, chat) -> dict:
     """The data contract v16 ``launch`` block (see the module's docstring)."""
     from covey.app.launch_models import available_models
     from covey.core.menu_choice import budget_options, harness_of, tiers
+    from covey.core.defaults import WORK_MODES
     from covey.core.workspaces import RUN_MODES
     choices = available_models(env.topics, ctx)
     config, titles, harnesses = _config(env, ctx, chat)
@@ -96,7 +97,10 @@ def catalog(env, ctx, chat) -> dict:
                        "label": str(entry.get("display_name") or entry.get("label") or key.partition(":")[2]),
                        "budgets": [{"value": value, "text": text} for value, text in options], "default_budget": default,
                        "start_budget": start, "redaction": bool(entry.get("redaction")),
-                       "work_modes": list(entry.get("work_modes") or ())})
+                       "work_modes": list(entry.get("work_modes") or ()),
+                       # The card's words for each mode (core/defaults.py WORK_MODES: name（what it does）).
+                       "work_mode_texts": {mode: "{}（{}）".format(*WORK_MODES[mode]) if mode in WORK_MODES else mode
+                                           for mode in entry.get("work_modes") or ()}})
     defaults = reads["defaults"]
     workspaces = [{"name": name, "device": titles.get(name, ""), "harnesses": list(harnesses.get(name) or ())}
                   for name in found.names]
