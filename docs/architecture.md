@@ -339,7 +339,7 @@ read、refused、withdrawn：终态
 - 排队卡上的补充发给排队时绑定的目标任务。声明 `steer_reads` 的后端（Claude）一轮结束时仍是 `sent` 的补充记 `target_ended`，回执写模型没有读到。
 - 回执卡的按钮由 `offers` 决定；“重新排队执行”每条只排一次（`requeue_state`、`requeued_job_id`）。
 - 没读到的补充（`app/steer_interrupt.py`）：持有任务后端的进程（任务进程，或 Bridge 自己跑的任务）在补充 `sent` 后起一个 `steer-unread` 线程，送达后 `URGENT_SECONDS`（20 秒，`COVEY_STEER_URGENT_SECONDS`）和 `REPAINT_AT` 各看一次：还没读到就重画回执（“已等 N 秒”）；第一次看时补充是急的（`core/steer.py` 的 `is_urgent`），就调后端的 `stop_command`。点“打断它，马上读”（`bridge_steer_interrupt`，按 `job_id` 转给任务进程）走同一个 `interrupt`。每条补充只试一次（`interrupt_at`；没东西可停时清掉，可以再点），记录里留 `interrupt`（结果的话）和 `interrupted`（停掉的命令）。
-- `stop_command`（能力 `command_stop`，只有本机的 Claude）：从事件里取主任务正在等的前台 Bash 调用（不含后台命令和子任务的命令），在 Claude CLI 的子进程里按命令行找到它的 shell（`backends/claude/command_stop.py`），先送一条说明（为什么命令被停）再停它的进程组（SIGTERM，2 秒后 SIGKILL，pidfd 防 PID 复用）。`core/steer.py` 的 `keeps_running` 列的命令（推送、部署、发布、安装、远程拷贝、改服务）从不停。
+- `stop_command`（能力 `command_stop`，只有本机的 Claude）：从事件里取主任务正在等的前台 Bash 调用（不含后台命令和子任务的命令），在 Claude CLI 的子进程里按命令行找到它的 shell（`backends/claude/command_stop.py`），先送一条说明（为什么命令被停）再停它的进程组（SIGTERM，2 秒后 SIGKILL，pidfd 防 PID 复用）。`core/steer.py` 的 `keeps_running` 列的命令（推送、部署、发布、安装、远程拷贝、改服务、删除和移动）从不停。
 - 管家的补充没有回执卡：确定没读到的（`refused`，或 `target_ended`）标 `requeue_auto`，由 Bridge 用同一个 `_requeue` 以主人消息的 id 排成新一轮，同样只排一次（[butler.md](butler.md) 收尾时发来的消息）。
 
 ## 问题与回答

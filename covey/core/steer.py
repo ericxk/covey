@@ -47,13 +47,14 @@ def refuse_steer(text, *, closing, ready, label, waiting=False):
 URGENT = re.compile(r"马上|立刻|立即|立马|赶紧|赶快|紧急|急事|很急|着急|现在就|先停|停一下|停下|停掉|别跑了|别等了|不用等了|"
                     r"打断|过期|重发|搞错了|弄错了|不对了|快停|\burgent\b|\basap\b|\bstop\b|right now|immediately",
                     re.IGNORECASE)
-# Commands never stopped for a supplement: each changes something outside the workspace that a run cut short could leave
-# half done (a push, a deploy, a publish, an install, a remote copy, a service or cluster change, a message sent).
+# Commands never stopped for a supplement: each changes something that a run cut short could leave half done (a push, a
+# deploy, a publish, an install, a remote copy, a service or cluster change, a message sent, a delete or a move).
 KEEP_RUNNING = re.compile(
     r"\bgit\b[^\n;|&]*?\s(?:push|commit|merge|rebase|cherry-pick|am|tag|reset|pull|clone|fetch)\b"
     r"|deploy|publish|release|\brollout\b|migrat"
     r"|\b(?:pip3?|uv|npm|pnpm|yarn|apt|apt-get|yum|dnf|brew|conda|gem|cargo|go)\s+(?:\S+\s+)*?(?:install|add|upgrade|remove|uninstall)\b"
     r"|\b(?:kubectl|helm|terraform|systemctl|service|launchctl|docker|podman|rsync|scp|sftp)\b"
+    r"|\b(?:rm|rmdir|mv|dd|shred|mkfs(?:\.\w+)?)\s|\bdrop\s+table\b|\btruncate\b"
     r"|\blark-cli\b|\bgh\s+(?:pr|release|repo|issue|api)\b|\bcurl\b[^\n|;]*\s-(?:X|-request)\s*(?:POST|PUT|PATCH|DELETE)\b",
     re.IGNORECASE)
 

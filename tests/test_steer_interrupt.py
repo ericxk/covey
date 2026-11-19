@@ -37,10 +37,12 @@ class UrgentWordsTest(unittest.TestCase):
     def test_a_push_a_deploy_or_an_install_keeps_running(self):
         for command in ("git push origin main", "git -C covey push", "scripts/deploy_bridge.sh --gen 410",
                         "pip install -r requirements.txt", "kubectl apply -f x.yaml", "rsync -a a b:/c",
-                        "curl -s -X POST https://x/api", "lark-cli im +messages-send"):
+                        "curl -s -X POST https://x/api", "lark-cli im +messages-send", "rm -rf build",
+                        "mv a b && sleep 5", "psql -c 'DROP TABLE x'"):
             self.assertTrue(keeps_running(command), command)
         for command in ("sleep 600", "python3 -m pytest", "while ! test -f done; do sleep 5; done",
-                        "curl -s https://x/status", "rg -n foo covey", "pip download x"):
+                        "curl -s https://x/status", "rg -n foo covey", "pip download x", "make lint",
+                        "python3 perm.py"):
             self.assertFalse(keeps_running(command), command)
 
 
