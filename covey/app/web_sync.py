@@ -1066,7 +1066,7 @@ class WebSync:
                 ledger.finish(op_id, state, message)
                 if row.get("topic_key"):
                     self.collector.touch(row["topic_key"])
-                if row.get("kind") == "settings":
+                if row.get("kind") in ("settings", "launch"):  # A launch changes what the next one preselects.
                     self.settings_due = True  # Pushed below, before the ack: the page reads the new settings when it sees done.
                 if row.get("kind") == "tidy_decide":
                     self.tidy_stamps = None  # Pushed below, before the ack, as the settings are.

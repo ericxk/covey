@@ -428,12 +428,13 @@ def _root(env, path, record, chat, title, config, token) -> bool:
     return True
 
 
-def _bind(env, app, request, path, record, args, event, config) -> str:
-    """The topic's topic.json: its Harness, where it came from, and the model settings when it starts at once; then
-    its topic card numbered. Its label ('' when it has no number yet)."""
+def _bind(env, app, request, path, record, args, event, config, kind="main") -> str:
+    """The topic's topic.json: its Harness, where it came from (``kind``: "main" the butler's, "web" the page's,
+    app/web_launch.py), and the model settings when it starts at once; then its topic card numbered. Its label ('' when
+    it has no number yet)."""
     plan, title = record["plan"], record["title"]
     target = topic_context(app.harness.context, event, app.store.sessions_dir)
-    origin = {"kind": "main", "request": request.id, "job_key": request.job_key, "why": record["why"],
+    origin = {"kind": kind, "request": request.id, "job_key": request.job_key, "why": record["why"],
               "readonly": args.get("readonly") is True, "user_requested": args.get("user_requested") is True,
               "title": title, "at": record["at"]}
     lead = lead_of(env, request)

@@ -35,7 +35,7 @@ from covey.cards.group_manager import FREE_CHOICES, KIND_WORDS, PROXY_BLOCKED, f
 from covey.cards.redaction_panel import SWITCH_ROWS, TOPICS
 from covey.cards.settings_hub import BUTLER, GROUPS, LABELS, NODES, PROXY, REDACTION, TOPIC, WORKSPACE
 from covey.cards.workspace_manager import list_entries, tag_words, tail
-from covey.app import web_panels
+from covey.app import web_launch, web_panels
 from covey.app.access import free_talk_on
 from covey.core import butler, butler_settings
 from covey.core.menu_choice import tiers
@@ -125,6 +125,10 @@ class WebSettings:
                  WORKSPACE: lambda: self.workspaces(ctx, settings), REDACTION: lambda: self.redaction(ctx),
                  GROUPS: lambda: self.groups(ctx, now), NODES: lambda: self.nodes(ctx),
                  PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT)}
+        try:  # 开新话题's choices for the page's chat box (data contract v16), not a tab.
+            data["launch"] = web_launch.catalog(self.env, ctx, chat)
+        except Exception as exc:  # noqa: BLE001 - the rest of the settings go on
+            self.env.runtime.log(f"web settings launch unreadable: {type(exc).__name__}")
         for tab in tabs:
             try:
                 data[tab] = build[tab]()

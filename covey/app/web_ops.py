@@ -29,6 +29,8 @@ KINDS) as the owner's own and says (state, message) for the ack.
 - ``settings``: one change on the page's 设置 (app/web_settings.py ``change``: a row of 新话题 or 管家, 记住的工作区's 移除, a workspace's
   用途, 脱敏's switches and terms (many at once), a group's 停用 / 启用) through the 设置 card's own code, the owner only (app/access.py ``is_owner``); ``done`` says the
   card's receipt (已保存：之后新开的话题照这个来。), a row the page may not change (私聊顶层的消息, 免@, ...) is ``failed``.
+- ``launch``: a new topic with the page's choices, started at once (app/web_launch.py): its topic card at the top level of the
+  private chat, its first turn the owner's words; a worktree's gets the launch card prefilled.
 - ``dismiss``: 不管了, the topic taken off the board as the 看板 card's 不管了 does (app/pins.py dismiss); without the board ``failed``.
 - ``tidy_decide``: 好 (``choice`` ok) or 不用 (decline) on the 整理专项 panel's suggestion ``proposal`` (data contract v16), through its
   card's own click (app/project_tidy.py web_decide); done says what came of it, failed why nothing was done (decided already, ...).
@@ -89,7 +91,7 @@ class Ops:
         try:
             handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
                        "forget": self.forget, "tidy": self.tidy, "settings": self.settings,
-                       "dismiss": self.dismiss, "tidy_decide": self.tidy_decide}.get(kind)
+                       "dismiss": self.dismiss, "tidy_decide": self.tidy_decide, "launch": self.launch}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -234,6 +236,16 @@ class Ops:
         fields = answer_fields(record, payload.get("answers"), note, owner=True)
         app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
         return "答案已交给任务"
+
+    # -- launch ------------------------------------------------------------------------------------------------------------
+
+    def launch(self, state, chat, row, payload) -> str:
+        """A new topic with the choices made on the page (app/web_launch.py launch), the owner's only (app/access.py
+        ``is_owner``); ``done`` says 已开 T123「…」：直接开工."""
+        from covey.app import web_launch
+        if not self.runtime.access.is_owner(self.runtime.owner_open_id or ""):
+            raise ValueError("只有机器人主人能开话题")
+        return web_launch.launch(self.env, row.get("op_id"), chat, payload)
 
     # -- dismiss -----------------------------------------------------------------------------------------------------------
 
