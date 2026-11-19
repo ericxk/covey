@@ -587,23 +587,23 @@ class StyleKeepTest(UpCase):
         self.assertFalse(hasattr(facts(self.state, projects.read_record(self.state, pid), time.time()), "direction"))
 
     def test_a_new_project_starts_from_the_style_last_set_only_with_the_switch(self):
-        project_lead.keep_style(self.state, {"report": "ask_only", "detail": "全", "spawn": "积极"})
+        project_lead.keep_style(self.state, {"report": "ask_only", "detail": "全"})
         off = projects.read_record(self.state, self.start("p1", project=True)["data"]["project_id"])
         self.assertNotIn("style", off)
         self.on(COVEY_PROJECT_STYLE_KEEP="1")
         made = projects.read_record(self.state, self.start("p2", project=True)["data"]["project_id"])
-        self.assertEqual(made["style"], {"report": "ask_only", "detail": "全", "spawn": "积极"})
-        self.assertEqual(project_lead.style_of(made)["spawn"], "积极")
+        self.assertEqual(made["style"], {"report": "ask_only", "detail": "全"})
+        self.assertEqual(project_lead.style_of(made)["detail"], "全")
         (self.state / project_lead.STYLE_FILE).unlink()
         none = projects.read_record(self.state, self.start("p3", project=True)["data"]["project_id"])
         self.assertNotIn("style", none)  # Nothing was set yet: the defaults.
 
     def test_an_upgraded_project_starts_from_the_style_last_set_too(self):
         self.on(COVEY_PROJECT_STYLE_KEEP="1")
-        project_lead.keep_style(self.state, {"spawn": "保守"})
+        (self.state / project_lead.STYLE_FILE).write_text('{"detail": "一行", "spawn": "保守"}')  # An older release's file.
         self.long()
         self.start("r1")
-        self.assertEqual(self.project(self.record("r1"))["style"], {"spawn": "保守"})
+        self.assertEqual(self.project(self.record("r1"))["style"], {"detail": "一行"})
 
 
 class DowngradeTest(UpCase):

@@ -218,7 +218,7 @@ PROJECT_TOOLS = (
     {"name": "project_topic_start",
      "description": "为这个专项开一个话题去做一件事，马上返回，不要等它做完：话题结束后会有下一轮叫醒你。"
                     "prompt 是交给话题的任务说明：做什么、范围、主人提的约束、交付什么，用清楚的话写，不抄本机路径，不加你自己的计划之外的内容。"
-                    "同时最多 4 个话题在做（排队和在跑的，等主人回答的不占名额；风格里的“派活”档更低时按那档）；一件独立的事一个话题。工作区用 workspaces_list 选。"
+                    "同时在做的话题不设上限；一件独立的事一个话题。工作区用 workspaces_list 选。"
                     "只读的、或主人在专项里亲口要求做的会直接开工，其余会在话题里出启动卡等主人点开始。",
      "input_schema": {"type": "object", "required": ["title", "prompt", "workspace", "readonly", "why"], "properties": {
          "title": {"type": "string", "description": "话题的标题，说是哪件事：中文、中文标点，20 字以内"},
@@ -261,13 +261,12 @@ PROJECT_TOOLS = (
                   "description": "decision 决定，constraint 约束、做法和坑，contact 联系人，fact 事实"},
          "text": {"type": "string", "description": "条目本身，一句话，最多 200 字"}}}},
     {"name": "project_style",
-     "description": "主人说“少打扰我”“多报一点”“多开几个话题”这类时，改这个专项的汇报风格；只给要改的项。"
+     "description": "主人说“少打扰我”“多报一点”这类时，改这个专项的汇报风格；只给要改的项。"
                     "report：ask_only 只在要主人定时说 / milestones 里程碑和完成 / each_thread 每个话题结束 / verbose 详细；"
-                    "detail：一行 / 简 / 全；spawn（派活）：保守 同时 1 个话题 / 正常 2 个 / 积极 4 个。",
+                    "detail：一行 / 简 / 全。",
      "input_schema": {"type": "object", "properties": {
          "report": {"type": "string", "enum": ["ask_only", "milestones", "each_thread", "verbose"]},
-         "detail": {"type": "string", "enum": ["一行", "简", "全"]},
-         "spawn": {"type": "string", "enum": ["保守", "正常", "积极"]}}}},
+         "detail": {"type": "string", "enum": ["一行", "简", "全"]}}}},
     {"name": "project_finish",
      "description": "目标和完成标准都达到、话题都结束了，收尾：专项记为完成。还有话题在跑或等主人时会拒绝。"
                     "summary 写一句做成了什么（最多 200 字），会作为完成的汇报。",

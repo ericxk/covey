@@ -42,7 +42,6 @@ ROLES = (LEAD, MEMBER)
 
 # The owner's defaults of 2026-11-16 for the guards of a later package (the lead's runs, the loop): not read here.
 DEFAULT_WAKES = 30  # Wake-ups in a row with no one stepping in.
-MAX_MEMBERS = 4  # Member topics of one project at the same time.
 MAX_ACTIVE = 3  # Projects active at the same time.
 
 NAME_CHARS = 60

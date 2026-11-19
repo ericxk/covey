@@ -84,15 +84,18 @@ class RulesTest(Case):
         self.assertNotIn("专员做法层", base)
 
     def test_the_rules_say_the_style_the_record_has(self):
-        rules = project_lead.lead_rules({"report": "ask_only", "spawn": "积极"})
+        rules = project_lead.lead_rules({"report": "ask_only", "spawn": "保守"})  # An older record's spawn is read past.
         self.assertIn("只在需要主人定的时候说", rules)
-        self.assertIn("同时最多 4 个话题", rules)
-        self.assertIn("同时最多 1 个话题", project_lead.lead_rules({"spawn": "保守"}))
+        self.assertIn("同时在做的话题不设上限", rules)
+        for words in ("同时最多", "派活“", "保守", "多开几个话题"):
+            self.assertNotIn(words, rules)
         self.assertIn("只报里程碑和完成", project_lead.lead_rules())
 
     def test_a_bad_style_reads_as_the_default_and_the_filter_follows_it(self):
         self.assertEqual(project_lead.style_of({"style": {"report": "everything", "detail": "全"}}),
-                         {"report": "milestones", "detail": "全", "spawn": "正常"})
+                         {"report": "milestones", "detail": "全"})
+        self.assertEqual(project_lead.style_of({"style": {"spawn": "积极", "report": "verbose"}}),
+                         {"report": "verbose", "detail": "简"})  # An older record's spawn is no error and not read.
         self.assertEqual(project_lead.style_of({}), project_lead.STYLE_DEFAULT)
         table = {"ask_only": (), "milestones": ("milestone", "finish"), "each_thread": ("milestone", "finish", "thread"),
                  "verbose": ("milestone", "finish", "thread", "note")}
@@ -116,7 +119,7 @@ class PackTest(Case):
         self.assertIn("T41 · 导出旧账单 · 在做 · 导出第 3 批", pack)
         self.assertIn("T42 · 写对账脚本 · 完成 · 放在 reconcile.py", pack)
         self.assertIn("[constraint] 旧库时区是 UTC+0", pack)  # An older release's entry in the record, under the kind's new name.
-        self.assertIn("report=milestones；detail=简；spawn=正常", pack)
+        self.assertIn("风格：report=milestones；detail=简\n", pack)
         self.assertIn("没有新的。", pack)
 
     def test_a_resumed_session_gets_only_what_changes(self):
@@ -522,27 +525,21 @@ class MemberToolsTest(ToolsCase):
         data = json.loads((self.state / "topics" / answer["data"]["topic_id"] / "topic.json").read_text())
         self.assertNotIn("project", data)
 
-    def test_at_most_the_styles_number_of_threads_are_live_and_an_ended_one_makes_room(self):
-        projects.update(self.state, PID, lambda r: r.update(style={"spawn": "保守"}))
-        first = self.start("r1")
-        self.assertTrue(first["ok"])
-        write_job(self.state, "main-" + butler_topics_token("r1"), status="running", phase="做事")
-        second = self.start("r2", title="另一件")
-        self.assertFalse(second["ok"])
-        self.assertIn("同时最多 1 个话题", second["text"])
-        write_job(self.state, "main-" + butler_topics_token("r1"), status="done", final_text="完成")
-        self.assertTrue(self.start("r3", title="另一件")["ok"])
+    def test_more_than_four_threads_work_at_once_whatever_an_older_style_said(self):
+        projects.update(self.state, PID, lambda r: r.update(style={"spawn": "保守"}))  # An older record's 派活.
+        for n in range(1, 7):
+            answer = self.start(f"r{n}", title=f"第 {n} 件")
+            self.assertTrue(answer["ok"], answer)
+            write_job(self.state, "main-" + butler_topics_token(f"r{n}"), status="running", phase="做事")
+        record = self.reload()
+        self.assertEqual(len(record["threads"]), 6)
+        self.assertEqual(len(project_lead.live_members(self.state, record)), 6)
 
-    def test_a_topic_waiting_for_the_owners_answer_holds_no_place(self):
-        projects.update(self.state, PID, lambda r: r.update(style={"spawn": "保守"}))
-        first = self.start("r1")
+    def test_finishing_counts_a_topic_waiting_for_the_owner_as_live(self):
+        self.start("r1")
         write_job(self.state, "main-" + butler_topics_token("r1"), status="waiting_user", status_message="等你回答")
-        self.assertTrue(self.start("r2", title="另一件")["ok"])  # The waiting one is not counted.
-        self.assertFalse(self.start("r3", title="再一件")["ok"])  # The queued one is: the limit is 1.
-        # project_finish still refuses while a topic waits (it counts the waiting ones).
-        self.assertEqual(project_lead.busy_members(self.state, self.reload()), [project_lead.member_row(self.state, self.job("r2").topic_id)["label"]])
+        self.start("r2", title="另一件")
         self.assertEqual(len(project_lead.live_members(self.state, self.reload())), 2)
-        self.assertTrue(first["ok"])
 
     def test_a_failed_start_says_so_and_records_nothing(self):
         answer = self.start("r1", workspace="nowhere")
@@ -749,23 +746,26 @@ class RecordToolsTest(ToolsCase):
         shown = self.tool("project_style")
         self.assertEqual(shown["data"]["style"], project_lead.STYLE_DEFAULT)
         self.tool("project_style", report="ask_only")
-        self.tool("project_style", spawn="积极")
+        self.tool("project_style", detail="全", spawn="积极")  # spawn is no style item any more: not kept.
         record = self.reload()
-        self.assertEqual(record["style"], {"report": "ask_only", "detail": "简", "spawn": "积极"})
+        self.assertEqual(record["style"], {"report": "ask_only", "detail": "全"})
         rows = project_memory.live(self.state, record)
         self.assertEqual([m["kind"] for m in rows], ["style"])
-        self.assertIn("spawn=积极", rows[0]["text"])
-        self.assertIn("spawn", self.refused("project_style", spawn="疯狂"))
+        self.assertEqual(rows[0]["text"], "汇报风格：report=ask_only；detail=全")
+        self.assertIn("detail", self.refused("project_style", detail="疯狂"))
+        spec = next(tool for tool in butler_tool_specs.PROJECT_TOOLS if tool["name"] == "project_style")
+        self.assertEqual(set(spec["input_schema"]["properties"]), {"report", "detail"})
+        self.assertNotIn("派活", spec["description"])
 
     def test_the_style_is_kept_for_the_next_project_only_with_the_switch(self):
         self.tool("project_style", report="ask_only")
         self.assertFalse((self.state / project_lead.STYLE_FILE).exists())  # Off: nothing is kept.
         with mock.patch.dict(os.environ, {projects.STYLE_KEEP_ENV: "1"}):
-            self.tool("project_style", spawn="积极", detail="全")
-            self.assertEqual(project_lead.last_style(self.state), {"report": "ask_only", "detail": "全", "spawn": "积极"})
+            self.tool("project_style", detail="全")
+            self.assertEqual(project_lead.last_style(self.state), {"report": "ask_only", "detail": "全"})
             self.tool("project_style")  # Only reading it changes nothing.
-        self.assertEqual(json.loads((self.state / project_lead.STYLE_FILE).read_text())["spawn"], "积极")
-        (self.state / project_lead.STYLE_FILE).write_text('{"report": "bogus", "detail": "简"}')
+        self.assertEqual(json.loads((self.state / project_lead.STYLE_FILE).read_text())["detail"], "全")
+        (self.state / project_lead.STYLE_FILE).write_text('{"report": "bogus", "detail": "简", "spawn": "积极"}')
         self.assertEqual(project_lead.last_style(self.state), {"detail": "简"})  # Each choice is checked.
         (self.state / project_lead.STYLE_FILE).write_text("[1]")
         self.assertEqual(project_lead.last_style(self.state), {})

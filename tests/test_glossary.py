@@ -127,9 +127,9 @@ class RetiredWordsTest(unittest.TestCase):
 
     def test_the_leads_rules_and_the_wake_up_note_use_no_retired_word(self):
         self.assertClean([project_lead.lead_rules(), *project_lead.IDENTITY, *project_lead.TOOL_RULES], "lead rules")
-        for spawn in project_lead.STYLE_CHOICES[project_lead.SPAWN]:
+        for detail in project_lead.STYLE_CHOICES[project_lead.DETAIL]:
             for report in project_lead.STYLE_CHOICES[project_lead.REPORT]:
-                self.assertClean([project_lead.lead_rules({"spawn": spawn, "report": report})], f"lead rules {spawn} {report}")
+                self.assertClean([project_lead.lead_rules({"detail": detail, "report": report})], f"lead rules {detail} {report}")
         self.assertClean([project_loop.WAKE_TEXT, *project_lead.REPORT_WORDS.values()], "wake-up note")
         self.assertClean([projects.lead_prompt("迁移账单", "把预算改成两倍", butler_handoff.Asked(said=(("加预算", 0),)))], "lead prompt")
 

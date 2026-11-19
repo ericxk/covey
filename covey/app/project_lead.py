@@ -49,11 +49,11 @@ GOOD_ENDS = frozenset({"done", "waiting_user", "continued"})  # A turn that took
 # threads'). backends/claude/argv.py turns ``options["tools"]`` into --tools.
 LEAD_TOOLS = ("Read", "Grep", "Glob")
 
-REPORT, DETAIL, SPAWN = "report", "detail", "spawn"
-STYLE_CHOICES = {REPORT: ("ask_only", "milestones", "each_thread", "verbose"), DETAIL: ("一行", "简", "全"),
-                 SPAWN: ("保守", "正常", "积极")}
-STYLE_DEFAULT = {REPORT: "milestones", DETAIL: "简", SPAWN: "正常"}
-SPAWN_LIMIT = {"保守": 1, "正常": 2, "积极": 4}  # Member topics at the same time (projects.MAX_MEMBERS caps them all).
+# A project has no limit on its member topics at the same time, and its style no 派活 (the owner, 2026-11-19: deploys
+# that would clash queue, the topics are not held back). An older record's or project-style.json's ``spawn`` is read past.
+REPORT, DETAIL = "report", "detail"
+STYLE_CHOICES = {REPORT: ("ask_only", "milestones", "each_thread", "verbose"), DETAIL: ("一行", "简", "全")}
+STYLE_DEFAULT = {REPORT: "milestones", DETAIL: "简"}
 REPORT_WORDS = {"ask_only": "只在需要主人定的时候说", "milestones": "只报里程碑和完成", "each_thread": "每个话题结束都报一句",
                 "verbose": "详细，进展都报"}
 # Which of a lead's report notes reach the owner under each ``report`` (phase 2's P2-8 delivers them; the filter is here).
@@ -104,13 +104,13 @@ IDENTITY = (
 )
 TOOL_RULES = (
     "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。开话题用 project_topic_start（写干净的任务说明：做什么、范围、约束、"
-    "交付什么；不抄本机路径），给已有话题加话用 project_topic_send；同时最多 4 个话题在做（排队和在跑的；等主人回答的不占名额），风格里的“派活”档更低时按那档。",
+    "交付什么；不抄本机路径），给已有话题加话用 project_topic_send；同时在做的话题不设上限，一件独立的事一个话题。",
     "- 派活前先看已有的话题，能追加就追加：先看“专项状态”的话题清单，再用 topics_list、topics_search 看主人私聊里还没进专项的话题。"
     "同一件事、同一块代码、同一个问题已经有话题在做或做过，就用 project_topic_send 追加给它（不在专项里的普通话题会顺带收进来）；"
     "确实独立的事才用 project_topic_start 新开。",
     "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
     "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
-    "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”“多开几个话题”这类，"
+    "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”这类，"
     "用 project_style 改汇报风格。",
     "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。主人要停专项里的某个话题（包括停掉"
     "一个还在等主人回答的话题），用 project_topic_stop：它停掉那个话题排队和在跑的任务、收掉它等主人回答的问题，话题仍记在专项里、算结束。",
@@ -130,8 +130,7 @@ PRACTICE = ""  # Phase 3's layer: how this kind of specialist works (project.lea
 
 
 def style_rule(style) -> str:
-    return (f"- 汇报风格：{REPORT_WORDS[style[REPORT]]}；说明的详细程度“{style[DETAIL]}”；派活“{style[SPAWN]}”"
-            f"（同时最多 {min(projects.MAX_MEMBERS, SPAWN_LIMIT[style[SPAWN]])} 个话题）。")
+    return f"- 汇报风格：{REPORT_WORDS[style[REPORT]]}；说明的详细程度“{style[DETAIL]}”。"
 
 
 def lead_rules(style=None, practice=PRACTICE) -> str:
@@ -259,12 +258,6 @@ def member_rows(state_dir, record) -> list:
 def live_members(state_dir, record) -> list:
     """The labels of the members with a turn running or waiting for the owner."""
     return [row["label"] for row in member_rows(state_dir, record) if row["live"]]
-
-
-def busy_members(state_dir, record) -> list:
-    """The labels of the members with a turn queued or running: one waiting for the owner's answer holds no place (the
-    spawn limit counts the turns that work)."""
-    return [row["label"] for row in member_rows(state_dir, record) if row["live"] and not row["waiting"]]
 
 
 def thread_line(row) -> str:

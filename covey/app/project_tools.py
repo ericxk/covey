@@ -4,7 +4,7 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 
 - ``project_topic_start``, ``project_topic_send`` hand the work to the project's member topics through the butler's own
   functions (app/butler_topics.py topic_start, topic_send: a call from a lead's job opens or feeds a member topic, ``lead_of``).
-  At most MAX_MEMBERS member topics (or what the style's 派活 allows) have a turn running or queued at once; one waiting for the owner's answer holds no place.
+  A project has no limit on the member topics working at once (deploys that would clash queue instead).
 - ``project_topic_stop`` stops one member topic for the owner (its tasks, and the question it waits on, which is cancelled
   with the reason ``lead_stop``); the topic stays in the project's list and counts as ended.
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
@@ -68,10 +68,6 @@ def text_of(args, name="text", limit=project_lead.TEXT) -> str:
     return text[:limit]
 
 
-def spawn_cap(record) -> int:
-    return min(projects.MAX_MEMBERS, project_lead.SPAWN_LIMIT[project_lead.style_of(record)[project_lead.SPAWN]])
-
-
 def acted(env, pid, request, what) -> None:
     """Mark the lead's turn ``request.job_key`` as one that changed something the owner is to hear of (``what``: start,
     send, stop, answer, escalate), once a turn: app/project_loop.py ``reported`` sends a wake-up turn's reply then."""
@@ -91,10 +87,6 @@ def acted(env, pid, request, what) -> None:
 def project_topic_start(env, request):
     pid, record = lead(env, request)
     active(record, "开新话题")
-    live = project_lead.busy_members(env.state_dir, record)
-    if len(live) >= spawn_cap(record):
-        return reply(False, f"同时最多 {spawn_cap(record)} 个话题在做（现在：{'、'.join(live)}；等主人回答的不占名额）：等有话题结束再开。",
-                     live=live)
     args = {**request.args, "user_requested": request.args.get("user_requested") is True}
     answer = butler_topics.topic_start(env, dataclasses.replace(request, args=args))
     topic = answer.get("data", {}).get("topic_id")
