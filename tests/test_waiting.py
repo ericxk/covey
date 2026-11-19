@@ -80,6 +80,13 @@ class OneCountTest(unittest.TestCase):
         # A topic the owner took off the board is not counted.
         self.assertEqual(board_read.waits(self.state, CHAT, self.now, off={self.topics[2]: {}}).count(), 3)
 
+    def test_a_question_with_a_copy_at_the_top_level_opens_the_copy(self):
+        """A project's question is in its topic's thread and copied to the private chat's top level (app/question_display.py
+        mirror): 等我 opens the copy, where the owner looks (2026-11-19)."""
+        self.question(1, "q1", self.now - 200, mirror_message_id="om_q1-top")
+        found = board_read.waits(self.state, CHAT, self.now)
+        self.assertEqual({wait.topic: wait.card for wait in found.all}[self.topics[1]], "om_q1-top")
+
     def test_every_reader_counts_the_same(self):
         expected = set(self.expected())
         # 早晚汇总 and the 看板 (the same collect): its 等你 rows and its line of old ones, each with its card.

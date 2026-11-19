@@ -132,6 +132,44 @@ class RouteTest(Held):
             triage.moved({"triage": {"state": triage.ANSWERED}}, triage.ESCALATED)
 
 
+class ShowTest(Held):
+    """The owner, 2026-11-19: T538's question the lead handed on (09:59) went to the topic's thread alone; the turn had ended
+    while it was held, so no copy went to the private chat's top level. ``show`` makes that copy once the card is out."""
+
+    def target(self, sent):
+        import dataclasses
+
+        @dataclasses.dataclass(frozen=True)
+        class Ctx:
+            state_dir: Path
+            topic_id: str = ""
+            reply_to_message_id: str = ""
+            profile: str = "unit"
+
+        display = mock.Mock()
+        app = SimpleNamespace(questions=SimpleNamespace(display=display,
+                                                        deliver_checkpoint_questions=mock.Mock(return_value=sent)))
+        env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append),
+                              topics=SimpleNamespace(target=lambda state, topic, chat: (app, Ctx(self.state), None)))
+        return env, display
+
+    def test_a_card_handed_on_to_the_owner_is_copied_to_the_top_level_with_what_the_turn_wrote(self):
+        upsert_job_record(self.state, "k-bbbb", final_text="三张样卡在上面", reply_to_message_id="om_root")
+        self.write(display_pending=False, question_message_id="om_q")
+        env, display = self.target(True)
+        self.assertTrue(flow.show(env, self.saved()))
+        record, output = display.mirror.call_args.args[1:3]
+        self.assertEqual((record["token"], output), (TOKEN, "三张样卡在上面"))
+        self.assertEqual(display.mirror.call_args.kwargs["job"]["key"], "k-bbbb")
+
+    def test_no_copy_when_the_card_did_not_go(self):
+        upsert_job_record(self.state, "k-bbbb", final_text="x", reply_to_message_id="om_root")
+        self.write()
+        env, display = self.target(False)
+        self.assertFalse(flow.show(env, self.saved()))
+        display.mirror.assert_not_called()
+
+
 class GateTest(unittest.TestCase):
     """E4: the words that keep a question from the lead (the list was tuned against 30 days of the owner's questions)."""
 

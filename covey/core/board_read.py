@@ -166,7 +166,8 @@ def launch_card(state, topic_id, chat) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class Wait:
-    """One thing that waits for the owner: ``kind`` "question" (``record`` the question's, ``card`` its question card)
+    """One thing that waits for the owner: ``kind`` "question" (``record`` the question's, ``card`` its question card's
+    copy at the private chat's top level, else the card)
     or "start" (``record`` the job's, waiting for 开始 on its topic's launch card, ``card`` that card); ``since`` when
     it began to wait, epoch seconds."""
     topic: str
@@ -207,7 +208,9 @@ def waits(state, chat, now, off=()) -> Waits:
         topic, at = row.get("topic_id") or "", row.get("created_at")
         if (asks(row) and topic not in off and isinstance(at, (int, float))
                 and at > (found[topic].since if topic in found else -1)):
-            found[topic] = Wait(topic, "question", row, float(at), str(row["question_message_id"]))
+            # Its copy at the private chat's top level when it has one (app/question_display.py mirror), else its card.
+            found[topic] = Wait(topic, "question", row, float(at),
+                                str(row.get("mirror_message_id") or row["question_message_id"]))
     starts = {}
     for record in select_job_records(state, None, chat_id=chat, status=frozenset({START})):
         topic = record.get("topic_id") or ""

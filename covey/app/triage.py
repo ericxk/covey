@@ -186,6 +186,15 @@ def show(env, record) -> bool:
             app.questions.display.paint_task_card(ctx, read_object(question_path(state, record["token"])))
         except Exception as exc:  # noqa: BLE001 - the card is out; the task card keeps its older line
             env.runtime.log(f"question triage task card not repainted: {type(exc).__name__}")
+        # The card above went to the topic's thread. The turn ended while the question was held, so its top-level
+        # copy (app/butler_relay.py mirror_questions) was not made then: made now, with what the turn wrote above it,
+        # so the owner sees it in the private chat (the owner, 2026-11-19: 转给我了却没收到，私聊里也看不到).
+        try:
+            job = find_job_record(state, record.get("job_key")) or None
+            app.questions.display.mirror(ctx, read_object(question_path(state, record["token"])),
+                                         str((job or {}).get("final_text") or ""), job=job)
+        except Exception as exc:  # noqa: BLE001 - the card is in its thread and on the board
+            env.runtime.log(f"question triage top-level copy failed: {type(exc).__name__}")
     return sent
 
 

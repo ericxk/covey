@@ -2,7 +2,8 @@
 survives task completion and restart), the notice for an answer not submitted yet, and the
 continuation's state on the card. ``question_card_lock`` orders one question's publishing and repainting.
 
-A 话题区's question (a topic the butler opened, with COVEY_BUTLER=1) is also shown at the private
+A 话题区's question (a topic the butler opened, with COVEY_BUTLER=1; a project's topic too, once the question is the
+owner's: one held for the lead is copied when the lead hands it on, app/triage.py show) is also shown at the private
 chat's top level (``mirror``; the owner, 2026-11-07: 两处都放): the same form, quoting the butler's card, with
 what the turn wrote before it asked above it; one longer than MIRROR_OUTPUT_BYTES goes as its own message first.
 Its record keeps mirror_message_id, mirror_card_id and mirror_output; every repaint of the question repaints it
@@ -142,12 +143,18 @@ class QuestionDisplay:
             return ""
         target = (area_target(ctx.state_dir, record["topic_id"], chat) if place.traits.relays
                   else {"chat_id": chat, "reply_to": "", "label": "", "kind": "main"})
+        if not target and place.role == placement.MEMBER_ROLE:
+            # A project's topic was opened by its lead, never by a request of the butler, so it has no 话题区 target:
+            # its question goes to the top level all the same (core/placement.py: only a question that reaches the
+            # owner is copied there; the owner, 2026-11-19: 转给我的问题卡我根本没收到，私聊里也看不到).
+            target = {"chat_id": chat, "reply_to": "", "label": "", "kind": "member", "topic_id": record["topic_id"]}
         if not target:
             return ""
+        # A member's turn was asked for by the lead, not by the owner: no "你问" block (its words would be the lead's).
         ask = (ask_for(ctx.state_dir, job, self._asked_target(ctx, job, target) if place.traits.relays else target,
                        ctx.profile, at=str(record.get("question_message_id") or ""), log=self.runtime.log,
                        doing="waiting")
-               if place.row.ask_block and job is not None else None)
+               if place.row.ask_block and job is not None and target["kind"] != "member" else None)
         reply_to = "" if place.row.question_copy == placement.TOP else target["reply_to"]
         path = ctx.state_dir / "questions" / (token + ".json")
         text = str(output or "").strip()

@@ -332,6 +332,34 @@ class MirrorTest(MirrorCase):
         other = {**self.record, "token": "q2", "topic_id": "f" * 64}
         self.assertEqual(display.mirror(self.tctx, other, "x"), "")
 
+    def test_a_project_topic_s_question_goes_up_though_no_request_of_the_butler_opened_it(self):
+        """The owner, 2026-11-19: a question the lead handed on to him (T538's, 09:59) went to the topic's thread alone,
+        and so had every question of a project's topic: they are opened by the lead, never by a request of the butler, so
+        there was no 话题区 target and no copy at the top level (core/placement.py says TOP for them)."""
+        from covey.core import projects
+        from covey.core.topics import topic_file
+
+        display = self.app_.questions.display
+        member = "e" * 64
+        write_json(topic_file(self.ctx.state_dir, member), {
+            "topic_id": member, "chat_id": CHAT, "topic_number": 538, "harness_id": "claude",
+            "project": {"id": "1a5e5c7675eb", "role": projects.MEMBER}})
+        record = {**self.record, "token": "q-member", "topic_id": member}
+        write_json(self.ctx.state_dir / "questions" / "q-member.json", record)
+        self.assertEqual(display.mirror(self.tctx, record, "x"), "")  # Without COVEY_PROJECTS: a plain topic, none.
+        sends = self.app.messenger.create_and_send_card
+        sends.reset_mock()
+        turn = make_job(job_id=self.job.job_id, chat_id=CHAT, message_id="lead-1a5e5c7675eb-3", topic_id=member,
+                        user_text="[Bridge 说明] 负责人派的活")
+        with mock.patch.dict("os.environ", {projects.ENV: "1"}):
+            mid = display.mirror(self.tctx, record, "三张样卡", job=turn)
+        self.assertTrue(mid)
+        self.assertEqual(sends.call_args.kwargs["reply_to_message_id"], "")  # At the top level.
+        card = json.dumps(sends.call_args.args[2], ensure_ascii=False)
+        self.assertIn("用哪个做法", card)
+        self.assertNotIn("负责人派的活", card)  # No "你问" block: the lead asked for this turn, not the owner.
+        self.assertEqual(read_object(self.ctx.state_dir / "questions" / "q-member.json")["mirror_message_id"], mid)
+
     def test_a_running_turn_s_output_is_its_notes_and_the_answer_so_far(self):
         from covey.app.native_questions import turn_output
         from covey.core.trace import task_trace

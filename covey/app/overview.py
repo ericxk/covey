@@ -202,7 +202,8 @@ class Overview:
         listed = {group: [self.board_row(state, row) for row in rows if row["group"] == group
                           and row["topic"] not in held] for group in GROUPS}
         pinned = {row["message_id"] for row in rows if row["group"] == "waiting" and row["topic"] in held}
-        listed["waiting"] = [self.waiting_row(state, wait) for wait in found.live if wait.card not in pinned]
+        listed["waiting"] = [self.waiting_row(state, wait) for wait in found.live
+                             if (wait.record.get("question_message_id") if wait.kind == "question" else wait.card) not in pinned]
         old = [self.waiting_row(state, wait) for wait in found.stale]
         gone = sorted(off, key=lambda topic: off[topic]["at"], reverse=True)
         # 有结果未看 (core/board_read.py unseen): the results on it not seen yet, the topics taken off left out.
