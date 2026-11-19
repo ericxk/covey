@@ -214,7 +214,7 @@
 | --- | --- |
 | `cards/answer_card.py` | What follows a finished turn's answer on its answer card in the topic and on its relay at the private chat's … |
 | `cards/app_setup.py` | The 飞书应用待补 card: what the app lacks, then the run's steps, then what it added |
-| `cards/board.py` | The bot menu's 看板: what is going on in the owner's private chat now, one coloured block a topic (the owner … |
+| `cards/board.py` | The bot menu's 看板: what is going on in the owner's private chat now, in the 夜航 look |
 | `cards/butler_panel.py` | The 管家 settings card, in the bot menu panels' style |
 | `cards/card_cost.py` | What a card costs CardKit, which refuses one over its size (code 200860) |
 | `cards/cardkit_actions.py` | What a CardKit write says, as plain JSON |

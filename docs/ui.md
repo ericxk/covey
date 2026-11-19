@@ -228,6 +228,7 @@
 | ② 菜单结果卡 | 看板：加结论带和分段状态条，块改成话题行，`cancelled` 按谁停的分开（管家的问题进“等你”、显示“管家”已由 T538 做了）。用量：结论带、磁贴、每日趋势、统一结束词。设置：标签行和回执的文案 | `cards/board.py`、`cards/weekly_usage.py`、`cards/settings_hub.py`、`cards/butler_panel.py`、`cards/workspace_manager.py`、`cards/redaction_panel.py`、`cards/proxy_panel.py`、`cards/group_manager.py` | 同上；看板等它当前的改动验收完再动 |
 | ③ 网页工作台 | 深色主题 token、首屏结论带真渐变、话题行、进度条流光、手机单栏、按 `tone` 着色 | 妙搭应用 `client/src/tailwind-theme.css`、`cv/ui.tsx`、`cv/Board.tsx`、`cv/Shell.tsx`、`cv/TopicPage.tsx`、`cv/ProjectPage.tsx` | 电脑、手机各截一屏，和样张对照 |
 
+- ② 菜单结果卡（11-19）：看板、用量用上了结论带和分段状态条，看板的块换成话题行、`cancelled` 按谁停的分开（汇总行带 `tone`，`app/digest.py` collect）；设置一组卡的回执经 `cards/ui.py` 的 `receipt` 变成一行灰字。
 - 三路只通过 `core/look.py` 和 `cards/ui.py` 共用东西。哪一路要加组件，先加进这两个文件，再用。
 - 每一路照仓库规则：在分支上开发，跑适用的测试，快进合进 `main`；卡片 JSON 一变就要真机验收（规则 9）。
 

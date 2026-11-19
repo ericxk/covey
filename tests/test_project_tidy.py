@@ -624,7 +624,7 @@ class PendingTest(TidyCase):
                              {"topic": self.two, "label": "T2", "title": "Bootstrap", "url": ""}]}]
         card = text(board_card({"waiting": [], "running": [], "done": [], "stale": [], "tidy": {}, "projects": [],
                                 "pending": pending, "proposals": 1}))
-        for word in ("专项", "0 个", "1 个提议等你定", "「题包提示词优化」", "https://applink.example/1", "建专项", "暂不考虑",
+        for word in ("专项", "0 个", "1 个提议等你定", "「题包提示词优化」", "https://applink.example/1", "建专项", "不管了",
                      cards.CREATE_KIND, cards.DECLINE_KIND, '"from": "board"'):
             self.assertIn(word, card)
         self.assertNotIn("往上翻", card)

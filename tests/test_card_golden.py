@@ -1016,6 +1016,15 @@ def digest_cards():
             "board_butler_waiting": board_card({"waiting": [{"topic": "m", "label": "管家", "title": "", "url": "",
                                                              "line": "等你回答：现在部署吗？", "meta": ["等了 1分"]}],
                                                 "stale": [], "running": [], "done": [], "stamp": "08:00"}),
+            # Who stopped it (docs/ui.md 3): the lead's stop is 停住了, the owner's own 已停止 in the fold; a result seen.
+            "board_stops": board_card({"waiting": [], "stale": [], "running": [], "stamp": "08:00", "done_since": "07:00",
+                                       "done": [{"topic": "j", "label": "T531", "title": "统一 UI 规范", "status": "cancelled",
+                                                 "tone": "stopped", "line": "负责人停了：先做 T538", "meta": ["07:40 停"],
+                                                 "url": "https://applink.feishu.cn/t/531"},
+                                                {"topic": "k", "label": "T532", "title": "自动归入", "status": "cancelled",
+                                                 "tone": "cancelled", "state": "已取消", "took": "用时 2分0秒"},
+                                                {"topic": "l", "label": "T533", "title": "看板", "status": "done",
+                                                 "tone": "done", "state": "做完", "took": "用时 9分0秒", "seen": True}]}),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
             "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "EnvReplay Prompt 优化"]}}),
