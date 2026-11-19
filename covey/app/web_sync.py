@@ -742,7 +742,8 @@ class WebSync:
 
     def start_over(self) -> None:
         """After a look was left behind: a new collector, nothing counted as sent, so the next look is a full one. The left-behind
-        look keeps writing only to the old ones. The topic it was stuck reading (an NFS open of its topic.json that never returned,
+        look keeps writing only to the old ones and sends nothing (2026-11-19 14:36 one that came back an hour late put T542 back to 在做
+        on the page). The topic it was stuck reading (an NFS open of its topic.json that never returned,
         2026-11-19) is left out of the looks while that thread lives, so the next look does not get stuck on it again."""
         old = self.collector
         stuck = {topic: thread for topic, thread in self.stuck.items() if thread.is_alive()}
@@ -765,11 +766,15 @@ class WebSync:
         changed = [each for each in items if sent.get((each["type"], each["key"])) != each["rev"]]
         count = 0
         for batch in web_sync.batches(changed):
+            if collector is not self.collector:
+                return count  # Left behind (start_over) while it looked: what it read is old, the page would go back to it.
             self.client.request("POST", "/sync/upsert", {"items": batch, "deleted": []})
             collector.moved = time.monotonic()  # The first push of a big chat is many batches: each one taken is progress.
             for each in batch:
                 sent[(each["type"], each["key"])] = each["rev"]
             count += len(batch)
+        if collector is not self.collector:
+            return count
         if deleted or (full and not count):
             self.client.request("POST", "/sync/upsert", {"items": [], "deleted": deleted})
             for each in deleted:

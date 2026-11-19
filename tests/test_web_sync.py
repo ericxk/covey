@@ -443,6 +443,42 @@ class StuckTest(WebCase):
         self.assertFalse([gone for batch in self.web.upserts for gone in batch["deleted"] if gone["key"] == TOPIC])
         self.assertTrue(any("leaves topic" in line for line in self.logs))
 
+    def test_a_left_behind_look_that_comes_back_sends_nothing(self):
+        """2026-11-19 14:36: a look stuck since before 13:00 came back and put T542 back to 在做 on the page, over what the
+        newer looks had pushed: what it read is old, so it pushes none of it."""
+        self.topic(status="running")
+        hang, entered = threading.Event(), threading.Event()
+        self.addCleanup(hang.set)
+        real = app_web.Collector.collect
+
+        def collect(collector, chat, now, full):
+            found = real(collector, chat, now, full)
+            entered.set()
+            hang.wait(10)
+            return found
+        with mock.patch.object(app_web.Collector, "collect", collect):
+            late = threading.Thread(target=self.sync.push_once, args=(T0,))
+            late.start()
+            self.assertTrue(entered.wait(5))
+            self.sync.start_over()
+            hang.set()
+            late.join(5)
+        self.assertEqual(self.web.upserts, [])
+        self.sync.push_once(T0 + 1)
+        self.assertTrue(self.web.items("topic"))
+
+    def test_an_answered_question_goes_out_on_the_next_quick_look(self):
+        """The page's 等你 count and question panel follow the record: the question answered is pushed answered at once,
+        not only at the next full look."""
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        self.assertEqual([item["data"]["state"] for item in self.web.items("question")], ["open"])
+        row = read_object(self.state / "questions" / f"{TOKEN}.json")
+        write_json(self.state / "questions" / f"{TOKEN}.json", {**row, "status": "answered", "answers": {"q1": {"answers": ["A"]}}})
+        self.sync.push_once(T0 + 1)
+        self.assertEqual([item["data"]["state"] for item in self.web.items("question")], ["open", "answered"])
+
     def test_a_long_step_that_keeps_moving_is_not_left_behind(self):
         """The first push of a big chat: many batches, longer in all than STUCK_SECONDS, each one progress."""
         stamps, threads = [], []
