@@ -78,6 +78,8 @@ def ended(record) -> bool:
     return record.get("status") not in RUNNING and bool(record.get("status"))
 
 
+PROJECT_KINDS = (proposals.SPLIT, proposals.MERGE, proposals.LEAVE, proposals.RENAME, proposals.FOLD)  # Proposals about a project.
+
 class ProjectTidy:
     """The Bridge's feature object (app/unified.py ``project_tidy``): one thread with the switch on, none without, and the
     claim of its cards' clicks (PANELS). ``env``: app/butler_env.py ButlerEnv (``projects`` the projects' feature object)."""
@@ -547,7 +549,8 @@ class ProjectTidy:
         proposals.change_topic(state, topic, lambda flags: flags.update(never_auto=True, left=[*(flags.get("left") or []),
                                                                                               {"project": pid, "at": time.time()}]))
         self.mark(ctx, chat, topic, pid, "")
-        return f"已把这个话题移出专项「{name}」，以后它不会再被自动归进专项。"
+        folded = self.fold_if_empty(state, pid)
+        return f"已把这个话题移出专项「{name}」，以后它不会再被自动归进专项。" + (f"专项「{name}」没有话题了，已收起。" if folded else "")
 
     def apply(self, ctx, chat, record) -> tuple:
         """Do an accepted proposal: (ok, the line said)."""
@@ -577,12 +580,13 @@ class ProjectTidy:
             return True, f"已收起「{current.get('name')}」"
         if kind == proposals.MERGE:
             kept = record["projects"][0]
+            into = f"随合并转进专项「{self.project_name(state, kept)[:30]}」"
             for other in record["projects"][1:]:
                 gone = projects.read_record(state, other)
                 if not gone or gone.get("state") not in (projects.ACTIVE, projects.PAUSED):
                     continue
                 for topic in list(gone.get("threads") or ()):
-                    leave_topic(state, other, topic, why="合并进另一个专项")
+                    leave_topic(state, other, topic, went=into)
                     try:
                         join_topic(state, kept, topic, why="从合并的专项转来")
                     except ValueError:
@@ -593,13 +597,57 @@ class ProjectTidy:
                 projects.update(state, kept, lambda data: data.update(name=record["name"]))
             return True, f"已合并进「{projects.read_record(state, kept).get('name')}」"
         if kind == proposals.SPLIT:
+            # Only the topics still the project's go (T574: one the owner took out, or another proposal moved, stays where it
+            # is), and two at least, as the judge was allowed to propose (app/project_sorter.py MIN_CREATE).
+            movable, gone = self.still_in(state, record["topics"], pid)
+            if len(movable) < proposals.MIN_CREATE:
+                return False, f"已过时：{gone + '，' if gone else ''}剩下的不够另建一个专项，没拆"
             if projects.active_count(state) >= projects.MAX_ACTIVE:
                 return False, f"已经有 {projects.MAX_ACTIVE} 个专项在做，没拆"
-            for topic in record["topics"]:
-                leave_topic(state, pid, topic, why="拆出去另建专项")
-            made = self.create(ctx, chat, record, owner_named=False)
-            return (True, f"已拆出专项「{record.get('name')}」") if made else (False, "没拆成")
+            name = str(record.get("name") or "")
+            for topic in movable:
+                leave_topic(state, pid, topic, went=f"拆去了新专项「{name[:30]}」")
+            made = self.create(ctx, chat, {**record, "topics": movable}, owner_named=False)
+            if not made:
+                return False, "没拆成"
+            words = f"已拆出专项「{name}」" + (f"（{gone}，没带上）" if gone else "")
+            if self.fold_if_empty(state, pid):
+                words += f"；「{current.get('name')}」的话题都拆走了，已收起"
+            return True, words
         return False, "不认识的建议"
+
+    def still_in(self, state, topics, pid) -> tuple:
+        """(``topics`` still members of project ``pid``, in order; the words for the others: where they went)."""
+        kept, elsewhere, out = [], {}, []
+        for topic in dict.fromkeys(topics or ()):
+            found = projects.topic_project(state, topic)
+            if found is not None and found.id == pid and found.role == projects.MEMBER:
+                kept.append(topic)
+            elif found is not None:
+                elsewhere.setdefault(found.id, []).append(topic)
+            else:
+                out.append(topic)
+        words = [f"{self.labels(state, group)} 已归进专项「{self.project_name(state, other)}」" for other, group in elsewhere.items()]
+        if out:
+            words.append(f"{self.labels(state, out)} 已不在专项「{self.project_name(state, pid)}」里")
+        return kept, "；".join(words)
+
+    def elsewhere(self, state, topics) -> str:
+        """Where ``topics`` are: T12 已在专项「X」里 (one clause a project); '' for none."""
+        by = {}
+        for topic in topics:
+            found = projects.topic_project(state, topic)
+            by.setdefault(found.id if found is not None else "", []).append(topic)
+        return "；".join(f"{self.labels(state, group)} 已在专项「{self.project_name(state, pid)}」里" for pid, group in by.items() if pid)
+
+    def fold_if_empty(self, state, pid) -> bool:
+        """收起 a project 整理专项 or 移出 left without topics, when nothing of it runs (the owner, 2026-11-20: 只剩空壳就马上收起;
+        his word in it opens it again, app/project_loop.py reopen); whether it was."""
+        record = projects.read_record(state, pid)
+        if not record or record.get("threads") or not self.foldable(state, pid):
+            return False
+        self.fold(state, pid)
+        return projects.folded(projects.read_record(state, pid))
 
     @staticmethod
     def fold(state, pid) -> None:
@@ -867,6 +915,12 @@ class ProjectTidy:
         state, changed = Path(ctx.state_dir), 0
         for record in proposals.proposals(state, [proposals.OPEN]):
             kind, topics = record.get("kind"), list(dict.fromkeys(record.get("topics") or ()))
+            if kind in PROJECT_KINDS:
+                try:
+                    changed += self.follow_project(ctx, record)
+                except Exception as exc:  # noqa: BLE001 - the next tick tries again
+                    self.runtime.log(f"project tidy follow failed proposal={record['id'][:8]}: {type(exc).__name__}")
+                continue
             if kind not in (proposals.CREATE, proposals.JOIN) or not topics:
                 continue
             left = proposals.free(state, topics)
@@ -886,6 +940,53 @@ class ProjectTidy:
                 changed += 1
                 self.runtime.log(f"project tidy proposal followed proposal={record['id'][:8]} left={len(left)}")
         return changed + self.unrepeat(ctx)
+
+    def follow_project(self, ctx, record) -> int:
+        """An open proposal about a project (拆出, 合并, 移出, 改名, 收起) whose project ended, or whose topics left it, since
+        (T574, the owner, 2026-11-20: 等着的拆分提议跟着话题变): it ends as 已过时, or a split keeps the topics still there when
+        MIN_CREATE are; its row on the 整理专项 card is redrawn. 1 when it changed."""
+        state, kind, pid = Path(ctx.state_dir), record.get("kind"), str(record.get("project") or "")
+        ids = list(record.get("projects") or ()) if kind == proposals.MERGE else [pid]
+        ended = [other for other in ids if projects.read_record(state, other).get("state") not in (projects.ACTIVE, projects.PAUSED)]
+        if ended:
+            return int(self.retire(ctx, record, f"专项「{self.project_name(state, ended[0])}」已经结束或并走了，这条不再提。"))
+        if kind not in (proposals.SPLIT, proposals.LEAVE):
+            return 0
+        topics = list(dict.fromkeys(record.get("topics") or ()))
+        kept, gone = self.still_in(state, topics, pid)
+        if len(kept) == len(topics):
+            return 0
+        if kind == proposals.LEAVE or len(kept) < proposals.MIN_CREATE:
+            rest = "" if kind == proposals.LEAVE else "，剩下的不够另建一个专项"
+            return int(self.retire(ctx, record, f"{gone}{rest}，这条不再提。"))
+        done = []
+
+        def edit(data):
+            if data.get("state") == proposals.OPEN:
+                data.update(topics=kept, note=f"{gone}，只拆剩下的 {len(kept)} 个")
+                done.append(True)
+        saved = proposals.update_proposal(state, record["id"], edit)
+        if done:
+            self.redraw_row(ctx, saved, line=self.line(state, saved, ctx), note=saved["note"], state=proposals.OPEN)
+        return int(bool(done))
+
+    def redraw_row(self, ctx, record, **row) -> bool:
+        """The row of proposal ``record`` on the 整理专项 card it was listed on (its ``run``) changed by ``row`` and the card
+        redrawn; False when it has no such row (a proposal with a card of its own)."""
+        run = str(record.get("run") or "")
+        if not run.replace("-", "").isalnum():
+            return False
+        path = self.run_path(Path(ctx.state_dir), run)
+        saved = read_object(path)
+        rows = (saved.get("view") or {}).get("rows") or []
+        found = [item for item in rows if item.get("proposal") == record["id"]]
+        if not found or not saved.get("message_id"):
+            return False
+        for item in found:
+            item.update({key: value for key, value in row.items() if value is not None})
+        write_json(path, saved, ensure_ascii=False, indent=1)
+        self.messenger.patch_card(ctx.profile, saved["message_id"], cards.tidy_card(saved["view"]))
+        return True
 
     def unrepeat(self, ctx) -> int:
         """The cards of the same topics (or some of them) as a newer proposal still waiting, ended so only that one stays: the
@@ -945,7 +1046,11 @@ class ProjectTidy:
                 done.append(True)
         proposals.update_proposal(state, record["id"], edit)
         if done:
-            self.patch_own(ctx, str((record.get("card") or {}).get("message_id") or ""), cards.proposal_card(view))
+            own = str((record.get("card") or {}).get("message_id") or "")
+            if own:
+                self.patch_own(ctx, own, cards.proposal_card(view))
+            else:  # A row on a 整理专项 card (拆出, 合并, 归进…): that row says it now.
+                self.redraw_row(ctx, record, state=proposals.EXPIRED, note=note)
         return bool(done)
 
     def foldable(self, state, pid) -> bool:
@@ -1134,6 +1239,15 @@ class ProjectTidy:
         topics, unknown = self.chosen(state, chat, view, fields)
         if topics is None:
             topics = list(record.get("topics") or ())
+        # A topic already in a project stays there (app/projects.py step_members): said, not listed as the new one's (T574).
+        taken = [topic for topic in topics if projects.topic_project(state, topic) is not None]
+        topics = [topic for topic in topics if topic not in taken]
+        elsewhere = self.elsewhere(state, taken)
+        if not topics and taken:
+            after_ack(lambda: self.messenger.send_message(ctx.profile, chat, f"专项没建：{elsewhere}，一个话题只能在一个专项里。",
+                                                          self.voice.safe_key(self.voice.key("tidy-taken", str(event.get("event_id") or ""))),
+                                                          voice=self.voice))
+            return "tidy_no_topics"
         if not topics:
             after_ack(lambda: self.messenger.send_message(ctx.profile, chat, "没选话题，专项没建：在卡上勾上话题或填 T 号再点「建专项」。",
                                                           self.voice.safe_key(self.voice.key("tidy-none", str(event.get("event_id") or ""))),
@@ -1151,6 +1265,8 @@ class ProjectTidy:
                 words = f"已建专项「{name}」：专项卡在聊天区，负责人接着跟进。" if pid else "专项没建成，过一会儿再说“整理一下专项”。"
                 if pid and unknown:
                     words += f"（{'、'.join(unknown)} 不是你最近的话题，没加）"
+                if pid and taken:
+                    words += f"（{elsewhere}，没加）"
             proposals.update_proposal(state, record["id"], lambda data: data.update(
                 state=proposals.DONE if pid else proposals.FAILED, project_made=pid))
 

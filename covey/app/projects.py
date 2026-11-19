@@ -650,9 +650,10 @@ def join_topic(state, pid, topic, *, why="", by="tidy") -> dict:
     return record
 
 
-def leave_topic(state, pid, topic, *, why="") -> bool:
+def leave_topic(state, pid, topic, *, why="", went="") -> bool:
     """移出: ``topic`` an ordinary topic again (app/project_cards.py release), out of the record's ``threads``, and a ``left``
-    receipt for the lead; whether it was the project's."""
+    receipt for the lead; whether it was the project's. ``went``: where 整理专项 takes it (拆去了新专项「X」), said to the lead
+    instead of the owner's 移出 (which keeps it out of projects for good)."""
     record = projects.read_record(state, pid)
     if not record or topic not in (record.get("threads") or ()):
         found = projects.topic_project(state, topic)
@@ -662,8 +663,10 @@ def leave_topic(state, pid, topic, *, why="") -> bool:
     projects.remove_member(state, pid, topic)
     projects.log_leave(state, pid, topic)
     title = clip(topic_title(state, topic), 30)
-    project_lead.add_receipt(state, pid, LEFT, f"主人把话题{f'「{title}」' if title else ''}移出了这个专项，以后它不再归进来"
-                             + (f"：{clip(why, 120)}" if why else ""), thread=topic)
+    named = f"「{title}」" if title else ""
+    words = (f"话题{named}{went}，不再归这个专项" if went
+             else f"主人把话题{named}移出了这个专项，以后它不再归进来" + (f"：{clip(why, 120)}" if why else ""))
+    project_lead.add_receipt(state, pid, LEFT, words, thread=topic)
     return True
 
 
