@@ -10,7 +10,7 @@ FIXTURE = os.environ.get("COVEY_WEB_SETTINGS_FIXTURE", "")  # Writes the snapsho
 from unittest import mock
 
 from support.world import UnifiedCase
-from covey.app import web_settings
+from covey.app import butler_panel, web_settings
 from covey.app.butler_env import ButlerEnv
 from covey.app.web_ops import Ops
 from covey.app.web_sync import WebSync
@@ -64,7 +64,8 @@ class WebSettingsTest(UnifiedCase):
         butler = data["main"]
         self.assertEqual([r["label"] for r in butler["more"]], ["压缩阈值", "私聊顶层的消息"])
         mode = butler["more"][-1]
-        self.assertEqual((mode["text"], mode["editable"]), ("交给管家", False))  # The owner kept it to Feishu.
+        self.assertEqual((mode["text"], mode["editable"]), ("交给管家", True))  # T554 2nd round: with a confirm on the page.
+        self.assertEqual(mode["confirm"], {"topics": cards.MODE_CONFIRM})
         names = [w["name"] for w in data["workspace"]["items"]]
         self.assertEqual(names[0], "project")  # The default first, as on the card.
         gone = next(w for w in data["workspace"]["items"] if w["name"] == "gone")
@@ -84,12 +85,12 @@ class WebSettingsTest(UnifiedCase):
         self.assertEqual(self.row("main", cards.COMPACT)["current"], "300000")
 
     def test_rows_kept_to_feishu_an_option_gone_and_anyone_else_are_refused(self):
-        self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics"), ("failed", web_settings.READ_ONLY))
-        self.assertEqual(self.op(what="row", kind=cards.REDACTION, option="on"), ("failed", web_settings.READ_ONLY))
+        self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics"), ("failed", "改成每条直接开一个话题要先确认"))
+        self.assertEqual(self.op(what="row", kind=cards.ENABLE, option="on"), ("failed", web_settings.READ_ONLY))
         self.assertEqual(self.op(what="row", kind=cards.TOPIC_WORKSPACE, option="nowhere"), ("failed", web_settings.GONE))
         self.assertEqual(self.op(operator="ou_other", what="row", kind=cards.TOPIC_RUN_MODE, option="worktree"),
                          ("failed", web_settings.OWNER_ONLY))
-        self.assertEqual(self.op(what="free", kind=cards.TOPIC_RUN_MODE), ("failed", "不认识的设置改动"))
+        self.assertEqual(self.op(what="nope", kind=cards.TOPIC_RUN_MODE), ("failed", "不认识的设置改动"))
         self.assertTrue(settings.load(self.ctx.state_dir).enabled)
         self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.run_mode, "direct")
         settings.update(self.ctx.state_dir, enabled=False)  # 纯话题: the butler's rows count for nothing.
@@ -200,3 +201,118 @@ class WebSettingsTest(UnifiedCase):
             settings.update(self.ctx.state_dir, subagents="same")  # The card wrote main-thread.json.
             sync.inbox_once()
             self.assertEqual([path for path, _ in calls], ["/sync/inbox", "/sync/inbox", "/sync/upsert"])
+
+    # -- T554 second round (2026-11-19): what the page could only look at -------------------------------------------------------
+
+    def test_the_private_chat_mode_and_the_butlers_redaction_change_on_the_page(self):
+        self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics", confirm=True),
+                         ("done", butler_panel.MODE_NOTICES[False]))
+        self.assertFalse(settings.load(self.ctx.state_dir).enabled)
+        mode, = self.snap()["main"]["rows"]
+        self.assertTrue(mode["editable"])  # 纯话题: the row that turns the butler on again.
+        self.assertEqual(self.op(what="row", kind=cards.MODE, option="agent"), ("done", butler_panel.MODE_NOTICES[True]))
+        self.assertTrue(settings.load(self.ctx.state_dir).enabled)
+        self.assertEqual(self.op(what="row", kind=cards.REDACTION, option="off")[0], "done")
+
+    def test_workspaces_added_by_path_removed_and_pruned_as_on_the_card(self):
+        extra = self.root / "extra"
+        extra.mkdir()
+        self.assertEqual(self.op(what="workspace_add", path=str(extra)), ("done", "已添加工作区 extra"))
+        self.assertEqual(self.op(what="workspace_add", path=str(extra)), ("done", "该目录已在列表中：extra"))
+        self.assertEqual(self.op(what="workspace_add", path=str(self.root / "nowhere"))[0], "failed")
+        self.assertEqual(self.op(what="workspace_add", path="relative/dir")[0], "failed")
+        data = self.snap()["workspace"]
+        self.assertEqual(data["missing"], 1)  # "gone"
+        self.assertFalse(next(w for w in data["items"] if w["name"] == "project")["removable"])  # The default.
+        self.assertEqual(self.op(what="workspace_remove", workspace="project")[0], "failed")
+        self.assertEqual(self.op(what="workspace_remove", workspace="extra"), ("done", "已从列表移除 extra，磁盘目录未删除"))
+        self.assertTrue(extra.is_dir())
+        self.assertEqual(self.op(what="workspace_prune"), ("done", "已从列表移除 1 项，磁盘目录未删除"))
+        self.assertEqual(sorted(w["name"] for w in self.snap()["workspace"]["items"]), ["docs", "project"])
+
+    def test_free_talk_only_tighter_on_the_page(self):
+        chat = "oc_group0123456789"
+        group_records.save_group(self.ctx.state_dir, chat, lambda record: {**record, "chat_id": chat, "active": True,
+                                                                            "external": False, "free_talk": "all"})
+        with mock.patch.dict(os.environ, {"COVEY_GROUP_ALL_MESSAGES": "1"}):
+            item, = self.snap()["groups"]["items"]
+            self.assertEqual(item["free_mode"], "all")
+            self.assertEqual([c["value"] for c in item["free_choices"]], ["", "owner"])
+            self.assertEqual(self.op(what="free", group=item["key"], mode="all")[0], "failed")
+            self.assertEqual(self.op(what="free", group=item["key"], mode="owner")[0], "done")
+            self.assertEqual(self.app.runtime.access.group(chat).get("free_talk"), "owner")
+        self.assertEqual(self.op(what="free", group=item["key"], mode="")[0], "failed")  # Without 免@ in this deployment.
+
+    def test_nodes_added_by_ssh_off_the_inbox_and_removed(self):
+        from covey.app import web_panels
+        from covey.core import nodes
+        ran = []
+        gateway = mock.Mock(tls=mock.Mock(spki="pin"), address="hub:7443")
+        panel = mock.Mock(gateway=gateway, ssh_join=lambda alias, args, command: ran.append((alias, args, command)) or f"✅ {alias} 已装好")
+        ctx = self.web.context()
+        started = []
+        with mock.patch.object(nodes, "open_join", return_value="tok") as opened:
+            words = web_panels.node_add(ctx, panel, {"name": "box1", "ssh": "me@box1 -p 22"}, start=started.append)
+        self.assertIn("正在经 ssh 登上 box1", words)
+        opened.assert_called_once_with(ctx.state_dir, "box1", "box1", via="ssh")
+        self.assertEqual(web_panels.read_joins(ctx.state_dir)["box1"]["state"], "joining")
+        self.assertEqual(ran, [])  # Not in the inbox's thread.
+        started[0]()
+        self.assertEqual(ran[0][1], ["me@box1", "-p", "22"])
+        self.assertEqual(web_panels.read_joins(ctx.state_dir)["box1"]["state"], "done")
+        with self.assertRaisesRegex(ValueError, "只能经 ssh"):
+            web_panels.node_add(ctx, panel, {"name": "box2", "ssh": ""})
+        with self.assertRaisesRegex(ValueError, "本机执行命令"):
+            web_panels.node_add(ctx, panel, {"name": "box2", "ssh": "-oProxyCommand=sh me@x"})
+        with self.assertRaisesRegex(ValueError, "本机不能移除"):
+            web_panels.node_remove(ctx, panel, {"alias": nodes.LOCAL})
+        with mock.patch.object(nodes, "revoke", return_value=True):
+            self.assertIn("已移除 box1", web_panels.node_remove(ctx, panel, {"alias": "box1"}))
+        gateway.revoke_now.assert_called_once_with("box1")
+        self.assertEqual(web_panels.node_row({"alias": "box1", "title": "box1", "line": "🟠 box1 · CPU 3% · 内存 90%", "local": False}),
+                         {"alias": "box1", "title": "box1", "dot": "tight", "line": "CPU 3% · 内存 90%", "grey": "", "local": False})
+
+    def test_the_proxy_changes_are_the_cards(self):
+        from covey.app import web_panels
+        from covey.cards import proxy_panel as proxy_cards
+        commands = mock.Mock(cmd_disable=lambda *a: "代答已关闭", set_paused=lambda ctx, key, paused: f"{key} paused={paused}")
+        proxy = mock.Mock(commands=commands, settings=lambda ctx: {"enabled": True})
+        panel = mock.Mock(proxy=proxy, pick=lambda ctx, kind, option: "⚠️ 这个模型已不在可选目录中，请重新选择。")
+        ctx = self.web.context()
+        self.assertEqual(web_panels.proxy_change(ctx, panel, {"op": "disable"}), "代答已关闭")
+        self.assertEqual(web_panels.proxy_change(ctx, panel, {"op": "enable"}), "代答已经是开启的")
+        with self.assertRaisesRegex(ValueError, "不在可选目录"):
+            web_panels.proxy_change(ctx, panel, {"op": "row", "kind": proxy_cards.TIER_MODEL, "option": "x"})
+        with self.assertRaisesRegex(ValueError, "白名单里已经没有"):
+            web_panels.proxy_change(ctx, panel, {"op": "pause", "contact": "nobody"})
+
+    def test_the_usage_item_is_the_cards_count(self):
+        from covey.app import weekly_usage
+        with mock.patch.object(weekly_usage, "summarize", wraps=weekly_usage.summarize) as summarize:
+            found = self.web.usage(now=1_800_000_000)
+        summarize.assert_called_once()
+        self.assertEqual((found["days"], found["tasks"]), (weekly_usage.WINDOW_DAYS, 0))
+        json.dumps(found)  # Pushed as JSON: no Counter left.
+        with mock.patch.dict(os.environ, {web_sync.ENV: "1"}):
+            sync = WebSync(self.app.runtime, self.env)
+        self.assertEqual([i["key"] for i in sync.settings_items("oc_dm", 0.0, True)], ["settings", "usage"])
+        self.assertEqual([i["key"] for i in sync.settings_items("oc_dm", 1.0, False)], [])
+
+    def test_dismiss_on_the_page_takes_the_topic_off_the_board_as_the_card_does(self):
+        from support.records import write_topic
+        from covey.app import overview, pins
+        topic = "e" * 32
+        write_topic(self.ctx.state_dir, topic_id=topic, chat_id="oc_dm", harness_id="claude", topic_number=9)
+
+        def run(**row):
+            with mock.patch.object(self.app.runtime.access, "owner_chat", return_value="oc_dm"):
+                return self.ops.run({"kind": "dismiss", "op_id": "op9", "payload": {}, **row})
+
+        with mock.patch.object(overview, "dismissable", return_value=False):
+            self.assertEqual(run(topic_key=topic)[0], "failed")
+        with mock.patch.object(overview, "dismissable", return_value=True):
+            self.assertEqual(run(topic_key=topic), ("done", "已从看板拿掉"))
+            self.assertEqual(run(topic_key=topic), ("done", "已经拿掉了"))
+            self.assertEqual(run(topic_key="f" * 32)[0], "failed")
+        record = json.loads(pins.record_path(self.ctx.state_dir, "oc_dm").read_text())
+        self.assertIn(topic, record["dismissed"])
