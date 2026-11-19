@@ -333,3 +333,59 @@ class WebSettingsTest(UnifiedCase):
             data = web_panels.proxy_tab(self.web.context(), panel, web_settings.row, web_settings.LIMIT)
         self.assertEqual([(r["kind"], r["editable"]) for r in data["rows"]], [(proxy_cards.TIER_MODEL, True)])
         self.assertTrue(data["login_ok"])
+
+    # -- 网页开新话题 (data contract v16, T554 round three) -----------------------------------------------------------
+
+    def test_the_launch_catalog_is_the_launch_cards_reading(self):
+        data = self.snap()["launch"]
+        if FIXTURE:
+            with open(FIXTURE.replace(".json", "-launch.json"), "w") as out:
+                json.dump(data, out, ensure_ascii=False, indent=1)
+        keys = [m["key"] for m in data["models"]]
+        self.assertIn(data["preselect"]["model"], keys)
+        for model in data["models"]:
+            self.assertIn(model["start_budget"], [b["value"] for b in model["budgets"]], model["key"])
+            self.assertTrue(model["harness_title"])
+        self.assertEqual(data["preselect"]["workspace"], "project")
+        self.assertEqual([w["name"] for w in data["workspaces"]][0:1] and sorted(w["name"] for w in data["workspaces"]),
+                         ["docs", "gone", "project"])
+        self.assertEqual([r["value"] for r in data["run_modes"]], ["direct", "worktree"])
+
+    def launch(self, op_id="op-l1", **payload):
+        access = self.app.runtime.access
+        with mock.patch.object(access, "owner_chat", return_value="oc_dm"):
+            return self.ops.run({"kind": "launch", "op_id": op_id, "payload": payload})
+
+    def test_a_launch_from_the_page_opens_a_topic_that_starts_at_once_and_is_remembered(self):
+        from covey.app.launch import launch_defaults
+        from covey.core.jobs import find_job_record
+        catalog = self.snap()["launch"]
+        model = catalog["models"][-1]
+        sent = []
+        self.app.messenger.create_and_send_card = mock.Mock(side_effect=lambda *a, **k: (sent.append(a[2]), ("card1", "om_root1"))[1])
+        state, words = self.launch(text="把账单整理一下\n第二行", model=model["key"], effort=model["start_budget"], workspace="docs",
+                                   run_mode="direct", redaction="off")
+        self.assertEqual(state, "done", words)
+        self.assertRegex(words, r"已开 .*「把账单整理一下」：直接开工")
+        record = json.loads((self.ctx.state_dir / "web" / "launches" / "op-l1.json").read_text())
+        topic = json.loads((self.ctx.state_dir / "topics" / record["topic_id"] / "topic.json").read_text())
+        self.assertEqual((topic["harness_id"], topic["workspace_name"], topic["origin"]["kind"]),
+                         (model["harness"], "docs", "web"))
+        job = find_job_record(self.ctx.state_dir, "web-op-l1")
+        self.assertEqual(job["topic_id"], record["topic_id"])
+        self.assertEqual(launch_defaults(self.ctx.state_dir, "oc_dm")["model_choice"], model["key"])
+        self.assertEqual(self.snap()["launch"]["preselect"]["model"], model["key"])  # The next one preselects it.
+        # The same operation again: the same topic, nothing sent again.
+        self.assertEqual(self.launch(text="把账单整理一下", model=model["key"], effort=model["start_budget"], workspace="docs"),
+                         ("done", words))
+        self.assertEqual(len(sent), 1)
+
+    def test_a_launch_is_checked_as_the_cards_start_checks_it(self):
+        model = self.snap()["launch"]["models"][0]
+        base = dict(text="x", model=model["key"], effort=model["start_budget"], workspace="docs", run_mode="direct")
+        self.assertEqual(self.launch("op-b1", **{**base, "model": "nope:none"}), ("failed", "这个模型已不在可选目录中，请重新选"))
+        self.assertEqual(self.launch("op-b2", **{**base, "effort": "nope"}), ("failed", "这个模型没有这一档思考预算，请重新选"))
+        self.assertEqual(self.launch("op-b3", **{**base, "workspace": "elsewhere"}), ("failed", "没有登记工作区「elsewhere」，请重新选"))
+        self.assertEqual(self.launch("op-b4", **{**base, "text": " "}), ("failed", "要先写这个话题做什么"))
+        if not model["redaction"]:
+            self.assertEqual(self.launch("op-b5", **{**base, "redaction": "on"}), ("failed", "这个模型不能脱敏"))

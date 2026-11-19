@@ -544,19 +544,27 @@ def _start_topic(app, ctx, path, record, plan, directory, branch):
                                         directory=directory, on_bound=bound)
     if result:
         raise ValueError(result)
+    remember_launch(ctx.state_dir, chat_id, {**plan, 'workdir': plan['source']}, form=path.stem, log=app.runtime.log)
+
+
+def remember_launch(state_dir, chat_id, plan, *, form, log):
+    """A launch's choices kept for the next one: the chat's usage (app/model_usage.py) and its last 开始任务
+    (``launch_defaults``, and the Bridge's latest). The launch card's 开始任务 and the web page's launch (app/web_launch.py)
+    both keep them here; a failure to save is logged, the launch is done already."""
+    mode = {'work_mode': plan['work_mode']} if plan.get('work_mode') else {}
     try:
-        model_usage.record(ctx.state_dir, chat_id, plan['model_key'], plan['preference_effort'], plan.get('work_mode') or '',
-                           'launch', form=path.stem)
+        model_usage.record(state_dir, chat_id, plan['model_key'], plan['preference_effort'], plan.get('work_mode') or '',
+                           'launch', form=form)
     except OSError as exc:
-        app.runtime.log(f'model usage save failed: {type(exc).__name__}; submission already completed')
+        log(f'model usage save failed: {type(exc).__name__}; submission already completed')
     # Each is replaced whole: concurrent launches leave the latest, and nothing is read back first.
-    defaults = {'model_choice': plan['model_key'], 'effort': plan['preference_effort'], 'workdir': plan['source'], **mode}
-    for path, value in ((chat_defaults_path(ctx.state_dir, chat_id), {**defaults, 'chat_id': chat_id}),
-                        (ctx.state_dir / LATEST_DEFAULTS, defaults)):
+    defaults = {'model_choice': plan['model_key'], 'effort': plan['preference_effort'], 'workdir': plan['workdir'], **mode}
+    for path, value in ((chat_defaults_path(state_dir, chat_id), {**defaults, 'chat_id': chat_id}),
+                        (Path(state_dir) / LATEST_DEFAULTS, defaults)):
         try:
             save_record(path, value)
         except OSError as exc:
-            app.runtime.log(f'launch preference save failed: {type(exc).__name__}; submission already completed')
+            log(f'launch preference save failed: {type(exc).__name__}; submission already completed')
 
 
 def publish_preparing(app, ctx, path):
