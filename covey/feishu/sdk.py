@@ -23,6 +23,7 @@ from covey.core.process_env import env_flag
 
 _clients = {}
 _lock = threading.Lock()
+POOL = 12  # Connections kept: the 看板's six link reads and the card lanes' writes at once reuse them.
 IDLE_SECONDS = 240  # A pooled connection idle longer is not written to (S48: Feishu's edge kept them 600 s and more).
 CONNECT_SECONDS = 3  # To open a connection; a request then has its 8 s.
 DIRECT = {'http': None, 'https': None, 'all': None}  # requests: no proxy for this request, whatever the environment.
@@ -92,7 +93,7 @@ class _Client:
             if self.session is None or old is not None:
                 self.session = requests.Session()
                 self.session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=[]))  # No cookies kept or sent.
-                self.session.mount('https://', requests.adapters.HTTPAdapter(pool_connections=1, pool_maxsize=4))
+                self.session.mount('https://', requests.adapters.HTTPAdapter(pool_connections=1, pool_maxsize=POOL))
             self.used = now
             session = self.session
         if old is not None:

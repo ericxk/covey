@@ -192,6 +192,31 @@ class MessageSdkTests(unittest.TestCase):
         # lark-cli would read "@notes.txt" as a file and send its contents: it gets the text, kept literal.
         self.assertEqual(self.cli.call_args_list[2].args[0][-6:-4], ["--markdown", "\u200b@notes.txt"])  # privacy: allow 测试里的文件名 notes.txt 不是邮箱
 
+    def test_recall_and_reactions_go_through_the_sdk_as_lark_cli_sends_them(self):
+        from covey.feishu.messenger import Messenger
+        fake = self.client((200, {"code": 0, "msg": "success", "data": {"reaction_id": "r_1"}}))
+        messenger = Messenger(self.logs.append)
+        self.assertTrue(messenger.recall("named", "om_old"))
+        self.assertEqual(messenger.react("named", "om_1", "OnIt"), "r_1")
+        self.assertTrue(messenger.unreact("named", "om_1", "r_1"))
+        self.assertEqual([(r.http_method.name, r.uri) for r in fake.requests], [
+            ("DELETE", "/open-apis/im/v1/messages/om_old"), ("POST", "/open-apis/im/v1/messages/om_1/reactions"),
+            ("DELETE", "/open-apis/im/v1/messages/om_1/reactions/r_1")])
+        self.assertEqual(fake.bodies()[1], {"reaction_type": {"emoji_type": "OnIt"}})
+        self.cli.assert_not_called()
+        # Feishu's refusal (past the recall window) is a failure, as lark-cli's.
+        self.client((400, {"code": 230020, "msg": "recall window"}))
+        self.assertFalse(messenger.recall("named", "om_old"))
+        # An id that does not look like one, or the SDK off: lark-cli, as before.
+        self.cli.side_effect = None
+        self.cli.return_value = subprocess.CompletedProcess([], 0, '{"ok":true,"data":{}}', "")
+        self.assertTrue(messenger.recall("named", "not-a-message"))
+        with mock.patch.dict(os.environ, {"COVEY_CARD_TRANSPORT": "cli"}):
+            self.assertTrue(messenger.unreact("named", "om_1", "r_1"))
+        argvs = [call.args[0] for call in self.cli.call_args_list]
+        self.assertEqual([argv[argv.index("im"):argv.index("im") + 3] for argv in argvs],
+                         [["im", "messages", "delete"], ["im", "reactions", "delete"]])
+
     def test_text_starting_with_at_or_a_lone_dash_is_sent_as_text(self):
         fake = self.client((200, SENT), (200, SENT))
         for text in ("@张三 看下这个", "-"):

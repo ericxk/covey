@@ -231,8 +231,12 @@ def forward_card_action(runtime, target, event: dict, raw: dict) -> bool:
         job_id = _question_job_id(target.state_dir, raw.get("token")) or job_id
     if _forward_to_live(runtime, target, event, job_id):
         return True
+    try:  # The click's job only, when it names one: the topic's other records are not read.
+        narrow = {} if job_id is None else {"job_id": int(job_id)}
+    except (TypeError, ValueError):
+        narrow = {}
     records = [r for _, r in directory_store(target.state_dir / "jobs").query(
-        topic_id=target.topic_id, chat_id=event.get("chat_id", ""))]
+        topic_id=target.topic_id, chat_id=event.get("chat_id", ""), **narrow)]
     timing.mark("fwd_records")
     if job_id is not None:
         matches = [r for r in records if str(r.get("job_id")) == str(job_id)]

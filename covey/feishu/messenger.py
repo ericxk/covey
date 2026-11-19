@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import subprocess
 
 from covey.core import env as cenv
@@ -11,10 +12,13 @@ from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.core.state import read_json, write_json
 from covey.core.topics import remember_topic_message
-from covey.feishu import cardkit
+from covey.feishu import cardkit, sdk
 from covey.feishu.delivery import resolve_message_format, safe_idempotency_key, send_message_with_fallback
 from covey.feishu.message_request import message_argv
 from covey.feishu.transport import call, lark_argv, message_id_of, run_cli
+
+_MESSAGE_ID = re.compile(r"om_[A-Za-z0-9_-]+")
+_PATH_ID = re.compile(r"[A-Za-z0-9_-]+")  # An id put in an API path (a reaction id) as it is.
 
 DEFAULT_MESSAGE_CHUNK_LIMIT = 12000
 FALLBACK_MESSAGE_CHUNK_LIMIT = 3000
@@ -112,10 +116,26 @@ class Messenger:
         return call(lark_argv(profile, *args, "--as", "bot", *(["--yes"] if yes else []), "--format", "json"),
                     timeout=30, log=self.log)
 
+    def _bot_api(self, profile, request, *args, ids=(), yes=False):
+        """``_bot(profile, *args)``, sent in process when the SDK transport is on (feishu/sdk.py) as ``request``
+        (method, path, body, params) says: the same answer and failures as lark-cli's, its subprocess (~0.7 s) saved.
+        ``ids``: the message id, then any other id, in ``path``; one that does not look like one is lark-cli's to
+        refuse."""
+        method, path, body, params = request
+        argv = lark_argv(profile, *args, "--as", "bot", *(["--yes"] if yes else []), "--format", "json")
+        execute = None
+        if (sdk.enabled() and ids and _MESSAGE_ID.fullmatch(str(ids[0]))
+                and all(_PATH_ID.fullmatch(str(part)) for part in ids[1:])):
+            execute = sdk.runner_or_none(profile, method, path, body, params, log=self.log, label="Message",
+                                         cli_errors=True)
+        return call(argv, timeout=30, log=self.log, runner=execute)
+
     def recall(self, profile, message_id) -> bool:
         """Recall (撤回) a message the bot sent; False when Feishu refused (past the tenant's recall
         window, already gone) or the call failed."""
-        return self._bot(profile, "im", "messages", "delete", "--message-id", message_id, yes=True) is not None
+        return self._bot_api(profile, ("DELETE", f"/open-apis/im/v1/messages/{message_id}", None, None),
+                             "im", "messages", "delete", "--message-id", message_id, ids=(message_id,),
+                             yes=True) is not None
 
     def patch_card(self, profile, message_id, card) -> bool:
         """Replace the card of a card message the bot sent (an ``update_multi`` card, within 14 days, at most
@@ -147,8 +167,10 @@ class Messenger:
     def react(self, profile, message_id, emoji) -> str:
         """Add the reaction ``emoji`` (an emoji_type: OnIt, DONE, Get, CrossMark) to a message as the bot; adding one
         it has already is the same reaction again. Its reaction_id, '' when Feishu refused or the call failed."""
-        result = self._bot(profile, "im", "reactions", "create", "--params", json.dumps({"message_id": message_id}),
-                           "--data", json.dumps({"reaction_type": {"emoji_type": emoji}}))
+        body = {"reaction_type": {"emoji_type": emoji}}
+        result = self._bot_api(profile, ("POST", f"/open-apis/im/v1/messages/{message_id}/reactions", body, None),
+                               "im", "reactions", "create", "--params", json.dumps({"message_id": message_id}),
+                               "--data", json.dumps(body), ids=(message_id,))
         data = result.get("data", result) if isinstance(result, dict) else {}
         return str(data.get("reaction_id") or "") if isinstance(data, dict) else ""
 
@@ -156,7 +178,9 @@ class Messenger:
         """Remove the bot's reaction ``reaction_id`` from a message (one removed already: succeeds too); False when
         the call failed."""
         params = json.dumps({"message_id": message_id, "reaction_id": reaction_id})
-        return self._bot(profile, "im", "reactions", "delete", "--params", params) is not None
+        return self._bot_api(profile, ("DELETE", f"/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}",
+                                       None, None), "im", "reactions", "delete", "--params", params,
+                             ids=(message_id, reaction_id)) is not None
 
     def reaction_ids(self, profile, message_id, emoji) -> list | None:
         """The ids of the reactions ``emoji`` the bot has put on a message (an app's, not a person's); None when the call
