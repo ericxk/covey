@@ -237,7 +237,7 @@ class PushTest(WebCase):
         self.assertEqual(len(self.web.items()), first)
         append_history(self.state / "topics" / TOPIC / "history.jsonl", "user", "再来一句")
         self.sync.collector.touch(TOPIC)
-        self.assertEqual(self.sync.push_once(T0 + 2), 1)
+        self.assertEqual(self.sync.push_once(T0 + 2), 2)  # The new turn, and its topic: its last_seq moved (data contract v12).
         self.assertEqual((self.web.items()[-1]["key"], self.web.items()[-1]["data"]["body"]), (f"{TOPIC}:3", "再来一句"))
 
     def test_a_running_turn_pushes_its_progress_notes_each_time_they_change(self):
@@ -315,7 +315,7 @@ class PushTest(WebCase):
         append_history(self.state / "topics" / BUTLER / "history.jsonl", "user", "再来一句")
         self.assertEqual(self.sync.push_once(T0 + 1), 0)
         self.sync.collector.touch(BUTLER)
-        self.assertEqual(self.sync.push_once(T0 + 2), 1)
+        self.assertEqual(self.sync.push_once(T0 + 2), 2)  # The new turn, and the butler's topic: its last_seq moved (contract v12).
         self.assertEqual((self.web.items()[-1]["key"], self.web.items()[-1]["data"]["body"]), (f"{BUTLER}:3", "再来一句"))
 
     def test_the_butler_topic_and_other_chats_are_not_pushed(self):
@@ -1214,6 +1214,21 @@ class ExtrasTest(WebCase):
         self.sync.push_once(T0 + 1)
         states = {item["key"]: item["data"]["state"] for item in self.web.items("topic")}
         self.assertEqual((states[TOPIC], states[OTHER]), ("做完", "空闲"))
+
+    def test_a_topic_says_its_last_turn_so_the_page_drops_a_stale_running_one(self):
+        """2026-11-19 T552: a task pushed as running at seq count + 1 whose answer came in at a lower seq left that running row on
+        the page for good (T519, T559 ...): the 专项报告 counted its tokens twice and drew it as running. The topic says its last
+        seq (data contract v12) and the page drops the turns past it."""
+        self.topic(status="running", lines=(("user", "你好"), ("assistant", "好的"), ("user", "再看看")))
+        self.sync.push_once(T0)
+        topic = [item["data"] for item in self.web.items("topic") if item["key"] == TOPIC][-1]
+        seqs = [item["data"]["seq"] for item in self.web.items("turn") if item["data"]["topic_key"] == TOPIC]
+        self.assertEqual((topic["last_seq"], max(seqs)), (4, 4))
+        write_job(self.state, f"k-{TOPIC[:4]}", status="done")
+        self.web.upserts.clear()
+        self.sync.push_once(T0 + 1)
+        topic = [item["data"] for item in self.web.items("topic") if item["key"] == TOPIC][-1]
+        self.assertEqual(topic["last_seq"], 3)
 
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()

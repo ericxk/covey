@@ -309,6 +309,10 @@ class Collector:
         gist = self.gist(state, topic) if not (butler or project) else None
         if gist:
             body["gist"] = gist
+        # The page drops this topic's turns past it (data contract v12): a turn pushed as running at count + 1 whose answer came in
+        # at a lower seq (T519, T559 on 2026-11-19: the answer's row and a stale "running" row of the same task) was never replaced,
+        # so the 专项报告 counted that task's tokens twice and drew it as still running.
+        body["last_seq"] = max((turn["seq"] for turn in turns), default=0)
         out = [web_sync.item("topic", topic, body)]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:
