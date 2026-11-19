@@ -40,11 +40,13 @@ class AttachTest(unittest.TestCase):
         self.make("aaa111", "迁移订单库", "把订单库迁到新集群，周末前要有结果\n第二行不要")
         self.make("bbb222", "整理周报", "每周一出周报", state="paused", state_reason=projects.IDLE)
         self.make("ccc333", "停住的", "x", state="paused", state_reason="stalled")
-        self.make("ddd444", "做完的", "x", state="done")
+        self.make("ddd444", "做完很久的", "x", state="done")  # Finished 1000 s after the epoch: long over DONE_SHOWN.
+        self.make("ddd555", "刚做完的", "x", state="done", updated_at=time.time() - 3600)
         self.make("eee555", "取消的", "x", state="cancelled")
         self.make("fff666", "别的聊天", "x", chat="oc_other")
         rows = self.groups()["projects"]
-        self.assertEqual(list(rows), ["aaa111", "bbb222", "ccc333"])
+        self.assertEqual(list(rows), ["aaa111", "bbb222", "ccc333", "ddd555"])
+        self.assertIn("做完，主人再说话会重开", rows["ddd555"])  # The owner's words for it still reach its lead (T574).
         self.assertEqual(rows["aaa111"], "aaa111 · 迁移订单库 · 在做 · 目标：把订单库迁到新集群，周末前要有结果")
         self.assertIn("收起", rows["bbb222"])
         self.assertIn("停住", rows["ccc333"])
@@ -59,7 +61,7 @@ class AttachTest(unittest.TestCase):
         self.assertIn("专项：\n- aaa111 · 迁移订单库 · 收起", later)
         same = session.render_snapshot(self.groups(), self.groups(), full=False, at="11-17 12:00", receipts=True)
         self.assertNotIn("专项", same)
-        projects.update(self.state, "aaa111", lambda record: record.update(state="done"))
+        projects.update(self.state, "aaa111", lambda record: record.update(state="cancelled"))
         gone = session.render_snapshot(self.groups(), self.groups() | {"projects": {"aaa111": "x"}}, full=False, at="t", receipts=True)
         self.assertIn("不再在“专项”：", gone)
 
