@@ -14,6 +14,7 @@ import time
 
 from covey.cards.directory import Host, label
 from covey.core import devices
+from covey.cards import ui
 from covey.core.text import literal
 from covey.cards.butler_panel import NOTE_LENGTH, NOTES_HINT
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, fits, folded_panel, form_button, item, markdown_panel,
@@ -124,9 +125,10 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
     tags = ([(f'{len(gone)} 个目录不存在', 'red')] if gone else []) + (
         [(f'{len(unknown)} 个未确认', 'orange')] if unknown else [])
     elements = []
-    notice = BUSY_NOTE if busy else view.get('notice')
-    if notice:
-        elements.append(md(notice))
+    if busy:
+        elements.append(md(BUSY_NOTE))
+    elif view.get('notice'):
+        elements.append(ui.receipt(view['notice']))
     if view.get('details') and not busy:
         elements.append(markdown_panel('wsm_removed', REMOVED_TITLE, view['details']))
     elements += [note(literal(line)) for line in device_lines]

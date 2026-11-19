@@ -537,7 +537,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.click('done')
         card = self.shown()
         self.assertEqual(card['body']['elements'],
-                         [{'tag': 'markdown', 'content': '**工作区管理已完成** · 本次移除 1 项 · 默认工作区：project'}])
+                         [{'tag': 'markdown', 'content': '**工作区管理结束** · 本次移除 1 项 · 默认工作区：project'}])
         self.assertEqual(self.record()['status'], 'closed')
         calls = self.api.call_count
         self.click('remove', self.dirs['kept'], revision=self.record()['manager']['revision'] - 1)
@@ -614,7 +614,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.assertTrue((self.root / 'stale').is_dir())
         card = self.shown()
         elements = card['body']['elements']
-        self.assertEqual(elements[0]['content'], '✓ 已从列表移除 2 项，磁盘目录未删除')
+        self.assertEqual(elements[0]['content'], "<font color='grey'>已从列表移除 2 项，磁盘目录未删除</font>")
         self.assertEqual(elements[1]['header']['title']['content'], REMOVED_TITLE)
         self.assertFalse(elements[1]['expanded'])
         self.assertIn(literal(self.root / 'stale'), elements[1]['elements'][0]['content'])
@@ -623,7 +623,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.click('default', default=self.dirs['gone'])
         self.assertEqual(self.config()['default'], self.dirs['gone'])
         text = self.text()
-        self.assertIn('✓ 已把 gone 设为默认工作区', text)
+        self.assertIn('已把 gone 设为默认工作区', text)
         self.assertNotIn('已从列表移除', text)  # Each notice replaces the previous one.
         self.assertEqual(len(self.shown()['body']['elements']), size - 1)
         self.assertEqual(self.record()['manager']['removed'], 2)
@@ -658,7 +658,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.act('remove', self.dirs['stale'], revision=1)
         self.assertNotIn(self.dirs['stale'], self.config()['workspaces'])
         text, key = self.app.messenger.send_message.call_args.args[2:4]
-        self.assertEqual(text, '操作已完成：已从列表移除 1 项，磁盘目录未删除。卡片未能刷新，请点卡片上的“刷新”。')
+        self.assertEqual(text, '已从列表移除 1 项，磁盘目录未删除。卡片没能刷新，点卡片上的“刷新”再看。')
         self.assertEqual(self.app.messenger.send_message.call_args.kwargs['reply_to_message_id'], '')  # The main chat, like the card.
         self.assertEqual(self.record()['manager']['revision'], 3)
         # The card still shows the processing view (revision 2): only 刷新 is accepted from it.
@@ -667,7 +667,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.click('remove-' + row_key(self.dirs['kept']), revision=2)
         self.assertEqual(self.api.call_count, calls)
         self.click('refresh', revision=2)
-        self.assertIn('✓ 已从列表移除 1 项', self.text())
+        self.assertIn('已从列表移除 1 项', self.text())
         self.assertFalse(buttons(self.shown())['remove-' + row_key(self.dirs['kept'])]['disabled'])
         self.assertEqual(self.record()['manager']['revision'], 4)
 
@@ -677,7 +677,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.api.side_effect = [{'code': 0}, None, None]
         self.act('default', self.dirs['kept'])
         self.assertEqual(self.config()['default'], self.dirs['kept'])
-        self.assertIn('操作已完成：已把 kept 设为默认工作区', self.app.messenger.send_message.call_args.args[2])
+        self.assertIn('已把 kept 设为默认工作区。卡片没能刷新', self.app.messenger.send_message.call_args.args[2])
         self.assertEqual(self.app.messenger.send_message.call_args.kwargs['reply_to_message_id'], 'task')
 
     def test_stale_and_repeated_clicks_are_ignored(self):
@@ -711,7 +711,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.assertNotIn(self.dirs['gone'], listed)
         self.assertIn(self.dirs['stale'], listed)
         self.assertIn(self.dirs['kept'], listed)
-        self.assertIn('✓ 已从列表移除 1 项', self.text())
+        self.assertIn('已从列表移除 1 项', self.text())
         self.assertNotIn('prune', buttons(self.shown()))  # Shown only while some are missing.
         self.click('prune')
         self.assertIn('没有目录不存在的工作区', self.text())
@@ -810,7 +810,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.assertEqual(self.shown()['body']['elements'][0]['elements'][0]['content'],
                          "📂 **outer** <font color='grey'>· 已在列表</font>")  # Listed under its own name.
         self.click('dir-back')
-        self.assertIn('✓ 本次添加 3 项', self.text())
+        self.assertIn('本次添加 3 项', self.text())
         self.assertEqual(self.shown()['header']['title']['content'], '工作区')
         self.assertEqual(find(self.shown(), 'input', 'query')['default_value'], 'kept')
         self.click('back')
@@ -824,7 +824,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         fresh.mkdir()
         self.click('add', add_path=f'  {fresh}  ')
         self.assertEqual(self.config()['workspaces']['fresh'], str(fresh.resolve()))
-        self.assertIn('✓ 已添加工作区 fresh', self.text())
+        self.assertIn('已添加工作区 fresh', self.text())
         self.click('add', add_path=f'{fresh}/')
         self.assertIn('该目录已在列表中：fresh', self.text())
         for typed, reason in (('fresh', '绝对路径'), (str(self.root / 'nowhere'), '目录不存在'), (' ', '请先填写')):
@@ -915,7 +915,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         self.click('dir-back')
         self.click('done')
         self.assertEqual(self.shown()['body']['elements'][0]['content'],
-                         '**工作区管理已完成** · 本次添加 1 项、移除 0 项 · 默认工作区：project')
+                         '**工作区管理结束** · 本次添加 1 项、移除 0 项 · 默认工作区：project')
 
     def test_back_after_removing_the_chosen_workspace_says_so(self):
         self.prepare()

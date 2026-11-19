@@ -590,11 +590,11 @@ class GroupManagerTests(GroupManagerFixture, UnifiedCase):
         self.assertEqual((start, value_start['chat'], value_start['on']), ('启用', 'oc_g2', True))
         self.click(value_stop)
         self.assertFalse(self.access.active('oc_g1'))
-        self.assertIn('✓ 群「群g1」已停用', self.text())
+        self.assertIn('群「群g1」已停用', self.text())
         self.assertEqual([b[0] for b in self.buttons()], ['启用', '启用'])
         self.click(value_start, event_id='c2')
         self.assertTrue(self.access.active('oc_g2'))
-        self.assertIn('✓ 群「群g2」已启用', self.text())
+        self.assertIn('群「群g2」已启用', self.text())
         self.click(value_start, event_id='c3')  # From the card drawn before: still says what it does.
         self.assertIn('群「群g2」已经是启用的了。', self.text())
         self.assertEqual(self.said(), [])
@@ -656,13 +656,13 @@ class GroupFreeCardTests(GroupManagerFixture, UnifiedCase):
                          ['owner', 'some', 'all'])  # 关闭 is the one set.
         self.click(self.find('选这个', mode='some'), event_id='c2')
         self.assertEqual(self.access.free_talk('oc_g1'), 'some')
-        self.assertIn('✓ 群「群g1」免@ 改成：你和选中的人', self.text())
+        self.assertIn('群「群g1」免@ 改成：你和选中的人', self.text())
         self.assertNotIn('我', [t for t, v, _ in self.buttons()])
         self.assertEqual([(t, v['member']) for t, v, _ in self.buttons() if v['kind'] == 'bridge_group_member'],
                          [('选上', MEMBER), ('选上', OTHER)])
         self.click(self.find('选上', member=OTHER), event_id='c3')
         self.assertEqual(self.access.free_members('oc_g1'), [OTHER])
-        self.assertIn('✓ 选上了 王五', self.text())
+        self.assertIn('选上了 王五', self.text())
         self.assertEqual([(t, v['member']) for t, v, _ in self.buttons() if v['kind'] == 'bridge_group_member'],
                          [('取消', OTHER), ('选上', MEMBER)])
         self.click(self.find('返回群列表'), event_id='c4')

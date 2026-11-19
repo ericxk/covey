@@ -50,6 +50,8 @@ GONE = '⚠️ 这个选项已不可用，卡片已按最新设置重画。'
 # Said on the card once the private chat mode changed (docs/butler.md 私聊模式).
 MODE_NOTICES = {True: '已改成管家：聊天区的消息交给管家。',
                 False: '已改成纯话题：私聊顶层的新消息各开一个话题；已开的话题照常在各自的话题里继续。'}
+# Said on the card once another setting was saved (docs/ui.md 5.2: 保存后用一句灰字回执), by the page of the row.
+SAVED = {BUTLER: '已保存：管家下一轮起照这个来。', TOPIC: '已保存：之后新开的话题照这个来。', WORKSPACE: '已保存。'}
 
 
 def workspace_names(state_dir):
@@ -257,7 +259,7 @@ class ButlerPanel:
             notice = GONE if changes is None else ''
             if changes:
                 butler_settings.update(ctx.state_dir, **changes)
-                notice = MODE_NOTICES.get(changes.get('enabled'), '')
+                notice = MODE_NOTICES.get(changes.get('enabled')) or SAVED.get(PAGE_OF.get(value['kind']), '')
         with self.menu.lock(path):
             record = self.menu.clicked(path, event)  # Read again: another click may have drawn it since.
             if record is None:

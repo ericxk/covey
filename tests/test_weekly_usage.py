@@ -105,22 +105,33 @@ class CardTests(unittest.TestCase):
                    *(job("codex", topic="t2", status="continued", input_tokens=1000, output_tokens=10) for _ in range(196))]
         return summarize(records, NOW, TITLES)
 
-    def test_the_card_has_tiles_tags_a_ring_and_a_table(self):
+    def test_the_card_has_a_band_tiles_a_trend_a_ring_and_a_table(self):
         card = usage_card(self.summary())
         at = time.strftime('%m-%d %H:%M', time.localtime(NOW - 7 * DAY)) + " – " + time.strftime('%m-%d %H:%M', time.localtime(NOW))
         header = card["header"]
         self.assertEqual((header["title"]["content"], header["subtitle"]["content"], header["icon"]["token"]),
                          ("本周用量", f"{at} · 最近 7 天", "insert-chart_outlined"))
         self.assertEqual(card["config"]["summary"]["content"], "本周用量 · 201 次任务 · token 3.33 亿")
-        tiles, tags, ring, table, small = card["body"]["elements"]
+        # The band's colours are the card's own (cards/ui.py styled).
+        self.assertIn("band-0", card["config"]["style"]["color"])
+        band, tiles, trend_head, trend, harness_head, ring, table, small, updated = card["body"]["elements"]
+        rows = [[e.get("content") for e in row["elements"]] for row in band["elements"]]
         # With the cache hits: Claude 3 × (1 亿 + 100 万), Codex 3000 万 + 10 万 + 196 × 1010.
+        self.assertEqual(rows[:3], [["<font color='indigo'>本周 token · 含缓存命中和子任务</font>"],
+                                    ["<font color='indigo'>**3.33 亿**</font> **token**"],
+                                    ["<font color='grey'>201 个任务 · 3 个话题 · 缓存命中 82%</font>"]])
+        # How the tasks ended in the state table's words: the answered turns are 做完 too, the failed one 停住了.
+        self.assertIn("199 做完", rows[3][1])
+        self.assertIn("1 在做", rows[3][1])
+        self.assertIn("1 停住了", rows[3][1])
         self.assertEqual([[e["content"] for e in column["elements"]] for column in tiles["columns"]],
-                         [["<font color='grey'>任务 · 3 个话题</font>", "**201**"],
-                          ["<font color='grey'>token · 含缓存命中</font>", "**3.33 亿**"],
-                          ["<font color='grey'>缓存命中 · 占输入</font>", "**82%**"]])
-        self.assertEqual(tags["content"], "<text_tag color='green'>完成 3</text_tag> "
-                                          "<text_tag color='blue'>收到回答后继续 196</text_tag> "
-                                          "<text_tag color='red'>失败 1</text_tag> <text_tag color='wathet'>进行中 1</text_tag>")
+                         [["<font color='grey'>输入 · 含缓存命中</font>", "**3.30 亿**"],
+                          ["<font color='grey'>缓存命中 · 占输入 82%</font>", "**2.70 亿**"],
+                          ["<font color='grey'>输出</font>", "**310 万**"]])
+        self.assertEqual(trend_head["content"], "**每天的 token（亿）**")
+        values = trend["chart_spec"]["data"]["values"]
+        self.assertEqual(len(values), 8)  # 7 × 24 hours from midnight: eight dates, the last only its first moment.
+        self.assertEqual(values[-2], {"day": "11-02", "value": 3.33})
         # Claude 91%, Codex 9%.
         self.assertEqual(ring["chart_spec"]["data"]["values"], [{"name": "Codex  9%", "value": 9.1},
                                                                 {"name": "Claude  91%", "value": 90.9}])
@@ -132,10 +143,28 @@ class CardTests(unittest.TestCase):
                                          {"harness": "Claude", "tasks": "3 · 1%", "tokens": "3.03 亿 · 91%",
                                           "cache": "2.70 亿 · 90%"}])
         self.assertEqual(small["content"], "<font color='grey'>表里 token 含缓存命中；缓存命中后的百分比是它占这个 Harness 输入的比例。\n"
-                                           "输入 3.30 亿（其中缓存命中 2.70 亿）· 输出 310 万，含子任务\n"
                                            "问了问题、收到回答后接着做的算两次任务。\n"
                                            "另有 1 次任务没有 token 记录（如还没收到模型回复就停了），不在总量里。</font>")
+        self.assertTrue(updated["content"].startswith("<font color='grey'>更新于 "))
         self.assertNotIn("button", str(card))
+
+    def test_how_tasks_ended_tells_who_stopped_them(self):
+        # The owner's own stop is 已停止; the lead's, the guard's and 代答's are 停住了 with the failed and interrupted.
+        records = [job(status="cancelled", cancel_requested_by="card", **ran()),
+                   job(status="cancelled", cancel_requested_by="lead", **ran()), job(status="failed"),
+                   job(status="interrupted"), job(status="waiting_user"), job(status="queued", **ran())]
+        summary = summarize(records, NOW, TITLES)
+        self.assertEqual(dict(summary["ended"]), {"cancelled": 1, "stopped": 3, "waiting": 1, "queued": 1})
+        from covey.cards.weekly_usage import ended_line
+        self.assertEqual(ended_line(summary), "等你 1 · 排队 1 · 停住了 3 · 已停止 1")
+
+    def test_a_day_without_tokens_is_a_bar_of_nothing_and_no_tokens_no_trend(self):
+        from covey.cards.weekly_usage import trend
+        self.assertIsNone(trend([{"day": "11-01", "tasks": 1, "tokens": 0}]))
+        head, chart = trend([{"day": "11-01", "tasks": 1, "tokens": 0}, {"day": "11-02", "tasks": 1, "tokens": 123456}])
+        self.assertEqual(head["content"], "**每天的 token（万）**")
+        self.assertEqual(chart["chart_spec"]["data"]["values"], [{"day": "11-01", "value": 0.0},
+                                                                 {"day": "11-02", "value": 12.3}])
 
     def test_small_shares_ring_as_one_other(self):
         rows = [{"title": "A", "tokens": 970, "tasks": 1, "untracked": 0}, {"title": "B", "tokens": 15, "tasks": 1, "untracked": 0},
@@ -151,7 +180,9 @@ class CardTests(unittest.TestCase):
     def test_a_week_without_tasks(self):
         summary = summarize([job(ago=8 * DAY)], NOW, TITLES)
         card = usage_card(summary)
-        self.assertEqual([e["content"] for e in card["body"]["elements"]], ["这段时间没有任务。"])
+        band, updated = card["body"]["elements"]
+        self.assertEqual([row["elements"][0]["content"] for row in band["elements"]],
+                         ["<font color='indigo'>最近 7 天</font>", "**没有任务**", "<font color='grey'>这 7 天没有任务。</font>"])
         self.assertEqual(card["config"]["summary"]["content"], "本周用量 · 没有任务")
 
 
@@ -169,7 +200,7 @@ class MenuTests(UnifiedCase):
         self.assertEqual(send.call_count, 1)
         (_, chat, card, key), kwargs = send.call_args
         self.assertEqual(card['header']['title']['content'], '本周用量')
-        self.assertEqual(card['body']['elements'][3]['rows'],  # 2000 + 100, the cache hits counted in
+        self.assertEqual(next(e for e in card['body']['elements'] if e['tag'] == 'table')['rows'],  # 2000 + 100, the cache hits counted in
                          [{'harness': 'Claude Code', 'tasks': '1 · 100%', 'tokens': '2,100 · 100%', 'cache': '1,500 · 75%'}])
         self.assertEqual(chat, 'dm')
         self.assertNotIn('reply_to_message_id', kwargs)  # A new message: a menu click has none to reply to.
@@ -185,7 +216,7 @@ class MenuTests(UnifiedCase):
         self.app.handle_menu_event({'event_id': 'ev1', 'event_key': 'weekly_usage', 'operator_open_id': 'owner'},
                                    self.ctx)
         self.assertEqual(self.said(), ['**本周用量**\n\n' + f"最近 7 天：{time.strftime('%m-%d %H:%M', time.localtime(time.time() - 7 * DAY))} 起开始的任务"
-                                       + '\n\n这段时间没有任务。\n\n' + f"数据截至 {time.strftime('%m-%d %H:%M')}"])
+                                       + '\n\n这 7 天没有任务。\n\n' + f"更新于 {time.strftime('%H:%M')}"])
         self.assertNotIn('card', self.app.messenger.send_message.call_args.kwargs)
 
     def test_the_old_text_is_a_task_in_the_private_chat_and_in_a_group(self):

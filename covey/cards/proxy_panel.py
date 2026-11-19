@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from covey.cards.ui import receipt
 from covey.core.text import literal
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, callback_button, collapsible, element_count, fits,
                                             folded_panel, grey, item, json_size, md, menu_item, note, panel_header, plain, row, section,
@@ -221,7 +222,7 @@ def model_figure(settings, choices, current):
 
 def top_part(ui, view, settings, choices, current, contacts, pending):
     """What a click is doing or did, missing setup, the tiles, and 开启/关闭, 网页端登录, 刷新."""
-    top = [md(line) for line in (ui.busy, view.get('notice') or '') if line]
+    top = ([md(ui.busy)] if ui.busy else []) + ([receipt(view['notice'])] if view.get('notice') else [])
     warnings = ([] if settings.get('user_profile') else ['⚠️ 未配置以你身份读消息的 lark-cli profile（COVEY_PROXY_PROFILE）'])
     warnings += ['⚠️ ' + problem for problem in settings.get('send_problems') or ()]
     if warnings:

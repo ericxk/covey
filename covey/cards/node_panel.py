@@ -11,6 +11,7 @@ Each button's value carries its kind, the card's token and the revision drawn.
 from __future__ import annotations
 
 from covey.cards.elements import callback_button, item, md, note, panel_header, plain, styled_panel, text_button
+from covey.cards import ui
 from covey.core.text import safe_text
 
 TITLE = '设备'
@@ -43,7 +44,7 @@ def node_panel_card(token, view, data, *, top=()):
 
     elements = [*top]
     if view.get('notice'):
-        elements.append(md(view['notice']))
+        elements.append(ui.receipt(view['notice']))
     for row in data['rows']:
         buttons = []
         if not row['local']:

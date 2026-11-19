@@ -128,3 +128,19 @@ def topic_row(key, head, line="", figures=(), *, url="", buttons=()) -> dict:
         left.append(md(grey(shown), size="notation"))
     return container([side_by_side(left, list(buttons), align="center")], padding="6px 4px 6px 4px", radius="8px",
                      url=url)
+
+
+DONE_MARK = "✓"  # The mark the setting cards' notices started with before docs/ui.md 5.2.
+PROBLEM_MARK = "⚠️"  # A notice of a change that did not happen, or of something to fix first.
+
+
+def receipt(text) -> dict:
+    """What a setting card says after a change (docs/ui.md 5.2: 保存后用一句灰字回执): one grey line in small print, the
+    ✓ it used to start with left off. One that starts with ⚠️ (the change did not happen, or something comes first)
+    says so in the body's size and colour."""
+    text = str(text or "").strip()
+    if text.startswith(PROBLEM_MARK):
+        return md(text)
+    if text.startswith(DONE_MARK):
+        text = text[len(DONE_MARK):].lstrip()
+    return md(grey(text), size="notation")

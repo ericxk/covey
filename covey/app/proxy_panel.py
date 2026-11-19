@@ -177,7 +177,7 @@ class ProxyPanel:
 
     def unsaved(self, ctx, record, view, notice):
         """The change happened but the card still shows the view before it: say so under the card."""
-        self.menu.unsaved(ctx, record, (notice or '操作已完成') + '\n代答卡未能刷新，请点卡上的“刷新”。',
+        self.menu.unsaved(ctx, record, (notice or '改好了') + '\n代答卡未能刷新，请点卡上的“刷新”。',
                           f"{record['card_id']}-{view['revision']}", reply_to_message_id=record['message_id'])
 
     # Clicks ----------------------------------------------------------------------------------

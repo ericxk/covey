@@ -7,6 +7,7 @@ that opens the group's 免@ page (VIEW): the four choices of who talks there wit
 你和选中的人 the group's members, MEMBER_PAGE a page, each picked or dropped (MEMBER); 返回群列表 goes back."""
 from __future__ import annotations
 
+from covey.cards import ui
 from covey.core.text import literal
 from covey.cards.elements import (callback_button, folded_panel, grey, item, md, menu_item, note, panel_header,
                                             row, styled_panel, tag, text_button)
@@ -112,7 +113,7 @@ def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None
     if kinds is not None:
         active = sum(1 for g in groups if kinds.get(g['chat_id']) == 'team' and g.get('active') is True)
     head = panel_header('groups', TITLE, f'{len(groups)} 个群 · 已启用 {active}' if groups else '还没有群')
-    elements = list(top) + ([md(view['notice'])] if view.get('notice') else [])
+    elements = list(top) + ([ui.receipt(view['notice'])] if view.get('notice') else [])
     if not groups:
         elements.append(md(EMPTY))
     shown = groups[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
@@ -150,7 +151,7 @@ def free_card(value, view, record, names, top, blocked):
     name = literal(name_of(record, names))
     head = panel_header('groups', TITLE, f'群「{name_of(record, names)}」· 免@')
     limit = free_limit(record, blocked)
-    elements = list(top) + ([md(view['notice'])] if view.get('notice') else [])
+    elements = list(top) + ([ui.receipt(view['notice'])] if view.get('notice') else [])
     elements.append(md(f'谁在群「{name}」里说话**不用 @ 机器人**：'))
     for choice, (label, meaning) in FREE_CHOICES.items():
         line = md(f"**{label}**" + (' ' + tag('当前', 'blue') if choice == mode else '') + '\n' + grey(meaning))

@@ -16,6 +16,7 @@ on an older card or revision still does what it says. The fold IDs take the revi
 """
 from __future__ import annotations
 
+from covey.cards import ui
 from covey.core.text import literal
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, fits, grey, item, md, note, panel_header, plain,
                                             row, section, styled_panel, tag, text_button)
@@ -179,7 +180,7 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
         return {'kind': kind, 'token': token, 'revision': revision, **more}
 
     def draw(limit, shown, models):
-        elements = list(top) + ([md(view['notice'])] if view.get('notice') else [])
+        elements = list(top) + ([ui.receipt(view['notice'])] if view.get('notice') else [])
         if BUTLER in pages:
             on = settings.enabled
             name, colour, line, switch = MODES[on]
