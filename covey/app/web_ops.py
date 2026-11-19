@@ -45,7 +45,7 @@ from pathlib import Path
 
 from covey.app import project_loop
 from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields
-from covey.app.runtime import job_stage
+from covey.app.runtime import job_stage, supplement_target_of
 from covey.app.web_settings import WebSettings
 from covey.core import board_read, project_memory, projects, triage, web_sync
 from covey.core.attachments import message_words
@@ -131,13 +131,14 @@ class Ops:
             raise ValueError("这个话题现在不能收话")
         project_loop.heard(state, topic, text)  # The owner's word in a project's thread: a receipt, as a Feishu message makes.
         steering = app.steering
-        jobs = sorted(self.runtime.jobs.topic_jobs(topic, chat), key=lambda job: int(job.job_id))
-        live = next((job for job in reversed(jobs) if steering.steer_stage(job) != "ended"), None)
+        # The task that runs, not a message queued behind it (app/runtime.py supplement_target).
+        live = supplement_target_of(self.runtime.jobs.topic_jobs(topic, chat), steering.steer_stage)
         if live is not None and steering.steer_stage(live) != "paused":
             try:
                 requeue = {"text": text, "prompt": text, **({"sender_id": owner} if owner else {})}
-                steering.deliver_steer(where, live, text, message, asked=message_words(text), requeue=requeue)
-                return "已作为补充交给在做的任务"
+                saved = steering.deliver_steer(where, live, text, message, asked=message_words(text), requeue=requeue)
+                return (f"已并进排队中的任务 #{live.job_id}，它开始时一起处理" if (saved or {}).get("merged")
+                        else f"已作为补充交给在做的任务 #{live.job_id}")
             except SteerUncertain:
                 return "补充可能已经送到，没有重发；请到任务里看一眼"
             except SteerRefused as exc:

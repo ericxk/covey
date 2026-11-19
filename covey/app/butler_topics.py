@@ -512,10 +512,18 @@ def number_card(env, path, record, card):
 # topic_send ----------------------------------------------------------------------------------------------------
 
 def live_turn(app, ctx, chat):
-    """The topic's newest task here that is neither cancelled nor ended; None when it has none."""
-    jobs = [job for job in app.runtime.jobs.topic_jobs(ctx.topic_id, chat)
-            if not job.cancelled_before_start and not job.cancel_event.is_set() and not job.answer_finalized]
-    return max(jobs, key=lambda job: int(job.job_id), default=None)
+    """The topic's task here a supplement goes to (app/runtime.py supplement_target): the one that runs, else the one
+    queued; None when it has none."""
+    return app.runtime.jobs.supplement_target(ctx.topic_id, chat)
+
+
+def steered_words(job, saved) -> str:
+    """Where a supplement went, as the sender is told: the task that took it, by its number, and how."""
+    if saved.get("merged"):
+        return f"并进排队中的任务 #{job.job_id}，它开始时一起处理"
+    if saved.get("status") == "held":
+        return f"送进刚开始的任务 #{job.job_id}，它准备好后自动送入"
+    return f"作为补充送入正在跑的任务 #{job.job_id}，已送达"
 
 
 def hand_line(env, ctx, chat, request, record, kind, owner, text, items, token):
@@ -581,11 +589,9 @@ def topic_send(env, request):
         except SteerRefused as exc:  # Nothing was sent (rule 6).
             return _done(path, record, reply(False, f"没有送进 {label} 正在跑的任务 #{job.job_id}：{exc}。没有发出；"
                                              "等这一轮结束后再转，或者告诉主人。", **data, job_id=job.job_id))
-        how = ("任务准备好后自动送入" if saved.get("status") == "held"
-               else "并入它的请求" if saved.get("merged") else "已送达")
         hand_line(env, ctx, chat, request, record, butler_handoff.STEER, owner, text, items, token)
         dispatch_card(env, request, ctx.topic_id, kind="send", mid=job.message_id, **project_hint(request))
-        return _done(path, record, reply(True, f"已转给 {label}：作为补充送入正在跑的任务 #{job.job_id}，{how}。",
+        return _done(path, record, reply(True, f"已转给 {label}：{steered_words(job, saved)}。",
                                          **data, job_id=job.job_id, steered=True))
     if not workspace_locked(ctx):
         return _done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))

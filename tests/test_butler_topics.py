@@ -332,6 +332,38 @@ class TopicSendTest(ButlerTopicsCase):
         records = [json.loads(path.read_text()) for path in (self.ctx.state_dir / "main-thread" / "opened").glob("*.json")]
         self.assertIn("主人说的是同一批任务", [record.get("note") for record in records])
 
+    def queued_behind(self, data):
+        """A message of the owner's queued in the topic behind its turn (T551's #5008, "这个咋样了")."""
+        app, ctx, _ = butler_topics.find_topic(self.env, CHAT, data["label"])
+        queued = app.submission.enqueue_chat_job(ctx, "这个咋样了", CHAT, "om_queued_behind")
+        self.assertIsNotNone(queued)
+        self.assertEqual(app.steering.steer_stage(queued), "queued")
+        return queued
+
+    def test_the_running_turn_takes_it_not_a_message_queued_behind_it(self):
+        # T551, 2026-11-19: #4992 ran, #5008 queued behind it; three supplements went into #5008, all said to be in
+        # "正在跑的任务 #5008", and the running turn read none.
+        data, job = self.opened()
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
+        queued = self.queued_behind(data)
+        prompt = queued.prompt_text
+        answer = self.call("topic_send", topic=data["label"], text="并发用 7800，先建 AK")
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual(answer["data"]["job_id"], job.job_id)
+        job.backend_control.steer.assert_called_once()
+        self.assertIn(f"正在跑的任务 #{job.job_id}", answer["text"])
+        self.assertNotIn(f"#{queued.job_id}", answer["text"])
+        self.assertEqual(queued.prompt_text, prompt)  # The queued message is as it was.
+
+    def test_with_only_a_queued_turn_it_joins_that_request_and_says_so(self):
+        data, job = self.opened()  # Not started: queued.
+        answer = self.call("topic_send", topic=data["label"], text="顺便看下前天的")
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn(f"并进排队中的任务 #{job.job_id}", answer["text"])
+        self.assertNotIn("正在跑", answer["text"])
+        self.assertIn("顺便看下前天的", job.prompt_text)
+
     def test_a_refused_supplement_is_said_and_not_sent_again(self):
         data, job = self.opened()
         job.execution_started = True

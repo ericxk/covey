@@ -37,6 +37,15 @@ def job_stage(job) -> str:
     return "starting" if job.execution_started else "queued"
 
 
+def supplement_target_of(jobs, stage):
+    """Of a topic's ``jobs``, the one a supplement goes to, ``stage`` saying where each is (``job_stage``, or Steering's
+    steer_stage): the newest that has started (starting, running, paused), else the newest queued; None when none is
+    open. A job cancelled before it started is none of them."""
+    open_jobs = [j for j in jobs if stage(j) != "ended" and not getattr(j, "cancelled_before_start", False)]
+    started = [j for j in open_jobs if stage(j) != "queued"]
+    return max(started or open_jobs, key=lambda j: int(j.job_id), default=None)
+
+
 class JobRegistry:
     """Every job this process runs or waits on, by job id and by message, and the queue the
     scheduler takes them from. ``lock`` guards ``by_id``, ``by_message_id``, ``finishing`` and ``counter``."""
@@ -125,6 +134,15 @@ class JobRegistry:
         with self.lock:
             return [j for j in self.by_id.values()
                     if j.topic_id == topic_id and j.chat_id == chat_id and job_stage(j) != "ended"]
+
+    def supplement_target(self, topic_id, chat_id):
+        """The task of this topic a supplement goes to: the newest one that has started (``job_stage`` starting, running
+        or paused: a paused one refuses it, and the sender says so), else the newest queued one; None when none is open
+        here. A message queued behind the running turn is never it while that turn runs (T551, 2026-11-19: three of the
+        butler's supplements went into the queued #5008 and the running #4992 read none). Reads this registry only."""
+        with self.lock:
+            jobs = [j for j in self.by_id.values() if j.topic_id == topic_id and j.chat_id == chat_id]
+        return supplement_target_of(jobs, job_stage)
 
     def family_live(self, chat_id) -> list:
         """The butler family's tasks in ``chat_id`` (core/butler_tracks.py: slot 0, with COVEY_BUTLER_TRACKS=1 the

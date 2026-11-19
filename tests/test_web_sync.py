@@ -588,6 +588,21 @@ class InboxTest(WebCase):
         self.assertEqual(self.app.steered, [(3, "web-op-2", "补一句")])
         self.assertEqual(self.app.queued, [])
 
+    def test_say_goes_to_the_running_turn_not_a_message_queued_behind_it(self):
+        # T551, 2026-11-19: the newest task of the topic was a queued message; the supplement belongs to the running one.
+        self.topic()
+        running, queued = SimpleNamespace(job_id=3), SimpleNamespace(job_id=4)
+        self.jobs[TOPIC] = [running, queued]
+        stages = {3: "running", 4: "queued"}
+        self.app.steering.steer_stage = lambda job: stages[job.job_id]
+        self.web.op("say", 1, "op-2", TOPIC, text="补一句")
+        self.sync.inbox_once()
+        self.assertEqual(self.app.steered, [(3, "web-op-2", "补一句")])
+        stages[3] = "ended"  # Only the queued one is open: it takes it into its request.
+        self.web.op("say", 2, "op-3", TOPIC, text="再补一句")
+        self.sync.inbox_once()
+        self.assertEqual(self.app.steered[-1], (4, "web-op-3", "再补一句"))
+
     def test_say_to_a_topic_waiting_for_one_answer_is_that_answer(self):
         """As a message in the topic's thread in Feishu (app/interaction.py): with one question waiting, the words are its answer, written.
         2026-11-19: they were its 只发补充说明 before, so the page's handiest box closed the question unanswered."""

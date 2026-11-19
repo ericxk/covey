@@ -800,15 +800,15 @@ def project_send(env, request):
     job = butler_topics.live_turn(app, ctx, chat)
     if job is not None:
         try:
-            app.steering.deliver_steer(ctx, job, sent, mid, shown=shown)
+            saved = app.steering.deliver_steer(ctx, job, sent, mid, shown=shown)
         except SteerUncertain as exc:
             return butler_topics._done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
                                                       "不会重发，别再转一次。", **data, uncertain=True))
         except SteerRefused as exc:  # Nothing was sent (rule 6).
             return butler_topics._done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
                                                       "等这一轮结束后再转。", **data))
-        return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：作为补充送入它正在跑的任务 #{job.job_id}。",
-                                                  **data, steered=True))
+        return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人："
+                                                        f"{butler_topics.steered_words(job, saved)}。", **data, steered=True))
     if not (find_job_record(state, mid) or app.runtime.jobs.settling(mid)):
         append_history(ctx.history_path, "user", shown, {"message_id": mid})
         if app.submission.enqueue_chat_job(ctx, shown, chat, mid, prompt_content=sent, title=name) is None:
