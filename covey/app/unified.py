@@ -90,20 +90,6 @@ def fold_questions(gateway, ctx):
 OUTBOX_STEPS = (auto_retry.tick, policy_retry.tick, fold_questions, save_record_indexes)
 
 
-class DashboardRotate:
-    """PANELS' controller for 换口令 on a 脱敏 link's card (app/dashboard.py matches it); its outcome is
-    the Bridge's rotate_dashboard, which also needs the bot menu."""
-
-    def __init__(self, bridge):
-        self.bridge = bridge
-
-    def matches(self, raw):
-        return self.bridge.dashboard.matches(raw)
-
-    def claim(self, ctx, event, raw, owner):
-        return self.bridge.rotate_dashboard(ctx, event, owner, raw) if self.matches(raw) else None
-
-
 class UnifiedBridgeApp(CardRouting, JobDispatch):
     """The Bridge process. Public entry points: main, handle_event, handle_card_action_event,
     process_reply_job (the scheduler's worker), and the parser/context builders a task runner
@@ -116,14 +102,14 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # its own. EARLY match the event (a form button's name or the value's kind); PANELS, the value
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
-    PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'nodes.panel',
+    PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'redaction_panel', 'nodes.panel',
               'butler_panel', 'settings_hub', 'overview', 'digest', 'app_setup', 'group_menu', 'project_tidy',
               'standing_answers')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
-             'dashboard', 'weekly_usage', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'butler_panel',
+             'weekly_usage', 'group_manager', 'redaction_panel', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
              'project_loop', 'patrol', 'devices', 'nodes', 'web_sync', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
@@ -173,7 +159,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         other. Built once."""
         from covey.app.app_setup import AppSetup
         from covey.app.bot_menu import BotMenu, Panels, known_chats
-        from covey.app.dashboard import Dashboard, detect_upstream
         from covey.app.digest import Digest
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
@@ -197,7 +182,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.model_picker import LaunchModelPicker
         from covey.app.overview import Overview
         from covey.app.proxy import Proxy
-        from covey.app.redaction_panel import RedactionPanel
+        from covey.app.redaction_panel import RedactionPanel, detect_upstream
         from covey.app.rewind import RewindCards
         from covey.app.standing_answers import StandingAnswers
         from covey.app.settings_hub import SettingsHub
@@ -216,13 +201,11 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # 以后这类按推荐走 under a question card (app/standing_answers.py): a principle of the workspace, then the answer.
             self.standing_answers = StandingAnswers(self.topics)
             self.proxy = Proxy(self.topics)
-            self.dashboard = Dashboard(self.runtime, self.messenger, self.voice,
-                                       detect=lambda harness=self.claude: detect_upstream(harness))
             self.weekly_usage = WeeklyUsage(self.runtime, self.messenger, self.voice, self.titles)
             self.group_manager = GroupManager(self.runtime, self.messenger, self.voice)
-            self.dashboard_rotate = DashboardRotate(self)
-            # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card, the web dashboard's link last.
-            self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice, self.dashboard)
+            # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card; 探测 asks the Claude Harness.
+            self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice,
+                                                  lambda harness=self.claude: detect_upstream(harness))
             # The butler's settings card (docs/butler.md 设置卡): the 设置 card's 管家 tab.
             self.butler_panel = ButlerPanel(self.topics)
             # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
@@ -284,7 +267,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.web_sync = WebSync(self.runtime, self.butler_env, self.web_message)
             # The owner's recalled or edited messages (app/source_watch.py): one thread unless COVEY_SOURCE_WATCH=0.
             self.source_watch = SourceWatch(self.runtime, self.topics, self.messenger, self.voice)
-            features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy, self.dashboard,
+            features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy,
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
                         self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
                         self.dispatch_cards, self.project_cards, self.projects, self.project_tidy,

@@ -33,17 +33,16 @@ The menu opens it on 新话题 (``first_tab``), in either private chat mode and 
 the key of the one 管家 tab before the pages: an older card's tab click there lands on it) is a tab unless
 COVEY_BUTLER=0 rules the butler out, in the mode 纯话题 too (its row of the mode turns the butler on). The butler's menu
 key (app/butler_panel.py MENU_KEY) and its tool settings_panel send it on 管家; the bot menu's keys before 2026-11-09, 工作区
-(app/workspace_manager.py MENU_KEY) and 脱敏 (app/dashboard.py MENU_KEY), on their tabs (``opens``: the console's
+(app/workspace_manager.py MENU_KEY) and 脱敏 (REDACTION_KEY), on their tabs (``opens``: the console's
 menu shows them until the owner publishes the new one). The chat keeps one 设置 card (app/bot_menu.py Panels, key
-MENU_KEY). The bot menu's 代答 and 群聊 keys send their own cards, without tabs. 换口令 in the 脱敏 tab's web
-dashboard part carries the card's token: the token rotates and the same card shows the new link (``rotate``).
+MENU_KEY). The bot menu's 代答 and 群聊 keys send their own cards, without tabs.
 """
 from __future__ import annotations
 
 import functools
 import re
 
-from covey.app import dashboard, butler_panel, workspace_manager
+from covey.app import butler_panel, workspace_manager
 from covey.app.bot_menu import Panels
 from covey.app.card_lanes import after_ack
 from covey.app.form_cards import save_record, settle
@@ -55,6 +54,7 @@ from covey.core import butler
 from covey.core.state import read_json
 
 MENU_KEY = 'bridge_settings'
+REDACTION_KEY = 'redaction_dashboard'  # The bot menu's 脱敏 before 2026-11-09 (core/app_manifest.py OLD_MENU_KEYS).
 KIND = 'settings-card'
 UNSAVED = '⚠️ 设置卡未能切换到「{}」，请重新点机器人菜单「设置」。'
 UNFOLDED = '⚠️ 设置卡未能{}，请再点一次「{}」。'
@@ -90,7 +90,7 @@ class SettingsHub:
         """The bot menu's 设置; the keys of the menu before 2026-11-09, 工作区 and 脱敏, on their tabs; unless
         COVEY_BUTLER=0 also the butler's own key, on its tab."""
         items = {MENU_KEY: self.open, workspace_manager.MENU_KEY: self.open_workspaces,
-                 dashboard.MENU_KEY: self.open_redaction}
+                 REDACTION_KEY: self.open_redaction}
         if butler.available():
             items[butler_panel.MENU_KEY] = self.open_main
         return items
@@ -251,28 +251,3 @@ class SettingsHub:
         self.runtime.log(f'settings card taken over tab={here} token={token[:8]}')
         return True
 
-    def rotate(self, ctx, event, raw):
-        """换口令 in the 脱敏 tab's web part (its value carries this card's token; the click the owner's, once): the token
-        rotated and the same card drawn with the new link. False when the click is not on a 设置 card (an older link card's:
-        app/unified.py rotate_dashboard sends a new one)."""
-        token = raw.get('token')
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
-            return False
-        path = self.path(ctx, token)
-        if path.parent.name != HUB_FOLDER or not path.exists():
-            return False
-        with self.menu.lock(path):
-            record = self.menu.clicked(path, event, HELD)
-            if record is None or successor(record.get('tab')) != REDACTION or record.get(FOLDED):
-                self.runtime.log(f'settings card rotate ignored token={token[:8]}: not on 脱敏')
-                return True
-            self.redaction.rotate_token(ctx)
-            view = {**record['view'], 'rotated': True, 'revision': record['view']['revision'] + 1}
-            changed = {**record, 'view': view, 'tab': REDACTION}
-            confirmed = settle(ctx, path, record, changed, self.redaction.tab_card(ctx, token, changed), self.messenger,
-                               KIND)
-        self.runtime.log(f'settings card rotated token={token[:8]} confirmed={confirmed}')
-        if not confirmed:
-            self.menu.unsaved(ctx, record, '口令已换，但设置卡没能刷新：请点机器人菜单「设置」再看「脱敏」。',
-                              str(event.get('event_id') or token))
-        return True

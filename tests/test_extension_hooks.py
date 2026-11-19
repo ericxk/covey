@@ -1,5 +1,5 @@
 """The extension hooks and settings (core/extensions.py) and what the core does without them: no 代答 entrance
-without a sender, a dashboard without a fixed entry, an installer with systemd only, the default web host."""
+without a sender, an installer with systemd only, the default web host; a retired hook a manifest still names."""
 # privacy: allow-file 测公司扩展 manifest 的设置值
 from __future__ import annotations
 
@@ -32,6 +32,15 @@ class HookTests(unittest.TestCase):
             read = extensions.read("x")
         self.assertEqual((read.hooks, read.settings), ({"proxy_sender": "x.y"}, {"web_tenant_domain": "t.example.com"}))
 
+    def test_a_retired_hook_still_loads_and_is_never_asked_for(self):
+        # The web dashboard's fixed entry, taken out 2026-11-19: an extension that still names it starts as before.
+        fake = SimpleNamespace(HOOKS={"dashboard_entry": "x.dashboard_entry"})
+        with mock.patch.object(extensions, "_import", return_value=fake):
+            read = extensions.read("x")
+        self.assertNotIn("dashboard_entry", extensions.HOOK_NAMES)
+        with mock.patch.object(extensions, "manifests", return_value=(read,)), self.assertRaises(KeyError):
+            extensions.hook("dashboard_entry")
+
     def test_without_an_extension_there_is_no_hook_and_the_default_stands(self):
         with mock.patch.object(extensions, "manifests", return_value=()):
             self.assertIsNone(extensions.hook("proxy_sender"))
@@ -45,7 +54,7 @@ class HookTests(unittest.TestCase):
             self.assertEqual(extensions.setting("web_tenant_domain"), "a.example.com")
 
     @requires_extension()
-    def test_the_company_extension_provides_all_three_hooks(self):
+    def test_the_company_extension_provides_every_hook(self):
         for name in extensions.HOOK_NAMES:
             self.assertIsNotNone(extensions.hook(name), name)
         self.assertEqual(extensions.setting("web_tenant_domain"), "bytedance.larkoffice.com")
@@ -69,12 +78,6 @@ class WithoutHooksTests(unittest.TestCase):
             self.assertEqual(web.problems(None, {}), [proxy_send.NO_SENDER])
             login = proxy_send.NullLogin()
             self.assertIsNone(login.check_login(None, {}))
-
-    def test_no_dashboard_hook_means_no_entry_lines(self):
-        from covey.app.dashboard import Dashboard
-        with mock.patch.object(extensions, "hook", return_value=None):
-            lines = Dashboard.link_lines(Path("/nonexistent"), "http://a:1", "T", lead="L")[2]
-        self.assertEqual(len(lines), 1)
 
     def test_no_hosting_hook_means_the_core_modes_only(self):
         from covey.service import install

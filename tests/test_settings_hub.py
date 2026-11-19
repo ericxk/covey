@@ -408,8 +408,6 @@ class SixTabsTests(HubCase):
 
     def setUp(self):
         super().setUp()
-        from covey.app.dashboard_entry import DASHBOARD_ENV
-        self.enterContext(mock.patch.dict(os.environ, {DASHBOARD_ENV: '127.0.0.1:10601', 'COVEY_DASHBOARD_ENTRY': ''}))
         from covey.core.workspaces import add_workspace
         for name in ('alpha', 'beta'):
             (self.root / name).mkdir()
@@ -432,8 +430,7 @@ class SixTabsTests(HubCase):
         self.assertEqual((self.title(), self.tabs()), ('脱敏看板', row_of('脱敏')))
         self.app.messenger.recall.assert_called_once_with(self.ctx.profile, 'om_s1')  # One 设置 card in the chat.
         self.assertFalse((self.state / 'dashboard-links').exists())
-        rotate, = [v for _, v in values(self.card(), 'bridge_dashboard_rotate')]
-        self.assertEqual(rotate, {'kind': 'bridge_dashboard_rotate', 'token': self.hub.token('dm', 'ev-r')})
+        self.assertEqual(values(self.card(), 'bridge_dashboard_rotate'), [])  # The web dashboard is gone.
 
     @requires_extension()
     def test_the_workspace_tab_is_the_manager_with_the_butlers_notes_and_trusted_is_on_topic(self):
@@ -499,28 +496,26 @@ class SixTabsTests(HubCase):
         for part in ('改用途', '保存用途', '记住的工作区', '"note_0"'):
             self.assertNotIn(part, text)
 
-    def test_rotate_on_the_redaction_tab_redraws_the_same_card(self):
-        from covey.app.dashboard_http import dashboard_token
+    def test_an_older_cards_rotate_on_the_redaction_tab_says_the_page_went(self):
+        # The web dashboard's 换口令 (taken out 2026-11-19, T569), on a card drawn before: the same card redrawn with a
+        # notice, a deployment's old COVEY_DASHBOARD changing nothing.
+        from covey.app.redaction_panel import PAGE_GONE
+        self.enterContext(mock.patch.dict(os.environ, {'COVEY_DASHBOARD': '127.0.0.1:10601'}))
         self.open()
         self.press(self.tab('脱敏'), 'ev-t1')
-        before = dashboard_token(self.state)
-        self.assertIn(f'/?t={before}', json.dumps(self.card()))
-        rotate, = [v for _, v in values(self.card(), 'bridge_dashboard_rotate')]
-        self.assertEqual(self.press(rotate, 'ev-x1'), 'dashboard_rotate')
+        self.assertEqual(values(self.card(), 'bridge_dashboard_rotate'), [])
+        self.assertNotIn('网页看板', json.dumps(self.card(), ensure_ascii=False))
+        rotate = {'kind': 'bridge_dashboard_rotate', 'token': self.hub.token('dm', 'ev-menu')}
+        self.assertEqual(self.press(rotate, 'ev-x1'), 'redaction_tab')
         self.assertEqual(self.press(rotate, 'ev-x1'), 'duplicate')
-        after = dashboard_token(self.state)
-        self.assertNotEqual(after, before)
         self.assertEqual((self.puts[-1][0], self.title(), self.app.messenger.create_and_send_card.call_count),
                          ('hubcard', '脱敏看板', 1))
-        text = json.dumps(self.card(), ensure_ascii=False)
-        self.assertIn(f'/?t={after}', text)
-        self.assertIn('口令已换', text)
+        self.assertIn(PAGE_GONE, json.dumps(self.card(), ensure_ascii=False))
+        self.assertFalse((self.state / 'redaction' / 'dashboard-token').exists())
         self.assertEqual(self.press(rotate, 'ev-x2', operator=MEMBER), 'not_owner')
-        self.assertEqual(dashboard_token(self.state), after)
-        # Turned away, 换口令 from the card drawn before changes nothing.
-        self.press(self.tab('群聊'), 'ev-t2')
-        self.assertEqual(self.press(rotate, 'ev-x3'), 'dashboard_rotate')
-        self.assertEqual((dashboard_token(self.state), self.title()), (after, '群聊'))
+        self.press(self.tab('群聊'), 'ev-t2')  # Turned away, the button from the card drawn before finds nothing.
+        self.assertEqual(self.press(rotate, 'ev-x3'), 'redaction_unknown')
+        self.assertEqual(self.title(), '群聊')
 
     def test_an_older_card_on_the_retired_other_page_still_acts(self):
         self.open()

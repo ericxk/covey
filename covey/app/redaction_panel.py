@@ -2,12 +2,12 @@
 (cards/redaction_panel.py): 填词 (a box of terms, a line each, 加入词表 or 从词表删除: many in one click, the owner's
 choice of 2026-11-19, T566) and the list to find and delete terms one by one, and folds for the switches and the
 upstream address with 探测, 试一下, and 记录 of what the relays counted. Stand-ins are automatic (the owner's decision
-of 2026-11-14): no 改, no way to name one; a button of the 2026-11-13 layout still answers (RETIRED). The web dashboard
-(app/dashboard.py), when the deployment serves one, is its last part: the owner moved the list here on 2026-11-13, when
-the browser could not reach the port.
+of 2026-11-14): no 改, no way to name one; a button of the 2026-11-13 layout still answers (RETIRED), and so does 换口令 of the web dashboard that
+the deployment once served (ROTATE; the owner had it taken out on 2026-11-19, T569: the list is edited here and on the web
+workbench's settings page).
 
 The tab's record is the 设置 card's (app/settings_hub.py); a card older than that one record (gen 286) had one in
-LINK_FOLDER, which the 设置 card's takeover still reads through this panel. A click (app/unified.py PANELS, the
+LINK_FOLDER (named after the dashboard's link cards, whose folder it shared), which the 设置 card's takeover still reads through this panel. A click (app/unified.py PANELS, the
 owner's) changes the list (core/redaction.py ``edit_terms``, ``put_back``, ``update_config``) outside the record's lock
 and saves what happened (``notice``) in the record's view under it; Feishu gets its answer then, and the whole card is
 drawn again after it (card_lanes.after_ack: the spinner stopped after the draw, about a second, before 2026-11-19), once
@@ -22,6 +22,7 @@ name no term, and a list that cannot be read is UNREADABLE, since its error may 
 """
 from __future__ import annotations
 
+import dataclasses
 import functools
 import hashlib
 import hmac
@@ -33,11 +34,12 @@ from pathlib import Path
 
 from covey.app.card_actions import form_fields
 from covey.app.card_lanes import after_ack
-from covey.app.dashboard import LINK_FOLDER
 from covey.app.form_cards import save_record
 from covey.app.menu_panel import FOLDED, MenuPanel, hub_top
+from covey.backends.claude.redaction import (DEFAULT_UPSTREAM, STATUS_TIMEOUT, Unavailable, checked_url, gateway_status,
+                                             settings_upstream)
 from covey.cards.redaction_panel import (ADD, FIND, KINDS, LINES, LIST, OPEN, PROBE, QUERY, REMOVE, RETIRED, RETIRED_WORDS,
-                                         SWITCH, SWITCH_ROWS, TERM, TEXT, UNDO, UPSTREAM, UPSTREAM_FIELD, redaction_card)
+                                         ROTATE, SWITCH, SWITCH_ROWS, TERM, TEXT, UNDO, UPSTREAM, UPSTREAM_FIELD, redaction_card)
 from covey.cards.settings_hub import REDACTION
 from covey.core.redaction import (ALREADY, Refused, config_path, edit_terms, load_config, masked, normalize, put_back, said_lines,
                                   term_lines, update_config, upstream_problem)
@@ -57,6 +59,31 @@ GONE = '这个词已经不在词表里了，卡片按最新的词表重画了。
 UNREADABLE = '词表文件读不了或有错。细节里可能有原词，卡片上不显示：请查看状态目录里的 redaction/config.json。'
 CASE_CLASH = '打开后词表里会有只差大小写的重复词，或替身词含有别的词：先在词表里改掉再打开。'
 UNSAVED = '\n设置卡没能刷新：再点机器人菜单「设置」看「脱敏」。'
+LINK_FOLDER = 'dashboard-links'  # The records of the cards before gen 286 (app/menu_panel.py).
+PAGE_GONE = 'ℹ️ 网页看板已经去掉了：敏感词就在这张卡上编辑，网页工作台的设置页也能改。'
+DETECT_TIMEOUT = STATUS_TIMEOUT + 15  # The wrapper may first open its SSH tunnel.
+
+
+def detect_upstream(harness):
+    """Where a Claude account's requests would go with no 上游地址 set, and why (探测). ``harness`` is the
+    Bridge's claude Harness. Unavailable when the personal gateway's wrapper says it failed."""
+    ctx = harness.context
+    if ctx is None:
+        raise ValueError("Claude Harness 还没有启动")
+    env = harness.backend.child_env(ctx)
+    if str(env.get("ANTHROPIC_BASE_URL") or "").strip():
+        return {"upstream": checked_url(env["ANTHROPIC_BASE_URL"]), "source": "Bridge 环境里的 ANTHROPIC_BASE_URL"}
+    try:
+        (Path(ctx.state_dir) / "redaction" / "upstream.json").unlink()  # 探测 asks again.
+    except OSError:
+        pass
+    endpoint = gateway_status(ctx, env)
+    if endpoint:
+        return {"upstream": endpoint, "source": "个人网关（claude --gateway-status）"}
+    endpoint = settings_upstream(env)
+    if endpoint:
+        return {"upstream": endpoint, "source": "Claude Code 的 settings.json"}
+    return {"upstream": DEFAULT_UPSTREAM, "source": "默认（Anthropic 官方地址）"}
 
 # 新话题默认开 is the 新话题 page's 脱敏 row now (cards/redaction_panel.py SWITCH_ROWS): an older card's switch says so.
 MOVED_SWITCH = 'default_on'
@@ -125,10 +152,11 @@ def named(terms):
 
 
 class RedactionPanel:
-    def __init__(self, runtime, messenger, voice, dashboard, *, start=None):
-        """``dashboard``: the web dashboard (app/dashboard.py), whose link is the tab's last part when it is served
-        and whose 探测 is the tab's; ``start(target)`` runs 探测 off the click (a daemon thread)."""
-        self.runtime, self.messenger, self.voice, self.dashboard = runtime, messenger, voice, dashboard
+    def __init__(self, runtime, messenger, voice, detect=None, *, start=None):
+        """``detect`` () -> {upstream, source}: 探测 (``detect_upstream`` on the Bridge's Claude Harness), None without
+        one; ``start(target)`` runs 探测 off the click (a daemon thread)."""
+        self.runtime, self.messenger, self.voice, self.detect = runtime, messenger, voice, detect
+        self.detecting = threading.Lock()
         self.menu = MenuPanel(self, 'redaction-panel', LINK_FOLDER, 'dashboard-link', tab=REDACTION)
         self.removed = {}  # A card's token -> its last 删除's rows (TermEdit.removed): for 撤销, in memory only.
         self.removed_lock = threading.Lock()
@@ -166,21 +194,17 @@ class RedactionPanel:
         return self.menu.refuse(ctx, path, event, OWNER_ONLY,
                                 lambda view, record: self.draw(ctx, path.stem, view, str(record.get('chat_id') or '')))
 
-    def rotate_token(self, ctx):
-        """换口令 in the tab's web part (SettingsHub.rotate)."""
-        self.dashboard.rotate_token(ctx)
-
     def draw(self, ctx, token, view, chat_id='', data=None):
-        """The tab for ``view`` over ``data`` (``facts``, read now when None); ``chat_id``, the owner's private chat, is
-        where the web dashboard's link goes when its address moves (Dashboard.web_link)."""
+        """The tab for ``view`` over ``data`` (``facts``, read now when None). ``chat_id`` is the record's (unused since
+        the web dashboard's link went)."""
         data = facts(ctx.state_dir, card_key(ctx.state_dir)) if data is None else data
-        return redaction_card(token, view, data, top=hub_top(REDACTION, token, view), web=self.dashboard.web_link(ctx, chat_id))
+        return redaction_card(token, view, data, top=hub_top(REDACTION, token, view))
 
     def click(self, ctx, event, value, owner):
         """A click on the tab; the outcome its ``card action`` line records."""
         token = value.get('token')
         if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
-            return 'redaction_unknown'
+            return self.page_gone(ctx, event) if value.get('kind') == ROTATE else 'redaction_unknown'
         path = self.path(ctx, token)
         record = self.menu.clicked(path, event)
         if record is None or record.get(FOLDED):
@@ -196,7 +220,7 @@ class RedactionPanel:
             record = self.menu.clicked(path, event)  # Read again: another click may have changed it since.
             if record is None or record.get(FOLDED):
                 return 'redaction_unknown'
-            view = {**record['view'], 'notice': '', 'undo': False, 'rotated': False, 'preview': None, **changes,
+            view = {**record['view'], 'notice': '', 'undo': False, 'preview': None, **changes,
                     'token': token}  # A try-out's result stays until the next click.
             view['seen'] = [*(view.get('seen') or ())][-(SEEN - 1):] + ([event_id] if event_id else [])
             view['revision'] += 1
@@ -227,6 +251,8 @@ class RedactionPanel:
         try:
             if kind in RETIRED:  # An older layout's button: the card is drawn again in the new one.
                 return {'notice': RETIRED_WORDS, 'edit': '', 'page': None}
+            if kind == ROTATE:  # The web dashboard's 换口令: the card is drawn again without it.
+                return {'notice': PAGE_GONE}
             if kind == OPEN:
                 return self.opened(value, view)
             if kind == LIST:
@@ -405,10 +431,45 @@ class RedactionPanel:
             return {'notice': '上一次探测还没结束。'}
         return {'probing': time.time(), 'probe': None}
 
+    def page_gone(self, ctx, event):
+        """换口令 on a link card the web dashboard sent (it had no token of a card): PAGE_GONE under it, nothing else."""
+        chat_id, message_id = str(event.get('chat_id') or ''), str(event.get('message_id') or '')
+        if chat_id:
+            self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=message_id), chat_id, PAGE_GONE,
+                                 self.voice.key('dashboard-gone', str(event.get('event_id') or message_id)), voice=self.voice)
+        return 'dashboard_gone'
+
+    def detect_now(self):
+        """探测, bounded (DETECT_TIMEOUT): (200, {upstream, source}) or (status, {error})."""
+        if self.detect is None:
+            return 503, {'error': '这个 Bridge 没有 Claude Harness，无法探测'}
+        if not self.detecting.acquire(blocking=False):
+            return 409, {'error': '上一次探测还没结束'}
+        result = {}
+
+        def work():
+            try:
+                result['value'] = self.detect()
+            except (Unavailable, ValueError) as exc:
+                result['error'] = str(exc)
+            except Exception as exc:  # noqa: BLE001 - reported by type only: it may carry what the wrapper printed.
+                result['error'] = f'探测失败（{type(exc).__name__}）'
+            finally:
+                self.detecting.release()
+
+        thread = threading.Thread(target=work, name='redaction-detect', daemon=True)
+        thread.start()
+        thread.join(DETECT_TIMEOUT)
+        if thread.is_alive():
+            return 504, {'error': '探测超时，稍后再试'}
+        if 'error' in result:
+            return 502, {'error': result['error']}
+        return 200, result['value']
+
     def probe(self, ctx, path, event):
         """探测, off the click: where a turn's requests would go, drawn on the card while it shows the tab."""
         try:
-            status, body = self.dashboard.http.detect_now()
+            status, body = self.detect_now()
             result = ({'upstream': str(body.get('upstream') or ''), 'source': str(body.get('source') or '')}
                       if status == 200 else {'error': str(body.get('error') or '探测失败')})
             with self.menu.lock(path):

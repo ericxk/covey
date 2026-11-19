@@ -9,8 +9,7 @@ terms (backends/claude/redaction.py; the matching is core/redactor.py). Adapted 
 claude-partner's redaction gateway (suyue.rd/claude-partner, feat/redaction-gateway).
 
 The list lives in <state>/redaction/config.json (0600). The 设置 card's 脱敏 tab and the web page's 设置 change its terms
-many at a time (``edit_terms``, ``put_back``) and its switches one at a time (``update_config``), the optional web
-dashboard writes it whole (app/dashboard.py); every turn reads it when it starts, so an edit applies from the next
+many at a time (``edit_terms``, ``put_back``) and its switches one at a time (``update_config``); every turn reads it when it starts, so an edit applies from the next
 turn::
 
     {"default_on": false,   # the launch card's initial choice before 2026-11-19: the 新话题 page's 脱敏 row now
@@ -103,7 +102,7 @@ def _text(value, what, *, required):
 
 
 def normalize(raw) -> dict:
-    """The config with every key, checked; ValueError (in words for the dashboard) when it is wrong."""
+    """The config with every key, checked; ValueError (in words for the owner) when it is wrong."""
     if not isinstance(raw, dict):
         raise ValueError("敏感词配置必须是一个对象")
     config = dict(DEFAULTS)

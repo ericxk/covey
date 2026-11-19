@@ -42,7 +42,6 @@ class MatchingTests(unittest.TestCase):
         r = redactor({"term": "Acme", "stand_in": "Widget"})
         self.assertEqual(r.redact_text("Acme ACME"), auto_stand_in("Acme") + " " + auto_stand_in("ACME"))
         self.assertEqual(r.restore_text(f"Widget {auto_stand_in('Acme')}"), "Widget Acme")
-        self.assertEqual(r.effective_stand_in("Acme"), auto_stand_in("Acme"))
         self.assertTrue(r.restorable("Acme"))
 
     def test_ascii_ends_match_only_as_words_unless_anywhere(self):

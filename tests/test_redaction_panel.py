@@ -1,21 +1,25 @@
 """The 设置 card's 脱敏 tab (app/redaction_panel.py, cards/redaction_panel.py) and the list's edits it makes
-(core/redaction.py): the four pages, each button's change of the list, refusals in words that name no term, the
-web dashboard's part only where one is served, and no term on a card, in a card's record or in a log line."""
+(core/redaction.py): the four pages, each button's change of the list, refusals in words that name no term, 探测, the
+retired web dashboard's 换口令 on cards sent before, and no term on a card, in a card's record or in a log line."""
 from __future__ import annotations
 
 import json
-import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from support.records import write_topic
 from test_settings_hub import MEMBER, HubCase, values
-from covey.app.redaction_panel import CASE_CLASH, GONE, UNREADABLE, card_key, row_key
+from covey.app import redaction_panel
+from covey.app.redaction_panel import (CASE_CLASH, GONE, PAGE_GONE, UNREADABLE, RedactionPanel, card_key, detect_upstream,
+                                       row_key)
+from covey.backends.claude.redaction import Unavailable
 from covey.cards import redaction_panel as cards
 from covey.cards.elements import walk
-from covey.cards.redaction_link import ROTATE_KIND
+from covey.cards.redaction_panel import ROTATE as ROTATE_KIND
 from covey.core import migrate
 from covey.core.redaction import (ALREADY, Refused, TermEdit, auto_stand_in, config_path, edit_terms, load_config, masked,
                                   put_back, record_turn, save_config, term_lines, term_problem, update_config,
@@ -167,9 +171,6 @@ class ListEditTests(unittest.TestCase):
 class RedactionTabTests(HubCase):
     def setUp(self):
         super().setUp()
-        self.enterContext(mock.patch.dict(os.environ))
-        for name in ('COVEY_DASHBOARD', 'LARK_BRIDGE_DASHBOARD'):  # No web dashboard unless a test serves one.
-            os.environ.pop(name, None)
         self.panel = self.app.redaction_panel
 
     def show(self):
@@ -370,8 +371,7 @@ class RedactionTabTests(HubCase):
         self.assertEqual(load_config(self.state)['upstream'], '')
         held = []
         self.panel.start = held.append  # 探测 runs off the click: held here, run below.
-        self.panel.dashboard.http.detect_now = mock.Mock(return_value=(200, {'upstream': 'https://api.example.com',
-                                                                             'source': '默认'}))
+        self.panel.detect_now = mock.Mock(return_value=(200, {'upstream': 'https://api.example.com', 'source': '默认'}))
         probe = self.button(cards.PROBE)
         self.press(probe, 'ev-p4')
         self.assertIn('正在探测', self.text())
@@ -381,7 +381,7 @@ class RedactionTabTests(HubCase):
         held[0]()
         self.assertIn(f"探测结果：{literal('https://api.example.com')}（默认）", self.text())
         self.assertFalse(self.hub_record()['view']['probing'])
-        self.panel.dashboard.http.detect_now.return_value = (504, {'error': '探测超时，稍后再试'})
+        self.panel.detect_now.return_value = (504, {'error': '探测超时，稍后再试'})
         self.press(self.button(cards.PROBE), 'ev-p6')
         held[-1]()
         self.assertIn('没探测到：探测超时', self.text())
@@ -427,18 +427,65 @@ class RedactionTabTests(HubCase):
         self.assertEqual(self.press(add, 'ev-o3', form_value={cards.LINES: '新的词语'}), 'redaction_unknown')
         self.assertEqual(self.terms(), [])
 
-    def test_the_web_dashboard_part_only_where_one_is_served(self):
-        self.show()
-        self.assertNotIn('网页看板**', self.text())
-        self.assertEqual(values(self.card(), ROTATE_KIND), [])
-        os.environ['COVEY_DASHBOARD'] = '127.0.0.1:10601'
-        self.press(self.button(cards.FIND), 'ev-w1', form_value={cards.QUERY: 'x'})
-        text = self.text()
-        self.assertIn('打开网页看板', text)
-        self.assertIn('没有在监听', text)  # The worker does not run in the tests.
-        rotate, = [v for _, v in values(self.card(), ROTATE_KIND)]
-        self.assertEqual(rotate, {'kind': ROTATE_KIND, 'token': self.hub.token('dm', 'ev-menu')})
+    def test_an_old_link_cards_rotate_says_the_page_went(self):
+        # 换口令 on a link card the web dashboard sent (taken out 2026-11-19): no token of a card, one line under it.
+        reply = self.app.messenger.reply = mock.Mock()
+        self.assertEqual(self.press({'kind': ROTATE_KIND}, 'ev-l1', message='om_link'), 'dashboard_gone')
+        (ctx, chat, text, key), kwargs = reply.call_args
+        self.assertEqual((ctx.reply_to_message_id, chat, text), ('om_link', 'dm', PAGE_GONE))
+        self.assertFalse((self.state / 'redaction' / 'dashboard-token').exists())
 
+
+class DetectTests(unittest.TestCase):
+    """探测: where a Claude account's requests would go (``detect_upstream``), bounded and off the click (``detect_now``)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.state = Path(tmp.name)
+        self.panel = RedactionPanel(mock.Mock(), mock.Mock(), mock.Mock(),
+                                    lambda: {'upstream': 'http://127.0.0.1:9', 'source': 'test'})
+
+    def test_detect_answers_and_says_why_it_failed(self):
+        self.assertEqual(self.panel.detect_now(), (200, {'upstream': 'http://127.0.0.1:9', 'source': 'test'}))
+        self.assertFalse(self.panel.detecting.locked())
+
+        def fail():
+            raise Unavailable('个人网关没有就绪')
+        self.panel.detect = fail
+        self.assertEqual(self.panel.detect_now(), (502, {'error': '个人网关没有就绪'}))
+
+        def crash():
+            raise RuntimeError('secret token sk-123')
+        self.panel.detect = crash
+        self.assertEqual(self.panel.detect_now(), (502, {'error': '探测失败（RuntimeError）'}))
+        self.panel.detect = None
+        self.assertEqual(self.panel.detect_now()[0], 503)
+
+    def test_one_detection_at_a_time_and_bounded(self):
+        self.panel.detecting.acquire()
+        self.assertEqual(self.panel.detect_now(), (409, {'error': '上一次探测还没结束'}))
+        self.panel.detecting.release()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        self.panel.detect = release.wait
+        with mock.patch.object(redaction_panel, 'DETECT_TIMEOUT', 0.05):
+            self.assertEqual(self.panel.detect_now(), (504, {'error': '探测超时，稍后再试'}))
+
+    def test_detect_upstream_names_its_source(self):
+        ctx = SimpleNamespace(state_dir=self.state, backend_cmd=['claude'], workdir=self.state)
+        env = {'ANTHROPIC_BASE_URL': 'http://127.0.0.1:8080/'}
+        harness = SimpleNamespace(context=ctx, backend=SimpleNamespace(child_env=lambda c: dict(env)))
+        self.assertEqual(detect_upstream(harness), {'upstream': 'http://127.0.0.1:8080',
+                                                    'source': 'Bridge 环境里的 ANTHROPIC_BASE_URL'})
+        env.clear()
+        env['HOME'] = str(self.state)
+        with mock.patch.object(redaction_panel, 'gateway_status', return_value='http://[::1]:7000') as status:
+            self.assertEqual(detect_upstream(harness)['upstream'], 'http://[::1]:7000')
+        self.assertIs(status.call_args.args[0], ctx)
+        with mock.patch.object(redaction_panel, 'gateway_status', return_value=''):
+            self.assertEqual(detect_upstream(harness)['source'], '默认（Anthropic 官方地址）')
+        self.assertRaises(ValueError, detect_upstream, SimpleNamespace(context=None))
 
 if __name__ == '__main__':
     unittest.main()

@@ -19,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app.dashboard_entry import parse_bind
+from covey.core.listen import parse_bind
 from covey.app.node_alerts import NodeAlerts
 from covey.app.node_gateway import Gateway, local_config
 from covey.app.node_panel import NodePanel

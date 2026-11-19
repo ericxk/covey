@@ -31,7 +31,6 @@ import functools
 import hashlib
 import time
 
-from covey.app.dashboard_entry import read_record
 from covey.core import timing
 from covey.core.locks import resource_lock
 from covey.core.state import claim_once, read_object, utc_now_iso, write_json
@@ -189,5 +188,6 @@ class BotMenu:
 
 
 def known_chats(proxy_panel, ctx):
-    """The private chats an older 代答 card and 脱敏 link were sent to (each only opens there)."""
-    return [proxy_panel.owner_chat(ctx), str(read_record(ctx.state_dir).get('chat_id') or '')]
+    """The private chats an older 代答 card and 脱敏 link were sent to (each only opens there). The link's is in the record
+    the web dashboard kept (taken out 2026-11-19), read while a state directory still has it."""
+    return [proxy_panel.owner_chat(ctx), str(read_object(ctx.state_dir / 'redaction' / 'dashboard-entry.json').get('chat_id') or '')]

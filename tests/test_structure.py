@@ -34,7 +34,7 @@ from covey.app import app as bridge_app
 from covey.app.card_actions import ACTIONS, MOVED_CARDS, card_object
 from covey.app.harness_switch import KINDS as SWITCH_KINDS
 from covey.app.harnesses import components
-from covey.app.dashboard import ROTATE_KIND
+from covey.cards.redaction_panel import ROTATE as ROTATE_KIND
 from covey.cards.directory import DIRECTORY_FORM_PREFIX
 from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.app.group_menu import KIND as GROUP_MENU_KIND
@@ -508,7 +508,7 @@ INVENTORY_DOC, INVENTORY_HEADING = "docs/configuration.md", "## 环境变量与�
 SYSTEM_ENV = {"HOME", "PATH", "PYTHONPATH", "XDG_CONFIG_HOME", "NO_PROXY", "no_proxy"}
 # Reads whose name is not in the code: (file, the name's expression).
 DYNAMIC_ENV = {
-    ("covey/app/dashboard_entry.py", "name"),  # COVEY_DASHBOARD's $NAME: a variable the owner names.
+    ("covey/core/listen.py", "name"),  # COVEY_NODE_LISTEN's $NAME: a variable the owner names.
     ("covey/app/runner.py", "spelling"),  # Pops both spellings of RUNNER_PYTHONPATH, read just above.
     ("covey/core/app_manifest.py", "name"),  # switch(env, name): its callers' literals.
     ("covey/core/process_env.py", "name"),  # env_flag's own read; its callers are collected.

@@ -1,5 +1,4 @@
-"""The sensitive-term dashboard's views (app/dashboard_http.py answers /api/config, /api/preview and /api/stats
-with them): the redaction config with each term's stand-in, restore tag and hits, a preview of a text, and the
+"""What the 设置 card's 脱敏 tab shows of the relays' records (app/redaction_panel.py): a term's restore tag and the
 counts the relays recorded (core/redaction.py ``recent_turns``) by term and by topic. Reads only.
 """
 from __future__ import annotations
@@ -11,13 +10,11 @@ import time
 from pathlib import Path
 
 from covey.core.jobs import find_job_record
-from covey.core.redaction import load_config, normalize, recent_turns
-from covey.core.redactor import Redactor
-from covey.core.state import read_object
+from covey.core.redaction import recent_turns
 from covey.core.topics import load_topic, topic_file
 
 MAX_PREVIEW = 20000
-RECENT = 50  # Turns the page lists.
+RECENT = 50  # Turns ``stats_view`` lists.
 _TOPIC_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 TOPICS_KEPT = 2000  # topic_info's cache: (state dir, topic id) -> (topic.json's mtime, what it read).
 _topics, _topics_lock = {}, threading.Lock()
@@ -38,35 +35,6 @@ def term_hits(rows, since=0.0):
             if isinstance(count, int):
                 hits[term] += count
     return hits
-
-
-def config_view(state_dir):
-    """The config, each term with the stand-in it goes out as, its restore tag and its recent hits;
-    {error} when the file cannot be read, so the page can say so."""
-    try:
-        config = load_config(state_dir)
-    except ValueError as exc:
-        return {"error": str(exc)}
-    updated = read_object(Path(state_dir) / "redaction" / "config.json").get("updated_at", "")
-    redactor = Redactor(config)
-    rows = recent_turns(state_dir)
-    hits, week = term_hits(rows), term_hits(rows, time.time() - 7 * 86400)
-    terms = [{**row, "effective": redactor.effective_stand_in(row["term"]),
-              "restore": restore_tag(config, redactor, row["term"]), "hits": hits.get(row["term"], 0)}
-             for row in config["terms"]]
-    return {"config": config, "terms": terms, "updated_at": updated, "week_hits": sum(week.values())}
-
-
-def preview(state_dir, body):
-    text = body.get("text")
-    if not isinstance(text, str):
-        raise ValueError("要试的文字不能为空")
-    if len(text) > MAX_PREVIEW:
-        raise ValueError(f"要试的文字最多 {MAX_PREVIEW} 个字")
-    config = normalize(body["config"]) if body.get("config") is not None else load_config(state_dir)
-    redactor = Redactor(config)
-    redacted = redactor.redact_text(text)
-    return {"redacted": redacted, "restored": redactor.restore_text(redacted), "hits": dict(redactor.hits)}
 
 
 def topic_info(state_dir, topic_id):

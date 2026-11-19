@@ -32,7 +32,7 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
       │   ├─ application.bot.menu_v6        机器人菜单（可选订阅）
       │   └─ im.message.message_read_v1     已读（只在 COVEY_PINNED_TOPICS=1 时）
       ├─ 后台线程：scheduler、cards、menu、maintenance、connections、availability、outbox、policy，
-      │   加上打开了的功能各自的后台线程（proxy、dashboard、overview、digest、main-tools、app-setup 等）
+      │   加上打开了的功能各自的后台线程（proxy、overview、digest、main-tools、app-setup 等）
       └─ 任务进程：bin/covey_runner.py，每个任务一个，在自己的会话里运行
           └─ 后端进程（codex app-server、claude、pi、dsh，或扩展的隔离解释器）
 

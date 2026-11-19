@@ -44,7 +44,7 @@
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/butler_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [butler.md](docs/butler.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
 | 记忆（`COVEY_MEMORY=1`） | `core/memory.py`（读口：条目、编号、范围上限）、`core/topic_memory.py`（话题的记忆）、`app/memory_turn.py`（每轮的块、`memory_ids`、纠正规则）、`app/memory_collect.py`（一轮结束后记下 `memory`、作废 `memory_void`，“不对”点击 `undo`）、`app/prompts.py` 的 `memory_block`、`cards/answer_card.py` 的 `memory_element`、`app/answer_cards.py` 的 `put_memory` | [butler.md](docs/butler.md#记忆开关默认关)、[配置](docs/configuration.md#记忆) |
-| 敏感词脱敏 | `core/redaction.py`、`core/redactor.py`、`backends/claude/redaction.py`、`app/redaction_panel.py`（设置卡「脱敏」标签）、`app/dashboard.py`（可选的网页看板） | [敏感词脱敏](docs/architecture.md#敏感词脱敏) |
+| 敏感词脱敏 | `core/redaction.py`、`core/redactor.py`、`backends/claude/redaction.py`、`app/redaction_panel.py`（设置卡「脱敏」标签） | [敏感词脱敏](docs/architecture.md#敏感词脱敏) |
 | 官方拒绝与停止 | `app/policy_guard.py`、`core/model_policy.py`、`backends/claude/policy.py`；cyber/bio 拒绝换旧模型重试一次 `app/policy_retry.py` | [policy-stop.md](docs/policy-stop.md) |
 | 任务进程与 `runs/` 协议 | `app/detached.py`、`app/runner_spawn.py`、`app/runner_ipc.py`、`app/runner.py`、`core/run_dir.py` | [排队与任务进程](docs/architecture.md#排队与任务进程)、[跨版本检查](docs/testing.md#任务进程协议与跨版本检查) |
 | 记录、状态与锁 | `core/jobs.py`、`core/statuses.py`、`core/store.py`、`core/locks.py` | [状态与并发](docs/architecture.md#状态与并发) |
@@ -94,9 +94,6 @@
 | `app/checkpoint_questions.py` | A question that comes with a checkpoint result |
 | `app/compact_runner.py` | The butler's idle compaction runner: `bin/covey_runner.py --compact-only` |
 | `app/compaction.py` | The butler's compaction requests: its next turn compacts its native session first |
-| `app/dashboard.py` | The sensitive-term dashboard: a page on the intranet where the owner edits the redaction term list |
-| `app/dashboard_entry.py` | Where the sensitive-term dashboard is |
-| `app/dashboard_http.py` | The sensitive-term dashboard's HTTP side: its server, each request's route and access |
 | `app/detached.py` | Run each task in its own process so a bridge restart or deploy does not stop it |
 | `app/device_files.py` | Files between the hub and a device's topic, always through the device program |
 | `app/devices.py` | Devices at the app's edge |
@@ -240,7 +237,6 @@
 | `cards/proxy_resend.py` | The 重新发送 card: in a contact's 代答 topic, a reply that never went out (Enter never pressed, every try), with … |
 | `cards/question_cards.py` | The question form, its standalone card, the feedback card and the answer notices |
 | `cards/recovery.py` | The buttons that rerun a stopped task, and the card of one whose task card cannot take them any more … |
-| `cards/redaction_link.py` | The web dashboard's link card |
 | `cards/redaction_panel.py` | The 设置 card's 脱敏 tab, one layer |
 | `cards/relay_card.py` | The card a topic turn's outcome takes back to the butler's top level |
 | `cards/review.py` | Shared history and chat-card rendering helpers |
@@ -307,6 +303,7 @@
 | `core/ignored_env.py` | Backend parameters the environment no longer sets, and the two whose old values a service must not keep |
 | `core/jobs.py` | Shared durable job-state helpers for the Feishu bridge scripts |
 | `core/knowledge.py` | 知识条目: short entries the owner asked to be remembered ("记一下"), kept in one place so every Harness reads them … |
+| `core/listen.py` | Where a local server listens (`parse_bind`: `[::]:10601`, `0.0.0.0:10601` or a bare port, meaning `[::]` |
 | `core/locks.py` | Resource-scoped locks |
 | `core/logs.py` | Logs of a state directory |
 | `core/longtask.py` | Long-task status: the thread that watches a running turn (TaskMonitor) |
@@ -348,7 +345,7 @@
 | `core/qrcodegen.py` |  |
 | `core/recovery.py` | What a failed, interrupted or stopped task's record allows next, decided in one place |
 | `core/redaction.py` | Sensitive-term redaction: the owner's term list, which topics use it and what each turn replaced |
-| `core/redaction_views.py` | The sensitive-term dashboard's views |
+| `core/redaction_views.py` | What the 设置 card's 脱敏 tab shows of the relays' records |
 | `core/redactor.py` | Matching for sensitive-term redaction: terms to stand-ins in requests, stand-ins back in replies |
 | `core/reply_state.py` | The verified reply and the outcome of one turn of Codex, Pi or dsh |
 | `core/result.py` | Validated root reply identity, separate from execution and continuation rights |

@@ -1,6 +1,6 @@
 """Matching for sensitive-term redaction: terms to stand-ins in requests, stand-ins back in replies.
 
-One ``Redactor`` serves one turn's relay (backends/claude/redaction.py) and the dashboard's preview,
+One ``Redactor`` serves one turn's relay (backends/claude/redaction.py) and the 脱敏 tab's 试一下 (app/redaction_panel.py),
 built from ``core.redaction.load_config``. Standard library only.
 
 Forward: one regular expression over the listed terms, longest first. A term that starts (ends) with an
@@ -77,10 +77,6 @@ class Redactor:
     def active(self):
         """Whether there is anything to replace."""
         return self._forward is not None
-
-    def effective_stand_in(self, term):
-        """The stand-in the listed spelling of ``term`` goes out as; None for a term not listed."""
-        return auto_stand_in(term) if any(row["term"] == term for row in self.terms) else None
 
     def restorable(self, term):
         """Whether ``term``'s stand-in turns back into it in replies."""

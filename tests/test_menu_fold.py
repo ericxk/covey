@@ -12,8 +12,6 @@ from unittest import mock
 from support.proxy import ProxyCase
 from support import requires_extension
 from covey.app import bot_menu
-from covey.app.dashboard_entry import DASHBOARD_ENV
-ENTRY_ENV = "COVEY_DASHBOARD_ENTRY"
 from covey.app.menu_panel import FOLDED
 from covey.app.settings_hub import MENU_KEY
 from covey.app.weekly_usage import FOLDER as USAGE_FOLDER
@@ -43,8 +41,7 @@ def tab_values(card):
 
 class MenuFoldTests(ProxyCase):
     def setUp(self):
-        self.enterContext(mock.patch.dict(os.environ, {'COVEY_BUTLER': '1', DASHBOARD_ENV: '127.0.0.1:10601',
-                                                       ENTRY_ENV: ''}))
+        self.enterContext(mock.patch.dict(os.environ, {'COVEY_BUTLER': '1'}))
         super().setUp()
         self.access = self.app.runtime.access
         self.access.remember_owner_chat('dm')
@@ -178,9 +175,9 @@ class MenuFoldTests(ProxyCase):
         self.assertNotIn(FOLDED, read_json(path))
         self.assertEqual(self.click('manage_groups', 'ev3'), ('manage_groups', 'fold'))
 
-    # The records 用量 and 脱敏 have now ---------------------------------------------------------
+    # The record 用量 has now ---------------------------------------------------------
 
-    def test_usage_and_the_dashboard_link_have_records(self):
+    def test_usage_has_a_record(self):
         for key, folder in (('weekly_usage', USAGE_FOLDER),):
             with self.subTest(key=key):
                 self.click(key, key + '-1')

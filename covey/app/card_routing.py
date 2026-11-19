@@ -251,23 +251,6 @@ class CardRouting:
                 return outcome
         return None
 
-    def rotate_dashboard(self, ctx, event, owner, raw=None):
-        """换口令 on a 脱敏 link's card: a new token and its link, once a click; the new card replaces the
-        menu's last one like a menu click's. On the 设置 card's 脱敏 tab (``raw`` carries its token) the same card
-        shows the new link (SettingsHub.rotate)."""
-        event_id = str(event.get('event_id') or '')
-        if not owner:
-            return 'owner_only'
-        if not event_id or not claim_once(ctx.state_dir / INBOUND_DIR,
-                                          hashlib.sha256(('rotate:' + event_id).encode()).hexdigest()):
-            return 'duplicate'
-        if self.settings_hub.rotate(ctx, event, raw or {}):
-            return 'dashboard_rotate'
-        chat_id = str(event.get('chat_id') or '')
-        self.dashboard.send_link(ctx, chat_id, event_id, rotate=True,
-                                 shown=self.menu.shown(ctx, 'redaction_dashboard', chat_id, event_id))
-        return 'dashboard_rotate'
-
     def count_others(self, target, event, raw):
         """A stop button on a task of the butler's, or on a 派发卡: how many other tracks of the butler are still going
         goes into the click as ``others`` (app/butler_tracks.py ``stop_others``, the stop word's count), for the Bridge's

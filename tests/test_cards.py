@@ -21,7 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from support.cards import (TOPIC, redaction_facts, redaction_web, remember_browse_card, sample_job, split_panel,
+from support.cards import (TOPIC, redaction_facts, remember_browse_card, sample_job, split_panel,
                            stream_runtime, trace_panel)
 from covey.core import extensions
 from support.clock import FakeClock
@@ -225,7 +225,7 @@ def sample_cards(work=None):
                        "edit": "b" * 12, "probing": 1.0, "open": ["try", "upstream"], "preview": {"redacted": "x", "count": 1, "terms": 1,
                                                                    "restore": True, "same": False}},
             redaction_facts(rows=20, upstream="https://gw.example.com"),
-            top=[tab_row("redaction", "f" * 24, list(LABELS))], web=redaction_web()),
+            top=[tab_row("redaction", "f" * 24, list(LABELS))]),
         **{f"proxy_resend_{state}": resend_card({"state": state, "notice": "⚠️ 没有重新发送：代答已关闭。"}, {
             "id": "0" * 32, "reply": "收到 哥\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "张信宇")
            for state in ("failed", "again", "resending", "sent", "uncertain", "void", "dropped")},

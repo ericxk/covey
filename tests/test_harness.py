@@ -46,7 +46,7 @@ from covey.backends.claude.bridge import CLAUDE_SPEC, ClaudeBackend
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.backends.codex.bridge import CODEX_SPEC
-from covey.app.dashboard import ROTATE_KIND
+from covey.cards.redaction_panel import ROTATE as ROTATE_KIND
 from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
@@ -651,8 +651,8 @@ class RetiredHarnessTests(unittest.TestCase):
 
     def test_every_old_card_click_gets_the_notice_and_reaches_no_handler(self):
         remember_topic_message(self.state, self.topic.topic_id, 'chat', 'om_card')
-        # The 代答设置, 重新发送, 群管理, 敏感词看板, 管家 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
-        # never route to a topic (tests/test_proxy_panel.py, test_group_chat.py, test_dashboard.py,
+        # The 代答设置, 重新发送, 群管理, 旧敏感词看板链接卡, 管家 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
+        # never route to a topic (tests/test_proxy_panel.py, test_group_chat.py, test_redaction_panel.py,
         # test_butler_panel.py).
         private = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
         private |= set(extensions.card_kinds())  # An enabled extension's cards (tests/test_extension_cards.py).

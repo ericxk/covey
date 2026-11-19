@@ -150,6 +150,10 @@ class MenuTests(UnifiedCase):
         (panels / 'tok.json').write_text(json.dumps({'chat_id': 'oc_panel'}))
         (panels / 'latest.json').write_text(json.dumps({'token': 'tok'}))
         self.assertEqual(bot_menu.known_chats(self.app.proxy.panel, self.ctx), ['oc_panel', ''])
+        # The record the web dashboard kept (taken out 2026-11-19) still names the chat its link went to.
+        (self.ctx.state_dir / 'redaction').mkdir()
+        (self.ctx.state_dir / 'redaction' / 'dashboard-entry.json').write_text(json.dumps({'chat_id': 'oc_link'}))
+        self.assertEqual(bot_menu.known_chats(self.app.proxy.panel, self.ctx), ['oc_panel', 'oc_link'])
 
     def test_opening_the_chat_reads_it_from_the_send_or_the_message(self):
         sent = {'ok': True, 'data': {'message_id': 'om_1', 'chat_id': 'oc_new'}}

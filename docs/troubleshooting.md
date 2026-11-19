@@ -135,14 +135,6 @@ doctor 只读：不发消息、不调用模型、不修复状态。退出码 0 �
 
 批次记录在 `<state>/proxy/batches/`。用户 token 过期（刷新期 7 天）时，`lark-cli --profile <COVEY_PROXY_PROFILE> auth login` 重新授权。
 
-## 敏感词看板打不开
-
-词表和开关不用网页看板：直接在设置卡的「脱敏」标签上改（[敏感词看板](configuration.md#敏感词看板)）。网页看板打不开时，点“打开网页看板”后看 `bridge.log` 的 `dashboard` 行：
-
-- `dashboard GET / 303`：浏览器连上了，链接里的口令换成了 cookie。之后 `/api/…` 是 401 时口令已经换过，回设置卡「脱敏」标签重新点“打开网页看板”。
-- `dashboard bad request 400: not HTTP …`：连上了端口，但发来的不是 HTTP，多半是浏览器把链接升级成了 https（HSTS 或“始终使用安全连接”）。看板只说 http，在浏览器里给这个地址关掉自动升级。
-- 一行都没有：浏览器没连到这台机器。卡上的链接默认用本机默认路由的 IPv6 地址；浏览器所在网络到不了它时，用 `COVEY_DASHBOARD_URL` 改成能到的地址，重新注册服务后生效。只能用 SSH 登录这台机器时，在自己电脑上开本地转发 `ssh -N -L <端口>:localhost:<端口> <登录这台机器的地址>`，再把链接里的地址换成 `localhost:<端口>` 打开。
-
 ## 飞书应用缺权限或菜单
 
 - 私聊里收到「飞书应用待补」卡：点“扫码自动补齐”，见[自动补齐飞书应用](operations.md#自动补齐飞书应用)。

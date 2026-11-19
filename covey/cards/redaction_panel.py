@@ -1,25 +1,24 @@
 """The 设置 card's 脱敏 tab (app/redaction_panel.py), one layer: a small stats line, 填词 (a box a term a line, 加入词表 or
 从词表删除),
-a search box, the list a term a line each with its 删除, then folds for 开关与上游地址, 试一下 and 记录 (closed), and
-last the web dashboard's link when the deployment serves one (its 换口令 is cards/redaction_link.py ROTATE_KIND).
+a search box, the list a term a line each with its 删除, then folds for 开关与上游地址, 试一下 and 记录 (closed).
 
 No term is on the card (docs/usage.md 敏感词脱敏): a row names a term by core/redaction.py ``masked`` and by a key that
 tells nothing of it, a stand-in is never shown (RX and 8 hex digits of the term's hash, next to its first character and
 length, would give a short term away; the owner no longer names one, 2026-11-14), and what the owner typed into a box
 is never its default value. Each button's value carries its kind, the card's token and the revision drawn; a form's
 submit button carries one too (as cards/proxy_panel.py's 查找). PAGE and EDIT, the tab row and the row editor of the
-2026-11-13 layout, stay in KINDS so a card sent then still answers."""
+2026-11-13 layout, and ROTATE, the web dashboard's 换口令 (taken out 2026-11-19, T569), stay in KINDS so a card sent then
+still answers."""
 from __future__ import annotations
 
 from covey.cards import ui
 from covey.core.text import literal
 from covey.cards.elements import (button_row, callback_button, collapsible, grey, item, md, note, panel_header, plain,
                                   styled_panel, tag, text_button)
-from covey.cards.redaction_link import ROTATE_KIND
 
 TITLE = '脱敏看板'
 SUBTITLE = '填入敏感词，替身词自动生成'
-# One layer (the owner's decision of 2026-11-14): the stats line, 填词, the list, three folds (开关, 试一下, 记录), the web link.
+# One layer (the owner's decision of 2026-11-14): the stats line, 填词, the list, three folds (开关, 试一下, 记录).
 PAGE = 'bridge_redaction_page'  # Retired: the tab row of the four pages (a card sent 2026-11-13 still has it).
 LIST = 'bridge_redaction_list'  # The list's page (``at``); ``clear`` ends a search.
 FIND = 'bridge_redaction_find'  # 查找: the form's QUERY.
@@ -33,8 +32,9 @@ UPSTREAM = 'bridge_redaction_upstream'  # ``op`` save (the form's UPSTREAM_FIELD
 PROBE = 'bridge_redaction_probe'  # 探测.
 PREVIEW = 'bridge_redaction_preview'  # 试一下: the form's TEXT.
 OPEN = 'bridge_redaction_open'  # 试一下 or 修改地址 (``name`` try, upstream) opened or closed (``on``): a form cannot sit in a fold.
+ROTATE = 'bridge_dashboard_rotate'  # Retired: the web dashboard's 换口令 (app/redaction_panel.py PAGE_GONE).
 RETIRED = frozenset({PAGE, EDIT})  # Their click draws the card again with RETIRED_WORDS.
-KINDS = frozenset({PAGE, LIST, OPEN, FIND, ADD, REMOVE, TERM, EDIT, UNDO, SWITCH, UPSTREAM, PROBE, PREVIEW})
+KINDS = frozenset({PAGE, LIST, OPEN, FIND, ADD, REMOVE, TERM, EDIT, UNDO, SWITCH, UPSTREAM, PROBE, PREVIEW, ROTATE})
 QUERY, LINES, UPSTREAM_FIELD, TEXT = 'query', 'lines', 'upstream', 'text'
 INPUT_LIMIT = 1000  # The most a Feishu input takes.
 PAGE_SIZE = 10  # A row is one line.
@@ -52,8 +52,6 @@ ADD_HINT = '每行一个词，一次最多 1000 字，可以整批粘贴；删�
 RETIRED_WORDS = 'ℹ️ 这个按钮已更新：卡片按新布局重画了（替身词现在自动生成，不再手动指定）。'
 TRY_HINT = '用已保存的词表和开关替换一段文字。卡片上只显示替换后的样子，不显示原文和还原结果。'
 NOTE = '改动从下一轮起生效。卡上的词只显示首字和字数，框里输入的内容不留在卡片上。'
-WEB_NOTE = '网页看板（可选）能看到完整原词，要经 SSH 隧道或公司内网打开。'
-ROTATED = '口令已换：之前的链接和已登录的浏览器都失效了，点“打开网页看板”用新口令登录。'
 
 
 def submit(label, value, name, *, primary=False):
@@ -77,11 +75,10 @@ def form(name, *elements):
     return {'tag': 'form', 'name': name, 'elements': list(elements)}
 
 
-def redaction_card(token, view, data, *, top=(), web=None):
-    """The whole tab for ``view`` (revision, at, found, notice, undo, preview, probing, probe, rotated) over ``data``
+def redaction_card(token, view, data, *, top=()):
+    """The whole tab for ``view`` (revision, at, found, notice, undo, preview, probing, probe) over ``data``
     (app/redaction_panel.py ``facts``: error, config without its terms, rows, count, week, topics, turns); ``top``: the
-    设置 card's tab row; ``web``: the web dashboard's part (link, notes, listening, or error), None when the
-    deployment serves none. Older views' ``page`` and ``edit`` are ignored."""
+    设置 card's tab row. Older views' ``page``, ``edit`` and ``rotated`` are ignored."""
     def value(kind, **more):
         return {'kind': kind, 'token': token, 'revision': view['revision'], **more}
 
@@ -102,8 +99,6 @@ def redaction_card(token, view, data, *, top=(), web=None):
         elements += try_part(value, view, 'try' in opened)
         elements.append(collapsible('rx_records', FOLDS['records'], records_part(data)))
     elements.append(note(NOTE))
-    if web is not None:
-        elements += web_part(token, view, web)
     return styled_panel(panel_header('redaction', TITLE, SUBTITLE), elements, TITLE)
 
 
@@ -218,16 +213,3 @@ def records_part(data):
     parts.append(note('只列最近记录的 500 轮里的话题和轮次。'))
     return parts
 
-
-def web_part(token, view, web):
-    """The web dashboard, the card's last line: a note with its link (it carries the dashboard's token) and 换口令, or
-    what is wrong with it."""
-    if web.get('error'):
-        return [md('**网页看板** ' + tag('设置不对', 'red')), note(literal(web['error']))]
-    open_page = {'tag': 'button', 'text': plain('打开网页看板'), 'type': 'default', 'size': 'small',
-                 'behaviors': [{'type': 'open_url', 'default_url': web['link']}]}
-    rotate = callback_button('换口令', {'kind': ROTATE_KIND, 'token': token}, style='default', size='small')
-    down = ' ' + tag('没有在监听', 'red') if not web['listening'] else ''
-    parts = [md(ROTATED)] if view.get('rotated') else []
-    return parts + [item(note(' '.join([WEB_NOTE, *web['notes']])) if not down else md(down + ' ' + grey(WEB_NOTE)),
-                         open_page, rotate)]

@@ -94,7 +94,6 @@
 | 功能 | 怎么打开 | 打开后多什么 |
 | --- | --- | --- |
 | [代答](#代答) | `COVEY_PROXY_PROFILE` 和发送工具 | `proxy`、`proxy-in` 后台线程；设置卡「代答」能用 |
-| [敏感词看板](#敏感词看板) | `COVEY_DASHBOARD` | `dashboard` 后台线程（本机 HTTP） |
 | [手上的事与话题看板](#手上的事与话题看板) | `COVEY_PINNED_OVERVIEW=1`、`COVEY_PINNED_TOPICS=1` | `overview` 后台线程；Pin 话题时多一个已读事件消费者 |
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES` | `digest` 后台线程、菜单「看板」 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/kb-history` | 管家多 `knowledge_*` 工具，话题首轮带知识条目，汇总多一节；管家多 `history_search`，话题规则多一行查历史的命令 |
@@ -133,18 +132,12 @@
 
 代答的日志行见[排障 · 代答](troubleshooting.md#代答没有回复或没有发出)。
 
-### 敏感词看板
+### 敏感词脱敏
 
-脱敏的词表、开关和替换记录在设置卡的「脱敏」标签上（`app/redaction_panel.py`，卡片是 `cards/redaction_panel.py`），不用配置，所有部署都有。网页看板（`app/dashboard.py`，页面在 `app/dashboard_static/`）可选：设了 `COVEY_DASHBOARD` 才起，它的链接是「脱敏」标签最后一块。
+脱敏的词表、开关和替换记录在设置卡的「脱敏」标签上（`app/redaction_panel.py`，卡片是 `cards/redaction_panel.py`），不用配置，所有部署都有；开了[网页工作台](butler.md#网页工作台开关默认关)时，它的设置页也能批量加删词。以前可选的独立网页看板（`COVEY_DASHBOARD`）2026-11-19 去掉了，见[已下架项与旧配置](#已下架项与旧配置)。
 
 - 「脱敏」标签：一层（填词、搜索、词表，折叠面板里是开关和记录，试一下和上游地址的输入框点开再出现（折叠面板里放不了表单）；替身词一律自动生成：词表每项只有 `term`，读时忽略旧版本留下的 `stand_in`，写时不写，`core/migrate.py` 的 redaction-stand-in 把旧词表重写一遍；旧版本设的 `"anywhere": true` 照旧生效，`update_config` 拒绝新设），填词框一次加或删一批（“加入词表”“从词表删除”，按行，删除要整词一致；`core/redaction.py` 的 `edit_terms`，撤销是 `put_back`），开关一次一个（`update_config`）；都在 `EDIT_LOCK` 下读、改、存。点击改完词表、把结果记进设置卡记录就回执，整卡重画放在回执之后（`after_ack`；连点几下只画最后一次）。记录区要读最近 500 轮涉及的话题，`core/redaction_views.py` 的 `topic_info` 按 topic.json 的修改时间缓存。卡上不出现原词：词只写首字和字数（`masked`），自动替身不显示；按钮按 `<state>/redaction/card-key`（0600，第一次用时生成）下的 HMAC 指认哪一行；查找只记下找到的行，框里输入的内容不写回卡片；拒绝的原因（`Refused`）不提原词，词表文件读不了时只说读不了（原来的错误可能引用原词）。“撤销”只记在 Bridge 进程的内存里，重启后就没有了。「探测」在后台线程跑，跑完重画卡片。
 
-- `COVEY_DASHBOARD`：监听地址。写 `[::]:10601`（IPv6 双栈）、`0.0.0.0:10601`，或只写端口（等于 `[::]:端口`）。设了才起看板后台线程。写法里的 `$名字`、`${名字}` 每次启动时从环境里取值，取不到就不起看板；平台按机器分配端口时，用单引号把 `'[::]:$端口变量'` 原样存进清单。起来后日志记 `dashboard listening on :: port N`；端口被占或写错时只记一次 `dashboard not started: …`，Bridge 其他部分照常。
-- `COVEY_DASHBOARD_URL`（可选）：「脱敏」标签上网页看板的链接用的地址。不设时用本机默认路由的 IPv6 地址（有些开发机给预留端口登记的就是它），本机没有 IPv6 或只监听 IPv4（`0.0.0.0:端口`）时用本机能解析的完整主机名；端口取 `COVEY_DASHBOARD` 的。不用主机名打头，是因为浏览器可能只按 IPv4 解析它（Chrome 没有通往公网 IPv6 的路由时就这样），而开发机要经 IPv6 访问。浏览器所在网络到不了这个地址时，用这个变量改成它能到的地址。
-- 看板固定入口（`dashboard_entry` 扩展钩子）：公司部署用 `COVEY_DASHBOARD_ENTRY` 配，见扩展自己的 README。没有钩子时看板照常，没有固定入口。
-- 地址变了就推送：主人打开过设置卡「脱敏」标签后，看板记下链接发去的私聊和地址；之后某次启动发现地址不同，就把带口令的新链接发到这个私聊，每个地址只发一次。记录在 `<state>/redaction/dashboard-entry.json`。
-- 口令：`<state>/redaction/dashboard-token`（0600），第一次用时生成。卡上是带口令的链接（`/?t=<口令>`）；打开后口令换成 cookie `hb_dash`（HttpOnly、SameSite=Strict，30 天）。点“换口令”（kind `bridge_dashboard_rotate`）后旧链接和已登录的浏览器马上失效。
-- 安全：看板是内网明文 HTTP，同网段能抓包的人看得到口令。同一地址一分钟内输错 5 次口令就锁一分钟（429）。写操作要带请求头 `X-Dashboard: 1`，不开放跨域，页面不许被嵌入。`bridge.log` 每个请求记一行 `dashboard <方法> <路径> <状态>`，不含查询参数、口令、cookie 和词；读不成 HTTP 的请求（多半是浏览器用 https 连了这个 http 端口）记 `dashboard bad request <状态>`，不记内容。
 - 词表在 `<state>/redaction/config.json`（0600），每轮开始时读，改动下一轮生效；每轮的替换次数记在 `<state>/redaction/turns.jsonl`。「探测」在后台跑一次 `<claude 命令> --gateway-status`，只显示结果、不改配置。
 
 ### 手上的事与话题看板
@@ -297,7 +290,7 @@
 
 设了 `COVEY_NODE_LISTEN` 才有；结构和不变量见[架构 · 节点](architecture.md#节点默认关)。
 
-- **监听**：`COVEY_NODE_LISTEN='[::]:$ARNOLD_RESERVED_N_CURRENT_PORT'`（写法同 `COVEY_DASHBOARD`）。节点主动连这个端口（TLS，Hub 自签证书，节点按证书指纹认 Hub），设备上不开端口。设备连不到 Hub 推算的地址时用 `COVEY_NODE_ADDRESS=主机:端口` 指定。
+- **监听**：`COVEY_NODE_LISTEN='[::]:$ARNOLD_RESERVED_N_CURRENT_PORT'`（`[::]:端口`、`IPv4:端口` 或只写端口；`$名字`、`${名字}` 每次启动时从环境里取值，平台按机器分配端口时用单引号原样存进清单；`core/listen.py`）。节点主动连这个端口（TLS，Hub 自签证书，节点按证书指纹认 Hub），设备上不开端口。设备连不到 Hub 推算的地址时用 `COVEY_NODE_ADDRESS=主机:端口` 指定。
 - **本机**：开了就有一个本机节点（名字 `local`，显示为“本机”）：Bridge 每分钟确认 `~/.covey/node/` 里的节点在跑，没在跑就拉起；它独立于 Bridge 运行，样本先写本地盘（`~/.covey/node/data/`，最多 256 MiB、7 天），并每 10 分钟试写一次数据根，写不进（配额满、挂了）会告警。
 - **加设备**：`core/nodes.py` 的 `open_join` 发一个 30 分钟有效、只能用一次的口令；设备上执行 `app/node_gateway.py` 的 `paste_command` 给出的那行命令（`curl … | python3 -`，按 Hub 公钥固定，不走代理），节点就装好、写自启（`~/.bashrc` 顶部的登录钩子；有 systemd 用户服务或 launchd 时也装）并连上来。设置卡的「设备」页给出这行命令，Hub 能 ssh 进去的设备也可以在那里直接装。
 - **数据**：`<状态目录>/nodes/`：`registry.json`（节点名单，只存密钥的哈希）、`<节点>/latest.json`、`link.json`、`raw/`（原样，3 天）、`minutes/`（每分钟一行，30 天）、`alerts.jsonl`；`events/`、`alerts/` 是告警的待发和已发记录。
@@ -345,9 +338,7 @@
 | `COVEY_BROWSER_EXECUTABLE` | `feishu/web_client.py`（`launch`）、`core/browser_env.py`、`service/browser_setup.py` | 空：用 Playwright 下载的 Chromium；`./install` 发现机器上已有 Chrome/Chromium 时写进 `<数据根>/browsers/launch.json` | 否 |
 | `LD_LIBRARY_PATH` | `core/browser_env.py`、`service/browser_setup.py`（无 root 缺 Chromium 系统库时，把 `<数据根>/browsers/syslibs/` 下解出的库目录加在前面，只给浏览器进程） | 不动 | 否 |
 | `TMPDIR` | `service/browser_setup.py`（监视浏览器下载有没有进展的临时目录；`./install` 设成 `<数据根>/tmp`） | `<数据根>/tmp` | 否 |
-| `COVEY_DASHBOARD` | `app/dashboard.py` | 空：不开看板 | 否 |
-| `COVEY_DASHBOARD_URL` | `app/dashboard_entry.py` | 空：`http://[<本机默认路由的 IPv6 地址>]:<端口>`，没有 IPv6 时 `http://<本机名>:<端口>` | 否 |
-| `ANTHROPIC_BASE_URL` | `app/dashboard.py`、`backends/claude/redaction.py`（脱敏中继的上游） | 空 | 否 |
+| `ANTHROPIC_BASE_URL` | `app/redaction_panel.py`（「探测」）、`backends/claude/redaction.py`（脱敏中继的上游） | 空 | 否 |
 | `COVEY_PINNED_OVERVIEW` | `app/overview.py`（`app/pins.py` 的 `laid` 也读：两个开关都开时看板记录的规则才算数） | 关；`1` 开 | 否 |
 | `COVEY_HARNESS_PROBE` | `app/availability.py`（`PROBE_ENV`；探测本身在 `core/harness_probe.py`） | 关；开了才每 60 秒的可用性检查里对 Claude、Codex 各做一次真实调用（缓存 6 小时，失败 10 分钟）。缓存里是“没登录”时该 Harness 在启动卡上不可用，网络、超时等只写进健康检查。可由服务清单保存 | 否 |
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
@@ -358,8 +349,8 @@
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
 | `COVEY_DEVICES` | `core/devices.py`（`enabled`） | 空：关；`1` 才读 `devices.json`，见[多设备](#多设备开发中默认关) | 否 |
 | `COVEY_DEVICES_FILE` | `core/devices.py`（`config_path`） | 空：`<数据根>/devices.json` | 否 |
-| `COVEY_NODE_LISTEN` | `core/nodes.py`（`enabled`、`listen_spec`）、`app/node_gateway.py`、`app/nodes.py` | 空：关；设了就在这里等节点连上来（写法同 `COVEY_DASHBOARD`：`[::]:端口`、`IPv4:端口` 或端口，`$变量` 取环境），起 `nodes-gateway`、`nodes-alerts`、`nodes-local` 三个后台线程，见[节点与机器状况](#节点与机器状况默认关) | 否 |
-| `COVEY_NODE_ADDRESS` | `app/node_gateway.py`（`hub_address`） | 空：本机默认路由的 IPv6 地址加监听端口（同脱敏看板的推算）；设备连不到这个地址时写成 `主机:端口` | 否 |
+| `COVEY_NODE_LISTEN` | `core/nodes.py`（`enabled`、`listen_spec`）、`app/node_gateway.py`、`app/nodes.py` | 空：关；设了就在这里等节点连上来（`[::]:端口`、`IPv4:端口` 或端口，`$变量` 取环境，`core/listen.py` 的 `parse_bind`），起 `nodes-gateway`、`nodes-alerts`、`nodes-local` 三个后台线程，见[节点与机器状况](#节点与机器状况默认关) | 否 |
+| `COVEY_NODE_ADDRESS` | `app/node_gateway.py`（`hub_address`） | 空：本机默认路由的 IPv6 地址加监听端口（`core/listen.py` 的 `link_host`；没有 IPv6 时用能解析的完整主机名）；设备连不到这个地址时写成 `主机:端口` | 否 |
 | `COVEY_NODE_AUTOSTART` | `core/node_agent.py`（`install_autostart`，设备上读） | 空：登录钩子、systemd 用户服务、launchd 有哪个装哪个；`hook`：只装登录钩子（测试用临时 HOME 时） | 否 |
 | `COVEY_BUTLER_RULES`（旧名 COVEY_MAIN_BUTLER、LARK_BRIDGE_MAIN_BUTLER） | `app/prompts.py`（`butler_on`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此换 `topic_start` 的工具说明） | 空：关；`1` 把管家规则的前两条换成管家规则（只快答和分派），`topic_start` 的工具说明同步 | 否 |
 | `COVEY_DISPATCH_CARD`（旧名 COVEY_MAIN_DISPATCH_CARD、LARK_BRIDGE_MAIN_DISPATCH_CARD） | `app/dispatch_cards.py`（`enabled`；`app/butler_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 后台线程） | 空：关；`1` 开派发卡：管家派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
@@ -486,6 +477,7 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | 脱敏标签的“新话题默认开”（`redaction/config.json` 的 `default_on`） | 不再读：新话题默认开不开脱敏是设置卡「新话题」页的“脱敏”一行（`main-thread.json` 的 `topic_defaults.redaction`）。启动时的迁移 `redaction-default` 在它开着时把那一行打开一次；值留在 `config.json` 给旧版本。旧卡上点这个开关只说它挪到了哪里 |
 | 文字命令、斜杠命令 | 以 `/` 开头的消息和以前的命令词（“代答”“本周用量”“管理工作区”“换配置”“停用本群”等）当作普通任务或补充。只有配对口令 `/pair` 还认。应用里残留的原生斜杠命令要在开发者后台删除并发布 |
 | 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`manage_groups`、`butler_settings`（`proxy_settings` 2026-11-19 起又是正式的「代答」项） | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
+| 独立的敏感词网页看板（`COVEY_DASHBOARD`、`COVEY_DASHBOARD_URL`，扩展钩子 `dashboard_entry` 和它的 `COVEY_DASHBOARD_ENTRY`），2026-11-19 去掉 | 不再读这几个变量，清单里留着也照常启动；扩展的 manifest 还写着 `dashboard_entry` 钩子也照常加载（`core/extensions.py` 的 `RETIRED_HOOKS`），核心不再调它。状态目录里的 `redaction/dashboard-token` 和 `redaction/dashboard-entry.json` 不再用，可以删（`app/bot_menu.py` 还从后者读旧链接卡发去的私聊）。旧链接卡和设置卡「脱敏」标签上的“换口令”（`bridge_dashboard_rotate`）点了只说网页看板已经去掉；旧菜单键 `redaction_dashboard` 照旧打开「脱敏」标签 |
 | 两卡式或 schema 3 之前的旧启动卡 | 点了只回“此启动卡已失效，请在主聊天重新发送消息开始任务。”，不改表单和等着的消息 |
 | 其他已下线卡片的按钮 | 见[已下线的功能](usage.md#已下线的功能) |
 

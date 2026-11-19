@@ -27,7 +27,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app.dashboard_entry import link_host, parse_bind
+from covey.core.listen import link_host, parse_bind
 from covey.core import nodes, node_rules
 from covey.core import env as cenv
 from covey.core.state import ensure_private_dir, read_object, write_json
@@ -39,7 +39,7 @@ HANDSHAKE_TIMEOUT = 15.0
 
 
 def hub_address(bind, environ=None):
-    """host:port the nodes dial: COVEY_NODE_ADDRESS, else this machine's address as the dashboard works it out."""
+    """host:port the nodes dial: COVEY_NODE_ADDRESS, else this machine's address (core/listen.py link_host)."""
     given = str(cenv.get(nodes.ADDRESS_ENV, "", environ) or "").strip()
     return given or "%s:%d" % (link_host(bind[0]), bind[1])
 

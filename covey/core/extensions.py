@@ -43,9 +43,10 @@ HARNESS_FIELDS = {"module", "store", "store_module", "live_questions", "paused_q
 # The hooks the core calls: what a module must have is in the file that calls it.
 HOOK_NAMES = {
     "proxy_sender": "app/proxy.py: the 代答 sender (ProxySend, ProxyLogin and the helpers app/proxy_send.py names)",
-    "dashboard_entry": "app/dashboard.py: the dashboard's fixed entry (alias, url, publish, REPUBLISH_AFTER)",
     "service_hosting": "service/install.py: other ways to host the Manager (MODES: name -> install(root, args); optional auto_mode() -> a mode name when it applies, for --mode auto)",
 }
+# compat: hooks of features the core no longer has; a manifest that still names one loads, and the hook is never asked for.
+RETIRED_HOOKS = {"dashboard_entry"}  # The web dashboard's fixed entry, with the dashboard taken out 2026-11-19.
 SETTING_NAMES = {
     "web_tenant_domain": "feishu/web_client.py: the Feishu tenant's host name, for the web login",
     "contact_notes": "app/artifacts.py: a regex of the paths the 代答 contacts' notes are kept in",
@@ -192,7 +193,7 @@ def read(package: str) -> Extension:
         raise ExtensionError(package, "manifest IGNORED_ENV must map a variable to [Harness, option]")
     hooks = _mapping(package, getattr(manifest, "HOOKS", {}), "HOOKS")
     settings = _mapping(package, getattr(manifest, "SETTINGS", {}), "SETTINGS")
-    if set(hooks) - set(HOOK_NAMES) or not all(isinstance(v, str) for v in hooks.values()):
+    if set(hooks) - set(HOOK_NAMES) - RETIRED_HOOKS or not all(isinstance(v, str) for v in hooks.values()):
         raise ExtensionError(package, f"manifest HOOKS must map names of {sorted(HOOK_NAMES)} to module names")
     if any(name not in SETTING_NAMES and not name.startswith(package + ".") for name in settings) or not all(isinstance(v, str) for v in settings.values()):
         raise ExtensionError(package, f"manifest SETTINGS must map names of {sorted(SETTING_NAMES)} "

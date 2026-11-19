@@ -5,10 +5,10 @@ clicks that way), so a new button kind is added here first, with the BridgeApp c
 that takes it (``handler``: app/app.py dispatches a topic's click by it). Launch forms,
 pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 (app/rewind.py) are matched before this table and are not in it. The 代答设置 card's kinds, the
-重新发送 card's, the 代发草稿 card's, 群管理's, 敏感词看板's 换口令, the 脱敏 tab's, the 管家 settings card's, the 设置 card's tabs, 手上的事's
+重新发送 card's, the 代发草稿 card's, 群管理's, the 脱敏 tab's (the retired 敏感词看板's 换口令 too), the 管家 settings card's, the 设置 card's tabs, 手上的事's
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
-app/owner_send.py, app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
+app/owner_send.py, app/group_manager.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
 app/overview.py, app/digest.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
@@ -129,8 +129,8 @@ ACTIONS = {
     "bridge_group_view": CardAction("打开群的免@设置"),
     "bridge_group_free": CardAction("设置群的免@"),
     "bridge_group_member": CardAction("选择免@的群成员"),
-    "bridge_dashboard_rotate": CardAction("换口令"),
     # The 设置 card's 脱敏 tab (cards/redaction_panel.py KINDS).
+    "bridge_dashboard_rotate": CardAction("换口令"),  # Retired 2026-11-19 with the web dashboard: a click says it went.
     "bridge_redaction_page": CardAction("切换脱敏页面"),  # Retired 2026-11-14: a click draws the card again.
     "bridge_redaction_list": CardAction("翻脱敏词表的页"),
     "bridge_redaction_open": CardAction("展开脱敏的试一下或上游地址"),

@@ -233,8 +233,3 @@ def redaction_facts(rows=3, upstream=""):
                        {"number": None, "title": "", "turns": 1, "hits": 0, "last": "11-04 18:50"}],
             "turns": [{"time": "11-04 18:50", "number": 12, "model": "opus", "requests": 4, "replaced": 2},
                       {"time": "11-04 18:40", "number": None, "model": "", "requests": 1, "replaced": 0}]}
-
-
-def redaction_web():
-    return {"link": "http://[2001:db8::1]:10601/?t=fake-token", "listening": True,
-            "notes": ["链接里带着口令，别转发；要换口令点“换口令”。"]}

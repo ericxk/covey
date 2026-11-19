@@ -25,7 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # support, also when run as tests.test_card_golden
 
-from support.cards import TOPIC, redaction_facts, redaction_web, sample_job, status_block, stream_runtime  # noqa: E402
+from support.cards import TOPIC, redaction_facts, sample_job, status_block, stream_runtime  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "cards.json"
 PACKED = GOLDEN.with_name("cards.json.xz")  # The public export packs the golden file (scripts/export_core.py).
@@ -579,10 +579,8 @@ def free_groups():
 def menu_panels():
     from covey.cards.directory import directory_card
     from covey.cards.group_manager import group_manager_card
-    from covey.cards.redaction_link import link_card
     from covey.cards.group_manager import folded_card as groups_folded
     from covey.cards.proxy_panel import folded_card as proxy_folded
-    from covey.cards.redaction_link import folded_card as redaction_folded
     from covey.cards.weekly_usage import folded_card as usage_folded
     from covey.cards.workspace_manager import closed_card, manager_card
     from covey.cards.workspace_manager import folded_card as workspaces_folded
@@ -613,9 +611,6 @@ def menu_panels():
         "groups_free_proxy": group_manager_card(
             "a" * 24, {"revision": 2, "free": "oc_fake_group2", "members": []}, free_groups(), names,
             free={"blocked": {"oc_fake_group2"}}),
-        "redaction": link_card("口令已换：旧链接不能用了。", "https://example.com/dashboard#token",
-                               ["只在内网打开", "第二条说明"]),
-        "redaction_not_listening": link_card("", "https://example.com/dashboard#token", ["说明"], listening=False),
         "workspaces": manager_card("a" * 24, view, config, {"/absolute/w2": False, "/absolute/w3": None},
                                    standalone=True),
         "workspaces_from_launch": manager_card("a" * 24, view, config, {}, standalone=False),
@@ -625,7 +620,6 @@ def menu_panels():
         # A second menu click on the newest card folds it in place (app/bot_menu.py).
         "folded_usage": usage_folded(),
         "folded_workspaces": workspaces_folded(),
-        "folded_redaction": redaction_folded(),
         "folded_proxy": proxy_folded(),
         "folded_groups": groups_folded(),
     }
@@ -927,7 +921,7 @@ def settings_cards():
                                           top=[tab_row("workspace", "c" * 24, [t for t in tabs if t != "main"])]),
         # 脱敏 (cards/redaction_panel.py): no term, only its first character and length.
         "redaction": redaction_card("c" * 24, {**view, "notice": "已删除「机··（4 字）」。", "undo": True},
-                                    redaction_facts(), top=row("redaction"), web=redaction_web()),
+                                    redaction_facts(), top=row("redaction")),
         "redaction_found": redaction_card("c" * 24, {**view, "found": ["b" * 12]}, redaction_facts(),
                                           top=row("redaction")),
         "redaction_pages": redaction_card("c" * 24, {**view, "at": 1}, redaction_facts(rows=12), top=row("redaction")),
@@ -937,15 +931,13 @@ def settings_cards():
                                                                      "source": "默认"},
                        "preview": {"redacted": "我们的 RXFAKE000 上线了\n第二行", "count": 1, "terms": 1,
                                    "restore": True, "same": True}},
-            redaction_facts(upstream="https://gw.example.com/v1"), top=row("redaction"),
-            web={**redaction_web(), "listening": False}),
+            redaction_facts(upstream="https://gw.example.com/v1"), top=row("redaction")),
         "redaction_probing": redaction_card("c" * 24, {**view, "probing": FROZEN}, redaction_facts(),
                                             top=row("redaction")),
         # A view of the 2026-11-13 layout (page, edit): its card is drawn in the new one.
         "redaction_old_view": redaction_card("c" * 24, {**view, "page": "records", "edit": "b" * 12},
                                              redaction_facts(), top=row("redaction")),
-        "redaction_idle": redaction_card("c" * 24, view, redaction_facts(rows=0), top=row("redaction"),
-                                         web={"error": "脱敏看板的设置不对：端口不对"}),
+        "redaction_idle": redaction_card("c" * 24, view, redaction_facts(rows=0), top=row("redaction")),
         "redaction_unreadable": redaction_card("c" * 24, view, {**redaction_facts(), "error": "词表文件读不了或有错。"},
                                                top=row("redaction")),
         "proxy": proxy_panel_card("c" * 24, view, settings=settings, contacts=[person], batches=[], choices=CHOICES,
