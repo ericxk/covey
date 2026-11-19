@@ -27,7 +27,7 @@ KINDS) as the owner's own and says (state, message) for the ack.
   turn waiting on it cancelled); a topic with neither is ``failed``.
 - ``reopen``: a project that is folded away or paused opens again by the path the owner's own turn takes (app/project_loop.py reopen).
 - ``settings``: one change on the page's 设置 (app/web_settings.py ``change``: a row of 新话题 or 管家, 记住的工作区's 移除, a workspace's
-  用途, 脱敏's switches, a group's 停用 / 启用) through the 设置 card's own code, the owner only (app/access.py ``is_owner``); ``done`` says the
+  用途, 脱敏's switches and terms (many at once), a group's 停用 / 启用) through the 设置 card's own code, the owner only (app/access.py ``is_owner``); ``done`` says the
   card's receipt (已保存：之后新开的话题照这个来。), a row the page may not change (私聊顶层的消息, 免@, ...) is ``failed``.
 - ``tidy``: 整理专项 (app/project_tidy.py start, COVEY_PROJECT_TIDY on): ``scope`` "" for everything, a project id or a word; ``done`` says
   已开始整理，结果发到私聊 (the 整理专项 card goes to the private chat), or 正在整理（12/40） while one runs; off, or too few topics, is ``failed``.

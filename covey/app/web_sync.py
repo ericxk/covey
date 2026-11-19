@@ -932,7 +932,7 @@ class WebSync:
 
     def settings_items(self, chat, now, full) -> list:
         """The ``settings`` item (app/web_settings.py) when it is due: on a full look, after the page changed a setting, when main-thread.json
-        or the workspace list changed (two stats); else none. Never raises (a 设置 that cannot be read stops nothing)."""
+        or the workspace list or the term list changed (three stats); else none. Never raises (a 设置 that cannot be read stops nothing)."""
         if getattr(self.env, "settings", None) is None:
             return []
         builder = self.ops.web_settings

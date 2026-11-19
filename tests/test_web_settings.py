@@ -110,12 +110,41 @@ class WebSettingsTest(UnifiedCase):
         redaction.update_config(self.ctx.state_dir, lambda config: config["terms"].append(
             {"term": "Secretproj", "stand_in": "", "anywhere": False}))
         data = self.snap()["redaction"]
-        self.assertNotIn("Secretproj", json.dumps(data, ensure_ascii=False))
-        self.assertNotIn("Se", json.dumps(data, ensure_ascii=False))  # Not even the card's masked first letters.
+        self.assertEqual((data["terms"], data["ignore_case"]), (["Secretproj"], True))  # The owner, T567: the page edits the list.
         self.assertTrue(data["summary"].startswith("1 个词"))
         self.assertEqual(self.op(what="redaction", name="restore", on=False), ("done", "「回复还原」关掉了。"))
         self.assertFalse(redaction.load_config(self.ctx.state_dir)["restore"])
         self.assertFalse(next(s for s in self.snap()["redaction"]["switches"] if s["name"] == "restore")["on"])
+
+    def test_terms_are_added_and_removed_at_once_and_the_receipt_names_none(self):
+        def terms():
+            return [row["term"] for row in redaction.load_config(self.ctx.state_dir)["terms"]]
+
+        redaction.save_config(self.ctx.state_dir, {"terms": [  # An older version saved a stand-in of the owner's own.
+            {"term": "Old Project", "stand_in": "", "anywhere": False}, {"term": "legacy", "stand_in": "ZQ-77", "anywhere": False}]})
+        state, words = self.op(what="terms", add=["Blue Harbor 二期", " ACME Corp ", "", "blue harbor 二期", "LEGACY"],
+                               remove=["old project", "gone already"])
+        self.assertEqual((state, words), ("done", "已保存：加 2 个、删 1 个（2 个已在词表里，1 个已经不在词表里）。下一轮起生效。"))
+        self.assertEqual(terms(), ["legacy", "Blue Harbor 二期", "ACME Corp"])
+        self.assertNotIn("ZQ-77", json.dumps(self.snap()["redaction"], ensure_ascii=False))  # Never a stand-in.
+        # A term written again in another case: removed first, then added.
+        self.assertEqual(self.op(what="terms", add=["Acme Corp"], remove=["ACME Corp"])[1], "已保存：加 1 个、删 1 个。下一轮起生效。")
+        self.assertEqual(terms(), ["legacy", "Blue Harbor 二期", "Acme Corp"])
+        # One term the list cannot take saves nothing, and the words say which by its place, not by itself.
+        state, words = self.op(what="terms", add=["Fine term", "X", "a => b", "Y"], remove=["legacy"])
+        self.assertEqual(state, "failed")
+        self.assertEqual(words, "没有保存：新加的第 2、4 个词原词至少要 2 个字；新加的第 3 个词替身词自动生成，不用写 =>")
+        self.assertEqual(terms(), ["legacy", "Blue Harbor 二期", "Acme Corp"])
+        self.assertEqual(self.op(what="terms", add=[], remove=[]), ("done", "没有变化"))
+        self.assertEqual(self.op(what="terms", add="Fine term", remove=[]), ("failed", web_settings.TERMS_SHAPE))
+        self.assertEqual(self.op(operator="ou_other", what="terms", add=["Fine term"], remove=[]),
+                         ("failed", web_settings.OWNER_ONLY))
+        redaction.config_path(self.ctx.state_dir).write_text('{"terms": [{"term": "Leaky", "stand_in": ""}, '
+                                                             '{"term": "leaky", "stand_in": ""}]}')
+        self.assertEqual(self.op(what="terms", add=["Fine term"], remove=[]), ("failed", web_settings.TERMS_UNREADABLE))
+        data = json.dumps(self.snap()["redaction"], ensure_ascii=False)
+        self.assertIn("error", data)
+        self.assertNotIn("eaky", data)
 
     def test_a_group_is_turned_off_and_on_by_a_key_that_is_no_chat_id(self):
         chat = "oc_group0123456789"
@@ -139,6 +168,10 @@ class WebSettingsTest(UnifiedCase):
             again = sync.settings_items("dm", 2.0, False)
             self.assertNotEqual(again[0]["rev"], first[0]["rev"])
             self.assertEqual(sync.settings_items("dm", 3.0, True)[0]["rev"], again[0]["rev"])  # A full look: the same rev.
+            redaction.update_config(self.ctx.state_dir, lambda config: config["terms"].append(  # The card added a term.
+                {"term": "Fresh term", "stand_in": "", "anywhere": False}))
+            third, = sync.settings_items("dm", 4.0, False)
+            self.assertEqual(third["data"]["redaction"]["terms"], ["Fresh term"])
 
     def test_a_change_from_the_page_is_pushed_before_its_ack_and_one_on_the_card_within_a_second(self):
         """2026-11-19 T554 on the live page: the push thread's full look took minutes, so the page's own change came back 3 min 40 s later

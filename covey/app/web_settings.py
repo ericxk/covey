@@ -1,16 +1,19 @@
-"""网页工作台的设置页 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v7 ``settings``): the 设置 card's tabs as one item the page
+"""网页工作台的设置页 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v7 ``settings``, v14 its ``terms``): the 设置 card's tabs as one item the page
 draws (``snapshot``), and the few changes the page may make (``change``, app/web_ops.py's ``settings``), both through the code the card
 itself draws and writes with. Nothing here is a second copy of a rule.
 
 - What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py: 新话题, 管家 unless COVEY_BUTLER=0, 工作区, 脱敏, 群聊, 设备 with
   COVEY_NODE_LISTEN), each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
   ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
-  (cards/workspace_manager.py ``list_entries``, ``tag_words``), 脱敏's figures, the topics it is on in and its two switches (app/redaction_panel.py
-  ``facts``; no term, masked or not, leaves the machine: the page's database is not the owner's), the groups with their state and 免@
+  (cards/workspace_manager.py ``list_entries``, ``tag_words``), 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
+  ``facts``) and its terms as they are (the owner, 2026-11-19 T567: the page edits the list, so the terms go into the page's database;
+  never a stand-in), the groups with their state and 免@
   (cards/group_manager.py ``state_words``, ``free_words``; a group is named by a hash of its chat id) and the nodes' lines (app/node_panel.py
   ``facts``). ``editable`` says which rows the page may change (EDITABLE); every other row says 去飞书改 (``feishu``: the bot's applink).
 - What the page may change (the owner, 2026-11-19, T550 三、设置): every row of 新话题 and 记住的工作区's 移除; 管家's 供应商, 模型, 思考预算 and
-  压缩阈值 (its 脱敏 and 私聊顶层的消息 are read only); a workspace's 用途; 脱敏's two switches; a group's 停用 / 启用 (its 免@ is read only).
+  压缩阈值 (its 脱敏 and 私聊顶层的消息 are read only); a workspace's 用途; 脱敏's two switches and terms; a group's 停用 / 启用 (its 免@ is read only).
+  脱敏's terms, many at once: ``terms`` (``add`` and ``remove``, the terms as written) in one ``update_config``, its receipt counts and
+  never names a term (it is kept in the page's outbox).
   A row's change is the card's own (app/butler_panel.py ButlerPanel ``changes`` then core/butler_settings.py ``update``), so both write the one
   main-thread.json and the card and the page show the same; the page's receipt is the card's (``SAVED``). Only the owner: app/access.py
   ``is_owner`` of the owner the Bridge knows (the page's own check is its login).
@@ -41,11 +44,14 @@ EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MOD
                       cards.TOPIC_REDACTION, cards.TOPIC_WORKSPACE, cards.START_ROW, cards.SUBAGENTS,
                       cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT})
 BUTLER_KINDS = frozenset({cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT})
-CHANGES = ("row", "untrust", "note", "redaction", "group")  # payload["what"].
+CHANGES = ("row", "untrust", "note", "redaction", "terms", "group")  # payload["what"].
 APPLINK = "https://applink.feishu.cn/client/bot/open?appId="
 OWNER_ONLY = "只有机器人主人能改设置"
 GONE = "这个选项已不可用，页面会按最新设置重画"
 READ_ONLY = "这一项网页上只读，请到飞书设置卡上改"
+TERMS_SHAPE = "词表改动的格式不对，页面会按最新词表重画"
+TERMS_UNREADABLE = "词表读不出来，请到飞书设置卡上看"
+ALREADY = "词表里已经有这个词"  # core/redaction.py row_problem's words for a term already in the list.
 
 
 def group_key(chat_id) -> str:
@@ -82,11 +88,13 @@ class WebSettings:
                                default_workdir=getattr(base, "default_workdir", None))
 
     def stamps(self) -> tuple:
-        """What a change of the settings on the card shows in, read each second: main-thread.json's and workspaces.json's mtimes."""
+        """What a change of the settings on the card shows in, read each second: main-thread.json's, workspaces.json's and the term
+        list's (redaction/config.json) mtimes."""
         from covey.core.workspaces import config_path
         state = Path(self.env.state_dir)
         out = []
-        for path in (butler_settings.path(state), config_path(state)):
+        from covey.core.redaction import config_path as terms_path
+        for path in (butler_settings.path(state), config_path(state), terms_path(state)):
             try:
                 out.append(path.stat().st_mtime_ns)
             except OSError:
@@ -165,18 +173,26 @@ class WebSettings:
                 "note": cards.WORKSPACE_NOTE if notes else "", "note_length": NOTE_LENGTH}
 
     def redaction(self, ctx) -> dict:
-        """脱敏: the figures, the topics it is on in and the two switches, as the tab's ``facts`` read them; no term."""
+        """脱敏: the figures, the topics it is on in and the two switches, as the tab's ``facts`` read them, and the terms in the list's
+        order (``terms``, oldest first; no stand-in) with what the page checks a line against before it saves."""
         from covey.app.redaction_panel import facts
+        from covey.core.redaction import MAX_LENGTH, MAX_TERMS, load_config as terms_config
         data = facts(ctx.state_dir, b"web")
         if data.get("error"):
             return {"error": data["error"]}
+        try:
+            terms = [row["term"] for row in terms_config(ctx.state_dir)["terms"]]
+        except ValueError:
+            return {"error": TERMS_UNREADABLE}
         return {"summary": f"{data['count']} 个词 · 近 7 天替换 {data['week']} 次 · {len(data['topics'])} 个话题开着",
                 "count": data["count"], "week": data["week"],
                 # The card's first TOPICS, newest first; ``last`` in epoch seconds (the card's own words are its time of day).
                 "topics": [{"number": t.get("number"), "title": t.get("title", ""), "hits": t.get("hits", 0), "last": t.get("at")}
                            for t in data["topics"][:TOPICS]],
                 "switches": [{"name": name, "label": label, "hint": hint, "on": data["config"].get(name) is True, "editable": True}
-                             for name, (label, hint) in SWITCH_ROWS.items()]}
+                             for name, (label, hint) in SWITCH_ROWS.items()],
+                "terms": terms, "ignore_case": data["config"].get("ignore_case") is True, "max_terms": MAX_TERMS,
+                "max_length": MAX_LENGTH}
 
     def groups(self, ctx, now) -> dict:
         """群聊: every group the card lists, active first, its state and 免@; 停用 / 启用 the page may do."""
@@ -277,6 +293,53 @@ class WebSettings:
         except Refused as exc:
             raise ValueError(str(exc)) from None
         return notice.lstrip("✓ ").strip() or "已保存。"
+
+    def change_terms(self, ctx, payload) -> str:
+        """Terms added and removed at once (``add``, ``remove``: lists of terms as written), in one ``update_config``: the removed go
+        first (a term written again in another case is a remove and an add), a term not in the list is passed over, as is an added one
+        already there; an added term the list cannot take (core/redaction.py ``row_problem``) saves nothing. The receipt counts."""
+        from covey.core.redaction import Refused, row_problem, update_config
+        add, remove = payload.get("add"), payload.get("remove")
+        if not isinstance(add, list) or not isinstance(remove, list) or not all(isinstance(t, str) for t in add + remove):
+            raise ValueError(TERMS_SHAPE)
+        add = [t.strip() for t in add if t.strip()]
+        remove = [t.strip() for t in remove if t.strip()]
+        if not add and not remove:
+            return "没有变化"
+
+        def change(config):
+            fold = str.casefold if config["ignore_case"] else (lambda t: t)
+            gone = {fold(t) for t in remove}
+            kept = [row for row in config["terms"] if fold(row["term"]) not in gone]
+            removed, config["terms"] = len(config["terms"]) - len(kept), kept
+            added, there, wrong = 0, 0, {}
+            for number, term in enumerate(add, 1):
+                why = "替身词自动生成，不用写 =>" if "=>" in term else row_problem(
+                    config["terms"], term, "", ignore_case=config["ignore_case"])
+                if why == ALREADY:
+                    there += 1
+                elif why:
+                    wrong.setdefault(why, []).append(number)
+                else:
+                    config["terms"].append({"term": term, "stand_in": "", "anywhere": False})
+                    added += 1
+            if wrong:
+                raise Refused("没有保存：" + "；".join(f"新加的第 {'、'.join(map(str, n[:5]))}{' 等' if len(n) > 5 else ''} 个词{why}"
+                                                   for why, n in wrong.items()))
+            return added, removed, there, len(gone) - removed
+
+        try:
+            added, removed, there, missing = update_config(ctx.state_dir, change)
+        except Refused as exc:
+            raise ValueError(str(exc)) from None
+        except ValueError:  # Its words may quote a term, and the receipt is kept in the page's outbox.
+            raise ValueError(TERMS_UNREADABLE) from None
+        except OSError:
+            raise ValueError("没有保存：词表写不进去") from None
+        done = "、".join(f"{verb} {n} 个" for verb, n in (("加", added), ("删", removed)) if n)
+        passed = "，".join(words for words, n in ((f"{there} 个已在词表里", there), (f"{missing} 个已经不在词表里", missing)) if n)
+        words = (f"已保存：{done}" if done else "没有变化") + (f"（{passed}）" if passed else "")
+        return words + ("。下一轮起生效。" if done else "。")
 
     def change_group(self, ctx, payload) -> str:
         """停用 / 启用 of one group (GroupManager ``switch``, the card's)."""
