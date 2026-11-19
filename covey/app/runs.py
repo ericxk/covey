@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import device_files, knowledge_turn, memory_turn, project_context
+from covey.app import device_files, knowledge_turn, memory_turn, owner_send, project_context
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
@@ -375,7 +375,7 @@ class Runs:
 
     def _turn_message(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> tuple[BridgeContext, str]:
         """The message before the rules, and the context to run in (a fork's first run has its own)."""
-        user_text = (job.prompt_text or job.user_text) + proxy_turn_note(ctx, job)
+        user_text = (job.prompt_text or job.user_text) + proxy_turn_note(ctx, job) + owner_send.turn_note(ctx, job)
         if session_id:
             return ctx, resume_message(user_text)
         history_snapshot = (

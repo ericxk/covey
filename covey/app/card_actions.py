@@ -5,10 +5,10 @@ clicks that way), so a new button kind is added here first, with the BridgeApp c
 that takes it (``handler``: app/app.py dispatches a topic's click by it). Launch forms,
 pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 (app/rewind.py) are matched before this table and are not in it. The 代答设置 card's kinds, the
-重新发送 card's, 群管理's, 敏感词看板's 换口令, the 脱敏 tab's, the 管家 settings card's, the 设置 card's tabs, 手上的事's
+重新发送 card's, the 代发草稿 card's, 群管理's, 敏感词看板's 换口令, the 脱敏 tab's, the 管家 settings card's, the 设置 card's tabs, 手上的事's
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
-app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
+app/owner_send.py, app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
 app/overview.py, app/digest.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
@@ -116,6 +116,10 @@ ACTIONS = {
     "bridge_proxy_refresh": CardAction("刷新代答"),
     "bridge_proxy_resend": CardAction("重新发送代答"),
     "bridge_proxy_suggest": CardAction("按建议回复"),  # The 重新发送 card of a turn that would not answer (U5).
+    # The 代发草稿 card (app/owner_send.py): a topic's message the owner sends as themselves once they confirm it.
+    "bridge_owner_send": CardAction("以你的身份发送"),
+    "bridge_owner_send_drop": CardAction("不发代发草稿"),
+    "bridge_owner_send_pick": CardAction("选代发收件人"),
     # The 设置 card's 设备 tab (app/node_panel.py, COVEY_NODE_LISTEN): handled before topic routing.
     "bridge_nodes_add": CardAction("添加设备"),
     "bridge_nodes_remove": CardAction("移除设备"),

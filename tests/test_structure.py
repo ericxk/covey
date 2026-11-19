@@ -52,6 +52,7 @@ from covey.cards.workspace_manager import MANAGER_PREFIX
 from covey.cards.held_note import NOTE_KIND
 from covey.cards.proxy_panel import KINDS as PROXY_PANEL_KINDS
 from covey.cards.proxy_resend import RESEND as PROXY_RESEND, SUGGEST as PROXY_SUGGEST
+from covey.cards.owner_send import DROP as OWNER_SEND_DROP, PICK as OWNER_SEND_PICK, SEND as OWNER_SEND
 from covey.cards.steer_receipts import CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND
 from covey.core import extensions
 from covey.core.harness import HARNESS_REGISTRY
@@ -88,6 +89,7 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (app/node_panel.py).
         before_routing |= set(TIDY_KINDS)  # 整理专项's cards (app/project_tidy.py).
         before_routing |= STANDING_KINDS  # 以后这类按推荐走 and its card (app/standing_answers.py).
+        before_routing |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK}  # The 代发草稿 card (app/owner_send.py).
         init = next(node for node in ast.walk(ast.parse((PACKAGE / "app" / "app.py").read_text()))
                     if isinstance(node, ast.FunctionDef) and node.name == "__init__")
         components = {node.targets[0].attr: getattr(bridge_app, node.value.func.id) for node in ast.walk(init)

@@ -131,6 +131,21 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 - **发送**：仍在后台线程，`check_held` 见到 `resend_requested` 就照原样发 `batch["reply"]`（不跑模型、同一个幂等键），不看 `STALE_AFTER`。结果画在卡上：已发出、可能已发出（不再有按钮）、还是没发出（按钮恢复）。`check_held` 经 `Proxy.update` 写批次：锁内按磁盘上的合并，点击写的请求不会被盖掉。
 - **收尾**：批次不经发送就结束时（`superseded`、`skipped`、主人那一轮无需回复），`ProxyResend.close` 把卡画成结果，去掉按钮。
 
+## 代发
+
+话题要以主人身份给别人发飞书消息时（通知同事、把结果交给某人），不经 lark-cli（主人的 `im:message.send_as_user` 可能被组织策略禁止，机器人也未必对对方可见），而是出一张代发草稿卡，主人确认后经同一个[发送器](#发送器)发出。`app/owner_send.py`（`Proxy.owner_send`），记录 `core/owner_send.py`，卡 `cards/owner_send.py`。
+
+- **开关**：有发送器（`proxy_send.available()`）且 `COVEY_OWNER_SEND` 不是 `0` 时开（`enabled`）。关着时每轮不附规则；检查点里写了草稿也只在话题里回一行“这个部署不能以你的身份发”。和代答的开关无关：代答关着也能代发，不加白名单、不占代答的每小时限额。
+- **话题怎么发起**：开着时每一轮的消息后附 `core/owner_send.py` 的 `RULE`（`turn_note`，代答话题和管家的私聊不附）：检查点写 `send_as_owner`：`[{"id","to":{"email"|"name"|"open_id"|"chat_id"},"text" 或 "text_file","why"}]`，至多 `MOST`（3）条；正文有密钥时写 `text_file`（绝对路径，至多 64 KB），不进检查点。
+- **什么时候出卡**（`collect`，在 `app/detached.py`、`app/job_dispatch.py` 任务结束后调）：这一轮 `done` 或 `waiting_user`、回复已授权（`verified_reply_authorized`，规则 5）。一条草稿一个记录 `<state>/owner-send/<id>.json`（0600，目录 0700），id 由任务键和草稿 id 算出，同一轮读两次只出一次卡；同一话题同一草稿 id 还没发的旧稿转 `superseded`。
+- **收件人**（`resolve`，用 `COVEY_PROXY_PROFILE` 的主人身份）：`chat_id` 查会话名；邮箱精确匹配；`open_id` 只认主人应用的（@ 消息里的 open_id 是机器人应用的，查不到时退到姓名）；姓名一人直接用，多人时卡上列至多 5 个候选点选，没人时草稿转 `declined`，卡上写原因。
+- **卡**：在本轮所在话题的回复串里，另在聊天顶层发一行“有一条…草稿等你确认（到话题里看 ›）”。卡上是收件人（姓名 · 部门 · 邮箱）、为什么发、可编辑的正文框和「发送」「不发」。kind `bridge_owner_send`、`bridge_owner_send_drop`、`bridge_owner_send_pick` 在 `ACTIONS`，经 `PANELS` 的 `proxy.owner_send` 认领；整卡替换（`replace_form_card`）。
+- **点击**（`click`、`decide`）：非主人写在卡上；记录锁（`resource_lock("owner-send", …)`）内只读写记录：按钮值里的正文摘要和记录的不同时拒绝（卡已换过），框里是空的或超过 `TEXT_LIMIT` 拒绝，否则存下框里的正文（`edited` 记是否改过）转 `sending`，回执后（`after_ack`）发送。
+- **发送**（`send`）：等 `Proxy.web_lock` 至多 `WEB_WAIT`（120 秒，和代答的发送、扫码登录互斥），拿不到算没发出。草稿充当联系人和批次交给 `ProxySend.web_send`，幂等键同代答（批次 id 加正文摘要：同一正文重试同一个键）。有回执是 `sent`；确定没发出（`validation`、`unsupported`、`auth`、`failed`、`launch`、拿不到锁）是 `unsent`，卡上出「重新发送」，`auth` 时告诉主人登录失效（`login_gone`）；其余可能已发出的先按会话读回，读不到是 `uncertain`，终态，不再发（规则 1、6）。结果画在卡上，话题里一行。
+- **结果回话题**：话题之后的轮次在 `RULE` 后附最近 24 小时结束的代发结果（`turn_lines`，至多 3 条）。任务进程只读这些记录。
+- **状态**只按 `TRANSITIONS` 前进（规则 4）：`drafted → sending | declined | superseded`，`sending → sent | uncertain | unsent`，`unsent → sending | declined`。
+- 日志：`owner send drafted draft=… state=…`、`owner send confirmed draft=…`、`owner send draft=… status=… type=…`，发送器自己的 `proxy send batch=…` 一行。
+
 ## 网页端
 
 代答发送不经网页端。`feishu/web_client.py` 只剩验收页面要用的：打开会话列表（`open_messenger`，设备未授权时报 `UNAUTHORIZED`）、按名称找会话（`find_chat`、`openers`，至多 `CANDIDATES` 个同名的）、`header`、`clear`、`reset`、`launch`。`core/proxy.py` 的 `LAUNCH_FAILED` 等旧原因文字仍留着，给旧批次用；`settings.json` 的 `web_python`、`web_home` 照样能读。

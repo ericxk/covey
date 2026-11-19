@@ -116,7 +116,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # its own. EARLY match the event (a form button's name or the value's kind); PANELS, the value
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
-    PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'nodes.panel',
+    PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'nodes.panel',
               'butler_panel', 'settings_hub', 'overview', 'digest', 'app_setup', 'group_menu', 'project_tidy',
               'standing_answers')
 

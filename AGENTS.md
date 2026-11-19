@@ -134,6 +134,7 @@
 | `app/nodes.py` | 节点 at the Bridge: the gateway the nodes dial, the hub's own node, the alerts |
 | `app/outbox.py` | Resume delivery of authorized saved replies only |
 | `app/overview.py` | 手上的事: one card in the owner's private chat with the bot, pinned (Pin 消息), that lists what waits for the owner … |
+| `app/owner_send.py` | 代发: a message a topic drafted, sent as the owner by the 代答 sender once the owner confirmed it on its card |
 | `app/patrol.py` | The feature object of "what the butler would have told the owner", COVEY_PATROL=shadow |
 | `app/patrol_judge.py` | The second layer: the small model reads the candidates app/patrol_rules.py found and says, for each, drop it … |
 | `app/patrol_rules.py` | The rules of the first layer |
@@ -232,6 +233,7 @@
 | `cards/node_cards.py` | The cards of nodes: an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most) and the same … |
 | `cards/node_panel.py` | The 设置 card's 设备 tab: every node with its state now, adding a device, removing one |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
+| `cards/owner_send.py` | The 代发草稿 card: a message a topic drafted for the owner to send as themselves |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/project_proposal.py` | 整理专项's cards: the proposal card (建个专项？), its rename form, the 整理专项 card of a scheduled or asked-for 整理, and … |
 | `cards/proxy_panel.py` | The 代答 card, the bot menu's 代答 panel: on or off and the group in its title bar |
@@ -323,6 +325,7 @@
 | `core/node_agent.py` | The Node: the program that stays on a device (and on the hub itself) and keeps one connection to its hub |
 | `core/node_rules.py` | The rules that turn a node's samples into alerts, as pure functions |
 | `core/nodes.py` | Nodes (节点): the machines that keep a connection to this hub, the hub itself included, and what they report |
+| `core/owner_send.py` | 代发 records: a message a topic drafted for the owner to send as themselves, sent only once the owner confirmed … |
 | `core/paths.py` | Resolve service storage independently of the execution workspace |
 | `core/patrol.py` | What the butler noticed and would have done: records and numbers, no judging |
 | `core/placement.py` | Where a turn's words go in the private chat: one table, the layout by the role |

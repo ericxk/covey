@@ -33,6 +33,7 @@ from covey.app import runner_ipc
 from covey.app.proxy_commands import ProxyCommands
 from covey.app.proxy_intake import ProxyIntake
 from covey.app.proxy_panel import ProxyPanel
+from covey.app.owner_send import OwnerSend
 from covey.app.proxy_resend import ProxyResend
 from covey.app.proxy_send import (READ_BACKS, NullLogin, ProxySend, available, clock, message_epoch, minute,
                                            plain_mentions)
@@ -89,6 +90,7 @@ class Proxy:
         self.web_login = hook.ProxyLogin(self) if hook else NullLogin(self)
         self.panel = ProxyPanel(self)
         self.resend = ProxyResend(self)
+        self.owner_send = OwnerSend(self)  # 代发 (app/owner_send.py): a topic's draft, sent as the owner once confirmed.
 
     def settings(self, ctx):
         settings = records.read_settings(ctx.state_dir)
