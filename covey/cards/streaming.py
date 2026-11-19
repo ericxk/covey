@@ -24,7 +24,7 @@ from covey.cards.task_figures import FIGURES_ELEMENT_ID, IO_BOX_ID, STATUS_BLOCK
 from covey.cards.task_status import (activity_element, more_element, slim_activity_element,
                                               slim_start)
 from covey.cards.trace_view import clock, ttft_line
-from covey.core.progress import eta_words, stuck_words
+from covey.core.progress import eta_words, slow_words, stuck_words
 from covey.core.trace import has_subtasks, turn_usage
 
 
@@ -151,7 +151,8 @@ def task_details_text(job, usage=None) -> str:
 def progress_lines(found) -> list[str]:
     """A running turn's progress (core/progress.py, kept on the job by core/longtask.py TaskMonitor) as 任务详情 says it:
     阶段, 步骤 3/5, its last activity at a time of day (14:05 在跑测试: the panel is written with the process panel, not
-    every minute) and the estimate with when it was made; [] without any."""
+    every minute) and the estimate with when it was made, or when its slow step began (第 3 步 16:33 开始，此前平均每步约 6
+    分钟); [] without any."""
     if not isinstance(found, dict):
         return []
     lines = [f"阶段：{safe_text(found['phase'], 120)}"] if found.get("phase") else []
@@ -162,6 +163,8 @@ def progress_lines(found) -> list[str]:
         lines.append(f"最近动静：{clock(at)} {safe_text(found.get('last_activity') or '有动静', 60)}")
     if found.get("maybe_stuck"):
         lines.append(stuck_words())
+    elif found.get("slow_step"):
+        lines.append(slow_words(found, clock=clock))
     elif found.get("eta_seconds") is not None:
         made = found.get("at")
         lines.append(eta_words(found["eta_seconds"]) + (f"（{clock(made)} 估）" if made is not None else ""))

@@ -9,7 +9,7 @@ from covey.core.checkpoint import current_step, step_words
 from covey.core.metrics import clock_text, duration, step_age, took_text
 from covey.core.text import safe_text, step_event, step_label
 from covey.core import turn_words
-from covey.core.progress import activity_line, ago_words, eta_words, stuck_words
+from covey.core.progress import activity_line, ago_words, eta_words, stuck_words, usual_words
 from covey.core.turn_words import RUNNING, STUCK, UNSET_PHASES
 
 
@@ -146,8 +146,9 @@ def head(facts):
 
 
 def estimate_part(facts):
-    """" · 预计还要约 40 分钟" of the turn's estimate, '' without one."""
-    words = eta_words((facts.progress or {}).get("eta_seconds"))
+    """" · 预计还要约 40 分钟" of the turn's estimate, " · 此前平均每步约 6 分钟" once its step takes longer than the ones
+    before (core/progress.py slow_step; the line says the step's own minutes, 本步 25 分钟), '' without either."""
+    words = usual_words(facts.progress) or eta_words((facts.progress or {}).get("eta_seconds"))
     return f" · {words}" if words else ""
 
 

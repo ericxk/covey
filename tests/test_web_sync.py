@@ -1398,12 +1398,14 @@ class ProgressAndAnswersTest(WebCase):
     def test_a_running_topic_carries_its_progress_and_an_idle_one_none(self):
         self.topic(status="running", lines=(("user", "做一下"),))
         steps = [{"title": "读", "state": "done"}, {"title": "改", "state": "done"}, {"title": "测", "state": "doing"}]
-        write_job(self.state, f"k-{TOPIC[:4]}", phase="改卡片", steps=steps, timings={"backend_requested": T0 - 1200},
-                  last_activity_at=T0 - 120, last_activity="在跑测试")
+        times = {"读": {"started": T0 - 1200, "ended": T0 - 600}, "改": {"ended": T0}, "测": {"started": T0}}
+        write_job(self.state, f"k-{TOPIC[:4]}", phase="改卡片", steps=steps, step_times=times,
+                  timings={"backend_requested": T0 - 1200}, last_activity_at=T0 - 120, last_activity="在跑测试")
         self.sync.push_once(T0)
         found = self.by()[("topic", TOPIC)]["progress"]
         self.assertEqual(found, {"phase": "改卡片", "plan_done": 2, "plan_total": 3, "last_activity_at": int(T0 - 120),
-                                 "last_activity": "在跑测试", "eta_seconds": 600, "maybe_stuck": False})
+                                 "last_activity": "在跑测试", "eta_seconds": 600, "slow_step": None,
+                                 "maybe_stuck": False})
         self.assertEqual(self.sync.push_once(T0 + 1), 0)  # To the minute: not pushed again a second later.
         write_job(self.state, f"k-{TOPIC[:4]}", status="done")
         self.sync.collector.touch(TOPIC)

@@ -200,7 +200,7 @@ class TaskMonitor:
             (self.requested_at, "在等模型回复"), (self.checkpoint_at, "更新了进度")) if stamp is not None]
         words = max(seen, key=lambda item: item[0])[1] if seen else ""
         begun = wall - elapsed
-        record = {"status": "running", "phase": self.phase, "steps": self.steps,
+        record = {"status": "running", "phase": self.phase, "steps": self.steps, "step_times": self.step_times,
                   "timings": {"backend_requested": begun}, "last_activity_at": wall - quiet, "last_activity": words}
         return turn_progress.progress(record, history=self.history, now=wall, stuck_after=self.stuck_after,
                                       waiting=waiting)

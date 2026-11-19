@@ -24,37 +24,79 @@ STEPS = [{"title": "读代码", "state": "done"}, {"title": "改卡片", "state"
          {"title": "提交", "state": "todo"}, {"title": "部署", "state": "todo"}]
 
 
+# When the Bridge saw each step start and end (core/checkpoint.py clock_steps): the plan first seen 1200 s ago with 读代码
+# doing, two steps done in 1080 s (540 s each), 跑测试 on for 120 s since.
+TIMES = {"读代码": {"started": NOW - 1200, "ended": NOW - 660}, "改卡片": {"ended": NOW - 120},
+         "跑测试": {"started": NOW - 120}}
+
+
 def running(**fields):
-    return {"status": "running", "phase": "修进度", "steps": STEPS, "timings": {"backend_requested": NOW - 1200},
-            "last_activity_at": NOW - 120, "last_activity": "在跑测试", **fields}
+    return {"status": "running", "phase": "修进度", "steps": STEPS, "step_times": TIMES,
+            "timings": {"backend_requested": NOW - 1200}, "last_activity_at": NOW - 120, "last_activity": "在跑测试",
+            **fields}
 
 
 class ProgressTest(unittest.TestCase):
-    def test_the_seven_fields_from_the_record(self):
+    def test_the_eight_fields_from_the_record(self):
         found = progress.progress(running(), now=NOW, stuck_after=1800)
         self.assertEqual(sorted(found), sorted(progress.FIELDS))
         self.assertEqual((found["phase"], found["plan_done"], found["plan_total"]), ("修进度", 2, 5))
         self.assertEqual((found["last_activity_at"], found["last_activity"]), (int(NOW - 120), "在跑测试"))
-        self.assertEqual(found["eta_seconds"], 1800)  # 1200 s for 2 steps, 3 left.
+        self.assertEqual(found["eta_seconds"], 1500)  # 540 s a step, 3 left, less the 120 s 跑测试 has had.
+        self.assertIsNone(found["slow_step"])
         self.assertFalse(found["maybe_stuck"])
 
     def test_the_estimate_is_put_towards_the_topics_usual_turn(self):
         found = progress.progress(running(), now=NOW, history=[600, 3000, 2400], stuck_after=1800)
-        self.assertEqual(found["eta_seconds"], 1500)  # Halfway between 1800 and the median's 2400 - 1200.
+        self.assertEqual(found["eta_seconds"], 1320)  # Halfway between 1500 and the median's 2400 - 1200, to the minute.
         # A turn already longer than the usual one: the steps alone.
-        self.assertEqual(progress.progress(running(), now=NOW, history=[300, 400, 500])["eta_seconds"], 1800)
+        self.assertEqual(progress.progress(running(), now=NOW, history=[300, 400, 500])["eta_seconds"], 1500)
 
     def test_no_estimate_rather_than_a_wrong_one(self):
+        ONE = {"读代码": {"started": NOW - 1200, "ended": NOW - 300}, "跑测试": {"started": NOW - 300}}
         cases = {"no steps": running(steps=[]), "none done": running(steps=[{"title": "a", "state": "doing"}]),
                  "all done": running(steps=[{"title": "a", "state": "done"}]),
                  "its first minute": running(timings={"backend_requested": NOW - 30}),
                  "queued": running(status="queued"),
-                 "one step done and no history": running(steps=[{"title": "a", "state": "done"}, {"title": "b", "state": "doing"}])}
+                 "one step done and no history": running(steps=STEPS[:1] + STEPS[2:], step_times=ONE),
+                 "no times of the steps (an older task runner)": running(step_times=None)}
         for name, record in cases.items():
             with self.subTest(name):
                 self.assertIsNone(progress.progress(record, now=NOW)["eta_seconds"])
-        one = running(steps=[{"title": "a", "state": "done"}, {"title": "b", "state": "doing"}])
+        one = running(steps=STEPS[:1] + STEPS[2:], step_times=ONE)
         self.assertIsNotNone(progress.progress(one, now=NOW, history=[900, 1300, 2000])["eta_seconds"])
+
+    def test_the_estimate_goes_down_while_a_step_takes_long_and_then_says_the_step_instead(self):
+        # T488, 11-19 16:58 to 17:14: one step for 40 minutes, and the old estimate (time run / steps done * steps left)
+        # grew from 43 minutes to 1 hour 5 minutes as it waited.
+        seen = [progress.progress(running(), now=NOW + wait, stuck_after=7200) for wait in range(0, 3600, 60)]
+        etas = [found["eta_seconds"] for found in seen if found["eta_seconds"] is not None]
+        self.assertEqual(etas, sorted(etas, reverse=True))
+        self.assertEqual((etas[0], etas[-1]), (1500, 1080))  # Down by a minute a minute until 跑测试 took its 540 s.
+        slow = seen[30]["slow_step"]  # Half an hour later: no figure, the step and the average one instead.
+        self.assertIsNone(seen[30]["eta_seconds"])
+        self.assertEqual(slow, {"number": 3, "since": int(NOW - 120), "seconds": 1920, "usual": 540})
+        self.assertEqual(progress.slow_words(seen[30]), "第 3 步已做 32 分钟，此前平均每步约 9 分钟")
+        self.assertEqual(progress.slow_words(seen[30], clock=lambda at: "16:33"), "第 3 步 16:33 开始，此前平均每步约 9 分钟")
+        self.assertEqual(progress.board_words(seen[30], NOW, clock=True), ["第 3 步比此前几步慢"])
+        self.assertEqual(progress.slow_words(seen[0]), "")
+        # Once 跑测试 is done the pace counts it: three steps in 3000 s, two left.
+        done = progress.progress(running(steps=[dict(step, state="done") if step["title"] == "跑测试" else step
+                                                for step in STEPS],
+                                         step_times={**TIMES, "跑测试": {"started": NOW - 120, "ended": NOW + 1800}}),
+                                 now=NOW + 1800)
+        self.assertEqual((done["eta_seconds"], done["slow_step"]), (2000 // 60 * 60, None))
+
+    def test_steps_done_when_the_plan_was_first_seen_are_not_this_turns_pace(self):
+        # A continued topic's checkpoint: two steps done in an earlier turn, seen done at once 3 minutes in.
+        carried = {"读代码": {"ended": NOW - 1020}, "改卡片": {"ended": NOW - 1020}, "跑测试": {"started": NOW - 1020}}
+        found = progress.progress(running(step_times=carried), now=NOW, history=[900, 1300, 2000])
+        self.assertEqual((found["eta_seconds"], found["slow_step"]), (None, None))
+        # The first step this turn did is its pace: 跑测试 in 600 s, 2 left, history enough for one step.
+        steps = [dict(step, state="done") if step["title"] == "跑测试" else step for step in STEPS]
+        later = {**carried, "跑测试": {"started": NOW - 1020, "ended": NOW - 420}}
+        found = progress.progress(running(steps=steps, step_times=later), now=NOW, history=[900, 1000, 1100])
+        self.assertEqual(found["eta_seconds"], 780)  # 600 * 2 - 420; the usual turn is shorter than this one so far.
 
     def test_the_checkpoint_wins_over_the_record_and_a_seed_phase_is_none(self):
         found = progress.progress(running(), checkpoint={"phase": "准备处理本轮请求", "steps": STEPS[:2]}, now=NOW)
@@ -160,34 +202,49 @@ class MonitorTest(unittest.TestCase):
                               stuck=stuck)
         return job, monitor
 
+    def walk(self, monitor, wall):
+        """The turn's plan as the model writes it: 读代码 doing at NOW, done at NOW + 300, 改卡片 done at NOW + 600, the
+        monitor ticking at each; then at NOW + 720 跑测试 has had 120 s of a 300 s pace, three steps left."""
+        import json
+        for at, done in ((NOW, 0), (NOW + 300, 1), (NOW + 600, 2)):
+            wall[0] = at
+            steps = [dict(step, state="done" if index < done else "doing" if index == done else "todo")
+                     for index, step in enumerate(STEPS)]
+            monitor.checkpoint.write_text(json.dumps({"phase": "修进度", "steps": steps}, ensure_ascii=False))
+            monitor.tick()
+        wall[0] = NOW + 720
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+
     def test_the_status_line_says_the_estimate_and_the_record_keeps_the_last_activity(self):
         wall, records, updates = [NOW], [], []
         job, monitor = self.monitor(wall, records=records, updates=updates)
         job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "running", "detail": "跑单测 · pytest -q",
-                                       "started_at": NOW})
-        monitor.tick()
-        wall[0] = NOW + 150
-        monitor.last_ui = float("-inf")
-        monitor.tick()
-        self.assertIn(" · 预计还要约 ", updates[-1])
+                                       "started_at": NOW + 600})
+        self.walk(monitor, wall)
+        self.assertIn(" · 预计还要约 15 分钟", updates[-1])  # 300 s a step, 3 left, less 120 s: 13 to five.
         self.assertIn(" · 2 分钟前在跑测试", updates[-1])
         self.assertNotIn("pytest", updates[-1].split("当前：")[0])
-        self.assertEqual((records[-1]["last_activity"], records[-1]["last_activity_at"]), ("在跑测试", int(NOW)))
+        self.assertEqual((records[-1]["last_activity"], records[-1]["last_activity_at"]), ("在跑测试", int(NOW + 600)))
         self.assertEqual(job.turn_progress["plan_total"], 5)
-
-    def test_the_record_keeps_the_turns_first_estimate_of_its_whole_time(self):
-        # 预计 vs 实际 on the web page: run so far + the first eta (1200 s, 2 of 5 steps: 1800 s more), not a later one.
-        wall, records = [NOW], []
-        _, monitor = self.monitor(wall, records=records)
-        monitor.tick()
-        wall[0] = NOW + 150
+        # 跑测试 longer than the 300 s pace: the line says the average step beside its own 本步, no figure.
+        wall[0] = NOW + 1200
         monitor.last_ui = float("-inf")
         monitor.tick()
-        self.assertEqual([fields["estimate_seconds"] for fields in records], [3000, 3000])
+        self.assertIn("本步 10 分钟 · 此前平均每步约 5 分钟", updates[-1])
+        self.assertNotIn("预计", updates[-1])
+        self.assertEqual(job.turn_progress["slow_step"]["number"], 3)
+
+    def test_the_record_keeps_the_turns_first_estimate_of_its_whole_time(self):
+        # 预计 vs 实际 on the web page: run so far + the first eta (1800 s, made as 改卡片 ended: 300 s a step, 3 left), not a later one.
+        wall, records = [NOW], []
+        _, monitor = self.monitor(wall, records=records)
+        self.walk(monitor, wall)
+        self.assertEqual([fields.get("estimate_seconds") for fields in records], [None, None, 2700, 2700])
 
     def test_a_turn_with_no_estimate_yet_writes_none(self):
         records = []
-        with mock.patch.object(progress, "estimate", return_value=None):
+        with mock.patch.object(progress, "estimate", return_value=(None, None)):
             _, monitor = self.monitor([NOW], records=records)
             monitor.tick()
         self.assertNotIn("estimate_seconds", records[-1])
@@ -336,7 +393,8 @@ class LookTest(unittest.TestCase):
 class BoardTest(unittest.TestCase):
     def test_the_butler_snapshot_says_the_three_things(self):
         from covey.app.butler import progress_words
-        self.assertEqual(progress_words(running(), [], NOW), ["最近动静 2 分钟前在跑测试", "预计还要约 30 分钟"])
+        self.assertEqual(progress_words(running(), [], NOW), ["最近动静 2 分钟前在跑测试", "预计还要约 25 分钟"])
+        self.assertEqual(progress_words(running(), [], NOW + 1200)[1], "第 3 步已做 22 分钟，此前平均每步约 9 分钟")
         with mock.patch.dict(os.environ, {progress.STUCK_ENV: "1"}):
             self.assertEqual(progress_words(running(), [], NOW), ["可能卡住了（超过 1 分钟没有动静）"])
         self.assertEqual(progress_words(running(status="queued"), [], NOW), [])

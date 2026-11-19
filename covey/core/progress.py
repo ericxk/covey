@@ -6,7 +6,7 @@ status cards (app/status_cards.py), 手上的事 (app/overview.py), 早晚汇总
 ``progress(record, checkpoint=..., trace=..., history=..., now=...)`` is a pure function of a job record, the turn's
 checkpoint and its execution trace (a core/trace.py ToolTrace or its snapshot), and the 用时 of the topic's earlier
 turns (``turn_seconds``). It answers {phase, plan_done, plan_total, last_activity_at, last_activity, eta_seconds,
-maybe_stuck}:
+slow_step, maybe_stuck}:
 
 - ``phase``: the checkpoint's phase, '' while the model has written none (core/turn_words.py UNSET_PHASES);
 - ``plan_done``, ``plan_total``: the checkpoint's steps done and listed (core/checkpoint.py checkpoint_steps), None
@@ -16,16 +16,23 @@ maybe_stuck}:
   what the task monitor kept on the record (``last_activity_at``, ``last_activity``, written by core/longtask.py with
   streamed text and the model's requests counted too); a record of an older task runner has neither, and its last
   progress is its last health check less ``last_progress_age_seconds``. None and '' when nothing is known;
-- ``eta_seconds``: ``estimate``: the time it has run divided by the steps done, times the steps left, put halfway
+- ``eta_seconds``: ``estimate``, by the pace of the steps this turn did (``pace``: when the Bridge saw each step end,
+  core/checkpoint.py clock_steps, the record's ``step_times``; steps already done when it first saw the plan, carried
+  from an earlier turn, are not this turn's pace): the average step times the steps left, less what the current step
+  has had since the last one ended, so it goes down while the turn works on and never grows with the wait; put halfway
   towards the topic's usual turn (the median of ``history``) when there are MIN_HISTORY turns and the usual one is
-  longer than this one so far; None without steps done and left, before MIN_ELAPSED, or from one step done with fewer
-  turns of history: better nothing than a wrong figure. To the minute, so a reader that pushes on a change (the web
-  page) does not push every second;
+  longer than this one so far. None without a step done this turn and one left, before MIN_ELAPSED, from one step done
+  with fewer turns of history, without the steps' times, and once the current step has taken longer than the average
+  one (``slow_step`` says that instead): better nothing than a wrong figure. To the minute, so a reader that pushes on
+  a change (the web page) does not push every second;
+- ``slow_step``: the current step once it has taken longer than this turn's average step, {number (its place in the
+  steps, from 1), since (epoch seconds: when the step before it ended), seconds (it has taken so far), usual (the
+  average step)}, seconds to the minute; else None. The readers say it instead of an estimate (``slow_words``);
 - ``maybe_stuck``: a turn running (not queued, stopping or waiting for an answer) whose last activity is known and
   ``stuck_seconds`` ago or more (COVEY_PROGRESS_STUCK_MINUTES, 30 by default).
 
-The words the readers show it with are here too (``ago_words``, ``eta_words``, ``finish_words``, ``activity_line``,
-``stuck_words``, ``board_words``), each to the minute: a card is written only when what it shows changes (AGENTS.md rule 3)."""
+The words the readers show it with are here too (``ago_words``, ``eta_words``, ``finish_words``, ``slow_words``,
+``activity_line``, ``stuck_words``, ``board_words``), each to the minute: a card is written only when what it shows changes (AGENTS.md rule 3)."""
 from __future__ import annotations
 
 import datetime
@@ -35,7 +42,7 @@ import statistics
 import time
 
 from covey.core import env as cenv
-from covey.core.checkpoint import checkpoint_steps
+from covey.core.checkpoint import checkpoint_steps, current_step
 from covey.core.metrics import run_seconds, run_start, timings_of
 from covey.core.state import epoch_seconds
 from covey.core.text import command_kind
@@ -48,7 +55,8 @@ MIN_HISTORY = 3  # Earlier turns of the topic the estimate is put towards (``est
 MIN_DONE = 2  # Steps done for an estimate without that history.
 MIN_ELAPSED = 60  # No estimate in a turn's first minute.
 WORDS_CHARS = 40  # ``last_activity`` at most.
-FIELDS = ("phase", "plan_done", "plan_total", "last_activity_at", "last_activity", "eta_seconds", "maybe_stuck")
+FIELDS = ("phase", "plan_done", "plan_total", "last_activity_at", "last_activity", "eta_seconds", "slow_step",
+          "maybe_stuck")
 
 # A trace step's coarse kind (core/text.py step_action, command_kind) as a verb and its object: 在跑测试 while it runs,
 # 跑了测试 once it ended, 跑测试失败 when it failed.
@@ -192,19 +200,53 @@ def turn_seconds(records, exclude=None) -> list:
     return found
 
 
-def estimate(elapsed, done, total, history=()) -> int | None:
-    """Seconds still to go (the module's ``eta_seconds``), to the minute; None when there is no telling."""
-    if elapsed is None or elapsed < MIN_ELAPSED or not total or not done or done >= total:
+def pace(steps, times):
+    """(steps done this turn, the seconds each took on average, when the last of them ended) from ``times``, the
+    Bridge's clock of ``steps`` (core/checkpoint.py clock_steps: {title: {started, ended}}); None without a step done
+    after the first time the Bridge saw the plan. The steps already done then (their end is that first sight: carried
+    from an earlier turn, or done before the plan was written) and the time before it are not counted."""
+    times = times if isinstance(times, dict) else {}
+    stamps = [_number(value) for clocked in times.values() if isinstance(clocked, dict) for value in clocked.values()]
+    stamps = [stamp for stamp in stamps if stamp is not None]
+    if not stamps:
         return None
-    left = elapsed / done * (total - done)
+    first = min(stamps)
+    clocked = [times.get(step["title"]) for step in steps if step["state"] == "done"]
+    ends = [_number(each.get("ended")) for each in clocked if isinstance(each, dict)]
+    ends = [end for end in ends if end is not None and end > first]
+    if not ends:
+        return None
+    last = max(ends)
+    return len(ends), (last - first) / len(ends), last
+
+
+def _minute(seconds) -> int:
+    return max(60, int(round(seconds / 60)) * 60)
+
+
+def estimate(elapsed, steps, times, now, history=()) -> tuple:
+    """(``eta_seconds``, ``slow_step``) of a turn ``elapsed`` seconds in at ``now`` with ``steps`` clocked by ``times``
+    (see the module); (None, None) when there is no telling."""
+    total = len(steps)
+    done = sum(step["state"] == "done" for step in steps)
+    found = pace(steps, times) if total and done < total else None
+    if elapsed is None or elapsed < MIN_ELAPSED or found is None:
+        return None, None
+    counted, each, since = found
+    taken = max(0.0, now - since)  # The current step's so far: since the last step ended.
+    if taken > each:
+        doing = current_step(steps)
+        number = doing[0] if doing else next(index for index, step in enumerate(steps, 1) if step["state"] != "done")
+        return None, {"number": number, "since": int(since), "seconds": _minute(taken), "usual": _minute(each)}
+    left = each * (total - done) - taken
     samples = [value for value in history if _number(value) is not None and value > 0]
     if len(samples) >= MIN_HISTORY:
         usual = statistics.median(samples)
         if usual > elapsed:
             left = (left + usual - elapsed) / 2
-    elif done < MIN_DONE:
-        return None
-    return max(60, int(round(left / 60)) * 60)
+    elif counted < MIN_DONE:
+        return None, None
+    return _minute(left), None
 
 
 def _record_activity(record):
@@ -222,7 +264,8 @@ def _record_activity(record):
 
 def progress(record, *, checkpoint=None, trace=None, history=(), now=None, stuck_after=None, waiting=False) -> dict:
     """The progress of the turn of job ``record`` (see the module). ``checkpoint``: the turn's checkpoint, read by the
-    caller (else the steps and phase the task monitor kept on the record); ``trace``: its execution trace or None;
+    caller (else the steps and phase the task monitor kept on the record; the steps' times, ``step_times``, are always
+    the record's); ``trace``: its execution trace or None;
     ``history``: ``turn_seconds`` of its topic; ``stuck_after``: seconds (``stuck_seconds`` when None); ``waiting``:
     the turn waits for the owner's answer, which is never stuck."""
     record = record if isinstance(record, dict) else {}
@@ -246,10 +289,11 @@ def progress(record, *, checkpoint=None, trace=None, history=(), now=None, stuck
     stuck_after = stuck_seconds() if stuck_after is None else stuck_after
     # Only from a known last activity: a record the task monitor never wrote says nothing of it.
     stuck = bool(status in RUNNING_STATUSES and not waiting and at is not None and now - at >= stuck_after)
+    eta, slow = (estimate(elapsed, steps, record.get("step_times"), now, history) if status in RUNNING_STATUSES
+                 else (None, None))
     return {"phase": phase, "plan_done": done, "plan_total": total,
             "last_activity_at": int(at) if at is not None else None, "last_activity": _cut(words, WORDS_CHARS),
-            "eta_seconds": estimate(elapsed, done or 0, total or 0, history) if status in RUNNING_STATUSES else None,
-            "maybe_stuck": stuck}
+            "eta_seconds": eta, "slow_step": slow, "maybe_stuck": stuck}
 
 
 # -- words -------------------------------------------------------------------------------------------------------------
@@ -279,6 +323,24 @@ def eta_words(seconds) -> str:
     elif minutes >= 10:
         minutes = int(round(minutes / 5)) * 5
     return f"预计还要约 {minutes_words(minutes * 60)}"
+
+
+def slow_words(found, *, clock=None) -> str:
+    """The ``slow_step`` of a ``progress`` result: "第 3 步已做 25 分钟，此前平均每步约 6 分钟"; with ``clock`` (a time
+    of day from epoch seconds, for a panel written only now and then) "第 3 步 16:33 开始，此前平均每步约 6 分钟". ''
+    without one."""
+    slow = found.get("slow_step") if isinstance(found, dict) else None
+    if not isinstance(slow, dict):
+        return ""
+    began = f" {clock(slow['since'])} 开始" if clock is not None else f"已做 {minutes_words(slow['seconds'])}"
+    return f"第 {slow['number']} 步{began}，{usual_words(found)}"
+
+
+def usual_words(found) -> str:
+    """"此前平均每步约 6 分钟" of a ``progress`` result's ``slow_step``, for a line that says the step's own minutes
+    already (the task card's status line: 本步 25 分钟); '' without one."""
+    slow = found.get("slow_step") if isinstance(found, dict) else None
+    return f"此前平均每步约 {minutes_words(slow['usual'])}" if isinstance(slow, dict) else ""
 
 
 def activity_line(found, now) -> str:
@@ -320,11 +382,14 @@ def finish_words(found, now) -> str:
 
 def board_words(found, now, *, clock=False) -> list:
     """What a board's row of a running turn adds to its phase (each reader has its own phase or step words): 可能卡住了,
-    else the estimate (``eta_words``, or with ``clock`` ``finish_words``); never a command or a last activity, which
+    else that the current step is slower than the ones before (``slow_step``: 第 3 步比此前几步慢), else the estimate
+    (``eta_words``, or with ``clock`` ``finish_words``); never a command, a last activity or a step's minutes, which
     would change the row every minute. Empty parts are left out."""
     if not isinstance(found, dict):
         return []
     if found.get("maybe_stuck"):
         return ["可能卡住了"]
+    if isinstance(found.get("slow_step"), dict):
+        return [f"第 {found['slow_step']['number']} 步比此前几步慢"]
     words = finish_words(found, now) if clock else eta_words(found.get("eta_seconds"))
     return [words] if words else []

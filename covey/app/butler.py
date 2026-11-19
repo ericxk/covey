@@ -444,7 +444,7 @@ def line(*parts) -> str:
 
 def progress_words(record, jobs, now) -> list:
     """What the snapshot says of a running job ``record``'s progress (core/progress.py): 最近动静 (2 分钟前在跑测试) and
-    the estimate, or that it may be stuck; ``jobs``: the read's, the topic's earlier turns among them."""
+    the estimate (or how long its slow step has taken), or that it may be stuck; ``jobs``: the read's, the topic's earlier turns among them."""
     if record.get("status") != "running":
         return []
     found = turn_progress.progress(record, now=now, history=turn_progress.turn_seconds(
@@ -452,8 +452,8 @@ def progress_words(record, jobs, now) -> list:
     if found["maybe_stuck"]:
         return [f"可能卡住了（{turn_progress.stuck_words().split('，')[0]}）"]
     activity = turn_progress.activity_line(found, now)
-    return [part for part in ("最近动静 " + activity if activity else "", turn_progress.eta_words(found["eta_seconds"]))
-            if part]
+    pace = turn_progress.slow_words(found) or turn_progress.eta_words(found["eta_seconds"])
+    return [part for part in ("最近动静 " + activity if activity else "", pace) if part]
 
 
 def snapshot_groups(ctx, chat, now) -> dict:
