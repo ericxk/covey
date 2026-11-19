@@ -38,8 +38,9 @@ FOLLOW_UP = {"queued": "排队", "running": "在做", "done": OUTCOME_LINES["don
 STATES = {"done": "做完", "failed": "停住了", "interrupted": "停住了", "cancelled": "已停止"}
 BOARD = {"running": "在做", "queued": "排队", "waiting": "等你"}
 RESULTS = {"done": "完成", "failed": "失败", "interrupted": "中断", "cancelled": "已停止"}
-OVERVIEW_OUTCOMES = {"done": "✅ 完成", "failed": "❌ 失败", "cancelled": "⏹ 已停止", "interrupted": "⚠️ 中断"}
-OVERVIEW_GROUPS = {"waiting": "等你回答", "result": "有结果", "running": "进行中"}
+# 手上的事 says what the 看板 and 早晚汇总 say (docs/ui.md 3; the owner, 2026-11-19: the three surfaces disagreed).
+OVERVIEW_OUTCOMES = {"done": "做完", "failed": "停住了", "cancelled": "已停止", "interrupted": "停住了"}
+OVERVIEW_GROUPS = {"waiting": "等你", "result": "有结果", "running": "在做"}
 DIGEST_START = "等你开工"
 START_LINE = "等你在启动卡上点开始"
 START_ACT = "去开始"
@@ -70,6 +71,28 @@ def request_line(text):
         if line and not (line.endswith(("：", ":")) and len(line) <= 12):
             return line
     return ""
+
+
+def wait_words(seconds) -> str:
+    """How long, as the 看板's grey line says it (docs/ui.md 7: whole minutes, a space before the unit): "不到 1 分钟",
+    "45 分钟", "2 小时 5 分钟", "3 天 2 小时"."""
+    minutes = max(0, int(seconds)) // 60
+    if minutes < 1:
+        return "不到 1 分钟"
+    if minutes < 60:
+        return f"{minutes} 分钟"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} 小时" + (f" {minutes} 分钟" if minutes else "")
+    days, hours = divmod(hours, 24)
+    return f"{days} 天" + (f" {hours} 小时" if hours else "")
+
+
+# Who stopped a cancelled turn that is not the owner's own (core/jobs.py STOP_SOURCES; core/look.py OWNER_STOPS), as
+# the 看板's 停住了 line says it.
+STOPPED_BY = {"lead": "专项负责人停了它", "guard": "专项护栏停了它", "proxy": "代答换了批次，停了它"}
+# The 看板's button that opens a topic's task card, where 检查并继续 and 看看 are (cards/board.py).
+TASK_CARD_ACT = "去任务卡"
 
 
 def span_words(seconds) -> str:

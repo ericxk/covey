@@ -4,7 +4,7 @@ ended since the digest before, and every result the owner has not seen, however 
 said in the heading; the ones not unseen in grey, marked 已看). A row is the topic's number (a link
 to it once app/topic_links.py found one), its title, one line of state or phase and how long; a part shows SHOWN
 rows and says how many more there are. Under 等你, the questions waiting over a day are one grey line of topic
-numbers, 手上的事's (cards/overview.py stale_line), with its button 这些都不用回答了 when ``dismissable``; once
+numbers, 手上的事's (cards/overview.py stale_line), with its button 不管了 when ``dismissable``; once
 clicked, the line is 已撤下 N 个 (dismissed_line), grey, without the button.
 
 ``view`` is plain data: ``slot`` and ``since`` (epoch seconds), ``waiting``, ``running`` and ``done`` rows, each

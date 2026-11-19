@@ -163,6 +163,24 @@ class BoardTest(unittest.TestCase):
         self.assertIn("**3**</font> **件事**", card)
         self.assertIn("先看：停住了", card)
 
+    def test_the_title_bar_counts_as_the_band_and_rows_open_what_they_say(self):
+        """看板走查 4, 5, 11: the title bar's tags count as the band (one that may be stuck is not also 在做); a folded row
+        is a link; a row without a link says why."""
+        view = {"done": [{"topic": "s", "label": "T2", "status": "done", "tone": "done", "url": "https://x/2"}],
+                "waiting": [], "running": [{"topic": "r", "stuck": True, "url": "https://x/r", "card": "om_r"},
+                                           {"topic": "q", "label": "T3"}]}
+        card = board.board_card(view)
+        self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["1 可能卡住", "1 在做"])
+        text = json.dumps(card, ensure_ascii=False)
+        self.assertIn("[T2](https://x/2)", text)
+        self.assertIn(board.NO_LINK, text)
+        self.assertIn("去任务卡", text)  # The one that may be stuck.
+
+    def test_wait_words_are_whole_minutes(self):
+        from covey.core.turn_words import wait_words
+        self.assertEqual([wait_words(s) for s in (30, 2728, 7500, 2 * 86400 + 7300)],
+                         ["不到 1 分钟", "45 分钟", "2 小时 5 分钟", "2 天 2 小时"])
+
     def test_the_band_says_all_is_in_hand_when_nothing_asks(self):
         card = json.dumps(board.board_card({"done": [{"topic": "d", "status": "done", "tone": "result", "label": "T1"}]}),
                           ensure_ascii=False)

@@ -20,11 +20,12 @@ waiting, stopped, running}], ``proposals`` (open proposal cards) and ``tidy`` (�
 from __future__ import annotations
 
 from covey.cards import ui
-from covey.cards.elements import collapsible, grey, md, note, plain, styled_panel
+from covey.cards.elements import collapsible, grey, item, md, note, plain, styled_panel, text_button
 from covey.cards.overview import DISMISS, dismissed_line, stale_line
 from covey.cards.project_proposal import CREATE_KIND, DECLINE_KIND, START_KIND
 from covey.core import look
 from covey.core.text import literal as literal_text
+from covey.core.turn_words import TASK_CARD_ACT
 
 BOARD_FROM = "board"  # As app/project_tidy.py BOARD_FROM: a proposal decided on the 看板.
 ORIGIN = "digest"  # As cards/digest.py: app/overview.py claim hands a 不管了 on this card to app/digest.py.
@@ -34,6 +35,11 @@ STOPPED = frozenset({"failed", "cancelled", "interrupted"})
 LOOKS = {key: (look.STATES[key].word, look.STATES[key].color, look.STATES[key].tint)
          for key in ("waiting", "stopped", "result", "running", "stuck")}
 ACT = ("waiting", "stopped", "stuck")  # 要你处理: what the band counts.
+# The 看板's own buttons (app/digest.py Digest.claim, before topic routing): 刷新 redraws the card from a fresh view in
+# place (a second menu click folds it instead), 记为看过 takes a result off 有结果没看 (core/board_read.py mark_seen).
+REFRESH_KIND, SEEN_KIND = "bridge_board_refresh", "bridge_board_seen"
+KINDS = frozenset({REFRESH_KIND, SEEN_KIND})
+NO_LINK = "找不到它在私聊里的位置，打不开"  # A row whose topic has no link (app/digest.py board_view).
 LEAD = 30  # Characters of the most pressing topic's words on the band.
 SHOWN = 8  # Blocks a group shows; the rest is one line.
 DONE_SHOWN = 12  # Rows in the folded 做完.
@@ -66,11 +72,27 @@ def head_of(row) -> str:
     return " ".join(part for part in (row.get("label"), row.get("title")) if part) or "话题"
 
 
+def buttons_row(buttons) -> list:
+    """A row's buttons side by side, as one element of its right column; [] for none."""
+    buttons = [one for one in buttons if one]
+    if len(buttons) < 2:
+        return buttons
+    return [{"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "6px",
+             "columns": [{"tag": "column", "width": "auto", "vertical_align": "center", "elements": [one]}
+                         for one in buttons]}]
+
+
 def block(kind, row, buttons=()):
     """One topic as a topic row: its state, ``label title ›``, the line in words, the grey figures; the whole opens
-    ``row['url']``."""
-    return ui.topic_row(kind, head_of(row), row.get("line") or "", row.get("meta") or (), url=row.get("url") or "",
-                        buttons=list(buttons))
+    ``row['url']``. One without a link says why it opens nothing."""
+    meta = [*(row.get("meta") or ()), *([NO_LINK] if row.get("topic") and not row.get("url") else [])]
+    return ui.topic_row(kind, head_of(row), row.get("line") or "", meta, url=row.get("url") or "",
+                        buttons=buttons_row(buttons))
+
+
+def task_card_button(row):
+    """去任务卡: the row's link when it is its task card's (``card``), where 检查并继续 and 看看 are."""
+    return [button(TASK_CARD_ACT, tone="primary", url=row["url"])] if row.get("card") and row.get("url") else []
 
 
 def blocks(kind, rows, buttons=lambda row: ()):
@@ -139,9 +161,10 @@ def band(found):
 
 
 def counts(found) -> list:
-    """The title bar's tags: (text, color) of the groups that have someone, most pressing first."""
-    sizes = {"waiting": waiting_count(found), "stopped": len(found["stopped"]), "running": len(found["running"])}
-    tags = [(f"{sizes[key]} {look.word(key)}", look.STATES[key].color) for key in ("waiting", "stopped", "running")
+    """The title bar's tags: (text, color) of the states that have someone, most pressing first, counted as the band
+    counts them (state_counts: one that may be stuck is not also 在做)."""
+    sizes = state_counts(found)
+    tags = [(f"{sizes[key]} {look.word(key)}", look.STATES[key].color) for key in ("waiting", "stopped", "stuck", "running")
             if sizes[key]]
     return tags or [("都在掌握中", "green")]
 
@@ -190,14 +213,15 @@ def board_card(view):
             elements.append(dismissed_line(view["cleared"]))
     if found["stopped"]:
         elements.append(heading("stopped", len(found["stopped"])))
-        elements += blocks("stopped", found["stopped"], lambda row: [button("不管了", tone="text", value={
-            "kind": DISMISS, "topics": [row["topic"]], "from": ORIGIN})] if view.get("can_dismiss") and row.get("topic") else [])
+        elements += blocks("stopped", found["stopped"], lambda row: task_card_button(row) + ([button("不管了", tone="text", value={
+            "kind": DISMISS, "topics": [row["topic"]], "from": ORIGIN})] if view.get("can_dismiss") and row.get("topic") else []))
     if found["result"]:
         elements.append(heading("result", len(found["result"])))
-        elements += blocks("result", found["result"])
+        elements += blocks("result", found["result"], lambda row: [button("记为看过", tone="text", value={
+            "kind": SEEN_KIND, "topic": row["topic"]})] if row.get("topic") else [])
     if found["running"]:
         elements.append(heading("running", len(found["running"])))
-        elements += blocks("running", found["running"])
+        elements += blocks("running", found["running"], lambda row: task_card_button(row) if row.get("stuck") else [])
     if view.get("tidy") is not None or view.get("projects"):
         projects, pending = view.get("projects") or [], view.get("pending") or []
         # One count of each, said the same way as the 整理专项 card and the butler's projects_list: 专项 that exist, and
@@ -215,7 +239,8 @@ def board_card(view):
             elements.append(body([md(grey(line), size="notation")], [button("整理专项", tone="primary", value={"kind": START_KIND})]))
     if found["seen"] or found["cancelled"]:
         rows = found["seen"] + found["cancelled"]
-        lines = [md(f"{literal_text(row.get('label') or '话题')} {literal_text(row.get('title') or '')} "
+        lines = [md((f"[{literal_text(row.get('label') or '话题')}]({row['url']})" if row.get("url")
+                     else literal_text(row.get("label") or "话题")) + f" {literal_text(row.get('title') or '')} "
                     + grey("· " + " · ".join(part for part in (
                         look.word("cancelled") if tone(row) == "cancelled" else row.get("state"), row.get("took")) if part)))
                  for row in rows[:DONE_SHOWN]]
@@ -226,7 +251,8 @@ def board_card(view):
                  f"{since}做完 {len(found['seen'])} 个 · {look.word('cancelled')} {len(found['cancelled'])} 个")
         elements.append(collapsible("board_done", title, lines, quiet=True))
     if view.get("stamp"):
-        elements.append(note(f"更新于 {view['stamp']}"))
+        # 刷新 redraws it here; a second click on the menu's 看板 folds it (the owner wanted fresh figures, not a fold).
+        elements.append(item(note(f"更新于 {view['stamp']}"), text_button("刷新", {"kind": REFRESH_KIND})))
     tags = counts(found)
     head = {"title": plain("看板"), "subtitle": plain("私聊里在推进的事"),
             "text_tag_list": [{"tag": "text_tag", "text": plain(text), "color": color} for text, color in tags[:3]],

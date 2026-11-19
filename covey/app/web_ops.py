@@ -47,9 +47,7 @@ from covey.core.butler import is_butler_root
 from covey.core.history_storage import append_history
 from covey.core.jobs import JOB_STOP_ACTION_KIND, topic_job_records
 from covey.core.state import read_object
-from covey.core.statuses import RUNNING
 from covey.core.steer import SteerRefused, SteerUncertain
-from covey.core.topic_seen import read_seen, record_reads
 from covey.core.topics import remember_topic_message, topic_file
 from covey.cards.question_cards import SUPPLEMENT
 from covey.feishu.events import REPLY_CONTEXT
@@ -233,13 +231,7 @@ class Ops:
             raise ValueError("这个话题不认识，或不在你的私聊里")
         if is_butler_root(topic, chat):
             return "管家的对话没有“没看”的结果"
-        ended = max((board_read.ended_at(record) for record in topic_job_records(state, topic, chat_id=chat)
-                     if record.get("status") not in RUNNING and not board_read.unrun(record)), default=0.0)
-        read = read_seen(state)
-        if topic in read and read[topic] >= ended:
-            return "已经记为看过"
-        record_reads(state, {topic: max(time.time(), ended)})
-        return "已记为看过"
+        return "已记为看过" if board_read.mark_seen(state, chat, topic, time.time()) else "已经记为看过"
 
     # -- forget ------------------------------------------------------------------------------------------------------------
 

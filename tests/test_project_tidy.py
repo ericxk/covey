@@ -353,7 +353,7 @@ class ProposalTest(TidyCase):
     def test_the_first_proposal_card_says_what_a_project_is_and_has_the_four_buttons(self):
         self.assertEqual(self.propose(self.pair), "proposed")
         card = text(self.sent_cards()[-1])
-        for word in ("EnvReplay Prompt 优化", cards.INTRO, cards.AFTER, "建专项", "暂不考虑", "tidy_name"):
+        for word in ("EnvReplay Prompt 优化", cards.INTRO, cards.AFTER, "建专项", "不管了", "tidy_name"):
             self.assertIn(word, card)
         for word in ("改个名再建", "以后别提议"):  # The owner, 2026-11-18: 4 个按钮太冗余了.
             self.assertNotIn(word, card)

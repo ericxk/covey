@@ -117,7 +117,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'group_manager', 'dashboard_rotate', 'redaction_panel', 'nodes.panel',
-              'butler_panel', 'settings_hub', 'overview', 'app_setup', 'group_menu', 'project_tidy', 'standing_answers')
+              'butler_panel', 'settings_hub', 'overview', 'digest', 'app_setup', 'group_menu', 'project_tidy',
+              'standing_answers')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
@@ -300,7 +301,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The menu card pinned in each personal group (app/group_menu.py, core/spaces.py personal_groups).
             self.group_menu = GroupMenu(self.runtime, self.messenger, self.voice, self.menu)
             # 手上的事, the pinned board and 早晚汇总 in each of those groups too (app/group_boards.py).
-            self.group_boards = GroupBoards(self.runtime, self.messenger, self.voice, self.titles, self.overview)
+            self.group_boards = GroupBoards(self.runtime, self.messenger, self.voice, self.titles, self.overview,
+                                            digest=self.digest)
             self.features = features  # Last: 'features' in the instance says the build is done.
 
     def web_message(self, event) -> str:

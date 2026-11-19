@@ -37,14 +37,14 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from covey.core.jobs import jobs_dir, select_job_records
+from covey.core.jobs import jobs_dir, select_job_records, topic_job_records
 from covey.core import look, projects
 from covey.core.butler import is_butler_topic, traits
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import OPEN_FORMS, RUNNING
 from covey.core.store import directory_store
-from covey.core.topic_seen import read_seen
+from covey.core.topic_seen import read_seen, record_reads
 from covey.core.topics import label_title
 
 PRIORITY = "board-priority.json"
@@ -272,6 +272,18 @@ def ended_at(record):
         if isinstance(timings.get(stage), (int, float)):
             return float(timings[stage])
     return epoch_seconds(record.get("updated_at")) or 0.0
+
+
+def mark_seen(state, chat, topic, now) -> bool:
+    """记为看过: ``topic``'s results in ``chat`` read as seen at ``now`` (or its last end, if later), as a read receipt
+    would (core/topic_seen.py); False when they were seen already. The 看板's button and the web page's."""
+    ended = max((ended_at(record) for record in topic_job_records(state, topic, chat_id=chat)
+                 if record.get("status") not in RUNNING and not unrun(record)), default=0.0)
+    read = read_seen(state)
+    if topic in read and read[topic] >= ended:
+        return False
+    record_reads(state, {topic: max(now, ended)})
+    return True
 
 
 def unrun(record):

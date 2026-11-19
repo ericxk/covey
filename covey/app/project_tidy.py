@@ -1119,7 +1119,7 @@ class ProjectTidy:
             proposals.set_pref(state, accepted_in_row=0, **({"no_proposals": True} if never else {}))
             view.update(state=proposals.NEVER if never else proposals.DECLINED, lesson=True,
                         note="以后不再提议建专项；要开专项，跟管家说“开个专项”。" if never else
-                        "暂不考虑：这几个话题不会再这样提，等又多出相关的话题才会再提。")
+                        "不管了：这几个话题不会再这样提，等又多出相关的话题才会再提。")
             proposals.update_proposal(state, record["id"], lambda data: data.update(view=view))
             after_ack(lambda: self.patch_own(ctx, message, cards.proposal_card(view)))
             return "tidy_never" if never else "tidy_decline"

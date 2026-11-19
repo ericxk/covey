@@ -51,13 +51,14 @@ from covey.app.pins import board_results, kept, laid, record_path
 from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
-from covey.cards.board import board_card
+from covey.app.card_lanes import after_ack
+from covey.cards.board import KINDS as BOARD_KINDS, SEEN_KIND, board_card
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
 from covey.core import board_read, knowledge, look, patrol, projects, turn_words
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
-from covey.core.failure import failure_view
+from covey.core.failure import LABELS as FAILURE_LABELS, failure_view
 from covey.core.locks import resource_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, took_text
@@ -208,16 +209,17 @@ def collect(state, chat, slot, since, now, *, board=False):
     for wait in found.live:
         topic, record = wait.topic, wait.record
         took = f"等了 {took_text(now - wait.since)}"
+        waited = f"等了 {turn_words.wait_words(now - wait.since)}"  # The 看板's grey line (docs/ui.md 7).
         if wait.kind == "start":
             waiting.append({**row(topic, turn_words.DIGEST_START, took), "kind": "start", "card": wait.card,
-                            "line": turn_words.START_LINE, "meta": [took]})
+                            "line": turn_words.START_LINE, "meta": [waited]})
             continue
         ask = turn_words.ask_words(record)
         waiting.append({**row(topic, f"{turn_words.BOARD['waiting']}：{ask}" if ask else turn_words.BOARD["waiting"], took),
                         "kind": "question", "card": wait.card,
                         # The 看板's words (cards/board.py): what he is asked to decide, then how long it waited.
                         "line": f"要你定：{phase_of(newest.get(topic))}" if phase_of(newest.get(topic)) else
-                        (f"等你回答：{ask}" if ask else "等你回答"), "meta": [took]})
+                        (f"等你回答：{ask}" if ask else "等你回答"), "meta": [waited]})
     busy = {wait.topic for wait in found.live}
 
     running = {}
@@ -251,7 +253,9 @@ def collect(state, chat, slot, since, now, *, board=False):
                              ("正在停止" if status == "cancel_requested" else turn_words.BOARD["queued" if status == "queued" else "running"]),
                              "meta": [plan, *(figure for figure in figures if "卡住" not in figure),
                                       f"{turn_progress.ago_words(now - moved)}有动静" if moved else "",
-                                      f"已跑 {took_text(ran)}" if ran is not None else ""],
+                                      f"已跑 {turn_words.wait_words(ran)}" if ran is not None else ""],
+                             # Its task card: the 看板's row of one that may be stuck opens it (看看 is there).
+                             "card": str(record.get("card_message_id") or ""),
                              "stuck": bool(found.get("maybe_stuck"))})
     busy |= set(running)
 
@@ -271,15 +275,20 @@ def collect(state, chat, slot, since, now, *, board=False):
     for topic, record in sorted(ended.items(), key=lambda item: ended_at(item[1]), reverse=True):
         took = run_seconds(record.get("timings"), now=ended_at(record))
         status = record["status"]
-        line, meta = "", [f"用时 {took_text(took)}" if took is not None else ""]
-        if status in ("failed", "cancelled", "interrupted"):  # 停住了 on the 看板: why, and where it stopped.
+        line, meta, card = "", [f"用时 {turn_words.wait_words(took)}" if took is not None else ""], ""
+        if status in ("failed", "cancelled", "interrupted"):  # 停住了 on the 看板: why, where it stopped, what next.
             failed = failure_view(record, now)
-            line = (failed["title"] if failed else "被停止了") + (f"；停在：{phase_of(record)}" if phase_of(record) else "")
-            meta = [f"{clock_words(ended_at(record), now)} 停"]
+            why = (failed["title"] if failed else
+                   turn_words.STOPPED_BY.get(str(record.get("cancel_requested_by") or ""), "被停止了"))
+            line = why + (f"；停在：{phase_of(record)}" if phase_of(record) else "")
+            acts = (failed or {}).get("actions") or []
+            step = FAILURE_LABELS.get(acts[0], "") if acts else ""
+            meta = [f"{clock_words(ended_at(record), now)} 停", f"下一步：在任务卡上点「{step}」" if step else ""]
+            card = str(record.get("card_message_id") or "")  # The 看板's row opens its task card (its buttons are there).
         elif status == "done":
             line = first_line(record.get("final_text"))
         done.append({**row(topic, turn_words.STATES.get(status, status), f"用时 {took_text(took)}" if took is not None else "",
-                           topic not in unseen), "status": status, "line": line, "meta": meta,
+                           topic not in unseen), "status": status, "line": line, "meta": meta, "card": card,
                      # 停住了, 已停止 (the owner's own stop), 有结果 or 做完 (core/look.py; cards/board.py groups by it).
                      "tone": look.record_tone(record, seen=topic not in unseen)})
     view = {"slot": slot, "since": since, "waiting": waiting, "stale": stale, "running": running_rows, "done": done,
@@ -359,6 +368,7 @@ class Digest:
     def __init__(self, runtime, messenger, voice, *, chat="", name="digest") -> None:
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
         self.fixed, self.name = chat, name
+        self.others = {}  # chat_id -> a personal group's Digest (app/group_boards.py): its 看板's clicks are its own.
         self.link = lambda ctx, chat, text, cards=None: linkify(text, ctx.state_dir, chat, profile=ctx.profile, cards=cards)
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
 
@@ -458,8 +468,35 @@ class Digest:
                                 lambda token, record: folded_board(),
                                 fields=lambda: {"digest": self.board_view(ctx, chat_id)})
 
+    @staticmethod
+    def matches(raw):
+        return isinstance(raw, dict) and raw.get("kind") in BOARD_KINDS
+
+    def claim(self, ctx, event, raw, owner):
+        """刷新 or 记为看过 on a 看板 card (cards/board.py KINDS; app/unified.py PANELS), else None: the owner's only; the
+        card redrawn from a fresh view once the click is acknowledged."""
+        if not self.matches(raw):
+            return None
+        kind = raw["kind"]
+        other = self.others.get(str(event.get("chat_id") or ""))
+        if other is not None:
+            return other.claim(ctx, event, raw, owner)
+        if not owner:
+            return "owner_only"
+        message = str(event.get("message_id") or "")
+        if kind == SEEN_KIND:
+            topic, chat = raw.get("topic"), self.fixed or self.runtime.access.notify_chat()
+            if not isinstance(topic, str) or not topic or not chat:
+                return "board_seen_ignored"
+            fresh = board_read.mark_seen(ctx.state_dir, chat, topic, time.time())
+            self.runtime.log(f"digest board seen topic={topic[-8:]} fresh={fresh}")
+        if message:
+            after_ack(lambda: self.board_refresh(ctx, message))
+        return "board_seen" if kind == SEEN_KIND else "board_refresh"
+
     def board_refresh(self, ctx, message_id):
-        """A 看板 card redrawn from a fresh view, after a proposal on it was decided (app/project_tidy.py ``handed``)."""
+        """A 看板 card redrawn from a fresh view, after a proposal on it was decided (app/project_tidy.py ``handed``),
+        or its 刷新 or 记为看过 was clicked (``claim``)."""
         chat = self.fixed or self.runtime.access.notify_chat()
         folder = self.menu.directory(ctx)
         try:

@@ -54,6 +54,7 @@ from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
 from covey.cards.project_proposal import KINDS as TIDY_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
+from covey.cards.board import KINDS as BOARD_KINDS
 from covey.cards.app_setup import SKIP as APP_SETUP_SKIP, START as APP_SETUP_START
 from covey.cards.proxy_panel import KINDS as PROXY_PANEL_KINDS
 from covey.cards.proxy_resend import RESEND as PROXY_RESEND, SUGGEST as PROXY_SUGGEST
@@ -655,6 +656,7 @@ class RetiredHarnessTests(unittest.TestCase):
         private = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
         private |= set(extensions.card_kinds())  # An enabled extension's cards (tests/test_extension_cards.py).
         private |= {OVERVIEW_DISMISS}  # 手上的事's 这些都不用回答了 (tests/test_pins.py).
+        private |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (tests/test_digest.py).
         private |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (tests/test_app_setup.py).
         private |= {GROUP_MENU_KIND}  # A personal group's menu card (tests/test_personal_spaces.py).
         private |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (tests/test_redaction_panel.py).

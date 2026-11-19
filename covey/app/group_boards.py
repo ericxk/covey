@@ -29,9 +29,9 @@ from covey.core.topic_seen import record_reads
 class GroupBoards:
     """``overview``: the private chat's Overview, which hands a click on a group's card to that group's."""
 
-    def __init__(self, runtime, messenger, voice, titles, overview):
+    def __init__(self, runtime, messenger, voice, titles, overview, *, digest=None):
         self.runtime, self.messenger, self.voice, self.titles = runtime, messenger, voice, titles
-        self.overview = overview
+        self.overview, self.main_digest = overview, digest
         self.boards = {}  # chat_id -> its Overview, made once the harness config named the group.
         self.digests = {}  # chat_id -> its Digest.
 
@@ -49,6 +49,8 @@ class GroupBoards:
             digest = self.digests[chat] = Digest(self.runtime, self.messenger, self.voice, chat=chat,
                                                  name="digest-" + chat[-8:])
             self.board(chat).handed[digest.origin] = digest.dismissed
+            if self.main_digest is not None:
+                self.main_digest.others[chat] = digest  # Its 看板's 刷新 and 记为看过 (cards/board.py KINDS).
         return digest
 
     def threads(self):

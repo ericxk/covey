@@ -478,6 +478,56 @@ class BoardTests(UnifiedCase):
         self.assertNotIn("T525", redrawn)
         self.assertIn("T526", redrawn)
 
+    def test_a_stopped_topic_opens_its_task_card_and_says_what_comes_next(self):
+        """看板走查 1 and 3 (2026-11-19): 停住了 and 可能卡住 rows open their task card (去任务卡), where 检查并继续 and 看看 are;
+        a lead's stop says who stopped it."""
+        self.app.digest.url = lambda ctx, topic, card="": f"https://applink.example/{topic}/{card}"
+        write_topic(self.state, {"topic_number": 530}, topic_id="lead")
+        upsert_job_record(self.state, "j-lead", job_id=11, status="cancelled", chat_id=CHAT, topic_id="lead",
+                          card_message_id="om_lead", harness_id="claude", cancel_requested_by="lead",
+                          timings={"backend_started": self.now - 900, "execution_finished": self.now - 600})
+        with mock.patch("time.time", return_value=self.now):
+            self.press("ev1")
+        text = json.dumps(self.card(), ensure_ascii=False)
+        self.assertIn("专项负责人停了它", text)
+        self.assertIn("去任务卡", text)
+        self.assertIn("https://applink.example/lead/om_lead", text)
+
+    def test_a_result_is_marked_seen_from_the_board_and_refresh_redraws_it_in_place(self):
+        """看板走查 2 and 6: 记为看过 under a result marks its topic seen and redraws the card; 刷新 redraws it in place,
+        no fold (a second menu click folds it)."""
+        from covey.cards.board import REFRESH_KIND, SEEN_KIND, board_card
+        card = board_card({"waiting": [], "running": [], "stale": [], "stamp": "08:00",
+                           "done": [{"topic": "res", "label": "T531", "title": "看板", "status": "done", "tone": "result"}]})
+        seen, = [v for v in buttons(card) if v.get("kind") == SEEN_KIND]
+        self.assertEqual(seen, {"kind": SEEN_KIND, "topic": "res"})
+        self.assertTrue([v for v in buttons(card) if v.get("kind") == REFRESH_KIND])
+        self.press("ev1")
+        with mock.patch("covey.core.board_read.mark_seen", return_value=True) as mark, \
+                mock.patch.object(self.app.digest, "board_refresh", wraps=self.app.digest.board_refresh) as redraw:
+            self.app.handle_card_action_event({"event_id": "c1", "operator_id": "owner", "chat_id": CHAT,
+                                               "message_id": "om_board1", "action_value": seen}, self.ctx)
+            self.assertEqual(mark.call_args.args[1:3], (CHAT, "res"))
+            redraw.assert_called_once()
+        before = len(self.puts)
+        self.app.handle_card_action_event({"event_id": "c2", "operator_id": "owner", "chat_id": CHAT,
+                                           "message_id": "om_board1", "action_value": {"kind": REFRESH_KIND}}, self.ctx)
+        self.assertGreater(len(self.puts), before)
+        self.assertEqual(self.puts[-1][0], "bcard")  # The same card, redrawn whole.
+        self.assertNotIn("已收起", json.dumps(self.card(), ensure_ascii=False))
+        self.assertTrue(any("outcome=board_refresh" in line for line in self.logs))
+
+    def test_marking_a_result_seen_records_a_read_after_its_end(self):
+        from covey.core import board_read
+        from covey.core.topic_seen import read_seen
+        write_topic(self.state, {"topic_number": 532}, topic_id="res2", chat_id=CHAT)
+        upsert_job_record(self.state, "j-res2", job_id=13, status="done", chat_id=CHAT, topic_id="res2",
+                          card_message_id="om_res2", harness_id="claude",
+                          timings={"backend_started": self.now - 900, "execution_finished": self.now - 600})
+        self.assertTrue(board_read.mark_seen(self.state, CHAT, "res2", self.now))
+        self.assertGreaterEqual(read_seen(self.state)["res2"], self.now - 600)
+        self.assertFalse(board_read.mark_seen(self.state, CHAT, "res2", self.now))  # Seen already.
+
     def test_a_topic_the_owner_stopped_himself_is_folded_as_stopped_by_him(self):
         write_topic(self.state, {"topic_number": 527}, topic_id="mine")
         write_topic(self.state, {"topic_number": 528}, topic_id="lead")
@@ -522,7 +572,7 @@ class BoardTests(UnifiedCase):
         # Its own card now (cards/board.py, the owner's 样张 A, 2026-11-18): coloured blocks by what they ask of him.
         self.assertEqual(card["header"]["title"]["content"], "看板")
         text = json.dumps(card, ensure_ascii=False)
-        for part in ("T501", "T502", "T503", "这些都不用回答了", "等你", "在做", "做完的话题 1 个，都看过了", "要你处理", "band-0"):
+        for part in ("T501", "T502", "T503", "不管了", "等你", "在做", "做完的话题 1 个，都看过了", "要你处理", "band-0"):
             self.assertIn(part, text)
         self.assertNotIn("T504", text)
         self.assertNotIn("我本来想找你的事", text)

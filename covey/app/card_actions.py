@@ -9,7 +9,7 @@ pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
 app/group_manager.py, app/dashboard.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
-app/overview.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
+app/overview.py, app/digest.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
 from __future__ import annotations
@@ -163,6 +163,9 @@ ACTIONS = {
     "bridge_settings_tab": CardAction("切换设置标签"),
     # 手上的事's line of old questions (cards/overview.py DISMISS): only the board's record changes.
     "bridge_overview_dismiss": CardAction("撤下看板"),
+    # The 看板's 刷新 and 记为看过 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).
+    "bridge_board_refresh": CardAction("刷新看板"),
+    "bridge_board_seen": CardAction("记为看过"),
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).
     "bridge_app_setup": CardAction("补齐飞书应用配置"),
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),

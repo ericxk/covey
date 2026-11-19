@@ -15,7 +15,7 @@ many of them have their pin; ``unseen``: how many results the owner has not seen
 pin under ``waiting``, ``result`` (as ``ended`` rows, ``seen`` marked 已看) and
 ``running``, and ``stale``, the questions waiting too long to be on it. The card is then the board's index: the
 counts, the pinned ones as one line, only the rows without a pin. Its line of old questions has the button
-这些都不用回答了 (DISMISS, its value the topics listed), and ``dismissed``, the T numbers of the topics the owner
+不管了 (DISMISS, its value the topics listed), and ``dismissed``, the T numbers of the topics the owner
 took off the board, is one line at the bottom."""
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ SHOWN = 8  # Rows a part shows; the rest is one line under them.
 TITLE_CHARS, DETAIL_CHARS = 30, 80
 STALE = 86400  # A question waiting this long is listed by its topic number only.
 LABELS = 10  # Topic numbers that line names.
-DISMISS = "bridge_overview_dismiss"  # 这些都不用回答了 (app/overview.py claim).
+DISMISS = "bridge_overview_dismiss"  # 不管了 (这些都不用回答了 before 2026-11-19) (app/overview.py claim).
 DISMISS_MAX = 50  # Topics its value names at most.
 # How a task ended, as 刚结束 says it.
 OUTCOMES = turn_words.OVERVIEW_OUTCOMES
@@ -108,15 +108,16 @@ def _waiting_part(rows, now):
 
 def counts(view):
     """The title bar's subtitle and the chat list's preview: how many wait and run."""
-    parts = [f"等你回答 {len(view['waiting'])}" if view["waiting"] else "",
-             f"进行中 {len(view['running'])}" if view["running"] else ""]
-    return " · ".join(part for part in parts if part) or "没有进行中的任务"
+    parts = [f"{turn_words.OVERVIEW_GROUPS['waiting']} {len(view['waiting'])}" if view["waiting"] else "",
+             f"{turn_words.OVERVIEW_GROUPS['running']} {len(view['running'])}" if view["running"] else ""]
+    return " · ".join(part for part in parts if part) or "没有在做的任务"
 
 
 def board_counts(board):
     counts = board["counts"]
     unseen = counts.get("unseen", counts["result"])  # A view saved before 2026-11-10 has no unseen count.
-    return (f"等你回答 {counts['waiting']} · 进行中 {counts['running']} · 有结果 {counts['result']}"
+    return (f"{turn_words.OVERVIEW_GROUPS['waiting']} {counts['waiting']} · {turn_words.OVERVIEW_GROUPS['running']} "
+            f"{counts['running']} · 有结果 {counts['result']}"
             + (f"（未看 {unseen}）" if counts["result"] else ""))
 
 
@@ -127,14 +128,14 @@ def named(labels):
 
 def stale_line(rows, button=False, origin=""):
     """The questions waiting over STALE as one line, here and on the 早晚汇总 card (cards/digest.py); ``button``:
-    with 这些都不用回答了, which names these topics; ``origin``, the card it is on when not this one (its value's
+    with 不管了, which names these topics; ``origin``, the card it is on when not this one (its value's
     ``from``: app/overview.py claim hands the click on, app/digest.py redraws that card)."""
     line = note(f"另有 {len(rows)} 个等了一天以上：{named([linked(row) for row in rows])}")
     topics = list(dict.fromkeys(row["topic"] for row in rows if row.get("topic")))[:DISMISS_MAX]
     if not button or not topics:
         return line
     value = {"kind": DISMISS, "topics": topics, **({"from": origin} if origin else {})}
-    return item(line, text_button("这些都不用回答了", value))
+    return item(line, text_button("不管了", value))
 
 
 def dismissed_line(labels):
@@ -175,11 +176,11 @@ def overview_card(view, now, stamp="", where="私聊"):
     if view["waiting"]:
         elements += _waiting_part(view["waiting"], now)
     if view["running"]:
-        elements += _part("进行中", view["running"], _running, now)
+        elements += _part(turn_words.OVERVIEW_GROUPS["running"], view["running"], _running, now)
     if view["ended"]:
         elements += _part("刚结束", view["ended"], _ended, now)
     if not elements:
-        elements.append(md(grey("现在没有进行中的任务，也没有等你回答的问题。")))
+        elements.append(md(grey("现在没有在做的任务，也没有在等你的事。")))
     if stamp:
         elements.append(note(f"更新于 {stamp} · 只列这个{where}里的任务"))
     head = panel_header("waiting_outlined", TITLE, counts(view))

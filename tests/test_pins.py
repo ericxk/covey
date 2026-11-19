@@ -309,7 +309,7 @@ class RoundTests(UnifiedCase):
         self.assertEqual(len(self.feishu.calls), calls)
         # The card redrawn as the index: counts, one line for the pins, the old question.
         card = json.dumps(self.last_card(), ensure_ascii=False)
-        self.assertIn("等你回答 2 · 进行中 1 · 有结果 1", card)  # 等我: the pinned one and the old one (core/board_read.py waits).
+        self.assertIn("等你 2 · 在做 1 · 有结果 1", card)  # 等我: the pinned one and the old one (core/board_read.py waits).
         self.assertIn("Pin 着 3 个话题", card)  # Once, in the header.
         self.assertEqual(card.count("Pin 着 3 个话题"), 1)
         self.assertIn("在 Pin 页里点话题的卡片，直接打开那个话题", card)
@@ -435,10 +435,10 @@ class RoundTests(UnifiedCase):
         self.overview.tick(self.ctx, NOW)
         self.assertEqual(self.feishu.order(), [f"om_j{n}" for n in range(MAX_PINS + 2, 2, -1)] + ["om_index1"])
         card = json.dumps(self.app.messenger.create_and_send_card.call_args.args[2], ensure_ascii=False)
-        self.assertIn("进行中 · 未 Pin（12）", card)  # The first card: drawn before any pin.
+        self.assertIn("在做 · 未 Pin（12）", card)  # The first card: drawn before any pin.
         self.overview.tick(self.ctx, NOW + 20)
         card = json.dumps(self.last_card(), ensure_ascii=False)
-        self.assertIn("进行中 · 未 Pin（2）", card)
+        self.assertIn("在做 · 未 Pin（2）", card)
         self.assertIn("话题 401", card)
         self.assertIn("话题 402", card)
 
@@ -519,7 +519,7 @@ class DismissTests(RoundTests):
         self.overview.tick(self.ctx, NOW + 20)
         self.assertEqual(self.feishu.order(), ["om_run", "om_index1"])
         card = json.dumps(self.last_card(), ensure_ascii=False)
-        self.assertIn("等你回答 0 · 进行中 1 · 有结果 0", card)
+        self.assertIn("等你 0 · 在做 1 · 有结果 0", card)
         self.assertIn("你撤下的 1 个：T403", card)
         self.assertNotIn("话题 403", card)
         self.question("q2", "t3", NOW + 30)  # A newer question: back, pinned at once.
@@ -604,7 +604,7 @@ class DismissTests(RoundTests):
                 self.tick(at)
             self.assertEqual(self.feishu.order(), [f"om_q{cycle}", "om_run4", "om_run3", "om_res", "om_index1"])
             card = json.dumps(self.last_card(), ensure_ascii=False)
-            self.assertIn("等你回答 0 · 进行中 3 · 有结果 1", card)  # The counts are the real state.
+            self.assertIn("等你 0 · 在做 3 · 有结果 1", card)  # The counts are the real state.
             self.job(f"loop{cycle}", 10 + cycle, status="waiting_user", topic="t1")
         self.assertLessEqual(len(self.feishu.calls), 2 * cycles, self.feishu.calls)
         # Running past DEMOTE, it goes down to 进行中 at last.
@@ -624,8 +624,8 @@ class CardTests(unittest.TestCase):
             "running": [], "stale": []}}
         card = overview_card(view, NOW)
         self.assertEqual([element["content"] for element in card["body"]["elements"]],
-                         ["等你回答 0 · 进行中 0 · 有结果 0"])
-        self.assertEqual(card["header"]["subtitle"]["content"], "等你回答 0 · 进行中 0 · 有结果 0")
+                         ["等你 0 · 在做 0 · 有结果 0"])
+        self.assertEqual(card["header"]["subtitle"]["content"], "等你 0 · 在做 0 · 有结果 0")
 
     def test_a_stopped_topic_without_a_pin_is_listed_with_the_results(self):
         rows = [{"label": "T401", "title": "改看板", "topic": "t1", "status": "cancelled", "at": NOW - 60},
@@ -635,8 +635,8 @@ class CardTests(unittest.TestCase):
             "running": [], "stale": []}}
         card = json.dumps(overview_card(view, NOW), ensure_ascii=False)
         self.assertIn("有结果 · 未 Pin（2）", card)
-        self.assertIn("⏹ 已停止 · ", card)
-        self.assertIn("✅ 完成 · ", card)
+        self.assertIn("已停止 · ", card)
+        self.assertIn("做完 · ", card)
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ ASK_AUTO = "你已经连着 {} 次直接点了建：以后这种直接建，只�
 NAME_FIELD, GOAL_FIELD, WHY_FIELD, TOPICS_FIELD, MORE_FIELD = "name", "goal", "why", "topics", "more"
 CARD_ROWS = 5
 OUTCOME = {"done": "已照办", "declined": "不用", "never": "以后不再提议", "failed": "没做成", "expired": "已过时"}
-PROPOSAL_OUTCOME = {**OUTCOME, "declined": "暂不考虑"}  # The proposal card's word for its 暂不考虑
+PROPOSAL_OUTCOME = {**OUTCOME, "declined": "不管了"}  # The proposal card's word for its 不管了 (暂不考虑 before 2026-11-19)
 KIND_WORDS = {"create": "新建", "join": "归进", "leave": "移出", "merge": "合并", "split": "拆开", "rename": "改名", "fold": "收起"}
 TIDY_ICON = "folder_outlined"
 
@@ -90,7 +90,7 @@ def name_form(view):
     """建专项 after the owner's own touches (the owner, 2026-11-18: 直接给一个可编辑的名字然后一个确认按钮就行…一个暂不考虑就行;
     在页面增删一下话题…让人微操一波): which topics (``choices``: the proposal's, ticked, then the recent others; a select's
     options are fixed when the card is sent, so any other topic goes in by its T number), the name ready to change, and
-    建专项 / 暂不考虑. A view without choices (kept before them) has the name alone."""
+    建专项 / 不管了. A view without choices (kept before them) has the name alone."""
     elements = []
     choices = view.get("choices") or []
     if choices:
@@ -106,7 +106,7 @@ def name_form(view):
                   "default_value": view.get("name") or "", "placeholder": plain("专项名：对象 + 要达成的事，12 个字以内")}]
     submit = {"tag": "button", "name": "tidy_build", "form_action_type": "submit", "type": "primary",
               "text": plain("建专项"), "behaviors": callback(_value(NAMED_KIND, view))}
-    later = {"tag": "button", "name": "tidy_later", "type": "default", "text": plain("暂不考虑"),
+    later = {"tag": "button", "name": "tidy_later", "type": "default", "text": plain("不管了"),
              "behaviors": callback(_value(DECLINE_KIND, view))}
     return {"tag": "form", "name": "tidy_name", "elements": [*elements, button_row([submit, later])]}
 
@@ -116,7 +116,7 @@ def proposal_card(view):
     标题)] in a view kept before them), name, goal, why, first (the first proposal ever: one sentence of what a project is),
     ask_auto (5 in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), changed (what became of
     its topics since it was sent, while open: app/project_tidy.py follow), note (the line under it once decided), lesson (a
-    reason form under a 暂不考虑). Open, it ends with the name to change and 建专项 / 暂不考虑 (``name_form``)."""
+    reason form under a 暂不考虑). Open, it ends with the name to change and 建专项 / 不管了 (``name_form``)."""
     elements = topic_lines(view)
     if view.get("why"):
         elements.append(note("为什么提：" + literal_text(view["why"])))
@@ -220,7 +220,7 @@ def tidy_card(view):
         # 说不需要呢): named, to decide on the 看板 — never “没有要改的” while they wait.
         elements += [section(f"还在等你定（{len(pending)} 个）"),
                      md("、".join(f"「{literal_text(name)}」" for name in pending)),
-                     note("之前提过、你还没定。在看板的专项区可以直接点「建专项」或「暂不考虑」。")]
+                     note("之前提过、你还没定。在看板的专项区可以直接点「建专项」或「不管了」。")]
     if state == "done" and not did and not rows and not proposed and not pending:
         elements.append(md("专项和最近动过的话题都看过了，没有要改的。"))
     for words in view.get("skipped") or ():
