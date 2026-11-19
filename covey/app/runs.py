@@ -37,7 +37,7 @@ from covey.core import memory
 from covey.core import principles as owner_principles
 from covey.core.butler import is_butler_topic
 from covey.core.metrics import mark
-from covey.core.proxy import owner_turn_note
+from covey.core.proxy import brief_history, owner_turn_note
 from covey.core.redaction import topic_redaction
 from covey.core.result import ExecutionOutcome
 from covey.core.saved_results import consume_paused_question_answer, observe_verified_reply
@@ -155,6 +155,7 @@ class Runs:
             remember=knowledge_turn.remembers(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
             memory_text=memory_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
             memory_fix=memory_turn.fix_rule(ctx, job, lambda: self.owner_turn(ctx, job)),
+            proxy=proxy_topic(ctx),
         )
 
     def principles(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
@@ -392,6 +393,8 @@ class Runs:
             ready=lambda: (bool(ctx.device) or Path(ctx.workdir).is_dir()) and not self._redaction_refusal(ctx),
             note=lambda text: self._bridge_note(ctx, job, "bridge-handoff", text))
         earlier = earlier_history(history_snapshot, job.message_id, user_text)
+        if proxy_topic(ctx):
+            earlier = brief_history(earlier)  # Each earlier batch by its messages; its rules are this batch's.
         # After a switch each earlier message is cut short: the transcript file has them whole.
         return ctx, first_turn_message(user_text, capped(earlier) if handoff else earlier) + handoff
 
@@ -409,7 +412,8 @@ class Runs:
             memory_turn.record(ctx, job, lambda: self.owner_turn(ctx, job), self.runtime.log)  # COVEY_MEMORY=1: the numbers carried.
         if not system and fresh:
             prompt = rules + "\n\n" + prompt
-        elif not rules_session:
+        elif not rules_session and not proxy_topic(ctx):
+            # A 代答 topic's batch prompts carry its rules each turn (core/proxy.py batch_prompt): nothing appended.
             # Sessions without the rules at system level (older ones, or no such channel); their original prompts may still describe the tool repository as the
             # output root, or compaction may have dropped them.
             # The principles too: one the owner gave after the session started reaches its next turn.
@@ -432,8 +436,9 @@ class Runs:
         return prompt
 
     def _checkpoint_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
-        """The checkpoint file and the previous status; continuing an answered task closes its card."""
-        if not job.checkpoint_path:
+        """The checkpoint file and the previous status; continuing an answered task closes its card. None in a 代答
+        topic: its turns never wait for the owner and write no checkpoint (app/prompts.py proxy_constraints)."""
+        if not job.checkpoint_path or proxy_topic(ctx):
             return ""
         prior = job.recovery_context
         if prior is None:

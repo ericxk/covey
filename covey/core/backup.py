@@ -53,7 +53,7 @@ BACKUP_DIRS = {
 
 # model-usage.json: the chats' recent model selections, so the model selects keep their order after a restore.
 BACKUP_FILES = {"workspace-config.json", "session_index.jsonl", "bot-identity.json", "launch-defaults.json",
-                "model-usage.json", "proxy/settings.json", "proxy/style.md"}
+                "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md"}
 
 
 def backup_paths(state):

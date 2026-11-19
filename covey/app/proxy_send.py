@@ -134,6 +134,19 @@ class ProxySend:
             user_cli(settings["user_profile"], "im", "+chat-messages-list", "--chat-id", chat_id, "--start", iso(start),
                      "--page-size", "50", "--no-reactions", timeout=timeout))
 
+    def recent_chat(self, settings, contact, limit=records.RECENT_MESSAGES):
+        """The chat's newest ``limit`` messages as the owner, oldest first (core/proxy.py incoming), the owner's
+        own among them, for a batch's prompt (T571); [] when the read fails, and the prompt asks the model to read it."""
+        chat_id = contact.get("chat_id") or contact["target"]
+        try:
+            items = records.search_messages(
+                user_cli(settings["user_profile"], "im", "+chat-messages-list", "--chat-id", chat_id, "--order", "desc",
+                         "--page-size", str(limit), "--no-reactions", timeout=30))
+        except RuntimeError as exc:
+            self.proxy.runtime.log(f"proxy recent chat unread contact={records.digest(contact['key'])[:8]}: {str(exc)[:200]}")
+            return []
+        return [records.incoming(item) for item in reversed(items)]
+
     def replies(self, settings, contact, start):
         """chat_messages as core/proxy.py incoming, each with the message it replies to (``reply_to``)."""
         return [records.incoming(item) | {"reply_to": str(item.get("reply_to") or "")}

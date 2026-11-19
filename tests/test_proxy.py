@@ -76,8 +76,38 @@ class RecordTests(unittest.TestCase):
         self.assertIn(records.SKIP_MARK, prompt)
         self.assertIn(records.NO_REPLY_MARK, prompt)  # Wrap-ups need no reply (2026-10-27).
         self.assertIn('lark-cli --profile me', prompt)
-        self.assertIn('requires_user 写 false', prompt)  # Never waits for the owner (2026-10-27).
+        self.assertIn('不出问题卡', prompt)  # Never waits for the owner (2026-10-27).
         self.assertTrue(records.batch_prompt(PERSON, batch, {}, '主人风格：很短').endswith('主人风格：很短'))
+        # T571: no "a noncommittal line when nothing is found"; the owner answers as the one who does the work.
+        self.assertNotIn('不表态', prompt)
+        self.assertIn('主人就是行家', prompt)
+        self.assertNotIn(records.RECENT_HEAD, prompt)  # No recent chat read: the model reads the chat itself.
+        self.assertIn('先检索再答', prompt)
+
+    def test_the_prompt_has_the_chat_as_it_is_and_what_the_owner_works_on(self):
+        batch = records.new_batch(PERSON, [records.incoming(item('m3', '开始蒸馏自己了'))])
+        recent = [records.incoming(item('m1', '啥时候开源')),
+                  records.incoming(item('m2', '下周\n最近在疯狂炼化', sender=OWNER)),
+                  records.incoming(item('m3', '开始蒸馏自己了'))]
+        settings = {'owner_name': '胥可', 'owner_user_id': OWNER, 'user_profile': 'me'}
+        prompt = records.batch_prompt(PERSON, batch, settings, '主人风格：很短', context='炼化：把人沉淀进 Agent', recent=recent)
+        chat = prompt[prompt.index(records.RECENT_HEAD):prompt.index(records.RULES_HEAD)]
+        self.assertIn('张三：啥时候开源', chat)
+        self.assertIn('胥可（主人）：下周 / 最近在疯狂炼化', chat)  # The owner's own, on one line.
+        self.assertIn('要更早的聊天', prompt)
+        self.assertNotIn('先检索再答', prompt)
+        self.assertLess(prompt.index('炼化：把人沉淀进 Agent'), prompt.index('主人风格：很短'))
+        self.assertTrue(prompt.endswith('主人风格：很短'))
+        long = records.incoming(item('m4', '长' * 400))
+        self.assertEqual(len(records.recent_lines([long], settings)[0].split('：', 1)[1]), records.RECENT_CHARS + 1)
+        # A new session's earlier batches: their messages, not their rules again (each batch's prompt has them).
+        rows = [{'role': 'user', 'content': prompt}, {'role': 'assistant', 'content': '我也在蒸'},
+                {'role': 'user', 'content': '帮我看下'}]
+        brief = records.brief_history(rows)
+        self.assertIn('开始蒸馏自己了', brief[0]['content'])
+        self.assertNotIn(records.RECENT_HEAD, brief[0]['content'])
+        self.assertNotIn(records.RULES_HEAD, brief[0]['content'])
+        self.assertEqual(brief[1:], rows[1:])
 
     def test_search_times_carry_a_colon_offset_and_cli_errors_are_one_line(self):
         from covey.app import proxy_send as proxy
@@ -1402,15 +1432,64 @@ class FlowTests(ProxyCase):
         # The next round's prompt says so, and has both messages in order.
         contact = records.read_contacts(self.state)[0]
         prompt = records.batch_prompt(contact, carrier, self.settings())
-        self.assertIn('那一轮已停下，没有发出', prompt)
+        self.assertIn('那一轮的回复不发', prompt)
         self.assertLess(prompt.index('接口文档在哪'), prompt.index('还有个事'))
-        self.assertNotIn('那一轮已停下', records.batch_prompt(contact, first, self.settings()))
+        self.assertNotIn('那一轮的回复不发', records.batch_prompt(contact, first, self.settings()))
         # The stopped job ends (cancelled, or done after all): its reply is never sent; the next round runs.
         for status in ('cancelled', 'done'):
             upsert_job_record(self.state, first['job_key'], status=status)
             self.run_tick('旧的回复', {'ok': True, 'submitted': True}).assert_not_called()
         self.assertEqual(records.read_batch(self.state, first['id'])['status'], 'superseded')
         self.assertEqual(records.read_batch(self.state, carrier['id'])['status'], 'submitted')
+
+    def test_a_young_running_round_runs_on_and_the_next_one_resumes_its_session(self):
+        # T571: a stopped round's native session was dropped, and the next round started afresh. A round running
+        # less than OVERTAKE_STOP_AFTER is left to end, its reply unused; the next one queues after it.
+        first = self.running(self.submitted(status='running'))
+        with mock.patch.object(records, 'OVERTAKE_STOP_AFTER', 90), self.stops() as (calls, _):
+            self.take_in(item('m2', '还有个事', position='9'))
+            self.assertEqual(calls, [])  # Not stopped.
+            gone = records.read_batch(self.state, first['id'])
+            self.assertEqual((gone['status'], gone['reason']), ('superseded', records.OVERTAKEN_RUNS_ON))
+            carrier = self.open_batch('received')
+            self.assertEqual(([m['id'] for m in carrier['messages']], carrier['restarts'], 'stop_job' in carrier),
+                             (['m1', 'm2'], 1, False))
+            self.assertIn('· 对方又发来新消息：这一轮跑完不发，下一轮接着它和新消息一起回', self.notes())
+            self.assertTrue(any(line.endswith('its job runs on for its session') for line in self.logs))
+            # It ends: its reply is never sent, and the next round is submitted.
+            upsert_job_record(self.state, first['job_key'], status='done')
+            self.run_tick('旧的回复', {'ok': True, 'submitted': True}).assert_not_called()
+            second = self.open_batch('submitted')
+            self.assertEqual(second['id'], carrier['id'])
+            # A round still queued has no session to keep: stopped (its queue entry cancelled) as before.
+            upsert_job_record(self.state, second['job_key'], status='queued', job_id=second['job_id'],
+                              topic_id=second['topic_id'], message_id=second['mirror_id'], chat_id='oc_proxy')
+            self.take_in(item('m3', '在吗', position='11'))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(records.read_batch(self.state, second['id'])['reason'], records.OVERTAKEN)
+        # One running past OVERTAKE_STOP_AFTER is stopped too.
+        upsert_job_record(self.state, 'om_long', status='running', job_id=99, topic_id=first['topic_id'],
+                          message_id='om_long', chat_id='oc_proxy')
+        aged = {**first, 'history': [['submitted', round(time.time()) - 91]], 'job_key': 'om_long'}
+        with mock.patch.object(records, 'OVERTAKE_STOP_AFTER', 90):
+            self.assertTrue(self.proxy.runs_on(self.ctx, {**aged, 'history': [['submitted', round(time.time())]]}))
+            self.assertFalse(self.proxy.runs_on(self.ctx, aged))
+
+    def test_a_submitted_batch_has_the_chat_and_the_owner_context_in_its_prompt(self):
+        (records.proxy_dir(self.state) / records.CONTEXT_FILE).write_text('炼化：把人沉淀进 Agent\n', encoding='utf-8')
+        listed = {'data': {'messages': [item('m1', '接口文档在哪'), item('m0', '最近在疯狂炼化', sender=OWNER)]}}
+        self.take_in(item('m1', '接口文档在哪'))
+        [batch] = self.batches()
+        submission = self.app.apps['codex'].submission
+        with owner_cli(return_value=listed) as cli, \
+                mock.patch.object(submission, 'enqueue_chat_job', wraps=submission.enqueue_chat_job) as enqueue:
+            self.proxy.submit(self.ctx, self.settings(), records.read_contacts(self.state)[0], batch)
+        args = [c.args for c in cli.call_args_list if '+chat-messages-list' in c.args and '--order' in c.args]
+        self.assertTrue(args and args[0][args[0].index('--order') + 1] == 'desc')
+        prompt = enqueue.call_args.kwargs['prompt_content']
+        chat = prompt[prompt.index(records.RECENT_HEAD):prompt.index(records.RULES_HEAD)]
+        self.assertLess(chat.index('胥可（主人）：最近在疯狂炼化'), chat.index('张三：接口文档在哪'))  # Oldest first.
+        self.assertIn('炼化：把人沉淀进 Agent', prompt)
 
     def test_a_round_that_ended_but_was_not_yet_decided_is_not_sent(self):
         first = self.submitted(status='done')  # Its job ended; the poll that sends its reply has not come.

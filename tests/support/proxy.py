@@ -137,6 +137,8 @@ class ProxyCase(UnifiedCase):
         self.enterContext(owner_cli(side_effect=RuntimeError('lark-cli not stubbed')))
         self.proxy.web_login.status_next = float('inf')  # No +status of the tool unless a test asks for one (F4).
         self.enterContext(mock.patch.object(proxy_module, 'SETTLE_SECONDS', 0, create=True))  # Unless a test waits for it.
+        # An overtaken round is stopped, unless a test leaves a young one to run on (T571).
+        self.enterContext(mock.patch.object(records, 'OVERTAKE_STOP_AFTER', 0))
 
     def unlocked(self, fake, *args, **kwargs):
         if self.proxy.lock.locked():

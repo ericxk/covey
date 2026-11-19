@@ -235,6 +235,28 @@ class TurnTest(unittest.TestCase):
         write_topic(self.ctx, proxy={"contact": "ou_x"})
         self.assertNotIn(PRINCIPLES_HEAD, self.turn(chat=DM, sender=OWNER))
 
+    def test_a_proxy_topics_turn_has_its_own_rules_and_no_checkpoint(self):
+        # T571: a 代答 turn's replies go to other people in plain text; an ordinary topic's Markdown layout, checkpoint
+        # contract and checkpoint note drew two of its three tool calls into bookkeeping.
+        write_topic(self.ctx, proxy={"contact": "ou_x"})
+        for sid in (None, SID):
+            with self.subTest(resumed=bool(sid)):
+                backend = FakeBackend()
+                app, job = self.app(backend), self.job(chat=DM, sender=OWNER)
+                job.checkpoint_path = str(self.ctx.state_dir / "checkpoints" / "cp.json")
+                app.runs.generate_reply_for_worker(self.ctx, job, sid, None)
+                for claimed in job.native_session_claims:
+                    finish_native_session(self.ctx, CLAUDE_SPEC.name, claimed, job.bridge_run_id, True)
+                prompt = backend.prompts[-1]
+                self.assertNotIn(CHECKPOINT_RULES, prompt)
+                self.assertNotIn("Feishu-friendly Markdown", prompt)
+                self.assertNotIn("本任务检查点文件", prompt)
+                if sid is None:
+                    self.assertIn("answering for the owner through a Feishu bridge (代答)", prompt)
+        # Any other topic keeps them.
+        write_topic(self.ctx, proxy=None)
+        self.assertIn(CHECKPOINT_RULES, self.app().runs.bridge_rules(self.ctx, self.job()))
+
     def test_every_harness_has_it_in_its_rules_and_its_message(self):
         """No backend takes the rules at system level (owner 2026-11-02), so each reads them in request.prompt:
         Claude (stdin), Codex (the turn's input), MASO, dsh (stdin), Pi (the RPC prompt) all pass that on."""

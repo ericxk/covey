@@ -161,6 +161,7 @@ class StorageMaintenanceTest(unittest.TestCase):
         self.write("proxy/settings.json", json.dumps({"enabled": True}))
         self.write("proxy/contacts/a.json", json.dumps({"key": "p2p:ou_a"}))
         self.write("proxy/style.md", "很短")
+        self.write("proxy/owner-context.md", "炼化：把人沉淀进 Agent")  # T571: what the owner works on.
         self.write("proxy/web/profile/Default/Cookies", "secret")
         shot = self.write("proxy/shots/old-verify.png", "x")
         old_sent = self.write("proxy/batches/old-sent.json", json.dumps({"id": "old-sent", "status": "sent"}))
@@ -175,7 +176,7 @@ class StorageMaintenanceTest(unittest.TestCase):
         self.assertTrue(old_held.exists() and new_sent.exists())
         with tarfile.open(plan["backup"], "r:gz") as tar:
             names = sorted(m.name for m in tar.getmembers() if m.name.startswith("proxy/"))
-        self.assertEqual(names, ["proxy/contacts/a.json", "proxy/settings.json", "proxy/style.md"])
+        self.assertEqual(names, ["proxy/contacts/a.json", "proxy/owner-context.md", "proxy/settings.json", "proxy/style.md"])
 
     def test_temporary_entries_untouched_for_a_week_go_unless_a_process_uses_them(self):
         old = self.write("tmp/old-cache/deep/file", "x")

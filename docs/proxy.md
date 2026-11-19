@@ -54,8 +54,8 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 `history` 每次转换记 `[状态, 时间, 原因]`（`core/proxy.py` 的 `history`），`reason` 只是最新的一个。
 
 - **并消息**：一个联系人同时只有一个在推进的批次。新消息并进 `received` 的（没有就开一个），替换 `held` 的。`received` 等会话安静 `SETTLE_SECONDS`（10 秒）才提交，从开批次算至多 `SETTLE_LIMIT`（45 秒）。
-- **顶掉**：新消息到时有 `submitted` 的批次，`add_messages` 在锁内先写新的 `received` 批次（旧消息在前，`restarts` 加一，`stop_job` 记旧批次），再把旧批次转 `superseded`（`OVERTAKEN`）；锁外 `stop_overtaken` 照任务卡“停止”停它的任务（`stop_job`：任务进程活着时转给它停，否则 `TaskControls.cancel_reply_job_from_card`），然后清掉 `stop_job`。Bridge 中途退出时下一轮 `tick` 补做。`sending` 的从不打断；话题里已有主人更新的一轮时不顶；连着顶掉 `MAX_RESTARTS`（2）轮后这一轮照旧跑完。
-- **提交**（`submit`）：批次以镜像卡为消息，经 `Submission.enqueue_chat_job` 提交到联系人话题，提示词由 `core/proxy.py` 的 `batch_prompt` 写，末尾附主人风格说明 `<state>/proxy/style.md`（`read_style`）。镜像卡 id 先存进批次，重启后按它找已有任务，不重复提交。提交前主人已亲自回复的、提交没成的转 `skipped`。
+- **顶掉**：新消息到时有 `submitted` 的批次，`add_messages` 在锁内先写新的 `received` 批次（旧消息在前，`restarts` 加一，`stop_job` 记旧批次），再把旧批次转 `superseded`（`OVERTAKEN`）；锁外 `stop_overtaken` 照任务卡“停止”停它的任务（`stop_job`：任务进程活着时转给它停，否则 `TaskControls.cancel_reply_job_from_card`），然后清掉 `stop_job`。Bridge 中途退出时下一轮 `tick` 补做。旧批次的任务正在跑、提交不到 `OVERTAKE_STOP_AFTER`（90 秒）时不停（`Proxy.runs_on`）：旧批次照样转 `superseded`（`OVERTAKEN_RUNS_ON`），回复不发，不记 `stop_job`，话题里说一句“这一轮跑完不发”；新批次的任务排在它后面，接着它的原生会话跑（原生会话只有正常结束的一轮才能续接，停下的一轮会丢掉会话，新一轮得从头读一遍）。还在排队的、跑得更久的照旧停。`sending` 的从不打断；话题里已有主人更新的一轮时不顶；连着顶掉 `MAX_RESTARTS`（2）轮后这一轮照旧跑完。
+- **提交**（`submit`）：批次以镜像卡为消息，经 `Submission.enqueue_chat_job` 提交到联系人话题，提示词由 `core/proxy.py` 的 `batch_prompt` 写：对方的消息；这个会话最近 `RECENT_MESSAGES`（20）条聊天（`ProxySend.recent_chat` 以主人身份读，含主人亲手发的，每条至多 `RECENT_CHARS` 字；读不到时不附，提示词改让模型自己去读）；怎么回（主人在对方聊的事上是行家，接住话头、给具体内容，不用外行式的反问代替回答）；主人在做的事 `<state>/proxy/owner-context.md`（`read_context`，主人确认能对外说的项目和术语）；最后是主人风格说明 `<state>/proxy/style.md`（`read_style`）。联系人笔记的 `README.md` 顶部是摘要，每轮的过程记录追加到同目录 `log.md`。镜像卡 id 先存进批次，重启后按它找已有任务，不重复提交。提交前主人已亲自回复的、提交没成的转 `skipped`。
 - **判断**（`decide`）：只用 `load_authorized_reply` 取已授权的保存回复（规则 5）。
   - 以 `NO_REPLY_MARK`（`[无需回复]`）开头：`skipped`，话题里一行“· 不用回”。
   - 以 `SKIP_MARK`（`[不回复]`）开头、没有回复或任务没完成：`held`，等主人在话题里的下一轮；回复带 `SUGGESTION` 行时存下建议，出重新发送卡的“按建议回复”。
@@ -73,6 +73,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 - **换模型**（`sync_topics`，每轮 `tick` 跑）：设置卡改了模型时记 `settings.model_changed_at`；联系人的 `model_synced_at` 早于它、话题没有 `submitted`/`sending` 批次时，用 `app/binding.py` 的 `switch_topic` 换绑定，话题里提示一句。主人在话题里单独换的不会被改回，直到卡上再改。
 - **不等主人**：`app/runs.py` 的 `_leave_checkpoint_question` 清掉代答话题检查点里的提问；Claude、Codex 的原生提问由 `app/native_questions.py` 的 `refused_in_proxy_topic` 以 `NO_QUESTION` 拒绝，模型接着写回复。`HarnessSpec.refuses_questions` 为 False 的 Harness（扩展的 Harness）的提问不拒（会取消整个运行）。
 - **主人的一轮**：主人在代答话题里说话、而联系人有 `submitted` 或 `held` 批次时，`app/runs.py` 的 `_turn_message` 附上 `owner_turn_note`：这一轮的回复会发给对方，不要发就以 `SKIP_MARK` 开头。
+- **规则**：代答话题的轮次用 `app/prompts.py` 的 `proxy_constraints` 代替普通话题的规则（不用 Markdown 排版、不写检查点和话题要点，只读查询，不发飞书消息），不附检查点说明（`Runs._checkpoint_note`），续接的会话也不再追加普通话题的提醒；新会话的 “Recent conversation” 里，之前每批的提示词只留消息（`core/proxy.py` 的 `brief_history`），规则只在这一批里出现一次。
 - 代答话题不带主人的原则；产物不列 `misc-tasks` 下代答自己的笔记目录（`app/artifacts.py` 的 `drive_paths`）。
 
 ## 发前闸门
@@ -170,6 +171,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 | `batches/<id>.json` | 一个批次（见「批次」） |
 | `panels/`、`resend/` | 设置卡、重新发送卡的记录 |
 | `style.md` | 主人的说话风格，附在每个批次的提示词后 |
+| `owner-context.md` | 主人在做的事（项目和术语，主人确认能对外说的），附在风格说明前；没有这个文件就不附 |
 | `send_login.json` | 已告诉主人的登录失效 |
 | `send-as-user/` | 发送工具的 HOME：凭证、幂等记录 |
 | `tmp/` | 发送的正文、登录二维码副本 |
@@ -177,7 +179,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 - 联系人和批次每次轮询、每次画卡都整个目录读，`core/proxy.py` 按目录缓存：本模块的写清缓存，别人的写看目录 mtime。
 - 维护（`core/maintenance.py`）：`PROXY_BATCH_DAYS`（30）天没动、已结束的批次删掉，没结束的留着；`proxy/shots/` 按临时目录的规则清；验收浏览器的缓存每小时检查一次，超过 `WEB_CACHE_BYTES` 且没有 `sending` 批次、浏览器没开时删 `WEB_CACHES`（`ProxyLogin.prune_web_caches`），cookie 和登录数据不动。
-- 每日备份只带 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`。
+- 每日备份只带 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`。
 
 ## 排障要点
 

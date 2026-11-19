@@ -230,6 +230,9 @@ class Proxy:
                                                 for r in topic_job_records(ctx.state_dir, running["topic_id"]))
             capped = running is not None and int(running.get("restarts") or 0) >= records.MAX_RESTARTS
             stopped = running if running is not None and not (later or capped) else None
+            # A round running a short while is left to end, its reply unused: the next round, queued after it,
+            # resumes its session (T571). One queued, or running long, is stopped as before.
+            runs_on = stopped is not None and self.runs_on(ctx, stopped)
             carried = stopped["messages"] if stopped else []
             received = next((b for b in open_batches if b["status"] == "received"), None)
             if received:
@@ -238,22 +241,36 @@ class Proxy:
                 received = records.new_batch(contact, messages, carried)
             if stopped:
                 received.update(restarts=max(int(received.get("restarts") or 0), int(stopped.get("restarts") or 0) + 1),
-                                stop_job=stopped["id"])
+                                **({} if runs_on else {"stop_job": stopped["id"]}))
             # The new batch first: the Bridge stopping between the two writes still finds the stop to ask for.
             records.write_batch(ctx.state_dir, received)
             if stopped:
-                stopped = records.move_batch(ctx.state_dir, stopped, "superseded", reason=records.OVERTAKEN)
+                stopped = records.move_batch(ctx.state_dir, stopped, "superseded",
+                                             reason=records.OVERTAKEN_RUNS_ON if runs_on else records.OVERTAKEN)
         for batch in replaced:
             self.resend.close(ctx, batch)
         self.runtime.log(f"proxy took in {len(messages)} message(s) contact={records.digest(key)[:8]}")
         if stopped:
             self.runtime.log(f"proxy overtaken batch={stopped['id'][:8]} job=#{stopped['job_id']}: its "
-                             f"{len(carried)} message(s) go into batch={received['id'][:8]} restarts={received['restarts']}")
-            self.stop_overtaken(ctx, self.settings(ctx), received)
+                             f"{len(carried)} message(s) go into batch={received['id'][:8]} restarts={received['restarts']}"
+                             + (", its job runs on for its session" if runs_on else ""))
+            if runs_on:
+                self.note(ctx, self.settings(ctx), stopped, "· 对方又发来新消息：这一轮跑完不发，下一轮接着它和新消息一起回",
+                          tag="overtaken")
+            else:
+                self.stop_overtaken(ctx, self.settings(ctx), received)
         elif running is not None:
             self.runtime.log(f"proxy batch={running['id'][:8]} job=#{running['job_id']} runs on: "
                              + ("the owner's later turn in its topic" if later else
                                 f"{records.MAX_RESTARTS} rounds stopped in a row"))
+
+    def runs_on(self, ctx, batch):
+        """Whether ``batch``'s job, overtaken by newer messages, is left to end rather than stopped: it is running
+        (a queued one has nothing to keep) and began less than OVERTAKE_STOP_AFTER ago. Its native session is kept
+        only by a turn that ends (app/turn_settle.py), and the next round, queued after it in the topic, resumes it."""
+        record = find_job_record(ctx.state_dir, batch.get("job_key") or "") if batch.get("job_key") else None
+        return ((record or {}).get("status") == "running" and records.OVERTAKE_STOP_AFTER > 0
+                and time.time() - records.submitted_at(batch) < records.OVERTAKE_STOP_AFTER)
 
     def stop_overtaken(self, ctx, settings, batch):
         """The round whose messages ``batch`` took over (``stop_job``) stopped: superseded (already, unless the
@@ -328,7 +345,10 @@ class Proxy:
         if existing:
             job_id = int(existing[0]["job_id"])
         else:
-            prompt = records.batch_prompt(contact, batch, settings, records.read_style(ctx.state_dir))
+            # The chat as it is (T571): the owner's own messages too, which the topic's history never has.
+            prompt = records.batch_prompt(contact, batch, settings, records.read_style(ctx.state_dir),
+                                          context=records.read_context(ctx.state_dir),
+                                          recent=self.web.recent_chat(settings, contact))
             append_history(target.history_path, "user", prompt, {**event, "display_content": shown})
             last = batch["messages"][-1]
             job = app.submission.enqueue_chat_job(target, f"{last['sender_name']}：{last['content'][:200]}",

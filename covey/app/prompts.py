@@ -84,6 +84,31 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
     ))
 
 
+def proxy_constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = ()) -> str:
+    """The rules of a 代答 topic's turns, in place of ``constraints`` and the checkpoint contract (T571): its replies
+    go to other people as the owner, in plain text; the Markdown layout, the checkpoint, its questions and 话题要点
+    of an ordinary topic only drew its turns into bookkeeping (two of a turn's three tool calls wrote the checkpoint)."""
+    runtime_note = runtime_note or f"{backend_name} permissions controlled by this bridge"
+    return "\n".join((
+        f"You are {backend_name}, answering for the owner through a Feishu bridge (代答).",
+        "",
+        "Constraints for this bridge:",
+        "- 这是代答话题：每一轮替主人回复一个联系人，最终回复会原样以主人的身份发给对方；怎么回写在每批消息里。",
+        f"- You are running from a Feishu bridge with {runtime_note}.",
+        "- 只做读取和查询（聊天、文档、代码、记录）；不改代码和配置、不部署、不删东西（联系人笔记照每批的说明更新）；"
+        "不要自己用 lark-cli 或别的工具发飞书消息，回复由 Bridge 发出。",
+        "- 不用写检查点，也不写话题要点。",
+        "- Scope every search: never walk a home, a workspace root, a data or NAS tree as a whole",
+        "  (`rg --files`, `find`, `ls -R`, `du`); a filter after a pipe does not limit the walk. Search the",
+        "  specific repository or subdirectory, limit the depth, and give the command a real timeout",
+        "  (e.g. `timeout --kill-after=2s 30s`). After a timeout, narrow the search instead of retrying it.",
+        "- Stop a command by its whole process group (`kill -TERM -- -<PGID>`), not only its shell or the last",
+        "  filter of a pipeline, then check that nothing you started is still running.",
+        "- " + TOOL_NOTES_LANGUAGE,
+        *("- " + note for note in notes),
+    ))
+
+
 def workspace_block(workspace_name: str, workdir: Path, device: str = "", remote_workdir: str = "") -> str:
     # On a device the directory is the device's, written as text: the hub's stand-in is never shown (it is no directory).
     place = (f"Current workdir: {remote_workdir} (on device {device}; the files of this task are on that machine)\n"
@@ -253,10 +278,15 @@ def bridge_rules(
     remote_workdir: str = "",
     memory_text: str = "",
     memory_fix: bool = False,
+    proxy: bool = False,
 ) -> str:
-    """Identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
+    """``proxy`` (a 代答 topic's): its own constraints and the workspace, nothing else (proxy_constraints). Otherwise
+    identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
     block), the project's memory and library (``project``, project_block; none: no block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block), the checkpoint
     contract (``remember``: and the rule for writing entries): the same every turn of a topic."""
+    if proxy:
+        return "\n\n".join((proxy_constraints(backend_name, runtime_note, notes),
+                            workspace_block(workspace_name, workdir, device, remote_workdir)))
     return "\n\n".join((constraints(backend_name, runtime_note, notes),
                         workspace_block(workspace_name, workdir, device, remote_workdir), *((memory_text,) if memory_text else ()),
                         *((principles,) if principles else ()),
