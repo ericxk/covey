@@ -3,8 +3,9 @@
 
 用法：python3 scripts/ci_retry_modules.py <ledger.jsonl>
 Prints the failed modules' paths (tests/test_x.py), space separated, and exits 0; exits 1 with nothing printed
-when a retry would not settle the run: the ledger line does not name every failure (scripts/test_map.py keeps
-FAILED ids at most and one per test), a name is not a test module of tests/, or more than LIMIT modules failed.
+when a retry would not settle the run: no ledger (test_map.py keeps none under $HOME or a temp dir), its last
+line does not name every failure (test_map.py keeps FAILED ids at most and one per test), a name is not a test
+module of tests/, or more than LIMIT modules failed.
 """
 from __future__ import annotations
 
@@ -32,7 +33,11 @@ def modules(entry: dict) -> list[str] | None:
 
 
 def main(argv: list[str]) -> int:
-    lines = [line for line in Path(argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+    ledger = Path(argv[1]) if len(argv) > 1 and argv[1] else None
+    if not ledger or not ledger.is_file():
+        print(f"no ledger at {ledger}: no retry", file=sys.stderr)
+        return 1
+    lines = [line for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip()]
     picked = modules(json.loads(lines[-1])) if lines else None
     if not picked:
         return 1

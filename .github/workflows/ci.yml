@@ -36,9 +36,12 @@ jobs:
         run: python scripts/privacy_check.py
       - name: Documentation links
         run: python scripts/check_doc_links.py
+      - name: Test ledger
+        # test_map.py keeps no ledger under $HOME or the temp dirs, and runner.temp is under $HOME.
+        run: |
+          sudo install -d -o "$(id -u)" -g "$(id -g)" /var/lib/covey-ci
+          echo "BRIDGE_TEST_LEDGER=/var/lib/covey-ci/test-ledger.jsonl" >> "$GITHUB_ENV"
       - name: Tests
-        env:
-          BRIDGE_TEST_LEDGER: ${{ runner.temp }}/test-ledger.jsonl
         run: |
           status=0
           python -B scripts/test_map.py run --full --why ci || status=$?

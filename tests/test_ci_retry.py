@@ -6,7 +6,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
@@ -48,6 +48,9 @@ class ModulesTest(unittest.TestCase):
             self.assertEqual(out.getvalue(), "tests/test_ttft.py\n")
             ledger.write_text(json.dumps({"failures": 0, "errors": 0}) + "\n")
             self.assertEqual(retry.main(["ci_retry_modules.py", str(ledger)]), 1)
+            with redirect_stderr(StringIO()):
+                self.assertEqual(retry.main(["ci_retry_modules.py", str(Path(temp) / "none.jsonl")]), 1)
+                self.assertEqual(retry.main(["ci_retry_modules.py", ""]), 1)
 
 
 if __name__ == "__main__":

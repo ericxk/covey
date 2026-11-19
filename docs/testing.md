@@ -167,7 +167,7 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 - 时区设成 `Asia/Shanghai`，和跑 Covey 的机器一样；测试里写死的日期、时刻按 UTC+8 写。新测试仍别依赖机器时区：代码按固定 +08:00 算的（如早晚汇总的时刻）就用同一个时区算期望值，按本机时间算的就在测试里固定 `TZ`。
 - 测试里的时间串按线上写法 `+08:00` 带冒号；`%z` 写出的 `+0800` 在 3.10 的 `fromisoformat` 上读不出。
 - CI 不装公司扩展，整模块 `require_extension()` 的测试在那里收不到用例；`test_map.py` 比对用例清单时不算这些模块，开着扩展 `build` 出的地图在 CI 上也不算过期。
-- 全量有失败时，`scripts/ci_retry_modules.py` 从台账最后一行取失败的模块（最多 4 个，台账要列全每个失败），再跑一次，第二次还失败才算 CI 失败；第一次的失败留在日志里，并有一条 warning。
+- 全量有失败时，`scripts/ci_retry_modules.py` 从台账（`/var/lib/covey-ci/`，`test_map.py` 不在 `$HOME` 和临时目录下记台账，GitHub 的 `runner.temp` 在 `$HOME` 下）最后一行取失败的模块（最多 4 个，台账要列全每个失败），再跑一次，第二次还失败才算 CI 失败；第一次的失败留在日志里，并有一条 warning。
 - 连着推时，后一次推送取消前一次还没跑完的运行（`concurrency`），被取消的运行不发失败邮件。
 
 ## 真实环境验证
