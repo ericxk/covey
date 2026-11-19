@@ -253,6 +253,11 @@ PROJECT_TOOLS = (
          "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上"},
          "kind": {"type": "string", "enum": ["milestone", "thread", "note"], "description": "默认 note"},
          "decision": {"type": "boolean", "description": "这是一条定下来的决定为 true"}}}},
+    {"name": "project_goal",
+     "description": "写下这个专项的目标和完成标准：给主人看的一两句（要做成什么、做到什么算完，最多 200 字），网页工作台的专项标题下就显示它。"
+                    "第一轮写一次；主人改了要求、目标变了再更新。只写目标，不写进度、状态和派活的安排。",
+     "input_schema": {"type": "object", "required": ["text"], "properties": {
+         "text": {"type": "string", "description": "目标和完成标准，一两句，最多 200 字"}}}},
     {"name": "project_remember",
      "description": "记进专项记忆：这个专项里长期适用的决定、约束、联系人和事实，之后每次重建会话都会带上。"
                     "只记主人说过的或已经定下的，不写令牌、密码这类机密；同类同文的不重复记；主人在专项卡上删掉的不要再记回去。",

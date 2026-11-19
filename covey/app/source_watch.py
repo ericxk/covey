@@ -43,14 +43,18 @@ def preview(text) -> str:
     return flat[:PREVIEW] + ("…" if len(flat) > PREVIEW else "")
 
 
+EDIT_HEAD = "【主人编辑了刚才的消息】修改后的全文如下，以它为准；按原文已经做了的部分，需要时调整："
+RECALL_HEAD = "【主人撤回了刚才那条补充】"  # The web page reads both off a topic's line (app/web_said.py).
+
+
 def edited_text(text) -> str:
     """The supplement an edit becomes."""
-    return ("【主人编辑了刚才的消息】修改后的全文如下，以它为准；按原文已经做了的部分，需要时调整：\n\n" + str(text or "").strip())
+    return (EDIT_HEAD + "\n\n" + str(text or "").strip())
 
 
 def recalled_text(text) -> str:
     """The supplement the recall of a supplement becomes."""
-    return f"【主人撤回了刚才那条补充】不要再按它做：「{preview(text)}」"
+    return f"{RECALL_HEAD}不要再按它做：「{preview(text)}」"
 
 
 def same_words(one, other) -> bool:

@@ -38,7 +38,7 @@ LEAD = projects.lead_topic_id(CHAT, PID)
 ON = {projects.ENV: "1"}
 NOW = 1_800_000_000.0
 LEAD_NAMES = ["topics_list", "topics_search", "topic_read", "workspaces_list",
-              "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_remember",
+              "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_goal", "project_remember",
               "project_style", "project_finish"]
 
 
@@ -713,6 +713,22 @@ class RecordToolsTest(ToolsCase):
                          [("导出完成，开始对账", True, "milestone", "lead-job"), ("换了批量大小", True, "note", "lead-job"),
                           ("先迁 2024 年", False, "note", "lead-job")])
         self.assertEqual([d["text"] for d in record["decisions"]], ["先迁 2024 年"])
+
+    def test_the_goal_the_lead_writes_is_its_own_and_the_opening_goal_stays(self):
+        """T550 (2026-11-19): a project's goal was the words it was opened with (the work it took over), shown as its goal on
+        the web page. The lead writes one with project_goal; the record's ``goal`` stays, and the state pack asks for one
+        until it is written."""
+        self.assertIn("还没用 project_goal", project_lead.state_pack(self.state, self.reload(), "lead-job", full=False, receipts=[]))
+        answer = self.tool("project_goal", text="账单全部迁到新库， 对账一致后收尾")
+        self.assertTrue(answer["ok"], answer)
+        record = self.reload()
+        self.assertEqual((record["lead_goal"]["text"], record["lead_goal"]["job"], record["goal"]),
+                         ("账单全部迁到新库， 对账一致后收尾", "lead-job", "目标"))
+        self.assertEqual(project_lead.lead_goal(record), "账单全部迁到新库， 对账一致后收尾")
+        pack = project_lead.state_pack(self.state, record, "lead-job", full=True, receipts=[])
+        self.assertIn("你写下的（project_goal）：账单全部迁到新库", pack)
+        self.assertNotIn("还没用 project_goal", pack)
+        self.assertIn("text 不能为空", self.refused("project_goal", text=" "))
 
     def test_the_lists_are_capped(self):
         for number in range(project_lead.NOTES_KEPT + 5):

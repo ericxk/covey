@@ -16,10 +16,10 @@ from unittest import mock
 
 from support.records import write_job, write_topic
 
-from covey.app import web_ops, web_sync as app_web
+from covey.app import answers as answer_words, source_watch, web_ops, web_said, web_sync as app_web
 from covey.app.web_sync import WebError, WebSync
 from covey.app import project_lead, web_turns
-from covey.core import http_upstream, placement, project_library, project_memory, projects, web_sync
+from covey.core import butler_opened, http_upstream, model_names, placement, project_library, project_memory, projects, triage, web_sync
 from covey.core.butler import butler_topic_id
 from covey.core.history_storage import append_history
 from covey.core.serving import LoopbackServer
@@ -1433,6 +1433,119 @@ class ProgressAndAnswersTest(WebCase):
         self.question(status="answered", response_kind="feedback", answers={"q1": {"answers": ["用户选择反馈问题"]}})
         self.assertEqual(app_web.answer_rows(read_object(self.state / "questions" / f"{TOKEN}.json")),
                          [{"question": "用哪个库？", "choice": "没答"}])
+
+
+class SpeakerTest(WebCase):
+    """Data contract v7: an owner line says who said it (``by``, ``via``) and the words the page shows (``display``), as the
+    cards do (T550, 2026-11-19: the page showed "用户补充回答：", "用户选择不回答此题（不表示同意或授权）" and "【主人编辑了刚才的消息】…"
+    as the owner's words, and the lead's hand-ons and answers as his)."""
+
+    def by(self):
+        return {(item["type"], item["key"]): item["data"] for item in self.web.items()}
+
+    def owner_turns(self, topic=TOPIC):
+        turns = sorted((item["data"] for item in self.web.items("turn") if item["data"]["topic_key"] == topic), key=lambda turn: turn["seq"])
+        return [turn for turn in turns if turn["role"] == "owner"]
+
+    def answered(self, given, token=TOKEN, supplement="", **fields):
+        """A question of two answered with ``given`` (q1, q2), its line in the history as the answer's path writes it, the
+        task it started and that task's reply."""
+        questions = [{"id": "q1", "question": "用哪个库？", "options": [{"label": "A"}, {"label": "B"}]},
+                     {"id": "q2", "question": "要不要部署？", "options": [{"label": "要"}, {"label": "不要"}]}]
+        answers = {"q1": {"answers": [given[0]]}, "q2": {"answers": [given[1]]}}
+        self.question(token, status="answered", questions=questions, answers=answers, created_at=T0 - 60,
+                      **({"supplement": supplement} if supplement else {}), **fields)
+        record = read_object(self.state / "questions" / f"{token}.json")
+        _, text, _ = answer_words.answer_message(record, answers, "", [])
+        write_job(self.state, "k-answer-" + token, topic_id=TOPIC, chat_id=CHAT, job_id=20, status="done", message_id="answer-" + token)
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        append_history(history, "user", text)
+        append_history(history, "assistant", "好，用 B", {"message_id": "om_reply"})
+        return text
+
+    def test_an_answer_shows_its_choices_without_the_bridges_headings_and_is_the_owners(self):
+        self.topic(lines=(("user", "你好"), ("assistant", "选哪个？")))
+        text = self.answered(["B", answer_words.SKIPPED])
+        self.sync.push_once(T0)
+        owner = self.owner_turns()[-1]
+        self.assertEqual(owner["body"], text)  # The line as kept.
+        self.assertEqual((owner["by"], owner["display"]), ("owner", "答了 2 题：B；没答"))
+        self.assertEqual(owner["answers"], [{"question": "用哪个库？", "choice": "B"}, {"question": "要不要部署？", "choice": "没答"}])
+        self.assertNotIn("用户", owner["display"])
+        self.assertEqual(self.owner_turns()[0], {**self.owner_turns()[0], "by": "owner"})
+        self.assertNotIn("display", self.owner_turns()[0])  # Words with no heading go as they are.
+
+    def test_every_question_skipped_with_a_note_is_the_note(self):
+        self.topic(lines=())
+        self.answered([answer_words.SKIPPED, answer_words.SKIPPED], supplement="先说说为什么要换库")
+        self.sync.push_once(T0)
+        owner = self.owner_turns()[-1]
+        self.assertEqual((owner["display"], owner["note"]), ("没答，补充：先说说为什么要换库", "先说说为什么要换库"))
+
+    def test_an_answer_the_lead_or_the_butler_gave_is_theirs_not_the_owners(self):
+        self.topic(lines=())
+        self.answered(["A", "要"], supplement=web_said.LEAD_NOTE, triage={"state": triage.ANSWERED, "at": T0})
+        self.answered(["B", "不要"], token="tok-butler-0001", supplement=web_said.BUTLER_NOTE, answer_event="main-r1")
+        self.sync.push_once(T0)
+        lead, butler = self.owner_turns()
+        self.assertEqual((lead["by"], lead["display"]), ("lead", "答了 2 题：A；要"))
+        self.assertNotIn("note", lead)  # The note that says who answered is not words of his.
+        self.assertEqual((butler["by"], butler["display"]), ("butler", "答了 2 题：B；不要"))
+
+    def test_feedback_an_edit_and_a_recall_say_what_the_owner_did(self):
+        self.topic(lines=())
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        append_history(history, "user", answer_words.FEEDBACK_START + "问题问偏了")
+        append_history(history, "user", source_watch.edited_text("改成用 B 库"), {"message_id": "edit-om_1"})
+        append_history(history, "user", source_watch.recalled_text("先别部署"), {"message_id": "recall-om_2"})
+        self.sync.push_once(T0)
+        feedback, edited, recalled = self.owner_turns()
+        self.assertEqual((feedback["by"], feedback["display"]), ("owner", "没答，补充：问题问偏了"))
+        self.assertEqual((edited["by"], edited["display"], edited["edited"]), ("owner", "改成用 B 库", True))
+        self.assertTrue(edited["body"].startswith("【主人编辑了刚才的消息】"))
+        self.assertEqual(recalled["display"], "撤回了刚才那条补充：「先别部署」")
+
+    def test_a_hand_on_is_the_leads_or_the_butlers_own_and_the_owners_words_handed_on_are_his(self):
+        self.thread(OTHER, "对账", 8)
+        write_json(butler_opened.folder(self.state) / "lead1.json", {"job_key": "lead-9", "chat_id": CHAT, "topic_id": OTHER})
+        write_job(self.state, "lead-9", topic_id=LEAD, chat_id=CHAT, job_id=91, status="done", message_id=projects.wake_id(PID, 3))
+        write_json(butler_opened.folder(self.state) / "butler1.json", {"job_key": "k-b1", "chat_id": CHAT, "topic_id": OTHER})
+        write_job(self.state, "k-b1", topic_id=BUTLER, chat_id=CHAT, job_id=92, status="done", message_id="om_owner1")
+        write_json(butler_opened.folder(self.state) / "butler2.json", {"job_key": "k-b2", "chat_id": CHAT, "topic_id": OTHER})
+        write_job(self.state, "k-b2", topic_id=BUTLER, chat_id=CHAT, job_id=93, status="done", message_id="lead-x")
+        write_job(self.state, "k-o", topic_id=OTHER, chat_id=CHAT, job_id=8, status="done", message_id="main-lead1")
+        history = self.state / "topics" / OTHER / "history.jsonl"
+        for text, message in (("T538 合进 main 了，部署时带上", "main-lead1"), ("把对账表也导出", "main-butler1"),
+                              ("先停一下", "main-butler2"), ("老记录没了", "main-gone"), ("我自己说的", "om_mine")):
+            append_history(history, "user", text, {"message_id": message})
+        self.sync.push_once(T0)
+        said = [(turn["body"], turn["by"], turn.get("via", "")) for turn in self.owner_turns(OTHER)]
+        self.assertEqual(said, [("T538 合进 main 了，部署时带上", "lead", ""), ("把对账表也导出", "owner", "butler"),
+                                ("先停一下", "butler", ""), ("老记录没了", "owner", ""), ("我自己说的", "owner", "")])
+
+    def test_the_model_is_pushed_by_its_readable_name(self):
+        self.topic()
+        write_job(self.state, f"k-{TOPIC[:4]}", model="router/claude-opus-5-5")
+        self.sync.push_once(T0)
+        topic = self.by()[("topic", TOPIC)]
+        self.assertEqual((topic["model"], topic["model_name"]), ("router/claude-opus-5-5", "Opus 5.5"))
+
+    def test_a_projects_goal_is_the_one_its_lead_wrote_and_none_before(self):
+        self.sync.push_once(T0)
+        self.assertEqual(self.by()[("project", PID)]["goal"], "")  # Not the words it was opened with.
+        projects.update(self.state, PID, lambda record: record.update(lead_goal={"text": "账单迁完、对账一致", "at": T0}))
+        self.sync.push_once(T0 + 1)
+        self.assertEqual(self.web.items("project")[-1]["data"]["goal"], "账单迁完、对账一致")
+
+
+class ModelNameTest(unittest.TestCase):
+    def test_a_recorded_model_reads_as_one_name_everywhere(self):
+        for model, name in (("opus", "Opus"), ("claude-opus-5", "Opus 5"), ("claude-opus-5-5", "Opus 5.5"),
+                            ("acme/team/claude-opus-5-5", "Opus 5.5"), ("claude-opus-4-7[1m]", "Opus 4.7"),
+                            ("acme/gpt-6-astra", "GPT-6 Astra"), ("gpt-6-astra_reasoning_xhigh", "GPT-6 Astra"),
+                            ("gpt56_sol_reasoning_max", "GPT-5.6 Sol"), ("ali-deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
+                            ("default", ""), ("", ""), (None, "")):
+            self.assertEqual(model_names.model_name(model), name, model)
 
 
 class OffTest(WebCase):

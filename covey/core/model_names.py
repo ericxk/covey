@@ -40,5 +40,25 @@ def readable_model(model_id):
 BRANDS = {'deepseek': 'DeepSeek'}
 
 
+def model_name(model_id):
+    """A job's recorded model as every page names it: the route a provider puts before it, the budget a preset ends with, a
+    context window in brackets and the brand the Harness already says left out; a version of single numbers joined by
+    dots. claude-opus-5-5 → Opus 5.5, router/claude-opus-5-5 → Opus 5.5, opus → Opus, opus[1m] → Opus,
+    acme/gpt-6-astra → GPT-6 Astra, gpt56_sol_reasoning_max → GPT-5.6 Sol; '' for none or the backend's own
+    default."""
+    text = str(model_id or '').strip().rsplit('/', 1)[-1]
+    text = re.sub(r'\[[^\]]*\]$', '', text).strip()
+    preset = PRESET_RE.fullmatch(text)
+    text = preset['base'] if preset else text
+    if not text or text.lower() == 'default':
+        return ''
+    parts = [word for word in re.split('[-_]', text) if word]
+    if parts[:1] == ['claude'] and len(parts) > 1:
+        parts = parts[1:]
+    while len(parts) > 2 and re.fullmatch(r'\d', parts[-1]) and re.fullmatch(r'\d+', parts[-2]):
+        parts[-2:] = [parts[-2] + '.' + parts[-1]]
+    return readable_model('-'.join(parts))
+
+
 def effort_rank(effort):
     return -1 if effort is None else EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else len(EFFORT_ORDER)

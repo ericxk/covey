@@ -187,6 +187,7 @@ def shown_answer_title(shown):
     return compact_text("；".join(f"{question} → {given or '不回答'}" for question, given in parts), TITLE_CHARS)
 
 
+FEEDBACK_START = "用户对当前提问的反馈（未回答原问题，不表示同意或授权，请重新评估问题和需求）：\n"  # ``answer_message``'s for feedback.
 ANSWER_START = "用户补充回答："  # ``answer_message``'s ``shown`` for answered questions begins so;
 # its 补充说明 (UNANSWERED_NOTE's heading too) and 另外补充 sections each follow a blank line so.
 NOTE_SECTION = re.compile(r"\n\n用户(补充说明|另外补充)[^\n]*?：\n")
@@ -241,7 +242,7 @@ def answer_message(record, answers, feedback, notes):
     attachments = record.get("attachments", "")
     riders = [attachments] if attachments else []
     if feedback:
-        shown = "用户对当前提问的反馈（未回答原问题，不表示同意或授权，请重新评估问题和需求）：\n" + feedback
+        shown = FEEDBACK_START + feedback
     else:
         shown = "用户补充回答：\n" + "\n".join(
             q["question"] + "\n" + "；".join(answers[q["id"]]["answers"]) for q in record["questions"])

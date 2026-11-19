@@ -29,7 +29,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import pins, project_lead, project_loop, web_turns
+from covey.app import pins, project_lead, project_loop, web_said, web_turns
 from covey.app.answers import SKIPPED
 from covey.app.web_ops import Ops
 from covey.core import board_read, failure, http_upstream, look, project_library, project_memory, projects, triage, web_sync
@@ -37,6 +37,7 @@ from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
 from covey.core.jobs import job_key, select_job_records, topic_job_records
+from covey.core.model_names import model_name
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import RUNNING
 from covey.core.store import directory_store
@@ -182,6 +183,7 @@ class Collector:
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
         self.extra = {}  # (job key, updated_at) -> the optional fields of an ended turn (web_turns.extras).
         self.receipts = {}  # project id -> {receipt file name: its row} (thread_end only).
+        self.origins = None  # web_said.Origins of the owner's chat: who wrote each hand-on, read once.
         self.moved = 0.0  # Monotonic time of the last progress of a look and its push: a topic built, a batch sent (WebSync.loop's stuck check).
         self.lock = threading.Lock()
 
@@ -195,6 +197,8 @@ class Collector:
         the topics and projects pushed before that are not any more (a list of {type, key}; ``seen`` is updated by the caller)."""
         state = Path(self.env.state_dir)
         self.thread = threading.current_thread()
+        if self.origins is None or self.origins.chat != str(chat):
+            self.origins = web_said.Origins(state, chat)
         out = {topic for topic, thread in list(self.stuck.items()) if thread.is_alive()}
         back, self.left = self.left - out, out  # A stuck read that came back: its topic is looked at again now.
         running = board_read.running_jobs(state, chat)
@@ -283,7 +287,7 @@ class Collector:
         body = {
             "number": number, "title": title, "project_key": (project["id"] if project else found.id if found else ""), "state": word,
             "workspace": str(data.get("workspace_name") or ""), "harness": str(data.get("harness_id") or ""),
-            "model": str((latest or {}).get("model") or ""), "updated_at": updated, "unseen": topic in self.unseen and not butler and not project,
+            "model": str((latest or {}).get("model") or ""), "model_name": model_name((latest or {}).get("model")), "updated_at": updated, "unseen": topic in self.unseen and not butler and not project,
             "kind": "butler" if butler else "lead" if project else "topic", "round": len(ran)}
         if ran:
             body["started_at"] = board_read.started_at(ran[0])
@@ -385,8 +389,8 @@ class Collector:
         if project is not None:
             wakes = self.lead_starts(state, topic, project, records)
         answered = self.answered(questions, records)
-        entries = (self.lead_entries(state, topic, project, rows, records, wakes, answered) if project is not None
-                   else self.entries(rows, records, answered))
+        entries = (self.lead_entries(state, topic, project, rows, records, wakes, answered, questions) if project is not None
+                   else self.entries(rows, records, answered, questions))
         total = len(entries)
         out = []
         for seq, (at, data, job) in enumerate(entries, 1):
@@ -432,32 +436,53 @@ class Collector:
         return out, total
 
     @staticmethod
-    def pair(rows, records):
-        """(row, the job record of the owner's message the row answers or None) for each user and assistant line of the history: a user line
-        is paired by its message id, the next assistant line has the job of the user line before it."""
+    def pair(rows, records, questions=()):
+        """(row, the job record of the owner's message the row answers or None, the question record a user line answers or None) for
+        each user and assistant line of the history: a user line is paired by its message id, the next assistant line has the job of the
+        user line before it. An answer's line has no message id: it is paired by its question record (web_said.answer_record), with the
+        task the answer started (its message ``answer-<token>``) or, for one handed to the task that asked, that task."""
         by_message = {str(record.get("message_id")): record for record in records if record.get("message_id") and not board_read.unrun(record)}
-        job = None
+        by_id = {str(record.get("job_id")): record for record in records if record.get("job_id") and not board_read.unrun(record)}
+        job, taken = None, set()
         for row in rows:
             if row.get("role") == "user":
-                job = by_message.get(str(row.get("message_id") or ""))
-                yield row, job
+                asked = web_said.answer_record(row, questions, taken) if not row.get("message_id") else None
+                if asked is not None:
+                    job = by_message.get("answer-" + str(asked.get("token"))) or (
+                        None if asked.get("continuation_job_id") else by_id.get(str(asked.get("job_id") or "")))
+                else:
+                    job = by_message.get(str(row.get("message_id") or ""))
+                yield row, job, asked
             else:
-                yield row, job
+                yield row, job, None
                 job = None
 
-    def entries(self, rows, records, answered=None) -> list:
+    def entries(self, rows, records, answered=None, questions=()) -> list:
         """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
-        (``answered``): the turns that answered a question card get its ``answers``."""
+        (``answered``): the turns that answered a question card get its ``answers``. An owner line says who said it and
+        what the page shows of it (``said``)."""
         out = []
-        for row, job in self.pair(rows, records):
+        for row, job, asked in self.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             owner = row.get("role") == "user"
             body = row.get("display_content") if owner and row.get("display_content") else row.get("content")
             data = {"role": "owner" if owner else "agent", "body": web_sync.clip(body), "status": "done", "job_id": "",
                     "started_at": at, "ended_at": at, "artifacts": []}
+            if owner:
+                self.said(data, row, asked)
             self.put_answers(data, answered, job, owner)
             out.append((at, data, None if owner else job))
         return out
+
+    def said(self, data, row, asked) -> None:
+        """``data`` (an owner line's turn) takes web_said's fields (data contract v11): ``by`` always, ``display`` clipped as the
+        body is; the answers of the question record ``asked`` when it has them (``put_answers`` may put them again)."""
+        found = web_said.said(row, asked, self.origins)
+        if found.get("display"):
+            found["display"] = web_sync.clip(found["display"])
+        if asked is not None and answer_rows(asked):
+            found["answers"] = answer_rows(asked)
+        data.update(found)
 
     @staticmethod
     def answered(questions, records) -> dict:
@@ -495,19 +520,20 @@ class Collector:
 
     # -- a project's lead ---------------------------------------------------------------------------------------------------
 
-    def lead_entries(self, state, topic, project, rows, records, wakes, answered=None) -> list:
+    def lead_entries(self, state, topic, project, rows, records, wakes, answered=None, questions=()) -> list:
         """The lead's conversation: the owner's words and the lead's answers, as ``entries``; a wake-up turn (the Bridge's, not the owner's
         words) is left out, with its answer unless the lead meant it for the owner (project_loop.reported), and what it started is a line of
         the page's own (role event); so is a member's end (the inbox's ``thread_end`` receipt). All in the order they happened."""
         out, shown, waking = [], set(), False
         running = {job_key(job.get("message_id"), job.get("job_id")) for job in records if job.get("status") in RUNNING or job.get("status") == "waiting_user"}
-        for row, job in self.pair(rows, records):
+        for row, job, asked in self.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             if row.get("role") == "user":
                 waking = projects.is_wake(row.get("message_id"))
                 if not waking:
                     data = {"role": "owner", "body": web_sync.clip(row.get("display_content") or row.get("content")), "status": "done",
                             "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}
+                    self.said(data, row, asked)
                     self.put_answers(data, answered, job, True)
                     out.append((at, data, None))
                 continue
@@ -648,7 +674,7 @@ class Collector:
             except Exception:  # noqa: BLE001 - the rest of the project is still worth pushing
                 memory, library = [], []
             out.append(web_sync.item("project", pid, {
-                "title": str(record.get("name") or ""), "goal": str(record.get("goal") or ""), "status": word, "status_reason": why,
+                "title": str(record.get("name") or ""), "goal": project_lead.lead_goal(record), "status": word, "status_reason": why,
                 "lead_topic_key": lead, "topic_keys": members, "memory": memory, "library": library,
                 "started_at": moment(record.get("created_at")), "updated_at": moment(record.get("updated_at"))}))
         return out

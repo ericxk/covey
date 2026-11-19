@@ -8,6 +8,7 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 - ``project_topic_stop`` stops one member topic for the owner (its tasks, and the question it waits on, which is cancelled
   with the reason ``lead_stop``); the topic stays in the project's list and counts as ended.
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
+  ``project_goal`` (the goal and its done-when as the lead keeps them, ``lead_goal``: the web page shows it under the project's name),
   ``project_remember`` (the project's memory), ``project_style``, ``project_finish`` write the project's record
   (core/projects.py update, under its record lock; no Feishu call).
 - ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5, COVEY_PROJECT_TRIAGE=1; they are listed
@@ -189,6 +190,18 @@ def project_note(env, request):
     return reply(True, f"已记在专项卡上{shown}" + ("；也记进了决定日志" if decision else "") + "。", id=item["id"], report=report)
 
 
+def project_goal(env, request):
+    """The project's goal as the lead keeps it: the record's ``lead_goal`` {text, at, job}. The record's ``goal`` stays what
+    the project was opened with (the owner's words, or the work it took over), which reads as no goal (T550, 2026-11-19)."""
+    pid, _ = lead(env, request)
+    text = text_of(request.args)
+
+    def change(data):
+        data["lead_goal"] = {"text": text, "at": time.time(), "job": str(request.job_key or "")}
+    projects.update(env.state_dir, pid, change)
+    return reply(True, "已记下专项的目标：" + text)
+
+
 def project_remember(env, request):
     pid, record = lead(env, request)
     kind = request.args.get("kind")
@@ -294,5 +307,5 @@ def project_escalate(env, request):
 
 TOOLS = {"project_topic_start": project_topic_start, "project_topic_send": project_topic_send,
          "project_topic_stop": project_topic_stop,
-         "project_note": project_note, "project_remember": project_remember, "project_style": project_style,
+         "project_note": project_note, "project_goal": project_goal, "project_remember": project_remember, "project_style": project_style,
          "project_finish": project_finish, "project_answer": project_answer, "project_escalate": project_escalate}

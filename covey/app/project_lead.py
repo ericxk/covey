@@ -110,6 +110,7 @@ TOOL_RULES = (
     "确实独立的事才用 project_topic_start 新开。",
     "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
     "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
+    "- 专项的目标和完成标准用 project_goal 写成给主人看的一两句（网页上专项标题下显示）：第一轮写，主人改了要求再更新；只写目标，不写进度。",
     "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”这类，"
     "用 project_style 改汇报风格。",
     "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。主人要停专项里的某个话题（包括停掉"
@@ -278,6 +279,12 @@ def topic_label_of(item) -> str:
     return str(item.get("label") or str(item.get("thread"))[:8])
 
 
+def lead_goal(record) -> str:
+    """The goal the lead wrote with project_goal (app/project_tools.py), '' before it did."""
+    found = record.get("lead_goal") if isinstance(record.get("lead_goal"), dict) else {}
+    return " ".join(str(found.get("text") or "").split())
+
+
 def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     """The pack at the head of the lead's turn ``key``. ``full``: the whole of it (a new session); else the parts that
     change between turns (members, style, inbox, decisions), the goal and the memory being in the session already.
@@ -287,7 +294,10 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
         receipts = take_receipts(state_dir, record["id"], key)
     out = [f"[专项状态：{record.get('name') or record['id']}]"]
     if full:
-        out.append("目标和完成标准：\n" + (record.get("goal") or "（主人没有写目标：第一轮先问清楚，或按专项名推断后用 project_note 记下）"))
+        out.append("目标和完成标准：\n" + (record.get("goal") or "（主人没有写目标：第一轮先问清楚，或按专项名推断）")
+                   + ("\n你写下的（project_goal）：" + lead_goal(record) if lead_goal(record) else ""))
+    if not lead_goal(record):
+        out.append("（还没用 project_goal 写专项的目标：这一轮写一句给主人看的，说清要做成什么、做到什么算完）")
     rows = member_rows(state_dir, record)
     out.append("话题（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
                + ("\n" + "\n".join(map(thread_line, rows)) if rows else ""))
