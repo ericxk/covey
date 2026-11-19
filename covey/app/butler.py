@@ -524,15 +524,19 @@ def snapshot_groups(ctx, chat, now) -> dict:
 
 
 PROJECT_GROUP = ("projects", "专项")
-PROJECT_STATE_WORDS = {"active": "在做", "paused": "停住"}
+PROJECT_STATE_WORDS = {"active": "在做", "paused": "停住", "done": "做完，主人再说话会重开"}
+DONE_SHOWN = 14 * 86400  # A finished project stays in the butler's snapshot this long: the owner's words for it still reach its lead.
 
 
-def project_rows(state, chat) -> dict:
-    """The chat's projects that are on or folded away, project id -> its line: id, name, state (在做, 停住, 收起), one sentence of the goal."""
-    rows = {}
+def project_rows(state, chat, now=None) -> dict:
+    """The chat's projects that are on, folded away or finished in the last DONE_SHOWN seconds, project id -> its line: id,
+    name, state (在做, 停住, 收起, 做完), one sentence of the goal."""
+    rows, now = {}, time.time() if now is None else now
     for record in projects.records(state, chat):
         state = record.get("state") or projects.ACTIVE
-        if state not in (projects.ACTIVE, projects.PAUSED):
+        if state == projects.DONE and now - float(record.get("updated_at") or 0) > DONE_SHOWN:
+            continue
+        if state not in (projects.ACTIVE, projects.PAUSED, projects.DONE):
             continue
         word = "收起" if projects.folded(record) else PROJECT_STATE_WORDS[state]
         goal = str(record.get("goal") or "").strip().splitlines()[0][:40] if str(record.get("goal") or "").strip() else ""

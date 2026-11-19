@@ -273,7 +273,7 @@ PROJECT_TOOLS = (
          "report": {"type": "string", "enum": ["ask_only", "milestones", "each_thread", "verbose"]},
          "detail": {"type": "string", "enum": ["一行", "简", "全"]}}}},
     {"name": "project_finish",
-     "description": "目标和完成标准都达到、话题都结束了，收尾：专项记为完成。还有话题在跑或等主人时会拒绝。"
+     "description": "目标和完成标准都达到、话题都结束了，收尾：专项记为完成。还有话题在跑或等主人时会拒绝；整理专项建出来、主人还没在里面说过话、你也没派过活的专项也会拒绝。"
                     "summary 写一句做成了什么（最多 200 字），会作为完成的汇报。",
      "input_schema": {"type": "object", "required": ["summary"], "properties": {
          "summary": {"type": "string", "description": "一句话：做成了什么"}}}},

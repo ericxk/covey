@@ -33,8 +33,9 @@ FOLDER = "projects"
 SCHEMA = 1
 
 ACTIVE, PAUSED, DONE, CANCELLED = "active", "paused", "done", "cancelled"
-# Rule 4: the only way a project's state moves. done and cancelled are final.
-PROJECT_TRANSITIONS = {ACTIVE: {PAUSED, DONE, CANCELLED}, PAUSED: {ACTIVE, DONE, CANCELLED}, DONE: set(), CANCELLED: set()}
+# Rule 4: the only way a project's state moves. cancelled is final; done goes back to active only when the owner speaks
+# in the project again (app/project_loop.py reopen; the owner, 2026-11-19: a finished project he speaks in opens again).
+PROJECT_TRANSITIONS = {ACTIVE: {PAUSED, DONE, CANCELLED}, PAUSED: {ACTIVE, DONE, CANCELLED}, DONE: {ACTIVE}, CANCELLED: set()}
 STATES = frozenset(PROJECT_TRANSITIONS)
 
 LEAD, MEMBER = "lead", "thread"  # topic.json project.role. A project topic is a ``member`` in the code; its role stays "thread" on disk, as an older release's task runner reads it.

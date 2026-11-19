@@ -113,7 +113,9 @@ TOOL_RULES = (
     "- 专项的目标和完成标准用 project_goal 写成给主人看的一两句（网页上专项标题下显示）：第一轮写，主人改了要求再更新；只写目标，不写进度。",
     "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下；主人说“少打扰我”“多报一点”这类，"
     "用 project_style 改汇报风格。",
-    "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。主人要停专项里的某个话题（包括停掉"
+    "- 目标和完成标准都达到、话题都结束了，才用 project_finish 收尾；还有话题在跑时它会拒绝。整理专项把已有话题收进来建的专项，"
+    "收进来的话题做完不等于专项完成：主人在里面说过话或你派过活之前它也会拒绝，先汇报现状、等主人。"
+    "收过尾的专项，主人再在里面说话就会自动重开，按主人的新要求接着做。主人要停专项里的某个话题（包括停掉"
     "一个还在等主人回答的话题），用 project_topic_stop：它停掉那个话题排队和在跑的任务、收掉它等主人回答的问题，话题仍记在专项里、算结束。",
     "- 部署、发布、对外发送、花钱、删东西、不可逆的操作，你没有工具，也不要替主人决定：这些在话题里做，话题会照旧问主人。"
     "话题里问到主人的选择题，不由你答（分流还没开）。",
@@ -318,6 +320,11 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     decisions = [row for row in record.get("decisions") or () if isinstance(row, dict) and row.get("text")][-DECISIONS:]
     if decisions:
         out.append(f"近 {len(decisions)} 条决定：\n" + "\n".join(f"- {clock(row.get('at'))} {row['text']}" for row in decisions))
+    reopened = [row for row in record.get("reopened") or () if isinstance(row, dict)]
+    if reopened and record.get("state") == projects.ACTIVE:
+        last = reopened[-1]
+        out.append(f"重开：这个专项收过尾（{cut(str(last.get('summary') or ''), 120) or '没有写结论'}），主人 {clock(last.get('at'))} "
+                   "又在专项里说话，已重新打开：按主人的新要求接着做，做完再 project_finish。")
     out.append("自上次唤醒以来的收件箱：" + ("\n" + "\n".join(map(receipt_line, receipts)) if receipts else "没有新的。"))
     return "\n\n".join(out)
 

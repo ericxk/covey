@@ -18,6 +18,8 @@ when something happened since it last looked, and the mechanical checks that sto
   folded away: PAUSED with ``state_reason`` ``idle`` (``projects.IDLE``) and ``idle`` ({at, days}); no pause card, no question. The owner's own
   turn in the lead's topic, his word in a member's topic (``heard``) or the butler's ``project_send`` (all go through ``reopen``)
   open it again; ``idle_reopened_at`` keeps it from folding again before something has happened.
+- A project its lead finished (``done``) opens again the same ways (``owner_spoke``, ``unfinish``): the owner speaking in
+  it means there is more to do; ``owner_at`` keeps when he last did (app/project_tools.py project_finish's gate).
 - With COVEY_PROJECT_ASK=1 a pause a guard made is also put to the owner (``pause``): the record gets ``pause_ask`` ({reason,
   why, at, choice, card}), app/project_cards.py sends the card (继续 / 收尾 / 停) and ``answer_pause`` is what a click does
   to the record. A ``tokens`` pause also stops the member topics' running tasks; a ``wakes`` pause leaves them running; a
@@ -194,14 +196,47 @@ def silent(delivery) -> bool:
 def owner_turn(state_dir, topic_id, chat_id, message_id) -> None:
     """``enqueue_chat_job`` of a turn in a lead's topic the owner started (or the butler for them: any message id that is
     not a wake-up's): the counts of wake-ups start again, and a project a guard (or the owner's stop) paused is active
-    again. A ``tokens`` pause starts a new budget at the tokens used so far. Never raises."""
+    again, and so is one its lead finished (``owner_spoke``). A ``tokens`` pause starts a new budget at the tokens used so
+    far. Never raises."""
     try:
         if not projects.enabled() or projects.is_wake(message_id) or not projects.is_lead_topic(state_dir, topic_id, chat_id):
             return
         found = projects.topic_project(state_dir, topic_id)
-        projects.update(state_dir, found.id, reopen)
+        projects.update(state_dir, found.id, owner_spoke)
     except (KeyError, ValueError, OSError):
         return
+
+
+def owner_spoke(record) -> None:
+    """Edit ``record`` in place: the owner spoke in the project (his turn in the lead's topic, his word in a member's topic,
+    the butler's ``project_send``, the web page). ``owner_at`` says when (app/project_tools.py project_finish's gate), a
+    project its lead finished is open again (``unfinish``), and whatever ``reopen`` opens opens."""
+    record["owner_at"] = time.time()
+    unfinish(record)
+    reopen(record)
+
+
+REOPENS_KEPT = 10  # The record's ``reopened`` rows kept.
+
+
+def unfinish(record) -> None:
+    """Edit ``record`` in place: a project its lead finished (``done``) is active again (the owner, 2026-11-19: a finished
+    project he speaks in opens again, as a folded one does). ``reopened`` keeps when and what the finish had said, for the
+    lead's next turn (app/project_lead.py state_pack); the finish's turn and conclusion are forgotten, and the card that had
+    shrunk to one line is drawn whole again in place (app/project_cards.py). A record in any other state is left alone."""
+    if record.get("state") != projects.DONE:
+        return
+    rows = record.get("reopened")
+    rows = record["reopened"] = rows if isinstance(rows, list) else []
+    rows.append({"at": time.time(), "job": str(record.get("state_job") or ""), "summary": cut(str(record.get("state_reason") or ""), 200)})
+    del rows[:-REOPENS_KEPT]
+    for name in ("state_job", "conclusion_message_id"):
+        record.pop(name, None)
+    record["state"], record["state_reason"] = projects.ACTIVE, ""
+    card = record.get("card")
+    if isinstance(card, dict) and card.get("closed"):
+        card["closed"], card["digest"] = False, ""
+        card.pop("settled_at", None)
 
 
 def reopen(record) -> None:
@@ -244,7 +279,7 @@ def answer_pause(state_dir, project_id, choice, message="", now=None) -> str:
             if ask.get("reason") == "tokens":
                 record["token_floor"] = int(record.get("tokens_used") or 0)  # Started again later, it has a budget (as ``reopen`` gives).
         else:
-            reopen(record)
+            owner_spoke(record)  # His click: a project 整理专项 made may be finished from here (project_finish's gate).
         outcome.append("ok")
     projects.update(state_dir, project_id, change)
     return outcome[0]
@@ -282,17 +317,20 @@ def pause_words(record, reason, now, idle=0) -> str:
 
 def heard(state_dir, topic_id, text) -> None:
     """The owner wrote ``text`` in the topic ``topic_id`` (app/app.py handle_event): a member of a project gets an
-    ``owner_said`` receipt, and the wake-ups in a row start again (someone stepped in). Never raises."""
+    ``owner_said`` receipt, the wake-ups in a row start again (someone stepped in), and a project folded away or finished
+    is open again. Never raises."""
     try:
         if not projects.enabled() or not projects.is_member_topic(state_dir, topic_id):
             return
         found = projects.topic_project(state_dir, topic_id)
         record = projects.read_record(state_dir, found.id)
-        if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
+        if record.get("state") not in (projects.ACTIVE, projects.PAUSED, projects.DONE):
             return
         label = topic_label(Path(state_dir), topic_id) or topic_id[:8]
         project_lead.add_receipt(state_dir, found.id, "owner_said", f"主人在 {label} 里说：{cut(text, SAID)}", thread=topic_id)
         def change(data):
+            data["owner_at"] = time.time()
+            unfinish(data)  # A project its lead finished: his word opens it again.
             if projects.folded(data):
                 reopen(data)  # A project folded away for being idle: his word opens it again.
             data["wakes"] = {**wakes_of(data), "streak": 0, "recent": []}

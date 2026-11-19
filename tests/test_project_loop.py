@@ -242,13 +242,30 @@ class GuardTest(Loop):
         project_loop.owner_turn(self.state, LEAD, CHAT, f"lead-{PID}-4")
         self.assertEqual((self.reload()["state"], self.reload()["wakes"]["streak"]), (projects.PAUSED, 3))
 
-    def test_the_owners_turn_starts_what_the_owner_stopped_but_not_a_finished_project(self):
+    def test_the_owners_turn_starts_what_the_owner_stopped_and_opens_a_finished_project_again(self):
         self.update(state=projects.PAUSED, state_reason=projects.OWNER_STOP)
         project_loop.owner_turn(self.state, LEAD, CHAT, "main-x")
         self.assertEqual(self.reload()["state"], projects.ACTIVE)
-        self.update(state=projects.DONE, state_reason="完成")
-        project_loop.owner_turn(self.state, LEAD, CHAT, "om_2")
+        self.update(state=projects.DONE, state_reason="完成", state_job="lead-x-1", conclusion_message_id="om_c",
+                    card={"card_id": "c", "message_id": "om_card", "sequence": 8, "closed": True, "settled_at": NOW, "digest": "d"})
+        project_loop.owner_turn(self.state, LEAD, CHAT, f"lead-{PID}-9")  # A wake-up is not the owner.
         self.assertEqual(self.reload()["state"], projects.DONE)
+        with mock.patch("covey.app.project_loop.time.time", return_value=NOW + 60):
+            project_loop.owner_turn(self.state, LEAD, CHAT, "om_2")
+        record = self.reload()
+        self.assertEqual((record["state"], record["state_reason"], record["owner_at"]), (projects.ACTIVE, "", NOW + 60))
+        self.assertEqual(record["reopened"], [{"at": NOW + 60, "job": "lead-x-1", "summary": "完成"}])
+        self.assertNotIn("state_job", record)
+        self.assertNotIn("conclusion_message_id", record)
+        self.assertEqual((record["card"]["closed"], record["card"]["digest"], record["card"]["sequence"]), (False, "", 8))
+        self.assertNotIn("settled_at", record["card"])
+        self.assertIn("重开：这个专项收过尾（完成）", project_lead.state_pack(self.state, record, "k", full=False, receipts=[]))
+
+    def test_a_cancelled_project_is_not_opened_by_the_owners_word(self):
+        self.update(state=projects.CANCELLED, state_reason="downgraded")
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_2")
+        project_loop.heard(self.state, THREAD, "还在吗")
+        self.assertEqual(self.reload()["state"], projects.CANCELLED)
 
     def test_after_a_tokens_pause_the_owners_turn_starts_a_new_budget(self):
         self.update(tokens_used=BUDGET, state=projects.PAUSED, state_reason="tokens")
@@ -519,6 +536,15 @@ class IdleTest(Loop):
             opener()
             self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
             self.assertNotIn("idle", self.reload())
+
+    def test_his_word_in_a_topic_of_a_finished_project_opens_it_again(self):
+        self.thread(THREAD, "迁移", 41, status="done", timings={"execution_finished": NOW})
+        self.update(state=projects.DONE, state_reason="迁完了", state_job="lead-x-1")
+        project_loop.heard(self.state, THREAD, "迁移再看看")
+        record = self.reload()
+        self.assertEqual((self.state_of(), record["reopened"][-1]["summary"]), ((projects.ACTIVE, ""), "迁完了"))
+        self.assertTrue(record["owner_at"])
+        self.assertIn("owner_said", [item["kind"] for item in project_loop.unread(self.state, PID)])
 
     def test_a_project_just_opened_again_is_not_folded_before_something_has_happened(self):
         self.update(state=projects.PAUSED, state_reason=projects.IDLE, idle={"at": NOW, "days": 7})

@@ -468,6 +468,7 @@ class Projects:
         if record.get("goal"):
             parts.append("目标：" + clip(record["goal"], 160))
         parts.extend(topic_line(state, topic) for topic in record.get("threads") or ())
+        parts.append(GATHERED_NOTE)
         return "；".join(parts)
 
     def gather(self, *, chat, name, goal, topics, key, why="", owner_named=False) -> str:
@@ -612,6 +613,8 @@ def wanted_topics(env, chat, raw):
 
 # 整理专项's joins and 移出 (docs/butler.md 整理专项) -----------------------------------------------------------------------
 
+GATHERED_NOTE = ("这些话题是整理时收进来的，它们做完不等于专项完成：这一轮写下目标（project_goal），用 project_note（标 report）"
+                 "说清每个话题做到哪、还剩什么，然后等主人下一步，不要收尾")
 JOINED, LEFT = "joined", "left"  # The receipts the lead gets.
 
 
@@ -711,12 +714,12 @@ def projects_list(env, request):
 
 
 def find_project(state, chat, ref):
-    """The record ``ref`` names (its id, an id's start, or its name when only one has it) among the chat's that are on;
-    a str saying why not."""
+    """The record ``ref`` names (its id, an id's start, or its name when only one has it) among the chat's that are on or
+    finished (the owner's words open a finished one again, project_send); a str saying why not."""
     text = " ".join(str(ref or "").split())
     if not text:
         return "pid 不能为空：用 projects_list 查专项的 id。"
-    found = [record for record in projects.records(state, chat) if state_of(record) in (projects.ACTIVE, projects.PAUSED)]
+    found = [record for record in projects.records(state, chat) if state_of(record) in (projects.ACTIVE, projects.PAUSED, projects.DONE)]
     for same in (lambda record: record["id"] == text, lambda record: record["id"].startswith(text),
                  lambda record: text in str(record.get("name") or "")):
         matches = [record for record in found if same(record)]
@@ -724,7 +727,7 @@ def find_project(state, chat, ref):
             return matches[0]
         if len(matches) > 1:
             return f"「{text}」对得上不止一个专项：{'、'.join(record['id'] for record in matches)}，给完整的 id。"
-    return f"没有在做的专项「{text}」：用 projects_list 查 id。"
+    return f"没有在做或做完的专项「{text}」：用 projects_list 查 id。"
 
 
 def lead_target(env, record):
@@ -788,6 +791,12 @@ def project_send(env, request):
     if found is None:
         return reply(False, f"专项「{name}」的负责人话题读不到，这次没有转。")
     app, ctx = found
+    if state_of(record) == projects.DONE:  # His words through the butler: a finished project opens again (the steer below
+        from covey.app import project_loop  # reaches no owner_turn).
+        try:
+            projects.update(state, record["id"], project_loop.owner_spoke)
+        except (KeyError, ValueError, OSError):
+            return reply(False, f"专项「{name}」已收尾，重开没有成功，这次没有转。")
     # No ``topic_id``: the readers of main-thread/opened (core/butler_opened.py) take a record with one for a topic the request handed
     # on to, and the lead is not one (it is not relayed, has no T number and no thread of its own).
     note = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "lead_topic_id": lead, "project_id": record["id"],

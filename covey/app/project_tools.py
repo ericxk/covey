@@ -10,7 +10,8 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
   ``project_goal`` (the goal and its done-when as the lead keeps them, ``lead_goal``: the web page shows it under the project's name),
   ``project_remember`` (the project's memory), ``project_style``, ``project_finish`` write the project's record
-  (core/projects.py update, under its record lock; no Feishu call).
+  (core/projects.py update, under its record lock; no Feishu call). ``project_finish`` refuses a project 整理专项 made that the
+  owner has not spoken in and the lead has handed no work to (``finish_gate``).
 - ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5, COVEY_PROJECT_TRIAGE=1; they are listed
   to the lead only then, and answer that it is off otherwise): the lead answers a member topic's held choice question as the
   owner would (the question's own submit path, with a note that the lead answered) or hands it to the owner with a reason
@@ -57,9 +58,40 @@ def lead(env, request) -> tuple:
     return found.id, record
 
 
+STATE_NAMES = {projects.PAUSED: "停住", projects.DONE: "做完（已收尾）", projects.CANCELLED: "已取消"}
+DONE_NEXT = ("主人在专项里说一句话（负责人话题、专项的话题、管家转来、网页上）专项就会自动重开；"
+             "告诉主人这一点和你打算怎么做，不要说做不了。")
+OWNER_FIRST = ("这个专项是整理专项时把已有的话题收进来建的，建好后主人还没在里面说过话、你也还没派过活："
+               "收进来的话题做完不等于专项完成，现在不能收尾。用 project_note（标 report）说清每个话题做到哪、还剩什么，"
+               "然后结束这一轮，等主人下一步；主人在专项里说过话、或你派过活之后才能 project_finish。")
+
+
+def ended_words(record, what) -> str:
+    """Why a lead's tool refuses ``what`` in a project that is not active, and what comes next."""
+    state = record.get("state")
+    words = f"专项现在是{STATE_NAMES.get(state, state)}，不能{what}。"
+    if state == projects.DONE:
+        return words + DONE_NEXT
+    if state == projects.PAUSED:
+        return words + "主人在专项里说话或在停住卡上点继续，专项就会重新开始。"
+    return words
+
+
 def active(record, what="这件事") -> None:
     if record.get("state") != projects.ACTIVE:
-        raise ValueError(f"专项现在是 {record.get('state')}，不能{what}")
+        raise ValueError(ended_words(record, what))
+
+
+def finish_gate(record) -> str:
+    """'' when the lead may finish ``record``; else why not (``OWNER_FIRST``): a project 整理专项 made of topics that were there
+    already (origin ``tidy``), which the owner has not spoken in since (``owner_at``, app/project_loop.py owner_spoke) and
+    its lead has handed no work to (``acted``). Its topics all done is how it began, not its goal reached (the owner,
+    2026-11-19: a project split off was finished by its lead's first wake-up turn). A project the owner started (direct, an
+    upgrade) began with his words."""
+    origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
+    if origin.get("kind") != "tidy" or record.get("owner_at") or record.get("acted"):
+        return ""
+    return OWNER_FIRST
 
 
 def text_of(args, name="text", limit=project_lead.TEXT) -> str:
@@ -152,7 +184,7 @@ def project_topic_stop(env, request):
 
     pid, record = lead(env, request)
     if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
-        raise ValueError(f"专项现在是 {record.get('state')}，已经结束了")
+        raise ValueError(ended_words(record, "停话题"))
     chat = env.chat()
     found = butler_topics.find_topic(env, chat, request.args.get("thread"))
     if isinstance(found, str):
@@ -240,7 +272,10 @@ def project_style(env, request):
 def project_finish(env, request):
     pid, record = lead(env, request)
     if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
-        raise ValueError(f"专项现在是 {record.get('state')}，已经结束了")
+        raise ValueError(ended_words(record, "再收尾"))
+    gate = finish_gate(record)
+    if gate:
+        return reply(False, gate, gate="owner_first")
     summary = text_of(request.args, "summary")
     live = project_lead.live_members(env.state_dir, record)
     if live:

@@ -99,18 +99,29 @@ class TransitionTest(Case):
     def test_the_table(self):
         self.assertEqual(projects.PROJECT_TRANSITIONS, {
             "active": {"paused", "done", "cancelled"}, "paused": {"active", "done", "cancelled"},
-            "done": set(), "cancelled": set()})
+            "done": {"active"}, "cancelled": set()})
         self.assertEqual(projects.STATES, {"active", "paused", "done", "cancelled"})
 
     def test_a_final_state_never_moves_and_nothing_is_written_when_it_is_refused(self):
         self.record()
-        projects.set_state(self.state, PID, projects.DONE, "finished")
+        projects.set_state(self.state, PID, projects.CANCELLED, "downgraded")
         path = projects.record_path(self.state, PID)
         before = path.read_text()
-        for to in ("active", "paused", "cancelled", "bogus"):
+        for to in ("active", "paused", "done", "bogus"):
             with self.assertRaises(ValueError):
                 projects.set_state(self.state, PID, to)
         self.assertEqual(path.read_text(), before)
+
+    def test_a_done_project_only_goes_back_to_active(self):
+        self.record()
+        projects.set_state(self.state, PID, projects.DONE, "finished")
+        path = projects.record_path(self.state, PID)
+        before = path.read_text()
+        for to in ("paused", "cancelled", "bogus"):
+            with self.assertRaises(ValueError):
+                projects.set_state(self.state, PID, to)
+        self.assertEqual(path.read_text(), before)
+        self.assertEqual(projects.set_state(self.state, PID, projects.ACTIVE)["state"], "active")
 
     def test_pause_and_resume(self):
         self.record()
@@ -128,7 +139,7 @@ class TransitionTest(Case):
         record = {"state": "active"}
         self.assertIs(projects.transition(record, "done"), record)
         with self.assertRaises(ValueError):
-            projects.transition(record, "active")
+            projects.transition(record, "paused")
 
 
 class RecordTest(Case):

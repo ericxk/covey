@@ -473,6 +473,23 @@ class SettleTest(CardCase):
         self.tick(1020.0)
         self.assertEqual(self.put.call_count, 1)  # Never refreshed again.
 
+    def test_a_finished_project_the_owner_speaks_in_again_gets_its_whole_card_back_in_place(self):
+        from covey.app import project_loop
+        projects.update(self.state, PID, lambda record: record.update(conclusion_message_id="om_conclusion"))
+        projects.set_state(self.state, PID, projects.DONE)
+        self.tick(1010.0)
+        settled = self.record()["card"]
+        self.assertTrue(settled["closed"])
+        projects.update(self.state, PID, project_loop.owner_spoke)  # What his turn in the lead's topic does (owner_turn).
+        self.assertEqual(self.record()["state"], projects.ACTIVE)
+        self.tick(1100.0)
+        self.assertEqual(self.put.call_count, 2)
+        self.assertNotEqual(ids(self.put.call_args.args[2]), ["pj_line"])  # The whole card, on the same card.
+        card = self.record()["card"]
+        self.assertEqual((card["card_id"], card.get("closed")), ("card-0", False))
+        self.assertGreater(card["sequence"], settled["sequence"])
+        self.assertFalse(self.sent.called)  # No new message.
+
     def test_without_a_conclusion_it_waits_then_shrinks_without_the_link(self):
         projects.set_state(self.state, PID, projects.DONE)
         self.tick(1010.0)

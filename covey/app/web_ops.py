@@ -125,6 +125,8 @@ class Ops:
             if lead:
                 raise ValueError("负责人正在等你答题，请在题目里回答")
             return self.answer_with_words(state, chat, topic, row, text)
+        if lead and lead.get("state") == projects.DONE:  # His words open a finished project again (a steer reaches no owner_turn).
+            projects.update(state, lead["id"], project_loop.owner_spoke)
         message = PREFIX + str(row.get("op_id"))
         owner = self.runtime.owner_open_id or ""
         remember_topic_message(state, topic, chat, message)
@@ -153,10 +155,11 @@ class Ops:
 
     def lead_app(self, state, record):
         """The Harness app of the project's lead, whose topic is the page's say target as the project card's quoted reply is in Feishu
-        (app/projects.py lead_target); ValueError for a project that is over or whose lead cannot be spoken to."""
+        (app/projects.py lead_target); ValueError for a project that was cancelled or whose lead cannot be spoken to (a finished
+        one takes the owner's words and opens again, ``say``)."""
         from covey.app.projects import lead_target
-        if record.get("state") in (projects.DONE, projects.CANCELLED):
-            raise ValueError("这个专项已经结束，负责人不再收话")
+        if record.get("state") == projects.CANCELLED:
+            raise ValueError("这个专项已经取消，负责人不再收话")
         found = lead_target(self.env, record)
         if found is None:
             raise ValueError("这个专项的负责人话题读不到，话没有发出")
@@ -344,10 +347,13 @@ class Ops:
         record = projects.read_record(state, pid)
         if not record or record.get("chat_id") != chat:
             raise ValueError("这个专项不认识，或不在你的私聊里")
-        if record.get("state") in (projects.DONE, projects.CANCELLED):
-            raise ValueError("这个专项已经结束，不能重开")
+        if record.get("state") == projects.CANCELLED:
+            raise ValueError("这个专项已经取消，不能重开")
         if record.get("state") == projects.ACTIVE:
             return "这个专项已经在做了"
+        if record.get("state") == projects.DONE:
+            projects.update(state, pid, project_loop.owner_spoke)
+            return "已重新打开，负责人等你的新要求"
         if record.get("state_reason") not in projects.RESUMABLE:
             raise ValueError("这个专项现在的停住原因不能由网页重开，请在飞书里处理")
         projects.update(state, pid, project_loop.reopen)

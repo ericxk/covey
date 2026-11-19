@@ -820,7 +820,7 @@ class Collector:
     def project_state(self, record, topics) -> tuple:
         state = record.get("state")
         if state == projects.DONE:
-            return "做完", ""
+            return "做完", "再说话会重开"
         if state == projects.CANCELLED:
             return "已取消", ""
         if state == projects.PAUSED:

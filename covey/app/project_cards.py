@@ -14,6 +14,8 @@ own (cards/project_card.py), kept up to date and shrunk to one line when the pro
   card becomes "已移到新卡 ›" and, when that cannot be written ``MOVE_TRIES`` times, is recalled.
 - A project folded away for being idle (state_reason ``idle``, app/project_loop.py ``rest``) is drawn as one line (``fold``, 收起 · N 天没有新的事),
   before the 14 days are looked at; the card is not closed, so once the project is active again the next look draws it whole.
+- A finished project the owner speaks in again (app/project_loop.py ``unfinish``) gets its card back: ``unfinish`` clears
+  ``closed`` and ``digest``, so the next look draws the one line whole again in place, with the next sequence.
 - With COVEY_PROJECT_ASK=1 it also sends and settles the pause card (``ask``): a project a guard paused (``pause_ask`` in its
   record, app/project_loop.py) gets a card of its own where the project's card is, with 继续 / 收尾 / 停; once the owner chose
   (``ask_choice`` records it) or the project moved on some other way, that card is written once more as one line.
@@ -423,6 +425,8 @@ class ProjectCards:
         state = record.get("state")
         if state == projects.DONE:
             return self.settle(ctx, record, card, seen, now)
+        seen["done_seen"] = 0.0  # Opened again after a finish (app/project_loop.py unfinish): the next finish waits its own grace.
+        seen.pop("answer_wait", None)
         if state == projects.CANCELLED:
             return self.settle(ctx, record, card, seen, now, reason=CLOSED_WORDS[
                 MERGED if record.get("state_reason") == MERGED else "downgraded"])

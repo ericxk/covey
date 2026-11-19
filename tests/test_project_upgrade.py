@@ -825,13 +825,33 @@ class ToolTest(UpCase):
         self.assertNotIn("idle", opened)
         self.assertIn("· 在做 ·", self.call("projects_list", "f3")["text"])
 
+    def test_project_send_to_a_finished_project_opens_it_again_even_as_a_supplement(self):
+        topic, project = self.upgraded()
+        projects.update(self.state, project["id"], lambda record: record.update(
+            state="done", state_reason="都做完了", state_job="lead-p-1", card={**record["card"], "closed": True}))
+        self.assertIn("· 做完 ·", self.call("projects_list", "d1")["text"])
+        app = upgrades.lead_target(self.env, project)[0]
+        job = BridgeReplyJob(job_id=22, user_text="x", chat_id=CHAT, message_id="lead-p-2", timeout=0, topic_id=project["lead_topic_id"])
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
+        app.runtime.jobs.register(job)
+        with mock.patch.object(app.steering, "deliver_steer", return_value={"status": "sent"}):
+            answer = self.call("project_send", "d2", pid=project["id"], text="网页聊天框也要能选模型")
+        app.runtime.unregister_reply_job(job)
+        self.assertTrue(answer["ok"], answer)
+        opened = projects.read_record(self.state, project["id"])
+        self.assertEqual((opened["state"], opened["state_reason"], opened["card"].get("closed")), ("active", "", False))
+        self.assertNotIn("state_job", opened)
+        self.assertEqual(opened["reopened"][-1]["summary"], "都做完了")
+        self.assertIn("· 在做 ·", self.call("projects_list", "d3")["text"])
+
     def test_project_send_refuses_what_it_cannot_send(self):
         topic, project = self.upgraded()
         self.assertFalse(self.call("project_send", "x1", pid="", text="y")["ok"])
         self.assertFalse(self.call("project_send", "x2", pid=project["id"], text="  ")["ok"])
-        self.assertIn("没有在做的专项", self.call("project_send", "x3", pid="0f9e8d7c6b5a", text="y")["text"])
-        projects.set_state(self.state, project["id"], projects.DONE)
-        self.assertIn("没有在做的专项", self.call("project_send", "x4", pid=project["id"], text="y")["text"])
+        self.assertIn("没有在做或做完的专项", self.call("project_send", "x3", pid="0f9e8d7c6b5a", text="y")["text"])
+        projects.set_state(self.state, project["id"], projects.CANCELLED)
+        self.assertIn("没有在做或做完的专项", self.call("project_send", "x4", pid=project["id"], text="y")["text"])
         with mock.patch.object(butler_topics, "lead_of", return_value=(project["id"], "p")):
             self.assertIn("负责人不用这个工具", self.call("project_send", "x5", pid=project["id"], text="y")["text"])
 

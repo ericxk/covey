@@ -775,8 +775,13 @@ class InboxTest(WebCase):
         projects.update(self.state, PID, lambda record: record.update(state="done"))
         self.web.op("reopen", 4, "op-14", project=PID)
         self.sync.inbox_once()
+        self.assertEqual(self.web.acks[-1]["state"], "done")  # A finished project opens again (T574).
+        self.assertEqual(self.reload()["state"], "active")
+        projects.update(self.state, PID, lambda record: record.update(state="cancelled"))
+        self.web.op("reopen", 5, "op-15b", project=PID)
+        self.sync.inbox_once()
         self.assertEqual(self.web.acks[-1]["state"], "failed")
-        self.assertEqual(self.reload()["state"], "done")
+        self.assertEqual(self.reload()["state"], "cancelled")
 
     def test_an_unknown_topic_and_an_unknown_kind_fail_with_a_reason(self):
         self.web.op("say", 1, "op-15", OTHER, text="喂")
@@ -1424,12 +1429,21 @@ class LeadTest(WebCase):
         self.sync.inbox_once()
         self.assertEqual((self.app.steered, self.app.queued), ([(4, "web-op-l2", "补一句")], []))
 
-    def test_say_to_the_lead_of_a_finished_project_or_without_projects_fails_with_a_reason(self):
+    def test_say_to_the_lead_of_a_finished_project_opens_it_again(self):
         self.env.topics.apps = {"claude": self.app}
-        projects.update(self.state, PID, lambda record: record.update(state="done"))
+        projects.update(self.state, PID, lambda record: record.update(state="done", state_reason="做完了"))
         self.web.op("say", 1, "op-l3", LEAD, text="还在吗")
         self.sync.inbox_once()
-        self.assertEqual((self.web.acks[-1]["state"], "已经结束" in self.web.acks[-1]["message"]), ("failed", True))
+        self.assertEqual(self.web.acks[-1]["state"], "done")
+        self.assertEqual((self.reload()["state"], self.reload()["reopened"][-1]["summary"]), ("active", "做完了"))
+        self.assertEqual(self.app.queued, [(LEAD, "web-op-l3", "还在吗")])
+
+    def test_say_to_the_lead_of_a_cancelled_project_or_without_projects_fails_with_a_reason(self):
+        self.env.topics.apps = {"claude": self.app}
+        projects.update(self.state, PID, lambda record: record.update(state="cancelled"))
+        self.web.op("say", 1, "op-l3", LEAD, text="还在吗")
+        self.sync.inbox_once()
+        self.assertEqual((self.web.acks[-1]["state"], "已经取消" in self.web.acks[-1]["message"]), ("failed", True))
         with mock.patch.dict(os.environ, {projects.ENV: "0"}):
             self.web.op("say", 2, "op-l4", LEAD, text="还在吗")
             self.sync.inbox_once()

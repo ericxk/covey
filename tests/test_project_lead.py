@@ -20,7 +20,8 @@ from support import enter_context
 from support.fake_backends import codex_context
 from support.records import state_dir, write_job, write_topic
 
-from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as session, butler_tools, project_lead
+from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as session, butler_tools, project_lead, project_tools
+from covey.app import projects as projects_app
 from covey.app.butler_tools import ButlerTools
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
@@ -547,10 +548,14 @@ class MemberToolsTest(ToolsCase):
         self.assertTrue(answer["text"].startswith("没有开出话题："))
         self.assertEqual(self.reload()["threads"], [])
 
-    def test_a_paused_or_finished_project_opens_no_thread(self):
+    def test_a_paused_or_finished_project_opens_no_thread_and_says_what_comes_next(self):
         projects.set_state(self.state, PID, projects.PAUSED)
-        self.assertIn("paused", self.refused("project_topic_start", title="x", prompt="y", workspace="project",
-                                             readonly=True, why="z"))
+        self.assertIn("专项现在是停住，不能开新话题", self.refused("project_topic_start", title="x", prompt="y", workspace="project",
+                                                       readonly=True, why="z"))
+        projects.set_state(self.state, PID, projects.DONE)
+        words = self.refused("project_topic_start", title="x", prompt="y", workspace="project", readonly=True, why="z")
+        self.assertIn("做完（已收尾）", words)
+        self.assertIn("自动重开", words)
 
 
 def butler_topics_token(request_id):
@@ -712,7 +717,7 @@ class StopToolTest(ToolsCase):
     def test_a_finished_project_refuses(self):
         data, job = self.opened()
         projects.set_state(self.state, PID, projects.DONE)
-        self.assertIn("已经结束", self.refused("project_topic_stop", thread=data["label"]))
+        self.assertIn("做完（已收尾）", self.refused("project_topic_stop", thread=data["label"]))
 
     def test_the_lead_rules_and_the_butlers_say_how_to_stop_a_topic(self):
         from covey.app import prompts
@@ -822,8 +827,24 @@ class RecordToolsTest(ToolsCase):
         record = self.reload()
         self.assertEqual((record["state"], record["state_reason"], record["state_job"]), ("done", "账单迁完，对账一致", "lead-job"))
         self.assertEqual(record["notes"][-1]["kind"], "finish")
-        self.assertIn("已经结束", self.refused("project_finish", summary="再来一次"))
+        self.assertIn("做完（已收尾）", self.refused("project_finish", summary="再来一次"))
         self.assertTrue(thread)
+
+    def test_a_project_tidy_gathered_is_not_finished_before_the_owner_speaks_or_the_lead_hands_out_work(self):
+        projects.update(self.state, PID, lambda record: record.update(origin={"kind": "tidy", "proposal": "p"}))
+        blocked = self.tool("project_finish", summary="收进来的话题都做完了")
+        self.assertFalse(blocked["ok"])
+        self.assertIn("收进来的话题做完不等于专项完成", blocked["text"])
+        self.assertEqual(self.reload()["state"], projects.ACTIVE)
+        self.assertIn("不要收尾", projects_app.Projects.gathered(self.state, self.reload()))
+        for opened in ({"owner_at": NOW}, {"acted": [{"job": "lead-job", "what": "start", "at": NOW}]}):
+            with self.subTest(opened=opened):
+                projects.update(self.state, PID, lambda record: (record.pop("owner_at", None), record.pop("acted", None),
+                                                                 record.update(opened)))
+                self.assertEqual(project_tools.finish_gate(self.reload()), "")
+        for kind in ("direct", "upgrade"):  # The owner's own words began these.
+            projects.update(self.state, PID, lambda record: (record.pop("acted", None), record.update(origin={"kind": kind})))
+            self.assertEqual(project_tools.finish_gate(self.reload()), "")
 
     def test_the_triage_tools_say_it_is_off_without_the_switch(self):
         for name, args in (("project_answer", {"thread": "T1", "answers": {}}), ("project_escalate", {"thread": "T1", "why": "x"})):
