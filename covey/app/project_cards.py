@@ -29,8 +29,6 @@ lead's report on the project's end; P2-2), ``triage`` (a list of lines or {at, t
 from __future__ import annotations
 
 import dataclasses
-import hashlib
-import json
 import os
 import re
 import time
@@ -40,6 +38,7 @@ from types import SimpleNamespace
 from covey.cards.project_card import (ASK_KINDS, CORRECTED, DONE, PAUSED, RUNNING, WAITING, Project, Member, ask_card, asked_card,
                                       idle_card, moved_card, project_card, settled_card)
 from covey.app import project_loop
+from covey.app.card_publish import clock, digest_of, publish, safely, titles_of, words  # noqa: F401 - re-exported
 from covey.cards import answer_card
 from covey.cards.facts import tile_count
 from covey.core import board_read, project_library, project_memory, projects
@@ -69,19 +68,6 @@ NO_LEAD_JOB = "负责人现在没有在做的一轮。要对它说话，引用�
 CLOSED_WORDS = {"stopped": "专项已停住", "downgraded": "专项已降为普通话题", "merged": "专项已并入另一个专项"}
 MERGED = "merged"  # state_reason of a project 整理专项 merged into another (cancelled; its topics are the other's now).
 DOWNGRADED = "downgraded"  # The record's state_reason of a project the owner turned back (its state is cancelled).
-
-
-def digest_of(card) -> str:
-    return hashlib.sha256(json.dumps(card, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24]
-
-
-def words(text, limit=200) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
-
-
-def clock(epoch) -> str:
-    return time.strftime("%H:%M", time.localtime(float(epoch))) if epoch else ""
 
 
 # What the records say -----------------------------------------------------------------------------------------------
@@ -278,13 +264,6 @@ def origin_words(note) -> str:
     return f"来回 {rounds.group(1)} 轮后转成专项" if rounds else note
 
 
-def titles_of(topics) -> dict:
-    try:
-        return {name: app.harness.spec.title for name, app in topics.apps.items()}
-    except AttributeError:
-        return {}
-
-
 # Sending, taking over --------------------------------------------------------------------------------------------------
 
 def adopt_card(state_dir, project_id, *, card_id, message_id, sequence=0, created_at=None) -> dict:
@@ -304,11 +283,7 @@ def created(env, record) -> str:
     Never raises. ``env`` as app/dispatch_cards.py ``created`` takes it."""
     if not projects.enabled():
         return ""
-    try:
-        return _created(env, record)
-    except Exception as exc:  # noqa: BLE001 - the project is open; only its card is missing
-        env.runtime.log(f"project card failed project={str(record.get('id'))[:8]}: {type(exc).__name__}")
-        return ""
+    return safely(env, lambda: _created(env, record), f"project card failed project={str(record.get('id'))[:8]}")
 
 
 def _created(env, record) -> str:
@@ -318,17 +293,15 @@ def _created(env, record) -> str:
         return projects.card_message(saved)
     card = project_card(facts(state, saved, time.time(), titles_of(env.topics)))
     pending = (saved.get("card") or {}).get("pending_card_id") or ""
-    card_id, message = env.messenger.create_and_send_card(
-        env.profile, saved["chat_id"], card, env.voice.key("project-card", pid + "-0"), voice=env.voice, card_id=pending,
-        on_created=lambda cid: projects.update_card(state, pid, pending_card_id=cid))
-    if not message:
-        env.runtime.log(f"project card not sent project={pid[:8]}")
-        return ""
-    projects.update_card(state, pid, card_id=card_id, message_id=message, sequence=0, created_at=time.time(),
-                         digest=digest_of(card), wrote_at=time.time(), pending_card_id=None, closed=None)
-    _route(state, saved, message)
-    env.runtime.log(f"project card sent project={pid[:8]} message={message[-8:]}")
-    return message
+
+    def store(card_id, message, digest):
+        projects.update_card(state, pid, card_id=card_id, message_id=message, sequence=0, created_at=time.time(),
+                             digest=digest, wrote_at=time.time(), pending_card_id=None, closed=None)
+    return publish(
+        env, state, saved["chat_id"], card, env.voice.key("project-card", pid + "-0"), card_id=pending,
+        on_created=lambda cid: projects.update_card(state, pid, pending_card_id=cid), record=store,
+        topic=str(saved.get("lead_topic_id") or ""), route_chat=str(saved.get("chat_id") or ""),
+        not_sent=f"project card not sent project={pid[:8]}", sent=f"project card sent project={pid[:8]} message=")
 
 
 def _route(state, record, message) -> None:

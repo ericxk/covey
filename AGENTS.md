@@ -88,6 +88,7 @@
 | `app/butler_tracks.py` | 多路并行 at run time (docs/butler.md 多路并行 |
 | `app/card_actions.py` | Task-card button kinds the unified bot accepts, in one table |
 | `app/card_lanes.py` | Card clicks run in order within a topic and in parallel across topics |
+| `app/card_publish.py` | Sending a card as a message of its own and keeping it in a record |
 | `app/card_queue.py` | A bounded queue of card clicks and the worker threads that run them |
 | `app/card_routing.py` | Routing what Feishu sends the Bridge |
 | `app/cards.py` | Cards: the one place that writes a Harness's task and process cards |

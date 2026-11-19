@@ -17,11 +17,10 @@ naming the owner's message, saying how the job it handed to a topic is going, ke
   settles as it is (no more refreshing)."""
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from pathlib import Path
 
+from covey.app.card_publish import clock, digest_of, publish, safely, titles_of, words as _words  # noqa: F401 - re-exported
 from covey.cards import answer_card
 from covey.cards.dispatch_card import (DONE, FAILED, RUNNING, STEER_KIND, STOP_KIND, STOPPED, WAITING, Dispatch, dispatch_card,
                                        settled_card)
@@ -37,7 +36,7 @@ from covey.core.metrics import run_seconds, timings_of, took_text
 from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.store import directory_store
 from covey.core.status_line import step_text
-from covey.core.topics import remember_topic_message, route_message, topic_label, topic_title
+from covey.core.topics import topic_label, topic_title
 from covey.core.turn_words import UNSET_PHASES, ask_words, request_line
 
 ENV = "COVEY_DISPATCH_CARD"
@@ -117,8 +116,7 @@ def click_job(runtime, state_dir, topic_id, chat_id) -> str:
 
 
 def words(text, limit=BODY_CHARS) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    return _words(text, limit)
 
 
 def quantize(seconds) -> str:
@@ -126,10 +124,6 @@ def quantize(seconds) -> str:
     two minutes, by the minute after."""
     seconds = max(0, int(seconds))
     return took_text(seconds // 10 * 10 if seconds < 120 else seconds // 60 * 60)
-
-
-def clock(epoch) -> str:
-    return time.strftime("%H:%M", time.localtime(float(epoch))) if epoch else ""
 
 
 # What the job records say -------------------------------------------------------------------------------------------
@@ -229,18 +223,6 @@ def facts(state_dir, record, now, titles, url="") -> Dispatch:
                     ask_at=str(record.get("ask_at") or ""), ask_url=str(record.get("ask_url") or ""))
 
 
-def titles_of(topics) -> dict:
-    """Harness name -> its title (the card's 输入 line), from the Harness apps."""
-    try:
-        return {name: app.harness.spec.title for name, app in topics.apps.items()}
-    except AttributeError:
-        return {}
-
-
-def digest_of(card) -> str:
-    return hashlib.sha256(json.dumps(card, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24]
-
-
 # Sending the card ---------------------------------------------------------------------------------------------------
 
 def request_words(state_dir, job_key) -> str:
@@ -275,11 +257,8 @@ def created(env, request, topic_id, job_key="", *, token, kind="start", mid="", 
     which app/projects.py reads (COVEY_PROJECT_UPGRADE)."""
     if not enabled():
         return ""
-    try:
-        return _created(env, request, topic_id, job_key or request.job_key, token, kind, mid, starts, project)
-    except Exception as exc:  # noqa: BLE001 - the topic is open and its work queued: only the card is missing
-        env.runtime.log(f"dispatch card failed topic={str(topic_id)[:12]}: {type(exc).__name__}")
-        return ""
+    return safely(env, lambda: _created(env, request, topic_id, job_key or request.job_key, token, kind, mid, starts, project),
+                  f"dispatch card failed topic={str(topic_id)[:12]}")
 
 
 def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=False) -> str:
@@ -312,19 +291,16 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=
     def saved(card_id):
         record["card_id"] = card_id  # Kept before the send: a second try sends this same card.
         write_json(path, record, ensure_ascii=False, indent=1)
-    card_id, message = env.messenger.create_and_send_card(
-        env.profile, chat, card, env.voice.key("main-dispatch", token), voice=env.voice, card_id=record.get("card_id", ""),
-        on_created=saved)  # Not a reply: Feishu would put it into the owner's message's thread (see cards/dispatch_card.py).
-    if not message:
-        env.runtime.log(f"dispatch card not sent topic={str(topic_id)[:12]}")
-        return ""
-    record.update(card_id=card_id, card_message_id=message, digest=digest_of(card), wrote_at=time.time())
-    write_json(path, record, ensure_ascii=False, indent=1)
+
+    def store(card_id, message, digest):
+        record.update(card_id=card_id, card_message_id=message, digest=digest, wrote_at=time.time())
+        write_json(path, record, ensure_ascii=False, indent=1)
     # A quote of the card goes to the topic (the owner's reply to it is a word to the job), as the hook's does.
-    remember_topic_message(state, topic_id, chat, message)
-    route_message(state, chat, message, topic_id, holder=topic_id)
-    env.runtime.log(f"dispatch card sent topic={str(topic_id)[:12]} kind={kind} message={message[-8:]}")
-    return token
+    sent = publish(env, state, chat, card, env.voice.key("main-dispatch", token), card_id=record.get("card_id", ""),
+                   on_created=saved, record=store, topic=topic_id, route_chat=chat,
+                   not_sent=f"dispatch card not sent topic={str(topic_id)[:12]}",
+                   sent=f"dispatch card sent topic={str(topic_id)[:12]} kind={kind} message=")
+    return token if sent else ""
 
 
 def relayed(state_dir, target, outcome, state, message_id="", reason="") -> None:
