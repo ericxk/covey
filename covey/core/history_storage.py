@@ -136,6 +136,7 @@ def append_history(path: Path, role: str, content: str, event: dict[str, Any] | 
             "mentions",
             "sender",
             "user_agent",
+            "job_id",
         ):
             value = event.get(key)
             if value not in (None, "", [], {}):

@@ -55,7 +55,9 @@ LEFT_WAIT = 300  # Seconds waited at MAX_LEFT; then the next step runs in a new 
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
 BUTLER_TITLE = "管家"
 LEAD_TITLE = "负责人"
-EXTRA_TURNS = 20  # The newest turns of a topic that get their process, plan and figures (each one read from its trace file, once when it ended).
+EXTRA_TURNS = 20  # The newest turns of a topic that get their process and plan; every kept turn gets its figures (each read from its trace file once).
+FIGURES_KEPT = 8192  # Ended turns whose figures are remembered (a few numbers each): all kept turns of all topics a full look builds.
+PAIR_SLACK = 300  # Seconds after a task's record was last written that an answer line with no other task may still be its own (pair).
 RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked at.
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
 NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
@@ -169,7 +171,7 @@ class Client:
 class Collector:
     """The items of the owner's chat from the records (see the module's reading rules). One thread uses it."""
 
-    def __init__(self, env, stuck=None) -> None:
+    def __init__(self, env, stuck=None, log=None) -> None:
         self.env = env
         self.stuck = {} if stuck is None else stuck  # topic id -> the left-behind thread stuck reading it (WebSync.start_over).
         self.left = set()  # The topics the last look left out because their read is stuck.
@@ -182,6 +184,9 @@ class Collector:
         self.history = {}  # topic id -> ((mtime_ns, size), rows)
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
         self.extra = {}  # (job key, updated_at) -> the optional fields of an ended turn (web_turns.extras).
+        self.figures = {}  # (job key, updated_at) -> the figures of an ended turn (web_turns.ended_figures).
+        self.unpaired = {}  # topic id -> its answer turns with no task record, as last logged (count_unpaired).
+        self.log = log  # The bridge.log writer (WebSync's runtime.log); None: nothing logged.
         self.receipts = {}  # project id -> {receipt file name: its row} (thread_end only).
         self.origins = None  # web_said.Origins of the owner's chat: who wrote each hand-on, read once.
         self.moved = 0.0  # Monotonic time of the last progress of a look and its push: a topic built, a batch sent (WebSync.loop's stuck check).
@@ -392,13 +397,18 @@ class Collector:
         entries = (self.lead_entries(state, topic, project, rows, records, wakes, answered, questions) if project is not None
                    else self.entries(rows, records, answered, questions))
         total = len(entries)
+        self.count_unpaired(topic, entries)
+        before = self.retried(records, entries)
         out = []
         for seq, (at, data, job) in enumerate(entries, 1):
             if seq <= total - TURNS_KEPT:
                 continue
             turn = {"topic_key": topic, "seq": seq, **data}
-            if job is not None and seq > total - EXTRA_TURNS:
-                turn.update(self.ended_extras(state, job))
+            if job is not None and data.get("role") == "agent":
+                turn["job_id"] = str(job.get("job_id") or "")
+            if job is not None:
+                turn.update(self.ended_extras(state, job) if seq > total - EXTRA_TURNS else self.ended_figures(state, job))
+                self.fold_usage(state, turn, before.get(id(job)) or ())
                 # The memory notes are written after the turn has ended (app/memory_collect.py), maybe within the same
                 # second as its end: read them from the record every time, not from the cache.
                 notes = web_turns.notes_of(job)
@@ -437,25 +447,60 @@ class Collector:
 
     @staticmethod
     def pair(rows, records, questions=()):
-        """(row, the job record of the owner's message the row answers or None, the question record a user line answers or None) for
-        each user and assistant line of the history: a user line is paired by its message id, the next assistant line has the job of the
-        user line before it. An answer's line has no message id: it is paired by its question record (web_said.answer_record), with the
-        task the answer started (its message ``answer-<token>``) or, for one handed to the task that asked, that task."""
-        by_message = {str(record.get("message_id")): record for record in records if record.get("message_id") and not board_read.unrun(record)}
-        by_id = {str(record.get("job_id")): record for record in records if record.get("job_id") and not board_read.unrun(record)}
-        job, taken = None, set()
+        """(row, the job record of the turn the row belongs to or None, the question record a user line answers or None) for each user
+        and assistant line of the history. 2026-11-19 T550: 97 of the Covey project's 127 answer turns reached the page without their
+        task, so with no token, process or plan; this pairs them in three steps:
+
+        - An answer line written with its task (``job_id``, app/worker.py since T564) has it. A user line is paired by its message id;
+          an answer's line has none and is paired by its question record (web_said.answer_record), with the task the answer started
+          (its message ``answer-<token>``) or, for one handed to the task that asked, that task. The next answer line has the job of
+          the user line before it.
+        - A user line with no task of its own while the task of the line before has not answered yet (a supplement the lead or the
+          owner sent into the running task, app/steering.py: its record is merged or there is none) leaves that task to the answer,
+          not None; the line itself has no job (``put_answers`` must not put that task's answers on it).
+          An answer line written before the task of the user line before it started, or long after it ended (``ran_at``), is
+          not that task's: that one was queued behind the task that answers, or an automatic retry went on and answered.
+        - An answer line still without a task (one in a row with no user line between: a retry after a rate limit, a stop; one
+          after a line whose task is not among the records or had not started) takes, of the records no answer line took, the
+          latest that had started by then, is not running, and was last written at most PAIR_SLACK seconds before it."""
+        usable = [record for record in records if not board_read.unrun(record)]
+        by_message = {str(record.get("message_id")): record for record in usable if record.get("message_id")}
+        by_id = {str(record.get("job_id")): record for record in usable if record.get("job_id")}
+        found, job, taken = [], None, set()
         for row in rows:
             if row.get("role") == "user":
                 asked = web_said.answer_record(row, questions, taken) if not row.get("message_id") else None
                 if asked is not None:
-                    job = by_message.get("answer-" + str(asked.get("token"))) or (
+                    own = by_message.get("answer-" + str(asked.get("token"))) or (
                         None if asked.get("continuation_job_id") else by_id.get(str(asked.get("job_id") or "")))
                 else:
-                    job = by_message.get(str(row.get("message_id") or ""))
-                yield row, job, asked
+                    own = by_message.get(str(row.get("message_id") or ""))
+                if own is not None or job is None:
+                    job = own
+                found.append([row, own, asked])
             else:
-                yield row, job, None
+                if job is not None and not Collector.ran_at(job, epoch_seconds(row.get("time")) or 0):
+                    job = None  # Queued behind the task that answers, or ended before (an automatic retry went on and answered).
+                found.append([row, by_id.get(str(row.get("job_id") or "")) or job, None])
                 job = None
+        used = {id(entry[1]) for entry in found if entry[1] is not None and entry[0].get("role") != "user"}
+        for entry in found:
+            if entry[0].get("role") == "user" or entry[1] is not None:
+                continue
+            at = epoch_seconds(entry[0].get("time")) or 0
+            began = [(board_read.started_at(record), index) for index, record in enumerate(usable) if id(record) not in used
+                     and record.get("status") not in RUNNING and Collector.ran_at(record, at)]
+            if began:
+                entry[1] = usable[max(began)[1]]
+                used.add(id(entry[1]))
+        for row, job, asked in found:
+            yield row, job, asked
+
+    @staticmethod
+    def ran_at(record, at) -> bool:
+        """Whether an answer line written at ``at`` can be the task ``record``'s: it had started by then (2 s for the clocks) and was
+        last written at most PAIR_SLACK seconds before (its line is written as its result goes out, then its record)."""
+        return bool(at) and board_read.started_at(record) <= at + 2 and at <= moment(record.get("updated_at")) + PAIR_SLACK
 
     def entries(self, rows, records, answered=None, questions=()) -> list:
         """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
@@ -606,6 +651,56 @@ class Collector:
 
     # -- a running turn -----------------------------------------------------------------------------------------------------
 
+    def count_unpaired(self, topic, entries) -> None:
+        """Logs (bridge.log, once each time the number changes) how many of the topic's answer turns have no task record: none should
+        (pair), and one that has none reaches the page with no token, process or plan."""
+        answers = [job for _, data, job in entries if data.get("role") == "agent"]
+        missing = sum(1 for job in answers if job is None)
+        if self.unpaired.get(topic, 0) != missing:
+            self.unpaired[topic] = missing
+            if self.log is not None:
+                self.log(f"web sync topic {topic[:12]}: {missing} of {len(answers)} answer turns have no task record")
+
+    @staticmethod
+    def retried(records, entries) -> dict:
+        """{id(the job of an answer turn): [the tasks before it that it retried and no answer line took]}: a task the bridge's restart
+        interrupted (or that failed with no line) and that an automatic retry (its record's ``retry_of``, app/auto_retry.py) went on
+        with is part of the turn the retry answers. 2026-11-18 T488: task 4598 spent 137M tokens, was interrupted, and 4624 answered."""
+        taken = {id(job) for _, data, job in entries if job is not None and data.get("role") == "agent"}
+        by_message = {str(record.get("message_id")): record for record in records if record.get("message_id")}
+        out = {}
+        for _, data, job in entries:
+            if job is None or data.get("role") != "agent":
+                continue
+            chain, seen, before = [], {id(job)}, by_message.get(str(job.get("retry_of") or ""))
+            while before is not None and id(before) not in seen and id(before) not in taken and not board_read.unrun(before):
+                chain.append(before)
+                seen.add(id(before))
+                before = by_message.get(str(before.get("retry_of") or ""))
+            if chain:
+                out[id(job)] = chain
+        return out
+
+    def fold_usage(self, state, turn, before) -> None:
+        """``turn``'s ``usage`` takes the tokens of the tasks ``before`` it (``retried``): what its answer cost in all."""
+        for job in before:
+            usage = self.ended_figures(state, job).get("usage")
+            if not usage:
+                continue
+            mine = dict(turn.get("usage") or {"input": 0, "output": 0, "cache_read": 0, "total": 0})
+            for name in ("input", "output", "cache_read", "total"):
+                mine[name] = int(mine.get(name) or 0) + int(usage.get(name) or 0)
+            turn["usage"] = mine
+
+    def ended_figures(self, state, job) -> dict:
+        """The figures alone (usage, seconds, speed, context) of an ended turn older than the newest EXTRA_TURNS, read once."""
+        key = (job_key(job.get("message_id"), job.get("job_id")), str(job.get("updated_at")))
+        if key not in self.figures:
+            if len(self.figures) > FIGURES_KEPT:
+                self.figures.clear()
+            self.figures[key] = web_turns.ended_figures(state, job)
+        return self.figures[key]
+
     def ended_extras(self, state, job) -> dict:
         """The process, plan and figures of an ended turn, read once (they do not change once it has ended)."""
         key = (job_key(job.get("message_id"), job.get("job_id")), str(job.get("updated_at")))
@@ -724,7 +819,7 @@ class WebSync:
         self.runtime, self.env = runtime, env
         self.client = Client()
         self.stuck = {}  # topic id -> the left-behind thread stuck reading it: looks leave the topic out while that thread lives.
-        self.collector = Collector(env, self.stuck)
+        self.collector = Collector(env, self.stuck, runtime.log)
         self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.last_full = 0.0
@@ -790,7 +885,7 @@ class WebSync:
             stuck[old.at] = old.thread
             self.runtime.log(f"web sync push leaves topic {old.at[:12]} out while its read is stuck")
         self.stuck = stuck
-        self.collector, self.sent, self.last_full = Collector(self.env, stuck), {}, 0.0
+        self.collector, self.sent, self.last_full = Collector(self.env, stuck, self.runtime.log), {}, 0.0
 
     def push_once(self, now=None) -> int:
         """One look and one push; how many items went out. Raises WebError when the page did not take a batch (the batches before it count).

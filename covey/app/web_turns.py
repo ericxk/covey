@@ -136,6 +136,15 @@ def figures(record, snapshot, running, now) -> dict:
     return out
 
 
+def ended_figures(state, record) -> dict:
+    """``figures`` of the ended turn the job ``record`` made, its trace read from disk; {} when it cannot be read."""
+    try:
+        snapshot = load_trace(Path(state), record) or {}
+        return figures(record, snapshot, False, time.time())
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
 def notes_of(record) -> list:
     rows = (record or {}).get("memory_notes")
     out = []

@@ -1540,6 +1540,117 @@ class SpeakerTest(WebCase):
         self.assertEqual(self.web.items("project")[-1]["data"]["goal"], "账单迁完、对账一致")
 
 
+def at(seconds):
+    """T0 + ``seconds`` as a history line's ``time`` and a record's ``updated_at`` write it."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(T0 + seconds))
+
+
+def ran(job_id, message, start, end, **fields):
+    """A job record that ran from T0 + ``start`` and was last written at T0 + ``end``."""
+    return {"job_id": job_id, "message_id": message, "status": "done", "timings": {"backend_started": T0 + start}, "updated_at": at(end),
+            **fields}
+
+
+class TurnJobsTest(WebCase):
+    """Every answer turn is paired with its task (Collector.pair): 2026-11-19 T550 found 97 of the Covey project's 127 answer turns
+    without one, so with no token, process or plan on the page (the project's tile, the report's token table, a turn's 过程)."""
+
+    def paired(self, rows, records, questions=()):
+        return [(row["role"], row.get("content"), job and job["job_id"]) for row, job, _ in app_web.Collector.pair(rows, records, questions)]
+
+    def test_a_supplement_sent_into_the_running_task_leaves_that_task_to_the_answer(self):
+        # T542: the lead's 补充 (main-…, merged into the running task: no record of its own) came after the answer that started it.
+        self.question(status="answered", answers={"q1": {"answers": ["A"]}}, created_at=T0 - 50)
+        rows = [{"role": "user", "content": "做菜单卡", "message_id": "main-1", "time": at(-100)},
+                {"role": "assistant", "content": "用哪个库？", "time": at(-60)},
+                {"role": "user", "content": answer_words.ANSWER_START + "\n用哪个库？\nA", "time": at(-40)},
+                {"role": "user", "content": "负责人补充：顺便改看板", "message_id": "main-2", "time": at(-30)},
+                {"role": "assistant", "content": "都改好了", "time": at(-5)}]
+        records = [ran(1, "main-1", -100, -40, status="continued"), ran(2, "answer-" + TOKEN, -40, -4),
+                   ran(3, "main-2", -30, -30, status="cancelled", timings={})]  # The supplement's own record, merged before it ran.
+        questions = [read_object(self.state / "questions" / f"{TOKEN}.json")]
+        self.assertEqual(self.paired(rows, records, questions), [
+            ("user", "做菜单卡", 1), ("assistant", "用哪个库？", 1), ("user", rows[2]["content"], 2),
+            ("user", "负责人补充：顺便改看板", None),  # The line itself carries no task: the answers stay on the answer's line.
+            ("assistant", "都改好了", 2)])
+
+    def test_answers_in_a_row_each_take_the_task_that_ran_then(self):
+        # T531: three automatic retries after a rate limit, then a stop: four answer lines with no user line between.
+        rows = [{"role": "user", "content": "开始第 0 步", "message_id": "main-1", "time": at(0)},
+                {"role": "assistant", "content": "限流", "time": at(780)},
+                {"role": "assistant", "content": "限流", "time": at(845)},
+                {"role": "assistant", "content": "限流", "time": at(1035)},
+                {"role": "assistant", "content": "任务 #4 已停止", "time": at(3257)}]
+        records = [ran(1, "main-1", 0, 830, status="failed"), ran(2, "auto-retry-1-1", 830, 1020, status="failed"),
+                   ran(3, "auto-retry-2-2", 1019, 1800, status="failed"), ran(4, "om_resume", 1800, 3257, status="cancelled")]
+        self.assertEqual([job for _, _, job in self.paired(rows, records)], [1, 1, 2, 3, 4])
+
+    def test_a_line_written_with_its_task_has_it(self):
+        rows = [{"role": "user", "content": "做一下", "message_id": "om_1", "time": at(0)},
+                {"role": "assistant", "content": "好了", "job_id": 7, "time": at(50)}]
+        self.assertEqual(self.paired(rows, [ran(6, "om_1", 0, 60), ran(7, "om_other", 10, 60)])[1][2], 7)
+
+    def test_an_answer_written_before_the_queued_task_started_is_the_running_ones(self):
+        # T488 11-16: the owner's next message was queued behind the running task; its line came before that task's answer.
+        rows = [{"role": "user", "content": "跑一下", "message_id": "answer-x", "time": at(0)},
+                {"role": "user", "content": "我去睡了，接着优化", "message_id": "om_2", "time": at(3000)},
+                {"role": "assistant", "content": "两层都出来了", "time": at(4000)},
+                {"role": "assistant", "content": "优化好了", "time": at(9000)}]
+        records = [ran(1, "answer-x", 0, 4006), ran(2, "om_2", 4006, 9005)]
+        self.assertEqual([job for _, _, job in self.paired(rows, records)], [1, 2, 1, 2])
+
+    def test_a_task_interrupted_and_retried_is_part_of_the_turn_the_retry_answers(self):
+        # T488 11-18: task 4598 spent 137M tokens, the bridge's restart interrupted it, and the automatic retry 4624 answered.
+        self.topic(lines=())
+        with mock.patch("covey.core.jobs.utc_now_iso", return_value=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(T0 - 600))):
+            write_job(self.state, f"k-{TOPIC[:4]}", message_id="om_go", status="interrupted", timings={"backend_started": T0 - 900})
+        write_job(self.state, "k-retry", topic_id=TOPIC, chat_id=CHAT, job_id=8, status="done", message_id="auto-retry-7-1",
+                  retry_of="om_go", timings={"backend_started": T0 - 300})
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        append_history(history, "user", "跑对比", {"message_id": "om_go"})
+        append_history(history, "assistant", "对比跑完了")
+        for module in (app_web, web_turns):
+            patch = mock.patch.object(module, "load_trace", side_effect=lambda state, record: dict(
+                snapshot_of(T0), input_tokens=1000 * record["job_id"], output_tokens=10 * record["job_id"], cache_read_tokens=900 * record["job_id"]))
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.sync.push_once(T0)
+        turn = {item["key"]: item["data"] for item in self.web.items("turn")}[f"{TOPIC}:2"]
+        self.assertEqual((turn["job_id"], turn["usage"]), ("8", {"input": 15000, "output": 150, "cache_read": 13500, "total": 15150}))
+
+    def test_every_kept_turn_has_its_figures_and_its_task_and_the_newest_their_process(self):
+        self.topic(lines=())
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        for number in range(1, 16):  # 30 turns: the oldest ten are past EXTRA_TURNS.
+            write_job(self.state, f"k-{number}", topic_id=TOPIC, chat_id=CHAT, job_id=100 + number, status="done", message_id=f"om_{number}")
+            append_history(history, "user", f"第 {number} 件", {"message_id": f"om_{number}"})
+            append_history(history, "assistant", f"第 {number} 件做完了")
+        for module in (app_web, web_turns):
+            patch = mock.patch.object(module, "load_trace", side_effect=lambda *args: snapshot_of(T0))
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.sync.push_once(T0)
+        answers = sorted((item["data"] for item in self.web.items("turn") if item["data"]["role"] == "agent"), key=lambda data: data["started_at"])
+        self.assertEqual([data["job_id"] for data in answers], [str(100 + number) for number in range(1, 16)])
+        self.assertTrue(all(data["usage"]["total"] == 1500 for data in answers))
+        self.assertEqual([("steps" in data) for data in answers], [False] * 5 + [True] * 10)
+        self.assertEqual(self.sync.push_once(T0 + 1), 0)  # Read once: nothing changes the next second.
+
+    def test_an_answer_turn_with_no_task_record_is_logged_once(self):
+        self.topic(lines=(("user", "你好"), ("assistant", "好的")))
+        write_job(self.state, f"k-{TOPIC[:4]}", message_id="om_gone", timings={"backend_started": T0 + 3600})
+        self.sync.push_once(T0)
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 1)
+        said = [line for line in self.logs if "no task record" in line]
+        self.assertEqual(said, [f"web sync topic {TOPIC[:12]}: 1 of 1 answer turns have no task record"])
+
+    def test_the_answer_line_keeps_its_task(self):
+        history = self.state / "h.jsonl"
+        append_history(history, "assistant", "好了", {"job_id": 42})
+        self.assertEqual(json.loads(history.read_text())["job_id"], 42)
+
+
 class ModelNameTest(unittest.TestCase):
     def test_a_recorded_model_reads_as_one_name_everywhere(self):
         for model, name in (("opus", "Opus"), ("claude-opus-5", "Opus 5"), ("claude-opus-5-5", "Opus 5.5"),
