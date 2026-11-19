@@ -41,6 +41,7 @@ REFRESH_KIND, SEEN_KIND = "bridge_board_refresh", "bridge_board_seen"
 KINDS = frozenset({REFRESH_KIND, SEEN_KIND})
 NO_LINK = "找不到它在私聊里的位置，打不开"  # A row whose topic has no link (app/digest.py board_view).
 LEAD = 30  # Characters of the most pressing topic's words on the band.
+GOAL_CHARS = 60  # Of a project's or a proposal's goal on its grey line.
 SHOWN = 8  # Blocks a group shows; the rest is one line.
 DONE_SHOWN = 12  # Rows in the folded 做完.
 
@@ -169,13 +170,21 @@ def counts(found) -> list:
     return tags or [("都在掌握中", "green")]
 
 
+def one_line(text, limit=GOAL_CHARS) -> str:
+    """``text`` (a goal the lead or the butler wrote, paragraphs and all) as one line of at most ``limit`` characters,
+    escaped: its line breaks are spaces, not the literal \\n literal_text writes for them (T545's dark screenshot,
+    2026-11-19)."""
+    words = " ".join(str(text or "").split())
+    return literal_text(words if len(words) <= limit else words[:limit - 1] + "…")
+
+
 def project_block(project):
     """A live project: its name, its goal and how its topics stand."""
     stand = "、".join(f"{n} 个{word}" for n, word in ((project.get("waiting"), "等你"), (project.get("stopped"), "停住"),
                                                       (project.get("running"), "在做")) if n)
     left = [md(f"**{literal_text(project.get('name') or '专项')}**" + (f"　{grey(stand)}" if stand else ""), size="normal_v2")]
     if project.get("goal"):
-        left.append(md(grey("目标：" + literal_text(project["goal"])), size="notation"))
+        left.append(md(grey("目标：" + one_line(project["goal"])), size="notation"))
     return {"tag": "interactive_container", "width": "fill", "padding": "8px 10px 8px 10px", "corner_radius": "8px",
             "background_style": "grey-50", "has_border": True, "border_color": "grey-200", "vertical_spacing": "2px",
             "elements": [body(left, [])], **({"behaviors": [{"type": "open_url", "default_url": project["url"]}]}
@@ -191,7 +200,7 @@ def proposal_block(item):
     left = [md(f"<text_tag color='violet'>提议</text_tag> **「{literal_text(item.get('name') or '')}」**", size="normal_v2"),
             md(topics, size="normal_v2")]
     if item.get("goal"):
-        left.append(md(grey("目标：" + literal_text(item["goal"])), size="notation"))
+        left.append(md(grey("目标：" + one_line(item["goal"])), size="notation"))
     value = {"proposal": item.get("id") or "", "from": BOARD_FROM}
     block_ = body(left, [button("建专项", tone="primary", value={"kind": CREATE_KIND, **value}),
                          button("不管了", tone="text", value={"kind": DECLINE_KIND, **value})])

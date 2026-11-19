@@ -176,6 +176,13 @@ class BoardTest(unittest.TestCase):
         self.assertIn(board.NO_LINK, text)
         self.assertIn("去任务卡", text)  # The one that may be stuck.
 
+    def test_a_goal_in_paragraphs_is_one_line_on_the_board(self):
+        """T545's dark screenshot (2026-11-19): a goal with blank lines read \\n\\n on the 看板."""
+        card = json.dumps(board.board_card({"projects": [{"name": "Covey", "goal": "收进专项。\n\n目标：\n1. 定稿"}]}),
+                          ensure_ascii=False)
+        self.assertIn("目标：收进专项。 目标： 1&#46; 定稿", card)
+        self.assertNotIn("\\\\n", card)
+
     def test_wait_words_are_whole_minutes(self):
         from covey.core.turn_words import wait_words
         self.assertEqual([wait_words(s) for s in (30, 2728, 7500, 2 * 86400 + 7300)],
