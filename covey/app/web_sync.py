@@ -62,6 +62,7 @@ RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked 
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
 NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 CANCEL_REASONS = ("stale", "switched", "rewound", "lead_stop", "web_stop")  # A cancelled question's cancel_reason, pushed as its closed_by.
+UNSTARTED_WORDS = "没开工，已取消"  # The line under the owner's words whose task was cancelled before it started (its record's reason after it).
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
 
 
@@ -454,6 +455,16 @@ class Collector:
             if fail:  # A stop the owner did not make (官方拒绝, a guard) did not succeed either (data contract v10).
                 ended["failure"], ended["status"] = fail, "failed"
             out.append(ended)
+        elif records and records[-1].get("status") == "cancelled" and records[-1].get("never_started") and rows \
+                and rows[-1].get("role") == "user":
+            # The owner's last words were never run: their task waited for 开始 (or in the queue) and was cancelled. Without a
+            # line for it the page drew 排队中… under them for good (T561, T562 on 2026-11-19, launch cards closed by a stop).
+            unstarted = records[-1]
+            why = str(unstarted.get("status_message") or "").strip()
+            out.append({"topic_key": topic, "seq": total + 1, "role": "agent", "status": "stopped",
+                        "body": web_sync.clip(UNSTARTED_WORDS + (f"（{why}）" if why else "")),
+                        "job_id": str(unstarted.get("job_id") or ""), "started_at": 0,
+                        "ended_at": epoch_seconds(unstarted.get("updated_at")) or 0, "artifacts": []})
         return out, total
 
     @staticmethod

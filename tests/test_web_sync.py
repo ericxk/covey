@@ -735,6 +735,20 @@ class InboxTest(WebCase):
         topic = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
         self.assertNotEqual(topic["tone"], "waiting")
 
+    def test_words_never_run_get_a_line_that_says_so(self):
+        """T561 (2026-11-19): its launch card closed by a stop, its one message never ran; the page drew 排队中… under it for good,
+        as nothing answered it. It gets a stopped line: 没开工，已取消, and why."""
+        self.topic(status="waiting_workspace", lines=(("user", "修专项右栏"),))
+        form = self.state / "launch-forms" / "f1.json"
+        write_json(form, {"topic_id": TOPIC, "chat_id": CHAT, "status": "ready", "message_id": "om_launch", "harness_id": "claude",
+                          "schema_version": 3})
+        self.web.op("stop", 1, "op-launch2", TOPIC)
+        self.sync.inbox_once()
+        self.sync.push_once(T0)
+        turns = [item["data"] for item in self.web.items("turn")]
+        self.assertEqual([(turn["role"], turn["status"]) for turn in turns[-2:]], [("owner", "done"), ("agent", "stopped")], turns)
+        self.assertEqual(turns[-1]["body"], "没开工，已取消（你在网页上停了这个话题）")
+
     def test_a_topic_the_owner_stopped_on_the_page_is_his_stop_not_stopped_by_someone(self):
         """2026-11-18 T478: stopped on the page while it waited for an answer, it showed 停住了 (red, counted in 要你处理, with
         检查并继续): the cancelled turn did not say who stopped it. It says web now, and reads 已停止."""
