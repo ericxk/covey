@@ -19,7 +19,6 @@ in its job record from its prompt_read on; turns run before that cannot go back.
 from __future__ import annotations
 
 import dataclasses
-import re
 import time
 
 from covey.app.card_queue import CardActionQueue
@@ -30,6 +29,7 @@ from covey.cards.elements import notice_card
 from covey.cards.rewind import CANCEL, CONFIRM, KINDS, OPEN, UNDO, done_card, rewind_card
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import upsert_job_record
+from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock, topic_lock
 from covey.core.state import read_json, write_json
 from covey.core.session_state import compare_and_set_session, capture_session_state
@@ -213,7 +213,7 @@ class RewindCards(CardActionQueue):
             self.submit("rewind card not opened", self.open, ctx, event, raw)
             return
         token = raw.get("token")
-        if isinstance(token, str) and re.fullmatch("[0-9a-f]{24}", token):
+        if valid_token(token):
             self.submit("rewind click dropped", self.click, ctx, event, raw, self.path(ctx, token))
 
     def open(self, ctx, event, raw):

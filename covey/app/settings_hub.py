@@ -40,13 +40,12 @@ MENU_KEY). The bot menu's 代答 and 群聊 keys send their own cards, without t
 from __future__ import annotations
 
 import functools
-import re
 
 from covey.app import butler_panel, workspace_manager
 from covey.app.bot_menu import Panels
 from covey.app.card_lanes import after_ack
 from covey.app.form_cards import save_record, settle
-from covey.app.menu_panel import FOLDED, HUB_FOLDER, HUB_LOCK, MOVED, OPEN, MenuPanel, hub_tabs
+from covey.app.menu_panel import FOLDED, HUB_FOLDER, HUB_LOCK, MOVED, OPEN, MenuPanel, hub_tabs, valid_token
 from covey.app.proxy_panel import EXPIRED
 from covey.cards.settings_hub import (GROUPS, KINDS, LABELS, BUTLER, BUTLER_PAGES, NODES, PROXY, REDACTION, WORKSPACE,
                                                folded_hub, successor)
@@ -150,7 +149,7 @@ class SettingsHub:
         """A tab click; the outcome its ``card action`` line records."""
         tab, here, token = value.get('tab'), value.get('from'), value.get('token')
         tab, here = successor(tab), successor(here)  # An older card's 其他 is 工作区 now.
-        if tab not in self.panels or here not in self.panels or not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        if tab not in self.panels or here not in self.panels or not valid_token(token):
             return 'settings_unknown'
         path = self.path(ctx, token)
         if not path.exists() and not self.takeover(ctx, event, here, token, owner):

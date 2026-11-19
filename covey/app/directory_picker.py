@@ -28,6 +28,7 @@ from covey.cards.launch_config import PICKER_PREFIX
 from covey.cards.directory import DIRECTORY_FORM_PREFIX, directory_card, visible_entries
 from covey.core import devices
 from covey.core.text import literal
+from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
 from covey.core.workspaces import add_workspace
 from covey.app.card_actions import action_value, card_object, form_fields
@@ -196,7 +197,7 @@ def parse_click(event):
         return
     opening = isinstance(name, str) and name.startswith(PICKER_PREFIX)
     token = name[len(PICKER_PREFIX):] if opening else action.get('token', '')
-    if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+    if not valid_token(token):
         return
     return action, name, fields, opening, token
 

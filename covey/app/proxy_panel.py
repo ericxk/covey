@@ -27,7 +27,6 @@ the newest panel; expired there, it keeps its tab row.
 from __future__ import annotations
 
 import functools
-import re
 import subprocess
 import threading
 import uuid
@@ -37,7 +36,7 @@ from covey.app.card_lanes import after_ack
 from covey.app.form_cards import replace_form_card, save_record
 from covey.app.launch_models import available_models, run_choice
 from covey.core.menu_choice import budget_effort, effort_options, find_choice, harness_of, tier_pick, tiers
-from covey.app.menu_panel import OPEN, MenuPanel, hub_top
+from covey.app.menu_panel import OPEN, MenuPanel, hub_top, valid_token
 from covey.cards.settings_hub import PROXY
 from covey.cards.proxy_panel import (ADD, ADD_ALL, BUDGET, DISABLE, ENABLE, FIND, HARNESS, KINDS, LOGIN,
                                               MEMBERS, MEMBERS_ADD, MEMBERS_CANCEL, MODEL, PAGE, PAUSE, PROVIDER,
@@ -196,7 +195,7 @@ class ProxyPanel:
     def click(self, ctx, event, value, owner):
         """A click on a 代答设置 card; the outcome its ``card action`` line records."""
         token, revision = value.get('token'), value.get('revision')
-        if (not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token)
+        if (not valid_token(token)
                 or not isinstance(revision, int) or isinstance(revision, bool)):
             return 'proxy_unknown'
         path = self.path(ctx, token)

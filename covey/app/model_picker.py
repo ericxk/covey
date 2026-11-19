@@ -6,7 +6,6 @@ the card with that row open, and its ‹ 返回, which redraws it with none: the
 the row. Cards sent before have selects, whose callbacks are the same kinds."""
 from __future__ import annotations
 
-import re
 
 from covey.app.card_queue import CardActionQueue
 from covey.app.form_cards import LAUNCH_FORM_LOCK
@@ -16,6 +15,7 @@ from covey.cards.launch_config import (BUDGET_ACTION, HARNESS_ACTION, MANAGE_OPT
                                                 PAGE_ACTION, PAGES, PROVIDER_ACTION, REDACTION_ACTION, REDACTION_LABELS,
                                                 WORK_MODE_ACTION, WORKSPACE_ACTION)
 from covey.core.menu_choice import find_choice, parse_budget, tier_pick
+from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
 from covey.core.state import read_json, write_json
 from covey.core.topics import load_topic
@@ -59,7 +59,7 @@ class LaunchModelPicker(CardActionQueue):
         token, kind = self.action(event).get('token', ''), self.action(event).get('kind')
         # An options-page card's row tap carries the row, a choice its option (a select's callback or an option line's value).
         model = self.action(event).get('page') if kind == PAGE_ACTION else event.get('option')
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token) or not isinstance(model, str):
+        if not valid_token(token) or not isinstance(model, str):
             return
         path = ctx.state_dir / 'launch-forms' / (token + '.json')
         if (retired := retired_form_at(path, event)) is not None:

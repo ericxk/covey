@@ -15,7 +15,6 @@ The card's record is <state>/group-managers/<token>.json; the card is cards/grou
 """
 from __future__ import annotations
 
-import re
 from concurrent.futures import ThreadPoolExecutor
 
 from covey.app.access import FREE_MODES, FREE_SOME, free_talk_on
@@ -156,13 +155,10 @@ class GroupManager:
 
     def click(self, ctx, event, value, owner):
         """A click on a 群聊 card; the outcome its ``card action`` line records."""
-        token = value.get('token')
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        entry = self.menu.entry(ctx, event, value)
+        if entry is None:
             return 'group_unknown'
-        path = self.path(ctx, token)
-        record = self.menu.clicked(path, event)
-        if record is None:
-            return 'group_unknown'
+        token, path, record = entry
         names = record.get('names') if isinstance(record.get('names'), dict) else {}
         outcome, changes = 'group_manager', {}
         if not owner:

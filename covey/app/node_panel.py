@@ -113,13 +113,10 @@ class NodePanel:
         return node_panel_card(token, view, facts(ctx.state_dir, self.gateway.address), top=hub_top(NODES, token, view))
 
     def click(self, ctx, event, value, owner):
-        token = value.get('token')
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        entry = self.menu.entry(ctx, event, value, unfolded=True)
+        if entry is None:
             return 'nodes_unknown'
-        path = self.path(ctx, token)
-        record = self.menu.clicked(path, event)
-        if record is None or record.get(FOLDED):
-            return 'nodes_unknown'
+        token, path, record = entry
         if not owner:
             self.refuse(ctx, path, event)
             return 'owner_only'

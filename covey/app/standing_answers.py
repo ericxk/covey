@@ -27,6 +27,7 @@ from covey.app.track_standby import Failed
 from covey.cards.question_cards import (RECOMMENDED, STANDING_CANCEL, STANDING_EDIT, STANDING_FIELD, STANDING_KIND,
                                         STANDING_SAVE, recommended, standing_card, standing_offered)
 from covey.core import principles, redaction
+from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
 from covey.core.state import read_json, write_json
 
@@ -137,7 +138,7 @@ class StandingAnswers(CardActionQueue):
                 return None
             topic_id = raw.get("topic_id")
         else:
-            if not (isinstance(token, str) and re.fullmatch("[0-9a-f]{24}", token)):
+            if not valid_token(token):
                 return None
             topic_id = (read_json(self.path(ctx, token), {}) or {}).get("topic_id")
         if self.topics.target(ctx.state_dir, topic_id, chat) is None:

@@ -28,7 +28,7 @@ from covey.app.launch import (CLOSED, OWNER_ONLY_MANAGER, close_launch_form, reb
                                        refuse_on_launch_card)
 from covey.app.directory_picker import (DeviceGate, DirectoryCache, listed_paths, read_into, step, take_listing,
                                                  when_listed)
-from covey.app.menu_panel import FOLDED, HUB_FOLDER, OPEN, MenuPanel, hub_top
+from covey.app.menu_panel import FOLDED, HUB_FOLDER, OPEN, MenuPanel, hub_top, valid_token
 from covey.cards.directory import directory_card
 from covey.core.text import literal
 from covey.cards.butler_panel import WORKSPACE_NOTE, notes_button
@@ -299,7 +299,7 @@ class WorkspaceManager(CardActionQueue):
                 return None
         else:
             token, revision, verb = self.action(event).get('token', ''), None, 'open'
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        if not valid_token(token):
             return None
         return token, revision, verb, arg
 

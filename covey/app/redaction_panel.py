@@ -26,7 +26,6 @@ import dataclasses
 import functools
 import hashlib
 import hmac
-import re
 import secrets
 import threading
 import time
@@ -35,7 +34,7 @@ from pathlib import Path
 from covey.app.card_actions import form_fields
 from covey.app.card_lanes import after_ack
 from covey.app.form_cards import save_record
-from covey.app.menu_panel import FOLDED, MenuPanel, hub_top
+from covey.app.menu_panel import FOLDED, MenuPanel, hub_top, valid_token
 from covey.backends.claude.redaction import (DEFAULT_UPSTREAM, STATUS_TIMEOUT, Unavailable, checked_url, gateway_status,
                                              settings_upstream)
 from covey.cards.redaction_panel import (ADD, FIND, KINDS, LINES, LIST, OPEN, PROBE, QUERY, REMOVE, RETIRED, RETIRED_WORDS,
@@ -203,12 +202,12 @@ class RedactionPanel:
     def click(self, ctx, event, value, owner):
         """A click on the tab; the outcome its ``card action`` line records."""
         token = value.get('token')
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        if not valid_token(token):
             return self.page_gone(ctx, event) if value.get('kind') == ROTATE else 'redaction_unknown'
-        path = self.path(ctx, token)
-        record = self.menu.clicked(path, event)
-        if record is None or record.get(FOLDED):
+        entry = self.menu.entry(ctx, event, value, unfolded=True)
+        if entry is None:
             return 'redaction_unknown'
+        _, path, record = entry
         if not owner:
             self.refuse(ctx, path, event)
             return 'owner_only'

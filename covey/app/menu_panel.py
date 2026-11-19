@@ -19,6 +19,8 @@ first view, as a new card would be. Every write takes the record's next sequence
 """
 from __future__ import annotations
 
+import re
+
 from covey.app.form_cards import click_token, publish_form, settle
 from covey.cards.settings_hub import BUTLER, LABELS, NODES, PROXY, tab_row
 from covey.core import butler, nodes
@@ -32,6 +34,12 @@ MOVED = 'moved'
 HUB_FOLDER = 'settings-cards'  # The 设置 cards' records (app/settings_hub.py).
 HUB_LOCK = 'settings-card'
 FOLDED = 'folded'  # True while the card is folded to one line (absent: unfolded).
+TOKEN = re.compile('[0-9a-f]{24}')  # The token a card's buttons carry (form_cards.click_token).
+
+
+def valid_token(token):
+    """Whether ``token`` is a card token: 24 lower-case hex digits (a click's value may hold anything)."""
+    return isinstance(token, str) and TOKEN.fullmatch(token) is not None
 
 
 def hub_top(tab, token, view):
@@ -136,6 +144,19 @@ class MenuPanel:
                 or not isinstance((record.get(self.field(path)) or {}).get('revision'), int) or not self.on_tab(record)):
             return None
         return record
+
+    def entry(self, ctx, event, value, unfolded=False):
+        """The prelude of a click on a panel's card: (token, path, record) when ``value`` carries a card token and
+        ``event`` is a click on that card (``clicked``; ``unfolded``: and the card is not folded); None otherwise, the
+        panel's ``*_unknown`` outcome. The record is read again under the lock before it is changed."""
+        token = value.get('token')
+        if not valid_token(token):
+            return None
+        path = self.path(ctx, token)
+        record = self.clicked(path, event)
+        if record is None or (unfolded and record.get(FOLDED)):
+            return None
+        return token, path, record
 
     def refuse(self, ctx, path, event, notice, draw):
         """The card ``event`` clicked drawn again (``draw(view, record)``) with ``notice`` on it: a refusal said

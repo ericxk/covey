@@ -13,7 +13,6 @@ app/binding.py, and the next run's handoff (recent rounds and a transcript file)
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from covey.app.binding import (REDACTION_ONLY, STALE_CARD, active_task, current_binding_card, run_mode_of,
@@ -27,6 +26,7 @@ from covey.core.menu_choice import budget_effort, chosen_work_mode, effort_optio
 from covey.cards.switch_form import (BUDGET, CANCEL, CONFIRM, HARNESS, MODEL, PAGE, PROVIDER, REDACTION,
                                               RUN_MODE, WORK_MODE, WORKSPACE, build_switch_card)
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
+from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
 from covey.core.state import read_json, write_json
 from covey.core import devices
@@ -126,7 +126,7 @@ class HarnessSwitch(CardActionQueue):
                 self.dropped(ctx, event, raw.get("topic_id"), "换配置卡片暂时没有打开（处理队列已满），请稍后再点一次“换配置”。")
             return
         token = raw.get("token")
-        if not isinstance(token, str) or not re.fullmatch("[0-9a-f]{24}", token):
+        if not valid_token(token):
             return
         path = self.path(ctx, token)
         if kind in SELECTS or kind == PAGE:

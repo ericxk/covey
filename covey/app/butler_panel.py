@@ -18,7 +18,6 @@ the whole card is drawn again (rule 9). Only the owner acts; anyone else's click
 from __future__ import annotations
 
 import dataclasses
-import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, NamedTuple
@@ -250,12 +249,10 @@ class ButlerPanel:
 
     def click(self, ctx, event, value, owner):
         """A click on a settings card; the outcome its ``card action`` line records."""
-        token = value.get('token')
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{24}', token):
+        entry = self.menu.entry(ctx, event, value)
+        if entry is None:
             return 'main_panel_unknown'
-        path = self.path(ctx, token)
-        if self.menu.clicked(path, event) is None:
-            return 'main_panel_unknown'
+        token, path, _ = entry
         outcome, confirm = 'main_panel', False
         if not owner:
             outcome, notice = 'owner_only', OWNER_ONLY
