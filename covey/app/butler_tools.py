@@ -38,7 +38,7 @@ from covey.core.loops import every
 from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.statuses import RUNNING
 from covey.core.topics import retired_topic, topic_file, topic_title
-from covey.core.text import cut
+from covey.core.text import cut, last_line, stamp
 from covey.core.workspaces import config_path
 
 TICK = 0.3
@@ -178,12 +178,7 @@ def asked_at(question):
 
 
 def clock(seconds):
-    return time.strftime("%m-%d %H:%M", time.localtime(seconds)) if seconds else "—"
-
-
-def last_line(text):
-    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
-    return lines[-1] if lines else ""
+    return stamp(seconds)
 
 
 def harness_title(env, name):

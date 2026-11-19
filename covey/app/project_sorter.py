@@ -31,6 +31,7 @@ from covey.core import project_proposals as proposals
 from covey.core import projects, redaction, topic_gist
 from covey.core.jobs import topic_job_records
 from covey.core.state import epoch_seconds, read_object
+from covey.core.text import cut as _cut
 from covey.core.topics import label_title, topic_file
 
 OWNER_CHARS = 1200
@@ -89,11 +90,6 @@ class Topic:
     turns: int
     last_job: str
     updated: float
-
-
-def _cut(text, limit) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 def _keep(words, limit) -> list:

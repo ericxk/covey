@@ -18,6 +18,7 @@ from covey.app.answers import ANSWER_START, FEEDBACK_START, SKIPPED, answer_part
 from covey.app.source_watch import EDIT_HEAD, RECALL_HEAD
 from covey.core import butler_opened, projects, triage
 from covey.core.jobs import find_job_record
+from covey.core.text import cut
 
 BY = ("owner", "butler", "lead")
 NOT_ANSWERED = "没答"
@@ -164,6 +165,4 @@ def answer_record(row, questions, taken=None):
     return found
 
 
-def clip(text, limit) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+clip = cut

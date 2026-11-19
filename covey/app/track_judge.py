@@ -46,6 +46,7 @@ from covey.app import track_standby
 from covey.app.track_standby import Failed
 from covey.core import env as cenv
 from covey.core.process import signal_group
+from covey.core.text import cut
 from covey.core.track_route import LIVE_PHASES, LiveJob, Message
 
 MODEL = "haiku"
@@ -108,8 +109,7 @@ def limit_ms(environ=None) -> int:
 
 
 def clip(text) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= CLIP else text[:CLIP] + "…"
+    return cut(text, CLIP, beyond=True)
 
 
 def listed(live) -> list[LiveJob]:

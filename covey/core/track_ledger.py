@@ -17,6 +17,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from covey.core.text import cut
+
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
 
@@ -38,8 +40,7 @@ def path(state_dir, key) -> Path:
 
 def clip(text, limit) -> str:
     """``text`` on one line, at most ``limit`` characters (the last one … when cut)."""
-    words = " ".join(str(text or "").split())
-    return words if len(words) <= limit else words[:limit - 1].rstrip() + "…"
+    return cut(text, limit, strip=True)
 
 
 def make(key, chat_id, track, owner_message, request, answer, status, ended_at, session_id, opened) -> dict:

@@ -23,6 +23,7 @@ from covey.app import track_judge
 from covey.app.track_standby import Failed
 from covey.core import patrol, principles, redaction
 from covey.core.metrics import took_text
+from covey.core.text import cut as text_cut
 
 BATCH = 10
 PRINCIPLES = 20
@@ -43,8 +44,7 @@ SYSTEM = (
 
 
 def cut(text, limit) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit] + "…"
+    return text_cut(text, limit, beyond=True)
 
 
 def hidden(state_dir, candidate) -> bool:

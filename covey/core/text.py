@@ -3,6 +3,7 @@ core/status_line.py and cards/ use the same rule (repo review R3: core no longer
 a trace step on the status line (step_label, step_event: its coarse kind and purpose, never the command)."""
 import html
 import re
+import time
 import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
@@ -146,10 +147,26 @@ def share(part, whole):
     return f"{percent:.0f}%" if percent >= 1 or not part else "<1%"
 
 
-def cut(text, limit):
-    """``text`` on one line (its whitespace runs one space), cut to ``limit`` characters with "…" at the end."""
+def cut(text, limit, *, beyond=False, strip=False):
+    """``text`` on one line (its whitespace runs one space), cut to ``limit`` characters with "…" at the end.
+    ``beyond``: keep ``limit`` characters and put the "…" after them (so the result may be ``limit`` + 1 long).
+    ``strip``: drop the trailing blanks the cut leaves before the "…"."""
     text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    if len(text) <= limit:
+        return text
+    kept = text[:limit if beyond else limit - 1]
+    return (kept.rstrip() if strip else kept) + "…"
+
+
+def last_line(text):
+    """The last non-blank line of ``text``, stripped ("" when there is none)."""
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
+def stamp(seconds, fmt="%m-%d %H:%M", empty="—"):
+    """``seconds`` (an epoch) as local time in ``fmt``; ``empty`` when it is 0 or missing."""
+    return time.strftime(fmt, time.localtime(seconds)) if seconds else empty
 
 
 def literal(value):

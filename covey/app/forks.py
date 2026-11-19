@@ -27,6 +27,7 @@ from covey.core.history_storage import recent_history
 from covey.core.topics import claim_area_root, context_for_topic, read_topic, topic_label
 from covey.cards.elements import notice_card
 from covey.core.store import directory_store
+from covey.core.text import cut
 
 TITLE = "🔀 分叉"
 FINISHED = frozenset({"done", "waiting_user", "continued"})  # A turn a fork may start from.
@@ -42,8 +43,7 @@ def fork_token(topic_id, click_id):
 
 
 def _short(text, limit):
-    text = " ".join(str(text or "").split())
-    return text[:limit] + ("…" if len(text) > limit else "")
+    return cut(text, limit, beyond=True)
 
 
 class Forks:

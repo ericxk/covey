@@ -32,7 +32,7 @@ from covey.core.jobs import job_key, job_path, read_job_record, topic_job_record
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
 from covey.core.statuses import ENDED, RUNNING
-from covey.core.text import cut
+from covey.core.text import cut, last_line, stamp  # noqa: F401  (last_line: app/project_loop.py)
 from covey.core.topics import topic_label, topic_title
 from covey.core.turn_words import RESULTS, UNSET_PHASES
 
@@ -222,12 +222,7 @@ def take_receipts(state_dir, project_id, key, limit=INBOX_ROWS) -> list:
 # The pack.
 
 def clock(seconds) -> str:
-    return time.strftime("%m-%d %H:%M", time.localtime(seconds)) if seconds else "—"
-
-
-def last_line(text) -> str:
-    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
-    return lines[-1] if lines else ""
+    return stamp(seconds)
 
 
 def member_row(state_dir, topic_id) -> dict:

@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from covey.core import projects
+from covey.core.text import stamp as _stamp
 from covey.core.state import read_json, write_json
 
 FILE = "library.json"
@@ -302,7 +303,7 @@ def trim(state_dir, project_id, limit=None, now=None) -> int:
 
 
 def clock(epoch) -> str:
-    return time.strftime("%m-%d", time.localtime(epoch)) if epoch else "—"
+    return _stamp(epoch, "%m-%d")
 
 
 def line_of(state_dir, project_id, row, label="") -> str:
