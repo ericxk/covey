@@ -867,6 +867,47 @@ class ButlerWebTest(ButlerUnifiedCase):
         self.assertEqual(self.app.runtime.jobs.topic_jobs(BUTLER, CHAT), [])
 
 
+class BoardGroupTest(WebCase):
+    """Data contract v6 ``board``: the group the board (app/pins.py) has a topic in, the page's 要你处理 by it. T514 (2026-11-19):
+    stopped by an official refusal on 11-17 and seen at once, it was off the board from 11-18 00:51, yet the page listed it
+    停住了 under 要你处理 (its tone, within three days) from 11-19 08:55."""
+
+    def setUp(self):
+        super().setUp()
+        from covey.core import topic_seen
+        patch = mock.patch.dict(os.environ, {topic_seen.PINNED_TOPICS_ENV: "1", "COVEY_PINNED_OVERVIEW": "1"})
+        patch.start()
+        self.addCleanup(patch.stop)
+        long_ago = T0 - 10 * 86400
+        write_json(self.state / "pinned-topics.json", {"chat_id": CHAT, "since": long_ago, "keep_since": long_ago,
+                                                       "stopped_since": long_ago, "results": {}})
+
+    def stopped(self, seen):
+        self.topic(status="cancelled")
+        ended = T0 - 20 * 3600
+        write_job(self.state, f"k-{TOPIC[:4]}", cancel_requested_by="guard",
+                  timings={"backend_started": ended - 60, "execution_finished": ended})
+        if seen:
+            from covey.core.topic_seen import record_reads
+            record_reads(self.state, {TOPIC: ended + 22}, now=ended + 22)
+        self.sync.push_once(T0)
+        return next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
+
+    def test_a_stop_seen_long_ago_is_stopped_but_not_on_the_board(self):
+        data = self.stopped(seen=True)
+        self.assertEqual((data["tone"], data["board"]), ("stopped", ""))
+
+    def test_a_stop_not_seen_is_on_the_board_as_stopped(self):
+        data = self.stopped(seen=False)
+        self.assertEqual((data["tone"], data["board"]), ("stopped", "stopped"))
+
+    def test_without_the_board_there_is_no_board_field(self):
+        os.environ.pop("COVEY_PINNED_OVERVIEW")
+        self.topic()
+        self.sync.push_once(T0)
+        self.assertNotIn("board", self.web.items("topic")[-1]["data"])
+
+
 class SeenTest(WebCase):
     def test_seen_marks_the_latest_result_as_read_and_the_next_push_says_so(self):
         self.topic(lines=())

@@ -174,6 +174,7 @@ class Collector:
         self.at, self.thread = "", None  # The topic being built now, and the thread that looks.
         self.hot, self.dirty = set(), set()
         self.unseen = set()
+        self.board = None  # topic id -> its group on the board (``board_groups``); None without the board (COVEY_PINNED_TOPICS unset).
         self.states = {}  # topic id -> its state word, from its last build (a project's 等你 reads it).
         self.pushed_topics = set()
         self.history = {}  # topic id -> ((mtime_ns, size), rows)
@@ -207,7 +208,10 @@ class Collector:
             touched, self.dirty = self.dirty | back, set()
         if full or hot != self.hot or touched:
             read = board_read.read(state, chat, now, keep=pins.kept(state, chat) if pins.laid() else ())
-            self.unseen = set(pins.board_results(state, chat, now, read)[0])
+            looked = pins.PinnedTopics(None, None)
+            looked.look(state, chat, now, read, board=pins.laid())
+            self.unseen = set(looked.unseen)
+            self.board = board_groups(looked.rows, looked.dismissed) if pins.laid() else None
         if full:
             by_topic = {topic: records_ for topic, records_ in board_read.topic_jobs(state, chat).items()
                         if topic in hot or topic in touched or self.recent(records_, now)}
@@ -290,6 +294,8 @@ class Collector:
             body["progress"] = turn_progress.progress(live, now=now or time.time(), history=turn_progress.turn_seconds(
                 records, exclude=live.get("job_id")))
         body["tone"] = self.tone(records, latest, questions, body["unseen"], body.get("progress"), starts)
+        if self.board is not None and not (butler or project):
+            body["board"] = self.board.get(topic, "")
         gist = self.gist(state, topic) if not (butler or project) else None
         if gist:
             body["gist"] = gist
@@ -814,6 +820,28 @@ class WebSync:
             self.client.request("POST", "/sync/ack", {"results": results})
             ledger.acked([each["op_id"] for each in results])
         return fresh
+
+
+def board_groups(rows, dismissed) -> dict:
+    """topic id -> its group on the board (app/pins.py PinnedTopics.look ``rows``, without the topics the owner took off,
+    ``dismissed``), as a core/look.py STATES key: waiting, running, stuck, or a result's (stopped, result, done, cancelled).
+    A project's thread is its own topic here (the board's row is its project's cell, the record says which thread). The page
+    counts 要你处理 by this (data contract v6 ``board``), so a stopped topic the board no longer lists (seen KEEP_SEEN ago,
+    taken off with 不管了) is not 停住了 there either: T514, 2026-11-19, stopped on 11-17 and seen at once, came back on the
+    page as 停住了 while the board had let it go."""
+    out = {}
+    for row in rows:
+        if row["topic"] in dismissed:
+            continue
+        record = row.get("record") or {}
+        topic = str(record.get("topic_id") or row["topic"])
+        if row["group"] == "waiting":
+            out[topic] = "waiting"
+        elif row["group"] == "running":
+            out[topic] = "running"
+        else:
+            out[topic] = look.record_tone(record, seen=row.get("seen") is not None)
+    return out
 
 
 def answer_rows(record) -> list:
