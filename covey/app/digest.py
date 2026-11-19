@@ -53,7 +53,7 @@ from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.cards.board import board_card
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
-from covey.core import board_read, knowledge, patrol, projects, turn_words
+from covey.core import board_read, knowledge, look, patrol, projects, turn_words
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
@@ -279,7 +279,9 @@ def collect(state, chat, slot, since, now, *, board=False):
         elif status == "done":
             line = first_line(record.get("final_text"))
         done.append({**row(topic, turn_words.STATES.get(status, status), f"用时 {took_text(took)}" if took is not None else "",
-                           topic not in unseen), "status": status, "line": line, "meta": meta})
+                           topic not in unseen), "status": status, "line": line, "meta": meta,
+                     # 停住了, 已停止 (the owner's own stop), 有结果 or 做完 (core/look.py; cards/board.py groups by it).
+                     "tone": look.record_tone(record, seen=topic not in unseen)})
     view = {"slot": slot, "since": since, "waiting": waiting, "stale": stale, "running": running_rows, "done": done,
             "older": older, "dismissable": bool(board and stale)}
     new, wanted = knowledge_view(state, since, slot), wanted_view(state, chat, since, slot)
@@ -401,7 +403,7 @@ class Digest:
         if self.where(chat) or not projects.enabled():
             return {}
         rows = {key: {row.get("topic") for row in view.get(key) or ()} for key in ("waiting", "running")}
-        stopped = {row.get("topic") for row in view.get("done") or () if row.get("status") in ("failed", "cancelled", "interrupted")}
+        stopped = {row.get("topic") for row in view.get("done") or () if row.get("tone") == "stopped"}
         found = []
         for record in projects.records(ctx.state_dir, chat):
             if record.get("state") not in (projects.ACTIVE, projects.PAUSED):

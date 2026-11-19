@@ -456,7 +456,7 @@ class BoardTests(UnifiedCase):
         with mock.patch("time.time", return_value=self.now):
             self.press("ev1")
         text = json.dumps(self.card(), ensure_ascii=False)
-        for part in ("停住了", "T525", "被停止了；停在：等主人选插件形态", "red-50", "不管了", "现在：梳理还剩哪些要收尾", "已跑"):
+        for part in ("停住了", "T525", "被停止了；停在：等主人选插件形态", "不管了", "现在：梳理还剩哪些要收尾", "已跑"):
             self.assertIn(part, text)
         off, = [v for v in buttons(self.card()) if v.get("kind") == DISMISS]
         self.assertEqual(off["topics"], ["stop"])
@@ -465,6 +465,23 @@ class BoardTests(UnifiedCase):
         redrawn = json.dumps([c for cid, c, _ in self.puts if cid == "bcard"][-1], ensure_ascii=False)
         self.assertNotIn("T525", redrawn)
         self.assertIn("T526", redrawn)
+
+    def test_a_topic_the_owner_stopped_himself_is_folded_as_stopped_by_him(self):
+        write_topic(self.state, {"topic_number": 527}, topic_id="mine")
+        write_topic(self.state, {"topic_number": 528}, topic_id="lead")
+        for key, number, topic, by in (("j-mine", 9, "mine", "card"), ("j-lead", 10, "lead", "lead")):
+            upsert_job_record(self.state, key, job_id=number, status="cancelled", chat_id=CHAT, topic_id=topic,
+                              card_message_id=f"om_{topic}", harness_id="claude", cancel_requested_by=by,
+                              timings={"backend_started": self.now - 900, "execution_finished": self.now - 600})
+        with mock.patch("time.time", return_value=self.now):
+            self.press("ev1")
+        card = self.card()
+        stopped = [e for e in card["body"]["elements"] if e.get("tag") == "interactive_container" and "T528" in json.dumps(e, ensure_ascii=False)]
+        self.assertTrue(stopped)  # The lead's stop: 停住了, a row of its own.
+        fold, = [e for e in card["body"]["elements"] if e.get("element_id") == "board_done"]
+        self.assertIn("T527", json.dumps(fold, ensure_ascii=False))  # The owner's own: 已停止, in the fold.
+        self.assertIn("已停止", json.dumps(fold, ensure_ascii=False))
+        self.assertNotIn("T528", json.dumps(fold, ensure_ascii=False))
 
     def test_off_without_a_time(self):
         with mock.patch.dict(os.environ, {ENV: ""}):
@@ -493,7 +510,7 @@ class BoardTests(UnifiedCase):
         # Its own card now (cards/board.py, the owner's 样张 A, 2026-11-18): coloured blocks by what they ask of him.
         self.assertEqual(card["header"]["title"]["content"], "看板")
         text = json.dumps(card, ensure_ascii=False)
-        for part in ("T501", "T502", "T503", "这些都不用回答了", "等你", "在做", "做完的话题 1 个，都看过了", "orange-50", "blue-50"):
+        for part in ("T501", "T502", "T503", "这些都不用回答了", "等你", "在做", "做完的话题 1 个，都看过了", "要你处理", "band-0"):
             self.assertIn(part, text)
         self.assertNotIn("T504", text)
         self.assertNotIn("我本来想找你的事", text)
@@ -511,12 +528,12 @@ class BoardTests(UnifiedCase):
     def test_nothing_to_list_says_so_and_a_second_click_folds_and_unfolds(self):
         self.press("ev1")
         text = json.dumps(self.card(), ensure_ascii=False)
-        self.assertIn("现在没有在等你、在做或停住的事", text)
+        self.assertIn("都在掌握中", text)
         self.press("ev2")
         self.assertEqual((self.puts[-1][0], self.card()["header"]["title"]["content"]), ("bcard", "看板"))
         self.assertIn("再点菜单「看板」展开", json.dumps(self.card(), ensure_ascii=False))
         self.press("ev3")
-        self.assertIn("现在没有在等你、在做或停住的事", json.dumps(self.card(), ensure_ascii=False))
+        self.assertIn("现在没有在等你的事", json.dumps(self.card(), ensure_ascii=False))
         self.assertEqual([seq for _, _, seq in self.puts], [0, 1, 2])
         self.assertEqual(self.app.messenger.create_and_send_card.call_count, 1)
         # Once the owner wrote at the top level, the card is not the newest: a new one, the one before recalled.

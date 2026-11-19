@@ -139,5 +139,36 @@ class PartsTest(unittest.TestCase):
         self.assertEqual(row["behaviors"][0]["default_url"], "https://x/y")
 
 
+    def test_receipt_is_one_grey_line_and_a_problem_stays(self):
+        self.assertEqual(ui.receipt("✓ 已停用"), {"tag": "markdown", "text_size": "notation",
+                                                 "content": "<font color='grey'>已停用</font>"})
+        self.assertEqual(ui.receipt("⚠️ 没有保存")["content"], "⚠️ 没有保存")
+        self.assertNotIn("text_size", ui.receipt("⚠️ 没有保存"))
+
+
+class BoardTest(unittest.TestCase):
+    def test_a_stop_is_grouped_by_who_stopped_it(self):
+        """The 看板: the lead's stop is 停住了, the owner's own 已停止 in the fold; a row without ``tone`` reads as before."""
+        done = [{"topic": "a", "status": "cancelled", "tone": "stopped"},
+                {"topic": "b", "status": "cancelled", "tone": "cancelled"},
+                {"topic": "c", "status": "cancelled"}, {"topic": "d", "status": "done", "tone": "result"},
+                {"topic": "e", "status": "done", "seen": True}]
+        found = board.groups({"done": done})
+        self.assertEqual({key: [row["topic"] for row in rows] for key, rows in found.items() if rows},
+                         {"stopped": ["a", "c"], "cancelled": ["b"], "result": ["d"], "seen": ["e"]})
+        card = json.dumps(board.board_card({"done": done, "waiting": [], "running": [{"topic": "f", "stuck": True}]}),
+                          ensure_ascii=False)
+        self.assertIn("做完 1 个 · 已停止 1 个", card)
+        # 要你处理: the two stopped and the one that may be stuck; the band leads with 停住了, the most pressing there is.
+        self.assertIn("**3**</font> **件事**", card)
+        self.assertIn("先看：停住了", card)
+
+    def test_the_band_says_all_is_in_hand_when_nothing_asks(self):
+        card = json.dumps(board.board_card({"done": [{"topic": "d", "status": "done", "tone": "result", "label": "T1"}]}),
+                          ensure_ascii=False)
+        self.assertIn("**都在掌握中**", card)
+        self.assertIn("1 有结果", card)
+
+
 if __name__ == "__main__":
     unittest.main()
