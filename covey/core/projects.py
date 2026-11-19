@@ -193,8 +193,13 @@ def set_state(state_dir, project_id, to, reason="") -> dict:
     return update(state_dir, project_id, change)
 
 
-def add_member(state_dir, project_id, topic_id) -> dict:
-    """``topic_id`` in the record's ``threads`` (the member topics; the name stays on disk), once (the list keeps the order they came in)."""
+TOKEN_JOBS_KEPT = 300  # Task keys a record remembers it has counted in ``tokens_used`` (``token_jobs``, app/project_loop.py).
+
+
+def add_member(state_dir, project_id, topic_id, now=None) -> dict:
+    """``topic_id`` in the record's ``threads`` (the member topics; the name stays on disk), once (the list keeps the order they came in),
+    and when it came in: ``joined`` {topic id: epoch seconds}. The 专项卡's token (``tokens_used``, app/project_loop.py) counts a
+    member's tasks that end from then on; the web page's 专项报告 counts its turns from the same time (data contract v13)."""
     if not isinstance(topic_id, str) or not TOPIC_RE.fullmatch(topic_id):
         raise ValueError(f"topic id {topic_id!r} is not a topic id")
 
@@ -204,7 +209,16 @@ def add_member(state_dir, project_id, topic_id) -> dict:
             threads = record["threads"] = []
         if topic_id not in threads:
             threads.append(topic_id)
+            joined = record.get("joined") if isinstance(record.get("joined"), dict) else {}
+            record["joined"] = {**joined, topic_id: round(time.time() if now is None else now, 3)}
     return update(state_dir, project_id, change)
+
+
+def joined_at(record, topic_id):
+    """When ``topic_id`` came into the project of ``record`` (epoch seconds), None when the record does not say."""
+    joined = record.get("joined") if isinstance(record, dict) else None
+    value = joined.get(topic_id) if isinstance(joined, dict) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
 
 
 JOINS_KEPT = 30  # Entries of a record's ``joins``, the 归入记录 on the project's card.

@@ -19,6 +19,12 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   row (main-thread.json ``topic_defaults.redaction``) were two defaults until 2026-11-19 (T546), the launch card's and
   the butler's topics'. One is left, the row: a ``default_on`` true sets it on, once. config.json keeps its value for
   an older release.
+- project-joined: a project's record says when each member topic came in (``joined``, core/projects.py add_member since
+  2026-11-19 T552). A record from before has none: a member gets the start of its first task the 专项卡 counted (``token_jobs``:
+  the tasks that ended once it was in). With none counted, no task of it has ended since it came in: it gets the time of the
+  migration, unless ``token_jobs`` is full (its oldest keys dropped), then the project's ``created_at``. The web page's
+  专项报告 counts a member's turns from then, as the 专项卡 does; without it the turns of T531, T525 and T519 from before they
+  came in were counted too (62M).
 """
 # compat(ff57531): the one place that reads a job record's embedded process snapshot; retire when every job record
 # that embeds one has its traces/ file in every deployment (compat_report: embedded-trace)
@@ -27,16 +33,17 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.core import butler_settings, redaction
-from covey.core.jobs import read_job_record
+from covey.core import butler_settings, projects, redaction
+from covey.core.jobs import find_job_record, read_job_record
 from covey.core.locks import LOCK, resource_lock
-from covey.core.state import read_object, write_json
+from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.trace_store import has_trace, save_embedded
 
 MIGRATIONS = "migrations.json"
 EMBEDDED_TRACE = "embedded-trace"
 DESK_RETIRE = "desk-retire"
 REDACTION_DEFAULT = "redaction-default"
+PROJECT_JOINED = "project-joined"
 DESK_REGISTRY = Path("main-thread") / "desk"  # One empty file per front-desk topic id (releases of 11-07 to 11-09).
 RETIRED, RETIRED_DESK = "retired", "desk"  # topic.json's key and value (core/topics.py RETIRED_DESK).
 FAILED_KEYS = 20  # Keys named in the summary line per step.
@@ -178,7 +185,48 @@ def merge_redaction_default(state_dir: Path) -> tuple[int, list[str]]:
     return 1, []
 
 
+def _unjoined(state_dir: Path) -> list:
+    """[(project record, its member topics with no ``joined`` time)] of the projects that have such a member."""
+    found = []
+    for record in projects.records(state_dir):
+        missing = [topic for topic in record.get("threads") or () if projects.joined_at(record, topic) is None]
+        if missing:
+            found.append((record, missing))
+    return found
+
+
+def _joined_left(state_dir: Path) -> int:
+    return len(_unjoined(state_dir))
+
+
+def stamp_joined(state_dir: Path) -> tuple[int, list[str]]:
+    """``joined`` for the members a project's record has no time for: (records written, ids of those it could not write)."""
+    written, failed = 0, []
+    for record, missing in _unjoined(state_dir):
+        first = {}
+        for key in record.get("token_jobs") or ():
+            job = find_job_record(state_dir, str(key)) or {}
+            topic, began = job.get("topic_id"), epoch_seconds(job.get("created_at"))
+            if topic in missing and began and began < first.get(topic, float("inf")):
+                first[topic] = began
+        full = len(record.get("token_jobs") or ()) >= projects.TOKEN_JOBS_KEPT
+        start = (record.get("created_at") if isinstance(record.get("created_at"), (int, float)) else 0) if full else time.time()
+
+        def change(current, first=first, start=start):
+            joined = current.get("joined") if isinstance(current.get("joined"), dict) else {}
+            added = {topic: round(first.get(topic) or start, 3) for topic in current.get("threads") or ()
+                     if projects.joined_at(current, topic) is None and (first.get(topic) or start)}
+            if added:
+                current["joined"] = {**joined, **added}
+        try:
+            projects.update(state_dir, record["id"], change)
+            written += 1
+        except Exception:  # noqa: BLE001 - tried again at the next start
+            failed.append(str(record.get("id")))
+    return written, failed
+
+
 # The steps in the order they run: name -> (what it does: files written and the keys of the records it could not
 # write; what it would still do: records, reading only). A new step is one more row.
 STEPS = {EMBEDDED_TRACE: (embedded_traces, _unwritten), DESK_RETIRE: (retire_desk_topics, _desk_left),
-         REDACTION_DEFAULT: (merge_redaction_default, _redaction_default_left)}
+         REDACTION_DEFAULT: (merge_redaction_default, _redaction_default_left), PROJECT_JOINED: (stamp_joined, _joined_left)}

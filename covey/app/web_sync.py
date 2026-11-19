@@ -183,6 +183,7 @@ class Collector:
         self.pushed_topics = set()
         self.history = {}  # topic id -> ((mtime_ns, size), rows)
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
+        self.projects = {}  # project id -> its record, from this look (a member topic's ``joined_at``).
         self.extra = {}  # (job key, updated_at) -> the optional fields of an ended turn (web_turns.extras).
         self.figures = {}  # (job key, updated_at) -> the figures of an ended turn (web_turns.ended_figures).
         self.unpaired = {}  # topic id -> its answer turns with no task record, as last logged (count_unpaired).
@@ -211,6 +212,7 @@ class Collector:
         butler = butler_topic_id(chat)
         records = projects.records(state, chat)
         self.leads = {str(record.get("lead_topic_id")): record for record in records if record.get("lead_topic_id")} if projects.enabled() else {}
+        self.projects = {str(record.get("id")): record for record in records}
         family = [butler, *self.leads]  # The conversations that are not on the board: the butler's and the projects' leads.
         hot = {row.get("topic_id") for row in (*running, *asking) if row.get("topic_id")}
         hot |= self.family_live(state, chat, family)  # A turn of one runs or asks (the board does not list them).
@@ -313,6 +315,11 @@ class Collector:
         # at a lower seq (T519, T559 on 2026-11-19: the answer's row and a stale "running" row of the same task) was never replaced,
         # so the 专项报告 counted that task's tokens twice and drew it as still running.
         body["last_seq"] = max((turn["seq"] for turn in turns), default=0)
+        # When a member topic came into its project (data contract v13, core/projects.py add_member): the 专项报告 counts its turns
+        # from then, as the 专项卡's token does (T552: T531's and T525's turns from before they came in made the report 62M more).
+        joined = projects.joined_at(self.projects.get(found.id) or {}, topic) if found is not None and project is None else None
+        if joined:
+            body["joined_at"] = joined
         out = [web_sync.item("topic", topic, body)]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:

@@ -179,6 +179,17 @@ class RecordTest(Case):
             with self.assertRaises(ValueError):
                 projects.add_member(self.state, PID, bad)
 
+    def test_a_member_says_when_it_came_in_and_coming_again_moves_nothing(self):
+        """2026-11-19 T552: the 专项报告 counted a member's turns from the project's start, the 专项卡 from when it came in;
+        the record now says when (``joined``), and the page counts from there too."""
+        projects.create(self.state, projects.new_record(chat_id=CHAT, name="n", project_id=PID))
+        record = projects.add_member(self.state, PID, THREAD, now=500.0)
+        self.assertEqual(projects.joined_at(record, THREAD), 500.0)
+        record = projects.add_member(self.state, PID, THREAD, now=900.0)
+        self.assertEqual(projects.joined_at(record, THREAD), 500.0)
+        self.assertIsNone(projects.joined_at(record, "cd" * 16))
+        self.assertIsNone(projects.joined_at({"joined": {THREAD: True}}, THREAD))
+
     def test_records_of_a_chat_oldest_first_and_without_what_is_not_one(self):
         for n, (pid, chat) in enumerate(((PID, CHAT), (OTHER, "oc_b"), ("0123456789ab", CHAT))):
             projects.create(self.state, projects.new_record(chat_id=chat, name=pid, project_id=pid, now=100 - n))

@@ -54,7 +54,7 @@ START_WAIT = 20  # After the Bridge starts: its own recovery of interrupted turn
 HOUR = 3600
 WAKE_TEXT = ("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主人不在场：按回执判断下一步。"
              "要告诉主人的用 project_note 并标 report，这一轮的回复不会发给主人。")
-TOKEN_JOBS_KEPT = 300  # Task keys the record remembers it has counted (``tokens_used``).
+TOKEN_JOBS_KEPT = projects.TOKEN_JOBS_KEPT
 EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
 RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a member's receipt says; an interrupted turn goes on by itself.

@@ -1245,6 +1245,16 @@ class ExtrasTest(WebCase):
         topic = [item["data"] for item in self.web.items("topic") if item["key"] == TOPIC][-1]
         self.assertEqual(topic["last_seq"], 3)
 
+    def test_a_member_topic_says_when_it_came_into_its_project(self):
+        """T552: the 专项报告 counts a member's turns from when it came in (data contract v13), as the 专项卡's token does."""
+        self.thread(OTHER, "对账", 8, status="done")
+        projects.update(self.state, PID, lambda record: record.update(joined={OTHER: 1234.5}))
+        self.topic()
+        self.sync.push_once(T0)
+        by = {item["key"]: item["data"] for item in self.web.items("topic")}
+        self.assertEqual(by[OTHER]["joined_at"], 1234.5)
+        self.assertNotIn("joined_at", by[TOPIC])
+
     def test_a_question_has_its_times_and_where_it_belongs(self):
         self.topic()
         self.question(status="answered", answered_at=T0 + 30, answers={"q1": {"answers": ["A"]}})
