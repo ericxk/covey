@@ -9,7 +9,8 @@ read back every WATCH_SECONDS while its task lives, and for GRACE_SECONDS after 
   but what it 记下了 (memory lines, knowledge entries) is taken back. Each topic the butler opened, forked or handed work
   to from that turn gets a line in its thread, 来源消息已撤回, with 停止 while a task of it still goes (the owner chose
   that over stopping them: 2026-11-19).
-- **edited** (``updated``, a newer ``update_time``): the new words go to its task as a supplement (app/steering.py
+- **edited** (``updated``, a newer ``update_time`` and words that differ from the ones it had: a thread started under
+  a message marks it updated too, its words untouched): the new words go to its task as a supplement (app/steering.py
   deliver_steer): a queued task takes them into its request before it starts, a running one reads them after its
   current step. A task that has ended, or waits for an answer, gets a line in its thread instead: the turn went by the
   old words, and nothing runs again by itself.
@@ -50,6 +51,13 @@ def edited_text(text) -> str:
 def recalled_text(text) -> str:
     """The supplement the recall of a supplement becomes."""
     return f"【主人撤回了刚才那条补充】不要再按它做：「{preview(text)}」"
+
+
+def same_words(one, other) -> bool:
+    """Whether two versions of a message say the same, whitespace aside. Feishu marks a message ``updated`` with a newer
+    update_time for more than an edit: a thread started under it (the butler's topic hung under the owner's question,
+    2026-11-19 T534) does too, its words untouched. So only words that differ make an edit."""
+    return "".join(str(one or "").split()) == "".join(str(other or "").split())
 
 
 def read_back(detail, message_id, stamp):
@@ -94,8 +102,10 @@ def note(app, ctx, event, message_id, chat_id, sender, text, *, steered=False) -
     if steered and steer is None:
         return
     stamp = str(event.get("update_time") or event.get("create_time") or "")
+    from covey.core.attachments import message_words
+
     runtime.sources.note(Watched(message_id, chat_id, app.spec.name, str(ctx.topic_id or ""), stamp,
-                                 text=str(text or "")[:4000], steer=steer))
+                                 text=str(text or "")[:4000], words=message_words(text), steer=steer))
 
 
 class SourceWatch:
@@ -134,8 +144,11 @@ class SourceWatch:
                     book.drop(item.message_id)
                     self.runtime.log(f"source recalled message={item.message_id[-10:]}")
                     self.recalled(ctx, item)
+                elif what == "edited" and same_words(words, item.words):
+                    item.stamp = stamp  # Touched (a thread under it), not edited: nothing to tell its task.
+                    self.runtime.log(f"source touched message={item.message_id[-10:]} words unchanged")
                 elif what == "edited":
-                    item.stamp = stamp
+                    item.stamp, item.words = stamp, words
                     self.runtime.log(f"source edited message={item.message_id[-10:]}")
                     self.edited(ctx, item, words)
             except Exception as exc:  # noqa: BLE001 - one message's failure leaves the others to their round

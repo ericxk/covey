@@ -30,6 +30,7 @@ class Watched:
     topic_id: str
     stamp: str
     text: str = ""
+    words: str = ""  # What the owner wrote of it, as last known: an edit is a read-back whose words differ (``same_words``).
     steer: tuple | None = None
     added: float = dataclasses.field(default_factory=time.time)
     ended: float = 0.0  # When its task was first seen ended; 0 while it lives.

@@ -28,6 +28,8 @@ class ReadBackTest(unittest.TestCase):
         self.assertEqual(read_back(detail("om_a", deleted=True), "om_a", "1000")[0], "recalled")
         self.assertEqual(read_back(detail("om_a", updated=True, update_time="2000", text="新的"), "om_a", "1000"),
                          ("edited", "新的", "2000"))
+        self.assertTrue(source_watch.same_words("现在 是不是\n可以", "现在是不是可以"))
+        self.assertFalse(source_watch.same_words("现在可以", "现在不可以"))
         # The same edit read again is not a second one.
         self.assertEqual(read_back(detail("om_a", updated=True, update_time="2000"), "om_a", "2000")[0], "same")
         self.assertEqual(read_back(detail("om_a"), "om_a", "1000")[0], "same")
@@ -116,6 +118,23 @@ class SourceWatchTest(TopicFixture, unittest.TestCase):
         self.assertIn("主人编辑了刚才的消息", job.prompt_text)
         self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
         self.assertEqual(job.prompt_text.count("改过的问题"), 1)  # One edit, one supplement.
+
+    def test_a_thread_under_the_message_is_not_an_edit(self):
+        # T534 (2026-11-19): the butler's topic hung under the owner's question made Feishu mark it updated, with a newer
+        # update_time, its words untouched; the butler was told twice he had edited it.
+        self.receive("om_a", "原来的问题")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value="sent"), supports_steer=True)
+        self.app.messenger.send_message.reset_mock()
+        for stamp in ("2000", "3000"):
+            self.round(detail("om_a", updated=True, update_time=stamp, text=" 原来的 问题\n"))
+        job.backend_control.steer.assert_not_called()
+        self.app.messenger.send_message.assert_not_called()
+        self.assertEqual(self.app.runtime.sources.get("om_a").stamp, "3000")
+        # A real edit after that still goes.
+        self.round(detail("om_a", updated=True, update_time="4000", text="改过的问题"))
+        job.backend_control.steer.assert_called_once()
 
     def test_a_running_task_gets_the_edit_as_a_supplement(self):
         self.receive("om_a", "原来的问题")
