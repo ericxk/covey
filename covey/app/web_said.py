@@ -77,7 +77,7 @@ def said(row, record=None, origins=None) -> dict:
         out["display"] = "撤回了刚才那条补充" + (("：" + text.split("：", 1)[1]) if "：" in text else "")
     elif FIX.match(text):
         found = FIX.match(text)
-        out["display"] = f"纠正负责人替你答的「{clip(found[1], CHOICE_CHARS)}」：{text[found.end():].strip()}"
+        out["display"] = f"纠正负责人替你答的「{cut(found[1], CHOICE_CHARS)}」：{text[found.end():].strip()}"
     elif message_id.startswith(HANDED) and origins is not None:
         by, via = origins.of(message_id)
         out["by"] = by
@@ -113,7 +113,7 @@ def answer_view(text, record) -> dict:
     if pairs:
         choices = [pair["choice"] for pair in pairs]
         given = [choice for choice in choices if choice != NOT_ANSWERED]
-        line = (f"答了 {len(pairs)} 题：" + "；".join(clip(choice, CHOICE_CHARS) for choice in choices) if given
+        line = (f"答了 {len(pairs)} 题：" + "；".join(cut(choice, CHOICE_CHARS) for choice in choices) if given
                 else "没答" if notes else f"{len(pairs)} 题都没答")
         out["answers"] = pairs
     else:
@@ -168,6 +168,3 @@ def answer_record(row, questions, taken=None):
     if found is not None and taken is not None:
         taken.add(found.get("token"))
     return found
-
-
-clip = cut
