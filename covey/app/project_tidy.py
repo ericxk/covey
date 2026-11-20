@@ -9,8 +9,9 @@ topics by a mechanism, not by the one look the butler takes when it opens a topi
   topic's first turn ended; its essence changed (core/topic_gist.py ``moved``); its turn ended on its third day or later
   (COVEY_PROJECT_TIDY_AGE_DAYS), or it has COVEY_PROJECT_TIDY_WORDS turns the owner started. Each of the last two once a topic.
   自动收话题 (the owner, 2026-11-19): a join needs no click. The rule first (``by_rule``: its 话题要点's related topics are one
-  live project's); each turn the owner started (TURN) the judge reads this topic alone against the live projects when its gist
-  changed (``turn_judge``); a project just made looks over the recent topics once (``sweep``).
+  live project's, a candidate the judge confirms against that project alone, ``rule_confirm``); each turn the owner started
+  (TURN) the judge reads this topic alone against the live projects when its gist changed (``turn_judge``); a project just
+  made looks over the recent topics once (``sweep``).
   A join the judge is sure of (JOIN_SURE) is done at once (app/projects.py join_topic) and the topic's cards get 已归进「X」 · 移出;
   a new project is proposed on a card (建专项 / 改个名再建 / 不用 / 以后别提议), or made at once with ``auto`` (or after the owner's
   以后直接建). Not with fewer than COVEY_PROJECT_TIDY_MIN_TOPICS topics in the chat, not for a topic taken out of a project (移出)
@@ -281,9 +282,11 @@ class ProjectTidy:
         kept_out = proposals.never_auto(state, topic)
         if records and not kept_out:
             pid, why = self.by_rule(state, chat, topic, records)
-            if pid and self.join(ctx, self.rule_join(topic, pid, why), chat, by="rule"):
-                self.runtime.log(f"project tidy realtime topic={topic[:12]} reason={reason} outcome=joined by=rule")
-                return "joined"
+            if pid:
+                outcome = self.rule_confirm(ctx, chat, topic, pid, why, now)
+                self.runtime.log(f"project tidy realtime topic={topic[:12]} reason={reason} outcome={outcome} by=rule")
+                if outcome == "joined" or reason == TURN:  # This gist was judged just now: no second call for the turn.
+                    return outcome
         if reason == TURN:
             return "kept_out" if kept_out else self.turn_judge(ctx, chat, topic, records, now)
         if self.topic_count(state, chat, now) < proposals.number("min_topics"):
@@ -337,6 +340,22 @@ class ProjectTidy:
     def rule_join(topic, pid, why) -> dict:
         return proposals.new_proposal(proposals.JOIN, topics=[topic], project=pid, why=why, source="rule", confidence=1.0)
 
+    def rule_confirm(self, ctx, chat, topic, pid, why, now) -> str:
+        """A rule hit (``by_rule``) joined only when the judge, reading this topic against that project alone, is sure of it
+        (JOIN_SURE): ``related`` lists the topics a turn named, and a topic names others it is not part of (T579, 2026-11-20: a
+        disk check named the two topics whose tests had filled the disk and went into their 题包 project). "joined" or
+        "rule_declined"; the gist counts as judged either way."""
+        state = Path(ctx.state_dir)
+        record = projects.read_record(state, pid)
+        backend, context = self.judge_tools()
+        verdict = sorter.judge(state, [record], [sorter.material(state, chat, topic, now)], backend=backend, ctx=context,
+                               focus=topic, lessons=proposals.lessons(state), source="realtime", log=self.runtime.log)
+        sign = gist_sign(state, topic)
+        proposals.change_topic(state, topic, lambda flags: flags.update(judged_at=now, judged_for="rule", judged_sign=sign))
+        sure = any(made["kind"] == proposals.JOIN and made["project"] == pid and made["confidence"] >= proposals.JOIN_SURE
+                   for made in verdict.suggestions)
+        return "joined" if sure and self.join(ctx, self.rule_join(topic, pid, why), chat, by="rule") else "rule_declined"
+
     def turn_judge(self, ctx, chat, topic, records, now) -> str:
         """After a turn the owner started: the judge reads this topic alone against the live projects (one call, only when its
         话题要点 changed since it was last judged) and a join it is sure of (JOIN_SURE) is done. Nothing is proposed here."""
@@ -359,8 +378,8 @@ class ProjectTidy:
         return outcome
 
     def sweep(self, ctx, chat, pid, now) -> int:
-        """A project just made (app/projects.py queue_sweep) takes in the recent topics that belong to it: by the rule, then one
-        judge call over the rest against this project alone, the joins it is sure of. How many joined."""
+        """A project just made (app/projects.py queue_sweep) takes in the recent topics that belong to it: one judge call over
+        them against this project alone (a rule hit among them too), the joins it is sure of. How many joined."""
         state = Path(ctx.state_dir)
         record = projects.read_record(state, pid)
         if not proposals.enabled() or record.get("state") not in (projects.ACTIVE, projects.PAUSED):
@@ -371,10 +390,8 @@ class ProjectTidy:
             if (projects.topic_project(state, topic) is not None or proposals.never_auto(state, topic)
                     or sorter.hidden(state, topic)):
                 continue
-            found, why = self.by_rule(state, chat, topic, records)
-            if found == pid and self.join(ctx, self.rule_join(topic, pid, why), chat, by="rule"):
-                joined += 1
-            elif not found:
+            found, _ = self.by_rule(state, chat, topic, records)
+            if found in ("", pid):  # A rule hit is judged too (rule_confirm); one naming another project's topics is left out.
                 rest.append(topic)
         if rest:
             backend, context = self.judge_tools()

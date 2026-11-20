@@ -257,16 +257,35 @@ class AutoJoinTest(TidyCase):
         topic_gist.save(self.state, topic, gist, source="turn", job="x")
         return topic
 
-    def test_a_topic_whose_gist_names_a_projects_topic_joins_without_the_model(self):
+    def test_a_topic_whose_gist_names_a_projects_topic_joins_once_the_judge_is_sure(self):
         member = self.topic("一轮")
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
+        self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
         self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
-        self.assertEqual(self.judged(), [])  # The rule: no judge call, and not held back by the chat having few topics.
+        self.assertEqual(len(self.judged()), 1)  # One call against that project, not held back by the chat having few topics.
+        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "skipped")
         self.assertEqual(projects.topic_project(self.state, topic).id, pid)
         joins = projects.read_record(self.state, pid)["joins"]
         self.assertEqual([(row["topic"], row["by"]) for row in joins], [(topic, "rule")])
         self.assertIn(f"T{self.number(member)}", joins[0]["why"])
+
+    def test_a_gist_naming_a_projects_topics_in_passing_joins_only_when_the_judge_is_sure(self):
+        """T579 (2026-11-20): a disk check named T488 and T505 in ``related`` because their tests had filled the disk, and the
+        rule alone put it into their 题包 project. A rule hit is now a candidate the judge confirms against that project."""
+        first, second = self.topic("修题包"), self.topic("优化下一环节")
+        pid = self.project("题包生产链路提示词优化", [first, second])
+        refs = [f"T{self.number(first)}", f"T{self.number(second)}"]
+        topic = self.gisted("本机系统盘 90% 排查", {"essence": "系统盘占满的来源排查与清理", "related": refs})
+        self.assertNotEqual(self.tidy.realtime(self.ctx, CHAT, topic, "new", time.time()), "joined")
+        self.assertIsNone(projects.topic_project(self.state, topic))
+        given = self.judged()[0]
+        self.assertEqual([row["name"] for row in given["projects"]], ["题包生产链路提示词优化"])  # That project alone.
+        self.assertEqual([row["index"] for row in given["topics"]], [1])  # This topic alone.
+        # Nor when a project just made looks over the recent topics.
+        proposals.queue_sweep(self.state, pid)
+        self.tidy.drain(self.ctx, CHAT, time.time())
+        self.assertIsNone(projects.topic_project(self.state, topic))
 
     def test_each_owner_turn_is_judged_against_the_projects_once_a_gist_and_a_sure_join_is_done(self):
         member = self.topic("一轮")
@@ -288,11 +307,12 @@ class AutoJoinTest(TidyCase):
         member = self.topic("一轮")
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
+        self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
         self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
         self.tidy.leave(self.ctx, CHAT, topic, pid)
         self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "kept_out")
         self.assertIsNone(projects.topic_project(self.state, topic))
-        self.assertEqual(self.judged(), [])
+        self.assertEqual(len(self.judged()), 1)  # The join's own; none after 移出.
         record = projects.read_record(self.state, pid)
         self.assertTrue(record["joins"][-1]["left_at"])
 
