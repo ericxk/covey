@@ -105,6 +105,9 @@ def stop_bus(identity):
 
 
 def watch(runtime, ctx):
+    from covey.feishu import ws_intake
+    if ws_intake.enabled():  # COVEY_EVENT_TRANSPORT=sdk: no lark-cli bus to look at; the SDK client's own state.
+        return ws_intake.watch_status(runtime)
     failures = 0
     identity = None
     last_restart = float('-inf')  # not 0: time.monotonic() is the host's uptime, small just after a boot

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 
+from covey.feishu import ws_intake
 from covey.feishu.events import consumers_snapshot
 from covey.core.process import process_identity
 
@@ -18,7 +19,8 @@ def bridge_snapshot(runtime, workers):
     if connection.get('status') in {'stalled', 'disconnected', 'unresponsive'}:
         healthy = False
     availability = runtime.availability_health
-    return {'schema_version': 1, 'process': process_identity(os.getpid()),
+    transport = {'event_transport': 'sdk'} if ws_intake.enabled() else {}  # Only then: the default snapshot is unchanged.
+    return {**transport, 'schema_version': 1, 'process': process_identity(os.getpid()),
             'status': 'ready' if healthy and not runtime.shutdown.is_set() else 'degraded',
             'consumers': consumers, 'workers': threads,
             'queued_jobs': runtime.jobs.queue.qsize(),

@@ -157,7 +157,15 @@ def diagnose(root, *, check_events=True, probe=False):
         # own topics' trouble.
         if (found := devices_row(manifest['state_dir'])) is not None:
             row['devices'] = found
-        if check_events:
+        if check_events and (health or {}).get('event_transport') == 'sdk':
+            # COVEY_EVENT_TRANSPORT=sdk: there is no lark-cli bus; the Bridge's own consumers say whether they are up.
+            consumers = (health or {}).get('consumers') or {}
+            connected = all((consumers.get(key) or {}).get('ready') for key in ('im.message.receive_v1', 'card.action.trigger'))
+            row['events'] = {'status': 'ready' if connected else 'degraded', 'scope': 'sdk_websocket',
+                             'owned_required_consumers': connected, 'dropped': 0}
+            if not connected:
+                row['status'] = 'degraded'
+        elif check_events:
             events = event_report(manifest['profile'])
             owned = [c for c in events.get('consumers', [])
                      if identity and descendant(c.get('pid'), identity['pid'])]

@@ -44,6 +44,7 @@ from covey.core.locks import configure_card_locks
 from covey.core.loops import supervised
 from covey.core.process import instance_lock, log_to, service_key, stop_processes
 from covey.core.scheduler import WorkspaceScheduler
+from covey.feishu import ws_intake
 from covey.feishu.events import (CARD_ACTION_EVENT_KEY, MENU_EVENT_KEY, MESSAGE_EVENT_KEY, SUBSCRIPTIONS,
                                           consume, consumer)
 from covey.feishu.messenger import Messenger
@@ -545,6 +546,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                            self.runtime.log).run()
 
     def consume_events(self, ctx: BridgeContext, key: str, handle) -> None:
+        if ws_intake.enabled():  # COVEY_EVENT_TRANSPORT=sdk: one SDK WebSocket for all four keys, no lark-cli consumer.
+            return ws_intake.consume(ctx, key, handle=handle, shutdown=self.runtime.shutdown, log=self.runtime.log,
+                                     retry_seconds=CARD_ACTION_RETRY_SECONDS)
         consume(ctx, key, handle=handle, set_process=lambda proc: self.event_procs.__setitem__(key, proc),
                 shutdown=self.runtime.shutdown, log=self.runtime.log, retry_seconds=CARD_ACTION_RETRY_SECONDS)
 
@@ -568,6 +572,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                 feature.close()
         stop_processes([(sub.stop_label, self.event_procs.get(key)) for key, sub in SUBSCRIPTIONS.items()],
                        self.runtime.log)
+        ws_intake.stop()  # The SDK connection of COVEY_EVENT_TRANSPORT=sdk; nothing when this process opened none.
 
     def shutdown_handler(self, signum: int, _frame: Any) -> None:
         self.runtime.log(f"received signal {signum}; shutting down")

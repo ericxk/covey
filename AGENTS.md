@@ -412,6 +412,7 @@
 | `feishu/transport.py` | Structured delivery failures and durable, bounded idempotent CLI writes |
 | `feishu/web_client.py` | Feishu web, driven by a headless Chromium logged in as the owner, for the acceptance page of the browser … |
 | `feishu/web_service.py` | Feishu web's browser service, for the acceptance page alone |
+| `feishu/ws_intake.py` | The bot's four events over one lark_oapi WebSocket (`COVEY_EVENT_TRANSPORT=sdk`) instead of four lark-cli … |
 
 ### service
 
