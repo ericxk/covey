@@ -13,7 +13,7 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
 - ``dp_thread``: the fold 话题 (open while the job works or waits on the owner, closed once it ended), its title line the
   topic's T number, title and workspace; inside it ``dp_body`` (the stage or step the job is at) and ``dp_notes``;
 - ``dp_io``: the grey 输入/输出 box (cards/answer_card.py ``box``);
-- ``dp_btns``: 补充 (``dp_steer``), 停止 (``dp_stop``) and › 打开话题串 (``dp_open``), those that can be used now.
+- ``dp_btns``: 补充 (``dp_steer``), 停止 (``dp_stop``) and 打开话题 (``dp_open``), those that can be used now.
 
 No input field: a card that is redrawn must not hold one (docs/cards.md 卡片的客户端限制); 补充 sends a card of its own.
 The single line a settled card becomes: ``dp_line``, one grey block that opens the conclusion (``settled_card``)."""
@@ -87,14 +87,14 @@ def thread_title(dispatch) -> str:
 
 def buttons(dispatch) -> list:
     """The buttons that can be used now: 补充 and 停止 while the job works (they act on its ``job_id``, which also
-    routes a click to its task process), › 打开话题串 whenever the topic's thread has a link."""
+    routes a click to its task process), 打开话题 whenever the topic's thread has a link."""
     row = []
     if dispatch.status == RUNNING and dispatch.job_id:
         value = {"topic_id": dispatch.topic_id, "job_id": str(dispatch.job_id)}
-        row.append(topic_button("📝 补充", element_id="dp_steer", value={"kind": STEER_KIND, **value}))
-        row.append(topic_button("⏹ 停止", element_id="dp_stop", tone="danger", value={"kind": STOP_KIND, **value}))
+        row.append(topic_button("补充", element_id="dp_steer", value={"kind": STEER_KIND, **value}))
+        row.append(topic_button("停止", element_id="dp_stop", tone="danger", value={"kind": STOP_KIND, **value}))
     if dispatch.url:
-        row.append(topic_button("› 打开话题串", element_id="dp_open",
+        row.append(topic_button("打开话题", element_id="dp_open",
                                 behaviors=[{"type": "open_url", "default_url": dispatch.url}]))
     return [button_row(row, "dp_btns")] if row else []
 

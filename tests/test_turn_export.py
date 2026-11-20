@@ -41,7 +41,7 @@ def text(panel):
 class ExportPanelTests(unittest.TestCase):
     def test_each_state(self):
         [button] = buttons(export_panel("t", 7))
-        self.assertEqual(button["text"]["content"], "📥 下载请求与结果")
+        self.assertEqual(button["text"]["content"], "下载请求与结果")
         self.assertEqual(button["behaviors"][0]["value"], {"kind": KIND, "topic_id": "t", "job_id": 7})
         self.assertEqual(text(export_panel("t", 7)), "")
         # Sized to its label like the 🔁 📦 buttons above it: in an auto column, not the card-wide one.

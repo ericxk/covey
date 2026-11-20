@@ -11,7 +11,7 @@ from covey.app import auto_retry
 from covey.app.butler_reply import dropped_lines
 from covey.app.outbox import AUDIT_REFUSED_NOTE, REDELIVER_LABEL, REDELIVER_NOTE, RETRY_NOTE
 from covey.cards.elements import md
-from covey.cards.recovery import recovery_view, result_actions
+from covey.cards.recovery import recovery_view, result_actions, switch_route
 from covey.core import failure, recovery, turn_words
 from covey.core.checkpoint import read_checkpoint
 from covey.core.butler import traits_of, worded
@@ -108,7 +108,8 @@ def recovery_card(record, *, continued=False, state_dir=None, moved_to=None, aut
     elif not continued and moved_to is None and record.get("topic_id"):
         # 看原因 and 拆小再试 (core/failure.py) after its button, as a failed task card has them.
         follow = auto_retry.next_steps(record)[1]
-        actions = (result_actions(record["topic_id"], record["job_id"], "", follow_ups=follow),) if follow else ()
+        actions = ((result_actions(record["topic_id"], record["job_id"], "", follow_ups=follow,
+                                   route=switch_route(record)),) if follow else ())
     return recovery_view(record, text, word=key, headline=headline, line=line, topic=topic, label=label, continued=continued, moved_to=moved_to,
                          how=how, retry=retry, actions=actions, snapshot=snapshot)
 

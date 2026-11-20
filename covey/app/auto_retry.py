@@ -26,8 +26,8 @@ import time
 from typing import NamedTuple
 
 from covey.app.outbox import RETRY_NOTE, retry_label
-from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, failure_details, interrupted_summary, result_actions,
-                                  result_note, retry_status)
+from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, SWITCH_MODEL, failure_details, interrupted_summary,
+                                  result_actions, result_note, retry_status, switch_route)
 from covey.core import failure
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record, job_key, select_job_records, update_job_record_if
@@ -207,14 +207,16 @@ def next_steps(record):
     view = failure.failure_view(record) if record else None
     actions = (view or {}).get("actions", [])
     label = failure.LABELS[failure.RETRY] if failure.RETRY in actions else "检查并继续"
-    return label, tuple(name for name in actions if name in FOLLOW_UPS)
+    return label, tuple(name for name in actions if name in FOLLOW_UPS
+                        or (name == SWITCH_MODEL and record and switch_route(record)))
 
 
 def actions(topic_id, job_id, can_stop, record=None):
     """The 检查并继续 row of a failed task card (``next_steps`` of ``record``); a pending automatic retry adds
     停止自动重试."""
     label, follow = next_steps(record)
-    return result_actions(topic_id, job_id, label, stop_kind=CANCEL_KIND if can_stop else "", follow_ups=follow)
+    return result_actions(topic_id, job_id, label, stop_kind=CANCEL_KIND if can_stop else "", follow_ups=follow,
+                          route=switch_route(record or {}))
 
 
 def result_note_text(label, follow):
@@ -383,5 +385,5 @@ def failed_controls(topic_id, job_id, record) -> list:
     follow = next_steps(record)[1]
     if not label and not follow:
         return details
-    return details + [result_actions(topic_id, job_id, label, follow_ups=follow)]
+    return details + [result_actions(topic_id, job_id, label, follow_ups=follow, route=switch_route(record))]
 

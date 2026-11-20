@@ -54,7 +54,7 @@ from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
-from covey.cards.board import KINDS as BOARD_KINDS, SEEN_KIND, board_card
+from covey.cards.board import KINDS as BOARD_KINDS, SEEN_KIND, SEEN_MAX, board_card
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
 from covey.core import board_read, knowledge, look, patrol, projects, turn_words
 from covey.core import project_proposals
@@ -505,11 +505,16 @@ class Digest:
             return "owner_only"
         message = str(event.get("message_id") or "")
         if kind == SEEN_KIND:
-            topic, chat = raw.get("topic"), self.fixed or self.runtime.access.notify_chat()
-            if not isinstance(topic, str) or not topic or not chat:
+            # One row's 记为看过 names its ``topic``; 全部记为看过 names them all (``topics``, cards/board.py SEEN_MAX).
+            chat = self.fixed or self.runtime.access.notify_chat()
+            topics = raw.get("topics") if isinstance(raw.get("topics"), list) else [raw.get("topic")]
+            topics = [topic for topic in topics[:SEEN_MAX] if isinstance(topic, str) and topic]
+            if not topics or not chat:
                 return "board_seen_ignored"
-            fresh = board_read.mark_seen(ctx.state_dir, chat, topic, time.time())
-            self.runtime.log(f"digest board seen topic={topic[-8:]} fresh={fresh}")
+            now = time.time()
+            for topic in topics:
+                fresh = board_read.mark_seen(ctx.state_dir, chat, topic, now)
+                self.runtime.log(f"digest board seen topic={topic[-8:]} fresh={fresh}")
         if message:
             after_ack(lambda: self.board_refresh(ctx, message))
         return "board_seen" if kind == SEEN_KIND else "board_refresh"

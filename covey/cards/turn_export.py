@@ -8,7 +8,7 @@ from covey.core.text import safe_text
 
 ELEMENT = "turn_export"
 KIND = "bridge_turn_export"
-LABEL = "📥 下载请求与结果"
+LABEL = "下载请求与结果"
 
 
 def _size(n):

@@ -128,7 +128,7 @@ class CardTest(UnifiedCase):
             fold = find_element(card, name)
             self.assertFalse(fold["expanded"])
             self.assertIn(f"· {count}", fold["header"]["title"]["content"])
-        dels = [button for button in iter_buttons(card) if button.get("text", {}).get("content") == "删"]
+        dels = [button for button in iter_buttons(card) if button.get("text", {}).get("content") == "删除"]
         values = [button["behaviors"][0]["value"] for button in dels]
         self.assertEqual([(value["kind"], value.get("entry") or value.get("name")) for value in values],
                          [("bridge_project_mem_del", "m1"), ("bridge_project_mem_del", "m2"),
@@ -696,7 +696,7 @@ class AskCardTest(CardCase):
         self.assertIn("2 个话题", find_element(built, "pa_note")["content"])
         buttons = [(name, find_element(built, name)) for name in ("pa_go", "pa_wrap", "pa_stop")]
         self.assertEqual([(button["text"]["content"], button["value"]["kind"]) for _, button in buttons],
-                         [("继续", "bridge_project_ask_continue"), ("收尾", "bridge_project_ask_finish"), ("停", "bridge_project_ask_stop")])
+                         [("继续", "bridge_project_ask_continue"), ("收尾", "bridge_project_ask_finish"), ("停止", "bridge_project_ask_stop")])
         self.assertTrue(all(button["value"]["project_id"] == PID and button["value"]["topic_id"] == LEAD for _, button in buttons))
         self.assertIsNone(find_element(view.ask_card("x", "y", project_id=PID, lead_topic=LEAD), "pa_note"))
 

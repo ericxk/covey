@@ -801,7 +801,7 @@ class WorkspaceManagerTests(LaunchCardCase):
         verb, fresh = self.row('fresh')
         self.assertEqual((fresh['text']['content'], fresh['disabled']), ('添加', False))
         self.assertEqual({b['text']['content'] for b in buttons(card).values()} >= {
-            '⬆️ 上一级', '🔄 刷新', '搜索', '返回管理页', '添加此目录'}, True)
+            '上一级', '刷新', '搜索', '返回管理页', '添加此目录'}, True)
         self.click(verb)
         self.assertEqual(self.config()['workspaces']['fresh'], str((self.root / 'fresh').resolve()))
         self.assertEqual(self.shown()['header']['title']['content'], '添加工作区')  # Stays to add more.
@@ -1236,7 +1236,7 @@ class PickerTests(PickerCase):
         self.assertEqual(form[1]['content'], literal(self.work))
         self.assertEqual(find(card, 'input', 'query')['placeholder']['content'], SEARCH_PLACEHOLDER)
         labels = [b['text']['content'] for b in walk(form) if b.get('tag') == 'button']
-        self.assertEqual(labels[:3], ['⬆️ 上一级', '🔄 刷新', '搜索'])
+        self.assertEqual(labels[:3], ['上一级', '刷新', '搜索'])
         self.assertEqual(labels[3:5], ['进入', '使用'])
         self.assertEqual([b['name'].rsplit(':', 1)[1] for b in row_buttons(card, 'child-00')], ['enter0', 'pick0'])
         self.assertEqual(labels[-4:], ['上一页', '下一页', '返回', '使用此目录'])

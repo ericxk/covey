@@ -485,7 +485,7 @@ Bridge 要用的权限、事件、卡片回调和机器人菜单（`core/app_man
 **检查。** 启动 90 秒后一次、之后每天一次（`app/app_setup.py`）：以机器人身份读应用和它线上版本的详情（`feishu/app_config.py`），比出缺的项。
 
 - 读这两个接口要应用有 `application:application:self_manage`；没有时卡上只列这一项，补上后下次检查才看得到其余的。
-- 同一组缺项只发一次卡（`<state>/app-setup/state.json`）；点「这些先不补」后，缺项变了才再发。主人还没和机器人私聊过时不发。
+- 同一组缺项只发一次卡（`<state>/app-setup/state.json`）；点「不管了」后，缺项变了才再发。主人还没和机器人私聊过时不发。
 - 要租户管理员审核的权限（群聊免@ 的 `im:message.group_msg`，开了 `COVEY_GROUP_ALL_MESSAGES=1` 才算）单列在卡上、默认不申请，只缺它时不发卡；点「连同需审核的一起申请」才一起提交。
 - 只增不删：应用里别的权限、事件和菜单项都不动。一级菜单最多 5 项，放不下的菜单项不补，卡上说明。
 - 设 `COVEY_APP_CHECK=0` 不检查、不发卡。

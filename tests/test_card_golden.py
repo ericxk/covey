@@ -15,6 +15,7 @@ import dataclasses
 
 import json
 import lzma
+import re
 import os
 import sys
 import time
@@ -1326,6 +1327,27 @@ class CardGoldenTests(unittest.TestCase):
         twice = {sample: sorted({name for name in found if found.count(name) > 1})
                  for sample, card in render().items() for found in [names(card, [])]}
         self.assertEqual({sample: dup for sample, dup in twice.items() if dup}, {})
+
+    def test_button_labels_follow_the_ui_rules(self):
+        """docs/ui.md 6: a button's label has no emoji (a standard_icon is the icon) and none of the words the table
+        replaced (算了, 这些先不补, a lone 停 or 删, 不发); T575 cleaned up the last ones."""
+        emoji = re.compile("[\U0001F000-\U0001FFFF\u2190-\u21FF\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u203A]")
+        replaced = {"算了", "暂不考虑", "这些先不补", "停", "删", "不发"}
+
+        def labels(node, found):
+            if isinstance(node, dict):
+                text = node.get("text")
+                if node.get("tag") == "button" and isinstance(text, dict) and isinstance(text.get("content"), str):
+                    found.append(text["content"])
+                for value in node.values():
+                    labels(value, found)
+            elif isinstance(node, list):
+                for value in node:
+                    labels(value, found)
+            return found
+        bad = {sample: sorted({label for label in found if emoji.search(label) or label.strip() in replaced})
+               for sample, card in render().items() for found in [labels(card, [])]}
+        self.assertEqual({sample: found for sample, found in bad.items() if found}, {})
 
     def test_rendering_twice_gives_the_same_bytes(self):
         self.assertEqual(encode(render()), encode(render()))

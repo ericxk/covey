@@ -20,6 +20,26 @@ POLICY = {"kind": "refusal", "category": "frontier_llm", "scope": "subagent", "c
           "source_model": "", "target_model": "", "evidence": "refusal_stop"}
 
 
+def _buttons(elements):
+    found = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            if value.get("tag") == "button":
+                found.append(value)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+    walk(elements)
+    return found
+
+
+def _value(button):
+    return button.get("value") or next((b.get("value") for b in button.get("behaviors") or () if b.get("value")), {})
+
+
 def failed(**fields):
     return {"job_id": 7, "topic_id": "topic", "status": "failed", "execution_status": "failed", **fields}
 
@@ -109,6 +129,31 @@ class CardTest(unittest.TestCase):
         self.assertIn(SPLIT_KIND, text)
         self.assertNotIn("技术详情", text)  # Its body says who was refused doing what itself.
         self.assertNotIn("检查并继续", text)
+
+    def test_a_failure_a_retry_cannot_fix_offers_another_model_in_its_row(self):
+        """换个模型 (2026-11-20): 额度用完 and the like put the 换配置 click in the row as 换个模型, with the topic's
+        route; a record without one (no binding) gets no such button, as before."""
+        from covey.cards.recovery import SWITCH_LABEL, offers_switch, recovery_view
+        from covey.cards.topic_actions import SWITCH_OPEN
+        bound = failed(failure_code="quota_exhausted", harness_id="claude", binding_revision=3)
+        controls = auto_retry.failed_controls("topic", 7, bound)
+        switch, = [v for v in map(_value, _buttons(controls)) if v.get("kind") == SWITCH_OPEN]
+        self.assertEqual(switch, {"kind": SWITCH_OPEN, "topic_id": "topic", "job_id": 7, "harness_id": "claude",
+                                  "binding_revision": 3})
+        text = json.dumps(controls, ensure_ascii=False)
+        self.assertIn(SWITCH_LABEL, text)
+        self.assertIn("换个模型：打开换配置", text)
+        self.assertNotIn(SWITCH_OPEN, json.dumps(auto_retry.failed_controls("topic", 7, failed(failure_code="quota_exhausted")),
+                                                 ensure_ascii=False))
+        # The recovery card puts it in the row and leaves out the 换配置 row under 执行过程 that would open the same card.
+        row = auto_retry.result_actions("topic", 7, "", follow_ups=("switch_model",), route=("claude", 3))
+        card = recovery_view({**bound, "status": "failed"}, "", word="stopped", headline="额度用完了", topic="T9", label="",
+                             continued=False, moved_to=None, how="", retry=None, actions=(row,), snapshot=None)
+        self.assertTrue(offers_switch([row]))
+        self.assertEqual(json.dumps(card, ensure_ascii=False).count(SWITCH_OPEN), 1)
+        plain = recovery_view({**bound, "status": "failed"}, "", word="stopped", headline="x", topic="T9", label="",
+                              continued=False, moved_to=None, how="", retry=None, actions=(), snapshot=None)
+        self.assertIn('"element_id": "switch_actions"', json.dumps(plain))
 
     def test_the_body_of_a_failed_card_is_its_reason(self):
         from covey.app.worker import TurnDelivery

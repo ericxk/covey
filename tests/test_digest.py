@@ -517,6 +517,30 @@ class BoardTests(UnifiedCase):
         self.assertNotIn("已收起", json.dumps(self.card(), ensure_ascii=False))
         self.assertTrue(any("outcome=board_refresh" in line for line in self.logs))
 
+    def test_all_results_are_marked_seen_with_one_click_and_one_redraw(self):
+        """全部记为看过 (2026-11-20): with two or more results, one text button beside 有结果没看 marks them all seen and
+        the card is redrawn once; with one there is only its row's 记为看过."""
+        from covey.cards.board import ALL_SEEN, SEEN_KIND, board_card
+        done = [{"topic": f"r{n}", "label": f"T60{n}", "title": "看板", "status": "done", "tone": "result"} for n in range(3)]
+        card = board_card({"waiting": [], "running": [], "stale": [], "stamp": "08:00", "done": done})
+        every, = [v for v in buttons(card) if v.get("kind") == SEEN_KIND and "topics" in v]
+        self.assertEqual(every, {"kind": SEEN_KIND, "topics": ["r0", "r1", "r2"]})
+        self.assertIn(ALL_SEEN, json.dumps(card, ensure_ascii=False))
+        one = board_card({"waiting": [], "running": [], "stale": [], "stamp": "08:00", "done": done[:1]})
+        self.assertNotIn(ALL_SEEN, json.dumps(one, ensure_ascii=False))
+        self.press("ev1")
+        with mock.patch("covey.core.board_read.mark_seen", return_value=True) as mark, \
+                mock.patch.object(self.app.digest, "board_refresh") as redraw:
+            self.app.handle_card_action_event({"event_id": "c1", "operator_id": "owner", "chat_id": CHAT,
+                                               "message_id": "om_board1", "action_value": every}, self.ctx)
+        self.assertEqual([call.args[1:3] for call in mark.call_args_list], [(CHAT, "r0"), (CHAT, "r1"), (CHAT, "r2")])
+        redraw.assert_called_once()
+        with mock.patch("covey.core.board_read.mark_seen") as mark:  # Nothing that is a topic: nothing marked.
+            self.app.handle_card_action_event({"event_id": "c2", "operator_id": "owner", "chat_id": CHAT,
+                                               "message_id": "om_board1", "action_value": {"kind": SEEN_KIND,
+                                                                                           "topics": [1, ""]}}, self.ctx)
+        mark.assert_not_called()
+
     def test_marking_a_result_seen_records_a_read_after_its_end(self):
         from covey.core import board_read
         from covey.core.topic_seen import read_seen

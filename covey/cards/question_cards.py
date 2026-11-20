@@ -104,14 +104,14 @@ def standing_card(form):
                      "form_action_type": "submit", "name": "standing_save",
                      "behaviors": [{"type": "callback", "value": {"kind": STANDING_SAVE, **value}}]}]},
                 {"tag": "column", "width": "weighted", "weight": 1, "elements": [
-                    {"tag": "button", "text": plain("算了"), "type": "default", "width": "fill",
+                    {"tag": "button", "text": plain("不管了"), "type": "default", "width": "fill",
                      "form_action_type": "submit", "name": "standing_cancel",
                      "behaviors": [{"type": "callback", "value": {"kind": STANDING_CANCEL, **value}}]}]}]}]}],
                     "改一下这条原则", default_width=True)
     return card([lead, {"tag": "markdown", "content": f"> {text}"}, *notice, button_row([
         topic_button("记下", tone="primary", behaviors=callback({"kind": STANDING_SAVE, **value})),
         topic_button("改一下", behaviors=callback({"kind": STANDING_EDIT, **value})),
-        topic_button("算了", behaviors=callback({"kind": STANDING_CANCEL, **value}))], "standing_choices")],
+        topic_button("不管了", behaviors=callback({"kind": STANDING_CANCEL, **value}))], "standing_choices")],
         "以后这类按推荐走？", default_width=True)
 
 

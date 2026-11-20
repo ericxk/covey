@@ -97,7 +97,7 @@ def directory_card(token, view, host=LAUNCH, listed=None, top=()):
     status = [(md(status_line(view, shown), size='notation'), 1)]
     if query:
         status.append((button('清除搜索', 'clear', small=True), None))
-    head += [row((button('⬆️ 上一级', 'up', disabled=path == '/', small=True), None), (button('🔄 刷新', 'refresh', small=True), None),
+    head += [row((button('上一级', 'up', disabled=path == '/', small=True), None), (button('刷新', 'refresh', small=True), None),
                  flex=None),
              row(({'tag': 'input', 'name': 'query', 'width': 'fill', 'max_length': 1000, 'default_value': query,
                    'placeholder': plain(DEVICE_PLACEHOLDER if view.get('device') or view.get('offer') else SEARCH_PLACEHOLDER)}, 1), (button('搜索', 'search'), None), flex=None),

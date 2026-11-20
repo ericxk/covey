@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import datetime as _dt
+import json
 
 from covey.cards.elements import card, column_button, grey, markdown_panel, md, plain
-from covey.cards.topic_actions import switch_panel
+from covey.cards.topic_actions import SWITCH_OPEN, switch_panel
 from covey.cards.ui import band_label, conclusion_band, styled
 from covey.core import look
 from covey.core.text import literal
@@ -20,7 +21,12 @@ RETRY_KIND = "bridge_job_retry"
 DIAGNOSE_KIND, SPLIT_KIND = "bridge_job_diagnose", "bridge_job_split"
 FOLLOW_UPS = {"diagnose": ("看原因", DIAGNOSE_KIND), "split": ("拆小再试", SPLIT_KIND)}
 FOLLOW_UP_NOTES = {"diagnose": "看原因：开一轮只读排查，看看这一轮为什么没成功，不改文件、不重跑。",
-                   "split": "拆小再试：把这件事拆成更小的几步重新做，被拦下的那块先跳过。"}
+                   "split": "拆小再试：把这件事拆成更小的几步重新做，被拦下的那块先跳过。",
+                   "switch_model": "换个模型：打开换配置，换一个模型接着做这件事。"}
+# 换个模型 (core/failure.py SWITCH_MODEL): the 换配置 card's own click (bridge_switch_open), so a failure whose retry cannot
+# succeed (额度用完, 账号被拦, 安全拒绝) offers the one next step that can right in its row, not only under 执行过程.
+SWITCH_MODEL = "switch_model"
+SWITCH_LABEL = "换个模型"
 DETAILS_ID = "failure_details"
 
 
@@ -50,15 +56,32 @@ def stopped_card(text, *, retry=None, actions=(), panels=(), header=None, summar
     return styled(built) if band else built
 
 
-def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=()):
+def switch_route(record):
+    """(harness_id, binding_revision) of ``record``'s topic, which the 换配置 click needs; None without one."""
+    if record.get("harness_id") and record.get("topic_id") and record.get("binding_revision"):
+        return record["harness_id"], record["binding_revision"]
+    return None
+
+
+def offers_switch(elements) -> bool:
+    """Whether ``elements`` hold a 换个模型 button already."""
+    return f'"kind": "{SWITCH_OPEN}"' in json.dumps(list(elements), ensure_ascii=False)
+
+
+def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=(), route=None):
     """The row after a failed task's answer: ``label`` (检查并继续, 现在重试, 重新投递结果; "" for none), with
-    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 看原因, 拆小再试)."""
+    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 看原因, 拆小再试; SWITCH_MODEL: 换个模型, with the
+    topic's ``route``, its (harness_id, binding_revision), and left out without one)."""
     value = {"topic_id": topic_id, "job_id": job_id}
     columns = [column_button(label, {"kind": RETRY_KIND, **value})] if label else []
     if stop_kind:
         columns.append(column_button("停止自动重试", {"kind": stop_kind, **value}))
-    columns.extend(column_button(FOLLOW_UPS[name][0], {"kind": FOLLOW_UPS[name][1], **value})
-                   for name in follow_ups if name in FOLLOW_UPS)
+    for name in follow_ups:
+        if name in FOLLOW_UPS:
+            columns.append(column_button(FOLLOW_UPS[name][0], {"kind": FOLLOW_UPS[name][1], **value}))
+        elif name == SWITCH_MODEL and route:
+            columns.append(column_button(SWITCH_LABEL, {"kind": SWITCH_OPEN, **value, "harness_id": route[0],
+                                                        "binding_revision": route[1]}))
     return {"tag": "column_set", "element_id": "result_actions", "columns": columns}
 
 
@@ -92,7 +115,7 @@ def recovery_view(record, text, *, word, headline, line="", topic, label, contin
     if snapshot:
         trace = finish_record_trace(ToolTrace.restore(snapshot), record)
         panels.append(panel_json(TraceView(trace.snapshot()).panel_model(False, timed=True)))
-    if record.get("harness_id") and record.get("topic_id") and record.get("binding_revision"):
+    if switch_route(record) and not offers_switch(actions):  # Else 换个模型 in the row opens the same card.
         panels.append(switch_panel(record["topic_id"], record["job_id"], record["harness_id"],
                                    record.get("binding_revision", 1)))
     name = topic or f"#{record['job_id']}"

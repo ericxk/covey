@@ -38,6 +38,8 @@ ACT = ("waiting", "stopped", "stuck")  # 要你处理: what the band counts.
 # The 看板's own buttons (app/digest.py Digest.claim, before topic routing): 刷新 redraws the card from a fresh view in
 # place (a second menu click folds it instead), 记为看过 takes a result off 有结果没看 (core/board_read.py mark_seen).
 REFRESH_KIND, SEEN_KIND = "bridge_board_refresh", "bridge_board_seen"
+ALL_SEEN = "全部记为看过"  # 记为看过 on every result row at once: SEEN_KIND with ``topics``, at most SEEN_MAX.
+SEEN_MAX = 30
 KINDS = frozenset({REFRESH_KIND, SEEN_KIND})
 NO_LINK = "找不到它在私聊里的位置，打不开"  # A row whose topic has no link (app/digest.py board_view).
 LEAD = 30  # Characters of the most pressing topic's words on the band.
@@ -225,7 +227,11 @@ def board_card(view):
         elements += blocks("stopped", found["stopped"], lambda row: task_card_button(row) + ([button("不管了", tone="text", value={
             "kind": DISMISS, "topics": [row["topic"]], "from": ORIGIN})] if view.get("can_dismiss") and row.get("topic") else []))
     if found["result"]:
-        elements.append(heading("result", len(found["result"])))
+        topics = [row["topic"] for row in found["result"] if row.get("topic")][:SEEN_MAX]
+        # 全部记为看过 (the owner, 2026-11-20): two or more results cleared with one click and one redraw.
+        elements.append(body([heading("result", len(found["result"]))], [button(
+            ALL_SEEN, tone="text", value={"kind": SEEN_KIND, "topics": topics})]) if len(topics) > 1
+            else heading("result", len(found["result"])))
         elements += blocks("result", found["result"], lambda row: [button("记为看过", tone="text", value={
             "kind": SEEN_KIND, "topic": row["topic"]})] if row.get("topic") else [])
     if found["running"]:

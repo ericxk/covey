@@ -1,8 +1,8 @@
 """The 飞书应用待补 card (app/app_setup.py): what the app lacks, then the run's steps, then what it added.
 
 One card in the owner's private chat, redrawn whole (``update_multi``) as the run goes: ``offer_card`` with
-扫码自动补齐 (and 连同需审核的一起申请 when a reviewed scope is missing) and 这些先不补; ``progress_card`` while the
-browser works; ``result_card`` after the official read-back; ``skipped_card`` after 这些先不补.
+扫码自动补齐 (and 连同需审核的一起申请 when a reviewed scope is missing) and 不管了; ``progress_card`` while the
+browser works; ``result_card`` after the official read-back; ``skipped_card`` after 不管了.
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def offer_card(view):
     buttons = [text_button("扫码自动补齐", {"kind": START, "review": False}, tone="primary")]
     if review:
         buttons.append(text_button("连同需审核的一起申请", {"kind": START, "review": True}))
-    buttons.append(text_button("这些先不补", {"kind": SKIP}))
+    buttons.append(text_button("不管了", {"kind": SKIP}))
     elements.append(item(md(" "), *buttons))
     elements.append(note("有代答的网页端登录时直接用它，不用扫码；登录只在这一次用，完了就删。"))
     return styled_panel(panel_header(ICON, TITLE, subtitle(view), [(f"缺 {len(offer)} 项", "orange")]), elements,

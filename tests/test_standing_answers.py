@@ -111,7 +111,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(form["status"], "ready")
         self.assertTrue(form["text"].startswith("covey 工作区："), form["text"])  # No Claude here: the fallback sentence.
         sent = json.dumps(self.messenger.create_and_send_card.call_args.args[2], ensure_ascii=False)
-        for label in ("记下", "改一下", "算了", form["text"]):
+        for label in ("记下", "改一下", "不管了", form["text"]):
             self.assertIn(label, sent)
         self.assertEqual(principles.entries(self.state), [])
         self.app.questions.submit_answer.assert_not_called()

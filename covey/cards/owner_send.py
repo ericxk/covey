@@ -101,7 +101,7 @@ def owner_send_card(record, view) -> dict:
                 {"tag": "button", "name": "owner_send_go", "form_action_type": "submit", "type": "primary_filled",
                  "size": "medium", "text": plain("重新发送" if state == "unsent" else "发送"),
                  "behaviors": callback(_value(SEND, record, text=digest(text)))},
-                {"tag": "button", "name": "owner_send_drop", "type": "default", "size": "medium", "text": plain("不发"),
+                {"tag": "button", "name": "owner_send_drop", "type": "default", "size": "medium", "text": plain("不发送"),
                  "behaviors": callback(_value(DROP, record))}]),
         ]})
     else:

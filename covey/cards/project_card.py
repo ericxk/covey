@@ -216,14 +216,14 @@ def join_rows(project) -> list:
 
 def memory_rows(project) -> list:
     return [item(md(literal_text(clipped(text, ROW_CHARS)), size="normal_v2"),
-                 text_button("删", {"kind": MEM_DEL_KIND, "project_id": project.project_id, "topic_id": project.lead_topic,
+                 text_button("删除", {"kind": MEM_DEL_KIND, "project_id": project.project_id, "topic_id": project.lead_topic,
                                     "entry": str(entry_id)}, tone="danger"))
             for entry_id, text in project.memory]
 
 
 def library_rows(project) -> list:
     return [item(md(literal_text(clipped(name, ROW_CHARS)), size="normal_v2"),
-                 text_button("删", {"kind": LIB_DEL_KIND, "project_id": project.project_id, "topic_id": project.lead_topic,
+                 text_button("删除", {"kind": LIB_DEL_KIND, "project_id": project.project_id, "topic_id": project.lead_topic,
                                     "name": str(rest[0] if rest else name)}, tone="danger"))
             for (name, *rest) in project.library]
 
@@ -234,9 +234,9 @@ def buttons(project) -> list:
     if project.status == DONE:
         return []
     value = {"project_id": project.project_id, "topic_id": project.lead_topic}
-    row = [topic_button("📝 补充", element_id="pj_steer", value={"kind": STEER_KIND, **value})]
+    row = [topic_button("补充", element_id="pj_steer", value={"kind": STEER_KIND, **value})]
     if project.status != PAUSED:
-        row.append(topic_button("⏹ 停止专项", element_id="pj_stop", tone="danger", value={"kind": STOP_KIND, **value}))
+        row.append(topic_button("停止专项", element_id="pj_stop", tone="danger", value={"kind": STOP_KIND, **value}))
     row.append(topic_button("不要专项", element_id="pj_down", value={"kind": DOWN_KIND, **value}))
     return [button_row(row, "pj_btns")]
 
@@ -304,7 +304,7 @@ def moved_card(name, url=""):
 
 def ask_card(name, why, *, project_id, lead_topic, note=""):
     """The card a guard's pause sends the owner: ``why`` in a sentence ("token 用到上限 1000 万"), ``note`` what became of the
-    running topics, and 继续 / 收尾 / 停. The buttons carry the project's id and the lead's topic, as the project card's do."""
+    running topics, and 继续 / 收尾 / 停止. The buttons carry the project's id and the lead's topic, as the project card's do."""
     head = panel_header("chat_outlined", clipped(name, HEAD_CHARS) or "专项", "", [(PAUSED, "orange")], color="orange")
     value = {"project_id": project_id, "topic_id": lead_topic}
     elements = [md(f"**{literal_text(clipped(why, 80))}**", element_id="pa_why", size="normal_v2")]
@@ -313,7 +313,7 @@ def ask_card(name, why, *, project_id, lead_topic, note=""):
     elements.append(button_row([
         topic_button("继续", element_id="pa_go", tone="primary", value={"kind": ASK_KINDS["continue"], **value}),
         topic_button("收尾", element_id="pa_wrap", value={"kind": ASK_KINDS["finish"], **value}),
-        topic_button("停", element_id="pa_stop", tone="danger", value={"kind": ASK_KINDS["stop"], **value})], "pa_btns"))
+        topic_button("停止", element_id="pa_stop", tone="danger", value={"kind": ASK_KINDS["stop"], **value})], "pa_btns"))
     return styled_panel(head, elements, f"{PAUSED} · {clipped(name, HEAD_CHARS)}：{clipped(why, 40)}")
 
 
