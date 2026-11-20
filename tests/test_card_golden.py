@@ -542,7 +542,7 @@ def topic_panels():
 
     return {
         "topic": topic_panel(TOPIC, 431, ("claude", 2), rewind=True),
-        "artifacts": artifact_panel([str(WORK / "result.md"), str(WORK / "diff.md")], 431, TOPIC),
+        "artifacts": artifact_panel([str(WORK / "result.md"), str(WORK / "diff.md")], {"job_id": 431}, TOPIC),
     }
 
 

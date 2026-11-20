@@ -17,8 +17,9 @@ def _size(n):
     return f"{n / 1024 / 1024:.1f} MB" if n >= 1024 * 1024 else f"{max(1, round(n / 1024))} KB"
 
 
-def drive_artifact_panel(paths, job_id, topic_id, ledger=None, *, element_id="task_artifacts", fold_uploading=False):
-    """Drive links for the artifacts ``paths`` of job ``job_id``. Without a finished ledger it shows the upload in progress.
+def drive_artifact_panel(paths, record, topic_id, ledger=None, *, element_id="task_artifacts", fold_uploading=False):
+    """Drive links for the artifacts ``paths`` of the job ``record`` (its job_id is read only
+    when the 重新上传 button is drawn). Without a finished ledger it shows the upload in progress.
     Folded once every file is up, its title naming what is in it (产物 3 个 · REPORT.md 等): open, it
     was the tallest block of a finished card (T182 #1111). Open while uploading or when something
     failed, where 重新上传 is; ``fold_uploading`` (an answer card's, app/answer_cards.py, ``element_id``
@@ -61,11 +62,12 @@ def drive_artifact_panel(paths, job_id, topic_id, ledger=None, *, element_id="ta
     panel['expanded'] = bool(status == "failed" or (left and not uploading)) if fold_uploading else retry
     if retry:
         panel['elements'].append(callback_button('重新上传', {'kind': 'bridge_artifact_upload', 'topic_id': topic_id,
-                                                             'job_id': job_id}))
+                                                             'job_id': record['job_id']}))
     return panel
 
 
-def artifact_panel(files, job_id, topic_id, page=0):
+def artifact_panel(files, record, topic_id, page=0):
+    """The older per-file send buttons for the artifacts ``files`` of the job ``record`` (its job_id is read only for a button)."""
     pages = max(1, (len(files) + 4) // 5)
     page = max(0, min(page, pages - 1))
     title = f"产物 · {len(files)} 个"
@@ -74,10 +76,10 @@ def artifact_panel(files, job_id, topic_id, page=0):
     panel = markdown_panel("task_artifacts", title, "点击发送到本话题；同一版本不会重复发送。", quiet=True, expanded=True)
     for path in files[page*5:(page+1)*5]:
         panel['elements'].append(callback_button('发送 ' + Path(path).name[:80], {
-            'kind': 'bridge_artifact_send', 'topic_id': topic_id, 'job_id': job_id,
+            'kind': 'bridge_artifact_send', 'topic_id': topic_id, 'job_id': record['job_id'],
             'artifact_key': artifact_key(path)}, width='fill'))
     for label, target in [('上一页',page-1),('下一页',page+1)]:
         if 0 <= target < pages:
             panel['elements'].append(callback_button(label, {'kind': 'bridge_artifact_page', 'topic_id': topic_id,
-                                                             'job_id': job_id, 'page': target}))
+                                                             'job_id': record['job_id'], 'page': target}))
     return panel

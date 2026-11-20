@@ -1042,7 +1042,7 @@ class QuestionCardLifecycleTest(TopicFixture, unittest.TestCase):
         self.assertNotIn('下一页', str(first))
         self.app.artifacts.in_background.assert_called_once_with(self.app.artifacts.publish_artifacts, self.ctx, job, mock.ANY)
         # Cards published before Drive links keep their paged send buttons.
-        second = artifact_panel(artifact_paths(record), record["job_id"], self.ctx.topic_id, 1)
+        second = artifact_panel(artifact_paths(record), record, self.ctx.topic_id, 1)
         buttons = [e for e in second['elements'] if e['tag'] == 'button']
         send = [b['behaviors'][0]['value'] for b in buttons if b['behaviors'][0]['value']['kind'] == 'bridge_artifact_send']
         self.assertEqual([v['artifact_key'] for v in send], [artifact_key(files[5]),artifact_key(files[6])])

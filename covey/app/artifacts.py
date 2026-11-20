@@ -42,7 +42,7 @@ def answer_files(state_dir, record, topic_id, voice):
     paths = drive_paths(record) if record else None
     if not paths:
         return None
-    return drive_artifact_panel(paths, record.get("job_id"), topic_id, answer_cards.ledger_of(state_dir, record, voice),
+    return drive_artifact_panel(paths, record, topic_id, answer_cards.ledger_of(state_dir, record, voice),
                                 element_id=ARTIFACTS_ID, fold_uploading=True)
 
 
@@ -85,7 +85,7 @@ class Artifacts:
         if not job.progress:
             return
         job.artifact_controls_attached = bool(self.cards.set_task_element(
-            ctx, job, drive_artifact_panel(drive_paths(record), record.get("job_id"), ctx.topic_id), under=True))
+            ctx, job, drive_artifact_panel(drive_paths(record), record, ctx.topic_id), under=True))
         if job.artifact_controls_attached:
             self.in_background(self.publish_artifacts, ctx, job, record)
 
@@ -96,7 +96,7 @@ class Artifacts:
     def publish_artifacts(self, ctx, job, record, on_task_card=True):
         ledger = self.upload_artifacts(ctx, record)
         if on_task_card:
-            self.cards.set_task_element(ctx, job, drive_artifact_panel(drive_paths(record), record.get("job_id"), ctx.topic_id, ledger), under=True)
+            self.cards.set_task_element(ctx, job, drive_artifact_panel(drive_paths(record), record, ctx.topic_id, ledger), under=True)
         self.refresh_answer_cards(ctx, record)
 
     def refresh_answer_cards(self, ctx, record, force=False):
@@ -372,14 +372,14 @@ class Artifacts:
                 self.in_background(again)
                 return True
             if raw.get("kind") == "bridge_artifact_upload":
-                self.cards.update_record_panel(ctx, chat, eid, event, record, drive_artifact_panel(drive_paths(record), record.get("job_id"), ctx.topic_id))
+                self.cards.update_record_panel(ctx, chat, eid, event, record, drive_artifact_panel(drive_paths(record), record, ctx.topic_id))
 
                 def retry():
                     ledger = self.upload_artifacts(ctx, record)
                     # A second update under the click's key would be rejected as a replay.
                     try:
                         self.cards.update_record_panel(ctx, chat, eid + "-uploaded", event, record,
-                                                 drive_artifact_panel(drive_paths(record), record.get("job_id"), ctx.topic_id, ledger))
+                                                 drive_artifact_panel(drive_paths(record), record, ctx.topic_id, ledger))
                     except ValueError as exc:
                         self.runtime.log(f"artifact panel not refreshed after upload: {exc}")
                         self.messenger.reply(ctx, chat, "产物已处理，但原卡片没能刷新；可再点一次“重新上传”刷新，"
@@ -387,7 +387,7 @@ class Artifacts:
                 self.in_background(retry)
                 return True
             if raw.get("kind") == "bridge_artifact_page":
-                panel = artifact_panel(artifact_paths(record), record.get("job_id"), ctx.topic_id, int(raw.get("page", 0)))
+                panel = artifact_panel(artifact_paths(record), record, ctx.topic_id, int(raw.get("page", 0)))
                 panel['expanded'] = True
                 self.cards.update_record_panel(ctx, chat, eid, event, record, panel)
                 return True

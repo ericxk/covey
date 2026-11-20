@@ -165,7 +165,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         self.assertEqual(ledger["errors"], {})
         self.assertEqual([line for line in self.logs if "skipped config paths" in line],
                          ["artifact upload skipped config paths job=#1 count=2"] * 2)
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, ledger)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, ledger)
         listing, *notes = [e["content"] for e in panel["elements"] if e["tag"] == "markdown"]
         # Folded once all is up, the title naming what is in it (T182 #1111: open, the tallest block).
         self.assertEqual(panel["header"]["title"]["content"], "产物 1 个 · result.txt")
@@ -279,7 +279,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         with patch:
             ledger = self.app.artifacts.upload_artifacts(self.ctx_topic, self.record)
         self.assertEqual((ledger["status"], ledger["error"]), ("failed", "云空间接口调用失败（错误码 1061004：forbidden.）"))
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, ledger)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, ledger)
         notes = [e["content"] for e in panel["elements"] if e["tag"] == "markdown"]
         self.assertIn("上传失败：云空间接口调用失败（错误码 1061004：forbidden.）", notes[-1])
         [line] = [line for line in self.logs if line.startswith("drive call failed")]
@@ -312,7 +312,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         self.assertTrue(all(Path(cwd).parent == self.ctx.state_dir / "artifact-upload" for argv, cwd in calls if "+upload" in argv))
         self.assertFalse(list((self.ctx.state_dir / "artifact-upload").iterdir()))
         self.assertEqual(sorted(p.relative_to(out) for p in out.rglob("*")), listing)
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, ledger)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, ledger)
         self.assertEqual(panel["header"]["title"]["content"], "产物 2 个 · result.txt 等")
         # A newer timestamp alone does not upload it again; changed content does.
         os.utime(out / "a.txt", (1, 1))
@@ -362,7 +362,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         self.assertEqual(ledger["errors"], {artifact_key(str(out)): "目录超过 200 MB，未打包"})
         self.assertEqual(list(self.uploaded), ["result.txt"])
         self.assertFalse(list((self.ctx.state_dir / "artifact-upload").iterdir()))
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, ledger)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, ledger)
         listing = next(e["content"] for e in panel["elements"] if e["tag"] == "markdown")
         self.assertIn("out：目录超过 200 MB，未打包", listing)
         self.assertIn("1 个未上传", panel["header"]["title"]["content"])
@@ -382,7 +382,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         loop = self.root / "loop"
         loop.symlink_to("loop")
         self.cp.write_text(json.dumps({"artifacts": [str(self.file), str(loop), "~nosuchuser-s25/x"]}))
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id)  # Raised for every file before.
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id)  # Raised for every file before.
         self.assertIn("3 个", panel["header"]["title"]["content"])
         calls, patch = self.drive()
         with patch:
@@ -423,8 +423,8 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
 
     def test_the_panel_stays_open_while_uploading_or_after_a_failure(self):
         # Folded only once every file is up: until then 重新上传 must be in sight.
-        uploading = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id)
-        failed = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, {"status": "failed", "error": "无权限"})
+        uploading = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id)
+        failed = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, {"status": "failed", "error": "无权限"})
         for panel, state in ((uploading, "正在上传到云空间"), (failed, "云空间上传失败")):
             self.assertTrue(panel["expanded"], state)
             self.assertIn(state, panel["header"]["title"]["content"])
@@ -437,7 +437,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         calls, patch = self.drive()
         with patch:
             ledger = self.app.artifacts.upload_artifacts(self.ctx_topic, self.record)
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, ledger)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, ledger)
         self.assertEqual(ledger["status"], "done")
         self.assertEqual(panel["header"]["title"]["content"], "产物 2 个 · result.txt 等 · 1 个未上传")
         self.assertTrue(panel["expanded"])  # Open where 重新上传 is.
@@ -450,7 +450,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         self.assertEqual([argv[argv.index("drive") + 1] for argv, _ in calls[len(calls) - 1:]], ["+upload"])
         self.assertEqual(sum(argv[argv.index("drive") + 1] == "+upload" for argv, _ in calls), 2)
         self.assertEqual({k: again["files"][k] for k in uploaded}, uploaded)
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, again)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, again)
         self.assertEqual(panel["header"]["title"]["content"], "产物 2 个 · result.txt 等")
         self.assertFalse(panel["expanded"])
         self.assertFalse([e for e in panel["elements"] if e["tag"] == "button"])
@@ -477,7 +477,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
             ledger = self.app.artifacts.upload_artifacts(self.ctx_topic, self.record)
         self.assertEqual(ledger["status"], "failed")
         self.assertIn("drive:file", ledger["error"])
-        panel = drive_artifact_panel(drive_paths(self.record), self.record["job_id"], self.ctx_topic.topic_id, ledger)
+        panel = drive_artifact_panel(drive_paths(self.record), self.record, self.ctx_topic.topic_id, ledger)
         retry = [e for e in panel["elements"] if e["tag"] == "button"]
         self.assertEqual(retry[0]["behaviors"][0]["value"]["kind"], "bridge_artifact_upload")
 

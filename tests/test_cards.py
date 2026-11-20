@@ -242,7 +242,7 @@ def sample_cards(work=None):
                                                       "subagents": 2, "size": 85000, "raw_size": 9000000}),
         "question_on_task": question_element(question_record()),
         "trace_panel": split_panel(trace_panel(trace, True)),
-        "artifacts": artifact_panel([str(work / "result.md"), str(work / "diff.md")], 431, TOPIC),
+        "artifacts": artifact_panel([str(work / "result.md"), str(work / "diff.md")], {"job_id": 431}, TOPIC),
     }
     # A panel is checked inside the task card it is inserted into, so IDs must not collide there either.
     for name, panel in task_card_panels.items():
