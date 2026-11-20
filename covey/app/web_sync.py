@@ -39,13 +39,17 @@ from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
 from covey.core.jobs import job_key, select_job_records, topic_job_records
 from covey.core.model_names import model_name
-from covey.core.state import epoch_seconds, read_object
+from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.statuses import RUNNING
 from covey.core.store import directory_store
 from covey.core.topics import topic_file
 from covey.core.trace_store import load_trace
 
 FULL_SECONDS = web_sync.FULL_SECONDS
+STEP_BYTES = web_sync.BATCH_BYTES  # What a step sends of the pass's items (the backlog) after the urgent ones: one batch.
+SENT_FILE = "sent.json"  # <state>/web/: what the page took (key -> rev), so a restart sends only what changed since.
+SENT_SAVE_SECONDS = 30.0  # It is written at most this often, and when a pass ends.
+SENT_KEEP_SECONDS = 86400.0  # Once a day ``sent`` starts empty again, so everything goes once (a page whose database was emptied fills again).
 PASS_SLICE = 25  # Topics of a full pass looked at per step, after the hot ones: a pass is many steps, never one long look.
 TOPIC_DAYS = 30  # A full look takes the topics with a job written within this many days.
 TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
@@ -186,6 +190,7 @@ class Collector:
         self.pushed_topics = set()
         # The full pass under way: the topics still to look at, the ones looked at so far, and whether the last step ended it.
         self.pass_left, self.pass_seen, self.pass_done = [], set(), False
+        self.urgent = 0  # How many of the last look's items, at its head, are the hot topics' (WebSync.push_once sends them first).
         self.history = {}  # topic id -> ((mtime_ns, size), rows)
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
         self.projects = {}  # project id -> its record, from this look (a member topic's ``joined_at``).
@@ -248,10 +253,11 @@ class Collector:
                     for topic in [*slice_, *quick] if topic not in out}
         looked = [topic for topic in family if (start or topic in hot or topic in self.hot or topic in touched) and topic not in out]
         self.hot = hot
-        items = []
+        items, later = [], []  # The hot topics' items (sent first, every step) and the pass's (sent as the backlog allows).
+        urgent = set(quick)
         for topic, jobs in by_topic.items():
             self.at = topic
-            items += self.topic_items(state, chat, topic, jobs, now)
+            (items if topic in urgent else later).extend(self.topic_items(state, chat, topic, jobs, now))
             self.moved = time.monotonic()
         for topic in looked:
             self.at = topic
@@ -260,6 +266,8 @@ class Collector:
             items += mine
             if mine:
                 by_topic[topic] = []
+        urgent = len(items)
+        items += later
         self.at = ""
         deleted = []
         built = {("topic", topic) for topic in by_topic}
@@ -272,7 +280,9 @@ class Collector:
             self.pushed_topics = seen
         elif built:
             self.pushed_topics |= built
-        items += self.project_items(state, chat, records)
+        projects_now = self.project_items(state, chat, records)  # Read every step, like the hot topics: they go with them.
+        items[urgent:urgent] = projects_now
+        self.urgent = urgent + len(projects_now)
         return items, deleted
 
     @staticmethod
@@ -864,6 +874,9 @@ class WebSync:
         self.collector = Collector(env, self.stuck, runtime.log)
         self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
+        self.backlog = {}  # (type, key) -> an item of a pass not sent yet, the newest read of it (push_once).
+        self.sent_loaded, self.sent_saved, self.sent_changed = False, 0.0, False  # <state>/web/sent.json (load_sent, save_sent).
+        self.sent_since = None  # When ``sent`` last started empty (wall clock).
         self.last_full = 0.0
         self.settings_due, self.settings_stamps = True, None  # The 设置 item: built on a full look, after the page changed one, or when its files did.
         self.settings_lock = threading.Lock()  # push_settings runs in both threads.
@@ -931,6 +944,7 @@ class WebSync:
         # What the page took stays known (``sent``): only what changed goes again, not every item (2026-11-19 23:52: a stuck read
         # made the next look push all ~7000 items again, minutes in which nothing new went out).
         self.collector, self.last_full = Collector(self.env, stuck, self.runtime.log), 0.0
+        self.backlog = {}  # Read by the old one: the new pass reads them again.
 
     def push_once(self, now=None) -> int:
         """One look and one push; how many items went out. Raises WebError when the page did not take a batch (the batches before it count).
@@ -938,32 +952,106 @@ class WebSync:
         chat = self.runtime.access.owner_chat()
         if not chat or not self.env.state_dir:
             return 0
+        if not self.sent_loaded:
+            self.load_sent(now)
         collector, sent = self.collector, self.sent
         now = time.time() if now is None else now
         full = not collector.pass_left and now - self.last_full >= FULL_SECONDS  # A full pass is due and none is under way.
+        if full and (self.sent_since is None or now - self.sent_since >= SENT_KEEP_SECONDS):
+            if self.sent_since is not None:
+                sent.clear()  # A day on: everything once more, a step's worth at a time behind the hot topics.
+                self.sent_changed = True
+            self.sent_since = now
         items, deleted = collector.collect(chat, now, full)
+        if collector is not self.collector:
+            return 0  # Left behind while it looked: what it read is old, and must not wait in the backlog either.
         if full:
             self.push_settings(chat, now, full=True)
             self.push_tidy(now, full=True)
-        changed = [each for each in items if sent.get((each["type"], each["key"])) != each["rev"]]
+        # The hot topics' changes go first, whole, every step; the pass's wait in the backlog and go a batch a step after them, so
+        # an answer or a start shows within seconds even while a restart's first pass is still sending (2026-11-20 00:31-00:53: four
+        # restarts, each first pass ~20 MB over ~5 minutes, starts and ends 55-73 s late on the page).
+        urgent = [each for each in items[:collector.urgent] if sent.get((each["type"], each["key"])) != each["rev"]]
+        for each in urgent:
+            self.backlog.pop((each["type"], each["key"]), None)
+        for each in items[collector.urgent:]:
+            name = (each["type"], each["key"])
+            if sent.get(name) != each["rev"]:
+                self.backlog[name] = each
+            else:
+                self.backlog.pop(name, None)
+        later, size = [], 0
+        for name, each in list(self.backlog.items()):
+            weight = len(json.dumps(each, ensure_ascii=False).encode())
+            if later and size + weight > STEP_BYTES:
+                break
+            later.append(each)
+            size += weight
         count = 0
-        for batch in web_sync.batches(changed):
+        for batch in web_sync.batches(urgent + later):
             if collector is not self.collector:
                 return count  # Left behind (start_over) while it looked: what it read is old, the page would go back to it.
             self.client.request("POST", "/sync/upsert", {"items": batch, "deleted": []})
             collector.moved = time.monotonic()  # The first push of a big chat is many batches: each one taken is progress.
             for each in batch:
-                sent[(each["type"], each["key"])] = each["rev"]
+                name = (each["type"], each["key"])
+                sent[name] = each["rev"]
+                if self.backlog.get(name) is each:
+                    del self.backlog[name]
             count += len(batch)
+            self.sent_changed = True
         if collector is not self.collector:
             return count
         if deleted or (collector.pass_done and not count):
             self.client.request("POST", "/sync/upsert", {"items": [], "deleted": deleted})
+            gone = {each["key"] for each in deleted if each["type"] == "topic"}
             for each in deleted:
                 sent.pop((each["type"], each["key"]), None)
+            for name, each in list(self.backlog.items()):  # Nothing of a topic deleted goes after it.
+                if each["key"] in gone or str((each.get("data") or {}).get("topic_key") or "") in gone:
+                    del self.backlog[name]
+            self.sent_changed = True
         if full and collector is self.collector:
             self.last_full = now
+        if self.sent_changed and (collector.pass_done or time.monotonic() - self.sent_saved >= SENT_SAVE_SECONDS):
+            self.save_sent(now)
         return count
+
+    def sent_path(self) -> Path:
+        return Path(self.env.state_dir) / web_sync.FOLDER / SENT_FILE
+
+    def load_sent(self, now=None) -> None:
+        """What the page took before this process (save_sent), when it was saved for the same page less than SENT_KEEP_SECONDS ago:
+        a restart sends only what changed since, not every item again. Anything else (none, another page, too old, unreadable):
+        nothing, so everything goes once, as before."""
+        self.sent_loaded = True
+        now = time.time() if now is None else now
+        try:
+            base = self.client.settings().base_url
+        except ValueError:
+            return
+        data = read_object(self.sent_path())
+        since = data.get("since")
+        rows = data.get("sent")
+        if data.get("base_url") != base or not isinstance(since, (int, float)) or not 0 <= now - since < SENT_KEEP_SECONDS or not isinstance(rows, list):
+            return
+        self.sent_since = since
+        for row in rows:
+            if isinstance(row, list) and len(row) == 3 and all(isinstance(part, str) for part in row):
+                self.sent.setdefault((row[0], row[1]), row[2])
+
+    def save_sent(self, now=None) -> None:
+        """``sent`` to <state>/web/sent.json for the next process (load_sent); a failure to write is only a slower next start."""
+        self.sent_saved, self.sent_changed = time.monotonic(), False
+        try:
+            base = self.client.settings().base_url
+            rows = [[kind, key, rev] for (kind, key), rev in list(self.sent.items())]
+            path = self.sent_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_json(path, {"base_url": base, "since": self.sent_since, "saved_at": time.time() if now is None else now, "sent": rows},
+                       ensure_ascii=False)
+        except (OSError, ValueError):
+            pass
 
     def settings_items(self, chat, now, full) -> list:
         """The ``settings`` item (app/web_settings.py) when it is due: on a full look, after the page changed a setting, when main-thread.json

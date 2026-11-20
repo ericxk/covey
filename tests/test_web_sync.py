@@ -363,6 +363,61 @@ class PushTest(WebCase):
                 self.sync.push_once(T0 + step)
         self.assertEqual({item["key"] for item in self.web.items("topic")} & set(quiet), set(quiet))
 
+    def test_the_hot_topics_go_first_and_the_pass_a_step_s_worth_after_them(self):
+        """2026-11-20 00:31-00:53: four restarts, each first pass ~20 MB over ~5 minutes; starts and ends reached the page 55-73 s late.
+        The hot topics' changes go first every step; what the pass read waits in a backlog and goes STEP_BYTES a step after them."""
+        quiet = [f"{n:02d}" * 16 for n in range(10, 16)]
+        for number, topic in enumerate(quiet, 20):
+            self.topic(topic, number=number, title=f"话题{number}")
+        self.topic(status="running", lines=(("user", "做一下"),))
+        with mock.patch.object(app_web, "STEP_BYTES", 1, create=True):
+            self.sync.push_once(T0)
+            self.assertEqual(self.web.upserts[0]["items"][0]["key"], TOPIC)
+            self.assertLess(len({item["key"] for item in self.web.items("topic")} & set(quiet)), 2)
+            write_job(self.state, f"k-{TOPIC[:4]}", status="done")
+            self.sync.push_once(T0 + 1)
+            last = [item for item in self.web.items("topic") if item["key"] == TOPIC][-1]["data"]
+            self.assertNotEqual(last["state"], "在做")
+            for step in range(2, 60):
+                self.sync.push_once(T0 + step)
+        self.assertEqual({item["key"] for item in self.web.items("topic")} & set(quiet), set(quiet))
+        self.assertEqual(self.sync.backlog, {})
+
+    def test_a_restart_sends_only_what_changed_since(self):
+        """Every restart sent all ~7000 items (~20 MB) again (2026-11-20): what the page took is kept in <state>/web/sent.json."""
+        self.topic()
+        self.thread(OTHER, "对账", 8, status="done")
+        self.assertGreater(self.sync.push_once(T0), 0)
+        self.assertTrue((self.state / "web" / "sent.json").exists())
+        append_history(self.state / "topics" / TOPIC / "history.jsonl", "user", "再来一句")
+        again = WebSync(self.runtime, self.env)
+        again.client.opener = http_upstream.opener(direct=True)
+        before = len(self.web.items())
+        self.assertGreater(again.push_once(T0 + 1), 0)
+        self.assertEqual({item["key"] for item in self.web.items()[before:] if item["type"] == "topic"}, {TOPIC})
+        other = WebSync(self.runtime, self.env)  # A day after the one that started empty: everything once more.
+        other.client.opener = http_upstream.opener(direct=True)
+        before = len(self.web.items())
+        other.push_once(T0 + 86401)
+        self.assertIn(OTHER, {item["key"] for item in self.web.items()[before:] if item["type"] == "topic"})
+
+    def test_what_was_sent_to_another_page_is_not_used(self):
+        self.topic()
+        self.sync.push_once(T0)
+        path = self.state / "web" / "sent.json"
+        data = json.loads(path.read_text())
+        write_json(path, {**data, "base_url": "http://elsewhere.invalid"})
+        again = WebSync(self.runtime, self.env)
+        again.client.opener = http_upstream.opener(direct=True)
+        self.assertGreater(again.push_once(T0 + 1), 0)
+
+    def test_a_day_on_everything_goes_once_more(self):
+        """A page whose database was emptied fills again within a day, without a restart."""
+        self.topic()
+        self.sync.push_once(T0)
+        self.assertEqual(self.sync.push_once(T0 + 61), 0)
+        self.assertGreater(self.sync.push_once(T0 + 86401), 0)
+
     def test_a_topic_whose_only_task_never_started_reads_stopped(self):
         """T561, T562 (2026-11-19): their launch cards closed by a stop, nothing ever ran; the page's 全图 listed them under 空闲."""
         self.topic(status="cancelled", lines=(("user", "修专项右栏"),))
