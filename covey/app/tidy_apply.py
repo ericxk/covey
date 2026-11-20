@@ -104,7 +104,7 @@ class Applier:
                         join_topic(state, kept, topic, why="从合并的专项转来")
                     except ValueError:
                         pass
-                from covey.app.project_cards import MERGED
+                from covey.core.projects import MERGED
                 projects.set_state(state, other, projects.CANCELLED, MERGED)
             if record.get("name") and not proposals.owner_named(current):
                 projects.update(state, kept, lambda data: data.update(name=record["name"]))

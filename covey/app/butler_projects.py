@@ -15,7 +15,6 @@ from pathlib import Path
 
 from covey.app import project_facts
 from covey.app.butler_env import arg_text, reply
-from covey.app.projects import state_of
 from covey.core import butler_opened, project_proposals, projects
 from covey.core.butler_opened import done
 from covey.core.jobs import find_job_record
@@ -48,7 +47,7 @@ def projects_list(env, request):
         return refused
     state, chat = Path(env.state_dir), env.chat()
     found = projects.records(state, chat)
-    live = [record for record in found if state_of(record) in (projects.ACTIVE, projects.PAUSED)]
+    live = [record for record in found if projects.state_of(record) in (projects.ACTIVE, projects.PAUSED)]
     ended = [record for record in found if record not in live][-LISTED_ENDED:]
     # The proposals waiting for him, said the same way as the 看板 (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
     waiting = []
@@ -63,10 +62,10 @@ def projects_list(env, request):
     for record in [*live, *ended]:
         threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有话题"
         note = project_facts.lead_note(record)
-        rows.append(f"{record['id']} · {cut(record.get('name'), 30)} · {FOLDED_WORDS if projects.folded(record) else STATE_WORDS.get(state_of(record), state_of(record))}"
+        rows.append(f"{record['id']} · {cut(record.get('name'), 30)} · {FOLDED_WORDS if projects.folded(record) else STATE_WORDS.get(projects.state_of(record), projects.state_of(record))}"
                     f" · 话题 {threads}" + (f" · 最近：{cut(note, 40)}" if note else ""))
     return reply(True, "\n".join(rows) + (f"\n{pending.lstrip('；')}" if pending else ""), count=len(found), waiting=len(waiting),
-                 projects=[{"id": record["id"], "name": record.get("name"), "state": state_of(record)}
+                 projects=[{"id": record["id"], "name": record.get("name"), "state": projects.state_of(record)}
                            for record in [*live, *ended]])
 
 
@@ -76,7 +75,7 @@ def find_project(state, chat, ref):
     text = " ".join(str(ref or "").split())
     if not text:
         return "pid 不能为空：用 projects_list 查专项的 id。"
-    found = [record for record in projects.records(state, chat) if state_of(record) in (projects.ACTIVE, projects.PAUSED, projects.DONE)]
+    found = [record for record in projects.records(state, chat) if projects.state_of(record) in (projects.ACTIVE, projects.PAUSED, projects.DONE)]
     for same in (lambda record: record["id"] == text, lambda record: record["id"].startswith(text),
                  lambda record: text in str(record.get("name") or "")):
         matches = [record for record in found if same(record)]
@@ -148,7 +147,7 @@ def project_send(env, request):
     if found is None:
         return reply(False, f"专项「{name}」的负责人话题读不到，这次没有转。")
     app, ctx = found
-    if state_of(record) == projects.DONE:  # His words through the butler: a finished project opens again (the steer below
+    if projects.state_of(record) == projects.DONE:  # His words through the butler: a finished project opens again (the steer below
         from covey.app import project_loop  # reaches no owner_turn).
         try:
             projects.update(state, record["id"], project_loop.owner_spoke)

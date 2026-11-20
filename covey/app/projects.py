@@ -29,7 +29,6 @@ import time
 from pathlib import Path
 
 from covey.app import dispatch_cards, project_cards, project_facts, project_lead
-from covey.app.project_cards import DOWNGRADED
 from covey.app.project_clicks import topic_ctx
 from covey.app.project_members import GATHERED_NOTE, topic_line, wanted_topics
 from covey.app.butler_env import arg_text, reply
@@ -101,10 +100,6 @@ def steps_of(record):
     return KINDS.get(origin.get("kind"))
 
 
-def state_of(record) -> str:
-    return str(record.get("state") or projects.ACTIVE)
-
-
 _busy: set = set()  # Project ids whose steps this process is working through right now.
 _busy_lock = threading.Lock()
 
@@ -135,7 +130,7 @@ class Projects:
         now = time.time() if now is None else now
         for record in projects.records(self.env.state_dir):
             steps = steps_of(record)
-            if steps is None or state_of(record) != projects.ACTIVE or all(name in (record.get("steps") or {}) for name in steps):
+            if steps is None or projects.state_of(record) != projects.ACTIVE or all(name in (record.get("steps") or {}) for name in steps):
                 self.tries.pop(record.get("id"), None)
                 continue
             tries, later = self.tries.get(record["id"], (0, 0.0))
@@ -187,7 +182,7 @@ class Projects:
 
     def turned_back(self, topic) -> bool:
         """Whether the owner has already turned a project that grew from ``topic`` back (不要专项)."""
-        return any(record.get("state_reason") == DOWNGRADED and (record.get("origin") or {}).get("topic_id") == topic
+        return any(record.get("state_reason") == projects.DOWNGRADED and (record.get("origin") or {}).get("topic_id") == topic
                    for record in projects.records(self.env.state_dir) if record.get("state") == projects.CANCELLED)
 
     def upgrade(self, dispatch, why=BUTLER, rounds=0) -> str:
@@ -242,7 +237,7 @@ class Projects:
         state, log = Path(self.env.state_dir), self.env.runtime.log
         record = projects.read_record(state, pid)
         steps = steps_of(record)
-        if steps is None or state_of(record) != projects.ACTIVE:
+        if steps is None or projects.state_of(record) != projects.ACTIVE:
             return False
         for name in steps:
             if name in (record.get("steps") or {}):

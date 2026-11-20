@@ -33,6 +33,8 @@ FOLDER = "projects"
 SCHEMA = 1
 
 ACTIVE, PAUSED, DONE, CANCELLED = "active", "paused", "done", "cancelled"
+MERGED = "merged"  # state_reason of a project 整理专项 merged into another (cancelled; its topics are the other's now).
+DOWNGRADED = "downgraded"  # The record's state_reason of a project the owner turned back (its state is cancelled).
 # Rule 4: the only way a project's state moves. cancelled is final; done goes back to active only when the owner speaks
 # in the project again (app/project_loop.py reopen; the owner, 2026-11-19: a finished project he speaks in opens again).
 PROJECT_TRANSITIONS = {ACTIVE: {PAUSED, DONE, CANCELLED}, PAUSED: {ACTIVE, DONE, CANCELLED}, DONE: {ACTIVE}, CANCELLED: set()}
@@ -112,6 +114,11 @@ def new_record(*, chat_id, name, goal="", project_id=None, origin=None, now=None
         "leader": {"kind": "temp", "profile": None}, "claims": [], "agreements": [],
         "place": {"chat_id": str(chat_id or "")},
     }
+
+
+def state_of(record) -> str:
+    """``record``'s state; ACTIVE for a record that names none."""
+    return str(record.get("state") or ACTIVE)
 
 
 def transition(record, to) -> dict:

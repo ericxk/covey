@@ -82,7 +82,7 @@ def join_topic(state, pid, topic, *, why="", by="tidy") -> dict:
     from covey.app import project_loop
 
     record = projects.read_record(state, pid)
-    if not record or str(record.get("state") or projects.ACTIVE) not in (projects.ACTIVE, projects.PAUSED):
+    if not record or projects.state_of(record) not in (projects.ACTIVE, projects.PAUSED):
         raise ValueError("这个专项已经结束了")
     found = projects.topic_project(state, topic)
     if found is not None and (found.id != pid or found.role != projects.MEMBER):

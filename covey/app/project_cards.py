@@ -51,8 +51,6 @@ MOVE_TRIES = 3  # Writes of "已移到新卡" tried on the old card before it is
 CONCLUSION_GRACE = 600.0  # A project done this long without a conclusion message is shrunk without its link.
 ANSWER_WAIT = 30.0  # How long after its finishing turn ended the card waits for that turn's answer id (written a moment later).
 CLOSED_WORDS = {"stopped": "专项已停住", "downgraded": "专项已降为普通话题", "merged": "专项已并入另一个专项"}
-MERGED = "merged"  # state_reason of a project 整理专项 merged into another (cancelled; its topics are the other's now).
-DOWNGRADED = "downgraded"  # The record's state_reason of a project the owner turned back (its state is cancelled).
 
 
 # Sending, taking over --------------------------------------------------------------------------------------------------
@@ -193,7 +191,7 @@ class ProjectCards:
         seen.pop("answer_wait", None)
         if state == projects.CANCELLED:
             return self.settle(ctx, record, card, seen, now, reason=CLOSED_WORDS[
-                MERGED if record.get("state_reason") == MERGED else "downgraded"])
+                projects.MERGED if record.get("state_reason") == projects.MERGED else projects.DOWNGRADED])
         if projects.folded(record):
             return self.fold(ctx, record, card, seen, now)
         if now - float(card.get("created_at") or record.get("created_at") or now) > FLIP_AFTER:

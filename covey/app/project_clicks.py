@@ -13,7 +13,6 @@ from types import SimpleNamespace
 
 from covey.app import project_loop
 from covey.app.card_publish import words
-from covey.app.project_cards import DOWNGRADED
 from covey.cards.project_card import ASK_KINDS
 from covey.core import dispatch_records as drecords
 from covey.core import project_library, project_memory, projects
@@ -40,11 +39,11 @@ def downgrade(host, ctx, record) -> str:
     name = words(now.get("name"), 30) or "专项"
     if now.get("state") == projects.DONE:
         return f"专项「{name}」已经做完，没有要降的。"
-    if now.get("state") == projects.CANCELLED and now.get("state_reason") != DOWNGRADED:
+    if now.get("state") == projects.CANCELLED and now.get("state_reason") != projects.DOWNGRADED:
         return f"专项「{name}」已经取消了。"
     if now.get("state") != projects.CANCELLED:
         try:
-            now = projects.set_state(state, pid, projects.CANCELLED, DOWNGRADED)
+            now = projects.set_state(state, pid, projects.CANCELLED, projects.DOWNGRADED)
         except ValueError:  # Done, or cancelled, since it was read.
             return f"专项「{name}」刚刚已经结束了，没有要降的。"
     chat, lead = str(now.get("chat_id") or ""), str(now.get("lead_topic_id") or "")
