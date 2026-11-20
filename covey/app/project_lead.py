@@ -120,6 +120,9 @@ TOOL_RULES = (
     "- 部署、发布、对外发送、花钱、删东西、不可逆的操作，你没有工具，也不要替主人决定：这些在话题里做，话题会照旧问主人。"
     "话题里问到主人的选择题，不由你答（分流还没开）。",
     "- 对主人说话要克制：这一轮的回复只有主人在场触发的轮才会发给他；叫醒你的轮，回复不发，要说的话用 project_note 并标 report。",
+    "- 主人在场的这一轮里你开的话题、给话题加的话，那一轮结束时 Bridge 会把它的结论（或它停了）直接发给主人；"
+    "对主人说“T12 出结果会直接发到这里”，不要说“出结果后我发给你”。收件箱里写着“结论已由 Bridge 直接发给主人”的回执，"
+    "主人已经看到了，不要再标 report 转述；只有你据此有了新的判断、下一步要主人定，才报那一句。",
 )
 NOT_YET = "话题里问到主人的选择题，不由你答（分流还没开）。"  # The tail of a TOOL_RULES line while COVEY_PROJECT_TRIAGE is off.
 TRIAGE_RULES = (
@@ -178,12 +181,14 @@ def inbox_dir(state_dir, project_id) -> Path:
     return projects.folder(state_dir) / project_id / "inbox"
 
 
-def add_receipt(state_dir, project_id, kind, text, thread="", at=None) -> dict:
+def add_receipt(state_dir, project_id, kind, text, thread="", at=None, relayed=False) -> dict:
     """One receipt in the inbox (what a member's turn did, a question held, what the owner said in a member topic): a file of
-    its own, named in the order they came, so writers never share one."""
+    its own, named in the order they came, so writers never share one. ``relayed``: the member turn's result went to the
+    owner already (app/project_loop.py after_runner), kept only when true."""
     stamp = now_of(at)
     item = {"id": f"{int(stamp * 1000):013d}-{secrets.token_hex(2)}", "kind": str(kind)[:20], "thread": str(thread or ""),
-            "text": " ".join(str(text or "").split())[:500], "at": stamp, "taken_by": ""}
+            "text": " ".join(str(text or "").split())[:500], "at": stamp, "taken_by": "",
+            **({"relayed": True} if relayed else {})}
     write_json(inbox_dir(state_dir, project_id) / (item["id"] + ".json"), item, ensure_ascii=False, indent=1)
     return item
 
@@ -217,6 +222,15 @@ def take_receipts(state_dir, project_id, key, limit=INBOX_ROWS) -> list:
                 write_json(path, item, ensure_ascii=False, indent=1)
         found.append(item)
     return found
+
+
+def taken_receipts(state_dir, project_id, key) -> list:
+    """The receipts the lead's turn ``key`` took (``take_receipts``), oldest first; reads only."""
+    try:
+        paths = sorted(inbox_dir(state_dir, project_id).glob("*.json"))
+    except OSError:
+        return []
+    return [item for item in (read_object(path) for path in paths) if key and item.get("taken_by") == key]
 
 
 # The pack.
@@ -263,9 +277,13 @@ def thread_line(row) -> str:
     return "- " + " · ".join(parts)
 
 
+RELAYED_NOTE = "（结论已由 Bridge 直接发给主人，不要再转述）"
+
+
 def receipt_line(item) -> str:
     return f"- {stamp(item.get('at'))} {item.get('kind') or '回执'}" + (
-        f"（{topic_label_of(item)}）" if item.get("thread") else "") + f"：{item.get('text') or ''}"
+        f"（{topic_label_of(item)}）" if item.get("thread") else "") + f"：{item.get('text') or ''}" + (
+        RELAYED_NOTE if item.get("relayed") is True else "")
 
 
 def topic_label_of(item) -> str:

@@ -20,7 +20,9 @@ KINDS) as the owner's own and says (state, message) for the ack.
 - ``seen``: the topic's latest result is marked as seen, as the owner's read receipt in Feishu does (core/topic_seen.py record_reads), so
   the board, the Pins and 手上的事 and the next push (``unseen`` false) follow. Asked again it says done and writes nothing.
 - ``answer``: the question's own submit path (app/questions.py submit_answer) with the fields of app/answers.py answer_fields as the owner's
-  own answer (``owner``: a question without options takes the text written). ``skip`` true: 只发补充说明, its ``note`` required.
+  own answer (``owner``: a question without options takes the text written). ``skip`` true: 只发补充说明, its ``note`` required. A
+  question that no longer waits (``settled``): the same answer it has is ``done`` and sent nothing; any other is ``failed`` saying who
+  closed it and how (you, the lead, a newer question, maintenance, a stop or a switch) and what to do now.
 - ``stop``: the topic's task stops as a click on its card's 停止 does: forwarded to its task runner when it has one (app/runner_ipc.py), else
   stopped here (app/task_controls.py cancel_reply_job_from_card), as app/butler_tracks.py Tracks.stop does. A question the topic waits on is
   closed too, as a project's lead stops a member topic (app/binding.py retire_open_questions: cancelled with the reason ``web_stop``, the
@@ -49,7 +51,7 @@ import time
 from pathlib import Path
 
 from covey.app import project_loop
-from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields
+from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields, submitted_answer
 from covey.app.runtime import job_stage, supplement_target_of
 from covey.app.web_settings import WebSettings
 from covey.core import board_read, project_memory, projects, triage, web_sync
@@ -217,7 +219,7 @@ class Ops:
         if not record or record.get("chat_id") != chat or (topic and record.get("topic_id") != topic):
             raise ValueError("这个问题不认识，或不属于你的私聊")
         if record.get("status", "pending") != "pending":
-            raise ValueError("这个问题已经有回答，或已经取消")
+            return self.settled(state, record, payload)
         if triage.held(record):
             raise ValueError("这个问题还在专项负责人手上，到时间会转给你")
         topic = str(record.get("topic_id") or topic)
@@ -236,6 +238,26 @@ class Ops:
         fields = answer_fields(record, payload.get("answers"), note, owner=True)
         app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
         return "答案已交给任务"
+
+    @staticmethod
+    def settled(state, record, payload) -> str:
+        """The answer to a question that no longer waits: the same answer the owner gave it already is done (a second click,
+        or the page showing the form until its next push), nothing sent again; any other is refused with who closed the
+        question and how, and what to do now (app/web_pairing.py settled_words)."""
+        from covey.app import web_pairing
+        from covey.core.store import directory_store
+        topic = str(record.get("topic_id") or "")
+        if record.get("status") == "answered" and triage.of(record).get("state") != triage.ANSWERED \
+                and record.get("response_kind") != "feedback" and payload.get("skip") is not True:
+            try:
+                given = submitted_answer(record, answer_fields(record, payload.get("answers"), payload.get("note"), owner=True))[0]
+            except (ValueError, KeyError, TypeError):
+                given = None
+            if given is not None and given == record.get("answers"):
+                return "这题你已经答过同样的答案，已经交给任务，这次没有重复发送"
+        records = topic_job_records(state, topic) if topic else []
+        rows = [row for _, row in directory_store(state / "questions").query(topic_id=topic)] if topic else []
+        raise ValueError(web_pairing.settled_words(record, records, rows))
 
     # -- launch ------------------------------------------------------------------------------------------------------------
 

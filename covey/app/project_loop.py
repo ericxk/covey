@@ -29,7 +29,10 @@ when something happened since it last looked, and the mechanical checks that sto
   record) writes ``thread_end`` (the receipt kind keeps its name on disk) for a member's turn that ended and counts the tokens; ``heard`` (the Bridge, on the owner's
   message in a member's topic) writes ``owner_said``; the loop writes ``stalled``; the Bridge's sweep of the held questions (app/triage.py, COVEY_PROJECT_TRIAGE=1) writes ``question``.
 - ``silent`` (app/turn_delivery.py TurnDelivery): a wake-up turn's reply is not sent to the owner, unless the lead recorded a
-  report note in it that its style lets through (``project_lead.reportable``); then it goes as the lead's reply does.
+  report note in it that its style lets through (``project_lead.reportable``); then it goes as the lead's reply does. A
+  member's turn the owner waits for (the lead handed it on while he was there) had its result sent to him by its runner
+  (app/relay_targets.py awaited_target): its ``thread_end`` receipt says ``relayed``, and a wake-up turn that read only such
+  receipts and reported only ``thread`` or ``note`` notes stays quiet (``told_already``): one result, told once.
 
 Rules 1 and 5 (AGENTS.md): records are written under their own lock, nothing is sent to Feishu from under it, and the only
 reply that goes out is the saved, authorized one."""
@@ -61,6 +64,7 @@ EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
 RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a member's receipt says; an interrupted turn goes on by itself.
 SAID = 300  # Characters of the owner's words in an ``owner_said`` receipt.
+RETOLD = ("thread", "note")  # The report kinds that would tell a result the owner was sent again; a milestone or finish goes on.
 ALWAYS_WAKE = ("start", "owner_choice", "question")  # The receipts that wake the lead without COVEY_PROJECT_AUTOWAKE=1.
 CHOICE_RECEIPT = {
     "continue": "主人看了停住的原因（{why}），选了继续：专项已经重新开始，叫醒次数清零。接着按状态包判断下一步。",
@@ -164,14 +168,18 @@ def last_activity(state_dir, record, receipts) -> float:
 def reported(state_dir, topic_id, key) -> bool:
     """Whether the turn ``key`` of the lead topic ``topic_id`` recorded a report note its project's style lets through, or
     changed something (handed out work, stopped a topic, answered or handed on a question: the record's ``acted``,
-    app/project_tools.py): the reply of a wake-up turn is sent then, as an owner's turn's is (有变化才发)."""
+    app/project_tools.py): the reply of a wake-up turn is sent then, as an owner's turn's is (有变化才发). A turn whose only
+    reports are ``thread`` or ``note`` ones (RETOLD), about member turns whose results the owner was sent already (``told_already``), is not."""
     found = projects.topic_project(state_dir, str(topic_id or ""))
     record = projects.read_record(state_dir, found.id) if found is not None else {}
     if any(isinstance(row, dict) and row.get("job") == key for row in record.get("acted") or ()):
         return True
-    return any(isinstance(row, dict) and row.get("job") == key and row.get("report") is True
-               and project_lead.reportable(record.get("style"), row.get("kind"))
-               for row in record.get("notes") or ())
+    rows = [row for row in record.get("notes") or ()
+            if isinstance(row, dict) and row.get("job") == key and row.get("report") is True
+            and project_lead.reportable(record.get("style"), row.get("kind"))]
+    if rows and all(row.get("kind") in RETOLD for row in rows) and found is not None and told_already(state_dir, found.id, key):
+        return False  # The owner was sent the member's result itself (``told_already``): not the same again.
+    return bool(rows)
 
 
 def silent(delivery) -> bool:
@@ -370,13 +378,29 @@ def after_runner(log, state_dir, job) -> None:
             said = project_lead.last_line(record.get("final_text"))
             label = topic_label(Path(state_dir), topic) or topic[:8]
             text = f"{label} 的任务 #{record.get('job_id')} {RESULTS.get(status, status)}" + (f"：{cut(said, 160)}" if said else "")
-            project_lead.add_receipt(state_dir, found.id, "thread_end", text, thread=topic)
+            project_lead.add_receipt(state_dir, found.id, "thread_end", text, thread=topic,
+                                     relayed=relayed_to_owner(state_dir, key))
         if first and found.role == projects.MEMBER:
             project_context.turn_to_library(state_dir, found.id, topic, record, log)  # COVEY_PROJECT_MEMORY=1: its artifacts and delivery.
     except KeyError:
         return  # The project's record is gone.
     except Exception as exc:  # noqa: BLE001 - the task's end does not depend on it
         log(f"project receipt after job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
+
+
+def relayed_to_owner(state_dir, key) -> bool:
+    """Whether the member's turn ``key`` had its conclusion or stop sent to the owner's top level, by its task runner before
+    the runner ended (app/butler_relay.py: a turn the owner waits for, app/relay_targets.py awaited_target)."""
+    from covey.app.relay_send import relay_path
+
+    return read_object(relay_path(state_dir, key)).get("state") == "sent"
+
+
+def told_already(state_dir, project_id, key) -> bool:
+    """Whether every receipt the lead's turn ``key`` read is of a member's turn whose result the owner was sent already
+    (``relayed``): a ``thread`` or ``note`` report of that turn would tell him the same again, so it is not sent (``reported``)."""
+    taken = project_lead.taken_receipts(state_dir, project_id, key)
+    return bool(taken) and all(item.get("kind") == "thread_end" and item.get("relayed") is True for item in taken)
 
 
 # The loop.

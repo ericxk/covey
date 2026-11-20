@@ -693,6 +693,39 @@ class ReceiptTest(Case):
         self.after(make_job(job_id=42, chat_id=CHAT, message_id="om_r", topic_id=THREAD))
         self.assertEqual(self.reload()["tokens_used"], 1550)
 
+    def test_a_turn_whose_result_the_owner_was_sent_says_so_and_a_thread_report_of_it_is_not_sent_again(self):
+        # T601, 2026-11-20: a member turn the owner waits for had its result sent to him (app/relay_targets.py
+        # awaited_target); its receipt says so, and the lead's wake-up turn that only retells it stays quiet.
+        from covey.app.relay_send import relay_path
+
+        self.thread(THREAD, "对比报告", 41)
+        job = self.job(THREAD, final_text="报告写好了")
+        write_json(relay_path(self.state, job_key(job.message_id, job.job_id)), {"state": "sent", "outcome": "done"})
+        self.after(job)
+        [item] = project_loop.unread(self.state, PID)
+        self.assertTrue(item["relayed"])
+        self.assertIn(project_lead.RELAYED_NOTE, project_lead.receipt_line(item))
+        wake = f"lead-{PID}-1"
+        project_lead.take_receipts(self.state, PID, wake)
+        style = {"report": "each_thread", "detail": "简"}
+        note = {"id": "n1", "at": NOW, "text": "报告出了", "report": True, "kind": "thread", "job": wake}
+        projects.update(self.state, PID, lambda record: record.update(style=style, notes=[note]))
+        self.assertFalse(project_loop.reported(self.state, LEAD, wake))
+        # A milestone of it is the lead's own judgment: it goes.
+        projects.update(self.state, PID, lambda record: record.update(notes=[{**note, "kind": "milestone"}]))
+        self.assertTrue(project_loop.reported(self.state, LEAD, wake))
+
+    def test_a_result_not_sent_to_the_owner_is_the_leads_to_tell_as_before(self):
+        self.thread(THREAD, "迁移", 41)
+        self.after(self.job(THREAD, final_text="好了"))
+        [item] = project_loop.unread(self.state, PID)
+        self.assertNotIn("relayed", item)
+        wake = f"lead-{PID}-1"
+        project_lead.take_receipts(self.state, PID, wake)
+        note = {"id": "n1", "at": NOW, "text": "迁完了", "report": True, "kind": "thread", "job": wake}
+        projects.update(self.state, PID, lambda record: record.update(style={"report": "each_thread"}, notes=[note]))
+        self.assertTrue(project_loop.reported(self.state, LEAD, wake))
+
     def test_the_leads_own_turn_counts_its_tokens_and_is_told_to_no_one(self):
         job = self.job(LEAD)
         self.after(job)

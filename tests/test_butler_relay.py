@@ -443,3 +443,80 @@ class BoardTest(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AwaitedCase(Case):
+    """A project's member topic (COVEY_PROJECTS=1): its turn relays only when its lead handed it on while the owner was there
+    (relay_targets.awaited_target, docs/projects.md 主人在等的结果). T601, 2026-11-20: the lead told the owner "T601 出结果后，我把
+    精简版和报告路径发给你", T601 ended, the lead's wake-up turn reported a ``thread`` note its style (milestones) held back,
+    and the owner had to ask "写完了么？"."""
+
+    PID = "a1b2c3d4e5f6"
+
+    def setUp(self):
+        super().setUp()
+        from covey.core import projects
+        mock.patch.dict("os.environ", {projects.ENV: "1"}).start()
+        self.addCleanup(mock.patch.stopall)
+        self.lead_topic = projects.lead_topic_id(CHAT, self.PID)
+        self.topic(self.lead_topic, chat_id=CHAT, harness_id="claude", project=projects.project_field(self.PID, projects.LEAD))
+        self.topic(TOPIC, topic_id=TOPIC, topic_number=410, chat_id=CHAT,
+                   project=projects.project_field(self.PID, projects.MEMBER))
+
+    def lead_turn(self, message_id):
+        """The lead's turn ``message_id`` that ran project_topic_start: its card at the top level."""
+        upsert_job_record(self.state, job_key(message_id, 7), job_id=7, message_id=message_id, chat_id=CHAT,
+                          topic_id=self.lead_topic, card_message_id="om_lead_card", status="done",
+                          user_text="详细说说两个分支的对比")
+        self.opened("t1", plan={"start": True}, topic_id=TOPIC, job_key=job_key(message_id, 7))
+
+
+class AwaitedTest(AwaitedCase):
+    def test_a_turn_the_lead_handed_on_while_the_owner_was_there_relays_its_conclusion_and_its_stop(self):
+        self.lead_turn("main-lead1")
+        target = relay_targets.awaited_target(self.state, self.job())
+        self.assertEqual(("om_lead_card", "T410", job_key("main-lead1", 7)),
+                         (target["reply_to"], target["label"], target["main_key"]))
+        send = self.send()
+        self.assertEqual("sent", relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        self.assertTrue(butler_relay.relayed(self.state, {"message_id": "main-t1", "job_id": 9}))
+        self.opened("t2", plan={"start": True}, topic_id=TOPIC, job_key=job_key("main-lead1", 7))
+        self.assertEqual("sent", relay(self.state, self.job("main-t2", 10), STOPPED, send=send, reason="任务失败"))
+        self.assertEqual(2, send.call_count)
+        # Its question stays the question flow's (the lead may hold it): not relayed here.
+        self.opened("t3", plan={"start": True}, topic_id=TOPIC, job_key=job_key("main-lead1", 7))
+        self.assertIsNone(relay(self.state, self.job("main-t3", 11), WAITING, send=send, question="选哪个？"))
+        self.assertEqual(2, send.call_count)
+
+    def test_one_a_wake_up_turn_handed_on_is_the_leads_to_tell(self):
+        self.lead_turn("lead-a1b2c3d4e5f6-3")
+        self.assertIsNone(relay_targets.awaited_target(self.state, self.job()))
+        send = self.send()
+        self.assertIsNone(relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        send.assert_not_called()
+
+    def test_a_turn_the_owner_started_in_the_member_topic_is_not(self):
+        self.lead_turn("main-lead1")
+        self.assertIsNone(relay_targets.awaited_target(self.state, self.job(message_id="om_typed_in_topic", job_id=12)))
+
+    def test_with_projects_off_nothing(self):
+        self.lead_turn("main-lead1")
+        from covey.core import projects
+        with mock.patch.dict("os.environ", {projects.ENV: "0"}):
+            self.assertIsNone(relay_targets.awaited_target(self.state, self.job()))
+
+
+class AwaitedDeliverTest(AwaitedCase):
+    """TurnDelivery.deliver relays a member's awaited turn as it does a butler topic's."""
+
+    deliver = DeliverTest.deliver
+
+    def test_a_done_member_turn_the_owner_waits_for_sends_its_conclusion(self):
+        self.lead_turn("main-lead1")
+        send = self.deliver(self.job(progress=SimpleNamespace()))
+        send.assert_called_once()
+        self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][2]["content"])
+
+    def test_one_a_wake_up_turn_handed_on_sends_nothing(self):
+        self.lead_turn("lead-a1b2c3d4e5f6-3")
+        self.deliver(self.job(progress=SimpleNamespace())).assert_not_called()

@@ -569,7 +569,7 @@ cancelled、superseded：终态
 - **状态** 只按 `PROJECT_TRANSITIONS` 前进（规则 4）：`active` → `paused`、`done`、`cancelled`；`paused` → `active`、`done`、`cancelled`；`done` → `active`（只在主人又在专项里说话时，见下文“收尾与重开”）；`cancelled` 是终态。`update` 改状态前先查表，不合法抛 `ValueError`、什么都不写。
 - **角色** 写在话题自己的 `topic.json` 里：`project: {id, role}`，`role` 是 `lead` 或 `thread`（盘上的值不改，代码里叫 `MEMBER`；`core/topics.py` 的 `set_topic_project`、`clear_topic_project`、`topic_project`）。读 `project.role` 一次 `stat`，文件变了才重读（`core/projects.py` 的 `topic_project`，写入换 inode，所以缓存立刻失效）。
   - **负责人**（`lead`）：话题 id 是 `lead_topic_id(chat, pid)`（`sha256("project-lead\0<pid>\0<chat>")` 取 32 位十六进制，不和管家、同时在做的事的 id 相撞，也不是任何消息的别名）；`is_lead_topic` 还核对这个 id，别的会话里抄来的 `topic.json` 不算。它属于管家家族：`is_butler_topic` 认它，`is_butler_root` 不认；`Traits` 是 `LEAD`（管家关着时 `LEAD_OFF`），放置角色 `lead`（回复只在主人触发的轮里发到顶层，不回带，不放问题卡副本，不开串）。
-  - **专项的话题**（`thread`，代码里 `MEMBER`）：还是普通话题（`Traits` 是 `TOPIC`），放置角色 `project_member`：答案留在话题串，结论和停止不回带到顶层（以后改投负责人收件箱），只有到主人的问题才在顶层放副本。
+  - **专项的话题**（`thread`，代码里 `MEMBER`）：还是普通话题（`Traits` 是 `TOPIC`），放置角色 `project_member`：答案留在话题串，结论和停止平常不回带到顶层（投负责人收件箱），只有到主人的问题才在顶层放副本；负责人在主人在场的一轮里交出去的那一轮例外，结论和停止照管家派出的话题回带（`relay_targets.awaited_target`，见 [projects.md 主人在等的结果](projects.md#主人在等的结果)）。
   - `core/placement.py` 的 `plan(state_dir, of)` 读 `topic.json` 的角色，所以转成专项时在跑的那一轮立即生效；传 `Traits` 行进去的人看不到专项的话题的角色（它不带话题 id），要传任务、记录或 `{"topic_id", "chat_id"}`。
 - **看板** `core/board_read.py` 的 `groups` 收一个 `cells`（`read` 带，来自 `core/projects.py` 的 `cells`，没取消的专项的话题 → 负责人 id）：一个专项一格，格的键是负责人话题 id。同一格里最新的问题在等；在做的取先在跑再排队、再取最新（任务号是 Bridge 的全局计数，跨话题也能比）；结果取各话题最新一条里“主人没看过的最后结束的那条”，没有就取最后结束的。所以一条没看过的旧结果不会被一条看过的新结果盖掉，但一格只钉一个。手上的事、早晚汇总直接读任务记录，现在还不并格。
 - **负责人的运行**（`app/project_lead.py`、`app/project_tools.py`，只在 `is_lead` 的话题里）：

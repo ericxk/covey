@@ -778,6 +778,43 @@ class InboxTest(WebCase):
         self.assertEqual([r["state"] for r in self.web.acks], ["failed"] * 3)
         self.assertEqual(self.app.answers, [])
 
+    def test_an_answer_to_a_closed_question_says_who_closed_it_and_what_to_do(self):
+        # T602, 2026-11-20 22:34: the owner answered T586's two questions on the page (op 57, done) and the same form went
+        # again (op 58): "回答：失败：这个问题已经有回答，或已经取消" said neither who answered nor what to do now.
+        self.topic()
+        answered = {"q1": {"answers": ["A"]}}
+        self.question(status="answered", answers=answered, answer_event="web-op-1", answered_at=T0 + 60)
+        self.web.op("answer", 1, "op-10", TOPIC, token=TOKEN, answers={"q1": "A"})  # The same answer again: done, nothing sent.
+        self.web.op("answer", 2, "op-11", TOPIC, token=TOKEN, answers={"q1": "B"})
+        self.sync.inbox_once()
+        same, other = self.web.acks
+        self.assertEqual(same["state"], "done")
+        self.assertIn("答过同样的答案", same["message"])
+        self.assertEqual(other["state"], "failed")
+        self.assertIn("你已经在网页上答过了", other["message"])
+        self.assertIn("：A", other["message"])
+        self.assertIn("在这个话题里直接说一句", other["message"])
+        self.assertEqual(self.app.answers, [])
+        cases = (
+            ({"status": "answered", "answers": answered, "triage": {"state": "answered_by_lead", "at": T0}},
+             ("专项负责人已经替你答了", "：A", "「不对」")),
+            ({"status": "superseded", "superseded_by": "x" * 16}, ("已经收起", "新的那组")),
+            ({"status": "cancelled", "cancel_reason": "stale"}, ("每日维护",)),
+            ({"status": "cancelled", "cancel_reason": "lead_stop"}, ("负责人按你的意思停了这个话题",)),
+            ({"status": "cancelled"}, ("作废了", "重新说一句")),
+            ({"status": "submitting"}, ("正在交给任务",)),
+        )
+        for seq, (fields, words) in enumerate(cases, start=3):
+            self.question(**fields)
+            self.web.op("answer", seq, f"op-{seq + 10}", TOPIC, token=TOKEN, answers={"q1": "A"})
+            self.sync.inbox_once()
+            ack = self.web.acks[-1]
+            self.assertEqual(ack["state"], "failed", fields)
+            for word in words:
+                self.assertIn(word, ack["message"], fields)
+            self.assertNotIn("这个问题已经有回答，或已经取消", ack["message"])
+        self.assertEqual(self.app.answers, [])
+
     def test_stop_goes_to_the_task_runner_or_is_stopped_here(self):
         self.topic()
         job = SimpleNamespace(job_id=4, message_id="om_job", cancel_event=threading.Event(), answer_finalized=False,

@@ -1,13 +1,15 @@
 """网页工作台同步里不碰 Collector 缓存的那部分 (app/web_collect.py): 把话题历史的每一行配上它的任务记录 (pair, retried)、
-把答过的问题挂到轮次上 (answered, put_answers, answer_rows)、问题怎样、何时关闭 (question, closed) 和负责人哪一轮
+把答过的问题挂到轮次上 (answered, put_answers, answer_rows)、问题怎样、何时关闭 (question, closed)、关掉的问题怎么跟主人说 (settled_words) 和负责人哪一轮
 派出了哪些成员 (lead_starts). Pure functions of what the caller read: they read no cache, hold no state and take no lock; the
 one read of the disk they make is lead_starts' (a member's task records), as the method it was had made."""
 from __future__ import annotations
 
+import time
+
 from covey.app import web_images, web_said
 from covey.app.web_said import NOT_ANSWERED  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 from covey.app.answers import SKIPPED
-from covey.core import board_read, triage
+from covey.core import board_read, triage, web_sync
 from covey.core.jobs import job_key, topic_job_records
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import RUNNING
@@ -234,3 +236,36 @@ def answer_rows(record) -> list:
         out.append({"question": str(question.get("question") or question.get("header") or "")[:500],
                     "choice": NOT_ANSWERED if feedback or not parts else web_images.scrub("、".join(parts))[:500]})
     return out
+
+
+# What the page is told when it answers a question that no longer waits (app/web_ops.py answer): who closed it, how, and what
+# the owner can do now. ``closed``'s ``closed_by`` picks the line; {at} is when, {answer} what was answered.
+SETTLED_WORDS = {
+    "owner": "这题你已经{where}答过了（{at}）：{answer}。这次没有再交给任务；要改主意，在这个话题里直接说一句。",
+    "feedback": "这题你已经{where}发过补充说明（{at}），题目算没答。还要说什么，在这个话题里直接说一句。",
+    "skipped": "这题你已经{where}选了不回答（{at}）。要接着说，在这个话题里直接说一句。",
+    "lead": "专项负责人已经替你答了（{at}）：{answer}。不对的话，在专项卡的分流记录里点「不对」，或在这个话题里直接说一句改过来。",
+    "superseded": "这组问题已经收起：话题后来又问了新的问题（{at}）。请答新的那组。",
+    "stale": "这题放了太久，已被每日维护关掉（{at}）。要继续，在这个话题里直接说一句。",
+    "switched": "话题换了配置，这题作废了（{at}）。直接在话题里回复新模型就行。",
+    "rewound": "这一轮已经回退，这题作废了（{at}）。要接着做，在话题里重新说一句。",
+    "lead_stop": "负责人按你的意思停了这个话题，这题作废了（{at}）。要接着做，在话题里说一句。",
+    "web_stop": "你在网页上停了这个话题，这题作废了（{at}）。要接着做，在话题里说一句。",
+    "cancelled": "这题的任务已经停了或撤回了问题，这题作废了（{at}）。要接着做，在话题里重新说一句。",
+}
+SAVING_WORDS = "你的回答已经保存，正在交给任务；这次没有重复发送，稍等看话题里的结果。"
+WEB_EVENT = web_sync.PREFIX  # A question record's answer_event starts so for an answer the web page sent (app/web_ops.py).
+
+
+def settled_words(row, records=(), rows=()) -> str:
+    """What the page is told about the question record ``row`` that no longer waits for the owner (its status not pending):
+    one of SETTLED_WORDS, or SAVING_WORDS while its answer is on its way."""
+    status = row.get("status", "pending")
+    if status in ("submitting", "uncertain"):
+        return SAVING_WORDS
+    state = QUESTION_STATES.get(status, "answered")
+    at, how = closed(row, state, records, rows)
+    when = time.strftime("%m-%d %H:%M", time.localtime(at)) if at else "时间不详"
+    answer = "；".join(each["choice"] for each in answer_rows(row) if each["choice"] != NOT_ANSWERED) or "（没有选项）"
+    where = "在网页上" if str(row.get("answer_event") or "").startswith(WEB_EVENT) else "在飞书里"
+    return SETTLED_WORDS.get(how, SETTLED_WORDS["cancelled"]).format(at=when, answer=answer[:200], where=where)

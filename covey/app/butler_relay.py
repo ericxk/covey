@@ -17,7 +17,9 @@ core/placement.py's row says (``after_turn``: question_copy, conclusion, stop):
 
 Every turn of a 话题区 relays, the ones his answers or his messages in
 its thread started too (``area_target``: the latest request that opened or handed on to it); a topic the butler
-never touched does not.
+never touched does not. A project's member topic relays only a turn the owner waits for (app/relay_targets.py
+``awaited_target``: its lead handed it on in a turn the owner was in), its conclusion or its stop, never its question;
+the lead's receipt of it says so (app/project_loop.py after_runner), so the lead does not tell it again.
 
 Where it goes (app/relay_targets.py): the butler's card is in the owner's message's thread,
 so a message of its own at the top level with a "你问" link block, quoting no card. Which turns came from the butler
@@ -50,7 +52,7 @@ from covey.app import answer_cards
 from covey.app.artifacts import answer_files
 from covey.app.relay_send import (QUESTION_RELAYS, SKIPPED, messenger_send, record_only, record_unsent,
                                            relay_path, send_once as _send_once)
-from covey.app.relay_targets import areas_of, relay_target
+from covey.app.relay_targets import areas_of, awaited_target, relay_target
 from covey.cards.relay_card import DONE, STOPPED, WAITING
 from covey.core import butler, placement
 from covey.core.checkpoint import read_checkpoint
@@ -60,6 +62,9 @@ from covey.core.store import directory_store
 from covey.core.topics import route_message
 
 STOPPED_STATUSES = frozenset({"failed", "cancelled"})
+# What a project member's turn the owner waits for relays (``awaited_target``): its question stays the question flow's
+# (app/triage.py may hold it for the lead), the rest is relayed as a topic's of the butler is.
+AWAITED = (DONE, STOPPED)
 
 
 def relayed(state_dir, record) -> bool:
@@ -130,6 +135,8 @@ def relay(state_dir, job, outcome, *, send, profile=None, log=None, **facts):
     if not butler.enabled():
         return None
     target = relay_target(state_dir, job)
+    if target is None and outcome in AWAITED:
+        target = awaited_target(state_dir, job)
     if target is None:
         return None
     key = job_key(str(job_field(job, "message_id")), job_field(job, "job_id"))
@@ -253,7 +260,7 @@ def after_turn(delivery, delivered, execution_status, *, messenger, profile, voi
             return None
         if outcome == WAITING and row.question_copy and mirror_questions(delivery):
             return "mirrored"  # Its questions are at the top level as cards, the output above them.
-        if not (row.conclusion or row.stop):
+        if not (row.conclusion or row.stop) and not (outcome in AWAITED and awaited_target(state_dir, job)):
             outcome = None
             return None  # The butler's answer went to the top level itself (app/worker.py); nothing to relay.
         send = messenger_send(messenger, profile, voice)

@@ -1,15 +1,16 @@
 """Where a topic turn's outcome goes back to at the butler's top level (app/butler_relay.py, docs/butler.md
 结论回到顶层): which turns came from the butler (``relay_target``: a request's opened record, a supplement it
 gave, or an automatic retry of either; ``area_target``: the latest request that touched a 话题区), the message a relay
-quotes (``relay_quote``, ``butler_job_owner_message``), its "你问" block (``ask_for``) and the card its T number opens
-(``turn_card``). Reads records only: nothing here sends or writes."""
+quotes (``relay_quote``, ``butler_job_owner_message``), its "你问" block (``ask_for``), the card its T number opens
+(``turn_card``), and a project member's turn the owner waits for (``awaited_target``: one the lead handed on while he was
+there). Reads records only: nothing here sends or writes."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from covey.app import answer_cards
 from covey.cards.relay_card import WAITING
-from covey.core import butler_opened, placement
+from covey.core import butler_opened, placement, projects
 from covey.core.jobs import find_job_record, job_field, job_key
 from covey.core.store import directory_store
 from covey.core.topics import topic_label
@@ -132,6 +133,34 @@ def relay_target(state_dir, job):
     label = topic_label(Path(state_dir), topic_id) or "话题"
     return {"chat_id": str(record.get("chat_id") or chat), "reply_to": reply_to, "label": label, "token": token,
             "kind": kind, "topic_id": topic_id, "main_key": str(record.get("job_key") or "")}
+
+
+def awaited_target(state_dir, job):
+    """Where a project member's turn the owner waits for relays its conclusion or its stop (docs/projects.md 主人在等的结果):
+    the lead handed it on (project_topic_start, project_topic_send or the supplement it gave, main-thread/opened/) in a turn
+    of the lead the owner was in, one that was not a wake-up (``projects.is_wake``); as ``relay_target`` gives it. None for
+    any other turn: a member's row relays nothing of its own (core/placement.py), what a wake-up turn handed out is the
+    lead's to tell (its style)."""
+    topic_id, chat = str(job_field(job, "topic_id")), str(job_field(job, "chat_id"))
+    if not projects.enabled() or not projects.is_member_topic(state_dir, topic_id):
+        return None
+    message_id, job_id = _origin_job(state_dir, job)
+    found = _opened(state_dir, message_id, job_id, topic_id)
+    if found is None:
+        return None
+    token, kind, record = found
+    lead_key = str(record.get("job_key") or "")
+    lead_job = find_job_record(Path(state_dir), lead_key) or {}
+    lead_topic = str(lead_job.get("topic_id") or "")
+    if (not lead_topic or projects.is_wake(lead_job.get("message_id"))
+            or not projects.is_lead_topic(state_dir, lead_topic, str(record.get("chat_id") or chat) or None)):
+        return None
+    reply_to = relay_quote(state_dir, lead_key)
+    if not reply_to:
+        return None
+    return {"chat_id": str(record.get("chat_id") or chat), "reply_to": reply_to,
+            "label": topic_label(Path(state_dir), topic_id) or "话题", "token": token, "kind": kind,
+            "topic_id": topic_id, "main_key": lead_key}
 
 
 def turn_card(state_dir, job, outcome) -> str:
