@@ -1223,6 +1223,21 @@ class ExtrasTest(WebCase):
         rows = web_turns.steps_of(dict(snapshot, ended_at=T0 + 2400))
         self.assertEqual([(row["ended_at"], row["status"]) for row in rows if row["id"] == "agent-toolu_b"], [(T0 + 2400, "done")])
 
+    def test_a_step_is_labelled_by_its_purpose_in_plain_words_and_carries_its_command(self):
+        """T577 2026-11-20: the page cut "后台命令：正式部署阶段 2（后台） · R=/mnt/…" to its first words, and the command it would
+        show read "&amp;" and "COVEY\\_CORE": the trace keeps a step's words escaped for cards."""
+        long_path = "/x/" + "a" * 90 + ".py"
+        snapshot = {"steps": {"c1": {"title": "后台命令", "detail": "正式部署阶段 2（后台） · R=/x &amp;&amp; COVEY\\_CORE=1 bash d.sh &gt; o.log",
+                                     "status": "done", "started": T0, "ended": T0 + 90},
+                              "c2": {"title": "执行命令", "detail": "git status", "status": "done", "started": T0 + 91, "ended": T0 + 92},
+                              "r1": {"title": "读取文件", "detail": long_path, "status": "done", "started": T0 + 93, "ended": T0 + 94}},
+                    "step_order": ["c1", "c2", "r1"], "started_at": T0, "ended_at": T0 + 95}
+        rows = {row["id"]: row for row in web_turns.steps_of(snapshot)}
+        self.assertEqual((rows["c1"]["label"], rows["c1"]["detail"]), ("后台命令：正式部署阶段 2（后台）", "R=/x && COVEY_CORE=1 bash d.sh > o.log"))
+        self.assertEqual(rows["c2"]["label"], "执行命令：git status")
+        self.assertNotIn("detail", rows["c2"])
+        self.assertEqual((len(rows["r1"]["label"]), rows["r1"]["detail"]), (web_turns.LABEL_CHARS, long_path))
+
     def test_a_quiet_running_turn_does_not_change_its_rev_every_second(self):
         self.topic(status="running", lines=(("user", "做一下"),))
         write_job(self.state, f"k-{TOPIC[:4]}", timings={"backend_started": T0})

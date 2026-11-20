@@ -4,7 +4,9 @@ the checkpoint's plan, the token figures, the time it took and the notes of the 
 
 - ``steps``: the newest ``STEPS_KEPT`` steps of the main task as {id, kind, label, started_at, ended_at, status}; ``kind`` is by the step's
   title (``STEP_KINDS``), a running step's ``ended_at`` is None. A note (the progress note) is no step: it is the turn's body.
-  A subtask is one step from its start to its end, in its own words (data contract v8, ``steps_of``).
+  A subtask is one step from its start to its end, in its own words (data contract v8, ``steps_of``). The words are plain text, not the
+  trace's card escaping; a step whose model said what it is for (Claude's "<purpose> · <command>") is labelled by the purpose and carries
+  the command in ``detail``, as does a step whose label had to be cut (data contract v18, ``step_row``).
 - ``plan``: the checkpoint's ``steps`` ({title, state}, core/checkpoint.py ``checkpoint_steps``); once the turn has ended, a step left
   ``doing`` is ``todo`` (it was not done, and nothing does it now).
 - ``usage`` {input, output, cache_read, total}, ``seconds``, ``speed``, ``context`` {used, limit}: as the cards show them (cards/facts.py
@@ -16,6 +18,8 @@ A field is left out when nothing is known; the page draws what it gets. Nothing 
 one turn, and never raises."""
 from __future__ import annotations
 
+import html
+import re
 import time
 from pathlib import Path
 
@@ -28,6 +32,7 @@ from covey.core.trace_store import load_trace
 STEPS_KEPT = 80
 RUNNING_STEP = 10  # Seconds: the 用时 of a running turn moves by this much.
 LABEL_CHARS = 80
+DETAIL_CHARS = 400
 NOTE_KINDS = ("remembered", "voided", "undone", "skipped_ask", "reference")
 NOTES_KEPT = 20
 STEP_KINDS = {"读取文件": "read", "浏览目录": "read", "修改文件": "edit", "写入文件": "edit", "执行命令": "command", "后台命令": "command",
@@ -71,14 +76,34 @@ def steps_of(snapshot) -> list:
             continue
         if step.get("status") == "note":
             continue
-        title = "调用工具" if step.get("title") == "tool" else str(step.get("title") or "")
-        detail = " ".join(str(step.get("detail") or "").split())
-        status = STEP_STATES.get(step.get("status"), "done")
-        out.append({"id": str(key), "kind": step_kind(step.get("title")), "label": (f"{title}：{detail}" if detail else title)[:LABEL_CHARS],
-                    "started_at": step.get("started") if isinstance(step.get("started"), (int, float)) else 0,
-                    "ended_at": None if status == "running" else step.get("ended") if isinstance(step.get("ended"), (int, float)) else None,
-                    "status": status})
+        out.append(step_row(key, step))
     return out[-STEPS_KEPT:]
+
+
+def plain_words(text) -> str:
+    """Trace text (escaped for cards by core/text.py safe_text: HTML entities and Markdown backslashes) as plain words on one line."""
+    return " ".join(html.unescape(re.sub(r"\\([`*_\[\]\\])", r"\1", str(text or ""))).split())
+
+
+def step_row(key, step) -> dict:
+    """One ordinary step (data contract v18): ``label`` is its title and what it is about, in plain text; ``detail``, only when there
+    is more to it, is the command after the model's stated purpose or the whole of a label that was cut. 2026-11-20 T577: the page cut
+    "后台命令：正式部署阶段 2（后台） · R=/mnt/…" to its first words and showed "&amp;" in the command."""
+    title = "调用工具" if step.get("title") == "tool" else str(step.get("title") or "")
+    words = plain_words(step.get("detail"))
+    purpose, cut, command = words.partition(" · ")
+    name, more = (purpose, command) if cut and purpose else (words, "")
+    label = f"{title}：{name}" if name else title
+    if not more and len(label) > LABEL_CHARS:
+        more = words
+    status = STEP_STATES.get(step.get("status"), "done")
+    row = {"id": str(key), "kind": step_kind(step.get("title")), "label": label[:LABEL_CHARS],
+           "started_at": step.get("started") if isinstance(step.get("started"), (int, float)) else 0,
+           "ended_at": None if status == "running" else step.get("ended") if isinstance(step.get("ended"), (int, float)) else None,
+           "status": status}
+    if more:
+        row["detail"] = more[:DETAIL_CHARS]
+    return row
 
 
 def agent_words(agent) -> str:
