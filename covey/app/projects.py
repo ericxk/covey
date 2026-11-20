@@ -11,7 +11,7 @@
   "你问" block, the start receipt; the lead decides which member topics to open. The existing topics the butler names in
   ``topics`` (the owner said to take them in) become members before the receipt (JOIN_STEPS); one that cannot (not found, a
   lead's, another project's) is named in the answer and the receipt, never dropped silently.
-- **Downgrade** is app/project_cards.py ``downgrade`` (the card's 不要专项 button; it lives there so that module and this one do
+- **Downgrade** is app/project_clicks.py ``downgrade`` (the card's 不要专项 button; it lives there so that module and this one do
   not import each other).
 - **Gathered** (``gather``, 整理专项's 建专项, app/project_tidy.py): a project of topics that are there already (GATHER_STEPS: the
   record, the lead, the card, each topic a member, the start receipt naming them).
@@ -28,8 +28,9 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import dispatch_cards, project_cards, project_lead
-from covey.app.project_cards import DOWNGRADED, topic_ctx
+from covey.app import dispatch_cards, project_cards, project_facts, project_lead
+from covey.app.project_cards import DOWNGRADED
+from covey.app.project_clicks import topic_ctx
 from covey.app.project_members import GATHERED_NOTE, topic_line, wanted_topics
 from covey.app.butler_env import reply
 from covey.cards.project_card import merged_card
@@ -494,7 +495,7 @@ class Projects:
         parts = ["接手一个已在进行的事：话题 " + " ".join(part for part in (label, f"「{cut(title, 30)}」" if title else "") if part)]
         if record.get("goal"):
             parts.append("主人要的：" + cut(record["goal"], 160))
-        job = project_cards.newest_job(state, topic) or {}
+        job = project_facts.newest_job(state, topic) or {}
         if job:
             parts.append("现在：" + cut(" ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part), 120))
         return "；".join(parts)

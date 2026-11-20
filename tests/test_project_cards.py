@@ -17,7 +17,7 @@ from support.fake_lark import FakeCardKit
 from support.world import UnifiedCase
 from test_projects import Case as ProjectsCase
 
-from covey.app import pins, project_cards
+from covey.app import pins, project_cards, project_clicks, project_facts
 from covey.app.card_actions import ACTIONS
 from covey.cards import project_card as view
 from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, find_element, json_size
@@ -256,7 +256,7 @@ class HarnessLabelTest(CardCase):
         write_json(topic_file(self.state, topic), {"harness_id": harness, **fields})
 
     def facts(self):
-        return project_cards.facts(self.state, self.record(), 1100.0, self.TITLES)
+        return project_facts.facts(self.state, self.record(), 1100.0, self.TITLES)
 
     def test_a_threads_fold_names_the_harness_it_runs_on_not_the_leads(self):
         self.job(LEAD, 1, "running", harness_id="claude", model="Opus", effort="high")
@@ -624,7 +624,7 @@ class ButtonTest(CardCase):
 
     def test_supplement_opens_the_leads_running_turns_form_and_says_so_when_it_has_none(self):
         self.assertTrue(self.claude.steering.project_steer(self.lead_ctx, self.event("bridge_project_steer")))
-        self.assertEqual(self.said(), project_cards.NO_LEAD_JOB)
+        self.assertEqual(self.said(), project_clicks.NO_LEAD_JOB)
         from covey.core.jobs import BridgeReplyJob
 
         job = BridgeReplyJob(job_id=8, user_text="x", chat_id=CHAT, message_id="om_job8", timeout=0, topic_id=LEAD)

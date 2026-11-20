@@ -93,7 +93,7 @@ class StopSourceTest(unittest.TestCase):
         """Each way a job is stopped other than its card's button says who: core/look.py tells the owner's apart."""
         sources = {"app/butler_tracks.py": '"by": "word"', "app/web_ops.py": '"by": "web"', "app/proxy.py": '"by": "proxy"',
                    "app/project_tools.py": 'by="lead"', "app/project_loop.py": 'by="guard"',
-                   "app/project_cards.py": 'by="project"', "app/task_controls.py": 'action.get("by") in STOP_SOURCES',
+                   "app/project_clicks.py": 'by="project"', "app/task_controls.py": 'action.get("by") in STOP_SOURCES',
                    "app/source_watch.py": "by=RECALLED"}
         for path, needle in sources.items():
             self.assertIn(needle, (REPO / "covey" / path).read_text(encoding="utf-8"), path)

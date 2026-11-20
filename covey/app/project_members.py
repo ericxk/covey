@@ -12,8 +12,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from covey.app import project_cards, project_lead
-from covey.app.project_cards import topic_ctx
+from covey.app import project_clicks, project_facts, project_lead
+from covey.app.project_clicks import topic_ctx
 from covey.core import projects
 from covey.core.locks import topic_lock
 from covey.core.text import cut
@@ -25,7 +25,7 @@ MAX_JOINED = 10  # Existing topics one direct start takes in.
 
 def topic_line(state, topic) -> str:
     """T531「title」：where its newest job stands, for the lead's start receipt."""
-    job = project_cards.newest_job(state, topic) or {}
+    job = project_facts.newest_job(state, topic) or {}
     now = " ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part)
     return f"{topic_label(state, topic) or topic[:6]}「{cut(topic_title(state, topic), 30)}」" + (f"：{cut(now, 60)}" if now else "")
 
@@ -101,7 +101,7 @@ def join_topic(state, pid, topic, *, why="", by="tidy") -> dict:
 
 
 def leave_topic(state, pid, topic, *, why="", went="") -> bool:
-    """移出: ``topic`` an ordinary topic again (app/project_cards.py release), out of the record's ``threads``, and a ``left``
+    """移出: ``topic`` an ordinary topic again (app/project_clicks.py release), out of the record's ``threads``, and a ``left``
     receipt for the lead; whether it was the project's. ``went``: where 整理专项 takes it (拆去了新专项「X」), said to the lead
     instead of the owner's 移出 (which keeps it out of projects for good)."""
     record = projects.read_record(state, pid)
@@ -109,7 +109,7 @@ def leave_topic(state, pid, topic, *, why="", went="") -> bool:
         found = projects.topic_project(state, topic)
         if found is None or found.id != pid:
             return False
-    project_cards.release(state, topic, pid)
+    project_clicks.release(state, topic, pid)
     projects.remove_member(state, pid, topic)
     projects.log_leave(state, pid, topic)
     title = cut(topic_title(state, topic), 30)

@@ -143,7 +143,9 @@
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
 | `app/preselection.py` | What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read |
 | `app/project_cards.py` | 专项卡, when COVEY_PROJECTS=1 |
+| `app/project_clicks.py` | What the buttons of a 专项卡 run |
 | `app/project_context.py` | What a project's memory and library do in the Bridge, when COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1 |
+| `app/project_facts.py` | What a project's card says, read from the records |
 | `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
 | `app/project_loop.py` | Continuing runs and guards of a project |
 | `app/project_members.py` | 话题加入和移出专项: an ordinary topic becomes a member of a project that is there (`join_topic`) and a member an … |

@@ -184,7 +184,7 @@ class SourceWatch:
     # -- a recall ------------------------------------------------------------------------------------------------
 
     def recalled(self, ctx, item) -> None:
-        from covey.app.project_cards import stop_task
+        from covey.app.project_clicks import stop_task
         from covey.core.jobs import RECALLED, find_job_record
 
         app = self.app_of(item)

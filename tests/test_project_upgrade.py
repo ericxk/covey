@@ -1,4 +1,4 @@
-"""专项's three entrances (app/projects.py, app/project_cards.py downgrade; docs/architecture.md 专项): a 派发卡 upgraded to a
+"""专项's three entrances (app/projects.py, app/project_clicks.py downgrade; docs/architecture.md 专项): a 派发卡 upgraded to a
 project (the switch COVEY_PROJECT_UPGRADE, the seven steps, each safe to run again after a crash), a project opened directly
 (topic_start with ``project``), 不要专项, the butler's two tools, and that with COVEY_PROJECTS unset (or the upgrade ``off``)
 none of it does anything."""
@@ -14,7 +14,7 @@ from unittest import mock
 from support.records import write_topic
 from test_dispatch_cards import ASK, ASK_URL, CHAT, DispatchCase
 
-from covey.app import butler_topics, project_cards, project_lead
+from covey.app import butler_topics, project_cards, project_clicks, project_lead
 from covey.app import butler_projects, project_members as members, projects as upgrades
 from covey.cards.elements import find_element
 from covey.core import dispatch_records as records
@@ -580,7 +580,7 @@ class StyleKeepTest(UpCase):
         self.assertEqual(len(self.sent.call_args.args[2]["header"]["text_tag_list"]), 1)
 
     def test_an_old_records_direction_is_neither_drawn_nor_an_error(self):
-        from covey.app.project_cards import facts
+        from covey.app.project_facts import facts
 
         pid = self.start("p1", project=True)["data"]["project_id"]
         projects.update(self.state, pid, lambda data: data.update(direction={"name": "数据平台", "source": "owner"}))
@@ -664,7 +664,7 @@ class DowngradeTest(UpCase):
         self.assertIn("降回普通话题", self.said())
 
     def test_a_downgrade_that_stopped_half_way_is_finished_by_the_next_click(self):
-        with mock.patch.object(project_cards, "release", side_effect=RuntimeError("boom")):
+        with mock.patch.object(project_clicks, "release", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 self.click()
         self.assertEqual(self.project_for(self.dispatch)["state"], "cancelled")
@@ -681,12 +681,12 @@ class DowngradeTest(UpCase):
         self.assertTrue(projects.is_member_topic(self.state, self.topic))
         other = projects.create(self.state, {**projects.new_record(chat_id=CHAT, name="x", project_id="0f9e8d7c6b5a"),
                                              "state": "cancelled", "state_reason": "other"})[0]
-        self.assertIn("已经取消了", project_cards.downgrade(self.claude.controls, self.ctx, other))
+        self.assertIn("已经取消了", project_clicks.downgrade(self.claude.controls, self.ctx, other))
 
     def test_a_thread_of_another_project_is_left_as_it_is(self):
-        self.assertTrue(project_cards.release(self.state, self.topic, "0f9e8d7c6b5a") is False)
+        self.assertTrue(project_clicks.release(self.state, self.topic, "0f9e8d7c6b5a") is False)
         self.assertTrue(projects.is_member_topic(self.state, self.topic))
-        self.assertTrue(project_cards.release(self.state, "ab" * 16, self.project["id"]))  # No topic.json, no project field.
+        self.assertTrue(project_clicks.release(self.state, "ab" * 16, self.project["id"]))  # No topic.json, no project field.
 
     def test_a_direct_project_goes_back_to_its_first_thread_or_to_none(self):
         answer = self.start("d1", project=True)

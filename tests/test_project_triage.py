@@ -15,7 +15,7 @@ from unittest import mock
 from support.records import write_job
 from support.world import QuestionFixture
 
-from covey.app import project_cards, project_context, project_lead, project_loop, triage as flow
+from covey.app import project_clicks, project_context, project_facts, project_lead, project_loop, triage as flow
 from covey.app.project_loop import ProjectLoop
 from covey.app.questions import recover_question_delivery
 from covey.cards import project_card, triage_card
@@ -355,7 +355,7 @@ class ToolTest(ToolsCase):
         self.assertTrue(answer["ok"], answer)
         self.assertEqual(submit.call_args.args[3]["supplement"], flow.NOTE)
         self.assertEqual(triage.state(read_object(self.path)), triage.ANSWERED)
-        self.assertEqual(project_cards.triage_lines(self.reload())[0][1], TOKEN)
+        self.assertEqual(project_facts.triage_lines(self.reload())[0][1], TOKEN)
 
     def test_the_lead_hands_the_question_back_with_why(self):
         with mock.patch.object(flow, "show", return_value=True) as show:
@@ -429,7 +429,7 @@ class CardTest(Held):
     def test_the_row_of_an_answer_has_the_wrong_button_until_it_is_corrected(self):
         flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
         flow.log_row(self.state, PID, "转给你：T41 · 能不能停服务？", kind="escalated")
-        lines = project_cards.triage_lines(self.reload())
+        lines = project_facts.triage_lines(self.reload())
         self.assertEqual(lines[1][1], TOKEN)  # The older one, the answer.
         self.assertIsInstance(lines[0], str)  # The hand-back has no button.
         view = project_card.Project(**{**project_card_sample().__dict__, "triage": lines})
@@ -437,14 +437,14 @@ class CardTest(Held):
         self.assertEqual([b["behaviors"][0]["value"]["kind"] for b in buttons], [project_card.TRIAGE_WRONG_KIND])
         self.assertEqual(buttons[0]["behaviors"][0]["value"]["token"], TOKEN)
         projects.update(self.state, PID, lambda data: data["triage"][0].__setitem__("corrected", True))
-        self.assertTrue(project_cards.triage_lines(self.reload())[1].endswith("（已纠正）"))
+        self.assertTrue(project_facts.triage_lines(self.reload())[1].endswith("（已纠正）"))
 
     def test_a_long_corrected_row_keeps_its_mark_when_it_is_clipped(self):
         # The acceptance of 2026-11-17: “…→ LF（已纠…”, the mark cut off at the row's width.
         long = "答了：T11 · g.txt 用 LF 还是 CRLF 换行？这个文件之后还要给 Windows 上的同事用，" * 3 + "→ LF"
         flow.log_row(self.state, PID, long, token=TOKEN, topic=THREAD, kind="answered")
         projects.update(self.state, PID, lambda data: data["triage"][-1].__setitem__("corrected", True))
-        lines = project_cards.triage_lines(self.reload())
+        lines = project_facts.triage_lines(self.reload())
         view = project_card.Project(**{**project_card_sample().__dict__, "triage": lines})
         shown = [e["content"] for e in walk(project_card.triage_rows(view)) if e.get("tag") == "markdown"]
         self.assertEqual(len(shown), 1)
@@ -529,7 +529,7 @@ class CorrectTest(Held):
         event = {"chat_id": CHAT, "message_id": "om_form", "event_id": "ev-fix",
                  "action_value": {"kind": triage_card.FIX_KIND, "project_id": PID, "topic_id": LEAD, "token": TOKEN},
                  "form_value": {triage_card.FIELD: "应该用 CRLF"}}
-        self.assertTrue(project_cards.triage_fix(host, ctx, event))
+        self.assertTrue(project_clicks.triage_fix(host, ctx, event))
         call = host.messenger.publish_card.call_args
         self.assertEqual((call.args[1], call.kwargs["source_message"], call.kwargs["update_only"]), (CHAT, "om_form", True))
         shown = json.dumps(call.args[3], ensure_ascii=False)
@@ -538,7 +538,7 @@ class CorrectTest(Held):
         self.assertFalse([e for e in walk(call.args[3]) if e.get("tag") in {"form", "input", "button"}])
         host.messenger.publish_card.reset_mock()
         with self.assertRaisesRegex(ValueError, "已经纠正过"):
-            project_cards.triage_fix(host, ctx, {**event, "event_id": "ev-fix-2"})
+            project_clicks.triage_fix(host, ctx, {**event, "event_id": "ev-fix-2"})
         host.messenger.publish_card.assert_not_called()
         self.assertEqual(len(self.queued), 1)
 

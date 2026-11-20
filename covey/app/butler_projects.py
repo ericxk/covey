@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.app import project_cards
+from covey.app import project_facts
 from covey.app.butler_env import reply
 from covey.app.projects import state_of
 from covey.core import project_proposals, projects
@@ -61,7 +61,7 @@ def projects_list(env, request):
     rows = []
     for record in [*live, *ended]:
         threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有话题"
-        note = project_cards.lead_note(record)
+        note = project_facts.lead_note(record)
         rows.append(f"{record['id']} · {cut(record.get('name'), 30)} · {FOLDED_WORDS if projects.folded(record) else STATE_WORDS.get(state_of(record), state_of(record))}"
                     f" · 话题 {threads}" + (f" · 最近：{cut(note, 40)}" if note else ""))
     return reply(True, "\n".join(rows) + (f"\n{pending.lstrip('；')}" if pending else ""), count=len(found), waiting=len(waiting),

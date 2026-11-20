@@ -387,7 +387,7 @@ class ProjectLoop:
     name = "project_loop"
 
     def __init__(self, runtime, env, stop=None) -> None:
-        """``stop``: app/project_cards.py ``stop_tasks`` (it imports this module, so the wiring hands it over); none, no task is stopped."""
+        """``stop``: app/project_clicks.py ``stop_tasks`` (it imports this module, so the wiring hands it over); none, no task is stopped."""
         self.runtime, self.env, self.stop = runtime, env, stop
         triage_flow.attach(env)  # The 专项卡's 不对 click reaches the member topic through it (app/triage.py correct).
 

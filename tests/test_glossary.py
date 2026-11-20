@@ -41,9 +41,9 @@ RETIRED = re.compile("主线程|线程|话题区|长活|快事|路在做|一路(
 
 # (path, the literal as it is written, why it keeps the old word)
 ALLOWED = (
-    ("covey/app/project_cards.py", "由快事升级（你说了",
+    ("covey/app/project_facts.py", "由快事升级（你说了",
      "origin_words: a project record written before 2026-11-16 holds the old origin line; it is shown as the new one"),
-    ("covey/app/project_cards.py", r"由快事升级（来回第 (\d+) 轮）",
+    ("covey/app/project_facts.py", r"由快事升级（来回第 (\d+) 轮）",
      "origin_words: the same, for the round-count form of the old origin line"),
     ("covey/core/track_route.py", "新开一路",
      "ALONE_WORDS: words the owner may type to say a message is its own (matched, never shown); old spellings still count"),

@@ -17,7 +17,7 @@ from support.world import UnifiedCase
 
 from covey.app import project_lead, project_loop
 from covey.app.cards import Cards
-from covey.app.project_cards import facts
+from covey.app.project_facts import facts
 from covey.app.project_loop import ProjectLoop
 from covey.core import butler, butler_settings, placement, projects
 from covey.core.jobs import job_key

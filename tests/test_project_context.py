@@ -21,7 +21,7 @@ from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.core.checkpoint import CHECKPOINT_RULES
 from covey.core.jobs import BridgeReplyJob as ReplyJob
-from covey.app import project_cards, project_context, project_lead, project_loop
+from covey.app import project_context, project_facts, project_lead, project_loop
 from covey.app.prompts import PROJECT_CHARS, bridge_rules, project_block
 from covey.core import backup, project_library as library, project_memory as memory, projects
 from covey.core.maintenance import maintain, plan_maintenance
@@ -447,17 +447,17 @@ class CardTest(Case):
         row, _ = library.add_file(self.state, PID, self.attachment("方案.md"), now=NOW)
         library.add_ref(self.state, PID, "delivery", "提交 a6bc148", name="交付", source="delivery", now=NOW + 1)
         (library.library_dir(self.state, PID) / "手放的.csv").write_text("x")
-        rows = project_cards.library_rows(self.state, PID)
+        rows = project_facts.library_rows(self.state, PID)
         self.assertEqual([entry[0] for entry in rows], ["交付：提交 a6bc148", "方案.md（主人发的）", "手放的.csv"])
         self.assertEqual(rows[1][1], row["id"])
         self.assertEqual(len(rows[2]), 1)
         self.assertTrue(library.delete(self.state, PID, row["id"]))
-        self.assertEqual([entry[0] for entry in project_cards.library_rows(self.state, PID)], ["交付：提交 a6bc148", "手放的.csv"])
+        self.assertEqual([entry[0] for entry in project_facts.library_rows(self.state, PID)], ["交付：提交 a6bc148", "手放的.csv"])
 
     def test_the_memory_rows_have_the_ids_the_delete_click_carries(self):
         item, _ = memory.add(self.state, PID, "窗口在周六", "fact", now=NOW)
         memory.set_style(self.state, PID, "汇报风格：x", now=NOW)
-        self.assertEqual(project_cards.memory_rows(self.state, self.record()), ((item["id"], "窗口在周六"),))
+        self.assertEqual(project_facts.memory_rows(self.state, self.record()), ((item["id"], "窗口在周六"),))
 
 
 class MaintenanceTest(Case):

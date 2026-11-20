@@ -163,7 +163,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.digest import Digest
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
-        from covey.app.project_cards import ProjectCards, stop_tasks
+        from covey.app.project_cards import ProjectCards
+        from covey.app.project_clicks import stop_tasks
         from covey.app.butler_projects import TOOLS as PROJECT_BUTLER_TOOLS
         from covey.app.projects import Projects
         from covey.app.project_loop import ProjectLoop

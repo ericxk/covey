@@ -480,7 +480,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 - **三个按钮**：`bridge_project_ask_continue`、`_finish`（`bot_only`：它们让负责人再跑一轮，是 Bridge 自己的安排，不转给任务进程）、`_stop`（不是 `bot_only`，和停止专项一样），`handler` 都是 `controls.project_ask`（`project_cards.ask_choice`）。点击先在记录锁里记选择（`project_loop.answer_pause`：只有专项还因这个原因停着、这张卡是当前这次停住的卡、还没选过才算数；否则回一句“选择已经做过了”“这是之前一次停住的卡”等，什么都不改），再做事：
   - **继续**：专项回到 `active`，唤醒计数清零（和主人自己在负责人话题里说话一样，`project_loop.reopen`）；`tokens` 停住再给一份预算（`token_floor`）；给负责人一条 `owner_choice` 回执，它永远唤醒负责人。
   - **收尾**：同样把专项重新开起来（否则没有人叫醒负责人），回执要负责人总结做完了什么、还有什么没做完，用 `project_note` 标 report 告诉主人，然后调 `project_finish`（还有话题在做时它会拒绝，等它们结束再收尾）。
-  - **停**：记录仍是 `paused`，`state_reason` 改成“主人停止”，并停掉负责人和各话题里排队或在跑的任务（`project_cards.stop_tasks`，和停止专项同一个做法）；`tokens` 停住后选停的，之后主人在负责人话题里说话把它开起来时，照样给一份新预算（`token_floor`），不会马上又停。
+  - **停**：记录仍是 `paused`，`state_reason` 改成“主人停止”，并停掉负责人和各话题里排队或在跑的任务（`project_clicks.stop_tasks`，和停止专项同一个做法）；`tokens` 停住后选停的，之后主人在负责人话题里说话把它开起来时，照样给一份新预算（`token_floor`），不会马上又停。
 - **在做的话题**：`tokens` 停住时 `ProjectLoop` 同时请专项的话题里排队、在跑的任务停下（`stop_tasks`，把卡上“停止”的点击转给任务进程），数记进 `pause_ask.halted`，卡上写“在做的 N 个话题已请它们停下”；`wakes` 停住不停它们，卡上写“不受影响”；`stalled` 本来就没有。
 - **点了以后**：`ProjectCards` 把这张卡整卡写成一行（“你选了继续 / 收尾 / 停”），专项卡下一次刷新自然变成在做或停住。专项被别处处理了（主人在负责人话题里直接说话、负责人收尾）而没点，这张卡缩成“已在别处处理”。每张卡的写入用它自己的 sequence（`pause_ask.card`），不会和专项卡的混。
 - **试用**：设 `COVEY_PROJECT_BUDGET=<小数>`（默认没有 token 上限）一会儿就停住；`COVEY_PROJECT_STALL_SECONDS=60` 并开 `COVEY_PROJECT_AUTOWAKE=1`，一个有任务排队或有没读的回执、却没有动静的专项约两分钟后停住（没有要做的事、或只在等你回答的专项不会停滞）。唤醒次数的上限不能调。

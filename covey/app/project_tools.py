@@ -176,11 +176,11 @@ STOP_NOTE = "负责人按主人的意思停了这个话题"
 
 
 def project_topic_stop(env, request):
-    """Stop one member topic for the owner: its queued and running tasks (app/project_cards.py ``stop_tasks``, forwarded to the
+    """Stop one member topic for the owner: its queued and running tasks (app/project_clicks.py ``stop_tasks``, forwarded to the
     task runner as a stop on the card is), then the question it waits on and its waiting turn, as a switch of configuration voids
     them (app/binding.py ``retire_open_questions``, here ``cancelled`` with the reason ``lead_stop``). The topic stays in
     the project's list and counts as ended. No lock is held across a call."""
-    from covey.app import binding, project_cards
+    from covey.app import binding, project_clicks
 
     pid, record = lead(env, request)
     if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
@@ -194,7 +194,7 @@ def project_topic_stop(env, request):
     label = topic_label(Path(env.state_dir), topic) or topic[:8]
     if topic not in (record.get("threads") or ()):
         return reply(False, f"{label} 不是这个专项的话题，不能从这里停它。")
-    stopped = project_cards.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}", by="lead")
+    stopped = project_clicks.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}", by="lead")
     why = " ".join(str(request.args.get("why") or "").split())[:120]
     binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled", by="lead",
                                   message=STOP_NOTE + (f"：{why}" if why else ""))

@@ -292,29 +292,29 @@ class TaskControls(Redelivery):
         return True
 
     def project_stop(self, ctx, event):
-        """⏹ 停止专项 on a 专项卡 (cards/project_card.py): see app/project_cards.py stop_project."""
-        from covey.app import project_cards
-        return project_cards.stop_project(self, ctx, event)
+        """⏹ 停止专项 on a 专项卡 (cards/project_card.py): see app/project_clicks.py stop_project."""
+        from covey.app import project_clicks
+        return project_clicks.stop_project(self, ctx, event)
 
     def project_ask(self, ctx, event):
-        """继续, 收尾 or 停 on the card a guard's pause sent (COVEY_PROJECT_ASK=1): see app/project_cards.py ask_choice."""
-        from covey.app import project_cards
-        return project_cards.ask_choice(self, ctx, event)
+        """继续, 收尾 or 停 on the card a guard's pause sent (COVEY_PROJECT_ASK=1): see app/project_clicks.py ask_choice."""
+        from covey.app import project_clicks
+        return project_clicks.ask_choice(self, ctx, event)
 
     def project_downgrade(self, ctx, event):
-        """不要专项 on a 专项卡: P2-3's (app/project_cards.py downgrade); says so while it is not wired."""
-        from covey.app import project_cards
-        return project_cards.downgrade_project(self, ctx, event)
+        """不要专项 on a 专项卡: P2-3's (app/project_clicks.py downgrade); says so while it is not wired."""
+        from covey.app import project_clicks
+        return project_clicks.downgrade_project(self, ctx, event)
 
     def project_mem_del(self, ctx, event):
         """删 on a row of a 专项卡's 专项记忆."""
-        from covey.app import project_cards
-        return project_cards.delete_memory(self, ctx, event)
+        from covey.app import project_clicks
+        return project_clicks.delete_memory(self, ctx, event)
 
     def project_lib_del(self, ctx, event):
         """删 on a row of a 专项卡's 资料库."""
-        from covey.app import project_cards
-        return project_cards.delete_library(self, ctx, event)
+        from covey.app import project_clicks
+        return project_clicks.delete_library(self, ctx, event)
 
     def memory_wrong(self, ctx, event):
         """不对 on a "记下了" line of an answer card (COVEY_MEMORY=1): the entry is taken back (app/memory_collect.py undo)."""
@@ -322,14 +322,14 @@ class TaskControls(Redelivery):
         return memory_collect.undo(self, ctx, event)
 
     def project_triage_wrong(self, ctx, event):
-        """不对 on a row of a 专项卡's 分流记录: the form of the correction (app/project_cards.py triage_wrong)."""
-        from covey.app import project_cards
-        return project_cards.triage_wrong(self, ctx, event)
+        """不对 on a row of a 专项卡's 分流记录: the form of the correction (app/project_clicks.py triage_wrong)."""
+        from covey.app import project_clicks
+        return project_clicks.triage_wrong(self, ctx, event)
 
     def project_triage_fix(self, ctx, event):
-        """提交纠正 on that form (app/project_cards.py triage_fix)."""
-        from covey.app import project_cards
-        return project_cards.triage_fix(self, ctx, event)
+        """提交纠正 on that form (app/project_clicks.py triage_fix)."""
+        from covey.app import project_clicks
+        return project_clicks.triage_fix(self, ctx, event)
 
     def cancel_reply_job_from_card(
         self,

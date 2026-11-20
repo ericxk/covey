@@ -339,19 +339,19 @@ class AutoJoinTest(TidyCase):
         self.assertNotIn(other, [row["name"] for row in given["projects"]])
 
     def test_the_projects_card_lists_who_took_each_topic_in_with_a_leave_button_while_it_is_in(self):
-        from covey.app import project_cards
+        from covey.app import project_facts
 
         member = self.topic("一轮")
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.topic(A)
         self.assertTrue(self.tidy.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid, why="同一件事"), CHAT))
-        lines = project_cards.join_lines(self.state, projects.read_record(self.state, pid))
+        lines = project_facts.join_lines(self.state, projects.read_record(self.state, pid))
         self.assertEqual(len(lines), 1)
         self.assertIn("整理专项归入", lines[0][0])
         self.assertIn("同一件事", lines[0][0])
         self.assertEqual(lines[0][1], topic)
         self.tidy.leave(self.ctx, CHAT, topic, pid)
-        lines = project_cards.join_lines(self.state, projects.read_record(self.state, pid))
+        lines = project_facts.join_lines(self.state, projects.read_record(self.state, pid))
         self.assertIn("已移出", lines[0][0])
         self.assertEqual(lines[0][1], "")
 
