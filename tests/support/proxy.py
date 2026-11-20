@@ -123,7 +123,7 @@ class ProxyCase(UnifiedCase):
         self.state = self.ctx.state_dir
         records.write_settings(self.state, {
             'enabled': True, 'group_chat_id': 'oc_proxy', 'user_profile': 'me', 'owner_user_id': OWNER,
-            'owner_name': '胥可', 'harness': 'codex', 'model': 'codex-model', 'effort': 'high',
+            'owner_name': '王小明', 'harness': 'codex', 'model': 'codex-model', 'effort': 'high',
             'workspace': 'project', 'workdir': str(self.work), 'web_python': '/py', 'web_home': str(self.root / 'web'),
             'send_tool': installed_tool(self.root / 'tool')})
         records.write_contact(self.state, dict(PERSON))

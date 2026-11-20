@@ -45,7 +45,7 @@ BACKUP_DIRS = {
     "queued",
     "groups",  # Which groups serve their members: a group the owner turned off stays off after a restore.
     "launch-defaults",  # Each chat's last launch, one small file per chat: launch cards preselect as before a restore.
-    # 代答: of proxy/ only its settings, whitelist and the owner's style note (the owner, 2026-10-27); never web/
+    # 代答: of proxy/ only its settings, whitelist and the owner's style note; never web/
     # (the owner's Feishu web login), send-as-user/ (the send tool's credentials), shots/, batches/ or tmp/.
     "proxy/contacts",
 }

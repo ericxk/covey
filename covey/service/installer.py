@@ -614,7 +614,7 @@ class Installer:
         rest = [n for n in offer if n.kind not in ("event", "callback")]
         if rest:
             self.leftovers.append(f"飞书应用还缺 {app_manifest.joined(rest)}。装完不影响收发消息；你给机器人发第一句话后会收到"
-                                  "「飞书应用待补」卡，点「扫码自动补齐」就行（或按 docs/operations.md 的「手动配置飞书应用」做）")
+                                  "「飞书应用待补」卡，点「扫码自动补齐」就行（或按 docs/manual-install.md 的「配置飞书应用」做）")
 
     def lacking_after(self, offer):
         ids = {n.id for n in offer}
@@ -635,7 +635,7 @@ class Installer:
                 "repo": str(REPO_ROOT), "settings": settings}
 
     def default_switches(self):
-        """The switches a new service starts with on (INSTALL_SWITCHES: 专项, 整理专项 只提议 and 以后这类按推荐走, the owner 2026-11-18: 装好就开):
+        """The switches a new service starts with on (INSTALL_SWITCHES: 专项, 整理专项 只提议 and 以后这类按推荐走: 装好就开):
         put into this shell's environment, which the launch saves in the manifest; one the environment already sets stays,
         under either spelling (``self.env`` holds the old one: ``COVEY_PROJECTS=0`` is ``LARK_BRIDGE_PROJECTS`` there)."""
         for key, value in INSTALL_SWITCHES.items():

@@ -4,8 +4,8 @@ The layout is the deployment's and the owner's (``layout``): "topics" with the b
 ``enabled``), else "area" (the 话题区). The role is the topic's: the butler ("butler", BUTLER_OFF too) or a topic
 ("topic") by core/butler.py Traits, and with COVEY_PROJECTS on a project's lead ("lead", LEAD_OFF too: Traits) or
 one of its members ("project_member": topic.json's ``project.role``, core/projects.py, read by a stat and kept until
-the file changes, so a topic upgraded into a project is one from its next ``plan`` on). The front-desk layout and role (desk_topics, 11-07) were retired on 2026-11-09
-and their topics frozen on 2026-11-10 (core/migrate.py desk-retire).
+the file changes, so a topic upgraded into a project is one from its next ``plan`` on). The front-desk layout and role (desk_topics) were retired
+and their topics frozen (core/migrate.py desk-retire).
 
 Each cell names a place: TOP a new message at the chat's top level quoting no card (a "你问" block on it when the row
 says ``ask_block``), THREAD the turn's context's reply target (its thread), NONE nowhere. The call sites read the cells;
@@ -50,11 +50,11 @@ class Row:
     # the question card, the task card, a 话题区's answer card in its thread once done (app/pins.py ``aimed``).
     status_card: bool
     # The answer card sent on its own in the turn's thread leads with the turn's status, T number and title, and its
-    # task card then keeps no 结论 lead (app/turn_delivery.py TurnDelivery ``answer_head``, D3 2026-11-08), in the owner's
+    # task card then keeps no 结论 lead (app/turn_delivery.py TurnDelivery ``answer_head``), in the owner's
     # private chat only (TurnDelivery ``headed``: a group's topic has this row too, its cards as before): its answer card
     # is the turn's result and the board's Pin.
     answer_head: bool = False
-    # The butler's turn opens no thread of its own (D1, 2026-11-08: 提问不开串): its task card goes out only once
+    # The butler's turn opens no thread of its own: its task card goes out only once
     # it has run butler.CARD_AFTER seconds (app/cards.py Cards.reveal), the owner's message gets a reaction
     # instead (app/butler_reactions.py: OnIt, then DONE, Get or CrossMark), a turn that only handed work on to topics
     # sends no answer of its own, a failed or refused one a short top-level notice, its question cards go to the top

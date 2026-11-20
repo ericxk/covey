@@ -80,16 +80,16 @@ class SpacesAccessTests(GroupFixture, UnifiedCase):
     def test_default_serves_as_before(self):
         self.assertEqual(self.access.spaces, spaces.DEFAULT)
         self.assertFalse(self.access.is_owner(ALIAS))
-        self.send(group_event('o1', '@C队 第一个任务'))
+        self.send(group_event('o1', '@Covey 第一个任务'))
         self.assertTrue(self.access.active('group'))
         self.assertEqual(self.access.space_of('group'), spaces.TEAM)
         self.assertEqual(self.access.notify_chat(), self.access.owner_chat())
 
     def test_no_team_spaces_never_activates_a_group(self):
         self.access.spaces = spaces.Settings(allow_team_spaces=False)
-        self.send(group_event('o1', '@C队 第一个任务'))
+        self.send(group_event('o1', '@Covey 第一个任务'))
         self.assertFalse(self.access.group('group').get('active'))
-        self.send(group_event('m1', '@C队 帮我看看', MEMBER))
+        self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual(self.ignored(), ['group_inactive'])
         self.assertEqual(len(self.topic_dirs()), 1)
         self.assertFalse(self.access.allows(MEMBER, 'group'))
@@ -107,16 +107,16 @@ class SpacesAccessTests(GroupFixture, UnifiedCase):
 
     def test_a_personal_group_serves_only_the_owner_and_never_activates(self):
         self.access.spaces = spaces.Settings(personal_groups=frozenset({'group'}), owner_accounts=frozenset({ALIAS}))
-        self.send(group_event('o1', '@C队 第一个任务'))
-        self.send(group_event('a1', '@C队 另一个账号', ALIAS))
-        self.send(group_event('m1', '@C队 帮我看看', MEMBER))
+        self.send(group_event('o1', '@Covey 第一个任务'))
+        self.send(group_event('a1', '@Covey 另一个账号', ALIAS))
+        self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual(self.ignored(), ['group_inactive'])
         self.assertEqual(len(self.topic_dirs()), 2)
         self.assertFalse(self.access.group('group').get('active'))
         self.assertEqual(self.access.space_of('group'), spaces.PERSONAL)
         self.assertEqual(self.access.space_of('other'), '')
         # Other groups stay team spaces.
-        self.send(group_event('o2', '@C队 这个群', chat='group2'))
+        self.send(group_event('o2', '@Covey 这个群', chat='group2'))
         self.assertEqual(self.access.space_of('group2'), spaces.TEAM)
 
     def test_the_alias_is_the_owner_and_members_are_not(self):
@@ -128,7 +128,7 @@ class SpacesAccessTests(GroupFixture, UnifiedCase):
         self.send(direct('m1', MEMBER, 'dm-member'))
         self.assertEqual(self.ignored(), ['not_owner'])
         self.assertEqual(len(self.topic_dirs()), 1)
-        self.send(group_event('a2', '@C队 群里也行', ALIAS))
+        self.send(group_event('a2', '@Covey 群里也行', ALIAS))
         self.assertEqual(len(self.topic_dirs()), 2)
         self.assertEqual(self.access.sender_label({'sender_id': ALIAS}), '发送者：主人')
 

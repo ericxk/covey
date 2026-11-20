@@ -385,11 +385,11 @@ class Access:
         if not removed:
             return event
         content = str(event.get('content') or '')
-        # Every mention's text is matched, longest first: a bot "C队" leaves "@C队长" alone.
+        # Every mention's text is matched, longest first: a bot "小助" leaves "@小助手" alone.
         pattern = '|'.join(re.escape(t) for t in sorted(tokens(mentions), key=len, reverse=True))
         hits = [m for m in re.finditer(pattern, content) if m.group(0) in removed]
         # Those a space, @ or the end follows; with none, as many as the bot was mentioned. The same
-        # name typed as plain text ("问问@C队长怎么看") stays.
+        # name typed as plain text ("问问@小助手怎么看") stays.
         bounded = [m for m in hits if content[m.end():m.end() + 1] in ('', ' ', '\u00a0', '\n', '@')]
         chosen = bounded or hits[:len(mine)]
         for m in sorted(chosen, key=lambda m: m.start(), reverse=True):

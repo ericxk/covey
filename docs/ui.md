@@ -1,6 +1,6 @@
 # UI 规范 · 夜航
 
-管三处：① 飞书聊天里的卡片 ② 私聊底部菜单「用量」「看板」「设置」点开的结果卡 ③ 网页工作台（[网页工作台](butler.md)）。词、颜色、组件三处共用一份：状态词表和颜色在 `covey/core/look.py`，卡片组件在 `covey/cards/ui.py`，网页从 `scripts/export_look.py` 导出的 `look.json` 生成自己的 token。状态词也收在 [名词表](glossary.md#状态词)。
+管三处：① 飞书聊天里的卡片 ② 私聊底部菜单「用量」「看板」「设置」点开的结果卡 ③ 网页工作台（[网页工作台](web.md)）。词、颜色、组件三处共用一份：状态词表和颜色在 `covey/core/look.py`，卡片组件在 `covey/cards/ui.py`，网页从 `scripts/export_look.py` 导出的 `look.json` 生成自己的 token。状态词也收在 [名词表](glossary.md#状态词)。
 
 定下的方向：
 

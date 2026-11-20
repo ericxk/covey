@@ -1,4 +1,4 @@
-"""记忆合并 (core/track_ledger.py, app/track_digest.py, docs/butler.md 多路并行): a track's delivered answer is saved
+"""记忆合并 (core/track_ledger.py, app/track_digest.py, docs/butler.md 同时做几件事): a track's delivered answer is saved
 to the ledger, the butler's next turn is given what it has not read, and the tracks' session files are
 maintained away. The butler's compaction does not change what is given."""
 from __future__ import annotations

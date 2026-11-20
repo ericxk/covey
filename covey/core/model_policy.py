@@ -68,8 +68,8 @@ POLICY_RECOVERY = ("\n\n不会自动重试或自动检查并继续。已产生�
                    "已提交到外部系统的作业不随本机进程停止而自动撤销。")
 
 
-# A refusal of these categories is retried once, on this older model (app/policy_retry.py; the owner approved it on
-# 2026-11-10, after Anthropic's guidance): (model id, its name on cards). Fallbacks and other categories never are.
+# A refusal of these categories is retried once, on this older model (app/policy_retry.py, after
+# Anthropic's guidance): (model id, its name on cards). Fallbacks and other categories never are.
 FALLBACK_MODELS = {"cyber": ("claude-opus-4-8", "Opus 4.8"), "bio": ("claude-opus-5", "Opus 5")}
 
 

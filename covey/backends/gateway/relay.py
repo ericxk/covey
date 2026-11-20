@@ -3,22 +3,21 @@
 Acme answers 429 in two ways. Short of capacity (many users) it says
 "业务申请资源不足，平台申请扩容" without a Retry-After header, and Codex fails a
 429 without one at once. Over the key's request rate it says so with
-x-ratelimit-limit 120, x-ratelimit-remaining 0 and Retry-After 1 (first seen
-2026-11-02 11:03), and Codex spends one of its ten retries a second on it: #2304
-failed twelve seconds after its first. The relay forwards every request and
+x-ratelimit-limit 120, x-ratelimit-remaining 0 and Retry-After 1 and Codex
+spends one of its ten retries a second on it: a task failed twelve seconds after its first. The relay forwards every request and
 response unchanged, except a 429: it holds Codex's request and sends the same
 body upstream again itself, at once after a capacity 429 (Acme hands freed
 capacity to whichever request asks next, so a request that waits between tries
 only loses its turn) and after the Retry-After of a rate-limit 429 (at most
 LIMIT_WAIT seconds; sooner is refused again). It keeps on until another answer
-comes or the task ends: the owner chose no time limit (2026-11-02), Stop ends
+comes or the task ends: the owner chose no time limit, Stop ends
 the wait. A ``window`` in seconds still makes it give up. Tools are never run
 again: only the model request is repeated, as Codex itself would repeat it.
 A spent daily quota is a 403 ("quota exceeded: Daily Limits exceeded"), never
 held.
 
 Acme's upstream may also run out of capacity after it began a 200 event
-stream: a Pi turn on gpt-6.1-sol (2026-11-04 00:49) got its response.created
+stream: a Pi turn on gpt-6.1-sol got its response.created
 and then a data line {"error": {..., "message": "Requests have exceeded the
 throughput limit on your Provisioned-Managed deployment ..."}} (pi's OpenAI SDK
 throws a data line's error as it is). Neither Codex nor pi retries that, so the
@@ -26,7 +25,7 @@ relay reads a stream's opening events before it answers: when the first event
 past them (OPENING) carries a capacity error (CAPACITY_TEXTS), the stream is a
 capacity 429 like any other; else the read bytes go out first, unchanged.
 
-Why the relay retries instead of Codex (codex-cli 0.164.0, measured 2026-11-01
+Why the relay retries instead of Codex (codex-cli 0.164.0, measured
 against a local stand-in upstream): Codex retries a 429 only under
 stream_max_retries (at most 100) and keeps one count per request for 429s,
 5xx and dropped streams together; a failure that carries no Retry-After waits
@@ -71,7 +70,7 @@ from covey.core.http_upstream import copy_headers, pipe, send
 # Seconds between the card's notes of one run of 429s: the relay tries again at once, so a note per try
 # would redraw the card for every 429.
 NOTE_EVERY = 5
-# A run shorter than this is only counted: on 2026-11-01 half of 238 runs ended within 10 s.
+# A run shorter than this is only counted: about half of the runs end within 10 s.
 SHOW_AFTER = 15
 SUBAGENT = "collab_spawn"  # x-openai-subagent of a Codex sub-agent's requests.
 LIMIT_WAIT = 60  # Longest wait on one rate-limit 429's Retry-After.

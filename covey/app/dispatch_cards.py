@@ -56,7 +56,7 @@ def enabled() -> bool:
 KINDS = frozenset({STEER_KIND, STOP_KIND})
 STOP_SHOWN = 600.0  # Seconds a stop click is shown as 正在停止 while the job's record has not said so.
 # Stop clicks this Bridge passed on, (topic id, job number) -> when: the card says 正在停止 at the next tick, not once the
-# task runner has written the job's record (a stalled disk held that write for minutes: T525 #4664, 2026-11-18).
+# task runner has written the job's record (a stalled disk can hold that write for minutes).
 _stopping: dict = {}
 NO_JOB = "这个话题现在没有在做的任务，上一轮已经结束了。要继续，直接在话题里发消息，或引用这张卡回复。"
 LIVE_STATUS = frozenset({"queued", "running", "waiting_user", "cancel_requested"})
@@ -101,8 +101,8 @@ def click_job(runtime, state_dir, topic_id, chat_id) -> str:
     the newest when the card was last drawn: an answer to a question or a 补充 that started a turn since then makes a
     newer one, and the butler's own turn that handed the work over is a job of another topic): the newest one that
     has started (starting, running, waiting for an answer), else the newest queued one. A message queued behind the
-    running turn does not take the click: 停止 stopped only the queued one and the running turn went on (check 4,
-    2026-11-16). The registry first, then the job records, as a task runner this Bridge has not adopted yet is only in
+    running turn does not take the click: 停止 stopped only the queued one and the running turn went on. The
+    registry first, then the job records, as a task runner this Bridge has not adopted yet is only in
     them; '' when the topic has none."""
     live = runtime.jobs.open_in_topic(topic_id, chat_id)
     if live:  # Started: what app/runtime.py job_stage calls anything but queued (that module is not imported here).
@@ -275,7 +275,7 @@ def _created(env, request, topic_id, job_key, token, kind, mid, starts, project=
     kept = following(state, chat, topic_id, mid) if mid and not record else ""
     if kept:
         # A 补充 into a job whose card is out already: that card follows it, a second one would say the same and never
-        # get the conclusion's note (it goes to the token of the job's own request), T525 #4664, 2026-11-18.
+        # get the conclusion's note (it goes to the token of the job's own request).
         env.runtime.log(f"dispatch card kept topic={str(topic_id)[:12]} kind={kind} token={kept[:8]}")
         return kept
     if not record:

@@ -46,8 +46,8 @@ ACTIONS = {
     # steps. Each queues a turn of the topic.
     "bridge_job_diagnose": CardAction("看原因", bot_only=True, handler="submission.follow_up"),
     "bridge_job_split": CardAction("拆小再试", bot_only=True, handler="submission.follow_up"),
-    "bridge_fork": CardAction("侧聊或分叉", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
-    "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards since 2026-11-08.
+    "bridge_fork": CardAction("侧聊或分叉", bot_only=True, handler=RETIRED),  # Off the cards.
+    "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards as well.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.
     # 看看 under the status line of a turn that may be stuck (cards/task_status.py LOOK_KIND): the Bridge looks at the task
     # runner from outside (app/stuck_check.py), so never forwarded to it; it starts no task.
@@ -96,7 +96,7 @@ ACTIONS = {
     "bridge_proxy_provider": CardAction("选择代答供应商"),
     "bridge_proxy_tier_model": CardAction("选择代答模型"),
     "bridge_proxy_tier_budget": CardAction("选择代答思考预算"),
-    "bridge_proxy_model": CardAction("选择代答模型"),  # The select of a card drawn before the rows (2026-11-10).
+    "bridge_proxy_model": CardAction("选择代答模型"),  # The select of a card drawn before the rows.
     "bridge_proxy_budget": CardAction("选择代答思考预算"),
     "bridge_proxy_find": CardAction("查找联系人"),
     "bridge_proxy_add": CardAction("加入白名单"),
@@ -130,15 +130,15 @@ ACTIONS = {
     "bridge_group_free": CardAction("设置群的免@"),
     "bridge_group_member": CardAction("选择免@的群成员"),
     # The 设置 card's 脱敏 tab (cards/redaction_panel.py KINDS).
-    "bridge_dashboard_rotate": CardAction("换口令"),  # Retired 2026-11-19 with the web dashboard: a click says it went.
-    "bridge_redaction_page": CardAction("切换脱敏页面"),  # Retired 2026-11-14: a click draws the card again.
+    "bridge_dashboard_rotate": CardAction("换口令"),  # Retired with the web dashboard: a click says it went.
+    "bridge_redaction_page": CardAction("切换脱敏页面"),  # Retired: a click draws the card again.
     "bridge_redaction_list": CardAction("翻脱敏词表的页"),
     "bridge_redaction_open": CardAction("展开脱敏的试一下或上游地址"),
     "bridge_redaction_find": CardAction("查找敏感词"),
     "bridge_redaction_add": CardAction("加入敏感词"),
     "bridge_redaction_remove": CardAction("批量删除敏感词"),
     "bridge_redaction_term": CardAction("修改或删除敏感词"),
-    "bridge_redaction_edit": CardAction("修改敏感词"),  # Retired 2026-11-14 as well.
+    "bridge_redaction_edit": CardAction("修改敏感词"),  # Retired as well.
     "bridge_redaction_undo": CardAction("撤销删除敏感词"),
     "bridge_redaction_switch": CardAction("切换脱敏开关"),
     "bridge_redaction_upstream": CardAction("设置上游地址"),
@@ -194,7 +194,7 @@ RETIRED_TEXT = {
     "bridge_compact": "📦 压缩上下文已下线：会话快到模型窗口时，Claude Code 会自己压缩。",
 }
 # compat: cards sent by a feature that was taken out: (kind, the prefix of its forms' button names) -> what a click gets
-# (a card kind not in ACTIONS is otherwise dropped without a word). Paseo (covey_paseo) was taken out 2026-11-20.
+# (a card kind not in ACTIONS is otherwise dropped without a word). Paseo (covey_paseo) was taken out.
 MOVED_CARDS = {("bridge_paseo", "bridge_paseo_"): "Paseo 已下线，卡片上的操作没有执行。"}
 
 
@@ -214,7 +214,7 @@ def action_label(kind) -> str:
 
 def card_object(event, *names) -> dict | None:
     """The first of the event's ``names`` that is set, as an object: the client sends one or the JSON
-    string of one (2026-10-27); {} when none is set, None when it is not JSON or not an object."""
+    string of one; {} when none is set, None when it is not JSON or not an object."""
     value = next(filter(None, map(event.get, names)), {})
     if isinstance(value, str):
         try:

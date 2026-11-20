@@ -114,7 +114,7 @@ STEP_STATES = ("done", "doing", "todo")
 STEP_TITLE_CHARS = 30
 MAX_STEPS = 20
 DELIVERY_FIELDS = ("commit", "deployed", "verified")
-# Each field read as written up to this (the answer card's 改动 fold shows it all, the owner 2026-11-09: no more
+# Each field read as written up to this (the answer card's 改动 fold shows it all, not
 # "…10:1…"); the cap keeps the fold within a card's budget (cards/elements.py CARD_BYTES).
 DELIVERY_CHARS = 2000
 CHANGE_LINE_WIDTH = 30  # The 改动 fold's one line after "改动 · " (``change_summary``), cut alone when wider.
@@ -181,7 +181,7 @@ def delivery_commits(delivery) -> list:
 
 
 def shows_change(delivery, files_changed=False) -> bool:
-    """Whether a turn's answer card shows its 改动 fold (the owner, 2026-11-09: 只在改了代码的轮次显示): its
+    """Whether a turn's answer card shows its 改动 fold: its
     checkpoint's ``delivery`` names a commit; or, without one, the Bridge saw the turn change files in its workspace
     (``files_changed``: core/diff.py wrote the turn's diff, the job's ``diff_json_path``) and the delivery says
     something. A research, report or Q&A turn shows none, even with a delivery written."""
@@ -215,8 +215,8 @@ def _fit(text, width) -> str:
 def change_summary(delivery, width=CHANGE_LINE_WIDTH) -> str:
     """``delivery`` in one line, the 改动 fold's title after "改动 · ": "951327a · 第 331 代 · 已验收" (the first
     commit short, "+1" for one more when the line has room; the deployment's "第 N 代" when it names one, else its
-    first words, as many as leave room for 验收; 已验收 or 未验收), at most ``width`` wide (``_width``: a topic's side panel shows "改动 · " and 30, the
-    owner's sample 2026-11-09 wrapped "已验收" at 36) and cut alone when wider; '' without a delivery."""
+    first words, as many as leave room for 验收; 已验收 or 未验收), at most ``width`` wide (``_width``: a topic's side panel shows "改动 · " and 30, a
+    sample wrapped "已验收" at 36) and cut alone when wider; '' without a delivery."""
     if not delivery:
         return ""
     commits = delivery_commits(delivery)

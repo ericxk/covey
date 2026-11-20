@@ -32,7 +32,7 @@ class Fixture:
         self.addCleanup(butler_search._checkpoints.clear)
         self.turns = 0
 
-    def topic(self, topic_id, number, title, *turns, chat=CHAT, workspace="EnvReplay"):
+    def topic(self, topic_id, number, title, *turns, chat=CHAT, workspace="DataLab"):
         """A topic and its turns, each (owner's words, result, checkpoint or None, status); job ids go up across
         topics in the order written."""
         write_topic(self.state, topic_id=topic_id, chat_id=chat, topic_number=number, harness_id="claude",
@@ -91,7 +91,7 @@ class SearchTest(Fixture, unittest.TestCase):
         self.assertEqual([hit.record["job_id"] for hit in butler_search.search(self.env, CHAT, [butler_search.clue(LINK)])[0]],
                          [1, 4, 6, 5])
         self.assertEqual(found["data"]["total"], 4)
-        self.assertIn("T2 · 我们是一家小公司（前言） · EnvReplay · " + "b2" * 16, text)
+        self.assertIn("T2 · 我们是一家小公司（前言） · DataLab · " + "b2" * 16, text)
 
     def test_made_in_a_turn_is_its_first_appearance(self):
         self.seed()

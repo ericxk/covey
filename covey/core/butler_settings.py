@@ -56,8 +56,8 @@ class Settings:
     trusted: tuple = ()  # trust_key()s the owner told it to start without asking.
     workspace_notes: tuple = ()  # (workspace name, one line on what it is for), in the owner's order.
     subagents: str = SUBAGENTS[0]  # SUBAGENTS.
-    # Retired on 2026-11-09 (the owner: 下线): main-thread.json's desk_topics opened front-desk topics from 11-07
-    # 01:12 to noon, frozen on 2026-11-10 (core/migrate.py desk-retire). It is no longer read, so every topic the butler
+    # Retired: main-thread.json's desk_topics opened front-desk topics in older releases, frozen since
+    # (core/migrate.py desk-retire). It is no longer read, so every topic the butler
     #  opens is a 话题区; a file that says true gets one warning line at the Bridge's start
     # (``desk_topics_left``), and ``save`` keeps the value it has for an older release. Not a field: no one can set it.
 
@@ -117,7 +117,7 @@ def load(state_dir) -> Settings:
 
 
 # The Bridge's start logs it once when main-thread.json still says desk_topics true (app/unified.py).
-DESK_TOPICS_RETIRED = ("warning: main-thread.json desk_topics is retired (2026-11-09) and read as false: topics the "
+DESK_TOPICS_RETIRED = ("warning: main-thread.json desk_topics is retired and read as false: topics the "
                        "main thread opens hang under the owner's question; old front-desk topics are frozen (core/migrate.py desk-retire)")
 
 

@@ -49,7 +49,7 @@ HOOK_NAMES = {
     "service_hosting": "service/install.py: other ways to host the Manager (MODES: name -> install(root, args); optional auto_mode() -> a mode name when it applies, for --mode auto)",
 }
 # compat: hooks of features the core no longer has; a manifest that still names one loads, and the hook is never asked for.
-RETIRED_HOOKS = {"dashboard_entry"}  # The web dashboard's fixed entry, with the dashboard taken out 2026-11-19.
+RETIRED_HOOKS = {"dashboard_entry"}  # The web dashboard's fixed entry, with the dashboard taken out.
 SETTING_NAMES = {
     "web_tenant_domain": "feishu/web_client.py: the Feishu tenant's host name, for the web login",
     "contact_notes": "app/artifact_policy.py: a regex of the paths the 代答 contacts' notes are kept in",
@@ -57,7 +57,7 @@ SETTING_NAMES = {
     "contact_notes_dir": "app/proxy_commands.py: the notes directory under a workdir, with {task} for the task id",
 }
 # compat: variables of features that were taken out -> the feature; still set, they are ignored and the Bridge logs one
-# line for each (``unused_env``). Paseo (the covey_paseo extension) was taken out 2026-11-20.
+# line for each (``unused_env``). Paseo (the covey_paseo extension) was taken out.
 RETIRED_ENV = {"COVEY_PASEO_FLEET": "Paseo"}
 PROVIDER_FIELDS = {"key", "harness", "name", "prefix", "access", "menu"}
 

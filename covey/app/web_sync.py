@@ -1,4 +1,4 @@
-"""网页工作台同步 (docs/butler.md 网页工作台, COVEY_WEB=1 and COVEY_WEB_CONFIG): pushes the state of the owner's projects, topics, turns and
+"""网页工作台同步 (docs/web.md, COVEY_WEB=1 and COVEY_WEB_CONFIG): pushes the state of the owner's projects, topics, turns and
 questions to the web page (网页应用) and fetches what the page sent, which app/web_ops.py does. Off by default: without the switch
 there is no thread and no request.
 
@@ -121,17 +121,16 @@ class WebSync:
 
     def start_over(self) -> None:
         """After a look was left behind: a new collector, so the next look starts a full pass. The left-behind
-        look keeps writing only to the old ones and sends nothing (2026-11-19 14:36 one that came back an hour late put T542 back to 在做
-        on the page). The topic it was stuck reading (an NFS open of its topic.json that never returned,
-        2026-11-19) is left out of the looks while that thread lives, so the next look does not get stuck on it again."""
+        look keeps writing only to the old ones and sends nothing (one that comes back an hour late must not put a topic back to 在做 on
+        the page). The topic it was stuck reading (an NFS open of its topic.json that never returned, say) is left out of the looks while that thread lives, so the next look does not get stuck on it again."""
         old = self.collector
         stuck = {topic: thread for topic, thread in self.stuck.items() if thread.is_alive()}
         if old.at and old.thread is not None and old.thread.is_alive():
             stuck[old.at] = old.thread
             self.runtime.log(f"web sync push leaves topic {old.at[:12]} out while its read is stuck")
         self.stuck = stuck
-        # What the page took stays known (``sent``): only what changed goes again, not every item (2026-11-19 23:52: a stuck read
-        # made the next look push all ~7000 items again, minutes in which nothing new went out).
+        # What the page took stays known (``sent``): only what changed goes again, not every item (after a stuck read the next look
+        # would push thousands of items again, minutes in which nothing new goes out).
         self.collector, self.last_full = Collector(self.env, stuck, self.runtime.log, self.images), 0.0
         self.backlog = {}  # Read by the old one: the new pass reads them again.
 
@@ -159,8 +158,8 @@ class WebSync:
             self.push_settings(chat, now, full=True)
             self.push_tidy(now, full=True)
         # The hot topics' changes go first, whole, every step; the pass's wait in the backlog and go a batch a step after them, so
-        # an answer or a start shows within seconds even while a restart's first pass is still sending (2026-11-20 00:31-00:53: four
-        # restarts, each first pass ~20 MB over ~5 minutes, starts and ends 55-73 s late on the page).
+        # an answer or a start shows within seconds even while a restart's first pass is still sending (a first pass can take
+        # minutes over tens of MB).
         urgent = [each for each in items[:collector.urgent] if sent.get((each["type"], each["key"])) != each["rev"]]
         for each in urgent:
             self.backlog.pop((each["type"], each["key"]), None)
@@ -211,7 +210,7 @@ class WebSync:
 
     def images_ready(self) -> None:
         """The images' ledger, once the state directory is known: the unified Bridge builds this object before build_context fills
-        the butler env's state directory in (2026-11-20, generation 452 pushed no image because of it)."""
+        the butler env's state directory in."""
         if self.images is not None or not self.env.state_dir:
             return
         self.images = web_images.WebImages(self.env.state_dir, self.runtime.log)
@@ -294,7 +293,7 @@ class WebSync:
     def push_settings(self, chat, now, full=False) -> int:
         """The ``settings`` item posted on its own when it is due and changed (``settings_items``): from the inbox thread each second, so a
         change the page made is on the page before its ack, and a change on the card a second later, however long the push thread's full look
-        takes (minutes in a big chat on a network disk: 2026-11-19 T554, the page's change came back after 3 min 40 s); and from the push
+        takes (minutes in a big chat on a network disk); and from the push
         thread's full look. One at a time (``settings_lock``). How many went (0 or 1); a failed post is logged and tried on the next look."""
         if not self.settings_lock.acquire(blocking=False):
             return 0  # The other thread posts it, or a look left behind still holds it (a read on the network disk that hangs).
@@ -374,7 +373,7 @@ class WebSync:
                 if row.get("topic_key"):
                     self.collector.touch(row["topic_key"])
                 opened = self.ops.opened_topic(row)
-                if opened:  # 2026-11-20 live: the page waited a minute for the topic it had just opened.
+                if opened:  # Else the page waits a minute for the topic it has just opened.
                     self.collector.touch(opened)
                 if row.get("kind") in ("settings", "launch"):  # A launch changes what the next one preselects.
                     self.settings_due = True  # Pushed below, before the ack: the page reads the new settings when it sees done.

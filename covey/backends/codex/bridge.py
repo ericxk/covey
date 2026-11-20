@@ -71,7 +71,7 @@ class CodexBackend(BackendRuntime):
         # command and no live runner's handoff passes it (compat_report: codex-transport)
         parser.add_argument("--codex-transport", choices=["app-server"], default="app-server")
         parser.add_argument("--codex-cmd", default=DEFAULT_CODEX_CMD, help="codex executable / wrapper command")
-        # compat(58800eb): the Magpie provider was removed (2026-11-10); its option stays,
+        # compat(58800eb): the Magpie provider was removed; its option stays,
         # unlisted and ignored, so a service command line written before and the runners' handoff argv copied from
         # it still parse, and a value set gets one line at the start; retire when no service command and no live
         # runner's handoff passes it (compat_report: codex-magpie-url)

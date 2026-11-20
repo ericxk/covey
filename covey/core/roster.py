@@ -43,11 +43,11 @@ CORE_RETIRED = {
     # Acme wrappers, replaced by direct personal-SK access (Codex and dsh).
     "codex-w": "Codex-W",
     "claude-w": "Claude-W",
-    # Neeko CLI v3 over the Codex protocol; Neeko is no longer maintained (2026-11-02).
+    # Neeko CLI v3 over the Codex protocol; Neeko is no longer maintained.
     "neeko-next": "Neeko Next",
-    # Claude Code on 豆包工作, a Harness until 2026-11-03 and then a provider until it was removed (2026-11-05).
+    # Claude Code on 豆包工作, a Harness, then a provider until it was removed.
     "doubao": "豆包",
-    # Kiro, retired 2026-11-01 (45a1f5e); its topics showed the generic notice until 2026-11-05.
+    # Kiro, retired.
     "kiro": "Kiro",
 }
 

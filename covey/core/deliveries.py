@@ -199,7 +199,7 @@ def shown_text(record):
 
 
 # The context a message that replies to another is sent to the model with (feishu/forward.py): a preview leaves it out
-# (T3027's 最新补充 showed "回复上下文： - parent_id: `om_…`").
+# (else 最新补充 shows "回复上下文： - parent_id: `om_…`").
 REPLY_CONTEXT = re.compile(r"\n[ \t]*(?:回复上下文|话题起始消息（背景参考）)[：:]")
 
 

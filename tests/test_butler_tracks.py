@@ -1,4 +1,4 @@
-"""多路并行的底座 (core/butler_tracks.py, docs/butler.md 多路并行, COVEY_BUTLER_TRACKS; B1): the slots' topic ids and the
+"""多路并行的底座 (core/butler_tracks.py, docs/butler.md 同时做几件事, COVEY_BUTLER_TRACKS; B1): the slots' topic ids and the
 switches, the family predicate and the root one with the call sites that follow it, the family's live tasks, a slot's
 topic.json, and the scheduler's order for the slots. With the switch off every answer is the one before the tracks
 existed."""

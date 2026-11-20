@@ -134,7 +134,7 @@ class NodeAlerts:
         return entry.get("title") or alias
 
     def tasks(self, ctx, event):
-        """task key -> how the card names it (T512 · 任务 #4664), for the event's processes (``top``, ``writers``)."""
+        """task key -> how the card names it, for the event's processes (``top``, ``writers``)."""
         out = {}
         for proc in (event.get("top") or []) + (event.get("writers") or []):
             task = proc.get("task")

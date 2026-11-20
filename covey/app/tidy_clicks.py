@@ -1,5 +1,5 @@
 """The clicks on 整理专项's cards: the proposal card, a row of the 整理专项 card, the reason form, 移出 and 设置's 整理专项.
-The owner's only, each click once (app/unified.py PANELS, docs/butler.md 整理专项). The top of the app/tidy_*.py modules below
+The owner's only, each click once (app/unified.py PANELS, docs/projects.md 整理专项). The top of the app/tidy_*.py modules below
 app/tidy_web.py: it asks app/tidy_run.py to start a 整理, app/tidy_apply.py to do what was decided and app/tidy_proposals.py to
 redraw the proposal's card."""
 from __future__ import annotations
@@ -99,8 +99,8 @@ class Clicks:
 
         state, kind = Path(ctx.state_dir), raw["kind"]
         record = proposals.read_proposal(state, str(raw.get("proposal") or ""))
-        # 建专项 and 暂不考虑 on the 看板 (cards/board.py, ``from`` "board"; the owner, 2026-11-18: 还在等主人定的提议卡要在看板上
-        # 直接能点开处理): the proposal's own card is the one redrawn, then the 看板 (``handed``).
+        # 建专项 and 暂不考虑 on the 看板 (cards/board.py, ``from`` "board"): the
+        # proposal's own card is the one redrawn, then the 看板 (``handed``).
         board = raw.get("from") == BOARD_FROM and kind in (cards.CREATE_KIND, cards.DECLINE_KIND)
         own = str((record or {}).get("card", {}).get("message_id") or "") if record else ""
         if not record or (not board and own not in ("", message)):
@@ -146,7 +146,7 @@ class Clicks:
         topics, unknown = facts.chosen(state, chat, view, fields)
         if topics is None:
             topics = list(record.get("topics") or ())
-        # A topic already in a project stays there (app/projects.py step_members): said, not listed as the new one's (T574).
+        # A topic already in a project stays there (app/projects.py step_members): said, not listed as the new one's.
         taken = [topic for topic in topics if projects.topic_project(state, topic) is not None]
         topics = [topic for topic in topics if topic not in taken]
         elsewhere = facts.elsewhere(state, taken)

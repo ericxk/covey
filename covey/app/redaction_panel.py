@@ -1,16 +1,14 @@
 """The 设置 card's 脱敏 tab: the redaction term list (core/redaction.py) kept on the card itself, one layer
-(cards/redaction_panel.py): 填词 (a box of terms, a line each, 加入词表 or 从词表删除: many in one click, the owner's
-choice of 2026-11-19, T566) and the list to find and delete terms one by one, and folds for the switches and the
-upstream address with 探测, 试一下, and 记录 of what the relays counted. Stand-ins are automatic (the owner's decision
-of 2026-11-14): no 改, no way to name one; a button of the 2026-11-13 layout still answers (RETIRED), and so does 换口令 of the web dashboard that
-the deployment once served (ROTATE; the owner had it taken out on 2026-11-19, T569: the list is edited here and on the web
-workbench's settings page).
+(cards/redaction_panel.py): 填词 (a box of terms, a line each, 加入词表 or 从词表删除: many in one click) and the list to find and delete terms one by one, and folds for the switches and the
+upstream address with 探测, 试一下, and 记录 of what the relays counted. Stand-ins are automatic: no 改, no way to name
+one; a button of the older layout still answers (RETIRED), and so does 换口令 of the web dashboard that the deployment
+once served (ROTATE; taken out: the list is edited here and on the web workbench's settings page).
 
 The tab's record is the 设置 card's (app/settings_hub.py); a card older than that one record (gen 286) had one in
 LINK_FOLDER (named after the dashboard's link cards, whose folder it shared), which the 设置 card's takeover still reads through this panel. A click (app/unified.py PANELS, the
 owner's) changes the list (core/redaction.py ``edit_terms``, ``put_back``, ``update_config``) outside the record's lock
 and saves what happened (``notice``) in the record's view under it; Feishu gets its answer then, and the whole card is
-drawn again after it (card_lanes.after_ack: the spinner stopped after the draw, about a second, before 2026-11-19), once
+drawn again after it (card_lanes.after_ack: otherwise the spinner stops only after the draw, about a second), once
 for clicks that came quickly one after another (``redraw``). 探测 runs off the click (``start``) and draws the card again
 when it ends. The same click delivered again acts once: the view keeps the last ``seen`` event ids.
 
@@ -308,7 +306,7 @@ class RedactionPanel:
     @staticmethod
     def add(ctx, text):
         """加入词表: each line a term, checked against the list and the lines before it (core/redaction.py
-        ``edit_terms``); a line written ``原词 => 替身词`` (the 2026-11-13 way) is left out."""
+        ``edit_terms``); a line written ``原词 => 替身词`` (the older way) is left out."""
         if not term_lines(text):
             return {'notice': '先在框里填词：每行一个。'}
         edit = edit_terms(ctx.state_dir, add=text)

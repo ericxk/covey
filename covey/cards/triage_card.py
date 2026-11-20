@@ -1,4 +1,4 @@
-"""The 不对 form of the 专项卡's 分流记录 (docs/butler.md 专项的问题分流, app/project_clicks.py ``triage_wrong``): a card of its own with one
+"""The 不对 form of the 专项卡's 分流记录 (docs/projects.md 专项的问题分流, app/project_clicks.py ``triage_wrong``): a card of its own with one
 input, because the 专项卡 is redrawn and holds no field (cards/project_card.py). The owner says in a sentence how the lead's answer
 should have been; the submit button's callback is ``bridge_project_triage_fix`` with the question's token."""
 from __future__ import annotations

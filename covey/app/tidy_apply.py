@@ -1,5 +1,5 @@
 """Doing what 整理专项 decided: a project made, a join, a leave, a merge, a split, a fold, and the topic's cards marked 已归进.
-Takes no click and draws no proposal or 整理专项 card (docs/butler.md 整理专项); it depends on app/tidy_facts.py alone, and the
+Takes no click and draws no proposal or 整理专项 card (docs/projects.md 整理专项); it depends on app/tidy_facts.py alone, and the
 parts that ask for it (app/tidy_proposals.py, app/tidy_realtime.py, app/tidy_run.py, app/tidy_clicks.py) come above it."""
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ class Applier:
                 projects.update(state, kept, lambda data: data.update(name=record["name"]))
             return True, f"已合并进「{projects.read_record(state, kept).get('name')}」"
         if kind == proposals.SPLIT:
-            # Only the topics still the project's go (T574: one the owner took out, or another proposal moved, stays where it
+            # Only the topics still the project's go (one the owner took out, or another proposal moved, stays where it
             # is), and two at least, as the judge was allowed to propose (app/project_sorter.py MIN_CREATE).
             movable, gone = facts.still_in(state, record["topics"], pid)
             if len(movable) < proposals.MIN_CREATE:
@@ -130,8 +130,8 @@ class Applier:
         return False, "不认识的建议"
 
     def fold_if_empty(self, state, pid) -> bool:
-        """收起 a project 整理专项 or 移出 left without topics, when nothing of it runs (the owner, 2026-11-20: 只剩空壳就马上收起;
-        his word in it opens it again, app/project_loop.py reopen); whether it was."""
+        """收起 a project 整理专项 or 移出 left without topics, when nothing of it runs (the
+        owner's word in it opens it again, app/project_loop.py reopen); whether it was."""
         record = projects.read_record(state, pid)
         if not record or record.get("threads") or not facts.foldable(state, pid):
             return False

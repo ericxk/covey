@@ -1,4 +1,4 @@
-"""问题分流的记录和开关 (docs/butler.md 专项的问题分流, COVEY_PROJECT_TRIAGE=1): what a question record says about being held for a
+"""问题分流的记录和开关 (docs/projects.md 专项的问题分流, COVEY_PROJECT_TRIAGE=1): what a question record says about being held for a
 project's lead, and the switch. A member topic's choice question can be kept from the owner for ``DEADLINE`` seconds while the
 lead answers it from the project's memory or hands it back; the record's ``triage`` field is the whole of it, and nothing else
 about the question changes (its ``status`` stays ``pending``, so nothing that reads questions sees a new state).

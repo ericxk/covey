@@ -21,7 +21,7 @@ from covey.core import proxy as records
 
 # The lists (+chat-messages-list, GET /open-apis/im/v1/messages) run as the owner's user app, which the owner also
 # uses elsewhere. Its limit is 1000 calls a minute and 50 a second per app (频率限制 of
-# https://open.feishu.cn/document/server-docs/im-v1/message/list, read 2026-10-28); LISTS a ROUND_SECONDS keeps
+# https://open.feishu.cn/document/server-docs/im-v1/message/list); LISTS a ROUND_SECONDS keeps
 # take-in at 240 a minute (24%) at most, whatever the whitelist's size: 8 chats 160 a minute, 16 at the cap.
 ROUND_SECONDS = 1  # ``listen``'s round: the known chats due are listed (+chat-messages-list shows a message at once).
 LIST_SECONDS = 3  # A known chat is listed again that many seconds after its last list...
@@ -32,11 +32,10 @@ SEARCH_SECONDS = 60  # The search, every that many seconds of ``listen``'s round
 BACKOFF_FIRST = 10  # Seconds a read waits after its first failure, doubled for each one in a row...
 BACKOFF_LIMIT = 600  # ...up to this (an error, a rate limit); a chat that waits takes no list of a round.
 LOOKBACK = 900  # Seconds each read reaches back: the message search shows a new message within about a minute.
-# After failures a read reaches back to its source's last good one instead, at most this far: on 2026-11-03 four
-# chats' lists read nothing for about 25 minutes (a host-wide stall, every call timing out at 30 s), past LOOKBACK;
-# only the private-chat search happened to cover them.
+# After failures a read reaches back to its source's last good one instead, at most this far: a host-wide stall
+# (every call timing out at 30 s) can leave chats' lists reading nothing for longer than LOOKBACK.
 CATCH_UP = 7200
-SEARCH_PAGES = 4  # Pages of 50 a poll's search reads (15 minutes of private messages: 6 on 2026-10-27).
+SEARCH_PAGES = 4  # Pages of 50 a poll's search reads (15 minutes of private messages on a busy day: 6).
 
 
 def order(message):
@@ -122,7 +121,7 @@ class ProxyIntake:
         except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
             if self.proxy.runtime.shutdown.is_set():
                 # The Bridge's stop ended it (lark-cli rc=-15, or after it printed): no failure of the source. Every
-                # restart logged "proxy take-in failed … rc=-15" for the lists under way (44 lines over 11-03 and 04).
+                # restart logged "proxy take-in failed … rc=-15" for the lists under way.
                 return default
             wait = min(BACKOFF_LIMIT, BACKOFF_FIRST * 2 ** count)
             self.failures[source] = (count + 1, time.monotonic() + wait)

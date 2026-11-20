@@ -93,7 +93,9 @@ feishu/events.py consume：每个订阅一个 lark-cli 消费者，逐行交给�
 - **群记录** `groups/<sha256(chat_id)>.json`（`core/groups.py`）：只有 Bridge 写（`group` 锁）。主人第一次 @ 时在锁外查群信息，不是外部群才激活；查询失败不激活；停用过的群不自动激活。
 - **免@**（`COVEY_GROUP_ALL_MESSAGES=1`，见[群聊免@](configuration.md#群聊免)）：群记录的 `free_talk` 和 `free_talk_members` 决定谁不用 @（`talks_freely`）。免@ 不扩大谁被服务；对别人说的（`for_others`）、代答群（`proxy_chat`）不免@。
 - **点击**（`allows`）：主人，或已激活群里的任何人。工作区管理、目录选择和菜单只给主人（`is_owner`），其他人点了在卡上拒绝（outcome `owner_only`）。
-- **空间**（`core/spaces.py`，设置见[空间](configuration.md#空间spaces)）：`owner_accounts` 里的账号都是主人；`allow_team_spaces` 为 false 时没有群被激活；`personal_groups` 里的群只服务主人。默认设置下这些都不改变上面的规则。通知（早晚汇总、手上的事、告警）发到 `Access.notify_chat()`。个人群和 `owner_accounts` 的私聊各有管家（`Access.agent_chat`，`ButlerEnv.chat()` 随工具调用所属的管家），个人群有置顶菜单卡（`app/group_menu.py`）和自己的看板记录（`app/group_boards.py`、`app/pins.py` 的 `record_path`）。
+- **空间**（`core/spaces.py`，设置见[空间](configuration.md#空间spaces)）：`owner_accounts` 里的账号都是主人；`allow_team_spaces` 为 false 时没有群被激活；`personal_groups` 里的群只服务主人。默认设置下这些都不改变上面的规则。通知（早晚汇总、手上的事、告警）发到 `Access.notify_chat()`。个人群和 `owner_accounts` 的私聊各有管家（`Access.agent_chat`，`ButlerEnv.chat()` 随工具调用所属的管家），个人群有置顶菜单卡（`app/group_menu.py`，记录在 `<state>/group-menu.json`）和自己的看板记录（`app/group_boards.py`、`app/pins.py` 的 `record_path`；手上的事、话题看板、早晚汇总的记录名带 chat_id，`notify_space` 那个群用不带 chat_id 的默认那份）。
+  - 记录里仍只有一个 `owner_open_id`；只有主人本人的私聊算“主人私聊”。`owner_accounts` 的私聊记在 `<state>/owner-chats.json`（open_id → chat_id），不覆盖主人本人的 `owner-chat.json`。
+  - `<state>/spaces/<sha256(chat_id)>.json` 记每个个人群的类型和标题，只给设置卡「群聊」页显示，不参与判断。一个 chat 是什么空间由 `Access.space_of()` 回答。
 - 代答用 `owner_user_id` 认出主人自己发的消息，不是谁被服务的判断。
 
 ## 卡片点击的数据流
@@ -248,7 +250,7 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 
 - `core/roster.py` 的 `HARNESSES` 是唯一的后端表（核心表 `CORE_HARNESSES` 加上启用的[扩展](#扩展)的项），每行：`module`、`store`（会话存储类）、`live_questions`（等回答时回合保持打开：Claude）、`paused_questions`（中断回合、带回答续接：Codex）。派生的 `NAMES`（第一个是默认路由）、`LIVE_QUESTIONS`、`PAUSED_QUESTIONS` 供路由和问答证明使用。
 - 模型从哪里来是供应商，不是 Harness：`core/providers.py` 的 `PROVIDERS` 记供应商属于哪个 Harness、模型 ID 前缀和登录在哪，`provider_of` 按前缀认出供应商。
-- `RETIRED`、`RETIRED_PREFIXES` 记已下架的 Harness 和供应商；带这些前缀的模型由 `core/model_settings.py` 在入队前拒绝（[已下架项与旧配置](configuration.md#已下架项与旧配置)）。
+- `RETIRED`、`RETIRED_PREFIXES` 记已下架的 Harness 和供应商；带这些前缀的模型由 `core/model_settings.py` 在入队前拒绝（[已下线的功能与旧配置](legacy.md)）。
 
 ### 扩展
 
@@ -297,7 +299,7 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 - 每轮（`backends/claude/redaction.py`）在 127.0.0.1 起一个只活这一轮的中继，`--settings` 把 `ANTHROPIC_BASE_URL` 指向它，所有请求都走中继。不能脱敏就不发：出错抛 `Unavailable`，本轮 `redaction_failed`，Claude Code 不启动。
 - 匹配和还原在 `core/redactor.py`（规则见其模块说明）。每轮结束发 `redaction` 事件（卡上只显示个数），`turns.jsonl` 和 `relay.log` 不含内容和请求头。
 - 替身词一律是自动的（`auto_stand_in`），词表每项只有 `term`（旧版本的 `"anywhere": true` 保留生效、不能新设）。改词表的接口在 `core/redaction.py`：`edit_terms(state_dir, add=, remove=, whole=)` 一次加、删一批（先删后加，删除按整词、按 `ignore_case` 比较；返回 `TermEdit`：加了哪些、删掉的行和原位置、已在词表里的、没找到的、加不进去的行号和不提原词的原因），`put_back` 把删掉的行放回原位，开关和上游地址用 `update_config`；三者都在 `EDIT_LOCK` 里读、改、存，没有变化就不写文件。
-- 词表在设置卡的「脱敏」标签上改（一层，没有页签；`app/redaction_panel.py`，`PANELS` 里认领它的按钮）：点击在记录锁外改词表，在设置卡记录的锁里记下结果就回执，整卡重画在回执之后（`card_lanes.after_ack`；记录的 revision 已被后一次点击推进时这次不画）；「探测」在自己的后台线程里跑。卡片、卡片记录和日志里都不出现原词：行名是 `masked`，按钮按 `card-key` 下的 HMAC 指认行，拒绝原因是不提原词的 `Refused`。
+- 词表在设置卡的「脱敏」标签上改（一层，没有页签；`app/redaction_panel.py`，`PANELS` 里认领它的按钮）：点击在记录锁外改词表，在设置卡记录的锁里记下结果就回执，整卡重画在回执之后（`card_lanes.after_ack`；记录的 revision 已被后一次点击推进时这次不画）；「探测」在自己的后台线程里跑，跑完重画卡片。卡片、卡片记录和日志里都不出现原词：行名是 `masked`（首字和字数），自动替身不显示，按钮按 `<state>/redaction/card-key`（0600，第一次用时生成）下的 HMAC 指认行，查找只记下找到的行、框里输入的内容不写回卡片，拒绝原因是不提原词的 `Refused`，词表文件读不了时只说读不了（原来的错误可能引用原词）。“撤销”（`put_back`）的数据只在 Bridge 进程的内存里。记录区要读最近 500 轮涉及的话题，`core/redaction_views.py` 的 `topic_info` 按 topic.json 的修改时间缓存。旧词表的 `stand_in` 读时忽略、写时不写，迁移 `redaction-stand-in` 把旧词表重写一遍。
 - 网页工作台的设置页也改词表（`app/web_ops.py` 经 `edit_terms`）。以前的独立网页看板已经去掉；它的“换口令”按钮（`bridge_dashboard_rotate`）留在 `ACTIONS` 和 `cards/redaction_panel.py` 的 `KINDS` 里，点了只说页面已经去掉（`RedactionPanel.page_gone`，设置卡上整卡重画并提示）；manifest 里旧的 `dashboard_entry` 钩子名照常接受（`RETIRED_HOOKS`）。
 
 ### 已下架的 Harness
@@ -431,7 +433,7 @@ cancelled、superseded：终态
 - **传输**：开了 SDK（[飞书 SDK 与直连](configuration.md#飞书-sdk-与直连)）时由 `feishu/sdk.py` 发，请求由 `feishu/message_request.py` 从 lark-cli 的 argv 重建、逐字节相同，新旧进程共用回执；请求发出后不换传输。
 - **重投**：在 `verified-results` 锁内核对任务号、运行 ID、代际和指纹，只读已授权的正文，不启动模型；放开锁再发。只有 Bridge 重投。
 - **outbox**：`app/outbox.py` 定时扫描已授权、未送达、未暂停、到时的记录，从不运行 Harness；可重试的失败指数退避，用完转 `paused` 等用户处理。
-- **自动重试**（`app/auto_retry.py`，见[自动重试](usage.md#自动重试)）按 `KINDS` 分限流、本轮未全部完成、重启打断三种，各有次数上限，相加不相乘。到点时锁内 `pending` → `submitting`，锁外重试，状态只按 `AUTO_RETRY_TRANSITIONS` 前进；唯一例外是官方拒绝的停止直接转 `cancelled`。官方安全拒绝后换旧模型重试一次（`app/policy_retry.py`，[policy-stop.md](policy-stop.md#换旧模型重试一次)）不走 `auto_retry_state`，另用 `policy_retry_state` 和 `POLICY_RETRY_TRANSITIONS`（同样两步），由 `policy_retry.tick` 经 `TaskControls.requeue(fallback=…)` 排上。
+- **自动重试**（`app/auto_retry.py`，见[自动重试](reference.md#自动重试)）按 `KINDS` 分限流、本轮未全部完成、重启打断三种，各有次数上限，相加不相乘。到点时锁内 `pending` → `submitting`，锁外重试，状态只按 `AUTO_RETRY_TRANSITIONS` 前进；唯一例外是官方拒绝的停止直接转 `cancelled`。官方安全拒绝后换旧模型重试一次（`app/policy_retry.py`，[policy-stop.md](policy-stop.md#换旧模型重试一次)）不走 `auto_retry_state`，另用 `policy_retry_state` 和 `POLICY_RETRY_TRANSITIONS`（同样两步），由 `policy_retry.tick` 经 `TaskControls.requeue(fallback=…)` 排上。
 - **重跑还是拒绝**：什么都没保存的一轮按原快照重新排队；有保留候选的拒绝重跑；候选全部作废、从没授权过的（`withdrawn_unauthorized`）算没保存。各后端的投递不变量由 `test_backend_contract` 验证。
 
 ## 代答
@@ -444,6 +446,7 @@ cancelled、superseded：终态
 - **卡片**（规则 3、8、9）：设置卡和重新发送卡在自己的卡锁内取 sequence、整卡替换；kind `bridge_proxy_*` 在 `ACTIONS`，由 Bridge 自己处理。
 - **授权**（规则 5）：只发 `load_authorized_reply` 取到的已授权回复；重新发送不跑模型。
 - **主人**（规则 11）：主人判断来自 `Access`；`owner_user_id` 只用来认出主人自己发的消息。
+- **网页端登录**：`<state>/proxy/web/profile`（0700）只有一份、不进备份。它的缓存目录（`core/maintenance.py` 的 `WEB_CACHES`）合计超过 200 MiB 时，维护后台线程（每小时看一次）在没有发送中的批次、没有进程用着它时删掉。
 
 ## 设备（多设备，默认关）
 
@@ -466,7 +469,25 @@ cancelled、superseded：终态
 
 **浏览与自检**：目录浏览器（`app/directory_picker.py`）在搜索框里认 `别名:路径`，列目录是设备端的 `ls`，搜索是在设备上跑一小段 Python，结果缓存的键带设备别名，视图带 `device`，设备视图从不展开 hub 的 `~`；谁能浏览仍是主人，而且聊天要在设备的 `spaces` 里。自检 `core/device_probe.py` 的 `self_check` 和 `bin/covey_devices.py check`、设置卡的设备状态行共用：ssh 探测、推小程序、`hello`、导入环境档案（只收白名单名字，带凭据的代理拒收）、对每个声明的 Harness 真跑一次最小请求，结论写进 `devices/<别名>/profile.json`。画卡时读缓存，不去问设备。
 
-**离线与恢复**：设备上的 Agent 由设备端小程序守着，hub 连不上时它照常跑，所以「失联」和「停掉」是两件事。连接断开累计超过耐心值（`patience_minutes`，等回答时改用 `waiting_patience_hours`）这一轮结算为 `interrupted`、原因 `device_lost`，不自动再试。凡是要停设备上的进程但当场连不上的（失联、断线时点停止、任务进程退出、Bridge 重启、官方拒绝的停止），都只在 `devices/<别名>/pending-reap.json` 登记一条，`app/devices.py` 的 `devices` 后台线程（60 秒一轮，只在开关开着且有设备时才起）探活、重放登记、每小时让设备 `gc`；同一话题的下一轮开始前先 `reap` 上一个设备任务（`core/device_reap.py`），设备不确认就不起新一轮。`reap` 只杀确认属于该任务的进程组。收口挂在三处，都只登记或调 `reap`：`app/detached.py` 的 `finish_detached`、`app/app.py` 的 `notify_stale_jobs`、`app/policy_guard.py` 的 `stop_tree` 之后；官方拒绝的停止在设备确认前不标已确认（`cleanup_unconfirmed`）。状态行（`job.device_state` 进 `core/longtask.py` 的 `Facts`）的文案和各情形的处理见[配置：离线、重启与恢复](configuration.md#多设备开发中默认关)。
+**离线与恢复**：设备上的 Agent 由设备端小程序守着，hub 连不上时它照常跑，所以「失联」和「停掉」是两件事。连接断开累计超过耐心值（`patience_minutes`，等回答时改用 `waiting_patience_hours`）这一轮结算为 `interrupted`、原因 `device_lost`，不自动再试。凡是要停设备上的进程但当场连不上的（失联、断线时点停止、任务进程退出、Bridge 重启、官方拒绝的停止），都只在 `devices/<别名>/pending-reap.json` 登记一条，`app/devices.py` 的 `devices` 后台线程（60 秒一轮，只在开关开着且有设备时才起）探活、重放登记、每小时让设备 `gc`；同一话题的下一轮开始前先 `reap` 上一个设备任务（`core/device_reap.py`），设备不确认就不起新一轮。`reap` 只杀确认属于该任务的进程组。收口挂在三处，都只登记或调 `reap`：`app/detached.py` 的 `finish_detached`、`app/app.py` 的 `notify_stale_jobs`、`app/policy_guard.py` 的 `stop_tree` 之后；官方拒绝的停止在设备确认前不标已确认（`cleanup_unconfirmed`）。状态行（`job.device_state` 进 `core/longtask.py` 的 `Facts`）的文案和各情形的处理见下面的「卡上写什么」。
+
+**连接**：每台设备一条 ssh 主连接（`ControlMaster=auto`、`ControlPersist=600`、`ControlPath=<control_dir>/%C.sock`），之后的每次调用复用它，不再握手。命令行固定带 `-T`、`BatchMode=yes`（从不问密码）、`ServerAliveInterval=15`、`ConnectTimeout`、`LogLevel=ERROR`；`ssh.options` 排在这些之后，ssh 对同一个选项取第一个值，所以改不掉它们。`control_dir` 最长 41 字节：Unix 套接字路径加上 `/<40 位>.sock` 和 ssh 建套接字时的临时后缀后不能超过 104 字节（Linux 上 44 字节还能建连、45 字节起 ssh 报 `unix_listener: path ... too long`，多留的 3 字节给 macOS 的上限）；目录在第一次真连设备时才建（0700）。设备端程序按内容哈希放在设备的 `~/.covey/shim/<哈希>/shim.py`，设备上已经有同样内容就不再推。
+
+**工作区和上下文**：工作区列表里存规范化后的 `别名:路径`（`//`、`.`、`..` 折掉，不留结尾的 `/`；`~` 留给设备展开），重名加 `-2`；登记时经设备端的 `stat` 检查，限时 5 秒；`covey_workspaces.py` 命令行不认设备值。`topic.json` 的 `workdir` 存这个规范化的值，读出来时才变成占位路径（`<状态目录>/devices/<别名>/standin/<12 位哈希>`，永远不存在）加 `device`、`remote_workdir`；上下文 `BridgeContext` 和任务记录只在非空时写这两个字段，所以旧记录照旧可读，设备话题的记录在旧版本上读到的是不存在的占位路径，会被拒绝，不会在本机跑。每一轮开始前设备答不出目录、或没声明当前 Harness，用 `workdir_missing` 错误码拒绝，说明文字写明是哪种。工作区管理页和 `covey_workspaces.py prune` 对设备工作区的目录检查返回「没答复」而不是「不存在」，所以不会把它们当成已删除的目录移除；工作区页设备那一行的目录状态是「未确认」。
+
+**设备上的环境**：任务进程的环境从空开始，不是 Bridge 的环境；只给 `PWD`（设备上的目录）加设备环境档案里通过白名单的变量，再加 `devices.json` 的 `env`。白名单只有代理和证书路径（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写、`SSL_CERT_FILE`、`NODE_EXTRA_CA_CERTS`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`）；带 `user:密码@` 的代理地址拒收；`LARK_`、`FEISHU_`、`COVEY_` 开头的名字和 Claude、OpenAI 令牌即使写在 `env` 里也丢掉。日志只记被丢的变量名和原因，不记值。Claude 的令牌留在设备上，不经过 Bridge。
+
+**自检的步骤**：5 秒 ssh（BatchMode）→ 推设备端程序（声明了 Codex 就再推 `workspace_reader.py`）→ `hello` → 导入环境档案（来源依次是设备 `~/.claude/settings.json` 的 `env`、设备进程环境里的代理变量、`login_shell: true` 时登录 shell 的变量，`devices.json` 的 `env` 最后覆盖）→ 对声明的每个 Harness 真跑一次最小请求（`claude -p`、`codex exec`，经设备端的 `exec`，带档案里的环境，限 60 秒）→ 写 `profile.json`。连不上模型服务时，档案里没有代理就说去哪里设 `HTTPS_PROXY`，有代理就说代理不通。结论写进 `profile.json` 的 `check`，设置卡的设备状态行和 `service/doctor.py` 的 `devices` 读同一份。
+
+**设备上的可用性和模型目录**：每一轮开始前的可用性检查（`app/availability.py`）读设备最近的 `hello`（10 分钟内的缓存）和 `profile.json` 里最近一次最小请求：命令不在、`login` 为 `no`、最近一次最小请求判为没登录，都按「模型后端尚未登录/不可用」拒绝；没有近期的 `hello` 就放行，由这一轮自己的连接说话。Claude 的模型目录经 `spawn_process` 起在设备上；Codex 的 `models_cache.json` 用设备端的 `get` 从设备的 `~/.codex/` 取到 `devices/<别名>/codex-home/`（10 分钟内不重取，设备没答复用旧副本，没有就是空目录），再交给 `core/model_settings.py` 的 `model_catalog(root)`，所以设备上设了别的 `CODEX_HOME` 就取不到。启动卡和换配置卡列出的模型仍是 Bridge 本机的目录；设备上的话题不用 hub 上模型网关的检查结果。
+
+**卡上写什么**：开新一轮时 5 秒内连不上，这一轮不开始，卡上写「gpu1 连不上（原因）…」，点检查并继续重试；运行中断线，状态行写「gpu1 连接中断，重连中（设备上照常在跑）· 已断 2 分 10 秒」，重连后补读日志，执行过程里多一条「gpu1 已重新连上」；等你回答时断线，写「任务停在等你回答，连上后你的回答会送过去」；超过耐心值写「gpu1 失联超过 15 分钟，这一轮按中断处理；设备上的进程连上后会停掉」；断线时点停止写「已请求停止，gpu1 连上后生效」；设备重启（设备说没有这个任务）按失败结算，写「gpu1 重启过，这一轮按失败处理；会话还在设备上，检查并继续会接着做」；Bridge 重启或任务进程退出（记录分不出这两种），恢复卡写「上一轮的任务进程中断过（机器人重启或任务进程退出），gpu1 上这一轮可能还在跑；点检查并继续会先停掉它再接着做」。连上并稳定 5 分钟后，断线累计重新算。设备上的检查点超过 1 MiB 时不再同步，状态行加一行标注。
+
+**文件的上限**：附件单个 64 MiB、一轮合计 256 MiB；产物的上限同本机（旧的逐文件发送 20 MB，云空间上传 200 MB）；`show_images` 的图不超过 10 MB、同一轮最多 5 张，不要求在工作区内（二维码常存在 `/tmp`），同一张图（设备、路径、大小、修改时间）一轮只发一次。产物名单同本机（`.ssh`、`.git`、`.codex`、`.claude` 等代理目录、`.env*`、`auth.json`、`credentials.json`、`.local-state`）。答案卡的「输入/输出」框不显示设备文件的大小；知识库提示里不带历史搜索命令（它是 Bridge 本机的命令）。
+
+**设备上的清理**：`devices` 后台线程每小时让设备端 `gc` 一次：清过期的任务目录、没人引用的小程序目录，以及 `~/.covey/checkpoints/<hub-id>/` 和 `~/.covey/incoming/<hub-id>/` 下 7 天没变、也不属于运行中任务的条目。
+
+**记录**（都在 `<状态目录>/devices/` 下）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/health.json`（后台线程最近一次探活）、`<别名>/pending-reap.json`（待收割的任务键、设备上的任务目录和进程组）、`<别名>/tasks/<话题>.json`（每个话题上一个设备任务）、`<别名>/profile.json`（环境档案：Harness 路径、版本、登录状态、通过白名单的变量、每个 Harness 最小请求的结果 `probe` 和最近一次自检的结论 `check`）、`<别名>/codex-home/models_cache.json`。
 
 **设备端小程序协议的要点**（细节见上面的[设备端小程序](#设备端小程序)）：版本字段 `proto`，字段只加不改；命令的 stdout 第一行永远是 `hi`；`spawn` 按任务键和规格哈希幂等，输入按 `seq`、记录按偏移、`put` 按哈希、`reap` 可重复，所以 hub 这边「不确定就重发同一帧」是安全的；链路层错误（`LinkError`）不说明命令有没有执行，只重发幂等的命令。小程序只用标准库、按 Python 3.9 写，改它之后跑 `scripts/check_shim_compat.py`（它也检查 hub 写进 `~/.covey/` 的目录 `gc` 都清得到）。
 
@@ -478,15 +499,71 @@ cancelled、superseded：终态
 
 - **节点程序**：`core/node_agent.py`，和设备端小程序同样的约束（单文件、只用标准库、Python 3.9，`scripts/check_shim_compat.py` 检查），不导入 `covey`。装在 `~/.covey/node/`，`flock` 保证一台机器一个；`join`、`run`、`ensure`、`status`、`uninstall`。
 - **连接**：节点拨 Hub（TLS，按 Hub 证书 DER 的 SHA-256 固定），Hub 不连设备。`hello`（别名和密钥）→ `welcome`（Hub 已有的序号、应跑的版本）→ 补传 → 每个新样本一行；Hub 每 30 秒回 `ack`。断了按 1 秒起、翻倍到 60 秒重连；版本不同时节点从 `/node.py` 取新文件、校验哈希后重启自己，所以部署后各节点跟着升级。
-- **加入**：一次性口令（`core/nodes.py` 的 `open_join`/`claim`）换一把设备密钥，Hub 只存哈希；粘贴的命令是 `curl --pinnedpubkey … /join/<口令> | python3 -`。同一个端口上 `GET` 走 HTTP（只有 `/join/<口令>` 和 `/node.py`），其余是节点协议。
-- **采样**（`Sampler`）：每 10 秒一份；内存到上限 80%、60 秒涨上限的 5%、OOM 计数增加时改 2 秒一份至少 5 分钟。cgroup v1/v2 的内存与 CPU（没有上限时用整机）、PSI、load、各路径的空间（加每 10 分钟一次试写，单独线程，卡住的路径报 `hung`）、`nvidia-smi`、RSS 和 CPU 最多的进程（环境里只读 `COVEY_TASK_DIR`，每个进程读一次，带时限）。为看盘：每 60 秒读一次各进程的 `/proc/<pid>/io`，报这段时间写入至少 16 MiB 的进程中最多的 5 个（`writers`，只读得到本用户的进程）；用到 85% 以上的路径还带 `growth`（每 10 分钟记一个已用量，报近 1 小时、近 24 小时涨了多少）和 `dirs`（`biggest`：同一块盘只数一次、30 分钟至多一次、单独线程、限时 120 秒，没数完标 `partial`；不进 `/proc/self/mountinfo` 里的任何挂载点，没有它时不进别的设备上的目录，所以不会走进 NAS；文件不按设备号筛，因为 overlay 给文件报的是各层的设备号，`du -x` 在 overlay 上会因此漏算。报两层目录，占总量四分之一以上的再展开一层，根和第一层目录里散落的文件单算一项并带最常见的文件名形状，如 `envreplay-artifacts-*.tar`）。先写本地环形缓冲，再发 Hub。
+- **加入**：一次性口令（`core/nodes.py` 的 `open_join`/`claim`）换一把设备密钥，Hub 只存哈希；粘贴的命令是 `curl --pinnedpubkey … /join/<口令> | python3 -`。同一个端口上 `GET` 走 HTTP（只有 `/join/<口令>` 和 `/node.py`），其余是节点协议。那行命令由 `app/node_gateway.py` 的 `paste_command` 给出（按 Hub 公钥固定，不走代理）；节点装好后写自启：`~/.bashrc` 顶部的登录钩子，有 systemd 用户服务或 launchd 时也装（`COVEY_NODE_AUTOSTART=hook` 只装钩子）。移除是 `core/nodes.py` 的 `revoke`。监听地址的 `$名字` 由 `core/listen.py` 的 `parse_bind` 展开；没设 `COVEY_NODE_ADDRESS` 时 Hub 推算的地址是本机默认路由的 IPv6 地址加端口（`link_host`）。
+- **本机节点**：名字 `local`，`app/nodes.py` 每分钟确认 `~/.covey/node/` 里的节点在跑；它每 10 分钟试写一次数据根，写不进（配额满、挂了）就告警。
+- **记录**：`<状态目录>/nodes/`：`registry.json`（节点名单，只存密钥的哈希）、`<节点>/latest.json`、`link.json`、`raw/`（原样，3 天）、`minutes/`（每分钟一行，30 天）、`alerts.jsonl`；`events/`、`alerts/` 是告警的待发和已发记录。
+- **采样**（`Sampler`）：每 10 秒一份；内存到上限 80%、60 秒涨上限的 5%、OOM 计数增加时改 2 秒一份至少 5 分钟。cgroup v1/v2 的内存与 CPU（没有上限时用整机）、PSI、load、各路径的空间（加每 10 分钟一次试写，单独线程，卡住的路径报 `hung`）、`nvidia-smi`、RSS 和 CPU 最多的进程（环境里只读 `COVEY_TASK_DIR`，每个进程读一次，带时限）。为看盘：每 60 秒读一次各进程的 `/proc/<pid>/io`，报这段时间写入至少 16 MiB 的进程中最多的 5 个（`writers`，只读得到本用户的进程）；用到 85% 以上的路径还带 `growth`（每 10 分钟记一个已用量，报近 1 小时、近 24 小时涨了多少）和 `dirs`（`biggest`：同一块盘只数一次、30 分钟至多一次、单独线程、限时 120 秒，没数完标 `partial`；不进 `/proc/self/mountinfo` 里的任何挂载点，没有它时不进别的设备上的目录，所以不会走进 NAS；文件不按设备号筛，因为 overlay 给文件报的是各层的设备号，`du -x` 在 overlay 上会因此漏算。报两层目录，占总量四分之一以上的再展开一层，根和第一层目录里散落的文件单算一项并带最常见的文件名形状，如 `build-artifacts-*.tar`）。先写本地环形缓冲，再发 Hub。
 - **Hub 端**：`app/node_gateway.py` 在 Bridge 里起 TLS 服务（`nodes-gateway` 线程），写 `<状态目录>/nodes/<节点>/` 的记录、折每分钟一行、按 `core/node_rules.py` 判规则，事件写进 `nodes/events/`；`app/node_alerts.py`（`nodes-alerts`）发卡、恢复时原地改卡、判失联；`app/nodes.py`（`nodes-local`）拉起本机节点、每小时清旧文件。Bridge 重启时连接断开，节点几秒到一分钟内重连并补传，样本不丢不重。
 - **告警卡**：内存和 OOM 告警列内存占用最多的进程（`top`），发到第一个能对上任务的话题；盘满和写不进的告警不带 `top`（进程内存和谁占了盘无关），改列增长和按这个速度多久写满、写入最多的进程（`write_bytes` 是所有盘合计，含网络盘）、大目录（`cards/node_cards.py` 的 `disk_sections`），发到私聊。
 - **不变量**：关着时不读不写任何文件、不起线程；节点不监听端口、不读别的环境变量；没有记录锁被跨网络持有；告警只发一次，恢复只改原卡。
 
+## 管家同时做几件事（默认关）
+
+使用者看到的行为见[管家 · 同时做几件事](butler.md#同时做几件事开关默认关)。
+
+目标：管家这一轮在做事时，主人的下一句不被挡在后面。做法是把管家变成一个**话题家族**：槽 0 是现在的管家话题（`butler_topic_id`），再加固定 4 个槽（`track_topic_id(chat, 1..4)`，同样是 32 位十六进制）；每个槽是一条“路”，路里的一轮是普通的管家任务。调度器不用改：`core/scheduler.py` 按 `(chat, topic)` 排队，不同槽并行、同槽先进先出。
+
+底座（`core/butler_tracks.py`、家族谓词、`family_live`）：
+
+- **开关**（`core/butler_tracks.py`）：`COVEY_BUTLER_TRACKS=1` 开；`COVEY_BUTLER_TRACKS_MAX` 是同时在跑的件数上限（默认 3，取值 2 到 4）。见[配置 · 环境变量](configuration.md#环境变量与选项一览)。
+- **家族谓词**（`core/butler.py`）：`is_butler_topic` 开关开着时认槽 0 到 4（这些事的话题也是管家：工具只认管家任务、话题清单和看板排除、一轮的规则和卡片照管家），关着时只认槽 0，和原来一字不同；`is_butler_root` 只认槽 0。哪些调用点按家族、哪些只认根，改的时候看调用处的注释。`track_of(topic_id, chat)` 给槽号。
+- **分叉点**：这些事的会话是槽 0 会话的分叉。`ctx.options["fork_session"]` 带 `ctx.options["fork_at"]` 时，Claude 后端加 `--resume <会话> --resume-session-at <fork_at> --fork-session`，分叉只含到那一条为止的内容；槽 0 正在跑的那一轮（提问已写进记录）取它提问的父条目，分叉里就没有这一轮的半截。
+- **槽话题的 `topic.json`**：`Butler.keep_track_topic` 从槽 0 复制模型、思考预算、工作区、脱敏等设置，加 `track: k`；管家的设置变了，下次调用时同步过去。
+- **存活查询**：`JobRegistry.family_live(chat)` 给家族里没结束、不在等回答的任务（只读内存），用来数件数。
+
+**运行时**（`app/butler_tracks.py` 的 `Tracks`，`Butler.handle_event` 在原路径前调 `Tracks.handle`）：
+
+- **开不开**：`COVEY_BUTLER_TRACKS=1`，并且管家允许、模式是管家（`Tracks.enabled`；`core/butler_tracks.enabled` 只看环境变量）。关着时 `handle_event` 一字不变；开着但家族里没有活任务，`handle` 回 False，也走原路径（槽 0，不分叉，不判断）。
+- **活任务**：本进程登记表里家族的没结束的任务（排队、开始、在跑、在等回答），加上话题记录里 `waiting_user` 的（6 小时内；槽 0 的只在别处有活任务时才算）。每个交给路由层一条 `LiveJob`。
+- **认引用**：`parent_id` 先查补充送达记录（`merged`），再看是不是某个活任务的主人原消息、卡片或回复目标（`live_card`），再查别名（槽里有在等回答的任务时当作它的问题卡；其余是 `ended`；谁也不认识是 `unknown`）。
+- **分流**：`core/track_route.py` 的 `route` 九条规则；`ask_judge` 时调 `app/track_judge.py` 的 `judge`（处理事件的后台线程里同步等，不持锁），判完重读活任务，目标刚结束就新开一件。
+- **小模型的待命进程**（`app/track_standby.py`，`COVEY_TRACK_JUDGE_WARM`，默认开）：一次性的 Claude Code 每问一次要先花约 1 秒起命令行，第一个请求也比后面的慢（一次实测：冷起 p50 约 3.4 秒，其中约 1.2 秒是起进程，其余是模型），过不了硬上限（`COVEY_TRACK_JUDGE_MS`，默认 3 秒）。所以 `Tracks.handle` 一收到管家消息（家族里有没有活任务都一样，这条消息可能就是下一条要比对的任务）就调 `track_judge.warm`：起 stream-json 模式的 Claude Code，先用一条虚构的消息预热（它的第一个请求和连接就热了，里面没有主人的话），再等在标准输入上；`judge` 用 `take` 取走、写进这一问、读答案，用完杀掉进程组，每个进程只回答一个问题，上下文里没有别的消息。另有三处做法：
+
+- **取走时就起下一个**：`judge` 取走待命进程的同时调 `warm` 补上，不等答案回来；以前要等到 `Tracks.decide` 判完才补，这一问还在等时来的另一条消息（别的聊天、或同一聊天的下一句）拿不到待命进程，只能现起一次性进程（本机实测 5 秒多，超过硬上限）。
+- **同时问两个**（`COVEY_TRACK_JUDGE_HEDGE`，默认 2，取值 1 到 3）：`warm` 多留几个待命进程，`judge` 把同一问同时交给它们（`track_standby.ask_first`），第一个解析得出的答案算数，别的立刻杀掉；都失败时报第一个失败的原因，都超时就是超时，照旧按新开一件。网关的慢请求是各请求自己的，两个里总有一个躲开；代价是每次判断多一个几十 token 的预热请求和一个小请求。1 就是只用一个，和以前一样。
+- **输入变小**（`COVEY_TRACK_JUDGE_SLIM`，默认开）：Claude Code 命令行多带 `--setting-sources user --disable-slash-commands`，不再把工作目录一路向上的项目设置、记忆文件和技能清单放在每个问题前面，输入约 800 token（以前约 4800）。凭据不变，仍是 Harness 自己的环境和登录；Claude Code 不认这两个选项时记住、之后不再带。
+
+拿不到待命进程（还在起、已经死了、argv 变了、开关关了）就照旧现起一个一次性进程，日志行格式不变（`via=claude`），也不写主人的原话。空闲 10 分钟（`IDLE_S`）、超过 30 分钟（`MAX_AGE_S`，下次 `warm` 换新的）、超过硬上限、Bridge 停止（`stop_children` → `Butler.close`）和解释器退出都杀它们；`COVEY_BUTLER_TRACKS` 没开、模式不是管家、通道不是 `claude`、`COVEY_TRACK_JUDGE_WARM=0` 时不起任何进程。
+
+结论：同时问两个待命进程时，判断大多在 3 秒硬上限内；上限设到 2 秒会有约四成超时。下限在网关：一个很短的小模型请求本身就要 1.5 到 2 秒。
+
+转发、图片、文件、只有链接的消息之后 30 秒内的文字（没引用、规则落到第 9 条）直接并进那条消息去的那件事，不进分流。
+- **动作**：`stop`（停止消息不建任务、不进模型）：任务在任务进程里时，把它任务卡上“停止”按钮的点击转给那个任务进程（`runner_ipc.forward_card_action`，同代答的 `proxy.stop_job`），由任务进程里的 `cancel_reply_job_from_card` 停自己的任务；任务还在 Bridge 里（排队、没交出去）才在 Bridge 里直接调它。只在 Bridge 里给任务的副本设停止标记到不了任务进程，后台命令和答案照常出来；主人引用的消息按 `reply_to` 认（lark-cli 1.0.69 起事件里只有 `reply_to`，没有 `parent_id`，`quoted_id`）；`merge` 把消息别名改到目标路再走 `app.handle_event`，`Butler.supplement` 带 `target`（目标任务）；目标在等回答时是回答，走原来的续接；`new` 按 `pick_slot` 选槽、`keep_track_topic`、改别名后入队。
+- **送达被拒**：`SteerRefused`（任务刚结束、后端不收补充）或目标已结束，`supplement` 调 `fresh()` 把消息改成新开一件（返回新槽的上下文，`BridgeApp.handle_event` 用它入队）；`SteerUncertain` 照旧说一句、不重发。
+- **选槽**（`pick_slot`）：槽 0 空闲就用槽 0，否则编号最小的空闲槽 1..4；在途（排队、开始、在跑）任务数到 `COVEY_BUTLER_TRACKS_MAX`，或没有空闲槽，就选在途最少的槽（并列取编号小的），排在它后面（同话题先进先出，调度器不改），消息记一次 `Tracks.noted("queued", chat, message, ctx=, app=)`。等回答的槽、有 `waiting_user` 记录的槽算占着，不分给别的路；空闲槽开始前清掉上一次遗留的会话指针。
+- **这些事的一轮**（槽 ≥1，`butler_turn` → `track_start`）：会话指针为空时分叉槽 0 的会话（`fork_session`，槽 0 有一轮在跑且已记下 `prompt_uuid` 时加 `fork_at`＝`rewind_point(...)["keep"]`，没记就整个分叉），消息是续接式的（`resume_message`）加管家规则、**完整**快照（`take_snapshot(save=False)`，不动槽 0 的 `main-snapshot.json`）和「并行说明」（另外几件事此刻在做什么，每件一行，读任务记录，不依赖 Bridge 的登记表）。分叉不了（槽 0 没有会话、工作区不同、后端不支持、`keep` 为空、`rewind_point` 失败）退回新会话＋槽 0 最近的 `history.jsonl`（`first_turn_message`）。不做压缩检查，也不停空闲压缩；`compact_butler` 对槽 ≥1 直接返回。
+- **一轮结束**：`process_bridge_reply_job` 在 `_run_turn` 之后调 `release_pointer`：槽 ≥1 且状态不是 `waiting_user` 就清会话指针（会话文件留着）；等回答的那件事指针保留，回答的续接轮接着用。
+- **开了又关**：槽话题留在盘上，这时它们是普通话题（`traits` 给 TOPIC），回答、引用老卡都按 `topic_id` 找到会话指针继续；关着时槽 ≥1 不是管家，下次再开时空闲槽的遗留指针由 `enter` 清掉。
+
+- **表情**（`app/butler_reactions.py`，只给主人自己的消息、话题挂在提问下面时的管家一轮，`Tracks.noted` 是调用点；失败只记日志，都在锁外）：排在忙槽后面的消息挂 **排队中**（`OneSecond`）而不挂 OnIt（`start` 见 `HELD` 就跳过）；这一轮在任务进程里开跑时（`worker.process_bridge_reply_job` 里的 `begin`）先摘排队中、再挂 OnIt。进程之间不传状态：`begin` 用 `Messenger.reaction_ids` 查机器人自己挂的排队中，查不到就什么也不做（没排过队的消息 OnIt 已在入队时挂了）；排队时被取消的任务由 `cancel_reply_job_from_card` 摘掉。并进成功的消息挂 **并进**（`THUMBSUP`），一直留着；主人引用它说「单独答」（规则 3）时摘掉，新开的那件事照常 OnIt → 结束表情。`Get` 已表示“交给话题”，不用。表情代号用接口试过：飞书接受 `OneSecond`、`THUMBSUP`，不接受 `WAIT`。开关关着时一个都不调。
+- **停止的回复**：`stop` 把家族里其他还在做（不在等回答）的件数 k 传给 `cancel_reply_job_from_card(others=k)`，k>0 时文字回复末尾加“还有 k 件事在做。”。已经有任务卡的任务停下时没有文字回复：k 记在任务上（`stop_others`），停下后卡上的结尾文字（`worker._others_note`）末尾加同一句。k 随点击的 `action_value.others` 带到任务进程。任务卡的停止按钮和派发卡的停止也算同一个数：点击到达 Bridge 时（`card_routing.count_others`）按 `butler_tracks.stop_others` 算（只算家族的任务，或派发卡；多路并行和管家模式没开时为 0；和停止词共用 `others_going`），写进 `action_value.others`，Bridge 自己停和转给任务进程都带着。其他话题任务卡上的停止不变。
+- **停止后不再发答案**：开关开着、属于家族的任务被主人停止（`cancel_requested_by` 有值）时，Claude 因“只剩后台任务在跑”而保留的最后一条完整回复（`backends/claude/runtime.py` 的 `keep_last_reply`）不再发出，这一轮按已停止收尾（`app/turn_settle.py`，`core/butler_tracks.py` 的 `owner_stop_drops_reply`）。开关关着、或普通话题的停止，仍然发出那条回复。Claude 收到 SIGTERM 时自己结束它的后台命令（它们不在 Claude 的进程组里）。
+
+
+**记忆合并**（`core/track_ledger.py`、`app/track_digest.py`）：路是槽 0 会话的分叉，它答了什么不在管家自己的会话里，所以交给管家的下一轮。
+
+- **账本**：槽 ≥1 的一轮结束、结果送达之后，`TurnDelivery.deliver` 末尾（`relay` 之后）调 `ledger` 回调（`track_digest.record`），写 `main-thread/tracks/<任务键>.json`：`key`、`chat_id`、`track`（槽号）、`owner_message`（主人消息号）、`request`（≤200 字）、`answer`（≤600 字，只取已送达、已授权的回复正文，没送达就是空）、`status`（`done`/`failed`/`cancelled`）、`ended_at`、`session_id`、`opened`（这一轮开的话题的 T 号）、`digested_by`（读过它的管家那一轮的任务键，起初为空）。等回答（`waiting_user`）和中断的一轮不写，回答后的续接轮写；槽 0 的不写（答案已在它自己的会话里）。写失败只记日志。
+- **交给管家**：槽 0 的一轮在快照之后加一块“[另外几件事这段时间答了什么]”：12 小时内、最多 8 条（更早的记一行“还有 N 条没列”），每条“完成时刻（失败、已停止注明）请求「…」→ 答案前 300 字 → T 号”。块做好后用记录锁下的 compare-and-set 写 `digested_by=<这一轮的任务键>`；下一轮看到 `digested_by` 指向的那一轮没有正常结束（不在 `GOOD_ENDS` 里，同 `take_snapshot` 的 `settled`）时再给一次。
+- **交给新开的那件事**：新开的事的第一轮在“此刻另外几件事在做”后面加同一块，不标记已读（管家自己还没读到）；分叉的会话已读过的（`digested_by` 那一轮正常结束了）不重复。
+- **压缩**：摘要只在槽 0 做（槽 ≥1 不压缩）；`COMPACT_INSTRUCTIONS` 不变。这些事的内容只有被管家一轮读进之后才进它的记忆，压缩把它一并压进摘要；压缩后的那一轮照常拿到还没给过的账本条目（`tests/test_track_ledger.py`）。
+- **维护**：账本保留 7 天（`Temporary` 规则的 `main-thread/tracks`）；这些事用过的 Claude 会话文件按账本里的 `session_id`，那一轮结束满 3 天且 3 天没改没读的删（`TrackSessions`，只动 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）下 `projects/*/<session_id>.jsonl`）。
+- **开关**：`COVEY_BUTLER_TRACKS` 关着不写账本、不加这一块。
+
+管家只用 Claude Code（`app/butler.py` 的 `HARNESS`）。设置卡选的是管家、但 Claude Code 没启用时，私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness claude is not enabled`。
+
 ## 专项（第 2 期，开发中，默认关）
 
-专项是管家交给一个隐藏的负责人话题、由它开话题并跟进、要分成几个话题跨几天做完的事（设计见第 2 期的专项设计稿）。**现在有底座、负责人的运行、专项卡和入口**：记录、角色、看板的格，负责人话题一轮怎么跑，聊天区的专项卡（[专项卡](butler.md#专项卡开关默认关)），以及三个入口——派发卡转成专项、管家直接开、不要专项降级（见下）；续轮、问题分流是后面的包；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
+专项是管家交给一个隐藏的负责人话题、由它开话题并跟进、要分成几个话题跨几天做完的事（设计见第 2 期的专项设计稿）。**现在有底座、负责人的运行、专项卡和入口**：记录、角色、看板的格，负责人话题一轮怎么跑，聊天区的专项卡（[专项卡](projects.md#专项卡)），以及三个入口——派发卡转成专项、管家直接开、不要专项降级（见下）；续轮、问题分流是后面的包；`COVEY_PROJECTS` 不是 `1` 时下面的谓词全为假、放置表和看板和原来一样，也不建任何记录。
 
 - **记录** `<state>/projects/<id>.json`（`core/projects.py`，只用标准库，MCP 服务会导入）：`id`（6 到 32 位 `0-9a-z`）、`chat_id`、`name`、`goal`、`state`、`lead_topic_id`、`threads`（专项的话题 id）、`origin`、`steps`（升级逐步记账，重做时跳过已做的）、`card`（专项卡的 `card_id`、`message_id`、`sequence`）、`created_at`、`updated_at`。给第 3 期留的（旧记录里的 `direction` 没人读也不画，新记录不再写）`leader`、`claims`、`agreements`、`place` 只写不读。读写在 `resource_lock("record", …)` 下，锁内不发网络请求（规则 1）。
 - **状态** 只按 `PROJECT_TRANSITIONS` 前进（规则 4）：`active` → `paused`、`done`、`cancelled`；`paused` → `active`、`done`、`cancelled`；`done` → `active`（只在主人又在专项里说话时，见下文“收尾与重开”）；`cancelled` 是终态。`update` 改状态前先查表，不合法抛 `ValueError`、什么都不写。
@@ -500,10 +577,10 @@ cancelled、superseded：终态
   - **会话只是缓存**：不做摘要压缩（`compact_butler` 跳过负责人）。上一轮 `input_tokens` 超 15 万、话题空闲超 24 小时、或换了模型，`worker` 的 `_start_turn` 经 `settle_session` 清掉会话指针，这一轮新开会话、状态包给全。
   - **工具**：只有 `Read`、`Grep`、`Glob`（`options["tools"]` 经 `backends/claude/argv.py` 变成 `--tools`；MCP 工具不属内置工具，不受影响）加 Bridge 工具 `topics_list`、`topic_read`、`topics_search`、`workspaces_list` 和 `project_*`。MCP 配置里有 `COVEY_PROJECT_LEAD`（专项 id）时服务只列这些，管家的列表一个字不变。`project_topic_start`、`project_topic_send` 走 `butler_topics` 的 `topic_start`、`topic_send`（负责人的任务调用时开出来的话题带 `project: {role: thread}`，写在绑定里，第一轮排队之前；同时在做的话题不设上限，风格里也没有“派活”档，旧记录的 `style.spawn` 照读不用）；`project_topic_send` 发给还不在任何专项的普通话题时，先用 `app/projects.py` 的 `join_topic`（`by: lead`）把它收进本专项再加话（`app/project_tools.py` 的 `take_in`；别的专项的话题、负责人话题、管家、代答话题和主人移出过专项的 `never_auto` 话题拒绝），负责人规则要它派活前先看专项里和私聊里已有的话题，能追加就追加；`project_topic_stop` 停专项里的一个话题（主人对管家说“停掉 T1”，管家用 `project_send` 交给负责人）：先用 `project_cards.stop_tasks` 停它排队和在跑的任务（转给任务进程，同停止专项），再用 `binding.retire_open_questions` 收掉它等主人回答的问题（`cancel_reason: lead_stop`，卡上写“负责人按你的意思停了这个话题”）并把等回答的任务记录记为 `cancelled`；话题仍在专项的话题清单里、算结束，只能停本专项的话题，专项已结束时拒绝；`project_note`（专项卡上一句，`report` 标要告诉主人的，按风格过滤）、`project_goal`（负责人写给主人看的目标和完成标准，记在 `lead_goal`，网页专项标题下显示它；记录的 `goal` 仍是开专项时的话，状态包里没写过就提醒一句）、`project_remember`、`project_style`、`project_finish`（还有话题在做时拒绝）写记录的 `notes`、`decisions`、`style`，`project_remember`、`project_style` 的记忆条目写进 `projects/<id>/memory.json`（见下面“记忆”）；`project_answer`、`project_escalate`（问题分流，`COVEY_PROJECT_TRIAGE=1`）只在开关开着时列给负责人，关着时直接调也只回答“问题分流没有开”（见下面的问题分流）。
   - **记忆** `projects/<id>/memory.json`（`core/project_memory.py`，只用标准库）：条目 `{id, text, kind, source, at, deleted}`，`text` 至多 200 字，`kind` 是 `decision`、`constraint`、`contact`、`fact`、`style` 之一（负责人工具旧名 `practice`、`pitfall` 记成 `constraint`），`source` 是谁写的（`lead` 等）。上限 40 条、6 KB，超了先丢最旧的墓碑、再丢最旧的非 `style` 条目；一行 `style` 是主人最后一次定的汇报风格。删不真删，写一条墓碑（`deleted` 是删的时间，文字留着），状态包列出近 30 天的墓碑，负责人的 `project_remember` 也拒绝记回去；墓碑 30 天后在下次写入时清掉。所有写都在专项记录同一把 `record` 锁下（`projects.update`），所以负责人的工具、卡上的“删”和 Bridge 自己记的不会互相覆盖。旧版把条目写在专项记录的 `memory` 字段里，卡读不到：读的时候两处合并，下一次写入把它们搬进 `memory.json`、记录里不再有这个字段，之后没有人再写它。专项卡、状态包、`project_remember`、`project_style` 都经这个模块。
-  - **资料库与带上记忆**（开关 `COVEY_PROJECT_MEMORY=1`，要 `COVEY_PROJECTS=1`，默认关；细节在[管家 · 专项记忆与资料库](butler.md#专项记忆与资料库开关默认关)）：`core/project_library.py`（只用标准库）管 `projects/<id>/library/` 和 `library.json`；`app/project_context.py` 是 Bridge 一侧的接线：专项的话题开工的 `block`（经 `app/prompts.py` 的 `project_block`，新会话进 `bridge_rules`、续接的进 `_with_rules`）、问题卡回答记决定的 `remember_answer`、主人文件进资料库的 `owner_files`、话题每轮产物和交付进索引的 `turn_to_library`（由 `project_loop.after_runner` 在任务进程结束后调，任务进程自己不写专项的东西）。开关关着时这些都什么也不做、什么也不读。
+  - **资料库与带上记忆**（开关 `COVEY_PROJECT_MEMORY=1`，要 `COVEY_PROJECTS=1`，默认关；细节在[专项记忆与资料库](projects.md#专项记忆与资料库)）：`core/project_library.py`（只用标准库）管 `projects/<id>/library/` 和 `library.json`；`app/project_context.py` 是 Bridge 一侧的接线：专项的话题开工的 `block`（经 `app/prompts.py` 的 `project_block`，新会话进 `bridge_rules`、续接的进 `_with_rules`）、问题卡回答记决定的 `remember_answer`、主人文件进资料库的 `owner_files`、话题每轮产物和交付进索引的 `turn_to_library`（由 `project_loop.after_runner` 在任务进程结束后调，任务进程自己不写专项的东西）。开关关着时这些都什么也不做、什么也不读。
   - **收件箱** `projects/<id>/inbox/<序号>.json`：`{id, kind, thread, text, at, taken_by}`，`add_receipt` 写、`take_receipts` 读并标上这一轮（上一个领它的轮没有好好结束的，下一轮重新给）。谁来写（专项的话题一轮结束、扣住的问题、主人在专项的话题里说话）是续轮的包。
   - **一轮的结语** 负责人的任务卡和列表预览说它做了什么（`butler_reply.outcome_words`，`lead=True`）：开了或交给哪个话题，否则记了哪句进展或收尾了专项，否则回复的开头。
-- **专项卡**（`cards/project_card.py`、`app/project_cards.py`，细节见 [butler.md](butler.md#专项卡开关默认关)）：`record["card"]` 是 `{card_id, message_id, sequence, created_at, generation, digest, wrote_at, closed, old, pending_card_id}`，只由 `ProjectCards` 经 `projects.update_card` 写（单写手，规则 3；sequence 存进这一个字段，不整条记录覆盖，免得盖掉负责人和升级同时写的别的字段）。`board` 钉专项卡时读这条记录的 `message_id`（`app/pins.py` 的 `aimed`/`project_aimed`）；格的名字（手上的事、早晚汇总）在 `core/topics.py` 的 `label_title` 里换成专项名。
+- **专项卡**（`cards/project_card.py`、`app/project_cards.py`，细节见 [projects.md](projects.md#专项卡)）：`record["card"]` 是 `{card_id, message_id, sequence, created_at, generation, digest, wrote_at, closed, old, pending_card_id}`，只由 `ProjectCards` 经 `projects.update_card` 写（单写手，规则 3；sequence 存进这一个字段，不整条记录覆盖，免得盖掉负责人和升级同时写的别的字段）。`board` 钉专项卡时读这条记录的 `message_id`（`app/pins.py` 的 `aimed`/`project_aimed`）；格的名字（手上的事、早晚汇总）在 `core/topics.py` 的 `label_title` 里换成专项名。
 - **转成专项、直接开、降级**（`app/projects.py`、`app/project_clicks.py` 的 `downgrade`）：
   - **转成专项** 开关 `COVEY_PROJECT_UPGRADE`：`off`（默认，什么都不做）、`butler`（管家 `topic_send` 带 `project`，由管家按话的意思判断；不再匹配主人话里的关键词，派发记录的 `upgrade_hint.long_word` 不再写也不再读，旧记录里留着不管；旧值 `word` 照认，意思同 `butler`）、`auto`（再加该话题的轮数 ≥3：`rounds_for_topic` 取该话题派发记录数和主人亲自发起的轮——任务的消息 id 以 `om_` 开头——两者的较大者，不读旧记录的 `rounds`）。触发点是 `butler_topics.dispatch_card` 在 `dispatch_cards.created` 返回后调 `env.projects.consider(token)`（`ButlerEnv.projects`；没放进 `dispatch_cards._created` 是因为那样 `dispatch_cards`、`butler_topics`、`project_cards`、`projects` 会互相导入）。静默进行，卡上有“不要专项”。活专项（`active`）已有 `MAX_ACTIVE`（3）个时不升级（`projects.active_count`）。
   - **七步**（`Projects.upgrade` → `advance`，每步成功后在记录的 `steps` 里记一笔，重做时跳过；每一步在记账丢了的情况下重做也无害）：① 记录，id 由派发卡 token 算出（`project_id`，所以同一张卡永远是同一个专项），名字取话题标题；② 负责人话题：topic.json 抄管家的模型设置（Claude Code、管家的模型和预算）、原话题的工作区，锁工作区，写 `project: {id, role: lead}`；③ 在原话题的 `topic_lock` 里 `set_topic_project(thread)`，记进 `threads`；④ 在 `resource_lock("card", card_id)` 下先把派发记录转 `settled`（`DISPATCH_TRANSITIONS`，`settled_by: upgrade`），再 `adopt_card`，sequence 从派发记录接着走（记录里已经是这条卡就不再 adopt，免得 sequence 退回去）；⑤ 同话题其余活着的派发卡写成“已并入专项 ›”并转 `settled`；⑥ `route_message`：卡和并入那几行的消息指到负责人话题；卡自己的别名也整个改归负责人（`move_topic_message`）：卡上按钮的值写的是负责人话题，点击按别名找话题，对不上就当别的话题的卡不理（`card_routing.py`，accept7 时升级卡的按钮因此全都点不动）；⑦ 写 `start` 回执（`add_receipt`，“接手一个已在进行的事”加话题、主人要的和现在的状况；先看收件箱里有没有，不写两次）。唤醒不在这里：`start` 回执由续轮的 `ProjectLoop` 去排。
@@ -511,13 +588,13 @@ cancelled、superseded：终态
   - **直接开** 管家 `topic_start` 带 `project: true`（`COVEY_PROJECTS=1` 即可，不看 `COVEY_PROJECT_UPGRADE`）→ `Projects.start`：记录（id 由请求算出，一次请求一个专项）、负责人话题（工作区取 `topic_start` 的 `workspace`）、`project_cards.created` 发卡（顶上“你问”块，读记录的 `ask`）、`start` 回执（主人的请求原文）；四步同样记在 `steps` 里，卡没发出去也由 `resume` 补。不开话题，由负责人去开。`topic_start` 的 `topics`（主人说要收进来的已有话题，T 号或话题 id）由 `wanted_topics` 在建记录前逐个查：找不到、是管家或代答话题、是负责人或已在别的专项里、超过 `MAX_JOINED` 个的记进 `origin.refused`，其余记进 `origin.topics`，这时步骤是 `JOIN_STEPS`（卡之后多一步 `members`，同整理专项建专项：只写话题的 `topic.json` 和记录的 `threads`，在跑的任务不停，等主人回答的问题不收；分流只管之后出的问题）；工具回复和 `start` 回执都逐个写挂上了哪些、没挂上的和原因。没有 `topics` 的仍是原来四步。
   - **管家工具** `projects_list`、`project_send`（`app/butler_projects.py` 的 `TOOLS`，只在 `COVEY_PROJECTS=1` 时列，负责人用不了）；`topic_send` 遇到专项的话题回一句改用 `project_send`（负责人自己给话题加话走 `project_topic_send`，不受限）。
   - **降级** 点“不要专项”→ `downgrade`：记录转 `cancelled`（`state_reason: downgraded`，之后 `ProjectCards` 把卡缩成“⏹ 专项已降为普通话题”）；停掉负责人排队和在跑的任务；专项的每个话题（含原话题）`clear_topic_project`（在 `topic_lock` 里，只清自己专项的）；卡消息和并入的几行的别名 `route_message` 指回原话题（直接开的指向第一个话题，没有话题就不指），卡自己的别名也改回去（`move_topic_message`）。每一步重做无害，所以一个降了一半的专项再点一次会接着降完。话题的任务不停，它们是普通话题了。
-- **问题分流**（`app/triage.py`、`core/triage.py`、`core/project_gates.py`，第 2 期 P2-5；开关 `COVEY_PROJECT_TRIAGE`，见[配置](configuration.md)；做法、硬闸词表、实验 E2/E4 在[管家 · 专项的问题分流](butler.md#专项的问题分流开关默认关)）：专项的话题的选择题先交给负责人。`Questions.triage.route` 在 `NativeQuestions.show`（活问题）和 `CheckpointQuestions.deliver`（检查点、暂停的问题）发卡前调；扣住 = 问题记录的 `triage.state == held`，`status`、`display_pending`、任务记录的 `question_delivery_ok` 都按“没发卡但也不是没投出去”写，`recover_question_delivery` 跳过扣住的。回执和超时归 Bridge 的 `sweep`（任务进程只写自己这道题的记录，规则 8），`project_answer` 走 `submit_answer`，`project_escalate` 和超时走原来的发卡口子。状态只按 `TRIAGE_TRANSITIONS`（`held → answered_by_lead | escalated`）走（规则 4）；记录锁内不发网络请求（规则 1）。
+- **问题分流**（`app/triage.py`、`core/triage.py`、`core/project_gates.py`，第 2 期 P2-5；开关 `COVEY_PROJECT_TRIAGE`，见[配置](configuration.md)；做法、硬闸词表、实验 E2/E4 在[专项的问题分流](projects.md#专项的问题分流)）：专项的话题的选择题先交给负责人。`Questions.triage.route` 在 `NativeQuestions.show`（活问题）和 `CheckpointQuestions.deliver`（检查点、暂停的问题）发卡前调；扣住 = 问题记录的 `triage.state == held`，`status`、`display_pending`、任务记录的 `question_delivery_ok` 都按“没发卡但也不是没投出去”写，`recover_question_delivery` 跳过扣住的。回执和超时归 Bridge 的 `sweep`（任务进程只写自己这道题的记录，规则 8），`project_answer` 走 `submit_answer`，`project_escalate` 和超时走原来的发卡口子。状态只按 `TRIAGE_TRANSITIONS`（`held → answered_by_lead | escalated`）走（规则 4）；记录锁内不发网络请求（规则 1）。
 - **续轮与护栏**（`app/project_loop.py`，第 2 期 P2-6；开关 `COVEY_PROJECT_AUTOWAKE`、`COVEY_PROJECT_BUDGET`，见[配置](configuration.md)）：
   - **谁唤醒**：`ProjectLoop`（功能对象，`COVEY_PROJECTS=1` 才起后台线程，启动后等 20 秒让 Bridge 自己先恢复被打断的任务，之后每 10 秒看一遍）对每个 `active` 专项：有没人读过的回执（收件箱里没被领、或领它的那一轮没好好结束，即 `take_receipts` 的判定）、负责人没有排队、在跑或等主人的任务时，入队 1 个唤醒轮——和负责人话题里的任何消息一样走 `enqueue_chat_job`，消息 id `lead-<专项 id>-<n>`（`n` 数在记录的 `wakes` 里；先记数再入队，丢一个下次再找，不会重复），消息内容只有 Bridge 的一句说明，状态包和收件箱由 `lead_turn` 自己加。`start` 回执总是唤醒（只要 `COVEY_PROJECTS=1`）；其余都要 `COVEY_PROJECT_AUTOWAKE=1`，关着时它们留在收件箱，等负责人下一次被主人叫起时一起读。重启后同一遍查找就把盘上的未领回执重新入队。
   - **回执谁写**：`thread_end`（专项的话题的一轮结束：一句话结论、状态、任务号）和 token 累加都由 **Bridge** 在任务进程退出后写（`butler_relay.after_runner` 的第一步调 `project_loop.after_runner`，所有任务结束的路径都经过它；规则 8 让任务进程只改本任务的卡和记录，写别的专项的收件箱和记录不算在内，所以放 Bridge 这边，旧任务进程也一样有回执）；`owner_said`（主人在专项的话题里直接说话）在 Bridge 收消息处（`app/app.py` `handle_event`）写；`stalled` 由循环写。`question` 留给 P2-5。回执一律经 `add_receipt`。
   - **主人触发的轮**：负责人话题里 message id 不以 `lead-` 开头的轮（主人引用专项卡回复、管家 `project_send` 转交、回答的续接）。它入队时（`submission.enqueue_chat_job` → `project_loop.owner_turn`）把 `wakes` 的连续计数和最近一小时的记录清零、清掉停滞标记，并把因护栏（`tokens`、`wakes`、`stalled`）或主人点了停止专项而停住的专项恢复成 `active`；`tokens` 停住的从已用的数目重新开一份预算（`token_floor`），否则下一遍就又停了。主人在专项的话题里说话（`owner_said`）也清连续计数。
   - **Bridge 自造的消息 id**：唤醒轮的 `lead-<pid>-<n>` 和管家转交用的别名 `project-lead-<id>`（`projects.own_message`）在飞书里没有：回复不引用它（`core/topics.py` 的 `context_for_topic` 把 `reply_to` 留空，答案是聊天区的新消息），答案顶上也不画“你问”块（`app/answer_cards.py` 的 `asked`）。accept7 时转交那一轮的卡先回复别名两次被拒，才改发到顶层。
-  - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`）。`COVEY_PROJECT_ASK=1` 时还发一张停住卡问主人继续、收尾还是停（见[管家 · 专项停住后问主人](butler.md#专项停住后问主人开关默认关)）；`COVEY_PROJECT_STALL_SECONDS` 能调小停滞的时间。
+  - **护栏**（全是机械检查，数字由主人定）：专项 `paused` 且 `state_reason` 写 `tokens`、`wakes`、`stalled`，之后不再唤醒，专项卡的“负责人”一行写“停住 · 原因”（`projects.reason_words`）。`COVEY_PROJECT_ASK=1` 时还发一张停住卡问主人继续、收尾还是停（见[专项停住后问主人](projects.md#专项停住后问主人)）；`COVEY_PROJECT_STALL_SECONDS` 能调小停滞的时间。
     - token：负责人和各话题任务的合计（任务的输入含缓存加输出，子任务算在内）每个任务结束时累加进 `tokens_used`，每个任务只算一次（`token_jobs` 记键），专项卡上写“token N”；只在部署设了 `COVEY_PROJECT_BUDGET`（旧名 `COVEY_PROJECT_TOKENS`）时到了才停，默认没有上限（主人定的：不按 token 总量停整个专项，也不请停话题、不发停住卡）。
     - 唤醒：无人介入连续 30 次，或最近一小时 12 次，停。
     - 停滞（要 `COVEY_PROJECT_AUTOWAKE=1`）：只管**有活没动**。专项 `active`，还有负责人能推动的事（负责人或话题有排队的任务、有没读的回执，`project_loop.movable`），没有任务在跑，距上一次动静超过 30 分钟，写一条 `stalled` 回执（唤醒负责人提醒一次）；再过 30 分钟仍没有动静就停。“动静”是话题任务结束、主人触发的负责人一轮结束、收件箱来了 `stalled` 以外的回执、专项开始；唤醒轮自己不算。任务在跑不算停滞；只在等主人回答的任务或问题不算停滞（主人看得到问题卡，负责人没事可做），这时和没有要做的事一样按空闲算：等满空闲天数也收起（问题卡还在，主人一答就展开）；**没有要做的事不提醒、不停住**，只按下面的空闲算。
@@ -526,7 +603,7 @@ cancelled、superseded：终态
   - **唤醒轮的回复默认不发**：唤醒轮算安静轮（`placement.quiet` 认 `lead-` 前缀）：不显示任务卡（`Cards.reveal` 不发），没有表情。已授权回复保存、记为已送达（`TurnDelivery.silent`：`send` 直接返回），所以重投不重试、恢复卡不把它当未送达；没做完的轮（失败、停止、被拒）照旧在顶层说一句，不藏。例外：负责人在这一轮用 `project_note` 记了 `report`、且按风格该报（`project_lead.reportable`；`project_finish` 的收尾也算），这时和负责人主人触发的轮一样发到顶层。这一轮有变化也发（主人定的“有变化才发”）：用 `project_topic_start`、`project_topic_send` 派了活，`project_topic_stop` 停了话题，`project_answer`、`project_escalate` 替主人答了或转交了问题，工具都在专项记录的 `acted` 里记下这一轮（`app/project_tools.py` 的 `acted`，留最近 40 轮），`project_loop.reported` 认它。只是读了结果、没动手的唤醒轮照旧不发，只改专项卡。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
 - **主动记录**（`COVEY_PATROL=shadow`，只记不打扰）：规则每分钟、小模型每 30 分钟，写 `patrol/`，早晚汇总多一块；说明、可调数值和关法见[管家 · 我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰)。维护 `patrol/candidates/`、`patrol/decisions/` 里 14 天没改的日文件（`PatrolRecords`，`remove_patrol`）。
-- **网页工作台同步**（`COVEY_WEB=1`，默认关）：`web-push`、`web-inbox` 两条受监管线程，把专项、话题（含管家和专项负责人）、一轮（含过程和用量）、问题推给网页，取回网页上的说话（含对管家、负责人说）、答题、停止、重开、记为看过、作废一条专项记忆；不开没有线程。不持锁发请求，操作先记 `<state>/web/inbox.json` 再执行，不重放；说明和配置见[管家 · 网页工作台](butler.md#网页工作台开关默认关)。
+- **网页工作台同步**（`COVEY_WEB=1`，默认关）：`web-push`、`web-inbox` 两条受监管线程，把专项、话题（含管家和专项负责人）、一轮（含过程和用量）、问题推给网页，取回网页上的说话（含对管家、负责人说）、答题、停止、重开、记为看过、作废一条专项记忆；不开没有线程。不持锁发请求，操作先记 `<state>/web/inbox.json` 再执行，不重放；说明和配置见[网页工作台](web.md)。
 
 ## 执行指标口径
 

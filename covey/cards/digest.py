@@ -31,8 +31,8 @@ ORIGIN = "digest"  # The stale line's button value's ``from`` (app/overview.py c
 
 
 def rows_of(view, key):
-    """How many ``key`` has: the 等你 part's old questions too, not the ones taken off from this card (the owner
-    read "等你 4" over 已撤下 3 个 as four still waiting, 2026-11-09), so a redraw after the click lowers the header
+    """How many ``key`` has: the 等你 part's old questions too, not the ones taken off from this card ("等你 4" over
+    已撤下 3 个 reads as four still waiting), so a redraw after the click lowers the header
     and the part's count with the line."""
     extra = len(view.get("stale") or []) if key == "waiting" else 0
     return len(view[key]) + extra
@@ -66,7 +66,7 @@ def line(row, *, plain=False):
 
 def done_since(view):
     """做完's heading after its count: since when, and how many results not seen ended before (``older``)."""
-    older = view.get("older") or 0  # A view saved before 2026-11-10 has none.
+    older = view.get("older") or 0  # A view saved by an older release has none.
     return f" · {clock(view['since'])} 之后结束" + (f"，另有更早没看的 {older} 个" if older else "")
 
 

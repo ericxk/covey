@@ -1,12 +1,11 @@
 """手上的事: one card in the owner's private chat with the bot, pinned (Pin 消息), that lists what waits for the
 owner and what runs there (cards/overview.py). Off unless COVEY_PINNED_OVERVIEW=1 (docs/operations.md):
-without it there is no thread and no card. The owner asked for it on 2026-11-05 after a colleague's assistant
-showed one: only the private chat, nothing in groups.
+without it there is no thread and no card. Only the private chat, nothing in groups.
 
 Every TICK seconds the loop reads the private chat's pending questions and running jobs from the indexes of
 questions/ and jobs/ (no record lock, no Feishu call; core/board_read.py, with the board on one read for both) and
 redraws the card whole when what it shows changed, at most once every GAP seconds, and anyway every REFRESH seconds.
-The card writes times of day, not durations, so it changes only with its content (until 2026-11-06 a row's 等了 18 小时 5 分 redrew it every minute, about 60 writes an hour).
+The card writes times of day, not durations, so it changes only with its content (a row's 等了 18 小时 5 分 would redraw it every minute).
 A job seen running that has ended stays under 刚结束 for RECENT seconds; this is the process's memory, a restart
 forgets it.
 

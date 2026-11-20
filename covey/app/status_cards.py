@@ -1,10 +1,10 @@
 """Topic status cards (话题状态卡, cards/status_card.py): what the pinned board (app/pins.py) pins for a topic with a
 thread in the owner's private chat, in place of its task or question card, whose top (all the Pin panel shows) is the
-round's request, its configuration and its tiles (the owner, 2026-11-07: 这块能不能显示有价值的信息). Each says the
+round's request, its configuration and its tiles. Each says the
 topic's number and title, its state (在做 / 排队 / 等你回答 / 做完 / 已停止 / 失败 / 中断) with when and which round, and
 one small line: this round's request, the question, the conclusion's lead or why it stopped. Only where the
-placement table says so (core/placement.py Row.status_card: 纯话题): since 2026-11-08 a 话题区's topic is pinned by
-its turn's own cards in its thread (the owner's D3, app/pins.py aimed), and the status cards sent before stay in their
+placement table says so (core/placement.py Row.status_card: 纯话题): a 话题区's topic is pinned by its turn's own
+cards in its thread (app/pins.py aimed), and the status cards sent before stay in their
 threads, their records readable (``card_message``), never written again.
 
 The card is a message in the topic's thread (a reply in thread to its root, core/topics.py; registered as the topic's
@@ -64,7 +64,7 @@ def when(at, now):
 
 
 def title_of(state_dir, topic_id):
-    """"T432 · 标题": the topic's title (core/topics.py topic_title) cut to TITLE_CHARS."""
+    """"T32 · 标题": the topic's title (core/topics.py topic_title) cut to TITLE_CHARS."""
     label = topic_label(Path(state_dir), topic_id)
     title = cut(topic_title(Path(state_dir), topic_id), TITLE_CHARS)
     return " · ".join(part for part in (label, title) if part) or "话题"

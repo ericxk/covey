@@ -46,7 +46,7 @@ RETRY_REFUSALS = {
 TOP_CARD = "card_top_level"
 # Seconds after a 停止 before the backend's process group gets SIGTERM from the stop itself. The turn's own thread stops
 # it within a second or two (it checks the stop between rows); this is for when that thread is held, as on a stalled
-# disk (T525 #4664, 2026-11-18: held on a job record's lock for minutes, Claude ran on).
+# disk (held on a job record's lock for minutes, Claude ran on).
 HARD_STOP_AFTER = 5.0
 
 
@@ -146,7 +146,7 @@ class TaskControls(Redelivery):
 
     def show_recovery_card(self, ctx, record):
         """``record``'s card redrawn as its recovery card, else a new one. A quiet butler turn with no card yet
-        (core/placement.py Row.quiet, D1 2026-11-08: 提问不开串) gets it at the top level, quoting nothing, with its
+        (core/placement.py Row.quiet: 提问不开串) gets it at the top level, quoting nothing, with its
         你问 block (``TOP_CARD``), and the OnIt on the owner's message comes off (a resume puts it back,
         ``requeue``)."""
         card = self.asked_card(ctx, record, recovery_card(record, state_dir=ctx.state_dir))
@@ -179,8 +179,7 @@ class TaskControls(Redelivery):
         topic under ``key`` when no card could be written. ``restart``: it continues once by itself
         (auto_retry.schedule_restart), unless it has native questions. ``keep_question_forms``: a job with
         native questions gets nothing at all, so its durable question form stays usable after reconnect. The
-        Bridge's start asks that; a runner's end still shows the recovery card (the owner kept both ways,
-        2026-11-05)."""
+        Bridge's start asks that; a runner's end still shows the recovery card (both ways are kept)."""
         questions = (keep_question_forms or restart) and self.questions.has_native_questions(ctx, record["job_id"])
         if questions and keep_question_forms:
             return
@@ -209,7 +208,7 @@ class TaskControls(Redelivery):
             after_ack(lambda: reply(text))
         else:
             # The new task's card, the old card's update and the reply took 3.5 s in the click, over
-            # Feishu's 3 s (2026-10-26): all after the acknowledgement. A repeated click's follow-up
+            # Feishu's 3 s: all after the acknowledgement. A repeated click's follow-up
             # comes after this one and finds the task queued.
             after_ack(lambda: reply(self.retry_topic(ctx, chat_id, event_id, job_id=job_id)))
         return True

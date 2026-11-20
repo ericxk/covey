@@ -20,8 +20,8 @@ BIN_DIR = REPO_ROOT / "bin"
 def expand_user(text) -> Path | None:
     """``text`` as a path, a leading ``~`` or ``~user`` expanded; None when it cannot be one: pathlib raises
     RuntimeError ("Could not determine home directory") for ``~`` of no user, such as "~$预算表.docx", the name of an
-    Office lock file, which a topic's history held in backquotes and which failed every turn of T480 and T481 at
-    their start (2026-11-11); a NUL byte is no path either."""
+    Office lock file, which a topic's history held in backquotes and which would fail every turn of a topic at
+    its start; a NUL byte is no path either."""
     text = str(text)
     if "\0" in text:
         return None

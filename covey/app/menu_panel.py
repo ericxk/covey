@@ -54,7 +54,7 @@ def hub_top(tab, token, view):
 def hub_tabs():
     """The 设置 card's tabs: 新话题 always (it preselects the launch card too); 管家 unless the deployment rules the
     butler out (COVEY_BUTLER=0), in the mode 纯话题 too, where its row of the mode turns the butler on; 设备 only with
-    COVEY_NODE_LISTEN (core/nodes.py). 代答 is never a tab: the bot menu has its own item (the owner, 2026-11-19)."""
+    COVEY_NODE_LISTEN (core/nodes.py). 代答 is never a tab: the bot menu has its own item."""
     return [t for t in LABELS if (t != BUTLER or butler.available()) and t != PROXY
             and (t != NODES or nodes.enabled())]
 

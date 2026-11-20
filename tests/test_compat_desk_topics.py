@@ -1,4 +1,4 @@
-"""Front-desk topics (前台话题, docs/butler.md 前台话题（已下线）): the topics the butler opened with
+"""Front-desk topics (前台话题, docs/butler.md 会话): the topics the butler opened with
 main-thread.json's desk_topics on (11-07) are frozen by core/migrate.py desk-retire (2026-11-10). ``old_desk`` makes
 one as a release before left it. The migration marks it once; from then on a top-level message quoting its card goes
 to the butler, a click on its cards gets one notice and does nothing, and the butler's tools say it is

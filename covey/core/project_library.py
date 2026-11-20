@@ -1,4 +1,4 @@
-"""The library of a project (docs/butler.md 专项资料库, COVEY_PROJECT_MEMORY=1): the files the owner gave the project and a line
+"""The library of a project (docs/projects.md 专项记忆与资料库, COVEY_PROJECT_MEMORY=1): the files the owner gave the project and a line
 for what its topics delivered, in ``<state>/projects/<id>/library/`` (the files) and ``library.json`` (the index).
 
 An entry is {id, name, kind, ref, sha256, size, source, topic_id, at, purged}. ``kind`` is ``file`` (a copy in library/, ``ref``

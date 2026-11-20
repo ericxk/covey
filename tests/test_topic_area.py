@@ -1,4 +1,4 @@
-"""话题区 (docs/butler.md 话题区, the owner's choice of 2026-11-07 noon): a topic the butler opens hangs its
+"""话题区 (docs/butler.md 话题, the owner's choice of 2026-11-07 noon): a topic the butler opens hangs its
 thread under the owner's question; a second one on the same question gets a topic card at the top level as its root;
 the relay is a message of its own at the top level and is the topic's; quoting the card handed on to one topic alone goes to that topic. main-thread.json's
 desk_topics, retired on 2026-11-09, opens no front-desk topic."""

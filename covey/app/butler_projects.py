@@ -49,7 +49,7 @@ def projects_list(env, request):
     found = projects.records(state, chat)
     live = [record for record in found if projects.state_of(record) in (projects.ACTIVE, projects.PAUSED)]
     ended = [record for record in found if record not in live][-LISTED_ENDED:]
-    # The proposals waiting for him, said the same way as the 看板 (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
+    # The proposals waiting for him, said the same way as the 看板.
     waiting = []
     if project_proposals.enabled():
         waiting = project_proposals.waiting(state)  # As the 看板 lists them (app/digest.py projects_view).

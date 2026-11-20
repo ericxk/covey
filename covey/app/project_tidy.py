@@ -1,4 +1,4 @@
-"""整理专项 (docs/butler.md 整理专项, COVEY_PROJECT_TIDY=suggest|auto with COVEY_PROJECTS=1, off by default): projects grow out of the
+"""整理专项 (docs/projects.md 整理专项, COVEY_PROJECT_TIDY=suggest|auto with COVEY_PROJECTS=1, off by default): projects grow out of the
 topics by a mechanism, not by the one look the butler takes when it opens a topic.
 
 - **话题要点**: every ordinary topic's (and project topic's) turn ends with its own model writing ``topic_gist`` in its checkpoint
@@ -8,7 +8,7 @@ topics by a mechanism, not by the one look the butler takes when it opens a topi
 - **Real time** (``realtime``), for one topic against the projects and the topics of the last COVEY_PROJECT_TIDY_DAYS days: a new
   topic's first turn ended; its essence changed (core/topic_gist.py ``moved``); its turn ended on its third day or later
   (COVEY_PROJECT_TIDY_AGE_DAYS), or it has COVEY_PROJECT_TIDY_WORDS turns the owner started. Each of the last two once a topic.
-  自动收话题 (the owner, 2026-11-19): a join needs no click. The rule first (``by_rule``: its 话题要点's related topics are one
+  自动收话题: a join needs no click. The rule first (``by_rule``: its 话题要点's related topics are one
   live project's, a candidate the judge confirms against that project alone, ``rule_confirm``); each turn the owner started
   (TURN) the judge reads this topic alone against the live projects when its gist changed (``turn_judge``); a project just
   made looks over the recent topics once (``sweep``).
@@ -16,13 +16,13 @@ topics by a mechanism, not by the one look the butler takes when it opens a topi
   a new project is proposed on a card (建专项 / 改个名再建 / 不用 / 以后别提议), or made at once with ``auto`` (or after the owner's
   以后直接建). Not with fewer than COVEY_PROJECT_TIDY_MIN_TOPICS topics in the chat, not for a topic taken out of a project (移出)
   as far as joining goes, never twice for an open proposal.
-- **Proposals follow the joins** (``follow``, each tick; the owner, 2026-11-19): an open proposal some of whose topics are now in
+- **Proposals follow the joins** (``follow``, each tick): an open proposal some of whose topics are now in
   a project, however they got there, keeps the rest (its card redrawn) or, with fewer than MIN_CREATE left, ends 已过时 with
   where they went. A new 新建 leaves out the topics already in a project and goes onto the card of a waiting proposal it mostly
   overlaps (core/project_proposals.py ``overlapping``) instead of a card of its own.
 - **Scheduled and asked for** (``start``): with the 早晚汇总 (COVEY_DIGEST_TIMES, the same times, a record of its own), the
   butler's projects_tidy, the 设置 card's 整理专项 and the web page's ``tidy``. One at a time (``busy``): asked while one runs,
-  the answer is where it is. The 整理专项 card goes out first and shows 正在读 T488（12/40） while the topics without a 话题要点
+  the answer is where it is. The 整理专项 card goes out first and shows 正在读 T88（12/40） while the topics without a 话题要点
   are read (app/project_sorter.py backfill: one call a topic, one that cannot be read sits out and is counted); then one judge
   call, and the card is redrawn with what was done at once (sure joins, folding an idle project) and at most CARD_ROWS
   suggestions, each with 好 / 不用, and 全部照办.

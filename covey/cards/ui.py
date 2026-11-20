@@ -6,7 +6,7 @@ no card here is sent by itself, the cards that move to this look use these parts
   BAND: a gradient in steps too fine to see), inside one thin line. Its colours are the card's own: a card with a band
   goes through ``styled``, which puts them in its ``config.style.color``.
 - ``seg_bar``: how many of each state, as one line of coloured bars as long as their counts, and a legend under it.
-- ``topic_row``: a state's dot and word, ``T531 title ›``, a line in words, grey figures; buttons at the right; the
+- ``topic_row``: a state's dot and word, ``T31 title ›``, a line in words, grey figures; buttons at the right; the
   whole opens ``url``.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ def speaker(who) -> str:
 
 
 # Feishu's ``neutral`` is a grey tag but near-black text: a background state's words, dot and bar part are ``grey``
-# (docs/ui.md 2.2: neutral 或 grey; the 用量 sample card, 2026-11-19, read 做完 as a black bar).
+# (docs/ui.md 2.2: neutral 或 grey; else 做完 reads as a black bar).
 INK = {"neutral": "grey"}
 
 
@@ -157,7 +157,7 @@ def seg_bar(counts) -> list:
 
 
 def topic_row(key, head, line="", figures=(), *, url="", buttons=()) -> dict:
-    """One topic: ``key``'s dot and word, ``head`` (``T531 title``) and › when it opens ``url``, ``line`` in words,
+    """One topic: ``key``'s dot and word, ``head`` (``T31 title``) and › when it opens ``url``, ``line`` in words,
     ``figures`` grey; ``buttons`` (elements) at the right."""
     left = [md(f"{state_word(key)} **{literal(head)}**" + (f"　{grey('›')}" if url else ""), size="normal_v2")]
     if line:

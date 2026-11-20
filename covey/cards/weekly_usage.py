@@ -62,8 +62,7 @@ def headline(summary):
 
 def total_tokens(tokens):
     """The input, cache hits and writes counted in as 任务详情 counts them, plus the output: the card's total and
-    each Harness's share. The owner, 2026-11-06: 按用量来看，应该是显示含缓存的 (until then the cache hits were
-    left out, about nine tenths of the input)."""
+    each Harness's share: the cache hits are about nine tenths of the input."""
     return tokens["input_tokens"] + tokens["output_tokens"]
 
 
@@ -155,7 +154,7 @@ def trend(daily):
     return [section(f"每天的 token（{unit}）"),
             {"tag": "chart", "aspect_ratio": "2:1", "height": "150px", "chart_spec": {
                 "type": "bar", "data": {"values": values}, "xField": "day", "yField": "value", "color": [BAR_COLOR],
-                # Grey figures without an outline: the default outline read as a blur in dark mode (2026-11-19).
+                # Grey figures without an outline: the default outline read as a blur in dark mode.
                 "label": {"visible": True, "style": {"fill": LABEL_COLOR, "lineWidth": 0}}, "axes": [{"orient": "left", "visible": False},
                                                      {"orient": "bottom", "label": {"visible": True}}],
                 "barMaxWidth": 28}}]

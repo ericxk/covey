@@ -1,7 +1,7 @@
 """Manage the saved workspace list.
 
 The bot menu's 工作区 sent the owner's private chat a standalone card that
-belongs to no topic and leaves no job, until 2026-11-09 (one sent before still acts). The launch card's workspace menu
+belongs to no topic and leaves no job, in older releases (one sent then still acts). The launch card's workspace menu
 replaces the whole launch card with the same view; 返回启动卡 rebuilds it with
 the choices it had (a workspace added there becomes the choice), 结束，不启动任务
 closes that launch. ＋ 添加工作区… turns the card into the directory browser of
@@ -13,8 +13,8 @@ The 设置 card's 工作区 tab (app/settings_hub.py) is the same manager on the
 (<state>/settings-cards/<token>.json, its view in ``view`` with ``hub``; changed under that record's one lock and only
 while the card shows this tab): the tab row on top, no 完成管理, and with the butler's settings each row's 用途
 and 记住的工作区 under the list (their buttons are app/butler_panel.py's, which draws this tab through
-``tab_card``). The bot menu's 工作区 key (MENU_KEY) opens the 设置 card on this tab since 2026-11-09; a standalone card
-sent before still acts.
+``tab_card``). The bot menu's 工作区 key (MENU_KEY) opens the 设置 card on this tab; a standalone card
+sent by an older release still acts.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from covey.core.topics import load_topic
 
 CHANGES = ('add', 'remove', 'prune', 'default')  # add: the absolute-path row of cards sent before the browser.
 END_STATUS = '你结束了工作区管理，没有启动任务'
-MENU_KEY = 'manage_workspaces'  # The bot menu's 工作区 before 2026-11-09: the 设置 card on this tab now.
+MENU_KEY = 'manage_workspaces'  # The bot menu's older 工作区 key: the 设置 card on this tab now.
 
 
 def is_hub(path):
@@ -284,7 +284,7 @@ class WorkspaceManager(CardActionQueue):
         """(token, revision, verb, arg) of a click on a manager card, or of 管理工作区 on a launch card
         (verb 'open', no revision); None for anything else. The browser's verbs (dir-…) and page carry
         a number, the row or page a button stands for; a row's remove- and default- the workspace's
-        row_key. Without a key, remove and default are a card's sent before the rows (2026-11-03): its
+        row_key. Without a key, remove and default are a card's sent before the rows: its
         selects name the workspaces."""
         name = event.get('action_name') or ''
         arg = None

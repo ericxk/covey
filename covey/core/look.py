@@ -6,13 +6,13 @@ the ``tone`` each web item carries (data contract v5). The words and colours of 
 own (cards/board.py LOOKS), so that it can move here without a change (tests/test_look.py checks they agree).
 
 - ``tone``: a record's status (and whether its result was seen, whether it may be stuck, who stopped it) as a key of
-  STATES. The owner, 2026-11-18 23:58: a failed, interrupted, timed-out or refused turn is 停住了, the reason on its
-  second line; one he stopped himself is 已停止, background.
+  STATES. A failed, interrupted, timed-out or refused turn is 停住了, the reason on its second line; one the
+  owner stopped himself is 已停止, background.
 - ``owner_stopped``: whether a cancelled record was stopped by the owner, from ``cancel_requested_by``
   (core/jobs.py STOP_SOURCES); one cancelled while queued is his. An older running one without it is not known to be.
 - ``pressing``: the most pressing state there is (``PRESSING``): what a summary leads with.
-- ``BAND``, ``band_colors``: the conclusion band's background, a vertical gradient in steps too fine to see (the owner,
-  2026-11-19 08:10, after four sample cards: no orb, no glow around the edge, no visible stripes). A Feishu container
+- ``BAND``, ``band_colors``: the conclusion band's background, a vertical gradient in steps too fine to see (no
+  orb, no glow around the edge, no visible stripes). A Feishu container
   takes one solid colour, so the band is rows, each a step lighter than the one above, inside one thin line. The
   colours are the card's own (``config.style.color``), each with a light and a dark mode value.
 - ``RETIRED``: words the surfaces said before for these states, to be replaced as each surface moves.
@@ -61,7 +61,7 @@ BRAND = {"color": "indigo", "web": "#7C83FF"}
 # stripe; 3% did (the third sample card).
 BAND = {"rgb": (94, 106, 210), "dark_rgb": (124, 131, 255), "top": 0.085, "step": 0.01, "floor": 0.035, "dark": 2.0,
         "line": (0.20, 0.38), "rows": 6}
-# The web page's own neutrals (夜航 v2, 11-20): three grounds, two lines, four text greys. Layers come from having a ground
+# The web page's own neutrals (夜航 v2): three grounds, two lines, four text greys. Layers come from having a ground
 # or not, not from borders; the brightest grey is for conclusions and titles, long answers read in ``read``.
 WEB = {"surface": "#07080B", "panel": "#0C0E13", "raised": "#12141B", "line": "#171A21", "line2": "#232733",
        "ink": "#EDEEF1", "read": "#D0D3DA", "body": "#B3B7C1", "muted": "#7A7F8C", "faint": "#4E535F"}
@@ -92,7 +92,7 @@ SPEAKER_TITLE = 24  # Characters of a topic's title a speaker shows.
 
 
 def speaker(role, *, name="", label="", title="") -> str:
-    """The words of ``role`` (a key of SPEAKERS) as a speaker: "管家", "专项「发布」· 负责人", "T531 统一 UI 规范";
+    """The words of ``role`` (a key of SPEAKERS) as a speaker: "管家", "专项「发布」· 负责人", "T31 统一 UI 规范";
     '' for an unknown role or a topic with neither number nor title."""
     title = " ".join(str(title or "").split())
     title = title if len(title) <= SPEAKER_TITLE else title[:SPEAKER_TITLE - 1] + "…"

@@ -80,7 +80,7 @@ def _compact_mentions(mentions: Any) -> list[dict[str, str]]:
     return result
 
 
-# How lark-cli writes a post's inline styles (seen on its +messages-mget of real posts, 2026-11-20).
+# How lark-cli writes a post's inline styles (seen on its +messages-mget of real posts).
 _STYLES = (('lineThrough', '~~', '~~'), ('underline', '<u>', '</u>'))
 
 
@@ -146,7 +146,7 @@ def _plain_text(message_type: str, content: Any, mentions: list[dict[str, str]])
     """A text message's content as readable text (its words, mention placeholders named), a post's as lark-cli
     renders it (``_post_text``: elements in a paragraph run together, where message_parts.py would put each on its
     own line); the content of any other type stays the message API's JSON, which feishu/message_parts.py reads as
-    it reads lark-cli's rendering (the same model text for images and files, checked 2026-11-20)."""
+    it reads lark-cli's rendering (the same model text for images and files)."""
     content = content if isinstance(content, str) else ''
     if message_type == 'post':
         return _post_text(content, {m['key']: m['name'] for m in mentions if m['key'] and m['name']})

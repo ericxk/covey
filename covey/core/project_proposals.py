@@ -1,4 +1,4 @@
-"""整理专项's records and switches (docs/butler.md 整理专项, COVEY_PROJECT_TIDY): what was proposed, what the owner decided and what
+"""整理专项's records and switches (docs/projects.md 整理专项, COVEY_PROJECT_TIDY): what was proposed, what the owner decided and what
 整理专项 must not do again. app/project_tidy.py writes them, app/project_sorter.py reads them; no model, no Feishu call.
 
 - ``COVEY_PROJECT_TIDY``: ``suggest`` (整理 runs, joins into an existing project are done, a new project is only proposed) or
@@ -287,7 +287,7 @@ def waiting(state_dir) -> list:
     for record in sorted(proposals(state_dir, (OPEN,)), key=lambda record: record.get("created_at") or 0, reverse=True):
         mine = frozenset(record.get("topics") or ())
         if record.get("kind") != CREATE or len(mine) < MIN_CREATE or not (record.get("card") or {}).get("message_id"):
-            continue  # A row of an older 整理专项 card (before 2026-11-18 20:00) stays on that card.
+            continue  # A row of an older 整理专项 card (of an older release) stays on that card.
         if any(mine <= other or other <= mine for other in seen):
             continue
         seen.append(mine)
@@ -297,8 +297,8 @@ def waiting(state_dir) -> list:
 
 def overlapping(state_dir, topics) -> dict:
     """The proposal waiting for the owner (``waiting``) that is mostly about ``topics``: they share at least half of the
-    smaller of the two; {} when none. A new 新建 proposal goes into it instead of a card of its own (the owner, 2026-11-19:
-    C队重启后自启 proposed twice)."""
+    smaller of the two; {} when none. A new 新建 proposal goes into it instead of a card of its own (the same
+    project is not proposed twice)."""
     wanted = set(topics or ())
     for record in waiting(state_dir):
         shared = wanted & set(record.get("topics") or ())

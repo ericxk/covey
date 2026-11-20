@@ -164,7 +164,7 @@ def last_activity(state_dir, record, receipts) -> float:
 def reported(state_dir, topic_id, key) -> bool:
     """Whether the turn ``key`` of the lead topic ``topic_id`` recorded a report note its project's style lets through, or
     changed something (handed out work, stopped a topic, answered or handed on a question: the record's ``acted``,
-    app/project_tools.py): the reply of a wake-up turn is sent then, as an owner's turn's is (有变化才发, 2026-11-19)."""
+    app/project_tools.py): the reply of a wake-up turn is sent then, as an owner's turn's is (有变化才发)."""
     found = projects.topic_project(state_dir, str(topic_id or ""))
     record = projects.read_record(state_dir, found.id) if found is not None else {}
     if any(isinstance(row, dict) and row.get("job") == key for row in record.get("acted") or ()):
@@ -220,8 +220,8 @@ REOPENS_KEPT = 10  # The record's ``reopened`` rows kept.
 
 
 def unfinish(record) -> None:
-    """Edit ``record`` in place: a project its lead finished (``done``) is active again (the owner, 2026-11-19: a finished
-    project he speaks in opens again, as a folded one does). ``reopened`` keeps when and what the finish had said, for the
+    """Edit ``record`` in place: a project its lead finished (``done``) is active again (a finished
+    project the owner speaks in opens again, as a folded one does). ``reopened`` keeps when and what the finish had said, for the
     lead's next turn (app/project_lead.py state_pack); the finish's turn and conclusion are forgotten, and the card that had
     shrunk to one line is drawn whole again in place (app/project_cards.py). A record in any other state is left alone."""
     if record.get("state") != projects.DONE:

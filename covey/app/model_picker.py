@@ -1,7 +1,7 @@
 """The launch card's choices: a model change (a Harness or provider choice is one, to its first model)
 rebuilds the card for that model; a budget, work mode, 敏感词脱敏, workspace or run mode is recorded and
-redraws the card too, as its summary names them (cards/launch_config.py, 2026-11-03). A settings row's options
-open under it in the client (2026-11-04); a card sent with options pages (84caa8a) sends a row's tap, which redraws
+redraws the card too, as its summary names them (cards/launch_config.py). A settings row's options
+open under it in the client; a card sent with options pages (84caa8a) sends a row's tap, which redraws
 the card with that row open, and its ‹ 返回, which redraws it with none: there a choice, the current one too, closes
 the row. Cards sent before have selects, whose callbacks are the same kinds."""
 from __future__ import annotations

@@ -11,7 +11,7 @@ them with its own read_file).
 
 agy takes nothing into a running turn (another ``user`` line is a turn of its own, after this one), so a
 supplement stops the turn and goes on with it: SIGINT ends agy at once with ``result.error`` "interrupted"
-(its conversation keeps what was done; seen 2026-11-20 on 1.5.13), the commands it left running are stopped,
+(its conversation keeps what was done; seen on 1.5.13), the commands it left running are stopped,
 and the same conversation goes on in a new process with the supplement as its message (AgyControl). The
 job's reply is the last process's answer.
 """
@@ -100,7 +100,7 @@ def tool_inputs(parameters):
 
 def usage_counts(usage):
     """(output, uncached input, cache reads) of agy's usage: its ``input_tokens`` leaves the cache reads out
-    (``total_tokens`` is input plus output; seen 2026-11-20 on 1.5.13), its output counts the thinking."""
+    (``total_tokens`` is input plus output; seen on 1.5.13), its output counts the thinking."""
     if not isinstance(usage, dict):
         return None
     output, uncached, read = (usage.get(k) for k in ("output_tokens", "input_tokens", "cache_read_tokens"))
@@ -314,8 +314,8 @@ class StreamRows:
     def reply(self):
         """The turn's answer: what the model wrote after its last step that was not writing (a tool, a subagent, a
         system message such as a subagent's return). agy's ``result.response`` joins everything the model wrote in
-        the turn: the progress lines GEMINI.md asks for and the "waiting for the subagents" lines before the answer
-        (T588, 2026-11-20). '' when the answer is not the end of ``response`` (then ``response`` is taken as it is)."""
+        the turn: the progress lines GEMINI.md asks for and the "waiting for the subagents" lines before the answer.
+        '' when the answer is not the end of ``response`` (then ``response`` is taken as it is)."""
         response = str((self.result or {}).get("response") or "").strip()
         last = max((index for index, kind in self.kinds.items() if kind != "agent_response"), default=-1)
         answer = "".join(self.texts[index] for index in sorted(self.texts) if index > last).strip()

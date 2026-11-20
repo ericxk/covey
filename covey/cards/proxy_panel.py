@@ -24,7 +24,7 @@ from covey.core.proxy import GROUP_NAME, NAMES, source_of
 ENABLE = 'bridge_proxy_enable'
 DISABLE = 'bridge_proxy_disable'
 # The model's settings rows (model_rows): a tap's ``option`` is in its value. MODEL and BUDGET were the selects of a
-# card drawn before them (2026-11-10), whose click has the option beside the value; such a card still acts.
+# card drawn before them, whose click has the option beside the value; such a card still acts.
 HARNESS = 'bridge_proxy_harness'
 PROVIDER = 'bridge_proxy_provider'
 TIER_MODEL = 'bridge_proxy_tier_model'
@@ -64,7 +64,7 @@ FOLD_ROWS = 5  # A longer whitelist is a folded panel, open after a click on one
 MODEL_ROWS = (12, 6, 3)
 FIRST_CHOICES = 2  # Candidates each name gets before any gets more, when not all fit.
 # Nodes a whitelist page keeps however many names a search lists: two rows and their rule. Three before the
-# title bar and the tiles (2026-11-03), when five names' first candidates no longer fit beside them.
+# title bar and the tiles, when five names' first candidates no longer fit beside them.
 PAGE_FLOOR = 20
 TITLE = '代答'
 QUERY_PLACEHOLDER = '人名、邮箱、群名或 ou_/oc_ ID，可写多个'
@@ -475,7 +475,7 @@ def fitted(ui, view, contacts, head, top, rows, add, group_rows, candidate_rows,
         return fits(body(page_rows, results(group_rows, candidate_rows, counts)), nodes - 1, size - 400)
 
     # What fits of the result: the unique groups, then FIRST_CHOICES candidates of each name (one where
-    # two do not fit), then the rest in order. 2026-10-27, “zengduju”'s 21 matches got no row at all.
+    # two do not fit), then the rest in order: a name with 21 matches still gets a row.
     counts = [0] * len(whole)
     for at in range(len(whole)):
         take = first[at]

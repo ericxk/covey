@@ -62,7 +62,7 @@ class JobDispatch:
             # Pending launch jobs enter the queue directly. Initialize their
             # selected backend here, outside the fast card callback. A task runner's
             # Bridge checked it just before the handoff: Claude's check is
-            # `claude auth status`, 1.0-1.5 s (2026-10-26), and is not run twice.
+            # `claude auth status`, 1.0-1.5 s, and is not run twice.
             if not self.runtime.in_runner:
                 check_or_raise(name, record_ctx)
             timing.mark('check')

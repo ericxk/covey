@@ -19,8 +19,8 @@ from covey.core.ttft import FirstToken
 def context_of(usage):
     """The context the next turn resumes with, as the task card's 上下文 tile takes it (core/trace.py
     CONTEXT_FIELDS): the latest request's tokens (``last.totalTokens``: its input with the cached part, and its
-    output) and the model's window when Codex knows it. {} when it gave neither. Codex cards read 上下文 — until
-    2026-11-04 (the owner: 这里的上下文为啥显示 -): the counts were there (T386 #2790: 87,300 of 258,400)."""
+    output) and the model's window when Codex knows it. {} when it gave neither. Codex cards read 上下文 — in
+    older releases though the counts were there (87,300 of 258,400)."""
     if not isinstance(usage, dict):
         return {}
     last, window = usage.get("last") or {}, usage.get("modelContextWindow")
@@ -43,7 +43,7 @@ def codex_failure_code(error):
     status = details.get("httpStatusCode") if isinstance(details, dict) else None
     status = status if type(status) is int else None
     if status == 403 and gateways.quota_text(error.get("message") or ""):
-        # A gateway's spent daily quota (T272 #2611, 2026-11-03: read 拒绝了当前身份或权限).
+        # A gateway's spent daily quota.
         return "quota_exhausted"
     if name == "unauthorized" or status in {401, 403}:
         return "authentication_error"
@@ -180,7 +180,7 @@ def on_item(method, p, row, adapter, generation_clock, event, rpc):
         return
     if method == "item/started" and item.get("type") == "reasoning":
         # Reasoning that streams no text gives no first token; its start alone says the model is at
-        # work (S28 #850 read "等待模型开始输出" for 29 s). Only the type is read, never its fields.
+        # work (not "等待模型开始输出" for 29 s). Only the type is read, never its fields.
         event("model_reasoning", {}, rpc)
         return
     if item.get("type") in {"commandExecution", "fileChange", "webSearch", "mcpToolCall",
@@ -316,7 +316,7 @@ def read_turn(rpc, request, ctx, state, adapter, generation_clock, first_token_s
         if method == "error" and p.get("willRetry") is True and p.get("turnId") in {None, rpc.turn_id}:
             retries += 1
             message = str((p.get("error") or {}).get("message") or "")
-            # The status is in codexErrorInfo; the message may not say it (#2304: 429s read 模型服务暂时不可用).
+            # The status is in codexErrorInfo; the message may not say it.
             code = codex_failure_code(p.get("error"))
             if code != "quota_exhausted" and "429" in message:
                 code = "rate_limited"

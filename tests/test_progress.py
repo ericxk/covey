@@ -1,4 +1,4 @@
-"""A running turn's progress (core/progress.py, docs/usage.md 任务卡上的进度): the one pure function every reader shares, the
+"""A running turn's progress (core/progress.py, docs/reference.md 任务卡): the one pure function every reader shares, the
 words they show it with, the task monitor that keeps it on the record and tells the card when the turn may be stuck
 (core/longtask.py), the 看看 button (Cards.show_stuck) and its read-only look (app/stuck_check.py), and the board's readers
 (the pinned status cards, 手上的事, 早晚汇总, the butler's snapshot) that write its phase and estimate, never a command."""

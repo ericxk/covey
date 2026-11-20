@@ -1,10 +1,10 @@
-"""Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py Row.quiet, D1
-2026-11-08: 提问不开串; docs/butler.md 提问不开串). The turn opens no thread of its own, so the message says how it
+"""Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py Row.quiet;
+docs/butler.md 提问不开串). The turn opens no thread of its own, so the message says how it
 stands: OnIt once it is queued (app/submission.py, in the Bridge), then, when the turn ends (app/worker.py, in its
 task runner), DONE for an answer, Get for work handed on to topics, CrossMark for a failure or an official refusal;
 nothing more for a stop or a question (the question card at the top level asks).
 
-The 2026-11-08 probe (misc-tasks PROBE-reaction.md): on the web a reaction makes no unread mark, moves no chat up
+As probed: on the web a reaction makes no unread mark, moves no chat up
 and adds no message, only an icon before the chat list's preview. Adding a reaction the bot has already is the same
 one again (its reaction_id too), removing one removed already succeeds: the end adds OnIt again to learn its id, then
 removes it. A failure is a log line, never the answer's; no record lock is held (rules 1 and 2).
@@ -12,8 +12,8 @@ removes it. A failure is a log line, never the answer's; no record lock is held 
 多路并行 (COVEY_BUTLER_TRACKS=1, app/butler_tracks.py ``Tracks.noted``) adds two: QUEUED (OneSecond) on a message that waits
 behind a track's tasks, in the Bridge, instead of OnIt; the task process takes it off and puts OnIt on when the turn
 starts (``begin``: the ids come from Messenger.reaction_ids, so no state is kept between the two processes), and MERGED
-(THUMBSUP) on a message that joined a running task, which stays until the owner quotes it with 单独答 (``split``). The
-2026-11-15 probe (misc-tasks runs b4-reactions): Feishu takes OneSecond and THUMBSUP, not WAIT. With the switch off none
+(THUMBSUP) on a message that joined a running task, which stays until the owner quotes it with 单独答 (``split``). Feishu
+takes OneSecond and THUMBSUP, not WAIT. With the switch off none
 of them is called."""
 from __future__ import annotations
 

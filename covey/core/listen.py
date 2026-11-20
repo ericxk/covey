@@ -48,7 +48,7 @@ def parse_bind(spec, environ=None, *, setting="COVEY_NODE_LISTEN"):
 def global_ipv6():
     """This machine's IPv6 address others reach it at, or '': the source address of its default route (the one
     a dev machine registers for its reserved ports), else the first
-    global address of an interface, which may be another network's (eth2 before eth0 on 2026-11-13)."""
+    global address of an interface, which may be another network's (eth2 before eth0, say)."""
     try:
         with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as probe:
             probe.connect(ROUTE_PROBE)
@@ -84,8 +84,8 @@ def link_host(bind_host):
     unless it listens on IPv4 only (0.0.0.0); else its name when it resolves; else localhost.
 
     The address before the name: a browser may look the name up for IPv4 alone (Chrome does when it has no
-    route to the IPv6 internet) while a dev machine is reached over IPv6. On 2026-11-13 the owner's browser
-    never reached http://<the machine's name>:<port>; the platform registers the IPv6 address for the port."""
+    route to the IPv6 internet) while a dev machine is reached over IPv6. A browser then
+    never reaches http://<the machine's name>:<port>; the platform registers the IPv6 address for the port."""
     if bind_host not in ("::", "0.0.0.0", ""):
         return f"[{bind_host}]" if ":" in bind_host else bind_host
     address = global_ipv6() if bind_host != "0.0.0.0" else ""

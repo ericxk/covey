@@ -49,7 +49,7 @@ GOOD_ENDS = frozenset({"done", "waiting_user", "continued"})  # A turn that took
 # threads'). backends/claude/argv.py turns ``options["tools"]`` into --tools.
 LEAD_TOOLS = ("Read", "Grep", "Glob")
 
-# A project has no limit on its member topics at the same time, and its style no 派活 (the owner, 2026-11-19: deploys
+# A project has no limit on its member topics at the same time, and its style no 派活 (deploys
 # that would clash queue, the topics are not held back). An older record's or project-style.json's ``spawn`` is read past.
 REPORT, DETAIL = "report", "detail"
 STYLE_CHOICES = {REPORT: ("ask_only", "milestones", "each_thread", "verbose"), DETAIL: ("一行", "简", "全")}

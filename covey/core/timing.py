@@ -1,5 +1,5 @@
 """Millisecond timing of the live flows: where the time from a message or a click to what the
-user sees goes (docs/operations.md 排障 "慢在哪里"; scripts/bridge_timing.py reads it).
+user sees goes (docs/troubleshooting.md 慢在哪里; scripts/bridge_timing.py reads it).
 
 A flow is one message, one click, a job's hand-off to its task runner or a runner's start.
 It opens on the thread that handles it (``begin``/``flow``) and follows the work that thread

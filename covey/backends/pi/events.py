@@ -3,7 +3,7 @@
 Reasoning is never published (GPT's is encrypted and its thinking events carry no text). A
 model request is one assistant message, but pi prints its ``message_start`` only once the response's
 headers came (pi-ai pushes ``start`` after them), and Acme may hand a whole response over at once:
-#2693's start, deltas and end came within milliseconds of each other (9,660 tokens in 0.61 s, TTFT
+a response's start, deltas and end came within milliseconds of each other (9,660 tokens in 0.61 s, TTFT
 0.004 s). So a request is timed from when it was sent: the prompt's write for the first, and the last
 row pi prints before it sends a later one (SEND_MARKS, or a user or tool-result message; pi-agent-core's
 agent-loop.js). TTFT runs from there to the turn's first thinking or text, and the generation time adds
@@ -50,7 +50,7 @@ def failure_code(message):
     if head.startswith(("401", "403")) or "unauthorized" in head or "invalid api key" in head or "no api key" in head:
         return "authentication_error"
     # Acme's upstream also says it inside a 200 stream: "Requests have exceeded the throughput limit on your
-    # Provisioned-Managed deployment" (2026-11-04), which neither the relay nor pi retries.
+    # Provisioned-Managed deployment", which neither the relay nor pi retries.
     if (head.startswith("429") or "rate limit" in head or "usage limit" in head or "too many requests" in head
             or "throughput limit" in head):
         return "rate_limited"

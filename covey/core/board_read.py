@@ -7,15 +7,14 @@ every job of the chat, not a window).
 
 What waits for the owner (等我) is one count too, ``waits``: every reader above, the 看板 (app/digest.py board_view),
 the project card (``asks``) and the web page (app/web_sync.py) take it, and each 等我 carries the card it is acted on
-(the question card, the launch card), so whatever lists it can open it (the owner, 2026-11-19: 汇总说 6 个、看板
-3 个、管家 4 个，在私聊里也找不到).
+(the question card, the launch card), so whatever lists it can open it, and every reader counts the same.
 
 A reader that also needs the board's ``taken off`` reads once with the board record's ``keep`` (app/pins.py kept)
 and hands the read to the board's look; the jobs it judges itself are those ``fresh`` picks, as read without it. So
-a butler turn reads jobs/ once (before 2026-11-10: three times, 手上的事's running ones, the board's, and its
-own results), as do 手上的事 with the board on and 早晚汇总 (each twice before).
+a butler turn reads jobs/ once (not three times, 手上的事's running ones, the board's, and its own
+results), as do 手上的事 with the board on and 早晚汇总 (each twice before).
 
-"A result the owner has not seen" (有结果未看) is one rule, the board's (the owner, 2026-11-10: 以看板为准), and
+"A result the owner has not seen" (有结果未看) is one rule, the board's, and
 all five readers take it from ``groups`` and ``unseen`` below: the same topics, at the same time, from the same
 records. ``groups`` splits a read as the board does: waiting (the newest pending question shown, asked within
 QUESTION_AGE), running (a job in RUNNING with a task card) and results (``board_result``): the topic's latest job
@@ -49,10 +48,10 @@ from covey.core.topics import label_title
 
 PRIORITY = "board-priority.json"
 RESULT_AGE = 3 * 86400  # What ``read`` reaches back; a board result that ended before keep_since: on it this long.
-KEEP_SEEN = 12 * 3600  # A board result the owner has seen stays this long from when it was first seen (11-07).
+KEEP_SEEN = 12 * 3600  # A board result the owner has seen stays this long from when it was first seen.
 BOARD_RESULTS = frozenset({"done", "failed", "interrupted", "cancelled"})
 QUESTION_AGE = 86400  # A pending question asked longer ago is not the board's waiting (手上的事 lists it apart).
-STOPPED = "cancelled"  # A board result only since the board record's stopped_since (the owner, 2026-11-09).
+STOPPED = "cancelled"  # A board result only since the board record's stopped_since.
 RAN = ("backend_requested", "backend_started", "execution_finished")  # Timings of a job whose run began.
 TOOLS_AGE = 3 * 86400  # topics_list's recent: what moved in the last three days (not its unseen: ``unseen``).
 START = "waiting_workspace"  # A job waiting for the owner to press 开始 on its topic's launch card.
@@ -188,13 +187,13 @@ class Waits:
         return [*self.live, *self.stale]
 
     def count(self) -> int:
-        """The number of 等我 every reader says: the live ones and the old ones (the 早晚汇总's 等你 since 2026-11-09)."""
+        """The number of 等我 every reader says: the live ones and the old ones (the 早晚汇总's 等你)."""
         return len(self.live) + len(self.stale)
 
 
 def waits(state, chat, now, off=()) -> Waits:
     """等我 of ``chat`` now: the one count of what waits for the owner, which the 早晚汇总, the 看板, 手上的事, the
-    butler's snapshot and the web page all take (the owner, 2026-11-19: 汇总 6 个、看板 3 个、管家 4 个，对不上也找不到).
+    butler's snapshot and the web page all take.
 
     Per topic one: its newest question that ``asks`` (the butler's and the leads' at the top level too: 要你定的事
     waits under 等你 whoever asks), else its newest job waiting for 开始 (START) whose topic has a launch card that can

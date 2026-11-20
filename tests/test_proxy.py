@@ -45,7 +45,7 @@ class RecordTests(unittest.TestCase):
         person = records.incoming(item('m1', 'hi', chat_type='p2p'))
         self.assertTrue(records.addressed(PERSON, person, OWNER))
         self.assertFalse(records.addressed(PERSON, records.incoming(item('m2', 'hi', sender=OWNER, chat_type='p2p')), OWNER))
-        at_me = records.incoming(item('m3', '@胥可 看下', chat='oc_g', mentions=[OWNER], chat_type='group'))
+        at_me = records.incoming(item('m3', '@王小明 看下', chat='oc_g', mentions=[OWNER], chat_type='group'))
         at_all = records.incoming(item('m4', '@所有人 看下', chat='oc_g', mentions=['all'], chat_type='group'))
         self.assertTrue(records.addressed(GROUP, at_me, OWNER))
         self.assertFalse(records.addressed(GROUP, at_all, OWNER))
@@ -70,7 +70,7 @@ class RecordTests(unittest.TestCase):
 
     def test_prompt_names_the_sender_and_how_to_decline(self):
         batch = records.new_batch(PERSON, [records.incoming(item('m1', '接口文档在哪'))])
-        prompt = records.batch_prompt(PERSON, batch, {'owner_name': '胥可', 'user_profile': 'me'})
+        prompt = records.batch_prompt(PERSON, batch, {'owner_name': '王小明', 'user_profile': 'me'})
         self.assertIn('张三 在私聊发来', prompt)
         self.assertIn('接口文档在哪', prompt)
         self.assertIn(records.SKIP_MARK, prompt)
@@ -89,11 +89,11 @@ class RecordTests(unittest.TestCase):
         recent = [records.incoming(item('m1', '啥时候开源')),
                   records.incoming(item('m2', '下周\n最近在疯狂炼化', sender=OWNER)),
                   records.incoming(item('m3', '开始蒸馏自己了'))]
-        settings = {'owner_name': '胥可', 'owner_user_id': OWNER, 'user_profile': 'me'}
+        settings = {'owner_name': '王小明', 'owner_user_id': OWNER, 'user_profile': 'me'}
         prompt = records.batch_prompt(PERSON, batch, settings, '主人风格：很短', context='炼化：把人沉淀进 Agent', recent=recent)
         chat = prompt[prompt.index(records.RECENT_HEAD):prompt.index(records.RULES_HEAD)]
         self.assertIn('张三：啥时候开源', chat)
-        self.assertIn('胥可（主人）：下周 / 最近在疯狂炼化', chat)  # The owner's own, on one line.
+        self.assertIn('王小明（主人）：下周 / 最近在疯狂炼化', chat)  # The owner's own, on one line.
         self.assertIn('要更早的聊天', prompt)
         self.assertNotIn('先检索再答', prompt)
         self.assertLess(prompt.index('炼化：把人沉淀进 Agent'), prompt.index('主人风格：很短'))
@@ -120,10 +120,10 @@ class RecordTests(unittest.TestCase):
         run.assert_called_once()
 
     def test_names_are_split_by_spaces_commas_and_ats_and_a_phrase_is_kept_whole(self):
-        self.assertEqual(records.parse_names('苏越、张信宇 不存在的人'),
-                         [('', ['苏越']), ('张信宇 不存在的人', ['张信宇', '不存在的人'])])
+        self.assertEqual(records.parse_names('钱七、赵六 不存在的人'),
+                         [('', ['钱七']), ('赵六 不存在的人', ['赵六', '不存在的人'])])
         self.assertEqual(records.parse_names('@张三 @李四 @王五'), [('', ['张三', '李四', '王五'])])
-        self.assertEqual(records.parse_names('C队 验收测试'), [('C队 验收测试', ['C队', '验收测试'])])
+        self.assertEqual(records.parse_names('Covey 验收测试'), [('Covey 验收测试', ['Covey', '验收测试'])])
         self.assertEqual(records.parse_names('zhang.san@example.com，ou_x;\noc_y；张三, 张三'),
                          [('', ['zhang.san@example.com']), ('', ['ou_x']), ('', ['oc_y']), ('', ['张三'])])
         self.assertEqual(records.parse_names(' ,， \n'), [])
@@ -175,7 +175,7 @@ class TextTests(ProxyCase):
     def test_enable_records_the_group_lark_cli_prints_over_many_lines(self):
         records.write_settings(self.state, {'user_profile': 'me', 'harness': 'codex', 'workspace': 'project',
                                             'workdir': str(self.work)})
-        me = {'data': {'users': [{'open_id': OWNER, 'localized_name': '胥可'}]}}
+        me = {'data': {'users': [{'open_id': OWNER, 'localized_name': '王小明'}]}}
         created = mock.Mock(returncode=0, stdout='{\n  "ok": true,\n  "data": {\n    "chat_id": "oc_new"\n  }\n}\n')
         with owner_cli(return_value=me), \
              mock.patch('covey.app.proxy_commands.run_cli', return_value=created):
@@ -187,7 +187,7 @@ class TextTests(ProxyCase):
     def enable_with(self, chats, created=None):
         """开启代答 once: the owner's chats named the group's name are ``chats``; lark-cli's +chat-create
         answers ``created`` (a value, or an exception to raise)."""
-        me = {'data': {'users': [{'open_id': OWNER, 'localized_name': '胥可'}]}}
+        me = {'data': {'users': [{'open_id': OWNER, 'localized_name': '王小明'}]}}
 
         def cli(profile, *args, timeout=60):
             return {'data': {'chats': chats}} if '+chat-search' in args else me
@@ -200,7 +200,7 @@ class TextTests(ProxyCase):
                 return exc, create
 
     def test_a_group_creation_of_unknown_outcome_is_found_by_name_and_never_made_twice(self):
-        # Hard rule 1: a second 开启代答 after a timed-out +chat-create made a second 「C队 代答」.
+        # Hard rule 1: a second 开启代答 after a timed-out +chat-create made a second proxy group.
         records.write_settings(self.state, {'user_profile': 'me', 'harness': 'codex', 'workspace': 'project',
                                             'workdir': str(self.work)})
         said, create = self.enable_with([], subprocess.TimeoutExpired(['lark-cli'], 60))
@@ -219,6 +219,30 @@ class TextTests(ProxyCase):
         settings = records.read_settings(self.state)
         self.assertEqual((settings['group_chat_id'], settings['enabled']), ('oc_made', True))
         self.assertNotIn('group_creating', settings)
+
+    def test_the_group_is_made_with_the_configured_name_or_the_neutral_default(self):
+        made = mock.Mock(returncode=0, stdout='{"data": {"chat_id": "oc_new"}}')
+        for configured, name in (('', '代答'), ('  小组 代答 ', '小组 代答')):
+            with self.subTest(configured=configured):
+                records.write_settings(self.state, {'user_profile': 'me', 'harness': 'codex', 'workspace': 'project',
+                                                    'workdir': str(self.work)})
+                with mock.patch.dict('os.environ', {'COVEY_PROXY_GROUP_NAME': configured}):
+                    said, create = self.enable_with([], made)
+                argv = create.call_args.args[0]
+                self.assertEqual(argv[argv.index('--name') + 1], name)
+                self.assertIn(f'群「{name}」', said)
+                self.assertEqual(records.read_settings(self.state)['group_name'], name)
+
+    def test_a_group_already_made_keeps_its_name_whatever_is_configured_now(self):
+        records.write_settings(self.state, {'user_profile': 'me', 'harness': 'codex', 'workspace': 'project',
+                                            'workdir': str(self.work), 'group_chat_id': 'oc_made',
+                                            'group_name': '旧群名'})
+        with mock.patch.dict('os.environ', {'COVEY_PROXY_GROUP_NAME': '新群名'}):
+            said, create = self.enable_with([])
+        create.assert_not_called()
+        self.assertIn('群「旧群名」', said)
+        settings = records.read_settings(self.state)
+        self.assertEqual((settings['group_chat_id'], settings['group_name']), ('oc_made', '旧群名'))
 
     def test_a_group_creation_feishu_refused_is_tried_again_on_the_next_click(self):
         records.write_settings(self.state, {'user_profile': 'me', 'harness': 'codex', 'workspace': 'project',
@@ -419,7 +443,7 @@ class FlowTests(ProxyCase):
         self.assertEqual(self.batches(statuses=None)[0]['status'], 'sent')
 
     def test_a_task_the_owner_stopped_on_its_card_holds_the_batch_without_a_note(self):
-        # 苏越 17:31: the owner stopped #1071; "⏸ 没有代你回复：任务没有可用的回复（cancelled）" followed.
+        # 钱七 17:31: the owner stopped #1071; "⏸ 没有代你回复：任务没有可用的回复（cancelled）" followed.
         batch = self.submitted(status='cancelled')
         upsert_job_record(self.state, batch['job_key'], cancel_requested_by='card')
         before = len(self.notes())
@@ -433,7 +457,7 @@ class FlowTests(ProxyCase):
         self.assertIn('任务没有可用的回复（cancelled）', self.notes()[-1])
 
     def test_a_held_batch_gives_way_to_a_newer_one_so_one_reply_is_not_sent_twice(self):
-        # 苏越 16:24/16:25: a batch taken in while the first still ran; both held, both waiting for one turn.
+        # 钱七 16:24/16:25: a batch taken in while the first still ran; both held, both waiting for one turn.
         first = self.submitted()
         self.take_in(item('m2', '还有个事', position='9'))
         # The first gives way at once and says no ⏸ line: the newer batch, which carries its messages, says what
@@ -445,7 +469,7 @@ class FlowTests(ProxyCase):
         self.assertEqual(statuses, {True: 'superseded', False: 'submitted'})
 
     def test_a_send_that_never_pressed_enter_is_tried_again_then_waits_for_the_owners_turn(self):
-        # 张信宇 T190 (2026-10-27): three sends never pressed Enter; the batch ended as failed, and the owner's
+        # 赵六 T190 (2026-10-27): three sends never pressed Enter; the batch ended as failed, and the owner's
         # 重新回复 in the topic then sent nothing. It now stays held and the owner's next turn is sent.
         batch = self.submitted()
         failure = {'ok': False, 'submitted': False, 'error': '网页端未登录'}
@@ -655,7 +679,7 @@ class FlowTests(ProxyCase):
             self.assertTrue(self.proxy.web.owner_replied(self.ctx, self.settings(), records.read_contacts(self.state)[0], later))
 
     def test_a_contact_added_back_goes_on_in_its_earlier_topic_on_that_topics_harness(self):
-        # 2026-10-27 17:44: C队 验收测试 added back; its topic root's key was used at 13:07, the transport
+        # 2026-10-27 17:44: Covey 验收测试 added back; its topic root's key was used at 13:07, the transport
         # refused it again with another card, and every poll failed on that batch.
         self.cards = iter(['om_root', 'om_mirror', 'om_card3', 'om_card4'])
         first = self.submitted()
@@ -712,8 +736,8 @@ class FlowTests(ProxyCase):
         # STATE3 (2026-10-28): sent by the sender tool; a group's @ inside a thread is answered inside it.
         self.take_in(item('m1', '在吗', position='7'))
         [batch] = self.batches()
-        group = {**batch, 'messages': [records.incoming(item('m3', '@胥可 看下', chat='oc_g', position='12', mentions=[OWNER]))]}
-        thread = {**batch, 'messages': [records.incoming(item('m4', '@胥可 看下', chat='oc_g', position='-3', thread='omt_1',
+        group = {**batch, 'messages': [records.incoming(item('m3', '@王小明 看下', chat='oc_g', position='12', mentions=[OWNER]))]}
+        thread = {**batch, 'messages': [records.incoming(item('m4', '@王小明 看下', chat='oc_g', position='-3', thread='omt_1',
                                                               mentions=[OWNER]))]}
         unknown = {**batch, 'messages': [{**batch['messages'][0], 'chat_id': ''}]}
         patch, runs = self.tool_runs(*[RECEIPT] * 4)
@@ -775,7 +799,7 @@ class FlowTests(ProxyCase):
         records.write_contact(self.state, dict(GROUP))
         records.remove_contact(self.state, PERSON['key'])
         group = records.read_contacts(self.state)[0]
-        self.take_in(item('m1', '@胥可 看下', chat='oc_g', position='-3', thread='omt_1', mentions=[OWNER]))
+        self.take_in(item('m1', '@王小明 看下', chat='oc_g', position='-3', thread='omt_1', mentions=[OWNER]))
         self.proxy.submit(self.ctx, self.settings(), group, records.read_batches(self.state)[0])
         [batch] = self.batches()
         upsert_job_record(self.state, batch['job_key'], status='done', job_id=batch['job_id'], topic_id=batch['topic_id'],
@@ -824,7 +848,7 @@ class FlowTests(ProxyCase):
         records.write_contact(self.state, dict(GROUP))
         thread = {'id': 'b-thread', 'contact': GROUP['key'], 'status': 'sending', 'reply': '我看看', 'created_at': time.time(),
                   'send_started_at': time.time(), 'history': [],
-                  'messages': [records.incoming(item('m5', '@胥可 看下', chat='oc_g', position='-3', mentions=[OWNER]))]}
+                  'messages': [records.incoming(item('m5', '@王小明 看下', chat='oc_g', position='-3', mentions=[OWNER]))]}
         records.write_batch(self.state, thread)
         with owner_cli(return_value={'data': {'messages': []}}) as cli:
             self.proxy.finish_send(self.ctx, self.settings(), GROUP, thread, {'ok': True, 'submitted': True, 'message_id': ''})
@@ -862,7 +886,7 @@ class FlowTests(ProxyCase):
     def test_a_group_reply_is_read_back_by_the_message_it_quoted(self):
         records.write_contact(self.state, dict(GROUP))
         batch = {'id': 'b-group', 'contact': GROUP['key'], 'reply': '我看看', 'send_started_at': time.time(),
-                 'messages': [records.incoming(item('m1', '@胥可 看下这个', chat='oc_g', position='5', mentions=[OWNER])),
+                 'messages': [records.incoming(item('m1', '@王小明 看下这个', chat='oc_g', position='5', mentions=[OWNER])),
                               records.incoming(item('m2', '', chat='oc_g', position='6', kind='image', mentions=[OWNER]))]}
         chat = {'data': {'messages': [{**item('m-sent', '我看看', chat='oc_g', sender=OWNER, position='7'), 'reply_to': 'm1'}]}}
         with owner_cli(return_value=chat):
@@ -1062,7 +1086,7 @@ class FlowTests(ProxyCase):
         records.write_contact(self.state, {**PERSON, 'key': 'p2p:ou_li', 'target': 'ou_li', 'name': '李四', 'chat_id': '',
                                            'added_at': 3})
         listed = {'oc_p2p': [item('m0', '我自己说的', sender=OWNER, position='6'), item('m1', '在吗', position='7')],
-                  'oc_g': [item('g1', '@胥可 看下', chat='', sender='ou_w', position='4', mentions=[OWNER]),
+                  'oc_g': [item('g1', '@王小明 看下', chat='', sender='ou_w', position='4', mentions=[OWNER]),
                            item('g2', '大家好', chat='', sender='ou_w', position='5')]}  # The list gives no chat_id.
         with self.listing(listed) as cli:
             self.proxy.intake.listen_once(self.ctx, self.settings(), search=False)
@@ -1081,7 +1105,7 @@ class FlowTests(ProxyCase):
         self.assertEqual(self.proxy.intake.inbox, {})
         # The search: 李四's chat is not known yet, and a reply inside a thread is in no list.
         searched = [item('l1', '你好', sender='ou_li', chat='oc_li', position='2'), item('m1', '在吗', position='7'),
-                    item('g3', '@胥可 这里', chat='oc_g', sender='ou_w', position='-3', thread='omt_1', mentions=[OWNER])]
+                    item('g3', '@王小明 这里', chat='oc_g', sender='ou_w', position='-3', thread='omt_1', mentions=[OWNER])]
         with self.listing(listed, searched) as cli:
             self.listen_round(search=True)
         self.assertEqual(sum('+messages-search' in c.args for c in cli.call_args_list), 2)
@@ -1109,14 +1133,14 @@ class FlowTests(ProxyCase):
                                            'added_at': 3})
         listed = {'oc_p2p': [item('m1', '在吗', chat='', position='7')],
                   'oc_g': [item('g1', '这是 ai 画的吗', chat='', position='4'),
-                           item('g2', '@胥可 看下', chat='', position='5', mentions=[OWNER]),
+                           item('g2', '@王小明 看下', chat='', position='5', mentions=[OWNER]),
                            item('g3', '李四在群里说', chat='', sender='ou_li', name='李四', position='6')]}
         with self.listing(listed):
             self.proxy.intake.listen_once(self.ctx, self.settings(), search=False)
         self.assertEqual(self.inbox(), {'p2p:ou_zhang': ['m1'], 'group:oc_g': ['g2']})
         # The searches: the groups' @s (a reply in a thread, which no list shows) and the private chats.
-        searched = [item('g4', '@胥可 这里', chat='oc_g', position='-3', thread='omt_1', mentions=[OWNER], chat_type='group'),
-                    item('g5', '李四 @胥可', chat='oc_g', sender='ou_li', name='李四', position='8', mentions=[OWNER],
+        searched = [item('g4', '@王小明 这里', chat='oc_g', position='-3', thread='omt_1', mentions=[OWNER], chat_type='group'),
+                    item('g5', '李四 @王小明', chat='oc_g', sender='ou_li', name='李四', position='8', mentions=[OWNER],
                          chat_type='group')]
         with self.listing({}, searched):
             self.listen_round(search=True)
@@ -1229,7 +1253,7 @@ class FlowTests(ProxyCase):
         # Five minutes on, every 3 s again; a batch under way (seen by the poll) makes the group active.
         self.proxy.intake.active['p2p:ou_zhang'] = time.time() - 301
         self.proxy.intake.inbox.clear()
-        message = records.incoming(item('g1', '@胥可 看下', chat='oc_g', sender='ou_w', mentions=[OWNER]))
+        message = records.incoming(item('g1', '@王小明 看下', chat='oc_g', sender='ou_w', mentions=[OWNER]))
         records.write_batch(self.state, records.new_batch(GROUP, [message]))
         with mock.patch.object(self.proxy, 'submit'):
             self.proxy.tick(self.ctx, self.settings())
@@ -1364,7 +1388,7 @@ class FlowTests(ProxyCase):
         self.assertEqual((result['submitted'], result['error']), (False, '代答发送工具的文件和安装时不同：./scripts/send-as-user.py'))
 
     def test_every_reason_a_batch_was_given_stays_in_its_history(self):
-        # Repo review E3: 苏越's d40626116d was held three times by a failed send, and kept only the reason of
+        # Repo review E3: 钱七's d40626116d was held three times by a failed send, and kept only the reason of
         # the move after them, “对方又发来新消息”.
         batch = self.submitted()
         mismatch = '会话最新一条消息的位置对不上：网页端 57，接口 62'
@@ -1488,7 +1512,7 @@ class FlowTests(ProxyCase):
         self.assertTrue(args and args[0][args[0].index('--order') + 1] == 'desc')
         prompt = enqueue.call_args.kwargs['prompt_content']
         chat = prompt[prompt.index(records.RECENT_HEAD):prompt.index(records.RULES_HEAD)]
-        self.assertLess(chat.index('胥可（主人）：最近在疯狂炼化'), chat.index('张三：接口文档在哪'))  # Oldest first.
+        self.assertLess(chat.index('王小明（主人）：最近在疯狂炼化'), chat.index('张三：接口文档在哪'))  # Oldest first.
         self.assertIn('炼化：把人沉淀进 Agent', prompt)
 
     def test_a_round_that_ended_but_was_not_yet_decided_is_not_sent(self):

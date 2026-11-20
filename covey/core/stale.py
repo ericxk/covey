@@ -98,7 +98,7 @@ def stale_records(state, records, live, now, days=STALE_DAYS):
         times += [_when(q.get("created_at")) for q in open_questions if q.get("job_key") == key]
         where = (record.get("topic_id"), record.get("chat_id"))
         # Undelivered: its own card failed (launch_delivery_error, or a release before it left only the
-        # form's delivery_failed, live #1774), and no card in the topic can start it.
+        # form's delivery_failed), and no card in the topic can start it.
         undelivered = (record.get("status") == "waiting_workspace" and where not in startable
                        and (bool(record.get("launch_delivery_error")) or where in failed))
         if max(times) < (max(cutoff, now - UNDELIVERED_LAUNCH_DAYS * DAY) if undelivered else cutoff):

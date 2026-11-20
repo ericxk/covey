@@ -1,5 +1,5 @@
 """The words and rows 整理专项 draws a topic with: its T number, title and link (the link reads Feishu), a proposal card's rows of
-topics, the 整理专项 card's rows (docs/butler.md 整理专项). Takes no record lock, writes nothing; ``link`` is the one thing
+topics, the 整理专项 card's rows (docs/projects.md 整理专项). Takes no record lock, writes nothing; ``link`` is the one thing
 that asks Feishu, so the tests stand in for it here."""
 from __future__ import annotations
 

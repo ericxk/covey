@@ -1,6 +1,6 @@
 """The 管家 settings card (app/butler_panel.py), in the bot menu panels' style: the owner changes the butler's
  settings (core/butler_settings.py) on it, in two pages, each a tab of the 设置 card
-(cards/settings_hub.py BUTLER_PAGES; the owner, 2026-11-19, T546): 新话题 (what every new topic is preselected with,
+(cards/settings_hub.py BUTLER_PAGES): 新话题 (what every new topic is preselected with,
 the launch card's and the topics the butler opens alike: Harness, 供应商, 模型, 思考预算, 运行方式, 脱敏, 工作区; then
 直接开工, one row of START_CHOICES, with 记住的工作区 under it while it counts, ``trusted_section``; and under 更多 子
 Agent, which every Claude Code turn the Bridge starts follows, the butler's too, backends/claude/subagents.py) and 管家
@@ -8,7 +8,7 @@ Agent, which every Claude Code turn the Bridge starts follows, the butler's too,
 when to compact and the private chat mode, MODE_CHOICES: 每条直接开一个话题 asks once more, ``mode_confirm``, before it
 is saved). The Harness, 供应商, 模型 and 思考预算 rows of both offer what the launch card's do (core/menu_choice.py
 tiers, budget_options). Each workspace's 用途 is on the 设置 card's 工作区 tab (cards/workspace_manager.py, drawn by
-app/workspace_manager.py); the page 其他 that held it is retired (2026-11-09). A card of its own (from before the 设置 card, gen 286) shows the pages one under the other,
+app/workspace_manager.py); the page 其他 that held it is retired. A card of its own (from before the 设置 card, gen 286) shows the pages one under the other,
 then 记住的工作区 and 工作区用途 (``other_page``).
 
 No select: a choice is a settings-list row (cards/launch_config.py setting_row) whose options open under it in
@@ -70,7 +70,7 @@ FOLLOW = {'last': '跟上次一样', 'bridge': '系统默认'}  # app/butler_top
 # The 模型 row's: no 默认 beside the catalog's own "Default (recommended)" (ACCEPT-325 问题 2).
 MODEL_FOLLOW = FOLLOW
 # 直接开工 (core/butler_settings.py TIERS) as one row: a choice -> (the tiers it sets, its text). Any other set (a card
-# of three switches before 2026-11-19) is shown as it is (``start_setting``) until a choice replaces it.
+# of the older three switches) is shown as it is (``start_setting``) until a choice replaces it.
 START_CHOICES = {'all': (('readonly', 'requested', 'trusted'), '都直接开工'),
                  'safe': (('readonly', 'trusted'), '只读的直接开工，改文件的等你点'),
                  'none': ((), '都等你点开始')}
@@ -81,8 +81,8 @@ MODE_OFF = '现在私聊顶层每条消息直接开一个话题。改回交给�
 NOTE_LENGTH = 100  # Characters of a workspace's line.
 OPTIONS = 12  # The most options a row lists at first; fewer when the card would not fit.
 SHORT = 6  # Rows are cut to this many options before the workspaces' lines are.
-# The 新话题默认 模型 row lists up to this many, the whole list of most catalogs (13 models in one catalog, 2026-11-08), and is
-# cut last: the owner checks it against the launch card's (T444: 跟话题区选模型对齐).
+# The 新话题默认 模型 row lists up to this many, the whole list of most catalogs (13 models in one catalog), and is
+# cut last: the owner checks it against the launch card's.
 MODELS = 24
 NODES, BYTES = CARD_NODES - 10, CARD_BYTES - 2000  # The header is outside.
 NOTE = '只有你能改这张卡；管家按这些设置开话题，自己改不了。'  # A card of its own (gen 286).
@@ -210,7 +210,7 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
     the body (the 设置 card's tab row), within the same budget; ``follows`` and ``fallback`` as topic_settings.
     ``butler_on``: whether the butler serves the private chat now (its mode 管家 and the deployment allowing it): without
     it 新话题 has no 直接开工. ``view['confirm']``: 管家 asks to confirm 每条直接开一个话题 (``mode_confirm``). 整理专项 is
-    not here: the 看板's alone (cards/board.py; the owner, 2026-11-18)."""
+    not here: the 看板's alone (cards/board.py)."""
     revision = view['revision']
     stamp = f'r{revision % 10000}'
 

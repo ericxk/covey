@@ -1,8 +1,8 @@
 """Proxy replies (代答): what the 代答设置 card (app/proxy_panel.py) asks for, its settings, and finding
 the contacts to whitelist.
 
-- The card opens from the bot menu (app/bot_menu.py); there are no 代答 text commands (the owner,
-  2026-11-03: typed commands misfired), so 代答 … is an ordinary message. 开启代答 creates the proxy
+- The card opens from the bot menu (app/bot_menu.py); there are no 代答 text commands (typed
+  commands misfired), so 代答 … is an ordinary message. 开启代答 creates the proxy
   group the first time and fixes the Harness, model and workspace new topics are bound to.
 - Adding: one 查找 on the card takes several names, e-mails or IDs (core/proxy.py parse_names)
   and looks them all up at once (``lookup``: every lark-cli search in parallel); the card can also
@@ -97,6 +97,12 @@ def chat_info(profile, chat_id):
     return user_cli(profile, "api", "GET", f"/open-apis/im/v1/chats/{chat_id}").get("data") or {}
 
 
+def group_name(settings):
+    """The proxy group's name: the one its settings recorded (Proxy.settings fills in COVEY_PROXY_GROUP_NAME's or the
+    default for a group not made yet)."""
+    return settings.get("group_name") or records.GROUP_NAME
+
+
 def search_groups(profile, query):
     if query.startswith("oc_"):
         chat = chat_info(profile, query)
@@ -141,7 +147,7 @@ class ProxyCommands:
             config = load_config(ctx.state_dir, ctx.default_workdir)
             found.update(workspace=config["default"], workdir=str(config["workspaces"][config["default"]]))
         if not settings.get("group_chat_id"):
-            found.update(group_chat_id=self.create_group(ctx, settings), group_name=records.GROUP_NAME)
+            found.update(group_chat_id=self.create_group(ctx, settings), group_name=group_name(settings))
         with self.proxy.lock:
             # Read again: a model chosen while the calls above ran is kept.
             settings = self.proxy.settings(ctx)
@@ -149,7 +155,7 @@ class ProxyCommands:
                             enabled=True)
             settings.pop("group_creating", None)  # The group is known now.
             records.write_settings(ctx.state_dir, settings)
-        return (f"代答已开启：对方的消息和代发的回复记在群「{settings.get('group_name') or records.GROUP_NAME}」，每个联系人一个话题。\n"
+        return (f"代答已开启：对方的消息和代发的回复记在群「{group_name(settings)}」，每个联系人一个话题。\n"
                 f"代答话题用 {settings['harness']} / {settings.get('model') or '默认模型'} / "
                 f"{settings.get('effort') or '模型默认'}，工作区 {settings['workspace']}。")
 
@@ -186,13 +192,13 @@ class ProxyCommands:
         if tried:
             return self.unknown_group(settings)
         try:
-            proc = run_cli(lark_argv(ctx.profile, "im", "+chat-create", "--as", "bot", "--name", records.GROUP_NAME,
+            proc = run_cli(lark_argv(ctx.profile, "im", "+chat-create", "--as", "bot", "--name", group_name(settings),
                                      "--users", owner, "--owner", owner, "--description",
                                      "代答：白名单联系人的消息和代你发出的回复，每个联系人一个话题", "--format", "json"),
                            runner=subprocess.run, capture_output=True, text=True, timeout=60, check=False)
         except subprocess.TimeoutExpired as exc:
             self.proxy.runtime.log(f"proxy group creation unknown: {type(exc).__name__}")
-            raise RuntimeError(f"建群没有确认结果（{type(exc).__name__}）；再点开启代答时按群名找「{records.GROUP_NAME}」，"
+            raise RuntimeError(f"建群没有确认结果（{type(exc).__name__}）；再点开启代答时按群名找「{group_name(settings)}」，"
                                "不会再建一个") from None
         except OSError as exc:  # lark-cli never started (not found, no fork): no group, the next click tries again.
             self.proxy.runtime.log(f"proxy group not created: {type(exc).__name__}")
@@ -200,7 +206,7 @@ class ProxyCommands:
             raise RuntimeError(f"建群失败：{type(exc).__name__}") from None
         chat_id = (last_json(proc.stdout).get("data") or {}).get("chat_id") if proc.returncode == 0 else ""
         if not chat_id:
-            # The owner read 10-27's raw tail of JSON as the reply (repo review U10): the whole output is logged.
+            # A raw tail of JSON once read as the reply: the whole output is logged.
             self.proxy.runtime.log(f"proxy group not created rc={proc.returncode}: {(proc.stderr or proc.stdout or '').strip()[-500:]}")
             _, failure = decode(proc)
             if failure is not None and not failure.ambiguous:  # Feishu refused: no group, the next click tries again.
@@ -218,15 +224,15 @@ class ProxyCommands:
 
     def unknown_group(self, settings):
         """The group an earlier try of unknown outcome made: the owner's one chat of that name."""
-        named = [g for g in search_groups(settings["user_profile"], records.GROUP_NAME)
-                 if g["name"] == records.GROUP_NAME]
+        name = group_name(settings)
+        named = [g for g in search_groups(settings["user_profile"], name) if g["name"] == name]
         if len(named) == 1:
             self.proxy.runtime.log(f"proxy group found by name chat={named[0]['chat_id'][-10:]}")
             return named[0]["chat_id"]
         if named:
-            raise RuntimeError(f"上次建群没有确认结果，按群名找到 {len(named)} 个「{records.GROUP_NAME}」，不知道用哪个："
+            raise RuntimeError(f"上次建群没有确认结果，按群名找到 {len(named)} 个「{name}」，不知道用哪个："
                                "只留一个后再点开启代答")
-        raise RuntimeError(f"上次建群没有确认结果，按群名也没找到「{records.GROUP_NAME}」，为免建出第二个群没有再建："
+        raise RuntimeError(f"上次建群没有确认结果，按群名也没找到「{name}」，为免建出第二个群没有再建："
                            "刚建的群可能稍后才搜得到，过几分钟再点开启代答；确实没有的话，自己建一个同名群并把机器人加进去")
 
     def cmd_disable(self, ctx, _argument, _chat, _message):

@@ -183,8 +183,8 @@ class AgentTest(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, True)
         for i in range(4):
-            (root / "tmp" / f"envreplay-artifacts-{i:032x}.tar").parent.mkdir(parents=True, exist_ok=True)
-            (root / "tmp" / f"envreplay-artifacts-{i:032x}.tar").write_bytes(b"x" * 300_000)
+            (root / "tmp" / f"datalab-artifacts-{i:032x}.tar").parent.mkdir(parents=True, exist_ok=True)
+            (root / "tmp" / f"datalab-artifacts-{i:032x}.tar").write_bytes(b"x" * 300_000)
         (root / "tmp" / "run1" / "deep").mkdir(parents=True)
         (root / "tmp" / "run1" / "deep" / "ckpt").write_bytes(b"x" * 500_000)
         (root / "home" / "me" / "cache").mkdir(parents=True)
@@ -198,7 +198,7 @@ class AgentTest(unittest.TestCase):
         self.assertIn(str(root / "home" / "me" / "cache"), rows)  # Over a quarter of all: one level deeper.
         self.assertIn(str(root / "tmp" / "run1"), rows)
         loose = rows[str(root / "tmp")]
-        self.assertEqual((loose["files"], loose["shape"]), (4, "envreplay-artifacts-*.tar"))
+        self.assertEqual((loose["files"], loose["shape"]), (4, "datalab-artifacts-*.tar"))
         ticks = iter(range(0, 10 ** 6, 1000))
         many = root / "many"
         many.mkdir()
@@ -542,7 +542,7 @@ class CardsTest(unittest.TestCase):
                  "growth": [{"secs": 3600, "bytes": 2 << 30}, {"secs": 86400, "bytes": 45 << 30}],
                  "writers": [{"comm": "pytest", "bytes": 6 << 30, "secs": 60, "task": "k2"}],
                  "dirs": {"at": 0, "partial": True, "items": [
-                     {"path": "/tmp", "bytes": 207 << 30, "files": 39, "shape": "envreplay-artifacts-*.tar"},
+                     {"path": "/tmp", "bytes": 207 << 30, "files": 39, "shape": "datalab-artifacts-*.tar"},
                      {"path": "/tmp/claude-1000", "bytes": 43 << 30}]}}
         card = json.dumps(node_cards.alert_card(event, "本机", {"k2": "T488 · 任务 #4894"}), ensure_ascii=False)
         text = node_cards.alert_text(event, "本机", {"k2": "T488 · 任务 #4894"})
@@ -550,10 +550,10 @@ class CardsTest(unittest.TestCase):
             self.assertIn("近 1 小时 +2.0 GiB，近 24 小时 +45.0 GiB", got)
             self.assertIn("按近 1 小时的速度约 24 小时 30 分钟写满", got)
             self.assertIn("pytest 写了 6.0 GiB · T488 · 任务 #4894", got)
-            self.assertIn("/tmp 下散落的 39 个文件 207.0 GiB（多为 envreplay-artifacts-", got)
+            self.assertIn("/tmp 下散落的 39 个文件 207.0 GiB（多为 datalab-artifacts-", got)
             self.assertIn("没统计完", got)
             self.assertNotIn("占用最多", got)
-        self.assertIn("（多为 envreplay-artifacts-\\*.tar）", text)  # Markdown: the star is kept as a star.
+        self.assertIn("（多为 datalab-artifacts-\\*.tar）", text)  # Markdown: the star is kept as a star.
         mem = {"rule": "mem", "kind": "raise", "at": 0, "pct": 95, "top": [{"comm": "rg", "rss": 9 << 30}]}
         self.assertIn("内存占用最多", node_cards.alert_text(mem, "本机", {}))
 

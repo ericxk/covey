@@ -360,7 +360,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             from covey.core.migrate import migrate
             migrate(ctx.state_dir, log=self.runtime.log)
             self.butler.settle(ctx, self.runtime.log)  # The private chat mode, once (docs/butler.md 私聊模式).
-            if butler_settings.desk_topics_left(ctx.state_dir):  # Retired 2026-11-09 (docs/butler.md 前台话题).
+            if butler_settings.desk_topics_left(ctx.state_dir):  # Retired (docs/butler.md 会话).
                 self.runtime.log(butler_settings.DESK_TOPICS_RETIRED)
             from covey.feishu.sdk import enabled, lark_cli_direct
             lark_cli_direct(ctx.profile, self.runtime.log)  # Before any child starts: they inherit it (S48).

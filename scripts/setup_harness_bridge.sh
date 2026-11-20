@@ -148,7 +148,7 @@ ensure_app_config() {
   [ "$SKIP_APP_SETUP" -eq 0 ] || return 0
   local rc=0 py
   python3 -B "$ROOT/bin/covey_app_setup.py" check --profile "$PROFILE" ${APP_ID:+--app-id "$APP_ID"} || rc=$?
-  [ "$rc" -eq 3 ] || { [ "$rc" -eq 0 ] || warn "Feishu app check failed; see docs/install.md 配置飞书应用"; return 0; }
+  [ "$rc" -eq 3 ] || { [ "$rc" -eq 0 ] || warn "Feishu app check failed; see docs/manual-install.md 配置飞书应用"; return 0; }
   if [ "$NON_INTERACTIVE" -eq 1 ]; then
     warn "the Feishu app lacks the above; run: python3 -B bin/covey_app_setup.py apply --profile $PROFILE"
     return 0
@@ -157,13 +157,13 @@ ensure_app_config() {
   if [ ! -x "$py" ]; then
     info "installing the browser that configures the Feishu app (Playwright + Chromium, under the data root)"
     py="$("$ROOT/scripts/install_console_browser.sh" | tail -n 1)" || {
-      warn "browser install failed; add the above in the developer console by hand (docs/install.md)"; return 0; }
+      warn "browser install failed; add the above in the developer console by hand (docs/manual-install.md 配置飞书应用)"; return 0; }
   fi
   info "scan the QR below with Feishu on your phone; the browser then adds the above and publishes a version"
   rc=0
   python3 -B "$ROOT/bin/covey_app_setup.py" apply --profile "$PROFILE" ${APP_ID:+--app-id "$APP_ID"} \
     --python "$py" || rc=$?
-  [ "$rc" -eq 0 ] || warn "the Feishu app still lacks some of the above; see docs/install.md 配置飞书应用"
+  [ "$rc" -eq 0 ] || warn "the Feishu app still lacks some of the above; see docs/manual-install.md 配置飞书应用"
 }
 
 resolve_app_id() {

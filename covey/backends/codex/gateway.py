@@ -64,7 +64,7 @@ def provider_config(gateway, model, base_url):
 
 def failed_text(gateway):
     """The failure card's detail when a 429 still ends a turn: the relay holds every 429 it sees with no time
-    limit, so this is not "waited an hour" (2026-11-02: #2304's card said so after twelve seconds)."""
+    limit, so this is not "waited an hour" (a card once said so after twelve seconds)."""
     return (f"{gateway.display} 返回繁忙或限速（429），Codex 自己的重试次数用完，本轮没有完成，与任务内容无关。"
             + (gateway.busy_hint + "。" if gateway.busy_hint else ""))
 

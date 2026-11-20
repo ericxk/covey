@@ -1,4 +1,4 @@
-"""A member topic's choice question goes to the project's lead first (docs/butler.md 专项的问题分流, app/triage.py, COVEY_PROJECT_TRIAGE=1):
+"""A member topic's choice question goes to the project's lead first (docs/projects.md 专项的问题分流, app/triage.py, COVEY_PROJECT_TRIAGE=1):
 what holds a question and what does not, that a held question is not a failed delivery (E2), the receipt and the three minutes, the
 lead's two tools, the gate words (E4), the 分流记录 and the 不对 correction, and that with the switch off nothing is different."""
 from __future__ import annotations
@@ -574,7 +574,7 @@ class HeldFixture(QuestionFixture, unittest.TestCase):
 
 
 class HeldDeliveryTest(HeldFixture):
-    """E2 (docs/butler.md): a held question is not a question that failed to go out. Bridge restart and task process alike."""
+    """(docs/projects.md 专项的问题分流): a held question is not a question that failed to go out. Bridge restart and task process alike."""
 
     def test_a_held_question_is_delivered_as_far_as_the_task_is_concerned(self):
         self.assertTrue(self.deliver())

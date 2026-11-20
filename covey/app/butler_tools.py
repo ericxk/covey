@@ -46,7 +46,7 @@ REFUSED = "只接受正在跑的管家任务的调用：这次调用没有执行
 RECENT = TOOLS_AGE  # recent: what moved in the last three days (not the unseen results: ``result``).
 # A topic's group: the first of these it is in; result is 有结果未看, the board's (core/board_read.py unseen).
 GROUPS = ("waiting", "result", "running", "recent")
-ALIASES = {"unread": "result"}  # The group's name in the tool's schema before 2026-11-10 (a session may hold it).
+ALIASES = {"unread": "result"}  # The group's name in an older release's tool schema (a session may hold it).
 GROUP_NAMES = turn_words.GROUP_NAMES
 LIMIT, MAX_LIMIT = 20, 60
 TURNS, MAX_TURNS = 2, 5
@@ -150,7 +150,7 @@ def title(env, topic_id):
 
 
 def resolve(env, chat, ref, records=None):
-    """(topic_id, its records) of the owner's topic ``ref`` names (T412, 412, a topic id); ValueError otherwise."""
+    """(topic_id, its records) of the owner's topic ``ref`` names (T12, 412, a topic id); ValueError otherwise."""
     ref = str(ref or "").strip()
     records = topic_jobs(env.state_dir, chat) if records is None else records
     match = re.fullmatch(r"[Tt]?(\d+)", ref)

@@ -30,7 +30,7 @@ class AnswerParts:
         # answer goes to the top level as a message of its own, a "你问" link to that message above it.
         row = placement.plan(ctx.state_dir, job).row
         top = row.answer == placement.TOP
-        # In a 话题区's thread it leads with the turn's status, T number and title instead (D3, 2026-11-08).
+        # In a 话题区's thread it leads with the turn's status, T number and title instead.
         head = saved_send.heads(top, not top and self.headed(row), self.ask_block,
                                 lambda: self.answer_head(answer_lead(turn.verified_delivery.text, HEADLINE_CHARS)))
         outgoing = saved_send.plan(

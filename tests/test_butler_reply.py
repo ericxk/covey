@@ -144,7 +144,7 @@ class TopicLinesTest(DeliverCase):
         self.topic("t405", 405, readonly=True)
         self.topic("t403", 403)
         self.topic("t406", 406, title="换个做法")
-        self.opened("a", 2, title="迁移数据", topic_id="t405", plan={"workspace": "EnvReplay", "start": True},
+        self.opened("a", 2, title="迁移数据", topic_id="t405", plan={"workspace": "DataLab", "start": True},
                     answer={"ok": True, "data": {"label": "T405"}})
         self.opened("b", 3, topic_id="t403", answer={"ok": True, "data": {"label": "T403"}})
         self.opened("c", 4, source="t403", fork_topic_id="t406", answer={"ok": True, "data": {}})
@@ -153,10 +153,10 @@ class TopicLinesTest(DeliverCase):
 
     def test_one_line_per_topic_it_opened_forked_or_handed_over(self):
         self.assertEqual(butler_reply.opened_lines(self.state, job_key("om_1", 7)), [
-            "开了 **T405**「迁移数据」· EnvReplay · 只读", "转给 **T403**", "从 **T403** 分叉出 **T406**「换个做法」"])
+            "开了 **T405**「迁移数据」· DataLab · 只读", "转给 **T403**", "从 **T403** 分叉出 **T406**「换个做法」"])
 
     def test_a_topic_waiting_for_its_launch_card_says_so(self):
-        self.opened("a", 2, title="迁移数据", topic_id="t405", plan={"workspace": "EnvReplay", "start": False},
+        self.opened("a", 2, title="迁移数据", topic_id="t405", plan={"workspace": "DataLab", "start": False},
                     answer={"ok": True})
         self.assertIn("等你点开始", butler_reply.opened_lines(self.state, job_key("om_1", 7))[0])
 
@@ -327,13 +327,13 @@ class SlimLinesTest(DeliverCase):
         self.topic("t403", 403)
         history = self.state / "topics" / "t403" / "history.jsonl"
         history.write_text(json.dumps({"role": "user", "content": "迁移数据\n细节"}, ensure_ascii=False) + "\n")
-        self.opened("a", 2, title="查日志", topic_id="t405", plan={"workspace": "EnvReplay", "start": True},
+        self.opened("a", 2, title="查日志", topic_id="t405", plan={"workspace": "DataLab", "start": True},
                     answer={"ok": True, "data": {"label": "T405"}})
         self.opened("b", 3, topic_id="t403", note="顺便把日志也看一下", answer={"ok": True, "data": {"label": "T403"}})
 
     def test_each_topic_line_leads_with_its_arrow_and_a_hand_over_names_title_and_note(self):
         self.assertEqual(butler_reply.opened_lines(self.state, job_key("om_1", 7), slim=True), [
-            "↪ 开了 **T405**「查日志」· EnvReplay · 只读", "↪ 转给 **T403**「迁移数据」：顺便把日志也看一下"])
+            "↪ 开了 **T405**「查日志」· DataLab · 只读", "↪ 转给 **T403**「迁移数据」：顺便把日志也看一下"])
 
     def test_a_hand_over_recorded_before_the_note_was_kept_names_the_title_only(self):
         self.opened("b", 3, topic_id="t403", answer={"ok": True, "data": {"label": "T403"}})

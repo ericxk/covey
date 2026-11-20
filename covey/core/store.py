@@ -60,7 +60,7 @@ def one_scan():
     queries rescan only when that scan is over FRESH_SECONDS old, not on every change of the
     directory; a record this process writes meanwhile is re-read by name. Another process's write
     shows within FRESH_SECONDS, as it may anyway with coarse directory timestamps. The 870 job
-    files cost 0.13-0.2 s a scan on NAS, several times per message before (2026-10-26). Outside
+    files cost 0.13-0.2 s a scan on NAS, several times per message before. Outside
     the block, and on other threads, nothing changes."""
     if getattr(_scope, "checked", None) is not None:
         yield
@@ -430,7 +430,7 @@ def update_question(path, change, *, expected=None):
 
 # The time a question stopped waiting, written as its status moves there unless the change wrote it itself: an answer's
 # when it is submitted (an uncertain one answered later keeps it), a cancellation's or a fold's when it happens. The
-# records have no other time of it (the web page's 专项报告 drew every closed question as waiting until now, T550).
+# records have no other time of it (the web page's 专项报告 drew every closed question as waiting until now).
 SETTLED_STAMPS = {'submitting': 'answered_at', 'answered': 'answered_at', 'cancelled': 'cancelled_at', 'superseded': 'cancelled_at'}
 
 

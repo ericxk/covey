@@ -66,7 +66,10 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | --- | --- |
 | [安装](docs/install.md) | `./install` 的前提、过程、选项、验收、常见问题 |
 | [使用指南](docs/usage.md) | 第一次使用、开任务、补充、回答、换配置、任务卡、管家、看板、群聊、代答 |
-| [管家](docs/butler.md) | 私聊管家、专项、整理专项、记忆、网页工作台的规则 |
+| [使用参考](docs/reference.md) | 使用指南各节的细节：启动卡各项、状态行、补充的送达状态、代答卡、自动重试、已下线的功能 |
+| [管家](docs/butler.md) | 私聊管家：路由、开话题和回带、工具、原则、知识库、记忆、设置卡 |
+| [专项](docs/projects.md) | 分几个话题、跨几天推进的事：专项卡、负责人、问题分流、整理专项 |
+| [网页工作台](docs/web.md) | 配套网页：怎么开、网页上能做什么、给前端的数据契约 |
 | [代答](docs/proxy.md) | 替你回复白名单里的人：前置条件、怎么开、实现 |
 | [排障](docs/troubleshooting.md) | 先找到数据根和 APP_ID，再按现象查 |
 
@@ -77,6 +80,8 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | [配置](docs/configuration.md) | 开关速查（默认已开、推荐打开、按需打开）、改开关三步、`harnesses.json`、全部环境变量 |
 | [Harness 说明](docs/harnesses.md) | 各 Harness 的能力和限制、手工加一个 Harness、模型网关 |
 | [运维指南](docs/operations.md) | 你是谁看哪里、日常操作、扩展的装和卸、升级与回滚、数据目录、开机恢复、备份、日志 |
+| [手工安装](docs/manual-install.md) | 不用 `./install` 时：旧安装脚本、手动配置飞书应用、确定 owner、首次验收 |
+| [已下线的功能与旧配置](docs/legacy.md) | 升级老部署时看：旧配置、旧话题、旧卡片现在会怎样，哪些变量不再读 |
 | [官方拒绝与停止](docs/policy-stop.md)、[本机运行锁](docs/runtime-locks.md) | 两个专门的话题 |
 
 **开发**

@@ -95,8 +95,8 @@ class HarnessCapabilities:
     image_frame: int = 0
     steering: bool = False
     native_fork: bool = False  # can start a new session from a copy of another
-    # Sends RunRequest.instructions at system level on every turn. None does since 2026-11-02: the owner
-    # wants the bridge rules in the user message, the model's own system prompt left as it is.
+    # Sends RunRequest.instructions at system level on every turn. None does: the bridge rules
+    # go in the user message, the model's own system prompt left as it is.
     system_instructions: bool = False
     rate_limit_retry: bool = False  # a turn rate-limited with no reply is retried automatically (app/auto_retry.py)
     incomplete_retry: bool = False  # a turn ended incomplete (settle_timeout) with no reply is continued once, too

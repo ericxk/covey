@@ -138,8 +138,8 @@ class JobRegistry:
     def supplement_target(self, topic_id, chat_id):
         """The task of this topic a supplement goes to: the newest one that has started (``job_stage`` starting, running
         or paused: a paused one refuses it, and the sender says so), else the newest queued one; None when none is open
-        here. A message queued behind the running turn is never it while that turn runs (T551, 2026-11-19: three of the
-        butler's supplements went into the queued #5008 and the running #4992 read none). Reads this registry only."""
+        here. A message queued behind the running turn is never it while that turn runs (else the
+        supplements go into the queued one and the running one reads none). Reads this registry only."""
         with self.lock:
             jobs = [j for j in self.by_id.values() if j.topic_id == topic_id and j.chat_id == chat_id]
         return supplement_target_of(jobs, job_stage)

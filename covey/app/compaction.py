@@ -3,11 +3,11 @@
 A turn of the butler that ends past its ``compact_tokens`` records a request in the topic's
 ``compact-next.json`` (app/butler.py compact_butler). The next turn, when it resumes the session, takes the
 request (``turn_context``, in the task runner) and runs with ``compact_first``: a backend with the ``compaction``
-capability compacts the session before the turn and shows it in 执行过程 (backends/claude/compaction.py). Until
-2026-11-08 a topic's finished card had a 📦 压缩上下文 button that recorded the same request; a request one left is
+capability compacts the session before the turn and shows it in 执行过程 (backends/claude/compaction.py). In older
+releases a topic's finished card had a 📦 压缩上下文 button that recorded the same request; a request one left is
 still taken by its topic's next turn.
 
-Since 2026-11-09 the butler's own task runner marks its request ``idle`` (with the context's ``tokens`` and the
+The butler's own task runner marks its request ``idle`` (with the context's ``tokens`` and the
 ``threshold``): the Bridge compacts the session while the topic is idle (app/idle_compaction.py), and a turn leaves
 such a request to it. A turn still takes one that failed there (``failed``), and one whose context reached FALLBACK
 times the threshold, so the context never grows on while the idle compaction keeps being stopped.
@@ -61,7 +61,7 @@ class Compaction:
     def set_requested(self, ctx, job_id=0, **sizes):
         """Record the request; a repeated request keeps the first one's time. ``sizes``: the butler's
         ``tokens``, ``threshold`` and ``idle`` (app/butler.py compact_butler), which a repeated request
-        updates. The file's ``click`` (always "") is still written: a release before 2026-11-10 reads the same file."""
+        updates. The file's ``click`` (always "") is still written: an older release reads the same file."""
         path = self.path(ctx)
         with resource_lock("record", path.absolute()):
             current = self.request(ctx)

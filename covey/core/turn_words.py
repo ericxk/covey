@@ -1,15 +1,15 @@
-"""The words the cards, the pinned board and the butler say about a turn and a topic, in one place (C10,
-2026-11-08). Each table keeps the words its readers showed before; which of them should read alike is the owner's
-choice (VERIFY-board.md C10), not this module's.
+"""The words the cards, the pinned board and the butler say about a turn and a topic, in one place.
+Each table keeps the words its readers showed before; which of them should read alike is the owner's
+choice, not this module's.
 
 - ``OUTCOME_LINES``, ``outcome_line``: a task card's status line once its run ended (cards/review.py), 有结果
   among them, and ``TONES``, the state key a card colours a status line's first word by; ``FOLLOW_UP``: where an answered question went, by its follow-up task's state (cards/question_cards.py);
 - ``STATES``: how an ended turn reads on a topic status card and its Pin (app/status_cards.py), 做完 among them,
-  已停止 for a stopped one (on the board since 2026-11-09, core/board_read.py BOARD_RESULTS);
+  已停止 for a stopped one (core/board_read.py BOARD_RESULTS);
   ``answer_head``: the status line's word atop a 话题区's answer card in its thread (有结果);
   ``BOARD``: how its other rows read there (在做, 排队, 等你);
 - ``RESULTS``: how one reads in the butler's snapshot (app/butler.py), 完成 among them, 已停止 too
-  (core/board_read.py BOARD_RESULTS: the board's results, the snapshot's since 2026-11-10);
+  (core/board_read.py BOARD_RESULTS: the board's results, the snapshot's too);
 - ``OVERVIEW_OUTCOMES``, ``OVERVIEW_GROUPS``: 手上的事's (cards/overview.py);
 - ``DIGEST_START``: how 早晚汇总 (cards/digest.py) says a task waits for the owner to start it (waiting_workspace);
   ``START_LINE`` what such a row says it waits for on the 看板 and 手上的事, the butler's snapshot too, and ``START_ACT``
@@ -27,7 +27,7 @@ Standard library only, importing nothing of the Bridge's.
 from __future__ import annotations
 
 # The words of docs/ui.md 第 3 节 (core/look.py STATES; tests/test_look.py checks they are its words): no mark before
-# them since 2026-11-19, a card colours them (cards/task_status.py, cards/ui.py state_word).
+# them, a card colours them (cards/task_status.py, cards/ui.py state_word).
 OUTCOME_LINES = {"done": "有结果", "failed": "停住了", "cancelled": "已停止", "waiting_user": "等你"}
 # A status line's first word as a key of core/look.py STATES: how a card colours it.
 TONES = {"有结果": "result", "停住了": "stopped", "已停止": "cancelled", "等你": "waiting", "在做": "running",
@@ -38,7 +38,7 @@ FOLLOW_UP = {"queued": "排队", "running": "在做", "done": OUTCOME_LINES["don
 STATES = {"done": "做完", "failed": "停住了", "interrupted": "停住了", "cancelled": "已停止"}
 BOARD = {"running": "在做", "queued": "排队", "waiting": "等你"}
 RESULTS = {"done": "完成", "failed": "失败", "interrupted": "中断", "cancelled": "已停止"}
-# 手上的事 says what the 看板 and 早晚汇总 say (docs/ui.md 3; the owner, 2026-11-19: the three surfaces disagreed).
+# 手上的事 says what the 看板 and 早晚汇总 say (docs/ui.md 3).
 OVERVIEW_OUTCOMES = {"done": "做完", "failed": "停住了", "cancelled": "已停止", "interrupted": "停住了"}
 OVERVIEW_GROUPS = {"waiting": "等你", "result": "有结果", "running": "在做"}
 DIGEST_START = "等你开工"

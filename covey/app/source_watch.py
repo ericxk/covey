@@ -7,8 +7,8 @@ read back every WATCH_SECONDS while its task lives, and for GRACE_SECONDS after 
 - **recalled** (``deleted``): its task stops as its card's 停止 would (queued: never runs; running: stopped), the card
   saying 原消息已撤回. A supplement it was goes after as another one: ignore it. A turn already ended keeps its answer,
   but what it 记下了 (memory lines, knowledge entries) is taken back. Each topic the butler opened, forked or handed work
-  to from that turn gets a line in its thread, 来源消息已撤回, with 停止 while a task of it still goes (the owner chose
-  that over stopping them: 2026-11-19).
+  to from that turn gets a line in its thread, 来源消息已撤回, with 停止 while a task of it still goes (rather than
+  stopping them).
 - **edited** (``updated``, a newer ``update_time`` and words that differ from the ones it had: a thread started under
   a message marks it updated too, its words untouched): the new words go to its task as a supplement (app/steering.py
   deliver_steer): a queued task takes them into its request before it starts, a running one reads them after its
@@ -59,8 +59,8 @@ def recalled_text(text) -> str:
 
 def same_words(one, other) -> bool:
     """Whether two versions of a message say the same, whitespace aside. Feishu marks a message ``updated`` with a newer
-    update_time for more than an edit: a thread started under it (the butler's topic hung under the owner's question,
-    2026-11-19 T534) does too, its words untouched. So only words that differ make an edit."""
+    update_time for more than an edit: a thread started under it (the butler's topic hung under the owner's question)
+    does too, its words untouched. So only words that differ make an edit."""
     return "".join(str(one or "").split()) == "".join(str(other or "").split())
 
 

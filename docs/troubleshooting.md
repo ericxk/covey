@@ -94,7 +94,7 @@ doctor 只读：不发消息、不修复状态；默认不调用模型，只有�
 | `<root>/errors/<id>.json` | `state has a live unmanaged PID; stop/adopt its owner explicitly` | 有不归 Manager 管的进程占着状态目录。找到并停掉它，不要只删 `bridge.pid` |
 | `launch` 的输出 | `another managed bridge already owns this profile` | 另一个状态目录用同一 profile 注册并在运行。先停掉它，或换 profile |
 | `launch` 的输出 | `only explicit non-secret ...` / `only non-secret proxy URLs ...` | 终端里有值含换行的变量或带凭据的代理，见[服务清单里的环境变量](configuration.md#服务清单里的环境变量) |
-| `bridge.log` | `owner is not verified; ...` / `pairing record is expired or belongs to another application` | owner 未确定，或配对口令过期、不属于此应用。按[启动机器人](operations.md#启动机器人)绑定或重新生成口令 |
+| `bridge.log` | `owner is not verified; ...` / `pairing record is expired or belongs to another application` | owner 未确定，或配对口令过期、不属于此应用。按[启动机器人](manual-install.md#启动机器人)绑定或重新生成口令 |
 | `bridge.log` | `explicit owner conflicts with the existing bot binding` | `--owner` 与 `bot-identity.json` 里已绑定的 owner 不同 |
 | `bridge.log` | `state belongs to another Feishu application; ...` / `profile application identity does not match --app-id` | 状态目录属于别的应用（每个应用用自己的状态目录），或 profile 和 `--app-id` 不是同一个应用 |
 | `bridge-console.log` | `another bridge already owns this state directory` | 同一状态目录已有 Bridge 在运行 |
@@ -127,7 +127,7 @@ doctor 只读：不发消息、不修复状态；默认不调用模型，只有�
 | `workspace_manager`、`launch_option`、`directory` | 工作区管理卡、启动卡选项和目录选择，交给各自的后台队列处理 |
 | `not_owner` | 点击者不是机器人绑定的用户，不处理也不回复 |
 | `stale_route` | 卡片对应的 Harness 或话题绑定版本已过期，回复“此卡片已过期，请使用本话题最新的任务卡。” |
-| `retired_harness` | 话题绑定的 Harness 已下架，回复下架提示，不执行，见[已下架项与旧配置](configuration.md#已下架项与旧配置) |
+| `retired_harness` | 话题绑定的 Harness 已下架，回复下架提示，不执行，见[已下线的功能与旧配置](legacy.md) |
 | `retired` | 按钮类型不在当前接受的列表里，多为设置卡、菜单卡等旧卡片，不处理 |
 | `bad_value`、`other_topic` | 按钮的值无法解析，或记录的话题与卡片所在话题不一致，不处理 |
 | `unknown_message` | 卡片所在的消息不在本机器人的话题记录里，也读不到消息详情 |
@@ -165,7 +165,7 @@ doctor 只读：不发消息、不修复状态；默认不调用模型，只有�
 
 ## 任务中断或没起来
 
-- 任务卡变成“任务已中断”：任务进程退出了（机器重启、被 `kill`、崩溃）。看 `<state>/runs/<任务键>/runner.log` 的结尾和 `bridge.log` 的 `task runner ended job=#N … exit=…`（`exit=none` 是被杀或崩溃）。恢复卡 60 秒后自动检查并继续一次，见[自动重试](usage.md#自动重试)。
+- 任务卡变成“任务已中断”：任务进程退出了（机器重启、被 `kill`、崩溃）。看 `<state>/runs/<任务键>/runner.log` 的结尾和 `bridge.log` 的 `task runner ended job=#N … exit=…`（`exit=none` 是被杀或崩溃）。恢复卡 60 秒后自动检查并继续一次，见[自动重试](reference.md#自动重试)。
 - 任务卡变成“任务未能启动”：任务进程在调用模型前就退出了两次，或根本起不来（括号里写原因，例如 `BlockingIOError`，多是系统一时建不了进程）。
 - 任务失败、卡上只写“与执行后端的连接发生异常”：看 `<state>/runs/<任务键>/runner.log` 里的 `backend failure job=#N …`（Claude Code：失败的阶段 `stage`、异常类型 `exception`、原因 `reason`、CLI 的退出码 `process_exit_code`/`exit_code`），下面几行 `backend stderr job=#N | …` 是 CLI 最后几十行 stderr（密钥已替换成 `***`）。同一份不含 stderr 的摘要也在 `<state>/claude-diagnostics/<run id>.json`。取消的任务不写这几行。
 - 要立刻结束一个任务进程，见[任务进程](operations.md#任务进程)。
@@ -202,12 +202,12 @@ doctor 只读：不发消息、不修复状态；默认不调用模型，只有�
 
 - 私聊里收到「飞书应用待补」卡：点“扫码自动补齐”，见[自动补齐飞书应用](operations.md#自动补齐飞书应用)。
 - `bridge.log` 每次检查一行 `app setup check version=<线上版本> error=<-|no_self_manage|no_version|failed> lacking=N …`。`no_self_manage` 是应用缺 `application:application:self_manage`，卡上只列这一项，补上后下次检查才看得到其余的。
-- 补齐失败时卡上写卡在哪一步和后台的报错原文，日志 `app setup run outcome=failed step=<步骤> …`。照[配置飞书应用](operations.md#配置飞书应用)的手工步骤补即可。
+- 补齐失败时卡上写卡在哪一步和后台的报错原文，日志 `app setup run outcome=failed step=<步骤> …`。照[配置飞书应用](manual-install.md#配置飞书应用)的手工步骤补即可。
 - 菜单项点了没反应：看 `bot menu key=… outcome=…`。`unknown_key` 是后台配的事件 key 和机器人认的不一致；没有这一行就是 `application.bot.menu_v6` 订阅没开或没发布。
 
 ## 权限变量让诊断或部署失败
 
-doctor 的服务行带 `permission_env`、stderr 写 `service <id>: LARK_… is no longer read, so …`，或 `deploy_bridge.sh --check-only` 报 `pre-checks failed: [... 'permission_env' ...]`，或 bootstrap 报 `refused: LARK_…`：服务清单（或当前终端）里还留着以前收紧权限的变量，Bridge 已经不读它们（[不再读取的变量](configuration.md#服务清单里的环境变量)），服务实际按放宽后的权限在跑。运行中的服务带它时 doctor 置 `degraded`，`--runtime-only` 也失败；停用的服务只在 stderr 提示、行状态仍是 `stopped`，只让完整报告的 `status` 为 `degraded`，不影响 `--runtime-only`。部署预检查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，后者命中时那一行以 `service <id>:` 开头。
+doctor 的服务行带 `permission_env`、stderr 写 `service <id>: LARK_… is no longer read, so …`，或 `deploy_bridge.sh --check-only` 报 `pre-checks failed: [... 'permission_env' ...]`，或 bootstrap 报 `refused: LARK_…`：服务清单（或当前终端）里还留着以前收紧权限的变量，Bridge 已经不读它们（[不再读取的变量](legacy.md#不再读取的变量)），服务实际按放宽后的权限在跑。运行中的服务带它时 doctor 置 `degraded`，`--runtime-only` 也失败；停用的服务只在 stderr 提示、行状态仍是 `stopped`，只让完整报告的 `status` 为 `degraded`，不影响 `--runtime-only`。部署预检查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，后者命中时那一行以 `service <id>:` 开头。
 
 | 变量 | 现在会怎样 | 改法 |
 | --- | --- | --- |

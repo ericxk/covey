@@ -5,7 +5,7 @@ It is two tabs of the bot menu's 设置 card (app/settings_hub.py), one a page (
 新话题 (every new topic's preselection, 直接开工 and 记住的工作区) and 管家 (the butler's own, and under 更多 the private
 chat mode: 每条直接开一个话题 is saved only after 确定改, the record's view keeping ``confirm`` meanwhile); its 保存用途
 button is on the 工作区 tab, which app/workspace_manager.py draws (``pages``: this panel redraws that tab through it
-after its click). A card on the retired page 其他 (2026-11-08 to 11-09) still acts: its 直接开工 and 记住的工作区 land on
+after its click). A card on the retired page 其他 still acts: its 直接开工 and 记住的工作区 land on
 新话题, its 用途 on 工作区 (PAGE_OF). The tool and, unless COVEY_BUTLER=0, the menu key MENU_KEY send that card on
 管家; the chat keeps one 设置 card, a new one recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the record's
 ``tab`` follows), so a click on a 设置 card drawn before the pages, all of them on its 管家 tab, lands on the page

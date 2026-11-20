@@ -17,10 +17,10 @@ THINKING = "模型思考或生成回复中"
 # The backend says the model began reasoning that streams no text (Codex): at work, nothing to show yet.
 REASONING = "模型思考中"
 # No sign from the model yet. "等待模型开始输出" read as if nothing were happening while Codex
-# reasoned for 29 s under it (S28 #850).
+# reasoned for 29 s under it.
 WAITING_FOR_MODEL = "已提交给模型，等待首个输出"
 # A backend that says when its first model call starts (``model_requests``) is still setting up
-# before it: one SDK took about 8 s (S29 #863). Formatted with the backend's name.
+# before it: one SDK took about 8 s. Formatted with the backend's name.
 STARTING = "正在启动 {}…"
 BACKEND_ALIVE = "后端进程仍在运行"
 # A backend that exited normally: the worker is taking its result, and the outcome follows.
@@ -173,7 +173,7 @@ def trace_summary(facts):
     current, newest, phrase = facts.activity
     quiet = facts.quiet
     summary = f"{head(facts)} · 已运行 {took_text(facts.elapsed)}"
-    # The step under way says where the task is better than its phase, and keeps the line one line (2026-11-08).
+    # The step under way says where the task is better than its phase, and keeps the line one line.
     if facts.phase not in UNSET_PHASES and not facts.step_doing:
         summary += f" · 阶段：{facts.phase}"
     if facts.steps:
@@ -181,11 +181,11 @@ def trace_summary(facts):
     if not facts.finished:
         summary += estimate_part(facts)
     if facts.finished:
-        # S27 #843 read "等待模型开始输出 · … 后端进程已退出，正在收尾" for the second before its ✅ 已完成.
+        # Not "等待模型开始输出 · … 后端进程已退出，正在收尾" for the second before its ✅ 已完成.
         return summary + "\n" + NOW + COLLECTING
     # The latest step only: a sub-task's newest event when it is the latest progress, else what runs
-    # now. T182 #1128 wrapped "子任务「…」运行中，已 2 分 18 秒 · 最近进展 1 秒前 · 子任务运行命令结束：…"
-    # over three lines; the sub-task's own time is on its entry in 执行过程.
+    # now. Not "子任务「…」运行中，已 2 分 18 秒 · 最近进展 1 秒前 · 子任务运行命令结束：…"
+    # wrapped over three lines; the sub-task's own time is on its entry in 执行过程.
     said = bool(phrase and facts.wall - newest <= quiet + 1)
     line = NOW + (phrase if said else current)
     if facts.progress is not None:

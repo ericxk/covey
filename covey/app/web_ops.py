@@ -1,4 +1,4 @@
-"""网页上发来的操作怎么执行 (docs/butler.md 网页工作台, COVEY_WEB=1): ``Ops.run`` does one operation of the page's outbox (core/web_sync.py
+"""网页上发来的操作怎么执行 (docs/web.md, COVEY_WEB=1): ``Ops.run`` does one operation of the page's outbox (core/web_sync.py
 KINDS) as the owner's own and says (state, message) for the ack.
 
 - ``say``: the words are the owner's, in the topic: a running task takes them as a supplement (app/steering.py deliver_steer, as
@@ -6,8 +6,8 @@ KINDS) as the owner's own and says (state, message) for the ack.
   ``web-<op_id>`` to the topic, event_context, append_history, enqueue_chat_job). To a topic that waits for the owner's answer the words
   are taken as a message in its thread is in Feishu (app/interaction.py _interactive_command): with one question waiting they are its
   answer, written (``answer_0``, through the question's own submit path); with several waiting, or one the project's lead holds, they are
-  refused, to be answered on the question, and the question is never closed by them (2026-11-19: they were its 只发补充说明 before, and
-  the page's handiest box closed the question). To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
+  refused, to be answered on the question, and the question is never closed by them (as its 只发补充说明, the page's handiest box
+  would close the question). To the butler's key (core/butler.py butler_topic_id) the words are a message the owner wrote at the top level of
   the private chat: ``hear`` (app/unified.py web_message) takes it through the entry of a Feishu message, access, the duplicate check,
   the extensions and the butler, so the butler answers, opens a topic or hands on as ever. The message id ``web-<op_id>`` is no Feishu
   message: nothing quotes it, replies in its thread or reacts on it (core/topics.py context_for_topic gives the turn no reply target,
@@ -241,7 +241,7 @@ class Ops:
 
     def launch(self, state, chat, row, payload) -> str:
         """A new topic with the choices made on the page (app/web_launch.py launch), the owner's only (app/access.py
-        ``is_owner``); ``done`` says 已开 T123「…」：直接开工."""
+        ``is_owner``); ``done`` says 已开 T23「…」：直接开工."""
         from covey.app import web_launch
         if not self.runtime.access.is_owner(self.runtime.owner_open_id or ""):
             raise ValueError("只有机器人主人能开话题")

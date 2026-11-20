@@ -3,7 +3,7 @@
 Claude Code keeps a session's messages as a chain in ``<projects>/<cwd>/<session>.jsonl``, each
 entry naming its parent. ``--resume <session> --resume-session-at <entry>`` (print mode) resumes with
 the chain up to that entry only; the turn's messages then hang under it, so a later plain resume
-follows them and the dropped turn stays in the file unseen (2.1.310, verified 2026-11-03). The entry
+follows them and the dropped turn stays in the file unseen (verified on 2.1.310). The entry
 kept is the parent of the dropped turn's prompt, whose uuid the runtime chose when it sent it
 (``prompt_read``, backends/claude/control.py).
 

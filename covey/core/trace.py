@@ -11,7 +11,7 @@ from covey.core.usage import non_negative_int, number, rate
 
 TRACE_BYTES = 24000  # The process panel's size in bytes of JSON, which a trace's snapshot carries.
 # A step that writes this task's checkpoint file (outside the workspace; the bridge rules require it).
-# Codex's python heredoc doing so read as an opaque file edit under "不要修改任何文件" (S29 #867).
+# Codex's python heredoc doing so read as an opaque file edit under "不要修改任何文件".
 CHECKPOINT_STEP = "更新检查点"
 CHECKPOINT_TOOLS = {"bash", "edit", "write", "multiedit"}  # Codex commands and file changes; Claude's tools.
 USAGE_FIELDS = ("input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens")
@@ -218,7 +218,7 @@ class ToolTrace:
             child = self.children.setdefault(sid, ToolTrace())
             if parent is not self and child.holds(parent):
                 # Under ``parent`` it would hold itself: every snapshot, and so every card update, then failed with
-                # RecursionError (T272 #2611, 2026-11-03: Codex named subtasks parents of each other). It stays where it is.
+                # RecursionError (Codex named subtasks parents of each other). It stays where it is.
                 parent = self
             previous = parent.agents.get(sid, {})
             if previous == agent:

@@ -71,7 +71,7 @@ def sessions_root(ctx):
 
 def session_file(root, session_id):
     """The session's file, the id after the file name's timestamp. Under ``--session-dir`` pi (0.73.1 and 1.5.2) writes it
-    in that directory itself (checked 2026-11-04); its default root has a directory per cwd."""
+    in that directory itself (checked); its default root has a directory per cwd."""
     if not isinstance(session_id, str) or not UUID_RE.fullmatch(session_id):
         return None
     root = Path(root)

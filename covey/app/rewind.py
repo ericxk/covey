@@ -1,4 +1,4 @@
-"""↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code; the owner, 2026-11-03).
+"""↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code).
 
 The button sits in the panel of every finished task card of such a topic (app/switch_handoff.py); a click
 opens a card (cards/rewind.py) that names the turn and the files its edit tools changed, with

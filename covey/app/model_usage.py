@@ -4,9 +4,9 @@
 and each 确认更换 on a 换配置 card, with its menu entry (route key), its budget as the card names it
 (top_minus_one for 推荐, a level, default) and its work mode. A chat reads its own selections, a chat
 without any reads every chat's, so the acceptance group's test launches never reorder the owner's private
-chat. The owner asked for the last used model first and each model's usual budget (2026-11-02): a card
+chat. The owner asked for the last used model first and each model's usual budget: a card
 lists its preselected model first (the launch card: the chat's last launch; 换配置: the topic's model), then
-the ones the chat chose most. This replaces the fixed order of 2026-10-26, which still orders the models
+the ones the chat chose most. The fixed order (app/launch_models.py MENU_ORDER) still orders the models
 nobody chose lately.
 """
 from __future__ import annotations

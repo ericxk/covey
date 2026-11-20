@@ -166,7 +166,7 @@ def _submit_launch_form(app, ctx, event):
                 'chat_id': event['chat_id'], 'submitted_at': submitted_at,
                 'topic': topic_label(ctx.state_dir, ctx.topic_id)}
         # Only a model whose card showed the select can turn it on; a form from before it has no choice. Such a
-        # model's receipt says 开 or 关 (the owner, 2026-11-04 16:45: 连是否敏感都不知道), another's nothing.
+        # model's receipt says 开 or 关, another's nothing.
         if choice.get('redaction'):
             plan['redaction'] = record.get('selected_redaction') == 'on'
         if choice.get('work_modes'):
@@ -246,7 +246,7 @@ def _launch_effort(record, choice, fields):
 
 def _launch_workspace(record, fields):
     """(workspace selection, run mode) the form submitted."""
-    # A card sent before the path input went (2026-11-03) still submits one.
+    # A card sent before the path input went still submits one.
     custom_path = fields.get('path', '')
     if not isinstance(custom_path, str):
         raise ValueError('路径必须是文本')

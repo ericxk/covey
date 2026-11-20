@@ -28,7 +28,7 @@ def reruns_after_withdrawal(backend, paused_on_question):
     """Whether a turn of ``backend`` whose candidates were all withdrawn runs again: on every Harness but for
     a turn that paused on a native question (Codex; its record says ``native_question_deferred`` from when
     the question was saved, before the pause withdrew the candidate). Any other Codex turn that wrote a
-    message and went on, then failed or was interrupted, did: T272 #2611, #2630 and #2633 (2026-11-03) got
+    message and went on, then failed or was interrupted, did: such a turn would get
     neither 检查并继续 nor the automatic continue after a restart."""
     return backend in RERUN_AFTER_WITHDRAWAL or not paused_on_question
 

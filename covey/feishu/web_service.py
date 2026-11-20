@@ -1,7 +1,7 @@
 """Feishu web's browser service, for the acceptance page alone: one long-lived process (``covey_feishu_web.py serve
 --home DIR``, the Playwright interpreter) that alone opens the login DIR/profile (for acceptance a copy of the
-owner's). 代答 no longer sends through it (2026-10-28: app/proxy_send.py runs the sender tool); its send, login
-and status commands, the 代答 page and its login check went 2026-10-29 (repo review 2: its send had no allowlist).
+owner's). 代答 does not send through it (app/proxy_send.py runs the sender tool), and it has no send, login or
+status command.
 Commands come one JSON line each over the Unix socket DIR/web.sock (0600, DIR 0700); the answer is a last line
 with ``"done": true``.
 
@@ -13,7 +13,7 @@ Every command but ``ping`` runs on the main thread, one at a time, in the order 
 is single-threaded). ``accept_close`` parks the page: swapped for a new tab on the chat list, which opens no chat
 (an open chat marks its messages read for the owner; Feishu web reopens the chat last open in a tab, kept in its
 sessionStorage, when that tab loads it again). The tab loads the list twice while the service waits (``settle``):
-a click on a tab's first load mostly leaves the chat pane blank (2026-10-28, 10 of 13 clicks), on its second it
+a click on a tab's first load mostly leaves the chat pane blank (10 of 13 clicks in a test), on its second it
 opens in 0.5-2.6 s; ``accept_open`` while it loads waits for it (``ready``). A load that shows no list in
 STUCK_SECONDS is reset once (web_client.reset) and loaded again; a parked tab that opens a chat by itself or
 stays without a list goes to PARK (about:blank). Idle IDLE_SECONDS (no command done), the service ends.
@@ -53,7 +53,7 @@ LOCK = "service.lock"
 LOG = "service.log"
 IDLE_SECONDS = 1800
 PARK = "about:blank"  # Where a parked tab goes when it opens a chat by itself or its list does not show.
-STUCK_SECONDS = 30  # A parked tab's chat list shows in 4-25 s a load (2026-10-28); not in this long, it is stuck.
+STUCK_SECONDS = 30  # A parked tab's chat list shows in 4-25 s a load; not in this long, it is stuck.
 WARM_SECONDS = 60  # How long a command waits for a parked tab still loading.
 PARKED = f"""() => [document.querySelectorAll('[data-feed-id]').length > 0,
   !!document.querySelector('{web_client.CHAT_NAME}')]"""  # [the chat list shown, a chat open]

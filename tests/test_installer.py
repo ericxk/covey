@@ -362,9 +362,9 @@ class NoBrowserTest(InstallerCase):
 
     def test_the_closing_line_names_the_app_as_it_is_called_now_or_no_name(self):
         self.lacking.clear()
-        self.app_name = "胥可的飞书 CLI"  # The create page's own proposal, kept by the user.
+        self.app_name = "王小明的飞书 CLI"  # The create page's own proposal, kept by the user.
         self.assertEqual(0, self.make("--no-start").run())
-        self.assertIn("去飞书私聊机器人「胥可的飞书 CLI」发一句话", self.text())
+        self.assertIn("去飞书私聊机器人「王小明的飞书 CLI」发一句话", self.text())
         self.assertNotIn("「Covey」发一句话", self.text())
         self.lines.clear()
         self.app_name = ""

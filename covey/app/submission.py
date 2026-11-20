@@ -312,7 +312,7 @@ class Submission:
         """Bind the topic and release its waiting messages; `directory` overrides the
         workspace's own path (a topic worktree). `on_bound()` runs once the binding is saved
         (the launch card's receipt). The messages' task cards (seconds each) follow once the click
-        is acknowledged (after_ack): inside it 开始任务 took 2.6 s of Feishu's 3 s (2026-10-26).
+        is acknowledged (after_ack): inside it 开始任务 took 2.6 s of Feishu's 3 s.
         A message sent meanwhile releases them before itself (submit_topic_job), so order holds."""
         with topic_lock(ctx):
             with LOCK:

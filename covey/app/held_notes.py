@@ -7,8 +7,8 @@ task after the answer; 撤回 drops it. Nothing is sent before the user answers.
 
 A note goes out once or not at all. Every change of its status is a compare-and-set under
 the note's lock. An answer takes the notes still held at the moment it is sent (``claim_held``),
-not those held at its click: since 提交回答 is acknowledged before its continuation is queued
-(2026-10-25), a 撤回 or 留作下一轮 clicked in between must win or lose as a whole.
+not those held at its click: since 提交回答 is acknowledged before its continuation is queued,
+a 撤回 or 留作下一轮 clicked in between must win or lose as a whole.
 
 The records, their cards and HeldNotes, which holds, attaches and queues them, are here;
 Questions (app/questions.py) owns a HeldNotes and settles its notes when an answer goes through.

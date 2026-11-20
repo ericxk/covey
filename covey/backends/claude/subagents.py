@@ -1,6 +1,6 @@
 """Claude Code's subagents on lighter models than the turn's (main-thread.json ``subagents``, the 设置 card's 新话题
 tab; core/butler_settings.py SUBAGENTS). Without it, every subagent, even the built-in Explore, runs on the
-turn's model (claude 2.1.318, measured 2026-11-10).
+turn's model (measured on claude 2.1.318).
 
 "light" (the default): every turn's claude, topics and the butler alike, its compaction included, gets
 CLAUDE_CODE_SUBAGENT_MODEL=sonnet and, through ``--agents``, a read-only Explore on Haiku (EXPLORE) in place of the

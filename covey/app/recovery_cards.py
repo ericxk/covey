@@ -30,29 +30,28 @@ def asked_took(state_dir, record):
                     fallback=seconds if isinstance(seconds, (int, float)) and seconds > 0 else None)
 
 
-# Task cards created from here on have the 用时 tile (the A 仪表盘 look, e1a43a6, generation 248 at 2026-11-04
-# 01:33:51 +08:00): their status lines do not say 用时 again. A record's created_at is UTC.
+# Task cards created from DASHBOARD_SINCE on have the 用时 tile (the A 仪表盘 look): their status lines do not say 用时 again. A record's created_at is UTC.
 DASHBOARD_SINCE = "2026-11-03T17:33:51Z"
 
 
 def answered_line(record, job_id, state_dir, *, answered=True):
     """The status line of a task that asked once task #job_id went on after it: ``↪ 已回答 → #1181 · 用时 2 分 22 秒``
     when #job_id carries the answer, ``↪ #1179 已接着开始，这组问题没有回答 · 用时 …`` when it is a message queued
-    before the questions came (T206 #1178 read 已收到回答 · 继续处理中 over questions no one answered). The run's
-    time stays as 需要你回答 · 用时 had it (repo review U1, U8)."""
+    before the questions came (not 已收到回答 · 继续处理中 over questions no one answered). The run's
+    time stays as 需要你回答 · 用时 had it."""
     took = asked_took(state_dir, record)
     line = f"↪ 已回答 → #{job_id}" if answered else f"↪ #{job_id} 已接着开始，这组问题没有回答"
     if str(record.get("created_at") or "") >= DASHBOARD_SINCE:
-        return line  # Its 用时 tile says it (the owner, 2026-11-04 17:54: 已回答 → #2794 · 用时 … under 用时 13分24秒).
+        return line  # Its 用时 tile says it.
     return line + (f" · 用时 {took_text(took)}" if took is not None else "")
 
 
 def paint_answered(cards, log, ctx, chat, job_id, previous, *, answered=True):
     """The status line of ``previous`` (a task that asked), which said ❓ 需要你回答 · 用时 since the run
     ended, says what came after it (``answered_line``); its body, the lead of what it said or where that
-    went, stays (repo review U1: "已收到回答 · 后续任务 #1181 继续处理。结果见下方任务卡。" took its place, and
-    the card below was the next turn's). A card without that line (sent before it existed) gets it in its
-    body. Never the whole card (U8: one replaced so lost its title, request and details)."""
+    went, stays ("已收到回答 · 后续任务 #12 继续处理。结果见下方任务卡。" in its place said nothing the
+    card below did not). A card without that line (sent before it existed) gets it in its
+    body. Never the whole card (one replaced so lost its title, request and details)."""
     line = answered_line(previous, job_id, ctx.state_dir, answered=answered)
     try:
         if cards.set_record_activity(ctx, previous, line):

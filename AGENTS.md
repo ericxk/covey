@@ -28,7 +28,9 @@
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 话题与回带 | `app/butler_topics.py`（新话题的 Harness、模型、预算在 `app/butler_model_choice.py`；请求幂等账本 `core/butler_opened.py`）、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
-| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_realtime.py`（实时归并、新专项扫一遍）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
+| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_realtime.py`（实时归并、新专项扫一遍）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [projects.md](docs/projects.md#整理专项)、[配置](docs/configuration.md#整理专项) |
+| 专项（`COVEY_PROJECTS=1`）：负责人、专项卡、问题分流、停住后问主人 | `core/projects.py`、`app/project_lead.py`、`app/project_tools.py`、`app/project_loop.py`、`app/project_cards.py`、`cards/project_card.py`、`app/triage.py`、`core/project_memory.py`、`core/project_library.py` | [projects.md](docs/projects.md)、[架构 · 专项](docs/architecture.md#专项第-2-期开发中默认关) |
+| 网页工作台（`COVEY_WEB=1`） | `core/web_sync.py`、`app/web_sync.py`、`app/web_collect.py`、`app/web_ops.py`、`app/web_settings.py` | [web.md](docs/web.md) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/launch_submit.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
@@ -88,7 +90,7 @@
 | `app/butler_search.py` | topics_search, the butler's tool that finds which topic, and which turn of it, a clue came from |
 | `app/butler_tools.py` | The butler's tools as the Bridge runs them, unless COVEY_BUTLER=0 |
 | `app/butler_topics.py` | The butler's tools that change topics |
-| `app/butler_tracks.py` | 多路并行 at run time (docs/butler.md 多路并行 |
+| `app/butler_tracks.py` | 多路并行 at run time (docs/butler.md 同时做几件事 |
 | `app/card_actions.py` | Task-card button kinds the unified bot accepts, in one table |
 | `app/card_lanes.py` | Card clicks run in order within a topic and in parallel across topics |
 | `app/card_publish.py` | Sending a card as a message of its own and keeping it in a record |
@@ -172,7 +174,7 @@
 | `app/redelivery.py` | Sending a recorded task's saved result or question again, without running the model (检查并继续 on a task whose … |
 | `app/relay_send.py` | Sending what goes back to the butler's top level |
 | `app/relay_targets.py` | Where a topic turn's outcome goes back to at the butler's top level |
-| `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code |
+| `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code) |
 | `app/runner.py` | The task runner process: one job of the Bridge, to completion |
 | `app/runner_ipc.py` | Messages between the Bridge and a job's task runner through its run directory |
 | `app/runner_spawn.py` | Starting a job's task runner, the Bridge side of app/detached.py |
@@ -204,13 +206,13 @@
 | `app/tidy_state.py` | What the parts of 整理专项 share and change while it runs |
 | `app/tidy_web.py` | 整理专项 on the web page |
 | `app/tidy_words.py` | The words and rows 整理专项 draws a topic with |
-| `app/topic_links.py` | Links that open a topic from a card (docs/butler.md 话题链接 |
+| `app/topic_links.py` | Links that open a topic from a card |
 | `app/topic_seen.py` | Which topics the owner has seen, from Feishu's read receipts |
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
 | `app/track_digest.py` | Memory merge for 多路并行 |
 | `app/track_judge.py` | The small model that decides a new butler message the rules could not |
 | `app/track_standby.py` | A Claude Code kept ready for the track judge |
-| `app/triage.py` | 专项的问题分流 (docs/butler.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1 |
+| `app/triage.py` | 专项的问题分流 (docs/projects.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1 |
 | `app/triage_view.py` | The questions held for a project's lead, as the lead reads them (app/triage.py is the rest of the question … |
 | `app/turn_delivery.py` | Delivering one finished turn |
 | `app/turn_export.py` | 下载请求与结果: a button at the bottom of an ended task card that packs the turn's model requests and the model's … |
@@ -219,15 +221,15 @@
 | `app/unified.py` | The Bridge: one Feishu ingress, immutable topic routes, one app per Harness |
 | `app/web_collect.py` | 网页工作台同步的收集: `Collector` reads the records of the owner's chat and makes the items (topics, turns, questions … |
 | `app/web_images.py` | The images of a turn on the web page |
-| `app/web_launch.py` | 网页开新话题 (docs/butler.md 网页工作台, COVEY_WEB=1 |
+| `app/web_launch.py` | 网页开新话题 (docs/web.md, COVEY_WEB=1 |
 | `app/web_ops.py` | 网页上发来的操作怎么执行: `Ops.run` does one operation of the page's outbox as the owner's own and says (state, message) … |
 | `app/web_pairing.py` | 网页工作台同步里不碰 Collector 缓存的那部分 |
-| `app/web_panels.py` | 网页设置页的设备和代答两页 (docs/butler.md 网页工作台, COVEY_WEB=1 |
+| `app/web_panels.py` | 网页设置页的设备和代答两页 (docs/web.md, COVEY_WEB=1 |
 | `app/web_push_client.py` | 网页工作台同步的客户端: the page's /openapi over HTTP (`Client`, `WebError`) and the thread a push step runs in, left … |
 | `app/web_said.py` | Who said a topic's owner line and the words the web page shows for it |
-| `app/web_settings.py` | 网页工作台的设置页 (docs/butler.md 网页工作台, COVEY_WEB=1 |
+| `app/web_settings.py` | 网页工作台的设置页 (docs/web.md, COVEY_WEB=1 |
 | `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (网页应用) and … |
-| `app/web_turns.py` | What a turn tells the web page beside its words (docs/butler.md 网页工作台, COVEY_WEB=1 |
+| `app/web_turns.py` | What a turn tells the web page beside its words (docs/web.md, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |
 | `app/worker.py` | Ordinary topic-job execution and local records |
 | `app/workspace_manager.py` | Manage the saved workspace list |
@@ -302,7 +304,7 @@
 | `core/butler_requests.py` | The butler's tool channel |
 | `core/butler_settings.py` | The butler's settings: <state>/main-thread.json |
 | `core/butler_tool_specs.py` | The Bridge tools the butler's session gets |
-| `core/butler_tracks.py` | 多路并行 (docs/butler.md 多路并行 |
+| `core/butler_tracks.py` | 多路并行 (docs/butler.md 同时做几件事 |
 | `core/card_sequence.py` | One rule for the sequence of every CardKit write to an existing card |
 | `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge, and the artifacts a task lists in one |
 | `core/completion.py` | One post-root deadline, independent of model-request retry policy |
@@ -359,7 +361,7 @@
 | `core/process_env.py` | Environment for backend child processes, and on/off switches read from the environment |
 | `core/procfs.py` | A process's /proc/<pid>/stat and this boot's id, read one way for every reader in the package |
 | `core/progress.py` | A running turn's progress worked out in one place (`progress`), for every reader that says how a turn is going |
-| `core/project_gates.py` | 专项问题分流的硬闸（docs/butler.md 专项的问题分流）: the words that keep a project's topic's question from the lead |
+| `core/project_gates.py` | 专项问题分流的硬闸（docs/projects.md 专项的问题分流）: the words that keep a project's topic's question from the lead |
 | `core/project_library.py` | The library of a project |
 | `core/project_memory.py` | The memory of a project |
 | `core/project_proposals.py` | 整理专项's records and switches: what was proposed, what the owner decided and what 整理专项 must not do again |
@@ -566,4 +568,4 @@
 ## 省 token
 
 - 不整篇读文档和大文件。可能很长的 Bash 输出写进文件，只看结尾和 `grep -E '^(FAIL|ERROR)'`；派子代理时给确切的文件和行号范围。
-- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`；配置和环境变量 `docs/configuration.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`；卡片和网页的词、颜色、组件 `docs/ui.md`。`docs/history/` 一般不用读。
+- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`，专项和整理专项 `docs/projects.md`，网页工作台 `docs/web.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`，手工安装和手动配飞书应用 `docs/manual-install.md`；配置和环境变量 `docs/configuration.md`，已下线的功能和旧配置 `docs/legacy.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`（细节在 `docs/reference.md`）；卡片和网页的词、颜色、组件 `docs/ui.md`。`docs/history/` 一般不用读。

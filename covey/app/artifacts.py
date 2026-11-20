@@ -69,7 +69,7 @@ class Artifacts:
     def attach_artifact_controls(self, ctx, job):
         """A finished turn's 产物 go up to Drive: on the answer card when it shows them (app/answer_cards.py; the
         task card then leaves them out), else on the task card right under its body (a slim card's too, not in
-        its folded 详情: the owner, 2026-11-08, 产物得从过程中挪下来). A quiet butler turn that sent no task card
+        its folded 详情). A quiet butler turn that sent no task card
         (core/placement.py Row.quiet, job.progress None) still has its answer card's 产物 uploaded and redrawn."""
         if job.artifact_controls_attached:
             return

@@ -1,11 +1,11 @@
-"""Links that open a topic from a card (docs/butler.md 话题链接; the owner, 2026-11-07 02:00: 卡上的“转给 T404”
-要能点，直接跳到话题，不要让我去看板翻; 2026-11-08 06:40: 点 T439 要到那张答案卡上，不只是话题).
+"""Links that open a topic from a card (docs/butler.md 话题链接). A T number on a card opens
+the topic, at the card it speaks of.
 
 Feishu's applinks open inside its clients: a message in a thread with ``client/thread/open`` (open_chat_id,
 open_thread_id, thread_position: the message's thread_message_position), a place in a chat with ``client/chat/open``
 (openChatId, position). A T number opens one card of its topic: a relay's, the card of the turn it relays (its
 question card when it asks); any other, the topic's newest card. A threaded topic opens at that card in its thread;
-a card that cannot be read opens the thread at its root message, as before 2026-11-08. Neither id is in topic.json
+a card that cannot be read opens the thread at its root message. Neither id is in topic.json
 (topics were never told their thread_id): a message is read once through the messages API
 (feishu/message_read.py fetch_message_detail, outside every lock, rules 1 and 2) and what it says is kept in
 <state>/topic-links.json, under its topic (``messages``, the newest KEPT). A topic not found, or a read that fails,
@@ -32,7 +32,7 @@ KEPT = 8  # Messages read for one topic that topic-links.json keeps (its newest 
 FETCHES = 12  # At most this many messages are read for one text; the rest of its T numbers stay plain.
 BUDGET = 5.0  # Seconds one text may spend reading messages (in parallel).
 # A T number on its own: not inside a word or a link, nor one continued by a dot or dash and a letter or digit
-# ("T444·330", "T444.md", "T12-3": ACCEPT-330 #2 read "T444·330 验收结束" as a link to T444); "T444 · 01:27" still is.
+# ("T44·330", "T44.md", "T12-3": "T44·330 验收结束" is no link to T44); "T44 · 01:27" still is.
 _NUMBER = re.compile(r"(?<![\w\[/#])(\*\*)?T(\d{2,6})(\*\*)?(?![\w\]])(?!\**[·・.\-][0-9A-Za-z])")
 _CODE = re.compile(r"```.*?```|`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\)", re.S)
 _index_cache: dict = {}
@@ -82,7 +82,7 @@ def _active(folder, now) -> bool:
 def topic_numbers(state_dir, chat_id) -> dict:
     """{T number: topic id} of ``chat_id``'s topics active within RECENT (``_active``), read again when a topic is
     added (the topics directory's mtime changes) or an hour on. A butler answer quotes other bots' topics too
-    (2026-11-07: 小娜's "T13" linked to this chat's month-old T13)."""
+    (another bot's "T13" must not link to this chat's month-old T13)."""
     base = Path(state_dir) / "topics"
     try:
         stamp = base.stat().st_mtime
@@ -122,7 +122,7 @@ def _read_message(message_id, profile, fetch) -> dict:
 
 def _where(state_dir, topic_id, message_id, profile, fetch) -> dict:
     """{thread_id, position, thread_position} of ``message_id``, read once and kept (``_save``); {} when it cannot
-    be read. An entry from before 2026-11-08 (one message a topic, no thread_position) still answers for its message."""
+    be read. An older entry (one message a topic, no thread_position) still answers for its message."""
     if not str(message_id).startswith("om_"):
         return {}
     entry = read_object(_path(state_dir)).get(topic_id) or {}
@@ -154,7 +154,7 @@ def topic_thread_link(state_dir, topic_id, *, at=(), profile=None, fetch=None) -
     """(the applink, how) that opens ``topic_id``'s thread, the thread of its root message (topic.json ``root_id``):
     at the first of ``at`` (messages of one turn: its card, its answer) that is in that thread ("thread_at"), else at
     the thread itself ("thread"); with no thread of the root to be read, the root's place in the chat ("chat");
-    ("", "") when neither can be read (the owner, 2026-11-10: 你问、你答点了都跳到那个话题串). Never raises."""
+    ("", "") when neither can be read. Never raises."""
     try:
         if fetch is None:
             from covey.feishu.message_read import fetch_message_detail as fetch

@@ -30,7 +30,7 @@ def rewind_button(topic_id, job_id, harness_id, revision):
 
 def _shown(path, workdir):
     """A file under the workdir relative to it, one elsewhere by its last two parts (a full absolute path took
-    six lines of the topic side panel, the 2026-11-03 client check)."""
+    six lines of the topic side panel)."""
     try:
         return str(Path(path).relative_to(workdir))
     except ValueError:
@@ -87,7 +87,7 @@ def done_card(form):
         elements.append(md(f"已把 {done['files']} 个文件改回这一轮开始时的样子。"))
     elif int(form["point"].get("file_count") or 0):
         # The list in its own element: the client runs a line after a list item into it, and the files joined
-        # on one line with what a file rewind would have done read as done (the 2026-11-03 client check).
+        # on one line with what a file rewind would have done read as done.
         elements += [note("这些文件没有改回，仍是这一轮改过的样子："),
                      md(file_lines(form["point"], form.get("workdir") or "", actions=False), size="notation")]
     if form.get("notice"):

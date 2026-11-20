@@ -36,7 +36,7 @@ def panel_card(elements, summary, *, spacing=""):
     return card(elements, summary, default_width=True, padding="12px", spacing=spacing)
 
 
-# The bot menu's panels (用量, 工作区, 代答, 脱敏, 群聊; 2026-11-03 redesign): a white title bar with the
+# The bot menu's panels (用量, 工作区, 代答, 脱敏, 群聊): a white title bar with the
 # panel's blue line icon, a grey subtitle and up to three state tags; grey tiles for the figures; rows of
 # a line and text buttons as wide as their labels; small grey print last. Icons are Feishu's standard
 # icon tokens (open.feishu.cn 卡片图标库).
@@ -63,14 +63,14 @@ def panel_header(icon, title, subtitle="", tags=(), *, color="blue"):
 
 
 def styled_panel(head, elements, summary, *, spacing="6px"):
-    """A menu panel: ``head`` from panel_header over ``elements``. Tight (2026-11-03, the owner: 再紧凑一些):
+    """A menu panel: ``head`` from panel_header over ``elements``. Tight:
     6px between elements, 14px at the sides."""
     return card(elements, summary, default_width=True, update_multi=True, padding="6px 14px 12px 14px",
                 spacing=spacing, header=head)
 
 
 def folded_panel(icon, title, item, top=()):
-    """A menu panel folded in place to its title bar and one grey line (the owner, 2026-11-06: 点一下弹出，再点一下
+    """A menu panel folded in place to its title bar and one grey line (点一下弹出，再点一下
     收回): ``top`` (the 设置 card's tab row) above the line, which says what unfolds it, ``item`` the menu's word for
     it (a quoted 「…」 label, or several)."""
     return styled_panel(panel_header(icon, title), [*top, note(f"已收起 · 再点{item}展开")], f"{title} · 已收起")
@@ -117,7 +117,7 @@ def note(text):
 
 
 # The buttons of a topic's cards (the task card, 补充回执, 暂存的补充, 重试): bordered and medium, 32 px high on a
-# computer and 36 px on the phone, 8 px apart, each as wide as its label (the owner, 2026-11-04 14:05: A 中号线框).
+# computer and 36 px on the phone, 8 px apart, each as wide as its label.
 # The small borderless ones were 28 px and only their text: 容易点不到或者误触，特别是手机上. A fixed width cut
 # 补充当前任务 to 补充当… in a topic's side panel (a 272 px card). The menu panels keep text_button.
 BUTTON_SPACING = "8px"
@@ -210,8 +210,7 @@ def row(*cells, flex="stretch", align=None):
 
 def redaction_tags(redaction):
     """The 敏感词脱敏 tag of a title bar (panel_header's ``tags``): 开 or 关 for a topic whose model can redact
-    (``redaction`` True or False), none for another (None). With only 开 shown, an unshown 关 read as not knowing
-    (the owner, 2026-11-04 16:45: 连是否敏感都不知道)."""
+    (``redaction`` True or False), none for another (None). With only 开 shown, an unshown 关 read as not knowing."""
     return [("敏感词脱敏：开", "green")] if redaction is True else [("敏感词脱敏：关", "neutral")] if redaction is False else []
 
 
@@ -225,8 +224,7 @@ def chevron(color="grey"):
 def collapsible(element_id, title, elements, *, expanded=False, boxed=False, quiet=False, size="normal_v2",
                 border=True, icon_position="right", padding=None, spacing=None):
     """A framed fold of ``elements`` under ``title``. ``boxed``: the task card's (本轮请求, 任务详情, 执行过程), white in
-    a thin grey rounded border with a markdown title and a grey chevron (the owner's pick of the second colour round,
-    "E 白底细边框", 2026-11-04). Else a grey border (none without ``border``) and a plain-text title of ``size``,
+    a thin grey rounded border with a markdown title and a grey chevron ("E 白底细边框"). Else a grey border (none without ``border``) and a plain-text title of ``size``,
     small and grey when ``quiet``: beside what the card says (怎么回答, 产物, a note's rest)."""
     panel = {"tag": "collapsible_panel", "element_id": element_id, "expanded": expanded}
     if boxed:

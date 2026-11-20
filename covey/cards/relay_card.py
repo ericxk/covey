@@ -23,7 +23,7 @@ def reply_body(text) -> str:
 
 
 def summary(label, words, text):
-    """The card's summary (the chat list's preview): "T410 · 有结果：…"."""
+    """The card's summary (the chat list's preview): "T41 · 有结果：…"."""
     return f"{label} · {words}：{redact(text)}" if text else f"{label} · {words}"
 
 
@@ -33,10 +33,10 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
     the same as Markdown when the card is refused.
     ``outcome`` DONE (``text`` the saved reply; ``inputs``, ``outputs`` and ``files``, the answer card's 输入/输出
     lines and 产物 panel, cards/answer_card.py, its 输出 ending in ``label``, which ``linked`` makes a link: the
-    answer card again, with one link more, 2026-11-08; ``change``, its 改动 fold: a dict, or ``delivery``, the 交付
-    line a release before 2026-11-09 kept as a string), WAITING (``question``) or STOPPED (``reason``, one line).
+    answer card again, with one link more; ``change``, its 改动 fold: a dict, or ``delivery``, the 交付
+    line an older release kept as a string), WAITING (``question``) or STOPPED (``reason``, one line).
     ``ask``: the "你问" block above it all (a relay at the top level quoting no card, threaded). ``at``, ``took``,
-    ``artifacts``: what a relay held (inline_pending) by a release before 2026-11-08 had besides, for a grey line no
+    ``artifacts``: what a relay held (inline_pending) by an older release had besides, for a grey line no
     card has now, not shown; without ``inputs`` its box has no 输入 line."""
     head = [ask] if ask else []
     if outcome == DONE:
@@ -44,7 +44,7 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         lead = summary(label, look.word("result"), answer_lead(text, SUMMARY_CHARS))
         if len(body.encode("utf-8")) > CARD_TEXT_BYTES:
             return None, body
-        # The conclusion band (docs/ui.md 5.2 聊天结果卡): "有结果 · T410", the reply's lead as its conclusion.
+        # The conclusion band (docs/ui.md 5.2 聊天结果卡): "有结果 · T41", the reply's lead as its conclusion.
         conclusion = answer_lead(text, HEADLINE_CHARS)
         band = [conclusion_band(band_label("result", label), literal(conclusion))] if conclusion else []
         built = banded(card([*head, *band, md(body), *answer_tail(files, () if inputs is None else inputs, outputs,

@@ -23,14 +23,14 @@ NOTE_TITLES = {"进展说明", "子任务说明"}
 STEP_MARKS = {"running": "●", "done": "✓", "failed": "✕", "unconfirmed": "?", "stopped": "⏹", "note": "•"}
 STEP_COLORS = {"done": "green", "running": "blue", "failed": "red"}
 BRIDGE_NOTE = "机器人"  # app/detached.py: "机器人 HH:MM 重启过，任务未中断。", a line of its own, not an operation.
-# A sub-task's last note longer than this shows its start; the rest folds (T182 #1111: a final report
+# A sub-task's last note longer than this shows its start; the rest folds (a final report
 # of several thousand characters, written for the main task, took about 2,000 px).
 FOLD_CHARS = 600
 
 
 def ttft_line(snapshot):
     """任务详情's TTFT (time to the model's first output) of the main task, when the backend gave it: the one figure
-    of ``figures_line`` the 输入/输出 box lacks (the owner, 2026-11-09: 模型生成 and token/s repeated the box); ""
+    of ``figures_line`` the 输入/输出 box lacks (模型生成 and token/s repeated the box); ""
     else. 主任务 leads when the turn had subtasks."""
     seconds, source = snapshot.get("ttft_seconds"), snapshot.get("ttft_source")
     if "started_at" not in snapshot or not number(seconds) or source not in SOURCES:
@@ -78,7 +78,7 @@ def step_detail(step):
             detail = detail[len(prefix):]
             break
     if (title in COMMAND_TITLES or title == CHECKPOINT_STEP) and detail:
-        # A checkpoint write is a command too: Codex's showed its /bin/bash -lc "…" wrapper (2026-11-04 review).
+        # A checkpoint write is a command too: Codex's showed its /bin/bash -lc "…" wrapper.
         detail = shown_command(detail)
     if title in {"读取文件", "写入文件", "修改文件", "浏览目录"} and detail.startswith("/") and len(detail) > 96:
         detail = "…/" + "/".join(detail.rstrip("/").split("/")[-2:])  # Recognisable without the mount prefix.
@@ -150,8 +150,7 @@ def run_fold(rows, lead=""):
 
 # A run of operations (those between two other entries) of at most SHOW_OPERATIONS shows each with its detail; a
 # longer one shows its last KEEP_OPERATIONS and folds the others under their count (run_fold). An operation still
-# running always shows. 5 folded runs of 6 to "前 3 项操作：执行命令 3", which read as something to do (the owner,
-# 2026-11-04 17:38: 这个是干啥的): a fold now saves at least six rows and says it holds the earlier ones.
+# running always shows. 5 folded runs of 6 to "前 3 项操作：执行命令 3", which read as something to do: a fold now saves at least six rows and says it holds the earlier ones.
 SHOW_OPERATIONS = 8
 KEEP_OPERATIONS = 3
 FOLD_LEAD = "收起了更早的 "  # run_fold's title: 收起了更早的 21 项操作：执行命令 18、读取文件 3
@@ -190,8 +189,8 @@ def fold_older(elements, briefs, bytes_left, nodes_left, end=None):
     """``elements`` as they are when they fit the room, else with as few of the oldest as it takes moved into
     ``older_fold`` (one line each; an element without a brief line, a note's later chunk, goes without one),
     the fold's own oldest lines left out if even it is too long. Nothing from ``end`` on folds (the last
-    进展说明 and what came after it). A long task keeps every 进展说明 it has room for, without pages (2026-11-04:
-    25 of 253 tasks had more than a card holds, up to 72 KB)."""
+    进展说明 and what came after it). A long task keeps every 进展说明 it has room for, without pages (about one
+    task in ten has more than a card holds, up to 72 KB)."""
     costs = [(json_size(e) + 2, element_count(e)) for e in elements]
     total = (sum(c[0] for c in costs), sum(c[1] for c in costs))
     if total[0] <= bytes_left and total[1] <= nodes_left:
@@ -232,7 +231,7 @@ SENTENCE_END = re.compile(r"[。！？；]|[.!?;:][ \t]+")  # A Latin one with t
 
 def _break(text, start, end):
     """Where a chunk of ``text[start:end]`` that must end before ``end`` ends: after the last line
-    break in its second half, else after a sentence end, else after a space (T182 #1111 split
+    break in its second half, else after a sentence end, else after a space (not
     "unit te" / "sts"); else at ``end``, but never inside an entity or after an escaping backslash."""
     floor = start + (end - start) // 2
     newline = text.rfind("\n", floor, end)
@@ -275,10 +274,8 @@ def text_chunks(text, limit=5000):
         start = end
 
 
-# How a 进展说明 stands out among the operations (the owner, 2026-11-04 17:38: 进展说明现在也没有高亮了，容易忽略;
-# 18:05 picked 蓝底 over 蓝字): its text under a blue heading on a light blue block, in the operations' small size:
-# at the card's 14 px it read larger than the 12 px rows around it (the owner, 2026-11-04 22:53: 字号太大; 23:05 picked
-# 12 号常规, the block sets it apart). A block costs three of the card's nodes, so a very long task folds its oldest
+# How a 进展说明 stands out among the operations : its text under a blue heading on a light blue block, in the operations' small size:
+# at the card's 14 px it read larger than the 12 px rows around it (12 号常规: the block sets it apart). A block costs three of the card's nodes, so a very long task folds its oldest
 # notes into 更早的 N 条记录 sooner.
 NOTE_BACKGROUND = "blue-50"
 
@@ -290,8 +287,8 @@ def note_element(content):
 
 
 def note_blocks(note, chunk_bytes, named=True):
-    """A 进展说明's elements: text blocks of at most ``chunk_bytes`` under its grey heading (unfilled since the
-    second colour round, 2026-11-04: blue blocks in the grey panel looked off), and for a sub-task's last note
+    """A 进展说明's elements: text blocks of at most ``chunk_bytes`` under its grey heading (unfilled: blue
+    blocks in the grey panel looked off), and for a sub-task's last note
     over FOLD_CHARS, the rest in folded panels after its start."""
     heading = owner_prefix(note["owner"], named) + note["heading"]
     detail, rest = note["detail"], ""
@@ -317,9 +314,8 @@ def note_blocks(note, chunk_bytes, named=True):
 
 def trace_items(lines, child_elements, notes, tool_rows, chunk_bytes):
     """The panel's entries, oldest first (the task's and its sub-tasks' together): 进展说明 whole, sub-tasks and the
-    Bridge's lines as they are, and between them each run of operations with their details (run_elements). The
-    owner, 2026-11-04 15:07: 正常的进展说明和工具命令详情…大段连续的工具命令详情也可以折叠…达到上限，从最早的工具命令
-    详情开始不断隐藏掉…最后几项操作就不用单列. An item is a dict: kind "note" (full, short: its blocks with and
+    Bridge's lines as they are, and between them each run of operations with their details (run_elements). Long
+    runs of operations fold, and past the limit the oldest operations' details go first. An item is a dict: kind "note" (full, short: its blocks with and
     without the sub-task's name; brief: its line in older_fold), "run" (rows, state) or "other" (element, brief)."""
     items, run = [], []
 
@@ -419,7 +415,7 @@ def item_cost(item, state=None):
 
 
 def fit_items(items, bytes_left, nodes_left):
-    """Make room the way the owner asked (2026-11-04 15:07): the oldest runs' details go first, each run then its
+    """Make room the way the owner asked: the oldest runs' details go first, each run then its
     count line, the last run last; a run's operations still running stay. The 进展说明 are folded afterwards, by
     fold_older, only when even that is not enough."""
     costs = [item_cost(item) for item in items]
@@ -437,7 +433,7 @@ def fit_items(items, bytes_left, nodes_left):
 
 
 def step_row(s, step_id, owner, owner_id):
-    """An operation's row in tool_rows. The A 仪表盘 sample's step line (2026-11-04): the mark, the kind in bold, then
+    """An operation's row in tool_rows. The A 仪表盘 sample's step line: the mark, the kind in bold, then
     grey how long it took (or its state) and when it started, the exit code; the detail on a grey line under it."""
     facts = [f"{s['elapsed']:g} 秒"] if "elapsed" in s else []
     facts += [{"unconfirmed": "结束状态未确认", "stopped": "已停止", "running": "执行中"}.get(s["status"], "")]
@@ -448,7 +444,7 @@ def step_row(s, step_id, owner, owner_id):
     if s.get("exit_code") not in (None, 0, "0"):  # ✓ says 0 already (Codex wrote 退出码 0 on every row).
         facts.append(f"退出码 {s['exit_code']}")
     # A checkpoint write: its title says it; of its command (a heredoc) only Claude's purpose shows, which
-    # says what else it did (the owner, 2026-11-04 17:38: 去掉检查点命令).
+    # says what else it did.
     detail = (s["detail"] if s["status"] == "note" else checkpoint_purpose(s) if s["title"] == CHECKPOINT_STEP
               else step_detail(s))
     mark = STEP_MARKS[s["status"]]
@@ -492,7 +488,7 @@ class PanelModel(NamedTuple):
 
     @property
     def ended_empty(self):
-        """An ended turn without records: its title says so, with nothing to unfold (T320 showed an empty one)."""
+        """An ended turn without records: its title says so, with nothing to unfold."""
         return not self.live and not self.rows
 
 
@@ -564,14 +560,13 @@ class TraceView:
         return [short.get(id(e), e) if i > first else e for i, e in enumerate(elements)], lines
 
     def panel_model(self, running=True, *, timed=False):
-        """The process panel as data, one page since 2026-11-04 (``fold_older``); cards/trace_updates.py
+        """The process panel as data, one page (``fold_older``); cards/trace_updates.py
         ``panel_json`` draws it. ``timed``: an ended turn's state says how long it took, on a card whose status
         line does not (the interrupted task's)."""
         elements, lines = self._elements(running)
-        # The rows and the time; no token line since 2026-11-04 15:07 (the owner: 输入 … token（缓存命中 …） · 输出 …
-        # · token/s，在好几个地方都有): the 输入/输出 box has the tokens and the speed, 任务详情 the TTFT
-        # (cards/streaming.py task_details_text, by ``ttft_line``; its exact counts and speed went 2026-11-09), kept
-        # current while the turn runs (T314 #2428). The time is on the status line (✅ 已完成 · 用时 …), not here as well.
+        # The rows and the time; no token line: the 输入/输出 box has the tokens and the speed, 任务详情 the TTFT
+        # (cards/streaming.py task_details_text, by ``ttft_line``), kept
+        # current while the turn runs. The time is on the status line (✅ 已完成 · 用时 …), not here as well.
         live = running and self.ended_at is None
         state = f"{len(lines)} 步" if lines else "等待进展" if live else "无执行记录"
         if timed and not live:
@@ -605,7 +600,7 @@ class TraceView:
 
     def _trace_lines(self):
         """The panel's rows by when they began, the task's and its sub-tasks' together, so the newest of
-        either is at the bottom (the owner, 2026-11-04 15:07: 只要我看最后的执行过程即可; SubAgent得兼顾):
+        either is at the bottom:
         (lines, child_elements, notes, tool_rows); a line is a marker for an element, a note or a tool row."""
         lines = []
         child_elements = {}

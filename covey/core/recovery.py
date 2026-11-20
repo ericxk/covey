@@ -4,8 +4,7 @@ state and button (app/recovery_cards.py recovery_card, app/outbox.py retry_label
 the task's native question is still live (the question store) are read by app/ and passed in; the question
 store only when the decision gets that far, as before.
 
-Four known divergences between the button (``_label``) and the click (``_kind``) are kept as they were
-(reported to the owner, 2026-11-05):
+Four known divergences between the button (``_label``) and the click (``_kind``) are kept as they were:
 - the button asks ``saved_reply_undelivered`` (record fields only) while the click asks ``saved`` (the
   index file too);
 - a saved_delivery_only reply whose delivery needs reconciling (``reconciliation_required``,

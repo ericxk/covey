@@ -1,6 +1,6 @@
 """早晚汇总: at the times of day COVEY_DIGEST_TIMES lists (HH:MM, comma separated, Asia/Shanghai), one card
 at the top level of the owner's private chat listing what waits for the owner, what runs and what ended since the
-digest before (cards/digest.py). Off unless the variable holds a valid time (docs/operations.md 早晚汇总): without
+digest before (cards/digest.py). Off unless the variable holds a valid time (docs/usage.md 早晚汇总): without
 it there is no thread.
 
 What it lists is read from the records, as the pinned board reads them (core/board_read.py read: the indexes of
@@ -389,7 +389,7 @@ class Digest:
         now = time.time() if now is None else now
         last = read_object(record_path(ctx.state_dir, chat, RECORD)).get("last_slot")
         view = collect(ctx.state_dir, chat, now, board_since(self.times(), now, last), now, board=dismissable())
-        view.pop("wanted", None)  # 我本来想找你的事 is the 早晚汇总's, not the 看板's (the owner, 2026-11-18).
+        view.pop("wanted", None)  # 我本来想找你的事 is the 早晚汇总's, not the 看板's.
         # Each block of the 看板 opens its topic (cards/board.py): the topic's applink, read outside any lock.
         # A 等你 row's opens the card it is acted on (core/board_read.py waits): the question card, the launch card.
         # The old ones' labels link through their ``url`` (cards/overview.py stale_line), plain for the band to lead with.
@@ -441,8 +441,8 @@ class Digest:
             found.append({"name": record.get("name") or "", "goal": record.get("goal") or "", "topics": topics,
                           "waiting": len(rows["waiting"] & set(topics)), "running": len(rows["running"] & set(topics)),
                           "stopped": len(stopped & set(topics)), "lead": record.get("lead_topic_id") or ""})
-        # The proposals waiting for him, each with its topics, to decide right on the 看板 (the owner, 2026-11-18: 不要让我
-        # 去聊天里往上翻). One of a single topic is no project any more (app/project_sorter.py MIN_CREATE): left out.
+        # The proposals waiting for him, each with its topics, to decide right on the 看板, not by
+        # scrolling up the chat. One of a single topic is no project any more (app/project_sorter.py MIN_CREATE): left out.
         pending = []
         if project_proposals.enabled():
             for record in project_proposals.waiting(ctx.state_dir):  # The same list as projects_list and 整理专项's 还在等你定.
@@ -596,7 +596,7 @@ class Digest:
         if not chat:
             return  # No private chat with the owner known yet: tried again until the time is CATCH_UP old.
         view = {**collect(ctx.state_dir, chat, slot, since_of(times, slot, last), now, board=dismissable()),
-                **self.where(chat)}  # 整理专项 is the 看板's alone (the owner, 2026-11-18).
+                **self.where(chat)}  # 整理专项 is the 看板's alone.
         if not (view["waiting"] or view["stale"] or view["running"] or view["done"]):
             self.save(ctx, last_slot=slot, pending=None)
             self.runtime.log("digest not sent: nothing to list")

@@ -1,4 +1,4 @@
-"""整理专项's judging (docs/butler.md 整理专项, COVEY_PROJECT_TIDY): what the small model reads and what it may say. No Feishu call, no
+"""整理专项's judging (docs/projects.md 整理专项, COVEY_PROJECT_TIDY): what the small model reads and what it may say. No Feishu call, no
 record written but the gists the backfill reads (core/topic_gist.py); app/project_tidy.py runs it and acts on what it says.
 
 - ``material``: one topic as the judge reads it: its number and title, its 话题要点, every word the owner said in it (each turn's
@@ -313,8 +313,8 @@ def parse(text, records, items, *, focus=None, run="", source="tidy") -> list:
         common = {"why": raw.get("why"), "confidence": confidence, "run": run, "source": source, "now": now}
         try:
             if kind == proposals.CREATE:
-                # A project is one goal with an end, over two topics at least (the owner, 2026-11-18: 只有一个话题的不提专项;
-                # 长期值守、没有终点的事也不建议): one topic, or no goal to end at, is no project.
+                # A project is one goal with an end, over two topics at least, and not a
+                # standing watch without an end: one topic, or no goal to end at, is no project.
                 if len(set(topics)) < MIN_CREATE or any(by_id[t].project for t in topics):
                     continue
                 made = proposals.new_proposal(kind, topics=topics, name=raw.get("name"), goal=raw.get("goal"), **common)

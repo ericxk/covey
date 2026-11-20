@@ -83,7 +83,7 @@ def _start_turn(ctx, job, *, sessions, runtime, record_job_state):
     write_json(Path(job.checkpoint_path), {"phase":SEED_PHASE, "completed":[],
         "artifacts":[], "external_tasks":[], "next_step":"检查任务要求与已有状态", "requires_user":False}, ensure_ascii=False)
     # Without a trace until its first event, a status line could say only "<后端> 已开始处理", with no
-    # 已运行 (S28 #849), and its progress text showed as a 执行进度 block.
+    # 已运行, and its progress text showed as a 执行进度 block.
     job.tool_trace = task_trace()
     job.tool_trace.checkpoint = job.checkpoint_path
     return revision, session_id
@@ -299,7 +299,7 @@ def _run_turn(job, ctx, *, harness, runtime, cards, sessions, runs, record_job_s
             # A backend stopped under a SIGTERM may fail in its own way.
             runtime.log(f"interrupted job #{job.job_id} ended in {type(exc).__name__}" if turn.status == "interrupted"
                         else turn.status_message)
-            # Where it came from: T480/T481 (2026-11-11) failed at their start with only "任务异常（RuntimeError）".
+            # Where it came from: else a task failing at its start says only "任务异常（RuntimeError）".
             runtime.log(failure_trace(exc, job))
     finally:
         if not turn.session_finalized:

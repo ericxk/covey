@@ -23,7 +23,7 @@ from covey.core.checkpoint import CHECKPOINT_RULES
 from covey.core.butler_tool_specs import BUTLER_RULES_ENV
 
 # Commands' and subtasks' descriptions show on the task card's 执行过程 (core/text.py step_action): the owner
-# reads them, so they are in the owner's language too (T444 V11: 27 of #3288's 33 were English).
+# reads them, so they are in the owner's language too.
 TOOL_NOTES_LANGUAGE = ("工具调用里写给人看的说明（命令和子任务的 description、待办条目）也用用户提问的语言写；"
                        "用户用中文时写中文。这些说明会显示在飞书任务卡的“执行过程”里。")
 
@@ -69,7 +69,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         "  filter of a pipeline, then check that nothing you started is still running, including processes",
         "  adopted by PID 1. A search that ends with 134 (`memory allocation ... failed`) or 137 walked too",
         "  much: narrow it; do not rerun it unchanged or raise a memory limit.",
-        # 2026-11-19 (T531): a supplement 'the QR code expired, send a new one' waited 280 s for a 540 s wait loop to end.
+        # A supplement such as 'the QR code expired, send a new one' must not wait minutes for a wait loop to end.
         "- What the user sends while you work reaches you only between tool calls. To wait for the user (a scan, a",
         "  confirmation) or for something outside (a deploy, a job, a page), poll with short commands of at most",
         "  30 seconds each, not one long blocking command or loop, so a new instruction is read within seconds.",
@@ -85,7 +85,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
 
 
 def proxy_constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = ()) -> str:
-    """The rules of a 代答 topic's turns, in place of ``constraints`` and the checkpoint contract (T571): its replies
+    """The rules of a 代答 topic's turns, in place of ``constraints`` and the checkpoint contract: its replies
     go to other people as the owner, in plain text; the Markdown layout, the checkpoint, its questions and 话题要点
     of an ordinary topic only drew its turns into bookkeeping (two of a turn's three tool calls wrote the checkpoint)."""
     runtime_note = runtime_note or f"{backend_name} permissions controlled by this bridge"
@@ -334,13 +334,13 @@ def resume_message(user_text: str) -> str:
 # The butler's rules (app/butler.py), at the head of each of its turns' messages: the owner wants the
 # Bridge's rules in the user message, not the system prompt. Without "do the work in a topic" a single session in
 # DeepSeek's experiment never handed any work on. One layout (core/placement.py), the 话题区: the butler's card
-# in the owner's message's thread, answers and conclusions new messages in the chat area. The rules of the front-desk
-# layout (desk_topics) went with it on 2026-11-09.
+# in the owner's message's thread, answers and conclusions new messages in the chat area. The rules of the retired
+# front-desk layout (desk_topics) went with it.
 AREA_OPENING = (
     "- 你是主人的管家。主人在私聊聊天区发的每条消息是你的一轮；主人在话题里发的消息直接交给那个话题，不经过你。",
     "- 一问一答：你这一轮的回复就是给主人的答案，Bridge 把它作为聊天区的一条新消息发出，顶上链回主人那句话。"
     "结论先行，简短；不要提卡片、话题串这些摆放，也不要让主人去别处看。",
-    # 2026-11-19 (T531): 9 of the butler's last 79 answers asked the owner in their last sentence, and he missed them.
+    # A question asked only in an answer's last sentence is easily missed.
     "- 要主人定的事（选哪个、要不要交给谁、要不要做、部署删除花钱这类），不要只在回复末尾问一句：写进本任务检查点的"
     " requires_user、question 和 questions（每题一个对象，能给选项就给），Bridge 会出问题卡、放进“等你回答”。"
     "回复里照常先说结论和依据，再一句话说要他定什么。不答也不耽误的顺口确认不用问。",

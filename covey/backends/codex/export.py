@@ -9,7 +9,7 @@ After a response a ``token_usage_record`` row names it and its usage; a ``compac
 ``replacement_history`` in place of the items. A sub-agent's thread starts with its parent's rows copied
 after the parent's ``session_meta``, the items marked ``inherited_user_message``: history, not its requests.
 
-Checked 2026-11-01 against a stand-in Responses server, through the Bridge's App Server path with the
+Checked against a stand-in Responses server, through the Bridge's App Server path with the
 catalog's request shape (25 requests of 12 threads: turns, parallel tool calls, reasoning, images in messages
 and in the exec tool's output, sub-agents, two local compactions): every rebuilt input equal to the one sent,
 item for item, but for what ``not_recorded`` lists, which Codex adds when it sends: a local compaction's prompt,
@@ -20,7 +20,7 @@ Lite: the tools travel as the ``additional_tools`` item) images go without their
 A response with no usage row was cut off: a sub-agent's message arrived while it streamed (its ``agent_message``
 then precedes the next output) or the stream broke and Codex sent the request again. Its partial output stays
 in the items, as Codex keeps it; the next output opens a request when an item came in between. Of 7,066
-requests rebuilt from 120 real rollouts (2026-11-01), 819 had no usage row. The ids carry the second they were
+requests rebuilt from 120 real rollouts, 819 had no usage row. The ids carry the second they were
 made: of the 6,247 with one, every output item was made no earlier than its response and no later than the
 next response but one, a reasoning item older than its response (most likely a broken stream sent again).
 

@@ -21,7 +21,7 @@ class AnswerIncomplete(ValueError):
 
 SKIPPED = "用户选择不回答此题（不表示同意或授权）"
 # 补充说明's heading when no question was answered (只发补充说明, or each one skipped): the note may say the
-# questions do not fit, as 问题不合适 / 修改要求 did before 2026-11-04.
+# questions do not fit, as 问题不合适 / 修改要求 did in older releases.
 UNANSWERED_NOTE = "补充说明（没有回答上面的问题，不表示同意或授权；可能是对问题的反馈或新的要求，请据此重新评估）："
 ATTACHMENTS = "_attachments"  # What a topic reply adds to its wording (paths, forwards, quotes): for the model, never shown.
 TITLE_CHARS = 30  # After the card's "T12 · #34 · ".
@@ -81,7 +81,7 @@ def form_answers(questions, fields):
         selected = fields.get(f"option_{i}")
         skipped = fields.get(f"skip_{i}") in (True, "true")
         parts = []
-        # A written answer wins (the owner, 2026-10-27): a dropdown cannot be cleared once something is
+        # A written answer wins: a dropdown cannot be cleared once something is
         # picked, and the box is for when no option fits, so what was picked (不回答此题 too) is dropped.
         if text:
             parts = [text]
@@ -145,9 +145,9 @@ def question_label(question):
 
 def answer_title(record, answers, feedback=""):
     """The follow-up task card's title, at most TITLE_CHARS: what was asked and what was answered,
-    "label → answer" per question (T182 #1111's "回答：可以做一版本 然后找个…" named no question).
-    With every question unanswered, the 补充说明 is what was said: ``补充：<its start>`` (T191 read
-    "/workspace 键 → 不回答" five times); with some answered, it follows them when there is room.
+    "label → answer" per question (an answer alone names no question).
+    With every question unanswered, the 补充说明 is what was said: ``补充：<its start>`` (a title of
+    "<key> → 不回答" over and over said nothing); with some answered, it follows them when there is room.
     The whole answer is in 本轮请求 and in the prompt."""
     if feedback:
         return compact_text("问题反馈：" + feedback, TITLE_CHARS)
@@ -249,7 +249,7 @@ def answer_message(record, answers, feedback, notes):
     text = shown + ("\n" + attachments if attachments else "")
     if record.get("supplement") and not feedback:
         # Every question skipped (只发补充说明): the note may say the questions do not fit, as 问题不合适 / 修改要求 did
-        # before 2026-11-04, so the model is told to reconsider them with it.
+        # in older releases, so the model is told to reconsider them with it.
         none = all(answers[q["id"]]["answers"] == [SKIPPED] for q in record["questions"])
         head = UNANSWERED_NOTE if none else "补充说明："
         shown += f"\n\n用户{head}\n" + record["supplement"]

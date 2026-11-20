@@ -60,7 +60,7 @@ CLIP = 300
 STDERR_KEPT = 300
 FLAG = "--no-session-persistence"
 # What keeps the model's input small: without them Claude Code puts the working directory's project settings and
-# memory files and the skill list in front of every question (about 4800 input tokens against 800, measured 2026-11-17).
+# memory files and the skill list in front of every question (about 4800 input tokens against 800).
 SLIM = ["--setting-sources", "user", "--disable-slash-commands"]
 SYSTEM = (
     "You route one new chat message of a user to one of the user's running assistant tasks. The input is a JSON "

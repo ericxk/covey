@@ -92,7 +92,7 @@ def turn_env(ctx, env):
     """The environment of a turn's Claude Code: ``env`` with the session state events on. The butler's turn
     (its Bridge tools in ``ctx.options["mcp_config"]``) loads every tool with the session instead of finding them
     through tool search, as Persona's assistant does: a Bridge tool called beside that search went out with no
-    arguments and was refused (2026-11-06, the first call of topic_start and of topic_send). Its subagents' model as
+    arguments and was refused (the first call of topic_start and of topic_send). Its subagents' model as
     backends/claude/subagents.py says."""
     child = {**subagents.turn_env(ctx, env), "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
              "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1"}

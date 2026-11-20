@@ -41,8 +41,8 @@ def refuse_steer(text, *, closing, ready, label, waiting=False):
 
 
 # 急的补充 (docs/architecture.md 补充投递): words that say the owner wants it taken in now, not after the step the model
-# is on. Claude Code reads a supplement only between two tool calls; one sent while a long command runs waited 4 minutes
-# (T538: "二维码过期，马上重发"). A supplement with one of these that is still unread URGENT_SECONDS after it was sent
+# is on. Claude Code reads a supplement only between two tool calls; one sent while a long command runs can wait minutes
+# ("二维码过期，马上重发"). A supplement with one of these that is still unread URGENT_SECONDS after it was sent
 # has the command the model waits on stopped (app/steer_interrupt.py); any other waits for a click.
 URGENT = re.compile(r"马上|立刻|立即|立马|赶紧|赶快|紧急|急事|很急|着急|现在就|先停|停一下|停下|停掉|别跑了|别等了|不用等了|"
                     r"打断|过期|重发|搞错了|弄错了|不对了|快停|\burgent\b|\basap\b|\bstop\b|right now|immediately",

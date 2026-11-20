@@ -121,7 +121,7 @@ class CheckpointQuestions:
             raise ValueError("检查点问题结构无效或不支持")
         # A multi-select question says "multiple" (core/checkpoint.py); Claude's own question tool's
         # "multiSelect" is taken too. Without either the card had a single select, though the question
-        # said 可多选 (T290 2026-11-03).
+        # said 可多选.
         questions = [{**q, "multiple": q.get("multiple") is True or q.get("multiSelect") is True} for q in questions]
         job.checkpoint_question_deferred = True
         upsert_job_record(ctx.state_dir, job.message_id, checkpoint_question_deferred=True)
@@ -179,8 +179,8 @@ class CheckpointQuestions:
     def undelivered_jobs(self, ctx, chat):
         """The jobs whose result or question form the topic must get again before it takes a message.
         Not one a later job of the topic has started after, nor one Feishu's audit refused (sending it
-        again sends the same text). T252 (2026-10-31): the audit refused #1812's reply for an email address
-        while #1813 waited behind it; #1813, #1830, #1835 and #1851 ran, and #1812 still held every message."""
+        again sends the same text): a reply the audit refused for an email address must not hold every later
+        message of the topic while the jobs behind it run."""
         rows = [record for _, record in directory_store(ctx.state_dir / "jobs").query(topic_id=ctx.topic_id, chat_id=chat)]
         started = [int(record.get("job_id") or 0) for record in rows
                    if (record.get("timings") or {}).get("backend_started")

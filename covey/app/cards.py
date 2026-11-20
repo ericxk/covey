@@ -342,7 +342,7 @@ class Cards:
         """The run ended: ``content`` (its outcome, ``outcome_line``) takes the status line's place and
         the action row goes, in one batch, so the top of the card never goes blank while the result
         is prepared below. ``timed``: the outcome is followed by how long the run took (✅ 已完成 · 用时
-        1小时47分; T182 #1111 showed it only as 总耗时 6460.3 秒 lower down). The trace ends here
+        1小时47分, not only as 总耗时 6460.3 秒 lower down). The trace ends here
         (``stopped``: the user stopped the task) and a process panel the card shows running ends in that
         batch too: S31 K5 read ✅ 已完成 over 执行过程 · 等待进展 … 正在处理 until the result's write.
         Without the row (a stop click removed it, or the card was sent before it existed) the panel and
@@ -393,12 +393,12 @@ class Cards:
         before, or without a process record: the line then says 用时 itself."""
         if not getattr(job.progress, "dashboard", False) or getattr(job.progress, "slim", False) or snapshot is None:
             return ""  # A slim card's line says 用时 itself: its tiles are folded.
-        # No output speed since 2026-11-04 15:07 (the owner: 冗余的文字有点多): the 输入/输出 box's 输出 has it.
+        # No output speed: the 输入/输出 box's 输出 has it.
         return " · ".join([content, clock(snapshot.get("ended_at") or time.time()) + " 结束"])
 
     def say_outcome(self, ctx, job, line) -> bool:
         """A butler card's last status line and chat-list preview: what the turn did, ``line`` (app/butler_reply.py
-        outcome_words, V6, 2026-11-08), in the place of "✅ 已完成 · 用时 …" and "#12 · 已完成 · 用时 …". One batch of
+        outcome_words), in the place of "✅ 已完成 · 用时 …" and "#12 · 已完成 · 用时 …". One batch of
         the status elements alone (the 输入/输出 box keeps its 用时); the preview goes with the card's close. Whether
         CardKit took it."""
         progress = job.progress
@@ -418,12 +418,12 @@ class Cards:
 
     @staticmethod
     def summary_label(job):
-        """What a task card's chat-list preview names its task by: the topic (T298), else the task (#12)."""
+        """What a task card's chat-list preview names its task by: the topic, else the task (#12)."""
         return getattr(job, "topic_label", "") or f"#{job.job_id}"
 
     def set_lead_summary(self, job, status):
         """The chat list's preview of a card whose reply's lead moved to its top (worker show_lead), from when
-        the card closes: the topic, the outcome and the time, "T298 · 已完成 · 用时 3 分 39 秒"
+        the card closes: the topic, the outcome and the time, "T98 · 已完成 · 用时 3 分 39 秒"
         (``task_card_summary``; the answer card sent beside it has the lead)."""
         job.progress.summary = task_card_summary(self.summary_label(job), status,
                                                  getattr(job.progress, "timed_outcome", ""))
@@ -451,7 +451,7 @@ class Cards:
 
     def _revive(self, progress):
         """A card that failed writes disabled (not one closed or replaced) is written once more when its
-        run ends: its outcome, result and close, so it never stays at 执行中 (#1150). One more failed
+        run ends: its outcome, result and close, so it never stays at 执行中. One more failed
         body write disables it again. The caller holds the card lock."""
         if not getattr(progress, "failed_off", False):
             return False
@@ -505,7 +505,7 @@ class Cards:
         """The body moved up to right under the status line, above 本轮请求, in one batch: the delete
         and the same element added back there (CardKit has no move; a later body write still lands on
         it by its element_id). For a body that is the sent reply's lead (TurnDelivery.delivered_note):
-        what the turn came to is then read first, not under the request and 任务详情 (T288). Whether
+        what the turn came to is then read first, not under the request and 任务详情. Whether
         CardKit took it; a failed batch is only logged, the card keeps its order (a card sent before
         本轮请求 existed refuses it whole)."""
         progress = job.progress
@@ -544,7 +544,7 @@ class Cards:
         """Put ``element`` on the job's task card: replaced in place when the card has it, else inserted
         after the body, before ``before``, or, ``at_bottom``, after the process panel when this card
         shows one (the 🔀 💬 🔁 buttons of a finished turn: in the middle they cut the result off from
-        its artifacts and figures, T182 #1111). On a slim card (task_card.body_anchor) "after the body" and
+        its artifacts and figures). On a slim card (task_card.body_anchor) "after the body" and
         the bottom are in its folded 详情; ``under`` and a question (its ID starts q_, cards/question_cards.py)
         go right under the body instead (``under_body``), where they show without opening anything."""
         if not job.progress:
@@ -561,8 +561,8 @@ class Cards:
             elif at_bottom:
                 after = bottom_anchor(job.progress, job.trace_rendered_panel is not None
                                       and job.trace_rendered_card == job.progress.card_id)
-            # 任务详情 is part of the task card as sent when it has words (details_panel; every card sent before
-            # 2026-11-09); only dynamically inserted panels are tracked in `present`. Without it, it goes under
+            # 任务详情 is part of the task card as sent when it has words (details_panel; every card sent by an
+            # older release); only dynamically inserted panels are tracked in `present`. Without it, it goes under
             # 本轮请求, where it would have been.
             details = eid == "task_details"
             if eid in present or (details and getattr(job.progress, "details_panel", True)):

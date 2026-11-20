@@ -1,4 +1,4 @@
-"""多路并行 (docs/butler.md 多路并行; off by default): the butler's family of topics, one per
+"""多路并行 (docs/butler.md 同时做几件事; off by default): the butler's family of topics, one per
 track (路). Slot 0 is the butler's own topic (core/butler.py butler_topic_id); slots 1 to SLOTS are topics of the
 same kind, each one a fork of the session of slot 0 that runs a turn of its own at the same time as the others (the
 scheduler keys on the topic, so a topic's turns queue in order and two topics' turns run together).

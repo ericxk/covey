@@ -1,4 +1,4 @@
-"""多路并行 at run time (docs/butler.md 多路并行; COVEY_BUTLER_TRACKS=1 and the butler on): where a message of the
+"""多路并行 at run time (docs/butler.md 同时做几件事; COVEY_BUTLER_TRACKS=1 and the butler on): where a message of the
 owner's goes when the butler's family (core/butler_tracks.py) has live tasks, and what a track's turn starts from.
 
 - ``Tracks.handle``, called by app/butler.py handle_event before its usual path: with no live task in the family
@@ -264,7 +264,7 @@ class Tracks:
         message itself starts nothing and reaches no model. A task in a live task runner is stopped there, by the click
         on its card's 停止 forwarded to the runner as the button does (app/runner_ipc.py ``forward_card_action``, as
         app/proxy.py ``stop_job``): the runner owns the job, and a stop only set in this Bridge's copy of it reached
-        nobody (2026-11-15: both tasks ran their 90 s on and sent their answers)."""
+        nobody (both tasks ran their 90 s on and sent their answers)."""
         entry = next((entry for entry in entries if entry.live.job_id == decision.job_id), None)
         topic = core.track_topic_id(chat, entry.live.track if entry else decision.target or 0)
         move_topic_message(ctx.state_dir, topic, chat, message)
@@ -345,14 +345,14 @@ class Tracks:
 def quoted_id(event) -> str:
     """The message ``event`` quotes. The event is the consumer's, before ``enrich_incoming_event``: a lark-cli that names
     the reply context (1.0.69 and later, feishu/events.py REPLY_CONTEXT) gives ``reply_to`` and no ``parent_id`` at all,
-    so reading ``parent_id`` alone saw no quote and a "停止" quoting a track stopped the newest one (2026-11-15)."""
+    so reading ``parent_id`` alone saw no quote and a "停止" quoting a track stopped the newest one."""
     return str(event.get("parent_id") or event.get("reply_to") or "")
 
 
 def judge_context(app, ctx):
     """What the judge's Claude Code and its standby run with: the Claude Harness's own context (its command and its
     environment), not the event's, which is the default Harness's: where Codex is the default the judge ran
-    ``codex -p`` and failed every time (deploy check, 2026-11-16). The event's while the Harness has none (a test)."""
+    ``codex -p`` and failed every time (deploy check). The event's while the Harness has none (a test)."""
     own = getattr(getattr(app, "harness", None), "context", None)
     return own if own is not None and getattr(own, "backend_cmd", None) else ctx
 
@@ -369,7 +369,7 @@ def clear_pointer(harness, state_dir, topic_id) -> None:
 def fork_options(ctx, harness, chat, log) -> dict | None:
     """The options of a track's first run: ``fork_session`` the butler's session (slot 0's pointer) and, when a turn
     of slot 0 is under way, ``fork_at`` the entry before its question, so no half of it is carried over (the spike:
-    docs/butler.md 多路并行). None: no fork can be made (slot 0 has no session, another workspace, the backend
+    docs/butler.md 同时做几件事). None: no fork can be made (slot 0 has no session, another workspace, the backend
     cannot, the question's place is not found): the turn starts on a new session with the conversation (``context_pack``)."""
     state = ctx.state_dir
     root = core.root_topic_id(chat)

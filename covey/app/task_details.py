@@ -68,7 +68,7 @@ class TaskDetails:
     def _live_details(job, snapshot):
         """任务详情 with ``snapshot``'s figures so far, when this card takes its text alone (live_details)
         and shows other text, or has no 任务详情 yet (``details_panel``) and it has words now; else None. One
-        with nothing to say (task_details_panel None) is never written: a card sent before 2026-11-09 keeps
+        with nothing to say (task_details_panel None) is never written: a card sent by an older release keeps
         the words it shows."""
         progress = job.progress
         if not getattr(progress, "live_details", False) and getattr(progress, "details_panel", True):
@@ -203,7 +203,7 @@ class TaskDetails:
                 running = trace.ended_at is None
                 panel = panel_json(TraceView(trace.snapshot()).panel_model(running=running))
                 # A running turn's 任务详情 goes with its panel: once 0a26e8e took the model's figures off
-                # the running panel's title, a running card showed them nowhere (T314 #2428).
+                # the running panel's title, a running card showed them nowhere.
                 details = self._live_details(job, snapshot) if running else None
                 if details is not None and not getattr(job.progress, "details_panel", True):
                     # 任务详情 has words for the first time (a subtask, redaction's count): the panel goes in, tried

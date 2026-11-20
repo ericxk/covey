@@ -95,6 +95,7 @@ class Proxy:
     def settings(self, ctx):
         settings = records.read_settings(ctx.state_dir)
         settings.setdefault("user_profile", cenv.get("COVEY_PROXY_PROFILE", ""))
+        settings.setdefault("group_name", cenv.get("COVEY_PROXY_GROUP_NAME", "").strip() or records.GROUP_NAME)
         settings.setdefault("send_tool", hook.tool_dir() if (hook := extensions.hook("proxy_sender")) else "")
         settings.setdefault("send_home", str(records.proxy_dir(ctx.state_dir) / "send-as-user"))
         return settings
@@ -173,7 +174,7 @@ class Proxy:
             try:
                 self.advance(ctx, settings, contacts, batches, batch)
             except Exception as exc:  # noqa: BLE001 - one batch that cannot move on holds up no other
-                # 2026-10-27: its topic could not open; a KeyError in one batch once stopped every contact.
+                # Its topic could not open, say: a KeyError in one batch must not stop every contact.
                 self.runtime.log(f"proxy batch={batch['id'][:8]} failed: {type(exc).__name__}: {str(exc)[:200]}")
 
     def advance(self, ctx, settings, contacts, batches, batch):
@@ -231,7 +232,7 @@ class Proxy:
             capped = running is not None and int(running.get("restarts") or 0) >= records.MAX_RESTARTS
             stopped = running if running is not None and not (later or capped) else None
             # A round running a short while is left to end, its reply unused: the next round, queued after it,
-            # resumes its session (T571). One queued, or running long, is stopped as before.
+            # resumes its session. One queued, or running long, is stopped as before.
             runs_on = stopped is not None and self.runs_on(ctx, stopped)
             carried = stopped["messages"] if stopped else []
             received = next((b for b in open_batches if b["status"] == "received"), None)
@@ -345,7 +346,7 @@ class Proxy:
         if existing:
             job_id = int(existing[0]["job_id"])
         else:
-            # The chat as it is (T571): the owner's own messages too, which the topic's history never has.
+            # The chat as it is: the owner's own messages too, which the topic's history never has.
             prompt = records.batch_prompt(contact, batch, settings, records.read_style(ctx.state_dir),
                                           context=records.read_context(ctx.state_dir),
                                           recent=self.web.recent_chat(settings, contact))
@@ -560,8 +561,8 @@ class Proxy:
     def finish_send(self, ctx, settings, contact, batch, result):
         """What the send did. Certainly not sent (the tool's validation, unsupported, auth or failed, or it never
         started): the batch stays held: tried again up to SEND_ATTEMPTS, then its 重新发送 card offers to send
-        the reply again, and the owner's next turn in the topic is sent too (张信宇 T190, 2026-10-27: a final
-        ``failed`` left the owner's 重新回复 sending nothing); a lost login is also told to the owner once. Sent
+        the reply again, and the owner's next turn in the topic is sent too (a final
+        ``failed`` must not leave the owner's 重新回复 sending nothing); a lost login is also told to the owner once. Sent
         (the tool's receipt, read back by the tool): ``sent``, its om_ the receipt's, else read back. May have
         been (unknown_result, a timeout, a send the Bridge stopped in): a read-back finds it, else uncertain,
         never sent again. A batch with a card shows the outcome on it, and only there when the owner clicked

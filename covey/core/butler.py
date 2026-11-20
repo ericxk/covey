@@ -48,7 +48,7 @@ def available() -> bool:
 
 def agent_mode(data) -> bool:
     """Whether the settings ``data`` (main-thread.json, a mapping) choose 管家: its ``mode``; without one
-    (written before 2026-11-08, or never written) as then: on only with COVEY_BUTLER=1 and the card's
+    (written by an older release, or never written) as then: on only with COVEY_BUTLER=1 and the card's
     ``enabled`` not false. The Bridge's start writes the mode once (core/migrate.py private-mode)."""
     data = data if isinstance(data, Mapping) else {}
     mode = data.get("mode")
@@ -106,7 +106,7 @@ def butler_topic_id(chat_id: str) -> str:
 HOLD_SECONDS = 30
 HOLD_STATUS = f"收到，等你说要做什么（最多 {HOLD_SECONDS} 秒）"
 # In the 话题区 layout a butler turn's task card goes out (in the owner's message's thread) only once it has run
-# this long (core/placement.py Row.quiet, D1 2026-11-08): most turns end before, with no thread opened.
+# this long (core/placement.py Row.quiet): most turns end before, with no thread opened.
 CARD_AFTER = 90
 
 

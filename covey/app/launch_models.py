@@ -32,7 +32,7 @@ def readable_names(models):
 
 def codex_names(models):
     """Codex's models read like the others: its gateways' ones ("gpt-6-astra (Acme)") and its own ones that only spell
-    out their id ("GPT-6-Luna", 2026-11-03: next to the same model from another gateway) as "GPT-6 Astra", "GPT-6 Luna"."""
+    out their id ("GPT-6-Luna", which reads oddly next to the same model from another gateway) as "GPT-6 Astra", "GPT-6 Luna"."""
     rows = {}
     for model, row in models.items():
         gateway = gateways.for_model('codex', model)
@@ -67,9 +67,8 @@ def run_choice(choice, effort):
     return presets[effort], (choice.get('run_efforts') or {}).get(effort, effort)
 
 
-# The model selects' Harness blocks, the owner's most used first (2026-10-26: Claude ran 81% of the
-# tasks); a Harness not listed follows in roster order (an extension's Harness where its manifest puts it). Since
-# 2026-11-02 the models a chat chose lately come before these blocks (app/model_usage.py).
+# The model selects' Harness blocks, the owner's most used first; a Harness not
+# listed follows in roster order (an extension's Harness where its manifest puts it). The models a chat chose lately come before these blocks (app/model_usage.py).
 MENU_ORDER = ('claude',)
 
 
@@ -104,7 +103,7 @@ class CatalogFilter(NamedTuple):
 
 # Harness name → its catalog filter; a Harness not listed offers its catalog as it is, but for RETIRED_PREFIXES, or
 # as its backend says (``catalog_filter``). Claude offers Opus 5 and up, and Sonnet 5.5
-# and Haiku 5.5 by their aliases sonnet and haiku (owner, 2026-11-10; nothing below Opus 5 since 2026-10-28): no
+# and Haiku 5.5 by their aliases sonnet and haiku (nothing below Opus 5): no
 # claude-sonnet-*, claude-haiku-* or 4.x id, the older versions.
 CATALOG_FILTERS = {
     'claude': CatalogFilter(hidden=('claude-sonnet-', 'claude-haiku-', 'claude-opus-4-'),
@@ -131,8 +130,8 @@ def catalog_filter(app):
 
 
 FRESH = 900  # Seconds a catalog its Harness last answered with is offered.
-# A refresh that got no answer at all (RuntimeError: the Claude probe or a backend's helper timed out, 2026-11-03
-# 20:26–20:42 at load ~420, and the launch and 换配置 cards lost both Harnesses for about ten minutes) keeps the
+# A refresh that got no answer at all (RuntimeError: the Claude probe or a backend's helper timed out on a
+# loaded machine, and the launch and 换配置 cards would lose both Harnesses for minutes) keeps the
 # last answer offered this long after it; one answered without models (ValueError) does not.
 KEEP_UNANSWERED = 3600
 
@@ -200,8 +199,8 @@ def available_models(topics, ctx):
 def model_label(title, row):
     """A model as every model select, receipt and task card names it: Harness · provider · model, the Harness's
     own provider left out (Codex · Acme · GPT-6 Astra, Claude · Opus 5.5; core/providers.py). What tells two apart
-    comes before the model's name, as a topic's side panel shows only about 20 characters of an option (the
-    2026-10-27 UI review)."""
+    comes before the model's name, as a topic's side panel shows only about 20 characters of an
+    option."""
     return ' · '.join([title, *([str(row['source'])] if row.get('source') else []), str(row['display_name'])])
 
 
@@ -241,7 +240,7 @@ def note_unanswered(ctx, name):
 
 def refresh_once(topics, app, ctx):
     """One background refresh of ``app``'s catalog; a failure is logged with its reason, none while the Bridge
-    stops (its helper dies with it: <Backend>Catalog_helper_failed at 2026-11-04 13:06:33). An unexpected one is
+    stops (its helper dies with it: <Backend>Catalog_helper_failed). An unexpected one is
     logged too: raised, it would end the refresh and the Harness would leave the launch card until a restart."""
     try:
         refresh_catalog(app, ctx)

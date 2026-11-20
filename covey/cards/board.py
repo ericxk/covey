@@ -174,8 +174,7 @@ def counts(found) -> list:
 
 def one_line(text, limit=GOAL_CHARS) -> str:
     """``text`` (a goal the lead or the butler wrote, paragraphs and all) as one line of at most ``limit`` characters,
-    escaped: its line breaks are spaces, not the literal \\n literal_text writes for them (T545's dark screenshot,
-    2026-11-19)."""
+    escaped: its line breaks are spaces, not the literal \\n literal_text writes for them."""
     return literal_text(cut(text, limit))
 
 
@@ -227,7 +226,7 @@ def board_card(view):
             "kind": DISMISS, "topics": [row["topic"]], "from": ORIGIN})] if view.get("can_dismiss") and row.get("topic") else []))
     if found["result"]:
         topics = [row["topic"] for row in found["result"] if row.get("topic")][:SEEN_MAX]
-        # 全部记为看过 (the owner, 2026-11-20): two or more results cleared with one click and one redraw.
+        # 全部记为看过: two or more results cleared with one click and one redraw.
         elements.append(body([heading("result", len(found["result"]))], [button(
             ALL_SEEN, tone="text", value={"kind": SEEN_KIND, "topics": topics})]) if len(topics) > 1
             else heading("result", len(found["result"])))
@@ -239,7 +238,7 @@ def board_card(view):
     if view.get("tidy") is not None or view.get("projects"):
         projects, pending = view.get("projects") or [], view.get("pending") or []
         # One count of each, said the same way as the 整理专项 card and the butler's projects_list: 专项 that exist, and
-        # proposals waiting for him, decided right here (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
+        # proposals waiting for him, decided right here.
         content = f"**专项**  <font color='grey'>{len(projects)} 个</font>" + (
             f"　<text_tag color='violet'>{len(pending)} 个提议等你定</text_tag>" if pending else "")
         elements.append({"tag": "markdown", "content": content, "text_size": "normal_v2",

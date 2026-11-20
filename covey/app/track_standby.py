@@ -2,7 +2,7 @@
 that needs it, used for exactly one question and thrown away; the next one is started right after.
 
 Why: a cold one-shot spends about a second on starting the CLI and its first request is slower than the ones after it
-(measured 2026-11-16, docs/butler.md 多路并行). The standby is started in ``stream-json`` mode, answers one fixed,
+(docs/butler.md 同时做几件事). The standby is started in ``stream-json`` mode, answers one fixed,
 invented priming message (so its first request and its connection are warm, and no word of the owner is ever in it),
 and then waits on standard input. ``take`` hands it out once; ``Standby.ask`` writes the one real question and reads
 the answer. Because it answers one question, nothing of an earlier message is in its context.

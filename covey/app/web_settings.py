@@ -1,4 +1,4 @@
-"""网页工作台的设置页 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v7 ``settings``, v14 its ``terms``): the 设置 card's tabs as one item the page
+"""网页工作台的设置页 (docs/web.md, COVEY_WEB=1; data contract v7 ``settings``, v14 its ``terms``): the 设置 card's tabs as one item the page
 draws (``snapshot``), and the few changes the page may make (``change``, app/web_ops.py's ``settings``), both through the code the card
 itself draws and writes with. Nothing here is a second copy of a rule.
 
@@ -6,13 +6,13 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   COVEY_NODE_LISTEN), each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
   ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
   (cards/workspace_manager.py ``list_entries``, ``tag_words``), 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
-  ``facts``) and its terms as they are (the owner, 2026-11-19 T567: the page edits the list, so the terms go into the page's database;
+  ``facts``) and its terms as they are (the page edits the list, so the terms go into the page's database;
   never a stand-in), the groups with their state and 免@
   (cards/group_manager.py ``state_words``, ``free_words``; a group is named by a hash of its chat id) and the nodes' lines (app/node_panel.py
   ``facts``). ``editable`` says which rows the page may change (EDITABLE); every other row says 去飞书改 (``feishu``: the bot's applink).
-- What the page may change (the owner, 2026-11-19, T550 三、设置): every row of 新话题 and 记住的工作区's 移除; 管家's 供应商, 模型, 思考预算 and
+- What the page may change: every row of 新话题 and 记住的工作区's 移除; 管家's 供应商, 模型, 思考预算 and
   压缩阈值 (its 脱敏 and 私聊顶层的消息 are read only); a workspace's 用途; 脱敏's two switches and terms; a group's 停用 / 启用 (its 免@ is read only).
-  Data contract v15 (T554's second round, the owner's choice of 2026-11-19): the butler's 脱敏 and 私聊顶层的消息 (每条直接开一个话题 with
+  Data contract v15: the butler's 脱敏 and 私聊顶层的消息 (每条直接开一个话题 with
   ``confirm``), 免@ set to 关闭 or 只有你 (``free``), a workspace added by its path, removed, the missing ones removed, and the 设备 and 代答
   pages (app/web_panels.py); 本周用量 as the card counts it (``usage``, the item key USAGE_KEY).
   脱敏's terms, many at once: ``terms`` (``add`` and ``remove``, the terms as written) in one ``update_config``, its receipt counts and
@@ -51,7 +51,7 @@ BUTLER_KINDS = frozenset({cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPA
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
            "node_add", "node_remove", "refresh", "proxy")  # payload["what"].
 PROXY_TAB, PROXY_LABEL = "proxy", "代答"  # The bot menu's own 代答 card, a tab of the page's 设置 (not of the card's).
-FREE_ON_PAGE = ("", "owner")  # 免@ the page may set: only ever tighter (the owner, 2026-11-19 T554); 你和选中的人 and 群里所有人 stay on the card.
+FREE_ON_PAGE = ("", "owner")  # 免@ the page may set: only ever tighter; 你和选中的人 and 群里所有人 stay on the card.
 MODE_TOPICS = "topics"  # cards/butler_panel.py MODE_CHOICES: 每条直接开一个话题, saved only with ``confirm`` (the card's 确定改).
 APPLINK = "https://applink.feishu.cn/client/bot/open?appId="
 OWNER_ONLY = "只有机器人主人能改设置"
@@ -160,7 +160,7 @@ class WebSettings:
 
     def usage(self, now=None) -> dict:
         """本周用量 as the bot menu's card counts it (app/weekly_usage.py ``summarize`` over the job records of the window), for the
-        page's own 本周用量 (2026-11-19 T554: the page summed its pushed turns, 8.41B against the card's 9.43B)."""
+        page's own 本周用量 (the page summed its pushed turns, 8.41B against the card's 9.43B)."""
         from covey.app import weekly_usage
         from covey.core.jobs import select_job_records
         now = time.time() if now is None else now

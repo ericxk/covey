@@ -1,4 +1,4 @@
-"""What a turn tells the web page beside its words (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v3): the steps of its process,
+"""What a turn tells the web page beside its words (docs/web.md, COVEY_WEB=1; data contract v3): the steps of its process,
 the checkpoint's plan, the token figures, the time it took and the notes of the memory feature. Pure shaping of a job record and its trace
 (core/trace_store.py) into the optional fields of a ``turn`` item; app/web_sync.py asks for them and keeps the result of an ended turn.
 
@@ -56,8 +56,8 @@ def steps_of(snapshot) -> list:
 
     A subtask is one step (data contract v8): the ``agent-<id>`` step the trace keeps for it, with kind ``subagent``, the
     subtask's own words (``agent_words``) and its end from the agent's state; the ``分配子任务`` call that started it is left
-    out, as it is the same subtask (one started in the background ends that call in a tenth of a second). 2026-11-19 T488:
-    two subtasks ran 35 of the turn's 46 minutes, and the page drew 子任务：子任务 at 0 and 分配子任务：Agent at 0.1 s."""
+    out, as it is the same subtask (one started in the background ends that call in a tenth of a second), not
+    子任务：子任务 at 0 and 分配子任务：Agent at 0.1 s."""
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     steps = snapshot.get("steps")
     if not isinstance(steps, dict):
@@ -87,8 +87,8 @@ def plain_words(text) -> str:
 
 def step_row(key, step) -> dict:
     """One ordinary step (data contract v18): ``label`` is its title and what it is about, in plain text; ``detail``, only when there
-    is more to it, is the command after the model's stated purpose or the whole of a label that was cut. 2026-11-20 T577: the page cut
-    "后台命令：正式部署阶段 2（后台） · R=/mnt/…" to its first words and showed "&amp;" in the command."""
+    is more to it, is the command after the model's stated purpose or the whole of a label that was cut, so
+    the page neither cuts a long label to its first words nor shows "&amp;" in the command."""
     title = "调用工具" if step.get("title") == "tool" else str(step.get("title") or "")
     words = plain_words(step.get("detail"))
     purpose, cut, command = words.partition(" · ")
@@ -223,7 +223,7 @@ def said_by(source) -> str:
 
 
 def event_words(text) -> str:
-    """A ``thread_end`` receipt ("T834 的任务 #5 完成：…") as the page's grey line ("T834 做完了"); '' for a text it cannot read."""
+    """A ``thread_end`` receipt ("T34 的任务 #5 完成：…") as the page's grey line ("T34 做完了"); '' for a text it cannot read."""
     head = str(text or "").split("：", 1)[0].split()
     if len(head) >= 4 and head[1] == "的任务" and head[3] in RESULT_WORDS:
         return f"{head[0]} {RESULT_WORDS[head[3]]}"

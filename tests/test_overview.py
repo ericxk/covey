@@ -46,7 +46,7 @@ class CardTests(unittest.TestCase):
             running=[{"label": "T395", "title": "为啥这么多重复的", "harness": "Claude Code",
                       "workspace": "algo-agent-devskills", "status": "running", "started": NOW - 39 * 60,
                       "phase": "删除分支在补文档"},
-                     {"label": "T391", "title": "logid", "harness": "Codex", "workspace": "EnvReplay",
+                     {"label": "T391", "title": "logid", "harness": "Codex", "workspace": "DataLab",
                       "status": "queued", "started": None, "phase": ""}],
             ended=[{"label": "T394", "title": "群晖公钥", "status": "done", "at": NOW - 60}]), NOW, "14:40")
         lines = texts(card)
@@ -55,7 +55,7 @@ class CardTests(unittest.TestCase):
         self.assertEqual(lines[2], "**在做（2）**")
         self.assertEqual(lines[3], "**T395** 为啥这么多重复的\n<font color='grey'>" + hm(NOW - 39 * 60) + " 开始 · 删除分支在补文档 · "
                                    "Claude Code · algo-agent-devskills</font>")
-        self.assertEqual(lines[4], "**T391** logid\n<font color='grey'>排队中 · Codex · EnvReplay</font>")
+        self.assertEqual(lines[4], "**T391** logid\n<font color='grey'>排队中 · Codex · DataLab</font>")
         self.assertEqual(lines[5], "**刚结束（1）**")
         self.assertEqual(lines[6], "**T394** 群晖公钥\n<font color='grey'>做完 · "
                                    f"{time.strftime('%H:%M', time.localtime(NOW - 60))}</font>")

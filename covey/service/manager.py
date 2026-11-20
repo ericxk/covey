@@ -205,7 +205,7 @@ class Manager:
                 if self.reported.get(path.name) != str(exc) and (read_json(error, None) or {}).get("error") != str(exc):
                     say(f"service {path.stem[:8]}: {exc}")  # Once, not at every pass while it lasts.
                     # A disk that takes no writes (a full quota) fails this save too: the error is said once
-                    # all the same, and the Manager goes on supervising (2026-11-18: it ended here instead).
+                    # all the same, and the Manager goes on supervising (it ended here instead).
                     with contextlib.suppress(OSError):
                         save(error, {"error": str(exc), "checked_at": time.time()})
                 self.reported[path.name] = str(exc)

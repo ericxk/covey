@@ -1,4 +1,4 @@
-"""The images of a turn on the web page (docs/butler.md 网页工作台, COVEY_WEB=1, data contract v19): the ones the owner sent with his
+"""The images of a turn on the web page (docs/web.md, COVEY_WEB=1, data contract v19): the ones the owner sent with his
 words and the ones a task showed him (its checkpoint's ``show_images``), sent up once each, and the turn says which by id alone.
 
 - Which: an owner line's images are the files its words list under "收到的附件" (feishu/media.py) or name in plain words (a hand-on

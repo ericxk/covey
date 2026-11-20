@@ -1,4 +1,4 @@
-"""专项问题分流的硬闸（docs/butler.md 专项的问题分流）: the words that keep a project's topic's question from the lead.
+"""专项问题分流的硬闸（docs/projects.md 专项的问题分流）: the words that keep a project's topic's question from the lead.
 A question whose text or options (the header, the question, each option's label and description) hold one of them is
 the owner's, whatever the lead's memory says: deploying, publishing, sending to others, spending money, deleting, anything
 that cannot be taken back. A word is a hint, not a judgement: a hit costs the owner one question card they would have had

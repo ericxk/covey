@@ -245,7 +245,7 @@ class MenuTests(UnifiedCase):
                                'message_id': 'u1', 'content': '本周用量'}, self.ctx)
         self.app.handle_event({'chat_id': 'group', 'chat_type': 'group', 'sender_type': 'user',
                                'sender_id': 'owner', 'message_id': 'g1', 'content': '@_user_1 本周用量',
-                               'mentions': [{'id': 'ou_bot', 'key': '@_user_1', 'name': 'C队'}]}, self.ctx)
+                               'mentions': [{'id': 'ou_bot', 'key': '@_user_1', 'name': 'Covey'}]}, self.ctx)
         self.assertEqual(self.said(), [])
         self.assertEqual(sum(app.submission.selection_card.call_count for app in self.app.apps.values()), 2)
 

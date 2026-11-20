@@ -11,21 +11,21 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   ``tool_steps``, ``agents`` and ``child_steps`` were only ever written beside it). It goes to
   traces/<key>.jsonl (trace_store.save_embedded) unless load_trace finds one there; load_trace then reads
   only the file. No release since ff57531 writes ``trace_snapshot`` into a record.
-- desk-retire: a front-desk topic (前台话题: one the butler opened with main-thread.json's desk_topics on,
-  11-07, registered by an empty file <state>/main-thread/desk/<topic_id>) is frozen: its topic.json gets
+- desk-retire: a front-desk topic (前台话题: one the butler opened with main-thread.json's desk_topics on in
+  an older release, registered by an empty file <state>/main-thread/desk/<topic_id>) is frozen: its topic.json gets
   ``retired: "desk"`` (core/topics.py RETIRED_DESK), every field it had kept, and nothing goes into it from then on
-  (core/topics.py retired_topic). The registry stays as it is; no release since 2026-11-09 adds to it.
+  (core/topics.py retired_topic). The registry stays as it is; no current release adds to it.
 - redaction-default: the 脱敏 tab's 新话题默认开 (<state>/redaction/config.json ``default_on``) and the 新话题 page's 脱敏
-  row (main-thread.json ``topic_defaults.redaction``) were two defaults until 2026-11-19 (T546), the launch card's and
+  row (main-thread.json ``topic_defaults.redaction``) were two defaults in older releases, the launch card's and
   the butler's topics'. One is left, the row: a ``default_on`` true sets it on, once. config.json keeps its value for
   an older release.
-- project-joined: a project's record says when each member topic came in (``joined``, core/projects.py add_member since
-  2026-11-19 T552). A record from before has none: a member gets the start of its first task the 专项卡 counted (``token_jobs``:
+- project-joined: a project's record says when each member topic came in (``joined``, core/projects.py add_member).
+  An older record has none: a member gets the start of its first task the 专项卡 counted (``token_jobs``:
   the tasks that ended once it was in). With none counted, no task of it has ended since it came in: it gets the time of the
   migration, unless ``token_jobs`` is full (its oldest keys dropped), then the project's ``created_at``. The web page's
-  专项报告 counts a member's turns from then, as the 专项卡 does; without it the turns of T531, T525 and T519 from before they
-  came in were counted too (62M).
-- redaction-stand-in: a term list's rows held a ``stand_in`` (<state>/redaction/config.json) until 2026-11-19 (T566): the
+  专项报告 counts a member's turns from then, as the 专项卡 does; without it the turns of members from before they came in
+  were counted too.
+- redaction-stand-in: a term list's rows held a ``stand_in`` (<state>/redaction/config.json) in older releases: the
   owner's own stand-in, an older version's, or "" for the automatic one. Every term goes out as its automatic stand-in now
   (core/redaction.py): the list is written again without them (``anywhere`` stays), once. An older release reads a row
   without one as automatic.
@@ -49,7 +49,7 @@ DESK_RETIRE = "desk-retire"
 REDACTION_DEFAULT = "redaction-default"
 PROJECT_JOINED = "project-joined"
 REDACTION_STAND_IN = "redaction-stand-in"
-DESK_REGISTRY = Path("main-thread") / "desk"  # One empty file per front-desk topic id (releases of 11-07 to 11-09).
+DESK_REGISTRY = Path("main-thread") / "desk"  # One empty file per front-desk topic id (older releases).
 RETIRED, RETIRED_DESK = "retired", "desk"  # topic.json's key and value (core/topics.py RETIRED_DESK).
 FAILED_KEYS = 20  # Keys named in the summary line per step.
 

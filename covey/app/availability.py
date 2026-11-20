@@ -17,8 +17,8 @@ from covey.core import harness_probe
 from covey.core import gateways
 from covey.core.result import ERROR_CODES
 
-# `claude auth status` takes 1.0-2.0 s before every Claude task (S33). A passing one is reused this long
-# (the owner's choice, 2026-10-26): a logout then shows when a task runs, not before it starts. The
+# `claude auth status` takes 1.0-2.0 s before every Claude task (S33). A passing one is reused this long:
+# a logout then shows when a task runs, not before it starts. The
 # availability watch checks every minute and refreshes or clears it.
 LOGIN_REUSE = 300
 # COVEY_HARNESS_PROBE=1: besides the local preflight, the availability watch runs one real call per Claude
@@ -74,7 +74,7 @@ def local_check(name, ctx):
         return {'status': 'unavailable', 'reason': 'executable_missing', 'scope': 'local_preflight'}
     if name == 'claude':
         # The last pass stays reusable while this runs: cleared up front, a task starting during the
-        # watch's check ran its own (2 s, S35 #930).
+        # watch's check ran its own (2 s).
         try:
             proc = subprocess.run([executable, 'auth', 'status', '--json'], cwd=ctx.workdir,
                                   text=True, capture_output=True, timeout=8, check=False)

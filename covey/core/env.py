@@ -8,7 +8,7 @@ release (which reads only the old names) still gets them. Manifests keep the old
 release: an upgrade changes no manifest, a rollback finds the names the older release reads, and a deploy
 comparison of a manifest with ``runtime_environment()`` cannot report a renamed variable as a change.
 
-Some variables changed their name as well as their prefix (``RENAMED``, 2026-11-16: the main thread became the
+Some variables changed their name as well as their prefix (``RENAMED``: the main thread became the
 butler). Such a variable has three spellings, in the order ``get`` reads them: ``COVEY_<new>``, ``COVEY_<old>``,
 ``LARK_BRIDGE_<old>``; ``put`` and ``mirrored`` set all three, and ``canonical`` keeps ``LARK_BRIDGE_<old>``, the
 one every older release reads.
@@ -20,7 +20,7 @@ import sys
 
 NEW_PREFIX = "COVEY_"
 OLD_PREFIX = "LARK_BRIDGE_"
-# Variables whose name changed along with the prefix: new name -> old name (without prefix), 2026-11-16, when the main
+# Variables whose name changed along with the prefix: new name -> old name (without prefix), from when the main
 # thread became the butler. The old tails are what every older release reads, so manifests keep them (``canonical``).
 RENAMED = {
     "BUTLER": "MAIN_THREAD",

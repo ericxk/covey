@@ -1,8 +1,8 @@
 """The 工作区 card (app/workspace_manager.py), the bot menu's 工作区 panel and the launch card's
 ⚙️ 添加或管理工作区…: the saved list PAGE_SIZE a page (a search box and a filter above it once there are more than a page), a row
 each with its state as coloured tags and a 移除 text button; ＋ 添加工作区… shows the directory browser of
-cards/directory.py under BROWSE_HOST. One form: every button submits the search with it. 设为默认 is gone (the owner,
-2026-11-19, T546: the 设置 card's 新话题 page names a new topic's workspace); the list's default is the one a launch card
+cards/directory.py under BROWSE_HOST. One form: every button submits the search with it. 设为默认 is gone (the 设置
+card's 新话题 page names a new topic's workspace); the list's default is the one a launch card
 falls back to without a last launch, tagged 兜底 and not removable (an older card's 设为默认 still acts).
 
 On the 设置 card's 工作区 tab (``hub``) the tab row is on top and there is no 完成管理; with the butler's settings
@@ -154,7 +154,7 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
         ends = end_buttons(button, standalone=standalone, hub=hub, notes=notes, names=names[:len(rows)],
                            editing=editing)
         # In the topic side panel "stretch" gave every control a line of its own and "bisect" cut 结束，不启动任务
-        # to "…" (2026-11-02 review): the buttons keep their width and wrap ("flow").
+        # to "…": the buttons keep their width and wrap ("flow").
         return {'tag': 'form', 'name': 'workspace_manager_form', 'vertical_spacing': '6px',
                 'elements': head + rows + foot + [note(small), row(*((end, None) for end in ends), flex='flow')]}
 

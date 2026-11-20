@@ -27,10 +27,10 @@ def moment(value) -> float:
 
 def pair(rows, records, questions=()):
     """(row, the job record of the turn the row belongs to or None, the question record a user line answers or None) for each user
-    and assistant line of the history. 2026-11-19 T550: 97 of the Covey project's 127 answer turns reached the page without their
-    task, so with no token, process or plan; this pairs them in three steps:
+    and assistant line of the history. Without it most answer turns reach the page without their task, so with no token, process or
+    plan; this pairs them in three steps:
 
-    - An answer line written with its task (``job_id``, app/worker.py since T564) has it. A user line is paired by its message id;
+    - An answer line written with its task (``job_id``, app/worker.py) has it. A user line is paired by its message id;
       an answer's line has none and is paired by its question record (web_said.answer_record), with the task the answer started
       (its message ``answer-<token>``) or, for one handed to the task that asked, that task. The next answer line has the job of
       the user line before it.
@@ -126,7 +126,7 @@ def put_answers(data, answered, job, owner) -> None:
 def retried(records, entries) -> dict:
     """{id(the job of an answer turn): [the tasks before it that it retried and no answer line took]}: a task the bridge's restart
     interrupted (or that failed with no line) and that an automatic retry (its record's ``retry_of``, app/auto_retry.py) went on
-    with is part of the turn the retry answers. 2026-11-18 T488: task 4598 spent 137M tokens, was interrupted, and 4624 answered."""
+    with is part of the turn the retry answers: its tokens count there."""
     taken = {id(job) for _, data, job in entries if job is not None and data.get("role") == "agent"}
     by_message = {str(record.get("message_id")): record for record in records if record.get("message_id")}
     out = {}

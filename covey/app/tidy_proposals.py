@@ -1,5 +1,5 @@
 """The proposal card of 整理专项 and keeping it true: proposing a new project (``propose``), its topic select, sending it, and
-redrawing or ending it as the joins go on (``follow``, docs/butler.md 整理专项). Below it: app/tidy_facts.py, app/tidy_words.py
+redrawing or ending it as the joins go on (``follow``, docs/projects.md 整理专项). Below it: app/tidy_facts.py, app/tidy_words.py
 (the rows' words), app/tidy_apply.py (a project made without a card)."""
 from __future__ import annotations
 
@@ -93,8 +93,8 @@ class ProposalCards:
         return changed + self.unrepeat(ctx)
 
     def follow_project(self, ctx, record) -> int:
-        """An open proposal about a project (拆出, 合并, 移出, 改名, 收起) whose project ended, or whose topics left it, since
-        (T574, the owner, 2026-11-20: 等着的拆分提议跟着话题变): it ends as 已过时, or a split keeps the topics still there when
+        """An open proposal about a project (拆出, 合并, 移出, 改名, 收起) whose project ended, or whose topics left it, since:
+        it ends as 已过时, or a split keeps the topics still there when
         MIN_CREATE are; its row on the 整理专项 card is redrawn. 1 when it changed."""
         state, kind, pid = Path(ctx.state_dir), record.get("kind"), str(record.get("project") or "")
         ids = list(record.get("projects") or ()) if kind == proposals.MERGE else [pid]
@@ -205,7 +205,7 @@ class ProposalCards:
         is not proposed (以后别提议, turned down before, MAX_ACTIVE projects on)."""
         state = Path(ctx.state_dir)
         prefs = proposals.prefs(state)
-        # Topics already in a project are not proposed again (the owner, 2026-11-19: 已经归进专项的话题还挂在提议卡上).
+        # Topics already in a project are not proposed again.
         topics = proposals.free(state, made["topics"])
         if len(topics) < proposals.MIN_CREATE:
             return ""

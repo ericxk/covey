@@ -3,7 +3,7 @@
 COVEY_PINNED_TOPICS=1 and COVEY_PINNED_OVERVIEW=1 (docs/operations.md): 手上的事's loop runs it, after
 its own card is pinned, so that card is below every topic's.
 
-Feishu lists a chat's pins newest pin first (tried in a group on 2026-11-05): a message unpinned and pinned again
+Feishu lists a chat's pins newest pin first (tried in a group): a message unpinned and pinned again
 goes to the top; ``pins create`` on a message pinned already changes nothing and answers with its original
 create_time, on one that was unpinned it pins it again with a new one. A pin adds no message, no unread and no chat
 list preview; a recall would leave "撤回了一条消息", so nothing here recalls. A pinned card opens its topic at that
@@ -18,31 +18,31 @@ top to bottom:
 - waiting (等你回答, the owner's 等我): the newest pending question shown in the topic, asked within QUESTION_AGE;
   newest first.
 - running (进行中, 在做): a job in RUNNING with a task card, the topic's running one before its queued next; started
-  last first. Above the results since 2026-11-08 (the owner's D2: 等我 → 在做 → 做完).
+  last first. Above the results (等我 → 在做 → 做完).
 - result (有结果, the owner's 做完): the topic's latest job (by job_id; not one cancelled before it ran,
   ``unrun``) done, failed, interrupted or stopped (cancelled: by the owner's 停止, a refusal's stop, the task's time
-  limit; the owner, 2026-11-09: 都留, its state word 已停止, core/turn_words.py STATES), ended
+  limit; all kept, its state word 已停止, core/turn_words.py STATES), ended
   (``ended_at``) after the board first ran (the record's ``since``: when it is first switched on, three days of
   results the owner has long dealt with would fill it), until the owner has seen it and KEEP_SEEN more seconds have
-  passed (the owner, 2026-11-07: as a phone keeps a notification seen; one not seen stays, however old). Seen
+  passed (as a phone keeps a notification seen; one not seen stays, however old). Seen
   (``seen_at``): <state>/topic-seen.json (topic_id -> when the owner last read the bot's messages there, epoch
   seconds) at or after its end: the answer card in its thread, or its conclusion sent back to the top level as a
   message of its own (app/butler_relay.py, the topic's message too). An answer written on a top-level card already
   read brings no read receipt: for a top-level topic's, the owner's last read of any top-level topic's message
-  (the butler's) counts too, once at or after the answer was there (its ``delivered``; T419 on 2026-11-08 was taken as seen 2 s before its relay went out). When it was first seen
+  (the butler's) counts too, once at or after the answer was there (its ``delivered``, so a read seconds before its relay went out does not count). When it was first seen
   is kept (the record's ``results``), so a later read does not start KEEP_SEEN again. A result that ended before
   these rules (the record's ``keep_since``, set by the first round with them) is on the board as before: within
   RESULT_AGE, not seen in its topic, and not a relayed one done; a stopped one that
-  ended before the record's ``stopped_since`` (set by the first round that keeps them, 2026-11-09) is not on it, as
+  ended before the record's ``stopped_since`` (set by the first round that keeps them) is not on it, as
   before. Ended last first.
 
 What each topic's pin is (``aimed``, by the placement table's ``status_card``, core/placement.py): in the 话题区
-layout (管家), a topic's own cards in its thread (the owner's D3, 2026-11-08): its
+layout (管家), a topic's own cards in its thread: its
 question card while it waits, its task card while it runs, the answer card its round sent into its thread once
 done or stopped (the job's ``answer_message_id``: a stopped turn's last full reply, under ⏹ 已停止; its task card
 when the answer is on it or went otherwise, or a stopped turn had none). In the other
 layouts a topic with a thread is pinned by its status card (app/status_cards.py: its number and title, state and
-one line; the owner, 2026-11-07), the same message in every group, sent into its thread and kept up to date by each
+one line), the same message in every group, sent into its thread and kept up to date by each
 round. A status card pinned before the 话题区
 stopped using them is not held in place (``buffered``) and is unpinned as the board is laid again; it is never
 recalled.
@@ -58,8 +58,8 @@ snapshot counts it, until it has something new: a question asked or a result end
 as of (``active_dismissed``). A topic with no row and no pending question left is forgotten.
 
 Where a topic is pinned lags one way: one pinned under 等你回答 or 有结果 whose topic now runs keeps that pin, in
-its place, until it has run DEMOTE seconds (``buffered``: on 2026-11-06 T391's question, a one or two minute run,
-the next question re-pinned every pin above it 35 times). A new question or result is pinned at once; the counts
+its place, until it has run DEMOTE seconds (``buffered``: otherwise a topic asking a question after every one or two minute
+run re-pins every pin above it each time). A new question or result is pinned at once; the counts
 are the board's own.
 
 ``plan`` turns the order wanted and the record's into unpins, moves (unpin, pin: to the top) and pins. A move first
@@ -69,8 +69,8 @@ it off, so it is unpinned again and its topic is ``dismissed`` as of the row it 
 results first stayed once seen, stopped_since: when its stopped results were first kept, index_message_id: the 手上的事 message the pins were laid over, pins: [{message_id,
 topic_id, group, at, create_time}] top to bottom, dismissed: {topic_id: {group, at}}, results: {topic_id: {at: when
 its result ended, seen: when it was first seen, or null}}}, written after each step, keeping what ``dismiss`` wrote
-meanwhile; a record without keep_since, stopped_since or results reads as one whose rules start now. Before
-2026-11-06 a dismissed topic's value was its group (off while it stayed there): such a value is read so once. A new
+meanwhile; a record without keep_since, stopped_since or results reads as one whose rules start now. In older
+records a dismissed topic's value was its group (off while it stayed there): such a value is read so once. A new
 手上的事 card is pinned above them all: every pin moves once more, on the next round. A round runs only when the
 order differs, at most once every GAP seconds, longer after rounds that failed.
 """
@@ -98,7 +98,7 @@ GAP = 60
 BACKOFF = 5  # Rounds that failed in a row double GAP, up to 2**BACKOFF times.
 OLD_PIN = 60  # A pin created this long before the round: the message was pinned already.
 DEMOTE = 300  # A pinned topic that drops to running keeps its pin this long.
-GROUPS = ("waiting", "running", "result")  # Top to bottom (the owner's D2, 2026-11-08).
+GROUPS = ("waiting", "running", "result")  # Top to bottom.
 RANK = {group: index for index, group in enumerate(GROUPS)}
 NEWS = frozenset({"waiting", "result"})  # Such a row newer than its topic's dismissal brings the topic back.
 
@@ -154,9 +154,9 @@ def board(questions, jobs, seen, priority, now, since=0.0, relayed=None, *, read
     ``record`` the question's or job's record. The groups are core/board_read.py groups with these ``Rules``: a
     result that ended before ``since`` is not on it, nor one seen KEEP_SEEN ago (``seen_at``, ``read_top``,
     ``inline``; first seen as ``results``, the record's, says when it holds the same end). One that ended before
-    ``keep_since`` (None: none did) is as before 2026-11-07: within RESULT_AGE, not seen in its topic, and not done at
+    ``keep_since`` (None: none did) is as in older releases: within RESULT_AGE, not seen in its topic, and not done at
     the top level (``relayed``, a job record -> bool: app/butler_relay.py relayed). A stopped one that
-    ended before ``stopped_since`` (None: none did) is not on it: before 2026-11-09 the board left them out.
+    ended before ``stopped_since`` (None: none did) is not on it: older releases left them out.
     ``cells``: a project's threads are one topic, the lead's (core/board_read.py groups)."""
     return rows_of(board_read.groups(questions, jobs, seen, now, board_read.Rules(
         since, keep_since, stopped_since, results or {}, read_top, relayed, inline), cells), priority)
@@ -234,7 +234,7 @@ def choose(rows, dismissed, limit=MAX_PINS):
 def active_dismissed(dismissed, rows, asking=frozenset()):
     """The topics of ``dismissed`` (the record's) still taken off, {topic: {group, at}}: not one with a question or
     result on ``rows`` newer than its ``at``, nor one without a row that is not in ``asking`` (the topics with a
-    pending question). A value from before 2026-11-06, a group, holds while the topic is in it, as of its row there."""
+    pending question). An older record's value, a group, holds while the topic is in it, as of its row there."""
     shown = {row["topic"]: row for row in rows}
     news = {}
     for row in rows:
@@ -362,7 +362,7 @@ class PinnedTopics:
         self.read = dict(dismissed) if isinstance(dismissed, dict) else {}
         dismissed = active_dismissed(dismissed, self.rows, self.asking)
         state = ctx.state_dir
-        # A status card its topic no longer uses (the 话题区 since 2026-11-08) keeps no place: its turn's card goes.
+        # A status card its topic no longer uses (the 话题区) keeps no place: its turn's card goes.
         held = [pin for pin in pins if status_pinned(state, chat, pin.get("topic_id") or "")
                 or pin["message_id"] != card_message(state, pin.get("topic_id") or "")]
         pinned, _ = choose(buffered(self.rows, held, self.priority, now), dismissed)

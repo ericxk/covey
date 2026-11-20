@@ -350,7 +350,7 @@ def upsert_job_record(state_dir: Path, key: str, **fields: Any) -> dict[str, Any
 
 # Fields no code reads back once a job has ended (S41): the history its prompt was built from (40% of
 # jobs/ by bytes; read only from a record waiting for a workspace), its recent questions, its recovery audit;
-# and fields no release writes or reads any more (repo review R2: 10-28 none of the live releases named them),
+# and fields no release writes or reads any more (none of the live releases names them),
 # left by the diff documents, the topic-only recovery card, the narrative card's trial and an input-token note.
 FINISHED_UNREAD_FIELDS = ("history_snapshot", "recent_questions", "recovery_audit", "diff_doc_error", "diff_doc_id",
                           "diff_doc_url", "diff_status", "topic_only", "card_style", "input_tokens_source")
@@ -486,7 +486,7 @@ def list_job_records(state_dir: Path, limit: int = 20) -> list[dict[str, Any]]:
 def select_job_records(state_dir: Path, where, *, log=None, narrow=None, **filters) -> list[dict[str, Any]]:
     """The job records ``where(record)`` accepts (None: all), newest first as list_job_records orders
     them. ``where`` sees the cached record and must not change it; only the accepted ones are copied,
-    so a loop that runs every few seconds does not copy all of them (live 774: ~0.3 s, 2026-10-25).
+    so a loop that runs every few seconds does not copy all of them (live 774: ~0.3 s).
     A record ``where`` raises on is left out; ``log`` hears of it once (JsonDirectoryStore.query).
     ``filters`` narrow by indexed fields first (status=RUNNING): only those records are read. ``narrow`` also, by a
     test of the indexed and carried fields (core/store.py CARRIED: ``updated_at``) that ``where`` implies."""
@@ -510,7 +510,7 @@ def max_job_id(state_dir: Path) -> int:
 
 def topic_job_records(state_dir: Path, topic_id: str, **filters) -> list[dict[str, Any]]:
     """One topic's job records, narrowed by indexed fields (chat_id, job_id, status). Copies only
-    those: a full list copies every record, about 0.3 s for the live 774 (2026-10-25)."""
+    those: a full list copies every record, about 0.3 s for the live 774."""
     return [record for _, record in directory_store(jobs_dir(state_dir)).query(topic_id=topic_id, **filters)]
 
 
@@ -540,10 +540,10 @@ DEVICE_LOST_STATUS = "设备失联超过耐心值，后端已放弃，等待标�
 
 def interrupted_fields(record: dict[str, Any], status_message: str, cause: str = "") -> dict[str, Any]:
     """The fields that mark ``record``, a job whose runner ended before it finished, interrupted. A runner
-    may have ended while it sent "任务 #N 已停止": until 2026-11-02 it read a SIGTERM (a container's
+    may have ended while it sent "任务 #N 已停止": an older release read a SIGTERM (a container's
     shutdown sends every process one) as the stop button. That text is the Bridge's, not a result: it is
     dropped, so the recovery card offers 检查并继续 instead of 重新投递结果, which resent it and left the task
-    stopped for good (T331 #2407). Kept when the user did stop the task, or for an official refusal.
+    stopped for good. Kept when the user did stop the task, or for an official refusal.
     ``cause``: "restart" (found unfinished when a Bridge started) or "sigterm" (its runner got one), the
     interruptions app/auto_retry.py continues once by itself; "" for a runner that ended otherwise."""
     fields = {"status": "interrupted", "interrupted_at": utc_now_iso(), "status_message": status_message,

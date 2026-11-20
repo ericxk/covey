@@ -72,32 +72,32 @@ class StreamingReply:
     live_details: bool = False
     # The 任务详情 text this card shows (live_details): the same text is not written again.
     details_text: str = ""
-    # The card has 任务详情 (the panel, "task_details"). Since 2026-11-09 a card is sent without it while it has
+    # The card has 任务详情 (the panel, "task_details"). A card is sent without it while it has
     # nothing to say (cards/streaming.py task_details_panel); Cards puts it in once it has (Cards.set_task_element,
     # after 本轮请求), and the anchors that were 任务详情 are 本轮请求 until then (``details_anchor``).
     details_panel: bool = True
     # Putting 任务详情 in while the turn ran was refused: not tried again before the turn's end.
     details_refused: bool = False
-    # The card has the dashboard look (cards/streaming.py build_stream_card, since 2026-11-04): its status
+    # The card has the dashboard look (cards/streaming.py build_stream_card): its status
     # line in a block at the top over the figure tiles (FIGURES_ELEMENT_ID), the body under them, so the
     # body is never moved (Cards.lead_first) and what goes at the bottom goes after 任务详情. False for a
     # card sent before, which keeps its order and anchors.
     dashboard: bool = False
     # The figure tiles this card shows (dashboard), as JSON: the same tiles are not written again.
     figures_text: str = ""
-    # The card's status line is in two parts (cards/task_status.py STATUS_MORE_ID, the "A 一行仪表" look, since
-    # 2026-11-04 night): the status and its time beside the tiles, the rest under them. False for a card sent
+    # The card's status line is in two parts (cards/task_status.py STATUS_MORE_ID, the "A 一行仪表" look):
+    # the status and its time beside the tiles, the rest under them. False for a card sent
     # before, whose line says it all.
     status_rows: bool = False
     # The rest of the status line this card shows (status_rows), as plain text: unchanged, only the line beside
     # the tiles is written.
     more_text: str = ""
-    # The card is the slim one (cards/streaming.py SLIM_DETAILS_ID, the butler's since 2026-11-06): the body,
+    # The card is the slim one (cards/streaming.py SLIM_DETAILS_ID, the butler's): the body,
     # one status line, and 详情 folded with the tiles, 本轮请求, 任务详情 and the buttons; what goes "after the
     # body" or "at the bottom" goes in 详情 (``body_anchor``, ``bottom_anchor``). False for every other card and
     # for one sent before, which keep their order; a release before reads the record and leaves it as an attribute.
     slim: bool = False
-    # The card has the grey 输入/输出 box (cards/task_figures.py IO_BOX_ID, the "E" look, since 2026-11-08): its 输出 is
+    # The card has the grey 输入/输出 box (cards/task_figures.py IO_BOX_ID, the "E" look): its 输出 is
     # FIGURES_ELEMENT_ID, a Markdown element, and on a card that is not slim 已运行 is in it, not on the status line
     # (``update_activity`` writes 输出 alone while the status is the same). False for a card sent before; a release
     # before reads the record, leaves it as an attribute and writes its one line of figures in 输出.
@@ -133,7 +133,7 @@ def write_live(messenger, profile, progress, method, part, body, *, key, log, **
     """One write to the live task card ``progress`` (Messenger.write_card's response, None when
     unconfirmed), its sequence from reserve and its key ``key(sequence)``. Refused with 300317, it was
     not applied: another process wrote the card with a larger sequence since (the bot redrawing it from
-    the job record when the next task starts, #1290). It is then written once more, with a fresh
+    the job record when the next task starts). It is then written once more, with a fresh
     sequence above the record's card_sequence. Any other failure, a timeout too, may have landed and is
     never written again here. The caller holds the card lock."""
     sequence = reserve(progress)
@@ -325,8 +325,8 @@ class StreamingCard:
             if not card_id:
                 if essential:
                     return None
-                # One optional control CardKit rejects (an over-long element ID left
-                # T27 #424 without a card, 2026-10-22) must not cost the task its card.
+                # One optional control CardKit rejects (an over-long element ID once left
+                # a task without a card) must not cost the task its card.
                 self.log(f"task card rejected job=#{job.job_id}; retrying with only the stop control")
                 essential = True
                 continue
@@ -349,8 +349,7 @@ class StreamingCard:
     def _send_elsewhere(self, profile, job, card_id, key) -> str:
         """The card ``card_id`` once its reply to ``job.reply_to_message_id`` was refused outright (a definite
         failure, never one that may have landed, rule 1): in reply once more under a key of its own (Feishu's
-        2200 "Something went wrong" refused #3560's card at 13:46 on 2026-11-10 and took a text reply to the same
-        message a second later), then at the chat's top level. Each failure is the job's ``last_card_error``
+        2200 "Something went wrong" has refused a card and taken a text reply to the same message a second later), then at the chat's top level. Each failure is the job's ``last_card_error``
         (its record keeps it); the message ID, '' when none went out."""
         failure = last_failure()
         if not job.reply_to_message_id or not refused_outright(failure):
@@ -421,7 +420,7 @@ class StreamingCard:
                 if failure is None or failure.code != CARD_TOO_BIG:
                     break
                 # Over CardKit's size, not a broken card: a shorter body, at once, which does not count
-                # toward disabling the card (#1150 stayed at 执行中 after three of these). A body that
+                # toward disabling the card (a card once stayed at 执行中 after three of these). A body that
                 # cannot get shorter is refused for the rest of the card: an ordinary failure.
                 progress.answer_room = max(0, text_cost(content) * 3 // 5)
                 self.log(f"task card body over CardKit's size card_id={progress.card_id} "
@@ -510,7 +509,7 @@ class StreamingCard:
         """Streaming off, and, when the run left one (``progress.summary``), the chat list's preview of
         the card, in the same write: a sent card's header cannot change in place (only a whole-card PUT
         changes it, and task cards are never replaced whole), but its summary can, and the list shows
-        that instead of the header (T288: topics were hard to tell apart by their questions)."""
+        that instead of the header (topics were hard to tell apart by their questions)."""
         with card_lock(progress):
             if progress.disabled:
                 return

@@ -113,8 +113,8 @@ class Questions:
 
     def has_open_native_questions(self, ctx, job_id):
         """The job ``job_id`` asked a native question (the backend's own, not a checkpoint question) that
-        is not settled yet (core/statuses.py ``OPEN_QUESTIONS``). Answered ones do not count: T444 #3288's two
-        answered AskUserQuestion forms kept its turn-end checkpoint question from being asked."""
+        is not settled yet (core/statuses.py ``OPEN_QUESTIONS``). Answered ones do not count: answered
+        AskUserQuestion forms must not keep a turn-end checkpoint question from being asked."""
         rows = directory_store(ctx.state_dir / "questions").query(job_id=job_id)
         return any(row.get("status", "pending") in OPEN_QUESTIONS
                    and not str(row.get("request_id") or "").startswith("checkpoint-") for _, row in rows)
@@ -451,8 +451,8 @@ def recover_question_delivery(ctx, harness_questions, log):
     """Startup, before any job runs: settle the question records a restart left half-done
     (every Harness's: their records share the state directory), then let each Harness's
     Questions retire its own duplicate checkpoint questions. A card that still says 正在发送
-    is repainted with what the record says now (2026-10-26: a restart between the 提交回答 ack
-    and its follow-up left 正在发送 on the card with no task behind it)."""
+    is repainted with what the record says now (a restart between the 提交回答 ack
+    and its follow-up would leave 正在发送 on the card with no task behind it)."""
     # A job still running in its task runner keeps its questions; that runner settles them.
     live = live_keys(ctx.state_dir)
     jobs = list_job_records(ctx.state_dir, limit=0)
@@ -549,9 +549,8 @@ def _still_running(runtime, state_dir, key, job):
 
 def fold_older_questions(ctx, harness_questions, *, topic=None):
     """Once a newer question card of a topic is shown, fold every older question there that still waits
-    (pending), so the one card left open is the one to answer. T182 (2026-10-27): #1105's question stayed
-    open after #1106 asked two more, the owner answered #1105's, and #1106's held the owner's next message
-    2.5 hours later; the owner chose 自动收起. Not a question whose task is still on (``_still_running``), nor one
+    (pending), so the one card left open is the one to answer: an older card left open is answered
+    by mistake, and the newer questions then hold the owner's next message for hours. Not a question whose task is still on (``_still_running``), nor one
     being answered (submitting, uncertain); one never shown folds without a card.
 
     The Bridge does it, never a task runner: it redraws other tasks' cards (rule 8). It runs at startup,

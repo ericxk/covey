@@ -96,7 +96,7 @@ class SteerReceiptFlow:
                 record = update_delivery(path, requeue_state="submitting", requeue_at=time.time()) or record
                 self.requeuing.add(token)
         if kind == REQUEUE_KIND:
-            # The new task's card and the receipt took 2.9 s in the click (2026-10-26): after the acknowledgement.
+            # The new task's card and the receipt took 2.9 s in the click: after the acknowledgement.
             after_ack(lambda: self._requeue_and_show(ctx, chat, path, record, mid))
             return
         if kind == INTERRUPT_KIND:

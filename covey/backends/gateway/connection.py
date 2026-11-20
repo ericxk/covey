@@ -18,14 +18,14 @@ from covey.core.logs import line_log
 from covey.core.state import read_json, write_json
 
 RESPONSES, MESSAGES = "openai-responses", "anthropic-messages"
-# 目录里协议的别名：2026-11 起 Acme 把它的 Messages 模型标成 "anthropic"（deepseek-v4.1-1017 经 anthropic-messages
-# 跑通 dsh，2026-11-12）。别的网关不会写这个，留着无害。
+# 目录里协议的别名：Acme 把它的 Messages 模型标成 "anthropic"（deepseek-v4.1-1017 经 anthropic-messages
+# 跑通 dsh）。别的网关不会写这个，留着无害。
 PROTOCOL_ALIASES = {"anthropic": MESSAGES}
 CACHE_SECONDS = 900
 # 没有固定上游模型的路由别名，从不是手选的启动选项。
 DISABLED_MODELS = frozenset({"auto", "auto-max"})
-# 429 表示上游容量不足或密钥请求太频繁，不是额度用完（那是 403）。dsh 一轮重试多久：2026-10-29..11-01 的故障最长约
-# 40 分钟，主人选了一小时（2026-11-01）。Codex 的中继（relay.py）从 2026-11-02 起没有上限。
+# 429 表示上游容量不足或密钥请求太频繁，不是额度用完（那是 403）。dsh 一轮重试多久：见过的故障最长约
+# 40 分钟，所以定一小时。Codex 的中继（relay.py）没有上限。
 BUSY_WINDOW = 60 * 60
 # dsh 的请求重试：2、4、8、16、32，然后 60 s（±20 %），次数以填满 BUSY_WINDOW 为准（一小时 64 次）。dsh 用 maxDelayMs
 # 封顶每次等待（dsh-llm-retry, 0.2.1-rc.2）。

@@ -2,7 +2,7 @@
 
 app/proxy.py polls the owner's Feishu as the owner (a lark-cli profile with a user login), answers
 each batch in a topic of the proxy group and sends the answer as the owner with the sender tool
-(app/proxy_send.py; feishu/web_client.py's Feishu web before 2026-10-28). Records under <state>/proxy/, written only by the Bridge:
+(app/proxy_send.py; feishu/web_client.py's Feishu web in older releases). Records under <state>/proxy/, written only by the Bridge:
 
 - settings.json: ``enabled``; ``group_chat_id`` (the proxy group, the bot's ID), and ``group_creating``
   {``at``} while a try to create it has no known outcome (app/proxy_commands.py create_group); ``user_profile``
@@ -21,7 +21,7 @@ each batch in a topic of the proxy group and sends the answer as the owner with 
   clicked it and the saved reply is to go out on the next poll. ``passed_over``: the job whose reply
   gave way to a later turn of the owner's in the topic; ``later_job_id``: the job whose reply waits for
   HOURLY_LIMIT, said once; ``send_check``, what the chats Feishu web compared showed when they did not match,
-  is in batches sent through Feishu web before 2026-10-28 and no longer written.
+  is in batches sent through Feishu web by older releases and no longer written.
   ``last_in_at``: when its newest message was taken in (it waits for the chat to settle); ``restarts``:
   rounds stopped in a row whose messages it carries (OVERTAKEN), and ``stop_job`` the id of the last of
   them while its job's stop is still to be asked for.
@@ -52,18 +52,20 @@ from covey.core import extensions
 from covey.core.state import read_json, write_json
 
 PROXY_DIR = "proxy"
-GROUP_NAME = "C队 代答"  # The proxy group 开启代答 creates.
+# The name of the proxy group 开启代答 creates when COVEY_PROXY_GROUP_NAME names none. A group already made keeps
+# its name: it is found by the group_chat_id and group_name its settings recorded.
+GROUP_NAME = "代答"
 SEEN_LIMIT = 500
 SKIP_MARK = "[不回复]"
-# Nothing to say back: the other person only wraps up or acknowledges (the owner, 2026-10-27: a chat need not
+# Nothing to say back: the other person only wraps up or acknowledges (a chat need not
 # end with them). The batch closes without a send; unlike SKIP_MARK, nothing waits for the owner.
 NO_REPLY_MARK = "[无需回复]"
 STYLE_FILE = "style.md"  # The owner's chat style, summarised from their own messages; part of every prompt.
-# What the owner works on, the projects and words they use (the owner, 2026-11-19 T571: projects and terms only, no
+# What the owner works on, the projects and words they use (projects and terms only, no
 # principles or private notes): part of every prompt, so a contact talking about them is answered as by the one who
 # does them ("开始蒸馏自己了" got "怎么蒸馏自己？" from a proxy that did not know the owner had been doing it for weeks).
 CONTEXT_FILE = "owner-context.md"
-RECENT_MESSAGES = 20  # Of the chat, read as the owner when a batch is submitted and put in its prompt (T571).
+RECENT_MESSAGES = 20  # Of the chat, read as the owner when a batch is submitted and put in its prompt.
 RECENT_CHARS = 300  # Of each of them.
 RECENT_HEAD = "这个会话最近的聊天"
 RULES_HEAD = "你在替主人（"
@@ -77,13 +79,13 @@ MEMBER_LIMIT = 500  # A group with more people is not added whole.
 STALE_AFTER = 2 * 3600
 REMOVED = "联系人已移出白名单"
 # Held because the owner spoke in the topic while the batch's own job ran: their later turn there was told its
-# reply goes out, so it is the one sent (repo review D2, the owner's choice 2026-10-28).
+# reply goes out, so it is the one sent (repo review D2).
 LATER_TURN = "等你在本话题这一轮的回复"
 # Its job stopped and its messages carried into the batch of the newer ones: one round answers them all.
 OVERTAKEN = "对方又发来新消息，这一轮已停下"
 # The same, its job left running (OVERTAKE_STOP_AFTER): its reply is not sent, and the next round, queued after it in
-# the topic, resumes its native session with what it read (T571: a stopped round's session was dropped, and each
-# next round started afresh and read the same files again).
+# the topic, resumes its native session with what it read (else each next round starts afresh and reads the same
+# files again).
 OVERTAKEN_RUNS_ON = "对方又发来新消息，这一轮跑完不发"
 OVERTAKE_STOP_AFTER = 90  # Seconds a round may have run and still be left to end when it is overtaken; 0: never.
 # What feishu/web_client.py says when Chromium never started: nothing was typed, so the send is tried again.
@@ -334,7 +336,7 @@ def addressed(contact: dict, message: dict, owner_id: str) -> bool:
     """Whether ``message`` is for the owner from ``contact``: any message the person sends in their
     private chat; in a group, one that @s the owner by name (@all does not count). What a whitelisted
     person says in a group is not their private chat's: matched by sender alone, a whitelisted group's
-    message without an @ went into the person's batch, its reply into the group (T452, 2026-11-09)."""
+    message without an @ went into the person's batch, its reply into the group."""
     if not message["sender_id"] or message["sender_id"] == owner_id:
         return False
     if contact["kind"] == "p2p":
@@ -390,11 +392,10 @@ RAISED = re.compile(r"[A-Za-z_][\w.]*(?:Error|Exception)\b")  # web_client.py's 
 
 def unsent(reason: str, chat: str, who: str, *, again: bool = False) -> tuple[str, str]:
     """(words, details) of a reply whose SEND_ATTEMPTS tries never pressed Enter, for the owner:
-    \u201c\u7f51\u9875\u7aef\u7684\u300c\u82cf\u8d8a\u300d\u4f1a\u8bdd\u548c\u63a5\u53e3\u5bf9\u4e0d\u4e0a\uff08\u8bd5\u4e86 2 \u4e2a\u540c\u540d\u4f1a\u8bdd\u30013 \u6b21\uff09\uff0c\u82cf\u8d8a\u6ca1\u6536\u5230\u201d, each cause once, and
+    “网页端的「张三」会话和接口对不上（试了 2 个同名会话、3 次），张三没收到”, each cause once, and
     the positions web_client.py compared for a folded details panel ('' when there is nothing more).
-    ``chat`` is the chat's title, ``who`` the person the reply is for. \u82cf\u8d8a T186 (2026-10-27) read
-    \u201c2 \u4e2a\u540d\u4e3a \u82cf\u8d8a \u7684\u4f1a\u8bdd\u90fd\u5bf9\u4e0d\u4e0a\uff1a\u4f1a\u8bdd\u6700\u65b0\u4e00\u6761\u6d88\u606f\u7684\u4f4d\u7f6e\u5bf9\u4e0d\u4e0a\uff1a\u7f51\u9875\u7aef 14708\uff0c\u63a5\u53e3 14709\uff1b\u201d and the
-    same again."""
+    ``chat`` is the chat's title, ``who`` the person the reply is for. Not “2 个名为 张三 的会话都对不上：会话最新一条消息的
+    位置对不上：网页端 14708，接口 14709；” and the same again."""
     reason = " ".join(str(reason or "").split()) or "\u7f51\u9875\u7aef\u53d1\u9001\u5931\u8d25"
     joined = SAME_NAMED.match(reason)
     parts = []
@@ -524,8 +525,8 @@ def recent_lines(recent, settings: dict) -> list[str]:
 
 def brief_history(rows: list[dict]) -> list[dict]:
     """A 代答 topic's earlier conversation for a new session's prompt: each batch's prompt cut to its messages (the
-    recent chat, the rules and the style the current batch's prompt has again; T571: five copies of 2.3k characters
-    of them filled the 12 rows a new session was given)."""
+    recent chat, the rules and the style the current batch's prompt has again; copies of them would fill the rows a new
+    session is given)."""
     kept = []
     for row in rows:
         content = str(row.get("content") or "")
@@ -576,7 +577,7 @@ def parse_names(text: str) -> list[tuple[str, list[str]]]:
 
     Spaces, commas, 顿号, semicolons and line breaks separate names, and an @ starts one ("@张三 @李四"
     pasted from a chat). ``phrase`` is a piece of several words between the other separators, with
-    its spaces, when it has no @: a group or a person whose name has a space ("C队 验收测试") is
+    its spaces, when it has no @: a group or a person whose name has a space ("产品 验收群") is
     looked up whole as well as word by word; '' for any other piece."""
     entries, seen = [], set()
     for piece in SEPARATORS.split(str(text or "").replace("\u00a0", " ")):

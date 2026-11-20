@@ -53,8 +53,7 @@ LOG_LIMIT = 2 * 1024 * 1024
 SETTINGS_ENV = "redaction_env"
 REPORT = "redaction_report"
 # Claude Code keeps one list of the gateway's models (cache/gateway-models.json) under the base URL it fetched it
-# from; with the relay's port in it, the next catalog probe listed none (Opus 5 came and went in the menus,
-# 2026-11-03). The turn runs its model by id without the list, so it does not fetch one (2.1.310).
+# from; with the relay's port in it, the next catalog probe listed none (Opus 5 came and went in the menus). The turn runs its model by id without the list, so it does not fetch one (2.1.310).
 GATEWAY_MODELS_ENV = "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"
 HOP = frozenset({"host", "connection", "keep-alive", "proxy-connection", "proxy-authorization", "te", "upgrade",
                  "transfer-encoding", "content-length", "accept-encoding"})

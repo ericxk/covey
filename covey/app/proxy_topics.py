@@ -28,8 +28,8 @@ class ProxyTopics:
     def sync_topics(self, ctx, settings):
         """Move each contact topic that has not caught up with the last model change on the card to the
         settings' Harness, model and effort, the way 换配置 does (app/binding.py ``switch_topic``:
-        a fresh session that is handed the conversation). The owner asked for one model for all of 代答
-        (2026-10-27). A topic with a task or a batch under way waits for a later poll; a topic switched by
+        a fresh session that is handed the conversation). One model for all of 代答.
+        A topic with a task or a batch under way waits for a later poll; a topic switched by
         hand after the change keeps its own choice."""
         changed = float(settings.get("model_changed_at") or 0)
         if not changed:
@@ -86,7 +86,7 @@ class ProxyTopics:
                     "对方的消息和代你发出的回复都记在本话题。想改怎么回，在本话题 @机器人 告诉我，"
                     "我会按你的意思回复对方。")
             # Keyed on this time on the whitelist: a key once used never carries another card
-            # (feishu/transport.py refuses it, 2026-10-27), and a contact added back may have had a topic.
+            # (feishu/transport.py refuses it), and a contact added back may have had a topic.
             key = f"{records.digest(contact['key'])}-{int(float(contact.get('added_at') or 0))}"
             _, root = self.proxy.messenger.create_and_send_card(ctx.profile, group, notice_card(text, "代答"),
                                                                  self.proxy.voice.key("proxy-root", key), voice=self.proxy.voice)

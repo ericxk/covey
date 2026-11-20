@@ -2,7 +2,7 @@
 
 One consumer thread reads every card click. Handling a click on that thread
 made a slow one (开始任务 creates and sends a task card, 2.9–4.2 s; 提交回答
-4.4 s; 分叉 3.5–5.2 s, 2026-10-22) hold every other card's next click. Each
+4.4 s; 分叉 3.5–5.2 s) hold every other card's next click. Each
 click now goes to its topic's lane: a later click in the same topic still waits
 for the earlier one (a model choice before 开始任务 on a launch card), clicks
 in other topics do not. Clicks without a topic get a lane per card message.
@@ -10,7 +10,7 @@ in other topics do not. Clicks without a topic get a lane per card message.
 A click is acknowledged when its handler returns (its ``card action`` log line),
 and Feishu wants that within 3 s. What a handler leaves for after that
 (``after_ack``: every new task card and notice a click sends — 提交回答, 开始任务,
-检查并继续, 重新排队执行, 留作下一轮; 2026-10-25/26) runs in its topic's
+检查并继续, 重新排队执行, 留作下一轮) runs in its topic's
 follow-up lane: the topic's follow-ups in order, while the topic's next click
 need not wait. A follow-up ``beside`` the others (开始任务's receipt on its launch card,
 S36) runs in a lane of its own, at the same time as the task cards.

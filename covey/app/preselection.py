@@ -68,8 +68,8 @@ def launch_selection(choices, usage, config, *, model, workspace, work_mode, fre
     preferences prefill, with ``saved`` the chat's last launch (launch_defaults; anything but a dict is
     none); ``draft`` a rebuilt card's own choices. ``topic_budget`` (Harness, budget): the 设置卡's 新话题默认
     budget (core/butler_settings.py TopicDefaults; its Harness '' for any), ('', '') without one. ``topic_model``
-    (Harness, model) and ``topic_workspace``: what that page names, '' for 跟上次一样 (the owner, 2026-11-19, T546:
-    the page preselects every new topic): a fresh card starts from its model (with a Harness alone, the last launch's
+    (Harness, model) and ``topic_workspace``: what that page names, '' for 跟上次一样 (the
+    page preselects every new topic): a fresh card starts from its model (with a Harness alone, the last launch's
     model where it is that Harness's, else the Harness's default one, ``harness_model``) and its workspace.
     ``device_harnesses`` (workspace name → the Harnesses its device declares, device workspaces only): a card that
     nobody has chosen a model on (no ``draft`` model) whose workspace is such a one does not start from a Harness the
@@ -126,7 +126,7 @@ def launch_selection(choices, usage, config, *, model, workspace, work_mode, fre
             choices = model_usage.ranked(choices, usage, model)
     options, default_effort = effort_options(choices.get(model, {}))
     # A budget preset's or the card's budget; else the 新话题默认 budget where its Harness is the model's and the
-    # model offers it (owner 2026-11-10: the card follows it, so a lowered default reaches chats that always took
+    # model offers it (the card follows it, so a lowered default reaches chats that always took
     # the recommended one); else the one the chat chose most often with the model; else, for the last launch's
     # model, that launch's.
     harness, default_budget = topic_budget

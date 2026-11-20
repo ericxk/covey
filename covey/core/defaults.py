@@ -12,7 +12,7 @@ ULTRACODE_RUNS_AS = "xhigh"
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", ULTRACODE)
 # Not deeper budgets: each Harness's own orchestration on xhigh. Codex's ultra sends
 # xhigh and turns on proactive sub-agent delegation (codex-cli 0.164.0); Claude Code's
-# ultracode is xhigh with standing workflow orchestration (2.1.310). Checked 2026-10-27.
+# ultracode is xhigh with standing workflow orchestration (2.1.310).
 ORCHESTRATION_MODES = frozenset({"ultra", ULTRACODE})
 
 

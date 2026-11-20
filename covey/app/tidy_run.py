@@ -1,5 +1,5 @@
 """A whole 整理 (scheduled or asked for) and the 整理专项 card it draws: the run's record, its progress, the judge's suggestions as
-rows (docs/butler.md 整理专项). Joins and folds through app/tidy_apply.py, proposals through app/tidy_proposals.py, the rows' words
+rows (docs/projects.md 整理专项). Joins and folds through app/tidy_apply.py, proposals through app/tidy_proposals.py, the rows' words
 from app/tidy_words.py; the clicks on its card are app/tidy_clicks.py's, above it."""
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ class Runs:
             if reason:
                 unreadable.append((topic, reason))
         topics = [topic for topic in topics if topic not in {topic for topic, _ in unreadable}]
-        # Which ones and why (the owner, 2026-11-18: “读不了”的话题，要写清是哪几个、为什么读不了).
+        # Which ones and why.
         if unreadable:
             view["skipped"].append(f"{len(unreadable)} 个话题读不了，没参与这次整理：" + "；".join(
                 f"{self.words.linked(ctx, [topic])}（{UNREADABLE_WORDS.get(reason, '读的时候出错')}）" for topic, reason in unreadable))
@@ -168,13 +168,13 @@ class Runs:
             if proposals.declined_like(state, kind, made["topics"], made.get("project") or "", made.get("projects") or ()):
                 continue
             if kind == proposals.CREATE:
-                # Each new project its own proposal card, the same as a real-time one (the owner, 2026-11-18: 每个话题都要能点开，
-                # 附摘要；不准用“等”；能自己增删话题、改名再确认): the 整理专项 card only names it.
+                # Each new project its own proposal card, the same as a real-time one (each topic
+                # linked with its gist, topics added or removed and the name changed before it is confirmed): the 整理专项 card only names it.
                 if self.proposal_cards.propose(ctx, chat, {**made, "run": record["run"]}) == "proposed":
                     view.setdefault("proposed", []).append(str(made.get("name") or ""))
                 else:
-                    # The same proposal already waits for him (the owner, 2026-11-18 23:19: 为啥现在我点了整理专项说不需要呢 —
-                    # it was dropped as nothing new): named as still waiting, to decide on the 看板.
+                    # The same proposal already waits for him (not dropped as
+                    # nothing new): named as still waiting, to decide on the 看板.
                     found = proposals.read_proposal(state, made["id"])
                     if found.get("state") != proposals.OPEN or not (found.get("card") or {}).get("message_id"):
                         found = proposals.overlapping(state, proposals.free(state, made["topics"]))  # Merged into it.

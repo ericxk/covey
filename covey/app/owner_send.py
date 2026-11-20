@@ -1,7 +1,7 @@
 """代发: a message a topic drafted, sent as the owner by the 代答 sender once the owner confirmed it on its card
-(docs/proxy.md 代发). T551 (2026-11-19) had to tell a colleague his new AK: lark-cli as the owner lacked
-im:message.send_as_user (the company's policy refuses it), the bot could not see him, and the text ended in a file
-the owner forwarded by hand. The 代答 sender sends as the owner; it took only a 代答 batch.
+(docs/proxy.md 代发). A topic that has to tell someone something as the owner otherwise has no way: lark-cli as the
+owner may lack im:message.send_as_user, the bot may not see the person, and the text ends in a file the owner forwards
+by hand. The 代答 sender sends as the owner; it took only a 代答 batch.
 
 A topic puts ``send_as_owner`` into its checkpoint (core/owner_send.py ``drafts``; the rule each turn reads,
 ``turn_note``). Once its runner exited and the turn ended well with an authorized reply (rule 5), the Bridge

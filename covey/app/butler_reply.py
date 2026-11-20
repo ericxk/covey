@@ -103,8 +103,8 @@ def routes(state_dir, job_key, slim=False) -> list[str]:
 
 
 def outcome_words(state_dir, key, reply_text="", lead=False) -> str:
-    """What the butler job ``key`` did, said on its card's status line and in the chat list's preview (V6/S13,
-    2026-11-08): "↪ 开了 T444「标题」", "↪ 交给 T442 接着做", "↪ 补充给 T444（它正在跑）", "↪ 分叉出 T445「标题」",
+    """What the butler job ``key`` did, said on its card's status line and in the chat list's preview:
+    "↪ 开了 T44「标题」", "↪ 交给 T42 接着做", "↪ 补充给 T44（它正在跑）", "↪ 分叉出 T45「标题」",
     "↪ 拆成 2 件" for more than one topic, else "✅ 已答：" and the reply's lead; "" with neither. A project's lead's turn
     (``lead``) that opened or handed on to no thread says the note it recorded or that it finished the project first
     (app/project_lead.py outcome_line)."""
@@ -166,7 +166,7 @@ def reply_fold(text, *, lead=False):
 
 def routed_body(lines) -> str:
     """The body of a turn that sent work to topics: its ``lines``. The grey last line the desk_topics layout added
-    (结论出来后会回到这里) went with it (2026-11-09): each outcome comes to the chat as a message of its own (S3)."""
+    (结论出来后会回到这里) went with it: each outcome comes to the chat as a message of its own (S3)."""
     return "\n".join(lines)
 
 
@@ -231,7 +231,7 @@ def only_handoff(text) -> bool:
 def handed_quietly(delivery) -> bool:
     """A quiet butler turn (core/placement.py Row.quiet) that has no card, ended done and only handed work on to
     topics (``routes``; its reply says nothing more, ``only_handoff``): no answer of its own goes out, its Get reaction
-    on the owner's message says it (D1, 2026-11-08); the topic's thread or its conclusion follows. A reply with an
+    on the owner's message says it; the topic's thread or its conclusion follows. A reply with an
     answer of its own, or a topic waiting for the owner to press 开始 (no thread follows by itself), still goes out.
     Whether the reaction is there; when it is not, the answer goes out."""
     job, ctx, turn = delivery.job, delivery.ctx, delivery.turn
@@ -261,7 +261,7 @@ HOOK_TITLE = 20  # Of a topic's title on the hook under the owner's message: mor
 
 
 def hook_rows(state_dir, key, *, profile=None, fetch=None, log=None) -> list[tuple[str, str, str]]:
-    """(words "T453「标题」", the link to its thread, topic id) of each topic that was there the butler job
+    """(words "T53「标题」", the link to its thread, topic id) of each topic that was there the butler job
     ``key`` handed work on to (topic_send, butler_opened SEND), oldest first, once each. The link opens the topic's
     thread at the line topic_send put there (its record's ``thread_message_id``), else the thread itself
     (app/topic_links.py topic_thread_link); a fallback or none is a log line. A topic it opened or forked hangs its
@@ -285,9 +285,9 @@ def hook_rows(state_dir, key, *, profile=None, fetch=None, log=None) -> list[tup
 
 def hook_topics(delivery) -> None:
     """Under the owner's message of a quiet butler turn that only handed work on (``handed_quietly``: its Get
-    reaction is all it shows), a small reply naming each topic that was there it went to, "→ T453「标题」 ›", each
-    opening its thread (the owner, 2026-11-10 17:59: 消息上找不到去话题的入口). A quote at the chat's top level, not a
-    thread under his message (提问不开串, D1); a reply quoting it goes to the topic when there is one. Never raises."""
+    reaction is all it shows), a small reply naming each topic that was there it went to, "→ T53「标题」 ›", each
+    opening its thread. A quote at the chat's top level, not a
+    thread under his message (提问不开串); a reply quoting it goes to the topic when there is one. Never raises."""
     from covey.app.answer_cards import owner_message
     from covey.cards.answer_card import hook_card
     from covey.core.topics import route_message

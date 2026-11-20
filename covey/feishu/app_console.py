@@ -10,8 +10,8 @@ QR and the console, such as a device check), ``logged_in``, ``step`` (``name``, 
 ``failed`` (``step``, ``detail``, ``shot``: the page then, a PNG in DIR) and ``done`` (``version``, ``status``
 published, reviewing or unchanged, ``changed``). Exit 0 after ``done``, 1 after ``failed``.
 
-The login: DIR/profile, a copy of ``--login-from`` (the owner's 代答 web login, <state>/proxy/web/profile, the
-owner's choice 2026-11-09) when given, else empty; a page that asks for the QR shows it to the owner. The caller
+The login: DIR/profile, a copy of ``--login-from`` (the owner's 代答 web login, <state>/proxy/web/profile) when
+given, else empty; a page that asks for the QR shows it to the owner. The caller
 removes DIR afterwards: no login is kept.
 
 The console's own JSON calls (POST /developers/v1/…, as its pages make them, with the page's CSRF token):
@@ -51,7 +51,7 @@ REMARK_PREFIX = "Harness Bridge 自动补齐"
 SKIPPED = ("Cache", "Code Cache", "Service Worker", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache",
            "GrShaderCache", "GraphiteDawnCache", "ShaderCache", "IndexedDB", "Singleton*")
 ONLINE, DRAFT, REVIEWING = 2, 0, 1  # app_version versionStatus.
-QR = ".newLogin_scan-QR-code"  # The login page's QR block (2026-11-09); any big canvas otherwise.
+QR = ".newLogin_scan-QR-code"  # The login page's QR block; any big canvas otherwise.
 STEPS = {"login": "扫码登录", "read": "读取后台配置", "manifest": "写入权限与事件", "menu": "写入菜单",
          "version": "发布版本"}
 

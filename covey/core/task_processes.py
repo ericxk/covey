@@ -5,8 +5,8 @@ The task runner sets ``COVEY_TASK_DIR`` to its run directory (app/runner.py). Th
 command it starts inherit it: also the commands in sessions of their own (Claude Code's) or process groups
 of their own (Codex's), which stopping the Harness's group does not reach, and those adopted by PID 1 once
 their parent is gone. When a turn's backend has closed, ``stop_leftovers`` ends the search tools still
-running with the marker: a walk of a large tree can grow without bound (2026-11-03 20:12, an ``rg --files``
-left behind reached 166.9 GiB and the container restarted). Any other process is reported and never
+running with the marker: a walk of a large tree can grow without bound (an ``rg --files`` left behind
+once reached 166.9 GiB and the container restarted). Any other process is reported and never
 signalled: it may be work the user asked to keep running, a server or a training run.
 """
 from __future__ import annotations

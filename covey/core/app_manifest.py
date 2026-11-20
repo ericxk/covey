@@ -1,4 +1,4 @@
-"""What the Feishu app behind a Bridge must have, and what its online version lacks (docs/install.md 配置飞书应用).
+"""What the Feishu app behind a Bridge must have, and what its online version lacks (docs/manual-install.md 配置飞书应用).
 
 ``required(env)`` lists the app's needs from this deployment's switches: the bot, its events and callback, the
 scopes the Bridge's own calls use, and the bot menu's items. ``missing(env, online)`` compares them with the
@@ -6,8 +6,8 @@ online version as feishu/app_config.py reads it through the official API (no log
 at each start and offers the owner to add what is missing (feishu/app_console.py, after a QR login);
 bin/covey_app_setup.py prints the same check for the install and deploy scripts.
 
-A scope that needs the tenant admin's review is never added unless asked (``review``): the owner, 2026-11-09,
-卡上单列、默认不勾. Nothing is ever removed: the app's other scopes, events and menu items stay.
+A scope that needs the tenant admin's review is never added unless asked (``review``): listed apart on
+the card, unticked. Nothing is ever removed: the app's other scopes, events and menu items stay.
 Standard library only.
 """
 from __future__ import annotations
@@ -67,7 +67,7 @@ PIN_SCOPES = (("im:message.pins:read", "置顶看板"), ("im:message.pins:write_
 GROUP_ALL_SCOPES = (("im:chat.members:read", "群聊免@ 选人"),)
 GROUP_ALL_REVIEW = ("im:message.group_msg", "群聊免@ 收群里全部消息")
 
-# The bot menu (docs/usage.md 机器人菜单, the owner 2026-11-19: 看板 · 用量 · 代答 · 设置). 看板 only with the digest,
+# The bot menu (docs/usage.md 机器人菜单: 看板 · 用量 · 代答 · 设置). 看板 only with the digest,
 # 代答 only where an enabled extension has the proxy_sender hook (``proxy_sender``).
 MENU = (("weekly_usage", "用量", "insert-chart_outlined"), ("digest_board", "看板", "bitablekanban_outlined"),
         ("proxy_settings", "代答", "robot_outlined"), ("bridge_settings", "设置", "setting_outlined"))

@@ -1,9 +1,9 @@
 """Images a running task shows its owner at once (the checkpoint's ``show_images``, core/checkpoint.py
 CHECKPOINT_RULES): a login QR code, a screenshot he has to act on.
 
-The task card's 产物 go up when the turn ends; a QR code expires in minutes. T476 (2026-11-10 23:10-23:31) sent its
-QR codes itself with lark-cli, in reply to the root its history showed for the owner's last message, the top-level
-relay card he had replied to: they landed in that card's thread, not the topic's, and he never saw them. So the
+The task card's 产物 go up when the turn ends; a QR code expires in minutes. A turn that sends its
+QR codes itself with lark-cli replies to the root its history shows for the owner's last message, which may be a
+top-level relay card: they land in that card's thread, not the topic's, and the owner never sees them. So the
 Bridge sends them, where its own messages for the turn go (the task's context, ``ctx.reply_to_message_id``: the
 topic's thread), each a line of what it is and the image itself (an image message: a phone reads a QR code in it).
 One marked ``urgent``, and one whose thread send failed, also goes to the chat's top level, its line naming the

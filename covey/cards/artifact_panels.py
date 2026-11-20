@@ -21,7 +21,7 @@ def drive_artifact_panel(paths, record, topic_id, ledger=None, *, element_id="ta
     """Drive links for the artifacts ``paths`` of the job ``record`` (its job_id is read only
     when the 重新上传 button is drawn). Without a finished ledger it shows the upload in progress.
     Folded once every file is up, its title naming what is in it (产物 3 个 · REPORT.md 等): open, it
-    was the tallest block of a finished card (T182 #1111). Open while uploading or when something
+    was the tallest block of a finished card. Open while uploading or when something
     failed, where 重新上传 is; ``fold_uploading`` (an answer card's, app/answer_cards.py, ``element_id``
     ARTIFACTS_ID): folded while uploading too, open only when something failed."""
     ledger = ledger or {}

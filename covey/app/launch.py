@@ -89,8 +89,8 @@ def launch_defaults(state_dir, chat_id):
 
 
 def topic_defaults(state_dir):
-    """The 设置 card's 新话题 page (core/butler_settings.py TopicDefaults), which the launch card preselects (the owner,
-    2026-11-19, T546); its defaults where it can't be read."""
+    """The 设置 card's 新话题 page (core/butler_settings.py TopicDefaults), which the launch card preselects; its
+    defaults where it can't be read."""
     try:
         return butler_settings.load(state_dir).topic_defaults
     except (OSError, ValueError):
@@ -272,8 +272,8 @@ def close_open_launches(ctx, chat_id, messenger, text, title='已取消'):
     """Close the launch cards of ``ctx``'s topic in ``chat_id`` that can still start it (OPEN_FORMS) as a stop of the topic:
     the form is closed and its waiting messages cancelled first (``close_launch_form``, so 开始任务 can never start them),
     then the card says ``text`` instead of the form; how many were closed. Its lock order is a 开始任务 click's (the form's,
-    then the topic's), as the stale closer's (app/stale.py). T561 and T562 (2026-11-19): a lead stopped them twice, nothing
-    of theirs ran, so 请 0 个任务停下, and their launch cards kept them under 等我 and the web page's 待办."""
+    then the topic's), as the stale closer's (app/stale.py). Otherwise a topic stopped before it started has no task to stop (请 0 个任务停下),
+    and its launch card keeps it under 等我 and the web page's 待办."""
     from covey.cards.elements import notice_card
     from covey.core.statuses import OPEN_FORMS
     from covey.core.store import directory_store

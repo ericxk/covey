@@ -50,7 +50,7 @@ class CodexEventAdapter:
     def __init__(self, emit, main_thread=""):
         self.emit = emit
         # The turn's own thread is no subtask: a subtask that messages it (sendInput to /root) names it among the
-        # receivers. T272 #2611 (2026-11-03) listed /root under each subtask until the two held each other.
+        # receivers. Otherwise /root is listed under each subtask until the two hold each other.
         self.main_thread = main_thread
         self.steps = Steps(emit)
         self.agent_states = {}  # subtask thread -> its agent_state (apply_agent_event)

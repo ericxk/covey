@@ -1,4 +1,4 @@
-"""The 专项卡 (app/project_cards.py; docs/butler.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's
+"""The 专项卡 (app/project_cards.py; docs/projects.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's
 top level, a message of its own (never a reply: Feishu puts a reply to a message that has a thread into the thread, see
 cards/dispatch_card.py). It is drawn whole from ``Project`` (what the project's record and its topics' job records say),
 again each time that changes, and once more as a single line when the project is done.

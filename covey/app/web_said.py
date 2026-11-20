@@ -1,4 +1,4 @@
-"""Who said a topic's owner line and the words the web page shows for it (docs/butler.md 网页工作台, data contract v11 ``by``
+"""Who said a topic's owner line and the words the web page shows for it (docs/web.md, data contract v11 ``by``
 and ``display``). A topic's history keeps each line as its model was sent it: the Bridge's headings ("用户补充回答：", "【主人
 编辑了刚才的消息】……") and lines the owner never wrote (work the butler or a project's lead handed on in its own words, an answer
 the butler or the lead gave for him) read there as his. The page shows them as the cards do: who said it, and the words.
@@ -85,7 +85,7 @@ def said(row, record=None, origins=None) -> dict:
             out["via"] = via
     if "display" not in out and EDIT_HEAD in text:
         # A line that carries the owner's message and, after it, his edit of it (a hand-on of a message he edited while the
-        # butler read it, T584 2026-11-20): the page shows the edited text alone, marked edited; the line itself is what the
+        # butler read it): the page shows the edited text alone, marked edited; the line itself is what the
         # model was sent and is not changed.
         out["display"], out["edited"] = text.split(EDIT_HEAD, 1)[1].strip(), True
     if out.get("display") == body:

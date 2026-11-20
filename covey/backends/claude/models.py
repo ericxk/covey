@@ -33,8 +33,8 @@ def catalog_row(slug, display_name, description, efforts, default):
 
 # Claude Code lists a gateway's models (claude-opus-5, …) from one cache filed under the base URL it was
 # fetched from, refreshed in the background, so a probe after another Claude Code fetched it from another base URL
-# comes back without any of them (2026-11-03: Opus 5 left the launch and 换配置 menus at 19:47 and was back at
-# 19:52; redacted turns did that through their relay until they stopped fetching it). The last list that had
+# comes back without any of them (Opus 5 left the launch and 换配置 menus for minutes; redacted turns did that
+# through their relay until they stopped fetching it). The last list that had
 # them stands in for this long.
 GATEWAY_KEEP = 24 * 3600
 
@@ -92,7 +92,7 @@ def model_catalog(backend, ctx, env, *, refresh=False):
         # A fresh context prevents catalog controls from claiming a task's SID
         # or process. Bounded initialization does not submit a model request.
         # The launch-catalog thread (``refresh``) waits longer: at load ~420 Claude Code took over 30 s to answer
-        # (2026-11-03 20:26–20:42, the launch card lost its Claude models).
+        # (the launch card lost its Claude models).
         # It keeps only --claude-login-shell: the probe starts claude as the turns do.
         probe = dataclasses.replace(ctx, timeout=60 if refresh else 30,
                                     options={"login_shell": True} if ctx.options.get("login_shell") else {})

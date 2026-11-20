@@ -4,7 +4,7 @@ continuation's state on the card. ``question_card_lock`` orders one question's p
 
 A 话题区's question (a topic the butler opened, with COVEY_BUTLER=1; a project's topic too, once the question is the
 owner's: one held for the lead is copied when the lead hands it on, app/triage.py show) is also shown at the private
-chat's top level (``mirror``; the owner, 2026-11-07: 两处都放): the same form, quoting the butler's card, with
+chat's top level (``mirror``): the same form, quoting the butler's card, with
 what the turn wrote before it asked above it; one longer than MIRROR_OUTPUT_BYTES goes as its own message first.
 Its record keeps mirror_message_id, mirror_card_id and mirror_output; every repaint of the question repaints it
 too, so answering either folds both. Sent once (mirror_state creating, then sent or uncertain: rule 1). When the
@@ -34,7 +34,7 @@ MIRROR_OUTPUT_BYTES = 12000  # A longer output goes as its own message before th
 
 
 def standalone_card(ctx, record):
-    """The standalone card of ``record``, its topic named on it (T191 · #1084); drawn as the top-level copy when it
+    """The standalone card of ``record``, its topic named on it; drawn as the top-level copy when it
     is at the top level itself (``at_top``)."""
     if record.get("at_top"):
         return top_card(ctx, record)
@@ -163,12 +163,12 @@ class QuestionDisplay:
         if not target and place.role == placement.MEMBER_ROLE:
             # A project's topic was opened by its lead, never by a request of the butler, so it has no 话题区 target:
             # its question goes to the top level all the same (core/placement.py: only a question that reaches the
-            # owner is copied there; the owner, 2026-11-19: 转给我的问题卡我根本没收到，私聊里也看不到).
+            # owner is copied there).
             target = {"chat_id": chat, "reply_to": "", "label": "", "kind": "member", "topic_id": record["topic_id"]}
         if not target:
             return ""
         # A member's turn was asked for by the lead, not by the owner: no words of his are quoted (they would be the
-        # lead's), only who asks, "T546 标题 办负责人派的事，要你定" (cards/answer_card.py says, docs/ui.md 5.3).
+        # lead's), only who asks, "T46 标题 办负责人派的事，要你定" (cards/answer_card.py says, docs/ui.md 5.3).
         if target["kind"] == "member":
             ask = self.member_speaker(ctx, record)
         else:
@@ -318,7 +318,7 @@ class QuestionDisplay:
     def ask_block_for(ctx, record, log=None):
         """The "你问" block ({} without one) when ``record``'s standalone card goes to the chat's top level itself, a
         message of its own drawn as the top-level copy (``top_card``): the question of a quiet butler turn whose
-        card has not gone out (core/placement.py Row.quiet, D1 2026-11-08), so asking opens no thread and needs no copy
+        card has not gone out (core/placement.py Row.quiet), so asking opens no thread and needs no copy
         (``mirror``); None for any other question."""
         key = str(record.get("job_key") or "")
         job = find_job_record(ctx.state_dir, key) if key else None

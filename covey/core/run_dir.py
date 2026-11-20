@@ -99,7 +99,7 @@ def restart_blockers(state_dir: Path, live: set) -> list:
         if record.get("status") == "queued" and key and queued_path(state_dir, key).exists():
             continue
         if record.get("status") == "cancel_requested":
-            continue  # Stopped, and no runner has it: a restart interrupts nothing (one never started, 2026-10-28).
+            continue  # Stopped, and no runner has it: a restart interrupts nothing (one never started).
         blockers.append({"key": key, "job_id": record.get("job_id"), "status": record.get("status")})
     return blockers
 

@@ -5,7 +5,7 @@ All bridge behavior lives in the components of ``covey.app.app``; this file
 only describes the Claude Code Harness: every turn runs ``claude -p`` with stream-json
 input and output in ``--workdir`` (``backends/claude/runtime.py``), multi-turn
 continuity via ``--resume <session_id>``; the bridge rules travel in the user message (no
-``system_instructions``: the owner keeps Claude Code's system prompt as it is, 2026-11-02); a resumed
+``system_instructions``: Claude Code's system prompt is kept as it is); a resumed
 session compacted before the turn when asked (``backends/claude/compaction.py``); a topic that chose
 redaction through its term relay (``backends/claude/redaction.py``). A topic on a removed provider's model
 (core/providers.py RETIRED_PREFIXES) is refused before Claude Code starts.
@@ -44,7 +44,7 @@ LOGIN_SHELL_DEFAULT = False
 AUTO_COMPACT_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 # With this set, Claude Code behind a gateway (ANTHROPIC_BASE_URL) also lists the gateway's /v1/models
 # (claude-opus-5, …) after its four tier aliases; it reads them from its cache and refreshes the
-# cache in the background (2.1.310). Without a gateway it does nothing (2026-10-28: the launch card had no Opus 5).
+# cache in the background (2.1.310). Without a gateway it does nothing (the launch card had no Opus 5).
 GATEWAY_MODELS_ENV = "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"
 
 CLAUDE_SPEC = HarnessSpec(
@@ -65,11 +65,11 @@ class ClaudeBackend(BackendRuntime):
         # compat(ab0ce25): options that no longer do anything, kept so a harnesses.json written before still
         # parses: --claude-transport, whose one-shot cli transport went in ab0ce25 (only stream-json is accepted),
         # and the TRAE provider's --traex-ppe-env (0fec8a0) and --traex-site (4ed3b95), unlisted, which went with
-        # it (2026-11-05); retire when no harnesses.json passes one (compat_report: removed-options)
+        # it; retire when no harnesses.json passes one (compat_report: removed-options)
         parser.add_argument("--claude-transport", choices=["stream-json"], default="stream-json")
         parser.add_argument("--traex-ppe-env", help=argparse.SUPPRESS)
         parser.add_argument("--traex-site", help=argparse.SUPPRESS)
-        # --claude-profiles went with the Claude gateway profiles (2026-11-14): this machine's own Claude Code
+        # --claude-profiles went with the Claude gateway profiles: this machine's own Claude Code
         # login is what runs; its value is ignored and startup logs one line (same check as the options above)
         parser.add_argument("--claude-profiles", help=argparse.SUPPRESS)
         parser.add_argument("--model", default=DEFAULT_MODEL, help="claude --model (default: claude-fable-5)")

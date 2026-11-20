@@ -77,8 +77,8 @@ class CardTextTests(unittest.TestCase):
         self.assertEqual(card_title_for_question("**修复** `bug`", runtime), "修复 bug")
         self.assertEqual(card_title_for_question("```\n```", runtime), "Claude")
         # Two lines in the topic side panel, without an option's recommendation mark (2026-11-02 review: T290 #2383).
-        title = card_title_for_question("远端旧分支 → 删两个已合并的，张信宇那个留着（推荐）; 本机检出 → 清理 (Recommended)", runtime)
-        self.assertEqual(title, "远端旧分支 → 删两个已合并的，张信宇那个留着…")
+        title = card_title_for_question("远端旧分支 → 删两个已合并的，刘晓东那个留着（推荐）; 本机检出 → 清理 (Recommended)", runtime)
+        self.assertEqual(title, "远端旧分支 → 删两个已合并的，刘晓东那个留着…")
         self.assertEqual(len(card_title_for_question("一" * 50, runtime)), 24)
 
     def test_an_answer_s_lead_is_its_heading_or_first_sentence(self):

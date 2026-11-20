@@ -101,7 +101,7 @@ class PanelTests(ProxyCase):
         card = call.args[2]
         head = card['header']
         self.assertEqual((head['title']['content'], head['subtitle']['content'], head['text_tag_list'][0]['text']['content']),
-                         ('代答', '群「C队 代答」', '已开启'))
+                         ('代答', '群「代答」', '已开启'))
         # The status line first (no tiles), the model rows last under a heading that names the model.
         lines = [e['content'] for e in walk(card['body']['elements'][0]) if e.get('tag') == 'markdown']
         self.assertEqual(lines[0], "**代答开着** <font color='grey'>｜</font> 白名单 1 个")
@@ -178,7 +178,7 @@ class PanelTests(ProxyCase):
         # 开启 reads the owner as the owner's profile: after the click returned, on a real lane, while
         # the busy card is drawn; the click itself writes no card.
         seen = []
-        me = {'data': {'users': [{'open_id': OWNER, 'localized_name': '胥可'}]}}
+        me = {'data': {'users': [{'open_id': OWNER, 'localized_name': '王小明'}]}}
 
         def identity(*args, **kwargs):
             seen.append([line for line in self.logs if line.startswith('card action')])
@@ -352,19 +352,19 @@ class PanelTests(ProxyCase):
 
     def test_a_group_name_with_a_space_is_one_name_and_offers_its_members(self):
         self.open()
-        chats = {'C队 验收测试': [{'chat_id': 'oc_acc', 'name': 'C队 验收测试'}],
-                 '验收测试': [{'chat_id': 'oc_acc', 'name': 'C队 验收测试'}]}
-        with self.search((), chats, info={'oc_acc': {'name': 'C队 验收测试', 'user_count': '1'}}):
-            self.click(panel.FIND, query='C队 验收测试')
+        chats = {'Covey 验收测试': [{'chat_id': 'oc_acc', 'name': 'Covey 验收测试'}],
+                 '验收测试': [{'chat_id': 'oc_acc', 'name': 'Covey 验收测试'}]}
+        with self.search((), chats, info={'oc_acc': {'name': 'Covey 验收测试', 'user_count': '1'}}):
+            self.click(panel.FIND, query='Covey 验收测试')
         [item] = self.record()['view']['lookup']['items']
         self.assertEqual((item['state'], item['candidates'][0]['members']), ('unique', 1))
-        self.assertIn(f"**C队 验收测试** · 群 · 群 @我 {tag('待添加', 'blue')}", self.text())
+        self.assertIn(f"**Covey 验收测试** · 群 · 群 @我 {tag('待添加', 'blue')}", self.text())
         self.assertEqual([label for label, _, _ in self.buttons(panel.ADD)], ['群里@我'])
         self.assertEqual(self.buttons(panel.MEMBERS)[0][:2], ('全员 1 人', {
-            'token': self.token(), 'revision': 3, 'group': 'oc_acc', 'name': 'C队 验收测试'}))
+            'token': self.token(), 'revision': 3, 'group': 'oc_acc', 'name': 'Covey 验收测试'}))
         self.click(panel.ADD_ALL, lookup=self.lookup_id())
         self.assertEqual(self.contact('group:oc_acc')['kind'], 'group')
-        self.assertIn('已加入白名单 1 个：C队 验收测试（群里 @你的消息）', self.text())
+        self.assertIn('已加入白名单 1 个：Covey 验收测试（群里 @你的消息）', self.text())
 
     def test_a_search_without_a_query_or_a_result_says_so_on_the_card(self):
         self.open()
@@ -386,7 +386,7 @@ class PanelTests(ProxyCase):
 
     def test_a_groups_members_are_added_after_a_confirmation_and_fold_into_one_row(self):
         self.open()
-        team = [(OWNER, '胥可'), ('ou_zhang', '张三'), ('ou_a', '甲'), ('ou_b', '乙')]
+        team = [(OWNER, '王小明'), ('ou_zhang', '张三'), ('ou_a', '甲'), ('ou_b', '乙')]
         with self.search((), (), info={'oc_team': {'name': '项目群', 'user_count': '4'}},
                          members=self.members(team)) as cli:
             self.click(panel.FIND, query='oc_team')
@@ -424,9 +424,9 @@ class PanelTests(ProxyCase):
 
     def test_a_group_with_nobody_to_add_or_too_many_says_so_without_a_confirmation(self):
         self.open()
-        with self.search(members=self.members([(OWNER, '胥可')])):
-            self.click(panel.MEMBERS, group='oc_team', name='C队 验收测试')
-        self.assertIn('⚠️ 群「C队 验收测试」里没有可以加入的人：共 1 人，除去你自己和已在白名单的 1 人后为 0（机器人 1 个不加）。',
+        with self.search(members=self.members([(OWNER, '王小明')])):
+            self.click(panel.MEMBERS, group='oc_team', name='Covey 验收测试')
+        self.assertIn('⚠️ 群「Covey 验收测试」里没有可以加入的人：共 1 人，除去你自己和已在白名单的 1 人后为 0（机器人 1 个不加）。',
                       self.text())
         self.assertEqual(self.buttons(panel.MEMBERS_ADD), [])
         with self.search(members=self.members([('ou_a', '甲')], total=records.MEMBER_LIMIT + 1)):
@@ -887,11 +887,11 @@ class ResendTests(ProxyCase):
 
     def test_the_card_says_why_in_words_once_and_folds_the_positions(self):
         from covey.cards.proxy_resend import resend_card
-        batch = {'id': 'b' * 32, 'reply': '嗯嗯', 'reason': '2 个名为 苏越 的会话都对不上：会话最新一条消息的位置对不上：'
+        batch = {'id': 'b' * 32, 'reply': '嗯嗯', 'reason': '2 个名为 钱七 的会话都对不上：会话最新一条消息的位置对不上：'
                  '网页端 14708，接口 14709；会话最新一条消息的位置对不上：网页端 14708，接口 14709'}
-        card = resend_card({'state': 'failed'}, batch, '苏越')
+        card = resend_card({'state': 'failed'}, batch, '钱七')
         first = card['body']['elements'][0]
-        self.assertEqual(first['content'], '**⚠️ 代答没有发出**\n没发出：网页端的「苏越」会话和接口对不上（试了 2 个同名会话、3 次），苏越没收到。')
+        self.assertEqual(first['content'], '**⚠️ 代答没有发出**\n没发出：网页端的「钱七」会话和接口对不上（试了 2 个同名会话、3 次），钱七没收到。')
         [folded] = [e for e in walk(card) if e.get('tag') == 'collapsible_panel']
         self.assertEqual((folded['expanded'], folded['header']['title']['content']), (False, '详情'))
         self.assertEqual(json.dumps(card, ensure_ascii=False).count('14708'), 1)  # Only in the details.
@@ -1069,7 +1069,7 @@ class ResendTests(ProxyCase):
         self.assertEqual(self.batches()[0]['resend_card'], {'card_id': 'rcid', 'message_id': 'om_resend'})
 
     def test_a_batch_an_older_release_held_gets_its_card_and_a_failed_one_is_left_as_it_is(self):
-        # 张信宇 8fb90f36 (2026-10-27): held after three sends that never went out, said in a line of text.
+        # 赵六 8fb90f36 (2026-10-27): held after three sends that never went out, said in a line of text.
         batch = self.submitted()
         sending = records.move_batch(self.state, batch, 'sending', reply='收到 哥', reply_job_id=batch['job_id'],
                                      send_started_at=time.time(), attempts=3)

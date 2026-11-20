@@ -1,4 +1,4 @@
-"""The memory of a project (docs/butler.md 专项记忆): what the owner decided and what holds for the project for good, in
+"""The memory of a project (docs/projects.md 专项记忆): what the owner decided and what holds for the project for good, in
 ``<state>/projects/<id>/memory.json``. Entries are {id, text, kind, source, at, deleted}: ``kind`` one of ``KINDS``,
 ``source`` who wrote it (``lead``, ``owner_answer``, ...), ``deleted`` 0 or the time of a delete. A delete writes a
 tombstone and keeps the text (the lead's pack lists the last 30 days of them, so it does not note again what the owner

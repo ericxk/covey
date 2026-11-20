@@ -1,8 +1,8 @@
 """Keep the process panel mounted while its content changes.
 
-The process panel is one boxed collapsible, 执行过程 (``trace_details``, 2026-11-04; ``panel_json`` draws it
+The process panel is one boxed collapsible, 执行过程 (``trace_details``; ``panel_json`` draws it
 from TraceView.panel_model): its first line inside has the count and the figures (``trace_metrics``), then the
-records (``trace_body``; a card sent before 2026-11-04 has page controls before them, which a redraw drops),
+records (``trace_body``; a card of an older release has page controls before them, which a redraw drops),
 each replaced by its ID.
 Before, the figures were a line above the collapsible, titled 查看过程记录; a panel of that form still diffs by
 the same IDs."""
@@ -45,7 +45,7 @@ def _split(result, figures, notice, ended_empty):
 
 def parts(panel):
     """(the figures line above the collapsible or None, the collapsible) of a split panel: the line is
-    above it on a panel drawn before 2026-11-04, inside it since."""
+    above it on a panel drawn by an older release, inside it now."""
     elements = panel["columns"][0]["elements"]
     return (elements[0] if len(elements) > 1 else None), elements[-1]
 
@@ -58,7 +58,7 @@ def mutable_elements(panel):
 def incremental_actions(previous, panel):
     (old_metrics, old_details), (new_metrics, new_details) = parts(previous), parts(panel)
     if (old_metrics is None) != (new_metrics is None):
-        # A panel of the form before 2026-11-04 (its figures above the collapsible), by this release: whole.
+        # A panel of the older form (its figures above the collapsible), by this release: whole.
         return [update(panel)]
     if old_details.get("expanded") != new_details.get("expanded"):
         # Only a replacement of the collapsible carries `expanded`. Live updates never change

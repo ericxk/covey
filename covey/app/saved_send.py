@@ -55,7 +55,7 @@ class Outgoing:
     tail: dict | None = None
     files: bool = False
     status: str | None = None
-    digest: str = ""  # digest_of this Outgoing and the authorized text it carries; "" before 2026-11-10.
+    digest: str = ""  # digest_of this Outgoing and the authorized text it carries; "" from an older release.
 
 
 def digest_of(outgoing, text) -> str:
@@ -184,7 +184,7 @@ def owner_headed(row, runtime, chat_id) -> bool:
 
 def status_head(state_dir, topic_id, status, lead=""):
     """What leads an answer card in its thread: its conclusion band (docs/ui.md 5.2 聊天结果卡, cards/ui.py
-    conclusion_band), "有结果 · T443 改看板" over the reply's ``lead`` (cards/review.py answer_lead); without a lead the
+    conclusion_band), "有结果 · T43 改看板" over the reply's ``lead`` (cards/review.py answer_lead); without a lead the
     status line it had before (cards/answer_card.py head_element)."""
     label, title = topic_label(state_dir, topic_id), topic_title(state_dir, topic_id)
     if not lead:

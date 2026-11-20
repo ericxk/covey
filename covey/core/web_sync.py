@@ -1,4 +1,4 @@
-"""网页工作台同步的数据 (docs/butler.md 网页工作台, COVEY_WEB=1): the config, the four kinds of items pushed to the web page, and the
+"""网页工作台同步的数据 (docs/web.md, COVEY_WEB=1): the config, the four kinds of items pushed to the web page, and the
 ledger of the operations fetched from it. Pure functions and one small file; no request is made here (app/web_sync.py asks, app/web_ops.py
 does what the page asked for).
 

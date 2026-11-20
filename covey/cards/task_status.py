@@ -13,7 +13,7 @@ from covey.core.turn_words import TONES
 
 ACTIVITY_ELEMENT_ID = "activity"
 # What the status line says besides the status and its time (阶段, 当前, why it stops), under the row of the
-# status and the tiles and as wide as the card (the "A 一行仪表" sample, the owner, 2026-11-04 21:47). A card
+# status and the tiles and as wide as the card (the "A 一行仪表" sample). A card
 # sent before has no such element: its status line says it all (StreamingReply.status_rows).
 STATUS_MORE_ID = "activity_more"
 # The 看看 button under the status line of a turn that may be stuck (core/progress.py maybe_stuck; Cards.show_stuck): a
@@ -34,10 +34,10 @@ def marked(head: str) -> str:
 def status_markdown(text: str) -> str:
     """The status line as the card shows it, from the plain text its producers write (core/longtask.py
     TaskMonitor, cards/review.py outcome_line, STOPPING; a job record keeps the plain text): the first
-    line's status as a ``##`` heading, which a card's Markdown draws bold and a little larger (the 2026-11-02
-    probe, cards/review.py bold_minor_headings); its words after the first " · " and the lines under it (what
+    line's status as a ``##`` heading, which a card's Markdown draws bold and a little larger (cards/review.py
+    bold_minor_headings); its words after the first " · " and the lines under it (what
     the task does now) small and grey below it: beside the heading they were drawn as large and wrapped in a
-    topic's side panel (the 2026-11-04 client check). The status word (在做, 有结果, 停住了 …) is its state's dot and
+    topic's side panel (a client check). The status word (在做, 有结果, 停住了 …) is its state's dot and
     word in its colour (``marked``). Text already styled is left as it is."""
     text = str(text or "")
     if not text.strip() or text.startswith("## "):

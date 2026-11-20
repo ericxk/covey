@@ -90,8 +90,8 @@ _LONG_PATH = re.compile(r"(?<![\w.~:/-])/(?:[^\s/'\"|;&<>()`$]+/){3,}[^\s/'\"|;&
 def shown_command(detail):
     """A command step's ``detail`` (escaped by ``safe_text``) as a card shows it: the model's own purpose when
     it gave one (Claude's "<purpose> · <command>", backends/claude/events.py), else the command without
-    Codex's shell wrapper, the trimming of its output and the heads of long paths. The 2026-11-02 review
-    read "R=/data/…/03-t290.png | tail -1 | cut -c1-60" and "/bin/bash -lc 'timeout …" on running cards.
+    Codex's shell wrapper, the trimming of its output and the heads of long paths. Not
+    "R=/data/…/03-shot.png | tail -1 | cut -c1-60" and "/bin/bash -lc 'timeout …" on running cards.
     Display only: the step keeps the whole command, which command_kind reads for its kind."""
     purpose, separated, _ = detail.partition(" · ")
     if separated and purpose.strip():

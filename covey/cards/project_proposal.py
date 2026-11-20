@@ -1,4 +1,4 @@
-"""整理专项's cards (docs/butler.md 整理专项, app/project_tidy.py): the proposal card (建个专项？), its rename form, the 整理专项 card of
+"""整理专项's cards (docs/projects.md 整理专项, app/project_tidy.py): the proposal card (建个专项？), its rename form, the 整理专项 card of
 a scheduled or asked-for 整理, and the line a topic's cards get once it joined a project (已归进「X」 · 移出). Each is drawn whole
 from its view (a dict kept in the record), so a click redraws it the same way (rule 9: a form that changes replaces the card).
 The buttons' kinds are in app/card_actions.py ACTIONS, handled before topic routing (app/unified.py PANELS)."""
@@ -17,7 +17,7 @@ DECLINE_KIND = "bridge_tidy_decline"  # 暂不考虑 (a proposal card's), 不用
 NEVER_KIND = "bridge_tidy_never"  # 以后别提议 (a card sent before name_form)
 AUTO_KIND = "bridge_tidy_auto"  # 以后直接建
 OK_KIND = "bridge_tidy_ok"  # 好 on one row of the 整理专项 card
-ALL_KIND = "bridge_tidy_all"  # 全部照办 (a card sent before 2026-11-18: no new card has it)
+ALL_KIND = "bridge_tidy_all"  # 全部照办 (a card of an older release: no new card has it)
 LEAVE_KIND = "bridge_tidy_leave"  # 移出 on a topic's card
 LESSON_KIND = "bridge_tidy_lesson"  # 记下 under a 不用 or 移出: the owner's reason
 START_KIND = "bridge_tidy_start"  # 整理专项 on the 设置 card
@@ -35,17 +35,17 @@ ASK_AUTO = "你已经连着 {} 次直接点了建：以后这种直接建，只�
 NAME_FIELD, GOAL_FIELD, WHY_FIELD, TOPICS_FIELD, MORE_FIELD = "name", "goal", "why", "topics", "more"
 CARD_ROWS = 5
 OUTCOME = {"done": "已照办", "declined": "不用", "never": "以后不再提议", "failed": "没做成", "expired": "已过时"}
-PROPOSAL_OUTCOME = {**OUTCOME, "declined": "不管了"}  # The proposal card's word for its 不管了 (暂不考虑 before 2026-11-19)
+PROPOSAL_OUTCOME = {**OUTCOME, "declined": "不管了"}  # The proposal card's word for its 不管了 (暂不考虑 in older releases)
 KIND_WORDS = {"create": "新建", "join": "归进", "leave": "移出", "merge": "合并", "split": "拆开", "rename": "改名", "fold": "收起"}
 TIDY_ICON = "folder_outlined"
-# A suggestion of the 整理专项 card (a row with ``item``, 2026-11-19 T572, the owner's pick A 一条一块): its tag and its button's verb.
+# A suggestion of the 整理专项 card (a row with ``item``, one block each): its tag and its button's verb.
 TAGS = {"split": "拆出", "create": "新建", "leave": "移出", "join": "归进", "merge": "合并", "rename": "改名", "fold": "收起"}
 VERBS = {"split": "拆出来", "create": "新建", "leave": "移出", "join": "归进", "merge": "合并", "rename": "改名", "fold": "收起"}
 SHOWN_TOPICS = 4  # Up to this many topics listed; more: the first SHOWN_TOPICS - 1, the rest folded (“还有 8 个话题”, never “等”).
 
 
 def topics_line(labels) -> str:
-    """"T488 修 064 采购审批题包 · T505 优化 Bootstrap 下一环节": (label, title) pairs."""
+    """"T12 修登录页 · T15 优化部署脚本": (label, title) pairs."""
     return " · ".join(" ".join(part for part in (label, title) if part) for label, title in labels)
 
 
@@ -68,8 +68,7 @@ def span(row) -> str:
 
 
 def topic_lines(view) -> list:
-    """The topics of a proposal as the owner can tell them and judge (the owner, 2026-11-18: 我都不知道 T252 在哪…哪几个话题，
-    这些话题我应该能点开看，同时你应该有这些话题的 Summary，不然我咋判断能建专项呢？): every topic of it, each its T number as a
+    """The topics of a proposal as the owner can tell them and judge: every topic of it, each its T number as a
     link that opens it, its title and how long it has gone on, then a summary: what it is doing (its 话题要点's 本质) and
     where it is now (its latest conclusion). A view kept before rows (labels only) is drawn as before."""
     rows = view.get("rows")
@@ -92,8 +91,7 @@ def choice_text(choice) -> str:
 
 
 def name_form(view):
-    """建专项 after the owner's own touches (the owner, 2026-11-18: 直接给一个可编辑的名字然后一个确认按钮就行…一个暂不考虑就行;
-    在页面增删一下话题…让人微操一波): which topics (``choices``: the proposal's, ticked, then the recent others; a select's
+    """建专项 after the owner's own touches: which topics (``choices``: the proposal's, ticked, then the recent others; a select's
     options are fixed when the card is sent, so any other topic goes in by its T number), the name ready to change, and
     建专项 / 不管了. A view without choices (kept before them) has the name alone."""
     elements = []
@@ -197,7 +195,7 @@ def suggestion_words(found) -> dict:
 
 
 def topic_entry(topic) -> str:
-    """``T566 飞书设置卡脱敏批量编辑``, the T number a link that opens the topic when it has one."""
+    """``T12 设置卡批量编辑``, the T number a link that opens the topic when it has one."""
     label = literal_text(topic.get("label") or "话题")
     shown = f"[{label}]({topic['link']})" if topic.get("link") else label
     return f"{shown} {literal_text(topic['title'])}" if topic.get("title") else shown
@@ -229,7 +227,7 @@ def suggestion_block(row, run, index):
         elements.append(md(grey("目标：" + literal_text(found["goal"])), size="notation"))
     elements += topic_list(list(found.get("topics") or ()), f"tidy_more_{index}")
     state = row.get("state") or "open"
-    if state == "open" and row.get("note"):  # What changed since it was proposed (T574: 已归进别处的话题不再拆，只拆剩下的).
+    if state == "open" and row.get("note"):  # What changed since it was proposed.
         elements.append(md(grey(literal_text(row["note"])), size="notation"))
     if state == "open":
         value = {"run": run, "proposal": row.get("proposal", "")}
@@ -283,8 +281,8 @@ def tidy_card(view):
                      md("、".join(f"「{literal_text(name)}」" for name in proposed)),
                      note("每个一张提议卡，在下面：话题都列全、能点开、带摘要，可以增删话题、改名，再逐个确认。")]
     if rows and all(row.get("item") for row in rows):
-        # Each suggestion a block of its own (2026-11-19 T572: one long line of a dozen T numbers, the action and its reason mixed and
-        # the buttons beside the middle of it read as a mess). Rows kept before ``item`` are drawn as before, below.
+        # Each suggestion a block of its own (one long line of a dozen T numbers, the action and its reason mixed and
+        # the buttons beside the middle of it, reads as a mess). Rows kept before ``item`` are drawn as before, below.
         elements.insert(0, tidy_band(view, rows))
         elements += [suggestion_block(row, view.get("run", ""), index) for index, row in enumerate(rows)]
     elif rows:
@@ -298,11 +296,10 @@ def tidy_card(view):
                                                         "proposal": row.get("proposal", "")})))
             else:
                 elements.append(md(f"· {line} <font color='grey'>{literal_text(row.get('note') or OUTCOME.get(row.get('state'), ''))}</font>"))
-        # No 全部照办: each one is the owner's own yes (the owner, 2026-11-18). A card sent before keeps its button.
+        # No 全部照办: each one is the owner's own yes. A card sent before keeps its button.
     pending = [name for name in view.get("pending") or () if name]
     if pending:
-        # What this 整理 would propose again and still waits for him (the owner, 2026-11-18 23:19: 为啥现在我点了整理专项
-        # 说不需要呢): named, to decide on the 看板 — never “没有要改的” while they wait.
+        # What this 整理 would propose again and still waits for him: named, to decide on the 看板 — never “没有要改的” while they wait.
         elements += [section(f"还在等你定（{len(pending)} 个）"),
                      md("、".join(f"「{literal_text(name)}」" for name in pending)),
                      note("之前提过、你还没定。在看板的专项区可以直接点「建专项」或「不管了」。")]
@@ -329,13 +326,12 @@ def joined_card(name, topic, pid):
                 padding="8px 12px 8px 12px")
 
 
-TIDY_SPAN = "最近 7 天动过的话题"  # Topics with a turn in the last 7 days, not the ones opened then (the owner, 2026-11-18).
+TIDY_SPAN = "最近 7 天动过的话题"  # Topics with a turn in the last 7 days, not the ones opened then.
 START_LINE = f"把专项和{TIDY_SPAN}重新看一遍，给出建议"
 
 
 def board_rows(names):
-    """The 专项 part of the bot menu's 看板 and of 早晚汇总 (cards/digest.py, COVEY_PROJECT_TIDY on; the owner, 2026-11-18: 不是说
-    给专项整理做一个按钮么，咋没有呢): the projects by name, and 整理专项 at once."""
+    """The 专项 part of the bot menu's 看板 and of 早晚汇总 (cards/digest.py, COVEY_PROJECT_TIDY on): the projects by name, and 整理专项 at once."""
     shown = "、".join(f"「{literal_text(name)}」" for name in names[:6]) + (f" 等 {len(names)} 个" if len(names) > 6 else "")
     return [section(f"专项（{len(names)}）"), md(shown if names else "<font color='grey'>还没有专项</font>"),
             item(md(START_LINE), text_button("整理专项", {"kind": START_KIND}, tone="primary"))]

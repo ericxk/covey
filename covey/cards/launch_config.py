@@ -2,17 +2,17 @@
 with the 换配置 card (cards/switch_form.py); the 设置 card's 私聊默认, 新话题默认 and 代答 tabs draw their Harness,
 供应商, 模型 and 思考预算 rows with the same rows (harness_setting, tier_rows).
 
-The look (the owner, 2026-11-03 22:59, from three samples): the chosen model large with its Harness and
+The look: the chosen model large with its Harness and
 provider as tags and the rest of the choice in one grey line; the settings folded under 调整模型、预算和工作区
 as a list, a grey label left of the choice; then 其他目录… and 开始任务. Each choice redraws the card
 (app/model_picker.py) unfolded, so the summary says what 开始任务 would start.
 
-No select (the owner, 2026-11-04, from three phone samples): on iOS Feishu a select opens a full-screen picker
+No select: on iOS Feishu a select opens a full-screen picker
 whose 取消 lies under the status bar, so the only way out was the option already ticked, and the options fill
 the top of an empty page. A row is a fold whose options, one per row and the current one ✓, open under it in
 the client; a tap on an option records it as the select did and redraws the card. The first form of this
 (84caa8a) turned the card into a row's options page, a redraw each way: every change waited for two round
-trips of about a second each (the owner, 2026-11-04 09:37: 点击 Harness 特别慢).
+trips of about a second each.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from covey.core.menu_choice import (budget_options, effort_text, model_provider,
 from covey.core.workspaces import RUN_MODES
 
 MODEL_ACTION = 'bridge_launch_model'
-# The Harness and provider selects above the model's (the owner, 2026-11-03: 启动卡也改成分级).
+# The Harness and provider selects above the model's.
 HARNESS_ACTION = 'bridge_launch_harness'
 PROVIDER_ACTION = 'bridge_launch_provider'
 BUDGET_ACTION = 'bridge_launch_budget'
@@ -40,7 +40,7 @@ SUBMIT_PREFIX = 'bridge_launch_'
 PICKER_PREFIX = 'bridge_pick_'
 ADJUST_TITLE = '调整模型、预算和工作区'
 DEFAULT = '默认'  # An empty choice of tier_rows' rows without a ``follows`` text.
-# A row's tap on a card sent with options pages (84caa8a, 2026-11-04 01:13 to the fold rows): its ``page``, or
+# A row's tap on a card sent with options pages (an older release, before the fold rows): its ``page``, or
 # "" from a page's ‹ 返回. Now a redraw with that row open, or none open; the rows open in the client.
 PAGE_ACTION = 'bridge_launch_page'
 PAGES = frozenset({'', 'harness', 'provider', 'model', 'effort', 'work_mode', 'redaction', 'workspace', 'run_mode'})
@@ -88,7 +88,7 @@ def setting_row(setting, *, token, open_key='', changed=False, stamp='', value=N
     """A settings-list row: a fold whose title is the label, grey (blue and bold when ``changed``), then the
     choice, and whose options open under it in the client (``open_key``: the row drawn open). Its element ID
     takes ``stamp`` (else the card's token, new on each launch card): the client keeps a fold open or closed
-    across a redraw of the same ID (the 2026-11-04 web client kept a row open after its choice), so a choice's
+    across a redraw of the same ID (the web client kept a row open after its choice), so a choice's
     redraw closes the row. An option is
     one tappable line, two card nodes (a card holds 200), the current one blue and bold after ✓, the others
     after a full-width space so the names line up. ``value``: more fields of each option's callback (the 代答 tab's
@@ -242,7 +242,7 @@ def launch_form_card(token, *, model, choices, effort, workspace, names, run_mod
         summary,
         adjust,
         # The form holds the buttons only: each choice is recorded as made, and a directory not in the
-        # list is pasted into 其他目录…'s browser (the path input went, 2026-11-03).
+        # list is pasted into 其他目录…'s browser (the path input went).
         {'tag': 'form', 'name': 'launch_form', 'elements': [
             {'tag': 'column_set', 'horizontal_spacing': '8px', 'columns': [
                 {'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [button]} for button in buttons]},

@@ -67,8 +67,8 @@ def proxy_topic(ctx) -> bool:
         return False
 
 
-# topic.json's ``retired``: "desk" for a front-desk topic (前台话题, the desk_topics layout of 11-07) that
-# core/migrate.py desk-retire froze (2026-11-10, the owner: 整块删除). Nothing goes into it any more: a message quoting
+# topic.json's ``retired``: "desk" for a front-desk topic (前台话题, the retired desk_topics layout) that
+# core/migrate.py desk-retire froze. Nothing goes into it any more: a message quoting
 # its cards goes to the butler (app/butler.py app_for), a click on them gets RETIRED_TEXT
 # (app/task_controls.py retired_action), the butler's tools say so (app/butler_topics.py find_topic).
 RETIRED_DESK = "desk"
@@ -134,7 +134,7 @@ def workspace_locked(ctx) -> bool:
     if data.get("workspace_locked") or ctx.session_path.exists():
         return True
     # Preserve every topic that already executed before this feature. The topic's records only:
-    # copying all of them took 0.1-0.2 s, several times per message (2026-10-26).
+    # copying all of them took 0.1-0.2 s, several times per message.
     return any(r.get("status") not in {"waiting_workspace", "cancelled"}
                for r in topic_job_records(ctx.state_dir, ctx.topic_id))
 
@@ -194,7 +194,7 @@ def shown_title(text: Any) -> str:
 
 
 def topic_title(state_dir: Path, topic_id: str) -> str:
-    """The topic's title, the one every card, the board and the butler name it by (C9, 2026-11-08): the first
+    """The topic's title, the one every card, the board and the butler name it by (C9): the first
     line of the title the butler gave it (topic.json ``origin.title``, app/butler_topics.py), else the first line
     that says something of its first user message (core/turn_words.py request_line: not a heading the Bridge put
     before the words), as ``shown_title`` writes it; "" without either. The caller cuts it to its own length. Kept
@@ -256,7 +256,7 @@ def context_for_topic(ctx: Any, event: dict[str, Any], sessions_dir: Any, *, leg
     base = ctx.state_dir / "topics"
     with _LOCK:
         topic_id = _key(chat_id, root_id or parent_id or message_id)
-        # In a thread, with the butler on, only the quoted message's routes_to counts (S8, 2026-11-08: the butler's
+        # In a thread, with the butler on, only the quoted message's routes_to counts (the butler's
         #  card is in the owner's message's thread, so quoting it there is the topic it handed on to; the
         # thread is not that topic's). The mode 纯话题 keeps a thread its root's.
         quoted = _routes_to(base, chat_id, parent_id) if not thread_id or butler.enabled() else ""
@@ -358,7 +358,7 @@ def route_message(state_dir: Path, chat_id: str, message_id: str, topic_id: str,
     """A top-level reply quoting the message ``message_id`` goes to ``topic_id`` (``context_for_topic``,
     app/butler.py app_for), while the message stays whose it was: a reply the Bridge sends to it stays where that
     topic's replies go (feishu/message_request.py reply_in_thread). For the butler's card that handed work to one
-    话题区 alone, and a relay quoting it (app/butler_relay.py: the owner, 2026-11-07, 引用直达)."""
+    话题区 alone, and a relay quoting it (app/butler_relay.py: 引用直达)."""
     if not topic_id or not chat_id or not message_id:
         return
     path = _alias_path(state_dir / "topics", chat_id, message_id)

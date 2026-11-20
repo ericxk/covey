@@ -65,8 +65,8 @@ def _harness_id(topics, value):
 
 
 def resolve(topics, state_dir, chat, defaults, args=None, choices=None):
-    """The Harness, model and budget a topic the butler opens runs with, each field on its own (REVIEW 11-06:
-    a Harness alone in the settings had dropped the last launch's model): the call's value, else the settings'
+    """The Harness, model and budget a topic the butler opens runs with, each field on its own (a
+    Harness alone in the settings had dropped the last launch's model): the call's value, else the settings'
     default (core/butler_settings.py TopicDefaults; its model and budget only for its Harness), else the
     chat's last 开始任务 (its model and budget only for its Harness, a budget only one the model offers), else the
     Bridge's own default. A dict, ``sources`` saying where each came from (CALL, SETTINGS, LAST or BRIDGE); a str

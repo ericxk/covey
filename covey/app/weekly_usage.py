@@ -1,17 +1,16 @@
 """本周用量: the bot menu's item (app/bot_menu.py) answered with a card of the last WINDOW_DAYS days' tasks.
 
-The owner chose the items on a question card (2026-11-03): the tasks and the topics they ran in, how the
+The owner chose the items on a question card: the tasks and the topics they ran in, how the
 tasks ended, each Harness's share of the tasks and of the tokens, and the tokens as input (cache hits
 counted in it, as 任务详情 counts them), cache hits and output, a task's subtasks included. 本周 is the
 last 7 × 24 hours, not the calendar week. A task is one job record created in the window that a backend
 ran (core/jobs.py never_started leaves out launch cards and merged supplements), in any chat; a turn that
 asked a question and the one that went on after the answer are two. The total and each Harness's token
-share count the cache hits in (cards/weekly_usage.py total_tokens; the owner, 2026-11-06: 按用量来看，应该是显示
-含缓存的). From 2026-11-03 they left them out, as about nine tenths of the input. The counts
+share count the cache hits in (cards/weekly_usage.py total_tokens), as about nine tenths of the input. The counts
 are read from the records at each click; nothing is stored. The card goes to the owner's private chat, with a record
 of its own (<state>/FOLDER/<token>.json, app/menu_panel.py): a second menu click folds it in place, the next draws it
 again with the figures of then.
-Only the routed Harnesses are counted: a removed one's tasks are left out (the owner, 2026-11-03).
+Only the routed Harnesses are counted: a removed one's tasks are left out.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""The family ledger of 多路并行 (docs/butler.md 记忆合并): what the butler's other tracks (core/butler_tracks.py,
+"""The family ledger of 多路并行 (docs/butler.md 同时做几件事): what the butler's other tracks (core/butler_tracks.py,
 slots 1..) answered, for the butler's next turn to read. A track is a fork of the butler's session, so what it answered
 is not in the butler's own session: each turn of a track that ended writes one record here, and the butler's
 next turn (slot 0) is given the ones it has not read yet, in one block of its message.

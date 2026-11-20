@@ -1,7 +1,7 @@
 """The butler's compaction while it is idle (docs/butler.md 会话): the owner no longer waits for it.
 
-Until 2026-11-09 a butler turn that ended past ``compact_tokens`` left a request (app/compaction.py) that the
-next turn took: the owner's next message waited for the summary first (#3275: 85 s of 109 s). Now its task runner
+Before, a butler turn that ended past ``compact_tokens`` left a request (app/compaction.py) that the
+next turn took: the owner's next message waited for the summary first (85 s of 109 s). Now its task runner
 marks the request ``idle`` and the Bridge compacts between the turns:
 
 - ``after_runner`` (app/detached.py finish_detached, once the turn's runner has exited): with a request waiting, a

@@ -207,8 +207,8 @@ class GroupBoardTests(GroupFixture, UnifiedCase):
     def test_a_group_message_of_the_owner_reaches_owner_active(self):
         setspaces(self.access, personal_groups=frozenset({'group'}))
         with mock.patch.object(self.app.group_boards, 'owner_active') as active:
-            self.send(group_event('o1', '@C队 看看', 'owner'))
-            self.send(group_event('m1', '@C队 我也看看', MEMBER))
+            self.send(group_event('o1', '@Covey 看看', 'owner'))
+            self.send(group_event('m1', '@Covey 我也看看', MEMBER))
         self.assertEqual([call.args[1] for call in active.call_args_list], ['group'])
 
     def test_a_dismiss_click_on_the_groups_card_takes_off_its_own_board(self):
@@ -357,7 +357,7 @@ class SpaceRecordTests(GroupFixture, UnifiedCase):
 
     def test_the_group_tab_says_each_groups_space_type_only_with_a_spaces_section(self):
         manager = self.app.group_manager
-        self.send(group_event('o1', '@C队 第一个任务'))
+        self.send(group_event('o1', '@Covey 第一个任务'))
         plain = json.dumps(manager.card({'token': 't' * 24, 'revision': 1, 'page': 0}, {}), ensure_ascii=False)
         self.assertNotIn('空间', plain)
         self.assertEqual(manager.listed()[1], None)

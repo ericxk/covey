@@ -18,7 +18,7 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
   (app/triage.py).
 
 A tool that hands out, stops or answers (``acted``) marks the lead's turn as one that changed something, so the reply of
-a wake-up turn that did is sent to the owner (app/project_loop.py reported; 2026-11-19, the owner: 有变化才发).
+a wake-up turn that did is sent to the owner (app/project_loop.py reported: 有变化才发).
 
 A refusal is a ValueError, which app/butler_tools.py ButlerTools.execute turns into an answer the lead reads."""
 from __future__ import annotations
@@ -85,8 +85,8 @@ def active(record, what="这件事") -> None:
 def finish_gate(record) -> str:
     """'' when the lead may finish ``record``; else why not (``OWNER_FIRST``): a project 整理专项 made of topics that were there
     already (origin ``tidy``), which the owner has not spoken in since (``owner_at``, app/project_loop.py owner_spoke) and
-    its lead has handed no work to (``acted``). Its topics all done is how it began, not its goal reached (the owner,
-    2026-11-19: a project split off was finished by its lead's first wake-up turn). A project the owner started (direct, an
+    its lead has handed no work to (``acted``). Its topics all done is how it began, not its goal reached (else a
+    project split off would be finished by its lead's first wake-up turn). A project the owner started (direct, an
     upgrade) began with his words."""
     origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
     if origin.get("kind") != "tidy" or record.get("owner_at") or record.get("acted"):
@@ -149,7 +149,7 @@ def project_topic_send(env, request):
 
 
 def take_in(env, chat, pid, topic, text) -> str:
-    """An ordinary topic the lead gives work to joins the project first (the owner, 2026-11-19: 加话时顺带收进专项): app/project_members.py
+    """An ordinary topic the lead gives work to joins the project first: app/project_members.py
     join_topic, its running turn and the question it waits on left as they are. '' when it joined; else why it cannot (a lead's,
     another project's, the butler's, one the owner took out of a project)."""
     from covey.app.project_members import join_topic, wanted_topics
@@ -227,7 +227,7 @@ def project_note(env, request):
 
 def project_goal(env, request):
     """The project's goal as the lead keeps it: the record's ``lead_goal`` {text, at, job}. The record's ``goal`` stays what
-    the project was opened with (the owner's words, or the work it took over), which reads as no goal (T550, 2026-11-19)."""
+    the project was opened with (the owner's words, or the work it took over), which reads as no goal."""
     pid, _ = lead(env, request)
     text = text_of(request.args)
 

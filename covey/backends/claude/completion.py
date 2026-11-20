@@ -68,7 +68,7 @@ def save_diagnostic(ctx, run_id, row, status, code, *, cleanup=True, policy_even
 def final_texts(messages, progress_ids):
     """The reply's texts in order: not the ones a tool call followed (they were progress), and a text that only says
     the one before it again once. After each background task's notification Claude Code starts a turn, and the model
-    may write the same reply in each of them (three times in one butler turn on 2026-11-16)."""
+    may write the same reply in each of them (three times in one butler turn, seen)."""
     kept, last = {}, None
     for key, value in messages.items():
         if key in progress_ids or value == last:
@@ -162,7 +162,7 @@ class ClaudeReplyState:
         if kind == "user" and row.get("uuid") in self.inputs:
             if self.result is not None and row["uuid"] not in self.acknowledged:
                 # Claude Code queued this input until the turn ended and now starts a turn for it:
-                # that result, success or failure, is no longer the answer (task #1556's 502).
+                # that result, success or failure, is no longer the answer (a 502, say).
                 self.invalidate()
             self.acknowledged.add(row["uuid"])
         elif kind == "system" and subtype == "session_state_changed":

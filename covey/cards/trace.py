@@ -11,7 +11,7 @@ CODE = re.compile(r"(?ms)^[ \t]*(```+|~~~+)[^\n]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)"
 
 def literal_code(text):
     """A note as ``safe_text(markdown=True)`` escaped it, its code shown as written: Feishu does not
-    decode entities inside code (T182 #1111 read ``&lt;state&gt;`` and ``&quot;T182&quot;``), so code
+    decode entities inside code (it would read ``&lt;state&gt;`` and ``&quot;T12&quot;``), so code
     gets its characters back. A ``<`` keeps a zero-width space after it, so no tag can start there even
     where a chunk break leaves half a code span outside its backticks. Drawing time, not storage:
     snapshots saved escaped, by this release or an earlier one, read the same."""

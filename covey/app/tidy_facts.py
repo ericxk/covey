@@ -1,6 +1,6 @@
 """What 整理专项 reads of the records and says about them, as plain functions of the state directory: the words for topics and
 projects, a 话题要点's sign, where a topic is now, the topics a 整理 looks at, the proposal card's view and the topics ticked on it, the
-claim that takes an open proposal to its decided state, and the rows' words (docs/butler.md 整理专项). They read records and
+claim that takes an open proposal to its decided state, and the rows' words (docs/projects.md 整理专项). They read records and
 write none (``claim`` returns the edit), send no card and call no model. This is the bottom of the app/tidy_*.py modules: every
 other one may import it, it imports none of them (tests/test_structure.py TidyPartsTest)."""
 from __future__ import annotations
@@ -38,7 +38,7 @@ def project_name(state, pid) -> str:
 
 
 def labels(state, topics) -> str:
-    """Every topic's T number (the owner, 2026-11-18: 不准用“等”字省略), plain: the log's and a proposal's text."""
+    """Every topic's T number, plain: the log's and a proposal's text."""
     return "、".join(label_title(state, topic)[0] or "话题" for topic in topics)
 
 
@@ -196,7 +196,7 @@ def elsewhere(state, topics) -> str:
 
 
 def went(state, topics) -> str:
-    """Where ``topics`` went: T519、T531 已归进专项「X」 (one clause a project)."""
+    """Where ``topics`` went: T19、T31 已归进专项「X」 (one clause a project)."""
     by = {}
     for topic in topics:
         found = projects.topic_project(state, topic)

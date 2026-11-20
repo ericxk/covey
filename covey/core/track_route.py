@@ -1,5 +1,5 @@
 """Where a new butler message goes when the family already has live tasks: the rule layer of the message router
-(a pure function, docs/butler.md 多路并行).
+(a pure function, docs/butler.md 同时做几件事).
 
 ``route`` takes one ``Message`` (the text, what it quotes, the family's live tasks, the clock), applies the nine rules in
 order, and answers a ``Decision(action, target, why)``; the first rule that matches wins:

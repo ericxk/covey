@@ -1,8 +1,8 @@
 """A supplement the model has not read yet: how long it has waited, and stopping the command that holds it back
 (docs/architecture.md 补充投递).
 
-Claude Code takes a supplement in only between two tool calls: one sent while a long command ran was read 4 minutes
-later (T538, "二维码过期，马上重发"). Once a supplement is in a running task whose Harness reports reads, a watcher
+Claude Code takes a supplement in only between two tool calls: one sent while a long command ran can be read minutes
+later ("二维码过期，马上重发"). Once a supplement is in a running task whose Harness reports reads, a watcher
 (``watch_unread``) looks again URGENT_SECONDS after it was sent and at each of REPAINT_AT after that while it is unread:
 its receipt card says how long it has waited and offers 打断它，马上读; an urgent one (core/steer.py ``is_urgent``) has
 the command stopped at the first look (``interrupt``) unless COVEY_STEER_URGENT_SECONDS=0. Stopping is the backend's

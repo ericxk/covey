@@ -15,7 +15,7 @@ from covey.backends.gateway.relay import RECOVERED, RETRYING, BusyRelay
 from covey.core.metrics import clock_text
 # Codex runs ultra itself: the request carries xhigh plus a developer message turning on
 # proactive sub-agent delegation (codex-cli 0.164.0, checked against a local stand-in
-# provider 2026-10-27). Acme never sees "ultra", so its directory does not list it; an
+# provider). Acme never sees "ultra", so its directory does not list it; an
 # Acme model has it when the account's model of the same name does and Acme serves xhigh.
 ULTRA, ULTRA_WIRE = "ultra", "xhigh"
 

@@ -70,7 +70,7 @@ LINE = 100
 RELAYED = "（结论已发到聊天区）"
 OPENED = 30
 # What the butler's /compact asks of the summary (backends/claude/compaction.py command): its summary is the
-# compaction's time (2026-11-08 #3275: 7,851 token in 85 s), and the snapshot, topics_search and topic_read bring
+# compaction's time (7,851 token in 85 s), and the snapshot, topics_search and topic_read bring
 # back the rest. A topic's compaction has no instructions.
 COMPACT_INSTRUCTIONS = (
     "把这段对话压缩成不超过约 2000 token 的摘要。只保留：主人交代、还没做完的事；开过的话题，每个写 T 号、标题和一句话现状；"
@@ -130,7 +130,7 @@ class Butler:
     def harness_note(self) -> str:
         """The start's warning when the private chat is set to 管家 but the butler's Harness
         (``HARNESS``) is not enabled: the owner's messages then open topics as with the butler off, which
-        nothing else says (acceptance on a test bot without Claude Code, 2026-11-15). '' otherwise."""
+        nothing else says (acceptance on a test bot without Claude Code). '' otherwise."""
         if not contract.enabled() or self.topics.apps.get(HARNESS) is not None:
             return ""
         return (f"main thread is on but its Harness {HARNESS} is not enabled: private chat messages open topics "
@@ -139,7 +139,7 @@ class Butler:
     @staticmethod
     def configure(ctx) -> None:
         """Where replies go, in this process. A reply to one of the butler's messages goes in that message's
-        thread (since 2026-11-08: the owner's message gets the butler's card in its thread, no card of its own
+        thread (the owner's message gets the butler's card in its thread, no card of its own
         beside it). With the butler off (the switch 0 or the mode 纯话题, which the owner changes while the
         process runs), every reply is in its thread."""
         state = ctx.state_dir
@@ -184,17 +184,17 @@ class Butler:
         above = [str(event.get(name) or "") for name in ("parent_id", "root_id", "thread_id")]
         if routed_topic(ctx.state_dir, chat, above[0]):
             # Quoting a message routed to a topic (the card of a turn that handed on to it alone, a relay), at the top
-            # level or in a thread (S8, 2026-11-08: the card is in the owner's message's thread): that topic's (引用直达).
+            # level or in a thread (the card is in the owner's message's thread): that topic's (引用直达).
             return None
         known = [topic for topic in (message_topic(ctx.state_dir, chat, message) for message in above if message) if topic]
         if known and not is_butler_topic(known[0], chat) and retired_topic(ctx.state_dir, known[0]):
-            # A frozen front-desk topic's card quoted (core/topics.py retired_topic, 2026-11-10): the message is the
+            # A frozen front-desk topic's card quoted (core/topics.py retired_topic): the message is the
             # butler's, as a new one at the top level (its chain's root is the owner's message, the butler's
             # ; core/topics.py context_for_topic finds that first).
             known = [butler_topic_id(chat)]
         if known and contract.is_lead(known[0], chat):
             # A reply to a project lead's answer: the lead's (引用直达), as a quote of its 专项卡 is. The lead is of the
-            # butler's family (core/butler.py is_butler_topic), so it stayed here and reached the butler (2026-11-19).
+            # butler's family (core/butler.py is_butler_topic), so it stayed here and reached the butler.
             return None
         # A reply to a message no topic knows opens a topic on it, as ever; to one of the butler's stays here, and to
         # 手上的事 or an 早晚汇总 (no topic's: the Bridge's own, app/pins.py panel_message) too.
@@ -490,7 +490,7 @@ def snapshot_groups(ctx, chat, now) -> dict:
         harness = record.get("harness_id") or record.get("backend") or ""
         # The step under way ("第 3/5 步：<title> · 本步 40 分钟") in place of the phase, as the task card says it; then
         # what it last did, the estimate or that it may be stuck (core/progress.py), before what it runs with, so the
-        # butler answers "T484 咋样了" from here (the line is cut at LINE).
+        # butler answers "T84 咋样了" from here (the line is cut at LINE).
         step, doing = step_text(checkpoint_steps({"steps": record.get("steps")}), record.get("step_times"), now)
         running.setdefault(topic, line(label, " · ".join(part for part in (
             title, not doing and phase and "阶段：" + phase, step, *progress_words(record, read.jobs, now), harness,
@@ -574,7 +574,7 @@ def take_snapshot(ctx, chat, key, *, full, now=None, save=True) -> str:
     saved = read_object(path)
     previous = saved.get("groups")
     if isinstance(previous, dict) and "results" in previous and "result" not in previous:
-        previous = {**previous, "result": previous["results"]}  # Saved before 2026-11-10: the group's old key.
+        previous = {**previous, "result": previous["results"]}  # Saved by an older release: the group's old key.
     last = saved.get("job")
     # The same job again, or a last turn that did not end well, may not have read it.
     settled = isinstance(last, str) and last != key and (read_job_record(job_path(ctx.state_dir, last)) or {}).get("status") in GOOD_ENDS

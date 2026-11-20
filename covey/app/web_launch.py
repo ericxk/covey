@@ -1,6 +1,6 @@
-"""网页开新话题 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v17 ``launch``): what the launch card offers a new topic of the
+"""网页开新话题 (docs/web.md, COVEY_WEB=1; data contract v17 ``launch``): what the launch card offers a new topic of the
 owner's private chat, pushed for the page's chat box (``catalog``), and the page's ``launch`` that opens one with the choices made there
-(``launch``), started at once (the owner, 2026-11-19 T554: 网页上选好就直接开工).
+(``launch``), started at once.
 
 - ``catalog`` is the launch card's own reading: the menu (app/launch_models.py available_models) in the order the card lists it
   (app/preselection.py launch_selection: the preselected model first, then the chat's recent ones), each model with its Harness and

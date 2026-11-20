@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 # CardKit refuses a card over its size (code 200860, card over max size), and the size is not the card
 # JSON's bytes: each rendered line, paragraph, inline mark and table cell costs as much as 70-600 bytes
 # of text, counted over the whole card (a process panel's lines leave fewer for the answer). Measured
-# 2026-10-28 with cards created and patched but never sent: 2,190 lines of one number each (9.8 KB)
-# were refused, 40,000 characters of Chinese prose (117 KB) were not. #1150 (5,000 numbers, 23.9 KB)
+# with cards created and patched but never sent: 2,190 lines of one number each (9.8 KB)
+# were refused, 40,000 characters of Chinese prose (117 KB) were not. A body of 5,000 numbers (23.9 KB)
 # was refused three times and its card stayed at 执行中. ``card_cost`` estimates that size; at every
 # measured refusal (numbers, short Chinese and English lines, paragraphs, lists, bold and code marks,
 # tables, headings, code blocks, prose), with the card's other elements, it read at least 358,000;

@@ -4,10 +4,10 @@ a search box, the list a term a line each with its 删除, then folds for 开关
 
 No term is on the card (docs/usage.md 敏感词脱敏): a row names a term by core/redaction.py ``masked`` and by a key that
 tells nothing of it, a stand-in is never shown (RX and 8 hex digits of the term's hash, next to its first character and
-length, would give a short term away; the owner no longer names one, 2026-11-14), and what the owner typed into a box
+length, would give a short term away; the owner no longer names one), and what the owner typed into a box
 is never its default value. Each button's value carries its kind, the card's token and the revision drawn; a form's
 submit button carries one too (as cards/proxy_panel.py's 查找). PAGE and EDIT, the tab row and the row editor of the
-2026-11-13 layout, and ROTATE, the web dashboard's 换口令 (taken out 2026-11-19, T569), stay in KINDS so a card sent then
+older layout, and ROTATE, the web dashboard's 换口令 (taken out), stay in KINDS so a card sent then
 still answers."""
 from __future__ import annotations
 
@@ -18,12 +18,12 @@ from covey.cards.elements import (button_row, callback_button, collapsible, grey
 
 TITLE = '脱敏看板'
 SUBTITLE = '填入敏感词，替身词自动生成'
-# One layer (the owner's decision of 2026-11-14): the stats line, 填词, the list, three folds (开关, 试一下, 记录).
-PAGE = 'bridge_redaction_page'  # Retired: the tab row of the four pages (a card sent 2026-11-13 still has it).
+# One layer: the stats line, 填词, the list, three folds (开关, 试一下, 记录).
+PAGE = 'bridge_redaction_page'  # Retired: the tab row of the four pages (a card of the older layout still has it).
 LIST = 'bridge_redaction_list'  # The list's page (``at``); ``clear`` ends a search.
 FIND = 'bridge_redaction_find'  # 查找: the form's QUERY.
 ADD = 'bridge_redaction_add'  # 加入词表: the form's LINES.
-REMOVE = 'bridge_redaction_remove'  # 从词表删除: the same form's LINES, each line a whole term (2026-11-19, T566).
+REMOVE = 'bridge_redaction_remove'  # 从词表删除: the same form's LINES, each line a whole term.
 TERM = 'bridge_redaction_term'  # A row's 删除 (``op`` delete), by its ``key``; ``op`` edit is retired.
 EDIT = 'bridge_redaction_edit'  # Retired: the row editor's buttons (stand-in, match, done).
 UNDO = 'bridge_redaction_undo'  # 撤销 the card's last 删除.
@@ -40,7 +40,7 @@ INPUT_LIMIT = 1000  # The most a Feishu input takes.
 PAGE_SIZE = 10  # A row is one line.
 RECENT = 10  # Turns the 记录 fold lists.
 TOPICS = 10  # Topics it lists.
-# 新话题默认开 moved to the 新话题 page's 脱敏 row (the owner, 2026-11-19, T546; core/migrate.py redaction-default).
+# 新话题默认开 moved to the 新话题 page's 脱敏 row (core/migrate.py redaction-default).
 SWITCH_ROWS = {'ignore_case': ('不区分大小写', '其他大小写写法各有自己的自动替身，还原成原样写法'),
                'restore': ('回复还原', '关掉后模型回复里的替身词原样留着')}
 FOLDS = {'switches': '开关与上游地址', 'records': '记录'}  # element_id -> title: collapsible_panel can hold no form (the client

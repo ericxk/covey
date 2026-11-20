@@ -1,5 +1,5 @@
 """The real-time half of 整理专项: one topic against the projects when its turn ended, the join a rule or the judge is sure of done at
-once, and a new project's sweep (docs/butler.md 整理专项). Joins through app/tidy_apply.py, proposes through
+once, and a new project's sweep (docs/projects.md 整理专项). Joins through app/tidy_apply.py, proposes through
 app/tidy_proposals.py; the moments that call it are in app/project_tidy.py."""
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ class Realtime:
             return "open"
         topics = [topic] + [other for other in facts.recent_topics(state, chat, now, records=records) if other != topic]
         backend, context = facts.judge_tools(self.env)
-        # The topic judged is read whole first when it has no 话题要点 (the owner, 2026-11-18: T252's proposal only had its
-        # first title, 阅读这个session…, to go on): the judge then sees what it is about, and so does its proposal card.
+        # The topic judged is read whole first when it has no 话题要点 (a first title such as
+        # 阅读这个session… says nothing): the judge then sees what it is about, and so does its proposal card.
         if sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job):
             sorter.backfill(state, chat, topic, backend=backend, ctx=context, log=self.runtime.log, now=now)
         items = [sorter.material(state, chat, other, now) for other in topics[:sorter.MAX_TOPICS] if not sorter.hidden(state, other)]
@@ -69,8 +69,8 @@ class Realtime:
 
     def rule_confirm(self, ctx, chat, topic, pid, why, now) -> str:
         """A rule hit (``by_rule``) joined only when the judge, reading this topic against that project alone, is sure of it
-        (JOIN_SURE): ``related`` lists the topics a turn named, and a topic names others it is not part of (T579, 2026-11-20: a
-        disk check named the two topics whose tests had filled the disk and went into their 题包 project). "joined" or
+        (JOIN_SURE): ``related`` lists the topics a turn named, and a topic names others it is not part of (a
+        disk check naming the topics whose tests filled the disk is not part of their project). "joined" or
         "rule_declined"; the gist counts as judged either way."""
         state = Path(ctx.state_dir)
         record = projects.read_record(state, pid)

@@ -14,7 +14,7 @@ No summary either of a session the Bridge has blocked or whose last turn a safet
 The handoff is the new binding's alone until one of its runs has finished with a session the topic may resume
 (``settled``); a later fresh session of the same binding (a safety-refusal retry, a pointer cleared after a
 failed turn, a ↩️ 回退 of a session's first turn) starts from its own history like any other fresh turn.
-Each message in plain text is cut at MESSAGE_CHARS (the owner, 2026-11-10: no whole history for the new model
+Each message in plain text is cut at MESSAGE_CHARS (no whole history for the new model
 to cache again). SwitchHandoff is one Harness's side of it, with the 🔁 换配置 control on its
 ended task cards (and ↩️ 回退 beside it on a finished one, app/rewind.py).
 """

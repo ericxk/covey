@@ -36,14 +36,14 @@ ACTIVE, PAUSED, DONE, CANCELLED = "active", "paused", "done", "cancelled"
 MERGED = "merged"  # state_reason of a project 整理专项 merged into another (cancelled; its topics are the other's now).
 DOWNGRADED = "downgraded"  # The record's state_reason of a project the owner turned back (its state is cancelled).
 # Rule 4: the only way a project's state moves. cancelled is final; done goes back to active only when the owner speaks
-# in the project again (app/project_loop.py reopen; the owner, 2026-11-19: a finished project he speaks in opens again).
+# in the project again (app/project_loop.py reopen).
 PROJECT_TRANSITIONS = {ACTIVE: {PAUSED, DONE, CANCELLED}, PAUSED: {ACTIVE, DONE, CANCELLED}, DONE: {ACTIVE}, CANCELLED: set()}
 STATES = frozenset(PROJECT_TRANSITIONS)
 
 LEAD, MEMBER = "lead", "thread"  # topic.json project.role. A project topic is a ``member`` in the code; its role stays "thread" on disk, as an older release's task runner reads it.
 ROLES = (LEAD, MEMBER)
 
-# The owner's defaults of 2026-11-16 for the guards of a later package (the lead's runs, the loop): not read here.
+# The defaults for the guards of a later package (the lead's runs, the loop): not read here.
 DEFAULT_WAKES = 30  # Wake-ups in a row with no one stepping in.
 MAX_ACTIVE = 3  # Projects active at the same time.
 
@@ -478,7 +478,7 @@ def autowake_enabled() -> bool:
 
 def token_limit() -> int:
     """One project's token budget: COVEY_PROJECT_BUDGET, else the older COVEY_PROJECT_TOKENS; 0, no budget, when neither is a
-    positive integer (the owner, 2026-11-19: a project is not paused for its tokens unless a deployment asks for it)."""
+    positive integer (a project is not paused for its tokens unless a deployment asks for it)."""
     raw = str(cenv.get(BUDGET_ENV, "") or "").strip() or str(cenv.get(TOKENS_ENV, "") or "").strip()
     try:
         value = int(raw)

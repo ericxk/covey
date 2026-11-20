@@ -1,4 +1,4 @@
-"""多路并行 at run time (app/butler_tracks.py, docs/butler.md 多路并行): a message of the owner's while the butler's
+"""多路并行 at run time (app/butler_tracks.py, docs/butler.md 同时做几件事): a message of the owner's while the butler's
 family has live tasks is placed by the router (stop, merge, a track of its own), a track's turn forks the butler's
 session and forgets it at its end, and with the switch off none of it happens. A fake backend: the tasks are registry
 jobs with a fake control, the small model a stub."""

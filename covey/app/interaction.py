@@ -44,7 +44,7 @@ def job_trace(job):
 def _show_answer_snapshot(cards, ctx, job, data):
     """The answer so far, streamed to the task card until the answer is final. An empty one (Claude
     sends it when a tool starts) leaves the body blank: "正在处理…" there said what the status line
-    above already says (T182 #1128)."""
+    above already says."""
     if job.answer_finalized:
         return
     text = data.get('text', '')
@@ -386,7 +386,7 @@ class Interaction:
         raise ValueError(refusal)
 
     def show_trace_page(self, ctx, chat, mid, event, raw, fields):
-        """A page picked on a task card sent with page controls (before 2026-11-04): the process panel redrawn
+        """A page picked on a task card sent with page controls (an older release): the process panel redrawn
         as its one page, from its trace file (core/migrate.py wrote an older record's there); a typed page
         that does not exist is noted above the records."""
         started = time.monotonic()

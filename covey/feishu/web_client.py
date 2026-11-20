@@ -1,7 +1,6 @@
 """Feishu web, driven by a headless Chromium logged in as the owner, for the acceptance page of the browser
 service (feishu/web_service.py): what opens the chat list and a chat by its title. 代答 no longer sends
-through it (2026-10-28: app/proxy_send.py runs the sender tool; its send, check, status and login here went
-2026-10-29, repo review 2). Started by path as bin/covey_feishu_web.py under an interpreter that has Playwright:
+through it (app/proxy_send.py runs the sender tool; its send, check, status and login here are gone). Started by path as bin/covey_feishu_web.py under an interpreter that has Playwright:
 
     serve --home DIR [--idle S]                     the browser service on DIR (feishu/web_service.py)
     accept ACTION --home DIR [--title …] [--text …] [--at NAME] [--placeholder P] [--out PNG] [--start PYTHON]
@@ -9,7 +8,7 @@ through it (2026-10-28: app/proxy_send.py runs the sender tool; its send, check,
                                                     click, fill, shot, close), its result on stdout
 
 The profile (the owner's login, copied for acceptance) is DIR/profile, mode 0700. Feishu web opens no chat by
-its chat_id (2026-10-27: a message's data-id is an internal number, a chat's data-feed-id too), so a chat is
+its chat_id (a message's data-id is an internal number, a chat's data-feed-id too), so a chat is
 found by name in the chat list, else through search (``find_chat``, CANDIDATES chats of one name at most).
 Standard library and Playwright only.
 """
@@ -91,7 +90,7 @@ UNAUTHORIZED = "网页端未登录：飞书要求先在客户端授权这台设�
 
 def blocked(page):
     """Whether Feishu web shows its page that asks for this device to be authorized in the desktop client
-    instead of the chat list (2026-10-28: a copied login, signed in all the same; the list never loaded)."""
+    instead of the chat list (a copied login, signed in all the same; the list never loaded)."""
     try:
         return DEVICE_BLOCK in page.evaluate(VISIBLE_TEXT)
     except Exception:  # noqa: BLE001 - a page between loads

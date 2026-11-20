@@ -1,5 +1,5 @@
 """整理专项 on the web page: when its state last changed, the panel's view, and a 好 or 不用 from the page, which goes through the
-click of the card (docs/butler.md 网页工作台)."""
+click of the card (docs/web.md)."""
 from __future__ import annotations
 
 import time

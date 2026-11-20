@@ -18,7 +18,7 @@ REQUEUE_KIND = "bridge_steer_requeue"
 WITHDRAW_KIND = "bridge_steer_withdraw"
 INTERRUPT_KIND = "bridge_steer_interrupt"
 # The receipt's buttons in their order, each shown while the record offers it (core/deliveries.py offers).
-# docs/ui.md 第 6 节: verbs, no more than five characters where they can (检查送达状态 and 重新排队执行 before 2026-11-19).
+# docs/ui.md 第 6 节: verbs, no more than five characters where they can (检查送达状态 and 重新排队执行 in older releases).
 BUTTONS = ((INTERRUPT, "打断它，马上读", INTERRUPT_KIND, "primary"), (WITHDRAW, "撤回", WITHDRAW_KIND, ""),
            (CHECK, "查送达状态", CHECK_KIND, ""), (REQUEUE, "重新排队", REQUEUE_KIND, "primary"))
 STAGE = {
@@ -26,7 +26,7 @@ STAGE = {
     "held": "已保存，任务准备好后自动送入",
     "withdrawn": "已撤回，没有发出",
     # The model takes a supplement in when the step it is on ends: a command or a sub-task can take long
-    # (repo review U6: #1052 read 45 minutes after 后端已接收; Claude Code reads queued input only then).
+    # (it can be read 45 minutes after 后端已接收; Claude Code reads queued input only then).
     "sent": "后端已接收 · 当前一步结束后读到",
     "read": "模型已读取",
     "refused": "没有发出",

@@ -8,7 +8,7 @@ them: a blob, a user row's message, or an assistant message's rows merged by mes
 ``cacheControl`` marks and ``requestDigest``, the SHA-256 of the request object with keys sorted in compact
 JSON. That object is Claude Code's form of the request: string contents become one text block, and its
 messages may still hold the ``system`` role, which it folds into the user turn when it sends. A rebuilt request whose digest matches is exactly the one
-Claude Code recorded (checked 2026-11-01 on 1,783 requests of five sessions, 2.1.300 and 2.1.310: all matched
+Claude Code recorded (checked on 1,783 requests of five sessions, 2.1.300 and 2.1.310: all matched
 but the requests with an image, whose data the transcript does not keep, and those built on them).
 
 The export has, for the main session and each subagent transcript: the requests made in the turn's time

@@ -3,7 +3,7 @@ Chromium（显示进度、卡住换镜像、总超时）；起不来时补系统
 ``apt-get download`` 需要的包、解到数据根下，只给浏览器进程设 LD_LIBRARY_PATH（结果记在 ``<数据根>/browsers/launch.json``，
 core/browser_env.py 读它）。别的发行版或失败时返回原因，由安装器退回手机扫码。只用标准库。
 
-下载来源的顺序按实测定（2026-11-14，测试机直连）：官方 CDN 约 35 MB/s、npmmirror 约 10 MB/s、经公司代理只有约 0.1 MB/s，
+下载来源的顺序按实测定（测试机直连）：官方 CDN 约 35 MB/s、npmmirror 约 10 MB/s、经公司代理只有约 0.1 MB/s，
 所以先直连官方，再直连镜像，最后才带代理变量重试。"""
 from __future__ import annotations
 

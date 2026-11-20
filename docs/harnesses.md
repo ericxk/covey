@@ -16,7 +16,7 @@ Harness 是执行任务的 Agent 程序，核心带五个：Codex、Claude Code�
 
 核心不带任何一家网关：网关由 `harnesses.json` 的 `gateways` 或扩展配置，见[模型网关](#模型网关codexpi-与-dsh)。启动卡的模型每项写作“Harness · 供应商 · 模型名”，Harness 自己的供应商不写（“Claude · Opus 5.5”“Codex · MyGW · GPT-6 Astra”），Pi 两个供应商都写出。选模型就选定了 Harness 和供应商，之后可以[换配置](usage.md#换配置)。
 
-已下线的 Harness 和供应商（`RETIRED_PREFIXES`）、旧话题会怎样，见[已下架项与旧配置](configuration.md#已下架项与旧配置)。
+已下线的 Harness 和供应商（`RETIRED_PREFIXES`）、旧话题会怎样，见[已下线的功能与旧配置](legacy.md)。
 
 | ID（启动卡名称） | 运行方式 | 原生问答 | 执行中补充 | 原生图片 | 分叉的会话 | 原生会话位置 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -30,7 +30,7 @@ Harness 是执行任务的 Agent 程序，核心带五个：Codex、Claude Code�
 - **原生图片**：不支持时只给本地路径。Claude、Pi 单张超过 5 MiB，或 Claude 合计超出 8 MiB 帧时，放不下的只给路径（`app/runs.py` 的 `_fit_images`）。
 - **分叉**：管家分叉出的话题（[开话题、转交、分叉](butler.md#开话题转交分叉)）复制原话题的原生会话；不支持或原话题正在执行时改用已完成的对话记录。
 - **换配置**除只改脱敏外都开新会话。
-- 只有 Claude Code 有的：[敏感词脱敏](usage.md#敏感词脱敏)、[回退一步](usage.md#回退一步)、限流（429）后[自动重试](usage.md#自动重试)、轮前压缩。“下载请求与结果”只有 Claude Code 和 Codex 有。
+- 只有 Claude Code 有的：[敏感词脱敏](usage.md#敏感词脱敏)、[回退一步](usage.md#回退一步)、限流（429）后[自动重试](reference.md#自动重试)、轮前压缩。“下载请求与结果”只有 Claude Code 和 Codex 有。
 
 ### 模型目录
 
@@ -138,7 +138,7 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 - 超时单位是秒，`0` 或负数表示不限时长。
 - 没有上次选择时启动卡预选 Codex 的 `--model`（不在目录里时选第一项）；预算参数不影响预选。
 - 兼容的旧选项（现网 `harnesses.json` 仍能解析）：`--claude-transport stream-json`、`--codex-transport app-server`（只接受这一个值）；`--traex-ppe-env`、`--traex-site`（隐藏，值被忽略）。
-- 扩展的 Harness 可以另有读环境变量的参数（见扩展的 README），命令行和 `--harness-config` 优先。以前给其余参数设默认值的 13 个变量不再读取（`core/ignored_env.py` 的 `IGNORED_ENV`，设了启动时各记一行），见[不再读取的变量](configuration.md#服务清单里的环境变量)。
+- 扩展的 Harness 可以另有读环境变量的参数（见扩展的 README），命令行和 `--harness-config` 优先。以前给其余参数设默认值的 13 个变量不再读取（`core/ignored_env.py` 的 `IGNORED_ENV`，设了启动时各记一行），见[不再读取的变量](legacy.md#不再读取的变量)。
 
 ### 超时与结束等待
 
@@ -190,7 +190,7 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 
 **等待期限与收尾**：最终 result 之后关输入，约 10 秒后停止进程组，按最后的根 result 定结果（`settle_failure`）；没有 result 记 `settle_timeout`。还有补充没被接收时不关输入。进程组停不掉时正文只保存不发送。
 
-**限流与额度**：429 记 `rate_limited`（会[自动重试](usage.md#自动重试)），529 记 `root_failed`，402 记 `quota_exhausted`，451 记 `model_blocked`（后两种提示换配置）。后台子 Agent（`async_launched`）到它的 `task_notification` 才结束。
+**限流与额度**：429 记 `rate_limited`（会[自动重试](reference.md#自动重试)），529 记 `root_failed`，402 记 `quota_exhausted`，451 记 `model_blocked`（后两种提示换配置）。后台子 Agent（`async_launched`）到它的 `task_notification` 才结束。
 
 **执行指标**：输出 token 是每条消息最大的 `output_tokens` 之和；缓存命中、写入取 `cache_read_input_tokens`、`cache_creation_input_tokens`；子任务（`ClaudeSubtaskUsage`）按 `parent_tool_use_id` 算，退出后读 `subagents/agent-*.jsonl` 补值；上下文 `context_tokens`、`context_window` 取 result 的 `modelUsage`；生成时间扣除 tool_use 到 tool_result；TTFT `claude_delta`。
 
@@ -289,7 +289,7 @@ dsh 是 DeepSeek 官方开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，�
 - **和本机的差别**：设备话题没有回退、下载请求与结果、压缩、分叉和敏感词脱敏（话题开着脱敏时设备上的这一轮拒绝）；不取 git diff 快照，所以没有改动摘要。补充、原生问答和图片照常，但文件要先传到设备（见下一条）。启动卡和换配置卡列的模型仍是 Bridge 本机的目录；Claude 实际用的模型目录取自设备，Codex 的 `models_cache.json` 从设备的 `~/.codex/` 取回。
 - **文件**：消息里的图片和文件在开跑前、补充时放到设备的 `.covey/incoming/` 下，提示词里写设备路径；Claude 的图片仍由 Bridge 读本机文件做 base64，Codex 的图片用设备上的副本，并把这个目录加进它的工作区读取范围。产物和 `show_images` 从设备取回再上传，规则见[配置](configuration.md#多设备开发中默认关)的「已知限制」。
 - **权限**：执行权限设置同本机（见下面「执行权限」）；Codex 的可写根目录加上设备上的任务目录和检查点镜像目录。设备上的进程对那台设备有同样的权力，所以 `spaces` 默认只给主人私聊。
-- **断线**：设备上的 Agent 由设备端小程序守着，Bridge 断线时它照常跑；超过耐心值才按中断处理，恢复后先停掉旧进程再 `--resume`，见[配置](configuration.md#多设备开发中默认关)的「离线、重启与恢复」。
+- **断线**：设备上的 Agent 由设备端小程序守着，Bridge 断线时它照常跑；超过耐心值才按中断处理，恢复后先停掉旧进程再 `--resume`，见[架构 · 设备](architecture.md#设备多设备默认关)的「离线与恢复」。
 
 ## 执行权限
 

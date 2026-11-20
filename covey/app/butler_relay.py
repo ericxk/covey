@@ -7,19 +7,19 @@ turn ends, its task runner (app/turn_delivery.py TurnDelivery.deliver, after the
 core/placement.py's row says (``after_turn``: question_copy, conclusion, stop):
 
 - done: the saved reply whole (rule 5: only the verified reply that was delivered), the owner reads the answer
-  where he asked (the owner, 2026-11-06 23:58: 答案看一半，又要跑到话题去看很搞笑), as the topic's answer card has it
-  (cards/answer_card.py: 产物 and the 输入/输出 box, 输出 ending in a link to the topic's card, 2026-11-08). A reply
+  where he asked, as the topic's answer card has it (cards/answer_card.py: 产物 and the 输入/输出 box, 输出 ending in
+  a link to the topic's card). A reply
   too large for one card (CARD_TEXT_BYTES) goes as Markdown messages in order (feishu/delivery.py splits them), its
   产物 and box on a small card after them;
 - waiting for an answer: the turn's questions as answerable cards (app/question_display.py mirror) with what the
-  turn wrote above them; only when no copy could be shown "**T410 需要你回答**", the question, and where to answer;
-- stopped or failed with no automatic retry planned: "**T410 停了**：the status line".
+  turn wrote above them; only when no copy could be shown "**T10 需要你回答**", the question, and where to answer;
+- stopped or failed with no automatic retry planned: "**T10 停了**：the status line".
 
-Since 2026-11-07 night (the owner: 每一轮都发) every turn of a 话题区 relays, the ones his answers or his messages in
+Every turn of a 话题区 relays, the ones his answers or his messages in
 its thread started too (``area_target``: the latest request that opened or handed on to it); a topic the butler
 never touched does not.
 
-Where it goes (app/relay_targets.py): the butler's card is in the owner's message's thread (since 2026-11-08),
+Where it goes (app/relay_targets.py): the butler's card is in the owner's message's thread,
 so a message of its own at the top level with a "你问" link block, quoting no card. Which turns came from the butler
  (``relay_target``): a turn whose message id is "main-" +
 the request's token, the one main-thread/opened/<token>.json records; one topic_send gave a supplement to (that
@@ -33,9 +33,9 @@ uncertain included. The send's key derives from the job's key alone.
 
 A done turn relayed (``relayed``: sent, or written on the card) says so in the butler's snapshot
 (app/butler.py snapshot_groups). The message sent is the topic's, and so is a quote of it (remember_topic_message,
-route_message: the owner, 2026-11-07, 引用直达), where a waiting turn's question takes the words as its answer. The
+route_message: 引用直达), where a waiting turn's question takes the words as its answer. The
 butler card a relay quotes stays the butler's: a reply to a message of a threaded topic would open a thread
-under it (11-07 T432); a quote of it is routed to the topic it alone handed on to.
+under it; a quote of it is routed to the topic it alone handed on to.
 
 The parts: where a relay goes (app/relay_targets.py), its card (cards/relay_card.py), sending it once
 (app/relay_send.py). This module keeps
@@ -69,12 +69,12 @@ def relayed(state_dir, record) -> bool:
     return saved.get("state") in ("sent", INLINE) and saved.get("outcome") == DONE
 
 
-INLINE = "inline"  # A relay's state: its conclusion written on the butler's card (a release before 2026-11-09).
+INLINE = "inline"  # A relay's state: its conclusion written on the butler's card (an older release).
 
 
 def inline_at(state_dir, record) -> float | None:
     """When the done conclusion of the job ``record`` was written on a top-level card (INLINE: on the butler's
-    card, by a release before 2026-11-09), epoch seconds; None for one sent as a message of its own (the topic's
+    card, by an older release), epoch seconds; None for one sent as a message of its own (the topic's
     alias, so its own read says it was seen: core/board_read.py seen_at) or not relayed. Such records stay on disk,
     so the board still takes the owner's top-level read for them."""
     key = record.get("key") or job_key(str(record.get("message_id") or ""), record.get("job_id") or "")
@@ -136,7 +136,7 @@ def relay(state_dir, job, outcome, *, send, profile=None, log=None, **facts):
     if outcome == WAITING and any((Path(state_dir) / QUESTION_RELAYS).glob(f"{key}--*.json")):
         return "asked"  # Its question went to the top level as it was asked (``relay_question``).
     if outcome == STOPPED and job_field(job, "cancel_requested_by"):
-        # The owner pressed 停止 on its card in the 话题区's thread, looking at it: no notice (D4, 2026-11-08). The
+        # The owner pressed 停止 on its card in the 话题区's thread, looking at it: no notice. The
         # record says so; a failure, a refusal, a timeout or an interruption still relays.
         return record_only(state_dir, relay_path(state_dir, key), key, job, outcome, SKIPPED, log, target,
                            why="owner_stop")
@@ -150,7 +150,7 @@ def question_relay_path(state_dir, key, token) -> Path:
 
 def relay_question(state_dir, job, question, *, send, profile=None, log=None):
     """A question a turn the butler started in a topic with its own thread asks while it runs (its question
-    record, app/native_questions.py): "**T408 需要你回答**" and the question at the top level, quoting the owner's
+    record, app/native_questions.py): "**T48 需要你回答**" and the question at the top level, quoting the owner's
     message, as ``relay`` sends a waiting turn's; once per question (main-thread/relays/questions/<job key>--<its
     token>.json, the same rule 1 steps). Not for any other turn. The record's state, or None when nothing is
     relayed."""
@@ -171,8 +171,8 @@ def relay_question(state_dir, job, question, *, send, profile=None, log=None):
 
 def after_runner(gateway, job, ctx) -> None:
     """The Bridge, once ``job``'s run has ended (app/detached.py finish_detached; app/unified.py for a run here). A
-    butler turn whose card handed on to one topic alone gives the card to it: quoting the card goes there (the
-    owner, 2026-11-07: 引用直达). Never raises."""
+    butler turn whose card handed on to one topic alone gives the card to it: quoting the card goes there (引用直达).
+    Never raises."""
     from covey.app import project_loop
 
     project_loop.after_runner(gateway.runtime.log, ctx.state_dir, job)  # A project's task: its tokens, a thread's receipt.

@@ -85,7 +85,7 @@ def project_hint(request) -> dict:
 
 
 def find_topic(env, chat, name):
-    """(app, context, topic.json) of the owner's topic ``name`` (T412, 412 or its id); a str saying why not."""
+    """(app, context, topic.json) of the owner's topic ``name`` (T12, 412 or its id); a str saying why not."""
     found = topic_ref(env, chat, name)
     return found if isinstance(found, str) else found[1]
 
@@ -329,7 +329,7 @@ def _enqueue(env, app, request, record, chat, prompt, event, token, label) -> bo
 
 
 def place(env, request, chat) -> tuple:
-    """(area root, taken) of a topic ``request`` opens, decided once: a 话题区 (docs/butler.md 话题区), its thread
+    """(area root, taken) of a topic ``request`` opens, decided once: a 话题区 (docs/butler.md 话题), its thread
     hanging under the owner's question the request answers, the area root; a message has one thread, so a second
     topic opened on the same question gets a topic card at the top level as its root (area root '', taken). ('',
     False) with the switch off or that message not known: the topic card and its thread, as before."""
@@ -375,8 +375,7 @@ def steered_words(job, saved) -> str:
 
 def hand_line(env, ctx, chat, request, record, kind, owner, text, items, token):
     """The line the topic's thread gets when topic_send hands it the owner's words (app/butler_handoff.py thread_line):
-    a card whose whole block opens the owner's message at its place in the chat (thread_card; the owner, 2026-11-10
-    17:59: 话题里那条管家转来的消息，点了跳回来), as text when that place cannot be read. The card's message id is
+    a card whose whole block opens the owner's message at its place in the chat (thread_card), as text when that place cannot be read. The card's message id is
     the request record's ``thread_message_id``: the hook under the owner's message opens the thread at it
     (app/butler_reply.py hook_topics). Its key is the one the text always had, the card's that key's "-card"."""
     from covey.app.answer_cards import ask_url

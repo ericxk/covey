@@ -391,7 +391,7 @@ class Projects:
         for message in sorted(messages - {""}):
             if message == card:
                 # The card's clicks too: its buttons name the lead's topic (card_routing.py refuses a click routed to
-                # another topic), and the 派发卡 it was belonged to the topic that is now a member (accept7, 2026-11-16).
+                # another topic), and the 派发卡 it was belonged to the topic that is now a member.
                 move_topic_message(state, record["lead_topic_id"], chat, message)
             route_message(state, chat, message, record["lead_topic_id"], holder=topic)
         return True

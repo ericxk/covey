@@ -1,4 +1,4 @@
-"""专项的问题分流 (docs/butler.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1; phase 2's P2-5): a member topic's choice
+"""专项的问题分流 (docs/projects.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1; phase 2's P2-5): a member topic's choice
 question goes to the project's lead before the owner, and the owner sees it only when the lead cannot answer it.
 
 - ``Triage.route`` (a part of app/questions.py Questions; asked by app/native_questions.py ``show`` and app/checkpoint_questions.py
@@ -188,7 +188,7 @@ def show(env, record) -> bool:
             env.runtime.log(f"question triage task card not repainted: {type(exc).__name__}")
         # The card above went to the topic's thread. The turn ended while the question was held, so its top-level
         # copy (app/butler_relay.py mirror_questions) was not made then: made now, with what the turn wrote above it,
-        # so the owner sees it in the private chat (the owner, 2026-11-19: 转给我了却没收到，私聊里也看不到).
+        # so the owner sees it in the private chat.
         try:
             job = find_job_record(state, record.get("job_key")) or None
             app.questions.display.mirror(ctx, read_object(question_path(state, record["token"])),

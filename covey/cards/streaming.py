@@ -51,26 +51,26 @@ class CardRuntime(Protocol):
 
 
 STOP_ACTION_ELEMENT_ID = "job_stop_action"
-SIDE_CHAT_ELEMENT_ID = "side_chat_action"  # 💬 侧聊 on a card sent before the action row (and before 2026-11-08).
+SIDE_CHAT_ELEMENT_ID = "side_chat_action"  # 💬 侧聊 on a card sent before the action row (an older release).
 ACTION_ROW_ELEMENT_ID = "action_row"
 BOXED_PANELS = {"current_question", "task_details"}
 # 任务详情's text, by its own ID: a running turn's figures replace it in place (app/cards.py queue_trace), so
 # a panel the user opened stays open. A card sent before it had one gets the whole panel when the turn ends.
 TASK_DETAILS_TEXT_ID = "task_details_text"
-STEER_LABEL = "补充"  # docs/ui.md 第 6 节; "📝 补充当前任务" before 2026-11-19.
-# The slim card's fold (the butler's, core/butler.py Traits.slim_card; the owner, 2026-11-06 22:42): the
+STEER_LABEL = "补充"  # docs/ui.md 第 6 节; "📝 补充当前任务" in older releases.
+# The slim card's fold (the butler's, core/butler.py Traits.slim_card): the
 # tiles, 本轮请求, 任务详情 and the running buttons, folded under 详情 below the body and its status line; what a
 # card puts "after the body" or "at the bottom" goes in it too (app/task_card.py body_anchor, bottom_anchor).
 SLIM_DETAILS_ID = "slim_details"
 SLIM_DETAILS_TITLE = "详情"
-# An option's recommendation mark, which an answer's title carried as the answer (T290 #2383 read
-# "远端旧分支 → 删两个已合并的，张信宇那个留着（推荐）; 本…").
+# An option's recommendation mark, which an answer's title carried as the answer ("远端旧分支 →
+# 删两个已合并的（推荐）; 本…").
 RECOMMENDED = re.compile(r"\s*(?:（推荐）|\(推荐\)|\(Recommended\))")
 
 
 def card_title_for_question(question: str, runtime: CardRuntime) -> str:
     """The title after T12 · #196 (the title bar and the chat-list and Pin preview): the request's first 24
-    characters, two lines in the topic side panel (36 took three there, 2026-11-02 review), written as every card
+    characters, two lines in the topic side panel (36 took three there), written as every card
     writes a title (core/topics.py shown_title: 验收：睡 75 秒, as the answer card and the hand-off say it)."""
     return shown_title(runtime.compact_text(RECOMMENDED.sub("", question), 24)) or runtime.default_title
 
@@ -104,7 +104,7 @@ def _tokens(label, counts):
 def usage_lines(snapshot):
     """任务详情's token lines for a turn with subtasks (core/trace.py turn_usage): what the turn's tokens cover, then
     the main task and the subtasks (each when few, else per level). The turn's total, its input split and a turn's
-    own counts without subtasks are the 输入/输出 box's (the owner, 2026-11-09 13:48: 和上面重复了，只保留上面的): none."""
+    own counts without subtasks are the 输入/输出 box's: none."""
     usage = turn_usage(snapshot)
     if not has_subtasks(usage):
         return []
@@ -128,8 +128,8 @@ def task_details_text(job, usage=None) -> str:
     redaction replaced this turn, a turn with subtasks their tokens (``usage_lines``) and the TTFT the backend
     gave (``ttft_line``). ``usage`` is the process snapshot: a running turn's figures so far, an ended one's.
 
-    Since 2026-11-04 15:07 (the owner: 冗余的文字有点多): no 任务编号 (the title has #N and T…), no 模型 line, no
-    总耗时 (用时 is in the 输入/输出 box). Since 2026-11-09 13:48 (the owner: 和上面重复了，只保留上面的) none of
+    No 任务编号 (the title has #N and T…), no 模型 line, no
+    总耗时 (用时 is in the 输入/输出 box). None of
     what that box says either: no token counts of the turn or their split by the cache, no 模型生成 · 平均 token/s."""
     mode = work_mode_tag(getattr(job, "work_mode", ""))
     lines = ([f"工作模式：{mode}"] if mode else []) + (
@@ -173,7 +173,7 @@ def progress_lines(found) -> list[str]:
 
 def task_details_panel(job, usage=None):
     """The 任务详情 panel (``task_details_text``), its text by TASK_DETAILS_TEXT_ID; None when it says nothing:
-    no card shows an empty 任务详情 (the owner, 2026-11-09), and app/cards.py puts it on a card once it has words."""
+    no card shows an empty 任务详情, and app/cards.py puts it on a card once it has words."""
     text = task_details_text(job, usage)
     return build_collapsible_markdown_panel("task_details", "任务详情", text, TASK_DETAILS_TEXT_ID) if text else None
 
@@ -188,11 +188,11 @@ def build_stop_action_row(job: Any, include_steer: bool = False, *, essential: b
     """The job's buttons (bordered, button_look) in a row that wraps (flow, each column as wide as its label,
     so none is cut in a topic's side panel), at the bottom of the card. 停止 ends the task, so it comes
     last, in red. It has no ``confirm``: the client sends nothing on 确定 once the card was redrawn while its
-    dialog was open (2026-11-04, gen 257: a running card's status line redraws every few seconds, and a
+    dialog was open (a running card's status line redraws every few seconds, and a
     real 停止 → 确定 never reached the Bridge; a probe card redrawn under an open dialog did the same). An
     `essential` row has only 停止: the card to fall back on when CardKit rejects the full one. ``switch``: with
     换配置 (CardLook.switch). The element IDs and values are those of every card before (the status line was under the row
-    until 2026-11-04; it is in the status block at the top now)."""
+    in older releases; it is in the status block at the top now)."""
     buttons = []
     if essential:
         include_steer = False
@@ -217,14 +217,14 @@ def build_stream_card(
     include_stop_action: bool = False,
     essential: bool = False,
 ) -> dict[str, Any]:
-    """The task card (the "E" sample, 2026-11-08): a white title bar of the topic, task and title alone; the
+    """The task card (the "E" sample): a white title bar of the topic, task and title alone; the
     status, the rest of the status line under it (STATUS_MORE_ID), the grey 输入/输出 box (``io_box``: 输入 in three
     lines, 输出 the run's figures, FIGURES_ELEMENT_ID), the body (the answer as it streams, the lead under 结论 at the
     end), then 执行过程 when the first step comes (inserted after the body), 本轮请求 and 任务详情 as grey blocks, and
     the buttons at the bottom. Every element keeps the ID it had on cards sent before, which keep their order
     (app/task_card.py StreamingReply.dashboard, io_box).
 
-    The butler's card is slim (core/butler.py Traits.slim_card, the owner, 2026-11-06 22:42): no title
+    The butler's card is slim (core/butler.py Traits.slim_card): no title
     bar (the quoted message says it, and a sent one never changes), the body first (a queued card's stage goes in
     the status line instead, ``slim_start``), the status line as one line (``slim_status_markdown``), then 详情
     folded (``slim_details``): the 输入/输出 box (its 输出 without 已运行, which the status line says), 本轮请求,
@@ -267,7 +267,7 @@ def build_stream_card(
         # The panel style's title bar (cards/elements.py panel_header): white, a blue line icon. Its color
         # cannot follow the outcome: a sent card's header does not change in place. A slim card has none: the
         # owner's message it quotes says the same, and it could never change.
-        # Its T number, task and title alone since the 输入/输出 box (2026-11-08): a subtitle and a tag were cut in a
+        # Its T number, task and title alone since the 输入/输出 box: a subtitle and a tag were cut in a
         # topic's side panel ("Claude Code · Opus 5.5 · 思…"); what the task runs with is the box's 输入.
         card["header"] = panel_header("robot_outlined", card_heading(job, heading))
     label = getattr(job, "topic_label", "") or (f"#{job.job_id}" if getattr(job, "job_id", None) else "")
@@ -276,7 +276,7 @@ def build_stream_card(
         # running_summary); a replacement card for a running task says so from the start.
         card["config"]["summary"] = {"content": running_summary(label, heading) if getattr(job, "execution_started", False)
                                      else queued_summary(label, heading)}
-    # The body gets what the card's size leaves it (#1150): the rest of the card is counted first.
+    # The body gets what the card's size leaves it: the rest of the card is counted first.
     answer["content"] = truncate_card_content(content, runtime, sum(other_costs(card, runtime.element_id).values()))
     return card
 

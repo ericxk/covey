@@ -1,4 +1,4 @@
-"""专项卡 (docs/butler.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's top level, a message of its
+"""专项卡 (docs/projects.md 专项卡), when COVEY_PROJECTS=1: the one card of a project at the chat's top level, a message of its
 own (cards/project_card.py), kept up to date and shrunk to one line when the project is done.
 
 - ``ProjectCards`` (a feature object of the Bridge: ``threads()`` gives the refresh thread, none with the switch off): each
@@ -104,7 +104,7 @@ def finishing_answer(state_dir, record) -> tuple[str, bool]:
     """(message id, ended) of the lead's turn that finished the project (``state_job``, app/project_tools.py
     project_finish): the answer it sent at the chat's top level, once that turn has ended, and whether it has ended. A turn
     that ended with no answer of its own (a quiet wake-up turn's reply is not sent) gives ('', True): the card shrinks at
-    once instead of waiting CONCLUSION_GRACE for a message that never comes (accept7, 2026-11-16: 10 minutes)."""
+    once instead of waiting CONCLUSION_GRACE for a message that never comes (10 minutes)."""
     key = str(record.get("state_job") or "")
     job = (read_job_record(job_path(state_dir, key)) or {}) if key else {}
     if not job or job.get("status") not in ENDED:

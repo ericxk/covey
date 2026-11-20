@@ -42,7 +42,7 @@ def grouped(needs):
 
 def grouped_md(needs):
     """The groups as card elements, one markdown block each: in the client a line after a list item joins that
-    item (a heading after a list read 「…member:create菜单」, 2026-11-09), so no list is followed by more text."""
+    item (a heading after a list read 「…member:create菜单」), so no list is followed by more text."""
     return [md(f"**{heading}**\n" + "\n".join(f"- {row}" for row in rows)) for heading, rows in groups(needs)]
 
 
@@ -77,7 +77,7 @@ def offer_card(view):
 def offer_text(view):
     """The offer as Markdown, for when Feishu refuses the card."""
     return (f"**{TITLE}**：飞书应用缺 {len(view['offer'])} 项。\n" + grouped(view["offer"])
-            + "\n卡片发不出来，请照 docs/install.md「配置飞书应用」在开发者后台补上。")
+            + "\n卡片发不出来，请照 docs/manual-install.md「配置飞书应用」在开发者后台补上。")
 
 
 def step_lines(steps):
@@ -139,14 +139,14 @@ def result_text(view):
 
 def skipped_card(view):
     elements = [*grouped_md(view["offer"]),
-                note("这次先不补。缺的内容变了会再提醒；要补时等下一张卡，或照 docs/install.md 在后台自己改。")]
+                note("这次先不补。缺的内容变了会再提醒；要补时等下一张卡，或照 docs/manual-install.md「配置飞书应用」在后台自己改。")]
     return styled_panel(panel_header(ICON, TITLE, subtitle(view), [("先不补", "neutral")]), elements, f"{TITLE} · 先不补")
 
 
 def unavailable_card(view, reason):
     """No browser to drive: the list stays, with what to do by hand."""
     elements = [md(f"这台机器上没法自动补：{reason}"), *grouped_md(view["offer"]),
-                note("照 docs/install.md「配置飞书应用」在开发者后台补上并发布；装好浏览器环境后（见 docs/operations.md "
+                note("照 docs/manual-install.md「配置飞书应用」在开发者后台补上并发布；装好浏览器环境后（见 docs/operations.md "
                      "「自动补齐飞书应用」）下次部署会再提醒。"),
                 md(tag("待手动补", "orange"))]
     return styled_panel(panel_header(ICON, TITLE, subtitle(view), [("没法自动补", "orange")]), elements, TITLE)

@@ -13,7 +13,7 @@ or digest changes.
 An event is one JSON line, never rewritten::
 
     {"v":1,"op":"add","id":"k1a2b3c","at":"2026-11-12T10:00:00+08:00","by":"main",
-     "source":{"topic":"T483","job_key":"…","job_id":12},"workspace":"",
+     "source":{"topic":"T83","job_key":"…","job_id":12},"workspace":"",
      "entry":{"kind":"decision","text":"≤200 字","why":""}}
 
 ``op`` is ``add``; ``update`` (a new ``id`` with ``replaces``: the old one turns superseded); ``drop`` (``id`` is the

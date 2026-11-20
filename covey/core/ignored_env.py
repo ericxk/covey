@@ -1,7 +1,7 @@
 """Backend parameters the environment no longer sets, and the two whose old values a service must not keep.
 
-The backends once took these defaults from the environment (deprecated 2026-11-05, no longer read since
-2026-11-10). A service registered with one still has it in its manifest's environment, so the Bridge names
+The backends once took these defaults from the environment (deprecated, then no longer
+read). A service registered with one still has it in its manifest's environment, so the Bridge names
 each at startup with what to write instead (``ignored_env``). Two of them restricted permissions; without
 them the backend's default is the open one, so a value that restricted is refused (``loosened``): the startup
 line says so, covey_doctor fails, deploy_bridge.sh --check-only and bootstrap_harness_bridge.sh stop.

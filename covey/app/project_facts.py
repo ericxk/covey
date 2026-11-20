@@ -110,7 +110,7 @@ JOIN_WORDS = {"start": "建专项时收进", "tidy": "整理专项归入", "rule
 
 
 def join_lines(state_dir, record) -> tuple:
-    """The 归入记录's lines, the newest first: (T531「标题」 · 谁收进的 · 为什么, topic id for its 移出 or '' once it left or
+    """The 归入记录's lines, the newest first: (T31「标题」 · 谁收进的 · 为什么, topic id for its 移出 or '' once it left or
     while 整理专项 is off)."""
     from covey.core import project_proposals
 
@@ -208,7 +208,7 @@ def facts(state_dir, record, now, titles=None, links=None) -> Project:
 
 
 def origin_words(note) -> str:
-    """The origin line of the card as the owner reads it today: a record written before 2026-11-16 holds the older
+    """The origin line of the card as the owner reads it today: a record written by an older release holds the older
     wording (由快事升级……), which is shown as the new one; the record itself is not rewritten."""
     note = str(note or "")
     if note.startswith("由快事升级（你说了"):

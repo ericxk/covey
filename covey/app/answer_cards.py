@@ -11,7 +11,7 @@ their 产物 up to date.
   too (``register_copy``: where COPY, its question's ``token``, no ``card``): it is a CardKit card whose form
   changes, so it is repainted whole from its question record (app/question_display.py paint_mirror), never patched
   here. Removed by the daily maintenance after TEMPORARY_DAYS untouched
-  (core/maintenance_rules.py Temporary). The task card then leaves 产物 out (the owner, 2026-11-08: 答案单独发时任务卡不留).
+  (core/maintenance_rules.py Temporary). The task card then leaves 产物 out.
   Its ``outgoing`` is what a saved reply goes out as (app/saved_send.py keep: its key, place and cards before they
   are sent), so a redelivery under that key sends the same card; written for every saved reply sent on its own.
 - ``refresh``: once the upload ends (app/artifacts.py), or the owner's 重新上传 on one of them, each card whose panel
@@ -43,8 +43,8 @@ def record_path(state_dir, key) -> Path:
 
 
 def inputs(job, harness, snapshot=None, ctx=None) -> list:
-    """输入 of ``job`` run by the Harness ``harness`` (its spec: name, title), always its six parts (V9,
-    2026-11-08): the Harness, the provider as the 换配置 card names it, the model's name, the reasoning budget, 脱敏
+    """输入 of ``job`` run by the Harness ``harness`` (its spec: name, title), always its six parts: the
+    Harness, the provider as the 换配置 card names it, the model's name, the reasoning budget, 脱敏
     and the workspace. No model chosen (the butler runs the Harness's default): the one the turn ran as its
     process ``snapshot`` names it (Claude's, app/launch_models.py shown_model), else 默认模型; no budget chosen, the
     one its context ``ctx`` (core/jobs.py context_for_job) ran with, else 默认."""
@@ -160,8 +160,7 @@ def owner_message(state_dir, record) -> str:
 
 
 def ask_url(state_dir, record, *, topic_id="", at=(), profile=None, fetch=None, log=None) -> str:
-    """Where the "你问"/"你答" block of ``record``'s turn opens (the owner, 2026-11-10 16:55: 都能跳转到话题上，除非
-    这个任务不是话题任务，是主Agent任务). A topic's turn (``topic_id``: the topic the block speaks for, a relay's or a
+    """Where the "你问"/"你答" block of ``record``'s turn opens. A topic's turn (``topic_id``: the topic the block speaks for, a relay's or a
     question copy's, else the record's own): that topic's thread, at ``at`` or the turn's own card or answer when they
     are in it (app/topic_links.py topic_thread_link), else the root's place in the chat. The butler's own turn:
     the owner's message (``owner_message``) at its place in the chat. A fallback and a missing link are each one log
@@ -393,7 +392,7 @@ def clicked(state_dir, key, message_id) -> bool:
 def saved_answer_card(ctx, job_id, status, reply, text, tail=(), head=(), bare=False):
     """The card a saved reply goes out as (Messenger.send_message's ``card``): ``text``, the reply as it is
     delivered, in lark-cli's Markdown style but with its headings' levels kept (``answer_card`` bolds the
-    small ones), and the chat list's preview "✅ T304 · lead" (``answer_summary``; the task card's names the time). Made
+    small ones), and the chat list's preview "✅ T34 · lead" (``answer_summary``; the task card's names the time). Made
     of the saved reply, the topic and the turn's status alone, so each retry sends the same card under the
     same key. ``bare``: a butler turn that sent no card (app/quiet_delivery.py QuietDelivery.bare), previewed without its task number
     (cards/review.py bare_answer_summary)."""

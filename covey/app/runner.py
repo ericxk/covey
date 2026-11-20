@@ -92,7 +92,7 @@ def _wait_background(before: set, *, uploads=True) -> None:
 def interrupt(job) -> None:
     """SIGTERM: the backend stops as for 停止, but the task is interrupted, not stopped. A container's
     shutdown sends every process one: read as the stop button, it ended a task "已停止" and its card
-    offered only 重新投递结果 (T331 #2407, 2026-11-02). The worker leaves the turn unsettled and the
+    offered only 重新投递结果. The worker leaves the turn unsettled and the
     record running; the Bridge marks it interrupted with 检查并继续, as after a runner that died. A stop
     already asked for stays a stop. Flags only: the handler runs in the middle of the butler's work."""
     if not job.cancel_event.is_set():

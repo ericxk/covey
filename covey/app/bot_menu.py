@@ -1,4 +1,4 @@
-"""The bot's custom menu (机器人自定义菜单): the owner's commands, since typed ones misfired (2026-11-03).
+"""The bot's custom menu (机器人自定义菜单): the owner's commands, since typed ones misfired.
 
 Each menu item is set to 推送事件 in the Feishu console with its event key (the keys of app/unified.py's
 ``menu`` table, from each feature's ``menu_items()``); a click arrives as ``application.bot.menu_v6``
@@ -13,11 +13,11 @@ the one an older 代答 card or 脱敏 link went to; before those, one message s
 ``owner_accounts``) answers in that account's own private chat (``Access.account_chat``), opened the same way when
 not known yet; the menu card of a personal group (app/group_menu.py) answers in that group (``run``).
 
-Each item's card replaces the one it sent before (the owner's choice, 2026-11-03): the action calls
+Each item's card replaces the one it sent before: the action calls
 ``shown(message_id)`` once its card is out, and Panels recalls the item's previous card in that chat,
 so the chat keeps one card of each.
 
-点一下弹出，再点一下收回 (the owner, 2026-11-06): when the item's last card is still the newest top-level message in
+点一下弹出，再点一下收回: when the item's last card is still the newest top-level message in
 the chat, a click folds it in place to one line, and the next unfolds it with fresh figures; no new message, no
 recall. The item's ``fold(ctx, chat_id, source, message_id)`` (``menu_folds()`` of its feature) does that through the
 card's own record and says 'fold' or 'unfold'; '' (a card from before it had a record, or closed) sends a new card as
@@ -208,5 +208,5 @@ class BotMenu:
 
 def known_chats(proxy_panel, ctx):
     """The private chats an older 代答 card and 脱敏 link were sent to (each only opens there). The link's is in the record
-    the web dashboard kept (taken out 2026-11-19), read while a state directory still has it."""
+    the web dashboard kept (taken out), read while a state directory still has it."""
     return [proxy_panel.owner_chat(ctx), str(read_object(ctx.state_dir / 'redaction' / 'dashboard-entry.json').get('chat_id') or '')]

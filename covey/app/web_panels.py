@@ -1,15 +1,15 @@
-"""网页设置页的设备和代答两页 (docs/butler.md 网页工作台, COVEY_WEB=1; data contract v15): what app/web_settings.py pushes and changes for the
+"""网页设置页的设备和代答两页 (docs/web.md, COVEY_WEB=1; data contract v15): what app/web_settings.py pushes and changes for the
 设置 card's 设备 tab (app/node_panel.py) and the bot menu's 代答 card (app/proxy_panel.py), through those panels' own code.
 
 - 设备 (COVEY_NODE_LISTEN set): each node's state as a word the page colours (``dot``: ok, tight, down, never; the card's emoji is not a
-  glyph every font has) and its line without the name; the joins the page started (``joins``). 添加 is by ssh only (the owner, 2026-11-19
-  T554): the paste way's command carries a one-time join token, which would land in the page's database, so it stays on the card. The ssh
+  glyph every font has) and its line without the name; the joins the page started (``joins``). 添加 is by ssh only: the
+  paste way's command carries a one-time join token, which would land in the page's database, so it stays on the card. The ssh
   runs in a thread of its own (up to app/node_panel.py SSH_SECONDS), never in the inbox's: its outcome is written to <state>/web/
   node-joins.json, whose mtime makes the settings item due (``JOINS``). 移除 is the card's (nodes.revoke, the gateway's revoke_now),
   confirmed on the page first; the hub's own node is never removed. 刷新 changes nothing: it only makes the item due now.
 - 代答 (a deployment with a sender, app/proxy_send.py ``available``): on or off, the web login's state, what keeps the sender from sending,
   the model rows (cards/proxy_panel.py ``model_rows``, the page may change them as the card's ``pick``), and the whitelist, each contact's
-  name, kind and whether it is paused (the owner, 2026-11-19 T554: their names go into the page's database). 开启, 关闭, 暂停, 恢复, 移除 are
+  name, kind and whether it is paused (their names go into the page's database). 开启, 关闭, 暂停, 恢复, 移除 are
   the card's (app/proxy_commands.py); finding and adding contacts and 去登录 stay on the card.
 """
 from __future__ import annotations

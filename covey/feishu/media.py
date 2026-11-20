@@ -64,7 +64,7 @@ def _needs_own_detail(event: dict[str, Any], message_type: str) -> bool:
     """Whether the message's own detail adds anything to its event. The body is the event's
     anyway; the consumer marks an event (REPLY_CONTEXT) when its lark-cli puts the type, root,
     thread, mentions and the parent of a reply (``reply_to``, our ``parent_id``) in it. A reply
-    always has a root_id (so did every one of 652 live user messages, 2026-10-26): an unmarked
+    always has a root_id (so did every one of 652 live user messages): an unmarked
     event, a root without a parent, or no type still fetches."""
     return (not event.get(REPLY_CONTEXT) or not message_type
             or (bool(event.get("root_id")) and not event.get("parent_id")))

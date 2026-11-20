@@ -231,7 +231,7 @@
 
 ## 卡片发不出去时
 
-- 任务卡首次创建被 CardKit 拒绝时，`StreamingCard.create` 去掉可选按钮只留“停止”重建一次，其他元素与完整卡相同；仍失败时在话题里说明（[任务卡没出来](usage.md#任务卡没出来)），日志记 `task card missing`。
+- 任务卡首次创建被 CardKit 拒绝时，`StreamingCard.create` 去掉可选按钮只留“停止”重建一次，其他元素与完整卡相同；仍失败时在话题里说明（[任务卡没出来](reference.md#任务卡没出来)），日志记 `task card missing`。
 - 飞书接口失败都记一行 `delivery failed`（类别、错误码、操作、是否可重试、次数和截断的说明），不记请求内容。
 - 卡片大小：CardKit 拒绝过大的卡（`200860 card over max size`），按渲染后的行、段落、行内标记和表格单元格算，不按字节：几千行短行会被拒，几万字的一段中文不会。`card_cost` 按字节加每行、每个标记、每个单元格的开销估算，实测的拒绝点都在 358,000 以上。
 - 正文只用整卡预算 `CARD_COST_BUDGET`（300,000）减去其他元素（`StreamingReply.others`，加、改、删元素时随时更新）后剩下的部分，截在行尾并注明已截断（`truncate_card_content`）。截断后 `StreamingReply.cut` 为真，结果另以文件或分段消息完整发出。

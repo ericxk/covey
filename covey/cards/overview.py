@@ -2,9 +2,8 @@
 tasks change: the questions waiting for the owner first, then the tasks running, then the ones that ended in the
 last few minutes. Each row is the topic's number and first message, and under it in grey since when and where it is
 (the question, the checkpoint's phase), then what it runs with. Times are times of day (``when``), not durations:
-the card changes with its content, not with the clock (until 2026-11-06 a row's 等了 18 小时 5 分 rewrote it every
-minute). Questions waiting over STALE seconds are one grey line of topic numbers (on 2026-11-05 seven of the private
-chat's eight had waited 21 hours to five days).
+the card changes with its content, not with the clock (a row's 等了 18 小时 5 分 would rewrite it every
+minute). Questions waiting over STALE seconds are one grey line of topic numbers (such ones can wait for days).
 
 ``view`` is plain data from app/overview.py: ``waiting`` rows (label, title, ask, since), newest first, ``running``
 rows (label, title, harness, workspace, status, started, phase, progress: its estimate as a time of day or 可能卡住了) and ``ended`` rows (label, title, status, at); times
@@ -32,7 +31,7 @@ SHOWN = 8  # Rows a part shows; the rest is one line under them.
 TITLE_CHARS, DETAIL_CHARS = 30, 80
 STALE = 86400  # A question waiting this long is listed by its topic number only.
 LABELS = 10  # Topic numbers that line names.
-DISMISS = "bridge_overview_dismiss"  # 不管了 (这些都不用回答了 before 2026-11-19) (app/overview.py claim).
+DISMISS = "bridge_overview_dismiss"  # 不管了 (这些都不用回答了 in older releases) (app/overview.py claim).
 DISMISS_MAX = 50  # Topics its value names at most.
 # How a task ended, as 刚结束 says it.
 OUTCOMES = turn_words.OVERVIEW_OUTCOMES
@@ -115,7 +114,7 @@ def counts(view):
 
 def board_counts(board):
     counts = board["counts"]
-    unseen = counts.get("unseen", counts["result"])  # A view saved before 2026-11-10 has no unseen count.
+    unseen = counts.get("unseen", counts["result"])  # A view saved by an older release has no unseen count.
     return (f"{turn_words.OVERVIEW_GROUPS['waiting']} {counts['waiting']} · {turn_words.OVERVIEW_GROUPS['running']} "
             f"{counts['running']} · 有结果 {counts['result']}"
             + (f"（未看 {unseen}）" if counts["result"] else ""))
@@ -149,7 +148,7 @@ def _board(board, now):
     elements = [md(board_counts(board))]
     if board["pinned"]:
         elements.append(note("在 Pin 页里点话题的卡片，直接打开那个话题"))  # How many: the header says it.
-    # Top to bottom as the Pin board (app/pins.py GROUPS, the owner's D2, 2026-11-08).
+    # Top to bottom as the Pin board (app/pins.py GROUPS).
     for key, draw in (("waiting", _waiting), ("running", _running), ("result", _ended)):
         title = turn_words.OVERVIEW_GROUPS[key]
         if board[key]:

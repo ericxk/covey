@@ -269,9 +269,9 @@ class ChatListTest(WebCase):
         self.assertLess(self.clock.now - before, 5)  # Not the list's 90 s.
 
     def test_a_chat_is_opened_from_the_list_then_from_search_past_others_of_its_name(self):
-        first, second, found, group = Chat("张三"), Chat("张三"), Chat("张三"), Chat("C队 验收测试(3)")
+        first, second, found, group = Chat("张三"), Chat("张三"), Chat("张三"), Chat("Covey 验收测试(3)")
         page = self.web(("李四", Chat("李四")), ("张三", first), ("张三", second),
-                        results=[("张三", found), ("张三丰", Chat("张三丰")), ("C队 验收测试(3)", group)])
+                        results=[("张三", found), ("张三丰", Chat("张三丰")), ("Covey 验收测试(3)", group)])
         web_client.open_messenger(page)
         self.assertTrue(web_client.open_from_feed(page, "张三"))
         self.assertIs(page.chat, first)
@@ -286,7 +286,7 @@ class ChatListTest(WebCase):
         self.assertEqual(page.did[:4], [("press", "Escape"), ("press", "Control+k"), ("click", SEARCH_BOX),
                                         ("type", "张三")])
         self.assertEqual(page.composer, "")
-        self.assertTrue(web_client.open_from_search(page, "C队 验收测试"))
+        self.assertTrue(web_client.open_from_search(page, "Covey 验收测试"))
         self.assertIs(page.chat, group)
         # The results are in with fewer of that name: given up after 3 s, not at the 20 s deadline.
         start = self.clock.time()
@@ -308,7 +308,7 @@ class ChatListTest(WebCase):
             web_client.open_messenger(page)
             return page, web_client.open_chat(page, name, functools.partial(web_client.open_from_feed, page, name))
         self.assertTrue(opened(Chat("张三"))[1])
-        self.assertTrue(opened(Chat("C队 验收测试(3)"), "C队 验收测试")[1])
+        self.assertTrue(opened(Chat("Covey 验收测试(3)"), "Covey 验收测试")[1])
         page, found = opened(Chat("张三", blank=1))
         self.assertTrue(found)
         self.assertEqual(page.did[1:6], [("click", '[data-feed-id="feed-0"]'), ("blank",), ("reset",),

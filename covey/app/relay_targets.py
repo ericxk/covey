@@ -97,8 +97,8 @@ def ask_for(state_dir, job, target, profile=None, *, at="", log=None, doing="abo
     """The "你问"/"你答" block of the topic turn ``job`` its relay or question copy carries (app/answer_cards.py
     asked): the words of the owner's message the butler took it from (its job record, target ``main_key``), or,
     for a turn the owner started in the topic (kind "follow"), the turn's own words; None when it cannot be told.
-    Never raises. Whatever the kind, the block opens the topic's thread (target ``topic_id``; the owner, 2026-11-10:
-    都能跳转到话题上), at ``at`` (the relay's turn card or question card, ``turn_card``) or the turn's own card when
+    Never raises. Whatever the kind, the block opens the topic's thread (target ``topic_id``),
+    at ``at`` (the relay's turn card or question card, ``turn_card``) or the turn's own card when
     they are in it: a second topic one message opened has its own root, the topic card (S6), so its own thread."""
     try:
         record = None

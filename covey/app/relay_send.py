@@ -59,8 +59,8 @@ def remember_sent(state_dir, chat_id, topic_id, messages, *, skip_errors=False) 
 
 def linked(state_dir, chat_id, built, text, profile=None, cards=None):
     """The relay's card and text with each T number a link to its topic (app/topic_links.py): the owner taps
-    "T404" to open it (2026-11-07 02:00); ``cards``: {topic id: the card its T number opens}, the relayed turn's
-    (2026-11-08: 点 T439 要到那张答案卡上). Unchanged when no link can be told."""
+    "T44" to open it; ``cards``: {topic id: the card its T number opens}, the relayed turn's.
+    Unchanged when no link can be told."""
     from covey.app.topic_links import linkify
 
     def link(words):

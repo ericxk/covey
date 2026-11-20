@@ -234,7 +234,7 @@ def finish(gateway, ctx, path):
     # A refusal of cyber or bio, its tree stopped, claimed by this release: one retry on an older model
     # (app/policy_retry.py), said here.
     found = policy_retry.schedule(ctx.state_dir, key, event) if cleanup_ok and intent.get('fallback_retry') else None
-    # In the butler's words (T3027's card said 再在本话题明确提出): the record keeps the text a 重新投递 sends.
+    # In the butler's words, not the bare 再在本话题明确提出: the record keeps the text a 重新投递 sends.
     detail = intent.get('detail')
     if detail is None:  # Worded once, at the first finish: a repaint or a later notice says the same.
         try:

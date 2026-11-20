@@ -370,17 +370,17 @@ def proxy_cards():
                       {"key": "group:oc_fake_g", "kind": "group", "target": "oc_fake_g", "name": "项目群", "paused": True}],
             batches=[{"contact": person["key"]}], choices=CHOICES, current=("codex:gpt-6-astra", "xhigh")),
         "panel_lookup": proxy_panel_card(
-            "f" * 24, {"revision": 3, "query": "张三、王五 C队", "page": 1, "lookup": {
-                "id": "abcd1234", "text": "张三、王五 C队", "left": 0, "items": [
+            "f" * 24, {"revision": 3, "query": "张三、王五 Covey", "page": 1, "lookup": {
+                "id": "abcd1234", "text": "张三、王五 Covey", "left": 0, "items": [
                     {"query": "张三", "state": "unique", "candidates": [{**person, "detail": "数据", "email": ""}]},
-                    {"query": "C队", "state": "unique", "candidates": [
-                        {"key": "group:oc_fake_c", "kind": "group", "target": "oc_fake_c", "name": "C队", "detail": "群",
+                    {"query": "Covey", "state": "unique", "candidates": [
+                        {"key": "group:oc_fake_c", "kind": "group", "target": "oc_fake_c", "name": "Covey", "detail": "群",
                          "email": "", "members": 12}]},
                     {"query": "王五", "state": "choices", "more": 0, "candidates": [
                         {"key": f"p2p:ou_fake_w{i}", "kind": "p2p", "target": f"ou_fake_w{i}", "name": "王五",
                          "detail": "部门", "email": ""} for i in range(2)]},
                     {"query": "没这个人", "state": "none", "candidates": []}]},
-                "members": {"id": "beef0001", "chat_id": "oc_fake_c", "name": "C队", "total": 12, "bots": 1, "skipped": 2,
+                "members": {"id": "beef0001", "chat_id": "oc_fake_c", "name": "Covey", "total": 12, "bots": 1, "skipped": 2,
                             "add": [{"open_id": f"ou_fake_m{i}", "name": f"成员{i}"} for i in range(10)],
                             "partial": False}},
             settings=settings,
@@ -657,7 +657,7 @@ def answer_tail_cards():
     head = head_element("✅ 做完", "T443", "改看板的 Pin 目标")  # Atop a 话题区's answer card in its thread (D3).
     # A turn that changed code (app/answer_cards.py change): its checkpoint's delivery as written.
     handed = {"commit": "a6bc148d38ce8c230e96e", "deployed": "第 322 代（10:11 切换，旧进程已退出）",
-              "verified": "全量测试通过；在「C队 验收测试」点开折叠看过"}
+              "verified": "全量测试通过；在「Covey 验收测试」点开折叠看过"}
     from covey.cards.answer_card import handoff_card, hook_card
     # 2026-11-10 17:59: the line a topic's thread gets from topic_send opens the owner's message; the hook under his
     # message opens each topic it went to (one without a link: no ›).
@@ -962,7 +962,7 @@ def overview_cards():
              "waiting": [{"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": FROZEN - 180}],
              "result": [{"label": "T394", "title": "群晖公钥", "status": "failed", "at": FROZEN - 600, "seen": False},
                         {"label": "T393", "title": "日志", "status": "cancelled", "at": FROZEN - 900, "seen": True}],
-             "running": [{"label": "T391", "title": "logid", "harness": "Codex", "workspace": "EnvReplay",
+             "running": [{"label": "T391", "title": "logid", "harness": "Codex", "workspace": "DataLab",
                           "status": "queued", "started": None, "phase": ""},
                          {"label": "T390", "title": "重构", "harness": "Claude Code", "workspace": "algo-agent-devskills",
                           "status": "running", "started": FROZEN - 3900, "phase": "跑全量",
@@ -1017,11 +1017,11 @@ def digest_cards():
                 "waiting": [{"topic": "a", "label": "T505", "title": "优化 Bootstrap 下一环节", "url": "https://applink.feishu.cn/t/505",
                              "line": "要你定：Prompt 问题清单已出，等你定 6 件事", "meta": ["等了 45 分钟"]}],
                 "stale": [{"topic": "s", "label": "T370", "title": "旧问题"}], "dismissable": True, "can_dismiss": True,
-                "running": [{"topic": "b", "label": "T488", "title": "修 064 采购审批题包", "url": "https://applink.feishu.cn/t/488",
+                "running": [{"topic": "b", "label": "T488", "title": "修 064 采购审批数据包", "url": "https://applink.feishu.cn/t/488",
                              "line": "现在：梳理 Service 还剩哪些要收尾", "meta": ["4/7 步", "预计还要约 35 分钟", "2 分钟前有动静"]},
                             {"topic": "c", "label": "T519", "title": "从追问记录盘点 Covey 痛点", "url": "https://applink.feishu.cn/t/519c",
                              "card": "om_t519", "line": "现在：在审看板", "meta": ["35 分钟前有动静"], "stuck": True}],
-                "done": [{"topic": "d", "label": "T525", "title": "修 C队开发机重启后自启", "url": "https://applink.feishu.cn/t/525c",
+                "done": [{"topic": "d", "label": "T525", "title": "修 Covey开发机重启后自启", "url": "https://applink.feishu.cn/t/525c",
                           "card": "om_t525", "status": "failed", "line": "这一轮没有成功；可以接着做，或先看原因；停在：等你选插件形态",
                           "meta": ["20:31 停", "下一步：在任务卡上点「检查并继续」"], "seen": False},
                          {"topic": "e", "label": "T528", "title": "提炼两群 AI 高手的认知", "status": "done", "line": "炼化完了",
@@ -1029,11 +1029,11 @@ def digest_cards():
                           "meta": [], "seen": False, "state": "做完", "took": "用时 19分22秒"},
                          {"topic": "f", "label": "T527", "title": "修停止慢和任务卡重复", "status": "done", "seen": True,
                           "state": "做完", "took": "用时 11分26秒"}],
-                "projects": [{"name": "题包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入", "topics": ["g"],
+                "projects": [{"name": "数据包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入", "topics": ["g"],
                               "waiting": 1, "running": 0, "stopped": 0, "url": "https://applink.feishu.cn/t/600"}],
                 "proposals": 1, "tidy": {}, "stamp": "20:59", "done_since": "09:30",
-                "pending": [{"id": "b84c9a1e00000000", "name": "题包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入 !248",
-                             "why": "", "rows": [{"topic": "h", "label": "T488", "title": "修 064 采购审批题包",
+                "pending": [{"id": "b84c9a1e00000000", "name": "数据包生产链路提示词优化", "goal": "各环节新提示词验证通过并合入 !248",
+                             "why": "", "rows": [{"topic": "h", "label": "T488", "title": "修 064 采购审批数据包",
                                                   "url": "https://applink.feishu.cn/t/488"},
                                                  {"topic": "i", "label": "T505", "title": "优化 Bootstrap 下一环节", "url": ""}]}]}),
             "board_empty": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00"}),
@@ -1051,7 +1051,7 @@ def digest_cards():
                                                  "tone": "done", "state": "做完", "took": "用时 9分0秒", "seen": True}]}),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
-            "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "EnvReplay Prompt 优化"]}}),
+            "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "DataLab Prompt 优化"]}}),
             "tidy_none": digest_card({**view, "tidy": {"projects": []}}),
             "wanted": digest_card({**view, "wanted": [
                 {"what": "T396 你为啥没有pin？：有个问题等了你 3小时0分", "why": "你一直没回，像是卡住了", "would": "主动来问你"},
@@ -1145,24 +1145,24 @@ def tidy_cards():
     from covey.cards.status_card import status_card
     from covey.cards.topic_card import topic_card
 
-    view = {"proposal": "0123456789abcdef", "labels": [("T488", "修 064 采购审批题包"), ("T505", "优化 Bootstrap 下一环节")],
-            "name": "EnvReplay Prompt 优化", "goal": "新旧 Prompt 对率可比", "why": "两个话题都在改 Prompt", "first": True,
+    view = {"proposal": "0123456789abcdef", "labels": [("T488", "修 064 采购审批数据包"), ("T505", "优化 Bootstrap 下一环节")],
+            "name": "DataLab Prompt 优化", "goal": "新旧 Prompt 对率可比", "why": "两个话题都在改 Prompt", "first": True,
             "accepted": 0, "ask_auto": False, "state": "open"}
     rows = [{"proposal": "1" * 16, "line": "新建「推理网关稳定」：T484、T485、T499（都在这个网关上）", "state": "open"},
             {"proposal": "2" * 16, "line": "「Covey 工作台与体验」改名「Covey 工作台」", "state": "done", "note": "已改名「Covey 工作台」"},
             {"proposal": "3" * 16, "line": "合并「回流周报」「回流汇报」", "state": "declined"}]
-    done = {"run": "20261118093000-abc123", "state": "done", "did": ["已把 T512 归进「EnvReplay Prompt 优化」",
+    done = {"run": "20261118093000-abc123", "state": "done", "did": ["已把 T512 归进「DataLab Prompt 优化」",
                                                                       "已收起「回流周报」：本周的已交，有新的事会自动展开"],
             "rows": rows, "skipped": ["3 个话题读不了，没参与这次整理"], "scope": ""}
-    joined = tc.joined_element("EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6")
-    rows = [{"label": "T488", "title": "修 064 采购审批题包", "link": "https://applink.feishu.cn/client/thread/open?t=488",
-             "essence": "优化 EnvReplay 的 Prompt，让题包一次跑对", "now": "v1.1 和旧版各跑 3 遍的对跑在跑，预计 19:35 跑完。",
+    joined = tc.joined_element("DataLab Prompt 优化", "f" * 32, "a1b2c3d4e5f6")
+    rows = [{"label": "T488", "title": "修 064 采购审批数据包", "link": "https://applink.feishu.cn/client/thread/open?t=488",
+             "essence": "优化 DataLab 的 Prompt，让数据包一次跑对", "now": "v1.1 和旧版各跑 3 遍的对跑在跑，预计 19:35 跑完。",
              "days": 7.2, "turns": 93},
             {"label": "T505", "title": "优化 Bootstrap 下一环节", "link": "", "essence": "", "now": "", "days": 0.4, "turns": 12}]
     one = [{"label": "T252", "title": "阅读这个session，继续我们未完成的事情", "link": "https://applink.feishu.cn/client/thread/open?t=252",
             "essence": "把账号额度运行台做成能一眼看清各账号额度和可用性的页面", "now": "第 7 期上线：额度读数改成按账号分组。",
             "days": 19.0, "turns": 118}]
-    choices = [{"topic": "a" * 64, "label": "T488", "title": "修 064 采购审批题包", "chosen": True},
+    choices = [{"topic": "a" * 64, "label": "T488", "title": "修 064 采购审批数据包", "chosen": True},
                {"topic": "b" * 64, "label": "T505", "title": "优化 Bootstrap 下一环节", "chosen": True},
                {"topic": "c" * 64, "label": "T523", "title": "T488、T505 验证加速方案", "chosen": False}]
     view = {**view, "choices": choices}
@@ -1173,29 +1173,29 @@ def tidy_cards():
             "proposal_ask_auto": tc.proposal_card({**view, "first": False, "ask_auto": True, "accepted": 5}),
             "proposal_declined": tc.proposal_card({**view, "state": "declined", "lesson": True,
                                                    "note": "不建了：这几个话题不会再这样提，等又多出相关的话题才会再提。"}),
-            "proposal_done": tc.proposal_card({**view, "state": "done", "note": "已建专项「EnvReplay Prompt 优化」：专项卡在聊天区，负责人接着跟进。"}),
+            "proposal_done": tc.proposal_card({**view, "state": "done", "note": "已建专项「DataLab Prompt 优化」：专项卡在聊天区，负责人接着跟进。"}),
             "rename_form": tc.rename_form(view),
             "tidy_reading": tc.tidy_card({"run": "r", "state": "running", "progress": {"done": 12, "total": 40, "current": "T488"}}),
             "tidy_done": tc.tidy_card(done),
             # 2026-11-18: each new project on its own proposal card, rows Markdown with every topic linked, no 全部照办, the
             # topics not read named with why.
             "tidy_pending": tc.tidy_card({"run": "r", "state": "done", "did": [], "rows": [],
-                                          "pending": ["题包生产链路提示词优化", "Covey 网页工作台完善"]}),
+                                          "pending": ["数据包生产链路提示词优化", "Covey 网页工作台完善"]}),
             "tidy_done_v2": tc.tidy_card({
                 "run": "20261118200000-def456", "state": "done", "did": [], "proposed": ["Golden Localize 提示词优化", "提议卡与整理专项"],
                 "rows": [{"proposal": "4" * 16, "md": True, "state": "open",
-                          "line": "把 [T518](https://applink.feishu.cn/client/thread/open?t=518) 升级 Merlin 开发机的 MASO 移出「Covey 产品完善」（不是在完善 Covey）"}],
+                          "line": "把 [T518](https://applink.feishu.cn/client/thread/open?t=518) 升级测试机的运行时 移出「Covey 产品完善」（不是在完善 Covey）"}],
                 "skipped": ["2 个话题读不了，没参与这次整理：[未编号话题](https://applink.feishu.cn/client/thread/open?t=1) 看一下 maso 的日志（内容太长，一次读不完）；"
                             "[T301](https://applink.feishu.cn/client/thread/open?t=301) 对齐评测（官方内容安全拦了）"],
                 "skipped_md": True}),
             "tidy_nothing": tc.tidy_card({"run": "r", "state": "done", "scope": "Covey"}),
             "tidy_failed": tc.tidy_card({"run": "r", "state": "failed", "why": "判断超时了"}),
-            "leave_answer": tc.lesson_card("已把这个话题移出专项「EnvReplay Prompt 优化」，以后它不会再被自动归进专项。",
+            "leave_answer": tc.lesson_card("已把这个话题移出专项「DataLab Prompt 优化」，以后它不会再被自动归进专项。",
                                            {"kind": tc.LESSON_KIND, "topic": "f" * 32, "project": "a1b2c3d4e5f6"}),
-            "joined_line": tc.joined_card("EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6"),
-            "topic_card_joined": topic_card("修 064 采购审批题包", label="T488", config=("Claude Code", "Opus 5.5"), joined=joined),
-            "status_card_joined": status_card("T488 · 修 064 采购审批题包", "做完", "13:01 · 2 轮", "结论：改 Prompt",
-                                              ["EnvReplay Prompt 优化", "f" * 32, "a1b2c3d4e5f6"])}
+            "joined_line": tc.joined_card("DataLab Prompt 优化", "f" * 32, "a1b2c3d4e5f6"),
+            "topic_card_joined": topic_card("修 064 采购审批数据包", label="T488", config=("Claude Code", "Opus 5.5"), joined=joined),
+            "status_card_joined": status_card("T488 · 修 064 采购审批数据包", "做完", "13:01 · 2 轮", "结论：改 Prompt",
+                                              ["DataLab Prompt 优化", "f" * 32, "a1b2c3d4e5f6"])}
 
 
 def node_cards_samples():
@@ -1224,7 +1224,7 @@ def node_cards_samples():
                                   "free": 49 << 30, "growth": [{"secs": 3600, "bytes": 2 << 30}, {"secs": 86400, "bytes": 45 << 30}],
                                   "writers": [{"comm": "pytest", "bytes": 6 << 30, "secs": 60, "task": "k1"}],
                                   "dirs": {"at": FROZEN - 600, "partial": False, "items": [
-                                      {"path": "/tmp", "bytes": 207 << 30, "files": 39, "shape": "envreplay-artifacts-*.tar"},
+                                      {"path": "/tmp", "bytes": 207 << 30, "files": 39, "shape": "datalab-artifacts-*.tar"},
                                       {"path": "/tmp/claude-1000", "bytes": 43 << 30}]}}, "本机", tasks),
         "alert_write": alert_card({"rule": "write:/absolute/data", "kind": "raise", "at": FROZEN, "path": "/absolute/data",
                                    "error": "Disk quota exceeded"}, "本机", {}),

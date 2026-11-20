@@ -1,4 +1,4 @@
-"""A project's memory (core/project_memory.py, docs/butler.md 专项记忆): entries in projects/<id>/memory.json, a delete as a
+"""A project's memory (core/project_memory.py, docs/projects.md 专项记忆): entries in projects/<id>/memory.json, a delete as a
 tombstone, the limits, an older release's entries in the record read and moved on the next write, and writers that
 do not overwrite one another."""
 from __future__ import annotations

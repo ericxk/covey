@@ -4,7 +4,7 @@
 app/butler_topics.py, app/butler_panel.py). Standard library only.
 
 Every handler answers {"ok": bool, "text": what the model reads, "data": {...}}; a topic is named by its number
-("T412", "412") or its topic id.
+("T12", "412") or its topic id.
 """
 from __future__ import annotations
 
@@ -297,7 +297,7 @@ TRIAGE_TOOLS = (
          "thread": THREAD, "why": {"type": "string", "description": "一句话：为什么要主人定"}}}},
 )
 PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS)
-# The lead's two tools were project_thread_start and project_thread_send until 2026-11-16. The list names only the new ones;
+# The lead's two tools were project_thread_start and project_thread_send in older releases. The list names only the new ones;
 # a call under an old name (a session that began earlier, a server of an older release) is run as the new one.
 RENAMED_TOOLS = {"project_thread_start": "project_topic_start", "project_thread_send": "project_topic_send"}
 

@@ -316,7 +316,7 @@ def mount_points():
 
 
 def shape(name):
-    """A file name with its ids and numbers as ``*``: envreplay-artifacts-*.tar for every such archive."""
+    """A file name with its ids and numbers as ``*``: build-artifacts-*.tar for every such archive."""
     return re.sub(r"\*+", "*", re.sub(r"[0-9a-fA-F]{8,}|[0-9]+", "*", name))
 
 

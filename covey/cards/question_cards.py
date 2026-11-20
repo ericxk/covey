@@ -17,15 +17,14 @@ SKIP_VALUE = "skip"
 SKIP_LABEL = "不回答此题"
 SUPPLEMENT = "supplement"  # The card-wide 补充说明 field.
 # The button beside 提交回答 that leaves every question unanswered and sends only 补充说明, which it requires
-# (the owner, 2026-10-28: skipping a model's questions to give a new instruction took a 不回答此题 per question).
-# Since 2026-11-04 it is also the way to say the questions do not fit: "问题不合适 / 修改要求" opened a second card
-# for the same thing (the owner, 18:05: 为啥要这么多选项; 18:27 picked the simpler bottom).
+# (skipping a model's questions to give a new instruction otherwise takes a 不回答此题 per question). It is
+# also the way to say the questions do not fit: "问题不合适 / 修改要求" opened a second card for the same thing.
 SKIP_ALL_KIND = "bridge_question_skip"
 SKIP_ALL_LABEL = "只发补充说明"
 SUPPLEMENT_HINT = "不答这些题时，写原因或新要求"
 STATUS_LABEL = "查看提交状态"
 # A top-level card's single-choice question (``top_level_card``) shows each option as a submit button, so one tap
-# answers (the owner's night run, 2026-11-07: a dropdown took four steps and 600 px, and iOS's picker could not be cancelled).
+# answers (a dropdown took four steps and 600 px, and iOS's picker could not be cancelled).
 # Its callback value's PICK is the option's index, or SKIP_VALUE for 不回答此题 (app/answers.py picked_fields).
 PICK = "pick"
 # Headers that name no topic: the default a bare checkpoint question gets, and numbering.
@@ -151,7 +150,7 @@ def question_lead(i, count, q):
 
 def question_element(record, tags="", *, headed=False):
     """A question's element: its open form, or once settled the folded panel that says what came of it.
-    ``tags``: ``T191 · #1084``, which lead the form's first line on the standalone card; ``headed``: the
+    ``tags``: ``T12 · #196``, which lead the form's first line on the standalone card; ``headed``: the
     card's title bar says them and 需要你回答, so the form starts with its state."""
     token = record["token"]
     if record.get("status") == "superseded" and not folded(record):
@@ -171,8 +170,8 @@ def question_element(record, tags="", *, headed=False):
 
 def settled_title(record):
     """The folded question's first line: whose question it is and where it went, e.g.
-    ``❓ #1107 的提问 · 已回答 → #1111 ✅ 已完成``, ``❓ #1106 的 2 道题 · 你提了反馈 → #1125 又提了问题``
-    (the owner asked "这个是啥东西？" of one that read only 回答已送达 · 后续任务已完成, #1127)."""
+    ``❓ #17 的提问 · 已回答 → #21 ✅ 已完成``, ``❓ #16 的 2 道题 · 你提了反馈 → #25 又提了问题``
+    (not only 回答已送达 · 后续任务已完成, which says nothing of what it was)."""
     count = len(record["questions"])
     title = f"❓ #{record['job_id']} 的" + ("提问" if count == 1 else f" {count} 道题")
     status, delivery = record["status"], record.get("delivery_state", "delivered")
@@ -287,7 +286,7 @@ def waiting_state(record):
 
 def _question_form(record, token, tags="", headed=False):
     """The open form: whose questions they are, one line on how to answer and the rest folded, each
-    question's fields, 补充说明 and the buttons. T191 #1084's three questions came after ten lines of
+    question's fields, 补充说明 and the buttons. Not questions after ten lines of
     rules, without numbers or headers, their options in the same type as the questions."""
     state = waiting_state(record)
     count = len(record["questions"])
@@ -310,7 +309,7 @@ def _question_form(record, token, tags="", headed=False):
     elements.append({"tag": "input", "name": SUPPLEMENT, "input_type": "multiline_text", "rows": 2,
                      "auto_resize": True, "max_rows": 5, "width": "fill", "max_length": 1000,
                      "placeholder": {"tag": "plain_text", "content": SUPPLEMENT_HINT}})
-    # Two buttons on one row (the owner, 2026-11-04 18:27: four, each on its own line, read as too many). A card
+    # Two buttons on one row (four, each on its own line, read as too many). A card
     # sent before keeps its 问题不合适 / 修改要求, which still opens the feedback card (app/questions.py).
     submit = {"tag": "button", "text": {"tag": "plain_text", "content": "提交回答"}, "type": "primary_filled",
               "width": "fill", "form_action_type": "submit", "name": "submit",
@@ -387,21 +386,21 @@ def _question_fields(i, q, count=1, record=None):
 
 
 def question_card(record, topic=""):
-    """The standalone question card; ``topic``: its topic's label (T191), with the task's number before
-    the form. No 🔁 换配置 since 2026-11-04: the task card above it has one (the owner: 为啥要这么多选项).
+    """The standalone question card; ``topic``: its topic's label, with the task's number before
+    the form. No 🔁 换配置: the task card above it has one.
     ``refusal`` (not saved: app/interaction.py adds it) says under it why a click on its form sent nothing."""
     pending = record.get('status') == 'pending'
     # A quiet butler turn's own card at the top level (app/question_display.py ask_block_for) has no task
     # number: the owner saw no card with it (B4 review).
     number = "" if record.get("mirror_state") == "at_top" else f"#{record.get('job_id', '')}"
     tags = " · ".join(filter(None, [topic, number]))
-    # An open form gets an orange title bar: in a topic it read like any notice (2026-11-02 review). A settled
+    # An open form gets an orange title bar: in a topic it read like any notice. A settled
     # card is repainted whole (QuestionDisplay.paint_standalone), so the bar goes with the form.
     count = len(record['questions'])
     form = pending and not record.get("display_pending") and not (
         record.get("body_delivery_required") and not record.get("body_delivery_confirmed"))
     # The open form leads with its conclusion band (docs/ui.md 5.2 问题卡: "等你 · T12 #431", 要你定：…), which took
-    # the orange title bar's place on 2026-11-19.
+    # the orange title bar's place.
     asked = ask_words(record)
     asked = asked if len(asked) <= ASK_HEADLINE else asked[:ASK_HEADLINE - 1] + "…"
     # The band names what is asked without saying a question twice on the card: one question's own header
@@ -426,7 +425,7 @@ def question_card(record, topic=""):
 
 def mirror_card(record, topic="", output="", ask=None, files=None):
     """The question card again at the private chat's top level (app/question_display.py mirror): the same form,
-    with ``output``, what the turn wrote before it asked (the owner, 2026-11-07: 回答前要先看前面的输出), above it.
+    with ``output``, what the turn wrote before it asked, above it.
     Settled, it folds as the card in the topic does; the output stays. ``ask``: the "你问" block above it all.
     ``files``: the asking turn's 产物 panel, as its answer card in the topic has it (app/artifacts.py answer_files),
     right under the output (alone above the form when the output went as its own message)."""

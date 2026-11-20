@@ -16,8 +16,8 @@ DROP = "bridge_owner_send_drop"
 PICK = "bridge_owner_send_pick"
 TEXT_FIELD = "text"
 PICKS = 5  # Candidates drawn for a name.
-EDIT_LIMIT = 1000  # An input box's max_length: CardKit refuses more (ErrCode 11310, T568 acceptance 2026-11-19).
-# Feishu's audit refuses a bot's card with an e-mail address in it ("contain sensitive data: EMAIL_ADDRESS", same day); a
+EDIT_LIMIT = 1000  # An input box's max_length: CardKit refuses more (ErrCode 11310).
+# Feishu's audit refuses a bot's card with an e-mail address in it ("contain sensitive data: EMAIL_ADDRESS"); a
 # phone number is masked as well. A text with either is drawn masked and is not editable (the box would send the mask).
 EMAIL = re.compile(r"([\w.+-]+)@[\w-]+(?:\.[\w-]+)+")
 PHONE = re.compile(r"(?<!\d)(1[3-9]\d)\d{4}(\d{4})(?!\d)")

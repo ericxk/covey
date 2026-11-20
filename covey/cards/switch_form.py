@@ -1,13 +1,13 @@
 """The 🔁 换配置 card (app/harness_switch.py keeps the record it is drawn from and handles its clicks).
 
 Harness, then provider, then model, each a short select whose choice redraws the card with the next
-one's options (the owner, 2026-11-03: 不光是能换模型，Harness 等等都可以换); the model's budget and, where it has them,
+one's options; the model's budget and, where it has them,
 its work mode; the workspace and the run mode; 敏感词脱敏 where the model can redact, and while it
 is on only such models. Each select records its choice and redraws the card; 确认更换 applies them together.
 
-The look (the owner, 2026-11-03 22:59): the topic's current choice in one grey line, then the settings
+The look: the topic's current choice in one grey line, then the settings
 list (cards/launch_config.py setting_row), a row whose choice differs from the topic's with its label blue
-and bold. A row's options open under it, as on the launch card (2026-11-04: no select).
+and bold. A row's options open under it, as on the launch card (no select).
 """
 from __future__ import annotations
 
@@ -30,12 +30,12 @@ CONFIRM = "bridge_switch_confirm"
 CANCEL = "bridge_switch_cancel"
 PAGE = "bridge_switch_page"  # A row's tap on a card sent with options pages (84caa8a): that row drawn open.
 # What a switch does, as its card says it: the handoff's details (the transcript file, HANDOFF_ROUNDS
-# rounds in plain text, app/switch_handoff.py) are the model's to know, not the card's (T194).
+# rounds in plain text, app/switch_handoff.py) are the model's to know, not the card's.
 SWITCH_NOTE = ("换 Harness、模型、预算、工作区或运行方式会开新会话：新会话拿到交接摘要和最近的问答，完整记录放在文件里，需要时自己去读；"
                "旧会话没答的问题会取消。只改敏感词脱敏时会话不变。")
 UNCHANGED = "先改一项再点确认更换"
-# A model that cannot redact, chosen on a redacting topic, turns 脱敏 off on the card (the owner, 2026-11-04 17:13:
-# 当前切换不了Harness — only Claude was listed, and the reason sat in small print at the bottom).
+# A model that cannot redact, chosen on a redacting topic, turns 脱敏 off on the card (else
+# only Claude is listed, and the reason sits in small print at the bottom).
 AUTO_OFF_NOTE = "所选模型不能脱敏：确认更换后本话题关闭敏感词脱敏，之后各轮把原文发给模型服务。再选回 Claude 会重新打开。"
 OFF_TITLE = "关闭敏感词脱敏？"
 OFF_TEXT = "关闭后，之后各轮会把原文发给模型服务；之前各轮不受影响。"
@@ -43,8 +43,8 @@ OFF_TEXT = "关闭后，之后各轮会把原文发给模型服务；之前各�
 
 def offered(form):
     """The models the card offers: all of them, each naming its Harness (a record from before the Harness select: its
-    route key's). One that cannot redact turns a chosen 脱敏 off (app/harness_switch.py, AUTO_OFF_NOTE); until
-    2026-11-04 a redacting topic offered only those that redact."""
+    route key's). One that cannot redact turns a chosen 脱敏 off (app/harness_switch.py, AUTO_OFF_NOTE); older
+    releases offered a redacting topic only those that redact."""
     return {key: {"harness": key.partition(":")[0], **entry} for key, entry in form["models"].items()}
 
 
@@ -131,7 +131,7 @@ def build_switch_card(form):
         elements.append(md(form["notice"]))
     elif unchanged(form):
         elements.append(note(UNCHANGED))
-    # Greyed out until a choice changes (the 2026-11-03 client check: a blue 确认更换 over 先改一项再点确认更换);
+    # Greyed out until a choice changes (a blue 确认更换 over 先改一项再点确认更换 read as clickable);
     # a click on an older card is still refused with UNCHANGED (app/binding.py).
     confirm = callback_button("确认更换", {"kind": CONFIRM, "token": token}, style="primary_filled", width="fill",
                               disabled=True if unchanged(form) else None)

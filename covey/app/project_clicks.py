@@ -93,8 +93,8 @@ def stop_task(host, ctx, topic, chat, job, event_id, by="project") -> None:
     RECALLED: the owner recalled the message the task came from (app/source_watch.py), so its card says that instead of
     a click. A job in a live task runner is stopped there, by
     that click forwarded to the runner (app/runner_ipc.py forward_card_action, as app/butler_tracks.py and app/proxy.py
-    stop_job do): the runner owns the job, and a stop set only in this Bridge's copy of it reaches nobody (accept8,
-    2026-11-16: the threads' commands ran on to their end). The click names an alias of the topic's own (``STOP_ALIAS``),
+    stop_job do): the runner owns the job, and a stop set only in this Bridge's copy of it reaches nobody (the
+    threads' commands would run on to their end). The click names an alias of the topic's own (``STOP_ALIAS``),
     so the runner routes it to that topic whatever card the job has (a lead's quiet turn has none). Any other job (queued,
     or in this Bridge) is stopped here."""
     from covey.app import runner_ipc
@@ -216,8 +216,8 @@ def triage_fix(host, ctx, event) -> bool:
 
 
 def settle_fix_form(host, ctx, event, summary) -> None:
-    """The submitted form, replaced whole by the card that says it was corrected and with what (AGENTS.md rule 9; the
-    acceptance of 2026-11-17 found the form open after its 提交纠正). A failed write leaves the form, whose second submit
+    """The submitted form, replaced whole by the card that says it was corrected and with what (AGENTS.md rule 9; it
+    must not stay open after its 提交纠正). A failed write leaves the form, whose second submit
     ``triage.correct`` refuses."""
     from covey.cards.triage_card import fixed_card
 

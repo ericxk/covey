@@ -136,7 +136,7 @@ class ProxySend:
 
     def recent_chat(self, settings, contact, limit=records.RECENT_MESSAGES):
         """The chat's newest ``limit`` messages as the owner, oldest first (core/proxy.py incoming), the owner's
-        own among them, for a batch's prompt (T571); [] when the read fails, and the prompt asks the model to read it."""
+        own among them, for a batch's prompt; [] when the read fails, and the prompt asks the model to read it."""
         chat_id = contact.get("chat_id") or contact["target"]
         try:
             items = records.search_messages(

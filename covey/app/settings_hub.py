@@ -1,10 +1,10 @@
 """The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 新话题 and 管家
 (app/butler_panel.py), the workspace list with each workspace's 用途 (app/workspace_manager.py), the redaction term
 list (app/redaction_panel.py), the 群聊 (app/group_manager.py) and, with nodes, 设备 (app/node_panel.py) panels on one
-card in the owner's private chat, a tab row on top (cards/settings_hub.py: 新话题 · 管家 · 工作区 · 脱敏 · 群聊 · 设备;
-the owner, 2026-11-19). 代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
+card in the owner's private chat, a tab row on top (cards/settings_hub.py: 新话题 · 管家 · 工作区 · 脱敏 · 群聊 · 设备).
+代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
 there (app/proxy_panel.py). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
-retired (2026-11-09): an older card's tab click on it, or a record still on it, lands on 工作区 (cards/settings_hub.py
+retired: an older card's tab click on it, or a record still on it, lands on 工作区 (cards/settings_hub.py
 RETIRED), its buttons on the page that has their row now (app/butler_panel.py PAGE_OF).
 
 One record owns the card: <state>/settings-cards/<token>.json (app/menu_panel.py HUB_FOLDER), with its card_id,
@@ -20,7 +20,7 @@ its sequence from this record (rule 3). A tab click, the owner's only:
    group's name before it draws) the same record turns to the tab, with a fresh view of it, and the whole card is
    drawn. The click's event_id is kept (``turned``): the same click delivered again draws nothing more.
 
-点一下弹出，再点一下收回 (the owner, 2026-11-06): a click on the tab the card shows folds it in place to that panel's title
+点一下弹出，再点一下收回: a click on the tab the card shows folds it in place to that panel's title
 bar and the tab row (cards/settings_hub.py folded_hub; the record keeps FOLDED), and the next unfolds it with a fresh
 view of the tab, as steps 1 and 2 above. Another tab turns the card to it unfolded. The bot menu's 设置 again, while
 this card is the newest top-level message in the chat (app/bot_menu.py), folds and unfolds it the same way (``fold``).
@@ -32,7 +32,7 @@ record is MOVED) and then turns as above. A card whose record was MOVED by the s
 The menu opens it on 新话题 (``first_tab``), in either private chat mode and with COVEY_BUTLER=0 too. 管家 (BUTLER,
 the key of the one 管家 tab before the pages: an older card's tab click there lands on it) is a tab unless
 COVEY_BUTLER=0 rules the butler out, in the mode 纯话题 too (its row of the mode turns the butler on). The butler's menu
-key (app/butler_panel.py MENU_KEY) and its tool settings_panel send it on 管家; the bot menu's keys before 2026-11-09, 工作区
+key (app/butler_panel.py MENU_KEY) and its tool settings_panel send it on 管家; the bot menu's older keys, 工作区
 (app/workspace_manager.py MENU_KEY) and 脱敏 (REDACTION_KEY), on their tabs (``opens``: the console's
 menu shows them until the owner publishes the new one). The chat keeps one 设置 card (app/bot_menu.py Panels, key
 MENU_KEY). The bot menu's 代答 and 群聊 keys send their own cards, without tabs.
@@ -53,7 +53,7 @@ from covey.core import butler
 from covey.core.state import read_json
 
 MENU_KEY = 'bridge_settings'
-REDACTION_KEY = 'redaction_dashboard'  # The bot menu's 脱敏 before 2026-11-09 (core/app_manifest.py OLD_MENU_KEYS).
+REDACTION_KEY = 'redaction_dashboard'  # The bot menu's older 脱敏 key (core/app_manifest.py OLD_MENU_KEYS).
 KIND = 'settings-card'
 UNSAVED = '⚠️ 设置卡未能切换到「{}」，请重新点机器人菜单「设置」。'
 UNFOLDED = '⚠️ 设置卡未能{}，请再点一次「{}」。'
@@ -86,7 +86,7 @@ class SettingsHub:
         return self.menu.token(chat_id, source)
 
     def menu_items(self):
-        """The bot menu's 设置; the keys of the menu before 2026-11-09, 工作区 and 脱敏, on their tabs; unless
+        """The bot menu's 设置; the menu's older keys, 工作区 and 脱敏, on their tabs; unless
         COVEY_BUTLER=0 also the butler's own key, on its tab."""
         items = {MENU_KEY: self.open, workspace_manager.MENU_KEY: self.open_workspaces,
                  REDACTION_KEY: self.open_redaction}

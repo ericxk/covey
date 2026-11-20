@@ -13,7 +13,7 @@ from covey.core.usage import rate
 
 def tile_count(value):
     """A count as a tile (and the 输出 box) shows it, without a space and with one decimal at most: 8,123, 9.0万, 33万, 1.4亿. A third of a topic's
-    side panel wrapped short_count's "9.01 万" (the 2026-11-04 client check); 任务详情 keeps the exact count."""
+    side panel wrapped short_count's "9.01 万" (a client check); 任务详情 keeps the exact count."""
     if value < 10000:
         return f"{value:,}"
     unit, size = ("亿", 10 ** 8) if value >= 99995000 else ("万", 10 ** 4)

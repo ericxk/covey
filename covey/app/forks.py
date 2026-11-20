@@ -1,10 +1,10 @@
 """Forks: a new topic that continues from another topic, opened by the butler's topic_fork
-(app/butler_topics.py). The 🔀 分叉 and 💬 侧聊 buttons that opened them from a task card left on 2026-11-08.
+(app/butler_topics.py). The 🔀 分叉 and 💬 侧聊 buttons that opened them from a task card are gone.
 
 A 话题区 fork hangs under the owner's question. Without one
 (the question already has a topic, or it is not known) the source topic's thread is forwarded into the chat as a
 merged message, which becomes the new topic's root and shows the original conversation folded. Feishu refuses to
-forward a long thread (a 60-message topic was refused, 2026-10-21); the new topic then starts from a short root card
+forward a long thread (a 60-message topic was refused); the new topic then starts from a short root card
 instead. The bridge replies under the root with a short header and binds the new topic to the source's Harness,
 model and workspace, so the first reply runs without a launch card.
 
@@ -31,7 +31,7 @@ from covey.core.text import cut
 
 TITLE = "🔀 分叉"
 FINISHED = frozenset({"done", "waiting_user", "continued"})  # A turn a fork may start from.
-# A thread Feishu will not forward whole (230001 without saying why: 2 of 4 forks, 2026-11-02 and 11-04, a 19-message
+# A thread Feishu will not forward whole (230001 without saying why, seen on a 19-message
 # topic and a 50-plus one) goes as a merged forward of its newest messages, those a merge takes: no system messages,
 # no merged forwards (a fork's own root; the session carries it). If that is refused too, only the people's messages.
 THREAD_PAGE = 50
@@ -125,7 +125,7 @@ class Forks:
 
     def model_name(self, ctx, model):
         """The source's model as the model selects, receipt and task card name it (Claude · Opus 5.5);
-        by its id when the catalog does not list it. T197's start card said Claude · opus."""
+        by its id when the catalog does not list it, not as the bare alias (Claude · opus)."""
         label = self.cards.model_label(ctx, model) if model else ""
         return label or f"{self.harness.spec.title} · {cut(model or '默认模型', 60, beyond=True)}"
 

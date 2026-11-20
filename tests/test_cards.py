@@ -134,7 +134,7 @@ def sample_cards(work=None):
                                                  for key, entry in route.items()},
                    "current": {"label": "Codex · GPT-6-Astra", "effort": "xhigh", "key": "codex:gpt-6-astra",
                                "budget": "xhigh", "workspace": "project", "run_mode": "worktree", "redaction": False},
-                   "workspaces": ["project", "EnvReplay", "algo-agent-devskills"], "selected_workspace": "project",
+                   "workspaces": ["project", "DataLab", "algo-agent-devskills"], "selected_workspace": "project",
                    "selected_run_mode": "worktree", "selected_redaction": "off"}
     rewind_form = {"token": "c" * 24, "topic": "T70", "job_id": 12, "user_text": "把 a.py 里的重试改成指数退避",
                    "workdir": str(work), "point": {"keep": "k", "checkpoint": True, "file_count": 2, "files": [
@@ -200,17 +200,17 @@ def sample_cards(work=None):
                       {"key": "group:oc_g", "kind": "group", "target": "oc_g", "name": "项目群", "paused": True}],
             batches=[{"contact": "p2p:ou_z"}], choices=switch_form["models"], current=("codex:gpt-6-astra", "xhigh")),
         "proxy_panel_lookup": proxy_panel_card(
-            "f" * 24, {"revision": 3, "query": "张三、王五 C队", "page": 1, "lookup": {"id": "abcd1234", "text": "张三、王五 C队", "left": 0, "items": [
+            "f" * 24, {"revision": 3, "query": "张三、王五 Covey", "page": 1, "lookup": {"id": "abcd1234", "text": "张三、王五 Covey", "left": 0, "items": [
                 {"query": "张三", "state": "unique", "candidates": [
                     {"key": "p2p:ou_z", "kind": "p2p", "target": "ou_z", "name": "张三", "detail": "数据", "email": ""}]},
-                {"query": "C队", "state": "unique", "candidates": [
-                    {"key": "group:oc_c", "kind": "group", "target": "oc_c", "name": "C队", "detail": "群", "email": "",
+                {"query": "Covey", "state": "unique", "candidates": [
+                    {"key": "group:oc_c", "kind": "group", "target": "oc_c", "name": "Covey", "detail": "群", "email": "",
                      "members": 12}]},
                 {"query": "王五", "state": "choices", "more": 0, "candidates": [
                     {"key": f"p2p:ou_w{i}", "kind": "p2p", "target": f"ou_w{i}", "name": "王五", "detail": "部门", "email": ""}
                     for i in range(2)]},
                 {"query": "没这个人", "state": "none", "candidates": []}]},
-             "members": {"id": "beef0001", "chat_id": "oc_c", "name": "C队", "total": 12, "bots": 1, "skipped": 2,
+             "members": {"id": "beef0001", "chat_id": "oc_c", "name": "Covey", "total": 12, "bots": 1, "skipped": 2,
                          "add": [{"open_id": f"ou_m{i}", "name": f"成员{i}"} for i in range(10)], "partial": False}},
             settings={"enabled": True, "group_chat_id": "oc_p", "harness": "codex", "model": "gpt-6-astra",
                       "effort": "xhigh", "user_profile": "me", "web_python": "/py", "workspace": "project"},
@@ -227,7 +227,7 @@ def sample_cards(work=None):
             redaction_facts(rows=20, upstream="https://gw.example.com"),
             top=[tab_row("redaction", "f" * 24, list(LABELS))]),
         **{f"proxy_resend_{state}": resend_card({"state": state, "notice": "⚠️ 没有重新发送：代答已关闭。"}, {
-            "id": "0" * 32, "reply": "收到 哥\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "张信宇")
+            "id": "0" * 32, "reply": "收到 哥\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "赵六")
            for state in ("failed", "again", "resending", "sent", "uncertain", "void", "dropped")},
     }
     trace = ToolTrace()

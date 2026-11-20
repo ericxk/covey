@@ -9,7 +9,7 @@ Top to bottom, element IDs (CardKit takes at most 20 characters, rule 9) in the 
   message: Feishu puts a reply to a message that has a thread already (the topic the work was handed to hangs under
   that message) into the thread whatever ``reply_in_thread`` says, so the block says whose question it is instead;
 - the header: the owner's request, its first ``HEAD_CHARS`` characters, and the state as a tag (在做, 等你, 做完, 失败, 已停);
-- ``dp_meta``: one grey line, "T453 · 12:41 起 · 用时 2分05秒";
+- ``dp_meta``: one grey line, "T53 · 12:41 起 · 用时 2分05秒";
 - ``dp_thread``: the fold 话题 (open while the job works or waits on the owner, closed once it ended), its title line the
   topic's T number, title and workspace; inside it ``dp_body`` (the stage or step the job is at) and ``dp_notes``;
 - ``dp_io``: the grey 输入/输出 box (cards/answer_card.py ``box``);
@@ -57,7 +57,7 @@ class Dispatch:
     url: str = ""
     ask_at: str = ""
     ask_url: str = ""
-    who: str = ""  # Its topic as the speaker of the "你问" line (core/look.py speaker): "T548 查 Verifier 合成的思考档位".
+    who: str = ""  # Its topic as the speaker of the "你问" line (core/look.py speaker): "T48 查登录页的报错".
 
 
 def head_words(request) -> str:

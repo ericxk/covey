@@ -1,4 +1,4 @@
-"""话题加入和移出专项 (docs/butler.md 整理专项, COVEY_PROJECTS=1): an ordinary topic becomes a member of a project that is there
+"""话题加入和移出专项 (docs/projects.md 整理专项, COVEY_PROJECTS=1): an ordinary topic becomes a member of a project that is there
 (``join_topic``) and a member an ordinary topic again (``leave_topic``), and the existing topics a direct start takes in (``wanted_topics``).
 
 - ``join_topic``: topic.json's ``project`` (under the topic's lock), the record's ``threads`` (so the board and the Pins show it in the
@@ -25,7 +25,7 @@ MAX_JOINED = 10  # Existing topics one direct start takes in.
 
 
 def topic_line(state, topic) -> str:
-    """T531「title」：where its newest job stands, for the lead's start receipt."""
+    """T31「title」：where its newest job stands, for the lead's start receipt."""
     job = project_facts.newest_job(state, topic) or {}
     now = " ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part)
     return f"{topic_label(state, topic) or topic[:6]}「{cut(topic_title(state, topic), 30)}」" + (f"：{cut(now, 60)}" if now else "")

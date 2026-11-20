@@ -234,7 +234,7 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
         app.runtime.log(f"task runner ended job=#{job.job_id} status={(record or {}).get('status')} exit={outcome.get('status', 'none')}")
         if record and record.get("status") in RUNNING:
             start_failed = unstarted(record, directory)
-            # A runner a SIGTERM ended (a container shutting down, as at 22:09 on 2026-11-02) left its turn this way.
+            # A runner a SIGTERM ended (a container shutting down) left its turn this way.
             cause = "sigterm" if not start_failed and record.get("status_message") == SIGTERM_STATUS else ""
             if not start_failed and record.get("status_message") == DEVICE_LOST_STATUS:
                 cause = "device_lost"  # Its device stayed away past the patience: not continued by itself (the device may be gone).
@@ -312,7 +312,7 @@ def _compact_when_idle(gateway, app, job, ctx) -> None:
 
 def close_forms_sent_after_handoff(app, job, ctx, directory: Path) -> None:
     """补充 forms this bridge sent for a 补充 click that came while the job was handed over: the form
-    went out after the handoff was written, so the runner never knew it and left it open (S35 #930).
+    went out after the handoff was written, so the runner never knew it and left it open.
     Closed here once the runner has ended; the ones in the handoff were the runner's to close."""
     try:
         extras = read_json(Path(directory) / HANDOFF)["job"].get("extras") or {}

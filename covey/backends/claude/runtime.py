@@ -74,8 +74,8 @@ def accept_row(row, state, control, adapter, waiting, process, replied, closing_
         ):
             if failed and set(state.inputs) != state.acknowledged:
                 # A supplement sent before the turn failed waits in the CLI, which starts a turn for it
-                # right after; closing input now cut that turn off 10 s later as a settle_timeout (task
-                # #1556). Input stays open for the settle wait; a replay in it lets the turn run on.
+                # right after; closing input now cut that turn off 10 s later as a
+                # settle_timeout. Input stays open for the settle wait; a replay in it lets the turn run on.
                 return replied, time.monotonic() + 10
             if not failed:
                 state.capture()

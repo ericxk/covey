@@ -61,7 +61,7 @@ def show_outcome(cards: Any, ctx: Any, job: Any, status: str, runtime: Any) -> N
 def outgoing_markdown(text: str, ctx: Any) -> str:
     """``text`` with the local images it shows made uploadable (feishu/outgoing_images.py). A device topic's text stays
     as it is: its image paths are the device's, and one that also exists here is not the file meant (the upload of
-    device files is not built yet; docs/configuration.md 多设备)."""
+    device files is not built yet; docs/architecture.md 设备)."""
     if getattr(ctx, "device", ""):
         return text
     return prepare_outgoing_markdown_images(text, profile=ctx.profile, base_dirs=media_base_dirs(ctx))
@@ -282,7 +282,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         """The card took the result: delivered unless it was cut short, then the whole text as a file or a message."""
         job, ctx, turn, prefix, cards = self.job, self.ctx, self.turn, self.prefix, self.cards
         # A truncated card is not full delivery, including when file upload raises. The card cuts
-        # by characters, or by its size, which the write that took the body knows (#1150).
+        # by characters, or by its size, which the write that took the body knows.
         self.cut = cards.exceeds_stream_card_limit(final_card) or cards.body_cut(job)
         sent.delivered = not self.cut
         self.steering.close_task_controls(ctx, job)
@@ -355,11 +355,11 @@ class TurnDelivery(AnswerParts, QuietDelivery):
     def delivered_note(self, fallback=DELIVERED_ELSEWHERE):
         """The card's body once the verified reply is confirmed sent apart from it: ↓ and that reply's
         lead (its first heading or sentence, ``answer_lead``), so the card says what came of the turn
-        (the 2026-10-27 UI review: all 644 finished cards of a week said only "回答已单独发送在下方…"), a
-        turn that asked too (repo review U1: half the turns of the owner's chats). Taken from the
+        (not only "回答已单独发送在下方…"), a
+        turn that asked too. Taken from the
         authorized text that was sent, nothing else. A reply sent as a file, or without words to take,
         keeps the fixed sentence (``fallback``). (body, lead): the lead in bold ("**↓ lead**", read first
-        once the body moves to the top, T288), on a dashboard card under a bold 结论 (its body is at the top
+        once the body moves to the top), on a dashboard card under a bold 结论 (its body is at the top
         already), with the plain lead, or a fixed sentence with "": the
         fallback and a 代答 turn's "↓ 不代你回复…" lines, which the topic's ⏸ card or line explains."""
         reply, outcome = self.turn.verified_delivery, self.turn.verified_outcome
@@ -409,7 +409,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
             if self.answer_message and turn.status != "waiting_user" and \
                     self.headed(placement.plan(ctx.state_dir, job).row):
                 # A 话题区's answer card in its thread is the turn's result, its status atop it: the task card keeps
-                # its status and 输入/输出, no 结论 (D3, 2026-11-08).
+                # its status and 输入/输出, no 结论.
                 note, lead = " ", ""
             shown = False
             try:

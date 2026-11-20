@@ -489,8 +489,8 @@ class Runs:
 
     def _fit_images(self, ctx: BridgeContext, job: ReplyJob, caps, prompt: str, attachments: list[dict[str, str]]):
         """(prompt, attachments): the images the Harness takes whole go with the prompt. One over its limits
-        (``caps.image_bytes``, ``caps.image_frame``) is left out rather than fail the turn (the owner, 2026-11-05:
-        跳过并提示; Claude Code ended such a turn with protocol_error): the prompt tells the model, whose message
+        (``caps.image_bytes``, ``caps.image_frame``) is left out rather than fail the turn (Claude
+        Code ends such a turn with protocol_error): the prompt tells the model, whose message
         already names its path; the task card says so in a line of the Bridge's own; the log in one line."""
         if not attachments or not (caps.image_bytes or caps.image_frame):
             return prompt, attachments
@@ -530,7 +530,7 @@ class Runs:
             return
         question_allowed = result.outcome is None or (result.outcome.status == "completed" and result.outcome.resume_allowed)
         asks = question_allowed and not result.is_error and cp.get("requires_user") is True and bool(cp.get("question"))
-        # Only a native question still waiting holds the checkpoint's back; answered ones do not (T444 #3288).
+        # Only a native question still waiting holds the checkpoint's back; answered ones do not.
         if asks and self.questions.has_open_native_questions(ctx, job.job_id):
             self.runtime.log(f"checkpoint question skipped job=#{job.job_id}: native question still open")
             asks = False

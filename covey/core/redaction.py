@@ -12,7 +12,7 @@ The list lives in <state>/redaction/config.json (0600). The 设置 card's 脱敏
 many at a time (``edit_terms``, ``put_back``) and its switches one at a time (``update_config``); every turn reads it when it starts, so an edit applies from the next
 turn::
 
-    {"default_on": false,   # the launch card's initial choice before 2026-11-19: the 新话题 page's 脱敏 row now
+    {"default_on": false,   # the launch card's initial choice in older releases: the 新话题 page's 脱敏 row now
                             # (core/migrate.py redaction-default); kept for an older release
      "ignore_case": true,   # a term matches in any case; each spelling gets a stand-in of its own
      "restore": true,       # stand-ins in replies and tool calls turn back into the terms
@@ -20,7 +20,7 @@ turn::
      "terms": [{"term": "…"}]}
 
 Every term goes out as its automatic stand-in (``auto_stand_in``, RX and 8 hex digits of its hash): the owner names
-none (2026-11-14 on the card; 2026-11-19 T566 everywhere). A row's ``stand_in``, which an older version let the owner
+none. A row's ``stand_in``, which an older version let the owner
 set, is ignored when the list is read and left out when it is written (core/migrate.py redaction-stand-in rewrote the
 lists that had one). A term that starts or ends with an ASCII letter or digit matches only where no ASCII letter or
 digit adjoins it there, unless its row has ``"anywhere": true``: an older version's flag, kept (dropping it would let
@@ -317,7 +317,7 @@ def said_lines(skipped) -> str:
 
 
 def default_on(state_dir) -> bool:
-    """The launch card's initial choice before 2026-11-19 (an older release still reads it); off when the config cannot
+    """The launch card's initial choice in older releases (one still reads it); off when the config cannot
     be read. Only core/migrate.py redaction-default reads it now: the 新话题 page's 脱敏 row took its place."""
     try:
         return load_config(state_dir)["default_on"]

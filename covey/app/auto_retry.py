@@ -59,8 +59,8 @@ KINDS = {
     # Claude's main task ended while subtasks or later work had not: 10 of 31 failures in 9 days (2026-10).
     INCOMPLETE: Kind(("timed_out", "settle_timeout"), "incomplete_retry", "auto_continue", (60,), "本轮未全部完成",
                      "自动检查并继续", INCOMPLETE_STATUS, "未全部完成后自动检查并继续"),
-    # A restart (the 2026-11-02 22:09 container restart left T331 #2407 unfinished) or a SIGTERM to the task
-    # runner ended the turn: once, after the Bridge is up again (owner's choice, T314 2026-11-02).
+    # A restart (a container restart leaves a turn unfinished) or a SIGTERM to the task
+    # runner ended the turn: once, after the Bridge is up again.
     RESTARTED: Kind(("interrupted", "restart"), "", "auto_resume", (60,), "本轮被重启打断", "自动检查并继续",
                     "interrupted by a restart or SIGTERM before this job reached a terminal state", "重启后自动检查并继续"),
 }
@@ -332,8 +332,8 @@ def blocker(gateway, record, records, topic):
     if topic.get("chat_id") != record.get("chat_id") or topic.get("harness_id") != record.get("backend") \
             or stale_job_card(topic, record):
         return "model_switch"
-    # A 补充 taken into this task (steering.py, merged_into_job_id) is no new task: four such cancelled the
-    # continue after the 2026-11-03 restarts (#2614, #2619, #2621, #2634).
+    # A 补充 taken into this task (steering.py, merged_into_job_id) is no new task: such ones once cancelled the
+    # continue after a restart.
     same_topic = [r for r in records if r.get("topic_id") == record["topic_id"] and r.get("chat_id") == record["chat_id"]
                   and str(r.get("merged_into_job_id")) != str(record["job_id"])]
     if any(int(r.get("job_id") or 0) > int(record["job_id"]) for r in same_topic):

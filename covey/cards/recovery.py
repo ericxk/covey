@@ -107,7 +107,7 @@ def recovery_view(record, text, *, word, headline, line="", topic, label, contin
     what became of it or why; ``line``, what can be done next), then ``text``; ``how``, how an automatic retry moved
     it to ``moved_to``; ``retry`` and ``actions`` as ``stopped_card`` takes them; ``snapshot``, its trace for the
     执行过程 panel; then the 换配置 panel of a task with a binding. No title bar: the band is the card's centre (it
-    replaced the coloured bar, 2026-11-19)."""
+    replaced the coloured bar)."""
     if moved_to is not None:
         headline, line = f"已转到任务 #{moved_to} 继续{how}", ""
     band = conclusion_band(band_label(word, topic, f"#{record['job_id']}"), literal(headline), literal(line))

@@ -1,4 +1,4 @@
-"""Where a Harness's models come from, in one table (the owner, 2026-11-03).
+"""Where a Harness's models come from, in one table.
 
 A Harness is the agent program that runs a task: Claude Code, Codex, DeepSeek Harness
 (core/roster.py). A provider is the account, gateway or API that serves its model, each with its own
@@ -26,7 +26,7 @@ class Provider:
 
 
 CORE_PROVIDERS = (
-    # Named for the account it signs in with, not "Claude Code 自带" beside the Harness Claude Code (2026-11-04).
+    # Named for the account it signs in with, not "Claude Code 自带" beside the Harness Claude Code.
     Provider("anthropic", "claude", "", "", "Claude Code 自己的登录（Claude 账号或它配置的网关）", menu="Claude 自带"),
     Provider("openai", "codex", "", "", "Codex 自己的登录"),
     # Pi has no login of its own: both are named on its models (Pi · Codex · GPT-6 Astra).
@@ -37,8 +37,8 @@ CORE_PROVIDERS = (
 # models (Codex · Acme · GPT-6 Astra); DeepSeek Harness runs only its gateway's, so its ids carry no prefix.
 
 # compat(826a0d9): providers since removed, by their models' prefix, with the name a topic still on one of their
-# models is told is gone (Claude Code's Kiro 共享网关 2026-11-01; TRAE and 豆包 2026-11-05: 后续没有这个供应商了;
-# Codex's Magpie 2026-11-10; Claude gateway profiles, "profile/<id>/<model>", 2026-11-14): core/model_settings.py refuses such a topic's new message and backends/claude/bridge.py,
+# models is told is gone (Claude Code's Kiro 共享网关, TRAE and 豆包;
+# Codex's Magpie; Claude gateway profiles, "profile/<id>/<model>"): core/model_settings.py refuses such a topic's new message and backends/claude/bridge.py,
 # backends/codex/bridge.py a job queued before, both before the Harness starts, and app/launch_models.py offers none
 # of their models from a catalog saved before; retire when no topic.json, launch default or model choice names one
 # (compat_report: retired-provider)

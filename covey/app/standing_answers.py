@@ -1,6 +1,6 @@
 """以后这类按推荐走: the button under a question card whose every question has one recommended option
 (cards/question_cards.py standing_offered). The owner answers four in ten of his questions with the recommended
-option (2026-11-18: 34 cards in a day); one click turns this kind of question into a principle of the topic's
+option (34 cards in a day); one click turns this kind of question into a principle of the topic's
 workspace, which every turn reads (app/prompts.py principles_block: what a principle allows is not asked again).
 
 A click asks the small model (Haiku, as app/patrol_judge.py asks it, at most DRAFT_SECONDS; a topic that redacts sends

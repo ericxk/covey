@@ -52,7 +52,7 @@ class Collector:
         self.env = env
         self.images = images  # web_images.WebImages (data contract v19); None: turns carry no images (their words lose local paths all the same).
         self.now = 0.0  # The time of the look under way.
-        self.backfill = images is not None and not images.backfilled  # The first pass looks at every topic once (their images, T582).
+        self.backfill = images is not None and not images.backfilled  # The first pass looks at every topic once (their images).
         self.backfilling, self.backfill_extra = False, set()  # The pass under way is that one; the topics only it looks at.
         self.stuck = {} if stuck is None else stuck  # topic id -> the left-behind thread stuck reading it (WebSync.start_over).
         self.left = set()  # The topics the last look left out because their read is stuck.
@@ -112,7 +112,7 @@ class Collector:
             self.board = board_groups(looked.rows, looked.dismissed) if pins.laid() else None
         quick = [topic for topic in hot | self.hot | touched if topic not in family]
         if start:
-            backfill, self.backfill = self.backfill, False  # Every topic once, not only the recent ones (images of older turns, T582).
+            backfill, self.backfill = self.backfill, False  # Every topic once, not only the recent ones (images of older turns).
             self.backfilling = backfill
             jobs = board_read.topic_jobs(state, chat)
             self.pass_left = [topic for topic, records_ in jobs.items() if topic in hot or topic in touched or self.recent(records_, now)]
@@ -127,8 +127,8 @@ class Collector:
             if topic not in quick:
                 slice_.append(topic)
         # The pass's slice first, then the topics that run, ask, just did or the page just acted on: their records are read now, at
-        # the end, so what they pushed is never older than what a pass read (T554, 2026-11-19: answered at 23:53:06, a look of every
-        # topic that had read it before pushed 等你 at 23:56:20, and nothing else went out meanwhile).
+        # the end, so what they pushed is never older than what a pass read (else a look of every
+        # topic that read a question before its answer can push 等你 again minutes later).
         by_topic = {topic: sorted(topic_job_records(state, topic, chat_id=chat), key=board_read.job_number)
                     for topic in [*slice_, *quick] if topic not in out}
         looked = [topic for topic in family if (start or topic in hot or topic in self.hot or topic in touched) and topic not in out]
@@ -224,11 +224,11 @@ class Collector:
         if gist:
             body["gist"] = gist
         # The page drops this topic's turns past it (data contract v12): a turn pushed as running at count + 1 whose answer came in
-        # at a lower seq (T519, T559 on 2026-11-19: the answer's row and a stale "running" row of the same task) was never replaced,
+        # at a lower seq (the answer's row and a stale "running" row of the same task) was never replaced,
         # so the 专项报告 counted that task's tokens twice and drew it as still running.
         body["last_seq"] = max((turn["seq"] for turn in turns), default=0)
         # When a member topic came into its project (data contract v13, core/projects.py add_member): the 专项报告 counts its turns
-        # from then, as the 专项卡's token does (T552: T531's and T525's turns from before they came in made the report 62M more).
+        # from then, as the 专项卡's token does.
         joined = projects.joined_at(self.projects.get(found.id) or {}, topic) if found is not None and project is None else None
         if joined:
             body["joined_at"] = joined
@@ -281,7 +281,7 @@ class Collector:
         if latest is not None and latest.get("status") == "continued":
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
         if latest is None and never_started(records):
-            return "cancelled"  # Nothing ever ran and the last task was cancelled before it started (T561, T562): 已停止, not 空闲.
+            return "cancelled"  # Nothing ever ran and the last task was cancelled before it started: 已停止, not 空闲.
         if latest is None or latest.get("status") not in STATE_WORDS:
             return "idle"
         return look.record_tone(latest, seen=not unseen)
@@ -345,13 +345,13 @@ class Collector:
             if job is not None:
                 # Why it did not succeed and what next (core/failure.py). Not of a task still running: its answer line is written
                 # once its result has gone out and before its record says so (app/worker.py deliver), and a look in between
-                # read it as 没发出去 (T588 #5309, 2026-11-20 16:29: red until after 16:44).
+                # read it as 没发出去.
                 fail = failure.failure_view(job) if job.get("status") not in RUNNING else None
                 if fail:
                     turn["failure"] = fail
                     if turn.get("role") == "agent":
                         # The line the history has is the stop's own words (or an answer that never went out), not an answer
-                        # (data contract v10): T514's 官方拒绝 read as a finished turn with the stop message as its conclusion.
+                        # (data contract v10): an 官方拒绝 is no finished turn with the stop message as its conclusion.
                         turn["status"] = "failed"
                 else:
                     turn.pop("failure", None)
@@ -363,7 +363,7 @@ class Collector:
         job = next((record for record in reversed(records) if record.get("status") in RUNNING or record.get("status") == "waiting_user"), None)
         if (job is not None and job.get("status") in RUNNING and rows and rows[-1].get("role") != "user"
                 and str(rows[-1].get("job_id") or "") == str(job.get("job_id"))):
-            job = None  # Its answer is the last line already, its record not yet ended: no second, running turn of it (T588 #5309).
+            job = None  # Its answer is the last line already, its record not yet ended: no second, running turn of it.
         if job is not None:
             out.append(self.live_turn(state, topic, total + 1, job, wakes, now))
         elif latest is not None and latest.get("status") in ("failed", "interrupted", "cancelled") and (not rows or rows[-1].get("role") == "user"):
@@ -378,7 +378,7 @@ class Collector:
         elif records and records[-1].get("status") == "cancelled" and records[-1].get("never_started") and rows \
                 and rows[-1].get("role") == "user":
             # The owner's last words were never run: their task waited for 开始 (or in the queue) and was cancelled. Without a
-            # line for it the page drew 排队中… under them for good (T561, T562 on 2026-11-19, launch cards closed by a stop).
+            # line for it the page drew 排队中… under them for good (launch cards closed by a stop, say).
             unstarted = records[-1]
             why = str(unstarted.get("status_message") or "").strip()
             out.append({"topic_key": topic, "seq": total + 1, "role": "agent", "status": "stopped",
@@ -413,8 +413,8 @@ class Collector:
         """The owner's edit of a message sent into the running task as a line of its own (app/source_watch.py, message id
         ``edit-<message id>-<stamp>``) goes onto the line of the message it edits: that one shows the edited text, marked edited
         (its ``body`` stays the original), and the edit's own line is ``merged`` (the page leaves it out). Without the first line
-        among these (older than the turns kept) the edit stays a line of its own. Data contract v19 (T584, 2026-11-20: both
-        showed, the second as 改过)."""
+        among these (older than the turns kept) the edit stays a line of its own. Data contract v19 (not both, the second as
+        改过)."""
         if message_id.startswith(EDIT_PREFIX) and data.get("edited"):
             first = by_message.get(message_id[len(EDIT_PREFIX):].rsplit("-", 1)[0])
             if first is not None:
@@ -428,7 +428,7 @@ class Collector:
         """The owner's history line ``row`` as the page gets it: its words without local paths (web_images.scrub: the attachment
         block becomes its "附件：…" line) and, under ``images``, the refs of the images it came with (data contract v19). A line the
         butler or a lead handed on keeps only the owner's words and their "附件：…" line; its images are listed in the prompt of the
-        task it started (``job``, paired by its message id), under "收到的附件" (T584, 2026-11-20: 管家转来 showed no image)."""
+        task it started (``job``, paired by its message id), under "收到的附件"."""
         content = str(row.get("content") or "")
         clean = {**row, "content": web_images.scrub(content)}
         if row.get("display_content"):
@@ -496,7 +496,7 @@ class Collector:
         return out
 
     def member_ends(self, state, project) -> list:
-        """[(time, "T834 做完了")] of the project's inbox: only the receipts of a member's end, which the owner reads as they are."""
+        """[(time, "T34 做完了")] of the project's inbox: only the receipts of a member's end, which the owner reads as they are."""
         folder = project_lead.inbox_dir(state, project["id"])
         try:
             names = sorted(path.name for path in folder.glob("*.json"))[-RECEIPTS_KEPT:]
@@ -646,8 +646,8 @@ def board_groups(rows, dismissed) -> dict:
     ``dismissed``), as a core/look.py STATES key: waiting, running, stuck, or a result's (stopped, result, done, cancelled).
     A project's thread is its own topic here (the board's row is its project's cell, the record says which thread). The page
     counts 要你处理 by this (data contract v6 ``board``), so a stopped topic the board no longer lists (seen KEEP_SEEN ago,
-    taken off with 不管了) is not 停住了 there either: T514, 2026-11-19, stopped on 11-17 and seen at once, came back on the
-    page as 停住了 while the board had let it go."""
+    taken off with 不管了) is not 停住了 there either: a topic stopped and seen at once must not come back on the page as
+    停住了 while the board has let it go."""
     out = {}
     for row in rows:
         if row["topic"] in dismissed:

@@ -74,7 +74,7 @@ from covey.app.launch_submit import submit_launch_form
 
 
 
-# A message routed to one Harness while the topic was switched to another, twice (D6, 2026-10-28).
+# A message routed to one Harness while the topic was switched to another, twice.
 HARNESS_CHANGED_REPLY = "这条消息没有提交：本话题刚换了配置，请再发一次。"
 ANSWER_KINDS = frozenset({"bridge_question", SKIP_ALL_KIND})  # Clicks that save an answer before sending it.
 
@@ -365,7 +365,7 @@ class BridgeApp:
             if not chat_id or not stale.get("topic_id") or stale.get("kind") != "chat":
                 continue
             # The restart that left it unfinished is not the user's doing: 检查并继续 once by itself, a minute
-            # from now, unless they stop it on this card first (owner's choice, T314 2026-11-02).
+            # from now, unless they stop it on this card first.
             self.controls.report_unfinished(ctx, stale,
                                             turn_words.device_interrupted(stale) or interrupted_notice(stale.get('job_id')),
                                             self.key("stale", str(stale.get("key"))), keep_question_forms=True)

@@ -118,11 +118,11 @@ def settings_config():
     return {
         "quietStartup": True,
         "transport": "sse",
-        # Auto-compaction stays on (the owner, 2026-11-04).
+        # Auto-compaction stays on.
         "compaction": {"enabled": True},
         # pi reads the secret it was given from its own environment on every request, and its bash tool hands
         # that environment to each command: a command the model runs (env, printenv, a crash dump) would read the
-        # secret into the turn's transcript. pi puts this line before each command (2026-11-04 review); Codex
+        # secret into the turn's transcript. pi puts this line before each command; Codex
         # keeps such variables out of its commands' environment by default.
         "shellCommandPrefix": "unset " + " ".join([TOKEN_ENV, *(g.key_env for g in gateways.for_harness("pi"))]),
         "retry": {"enabled": True, "maxRetries": RETRIES, "baseDelayMs": 2000,
@@ -133,8 +133,8 @@ def settings_config():
 def key_command(env_name):
     """A models.json ``apiKey`` that has pi read the secret from its environment. pi 0.73.1 took a bare
     variable name; 1.x takes a bare name as the key itself and only resolves ``$NAME`` or ``!command``, and
-    its openai-codex provider no longer reads an "api_key" entry of auth.json. ``!printenv`` works in both
-    (checked 2026-11-12), and the file still holds no secret."""
+    its openai-codex provider no longer reads an "api_key" entry of auth.json. ``!printenv`` works in both,
+    and the file still holds no secret."""
     return "!printenv " + env_name
 
 

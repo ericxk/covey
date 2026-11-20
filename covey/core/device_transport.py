@@ -363,7 +363,7 @@ class Attachment:
         except Closed:
             # An ssh that cannot connect exits at once, and on a fast machine before the request is written: the
             # reading below meets the end of the stream and judges it by the exit code and stderr, as when the
-            # write got in first (CI 2026-11-15: Closed instead of Unreachable).
+            # write got in first (seen in CI: Closed instead of Unreachable).
             pass
         while True:
             hi, used = scan_hi(self._buf)

@@ -16,8 +16,8 @@ FEEDBACK_LABEL = "作为问题反馈发送"
 
 
 def waiting_text(record):
-    """The questions a held note waits for, as its card says them: ``#1106（20:24）的 2 道题``. T182's
-    note card did not say it, and the owner sent the same message again 18 minutes later. A note
+    """The questions a held note waits for, as its card says them: ``#16（20:24）的 2 道题``. A
+    note card that did not say it had the owner send the same message again. A note
     saved before this was kept says only 话题里的问题."""
     groups = [g for g in record.get("waiting") or [] if isinstance(g, dict) and g.get("job_id")]
     if not groups:
