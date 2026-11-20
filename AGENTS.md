@@ -12,7 +12,7 @@
 3. **部署记录不进仓库**：`docs/` 只写对每个部署都成立的用法、规则和已知限制，例子里的路径用 `/absolute/...` 这类占位。
 4. **只有部分使用者要用的功能默认关闭**：没配置时不起后台线程、不加入口、不改已有行为；在对应文档写明怎么打开（如 [本机运行锁](docs/runtime-locks.md)；整块的可选功能做成[扩展](docs/architecture.md#扩展)）。
 5. **公共核心的改动对所有使用者生效**：改锁、记录与状态、调度、投递、服务管理（见下文「最容易改坏的规则」）时，开关关着的行为要和原来一样，并跑全量。
-6. 部署照 [部署新版本](docs/operations.md#部署新版本) 的步骤。
+6. 部署照 [部署新版本](docs/deploy.md#部署新版本) 的步骤。
 
 # 代码地图
 
@@ -546,7 +546,7 @@
 7. 后端不导入 `app/`、`feishu/`、`cards/`，也不导入别的后端（`backends/gateway` 除外），`TYPE_CHECKING` 下也不；扩展里隔离解释器导入的 `core/` 模块只用标准库（清单在扩展自己的结构测试里，如 `MASO_CORE`）；`__init__.py` 为空（硬约束）。
 8. 新按钮 kind 先进 `ACTIONS`（带认领它的 `handler`），会建任务的设 `bot_only`；任务进程只改本任务的卡和记录（`cards.md` 添加一个卡片按钮）。
 9. 表单变化时整卡替换；卡片 JSON 变了（`tests/golden/cards.json` 有 diff）要真实客户端验收（`cards.md` 卡片的客户端限制）。
-10. 兼容（2026-11-14 改名 Covey：旧导入 `harness_bridge`、旧变量 `LARK_BRIDGE_*`、旧 bin 名、旧单元名都保留，见 docs/operations.md「改名 Covey 后的兼容」）：现网 `harnesses.json` 仍能解析（删功能时保留它写着的选项，如 `--claude-transport stream-json`）；`runs/<任务键>/` 与旧 release 的任务进程双向兼容；旧记录可读；已发卡片的 kind 不崩溃、不悄悄开工（硬约束）。
+10. 兼容（2026-11-14 改名 Covey：旧导入 `harness_bridge`、旧变量 `LARK_BRIDGE_*`、旧 bin 名、旧单元名都保留，见 docs/compat.md「改名 Covey 后的兼容」）：现网 `harnesses.json` 仍能解析（删功能时保留它写着的选项，如 `--claude-transport stream-json`）；`runs/<任务键>/` 与旧 release 的任务进程双向兼容；旧记录可读；已发卡片的 kind 不崩溃、不悄悄开工（硬约束）。
 11. 谁被服务只经 `app/access.py`（`Runtime.access`）：消息 `admit`、点击 `allows`、主人专属 `is_owner`（菜单点击也用它），别处不比较 open_id（代答用 `owner_user_id` 认主人自己发的消息，不算）；群里的查询不在记录锁内（谁被服务）。
 
 ## 怎么挑测试
@@ -568,4 +568,4 @@
 ## 省 token
 
 - 不整篇读文档和大文件。可能很长的 Bash 输出写进文件，只看结尾和 `grep -E '^(FAIL|ERROR)'`；派子代理时给确切的文件和行号范围。
-- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`，专项和整理专项 `docs/projects.md`，网页工作台 `docs/web.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；部署、数据目录 `docs/operations.md`，手工安装和手动配飞书应用 `docs/manual-install.md`；配置和环境变量 `docs/configuration.md`，已下线的功能和旧配置 `docs/legacy.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`（细节在 `docs/reference.md`）；卡片和网页的词、颜色、组件 `docs/ui.md`。`docs/history/` 一般不用读。
+- 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`（实现细节 `docs/butler-internals.md`），专项和整理专项 `docs/projects.md`，网页工作台 `docs/web.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；服务、数据目录和日常运维 `docs/operations.md`，升级与部署 `docs/deploy.md`，飞书应用的权限、事件和菜单 `docs/feishu-app.md`，手工安装 `docs/manual-install.md`，改名与新旧版本兼容 `docs/compat.md`；配置和环境变量 `docs/configuration.md`，已下线的功能和旧配置 `docs/legacy.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`（细节在 `docs/reference.md`）；卡片和网页的词、颜色、组件 `docs/ui.md`。`docs/history/` 一般不用读。

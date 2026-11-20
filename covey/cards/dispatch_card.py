@@ -122,7 +122,7 @@ def dispatch_card(dispatch):
 
 
 def settled_card(status, request, *, url="", reason="", label=""):
-    """What a card becomes once its conclusion went out (docs/butler.md 派发卡 · 结论沉底): one grey line,
+    """What a card becomes once its conclusion went out (docs/butler-internals.md 派发卡 · 结论沉底): one grey line,
     "✅ 做完 · 结论在下方 ›" opening the conclusion at ``url``; for 失败 and 已停 the line says why (``reason``) and
     opens nothing. No fold, no buttons."""
     mark = LINE_MARKS.get(status, "")

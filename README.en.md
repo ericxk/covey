@@ -58,15 +58,15 @@ Then send the bot a message in a private chat. Options and troubleshooting: [doc
 
 1. **First message**: write to the bot in a private chat; the butler answers or opens a topic. Walk through [first use](docs/usage.md#第一次使用).
 2. **Turn on more**: a new install has only the features above on; recommended ones are listed [here](docs/configuration.md#推荐打开), and a switch is changed in [three steps](docs/configuration.md#改开关三步).
-3. **Upgrade**: after `git fetch`, `scripts/deploy_bridge.sh` deploys the new commit as a fixed release; run it with `--check-only` first, and do not `git pull` in the checkout the service runs from. See [upgrade and rollback](docs/operations.md#升级与回滚).
+3. **Upgrade**: after `git fetch`, `scripts/deploy_bridge.sh` deploys the new commit as a fixed release; run it with `--check-only` first, and do not `git pull` in the checkout the service runs from. See [upgrade and rollback](docs/deploy.md#升级与回滚).
 
 ## Documentation
 
 All in Chinese.
 
 - **Getting started and use**: [install](docs/install.md), [usage](docs/usage.md), [usage reference](docs/reference.md), [butler](docs/butler.md), [projects](docs/projects.md), [web workbench](docs/web.md), [proxy replies](docs/proxy.md), [troubleshooting](docs/troubleshooting.md).
-- **Deployment and configuration**: [configuration](docs/configuration.md), [harnesses](docs/harnesses.md), [operations](docs/operations.md), [manual install](docs/manual-install.md), [retired features and old configuration](docs/legacy.md), [policy stops](docs/policy-stop.md), [runtime locks](docs/runtime-locks.md).
-- **Development**: [architecture](docs/architecture.md), [cards](docs/cards.md), [UI](docs/ui.md), [testing](docs/testing.md), [glossary](docs/glossary.md), [AGENTS.md](AGENTS.md) (code map and the rules most easily broken), [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Deployment and configuration**: [configuration](docs/configuration.md), [harnesses](docs/harnesses.md), [operations](docs/operations.md), [upgrade and deploy](docs/deploy.md), [Feishu app configuration](docs/feishu-app.md), [manual install](docs/manual-install.md), [renaming and compatibility](docs/compat.md), [retired features and old configuration](docs/legacy.md), [policy stops](docs/policy-stop.md), [runtime locks](docs/runtime-locks.md).
+- **Development**: [architecture](docs/architecture.md), [butler internals](docs/butler-internals.md), [cards](docs/cards.md), [UI](docs/ui.md), [testing](docs/testing.md), [glossary](docs/glossary.md), [AGENTS.md](AGENTS.md) (code map and the rules most easily broken), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Extensions
 

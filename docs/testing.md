@@ -196,7 +196,7 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 
 卡片表单、按钮回调和渲染只有真实客户端能证明（[卡片的客户端限制](cards.md#卡片的客户端限制)）。改了卡片结构、表单、按钮或回调就要做：
 
-1. 在专门的验收群里开新话题（不在机器人的主私聊里）、选小工作区，由本人或授权的自动化操作。确认部署已生效（`covey_service.py status` 的进程身份已换）再开新任务，旧任务进程按旧代码响应（[部署新版本](operations.md#部署新版本)）。
+1. 在专门的验收群里开新话题（不在机器人的主私聊里）、选小工作区，由本人或授权的自动化操作。确认部署已生效（`covey_service.py status` 的进程身份已换）再开新任务，旧任务进程按旧代码响应（[部署新版本](deploy.md#部署新版本)）。
 2. 卡片文字、按钮名和提示和代码里的字符串逐字一致。
 3. 每次点击在 `bridge.log`（转发的还有 `runs/<任务键>/runner.log`）里有一行 `card action kind=<按钮类型> message=<消息 ID 末 10 位> event=<事件 ID 末 10 位> outcome=<结果> elapsed_ms=<耗时>`。提交回答（原任务已结束）后还有一行 `card follow-up kind=bridge_question …`。行数少于点击数：点击没到（[排障](troubleshooting.md)）；outcome 不是 `handled`、`forwarded`、`workspace_manager`、`launch_option`、`directory`：被拒绝，按 outcome 查（[事件、执行过程与卡片](cards.md)），旧卡上预期 `retired` 或 `retired_harness`。
 4. 对照记录：任务的 `status`、`execution_status`、`delivery_ok`，问题的 `status`、`delivery_state`，补充的 `status`。

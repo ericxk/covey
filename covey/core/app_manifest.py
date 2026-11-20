@@ -1,4 +1,4 @@
-"""What the Feishu app behind a Bridge must have, and what its online version lacks (docs/manual-install.md 配置飞书应用).
+"""What the Feishu app behind a Bridge must have, and what its online version lacks (docs/feishu-app.md 应用要有什么).
 
 ``required(env)`` lists the app's needs from this deployment's switches: the bot, its events and callback, the
 scopes the Bridge's own calls use, and the bot menu's items. ``missing(env, online)`` compares them with the

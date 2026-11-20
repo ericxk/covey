@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the browser the Bridge drives the Feishu developer console with (docs/operations.md 自动补齐飞书应用):
+# Install the browser the Bridge drives the Feishu developer console with (docs/feishu-app.md 自动补齐飞书应用):
 # a Python venv with Playwright and its Chromium, under the data root, then one headless start to prove it runs.
 #
 #   install_console_browser.sh [--venv DIR]

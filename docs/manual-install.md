@@ -1,6 +1,6 @@
-# 手工安装与手动配置飞书应用
+# 手工安装
 
-新装用 `./install`（见[安装](install.md)），不用看本文。本文写给要手工控制每一步的人：旧安装脚本怎么用、自动补齐做不了时怎么在开发者后台手动配飞书应用、怎么确定 owner 并启动、装好后怎么验收。服务装好以后的日常操作、升级和排障见[运维指南](operations.md)。
+新装用 `./install`（见[安装](install.md)），不用看本文。本文写给要手工控制每一步的人：旧安装脚本怎么用、怎么确定 owner 并启动、装好后怎么验收。飞书应用要有什么、怎么手动配见[飞书应用配置](feishu-app.md)。服务装好以后的日常操作、升级和排障见[运维指南](operations.md)。
 
 `./install`（[安装](install.md)）取代了下面这套；旧脚本 `scripts/setup_harness_bridge.sh` 和 `scripts/bootstrap_harness_bridge.sh` 仍可用、不再推荐（`./install` 和 `deploy_bridge.sh` 也调 bootstrap），只在需要手工控制每一步时用。
 
@@ -43,42 +43,7 @@ lark-cli --profile my-bot auth login --domain im,docs,drive,contact
 
 ## 配置飞书应用
 
-一般不用自己做：安装脚本在 lark-cli 登录后检查应用，缺的东西扫码后由浏览器补上并发布（`bin/covey_app_setup.py`）；升级后 Bridge 自己再查，缺了在私聊发「飞书应用待补」卡，点「扫码自动补齐」即可，有代答的网页端登录时连码都不用扫。做法、限制和终端命令见运维指南的[自动补齐飞书应用](operations.md#自动补齐飞书应用)。
-
-自动补齐做不了时（机器上装不了 Chromium、租户不让这台机器登录网页等），在[飞书开发者后台](https://open.feishu.cn/app)打开刚才配置的应用手工做：
-
-1. 启用机器人能力，可用范围包含自己。
-2. 在同一个应用下配置三项订阅（机器人菜单那项可选）：
-
-   | 订阅 | 类型 | 用途 | 需要的权限 |
-   | --- | --- | --- | --- |
-   | `im.message.receive_v1` | 事件订阅 | 接收任务和追问 | `im:message.p2p_msg:readonly`；在群里用还要 `im:message.group_at_msg:readonly`（只收 @ 机器人的消息） |
-   | `card.action.trigger` | 回调订阅 | 所有卡片按钮和选择 | `im:message:readonly` |
-   | `application.bot.menu_v6` | 事件订阅 | 机器人菜单（下一步） | 无额外权限 |
-
-   三项都选长连接接收。`application.bot.menu_v6` 可以不开：不开时机器人照常工作，只是菜单点了没有反应。
-
-   权限以 `lark-cli event schema <订阅名>` 的 `Required Scopes` 为准。群里激活时机器人读取群信息（是否外部群），用 `im:chat:read`。`im:message.group_msg`（接收群里全部消息）只在要用群聊免@ 时申请，同时申请 `im:chat.members:read`，发布后服务设 `COVEY_GROUP_ALL_MESSAGES=1`；不用免@ 就不要申请，见[在群里用](usage.md#在群里用)。
-3. 在“机器人”页启用自定义菜单，按下表配置，每项的动作都选“推送事件”，事件 key 一字不差（机器人按它认菜单项）；图标在“添加图标 → 上传图标”里传表中的文件（飞书 7.22 以上显示，卡片标题栏用的是同一套飞书线性图标）：
-
-   | 菜单 | 事件 key | 图标 |
-   | --- | --- | --- |
-   | 用量 | `weekly_usage` | `docs/media/menu-icons/usage.png`（自动补齐用飞书内置的 `insert-chart_outlined`） |
-   | 看板 | `digest_board` | 内置 `bitablekanban_outlined`；只在设了 `COVEY_DIGEST_TIMES` 时配 |
-   | 代答 | `proxy_settings` | `docs/media/menu-icons/proxy.png`（自动补齐用内置的 `robot_outlined`）；只在启用的扩展有代答发送器时配 |
-   | 设置 | `bridge_settings` | `docs/media/menu-icons/settings.png`（自动补齐用内置的 `setting_outlined`） |
-
-   “设置”是一张卡上几个标签：新话题、管家（设了 `COVEY_BUTLER=0` 时没有；“更多”里是私聊模式，新部署默认管家）、工作区、脱敏、群聊（开了节点再加设备），见[机器人菜单](usage.md#机器人菜单)。以前单独配的“工作区”（`manage_workspaces`）、“脱敏”（`redaction_dashboard`）照旧能点。群聊也想单独一项的，照旧配一项单独的卡，事件 key 没变：
-
-   | 菜单 | 事件 key | 图标 |
-   | --- | --- | --- |
-   | 群聊 | `manage_groups` | `docs/media/menu-icons/groups.png` |
-
-   展示形式选“悬浮菜单”（浮在输入框上方，不挡输入），都是一级菜单（飞书最多 5 个一级菜单），不用带子菜单的“更多”：手机上一行放不下时左右滑动。菜单只对主人有反应，结果发在主人和机器人的私聊里，见[机器人菜单](usage.md#机器人菜单)。
-4. 申请授权提示列出的应用权限。发消息、更新卡片、上传文件的接口权限按授权提示和接口报错补齐；任务产物上传到云空间还要 `drive:file` 和 `space:folder:create`。用户登录授权不能代替应用权限和发布。
-5. 发布一个版本（订阅和菜单都要发布后才生效）。
-
-事件连接由 `lark-cli event consume` 建立，不需要公网回调地址。能收到文字消息不代表卡片权限已经齐全，要以首次验收为准。
+一般不用自己做：安装脚本在 lark-cli 登录后检查应用，缺的权限、事件、回调和菜单扫码后由浏览器补上并发布（`bin/covey_app_setup.py`）；升级后 Bridge 自己再查，缺了在私聊发「飞书应用待补」卡。应用要有什么、自动补齐怎么做、它做不了时怎么在开发者后台手工配，见[飞书应用配置](feishu-app.md)。
 
 ## 启动机器人
 
@@ -115,7 +80,7 @@ python3 -B bin/covey_pairing.py --state-dir "$STATE_DIR" --app-id "$APP_ID"
 {"harnesses": {"claude": {"args": ["--claude-cmd", "/absolute/bin/claude"]}}}
 ```
 
-这一步调用 `scripts/bootstrap_harness_bridge.sh`：把机器人注册为托管服务（清单在 `$COVEY_DATA_HOME/bridge-services/`，状态目录默认 `$COVEY_DATA_HOME/harness-<APP_ID>/`），需要时拉起 Manager，打印服务状态。服务清单记录的是这次运行的脚本所在目录，之后在这个检出里 `git pull` 会改变下次启动的代码；长期使用建议换成固定的 release 目录，见[部署新版本](operations.md#部署新版本)。
+这一步调用 `scripts/bootstrap_harness_bridge.sh`：把机器人注册为托管服务（清单在 `$COVEY_DATA_HOME/bridge-services/`，状态目录默认 `$COVEY_DATA_HOME/harness-<APP_ID>/`），需要时拉起 Manager，打印服务状态。服务清单记录的是这次运行的脚本所在目录，之后在这个检出里 `git pull` 会改变下次启动的代码；长期使用建议换成固定的 release 目录，见[升级与回滚](deploy.md#升级与回滚)。
 
 **4. 确认就绪。**
 

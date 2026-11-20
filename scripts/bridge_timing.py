@@ -20,7 +20,7 @@ directory, or the files given, and prints:
   request's) own, Feishu's own from its Server-Timing header (``inner``: its service;
   ``origin``: its CDN edge's wait on that service; SDK requests only) and the body's bytes.
 
-The line formats are in covey/core/timing.py; docs/operations.md 排障 has an example.
+The line formats are in covey/core/timing.py; docs/troubleshooting.md 慢在哪里 has an example.
 ``--since``/``--until`` take HH:MM (on the newest log line's day) or an ISO time. Only the
 timing lines' fields are read: never message text.
 """

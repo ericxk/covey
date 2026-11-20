@@ -15,7 +15,7 @@ from covey.core.state import read_object
 # 代答's Feishu web login (proxy/web/profile) is the owner's only kept one. Of it only what Chromium
 # rebuilds by itself goes, once together past WEB_CACHE_BYTES (repo review E6: 290 MB of them in a day):
 # the HTTP, code and GPU caches and the service worker's copy of the site. Cookies, Local Storage, IndexedDB
-# and everything else stay; a copy without these folders is the same login (docs/operations.md, 代答的配置).
+# and everything else stay; a copy without these folders is the same login (docs/proxy.md 浏览器服务).
 WEB_CACHES = ("Default/Cache", "Default/Code Cache", "Default/Service Worker", "Default/GPUCache",
               "Default/DawnGraphiteCache", "Default/DawnWebGPUCache", "GrShaderCache", "GraphiteDawnCache",
               "ShaderCache")

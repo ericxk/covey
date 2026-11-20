@@ -1,8 +1,8 @@
 # 已下线的功能与旧配置
 
-本文写给升级老部署的人：以前的配置、旧话题和旧卡片现在会怎样，哪些变量和参数已经不读。新装的部署用不到这一篇。现在的配置见[配置](configuration.md)，改名 Covey 时保留的旧入口和旧单元名见[运维 · 改名 Covey 后的兼容](operations.md#改名-covey-后的兼容)。
+本文写给升级老部署的人：以前的配置、旧话题和旧卡片现在会怎样，哪些变量和参数已经不读。新装的部署用不到这一篇。现在的配置见[配置](configuration.md)，改名 Covey 时保留的旧名、新旧版本混跑和老的安装形态见[改名与兼容](compat.md)。
 
-兼容旧记录、旧任务进程和旧卡片的代码都带 `# compat(<提交>): …; retire when …` 注释。`scripts/compat_report.py --state <状态目录> --harness-config <Harness 配置>` 按这些注释数出本数据根里还有多少东西要它。它只读运行者自己的数据根，所以删掉一处兼容之前，要每个部署者各跑一次，那一项在所有部署里都是 0（“可删”）才能删；“不知道”不算 0。
+兼容代码什么时候可以删（`scripts/compat_report.py`）见[改名与兼容 · 新旧版本混跑](compat.md#新旧版本混跑)。
 
 ## 已下线的功能
 
@@ -32,7 +32,7 @@
 - Claude：`LARK_CLAUDE_BRIDGE_{MODEL,EFFORT,CLAUDE_CMD,TIMEOUT,SKIP_PERMISSIONS,LOGIN_SHELL}` → `--model`、`--effort`、`--claude-cmd`、`--claude-timeout`、`--no-skip-permissions`、`--claude-login-shell`；
 - `LARK_DSH_BRIDGE_CMD`、`LARK_PI_BRIDGE_CMD` → `--dsh-cmd`、`--pi-cmd`。
 
-服务清单会把终端里的它们存下来，所以老部署重启后还带着，只是不生效。Bridge 启动时对每个设了的变量在 `bridge.log` 记一行 `env <名字> is no longer read; put <参数> in …`（`core/ignored_env.py` 的 `IGNORED_ENV`）。在没有它们的终端里重新注册（[部署新版本](operations.md#部署新版本)）就清掉了。
+服务清单会把终端里的它们存下来，所以老部署重启后还带着，只是不生效。Bridge 启动时对每个设了的变量在 `bridge.log` 记一行 `env <名字> is no longer read; put <参数> in …`（`core/ignored_env.py` 的 `IGNORED_ENV`）。在没有它们的终端里重新注册（[改设置后重新注册](deploy.md#改设置后重新注册)）就清掉了。
 
 其中两个以前用来收紧权限，不再读取后会悄悄放宽，所以设了非默认值时直接拦下（`core/ignored_env.py` 的 `loosened`）：`LARK_BRIDGE_CODEX_SANDBOX` 不是 `danger-full-access`（Codex 会按 `danger-full-access` 跑），`LARK_CLAUDE_BRIDGE_SKIP_PERMISSIONS` 是 `0`/`false`/`no`/`off`（Claude 会跳过授权）。这时 `bridge.log` 的那一行写明会怎样，`bin/covey_doctor.py` 把这个服务报为 `degraded`、带 `permission_env` 并非 0 退出，`scripts/deploy_bridge.sh --check-only` 的预检 `permission_env` 失败（清单和当前终端里的都查），`scripts/bootstrap_harness_bridge.sh` 拒绝注册。改法见[权限变量让诊断或部署失败](troubleshooting.md#权限变量让诊断或部署失败)。
 
@@ -40,17 +40,8 @@
 
 ## 环境变量的旧名
 
-设置改名为 `COVEY_<X>` 后，旧名 `LARK_BRIDGE_<X>` 和管家改名前的 `MAIN_*` 写法照常生效（读取顺序见[配置 · 环境变量与选项一览](configuration.md#环境变量与选项一览)）。为了升级和回滚都不用改配置：
-
-- **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`；改了名的七个存成 `LARK_BRIDGE_MAIN_*`，如 `COVEY_BUTLER` 存成 `LARK_BRIDGE_MAIN_THREAD`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的名字都折成旧名再比（`env.canonical`），只改了名字不算变化。Manager 启动服务时所有写法都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
-- **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_BUTLER_STATE`、`COVEY_BUTLER_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）所有写法都设（管家的两个另设 `COVEY_MAIN_*`、`LARK_BRIDGE_MAIN_*`）；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
-- 启动时只对真有旧名的变量打印“`LARK_BRIDGE_X` is the old name of `COVEY_X`”；改名之后才有的开关（`COVEY_PROJECT*`、`COVEY_PATROL*`、`COVEY_PROGRESS*`、`COVEY_TRACK_JUDGE*`、`COVEY_DEVICES*`、`COVEY_NODE*`、`COVEY_WEB*`，`core/env.py` 的 `BORN_NEW`）没有旧名，服务清单里存成的 `LARK_BRIDGE_X` 只是存放写法，读到也不提示。
-- 下一个版本起清单才改存新名，旧名读取再保留至少一个版本。
+旧名 `LARK_BRIDGE_<X>` 和 `MAIN_*` 写法照常生效，服务清单仍按旧名存，见[改名与兼容 · 环境变量的旧名](compat.md#环境变量的旧名)。
 
 ## 旧安装
 
-- **`.local-state` 目录**：代码目录下已有 `.local-state/<组件名>` 时，按组件解析的默认路径继续用它，优先于 `COVEY_DATA_HOME`；显式 `--state-dir` 仍然最优先，bootstrap 不看它。解析到它时 stderr 记一行 `warning: legacy .local-state path resolved: …`。请把它移到数据根下，后续版本不再读取。`python3 -B bin/covey_paths.py <组件名>` 只读显示解析结果，`--new` 忽略 `.local-state`。
-- **单后端机器人的旧状态目录**（`codex-lark-bridge/`、`claude-lark-bridge/` 等）留在原位，统一机器人不读也不删。要继续旧工作，在统一机器人里新开话题交接。
-- **同一应用升级为统一机器人**：先停掉旧服务，避免同一应用有两套消费者；再显式用原目录作 `--state-dir`。旧话题默认归属 Codex。换新应用时必须用新的状态目录和 owner。
-- **没有自动迁移**：任务、检查点和后端原生记录里有绝对路径。要搬状态目录时先停服务和任务，保留备份和旧路径，验证后再切换。
-- **旧 Skill**：`scripts/install_skills.sh` 发现仍装着旧名的 Skill（`lark-<名字>-bridge` 这类）或别的已停用 Skill 时给警告，不自动删除。
+`.local-state` 目录、单后端机器人的旧状态目录、旧 Skill 等见[改名与兼容 · 旧安装](compat.md#旧安装)。

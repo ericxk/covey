@@ -1,6 +1,6 @@
 """The pinned board: the owner's private chat's topics pinned (Pin 消息) in the order the Bridge keeps, under
 手上的事 (app/overview.py), which stays the earliest pin and lists what has no pin. Off unless both
-COVEY_PINNED_TOPICS=1 and COVEY_PINNED_OVERVIEW=1 (docs/operations.md): 手上的事's loop runs it, after
+COVEY_PINNED_TOPICS=1 and COVEY_PINNED_OVERVIEW=1 (docs/configuration.md): 手上的事's loop runs it, after
 its own card is pinned, so that card is below every topic's.
 
 Feishu lists a chat's pins newest pin first (tried in a group): a message unpinned and pinned again

@@ -10,7 +10,7 @@ scripts in bin/ as real processes. scripts/test_map.py runs this module for ever
   module still runs.
 - The backend table matches what is registered and what setup probes.
 - Every repo path the docs name in backticks or link to exists (names the code lacks are only printed).
-- Every environment variable and command-line option the code reads has its row in docs/operations.md.
+- Every environment variable and command-line option the code reads has its row in docs/configuration.md.
 """
 
 import ast

@@ -614,7 +614,7 @@ class Installer:
         rest = [n for n in offer if n.kind not in ("event", "callback")]
         if rest:
             self.leftovers.append(f"飞书应用还缺 {app_manifest.joined(rest)}。装完不影响收发消息；你给机器人发第一句话后会收到"
-                                  "「飞书应用待补」卡，点「扫码自动补齐」就行（或按 docs/manual-install.md 的「配置飞书应用」做）")
+                                  "「飞书应用待补」卡，点「扫码自动补齐」就行（或按 docs/feishu-app.md 的「在开发者后台手动配置」做）")
 
     def lacking_after(self, offer):
         ids = {n.id for n in offer}

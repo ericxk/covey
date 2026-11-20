@@ -1,7 +1,7 @@
 """When the owner last saw each topic: <state>/topic-seen.json, a JSON object of topic_id -> the epoch seconds
 (float) of the latest read receipt (im.message.message_read_v1) for a message the bot sent in that topic.
 app/topic_seen.py writes it from the read events; the pinned topics board reads it to tell a result the owner has
-not looked at from one they have. Both are off unless COVEY_PINNED_TOPICS=1 (docs/operations.md).
+not looked at from one they have. Both are off unless COVEY_PINNED_TOPICS=1 (docs/configuration.md).
 
 A topic keeps its latest time only: a receipt older than the one saved changes nothing. A topic last seen more than
 KEEP seconds ago is dropped, and of the rest at most LIMIT, the most recent, so the file stays small. One process

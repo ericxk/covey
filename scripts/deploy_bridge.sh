@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy Covey from a git checkout, following docs/operations.md#部署新版本 steps 1-4.
+# Deploy Covey from a git checkout, following docs/deploy.md#部署新版本 steps 1-4.
 # Prints one JSON line on stdout (exit 0: ok, 1: a check failed, 2: bad arguments, 3: another deploy is running);
 # command logs go to the run dir.
 #
@@ -35,7 +35,7 @@
 # again at each process start. Before bootstrap, scripts/precompile_release.py runs under the python3 bootstrap
 # registers (the one the pre-check compared with the manifest), also for a release that already exists. A compile
 # failure is only a warning (result "precompile"), never a failed deploy; compiled files are skipped the next time.
-# Extensions (docs/operations.md 部署新版本): each --ext-repo (repeatable; --ext-commit pairs with it in order, default
+# Extensions (docs/deploy.md 核心和扩展分开检出): each --ext-repo (repeatable; --ext-commit pairs with it in order, default
 # HEAD) is an extension checkout laid out as scripts/export_extension.py writes it. The release is then assembled by
 # scripts/assemble_release.py (core at --commit + the extensions, the shape of the old single repository) and its id
 # is <core 8>-<extension 8>[-<extension 8>...] instead of <sha>. More pre-checks: the checkouts and commits exist; the
@@ -413,7 +413,7 @@ while True:
     time.sleep(10)
 post["doctor_exit"] = doctor.returncode
 post["doctor_tries"] = tries
-# The Feishu app's configuration (docs/operations.md 自动补齐飞书应用): reported, never a failed deploy; the Bridge
+# The Feishu app's configuration (docs/feishu-app.md 自动补齐飞书应用): reported, never a failed deploy; the Bridge
 # itself offers the owner what is missing.
 check = sh(["python3", "-B", "bin/covey_app_setup.py", "check", "--profile", args.profile, "--app-id", args.app_id,
             "--json"], cwd=release, timeout=120, log="app-check.log")

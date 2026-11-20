@@ -56,7 +56,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 1. **第一句话**：私聊机器人发一句话，管家直接回答或开一个话题去做；照[使用指南 · 第一次使用](docs/usage.md#第一次使用)走一遍。
 2. **再打开几个功能**：新装只开了上面“装好就开着的”几项，推荐再开的见[开关速查](docs/configuration.md#推荐打开)，改开关按[三步](docs/configuration.md#改开关三步)做。
-3. **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release，先 `--check-only`；不要在服务运行的检出里直接 `git pull`。见[升级与回滚](docs/operations.md#升级与回滚)。
+3. **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release，先 `--check-only`；不要在服务运行的检出里直接 `git pull`。见[升级与回滚](docs/deploy.md#升级与回滚)。
 
 ## 文档
 
@@ -66,22 +66,25 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | --- | --- |
 | [安装](docs/install.md) | `./install` 的前提、过程、选项、验收、常见问题 |
 | [使用指南](docs/usage.md) | 第一次使用、开任务、补充、回答、换配置、任务卡、管家、看板、群聊、代答 |
-| [使用参考](docs/reference.md) | 使用指南各节的细节：启动卡各项、状态行、补充的送达状态、代答卡、自动重试、已下线的功能 |
-| [管家](docs/butler.md) | 私聊管家：路由、开话题和回带、工具、原则、知识库、记忆、设置卡 |
+| [使用参考](docs/reference.md) | 使用指南各节的细节：启动卡和设置卡各项、任务卡状态行、补充的送达状态、问题卡、答案卡、看板和汇总、代答卡、自动重试 |
+| [管家](docs/butler.md) | 私聊管家是什么、一轮怎么走、开话题和回带、工具、原则、知识库、记忆、设置卡 |
 | [专项](docs/projects.md) | 分几个话题、跨几天推进的事：专项卡、负责人、问题分流、整理专项 |
 | [网页工作台](docs/web.md) | 配套网页：怎么开、网页上能做什么、给前端的数据契约 |
 | [代答](docs/proxy.md) | 替你回复白名单里的人：前置条件、怎么开、实现 |
-| [排障](docs/troubleshooting.md) | 先找到数据根和 APP_ID，再按现象查 |
+| [排障](docs/troubleshooting.md) | 先找到数据根和 APP_ID，再按现象查：安装、没反应、服务、按钮、模型、任务、代答、飞书应用 |
 
 **部署与配置**
 
 | 文档 | 内容 |
 | --- | --- |
 | [配置](docs/configuration.md) | 开关速查（默认已开、推荐打开、按需打开）、改开关三步、`harnesses.json`、全部环境变量 |
-| [Harness 说明](docs/harnesses.md) | 各 Harness 的能力和限制、手工加一个 Harness、模型网关 |
-| [运维指南](docs/operations.md) | 你是谁看哪里、日常操作、扩展的装和卸、升级与回滚、数据目录、开机恢复、备份、日志 |
-| [手工安装](docs/manual-install.md) | 不用 `./install` 时：旧安装脚本、手动配置飞书应用、确定 owner、首次验收 |
-| [已下线的功能与旧配置](docs/legacy.md) | 升级老部署时看：旧配置、旧话题、旧卡片现在会怎样，哪些变量不再读 |
+| [Harness 说明](docs/harnesses.md) | 支持哪些 Harness、安装登录、选模型、各 Harness 的参数、模型网关、手工加一个 Harness |
+| [运维指南](docs/operations.md) | 你是谁看哪里、服务组成、数据目录、日常操作、扩展的装和卸、日志、备份、服务托管、开机恢复 |
+| [升级与部署](docs/deploy.md) | 载入服务清单的环境、改设置后重新注册、升级与回滚、`deploy_bridge.sh` 部署新版本 |
+| [飞书应用配置](docs/feishu-app.md) | 机器人应用要有的权限、事件和菜单，自动补齐和在开发者后台手动配置 |
+| [手工安装](docs/manual-install.md) | 不用 `./install` 时：旧安装脚本、确定 owner、启动、首次验收 |
+| [改名与兼容](docs/compat.md) | 改名 Covey 后旧导入、旧变量、旧入口和旧单元名照常可用；新旧版本混跑 |
+| [已下线的功能与旧配置](docs/legacy.md) | 升级老部署时看：已下线的功能现在会怎样，哪些变量不再读 |
 | [官方拒绝与停止](docs/policy-stop.md)、[本机运行锁](docs/runtime-locks.md) | 两个专门的话题 |
 
 **开发**
@@ -89,6 +92,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | 文档 | 内容 |
 | --- | --- |
 | [架构与开发说明](docs/architecture.md) | 分层、任务生命周期、锁、状态、投递、扩展机制 |
+| [管家的实现细节](docs/butler-internals.md) | 改管家代码时看：放置表、工具通道、各开关功能的实现 |
 | [卡片与事件](docs/cards.md)、[界面规范](docs/ui.md) | 卡片、按钮、执行过程；界面用词、颜色、组件 |
 | [测试与验收](docs/testing.md) | 怎么挑测试、金样、跨版本检查、真实客户端验收 |
 | [名词表](docs/glossary.md) | 管家、话题、专项等名词的中文名和英文名，界面和提示词只用表里的词 |

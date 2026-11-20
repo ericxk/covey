@@ -17,7 +17,7 @@
 | [整理专项](#整理专项)（只提议） | `COVEY_PROJECT_TIDY=suggest`（`./install` 写，要 `COVEY_PROJECTS=1`） | 话题多了以后私聊出现“建个专项？”的提议卡；开了早晚汇总时看板卡上有「整理专项」 | `COVEY_PROJECT_TIDY=off` |
 | 以后这类按推荐走 | `COVEY_STANDING_ANSWERS=1`（`./install` 写） | 每题都有推荐项的问题卡下面多这个按钮 | `COVEY_STANDING_ANSWERS=0` |
 | 撤回与编辑 | `COVEY_SOURCE_WATCH`（默认开） | 撤回一条已变成任务的消息，任务跟着停；编辑后任务收到改后的内容 | `COVEY_SOURCE_WATCH=0` |
-| [自动补齐飞书应用](operations.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
+| [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
 | [敏感词脱敏](#敏感词脱敏) | 没有开关 | 设置卡有「脱敏」标签；话题开了脱敏才替换，只支持 Claude 的模型 | 设置卡上关 |
 | [代发](proxy.md#代发) | `COVEY_OWNER_SEND`（默认开） | 只在有代答发送器时才有：话题能起草“以主人身份发出”的消息，主人在卡上确认后发 | `COVEY_OWNER_SEND=0` |
 
@@ -57,10 +57,10 @@
 
 环境变量写在服务清单里，Bridge 只认清单，不认你登录终端里后来设的变量。每次重新注册，清单里本项目的变量都**整组换成**执行注册的那个终端里的，所以先把现有的载入终端，再改：
 
-1. **载入现在的设置**：新开一个终端，进入服务正在运行的代码目录，按[载入服务清单的环境](operations.md#载入服务清单的环境)把清单里的变量载入终端。
+1. **载入现在的设置**：新开一个终端，进入服务正在运行的代码目录，按[载入服务清单的环境](deploy.md#载入服务清单的环境)把清单里的变量载入终端。
 2. **改，再重新注册**：`export COVEY_DIGEST_TIMES=09:30,21:30`；关一个开关时把它设成关闭值（多数是 `0`，各自的取值见上表和[一览](#环境变量与选项一览)），不要只 `unset`。然后：
    - 服务还从 `./install` 的检出运行（没有用 `deploy_bridge.sh` 升级过）：在检出里重新运行 `./install`，它发现设置变了会重新注册；
-   - 服务从 `releases/` 下的固定 release 运行：在那个 release 目录里运行 bootstrap，见[改设置后重新注册](operations.md#改设置后重新注册)。
+   - 服务从 `releases/` 下的固定 release 运行：在那个 release 目录里运行 bootstrap，见[改设置后重新注册](deploy.md#改设置后重新注册)。
 3. **确认**：`python3 -B bin/covey_service.py status --state-dir "$STATE_DIR"` 里的 `generation` 加了一，`bridge.log` 有新的 `bridge started`；再在飞书里按上表“怎么确认”那一列看一眼。
 
 `covey_service.py restart` 只换进程、不换清单，所以改开关不能只 `restart`；`harnesses.json` 和 `devices.json` 才是改完文件 `restart` 就行。
@@ -131,7 +131,7 @@
 | 保存：本项目的设置 | 所有 `COVEY_*` 和 `LARK_<名称>_BRIDGE_*`，例如 `COVEY_DATA_HOME`、`COVEY_CARD_TRANSPORT` |
 | 不保存 | `COVEY_MANAGED`（Manager 启动 Bridge 时设置）、`COVEY_REQUIRED_MOUNT`（开机守护设置）、`COVEY_SERVICE_ROOT`（也不传给 Bridge）；名字像凭据的（含 `SECRET`、`TOKEN`、`PASSWORD`、`CREDENTIAL`，或以 `KEY` 为一段）；其他所有变量 |
 
-- **终端里没有的变量，清单里也就没了。** 在没有代理变量的终端里重新注册，清单里的代理就会丢；终端里多出的 `LARK_*BRIDGE_*` 也会被保存。所以先[载入服务清单的环境](operations.md#载入服务清单的环境)再改，重新注册前对比一遍（[部署新版本](operations.md#部署新版本)第 3 步）。
+- **终端里没有的变量，清单里也就没了。** 在没有代理变量的终端里重新注册，清单里的代理就会丢；终端里多出的 `LARK_*BRIDGE_*` 也会被保存。所以先[载入服务清单的环境](deploy.md#载入服务清单的环境)再改，重新注册前对比一遍（[部署新版本](deploy.md#部署新版本)第 3 步）。
 - **关开关要设成关闭值，不能只 `unset`。** Bridge 的环境是 Manager 自己的环境加上清单里的变量（再加 `PYTHONDONTWRITEBYTECODE=1`、`COVEY_MANAGED=1`、`TMPDIR=<state>/tmp`）。Manager 是第一次 `launch` 时从那个终端拉起的，带着当时的变量一直跑；之后的 `launch` 只换清单，所以终端里去掉的变量还留在 Manager 的环境里。设成关闭值（如 `COVEY_BUTLER_TRACKS=0`）后清单里的值会盖过它。实在要清掉 Manager 环境里的旧变量：取 `"$SERVICE_ROOT/manager.json"` 里 `process.pid`，`kill -TERM -- -<pid>` 结束它的进程组（Bridge 和任务进程各在自己的会话里，不受影响），`pgrep -g <pid>` 确认没有残留，再在干净的终端里 `launch`。systemd 等托管方式拉起的 Manager 不带终端变量，重启单元即可。
 - **`restart` 不补变量。** 开机后 Manager 由开机守护拉起，不读交互 shell 的初始化文件，所以 `PATH`、代理和本项目的设置只能靠清单；清单里缺的变量要重新 `launch`。
 - 变量值不能含换行。代理 URL 只能是 `http`、`https`、`socks4`、`socks4a`、`socks5`、`socks5h`，要有主机名，不能带用户名、密码、路径、查询参数或片段（`NO_PROXY` 不校验）。不符合时 `launch` 拒绝写入，报 `only explicit non-secret runtime paths/settings can be persisted` 或 `only non-secret proxy URLs without credentials can be persisted`。带凭据的代理不能托管。
@@ -164,7 +164,7 @@
 | [节点与机器状况](#节点与机器状况默认关) | `COVEY_NODE_LISTEN=<监听地址>` | `nodes-gateway`、`nodes-alerts`、`nodes-local` 后台线程；机器状况告警卡，设置卡「设备」标签 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
 | [事件长连接走 SDK](#飞书-sdk-与直连) | `COVEY_EVENT_TRANSPORT=sdk` | `event-websocket` 线程代替 lark-cli 事件消费者 |
-| [自动补齐飞书应用](operations.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 后台线程 |
+| [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 后台线程 |
 | [内存看门狗](operations.md#内存看门狗) | `bin/covey_memguard.py enable` | 独立进程；`memguard` 后台线程转发告警 |
 | [本机运行锁](runtime-locks.md) | `COVEY_LOCK_ROOT` | 同机多个服务共用的锁 |
 
@@ -328,13 +328,13 @@
 
 ### 其他
 
-- `COVEY_APP_CHECK=0`：不检查飞书应用、不发「飞书应用待补」卡。检查和补齐见[自动补齐飞书应用](operations.md#自动补齐飞书应用)。
+- `COVEY_APP_CHECK=0`：不检查飞书应用、不发「飞书应用待补」卡。检查和补齐见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用)。
 - `--health-timeout`：`launch` 的参数，默认 120 秒，0 关闭。Bridge 本地健康接口连续这么久没有响应就替换进程。bootstrap 不传它，所以经 bootstrap 注册的都是 120。
 - `COVEY_PRIVACY_DENYLIST`（只给 `scripts/privacy_check.py` 读，Bridge 本身不读）：指向仓库外的文本文件，每行一个公司域名或内部名词，隐私检查按它查；不设就只查通用规则，扩展里放有一份，见[隐私检查](testing.md#隐私检查)。
 
 ## 环境变量与选项一览
 
-**命名**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置（`covey/core/env.py` 的 `get` 先读新名；只设了旧名时 stderr 记一行弃用）。下表只写新名，每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`；管家改名时连名字一起改了的七个开关在行里注明旧名，读取顺序是 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`core/env.py` 的 `RENAMED`）。改名之后才有的开关（`core/env.py` 的 `BORN_NEW`）没有旧名。`LARK_<HARNESS>_BRIDGE_*` 这类 Harness 自己的前缀不变。服务清单为什么还存旧名、子进程拿到哪些写法，见[已下线的功能与旧配置 · 环境变量的旧名](legacy.md#环境变量的旧名)。
+**命名**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置（`covey/core/env.py` 的 `get` 先读新名；只设了旧名时 stderr 记一行弃用）。下表只写新名，每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`；管家改名时连名字一起改了的七个开关在行里注明旧名，读取顺序是 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`core/env.py` 的 `RENAMED`）。改名之后才有的开关（`core/env.py` 的 `BORN_NEW`）没有旧名。`LARK_<HARNESS>_BRIDGE_*` 这类 Harness 自己的前缀不变。服务清单为什么还存旧名、子进程拿到哪些写法，见[已下线的功能与旧配置 · 环境变量的旧名](compat.md#环境变量的旧名)。
 
 代码在 `covey/` 和 `bin/` 里读的每个环境变量和命令行参数都列在这里，`tests/test_structure.py` 的 `InventoryTest` 核对：代码读了就要有一行，行里写出读它的文件；表里写了的代码也要读。不列 `HOME`、`PATH`、`PYTHONPATH`、`XDG_CONFIG_HOME`、`NO_PROXY`/`no_proxy` 这类系统变量。不再读取的环境变量不在表里，只有两个权限变量还为拦截而读（见[不再读取的变量](legacy.md#不再读取的变量)）。
 
@@ -457,7 +457,7 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--model`、`--reasoning-effort`、`--pi-cmd`、`--pi-timeout` | `backends/pi/bridge.py` | 见 `--help` | 否 |
 | `--model`、`--reasoning-effort`、`--agy-cmd`、`--agy-timeout`、`--no-skip-permissions` | `backends/agy/bridge.py` | 空（agy 自己的默认模型）、空、`agy`、0、关 | 否 |
 
-`scripts/deploy_bridge.sh` 自己的参数不在这张表里（表只列 Bridge 读的）：`--ext-repo`、`--ext-commit`、`--allow-core-mismatch` 让它把核心检出和扩展检出拼成一个 release，不给时只部署 `--repo` 一个检出，`--ext-commit` 默认 `HEAD`；`--allow-rollback` 让它部署不包含现网提交的版本（有意回滚），另一个部署正在跑时它退出码 3、不部署；用法见[部署新版本](operations.md#部署新版本)。
+`scripts/deploy_bridge.sh` 自己的参数不在这张表里（表只列 Bridge 读的）：`--ext-repo`、`--ext-commit`、`--allow-core-mismatch` 让它把核心检出和扩展检出拼成一个 release，不给时只部署 `--repo` 一个检出，`--ext-commit` 默认 `HEAD`；`--allow-rollback` 让它部署不包含现网提交的版本（有意回滚），另一个部署正在跑时它退出码 3、不部署；用法见[部署新版本](deploy.md#部署新版本)。
 
 `harnesses.json` 里除了 `args` 还读每个 Harness 的 `models_first`（`app/harnesses.py` 的 `models_first`，`app/unified.py` 读入，`app/launch_models.py` 的 `first_models` 排序；不写时顺序不变），见 [`--harness-config` 文件](harnesses.md#--harness-config-文件)。扩展的 Harness 另有的参数和档位文件见扩展自己的 README。
 
@@ -477,8 +477,8 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--state-dir`、`--no-probe`、`--json` | `service/device_check.py`（`bin/covey_devices.py`） | 见 `--help`；见[多设备](#多设备开发中默认关)的「自检」 | 否 |
 | `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help` | 否 |
 | `--home`、`--start`、`--idle`、`--max`、`--dy` | `feishu/web_client.py`（`bin/covey_feishu_web.py`） | 见 [浏览器服务](proxy.md#浏览器服务) | 否 |
-| `--app-id`、`--home`、`--plan`、`--login-from`、`--console`、`--login-seconds` | `feishu/app_console.py`（`bin/covey_app_console.py`） | 见[自动补齐飞书应用](operations.md#自动补齐飞书应用) | 否 |
-| `--profile`、`--app-id`、`--review`、`--json`、`--python`、`--login-from`、`--work` | `service/app_check.py`（`bin/covey_app_setup.py`） | 见[自动补齐飞书应用](operations.md#自动补齐飞书应用) | 否 |
+| `--app-id`、`--home`、`--plan`、`--login-from`、`--console`、`--login-seconds` | `feishu/app_console.py`（`bin/covey_app_console.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |
+| `--profile`、`--app-id`、`--review`、`--json`、`--python`、`--login-from`、`--work` | `service/app_check.py`（`bin/covey_app_setup.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |
 | `--reconfigure`、`--skills`、`--non-interactive`、`--data-home`、`--workdir`、`--keep-login`、`--no-browser`、`--no-autostart`、`--profile`、`--app-name`、`--no-start`、`--browser-login-dir`（验收用，隐藏，见[运维](operations.md#服务托管)） | `service/installer.py`（`./install`、`bin/covey_install.py`） | 见[安装](install.md#选项) | 否 |
 | `--home`、`--console`、`--shots` | `feishu/install_browser.py`（`bin/covey_install_browser.py`，`./install` 起的浏览器会话） | 见[安装](install.md#它做了什么) | 否 |
 

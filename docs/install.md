@@ -65,7 +65,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 - **默认开着的**：管家、专项、整理专项（只提议）、问题卡上的「以后这类按推荐走」、撤回或编辑消息后跟着处理、自动补齐飞书应用。推荐再打开的（早晚汇总和菜单「看板」、置顶的「手上的事」、记忆等）见[开关速查](configuration.md#开关速查)，改开关按[改开关三步](configuration.md#改开关三步)做。
 - **怎么用**：[使用指南](usage.md)从[第一次使用](usage.md#第一次使用)开始。
 - **扩展**：装好后用 `bin/covey_plugins.py` 查看、启用、停用，见[扩展的装和卸](operations.md#扩展的装和卸)。
-- **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release 目录（先 `--check-only`），见[升级与回滚](operations.md#升级与回滚)。`./install` 装的服务直接从这个检出运行，在这里 `git pull` 之后新开的任务立刻用新代码，机器人本身却还是旧的，所以不要直接 `git pull`。
+- **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release 目录（先 `--check-only`），见[升级与回滚](deploy.md#升级与回滚)。`./install` 装的服务直接从这个检出运行，在这里 `git pull` 之后新开的任务立刻用新代码，机器人本身却还是旧的，所以不要直接 `git pull`。
 
 ## 出问题
 
@@ -82,4 +82,4 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 - Harness 参数、dsh、Pi、Antigravity、模型网关：[Harness 说明](harnesses.md)
 - 群聊、代答、看板等功能：[使用指南](usage.md)、[配置](configuration.md)
-- 重启、升级、开机恢复、备份：[运维指南](operations.md)；手动配飞书应用、旧安装脚本：[手工安装](manual-install.md)
+- 重启、开机恢复、备份：[运维指南](operations.md)；升级、回滚：[升级与部署](deploy.md)；飞书应用的权限和菜单：[飞书应用配置](feishu-app.md)；旧安装脚本：[手工安装](manual-install.md)

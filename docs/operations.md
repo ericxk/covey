@@ -1,19 +1,20 @@
 # 运维指南
 
-本文写给维护机器人服务的人：服务由哪些进程组成、数据放在哪里、怎么注册和日常操作、怎么升级、开机恢复、备份维护、内存看门狗和日志。开关、环境变量和参数见[配置](configuration.md)，出了问题按症状查[排障](troubleshooting.md)，内部实现见[架构与开发说明](architecture.md)。
+本文写给维护机器人服务的人：服务由哪些进程组成、数据放在哪里、日常操作、日志、备份维护、任务进程、内存看门狗和托管。升级、回滚和改了开关后的重新注册见[升级与部署](deploy.md)，飞书应用的权限和菜单见[飞书应用配置](feishu-app.md)，开关和参数见[配置](configuration.md)，出了问题按症状查[排障](troubleshooting.md)，内部实现见[架构与开发说明](architecture.md)。
 
 ## 你是谁看哪里
 
-| 你是 | 要做的事 | 看哪一节 |
+| 你是 | 要做的事 | 看哪里 |
 | --- | --- | --- |
 | 用 `./install` 装的（多数人） | 看状态、重启、停用 | [日常操作](#日常操作) |
-| | 改开关、改参数 | [配置 · 改开关三步](configuration.md#改开关三步)、[改设置后重新注册](#改设置后重新注册) |
+| | 改开关、改参数 | [配置 · 改开关三步](configuration.md#改开关三步)、[升级与部署 · 改设置后重新注册](deploy.md#改设置后重新注册) |
 | | 装、启用、停用扩展 | [扩展的装和卸](#扩展的装和卸) |
-| | 升级到新版本、出事回滚 | [升级与回滚](#升级与回滚) |
-| | 看日志、机器重启后没回来、备份 | [日志](#日志)、[开机恢复](#开机恢复)、[备份、归档与维护](#备份归档与维护) |
-| 自己注册服务、维护固定 release 的 | 以上全部，再加 | [服务组成](#服务组成)、[注册与启动服务](#注册与启动服务)、[部署新版本](#部署新版本)、[服务托管](#服务托管) |
-| 从改名前的老部署升级的 | 旧名还能不能用 | [改名 Covey 后的兼容](#改名-covey-后的兼容) |
-| 不用 `./install`、手工建应用的 | 旧脚本、手动配飞书应用 | [手工安装与手动配置飞书应用](manual-install.md)（新装不用看） |
+| | 升级到新版本、出事回滚 | [升级与部署 · 升级与回滚](deploy.md#升级与回滚) |
+| | 看日志、备份、机器重启后没回来 | [日志](#日志)、[备份、归档与维护](#备份归档与维护)、[开机恢复](#开机恢复) |
+| | 飞书应用缺权限、菜单不出来 | [飞书应用配置](feishu-app.md) |
+| 自己注册服务、维护固定 release 的 | 以上全部，再加 | [服务组成](#服务组成)、[注册与启动服务](#注册与启动服务)、[部署新版本](deploy.md#部署新版本)、[服务托管](#服务托管) |
+| 从改名前的老部署升级的 | 旧名还能不能用 | [改名与兼容](compat.md) |
+| 不用 `./install`、手工建应用的 | 旧脚本、owner、首次验收 | [手工安装](manual-install.md)（新装不用看） |
 
 ### 找到数据根和 APP_ID
 
@@ -27,7 +28,7 @@ STATE_DIR="$COVEY_DATA_HOME/harness-$APP_ID"
 SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 ```
 
-- `bin/covey_paths.py` 不带参数打印数据根（`COVEY_DATA_HOME`，没设时按代码目录推算，见[数据目录](#数据目录)）；从 release 目录运行时推算出的不对，所以在 release 目录里先 `export COVEY_DATA_HOME=/absolute/covey-data`，或先[载入服务清单的环境](#载入服务清单的环境)（`./install` 写进清单的 `LARK_BRIDGE_DATA_HOME` 就是数据根）。
+- `bin/covey_paths.py` 不带参数打印数据根（`COVEY_DATA_HOME`，没设时按代码目录推算，见[数据目录](#数据目录)）；从 release 目录运行时推算出的不对，所以在 release 目录里先 `export COVEY_DATA_HOME=/absolute/covey-data`，或先[载入服务清单的环境](deploy.md#载入服务清单的环境)（`./install` 写进清单的 `LARK_BRIDGE_DATA_HOME` 就是数据根）。
 - `SERVICE_ROOT` 是服务根目录，和 Manager、doctor、`covey_service_install.py` 不带 `--root` 时的默认值一样。Bridge 和任务进程的 shell 里没有 `COVEY_SERVICE_ROOT`，不要直接用它。
 - 只操作自己的服务。不要对所有应用执行全局的事件总线停止。
 
@@ -159,7 +160,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 
 ## 注册与启动服务
 
-注册链路是 `scripts/bootstrap_harness_bridge.sh` → `bin/covey_service.py launch` → Manager。`./install` 第 5 步先注册托管（`covey_service_install.py --mode auto --activate`），再调 bootstrap；旧安装脚本 `scripts/setup_harness_bridge.sh` 也是最后调 bootstrap。已经装好的机器上，重新注册、换 release 或改参数时直接用 bootstrap（先[载入服务清单的环境](#载入服务清单的环境)）：
+注册链路是 `scripts/bootstrap_harness_bridge.sh` → `bin/covey_service.py launch` → Manager。`./install` 第 5 步先注册托管（`covey_service_install.py --mode auto --activate`），再调 bootstrap；旧安装脚本 `scripts/setup_harness_bridge.sh` 也是最后调 bootstrap。已经装好的机器上，重新注册、换 release 或改参数时直接用 bootstrap（先[载入服务清单的环境](deploy.md#载入服务清单的环境)）：
 
 ```bash
 ./scripts/bootstrap_harness_bridge.sh --workdir /absolute/workspace --profile my-bot --app-id "$APP_ID" \
@@ -198,41 +199,11 @@ python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" prune
 
 ### 载入服务清单的环境
 
-Bridge 用的环境变量都在服务清单里（[配置 · 服务清单里的环境变量](configuration.md#服务清单里的环境变量)），重新注册时清单里的变量整组换成执行注册的那个终端里的。所以改开关、重新注册、用 `deploy_bridge.sh` 升级之前，先在一个新终端里把清单现在的变量载入：
-
-```bash
-MANIFEST="$(python3 -I -c 'import glob, json, os, sys
-for f in glob.glob(os.path.join(sys.argv[1], "services", "*.json")):
-    if os.path.realpath(json.load(open(f))["state_dir"]) == os.path.realpath(sys.argv[2]):
-        print(f)' "$SERVICE_ROOT" "$STATE_DIR")"
-eval "$(python3 -I -c 'import json, shlex, sys
-m = json.load(open(sys.argv[1]))
-print("清单里的启动命令：" + " ".join(m["command"]), file=sys.stderr)
-for k, v in sorted(m["environment"].items()):
-    print(f"export {k}={shlex.quote(v)}")' "$MANIFEST")"
-```
-
-- 清单里的名字是旧写法（`LARK_BRIDGE_<X>`），和 `COVEY_<X>` 同一个变量，之后 `export COVEY_<X>=…` 会盖过它。
-- 启动命令打印在终端里：`bin/covey_bridge.py` 所在的目录就是服务正在运行的代码目录，后面的 `--workdir`、`--profile`、`--app-id`、`--state-dir` 等是重新注册时要照抄的参数。
-- 新终端里多出来、清单里没有的本项目变量（比如 shell 初始化文件里设的 `COVEY_*`），重新注册时也会被存进去；不需要的先 `unset`。
+重新注册时清单里的变量整组换成终端里的，所以改开关、升级之前先把清单的变量载入终端，命令见[升级与部署 · 载入服务清单的环境](deploy.md#载入服务清单的环境)。
 
 ### 改设置后重新注册
 
-改开关（[改开关三步](configuration.md#改开关三步)）或 Codex 的命令行参数后，在服务正在运行的代码目录里重新注册：
-
-```bash
-# 已按上一节载入清单的环境，再改要改的
-export COVEY_DIGEST_TIMES=09:30,21:30
-# 服务仍从 ./install 的检出运行（没用 deploy_bridge.sh 升级过）：
-./install
-# 服务从 releases/ 下的 release 运行：在那个 release 目录里，参数照清单命令抄
-./scripts/bootstrap_harness_bridge.sh --workdir /absolute/workspace --profile covey --app-id "$APP_ID" \
-  --state-dir "$STATE_DIR" --harness-config "$COVEY_DATA_HOME/harnesses.json"
-```
-
-- `./install` 重跑时发现设置（或代码目录、代理、Harness）和上次注册的不一样才重新注册，一样就只说“服务已在运行，配置没变”。服务已经换到 release 运行之后不要再用 `./install` 改设置：它会把服务注册回检出目录。
-- 在别的代码目录里运行 bootstrap 等于换代码，那是升级，见[升级与回滚](#升级与回滚)。
-- 确认：`covey_service.py status` 的 `generation` 加一，`bridge.log` 有新的 `bridge started`。`restart` 不换清单，改开关不能只 `restart`。
+改了开关或 Codex 参数要重新注册（`restart` 不换清单），做法见[升级与部署 · 改设置后重新注册](deploy.md#改设置后重新注册)。
 
 ### 扩展的装和卸
 
@@ -266,243 +237,50 @@ python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" list                 # 
 
 常见失败：「连不上」先在 Bridge 机器上手动 `ssh <host>` 一次（BatchMode 不会问密码，也不会确认主机密钥）；「没有登录」在设备上登录对应的 Harness；「连不上模型服务，而且环境档案里没有代理」在设备的 `~/.claude/settings.json` 的 `env` 里设 `HTTPS_PROXY`，或写进 `devices.json` 里这台设备的 `env`，再自检。
 
-## 升级与回滚
+### Harness 能不能调通
 
-升级的做法只有一种：用 `scripts/deploy_bridge.sh` 把要部署的提交导出成 `$COVEY_DATA_HOME/releases/<id>/` 下的固定 release，再让服务从它运行。不要在服务运行的检出里 `git pull` 了事：`./install` 装的服务直接从检出运行，拉代码之后新开的任务进程立刻用新代码，Bridge 却还是旧的，直到下次重启。固定 release 不会被之后的 `git pull` 改动，旧 release 留着就能回滚。
+`core/harness_probe.py` 的 `probe(名字)` 对 Claude 跑 `claude -p`、对 Codex 跑 `codex exec`（短超时，一次最便宜的问法），返回 `ok`、`reason`（`ok|not_installed|not_logged_in|network|timeout|other`）和 `detail`。安装器、`covey_doctor --probe-harnesses` 用它；`covey_doctor` 不带参数时只读缓存（`<数据根>/harness-probe/<名字>.json`，通过 6 小时、失败 10 分钟，换了命令或代理设置作废）。Bridge 里默认不探测，设 `COVEY_HARNESS_PROBE=1`（可写进服务清单）后，可用性检查把结果放进健康检查的 `model_access.preflight.<名字>.probe`，缓存里是“没登录”的 Harness 在启动卡上不可用（沿用现有的“模型后端尚未登录”提示），网络、超时等不挡任务。
 
-**升级**（第一次也一样，服务从 `./install` 的检出换到 release）：
+## 日志
 
-```bash
-cd /absolute/covey                       # 核心的 git 检出，./install 的那个就行
-git fetch origin                          # 只取不合并：服务还从这个检出运行时，git pull 会让新任务马上用上新代码
-# 按“载入服务清单的环境”一节载入清单的变量（预检要求终端和清单的变量一致），再设：
-APP_ID=cli_xxx
-RUN="$COVEY_DATA_HOME/deploy-runs/$(date +%Y%m%d-%H%M%S)"   # 部署的日志目录
-scripts/deploy_bridge.sh --workdir /absolute/workspace --profile covey --app-id "$APP_ID" --run-dir "$RUN" --commit origin/main --check-only
-scripts/deploy_bridge.sh --workdir /absolute/workspace --profile covey --app-id "$APP_ID" --run-dir "$RUN" --commit origin/main
-```
-
-- `--commit` 是要部署的提交（默认是检出的 `HEAD`）；服务换到 release 运行以后，检出就可以随意 `git pull` 了。`--workdir`、`--profile` 照清单命令里的抄（`./install` 装的 profile 默认是 `covey`）。`COVEY_DATA_HOME` 载入清单后就有（清单里写作 `LARK_BRIDGE_DATA_HOME`，两个名字都认）；`--run-dir` 和 `TMPDIR` 至少给一个，否则退出码 2。
-- 带扩展的部署：每个扩展检出加一对 `--ext-repo /absolute/<扩展检出> --ext-commit <提交>`（不写提交就是它的 `HEAD`），release 里会带上这些扩展。公司同事的扩展库有自己的升级说明（见它 README 的「同事第一次安装」），照它的做。
-- 输出是一行 JSON：退出码 0 成功，1 某项检查没过（`error` 写明哪项；预检没过时什么都没换，部署后的检查没过看 `post`），2 参数不对，3 另一个部署正在跑（等它结束再跑一次）。先跑 `--check-only`，预检全过再去掉它。
-- 预检里最常见的是 `env_missing`、`env_extra`、`env_value_diff`：终端和清单的变量不一致，按上面重新载入。要改开关的，先按[改设置后重新注册](#改设置后重新注册)改完，再升级。
-- 部署后它自己核对新 Bridge 起来、事件就绪、`covey_doctor --runtime-only` 通过、原来在跑的任务都被接管；`post.app_config` 报飞书应用还缺什么（不算失败）。
-- 已知限制：脚本开头会 `unset HTTPS_PROXY`，所以清单里有大写 `HTTPS_PROXY` 的服务（在 `./install` 里输入过代理地址的）预检总报 `env_missing`。先在载入清单的终端里 `export https_proxy="$HTTPS_PROXY"; unset HTTPS_PROXY`，按[改设置后重新注册](#改设置后重新注册)注册一次，代理就改存成小写的 `https_proxy`，之后照常部署。
-
-**回滚**：换回上一对提交，加 `--allow-rollback`（不加时预检拦下比现网旧的提交）：
-
-```bash
-ls "$COVEY_DATA_HOME/releases/"          # 上一个 release；带扩展的看它的 RELEASE_MANIFEST 里各检出的提交
-scripts/deploy_bridge.sh --workdir /absolute/workspace --profile covey --app-id "$APP_ID" --run-dir "$RUN" \
-  --commit <上一个核心提交> [--ext-repo /absolute/<扩展检出> --ext-commit <上一个扩展提交>] --allow-rollback
-```
-
-release 目录已存在时不重新打包，只重新注册，所以回滚很快。旧 release 要留到用它的任务进程都结束（见下面第 5 步）。
-
-脚本一步步做了什么、手工怎么做，见下一节。
-
-## 部署新版本
-
-从固定的 release 目录运行，更新代码时不会改变正在运行的服务和任务进程用的文件。命令用到文首设置的 `STATE_DIR` 和 `SERVICE_ROOT`。
-
-`scripts/deploy_bridge.sh --workdir <目录> --profile <profile> [-- <bridge 参数>]` 按第 1–4 步做完并打印一行 JSON（变量名同文首），检查不过就停；`--check-only` 只做部署前的检查，参数见脚本开头。其中权限变量（`pre.permission_env`）查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，和部署后 `covey_doctor --runtime-only` 的口径一致（停用的服务只告警）。部署后的 `covey_doctor --runtime-only` 不是 0 时每 10 秒再问一次，最多 90 秒（刚启动时事件连接还在建立，会短暂报 degraded），`post.doctor_tries` 是问了几次。它还在结果里报 `post.app_config`（飞书应用缺不缺东西），不算失败。
-
-**一次只有一个部署，不往回部署**：几个人或几个 Agent 都可能部署同一个服务，同时跑会互相覆盖，后跑完的生效，较旧的提交还可能盖掉较新的现网。所以：
-
-- **排队**：真部署在部署前检查之前拿服务根下的 `deploy.lock`（`flock`，进程退出就释放，崩溃也一样；NFS 上同样互斥），一直持到结束；锁文件里写着谁拿着（`pid`、`host`、`commit`、`release_id`、`started`、`run_dir`、`task`）。别的部署正拿着时立刻退出，退出码 3，结果里的 `deploy_running` 是那位占用者，什么都不碰。等它部署完再跑一次就是排队。`--check-only` 不拿锁、不受它拦，只在 `pre.deploy_running` 里报有没有部署在跑（没有是 `null`）。
-- **不回退**：现网服务清单里的入口在 `$COVEY_DATA_HOME/releases/<id>/` 下时，现网的提交（release 里的 `RELEASE_MANIFEST`，没有就按 id）必须是 `--commit` 的祖先；扩展个数和现网一样时，每个 `--ext-commit` 也按顺序这样比。不是就拦下（`pre.rollback` 写明哪个提交没包含现网的哪个，或检出里没有现网的提交、要先 fetch），`--check-only` 也报。要部署的提交是从旧 `main` 拿的，先同步最新 `main`；真要回滚时加 `--allow-rollback`。现网不是从 `releases/` 下运行的（如 `./install` 直接跑检出）不比，`pre.live_release` 是 `null`。
-
-**核心和扩展分开检出时**（核心在 `covey/` 检出，扩展在各自的库里，布局：扩展库根下每个含 manifest 文件的目录是一个扩展包）：加 `--ext-repo <扩展检出>` 和 `--ext-commit <提交>`（默认 `HEAD`），都可重复，按先后配对（有几个扩展库就加几对）。`--repo`/`--commit` 仍是核心。release 的 `extensions/enabled` 列每个扩展检出根目录 `enabled` 文件里的包（没有这个文件就列它所有的包）；检出里没列的包随 release 带着但默认不启用，用 `covey_plugins.py enable` 打开（见[扩展的装和卸](#扩展的装和卸)）。
-
-```bash
-scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute/covey --ext-repo /absolute/covey-internal --check-only
-```
-
-- 打包改由 `scripts/assemble_release.py` 做：核心 `git archive` 到 release，每个扩展包（扩展库根目录下含清单模块的目录）`git archive` 到 `release/extensions/<包名>/`，去掉包里的 `standalone/`，包的 `bin/*.py` 入口（如扩展自己的运行时脚本）放进 `release/bin/` 盖掉核心里的转发脚本，写 `extensions/enabled`（按 `--ext-repo` 的顺序列出所有包名）和 `RELEASE_MANIFEST`（各检出的完整提交号），再重写 `AGENTS.md` 的模块表。形状和旧的单仓库 release 相同，服务清单、`runs/<任务键>/` 协议、回滚都不变。拼装按提交取，不看检出的工作区。
-- **预编译字节码**：服务的每个 Python 进程（Bridge、任务进程、管家的 MCP 服务）都带 `-B` 并设了 `PYTHONDONTWRITEBYTECODE=1`，自己不写 `.pyc`，release 里没有 `__pycache__` 时每次启动都要把 Covey 源码从头编译一遍（`import covey.app.runner` 约多 0.4–0.5 秒）。`deploy_bridge.sh` 在 bootstrap 之前运行 `scripts/precompile_release.py`，用将要注册的那个 `python3`（`pre.command_diff` 已核对它和服务清单一致；`.pyc` 带解释器版本标签，版本不一致就白编）给 `covey/`、`extensions/` 和 `harness_bridge.py` 写 `.pyc`；release 目录已存在、跳过打包时同样会做。编译失败只在结果的 `precompile`（`ok: false`、`failed`）里报告，不让部署失败；已经编译过的文件会跳过，重复部署很快。`-B` 和环境变量保持不变，运行时只读不写。手工用 `assemble_release.py` 拼装时加 `--precompile [PYTHON]`（默认不编，文件清单不变）；手工 `git archive` 导出 release（第 2 步）后运行 `python3 -B -I scripts/precompile_release.py "$RELEASE"`（用服务的 python3）。`./install` 直接从检出目录运行服务，也会在步骤 5 先给检出预编译；`git pull` 后重跑 `./install` 刷新。
-- release id 是 `<核心前 8 位>-<扩展前 8 位>[-<第二个扩展前 8 位>…]`，release 目录、`bridge started … release=<id>` 的匹配都用它；结果 JSON 的 `commit` 仍是核心完整提交号，另有 `ext_commits` 和 `release_id`。不给 `--ext-repo` 时一切照旧（release 目录名是核心提交号）。回滚只回一半：核心提交不变、`--ext-commit` 设成旧值，得到一个新 id 的 release。
-- 额外的预检（`--check-only` 同样做，输出里有两个或更多提交）：扩展检出是 git 仓库、提交存在（否则退出码 2）；扩展库的 `core.lock` 写的核心提交和 `--commit` 不一致时拦下（`pre.core_lock_mismatch`；试新核心时加 `--allow-core-mismatch` 放行）；服务清单和当前终端里不能有 `COVEY_EXTENSION_PATH`、`COVEY_EXTENSIONS`（`pre.extension_env`；它们会盖过 release 里的 `extensions/`，unset 后重新注册）。
-
-**1. 看有没有会被打断的任务。**
-
-```bash
-python3 -B bin/covey_service.py status --state-dir "$STATE_DIR"
-grep -l '"status": "creating_worktree"' "$STATE_DIR"/launch-forms/*.json
-```
-
-- `restart_blockers` 为空就可以部署。每项含 `key`、`job_id`、`status`，是任务记录未结束、又没有存活任务进程的任务；已存盘、重启后会重新排队的不算，点过停止而没有任务进程的也不算。不为空时等它们结束。
-- 第二条命令列出正在创建独立 worktree 的启动卡。重启会中止检出，卡片换回启动表单，已建好的 worktree 保留。
-
-**2. 导出 release。** 在已经拉取并合入的检出里：
-
-```bash
-COMMIT="$(git rev-parse HEAD)"
-RELEASE="$COVEY_DATA_HOME/releases/$COMMIT"
-mkdir -p "$RELEASE"
-git archive "$COMMIT" | tar -x -C "$RELEASE"
-```
-
-手工导出后用服务的 `python3` 预编译字节码（失败只是启动慢一点；`deploy_bridge.sh` 已包含这一步）：`python3 -B -I scripts/precompile_release.py "$RELEASE"`。
-
-**3. 核对清单和终端环境，再用新 release 重新注册。**
-
-```bash
-MANIFEST="$(grep -l "\"state_dir\": \"$(realpath "$STATE_DIR")\"" "$SERVICE_ROOT"/services/*.json)"
-python3 -I -c 'import json, sys
-m = json.load(open(sys.argv[1]))
-print(" ".join(m["command"]))
-print(sorted(m["environment"]))' "$MANIFEST"
-cd "$RELEASE"
-# 当前终端执行 launch 时会保存的变量
-python3 -B -c 'from covey.service.manager import runtime_environment; print(sorted(runtime_environment()))'
-```
-
-- 两份变量名一致再继续：缺的在终端里 export，多出的不需要就 unset。`PATH` 里的 `python3` 就是之后运行 Bridge 的 Python。
-- 在这个机器人自己的任务里部署也可以：新 Bridge 认领仍在运行的任务进程，当前任务不会中断。任务 shell 继承 Manager 的环境，可能多出清单里没有的变量（例如 `HTTPS_PROXY`），同样先对比。
-- 清单命令里的 `--workdir`、`--profile`、`--app-id`、`--state-dir` 对应 bootstrap 的同名参数；其余参数原样跟在后面。owner 已写进 `bot-identity.json` 后可以省略 `--owner` 和 `--pairing-file`。
-
-然后从新 release 运行 bootstrap，并显式给出 `--state-dir`：
-
-```bash
-./scripts/bootstrap_harness_bridge.sh --workdir /absolute/workspace --profile my-bot --app-id "$APP_ID" \
-  --state-dir "$STATE_DIR" --harness-config "$COVEY_DATA_HOME/harnesses.json"
-```
-
-Manager 发现代次变化后停掉旧 Bridge，用新命令启动。Manager 本身仍从它启动时的 release 运行，见第 6 步。bootstrap 最后打印的 `status` 可能还是旧进程；以第 4 步为准。
-
-**4. 部署后检查。**
-
-```bash
-python3 -B bin/covey_service.py status --state-dir "$STATE_DIR"
-python3 -B bin/covey_doctor.py --runtime-only
-tail -n 200 "$STATE_DIR/bridge.log" | grep -E 'ready event_key=|adopted task runner|re-queued job'
-```
-
-- `covey_doctor.py --runtime-only` 退出码为 0；新进程的 `bridge started pid=… generation=N release=<commit>` 之后有两行 `ready event_key=...`；`/proc/<pid>/cmdline` 里的入口路径是新 release（pid 见 `status.process.pid`）。
-- 部署前在跑的每个任务都有一行 `adopted task runner job=#N pid=…`，任务卡的执行过程里多一条“机器人 HH:MM 重启过，任务未中断。”。
-- 在 Bridge 的实际环境里发一次真实模型请求，例如在测试话题里跑一个只读小任务。doctor 不探测模型，登录终端里能调用不代表服务环境里也能。
-
-**5. 保留旧 release。** 任务进程从头到尾用启动它的 release，`pgrep -af covey_runner.py` 的命令行里能看到路径。旧 release 要保留到用它的任务进程都结束；Manager 正在用的 release 也不能删。
-
-**6. 需要时升级 Manager。** 部署只换 Bridge。升级 Manager 时先用新 release 的安装器重写开机配置（不加 `--activate`），再只结束 Manager，由开机守护按新配置拉起：
-
-```bash
-# 其他托管方式由扩展的 service_hosting 钩子提供（见扩展自己的 README）：同样用新 release 的安装器重写配置，再结束 manager.json 记录的 Manager
-
-# systemd 模式：用要运行 Manager 的 Python 运行安装器，再重启单元
-python3 -B "$RELEASE/bin/covey_service_install.py" --root "$SERVICE_ROOT" --mode systemd
-systemctl --user restart covey-manager.service   # 改名前装的机器上单元名是 lark-bridge-manager.service
-```
-
-- 新 Manager 按进程身份接管存活的 Bridge，不重启 Bridge，也不打断任务进程。扩展提供的开机守护每一轮都重新读取 `boot.json`；systemd 单元是 `KillMode=process`，重启单元只结束 Manager。安装器每次都把回执重置为 `reboot_verified: false`。
-- 安装器打印的回执里 `active_pid1_hook` 总是 `false`，不说明守护的状态。以 doctor 报告的 `boot.active_pid1_hook` 和 `boot.watchdog` 为准：刚结束 Manager 时可能先报 `false`，守护拉起新 Manager 后转为 `true`。
-- 没装开机自启、或 扩展的守护没在运行（doctor 的 `boot.watchdog` 为空）时，结束 Manager 后由下一次 `covey_service.py start`、`restart` 或 `launch` 用执行它的 release 拉起。
-- Manager 的日志行（`service <id 前 8 位> …`）是 Manager 的代码写的，升级 Manager 后才有新版本的写法。
-
-**7. 更新 Skills。** 运行 `./scripts/install_skills.sh`，它把本仓库的 Skills 同步到 `${CODEX_HOME:-~/.codex}/skills` 和 `${CLAUDE_HOME:-~/.claude}/skills`，同名目录整个替换。安装 Skills 不会重启机器人。
-
-**8. 需要时更新内存看门狗。** 部署不会更新看门狗的本地副本；要用新代码时从新 release 执行一次 `bin/covey_memguard.py enable`。
-
-## 任务进程
-
-每个任务出队后在自己的任务进程里跑完：后端、任务卡和结果投递都在这个进程里。它在自己的会话里运行，用启动它的 Bridge 的环境和 release，停止或重启 Bridge 都不会结束它。实现见[任务生命周期](architecture.md#任务生命周期)。
-
-`pgrep -af covey_runner.py` 列出任务进程，命令行形如 `<release>/bin/covey_runner.py --run-dir <state>/runs/<任务键>`。运行目录里有：
-
-| 文件 | 内容 |
-| --- | --- |
-| `runner.json` | 进程号、启动时间、boot ID、release、任务编号、Harness |
-| `wake.json` | 任务进程能接 SIGUSR1：Bridge 写收件箱后用它立即唤醒（旧 release 的任务进程没有它） |
-| `done.json` | 卡片更新完、只剩产物上传时写入；Bridge 见到就放开这个话题，同话题的下一条照常开始 |
-| `exit.json` | 退出时写入 |
-| `runner.log` | 任务进程的日志 |
-
-- 运行目录在任务结束 7 天后由空闲维护删除。单看 `runner.json` 判断不了进程是否还活着，要看 `exit.json` 或进程列表。
-- 任务结束后，任务进程还会等产物上传最多 30 分钟、卡片更新最多 60 秒再退出。
-- Bridge 一侧的日志：`task runner started job=#N pid=... dir=...`（交给任务进程）、`adopted task runner job=#N pid=...`（重启后认领仍存活的）、`task runner done job=#N`、`task runner ended job=#N status=... exit=...`（`exit=none` 表示没有 `exit.json`，进程被杀或崩溃）。
-- 管家空闲时的压缩进程也是 `covey_runner.py`，命令行带 `--run-dir <state>/main-thread/compacting/<管家话题> --compact-only`：不建任务、不出卡、不算 `restart_blockers`。Bridge 重启时停掉上一个 Bridge 留下的这种进程，请求放回去。
-
-操作：
-
-- **结束任务进程**：`kill -TERM <pid>`。它结束自己的后端进程后退出，任务按中断处理，不算“已停止”：Bridge 把卡片换成带“检查并继续”的恢复卡，60 秒后自动检查并继续一次（见[自动重试](reference.md#自动重试)）。要按“已停止”结束，点任务卡上的“停止”。后端已经做完、正在发结果时收到它，结果照常发出。
-- **不要用 `kill -9`**：任务进程来不及结束自己的后端进程；Bridge 同样把任务标为中断。
-- **命令留下的进程**：任务进程给后端和它的命令都加了 `COVEY_TASK_DIR=<运行目录>`。每轮后端关闭后，带这个标记、仍在运行的搜索工具被结束，其他进程只在任务卡的执行过程里列出，`runner.log` 有一行 `task leftovers job=#N stopped=… pending=… running=… pids=…`。找某个任务留下的进程：`grep -lza "^COVEY_TASK_DIR=$STATE_DIR/runs/<任务键>$" /proc/[0-9]*/environ`；结束时按进程组（`kill -TERM -- -<PGID>`）。
-- **边界**：`covey_doctor` 不检查任务进程。机器人停着时任务进程照常刷新任务卡，但点击和消息都由 Bridge 接收，这段时间点卡片没有响应。
-
-### 多设备：设备上的任务没停掉
-
-只在 `COVEY_DEVICES=1` 且配了设备时才有这些。现象是卡上写「失联」「已请求停止，gpu1 连上后生效」，或同一话题的新一轮因「上一轮可能还在运行，没能停掉」没有启动：
-
-1. 看 `<状态目录>/devices/<别名>/pending-reap.json`：有条目说明设备上的任务还没确认停掉。`tries` 在涨、`last_try` 在更新说明 `devices` 后台线程在试；`health.json` 的 `ok` 为 `false` 是设备连不上，先修 ssh（`ssh <host> true`，`known_hosts`、跳板、代理），连上后一分钟内自动收割。
-2. `bridge.log` 里 `devices: <别名> reaped N pending` 是收割结果；`reap` 一直被拒（设备上进程组不是这个任务的，常见于设备重启后进程号被别的进程用了）时，登到设备上确认 `~/.covey/tasks/<hub-id>/<任务键>/state.json` 的进程组已经没有 Agent，再从 `pending-reap.json` 和 `tasks/<话题>.json` 里删掉对应条目（改文件前先停 Bridge 或确认没有任务在跑）。
-3. 设备磁盘上 `~/.covey/checkpoints/`（检查点镜像）或 `~/.covey/incoming/`（传到设备的附件）变大：后台线程每小时 `gc` 一次，7 天没变、也不属于运行中任务的才清；设备一直离线就不会清。
-4. 设备失联后任务记录是 `interrupted`、`interrupted_by` 为 `device_lost`，不会自动重试；设备回来后点卡上的检查并继续即可（会先收割再 `--resume`）。耐心值怎么改见[多设备](configuration.md#多设备开发中默认关)的字段表。
-
-5. 回滚到旧 release：设备话题的 `topic.json` 里存的是 `gpu1:/路径`。不认设备的旧 release（或回滚时没带 `COVEY_DEVICES=1`）把它当一个不存在的相对路径，这一轮被拒绝（「本话题的工作目录不存在，后端没有启动」），不会在本机跑；带着开关的旧 release 按设备规则拒绝或照设备跑，取决于它有没有这一版的设备代码。回滚后设备上还在跑的 Agent 不受影响，也不会被停掉：升回来后同一话题的下一轮会先 `reap` 再 `--resume`。跨版本检查的 `device-rollback` 场景（[测试](testing.md#任务进程协议与跨版本检查)）每次发布前验证这一点。
-
-## 改名 Covey 后的兼容
-
-产品和包改名为 Covey，所有现有部署不改配置照常升级；下面这些旧名都还能用，保留至少一个版本。
-
-| 旧 | 新 | 兼容做法 |
+| 文件 | 谁写 | 内容与轮转 |
 | --- | --- | --- |
-| Python 包 `harness_bridge` | `covey` | 仓库根的 `harness_bridge.py`（单文件，不是包，`covey/__init__.py` 仍为空）装一个导入别名：`harness_bridge.X` 就是 `covey.X` 同一个模块对象，首次导入在 stderr 记一行弃用。给外部扩展用 |
-| `LARK_BRIDGE_<X>` | `COVEY_<X>` | 两个名字都读，见[环境变量与选项一览](configuration.md#环境变量与选项一览) |
-| `bin/lark_harness_bridge.py`、`lark_task_runner.py`、`bridge_service.py`、`bridge_service_install.py`、`bridge_doctor.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_main_mcp.py`、`covey_main_mcp.py`（原来的入口，也成了转发壳）、`bridge_app_setup.py`、`lark_bridge_paths.py`、`lark_bridge_maintenance.py`、`lark_bridge_workspaces.py`、`lark_app_console.py`、`lark_feishu_web.py`、`lark_install_browser.py`、`lark_workspace_reader.py`（扩展的入口见扩展 README，同样留了旧名转发壳） | `bin/covey_bridge.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_doctor.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_butler_mcp.py`、`covey_app_setup.py`、`covey_paths.py`、`covey_maintenance.py`、`covey_workspaces.py`、`covey_app_console.py`、`covey_feishu_web.py`、`covey_install_browser.py`、`covey_workspace_reader.py`（`covey_install.py` 本来就是新名） | 旧名留作两行转发壳（`runpy.run_path` 新名），服务清单、开机钩子、crontab、systemd 单元、各部署的脚本里写死的旧路径继续有效；新注册（bootstrap、installer、`bridge_service_install` 写的单元和 crontab 行）用新名 |
-| `lark-bridge-manager.service` | `covey-manager.service` | 新装用新名；已装旧单元的机器继续用旧单元名（`unit_name()` 看 `~/.config/systemd/user/` 里有没有旧文件），不停不换；单元里的 `ExecStart` 下次装时改成新入口 |
-| 抽象套接字 `\0lark-bridge-…`、`~/.config/lark-bridge-service/`、`~/.local/libexec/lark-bridge/memguard.py`、crontab 标记 | 不变 | 新旧 Manager、看门狗要互相认得，数据和注册位置都不改名 |
-| `scripts/setup_harness_bridge.sh`、`scripts/bootstrap_harness_bridge.sh` | 不变 | `./install` 和 `deploy_bridge.sh` 都调 bootstrap；旧安装脚本 setup 仍可用，不再推荐 |
+| `<state>/bridge.log` | Bridge | Bridge 拿到状态目录后的全部输出。每分钟看一次大小，达到 10 MiB 轮转，保留 `.1` 到 `.9`；启动时不轮转 |
+| `<state>/bridge-console.log` | Manager | Bridge 接管日志之前的输出（导入出错、`another bridge already owns this state directory`） |
+| `<root>/manager.log` | Manager | 每次启动、替换、停止 Bridge，退避重启，健康超时替换，处理服务出的新错误，各一行 `service <id 前 8 位> …`；10 MiB 轮转，保留 9 份 |
+| `<state>/runs/<任务键>/runner.log` | 任务进程 | 任务进程的输出，随运行目录清理 |
+| `~/.lark-cli/events/<APP_ID>/bus.log` | lark-cli 事件总线 | Bridge 在达到 10 MiB 时轮转 |
+| `<root>/memory-guard/events.jsonl` | 内存看门狗 | 终止、告警、包装维护和错误 |
 
-数据目录（`COVEY_DATA_HOME`/`LARK_BRIDGE_DATA_HOME` 指的目录、`harness-<APP_ID>` 状态目录、`releases/`、`bridge-services/`、`runs/<任务键>/` 里的文件名）一个都没改。`deploy_bridge.sh` 比的是清单里的命令参数，不比入口脚本的路径，所以现网清单写着旧入口时不会因为命令变了而拦。
+运行中的轮转是复制后截断，轮转瞬间可能丢几行；任务、授权结果和投递回执另有持久记录，不依赖日志。每行开头的时间精确到毫秒。日志里只有操作名、ID 末几位和数字，没有正文、令牌或用户文字。
 
-## 服务托管
+每次启动的第一行是 `bridge started pid=… generation=N release=…`：代次和上一次相同，是 Manager 替换了退出或没有响应的 Bridge；加了一，是部署或 `restart`。
 
-注册服务和托管是两件事：服务清单记着“跑什么”，托管让 **Manager** 开机后自动起来、挂了自动拉起（Bridge 和任务进程由 Manager 管）。托管只放 Manager，所以停掉或重启托管单元不会结束 Bridge 和任务进程，下一个 Manager 接管。安装器 `bin/covey_service_install.py` 的 `--mode`：
+`bridge.log` 里常用的关键字：
 
-| `--mode` | 做什么 |
-|---|---|
-| `auto` | 自动选下面一种，输出里的 `auto_reason` 写为什么 |
-| `systemd` | Linux 用户服务 |
-| `launchd` | macOS 用户代理 |
-| `cron` | Linux 没有 systemd 时：crontab 的一行 `@reboot` 拉起 Manager |
-| `manager` | 不托管：只有 `covey_service.py launch` 起的 Manager，机器重启后不会自己回来 |
-| 扩展的模式 | 扩展用 `service_hosting` 钩子提供的托管方式（如 PID 1 里的守护线程），见扩展 README |
+| 关键字 | 含义 |
+| --- | --- |
+| `bridge started pid=` | 每次启动的第一行：进程号、Manager 代次、release |
+| `ready event_key=` | 消费者就绪，每个订阅一行 |
+| `consumer exited rc=` | 事件消费者退出，同一行写着多久后重启 |
+| `card action kind=` | 每次卡片点击一行，见[点按钮没有反应](troubleshooting.md#点按钮没有反应) |
+| `card follow-up kind=` | 点击回执之后的慢活做完一行，`elapsed_ms` 是它自己的耗时 |
+| `bot menu key=` | 每次菜单点击一行，`outcome` 是 `not_owner`、`unknown_key`、`duplicate`、`no_chat` 或 event_key 本身 |
+| `timing flow=` / `feishu call` / `feishu calls` | 计时行，见[慢在哪里](troubleshooting.md#慢在哪里) |
+| `task runner started` / `adopted task runner` / `task runner done` / `task runner ended` | 任务进程的启动、认领、放开话题、退出 |
+| `re-queued job=` | 重启后重新排队的任务 |
+| `released N waiting messages of started topic=` | 启动时把已开始话题里还在等启动的消息排上 |
+| `card follow-ups not finished at stop:` | 停止时等了 6 秒仍有点击后续没做完；受影响的问题在下次启动时显示“送达未确认” |
+| `launch catalog unavailable` | 模型目录读取失败，见[启动卡里缺少某个 Harness 的模型](troubleshooting.md#启动卡里缺少某个-harness-的模型) |
+| `event bus TCP transport stalled` | 事件总线停滞后被替换，见[自动恢复](troubleshooting.md#自动恢复) |
+| `worker <名称> failed` / `maintenance deferred` | 后台线程异常并重建 / 维护出错推迟 |
+| `maintenance backup completed` / `idle maintenance … completed` | 每日备份 / 空闲时的清理 |
+| `… is the old name of …` / `env <名字> is no longer read` | 设了环境变量的旧名（见[改名与兼容](compat.md#环境变量的旧名)）/ 不再读取的变量（见[已下线的功能与旧配置](legacy.md#不再读取的变量)） |
+| `app setup check` / `app setup run` | 飞书应用检查和自动补齐，见[飞书应用配置](feishu-app.md#自动补齐飞书应用) |
+| `outcome=retired_harness` | 已下架 Harness 的话题收到消息或点击，见[已下线的功能与旧配置](legacy.md) |
+| `proxy …` | 代答，见[代答没有回复或没有发出](troubleshooting.md#代答没有回复或没有发出) |
 
-**`auto` 的选择顺序**：① 扩展的 `service_hosting` 钩子有 `auto_mode()` 且它返回一个存在的模式（扩展在它认得的平台上返回自己的托管模式）；② macOS 且有 `launchctl`：`launchd`；③ Linux 且 `systemctl --user show-environment` 答得上（有用户 systemd）：`systemd`；④ Linux 有 `crontab`（且没加 `--no-autostart`）：`cron`，给用户的 crontab 加一行带 `# covey-bridge-autostart` 注释的 `@reboot ... covey_service.py --root <root> run`（日志 `<root>/cron-manager.log`，每个服务根一行，注释里带服务根的短哈希：同一服务根重复运行替换自己的行，不同服务根共存，`--uninstall` 只删自己的；机器的 cron 守护要在跑）；⑤ 其他：`manager`，输出 `autostart: false` 和一句说明，之后重启机器要重跑安装。没有扩展时只走 ②③④⑤。
-
-```bash
-python3 -B bin/covey_service_install.py --root "$SERVICE_ROOT" --mode auto --activate
-python3 -B bin/covey_service_install.py --mode auto --status      # 现在注册和运行的样子
-python3 -B bin/covey_service_install.py --mode auto --uninstall   # 删掉单元或 plist（auto 要先选出 systemd 或 launchd）
-```
-
-不带 `--activate` 只写文件，不启动、不加载。重复运行安全：launchd 先 `bootout` 旧的再 `bootstrap`，systemd 重写单元后 `daemon-reload`。回执写在 `<root>/boot-installation.json`，`covey_doctor` 的 `boot` 一节按它读：systemd 看单元是否 `enabled` 且 `active`，launchd 看 `launchctl print` 能否查到，`cron` 看 crontab 里这个服务根的那一行还在不在，`manager` 回执算 `ready` 但带 `autostart: false`。扩展的托管模式：PID 1 里的守护在跑算 `ready`；回执带 `login_hook`（登录时由 shell 启动文件起独立守护，见扩展 README）且那个文件确实启动这份配置时，独立守护在跑也算 `ready`，报告里的 `login_hook` 是该文件。
-
-**systemd 模式**
-
-- 写入 `~/.config/systemd/user/covey-manager.service`（改名前装过、已有 `lark-bridge-manager.service` 的机器沿用旧名）并 `daemon-reload`，`--activate` 时 `enable --now`。单元的启动命令是运行安装器的那个 Python 加安装器所在 release 的 `bin/covey_service.py`。
-- 用户服务默认只在登录期间运行。用户没开 linger 时，安装器的输出带 `hint`：`sudo loginctl enable-linger <用户>`（要 root，安装器不替你跑）。
-- 没有用户 systemd（`/run/systemd/system` 不存在，或 `systemctl --user` 连不上用户管理器，常见于容器和没登录过的 ssh）：`auto` 退回 `manager`；明确写 `--mode systemd` 时在前一种情况下报错。
-- 单元配置 `Restart=always`（10 秒后重启）和 `KillMode=process`：停止或重启单元只结束 Manager，Bridge 和任务进程留着，由下一个 Manager 接管。单元停着期间 Bridge 照常运行，但它退出后没人重启。这些行为由单元配置推出，测试只核对单元文件内容。
-- 单元停着时运行 `covey_service.py start`、`restart` 或 `launch`，会在单元外拉起一个 Manager。之后再启动单元，单元里的 Manager 拿不到单实例锁就退出，每 10 秒重试，直到单元外那个退出。所以先 `--activate` 托管，再注册服务。
-
-**launchd 模式**（macOS）
-
-- 写入 `~/Library/LaunchAgents/<label>.plist`（`--label`，默认 `com.covey.manager`）：`RunAtLoad`、`KeepAlive`、`ThrottleInterval 10`、`AbandonProcessGroup`（停掉 Manager 不连带结束子进程），日志在 `<root>/launchd.log`，Manager 自己的日志仍是 `manager.log`。
-- plist 里的环境变量只有 Manager 自己要的：安装时终端的 `PATH`、`HOME`、`LANG`，以及设了的 `COVEY_DATA_HOME`、`COVEY_SERVICE_ROOT`、`COVEY_EXTENSIONS`。Bridge 的环境（代理、`CODEX_HOME` 等）仍在服务清单里，由 Manager 带给它。
-- `--activate` 用 `launchctl bootstrap gui/<uid>` 加载。它是用户代理：Mac 登录后才运行，登录前不会自己起来。
-
-**Harness 能不能调通**：`core/harness_probe.py` 的 `probe(名字)` 对 Claude 跑 `claude -p`、对 Codex 跑 `codex exec`（短超时，一次最便宜的问法），返回 `ok`、`reason`（`ok|not_installed|not_logged_in|network|timeout|other`）和 `detail`。安装器、`covey_doctor --probe-harnesses` 用它；`covey_doctor` 不带参数时只读缓存（`<数据根>/harness-probe/<名字>.json`，通过 6 小时、失败 10 分钟，换了命令或代理设置作废）。Bridge 里默认不探测，设 `COVEY_HARNESS_PROBE=1`（可写进服务清单）后，可用性检查把结果放进健康检查的 `model_access.preflight.<名字>.probe`，缓存里是“没登录”的 Harness 在启动卡上不可用（沿用现有的“模型后端尚未登录”提示），网络、超时等不挡任务。
-
-`./install --browser-login-dir DIR`（验收用，不在 `--help` 里）：浏览器会话从 `DIR/profile`（或 `DIR` 本身）这份已登录的用户目录副本开始，跳过二维码；副本由安装器再拷一份到临时目录，用完删掉那份，`DIR` 里的由调用方删。
-
-## 开机恢复
-
-开机自启见上一节「服务托管」。扩展提供的托管方式的说明在扩展自己的 README。确认开机自启注册好了：看 `covey_doctor.py` 报告的 `boot` 段（`status` 为 `ready`）；systemd、launchd、cron 也可以用 `python3 -B bin/covey_service_install.py --mode auto --status` 看注册。
-
-**扩展提供的模式**（`--mode` 的其他取值）：守护 `service/boot.py` 在核心：每轮等待配置的挂载盘就绪，再通过本地 socket 检查 Manager；Manager 不存在就拉起；控制循环延迟超过 120 秒或失去响应时，只向核对过身份的 Manager 发 SIGTERM，20 秒后仍在就 SIGKILL。Manager 在挂载恢复前不启动任何服务。
-
-**整机重启验收**：`<root>/boot-installation.json` 里的 `reboot_verified` 总是 `false`，代码不会把它改成 `true`。本地进程退出、Manager 重建的测试不能代替整机重启：只有真实重启后核对 Manager、服务进程、事件连接、应用身份和会话完整性，才算通过（见[发布记录要求](testing.md#发布记录要求)）。任务进程会随整机重启结束，重启后这些任务显示为中断，并自动检查并继续一次。
+汇总计时：`python3 -B scripts/bridge_timing.py --state "$STATE_DIR" --since 19:30`，见[慢在哪里](troubleshooting.md#慢在哪里)。
 
 ## 备份、归档与维护
 
@@ -549,6 +327,42 @@ python3 -B bin/covey_maintenance.py --restore /absolute/bridge-NNN.tar.gz --dest
 - `--apply` 只能在服务停止时手工执行；Bridge 在运行时拒绝。`--apply` 和 Bridge 启动时都先跑一次旧记录迁移（`core/migrate.py`），做完记进 `migrations.json`，日志 `record migrations …`；写不成的任务键用 `failed_keys=` 列出，之后每次启动重试。
 - `--verify` 按同名 `.manifest.json` 逐文件核对哈希。`--restore` 先校验，目标必须是尚不存在的新目录；它按 `.metadata.json` 记录的源状态目录改写恢复出的 `.json` 里的绝对路径，不启动服务、不重新提交任务。`.tar.gz`、`.manifest.json`、`.metadata.json` 三个文件放在一起保存。切换到恢复出的状态目录前，确认 Harness 会话存储、工作区和凭据仍然可用。
 
+## 任务进程
+
+每个任务出队后在自己的任务进程里跑完：后端、任务卡和结果投递都在这个进程里。它在自己的会话里运行，用启动它的 Bridge 的环境和 release，停止或重启 Bridge 都不会结束它。实现见[任务生命周期](architecture.md#任务生命周期)。
+
+`pgrep -af covey_runner.py` 列出任务进程，命令行形如 `<release>/bin/covey_runner.py --run-dir <state>/runs/<任务键>`。运行目录里有：
+
+| 文件 | 内容 |
+| --- | --- |
+| `runner.json` | 进程号、启动时间、boot ID、release、任务编号、Harness |
+| `wake.json` | 任务进程能接 SIGUSR1：Bridge 写收件箱后用它立即唤醒（旧 release 的任务进程没有它） |
+| `done.json` | 卡片更新完、只剩产物上传时写入；Bridge 见到就放开这个话题，同话题的下一条照常开始 |
+| `exit.json` | 退出时写入 |
+| `runner.log` | 任务进程的日志 |
+
+- 运行目录在任务结束 7 天后由空闲维护删除。单看 `runner.json` 判断不了进程是否还活着，要看 `exit.json` 或进程列表。
+- 任务结束后，任务进程还会等产物上传最多 30 分钟、卡片更新最多 60 秒再退出。
+- Bridge 一侧的日志：`task runner started job=#N pid=... dir=...`（交给任务进程）、`adopted task runner job=#N pid=...`（重启后认领仍存活的）、`task runner done job=#N`、`task runner ended job=#N status=... exit=...`（`exit=none` 表示没有 `exit.json`，进程被杀或崩溃）。
+- 管家空闲时的压缩进程也是 `covey_runner.py`，命令行带 `--run-dir <state>/main-thread/compacting/<管家话题> --compact-only`：不建任务、不出卡、不算 `restart_blockers`。Bridge 重启时停掉上一个 Bridge 留下的这种进程，请求放回去。
+
+操作：
+
+- **结束任务进程**：`kill -TERM <pid>`。它结束自己的后端进程后退出，任务按中断处理，不算“已停止”：Bridge 把卡片换成带“检查并继续”的恢复卡，60 秒后自动检查并继续一次（见[自动重试](reference.md#自动重试)）。要按“已停止”结束，点任务卡上的“停止”。后端已经做完、正在发结果时收到它，结果照常发出。
+- **不要用 `kill -9`**：任务进程来不及结束自己的后端进程；Bridge 同样把任务标为中断。
+- **命令留下的进程**：任务进程给后端和它的命令都加了 `COVEY_TASK_DIR=<运行目录>`。每轮后端关闭后，带这个标记、仍在运行的搜索工具被结束，其他进程只在任务卡的执行过程里列出，`runner.log` 有一行 `task leftovers job=#N stopped=… pending=… running=… pids=…`。找某个任务留下的进程：`grep -lza "^COVEY_TASK_DIR=$STATE_DIR/runs/<任务键>$" /proc/[0-9]*/environ`；结束时按进程组（`kill -TERM -- -<PGID>`）。
+- **边界**：`covey_doctor` 不检查任务进程。机器人停着时任务进程照常刷新任务卡，但点击和消息都由 Bridge 接收，这段时间点卡片没有响应。
+
+### 多设备：设备上的任务没停掉
+
+只在 `COVEY_DEVICES=1` 且配了设备时才有这些。现象是卡上写「失联」「已请求停止，gpu1 连上后生效」，或同一话题的新一轮因「上一轮可能还在运行，没能停掉」没有启动：
+
+1. 看 `<状态目录>/devices/<别名>/pending-reap.json`：有条目说明设备上的任务还没确认停掉。`tries` 在涨、`last_try` 在更新说明 `devices` 后台线程在试；`health.json` 的 `ok` 为 `false` 是设备连不上，先修 ssh（`ssh <host> true`，`known_hosts`、跳板、代理），连上后一分钟内自动收割。
+2. `bridge.log` 里 `devices: <别名> reaped N pending` 是收割结果；`reap` 一直被拒（设备上进程组不是这个任务的，常见于设备重启后进程号被别的进程用了）时，登到设备上确认 `~/.covey/tasks/<hub-id>/<任务键>/state.json` 的进程组已经没有 Agent，再从 `pending-reap.json` 和 `tasks/<话题>.json` 里删掉对应条目（改文件前先停 Bridge 或确认没有任务在跑）。
+3. 设备磁盘上 `~/.covey/checkpoints/`（检查点镜像）或 `~/.covey/incoming/`（传到设备的附件）变大：后台线程每小时 `gc` 一次，7 天没变、也不属于运行中任务的才清；设备一直离线就不会清。
+4. 设备失联后任务记录是 `interrupted`、`interrupted_by` 为 `device_lost`，不会自动重试；设备回来后点卡上的检查并继续即可（会先收割再 `--resume`）。耐心值怎么改见[多设备](configuration.md#多设备开发中默认关)的字段表。
+5. 回滚到旧 release（[升级与回滚](deploy.md#升级与回滚)）：设备话题的 `topic.json` 里存的是 `gpu1:/路径`。不认设备的旧 release（或回滚时没带 `COVEY_DEVICES=1`）把它当一个不存在的相对路径，这一轮被拒绝（「本话题的工作目录不存在，后端没有启动」），不会在本机跑；带着开关的旧 release 按设备规则拒绝或照设备跑，取决于它有没有这一版的设备代码。回滚后设备上还在跑的 Agent 不受影响，也不会被停掉：升回来后同一话题的下一轮会先 `reap` 再 `--resume`。跨版本检查的 `device-rollback` 场景（[测试](testing.md#任务进程协议与跨版本检查)）每次发布前验证这一点。
+
 ## 内存看门狗
 
 防止搜索命令吃满机器内存：一个递归遍历 NAS 的 `rg --files` 能在几分钟内占到上百 GiB。看门狗是 `covey/service/memguard.py`，只用标准库，告警由 Bridge 的 `app/memguard_alerts.py` 发。
@@ -586,79 +400,69 @@ python3 -B bin/covey_memguard.py rg-guard status|install|uninstall   # uninstall
 - 命令以 137 结束、或 rg 以 134 结束时先查 `events.jsonl`：多半是遍历的范围太大，应缩小范围，不要原样重跑或调大上限。
 - 边界：卡在 D 状态（例如 NAS 上）的进程要等它离开内核等待才会被 SIGKILL 结束，记为 `kill_pending`；只看得到本容器 PID namespace 里的进程。
 
-## 自动补齐飞书应用
+## 服务托管
 
-Bridge 要用的权限、事件、卡片回调和机器人菜单（`core/app_manifest.py` 的 `required`，按本部署的开关算）由它自己检查。缺了就在主人私聊里发一张「飞书应用待补」卡；主人点「扫码自动补齐」后，Bridge 用浏览器在开发者后台补上并发布新版本，再用官方接口回读核对。
+注册服务和托管是两件事：服务清单记着“跑什么”，托管让 **Manager** 开机后自动起来、挂了自动拉起（Bridge 和任务进程由 Manager 管）。托管只放 Manager，所以停掉或重启托管单元不会结束 Bridge 和任务进程，下一个 Manager 接管。安装器 `bin/covey_service_install.py` 的 `--mode`：
 
-**检查。** 启动 90 秒后一次、之后每天一次（`app/app_setup.py`）：以机器人身份读应用和它线上版本的详情（`feishu/app_config.py`），比出缺的项。
+| `--mode` | 做什么 |
+|---|---|
+| `auto` | 自动选下面一种，输出里的 `auto_reason` 写为什么 |
+| `systemd` | Linux 用户服务 |
+| `launchd` | macOS 用户代理 |
+| `cron` | Linux 没有 systemd 时：crontab 的一行 `@reboot` 拉起 Manager |
+| `manager` | 不托管：只有 `covey_service.py launch` 起的 Manager，机器重启后不会自己回来 |
+| 扩展的模式 | 扩展用 `service_hosting` 钩子提供的托管方式（如 PID 1 里的守护线程），见扩展 README |
 
-- 读这两个接口要应用有 `application:application:self_manage`；没有时卡上只列这一项，补上后下次检查才看得到其余的。
-- 同一组缺项只发一次卡（`<state>/app-setup/state.json`）；点「不管了」后，缺项变了才再发。主人还没和机器人私聊过时不发。
-- 要租户管理员审核的权限（群聊免@ 的 `im:message.group_msg`，开了 `COVEY_GROUP_ALL_MESSAGES=1` 才算）单列在卡上、默认不申请，只缺它时不发卡；点「连同需审核的一起申请」才一起提交。
-- 只增不删：应用里别的权限、事件和菜单项都不动。一级菜单最多 5 项，放不下的菜单项不补，卡上说明。
-- 设 `COVEY_APP_CHECK=0` 不检查、不发卡。
-
-**补齐。** 点「扫码自动补齐」后（只认主人，同一时间只跑一次），Bridge 在 `<state>/app-setup/runs/<时间>/`（0700）里用装了 Playwright 的 Python（`COVEY_PLAYWRIGHT_PYTHON`，默认 `<数据根>/proxy-web/venv/bin/python`；没有时用 `scripts/install_console_browser.sh` 装一个）起 `bin/covey_app_console.py`：
-
-1. 登录：有代答的网页端登录（`<state>/proxy/web/profile`）就复制一份来用；没有或失效时把开发者后台的登录二维码回复在卡下面，过期自动换新的。
-2. 读后台配置；后台有一个不是 Bridge 建的未发布版本时停下，请主人先处理。
-3. 权限与事件：读应用清单，加上缺的权限、事件和回调写回，再读一次核对。
-4. 菜单：按原样保存已有的菜单（图标、名字都在），再加上缺的菜单项（飞书内置线性图标）。
-5. 发布：建一个比现有最高版本号大一的版本，可用范围照线上版本，申请发布；要管理员审核时卡上写“已提交，等租户管理员审核”。
-
-结束后用官方接口再查一遍，卡上逐项写已生效、仍然缺；失败时写卡在哪一步和后台的报错原文，并回复那一刻的页面截图。运行目录（登录的副本、二维码、截图）在运行结束时整个删掉，不留登录。菜单补上后约 5 分钟出现在输入框上方。
-
-**在终端里做。** `./install` 在授权后跑同样的检查和补齐（装机时放在同一个浏览器会话里，只扫一次码），二维码画在终端里（`--skip-app-setup` 跳过）。手动：
+**`auto` 的选择顺序**：① 扩展的 `service_hosting` 钩子有 `auto_mode()` 且它返回一个存在的模式（扩展在它认得的平台上返回自己的托管模式）；② macOS 且有 `launchctl`：`launchd`；③ Linux 且 `systemctl --user show-environment` 答得上（有用户 systemd）：`systemd`；④ Linux 有 `crontab`（且没加 `--no-autostart`）：`cron`，给用户的 crontab 加一行带 `# covey-bridge-autostart` 注释的 `@reboot ... covey_service.py --root <root> run`（日志 `<root>/cron-manager.log`，每个服务根一行，注释里带服务根的短哈希：同一服务根重复运行替换自己的行，不同服务根共存，`--uninstall` 只删自己的；机器的 cron 守护要在跑）；⑤ 其他：`manager`，输出 `autostart: false` 和一句说明，之后重启机器要重跑安装。没有扩展时只走 ②③④⑤。
 
 ```bash
-python3 -B bin/covey_app_setup.py check --profile my-bot          # 退出码 0 不缺，3 有要补的，1 读不到
-python3 -B bin/covey_app_setup.py apply --profile my-bot          # 终端扫码；--review 连同需审核的权限
-scripts/install_console_browser.sh                                 # 装浏览器环境，最后一行是解释器路径
+python3 -B bin/covey_service_install.py --root "$SERVICE_ROOT" --mode auto --activate
+python3 -B bin/covey_service_install.py --mode auto --status      # 现在注册和运行的样子
+python3 -B bin/covey_service_install.py --mode auto --uninstall   # 删掉单元或 plist（auto 要先选出 systemd 或 launchd）
 ```
 
-**限制。** 写开发者后台用的是后台网页自己调的接口，不是公开 API，后台改版可能让某一步失败；失败时照[手动配置飞书应用](manual-install.md#配置飞书应用)补。企业租户在新机器上第一次网页登录可能要在桌面端确认设备，未登记的设备可能被条件访问拦下，这时在能登录的机器上用 `covey_app_setup.py apply --app-id <应用>` 补（那台机器上要有这个应用的 lark-cli profile）。装不了 Chromium 的系统库时（要 root：`python -m playwright install-deps chromium`），检查照常、卡上给手工做法。
+不带 `--activate` 只写文件，不启动、不加载。重复运行安全：launchd 先 `bootout` 旧的再 `bootstrap`，systemd 重写单元后 `daemon-reload`。回执写在 `<root>/boot-installation.json`，`covey_doctor` 的 `boot` 一节按它读：systemd 看单元是否 `enabled` 且 `active`，launchd 看 `launchctl print` 能否查到，`cron` 看 crontab 里这个服务根的那一行还在不在，`manager` 回执算 `ready` 但带 `autostart: false`。扩展的托管模式：PID 1 里的守护在跑算 `ready`；回执带 `login_hook`（登录时由 shell 启动文件起独立守护，见扩展 README）且那个文件确实启动这份配置时，独立守护在跑也算 `ready`，报告里的 `login_hook` 是该文件。
+
+**systemd 模式**
+
+- 写入 `~/.config/systemd/user/covey-manager.service`（改名前装过、已有 `lark-bridge-manager.service` 的机器沿用旧名）并 `daemon-reload`，`--activate` 时 `enable --now`。单元的启动命令是运行安装器的那个 Python 加安装器所在 release 的 `bin/covey_service.py`。
+- 用户服务默认只在登录期间运行。用户没开 linger 时，安装器的输出带 `hint`：`sudo loginctl enable-linger <用户>`（要 root，安装器不替你跑）。
+- 没有用户 systemd（`/run/systemd/system` 不存在，或 `systemctl --user` 连不上用户管理器，常见于容器和没登录过的 ssh）：`auto` 退回 `manager`；明确写 `--mode systemd` 时在前一种情况下报错。
+- 单元配置 `Restart=always`（10 秒后重启）和 `KillMode=process`：停止或重启单元只结束 Manager，Bridge 和任务进程留着，由下一个 Manager 接管。单元停着期间 Bridge 照常运行，但它退出后没人重启。这些行为由单元配置推出，测试只核对单元文件内容。
+- 单元停着时运行 `covey_service.py start`、`restart` 或 `launch`，会在单元外拉起一个 Manager。之后再启动单元，单元里的 Manager 拿不到单实例锁就退出，每 10 秒重试，直到单元外那个退出。所以先 `--activate` 托管，再注册服务。
+
+**launchd 模式**（macOS）
+
+- 写入 `~/Library/LaunchAgents/<label>.plist`（`--label`，默认 `com.covey.manager`）：`RunAtLoad`、`KeepAlive`、`ThrottleInterval 10`、`AbandonProcessGroup`（停掉 Manager 不连带结束子进程），日志在 `<root>/launchd.log`，Manager 自己的日志仍是 `manager.log`。
+- plist 里的环境变量只有 Manager 自己要的：安装时终端的 `PATH`、`HOME`、`LANG`，以及设了的 `COVEY_DATA_HOME`、`COVEY_SERVICE_ROOT`、`COVEY_EXTENSIONS`。Bridge 的环境（代理、`CODEX_HOME` 等）仍在服务清单里，由 Manager 带给它。
+- `--activate` 用 `launchctl bootstrap gui/<uid>` 加载。它是用户代理：Mac 登录后才运行，登录前不会自己起来。
+
+`./install --browser-login-dir DIR`（验收用，不在 `--help` 里）：浏览器会话从 `DIR/profile`（或 `DIR` 本身）这份已登录的用户目录副本开始，跳过二维码；副本由安装器再拷一份到临时目录，用完删掉那份，`DIR` 里的由调用方删。
+
+## 开机恢复
+
+开机自启见上一节「服务托管」。扩展提供的托管方式的说明在扩展自己的 README。确认开机自启注册好了：看 `covey_doctor.py` 报告的 `boot` 段（`status` 为 `ready`）；systemd、launchd、cron 也可以用 `python3 -B bin/covey_service_install.py --mode auto --status` 看注册。
+
+**扩展提供的模式**（`--mode` 的其他取值）：守护 `service/boot.py` 在核心：每轮等待配置的挂载盘就绪，再通过本地 socket 检查 Manager；Manager 不存在就拉起；控制循环延迟超过 120 秒或失去响应时，只向核对过身份的 Manager 发 SIGTERM，20 秒后仍在就 SIGKILL。Manager 在挂载恢复前不启动任何服务。
+
+**整机重启验收**：`<root>/boot-installation.json` 里的 `reboot_verified` 总是 `false`，代码不会把它改成 `true`。本地进程退出、Manager 重建的测试不能代替整机重启：只有真实重启后核对 Manager、服务进程、事件连接、应用身份和会话完整性，才算通过（见[发布记录要求](testing.md#发布记录要求)）。任务进程会随整机重启结束，重启后这些任务显示为中断，并自动检查并继续一次。
+
+## 升级与回滚
+
+用 `scripts/deploy_bridge.sh` 换到固定 release、出事加 `--allow-rollback` 换回去，见[升级与部署 · 升级与回滚](deploy.md#升级与回滚)。
+
+## 部署新版本
+
+部署脚本一步步做了什么、手工怎么部署、升级 Manager，见[升级与部署 · 部署新版本](deploy.md#部署新版本)。
+
+## 改名 Covey 后的兼容
+
+旧包名、旧环境变量名、旧入口和旧单元名都还能用，见[改名与兼容](compat.md#改名-covey-后的兼容)。
+
+## 自动补齐飞书应用
+
+Bridge 每天检查飞书应用缺不缺权限、事件和菜单，缺了在私聊发「飞书应用待补」卡，见[飞书应用配置 · 自动补齐飞书应用](feishu-app.md#自动补齐飞书应用)。
 
 ## 旧安装脚本与手动配置
 
-`./install`（[安装](install.md)）取代了旧安装脚本 `scripts/setup_harness_bridge.sh` 和 `scripts/bootstrap_harness_bridge.sh`；它们仍可用、不再推荐（`./install` 和 `deploy_bridge.sh` 也调 bootstrap）。要手工控制每一步、或自动补齐做不了要在开发者后台手动配飞书应用时，见[手工安装与手动配置飞书应用](manual-install.md)：运行安装脚本、配置飞书应用、启动机器人、首次验收和安装常见问题都在那里。
-
-## 日志
-
-| 文件 | 谁写 | 内容与轮转 |
-| --- | --- | --- |
-| `<state>/bridge.log` | Bridge | Bridge 拿到状态目录后的全部输出。每分钟看一次大小，达到 10 MiB 轮转，保留 `.1` 到 `.9`；启动时不轮转 |
-| `<state>/bridge-console.log` | Manager | Bridge 接管日志之前的输出（导入出错、`another bridge already owns this state directory`） |
-| `<root>/manager.log` | Manager | 每次启动、替换、停止 Bridge，退避重启，健康超时替换，处理服务出的新错误，各一行 `service <id 前 8 位> …`；10 MiB 轮转，保留 9 份 |
-| `<state>/runs/<任务键>/runner.log` | 任务进程 | 任务进程的输出，随运行目录清理 |
-| `~/.lark-cli/events/<APP_ID>/bus.log` | lark-cli 事件总线 | Bridge 在达到 10 MiB 时轮转 |
-| `<root>/memory-guard/events.jsonl` | 内存看门狗 | 终止、告警、包装维护和错误 |
-
-运行中的轮转是复制后截断，轮转瞬间可能丢几行；任务、授权结果和投递回执另有持久记录，不依赖日志。每行开头的时间精确到毫秒。日志里只有操作名、ID 末几位和数字，没有正文、令牌或用户文字。
-
-每次启动的第一行是 `bridge started pid=… generation=N release=…`：代次和上一次相同，是 Manager 替换了退出或没有响应的 Bridge；加了一，是部署或 `restart`。
-
-`bridge.log` 里常用的关键字：
-
-| 关键字 | 含义 |
-| --- | --- |
-| `bridge started pid=` | 每次启动的第一行：进程号、Manager 代次、release |
-| `ready event_key=` | 消费者就绪，每个订阅一行 |
-| `consumer exited rc=` | 事件消费者退出，同一行写着多久后重启 |
-| `card action kind=` | 每次卡片点击一行，见[点按钮没有反应](troubleshooting.md#点按钮没有反应) |
-| `card follow-up kind=` | 点击回执之后的慢活做完一行，`elapsed_ms` 是它自己的耗时 |
-| `bot menu key=` | 每次菜单点击一行，`outcome` 是 `not_owner`、`unknown_key`、`duplicate`、`no_chat` 或 event_key 本身 |
-| `timing flow=` / `feishu call` / `feishu calls` | 计时行，见[慢在哪里](troubleshooting.md#慢在哪里) |
-| `task runner started` / `adopted task runner` / `task runner done` / `task runner ended` | 任务进程的启动、认领、放开话题、退出 |
-| `re-queued job=` | 重启后重新排队的任务 |
-| `released N waiting messages of started topic=` | 启动时把已开始话题里还在等启动的消息排上 |
-| `card follow-ups not finished at stop:` | 停止时等了 6 秒仍有点击后续没做完；受影响的问题在下次启动时显示“送达未确认” |
-| `launch catalog unavailable` | 模型目录读取失败，见[启动卡里缺少某个 Harness 的模型](troubleshooting.md#启动卡里缺少某个-harness-的模型) |
-| `event bus TCP transport stalled` | 事件总线停滞后被替换，见[自动恢复](troubleshooting.md#自动恢复) |
-| `worker <名称> failed` / `maintenance deferred` | 后台线程异常并重建 / 维护出错推迟 |
-| `maintenance backup completed` / `idle maintenance … completed` | 每日备份 / 空闲时的清理 |
-| `env <名字> is deprecated` | 设了弃用的环境变量，见[环境变量的旧名](legacy.md#环境变量的旧名) |
-| `app setup check` / `app setup run` | 飞书应用检查和自动补齐，见[自动补齐飞书应用](#自动补齐飞书应用) |
-| `outcome=retired_harness` | 已下架 Harness 的话题收到消息或点击，见[已下线的功能与旧配置](legacy.md) |
-| `proxy …` | 代答，见[代答没有回复或没有发出](troubleshooting.md#代答没有回复或没有发出) |
-
-汇总计时：`python3 -B scripts/bridge_timing.py --state "$STATE_DIR" --since 19:30`，见[慢在哪里](troubleshooting.md#慢在哪里)。
+`./install`（[安装](install.md)）取代了旧安装脚本 `scripts/setup_harness_bridge.sh`；它和 `scripts/bootstrap_harness_bridge.sh` 仍可用、不再推荐。手工控制每一步见[手工安装](manual-install.md)，在开发者后台手动配飞书应用见[飞书应用配置](feishu-app.md#在开发者后台手动配置)。
