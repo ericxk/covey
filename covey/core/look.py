@@ -61,7 +61,10 @@ BRAND = {"color": "indigo", "web": "#7C83FF"}
 # stripe; 3% did (the third sample card).
 BAND = {"rgb": (94, 106, 210), "dark_rgb": (124, 131, 255), "top": 0.085, "step": 0.01, "floor": 0.035, "dark": 2.0,
         "line": (0.20, 0.38), "rows": 6}
-WEB = {"surface": "#08090C", "panel": "#0F1116", "line": "#1F2229", "ink": "#E6E8EB", "muted": "#8A8F98"}
+# The web page's own neutrals (夜航 v2, 11-20): three grounds, two lines, four text greys. Layers come from having a ground
+# or not, not from borders; the brightest grey is for conclusions and titles, long answers read in ``read``.
+WEB = {"surface": "#07080B", "panel": "#0C0E13", "raised": "#12141B", "line": "#171A21", "line2": "#232733",
+       "ink": "#EDEEF1", "read": "#D0D3DA", "body": "#B3B7C1", "muted": "#7A7F8C", "faint": "#4E535F"}
 
 # core/jobs.py STOP_SOURCES that are the owner's own: his card's 停止, his stop word to the butler, his stop on
 # the web page, his stop of a project on its card, his recall of the task's message. The lead's, the guard's and 代答's
