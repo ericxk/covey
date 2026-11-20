@@ -316,7 +316,7 @@ class WebSync:
             self.settings_lock.release()
 
     def push_tidy(self, now, full=False) -> int:
-        """The ``settings`` item ``tidy`` (整理专项's suggestions, app/project_tidy.py web_view, data contract v16), posted on its own: when
+        """The ``settings`` item ``tidy`` (整理专项's suggestions, app/tidy_web.py web_view, data contract v16), posted on its own: when
         the runs or the proposals changed (a stat of two folders, from the inbox thread each second) and on a full look. A page older than
         v16 refuses the key: that is logged (the first time, then every tenth) and tried again only on the next full look or change, and
         never holds up the settings, which go in a request of their own. How many went (0 or 1)."""

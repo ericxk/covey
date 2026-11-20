@@ -1,6 +1,6 @@
 """整理专项 across projects (T574, the owner, 2026-11-20: 会不会把 A 专项的某些话题、B 专项的某些话题和不在专项里的话题组合到一个新
 专项里去？): which suggestions of the small model get through (app/project_sorter.py parse), what a split does to the project
-it takes topics from and to the new one (app/project_tidy.py apply, app/projects.py gather/leave_topic), and what two proposals
+it takes topics from and to the new one (app/tidy_apply.py apply, app/projects.py gather, app/project_members.py leave_topic), and what two proposals
 about the same topic do one after the other; the gaps found then are closed (a split takes only what is still the project's,
 two at least, an open one follows its topics, a project left empty folds, the leads hear where the topics went)."""
 from __future__ import annotations

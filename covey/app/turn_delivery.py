@@ -139,7 +139,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         set_failure(None)
         delivered, updated = self.send(final_card, display_text, delivery_text, standalone_verified,
                                        standalone_question)
-        # The task the line answers: the web page's turn finds its record by it (app/web_sync.py pair), not by guessing.
+        # The task the line answers: the web page's turn finds its record by it (app/web_collect.py pair), not by guessing.
         append_history(ctx.history_path, "assistant", delivery_text, {"job_id": job.job_id})
         execution_status = turn.status
         delivery_failure = last_failure()
