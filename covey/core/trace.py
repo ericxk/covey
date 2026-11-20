@@ -6,7 +6,7 @@ import time
 from covey.core.protocol import AGENT_ENDED, AGENT_LIVE, STEP_ENDED, STEP_TITLES
 from covey.core.text import safe_text
 from covey.core.ttft import SOURCES
-from covey.core.usage import number, rate
+from covey.core.usage import non_negative_int, number, rate
 
 
 TRACE_BYTES = 24000  # The process panel's size in bytes of JSON, which a trace's snapshot carries.
@@ -22,10 +22,6 @@ SUBTASK_ROWS = 5  # Up to this many subtasks are listed one by one; more are sum
 SUBTASK_LEVELS = 10  # Deeper levels are summed into the last one.
 
 
-def _count(value):
-    return value if type(value) is int and value >= 0 else None
-
-
 def reduce_subtask_usage(data):
     """A backend's ``subtask_usage`` report as the process record keeps it, bounded: per level, and
     each subtask when there are few. None when malformed. ``count`` is the subtasks with usage."""
@@ -38,7 +34,7 @@ def reduce_subtask_usage(data):
             return None
         level = agent.get("level")
         level = min(level, SUBTASK_LEVELS) if type(level) is int and level >= 1 else 1
-        counts = {key: _count(agent.get(key)) for key in USAGE_FIELDS}
+        counts = {key: non_negative_int(agent.get(key)) for key in USAGE_FIELDS}
         for key in ("cache_read_tokens", "cache_write_tokens"):
             if counts[key] is not None and (counts["input_tokens"] is None or counts[key] > counts["input_tokens"]):
                 counts[key] = None
@@ -48,7 +44,7 @@ def reduce_subtask_usage(data):
             bucket[key] = None if bucket[key] is None or counts[key] is None else bucket[key] + counts[key]
         rows.append({"name": str(agent.get("name") or "子任务")[:80], "level": level, **counts})
     report = {"count": len(rows), "levels": [levels[level] for level in sorted(levels)],
-              "unreported": _count(data.get("unreported")) or 0, "pending": _count(data.get("pending")) or 0}
+              "unreported": non_negative_int(data.get("unreported")) or 0, "pending": non_negative_int(data.get("pending")) or 0}
     if len(rows) <= SUBTASK_ROWS:
         report["agents"] = sorted(rows, key=lambda row: row["level"])
     return report
@@ -77,7 +73,7 @@ def turn_usage(snapshot):
     report = snapshot.get("subtask_usage")
     reported = isinstance(report, dict)
     report = report if reported else {}
-    main = {key: _count(snapshot.get(key)) for key in USAGE_FIELDS}
+    main = {key: non_negative_int(snapshot.get(key)) for key in USAGE_FIELDS}
     levels = report.get("levels") if isinstance(report.get("levels"), list) else []
     count = report.get("count") if type(report.get("count")) is int else 0
     unreported = report["unreported"] if "unreported" in report else len(agent_ids(snapshot))
@@ -281,7 +277,7 @@ class ToolTrace:
             return True
         if kind == "redaction":
             # Counts only: the terms themselves never reach a card.
-            counts = {key: _count(data.get(key)) for key in ("terms", "hits", "requests")}
+            counts = {key: non_negative_int(data.get(key)) for key in ("terms", "hits", "requests")}
             if None in counts.values() or counts == self.redaction:
                 return False
             self.redaction = counts

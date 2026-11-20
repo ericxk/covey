@@ -12,6 +12,11 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
+def non_negative_int(value):
+    """``value`` when it is a non-negative int (a bool is not), else None."""
+    return value if type(value) is int and value >= 0 else None
+
+
 def rate(tokens, seconds):
     if type(tokens) is not int or tokens < 0 or not number(seconds) or seconds <= 0:
         return None

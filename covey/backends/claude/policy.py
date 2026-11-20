@@ -10,6 +10,7 @@ import json
 import posixpath
 
 from covey.core.text import cut, redact
+from covey.core.usage import non_negative_int
 
 # How many of a subagent's last tool calls a refusal's words name (call_words), and how long each may be.
 CALLS_SHOWN = 3
@@ -91,10 +92,6 @@ def policy_signal(row):
     }
 
 
-def _number(value):
-    return value if type(value) is int and value >= 0 else None
-
-
 def call_words(name, inputs):
     """One tool call of Claude Code in words, for what a refused agent was doing (core/model_policy.py
     policy_where): 读 chunk01.txt 第 1201–1600 行, 跑 pytest -q. Secrets hidden, one line, bounded."""
@@ -102,7 +99,7 @@ def call_words(name, inputs):
     path = str(inputs.get("file_path") or inputs.get("notebook_path") or inputs.get("path") or "")
     base = posixpath.basename(path.rstrip("/")) or path
     if name == "Read" and base:
-        offset, limit = _number(inputs.get("offset")), _number(inputs.get("limit"))
+        offset, limit = non_negative_int(inputs.get("offset")), non_negative_int(inputs.get("limit"))
         lines = (f" 第 {offset}–{offset + limit - 1} 行" if offset is not None and limit else
                  f" 第 {offset} 行起" if offset is not None else f" 前 {limit} 行" if limit else "")
         words = f"读 {base}{lines}"
