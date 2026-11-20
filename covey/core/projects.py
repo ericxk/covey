@@ -247,7 +247,7 @@ def log_leave(state_dir, project_id, topic_id, now=None) -> dict:
 
 
 def remove_member(state_dir, project_id, topic_id) -> dict:
-    """``topic_id`` out of the record's ``threads`` (移出 of 整理专项, app/projects.py leave_topic); the record as it is when it
+    """``topic_id`` out of the record's ``threads`` (移出 of 整理专项, app/project_members.py leave_topic); the record as it is when it
     was not there."""
     def change(record):
         threads = record.get("threads")
@@ -490,7 +490,7 @@ def is_wake(message_id) -> bool:
     return isinstance(message_id, str) and message_id.startswith(WAKE_PREFIX)
 
 
-LEAD_ALIAS_PREFIX = "project-lead-"  # The alias the butler's project_send addresses a lead by (app/projects.py lead_target).
+LEAD_ALIAS_PREFIX = "project-lead-"  # The alias the butler's project_send addresses a lead by (app/butler_projects.py lead_target).
 
 
 def own_message(message_id) -> bool:

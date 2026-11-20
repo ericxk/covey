@@ -12,7 +12,7 @@ topics by a mechanism, not by the one look the butler takes when it opens a topi
   live project's, a candidate the judge confirms against that project alone, ``rule_confirm``); each turn the owner started
   (TURN) the judge reads this topic alone against the live projects when its gist changed (``turn_judge``); a project just
   made looks over the recent topics once (``sweep``).
-  A join the judge is sure of (JOIN_SURE) is done at once (app/projects.py join_topic) and the topic's cards get 已归进「X」 · 移出;
+  A join the judge is sure of (JOIN_SURE) is done at once (app/project_members.py join_topic) and the topic's cards get 已归进「X」 · 移出;
   a new project is proposed on a card (建专项 / 改个名再建 / 不用 / 以后别提议), or made at once with ``auto`` (or after the owner's
   以后直接建). Not with fewer than COVEY_PROJECT_TIDY_MIN_TOPICS topics in the chat, not for a topic taken out of a project (移出)
   as far as joining goes, never twice for an open proposal.
@@ -544,9 +544,9 @@ class ProjectTidy:
                                 owner_named=owner_named)
 
     def join(self, ctx, made, chat, *, by="tidy") -> bool:
-        """A sure join done (app/projects.py join_topic; ``by`` "rule" when the 话题要点 decided it) and the topic's cards marked;
+        """A sure join done (app/project_members.py join_topic; ``by`` "rule" when the 话题要点 decided it) and the topic's cards marked;
         whether it was."""
-        from covey.app.projects import join_topic
+        from covey.app.project_members import join_topic
 
         state, topic, pid = Path(ctx.state_dir), made["topics"][0], made["project"]
         try:
@@ -562,7 +562,7 @@ class ProjectTidy:
 
     def leave(self, ctx, chat, topic, pid, *, why="") -> str:
         """移出: the topic an ordinary one again, kept out for good, its cards' line taken away; the words said."""
-        from covey.app.projects import leave_topic
+        from covey.app.project_members import leave_topic
 
         state = Path(ctx.state_dir)
         name = projects.read_record(state, pid).get("name") or "专项"
@@ -576,7 +576,7 @@ class ProjectTidy:
 
     def apply(self, ctx, chat, record) -> tuple:
         """Do an accepted proposal: (ok, the line said)."""
-        from covey.app.projects import join_topic, leave_topic
+        from covey.app.project_members import join_topic, leave_topic
 
         state, kind, pid = Path(ctx.state_dir), record["kind"], record.get("project") or ""
         if kind == proposals.CREATE:

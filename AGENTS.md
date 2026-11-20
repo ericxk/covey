@@ -28,7 +28,7 @@
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 话题与回带 | `app/butler_topics.py`、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
-| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（时机、整理、卡片点击）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`/`join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
+| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（时机、整理、卡片点击）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py`（`join_topic`/`leave_topic`） | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
@@ -79,6 +79,7 @@
 | `app/butler_handoff.py` | What a topic gets when the butler hands it work |
 | `app/butler_knowledge.py` | The butler's knowledge-entry tools and history_search, the one that asks the history command … |
 | `app/butler_panel.py` | The 管家 settings card: the owner changes the butler's settings in the private chat |
+| `app/butler_projects.py` | 管家的专项工具: `projects_list`, `project_send` and `projects_tidy`, handlers as app/butler_env.py describes them |
 | `app/butler_reactions.py` | Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py … |
 | `app/butler_relay.py` | A topic turn's outcome back at the private chat's top level, only with the butler on |
 | `app/butler_reply.py` | How a butler turn ends on its task card, for the turns whose Traits say `answers_in_place` (the butler's) |
@@ -144,6 +145,7 @@
 | `app/project_context.py` | What a project's memory and library do in the Bridge, when COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1 |
 | `app/project_lead.py` | The lead's runs: what a project's lead topic (the 负责人) reads and how its session lives |
 | `app/project_loop.py` | Continuing runs and guards of a project |
+| `app/project_members.py` | 话题加入和移出专项: an ordinary topic becomes a member of a project that is there (`join_topic`) and a member an … |
 | `app/project_sorter.py` | 整理专项's judging: what the small model reads and what it may say |
 | `app/project_tidy.py` | 整理专项: projects grow out of the topics by a mechanism, not by the one look the butler takes when it opens a … |
 | `app/project_tools.py` | The tools of a project's lead, handlers as app/butler_env.py describes them |

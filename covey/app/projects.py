@@ -15,12 +15,8 @@
   not import each other).
 - **Gathered** (``gather``, 整理专项's 建专项, app/project_tidy.py): a project of topics that are there already (GATHER_STEPS: the
   record, the lead, the card, each topic a member, the start receipt naming them).
-- **Joined and left** (``join_topic``, ``leave_topic``, 整理专项): an ordinary topic becomes a member of a project that is there
-  (topic.json, the record's threads, so the board and the Pins show it in the project's cell, and a ``joined`` receipt for the
-  lead), and 移出 makes it an ordinary topic again (a ``left`` receipt).
-- The butler's tools ``projects_list``, ``project_send`` and ``projects_tidy`` (``TOOLS``, listed to the butler when COVEY_PROJECTS=1,
-  the last with COVEY_PROJECT_TIDY too, core/butler_tool_specs.py): the second hands the owner's words to a project's lead as a
-  turn the owner started, the third starts 整理专项.
+- **Joined and left** (``join_topic``, ``leave_topic``, 整理专项) are app/project_members.py; the butler's tools ``projects_list``,
+  ``project_send`` and ``projects_tidy`` are app/butler_projects.py. This module is the flow of making a project.
 
 The receipts go to the lead's inbox through app/project_lead.py ``add_receipt`` (kind ``start``, written here; the lead's
 wake-up is the project loop's, not this module's). Locks (rules 1 and 2): none is held across a Feishu call; a topic's lock is
@@ -28,23 +24,24 @@ taken before LOCK (``set_topic_project`` takes LOCK inside it) and the card's lo
 from __future__ import annotations
 
 import hashlib
-import re
 import threading
 import time
 from pathlib import Path
 
 from covey.app import dispatch_cards, project_cards, project_lead
 from covey.app.project_cards import DOWNGRADED, topic_ctx
+from covey.app.project_members import GATHERED_NOTE, topic_line, wanted_topics
 from covey.app.butler_env import reply
 from covey.cards.project_card import merged_card
 from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
 from covey.core import butler, butler_settings, project_proposals, projects
 from covey.core.card_sequence import file_card, reserve
-from covey.core.jobs import find_job_record, topic_job_records
+from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.loops import every
 from covey.core.state import read_object, write_json
+from covey.core.text import cut
 from covey.core.topics import move_topic_message, route_message, set_topic_project, topic_file, topic_label, topic_title
 
 ENV = "COVEY_PROJECT_UPGRADE"
@@ -56,14 +53,11 @@ START_STEPS = ("record", "lead", "card", "receipt")
 GATHER_STEPS = ("record", "lead", "card", "members", "receipt")  # 整理专项's 建专项: topics that are there already.
 JOIN_STEPS = ("record", "lead", "card", "members", "receipt")  # A direct start that takes in existing topics (``topics``).
 KINDS = {"upgrade": UPGRADE_STEPS, "direct": START_STEPS, "tidy": GATHER_STEPS}
-MAX_JOINED = 10  # Existing topics one direct start takes in.
 RESUME_TICK = 30.0  # Seconds between two looks for a project whose steps a crash left unfinished.
 RESUME_AFTER = 60.0  # A project written to this recently is still being worked on (by a tool call): left alone.
 RESUME_GIVE_UP = 600.0  # The longest wait between two tries of one project.
 NOTES = {"butler": "由管家转成专项", "rounds": "来回 {} 轮后转成专项"}
 LEAD_DROPS = ("topic_id", "main_thread", "track", "project", "origin", "root_id", "thread_id", "topic_number", "retired")
-NO_CHAT = "还不知道主人和机器人的私聊（主人还没在私聊里发过消息），没有执行。"
-OFF_WORDS = "专项没有开（COVEY_PROJECTS）。"
 
 
 def mode() -> str:
@@ -86,11 +80,6 @@ def rounds_for_topic(state_dir, topic_id) -> int:
     cards = sum(1 for path in drecords.live_paths(state_dir) if read_object(path).get("topic_id") == topic_id)
     asked = sum(1 for job in topic_job_records(Path(state_dir), topic_id) if str(job.get("message_id") or "").startswith("om_"))
     return max(cards, asked)
-
-
-def clip(text, limit) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 def has_receipt(state_dir, pid, kind) -> bool:
@@ -215,7 +204,7 @@ class Projects:
                 return ""
             note = NOTES["rounds"].format(rounds) if why == "rounds" else NOTES[BUTLER]
             made = projects.new_record(
-                chat_id=dispatch.get("chat_id"), name=topic_title(state, topic) or clip(dispatch.get("request"), 30) or "专项",
+                chat_id=dispatch.get("chat_id"), name=topic_title(state, topic) or cut(dispatch.get("request"), 30) or "专项",
                 goal=str(dispatch.get("request") or ""), project_id=pid,
                 origin={"kind": "upgrade", "token": token, "topic_id": topic, "why": why, "rounds": rounds, "note": note})
             made["steps"] = {"record": round(time.time(), 3)}
@@ -464,9 +453,9 @@ class Projects:
     @staticmethod
     def gathered(state, record) -> str:
         """What the lead of a project 整理专项 made is told: the goal and the topics it takes over, each with where it stands."""
-        parts = [f"主人同意把这几个已有的话题建成专项「{clip(record.get('name'), 30)}」，你接手跟进"]
+        parts = [f"主人同意把这几个已有的话题建成专项「{cut(record.get('name'), 30)}」，你接手跟进"]
         if record.get("goal"):
-            parts.append("目标：" + clip(record["goal"], 160))
+            parts.append("目标：" + cut(record["goal"], 160))
         parts.extend(topic_line(state, topic) for topic in record.get("threads") or ())
         parts.append(GATHERED_NOTE)
         return "；".join(parts)
@@ -486,7 +475,7 @@ class Projects:
             source = read_object(topic_file(state, topics[0]))
             made = projects.new_record(chat_id=chat, name=name or topic_title(state, topics[0]) or "专项", goal=goal,
                                        project_id=pid, origin={"kind": "tidy", "proposal": key, "topic_id": topics[0],
-                                                               "topics": topics, "why": clip(why, 200),
+                                                               "topics": topics, "why": cut(why, 200),
                                                                "workspace": source.get("workspace_name") or "",
                                                                "workdir": source.get("workdir") or ""})
             made["steps"] = {"record": round(time.time(), 3)}
@@ -502,12 +491,12 @@ class Projects:
         """What the lead is told it takes over: the topic, what the owner asked for, how it stands."""
         topic = record["origin"]["topic_id"]
         label, title = topic_label(state, topic), topic_title(state, topic)
-        parts = ["接手一个已在进行的事：话题 " + " ".join(part for part in (label, f"「{clip(title, 30)}」" if title else "") if part)]
+        parts = ["接手一个已在进行的事：话题 " + " ".join(part for part in (label, f"「{cut(title, 30)}」" if title else "") if part)]
         if record.get("goal"):
-            parts.append("主人要的：" + clip(record["goal"], 160))
+            parts.append("主人要的：" + cut(record["goal"], 160))
         job = project_cards.newest_job(state, topic) or {}
         if job:
-            parts.append("现在：" + clip(" ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part), 120))
+            parts.append("现在：" + cut(" ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part), 120))
         return "；".join(parts)
 
     # Direct ----------------------------------------------------------------------------------------------------------
@@ -569,280 +558,3 @@ class Projects:
         return butler_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
                                                    card=sent, finished=done, joined=joined,
                                                    refused=[item["ref"] for item in refused] + waiting))
-
-
-def topic_line(state, topic) -> str:
-    """T531「title」：where its newest job stands, for the lead's start receipt."""
-    job = project_cards.newest_job(state, topic) or {}
-    now = " ".join(part for part in (str(job.get("status") or ""), str(job.get("status_message") or "")) if part)
-    return f"{topic_label(state, topic) or topic[:6]}「{clip(topic_title(state, topic), 30)}」" + (f"：{clip(now, 60)}" if now else "")
-
-
-def wanted_topics(env, chat, raw):
-    """([topic id], [{ref, why}]): the existing topics a direct start takes in, from topic_start's ``topics`` (T numbers or ids,
-    a list or one string of them), and the ones it cannot with why (app/butler_topics.py topic_ref's reasons, a lead's, another
-    project's, too many)."""
-    from covey.app import butler_topics
-
-    if isinstance(raw, str):
-        raw = re.split(r"[\s,，、;；]+", raw)
-    if not isinstance(raw, (list, tuple)):
-        return [], []
-    state, joins, refused = Path(env.state_dir), [], []
-    for item in raw:
-        ref = butler_topics._text(item, 80)
-        if not ref:
-            continue
-        found = butler_topics.topic_ref(env, chat, ref)
-        if isinstance(found, str):
-            refused.append({"ref": ref, "why": found})
-            continue
-        topic = found[0]
-        if topic in joins:
-            continue
-        other = projects.topic_project(state, topic)
-        if other is not None:
-            name = clip(projects.read_record(state, other.id).get("name"), 30) or other.id
-            refused.append({"ref": ref, "why": f"是专项「{name}」的负责人" if other.role == projects.LEAD else f"已经在专项「{name}」里"})
-        elif len(joins) >= MAX_JOINED:
-            refused.append({"ref": ref, "why": f"一次最多收 {MAX_JOINED} 个话题"})
-        else:
-            joins.append(topic)
-    return joins, refused
-
-
-# 整理专项's joins and 移出 (docs/butler.md 整理专项) -----------------------------------------------------------------------
-
-GATHERED_NOTE = ("这些话题是整理时收进来的，它们做完不等于专项完成：这一轮写下目标（project_goal），用 project_note（标 report）"
-                 "说清每个话题做到哪、还剩什么，然后等主人下一步，不要收尾")
-JOINED, LEFT = "joined", "left"  # The receipts the lead gets.
-
-
-BY_WORDS = {"start": "建专项时", "tidy": "整理专项", "rule": "整理专项", "lead": "负责人加话时"}  # Who took a topic in, in the
-# lead's receipt and on the card's 归入记录 (core/projects.py JOIN_BY; "rule" is 整理专项 going by the 话题要点's related topics).
-
-
-def join_topic(state, pid, topic, *, why="", by="tidy") -> dict:
-    """An ordinary topic becomes a topic of project ``pid``: ``project`` {id, role thread} in its topic.json (under its topic lock),
-    in the record's ``threads`` (so the board and the Pins show it in the project's cell, core/projects.py cells), a line of
-    its ``joins`` (the card's 归入记录, ``by`` who took it in) and a ``joined`` receipt in the lead's inbox; a project folded
-    away opens again (app/project_loop.py reopen). Its running turn goes on and a question waiting for the owner stays his.
-    The record; ValueError when the project is over or the topic is a lead's or another project's."""
-    from covey.app import project_loop
-
-    record = projects.read_record(state, pid)
-    if not record or state_of(record) not in (projects.ACTIVE, projects.PAUSED):
-        raise ValueError("这个专项已经结束了")
-    found = projects.topic_project(state, topic)
-    if found is not None and (found.id != pid or found.role != projects.MEMBER):
-        raise ValueError("这个话题已经在别的专项里")
-    if found is None:
-        with topic_lock(topic_ctx(state, topic)):
-            set_topic_project(state, topic, pid, projects.MEMBER)
-    if topic not in (record.get("threads") or ()):
-        projects.add_member(state, pid, topic)
-        record = projects.log_join(state, pid, topic, by, why)
-        title = clip(topic_title(state, topic), 30)
-        project_lead.add_receipt(state, pid, JOINED, f"{BY_WORDS.get(by, BY_WORDS['tidy'])}把话题{f'「{title}」' if title else ''}"
-                                 "归进了这个专项" + (f"：{clip(why, 120)}" if why else ""), thread=topic)
-    if projects.folded(record):
-        record = projects.update(state, pid, project_loop.reopen)
-    return record
-
-
-def leave_topic(state, pid, topic, *, why="", went="") -> bool:
-    """移出: ``topic`` an ordinary topic again (app/project_cards.py release), out of the record's ``threads``, and a ``left``
-    receipt for the lead; whether it was the project's. ``went``: where 整理专项 takes it (拆去了新专项「X」), said to the lead
-    instead of the owner's 移出 (which keeps it out of projects for good)."""
-    record = projects.read_record(state, pid)
-    if not record or topic not in (record.get("threads") or ()):
-        found = projects.topic_project(state, topic)
-        if found is None or found.id != pid:
-            return False
-    project_cards.release(state, topic, pid)
-    projects.remove_member(state, pid, topic)
-    projects.log_leave(state, pid, topic)
-    title = clip(topic_title(state, topic), 30)
-    named = f"「{title}」" if title else ""
-    words = (f"话题{named}{went}，不再归这个专项" if went
-             else f"主人把话题{named}移出了这个专项，以后它不再归进来" + (f"：{clip(why, 120)}" if why else ""))
-    project_lead.add_receipt(state, pid, LEFT, words, thread=topic)
-    return True
-
-
-# The butler's tools ----------------------------------------------------------------------------------------------------
-
-STATE_WORDS = {projects.ACTIVE: "在做", projects.PAUSED: "停住", projects.DONE: "做完", projects.CANCELLED: "已取消"}
-FOLDED_WORDS = "收起"  # A project paused for being idle (core/projects.py ``folded``): the state the butler hears.
-LISTED_ENDED = 3  # Projects that ended, listed after the ones that are on.
-
-
-def butler_only(env, request):
-    """A refusal (the answer), or None when the call is the butler's: the lead has its own tools."""
-    from covey.app import butler_topics
-
-    if not projects.enabled():
-        return reply(False, OFF_WORDS)
-    if butler_topics.lead_of(env, request) is not None:
-        return reply(False, "负责人不用这个工具：它只管自己的专项，话题用 project_topic_start、project_topic_send。")
-    return None
-
-
-def projects_list(env, request):
-    refused = butler_only(env, request)
-    if refused is not None:
-        return refused
-    state, chat = Path(env.state_dir), env.chat()
-    found = projects.records(state, chat)
-    live = [record for record in found if state_of(record) in (projects.ACTIVE, projects.PAUSED)]
-    ended = [record for record in found if record not in live][-LISTED_ENDED:]
-    # The proposals waiting for him, said the same way as the 看板 (the owner, 2026-11-18 23:17: 怎么可能没有专项呢).
-    waiting = []
-    if project_proposals.enabled():
-        waiting = project_proposals.waiting(state)  # As the 看板 lists them (app/digest.py projects_view).
-    pending = ("；还有 " + str(len(waiting)) + " 个提议等主人定（在看板的专项区）：" + "、".join(
-        f"「{clip(record.get('name'), 20)}」（{'、'.join(topic_label(state, topic) or topic[:6] for topic in record.get('topics') or ())}）"
-        for record in waiting[:6])) if waiting else ""
-    if not live and not ended:
-        return reply(True, "还没有专项" + (pending or "。"), count=0, waiting=len(waiting))
-    rows = []
-    for record in [*live, *ended]:
-        threads = "、".join(topic_label(state, topic) or topic[:6] for topic in record.get("threads") or ()) or "还没有话题"
-        note = project_cards.lead_note(record)
-        rows.append(f"{record['id']} · {clip(record.get('name'), 30)} · {FOLDED_WORDS if projects.folded(record) else STATE_WORDS.get(state_of(record), state_of(record))}"
-                    f" · 话题 {threads}" + (f" · 最近：{clip(note, 40)}" if note else ""))
-    return reply(True, "\n".join(rows) + (f"\n{pending.lstrip('；')}" if pending else ""), count=len(found), waiting=len(waiting),
-                 projects=[{"id": record["id"], "name": record.get("name"), "state": state_of(record)}
-                           for record in [*live, *ended]])
-
-
-def find_project(state, chat, ref):
-    """The record ``ref`` names (its id, an id's start, or its name when only one has it) among the chat's that are on or
-    finished (the owner's words open a finished one again, project_send); a str saying why not."""
-    text = " ".join(str(ref or "").split())
-    if not text:
-        return "pid 不能为空：用 projects_list 查专项的 id。"
-    found = [record for record in projects.records(state, chat) if state_of(record) in (projects.ACTIVE, projects.PAUSED, projects.DONE)]
-    for same in (lambda record: record["id"] == text, lambda record: record["id"].startswith(text),
-                 lambda record: text in str(record.get("name") or "")):
-        matches = [record for record in found if same(record)]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            return f"「{text}」对得上不止一个专项：{'、'.join(record['id'] for record in matches)}，给完整的 id。"
-    return f"没有在做或做完的专项「{text}」：用 projects_list 查 id。"
-
-
-def lead_target(env, record):
-    """(app, context) of the project's lead topic, or None when its topic.json cannot be read or its Harness has no app here.
-    ``Topics.target`` gives none for a lead (its Traits row is not a card target), and the lead's topic.json has no root
-    message to address it by: the context comes from an alias of the Bridge's own, ``project-lead-<id>``, never a Feishu
-    message's id, that belongs to the lead (the way app/butler_tracks.py ``enter`` gets a track's)."""
-    from covey.core.topics import load_topic
-
-    state, chat, lead = Path(env.state_dir), str(record.get("chat_id") or ""), str(record.get("lead_topic_id") or "")
-    try:
-        topic = load_topic(state, lead)
-    except (OSError, ValueError):
-        return None
-    app = env.topics.apps.get(topic.get("harness_id"))
-    if app is None or topic.get("chat_id") != chat:
-        return None
-    alias = projects.LEAD_ALIAS_PREFIX + str(record["id"])
-    move_topic_message(state, lead, chat, alias)
-    return app, app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": alias})
-
-
-def lead_prompt(name, text, owner) -> str:
-    """What the lead's model gets when the butler hands it the owner's words (the Bridge's note, the butler's task text, the
-    owner's own words quoted): a turn the owner started, not a wake-up."""
-    from covey.app.butler_handoff import NOTE
-
-    parts = [f"{NOTE} 主人在私聊里对专项「{name}」说了话，由管家转给你；这是主人触发的一轮，不是自动唤醒，你的回复会由 Bridge "
-             "发给主人。按他的意思调整专项：开话题、给话题加话、记决定或改风格就用 project_* 工具。",
-             "管家整理的说明：\n" + text]
-    if owner.words:
-        parts.append("主人原话：\n" + "\n".join("> " + line for line in owner.words.split("\n")))
-    return "\n\n".join(parts)
-
-
-def project_send(env, request):
-    """Hand the owner's words to a project's lead: a supplement to the turn it is in, else its next turn (message id
-    "main-<token>": the owner's, not a wake-up). Once a request."""
-    from covey.app import butler_handoff, butler_topics
-    from covey.core.history_storage import append_history
-    from covey.core.steer import SteerRefused, SteerUncertain
-
-    refused = butler_only(env, request)
-    if refused is not None:
-        return refused
-    chat, state = env.chat(), Path(env.state_dir)
-    if not chat:
-        return reply(False, NO_CHAT)
-    text = butler_topics._text(request.args.get("text"))
-    if not text:
-        return reply(False, "text 不能为空：写这次交给负责人的事。")
-    path, token = butler_topics.record_path(state, request), butler_topics.request_token(request)
-    saved = read_object(path)
-    if saved.get("answer"):
-        return saved["answer"]
-    record = find_project(state, chat, request.args.get("pid"))
-    if isinstance(record, str):
-        return reply(False, record)
-    name, lead, mid = clip(record.get("name"), 30) or "专项", record["lead_topic_id"], "main-" + token
-    found = lead_target(env, record)
-    if found is None:
-        return reply(False, f"专项「{name}」的负责人话题读不到，这次没有转。")
-    app, ctx = found
-    if state_of(record) == projects.DONE:  # His words through the butler: a finished project opens again (the steer below
-        from covey.app import project_loop  # reaches no owner_turn).
-        try:
-            projects.update(state, record["id"], project_loop.owner_spoke)
-        except (KeyError, ValueError, OSError):
-            return reply(False, f"专项「{name}」已收尾，重开没有成功，这次没有转。")
-    # No ``topic_id``: the readers of main-thread/opened (core/butler_opened.py) take a record with one for a topic the request handed
-    # on to, and the lead is not one (it is not relayed, has no T number and no thread of its own).
-    note = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "lead_topic_id": lead, "project_id": record["id"],
-            "at": time.time()}
-    butler_topics._save(path, note)
-    owner = butler_handoff.asked(state, request.job_key)
-    sent = lead_prompt(name, text, owner)
-    shown = owner.words or text
-    data = {"project_id": record["id"], "lead_topic_id": lead}
-    job = butler_topics.live_turn(app, ctx, chat)
-    if job is not None:
-        try:
-            saved = app.steering.deliver_steer(ctx, job, sent, mid, shown=shown)
-        except SteerUncertain as exc:
-            return butler_topics._done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
-                                                      "不会重发，别再转一次。", **data, uncertain=True))
-        except SteerRefused as exc:  # Nothing was sent (rule 6).
-            return butler_topics._done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
-                                                      "等这一轮结束后再转。", **data))
-        return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人："
-                                                        f"{butler_topics.steered_words(job, saved)}。", **data, steered=True))
-    if not (find_job_record(state, mid) or app.runtime.jobs.settling(mid)):
-        append_history(ctx.history_path, "user", shown, {"message_id": mid})
-        if app.submission.enqueue_chat_job(ctx, shown, chat, mid, prompt_content=sent, title=name) is None:
-            return butler_topics._done(path, note, reply(False, f"专项「{name}」负责人的下一轮没有提交：模型配置无法确认。", **data))
-    return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：它开了新的一轮，结果会由 Bridge 发给主人。",
-                                              **data, steered=False))
-
-
-def projects_tidy(env, request):
-    """整理专项 now (app/project_tidy.py start), in its own thread: what the butler tells the owner (started, or how far the one
-    running has got)."""
-    from covey.core import project_proposals
-
-    refused = butler_only(env, request)
-    if refused is not None:
-        return refused
-    tidy = getattr(env, "tidy", None)
-    if tidy is None or not project_proposals.enabled():
-        return reply(False, "整理专项没有开（COVEY_PROJECT_TIDY）。")
-    scope = " ".join(str(request.args.get("scope") or "").split())[:40]
-    words = tidy.start(origin="butler", scope=scope)
-    return reply(words == project_proposals.STARTED_WORDS or words.startswith(project_proposals.BUSY_PREFIX), words, scope=scope)
-
-
-TOOLS = {"projects_list": projects_list, "project_send": project_send, "projects_tidy": projects_tidy}

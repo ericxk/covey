@@ -17,7 +17,7 @@ from test_project_tidy import TidyCase
 from covey.app import project_lead, project_tidy as tidy_module, project_tools
 from covey.cards import project_proposal as cards
 from covey.core.state import read_object, write_json
-from covey.app import projects as upgrades
+from covey.app import project_members as members, projects as upgrades
 from covey.core import projects
 from covey.core import project_proposals as proposals
 from covey.app import project_sorter as sorter
@@ -87,7 +87,7 @@ class SplitTest(TidyCase):
         self.assertEqual(self.apply(proposal), (True, "已拆出专项「拆出的专项」"))
         source = self.record(self.a)
         self.assertEqual((source["state"], source["threads"]), (projects.ACTIVE, [self.t[2]]))
-        left = [row for row in project_lead.take_receipts(self.state, self.a, "k") if row["kind"] == upgrades.LEFT]
+        left = [row for row in project_lead.take_receipts(self.state, self.a, "k") if row["kind"] == members.LEFT]
         self.assertEqual(sorted(row["thread"] for row in left), sorted(self.t[:2]))
         self.assertIn("话题（1 个", project_lead.state_pack(self.state, source, "k2", full=False, receipts=[]))
         new = self.made(proposal)
@@ -121,14 +121,14 @@ class SplitTest(TidyCase):
         self.assertTrue(self.apply(merge)[0])
         self.assertEqual(self.record(self.a)["state"], projects.CANCELLED)
         self.assertEqual(self.record(self.b)["threads"], [*self.t[3:], *self.t[:3]])
-        left = [row for row in project_lead.take_receipts(self.state, self.a, "k") if row["kind"] == upgrades.LEFT]
+        left = [row for row in project_lead.take_receipts(self.state, self.a, "k") if row["kind"] == members.LEFT]
         self.assertTrue(all("随合并转进专项「B 专项」" in row["text"] and "主人" not in row["text"] for row in left), left)
         self.assertEqual(self.apply(self.split(self.a, self.t[:2])), (False, "这个专项已经结束了"))
         self.assertEqual(self.record(self.b)["threads"], [*self.t[3:], *self.t[:3]])  # Nothing moved twice.
 
     def test_the_lead_a_split_took_topics_from_hears_where_they_went_not_that_the_owner_took_them_out(self):
         self.apply(self.split(self.a, self.t[:2]))
-        left = [row for row in project_lead.take_receipts(self.state, self.a, "k") if row["kind"] == upgrades.LEFT]
+        left = [row for row in project_lead.take_receipts(self.state, self.a, "k") if row["kind"] == members.LEFT]
         self.assertEqual(len(left), 2)
         for row in left:
             self.assertIn("拆去了新专项「拆出的专项」，不再归这个专项", row["text"])
@@ -136,7 +136,7 @@ class SplitTest(TidyCase):
 
     def test_a_split_keeps_out_a_topic_the_owner_took_out_of_projects_since(self):
         extra = self.topic("话题 extra")
-        upgrades.join_topic(self.state, self.a, extra)
+        members.join_topic(self.state, self.a, extra)
         proposal = self.split(self.a, [*self.t[:2], extra])
         self.tidy.leave(self.ctx, CHAT, self.t[0], self.a)  # 移出: never_auto, kept out of projects for good.
         ok, words = self.apply(proposal)
@@ -146,7 +146,7 @@ class SplitTest(TidyCase):
         self.assertIn("已不在专项「A 专项」里，没带上", words)
 
     def test_a_split_that_takes_the_last_topics_folds_the_project_it_took_them_from(self):
-        upgrades.leave_topic(self.state, self.a, self.t[2], went="测试挪走")
+        members.leave_topic(self.state, self.a, self.t[2], went="测试挪走")
         ok, words = self.apply(self.split(self.a, self.t[:2]))
         self.assertTrue(ok, words)
         self.assertIn("「A 专项」的话题都拆走了，已收起", words)
@@ -160,7 +160,7 @@ class SplitTest(TidyCase):
 
     def test_an_open_split_follows_its_topics_leaving_the_project(self):
         extra = self.topic("话题 extra")
-        upgrades.join_topic(self.state, self.a, extra)
+        members.join_topic(self.state, self.a, extra)
         kept = self.split(self.a, [*self.t[:2], extra], "留两个")
         gone = self.split(self.a, self.t[1:3], "剩一个")
         rename = proposals.put_proposal(self.state, proposals.new_proposal(proposals.RENAME, topics=self.t[3:], project=self.b,
@@ -170,8 +170,8 @@ class SplitTest(TidyCase):
         for record in (kept, gone, rename):
             proposals.update_proposal(self.state, record["id"], lambda data: data.update(run="run-9"))
         write_json(self.tidy.run_path(self.state, "run-9"), run, ensure_ascii=False)
-        upgrades.leave_topic(self.state, self.a, self.t[1], went="测试挪走")
-        upgrades.join_topic(self.state, self.b, self.t[1])
+        members.leave_topic(self.state, self.a, self.t[1], went="测试挪走")
+        members.join_topic(self.state, self.b, self.t[1])
         projects.set_state(self.state, self.b, projects.CANCELLED, "downgraded")
         self.tidy.follow(self.ctx, CHAT)
         now = proposals.read_proposal(self.state, kept["id"])

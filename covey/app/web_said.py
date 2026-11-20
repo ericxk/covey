@@ -22,7 +22,7 @@ from covey.core.text import cut
 
 BY = ("owner", "butler", "lead")
 NOT_ANSWERED = "没答"
-HANDED = "main-"  # The message ids of the butler's and the leads' hand-ons (app/butler_topics.py, app/projects.py project_send).
+HANDED = "main-"  # The message ids of the butler's and the leads' hand-ons (app/butler_topics.py, app/butler_projects.py project_send).
 LEAD_NOTE = "（负责人按专项记忆替主人答的）"  # app/triage.py NOTE: an answer the lead gave.
 BUTLER_NOTE = "（管家按主人的话代答）"  # app/butler_tools.py PROXY_NOTE: an answer the butler gave on the owner's words.
 FIX = re.compile(r"^（主人纠正负责人替答的那一条：(.*?)）", re.S)  # app/triage.py correct: the owner corrects the lead's answer.

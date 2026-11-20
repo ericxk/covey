@@ -149,10 +149,10 @@ def project_topic_send(env, request):
 
 
 def take_in(env, chat, pid, topic, text) -> str:
-    """An ordinary topic the lead gives work to joins the project first (the owner, 2026-11-19: 加话时顺带收进专项): app/projects.py
+    """An ordinary topic the lead gives work to joins the project first (the owner, 2026-11-19: 加话时顺带收进专项): app/project_members.py
     join_topic, its running turn and the question it waits on left as they are. '' when it joined; else why it cannot (a lead's,
     another project's, the butler's, one the owner took out of a project)."""
-    from covey.app.projects import join_topic, wanted_topics
+    from covey.app.project_members import join_topic, wanted_topics
 
     state = Path(env.state_dir)
     label = topic_label(state, topic) or topic[:8]

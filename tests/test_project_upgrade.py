@@ -15,7 +15,7 @@ from support.records import write_topic
 from test_dispatch_cards import ASK, ASK_URL, CHAT, DispatchCase
 
 from covey.app import butler_topics, project_cards, project_lead
-from covey.app import projects as upgrades
+from covey.app import butler_projects, project_members as members, projects as upgrades
 from covey.cards.elements import find_element
 from covey.core import dispatch_records as records
 from covey.core import butler_mcp, butler, butler_settings, butler_tool_specs, projects
@@ -473,7 +473,7 @@ class DirectTest(UpCase):
         taken, _ = self.plain("a3")
         upsert_job_record(self.state, "job-first", topic_id=first, chat_id=CHAT, status="running")
         projects.create(self.state, projects.new_record(chat_id=CHAT, name="别的专项", project_id="0" * 12))
-        upgrades.join_topic(self.state, "0" * 12, taken)
+        members.join_topic(self.state, "0" * 12, taken)
         label = lambda topic: f"T{topic_number(self.state, topic)}"
         self.sent.reset_mock()
         answer = self.start("p7", project=True, title="收拢三件事", prompt="把这几个收进来",
@@ -704,7 +704,7 @@ class DowngradeTest(UpCase):
 class ToolTest(UpCase):
     def call(self, tool, request_id="t1", **args):
         request = Request(request_id, tool, args, "main-job", 0.0)
-        return upgrades.TOOLS[tool](self.env, request)
+        return butler_projects.TOOLS[tool](self.env, request)
 
     def upgraded(self):
         self.long()
@@ -782,7 +782,7 @@ class ToolTest(UpCase):
     def test_project_send_gives_a_running_lead_turn_a_supplement_and_an_idle_lead_the_next_turn_as_the_owners(self):
         topic, project = self.upgraded()
         lead = project["lead_topic_id"]
-        app = upgrades.lead_target(self.env, project)[0]
+        app = butler_projects.lead_target(self.env, project)[0]
         job = BridgeReplyJob(job_id=21, user_text="x", chat_id=CHAT, message_id="lead-p-1", timeout=0, topic_id=lead)
         job.execution_started = True
         job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
@@ -830,7 +830,7 @@ class ToolTest(UpCase):
         projects.update(self.state, project["id"], lambda record: record.update(
             state="done", state_reason="都做完了", state_job="lead-p-1", card={**record["card"], "closed": True}))
         self.assertIn("· 做完 ·", self.call("projects_list", "d1")["text"])
-        app = upgrades.lead_target(self.env, project)[0]
+        app = butler_projects.lead_target(self.env, project)[0]
         job = BridgeReplyJob(job_id=22, user_text="x", chat_id=CHAT, message_id="lead-p-2", timeout=0, topic_id=project["lead_topic_id"])
         job.execution_started = True
         job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)

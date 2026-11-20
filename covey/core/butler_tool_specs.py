@@ -309,7 +309,7 @@ LEAD_READ = ("topics_list", "topic_read", "topics_search", "workspaces_list")  #
 
 
 # 专项 for the butler (COVEY_PROJECTS=1 in the server's environment, which the Bridge hands on: core/butler.py mcp_config):
-# topic_start and topic_send take ``project``, and projects_list and project_send are listed after the others (app/projects.py).
+# topic_start and topic_send take ``project``, and projects_list and project_send are listed after the others (app/butler_projects.py).
 # With the switch off the list is exactly what it was.
 PROJECTS_ENV = "COVEY_PROJECTS"
 START_PROJECT = {"type": "boolean", "description": "这件事要分成几个话题、跨几天持续推进（例如主人要长期跟进、反复推进），"

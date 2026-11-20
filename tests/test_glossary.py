@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from covey.app import butler_handoff, butler_tracks, project_lead, project_loop, projects
+from covey.app import butler_handoff, butler_projects, butler_tracks, project_lead, project_loop
 from covey.app import prompts
 from covey.core import butler_tool_specs, track_ledger
 
@@ -185,7 +185,7 @@ class RetiredWordsTest(unittest.TestCase):
             for report in project_lead.STYLE_CHOICES[project_lead.REPORT]:
                 self.assertClean([project_lead.lead_rules({"detail": detail, "report": report})], f"lead rules {detail} {report}")
         self.assertClean([project_loop.WAKE_TEXT, *project_lead.REPORT_WORDS.values()], "wake-up note")
-        self.assertClean([projects.lead_prompt("迁移账单", "把预算改成两倍", butler_handoff.Asked(said=(("加预算", 0),)))], "lead prompt")
+        self.assertClean([butler_projects.lead_prompt("迁移账单", "把预算改成两倍", butler_handoff.Asked(said=(("加预算", 0),)))], "lead prompt")
 
     def test_what_a_topic_and_a_parallel_turn_are_told_use_no_retired_word(self):
         owner = butler_handoff.Asked(said=(("看看昨晚的失败", 1793790000.0),))

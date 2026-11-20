@@ -159,9 +159,9 @@ class Ops:
 
     def lead_app(self, state, record):
         """The Harness app of the project's lead, whose topic is the page's say target as the project card's quoted reply is in Feishu
-        (app/projects.py lead_target); ValueError for a project that was cancelled or whose lead cannot be spoken to (a finished
+        (app/butler_projects.py lead_target); ValueError for a project that was cancelled or whose lead cannot be spoken to (a finished
         one takes the owner's words and opens again, ``say``)."""
-        from covey.app.projects import lead_target
+        from covey.app.butler_projects import lead_target
         if record.get("state") == projects.CANCELLED:
             raise ValueError("这个专项已经取消，负责人不再收话")
         found = lead_target(self.env, record)
