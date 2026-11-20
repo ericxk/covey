@@ -29,7 +29,7 @@ from covey.cards.question_cards import (RECOMMENDED, STANDING_CANCEL, STANDING_E
 from covey.core import principles, redaction
 from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
-from covey.core.state import read_json, write_json
+from covey.core.state import keyed_json_path, read_json, write_json
 
 KINDS = frozenset({STANDING_KIND, STANDING_SAVE, STANDING_EDIT, STANDING_CANCEL})
 DRAFT_SECONDS = 20
@@ -120,7 +120,7 @@ class StandingAnswers(CardActionQueue):
 
     @staticmethod
     def path(ctx, token):
-        return ctx.state_dir / "standing-forms" / (token + ".json")
+        return keyed_json_path(ctx.state_dir, "standing-forms", token)
 
     @staticmethod
     def matches(raw):

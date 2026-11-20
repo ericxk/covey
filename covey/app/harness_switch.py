@@ -28,7 +28,7 @@ from covey.cards.switch_form import (BUDGET, CANCEL, CONFIRM, HARNESS, MODEL, PA
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
-from covey.core.state import read_json, write_json
+from covey.core.state import keyed_json_path, read_json, write_json
 from covey.core import devices
 from covey.core.workspaces import (RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding,
                                     visible_workspaces)
@@ -94,7 +94,7 @@ class HarnessSwitch(CardActionQueue):
         return "harness_switch"
 
     def path(self, ctx, token):
-        return ctx.state_dir / "switch-forms" / (token + ".json")
+        return keyed_json_path(ctx.state_dir, "switch-forms", token)
 
     @staticmethod
     def save(path, record):

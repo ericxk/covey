@@ -23,7 +23,7 @@ import time
 from covey.app.card_lanes import after_ack
 from covey.cards.held_note import ANSWER_REQUIRED, feedback_chooser, note_card, note_parts, waiting_text
 from covey.core.locks import resource_lock
-from covey.core.state import write_private_text
+from covey.core.state import keyed_json_path, write_private_text
 from covey.core.history_storage import append_history
 from covey.core.store import directory_store
 
@@ -63,7 +63,7 @@ class HeldNotes:
 
     @staticmethod
     def note_path(ctx, token):
-        return ctx.state_dir / "held-notes" / (token + ".json")
+        return keyed_json_path(ctx.state_dir, "held-notes", token)
 
     def held_notes(self, ctx, chat, *statuses):
         rows = directory_store(ctx.state_dir / "held-notes").query(topic_id=ctx.topic_id, chat_id=chat)

@@ -48,7 +48,7 @@ from covey.core.butler_opened import OPENED
 from covey.core.butler import is_butler_topic
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.roster import NAMES
-from covey.core.state import read_object, write_json
+from covey.core.state import keyed_json_path, read_object, write_json
 from covey.core.history_storage import append_history
 from covey.core.steer import SteerRefused, SteerUncertain
 from covey.core.topics import (claim_area_root, load_topic, message_topic, read_topic, topic_label,
@@ -64,7 +64,7 @@ def request_token(request) -> str:
 
 
 def record_path(state_dir, request) -> Path:
-    return Path(state_dir) / OPENED / (request_token(request) + ".json")
+    return keyed_json_path(state_dir, OPENED, request_token(request))
 
 
 def _save(path, record):

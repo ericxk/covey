@@ -26,7 +26,7 @@ from pathlib import Path
 
 from covey.core.locks import resource_lock
 from covey.core.run_dir import ACKS, EXIT, INBOX, OP
-from covey.core.state import read_json, write_json
+from covey.core.state import keyed_json_path, read_json, write_json
 
 
 def delivery_token(topic_id, mid):
@@ -34,7 +34,7 @@ def delivery_token(topic_id, mid):
 
 
 def delivery_path(state_dir, topic_id, mid):
-    return Path(state_dir) / "interaction-deliveries" / (delivery_token(topic_id, mid) + ".json")
+    return keyed_json_path(state_dir, "interaction-deliveries", delivery_token(topic_id, mid))
 
 
 def read_delivery(path):

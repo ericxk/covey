@@ -31,7 +31,7 @@ from covey.core.harness import backend_capabilities
 from covey.core.jobs import upsert_job_record
 from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock, topic_lock
-from covey.core.state import read_json, write_json
+from covey.core.state import keyed_json_path, read_json, write_json
 from covey.core.session_state import compare_and_set_session, capture_session_state
 from covey.core.history_storage import drop_last_round, restore_rounds
 from covey.core.store import directory_store
@@ -201,7 +201,7 @@ class RewindCards(CardActionQueue):
 
     @staticmethod
     def path(ctx, token):
-        return ctx.state_dir / "rewind-forms" / (token + ".json")
+        return keyed_json_path(ctx.state_dir, "rewind-forms", token)
 
     def topic_context(self, ctx, topic_id, chat):
         """The topic's app, context and topic.json; Nones when it cannot be routed."""

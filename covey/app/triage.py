@@ -30,7 +30,7 @@ from covey.app.answers import AnswerIncomplete, answer_fields
 from covey.cards.question_cards import triage_element
 from covey.core import project_gates, project_memory, projects, triage
 from covey.core.jobs import find_job_record, saved_job, upsert_job_record
-from covey.core.state import read_object
+from covey.core.state import keyed_json_path, read_object
 from covey.core.store import update_question
 from covey.core.text import cut
 from covey.core.topics import topic_label
@@ -43,7 +43,7 @@ RECEIPT = "question"  # The inbox receipt's kind.
 
 
 def question_path(state_dir, token) -> Path:
-    return Path(state_dir) / "questions" / (str(token) + ".json")
+    return keyed_json_path(state_dir, "questions", token)
 
 
 class Triage:

@@ -12,7 +12,7 @@ from covey.cards.task_status import slim_status_markdown, status_markdown
 from covey.core import butler
 from covey.core.card_sequence import file_card, job_card, reserve
 from covey.core.locks import resource_lock
-from covey.core.state import read_json
+from covey.core.state import keyed_json_path, read_json
 
 
 class RecordCards:
@@ -23,7 +23,7 @@ class RecordCards:
 
     def _browse_file(self, ctx, source):
         """Where the address of the browse card message ``source`` is saved (Messenger.publish_card)."""
-        return ctx.state_dir / "browse-cards" / (self.cards.voice.safe_key(source) + ".json")
+        return keyed_json_path(ctx.state_dir, "browse-cards", self.cards.voice.safe_key(source))
 
     def _find_record_card(self, ctx, chat, event, record):
         """(card_id, browse file or None) of the card ``event`` was clicked on, a job's task card or a browse card

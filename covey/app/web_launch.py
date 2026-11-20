@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.core.state import read_object, write_json
+from covey.core.state import keyed_json_path, read_object, write_json
 
 FOLDER = "launches"
 TITLE_CHARS = 40
@@ -112,7 +112,7 @@ def catalog(env, ctx, chat) -> dict:
 
 
 def record_path(state_dir, op_id) -> Path:
-    return Path(state_dir) / "web" / FOLDER / (str(op_id) + ".json")
+    return keyed_json_path(Path(state_dir) / "web", FOLDER, op_id)
 
 
 def plan_of(env, ctx, chat, payload) -> dict:

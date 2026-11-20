@@ -16,7 +16,7 @@ from covey.cards.relay_card import WAITING as WAITING_OUTCOME, relay_card, summa
 from covey.core import butler
 from covey.core.jobs import job_field
 from covey.core.locks import resource_lock
-from covey.core.state import read_object, write_json
+from covey.core.state import keyed_json_path, read_object, write_json
 from covey.core.topics import remember_topic_message, route_message
 
 RELAYS = Path("main-thread") / "relays"
@@ -26,7 +26,7 @@ SKIPPED = "skipped"  # Not sent by rule (``why``: owner_stop, the owner pressed 
 
 
 def relay_path(state_dir, key) -> Path:
-    return Path(state_dir) / RELAYS / (str(key) + ".json")
+    return keyed_json_path(state_dir, RELAYS, key)
 
 
 def lock(state_dir):

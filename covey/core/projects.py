@@ -26,7 +26,7 @@ from pathlib import Path
 
 from covey.core import env as cenv
 from covey.core.locks import resource_lock
-from covey.core.state import read_object, write_json
+from covey.core.state import keyed_json_path, read_object, write_json
 
 ENV = "COVEY_PROJECTS"  # ``1``: on; anything else, unset too: off.
 FOLDER = "projects"
@@ -90,7 +90,7 @@ def folder(state_dir) -> Path:
 def record_path(state_dir, project_id) -> Path:
     if not valid_id(project_id):
         raise ValueError(f"project id {project_id!r} is not 6 to 32 of 0-9a-z")
-    return folder(state_dir) / f"{project_id}.json"
+    return keyed_json_path(state_dir, FOLDER, project_id)
 
 
 def new_record(*, chat_id, name, goal="", project_id=None, origin=None, now=None) -> dict:

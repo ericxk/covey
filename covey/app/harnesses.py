@@ -18,7 +18,7 @@ from covey.core import env as cenv
 from covey.core.harness import HARNESS_REGISTRY, BridgeContext, HarnessBackend, HarnessSpec, SessionStore
 from covey.core.paths import component_dir
 from covey.core.roster import HARNESSES, NAMES
-from covey.core.state import canonical_workdir, ensure_private_dir
+from covey.core.state import canonical_workdir, ensure_private_dir, keyed_json_path
 from covey.core.store import directory_store
 from covey.feishu.messenger import Voice
 
@@ -146,7 +146,7 @@ class Harness:
 
     def model_settings_path(self, state_dir: Path) -> Path:
         """This Harness's saved model and effort defaults."""
-        return Path(state_dir) / "model-settings" / (self.spec.name + ".json")
+        return keyed_json_path(state_dir, "model-settings", self.spec.name)
 
     def runs_jobs_of(self, record) -> bool:
         """Whether job ``record`` is this Harness's."""
