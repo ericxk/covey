@@ -308,14 +308,17 @@ class FlowTest(InstallerCase):
 
 class ProxyTest(InstallerCase):
     def network_until_proxy(self, env):
-        return Probe(True, "ok") if env.get("HTTPS_PROXY") else Probe(False, install_probe.NETWORK, "403")
+        return Probe(True, "ok") if env.get("https_proxy") else Probe(False, install_probe.NETWORK, "403")
 
     def test_a_network_failure_asks_for_a_proxy_and_the_service_gets_it(self):
         self.probes["codex"] = self.network_until_proxy
         self.lacking.clear()
         ins = self.make("--no-start", interactive=True, ask=lambda prompt: "http://127.0.0.1:7890")
         self.assertEqual(0, ins.run())
-        self.assertEqual("http://127.0.0.1:7890", ins.env["HTTP_PROXY"])
+        # Lowercase, as scripts/deploy_bridge.sh's pre-check compares it: the uppercase one it unsets.
+        self.assertEqual("http://127.0.0.1:7890", ins.env["https_proxy"])
+        self.assertEqual("http://127.0.0.1:7890", ins.env["http_proxy"])
+        self.assertNotIn("HTTPS_PROXY", ins.env)
         self.assertIn(".feishu.cn", ins.env["NO_PROXY"])
         self.assertEqual(2, len([p for p in self.probed if p[0] == "codex"]))
         self.assertIn("代理设置会一起写进服务", self.text())
@@ -335,6 +338,16 @@ class ProxyTest(InstallerCase):
         self.assertEqual(0, ins.run())
         self.assertEqual("corp.local", ins.env["NO_PROXY"].split(",")[0])
         self.assertIn(".larkoffice.com", ins.env["NO_PROXY"])  # privacy: allow 飞书自己的域名
+        self.assertEqual("http://proxy.example.com:3128", ins.env["https_proxy"])
+        self.assertNotIn("HTTPS_PROXY", ins.env)
+
+    def test_a_lowercase_terminal_proxy_wins_over_the_uppercase_one(self):
+        self.lacking.clear()
+        ins = self.make("--no-start", env=self.env(HTTPS_PROXY="http://upper.example.com:3128",
+                                                   https_proxy="http://lower.example.com:3128"))
+        self.assertEqual(0, ins.run())
+        self.assertEqual("http://lower.example.com:3128", ins.env["https_proxy"])
+        self.assertNotIn("HTTPS_PROXY", ins.env)
 
     def test_a_proxy_with_credentials_is_refused_without_being_printed(self):
         ins = self.make("--no-start", env=self.env(HTTPS_PROXY="http://u:hunter2@" + "proxy.example.com:3128"))

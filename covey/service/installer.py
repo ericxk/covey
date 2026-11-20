@@ -310,13 +310,18 @@ class Installer:
         return any(self.env.get(k) or self.env.get(k.lower()) for k in PROXY_VARIABLES)
 
     def use_proxy(self, url):
-        self.env["HTTPS_PROXY"] = self.env["HTTP_PROXY"] = url
+        self.env["https_proxy"] = self.env["http_proxy"] = url
 
     def finish_proxy(self):
         """When any proxy is set, its non-secret form goes into the service's environment (the launch saves it) and the
-        Feishu domains stay direct; a proxy URL with credentials is refused, never printed."""
+        Feishu domains stay direct; a proxy URL with credentials is refused, never printed. The HTTPS proxy is saved
+        under its lowercase name: scripts/deploy_bridge.sh unsets HTTPS_PROXY, so a manifest that kept the uppercase
+        one failed every later upgrade's pre-check (env_missing)."""
         if not self.proxied():
             return
+        upper = self.env.pop("HTTPS_PROXY", "")
+        if upper:
+            self.env.setdefault("https_proxy", upper)
         keep = [h for h in self.env.get("NO_PROXY", self.env.get("no_proxy", "")).split(",") if h]
         self.env["NO_PROXY"] = ",".join(dict.fromkeys(keep + FEISHU_NO_PROXY.split(",")))
         self.env.pop("no_proxy", None)
