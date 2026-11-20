@@ -13,7 +13,7 @@ from pathlib import Path
 from covey.core import timing
 from covey.core.locks import resource_lock
 from covey.core.statuses import QUESTION_TRANSITIONS
-from covey.core.state import atomic_write_bytes, write_private_text
+from covey.core.state import atomic_write_bytes
 
 FRESH_SECONDS = 1.0  # A scan older than this is redone whatever the directory says.
 # A scan reads this many files at a time. On NAS, 927 job records read one by one took 2.0-2.3 s for a
@@ -407,6 +407,7 @@ def update_question(path, change, *, expected=None):
     revisions stays without one): an untouched file keeps its mtime, which maintenance reads as the
     topic's last activity. The record, or None when its status is not in ``expected`` or ``change``
     left it. Never hold this lock while sending it."""
+    from covey.core.state import write_private_text
     path = Path(path)
     with resource_lock('question', path):
         before = json.loads(path.read_text())
