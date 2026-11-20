@@ -84,7 +84,6 @@ class ProjectTidy:
     def __init__(self, runtime, messenger, voice, env) -> None:
         self.runtime, self.messenger, self.voice, self.env = runtime, messenger, voice, env
         self.shared = TidyState()
-        self.handed = self.shared.handed  # BOARD_FROM: the 看板 redrawn after a proposal decided on it (app/unified.py fills it).
         # The parts, each below the ones after it; a part's constructor arguments are what it depends on.
         self.words = TopicWords(runtime)
         self.applier = Applier(runtime, messenger, voice, env)
@@ -219,12 +218,18 @@ class ProjectTidy:
 
     # What other modules call ----------------------------------------------------------------------------------------------
 
+    @property
+    def handed(self) -> dict:
+        """BOARD_FROM: the 看板 redrawn after a proposal decided on it (app/unified.py fills it): the one dict in ``shared``."""
+        return self.shared.handed
+
     def start(self, ctx=None, *, origin="asked", scope="", wait=False) -> str:
         """A whole 整理 now (app/tidy_run.py Runs.start): butler_projects.py projects_tidy, the web page's ``tidy``."""
         return self.runs.start(ctx, origin=origin, scope=scope, wait=wait)
 
     @staticmethod
     def matches(raw):
+        """Whether a click is one of 整理专项's cards': every controller in app/unified.py PANELS answers it (and ``claim``)."""
         return Clicks.matches(raw)
 
     def claim(self, ctx, event, raw, owner):

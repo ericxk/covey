@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from covey.app import tidy_facts as facts
 from covey.cards import project_proposal as cards
+from covey.core import butler_opened
 from covey.core import project_proposals as proposals
 from covey.core import projects
 from covey.core.card_sequence import file_card, reserve
@@ -104,8 +105,7 @@ class Applier:
                         join_topic(state, kept, topic, why="从合并的专项转来")
                     except ValueError:
                         pass
-                from covey.core.projects import MERGED
-                projects.set_state(state, other, projects.CANCELLED, MERGED)
+                projects.set_state(state, other, projects.CANCELLED, projects.MERGED)
             if record.get("name") and not proposals.owner_named(current):
                 projects.update(state, kept, lambda data: data.update(name=record["name"]))
             return True, f"已合并进「{projects.read_record(state, kept).get('name')}」"
@@ -178,7 +178,6 @@ class Applier:
     def topic_card(self, ctx, topic, joined) -> bool:
         """The butler's topic card of ``topic`` (app/butler_topics.py) redrawn whole with ``joined`` (None: without); whether it was."""
         from covey.app import butler_topics
-        from covey.core import butler_opened
         from covey.cards.topic_card import topic_card
 
         state = Path(ctx.state_dir)

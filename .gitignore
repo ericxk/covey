@@ -8,3 +8,5 @@ __pycache__/
 # Local bridge/review runtime state is private and must not be committed.
 .local-state/
 node_modules/
+*.orig
+*.rej

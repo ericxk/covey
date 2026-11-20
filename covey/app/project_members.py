@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 from covey.app import project_clicks, project_facts, project_lead
+from covey.app.butler_env import arg_text
 from covey.app.project_clicks import topic_ctx
 from covey.core import projects
 from covey.core.locks import topic_lock
@@ -35,7 +36,6 @@ def wanted_topics(env, chat, raw):
     a list or one string of them), and the ones it cannot with why (app/butler_topics.py topic_ref's reasons, a lead's, another
     project's, too many)."""
     from covey.app import butler_topics
-    from covey.app.butler_env import arg_text
 
     if isinstance(raw, str):
         raw = re.split(r"[\s,，、;；]+", raw)

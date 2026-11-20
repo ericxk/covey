@@ -5,6 +5,7 @@ one read of the disk they make is lead_starts' (a member's task records), as the
 from __future__ import annotations
 
 from covey.app import web_images, web_said
+from covey.app.web_said import NOT_ANSWERED  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 from covey.app.answers import SKIPPED
 from covey.core import board_read, triage
 from covey.core.jobs import job_key, topic_job_records
@@ -14,7 +15,6 @@ from covey.core.topics import topic_file
 
 PAIR_SLACK = 300  # Seconds after a task's record was last written that an answer line with no other task may still be its own (pair).
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
-NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 CANCEL_REASONS = ("stale", "switched", "rewound", "lead_stop", "web_stop")  # A cancelled question's cancel_reason, pushed as its closed_by.
 
 
