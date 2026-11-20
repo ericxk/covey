@@ -16,12 +16,14 @@ from covey.core.butler_tool_specs import BUTLER_RULES_ENV as TOOLS_BUTLER_ENV
 from covey.core.butler_tool_specs import START_BUTLER, START_OWN, TOOLS, listed
 
 from covey.app.prompts import (AREA_OPENING, BUTLER_RULES_ENV, BUTLER_RULES, SHARED_RULES, butler_on, butler_message,
-                                butler_rules, shared_rules)
+                                butler_rules, shared_rules,
+                               AREA_RULE, PIN_WORDS, PINNED_OVERVIEW_ENV, area_rule)
 from covey.core import knowledge
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "butler_prompt.txt"
 CLEAN = {BUTLER_RULES_ENV: "", "LARK_BRIDGE_MAIN_BUTLER": "", knowledge.ENV: "", knowledge.HISTORY_ENV: "",
-         "LARK_BRIDGE_KNOWLEDGE": "", "LARK_BRIDGE_HISTORY_CMD": ""}
+         "LARK_BRIDGE_KNOWLEDGE": "", "LARK_BRIDGE_HISTORY_CMD": "", PINNED_OVERVIEW_ENV: "",
+         "LARK_BRIDGE_PINNED_OVERVIEW": ""}
 
 
 class ButlerRulesTest(unittest.TestCase):
@@ -49,6 +51,31 @@ class ButlerRulesTest(unittest.TestCase):
         changed = [(a, b) for a, b in zip(old, new) if a != b]
         self.assertEqual(changed, [(SHARED_RULES[0], BUTLER_RULES[0]), (SHARED_RULES[1], BUTLER_RULES[1])])
         self.assertEqual(shared_rules(), BUTLER_RULES + SHARED_RULES[2:])
+
+    def test_the_pin_is_named_only_where_one_is_pinned(self):
+        # A new install has no 手上的事 pinned: its butler told the owner to look at a Pin that was not there.
+        for value in ("", "0", "true"):
+            self.env(**{PINNED_OVERVIEW_ENV: value})
+            self.assertNotIn("Pin", butler_rules())
+            self.assertEqual(area_rule(), AREA_RULE.replace(PIN_WORDS, ""))
+        self.env(**{PINNED_OVERVIEW_ENV: "1"})
+        self.assertEqual(area_rule(), AREA_RULE)
+        self.assertIn("进度主人看 Pin。被问到时", butler_rules())
+        self.assertIn("发到聊天区；被问到时", area_rule({PINNED_OVERVIEW_ENV: "0"}))
+
+    def test_the_two_ways_of_asking_each_say_when(self):
+        # 要主人定的事 goes to the checkpoint (a question card, the turn ends); which topic a message belongs to is
+        # asked at once, since the turn still has to hand the owner's message on (app/butler_handoff.py asked).
+        asking = AREA_OPENING[2]
+        self.assertIn("写进本任务检查点", asking)
+        self.assertIn("只有“这句话该交给哪个话题”拿不准时不写检查点", asking)
+        self.assertIn("AskUserQuestion 当场问", asking)
+        self.assertEqual(1, sum("AskUserQuestion 出一道单选题" in rule for rule in SHARED_RULES))
+
+    def test_the_opening_and_the_last_rule_no_longer_disagree_about_pointing_at_a_card(self):
+        self.assertNotIn("不要让主人去别处看", butler_rules())
+        self.assertIn("确实要主人动手时，用一句话说点哪里", AREA_OPENING[1])
+        self.assertIn("可以点那张任务卡上的「看看」", AREA_RULE)
 
     def test_the_old_spelling_of_the_variable_works_too(self):
         self.env(LARK_BRIDGE_MAIN_BUTLER="1")

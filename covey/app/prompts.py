@@ -339,11 +339,12 @@ def resume_message(user_text: str) -> str:
 AREA_OPENING = (
     "- 你是主人的管家。主人在私聊聊天区发的每条消息是你的一轮；主人在话题里发的消息直接交给那个话题，不经过你。",
     "- 一问一答：你这一轮的回复就是给主人的答案，Bridge 把它作为聊天区的一条新消息发出，顶上链回主人那句话。"
-    "结论先行，简短；不要提卡片、话题串这些摆放，也不要让主人去别处看。",
+    "结论先行，简短；不要解释卡片、话题串这些摆放；确实要主人动手时，用一句话说点哪里。",
     # A question asked only in an answer's last sentence is easily missed.
     "- 要主人定的事（选哪个、要不要交给谁、要不要做、部署删除花钱这类），不要只在回复末尾问一句：写进本任务检查点的"
     " requires_user、question 和 questions（每题一个对象，能给选项就给），Bridge 会出问题卡、放进“等你回答”。"
-    "回复里照常先说结论和依据，再一句话说要他定什么。不答也不耽误的顺口确认不用问。",
+    "回复里照常先说结论和依据，再一句话说要他定什么。不答也不耽误的顺口确认不用问。"
+    "只有“这句话该交给哪个话题”拿不准时不写检查点，照下面说的用 AskUserQuestion 当场问：这一轮还要带着主人这句话转交。",
 )
 SHARED_RULES = (
     "- 只读的、一两分钟能做完的查询和命令（看一眼文件或日志、查配置、连得上吗、跑个只读命令），自己用工具做完直接答，不开话题。",
@@ -398,12 +399,26 @@ def shared_rules(environ=None) -> tuple[str, ...]:
     return BUTLER_RULES + SHARED_RULES[2:] if butler_on(environ) else SHARED_RULES
 
 
+# "进度主人看 Pin" is said only where there is a Pin to look at: 手上的事 (COVEY_PINNED_OVERVIEW=1, app/overview.py),
+# which a new install does not switch on (``area_rule``).
+PIN_WORDS = "进度主人看 Pin。"
+PINNED_OVERVIEW_ENV = "COVEY_PINNED_OVERVIEW"  # app/overview.py ENV: that module imports the app, this one must not.
 AREA_RULE = ("- 交给话题后，你只用一句话说放到了哪里：新开的写“放到 T432「标题」里做”，追加的写“接着在 T432 里做”。"
              "不写进度，不写“结论会带回来”之类的话，也不用再报结论：话题每一轮结束，Bridge 都会把它的结论作为新消息发到聊天区；"
-             "进度主人看 Pin。被问到时用下面的快照和 topic_read 回答。"
+             + PIN_WORDS + "被问到时用下面的快照和 topic_read 回答。"
              "主人问某个话题“咋样了”“还要多久”“是不是卡住了”，快照里在做的那一行写着阶段、最近动静和预计还要多久，"
              "直接照它回答，不用为此开话题或去查；没写预计的就说还估不出来，标着“可能卡住了”的照实说，"
              "并告诉主人可以点那张任务卡上的「看看」。")
+assert PIN_WORDS in AREA_RULE
+
+
+def area_rule(environ=None) -> str:
+    """AREA_RULE, without its "进度主人看 Pin" unless 手上的事 is pinned (COVEY_PINNED_OVERVIEW=1; read on every
+    call): an owner without the Pin was sent to look at one."""
+    pinned = str(cenv.get(PINNED_OVERVIEW_ENV, "", environ)).strip() == "1"
+    return AREA_RULE if pinned else AREA_RULE.replace(PIN_WORDS, "")
+
+
 def knowledge_rules() -> tuple[str, ...]:
     """The butler's rules for the knowledge entries (COVEY_KNOWLEDGE=1) and the history search
     (COVEY_HISTORY_CMD); none when neither is on, so the rules are then what they were."""
@@ -441,7 +456,7 @@ def project_rules() -> tuple[str, ...]:
 
 def butler_rules() -> str:
     """The butler's rules."""
-    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), *project_rules(), AREA_RULE))
+    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), *project_rules(), area_rule()))
 
 
 BUTLER_RULES_TEXT = butler_rules()

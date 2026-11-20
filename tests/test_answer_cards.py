@@ -622,7 +622,7 @@ class DeliveryTest(Case):
             "commit": "951327a0c1d2e3f4", "deployed": "第 331 代", "verified": "全量测试"}}, ensure_ascii=False))
         built = self.deliver("## 结论\n好了").call_args.kwargs["card"]
         self.assertEqual(ids(built), [None, ARTIFACTS_ID, "answer_change", FACTS_ID])
-        self.assertIn("改动 · 951327a · 第 331 代 · 已验收", json.dumps(built, ensure_ascii=False))
+        self.assertIn("改动 · 951327a · 第 331 代 · 已自检", json.dumps(built, ensure_ascii=False))
         # A Q&A turn's checkpoint with a delivery but no commit, and no files changed: none.
         Path(self.record["checkpoint_path"]).write_text(json.dumps({"artifacts": [str(self.root / "REPORT.md")], "delivery": {"verified": "答了"}},
                                                                 ensure_ascii=False))

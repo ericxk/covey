@@ -13,8 +13,9 @@ from support import make_job
 
 from covey.app import answer_cards, butler_tools
 from covey.cards.answer_card import CHANGE_ID, tail
+from covey.cards import question_cards
 from covey.cards.relay_card import DONE, relay_card
-from covey.core.checkpoint import (CHECKPOINT_RULES, MAX_STEPS, checkpoint_delivery, checkpoint_steps,
+from covey.core.checkpoint import (CHECKPOINT_RULES, MAX_STEPS, checked, checkpoint_delivery, checkpoint_steps,
                                             change_summary, clock_steps, delivery_commits, shows_change,
                                             step_words)
 from covey.core.longtask import TaskMonitor
@@ -37,6 +38,18 @@ class RulesTest(unittest.TestCase):
         for words in ("改了代码、有提交时才写 delivery", "完整提交号", "调研、报告、问答的轮次不写 delivery"):
             self.assertIn(words, added)
         self.assertLessEqual(sum(1 for char in added if "一" <= char <= "鿿"), 150)
+        # What ``verified`` and ``deployed`` may claim: only what was run, only what took effect.
+        for words in ("verified 只写实际跑过的检查和结果，没验证就留空", "别把推断写成已测", "只提了合并请求的留空"):
+            self.assertIn(words, added)
+
+    def test_the_rules_teach_the_mark_the_standing_answer_button_looks_for(self):
+        # 以后这类按推荐走 is offered only under a card whose every question has one option marked （推荐）
+        # (cards/question_cards.py recommended); the rules never said how to mark one.
+        self.assertIn("在 label 末尾加“（推荐）”（一题只标一个）", CHECKPOINT_RULES)
+        self.assertIn("不选它的代价", CHECKPOINT_RULES)
+        asked = [{"question": "合并吗", "options": [{"label": "合并（推荐）", "description": "不合并下周要重做"},
+                                                    {"label": "先不合并"}]}]
+        self.assertEqual(question_cards.recommended(asked), [(0, 0)])
 
 
 class ParseTest(unittest.TestCase):
@@ -88,16 +101,23 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(step_words(steps("done", "done")), "2/2 步已完成")
         self.assertEqual(change_summary({}), "")
         self.assertEqual(change_summary({"commit": "951327a0c1d2e3f4", "deployed": "第 331 代（10:11 切换）",
-                                         "verified": "群里点开看过"}), "951327a · 第 331 代 · 已验收")
+                                         "verified": "群里点开看过"}), "951327a · 第 331 代 · 已自检")
         self.assertEqual(change_summary({"commit": "951327a0c1 a6bc148d38", "deployed": "", "verified": ""}),
-                         "951327a +1 · 未部署 · 未验收")
+                         "951327a +1 · 未部署 · 未自检")
         # No room for "+1" in a topic's side panel: the first commit alone, the rest when opened.
         self.assertEqual(change_summary({"commit": "951327a0c1 a6bc148d38", "deployed": "第 331 代", "verified": "x"}),
-                         "951327a · 第 331 代 · 已验收")
+                         "951327a · 第 331 代 · 已自检")
         self.assertEqual(change_summary({"commit": "", "deployed": "只合进 master，没部署", "verified": "全量测试"}),
-                         "未提交 · 只合进 mast… · 已验收")
+                         "未提交 · 只合进 mast… · 已自检")
         long = change_summary({"commit": "bridge/20261108-steps-e4486f73 分支", "deployed": "", "verified": ""})
-        self.assertEqual(long, "bridge/2026… · 未部署 · 未验收")
+        self.assertEqual(long, "bridge/2026… · 未部署 · 未自检")
+        # What the model wrote is its own check, not an acceptance; words that say it was not checked are 未自检.
+        for words in ("尚未在手机上验证", "未验证", "没有跑测试", "待验收", "untested", "Not yet verified", "无", " n/a "):
+            self.assertFalse(checked({"verified": words}), words)
+            self.assertTrue(change_summary({"commit": "951327a", "verified": words}).endswith("未自检"), words)
+        for words in ("pytest 14 passed", "未发现回归，全量通过", "没问题，群里点过", "无报错，全量通过", "在验收群点过发送"):
+            self.assertTrue(checked({"verified": words}), words)
+        self.assertFalse(checked({}) or checked(None) or checked({"verified": "  "}))
         for line in (long, change_summary({"commit": "a" * 7, "deployed": "部" * 50, "verified": "x"})):
             self.assertLessEqual(sum(1 if ord(char) < 0x2E80 else 2 for char in line), 30)
 
@@ -222,9 +242,9 @@ class AnswerCardTest(unittest.TestCase):
         self.assertFalse(fold["expanded"])
         title = fold["header"]["title"]
         self.assertEqual((title["content"], title["text_size"], title["text_color"]),
-                         ("改动 · 951327a · 第 331 代 · 已验收", "notation", "grey"))
+                         ("改动 · 951327a · 第 331 代 · 已自检", "notation", "grey"))
         rows = [[column["elements"][0]["content"] for column in row["columns"]] for row in fold["elements"]]
-        self.assertEqual([label for label, _ in rows], ["<font color='grey'>" + word + "</font>" for word in ("提交", "部署", "验收")])
+        self.assertEqual([label for label, _ in rows], ["<font color='grey'>" + word + "</font>" for word in ("提交", "部署", "自检")])
         self.assertEqual(rows[0][1].split("\n"), ["951327a0c1d2e3f4a5b6", "a6bc148d38ce8c230e96e"])
         # Nothing cut: the whole deployment and acceptance as written, their Markdown not taking effect.
         self.assertEqual(rows[1][1].count("部"), 300)
@@ -235,7 +255,7 @@ class AnswerCardTest(unittest.TestCase):
     def test_a_change_without_a_deployment_says_so_in_grey(self):
         fold = self.fold(tail(None, self.inputs, self.outputs, change={"commit": "951327a", "deployed": "", "verified": ""}))
         texts = [row["columns"][1]["elements"][0]["content"] for row in fold["elements"]]
-        self.assertEqual(texts, ["951327a", "<font color='grey'>未部署</font>", "<font color='grey'>未验收</font>"])
+        self.assertEqual(texts, ["951327a", "<font color='grey'>未部署</font>", "<font color='grey'>未自检</font>"])
 
     def test_a_string_of_an_older_release_is_one_grey_line(self):
         old = tail(None, self.inputs, self.outputs, change="已提交 a6bc148 · 已部署 第 322 代 · 未验收")
@@ -298,7 +318,7 @@ class TopicReadTest(unittest.TestCase):
                 f"    2. [完成] 跳过的 · {clock(t0 + 1800)} 完成",
                 f"    3. [在做] 改卡片 · {clock(t0 + 1800)} 开始 · 已 " + lines[at + 3].rsplit("已 ", 1)[1],
                 "    4. [待做] 写测试"])
-            self.assertEqual(lines[-1], "  检查点改动：提交 a6bc148；部署 未部署；验收 全量测试")
+            self.assertEqual(lines[-1], "  检查点改动：提交 a6bc148；部署 未部署；自检 全量测试")
             ended = butler_tools.checkpoint_lines({**record, "status": "done"})
             self.assertEqual(ended[at + 3], f"    3. [在做] 改卡片 · {clock(t0 + 1800)} 开始")
             point.write_text(json.dumps({"phase": "改卡片"}, ensure_ascii=False))
@@ -307,7 +327,7 @@ class TopicReadTest(unittest.TestCase):
             kept = butler_tools.checkpoint_lines({"steps": [{"title": "读代码", "state": "done"}], "status": "done",
                                                 "delivery": {"commit": "a6bc148"}})
             self.assertEqual(kept, ["  检查点步骤（1/1 步已完成）：", "    1. [完成] 读代码",
-                                    "  检查点改动：提交 a6bc148；部署 未部署；验收 未验收"])
+                                    "  检查点改动：提交 a6bc148；部署 未部署；自检 未自检"])
 
 
 if __name__ == "__main__":

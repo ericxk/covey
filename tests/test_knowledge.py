@@ -23,7 +23,7 @@ from support.world import harness_app
 from covey.core import env as cenv
 from covey.app import digest, knowledge_collect, knowledge_turn, butler_knowledge, butler_tools
 from covey.app.butler_env import ButlerEnv
-from covey.app.prompts import (AREA_OPENING, AREA_RULE, KNOWLEDGE_HEAD, KNOWLEDGE_NEW_HEAD, REMEMBER_RULE,
+from covey.app.prompts import (AREA_OPENING, area_rule, KNOWLEDGE_HEAD, KNOWLEDGE_NEW_HEAD, REMEMBER_RULE,
                                         RESUME_REMINDERS, SHARED_RULES, constraints, history_line,
                                         knowledge_block, butler_rules, workspace_block)
 from covey.backends.claude.bridge import CLAUDE_SPEC
@@ -326,7 +326,7 @@ class TurnTest(StateCase):
                          + "\n\n" + CHECKPOINT_RULES)
         fresh = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=True, rules_session=False)
         self.assertEqual(fresh, rules + "\n\nMSG")
-        self.assertEqual(butler_rules(), "\n".join(("[管家规则]", *AREA_OPENING, *SHARED_RULES, AREA_RULE)))
+        self.assertEqual(butler_rules(), "\n".join(("[管家规则]", *AREA_OPENING, *SHARED_RULES, area_rule())))
         self.assertEqual(butler_tool_specs.listed({}), butler_tool_specs.TOOLS)
         self.assertFalse(Path(self.ctx.state_dir, "knowledge", "x").exists())
 

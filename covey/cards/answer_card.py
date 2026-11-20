@@ -201,9 +201,9 @@ CHANGE_WORD = "改动"
 
 
 def change_element(change):
-    """The 改动 fold (CHANGE_ID) of a turn that changed code (app/answer_cards.py change): folded, one small grey line "改动 · 951327a · 第 331 代 · 已验收"
+    """The 改动 fold (CHANGE_ID) of a turn that changed code (app/answer_cards.py change): folded, one small grey line "改动 · 951327a · 第 331 代 · 已自检"
     (core/checkpoint.py change_summary), in the 产物 panel's look (a quiet ``collapsible``); open, a row each of
-    提交 (every commit in full, one a line), 部署 and 验收 (as the checkpoint wrote them, not cut). A string
+    提交 (every commit in full, one a line), 部署 and 自检 (as the checkpoint wrote them, not cut). A string
     (``change`` of an older release, "已提交 a6bc148 · 已部署 第 322 代 · 未验收"): that one grey line,
     no fold. None without one."""
     if isinstance(change, str):
@@ -214,7 +214,7 @@ def change_element(change):
     commits = delivery_commits(change)
     rows = [labelled("提交", "\n".join(literal_text(commit) for commit in commits) if commits else grey("未提交")),
             labelled("部署", literal_text(change.get("deployed")) if change.get("deployed") else grey("未部署")),
-            labelled("验收", literal_text(change.get("verified")) if change.get("verified") else grey("未验收"))]
+            labelled("自检", literal_text(change.get("verified")) if change.get("verified") else grey("未自检"))]
     return collapsible(CHANGE_ID, f"{CHANGE_WORD} · {change_summary(change)}", rows, quiet=True, spacing="4px")
 
 

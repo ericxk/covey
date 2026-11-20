@@ -283,7 +283,7 @@ def checkpoint_lines(record):
     delivery = checkpoint_delivery(checkpoint) or checkpoint_delivery({"delivery": record.get("delivery")})
     if delivery:
         lines.append("  检查点改动：" + "；".join(f"{name} {cut(delivery.get(key) or empty, TEXT_CHARS)}" for key, name, empty in (
-            ("commit", "提交", "未提交"), ("deployed", "部署", "未部署"), ("verified", "验收", "未验收"))))
+            ("commit", "提交", "未提交"), ("deployed", "部署", "未部署"), ("verified", "自检", "未自检"))))
     return lines
 
 

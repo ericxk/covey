@@ -64,6 +64,8 @@ CHECKPOINT_RULES = (
     '有多个待回答项时，另写 questions 数组，每题单独一个对象：'
     '{"id":"稳定且唯一的标识","header":"短标题","question":"完整问题","options":[{"label":"选项","description":"说明"}]}。'
     '可以多选的题另加 "multiple":true，问题卡才给多选下拉框，否则只能单选。'
+    "能自己查清的事先查，不问。单选题里你有把握哪个更稳妥时，把它排第一，在 label 末尾加“（推荐）”（一题只标一个），"
+    "并在它的 description 里用一句话写不选它的代价。"
     "自由回答可省略 options；不要把多个独立决策合并进单个 question 输入框。"
     "必须保留非空 question 摘要。正常答题时，全部问题得到明确回答后再继续。"
     "只有一个待回答问题时，可告知用户直接回复本话题；有多个问题时，正常回答需在问题卡片中逐题作答并点击“提交回答”。"
@@ -83,6 +85,7 @@ CHECKPOINT_RULES = (
     '长任务另写 steps 有序数组，每项 {"title":"短语","state":"done|doing|todo"}，同时只有一个 doing，开始和每完成一步都更新。'
     '只有这一轮改了代码、有提交时才写 delivery：{"commit":"完整提交号（多个用空格分开）","deployed":"部署到哪里/第几代","verified":"怎么验收的"}，'
     "没做的项留空；调研、报告、问答的轮次不写 delivery。"
+    "verified 只写实际跑过的检查和结果，没验证就留空，别把推断写成已测；deployed 只写已生效的环境，只提了合并请求的留空。"
 )
 
 # 话题要点 (COVEY_PROJECT_TIDY, core/topic_gist.py): put in each turn's message of an ordinary topic or a project's topic, after
@@ -212,19 +215,33 @@ def _fit(text, width) -> str:
     return text + "…"
 
 
+# ``verified`` is what the model says it checked, nobody's acceptance: the fold says 已自检, not 已验收 (which a
+# reader took for the owner's or the Bridge's check). Words that say it was not checked ("尚未在手机上验证") are 未自检.
+UNCHECKED = re.compile(r"^\s*(?:(?:尚未|暂未|还未|还没有?|没有?|未)[^，。；、,.;]{0,10}?(?:验证|验收|测试|自检|测过|跑过)"
+                       r"|待(?:验证|验收|测试|自检)|untested\b|not (?:yet )?(?:verified|tested|checked)\b"
+                       r"|(?:无|none|n/?a)\s*$)", re.IGNORECASE)
+
+
+def checked(delivery) -> bool:
+    """Whether ``delivery`` says something was checked: ``verified`` has words and they do not open by saying it was
+    not (``UNCHECKED``)."""
+    words = str((delivery or {}).get("verified") or "")
+    return bool(words.strip()) and not UNCHECKED.search(words)
+
+
 def change_summary(delivery, width=CHANGE_LINE_WIDTH) -> str:
-    """``delivery`` in one line, the 改动 fold's title after "改动 · ": "951327a · 第 331 代 · 已验收" (the first
+    """``delivery`` in one line, the 改动 fold's title after "改动 · ": "951327a · 第 331 代 · 已自检" (the first
     commit short, "+1" for one more when the line has room; the deployment's "第 N 代" when it names one, else its
-    first words, as many as leave room for 验收; 已验收 or 未验收), at most ``width`` wide (``_width``: a topic's side panel shows "改动 · " and 30, a
-    sample wrapped "已验收" at 36) and cut alone when wider; '' without a delivery."""
+    first words, as many as leave room for 自检; 已自检 or 未自检, ``checked``), at most ``width`` wide (``_width``: a topic's side panel shows "改动 · " and 30, a
+    sample wrapped its last word at 36) and cut alone when wider; '' without a delivery."""
     if not delivery:
         return ""
     commits = delivery_commits(delivery)
     first = _fit(short_commit(commits[0]), COMMIT_WIDTH) if commits else "未提交"
     deployed = str(delivery.get("deployed") or "")
     generation = GENERATION.search(deployed)
-    verified = "已验收" if delivery.get("verified") else "未验收"
-    room = width - _width(first) - _width(verified) - 2 * _width(" · ")  # 验收 stays: the deployment's words are cut.
+    verified = "已自检" if checked(delivery) else "未自检"
+    room = width - _width(first) - _width(verified) - 2 * _width(" · ")  # 自检 stays: the deployment's words are cut.
     deployed = f"第 {generation.group(1)} 代" if generation else _fit(deployed, room) if deployed else "未部署"
     more = f"{first} +{len(commits) - 1}" if len(commits) > 1 else first
     line = " · ".join((more, deployed, verified))

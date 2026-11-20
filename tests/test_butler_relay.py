@@ -361,7 +361,7 @@ class DeliverTest(Case):
         send = self.deliver(self.job(progress=SimpleNamespace(), checkpoint_path=str(point)))
         elements = send.call_args.kwargs["card"]["body"]["elements"]
         self.assertEqual([element.get("element_id") for element in elements[-2:]], ["answer_change", "answer_facts"])
-        self.assertIn("改动 · a6bc148 · 第 322 代 · 未验收", str(elements[-2]))
+        self.assertIn("改动 · a6bc148 · 第 322 代 · 未自检", str(elements[-2]))
         self.assertIn("a6bc148d38ce", str(elements[-2]))  # Open, the commit in full.
         relay_send.relay_path(self.state, job_key("main-t1", 9)).unlink()
         # A research turn's delivery without a commit, and no files changed: none.
