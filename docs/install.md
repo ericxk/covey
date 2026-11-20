@@ -4,7 +4,9 @@
 
 ## 前提
 
-这台机器上已装好并登录了 Claude Code 或 Codex（任一个）。怎么装、怎么登录见[各 Harness 的官方说明](harnesses.md#安装和登录-harness)；安装器不教、也不替你装。另外要 Python 3.10+；没有 `lark-cli` 时安装器会用 npm 装它（没有 npm 时它会告诉你去装 Node.js）。
+- 这台机器上已装好并登录了 Claude Code 或 Codex（任一个）。怎么装、怎么登录见[安装和登录 Harness](harnesses.md#安装和登录-harness)；安装器不教、也不替你装。
+- Python 3.10+。没有 `lark-cli` 时安装器会用 npm 装它（没有 npm 时它会告诉你去装 Node.js）。
+- 公司或团队给了扩展库（带自己的 Harness、模型网关、开机托管或代答发送器）的，先照扩展库 README 里的安装一节做：它负责把扩展放到核心旁边、再运行 `./install`。下面只写核心自己的装法。
 
 ## 安装
 
@@ -19,12 +21,14 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 每步一行标题，只在有事时多说一句：
 
-1. **检查环境和目录**：数据根（默认是仓库同级的 `<仓库目录名>-data`）、默认工作区（当前目录；在仓库里运行时用 `<数据根>/workspace`）、临时目录、浏览器和 `lark-cli` 的安装位置都有默认值，自动建好，不写系统盘。
+1. **检查环境和目录**：数据根（默认是仓库同级的 `<仓库目录名>-data`，`--data-home` 或 `COVEY_DATA_HOME` 可改）、默认工作区（当前目录；在仓库里运行时用 `<数据根>/workspace`）、临时目录、浏览器和 `lark-cli` 的安装位置都有默认值，自动建好，不写系统盘。
 2. **准备 `lark-cli`**：没有就装；Skills 默认不同步（要用加 `--skills`）。
-3. **检查 Harness**：对 Claude Code 和 Codex 各真实调用一次模型。没登录、网络不通会分别说明；没调通的不启用，写进 `harnesses.json` 的只有调通的。网络不通时问一次代理地址，通过后代理和飞书域名的 `NO_PROXY` 一起写进服务环境。
-4. **飞书应用**：先准备一个无头浏览器（用机器上已有的 Chrome/Chromium，没有就下载 Chromium，显示进度，60 秒没进展自动换 npmmirror 镜像；Debian/Ubuntu 缺系统库时，有 root 用 `playwright install-deps`，没有 root 自动下载需要的 deb 解到数据根下，只给浏览器进程用）。然后扫一次码，在同一个会话里建应用、授权、在开发者后台补回调、事件、菜单和权限、发布，再读回核对。浏览器装在数据根下，主人的网页登录只在本次运行的临时目录里，结束就删（`--keep-login` 留下）。
-5. **注册并启动服务**：先给检出预编译 `.pyc`（服务带 `-B` 自己不写，没有它每个进程启动都重新编译；失败只提示），托管服务启动，并注册开机自启（Linux 用 systemd 用户服务，macOS 用 launchd；没有 systemd 但有 `crontab` 时往 crontab 加一行 `@reboot`，每个服务根一行（标记带服务根的短哈希）：同一服务根重复运行不重复加，不同服务根的 Bridge 各留各的，`--no-autostart` 跳过；都没有就是 Manager 方式，开机不会自启，安装器会说明）。
+3. **检查 Harness**：对 Claude Code 和 Codex 各真实调用一次模型。没登录、网络不通会分别说明；没调通的不启用。网络不通时问一次代理地址，通过后代理和飞书域名的 `NO_PROXY` 一起写进服务环境。启用了扩展时，扩展的安装钩子也在这一步运行（装它要的工具、报告它提供的 Harness）。
+4. **飞书应用**：准备一个无头浏览器（用机器上已有的 Chrome/Chromium，没有就下载），扫一次码，在同一个会话里建应用、授权、在开发者后台补回调、事件、菜单和权限、发布，再读回核对。主人的网页登录只在本次运行的临时目录里，结束就删（`--keep-login` 留下）。
+5. **注册并启动服务**：把服务注册给后台的 Manager 托管并启动，再注册开机自启：Linux 用 systemd 用户服务，macOS 用 launchd，都没有但有 `crontab` 时加一行 `@reboot`（`--no-autostart` 不加），什么都没有时开机不会自启，安装器会说明。细节见[服务托管](operations.md#服务托管)。
 6. **等待就绪**：诊断通过后打印「去飞书私聊机器人「Covey」发一句话」。
+
+`harnesses.json`（`<数据根>/harnesses.json`）里只写调通的 Harness；之后要加 Pi、dsh、Antigravity 见[手工加一个 Harness](harnesses.md#手工加一个-harness)。
 
 ## 选项
 
@@ -33,29 +37,49 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | `--reconfigure` | 重来：重新建应用、授权、补配置并重注册服务。不加时，已有的应用、授权、配置、服务都复用，重复运行是安全的 |
 | `--skills` | 同时同步 `skills/` 到 Codex 和 Claude 的 Skills 目录 |
 | `--non-interactive` | 不提问；缺什么就报什么退出 |
-| `--data-home DIR` | 数据根 |
+| `--data-home DIR` | 数据根（不给时用 `COVEY_DATA_HOME`，再不然是仓库同级的 `<仓库目录名>-data`） |
 | `--workdir DIR` | 默认工作区 |
 | `--keep-login` | 不删浏览器里主人的网页登录（之后补配置可用 `covey_app_setup.py apply --login-from`） |
 | `--no-browser` | 不用无头浏览器：每个链接画成二维码，用手机依次打开（浏览器装不上时安装器会自动这样做，并说明还差什么） |
+| `--no-autostart` | 没有 systemd、launchd 时不往 crontab 加开机自启的一行 |
 | `--profile`、`--app-name` | `lark-cli` profile 名（默认 `covey`）、新应用的名称（默认 `Covey`） |
 | `--no-start` | 只准备到飞书应用为止，不注册、不启动服务 |
 
 ## 第一个回答
 
-在飞书里私聊机器人，发「只告诉我当前工作目录，不修改文件」：消息下出现启动卡，点「开始任务」，答案里的目录就是默认工作区。完整验收（追问、停止、问答）见[旧安装脚本与手动配置](operations.md#首次验收)。
+在飞书里私聊机器人，发「只告诉我当前工作目录，不修改文件」：
+
+- Claude Code 调通了的，私聊顶层的话交给[管家](usage.md#管家)：它直接回答，或开一个话题去做、做完把结论带回私聊。
+- 只有 Codex 时没有管家，消息下出现启动卡，点「开始任务」，答案里的目录就是默认工作区。
+
+看到回答就说明装好了。再花两分钟走一遍下面的验收，确认追问、停止、问答都正常（本地测试代替不了飞书客户端里的点击）：
+
+1. **开话题**：私聊发「开个话题：只告诉我当前工作目录，不修改文件」。管家开出话题，话题里出现任务卡，结束后答案卡里的目录和所选工作区一致。
+2. **追问**：在这个话题里回复「我刚才问了什么」，确认接着上文回答。
+3. **停止**：在话题里发「等待 30 秒后报告当前目录，不修改文件」，执行中点任务卡上的「停止」，这一轮停下，别的话题不受影响。
+4. **回答问题**：发「先问我希望用中文还是英文，收到回答再继续」，出现问题卡；选一项提交，任务接着执行。
+5. **每个 Harness 一次**：要用几个 Harness，就在启动卡上各选一次它的模型跑第 1 步，确认都能真实调用。
+
+## 装好以后
+
+- **默认开着的**：管家、专项、整理专项（只提议）、问题卡上的「以后这类按推荐走」、撤回或编辑消息后跟着处理、自动补齐飞书应用。推荐再打开的（早晚汇总和菜单「看板」、置顶的「手上的事」、记忆等）见[开关速查](configuration.md#开关速查)，改开关按[改开关三步](configuration.md#改开关三步)做。
+- **怎么用**：[使用指南](usage.md)从[第一次使用](usage.md#第一次使用)开始。
+- **扩展**：装好后用 `bin/covey_plugins.py` 查看、启用、停用，见[扩展的装和卸](operations.md#扩展的装和卸)。
+- **升级**：拉新代码后用 `scripts/deploy_bridge.sh` 把服务换到固定的 release 目录运行（先 `--check-only`），见[升级与回滚](operations.md#升级与回滚)。`./install` 装的服务直接从这个检出运行，`git pull` 之后新开的任务就会用到新代码，而机器人本身还是旧的，所以不要只 `git pull`。
 
 ## 出问题
 
 | 现象 | 做法 |
 | --- | --- |
-| 「没有能调通的 Harness」 | 先在终端里登录 Claude Code 或 Codex，并确认 `claude -p "ok"` 或 `codex exec "ok"` 有回答 |
+| 「没有能调通的 Harness」 | 先在终端里登录 Claude Code 或 Codex，并确认 `claude -p "ok"` 或 `codex exec --skip-git-repo-check "ok"` 有回答 |
 | Harness 探测像网络不通 | 先 `export HTTPS_PROXY=http://主机:端口` 再 `./install`；代理地址不能带用户名密码 |
-| 浏览器装不上、下载太慢 | 安装器自动改用手机扫码，也可以一开始就 `./install --no-browser`：每个链接画成二维码和 PNG，一步一步扫（建应用、授权、补回调和事件订阅，后两者一个链接一步，共 3 步）；非交互（没有终端）时把链接都列出来，扫完后重新运行 ./install 或等几分钟，机器人缺订阅时每 20 秒重试一次。机器上有 Chrome/Chromium 时会直接用它；其他发行版缺系统库用系统的包管理器装 |
+| 浏览器装不上、下载太慢 | 安装器自动改用手机扫码，也可以一开始就 `./install --no-browser`：每个链接画成二维码和 PNG，一步一步扫（建应用、授权、补回调和事件订阅，共 3 步）；非交互（没有终端）时把链接都列出来，扫完后重新运行 `./install` 或等几分钟，机器人缺订阅时每 20 秒重试一次 |
 | 「还差：……」 | 安装完成但飞书应用没补全（手机扫码时菜单做不了）：不影响收发消息，发消息给机器人后点「飞书应用待补」卡的「扫码自动补齐」，或重新运行 `./install` |
-| 其他 | 日志在数据根的 `install-logs/`；服务运行期问题见[排障](troubleshooting.md) |
+| 扫完码机器人一直没反应 | 订阅生效前收不到消息，约半分钟内自动就绪；还不行见[排障 · 扫码后机器人没反应](troubleshooting.md#扫码后机器人没反应) |
+| 其他 | 安装日志在数据根的 `install-logs/`（每步一个文件）；服务运行期的问题见[排障](troubleshooting.md) |
 
 ## 进阶
 
 - Harness 参数、dsh、Pi、Antigravity、模型网关：[Harness 说明](harnesses.md)
-- 群聊、代答、看板等可选功能：[使用指南](usage.md)、[配置](configuration.md)
+- 群聊、代答、看板等功能：[使用指南](usage.md)、[配置](configuration.md)
 - 重启、升级、开机恢复、备份、手动配飞书应用、旧安装脚本：[运维指南](operations.md)

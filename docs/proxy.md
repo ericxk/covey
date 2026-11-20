@@ -1,6 +1,18 @@
 # 代答
 
-代答替主人回复白名单里的人和群：Bridge 以主人身份读这些会话，每个联系人在代答群里有一个话题，模型在话题里写回复，Bridge 以主人身份发出去。本文写实现；和记录、锁、结果授权这些全局规则的接点见[架构与开发说明的代答](architecture.md#代答)，用户看到的行为见[代答](usage.md#代答)，部署见[代答的配置](configuration.md#代答)。
+代答替主人回复白名单里的人和群：Bridge 以主人身份读这些会话，每个联系人在代答群里有一个话题，模型在话题里写回复，Bridge 以主人身份发出去。用户看到的行为见[使用指南 · 代答](usage.md#代答)，部署的配置见[配置 · 代答](configuration.md#代答)。
+
+## 前置条件与怎么开
+
+**只装核心用不了代答。** 以主人身份发消息的“发送器”不在核心里，由扩展的 `proxy_sender` 钩子提供（[发送器](#发送器)）；没有启用带发送器的扩展时，菜单里没有「代答」、没有代答的后台线程，话题也不能[代发](#代发)。
+
+1. **启用带发送器的扩展**：照那个扩展的 README 装好并启用（[扩展的装和卸](operations.md#扩展的装和卸)），发送器自己要的登录、工具也照它的说明做。
+2. **给主人本人建一个 lark-cli profile**，用主人自己的账号登录并授权读消息、搜联系人的权限（清单见[配置 · 代答](configuration.md#代答)），再把它的名字写进服务清单：按[改开关三步](configuration.md#改开关三步)设 `COVEY_PROXY_PROFILE=<profile 名>`。
+3. **在飞书里开启**：菜单「代答」→ 代答卡上按提示“去登录”（发送器的扫码登录）→「开启代答」。第一次开启时机器人新建一个只有你和它的代答群。
+4. **加白名单**：在代答卡的“添加”里写人名、邮箱、群名或 ID，点“查找”再添加。之后白名单里的人发来的消息，各自在代答群里有一个话题。
+5. **确认**：代答卡状态行写“代答开着”；`bridge.log` 有 `proxy took in`。不回、不发时看[排障 · 代答](troubleshooting.md#代答没有回复或没有发出)。
+
+下文写实现，给改代答代码的人看；和记录、锁、结果授权这些全局规则的接点见[架构与开发说明的代答](architecture.md#代答)。
 
 ## 组成
 
@@ -13,7 +25,7 @@
 | 联系人话题 | `contact_topics` | `app/proxy_topics.py` | 开、重新找到、路由联系人的话题，跟着设置换模型（`sync_topics`） |
 | 设置与查找 | `commands` | `app/proxy_commands.py` | 开启、关闭、换模型、查找联系人、读群成员、加删白名单 |
 | 发送 | `web` | `app/proxy_send.py` | 经发送器以主人身份发送、读回、`owner_replied` |
-| 登录 | `web_login` | 公司扩展的登录模块 | 发送工具的扫码登录、定时查登录、失效提醒、恢复后重发 |
+| 登录 | `web_login` | 发送器所在扩展的登录模块 | 发送工具的扫码登录、定时查登录、失效提醒、恢复后重发 |
 | 设置卡 | `panel` | `app/proxy_panel.py`、`cards/proxy_panel.py` | 设置卡的「代答」页 |
 | 重新发送卡 | `resend` | `app/proxy_resend.py`、`cards/proxy_resend.py` | 没发出的回复，主人点了再发 |
 | 记录 | | `core/proxy.py` | `<state>/proxy/` 的读写、状态表、提示词、标记；只用标准库，不调飞书 |
@@ -74,7 +86,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 - **不等主人**：`app/runs.py` 的 `_leave_checkpoint_question` 清掉代答话题检查点里的提问；Claude、Codex 的原生提问由 `app/native_questions.py` 的 `refused_in_proxy_topic` 以 `NO_QUESTION` 拒绝，模型接着写回复。`HarnessSpec.refuses_questions` 为 False 的 Harness（扩展的 Harness）的提问不拒（会取消整个运行）。
 - **主人的一轮**：主人在代答话题里说话、而联系人有 `submitted` 或 `held` 批次时，`app/runs.py` 的 `_turn_message` 附上 `owner_turn_note`：这一轮的回复会发给对方，不要发就以 `SKIP_MARK` 开头。
 - **规则**：代答话题的轮次用 `app/prompts.py` 的 `proxy_constraints` 代替普通话题的规则（不用 Markdown 排版、不写检查点和话题要点，只读查询，不发飞书消息），不附检查点说明（`Runs._checkpoint_note`），续接的会话也不再追加普通话题的提醒；新会话的 “Recent conversation” 里，之前每批的提示词只留消息（`core/proxy.py` 的 `brief_history`），规则只在这一批里出现一次。
-- 代答话题不带主人的原则；产物不列 `misc-tasks` 下代答自己的笔记目录（`app/artifacts.py` 的 `drive_paths`）。
+- 代答话题不带主人的原则；产物不列代答联系人的笔记目录：扩展用 `contact_notes` 设置（一个正则）指出它在哪，核心默认没有（`app/artifacts.py` 的 `drive_paths`）。
 
 ## 发前闸门
 

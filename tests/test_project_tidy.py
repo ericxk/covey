@@ -25,6 +25,7 @@ from covey.app.web_ops import Ops
 from covey.cards import project_proposal as cards
 from covey.app import digest, project_lead
 from covey.core import butler_tool_specs, projects, topic_gist
+from covey.core import env as cenv
 from covey.core import project_proposals as proposals
 from covey.core.checkpoint import TOPIC_GIST_RULE
 from covey.core.jobs import upsert_job_record
@@ -897,6 +898,20 @@ class OffTest(TidyCase):
         ins = SimpleNamespace(env={})
         installer.Installer.default_switches(ins)
         self.assertEqual(ins.env, installer.INSTALL_SWITCHES)
+
+    def test_install_keeps_a_switch_turned_off_in_the_shell(self):
+        # The installer's environment is canonical (core/env.py): `export COVEY_PROJECTS=0` reaches it as
+        # LARK_BRIDGE_PROJECTS, and the default must not win over it in the saved manifest.
+        from covey.service import installer
+        from covey.service.manager import runtime_environment
+
+        shell = {"COVEY_PROJECTS": "0", "COVEY_PROJECT_TIDY": "off"}
+        ins = SimpleNamespace(env=cenv.canonical(shell))
+        installer.Installer.default_switches(ins)
+        saved = runtime_environment(ins.env)
+        self.assertEqual(saved["LARK_BRIDGE_PROJECTS"], "0")
+        self.assertEqual(saved["LARK_BRIDGE_PROJECT_TIDY"], "off")
+        self.assertEqual(saved["LARK_BRIDGE_STANDING_ANSWERS"], "1")
 
     def test_the_patrol_reads_the_tidys_proposals_instead_of_its_own_word_match(self):
         from covey.app import patrol_rules

@@ -2,7 +2,8 @@
 service root; nothing is packed or bootstrapped) and scripts/cardkit_check.py (cards from samples and
 files, measured; CardKit's create faked, no other call), scripts/golden_trace.py (a throwaway test module
 recorded three times and a sleeping one terminated, one Python child each; compare on hand-made recordings)
-and scripts/cross_release.py (its output checks and compare). Each deploy run is one short-lived bash and
+and scripts/cross_release.py (its output checks and compare), scripts/check_doc_links.py (files and anchors of a
+throwaway tree). Each deploy run is one short-lived bash and
 Python child under TMPDIR."""
 
 import hashlib
@@ -36,6 +37,10 @@ _spec.loader.exec_module(golden_trace)
 _spec = importlib.util.spec_from_file_location("cross_release_script", REPO / "scripts" / "cross_release.py")
 cross_release = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cross_release)
+
+_spec = importlib.util.spec_from_file_location("check_doc_links_script", REPO / "scripts" / "check_doc_links.py")
+check_doc_links = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(check_doc_links)
 
 DEPLOY = REPO / "scripts" / "deploy_bridge.sh"
 APP = "cli_test"
@@ -939,3 +944,29 @@ class CrossReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DocLinksTests(unittest.TestCase):
+    def tree(self, files):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text, encoding="utf-8")
+        return root
+
+    def test_anchors_are_checked_the_way_github_makes_them(self):
+        root = self.tree({
+            "README.md": "[ok](docs/b.md#空间spaces) [dup](docs/b.md#同名-1) [self](#readme) <a id=\"Here\"></a>\n# README\n",
+            "docs/b.md": "# B\n## 空间（`spaces`）\n## 同名\n## 同名\n```\n## 代码块里的不算\n```\n[x](#代码块里的不算)\n",
+            "skills/s/SKILL.md": "[gone](../../docs/b.md#开始前准备) [file](../../docs/nope.md) [web](https://example.com/#x)\n",
+            "docs/history/old.md": "[old](b.md#whatever)\n",
+        })
+        self.assertEqual(check_doc_links.broken_links(root), [
+            "docs/b.md:8: #代码块里的不算 (没有这个锚点)",
+            "skills/s/SKILL.md:1: ../../docs/b.md#开始前准备 (没有这个锚点)",
+            "skills/s/SKILL.md:1: ../../docs/nope.md",
+        ])
+
+    def test_the_repository_documents_link_cleanly(self):
+        self.assertEqual(check_doc_links.broken_links(REPO), [])

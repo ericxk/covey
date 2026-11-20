@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-Covey drives the coding agents on your own development machine from Feishu (Lark) chat. One bot connects Codex, Claude Code, DeepSeek Harness (dsh) and Pi; one Feishu topic is one agent session, and the task, follow-ups, steering, questions and results all stay in that topic. More harnesses can be added through [extensions](docs/architecture.md#扩展).
+Covey drives the coding agents on your own development machine from Feishu (Lark) chat. One bot connects Codex, Claude Code, DeepSeek Harness (dsh), Pi and Antigravity (agy); one Feishu topic is one agent session, and the task, follow-ups, steering, questions and results all stay in that topic. More harnesses can be added through [extensions](docs/architecture.md#扩展).
 
 The bot runs on your own machine, is bound to one Feishu user (the owner) and uses the owner's own model authorization. A colleague who wants their own butler, board and model authorization deploys their own; you can also activate a group so colleagues can @ the bot to open topics (a team space).
 
@@ -40,7 +40,8 @@ The settings card, redaction tab: type the words, stand-ins are generated automa
 - **Results and artifacts.** The answer is sent as its own card; registered artifacts are uploaded to cloud storage with a link.
 - **Long tasks survive restarts.** Each task runs in its own process, so restarting or upgrading the bot does not stop it.
 - **Spaces.** The private chat and every bound group is a "space". A personal space is yours alone and has the butler, the board and the menu cards; a team space is an activated group where colleagues @ the bot to open topics; a proxy space is the group used for proxy replies. See [configuration](docs/configuration.md#空间spaces).
-- **Optional features**, off by default: a topic board and daily digests, proxy replies, sensitive-word redaction, parallel tracks and live dispatch cards for the private chat (several things asked in a row run side by side, and work handed off shows a live card in the chat), and devices (a topic runs Claude Code or Codex on another machine of yours over SSH; in development). See [configuration](docs/configuration.md). For redaction you type the words on the settings card and the stand-in words are generated automatically; it replaces text only in topics that turned it on, and only for Claude models.
+- **On after install**: the butler, projects (the butler hands long work to a lead topic that dispatches and follows it), project tidying (it only proposes; nothing is built until you click), "use the recommendation for such questions from now on" under question cards, following up when you recall or edit a message, and sensitive-word redaction on the settings card (replaces text only in topics that turned it on, Claude models only).
+- **Off until you turn them on**: daily digests and the 看板 menu item, the pinned "on your plate" card and topic pins, memory, knowledge entries, parallel tracks for the butler, dispatch cards; needing more set-up: proxy replies (an extension with a sender), the web workbench, devices (in development), node monitoring. Which are on and how to turn one on: [configuration, switches at a glance](docs/configuration.md#开关速查).
 
 ## Quick start
 
@@ -51,15 +52,25 @@ git clone https://github.com/ericxk/covey.git && cd covey
 ./install        # scan the QR code in the terminal once with the Feishu mobile app
 ```
 
-Then send the bot a message in a private chat. Options and troubleshooting: [docs/install.md](docs/install.md).
+Then send the bot a message in a private chat. Options and troubleshooting: [docs/install.md](docs/install.md). If your company or team gave you an extension repository, follow the install section of its README first; it runs `./install` with the extension in place.
+
+## After installing
+
+1. **First message**: write to the bot in a private chat; the butler answers or opens a topic. Walk through [first use](docs/usage.md#第一次使用).
+2. **Turn on more**: a new install has only the features above on; recommended ones are listed [here](docs/configuration.md#推荐打开), and a switch is changed in [three steps](docs/configuration.md#改开关三步).
+3. **Upgrade**: after pulling new code, `scripts/deploy_bridge.sh` moves the service onto a fixed release; run it with `--check-only` first. See [upgrade and rollback](docs/operations.md#升级与回滚).
 
 ## Documentation
 
-All in Chinese: [install](docs/install.md), [usage](docs/usage.md), [configuration](docs/configuration.md), [operations](docs/operations.md), [troubleshooting](docs/troubleshooting.md), [harnesses](docs/harnesses.md), [architecture](docs/architecture.md), [testing](docs/testing.md), and [AGENTS.md](AGENTS.md) (code map and the rules most easily broken).
+All in Chinese.
+
+- **Getting started and use**: [install](docs/install.md), [usage](docs/usage.md), [butler](docs/butler.md), [proxy replies](docs/proxy.md), [troubleshooting](docs/troubleshooting.md).
+- **Deployment and configuration**: [configuration](docs/configuration.md), [harnesses](docs/harnesses.md), [operations](docs/operations.md), [policy stops](docs/policy-stop.md), [runtime locks](docs/runtime-locks.md).
+- **Development**: [architecture](docs/architecture.md), [cards](docs/cards.md), [UI](docs/ui.md), [testing](docs/testing.md), [glossary](docs/glossary.md), [AGENTS.md](AGENTS.md) (code map and the rules most easily broken), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Extensions
 
-The core refers to nothing but the built-in harnesses. A deployment can put extension packages under `extensions/` and enable them with `extensions/enabled` or the `COVEY_EXTENSIONS` environment variable; an extension merges its harnesses, providers and menu items into the core's tables through its manifest. See the extension section of [architecture](docs/architecture.md#扩展).
+The core refers to nothing but the built-in harnesses. An extension is a package with a manifest (`manifest.py`) under `extensions/` of the code that runs (a fixed release gets it from `scripts/deploy_bridge.sh --ext-repo`); its manifest merges harnesses, providers, model gateways, menu items and hooks into the core's tables. Once it is there, `python3 -B bin/covey_plugins.py list`, `enable <package>` and `disable <package>` manage it, and `covey_service.py restart` puts a change into effect; see [operations](docs/operations.md#扩展的装和卸) and [architecture](docs/architecture.md#扩展). The `COVEY_EXTENSIONS` variable overrides that list and is meant for development only.
 
 ## Contributing
 

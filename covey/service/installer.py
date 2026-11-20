@@ -70,7 +70,7 @@ def parser():
     p.add_argument("--reconfigure", action="store_true", help="重来：重新建应用、授权、补配置并重注册服务")
     p.add_argument("--skills", action="store_true", help="同时把 skills/ 同步到 Codex 和 Claude 的 Skills 目录（默认不做）")
     p.add_argument("--non-interactive", action="store_true", help="不提问（代理地址等）；缺什么就报什么退出")
-    p.add_argument("--data-home", help="数据根（默认：仓库同级的 <仓库目录名>-data，或 LARK_BRIDGE_DATA_HOME）")
+    p.add_argument("--data-home", help="数据根（默认：COVEY_DATA_HOME，没设时是仓库同级的 <仓库目录名>-data）")
     p.add_argument("--workdir", help="默认工作区（默认：当前目录；在仓库里运行时用 <数据根>/workspace）")
     p.add_argument("--keep-login", action="store_true", help="结束后不删浏览器里主人的网页登录（默认删）")
     p.add_argument("--no-browser", action="store_true", help="不用无头浏览器：每个链接画成二维码，手机上依次打开")
@@ -636,9 +636,10 @@ class Installer:
 
     def default_switches(self):
         """The switches a new service starts with on (INSTALL_SWITCHES: 专项, 整理专项 只提议 and 以后这类按推荐走, the owner 2026-11-18: 装好就开):
-        put into this shell's environment, which the launch saves in the manifest; one the environment already sets stays."""
+        put into this shell's environment, which the launch saves in the manifest; one the environment already sets stays,
+        under either spelling (``self.env`` holds the old one: ``COVEY_PROJECTS=0`` is ``LARK_BRIDGE_PROJECTS`` there)."""
         for key, value in INSTALL_SWITCHES.items():
-            if not str(self.env.get(key, "")).strip():
+            if not str(cenv.get(key, "", self.env)).strip():
                 self.env[key] = value
 
     def service_up(self):
