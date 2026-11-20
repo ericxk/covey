@@ -40,7 +40,7 @@ def path(state_dir, key) -> Path:
 def make(key, chat_id, track, owner_message, request, answer, status, ended_at, session_id, opened) -> dict:
     """One record, its text cut to what a record keeps."""
     return {"key": key, "chat_id": chat_id, "track": track, "owner_message": owner_message,
-            "request": cut(request, REQUEST_CHARS), "answer": cut(answer, ANSWER_CHARS), "status": status,
+            "request": cut(request, REQUEST_CHARS, strip=True), "answer": cut(answer, ANSWER_CHARS, strip=True), "status": status,
             "ended_at": float(ended_at), "session_id": session_id or "", "opened": list(opened), "digested_by": ""}
 
 
@@ -86,9 +86,9 @@ def render(rows, more=0) -> str:
     for record in rows:
         ended = stamp(record.get("ended_at"), "%H:%M", "--:--", lenient=True)
         status = {"done": "", "failed": "（失败）", "cancelled": "（已停止）"}.get(record.get("status"), f"（{record.get('status')}）")
-        answer = cut(record.get("answer"), SHOW_CHARS) or "没有送达的回答"
+        answer = cut(record.get("answer"), SHOW_CHARS, strip=True) or "没有送达的回答"
         opened = "、".join(str(t) for t in record.get("opened") or ())
-        lines.append(f"- {ended}{status} 请求「{cut(record.get('request'), REQUEST_CHARS)}」→ {answer}"
+        lines.append(f"- {ended}{status} 请求「{cut(record.get('request'), REQUEST_CHARS, strip=True)}」→ {answer}"
                      + (f" → {opened}" if opened else ""))
     if more:
         lines.append(f"（更早的还有 {more} 条没列）")

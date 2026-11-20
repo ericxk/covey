@@ -13,7 +13,7 @@ from covey.app.tidy_facts import foldable, labels, project_name
 from covey.cards import project_proposal as cards
 from covey.core import project_proposals as proposals
 from covey.core import projects
-from covey.core.state import read_object, write_json
+from covey.core.state import write_json
 from covey.core.topics import label_title
 
 PROGRESS_GAP = 3.0  # Seconds between two redraws of the card while it reads.
@@ -199,24 +199,6 @@ class Runs:
             self.patch_own(ctx, str((record.get("card") or {}).get("message_id") or ""), cards.proposal_card(view))
             gone += 1
         return gone
-
-    def redraw_row(self, ctx, record, **row) -> bool:
-        """The row of proposal ``record`` on the 整理专项 card it was listed on (its ``run``) changed by ``row`` and the card
-        redrawn; False when it has no such row (a proposal with a card of its own)."""
-        run = str(record.get("run") or "")
-        if not run.replace("-", "").isalnum():
-            return False
-        path = self.run_path(Path(ctx.state_dir), run)
-        saved = read_object(path)
-        rows = (saved.get("view") or {}).get("rows") or []
-        found = [item for item in rows if item.get("proposal") == record["id"]]
-        if not found or not saved.get("message_id"):
-            return False
-        for item in found:
-            item.update({key: value for key, value in row.items() if value is not None})
-        write_json(path, saved, ensure_ascii=False, indent=1)
-        self.messenger.patch_card(ctx.profile, saved["message_id"], cards.tidy_card(saved["view"]))
-        return True
 
     def topic_entries(self, ctx, topics) -> list:
         """Every topic as {key, label, title, link}: its T number (a topic without one, an old one or a Harness's own, is named by

@@ -59,6 +59,12 @@ class LedgerTest(Switched):
         self.assertTrue(record["answer"].endswith("…"))
         self.assertEqual((record["digested_by"], record["opened"]), ("", ["T12"]))
 
+    def test_a_cut_just_after_a_blank_leaves_no_blank_before_the_ellipsis(self):
+        words = "a" * (ledger.REQUEST_CHARS - 2) + " " + "b" * 50
+        record = ledger.make("k", CHAT, 2, "om_1", words, words, "done", NOW, SESSION, [])
+        self.assertTrue(record["request"].endswith("a…"))
+        self.assertNotIn(" …", ledger.render([{**record, "answer": "c" * (ledger.SHOW_CHARS - 2) + " " + "d" * 50}]))
+
     def test_the_rows_are_this_chats_within_twelve_hours_newest_eight_oldest_first(self):
         for number in range(10):
             ledger.write(self.state, entry(f"k{number}", ended=NOW - 100 + number))

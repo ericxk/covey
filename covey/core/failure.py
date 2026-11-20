@@ -13,10 +13,10 @@ status and status line.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import math
 
 from covey.core.model_policy import FALLBACK_MODELS, category_words, policy_where
-from covey.core.text import stamp
 from covey.core.recovery import RETRY_LABEL, authorized, classify, saved_delivery
 from covey.core.result import INCOMPLETE_STATUS, STATUS_MESSAGES
 
@@ -69,6 +69,13 @@ OWN = {
 }
 
 
+def clock(at):
+    try:
+        return _dt.datetime.fromtimestamp(float(at)).astimezone().strftime("%H:%M")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
 def failure_code(record):
     """Why ``record``'s turn did not succeed, as an error code (core/result.py ERROR_CODES) or one of "policy",
     "restart", "interrupted", "incomplete", "failed" (PSEUDO); "" when it did, or the owner stopped it."""
@@ -112,7 +119,7 @@ def _later(record, now, doing, total):
     if pending is None:
         return ""
     at, attempt = pending
-    when = stamp(at, "%H:%M", "", lenient=True)
+    when = clock(at)
     minutes = ""
     if now is not None and isinstance(at, (int, float)) and at > now:
         minutes = f"约 {max(1, math.ceil((at - now) / 60))} 分钟后"

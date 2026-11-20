@@ -861,3 +861,18 @@ class OldestPythonTest(unittest.TestCase):
                 if token.type == tokenize.FSTRING_START:
                     enclosing.append(quote)
         self.assertEqual(found, [])
+
+
+class TidyPartsTest(unittest.TestCase):
+    def test_no_method_is_defined_in_two_parts_of_project_tidy(self):
+        # ProjectTidy is its parts put together (app/project_tidy.py): a second copy of a method in another part is dead
+        # code the method resolution order hides, and an edit to it would do nothing.
+        from covey.app.project_tidy import ProjectTidy
+        seen, twice = {}, []
+        for part in ProjectTidy.__mro__[1:-1]:
+            for name, value in vars(part).items():
+                if callable(value) and not name.startswith("__"):
+                    if name in seen:
+                        twice.append(f"{name}: {seen[name]} and {part.__name__}")
+                    seen.setdefault(name, part.__name__)
+        self.assertEqual(twice, [])
