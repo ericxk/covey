@@ -201,6 +201,22 @@ class PluginsCommandTest(ExtensionCase):
         self.assertIn("already used by " + PACKAGE, result["message"])
         self.assertEqual(extensions.enabled(self.environ, self.root), [PACKAGE])
 
+    def test_deploy_check_asks_every_package_and_a_check_that_fails_is_a_problem(self):
+        from types import SimpleNamespace
+
+        def broken(config):
+            raise OSError("no such file")
+        fine = SimpleNamespace(check=lambda config: {"problems": [], "notes": [f"read {config}"]})
+        wrong = SimpleNamespace(check=lambda config: {"problems": ["interpreter at another revision"]})
+        with mock.patch.object(extensions, "hooks", return_value=[("a", fine), ("b", wrong),
+                                                                  ("c", SimpleNamespace(check=broken))]):
+            result = self.plugins.deploy_check(Path("/x/harnesses.json"))
+        self.assertEqual(result, {"ok": False, "notes": ["a: read /x/harnesses.json"],
+                                  "problems": ["b: interpreter at another revision",
+                                               "c: check failed: OSError: no such file"]})
+        with mock.patch.object(extensions, "hooks", return_value=[]):
+            self.assertEqual(self.plugins.deploy_check(None), {"ok": True, "problems": [], "notes": []})
+
     def test_the_variable_overriding_the_choice_is_said(self):
         result = self.plugins.turn(PACKAGE, True, {**self.environ, "COVEY_EXTENSIONS": ""}, self.root)
         self.assertTrue(result["ok"])

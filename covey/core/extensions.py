@@ -8,7 +8,8 @@ only, no import of covey): ``HARNESSES`` (name -> the fields of core/roster.py's
 app/artifact_policy.py), ``IGNORED_ENV`` (variable -> [Harness, option], core/ignored_env.py) and ``GATEWAYS`` (name -> the
 fields of core/gateways.py's Gateway: model gateways for Codex, Pi and dsh); each may be left out.
 Two more tables hold what only some deployments have: ``HOOKS`` (hook name -> the dotted name of a module of the
-package, imported when the core asks for it: ``hook``; the names are the ``HOOK_NAMES`` below) and ``SETTINGS``
+package, imported when the core asks for it: ``hook``, or every package's: ``hooks``; the names are the
+``HOOK_NAMES`` below) and ``SETTINGS``
 (name -> str, the ``SETTING_NAMES`` and the package's own ``<package>.<name>``: ``setting``). With no extension enabled,
 ``hook`` is None and ``setting`` the default the caller gives. ``CARD_KINDS`` (card button kind -> label) names the
 button kinds the package's cards carry: the Bridge accepts them (app/card_actions.py) and the package's features claim
@@ -47,6 +48,7 @@ HARNESS_FIELDS = {"module", "store", "store_module", "live_questions", "paused_q
 HOOK_NAMES = {
     "proxy_sender": "app/proxy.py: the 代答 sender (ProxySend, ProxyLogin and the helpers app/proxy_send.py names)",
     "service_hosting": "service/install.py: other ways to host the Manager (MODES: name -> install(root, args); optional auto_mode() -> a mode name when it applies, for --mode auto)",
+    "deploy_check": "service/plugins.py: the package's checks before a deploy, run in the release being deployed (check(harness_config) -> {'problems': [...], 'notes': [...]}; every package's, not only the first)",
 }
 # compat: hooks of features the core no longer has; a manifest that still names one loads, and the hook is never asked for.
 RETIRED_HOOKS = {"dashboard_entry"}  # The web dashboard's fixed entry, with the dashboard taken out.
@@ -315,19 +317,31 @@ def unused_env(environ=None) -> list[str]:
             for name, feature in RETIRED_ENV.items() if cenv.get(name, "", environ).strip()]
 
 
+def _hook_module(extension: Extension, name: str):
+    module = extension.hooks[name]
+    try:
+        return importlib.import_module(module)
+    except Exception as error:
+        raise ExtensionError(extension.package, f"cannot import hook {name} ({module}): "
+                                                f"{type(error).__name__}: {error}") from error
+
+
 def hook(name: str):
     """The module of hook ``name`` from the first enabled package that has it, or None."""
     if name not in HOOK_NAMES:
         raise KeyError(name)
     for extension in manifests():
         if name in extension.hooks:
-            module = extension.hooks[name]
-            try:
-                return importlib.import_module(module)
-            except Exception as error:
-                raise ExtensionError(extension.package, f"cannot import hook {name} ({module}): "
-                                                        f"{type(error).__name__}: {error}") from error
+            return _hook_module(extension, name)
     return None
+
+
+def hooks(name: str) -> list[tuple[str, object]]:
+    """(package, module) of hook ``name`` for every enabled package that has it, in order; for the hooks each package
+    answers for itself (``deploy_check``)."""
+    if name not in HOOK_NAMES:
+        raise KeyError(name)
+    return [(extension.package, _hook_module(extension, name)) for extension in manifests() if name in extension.hooks]
 
 
 def setting(name: str, default: str = "") -> str:

@@ -3,6 +3,7 @@
     python3 -B bin/covey_plugins.py list [--json]
     python3 -B bin/covey_plugins.py enable <package> | disable <package>
     python3 -B bin/covey_plugins.py doctor
+    python3 -B bin/covey_plugins.py deploy-check [--harness-config FILE]
 
 An extension is a package with a ``manifest`` module on the search path (core/extensions.py: ``extensions/`` of the
 code the Bridge runs, a release's included). Which are on is the release's ``extensions/enabled`` with the data
@@ -13,6 +14,10 @@ list is loaded the way the Bridge loads it (each manifest, then the Harness and 
 that would not load or collides is refused and nothing is written. The Bridge reads the list when it starts:
 ``covey_service.py restart`` (docs/operations.md 日常操作) puts a change into effect. Nothing here starts, stops or
 restarts anything.
+
+``deploy-check`` asks each enabled package's ``deploy_check`` hook whether this code (a release about to be deployed:
+scripts/deploy_bridge.sh runs it there) can run on this machine, e.g. that an isolated interpreter matches the
+release; it prints one JSON line {'ok', 'problems', 'notes'} and exits 1 when there is a problem.
 """
 from __future__ import annotations
 
@@ -142,6 +147,21 @@ def doctor(environ=None, root: Path = extensions.ROOT) -> dict:
     return {"ok": not problem, "enabled": on, "message": problem or "启用的扩展都能加载，没有冲突"}
 
 
+def deploy_check(harness_config: Path | None = None) -> dict:
+    """{'ok', 'problems', 'notes'} of every enabled package's ``deploy_check`` hook, each line led by the package; a
+    hook that fails or answers in another shape is a problem."""
+    problems, notes = [], []
+    for package, module in extensions.hooks("deploy_check"):
+        try:
+            said = module.check(harness_config)
+            got = {key: [str(line) for line in said.get(key) or []] for key in ("problems", "notes")}
+        except Exception as error:  # A check that cannot run says nothing about the release: it is a problem.
+            got = {"problems": [f"check failed: {type(error).__name__}: {error}"], "notes": []}
+        problems += [f"{package}: {line}" for line in got["problems"]]
+        notes += [f"{package}: {line}" for line in got["notes"]]
+    return {"ok": not problems, "problems": problems, "notes": notes}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="covey_plugins.py", description="查看、启用、停用扩展（插件）")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -150,7 +170,16 @@ def main(argv=None) -> int:
     for name, help_text in (("enable", "为这个部署启用一个扩展"), ("disable", "为这个部署停用一个扩展")):
         commands.add_parser(name, help=help_text).add_argument("package")
     commands.add_parser("doctor", help="检查启用的扩展能否一起加载")
+    checking = commands.add_parser("deploy-check", help="部署前让启用的扩展检查这份代码能否在本机运行（打印一行 JSON）")
+    checking.add_argument("--harness-config", type=Path, help="Harness 配置（默认：数据根的 harnesses.json）")
     args = parser.parse_args(argv)
+    if args.command == "deploy-check":
+        try:
+            result = deploy_check(args.harness_config)
+        except extensions.ExtensionError as error:
+            result = {"ok": False, "problems": [str(error)], "notes": []}
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result["ok"] else 1
     try:
         if args.command == "list":
             result = listing()

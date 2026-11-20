@@ -6,7 +6,7 @@
 #   deploy_bridge.sh --workdir DIR --profile NAME [--app-id ID] [--state-dir DIR] [--harness-config FILE]
 #                    [--check-only] [--repo CHECKOUT] [--commit REV] [--run-dir DIR] [--allow-command-change]
 #                    [--ext-repo CHECKOUT [--ext-commit REV]]... [--allow-core-mismatch] [--allow-rollback]
-#                    [-- BRIDGE_OPTION ...]
+#                    [--allow-extension-checks] [-- BRIDGE_OPTION ...]
 #
 # Names as in docs/operations.md: COVEY_DATA_HOME (required), APP_ID and STATE_DIR when --app-id and
 # --state-dir are absent (STATE_DIR defaults to $COVEY_DATA_HOME/harness-$APP_ID), the service root from
@@ -40,7 +40,12 @@
 # scripts/assemble_release.py (core at --commit + the extensions, the shape of the old single repository) and its id
 # is <core 8>-<extension 8>[-<extension 8>...] instead of <sha>. More pre-checks: the checkouts and commits exist; the
 # core.lock of an extension names --commit (--allow-core-mismatch lets it differ); the manifest environment and this
-# shell have neither COVEY_EXTENSION_PATH nor COVEY_EXTENSIONS (they would override the release's extensions/).
+# shell have neither COVEY_EXTENSION_PATH nor COVEY_EXTENSIONS (they would override the release's extensions/); and
+# the enabled extensions' own checks pass ("pre.extension_checks", notes in "pre.extension_notes"): the release is
+# assembled into the run dir's tmp/ (or the existing release used) and `bin/covey_plugins.py deploy-check` run in it
+# with --harness-config, so an extension finds what this release would run with (an isolated interpreter whose
+# source is not the revision the release pins, say); --allow-extension-checks lets a failing one go. A release whose
+# core has no deploy-check (an older one, for a rollback) is not checked (a note says so).
 # Without --ext-repo nothing changes.
 # Post-checks: a new `bridge started … release=<id>` line, two `ready event_key=` after it,
 # /proc/<pid>/cmdline runs the new release, covey_doctor --runtime-only exits 0, (reported only) what the
@@ -72,6 +77,7 @@ ap.add_argument("--ext-repo", action="append", default=[])
 ap.add_argument("--ext-commit", action="append", default=[])
 ap.add_argument("--allow-core-mismatch", action="store_true")
 ap.add_argument("--allow-rollback", action="store_true")
+ap.add_argument("--allow-extension-checks", action="store_true")
 ap.add_argument("--app-id", default=os.environ.get("APP_ID"))
 ap.add_argument("--state-dir", default=os.environ.get("STATE_DIR"))
 ap.add_argument("--workdir")
@@ -283,6 +289,40 @@ if exts:
                                      "unset them in the shell and re-register without them")
 
 
+def extension_checks():
+    """(problems, notes) of `covey_plugins.py deploy-check` run in the release this deploy would make: the existing
+    one, else one assembled into the run dir's tmp/ and removed after (a check touches nothing outside the run dir)."""
+    probe = release if (release / "bin" / "covey_bridge.py").exists() else run / "tmp" / "extension-check-release"
+    try:
+        if probe != release:
+            shutil.rmtree(probe, ignore_errors=True)
+            cmd = ["python3", "-B", "-I", str(Path(sys.argv[1]) / "scripts" / "assemble_release.py"), "--core", str(repo),
+                   "--core-ref", commit, "--out", str(probe)]
+            for path, sha, _ in exts:
+                cmd += ["--ext", str(path), "--ext-ref", sha]
+            built = sh(cmd, timeout=600, log="extension-check-assemble.log")
+            if built.returncode:
+                return [f"assembling the release to check failed: {(built.stderr or built.stdout).strip()[-300:]}"], []
+        if "deploy-check" not in sh(["python3", "-B", "bin/covey_plugins.py", "--help"], cwd=probe).stdout:
+            return [], ["this release's core has no covey_plugins.py deploy-check: extensions not checked"]
+        done = sh(["python3", "-B", "bin/covey_plugins.py", "deploy-check", "--harness-config", HARNESS_CONFIG],
+                  cwd=probe, timeout=300, log="extension-check.log")
+        try:
+            said = json.loads(done.stdout.strip().splitlines()[-1])
+            return list(said.get("problems") or []), list(said.get("notes") or [])
+        except (ValueError, IndexError, AttributeError):
+            return [f"deploy-check failed (exit {done.returncode}): {(done.stderr or done.stdout).strip()[-300:]}"], []
+    except subprocess.TimeoutExpired as exc:
+        return [f"extension checks timed out: {exc}"], []
+    finally:
+        if probe != release:
+            shutil.rmtree(probe, ignore_errors=True)
+
+
+if exts:
+    pre["extension_checks"], pre["extension_notes"] = extension_checks()
+
+
 def live_commits(entry):
     """(release id, [core commit, extension commits...]) of the live entry script, (None, []) when it is not run
     from a release under $COVEY_DATA_HOME/releases/."""
@@ -321,8 +361,9 @@ old = before.get("status") or {}
 result.update(pre=pre, old={"generation": old.get("generation"), "pid": (old.get("process") or {}).get("pid")})
 blocked = [k for k in ("restart_blockers", "creating_worktree", "proxy_sending",
                        "env_missing", "env_extra", "env_value_diff", "permission_env", "command_diff",
-                       "extension_env", "core_lock_mismatch", "rollback") if pre.get(k)
+                       "extension_env", "core_lock_mismatch", "extension_checks", "rollback") if pre.get(k)
            and not (k == "command_diff" and args.allow_command_change)
+           and not (k == "extension_checks" and args.allow_extension_checks)
            and not (k == "rollback" and args.allow_rollback)
            and not (k == "core_lock_mismatch" and args.allow_core_mismatch)]
 if blocked:

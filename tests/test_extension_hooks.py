@@ -41,6 +41,18 @@ class HookTests(unittest.TestCase):
         with mock.patch.object(extensions, "manifests", return_value=(read,)), self.assertRaises(KeyError):
             extensions.hook("dashboard_entry")
 
+    def test_hooks_gives_every_package_that_has_the_hook_in_order(self):
+        one, two = extensions.Extension("one", {}, (), {}, {}, hooks={"deploy_check": "json"}), manifest_of()
+        three = extensions.Extension("three", {}, (), {}, {}, hooks={"deploy_check": "string"})
+        with mock.patch.object(extensions, "manifests", return_value=(one, two, three)):
+            self.assertEqual([(package, module.__name__) for package, module in extensions.hooks("deploy_check")],
+                             [("one", "json"), ("three", "string")])
+            self.assertEqual(extensions.hook("deploy_check").__name__, "json")
+            with self.assertRaises(KeyError):
+                extensions.hooks("other")
+        with mock.patch.object(extensions, "manifests", return_value=()):
+            self.assertEqual(extensions.hooks("deploy_check"), [])
+
     def test_without_an_extension_there_is_no_hook_and_the_default_stands(self):
         with mock.patch.object(extensions, "manifests", return_value=()):
             self.assertIsNone(extensions.hook("proxy_sender"))

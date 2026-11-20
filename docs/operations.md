@@ -214,6 +214,7 @@ python3 -B bin/covey_plugins.py list          # 找到了哪些、哪些启用�
 python3 -B bin/covey_plugins.py enable <包>   # 先按 Bridge 的方式试加载，加载不了或和别的冲突就不写
 python3 -B bin/covey_plugins.py disable <包>
 python3 -B bin/covey_plugins.py doctor        # 启用的扩展能不能一起加载
+python3 -B bin/covey_plugins.py deploy-check  # 启用的扩展自己检查这份代码能不能在本机跑（部署预检也跑它）
 python3 -B bin/covey_service.py restart --state-dir "$STATE_DIR"   # 改了名单要重启 Bridge 才生效
 ```
 

@@ -110,7 +110,7 @@ scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute
 
 - 打包由 `scripts/assemble_release.py` 做：核心 `git archive` 到 release，每个扩展包 `git archive` 到 `release/extensions/<包名>/`，去掉包里的 `standalone/`，包的 `bin/*.py` 入口（如扩展自己的运行时脚本）放进 `release/bin/` 盖掉核心里的转发脚本，写 `extensions/enabled`（按 `--ext-repo` 的顺序列出所有包名）和 `RELEASE_MANIFEST`（各检出的完整提交号），再重写 `AGENTS.md` 的模块表。形状和单仓库的 release 相同，服务清单、`runs/<任务键>/` 协议、回滚都不变。拼装按提交取，不看检出的工作区。
 - release id 是 `<核心前 8 位>-<扩展前 8 位>[-<第二个扩展前 8 位>…]`，release 目录、`bridge started … release=<id>` 的匹配都用它；结果 JSON 的 `commit` 仍是核心完整提交号，另有 `ext_commits` 和 `release_id`。不给 `--ext-repo` 时 release 目录名是核心提交号。回滚只回一半：核心提交不变、`--ext-commit` 设成旧值，得到一个新 id 的 release。
-- 额外的预检（`--check-only` 同样做）：扩展检出是 git 仓库、提交存在（否则退出码 2）；扩展库的 `core.lock` 写的核心提交和 `--commit` 不一致时拦下（`pre.core_lock_mismatch`；试新核心时加 `--allow-core-mismatch` 放行）；服务清单和当前终端里不能有 `COVEY_EXTENSION_PATH`、`COVEY_EXTENSIONS`（`pre.extension_env`；它们会盖过 release 里的 `extensions/`，unset 后重新注册）。
+- 额外的预检（`--check-only` 同样做）：扩展检出是 git 仓库、提交存在（否则退出码 2）；扩展库的 `core.lock` 写的核心提交和 `--commit` 不一致时拦下（`pre.core_lock_mismatch`；试新核心时加 `--allow-core-mismatch` 放行）；服务清单和当前终端里不能有 `COVEY_EXTENSION_PATH`、`COVEY_EXTENSIONS`（`pre.extension_env`；它们会盖过 release 里的 `extensions/`，unset 后重新注册）；启用的扩展自己的检查要过（`pre.extension_checks`，说明在 `pre.extension_notes`）：脚本把要部署的 release 拼到运行目录的 `tmp/`（release 已存在时直接用它），在里面跑 `bin/covey_plugins.py deploy-check --harness-config <配置>`，跑完删掉，所以扩展看到的是这次要部署的代码和服务实际用的配置（例如隔离解释器的源码是不是 release 固定的版本）；确认无碍时加 `--allow-extension-checks` 放行。回滚到还没有 `deploy-check` 的旧核心时不检查，`pre.extension_notes` 里说明。
 
 ### 预编译字节码
 

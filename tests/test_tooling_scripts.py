@@ -468,6 +468,27 @@ class DeployExtensionTests(DeployFixture):
         code, out = self.check("--ext-repo", str(self.ext), "--ext-commit", "HEAD", "--ext-repo", str(second))
         self.assertEqual(out["release_id"], f"{self.head[:8]}-{self.ext_sha[:8]}-{sha2[:8]}")
 
+    def test_the_extensions_own_checks_run_in_the_release_and_block_unless_allowed(self):
+        code, out = self.check("--ext-repo", str(self.ext))
+        self.assertEqual((code, out["pre"]["extension_checks"], out["pre"]["extension_notes"]), (0, [], []), out)
+        checked = self.root / "checked"
+        make_repo(checked, {**EXT_FILES, "core.lock": f"{self.head[:8]}\n",
+                            "covey_internal/manifest.py": 'HARNESSES = {}\nHOOKS = {"deploy_check": "covey_internal.check"}\n',
+                            "covey_internal/check.py": "import os\n"
+                            "def check(config):\n"
+                            "    return {'problems': ['wrong revision'], 'notes': [f'{config} {os.getcwd()}']}\n"})
+        code, out = self.check("--ext-repo", str(checked))
+        self.assertEqual((code, out["ok"]), (1, False), out)
+        self.assertIn("extension_checks", out["error"])
+        self.assertEqual(out["pre"]["extension_checks"], ["covey_internal: wrong revision"])
+        config, where = out["pre"]["extension_notes"][0].removeprefix("covey_internal: ").split()
+        self.assertEqual(config, str(self.data / "harnesses.json"))
+        self.assertTrue(where.startswith(out["run_dir"]), where)  # Assembled in the run dir, not under releases/,
+        self.assertFalse(Path(where).exists())  # and removed after.
+        self.assertFalse((self.data / "releases").exists())
+        code, out = self.check("--ext-repo", str(checked), "--allow-extension-checks")
+        self.assertEqual((code, out["ok"]), (0, True), out)
+
     def test_a_core_lock_naming_another_commit_blocks_unless_allowed(self):
         other = self.root / "other"
         make_repo(other, {**EXT_FILES, "core.lock": "deadbeef\n"})
