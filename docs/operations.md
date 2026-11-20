@@ -197,7 +197,7 @@ python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" list                 # 
 
 从固定的 release 目录运行，更新代码时不会改变正在运行的服务和任务进程用的文件。命令用到文首设置的 `STATE_DIR` 和 `SERVICE_ROOT`。
 
-`scripts/deploy_bridge.sh --workdir <目录> --profile <profile> [-- <bridge 参数>]` 按第 1–4 步做完并打印一行 JSON（变量名同文首），检查不过就停；`--check-only` 只做部署前的检查，参数见脚本开头。其中权限变量（`pre.permission_env`）查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，和部署后 `covey_doctor --runtime-only` 的口径一致（停用的服务只告警）。它还在结果里报 `post.app_config`（飞书应用缺不缺东西），不算失败。
+`scripts/deploy_bridge.sh --workdir <目录> --profile <profile> [-- <bridge 参数>]` 按第 1–4 步做完并打印一行 JSON（变量名同文首），检查不过就停；`--check-only` 只做部署前的检查，参数见脚本开头。其中权限变量（`pre.permission_env`）查目标服务的清单、当前终端和服务根下其他运行中的服务的清单，和部署后 `covey_doctor --runtime-only` 的口径一致（停用的服务只告警）。部署后的 `covey_doctor --runtime-only` 不是 0 时每 10 秒再问一次，最多 90 秒（刚启动时事件连接还在建立，会短暂报 degraded），`post.doctor_tries` 是问了几次。它还在结果里报 `post.app_config`（飞书应用缺不缺东西），不算失败。
 
 **一次只有一个部署，不往回部署**（2026-11-19）：几个话题都可能部署同一个服务，同时跑会互相覆盖，后跑完的生效，较旧的提交还可能盖掉较新的现网。所以：
 

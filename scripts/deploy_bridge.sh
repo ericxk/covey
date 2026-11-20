@@ -365,6 +365,7 @@ if boot.returncode:
     finish(error="bootstrap failed, see bootstrap.log")
 
 # ---- post-checks
+DOCTOR_SETTLE = 90
 post = {}
 deadline = time.time() + 240
 started, after = None, None
@@ -399,8 +400,19 @@ post.update(generation=st.get("generation"), pid=pid, health=(st.get("health") o
             cmdline_release=any(a.decode().startswith(str(release) + "/") for a in cmdline))
 workers = (st.get("health") or {}).get("workers") or {}
 post["workers_proxy"] = workers.get("proxy") if "proxy" in workers else "absent"
-doctor = sh(["python3", "-B", "bin/covey_doctor.py", "--runtime-only"], cwd=release, timeout=180, log="doctor.log")
+# The transport watchdog's first look, seconds after the start, can find the event bus still connecting: the doctor
+# says degraded and is ready a few seconds later (generations 444 and 446, 2026-11-20). Asked again for up to
+# DOCTOR_SETTLE seconds before its answer counts; doctor_tries says how many it took.
+doctor_until = time.time() + DOCTOR_SETTLE
+tries = 0
+while True:
+    tries += 1
+    doctor = sh(["python3", "-B", "bin/covey_doctor.py", "--runtime-only"], cwd=release, timeout=180, log="doctor.log")
+    if doctor.returncode == 0 or time.time() >= doctor_until:
+        break
+    time.sleep(10)
 post["doctor_exit"] = doctor.returncode
+post["doctor_tries"] = tries
 # The Feishu app's configuration (docs/operations.md 自动补齐飞书应用): reported, never a failed deploy; the Bridge
 # itself offers the owner what is missing.
 check = sh(["python3", "-B", "bin/covey_app_setup.py", "check", "--profile", args.profile, "--app-id", args.app_id,
