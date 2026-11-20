@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 
 from covey.core.butler_tool_specs import current_name
+from covey.core.state import atomic_write_bytes
 
 DIR = Path("main-thread") / "requests"
 STALE = 600.0
@@ -42,11 +43,7 @@ def folder(state_dir) -> Path:
 
 
 def _write(path: Path, value) -> None:
-    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(value, handle, ensure_ascii=False)
-    os.replace(tmp, path)
+    atomic_write_bytes(path, json.dumps(value, ensure_ascii=False).encode("utf-8"), notify=False)
 
 
 def _read(path: Path):

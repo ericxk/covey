@@ -22,10 +22,8 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-import os
 import posixpath
 import re
-import tempfile
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
@@ -34,6 +32,7 @@ from covey.core import devices
 from covey.core.attachments import referenced_files
 from covey.core.jobs import job_key
 from covey.core.run_dir import run_dir
+from covey.core.state import atomic_write_bytes
 
 MAX_FILE = 64 * 1024 * 1024  # One attachment put on a device.
 MAX_TURN = 256 * 1024 * 1024  # The attachments of one turn.
@@ -256,14 +255,7 @@ def _copy_to(state_dir, key, alias, real, max_bytes):
     name = PurePosixPath(real).name or "file"
     folder = run_dir(state_dir, key) / FOLDER / hashlib.sha256(("%s:%s" % (alias, real)).encode()).hexdigest()[:24]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, temp = tempfile.mkstemp(dir=folder, prefix=".part-")
-    try:
-        with os.fdopen(fd, "wb") as out:
-            out.write(data)
-        os.replace(temp, folder / name)
-    except BaseException:
-        Path(temp).unlink(missing_ok=True)
-        raise
+    atomic_write_bytes(folder / name, data, prefix=".part-", suffix="", notify=False)
     return folder / name
 
 

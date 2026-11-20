@@ -47,6 +47,7 @@ bin/  →  app/  →  feishu/ · cards/ · backends/<名字>/  →  core/
 - `bin/` 入口先把本 release 的仓库根插到 `sys.path` 最前再导入包，`ArgumentParser(prog=...)` 固定程序名。包内文件不作脚本运行；起子进程用 `core/paths.py` 的 `entry_script(name)`。
 - `__init__.py` 全空。扩展的隔离解释器导入的 `core/` 模块只用标准库（公司扩展的清单在 扩展 tests 里的结构测试）；改了在那个解释器里跑扩展的测试，见扩展 README。
 - `service/boot.py`（由 PID 1 加载）和 `service/memguard.py`（复制到本地盘运行）只用标准库、不导入本包。
+- 原子写（临时文件加替换）收在 `core/state.py` 的 `atomic_write_bytes`，`write_private_text` 建在它上面；流式写（gzip、tar、复制大文件）和要保留特殊权限的写留在原处。`service/memguard.py`、`core/node_agent.py`、`core/device_shim.py` 要在设备上或独立进程里只用标准库运行，里面自带一份原子写，是故意的重复，不要合并进 `core/state.py`。
 - 文字、卡片和 CardKit 写都经 `Messenger`；已发卡片的写从 `core/card_sequence.py` 的 `reserve` 取 sequence；按钮 kind 先登记在 `app/card_actions.py`；补充投递记录只经 `core/deliveries.py` 的 `update_delivery` 改。
 - 子进程用 `core/process.py`：`stream_subprocess_lines` 超时和停止（`JobCancelled`）都停整个进程组；`stop_group` 先 SIGTERM 再 SIGKILL，活下来的只报告不抛。
 - JSON 用 `core/state.py`：`read_json` 错误上抛；`write_json` 各写方用自己的临时文件再替换；`write_durable_json` 返回前落盘。

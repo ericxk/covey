@@ -41,27 +41,26 @@ _PRIVATE_DIRS: set = set()
 _UMASK = _umask()
 
 
-def write_private_text(path: Path, content: str) -> None:
-    # Unique temp name per writer so concurrent threads (worker vs consumer)
-    # writing the same file (e.g. workspaces.json) cannot truncate each other's
-    # half-written temp file. This does NOT serialize read-modify-write cycles:
-    # a concurrent update can still be lost. Add file locking if registry
-    # writes ever become frequent.
+def atomic_write_bytes(path: Path, data: bytes, *, prefix: str | None = None, suffix: str = ".tmp",
+                       notify: bool = True) -> None:
+    """``data`` as the whole of ``path``: written to a private temp file next to it, then renamed over it, so a
+    reader sees the old file or the new one. The directory must exist (FileNotFoundError otherwise).
+
+    The temp file is ``<prefix>XXXXXXXX<suffix>`` (a unique name per writer, so concurrent writers cannot truncate
+    each other's half-written one; ``prefix`` defaults to ``.<name>.``, the dotted ``*.tmp`` form the backup and the
+    store skip). A failed write leaves no temp file. ``notify`` tells core/store.py that ``path`` changed, as every
+    record write must (the one writer that must not is the store's own index file).
+
+    This does NOT serialize read-modify-write cycles: a concurrent update can still be lost. Add file locking if
+    registry writes ever become frequent."""
     folder = path.parent
-    if folder not in _PRIVATE_DIRS:
-        ensure_private_dir(folder)
-        _PRIVATE_DIRS.add(folder)
-    try:
-        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=folder)
-    except FileNotFoundError:  # Removed since this process made it.
-        ensure_private_dir(folder)
-        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=folder)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}." if prefix is None else prefix, suffix=suffix, dir=folder)
     tmp = Path(tmp_name)
     try:
         if _UMASK is None or _UMASK & PRIVATE_FILE_MODE:
             os.fchmod(fd, PRIVATE_FILE_MODE)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
         tmp.replace(path)
     except BaseException:
         try:
@@ -69,9 +68,23 @@ def write_private_text(path: Path, content: str) -> None:
         except OSError:
             pass
         raise
-    from covey.core.store import invalidate_directory, note_change
-    invalidate_directory(folder, path.name)
-    note_change(folder, path.name)  # Other processes catch up from this line (core/store.py).
+    if notify:
+        from covey.core.store import invalidate_directory, note_change
+        invalidate_directory(folder, path.name)
+        note_change(folder, path.name)  # Other processes catch up from this line (core/store.py).
+
+
+def write_private_text(path: Path, content: str) -> None:
+    folder = path.parent
+    data = content.encode("utf-8")
+    if folder not in _PRIVATE_DIRS:
+        ensure_private_dir(folder)
+        _PRIVATE_DIRS.add(folder)
+    try:
+        atomic_write_bytes(path, data)
+    except FileNotFoundError:  # Removed since this process made it.
+        ensure_private_dir(folder)
+        atomic_write_bytes(path, data)
 
 
 def claim_once(folder: Path, name: str) -> bool:

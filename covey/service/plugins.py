@@ -20,11 +20,11 @@ import argparse
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 from covey.core import extensions
 from covey.core.file_lock import file_lock
+from covey.core.state import atomic_write_bytes
 
 RESTART = "python3 -B bin/covey_service.py restart --state-dir \"$STATE_DIR\""
 
@@ -110,14 +110,7 @@ def write_choice(package: str, sign: str, environ=None, root: Path = extensions.
         kept = [line for line in lines
                 if line.split("#", 1)[0].strip().lstrip("+-").strip() != package]
         kept.append(sign + package)
-        fd, temp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
-        try:
-            with os.fdopen(fd, "w") as handle:
-                handle.write("\n".join(kept) + "\n")
-            os.replace(temp, path)
-        except BaseException:
-            Path(temp).unlink(missing_ok=True)
-            raise
+        atomic_write_bytes(path, ("\n".join(kept) + "\n").encode("utf-8"), prefix=path.name + ".", notify=False)
     return path
 
 
