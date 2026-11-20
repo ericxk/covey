@@ -30,7 +30,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import pins, project_lead, project_loop, web_said, web_turns
+from covey.app import pins, project_lead, project_loop, web_images, web_said, web_turns
 from covey.app.answers import SKIPPED
 from covey.app.web_ops import Ops
 from covey.core import board_read, failure, http_upstream, look, project_library, project_memory, projects, triage, web_sync
@@ -69,6 +69,7 @@ QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "c
 NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 CANCEL_REASONS = ("stale", "switched", "rewound", "lead_stop", "web_stop")  # A cancelled question's cancel_reason, pushed as its closed_by.
 UNSTARTED_WORDS = "没开工，已取消"  # The line under the owner's words whose task was cancelled before it started (its record's reason after it).
+IMAGES_WAIT = 300  # Seconds images are held back after the page did not take one (push_images).
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
 
 
@@ -178,8 +179,12 @@ class Client:
 class Collector:
     """The items of the owner's chat from the records (see the module's reading rules). One thread uses it."""
 
-    def __init__(self, env, stuck=None, log=None) -> None:
+    def __init__(self, env, stuck=None, log=None, images=None) -> None:
         self.env = env
+        self.images = images  # web_images.WebImages (data contract v19); None: turns carry no images (their words lose local paths all the same).
+        self.now = 0.0  # The time of the look under way.
+        self.backfill = images is not None and not images.backfilled  # The first pass looks at every topic once (their images, T582).
+        self.backfilling, self.backfill_extra = False, set()  # The pass under way is that one; the topics only it looks at.
         self.stuck = {} if stuck is None else stuck  # topic id -> the left-behind thread stuck reading it (WebSync.start_over).
         self.left = set()  # The topics the last look left out because their read is stuck.
         self.at, self.thread = "", None  # The topic being built now, and the thread that looks.
@@ -213,6 +218,7 @@ class Collector:
         the topics and projects pushed before that are not any more (a list of {type, key}; ``seen`` is updated by the caller)."""
         state = Path(self.env.state_dir)
         self.thread = threading.current_thread()
+        self.now = now
         if self.origins is None or self.origins.chat != str(chat):
             self.origins = web_said.Origins(state, chat)
         out = {topic for topic, thread in list(self.stuck.items()) if thread.is_alive()}
@@ -237,8 +243,13 @@ class Collector:
             self.board = board_groups(looked.rows, looked.dismissed) if pins.laid() else None
         quick = [topic for topic in hot | self.hot | touched if topic not in family]
         if start:
-            self.pass_left = [topic for topic, records_ in board_read.topic_jobs(state, chat).items()
-                              if topic in hot or topic in touched or self.recent(records_, now)]
+            backfill, self.backfill = self.backfill, False  # Every topic once, not only the recent ones (images of older turns, T582).
+            self.backfilling = backfill
+            jobs = board_read.topic_jobs(state, chat)
+            self.pass_left = [topic for topic, records_ in jobs.items() if topic in hot or topic in touched or self.recent(records_, now)]
+            # The topics only that pass looks at: once it ends they are forgotten as pushed, so the next pass does not delete them.
+            self.backfill_extra = {("topic", topic) for topic in jobs if topic not in self.pass_left} if backfill else set()
+            self.pass_left += [key for _, key in sorted(self.backfill_extra)]
             self.pass_seen = set()
         passing = bool(self.pass_left) or start
         slice_ = []
@@ -277,7 +288,10 @@ class Collector:
         if self.pass_done:
             seen = self.pass_seen | {("topic", topic) for topic in out}  # A topic left out is still on the page: not deleted.
             deleted += [{"type": kind, "key": key} for kind, key in sorted(self.pushed_topics - seen)]
-            self.pushed_topics = seen
+            self.pushed_topics = seen - self.backfill_extra
+        if self.pass_done and self.backfilling:
+            self.backfilling, self.backfill_extra = False, set()
+            self.images.mark_backfilled(now)
         elif built:
             self.pushed_topics |= built
         projects_now = self.project_items(state, chat, records)  # Read every step, like the hot topics: they go with them.
@@ -437,7 +451,7 @@ class Collector:
             wakes = self.lead_starts(state, topic, project, records)
         answered = self.answered(questions, records)
         entries = (self.lead_entries(state, topic, project, rows, records, wakes, answered, questions) if project is not None
-                   else self.entries(rows, records, answered, questions))
+                   else self.entries(rows, records, answered, questions, topic=topic))
         total = len(entries)
         self.count_unpaired(topic, entries)
         before = self.retried(records, entries)
@@ -448,6 +462,7 @@ class Collector:
             turn = {"topic_key": topic, "seq": seq, **data}
             if job is not None and data.get("role") == "agent":
                 turn["job_id"] = str(job.get("job_id") or "")
+                self.put_images(turn, self.images.shown(job, topic, data.get("started_at"), self.now) if self.images else [])
             if job is not None:
                 turn.update(self.ended_extras(state, job) if seq > total - EXTRA_TURNS else self.ended_figures(state, job))
                 self.fold_usage(state, turn, before.get(id(job)) or ())
@@ -554,7 +569,7 @@ class Collector:
         last written at most PAIR_SLACK seconds before (its line is written as its result goes out, then its record)."""
         return bool(at) and board_read.started_at(record) <= at + 2 and at <= moment(record.get("updated_at")) + PAIR_SLACK
 
-    def entries(self, rows, records, answered=None, questions=()) -> list:
+    def entries(self, rows, records, answered=None, questions=(), topic="") -> list:
         """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
         (``answered``): the turns that answered a question card get its ``answers``. An owner line says who said it and
         what the page shows of it (``said``)."""
@@ -562,14 +577,34 @@ class Collector:
         for row, job, asked in self.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             owner = row.get("role") == "user"
+            if owner:
+                row = self.owner_row(row, topic, at)
             body = row.get("display_content") if owner and row.get("display_content") else row.get("content")
             data = {"role": "owner" if owner else "agent", "body": web_sync.clip(body), "status": "done", "job_id": "",
                     "started_at": at, "ended_at": at, "artifacts": []}
             if owner:
                 self.said(data, row, asked)
+                self.put_images(data, row.get("images"))
             self.put_answers(data, answered, job, owner)
             out.append((at, data, None if owner else job))
         return out
+
+    def owner_row(self, row, topic, at) -> dict:
+        """The owner's history line ``row`` as the page gets it: its words without local paths (web_images.scrub: the attachment
+        block becomes its "附件：…" line) and, under ``images``, the refs of the images it came with (data contract v19)."""
+        content = str(row.get("content") or "")
+        clean = {**row, "content": web_images.scrub(content)}
+        if row.get("display_content"):
+            clean["display_content"] = web_images.scrub(row["display_content"])
+        clean["images"] = self.images.sent(content, topic, at, self.now) if self.images is not None else []
+        return clean
+
+    @staticmethod
+    def put_images(data, refs) -> None:
+        if refs:
+            data["images"] = refs
+        else:
+            data.pop("images", None)
 
     def said(self, data, row, asked) -> None:
         """``data`` (an owner line's turn) takes web_said's fields (data contract v11): ``by`` always, ``display`` clipped as the
@@ -628,9 +663,11 @@ class Collector:
             if row.get("role") == "user":
                 waking = projects.is_wake(row.get("message_id"))
                 if not waking:
+                    row = self.owner_row(row, topic, at)
                     data = {"role": "owner", "body": web_sync.clip(row.get("display_content") or row.get("content")), "status": "done",
                             "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}
                     self.said(data, row, asked)
+                    self.put_images(data, row.get("images"))
                     self.put_answers(data, answered, job, True)
                     out.append((at, data, None))
                 continue
@@ -777,6 +814,7 @@ class Collector:
                 "status": "waiting" if job.get("status") == "waiting_user" else "running", "job_id": str(job.get("job_id") or ""),
                 "started_at": board_read.started_at(job), "ended_at": 0, "artifacts": []}
         turn.update(web_turns.extras(state, job, job.get("status") in RUNNING, now or time.time(), snapshot))
+        self.put_images(turn, self.images.shown(job, topic, turn["started_at"], now or time.time()) if self.images else [])
         estimate_of(job, turn)
         started = (wakes or {}).get(job_key(job.get("message_id"), job.get("job_id")))
         if started:
@@ -795,8 +833,8 @@ class Collector:
                                       for o in each.get("options") or () if isinstance(o, dict)],
                           "multiple": bool(each.get("multiple"))})
         answers = row.get("answers") if isinstance(row.get("answers"), dict) else {}
-        said = "；".join("、".join(str(a) for a in (value.get("answers") if isinstance(value, dict) else [value]) or ())
-                        for value in answers.values())
+        said = web_images.scrub("；".join("、".join(str(a) for a in (value.get("answers") if isinstance(value, dict) else [value]) or ())
+                                          for value in answers.values()))
         state = QUESTION_STATES.get(status, "answered")
         if state == "open" and triage.held(row):
             state = "held"  # The lead has it first (COVEY_PROJECT_TRIAGE): not the owner's to answer, so not 等你 on the page.
@@ -871,7 +909,8 @@ class WebSync:
         self.runtime, self.env = runtime, env
         self.client = Client()
         self.stuck = {}  # topic id -> the left-behind thread stuck reading it: looks leave the topic out while that thread lives.
-        self.collector = Collector(env, self.stuck, runtime.log)
+        self.images = web_images.WebImages(env.state_dir, runtime.log) if env.state_dir else None
+        self.collector = Collector(env, self.stuck, runtime.log, self.images)
         self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.backlog = {}  # (type, key) -> an item of a pass not sent yet, the newest read of it (push_once).
@@ -883,6 +922,7 @@ class WebSync:
         self.tidy_stamps, self.tidy_lock, self.tidy_failed = None, threading.Lock(), 0  # The 整理专项 item (push_tidy).
         self.ledger = None
         self.down = {}  # thread name -> failures in a row.
+        self.images_wait, self.images_down = 0.0, 0  # push_images: no sending before this time; failures in a row.
 
     def threads(self):
         if not web_sync.enabled():
@@ -943,7 +983,7 @@ class WebSync:
         self.stuck = stuck
         # What the page took stays known (``sent``): only what changed goes again, not every item (2026-11-19 23:52: a stuck read
         # made the next look push all ~7000 items again, minutes in which nothing new went out).
-        self.collector, self.last_full = Collector(self.env, stuck, self.runtime.log), 0.0
+        self.collector, self.last_full = Collector(self.env, stuck, self.runtime.log, self.images), 0.0
         self.backlog = {}  # Read by the old one: the new pass reads them again.
 
     def push_once(self, now=None) -> int:
@@ -1011,11 +1051,31 @@ class WebSync:
                 if each["key"] in gone or str((each.get("data") or {}).get("topic_key") or "") in gone:
                     del self.backlog[name]
             self.sent_changed = True
+        if collector is self.collector:
+            self.push_images(collector, now)
         if full and collector is self.collector:
             self.last_full = now
         if self.sent_changed and (collector.pass_done or time.monotonic() - self.sent_saved >= SENT_SAVE_SECONDS):
             self.save_sent(now)
         return count
+
+    def push_images(self, collector, now) -> None:
+        """Some of the images the turns asked for (web_images.WebImages.upload); their topics are built again on the next look, now with
+        them. A page that does not take them (an older page without /sync/image, a refusal) only holds the images back IMAGES_WAIT
+        seconds: the items go on as before."""
+        if self.images is None or now < self.images_wait:
+            return
+        try:
+            topics = self.images.upload(self.client, now, lambda: setattr(collector, "moved", time.monotonic()))
+        except WebError as exc:
+            self.images_down += 1
+            if self.images_down == 1 or self.images_down % 10 == 0:
+                self.runtime.log(f"web sync images failed ({self.images_down}): {self.why(exc)}")
+            self.images_wait = now + IMAGES_WAIT
+            return
+        self.images_down = 0
+        for topic in topics:
+            collector.touch(topic)
 
     def sent_path(self) -> Path:
         return Path(self.env.state_dir) / web_sync.FOLDER / SENT_FILE
@@ -1245,5 +1305,5 @@ def answer_rows(record) -> list:
         parts = [str(part) for part in (given if isinstance(given, list) else [given] if given else []) if str(part).strip()]
         parts = [part for part in parts if part != SKIPPED]
         out.append({"question": str(question.get("question") or question.get("header") or "")[:500],
-                    "choice": NOT_ANSWERED if feedback or not parts else "、".join(parts)[:500]})
+                    "choice": NOT_ANSWERED if feedback or not parts else web_images.scrub("、".join(parts))[:500]})
     return out

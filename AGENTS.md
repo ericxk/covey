@@ -200,6 +200,7 @@
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
 | `app/unified.py` | The Bridge: one Feishu ingress, immutable topic routes, one app per Harness |
+| `app/web_images.py` | The images of a turn on the web page |
 | `app/web_launch.py` | 网页开新话题 (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/web_ops.py` | 网页上发来的操作怎么执行: `Ops.run` does one operation of the page's outbox as the owner's own and says (state, message) … |
 | `app/web_panels.py` | 网页设置页的设备和代答两页 (docs/butler.md 网页工作台, COVEY_WEB=1 |
