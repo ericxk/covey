@@ -14,7 +14,7 @@ from unittest import mock
 from test_dispatch_cards import CHAT
 from test_project_tidy import TidyCase
 
-from covey.app import project_lead, project_tools, topic_links
+from covey.app import project_lead, project_tools, tidy_facts as facts, topic_links
 from covey.cards import project_proposal as cards
 from covey.core.state import read_object, write_json
 from covey.app import project_members as members, projects as upgrades
@@ -74,7 +74,7 @@ class SplitTest(TidyCase):
         return saved
 
     def apply(self, record):
-        return self.tidy.apply(self.ctx, CHAT, record)
+        return self.tidy.applier.apply(self.ctx, CHAT, record)
 
     def record(self, pid):
         return projects.read_record(self.state, pid)
@@ -138,7 +138,7 @@ class SplitTest(TidyCase):
         extra = self.topic("话题 extra")
         members.join_topic(self.state, self.a, extra)
         proposal = self.split(self.a, [*self.t[:2], extra])
-        self.tidy.leave(self.ctx, CHAT, self.t[0], self.a)  # 移出: never_auto, kept out of projects for good.
+        self.tidy.applier.leave(self.ctx, CHAT, self.t[0], self.a)  # 移出: never_auto, kept out of projects for good.
         ok, words = self.apply(proposal)
         self.assertTrue(ok, words)
         self.assertEqual(self.made(proposal)["threads"], [self.t[1], extra])
@@ -154,7 +154,7 @@ class SplitTest(TidyCase):
 
     def test_moving_out_the_last_topic_folds_the_project(self):
         for topic in self.t[3:]:
-            words = self.tidy.leave(self.ctx, CHAT, topic, self.b)
+            words = self.tidy.applier.leave(self.ctx, CHAT, topic, self.b)
         self.assertIn("没有话题了，已收起", words)
         self.assertTrue(projects.folded(self.record(self.b)))
 
@@ -169,23 +169,23 @@ class SplitTest(TidyCase):
             {"proposal": record["id"], "line": "x", "md": True, "state": "open"} for record in (kept, gone, rename)]}}
         for record in (kept, gone, rename):
             proposals.update_proposal(self.state, record["id"], lambda data: data.update(run="run-9"))
-        write_json(self.tidy.run_path(self.state, "run-9"), run, ensure_ascii=False)
+        write_json(facts.run_path(self.state, "run-9"), run, ensure_ascii=False)
         members.leave_topic(self.state, self.a, self.t[1], went="测试挪走")
         members.join_topic(self.state, self.b, self.t[1])
         projects.set_state(self.state, self.b, projects.CANCELLED, "downgraded")
-        self.tidy.follow(self.ctx, CHAT)
+        self.tidy.proposal_cards.follow(self.ctx, CHAT)
         now = proposals.read_proposal(self.state, kept["id"])
         self.assertEqual((now["state"], now["topics"]), (proposals.OPEN, [self.t[0], extra]))
         self.assertEqual(proposals.read_proposal(self.state, gone["id"])["state"], proposals.EXPIRED)
         self.assertEqual(proposals.read_proposal(self.state, rename["id"])["state"], proposals.EXPIRED)
-        rows = {row["proposal"]: row for row in read_object(self.tidy.run_path(self.state, "run-9"))["view"]["rows"]}
+        rows = {row["proposal"]: row for row in read_object(facts.run_path(self.state, "run-9"))["view"]["rows"]}
         self.assertEqual(rows[gone["id"]]["state"], proposals.EXPIRED)
         self.assertIn("剩下的不够另建一个专项", rows[gone["id"]]["note"])
         self.assertIn("只拆剩下的 2 个", rows[kept["id"]]["note"])
         self.assertEqual(len(rows[kept["id"]]["item"]["topics"]), 2)  # The block lists the 2 left (T572).
         self.assertIn("已经结束或并走了", rows[rename["id"]]["note"])
         self.assertEqual(self.app.messenger.patch_card.call_args.args[1], "om_run")  # The 整理专项 card, redrawn.
-        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 0)  # Once.
+        self.assertEqual(self.tidy.proposal_cards.follow(self.ctx, CHAT), 0)  # Once.
 
 
 class TypedNumberTest(TidyCase):
@@ -194,10 +194,10 @@ class TypedNumberTest(TidyCase):
         pair = [self.topic("网关失联"), self.topic("网关扩容")]
         other = self.topic("别的专项的话题")
         self.project("别的专项", [other])
-        self.tidy.recent_topics = lambda state, chat, now, **kw: list(pair)
+        self.see(lambda: list(pair))
         self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1, 2], "name": "网关稳定", "goal": "不失联",
                                                "why": "", "confidence": 0.9}]})
-        self.tidy.realtime(self.ctx, CHAT, pair[0], "new", time.time())
+        self.tidy.realtime.handle(self.ctx, CHAT, pair[0], "new", time.time())
         record = proposals.proposals(self.state, None)[-1]
         number = read_object(self.state / "topics" / other / "topic.json")["topic_number"]
         with mock.patch.object(topic_links, "topic_numbers", return_value={number: other}):
@@ -212,10 +212,10 @@ class TypedNumberTest(TidyCase):
     def test_only_topics_of_other_projects_build_nothing(self):
         self.filler()
         pair = [self.topic("网关失联"), self.topic("网关扩容")]
-        self.tidy.recent_topics = lambda state, chat, now, **kw: list(pair)
+        self.see(lambda: list(pair))
         self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1, 2], "name": "网关稳定", "goal": "不失联",
                                                "why": "", "confidence": 0.9}]})
-        self.tidy.realtime(self.ctx, CHAT, pair[0], "new", time.time())
+        self.tidy.realtime.handle(self.ctx, CHAT, pair[0], "new", time.time())
         record = proposals.proposals(self.state, None)[-1]
         self.project("抢先的专项", pair)
         self.assertEqual(self.click({"kind": cards.CREATE_KIND, "proposal": record["id"]}, record["card"]["message_id"]),

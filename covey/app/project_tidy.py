@@ -33,32 +33,35 @@ changed, and the reasons he gives under a 不用 or a 移出 are the judge's rul
 across a model or Feishu call; cards here are message cards replaced whole (patch_card), the topic card and the status card
 written with their own records' sequence.
 
-ProjectTidy is made of the modules below, each a part of it (a mixin: they share its state, ``runtime``, ``messenger``, ``voice``,
-``env``, ``busy``, ``progress``, and call each other's methods through ``self``); app/tidy_facts.py is plain functions they all use.
+ProjectTidy is the coordinator: it holds the parts as attributes, made in ``__init__`` (their constructors' arguments are what each
+part depends on), and what they share (``shared``); the parts call down that list and never back (tests/test_structure.py
+TidyPartsTest), and none inherits from another. It keeps the thread (``tick``), 话题要点 and the moments (``scan``, ``saw``, ``drain``)
+itself, and the methods other modules call (``start``, ``claim``, ``show_joined``, ``web_*``) hand on to the part that has them.
 
-- app/project_tidy.py: the thread (``tick``), 话题要点 and the moments (``scan``, ``saw``, ``drain``), reading the topics.
-- app/tidy_realtime.py: ``Realtime``, the real-time 整理 and a new project's proposal (``propose``).
-- app/tidy_proposals.py: ``ProposalCards``, the proposal card and its following the joins (``follow``).
-- app/tidy_apply.py: ``Apply``, doing what was decided (project, join, leave, merge, split, fold) and marking the topic's cards.
+- app/tidy_facts.py: plain functions of the records, the bottom: words for topics and projects, 话题要点's sign, the topics a 整理
+  looks at, the proposal card's view, the claim of an open proposal, the rows' words.
+- app/tidy_state.py: ``TidyState``, what is shared: ``busy``, ``progress``, ``counted``, ``handed``.
+- app/tidy_words.py: ``TopicWords``, topics as the cards word them (the one part that asks Feishu for a link).
+- app/tidy_apply.py: ``Applier``, doing what was decided (project, join, leave, merge, split, fold) and marking the topic's cards.
+- app/tidy_proposals.py: ``ProposalCards``, proposing a new project, the proposal card and its following the joins (``follow``).
+- app/tidy_realtime.py: ``Realtime``, the real-time 整理 of a topic and a new project's sweep.
 - app/tidy_run.py: ``Runs``, a whole scheduled or asked-for 整理 and the 整理专项 card.
 - app/tidy_clicks.py: ``Clicks``, the clicks on the cards (``claim`` is the entry app/unified.py PANELS calls).
-- app/tidy_web.py: ``WebSide``, the web page's panel and its 好 / 不用.
-- app/tidy_facts.py: words for topics and projects, 话题要点's sign, the claim of an open proposal."""
+- app/tidy_web.py: ``WebSide``, the web page's panel and its 好 / 不用."""
 from __future__ import annotations
 
-import threading
 import time
 from pathlib import Path
 
-from covey.app import project_sorter as sorter
-from covey.app import topic_links
-from covey.app.tidy_apply import Apply
+from covey.app import tidy_facts as facts
+from covey.app.tidy_apply import Applier
 from covey.app.tidy_clicks import Clicks
-from covey.app.tidy_facts import TURN, ended
 from covey.app.tidy_proposals import ProposalCards
 from covey.app.tidy_realtime import Realtime
 from covey.app.tidy_run import Runs
+from covey.app.tidy_state import TidyState
 from covey.app.tidy_web import WebSide
+from covey.app.tidy_words import TopicWords
 from covey.core import project_proposals as proposals
 from covey.core import projects, topic_gist
 from covey.core.butler import is_butler_topic
@@ -67,27 +70,29 @@ from covey.core.jobs import job_key, jobs_dir, select_job_records
 from covey.core.loops import every
 from covey.core.state import epoch_seconds
 from covey.core.store import directory_store
-from covey.core.topics import label_title
 
 TICK = 20
 START_WAIT = 30
-COUNT_KEPT = 600.0  # The chat's topic count is read again after this.
 QUEUE_MAX = proposals.QUEUE_MAX
 
 
-class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
+class ProjectTidy:
     """The Bridge's feature object (app/unified.py ``project_tidy``): one thread with the switch on, none without, and the
     claim of its cards' clicks (PANELS). ``env``: app/butler_env.py ButlerEnv (``projects`` the projects' feature object)."""
     name = "project_tidy"
 
-    link = staticmethod(topic_links.link_for)  # A topic's applink for the proposal card (tests stand in for it).
-
     def __init__(self, runtime, messenger, voice, env) -> None:
         self.runtime, self.messenger, self.voice, self.env = runtime, messenger, voice, env
-        self.handed = {}  # BOARD_FROM: the 看板 redrawn after a proposal decided on it (app/unified.py fills it).
-        self.busy = threading.Lock()
-        self.progress = {"done": 0, "total": 0}
-        self.counted = (0.0, 0)
+        self.shared = TidyState()
+        self.handed = self.shared.handed  # BOARD_FROM: the 看板 redrawn after a proposal decided on it (app/unified.py fills it).
+        # The parts, each below the ones after it; a part's constructor arguments are what it depends on.
+        self.words = TopicWords(runtime)
+        self.applier = Applier(runtime, messenger, voice, env)
+        self.proposal_cards = ProposalCards(runtime, messenger, voice, env, self.words, self.applier)
+        self.realtime = Realtime(runtime, env, self.shared, self.applier, self.proposal_cards)
+        self.runs = Runs(runtime, messenger, voice, env, self.shared, self.words, self.applier, self.proposal_cards)
+        self.clicks = Clicks(runtime, messenger, voice, self.shared, self.words, self.applier, self.proposal_cards, self.runs)
+        self.web = WebSide(runtime, env, self.shared, self.words, self.clicks)
 
     # The thread ------------------------------------------------------------------------------------------------------
 
@@ -100,7 +105,7 @@ class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
         every(self.runtime, TICK, self.tick, args=(ctx,), isolate=self.name)
 
     def chat(self) -> str:
-        return self.runtime.access.owner_chat() or ""
+        return facts.owner_chat(self.runtime)
 
     def tick(self, ctx, now=None) -> None:
         if not proposals.enabled():
@@ -115,9 +120,9 @@ class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
                 data["queue"] = [*(data.get("queue") or []), *({"topic": topic, "reason": why, "at": now} for topic, why in fired)
                                  ][-QUEUE_MAX:]
             proposals.change(state, queue)
-        self.follow(ctx, chat)
-        self.scheduled(ctx, chat, now)
-        if not self.busy.locked():
+        self.proposal_cards.follow(ctx, chat)
+        self.runs.scheduled(ctx, chat, now)
+        if not self.shared.busy.locked():
             self.drain(ctx, chat, now)
 
     # 话题要点 and the moments ---------------------------------------------------------------------------------------------
@@ -136,7 +141,7 @@ class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
             stamp = epoch_seconds(fields.get("updated_at"))
             return stamp is None or stamp >= cursor - 2
 
-        jobs = select_job_records(state, lambda record: ended(record) and recent(record), chat_id=chat, narrow=recent)
+        jobs = select_job_records(state, lambda record: facts.ended(record) and recent(record), chat_id=chat, narrow=recent)
         fired, newest, keys = [], cursor, []
         for record in sorted(jobs, key=lambda record: (epoch_seconds(record.get("updated_at")) or 0, int(record.get("job_id") or 0))):
             key = job_key(str(record.get("message_id") or ""), record.get("job_id") or "")
@@ -183,22 +188,12 @@ class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
         if "words" not in fired and owner_turns >= proposals.number("words"):
             why.append("words")
         if record.get("user_text"):
-            why.append(TURN)  # Each turn the owner started: may it join a project now (``realtime``, once a 话题要点).
-        once = [reason for reason in why if reason not in ("essence", TURN)]
+            why.append(facts.TURN)  # Each turn the owner started: may it join a project now (``realtime``, once a 话题要点).
+        once = [reason for reason in why if reason not in ("essence", facts.TURN)]
         if once:
             proposals.change_topic(state, topic, lambda flags: flags.update(fired={**(flags.get("fired") or {}),
                                                                                     **{reason: now for reason in once}}))
         return why
-
-    def topic_count(self, state, chat, now) -> int:
-        """How many topics the chat has had (the butler's family left out), read once every COUNT_KEPT seconds."""
-        at, count = self.counted
-        if now - at < COUNT_KEPT and at:
-            return count
-        topics = {record.get("topic_id") for _, record in directory_store(jobs_dir(state)).query(chat_id=chat)}
-        count = sum(1 for topic in topics if isinstance(topic, str) and topic and not is_butler_topic(topic, chat))
-        self.counted = (now, count)
-        return count
 
     def drain(self, ctx, chat, now) -> None:
         """The real-time 整理 the scan queued, each topic once."""
@@ -209,7 +204,7 @@ class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
         for item in taken:
             if item.get("project"):
                 try:
-                    self.sweep(ctx, chat, str(item["project"]), now)
+                    self.realtime.sweep(ctx, chat, str(item["project"]), now)
                 except Exception as exc:  # noqa: BLE001 - the topics' own turns still bring them in
                     self.runtime.log(f"project tidy sweep failed project={str(item['project'])[:8]}: {type(exc).__name__}")
                 continue
@@ -218,42 +213,33 @@ class ProjectTidy(Realtime, ProposalCards, Apply, Runs, Clicks, WebSide):
                 continue
             done.add(topic)
             try:
-                self.realtime(ctx, chat, topic, str(item.get("reason") or ""), now)
+                self.realtime.handle(ctx, chat, topic, str(item.get("reason") or ""), now)
             except Exception as exc:  # noqa: BLE001 - the next moment tries again
                 self.runtime.log(f"project tidy realtime failed topic={topic[:12]}: {type(exc).__name__}")
 
-    # Reading -----------------------------------------------------------------------------------------------------------
+    # What other modules call ----------------------------------------------------------------------------------------------
 
-    def judge_tools(self):
-        app = self.env.topics.apps.get("claude") if self.env is not None and self.env.topics is not None else None
-        harness = getattr(app, "harness", None)
-        return getattr(harness, "backend", None), getattr(harness, "context", None)
-
-    def live_projects(self, state, chat) -> list:
-        return [record for record in projects.records(state, chat) if record.get("state") in (projects.ACTIVE, projects.PAUSED)]
-
-    def recent_topics(self, state, chat, now, *, scope="", records=()) -> list:
-        """The topics a 整理 looks at, the latest first: those with a turn in the last days, and every topic of a live project."""
-        window = now - proposals.number("days") * 86400
-        members = {topic for record in records for topic in record.get("threads") or ()}
-        latest = {}
-        for _, record in directory_store(jobs_dir(state)).query(chat_id=chat):
-            topic = record.get("topic_id")
-            if not isinstance(topic, str) or not projects.TOPIC_RE.fullmatch(topic) or is_butler_topic(topic, chat):
-                continue
-            stamp = epoch_seconds(record.get("updated_at")) or 0
-            latest[topic] = max(latest.get(topic, 0), stamp)
-        chosen = [topic for topic, stamp in latest.items() if stamp >= window or topic in members]
-        if scope:
-            chosen = [topic for topic in chosen if self.in_scope(state, topic, scope, records)]
-        return sorted(chosen, key=lambda topic: -latest[topic])[:sorter.MAX_TOPICS]
+    def start(self, ctx=None, *, origin="asked", scope="", wait=False) -> str:
+        """A whole 整理 now (app/tidy_run.py Runs.start): butler_projects.py projects_tidy, the web page's ``tidy``."""
+        return self.runs.start(ctx, origin=origin, scope=scope, wait=wait)
 
     @staticmethod
-    def in_scope(state, topic, scope, records) -> bool:
-        word = scope.lower()
-        found = projects.topic_project(state, topic)
-        if found is not None and any(record["id"] == found.id and (word in str(record.get("name") or "").lower() or record["id"] == scope)
-                                     for record in records):
-            return True
-        text = " ".join([label_title(state, topic)[1], topic_gist.lines(topic_gist.read(state, topic))]).lower()
-        return word in text
+    def matches(raw):
+        return Clicks.matches(raw)
+
+    def claim(self, ctx, event, raw, owner):
+        """A click on one of 整理专项's cards (app/tidy_clicks.py Clicks.claim; app/unified.py PANELS), else None."""
+        return self.clicks.claim(ctx, event, raw, owner)
+
+    def show_joined(self, topic, pid) -> None:
+        """The topic's cards marked 已归进「X」 after a join made elsewhere (app/tidy_apply.py Applier.show_joined)."""
+        self.applier.show_joined(topic, pid)
+
+    def web_stamps(self) -> tuple:
+        return self.web.stamps()
+
+    def web_view(self, now=None) -> dict | None:
+        return self.web.view(now)
+
+    def web_decide(self, pid, choice) -> tuple:
+        return self.web.decide(pid, choice)

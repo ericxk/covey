@@ -120,7 +120,7 @@ def proposal_card(view):
     """建个专项？ ``view``: proposal (id), rows [{label, title, link, essence, now, days, turns}] (``topic_lines``; labels [(T 号,
     标题)] in a view kept before them), name, goal, why, first (the first proposal ever: one sentence of what a project is),
     ask_auto (5 in a row: offer 以后直接建), accepted (the count), state (open, or what came of it), changed (what became of
-    its topics since it was sent, while open: app/project_tidy.py follow), note (the line under it once decided), lesson (a
+    its topics since it was sent, while open: app/tidy_proposals.py follow), note (the line under it once decided), lesson (a
     reason form under a 暂不考虑). Open, it ends with the name to change and 建专项 / 不管了 (``name_form``)."""
     elements = topic_lines(view)
     if view.get("why"):
@@ -183,7 +183,7 @@ def lesson_card(text, value=None):
 
 def suggestion_words(found) -> dict:
     """What a suggestion says, plain (the card escapes it, the web page shows it as it is): {tag, verb, headline, from}. ``found``: a
-    row's ``item`` (app/project_tidy.py row_item): kind, name, project (its project's name), projects (a merge's names), topics."""
+    row's ``item`` (app/tidy_words.py row_item): kind, name, project (its project's name), projects (a merge's names), topics."""
     kind, name, project = found.get("kind") or "", found.get("name") or "", found.get("project") or ""
     topics = found.get("topics") or ()
     one = topics[0] if len(topics) == 1 else None

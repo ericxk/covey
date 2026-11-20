@@ -1,13 +1,13 @@
 """Doing what 整理专项 decided: a project made, a join, a leave, a merge, a split, a fold, and the topic's cards marked 已归进.
-Takes no click and draws no 整理专项 card (docs/butler.md 整理专项); the rows and clicks that ask for it are in app/tidy_run.py and
-app/tidy_clicks.py."""
+Takes no click and draws no proposal or 整理专项 card (docs/butler.md 整理专项); it depends on app/tidy_facts.py alone, and the
+parts that ask for it (app/tidy_proposals.py, app/tidy_realtime.py, app/tidy_run.py, app/tidy_clicks.py) come above it."""
 from __future__ import annotations
 
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.app.tidy_facts import foldable, labels, project_name
+from covey.app import tidy_facts as facts
 from covey.cards import project_proposal as cards
 from covey.core import project_proposals as proposals
 from covey.core import projects
@@ -17,8 +17,12 @@ from covey.core.state import read_object, write_json
 from covey.core.topics import label_title, topic_file
 
 
-class Apply:
-    """``ProjectTidy``'s doing. Uses ``runtime``, ``messenger``, ``voice``, ``env``, ``chat`` of app/project_tidy.py ProjectTidy."""
+class Applier:
+    """Does what was decided. ``runtime``: the log and the owner's chat. ``messenger``, ``voice``: the cards it marks. ``env``:
+    app/butler_env.py ButlerEnv (``projects`` makes a project, ``topics`` and ``state_dir`` and ``profile`` mark the cards)."""
+
+    def __init__(self, runtime, messenger, voice, env) -> None:
+        self.runtime, self.messenger, self.voice, self.env = runtime, messenger, voice, env
 
     # Doing -------------------------------------------------------------------------------------------------------------
 
@@ -89,7 +93,7 @@ class Apply:
             return True, f"已收起「{current.get('name')}」"
         if kind == proposals.MERGE:
             kept = record["projects"][0]
-            into = f"随合并转进专项「{project_name(state, kept)[:30]}」"
+            into = f"随合并转进专项「{facts.project_name(state, kept)[:30]}」"
             for other in record["projects"][1:]:
                 gone = projects.read_record(state, other)
                 if not gone or gone.get("state") not in (projects.ACTIVE, projects.PAUSED):
@@ -108,7 +112,7 @@ class Apply:
         if kind == proposals.SPLIT:
             # Only the topics still the project's go (T574: one the owner took out, or another proposal moved, stays where it
             # is), and two at least, as the judge was allowed to propose (app/project_sorter.py MIN_CREATE).
-            movable, gone = self.still_in(state, record["topics"], pid)
+            movable, gone = facts.still_in(state, record["topics"], pid)
             if len(movable) < proposals.MIN_CREATE:
                 return False, f"已过时：{gone + '，' if gone else ''}剩下的不够另建一个专项，没拆"
             if projects.active_count(state) >= projects.MAX_ACTIVE:
@@ -125,35 +129,11 @@ class Apply:
             return True, words
         return False, "不认识的建议"
 
-    def still_in(self, state, topics, pid) -> tuple:
-        """(``topics`` still members of project ``pid``, in order; the words for the others: where they went)."""
-        kept, elsewhere, out = [], {}, []
-        for topic in dict.fromkeys(topics or ()):
-            found = projects.topic_project(state, topic)
-            if found is not None and found.id == pid and found.role == projects.MEMBER:
-                kept.append(topic)
-            elif found is not None:
-                elsewhere.setdefault(found.id, []).append(topic)
-            else:
-                out.append(topic)
-        words = [f"{labels(state, group)} 已归进专项「{project_name(state, other)}」" for other, group in elsewhere.items()]
-        if out:
-            words.append(f"{labels(state, out)} 已不在专项「{project_name(state, pid)}」里")
-        return kept, "；".join(words)
-
-    def elsewhere(self, state, topics) -> str:
-        """Where ``topics`` are: T12 已在专项「X」里 (one clause a project); '' for none."""
-        by = {}
-        for topic in topics:
-            found = projects.topic_project(state, topic)
-            by.setdefault(found.id if found is not None else "", []).append(topic)
-        return "；".join(f"{labels(state, group)} 已在专项「{project_name(state, pid)}」里" for pid, group in by.items() if pid)
-
     def fold_if_empty(self, state, pid) -> bool:
         """收起 a project 整理专项 or 移出 left without topics, when nothing of it runs (the owner, 2026-11-20: 只剩空壳就马上收起;
         his word in it opens it again, app/project_loop.py reopen); whether it was."""
         record = projects.read_record(state, pid)
-        if not record or record.get("threads") or not foldable(state, pid):
+        if not record or record.get("threads") or not facts.foldable(state, pid):
             return False
         self.fold(state, pid)
         return projects.folded(projects.read_record(state, pid))
@@ -175,7 +155,7 @@ class Apply:
         so the owner can take it back with one click as he can a join of 整理专项; never raises."""
         ctx = SimpleNamespace(state_dir=Path(self.env.state_dir), profile=self.env.profile)
         try:
-            chat = self.chat()
+            chat = facts.owner_chat(self.runtime)
             name = projects.read_record(ctx.state_dir, pid).get("name") or ""
             if chat and name:
                 self.mark(ctx, chat, topic, pid, name)

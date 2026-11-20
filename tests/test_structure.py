@@ -864,15 +864,39 @@ class OldestPythonTest(unittest.TestCase):
 
 
 class TidyPartsTest(unittest.TestCase):
-    def test_no_method_is_defined_in_two_parts_of_project_tidy(self):
-        # ProjectTidy is its parts put together (app/project_tidy.py): a second copy of a method in another part is dead
-        # code the method resolution order hides, and an edit to it would do nothing.
-        from covey.app.project_tidy import ProjectTidy
-        seen, twice = {}, []
-        for part in ProjectTidy.__mro__[1:-1]:
-            for name, value in vars(part).items():
-                if callable(value) and not name.startswith("__"):
-                    if name in seen:
-                        twice.append(f"{name}: {seen[name]} and {part.__name__}")
-                    seen.setdefault(name, part.__name__)
-        self.assertEqual(twice, [])
+    """ProjectTidy (app/project_tidy.py) is made of parts it builds in ``__init__`` (docs: app/project_tidy.py): none inherits from
+    another, and each part imports only the parts below it, so reading one never needs the ones above."""
+
+    ORDER = ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_realtime", "tidy_run", "tidy_clicks",
+             "tidy_web", "project_tidy")  # Bottom to top.
+    BELOW = {"tidy_facts": (), "tidy_state": (), "tidy_words": ("tidy_facts",), "tidy_apply": ("tidy_facts",),
+             "tidy_proposals": ("tidy_facts", "tidy_words", "tidy_apply"),
+             "tidy_realtime": ("tidy_facts", "tidy_state", "tidy_apply", "tidy_proposals"),
+             "tidy_run": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals"),
+             "tidy_clicks": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_run"),
+             "tidy_web": ("tidy_facts", "tidy_state", "tidy_words", "tidy_clicks"),
+             "project_tidy": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_realtime",
+                              "tidy_run", "tidy_clicks", "tidy_web")}
+
+    def tidy_imports(self, name):
+        found = set()
+        for module, imported, _ in imports(PACKAGE / "app" / f"{name}.py"):
+            for candidate in (module, f"{module}.{imported}" if imported else module):
+                parts = candidate.split(".")
+                if parts[:2] == ["covey", "app"] and len(parts) > 2 and parts[2] in self.ORDER:
+                    found.add(parts[2])
+        return found
+
+    def test_the_parts_import_only_the_parts_below_them(self):
+        self.assertEqual(set(self.BELOW), set(self.ORDER))
+        for name, below in self.BELOW.items():
+            self.assertEqual(self.tidy_imports(name) - set(below), set(), name)
+
+    def test_no_part_inherits_from_another_and_none_is_a_mixin(self):
+        import ast
+        for name in self.ORDER:
+            tree = ast.parse((PACKAGE / "app" / f"{name}.py").read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    self.assertEqual([ast.unparse(base) for base in node.bases if ast.unparse(base) != "Exception"], [],
+                                     f"{name}.{node.name}")

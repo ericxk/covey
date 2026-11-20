@@ -17,7 +17,7 @@ from test_dispatch_cards import CHAT
 from test_project_upgrade import UpCase
 
 from covey.app import project_sorter as sorter
-from covey.app import tidy_run, topic_links
+from covey.app import tidy_facts as facts, tidy_run, topic_links
 from covey.app import butler_projects, project_members as members, projects as upgrades
 from covey.app.project_tidy import ProjectTidy
 from covey.app.track_standby import Failed
@@ -69,7 +69,13 @@ class TidyCase(UpCase):
         self.addCleanup(ask.stop)
         self.numbers = iter(range(400, 1000))
         self.jobs = iter(range(5000, 9000))
-        self.tidy.link = lambda state, topic, **kw: f"https://applink.example/{topic[-6:]}"
+        self.tidy.words.link = lambda state, topic, **kw: f"https://applink.example/{topic[-6:]}"
+
+    def see(self, topics):
+        """The topics a 整理 looks at (app/tidy_facts.py recent_topics) are what ``topics()`` says, in that order."""
+        patcher = mock.patch.object(facts, "recent_topics", lambda state, chat, now, **kw: topics())
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def send_message(self, profile, chat, words, key, *, voice, card=None, on_card=None, reply_to_message_id="", **kwargs):
         message = next(self.messages)
@@ -155,7 +161,7 @@ class GistTest(TidyCase):
         self.tidy.tick(self.ctx)
         self.assertEqual(self.judged(), [])  # Two topics in the chat: too few.
         self.filler()
-        self.tidy.counted = (0.0, 0)
+        self.tidy.shared.counted = (0.0, 0)
         self.turn(topic, "再改", gist={"essence": A})
         self.tidy.tick(self.ctx)
         focus = self.judged()[-1]
@@ -200,7 +206,7 @@ class JoinTest(TidyCase):
         write_json(self.state / "topics" / topic / "topic.json",
                    {**read_object(self.state / "topics" / topic / "topic.json"), "root_id": "om_root"}, ensure_ascii=False)
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.95}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "essence", time.time()), "joined")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "essence", time.time()), "joined")
         self.assertEqual(projects.topic_project(self.state, topic).id, pid)
         self.assertIn(topic, projects.read_record(self.state, pid)["threads"])
         self.assertEqual(projects.cells(self.state, CHAT)[topic], projects.lead_topic_id(CHAT, pid))
@@ -217,7 +223,7 @@ class JoinTest(TidyCase):
         self.assertTrue(proposals.never_auto(self.state, topic))
         self.assertIn(members.LEFT, [read_object(path)["kind"] for path in project_lead.inbox_dir(self.state, pid).glob("*.json")])
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.99}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "words", time.time()), "none")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "words", time.time()), "none")
         self.assertIsNone(projects.topic_project(self.state, topic))
 
     def test_the_status_card_gets_the_line_with_its_leave_button(self):
@@ -228,11 +234,11 @@ class JoinTest(TidyCase):
         topic = self.topic(A)
         write_json(status_cards.record_path(self.state, topic), {"card_id": "card-s", "message_id": "om_status", "sequence": 1,
                                                                    "shown": ["T1 · " + A, "做完", "13:01", "结论：好"]})
-        self.assertTrue(self.tidy.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid), CHAT))
+        self.assertTrue(self.tidy.applier.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid), CHAT))
         card = self.put.call_args.args[2]
         self.assertIn("已归进专项「EnvReplay Prompt 优化」", text(card))
         self.assertIn(cards.LEAVE_KIND, text(card))
-        self.tidy.leave(self.ctx, CHAT, topic, pid)
+        self.tidy.applier.leave(self.ctx, CHAT, topic, pid)
         self.assertNotIn("已归进", text(self.put.call_args.args[2]))
 
     def test_a_low_confidence_join_is_not_done(self):
@@ -241,7 +247,7 @@ class JoinTest(TidyCase):
         self.filler()
         topic = self.topic(A)
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "像", "confidence": 0.6}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "new", time.time()), "none")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "new", time.time()), "none")
         self.assertIsNone(projects.topic_project(self.state, topic))
 
 
@@ -263,9 +269,9 @@ class AutoJoinTest(TidyCase):
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "joined")
         self.assertEqual(len(self.judged()), 1)  # One call against that project, not held back by the chat having few topics.
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "skipped")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "skipped")
         self.assertEqual(projects.topic_project(self.state, topic).id, pid)
         joins = projects.read_record(self.state, pid)["joins"]
         self.assertEqual([(row["topic"], row["by"]) for row in joins], [(topic, "rule")])
@@ -278,7 +284,7 @@ class AutoJoinTest(TidyCase):
         pid = self.project("题包生产链路提示词优化", [first, second])
         refs = [f"T{self.number(first)}", f"T{self.number(second)}"]
         topic = self.gisted("本机系统盘 90% 排查", {"essence": "系统盘占满的来源排查与清理", "related": refs})
-        self.assertNotEqual(self.tidy.realtime(self.ctx, CHAT, topic, "new", time.time()), "joined")
+        self.assertNotEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "new", time.time()), "joined")
         self.assertIsNone(projects.topic_project(self.state, topic))
         given = self.judged()[0]
         self.assertEqual([row["name"] for row in given["projects"]], ["题包生产链路提示词优化"])  # That project alone.
@@ -292,15 +298,15 @@ class AutoJoinTest(TidyCase):
         member = self.topic("一轮")
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.gisted(A, {"essence": A})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "none")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "none")
         self.assertEqual(len(self.judged()), 1)
         given = self.judged()[0]
         self.assertEqual([row["index"] for row in given["topics"]], [1])  # This topic alone, against the live projects.
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "same")  # Gist unchanged: no call.
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "same")  # Gist unchanged: no call.
         self.assertEqual(len(self.judged()), 1)
         topic_gist.save(self.state, topic, {"essence": B}, source="turn", job="x")
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "joined")
         self.assertEqual(projects.topic_project(self.state, topic).id, pid)
         self.assertEqual(projects.read_record(self.state, pid)["joins"][-1]["by"], "tidy")
 
@@ -309,9 +315,9 @@ class AutoJoinTest(TidyCase):
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "joined")
-        self.tidy.leave(self.ctx, CHAT, topic, pid)
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, topic, "turn", time.time()), "kept_out")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "joined")
+        self.tidy.applier.leave(self.ctx, CHAT, topic, pid)
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "kept_out")
         self.assertIsNone(projects.topic_project(self.state, topic))
         self.assertEqual(len(self.judged()), 1)  # The join's own; none after 移出.
         record = projects.read_record(self.state, pid)
@@ -344,13 +350,13 @@ class AutoJoinTest(TidyCase):
         member = self.topic("一轮")
         pid = self.project("EnvReplay Prompt 优化", [member])
         topic = self.topic(A)
-        self.assertTrue(self.tidy.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid, why="同一件事"), CHAT))
+        self.assertTrue(self.tidy.applier.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid, why="同一件事"), CHAT))
         lines = project_facts.join_lines(self.state, projects.read_record(self.state, pid))
         self.assertEqual(len(lines), 1)
         self.assertIn("整理专项归入", lines[0][0])
         self.assertIn("同一件事", lines[0][0])
         self.assertEqual(lines[0][1], topic)
-        self.tidy.leave(self.ctx, CHAT, topic, pid)
+        self.tidy.applier.leave(self.ctx, CHAT, topic, pid)
         lines = project_facts.join_lines(self.state, projects.read_record(self.state, pid))
         self.assertIn("已移出", lines[0][0])
         self.assertEqual(lines[0][1], "")
@@ -360,13 +366,13 @@ class ProposalTest(TidyCase):
     def propose(self, topics, name="EnvReplay Prompt 优化"):
         self.verdicts.append({"suggestions": [{"kind": "create", "topics": list(range(1, len(topics) + 1)), "name": name,
                                                "goal": "新旧 Prompt 对率可比", "why": "都在改 Prompt", "confidence": 0.9}]})
-        return self.tidy.realtime(self.ctx, CHAT, topics[0], "new", time.time())
+        return self.tidy.realtime.handle(self.ctx, CHAT, topics[0], "new", time.time())
 
     def setUp(self):
         super().setUp()
         self.filler()
         self.pair = [self.topic(A, gist={"essence": B}), self.topic("优化 Bootstrap 下一环节", gist={"essence": B})]
-        self.tidy.recent_topics = lambda state, chat, now, **kw: list(self.pair)  # The judge sees the two in this order.
+        self.see(lambda: list(self.pair))  # The judge sees the two in this order.
 
     def card_and_record(self):
         record = proposals.proposals(self.state, None)[-1]
@@ -428,12 +434,12 @@ class ProposalTest(TidyCase):
         """A topic grown long (reason age) with no 话题要点 yet is read whole first: the judge sees its 本质 and so does the
         card, which speaks of one topic, not of 这几个."""
         alone = self.topic("阅读这个session，继续我们未完成的事情", words=[f"第 {n} 句" for n in range(3)], days_ago=19)
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [alone]
+        self.see(lambda: [alone])
         self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1], "name": "账号额度运行台", "goal": "额度看得准",
                                                "why": "一直在改运行台", "confidence": 0.8}]})
         # Read whole first, so the judge sees what it is about; and a project of one topic is no project (the owner,
         # 2026-11-18: 只有一个话题的不提专项), so nothing is proposed.
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, alone, "age", time.time()), "none")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, alone, "age", time.time()), "none")
         systems = [system for system, _ in self.asked]
         self.assertEqual(systems[:2], [sorter.GIST_SYSTEM, sorter.JUDGE_SYSTEM])
         self.assertEqual(self.judged()[0]["topics"][0]["gist"]["essence"], "阅读这个session，继续我们未完成的事情")
@@ -449,7 +455,7 @@ class ProposalTest(TidyCase):
     def test_the_owner_unticks_a_topic_adds_one_by_its_number_and_renames_before_building(self):
         """The owner, 2026-11-18: 在页面增删一下话题…让人微操一波 — the card's select and T number box decide the topics."""
         third = self.topic("顺手查的一件事")
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [*self.pair, third]
+        self.see(lambda: [*self.pair, third])
         self.propose(self.pair)
         record, message = self.card_and_record()
         choices = record["view"]["choices"]
@@ -514,7 +520,7 @@ class TidyCardTest(TidyCase):
         pid = self.project("回流周报", [member])
         topics = [self.topic(f"老话题 {n}") for n in range(5)]
         self.refuse.add("老话题 2")
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [*topics, member]  # The judge's indexes: these, in this order.
+        self.see(lambda: [*topics, member])  # The judge's indexes: these, in this order.
         self.verdicts.append({"suggestions": [
             {"kind": "create", "topics": [1, 2], "name": "推理网关稳定", "goal": "不失联", "why": "同一个网关", "confidence": 0.8},
             {"kind": "fold", "project": 1, "why": "本周的已交", "confidence": 0.9},
@@ -557,8 +563,8 @@ class TidyCardTest(TidyCase):
             {"kind": "create", "topics": [3], "name": "做头像", "goal": "换上新头像", "why": "", "confidence": 0.9},
             {"kind": "create", "topics": [1, 3], "name": "值守", "goal": "", "why": "", "confidence": 0.9},
             {"kind": "rename", "project": 1, "name": "回流周报汇报", "why": "", "confidence": 0.7}]})
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two, three, *members]
-        record = self.tidy.whole(self.ctx, CHAT, "run-1", "test", "")
+        self.see(lambda: [one, two, three, *members])
+        record = self.tidy.runs.whole(self.ctx, CHAT, "run-1", "test", "")
         view = record["view"]
         self.assertEqual(view["proposed"], ["推理网关稳定"])  # One topic, or no end to reach: no project.
         self.assertEqual(len(view["rows"]), 1)
@@ -575,16 +581,16 @@ class TidyCardTest(TidyCase):
         one, two = self.topic("网关失联"), self.topic("网关扩容")
         pid = self.project("回流周报", [self.topic("周报 1")])
         self.verdicts.append({"suggestions": [{"kind": "rename", "project": 1, "name": "回流周报汇报", "why": "", "confidence": 0.7}]})
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two]
-        record = self.tidy.whole(self.ctx, CHAT, "run-2", "test", "")
+        self.see(lambda: [one, two])
+        record = self.tidy.runs.whole(self.ctx, CHAT, "run-2", "test", "")
         self.assertEqual(self.click({"kind": cards.ALL_KIND, "run": "run-2"}, record["message_id"]), "tidy_all")
         self.assertEqual(projects.read_record(self.state, pid)["name"], "回流周报汇报")
 
     def test_one_tidy_at_a_time_and_the_tool_and_the_web_page_say_where_it_is(self):
         self.filler()
-        self.tidy.busy.acquire()
-        self.addCleanup(self.tidy.busy.release)
-        self.tidy.progress = {"done": 12, "total": 40}
+        self.tidy.shared.busy.acquire()
+        self.addCleanup(self.tidy.shared.busy.release)
+        self.tidy.shared.progress = {"done": 12, "total": 40}
         answer = butler_projects.projects_tidy(self.env, SimpleNamespace(args={}, id="r9", job_key="main-job"))
         self.assertEqual(answer["text"], "正在整理（12/40）")
         self.assertEqual(Ops(self.env).run({"kind": "tidy", "op_id": "o1", "payload": {"scope": ""}}), ("done", "正在整理（12/40）"))
@@ -601,8 +607,8 @@ class SuggestionLayoutTest(TidyCase):
         pid = self.project("体验改进", members)
         self.verdicts.append({"suggestions": [{"kind": "split", "project": 1, "topics": [1, 2, 3, 4, 5, 6], "name": "评审改动上线",
                                                "goal": "评审的改动都上线", "why": "都是同一份评审报告拆出的改动", "confidence": 0.8}]})
-        self.tidy.recent_topics = lambda state, chat, now, **kw: members
-        return self.tidy.whole(self.ctx, CHAT, run, "test", ""), pid, members
+        self.see(lambda: members)
+        return self.tidy.runs.whole(self.ctx, CHAT, run, "test", ""), pid, members
 
     def test_a_suggestion_is_a_block_its_topics_listed_then_folded_and_a_row_kept_before_draws_as_before(self):
         record, pid, members = self.split_run()
@@ -661,8 +667,8 @@ class SuggestionLayoutTest(TidyCase):
         one, two = self.topic("网关失联"), self.topic("网关扩容")
         self.verdicts.append({"suggestions": [
             {"kind": "create", "topics": [1, 2], "name": "推理网关稳定", "goal": "一周不失联", "why": "同一个网关", "confidence": 0.8}]})
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [one, two]
-        self.tidy.whole(self.ctx, CHAT, "run-c", "test", "")
+        self.see(lambda: [one, two])
+        self.tidy.runs.whole(self.ctx, CHAT, "run-c", "test", "")
         shown = self.tidy.web_view()["proposals"]
         self.assertEqual([(each["kind"], each["headline"], each["run"]) for each in shown], [("create", "新建专项「推理网关稳定」", "")])
         state, words = Ops(self.env).run({"kind": "tidy_decide", "op_id": "o1", "payload": {"proposal": shown[0]["id"], "choice": "decline"}})
@@ -680,16 +686,16 @@ class PendingTest(TidyCase):
         super().setUp()
         self.filler(3)
         self.one, self.two = self.topic("修 064 采购审批题包"), self.topic("优化 Bootstrap 下一环节")
-        self.tidy.recent_topics = lambda state, chat, now, **kw: [self.one, self.two]
+        self.see(lambda: [self.one, self.two])
         self.suggest = {"suggestions": [{"kind": "create", "topics": [1, 2], "name": "题包提示词优化", "goal": "合入 !248",
                                          "why": "同一条流水线", "confidence": 0.8}]}
 
     def test_a_suggestion_already_waiting_is_named_not_called_nothing_to_change(self):
         self.verdicts.append(self.suggest)
-        first = self.tidy.whole(self.ctx, CHAT, "run-a", "test", "")
+        first = self.tidy.runs.whole(self.ctx, CHAT, "run-a", "test", "")
         self.assertEqual(first["view"]["proposed"], ["题包提示词优化"])
         self.verdicts.append(self.suggest)
-        second = self.tidy.whole(self.ctx, CHAT, "run-b", "test", "")
+        second = self.tidy.runs.whole(self.ctx, CHAT, "run-b", "test", "")
         self.assertEqual(second["view"].get("pending"), ["题包提示词优化"])
         card = text(cards.tidy_card(second["view"]))
         self.assertIn("还在等你定", card)
@@ -698,12 +704,12 @@ class PendingTest(TidyCase):
     def test_a_proposal_of_one_topic_left_from_before_expires_at_the_next_tidy(self):
         alone = proposals.new_proposal(proposals.CREATE, topics=[self.one], name="单独一个", goal="做完", source="realtime")
         proposals.put_proposal(self.state, alone)
-        self.tidy.whole(self.ctx, CHAT, "run-c", "test", "")
+        self.tidy.runs.whole(self.ctx, CHAT, "run-c", "test", "")
         self.assertEqual(proposals.read_proposal(self.state, alone["id"])["state"], proposals.EXPIRED)
 
     def test_build_on_the_board_creates_it_redraws_its_own_card_and_the_board(self):
         self.verdicts.append(self.suggest)
-        self.tidy.whole(self.ctx, CHAT, "run-d", "test", "")
+        self.tidy.runs.whole(self.ctx, CHAT, "run-d", "test", "")
         record = [r for r in proposals.proposals(self.state, [proposals.OPEN]) if r.get("name") == "题包提示词优化"][0]
         own = record["card"]["message_id"]
         redrawn = []
@@ -720,7 +726,7 @@ class PendingTest(TidyCase):
     def test_the_board_lists_the_waiting_proposals_with_build_and_not_now(self):
         from covey.cards.board import board_card
         self.verdicts.append(self.suggest)
-        self.tidy.whole(self.ctx, CHAT, "run-e", "test", "")
+        self.tidy.runs.whole(self.ctx, CHAT, "run-e", "test", "")
         record = [r for r in proposals.proposals(self.state, [proposals.OPEN]) if r.get("name") == "题包提示词优化"][0]
         pending = [{"id": record["id"], "name": record["name"], "goal": record["goal"], "why": "",
                     "rows": [{"topic": self.one, "label": "T1", "title": "修 064", "url": "https://applink.example/1"},
@@ -741,7 +747,7 @@ class FollowTest(TidyCase):
         super().setUp()
         self.filler(3)
         self.trio = [self.topic("C队重启后自启"), self.topic("开发机重启"), self.topic("自启脚本")]
-        self.tidy.recent_topics = lambda state, chat, now, **kw: list(self.trio)
+        self.see(lambda: list(self.trio))
         self.pid = self.project("Covey 体验与节点改进", [self.topic("节点第一期")])
 
     def suggest(self, picks, name):
@@ -750,25 +756,25 @@ class FollowTest(TidyCase):
 
     def open_card(self, picks=(1, 2, 3), name="C队重启后自启恢复"):
         self.suggest(list(picks), name)
-        self.assertEqual(self.tidy.realtime(self.ctx, CHAT, self.trio[0], "new", time.time()), "proposed")
+        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, self.trio[0], "new", time.time()), "proposed")
         return proposals.waiting(self.state)[0]
 
     def test_a_topic_the_lead_takes_in_leaves_the_card_with_the_rest_and_the_card_says_where_it_went(self):
         record = self.open_card()
         members.join_topic(self.state, self.pid, self.trio[2], by="lead")
-        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 1)
+        self.assertEqual(self.tidy.proposal_cards.follow(self.ctx, CHAT), 1)
         now = proposals.read_proposal(self.state, record["id"])
         self.assertEqual((now["state"], now["topics"]), (proposals.OPEN, self.trio[:2]))
         card = text(self.patched())
         self.assertEqual(self.app.messenger.patch_card.call_args.args[1], record["card"]["message_id"])
         for word in ("已归进专项「Covey 体验与节点改进」", "只剩下面 2 个话题", "建专项"):
             self.assertIn(word, card)
-        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 0)  # Nothing new: the card is not written again.
+        self.assertEqual(self.tidy.proposal_cards.follow(self.ctx, CHAT), 0)  # Nothing new: the card is not written again.
 
     def test_too_few_left_ends_it_off_the_board_the_list_and_the_tidy_card(self):
         record = self.open_card((1, 2), "C队开发机重启后自启修复")
         members.join_topic(self.state, self.pid, self.trio[1], by="tidy")
-        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 1)
+        self.assertEqual(self.tidy.proposal_cards.follow(self.ctx, CHAT), 1)
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["state"], proposals.EXPIRED)
         card = text(self.patched())
         for word in ("已过时", "已归进专项「Covey 体验与节点改进」", "成不了专项", "这条不再提"):
@@ -784,9 +790,9 @@ class FollowTest(TidyCase):
     def test_a_new_proposal_inside_a_waiting_one_is_not_sent_and_one_with_more_goes_onto_its_card(self):
         record = self.open_card((1, 2))
         sent = len(self.sent_cards())
-        self.assertEqual(self.tidy.propose(self.ctx, CHAT, proposals.new_proposal(
+        self.assertEqual(self.tidy.proposal_cards.propose(self.ctx, CHAT, proposals.new_proposal(
             proposals.CREATE, topics=self.trio[1::-1], name="C队开发机重启后自启修复")), "")
-        self.assertEqual(self.tidy.propose(self.ctx, CHAT, proposals.new_proposal(
+        self.assertEqual(self.tidy.proposal_cards.propose(self.ctx, CHAT, proposals.new_proposal(
             proposals.CREATE, topics=self.trio, name="C队重启后自启恢复")), "merged")
         self.assertEqual(len(self.sent_cards()), sent)
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio)
@@ -800,7 +806,7 @@ class FollowTest(TidyCase):
         for record, message in ((older, "om_old"), (newer, "om_new")):
             proposals.put_proposal(self.state, {**record, "card": {"message_id": message, "chat_id": CHAT}})
         members.join_topic(self.state, self.pid, self.trio[2], by="lead")
-        self.assertEqual(self.tidy.follow(self.ctx, CHAT), 2)
+        self.assertEqual(self.tidy.proposal_cards.follow(self.ctx, CHAT), 2)
         self.assertEqual(proposals.read_proposal(self.state, older["id"])["state"], proposals.EXPIRED)
         self.assertEqual(proposals.read_proposal(self.state, newer["id"])["state"], proposals.OPEN)
         self.assertEqual([record["id"] for record in proposals.waiting(self.state)], [newer["id"]])
@@ -810,18 +816,18 @@ class FollowTest(TidyCase):
     def test_a_proposal_mostly_of_a_projects_topics_is_not_made(self):
         for topic in self.trio[1:]:
             members.join_topic(self.state, self.pid, topic, by="rule")
-        self.assertEqual(self.tidy.propose(self.ctx, CHAT, proposals.new_proposal(
+        self.assertEqual(self.tidy.proposal_cards.propose(self.ctx, CHAT, proposals.new_proposal(
             proposals.CREATE, topics=self.trio, name="C队重启后自启恢复")), "")
         self.assertEqual(proposals.proposals(self.state, [proposals.OPEN]), [])
 
     def test_each_tick_follows_and_a_whole_tidy_names_the_one_it_merged_into_as_waiting(self):
         record = self.open_card((1, 2))
         self.suggest([1, 2, 3], "C队重启后自启恢复")
-        view = self.tidy.whole(self.ctx, CHAT, "run-f", "test", "")["view"]
+        view = self.tidy.runs.whole(self.ctx, CHAT, "run-f", "test", "")["view"]
         self.assertEqual(view.get("pending"), ["C队重启后自启恢复"])
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio)
         members.join_topic(self.state, self.pid, self.trio[0], by="lead")
-        with mock.patch.object(self.tidy, "scan", return_value=[]), mock.patch.object(self.tidy, "scheduled"):
+        with mock.patch.object(self.tidy, "scan", return_value=[]), mock.patch.object(self.tidy.runs, "scheduled"):
             self.tidy.tick(self.ctx)
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio[1:])
 
@@ -848,7 +854,7 @@ class MomentTest(TidyCase):
         runs = list((proposals.folder(self.state) / "runs").glob("*.json"))
         self.assertEqual(len(runs), 1)
         self.assertEqual(read_object(runs[0])["origin"], "scheduled")
-        self.assertFalse(self.tidy.busy.locked())
+        self.assertFalse(self.tidy.shared.busy.locked())
 
     def test_the_butlers_topic_card_is_drawn_again_with_the_line(self):
         from covey.app import butler_topics
@@ -861,7 +867,7 @@ class MomentTest(TidyCase):
         path = butler_topics.record_path(self.state, SimpleNamespace(id=request))
         write_json(path, {"topic_id": topic, "card_id": "card-topic", "title": A, "sequence": 2}, ensure_ascii=False)
         pid = self.project("EnvReplay Prompt 优化", [self.topic("一轮")])
-        self.tidy.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid), CHAT)
+        self.tidy.applier.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid), CHAT)
         call = next(call for call in self.put.call_args_list if call.args[1] == "card-topic")
         self.assertIn("已归进专项「EnvReplay Prompt 优化」", text(call.args[2]))
         self.assertEqual(call.kwargs["sequence"], 3)

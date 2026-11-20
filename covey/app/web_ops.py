@@ -33,7 +33,7 @@ KINDS) as the owner's own and says (state, message) for the ack.
   private chat, its first turn the owner's words; a worktree's gets the launch card prefilled.
 - ``dismiss``: 不管了, the topic taken off the board as the 看板 card's 不管了 does (app/pins.py dismiss); without the board ``failed``.
 - ``tidy_decide``: 好 (``choice`` ok) or 不用 (decline) on the 整理专项 panel's suggestion ``proposal`` (data contract v16), through its
-  card's own click (app/tidy_web.py web_decide); done says what came of it, failed why nothing was done (decided already, ...).
+  card's own click (app/project_tidy.py web_decide); done says what came of it, failed why nothing was done (decided already, ...).
 - ``tidy``: 整理专项 (app/project_tidy.py start, COVEY_PROJECT_TIDY on): ``scope`` "" for everything, a project id or a word; ``done`` says
   已开始整理，结果发到私聊 (the 整理专项 card goes to the private chat), or 正在整理（12/40） while one runs; off, or too few topics, is ``failed``.
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
@@ -355,7 +355,7 @@ class Ops:
 
     def tidy_decide(self, state, chat, row, payload) -> str:
         """好 or 不用 on one suggestion of the 整理专项 panel (data contract v16): ``proposal`` its id, ``choice`` ok or decline, through
-        the click of its card (app/tidy_web.py web_decide), which is redrawn the same. done says what came of it (已拆出专项「…」),
+        the click of its card (app/project_tidy.py web_decide), which is redrawn the same. done says what came of it (已拆出专项「…」),
         failed why nothing was done."""
         from covey.core import project_proposals
 

@@ -431,7 +431,7 @@ class Projects:
                     else self.started(state, record))
             project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "")
             if project_proposals.enabled():
-                project_proposals.queue_sweep(state, pid)  # The recent topics that belong in it join too (app/project_tidy.py sweep).
+                project_proposals.queue_sweep(state, pid)  # The recent topics that belong in it join too (app/tidy_realtime.py sweep).
         return True
 
     @staticmethod

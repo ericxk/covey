@@ -1872,7 +1872,7 @@ if __name__ == "__main__":
 
 
 class FakeTidy:
-    """整理专项 as the web sync sees it (app/tidy_web.py web_stamps, web_view, web_decide)."""
+    """整理专项 as the web sync sees it (app/project_tidy.py web_stamps, web_view, web_decide)."""
 
     def __init__(self):
         self.stamp, self.decided = 1, []

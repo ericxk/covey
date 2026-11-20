@@ -1,6 +1,8 @@
-"""What 整理专项 reads of the records and says about them, as plain functions: the words for topics and projects, a 话题要点's sign,
-where a topic is now, and the claim that takes an open proposal to its decided state (docs/butler.md 整理专项). Nothing here sends
-a card or calls a model; app/project_tidy.py and the app/tidy_*.py modules it is made of use it."""
+"""What 整理专项 reads of the records and says about them, as plain functions of the state directory: the words for topics and
+projects, a 话题要点's sign, where a topic is now, the topics a 整理 looks at, the proposal card's view and the topics ticked on it, the
+claim that takes an open proposal to its decided state, and the rows' words (docs/butler.md 整理专项). They read records and
+write none (``claim`` returns the edit), send no card and call no model. This is the bottom of the app/tidy_*.py modules: every
+other one may import it, it imports none of them (tests/test_structure.py TidyPartsTest)."""
 from __future__ import annotations
 
 import hashlib
@@ -8,11 +10,17 @@ import re
 import time
 from pathlib import Path
 
+from covey.app import project_sorter as sorter
+from covey.app import topic_links
+from covey.cards import project_proposal as cards
 from covey.core import project_proposals as proposals
 from covey.core import projects, topic_gist
+from covey.core.butler import is_butler_topic
 from covey.core.checkpoint import read_checkpoint
-from covey.core.jobs import topic_job_records
+from covey.core.jobs import jobs_dir, topic_job_records
+from covey.core.state import epoch_seconds
 from covey.core.statuses import RUNNING
+from covey.core.store import directory_store
 from covey.core.text import cut
 from covey.core.topics import label_title
 
@@ -89,3 +97,169 @@ def foldable(state, pid) -> bool:
     topics = [record.get("lead_topic_id"), *(record.get("threads") or ())]
     return not any(job.get("status") in RUNNING or job.get("status") == "waiting_user"
                    for topic in topics if topic for job in topic_job_records(state, topic))
+
+
+def owner_chat(runtime) -> str:
+    """The owner's private chat ('' before the Bridge knows it)."""
+    return runtime.access.owner_chat() or ""
+
+
+def judge_tools(env) -> tuple:
+    """(the backend, the context) the small model's calls go through: the Claude app's, (None, None) without one."""
+    app = env.topics.apps.get("claude") if env is not None and env.topics is not None else None
+    harness = getattr(app, "harness", None)
+    return getattr(harness, "backend", None), getattr(harness, "context", None)
+
+
+def live_projects(state, chat) -> list:
+    return [record for record in projects.records(state, chat) if record.get("state") in (projects.ACTIVE, projects.PAUSED)]
+
+
+def recent_topics(state, chat, now, *, scope="", records=()) -> list:
+    """The topics a 整理 looks at, the latest first: those with a turn in the last days, and every topic of a live project."""
+    window = now - proposals.number("days") * 86400
+    members = {topic for record in records for topic in record.get("threads") or ()}
+    latest = {}
+    for _, record in directory_store(jobs_dir(state)).query(chat_id=chat):
+        topic = record.get("topic_id")
+        if not isinstance(topic, str) or not projects.TOPIC_RE.fullmatch(topic) or is_butler_topic(topic, chat):
+            continue
+        stamp = epoch_seconds(record.get("updated_at")) or 0
+        latest[topic] = max(latest.get(topic, 0), stamp)
+    chosen_ = [topic for topic, stamp in latest.items() if stamp >= window or topic in members]
+    if scope:
+        chosen_ = [topic for topic in chosen_ if in_scope(state, topic, scope, records)]
+    return sorted(chosen_, key=lambda topic: -latest[topic])[:sorter.MAX_TOPICS]
+
+
+def in_scope(state, topic, scope, records) -> bool:
+    word = scope.lower()
+    found = projects.topic_project(state, topic)
+    if found is not None and any(record["id"] == found.id and (word in str(record.get("name") or "").lower() or record["id"] == scope)
+                                 for record in records):
+        return True
+    text = " ".join([label_title(state, topic)[1], topic_gist.lines(topic_gist.read(state, topic))]).lower()
+    return word in text
+
+
+def run_path(state, run) -> Path:
+    """The record file of the 整理 ``run`` (its 整理专项 card's message and view)."""
+    return proposals.folder(state) / "runs" / f"{run}.json"
+
+
+def by_rule(state, chat, topic, records) -> tuple:
+    """(project id, why) when the 话题要点 of ``topic`` names in ``related`` topics of one live project of ``records``, and
+    of no other; ('', '') otherwise. No model call."""
+    related = topic_gist.gist_of(topic_gist.read(state, topic)).get("related") or ()
+    numbers = topic_links.topic_numbers(state, chat)
+    members = {other: record["id"] for record in records for other in record.get("threads") or ()}
+    hits = {}
+    for ref in related if isinstance(related, list) else ():
+        found = re.fullmatch(r"[Tt](\d+)", str(ref).strip())
+        other = numbers.get(int(found.group(1))) if found else None
+        if other and other != topic and other in members:
+            hits.setdefault(members[other], []).append(f"T{found.group(1)}")
+    if len(hits) != 1:
+        return "", ""
+    pid, refs = next(iter(hits.items()))
+    return pid, f"它的话题要点说和 {'、'.join(refs[:3])} 相关，那是这个专项的话题"
+
+
+def rule_join(topic, pid, why) -> dict:
+    return proposals.new_proposal(proposals.JOIN, topics=[topic], project=pid, why=why, source="rule", confidence=1.0)
+
+
+def still_in(state, topics, pid) -> tuple:
+    """(``topics`` still members of project ``pid``, in order; the words for the others: where they went)."""
+    kept, elsewhere_, out = [], {}, []
+    for topic in dict.fromkeys(topics or ()):
+        found = projects.topic_project(state, topic)
+        if found is not None and found.id == pid and found.role == projects.MEMBER:
+            kept.append(topic)
+        elif found is not None:
+            elsewhere_.setdefault(found.id, []).append(topic)
+        else:
+            out.append(topic)
+    words = [f"{labels(state, group)} 已归进专项「{project_name(state, other)}」" for other, group in elsewhere_.items()]
+    if out:
+        words.append(f"{labels(state, out)} 已不在专项「{project_name(state, pid)}」里")
+    return kept, "；".join(words)
+
+
+def elsewhere(state, topics) -> str:
+    """Where ``topics`` are: T12 已在专项「X」里 (one clause a project); '' for none."""
+    by = {}
+    for topic in topics:
+        found = projects.topic_project(state, topic)
+        by.setdefault(found.id if found is not None else "", []).append(topic)
+    return "；".join(f"{labels(state, group)} 已在专项「{project_name(state, pid)}」里" for pid, group in by.items() if pid)
+
+
+def went(state, topics) -> str:
+    """Where ``topics`` went: T519、T531 已归进专项「X」 (one clause a project)."""
+    by = {}
+    for topic in topics:
+        found = projects.topic_project(state, topic)
+        by.setdefault(found.id if found is not None else "", []).append(topic)
+    return "；".join(f"{labels(state, group)} 已归进专项「{project_name(state, pid)}」" if pid
+                    else f"{labels(state, group)} 已归进专项" for pid, group in by.items())
+
+
+def proposal_view(state, record) -> dict:
+    """What the proposal card shows of ``record`` besides its rows and choices."""
+    prefs = proposals.prefs(state)
+    accepted = int(prefs.get("accepted_in_row") or 0)
+    return {"proposal": record["id"], "labels": [label_title(state, topic) for topic in record.get("topics") or ()],
+            "name": record.get("name"), "goal": record.get("goal"), "why": record.get("why"),
+            "first": not prefs.get("first_sent"), "accepted": accepted,
+            "ask_auto": accepted >= proposals.ACCEPTS_TO_ASK and not prefs.get("auto_create") and not prefs.get("asked_auto"),
+            "state": record.get("state") or proposals.OPEN}
+
+
+def chosen(state, chat, view, fields) -> tuple:
+    """(the topics the owner left ticked or added on the proposal card, the T numbers he typed that are no topic of his).
+    A card without choices (sent before them) keeps the proposal's topics."""
+    choices = view.get("choices") or []
+    if not choices or (cards.TOPICS_FIELD not in fields and cards.MORE_FIELD not in fields):  # 建专项 or the rename form
+        return None, []
+    picked = fields.get(cards.TOPICS_FIELD)
+    picked = picked if isinstance(picked, list) else ([picked] if isinstance(picked, str) and picked else [])
+    topics = [choices[int(value)]["topic"] for value in picked
+              if str(value).isdigit() and int(value) < len(choices)]
+    numbers, unknown = topic_links.topic_numbers(state, chat), []
+    for word in re.findall(r"[Tt]?\d+", str(fields.get(cards.MORE_FIELD) or "")):
+        topic = numbers.get(int(word.lstrip("Tt")))
+        if topic and not sorter.hidden(state, topic) and not is_butler_topic(topic, chat):
+            topics.append(topic)
+        else:
+            unknown.append("T" + word.lstrip("Tt"))
+    return list(dict.fromkeys(topics)), unknown
+
+
+def row_item(state, record, topics) -> dict:
+    """What a row of the 整理专项 card shows of its proposal, as data (cards/project_proposal.py suggestion_block draws it, the web
+    page's 整理专项 panel says the same): kind, name, the project's name, a merge's projects' names, why, goal, ``topics`` (the
+    entries app/tidy_words.py ``entries`` makes of the record's)."""
+    return {"kind": record["kind"], "name": record.get("name") or "",
+            "project": project_name(state, record["project"]) if record.get("project") else "",
+            "projects": [project_name(state, pid) for pid in record.get("projects") or ()],
+            "why": record.get("why") or "", "goal": record.get("goal") or "", "topics": topics}
+
+
+def line(state, record, linked=None) -> str:
+    """One row of the 整理专项 card: Markdown when ``linked`` (the record's topics as app/tidy_words.py ``linked`` words them) is
+    given (a row marked ``md``), else plain words (the log's, and rows kept before)."""
+    kind, why = record["kind"], record.get("why") or ""
+    esc = cards.literal_text if linked is not None else (lambda text: text)
+    topics = linked if linked is not None else labels(state, record.get("topics") or ())
+    name = esc(project_name(state, record.get("project"))) if record.get("project") else ""
+    said = {
+        proposals.CREATE: f"新建「{esc(record.get('name') or '')}」：{topics}",
+        proposals.LEAVE: f"把 {topics} 移出「{name}」",
+        proposals.MERGE: "合并" + "、".join(f"「{esc(project_name(state, pid))}」" for pid in record.get("projects") or ())
+                         + (f"，叫「{esc(record['name'])}」" if record.get("name") else ""),
+        proposals.SPLIT: f"从「{name}」拆出 {topics}，另建「{esc(record.get('name') or '')}」",
+        proposals.RENAME: f"「{name}」改名「{esc(record.get('name') or '')}」",
+        proposals.JOIN: f"把 {topics} 归进「{name}」",
+        proposals.FOLD: f"收起「{name}」"}.get(kind, kind)
+    return said + (f"（{esc(why)}）" if why else "")

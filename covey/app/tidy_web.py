@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+from covey.app import tidy_facts as facts
 from covey.cards import project_proposal as cards
 from covey.core import project_proposals as proposals
 from covey.core.state import read_object
@@ -18,11 +19,14 @@ WEB_REFUSED = {"tidy_stale": "这条建议的卡已经过时了", "tidy_running"
 
 
 class WebSide:
-    """``ProjectTidy``'s web part. Uses ``busy``, ``progress``, ``env``, ``chat``, ``decide``, ``row_click`` of app/project_tidy.py ProjectTidy."""
+    """The web page's 整理专项. ``runtime``: the owner's chat. ``env``: the state directory and profile. ``shared``:
+    app/tidy_state.py TidyState (``busy``, ``progress``). ``words``: app/tidy_words.py TopicWords. ``clicks``: app/tidy_clicks.py
+    Clicks, whose ``decide`` and ``row_click`` a 好 or 不用 from the page goes through."""
 
-    # The web page -------------------------------------------------------------------------------------------------------
+    def __init__(self, runtime, env, shared, words, clicks) -> None:
+        self.runtime, self.env, self.shared, self.words, self.clicks = runtime, env, shared, words, clicks
 
-    def web_stamps(self) -> tuple:
+    def stamps(self) -> tuple:
         """When the runs and the proposals last changed (their folders' mtimes: every write is a rename into them), so the web
         page's 整理专项 is built again only then (app/web_sync.py push_tidy)."""
         found = []
@@ -31,9 +35,9 @@ class WebSide:
                 found.append(folder.stat().st_mtime_ns)
             except OSError:
                 found.append(0)
-        return (*found, self.busy.locked())
+        return (*found, self.shared.busy.locked())
 
-    def web_view(self, now=None) -> dict | None:
+    def view(self, now=None) -> dict | None:
         """The 整理专项 panel of the web page's 看板 (data contract v16, ``settings`` item ``tidy``): the suggestions as the 整理专项 card
         draws them (cards/project_proposal.py suggestion_words) and the 新建 proposals waiting on a card of their own; the ones still
         open from the runs of the last WEB_OPEN_DAYS, the decided ones for WEB_DECIDED_HOURS. None with 整理专项 off."""
@@ -78,12 +82,12 @@ class WebSide:
         for record in [*proposals.waiting(state), *decided]:
             if record["id"] not in seen and (record.get("state") == proposals.OPEN
                                              or now - float(record.get("decided_at") or 0) <= WEB_DECIDED_HOURS * 3600):
-                put(record, self.row_item(ctx, record), "")
+                put(record, self.words.row_item(ctx, record), "")
         shown.sort(key=lambda each: (each["state"] != "open", -each["at"]))
-        running = dict(self.progress) if self.busy.locked() else None
+        running = dict(self.shared.progress) if self.shared.busy.locked() else None
         return {"proposals": shown, "running": running, "updated_at": now}
 
-    def web_decide(self, pid, choice) -> tuple:
+    def decide(self, pid, choice) -> tuple:
         """好 (``choice`` "ok") or 不用 ("decline") on one suggestion, from the web page (app/web_ops.py ``tidy_decide``): through the
         click of its card (a 整理专项 card's row, or a 新建 proposal's own card), which is redrawn the same. (whether it was done, the
         words: what came of it, or why nothing was done)."""
@@ -93,19 +97,19 @@ class WebSide:
             return False, "这条建议找不到了"
         if record.get("state") != proposals.OPEN:
             return False, "这条已经定过了：" + (record.get("note") or cards.OUTCOME.get(record.get("state"), "") or "已处理")
-        chat = self.chat()
+        chat = facts.owner_chat(self.runtime)
         if not chat:
             return False, "还不知道你的私聊，先在飞书里和机器人说句话"
         ctx, ok = SimpleNamespace(state_dir=state, profile=getattr(self.env, "profile", None)), choice == "ok"
         own = str((record.get("card") or {}).get("message_id") or "")
         if record.get("kind") == proposals.CREATE and own:
-            outcome = self.decide(ctx, chat, {}, {"kind": cards.CREATE_KIND if ok else cards.DECLINE_KIND, "proposal": pid}, own)
+            outcome = self.clicks.decide(ctx, chat, {}, {"kind": cards.CREATE_KIND if ok else cards.DECLINE_KIND, "proposal": pid}, own)
         else:
             run = str(record.get("run") or "")
-            saved = read_object(self.run_path(state, run)) if run.replace("-", "").isalnum() else {}
+            saved = read_object(facts.run_path(state, run)) if run.replace("-", "").isalnum() else {}
             if not saved:
                 return False, "这条建议的整理卡找不到了"
-            outcome = self.row_click(ctx, chat, {}, {"kind": cards.OK_KIND if ok else cards.DECLINE_KIND, "run": run, "proposal": pid},
+            outcome = self.clicks.row_click(ctx, chat, {}, {"kind": cards.OK_KIND if ok else cards.DECLINE_KIND, "run": run, "proposal": pid},
                                      str(saved.get("message_id") or ""))
         if outcome in WEB_REFUSED:
             return False, WEB_REFUSED[outcome]

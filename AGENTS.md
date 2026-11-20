@@ -28,7 +28,7 @@
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 话题与回带 | `app/butler_topics.py`、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
-| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（线程与话题要点收集；`ProjectTidy` 由下面几个 mixin 组成）、`app/tidy_realtime.py`（实时归并、提议新专项）、`app/tidy_proposals.py`（提议卡与跟着归并更新）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击）、`app/tidy_web.py`（网页面板）、`app/tidy_facts.py`（共用的小函数）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
+| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_realtime.py`（实时归并、新专项扫一遍）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/launch_submit.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
@@ -196,11 +196,13 @@
 | `app/task_details.py` | 任务详情 and the process panel (执行过程) on a job's live task card, and the dashboard card's tiles or the 输入/输出 … |
 | `app/tidy_apply.py` | Doing what 整理专项 decided |
 | `app/tidy_clicks.py` | The clicks on 整理专项's cards: the proposal card, a row of the 整理专项 card, the reason form, 移出 and 设置's 整理专项 |
-| `app/tidy_facts.py` | What 整理专项 reads of the records and says about them, as plain functions |
+| `app/tidy_facts.py` | What 整理专项 reads of the records and says about them, as plain functions of the state directory |
 | `app/tidy_proposals.py` | The proposal card of 整理专项 and keeping it true |
 | `app/tidy_realtime.py` | The real-time half of 整理专项 |
 | `app/tidy_run.py` | A whole 整理 (scheduled or asked for) and the 整理专项 card it draws |
+| `app/tidy_state.py` | What the parts of 整理专项 share and change while it runs |
 | `app/tidy_web.py` | 整理专项 on the web page |
+| `app/tidy_words.py` | The words and rows 整理专项 draws a topic with |
 | `app/topic_links.py` | Links that open a topic from a card (docs/butler.md 话题链接 |
 | `app/topic_seen.py` | Which topics the owner has seen, from Feishu's read receipts |
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
