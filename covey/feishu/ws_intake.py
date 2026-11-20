@@ -80,10 +80,76 @@ def _compact_mentions(mentions: Any) -> list[dict[str, str]]:
     return result
 
 
+# How lark-cli writes a post's inline styles (seen on its +messages-mget of real posts, 2026-11-20).
+_STYLES = (('lineThrough', '~~', '~~'), ('underline', '<u>', '</u>'))
+
+
+def _styled(text: str, style: Any) -> str:
+    style = set(style) if isinstance(style, list) else set()
+    if not text:
+        return text
+    stars = ('*' if 'italic' in style else '') + ('**' if 'bold' in style else '')
+    text = f'{stars}{text}{stars[::-1]}'
+    for name, before, after in _STYLES:
+        if name in style:
+            text = f'{before}{text}{after}'
+    return text
+
+
+def _post_element(element: Any, named: dict[str, str]) -> str:
+    """One inline element of a post as lark-cli renders it: styled text, [text](href), @name, ![Image](key),
+    a fenced code block, ---, :EMOJI:."""
+    if not isinstance(element, dict):
+        return ''
+    tag = element.get('tag')
+    if tag == 'text':
+        return _styled(str(element.get('text') or ''), element.get('style'))
+    if tag == 'a':
+        text, href = str(element.get('text') or ''), str(element.get('href') or '')
+        return f'[{_styled(text, element.get("style"))}]({href})' if text else href
+    if tag == 'at':
+        name = str(element.get('user_name') or named.get(str(element.get('user_id') or ''), '') or '').lstrip('@')
+        return '@' + (name or str(element.get('user_id') or ''))
+    if tag == 'img':
+        return f'![Image]({element.get("image_key") or ""})'
+    if tag == 'media':
+        key, name = str(element.get('file_key') or ''), str(element.get('file_name') or '')
+        return f'<file key="{key}"' + (f' name="{name}"' if name else '') + '/>'
+    if tag == 'code_block':
+        return f'\n```{element.get("language") or ""}\n{element.get("text") or ""}\n```\n'
+    if tag == 'hr':
+        return '\n---\n'
+    if tag == 'emotion':
+        return f':{element.get("emoji_type") or ""}:'
+    return str(element.get('text') or '')
+
+
+def _post_text(content: str, named: dict[str, str]) -> str:
+    """A post as lark-cli prints it: its title on the first line, then each paragraph's elements run together, the
+    paragraphs a line each. The message API's JSON as it is when it is not a post's."""
+    try:
+        body = json.loads(content)
+    except ValueError:
+        return content
+    if isinstance(body, dict) and not isinstance(body.get('content'), list):  # Keyed by language: the first one.
+        body = next((value for value in body.values() if isinstance(value, dict) and 'content' in value), body)
+    paragraphs = body.get('content') if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list):
+        return content
+    lines = [str(body.get('title'))] if body.get('title') else []
+    lines += [''.join(_post_element(element, named) for element in paragraph)
+              for paragraph in paragraphs if isinstance(paragraph, list)]
+    return '\n'.join(lines)
+
+
 def _plain_text(message_type: str, content: Any, mentions: list[dict[str, str]]) -> str:
-    """A text message's content as readable text (its words, mention placeholders named); the content of any
-    other type stays the message API's JSON, which feishu/message_parts.py reads as it reads lark-cli's rendering."""
+    """A text message's content as readable text (its words, mention placeholders named), a post's as lark-cli
+    renders it (``_post_text``: elements in a paragraph run together, where message_parts.py would put each on its
+    own line); the content of any other type stays the message API's JSON, which feishu/message_parts.py reads as
+    it reads lark-cli's rendering (the same model text for images and files, checked 2026-11-20)."""
     content = content if isinstance(content, str) else ''
+    if message_type == 'post':
+        return _post_text(content, {m['key']: m['name'] for m in mentions if m['key'] and m['name']})
     if message_type != 'text':
         return content
     try:

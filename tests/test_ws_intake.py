@@ -79,12 +79,49 @@ class ConverterTest(unittest.TestCase):
         self.assertEqual((event['update_time'], event['sender_type']), ('1790000009000', 'bot'))
 
     def test_other_types_keep_the_message_api_json(self):
-        post = {'title': '', 'content': [[{'tag': 'text', 'text': 'hi'}, {'tag': 'img', 'image_key': 'img_v3_02abc_1234-aaaa'}]]}
-        event = ws_intake.message_event(message(post, 'post'))
-        self.assertEqual(json.loads(event['content']), post)
-        self.assertEqual(event['message_type'], 'post')
+        image = {'image_key': 'img_v3_02abc_1234-aaaa'}
+        event = ws_intake.message_event(message(image, 'image'))
+        self.assertEqual(json.loads(event['content']), image)
+        self.assertEqual(event['message_type'], 'image')
         from covey.feishu.message_parts import collect_message_parts
-        self.assertEqual(collect_message_parts(event['content'])[:2], (['hi'], ['img_v3_02abc_1234-aaaa']))
+        self.assertEqual(collect_message_parts(event['content'])[1], ['img_v3_02abc_1234-aaaa'])
+
+    def test_a_post_reads_as_lark_cli_prints_it(self):
+        """Posts sent and read back on the test bot, 2026-11-20: lark-cli's +messages-mget of each, byte for byte.
+        Elements of a paragraph run together (message_parts.py would put "1. " and "第一项" on two lines)."""
+        cases = [
+            ({'title': 'T575 标题', 'content': [
+                [{'tag': 'text', 'text': '普通 ', 'style': []}, {'tag': 'text', 'text': '加粗', 'style': ['bold']},
+                 {'tag': 'text', 'text': ' 结尾', 'style': []}],
+                [{'tag': 'a', 'href': 'https://example.com/x', 'text': '链接文字', 'style': []},
+                 {'tag': 'text', 'text': ' 后面', 'style': []}],
+                [{'tag': 'at', 'user_id': '@_user_1', 'user_name': '主人', 'style': []},
+                 {'tag': 'text', 'text': ' 请看', 'style': []}],
+                [{'tag': 'code_block', 'language': 'PYTHON', 'text': 'print(1)\n\n\n\n'}], [{'tag': 'hr'}],
+                [{'tag': 'emotion', 'emoji_type': 'SMILE'}, {'tag': 'text', 'text': ' 表情', 'style': []}]]},
+             'T575 标题\n普通 **加粗** 结尾\n[链接文字](https://example.com/x) 后面\n@主人 请看\n\n```PYTHON\n'
+             'print(1)\n\n\n\n\n```\n\n\n---\n\n:SMILE: 表情'),
+            ({'title': '', 'content': [
+                [{'tag': 'text', 'text': '斜', 'style': ['italic']}, {'tag': 'text', 'text': '下划', 'style': ['underline']},
+                 {'tag': 'text', 'text': '删', 'style': ['lineThrough']},
+                 {'tag': 'text', 'text': '粗斜', 'style': ['bold', 'italic']}],
+                [{'tag': 'text', 'text': '行内 `code` 和 * 星号 _ 下划线'}], [{'tag': 'a', 'text': '', 'href': 'https://example.com/e'}]]},
+             '*斜*<u>下划</u>~~删~~***粗斜***\n行内 `code` 和 * 星号 _ 下划线\nhttps://example.com/e'),
+            ({'title': '', 'content': [[{'tag': 'text', 'text': '前面的字 ', 'style': []}],
+                                       [{'tag': 'img', 'image_key': 'img_v3_02abc_1234-aaaa', 'width': 320, 'height': 120}],
+                                       [{'tag': 'text', 'text': ' 后面的字', 'style': []}]]},
+             '前面的字 \n![Image](img_v3_02abc_1234-aaaa)\n 后面的字'),
+            ({'title': '', 'content': [[{'tag': 'text', 'text': '1. '}, {'tag': 'text', 'text': '第一项'}],
+                                       [{'tag': 'text', 'text': '2. '}, {'tag': 'text', 'text': '第二项'}]]},
+             '1. 第一项\n2. 第二项'),
+        ]
+        for post, printed in cases:
+            with self.subTest(printed=printed[:20]):
+                self.assertEqual(ws_intake.message_event(message(post, 'post'))['content'], printed)
+        from covey.feishu.message_parts import collect_message_parts
+        texts, images = collect_message_parts(ws_intake.message_event(message(cases[2][0], 'post'))['content'])[:2]
+        self.assertEqual(images, ['img_v3_02abc_1234-aaaa'])  # The image is still found and downloaded.
+        self.assertEqual(ws_intake.message_event(message('not json', 'post'))['content'], '"not json"')  # Not a post's JSON: as it is.
 
     def test_text_message_reaches_the_model_text_as_the_words(self):
         from covey.feishu.media import enrich_incoming_event

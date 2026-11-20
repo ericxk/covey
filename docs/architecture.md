@@ -316,12 +316,12 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 `COVEY_EVENT_TRANSPORT=sdk`（不设或 `cli` 是现状）。实现在 `feishu/ws_intake.py`；关着时 `app/unified.py` 的 `consume_events()` 走原来的 `feishu/events.py` `consume()`（lark-cli 消费者），`lark_oapi` 一个都不导入。
 
 - **四类事件一起走**：`im.message.receive_v1`、`card.action.trigger`、`application.bot.menu_v6`、`im.message.message_read_v1`。同一个应用只能有一个事件长连接，SDK 连着时 lark-cli 的 `event consume` 拒绝启动，所以开着时 lark-cli 消费者一个都不起，处理函数还是各自原来的那一个（`handle_event`、`CardLanes.submit`、`handle_menu_event`、`TopicSeen.handle`），`consume_events()` 的调用方不变。
-- **转换**：SDK 给的是 v2 原始信封，`ws_intake.py` 的 `message_event`、`card_action_event`、`menu_event`、`read_event` 转成与 `events.py` 里各 `*_JQ` 同形的 dict，下游分不出来源。消息事件带 `REPLY_CONTEXT`（原始事件本来就有类型、根、父、提及）；文本消息的 `content` 是读得懂的文字（`@_user_N` 换成名字），其他类型保留消息 API 的 JSON，`message_parts.py` 两种都认。
+- **转换**：SDK 给的是 v2 原始信封，`ws_intake.py` 的 `message_event`、`card_action_event`、`menu_event`、`read_event` 转成与 `events.py` 里各 `*_JQ` 同形的 dict，下游分不出来源。消息事件带 `REPLY_CONTEXT`（原始事件本来就有类型、根、父、提及）；文本消息的 `content` 是读得懂的文字（`@_user_N` 换成名字）；富文本（`post`）照 lark-cli 的样子渲染（标题一行，段内元素连写，`**粗**`、`*斜*`、`<u>`、`~~`、`[字](链接)`、`@名字`、`![Image](key)`、代码块、`---`、`:表情:`）；其他类型保留消息 API 的 JSON，`message_parts.py` 两种都认。2026-11-20 在测试机器人上对照：多行文字、@ 提及、图片、文件、引用回复、话题里的回复、两种富文本，SDK 和 lark-cli 两条路交给 `enrich_incoming_event` 后的模型文字逐字相同；卡片表单提交的 `form_value` 同形。
 - **toast**：卡片回调的应答在同一帧里回 `{"toast": {"type": "info", "content": "收到"}}`（常量 `TOAST_TEXT`）。应答前只做解析和入队，点击在卡片的消费线程（`cards`）里走原来的 `CardLanes.submit`；SDK 的回调线程同时跑心跳，不做重活。转换失败时不回 toast。
 - **队列与线程**：每个 key 一个有界队列（256），由该 key 自己的消费线程取（和 lark-cli 时一样逐个处理，慢消息不拖连接）。第一个 `consume()` 调用起 `event-websocket` 线程，在线程里才导入 `lark_oapi`、取凭据（`feishu/sdk.py` 的 `client()`，只在内存）；断线重连由 SDK 自己做，客户端抛出（如连接数超限）时线程 20 秒内重来。Bridge 停止时 `stop_children` 关连接。
 - **去重**：按 `event_id` 在内存里记最近 2048 个，重投或重连重发的不再处理（点击仍回 toast）；不改 `claim_once`。
 - **健康**：每个已有消费者的 key 照旧一个 `ConsumerHealth`，连上时写 `[event] ready event_key=<key>`（`deploy_bridge.sh` 数的就是这行），断开记 `retrying/disconnected`，重连再写一遍。`feishu/connections.py` 的传输看门狗在这个模式下不看 lark-cli 总线，改报 SDK 连接状态（`receiving`/`disconnected`）；健康快照多一个 `event_transport: sdk`，`doctor` 据此看 Bridge 自己的消费者是否 ready，不因找不到总线报 degraded。
-- **切回**：去掉变量重启即可，不留状态。已知限制：靠 `lark_oapi` 1.7.4 客户端的 `_conn` 判断是否连上；`post` 等富文本的 `@` 在 `message_parts.py` 里读成不带 `@` 的名字。
+- **切回**：去掉变量重启即可，不留状态。已知限制：靠 `lark_oapi` 1.7.4 客户端的 `_conn` 判断是否连上；@ 提及的 `id` 对机器人是它的 open_id（lark-cli 给的是 app_id），判断是否提到本机器人用的 `Access.own_ids` 两个都认。
 
 ## 事件、执行过程与卡片
 
