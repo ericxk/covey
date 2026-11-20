@@ -17,7 +17,7 @@ from unittest import mock
 
 from support.records import write_job, write_topic
 
-from covey.app import answers as answer_words, source_watch, web_ops, web_said, web_sync as app_web
+from covey.app import answers as answer_words, source_watch, web_ops, web_said, web_sync as app_web, web_collect as app_collect
 from covey.app.web_sync import WebError, WebSync
 from covey.app import project_lead, web_turns
 from covey.core import butler_opened, http_upstream, model_names, placement, project_library, project_memory, project_proposals, projects, triage, web_sync
@@ -244,7 +244,7 @@ class PushTest(WebCase):
     def test_a_running_turn_pushes_its_progress_notes_each_time_they_change(self):
         self.topic(status="running", lines=(("user", "做一下"),))
         notes = {"steps": {"a": {"title": "进展说明", "detail": "先看了日志", "status": "note"}}, "step_order": ["a"]}
-        with mock.patch.object(app_web, "load_trace", side_effect=lambda *args: notes):
+        with mock.patch.object(app_collect, "load_trace", side_effect=lambda *args: notes):
             self.sync.push_once(T0)
             self.assertEqual(self.sync.push_once(T0 + 1), 0)
             notes["steps"]["b"] = {"title": "进展说明", "detail": "再看了配置", "status": "note"}
@@ -315,7 +315,7 @@ class PushTest(WebCase):
     def test_the_butlers_running_turn_is_looked_at_every_second_with_no_touch(self):
         self.butler_topic(status="running", lines=(("user", "做一下"),))
         notes = {"steps": {"a": {"title": "进展说明", "detail": "先看了日志", "status": "note"}}, "step_order": ["a"]}
-        with mock.patch.object(app_web, "load_trace", side_effect=lambda *args: notes):
+        with mock.patch.object(app_collect, "load_trace", side_effect=lambda *args: notes):
             self.sync.push_once(T0)
             self.assertEqual(self.sync.push_once(T0 + 1), 0)
             notes["steps"]["b"] = {"title": "进展说明", "detail": "再看了配置", "status": "note"}
@@ -365,7 +365,7 @@ class PushTest(WebCase):
         for number, topic in enumerate(quiet, 20):
             self.topic(topic, number=number, title=f"话题{number}")
         self.topic(status="running", lines=(("user", "做一下"),))
-        with mock.patch.object(app_web, "PASS_SLICE", 2, create=True):
+        with mock.patch.object(app_collect, "PASS_SLICE", 2, create=True):
             self.sync.push_once(T0)
             first = {item["key"] for item in self.web.items("topic")}
             self.assertIn(TOPIC, first)
@@ -513,7 +513,7 @@ class StuckTest(WebCase):
         self.topic(OTHER, number=8, title="写周报")
         hang, order = threading.Event(), []
         self.addCleanup(hang.set)
-        real = app_web.Collector.topic_items
+        real = app_collect.Collector.topic_items
 
         def topic_items(collector, state, chat, topic, records, now):
             if topic == TOPIC and not hang.is_set():
@@ -533,7 +533,7 @@ class StuckTest(WebCase):
         guard = threading.Timer(8, self.runtime.shutdown.set)
         guard.start()
         self.addCleanup(guard.cancel)
-        with mock.patch.object(app_web.Collector, "topic_items", topic_items), mock.patch.object(app_web, "STUCK_SECONDS", 0.2), \
+        with mock.patch.object(app_collect.Collector, "topic_items", topic_items), mock.patch.object(app_web, "STUCK_SECONDS", 0.2), \
                 mock.patch.object(app_web, "MAX_LEFT", 2):
             self.sync.loop("push", step, lambda: 0.01, self.sync.start_over, lambda: self.sync.collector.moved)
         self.assertEqual(order[:2], [OTHER, TOPIC])
@@ -546,14 +546,14 @@ class StuckTest(WebCase):
         self.topic(status="running")
         hang, entered = threading.Event(), threading.Event()
         self.addCleanup(hang.set)
-        real = app_web.Collector.collect
+        real = app_collect.Collector.collect
 
         def collect(collector, chat, now, full):
             found = real(collector, chat, now, full)
             entered.set()
             hang.wait(10)
             return found
-        with mock.patch.object(app_web.Collector, "collect", collect):
+        with mock.patch.object(app_collect.Collector, "collect", collect):
             late = threading.Thread(target=self.sync.push_once, args=(T0,))
             late.start()
             self.assertTrue(entered.wait(5))
@@ -1168,7 +1168,7 @@ class ExtrasTest(WebCase):
     """Data contract v3: a turn's process, plan and figures, a question's times, a project's memory and library."""
 
     def traced(self, snapshot, **fields):
-        for module in (app_web, web_turns):
+        for module in (app_collect, web_turns):
             patch = mock.patch.object(module, "load_trace", side_effect=lambda *args: snapshot)
             patch.start()
             self.addCleanup(patch.stop)
@@ -1495,7 +1495,7 @@ class LeadTest(WebCase):
 
     def test_a_wake_up_reply_the_lead_meant_for_the_owner_is_its_answer(self):
         self.conversation()
-        with mock.patch.object(app_web.project_loop, "reported", return_value=True):
+        with mock.patch.object(app_collect.project_loop, "reported", return_value=True):
             self.sync.push_once(T0)
         bodies = [item["data"]["body"] for item in self.web.items("turn") if item["data"]["role"] == "agent"]
         self.assertIn("已派出 T831", bodies)
@@ -1616,7 +1616,7 @@ class ProgressAndAnswersTest(WebCase):
             {"id": "q1", "question": "用哪个库？", "options": [{"label": "A"}, {"label": "B"}]},
             {"id": "q2", "question": "要不要部署？", "options": [{"label": "要"}, {"label": "不要"}]},
             {"id": "q3", "question": "测哪些？", "multiple": True, "options": [{"label": "单测"}, {"label": "回放"}]}],
-            answers={"q1": {"answers": ["B"]}, "q2": {"answers": [app_web.SKIPPED]}, "q3": {"answers": ["单测", "回放"]}})
+            answers={"q1": {"answers": ["B"]}, "q2": {"answers": [app_collect.SKIPPED]}, "q3": {"answers": ["单测", "回放"]}})
         write_job(self.state, "k-answer", topic_id=TOPIC, chat_id=CHAT, job_id=9, status="done", message_id="answer-" + TOKEN)
         history = self.state / "topics" / TOPIC / "history.jsonl"
         append_history(history, "user", "用哪个库？ → B", {"message_id": "answer-" + TOKEN})
@@ -1631,7 +1631,7 @@ class ProgressAndAnswersTest(WebCase):
 
     def test_feedback_instead_of_answers_is_not_answered(self):
         self.question(status="answered", response_kind="feedback", answers={"q1": {"answers": ["用户选择反馈问题"]}})
-        self.assertEqual(app_web.answer_rows(read_object(self.state / "questions" / f"{TOKEN}.json")),
+        self.assertEqual(app_collect.answer_rows(read_object(self.state / "questions" / f"{TOKEN}.json")),
                          [{"question": "用哪个库？", "choice": "没答"}])
 
 
@@ -1754,7 +1754,7 @@ class TurnJobsTest(WebCase):
     without one, so with no token, process or plan on the page (the project's tile, the report's token table, a turn's 过程)."""
 
     def paired(self, rows, records, questions=()):
-        return [(row["role"], row.get("content"), job and job["job_id"]) for row, job, _ in app_web.Collector.pair(rows, records, questions)]
+        return [(row["role"], row.get("content"), job and job["job_id"]) for row, job, _ in app_collect.Collector.pair(rows, records, questions)]
 
     def test_a_supplement_sent_into_the_running_task_leaves_that_task_to_the_answer(self):
         # T542: the lead's 补充 (main-…, merged into the running task: no record of its own) came after the answer that started it.
@@ -1807,7 +1807,7 @@ class TurnJobsTest(WebCase):
         history = self.state / "topics" / TOPIC / "history.jsonl"
         append_history(history, "user", "跑对比", {"message_id": "om_go"})
         append_history(history, "assistant", "对比跑完了")
-        for module in (app_web, web_turns):
+        for module in (app_collect, web_turns):
             patch = mock.patch.object(module, "load_trace", side_effect=lambda state, record: dict(
                 snapshot_of(T0), input_tokens=1000 * record["job_id"], output_tokens=10 * record["job_id"], cache_read_tokens=900 * record["job_id"]))
             patch.start()
@@ -1823,7 +1823,7 @@ class TurnJobsTest(WebCase):
             write_job(self.state, f"k-{number}", topic_id=TOPIC, chat_id=CHAT, job_id=100 + number, status="done", message_id=f"om_{number}")
             append_history(history, "user", f"第 {number} 件", {"message_id": f"om_{number}"})
             append_history(history, "assistant", f"第 {number} 件做完了")
-        for module in (app_web, web_turns):
+        for module in (app_collect, web_turns):
             patch = mock.patch.object(module, "load_trace", side_effect=lambda *args: snapshot_of(T0))
             patch.start()
             self.addCleanup(patch.stop)

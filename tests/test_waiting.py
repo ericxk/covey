@@ -14,7 +14,7 @@ from unittest import mock
 from support.records import state_dir, write_job, write_topic
 
 from covey.app import butler, digest, overview
-from covey.app.web_sync import Collector
+from covey.app.web_collect import Collector
 from covey.cards import board as board_card
 from covey.core import board_read
 from covey.core.butler import butler_topic_id

@@ -247,7 +247,7 @@
 2. **`covey/cards/ui.py`**：`conclusion_band`（细色阶，见第 4 节）、`styled`（给卡片加上结论带的颜色）、`todo_bar`、`seg_bar`、`topic_row`、`state_pill`、`state_word`、`number`、`band_label`（“有结果 · T12 标题”这种小字）、`has_band`、`banded`（带结论带的卡才过 `styled`），设置一组卡的回执经 `receipt` 变成一行灰字。
 3. **聊天卡片**：状态词、按钮叫法用第 3、6 节的（`core/turn_words.py`、`core/status_line.py`、`core/failure.py`）；任务卡状态行的首词是带颜色圆点的状态词（`cards/task_status.py` 的 `marked`），可能卡住时首词就是“可能卡住”，在跑时不加结论带（第 11 节）。结论带加在：话题区答案卡的头部（`cards/review.py` 的 `answer_band`，有回答首句时；没有时仍是原来的状态行）、回带卡三种结局（`cards/relay_card.py`）、开着的问题卡和它的顶层副本（替换橙色标题栏）、恢复卡（替换彩色标题栏）。说话人（5.3）在答案、回带和问题卡副本的“你问”块上。
 4. **菜单结果卡**：看板、用量用结论带和分段状态条，看板的块是话题行，`cancelled` 按谁停的分开（汇总行带 `tone`，`app/digest.py` collect）。
-5. **网页数据约定 v5**：`topic` 条目在 `state` 之外多带 `tone`（第 3 节的 key，`app/web_sync.py` 的 `Collector.tone`）。网页按 `tone` 上色、取词，不再比较中文字；`state` 照旧，老网页不受影响。`python3 -B scripts/export_look.py --out look.json` 导出词表，网页的 token 由它生成。
+5. **网页数据约定 v5**：`topic` 条目在 `state` 之外多带 `tone`（第 3 节的 key，`app/web_collect.py` 的 `Collector.tone`）。网页按 `tone` 上色、取词，不再比较中文字；`state` 照旧，老网页不受影响。`python3 -B scripts/export_look.py --out look.json` 导出词表，网页的 token 由它生成。
 6. **谁停的**：记录的 `cancel_requested_by` 写停止来源（`core/jobs.py` 的 `STOP_SOURCES`）：任务卡上的停止 `card`、对管家说停 `word`、网页上的停止 `web`、专项卡上的停止 `project`、主人撤回了任务的原消息 `recall`，这五个是主人自己停的（`look.OWNER_STOPS`），算**已停止**；负责人停的 `lead`、专项护栏停的 `guard`、代答换批次停的 `proxy` 算**停住了**。排队时取消的（`never_started`）也是主人的。旧记录只有 `card`，照旧读成主人停的；没有来源的 `cancelled` 读成停住了。停止来源走卡片点击的 `by` 字段，老版本的任务进程不认它，照旧记成 `card`。
 7. **飞书客户端的限制**（真机验过）：自定义颜色 `config.style.color` 飞书认，浅色、深色两套都生效；图片设固定像素尺寸只能配 `crop_center`。不加光球、不在四周套光晕圈，带子里竖向渐变相邻差 1%（差 3% 看得出条纹）。
 

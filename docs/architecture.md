@@ -173,7 +173,7 @@ continued、done、failed、cancelled、interrupted：终态
   - 任务卡：失败的一轮正文换成这句（`TurnDelivery.card_text`，加粗一行），原来的那段话收进正文下的“技术详情”（`failure_details`，元素 `failure_details`），再是按钮行（`auto_retry.failed_controls`）：限流的检查并继续叫“现在重试”，另加“看原因”“拆小再试”；换配置用已有的“换配置”。官方拒绝的正文本来就写谁在做什么时被拦（[policy-stop.md](policy-stop.md)），正文不换，只加“拆小再试”（换旧模型重试排上时什么都不加）。恢复卡（中断的）正文第一行也是这句，按钮后加同样的“看原因”“拆小再试”。
   - 恢复卡（`cards/recovery.py` 的 `recovery_view`）：开头是结论带（`cards/ui.py` 的 `conclusion_band`，docs/ui.md 5.2），小字“停住了 · T12 #431”，大字是原因、灰字是下一步（`failure.split_title` 按第一个“；”拆，原因超过 40 字再在“，”处拆），不再有彩色标题栏；正文是停在哪一步、已做完的和下一步。
   - “看原因”（`bridge_job_diagnose`）和“拆小再试”（`bridge_job_split`）都是 `bot_only`，由 `Submission.follow_up` 在本话题排一轮：话题里显示“看原因：任务 #N 为什么没成功”“拆小再试：任务 #N”，模型读到的是 `core/failure.py` 的 `follow_up`：看原因是只读排查（不改文件、不重跑、不动任务和服务，最后说清哪一步、为什么、建议怎么做），拆小再试先核对已做的，再一小块一小块做，被拦的那块先跳过。话题还有任务在跑或排队时不排，告诉主人；这条记录不提供这一步时也不排。
-  - 网页：每轮的 `failure` 字段同一个 `failure_view`（`app/web_sync.py`）。
+  - 网页：每轮的 `failure` 字段同一个 `failure_view`（`app/web_collect.py`）。
 
 ### 重启与维护
 

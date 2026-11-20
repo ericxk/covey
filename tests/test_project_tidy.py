@@ -883,7 +883,7 @@ class OffTest(TidyCase):
                 self.assertEqual(self.tidy.start(self.ctx), tidy_module.OFF_WORDS)
                 self.assertEqual(Ops(self.env).run({"kind": "tidy", "op_id": "o2", "payload": {}})[0], "failed")
                 self.assertNotIn("projects_tidy", [tool["name"] for tool in butler_tool_specs.listed(dict(os.environ))])
-                from covey.app.web_sync import Collector
+                from covey.app.web_collect import Collector
                 self.assertIsNone(Collector.gist(self.state, topic))
         self.assertEqual(self.asked, [])
 
