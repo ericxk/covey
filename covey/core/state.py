@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Shared local state and workspace helpers for Feishu bridge scripts: private files and directories, JSON
-records written whole, timestamps. Logs are core/logs.py, a topic's history core/history_storage.py, its native
+"""Shared local state and workspace helpers for Feishu bridge scripts: private files and directories (and the
+private staging folders a file is copied into before it goes out), JSON records written whole, timestamps. Logs are core/logs.py, a topic's history core/history_storage.py, its native
 session id core/session_state.py."""
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import datetime as _dt
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 PRIVATE_DIR_MODE = 0o700
@@ -89,6 +90,25 @@ def write_private_text(path: Path, content: str) -> None:
         ensure_private_dir(folder)
         _PRIVATE_DIRS.add(folder)
     atomic_write_bytes(path, data, remake=lambda: ensure_private_dir(folder))  # Removed since this process made it.
+
+
+def private_staging(state_dir, name):
+    """<state>/<name>, made private (0700) when missing: where a file is copied before it goes to Feishu."""
+    staging = state_dir / name
+    staging.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return staging
+
+
+@contextmanager
+def private_folder(state_dir, name):
+    """A new folder in private_staging(state_dir, name); its files and the folder are removed afterwards."""
+    folder = Path(tempfile.mkdtemp(dir=private_staging(state_dir, name)))
+    try:
+        yield folder
+    finally:
+        for item in folder.iterdir():
+            item.unlink(missing_ok=True)
+        folder.rmdir()
 
 
 def claim_once(folder: Path, name: str) -> bool:

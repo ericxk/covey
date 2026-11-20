@@ -27,10 +27,10 @@ from covey.cards.artifact_panels import artifact_panel, drive_artifact_panel
 from covey.core import background
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
 from covey.core.locks import resource_lock, shared_file_lock
-from covey.core.state import read_json, write_json, write_private_text
-from covey.feishu.drive import DriveError, drive_call, drive_upload, private_folder, private_staging
+from covey.core.state import private_folder, private_staging, read_json, write_json, write_private_text
+from covey.feishu.drive import DriveError, drive_call, drive_upload, upload_chat_file
 from covey.feishu.message_request import reply_in_thread
-from covey.feishu.transport import classify, cli_result, lark_argv, set_failure
+from covey.feishu.transport import classify, set_failure
 
 DRIVE_ROOT_FOLDER = "Harness Bridge 产物"
 DAYS_KEPT = 7  # Day folders root-folder.json remembers; older ones stay on Drive, only their entries go.
@@ -315,18 +315,7 @@ class Artifacts:
                 if saved.get("sent"):
                     return "该版本文件已发送到本话题，无需重复发送。"
                 if not saved.get("file_key"):
-                    payload, failure = cli_result(
-                        lark_argv(ctx.profile, "im", "files", "create", "--as", "bot", "--data",
-                                  json.dumps({"file_name": source.name, "file_type": "stream"}),
-                                  "--file", f"file={temp.name}", "--format", "json"),
-                        timeout=60, cwd=staging, runner=subprocess.run)
-                    if failure:
-                        set_failure(failure)
-                        raise ValueError("文件上传失败，请稍后重试")
-                    data = payload.get("data", payload)
-                    file_key = data.get("file_key")
-                    if not file_key:
-                        raise ValueError("文件上传未返回文件标识，请重试")
+                    file_key = upload_chat_file(ctx.profile, source.name, temp)
                     saved = {"file_key": file_key, "sha256": digest, "source": str(source)}
                     write_json(ledger, saved)
                 reply_to = str(record.get("reply_to_message_id") or "")

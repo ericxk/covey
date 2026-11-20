@@ -1,18 +1,16 @@
-"""The bot's cloud space (Drive) through lark-cli: one call, one upload, and the private folders files are copied into first.
+"""The bot's cloud space (Drive) through lark-cli: one call, one upload, and a file uploaded for a chat message.
 
 A failed call raises DriveError with the reason the task card shows; the folder layout and what is uploaded
-are app/artifacts.py's.
+are app/artifacts.py's. The private folders files are copied into first are core/state.py's.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import json
 import subprocess
-import tempfile
-from pathlib import Path
 
 from covey.core.text import safe_text
-from covey.feishu.transport import cli_result, lark_argv
+from covey.feishu.transport import cli_result, lark_argv, set_failure
 
 # Feishu holds at most 1500 children in a folder and answers this code when one more is created in a full one.
 FOLDER_LIMIT = 1500
@@ -81,20 +79,20 @@ def drive_upload(profile, path, folder_token, log=None):
                       cwd=path.parent, timeout=min(1800, 120 + size // (512 * 1024)), log=log)
 
 
-def private_staging(state_dir, name):
-    """<state>/<name>, made private (0700) when missing: where a file is copied before it goes to Feishu."""
-    staging = state_dir / name
-    staging.mkdir(parents=True, exist_ok=True, mode=0o700)
-    return staging
-
-
-@contextmanager
-def private_folder(state_dir, name):
-    """A new folder in private_staging(state_dir, name); its files and the folder are removed afterwards."""
-    folder = Path(tempfile.mkdtemp(dir=private_staging(state_dir, name)))
-    try:
-        yield folder
-    finally:
-        for item in folder.iterdir():
-            item.unlink(missing_ok=True)
-        folder.rmdir()
+def upload_chat_file(profile, name, staged):
+    """The file at ``staged``, uploaded as ``name`` for the bot to send in a chat (``im files create``, lark-cli run in
+    its folder): the file_key Feishu gives it, which a message then names. A failure is recorded for the caller
+    (transport.set_failure) and raises ValueError with the reason to show."""
+    payload, failure = cli_result(
+        lark_argv(profile, "im", "files", "create", "--as", "bot", "--data",
+                  json.dumps({"file_name": name, "file_type": "stream"}),
+                  "--file", f"file={staged.name}", "--format", "json"),
+        timeout=60, cwd=staged.parent, runner=subprocess.run)
+    if failure:
+        set_failure(failure)
+        raise ValueError("文件上传失败，请稍后重试")
+    data = payload.get("data", payload)
+    file_key = data.get("file_key")
+    if not file_key:
+        raise ValueError("文件上传未返回文件标识，请重试")
+    return file_key

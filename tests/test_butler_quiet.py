@@ -717,7 +717,7 @@ class ResultFileTest(Case):
         self.ctx.workdir = self.root
         ctx = self.ctx.__class__(**{**vars(self.ctx), "reply_to_message_id": reply_to})
         job = self.job(reply_to_message_id="om_1")
-        with mock.patch("covey.app.artifacts.cli_result", return_value=({"data": {"file_key": "fk"}}, None)):
+        with mock.patch("covey.feishu.drive.cli_result", return_value=({"data": {"file_key": "fk"}}, None)):
             self.assertTrue(artifacts.send_result_file(ctx, job, "长回答"))
         return artifacts.messenger.cardkit.call_args
 

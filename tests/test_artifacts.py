@@ -63,7 +63,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
     def test_upload_and_topic_delivery_are_deduplicated(self):
         with (
             mock.patch(
-                "covey.app.artifacts.subprocess.run",
+                "covey.feishu.drive.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 0, '{"data":{"file_key":"file-test"}}', ""),
             ) as upload,
             FakeCardKit({"data": {}}) as send,
@@ -88,7 +88,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
                 release.wait(10)
             return subprocess.CompletedProcess([], 0, '{"data":{"file_key":"file-test"}}', "")
         with (
-            mock.patch("covey.app.artifacts.subprocess.run", side_effect=upload),
+            mock.patch("covey.feishu.drive.subprocess.run", side_effect=upload),
             FakeCardKit({"data": {}}) as send,
         ):
             stuck = threading.Thread(target=self.app.artifacts.send_artifact, daemon=True,
@@ -136,7 +136,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
                         "url": f"https://drive/file/box{len(calls)}"}
                 self.uploaded[data["file_name"]] = (Path(kwargs["cwd"]) / argv[argv.index("--file") + 1]).read_bytes()
             return subprocess.CompletedProcess(argv, 0, json.dumps({"ok": True, "data": data}), "")
-        return calls, mock.patch("covey.app.artifacts.subprocess.run", side_effect=run)
+        return calls, mock.patch("covey.feishu.drive.subprocess.run", side_effect=run)
 
     def test_artifacts_upload_once_into_a_task_folder_the_owner_manages(self):
         secret, settings = self.root / ".env", self.root / ".claude" / "settings.json"
@@ -484,7 +484,7 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
     def test_delivery_retry_reuses_uploaded_file(self):
         with (
             mock.patch(
-                "covey.app.artifacts.subprocess.run",
+                "covey.feishu.drive.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 0, '{"data":{"file_key":"file-test"}}', ""),
             ) as upload,
             FakeCardKit(side_effect=[None, {"data": {}}]) as send,

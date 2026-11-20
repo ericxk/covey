@@ -17,12 +17,13 @@ import lzma
 import threading
 import time
 
-from covey.feishu.drive import drive_upload, private_folder
 from covey.app.card_actions import action_value
 from covey.cards.turn_export import export_panel
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record, upsert_job_record
+from covey.core.state import private_folder
 from covey.core.topics import topic_label
+from covey.feishu.drive import drive_upload
 
 PRESET = 6  # xz's 8 MiB window holds a request or two: the next one's repeated messages fold into it.
 CHUNK = 1 << 20
