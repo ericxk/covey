@@ -68,7 +68,7 @@
 | `app/answer_delivery.py` | TurnDelivery's answer card sent on its own |
 | `app/answers.py` | Answers to questions, without saving or sending anything |
 | `app/app.py` | BridgeApp: one Harness's components and its entry points |
-| `app/app_setup.py` | The Feishu app's configuration kept up with the Bridge: the owner, 2026-11-09: 使用者只扫码，其余由 Bridge 用浏览器完成 |
+| `app/app_setup.py` | The Feishu app's configuration kept up with the Bridge: 使用者只扫码，其余由 Bridge 用浏览器完成 |
 | `app/artifact_policy.py` | What of a task's artifacts may be published |
 | `app/artifacts.py` | Publish only explicitly recorded, bounded artifacts of a task |
 | `app/auto_retry.py` | Automatic 检查并继续 after a turn that ended without a reply as one of KINDS |
@@ -226,7 +226,7 @@
 | `app/web_push_client.py` | 网页工作台同步的客户端: the page's /openapi over HTTP (`Client`, `WebError`) and the thread a push step runs in, left … |
 | `app/web_said.py` | Who said a topic's owner line and the words the web page shows for it |
 | `app/web_settings.py` | 网页工作台的设置页 (docs/butler.md 网页工作台, COVEY_WEB=1 |
-| `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (the 妙搭 app) … |
+| `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (网页应用) and … |
 | `app/web_turns.py` | What a turn tells the web page beside its words (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |
 | `app/worker.py` | Ordinary topic-job execution and local records |

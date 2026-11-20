@@ -1,5 +1,5 @@
 """网页工作台同步 (docs/butler.md 网页工作台, COVEY_WEB=1 and COVEY_WEB_CONFIG): pushes the state of the owner's projects, topics, turns and
-questions to the web page (the 妙搭 app) and fetches what the page sent, which app/web_ops.py does. Off by default: without the switch
+questions to the web page (网页应用) and fetches what the page sent, which app/web_ops.py does. Off by default: without the switch
 there is no thread and no request.
 
 - ``WebSync`` (app/unified.py PARTS ``web_sync``, a feature object: ``threads()``, none without the switch): two supervised threads. ``web-push``

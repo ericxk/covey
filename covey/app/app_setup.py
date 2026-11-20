@@ -1,4 +1,4 @@
-"""The Feishu app's configuration kept up with the Bridge (docs/operations.md 自动补齐飞书应用): the owner, 2026-11-09:
+"""The Feishu app's configuration kept up with the Bridge (docs/operations.md 自动补齐飞书应用):
 使用者只扫码，其余由 Bridge 用浏览器完成.
 
 A worker checks the online app FIRST_CHECK seconds after the start and every CHECK_EVERY after
