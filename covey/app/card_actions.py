@@ -193,13 +193,13 @@ RETIRED_TEXT = {
     "bridge_fork": "💬 侧聊和 🔀 分叉已下线：要从这个话题分出新话题，在私聊里跟管家说。",
     "bridge_compact": "📦 压缩上下文已下线：会话快到模型窗口时，Claude Code 会自己压缩。",
 }
-# compat: cards sent by a feature that moved into an extension: (kind, the prefix of its forms' button names) -> what a click
-# gets while the extension is not enabled (a card kind not in ACTIONS is otherwise dropped without a word).
-MOVED_CARDS = {("bridge_paseo", "bridge_paseo_"): "这个功能需要 Paseo 扩展（covey_paseo），当前没有启用，卡片上的操作没有执行。"}
+# compat: cards sent by a feature that was taken out: (kind, the prefix of its forms' button names) -> what a click gets
+# (a card kind not in ACTIONS is otherwise dropped without a word). Paseo (covey_paseo) was taken out 2026-11-20.
+MOVED_CARDS = {("bridge_paseo", "bridge_paseo_"): "Paseo 已下线，卡片上的操作没有执行。"}
 
 
 def moved_card_text(event) -> str:
-    """The notice for a click on a card of an extension that is not enabled, else ''."""
+    """The notice for a click on a card of a feature that was taken out, else ''."""
     kind, name = action_value(event).get("kind"), str(event.get("action_name") or "")
     for (moved_kind, prefix), text in MOVED_CARDS.items():
         if kind == moved_kind or name.startswith(prefix):

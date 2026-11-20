@@ -17,7 +17,7 @@ feature objects app/unified.py appends to its own; a feature object may also hav
 (a top-level message it takes before the butler and topic routing: True when taken), ``claim(ctx, event, raw,
 owner)`` (a card click before the core's controllers: the outcome, or None when it is not its own) and ``close()``
 (when the Bridge stops), besides ``threads()`` and ``menu_items()``. The core never names an extension
-(docs/architecture.md, 扩展); the one table that does is ``MOVED_ENV``, for variables of features that moved out.
+(docs/architecture.md, 扩展); ``RETIRED_ENV`` names features that were taken out, for their variables.
 Standard library only: core/roster.py imports this and an extension's isolated interpreter imports roster.
 """
 
@@ -56,9 +56,9 @@ SETTING_NAMES = {
     "contact_notes_hint": "core/proxy.py: what the 代答 prompt says about creating a missing notes directory",
     "contact_notes_dir": "app/proxy_commands.py: the notes directory under a workdir, with {task} for the task id",
 }
-# compat: variables of features that moved into an extension -> its package; set without the package enabled, they are
-# ignored and the Bridge logs one line for each (``unused_env``).
-MOVED_ENV = {"COVEY_PASEO_FLEET": "covey_paseo"}
+# compat: variables of features that were taken out -> the feature; still set, they are ignored and the Bridge logs one
+# line for each (``unused_env``). Paseo (the covey_paseo extension) was taken out 2026-11-20.
+RETIRED_ENV = {"COVEY_PASEO_FLEET": "Paseo"}
 PROVIDER_FIELDS = {"key", "harness", "name", "prefix", "access", "menu"}
 
 
@@ -309,12 +309,10 @@ def card_kinds() -> dict:
 
 
 def unused_env(environ=None) -> list[str]:
-    """One line for each ``MOVED_ENV`` variable that is set while its package is not enabled."""
+    """One line for each ``RETIRED_ENV`` variable that is still set."""
     environ = os.environ if environ is None else environ
-    on = {extension.package for extension in manifests()}
-    return [f"{name} is set but the {package} extension is not enabled: ignored (enable it with "
-            f"bin/covey_plugins.py enable {package}, the extension's README)" for name, package in MOVED_ENV.items()
-            if package not in on and cenv.get(name, "", environ).strip()]
+    return [f"{name} is set but {feature} was taken out: ignored (remove it from the service's environment)"
+            for name, feature in RETIRED_ENV.items() if cenv.get(name, "", environ).strip()]
 
 
 def hook(name: str):

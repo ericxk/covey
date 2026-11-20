@@ -1,4 +1,4 @@
-"""核心里留给扩展功能的几处：功能对象认领消息和点击、扩展的卡片 kind、没启用扩展时旧卡片和环境变量的处理。"""
+"""核心里留给扩展功能的几处：功能对象认领消息和点击、扩展的卡片 kind；下线功能的旧卡片和环境变量的处理。"""
 from __future__ import annotations
 
 import unittest
@@ -38,54 +38,17 @@ class ExtensionTablesTest(unittest.TestCase):
             with self.assertRaisesRegex(extensions.ExtensionError, "SETTINGS"):
                 extensions.read("bad_ext")
 
-    def test_a_moved_variable_is_named_when_its_extension_is_off_and_not_when_on(self):
-        env = {"COVEY_PASEO_FLEET": "/absolute/fleet.json"}
-        with mock.patch.object(extensions, "manifests", lambda: ()):
-            (line,) = extensions.unused_env(env)
-            self.assertIn("COVEY_PASEO_FLEET", line)
-            self.assertEqual(extensions.unused_env({"LARK_BRIDGE_PASEO_FLEET": "/absolute/fleet.json"}) != [], True)
-            self.assertEqual(extensions.unused_env({}), [])
-        with mock.patch.object(extensions, "manifests", lambda: (fake_manifest(),)), \
-                mock.patch.dict(extensions.MOVED_ENV, {"COVEY_FAKE": "fake_ext"}):
-            self.assertEqual(extensions.unused_env({"COVEY_FAKE": "1"}), [])
+    def test_a_variable_of_a_retired_feature_is_named_and_ignored(self):
+        (line,) = extensions.unused_env({"COVEY_PASEO_FLEET": "/absolute/fleet.json"})
+        self.assertIn("COVEY_PASEO_FLEET", line)
+        self.assertIn("Paseo was taken out", line)
+        self.assertEqual(len(extensions.unused_env({"LARK_BRIDGE_PASEO_FLEET": "/absolute/fleet.json"})), 1)
+        self.assertEqual(extensions.unused_env({}), [])
 
-    def test_the_text_for_a_moved_card_covers_its_kind_and_its_forms_buttons(self):
-        self.assertIn("Paseo", moved_card_text({"action_value": {"kind": "bridge_paseo"}}))
-        self.assertIn("Paseo", moved_card_text({"action_name": "bridge_paseo_" + "a" * 24}))
+    def test_the_text_for_a_retired_card_covers_its_kind_and_its_forms_buttons(self):
+        self.assertIn("Paseo 已下线", moved_card_text({"action_value": {"kind": "bridge_paseo"}}))
+        self.assertIn("Paseo 已下线", moved_card_text({"action_name": "bridge_paseo_" + "a" * 24}))
         self.assertEqual(moved_card_text({"action_value": {"kind": "bridge_unknown"}}), "")
-
-
-class FleetEntryTest(unittest.TestCase):
-    def run_entry(self, name, **env):
-        import os
-        import subprocess
-        import sys
-        import tempfile
-        from support import REPO
-        with tempfile.TemporaryDirectory() as home:
-            return subprocess.run([sys.executable, "-B", str(REPO / "bin" / name), "--help"], cwd=home,
-                                  capture_output=True, text=True, timeout=60,
-                                  env={"PATH": os.environ.get("PATH", ""), "HOME": home, **env})
-
-    def test_without_the_extension_the_entry_says_so_and_exits_3(self):
-        import tempfile
-        from support import REPO
-        if not (REPO / "bin" / "covey_paseo_fleet.py").exists():
-            self.skipTest("the public export has no Paseo entries")
-        with tempfile.TemporaryDirectory() as empty:
-            for name in ("covey_paseo_fleet.py", "lark_paseo_fleet.py"):
-                result = self.run_entry(name, COVEY_EXTENSION_PATH=empty)
-                self.assertEqual(result.returncode, 3, result.stderr)
-                self.assertIn("not installed", result.stderr)
-
-    def test_with_the_extension_on_the_path_the_entry_forwards(self):
-        from support import REPO
-        if not (REPO / "extensions" / "covey_paseo").is_dir():
-            self.skipTest("no Paseo extension here")
-        for name in ("covey_paseo_fleet.py", "lark_paseo_fleet.py"):
-            result = self.run_entry(name)
-            self.assertEqual(result.returncode, 0, result.stderr[-1500:])
-            self.assertTrue(result.stdout.startswith("usage: "), result.stdout[:200])
 
 
 class ExtensionFeatureRoutesTest(UnifiedCase):
@@ -113,7 +76,7 @@ class ExtensionFeatureRoutesTest(UnifiedCase):
         self.app.stop_children()
         self.assertEqual(calls[-1], ("close",))
 
-    def test_an_old_card_of_a_feature_that_moved_out_gets_a_notice_and_nothing_runs(self):
+    def test_an_old_card_of_a_retired_feature_gets_a_notice_and_nothing_runs(self):
         self.app.extension_features = ()
         with mock.patch.dict(ACTIONS), mock.patch.dict("covey.app.card_actions.ACTIONS"):
             ACTIONS.pop("bridge_paseo", None)
@@ -125,7 +88,7 @@ class ExtensionFeatureRoutesTest(UnifiedCase):
                     "action_name": "bridge_paseo_" + "a" * 24}
             self.assertEqual(self.app._handle_card_action_event(form, self.ctx), "extension_missing")
         self.assertEqual(self.app.messenger.reply.call_count, 2)
-        self.assertIn("扩展", self.app.messenger.reply.call_args.args[2])
+        self.assertIn("已下线", self.app.messenger.reply.call_args.args[2])
 
     def test_the_cores_own_kinds_do_not_depend_on_the_extension_tables(self):
         self.assertNotIn("bridge_fake", BOT_ONLY)

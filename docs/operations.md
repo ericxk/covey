@@ -204,7 +204,7 @@ python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" list                 # 
 - **排队**：真部署在部署前检查之前拿服务根下的 `deploy.lock`（`flock`，进程退出就释放，崩溃也一样；NFS 上同样互斥），一直持到结束；锁文件里写着谁拿着（`pid`、`host`、`commit`、`release_id`、`started`、`run_dir`、`task`）。别的部署正拿着时立刻退出，退出码 3，结果里的 `deploy_running` 是那位占用者，什么都不碰。等它部署完再跑一次就是排队：每次用不超过 30 秒的短命令查、重试，不要写长时间阻塞的循环。`--check-only` 不拿锁、不受它拦，只在 `pre.deploy_running` 里报有没有部署在跑（没有是 `null`）。
 - **不回退**：现网服务清单里的入口在 `$COVEY_DATA_HOME/releases/<id>/` 下时，现网的提交（release 里的 `RELEASE_MANIFEST`，没有就按 id）必须是 `--commit` 的祖先；扩展个数和现网一样时，每个 `--ext-commit` 也按顺序这样比。不是就拦下（`pre.rollback` 写明哪个提交没包含现网的哪个，或检出里没有现网的提交、要先 fetch），`--check-only` 也报。要部署的提交是从旧 `main` 拿的，先同步最新 `main`；真要回滚时加 `--allow-rollback`。现网不是从 `releases/` 下运行的（如 `./install` 直接跑检出）不比，`pre.live_release` 是 `null`。
 
-**核心和扩展分开检出时**（核心在 `covey/` 检出，公司等扩展在各自的库里，布局：扩展库根下每个含 manifest 文件的目录是一个扩展包）：加 `--ext-repo <扩展检出>` 和 `--ext-commit <提交>`（默认 `HEAD`），都可重复，按先后配对，例如主人的开发机再加一个 Paseo 扩展库。`--repo`/`--commit` 仍是核心。release 的 `extensions/enabled` 列每个扩展检出根目录 `enabled` 文件里的包（没有这个文件就列它所有的包）；检出里没列的包随 release 带着但默认不启用，用环境变量 `COVEY_EXTENSIONS` 打开。
+**核心和扩展分开检出时**（核心在 `covey/` 检出，公司等扩展在各自的库里，布局：扩展库根下每个含 manifest 文件的目录是一个扩展包）：加 `--ext-repo <扩展检出>` 和 `--ext-commit <提交>`（默认 `HEAD`），都可重复，按先后配对（有几个扩展库就加几对）。`--repo`/`--commit` 仍是核心。release 的 `extensions/enabled` 列每个扩展检出根目录 `enabled` 文件里的包（没有这个文件就列它所有的包）；检出里没列的包随 release 带着但默认不启用，用环境变量 `COVEY_EXTENSIONS` 打开。
 
 ```bash
 scripts/deploy_bridge.sh --workdir <目录> --profile <profile> --repo /absolute/covey --ext-repo /absolute/covey-internal --check-only

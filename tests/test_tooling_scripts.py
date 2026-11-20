@@ -336,7 +336,7 @@ EXT_FILES = {"covey_internal/manifest.py": "HARNESSES = {}\n", "covey_internal/_
              "covey_internal/bin/covey_maso_runtime.py": "# the real one\n",
              "covey_internal/standalone/core.lock": "x\n", "covey_internal/tests/test_x.py": "# t\n",
              "README.md": "ext\n", "core.lock": "# comment\n{core}\n", "dev/test.sh": "#!/bin/sh\n"}
-PASEO_FILES = {"covey_paseo/manifest.py": "SETTINGS = {}\n", "covey_paseo/bin/covey_paseo_fleet.py": "# fleet\n"}
+SECOND_FILES = {"covey_second/manifest.py": "SETTINGS = {}\n", "covey_second/bin/covey_second_tool.py": "# tool\n"}
 
 
 def tree(root):
@@ -354,8 +354,8 @@ class AssembleReleaseTests(unittest.TestCase):
         self.core_sha = make_repo(self.core, CORE_FILES)
         self.ext = self.root / "ext"
         self.ext_sha = make_repo(self.ext, {**EXT_FILES, "core.lock": f"# c\n{self.core_sha[:8]}\n"})
-        self.paseo = self.root / "paseo"
-        self.paseo_sha = make_repo(self.paseo, PASEO_FILES)
+        self.second = self.root / "second"
+        self.second_sha = make_repo(self.second, SECOND_FILES)
 
     def assemble(self, out, *args):
         child = subprocess.run([sys.executable, "-B", "-I", str(ASSEMBLE), "--core", str(self.core), "--out", str(out),
@@ -392,24 +392,24 @@ class AssembleReleaseTests(unittest.TestCase):
                                 "extensions/covey_internal/old_only.py": "", "extensions/enabled": "covey_internal\n"})
         out = self.root / "r2"
         child = subprocess.run([sys.executable, "-B", "-I", str(ASSEMBLE), "--core", str(core2), "--out", str(out),
-                                "--ext", str(self.paseo), "--ext", str(self.ext), "--ext-ref", self.paseo_sha],
+                                "--ext", str(self.second), "--ext", str(self.ext), "--ext-ref", self.second_sha],
                                capture_output=True, text=True, timeout=60)
         self.assertEqual(child.returncode, 0, child.stderr)
         got = tree(out)
         self.assertNotIn("extensions/covey_internal/old_only.py", got)
         self.assertEqual(got["extensions/covey_internal/manifest.py"], "HARNESSES = {}\n")
         self.assertEqual([ln for ln in got["extensions/enabled"].splitlines() if not ln.startswith("#")],
-                         ["covey_paseo", "covey_internal"])
-        self.assertEqual(got["bin/covey_paseo_fleet.py"], "# fleet\n")
+                         ["covey_second", "covey_internal"])
+        self.assertEqual(got["bin/covey_second_tool.py"], "# tool\n")
         self.assertEqual(got["RELEASE_MANIFEST"].splitlines()[0], f"core {sha}")
 
     def test_a_root_enabled_file_picks_the_packages_turned_on_by_default(self):
         both = self.root / "both"
-        make_repo(both, {**EXT_FILES, "covey_paseo/manifest.py": "HARNESSES = {}\n", "enabled": "# only the first\ncovey_internal\n"})
+        make_repo(both, {**EXT_FILES, "covey_second/manifest.py": "HARNESSES = {}\n", "enabled": "# only the first\ncovey_internal\n"})
         code, out, err = self.assemble(self.root / "r4", "--ext", str(both))
         self.assertEqual(code, 0, err)
         got = tree(self.root / "r4")
-        self.assertIn("extensions/covey_paseo/manifest.py", got)
+        self.assertIn("extensions/covey_second/manifest.py", got)
         self.assertEqual([ln for ln in got["extensions/enabled"].splitlines() if not ln.startswith("#")], ["covey_internal"])
         bad = self.root / "bad"
         make_repo(bad, {**EXT_FILES, "enabled": "covey_nope\n"})

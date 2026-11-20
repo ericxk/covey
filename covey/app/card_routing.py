@@ -233,7 +233,7 @@ class CardRouting:
         return 'handled'
 
     def moved_card(self, ctx, event):
-        """A click on a card of an extension that is not enabled (card_actions.py MOVED_CARDS): the one-line notice
+        """A click on a card of a feature that was taken out (card_actions.py MOVED_CARDS): the one-line notice
         under the card, nothing else happens; the outcome, or None when the card is not such a one."""
         text = moved_card_text(event)
         if not text:

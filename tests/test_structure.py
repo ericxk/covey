@@ -149,7 +149,7 @@ class ClickControllerTest(UnifiedCase):
                 head = node.values[0] if isinstance(node, ast.JoinedStr) and node.values else node
                 if isinstance(head, ast.Constant) and isinstance(head.value, str):
                     emitted.add(head.value)
-        moved = {prefix for _, prefix in MOVED_CARDS}  # card_actions.py: what a feature that moved out once emitted.
+        moved = {prefix for _, prefix in MOVED_CARDS}  # card_actions.py: what a feature that was taken out once emitted.
         self.assertEqual({text for text in emitted if re.fullmatch(r"bridge_[a-z_]+_", text)} - moved, set(FORM_PREFIXES))
 
     def test_the_managers_choice_on_the_launch_card_is_the_managers(self):
@@ -191,7 +191,6 @@ ENTRIES = {
     "covey_plugins.py": "covey.service.plugins",
     "covey_feishu_web.py": "covey.feishu.web_client",
     "covey_maso_runtime.py": "covey_internal.maso.runtime",  # compat shim for the company extension (extensions/covey_internal/)
-    "covey_paseo_fleet.py": "covey_paseo.fleet",  # compat shim for the Paseo extension (extensions/covey_paseo/)
     "covey_workspace_reader.py": "covey.backends.codex.workspace_reader",
 }
 
@@ -205,13 +204,13 @@ OLD_ENTRIES = {
     "lark_bridge_maintenance.py": "covey_maintenance.py", "lark_bridge_paths.py": "covey_paths.py",
     "lark_app_console.py": "covey_app_console.py", "lark_bridge_workspaces.py": "covey_workspaces.py",
     "lark_feishu_web.py": "covey_feishu_web.py", "lark_maso_runtime.py": "covey_maso_runtime.py",
-    "lark_paseo_fleet.py": "covey_paseo_fleet.py", "lark_workspace_reader.py": "covey_workspace_reader.py",
+    "lark_workspace_reader.py": "covey_workspace_reader.py",
     "lark_harness_bridge.py": "covey_bridge.py", "lark_task_runner.py": "covey_runner.py",
 }
 
 
 # Entries that only run with the company extension (the public export leaves them out).
-EXTENSION_ENTRIES = {"covey_maso_runtime.py", "lark_maso_runtime.py", "covey_paseo_fleet.py", "lark_paseo_fleet.py"}
+EXTENSION_ENTRIES = {"covey_maso_runtime.py", "lark_maso_runtime.py"}
 
 
 
@@ -257,7 +256,7 @@ class EntrypointTests(unittest.TestCase):
             if calls:
                 self.assertEqual([kw.arg for kw in calls[0].keywords], ["run_name", "alter_sys"], path.name)
                 shims[path.name] = calls[0].args[0].value
-        # The MASO runtime's and Paseo's entries are the extensions': here a shell that forwards to it, in a release the extension's own file.
+        # The MASO runtime's entries are the extension's: here a shell that forwards to it, in a release the extension's own file.
         for name in EXTENSION_ENTRIES & shims.keys():
             self.assertEqual(shims.pop(name), ENTRIES[name], name)
         self.assertEqual(shims, {k: v for k, v in present(ENTRIES).items() if k not in EXTENSION_ENTRIES})
@@ -526,7 +525,7 @@ DYNAMIC_ENV = {
     ("covey/core/process_env.py", "name"),  # env_flag's own read; its callers are collected.
     ("covey/feishu/sdk.py", "n"), ("covey/feishu/sdk.py", "name"),  # no_proxy and NO_PROXY.
     ("extensions/covey_internal/maso/runtime.py", "key"),  # The MASO SDK's variables it removes.
-    ("covey/core/extensions.py", "name"),  # unused_env: MOVED_ENV's, read only to name them.
+    ("covey/core/extensions.py", "name"),  # unused_env: RETIRED_ENV's, read only to name them.
     ("covey/core/ignored_env.py", "name"),  # ignored_env: IGNORED_ENV's, read only to name them.
     # A model gateway's variables are named by its configuration (core/gateways.py), not by the code.
     ("covey/core/gateways.py", "self.base_url_env"), ("covey/core/gateways.py", "variable"),

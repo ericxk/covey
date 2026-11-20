@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from unittest import mock
 
-from support import REPO, extension_enabled, make_context, quiet, requires_extension
+from support import REPO, make_context, quiet, requires_extension
 from support.fake_backends import FakeBackend
 from support.fake_backends import RecordingBackend
 from support.world import TopicFixture, build_claude_app
@@ -270,9 +270,7 @@ class WorkerTargetsTest(unittest.TestCase):
     def test_each_optional_feature_adds_its_worker_only_when_on(self):
         always = ["scheduler", "cards", "menu", "maintenance", "connections", "availability", "outbox", "policy",
                   "memguard", "proxy", "proxy-in"]
-        on = {"COVEY_PASEO_FLEET": "/absolute/paseo.json",
-              "COVEY_PINNED_OVERVIEW": "1"}
-        paseo = ["paseo"] if extension_enabled("covey_paseo") else []  # The Paseo extension's worker, with its fleet set.
+        on = {"COVEY_PINNED_OVERVIEW": "1"}
         # The butler's workers and menu key, unless the deployment rules it out (docs/butler.md 私聊模式).
         main, ruled_out = ["main-tools", "main-search"], {"COVEY_BUTLER": "0"}
         # The Feishu app's check (app/app_setup.py), on unless COVEY_APP_CHECK=0; the owner's recalled or edited messages
@@ -281,7 +279,7 @@ class WorkerTargetsTest(unittest.TestCase):
         # 工作区 and 脱敏 are tabs of 设置 since 2026-11-09; their old keys open it there.
         menu = ["weekly_usage", "proxy_settings", "manage_groups", "bridge_settings", "manage_workspaces",
                 "redaction_dashboard"]
-        for env, extra in (({}, main + app_setup), (on, ["overview", *main, *app_setup, *paseo]),
+        for env, extra in (({}, main + app_setup), (on, ["overview", *main, *app_setup]),
                            (ruled_out, app_setup)):
             with self.subTest(env=sorted(env)), mock.patch.dict(os.environ, env):
                 for name in set(on) - set(env):

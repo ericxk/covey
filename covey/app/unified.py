@@ -520,7 +520,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app import model_usage
         for line in ignored_env():  # Only here: a task runner builds its context without logging this.
             self.runtime.log(line)
-        for line in extensions.unused_env():  # Variables of a feature that moved into an extension that is not enabled.
+        for line in extensions.unused_env():  # Variables of a feature that was taken out.
             self.runtime.log(line)
         # Which extensions this Bridge runs with, so a deploy check can see them (none: the open core alone).
         self.runtime.log("extensions loaded=" + (",".join(ext.package for ext in extensions.manifests()) or "none"))
