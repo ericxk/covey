@@ -473,7 +473,7 @@ class RosterTest(unittest.TestCase):
         from covey.core.harness import UUID_RE
         uuids = {name for name, harness in HARNESSES.items() if getattr(importlib.import_module(harness.module),
                  name.upper().replace("-", "_") + "_SPEC").session_pattern is UUID_RE}
-        self.assertEqual(uuids, {"claude", "codex", "pi"})
+        self.assertEqual(uuids, {"claude", "codex", "pi", "agy"})
         self.assertIs(completion.UUID_RE, UUID_RE)
         self.assertEqual([str(path.relative_to(PACKAGE)) for path in sorted(PACKAGE.rglob("*.py"))
                           if UUID_RE.pattern in path.read_text()], ["core/harness.py"])

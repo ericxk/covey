@@ -432,6 +432,12 @@
 | `service/pairing.py` | Issue a one-time owner pairing code for an explicitly configured bot app |
 | `service/plugins.py` | Extensions (插件) from the command line |
 
+### backends/agy
+
+| 文件 | 管什么 |
+| --- | --- |
+| `backends/agy/bridge.py` | Antigravity (Google's `agy` CLI): Gemini and the other models of the owner's Google account, headless |
+
 ### backends/claude
 
 | 文件 | 管什么 |

@@ -358,7 +358,7 @@ class MergeTest(ExtensionCase):
         harnesses, _ = roster.merged(roster.CORE_HARNESSES, roster.CORE_RETIRED,
                                      (self.other("late", harnesses={"later": dict(entry)}),
                                       self.other("missing", harnesses={"nowhere": {**entry, "after": "absent"}})))
-        self.assertEqual(list(harnesses), ["codex", "claude", "later", "dsh", "pi", "nowhere"])
+        self.assertEqual(list(harnesses), ["codex", "claude", "later", "dsh", "pi", "agy", "nowhere"])
 
     def test_a_harness_name_of_the_core_is_refused_with_the_package_name(self):
         clash = self.other("clash_ext", harnesses={"claude": {"module": "m", "store": "S"}})

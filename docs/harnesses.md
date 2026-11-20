@@ -4,7 +4,7 @@
 
 ## 支持的 Harness
 
-Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code、DeepSeek Harness、Pi（`core/roster.py`），[扩展](architecture.md#扩展)可以再加（公司部署的见 `extensions/covey_internal/README.md`）。供应商是模型从哪里来（账号、网关或 API），各有自己的模型和思考预算（`core/providers.py` 的 `PROVIDERS`，`provider_of` 按模型 ID 前缀认供应商）。一个 Harness 可以有几个供应商，供应商不单独做成 Harness。
+Harness 是执行任务的 Agent 程序，核心带五个：Codex、Claude Code、DeepSeek Harness、Pi、Antigravity（`core/roster.py`），[扩展](architecture.md#扩展)可以再加（公司部署的见 `extensions/covey_internal/README.md`）。供应商是模型从哪里来（账号、网关或 API），各有自己的模型和思考预算（`core/providers.py` 的 `PROVIDERS`，`provider_of` 按模型 ID 前缀认供应商）。一个 Harness 可以有几个供应商，供应商不单独做成 Harness。
 
 | Harness | 供应商（模型 ID 前缀） | 登录或密钥 |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 | Codex | 自己的登录（无前缀）、Acme（`acme/`） | Codex 的登录；Acme 个人密钥 |
 | DeepSeek Harness | 只有 Acme（无前缀） | Acme 个人密钥 |
 | Pi | Codex（无前缀，换配置卡写“Codex 自带”）、Acme（`acme/`） | Codex 的 ChatGPT 登录（只借用访问令牌）；Acme 个人密钥 |
+| Antigravity | 自己的登录（无前缀，换配置卡写“Antigravity 自带”） | agy 的 Google 账号登录 |
 
 启动卡的模型每项写作“Harness · 供应商 · 模型名”，Harness 自己的供应商不写（“Claude · Opus 5.5”“Codex · Acme · GPT-6 Astra”），Pi 两个供应商都写出。选模型就选定了 Harness 和供应商，之后可以[换配置](usage.md#换配置)。
 
@@ -23,6 +24,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 | `claude`（Claude） | 每轮一个双向 `claude -p`（stream-json） | 根任务单选、多选、自由文本 | 支持，可到“模型已读取” | 支持 | `--resume --fork-session` | `$CLAUDE_CONFIG_DIR/projects/<目录编码>`，默认 `~/.claude/projects/…` |
 | `dsh`（DeepSeek Harness） | 每轮一次 `dsh --profile headless --json` | 无，经检查点提问 | 无 | 无 | 不支持 | `$DSH_HOME/sessions`，默认 `~/.dsh/sessions` |
 | `pi`（Pi） | 每轮一个 `pi --mode rpc` | 无，经检查点提问 | 支持，可到“模型已读取” | 支持 | `--fork <会话文件>` | `<状态目录>/pi-sessions/<时间>_<会话 ID>.jsonl` |
+| `agy`（Antigravity） | 每轮一个 `agy` headless（stream-json 进出） | 无，经检查点提问 | 无 | 无 | 不支持 | `~/.gemini/antigravity-cli/conversations` |
 
 - **原生问答**：Claude 的问题在原任务里等回答；Codex 必须回答的问题先结束本轮，回答排成续接任务。所有 Harness 都能经检查点提问（[回答模型的问题](usage.md#回答模型的问题)）。
 - **原生图片**：不支持时只给本地路径。Claude、Pi 单张超过 5 MiB，或 Claude 合计超出 8 MiB 帧时，放不下的只给路径（`app/runs.py` 的 `_fit_images`）。
@@ -42,6 +44,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 | Claude | 一次 `claude` 双向初始化返回的模型和声明的档位；接托管网关时含网关 `/v1/models` 的模型 |
 | dsh | Acme `/v1/models` 里 `anthropic-messages` 协议（2026-11 起目录写作 `anthropic`，同样算）的模型 |
 | Pi | 和 Codex 相同的两处来源，只取 `gpt` 开头的模型，去掉 `ultra` 档 |
+| Antigravity | `agy models` 列出的模型（当前登录的 Google 账号能用的）；没登录时 Antigravity 不出现 |
 
 不列出：扩展按自己的目录规则隐藏的模型和档位；Claude 的旧版本（`claude-sonnet-`、`claude-haiku-`、`claude-opus-4-` 开头的，带不带网关前缀都算；别名 `sonnet`、`haiku` 即 Sonnet 5.5、Haiku 5.5，2026-11-10 起列出）；Acme 的 `auto`、`auto-max`。已固定在这些模型上的话题照常运行。
 
@@ -53,7 +56,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 - **Codex**：按[官方说明](https://github.com/openai/codex)安装并登录（`codex login`；验证：`codex exec "ok"` 有回答）。
 - **要代理才能访问模型的机器**：在运行 `./install` 的终端里先 `export HTTPS_PROXY=http://主机:端口`（探测像网络不通时安装器也会问一次）；探测通过后代理地址和飞书域名的 `NO_PROXY` 一起写进服务环境。不能带用户名密码。
 
-### 进阶 Harness（dsh、Pi、扩展的）
+### 进阶 Harness（dsh、Pi、Antigravity、扩展的）
 
 下面这些要自己的配置，一遍式安装不探测、不自动启用；装好后在 `harnesses.json` 的 `enabled_harnesses` 里加上，见[配置 Harness 参数](#配置-harness-参数)。
 
@@ -65,6 +68,7 @@ Harness 是执行任务的 Agent 程序，核心带四个：Codex、Claude Code�
 | Claude Code | 安装 `claude` CLI 并登录 | PATH 里有 `claude` |
 | dsh（DeepSeek Harness） | `npm install -g @deepseek-ai/dsh`，并写好 Acme 个人密钥；它运行 Acme 的 `ali-deepseek-v4.1-flash` 等模型，见 [Acme 模型](harnesses.md#模型网关codexpi-与-dsh) | PATH 里有 `dsh`；另报告是否找到 Acme 密钥 |
 | Pi | `npm install --prefix <目录> @earendil-works/pi-coding-agent@1.5.2`（不是 `@mariozechner/pi`），在 `--harness-config` 里写 `"pi": {"args": ["--pi-cmd", "<目录>/node_modules/.bin/pi"]}`；服务的 PATH 里要有 Node.js 22.19+。它跑 Codex 登录（`~/.codex/auth.json`，只借用访问令牌）和 Acme 的 GPT 模型，见 [Pi](harnesses.md#pi) | PATH 里有 `pi`（装在别处时只看 `--pi-cmd`） |
+| Antigravity | 用官方安装脚本 `https://antigravity.google/cli/install.sh` 安装（装到 `~/.local/bin/agy`），在运行机器人的账号下执行一次 `agy` 选 Google OAuth 登录（远程机器上打开它给的链接，把授权码贴回终端）。它跑这个 Google 账号能用的模型，见 [Antigravity](harnesses.md#antigravity) | PATH 里有 `agy`（装在别处时只看 `--agy-cmd`） |
 
 Acme 模型用本人的个人密钥（在 [Acme 个人 SK](https://gateway.example.com/keys) 页面创建），写进 `~/.config/harness-bridge/acme-api-key`，权限 `600`，命令见 [Acme 模型](harnesses.md#模型网关codexpi-与-dsh)。不再需要 `codex-w`、`claude-w` 包装器。
 
@@ -115,6 +119,7 @@ Codex 的参数直接写在 bootstrap 命令上（`setup_harness_bridge.sh` 不�
 | Claude | `--claude-cmd`（`claude`）；`--claude-timeout`（`0`）；`--model`（`claude-fable-5`）；`--effort`（`xhigh`）；`--no-skip-permissions`；`--claude-login-shell`；`--claude-auto-compact-window`、`--claude-compact-between-turns`（都不设置） |
 | dsh | `--dsh-cmd`（`dsh`）；`--dsh-timeout`（`0`）；`--model`（`ali-deepseek-v4.1-flash`）；`--reasoning-effort`（`high`） |
 | Pi | `--pi-cmd`（`pi`）；`--pi-timeout`（`0`）；`--model`（`gpt-6-astra`）；`--reasoning-effort`（`high`） |
+| Antigravity | `--agy-cmd`（`agy`）；`--agy-timeout`（`0`）；`--model`（空：agy 自己的默认）；`--reasoning-effort`（空：模型的默认）；`--no-skip-permissions` |
 
 - 超时单位是秒，`0` 或负数表示不限时长。
 - 没有上次选择时启动卡预选 Codex 的 `--model`（不在目录里时选第一项）；预算参数不影响预选。
@@ -192,6 +197,19 @@ Pi 是 pi（npm 包 `@earendil-works/pi-coding-agent`，原 `@mariozechner/pi-co
 - 读工作目录及上级的 `AGENTS.md`、`CLAUDE.md` 和 `.agents/skills`，不读 `~/.pi/agent`。
 - **限制**：没有原生问答、子 Agent、脱敏、回退一步、下载请求与结果。
 
+## Antigravity
+
+Antigravity 是 Google 的 Agent 开发平台，这里用它的命令行 `agy`（Antigravity CLI，2026-05 起替代 Gemini CLI），跑当前登录的 Google 账号能用的模型（Gemini 等）。
+
+- **安装**：`curl -fsSL https://antigravity.google/cli/install.sh | bash`，二进制在 `~/.local/bin/agy`，之后它在后台自己升级。按 1.5.13 验证。
+- **登录**：在运行机器人的系统账号下执行一次 `agy`，选 “Google OAuth”；没有浏览器的机器上它打印授权链接，在自己的浏览器里打开、登录后把页面上的授权码贴回终端。没有 D-Bus 时令牌存在文件里（`~/.config/antigravity/`），不进机器人的记录。Bridge 不替你登录；没登录时启动卡上没有 Antigravity，已有话题的一轮以“还没有登录”失败。也可以用 Gemini API 密钥或 Google Cloud 项目登录，见 [官方说明](https://antigravity.google/docs/install)。
+- **运行方式**：每轮一个 `agy --output-format stream-json --input-format stream-json --disable-slash-commands --dangerously-skip-permissions [--conversation <会话>] [--model <模型>] [--effort <档位>]`，正文作为一行 `{"event":"user","message":{"content":…}}` 从 stdin 传入后关闭 stdin，agy 跑完这一轮就退出。工作目录是话题的工作目录。
+- **本轮结果**：首行 `init` 带会话（`conversation_id`），中间 `step_update`（文字增量、工具步骤），最后一行 `result` 的 `status` 为 `SUCCESS`、零退出码，正文取 `result.response`。子 Agent 的步骤带它自己的会话 ID，不算本轮正文。
+- **续接**：`--conversation <会话 ID>`；会话 ID 和 `init` 里的不一致时本轮按协议错误失败，不续接别的会话。
+- **事件**：文字增量是“正文”和工具调用前的进展说明，工具步骤按名字显示（`run_command` 是执行命令，`view_file` 是读取文件……）；工具的输出、思考不上卡片。用量取 `result.usage`（`input_tokens` 已含缓存读取）。
+- **失败**：`result.error` 像登录失败的记 `authentication_error`、像额度用完的记 `quota_exhausted`、像 429 的记 `rate_limited`，其余 `root_failed`；没出 `init` 就退出而 stderr 要求登录的也记 `authentication_error`。agy 的原文不上卡片，stderr 的最后几行（去掉登录链接、隐藏凭据）只进 `bridge.log`。
+- **限制**：没有原生问答、执行中补充、原生图片（stdin 只收文字，图片只给路径）、原生分叉、脱敏、回退一步、下载请求与结果；不能在设备上跑。
+
 ## 模型网关（Codex、Pi 与 dsh）
 
 模型网关是“OpenAI Responses / Anthropic Messages 兼容”的上游，由配置描述，可以有多个；核心不带任何一家的地址。配置来源两处：扩展 manifest 的 `GATEWAYS`（`core/extensions.py`），和 `harnesses.json` 顶层的 `gateways`（自己部署时配自己的网关）。每个网关一个名字，字段：
@@ -241,6 +259,7 @@ dsh 是 DeepSeek 官方开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，�
 | Codex | sandbox `danger-full-access`，审批策略 `never` | bootstrap 加 `--sandbox workspace-write` 或 `--sandbox read-only` |
 | dsh | `DSH_PERMISSION_MODE=danger-full-access`，审批 `never` | 没有开关：headless 没人能批准请求 |
 | Pi | 没有沙箱和权限确认 | 没有开关 |
+| Antigravity | 传 `--dangerously-skip-permissions`（`always-proceed`） | `harnesses.json` 写 `--no-skip-permissions`：要审批的操作在 headless 下被跳过（agy 照常结束） |
 | Claude | 传 `--dangerously-skip-permissions` | `harnesses.json` 写 `--no-skip-permissions` |
 
 - 以前收紧权限的 `LARK_BRIDGE_CODEX_SANDBOX`、`LARK_CLAUDE_BRIDGE_SKIP_PERMISSIONS` 不再读取；设了非默认值时诊断和部署预检失败，见[权限变量让诊断或部署失败](troubleshooting.md#权限变量让诊断或部署失败)。
@@ -256,6 +275,7 @@ dsh 是 DeepSeek 官方开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，�
 | Claude Code（`backends/claude/`） | `runtime.py` 一轮的收发与收尾（`run_stream`、空闲压缩 `compact_only`）；`process.py` CLI 进程和 JSONL 传输（`ClaudeProcess`、`TRANSPORT_FAILURES`）；`control.py` 输入、补充、问答和权限请求（`ClaudeControl`）；`argv.py` 启动参数和环境（`stream_argv`、`turn_env`）；`events.py` 事件（`ClaudeEventAdapter`）；`completion.py` 结果边界；`usage.py` 用量和 TTFT；`models.py` 目录行；`compaction.py`、`rewind.py`、`export.py` 压缩、回退、下载；`policy.py` 官方拒绝；`redaction.py` 脱敏中继 |
 | Codex（`backends/codex/`） | `appserver.py` 一轮的开会话、起 turn、收尾（`run_appserver`）；`rpc.py` App Server 进程与 JSON-RPC（`AppServer`、`RpcError`）；`turn.py` 读一个 turn 到结束（`read_turn`、`close_turn`）；`events.py` 事件（`CodexEventAdapter`）；`usage.py` 用量；`gateway.py` 按会话分的 provider；`workspace_reader.py` 只读 MCP；`export.py` 下载 |
 | Pi（`backends/pi/`） | `home.py` 每轮私有目录、凭据和预算；`rpc.py` 一轮 RPC 的收发、补充、停止和结束判断（`run_rpc`，读循环 `_read_loop`、关闭 `_close`）；`events.py` 事件 |
+| Antigravity（`backends/agy/`） | 只有 `bridge.py`：参数、进程、事件（`AntigravityEventAdapter`）、结果（`stream_outcome`）、模型目录（`agy models`） |
 | dsh（`backends/dsh/`） | 只有 `bridge.py`：进程、补丁、事件（`DshEventAdapter`）、结果 |
 | 模型网关（`backends/gateway/`，配置在 `core/gateways.py`） | `connection.py` 密钥、目录、请求头、`BUSY_WINDOW`；`relay.py` 中继；`catalog.py` 目录行和繁忙提示（Codex、Pi 共用） |
 

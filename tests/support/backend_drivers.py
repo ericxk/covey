@@ -1,7 +1,7 @@
 """One driver per live backend for the shared contract in ``test_backend_contract.py``.
 
 A driver builds a real BridgeApp of its backend. Only the model boundary (the
-Codex App Server RPC, a scripted Claude, dsh or pi child process, the
+Codex App Server RPC, a scripted Claude, dsh, pi or agy child process, the
 in-memory MASO SDK), Git discovery and the Feishu transport are simulated; the
 production adapter builds every result. A scenario says what the one turn does:
 
@@ -366,7 +366,34 @@ class PiDriver(Driver):
             run.secrets = [run.body]
 
 
-DRIVERS = (CodexDriver(), ClaudeDriver(), *([MasoDriver()] if InMemoryMasoTransport else []), DshDriver(), PiDriver())
+class AgyDriver(Driver):
+    """Antigravity over the scripted ``agy_stream.py`` child process; its subagents' steps never reach the reply."""
+
+    name = "agy"
+    scenarios = ("complete", "failed")
+    sid = "055a398f-db14-4c5f-abbb-1bf03f8120a7"
+    other_sid = "11111111-2222-4333-8444-555555555555"
+    SCRIPTS = {"complete": "ok", "failed": "exit-after-result"}
+    BODY = "Verified Antigravity answer"
+
+    def context(self, run):
+        return make_context(run.root, model="gemini-3.8-pro-high", effort="high", timeout=8,
+                            backend_cmd=[sys.executable, "-I", str(FIXTURES / "harness/agy_stream.py")],
+                            options={"harness_id": self.name})
+
+    def install(self, run):
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("FAKE_AGY")}
+        run.stack.enter_context(mock.patch.dict(os.environ, {
+            **clean, "HOME": str(run.root), "FAKE_AGY_RECORD": str(run.root / "agy-record.json"),
+            "FAKE_AGY_SCENARIO": self.SCRIPTS[run.scenario], "FAKE_AGY_TEXT": self.BODY}, clear=True))
+        run.app.cards.streaming = False
+        run.body = self.BODY
+        if run.scenario == "failed":  # The result arrives, then agy exits 3.
+            run.secrets = [run.body]
+
+
+DRIVERS = (CodexDriver(), ClaudeDriver(), *([MasoDriver()] if InMemoryMasoTransport else []), DshDriver(), PiDriver(),
+           AgyDriver())
 
 
 def seed_checkpoint_question(run):

@@ -31,6 +31,7 @@ CORE_PROVIDERS = (
     Provider("openai", "codex", "", "", "Codex 自己的登录"),
     # Pi has no login of its own: both are named on its models (Pi · Codex · GPT-6 Astra).
     Provider("openai", "pi", "Codex", "", "Codex 的 ChatGPT 登录（只借用访问令牌，由 Codex 刷新）", menu="Codex 自带"),
+    Provider("google", "agy", "", "", "Antigravity 自己的登录（Google 账号，agy 里登录）", menu="Antigravity 自带"),
 )
 # The model gateways' providers (core/gateways.py) are added by providers(): Codex and Pi name the gateway on its
 # models (Codex · Acme · GPT-6 Astra); DeepSeek Harness runs only its gateway's, so its ids carry no prefix.

@@ -56,6 +56,6 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 ## 进阶
 
-- Harness 参数、dsh、Pi、模型网关：[Harness 说明](harnesses.md)
+- Harness 参数、dsh、Pi、Antigravity、模型网关：[Harness 说明](harnesses.md)
 - 群聊、代答、看板等可选功能：[使用指南](usage.md)、[配置](configuration.md)
 - 重启、升级、开机恢复、备份、手动配飞书应用、旧安装脚本：[运维指南](operations.md)

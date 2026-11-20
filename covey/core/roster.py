@@ -31,6 +31,8 @@ CORE_HARNESSES = {
     "dsh": RosterEntry("covey.backends.dsh.bridge", "DshSessionStore"),
     # Pi, on GPT models from the Codex login or Acme; questions go through the checkpoint like dsh's.
     "pi": RosterEntry("covey.backends.pi.bridge", "PiSessionStore"),
+    # Antigravity (Google's agy), on the models of its own Google sign-in; questions go through the checkpoint.
+    "agy": RosterEntry("covey.backends.agy.bridge", "AntigravitySessionStore"),
 }
 # A Harness is the agent program; where its models come from is a provider (core/providers.py), never a
 # Harness of its own. Removed Harnesses by ID, with the name their topics showed. Old topics, jobs and

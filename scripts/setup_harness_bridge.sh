@@ -28,7 +28,7 @@ Options:
                           Default: im,docs,drive,contact.
   -h, --help              Show this help.
 
-Install the Codex, Claude, dsh or pi CLIs (and what an enabled extension needs)
+Install the Codex, Claude, dsh, pi or agy CLIs (and what an enabled extension needs)
 before setup; Harnesses that are unavailable stay unusable until installed.
 USAGE
   if declare -F ext_usage >/dev/null; then ext_usage; fi
@@ -178,12 +178,12 @@ resolve_app_id() {
 detect_harnesses() {
   AVAILABLE_HARNESSES=()
   local cli
-  for cli in codex claude dsh pi; do
+  for cli in codex claude dsh pi agy; do
     have "$cli" && AVAILABLE_HARNESSES+=("$cli")
   done
   # An enabled extension's hook adds the Harnesses it brings (ext_detect appends to AVAILABLE_HARNESSES).
   if declare -F ext_detect >/dev/null; then ext_detect; fi
-  [ "${#AVAILABLE_HARNESSES[@]}" -gt 0 ] || die "no usable Harness found; install codex, claude, dsh or pi (or prepare an extension's runtime) first"
+  [ "${#AVAILABLE_HARNESSES[@]}" -gt 0 ] || die "no usable Harness found; install codex, claude, dsh, pi or agy (or prepare an extension's runtime) first"
   local IFS=,
   info "available Harnesses: ${AVAILABLE_HARNESSES[*]}"
   if declare -F ext_report >/dev/null; then ext_report; fi
