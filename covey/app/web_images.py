@@ -180,6 +180,7 @@ class WebImages:
         self.named = {}  # an owner line's words -> media_paths of them (a hot topic is built every second: no path resolved again)
         self.backfilled = 0.0  # When every topic's turns were built once with their images (the first pass after this came).
         self.changed = False
+        self.load()
 
     # -- the ledger -----------------------------------------------------------------------------------------------------
 

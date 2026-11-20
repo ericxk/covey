@@ -909,8 +909,9 @@ class WebSync:
         self.runtime, self.env = runtime, env
         self.client = Client()
         self.stuck = {}  # topic id -> the left-behind thread stuck reading it: looks leave the topic out while that thread lives.
-        self.images = web_images.WebImages(env.state_dir, runtime.log) if env.state_dir else None
-        self.collector = Collector(env, self.stuck, runtime.log, self.images)
+        self.images = None  # web_images.WebImages, made once the state directory is known (images_ready)
+        self.collector = Collector(env, self.stuck, runtime.log)
+        self.images_ready()
         self.ops = Ops(env, hear)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.backlog = {}  # (type, key) -> an item of a pass not sent yet, the newest read of it (push_once).
@@ -994,6 +995,7 @@ class WebSync:
             return 0
         if not self.sent_loaded:
             self.load_sent(now)
+        self.images_ready()
         collector, sent = self.collector, self.sent
         now = time.time() if now is None else now
         full = not collector.pass_left and now - self.last_full >= FULL_SECONDS  # A full pass is due and none is under way.
@@ -1058,6 +1060,15 @@ class WebSync:
         if self.sent_changed and (collector.pass_done or time.monotonic() - self.sent_saved >= SENT_SAVE_SECONDS):
             self.save_sent(now)
         return count
+
+    def images_ready(self) -> None:
+        """The images' ledger, once the state directory is known: the unified Bridge builds this object before build_context fills
+        the butler env's state directory in (2026-11-20, generation 452 pushed no image because of it)."""
+        if self.images is not None or not self.env.state_dir:
+            return
+        self.images = web_images.WebImages(self.env.state_dir, self.runtime.log)
+        self.collector.images = self.images
+        self.collector.backfill = not self.images.backfilled
 
     def push_images(self, collector, now) -> None:
         """Some of the images the turns asked for (web_images.WebImages.upload); their topics are built again on the next look, now with

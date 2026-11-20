@@ -229,3 +229,18 @@ class BackfillTest(ImagesCase):
         fresh.client.opener = self.sync.client.opener
         fresh.push_once(later + 200)
         self.assertEqual(len(self.web.items("topic")), pushed)
+
+
+class LateStateTest(ImagesCase):
+    def test_images_go_up_when_the_state_directory_is_known_only_after_the_sync_was_made(self):
+        # The unified Bridge makes WebSync before build_context fills the butler env's state directory in.
+        self.env.state_dir = None
+        late = type(self.sync)(self.runtime, self.env)
+        late.client.opener = self.sync.client.opener
+        self.env.state_dir = self.state
+        path = png(self.media / "om_1-1-img.png")
+        self.said_with(path)
+        late.push_once(T0)
+        late.push_once(T0 + 1)
+        self.assertEqual(len(self.web.images), 2)
+        self.assertEqual(self.owner_turn()["images"][0]["id"], web_images.file_id(path))
