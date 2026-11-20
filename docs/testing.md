@@ -92,6 +92,22 @@ git diff --stat tests/golden/cards.json
 
 金样只覆盖这组样本。改到样本没画的分支（新卡片、新状态、新按钮、超预算才走的折叠和截断）时先补样本，并临时改一处文案确认测试会失败。样本只用假的 open_id、群和消息 ID，路径写 `/absolute/...`。
 
+### 卡片示意图
+
+README（中英文）和[使用说明](usage.md#第一次使用)里的 5 张图在 `docs/media/screenshots/`，由 `scripts/card_sketches.py` 画：用真实的卡片构造函数和一组演示数据（话题 T7「给 demo-app 加登录页」）拼出卡片 JSON，再用脚本自带的小渲染器画成 HTML，无头 Chromium 截图。不连飞书、不用任何账号，图里没有水印。卡片样式变了（`tests/golden/cards.json` 有大的 diff，或 [UI 规范](ui.md)换了样子）时重渲一次：
+
+```bash
+python3 -B scripts/card_sketches.py --out /absolute/sketches                    # 只出 HTML，先在浏览器里看
+/absolute/venv/bin/python -B scripts/card_sketches.py --out /absolute/sketches --png [--browser /absolute/chrome]
+python3 -B scripts/card_sketches.py --out /absolute/sketches --install          # 压成 128 色 PNG 放进 docs/media/screenshots
+```
+
+- `--png` 要装了 Playwright 的 Python；没装 Playwright 自带的浏览器时，用 `--browser` 指一个 Chromium 或 headless_shell。`--install` 要 Pillow，图压成调色板 PNG，每张 40–80 KB。
+- 示意图要的字体：Noto Sans CJK（中文）、DejaVu Sans Mono（代码）。机器上没有彩色 emoji 字体，✅、⏳、⏹ 这类画成小圆标。
+- 渲染器只认这几张卡用到的元素，碰到不认识的 tag 或底色直接报错，不悄悄跳过：卡片用了新元素时在 `Page.render` 里补上。颜色按 [UI 规范](ui.md#2-颜色)的浅色近似值，卡片自带的 `config.style.color`（结论带）照卡片里写的画。
+- 只用演示数据：不写真名、内部名、群名、open_id 和本机路径。换数据改脚本里的 `ASK`、`TITLE`、`INPUTS` 和各 `*_sketch` 函数。
+- 换了图要核对 README、`README.en.md` 和使用说明里的图注还对得上。
+
 ### 支持包与后端契约
 
 `tests/support/` 不会被发现为测试。常用的：

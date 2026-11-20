@@ -10,9 +10,9 @@ Covey 在飞书里驱动你自己开发机上的编程 Agent。一个机器人�
 
 下面是用演示数据渲染的**卡片示意**：由 Covey 的卡片 JSON 画成，不是真实客户端截图，实际样子以飞书里为准。
 
-<img src="docs/media/screenshots/01-butler.png" width="560" alt="私聊里发一句话，管家开出话题">
+<img src="docs/media/screenshots/01-butler.png" width="560" alt="私聊里发一句话，管家开出话题挂在下面，做完把结论带回私聊">
 
-私聊里发一句话，管家开出话题
+私聊里发一句话，管家开出话题挂在下面，做完把结论带回私聊
 
 <img src="docs/media/screenshots/04-launch-card.png" width="560" alt="话题里的启动卡：选模型、思考预算、工作区和运行方式">
 

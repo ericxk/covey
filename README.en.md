@@ -12,9 +12,9 @@ Most of the documentation is written in Chinese for now.
 
 These are **card sketches** rendered from Covey's card JSON with demo data, not screenshots of the real client; the real look is whatever Feishu draws. The interface is in Chinese.
 
-<img src="docs/media/screenshots/01-butler.png" width="560" alt="In the private chat, one sentence is enough: the butler opens a topic for it">
+<img src="docs/media/screenshots/01-butler.png" width="560" alt="In the private chat, one sentence is enough: the butler opens a topic under it and brings the conclusion back">
 
-In the private chat, one sentence is enough: the butler opens a topic for it
+In the private chat, one sentence is enough: the butler opens a topic under it and brings the conclusion back
 
 <img src="docs/media/screenshots/04-launch-card.png" width="560" alt="The launch card: pick model, thinking budget, workspace and run mode">
 
