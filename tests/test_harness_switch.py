@@ -356,7 +356,7 @@ class HarnessSwitchTests(UnifiedCase):
         write_topic(self.source, data)
         form, path, _ = self.open()
         self.assertEqual((form['selected_model'], form['selected_redaction']), ('claude:claude-model', 'on'))
-        self.assertEqual(len(page_options(switch_form.build_switch_card({**form, 'page': 'harness'}))), 5)
+        self.assertEqual(len(page_options(switch_form.build_switch_card({**form, 'page': 'harness'}))), len(NAMES))
         self.assertNotIn(switch_form.AUTO_OFF_NOTE, json.dumps(switch_form.build_switch_card(form), ensure_ascii=False))
         # Another Harness: chosen, 脱敏 turned off on the card with the reason, and 确认更换 asks first.
         self.click(form, hs.HARNESS, 'dsh')
@@ -507,7 +507,7 @@ class HarnessSwitchTests(UnifiedCase):
 
         def options(name):  # What a row's options page lists.
             return page_options(switch_form.build_switch_card({**json.loads(path.read_text()), 'page': name}))
-        self.assertEqual([v for v, _ in options('harness')], ['codex', 'claude', 'maso', 'dsh', 'pi'])
+        self.assertEqual([v for v, _ in options('harness')], ['codex', 'claude', 'maso', 'dsh', 'pi', 'agy'])
         self.assertEqual([name for name, _ in itertools.groupby(key.split(':', 1)[0] for key in fixed)], sorted(NAMES, key=harness_rank))
         self.assertEqual(options('model'), [('codex:codex-model', 'Codex Model')])
         self.click(form, hs.HARNESS, 'maso')
