@@ -221,10 +221,6 @@ def take_receipts(state_dir, project_id, key, limit=INBOX_ROWS) -> list:
 
 # The pack.
 
-def clock(seconds) -> str:
-    return stamp(seconds)
-
-
 def member_row(state_dir, topic_id) -> dict:
     """One member topic as the pack's table has it: label, title, status words, one sentence, deliverables, whether a turn runs."""
     records = sorted(topic_job_records(state_dir, topic_id), key=lambda r: int(r.get("job_id") or 0))
@@ -268,7 +264,7 @@ def thread_line(row) -> str:
 
 
 def receipt_line(item) -> str:
-    return f"- {clock(item.get('at'))} {item.get('kind') or '回执'}" + (
+    return f"- {stamp(item.get('at'))} {item.get('kind') or '回执'}" + (
         f"（{topic_label_of(item)}）" if item.get("thread") else "") + f"：{item.get('text') or ''}"
 
 
@@ -314,11 +310,11 @@ def state_pack(state_dir, record, key, *, full, receipts=None) -> str:
     out.append("风格：" + "；".join(f"{name}={value}" for name, value in style.items()))
     decisions = [row for row in record.get("decisions") or () if isinstance(row, dict) and row.get("text")][-DECISIONS:]
     if decisions:
-        out.append(f"近 {len(decisions)} 条决定：\n" + "\n".join(f"- {clock(row.get('at'))} {row['text']}" for row in decisions))
+        out.append(f"近 {len(decisions)} 条决定：\n" + "\n".join(f"- {stamp(row.get('at'))} {row['text']}" for row in decisions))
     reopened = [row for row in record.get("reopened") or () if isinstance(row, dict)]
     if reopened and record.get("state") == projects.ACTIVE:
         last = reopened[-1]
-        out.append(f"重开：这个专项收过尾（{cut(str(last.get('summary') or ''), 120) or '没有写结论'}），主人 {clock(last.get('at'))} "
+        out.append(f"重开：这个专项收过尾（{cut(str(last.get('summary') or ''), 120) or '没有写结论'}），主人 {stamp(last.get('at'))} "
                    "又在专项里说话，已重新打开：按主人的新要求接着做，做完再 project_finish。")
     out.append("自上次唤醒以来的收件箱：" + ("\n" + "\n".join(map(receipt_line, receipts)) if receipts else "没有新的。"))
     return "\n\n".join(out)

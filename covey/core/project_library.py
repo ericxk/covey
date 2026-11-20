@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from covey.core import projects
-from covey.core.text import stamp as _stamp
+from covey.core.text import stamp
 from covey.core.state import read_json, write_json
 
 FILE = "library.json"
@@ -302,14 +302,10 @@ def trim(state_dir, project_id, limit=None, now=None) -> int:
         return 0
 
 
-def clock(epoch) -> str:
-    return _stamp(epoch, "%m-%d")
-
-
 def line_of(state_dir, project_id, row, label="") -> str:
     """One entry in a line (no leading dash) for the lead's pack and a topic's first turn: what it is, where, whose, when."""
     source = SOURCES.get(row["source"], row["source"] or "资料")
-    when = f"{source}，{clock(row['at'])}" + (f"，{label}" if label else "")
+    when = f"{source}，{stamp(row['at'], '%m-%d')}" + (f"，{label}" if label else "")
     if row["kind"] == "delivery":
         return f"交付（{when}）：{row['ref']}"[:LINE_CHARS]
     if row["kind"] == "file":

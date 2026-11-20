@@ -18,6 +18,7 @@ from covey.core.checkpoint import (CHECKPOINT_RULES, MAX_STEPS, checkpoint_deliv
                                             change_summary, clock_steps, delivery_commits, shows_change,
                                             step_words)
 from covey.core.longtask import TaskMonitor
+from covey.core.text import stamp
 from covey.core.status_line import Facts, status_summary, step_text
 from covey.core.trace import ToolTrace
 
@@ -291,7 +292,7 @@ class TopicReadTest(unittest.TestCase):
                                      "改卡片": {"started": t0 + 1800}}}
             lines = butler_tools.checkpoint_lines(record)
             at = lines.index("  检查点步骤（第 3/4 步）：")
-            clock = butler_tools.clock
+            clock = stamp
             self.assertEqual(lines[at + 1:at + 5], [
                 f"    1. [完成] 读代码 · {clock(t0)} 开始 · {clock(t0 + 1800)} 完成 · 用时 30 分钟",
                 f"    2. [完成] 跳过的 · {clock(t0 + 1800)} 完成",

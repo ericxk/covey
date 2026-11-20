@@ -29,13 +29,14 @@ import time
 from pathlib import Path
 
 from covey.app.butler_env import reply
-from covey.app.butler_tools import clock, label, title, when
+from covey.app.butler_tools import label, title, when
 from covey.core.board_read import job_number
 from covey.core import butler
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import jobs_dir
 from covey.core.store import directory_store
 from covey.core.statuses import ENDED
+from covey.core.text import stamp
 
 LIMIT, MAX_LIMIT = 10, 30  # Turns shown.
 MAX_CLUES = 5
@@ -221,7 +222,7 @@ def hit_line(hit, many):
     for index, kind, where, text, whole in hit.found:
         mark = f"[{index + 1}] " if many else ""
         parts.append(f"{mark}{kind}{'' if whole else '（部分匹配）'} · {where}：{text}")
-    return f"  #{hit.record.get('job_id')} · {clock(when(hit.record))} · " + "；".join(parts)
+    return f"  #{hit.record.get('job_id')} · {stamp(when(hit.record))} · " + "；".join(parts)
 
 
 def topics_search(env, request):

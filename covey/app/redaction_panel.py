@@ -45,7 +45,7 @@ from covey.core.redaction import (ALREADY, Refused, config_path, edit_terms, loa
 from covey.core.redaction_views import MAX_PREVIEW, restore_tag, stats_view
 from covey.core.redactor import Redactor
 from covey.core.state import epoch_seconds, read_object, write_private_text
-from covey.core.text import literal
+from covey.core.text import literal, stamp
 
 KEY_FILE = 'card-key'  # <state>/redaction/KEY_FILE: the key ``row_key`` hashes a term under.
 KEY_LOCK = threading.Lock()
@@ -113,10 +113,6 @@ def index_of(config, key, wanted):
     return next((i for i, row in enumerate(config['terms']) if row_key(key, row['term']) == wanted), None)
 
 
-def when(seconds) -> str:
-    return time.strftime('%m-%d %H:%M', time.localtime(seconds)) if seconds else ''
-
-
 def facts(state_dir, key, now=None) -> dict:
     """What the tab draws, no term in it: the switches and the upstream address, a row a term (newest first: its masked
     name, row key, ``anywhere`` if an older version set it, restore tag and hits), the recorded turns' figures, the
@@ -125,9 +121,9 @@ def facts(state_dir, key, now=None) -> dict:
     hits = {row['term']: row for row in stats['terms']}
     data = {'error': '', 'config': {}, 'rows': [], 'count': 0, 'week': stats['week_hits'], 'updated': '',
             'topics': [{'number': t.get('number'), 'title': t.get('title', ''), 'turns': t.get('turns', 0),
-                        'hits': t.get('hits', 0), 'last': when(t.get('last')), 'at': t.get('last') or None}
+                        'hits': t.get('hits', 0), 'last': stamp(t.get('last'), empty=''), 'at': t.get('last') or None}
                        for t in stats['topics']],
-            'turns': [{'time': when(t.get('ts')), 'number': t.get('number'), 'model': str(t.get('model') or ''),
+            'turns': [{'time': stamp(t.get('ts'), empty=''), 'number': t.get('number'), 'model': str(t.get('model') or ''),
                        'requests': t.get('requests', 0), 'replaced': t.get('replaced', 0)} for t in stats['turns']]}
     try:
         config = load_config(state_dir)
@@ -140,7 +136,7 @@ def facts(state_dir, key, now=None) -> dict:
                      'hits': hits.get(row['term'], {}).get('hits', 0), 'week': hits.get(row['term'], {}).get('week', 0)}
                     for row in reversed(config['terms'])]
     data['count'] = len(config['terms'])
-    data['updated'] = when(epoch_seconds(read_object(config_path(state_dir)).get('updated_at')))
+    data['updated'] = stamp(epoch_seconds(read_object(config_path(state_dir)).get('updated_at')), empty='')
     return data
 
 

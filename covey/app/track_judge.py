@@ -109,10 +109,6 @@ def limit_ms(environ=None) -> int:
     return max(MIN_MS, min(MAX_MS, value))
 
 
-def clip(text) -> str:
-    return cut(text, CLIP, beyond=True)
-
-
 def listed(live) -> list[LiveJob]:
     """The tasks the model chooses from: the newest MAX_TASKS live ones, oldest first (index 1 is the oldest)."""
     alive = [job for job in live if job.phase in LIVE_PHASES]
@@ -121,12 +117,12 @@ def listed(live) -> list[LiveJob]:
 
 
 def payload(message: Message, tasks: list[LiveJob], question: str) -> dict:
-    out = {"message": clip(message.text),
-           "tasks": [{"index": i, "phase": job.phase, "request": clip(job.request)} for i, job in enumerate(tasks, 1)]}
+    out = {"message": cut(message.text, CLIP, beyond=True),
+           "tasks": [{"index": i, "phase": job.phase, "request": cut(job.request, CLIP, beyond=True)} for i, job in enumerate(tasks, 1)]}
     if question:
-        out["question"] = clip(question)
+        out["question"] = cut(question, CLIP, beyond=True)
     if message.quote.text:
-        out["quote"] = clip(message.quote.text)
+        out["quote"] = cut(message.quote.text, CLIP, beyond=True)
     return out
 
 

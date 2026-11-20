@@ -177,10 +177,6 @@ def asked_at(question):
     return float(value) if type(value) in (int, float) else epoch_seconds(value) or 0.0
 
 
-def clock(seconds):
-    return stamp(seconds)
-
-
 def harness_title(env, name):
     harness = (getattr(env.topics, "harnesses", None) or {}).get(name)
     return getattr(getattr(harness, "spec", None), "title", "") or name or ""
@@ -246,14 +242,14 @@ def topics_list(env, request):
         return reply(True, f"没有{GROUP_NAMES.get(wanted, '')}的话题" + (f"（过滤：{query}）" if query else "") + "。",
                      total=0)
     lines = [f"{row['label']} · {row['title'][:40]} · {GROUP_NAMES[row['group']]} · {row['workspace'] or '—'} · "
-             f"{row['harness'] or '—'} · {row['said']} · 更新 {clock(row['moved'])} · {row['topic_id']}" for row in shown]
+             f"{row['harness'] or '—'} · {row['said']} · 更新 {stamp(row['moved'])} · {row['topic_id']}" for row in shown]
     more = f"\n（共 {len(rows)} 个，只列了前 {len(shown)} 个）" if len(rows) > len(shown) else ""
     return reply(True, "\n".join(lines) + more, total=len(rows), shown=len(shown))
 
 
 def question_lines(question):
     """A pending question record as lines: each question, its options, single or multiple choice."""
-    lines = [f"等你回答（{clock(asked_at(question))} 提出）："]
+    lines = [f"等你回答（{stamp(asked_at(question))} 提出）："]
     for q in question.get("questions") or []:
         options = [str(o.get("label") or "") for o in q.get("options") or [] if isinstance(o, dict)]
         head = f"- [{q.get('id')}] {q.get('header') + '：' if q.get('header') else ''}{q.get('question') or ''}"
@@ -309,9 +305,9 @@ def step_lines(steps, times, running, now):
         started, ended = (seen.get(key) if type(seen.get(key)) in (int, float) else None for key in ("started", "ended"))
         parts = [f"    {number}. [{STEP_STATES[step['state']]}] {step['title']}"]
         if started is not None:
-            parts.append(f"{clock(started)} 开始")
+            parts.append(f"{stamp(started)} 开始")
         if ended is not None:
-            parts.append(f"{clock(ended)} 完成")
+            parts.append(f"{stamp(ended)} 完成")
         if started is not None and ended is not None and ended >= started:
             parts.append(f"用时 {step_age(ended - started)}")
         elif step["state"] == "doing" and started is not None and running:
@@ -350,7 +346,7 @@ def topic_read(env, request):
     if not shown:
         lines.append("还没有任务。")
     for record in shown:
-        lines.append(f"\n#{record.get('job_id')} {record.get('status') or ''} · 更新 {clock(when(record))}")
+        lines.append(f"\n#{record.get('job_id')} {record.get('status') or ''} · 更新 {stamp(when(record))}")
         lines.append("  主人：" + cut(record.get("user_text") or record.get("prompt_text"), text_chars))
         result = str(record.get("final_text") or "").strip()
         if result:

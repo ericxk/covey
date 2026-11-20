@@ -42,10 +42,6 @@ def fork_token(topic_id, click_id):
     return hashlib.sha256(f"{topic_id}\0{click_id}".encode()).hexdigest()[:24]
 
 
-def _short(text, limit):
-    return cut(text, limit, beyond=True)
-
-
 class Forks:
     """One Harness's forks: opening the new topic and its first run.
 
@@ -110,12 +106,12 @@ class Forks:
                       + ("上方转发的话题" if forwarded else "话题")
                       + (f" {source_label}" if source_label else "") + f"，任务 #{record['job_id']} 之后 · "
                       f"{time.strftime('%m-%d %H:%M')}\n"
-                      f"原问题：{_short(record.get('user_text'), 80)}\n"
+                      f"原问题：{cut(record.get('user_text'), 80, beyond=True)}\n"
                       f"沿用原话题配置：{self.model_name(ctx, source.get('model') or '')} · "
-                      f"思考预算 {_short(source.get('effort') or '模型默认', 20)}"
+                      f"思考预算 {cut(source.get('effort') or '模型默认', 20, beyond=True)}"
                       + (f" · {mode_tag}" if mode_tag else "")
                       + "；"
-                      f"工作区 {_short(source.get('workspace_name'), 40)}\n"
+                      f"工作区 {cut(source.get('workspace_name'), 40, beyond=True)}\n"
                       "直接在本话题回复即可继续，原话题不受影响。")
             self.messenger.send_message(ctx.profile, chat, header, self.voice.key("fork-header", token), reply_to_message_id=root, voice=self.voice)
             with LOCK:
@@ -131,7 +127,7 @@ class Forks:
         """The source's model as the model selects, receipt and task card name it (Claude · Opus 5.5);
         by its id when the catalog does not list it. T197's start card said Claude · opus."""
         label = self.cards.model_label(ctx, model) if model else ""
-        return label or f"{self.harness.spec.title} · {_short(model or '默认模型', 60)}"
+        return label or f"{self.harness.spec.title} · {cut(model or '默认模型', 60, beyond=True)}"
 
     def forward_thread(self, ctx, chat, thread_id, token):
         """The source thread as one merged message in ``chat``: the thread itself, else a merge of its newest
@@ -163,7 +159,7 @@ class Forks:
         text = (f"**{TITLE}** · 来自话题" + (f" {source_label}" if source_label else "")
                 + f"，任务 #{record['job_id']} 之后\n"
                 "飞书没有接受原话题的转发，新话题从这条消息开始；原话题的会话背景会带给模型。\n"
-                f"原问题：{_short(record.get('user_text'), 80)}")
+                f"原问题：{cut(record.get('user_text'), 80, beyond=True)}")
         return self.messenger.create_and_send_card(ctx.profile, chat, notice_card(text, TITLE),
                                                    self.voice.key("fork-root", token),
                                                    voice=self.voice)[1]

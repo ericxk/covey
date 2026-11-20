@@ -24,7 +24,7 @@ from covey.cards.elements import collapsible, grey, item, md, note, plain, style
 from covey.cards.overview import DISMISS, dismissed_line, stale_line
 from covey.cards.project_proposal import CREATE_KIND, DECLINE_KIND, START_KIND
 from covey.core import look
-from covey.core.text import literal as literal_text
+from covey.core.text import cut, literal as literal_text
 from covey.core.turn_words import TASK_CARD_ACT
 
 BOARD_FROM = "board"  # As app/project_tidy.py BOARD_FROM: a proposal decided on the 看板.
@@ -176,8 +176,7 @@ def one_line(text, limit=GOAL_CHARS) -> str:
     """``text`` (a goal the lead or the butler wrote, paragraphs and all) as one line of at most ``limit`` characters,
     escaped: its line breaks are spaces, not the literal \\n literal_text writes for them (T545's dark screenshot,
     2026-11-19)."""
-    words = " ".join(str(text or "").split())
-    return literal_text(words if len(words) <= limit else words[:limit - 1] + "…")
+    return literal_text(cut(text, limit))
 
 
 def project_block(project):

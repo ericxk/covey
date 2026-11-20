@@ -46,6 +46,7 @@ from covey.cards.proxy_panel import (ADD, ADD_ALL, BUDGET, DISABLE, ENABLE, FIND
 from covey.core import proxy as records
 from covey.core import timing
 from covey.core.state import read_json
+from covey.core.text import cut
 
 EXPIRED = 'expired'
 LATEST = 'latest.json'
@@ -60,11 +61,6 @@ FAILURES = (RuntimeError, ValueError, OSError, subprocess.SubprocessError)
 
 class Refused(Exception):
     """A click whose action no longer applies; why, written on the card."""
-
-
-def short(text, limit=30):
-    text = ' '.join(str(text).split())
-    return text if len(text) <= limit else text[:limit] + '…'
 
 
 class ProxyPanel:
@@ -263,20 +259,20 @@ class ProxyPanel:
             if not query or not proxy.settings(ctx).get('user_profile'):
                 return None
             view['query'] = query
-            return f'⏳ 正在查找“{short(query)}”…', functools.partial(self.find, ctx, query)
+            return f'⏳ 正在查找“{cut(query, 30, beyond=True)}”…', functools.partial(self.find, ctx, query)
         if kind == MEMBERS:
             chat_id, name = value.get('group'), value.get('name')
             if not isinstance(chat_id, str) or not chat_id.startswith('oc_') or not isinstance(name, str):
                 raise Refused('这个群的信息不全，请重新查找。')
             if not proxy.settings(ctx).get('user_profile'):
                 return None
-            return f'⏳ 正在读取群「{short(name)}」的成员…', functools.partial(self.members, ctx, chat_id, name)
+            return f'⏳ 正在读取群「{cut(name, 30, beyond=True)}」的成员…', functools.partial(self.members, ctx, chat_id, name)
         if kind == MEMBERS_ADD:
             members = view.get('members')
             if not members or value.get('pending') != members.get('id'):
                 raise Refused('这个确认已失效，请重新点“加入全体成员”。')
             view['members'] = None  # A second 确认 finds nothing to confirm.
-            return f"⏳ 正在添加群「{short(members['name'])}」的 {len(members['add'])} 人…", \
+            return f"⏳ 正在添加群「{cut(members['name'], 30, beyond=True)}」的 {len(members['add'])} 人…", \
                 functools.partial(self.add_members, ctx, members)
         return None
 

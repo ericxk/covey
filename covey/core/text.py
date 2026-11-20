@@ -164,8 +164,14 @@ def last_line(text):
     return lines[-1] if lines else ""
 
 
-def stamp(seconds, fmt="%m-%d %H:%M", empty="—"):
-    """``seconds`` (an epoch) as local time in ``fmt``; ``empty`` when it is 0 or missing."""
+def stamp(seconds, fmt="%m-%d %H:%M", empty="—", *, lenient=False):
+    """``seconds`` (an epoch) as local time in ``fmt``; ``empty`` when it is 0 or missing.
+    ``lenient``: 0 is a time (the epoch), and whatever is not a number a time can be made of gives ``empty``."""
+    if lenient:
+        try:
+            return time.strftime(fmt, time.localtime(float(seconds)))
+        except (TypeError, ValueError, OverflowError, OSError):
+            return empty
     return time.strftime(fmt, time.localtime(seconds)) if seconds else empty
 
 

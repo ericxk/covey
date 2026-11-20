@@ -20,7 +20,6 @@ import hashlib
 import os
 import re
 import shutil
-import time
 from pathlib import Path
 
 from covey.core.attachments import (ATTACHMENTS_HEADER, FAILED_HEADER, ListedAttachment, attachment_block,
@@ -30,15 +29,12 @@ from covey.core.jobs import find_job_record
 from covey.core.butler import butler_topic_id
 from covey.core.metrics import timings_of
 from covey.core.state import ensure_private_dir, epoch_seconds
+from covey.core.text import stamp
 
 START, NEXT, STEER, FORK = "start", "next", "steer", "fork"
 NOTE = "[Bridge 说明]"
 # What app/steering.py merge_before_start puts before a supplement the butler turn took before it started.
 MERGED = "\n\n用户在任务开始前补充：\n"
-
-
-def _clock(at) -> str:
-    return time.strftime("%H:%M", time.localtime(at)) if at else ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -64,8 +60,9 @@ class Asked:
         """When the owner said it: "HH:MM", the times of each message one after another ("13:40、13:42")."""
         clocks = []
         for _, at in self.said:
-            if _clock(at) and _clock(at) not in clocks:
-                clocks.append(_clock(at))
+            clock = stamp(at, "%H:%M", "")
+            if clock and clock not in clocks:
+                clocks.append(clock)
         return "、".join(clocks)
 
 
@@ -292,7 +289,8 @@ def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra=""
             if index and not words:
                 continue  # A supplement of attachments only: they are in the block below.
             head = "主人随后补充" if index else "主人原话"
-            quoted.append(f"{head}（{_clock(at)}）：" if _clock(at) else f"{head}：")
+            clock = stamp(at, "%H:%M", "")
+            quoted.append(f"{head}（{clock}）：" if clock else f"{head}：")
             quoted += ["> " + line for line in words.split("\n")] if words else ["（只有附件，没有文字）"]
         if items:
             quoted.append(f"附件：{summary(items)}（见下方“收到的附件”）")

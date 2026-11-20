@@ -14,10 +14,9 @@ Standard library and core only: nothing here talks to Feishu or holds a lock acr
 """
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
-from covey.core.text import cut
+from covey.core.text import cut, stamp
 
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
@@ -38,15 +37,10 @@ def path(state_dir, key) -> Path:
     return folder(state_dir) / f"{key}.json"
 
 
-def clip(text, limit) -> str:
-    """``text`` on one line, at most ``limit`` characters (the last one … when cut)."""
-    return cut(text, limit, strip=True)
-
-
 def make(key, chat_id, track, owner_message, request, answer, status, ended_at, session_id, opened) -> dict:
     """One record, its text cut to what a record keeps."""
     return {"key": key, "chat_id": chat_id, "track": track, "owner_message": owner_message,
-            "request": clip(request, REQUEST_CHARS), "answer": clip(answer, ANSWER_CHARS), "status": status,
+            "request": cut(request, REQUEST_CHARS), "answer": cut(answer, ANSWER_CHARS), "status": status,
             "ended_at": float(ended_at), "session_id": session_id or "", "opened": list(opened), "digested_by": ""}
 
 
@@ -90,22 +84,15 @@ def render(rows, more=0) -> str:
     lines = [HEADER + "（它们在各自的会话里答的，不在你的会话里；按完成先后，答案只列前"
              f" {SHOW_CHARS} 字，要细节用 topics_search、topic_read）"]
     for record in rows:
-        ended = _clock(record.get("ended_at"))
+        ended = stamp(record.get("ended_at"), "%H:%M", "--:--", lenient=True)
         status = {"done": "", "failed": "（失败）", "cancelled": "（已停止）"}.get(record.get("status"), f"（{record.get('status')}）")
-        answer = clip(record.get("answer"), SHOW_CHARS) or "没有送达的回答"
+        answer = cut(record.get("answer"), SHOW_CHARS) or "没有送达的回答"
         opened = "、".join(str(t) for t in record.get("opened") or ())
-        lines.append(f"- {ended}{status} 请求「{clip(record.get('request'), REQUEST_CHARS)}」→ {answer}"
+        lines.append(f"- {ended}{status} 请求「{cut(record.get('request'), REQUEST_CHARS)}」→ {answer}"
                      + (f" → {opened}" if opened else ""))
     if more:
         lines.append(f"（更早的还有 {more} 条没列）")
     return "\n".join(lines)
-
-
-def _clock(epoch) -> str:
-    try:
-        return time.strftime("%H:%M", time.localtime(float(epoch)))
-    except (TypeError, ValueError, OverflowError, OSError):
-        return "--:--"
 
 
 def claim(state_dir, rows, key, settled) -> int:
