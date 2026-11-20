@@ -15,7 +15,7 @@ owner's private chat, pushed for the page's chat box (``catalog``), and the page
   where it can redact, a workspace of the list the chat may use, a device's only where it is allowed and declares the Harness, never a
   worktree on a device), then the topic opened as the butler opens one that starts at once (app/butler_topics.py: its topic card at the
   top level of the private chat with the configuration line, its topic.json bound, its first turn queued), the turn being the owner's own
-  words (no handoff). The choice is kept as the chat's last 开始任务 and in its usage (app/launch.py remember_launch), so the next card
+  words (no handoff). The choice is kept as the chat's last 开始任务 and in its usage (app/launch_submit.py remember_launch), so the next card
   and the next page preselect it. A worktree takes minutes to check out, which only the launch card does: such a topic gets the launch
   card prefilled with these choices, to start from there (the receipt says so). Each step is kept in <state>/web/launches/<op_id>.json,
   so an operation done again (the inbox's ledger never does it twice) does not open a second topic.
@@ -164,7 +164,7 @@ def plan_of(env, ctx, chat, payload) -> dict:
 def launch(env, op_id, chat, payload) -> str:
     """Open the topic (see the module's docstring); the receipt the page shows, with the topic's T number."""
     from covey.app import butler_topics
-    from covey.app.launch import remember_launch
+    from covey.app.launch_submit import remember_launch
     text = str(payload.get("text") or "").strip()
     if not text:
         raise ValueError("要先写这个话题做什么")

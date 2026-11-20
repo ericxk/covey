@@ -21,15 +21,10 @@ from support.world import TopicFixture, UnifiedCase
 
 from covey.core import butler_settings
 from covey.core.jobs import context_for_job
-from covey.app.launch import (
-    SUBMIT_PREFIX,
-    save_record,
-    build_launch_card,
-    card_token,
-    chat_defaults_path,
-    submit_launch_form,
-    topic_budget,
-)
+from covey.app.form_cards import save_record
+from covey.app.launch import build_launch_card, card_token, chat_defaults_path, topic_budget
+from covey.app.launch_submit import submit_launch_form
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app.launch_models import available_models, harness_rank, run_choice
 from test_launch import InChat
 from covey.cards.launch_config import (BUDGET_ACTION, MODEL_ACTION, REDACTION_ACTION, WORK_MODE_ACTION, launch_form_card)
@@ -568,7 +563,7 @@ class RedactionLaunchTests(InChat, UnifiedCase):
         _, token, path = self.card('tree')
         self.click(token, REDACTION_ACTION, 'on')
         self.click(token, 'bridge_launch_mode', 'worktree')
-        with FakeCardKit(), mock.patch('covey.app.launch.run_in_background'):
+        with FakeCardKit(), mock.patch('covey.app.launch_submit.run_in_background'):
             submit_launch_form(self.child, self.target, {'chat_id': self.chat, 'message_id': 'mid',
                                                          'action_name': SUBMIT_PREFIX + token, 'form_value': {'path': ''}})
         self.assertIs(self.launch_form(current_token(self.ctx.state_dir, token))['pending']['redaction'], True)

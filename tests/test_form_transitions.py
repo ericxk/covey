@@ -84,7 +84,8 @@ class CheckTests(unittest.TestCase):
 
 class TableTests(unittest.TestCase):
     def test_the_table_names_the_statuses_the_code_tests(self):
-        from covey.app.launch import CLOSED, WORKTREE_STATUS
+        from covey.app.launch import CLOSED
+        from covey.core.statuses import WORKTREE_STATUS
         from covey.app.workspace_manager import MANAGING
         from covey.core.statuses import FORM_TRANSITIONS, OPEN_FORMS
 

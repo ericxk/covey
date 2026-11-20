@@ -261,7 +261,8 @@ class LaunchCase(UnifiedCase):
         FakeCardKit().start(self)
 
     def form(self, mid, *, new_topic=False):
-        from covey.app.launch import SUBMIT_PREFIX, build_launch_card, card_token, remember_launch_card
+        from covey.app.launch import build_launch_card, card_token, remember_launch_card
+        from covey.cards.launch_config import SUBMIT_PREFIX
         from covey.core.topics import remember_topic_message
 
         app, ctx = self.route(mid)
@@ -281,7 +282,7 @@ class LaunchCase(UnifiedCase):
         """The select callbacks a person makes before the start click: model, budget,
         workspace and run mode. Returns the click the card shows after them (each choice
         redraws the card on a new token); the form itself sends only the path."""
-        from covey.app.launch import SUBMIT_PREFIX
+        from covey.cards.launch_config import SUBMIT_PREFIX
 
         fields = event.get('form_value')
         if isinstance(fields, dict) and fields.get('model'):
@@ -309,7 +310,8 @@ class LaunchCardCase(UnifiedCase):
     """A launch card published through the real publisher, with its model picker."""
 
     def prepare_card(self):
-        from covey.app.launch import SUBMIT_PREFIX, publish_launch_cards
+        from covey.app.launch import publish_launch_cards
+        from covey.cards.launch_config import SUBMIT_PREFIX
 
         self.receive('task', 'pending')
         self.child, self.target = self.route('task')

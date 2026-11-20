@@ -4,7 +4,8 @@ import unittest
 from unittest import mock
 
 from support import requires_extension
-from covey.app.launch import remember_launch_card, SUBMIT_PREFIX
+from covey.app.launch import remember_launch_card
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.core.jobs import find_job_record
 from covey.app.task_card import StreamingReply
 from covey.core.trace import ToolTrace

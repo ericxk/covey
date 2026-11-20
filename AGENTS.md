@@ -30,7 +30,7 @@
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
 | 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（线程与话题要点收集；`ProjectTidy` 由下面几个 mixin 组成）、`app/tidy_realtime.py`（实时归并、提议新专项）、`app/tidy_proposals.py`（提议卡与跟着归并更新）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击）、`app/tidy_web.py`（网页面板）、`app/tidy_facts.py`（共用的小函数）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
-| 启动卡与工作区 | `app/launch.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
+| 启动卡与工作区 | `app/launch.py`、`app/launch_submit.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
 | 问题卡与回答 | `app/questions.py`、`app/native_questions.py`、`app/checkpoint_questions.py`；「以后这类按推荐走」`app/standing_answers.py` | [问题与回答](docs/architecture.md#问题与回答) |
 | 补充 | `app/steering.py`、`core/deliveries.py`、`core/steer.py` | [补充投递](docs/architecture.md#补充投递) |
@@ -117,9 +117,10 @@
 | `app/job_dispatch.py` | Running a dequeued job (process_reply_job |
 | `app/knowledge_collect.py` | A topic's turn writes what the owner asked it to remember |
 | `app/knowledge_turn.py` | What a turn reads of the knowledge entries and the history command (COVEY_HISTORY_CMD), for app/runs.py |
-| `app/launch.py` | One local form selection and one server submission for unified topics |
+| `app/launch.py` | The launch card of unified topics: its form, defaults and rebuilds, and closing or retiring a launch form |
 | `app/launch_models.py` | Local launch choices |
 | `app/launch_receipt.py` | Replace a submitted launch form with its immutable topic configuration |
+| `app/launch_submit.py` | A launch form's submission |
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
 | `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on becomes memory, and a click takes it back |

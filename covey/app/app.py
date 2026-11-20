@@ -70,7 +70,7 @@ from covey.core.history_storage import append_history
 from covey.core.topics import context_for_topic, has_topic_message, remember_topic_message
 from covey.feishu.media import enrich_incoming_event
 from covey.feishu.messenger import Messenger, Voice
-from covey.app.launch import submit_launch_form
+from covey.app.launch_submit import submit_launch_form
 
 
 

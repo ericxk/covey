@@ -25,7 +25,7 @@ from covey.core.process import process_identity
 from covey.core.run_dir import (ACKS, INBOX, REPLIES, REQUESTS, WAKE, ack, await_reply, op_time, post, run_dir,
                                          runner_alive as alive, take)
 from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
-from covey.app.launch import SUBMIT_PREFIX
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app.policy_guard import requested
 from covey.app.topics import topic_target
 from covey.core.store import directory_store

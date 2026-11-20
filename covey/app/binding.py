@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.app.launch import launch_in_progress
+from covey.app.launch_submit import launch_in_progress
 from covey.cards.switch_form import UNCHANGED
 from covey.cards.topic_actions import SWITCH_OPEN
 from covey.core.checkpoint import release_user_wait

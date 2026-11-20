@@ -110,7 +110,7 @@ LAUNCH_KINDS = {launch_config.HARNESS_ACTION, launch_config.PROVIDER_ACTION, lau
                 launch_config.BUDGET_ACTION, launch_config.WORK_MODE_ACTION, launch_config.REDACTION_ACTION,
                 launch_config.WORKSPACE_ACTION, launch_config.MODE_ACTION, launch_config.PAGE_ACTION}
 # Form buttons carry no kind: their name's prefix says whose they are. 开始任务 goes on to its topic's
-# BridgeApp (submit_launch_form in app/launch.py); the others to a controller.
+# BridgeApp (submit_launch_form in app/launch_submit.py); the others to a controller.
 FORM_PREFIXES = {MANAGER_PREFIX: None, launch_config.PICKER_PREFIX: None, DIRECTORY_FORM_PREFIX: None,
                  launch_config.SUBMIT_PREFIX: "launch.submit_launch_form"}
 

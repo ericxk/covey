@@ -33,7 +33,9 @@ from support.world import LaunchCardCase, PickerCase, TopicFixture, build_claude
 from support import requires_extension
 from covey.app import directory_picker
 from covey.app.directory_picker import DirectoryCache, DirectoryPicker, scan_directory, search_directories
-from covey.app.launch import SUBMIT_PREFIX, card_token, submit_launch_form
+from covey.app.launch import card_token
+from covey.app.launch_submit import submit_launch_form
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.cards.launch_config import PICKER_PREFIX
 from covey.app import workspace_manager
 from covey.app.workspace_manager import END_STATUS, MANAGING

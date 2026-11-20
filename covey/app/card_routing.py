@@ -14,7 +14,7 @@ from typing import Any
 from covey.app import butler_tracks, dispatch_cards, runner_ipc
 from covey.app.binding import JOB_STARTING, STALE_CARD, stale_job_card
 from covey.app.card_actions import action_value, card_object, click_kind, moved_card_text, ACTIONS
-from covey.app.launch import SUBMIT_PREFIX
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.core import timing
 from covey.core.harness import BridgeContext
 from covey.core.jobs import JOB_STOP_ACTION_KIND

@@ -22,14 +22,14 @@ from support import requires_extension
 from covey.cards.task_status import status_markdown
 from covey.app.launch import (
     RETIRED_TEXT,
-    SUBMIT_PREFIX,
     card_token,
     publish_launch_cards,
     UNDELIVERED_STATUS,
     rebuild_launch_card,
     selected_effort,
-    submit_launch_form,
 )
+from covey.app.launch_submit import submit_launch_form
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app import launch_models
 from covey.app.launch_models import available_models, refresh_catalog, refresh_once
 from support.records import write_topic
@@ -358,7 +358,7 @@ class LaunchConfigTests(UnifiedCase):
         before = read_topic(self.target)
         self.picker.dispatch(self.ctx, self.click)
         self.assertTrue(self.record()['config_pending'])
-        with mock.patch('covey.app.launch.SWITCH_WAIT', 0.2), self.assertRaisesRegex(ValueError, '正在更新'):
+        with mock.patch('covey.app.launch_submit.SWITCH_WAIT', 0.2), self.assertRaisesRegex(ValueError, '正在更新'):
             submit_launch_form(self.child, self.target, self.submit)  # The switch never finished.
         lark = self.process()
         # The whole card, never one element inside its form: Lark cannot submit that form.
@@ -618,7 +618,7 @@ class LaunchConfigTests(UnifiedCase):
         path.write_text(json.dumps({'updated_at': time.time(), 'models': {}}))
         self.picker.dispatch(self.ctx, self.click)
         self.assertTrue(self.record()['config_pending'])
-        with mock.patch('covey.app.launch.SWITCH_WAIT', 0.2), self.assertRaises(ValueError):
+        with mock.patch('covey.app.launch_submit.SWITCH_WAIT', 0.2), self.assertRaises(ValueError):
             submit_launch_form(self.child, self.target, self.submit)
         self.assertTrue(self.app.runtime.jobs.queue.empty())
 
@@ -826,7 +826,7 @@ class StaleLaunchTests(UnifiedCase):
         self.assertEqual(find_job_record(self.ctx.state_dir, 'asked')['status'], 'cancelled')
 
     def test_the_closer_knows_the_launch_form_states(self):
-        from covey.app.launch import WORKTREE_STATUS
+        from covey.core.statuses import WORKTREE_STATUS
         from covey.app.workspace_manager import MANAGING
         from covey.core import statuses
         self.assertEqual((statuses.OPEN_FORMS, statuses.WORKTREE_STATUS), ({'ready', MANAGING}, WORKTREE_STATUS))

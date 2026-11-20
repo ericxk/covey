@@ -24,7 +24,8 @@ from covey.app.card_lanes import after_ack
 from covey.cards.recovery import DIAGNOSE_KIND, SPLIT_KIND
 from covey.app.runner_spawn import prestart_runner
 from covey.app.task_card import card_failure_notice
-from covey.app.launch import WAITING_STATUS, launch_in_progress, publish_launch_cards
+from covey.app.launch import WAITING_STATUS, publish_launch_cards
+from covey.app.launch_submit import launch_in_progress
 
 
 def queue_hint(job):
@@ -317,7 +318,7 @@ class Submission:
             with LOCK:
                 listed = load_config(ctx.state_dir, ctx.default_workdir)["workspaces"].get(name, "")
                 if devices.is_device_value(listed):
-                    # Already checked on the device when the launch card was submitted (app/launch.py): no second 5 seconds
+                    # Already checked on the device when the launch card was submitted (app/launch_submit.py): no second 5 seconds
                     # under LOCK. The topic keeps the value; its context the stand-in and the device's directory.
                     binding = devices.bind_workdir(ctx, listed, strict=False)
                 else:

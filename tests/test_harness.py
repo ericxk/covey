@@ -35,7 +35,7 @@ from covey.app.app import BridgeApp
 from covey.app.availability import observe, snapshot
 from covey.app.card_actions import ACTIONS
 from covey.app.detached import queued_path, restart_blockers
-from covey.app.launch import SUBMIT_PREFIX
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app.launch_models import available_models
 from covey.app.harnesses import components
 from covey.app.prompts import RESUME_REMINDERS

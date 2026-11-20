@@ -32,16 +32,10 @@ from support import requires_extension
 from covey.app.card_lanes import CardLanes
 from covey.app.job_dispatch import BACKEND_UNAVAILABLE
 from covey.app.harnesses import STARTUP_RETRY_SECONDS
-from covey.app.launch import (
-    RESTART_ABANDONED,
-    RUN_MODE_INVALID,
-    SUBMIT_PREFIX,
-    save_record,
-    build_launch_card,
-    card_token,
-    chat_defaults_path,
-    submit_launch_form,
-)
+from covey.app.form_cards import save_record
+from covey.app.launch import build_launch_card, card_token, chat_defaults_path
+from covey.app.launch_submit import RESTART_ABANDONED, RUN_MODE_INVALID, submit_launch_form
+from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app.launch_models import available_models
 from covey.app.recovery_cards import recovery_card
 from covey.core.menu_choice import effort_options
@@ -183,7 +177,7 @@ class LaunchTests(LaunchCase):
         """Worktrees under the test root; the background step runs inline unless captured."""
         stack = contextlib.ExitStack()
         stack.enter_context(mock.patch('covey.core.workspaces.worktree_root', return_value=self.root / 'worktrees'))
-        stack.enter_context(mock.patch('covey.app.launch.run_in_background',
+        stack.enter_context(mock.patch('covey.app.launch_submit.run_in_background',
                                        side_effect=(lambda *a: background.append(a)) if background is not None
                                        else (lambda target, *a: target(*a))))
         self.cardkit = stack.enter_context(FakeCardKit())
@@ -264,7 +258,7 @@ class LaunchTests(LaunchCase):
         _, event = self.form('task')
         event['form_value'].update(run_mode='worktree', path=str(repo / 'pkg'), effort='low')
         app, ctx = self.route('task')
-        with self.worktree_patches(), mock.patch('covey.app.launch.add_topic_worktree',
+        with self.worktree_patches(), mock.patch('covey.app.launch_submit.add_topic_worktree',
                                                  side_effect=ValueError('创建 worktree 失败：disk full')):
             click = self.choose_model(event)
             self.app.handle_card_action_event(click, self.ctx)
@@ -392,7 +386,7 @@ class LaunchTests(LaunchCase):
             if path.name == 'launch-defaults.json' or path.parent.name == 'launch-defaults':
                 raise OSError('disk unavailable')
             return save_record(path, value)
-        with mock.patch('covey.app.launch.save_record', side_effect=save):
+        with mock.patch('covey.app.launch_submit.save_record', side_effect=save):
             self.submit(event)
             self.submit(event)
         self.assertEqual(self.app.runtime.jobs.queue.qsize(), 1)

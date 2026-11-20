@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from covey.app import detached, knowledge_collect, memory_collect, butler_relay, owner_send
 from covey.app.availability import check_or_raise
-from covey.app.launch import recover_worktree_launches
+from covey.app.launch_submit import recover_worktree_launches
 from covey.app.butler import HARNESS as BUTLER_HARNESS
 from covey.app.topics import retired_notice, topic_target
 from covey.core import timing
