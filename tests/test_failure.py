@@ -156,7 +156,7 @@ class CardTest(unittest.TestCase):
         self.assertIn('"element_id": "switch_actions"', json.dumps(plain))
 
     def test_the_body_of_a_failed_card_is_its_reason(self):
-        from covey.app.worker import TurnDelivery
+        from covey.app.turn_delivery import TurnDelivery
         turn = SimpleNamespace(status="failed", verified_delivery=None, status_message="本轮执行未全部完成，原生会话不可续接",
                                outcome=SimpleNamespace(error_code="root_failed", policy_event=None), failure_detail="",
                                final_text="本轮任务未全部完成。主任务后续执行失败。")

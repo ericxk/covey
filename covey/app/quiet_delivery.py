@@ -1,7 +1,7 @@
 """The quiet butler turn's side of delivering a result (core/placement.py Row.quiet): a turn whose task card has
 not gone out (``bare``) says its failure, refusal or stop in a few words at the chat's top level with its "你问"
 block (``top_notice``), and an answer that could not be sent there too (``undelivered_notice``). ``QuietDelivery``
-is a part of app/worker.py TurnDelivery, which it reads its job, context, turn and senders from."""
+is a part of app/turn_delivery.py TurnDelivery, which it reads its job, context, turn and senders from."""
 from __future__ import annotations
 
 import dataclasses

@@ -16,7 +16,7 @@ from support import make_context, make_job
 from covey.app import answer_cards
 from covey.app.artifacts import Artifacts, answer_files
 from covey.cards.relay_card import DONE, relay_card
-from covey.app.worker import TurnDelivery
+from covey.app.turn_delivery import TurnDelivery
 from covey.cards.answer_card import (ARTIFACTS_ID, FACTS_ID, facts_element, input_lines, input_parts,
                                               output_parts, tail)
 from covey.cards.elements import replace_element
@@ -589,7 +589,7 @@ class DeliveryTest(Case):
                                 record_job_state=mock.Mock(), send_text=send_text)
         with mock.patch.object(TurnDelivery, "texts", return_value=(reply, reply, False)), \
                 mock.patch("covey.app.answer_delivery.find_job_record", return_value=self.record), \
-                mock.patch("covey.app.worker.close_streaming_reply_async"):
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
             delivery.deliver(None)  # The workdir's snapshot (the diff): not what the 输出 line reads.
         self.delivery = delivery
         return send_text
@@ -729,7 +729,7 @@ class RedeliveryTest(Case):
                                 record_job_state=mock.Mock(), send_text=send_text)
         with mock.patch.object(TurnDelivery, "texts", return_value=(reply, reply, False)), \
                 mock.patch("covey.app.answer_delivery.find_job_record", return_value=self.record), \
-                mock.patch("covey.app.worker.close_streaming_reply_async"):
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
             delivery.deliver(None)
         call = send_text.call_args
         return call.args[3], call.args[0], call.kwargs["card"]

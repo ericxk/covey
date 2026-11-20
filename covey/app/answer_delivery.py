@@ -1,4 +1,4 @@
-"""TurnDelivery's (app/worker.py) answer card sent on its own: ``AnswerParts`` sends the verified reply as its card
+"""TurnDelivery's (app/turn_delivery.py) answer card sent on its own: ``AnswerParts`` sends the verified reply as its card
 where the placement table puts it, with its 产物 and 输入/输出 (app/answer_cards.py makes their lines and keeps the
 cards for the upload) and the line or "你问" block atop it, through app/saved_send.py, as each redelivery sends it."""
 from __future__ import annotations
@@ -12,7 +12,7 @@ from covey.core.saved_results import saved_delivery_key, saved_delivery_kind
 
 
 class AnswerParts:
-    """TurnDelivery's (app/worker.py) answer card sent on its own: the verified reply as its card where the placement
+    """TurnDelivery's (app/turn_delivery.py) answer card sent on its own: the verified reply as its card where the placement
     table puts it (``_answer_apart``), the 产物 and 输入/输出 under it (``answer_tail``; on a small card after a file)
     and the line or "你问" block atop it (``answer_head``, ``ask_block``). It reads the job, context, turn and senders
     of the TurnDelivery it is part of."""

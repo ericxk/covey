@@ -22,7 +22,7 @@ from covey.app import knowledge_turn
 from covey.app.access import Access
 from covey.app.prompts import workspace_block
 from covey.app.runner_spawn import dump_job, load_job
-from covey.app.worker import outgoing_markdown
+from covey.app.turn_delivery import outgoing_markdown
 from covey.core import devices, process_env, spaces
 from covey.core.checkpoint import audit_recovery
 from covey.core.jobs import (carry_device, context_for_job, context_for_record, job_key, record_bridge_job_state,
@@ -370,7 +370,7 @@ class PromptTest(DeviceCase):
     def test_a_device_replys_local_image_paths_are_left_as_written(self):
         ctx = devices.with_binding(self.ctx, devices.bind_workdir(self.ctx, "gpu1:/p"))
         text = "![plot](/home/me/proj/plot.png)"
-        with mock.patch("covey.app.worker.prepare_outgoing_markdown_images", return_value="UPLOADED") as prepare:
+        with mock.patch("covey.app.turn_delivery.prepare_outgoing_markdown_images", return_value="UPLOADED") as prepare:
             self.assertEqual(outgoing_markdown(text, ctx), text)
             prepare.assert_not_called()
             self.assertEqual(outgoing_markdown(text, self.ctx), "UPLOADED")

@@ -12,7 +12,8 @@ from unittest import mock
 from support import make_job
 from support.butler import CHAT, BUTLER, ButlerCase
 from covey.app import butler_reply
-from covey.app.worker import STOPPED_NOTE, TurnDelivery
+from covey.app.turn_delivery import TurnDelivery
+from covey.app.worker import STOPPED_NOTE
 from covey.core import butler
 from covey.core.deliveries import delivery_path, save_delivery
 from covey.core.jobs import job_key
@@ -53,7 +54,7 @@ class DeliverCase(Case):
                                 questions=mock.Mock(), steering=mock.Mock(), record_job_state=mock.Mock(),
                                 send_text=send_text)
         with mock.patch.object(TurnDelivery, "texts", return_value=(reply, reply, False)), \
-                mock.patch("covey.app.worker.close_streaming_reply_async"):
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
             delivery.deliver(None)
         return delivery, send_text
 
@@ -253,7 +254,7 @@ class DroppedTest(DeliverCase):
                                outcome=SimpleNamespace(policy_event=policy) if policy else None)
         delivery = TurnDelivery(job, self.ctx, turn, prefix="p", cards=cards, runtime=mock.Mock(), artifacts=None,
                                 questions=None, steering=None, record_job_state=mock.Mock(), send_text=mock.Mock())
-        with mock.patch("covey.app.worker.close_streaming_reply_async"):
+        with mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
             delivery.finish_card(True, status, "", False, False)
         self.sent = [call.args[2] for call in delivery.send_text.call_args_list]
         self.delivery_send = delivery.send_text

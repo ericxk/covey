@@ -28,7 +28,7 @@ when something happened since it last looked, and the mechanical checks that sto
 - Receipts: ``after_runner`` (the Bridge, once a task's runner is gone: rule 8 keeps a task process to its own card and
   record) writes ``thread_end`` (the receipt kind keeps its name on disk) for a member's turn that ended and counts the tokens; ``heard`` (the Bridge, on the owner's
   message in a member's topic) writes ``owner_said``; the loop writes ``stalled``; the Bridge's sweep of the held questions (app/triage.py, COVEY_PROJECT_TRIAGE=1) writes ``question``.
-- ``silent`` (app/worker.py TurnDelivery): a wake-up turn's reply is not sent to the owner, unless the lead recorded a
+- ``silent`` (app/turn_delivery.py TurnDelivery): a wake-up turn's reply is not sent to the owner, unless the lead recorded a
   report note in it that its style lets through (``project_lead.reportable``); then it goes as the lead's reply does.
 
 Rules 1 and 5 (AGENTS.md): records are written under their own lock, nothing is sent to Feishu from under it, and the only
@@ -175,7 +175,7 @@ def reported(state_dir, topic_id, key) -> bool:
 
 
 def silent(delivery) -> bool:
-    """Whether the reply of the turn ``delivery`` (app/worker.py TurnDelivery) is not to be sent: the turn is a wake-up
+    """Whether the reply of the turn ``delivery`` (app/turn_delivery.py TurnDelivery) is not to be sent: the turn is a wake-up
     (message id ``lead-…``), done with its saved reply, and the lead recorded no report note in it. Its reply stays saved
     and counts as delivered, so nothing redelivers it and no recovery card offers it again. Never raises."""
     job, turn = delivery.job, delivery.turn

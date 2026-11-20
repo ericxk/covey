@@ -15,7 +15,7 @@ from covey.app import auto_retry, butler_relay, pins, relay_send, relay_targets
 from covey.app.butler_relay import relay
 from covey.app.relay_targets import relay_target
 from covey.cards.relay_card import CARD_TEXT_BYTES, DONE, STOPPED, WAITING, relay_card
-from covey.app.worker import TurnDelivery
+from covey.app.turn_delivery import TurnDelivery
 from covey.core.jobs import job_key, upsert_job_record
 from covey.core.state import read_object, write_json
 from covey.core.topics import message_topic
@@ -328,8 +328,8 @@ class DeliverTest(Case):
                                                                           voice=voice))
         with mock.patch.object(TurnDelivery, "texts", return_value=(REPLY, REPLY, False)), \
                 mock.patch.object(TurnDelivery, "send", return_value=(sent, True)), \
-                mock.patch("covey.app.worker.record_attempt"), \
-                mock.patch("covey.app.worker.close_streaming_reply_async"):
+                mock.patch("covey.app.turn_delivery.record_attempt"), \
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
             delivery.deliver(None)
         return messenger.send_message
 

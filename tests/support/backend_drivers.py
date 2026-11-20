@@ -248,7 +248,7 @@ class MasoDriver(Driver):
         app.cards.streaming = False
         app.cards.finish_result_controls = mock.Mock()  # Only the recovery card's presentation.
         app.cards.stream = dataclasses.replace(app.cards.stream, card_limit=20000, replacement_limit=0)
-        run.stack.enter_context(mock.patch("covey.app.worker.close_streaming_reply_async"))
+        run.stack.enter_context(mock.patch("covey.app.turn_delivery.close_streaming_reply_async"))
         run.body = self.BODY
         if run.scenario == "failed":
             run.secrets = [self.BODY]

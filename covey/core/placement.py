@@ -38,7 +38,7 @@ class Row:
     # A reply to the owner's message at the top level (True) or in its thread (False); None: Traits.top_level
     # (app/butler.py Butler.configure).
     reply_top_level: bool | None
-    answer: str  # The verified reply sent on its own, not on the task card (app/worker.py TurnDelivery.send).
+    answer: str  # The verified reply sent on its own, not on the task card (app/turn_delivery.py TurnDelivery.send).
     # When the reply is the task card's body (app/butler_reply.py answers_in_place): ROUTES only when the turn opened
     # or handed on to topics; "" never (Traits.answers_in_place False).
     answer_on_card: str
@@ -50,7 +50,7 @@ class Row:
     # the question card, the task card, a 话题区's answer card in its thread once done (app/pins.py ``aimed``).
     status_card: bool
     # The answer card sent on its own in the turn's thread leads with the turn's status, T number and title, and its
-    # task card then keeps no 结论 lead (app/worker.py TurnDelivery ``answer_head``, D3 2026-11-08), in the owner's
+    # task card then keeps no 结论 lead (app/turn_delivery.py TurnDelivery ``answer_head``, D3 2026-11-08), in the owner's
     # private chat only (TurnDelivery ``headed``: a group's topic has this row too, its cards as before): its answer card
     # is the turn's result and the board's Pin.
     answer_head: bool = False

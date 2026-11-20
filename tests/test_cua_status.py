@@ -97,7 +97,7 @@ class DeliveryStatusTests(CodexNativeQuestionCase):
         # update helper must still persist the sent label before this runs.
         def close(ctx, progress, ops):
             progress.disabled = True
-        with mock.patch('covey.app.worker.close_streaming_reply_async', side_effect=close) as closer:
+        with mock.patch('covey.app.turn_delivery.close_streaming_reply_async', side_effect=close) as closer:
             c.app.process_reply_job(c.job, c.ctx)
         self.assertEqual(c.job.progress.last_content, '**↓ Codex verified report**')
         # The chat list's preview of the closed card names the outcome and time: the answer card sent beside it has the

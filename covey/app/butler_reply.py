@@ -1,5 +1,5 @@
 """How a butler turn ends on its task card (docs/butler.md 一次请求一张卡), for the turns whose Traits say
-``answers_in_place`` (the butler's); app/worker.py TurnDelivery asks. Normal
+``answers_in_place`` (the butler's); app/turn_delivery.py TurnDelivery asks. Normal
 topics never get here.
 
 - ``answers_in_place``: a finished turn's verified, saved reply (rule 5) is the task card's body, and no answer card
@@ -171,7 +171,7 @@ def routed_body(lines) -> str:
 
 
 def answers_in_place(delivery, final_card, display_text) -> bool:
-    """Show the turn's verified reply on its task card (``delivery``: worker TurnDelivery); whether the card took
+    """Show the turn's verified reply on its task card (``delivery``: TurnDelivery); whether the card took
     all of it. False leaves the answer card to the worker, as for a topic."""
     job, ctx, turn, cards = delivery.job, delivery.ctx, delivery.turn, delivery.cards
     reply, outcome = turn.verified_delivery, turn.verified_outcome
@@ -188,7 +188,7 @@ def answers_in_place(delivery, final_card, display_text) -> bool:
     if (on_card == placement.ROUTES
             and not routes(ctx.state_dir, job_key(job.message_id, job.job_id))):
         # Its card is in the owner's message's thread: the answer goes to the top level as a message of its own,
-        # with a "你问" link (app/worker.py TurnDelivery.send); the card says the conclusion's lead.
+        # with a "你问" link (app/turn_delivery.py TurnDelivery.send); the card says the conclusion's lead.
         return False
     try:
         slim = getattr(job.progress, "slim", False)

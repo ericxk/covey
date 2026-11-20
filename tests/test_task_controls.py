@@ -1018,7 +1018,7 @@ class TurnBodyTest(unittest.TestCase):
     def finish(self, status, text, *, proxy=False, question=False, topic_label="", taken=True, timed=""):
         """(cards, job) once the turn's card was finished."""
         from covey.app.cards import Cards
-        from covey.app.worker import TurnDelivery
+        from covey.app.turn_delivery import TurnDelivery
         cards = mock.Mock()
         cards.render_stream_final = lambda job, note, **kwargs: note
         # The preview is computed in Cards alone (rule 3): the real method, on this mock.
@@ -1031,21 +1031,21 @@ class TurnBodyTest(unittest.TestCase):
         delivery = TurnDelivery(job, SimpleNamespace(), turn, prefix="p", cards=cards, runtime=mock.Mock(),
                                 artifacts=None, questions=None, steering=None, record_job_state=mock.Mock(),
                                 send_text=mock.Mock())
-        with mock.patch("covey.app.worker.close_streaming_reply_async"), \
-                mock.patch("covey.app.worker.proxy_topic", return_value=proxy):
+        with mock.patch("covey.app.turn_delivery.close_streaming_reply_async"), \
+                mock.patch("covey.app.turn_delivery.proxy_topic", return_value=proxy):
             delivery.finish_card(True, status, {}, reply is not None, question)
         return cards, job
 
     def test_a_dashboard_card_has_its_lead_under_a_bold_conclusion(self):
         # The A 仪表盘 sample: 「结论」 over the lead, which is under the status line and the tiles already.
-        from covey.app.worker import TurnDelivery
+        from covey.app.turn_delivery import TurnDelivery
         turn = SimpleNamespace(status="done", verified_delivery=SimpleNamespace(text="## 迁移有两种做法\n先说第一种。"),
                                verified_outcome=SimpleNamespace(notice=lambda: ""))
         job = SimpleNamespace(progress=SimpleNamespace(dashboard=True), job_id=7)
         delivery = TurnDelivery(job, SimpleNamespace(), turn, prefix="p", cards=mock.Mock(), runtime=mock.Mock(),
                                 artifacts=None, questions=None, steering=None, record_job_state=mock.Mock(),
                                 send_text=mock.Mock())
-        with mock.patch("covey.app.worker.proxy_topic", return_value=False):
+        with mock.patch("covey.app.turn_delivery.proxy_topic", return_value=False):
             self.assertEqual(delivery.delivered_note(), ("**结论**\n迁移有两种做法", "迁移有两种做法"))
 
     def test_a_turn_that_asked_leads_with_what_it_said_too(self):

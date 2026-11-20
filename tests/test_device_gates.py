@@ -30,7 +30,7 @@ from support.fake_lark import MemoryTransport, install_card_transport
 from support.world import build_claude_app, harness_app
 from support.worker_seams import leave_out_side_work
 
-from covey.app import compact_runner, device_files, idle_compaction, worker
+from covey.app import compact_runner, device_files, idle_compaction, turn_delivery, worker
 from covey.backends.claude import compaction as claude_compaction
 from covey.backends.claude import runtime as claude_runtime
 from covey.backends.claude.bridge import ClaudeBackend
@@ -322,7 +322,7 @@ class DeviceTurn:
             stack.enter_context(guard)
             leave_out_side_work(stack, diff=False)
             guard.watch(worker, "capture_job_diff_snapshot")
-            guard.watch(worker, "finalize_job_diff")
+            guard.watch(turn_delivery, "finalize_job_diff")
             install_card_transport(stack, tx)
             self.app.messenger.send_message = tx.send_text
             self.app.cards.set_task_element = lambda c, j, element, **kw: self.elements.append(element) or True

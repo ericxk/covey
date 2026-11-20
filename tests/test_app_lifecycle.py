@@ -146,7 +146,7 @@ class StreamingCloseLifetimeTest(unittest.TestCase):
     """The write that ends a card's streaming mode finishes before a task runner exits."""
 
     def test_runner_waits_for_the_streaming_close(self):
-        from covey.app.worker import close_streaming_reply_async
+        from covey.app.turn_delivery import close_streaming_reply_async
 
         before = set(threading.enumerate())
         release, closed = threading.Event(), []

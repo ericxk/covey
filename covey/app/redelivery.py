@@ -135,7 +135,7 @@ class Redelivery:
                 delivery_ctx = delivery_context(ctx, record, saved_job)
                 text = current["final_text"]
                 if current.get("delivery_ok") is not True:
-                    # Where its first send puts it (app/worker.py TurnDelivery._question_apart): at the top level
+                    # Where its first send puts it (app/turn_delivery.py TurnDelivery._question_apart): at the top level
                     # only for a quiet butler turn that sent no card, a long one as a file where it replies.
                     replying = dataclasses.replace(ctx, reply_to_message_id=saved_job.reply_to_message_id)
                     bare = not current.get("card_message_id") and placement.quiet(ctx.state_dir, current)
@@ -196,7 +196,7 @@ class Redelivery:
             # the visible reply. Files always contain the canonical text.
             if not display_only_sent or not text.strip():
                 return True
-            # As the first send restores it (app/worker.py deliver_questions); no task card here to paint.
+            # As the first send restores it (app/turn_delivery.py deliver_questions); no task card here to paint.
             return saved_send.restore_original(delivery_ctx, saved_job, text, text, key=key("redeliver-original", text),
                                                send=self.send_message, artifacts=self.artifacts,
                                                log=self.runtime.log)

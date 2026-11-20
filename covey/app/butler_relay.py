@@ -3,7 +3,7 @@
 
 The butler hands work to topics (app/butler_topics.py): topic_start and topic_fork open one with a first turn,
 topic_send starts a topic's next turn or gives the owner's words to the turn that runs as a supplement. When such a
-turn ends, its task runner (app/worker.py TurnDelivery.deliver, after the task card's last words) relays it, where
+turn ends, its task runner (app/turn_delivery.py TurnDelivery.deliver, after the task card's last words) relays it, where
 core/placement.py's row says (``after_turn``: question_copy, conclusion, stop):
 
 - done: the saved reply whole (rule 5: only the verified reply that was delivered), the owner reads the answer
@@ -236,7 +236,7 @@ def _part(log, job, name, make, default):
 
 
 def after_turn(delivery, delivered, execution_status, *, messenger, profile, voice):
-    """app/worker.py TurnDelivery.deliver's hook once the task card has its last words: the relay of a turn the butler
+    """app/turn_delivery.py TurnDelivery.deliver's hook once the task card has its last words: the relay of a turn the butler
      started or handed on. Never raises: a failure is a log line, the turn's delivery stands; one before the
     relay's record said ``submitting`` leaves it ``unsent`` (app/relay_send.py record_unsent), never sent later.
     The answer's optional parts each go without when they cannot be made (``_part``)."""

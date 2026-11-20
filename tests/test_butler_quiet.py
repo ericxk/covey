@@ -16,7 +16,7 @@ from support.butler import CHAT, BUTLER, ButlerCase
 from covey.app import answer_cards, auto_retry, butler_reactions, butler_reply
 from covey.app.cards import Cards
 from covey.app.question_display import QuestionDisplay, standalone_card
-from covey.app.worker import TurnDelivery
+from covey.app.turn_delivery import TurnDelivery
 from covey.core import butler, placement
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
 from covey.core.deliveries import delivery_path, save_delivery
@@ -125,7 +125,7 @@ class DeliverCase(Case):
         with mock.patch.object(TurnDelivery, "texts", return_value=(reply, reply, False)), \
                 mock.patch.object(TurnDelivery, "ask_block", return_value=ASK), \
                 mock.patch.object(TurnDelivery, "answer_tail", return_value=([], False, None)), \
-                mock.patch("covey.app.worker.close_streaming_reply_async"):
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
             delivery.deliver(None)
             butler_reply.react_end(delivery)
         return delivery
@@ -597,7 +597,7 @@ class RedeliveryTest(Case):
         self.assertEqual(redeliver({**record, "card_message_id": "om_card"}), "#7 有结果 · 5")
 
     def test_a_paused_question_goes_again_where_its_first_send_put_it(self):
-        # B1 (2026-11-10): as app/worker.py TurnDelivery._question_apart puts it: at the top level only when the quiet
+        # B1 (2026-11-10): as app/turn_delivery.py TurnDelivery._question_apart puts it: at the top level only when the quiet
         # turn sent no card, else where it replies (the owner's message's thread), no longer the top level always.
         from covey.app.task_controls import TaskControls
         controls = TaskControls.__new__(TaskControls)

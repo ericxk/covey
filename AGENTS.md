@@ -37,7 +37,7 @@
 | 主人撤回或编辑消息（`COVEY_SOURCE_WATCH`，默认开） | `app/source_watch.py`（读回、停止、补充）、`core/source_book.py`（登记的消息）、`cards/source_note.py` | [撤回与编辑](docs/architecture.md#撤回与编辑) |
 | 换配置 | `app/harness_switch.py`、`app/binding.py`、`app/switch_handoff.py` | [话题中途换配置](docs/architecture.md#话题中途换配置) |
 | 回退一步（Claude） | `app/rewind.py`、`backends/claude/rewind.py` | [回退一步](docs/architecture.md#回退一步) |
-| 结果、投递与重投 | `app/turn_settle.py`、`app/worker.py`、`app/redelivery.py`、`app/outbox.py` | [结果授权与投递](docs/architecture.md#结果授权与投递) |
+| 结果、投递与重投 | `app/turn_settle.py`、`app/worker.py`、`app/turn_delivery.py`、`app/redelivery.py`、`app/outbox.py` | [结果授权与投递](docs/architecture.md#结果授权与投递) |
 | 失败、恢复与自动重试 | `core/recovery.py`、`core/failure.py`（原因和下一步）、`app/recovery_cards.py`、`app/auto_retry.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
 | 设置卡与机器人菜单 | `app/bot_menu.py`、`app/menu_panel.py`、`app/settings_hub.py`、`feishu/events.py` | [机器人菜单](docs/usage.md#机器人菜单) |
 | 代答 | `app/proxy.py`（批次）、`app/proxy_intake.py`（收消息）、`app/proxy_topics.py`（联系人话题）、`app/proxy_commands.py`（查找、群成员）、`app/proxy_send.py`（读回和发送器接口；发送器 `extensions/covey_internal/proxy_sender.py`、`extensions/covey_internal/proxy_login.py`）、`core/proxy.py` | [proxy.md](docs/proxy.md)、[代答](docs/architecture.md#代答) |
@@ -208,6 +208,7 @@
 | `app/track_standby.py` | A Claude Code kept ready for the track judge |
 | `app/triage.py` | 专项的问题分流 (docs/butler.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1 |
 | `app/triage_view.py` | The questions held for a project's lead, as the lead reads them (app/triage.py is the rest of the question … |
+| `app/turn_delivery.py` | Delivering one finished turn |
 | `app/turn_export.py` | 下载请求与结果: a button at the bottom of an ended task card that packs the turn's model requests and the model's … |
 | `app/turn_images.py` | Images a running task shows its owner at once: a login QR code, a screenshot he has to act on |
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
@@ -223,7 +224,7 @@
 | `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (the 妙搭 app) … |
 | `app/web_turns.py` | What a turn tells the web page beside its words (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |
-| `app/worker.py` | Ordinary topic-job execution, local records and in-topic final delivery |
+| `app/worker.py` | Ordinary topic-job execution and local records |
 | `app/workspace_manager.py` | Manage the saved workspace list |
 
 ### cards

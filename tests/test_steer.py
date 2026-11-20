@@ -977,7 +977,7 @@ class UnreadAtTheEndTest(TopicFixture, unittest.TestCase):
         order = []
         end = self.app.steering.end_unread_steers
         self.app.steering.end_unread_steers = lambda ctx, job, **kw: order.append("marked") or end(ctx, job, **kw)
-        with mock.patch("covey.app.worker.TurnDelivery.deliver",
+        with mock.patch("covey.app.turn_delivery.TurnDelivery.deliver",
                         autospec=True, side_effect=lambda *a, **k: order.append("delivered")):
             self.run_turn(steer_reads=True)
         self.assertEqual(order, ["delivered", "marked"])

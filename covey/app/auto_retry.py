@@ -370,12 +370,12 @@ def fire(app, ctx, target, record):
 
 def failed_controls(topic_id, job_id, record) -> list:
     """The elements a failed task card gets after its answer (app/cards.py Cards.finish_result_controls inserts
-    them): 技术详情, the words its body said before its one-line reason (app/worker.py card_text); its retry
+    them): 技术详情, the words its body said before its one-line reason (app/turn_delivery.py card_text); its retry
     button as ``retry_label`` names it, with a pending automatic retry's status and 停止自动重试 when that is
     检查并继续 (``result_elements``), and the follow-ups core/failure.py offers (看原因, 拆小再试; a policy stop
     gets 拆小再试 alone); [] when the record offers none."""
     view = failure.failure_view(record) if record else None
-    # Only where the body says the reason instead (app/worker.py card_text, which wrote failure_code).
+    # Only where the body says the reason instead (app/turn_delivery.py card_text, which wrote failure_code).
     details = ([failure_details(str(record["final_text"]))]
                if view and record.get("failure_code") and record.get("execution_status") == "failed"
                and not record.get("policy_stop") and record.get("final_text") else [])

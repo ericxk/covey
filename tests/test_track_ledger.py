@@ -16,7 +16,7 @@ from support.butler import CHAT, BUTLER, ButlerCase, switch_on
 from support.records import state_dir
 from covey.app import butler as session
 from covey.app import track_digest
-from covey.app.worker import TurnDelivery
+from covey.app.turn_delivery import TurnDelivery
 from covey.core import butler_tracks
 from covey.core import track_ledger as ledger
 from covey.core.jobs import job_key, upsert_job_record
@@ -192,8 +192,8 @@ class Delivered(Switched):
                                 ledger=lambda *args: calls.append(("ledger", args[1:])))
         with mock.patch.object(TurnDelivery, "texts", return_value=("答案正文", "答案正文", False)), \
                 mock.patch.object(TurnDelivery, "send", return_value=(True, True)), \
-                mock.patch("covey.app.worker.record_attempt"), mock.patch("covey.app.worker.close_streaming_reply_async"), \
-                mock.patch("covey.app.worker.append_history"):
+                mock.patch("covey.app.turn_delivery.record_attempt"), mock.patch("covey.app.turn_delivery.close_streaming_reply_async"), \
+                mock.patch("covey.app.turn_delivery.append_history"):
             delivery.deliver(None)
         self.assertEqual(calls, [("relay", (True, "done")), ("ledger", (True, "done"))])
 

@@ -179,7 +179,7 @@ def show(app, ctx, record, text):
 def repaint_body(app, ctx, record):
     """The stopped task's card without the retry ``record``'s text no longer promises (``unpromise``): the recovery
     card the policy guard drew, redrawn from the record, or the task card's result, as its delivery painted it
-    (``policy_retry_card``, app/worker.py TurnDelivery) with the promise taken out; best effort, through Cards."""
+    (``policy_retry_card``, app/turn_delivery.py TurnDelivery) with the promise taken out; best effort, through Cards."""
     found = planned(record) or ("", "")
     promise = worded(retry_recovery(record.get("policy_retry_category") or "", found[1]), record)
     try:

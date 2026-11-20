@@ -187,7 +187,7 @@ class SubscriptionTests(unittest.TestCase):
 
 
 class AnswerAliasTests(unittest.TestCase):
-    """An answer sent on its own (app/worker.py standalone_verified, app/task_controls.py 重新投递) goes through
+    """An answer sent on its own (app/turn_delivery.py standalone_verified, app/task_controls.py 重新投递) goes through
     Messenger.reply: each message it sends is learned as its topic's, so the owner's read receipt finds the topic."""
 
     def setUp(self):

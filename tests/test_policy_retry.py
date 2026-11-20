@@ -20,7 +20,7 @@ from support.world import UnifiedCase
 from covey.app import policy_guard, runner_ipc
 from covey.backends.claude import argv as claude_argv, subagents
 from covey.app.unified import OUTBOX_STEPS
-from covey.app.worker import TurnDelivery
+from covey.app.turn_delivery import TurnDelivery
 try:
     from covey.app import policy_retry
 except ImportError:  # A release before it: the behaviour the assertions check is what fails.
