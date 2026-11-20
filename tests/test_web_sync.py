@@ -254,6 +254,21 @@ class PushTest(WebCase):
         self.assertEqual((live["key"], live["data"]["status"]), (f"{TOPIC}:2", "running"))
         self.assertEqual(live["data"]["body"], "先看了日志\n\n再看了配置")
 
+    def test_a_task_between_its_answer_line_and_its_end_is_neither_undelivered_nor_a_second_running_turn(self):
+        # T588 #5309 (2026-11-20 16:29): app/worker.py writes the answer line once the result went out, then the record; a look in
+        # between pushed the answer as 没发出去 (red) and the same task again as a running turn after it.
+        self.topic(status="running", lines=(("user", "做一下"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", topic_id=TOPIC, chat_id=CHAT, job_id=7, status="running", model="opus",
+                  card_message_id="om_card", result_retry_policy="saved_delivery_only", verified_reply_authorized=True,
+                  verified_reply_state="authorized", delivery_ok=False, execution_status="done", final_text="好了")
+        append_history(self.state / "topics" / TOPIC / "history.jsonl", "assistant", "好了", {"job_id": 7})
+        self.sync.push_once(T0)
+        turns = {each["key"]: each["data"] for each in self.web.items("turn")}
+        self.assertEqual(sorted(turns), [f"{TOPIC}:1", f"{TOPIC}:2"])
+        self.assertEqual((turns[f"{TOPIC}:2"]["status"], turns[f"{TOPIC}:2"].get("failure")), ("done", None))
+        topic = next(each["data"] for each in self.web.items("topic") if each["key"] == TOPIC)
+        self.assertEqual(topic["last_seq"], 2)
+
     def test_a_topic_that_left_the_chat_is_deleted_on_a_full_look(self):
         self.topic()
         self.sync.push_once(T0)

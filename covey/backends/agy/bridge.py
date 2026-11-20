@@ -149,7 +149,9 @@ class AntigravityEventAdapter:
                 # One model request: its usage and the time it took (thinking and text, no tool).
                 seconds = step.get("duration_seconds")
                 self.add_usage(step.get("usage"), seconds if isinstance(seconds, (int, float)) else None)
-        elif kind == "tool":
+        elif kind == "system_message":
+            self.notes.to_notes(now)  # A subagent came back: what the model wrote before it is a progress note.
+        elif kind in ("tool", "subagent"):
             info = step.get("tool_info") if isinstance(step.get("tool_info"), dict) else {}
             native = str(step.get("tool_name") or info.get("name") or "tool")
             if key not in self.steps:
@@ -306,6 +308,18 @@ class StreamRows:
         self.sid = self.result = None
         self.invalid = False
         self.process = None
+        self.kinds = {}  # step_index -> step_type, of the root conversation's steps
+        self.texts = {}  # step_index -> what an agent_response step wrote
+
+    def reply(self):
+        """The turn's answer: what the model wrote after its last step that was not writing (a tool, a subagent, a
+        system message such as a subagent's return). agy's ``result.response`` joins everything the model wrote in
+        the turn: the progress lines GEMINI.md asks for and the "waiting for the subagents" lines before the answer
+        (T588, 2026-11-20). '' when the answer is not the end of ``response`` (then ``response`` is taken as it is)."""
+        response = str((self.result or {}).get("response") or "").strip()
+        last = max((index for index, kind in self.kinds.items() if kind != "agent_response"), default=-1)
+        answer = "".join(self.texts[index] for index in sorted(self.texts) if index > last).strip()
+        return answer if answer and response.endswith(answer) else response
 
     def observe(self, p):
         self.process = p
@@ -361,6 +375,11 @@ class StreamRows:
             if step.get("conversation_id") not in (None, self.sid):
                 # A subagent's steps carry their own conversation; never the root's answer.
                 return
+            index = step.get("step_index")
+            if type(index) is int:
+                self.kinds[index] = str(step.get("step_type") or "")
+                if self.kinds[index] == "agent_response" and isinstance(step.get("text_delta"), str):
+                    self.texts[index] = self.texts.get(index, "") + step["text_delta"]
         try:
             self.adapter.accept(row, time.time())
         except Exception:
@@ -582,7 +601,7 @@ def run_stream(request, argv, stdin, env):
         if code in ("process_exit", "root_incomplete") and rows.sid is None and auth_failure(stderr):
             code = "authentication_error"
         if status == "completed":
-            text = rows.result["response"].strip()
+            text = rows.reply()
             state.preserve(rows.sid, ("antigravity-stream", rows.sid, state.run_id), ("final:" + state.run_id,), text)
     except JobCancelled:
         if not state.enabled:

@@ -474,7 +474,10 @@ class Collector:
                 else:
                     turn.pop("notes", None)
             if job is not None:
-                fail = failure.failure_view(job)  # Why it did not succeed and what next (core/failure.py).
+                # Why it did not succeed and what next (core/failure.py). Not of a task still running: its answer line is written
+                # once its result has gone out and before its record says so (app/worker.py deliver), and a look in between
+                # read it as 没发出去 (T588 #5309, 2026-11-20 16:29: red until after 16:44).
+                fail = failure.failure_view(job) if job.get("status") not in RUNNING else None
                 if fail:
                     turn["failure"] = fail
                     if turn.get("role") == "agent":
@@ -489,6 +492,9 @@ class Collector:
                 turn["started_topics"] = wakes[job_key(job.get("message_id"), job.get("job_id"))]
             out.append(turn)
         job = next((record for record in reversed(records) if record.get("status") in RUNNING or record.get("status") == "waiting_user"), None)
+        if (job is not None and job.get("status") in RUNNING and rows and rows[-1].get("role") != "user"
+                and str(rows[-1].get("job_id") or "") == str(job.get("job_id"))):
+            job = None  # Its answer is the last line already, its record not yet ended: no second, running turn of it (T588 #5309).
         if job is not None:
             out.append(self.live_turn(state, topic, total + 1, job, wakes, now))
         elif latest is not None and latest.get("status") in ("failed", "interrupted", "cancelled") and (not rows or rows[-1].get("role") == "user"):

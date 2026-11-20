@@ -86,9 +86,19 @@ if scenario == "busy":
     result("ERROR", error="429 RESOURCE_EXHAUSTED: PRIVATE_DETAIL"); sys.exit(3)
 if scenario == "error":
     result("ERROR", error="PRIVATE_DETAIL internal"); sys.exit(3)
+if scenario == "waits":
+    # A subagent sent in the background, a line while it runs, its return as a system message (T588 #5298).
+    step(3, "DONE", "subagent", tool_name="invoke_subagent", subagent_info={"subagents": [{"role": "Counter"}]})
+    step(4, "DONE", "agent_response", text_delta="正在等待子 Agent。\n")
+    step(5, "DONE", "system_message")
+    step(6, "ACTIVE", "agent_response", text_delta=text)
+    step(6, "DONE", "agent_response", text_delta="\n")
+    result("SUCCESS", "先看一下目录正在等待子 Agent。\n" + text + "\n")
+    sys.exit(0)
 step(3, "ACTIVE", "agent_response", text_delta=text)
 step(3, "DONE", "agent_response", text_delta="\n", duration_seconds=1.0, usage={
     "input_tokens": 2249, "output_tokens": 41, "thinking_tokens": 25, "cache_read_tokens": 11130, "total_tokens": 2290})
-result("SUCCESS", text)
+# agy's response joins all the turn wrote: the progress line before the tool, then the answer (1.5.13, T588).
+result("SUCCESS", "先看一下目录" + text + "\n")
 if scenario == "exit-after-result":
     sys.exit(3)

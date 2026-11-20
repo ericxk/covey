@@ -204,7 +204,7 @@ Antigravity 是 Google 的 Agent 开发平台，这里用它的命令行 `agy`�
 - **安装**：`curl -fsSL https://antigravity.google/cli/install.sh | bash`，二进制在 `~/.local/bin/agy`，之后它在后台自己升级。按 1.5.13 验证（2026-11-20：真实跑过目录、带命令的一轮和跨进程续接）。
 - **登录**：在运行机器人的系统账号下执行一次 `agy`，选 “Google OAuth”；没有浏览器的机器上它打印授权链接，在自己的浏览器里打开、登录后把页面上的授权码贴回终端。没有 D-Bus 时令牌存在文件里（`~/.config/antigravity/`），不进机器人的记录。Bridge 不替你登录；没登录时启动卡上没有 Antigravity，已有话题的一轮以“还没有登录”失败。也可以用 Gemini API 密钥或 Google Cloud 项目登录，见 [官方说明](https://antigravity.google/docs/install)。
 - **运行方式**：每轮一个 `agy --output-format stream-json --input-format stream-json --disable-slash-commands --dangerously-skip-permissions [--conversation <会话>] [--model <模型>] [--effort <档位>]`，正文作为一行 `{"event":"user","message":{"content":…}}` 从 stdin 传入后关闭 stdin，agy 跑完这一轮就退出。工作目录是话题的工作目录。
-- **本轮结果**：首行 `init` 带会话（`conversation_id`），中间 `step_update`（文字增量、工具步骤），最后一行 `result` 的 `status` 为 `SUCCESS`、零退出码，正文取 `result.response`。子 Agent 的步骤带它自己的会话 ID，不算本轮正文。
+- **本轮结果**：首行 `init` 带会话（`conversation_id`），中间 `step_update`（文字增量、工具步骤），最后一行 `result` 的 `status` 为 `SUCCESS`、零退出码。正文取最后一个“不是写字”的步骤（工具、子 Agent、系统消息，如子 Agent 交回结果）之后模型写的字：`result.response` 把这一轮写过的所有字拼在一起，前面是中途说明和“正在等子 Agent”这类话（T588，2026-11-20）；取出的这段不是 `response` 的结尾时退回整个 `response`。子 Agent 的步骤带它自己的会话 ID，不算本轮正文；派子 Agent 的那一步在执行过程里是“分配子任务”，子 Agent 交回结果时之前写的字转成进展说明。
 - **续接**：`--conversation <会话 ID>`；会话 ID 和 `init` 里的不一致时本轮按协议错误失败，不续接别的会话。
 - **事件**：文字增量是“正文”和工具调用前的进展说明，工具步骤按名字显示（`run_command` 是执行命令，`view_file` 是读取文件……）；工具的输出、思考不上卡片。用量取每个 `agent_response` 步骤结束时的 `usage`（一次模型请求一份，`input_tokens` 不含缓存读取，`output_tokens` 含思考），生成时间取它的 `duration_seconds`；没有步骤用量时才用 `result.usage`。
 - **模型和档位**：启动卡的预算就是 agy 的 `--effort`；模型目录（Bridge 保存的 `launch-models/agy.json`）说某模型没有这个档位时不启动，没有档位的模型不传 `--effort`（agy 会拒绝）。

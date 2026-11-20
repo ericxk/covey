@@ -78,6 +78,24 @@ class AntigravityTests(unittest.TestCase):
                                           "--model", "gemini-3.8-pro-high", "--effort", "high"])
         self.assertEqual(Path(record["cwd"]).resolve(), Path(self.ctx.workdir).resolve())
 
+    def test_the_answer_is_what_the_model_wrote_after_its_last_tool_subagent_or_system_message(self):
+        # agy's result.response joins the progress lines and the waits before the answer (T588 #5298, #5309).
+        result, events, replies, *_rest = self.run_agy("waits")
+        self.assertFalse(result.is_error, result.text)
+        self.assertEqual((result.text, replies[-1].text), ("完成", "完成"))
+        notes = [d.get("text") for k, d in events if k == "progress_note"]
+        self.assertIn("正在等待子 Agent。\n", notes)
+        self.assertIn(("agent", "done"), [(d["name"], d["status"]) for k, d in events if k == "tool" and d["id"] == "step-3"])
+
+    def test_an_answer_that_is_not_the_end_of_the_response_falls_back_to_the_response(self):
+        from covey.backends.agy.bridge import StreamRows
+        rows = StreamRows(None, AntigravityEventAdapter(lambda *a: None), None)
+        rows.sid, rows.result = SID, {"response": "全文"}
+        rows.kinds, rows.texts = {0: "agent_response"}, {0: "别的"}
+        self.assertEqual(rows.reply(), "全文")
+        rows.texts = {}
+        self.assertEqual(rows.reply(), "全文")
+
     def test_agys_own_default_model_and_budget_pass_no_flag(self):
         result, *_rest, record = self.run_agy("ok", ctx=dataclasses.replace(self.ctx, model="", effort=""))
         self.assertFalse(result.is_error, result.text)
