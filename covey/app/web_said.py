@@ -83,6 +83,11 @@ def said(row, record=None, origins=None) -> dict:
         out["by"] = by
         if via:
             out["via"] = via
+    if "display" not in out and EDIT_HEAD in text:
+        # A line that carries the owner's message and, after it, his edit of it (a hand-on of a message he edited while the
+        # butler read it, T584 2026-11-20): the page shows the edited text alone, marked edited; the line itself is what the
+        # model was sent and is not changed.
+        out["display"], out["edited"] = text.split(EDIT_HEAD, 1)[1].strip(), True
     if out.get("display") == body:
         out.pop("display")
     return out

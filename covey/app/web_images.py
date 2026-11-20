@@ -23,7 +23,8 @@ from pathlib import Path
 
 from covey.app.turn_images import wanted
 from covey.core import web_sync
-from covey.core.attachments import ATTACHMENT_LINE_RE, ATTACHMENTS_HEADER, ATTACHMENTS_HINT, FAILED_HEADER, attachment_summary
+from covey.core.attachments import (ATTACHMENT_LINE_RE, ATTACHMENTS_HEADER, ATTACHMENTS_HINT, FAILED_HEADER, attachment_summary,
+                                    parse_attachment_block)
 from covey.core.checkpoint import read_checkpoint
 from covey.core.state import read_object, write_json
 
@@ -89,6 +90,11 @@ def scrub(text) -> str:
         out.append(PATH_RE.sub(IMAGE_WORD, line))
         i += 1
     return "\n".join(out).rstrip()
+
+
+def listed(text) -> str:
+    """The images ``text`` lists under "收到的附件" (a task's prompt), one backquoted path a line; '' for none."""
+    return "\n".join(f"`{item.path}`" for item in parse_attachment_block(text) if item.kind == "image")
 
 
 def media_paths(text, state) -> list[Path]:

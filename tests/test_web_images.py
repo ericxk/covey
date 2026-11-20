@@ -12,6 +12,7 @@ from unittest import mock
 from PIL import Image
 
 from covey.app import web_images
+from covey.app.source_watch import EDIT_HEAD
 from covey.core.attachments import ATTACHMENTS_HEADER, ATTACHMENTS_HINT, FAILED_HEADER, attachment_line
 from covey.core.history_storage import append_history
 from covey.core.state import write_json
@@ -244,3 +245,56 @@ class LateStateTest(ImagesCase):
         late.push_once(T0 + 1)
         self.assertEqual(len(self.web.images), 2)
         self.assertEqual(self.owner_turn()["images"][0]["id"], web_images.file_id(path))
+
+
+class HandOnTest(ImagesCase):
+    """T584, 2026-11-20: the line the butler hands on keeps the owner's words and their "附件：图片 1 张"; the images are in the
+    prompt of the task it started, and the page showed none. An edit of the message carried in the same line showed both texts."""
+
+    def handed(self, content, prompt):
+        write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="claude", topic_number=7, origin={"title": "截图"},
+                    workspace_name="ws1")
+        write_job(self.state, "k-hand", topic_id=TOPIC, chat_id=CHAT, job_id=7, status="done", model="opus", message_id="main-abc",
+                  prompt_text=prompt, user_text=content)
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        append_history(history, "user", content, {"message_id": "main-abc"})
+        append_history(history, "assistant", "看到了", {"message_id": "om_a", "job_id": 7})
+
+    def test_a_handed_on_line_shows_the_images_its_task_was_given(self):
+        path = png(self.media / "om_1-1-img.png")
+        prompt = "\n".join(["[Bridge 说明] 管家转来", "附件：图片 1 张（见下方“收到的附件”）", "", ATTACHMENTS_HEADER,
+                            attachment_line("image", 1, path), ATTACHMENTS_HINT])
+        self.handed("帮我看看这张图\n附件：图片 1 张", prompt)
+        self.sync.push_once(T0)
+        self.sync.push_once(T0 + 1)
+        turn = self.owner_turn()
+        self.assertEqual([each["id"] for each in turn["images"]], [web_images.file_id(path)])
+        self.assertEqual(turn["body"], "帮我看看这张图\n附件：图片 1 张")
+        self.assertNotIn(str(self.state), self.pushed_text())
+
+    def test_a_line_with_no_attachment_line_takes_no_image_from_its_prompt(self):
+        path = png(self.media / "om_1-1-img.png")
+        self.handed("没有图的话", "\n".join([ATTACHMENTS_HEADER, attachment_line("image", 1, path), ATTACHMENTS_HINT]))
+        self.sync.push_once(T0)
+        self.sync.push_once(T0 + 1)
+        self.assertNotIn("images", self.owner_turn())
+
+    def test_a_line_that_carries_the_message_and_its_edit_shows_the_edited_text_alone(self):
+        self.handed("原来的话\n" + EDIT_HEAD + "\n\n改过的话\n附件：图片 1 张", "")
+        self.sync.push_once(T0)
+        turn = self.owner_turn()
+        self.assertEqual((turn["display"], turn["edited"]), ("改过的话\n附件：图片 1 张", True))
+        self.assertTrue(turn["body"].startswith("原来的话"))  # What the task was sent stays as it was.
+
+    def test_an_edit_sent_on_its_own_line_goes_onto_the_line_it_edits(self):
+        write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="claude", topic_number=7, origin={"title": "截图"},
+                    workspace_name="ws1")
+        write_job(self.state, "k-edit", topic_id=TOPIC, chat_id=CHAT, job_id=7, status="done", model="opus", message_id="om_x1")
+        history = self.state / "topics" / TOPIC / "history.jsonl"
+        append_history(history, "user", "原来的话", {"message_id": "om_x1"})
+        append_history(history, "user", EDIT_HEAD + "\n\n改过的话", {"message_id": "edit-om_x1-1795150000"})
+        append_history(history, "assistant", "好", {"message_id": "om_a", "job_id": 7})
+        self.sync.push_once(T0)
+        first, edit = [item["data"] for item in self.web.items("turn") if item["data"]["role"] == "owner"]
+        self.assertEqual((first["body"], first["display"], first["edited"]), ("原来的话", "改过的话", True))
+        self.assertTrue(edit["merged"])

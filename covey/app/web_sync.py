@@ -68,6 +68,7 @@ RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked 
 QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
 NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 CANCEL_REASONS = ("stale", "switched", "rewound", "lead_stop", "web_stop")  # A cancelled question's cancel_reason, pushed as its closed_by.
+EDIT_PREFIX = "edit-"  # The message id of the owner's edit sent into a running task (app/source_watch.py): edit-<message id>-<stamp>.
 UNSTARTED_WORDS = "没开工，已取消"  # The line under the owner's words whose task was cancelled before it started (its record's reason after it).
 IMAGES_WAIT = 300  # Seconds images are held back after the page did not take one (push_images).
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
@@ -579,30 +580,54 @@ class Collector:
         """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
         (``answered``): the turns that answered a question card get its ``answers``. An owner line says who said it and
         what the page shows of it (``said``)."""
-        out = []
+        out, by_message = [], {}
         for row, job, asked in self.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             owner = row.get("role") == "user"
             if owner:
-                row = self.owner_row(row, topic, at)
+                row = self.owner_row(row, topic, at, job)
             body = row.get("display_content") if owner and row.get("display_content") else row.get("content")
             data = {"role": "owner" if owner else "agent", "body": web_sync.clip(body), "status": "done", "job_id": "",
                     "started_at": at, "ended_at": at, "artifacts": []}
             if owner:
                 self.said(data, row, asked)
                 self.put_images(data, row.get("images"))
+                self.merge_edit(data, str(row.get("message_id") or ""), by_message)
             self.put_answers(data, answered, job, owner)
             out.append((at, data, None if owner else job))
         return out
 
-    def owner_row(self, row, topic, at) -> dict:
+    @staticmethod
+    def merge_edit(data, message_id, by_message) -> None:
+        """The owner's edit of a message sent into the running task as a line of its own (app/source_watch.py, message id
+        ``edit-<message id>-<stamp>``) goes onto the line of the message it edits: that one shows the edited text, marked edited
+        (its ``body`` stays the original), and the edit's own line is ``merged`` (the page leaves it out). Without the first line
+        among these (older than the turns kept) the edit stays a line of its own. Data contract v19 (T584, 2026-11-20: both
+        showed, the second as 改过)."""
+        if message_id.startswith(EDIT_PREFIX) and data.get("edited"):
+            first = by_message.get(message_id[len(EDIT_PREFIX):].rsplit("-", 1)[0])
+            if first is not None:
+                first["display"], first["edited"] = data["display"], True
+                data["merged"] = True
+                return
+        if message_id:
+            by_message[message_id] = data
+
+    def owner_row(self, row, topic, at, job=None) -> dict:
         """The owner's history line ``row`` as the page gets it: its words without local paths (web_images.scrub: the attachment
-        block becomes its "附件：…" line) and, under ``images``, the refs of the images it came with (data contract v19)."""
+        block becomes its "附件：…" line) and, under ``images``, the refs of the images it came with (data contract v19). A line the
+        butler or a lead handed on keeps only the owner's words and their "附件：…" line; its images are listed in the prompt of the
+        task it started (``job``, paired by its message id), under "收到的附件" (T584, 2026-11-20: 管家转来 showed no image)."""
         content = str(row.get("content") or "")
         clean = {**row, "content": web_images.scrub(content)}
         if row.get("display_content"):
             clean["display_content"] = web_images.scrub(row["display_content"])
-        clean["images"] = self.images.sent(content, topic, at, self.now) if self.images is not None else []
+        clean["images"] = []
+        if self.images is not None:
+            clean["images"] = self.images.sent(content, topic, at, self.now)
+            own = job is not None and row.get("message_id") and str(job.get("message_id") or "") == str(row.get("message_id"))
+            if not clean["images"] and own and "附件：" in content:
+                clean["images"] = self.images.sent(web_images.listed(job.get("prompt_text")), topic, at, self.now)
         return clean
 
     @staticmethod
@@ -669,7 +694,7 @@ class Collector:
             if row.get("role") == "user":
                 waking = projects.is_wake(row.get("message_id"))
                 if not waking:
-                    row = self.owner_row(row, topic, at)
+                    row = self.owner_row(row, topic, at, job)
                     data = {"role": "owner", "body": web_sync.clip(row.get("display_content") or row.get("content")), "status": "done",
                             "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}
                     self.said(data, row, asked)
