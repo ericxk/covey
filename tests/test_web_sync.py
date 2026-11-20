@@ -17,7 +17,7 @@ from unittest import mock
 
 from support.records import write_job, write_topic
 
-from covey.app import answers as answer_words, source_watch, web_ops, web_said, web_sync as app_web, web_collect as app_collect
+from covey.app import answers as answer_words, source_watch, web_ops, web_said, web_sync as app_web, web_collect as app_collect, web_pairing as app_pairing
 from covey.app.web_sync import WebError, WebSync
 from covey.app import project_lead, web_turns
 from covey.core import butler_opened, http_upstream, model_names, placement, project_library, project_memory, project_proposals, projects, triage, web_sync
@@ -1616,7 +1616,7 @@ class ProgressAndAnswersTest(WebCase):
             {"id": "q1", "question": "用哪个库？", "options": [{"label": "A"}, {"label": "B"}]},
             {"id": "q2", "question": "要不要部署？", "options": [{"label": "要"}, {"label": "不要"}]},
             {"id": "q3", "question": "测哪些？", "multiple": True, "options": [{"label": "单测"}, {"label": "回放"}]}],
-            answers={"q1": {"answers": ["B"]}, "q2": {"answers": [app_collect.SKIPPED]}, "q3": {"answers": ["单测", "回放"]}})
+            answers={"q1": {"answers": ["B"]}, "q2": {"answers": [answer_words.SKIPPED]}, "q3": {"answers": ["单测", "回放"]}})
         write_job(self.state, "k-answer", topic_id=TOPIC, chat_id=CHAT, job_id=9, status="done", message_id="answer-" + TOKEN)
         history = self.state / "topics" / TOPIC / "history.jsonl"
         append_history(history, "user", "用哪个库？ → B", {"message_id": "answer-" + TOKEN})
@@ -1631,7 +1631,7 @@ class ProgressAndAnswersTest(WebCase):
 
     def test_feedback_instead_of_answers_is_not_answered(self):
         self.question(status="answered", response_kind="feedback", answers={"q1": {"answers": ["用户选择反馈问题"]}})
-        self.assertEqual(app_collect.answer_rows(read_object(self.state / "questions" / f"{TOKEN}.json")),
+        self.assertEqual(app_pairing.answer_rows(read_object(self.state / "questions" / f"{TOKEN}.json")),
                          [{"question": "用哪个库？", "choice": "没答"}])
 
 
@@ -1754,7 +1754,7 @@ class TurnJobsTest(WebCase):
     without one, so with no token, process or plan on the page (the project's tile, the report's token table, a turn's 过程)."""
 
     def paired(self, rows, records, questions=()):
-        return [(row["role"], row.get("content"), job and job["job_id"]) for row, job, _ in app_collect.Collector.pair(rows, records, questions)]
+        return [(row["role"], row.get("content"), job and job["job_id"]) for row, job, _ in app_pairing.pair(rows, records, questions)]
 
     def test_a_supplement_sent_into_the_running_task_leaves_that_task_to_the_answer(self):
         # T542: the lead's 补充 (main-…, merged into the running task: no record of its own) came after the answer that started it.

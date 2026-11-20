@@ -8,9 +8,8 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import pins, project_lead, project_loop, web_images, web_said, web_turns
-from covey.app.answers import SKIPPED
-from covey.core import board_read, failure, look, project_library, project_memory, projects, triage, web_sync
+from covey.app import pins, project_lead, project_loop, web_images, web_pairing, web_said, web_turns
+from covey.core import board_read, failure, look, project_library, project_memory, projects, web_sync
 from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
 from covey.core.butler import butler_topic_id
@@ -30,21 +29,10 @@ BUTLER_TITLE = "管家"
 LEAD_TITLE = "负责人"
 EXTRA_TURNS = 20  # The newest turns of a topic that get their process and plan; every kept turn gets its figures (each read from its trace file once).
 FIGURES_KEPT = 8192  # Ended turns whose figures are remembered (a few numbers each): all kept turns of all topics a full look builds.
-PAIR_SLACK = 300  # Seconds after a task's record was last written that an answer line with no other task may still be its own (pair).
 RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked at.
-QUESTION_STATES = {"pending": "open", "cancelled": "cancelled", "superseded": "cancelled"}
-NOT_ANSWERED = "没答"  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
-CANCEL_REASONS = ("stale", "switched", "rewound", "lead_stop", "web_stop")  # A cancelled question's cancel_reason, pushed as its closed_by.
 EDIT_PREFIX = "edit-"  # The message id of the owner's edit sent into a running task (app/source_watch.py): edit-<message id>-<stamp>.
 UNSTARTED_WORDS = "没开工，已取消"  # The line under the owner's words whose task was cancelled before it started (its record's reason after it).
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
-
-
-def moment(value) -> float:
-    """``value`` (epoch seconds or an ISO time) as epoch seconds; 0 when it is neither."""
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
-    return epoch_seconds(value) or 0.0
 
 
 def estimate_of(job, turn) -> None:
@@ -247,7 +235,7 @@ class Collector:
         out = [web_sync.item("topic", topic, body)]
         out += [web_sync.item("turn", f"{topic}:{turn['seq']}", turn) for turn in turns]
         for row in questions:
-            made = self.question(row, topic, count, body["project_key"], number, records, questions)
+            made = web_pairing.question(row, topic, count, body["project_key"], number, records, questions)
             if made:
                 out.append(web_sync.item("question", row.get("token"), made))
         return out
@@ -329,13 +317,13 @@ class Collector:
         rows = self.rows(state, topic)
         wakes = {}
         if project is not None:
-            wakes = self.lead_starts(state, topic, project, records)
-        answered = self.answered(questions, records)
+            wakes = web_pairing.lead_starts(state, project, records)
+        answered = web_pairing.answered(questions, records)
         entries = (self.lead_entries(state, topic, project, rows, records, wakes, answered, questions) if project is not None
                    else self.entries(rows, records, answered, questions, topic=topic))
         total = len(entries)
         self.count_unpaired(topic, entries)
-        before = self.retried(records, entries)
+        before = web_pairing.retried(records, entries)
         out = []
         for seq, (at, data, job) in enumerate(entries, 1):
             if seq <= total - TURNS_KEPT:
@@ -343,7 +331,7 @@ class Collector:
             turn = {"topic_key": topic, "seq": seq, **data}
             if job is not None and data.get("role") == "agent":
                 turn["job_id"] = str(job.get("job_id") or "")
-                self.put_images(turn, self.images.shown(job, topic, data.get("started_at"), self.now) if self.images else [])
+                web_pairing.put_images(turn, self.images.shown(job, topic, data.get("started_at"), self.now) if self.images else [])
             if job is not None:
                 turn.update(self.ended_extras(state, job) if seq > total - EXTRA_TURNS else self.ended_figures(state, job))
                 self.fold_usage(state, turn, before.get(id(job)) or ())
@@ -399,69 +387,12 @@ class Collector:
                         "ended_at": epoch_seconds(unstarted.get("updated_at")) or 0, "artifacts": []})
         return out, total
 
-    @staticmethod
-    def pair(rows, records, questions=()):
-        """(row, the job record of the turn the row belongs to or None, the question record a user line answers or None) for each user
-        and assistant line of the history. 2026-11-19 T550: 97 of the Covey project's 127 answer turns reached the page without their
-        task, so with no token, process or plan; this pairs them in three steps:
-
-        - An answer line written with its task (``job_id``, app/worker.py since T564) has it. A user line is paired by its message id;
-          an answer's line has none and is paired by its question record (web_said.answer_record), with the task the answer started
-          (its message ``answer-<token>``) or, for one handed to the task that asked, that task. The next answer line has the job of
-          the user line before it.
-        - A user line with no task of its own while the task of the line before has not answered yet (a supplement the lead or the
-          owner sent into the running task, app/steering.py: its record is merged or there is none) leaves that task to the answer,
-          not None; the line itself has no job (``put_answers`` must not put that task's answers on it).
-          An answer line written before the task of the user line before it started, or long after it ended (``ran_at``), is
-          not that task's: that one was queued behind the task that answers, or an automatic retry went on and answered.
-        - An answer line still without a task (one in a row with no user line between: a retry after a rate limit, a stop; one
-          after a line whose task is not among the records or had not started) takes, of the records no answer line took, the
-          latest that had started by then, is not running, and was last written at most PAIR_SLACK seconds before it."""
-        usable = [record for record in records if not board_read.unrun(record)]
-        by_message = {str(record.get("message_id")): record for record in usable if record.get("message_id")}
-        by_id = {str(record.get("job_id")): record for record in usable if record.get("job_id")}
-        found, job, taken = [], None, set()
-        for row in rows:
-            if row.get("role") == "user":
-                asked = web_said.answer_record(row, questions, taken) if not row.get("message_id") else None
-                if asked is not None:
-                    own = by_message.get("answer-" + str(asked.get("token"))) or (
-                        None if asked.get("continuation_job_id") else by_id.get(str(asked.get("job_id") or "")))
-                else:
-                    own = by_message.get(str(row.get("message_id") or ""))
-                if own is not None or job is None:
-                    job = own
-                found.append([row, own, asked])
-            else:
-                if job is not None and not Collector.ran_at(job, epoch_seconds(row.get("time")) or 0):
-                    job = None  # Queued behind the task that answers, or ended before (an automatic retry went on and answered).
-                found.append([row, by_id.get(str(row.get("job_id") or "")) or job, None])
-                job = None
-        used = {id(entry[1]) for entry in found if entry[1] is not None and entry[0].get("role") != "user"}
-        for entry in found:
-            if entry[0].get("role") == "user" or entry[1] is not None:
-                continue
-            at = epoch_seconds(entry[0].get("time")) or 0
-            began = [(board_read.started_at(record), index) for index, record in enumerate(usable) if id(record) not in used
-                     and record.get("status") not in RUNNING and Collector.ran_at(record, at)]
-            if began:
-                entry[1] = usable[max(began)[1]]
-                used.add(id(entry[1]))
-        for row, job, asked in found:
-            yield row, job, asked
-
-    @staticmethod
-    def ran_at(record, at) -> bool:
-        """Whether an answer line written at ``at`` can be the task ``record``'s: it had started by then (2 s for the clocks) and was
-        last written at most PAIR_SLACK seconds before (its line is written as its result goes out, then its record)."""
-        return bool(at) and board_read.started_at(record) <= at + 2 and at <= moment(record.get("updated_at")) + PAIR_SLACK
-
     def entries(self, rows, records, answered=None, questions=(), topic="") -> list:
         """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
         (``answered``): the turns that answered a question card get its ``answers``. An owner line says who said it and
         what the page shows of it (``said``)."""
         out, by_message = [], {}
-        for row, job, asked in self.pair(rows, records, questions):
+        for row, job, asked in web_pairing.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             owner = row.get("role") == "user"
             if owner:
@@ -471,9 +402,9 @@ class Collector:
                     "started_at": at, "ended_at": at, "artifacts": []}
             if owner:
                 self.said(data, row, asked)
-                self.put_images(data, row.get("images"))
+                web_pairing.put_images(data, row.get("images"))
                 self.merge_edit(data, str(row.get("message_id") or ""), by_message)
-            self.put_answers(data, answered, job, owner)
+            web_pairing.put_answers(data, answered, job, owner)
             out.append((at, data, None if owner else job))
         return out
 
@@ -510,56 +441,15 @@ class Collector:
                 clean["images"] = self.images.sent(web_images.listed(job.get("prompt_text")), topic, at, self.now)
         return clean
 
-    @staticmethod
-    def put_images(data, refs) -> None:
-        if refs:
-            data["images"] = refs
-        else:
-            data.pop("images", None)
-
     def said(self, data, row, asked) -> None:
         """``data`` (an owner line's turn) takes web_said's fields (data contract v11): ``by`` always, ``display`` clipped as the
         body is; the answers of the question record ``asked`` when it has them (``put_answers`` may put them again)."""
         found = web_said.said(row, asked, self.origins)
         if found.get("display"):
             found["display"] = web_sync.clip(found["display"])
-        if asked is not None and answer_rows(asked):
-            found["answers"] = answer_rows(asked)
+        if asked is not None and web_pairing.answer_rows(asked):
+            found["answers"] = web_pairing.answer_rows(asked)
         data.update(found)
-
-    @staticmethod
-    def answered(questions, records) -> dict:
-        """{("owner"|"agent", job key): [{question, choice}]} of the topic's answered question cards (data contract v4), from
-        the question records alone, never a turn's words: an answer sent on as a follow-up task (its message ``answer-<token>``)
-        is the owner's turn of that task; one handed to the task that asked it, which went on (a native question), is that
-        task's own turn. A question skipped (不回答此题, 只发补充说明, or feedback on the questions) is NOT_ANSWERED."""
-        follow = {str(record.get("message_id") or ""): record for record in records}
-        found = {}
-        for row in questions:
-            answers = row.get("answers")
-            if not isinstance(answers, dict) or not answers or not row.get("token"):
-                continue
-            listed = answer_rows(row)
-            if not listed:
-                continue
-            after = follow.get("answer-" + str(row["token"]))
-            if after is not None:
-                found[("owner", job_key(after.get("message_id"), after.get("job_id")))] = listed
-                continue
-            if row.get("continuation_job_id"):
-                continue  # Its follow-up task is not among the records: no turn to put it on.
-            asked = next((record for record in records if record.get("job_id") == row.get("job_id")), None)
-            if asked is not None:
-                found.setdefault(("agent", job_key(asked.get("message_id"), asked.get("job_id"))), []).extend(listed)
-        return found
-
-    @staticmethod
-    def put_answers(data, answered, job, owner) -> None:
-        if not answered or job is None:
-            return
-        listed = answered.get(("owner" if owner else "agent", job_key(job.get("message_id"), job.get("job_id"))))
-        if listed:
-            data["answers"] = listed
 
     # -- a project's lead ---------------------------------------------------------------------------------------------------
 
@@ -569,7 +459,7 @@ class Collector:
         the page's own (role event); so is a member's end (the inbox's ``thread_end`` receipt). All in the order they happened."""
         out, shown, waking = [], set(), False
         running = {job_key(job.get("message_id"), job.get("job_id")) for job in records if job.get("status") in RUNNING or job.get("status") == "waiting_user"}
-        for row, job, asked in self.pair(rows, records, questions):
+        for row, job, asked in web_pairing.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             if row.get("role") == "user":
                 waking = projects.is_wake(row.get("message_id"))
@@ -578,8 +468,8 @@ class Collector:
                     data = {"role": "owner", "body": web_sync.clip(row.get("display_content") or row.get("content")), "status": "done",
                             "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}
                     self.said(data, row, asked)
-                    self.put_images(data, row.get("images"))
-                    self.put_answers(data, answered, job, True)
+                    web_pairing.put_images(data, row.get("images"))
+                    web_pairing.put_answers(data, answered, job, True)
                     out.append((at, data, None))
                 continue
             key = job_key(job.get("message_id"), job.get("job_id")) if job is not None else ""
@@ -591,7 +481,7 @@ class Collector:
                 shown.add(key)
             data = {"role": "agent", "body": web_sync.clip(row.get("content")), "status": "done", "job_id": "", "started_at": at,
                     "ended_at": at, "artifacts": []}
-            self.put_answers(data, answered, job, False)
+            web_pairing.put_answers(data, answered, job, False)
             out.append((at, data, job))
         for key, started in wakes.items():  # What a wake-up turn nobody sees started.
             if key in shown or key in running or not started:
@@ -627,28 +517,6 @@ class Collector:
                 found.append((float(row.get("at") or 0), words))
         return found
 
-    def lead_starts(self, state, topic, project, records) -> dict:
-        """{job key of a lead's turn: [the member topics that turn started]}: a member belongs to the latest turn of the lead that began
-        before the member's first task came in."""
-        turns = sorted((board_read.started_at(record), job_key(record.get("message_id"), record.get("job_id")))
-                       for record in records if not board_read.unrun(record))
-        out = {}
-        for member in project.get("threads") or ():
-            if not isinstance(member, str):
-                continue
-            jobs = [record for record in topic_job_records(state, member) if not board_read.unrun(record)]
-            if not jobs:
-                continue
-            first = min(jobs, key=board_read.job_number)
-            came = moment(first.get("created_at")) or board_read.started_at(first)
-            owner = [key for began, key in turns if began <= came + 2]
-            if not owner:
-                continue
-            label, title = board_read.topic_label(state, member)
-            out.setdefault(owner[-1], []).append({"key": member, "number": int(label[1:]) if label[1:].isdigit() else 0, "title": title,
-                                                  "harness": str(read_object(topic_file(state, member)).get("harness_id") or "")})
-        return out
-
     # -- a running turn -----------------------------------------------------------------------------------------------------
 
     def count_unpaired(self, topic, entries) -> None:
@@ -660,26 +528,6 @@ class Collector:
             self.unpaired[topic] = missing
             if self.log is not None:
                 self.log(f"web sync topic {topic[:12]}: {missing} of {len(answers)} answer turns have no task record")
-
-    @staticmethod
-    def retried(records, entries) -> dict:
-        """{id(the job of an answer turn): [the tasks before it that it retried and no answer line took]}: a task the bridge's restart
-        interrupted (or that failed with no line) and that an automatic retry (its record's ``retry_of``, app/auto_retry.py) went on
-        with is part of the turn the retry answers. 2026-11-18 T488: task 4598 spent 137M tokens, was interrupted, and 4624 answered."""
-        taken = {id(job) for _, data, job in entries if job is not None and data.get("role") == "agent"}
-        by_message = {str(record.get("message_id")): record for record in records if record.get("message_id")}
-        out = {}
-        for _, data, job in entries:
-            if job is None or data.get("role") != "agent":
-                continue
-            chain, seen, before = [], {id(job)}, by_message.get(str(job.get("retry_of") or ""))
-            while before is not None and id(before) not in seen and id(before) not in taken and not board_read.unrun(before):
-                chain.append(before)
-                seen.add(id(before))
-                before = by_message.get(str(before.get("retry_of") or ""))
-            if chain:
-                out[id(job)] = chain
-        return out
 
     def fold_usage(self, state, turn, before) -> None:
         """``turn``'s ``usage`` takes the tokens of the tasks ``before`` it (``retried``): what its answer cost in all."""
@@ -725,35 +573,12 @@ class Collector:
                 "status": "waiting" if job.get("status") == "waiting_user" else "running", "job_id": str(job.get("job_id") or ""),
                 "started_at": board_read.started_at(job), "ended_at": 0, "artifacts": []}
         turn.update(web_turns.extras(state, job, job.get("status") in RUNNING, now or time.time(), snapshot))
-        self.put_images(turn, self.images.shown(job, topic, turn["started_at"], now or time.time()) if self.images else [])
+        web_pairing.put_images(turn, self.images.shown(job, topic, turn["started_at"], now or time.time()) if self.images else [])
         estimate_of(job, turn)
         started = (wakes or {}).get(job_key(job.get("message_id"), job.get("job_id")))
         if started:
             turn["started_topics"] = started
         return turn
-
-    @staticmethod
-    def question(row, topic, count, project="", number=0, records=(), rows=()):
-        status = row.get("status", "pending")
-        if status == "pending" and row.get("display_pending"):
-            return None  # Held for a project's lead: not the owner's yet.
-        shown = []
-        for index, each in enumerate(q for q in row.get("questions") or () if isinstance(q, dict)):
-            shown.append({"id": str(each.get("id") or index), "header": str(each.get("header") or ""), "question": str(each.get("question") or ""),
-                          "options": [{"label": str(o.get("label") or ""), "description": str(o.get("description") or "")}
-                                      for o in each.get("options") or () if isinstance(o, dict)],
-                          "multiple": bool(each.get("multiple"))})
-        answers = row.get("answers") if isinstance(row.get("answers"), dict) else {}
-        said = web_images.scrub("；".join("、".join(str(a) for a in (value.get("answers") if isinstance(value, dict) else [value]) or ())
-                                          for value in answers.values()))
-        state = QUESTION_STATES.get(status, "answered")
-        if state == "open" and triage.held(row):
-            state = "held"  # The lead has it first (COVEY_PROJECT_TRIAGE): not the owner's to answer, so not 等你 on the page.
-        closed_at, closed_by = closed(row, state, records, rows)
-        return {"topic_key": topic, "turn_key": f"{topic}:{count + 1}" if status == "pending" else "", "questions": shown,
-                "state": state, "answer": said, "asked_at": moment(row.get("created_at")),
-                "answered_at": closed_at if state == "answered" else None, "closed_at": closed_at, "closed_by": closed_by,
-                "project_key": project, "topic_number": number}
 
     # -- projects -------------------------------------------------------------------------------------------------------
 
@@ -772,7 +597,7 @@ class Collector:
             out.append(web_sync.item("project", pid, {
                 "title": str(record.get("name") or ""), "goal": project_lead.lead_goal(record), "status": word, "status_reason": why,
                 "lead_topic_key": lead, "topic_keys": members, "memory": memory, "library": library,
-                "started_at": moment(record.get("created_at")), "updated_at": moment(record.get("updated_at"))}))
+                "started_at": web_pairing.moment(record.get("created_at")), "updated_at": web_pairing.moment(record.get("updated_at"))}))
         return out
 
     @staticmethod
@@ -837,49 +662,3 @@ def board_groups(rows, dismissed) -> dict:
             out[topic] = look.record_tone(record, seen=row.get("seen") is not None)
     return out
 
-
-def closed(row, state, records=(), rows=()) -> tuple:
-    """(closed_at, closed_by) of a question record whose web ``state`` is ``state`` (data contract v9): when it stopped waiting
-    (epoch seconds, None when not known) and how. ``closed_by``: owner (answered), feedback (只发补充说明 or feedback on the
-    questions), skipped (每题都选了不回答), lead (the project's lead answered it, COVEY_PROJECT_TRIAGE), superseded (a later
-    question of the topic folded it), stale (daily maintenance closed it), switched, rewound, lead_stop, web_stop or cancelled;
-    "" while it is open or held. The time is the record's own (core/store.py SETTLED_STAMPS); a record from before it has none,
-    so: an answer's follow-up task (``answer-<token>``) was created then, the lead's triage move, the newer question that folded
-    it, the asking task's last write when it was cancelled with it."""
-    if state not in ("answered", "cancelled"):
-        return None, ""
-    found = triage.of(row)
-    if state == "answered":
-        if found.get("state") == triage.ANSWERED:
-            how = "lead"
-        elif row.get("response_kind") == "feedback":
-            how = "feedback"
-        else:
-            how = "skipped" if all(each["choice"] == NOT_ANSWERED for each in answer_rows(row) or [{"choice": ""}]) else "owner"
-        follow = next((record for record in records if record.get("message_id") == "answer-" + str(row.get("token") or "")), None)
-        at = (moment(row.get("answered_at")) or moment((follow or {}).get("created_at"))
-              or (moment(found.get("at")) if how == "lead" else 0.0))
-        return at or None, how
-    if row.get("status") == "superseded":
-        newer = next((other for other in rows if other.get("token") and other.get("token") == row.get("superseded_by")), None)
-        return (moment(row.get("cancelled_at")) or moment((newer or {}).get("created_at"))) or None, "superseded"
-    asked = next((record for record in records if record.get("job_id") == row.get("job_id")), None)
-    at = moment(row.get("cancelled_at")) or (moment((asked or {}).get("updated_at")) if asked else 0.0)
-    reason = str(row.get("cancel_reason") or "")
-    return at or None, reason if reason in CANCEL_REASONS else "cancelled"
-
-
-def answer_rows(record) -> list:
-    """[{question, choice}] of a question record's saved answers, in its questions' order: the options chosen or the words
-    written, several joined with "、"; NOT_ANSWERED for a question skipped or one the owner gave feedback on instead."""
-    answers = record.get("answers") if isinstance(record.get("answers"), dict) else {}
-    feedback = record.get("response_kind") == "feedback"
-    out = []
-    for index, question in enumerate(q for q in record.get("questions") or () if isinstance(q, dict)):
-        given = answers.get(question.get("id"), answers.get(str(index)))
-        given = given.get("answers") if isinstance(given, dict) else given
-        parts = [str(part) for part in (given if isinstance(given, list) else [given] if given else []) if str(part).strip()]
-        parts = [part for part in parts if part != SKIPPED]
-        out.append({"question": str(question.get("question") or question.get("header") or "")[:500],
-                    "choice": NOT_ANSWERED if feedback or not parts else web_images.scrub("、".join(parts))[:500]})
-    return out

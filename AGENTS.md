@@ -221,6 +221,7 @@
 | `app/web_images.py` | The images of a turn on the web page |
 | `app/web_launch.py` | 网页开新话题 (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/web_ops.py` | 网页上发来的操作怎么执行: `Ops.run` does one operation of the page's outbox as the owner's own and says (state, message) … |
+| `app/web_pairing.py` | 网页工作台同步里不碰 Collector 缓存的那部分 |
 | `app/web_panels.py` | 网页设置页的设备和代答两页 (docs/butler.md 网页工作台, COVEY_WEB=1 |
 | `app/web_push_client.py` | 网页工作台同步的客户端: the page's /openapi over HTTP (`Client`, `WebError`) and the thread a push step runs in, left … |
 | `app/web_said.py` | Who said a topic's owner line and the words the web page shows for it |
