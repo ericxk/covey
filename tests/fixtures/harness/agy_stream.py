@@ -12,7 +12,20 @@ if args[:1] == ["models"]:
     sys.exit(0)
 record = {"argv": args, "stdin": sys.stdin.read(), "cwd": os.getcwd()}
 json.dump(record, open(os.environ["FAKE_AGY_RECORD"], "w"))
+with open(os.environ["FAKE_AGY_RECORD"] + ".all", "a") as runs:  # Every process of the turn, in order.
+    runs.write(json.dumps(record) + "\n")
 scenario = os.environ.get("FAKE_AGY_SCENARIO", "ok")
+if scenario == "steer" and "--conversation" in args:
+    scenario = "ok"  # The process after the supplement: the turn goes on and ends.
+if scenario == "steer":
+    import signal
+
+    def interrupted(*_):
+        # agy 1.5.13 on SIGINT (2026-11-20): an ERROR result "interrupted", exit 1; the command it ran stays behind.
+        print("error: interrupted", file=sys.stderr)
+        result("ERROR", error="interrupted")
+        os._exit(1)
+    signal.signal(signal.SIGINT, interrupted)
 SID = "055a398f-db14-4c5f-abbb-1bf03f8120a7"
 sid = args[args.index("--conversation") + 1] if "--conversation" in args else SID
 text = os.environ.get("FAKE_AGY_TEXT", "完成")
@@ -52,9 +65,16 @@ step(1, "ACTIVE", "agent_response", text_delta="先看一下")
 step(1, "ACTIVE", "agent_response", text_delta="目录")
 step(1, "DONE", "agent_response", duration_seconds=4.0, usage={
     "input_tokens": 13187, "output_tokens": 91, "thinking_tokens": 40, "cache_read_tokens": 0, "total_tokens": 13278})
+if scenario == "steer":
+    import subprocess
+    # The command the tool step runs, in a session of its own and holding the output open: the stop ends it.
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    open(os.environ["FAKE_AGY_RECORD"] + ".child", "w").write(str(child.pid))
 step(2, "ACTIVE", "tool", tool_name="run_command", tool_info={"name": "run_command", "parameters": {
     "CommandLine": "ls", "Cwd": "/x"}})
 if scenario == "slow":
+    time.sleep(30)
+if scenario == "steer":
     time.sleep(30)
 step(2, "DONE", "tool", tool_name="run_command", duration_seconds=0.07, tool_info={
     "name": "run_command", "parameters": {"CommandLine": "ls"}, "output": "PRIVATE_OUTPUT\r\n"})

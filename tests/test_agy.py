@@ -14,6 +14,7 @@ from support import FIXTURES
 from covey.app.unified import UnifiedBridgeApp
 from covey.backends.agy.bridge import (AntigravityEventAdapter, NOT_LOGGED_IN, models_from_listing, tool_inputs)
 from covey.core.harness import RunCallbacks, RunInputs, RunRequest
+from covey.core.steer import SteerNotReady, SteerRefused
 
 RUN = "33333333-3333-4333-8333-333333333333"
 SID = "055a398f-db14-4c5f-abbb-1bf03f8120a7"
@@ -45,8 +46,9 @@ class AntigravityTests(unittest.TestCase):
             verified_reply=replies.append), inputs=RunInputs(cancel or threading.Event(), run_id=RUN)))
         path = self.root / "record.json"
         record = json.loads(path.read_text()) if path.exists() else {}
-        if path.exists():
-            path.unlink()
+        for leftover in (path, path.with_name("record.json.all")):
+            if leftover.exists():
+                leftover.unlink()
         return result, events, [r for r in replies if r is not None], sessions, record
 
     def test_completed_turn_is_verified_and_its_events_are_public_only(self):
@@ -119,6 +121,55 @@ class AntigravityTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 20)
         self.assertEqual(result.outcome.status, "cancelled")
         self.assertFalse(result.outcome.resume_allowed)
+
+    def test_a_supplement_stops_the_turn_and_the_conversation_goes_on_with_it(self):
+        os.environ["FAKE_AGY_SCENARIO"] = "steer"
+        events, replies, controls, tools = [], [], [], threading.Event()
+
+        def event(kind, data, control):
+            events.append((kind, data))
+            if kind == "tool" and data.get("status") == "running":
+                tools.set()
+        done = {}
+        request = RunRequest(self.ctx, "做个任务", callbacks=RunCallbacks(
+            event=event, control=controls.append, verified_reply=replies.append),
+            inputs=RunInputs(threading.Event(), run_id=RUN))
+        worker = threading.Thread(target=lambda: done.update(result=self.backend.run(request)))
+        worker.start()
+        self.assertTrue(tools.wait(20))
+        control = controls[0]
+        control.steer("改成 B", "ev-1")
+        worker.join(30)
+        result = done["result"]
+        self.assertFalse(result.is_error, result.text)
+        self.assertEqual((result.text, result.session_id), ("完成", SID))
+        runs = [json.loads(line) for line in (self.root / "record.json.all").read_text().splitlines()]
+        self.assertEqual(len(runs), 2)
+        self.assertNotIn("--conversation", runs[0]["argv"])
+        self.assertEqual(runs[1]["argv"][runs[1]["argv"].index("--conversation") + 1], SID)
+        message = json.loads(runs[1]["stdin"])["message"]["content"]
+        self.assertTrue(message.startswith("用户补充（你刚才的执行被这条补充打断了") and message.endswith("改成 B"), message)
+        self.assertIn(("steer_read", {"event_id": "ev-1"}), events)
+        steps = {}
+        for kind, data in events:
+            if kind == "tool":
+                steps[data["id"]] = data["status"]
+        # The stopped command ends failed; the next process's steps have keys of their own.
+        self.assertEqual(steps, {"step-2": "failed", "step-1-2": "done"})
+        self.assertEqual([k for k, _d in events].count("trace_finished"), 1)
+        child = int((self.root / "record.json.child").read_text())
+        self.assertFalse(Path(f"/proc/{child}").exists() and "python" in Path(f"/proc/{child}/cmdline").read_text())
+        self.assertIsNone(controls[-1])  # The controls are dropped when the turn ends.
+        with self.assertRaises(SteerRefused):
+            control.steer("太晚了", "ev-2")
+
+    def test_a_supplement_before_agy_said_its_conversation_waits(self):
+        from covey.backends.agy.bridge import AgyControl
+        control = AgyControl(lambda *a: None)
+        with self.assertRaises(SteerNotReady):
+            control.steer("x", "ev")
+        with self.assertRaises(SteerRefused):
+            control.steer("  ", "ev")
 
     def test_an_unknown_budget_never_starts_agy(self):
         with self.assertRaises(ValueError):

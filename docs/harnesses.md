@@ -24,7 +24,7 @@ Harness 是执行任务的 Agent 程序，核心带五个：Codex、Claude Code�
 | `claude`（Claude） | 每轮一个双向 `claude -p`（stream-json） | 根任务单选、多选、自由文本 | 支持，可到“模型已读取” | 支持 | `--resume --fork-session` | `$CLAUDE_CONFIG_DIR/projects/<目录编码>`，默认 `~/.claude/projects/…` |
 | `dsh`（DeepSeek Harness） | 每轮一次 `dsh --profile headless --json` | 无，经检查点提问 | 无 | 无 | 不支持 | `$DSH_HOME/sessions`，默认 `~/.dsh/sessions` |
 | `pi`（Pi） | 每轮一个 `pi --mode rpc` | 无，经检查点提问 | 支持，可到“模型已读取” | 支持 | `--fork <会话文件>` | `<状态目录>/pi-sessions/<时间>_<会话 ID>.jsonl` |
-| `agy`（Antigravity） | 每轮一个 `agy` headless（stream-json 进出） | 无，经检查点提问 | 无 | 无 | 不支持 | `~/.gemini/antigravity-cli/conversations` |
+| `agy`（Antigravity） | 每轮一个 `agy` headless（stream-json 进出），补充时换一个续接的进程 | 无，经检查点提问 | 支持：停下当前一步、带着补充续接，可到“模型已读取” | 无（给路径，它用自己的 read_file 看图） | 不支持 | `~/.gemini/antigravity-cli/conversations` |
 
 - **原生问答**：Claude 的问题在原任务里等回答；Codex 必须回答的问题先结束本轮，回答排成续接任务。所有 Harness 都能经检查点提问（[回答模型的问题](usage.md#回答模型的问题)）。
 - **原生图片**：不支持时只给本地路径。Claude、Pi 单张超过 5 MiB，或 Claude 合计超出 8 MiB 帧时，放不下的只给路径（`app/runs.py` 的 `_fit_images`）。
@@ -209,7 +209,8 @@ Antigravity 是 Google 的 Agent 开发平台，这里用它的命令行 `agy`�
 - **事件**：文字增量是“正文”和工具调用前的进展说明，工具步骤按名字显示（`run_command` 是执行命令，`view_file` 是读取文件……）；工具的输出、思考不上卡片。用量取每个 `agent_response` 步骤结束时的 `usage`（一次模型请求一份，`input_tokens` 不含缓存读取，`output_tokens` 含思考），生成时间取它的 `duration_seconds`；没有步骤用量时才用 `result.usage`。
 - **模型和档位**：启动卡的预算就是 agy 的 `--effort`；模型目录（Bridge 保存的 `launch-models/agy.json`）说某模型没有这个档位时不启动，没有档位的模型不传 `--effort`（agy 会拒绝）。
 - **失败**：`result.error` 像登录失败的记 `authentication_error`、像额度用完的记 `quota_exhausted`、像 429 的记 `rate_limited`，其余 `root_failed`；没出 `init` 就退出而 stderr 要求登录的也记 `authentication_error`。agy 的原文不上卡片，stderr 的最后几行（去掉登录链接、隐藏凭据）只进 `bridge.log`。
-- **限制**：没有原生问答、执行中补充、原生图片（stdin 只收文字，图片只给路径）、原生分叉、脱敏、回退一步、下载请求与结果；不能在设备上跑。
+- **补充**：agy 运行中不收新消息（stdin 再写一条只会排成下一轮），所以补充是“停下再接着做”（`AgyControl`）：收下补充即“后端已接收”，给 agy 发 SIGINT，它立刻以 `result.error` 为 `interrupted` 结束，会话里保留已做的部分；它还在跑的命令（停之前和停的过程中它下面的进程，按进程身份核对）先 TERM、5 秒后 KILL；然后同一会话起新进程（`--conversation`），消息是补充（前面说明“刚才的执行被打断了，已经做完的仍然有效”），这时算“模型已读取”。被停的那一步在执行过程里记失败；停的过程中又来的补充并进同一条；还没出 `init` 时补充等它准备好；本轮的正文是最后一个进程的回答。和 Claude 不同，正在执行的那一步会被打断，不是等它做完再读。
+- **限制**：没有原生问答、原生图片（stdin 只收文字，图片只给路径，它会用自带的 `read_file` 打开）、原生分叉（管家分叉时改用对话记录）、脱敏、回退一步、下载请求与结果；不能在设备上跑。
 
 ## 模型网关（Codex、Pi 与 dsh）
 

@@ -6,7 +6,14 @@ in as one ``user`` line on stdin, which is then closed, so agy ends after that t
 ``result`` with the turn's answer and status. ``--conversation <id>`` continues the topic's conversation.
 agy signs in with the Google account it was logged in with on this machine (``agy`` once, interactively);
 the Bridge never sees the token. It has no question a headless run can answer, so a task asks through
-the checkpoint file like dsh and Pi; stdin takes text only, so images are given by their path.
+the checkpoint file like dsh and Pi; stdin takes text only, so images are given by their path (agy opens
+them with its own read_file).
+
+agy takes nothing into a running turn (another ``user`` line is a turn of its own, after this one), so a
+supplement stops the turn and goes on with it: SIGINT ends agy at once with ``result.error`` "interrupted"
+(its conversation keeps what was done; seen 2026-11-20 on 1.5.13), the commands it left running are stopped,
+and the same conversation goes on in a new process with the supplement as its message (AgyControl). The
+job's reply is the last process's answer.
 """
 from __future__ import annotations
 
@@ -14,17 +21,22 @@ import dataclasses
 import json
 from pathlib import Path
 import re
+import os
 import shlex
+import signal
 import subprocess
+import threading
 import time
 
 from covey.core.harness import (BackendConfig, BackendRuntime, HARNESS_REGISTRY, HarnessCapabilities, HarnessSpec,
                                 JobCancelled, UUID_RE)
 from covey.core import env as cenv
-from covey.core.process import stop_group, stream_subprocess_lines
+from covey.core import procfs
+from covey.core.process import is_owned, process_identity, stop_group, stream_subprocess_lines
 from covey.core.process_env import child_process_env
 from covey.core.reply_state import ReplyState
 from covey.core.result import MAX_REPLY_BYTES
+from covey.core.steer import SteerRefused, refuse_steer, steer_text
 from covey.core.steps import AnswerNotes, Steps
 from covey.core.text import redact, tool_detail
 from covey.core.usage import TurnTokens
@@ -63,7 +75,7 @@ class AntigravitySessionStore:
 
 
 # agy's tools by the step names the cards know (core/protocol.py STEP_TITLES); any other shows as it is.
-TOOL_NAMES = {"run_command": "bash", "view_file": "read", "view_file_outline": "read", "view_code_item": "read",
+TOOL_NAMES = {"run_command": "bash", "view_file": "read", "read_file": "read", "view_file_outline": "read", "view_code_item": "read",
               "write_to_file": "write", "replace_file_content": "edit", "multi_replace_file_content": "edit",
               "grep_search": "grep", "find_by_name": "glob", "list_dir": "glob", "read_url_content": "webfetch",
               "search_web": "websearch", "invoke_subagent": "agent"}
@@ -104,7 +116,8 @@ class AntigravityEventAdapter:
         self.emit = emit
         self.steps = Steps(emit)
         self.notes = AnswerNotes(emit)
-        self.texts = {}  # step_index -> the text streamed so far
+        self.texts = {}  # step key -> the text streamed so far
+        self.segment = 0  # Which agy process of the turn (a supplement starts the next one).
         self.tokens = TurnTokens()
         self.counted = False  # Whether a model request's usage was added.
         self.first_output = False
@@ -122,16 +135,16 @@ class AntigravityEventAdapter:
         if row.get("event") != "step_update" or not isinstance(step, dict):
             return
         kind, index = step.get("step_type"), step.get("step_index")
-        key = f"step-{index}"
+        key = f"step-{index}" if not self.segment else f"step-{self.segment}-{index}"
         if kind == "agent_response":
             delta = step.get("text_delta")
             if isinstance(delta, str) and delta:
                 if not self.first_output:
                     self.first_output = True
                     self.emit("model_output", {"received_at": now})
-                self.texts[index] = self.texts.get(index, "") + delta
-                if self.texts[index].strip():
-                    self.notes.text(key, self.texts[index])
+                self.texts[key] = self.texts.get(key, "") + delta
+                if self.texts[key].strip():
+                    self.notes.text(key, self.texts[key])
             if step.get("state") == "DONE":
                 # One model request: its usage and the time it took (thinking and text, no tool).
                 seconds = step.get("duration_seconds")
@@ -145,6 +158,14 @@ class AntigravityEventAdapter:
                                  tool_detail(tool_inputs(info.get("parameters")), DETAIL_KEYS)[:500], now)
             if step.get("state") == "DONE":
                 self.steps.finish(key, not info.get("error"), now)
+
+    def stopped(self, now):
+        """The process was stopped for a supplement: its steps still running end failed (their command was
+        stopped), what it wrote becomes a note, and the next process's steps get keys of their own."""
+        for key in self.steps.running():
+            self.steps.finish(key, False, now)
+        self.notes.to_notes(now)
+        self.segment += 1
 
     def add_usage(self, usage, seconds=None):
         counts = usage_counts(usage)
@@ -198,7 +219,7 @@ class AntigravityBackend(BackendRuntime):
                              args.skip_permissions, {"harness_id": "agy"})
 
     def capabilities(self, ctx):
-        return HarnessCapabilities()
+        return HarnessCapabilities(steering=True, steer_reads=True)
 
     def environment(self, ctx):
         return child_process_env(ctx.workdir)
@@ -279,14 +300,17 @@ class AntigravityBackend(BackendRuntime):
 class StreamRows:
     """What one run printed, fed line by line by the shared reader."""
 
-    def __init__(self, request, adapter, expected_session):
+    def __init__(self, request, adapter, expected_session, control=None, *, resumed=False):
         self.request, self.adapter, self.expected_session = request, adapter, expected_session
+        self.control, self.resumed = control, resumed
         self.sid = self.result = None
         self.invalid = False
         self.process = None
 
     def observe(self, p):
         self.process = p
+        if self.control is not None:
+            self.control.started(p)
         try:
             self.request.observers.process(p)
         except Exception:
@@ -311,10 +335,14 @@ class StreamRows:
                 self.invalid = True
                 return
             self.sid = value
-            try:
-                self.request.observers.session(value)
-            except Exception:
-                pass
+            if self.control is not None:
+                with self.control.lock:
+                    self.control.ready = not self.control.closing
+            if not self.resumed:  # A process after a supplement goes on with the conversation already reported.
+                try:
+                    self.request.observers.session(value)
+                except Exception:
+                    pass
             return
         if kind == "result":
             result = row.get("result")
@@ -380,19 +408,176 @@ def auth_failure(stderr):
     return bool(AUTH_RE.search(stderr or ""))
 
 
+RESUMED = ("用户补充（你刚才的执行被这条补充打断了，已经做完的仍然有效，停下来的命令没有跑完；"
+           "先看补充，再决定怎么接着做）：\n")
+STOP_SECONDS = 5  # How long the commands a stopped turn left running get to exit before they are killed.
+
+
+def descendants(root):
+    """The identities of this user's processes under ``root`` now (agy's commands and helpers)."""
+    parents = {}
+    for entry in os.scandir("/proc"):
+        if entry.name.isdigit():
+            row = procfs.stat(entry.name)
+            if row is not None:
+                parents[int(entry.name)] = row.ppid
+    found, frontier = [], [root]
+    while frontier:
+        parent = frontier.pop()
+        for pid, ppid in parents.items():
+            if ppid == parent:
+                identity = process_identity(pid)
+                if identity is not None:
+                    found.append(identity)
+                    frontier.append(pid)
+    return found
+
+
+def stop_left(identities):
+    """Stop the processes of ``identities`` still alive, each checked against its identity first (never a
+    recycled PID): TERM, STOP_SECONDS, then KILL."""
+    alive = [identity for identity in identities if is_owned(identity)]
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        for identity in alive:
+            if is_owned(identity):
+                try:
+                    os.kill(int(identity["pid"]), signum)
+                except OSError:
+                    pass
+        deadline = time.monotonic() + STOP_SECONDS
+        while signum == signal.SIGTERM and time.monotonic() < deadline and any(map(is_owned, alive)):
+            time.sleep(0.1)
+
+
+class AgyControl:
+    """The task's controls: a supplement stops the running agy (SIGINT) and is the next process's message.
+    Writes are never replayed (rule 6): an accepted supplement is held here until a process takes it."""
+    native_blocking_questions = False
+    supports_steer = True
+    awaiting_answer = False
+
+    def __init__(self, emit):
+        self.emit = emit
+        self.user_requests = set()
+        self.lock = threading.Lock()
+        self.process = None
+        self.ready = False  # The running process said its conversation (init).
+        self.closing = False
+        self.pending = []  # (text, event id), until a process takes them
+        self.reaper = None  # The thread that stops what a stopped process left running, once it has exited.
+        self.stopping = False
+
+    def steer(self, text, event_id):
+        with self.lock:
+            refuse_steer(text, closing=self.closing, ready=self.ready or self.stopping, label="Antigravity")
+            self.pending.append((steer_text(text), event_id))
+            if self.stopping:
+                return  # Already stopping for an earlier one: both go on together.
+            process = self.process
+            if process is None or process.poll() is not None:
+                return  # Between two processes: the next one takes it.
+            self.stopping = True
+            left = descendants(process.pid)
+            try:
+                os.kill(process.pid, signal.SIGINT)
+            except OSError:
+                pass
+            # Once agy has exited: a command it left may hold its output open, so this cannot wait for its end.
+            self.reaper = threading.Thread(target=self.reap, args=(process, left), daemon=True)
+            self.reaper.start()
+
+    @staticmethod
+    def reap(process, left):
+        """Until agy has exited, keep adding what runs under it (a command it was starting as it was stopped), then
+        stop what is left; one that will not exit in STOP_SECONDS * 6 is stopped with its group."""
+        seen = {identity["pid"]: identity for identity in left}
+        deadline = time.monotonic() + STOP_SECONDS * 6
+        while process.poll() is None and time.monotonic() < deadline:
+            seen.update((identity["pid"], identity) for identity in descendants(process.pid))
+            time.sleep(0.05)
+        if process.poll() is None:
+            stop_group(process, STOP_SECONDS)
+        stop_left(list(seen.values()))
+
+    def take(self):
+        """The held supplements as the next process's message and their event ids; ('', []) when none."""
+        with self.lock:
+            reaper, self.reaper = self.reaper, None
+        if reaper is not None:
+            reaper.join()
+        with self.lock:
+            pending, self.pending = self.pending, []
+            self.stopping, self.ready = False, False
+        if not pending:
+            return "", []
+        return RESUMED + "\n\n".join(text for text, _ in pending), [event_id for _, event_id in pending]
+
+    def started(self, process):
+        with self.lock:
+            self.process, self.ready = process, False
+
+    def answer(self, request_id, answers):
+        raise SteerRefused("Antigravity 没有原生问题")
+
+    def reject_question(self, request_id, reason):
+        raise SteerRefused("Antigravity 没有原生问题")
+
+    def wait_for_answer(self, question):
+        pass
+
+    def close(self):
+        with self.lock:
+            self.closing, self.ready = True, False
+            process = self.process
+        if process is not None and process.poll() is None:
+            stop_group(process, STOP_SECONDS)
+
+
+def resume_argv(argv, session_id):
+    """``argv`` resuming ``session_id``: its --conversation set to it."""
+    argv = list(argv)
+    if "--conversation" in argv:
+        argv[argv.index("--conversation") + 1] = session_id
+        return argv
+    return [*argv, "--conversation", session_id]
+
+
+def user_line(text):
+    return json.dumps({"event": "user", "message": {"content": text}}, ensure_ascii=False) + "\n"
+
+
 def run_stream(request, argv, stdin, env):
+    """One job's turn: agy processes, the first with the prompt, each next one resuming the same conversation with
+    the supplements that stopped the one before (AgyControl)."""
     ctx, expected_session = request.context, request.session_id
     state = ReplyState(ctx.options, request.inputs.run_id, request.publish)
     adapter = AntigravityEventAdapter(lambda kind, data: request.emit(kind, data, None))
-    rows = StreamRows(request, adapter, expected_session)
+    control = AgyControl(lambda kind, data: request.emit(kind, data, control))
     cancel_event = request.inputs.cancel_event
+    deadline = time.monotonic() + ctx.timeout if ctx.timeout > 0 else None
+    rows = StreamRows(request, adapter, expected_session, control)
     rc, stderr, forced_cleanup = None, "", False
     status, code, text = "failed", "root_incomplete", ""
     try:
+        request.observers.control(control)
+    except Exception:
+        pass
+    try:
         state.invalidate()
-        rc, stderr = stream_subprocess_lines(argv, stdin_text=stdin, timeout=ctx.timeout, on_line=rows.on_line,
-                                             env=env, cwd=str(ctx.workdir), cancel_event=cancel_event,
-                                             process_observer=rows.observe)
+        while True:
+            left = 0 if deadline is None else max(1, int(deadline - time.monotonic()))
+            rc, stderr = stream_subprocess_lines(argv, stdin_text=stdin, timeout=left, on_line=rows.on_line,
+                                                 env=env, cwd=str(ctx.workdir), cancel_event=cancel_event,
+                                                 process_observer=rows.observe)
+            message, event_ids = control.take()
+            if not message or cancel_event.is_set() or rows.sid is None or rows.invalid or control.closing:
+                break
+            # Stopped for a supplement (or one came as it ended): the same conversation goes on with it.
+            argv, stdin = resume_argv(argv, rows.sid), user_line(message)
+            rows = StreamRows(request, adapter, rows.sid, control, resumed=True)
+            adapter.stopped(time.time())
+            for event_id in event_ids:
+                control.emit("steer_read", {"event_id": event_id})
         status, code = stream_outcome(rows, rc, cancel_event)
         if code in ("process_exit", "root_incomplete") and rows.sid is None and auth_failure(stderr):
             code = "authentication_error"
@@ -412,11 +597,17 @@ def run_stream(request, argv, stdin, env):
     except Exception:
         code = "storage_failed" if state.storage_failed else "protocol_error"
     finally:
+        with control.lock:
+            control.closing, control.ready = True, False
         # Only an exceptional exit leaves the process unreaped; signal its private group.
         process = rows.process
         if process is not None and process.poll() is None:
             forced_cleanup = True
             stop_group(process, 5)
+        try:
+            request.observers.control(None)
+        except Exception:
+            pass
     if status != "completed":
         try:
             request.emit("backend_failure", {"status": status, "code": code, "stage": "turn",
