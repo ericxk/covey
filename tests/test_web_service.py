@@ -3,6 +3,7 @@ one runs, no send, login or status any more, the acceptance page parked on close
 and the client's contract (not asked, asked, no last line). Pages are stand-ins; the socket is a real one in a
 temporary folder, never the live state's."""
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -74,7 +75,7 @@ class ServiceCase(unittest.TestCase):
         self.accept_page = Page()
         self.clock = Clock()
         self.service = web_service.Service(self.home, context(self.accept_page), idle=1800,
-                                           chats=("C队 验收测试", "C队 代答"), clock=self.clock)
+                                           chats=("验收测试群", "代答测试群"), clock=self.clock)
         self.service.running = None
         patcher = mock.patch.object(self.service, "log")
         patcher.start()
@@ -129,7 +130,7 @@ class IdleTest(ServiceCase):
 
 class ParkTest(ServiceCase):
     def test_a_parked_tab_is_kept_while_it_shows_the_list_and_no_chat_else_it_goes_blank(self):
-        with mock.patch.object(web_client, "header", return_value="C队 验收测试"):
+        with mock.patch.object(web_client, "header", return_value="验收测试群"):
             self.run_job({"cmd": "accept_text"})
         self.run_job({"cmd": "accept_close"})
         tab = self.assert_parked("accept", self.accept_page)
@@ -169,12 +170,12 @@ class ParkTest(ServiceCase):
         self.assertEqual((tab.did[-1], self.service.ping()["parked"]), (("goto", web_service.PARK), {"accept": "blank"}))
 
     def test_an_open_finds_the_parked_list_there(self):
-        with mock.patch.object(web_client, "header", return_value="C队 验收测试"):
+        with mock.patch.object(web_client, "header", return_value="验收测试群"):
             self.run_job({"cmd": "accept_text"})
         self.run_job({"cmd": "accept_close"})
         tab = self.service.pages["accept"]
         with mock.patch.object(web_client, "open_messenger", side_effect=RuntimeError("stop")) as messenger:
-            self.run_job({"cmd": "accept_open", "title": "C队 验收测试"})
+            self.run_job({"cmd": "accept_open", "title": "验收测试群"})
         messenger.assert_called_once_with(tab, reuse=True)
         # Opened while the parked tab still loads: it waits for both loads, then gets the tab.
         self.assertEqual(tab.did, [("goto", web_client.MESSENGER)] * 2)
@@ -194,11 +195,11 @@ class AcceptTest(ServiceCase):
                 self.assertIn("不在验收白名单", answer["error"])
                 cleared.assert_not_called()
         self.assertEqual(self.accept_page.did, [])
-        # In C队 验收测试: posted with the @, then Enter.
-        with mock.patch.object(web_client, "header", return_value="C队 验收测试"), mock.patch.object(web_client, "clear"):
-            [answer] = self.run_job({"cmd": "accept_post", "text": "看一下", "at": "C队"})
-        self.assertEqual((answer["ok"], answer["title"]), (True, "C队 验收测试"))
-        self.assertEqual(self.accept_page.did, [("type", "@"), ("type", "C队"), ("press", "Enter"), ("insert", "看一下"),
+        # In 验收测试群: posted with the @, then Enter.
+        with mock.patch.object(web_client, "header", return_value="验收测试群"), mock.patch.object(web_client, "clear"):
+            [answer] = self.run_job({"cmd": "accept_post", "text": "看一下", "at": "测试机器人"})
+        self.assertEqual((answer["ok"], answer["title"]), (True, "验收测试群"))
+        self.assertEqual(self.accept_page.did, [("type", "@"), ("type", "测试机器人"), ("press", "Enter"), ("insert", "看一下"),
                                                 ("press", "Enter")])
 
     def test_a_click_finds_a_card_in_the_thread_panel_when_the_messages_have_none(self):
@@ -214,7 +215,7 @@ class AcceptTest(ServiceCase):
                                              "x": 610, "y": 70, "width": 470, "height": 750})))
         page.get_by_text = lambda text, exact: SimpleNamespace(count=lambda: len(matches.get(text, [])),
                                                                nth=lambda i: matches[text][i])
-        with mock.patch.object(web_client, "header", return_value="C队 验收测试"):
+        with mock.patch.object(web_client, "header", return_value="验收测试群"):
             [answer] = self.run_job({"cmd": "accept_click", "text": "开始任务"})
             self.assertTrue(answer["ok"])
             newest.click.assert_called_once()
@@ -230,7 +231,7 @@ class AcceptTest(ServiceCase):
         page.viewport_size = {"width": 1440, "height": 900}
         box = {"x": 610, "y": 70, "width": 470, "height": 750}
         page.locator = lambda selector: SimpleNamespace(first=SimpleNamespace(bounding_box=lambda: box))
-        with mock.patch.object(web_client, "header", return_value="C队 验收测试"):
+        with mock.patch.object(web_client, "header", return_value="验收测试群"):
             [answer] = self.run_job({"cmd": "accept_scroll", "dy": -400})
             self.assertEqual((answer["ok"], answer["panel"]), (True, True))
             self.assertEqual(wheel, [("move", (1080 + 1440) / 2, 445), ("wheel", 0, -400)])
@@ -242,8 +243,8 @@ class AcceptTest(ServiceCase):
         self.assertTrue(answer["refused"])
 
     def test_text_is_the_open_chats_messages_newest_last_and_close_parks_the_page(self):
-        self.accept_page.messages = ["胥可\n@C队 看一下", "C队\n开始任务 · 模型、思考预算、工作区、运行方式"]
-        with mock.patch.object(web_client, "header", return_value="C队 验收测试"):
+        self.accept_page.messages = ["主人\n@测试机器人 看一下", "测试机器人\n开始任务 · 模型、思考预算、工作区、运行方式"]
+        with mock.patch.object(web_client, "header", return_value="验收测试群"):
             [answer] = self.run_job({"cmd": "accept_text", "max": 30})
         self.assertEqual(answer["messages"], self.accept_page.messages)
         self.assertEqual(answer["text"], "\n\n".join(self.accept_page.messages)[-30:])
@@ -257,10 +258,26 @@ class AcceptTest(ServiceCase):
             return check()
         with mock.patch.object(web_client, "open_messenger"), mock.patch.object(web_client, "openers", return_value=[]), \
              mock.patch.object(web_client, "find_chat", side_effect=find_chat), \
-             mock.patch.object(web_client, "header", return_value="C队 代答"):
-            [answer] = self.run_job({"cmd": "accept_open", "title": "C队 代答"})
-        self.assertEqual(answer["title"], "C队 代答")
+             mock.patch.object(web_client, "header", return_value="代答测试群"):
+            [answer] = self.run_job({"cmd": "accept_open", "title": "代答测试群"})
+        self.assertEqual(answer["title"], "代答测试群")
         self.assertEqual(sorted(answer["timing"]), ["chat_ms", "list_ms"])
+
+    def test_with_no_acceptance_chats_set_every_chat_is_refused(self):
+        """Nothing in COVEY_ACCEPT_CHATS: no chat is on the allowlist, and the refusal names the variable."""
+        with mock.patch.dict(os.environ, {"COVEY_ACCEPT_CHATS": "", "LARK_BRIDGE_ACCEPT_CHATS": ""}):
+            self.assertEqual(web_service.accept_chats(), ())
+            service = web_service.Service(self.home, context(Page()), idle=1800, clock=self.clock)
+        self.assertEqual(service.chats, ())
+        with mock.patch.object(web_client, "open_messenger") as messenger:
+            with self.assertRaises(web_service.Refused) as refused:
+                service.accept_open({"title": "验收测试群"}, lambda *_: None)
+        self.assertIn("COVEY_ACCEPT_CHATS", str(refused.exception))
+        messenger.assert_not_called()
+        with mock.patch.object(web_client, "header", return_value="验收测试群"):
+            self.assertRaises(web_service.Refused, service.guard, None)
+        with mock.patch.dict(os.environ, {"COVEY_ACCEPT_CHATS": "验收测试群, 代答测试群"}):
+            self.assertEqual(web_service.accept_chats(), ("验收测试群", "代答测试群"))
 
 
 class SocketTest(unittest.TestCase):

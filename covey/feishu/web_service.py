@@ -23,7 +23,7 @@ asked), reads what the chat shows, clicks a button by its text on the newest car
 task cards reply in a thread, the lowest one in the open thread panel right of the messages), fills an input,
 scrolls (the thread panel when one is open, else the messages: a tall card seen part by part), screenshots.
 Opening, posting, clicking, filling and scrolling first check that the open chat's title is one of ``accept_chats()``
-(ACCEPT_CHATS, or COVEY_ACCEPT_CHATS comma-separated), else refuse.
+(COVEY_ACCEPT_CHATS, comma-separated chat titles), else refuse; with none set, every one of them is refused.
 
 A second ``serve`` on the same DIR finds the lock DIR/service.lock held and ends. ``code_version`` is a hash of
 the sources the service runs. Standard library and Playwright (through web_client) only.
@@ -57,7 +57,7 @@ STUCK_SECONDS = 30  # A parked tab's chat list shows in 4-25 s a load (2026-10-2
 WARM_SECONDS = 60  # How long a command waits for a parked tab still loading.
 PARKED = f"""() => [document.querySelectorAll('[data-feed-id]').length > 0,
   !!document.querySelector('{web_client.CHAT_NAME}')]"""  # [the chat list shown, a chat open]
-ACCEPT_CHATS = ("C队 验收测试", "C队 代答")
+ACCEPT_CHATS = ()  # The deployment names its acceptance chats in COVEY_ACCEPT_CHATS; none here.
 MENTION_MS = 1500  # Acceptance @: how long the mention list may take to show the name typed.
 LIST = ".messageList .list_items"  # The open chat's messages (the feed list and the filters are .list_items too).
 ROWS = LIST + " > *"
@@ -371,13 +371,19 @@ class Service:
         """The open chat's title when it is on the allowlist; else Refused."""
         title = web_client.header(page)
         if title not in self.chats:
-            raise Refused(f"打开的会话「{title or '没有打开会话'}」不在验收白名单（{'、'.join(self.chats)}）里，不操作")
+            raise self.outside(f"打开的会话「{title or '没有打开会话'}」", "操作")
         return title
+
+    def outside(self, what, verb):
+        """The Refused for a chat off the allowlist, or for any chat while COVEY_ACCEPT_CHATS names none."""
+        if not self.chats:
+            return Refused(f"没有设置验收白名单（COVEY_ACCEPT_CHATS），{what}不{verb}")
+        return Refused(f"{what}不在验收白名单（{'、'.join(self.chats)}）里，不{verb}")
 
     def accept_open(self, request, say):
         title = str(request.get("title") or "")
         if title not in self.chats:
-            raise Refused(f"「{title}」不在验收白名单（{'、'.join(self.chats)}）里，不打开")
+            raise self.outside(f"「{title}」", "打开")
         started = time.time()
         self.ready("accept")
         page = self.page("accept")

@@ -10,6 +10,10 @@ Four kinds of text are checked against the retired words (``RETIRED``):
     inline is covered too. ``ALLOWED`` lists the few literals that have to keep an old word, each with the reason.
 
 Comments and docstrings are not checked: the code keeps its English names until the second batch of the rename.
+
+``PublicDocsTest`` reads what a new user reads (README, CONTRIBUTING and docs/ outside docs/history/) for what only the
+owner's own work left there: topic numbers of real topics (examples use one or two digits, T12) and dates of how a rule
+came about (git log keeps those). Internal names are scripts/privacy_check.py's, with the deployment's word list.
 """
 from __future__ import annotations
 
@@ -83,6 +87,56 @@ def literals(path: Path):
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
             yield node.lineno, node.value
+
+
+# What a public doc does not say, outside fenced code blocks and inline code: (name, pattern, what to write instead).
+NOT_IN_DOCS = (
+    ("topic number", re.compile(r"\bT\d{3,}\b"), "an example number of one or two digits (T12), or no number"),
+    ("date", re.compile(r"\b20\d\d-[01]\d-[0-3]\d\b"), "the rule as it is now; how it came about is in git log"),
+    ("short date", re.compile(r"(?<![\w./:#-])(?:0?[1-9]|1[0-2])-[0-3]\d(?![\w:./%-])"),
+     "the rule as it is now (a range of numbers: write 10 到 20)"),
+)
+FENCE = re.compile(r"^\s*(```|~~~)")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+
+
+def public_docs():
+    """The Markdown a new user reads: the READMEs, CONTRIBUTING and docs/ (docs/history/ is the record, not read)."""
+    docs = [REPO / name for name in ("README.md", "README.en.md", "CONTRIBUTING.md")]
+    return [path for path in docs if path.exists()] + sorted((REPO / "docs").glob("*.md"))
+
+
+def prose(text):
+    """(line, text) of a Markdown file outside fenced code blocks, with inline code taken out."""
+    fenced = False
+    for number, line in enumerate(text.splitlines(), 1):
+        if FENCE.match(line):
+            fenced = not fenced
+        elif not fenced:
+            yield number, INLINE_CODE.sub("", line)
+
+
+class PublicDocsTest(unittest.TestCase):
+    def test_the_patterns_match_what_they_are_for(self):
+        def names(text):
+            return [name for name, pattern, _ in NOT_IN_DOCS if pattern.search(text)]
+        self.assertEqual(names("（T574，主人 2026-11-20）"), ["topic number", "date"])
+        self.assertEqual(names("主人 11-19：文字太密"), ["short date"])
+        for clean in ("放到 T42「标题」里做", "数据约定 v17", "12:31 的问题", "第 3 轮", "#1084", "cli_a1-20", "3/5 步",
+                      "Python 3.9", "1.0.12", "75%-90%"):
+            self.assertEqual(names(clean), [], clean)
+        self.assertEqual(list(prose("a T574\n```\n[2026-10-26T19:31] log\n```\nb `T574` c")), [(1, "a T574"), (5, "b  c")])
+
+    def test_no_public_doc_carries_topic_numbers_or_dates_of_how_it_came_about(self):
+        found = []
+        for path in public_docs():
+            for number, line in prose(path.read_text(encoding="utf-8")):
+                for name, pattern, instead in NOT_IN_DOCS:
+                    for match in pattern.finditer(line):
+                        found.append(f"{path.relative_to(REPO)}:{number}: {name} {match.group()!r} "
+                                     f"in {line[max(0, match.start() - 20):match.end() + 20]!r}; write {instead}")
+        self.assertGreater(len(public_docs()), 10)
+        self.assertFalse(found, "\n".join(found))
 
 
 class RetiredWordsTest(unittest.TestCase):

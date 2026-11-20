@@ -138,7 +138,7 @@
 - Bridge 进程的环境是 Manager 自己的环境，加上清单里的变量，再加 `PYTHONDONTWRITEBYTECODE=1`、`COVEY_MANAGED=1` 和 `TMPDIR=<state>/tmp`。开机后 Manager 由开机守护拉起，不读交互 shell 的初始化文件，所以 `PATH`、代理和本项目的设置只能靠清单。`restart` 不会补上清单里缺的变量，要重新 `launch`。
 - 常用的变量：`COVEY_PROFILE`（Bridge 的 lark-cli profile，所有 Harness 共用）、`COVEY_OUTGOING_MEDIA_DIRS`（回复里本地 Markdown 图片额外查找的目录，用 `:` 分隔）。
 
-**不再读取的变量。** 下面这些以前给后端参数设默认值（扩展的 Harness 另有，见扩展的 README），2026-11-10 起不再读取，后端用字面默认值（`--help` 里的那个）。参数改写在 Codex 的服务命令行或其余 Harness 的 `harnesses.json`：
+**不再读取的变量。** 下面这些以前给后端参数设默认值（扩展的 Harness 另有，见扩展的 README），现在不再读取，后端用字面默认值（`--help` 里的那个）。参数改写在 Codex 的服务命令行或其余 Harness 的 `harnesses.json`：
 
 - Codex：`LARK_BRIDGE_CODEX_{MODEL,REASONING_EFFORT,SANDBOX,CMD}`、`LARK_BRIDGE_TIMEOUT` → 服务命令行 `--model`、`--reasoning-effort`、`--sandbox`、`--codex-cmd`、`--codex-timeout`；
 - Claude：`LARK_CLAUDE_BRIDGE_{MODEL,EFFORT,CLAUDE_CMD,TIMEOUT,SKIP_PERMISSIONS,LOGIN_SHELL}` → `--model`、`--effort`、`--claude-cmd`、`--claude-timeout`、`--no-skip-permissions`、`--claude-login-shell`；
@@ -168,7 +168,7 @@
 | [专项停住后问主人](butler.md#专项停住后问主人开关默认关) | `COVEY_PROJECT_ASK=1`（要 `COVEY_PROJECTS=1`） | 专项被护栏停住时多发一张卡：继续 / 收尾 / 停；`COVEY_PROJECT_STYLE_KEEP=1` 另让新专项沿用上次设的汇报风格 |
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家一轮在做时，下一句按规则和小模型并进某件在做的事或新开一件；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程，Bridge 停止时结束 |
 | [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰) | `COVEY_PATROL=shadow` | `patrol` 后台线程：每分钟用规则找候选，每 30 分钟让小模型筛，只写 `patrol/` 记录；汇总和「看板」多一块“我本来想找你的事”；不发消息、不动专项 |
-| [网页工作台](butler.md#网页工作台开关默认关) | `COVEY_WEB=1` 加 `COVEY_WEB_CONFIG=/absolute/path/to/web.json` | `web-push`、`web-inbox` 后台线程：把专项、话题（含管家和专项负责人的对话）、一轮（含过程、步骤清单、用量）、问题推给妙搭网页，取回网页上的说话（含对管家、负责人说）、答题、停止、重开、记为看过、作废一条专项记忆 |
+| [网页工作台](butler.md#网页工作台开关默认关) | `COVEY_WEB=1` 加 `COVEY_WEB_CONFIG=/absolute/path/to/web.json` | `web-push`、`web-inbox` 后台线程：把专项、话题（含管家和专项负责人的对话）、一轮（含过程、步骤清单、用量）、问题推给网页应用，取回网页上的说话（含对管家、负责人说）、答题、停止、重开、记为看过、作废一条专项记忆 |
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | `dispatch_cards` 后台线程；管家派出话题后多一张聊天区的活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
 | [多设备（开发中，默认关）](#多设备开发中默认关) | `COVEY_DEVICES=1` 加 `devices.json` | 设备上能跑 Claude Code 和 Codex 的话题（经 ssh）；默认关，真机验收在进行。开了才有 `devices` 后台线程；关着，或开了但没有设备时，后台线程、文件和行为都同没有这个功能 |
@@ -198,7 +198,7 @@
 
 ### 敏感词脱敏
 
-脱敏的词表、开关和替换记录在设置卡的「脱敏」标签上（`app/redaction_panel.py`，卡片是 `cards/redaction_panel.py`），不用配置，所有部署都有；开了[网页工作台](butler.md#网页工作台开关默认关)时，它的设置页也能批量加删词。以前可选的独立网页看板（`COVEY_DASHBOARD`）2026-11-19 去掉了，见[已下架项与旧配置](#已下架项与旧配置)。
+脱敏的词表、开关和替换记录在设置卡的「脱敏」标签上（`app/redaction_panel.py`，卡片是 `cards/redaction_panel.py`），不用配置，所有部署都有；开了[网页工作台](butler.md#网页工作台开关默认关)时，它的设置页也能批量加删词。以前可选的独立网页看板（`COVEY_DASHBOARD`）已经去掉，见[已下架项与旧配置](#已下架项与旧配置)。
 
 - 「脱敏」标签：一层（填词、搜索、词表，折叠面板里是开关和记录，试一下和上游地址的输入框点开再出现（折叠面板里放不了表单）；替身词一律自动生成：词表每项只有 `term`，读时忽略旧版本留下的 `stand_in`，写时不写，`core/migrate.py` 的 redaction-stand-in 把旧词表重写一遍；旧版本设的 `"anywhere": true` 照旧生效，`update_config` 拒绝新设），填词框一次加或删一批（“加入词表”“从词表删除”，按行，删除要整词一致；`core/redaction.py` 的 `edit_terms`，撤销是 `put_back`），开关一次一个（`update_config`）；都在 `EDIT_LOCK` 下读、改、存。点击改完词表、把结果记进设置卡记录就回执，整卡重画放在回执之后（`after_ack`；连点几下只画最后一次）。记录区要读最近 500 轮涉及的话题，`core/redaction_views.py` 的 `topic_info` 按 topic.json 的修改时间缓存。卡上不出现原词：词只写首字和字数（`masked`），自动替身不显示；按钮按 `<state>/redaction/card-key`（0600，第一次用时生成）下的 HMAC 指认哪一行；查找只记下找到的行，框里输入的内容不写回卡片；拒绝的原因（`Refused`）不提原词，词表文件读不了时只说读不了（原来的错误可能引用原词）。“撤销”只记在 Bridge 进程的内存里，重启后就没有了。「探测」在后台线程跑，跑完重画卡片。
 
@@ -354,7 +354,7 @@
 
 设了 `COVEY_NODE_LISTEN` 才有；结构和不变量见[架构 · 节点](architecture.md#节点默认关)。
 
-- **监听**：`COVEY_NODE_LISTEN='[::]:$ARNOLD_RESERVED_N_CURRENT_PORT'`（`[::]:端口`、`IPv4:端口` 或只写端口；`$名字`、`${名字}` 每次启动时从环境里取值，平台按机器分配端口时用单引号原样存进清单；`core/listen.py`）。节点主动连这个端口（TLS，Hub 自签证书，节点按证书指纹认 Hub），设备上不开端口。设备连不到 Hub 推算的地址时用 `COVEY_NODE_ADDRESS=主机:端口` 指定。
+- **监听**：`COVEY_NODE_LISTEN='[::]:$RESERVED_PORT'`（`[::]:端口`、`IPv4:端口` 或只写端口；`$名字`、`${名字}` 每次启动时从环境里取值，平台按机器分配端口时用单引号原样存进清单；`core/listen.py`）。节点主动连这个端口（TLS，Hub 自签证书，节点按证书指纹认 Hub），设备上不开端口。设备连不到 Hub 推算的地址时用 `COVEY_NODE_ADDRESS=主机:端口` 指定。
 - **本机**：开了就有一个本机节点（名字 `local`，显示为“本机”）：Bridge 每分钟确认 `~/.covey/node/` 里的节点在跑，没在跑就拉起；它独立于 Bridge 运行，样本先写本地盘（`~/.covey/node/data/`，最多 256 MiB、7 天），并每 10 分钟试写一次数据根，写不进（配额满、挂了）会告警。
 - **加设备**：`core/nodes.py` 的 `open_join` 发一个 30 分钟有效、只能用一次的口令；设备上执行 `app/node_gateway.py` 的 `paste_command` 给出的那行命令（`curl … | python3 -`，按 Hub 公钥固定，不走代理），节点就装好、写自启（`~/.bashrc` 顶部的登录钩子；有 systemd 用户服务或 launchd 时也装）并连上来。设置卡的「设备」页给出这行命令，Hub 能 ssh 进去的设备也可以在那里直接装。
 - **数据**：`<状态目录>/nodes/`：`registry.json`（节点名单，只存密钥的哈希）、`<节点>/latest.json`、`link.json`、`raw/`（原样，3 天）、`minutes/`（每分钟一行，30 天）、`alerts.jsonl`；`events/`、`alerts/` 是告警的待发和已发记录。
@@ -375,7 +375,7 @@
 
 ## 环境变量与选项一览
 
-**命名（改名 Covey 后）**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置。`covey/core/env.py` 的 `get` 先读 `COVEY_<X>`、再读 `LARK_BRIDGE_<X>`（新名优先；只设了旧名时，进程的环境里读到旧名会在 stderr 记一行弃用，每个名字一次）。下表只写新名；每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`（改名之后才有的开关没有旧名，见下面的“启动时只对真有旧名的变量打印”一条）。主线程改名为管家（2026-11-16）时有七个开关连名字一起改了，表里每行注明旧名；它们有三种写法，读取顺序是新名 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`covey/core/env.py` 的 `RENAMED`）：`COVEY_BUTLER`（旧 `MAIN_THREAD`）、`COVEY_BUTLER_RULES`（`MAIN_BUTLER`）、`COVEY_BUTLER_TRACKS`（`MAIN_TRACKS`）、`COVEY_BUTLER_TRACKS_MAX`（`MAIN_TRACKS_MAX`）、`COVEY_DISPATCH_CARD`（`MAIN_DISPATCH_CARD`）、`COVEY_BUTLER_JOB`（`MAIN_JOB`）、`COVEY_BUTLER_STATE`（`MAIN_STATE`）。`LARK_<HARNESS>_BRIDGE_*`（`LARK_CLAUDE_BRIDGE_*` 等 Harness 自己的前缀）和已不再读取的名字不变。
+**命名（改名 Covey 后）**：设置的名字是 `COVEY_<X>`，旧名 `LARK_BRIDGE_<X>` 照常生效，不用改任何配置。`covey/core/env.py` 的 `get` 先读 `COVEY_<X>`、再读 `LARK_BRIDGE_<X>`（新名优先；只设了旧名时，进程的环境里读到旧名会在 stderr 记一行弃用，每个名字一次）。下表只写新名；每一行的旧名就是把 `COVEY_` 换成 `LARK_BRIDGE_`（改名之后才有的开关没有旧名，见下面的“启动时只对真有旧名的变量打印”一条）。主线程改名为管家时有七个开关连名字一起改了，表里每行注明旧名；它们有三种写法，读取顺序是新名 `COVEY_<新>`、`COVEY_MAIN_<旧>`、`LARK_BRIDGE_MAIN_<旧>`（`covey/core/env.py` 的 `RENAMED`）：`COVEY_BUTLER`（旧 `MAIN_THREAD`）、`COVEY_BUTLER_RULES`（`MAIN_BUTLER`）、`COVEY_BUTLER_TRACKS`（`MAIN_TRACKS`）、`COVEY_BUTLER_TRACKS_MAX`（`MAIN_TRACKS_MAX`）、`COVEY_DISPATCH_CARD`（`MAIN_DISPATCH_CARD`）、`COVEY_BUTLER_JOB`（`MAIN_JOB`）、`COVEY_BUTLER_STATE`（`MAIN_STATE`）。`LARK_<HARNESS>_BRIDGE_*`（`LARK_CLAUDE_BRIDGE_*` 等 Harness 自己的前缀）和已不再读取的名字不变。
 
 - **服务清单**：`runtime_environment()` 仍按旧名存（`COVEY_X` 存成 `LARK_BRIDGE_X`；上面七个存成 `LARK_BRIDGE_MAIN_*`，如 `COVEY_BUTLER` 存成 `LARK_BRIDGE_MAIN_THREAD`），所以升级不改清单，回滚到旧 release 也读得到；`scripts/deploy_bridge.sh` 的环境比对把清单和终端里的名字都折成旧名再比（`env.canonical`），只改了名字不算变化。Manager 启动服务时所有写法都设进服务进程（清单里的值盖过 Manager 自己环境里的同名设置），所以旧 release 的任务进程也读得到。
 - **Bridge 给子进程设的变量**（`COVEY_TASK_DIR`、`COVEY_BUTLER_STATE`、`COVEY_BUTLER_JOB`、`COVEY_RUNNER_PYTHONPATH` 等）所有写法都设（管家的两个另设 `COVEY_MAIN_*`、`LARK_BRIDGE_MAIN_*`）；找任务遗留进程（`core/task_processes.py`、内存看门狗）认两种。
@@ -398,7 +398,7 @@
 | `COVEY_FEISHU_DIRECT` | `feishu/sdk.py` | 开：直连飞书，`0` 走代理 | 否 |
 | `LARKSUITE_CLI_DATA_DIR` | `feishu/sdk.py`（找 lark-cli 的凭据） | `~/.local/share` | 否 |
 | `COVEY_OUTGOING_MEDIA_DIRS` | `feishu/outgoing_images.py` | 空 | 否 |
-| `COVEY_ACCEPT_CHATS` | `feishu/web_service.py`（验收页面） | 代码里的 `ACCEPT_CHATS` | 否 |
+| `COVEY_ACCEPT_CHATS` | `feishu/web_service.py`（验收页面，`accept_chats`） | 空：验收页面不打开、不操作任何会话。用它做真机验收时写验收用的会话标题，逗号分隔（如 `验收测试群,代答测试群`），设在起验收服务的那个进程的环境里（从话题里起的，就是 Bridge 的服务清单） | 否 |
 | `COVEY_FEISHU_WEB_HOST` | `feishu/web_client.py` | 扩展的 `web_tenant_domain`，没有时 `open.feishu.cn` | 否 |
 | `PLAYWRIGHT_BROWSERS_PATH` | `feishu/web_client.py`（验收页面的浏览器）、`feishu/app_console.py`（开发者后台的浏览器）、`feishu/install_browser.py`（`./install` 的浏览器会话）、`core/browser_env.py`（定位与 `launch.json`） | `<数据根>/browsers`（存在时），否则 `~/.cache/ms-playwright`（`./install` 设成 `<数据根>/browsers`） | 否 |
 | `COVEY_BROWSER_EXECUTABLE` | `feishu/web_client.py`（`launch`）、`core/browser_env.py`、`service/browser_setup.py` | 空：用 Playwright 下载的 Chromium；`./install` 发现机器上已有 Chrome/Chromium 时写进 `<数据根>/browsers/launch.json` | 否 |
@@ -430,7 +430,7 @@
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 3000：小模型硬上限（毫秒），超过按进程组杀掉、按新开一件；取值限制在 200 到 10000。经网关调一次 Haiku 常要 1–2 秒，2 秒的上限下约四成会超时，所以默认 3 秒| 否 |
 | `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开；`0`、`off`、`false`、`no` 关。开着（且 `COVEY_BUTLER_TRACKS=1`、通道是 `claude`）时，Bridge 在收到管家消息时提前起好一个 Claude Code 待命进程并用一条虚构的消息预热，问一次就丢掉、立刻起下一个，空闲 10 分钟或 Bridge 停止时结束；关着每次问都现起一个一次性进程，慢约 1 秒多 | 否 |
 | `COVEY_TRACK_JUDGE_HEDGE` | `app/track_judge.py`（`hedge`；`warm` 据此多留几个待命进程，`judge` 同时问它们，进程在 `app/track_standby.py`） | 空：2；取值 1 到 3。同一问同时交给这么多个待命进程，第一个能用的答案算数，其余立刻结束。网关的慢请求是各请求自己的（几次里有一次要多等 2 到 4 秒），两个里总有一个躲开；1 是只用一个，和以前一样。每多一个，每次判断多一个几十 token 的预热请求和一个小请求；只在 `COVEY_TRACK_JUDGE_WARM` 开着、通道是 `claude` 时有用 | 否 |
-| `COVEY_TRACK_JUDGE_SLIM` | `app/track_judge.py`（`slim_enabled`，给小模型的 Claude Code 命令行多两个选项） | 空：开；`0`、`off`、`false`、`no` 关。开着时小模型的 Claude Code 带 `--setting-sources user --disable-slash-commands`：不再读工作目录一路向上的项目设置、记忆文件和技能清单，每次输入约 800 token（以前约 4800，2026-11-17 在本机量的）；Claude Code 不认这两个选项时记住、之后不再带 | 否 |
+| `COVEY_TRACK_JUDGE_SLIM` | `app/track_judge.py`（`slim_enabled`，给小模型的 Claude Code 命令行多两个选项） | 空：开；`0`、`off`、`false`、`no` 关。开着时小模型的 Claude Code 带 `--setting-sources user --disable-slash-commands`：不再读工作目录一路向上的项目设置、记忆文件和技能清单，每次输入约 800 token（不带时约 4800）；Claude Code 不认这两个选项时记住、之后不再带 | 否 |
 | `COVEY_BUTLER_STATE`（旧名 COVEY_MAIN_STATE、LARK_BRIDGE_MAIN_STATE） | `core/butler_mcp.py`、（管家任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_BUTLER_JOB`（旧名 COVEY_MAIN_JOB、LARK_BRIDGE_MAIN_JOB） | `core/butler_mcp.py`（管家任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_PROJECT_LEAD` | `core/butler.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要 `COVEY_PROJECTS=1`）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`workspaces_list` 加 `project_*`，其余管家工具都不列 | 否 |
@@ -438,7 +438,7 @@
 | `COVEY_PROJECT_MEMORY` | `core/projects.py`（`memory_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_context.py`（专项的话题开工带上记忆和资料库索引、主人答专项的问题卡记一条决定、主人发给负责人的文件和各话题的产物、交付进资料库）、`app/project_lead.py`（`library_index`：状态包的资料库）、`app/runs.py`（`bridge_rules`、`_with_rules` 取专项块） | 空：关，专项的话题开工什么都不多带，不自动记记忆，不收资料库；记忆本身（`core/project_memory.py`，卡上、状态包、负责人工具都读它）不受开关影响。`1`：专项的话题开工带上专项记忆（新会话再加不超过 2 KB 的资料库索引），主人答专项的话题或负责人发出的问题卡后记一条 `decision`（来源 `owner_answer`），主人引用专项卡发的文件复制进 `projects/<id>/library/`（记 sha256），话题每轮的产物和检查点交付只记路径或链接。见[管家 · 专项记忆与资料库](butler.md#专项记忆与资料库开关默认关) | 否 |
 | `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py` | 空：关，规则、续接提醒和答案卡与没有这个功能时逐字相同，不读不写话题的 `memory.json`。`1`：原则、知识条目、专项记忆、话题记忆拼成一块“记忆”，每条带编号、管哪儿、谁说的，话题里主人说了“以后”“每次”“别再”之类时，一轮结束后记下并在答案卡底部露一行。见[管家 · 记忆](butler.md#记忆开关默认关) | 否 |
 | `COVEY_PROJECT_TRIAGE` | `core/triage.py`（`enabled`，要 `COVEY_PROJECTS=1`）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`）、`app/triage.py`、`app/project_loop.py`（`ProjectLoop.tick` 扫扣住的问题） | 空：关，专项的话题的问题照旧直接发给主人，负责人没有 `project_answer`、`project_escalate`；`1`：专项的话题问的选择题先交给负责人，3 分钟内它能依据专项记忆和已定的事回答的就替主人答，答不了、碰到硬闸词、转给主人或 3 分钟没处理的才发问题卡。自由文字的问题始终直接问主人。见[管家 · 专项的问题分流](butler.md#专项的问题分流开关默认关) | 否 |
-| `COVEY_PROJECT_BUDGET` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 空：没有上限，专项不会因为 token 停住，也不请停话题、不发停住卡（2026-11-19 起；用量照样累加，专项卡上写“token N”）。设成正整数才有上限：一个专项的 token 合计（负责人和各话题任务的合计，缓存算在输入里）到了专项转停住、`state_reason` 是 `tokens`，不再唤醒，开着时和以前一样；不是正整数按没有上限 | 否 |
+| `COVEY_PROJECT_BUDGET` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 空：没有上限，专项不会因为 token 停住，也不请停话题、不发停住卡（用量照样累加，专项卡上写“token N”）。设成正整数才有上限：一个专项的 token 合计（负责人和各话题任务的合计，缓存算在输入里）到了专项转停住、`state_reason` 是 `tokens`，不再唤醒，开着时和以前一样；不是正整数按没有上限 | 否 |
 | `COVEY_PROJECT_TOKENS` | `core/projects.py`（`token_limit`） | `COVEY_PROJECT_BUDGET` 的旧名，它没设时才读。名字里有 TOKEN，服务清单把它当成密钥不保存，重新 `launch` 带不进去：要设上限用 `COVEY_PROJECT_BUDGET` | 否 |
 | `COVEY_PROJECT_ASK` | `core/projects.py`（`ask_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_loop.py`（`ProjectLoop.pause`）、`app/project_cards.py`（`ProjectCards.ask`、`ask_choice`） | 空：关，护栏停住的专项只在专项卡上写“停住 · 原因”；`1`：专项被护栏停住时，在专项卡所在的位置再发一张卡，一句话写原因，三个按钮 继续 / 收尾 / 停；点了以后这张卡缩成一行写选了什么，专项卡的状态跟着变。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PROJECT_STALL_SECONDS` | `core/projects.py`（`stall_seconds`）、`app/project_loop.py`（`ProjectLoop.stall`） | 1800：专项还有负责人能推动的事（有任务排队、有没处理的回执；只在等你回答不算）却没有任务做完、没有新回执，多少秒后提醒负责人一次，再过同样久还没动静就停住；没有要做的事的专项不会停滞，只按 `COVEY_PROJECT_IDLE_DAYS` 收起；不是正整数按默认值。试用停滞卡时调小（如 `60`） | 否 |
@@ -544,8 +544,8 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `main-thread.json` 的 `desk_topics`（前台话题布局） | 读到 `true` 也按 `false` 处理，启动时记一行 warning，保存设置时原值留着。以前开的前台话题（登记在 `<state>/main-thread/desk/`）由启动时的迁移 `desk-retire` 冻结，不再接新消息 |
 | 脱敏标签的“新话题默认开”（`redaction/config.json` 的 `default_on`） | 不再读：新话题默认开不开脱敏是设置卡「新话题」页的“脱敏”一行（`main-thread.json` 的 `topic_defaults.redaction`）。启动时的迁移 `redaction-default` 在它开着时把那一行打开一次；值留在 `config.json` 给旧版本。旧卡上点这个开关只说它挪到了哪里 |
 | 文字命令、斜杠命令 | 以 `/` 开头的消息和以前的命令词（“代答”“本周用量”“管理工作区”“换配置”“停用本群”等）当作普通任务或补充。只有配对口令 `/pair` 还认。应用里残留的原生斜杠命令要在开发者后台删除并发布 |
-| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`manage_groups`、`main_thread_settings`（`proxy_settings` 2026-11-19 起又是正式的「代答」项） | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
-| 独立的敏感词网页看板（`COVEY_DASHBOARD`、`COVEY_DASHBOARD_URL`，扩展钩子 `dashboard_entry` 和它的 `COVEY_DASHBOARD_ENTRY`），2026-11-19 去掉 | 不再读这几个变量，清单里留着也照常启动；扩展的 manifest 还写着 `dashboard_entry` 钩子也照常加载（`core/extensions.py` 的 `RETIRED_HOOKS`），核心不再调它。状态目录里的 `redaction/dashboard-token` 和 `redaction/dashboard-entry.json` 不再用，可以删（`app/bot_menu.py` 还从后者读旧链接卡发去的私聊）。旧链接卡和设置卡「脱敏」标签上的“换口令”（`bridge_dashboard_rotate`）点了只说网页看板已经去掉；旧菜单键 `redaction_dashboard` 照旧打开「脱敏」标签 |
+| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`manage_groups`、`main_thread_settings`（`proxy_settings` 现在又是正式的「代答」项） | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
+| 独立的敏感词网页看板（`COVEY_DASHBOARD`、`COVEY_DASHBOARD_URL`，扩展钩子 `dashboard_entry` 和它的 `COVEY_DASHBOARD_ENTRY`），已去掉 | 不再读这几个变量，清单里留着也照常启动；扩展的 manifest 还写着 `dashboard_entry` 钩子也照常加载（`core/extensions.py` 的 `RETIRED_HOOKS`），核心不再调它。状态目录里的 `redaction/dashboard-token` 和 `redaction/dashboard-entry.json` 不再用，可以删（`app/bot_menu.py` 还从后者读旧链接卡发去的私聊）。旧链接卡和设置卡「脱敏」标签上的“换口令”（`bridge_dashboard_rotate`）点了只说网页看板已经去掉；旧菜单键 `redaction_dashboard` 照旧打开「脱敏」标签 |
 | 两卡式或 schema 3 之前的旧启动卡 | 点了只回“此启动卡已失效，请在主聊天重新发送消息开始任务。”，不改表单和等着的消息 |
 | 其他已下线卡片的按钮 | 见[已下线的功能](usage.md#已下线的功能) |
 

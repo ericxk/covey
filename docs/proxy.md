@@ -170,7 +170,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 - 单实例锁 `service.lock`，本机 socket `web.sock`（0600，目录 0700），日志 `service.log`。连续 `IDLE_SECONDS`（30 分钟，`--idle` 可改）没有命令就退出。
 - 每条命令一行 JSON，回答最后一行 `"done": true`：`ping`（随时立即回）、`stop` 和 `accept_*`；其余命令按到达顺序一条条跑。旧的 `send`、`login`、`status` 一律 `refused`。
 - **停靠**（`park`，`accept_close` 时）：换成新标签页加载会话列表，免得打开的会话把对方消息标成已读；列表 `STUCK_SECONDS` 不出来就 `reset` 再试，还不行停到 `PARK`。`accept_open` 遇到还在加载的停靠页先等（`WARM_SECONDS`）。
-- **验收页面**：`bin/covey_feishu_web.py accept open|post|text|click|fill|scroll|shot|close --home <state>/proxy/web [--title …] [--text …] [--at 名字] [--dy 像素] [--out PNG] [--start PYTHON]`（或 `web_service.accept`），一行 JSON 结果。`click`、`fill` 作用在最后 `NEWEST_ROWS` 行里最新的那张卡，主列表没有时用右侧打开的话题面板。`open`、`post`、`click`、`fill`、`scroll` 先核对会话标题在 `accept_chats()` 里（`COVEY_ACCEPT_CHATS` 逗号分隔），不在就拒绝。
+- **验收页面**：`bin/covey_feishu_web.py accept open|post|text|click|fill|scroll|shot|close --home <state>/proxy/web [--title …] [--text …] [--at 名字] [--dy 像素] [--out PNG] [--start PYTHON]`（或 `web_service.accept`），一行 JSON 结果。`click`、`fill` 作用在最后 `NEWEST_ROWS` 行里最新的那张卡，主列表没有时用右侧打开的话题面板。`open`、`post`、`click`、`fill`、`scroll` 先核对会话标题在 `accept_chats()` 里（`COVEY_ACCEPT_CHATS` 逗号分隔的会话标题），不在就拒绝；没设这个变量时一律拒绝。只把专门用来验收的群和测试机器人的私聊写进去：打开会话会把消息标成主人已读。
 
 ## 记录与清理
 

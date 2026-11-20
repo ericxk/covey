@@ -4,7 +4,7 @@ Claude 的明确拒绝或 fallback 会停止当前 Bridge 任务及其本机后�
 
 ## 子代理第一次被拦不停
 
-主人定的（2026-11-18）：主任务派了几个子代理，其中一个被拒，整轮连同其他正常的子代理一起停掉，代价太大；主任务本来就会收到这个子代理的错误，可以自己绕开。
+为什么这样定：主任务派了几个子代理，其中一个被拒，整轮连同其他正常的子代理一起停掉，代价太大；主任务本来就会收到这个子代理的错误，可以自己绕开。
 
 - **同一个任务里子代理第一次被拦（拒绝或 fallback）**：不停。任务卡的执行过程里记一行机器人的话：“子代理「标注第 1 块」在读 chunk01.txt 第 1201–1600 行时被拦（frontier_llm），主任务继续”。名字是主任务派它的那次 Agent/Task 调用的 `description`，在做什么是它最近 3 次工具调用（`backends/claude/policy.py` 的 `call_words`：读哪个文件哪几行、跑什么命令、搜什么），密钥隐藏、每条有长度上限。
 - **同一任务第二次被拦（主任务或子代理都算）**：照常停，因为连续被拒可能让账号被拦。停止卡写“这是本任务第 2 次被拦（之前子代理「…」…被拦过一次）”。
@@ -60,7 +60,7 @@ Claude 的明确拒绝或 fallback 会停止当前 Bridge 任务及其本机后�
 
 ### 换旧模型重试一次
 
-主人同意（2026-11-10，按 Anthropic 的建议）：Claude 的一轮因类别 `cyber` 的拒绝停止时换 Opus 4.8（`claude-opus-4-8`），因 `bio` 停止时换 Opus 5（`claude-opus-5`），自动重试一次（`app/policy_retry.py`，模型表是 `core/model_policy.py` 的 `FALLBACK_MODELS`）。其他类别、fallback、清理未确认、主人点过停止、本就在那个模型上的，以及管家的一轮，照旧只停止。
+按 Anthropic 的建议：Claude 的一轮因类别 `cyber` 的拒绝停止时换 Opus 4.8（`claude-opus-4-8`），因 `bio` 停止时换 Opus 5（`claude-opus-5`），自动重试一次（`app/policy_retry.py`，模型表是 `core/model_policy.py` 的 `FALLBACK_MODELS`）。其他类别、fallback、清理未确认、主人点过停止、本就在那个模型上的，以及管家的一轮，照旧只停止。
 
 - 两条证据路径在停止确定后都经 `schedule` 决定：记录锁内只在没有 `policy_retry_state` 的记录上写 `pending`，所以重复的停止事件只排一次。停止卡和通知写“将因安全拒绝（cyber）换 Opus 4.8 在新会话里自动重试一次本轮请求”。
 - 只有这个 release 记下的停止才重试：任务进程在停止的那一刻排（`at_stop`），策略守护只排自己这个 release 认领的（停止意图里有 `fallback_retry`）。守护每 2 秒会对通知没发出去的停止再跑一遍 `finish`，更早 release 停的任务（意图里没有这个标记）因此不会在部署后排上重试。

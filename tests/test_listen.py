@@ -25,13 +25,13 @@ class BindAndLinkTests(unittest.TestCase):
             parse_bind("abc", setting="COVEY_NODE_LISTEN")
 
     def test_a_bind_spec_reads_the_reserved_port_from_the_environment(self):
-        environ = {"ARNOLD_RESERVED_4_CURRENT_PORT": "10601", "HOST": "0.0.0.0"}
-        self.assertEqual(parse_bind("[::]:$ARNOLD_RESERVED_4_CURRENT_PORT", environ), ("::", 10601))
-        self.assertEqual(parse_bind("${HOST}:${ARNOLD_RESERVED_4_CURRENT_PORT}", environ), ("0.0.0.0", 10601))
-        with self.assertRaisesRegex(ValueError, "ARNOLD_RESERVED_3_CURRENT_PORT 没有设置"):
-            parse_bind("[::]:$ARNOLD_RESERVED_3_CURRENT_PORT", environ)
-        with mock.patch.dict(os.environ, {"ARNOLD_RESERVED_4_CURRENT_PORT": "10777"}):
-            self.assertEqual(parse_bind("$ARNOLD_RESERVED_4_CURRENT_PORT"), ("::", 10777))
+        environ = {"RESERVED_PORT": "10601", "HOST": "0.0.0.0"}
+        self.assertEqual(parse_bind("[::]:$RESERVED_PORT", environ), ("::", 10601))
+        self.assertEqual(parse_bind("${HOST}:${RESERVED_PORT}", environ), ("0.0.0.0", 10601))
+        with self.assertRaisesRegex(ValueError, "OTHER_PORT 没有设置"):
+            parse_bind("[::]:$OTHER_PORT", environ)
+        with mock.patch.dict(os.environ, {"RESERVED_PORT": "10777"}):
+            self.assertEqual(parse_bind("$RESERVED_PORT"), ("::", 10777))
 
     def test_link_hosts(self):
         # The IPv6 address before the name, which a browser may look up for IPv4 alone.

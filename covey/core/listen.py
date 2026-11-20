@@ -1,5 +1,5 @@
 """Where a local server listens (``parse_bind``: ``[::]:10601``, ``0.0.0.0:10601`` or a bare port, meaning ``[::]``; ``$NAME``
-is read from the environment, so ``[::]:$ARNOLD_RESERVED_4_CURRENT_PORT`` follows the port the platform reserves) and the
+is read from the environment, so ``[::]:$RESERVED_PORT`` follows the port the platform reserves) and the
 host others reach it at (``link_host``): this machine's IPv6 address, or its name without one. The nodes' gateway
 (app/node_gateway.py) uses both. Standard library only.
 """
