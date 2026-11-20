@@ -195,9 +195,7 @@ class ProxySend:
         ids = {m["id"] for m in batch["messages"]}
         positions = [int(m["position"]) for m in batch["messages"] if m["position"] and records.listed(m)]
         newest = max(message_epoch(m["time"]) for m in batch["messages"])
-        done = [b for b in records.read_batches(ctx.state_dir, statuses=("sent", "uncertain")) if b["contact"] == contact["key"]]
-        sent = {b.get("sent_message_id") for b in done if b["status"] == "sent"}
-        maybe = {records.squash(b.get("reply")) for b in done if b["status"] == "uncertain" or not b.get("sent_message_id")}
+        sent, maybe = records.proxy_sent(ctx.state_dir, contact["key"])
         try:
             messages = self.replies(settings, contact, message_epoch(batch["messages"][0]["time"]) - 120)
         except RuntimeError:

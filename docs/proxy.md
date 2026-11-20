@@ -66,11 +66,13 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 `history` 每次转换记 `[状态, 时间, 原因]`（`core/proxy.py` 的 `history`），`reason` 只是最新的一个。
 
 - **并消息**：一个联系人同时只有一个在推进的批次。新消息并进 `received` 的（没有就开一个），替换 `held` 的。`received` 等会话安静 `SETTLE_SECONDS`（10 秒）才提交，从开批次算至多 `SETTLE_LIMIT`（45 秒）。
+- **主人在聊时不抢话**：提交前（`submit`）读这个会话最近的聊天，主人 `owner_quiet_minutes`（设置，默认 `OWNER_QUIET_MINUTES` 15 分钟，0 不等）内亲手发过消息（代答发的不算）时，批次留在 `received`，记 `quiet_until`（主人最后一条的分钟 + 这段时间），`unsettled` 等到那时再提交；期间主人回了对方，就照“已亲自回复”转 `skipped`。依据：主人在自己的会话里沉默 10–15 分钟时，还有约六成会自己回；过了 15 分钟降到约两成。日志 `proxy batch=… waits until HH:MM: the owner is talking in its chat`。
 - **顶掉**：新消息到时有 `submitted` 的批次，`add_messages` 在锁内先写新的 `received` 批次（旧消息在前，`restarts` 加一，`stop_job` 记旧批次），再把旧批次转 `superseded`（`OVERTAKEN`）；锁外 `stop_overtaken` 照任务卡“停止”停它的任务（`stop_job`：任务进程活着时转给它停，否则 `TaskControls.cancel_reply_job_from_card`），然后清掉 `stop_job`。Bridge 中途退出时下一轮 `tick` 补做。旧批次的任务正在跑、提交不到 `OVERTAKE_STOP_AFTER`（90 秒）时不停（`Proxy.runs_on`）：旧批次照样转 `superseded`（`OVERTAKEN_RUNS_ON`），回复不发，不记 `stop_job`，话题里说一句“这一轮跑完不发”；新批次的任务排在它后面，接着它的原生会话跑（原生会话只有正常结束的一轮才能续接，停下的一轮会丢掉会话，新一轮得从头读一遍）。还在排队的、跑得更久的照旧停。`sending` 的从不打断；话题里已有主人更新的一轮时不顶；连着顶掉 `MAX_RESTARTS`（2）轮后这一轮照旧跑完。
-- **提交**（`submit`）：批次以镜像卡为消息，经 `Submission.enqueue_chat_job` 提交到联系人话题，提示词由 `core/proxy.py` 的 `batch_prompt` 写：对方的消息；这个会话最近 `RECENT_MESSAGES`（20）条聊天（`ProxySend.recent_chat` 以主人身份读，含主人亲手发的，每条至多 `RECENT_CHARS` 字；读不到时不附，提示词改让模型自己去读）；怎么回（主人在对方聊的事上是行家，接住话头、给具体内容，不用外行式的反问代替回答）；主人在做的事 `<state>/proxy/owner-context.md`（`read_context`，主人确认能对外说的项目和术语）；最后是主人风格说明 `<state>/proxy/style.md`（`read_style`）。联系人笔记的 `README.md` 顶部是摘要，每轮的过程记录追加到同目录 `log.md`。镜像卡 id 先存进批次，重启后按它找已有任务，不重复提交。提交前主人已亲自回复的、提交没成的转 `skipped`。
+- **提交**（`submit`）：批次以镜像卡为消息，经 `Submission.enqueue_chat_job` 提交到联系人话题，提示词由 `core/proxy.py` 的 `batch_prompt` 写：对方的消息；这个会话最近 `RECENT_MESSAGES`（20）条聊天（`ProxySend.recent_chat` 以主人身份读，每条至多 `RECENT_CHARS` 字；主人亲手发的标“（主人）”，代答以主人身份发过的标“（代答）”（`proxy_sent`、`mark_sent`：按批次的 `sent_message_id`，没有 id 的按原文），不算主人说过的话；读不到时不附，提示词改让模型自己去读）；怎么回：对方直接问主人的事就先查（更早的聊天、群聊和文档、主人的代码和记录、联系人笔记），查到就具体答，不用外行式的反问代替回答，查不到或要主人表态就 `SKIP_MARK`；闲聊、互损、感慨、分享、给主人出主意默认不接（`NO_REPLY_MARK`）；只把主人亲手说过的当依据，不替主人说计划、时间和新立场，不主动提主人的项目；主人在做的事 `<state>/proxy/owner-context.md`（`read_context`，项目和术语，只用来听懂对方，不拿来接话）；最后是主人风格说明 `<state>/proxy/style.md`（`read_style`）。联系人笔记的 `README.md` 顶部是摘要，每轮的过程记录追加到同目录 `log.md`。镜像卡 id 先存进批次，重启后按它找已有任务，不重复提交。提交前主人已亲自回复的、提交没成的转 `skipped`。
 - **判断**（`decide`）：只用 `load_authorized_reply` 取已授权的保存回复（规则 5）。
   - 以 `NO_REPLY_MARK`（`[无需回复]`）开头：`skipped`，话题里一行“· 不用回”。
   - 以 `SKIP_MARK`（`[不回复]`）开头、没有回复或任务没完成：`held`，等主人在话题里的下一轮；回复带 `SUGGESTION` 行时存下建议，出重新发送卡的“按建议回复”。
+  - 批次自己的任务要发的回复提到了主人的项目（`owner-context.md` 的“项目：”一节每行“- 名字（别名、以前叫 别名）：…”，`project_names`），而这批消息和提交时的最近聊天里（代答发的除外）都没人提过（`unprompted_projects`，提交时记在批次的 `named_in_chat`）：不发，转 `held`，回复存成建议，出“按建议回复”卡，卡上写明提到了哪个项目（`hold_named`）。主人在话题里的一轮不受这条限制。
   - 话题里有比这条任务更新的一轮（主人的）时，本该发的回复不用，批次转 `held`（`LATER_TURN`），`passed_over` 记被跳过的任务；`check_held` 对每一轮判断，所以发的总是最新一轮的回复。
   - 批次自己的任务结束时联系人已有更新的批次：直接 `superseded`。
 - **移出和关闭**：联系人移出白名单后，它没发完的批次下一轮转 `skipped`（`REMOVED`）；早于联系人 `added_at` 的批次按移除处理。关闭代答后不再收新消息，`received` 转 `skipped`，其余照常推进但不发。一个批次推进出错只记 `proxy batch=… failed`，不挡别的批次。
@@ -94,6 +96,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 | 情况 | 结果 |
 | --- | --- |
+| 批次里有主人自己发的消息 | `skipped`，话题里说一句；收消息时 `addressed` 已不收主人的消息，这里再兜一次底 |
 | 代答关闭、联系人暂停 | `held`，话题里说明（`stop`），主人之后的一轮才发 |
 | 联系人移出 | `skipped` |
 | 批次自己任务的回复距对方最新消息超过 `STALE_AFTER`（2 小时） | `held`；主人的一轮和重新发送不受这条限制 |
@@ -169,12 +172,12 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 | 路径 | 内容 |
 | --- | --- |
-| `settings.json` | 开关、代答群、用户 profile 和主人 ID、新话题的 Harness/模型/预算、`model_changed_at` |
+| `settings.json` | 开关、代答群、用户 profile 和主人 ID、新话题的 Harness/模型/预算、`model_changed_at`、`owner_quiet_minutes`（主人在聊时等多久，默认 15） |
 | `contacts/<sha>.json` | 一个白名单会话：`kind`、`target`、`chat_id`、`paused`、`since`、`seen`、话题、`source`、`added_at` |
 | `batches/<id>.json` | 一个批次（见「批次」） |
 | `panels/`、`resend/` | 设置卡、重新发送卡的记录 |
 | `style.md` | 主人的说话风格，附在每个批次的提示词后 |
-| `owner-context.md` | 主人在做的事（项目和术语，主人确认能对外说的），附在风格说明前；没有这个文件就不附 |
+| `owner-context.md` | 主人在做的事（项目和术语），附在风格说明前，只用来听懂对方；“项目：”一节列的名字，回复里对方没提过就先给主人看；没有这个文件就不附 |
 | `send_login.json` | 已告诉主人的登录失效 |
 | `send-as-user/` | 发送工具的 HOME：凭证、幂等记录 |
 | `tmp/` | 发送的正文、登录二维码副本 |

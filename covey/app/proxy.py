@@ -55,10 +55,11 @@ LATER = "later"  # ``decide``/``send``: held off by HOURLY_LIMIT or the tool's l
 
 
 def unsettled(batch, now):
-    """Seconds ``batch`` still waits for its chat to settle (SETTLE_SECONDS, SETTLE_LIMIT); 0 once it may run."""
+    """Seconds ``batch`` still waits for its chat to settle (SETTLE_SECONDS, SETTLE_LIMIT), or for the owner talking
+    in it to have been quiet (``quiet_until``, ``Proxy.owner_quiet_until``); 0 once it may run."""
     opened = float(batch.get("created_at") or 0)
     last = float(batch.get("last_in_at") or opened)
-    return max(0.0, min(last + SETTLE_SECONDS, opened + SETTLE_LIMIT) - now)
+    return max(0.0, min(last + SETTLE_SECONDS, opened + SETTLE_LIMIT) - now, float(batch.get("quiet_until") or 0) - now)
 
 
 def removed(batch):
@@ -324,10 +325,22 @@ class Proxy:
     def submit(self, ctx, settings, contact, batch):
         """The batch as a job in the contact's topic: its messages shown there, then the job. A batch the
         owner has answered in the chat already runs nothing and shows nothing: they are talking themselves."""
-        if not batch.get("mirror_id") and self.web.owner_replied(ctx, settings, contact, batch):
-            records.move_batch(ctx.state_dir, batch, "skipped", reason="你已亲自回复")
-            self.runtime.log(f"proxy skipped batch={batch['id'][:8]}: the owner replied")
-            return
+        recent, named = None, None
+        if not batch.get("mirror_id"):
+            if self.web.owner_replied(ctx, settings, contact, batch):
+                records.move_batch(ctx.state_dir, batch, "skipped", reason="你已亲自回复")
+                self.runtime.log(f"proxy skipped batch={batch['id'][:8]}: the owner replied")
+                return
+            recent = self.recent_chat(ctx, settings, contact)
+            until = self.owner_quiet_until(settings, recent)
+            if until > time.time():
+                if float(batch.get("quiet_until") or 0) != until:
+                    self.update(ctx, batch, quiet_until=until)
+                    self.runtime.log(f"proxy batch={batch['id'][:8]} waits until {time.strftime('%H:%M', time.localtime(until))}: "
+                                     "the owner is talking in its chat")
+                wait = until - time.time()
+                self.soon = wait if self.soon is None else min(self.soon, wait)
+                return
         contact = self.contact_topics.ensure_topic(ctx, settings, contact)
         if contact is None:
             return  # Removed meanwhile: the next poll drops the batch.
@@ -347,9 +360,13 @@ class Proxy:
             job_id = int(existing[0]["job_id"])
         else:
             # The chat as it is: the owner's own messages too, which the topic's history never has.
+            recent = self.recent_chat(ctx, settings, contact) if recent is None else recent
+            context = records.read_context(ctx.state_dir)
             prompt = records.batch_prompt(contact, batch, settings, records.read_style(ctx.state_dir),
-                                          context=records.read_context(ctx.state_dir),
-                                          recent=self.web.recent_chat(settings, contact))
+                                          context=context, recent=recent)
+            # The projects the chat itself brought up: a reply may name those (``decide``, unprompted_projects).
+            heard = "\n".join(m["content"] for m in [*recent, *batch["messages"]] if not m.get("by_proxy"))
+            named = [n for n in records.project_names(context) if records.mentions(n, heard)]
             append_history(target.history_path, "user", prompt, {**event, "display_content": shown})
             last = batch["messages"][-1]
             job = app.submission.enqueue_chat_job(target, f"{last['sender_name']}：{last['content'][:200]}",
@@ -361,8 +378,30 @@ class Proxy:
                 return
             job_id = job.job_id
         records.move_batch(ctx.state_dir, batch, "submitted", job_id=job_id, job_key=job_key(mirror, job_id),
-                           topic_id=target.topic_id, considered_job_id=job_id)
+                           topic_id=target.topic_id, considered_job_id=job_id,
+                           **({"named_in_chat": named} if named is not None else {}))
         self.runtime.log(f"proxy submitted job=#{job_id} batch={batch['id'][:8]}")
+
+    def recent_chat(self, ctx, settings, contact):
+        """The chat's newest messages as the owner read them (ProxySend.recent_chat), those this proxy sent
+        marked ``by_proxy``: they are neither the owner's word nor the owner talking."""
+        return records.mark_sent(self.web.recent_chat(settings, contact), settings.get("owner_user_id") or "",
+                                 records.proxy_sent(ctx.state_dir, contact["key"]))
+
+    @staticmethod
+    def owner_quiet_until(settings, recent):
+        """When the owner, talking in this chat themselves (``recent``: their own messages, not this proxy's), will
+        have been quiet owner_quiet_minutes (OWNER_QUIET_MINUTES); 0 when they have not spoken in it that recently.
+        Feishu gives the minute a message was sent."""
+        minutes = settings.get("owner_quiet_minutes", records.OWNER_QUIET_MINUTES)
+        try:
+            minutes = float(minutes)
+        except (TypeError, ValueError):
+            minutes = records.OWNER_QUIET_MINUTES
+        owner = settings.get("owner_user_id") or ""
+        spoke = [message_epoch(m["time"]) for m in recent or ()
+                 if owner and m.get("sender_id") == owner and not m.get("by_proxy") and m.get("time")]
+        return max(spoke) + minutes * 60 if spoke and minutes > 0 else 0
 
     def reply_of(self, ctx, settings, contact, record):
         """The saved, authorized reply of a finished job of the topic; None when there is none to use."""
@@ -481,6 +520,14 @@ class Proxy:
             self.note(ctx, settings, skipped, f"· 不用回（原因见上面 #{job_id} 的回答）" if done else "· 不用回：" + why)
             self.resend.close(ctx, skipped)
             return True
+        if reason is None and job_id == int(batch.get("job_id") or 0):
+            # The batch's own round named a project of the owner's nobody in the chat had: shown, not sent (T571,
+            # "对 Covey本来就是业务外搓出来的"). What the owner says in the topic goes out as they say it.
+            named = records.unprompted_projects(
+                reply, records.project_names(records.read_context(ctx.state_dir)),
+                [*batch.get("named_in_chat", ()), *(m["content"] for m in batch["messages"])])
+            if named:
+                return self.hold_named(ctx, settings, batch, reply, job_id, named)
         if reason is None:
             return self.send(ctx, settings, contact, batch, reply, job_id) or True
         if batch["status"] == "held" and batch.get("passed_over") and newer is None and record.get("status") != "continued":
@@ -507,6 +554,17 @@ class Proxy:
                           + "\n要回的话，在本话题 @机器人 告诉我怎么回。")
         return False
 
+    def hold_named(self, ctx, settings, batch, reply, job_id, named):
+        """``batch`` held with ``reply`` (which names ``named``, projects the chat never brought up) as its
+        suggestion: the owner sends it with 按建议回复, or says in the topic how to answer."""
+        why = f"回复里提到了你的「{'」「'.join(named)}」，对方没提过，先给你看"
+        held = records.move_batch(ctx.state_dir, batch, "held", reason=why, considered_job_id=job_id, reply=reply,
+                                  reply_job_id=job_id)
+        self.runtime.log(f"proxy held batch={batch['id'][:8]} job=#{job_id}: its reply names {', '.join(named)}")
+        if held is not None and not self.resend.show(ctx, settings, held, "declined", notice=f"⏸ {why}。"):
+            self.note(ctx, settings, held, f"⏸ 没有代你回复：{why}。\n要回的话，在本话题 @机器人 告诉我怎么回。")
+        return False
+
     @staticmethod
     def newer_batch(ctx, batch):
         """Whether the contact of ``batch`` has a batch taken in after it."""
@@ -519,6 +577,13 @@ class Proxy:
         tried again by later polls; LATER too while the tool's login runs (repo review F2: the owner's turn
         was taken as done). Its at tags are plain text from here on (``plain_mentions``), as saved and read back."""
         reply = plain_mentions(reply)
+        owner = settings.get("owner_user_id") or ""
+        if owner and any(m.get("sender_id") == owner for m in batch["messages"]):
+            # Never an answer to the owner's own message (T571): ``addressed`` takes none in; this holds if one came.
+            skipped = records.move_batch(ctx.state_dir, batch, "skipped", reason="这批消息里有你自己发的，不代答")
+            self.runtime.log(f"proxy batch={batch['id'][:8]} not sent: the owner's own message is in it")
+            self.tell(ctx, settings, batch, "dropped", "⏭ 这批消息里有你自己发的，不代你回复。", shown=skipped)
+            return
         stop = self.stopped(ctx, batch, job_id)
         if stop:
             self.stop(ctx, settings, batch, job_id, *stop)

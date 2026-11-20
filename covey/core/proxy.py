@@ -62,9 +62,17 @@ SKIP_MARK = "[不回复]"
 NO_REPLY_MARK = "[无需回复]"
 STYLE_FILE = "style.md"  # The owner's chat style, summarised from their own messages; part of every prompt.
 # What the owner works on, the projects and words they use (projects and terms only, no
-# principles or private notes): part of every prompt, so a contact talking about them is answered as by the one who
-# does them ("开始蒸馏自己了" got "怎么蒸馏自己？" from a proxy that did not know the owner had been doing it for weeks).
+# principles or private notes): part of every prompt, so the model understands a contact who talks about them
+# ("开始蒸馏自己了" got "怎么蒸馏自己？" from a proxy that did not know the owner had been doing it for weeks). It is
+# for understanding only: told to answer "as the one who does them", the model brought them up unasked (T571, 11-20
+# 22:09: "对 Covey本来就是业务外搓出来的"). Its 项目 section names the projects ``unprompted_projects`` looks for.
 CONTEXT_FILE = "owner-context.md"
+PROJECTS_HEAD = "项目"
+# A batch waits while the owner talks in its chat themselves: until they have been quiet this long (minutes, the
+# setting owner_quiet_minutes; 0: no wait). In the owner's own chats an answer of theirs came within 10 minutes for 64%
+# of the messages 10-15 minutes after they last spoke, for 21% after 15-30 (T571): a proxy that answered sooner spoke
+# over them, two people on one account.
+OWNER_QUIET_MINUTES = 15
 RECENT_MESSAGES = 20  # Of the chat, read as the owner when a batch is submitted and put in its prompt.
 RECENT_CHARS = 300  # Of each of them.
 RECENT_HEAD = "这个会话最近的聊天"
@@ -468,7 +476,8 @@ def batch_prompt(contact: dict, batch: dict, settings: dict, style: str = "", *,
                       "会话里如果有上一轮写好的回复，它没有发给对方。）"]
     chat = recent_lines(recent, settings)
     if chat:
-        lines += ["", f"{RECENT_HEAD}（Bridge 刚以主人身份读的，按时间，含主人自己发的，“（主人）”是 {owner}）：", *chat]
+        lines += ["", f"{RECENT_HEAD}（Bridge 刚以主人身份读的，按时间。“（主人）”是 {owner} 亲手发的；"
+                      f"“（代答）”是之前的代答以主人身份发的，不算主人说过的话）：", *chat]
     read = (f"用 lark-cli --profile {settings.get('user_profile', '')} 以 --as user 读"
             f"（chat_id={messages[-1]['chat_id']}，最新消息 {messages[-1]['id']}）")
     notes = contact.get("session_dir") or extensions.setting("contact_notes_dir")
@@ -485,24 +494,28 @@ def batch_prompt(contact: dict, batch: dict, settings: dict, style: str = "", *,
         "- 不要问主人，也不要等主人确认：不出问题卡，不用写检查点。答案明确就直接写最终回复。",
         "- 最终回复只写要发给对方的话，用主人的口吻（第一人称）和下面的风格，纯文本，不用 Markdown。"
         "写之前看几条主人在这个会话里自己发过的消息，照他和这个人说话的方式写。",
-        "- 先想清楚对方在说什么、要什么（问事、要表态、分享进展、炫耀或调侃），再想主人对这件事知道什么、会怎么接："
-        "主人在做的事见下面的“主人在做的事”（有的话）和联系人笔记的摘要。",
-        "- 对方聊的是主人在做或熟悉的事时，主人就是行家：直接接住，说主人自己的进展、做法或看法，给一点具体的东西；"
-        "不要用外行式的反问（“具体怎么弄的？”“这个靠谱么？”）代替回答。",
-        "- 对方问事实、进展或主人的工作：按查到的如实回答。确实查不到、也不知道主人的情况时，简短说明，"
-        "或问一个具体的问题；不编造进展，不替主人承诺。",
-        "- 短不等于空：照主人的风格写短，但每条回复要有内容（一个事实、一个看法或一个具体的下一步），不要只附和或只反问。",
-        "- 不是每条都要回：对方只是收尾或确认（好的、收到、嗯嗯、谢谢、表情，或“一会有个会”“先这样”这类道别），"
-        f"话已经说完、再回反而多余时，最终回复第一行只写 {NO_REPLY_MARK}，后面一句原因，这批消息不发。"
-        "对方提了问题、交代了事、在等主人表态时照常回。",
-        f"- 只有涉及承诺、审批、费用、人事、隐私、凭据，或回错会有后果的事：最终回复第一行只写 {SKIP_MARK}，"
+        "- 先看对方在干什么：问主人事（问事实、进展、主人的工作、要东西），还是闲聊、互损、感慨、分享、给主人出主意、"
+        "收尾或确认。",
+        "- 对方直接问主人的事：先查（这个会话更早的聊天、相关群聊和文档、主人的代码和记录、联系人笔记），"
+        "查到就照主人的口吻具体答，给出查到的事实，不要用外行式的反问（“具体怎么弄的？”）代替回答；"
+        f"查不到，或者答案要主人表态，第一行写 {SKIP_MARK}（见下面），不编造。",
+        "- 闲聊、互损、感慨、分享、给主人出主意、收尾或确认，没问主人事：默认不接，"
+        f"最终回复第一行只写 {NO_REPLY_MARK}，后面一句原因，这批消息不发。对方在吐槽代答、叫你别用 AI 时也不接。"
+        "拿不准是哪一种，按闲聊处理。",
+        "- 回就像主人：一两句短话，每句十来个字，不写三行的段落；不讲道理、不给对方提建议或提醒注意事项。",
+        "- 只把主人亲手说过的话当主人的事实和态度（聊天里标“（主人）”的、联系人笔记里记的）；"
+        "标“（代答）”的是之前代答说的，不能当依据。不替主人说计划、时间和打算（“等忙完搞一波”“下周弄”这类），"
+        "不替主人表新的立场。",
+        "- 不主动提主人的项目和产品（下面“主人在做的事”里的那些），对方问到才答。",
+        "- 拿不准对方指什么时，不猜着接，也不用反问去套。",
+        f"- 涉及承诺、计划和时间、主人的立场和方向、审批、费用、人事、隐私、凭据，或回错会有后果的事：最终回复第一行只写 {SKIP_MARK}，"
         f"后面写原因和你查到的情况，留给主人处理；有建议发给对方的话，最后单起一行写“{SUGGESTION}：”和要发的原话"
         "（主人点“按建议回复”会原样以主人的身份发出）。",
         "- 主人之后在本话题里给你的指示照做；那时的最终回复同样只写要发给对方的话（或第一行 "
         f"{SKIP_MARK}）。",
     ]
     if context:
-        lines += ["", "主人在做的事（主人确认可以对外说的项目和术语；对方聊到这些，按这里理解，以做这件事的人的身份接话）：", context]
+        lines += ["", "主人在做的事（只用来听懂对方说的话；不要主动提，也不要拿来接话）：", context]
     if style:
         lines += ["", style]
     return "\n".join(lines)
@@ -510,7 +523,9 @@ def batch_prompt(contact: dict, batch: dict, settings: dict, style: str = "", *,
 
 def recent_lines(recent, settings: dict) -> list[str]:
     """``recent`` (incoming messages, oldest first) as the prompt's lines: "[MM-DD HH:MM] 名字：内容", the owner's
-    marked （主人）, each RECENT_CHARS at most on one line."""
+    marked （主人）, what this proxy sent as them （代答） (``by_proxy``, ``mark_sent``), each RECENT_CHARS at most on
+    one line. Both were （主人） once, and a stand the proxy made up ("从我这边看 那就是最好的训练数据了") was the
+    owner's word to the next batch (T571)."""
     owner_id, owner = settings.get("owner_user_id") or "", settings.get("owner_name") or "主人"
     lines = []
     for m in list(recent)[-RECENT_MESSAGES:]:
@@ -518,9 +533,61 @@ def recent_lines(recent, settings: dict) -> list[str]:
         if not text:
             continue
         text = text if len(text) <= RECENT_CHARS else text[:RECENT_CHARS] + "…"
-        name = f"{owner}（主人）" if owner_id and m.get("sender_id") == owner_id else (m.get("sender_name") or "对方")
+        mine = owner_id and m.get("sender_id") == owner_id
+        name = (f"{owner}（代答）" if mine and m.get("by_proxy") else f"{owner}（主人）" if mine else
+                m.get("sender_name") or "对方")
         lines.append(f"[{str(m.get('time') or '')[5:16]}] {name}：{text}")
     return lines
+
+
+def proxy_sent(state_dir: Path, key: str) -> tuple[set, set]:
+    """What this proxy sent to contact ``key`` as the owner: the ids it read back, and (squashed) the text of those
+    that may have gone out (uncertain) or went out without one, for messages that are the proxy's, not the owner's."""
+    done = [b for b in read_batches(state_dir, statuses=("sent", "uncertain")) if b["contact"] == key]
+    ids = {b.get("sent_message_id") for b in done if b["status"] == "sent" and b.get("sent_message_id")}
+    texts = {squash(b.get("reply")) for b in done if b["status"] == "uncertain" or not b.get("sent_message_id")}
+    return ids, texts - {""}
+
+
+def mark_sent(recent, owner_id: str, sent: tuple[set, set]) -> list[dict]:
+    """``recent`` with ``by_proxy`` on the owner's messages this proxy sent (``proxy_sent``)."""
+    ids, texts = sent
+    return [{**m, "by_proxy": True} if m.get("sender_id") == owner_id and (m.get("id") in ids or squash(m.get("content")) in texts)
+            else m for m in recent]
+
+
+def project_names(context: str) -> list[str]:
+    """The projects CONTEXT_FILE's 项目 section names: of each "- 名字（别名、以前叫 别名）：…" line the name and its
+    aliases."""
+    names, inside = [], False
+    for line in str(context or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("-"):
+            inside = stripped.rstrip("：:") == PROJECTS_HEAD if stripped else inside
+            continue
+        if not inside:
+            continue
+        head = re.split(r"[：:]", stripped[1:], maxsplit=1)[0].strip()
+        name, _, aliases = head.partition("（")
+        found = [name.strip()] + [re.sub(r"^(以前叫|原名|又叫|也叫)", "", a).strip()
+                                  for a in re.split(r"[、,，/]", aliases.rstrip("）)"))]
+        names += [n for n in found if n and n not in names]
+    return names
+
+
+def mentions(name: str, text: str) -> bool:
+    """Whether ``text`` names ``name``, case and spaces aside."""
+    flat, word = "".join(str(text or "").lower().split()), "".join(name.lower().split())
+    if word.isascii():  # "Bridge" in a word of its own, not inside another one.
+        return re.search(rf"(?<![a-z0-9_]){re.escape(word)}(?![a-z0-9_])", flat) is not None
+    return word in flat
+
+
+def unprompted_projects(reply: str, names, heard) -> list[str]:
+    """The project ``names`` (``project_names``) ``reply`` brings up that none of ``heard`` (what the batch and its
+    chat said, but this proxy) mentioned: a reply naming them is shown to the owner, not sent (T571)."""
+    said = "\n".join(heard)
+    return [n for n in names if mentions(n, reply) and not mentions(n, said)]
 
 
 def brief_history(rows: list[dict]) -> list[dict]:

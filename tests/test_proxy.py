@@ -78,9 +78,16 @@ class RecordTests(unittest.TestCase):
         self.assertIn('lark-cli --profile me', prompt)
         self.assertIn('不出问题卡', prompt)  # Never waits for the owner (2026-10-27).
         self.assertTrue(records.batch_prompt(PERSON, batch, {}, '主人风格：很短').endswith('主人风格：很短'))
-        # T571: no "a noncommittal line when nothing is found"; the owner answers as the one who does the work.
+        # T571: no "a noncommittal line when nothing is found"; asked about the owner's work, it looks it up and says
+        # what it found. Then (11-20 22:09) no "the owner is the expert, say something concrete" for small talk: that
+        # is left alone, and no plans, stands or projects of the owner's said unasked.
         self.assertNotIn('不表态', prompt)
-        self.assertIn('主人就是行家', prompt)
+        self.assertNotIn('主人就是行家', prompt)
+        self.assertIn('对方直接问主人的事：先查', prompt)
+        self.assertIn('外行式的反问', prompt)
+        self.assertIn('没问主人事：默认不接', prompt)
+        self.assertIn('不替主人说计划、时间和打算', prompt)
+        self.assertIn('不主动提主人的项目', prompt)
         self.assertNotIn(records.RECENT_HEAD, prompt)  # No recent chat read: the model reads the chat itself.
         self.assertIn('先检索再答', prompt)
 
@@ -1501,7 +1508,8 @@ class FlowTests(ProxyCase):
 
     def test_a_submitted_batch_has_the_chat_and_the_owner_context_in_its_prompt(self):
         (records.proxy_dir(self.state) / records.CONTEXT_FILE).write_text('炼化：把人沉淀进 Agent\n', encoding='utf-8')
-        listed = {'data': {'messages': [item('m1', '接口文档在哪'), item('m0', '最近在疯狂炼化', sender=OWNER)]}}
+        long_ago = time.time() - 3600  # Quiet for an hour: the batch does not wait for the owner (T571).
+        listed = {'data': {'messages': [item('m1', '接口文档在哪'), item('m0', '最近在疯狂炼化', sender=OWNER, at=long_ago)]}}
         self.take_in(item('m1', '接口文档在哪'))
         [batch] = self.batches()
         submission = self.app.apps['codex'].submission
@@ -1631,3 +1639,103 @@ class FlowTests(ProxyCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OwnerFirstTests(ProxyCase):
+    """T571 (11-20 22:09, "对 Covey本来就是业务外搓出来的 / 你说的业务外是游戏这种？", sent 2 minutes after the
+    owner spoke in the chat): the proxy does not speak over the owner, does not take its own messages for theirs,
+    does not bring up their projects unasked, and never answers the owner's own message."""
+
+    def submit(self, *listed):
+        self.take_in(item('m1', '也可以多想下业务以外'))
+        [batch] = self.batches(records.OPEN)
+        submission = self.app.apps['codex'].submission
+        with owner_cli(return_value={'data': {'messages': list(listed)}}), \
+                mock.patch.object(submission, 'enqueue_chat_job', wraps=submission.enqueue_chat_job) as enqueue:
+            self.proxy.submit(self.ctx, self.settings(), records.read_contacts(self.state)[0], batch)
+        return enqueue
+
+    def test_a_batch_waits_while_the_owner_talks_in_its_chat(self):
+        self.assertEqual(records.OWNER_QUIET_MINUTES, 15)
+        spoke = time.time() - 120
+        enqueue = self.submit(item('m0', '看看后训练能不能用起来', sender=OWNER, at=spoke), item('m1', '也可以多想下业务以外'))
+        enqueue.assert_not_called()
+        [batch] = self.batches()
+        self.assertEqual(batch['status'], 'received')
+        until = batch['quiet_until']
+        self.assertAlmostEqual(until, proxy_module.message_epoch(time.strftime('%Y-%m-%d %H:%M', time.localtime(spoke))) + 900)
+        self.assertTrue(0 < self.proxy.soon <= 900)
+        self.assertGreater(proxy_module.unsettled(batch, time.time()), 600)  # ``advance`` leaves it until then.
+        self.assertTrue(any('waits until' in line and 'the owner is talking' in line for line in self.logs))
+        # Past it, the chat read again: the owner quiet since, the batch goes.
+        records.write_batch(self.state, {**batch, 'quiet_until': time.time() - 1})
+        enqueue = self.submit(item('m0', '看看后训练能不能用起来', sender=OWNER, at=time.time() - 1200), item('m1', '也可以多想下业务以外'))
+        enqueue.assert_called_once()
+
+    def test_the_wait_is_a_setting_and_the_proxys_own_messages_do_not_count(self):
+        records.write_settings(self.state, {**records.read_settings(self.state), 'owner_quiet_minutes': 0})
+        self.submit(item('m0', '我在', sender=OWNER), item('m1', '也可以多想下业务以外')).assert_called_once()
+        self.assertEqual(self.proxy.owner_quiet_until({'owner_user_id': OWNER, 'owner_quiet_minutes': 5},
+                                                      [records.incoming(item('m0', '好', sender=OWNER))]) > time.time(), True)
+        # What this proxy sent as the owner is not the owner talking.
+        mine = records.incoming(item('m0', '好', sender=OWNER))
+        self.assertEqual(self.proxy.owner_quiet_until({'owner_user_id': OWNER}, [{**mine, 'by_proxy': True}]), 0)
+
+    def test_the_proxys_own_messages_are_marked_in_the_prompt_not_taken_for_the_owners(self):
+        sent = records.new_batch(PERSON, [records.incoming(item('m-1', '有源码该多牛'))])
+        records.write_batch(self.state, {**sent, 'status': 'sent', 'sent_message_id': 'om_proxy', 'reply': '那就是最好的训练数据了'})
+        uncertain = records.new_batch(PERSON, [records.incoming(item('m-2', '在吗'))])
+        records.write_batch(self.state, {**uncertain, 'status': 'uncertain', 'reply': '在的'})
+        before = time.time() - 3600
+        enqueue = self.submit(item('om_proxy', '那就是最好的训练数据了', sender=OWNER, at=before),
+                              item('om_x', '在的', sender=OWNER, at=before),
+                              item('om_own', '等11月底忙完 搞一波', sender=OWNER, at=before), item('m1', '也可以多想下业务以外'))
+        prompt = enqueue.call_args.kwargs['prompt_content']
+        chat = prompt[prompt.index(records.RECENT_HEAD):prompt.index(records.RULES_HEAD)]
+        self.assertIn('王小明（代答）：那就是最好的训练数据了', chat)
+        self.assertIn('王小明（代答）：在的', chat)
+        self.assertIn('王小明（主人）：等11月底忙完 搞一波', chat)
+        self.assertIn('不算主人说过的话', chat)
+
+    def test_the_owners_projects_are_named_by_the_context_and_found_case_and_spaces_aside(self):
+        context = ('项目：\n- Covey（以前叫 HarnessBridge、Bridge）：个人 Agent\n- 个人 Agent（Personal Agent）：方向\n'
+                   '- posttrain-lab：工具链\n\n术语：\n- 炼化：沉淀进 Agent\n')
+        names = records.project_names(context)
+        self.assertEqual(names, ['Covey', 'HarnessBridge', 'Bridge', '个人 Agent', 'Personal Agent', 'posttrain-lab'])
+        self.assertEqual(records.unprompted_projects('对 Covey本来就是业务外搓出来的', names, ['也可以多想下业务以外']), ['Covey'])
+        self.assertEqual(records.unprompted_projects('covey 还行', names, ['你那个 Covey 咋样']), [])  # Asked about it.
+        self.assertEqual(records.unprompted_projects('我的个人agent', names, []), ['个人 Agent'])
+        self.assertEqual(records.unprompted_projects('cambridge 那边', names, []), [])  # Not "Bridge" inside a word.
+        self.assertEqual(records.unprompted_projects('在 harness_bridge/app 下', names, []), [])  # Nor in a path.
+        self.assertEqual(records.unprompted_projects('炼化了', names, []), [])  # Terms are not projects.
+
+    def test_a_reply_naming_a_project_nobody_brought_up_is_shown_not_sent(self):
+        (records.proxy_dir(self.state) / records.CONTEXT_FILE).write_text('项目：\n- Covey（以前叫 Bridge）：个人 Agent\n', encoding='utf-8')
+        batch = self.submitted()
+        sent = self.run_tick('对 Covey本来就是业务外搓出来的\n你说的业务外是游戏这种？', {'ok': True, 'submitted': True})
+        sent.assert_not_called()
+        held = records.read_batch(self.state, batch['id'])
+        self.assertEqual((held['status'], held['reply']), ('held', '对 Covey本来就是业务外搓出来的\n你说的业务外是游戏这种？'))
+        self.assertIn('「Covey」，对方没提过', held['reason'])
+        self.assertTrue(held.get('resend_card'))  # The 按建议回复 card: the owner sends it with one click.
+        # The chat named it itself: it goes.
+        records.write_batch(self.state, {**held, 'status': 'submitted', 'named_in_chat': ['Covey'], 'resend_card': None})
+        self.run_tick('Covey 还在打磨', {'ok': True, 'submitted': True}).assert_called_once()
+
+    def test_what_the_owner_says_in_the_topic_goes_out_even_with_a_project_in_it(self):
+        (records.proxy_dir(self.state) / records.CONTEXT_FILE).write_text('项目：\n- Covey：个人 Agent\n', encoding='utf-8')
+        batch = self.submitted()
+        record = {'job_id': batch['job_id'] + 1, 'status': 'done'}  # The owner's later turn in the topic.
+        with mock.patch.object(self.proxy, 'reply_of', return_value='Covey 下周给你看'), \
+                mock.patch.object(self.proxy, 'send', return_value=True) as send:
+            self.proxy.decide(self.ctx, self.settings(), records.read_contacts(self.state)[0], batch, record)
+        send.assert_called_once()
+
+    def test_a_batch_with_the_owners_own_message_is_never_answered(self):
+        batch = self.submitted()
+        mine = records.incoming(item('m9', '什么玩意儿', sender=OWNER))
+        records.write_batch(self.state, {**batch, 'messages': [*batch['messages'], mine]})
+        sent = self.run_tick('哈哈', {'ok': True, 'submitted': True})
+        sent.assert_not_called()
+        after = records.read_batch(self.state, batch['id'])
+        self.assertEqual((after['status'], after['reason']), ('skipped', '这批消息里有你自己发的，不代答'))
