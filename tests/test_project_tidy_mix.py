@@ -14,7 +14,7 @@ from unittest import mock
 from test_dispatch_cards import CHAT
 from test_project_tidy import TidyCase
 
-from covey.app import project_lead, project_tidy as tidy_module, project_tools
+from covey.app import project_lead, project_tools, topic_links
 from covey.cards import project_proposal as cards
 from covey.core.state import read_object, write_json
 from covey.app import project_members as members, projects as upgrades
@@ -200,7 +200,7 @@ class TypedNumberTest(TidyCase):
         self.tidy.realtime(self.ctx, CHAT, pair[0], "new", time.time())
         record = proposals.proposals(self.state, None)[-1]
         number = read_object(self.state / "topics" / other / "topic.json")["topic_number"]
-        with mock.patch.object(tidy_module.topic_links, "topic_numbers", return_value={number: other}):
+        with mock.patch.object(topic_links, "topic_numbers", return_value={number: other}):
             self.click({"kind": cards.NAMED_KIND, "proposal": record["id"]}, record["card"]["message_id"],
                        topics=["0", "1"], more=f"T{number}", name="网关稳定")
         made = projects.read_record(self.state, upgrades.project_id("tidy", record["id"]))

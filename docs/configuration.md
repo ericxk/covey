@@ -408,7 +408,7 @@
 | `COVEY_PINNED_OVERVIEW` | `app/overview.py`（`app/pins.py` 的 `laid` 也读：两个开关都开时看板记录的规则才算数） | 关；`1` 开 | 否 |
 | `COVEY_HARNESS_PROBE` | `app/availability.py`（`PROBE_ENV`；探测本身在 `core/harness_probe.py`） | 关；开了才每 60 秒的可用性检查里对 Claude、Codex 各做一次真实调用（缓存 6 小时，失败 10 分钟）。缓存里是“没登录”时该 Harness 在启动卡上不可用，网络、超时等只写进健康检查。可由服务清单保存 | 否 |
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
-| `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它才要菜单「看板」）、`app/project_tidy.py`（`scheduled`：整理专项的定时也按这些时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
+| `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它才要菜单「看板」）、`app/tidy_run.py`（`scheduled`：整理专项的定时也按这些时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
 | `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：不开知识条目 | 否 |
 | `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/butler.py`（`mcp_config` 同上）、`core/butler_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根的 `extensions/enabled`（没有这个文件就没有扩展），再按数据根的 `extensions/enabled` 加减（`bin/covey_plugins.py enable/disable` 写它）；设成空串表示一个都不要。设了它就不看那两个文件。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
@@ -462,7 +462,7 @@
 | `COVEY_PROJECT_TIDY_DAYS` | `core/project_proposals.py`（`number`） | 7：整理看最近几天有过一轮的话题（专项里的话题不论多久都看） | 否 |
 | `COVEY_PROJECT_TIDY_AGE_DAYS` | `core/project_proposals.py`（`number`） | 3：话题开了这么多天后又有一轮结束，算一次实时时机（每个话题一次） | 否 |
 | `COVEY_PROJECT_TIDY_WORDS` | `core/project_proposals.py`（`number`） | 15：主人在话题里说到这么多句（他开的轮数），算一次实时时机（每个话题一次） | 否 |
-| `COVEY_PROJECT_TIDY_MIN_TOPICS` | `core/project_proposals.py`（`number`）、`app/project_tidy.py`（`realtime`、`start`） | 5：聊天里的话题少于这个数时不整理（实时、定时、手动都不） | 否 |
+| `COVEY_PROJECT_TIDY_MIN_TOPICS` | `core/project_proposals.py`（`number`）、`app/tidy_realtime.py`（`realtime`）、`app/tidy_run.py`（`start`） | 5：聊天里的话题少于这个数时不整理（实时、定时、手动都不） | 否 |
 | `COVEY_PROJECT_TIDY_JUDGE_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`judge`） | 90：一次判断调用的硬上限，秒；超了这次判断作废，什么都不改 | 否 |
 | `COVEY_PROJECT_TIDY_READ_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`backfill`） | 60：补一个老话题的要点那次调用的上限，秒；超了只跳过这个话题 | 否 |
 | `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_DISPATCH_CARD=1`） | 空或 `off`：不转成专项（默认）；`butler`：管家转话时带了 `project`（`topic_send` 的 `project` 参数），派发卡就静默转成专项，是不是由管家按话的意思判断（主人要长期跟进、要分成几个话题持续推进，或直接说“开个专项”“转成专项”才带，拿不准不带），不再匹配主人话里的关键词；`word`：旧值，意思同 `butler`；`auto`：再加该话题来回到第 3 轮。同时最多 3 个活专项，超了不转。直接开专项（管家的 `topic_start` 带 `project`）不看它，只看 `COVEY_PROJECTS`。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |

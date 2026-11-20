@@ -64,6 +64,7 @@ bin/  →  app/  →  feishu/ · cards/ · backends/<名字>/  →  core/
 - **任务进程两端**：起进程 `app/runner_spawn.py`，收发 `app/runner_ipc.py`（`RemoteControl`、`RunnerLink`），认领和收尾 `app/detached.py`；文件名和收发原语 `core/run_dir.py`；退出前等的后台线程 `core/background.py`。
 - **投递**：结算 `app/turn_settle.py`，发送 `app/worker.py` 的 `TurnDelivery` 和 `app/answer_delivery.py`，答案卡 `cards/answer_card.py`、`app/answer_cards.py`，重投 `app/redelivery.py`、`app/outbox.py`，恢复 `core/recovery.py`、`app/recovery_cards.py`。
 - **看板**：`app/pins.py`、`app/status_cards.py`、`core/board_read.py`、`app/overview.py`、`app/topic_seen.py`。管家和回带见[管家](butler.md)，代答见[代答](proxy.md)。
+- **整理专项**：`app/project_tidy.py` 的 `ProjectTidy` 是 mixin 的组合，线程和话题要点收集在它自己，其余各块一个文件：实时归并和提议新专项 `app/tidy_realtime.py`，提议卡与跟着归并更新 `app/tidy_proposals.py`，照办（建、归进、移出、合并、拆、收起，标话题的卡）`app/tidy_apply.py`，定时或手动的一次整理与整理卡 `app/tidy_run.py`，卡片点击（`claim` 是入口）`app/tidy_clicks.py`，网页面板 `app/tidy_web.py`，共用的小函数和提议的认领 `app/tidy_facts.py`。
 
 ## 一条消息的数据流
 

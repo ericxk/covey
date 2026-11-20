@@ -17,7 +17,7 @@ from test_dispatch_cards import CHAT
 from test_project_upgrade import UpCase
 
 from covey.app import project_sorter as sorter
-from covey.app import project_tidy as tidy_module
+from covey.app import tidy_run, topic_links
 from covey.app import butler_projects, project_members as members, projects as upgrades
 from covey.app.project_tidy import ProjectTidy
 from covey.app.track_standby import Failed
@@ -456,7 +456,7 @@ class ProposalTest(TidyCase):
         self.assertEqual([choice["topic"] for choice in choices][:3], [*self.pair, third])
         self.assertEqual([choice["chosen"] for choice in choices][:3], [True, True, False])
         number = read_object(self.state / "topics" / third / "topic.json")["topic_number"]
-        with mock.patch.object(tidy_module.topic_links, "topic_numbers", return_value={number: third}):
+        with mock.patch.object(topic_links, "topic_numbers", return_value={number: third}):
             self.assertEqual(self.click({"kind": cards.NAMED_KIND, "proposal": record["id"]}, message,
                                         topics=["0"], more=f"T{number} T99999", name="Prompt 提效"), "tidy_named")
         made = projects.read_record(self.state, upgrades.project_id("tidy", record["id"]))
@@ -834,7 +834,7 @@ class WhyUnreadTest(UpCase):
         self.assertEqual(sorter.why_failed(Failed("exit_nonzero", "code=1 boom")), "exit_nonzero")
         self.assertEqual(sorter.why_failed(Failed("timeout")), "timeout")
         for reason in ("refused", "too_long", "exit_nonzero", "timeout", "model_error", "empty", "redacted"):
-            self.assertIn(reason, tidy_module.UNREADABLE_WORDS)
+            self.assertIn(reason, tidy_run.UNREADABLE_WORDS)
 
 
 class MomentTest(TidyCase):
@@ -880,7 +880,7 @@ class OffTest(TidyCase):
                 self.assertEqual(self.tidy.threads(), ())
                 self.tidy.tick(self.ctx)
                 self.assertEqual(proposals.load(self.state).get("cursor"), None)
-                self.assertEqual(self.tidy.start(self.ctx), tidy_module.OFF_WORDS)
+                self.assertEqual(self.tidy.start(self.ctx), tidy_run.OFF_WORDS)
                 self.assertEqual(Ops(self.env).run({"kind": "tidy", "op_id": "o2", "payload": {}})[0], "failed")
                 self.assertNotIn("projects_tidy", [tool["name"] for tool in butler_tool_specs.listed(dict(os.environ))])
                 from covey.app.web_collect import Collector
