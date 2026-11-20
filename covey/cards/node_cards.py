@@ -1,6 +1,6 @@
-"""The cards of nodes (节点, core/nodes.py): an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most)
-and the same card redrawn in place once it clears (✅ … 已恢复 · 持续 25 分钟); ``alert_text`` is the Markdown sent
-when Feishu refuses the card. Times are the machine's local time, as on every card.
+"""The cards of nodes (节点, core/nodes.py): an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most
+memory; for a disk who wrote the most, how fast it grew and its biggest places) and the same card redrawn in place
+once it clears (✅ … 已恢复 · 持续 25 分钟); ``alert_text`` is the Markdown sent when Feishu refuses the card. Times are the machine's local time, as on every card.
 
 ``machine_lines`` says one node's state in a line or two, for the 设备 tab (app/node_panel.py) and the butler.
 """
@@ -75,12 +75,89 @@ def top_lines(top, tasks):
     return lines
 
 
+def span_text(seconds):
+    """近 1 小时 / 近 24 小时 / 近 40 分钟, for a span the node measured."""
+    minutes = int(max(0, seconds or 0) // 60)
+    if minutes >= 55:
+        return f"近 {round(minutes / 60)} 小时"
+    return f"近 {max(1, minutes)} 分钟"
+
+
+def growth_line(event):
+    """增长：近 1 小时 +2.0 GiB，近 24 小时 +45.0 GiB；按近 1 小时的速度约 23 小时写满."""
+    spans = [g for g in event.get("growth") or [] if isinstance(g, dict) and isinstance(g.get("bytes"), (int, float))]
+    if not spans:
+        return ""
+    parts = [f"{span_text(g.get('secs'))} {'+' if g['bytes'] >= 0 else '−'}{size(abs(g['bytes']))}" for g in spans]
+    line = "**增长**：" + "，".join(parts)
+    rising = next((g for g in spans if g["bytes"] > 0 and g.get("secs")), None)
+    free = event.get("free")
+    if rising and isinstance(free, (int, float)) and free > 0:
+        line += f"；按{span_text(rising['secs'])}的速度约 {lasted(free / rising['bytes'] * rising['secs'])}写满"
+    return line
+
+
+def writer_lines(writers, tasks):
+    """Who wrote the most: ``comm`` bytes written, and the topic of its task when ``tasks`` knows it."""
+    lines = []
+    for proc in writers or []:
+        line = f"{safe_text(proc.get('comm', '?'), 30)} 写了 {size(proc.get('bytes'))}"
+        task = tasks.get(proc.get("task") or "")
+        if task:
+            line += f" · {safe_text(task, 40)}"
+        lines.append(line)
+    return lines
+
+
+def dir_lines(dirs):
+    """The biggest places: a directory and its size, or the files lying loose in one (with their name shape)."""
+    lines = []
+    for item in (dirs or {}).get("items") or []:
+        where = safe_text(item.get("path", "?"), 80)
+        if item.get("files"):
+            line = f"{where} 下散落的 {item['files']} 个文件 {size(item.get('bytes'))}"
+            if item.get("shape"):
+                line += f"（多为 {safe_text(item['shape'], 60)}）"
+        else:
+            line = f"{where} {size(item.get('bytes'))}"
+        lines.append(line)
+    return lines
+
+
+def disk_sections(event, tasks):
+    """(title, lines, grey note) of each part a disk alert adds; a part with nothing to say is left out."""
+    out = []
+    growth = growth_line(event)
+    if growth:
+        out.append((growth, [], ""))
+    writers = event.get("writers") or []
+    lines = writer_lines(writers, tasks)
+    if lines:
+        out.append((f"**写入最多的进程**（{span_text(writers[0].get('secs'))}，所有盘合计，含网络盘）", lines, ""))
+    dirs = event.get("dirs") or {}
+    lines = dir_lines(dirs)
+    if lines:
+        grey = f"统计于 {clock(dirs['at'])}" if dirs.get("at") else ""
+        if dirs.get("partial"):
+            grey += ("，" if grey else "") + "限时内没统计完，只算了一部分"
+        out.append(("**大目录**", lines, grey))
+    return out
+
+
+def sections(event, tasks):
+    if family(event.get("rule", "")) in ("disk", "write"):
+        return disk_sections(event, tasks)
+    lines = top_lines(event.get("top"), tasks)
+    return [("**内存占用最多**", lines, "")] if lines else []
+
+
 def alert_card(event, name, tasks):
     head = panel_header("robot_outlined", f"⚠️ {title_of(event, name)}", color="red")
     elements = [md(safe_text(what(event), 300)), note(f"从 {clock(event.get('at') or time.time())} 起")]
-    lines = top_lines(event.get("top"), tasks)
-    if lines:
-        elements.append(md("**占用最多**\n" + "\n".join(f"- {line}" for line in lines)))
+    for title, lines, grey in sections(event, tasks):
+        elements.append(md("\n".join([title] + [f"- {line}" for line in lines])))
+        if grey:
+            elements.append(note(grey))
     return styled_panel(head, elements, f"⚠️ {title_of(event, name)}")
 
 
@@ -94,7 +171,8 @@ def cleared_card(event, name, tasks, cleared_at):
 
 def alert_text(event, name, tasks):
     lines = [f"⚠️ **{title_of(event, name)}**", safe_text(what(event), 300), f"从 {clock(event.get('at') or time.time())} 起"]
-    lines += [f"- {line}" for line in top_lines(event.get("top"), tasks)]
+    for title, rows, grey in sections(event, tasks):
+        lines += [title] + [f"- {row}" for row in rows] + ([grey] if grey else [])
     return "\n".join(lines)
 
 

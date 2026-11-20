@@ -10,7 +10,9 @@ What it does, in one process (``run``):
   ``BURST_HOLD``): CPU and memory of the container (cgroup v1 or v2; the machine's /proc when there is no limit),
   pressure, load, the disks of ``paths``, GPUs when ``nvidia-smi`` is there, and the processes using the most memory
   and CPU, each with the Covey task it belongs to (the ``COVEY_TASK_DIR`` of its environment, the only variable
-  read). Each sample is one JSON line in a local ring (``~/.covey/node/data/``: SEGMENT bytes a segment, RING bytes and
+  read). For the disks also: the processes that wrote the most (``writers``, from ``/proc/<pid>/io`` every
+  WRITERS_EVERY), and on a disk DIRS_AT full or more how much it grew (``growth``) and its biggest places
+  (``dirs``: counted in a thread, never entering another mount, DIRS_BUDGET seconds at most). Each sample is one JSON line in a local ring (``~/.covey/node/data/``: SEGMENT bytes a segment, RING bytes and
   KEEP_DAYS at most), so a hung or full network disk stops nothing and the hub can take what it missed.
 - **dials the hub** (TLS, the hub's certificate pinned by the SHA-256 of its DER; never listens on a port): ``hello``
   with its key, then the samples the hub has not acknowledged (``welcome.ack``), then each new one. The hub may say
@@ -36,6 +38,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import signal
 import socket
@@ -70,6 +73,16 @@ CONNECT_TIMEOUT = 10.0
 ACK_IDLE = 120.0  # No line from the hub this long: the connection is dropped and dialled again.
 LOG_MAX = 1 << 20
 TASK_ENVS = (b"COVEY_TASK_DIR=", b"LARK_BRIDGE_TASK_DIR=")
+WRITERS_EVERY = 60.0  # /proc/<pid>/io of every process read this often: who wrote the most since the last read.
+TOP_WRITERS = 5
+WRITERS_MIN = 16 << 20  # Bytes a process must have written since the last read to be named.
+GROWTH_EVERY = 600.0  # One (time, used) point a disk this often, for how much it grew in GROWTH_SPANS.
+GROWTH_SPANS = (3600, 86400)
+DIRS_AT = 85.0  # A disk this full (percent) gets its biggest places counted, DIRS_EVERY at most and in a thread.
+DIRS_EVERY = 1800.0
+DIRS_BUDGET = 120.0  # Seconds a count may take; past them it stops and says ``partial``.
+DIRS_TOP = 6
+SHAPES_MAX = 2000  # Name shapes kept a folder of loose files.
 HOOK_BEGIN = "# >>> covey node >>>"
 HOOK_END = "# <<< covey node <<<"
 LAUNCHD_LABEL = "com.covey.node"
@@ -289,6 +302,101 @@ def disks(paths):
     return out
 
 
+def mount_points():
+    """The mount points of this machine (``/proc/self/mountinfo``), or None where there is none (a Mac)."""
+    text = read_text("/proc/self/mountinfo", 4 << 20)
+    if text is None:
+        return None
+    out = set()
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) > 4:
+            out.add(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), parts[4]))
+    return out
+
+
+def shape(name):
+    """A file name with its ids and numbers as ``*``: envreplay-artifacts-*.tar for every such archive."""
+    return re.sub(r"\*+", "*", re.sub(r"[0-9a-fA-F]{8,}|[0-9]+", "*", name))
+
+
+def biggest(root, budget=DIRS_BUDGET, top=DIRS_TOP, mounts=None, clock=time.monotonic):
+    """The biggest places on the disk of ``root``, by the blocks they use: each directory two levels down (three for
+    one holding a quarter of all, like a home), and the files lying loose in ``root`` or in a directory one level
+    down (with their commonest name shape, as a folder of archives is often what filled a disk). Another mount under ``root`` is never entered (a network disk is not
+    walked): the mount points of ``mounts`` (``mount_points()`` when None), else a directory on another device.
+    Files are counted whatever device they say, as overlay reports its layers' devices for them."""
+    started = clock()
+    mounts = mount_points() if mounts is None else mounts
+    root = os.path.abspath(root)
+    try:
+        dev = os.stat(root).st_dev
+    except OSError as exc:
+        return {"path": root, "error": type(exc).__name__}
+    places, inner, loose, shapes = {}, {}, {}, {}
+    partial, seen = False, 0
+    stack = [(root, 0, None, None)]
+    while stack:
+        folder, depth, place, sub = stack.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for entry in entries:
+            seen += 1
+            if seen % 2000 == 0 and clock() - started > budget:
+                partial = True
+                break
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if mounts is not None and entry.path in mounts:
+                        continue
+                    if mounts is None and entry.stat(follow_symlinks=False).st_dev != dev:
+                        continue
+                    stack.append((entry.path, depth + 1, entry.path if depth == 1 else place,
+                                  entry.path if depth == 2 else sub))
+                    continue
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            used = getattr(st, "st_blocks", 0) * 512 or st.st_size
+            if depth < 2:
+                key = folder
+                count = loose.setdefault(key, [0, 0])
+                count[0] += used
+                count[1] += 1
+                kinds = shapes.setdefault(key, {})
+                kind = shape(entry.name)
+                if kind in kinds or len(kinds) < SHAPES_MAX:
+                    kinds[kind] = kinds.get(kind, 0) + used
+            else:
+                places[place] = places.get(place, 0) + used
+                if sub:
+                    inner[sub] = inner.get(sub, 0) + used
+        if partial:
+            break
+    total = sum(places.values()) + sum(c[0] for c in loose.values())
+    children = {}
+    for name, used in inner.items():
+        children.setdefault(os.path.dirname(name), []).append({"path": name, "bytes": used})
+    rows = []
+    for name, used in places.items():
+        if used > total / 4 and children.get(name):
+            rows += sorted(children[name], key=lambda r: -r["bytes"])[:top]
+        else:
+            rows.append({"path": name, "bytes": used})
+    for key, (used, count) in loose.items():
+        row = {"path": key, "bytes": used, "files": count}
+        kinds = shapes.get(key) or {}
+        if kinds:
+            kind = max(kinds, key=kinds.get)
+            if kinds[kind] >= used / 2:
+                row["shape"] = kind
+        rows.append(row)
+    rows.sort(key=lambda r: -r["bytes"])
+    return {"path": root, "items": rows[:top], "partial": partial, "secs": round(clock() - started, 1)}
+
+
 def gpus():
     exe = shutil.which("nvidia-smi")
     if not exe:
@@ -388,6 +496,9 @@ class Sampler:
         self.linux = os.path.isdir("/proc/self")
         self.markers = {}  # (pid, start) -> task key or "", read once a process.
         self.boot = boot_id()
+        self.written, self.writers, self.writers_at = {}, [], None  # (pid, start) -> write_bytes at writers_at.
+        self.used = {}  # path -> [(time, used)], one point a GROWTH_EVERY.
+        self.dirs, self.dirs_at, self.dirs_busy = {}, {}, set()  # By device: the last count, when, running.
 
     def interval(self):
         return BURST if self.clock() < self.burst_until else INTERVAL
@@ -413,11 +524,14 @@ class Sampler:
         out["io"] = {"psi": pressure("io")}
         out["disk"] = disks(self.paths)
         self.probe(now, out["disk"])
+        self.disk_extras(now, out["disk"])
         if now - self.gpu_at >= GPU_EVERY:
             self.gpu_rows, self.gpu_at = gpus(), now
         if self.gpu_rows is not None:
             out["gpu"] = self.gpu_rows
         out["procs"] = self.top(now)
+        if self.writers:
+            out["writers"] = self.writers
         self.update_burst(now, mem)
         out["burst"] = now < self.burst_until
         return out
@@ -431,6 +545,8 @@ class Sampler:
             before = self.last_ticks.get(key)
             row["cpu"] = round(100.0 * (row["ticks"] - before[1]) / HZ / max(now - before[0], 1e-6), 1) if before else 0.0
         self.last_ticks = ticks
+        if self.linux and (self.writers_at is None or now - self.writers_at >= WRITERS_EVERY):
+            self.count_writes(now, rows)
         chosen = {}
         for row in sorted(rows, key=lambda r: -r["rss"])[:TOP_RSS]:
             chosen[row["pid"]] = row
@@ -439,17 +555,89 @@ class Sampler:
         out = []
         for row in sorted(chosen.values(), key=lambda r: -r["rss"]):
             item = {"pid": row["pid"], "ppid": row["ppid"], "comm": row["comm"][:40], "rss": row["rss"], "cpu": row["cpu"]}
-            if self.linux:
-                key = (row["pid"], row["start"])
-                if key not in self.markers:
-                    self.markers[key] = read_environ_marker(row["pid"]) or ""
-                if self.markers[key]:
-                    item["task"] = self.markers[key]
+            if self.linux and self.task_of(row):
+                item["task"] = self.task_of(row)
             out.append(item)
         if len(self.markers) > 4 * (TOP_RSS + TOP_CPU):
             alive = {(r["pid"], r["start"]) for r in rows}
             self.markers = {k: v for k, v in self.markers.items() if k in alive}
         return out
+
+    def task_of(self, row):
+        key = (row["pid"], row["start"])
+        if key not in self.markers:
+            self.markers[key] = read_environ_marker(row["pid"]) or ""
+        return self.markers[key]
+
+    def count_writes(self, now, rows):
+        """``writers``: the processes that wrote the most since the last count, WRITERS_MIN at least (``write_bytes``
+        of ``/proc/<pid>/io``, readable for this user's processes; it counts every disk, a network one too), with the
+        seconds it covers."""
+        written, grew = {}, []
+        for row in rows:
+            text = read_text("/proc/%d/io" % row["pid"], 4096)
+            value = parse_kv(text or "").get("write_bytes:")
+            if not isinstance(value, int):
+                continue
+            key = (row["pid"], row["start"])
+            written[key] = value
+            if key in self.written and value - self.written[key] >= WRITERS_MIN:
+                grew.append((value - self.written[key], row))
+        span = round(now - self.writers_at) if self.writers_at is not None else 0
+        self.writers = []
+        for amount, row in sorted(grew, key=lambda g: -g[0])[:TOP_WRITERS]:
+            item = {"pid": row["pid"], "comm": row["comm"][:40], "bytes": amount, "secs": span}
+            task = self.task_of(row)
+            if task:
+                item["task"] = task
+            self.writers.append(item)
+        self.written, self.writers_at = written, now
+
+    def disk_extras(self, now, rows):
+        """On each disk DIRS_AT full or more: ``growth`` (bytes in each of GROWTH_SPANS, over the seconds the points
+        cover) and ``dirs`` (``biggest``, counted once a device and DIRS_EVERY at most, in a thread)."""
+        devices = {}
+        for row in rows:
+            total, free = row.get("total"), row.get("free")
+            if not isinstance(total, int) or not isinstance(free, int):
+                continue
+            used = total - free
+            points = self.used.setdefault(row["path"], [])
+            if not points or now - points[-1][0] >= GROWTH_EVERY:
+                points.append((now, used))
+                del points[:-(max(GROWTH_SPANS) // int(GROWTH_EVERY) + 2)]
+            if not isinstance(row.get("pct"), (int, float)) or row["pct"] < DIRS_AT:
+                continue
+            growth = []
+            for span in GROWTH_SPANS:
+                base = next((p for p in points if now - p[0] <= span + GROWTH_EVERY / 2), None)
+                if base and now - base[0] >= span / 2:
+                    growth.append({"secs": round(now - base[0]), "bytes": used - base[1]})
+            if growth:
+                row["growth"] = growth
+            try:
+                dev = os.stat(row["path"]).st_dev
+            except OSError:
+                continue
+            devices.setdefault(dev, []).append(row)
+        for dev, same in devices.items():
+            root = min((r["path"] for r in same), key=len)
+            last = self.dirs_at.get(dev)
+            if dev not in self.dirs_busy and (last is None or now - last >= DIRS_EVERY):
+                self.dirs_at[dev] = now
+                self.dirs_busy.add(dev)
+                threading.Thread(target=self._count_dirs, args=(dev, root, now), daemon=True).start()
+            if dev in self.dirs:
+                for row in same:
+                    row["dirs"] = self.dirs[dev]
+
+    def _count_dirs(self, dev, root, now):
+        try:
+            result = biggest(root)
+            result["at"] = round(now, 3)
+            self.dirs[dev] = result
+        finally:
+            self.dirs_busy.discard(dev)
 
     def update_burst(self, now, mem):
         used, limit = mem.get("used"), mem.get("limit")

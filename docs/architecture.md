@@ -477,8 +477,9 @@ cancelled、superseded：终态
 - **节点程序**：`core/node_agent.py`，和设备端小程序同样的约束（单文件、只用标准库、Python 3.9，`scripts/check_shim_compat.py` 检查），不导入 `covey`。装在 `~/.covey/node/`，`flock` 保证一台机器一个；`join`、`run`、`ensure`、`status`、`uninstall`。
 - **连接**：节点拨 Hub（TLS，按 Hub 证书 DER 的 SHA-256 固定），Hub 不连设备。`hello`（别名和密钥）→ `welcome`（Hub 已有的序号、应跑的版本）→ 补传 → 每个新样本一行；Hub 每 30 秒回 `ack`。断了按 1 秒起、翻倍到 60 秒重连；版本不同时节点从 `/node.py` 取新文件、校验哈希后重启自己，所以部署后各节点跟着升级。
 - **加入**：一次性口令（`core/nodes.py` 的 `open_join`/`claim`）换一把设备密钥，Hub 只存哈希；粘贴的命令是 `curl --pinnedpubkey … /join/<口令> | python3 -`。同一个端口上 `GET` 走 HTTP（只有 `/join/<口令>` 和 `/node.py`），其余是节点协议。
-- **采样**（`Sampler`）：每 10 秒一份；内存到上限 80%、60 秒涨上限的 5%、OOM 计数增加时改 2 秒一份至少 5 分钟。cgroup v1/v2 的内存与 CPU（没有上限时用整机）、PSI、load、各路径的空间（加每 10 分钟一次试写，单独线程，卡住的路径报 `hung`）、`nvidia-smi`、RSS 和 CPU 最多的进程（环境里只读 `COVEY_TASK_DIR`，每个进程读一次，带时限）。先写本地环形缓冲，再发 Hub。
+- **采样**（`Sampler`）：每 10 秒一份；内存到上限 80%、60 秒涨上限的 5%、OOM 计数增加时改 2 秒一份至少 5 分钟。cgroup v1/v2 的内存与 CPU（没有上限时用整机）、PSI、load、各路径的空间（加每 10 分钟一次试写，单独线程，卡住的路径报 `hung`）、`nvidia-smi`、RSS 和 CPU 最多的进程（环境里只读 `COVEY_TASK_DIR`，每个进程读一次，带时限）。为看盘：每 60 秒读一次各进程的 `/proc/<pid>/io`，报这段时间写入至少 16 MiB 的进程中最多的 5 个（`writers`，只读得到本用户的进程）；用到 85% 以上的路径还带 `growth`（每 10 分钟记一个已用量，报近 1 小时、近 24 小时涨了多少）和 `dirs`（`biggest`：同一块盘只数一次、30 分钟至多一次、单独线程、限时 120 秒，没数完标 `partial`；不进 `/proc/self/mountinfo` 里的任何挂载点，没有它时不进别的设备上的目录，所以不会走进 NAS；文件不按设备号筛，因为 overlay 给文件报的是各层的设备号，`du -x` 在 overlay 上会因此漏算。报两层目录，占总量四分之一以上的再展开一层，根和第一层目录里散落的文件单算一项并带最常见的文件名形状，如 `envreplay-artifacts-*.tar`）。先写本地环形缓冲，再发 Hub。
 - **Hub 端**：`app/node_gateway.py` 在 Bridge 里起 TLS 服务（`nodes-gateway` 线程），写 `<状态目录>/nodes/<节点>/` 的记录、折每分钟一行、按 `core/node_rules.py` 判规则，事件写进 `nodes/events/`；`app/node_alerts.py`（`nodes-alerts`）发卡、恢复时原地改卡、判失联；`app/nodes.py`（`nodes-local`）拉起本机节点、每小时清旧文件。Bridge 重启时连接断开，节点几秒到一分钟内重连并补传，样本不丢不重。
+- **告警卡**：内存和 OOM 告警列内存占用最多的进程（`top`），发到第一个能对上任务的话题；盘满和写不进的告警不带 `top`（进程内存和谁占了盘无关），改列增长和按这个速度多久写满、写入最多的进程（`write_bytes` 是所有盘合计，含网络盘）、大目录（`cards/node_cards.py` 的 `disk_sections`），发到私聊。
 - **不变量**：关着时不读不写任何文件、不起线程；节点不监听端口、不读别的环境变量；没有记录锁被跨网络持有；告警只发一次，恢复只改原卡。
 
 ## 专项（第 2 期，开发中，默认关）

@@ -69,6 +69,17 @@ class RulesTest(unittest.TestCase):
         state, events = node_rules.evaluate(state, sample(10, disk=disk), 10)
         self.assertEqual(sorted((e["rule"], e["kind"]) for e in events), [("disk:/d", "clear"), ("write:/d", "clear")])
 
+    def test_a_disk_alert_names_who_fills_the_disk_not_who_holds_memory(self):
+        dirs = {"path": "/", "items": [{"path": "/tmp", "bytes": 9 << 30, "files": 3, "shape": "a-*.tar"}], "at": 5}
+        disk = [{"path": "/d", "pct": 92.0, "free": 1 << 30, "growth": [{"secs": 3600, "bytes": 2 << 30}], "dirs": dirs}]
+        got = dict(sample(0, disk=disk), writers=[{"pid": 7, "comm": "pytest", "bytes": 6 << 30, "secs": 60, "task": "k2"}])
+        _, events = node_rules.evaluate({}, got, 0)
+        self.assertNotIn("top", events[0])
+        self.assertEqual(events[0]["writers"][0]["task"], "k2")
+        self.assertEqual((events[0]["dirs"], events[0]["growth"][0]["bytes"]), (dirs, 2 << 30))
+        _, events = node_rules.evaluate({}, sample(0, disk=[{"path": "/d", "pct": 92.0, "free": 1}]), 0)
+        self.assertEqual(sorted(events[0]), ["at", "free", "kind", "path", "pct", "rule"])  # Nothing to say, no keys.
+
 
 class RegistryTest(unittest.TestCase):
     def setUp(self):
@@ -167,6 +178,66 @@ class AgentTest(unittest.TestCase):
         self.assertIn("pct", got["mem"])
         self.assertTrue(got["procs"])
         self.assertEqual(got["disk"][0]["path"], "/")
+
+    def test_biggest_places_loose_files_and_mounts(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        for i in range(4):
+            (root / "tmp" / f"envreplay-artifacts-{i:032x}.tar").parent.mkdir(parents=True, exist_ok=True)
+            (root / "tmp" / f"envreplay-artifacts-{i:032x}.tar").write_bytes(b"x" * 300_000)
+        (root / "tmp" / "run1" / "deep").mkdir(parents=True)
+        (root / "tmp" / "run1" / "deep" / "ckpt").write_bytes(b"x" * 500_000)
+        (root / "home" / "me" / "cache").mkdir(parents=True)
+        (root / "home" / "me" / "cache" / "blob").write_bytes(b"x" * 2_000_000)
+        (root / "nas" / "big").mkdir(parents=True)
+        (root / "nas" / "big" / "data").write_bytes(b"x" * 4_000_000)
+        got = node_agent.biggest(str(root), mounts={str(root / "nas")})
+        rows = {r["path"]: r for r in got["items"]}
+        self.assertFalse(got["partial"])
+        self.assertNotIn(str(root / "nas" / "big"), rows)  # Another mount: never entered.
+        self.assertIn(str(root / "home" / "me" / "cache"), rows)  # Over a quarter of all: one level deeper.
+        self.assertIn(str(root / "tmp" / "run1"), rows)
+        loose = rows[str(root / "tmp")]
+        self.assertEqual((loose["files"], loose["shape"]), (4, "envreplay-artifacts-*.tar"))
+        ticks = iter(range(0, 10 ** 6, 1000))
+        many = root / "many"
+        many.mkdir()
+        for i in range(2100):
+            (many / str(i)).touch()
+        self.assertTrue(node_agent.biggest(str(root), budget=0.5, mounts=set(), clock=lambda: next(ticks))["partial"])
+
+    def test_writers_and_disk_growth(self):
+        disk = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, disk, True)
+        sampler = node_agent.Sampler([disk])
+        sampler.linux = True
+        written = {11: 100, 12: 100}  # 12 writes a little: under WRITERS_MIN, not named.
+        rows = [{"pid": 11, "start": 1, "comm": "pytest"}, {"pid": 12, "start": 1, "comm": "idle"}]
+        with mock.patch.object(node_agent, "read_text", lambda name, limit=0: "write_bytes: %d\n" % written[int(name.split("/")[2])]), \
+                mock.patch.object(node_agent, "read_environ_marker", lambda pid, timeout=0.5: "k5" if pid == 11 else None):
+            sampler.count_writes(0, rows)
+            self.assertEqual(sampler.writers, [])  # The first read is the baseline.
+            written[11], written[12] = 100 + (3 << 30), 100 + (1 << 20)
+            sampler.count_writes(60, rows)
+        self.assertEqual(sampler.writers, [{"pid": 11, "comm": "pytest", "bytes": 3 << 30, "secs": 60, "task": "k5"}])
+        total = 100 << 30
+        counted = threading.Event()
+        with mock.patch.object(node_agent, "biggest", lambda root: counted.set() or {"path": root, "items": []}):
+            for minute in range(0, 70, 10):
+                used = (80 << 30) + minute * (1 << 28)
+                rows = [{"path": disk, "total": total, "free": total - used, "pct": round(100.0 * used / total, 1)}]
+                sampler.disk_extras(minute * 60, rows)
+            self.assertTrue(counted.wait(5))
+        self.assertEqual(rows[0]["growth"], [{"secs": 3600, "bytes": 60 * (1 << 28)}])
+        for _ in range(50):
+            if not sampler.dirs_busy:
+                break
+            time.sleep(0.05)
+        sampler.disk_extras(4300, rows)
+        self.assertEqual(rows[0]["dirs"]["items"], [])
+        quiet = [{"path": disk, "total": total, "free": total // 2, "pct": 50.0}]
+        sampler.disk_extras(4400, quiet)
+        self.assertNotIn("growth", quiet[0])  # Under DIRS_AT: the sample stays as it was.
 
     def test_hub_addresses_and_the_login_hook(self):
         self.assertEqual(node_agent.split_hub("[::1]:9"), ("::1", 9))
@@ -465,6 +536,26 @@ class CardsTest(unittest.TestCase):
         line, _ = node_cards.machine_lines("gpu1", {"heard": time.time() - 3600}, latest, online=False)
         self.assertTrue(line.startswith("🔴 gpu1 · 失联 1 小时"))
         self.assertTrue(node_cards.machine_lines("x", {}, {}, online=False)[0].startswith("⚪"))
+
+    def test_a_disk_card_shows_growth_writers_and_places(self):
+        event = {"rule": "disk:/", "kind": "raise", "at": 0, "path": "/", "pct": 90.0, "free": 49 << 30,
+                 "growth": [{"secs": 3600, "bytes": 2 << 30}, {"secs": 86400, "bytes": 45 << 30}],
+                 "writers": [{"comm": "pytest", "bytes": 6 << 30, "secs": 60, "task": "k2"}],
+                 "dirs": {"at": 0, "partial": True, "items": [
+                     {"path": "/tmp", "bytes": 207 << 30, "files": 39, "shape": "envreplay-artifacts-*.tar"},
+                     {"path": "/tmp/claude-1000", "bytes": 43 << 30}]}}
+        card = json.dumps(node_cards.alert_card(event, "本机", {"k2": "T488 · 任务 #4894"}), ensure_ascii=False)
+        text = node_cards.alert_text(event, "本机", {"k2": "T488 · 任务 #4894"})
+        for got in (card, text):
+            self.assertIn("近 1 小时 +2.0 GiB，近 24 小时 +45.0 GiB", got)
+            self.assertIn("按近 1 小时的速度约 24 小时 30 分钟写满", got)
+            self.assertIn("pytest 写了 6.0 GiB · T488 · 任务 #4894", got)
+            self.assertIn("/tmp 下散落的 39 个文件 207.0 GiB（多为 envreplay-artifacts-", got)
+            self.assertIn("没统计完", got)
+            self.assertNotIn("占用最多", got)
+        self.assertIn("（多为 envreplay-artifacts-\\*.tar）", text)  # Markdown: the star is kept as a star.
+        mem = {"rule": "mem", "kind": "raise", "at": 0, "pct": 95, "top": [{"comm": "rg", "rss": 9 << 30}]}
+        self.assertIn("内存占用最多", node_cards.alert_text(mem, "本机", {}))
 
 
 if __name__ == "__main__":

@@ -1221,6 +1221,12 @@ def node_cards_samples():
         "alert_mem": alert_card(mem, "本机", tasks),
         "alert_oom_text": alert_text({"rule": "oom", "kind": "once", "at": FROZEN, "count": 2, "pct": 97.0, "top": top},
                                      "gpu1", tasks),
+        "alert_disk": alert_card({"rule": "disk:/", "kind": "raise", "at": FROZEN, "path": "/", "pct": 90.0,
+                                  "free": 49 << 30, "growth": [{"secs": 3600, "bytes": 2 << 30}, {"secs": 86400, "bytes": 45 << 30}],
+                                  "writers": [{"comm": "pytest", "bytes": 6 << 30, "secs": 60, "task": "k1"}],
+                                  "dirs": {"at": FROZEN - 600, "partial": False, "items": [
+                                      {"path": "/tmp", "bytes": 207 << 30, "files": 39, "shape": "envreplay-artifacts-*.tar"},
+                                      {"path": "/tmp/claude-1000", "bytes": 43 << 30}]}}, "本机", tasks),
         "alert_write": alert_card({"rule": "write:/absolute/data", "kind": "raise", "at": FROZEN, "path": "/absolute/data",
                                    "error": "Disk quota exceeded"}, "本机", {}),
         "cleared_mem": cleared_card(mem, "本机", tasks, FROZEN + 1500),

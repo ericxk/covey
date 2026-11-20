@@ -230,7 +230,7 @@
 | `cards/held_note.py` | A held note's card: a message sent while the topic's questions wait, saved to go with the answer |
 | `cards/launch_config.py` | The launch card: its form and the model-scoped reasoning choices on it, and the settings list it shares with … |
 | `cards/launch_receipt.py` | The card a submitted launch form becomes: its immutable topic configuration |
-| `cards/node_cards.py` | The cards of nodes: an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most) and the same … |
+| `cards/node_cards.py` | The cards of nodes: an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most memory |
 | `cards/node_panel.py` | The 设置 card's 设备 tab: every node with its state now, adding a device, removing one |
 | `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
 | `cards/owner_send.py` | The 代发草稿 card: a message a topic drafted for the owner to send as themselves |

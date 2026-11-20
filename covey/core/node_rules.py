@@ -11,7 +11,10 @@ out from ``link.json`` (app/node_alerts.py).
 - ``disk:<path>``: a disk at DISK_RAISE percent full raises, under DISK_CLEAR clears.
 - ``write:<path>``: a write probe that failed raises (the error says why: quota exceeded, hung), one that passed clears.
 
-A raised event carries ``top``: the sample's processes using the most memory, each with its task when it has one.
+A raised ``mem`` or ``oom`` event carries ``top``: the sample's processes using the most memory, each with its task
+when it has one. A raised ``disk`` or ``write`` event carries instead what says who fills the disk: ``writers`` (the
+processes that wrote the most lately), and for ``disk`` the disk's ``growth`` and biggest places (``dirs``) when the
+node counted them (core/node_agent.py).
 """
 from __future__ import annotations
 
@@ -25,6 +28,11 @@ def top(sample):
             for p in (sample.get("procs") or [])[:TOP]]
 
 
+def writers(sample):
+    return [{k: p.get(k) for k in ("pid", "comm", "bytes", "secs", "task") if p.get(k) is not None}
+            for p in (sample.get("writers") or [])[:TOP]]
+
+
 def evaluate(state, sample, now):
     """(new state, events) for ``sample`` received at ``now``."""
     state = {k: dict(v) if isinstance(v, dict) else v for k, v in (state or {}).items()}
@@ -35,7 +43,8 @@ def evaluate(state, sample, now):
         if entry.get("raised"):
             return
         state[rule] = {"raised": True, "since": now}
-        events.append(dict({"rule": rule, "kind": "raise", "at": now, "top": top(sample)}, **detail))
+        events.append(dict({"rule": rule, "kind": "raise", "at": now},
+                           **{k: v for k, v in detail.items() if v not in (None, [], {})}))
 
     def clear(rule, **detail):
         entry = state.get(rule) or {}
@@ -54,7 +63,7 @@ def evaluate(state, sample, now):
                 over = entry["over"] if isinstance(entry.get("over"), (int, float)) else now
                 state["mem"] = {"raised": False, "over": over}
                 if now - over >= MEM_HOLD:
-                    raise_("mem", pct=pct, used=mem.get("used"), limit=mem.get("limit"))
+                    raise_("mem", pct=pct, used=mem.get("used"), limit=mem.get("limit"), top=top(sample))
         elif pct < MEM_CLEAR:
             clear("mem", pct=pct)
         elif "over" in entry and not entry.get("raised"):
@@ -75,14 +84,15 @@ def evaluate(state, sample, now):
         full = disk.get("pct")
         if isinstance(full, (int, float)):
             if full >= DISK_RAISE:
-                raise_(rule, path=disk["path"], pct=full, free=disk.get("free"))
+                raise_(rule, path=disk["path"], pct=full, free=disk.get("free"), writers=writers(sample),
+                       growth=disk.get("growth"), dirs=disk.get("dirs"))
             elif full < DISK_CLEAR:
                 clear(rule, path=disk["path"], pct=full)
         probe = disk.get("write")
         if isinstance(probe, dict):
             rule = "write:" + disk["path"]
             if probe.get("ok") is False:
-                raise_(rule, path=disk["path"], error=probe.get("error"))
+                raise_(rule, path=disk["path"], error=probe.get("error"), writers=writers(sample))
             elif probe.get("ok"):
                 clear(rule, path=disk["path"])
     return state, events
