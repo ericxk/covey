@@ -15,6 +15,7 @@ from functools import cached_property
 from pathlib import Path
 
 from covey.core.backup import backup_paths, backup_sets, old_backups
+from covey.core.checkpoint import artifact_key
 from covey.core.history_storage import HISTORY_LOCK
 from covey.core.jobs import (FINISHED_UNREAD_FIELDS, job_file, read_job_record, slim_finished_job_record,
                                       upsert_job_record)
@@ -138,8 +139,7 @@ def diff_uploaded(state, folder):
     key = folder.name  # job-diffs/<job key>: a job key is already a slug.
     raw = read_object(state / "jobs" / (key + ".json")).get("diff_artifact_path")
     files = _upload_ledger(state, key).get("files")
-    # Keyed by core.artifact_paths.artifact_key, the digest of the recorded path.
-    entry = files.get(hashlib.sha256(raw.encode()).hexdigest()[:24]) if raw and isinstance(files, dict) else None
+    entry = files.get(artifact_key(raw)) if raw and isinstance(files, dict) else None
     if not isinstance(entry, dict) or not entry.get("sha256"):
         return False
     try:

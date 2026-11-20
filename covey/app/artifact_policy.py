@@ -13,7 +13,7 @@ from pathlib import Path
 
 from covey.app import device_files
 from covey.core import extensions
-from covey.core.artifact_paths import artifact_key, artifact_paths
+from covey.core.checkpoint import artifact_key, artifact_paths
 from covey.core.state import read_json
 
 MAX_ARTIFACT_BYTES = 20 * 1024 * 1024

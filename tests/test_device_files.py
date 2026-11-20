@@ -18,7 +18,7 @@ from support.device_guard import DeviceGuard
 from support.fake_device import FakeDevice
 
 from covey.app import artifact_policy, artifacts, device_files, turn_images
-from covey.core.artifact_paths import artifact_paths
+from covey.core.checkpoint import artifact_paths
 from covey.app.artifact_policy import SENSITIVE_NAMES, artifact_key, config_path, drive_paths, resolve_artifact
 from covey.backends.codex.appserver import image_paths
 from covey.core import devices

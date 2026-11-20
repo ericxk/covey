@@ -1,8 +1,9 @@
-"""Durable task checkpoints written by the agent and read by the bridge."""
+"""Durable task checkpoints written by the agent and read by the bridge, and the artifacts a task lists in one."""
 
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -22,6 +23,24 @@ def read_checkpoint(path: Path) -> dict:
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def artifact_paths(record):
+    """The files ``record``'s task registered as its artifacts: the checkpoint's ``artifacts``, its result file and its
+    diff file, each once. What may be published of them is app/artifact_policy.py."""
+    cp = read_checkpoint(Path(record["checkpoint_path"])) if record.get("checkpoint_path") else {}
+    raw = cp.get("artifacts", [])
+    paths = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
+    if record.get("result_file_path"):
+        paths.append(record["result_file_path"])
+    if record.get("diff_artifact_path"):
+        paths.append(record["diff_artifact_path"])
+    return list(dict.fromkeys(paths))
+
+
+def artifact_key(path):
+    """The key a button and the upload ledger name an artifact by: a digest of its recorded path."""
+    return hashlib.sha256(path.encode()).hexdigest()[:24]
 
 
 def release_user_wait(path: Path, *, drop_questions: bool = False) -> None:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from covey.cards.elements import callback_button, markdown_panel, md
 from covey.cards.review import compact_text
-from covey.core.artifact_paths import artifact_key
+from covey.core.checkpoint import artifact_key
 from covey.core.text import safe_text
 
 

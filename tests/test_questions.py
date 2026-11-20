@@ -28,7 +28,7 @@ from support.world import QuestionFixture, TopicFixture
 
 from covey.app.questions import QuestionFolded, fold_older_questions, recover_question_delivery
 from covey.app.artifact_policy import artifact_key
-from covey.core.artifact_paths import artifact_paths
+from covey.core.checkpoint import artifact_paths
 from covey.cards.artifact_panels import artifact_panel
 from covey.cards.held_note import ANSWER_REQUIRED, note_card, note_parts
 from covey.app.answers import (AnswerIncomplete, SKIPPED, TITLE_CHARS, UNANSWERED_NOTE, answer_title, form_answers,

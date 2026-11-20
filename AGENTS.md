@@ -291,7 +291,6 @@
 | 文件 | 管什么 |
 | --- | --- |
 | `core/app_manifest.py` | What the Feishu app behind a Bridge must have, and what its online version lacks |
-| `core/artifact_paths.py` | Which files a task records as its artifacts, and the key a button names one by |
 | `core/attachments.py` | Image attachments a Harness hands its model itself (Claude Code's stream-json input, pi's prompt) |
 | `core/background.py` | The work a task runner finishes before it exits |
 | `core/backup.py` | The daily backup of a state directory |
@@ -305,7 +304,7 @@
 | `core/butler_tool_specs.py` | The Bridge tools the butler's session gets |
 | `core/butler_tracks.py` | 多路并行 (docs/butler.md 多路并行 |
 | `core/card_sequence.py` | One rule for the sequence of every CardKit write to an existing card |
-| `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge |
+| `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge, and the artifacts a task lists in one |
 | `core/completion.py` | One post-root deadline, independent of model-request retry policy |
 | `core/defaults.py` | Product defaults, separate from provider-native default metadata |
 | `core/deliveries.py` | Supplements sent into a running task: one delivery record each |

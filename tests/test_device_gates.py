@@ -695,7 +695,7 @@ class NotLookedForOnTheHub(unittest.TestCase):
 
     def test_a_device_records_artifacts_are_listed_and_judged_as_the_devices_not_resolved_on_the_hub(self):
         from covey.app import artifact_policy as artifacts
-        from covey.core import artifact_paths as paths
+        from covey.core import checkpoint as paths
         record = self.record(device="gpu1", remote_workdir="/p")
         self.assertEqual(paths.artifact_paths(record), [str(self.hub_file), "rel.txt", str(self.root / "r.md")])
         self.assertEqual(paths.artifact_paths(self.record()), paths.artifact_paths(record))
