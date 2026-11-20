@@ -44,7 +44,7 @@ Harness 是执行任务的 Agent 程序，核心带五个：Codex、Claude Code�
 | Claude | 一次 `claude` 双向初始化返回的模型和声明的档位；接托管网关时含网关 `/v1/models` 的模型 |
 | dsh | Acme `/v1/models` 里 `anthropic-messages` 协议（2026-11 起目录写作 `anthropic`，同样算）的模型 |
 | Pi | 和 Codex 相同的两处来源，只取 `gpt` 开头的模型，去掉 `ultra` 档 |
-| Antigravity | `agy models` 列出的模型（当前登录的 Google 账号能用的）；没登录时 Antigravity 不出现 |
+| Antigravity | `agy models` 列出的模型（当前登录的 Google 账号能用的）。末尾是档位的 ID（`gemini-4-neon-high`）合成一个模型、档位做思考预算（运行时 `--model gemini-4-neon --effort high`），没有档位的（`gemini-pro-orchestrator`）单列；没登录时 Antigravity 不出现 |
 
 不列出：扩展按自己的目录规则隐藏的模型和档位；Claude 的旧版本（`claude-sonnet-`、`claude-haiku-`、`claude-opus-4-` 开头的，带不带网关前缀都算；别名 `sonnet`、`haiku` 即 Sonnet 5.5、Haiku 5.5，2026-11-10 起列出）；Acme 的 `auto`、`auto-max`。已固定在这些模型上的话题照常运行。
 
@@ -201,12 +201,13 @@ Pi 是 pi（npm 包 `@earendil-works/pi-coding-agent`，原 `@mariozechner/pi-co
 
 Antigravity 是 Google 的 Agent 开发平台，这里用它的命令行 `agy`（Antigravity CLI，2026-05 起替代 Gemini CLI），跑当前登录的 Google 账号能用的模型（Gemini 等）。
 
-- **安装**：`curl -fsSL https://antigravity.google/cli/install.sh | bash`，二进制在 `~/.local/bin/agy`，之后它在后台自己升级。按 1.5.13 验证。
+- **安装**：`curl -fsSL https://antigravity.google/cli/install.sh | bash`，二进制在 `~/.local/bin/agy`，之后它在后台自己升级。按 1.5.13 验证（2026-11-20：真实跑过目录、带命令的一轮和跨进程续接）。
 - **登录**：在运行机器人的系统账号下执行一次 `agy`，选 “Google OAuth”；没有浏览器的机器上它打印授权链接，在自己的浏览器里打开、登录后把页面上的授权码贴回终端。没有 D-Bus 时令牌存在文件里（`~/.config/antigravity/`），不进机器人的记录。Bridge 不替你登录；没登录时启动卡上没有 Antigravity，已有话题的一轮以“还没有登录”失败。也可以用 Gemini API 密钥或 Google Cloud 项目登录，见 [官方说明](https://antigravity.google/docs/install)。
 - **运行方式**：每轮一个 `agy --output-format stream-json --input-format stream-json --disable-slash-commands --dangerously-skip-permissions [--conversation <会话>] [--model <模型>] [--effort <档位>]`，正文作为一行 `{"event":"user","message":{"content":…}}` 从 stdin 传入后关闭 stdin，agy 跑完这一轮就退出。工作目录是话题的工作目录。
 - **本轮结果**：首行 `init` 带会话（`conversation_id`），中间 `step_update`（文字增量、工具步骤），最后一行 `result` 的 `status` 为 `SUCCESS`、零退出码，正文取 `result.response`。子 Agent 的步骤带它自己的会话 ID，不算本轮正文。
 - **续接**：`--conversation <会话 ID>`；会话 ID 和 `init` 里的不一致时本轮按协议错误失败，不续接别的会话。
-- **事件**：文字增量是“正文”和工具调用前的进展说明，工具步骤按名字显示（`run_command` 是执行命令，`view_file` 是读取文件……）；工具的输出、思考不上卡片。用量取 `result.usage`（`input_tokens` 已含缓存读取）。
+- **事件**：文字增量是“正文”和工具调用前的进展说明，工具步骤按名字显示（`run_command` 是执行命令，`view_file` 是读取文件……）；工具的输出、思考不上卡片。用量取每个 `agent_response` 步骤结束时的 `usage`（一次模型请求一份，`input_tokens` 不含缓存读取，`output_tokens` 含思考），生成时间取它的 `duration_seconds`；没有步骤用量时才用 `result.usage`。
+- **模型和档位**：启动卡的预算就是 agy 的 `--effort`；模型目录（Bridge 保存的 `launch-models/agy.json`）说某模型没有这个档位时不启动，没有档位的模型不传 `--effort`（agy 会拒绝）。
 - **失败**：`result.error` 像登录失败的记 `authentication_error`、像额度用完的记 `quota_exhausted`、像 429 的记 `rate_limited`，其余 `root_failed`；没出 `init` 就退出而 stderr 要求登录的也记 `authentication_error`。agy 的原文不上卡片，stderr 的最后几行（去掉登录链接、隐藏凭据）只进 `bridge.log`。
 - **限制**：没有原生问答、执行中补充、原生图片（stdin 只收文字，图片只给路径）、原生分叉、脱敏、回退一步、下载请求与结果；不能在设备上跑。
 

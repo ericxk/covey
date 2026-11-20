@@ -64,9 +64,11 @@ class AntigravityTests(unittest.TestCase):
         self.assertEqual(tools[0]["detail"], "ls")
         self.assertIn(("progress_note", "先看一下目录"), [(k, d.get("text")) for k, d in events])
         self.assertEqual([k for k, _d in events].count("model_output"), 1)
-        usage = [d for k, d in events if k == "token_usage"][-1]
-        self.assertEqual((usage["output_tokens"], usage["input_tokens"], usage["cache_read_tokens"]),
-                         (657, 10415, 8113))
+        usage = [d for k, d in events if k == "token_usage"]
+        self.assertEqual(len(usage), 2)  # One a model request, the result's sum not added again.
+        self.assertEqual((usage[-1]["output_tokens"], usage[-1]["input_tokens"], usage[-1]["cache_read_tokens"]),
+                         (132, 15436 + 11130, 11130))
+        self.assertEqual((usage[-1]["measured_output_tokens"], usage[-1]["generation_seconds"]), (132, 5.0))
         self.assertEqual(events[-1][0], "trace_finished")
         self.assertEqual(json.loads(record["stdin"]), {"event": "user", "message": {"content": "做个任务"}})
         self.assertEqual(record["argv"], ["--output-format", "stream-json", "--input-format", "stream-json",
@@ -126,12 +128,29 @@ class AntigravityTests(unittest.TestCase):
     def test_catalog_lists_agy_models_and_refuses_without_a_login(self):
         os.environ["FAKE_AGY_SCENARIO"] = "ok"
         catalog = self.backend.refresh_model_catalog(self.ctx)
-        self.assertEqual(list(catalog), ["gemini-3.8-pro-high", "gemini-3.8-flash-medium", "claude-opus-5-5"])
+        self.assertEqual(catalog, {
+            "gemini-4-neon": {"display_name": "Gemini 4 Neon", "default_reasoning_level": "high",
+                              "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}]},
+            "gemini-pro-orchestrator": {"display_name": "Orchestrator (Carbon)", "supported_reasoning_levels": []},
+            "gemini-3.8-flash": {"display_name": "Gemini 3.8 Flash", "default_reasoning_level": "medium",
+                                 "supported_reasoning_levels": [{"effort": "medium"}]}})
         os.environ["FAKE_AGY_SCENARIO"] = "logged-out"
         with self.assertRaisesRegex(ValueError, "还没有登录"):
             self.backend.refresh_model_catalog(self.ctx)
-        self.assertEqual(models_from_listing("Models\n────\n* gemini-x-pro  Gemini X Pro\n"),
-                         {"gemini-x-pro": {"display_name": "gemini-x-pro", "supported_reasoning_levels": []}})
+        self.assertEqual(models_from_listing("Fetching available models...\nModels\n"), {})
+
+    def test_the_saved_catalog_keeps_budgets_agy_refuses_from_it(self):
+        from covey.app.launch_models import refresh_catalog
+        os.environ["FAKE_AGY_SCENARIO"] = "ok"
+        refresh_catalog(self.app.apps["agy"], self.ctx)
+        with self.assertRaisesRegex(ValueError, "不支持所选推理档位"):
+            self.backend.run(RunRequest(dataclasses.replace(self.ctx, model="gemini-4-neon", effort="medium"), "x"))
+        self.assertFalse((self.root / "record.json").exists())
+        _result, *_rest, record = self.run_agy("ok", ctx=dataclasses.replace(
+            self.ctx, model="gemini-pro-orchestrator", effort="high"))
+        self.assertNotIn("--effort", record["argv"])  # agy refuses a budget for a model without any.
+        _result, *_rest, record = self.run_agy("ok", ctx=dataclasses.replace(self.ctx, model="gemini-4-neon"))
+        self.assertEqual(record["argv"][-4:], ["--model", "gemini-4-neon", "--effort", "high"])
 
     def test_tool_parameters_read_like_the_other_harnesses(self):
         self.assertEqual(tool_inputs({"CommandLine": "ls", "Cwd": "/x"}), {"command": "ls"})

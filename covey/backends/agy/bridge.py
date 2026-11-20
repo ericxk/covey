@@ -87,15 +87,14 @@ def tool_inputs(parameters):
 
 
 def usage_counts(usage):
-    """(output, input without the cache reads, cache reads) of agy's usage: its input counts the cache reads."""
+    """(output, uncached input, cache reads) of agy's usage: its ``input_tokens`` leaves the cache reads out
+    (``total_tokens`` is input plus output; seen 2026-11-20 on 1.5.13), its output counts the thinking."""
     if not isinstance(usage, dict):
         return None
-    output, total, read = (usage.get(k) for k in ("output_tokens", "input_tokens", "cache_read_tokens"))
+    output, uncached, read = (usage.get(k) for k in ("output_tokens", "input_tokens", "cache_read_tokens"))
     if type(output) is not int:
         return None
-    read = read if type(read) is int and read >= 0 else 0
-    total = total if type(total) is int and total >= 0 else 0
-    return output, max(0, total - read), read
+    return output, uncached, read
 
 
 class AntigravityEventAdapter:
@@ -107,6 +106,7 @@ class AntigravityEventAdapter:
         self.notes = AnswerNotes(emit)
         self.texts = {}  # step_index -> the text streamed so far
         self.tokens = TurnTokens()
+        self.counted = False  # Whether a model request's usage was added.
         self.first_output = False
 
     @property
@@ -115,7 +115,8 @@ class AntigravityEventAdapter:
 
     def accept(self, row, now):
         if row.get("event") == "result":
-            self.usage(row.get("result"))
+            if not self.counted:  # No model request said its usage: the turn's total, untimed.
+                self.add_usage((row.get("result") or {}).get("usage") if isinstance(row.get("result"), dict) else None)
             return
         step = row.get("step_update")
         if row.get("event") != "step_update" or not isinstance(step, dict):
@@ -131,6 +132,10 @@ class AntigravityEventAdapter:
                 self.texts[index] = self.texts.get(index, "") + delta
                 if self.texts[index].strip():
                     self.notes.text(key, self.texts[index])
+            if step.get("state") == "DONE":
+                # One model request: its usage and the time it took (thinking and text, no tool).
+                seconds = step.get("duration_seconds")
+                self.add_usage(step.get("usage"), seconds if isinstance(seconds, (int, float)) else None)
         elif kind == "tool":
             info = step.get("tool_info") if isinstance(step.get("tool_info"), dict) else {}
             native = str(step.get("tool_name") or info.get("name") or "tool")
@@ -141,29 +146,42 @@ class AntigravityEventAdapter:
             if step.get("state") == "DONE":
                 self.steps.finish(key, not info.get("error"), now)
 
-    def usage(self, result):
-        """The turn's tokens, from its result: agy's step usage is not documented as per request."""
-        counts = usage_counts((result or {}).get("usage")) if isinstance(result, dict) else None
-        if counts is None:
-            return
-        output, uncached, read = counts
-        self.tokens = TurnTokens()
-        if self.tokens.add(output, uncached, read, 0):
+    def add_usage(self, usage, seconds=None):
+        counts = usage_counts(usage)
+        if counts is not None and self.tokens.add(*counts, 0, seconds=seconds):
+            self.counted = True
             self.emit("token_usage", self.tokens.payload())
 
 
+SLUG_RE = re.compile(r"[a-z][a-z0-9]*(?:[-._][a-z0-9]+)+")
+DEFAULT_EFFORTS = ("high", "medium")  # The budget a model's card preselects, the first it has.
+
+
 def models_from_listing(text):
-    """The launch catalog of ``agy models``' output: one model slug a line, the slug its first word; a line
-    that is a heading, a hint or a table rule is skipped."""
+    """The launch catalog of ``agy models``' output, one ``<slug>\t<name>`` a line (1.5.13: ``gemini-4-neon-high\t
+    Gemini 4 Neon (High)``). A slug ending in a budget is that budget of its model (``--model gemini-4-neon --effort
+    high``, which agy takes and checks), so the card lists the model once with its budgets; one without
+    (``gemini-pro-orchestrator``) is a model of its own. Any other line (``Fetching…``, a heading) is skipped."""
     catalog = {}
     for line in str(text or "").splitlines():
-        words = line.replace("*", " ").replace("│", " ").strip().split()
-        if not words:
+        slug, _, name = line.strip().partition("\t")
+        slug, name = slug.strip(), name.strip()
+        if not SLUG_RE.fullmatch(slug):
             continue
-        slug = words[0].strip("`-•>")
-        if not re.fullmatch(r"[a-z][a-z0-9]*(?:[-._][a-z0-9]+)+", slug):
-            continue
-        catalog.setdefault(slug, {"display_name": slug, "supported_reasoning_levels": []})
+        base, _, effort = slug.rpartition("-")
+        if effort in EFFORTS and base:
+            row = catalog.setdefault(base, {"display_name": re.sub(r"\s*\([^()]*\)$", "", name) or base,
+                                            "supported_reasoning_levels": []})
+            if effort not in [level["effort"] for level in row["supported_reasoning_levels"]]:
+                row["supported_reasoning_levels"].append({"effort": effort})
+        else:
+            catalog.setdefault(slug, {"display_name": name or slug, "supported_reasoning_levels": []})
+    for row in catalog.values():
+        row["supported_reasoning_levels"].sort(key=lambda level: EFFORTS.index(level["effort"]))
+        levels = [level["effort"] for level in row["supported_reasoning_levels"]]
+        default = next((effort for effort in DEFAULT_EFFORTS if effort in levels), levels[0] if levels else "")
+        if default:
+            row["default_reasoning_level"] = default
     return catalog
 
 
@@ -192,7 +210,8 @@ class AntigravityBackend(BackendRuntime):
         except (OSError, ValueError, AttributeError):
             return {}
         return {model: {"display_name": row.get("display_name") or model,
-                        "supported_reasoning_levels": [{"effort": e} for e in row.get("levels") or ()]}
+                        "supported_reasoning_levels": [{"effort": e} for e in row.get("levels") or ()],
+                        **({"default_reasoning_level": row["default"]} if row.get("default") else {})}
                 for model, row in saved.items() if isinstance(row, dict)}
 
     def refresh_model_catalog(self, ctx):
@@ -214,18 +233,29 @@ class AntigravityBackend(BackendRuntime):
         return catalog
 
     def normalize_model_settings(self, ctx, model, effort):
-        """An empty model is agy's own default; a budget agy does not know never reaches it."""
+        """An empty model is agy's own default; a budget agy does not know never reaches it, nor one the saved
+        catalog says the model lacks (agy refuses those itself, after starting)."""
         if effort and effort not in EFFORTS:
             raise ValueError("Antigravity 不支持所选推理档位")
+        levels = self.levels(ctx, model)
+        if effort and levels and effort not in levels:
+            raise ValueError("此模型不支持所选推理档位")
         return model, effort
 
+    def levels(self, ctx, model):
+        """The budgets the saved catalog lists for ``model``; None when the catalog does not know it."""
+        row = self.model_catalog(ctx).get(model) if model else None
+        return None if row is None else [level["effort"] for level in row["supported_reasoning_levels"]]
+
     def argv(self, ctx, session_id):
+        # A model the catalog lists without budgets takes no --effort (agy refuses one).
+        effort = "" if self.levels(ctx, ctx.model) == [] else ctx.effort
         return [*ctx.backend_cmd, "--output-format", "stream-json", "--input-format", "stream-json",
                 "--disable-slash-commands",
                 *(["--dangerously-skip-permissions"] if ctx.skip_permissions else []),
                 *(["--conversation", session_id] if session_id else []),
                 *(["--model", ctx.model] if ctx.model else []),
-                *(["--effort", ctx.effort] if ctx.effort else [])]
+                *(["--effort", effort] if effort else [])]
 
     def run(self, request):
         request.check_cancelled()
