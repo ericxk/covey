@@ -184,11 +184,11 @@ def launch(env, op_id, chat, payload) -> str:
     app = env.topics.apps[plan["harness"]]
     request = SimpleNamespace(id="web-" + str(op_id), job_key="")
     config = butler_topics.config_line(env, plan)
-    if not butler_topics._root(env, path, record, chat, record["title"], config, "web-" + str(op_id)):
+    if not butler_topics.send_root(env, path, record, chat, record["title"], config, "web-" + str(op_id)):
         raise ValueError("话题卡没有发出去，没有开话题；可以稍后再开")
     root = record["root_message_id"]
     event = {"chat_id": chat, "message_id": root, "root_id": root}
-    label = butler_topics._bind(env, app, request, path, record, {}, event, config, kind="web")
+    label = butler_topics.bind_topic(env, app, request, path, record, {}, event, config, kind="web")
     message = "web-" + str(op_id)
     from covey.core.history_storage import append_history
     from covey.core.jobs import find_job_record

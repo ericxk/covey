@@ -44,3 +44,10 @@ class ButlerEnv:
 
 def reply(ok: bool, text: str, **data) -> dict:
     return {"ok": bool(ok), "text": str(text), "data": data}
+
+
+def arg_text(value, limit=0) -> str:
+    """A tool call's text argument: ``value`` stripped when it is a str ("" for anything else), cut to ``limit``
+    characters when ``limit`` is given (no ellipsis)."""
+    text = value.strip() if isinstance(value, str) else ""
+    return text[:limit] if limit else text

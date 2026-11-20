@@ -18,7 +18,7 @@ from covey.app import butler_topics, project_cards, project_clicks, project_lead
 from covey.app import butler_projects, project_members as members, projects as upgrades
 from covey.cards.elements import find_element
 from covey.core import dispatch_records as records
-from covey.core import butler_mcp, butler, butler_settings, butler_tool_specs, projects
+from covey.core import butler_mcp, butler, butler_opened, butler_settings, butler_tool_specs, projects
 from covey.core.jobs import BridgeReplyJob, find_job_record, upsert_job_record
 from covey.core.butler_requests import Request
 from covey.core.state import read_object, write_json
@@ -443,7 +443,7 @@ class DirectTest(UpCase):
         answer = self.start("p1", project=True, title="迁移订单库", prompt="把订单库迁到新集群，分表要验证")
         self.assertTrue(answer["ok"], answer)
         pid = answer["data"]["project_id"]
-        self.assertEqual(pid, upgrades.project_id("direct", butler_topics.request_token(SimpleNamespace(id="p1"))))
+        self.assertEqual(pid, upgrades.project_id("direct", butler_opened.request_token(SimpleNamespace(id="p1"))))
         project = projects.read_record(self.state, pid)
         self.assertEqual((project["name"], project["goal"], project["state"]), ("迁移订单库", "把订单库迁到新集群，分表要验证", "active"))
         self.assertEqual(set(project["steps"]), set(upgrades.START_STEPS))
@@ -802,7 +802,7 @@ class ToolTest(UpCase):
         answer = self.call("project_send", "send3", pid=name, text="那就继续")
         self.assertTrue(answer["ok"], answer)
         self.assertFalse(answer["data"]["steered"])
-        mid = "main-" + butler_topics.request_token(SimpleNamespace(id="send3"))
+        mid = "main-" + butler_opened.request_token(SimpleNamespace(id="send3"))
         queued = self.app.runtime.jobs.find(0, mid) or find_job_record(self.state, mid)
         self.assertIsNotNone(queued)
         self.assertEqual(getattr(queued, "topic_id", None) or queued.get("topic_id"), lead)

@@ -13,14 +13,14 @@ from support import make_job
 from test_compat_desk_topics import OWNER, DeskCase
 from test_butler_topics import CHAT
 
-from covey.app import answer_cards, butler_relay, butler_topics, relay_targets
+from covey.app import answer_cards, butler_relay, relay_targets
 from covey.cards import relay_card
 from covey.app.artifacts import answer_files, artifact_key
 from covey.cards.answer_card import ARTIFACTS_ID, tail
 from covey.cards.review import answer_card
 from covey.app.question_display import standalone_card
 from covey.app.prompts import BUTLER_RULES_TEXT, butler_message
-from covey.core import butler, butler_settings
+from covey.core import butler, butler_opened, butler_settings
 from covey.core.jobs import job_key, upsert_job_record
 from covey.core.butler import TOPIC
 from covey.core.state import read_object, write_json
@@ -65,7 +65,7 @@ class OpenTest(AreaCase):
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, OWNER), first["topic_id"])
 
     def test_the_place_is_decided_once(self):
-        record = butler_topics.record_path(self.ctx.state_dir, SimpleNamespace(id="once"))
+        record = butler_opened.record_path(self.ctx.state_dir, SimpleNamespace(id="once"))
         self.opened("once")
         saved = read_object(record)
         self.assertEqual((saved["area_root"], saved["area_taken"]), (OWNER, False))
@@ -84,7 +84,7 @@ class OpenTest(AreaCase):
 class RelayTest(AreaCase):
     def opened_turn(self, request="open", **timings):
         data, job = self.opened(request)
-        token = butler_topics.request_token(SimpleNamespace(id=request))
+        token = butler_opened.request_token(SimpleNamespace(id=request))
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=data["topic_id"],
                         timings=timings)
         return data, turn
@@ -157,7 +157,7 @@ class SettleTest(AreaCase):
     def test_a_quick_relay_is_held_no_more(self):
         # The desk_topics layout's hold (a quick turn the card handed on to alone, written on it) went with it.
         data, job = self.opened()
-        token = butler_topics.request_token(SimpleNamespace(id="open"))
+        token = butler_opened.request_token(SimpleNamespace(id="open"))
         quick = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=data["topic_id"],
                          timings={"backend_requested": 100.0, "execution_finished": 110.0})
         upsert_job_record(self.ctx.state_dir, "main-job", status="running")
@@ -307,7 +307,7 @@ class MirrorTest(MirrorCase):
         answer = self.start("two")
         second, job = answer["data"], type(self).job(self, "two")  # setUp's self.job is the first topic's.
         self.assertTrue(second["root_message_id"].startswith("om_root"))
-        token = butler_topics.request_token(SimpleNamespace(id="two"))
+        token = butler_opened.request_token(SimpleNamespace(id="two"))
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=second["topic_id"],
                         user_text="去做 B")
         record = {**self.record, "token": "q2", "topic_id": second["topic_id"], "job_id": job.job_id}

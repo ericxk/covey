@@ -26,7 +26,7 @@
 | 卡片按钮与点击 | `app/card_actions.py`、`app/card_routing.py`、`app/card_lanes.py` | [卡片点击的数据流](docs/architecture.md#卡片点击的数据流)、[cards.md](docs/cards.md) |
 | 谁被服务、群聊 | `app/access.py`、`core/groups.py`、`app/group_manager.py` | [谁被服务](docs/architecture.md#谁被服务) |
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
-| 话题与回带 | `app/butler_topics.py`、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
+| 话题与回带 | `app/butler_topics.py`（新话题的 Harness、模型、预算在 `app/butler_model_choice.py`；请求幂等账本 `core/butler_opened.py`）、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
 | 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_realtime.py`（实时归并、新专项扫一遍）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [butler.md](docs/butler.md#整理专项开关默认关装好就开只提议)、[配置](docs/configuration.md#整理专项) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
@@ -79,6 +79,7 @@
 | `app/butler_env.py` | What a butler tool handler gets besides its request |
 | `app/butler_handoff.py` | What a topic gets when the butler hands it work |
 | `app/butler_knowledge.py` | The butler's knowledge-entry tools and history_search, the one that asks the history command … |
+| `app/butler_model_choice.py` | What Harness, model and thinking budget a topic the butler opens runs with |
 | `app/butler_panel.py` | The 管家 settings card: the owner changes the butler's settings in the private chat |
 | `app/butler_projects.py` | 管家的专项工具: `projects_list`, `project_send` and `projects_tidy`, handlers as app/butler_env.py describes them |
 | `app/butler_reactions.py` | Reactions on the owner's message for a butler turn when its topics hang under his question (core/placement.py … |

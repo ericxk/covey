@@ -17,7 +17,7 @@ from covey.app import butler_topics
 from covey.app.butler_env import reply
 from covey.app.butler import HARNESS, Butler
 from covey.app.butler_tools import TOOLS as BUTLER_TOOLS
-from covey.core import butler, butler_settings, migrate
+from covey.core import butler, butler_opened, butler_settings, migrate
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
 from covey.core.butler_requests import Request
 from covey.core.butler import butler_topic_id
@@ -57,7 +57,7 @@ class DeskCase(ButlerTopicsCase):
                       user_requested=False, why="日志在这个仓库")
         fields.update(args)
         request = Request(request_id, "topic_start", fields, "main-job", 0.0)
-        root = "main-" + butler_topics.request_token(request)
+        root = "main-" + butler_opened.request_token(request)
         plan = butler_topics.plan_start(self.env, fields, butler_settings.load(self.ctx.state_dir))
         app = self.env.topics.apps[plan["harness"]]
         registry = self.ctx.state_dir / migrate.DESK_REGISTRY
@@ -76,7 +76,7 @@ class DeskCase(ButlerTopicsCase):
         label = topic_label(self.ctx.state_dir, target.topic_id)
         answer = reply(True, f"已开 {label}「{fields['title']}」：直接开工，它的卡在顶层引用主人这条消息",
                        topic_id=target.topic_id, label=label, root_message_id=root, started=True)
-        write_json(butler_topics.record_path(self.ctx.state_dir, request),
+        write_json(butler_opened.record_path(self.ctx.state_dir, request),
                    {"request": request_id, "job_key": "main-job", "chat_id": CHAT, "title": fields["title"],
                     "why": fields["why"], "plan": {**plan, "start": True}, "at": time.time(), "sequence": 0,
                     "desk": OWNER, "area_root": "", "area_taken": False, "root_message_id": root,

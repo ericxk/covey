@@ -15,40 +15,37 @@ from the butler turn's record and its attachments, carried into the topic's inco
 history show the owner's words.
 - ``topic_fork`` forks a topic's last finished turn (app/forks.py create_fork) and submits the new topic's first.
 
+Which Harness, model and budget a new topic gets is app/butler_model_choice.py's (``resolve``, used by ``plan_start``).
+
 Each request runs once (rule 6): core/butler_requests.py claim gives it to one caller, what it did is kept in
-main-thread/opened/<request>.json, every send's key and every synthetic message id derive from the request id, and
+main-thread/opened/<request>.json (core/butler_opened.py: ``record_path``, ``save``, ``done``), every send's key and every synthetic message id derive from the request id, and
 the same request again gets the saved answer. The handlers hold no lock across a Feishu call (rules 1 and 2) but
 the one a card's write needs for its sequence (rule 3).
 """
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import re
 import time
 from pathlib import Path
 
 from covey.app import dispatch_cards, butler_handoff
 from covey.app.forks import FINISHED, fork_token
-from covey.app.launch import launch_defaults
-from covey.app.launch_models import available_models, run_choice
-from covey.core.menu_choice import budget_effort, find_choice
-from covey.app.butler_env import reply
+from covey.app.butler_env import arg_text, reply
+from covey.app.butler_model_choice import resolve
 from covey.cards.topic_card import topic_card
 from covey.app.relay_targets import butler_job_owner_message
 from covey.core import devices, butler, butler_settings, projects
 from covey.core.attachments import attachment_block
 from covey.core.card_sequence import file_card, reserve
-from covey.core.defaults import RECOMMENDED
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
 from covey.core.locks import LOCK, topic_lock
-from covey.core.butler_opened import OPENED
+from covey.core.butler_opened import done, record_path, request_token, save
 from covey.core.butler import is_butler_topic
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
-from covey.core.roster import NAMES
-from covey.core.state import keyed_json_path, read_object, write_json
+from covey.core.state import read_object, write_json
 from covey.core.history_storage import append_history
 from covey.core.steer import SteerRefused, SteerUncertain
 from covey.core.topics import (claim_area_root, load_topic, message_topic, read_topic, topic_label,
@@ -56,24 +53,6 @@ from covey.core.topics import (claim_area_root, load_topic, message_topic, read_
 from covey.core.workspaces import RUN_MODES, load_config, topic_context, touch_workspace
 
 NO_CHAT = "还不知道主人和机器人的私聊（主人还没在私聊里发过消息），没有执行。"
-
-
-def request_token(request) -> str:
-    """The request's name in record files, send keys and synthetic message ids."""
-    return hashlib.sha256(str(request.id).encode()).hexdigest()[:32]
-
-
-def record_path(state_dir, request) -> Path:
-    return keyed_json_path(state_dir, OPENED, request_token(request))
-
-
-def _save(path, record):
-    write_json(path, record, ensure_ascii=False, indent=1)
-
-
-def _text(value, limit=0):
-    text = value.strip() if isinstance(value, str) else ""
-    return text[:limit] if limit else text
 
 
 def lead_of(env, request):
@@ -113,7 +92,7 @@ def find_topic(env, chat, name):
 
 def topic_ref(env, chat, name):
     """(topic id, (app, context, topic.json)) of the owner's topic ``name`` as ``find_topic`` finds it; a str saying why not."""
-    text = _text(name)
+    text = arg_text(name)
     found = None
     number = re.fullmatch(r"[Tt]?(\d+)", text)
     if number:
@@ -164,140 +143,7 @@ def handed(env, request, ctx):
     return owner, butler_handoff.carry(items, media_dir(ctx), owner.roots) if items else []
 
 
-def _done(path, record, answer):
-    record["answer"] = answer
-    _save(path, record)
-    return answer
-
-
 # topic_start ---------------------------------------------------------------------------------------------------
-
-# Where a field topic_start opens with came from, in the order resolve looks.
-CALL, SETTINGS, LAST, BRIDGE = "call", "settings", "last", "bridge"
-
-
-def last_launch(state_dir, chat):
-    """(Harness, menu key, budget option) of the chat's last 开始任务 (app/launch.py launch_defaults: what the
-    launch card preselects), or None."""
-    try:
-        saved = launch_defaults(Path(state_dir), chat) if chat else None
-    except (OSError, ValueError):
-        return None  # No launch yet, here or anywhere.
-    if not isinstance(saved, dict):
-        return None
-    key = str(saved.get("model_choice") or "")
-    harness, _, model = key.partition(":")
-    if not harness or not model:
-        return None
-    return harness, key, saved["effort"] if isinstance(saved.get("effort"), str) else ""
-
-
-def _named(choices, listed, name, model):
-    """The menu key of ``model`` as a call or the settings name it (its id or its menu name); None."""
-    found = find_choice(choices, f"{name}:{model}")
-    if found:
-        return found[0]
-    return next((k for k, entry in listed.items()
-                 if model.lower() in (str(entry.get("display_name") or "").lower(),
-                                      str(entry.get("label") or "").lower())), None)
-
-
-def _plain(text):
-    """``text`` lower-cased without spaces and hyphens: "Claude Code", "claude-code" and "claudecode" are one."""
-    return "".join(ch for ch in text.lower() if ch not in " -_\t")
-
-
-def _harness_id(topics, value):
-    """The Harness id a call's ``harness`` names: an id, or a Harness's display name (``spec.title``, "Claude Code")
-    compared without case, spaces and hyphens. A value naming none comes back lower-cased, for the refusal."""
-    lowered = value.lower()
-    if lowered in NAMES or not lowered:
-        return lowered
-    plain = _plain(value)
-    for name, app in topics.apps.items():
-        if plain in (_plain(name), _plain(app.spec.title)):
-            return name
-    return lowered
-
-
-def resolve(topics, state_dir, chat, defaults, args=None, choices=None):
-    """The Harness, model and budget a topic the butler opens runs with, each field on its own (REVIEW 11-06:
-    a Harness alone in the settings had dropped the last launch's model): the call's value, else the settings'
-    default (core/butler_settings.py TopicDefaults; its model and budget only for its Harness), else the
-    chat's last 开始任务 (its model and budget only for its Harness, a budget only one the model offers), else the
-    Bridge's own default. A dict, ``sources`` saying where each came from (CALL, SETTINGS, LAST or BRIDGE); a str
-    saying why not. ``choices``: available_models, when the caller has it."""
-    args = args or {}
-    last = last_launch(state_dir, chat)
-    own = defaults.harness.lower()
-    sources, name = {}, ""
-    for value, source in ((_harness_id(topics, _text(args.get("harness"))), CALL), (own, SETTINGS),
-                          (last[0] if last else "", LAST), (topics.default, BRIDGE)):
-        if value:
-            name, sources["harness"] = value, source
-            break
-    if name not in NAMES or name not in topics.apps:
-        known = "、".join(topics.apps)
-        return (f"没有 Harness「{name}」，可选：{known}。" if name not in NAMES
-                else f"本机器人没有启用 {name}，可选：{known}。")
-    app = topics.apps[name]
-    base = app.models.configured_context(app.harness.context)
-    choices = available_models(topics, base) if choices is None else choices
-    listed = {key: entry for key, entry in choices.items() if entry.get("harness", key.partition(":")[0]) == name}
-    follows = last is not None and last[0] == name
-    own = own == name  # The settings' model and budget belong to the settings' Harness.
-    model = key = ""
-    for value, source in ((_text(args.get("model")), CALL), (defaults.model if own else "", SETTINGS)):
-        if not value:
-            continue
-        key = _named(choices, listed, name, value) or ""
-        if not key and listed:
-            names = "、".join(k.partition(":")[2] for k in list(listed)[:12])
-            return f"{app.spec.title} 没有模型「{value}」，可选：{names}。"
-        model, sources["model"] = (key.partition(":")[2] if key else value), source
-        break
-    if not model and follows:
-        found = find_choice(choices, last[1])  # A model gone from the menu since: the Bridge's.
-        if found and found[0] in listed:
-            key = found[0]
-            model, sources["model"] = key.partition(":")[2], LAST
-    if not model:
-        model, sources["model"] = base.model, BRIDGE
-    key = key or (f"{name}:{model}" if f"{name}:{model}" in choices else "")
-    choice = choices.get(key)
-    levels = (choice or {}).get("levels") or []
-    asked = _text(args.get("effort"))
-    if asked and asked != "default" and levels and asked not in levels:
-        return f"{model or '这个模型'} 没有思考预算「{asked}」，可选：{'、'.join(levels)}。"
-
-    def offered(option):
-        """A budget the launch card offers the model (core/menu_choice.py effort_options): a level, 推荐, 默认."""
-        return not levels or option in levels or option == "default" or (option == RECOMMENDED and bool(choice))
-
-    effort = ""
-    for value, source in ((asked, CALL), (defaults.effort if own else "", SETTINGS),
-                          (last[2] if follows else "", LAST)):
-        if value and offered(value):
-            effort, sources["effort"] = value, source
-            break
-    else:
-        effort, sources["effort"] = base.effort, BRIDGE
-    # "default" is the model's own default budget, 推荐 the launch card's recommended one.
-    effort = "" if effort == "default" else budget_effort(choice, effort) if effort == RECOMMENDED else effort
-    label = str((choice or {}).get("display_name") or model)
-    # As 开始任务 does: a budget-preset model runs as the preset of its budget. One with budget presets only has no plain
-    # preset, so a call that names no budget gets the card's own preselection.
-    if choice:
-        if not asked and choice.get("presets") is not None and effort not in choice["presets"]:
-            effort = budget_effort(choice, RECOMMENDED)
-        try:
-            model, effort = run_choice(choice, effort)
-        except ValueError as exc:
-            return f"{model}：{exc}。"
-    # The launch card offers only its menu: a model not on it preselects the Harness's first entry there.
-    return {"harness": name, "app": app, "base": base, "model": model, "label": label,
-            "model_key": key or next(iter(listed), ""), "effort": effort, "sources": sources}
-
 
 def plan_start(env, args, settings):
     """What topic_start opens: the Harness, model and budget as ``resolve`` finds them; the settings' workspace
@@ -309,7 +155,7 @@ def plan_start(env, args, settings):
         return found
     app, base = found["app"], found["base"]
     config = load_config(Path(env.state_dir), base.default_workdir)
-    workspace = defaults.workspace or _text(args.get("workspace"))
+    workspace = defaults.workspace or arg_text(args.get("workspace"))
     if workspace not in config["workspaces"]:
         return f"没有登记工作区「{workspace}」，可选：{'、'.join(config['workspaces'])}。"
     if devices.is_device_value(config["workspaces"][workspace]):
@@ -343,7 +189,7 @@ def topic_start(env, request):
     if not chat:
         return reply(False, NO_CHAT)
     args = request.args
-    title, prompt, why = _text(args.get("title"), 40), _text(args.get("prompt")), _text(args.get("why"), 200)
+    title, prompt, why = arg_text(args.get("title"), 40), arg_text(args.get("prompt")), arg_text(args.get("why"), 200)
     if not title or not prompt:
         return reply(False, "title 和 prompt 都不能为空。")
     if butler_handoff.choice_error(args.get("attachments")):
@@ -365,24 +211,24 @@ def topic_start(env, request):
             user_requested=args.get("user_requested") is True)
         record = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "title": title,
                   "why": why, "plan": plan, "at": time.time(), "sequence": 0}
-        _save(path, record)
+        save(path, record)
     return _open(env, request, path, record, chat, prompt, args)
 
 
 def _open(env, request, path, record, chat, prompt, args):
     """topic_start's steps, each kept in the request's record so a second try does the same: where the topic goes
-    (``_place``), its root message (``_root``), its topic.json (``_bind``), its first turn (``_enqueue``)."""
+    (``_place``), its root message (``send_root``), its topic.json (``bind_topic``), its first turn (``_enqueue``)."""
     plan, token, title = record["plan"], request_token(request), record["title"]
     app = env.topics.apps.get(plan["harness"])
     if app is None:
         return reply(False, f"本机器人没有启用 {plan['harness']}。")
     config = config_line(env, plan)
     _place(env, request, path, record, chat, token)
-    if not _root(env, path, record, chat, title, config, token):
+    if not send_root(env, path, record, chat, title, config, token):
         return reply(False, "话题卡没有发出去，没有开话题；可以稍后再开。")
     root = record["root_message_id"]
     event = {"chat_id": chat, "message_id": root, "root_id": root}
-    label = _bind(env, app, request, path, record, args, event, config)
+    label = bind_topic(env, app, request, path, record, args, event, config)
     failed = _enqueue(env, app, request, record, chat, prompt, event, token, label)
     if failed:
         return reply(False, f"{label or '话题'}已开，但第一轮没有提交：模型配置无法确认（见话题里的说明）。",
@@ -394,7 +240,7 @@ def _open(env, request, path, record, chat, prompt, args):
     text = (f"已开 {named}：直接开工{where}" if plan["start"]
             else f"已开 {named}：启动卡在话题里，等主人点开始{where}"
             + ("（运行方式是独立 worktree，由启动卡创建）" if plan["run_mode"] == "worktree" else ""))
-    return _done(path, record, reply(True, text, topic_id=record["topic_id"], label=label, root_message_id=root,
+    return done(path, record, reply(True, text, topic_id=record["topic_id"], label=label, root_message_id=root,
                                      started=bool(plan["start"])))
 
 
@@ -403,32 +249,32 @@ def _place(env, request, path, record, chat, token):
     话题区."""
     if "area_root" not in record:  # Decided once: a second try opens the topic the same way.
         record["area_root"], record["area_taken"] = place(env, request, chat)
-        _save(path, record)
+        save(path, record)
     if record.get("area_root") and not record.get("root_message_id"):
         # A 话题区: its thread hangs under the owner's question (core/topics.py claim_area_root).
         claim_area_root(env.state_dir, chat, record["area_root"])
         record["root_message_id"] = record["area_root"]
-        _save(path, record)
+        save(path, record)
 
 
-def _root(env, path, record, chat, title, config, token) -> bool:
+def send_root(env, path, record, chat, title, config, token) -> bool:
     """The topic card at the top level as the topic's root, when ``_place`` gave it none; whether it has a root."""
     if record.get("root_message_id"):
         return True
     def created(card_id):
         record["card_id"] = card_id  # Kept first: a second try sends the same card.
-        _save(path, record)
+        save(path, record)
     card_id, root = env.messenger.create_and_send_card(
         env.profile, chat, topic_card(title, why=record["why"], config=config), env.voice.key("main-topic", token),
         voice=env.voice, card_id=record.get("card_id", ""), on_created=created)
     if not root:
         return False
     record.update(card_id=card_id, root_message_id=root)
-    _save(path, record)
+    save(path, record)
     return True
 
 
-def _bind(env, app, request, path, record, args, event, config, kind="main") -> str:
+def bind_topic(env, app, request, path, record, args, event, config, kind="main") -> str:
     """The topic's topic.json: its Harness, where it came from (``kind``: "main" the butler's, "web" the page's,
     app/web_launch.py), and the model settings when it starts at once; then its topic card numbered. Its label ('' when
     it has no number yet)."""
@@ -456,7 +302,7 @@ def _bind(env, app, request, path, record, args, event, config, kind="main") -> 
                 data["origin"]["launch"] = launch_draft(plan)
             write_json(target.history_path.parent / "topic.json", data, ensure_ascii=False, indent=2)
         record["topic_id"] = target.topic_id
-        _save(path, record)
+        save(path, record)
         if plan["start"]:
             touch_workspace(target.state_dir, target.default_workdir, plan["workspace"])
     label = topic_label(Path(env.state_dir), record["topic_id"])
@@ -553,7 +399,7 @@ def topic_send(env, request):
     chat = env.chat()
     if not chat:
         return reply(False, NO_CHAT)
-    text, note = _text(request.args.get("text")), _text(request.args.get("note"), 100)
+    text, note = arg_text(request.args.get("text")), arg_text(request.args.get("note"), 100)
     if not text:
         return reply(False, "text 不能为空：写这次交给它的事。")
     if butler_handoff.choice_error(request.args.get("attachments")):
@@ -562,7 +408,7 @@ def topic_send(env, request):
     if isinstance(found, str):
         return reply(False, found)
     app, ctx, topic = found
-    label = topic_label(Path(env.state_dir), ctx.topic_id) or _text(request.args.get("topic"))
+    label = topic_label(Path(env.state_dir), ctx.topic_id) or arg_text(request.args.get("topic"))
     if projects.enabled() and lead_of(env, request) is None and projects.is_member_topic(Path(env.state_dir), ctx.topic_id):
         # A project's thread takes words through the project's lead (project_send), which knows what the others are doing.
         return reply(False, f"{label or '这个话题'} 是专项的话题，不能直接转话：用 projects_list 查专项的 id，"
@@ -574,9 +420,9 @@ def topic_send(env, request):
         return record["answer"]
     record = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "topic_id": ctx.topic_id,
               "at": time.time(), **({"note": note} if note else {})}  # The note: the card's 转给 line.
-    _save(path, record)
+    save(path, record)
     data = {"topic_id": ctx.topic_id, "label": label}
-    title = _text(request.args.get("title"), 40) or topic_title(Path(env.state_dir), ctx.topic_id)
+    title = arg_text(request.args.get("title"), 40) or topic_title(Path(env.state_dir), ctx.topic_id)
     owner, items = handed(env, request, ctx)
     job = live_turn(app, ctx, chat)
     if job is not None:
@@ -585,26 +431,26 @@ def topic_send(env, request):
         try:
             saved = app.steering.deliver_steer(ctx, job, steer, mid, shown=butler_handoff.shown(owner, text, items))
         except SteerUncertain as exc:
-            return _done(path, record, reply(False, f"补充可能已送到 {label} 的任务 #{job.job_id}，送达没有确认（{exc}）；"
+            return done(path, record, reply(False, f"补充可能已送到 {label} 的任务 #{job.job_id}，送达没有确认（{exc}）；"
                                              "不会重发，别再转一次。", **data, job_id=job.job_id, uncertain=True))
         except SteerRefused as exc:  # Nothing was sent (rule 6).
-            return _done(path, record, reply(False, f"没有送进 {label} 正在跑的任务 #{job.job_id}：{exc}。没有发出；"
+            return done(path, record, reply(False, f"没有送进 {label} 正在跑的任务 #{job.job_id}：{exc}。没有发出；"
                                              "等这一轮结束后再转，或者告诉主人。", **data, job_id=job.job_id))
         hand_line(env, ctx, chat, request, record, butler_handoff.STEER, owner, text, items, token)
         dispatch_card(env, request, ctx.topic_id, kind="send", mid=job.message_id, **project_hint(request))
-        return _done(path, record, reply(True, f"已转给 {label}：{steered_words(job, saved)}。",
+        return done(path, record, reply(True, f"已转给 {label}：{steered_words(job, saved)}。",
                                          **data, job_id=job.job_id, steered=True))
     if not workspace_locked(ctx):
-        return _done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))
+        return done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))
     hand_line(env, ctx, chat, request, record, butler_handoff.NEXT, owner, text, items, token)
     # As a message written in the topic: its open question takes it, and a topic whose result or question card
     # has not arrived takes nothing.
     waiting = len(app.questions.pending_questions(ctx, chat))
     if app.workspace_command(ctx, words, chat, mid, "\n".join(attachment_block(items))):
         if waiting:
-            return _done(path, record, reply(True, f"已转给 {label}：它在等主人回答问题，这条没有开下一轮，按话题里的消息处理"
+            return done(path, record, reply(True, f"已转给 {label}：它在等主人回答问题，这条没有开下一轮，按话题里的消息处理"
                                              "（只有一道题时作为回答，否则留给下一次回答），结果看话题。", **data, steered=False))
-        return _done(path, record, reply(False, f"{label} 没有开下一轮：它的结果或问题卡还没送达，话题里有说明。", **data))
+        return done(path, record, reply(False, f"{label} 没有开下一轮：它的结果或问题卡还没送达，话题里有说明。", **data))
     if not (find_job_record(Path(env.state_dir), mid) or app.runtime.jobs.settling(mid)):
         content = butler_handoff.shown(owner, text, items)
         append_history(ctx.history_path, "user", content, {"message_id": mid})
@@ -612,9 +458,9 @@ def topic_send(env, request):
                                            items=items, extra=note)
         # Its card is headed by the topic's title, not the owner's words about where it goes.
         if app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=title) is None:
-            return _done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
+            return done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
     dispatch_card(env, request, ctx.topic_id, kind="send", **project_hint(request))
-    return _done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
+    return done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
 
 
 # topic_fork ----------------------------------------------------------------------------------------------------
@@ -623,7 +469,7 @@ def topic_fork(env, request):
     chat = env.chat()
     if not chat:
         return reply(False, NO_CHAT)
-    title, prompt = _text(request.args.get("title"), 40), _text(request.args.get("prompt"))
+    title, prompt = arg_text(request.args.get("title"), 40), arg_text(request.args.get("prompt"))
     if not title or not prompt:
         return reply(False, "title 和 prompt 都不能为空。")
     if butler_handoff.choice_error(request.args.get("attachments")):
@@ -632,7 +478,7 @@ def topic_fork(env, request):
     if isinstance(found, str):
         return reply(False, found)
     app, ctx, _ = found
-    label = topic_label(Path(env.state_dir), ctx.topic_id) or _text(request.args.get("topic"))
+    label = topic_label(Path(env.state_dir), ctx.topic_id) or arg_text(request.args.get("topic"))
     path, token = record_path(env.state_dir, request), request_token(request)
     record = read_object(path)
     if record.get("answer"):
@@ -646,15 +492,15 @@ def topic_fork(env, request):
         return reply(False, f"{label} 还没有结束的任务，不能分叉。")
     record.update(request=request.id, job_key=request.job_key, chat_id=chat, source=ctx.topic_id,
                   job_id=source["job_id"], at=record.get("at") or time.time())
-    _save(path, record)
+    save(path, record)
     click = "main-" + token
     if "area_root" not in record:  # Decided once, as topic_start's (_open).
         record["area_root"], record["area_taken"] = place(env, request, chat)
-        _save(path, record)
+        save(path, record)
     forks = app.forks.create_fork(ctx, chat, source, click, area=record.get("area_root") or "")
     fork = next(f for f in forks if f.get("token") == fork_token(ctx.topic_id, click))
     record.update(fork_topic_id=fork["topic_id"], root_message_id=fork["root_id"])
-    _save(path, record)
+    save(path, record)
     new_topic = load_topic(Path(env.state_dir), fork["topic_id"])
     if not (new_topic.get("origin") or {}).get("request"):
         with LOCK:
@@ -679,7 +525,7 @@ def topic_fork(env, request):
     dispatch_card(env, request, fork["topic_id"], kind="fork")
     data = {"topic_id": fork["topic_id"], "label": new_label, "root_message_id": fork["root_id"],
             "source_topic_id": ctx.topic_id, "source_job_id": source["job_id"]}
-    return _done(path, record, reply(True, f"已从 {label} 的任务 #{source['job_id']} 分叉出 {new_label}「{title}」，"
+    return done(path, record, reply(True, f"已从 {label} 的任务 #{source['job_id']} 分叉出 {new_label}「{title}」，"
                                      "第一轮已提交。", **data))
 
 

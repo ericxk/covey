@@ -27,7 +27,7 @@ from covey.app.launch_models import available_models
 from covey.core.menu_choice import (budget_effort, default_entry, entry_of, model_provider, models_of, redacts,
                                              tiers)
 from covey.app.butler_env import reply
-from covey.app.butler_topics import resolve
+from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
 from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
                                                     NOTE_LENGTH, NOTES, PAGE_OF, PROVIDER, REDACTION, START,

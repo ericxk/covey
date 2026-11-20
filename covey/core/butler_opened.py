@@ -1,6 +1,7 @@
 """The butler's requests that opened, forked or handed on to a topic: main-thread/opened/<request token>.json,
-written by app/butler_topics.py (topic_start, topic_fork, topic_send), which reads and writes each request's own
-record by its path (``record_path``) while it handles that request; every other reader goes through here. Each
+written by app/butler_topics.py (topic_start, topic_fork, topic_send) and the project tools that open or feed a thread
+(app/butler_projects.py, app/projects.py), which read and write each request's own record by its path (``record_path``,
+``save``, ``done``: the request ledger of rule 6) while they handle that request; every other reader goes through here. Each
 record: {job_key (the butler job's), chat_id, topic_id or fork_topic_id, plan (topic_start's), source
 (topic_fork's), title, note, answer: {ok, data}, at, ...}.
 
@@ -9,11 +10,35 @@ equal ones, as they did when each scanned the folder itself.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
-from covey.core.state import read_object
+from covey.core.state import keyed_json_path, read_object, write_json
 
 OPENED = Path("main-thread") / "opened"
+
+
+def request_token(request) -> str:
+    """The request's name in record files, send keys and synthetic message ids."""
+    return hashlib.sha256(str(request.id).encode()).hexdigest()[:32]
+
+
+def record_path(state_dir, request) -> Path:
+    """Where the request's own record is (``OPENED``/<its token>.json)."""
+    return keyed_json_path(state_dir, OPENED, request_token(request))
+
+
+def save(path, record) -> None:
+    """Write the request's ``record`` to its ``path``."""
+    write_json(path, record, ensure_ascii=False, indent=1)
+
+
+def done(path, record, answer):
+    """Keep ``answer`` as the request's answer in its record and return it: the same request again gets it back, nothing
+    sent twice (rule 6)."""
+    record["answer"] = answer
+    save(path, record)
+    return answer
 
 
 def folder(state_dir) -> Path:

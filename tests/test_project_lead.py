@@ -559,9 +559,9 @@ class MemberToolsTest(ToolsCase):
 
 
 def butler_topics_token(request_id):
-    from covey.app import butler_topics
+    from covey.core import butler_opened
 
-    return butler_topics.request_token(SimpleNamespace(id=request_id))
+    return butler_opened.request_token(SimpleNamespace(id=request_id))
 
 
 class SendToolsTest(ToolsCase):

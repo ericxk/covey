@@ -14,9 +14,10 @@ import time
 from pathlib import Path
 
 from covey.app import project_facts
-from covey.app.butler_env import reply
+from covey.app.butler_env import arg_text, reply
 from covey.app.projects import state_of
-from covey.core import project_proposals, projects
+from covey.core import butler_opened, project_proposals, projects
+from covey.core.butler_opened import done
 from covey.core.jobs import find_job_record
 from covey.core.state import read_object
 from covey.core.text import cut
@@ -132,10 +133,10 @@ def project_send(env, request):
     chat, state = env.chat(), Path(env.state_dir)
     if not chat:
         return reply(False, NO_CHAT)
-    text = butler_topics._text(request.args.get("text"))
+    text = arg_text(request.args.get("text"))
     if not text:
         return reply(False, "text 不能为空：写这次交给负责人的事。")
-    path, token = butler_topics.record_path(state, request), butler_topics.request_token(request)
+    path, token = butler_opened.record_path(state, request), butler_opened.request_token(request)
     saved = read_object(path)
     if saved.get("answer"):
         return saved["answer"]
@@ -157,7 +158,7 @@ def project_send(env, request):
     # on to, and the lead is not one (it is not relayed, has no T number and no thread of its own).
     note = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "lead_topic_id": lead, "project_id": record["id"],
             "at": time.time()}
-    butler_topics._save(path, note)
+    butler_opened.save(path, note)
     owner = butler_handoff.asked(state, request.job_key)
     sent = lead_prompt(name, text, owner)
     shown = owner.words or text
@@ -167,19 +168,19 @@ def project_send(env, request):
         try:
             saved = app.steering.deliver_steer(ctx, job, sent, mid, shown=shown)
         except SteerUncertain as exc:
-            return butler_topics._done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
-                                                      "不会重发，别再转一次。", **data, uncertain=True))
+            return done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
+                                        "不会重发，别再转一次。", **data, uncertain=True))
         except SteerRefused as exc:  # Nothing was sent (rule 6).
-            return butler_topics._done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
-                                                      "等这一轮结束后再转。", **data))
-        return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人："
-                                                        f"{butler_topics.steered_words(job, saved)}。", **data, steered=True))
+            return done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
+                                        "等这一轮结束后再转。", **data))
+        return done(path, note, reply(True, f"已转给专项「{name}」的负责人："
+                                          f"{butler_topics.steered_words(job, saved)}。", **data, steered=True))
     if not (find_job_record(state, mid) or app.runtime.jobs.settling(mid)):
         append_history(ctx.history_path, "user", shown, {"message_id": mid})
         if app.submission.enqueue_chat_job(ctx, shown, chat, mid, prompt_content=sent, title=name) is None:
-            return butler_topics._done(path, note, reply(False, f"专项「{name}」负责人的下一轮没有提交：模型配置无法确认。", **data))
-    return butler_topics._done(path, note, reply(True, f"已转给专项「{name}」的负责人：它开了新的一轮，结果会由 Bridge 发给主人。",
-                                              **data, steered=False))
+            return done(path, note, reply(False, f"专项「{name}」负责人的下一轮没有提交：模型配置无法确认。", **data))
+    return done(path, note, reply(True, f"已转给专项「{name}」的负责人：它开了新的一轮，结果会由 Bridge 发给主人。",
+                                **data, steered=False))
 
 
 def projects_tidy(env, request):

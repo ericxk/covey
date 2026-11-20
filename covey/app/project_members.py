@@ -35,6 +35,7 @@ def wanted_topics(env, chat, raw):
     a list or one string of them), and the ones it cannot with why (app/butler_topics.py topic_ref's reasons, a lead's, another
     project's, too many)."""
     from covey.app import butler_topics
+    from covey.app.butler_env import arg_text
 
     if isinstance(raw, str):
         raw = re.split(r"[\s,，、;；]+", raw)
@@ -42,7 +43,7 @@ def wanted_topics(env, chat, raw):
         return [], []
     state, joins, refused = Path(env.state_dir), [], []
     for item in raw:
-        ref = butler_topics._text(item, 80)
+        ref = arg_text(item, 80)
         if not ref:
             continue
         found = butler_topics.topic_ref(env, chat, ref)

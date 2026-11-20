@@ -178,6 +178,7 @@ class Applier:
     def topic_card(self, ctx, topic, joined) -> bool:
         """The butler's topic card of ``topic`` (app/butler_topics.py) redrawn whole with ``joined`` (None: without); whether it was."""
         from covey.app import butler_topics
+        from covey.core import butler_opened
         from covey.cards.topic_card import topic_card
 
         state = Path(ctx.state_dir)
@@ -185,7 +186,7 @@ class Applier:
         request = origin.get("request") if isinstance(origin, dict) else None
         if not request:
             return False
-        path = butler_topics.record_path(state, type("Request", (), {"id": request})())
+        path = butler_opened.record_path(state, type("Request", (), {"id": request})())
         record = read_object(path)
         if not record.get("card_id") or record.get("topic_id") != topic:
             return False

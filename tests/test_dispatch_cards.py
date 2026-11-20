@@ -20,7 +20,7 @@ from covey.app.butler_env import ButlerEnv
 from covey.cards import dispatch_card as view
 from covey.cards.elements import find_element
 from covey.core import dispatch_records as records
-from covey.core import butler_settings
+from covey.core import butler_opened, butler_settings
 from covey.core.jobs import BridgeReplyJob, upsert_job_record
 from covey.core.butler_requests import Request
 from covey.core.state import read_object, write_json
@@ -194,7 +194,7 @@ class DispatchCase(UnifiedCase):
         return butler_topics.TOOLS["topic_start"](self.env, request)
 
     def token(self, request_id="r1"):
-        return butler_topics.request_token(SimpleNamespace(id=request_id))
+        return butler_opened.request_token(SimpleNamespace(id=request_id))
 
     def record(self, request_id="r1"):
         return read_object(records.record_path(self.ctx.state_dir, self.token(request_id)))

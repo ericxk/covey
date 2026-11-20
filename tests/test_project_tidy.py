@@ -857,14 +857,14 @@ class MomentTest(TidyCase):
         self.assertFalse(self.tidy.shared.busy.locked())
 
     def test_the_butlers_topic_card_is_drawn_again_with_the_line(self):
-        from covey.app import butler_topics
+        from covey.core import butler_opened
 
         topic = self.topic(A)
         request = "req-1"
         data = read_object(self.state / "topics" / topic / "topic.json")
         write_json(self.state / "topics" / topic / "topic.json", {**data, "origin": {"title": A, "request": request}},
                    ensure_ascii=False)
-        path = butler_topics.record_path(self.state, SimpleNamespace(id=request))
+        path = butler_opened.record_path(self.state, SimpleNamespace(id=request))
         write_json(path, {"topic_id": topic, "card_id": "card-topic", "title": A, "sequence": 2}, ensure_ascii=False)
         pid = self.project("EnvReplay Prompt 优化", [self.topic("一轮")])
         self.tidy.applier.join(self.ctx, proposals.new_proposal("join", topics=[topic], project=pid), CHAT)

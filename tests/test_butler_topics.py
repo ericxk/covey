@@ -11,9 +11,9 @@ from support.fake_lark import FakeCardKit
 from support.world import UnifiedCase
 
 from support import requires_extension
-from covey.app import butler_topics
+from covey.app import butler_model_choice, butler_topics
 from covey.app.butler_env import ButlerEnv
-from covey.core import butler_settings
+from covey.core import butler_opened, butler_settings
 from covey.core.jobs import find_job_record, upsert_job_record
 from covey.core.butler_requests import Request
 from covey.core.steer import SteerRefused
@@ -56,7 +56,7 @@ class ButlerTopicsCase(UnifiedCase):
         butler_settings.update(self.ctx.state_dir, **changes)
 
     def job(self, answer):
-        return self.app.runtime.jobs.find(0, "main-" + butler_topics.request_token(SimpleNamespace(id=answer)))
+        return self.app.runtime.jobs.find(0, "main-" + butler_opened.request_token(SimpleNamespace(id=answer)))
 
 
 class TopicStartTest(ButlerTopicsCase):
@@ -114,7 +114,7 @@ class TopicStartTest(ButlerTopicsCase):
         app.submission.selection_card.assert_called_once()
         ctx = app.submission.selection_card.call_args.args[0]
         self.assertEqual(ctx.topic_id, answer["data"]["topic_id"])
-        record = find_job_record(self.ctx.state_dir, "main-" + butler_topics.request_token(SimpleNamespace(id="req1")))
+        record = find_job_record(self.ctx.state_dir, "main-" + butler_opened.request_token(SimpleNamespace(id="req1")))
         self.assertEqual((record["status"], record["user_text"]), ("waiting_workspace", "看看昨晚的失败"))
         card = build_launch_card(app.topics, ctx)
         token = next(p.stem for p in (self.ctx.state_dir / "launch-forms").glob("*.json"))
@@ -150,7 +150,7 @@ class TopicStartTest(ButlerTopicsCase):
                 "codex:gpt": {"harness": "codex", "model": "gpt", "levels": ["low", "high"]}}
         write_json(chat_defaults_path(self.ctx.state_dir, CHAT), {"chat_id": CHAT, "model_choice": "claude:opus",
                                                                   "effort": "max"})
-        with mock.patch("covey.app.butler_topics.available_models", return_value=menu):
+        with mock.patch("covey.app.butler_model_choice.available_models", return_value=menu):
             last = load_topic(self.ctx.state_dir, self.start()["data"]["topic_id"])
             named = load_topic(self.ctx.state_dir, self.start(harness="codex")["data"]["topic_id"])
             write_json(chat_defaults_path(self.ctx.state_dir, CHAT), {"chat_id": CHAT, "model_choice": "claude:opus",
@@ -165,7 +165,7 @@ class TopicStartTest(ButlerTopicsCase):
     def test_a_maso_model_runs_as_the_preset_of_its_budget(self):
         menu = {"maso:m": {"harness": "maso", "model": "m", "levels": ["high", "max"], "recommended": "high",
                            "presets": {"high": "m-high", "max": "m-max"}}}
-        with mock.patch("covey.app.butler_topics.available_models", return_value=menu):
+        with mock.patch("covey.app.butler_model_choice.available_models", return_value=menu):
             named = self.start(harness="maso", model="m", effort="max")["data"]
             usual = self.start(harness="maso", model="m")["data"]
         topic = load_topic(self.ctx.state_dir, named["topic_id"])
@@ -213,7 +213,7 @@ class TopicDefaultsTest(ButlerTopicsCase):
 
     def setUp(self):
         super().setUp()
-        self.enterContext(mock.patch("covey.app.butler_topics.available_models", return_value=self.MENU))
+        self.enterContext(mock.patch("covey.app.butler_model_choice.available_models", return_value=self.MENU))
 
     def launched(self, key, effort):
         from covey.app.launch import chat_defaults_path
@@ -230,7 +230,7 @@ class TopicDefaultsTest(ButlerTopicsCase):
         return topic["harness_id"], topic["model"], topic["effort"]
 
     def resolved(self, **args):
-        found = butler_topics.resolve(self.app.topics, self.ctx.state_dir, CHAT,
+        found = butler_model_choice.resolve(self.app.topics, self.ctx.state_dir, CHAT,
                                     butler_settings.load(self.ctx.state_dir).topic_defaults, args)
         return found["harness"], found["model"], found["effort"], found["sources"]
 
@@ -251,7 +251,7 @@ class TopicDefaultsTest(ButlerTopicsCase):
 
     def test_a_harness_neither_an_id_nor_a_display_name_is_refused_as_before(self):
         for spoken in ("neeko", "Neeko Pro", "Claude Codex"):
-            found = butler_topics.resolve(self.app.topics, self.ctx.state_dir, CHAT,
+            found = butler_model_choice.resolve(self.app.topics, self.ctx.state_dir, CHAT,
                                         butler_settings.load(self.ctx.state_dir).topic_defaults, {"harness": spoken})
             self.assertEqual(found, f"没有 Harness「{spoken.lower()}」，可选：{'、'.join(self.app.topics.apps)}。")
 
@@ -546,7 +546,7 @@ class HandoffTest(ButlerTopicsCase):
         self.assertNotIn("截图是任务卡", line[0])
         # The card's 最新补充 and the topic's history: the owner's words, not the note.
         from covey.core.deliveries import delivery_path, read_delivery, shown_text
-        mid = "main-" + butler_topics.request_token(SimpleNamespace(id="s1"))
+        mid = "main-" + butler_opened.request_token(SimpleNamespace(id="s1"))
         record = read_delivery(delivery_path(self.ctx.state_dir, data["topic_id"], mid))
         self.assertEqual(shown_text(record), self.WORDS + "\n附件：图片 1 张、文件 1 个")
         self.assertEqual(record["text"], sent)

@@ -12,7 +12,7 @@ from support.launch_fixtures import write_maso_catalog
 from support.world import UnifiedCase
 from support import requires_extension
 from covey.app.launch_models import available_models
-from covey.app.butler_topics import resolve
+from covey.app.butler_model_choice import resolve
 from covey.app.butler_env import ButlerEnv
 from covey.app import butler_panel as panel
 from covey.app.butler_panel import GONE, OWNER_ONLY, TOOLS, settings_panel

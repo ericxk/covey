@@ -32,11 +32,11 @@ from covey.app import dispatch_cards, project_cards, project_facts, project_lead
 from covey.app.project_cards import DOWNGRADED
 from covey.app.project_clicks import topic_ctx
 from covey.app.project_members import GATHERED_NOTE, topic_line, wanted_topics
-from covey.app.butler_env import reply
+from covey.app.butler_env import arg_text, reply
 from covey.cards.project_card import merged_card
 from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
-from covey.core import butler, butler_settings, project_proposals, projects
+from covey.core import butler, butler_opened, butler_settings, project_proposals, projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
@@ -510,11 +510,11 @@ class Projects:
 
         env, state = self.env, Path(self.env.state_dir)
         chat = env.chat()
-        path = butler_topics.record_path(state, request)
+        path = butler_opened.record_path(state, request)
         saved = read_object(path)
         if saved.get("answer"):
             return saved["answer"]
-        pid = project_id("direct", butler_topics.request_token(request))
+        pid = project_id("direct", butler_opened.request_token(request))
         record = projects.read_record(state, pid)
         if not record:
             if projects.active_count(state) >= projects.MAX_ACTIVE:
@@ -524,12 +524,12 @@ class Projects:
             if isinstance(plan, str):
                 return reply(False, plan)
             joins, refused = wanted_topics(env, chat, args.get("topics"))
-            title, prompt = butler_topics._text(args.get("title"), 40), butler_topics._text(args.get("prompt"))
+            title, prompt = arg_text(args.get("title"), 40), arg_text(args.get("prompt"))
             words = butler_handoff.asked(state, request.job_key).words
             made = projects.new_record(
                 chat_id=chat, name=title, goal=prompt, project_id=pid,
                 origin={"kind": "direct", "request": request.id, "job_key": request.job_key, "workspace": plan["workspace"],
-                        "workdir": plan["workdir"], "why": butler_topics._text(args.get("why"), 200), "text": words or prompt,
+                        "workdir": plan["workdir"], "why": arg_text(args.get("why"), 200), "text": words or prompt,
                         **({"topics": joins} if joins else {}), **({"refused": refused} if refused else {})})
             made["steps"] = {"record": round(time.time(), 3)}
             ask = dispatch_cards.ask_of(env, state, request.job_key)
@@ -556,6 +556,6 @@ class Projects:
                 topic_label(state, topic) or topic[:6] for topic in waiting) + "。"
         if refused:
             text += "没挂上：" + "；".join(f"{item['ref']}，{item['why']}" for item in refused) + "。把这些告诉主人。"
-        return butler_topics._done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
-                                                   card=sent, finished=done, joined=joined,
-                                                   refused=[item["ref"] for item in refused] + waiting))
+        return butler_opened.done(path, note, reply(True, text, project_id=pid, lead_topic_id=record.get("lead_topic_id"),
+                                                  card=sent, finished=done, joined=joined,
+                                                  refused=[item["ref"] for item in refused] + waiting))
