@@ -471,6 +471,7 @@
 | `backends/claude/runtime.py` | One turn of the Claude CLI over its JSONL transport, following the official Agent SDK protocol (run_stream) |
 | `backends/claude/sessions.py` | Claude Code session store for the Lark bridge |
 | `backends/claude/subagents.py` | Claude Code's subagents on lighter models than the turn's (main-thread.json `subagents`, the 设置 card's 新话题 tab |
+| `backends/claude/transcript.py` | One row of a Claude Code session transcript (a JSONL file), read the way every reader of it does |
 | `backends/claude/usage.py` | Current-invocation root and subagent usage and arrival-time latency, without model text |
 
 ### backends/codex

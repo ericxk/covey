@@ -15,12 +15,12 @@ butler's while it is idle (app/idle_compaction.py, through the backend's ``compa
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 
 from covey.backends.claude.events import compacted_sizes
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
+from covey.backends.claude.transcript import json_row
 from covey.core.process import device_of
 from covey.core.steps import Steps
 from covey.core.text import short_count
@@ -71,11 +71,8 @@ def session_context(path):
             for line in reversed(lines):
                 if b'"assistant"' not in line and b'"compact_boundary"' not in line:
                     continue
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                tokens = row_context(row) if isinstance(row, dict) else None
+                row = json_row(line)
+                tokens = row_context(row) if row is not None else None
                 if tokens is not None:
                     return tokens
             if not start or window >= TAIL_LIMIT:

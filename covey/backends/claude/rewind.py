@@ -16,11 +16,11 @@ by shell commands are not tracked, and a tracked file changed since by anything 
 """
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
+from covey.backends.claude.transcript import json_row
 
 FILE_CHECKPOINTS_ENV = "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING"
 TAIL_BYTES = 1 << 20
@@ -44,11 +44,8 @@ def _tail_rows(path, prompt_uuid):
         for line in lines:
             if not found and needle not in line:
                 continue
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(row, dict):
+            row = json_row(line)
+            if row is None:
                 continue
             found = found or row.get("uuid") == prompt_uuid
             if found:

@@ -3,6 +3,7 @@ import json
 import time
 from pathlib import Path
 
+from covey.backends.claude.transcript import json_row
 from covey.core.state import epoch_seconds
 from covey.core.ttft import FirstToken
 from covey.core.usage import SUBTASK_REPORT_SECONDS, ActiveGenerationClock, SubtaskReporter
@@ -204,11 +205,8 @@ class ClaudeSubtaskUsage:
             for line in handle:
                 if b'"assistant"' not in line:
                     continue
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue  # A torn last line.
-                if (isinstance(row, dict) and row.get("type") == "assistant" and row.get("isApiErrorMessage") is not True
+                row = json_row(line)  # None: a torn last line.
+                if (row is not None and row.get("type") == "assistant" and row.get("isApiErrorMessage") is not True
                         and isinstance(row.get("message"), dict) and _after(row.get("timestamp"), since)):
                     self.count(agent, row["message"], recorded=True)
 
