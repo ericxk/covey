@@ -112,7 +112,7 @@
 `app/butler.py`，只在开关开着、任务属于管家话题时起作用。
 
 - **回复位置和说法**：对管家消息的回复进那条消息的话题串，开话题就用这个串；Bridge 自己写的“本话题”换成“私聊里”。
-- **快照**：紧接规则，`snapshot_groups` 从 `core/board_read.py` 读（不调飞书，不持记录锁）。四组：等你回答（和汇总、看板、手上的事同一批）、有结果未看（看板的口径，见[看板与 Pin](#看板与-pin)）、进行中、管家开的话题；开了专项还有一栏“专项”。下一轮只列变了的行。
+- **快照**：紧接规则，`snapshot_groups` 从 `core/board_read.py` 读（不调飞书，不持记录锁）。四组：等你（和汇总、看板、手上的事同一批）、有结果没看（看板的口径，见[看板与 Pin](#看板与-pin)）、在做、管家开的话题（快照和 `topics_list` 的说明里分组名还是旧写法，见[名词表 · 状态词](glossary.md#状态词)）；开了专项还有一栏“专项”。下一轮只列变了的行。
 - **MCP 配置**：`butler_turn` 把 `mcp_config(...)` 放进 `ctx.options`，Claude 后端据此加 `--mcp-config`，不改 `runs/` 协议。
 - **压缩**：一轮送达后上下文到了 `compact_tokens`（默认 20 万，0 不压），`compact_butler` 写压缩请求；空闲时由 `app/idle_compaction.py` 在后台压，主人不用等。
 - **已下线的前台话题**：旧设置读到也按关；以前开的由 `core/migrate.py` 的 `desk-retire` 冻结。
@@ -159,7 +159,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 | 工具 | 参数 | 做什么 |
 | --- | --- | --- |
-| `topics_list` | group、query、limit | 按等你回答 → 有结果未看 → 进行中 → 最近列话题 |
+| `topics_list` | group、query、limit | 按等你 → 有结果没看 → 在做 → 最近列话题 |
 | `topics_search` | clues*、limit | 按线索找是哪个话题哪一轮做的 |
 | `topic_read` | topic*、job、turns | 读话题最近几轮：问题、结论、检查点、没答的问题 |
 | `workspaces_list` | 无 | 列工作区：名字、路径、用途、最近的话题 |

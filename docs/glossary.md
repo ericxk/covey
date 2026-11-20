@@ -6,7 +6,7 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 
 - **界面和提示词说人话**：主人看到的卡片、回复，以及模型读到的规则和工具说明，都用日常中文。提示词里的词会被模型学去，再出现在它的回复里，所以两者用同一套词。
 - **一个概念一个名字**：同一个东西不换着叫，不同的东西不共用一个名字。“线程”同时指过管家、专项里的话题和后台线程，所以界面和提示词里不再用它。
-- **代码跟着英文名**：模块、类、函数、开关名用英文名（第二批改名完成后）。盘上已有的文件名、JSON 字段、任务进程协议里的名字不改，读的时候新旧都认，保证旧记录、旧版本的任务进程、回滚都能用。
+- **代码跟着英文名**：模块、类、函数、开关名用英文名（旧名到新名的对照见文末）。盘上已有的文件名、JSON 字段、任务进程协议里的名字不改，读的时候新旧都认，保证旧记录、旧版本的任务进程、回滚都能用。
 
 ## 名词
 
@@ -14,7 +14,7 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 |---|---|---|---|---|
 | 机器人的使用者 | 主人 | owner | — | 不变。 |
 | 私聊里先接住主人每句话的那个 Agent：快答，其余交给话题或专项 | 管家 | butler | 主线程、main thread、Personal Agent（模式名） | 设置卡管家页上的私聊模式写成“私聊顶层的消息：交给管家 / 每条直接开一个话题”，文档里简称管家模式 / 纯话题模式。 |
-| 交出去在跑的一件事：一个 Harness 会话加一个飞书话题串，编号如 T12 | 话题 | topic | 线程、话题 | 专项里的话题叫“专项的话题”。 |
+| 交出去在跑的一件事：一个 Harness 会话加一个飞书话题串，编号如 T12 | 话题 | topic | 线程（指话题时） | 专项里的话题叫“专项的话题”。“线程”只留给后台线程，飞书的消息串叫话题串。 |
 | 话题在飞书里的那串消息 | 话题串 | thread | — | 只指飞书的消息串。 |
 | 话题串在聊天区的根卡片 | 话题卡 | topic card | — | 不变。 |
 | 管家交出去的事在聊天区的进度卡 | 派发卡 | dispatch card | 派发活卡片 | 卡上不写这个词。 |
@@ -31,7 +31,7 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 | 一次模型往返 | 一轮 | turn | — | 不变。 |
 | 每一轮在 Bridge 里的编号 | 任务 #N | job | — | 不变。 |
 | 在跑的一轮里追加的话 | 补充 | supplement（代码 steer） | — | 不变。 |
-| 管家同时在做的几件事 | 同时在做的事（界面：“还有 N 件事在做”） | track | 路、多路、一路 | 代码保留 track，只在内部用。 |
+| 管家同时在做的几件事 | 同时在做的事（界面：“还有 N 件事在做”） | track | 路、多路、一路 | 代码保留 track，只在内部用。这个功能（开关 `COVEY_BUTLER_TRACKS`）在文档里叫“同时做几件事”。 |
 | 话题写好、主人在卡上确认后以主人身份发给别人的一条飞书消息 | 代发（卡：代发草稿） | owner send（检查点字段 send_as_owner） | — | 和代答共用发送器；代答是替主人回白名单里的人，代发是话题主动发。 |
 | 产品 | Covey | Covey | — | |
 | 跑在开发机上的服务进程 | Bridge | Bridge | — | 只在内部、日志和文档里用。 |
@@ -52,7 +52,7 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 | 主人自己停的 | 已停止 | cancelled | — | 背景。 |
 | 网页上没有任务的话题 | 空闲 | idle | — | 背景。 |
 
-“要换掉的说法”还在没改过来的卡片上，各张卡片照 [UI 规范](ui.md#10-代码在哪) 改过来时换掉，旧卡片不改。
+“要换掉的说法”只在已经发出去的旧卡片和旧记录里还有，读的时候照认，不改历史卡。代码里还留着两处旧词，改的时候一起换：管家快照的分组名（`core/turn_words.py` 的 `GROUP_NAMES`：等你回答、有结果未看、进行中）和执行过程面板在跑时的标题“进行中”（`cards/trace_view.py`）。
 
 ## 只在内部用的词
 
@@ -67,11 +67,11 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 | 回带 | relay | 话题的结论发回聊天区。 |
 | 后台线程 | worker thread | Bridge 进程里的线程（如 ProjectLoop）。文档里写全“后台线程”，不单写“线程”。 |
 
-## 第二批：代码改名对照
+## 代码改名对照
 
-第二批只改代码里的名字，不改行为。
+管家、专项的话题这批改名已经做完，只改了代码里的名字，不改行为。读旧代码、旧提交时按这张表对照。
 
-| 现在 | 改成 |
+| 旧名 | 新名 |
 |---|---|
 | 模块 main_thread、main_tools、main_topics、main_relay、main_reply、main_search、main_handoff、main_reactions、main_env、main_knowledge、main_tracks、main_thread_panel、main_mcp、main_requests、main_opened、main_tool_specs、main_thread_settings | butler、butler_tools、butler_topics、butler_relay、butler_reply、butler_search、butler_handoff、butler_reactions、butler_env、butler_knowledge、butler_tracks、butler_panel、butler_mcp、butler_requests、butler_opened、butler_tool_specs、butler_settings |
 | 类和函数里的 main_thread、MainThread、main_turn、is_main_topic 等 | butler、Butler、butler_turn、is_butler_topic 等 |

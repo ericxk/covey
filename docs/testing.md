@@ -205,6 +205,23 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 
 场景：快速双击只入队一次、换配置或选目录后开始、续接、补充回执只前进、多题表单、重投不重跑模型、停止、翻页、机器人重启后卡片接着刷新（日志 `adopted task runner`）；每个 Harness 在独立工作区跑同一组，覆盖运行中的阻塞提问。计时和任务记录的 `timings`、`latency_ms` 对齐（[执行指标口径](architecture.md#执行指标口径)），只报观察到的区间。
 
+### 飞书网页端的验收工具
+
+在网页飞书上看卡片、点按钮的验收工具，用主人在代答里登录过的网页端 profile（`<state>/proxy/web`，只由下面的浏览器服务打开，别的工具要用先复制一份）；代答发送本身不经过它。
+
+### 网页端
+
+代答发送不经网页端。`feishu/web_client.py` 只剩验收页面要用的：打开会话列表（`open_messenger`，设备未授权时报 `UNAUTHORIZED`）、按名称找会话（`find_chat`、`openers`，至多 `CANDIDATES` 个同名的）、`header`、`clear`、`reset`、`launch`。`core/proxy.py` 的 `LAUNCH_FAILED` 等旧原因文字仍留着，给旧批次用；`settings.json` 的 `web_python`、`web_home` 照样能读。
+
+### 浏览器服务
+
+`feishu/web_service.py`：常驻进程（`bin/covey_feishu_web.py serve --home <state>/proxy/web`，用装了 Playwright 的解释器起），是网页端登录 profile 唯一的打开者，只给验收页面用。Bridge 不起、不认领它；验收客户端用 `--start` 起。
+
+- 单实例锁 `service.lock`，本机 socket `web.sock`（0600，目录 0700），日志 `service.log`。连续 `IDLE_SECONDS`（30 分钟，`--idle` 可改）没有命令就退出。
+- 每条命令一行 JSON，回答最后一行 `"done": true`：`ping`（随时立即回）、`stop` 和 `accept_*`；其余命令按到达顺序一条条跑。旧的 `send`、`login`、`status` 一律 `refused`。
+- **停靠**（`park`，`accept_close` 时）：换成新标签页加载会话列表，免得打开的会话把对方消息标成已读；列表 `STUCK_SECONDS` 不出来就 `reset` 再试，还不行停到 `PARK`。`accept_open` 遇到还在加载的停靠页先等（`WARM_SECONDS`）。
+- **验收页面**：`bin/covey_feishu_web.py accept open|post|text|click|fill|scroll|shot|close --home <state>/proxy/web [--title …] [--text …] [--at 名字] [--dy 像素] [--out PNG] [--start PYTHON]`（或 `web_service.accept`），一行 JSON 结果。`click`、`fill` 作用在最后 `NEWEST_ROWS` 行里最新的那张卡，主列表没有时用右侧打开的话题面板。`open`、`post`、`click`、`fill`、`scroll` 先核对会话标题在 `accept_chats()` 里（`COVEY_ACCEPT_CHATS` 逗号分隔的会话标题），不在就拒绝；没设这个变量时一律拒绝。只把专门用来验收的群和测试机器人的私聊写进去：打开会话会把消息标成主人已读。
+
 ## 发布记录要求
 
 - **实跑结果**：命令、项数、跳过及原因、失败项；全部实跑通过才能写全部通过。

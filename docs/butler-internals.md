@@ -126,7 +126,7 @@
   - `topic_send` 带 `project: true` 是管家判断这个话题要转成专项（主人要长期跟进、分成几个话题持续推进，或直接说“转成专项”；拿不准不带），`COVEY_PROJECT_UPGRADE` 不是 `off` 才生效。
   - 专项的话题不接 `topic_send`，回一句改用 `project_send`；`project_send` 的 `pid` 写 id、id 的开头或名字里的几个字，在跑的负责人那一轮收到补充，没有就开它的下一轮（消息 id `main-…`，算主人触发的一轮）。
   - 关着时清单和原来一字不差。专项本身见[专项](projects.md)。
-- 查询类工具（`app/butler_tools.py`）只读记录，不持记录锁。`topics_list` 的“有结果未看”（`group: result`）是看板的口径（`board_results`），“最近”是 `TOOLS_AGE`（3 天）。`topic_read` 默认读 2 轮，检查点列阶段、已完成、产物、下一步、在问，以及 `steps` 和 `delivery`。
+- 查询类工具（`app/butler_tools.py`）只读记录，不持记录锁。`topics_list` 的“有结果没看”（`group: result`）是看板的口径（`board_results`），“最近”是 `TOOLS_AGE`（3 天）。`topic_read` 默认读 2 轮，检查点列阶段、已完成、产物、下一步、在问，以及 `steps` 和 `delivery`。
 - `question_answer` 只答最新一组 pending 的问题：每题都要答，答案是选项原文，有自由文字题就整组拒绝。经 `app/answers.py` 的 `answer_fields` 转成表单字段，补充说明写 `PROXY_NOTE`，再经 `app/questions.py` 的 `submit_answer` 提交，和卡上点“提交回答”同一条路。
 - `topic_priority` 写 `board-priority.json`；`remove` 经 `app/pins.py` 的 `dismiss` 写 `dismissed`，看板没开时回 false。
 
