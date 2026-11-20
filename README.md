@@ -50,13 +50,13 @@ git clone https://github.com/ericxk/covey.git && cd covey
 ./install        # 终端里出现二维码时，用飞书手机端扫一次
 ```
 
-装完去飞书私聊机器人发一句话。选项和常见问题见[安装](docs/install.md)。公司或团队给了扩展库的，先照扩展库 README 里的安装一节做，它会带上扩展再运行 `./install`。
+装完去飞书私聊机器人发一句话。选项和常见问题见[安装](docs/install.md)。公司同事装核心加扩展，照扩展库 README 的「同事第一次安装」一节装，不用照下面的步骤。
 
 ## 装好以后
 
 1. **第一句话**：私聊机器人发一句话，管家直接回答或开一个话题去做；照[使用指南 · 第一次使用](docs/usage.md#第一次使用)走一遍。
 2. **再打开几个功能**：新装只开了上面“装好就开着的”几项，推荐再开的见[开关速查](docs/configuration.md#推荐打开)，改开关按[三步](docs/configuration.md#改开关三步)做。
-3. **升级**：拉新代码后用 `scripts/deploy_bridge.sh` 换成固定的 release，先 `--check-only`，见[升级与回滚](docs/operations.md#升级与回滚)。
+3. **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release，先 `--check-only`；不要在服务运行的检出里直接 `git pull`。见[升级与回滚](docs/operations.md#升级与回滚)。
 
 ## 文档
 
@@ -91,7 +91,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 ## 扩展
 
-核心不按名字引用任何一个 Harness 之外的东西。扩展是一个带清单（`manifest.py`）的包，放在运行的代码的 `extensions/` 下（固定 release 由 `scripts/deploy_bridge.sh --ext-repo` 拼进去），通过清单把 Harness、供应商、模型网关、菜单项和钩子并进核心的表。装好后用 `python3 -B bin/covey_plugins.py list`、`enable <包>`、`disable <包>` 管，改完 `covey_service.py restart` 生效，见[扩展的装和卸](docs/operations.md#扩展的装和卸)；接口和规则见[架构](docs/architecture.md#扩展)。环境变量 `COVEY_EXTENSIONS` 会盖过这份名单，只在开发测试时用。
+核心不按名字引用任何一个 Harness 之外的东西。扩展是一个带清单（`manifest` 模块）的包，放在运行的代码的 `extensions/` 下（固定 release 由 `scripts/deploy_bridge.sh --ext-repo` 拼进去），通过清单把 Harness、供应商、模型网关、菜单项和钩子并进核心的表。装好后用 `python3 -B bin/covey_plugins.py list`、`enable <包>`、`disable <包>` 管，改完 `covey_service.py restart` 生效，见[扩展的装和卸](docs/operations.md#扩展的装和卸)；接口和规则见[架构](docs/architecture.md#扩展)。环境变量 `COVEY_EXTENSIONS` 会盖过这份名单，只在开发测试时用。
 
 ## 参与
 

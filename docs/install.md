@@ -6,7 +6,7 @@
 
 - 这台机器上已装好并登录了 Claude Code 或 Codex（任一个）。怎么装、怎么登录见[安装和登录 Harness](harnesses.md#安装和登录-harness)；安装器不教、也不替你装。
 - Python 3.10+。没有 `lark-cli` 时安装器会用 npm 装它（没有 npm 时它会告诉你去装 Node.js）。
-- 公司或团队给了扩展库（带自己的 Harness、模型网关、开机托管或代答发送器）的，先照扩展库 README 里的安装一节做：它负责把扩展放到核心旁边、再运行 `./install`。下面只写核心自己的装法。
+- 公司同事装核心加扩展，照扩展库 README 的「同事第一次安装」一节装；本文只写核心自己的装法。
 
 ## 安装
 
@@ -65,7 +65,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 - **默认开着的**：管家、专项、整理专项（只提议）、问题卡上的「以后这类按推荐走」、撤回或编辑消息后跟着处理、自动补齐飞书应用。推荐再打开的（早晚汇总和菜单「看板」、置顶的「手上的事」、记忆等）见[开关速查](configuration.md#开关速查)，改开关按[改开关三步](configuration.md#改开关三步)做。
 - **怎么用**：[使用指南](usage.md)从[第一次使用](usage.md#第一次使用)开始。
 - **扩展**：装好后用 `bin/covey_plugins.py` 查看、启用、停用，见[扩展的装和卸](operations.md#扩展的装和卸)。
-- **升级**：拉新代码后用 `scripts/deploy_bridge.sh` 把服务换到固定的 release 目录运行（先 `--check-only`），见[升级与回滚](operations.md#升级与回滚)。`./install` 装的服务直接从这个检出运行，`git pull` 之后新开的任务就会用到新代码，而机器人本身还是旧的，所以不要只 `git pull`。
+- **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release 目录（先 `--check-only`），见[升级与回滚](operations.md#升级与回滚)。`./install` 装的服务直接从这个检出运行，在这里 `git pull` 之后新开的任务立刻用新代码，机器人本身却还是旧的，所以不要直接 `git pull`。
 
 ## 出问题
 

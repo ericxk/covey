@@ -20,7 +20,7 @@ description: Walk a new user through installing their own Covey Feishu bot from 
 
 ## 步骤
 
-1. **查前提**：Linux 或 macOS、Python 3.10+；Claude Code 或 Codex 至少一个已登录，并在终端里真实跑通一次（`claude -p "ok"` 或 `codex exec --skip-git-repo-check "ok"`）。用户有公司或团队给的扩展库时，改照扩展库 README 的安装一节做（它会放好扩展再运行 `./install`），下面第 2 步换成它的命令。见[前提](../../docs/install.md#前提)。
+1. **查前提**：Linux 或 macOS、Python 3.10+；Claude Code 或 Codex 至少一个已登录，并在终端里真实跑通一次（`claude -p "ok"` 或 `codex exec --skip-git-repo-check "ok"`）。公司同事装核心加扩展时，改照扩展库 README 的「同事第一次安装」一节做，下面第 2 步换成那里的命令。见[前提](../../docs/install.md#前提)。
 2. **运行 `./install`**：在仓库根目录运行。需要代理的机器先 `export HTTPS_PROXY=http://主机:端口`（不能带用户名密码）。安装器每步打印一行标题，见[它做了什么](../../docs/install.md#它做了什么)和[选项](../../docs/install.md#选项)。
 3. **等用户扫码**：终端里出现二维码时，请用户用飞书手机端扫一次（扫码的人就是机器人的主人）；之后安装器自己建应用、授权、补配置、注册服务。最后一行是“完成。去飞书私聊机器人「…」发一句话”；有“还差：……”时照它说的做。
 4. **发第一句话并验收**：请用户私聊机器人发「只告诉我当前工作目录，不修改文件」，再按[第一个回答](../../docs/install.md#第一个回答)的五步验收逐项做，用户告诉你看到什么，你同时看状态目录的 `bridge.log`（位置见[排障 · 先找到数据根和 APP_ID](../../docs/troubleshooting.md#先找到数据根和-app_id)）。全部通过才算装好。

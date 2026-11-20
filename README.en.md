@@ -52,13 +52,13 @@ git clone https://github.com/ericxk/covey.git && cd covey
 ./install        # scan the QR code in the terminal once with the Feishu mobile app
 ```
 
-Then send the bot a message in a private chat. Options and troubleshooting: [docs/install.md](docs/install.md). If your company or team gave you an extension repository, follow the install section of its README first; it runs `./install` with the extension in place.
+Then send the bot a message in a private chat. Options and troubleshooting: [docs/install.md](docs/install.md). Colleagues installing the core together with their company's extension follow the 「同事第一次安装」 section of the extension repository's README instead of the steps above.
 
 ## After installing
 
 1. **First message**: write to the bot in a private chat; the butler answers or opens a topic. Walk through [first use](docs/usage.md#第一次使用).
 2. **Turn on more**: a new install has only the features above on; recommended ones are listed [here](docs/configuration.md#推荐打开), and a switch is changed in [three steps](docs/configuration.md#改开关三步).
-3. **Upgrade**: after pulling new code, `scripts/deploy_bridge.sh` moves the service onto a fixed release; run it with `--check-only` first. See [upgrade and rollback](docs/operations.md#升级与回滚).
+3. **Upgrade**: after `git fetch`, `scripts/deploy_bridge.sh` deploys the new commit as a fixed release; run it with `--check-only` first, and do not `git pull` in the checkout the service runs from. See [upgrade and rollback](docs/operations.md#升级与回滚).
 
 ## Documentation
 
@@ -70,7 +70,7 @@ All in Chinese.
 
 ## Extensions
 
-The core refers to nothing but the built-in harnesses. An extension is a package with a manifest (`manifest.py`) under `extensions/` of the code that runs (a fixed release gets it from `scripts/deploy_bridge.sh --ext-repo`); its manifest merges harnesses, providers, model gateways, menu items and hooks into the core's tables. Once it is there, `python3 -B bin/covey_plugins.py list`, `enable <package>` and `disable <package>` manage it, and `covey_service.py restart` puts a change into effect; see [operations](docs/operations.md#扩展的装和卸) and [architecture](docs/architecture.md#扩展). The `COVEY_EXTENSIONS` variable overrides that list and is meant for development only.
+The core refers to nothing but the built-in harnesses. An extension is a package with a manifest (its `manifest` module) under `extensions/` of the code that runs (a fixed release gets it from `scripts/deploy_bridge.sh --ext-repo`); its manifest merges harnesses, providers, model gateways, menu items and hooks into the core's tables. Once it is there, `python3 -B bin/covey_plugins.py list`, `enable <package>` and `disable <package>` manage it, and `covey_service.py restart` puts a change into effect; see [operations](docs/operations.md#扩展的装和卸) and [architecture](docs/architecture.md#扩展). The `COVEY_EXTENSIONS` variable overrides that list and is meant for development only.
 
 ## Contributing
 
