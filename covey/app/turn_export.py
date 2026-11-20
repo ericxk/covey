@@ -17,7 +17,7 @@ import lzma
 import threading
 import time
 
-from covey.app.artifacts import drive_upload, private_folder
+from covey.feishu.drive import drive_upload, private_folder
 from covey.app.card_actions import action_value
 from covey.cards.turn_export import export_panel
 from covey.core.harness import backend_capabilities

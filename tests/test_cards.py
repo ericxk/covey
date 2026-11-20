@@ -35,7 +35,7 @@ from covey.feishu import events as feishu_events
 from covey.app.cards import Cards
 from covey.app.runtime import Runtime
 from covey.app.unified import UnifiedBridgeApp
-from covey.app.artifacts import artifact_panel
+from covey.cards.artifact_panels import artifact_panel
 from covey.app.card_actions import BOT_ONLY, action_label
 from covey.app.card_lanes import CardLanes
 from covey.app.card_queue import CardActionQueue
@@ -242,8 +242,7 @@ def sample_cards(work=None):
                                                       "subagents": 2, "size": 85000, "raw_size": 9000000}),
         "question_on_task": question_element(question_record()),
         "trace_panel": split_panel(trace_panel(trace, True)),
-        "artifacts": artifact_panel({"job_id": 431, "result_file_path": str(work / "result.md"),
-                                     "diff_artifact_path": str(work / "diff.md")}, TOPIC),
+        "artifacts": artifact_panel([str(work / "result.md"), str(work / "diff.md")], 431, TOPIC),
     }
     # A panel is checked inside the task card it is inserted into, so IDs must not collide there either.
     for name, panel in task_card_panels.items():

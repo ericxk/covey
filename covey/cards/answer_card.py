@@ -1,6 +1,6 @@
 """What follows a finished turn's answer on its answer card in the topic and on its relay at the private chat's top
 level (the owner, 2026-11-08: 答案区的卡片和私聊区的卡片样式一样，私聊区只多一个跳转链接): the answer, then its 产物
-folded (app/artifacts.py drive_artifact_panel, by ARTIFACTS_ID), then its 改动 folded the same way (``change_element``,
+folded (cards/artifact_panels.py drive_artifact_panel, by ARTIFACTS_ID), then its 改动 folded the same way (``change_element``,
 CHANGE_ID: only a turn that changed code, core/checkpoint.py shows_change), then one grey box of two rows, each label in
 a column of its own so that a wrapped line stays right of it. Each row is one line that wraps on its own (the owner,
 2026-11-09 13:48: 折行也行吧，只要不用 · 分割，而是换成一些明显的分隔符): its parts apart by a grey "｜" (SEPARATOR),

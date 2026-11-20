@@ -27,7 +27,9 @@ from support.fake_lark import FakeCardKit
 from support.world import QuestionFixture, TopicFixture
 
 from covey.app.questions import QuestionFolded, fold_older_questions, recover_question_delivery
-from covey.app.artifacts import artifact_key, artifact_panel
+from covey.app.artifact_policy import artifact_key
+from covey.core.artifact_paths import artifact_paths
+from covey.cards.artifact_panels import artifact_panel
 from covey.cards.held_note import ANSWER_REQUIRED, note_card, note_parts
 from covey.app.answers import (AnswerIncomplete, SKIPPED, TITLE_CHARS, UNANSWERED_NOTE, answer_title, form_answers,
                                         picked_fields)
@@ -1040,7 +1042,7 @@ class QuestionCardLifecycleTest(TopicFixture, unittest.TestCase):
         self.assertNotIn('下一页', str(first))
         self.app.artifacts.in_background.assert_called_once_with(self.app.artifacts.publish_artifacts, self.ctx, job, mock.ANY)
         # Cards published before Drive links keep their paged send buttons.
-        second = artifact_panel(record, self.ctx.topic_id, 1)
+        second = artifact_panel(artifact_paths(record), record["job_id"], self.ctx.topic_id, 1)
         buttons = [e for e in second['elements'] if e['tag'] == 'button']
         send = [b['behaviors'][0]['value'] for b in buttons if b['behaviors'][0]['value']['kind'] == 'bridge_artifact_send']
         self.assertEqual([v['artifact_key'] for v in send], [artifact_key(files[5]),artifact_key(files[6])])

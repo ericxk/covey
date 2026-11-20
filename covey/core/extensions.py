@@ -5,7 +5,7 @@ only, no import of covey): ``HARNESSES`` (name -> the fields of core/roster.py's
 ``PROVIDERS`` (a list of dicts with the fields of core/providers.py's Provider), ``RETIRED_PREFIXES`` and
 ``RETIRED_HARNESSES``, and the small tables the core reads for them: ``WORK_MODES`` (mode id -> [label, hint]) with
 ``DEFAULT_WORK_MODE`` (core/defaults.py), ``AGENT_DIRS`` (hidden directories an agent keeps in a workspace,
-app/artifacts.py), ``IGNORED_ENV`` (variable -> [Harness, option], core/ignored_env.py) and ``GATEWAYS`` (name -> the
+app/artifact_policy.py), ``IGNORED_ENV`` (variable -> [Harness, option], core/ignored_env.py) and ``GATEWAYS`` (name -> the
 fields of core/gateways.py's Gateway: model gateways for Codex, Pi and dsh); each may be left out.
 Two more tables hold what only some deployments have: ``HOOKS`` (hook name -> the dotted name of a module of the
 package, imported when the core asks for it: ``hook``; the names are the ``HOOK_NAMES`` below) and ``SETTINGS``
@@ -52,7 +52,7 @@ HOOK_NAMES = {
 RETIRED_HOOKS = {"dashboard_entry"}  # The web dashboard's fixed entry, with the dashboard taken out 2026-11-19.
 SETTING_NAMES = {
     "web_tenant_domain": "feishu/web_client.py: the Feishu tenant's host name, for the web login",
-    "contact_notes": "app/artifacts.py: a regex of the paths the 代答 contacts' notes are kept in",
+    "contact_notes": "app/artifact_policy.py: a regex of the paths the 代答 contacts' notes are kept in",
     "contact_notes_hint": "core/proxy.py: what the 代答 prompt says about creating a missing notes directory",
     "contact_notes_dir": "app/proxy_commands.py: the notes directory under a workdir, with {task} for the task id",
 }

@@ -11,7 +11,7 @@ path in ``RunInputs.attachments`` and gains a ``device_path``, which Codex's ``l
 
 Out, the files the Agent lists as artifacts (``fetch_artifact``) and the images it shows at once
 (``wanted_images``, ``RemoteImage``): one ``stat`` on the device judges them there (``realpath``, whether they leave the
-directory, the denylist of app/artifacts.py as ``deny_names`` and ``deny_dirs``), the hub judges the ``realpath`` it is
+directory, the denylist of app/artifact_policy.py as ``deny_names`` and ``deny_dirs``), the hub judges the ``realpath`` it is
 told once more with the same rule (``_judged_parts``), then ``get`` copies the file to
 ``<state>/runs/<job key>/device-files/<h>/`` and the upload goes on from that copy as it does for a file of this
 machine. A device's artifact must be inside its working directory (``escapes``); an image may be anywhere, as on this
@@ -230,7 +230,7 @@ def remote_path(record, raw):
 
 @dataclasses.dataclass(frozen=True)
 class Policy:
-    """What the hub never publishes (app/artifacts.py ``device_policy``): ``names``, ``fnmatch`` patterns of a path's parts and
+    """What the hub never publishes (app/artifact_policy.py ``device_policy``): ``names``, ``fnmatch`` patterns of a path's parts and
     ``dirs``, directories (``~`` the device's home), both sent to the device's ``stat`` as ``deny_names`` and
     ``deny_dirs``, and ``denied``, the hub's own rule over a path (a ``PurePosixPath``) the device reported as the real one.
     Passed in, so that this module imports nothing of the app."""

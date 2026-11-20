@@ -69,6 +69,7 @@
 | `app/answers.py` | Answers to questions, without saving or sending anything |
 | `app/app.py` | BridgeApp: one Harness's components and its entry points |
 | `app/app_setup.py` | The Feishu app's configuration kept up with the Bridge: the owner, 2026-11-09: 使用者只扫码，其余由 Bridge 用浏览器完成 |
+| `app/artifact_policy.py` | What of a task's artifacts may be published |
 | `app/artifacts.py` | Publish only explicitly recorded, bounded artifacts of a task |
 | `app/auto_retry.py` | Automatic 检查并继续 after a turn that ended without a reply as one of KINDS |
 | `app/availability.py` | Separate local backend readiness from recently observed model access |
@@ -229,6 +230,7 @@
 | --- | --- |
 | `cards/answer_card.py` | What follows a finished turn's answer on its answer card in the topic and on its relay at the private chat's … |
 | `cards/app_setup.py` | The 飞书应用待补 card: what the app lacks, then the run's steps, then what it added |
+| `cards/artifact_panels.py` | The 产物 panels of a task card: Drive links and uploading state, and the older per-file send buttons |
 | `cards/board.py` | The bot menu's 看板: what is going on in the owner's private chat now, in the 夜航 look |
 | `cards/butler_panel.py` | The 管家 settings card, in the bot menu panels' style |
 | `cards/card_cost.py` | What a card costs CardKit, which refuses one over its size (code 200860) |
@@ -281,6 +283,7 @@
 | 文件 | 管什么 |
 | --- | --- |
 | `core/app_manifest.py` | What the Feishu app behind a Bridge must have, and what its online version lacks |
+| `core/artifact_paths.py` | Which files a task records as its artifacts, and the key a button names one by |
 | `core/attachments.py` | Image attachments a Harness hands its model itself (Claude Code's stream-json input, pi's prompt) |
 | `core/background.py` | The work a task runner finishes before it exits |
 | `core/backup.py` | The daily backup of a state directory |
@@ -410,6 +413,7 @@
 | `feishu/cardkit.py` | Shared CardKit API helpers for Feishu bridge scripts |
 | `feishu/connections.py` | Linux event-bus transport watchdog, independent of user message activity |
 | `feishu/delivery.py` | Shared Feishu message delivery helpers for bridge scripts |
+| `feishu/drive.py` | The bot's cloud space (Drive) through lark-cli |
 | `feishu/events.py` | Shared Lark event consumer helpers for Feishu bridge scripts |
 | `feishu/forward.py` | The model text of a quoted message (render_replied_message_context) and of a merged forward, nested forwards … |
 | `feishu/install_browser.py` | ./install 用的浏览器会话：一个无头 Chromium 扫一次码，从头到尾替主人点完建应用、授权和开发者后台补配置。 在装了 Playwright 的 Python … |

@@ -537,13 +537,12 @@ def switch_cards():
 
 
 def topic_panels():
-    from covey.app.artifacts import artifact_panel
+    from covey.cards.artifact_panels import artifact_panel
     from covey.cards.topic_actions import topic_panel
 
     return {
         "topic": topic_panel(TOPIC, 431, ("claude", 2), rewind=True),
-        "artifacts": artifact_panel({"job_id": 431, "result_file_path": str(WORK / "result.md"),
-                                     "diff_artifact_path": str(WORK / "diff.md")}, TOPIC),
+        "artifacts": artifact_panel([str(WORK / "result.md"), str(WORK / "diff.md")], 431, TOPIC),
     }
 
 

@@ -17,8 +17,9 @@ from support import make_context, make_job
 from support.device_guard import DeviceGuard
 from support.fake_device import FakeDevice
 
-from covey.app import artifacts, device_files, turn_images
-from covey.app.artifacts import SENSITIVE_NAMES, artifact_key, config_path, drive_paths, resolve_artifact
+from covey.app import artifact_policy, artifacts, device_files, turn_images
+from covey.core.artifact_paths import artifact_paths
+from covey.app.artifact_policy import SENSITIVE_NAMES, artifact_key, config_path, drive_paths, resolve_artifact
 from covey.backends.codex.appserver import image_paths
 from covey.core import devices
 from covey.core.jobs import job_key
@@ -228,7 +229,7 @@ class ArtifactTest(Fixture):
 
     def resolve(self, raw, record=None, **kwargs):
         record = record or self.record()
-        if raw not in artifacts.artifact_paths(record):
+        if raw not in artifact_paths(record):
             self.listed = [raw]
             self.write_cp()
         return resolve_artifact(record, artifact_key(raw), state_dir=self.state, **kwargs)
@@ -260,7 +261,7 @@ class ArtifactTest(Fixture):
         self.assertEqual(fields["base"], str(self.proj))
         self.assertTrue(SENSITIVE_NAMES <= set(fields["deny_names"]), fields["deny_names"])
         self.assertTrue({".env", ".env.*", ".local-state"} <= set(fields["deny_names"]))
-        for name in artifacts.AGENT_DIRS:
+        for name in artifact_policy.AGENT_DIRS:
             self.assertIn("~/" + name, fields["deny_dirs"])
 
     def test_a_configuration_or_credential_path_is_refused_whatever_way_it_is_written(self):
@@ -344,7 +345,7 @@ class ArtifactTest(Fixture):
         hub_file.write_text("the hub's own")
         self.listed = [str(hub_file)]
         self.write_cp()
-        self.assertIn(str(hub_file), artifacts.artifact_paths(self.record()))
+        self.assertIn(str(hub_file), artifact_paths(self.record()))
         self.refused(str(hub_file), "工作区之外|产物文件不存在")
         self.assertFalse(list((self.state / "runs").glob("**/plot.txt")) if (self.state / "runs").exists() else [])
 
@@ -353,17 +354,17 @@ class ArtifactTest(Fixture):
         result.parent.mkdir()
         result.write_text("a long reply")
         record = self.record(result_file_path=str(result))
-        self.assertEqual(artifacts.artifact_paths(record)[-1], str(result))
+        self.assertEqual(artifact_paths(record)[-1], str(result))
         self.assertEqual(self.resolve(str(result), record), result)
         self.assertEqual(self.calls, [])
         self.assertFalse(config_path(record, str(result)))
 
     def test_a_device_path_is_judged_as_text_the_hubs_home_and_links_play_no_part(self):
         record = self.record()
-        path = artifacts._local_path(record, "~/notes.md")
+        path = artifact_policy._local_path(record, "~/notes.md")
         self.assertEqual((type(path), str(path)), (PurePosixPath, "~/notes.md"))
-        self.assertEqual(str(artifacts._local_path(record, "a/../b.txt")), str(self.proj / "b.txt"))
-        self.assertEqual(str(artifacts._local_path(record, "/x//y/./z")), "/x/y/z")
+        self.assertEqual(str(artifact_policy._local_path(record, "a/../b.txt")), str(self.proj / "b.txt"))
+        self.assertEqual(str(artifact_policy._local_path(record, "/x//y/./z")), "/x/y/z")
         self.assertFalse(config_path(record, "~/notes.md"))
         self.assertTrue(config_path(record, "~/.ssh/id_rsa"))
         # The checkpoint's artifacts/ of the hub is not where a device's files are.

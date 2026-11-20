@@ -102,6 +102,7 @@ class TurnExportTests(UnifiedCase):
         backend = type(self.app_.backend)
         with FakeCardKit({'code': 0}) as lark, mock.patch.object(backend, 'export_turn', create=True, side_effect=export) as call, \
                 mock.patch('covey.app.artifacts.drive_call', side_effect=self.upload), \
+                mock.patch('covey.feishu.drive.drive_call', side_effect=self.upload), \
                 mock.patch.object(type(self.app_.harness), 'topic_record', return_value=self.record):
             self.assertTrue(self.app_.turn_export.export_action(self.source, event))
             wait_for(self, lambda: (find_job_record(self.source.state_dir, 'job-1') or {}).get('turn_export', {})

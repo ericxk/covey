@@ -21,7 +21,7 @@ import threading
 from pathlib import Path
 
 from covey.app import device_files
-from covey.app.artifacts import device_policy
+from covey.app.artifact_policy import device_policy
 from covey.core import background
 from covey.core.jobs import find_job_record, job_key, upsert_job_record
 from covey.core.butler import is_butler_topic

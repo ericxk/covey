@@ -2,7 +2,7 @@
 their 产物 up to date.
 
 - ``inputs`` and ``outputs``: the 输入 and 输出 lines of a job (app/answer_delivery.py ``AnswerParts``, app/butler_relay.py).
-- The 产物 panel itself is app/artifacts.py answer_files (drive_artifact_panel by ARTIFACTS_ID, folded unless
+- The 产物 panel itself is app/artifacts.py answer_files (cards/artifact_panels.py drive_artifact_panel by ARTIFACTS_ID, folded unless
   something failed).
 - The record <state>/answer-cards/<job key>.json lists each card the turn's answer went out on that shows 产物: the
   answer card in the topic (or the small card after an answer sent as Markdown or a file) and its relay at the top

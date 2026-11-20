@@ -138,7 +138,7 @@ def diff_uploaded(state, folder):
     key = folder.name  # job-diffs/<job key>: a job key is already a slug.
     raw = read_object(state / "jobs" / (key + ".json")).get("diff_artifact_path")
     files = _upload_ledger(state, key).get("files")
-    # Keyed by app.artifacts.artifact_key, the digest of the recorded path.
+    # Keyed by core.artifact_paths.artifact_key, the digest of the recorded path.
     entry = files.get(hashlib.sha256(raw.encode()).hexdigest()[:24]) if raw and isinstance(files, dict) else None
     if not isinstance(entry, dict) or not entry.get("sha256"):
         return False
