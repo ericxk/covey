@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check the devices of devices.json from the command line: ``covey_devices.py check <alias>`` runs core/devices.py's self-check.
+"""Check the devices of devices.json from the command line: ``covey_devices.py check <alias>`` runs core/device_probe.py's self-check.
 
-``check`` is the same flow the workspace card's device line reports (``devices.check_device``): a 5-second ssh with
+``check`` is the same flow the workspace card's device line reports (``device_probe.check_device``): a 5-second ssh with
 BatchMode, the device-side program and the Codex reader pushed, ``hello``, the environment profile imported, then one
 minimal real request for every Harness the device declares (60 seconds each, with the profile's environment); the result
 is written to ``<state>/devices/<alias>/profile.json``. ``list`` prints each device's last check without touching it.
@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import sys
 
-from covey.core import devices
+from covey.core import device_probe, devices
 
 
 def devices_report(state_dir, config=None):
@@ -29,7 +29,7 @@ def devices_report(state_dir, config=None):
         profile = devices.read_profile(state_dir, alias)
         check = profile.get("check") if isinstance(profile.get("check"), dict) else None
         rows[alias] = {"title": device.title, "harnesses": list(device.harnesses), "check": check,
-                       "status": devices.status_text(state_dir, alias)}
+                       "status": device_probe.status_text(state_dir, alias)}
     return rows
 
 
@@ -47,8 +47,8 @@ def run_check(args, out=None):
     except devices.UnknownDevice:
         print("设备 %s 不在 devices.json 里（有：%s）" % (args.alias, ", ".join(config.devices) or "没有"), file=out)
         return 3
-    result = devices.self_check(config, args.alias, state_dir=args.state_dir.expanduser().resolve(),
-                                probe=None if args.no_probe else devices.probe_harness)
+    result = device_probe.self_check(config, args.alias, state_dir=args.state_dir.expanduser().resolve(),
+                                probe=None if args.no_probe else device_probe.probe_harness)
     if args.json:
         print(json.dumps({"alias": args.alias, "ok": result.ok, "text": result.explain(),
                           "steps": [{"name": s.name, "ok": s.ok, "skipped": s.skipped, "detail": s.detail,

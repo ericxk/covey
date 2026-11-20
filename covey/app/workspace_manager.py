@@ -37,7 +37,7 @@ from covey.cards.launch_config import MANAGE_OPTION, WORKSPACE_ACTION
 from covey.cards.elements import note
 from covey.cards.workspace_manager import (BROWSE_HOST, BROWSE_VERBS, FILTERS, MANAGER_PREFIX, ROW_VERBS,
                                                    closed_card, manager_card, markdown_lines, row_key)
-from covey.core import devices, butler, butler_settings
+from covey.core import device_probe, devices, butler, butler_settings
 from covey.core.workspaces import (add_workspace, directory_status, load_config, missing_workspaces,
                                            remove_workspaces, set_default_workspace)
 from covey.app.card_actions import action_value, form_fields
@@ -137,7 +137,7 @@ class WorkspaceManager(CardActionQueue):
             listed = devices.current().devices.items()
         except devices.DeviceConfigError:
             return []
-        return [f'设备 {device.title}（{alias}）：{devices.status_text(ctx.state_dir, alias)}'
+        return [f'设备 {device.title}（{alias}）：{device_probe.status_text(ctx.state_dir, alias)}'
                 for alias, device in listed if access.allows_device(chat_id, alias)]
 
     def tab_shown(self, ctx, token):

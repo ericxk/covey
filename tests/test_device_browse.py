@@ -28,7 +28,7 @@ from covey.app.directory_picker import DirectoryCache, device_hop, listed_paths,
 from covey.backends.codex.bridge import CodexBackend
 from covey.cards.directory import DEVICE_PLACEHOLDER, SEARCH_PLACEHOLDER, directory_card
 from covey.core.text import literal
-from covey.core import devices, harness_probe
+from covey.core import device_probe, devices, harness_probe
 from covey.core.model_settings import model_catalog
 from covey.core.workspaces import load_config
 from covey.service import device_check, doctor
@@ -570,7 +570,7 @@ class SelfCheckTest(DeviceEnv, unittest.TestCase):
         self.tool("codex", 'case "$1" in --version) echo "codex-cli 0.164.0";; login) echo "Logged in";; *) echo ok;; esac')
 
     def check(self, **kw):
-        return devices.check_device(self.config, "gpu1", state_dir=self.state, transport=self.device.transport, **kw)
+        return device_probe.check_device(self.config, "gpu1", state_dir=self.state, transport=self.device.transport, **kw)
 
     def test_a_good_device_passes_with_a_real_request_each_and_says_so(self):
         self.good_tools()
@@ -584,7 +584,7 @@ class SelfCheckTest(DeviceEnv, unittest.TestCase):
         self.assertEqual((profile["probe"]["claude"]["ok"], profile["probe"]["codex"]["reason"]), (True, "ok"))
         self.assertEqual(profile["check"], {"at": 4000.0, "ok": True, "failed": "", "text": result.explain()})
         self.assertEqual(devices.read_hello(self.state, "gpu1", now=4001.0)["shim"], result.hello["shim"])
-        self.assertEqual(devices.status_text(self.state, "gpu1", now=4300.0), "自检通过（5 分钟前） · claude 2.1.310 · codex 0.164.0")
+        self.assertEqual(device_probe.status_text(self.state, "gpu1", now=4300.0), "自检通过（5 分钟前） · claude 2.1.310 · codex 0.164.0")
 
     def test_the_request_runs_with_the_profiles_environment_on_the_device(self):
         self.tool("claude", 'case "$1" in --version) echo "2.1.310";; auth) echo \'{"loggedIn": true}\';; '
@@ -595,7 +595,7 @@ class SelfCheckTest(DeviceEnv, unittest.TestCase):
         seen = []
         real = self.device.transport.call
         self.device.transport.call = lambda cmd, **f: seen.append((cmd, f)) or real(cmd, **f)
-        devices.self_check(config, "gpu1", state_dir=self.state, transport=self.device.transport, probe=devices.probe_harness)
+        device_probe.self_check(config, "gpu1", state_dir=self.state, transport=self.device.transport, probe=device_probe.probe_harness)
         sent = [f for cmd, f in seen if cmd == "exec" and "-p" in f["argv"]]
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0]["env"], {"HTTPS_PROXY": "http://proxy.example:3128"})
@@ -613,15 +613,15 @@ class SelfCheckTest(DeviceEnv, unittest.TestCase):
             "gpu1 上的 claude 连不上模型服务，而且环境档案里没有代理（HTTPS_PROXY）。设备出网要代理的话，在设备的 "
             "~/.claude/settings.json 的 env 里设 HTTPS_PROXY，或写进 devices.json 里这台设备的 env，再自检。"))
         self.assertEqual(devices.read_profile(self.state, "gpu1")["probe"]["claude"]["reason"], "network")
-        self.assertIn("自检未通过", devices.status_text(self.state, "gpu1"))
-        self.assertIn("没有代理", devices.status_text(self.state, "gpu1"))
+        self.assertIn("自检未通过", device_probe.status_text(self.state, "gpu1"))
+        self.assertIn("没有代理", device_probe.status_text(self.state, "gpu1"))
 
     def test_with_a_proxy_the_same_failure_says_the_proxy_does_not_work(self):
         self.tool("claude", 'case "$1" in --version) echo "2.1.310";; auth) echo \'{"loggedIn": true}\';; '
                             '*) echo "proxy error 502" >&2; exit 1;; esac')
         config = devices.parse(json.dumps({**DOC, "devices": {"gpu1": {**DOC["devices"]["gpu1"], "harnesses": ["claude"],
                                                                          "env": {"HTTPS_PROXY": "http://proxy.example:3128"}}}}))
-        result = devices.check_device(config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        result = device_probe.check_device(config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertIn("已带代理（HTTPS_PROXY）仍然不通", result.explain())
         self.assertNotIn("proxy.example", result.explain())
 
@@ -632,13 +632,13 @@ class SelfCheckTest(DeviceEnv, unittest.TestCase):
                 ("g", "claude", "timeout", "gpu1 上的 claude 在 60 秒内没有答复（出网慢，或被代理卡住）。"),
                 ("g", "claude", "not_installed", "gpu1 上没有 claude（PATH 和常见安装目录里都找不到）。"),
                 ("g", "codex", "other", "gpu1 上的 codex 最小请求失败：boom")):
-            self.assertEqual(devices.explain_probe("gpu1", harness, {"reason": reason, "detail": "boom"}, {}), expect)
+            self.assertEqual(device_probe.explain_probe("gpu1", harness, {"reason": reason, "detail": "boom"}, {}), expect)
 
     def test_a_probe_that_times_out_is_a_timeout_not_a_hang(self):
         self.tool("claude", 'case "$1" in --version) echo "2.1.310";; auth) echo \'{"loggedIn": true}\';; *) sleep 30;; esac')
         self.tool("codex", 'case "$1" in --version) echo "codex-cli 0.1";; login) echo ok;; *) echo ok;; esac')
         profile = self.check(now=lambda: 1.0).profile
-        answer = devices.probe_harness(self.device.transport, self.config.device("gpu1"), "claude", profile, timeout=1)
+        answer = device_probe.probe_harness(self.device.transport, self.config.device("gpu1"), "claude", profile, timeout=1)
         self.assertEqual((answer["ok"], answer["reason"]), (False, "timeout"))
 
     def test_an_unreachable_device_stops_at_connect_and_keeps_an_older_profile(self):
@@ -652,7 +652,7 @@ class SelfCheckTest(DeviceEnv, unittest.TestCase):
         profile = devices.read_profile(self.state, "gpu1")
         self.assertEqual((profile["check"]["ok"], profile["check"]["failed"], profile["check"]["at"]), (False, "connect", 20.0))
         self.assertIn("claude", profile["tools"], "what was learned before stays")
-        self.assertIn("自检未通过", devices.status_text(self.state, "gpu1", now=30.0))
+        self.assertIn("自检未通过", device_probe.status_text(self.state, "gpu1", now=30.0))
 
     def test_credentials_in_a_proxy_are_refused_and_only_whitelisted_names_come_in(self):
         self.good_tools()
@@ -697,15 +697,15 @@ class CommandTest(DeviceEnv, unittest.TestCase):
         return code, out.getvalue()
 
     def test_check_runs_the_self_check_and_exits_by_its_result(self):
-        passed = devices.CheckResult("gpu1", [devices.Step("connect", True)], profile={"tools": {}})
-        with mock.patch.object(devices, "self_check", return_value=passed) as run:
+        passed = device_probe.CheckResult("gpu1", [device_probe.Step("connect", True)], profile={"tools": {}})
+        with mock.patch.object(device_probe, "self_check", return_value=passed) as run:
             code, out = self.run_main("check", "gpu1")
         self.assertEqual(code, 0)
-        self.assertIs(run.call_args.kwargs["probe"], devices.probe_harness)
+        self.assertIs(run.call_args.kwargs["probe"], device_probe.probe_harness)
         self.assertEqual(run.call_args.kwargs["state_dir"], self.state.resolve())
         self.assertIn("ok  connect", out)
-        failed = devices.CheckResult("gpu1", [devices.Step("connect", False, "boom")])
-        with mock.patch.object(devices, "self_check", return_value=failed):
+        failed = device_probe.CheckResult("gpu1", [device_probe.Step("connect", False, "boom")])
+        with mock.patch.object(device_probe, "self_check", return_value=failed):
             code, out = self.run_main("check", "gpu1", "--no-probe", "--json")
         self.assertEqual(code, 2)
         payload = json.loads(out)

@@ -109,7 +109,7 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
     返回启动卡 and 结束，不启动任务; ``hub`` (the 设置 card's tab, ``top`` its tab row) with 刷新 only. ``notes``:
     (name -> 用途, ``save(names)`` the 保存用途 button of the rows listed) to edit each row's 用途; ``after``: elements
     under the form, within the same budget. ``device_lines``: a line on each device the chat may use (its last
-    self-check, core/devices.py ``status_text``), above the form. Its form: the list's head (``list_head``), a row for each workspace
+    self-check, core/device_probe.py ``status_text``), above the form. Its form: the list's head (``list_head``), a row for each workspace
     remembered (``entry_rows``), pages and 移除不存在的 (``list_foot``), and the buttons (``end_buttons``)."""
     busy = bool(view.get('processing'))
 

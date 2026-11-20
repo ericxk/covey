@@ -306,6 +306,7 @@
 | `core/defaults.py` | Product defaults, separate from provider-native default metadata |
 | `core/deliveries.py` | Supplements sent into a running task: one delivery record each |
 | `core/device_link.py` | DeviceProcess: a Harness process that runs on a device, dressed as the `subprocess.Popen` the backends use |
+| `core/device_probe.py` | A device's self-check |
 | `core/device_reap.py` | What a device may still hold of a task the hub has given up on |
 | `core/device_shim.py` | The device-side program the hub pushes over ssh: it supervises Harness tasks and serves files, stdlib only |
 | `core/device_transport.py` | The hub's side of the device shim's wire protocol |

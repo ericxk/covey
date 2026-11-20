@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from covey.core import device_transport as dt
-from covey.core import devices
+from covey.core import device_probe, devices
 from support import REPO, exec_tempdir
 from support.fake_device import FakeDevice
 
@@ -950,7 +950,7 @@ class SelfCheckTest(unittest.TestCase):
             probes.append((transport.alias, device.alias, harness, sorted(profile["env"])))
             return {"ok": True, "reason": "ok", "detail": ""}
 
-        result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport,
+        result = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport,
                                     probe=probe, now=lambda: 5000.0)
         self.assertTrue(result.ok, result.lines())
         self.assertEqual([s.name for s in result.steps], ["connect", "shim", "hello", "profile", "tools", "probe:claude"])
@@ -962,7 +962,7 @@ class SelfCheckTest(unittest.TestCase):
         self.assertEqual((profile["tools"]["claude"]["version"], profile["probe"]["claude"]["ok"], profile["at"]),
                          ("claude 9.9.9 (fake)", True, 5000.0))
         self.assertEqual(len(result.lines()), 6)
-        again = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        again = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertTrue(again.ok)
         self.assertIn("cached", again.steps[1].detail, "the shim is not pushed twice")
         self.assertTrue(again.steps[-1].skipped, "no probe supplied: skipped, not failed")
@@ -970,7 +970,7 @@ class SelfCheckTest(unittest.TestCase):
 
     def test_a_device_that_cannot_be_reached_stops_at_the_first_step_and_writes_nothing(self):
         self.device.faults.fail(1)
-        result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        result = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertFalse(result.ok)
         self.assertEqual([s.name for s in result.steps], ["connect"])
         self.assertEqual(result.failed.name, "connect")
@@ -984,7 +984,7 @@ class SelfCheckTest(unittest.TestCase):
             return dict(real(*args, **kwargs), tools={"claude": {"found": False}})
 
         with mock.patch.object(self.device.transport, "hello", without_claude):
-            result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport,
+            result = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport,
                                         probe=lambda *args: {"ok": False, "reason": "not_installed", "detail": "no claude"})
         self.assertFalse(result.ok)
         failed = [s.name for s in result.steps if not s.ok and not s.skipped]
@@ -996,7 +996,7 @@ class SelfCheckTest(unittest.TestCase):
     def test_a_shim_that_is_not_the_one_pushed_is_a_failure(self):
         self.with_tools()
         with mock.patch.object(devices, "shim_id", return_value="0" * 16):
-            result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+            result = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertEqual(result.failed.name, "hello")
 
     def test_a_login_shell_device_imports_the_login_shells_proxy(self):
@@ -1005,16 +1005,16 @@ class SelfCheckTest(unittest.TestCase):
                                                               "login_shell": True}}))
         self.device.transport.env["SHELL"] = "/bin/sh"
         self.device.transport.env["ENV"] = ""
-        result = devices.self_check(config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        result = device_probe.self_check(config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertTrue(result.ok, result.lines())
         self.assertEqual(result.profile["env"], {})
         self.assertEqual(result.steps[3].name, "profile")
 
     def test_a_check_needs_a_state_dir_or_a_transport_and_a_listed_device(self):
         with self.assertRaises(ValueError):
-            devices.self_check(self.config, "gpu1")
+            device_probe.self_check(self.config, "gpu1")
         with self.assertRaises(devices.UnknownDevice):
-            devices.self_check(self.config, "nope", transport=self.device.transport)
+            device_probe.self_check(self.config, "nope", transport=self.device.transport)
 
 
 class ModuleHygieneTest(unittest.TestCase):

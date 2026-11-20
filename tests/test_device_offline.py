@@ -25,7 +25,7 @@ from covey.app.app import BridgeApp
 from covey.app.recovery_cards import recovery_card, recovery_text
 from covey.core import device_link as dl
 from covey.core import device_transport as dt
-from covey.core import device_reap, devices, turn_words
+from covey.core import device_probe, device_reap, devices, turn_words
 from covey.core import recovery as core_recovery
 from covey.core.jobs import DEVICE_LOST_STATUS, find_job_record, upsert_job_record
 from covey.core.longtask import TaskMonitor
@@ -589,7 +589,7 @@ class ThreadTest(unittest.TestCase):
         """A-10: the thread's hello asked for no tools, its answer replaced the self-check's, and every turn on the
         device was then refused with 'executable missing'."""
         self.with_tools("claude", "codex")
-        result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        result = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertTrue(result.ok, result.lines())
         ctx = self.turn_context()
         self.assertEqual(availability.check_or_raise("claude", ctx)["status"], "configured")
@@ -603,7 +603,7 @@ class ThreadTest(unittest.TestCase):
 
     def test_a_tool_the_device_really_lacks_is_still_refused_after_a_round(self):
         self.with_tools("codex")  # No claude on this device.
-        result = devices.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        result = device_probe.self_check(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
         self.assertFalse(result.ok)
         ctx = self.turn_context()
         self.assertEqual(availability.local_check("claude", ctx)["reason"], "executable_missing")
