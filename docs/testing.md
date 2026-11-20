@@ -183,6 +183,8 @@ python3 -B scripts/cross_release.py compare /absolute/runs/cross-<提交>   # �
 - 时区设成 `Asia/Shanghai`，和跑 Covey 的机器一样；测试里写死的日期、时刻按 UTC+8 写。新测试仍别依赖机器时区：代码按固定 +08:00 算的（如早晚汇总的时刻）就用同一个时区算期望值，按本机时间算的就在测试里固定 `TZ`。
 - 测试里的时间串按线上写法 `+08:00` 带冒号；`%z` 写出的 `+0800` 在 3.10 的 `fromisoformat` 上读不出。
 - CI 不装公司扩展，整模块 `require_extension()` 的测试在那里收不到用例；`test_map.py` 比对用例清单时不算这些模块，开着扩展 `build` 出的地图在 CI 上也不算过期。
+- CI 除了 pyflakes 什么包都不装（核心不依赖第三方包）。测试和核心代码在模块加载时只导入标准库和本仓库的模块；可选的包（Pillow、lark-oapi、Playwright）放进 `try … except ImportError` 或用到它的函数里，要它的用例用 `unittest.skipUnless` 跳过，这样没装它的机器上用例数不变。`test_structure` 的 `StandardLibraryTest` 查这一条。本机想看 CI 收到的用例，用 `COVEY_EXTENSIONS='' python3 -S`（不加载第三方包）跑。
+- 某个测试模块在这台机器上导入不了时，`run` 先指出它和导入错误，再照常跑（它算一个错误），不说地图过期；`build` 拒绝写地图。
 - 全量有失败时，`scripts/ci_retry_modules.py` 从台账（`/var/lib/covey-ci/`，`test_map.py` 不在 `$HOME` 和临时目录下记台账，GitHub 的 `runner.temp` 在 `$HOME` 下）最后一行取失败的模块（最多 4 个，台账要列全每个失败），再跑一次，第二次还失败才算 CI 失败；第一次的失败留在日志里，并有一条 warning。
 - 连着推时，后一次推送取消前一次还没跑完的运行（`concurrency`），被取消的运行不发失败邮件。
 

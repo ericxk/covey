@@ -7,9 +7,17 @@ from __future__ import annotations
 import base64
 import io
 import json
+import struct
+import unittest
+import zlib
 from unittest import mock
 
-from PIL import Image
+try:  # Pillow is optional (app/web_images.py): without it the tests of what it makes skip, the rest still run.
+    from PIL import Image
+except ImportError:  # pragma: no cover - depends on the machine
+    Image = None
+
+needs_pillow = unittest.skipUnless(Image, "needs Pillow (optional): the thumbnail and the large image are made by it")
 
 from covey.app import web_images
 from covey.app.source_watch import EDIT_HEAD
@@ -51,8 +59,16 @@ class ImageWeb(Web):
 
 
 def png(path, size=(1200, 800), color=(30, 120, 200)):
+    """A one-colour RGB PNG at ``path``, written with the standard library so a machine without Pillow has it too."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", size, color).save(path, "PNG")
+    width, height = size
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    row = b"\0" + bytes(color) * width
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b""))
     return path
 
 
@@ -99,6 +115,7 @@ class ScrubTest(ImagesCase):
 
 
 class SentImageTest(ImagesCase):
+    @needs_pillow
     def test_an_image_the_owner_sent_goes_up_once_and_its_turn_carries_its_id_not_its_path(self):
         path = png(self.media / "om_1-1-img_v3.png")
         self.said_with(path, display=False)  # An answer's line has no display text: its words were pushed whole, path and all.
@@ -189,6 +206,7 @@ class SentImageTest(ImagesCase):
 
 
 class ShownImageTest(ImagesCase):
+    @needs_pillow
     def test_the_images_a_task_showed_go_under_its_answer_with_their_notes(self):
         shot = png(self.state / "runs-out" / "shot.png", size=(800, 1000))
         checkpoint = self.state / "checkpoints" / "answer-1.json"

@@ -467,6 +467,25 @@ class StaleTest(unittest.TestCase):
             "test ids (3 recorded, 4 now)"])
         self.assertEqual(test_map.stale(None, state), ["no map"])
 
+    def test_a_module_that_cannot_be_imported_here_is_named_not_a_stale_map(self):
+        # T570: CI had no Pillow, test_web_images stood as one failing case and every full run was refused.
+        def load(loader, name):
+            if name == "test_b":
+                loader.errors.append("Traceback (most recent call last):\nModuleNotFoundError: No module named 'PIL'\n")
+                return unittest.TestSuite([unittest.FunctionTestCase(lambda: None)])
+            return unittest.TestSuite()
+
+        with mock.patch.object(test_map, "test_modules", return_value=["test_a", "test_b"]), \
+                mock.patch.object(test_map, "gated_modules", return_value=[]), \
+                mock.patch.object(test_map, "test_roots", return_value=[test_map.TESTS]), \
+                mock.patch.object(test_map, "git", return_value=""), \
+                mock.patch.object(unittest.TestLoader, "loadTestsFromName", load):
+            state = test_map.suite_state()[1]
+        self.assertEqual(state["broken"], {"test_b": "ModuleNotFoundError: No module named 'PIL'"})
+        data = dict(a_map({}), modules={"test_a": 0, "test_b": 16}, tests="recorded where it imports", sources=[])
+        self.assertEqual(test_map.stale(data, state), [])
+        self.assertEqual(test_map.stale(data, dict(state, broken={})), ["test ids (16 recorded, 1 now)"])
+
     def test_modules_that_skip_whole_without_the_extension_are_not_compared(self):
         # A map built with the company extension on lists their cases, CI without it none (T570).
         self.assertTrue({"test_proxy", "test_steer", "test_ttft"} <= set(test_map.gated_modules()))

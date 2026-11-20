@@ -60,6 +60,9 @@ passing run on the same content already covered (a full run or a build covers ev
 ``--force`` runs anyway.
 ``run`` refuses a full run on a stale map (exit 2): ``build`` runs the same tests plus the slow
 tier and refreshes the map, so run that instead; ``--force`` runs the full suite anyway.
+What differs with the machine is not compared: the cases of the modules that skip whole without the
+company extension, and of all modules when one cannot be imported here (a package it needs is missing:
+``run`` names it and runs it as its import error; ``build`` refuses, exit 2).
 
 ``run`` and ``build`` put the tests' temp files in a fresh directory on /dev/shm when it is a
 writable tmpfs, and remove it afterwards: most wall time on the NAS is file-system metadata
@@ -263,12 +266,16 @@ def prepare() -> None:
 def suite_state():
     """The loaded test modules, and what a map built now would record about the suite."""
     loader = unittest.TestLoader()
-    suites = {}
+    suites, broken = {}, {}
     for name in test_modules():
+        errors = len(loader.errors)
         try:
             suites[name] = loader.loadTestsFromName(name)
         except unittest.SkipTest:
             suites[name] = unittest.TestSuite()
+        if len(loader.errors) > errors:  # It cannot be imported here: unittest stands one failing case in for its tests.
+            lines = [line for line in loader.errors[-1].splitlines() if line.strip()]
+            broken[name] = lines[-1].strip() if lines else "import failed"
     ids = {name: sorted(test.id() for test in tests(suite)) for name, suite in suites.items()}
     # An extension checked out beside the core (COVEY_EXTENSION_PATH outside this tree) is not this tree's: the map
     # describes the tree, so those modules are listed apart and left out of the staleness check (and of the case list, which is not compared then).
@@ -280,7 +287,7 @@ def suite_state():
     return suites, {"modules": {name: len(found) for name, found in ids.items()},
                     "tests": digest(test for name in ids if name not in outside and name not in gated
                                     for test in ids[name]),
-                    "outside": outside,
+                    "outside": outside, "broken": broken,
                     "sources": sorted(path for path in sources if path.endswith(".py"))}
 
 
@@ -306,7 +313,9 @@ def stale(data, state) -> list[str]:
             reasons.append(f"{what} {' '.join(moved[:6])}" + (f" and {len(moved) - 6} more" if len(moved) > 6 else ""))
     # With an extension from outside this tree on, core tests that need it run more cases than the map recorded
     # (requires_extension), so the case list cannot be compared; the module and file lists above still are.
-    if data["tests"] != state["tests"] and not state.get("outside"):
+    # Nor when a module cannot be imported on this machine (a package it needs is missing): that is no stale map,
+    # and the run shows the module's import error as its one failing case (run() says so first).
+    if data["tests"] != state["tests"] and not state.get("outside") and not state.get("broken"):
         gated = set(gated_modules())
         count = lambda modules: sum(n for name, n in modules.items() if name not in gated)
         reasons.append(f"test ids ({count(data['modules'])} recorded, {count(now_modules)} now)")
@@ -325,6 +334,10 @@ def build(args) -> int:
     os.environ["BRIDGE_TESTS_SLOW"] = "1"  # The slow tier costs ~15 s more and its code belongs in the map.
     prepare()
     suites, state = suite_state()
+    if state["broken"]:  # The map would record a stand-in case for each, not its tests.
+        print("refused: a map built where test modules cannot be imported: " + "; ".join(
+            f"{name} ({error})" for name, error in sorted(state["broken"].items())), file=sys.stderr)
+        return 2
     data = json.loads(args.map.read_text()) if args.map.exists() else None
     wanted = {Path(path).stem for path in args.paths}
     if not wanted:
@@ -1040,6 +1053,10 @@ def run(args) -> int:
     data = json.loads(args.map.read_text()) if args.map.exists() else None
     picked = None if args.full else choose(args, data, state)
     reasons = stale(data, state) if picked is None else []
+    for name, error in sorted(state.get("broken", {}).items()):
+        if picked is None or name in picked:
+            print(f"cannot import {name} here ({error}): it runs as one error, its cases are not compared with the map",
+                  file=sys.stderr)
     if reasons and not args.force:
         print(f"refused: a full run on a stale map ({'; '.join(reasons)}). `build` runs the same tests plus the slow "
               "tier and refreshes the map: run `python3 -B scripts/test_map.py build --why ...` instead and commit "

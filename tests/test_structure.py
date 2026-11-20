@@ -22,12 +22,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from operator import attrgetter
 from pathlib import Path
 
 from support import REPO
-from support.source_imports import imported_modules, imports, module_name
+from support.source_imports import imported_modules, imports, load_time_imports, module_name
 from support.world import UnifiedCase
 
 from covey.app import app as bridge_app
@@ -832,6 +833,46 @@ class CodeMapTest(unittest.TestCase):
         modules = {str(p.relative_to(PACKAGE)) for p in PACKAGE.rglob("*.py")
                    if p.name != "__init__.py" and "__pycache__" not in p.parts}
         self.assertEqual(sorted(modules - listed), [])
+
+
+class StandardLibraryTest(unittest.TestCase):
+    """The core needs nothing but Python (pyproject.toml lists no dependencies) and CI installs nothing else: what a
+    module of the core, its scripts or its tests imports as it loads is the standard library or this tree's own.
+    A test module that imported Pillow at its top failed to import on CI, and its one stand-in case made every
+    full run refuse a "stale map" (4754 cases there, 4769 here)."""
+
+    OWN = {"covey", "harness_bridge", "support", "__future__"}
+
+    def test_a_package_from_elsewhere_is_imported_where_its_absence_is_handled(self):
+        found = []
+        for path in sorted(p for root in (PACKAGE, BIN, REPO / "scripts", REPO / "tests") for p in root.rglob("*.py")):
+            gated = path.parent == REPO / "tests" and re.search(r"^require_extension\(", path.read_text(), re.M)
+            for module, line in load_time_imports(path):
+                top = module.split(".")[0]
+                if top in self.OWN or top in sys.stdlib_module_names or top.startswith("test_") or gated:
+                    continue  # A module that skips whole without the extension imports it after require_extension().
+                found.append(f"{path.relative_to(REPO)}:{line} {module}")
+        self.assertEqual(found, [], "import it in a try that catches ImportError (and skip the tests that need it: "
+                                    "unittest.skipUnless), or inside the function that uses it")
+
+    def test_an_import_that_handles_its_absence_is_not_named(self):
+        source = textwrap.dedent("""\
+            import json
+            import PIL
+            from lark_oapi import Client
+            try:
+                from PIL import Image
+            except ImportError:
+                Image = None
+            if TYPE_CHECKING:
+                import yaml
+            def draw():
+                import playwright
+            """)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "sample.py"
+            path.write_text(source)
+            self.assertEqual(load_time_imports(path), [("json", 1), ("PIL", 2), ("lark_oapi", 3)])
 
 
 class OldestPythonTest(unittest.TestCase):
