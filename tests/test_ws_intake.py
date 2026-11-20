@@ -41,7 +41,7 @@ CARD = envelope(CARD_ACTION_EVENT_KEY, {
     'operator': {'tenant_key': 't1', 'user_id': 'u1', 'open_id': 'ou_owner', 'union_id': 'on_1'}, 'token': 'c-fake',
     'action': {'value': {'kind': 'stop', 'job': 7}, 'tag': 'button', 'name': 'stop_btn'}, 'host': 'im_message',
     'context': {'open_message_id': 'om_card', 'open_chat_id': 'oc_1'}})
-MENU = envelope(MENU_EVENT_KEY, {'event_key': 'covey.board', 'timestamp': 1790000000100,
+MENU = envelope(MENU_EVENT_KEY, {'event_key': 'covey.board', 'timestamp': 1790000000,
                                  'operator': {'operator_name': 'Owner',
                                               'operator_id': {'open_id': 'ou_owner', 'union_id': 'on_1', 'user_id': 'u1'}}})
 READ = envelope(READ_EVENT_KEY, {'reader': {'reader_id': {'open_id': 'ou_owner'}, 'read_time': '1790000000500',
@@ -66,6 +66,7 @@ class ConverterTest(unittest.TestCase):
         self.assertEqual((event['root_id'], event['reply_to'], event['thread_id']), ('om_root', 'om_parent', 'omt_1'))
         self.assertIsNone(event['parent_id'])  # lark-cli names the parent reply_to
         self.assertEqual(event['mentions'], [{'id': 'ou_bot', 'key': '@_user_1', 'name': 'Covey'}])
+        self.assertIsNone(ws_intake.message_event(message({'text': 'x'}))['mentions'])  # lark-cli: null, not []
         self.assertEqual((event['event_id'], event['timestamp'], event['create_time'], event['type']),
                          ('ev_1', '1790000000123', '1790000000000', MESSAGE_EVENT_KEY))
         self.assertIsNone(event['update_time'])  # only when it differs from create_time
@@ -121,7 +122,30 @@ class ConverterTest(unittest.TestCase):
         self.assertEqual(set(event), set(events.MENU_EVENT_JQ.strip('{}').replace(' ', '').split(',')))
         self.assertEqual((event['event_key'], event['operator_id'], event['operator_open_id'], event['app_id']),
                          ('covey.board', 'ou_owner', 'ou_owner', 'cli_fake'))
-        self.assertEqual((event['timestamp'], event['menu_timestamp']), ('1790000000123', '1790000000100'))
+        self.assertEqual((event['timestamp'], event['menu_timestamp']), ('1790000000123', '1790000000000'))  # the click's seconds, as milliseconds
+
+    def test_real_samples_match_lark_cli(self):
+        # Captured on a test bot (ids replaced): the SDK's raw events and what lark-cli printed for the same actions.
+        text = {'schema': '2.0', 'header': {'event_id': 'e1', 'token': '', 'create_time': '1795139963384',
+                                            'event_type': MESSAGE_EVENT_KEY, 'app_id': 'cli_fake'},
+                'event': {'sender': {'sender_id': {'open_id': 'ou_owner', 'union_id': 'on_1'}, 'sender_type': 'user'},
+                          'message': {'message_id': 'om_1', 'create_time': '1795139962825', 'update_time': '1795139962825',
+                                      'chat_id': 'oc_1', 'chat_type': 'p2p', 'message_type': 'text',
+                                      'content': '{"text":"T575 对照 A 纯文字 hello"}'}}}
+        self.assertEqual(ws_intake.message_event(text), {
+            'chat_id': 'oc_1', 'chat_type': 'p2p', 'sender_id': 'ou_owner', 'sender_type': 'user', 'message_type': 'text',
+            'content': 'T575 对照 A 纯文字 hello', 'message_id': 'om_1', 'id': 'om_1', 'root_id': None, 'parent_id': None,
+            'reply_to': None, 'thread_id': None, 'create_time': '1795139962825', 'update_time': None, 'event_id': 'e1',
+            'timestamp': '1795139963384', 'type': MESSAGE_EVENT_KEY, 'mentions': None, 'user_agent': None})
+        menu = {'schema': '2.0', 'header': {'event_id': 'e2', 'token': '', 'create_time': '1795139970000',
+                                            'event_type': MENU_EVENT_KEY, 'app_id': 'cli_fake'},
+                'event': {'operator': {'operator_id': {'open_id': 'ou_owner', 'union_id': 'on_1'}},
+                          'event_key': 'bridge_settings', 'timestamp': 1795139970}}
+        self.assertEqual(ws_intake.menu_event(menu), {
+            'event_id': 'e2', 'event_key': 'bridge_settings', 'operator_id': 'ou_owner', 'operator_open_id': 'ou_owner',
+            'timestamp': '1795139970000', 'menu_timestamp': '1795139970000', 'app_id': 'cli_fake'})
+        menu['event']['timestamp'] = 1795139970123  # already milliseconds: kept
+        self.assertEqual(ws_intake.menu_event(menu)['menu_timestamp'], '1795139970123')
 
     def test_read_has_the_fields_of_its_jq(self):
         self.assertEqual(ws_intake.read_event(READ), {

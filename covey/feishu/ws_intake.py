@@ -59,6 +59,14 @@ def _stamp(value: Any) -> str | None:
     return str(value)
 
 
+def _millis(value: Any) -> str | None:
+    """A timestamp in milliseconds as a string: the menu click's own is in epoch seconds (lark-cli prints it times 1000)."""
+    stamp = _stamp(value)
+    if stamp is None or not stamp.isdigit():
+        return stamp
+    return stamp if int(stamp) >= 10 ** 11 else str(int(stamp) * 1000)
+
+
 def _compact_mentions(mentions: Any) -> list[dict[str, str]]:
     """The message's mentions as lark-cli's compact form (``id`` an open_id, ``key``, ``name``)."""
     result = []
@@ -98,7 +106,7 @@ def message_event(raw: dict[str, Any]) -> dict[str, Any]:
     ``create_time``, ``sender_type`` ``app`` reads ``bot``."""
     header, message = raw.get('header') or {}, _dig(raw, 'event', 'message') or {}
     sender = _dig(raw, 'event', 'sender') or {}
-    mentions = _compact_mentions(message.get('mentions'))
+    mentions = _compact_mentions(message.get('mentions'))  # [] when the message mentions no one
     message_type = _text(message.get('message_type'))
     created, updated = _stamp(message.get('create_time')), _stamp(message.get('update_time'))
     sender_type = _text(sender.get('sender_type'))
@@ -112,7 +120,8 @@ def message_event(raw: dict[str, Any]) -> dict[str, Any]:
         'thread_id': _text(message.get('thread_id')), 'create_time': created,
         'update_time': updated if updated and updated != created else None,
         'event_id': _text(header.get('event_id')), 'timestamp': _stamp(header.get('create_time')),
-        'type': MESSAGE_EVENT_KEY, 'mentions': mentions, 'user_agent': _text(message.get('user_agent')),
+        'type': MESSAGE_EVENT_KEY, 'mentions': mentions or None,  # lark-cli prints null without any
+        'user_agent': _text(message.get('user_agent')),
     }
 
 
@@ -140,13 +149,13 @@ def card_action_event(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def menu_event(raw: dict[str, Any]) -> dict[str, Any]:
-    """``application.bot.menu_v6``: the fields of events.MENU_EVENT_JQ. ``timestamp`` is the event's delivery time,
-    ``menu_timestamp`` the click's, both millisecond strings."""
+    """``application.bot.menu_v6``: the fields of events.MENU_EVENT_JQ. ``timestamp`` is the event's delivery time (header.create_time),
+    ``menu_timestamp`` the click's (event.timestamp, seconds, times 1000), both millisecond strings."""
     header, event = raw.get('header') or {}, raw.get('event') or {}
     operator = _text(_dig(event, 'operator', 'operator_id', 'open_id'))
     return {'event_id': _text(header.get('event_id')), 'event_key': _text(event.get('event_key')),
             'operator_id': operator, 'operator_open_id': operator, 'timestamp': _stamp(header.get('create_time')),
-            'menu_timestamp': _stamp(event.get('timestamp')), 'app_id': _text(header.get('app_id'))}
+            'menu_timestamp': _millis(event.get('timestamp')), 'app_id': _text(header.get('app_id'))}
 
 
 def read_event(raw: dict[str, Any]) -> dict[str, Any]:
