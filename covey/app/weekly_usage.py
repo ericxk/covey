@@ -11,18 +11,25 @@ are read from the records at each click; nothing is stored. The card goes to the
 of its own (<state>/FOLDER/<token>.json, app/menu_panel.py): a second menu click folds it in place, the next draws it
 again with the figures of then.
 Only the routed Harnesses are counted: a removed one's tasks are left out.
+
+本周找你 (``reached``, the card's line and the evening digest's, app/digest.py): how often the week's work reached the owner,
+counted only, with no goal: 问题, the question cards that went out to him in the window (questions/ records with their card's
+message, any chat; one a project's lead answered in his place while it was held never reached him, core/triage.py), and
+停住, the window's tasks that ended 停住了 (core/look.py ``stopped``: failed, interrupted; not the ones he stopped himself).
 """
 from __future__ import annotations
 
 import collections
 import time
+from pathlib import Path
 
 from covey.app.menu_panel import MenuPanel
 from covey.cards.weekly_usage import folded_card, total_tokens, usage_card, usage_text
-from covey.core import look
+from covey.core import look, triage
 from covey.core.jobs import never_started, select_job_records
 from covey.core.state import epoch_seconds
 from covey.core.statuses import ENDED, NOT_ENDED
+from covey.core.store import directory_store
 
 WINDOW_DAYS = 7
 TOKEN_FIELDS = ("input_tokens", "cache_read_tokens", "output_tokens")
@@ -82,12 +89,44 @@ def harness_of(record):
     return str(record.get("harness_id") or record.get("backend") or "")
 
 
-def summarize(records, now, titles):
-    """The card's figures from the job records ``records``, for the WINDOW_DAYS before ``now``. ``titles``
-    names the routed Harnesses by ID; a job of any other is left out."""
+def window(records, since, now, titles=None):
+    """The tasks among ``records`` created from ``since`` to ``now`` that a backend ran; ``titles``: only the routed
+    Harnesses' (None: every one's)."""
+    return [r for r in records if (at := created_at(r)) is not None and since <= at <= now and not never_started(r)
+            and (titles is None or harness_of(r) in titles)]
+
+
+def asked(state_dir, since, now) -> int:
+    """本周找你's 问题: the questions asked from ``since`` to ``now`` whose card went out (``question_message_id``), in any
+    chat, but one a project's lead answered while it was held from the owner (core/triage.py)."""
+    def when(record):
+        at = record.get("created_at")
+        return float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) else epoch_seconds(at)
+
+    def fresh(fields):  # A record changed before the window was asked before it too (its time unread: read whole).
+        at = epoch_seconds(fields.get("updated_at"))
+        return at is None or at >= since
+
+    found = directory_store(Path(state_dir) / "questions").query(
+        lambda record: (at := when(record)) is not None and since <= at <= now and bool(record.get("question_message_id"))
+        and triage.state(record) != triage.ANSWERED, narrow=fresh)
+    return len(found)
+
+
+def reached(state_dir, now, titles=None, log=None) -> dict:
+    """本周找你 now, for the evening digest: {questions, stopped} over the WINDOW_DAYS before ``now``, as the card counts them
+    (``titles``: only the routed Harnesses' tasks; None: every one's)."""
     since = now - WINDOW_DAYS * 86400
-    tasks = [r for r in records if (at := created_at(r)) is not None and since <= at <= now and not never_started(r)
-             and harness_of(r) in titles]
+    records = select_job_records(state_dir, lambda r: (created_at(r) or 0) >= since, log=log)
+    return {"questions": asked(state_dir, since, now),
+            "stopped": sum(1 for record in window(records, since, now, titles) if ended(record) == "stopped")}
+
+
+def summarize(records, now, titles, questions=0):
+    """The card's figures from the job records ``records``, for the WINDOW_DAYS before ``now``. ``titles``
+    names the routed Harnesses by ID; a job of any other is left out. ``questions``: 本周找你's 问题 (``asked``)."""
+    since = now - WINDOW_DAYS * 86400
+    tasks = window(records, since, now, titles)
     tokens = dict.fromkeys(TOKEN_FIELDS, 0)
     harnesses = collections.defaultdict(lambda: {"tasks": 0, "tokens": 0, "input": 0, "cache": 0, "untracked": 0})
     untracked = 0
@@ -110,11 +149,13 @@ def summarize(records, now, titles):
         harnesses[name]["cache"] += counts["cache_read_tokens"]
     rows = sorted(({"title": titles.get(name, name), **row} for name, row in harnesses.items()),
                   key=lambda row: (-row["tasks"], -row["tokens"], row["title"]))
+    finished = collections.Counter(ended(r) for r in tasks)
     return {"days": WINDOW_DAYS, "since": since, "until": now, "tasks": len(tasks),
             "topics": len({r.get("topic_id") for r in tasks if r.get("topic_id")}),
             "outcomes": collections.Counter(outcome(r.get("status")) for r in tasks),
-            "ended": collections.Counter(ended(r) for r in tasks), "daily": list(daily.values()),
-            "harnesses": rows, "tokens": tokens, "untracked": untracked}
+            "ended": finished, "daily": list(daily.values()),
+            "harnesses": rows, "tokens": tokens, "untracked": untracked,
+            "reached": {"questions": questions, "stopped": finished.get("stopped", 0)}}
 
 
 class WeeklyUsage:
@@ -152,7 +193,7 @@ class WeeklyUsage:
         since = now - WINDOW_DAYS * 86400
         # Only the window's records are copied; an older one, or one without a time, is left in the cache.
         records = select_job_records(ctx.state_dir, lambda r: (created_at(r) or 0) >= since, log=self.runtime.log)
-        summary = summarize(records, now, self.titles)
+        summary = summarize(records, now, self.titles, asked(ctx.state_dir, since, now))
         self.runtime.log(f"weekly usage tasks={summary['tasks']} untracked={summary['untracked']} "
                          f"event={source[-10:]}")
         return summary

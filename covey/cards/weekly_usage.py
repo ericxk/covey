@@ -2,14 +2,15 @@
 in its title bar; the conclusion band with the week's tokens (the cache hits counted in), the tasks, topics and the
 cache's share of the input, and how the tasks ended as a segment bar in the words of the state table (core/look.py:
 做完, 停住了, 已停止 …); tiles for the input, cache hits and output; the tokens of each day as bars; each Harness's share
-of the tokens as a ring and its tasks, tokens and cache hits in a table; the small print, then 更新于 last. Read only,
+of the tokens as a ring and its tasks, tokens and cache hits in a table; the small print, then 更新于 last. Under the band
+one line of 本周找你 (``reached_line``: how often the week reached the owner, questions and stops, counted only). Read only,
 no buttons; ``usage_text`` is the same figures in Markdown, sent when the card cannot be."""
 from __future__ import annotations
 
 import time
 
 from covey.cards import ui
-from covey.cards.elements import folded_panel, menu_item, note, panel_header, section, styled_panel, tiles
+from covey.cards.elements import folded_panel, md, menu_item, note, panel_header, section, styled_panel, tiles
 from covey.core import look
 from covey.core.text import short_count
 
@@ -53,6 +54,14 @@ def ended_line(summary):
     return " · ".join(f"{look.word(key)} {n:,}" for key, n in ended_counts(summary).items())
 
 
+def reached_line(reached) -> str:
+    """本周找你 N 次：问题 a 次、停住 b 次 (app/weekly_usage.py ``reached``); '' without the figures (an older summary)."""
+    if not isinstance(reached, dict):
+        return ""
+    questions, stopped = int(reached.get("questions") or 0), int(reached.get("stopped") or 0)
+    return f"本周找你 {questions + stopped:,} 次：问题 {questions:,} 次、停住 {stopped:,} 次"
+
+
 def headline(summary):
     """The band's grey line: the tasks, the topics and the cache's share of the input."""
     tokens = summary["tokens"]
@@ -90,8 +99,10 @@ def sections(summary):
     # Its own block: Feishu runs a line that follows a list item on into that item (输出：4591 万另有 …).
     untracked = ([f"另有 {summary['untracked']:,} 次任务没有 token 记录（如还没收到模型回复就停了），不在总量里。"]
                  if summary["untracked"] else [])
+    reached = reached_line(summary.get("reached"))
     return [window,
             f"**任务 {tasks:,} 次**{twice} · 话题 {summary['topics']:,} 个\n{outcomes}",
+            *([reached] if reached else []),
             "**各 Harness**（次数占比 · token 占比，token 含缓存命中）\n" + "\n".join(rows),
             "\n".join(lines),
             *untracked,
@@ -177,7 +188,8 @@ def usage_card(summary):
                                       preview(summary)))
     tokens = summary["tokens"]
     total = total_tokens(tokens)
-    elements = [band(summary),
+    reached = reached_line(summary.get("reached"))
+    elements = [band(summary), *([md(reached)] if reached else []),
                 tiles(("输入", short_count(tokens["input_tokens"]), "含缓存命中"),
                       ("缓存命中", short_count(tokens["cache_read_tokens"]),
                        f"占输入 {share(tokens['cache_read_tokens'], tokens['input_tokens'])}"),

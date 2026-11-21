@@ -182,6 +182,8 @@ ACTIONS = {
     "bridge_board_seen": CardAction("记为看过"),
     # 取消 on the 看板's 到点回来看 (cards/board.py REVISIT_KIND, COVEY_REVISIT=1): only the topic's revisit record goes.
     "bridge_board_revisit_cancel": CardAction("取消到点回来看"),
+    # 你反复说的 on the evening digest (cards/digest.py REMEMBER_KIND, COVEY_MEMORY=1): 记下 writes a principle (app/digest.py).
+    "bridge_digest_remember": CardAction("记下或不用汇总里的候选"),
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).
     "bridge_app_setup": CardAction("补齐飞书应用配置"),
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),

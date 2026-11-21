@@ -132,7 +132,9 @@ class CardTests(unittest.TestCase):
         self.assertEqual(card["config"]["summary"]["content"], "本周用量 · 201 次任务 · token 3.33 亿")
         # The band's colours are the card's own (cards/ui.py styled).
         self.assertIn("band-0", card["config"]["style"]["color"])
-        band, tiles, trend_head, trend, harness_head, ring, table, small, updated = card["body"]["elements"]
+        band, reached, tiles, trend_head, trend, harness_head, ring, table, small, updated = card["body"]["elements"]
+        # 本周找你 (T604 #1), counted only: no question in these records, the failed task's stop.
+        self.assertEqual(reached["content"], "本周找你 1 次：问题 0 次、停住 1 次")
         rows = [[e.get("content") for e in row["elements"]] for row in band["elements"]]
         # With the cache hits: Claude 3 × (1 亿 + 100 万), Codex 3000 万 + 10 万 + 196 × 1010.
         self.assertEqual(rows[:3], [["<font color='indigo'>本周 token · 含缓存命中和子任务</font>"],

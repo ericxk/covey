@@ -31,6 +31,14 @@ hour sends it once, later it is skipped. The card is built and saved before it i
 a send not confirmed is tried again RETRY seconds later with the same key and card, at most SEND_TRIES times
 (Feishu's idempotency window and feishu/transport.py's receipts post nothing twice), then given up.
 
+The day's last digest time (``last_of_day``: with 09:30 and 21:30, the 21:30 one) is the evening digest; in the owner's private
+chat it has three parts more (``daily``): 本周找你 N 次 (app/weekly_usage.py ``reached``: the week's questions and stops, counted
+only), 今天代答 (``proxy_view``, when there is a 代答 sender: today's replies sent and not sent) and, with COVEY_MEMORY=1, 你反复说的
+(app/memory_candidates.py, the hook ``candidates`` app/unified.py sets): the corrections the owner repeated in the day's ended
+topics, each with 「记下」「不用」. A click on one (cards/digest.py REMEMBER_KIND, the owner's) decides it (memory_candidates
+``decide``) and, once acknowledged, redraws the card from its saved view (``remembered``). The counts never make a card be
+sent; an open candidate does, as the line of old questions does.
+
 看板 (the bot menu's BOARD_KEY, with a time set or COVEY_BOARD=1, core/app_manifest.py board_switch: with neither, no
 such item) is the same card at any time, 随时查看 · HH:MM in its title (the view's ``asked``): what waits and runs now, and what ended since the
 last digest time (``last_slot``, ``board_since``; without the digest, the last day). It reads digest.json and never writes it: the times and their
@@ -47,6 +55,7 @@ import time
 from concurrent import futures as concurrent_futures
 
 from covey.core import env as cenv
+from covey.app import memory_candidates, weekly_usage
 from covey.app.overview import dismissable
 from covey.app.pins import board_results, kept, laid, record_path
 from covey.app import revisits, topic_links
@@ -55,8 +64,8 @@ from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
 from covey.cards.board import KINDS as BOARD_KINDS, REVISIT_KIND, SEEN_KIND, SEEN_MAX, board_card
-from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
-from covey.core import app_manifest, board_read, knowledge, look, patrol, projects, turn_words
+from covey.cards.digest import ORIGIN, REMEMBER_KIND, digest_card, digest_text, folded_board
+from covey.core import app_manifest, board_read, knowledge, look, memory, patrol, projects, turn_words
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
@@ -129,6 +138,42 @@ def due(times, now, last):
     if isinstance(last, (int, float)) and last >= slot:
         return None
     return slot if now - slot <= CATCH_UP else None
+
+
+def last_of_day(times, slot) -> bool:
+    """Whether ``slot`` is the day's last digest time of ``times``: the evening digest, which has the day's own parts."""
+    at = datetime.datetime.fromtimestamp(slot, ZONE)
+    return bool(times) and at.hour * 60 + at.minute == max(times)
+
+
+def proxy_view(state_dir, now) -> dict:
+    """今天代答 (Asia/Shanghai's day of ``now``): {sent, unsent}: the batches that went out today, and those whose last move
+    today left them not sent (held for the owner, uncertain, failed); {} without a 代答 sender, or with 代答 off and nothing
+    of today's."""
+    from covey.app.proxy_send import available
+    from covey.core import proxy as records
+    if not available():
+        return {}
+    day = datetime.datetime.fromtimestamp(now, ZONE)
+    start = datetime.datetime(day.year, day.month, day.day, tzinfo=ZONE).timestamp()
+    sent = unsent = 0
+    for batch in records.read_batches(state_dir, statuses=None):
+        moves = [move for move in batch.get("history") or () if isinstance(move, list) and len(move) >= 2
+                 and isinstance(move[1], (int, float))]
+        if any(move[0] == "sent" and move[1] >= start for move in moves):
+            sent += 1
+        elif batch.get("status") in ("held", "uncertain", "failed") and moves and moves[-1][1] >= start:
+            unsent += 1
+    if not (sent or unsent or records.read_settings(state_dir).get("enabled")):
+        return {}
+    return {"sent": sent, "unsent": unsent}
+
+
+def remember_row(row) -> dict:
+    """A candidate (app/memory_candidates.py) as the card's view keeps it."""
+    return {"id": row["id"], "text": str(row.get("text") or ""), "labels": list(row.get("labels") or ()),
+            "workspace": str(row.get("workspace") or ""), "state": row.get("state") or memory_candidates.OPEN,
+            **({"error": str(row["error"])} if row.get("error") else {})}
 
 
 def since_of(times, slot, last):
@@ -380,6 +425,7 @@ class Digest:
         self.others = {}  # chat_id -> a personal group's Digest (app/group_boards.py): its 看板's clicks are its own.
         self.link = lambda ctx, chat, text, cards=None: linkify(text, ctx.state_dir, chat, profile=ctx.profile, cards=cards)
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
+        self.candidates = None  # 你反复说的 (app/memory_candidates.py Candidates): the private chat's digest only (app/unified.py).
 
     def menu_items(self):
         """The bot menu's 看板, with a digest time set or COVEY_BOARD=1 (app/unified.py menu)."""
@@ -511,7 +557,7 @@ class Digest:
 
     @staticmethod
     def matches(raw):
-        return isinstance(raw, dict) and raw.get("kind") in BOARD_KINDS
+        return isinstance(raw, dict) and (raw.get("kind") in BOARD_KINDS or raw.get("kind") == REMEMBER_KIND)
 
     def claim(self, ctx, event, raw, owner):
         """刷新 or 记为看过 on a 看板 card (cards/board.py KINDS; app/unified.py PANELS), else None: the owner's only; the
@@ -524,6 +570,8 @@ class Digest:
             return other.claim(ctx, event, raw, owner)
         if not owner:
             return "owner_only"
+        if kind == REMEMBER_KIND:
+            return self.remember(ctx, event, raw)
         message = str(event.get("message_id") or "")
         if kind == REVISIT_KIND:
             # 取消 on a row of 到点回来看: that revisit (its ``set_at``: a newer one the topic asked for since stays).
@@ -546,6 +594,70 @@ class Digest:
         if message:
             after_ack(lambda: self.board_refresh(ctx, message))
         return {SEEN_KIND: "board_seen", REVISIT_KIND: "board_revisit_cancel"}.get(kind, "board_refresh")
+
+    def remember(self, ctx, event, raw):
+        """「记下」 or 「不用」 on one of 你反复说的 (the owner's): decided and the card redrawn once acknowledged."""
+        candidate, op, message = raw.get("id"), raw.get("op"), str(event.get("message_id") or "")
+        if not (isinstance(candidate, str) and re.fullmatch(r"c[0-9a-f]{8}", candidate)) or op not in ("save", "drop") \
+                or not message:
+            return "digest_remember_ignored"
+        after_ack(lambda: self.remembered(ctx, message, candidate, op))
+        return "digest_remember"
+
+    def remembered(self, ctx, message_id, candidate, op):
+        """After a click on 你反复说的: the candidate decided (app/memory_candidates.py ``decide``: the principle written, or it
+        set aside), then the card ``message_id`` redrawn from its saved view with every candidate as it stands now (the view
+        saved once Feishu took it). A card whose view is no longer kept is left as it is."""
+        row = memory_candidates.decide(ctx.state_dir, candidate, op)
+        self.runtime.log(f"digest candidate {op} id={candidate} state={(row or {}).get('state', 'gone')}")
+        path = self.path(ctx)
+        with resource_lock("digest", str(path)):
+            sent = read_object(path).get("sent")
+        entry = sent.get(message_id) if isinstance(sent, dict) else None
+        view = entry.get("view") if isinstance(entry, dict) else None
+        if not isinstance(view, dict) or not view.get("remember"):
+            self.runtime.log(f"digest card not redrawn message={message_id[-8:]}: no view of its candidates kept")
+            return
+        stored = {item["id"]: item for item in memory_candidates.load(ctx.state_dir)["rows"]}
+        rows = []
+        for shown in view["remember"]:
+            fresh = stored.get(shown.get("id"))
+            if fresh is not None:
+                shown = {**shown, "state": fresh.get("state") or memory_candidates.OPEN, "error": str(fresh.get("error") or "")}
+            rows.append(shown)
+        view = {**view, "remember": rows}
+        if not self.messenger.patch_card(ctx.profile, message_id, digest_card(view)):
+            self.runtime.log(f"digest card redraw failed message={message_id[-8:]}")
+            return
+        with resource_lock("digest", str(path)):
+            record = read_object(path)
+            sent = record.get("sent") if isinstance(record.get("sent"), dict) else {}
+            if isinstance(sent.get(message_id), dict):
+                write_json(path, {**record, "sent": {**sent, message_id: {**sent[message_id], "view": view}}},
+                           ensure_ascii=False)
+
+    def daily(self, ctx, chat, slot, now) -> dict:
+        """The evening digest's own parts (the private chat's, the day's last time): 本周找你, 今天代答 and 你反复说的; each
+        one that cannot be read is left out (a log line)."""
+        found = {}
+        try:
+            found["reached"] = weekly_usage.reached(ctx.state_dir, now, log=self.runtime.log)
+        except Exception as exc:  # noqa: BLE001 - the digest goes out without it
+            self.runtime.log(f"digest reached unreadable: {type(exc).__name__}")
+        try:
+            proxied = proxy_view(ctx.state_dir, now)
+        except Exception as exc:  # noqa: BLE001
+            self.runtime.log(f"digest proxy count unreadable: {type(exc).__name__}")
+            proxied = {}
+        if proxied:
+            found["proxy"] = proxied
+        if self.candidates is not None and memory.enabled():
+            rows = [remember_row(row) for row in self.candidates.offer(ctx, chat, slot)]
+            if rows:
+                for row in rows:
+                    row["sources"] = self.link(ctx, chat, "、".join(row["labels"])) if row["labels"] else ""
+                found["remember"] = rows
+        return found
 
     def board_refresh(self, ctx, message_id):
         """A 看板 card redrawn from a fresh view, after a proposal on it was decided (app/project_tidy.py ``handed``),
@@ -624,7 +736,10 @@ class Digest:
             return  # No private chat with the owner known yet: tried again until the time is CATCH_UP old.
         view = {**collect(ctx.state_dir, chat, slot, since_of(times, slot, last), now, board=dismissable()),
                 **self.where(chat)}  # 整理专项 is the 看板's alone.
-        if not (view["waiting"] or view["stale"] or view["running"] or view["done"]):
+        if not self.fixed and last_of_day(times, slot):
+            view.update(self.daily(ctx, chat, slot, now))
+        waits = any(row.get("state") == memory_candidates.OPEN for row in view.get("remember") or ())
+        if not (view["waiting"] or view["stale"] or view["running"] or view["done"] or waits):
             self.save(ctx, last_slot=slot, pending=None)
             self.runtime.log("digest not sent: nothing to list")
             return

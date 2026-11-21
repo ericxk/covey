@@ -615,7 +615,10 @@ def usage_cards():
                               "cache": 270000000, "untracked": 0}]}
     empty = {**summary, "tasks": 0, "topics": 0, "untracked": 0, "outcomes": {}, "ended": {}, "daily": [], "harnesses": [],
              "tokens": {"input_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0}}
-    return {"card": usage_card(summary), "card_empty": usage_card(empty), "text": usage_text(summary)}
+    # 本周找你 (T604 #1): the week's questions and stops under the band, counted only.
+    reached = {**summary, "reached": {"questions": 12, "stopped": 1}}
+    return {"card": usage_card(summary), "card_empty": usage_card(empty), "text": usage_text(summary),
+            "card_reached": usage_card(reached), "text_reached": usage_text(reached)}
 
 
 def free_groups():
@@ -1222,7 +1225,28 @@ def digest_cards():
             "tidy_none": digest_card({**view, "tidy": {"projects": []}}),
             "wanted": digest_card({**view, "wanted": [
                 {"what": "T396 你为啥没有pin？：有个问题等了你 3小时0分", "why": "你一直没回，像是卡住了", "would": "主动来问你"},
-                {"what": "专项「重构」有事没人动，已经 1天0小时 没有进展", "why": "收件箱有回执没人读", "would": "叫醒负责人看一眼"}]})}
+                {"what": "专项「重构」有事没人动，已经 1天0小时 没有进展", "why": "收件箱有回执没人读", "would": "叫醒负责人看一眼"}]}),
+            **evening_digest_cards(view)}
+
+
+def evening_digest_cards(view):
+    """The evening digest's own parts (app/digest.py daily; T604 #1, #45, #28): 本周找你 and 今天代答 after the three parts, then
+    你反复说的 with an open candidate (its 记下 / 不用), one written, one set aside and one 记下 refused; with only a
+    candidate (the card is sent for it alone); and its Markdown."""
+    from covey.cards.digest import digest_card, digest_text
+
+    remember = [{"id": "c0a1b2c3d", "text": "回答先给结论，细节放后面", "labels": ["T396", "T401"],
+                 "sources": "[T396](https://applink.feishu.cn/client/thread/open?open_chat_id=oc_fake_chat)、T401",
+                 "workspace": "covey", "state": "open"},
+                {"id": "c1a2b3c4d", "text": "测试没跑全量不说通过", "labels": ["T402", "T405"], "workspace": "", "state": "saved"},
+                {"id": "c2a3b4c5d", "text": "周报用表格", "labels": ["T403", "T404"], "workspace": "", "state": "declined"},
+                {"id": "c3a4b5c6d", "text": "别用表情", "labels": ["T406", "T407"], "workspace": "", "state": "open",
+                 "error": "这一组的记忆已有 30 条，先在菜单「设置」→「记忆」里删掉不用的"}]
+    evening = {**view, "reached": {"questions": 9, "stopped": 3}, "proxy": {"sent": 5, "unsent": 1}, "remember": remember}
+    alone = {"slot": FROZEN, "since": FROZEN - 9.5 * 3600, "waiting": [], "stale": [], "running": [], "done": [],
+             "reached": {"questions": 0, "stopped": 0}, "remember": remember[:1]}
+    return {"evening": digest_card(evening), "evening_candidate_alone": digest_card(alone),
+            "evening_text": {"text": digest_text(evening)}}
 
 
 def app_setup_cards():

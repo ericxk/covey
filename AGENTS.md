@@ -32,7 +32,7 @@
 | 专项（`COVEY_PROJECTS=1`）：负责人、专项卡、问题分流、停住后问主人 | `core/projects.py`、`app/project_lead.py`、`app/project_tools.py`、`app/project_loop.py`、`app/project_cards.py`、`cards/project_card.py`、`app/triage.py`、`core/project_memory.py`、`core/project_library.py` | [projects.md](docs/projects.md)、[架构 · 专项](docs/architecture.md#专项第-2-期开发中默认关) |
 | 网页工作台（`COVEY_WEB=1`） | `core/web_sync.py`、`app/web_sync.py`、`app/web_collect.py`、`app/web_ops.py`、`app/web_settings.py` | [web.md](docs/web.md) |
 | 到点回来看（`COVEY_REVISIT=1`）：话题约好几点再看一次，到点 Bridge 排一轮 | `app/revisits.py`（线程、`after_runner`、`silent`、看板的行）、`core/revisits.py`（记录）、`cards/board.py` 的 `revisit_blocks` | [到点回来看](docs/usage.md#到点回来看) |
-| 早晚汇总 | `app/digest.py`、`cards/digest.py` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
+| 早晚汇总 | `app/digest.py`、`cards/digest.py`；晚间汇总的“你反复说的” `app/memory_candidates.py`，“本周找你” `app/weekly_usage.py` 的 `reached` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/launch_submit.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
 | 问题卡与回答 | `app/questions.py`、`app/native_questions.py`、`app/checkpoint_questions.py`；「以后这类按推荐走」`app/standing_answers.py` | [问题与回答](docs/architecture.md#问题与回答) |
@@ -129,6 +129,7 @@
 | `app/launch_submit.py` | A launch form's submission |
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
+| `app/memory_candidates.py` | 每天一次的候选整理: what the owner corrected more than once in the day's ended topics, at most SHOWN a day, put in the … |
 | `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on becomes memory, and a click takes it back |
 | `app/memory_panel.py` | The 设置 card's 记忆 tab, shown when COVEY_MEMORY=1 |
 | `app/memory_turn.py` | What a turn reads of the owner's memory, for app/runs.py |

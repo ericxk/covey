@@ -161,6 +161,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.app_setup import AppSetup
         from covey.app.bot_menu import BotMenu, Panels, known_chats
         from covey.app.digest import Digest
+        from covey.app.memory_candidates import Candidates
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
         from covey.app.project_cards import ProjectCards
@@ -237,6 +238,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.memguard_alerts = MemguardAlerts(self.runtime, self.messenger, self.voice)
             # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
             self.digest = Digest(self.runtime, self.messenger, self.voice)
+            # 你反复说的 on the evening digest (app/memory_candidates.py), COVEY_MEMORY=1: the Claude Code that groups them.
+            self.digest.candidates = Candidates(self.runtime, self.topics)
             # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
             self.overview.handed[self.digest.origin] = self.digest.dismissed
             # Which topics the owner has seen (app/topic_seen.py): read receipts, when COVEY_PINNED_TOPICS=1.

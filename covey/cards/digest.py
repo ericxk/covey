@@ -10,13 +10,20 @@ clicked, the line is 已撤下 N 个 (dismissed_line), grey, without the button.
 ``view`` is plain data: ``slot`` and ``since`` (epoch seconds), ``waiting``, ``running`` and ``done`` rows, each
 {label (Markdown, maybe a link), title, state, took, seen}, ``older``; ``stale`` rows {topic, label, title}, ``knowledge`` and ``wanted`` (rows {what, why, would}: 我本来想找你的事), ``dismissable``
 and ``cleared`` (the labels taken off from this card) — a view saved before them has none. ``asked``: the bot menu's
-看板 at any time (app/digest.py board), 随时查看 in the title; with nothing to list it says so (EMPTY)."""
+看板 at any time (app/digest.py board), 随时查看 in the title; with nothing to list it says so (EMPTY).
+
+The evening digest's own parts (app/digest.py ``daily``), each left out when the view has none: ``reached`` (本周找你 N 次：问题 a
+次、停住 b 次, cards/weekly_usage.py reached_line) and ``proxy`` ({sent, unsent}: 今天代答) as two lines after the three parts,
+then ``remember`` (你反复说的: rows {id, text, labels, sources (the labels linked), workspace, state, error}): each its rule in
+bold, where it came from and where it would go, and 「记下」 (REMEMBER_KIND, ``op`` save) and 「不用」 (drop) while open; once
+decided, what came of it in grey instead."""
 from __future__ import annotations
 
 from covey.cards.project_proposal import board_rows
-from covey.cards.elements import folded_panel, grey, md, menu_item, note, panel_header, section, styled_panel
+from covey.cards.elements import callback_button, folded_panel, grey, md, menu_item, note, panel_header, section, styled_panel
 from covey.cards.overview import clock, dismissed_line, named, stale_line
-from covey.core.text import safe_text
+from covey.cards.weekly_usage import reached_line
+from covey.core.text import literal, safe_text
 
 TITLE = "汇总"
 SHOWN = 8
@@ -28,6 +35,11 @@ ICON = "waiting_outlined"
 
 
 ORIGIN = "digest"  # The stale line's button value's ``from`` (app/overview.py claim hands such a click on).
+REMEMBER_KIND = "bridge_digest_remember"  # 「记下」 / 「不用」 on one of 你反复说的: ``id`` of the candidate, ``op`` save or drop.
+REMEMBER_TITLE = "你反复说的"
+REMEMBER_HINT = ("从今天结束的话题里找的、你在不同话题里说过不止一次的话。点「记下」才记进记忆，以后每一轮都带上；"
+                 "不点不生效，开了脱敏的话题不看。")
+REMEMBER_DONE = {"saved": "已记下", "declined": "不用了，以后不再提"}
 
 
 def rows_of(view, key):
@@ -88,6 +100,10 @@ def digest_card(view):
         elements += last
     if not elements:
         elements.append(md(EMPTY.format(clock(view["since"]))))
+    lines = daily_lines(view)
+    if lines:
+        elements.append(md("\n".join(lines)))
+    elements += remember_elements(view)
     elements += knowledge_elements(view)
     elements += wanted_elements(view)
     if isinstance(view.get("tidy"), dict):
@@ -95,6 +111,52 @@ def digest_card(view):
     elements.append(note(f"只列这个{view.get('where') or '私聊'}里的话题，管家不列"))
     title = title_of(view)
     return styled_panel(panel_header(ICON, title, counts(view)), elements, " · ".join(filter(None, [title, counts(view)])))
+
+
+def daily_lines(view):
+    """The evening digest's count lines: 本周找你 and 今天代答; none in a view without them."""
+    lines = [reached_line(view["reached"])] if isinstance(view.get("reached"), dict) else []
+    proxied = view.get("proxy") if isinstance(view.get("proxy"), dict) else None
+    if proxied is not None:
+        unsent = int(proxied.get("unsent") or 0)
+        lines.append(f"今天代答发出 {int(proxied.get('sent') or 0)} 条" + (f"，{unsent} 条没发出，在菜单「代答」里看" if unsent else ""))
+    return lines
+
+
+def remember_meta(row, *, plain=False):
+    """Where a candidate came from and where 「记下」 puts it: ``来源：T12、T15 · 记到工作区 covey`` (``plain``: no Markdown, the
+    labels not linked)."""
+    labels = [str(label) for label in row.get("labels") or ()]
+    where = f"工作区 {row['workspace']}" if row.get("workspace") else "全局"
+    if plain:
+        sources = "、".join(labels)
+    else:
+        sources, where = row.get("sources") or "、".join(literal(label) for label in labels), literal(where)
+    return (f"来源：{sources} · " if sources else "") + f"记到{where}"
+
+
+def remember_elements(view):
+    rows = view.get("remember") or []
+    if not rows:
+        return []
+    elements = [section(f"{REMEMBER_TITLE}（{len(rows)}）")]
+    for row in rows:
+        elements.append(md(f"**{literal(row.get('text') or '')}**"))
+        meta = remember_meta(row)
+        state = row.get("state") or "open"
+        if state in REMEMBER_DONE:
+            elements.append(note(f"{meta} · {REMEMBER_DONE[state]}"))
+            continue
+        if row.get("error"):
+            meta += f" · ⚠️ 没记下：{literal(row['error'])}"
+        value = {"kind": REMEMBER_KIND, "id": row.get("id") or ""}
+        elements += [note(meta), {"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": [
+            {"tag": "column", "width": "auto", "elements": [callback_button("记下", {**value, "op": "save"},
+                                                                              style="primary", size="small")]},
+            {"tag": "column", "width": "auto", "elements": [callback_button("不用", {**value, "op": "drop"},
+                                                                              style="text", size="small")]}]}]
+    elements.append(note(REMEMBER_HINT))
+    return elements
 
 
 def knowledge_lines(view):
@@ -146,6 +208,13 @@ def digest_text(view):
             lines += last
     if len(lines) == 1:
         lines.append(EMPTY.format(clock(view["since"])))
+    lines += daily_lines(view)
+    rows = view.get("remember") or []
+    if rows:
+        lines.append(f"**{REMEMBER_TITLE}（{len(rows)}）**")
+        lines += [f"- {row.get('text') or ''}（{remember_meta(row, plain=True)}"
+                  + (f" · {REMEMBER_DONE[row['state']]}" if row.get("state") in REMEMBER_DONE else "") + "）" for row in rows]
+        lines.append("在卡片上点「记下」才记进记忆，不点不生效。")
     new = knowledge_lines(view)
     if new:
         more = (view.get("knowledge") or {}).get("more") or 0
