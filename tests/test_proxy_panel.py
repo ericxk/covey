@@ -233,7 +233,8 @@ class PanelTests(ProxyCase):
         self.assertEqual(options[panel.HARNESS], ['codex', 'claude'])
         self.assertEqual(options[panel.PROVIDER], ['openai', 'acme'])
         self.assertEqual(options[panel.TIER_MODEL], ['acme/gpt-6-astra', 'acme/other'])  # That provider's only.
-        self.assertEqual(options[panel.TIER_BUDGET], ['xhigh', 'high', 'medium', 'low', 'default'])
+        # Its levels by name: no 推荐 or 模型原生默认, which do not say what they run (T615).
+        self.assertEqual(options[panel.TIER_BUDGET], ['xhigh', 'high', 'medium', 'low'])
 
         def settings():
             saved = records.read_settings(self.state)
