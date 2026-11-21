@@ -2190,3 +2190,45 @@ class TidyPushTest(WebCase):
         self.web.op("tidy_decide", 2, "op-t2", proposal="p1", choice="later")
         self.sync.inbox_once()
         self.assertEqual(self.web.acks[-1]["state"], "failed")
+
+
+class RoomTest(WebCase):
+    """The private chat (私聊区, data contract v23, app/web_room.py): a butler turn says whom it handed the owner's words to, a topic turn
+    whose conclusion went to the top level says when; a lead's turns carry neither."""
+
+    def opened(self, name, **fields):
+        write_json(self.state / butler_opened.OPENED / f"{name}.json", {"answer": {"ok": True, "data": {}}, "at": T0, **fields})
+
+    def relay(self, key, **fields):
+        write_json(self.state / "main-thread" / "relays" / f"{key}.json", {"state": "sent", "job_key": key, "sent_at": T0 + 5, **fields})
+
+    def turn(self, topic, seq):
+        found = [item["data"] for item in self.web.items("turn") if item["key"] == f"{topic}:{seq}"]
+        return found[-1] if found else None
+
+    def test_a_butler_turn_names_the_topic_and_the_lead_it_handed_on_to(self):
+        self.topic()
+        self.butler_topic()
+        self.opened("r1", job_key="om_b1", topic_id=TOPIC, plan={"harness": "claude"}, at=T0)
+        self.opened("r2", job_key="om_b1", lead_topic_id=LEAD, project_id=PID, at=T0 + 1)
+        self.opened("r3", job_key="om_b1", topic_id=OTHER, answer={"ok": False, "text": "没开成"})  # Failed: not said.
+        self.opened("r4", job_key="om_other", topic_id=OTHER)  # Another butler turn's.
+        self.sync.push_once(T0)
+        self.assertEqual(self.turn(BUTLER, 2)["handed"], [
+            {"key": TOPIC, "kind": "topic", "number": 7, "title": "整理账单", "project_key": "", "how": "start"},
+            {"key": LEAD, "kind": "lead", "number": 0, "title": "迁移账单", "project_key": PID, "how": "send"}])
+        self.assertNotIn("handed", self.turn(BUTLER, 1))  # The owner's line: the answer's says it.
+
+    def test_a_topic_turn_whose_conclusion_went_to_the_private_chat_says_when(self):
+        self.topic()
+        self.butler_topic()
+        self.sync.push_once(T0)
+        self.assertNotIn("relayed_at", self.turn(TOPIC, 2))
+        self.assertNotIn("handed", self.turn(BUTLER, 2))
+        self.relay("7", topic_id=TOPIC, job_id=7)  # The topic's job (no message id: its key is its number).
+        self.relay("om_b1", state="uncertain", job_id=3)  # Not confirmed: not said, and never of the butler anyway.
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 1)
+        self.assertEqual(self.turn(TOPIC, 2)["relayed_at"], int(T0 + 5))
+        self.assertNotIn("relayed_at", self.turn(TOPIC, 1))
+        self.assertNotIn("relayed_at", self.turn(BUTLER, 2))

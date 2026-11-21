@@ -244,6 +244,7 @@
 | `app/web_pairing.py` | 网页工作台同步里不碰 Collector 缓存的那部分 |
 | `app/web_panels.py` | 网页设置页的设备和代答两页 (docs/web.md, COVEY_WEB=1 |
 | `app/web_push_client.py` | 网页工作台同步的客户端: the page's /openapi over HTTP (`Client`, `WebError`) and the thread a push step runs in, left … |
+| `app/web_room.py` | What the web page's private chat needs beside the butler's and the leads' turns |
 | `app/web_said.py` | Who said a topic's owner line and the words the web page shows for it |
 | `app/web_settings.py` | 网页工作台的设置页 (docs/web.md, COVEY_WEB=1 |
 | `app/web_switch.py` | 网页换配置 (docs/web.md, COVEY_WEB=1 |

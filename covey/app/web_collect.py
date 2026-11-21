@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import pins, project_lead, project_loop, topic_links, web_images, web_pairing, web_said, web_switch, web_turns
+from covey.app import pins, project_lead, project_loop, topic_links, web_images, web_pairing, web_room, web_said, web_switch, web_turns
 from covey.core import board_read, failure, look, project_library, project_memory, projects, web_sync
 from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
@@ -76,6 +76,7 @@ class Collector:
         self.unpaired = {}  # topic id -> its answer turns with no task record, as last logged (count_unpaired).
         self.log = log  # The bridge.log writer (WebSync's runtime.log); None: nothing logged.
         self.receipts = {}  # project id -> {receipt file name: its row} (thread_end only).
+        self.room = web_room.Room()  # Whom the butler's turns handed on to and which topic turns went to the private chat (data contract v23).
         self.origins = None  # web_said.Origins of the owner's chat: who wrote each hand-on, read once.
         self.moved = 0.0  # Monotonic time of the last progress of a look and its push: a topic built, a batch sent (WebSync.loop's stuck check).
         self.lock = threading.Lock()
@@ -108,6 +109,7 @@ class Collector:
         self.now = now
         if self.origins is None or self.origins.chat != str(chat):
             self.origins = web_said.Origins(state, chat)
+        self.room.refresh(state)
         out = {topic for topic, thread in list(self.stuck.items()) if thread.is_alive()}
         back, self.left = self.left - out, out  # A stuck read that came back: its topic is looked at again now.
         running = board_read.running_jobs(state, chat)
@@ -219,7 +221,7 @@ class Collector:
         label, title = ("", BUTLER_TITLE) if butler else ("", LEAD_TITLE) if project else board_read.topic_label(state, topic)
         data = read_object(topic_file(state, topic))
         found = None if butler else projects.topic_project(state, topic)
-        turns, count = self.turns(state, topic, records, latest, word, project, now, questions, form=form)
+        turns, count = self.turns(state, topic, records, latest, word, project, now, questions, form=form, butler=butler)
         number = int(label[1:]) if label[1:].isdigit() else 0
         updated = max((epoch_seconds(record.get("updated_at")) or 0 for record in records), default=0)
         ran = [record for record in records if not board_read.unrun(record)]
@@ -345,7 +347,7 @@ class Collector:
         self.history[topic] = (stamp, rows)
         return rows
 
-    def turns(self, state, topic, records, latest, word, project=None, now=0.0, questions=(), form=None) -> tuple:
+    def turns(self, state, topic, records, latest, word, project=None, now=0.0, questions=(), form=None, butler=False) -> tuple:
         """([turn data with seq], number of turns in the history) for ``topic``: the newest TURNS_KEPT, and one more for the task that runs
         (its progress notes as the body), waits (for an answer, or for 开始 on the launch card ``form``: ``start_turn``) or ended without an
         answer. The newest EXTRA_TURNS answers of a task also carry its process, plan and figures (core web_turns.py). A project's lead
@@ -395,6 +397,8 @@ class Collector:
                 estimate_of(job, turn)
             if job is not None and wakes.get(job_key(job.get("message_id"), job.get("job_id"))):
                 turn["started_topics"] = wakes[job_key(job.get("message_id"), job.get("job_id"))]
+            if job is not None and data.get("role") == "agent":
+                self.room_fields(state, turn, job, butler=butler, lead=project is not None)
             out.append(turn)
         job = next((record for record in reversed(records) if record.get("status") in RUNNING or (
             record.get("status") == "waiting_user" and not board_read.set_aside(record, questions))), None)
@@ -402,7 +406,7 @@ class Collector:
                 and str(rows[-1].get("job_id") or "") == str(job.get("job_id"))):
             job = None  # Its answer is the last line already, its record not yet ended: no second, running turn of it.
         if job is not None:
-            out.append(self.live_turn(state, topic, total + 1, job, wakes, now))
+            out.append(self.live_turn(state, topic, total + 1, job, wakes, now, butler=butler))
         elif latest is not None and latest.get("status") in ("failed", "interrupted", "cancelled") and (not rows or rows[-1].get("role") == "user"):
             at = epoch_seconds(latest.get("updated_at")) or 0
             ended = {"topic_key": topic, "seq": total + 1, "role": "agent", "body": web_sync.clip(latest.get("status_message") or ""),
@@ -615,7 +619,19 @@ class Collector:
             self.extra[key] = web_turns.extras(state, job, False)
         return self.extra[key]
 
-    def live_turn(self, state, topic, seq, job, wakes=None, now=0.0) -> dict:
+    def room_fields(self, state, turn, job, *, butler=False, lead=False) -> None:
+        """The private chat's fields of an answer turn (data contract v23, app/web_room.py): a butler turn's ``handed``, an ordinary topic
+        turn's ``relayed_at``; neither on a lead's (its answers are at the top level already)."""
+        if butler:
+            handed = self.room.handed(state, job)
+            if handed:
+                turn["handed"] = handed
+        elif not lead:
+            at = self.room.relayed_at(job)
+            if at:
+                turn["relayed_at"] = int(at)
+
+    def live_turn(self, state, topic, seq, job, wakes=None, now=0.0, butler=False) -> dict:
         notes, snapshot = [], None
         try:
             snapshot = load_trace(state, job) or {}
@@ -635,6 +651,8 @@ class Collector:
         started = (wakes or {}).get(job_key(job.get("message_id"), job.get("job_id")))
         if started:
             turn["started_topics"] = started
+        if butler:  # What it handed on so far (a running butler turn: its line under the owner's words, before it ends).
+            self.room_fields(state, turn, job, butler=True)
         return turn
 
     # -- projects -------------------------------------------------------------------------------------------------------
