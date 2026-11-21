@@ -5,10 +5,13 @@ from __future__ import annotations
 
 
 QUESTION_TRANSITIONS = {
-    'pending': {'submitting', 'cancelled', 'superseded'},
+    'pending': {'submitting', 'cancelled', 'superseded', 'set_aside'},
     'submitting': {'answered', 'uncertain', 'cancelled'},
     'answered': {'uncertain'},
     'uncertain': {'pending', 'answered', 'cancelled'},
+    # 不处理 (T604 #15, app/questions.py set_aside): off the 等你 lists, each question 不回答此题, nothing sent yet. Back to
+    # pending on 撤销, until the topic's next turn takes it as its answer (take_set_aside), or cancelled with its binding.
+    'set_aside': {'pending', 'answered', 'cancelled'},
     'cancelled': set(),
     'superseded': set(),
 }

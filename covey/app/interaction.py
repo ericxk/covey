@@ -14,8 +14,9 @@ from covey.core.turn_words import retry_hint
 from covey.core.jobs import job_key, upsert_job_record
 from covey.core.locks import card_lock
 from covey.cards.elements import md
-from covey.cards.question_cards import (ASK_EMPTY, ASK_KIND, ASK_SETTLED, PICK, SKIP_ALL_KIND, SUPPLEMENT, folded,
-                                        folded_refusal, question_feedback_card)
+from covey.cards.question_cards import (ASK_EMPTY, ASK_KIND, ASK_SETTLED, PICK, RESTORE_KIND, SET_ASIDE_KIND,
+                                        SET_ASIDE_SETTLED, SKIP_ALL_KIND, SUPPLEMENT, folded, folded_refusal,
+                                        question_feedback_card)
 from covey.app.card_lanes import after_ack
 from covey.app.answers import ATTACHMENTS, AnswerIncomplete, picked_fields, skip_all_fields
 from covey.app.question_display import standalone_card, top_card
@@ -270,8 +271,8 @@ class Interaction:
         return False
 
     def interaction_action(self, ctx, event):
-        """A click on a question's card (提交回答, 只发补充说明, 先问一句, its state, a saved answer's check), on a
-        supplement's receipt or a held note's card, or an old process panel's page."""
+        """A click on a question's card (提交回答, 只发补充说明, 先问一句, 不处理 and its 撤销, its state, a saved answer's
+        check), on a supplement's receipt or a held note's card, or an old process panel's page."""
         raw = action_value(event)
         kind = raw.get("kind")
         if raw.get("topic_id") != ctx.topic_id:
@@ -332,6 +333,10 @@ class Interaction:
             self.skip_all(ctx, chat, event, token, fields, mid)
         elif kind == ASK_KIND:
             self.ask_first(ctx, chat, event, token, fields, mid)
+        elif kind == SET_ASIDE_KIND:
+            self.set_aside(ctx, chat, event, token, mid)
+        elif kind == RESTORE_KIND:
+            self.questions.restore(ctx, chat, token, mid)
         elif kind in STEER_KINDS:
             self.steering.steer_action(ctx, chat, event, raw, fields, mid)
         elif kind == NOTE_KIND:
@@ -400,6 +405,22 @@ class Interaction:
         try:
             self.questions.ask_first(ctx, chat, token, words, mid, sender=str(event.get("operator_id") or ""))
         except QuestionFolded:  # Folded between the read above and its own check.
+            self.show_folded(ctx, chat, event, token, mid)
+
+    def set_aside(self, ctx, chat, event, token, mid):
+        """不处理 (T604 #15): every question 不回答此题, off the 等你 lists, nothing sent until the topic's next turn
+        (Questions.set_aside). A question settled meanwhile gets its card redrawn and the click is refused."""
+        record = scoped_question(ctx, chat, token)
+        if folded(record):
+            self.show_folded(ctx, chat, event, token, mid)
+            return
+        if record.get("status") not in ("pending", "set_aside"):
+            with question_card_lock(question_path(ctx, token)):
+                self.questions.paint_question_state(ctx, scoped_question(ctx, chat, token))
+            raise ValueError(SET_ASIDE_SETTLED)
+        try:
+            self.questions.set_aside(ctx, chat, token, mid, by=str(event.get("operator_id") or ""))
+        except QuestionFolded:
             self.show_folded(ctx, chat, event, token, mid)
 
     def show_folded(self, ctx, chat, event, token, mid):

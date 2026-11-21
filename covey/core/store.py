@@ -431,7 +431,8 @@ def update_question(path, change, *, expected=None):
 # The time a question stopped waiting, written as its status moves there unless the change wrote it itself: an answer's
 # when it is submitted (an uncertain one answered later keeps it), a cancellation's or a fold's when it happens. The
 # records have no other time of it (the web page's 专项报告 drew every closed question as waiting until now).
-SETTLED_STAMPS = {'submitting': 'answered_at', 'answered': 'answered_at', 'cancelled': 'cancelled_at', 'superseded': 'cancelled_at'}
+SETTLED_STAMPS = {'submitting': 'answered_at', 'answered': 'answered_at', 'cancelled': 'cancelled_at', 'superseded': 'cancelled_at',
+                  'set_aside': 'answered_at'}  # 不处理: it stops waiting then (撤销 drops the stamp with the rest).
 
 
 def _stamp_settled(before, after, new):

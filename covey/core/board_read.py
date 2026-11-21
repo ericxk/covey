@@ -155,6 +155,17 @@ def asks(record) -> bool:
             and bool(record.get("question_message_id")) and bool(record.get("topic_id")))
 
 
+def set_aside(record, questions) -> bool:
+    """Whether job ``record`` waits for an answer (waiting_user) only on questions the owner set aside (不处理, T604 #15,
+    app/questions.py set_aside): one of ``questions`` (its topic's records) is set aside and none of its own ``asks``.
+    It is no 等我 then, and its turn reads as one that ended (the web page's word, tone and turns)."""
+    if record.get("status") != "waiting_user":
+        return False
+    key, number = record.get("key"), record.get("job_id")
+    mine = [q for q in questions if (q.get("job_key") == key if key and q.get("job_key") else q.get("job_id") == number)]
+    return any(q.get("status") == "set_aside" for q in mine) and not any(asks(q) for q in mine)
+
+
 def launch_card(state, topic_id, chat) -> str:
     """The message id of ``topic_id``'s newest launch card that can still start it (OPEN_FORMS), '' when none."""
     rows = directory_store(Path(state) / "launch-forms").query(topic_id=topic_id, chat_id=chat)

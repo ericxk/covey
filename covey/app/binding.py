@@ -207,16 +207,21 @@ def set_redaction(topic, on):
         topic.pop(REDACTION_KEY, None)
 
 
+# The questions retire_open_questions cancels: the open ones, and those the owner set aside (不处理, T604 #15), which the next
+# turn would otherwise take as answers to questions no model of the new binding asked.
+OPEN_FOR_THE_OWNER = frozenset({"pending", "set_aside"})
+
+
 def retire_open_questions(topics, old_app, ctx, chat, *, reason="switched", message="话题已更换配置，由新模型接着处理",
                           job_status="continued", by=""):
     """Questions of the old binding (or of a turn ↩️ 回退 dropped, ``reason`` "rewound") are void: cancel them
-    and end the jobs waiting on them (``job_status``: "continued", the turn goes on elsewhere; "cancelled" when it is stopped,
+    (OPEN_FOR_THE_OWNER) and end the jobs waiting on them (``job_status``: "continued", the turn goes on elsewhere; "cancelled" when it is stopped,
     as a project's lead does for the owner). ``by``: who stopped them (core/jobs.py STOP_SOURCES), the cancelled jobs'
     ``cancel_requested_by``: core/look.py says 已停止 for the owner's own stop, 停住了 for any other."""
     for path, record in directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat):
-        if record.get("status") != "pending":
+        if record.get("status") not in OPEN_FOR_THE_OWNER:
             continue
-        updated = transition_question(path, {"pending"}, status="cancelled", cancel_reason=reason)
+        updated = transition_question(path, OPEN_FOR_THE_OWNER, status="cancelled", cancel_reason=reason)
         if updated:
             try:
                 old_app.questions.paint_question_state(ctx, updated)

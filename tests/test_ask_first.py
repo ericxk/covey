@@ -44,7 +44,8 @@ class AskCardTest(unittest.TestCase):
     def test_an_open_form_offers_it_under_submit_and_says_what_it_does(self):
         form = question_element(checkpoint_question())
         names = [e.get("name") for e in walk_dicts(form) if e.get("tag") == "button"]
-        self.assertEqual(names, ["submit", "skip_all", "ask_first"])  # 提交回答 and 只发补充说明 keep their row.
+        # 提交回答 and 只发补充说明 keep their row; 不处理 is beside 先问一句 (test_set_aside).
+        self.assertEqual(names, ["submit", "skip_all", "ask_first", "set_aside"])
         ask = ask_row(form)[0]
         self.assertEqual((ask["text"]["content"], ask["form_action_type"], ask["type"]), (ASK_LABEL, "submit", "default"))
         self.assertEqual(ask["behaviors"][0]["value"], {"kind": ASK_KIND, "topic_id": "t" * 64, "token": "c" * 16})

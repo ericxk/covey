@@ -92,6 +92,9 @@ ACTIONS = {
     "bridge_question_skip": CardAction("只发补充说明", bot_only=True, handler=QUESTIONS),
     # 先问一句 (T604 #13): the 补充说明 goes to the topic as its next turn or into the task it runs; bot_only: it queues a turn.
     "bridge_question_ask": CardAction("先问一句", bot_only=True, handler=QUESTIONS),
+    # 不处理 and its 撤销 (T604 #15): the question set aside or open again; nothing is sent, no task starts.
+    "bridge_question_set_aside": CardAction("不处理", handler=QUESTIONS),
+    "bridge_question_restore": CardAction("撤销不处理", handler=QUESTIONS),
     "bridge_question_resume": CardAction("核查已保存回答", handler=QUESTIONS),
     "bridge_question_status": CardAction("查看回答状态", handler=QUESTIONS),
     "bridge_trace": CardAction("查看执行过程", handler=QUESTIONS),

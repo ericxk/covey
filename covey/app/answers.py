@@ -297,6 +297,28 @@ def ask_message(record, words):
     return f"{ASK_START}\n你的问题：\n{asked}\n他问：\n{words}"
 
 
+# 不处理 (T604 #15; app/questions.py set_aside, take_set_aside): what the topic's next turn starts with for questions the
+# owner set aside, then each as an answer of every question 不回答此题 reads.
+SET_ASIDE_START = "你之前问的题，用户点了“不处理”：都不回答，不表示同意或授权；没有它做不了的先放着，不用再问同样的题。"
+
+
+def set_aside_answers(questions):
+    """不处理's answers: every question 不回答此题 with nothing added, as 只发补充说明 skips them (``skip_all_fields``)
+    without the 补充说明 it requires."""
+    return form_answers(questions, {f"skip_{i}": True for i in range(len(questions))})
+
+
+def set_aside_message(records, notes=()):
+    """What the turn that takes ``records`` (questions set aside) starts with: SET_ASIDE_START, then each one's answer as
+    ``answer_message`` writes it (every question 不回答此题), the held ``notes`` with the last."""
+    parts = []
+    for index, record in enumerate(records):
+        given = record.get("answers") or set_aside_answers(record["questions"])
+        _, text, _ = answer_message({**record, "supplement": ""}, given, "", list(notes) if index == len(records) - 1 else [])
+        parts.append(text)
+    return SET_ASIDE_START + "\n" + "\n\n".join(parts)
+
+
 def answer_fields(record, answers, note, owner=False):
     """The form fields 提交回答 would send for ``answers`` (question id or text -> option label, or labels for a
     multiple choice), with ``note`` as the 补充说明: ``form_answers`` the other way, for the butler's

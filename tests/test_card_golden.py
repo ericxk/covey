@@ -327,6 +327,11 @@ def question_cards():
         {"id": "port", "header": "端口", "question": "新服务用哪个端口？", "context": "看板要从外网打开，8080 已被网关占用",
          "options": [{"label": "8443（推荐）", "description": "不用改网关"}, {"label": "9090"}]},
         {"id": "note", "header": "补充", "question": "还有别的要求吗？"}], answers={}), "T70")
+    # 不处理 (T604 #15): set aside, with 撤销; then taken by the topic's next turn (#432), no 撤销 left.
+    skipped = {"fmt": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}, "note": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}}
+    cards["card_set_aside"] = question_card(question_record("set_aside", response_kind="set_aside", answers=skipped), "T70")
+    cards["card_set_aside_taken"] = question_card(question_record(
+        "answered", response_kind="set_aside", answers=skipped, delivery_state="delivered", continuation_job_id=432), "T70")
     # 先问一句 (T604 #13): the open form says what was asked first; the topic answers it, the form stays.
     cards["card_asked_first"] = question_card(question_record(answers={}, asked_first={
         "at": FROZEN - 30, "text": "表格和列表在手机上哪个好看？", "event": "e"}), "T70")

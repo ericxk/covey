@@ -263,6 +263,8 @@ class Collector:
             return "在做"
         if latest is not None and latest.get("status") == "continued":
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
+        if latest is not None and board_read.set_aside(latest, questions):
+            latest = {**latest, "status": "done"}  # Its question set aside (不处理): a turn that ended, no 等你.
         if latest is None:
             return "已停止" if never_started(records) else "空闲"
         return STATE_WORDS.get(latest.get("status"), "空闲")
@@ -280,6 +282,8 @@ class Collector:
             return look.record_tone(live, stuck=bool((progress or {}).get("maybe_stuck")))
         if latest is not None and latest.get("status") == "continued":
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
+        if latest is not None and board_read.set_aside(latest, questions):
+            latest = {**latest, "status": "done"}  # As ``word``.
         if latest is None and never_started(records):
             return "cancelled"  # Nothing ever ran and the last task was cancelled before it started: 已停止, not 空闲.
         if latest is None or latest.get("status") not in STATE_WORDS:
@@ -360,7 +364,8 @@ class Collector:
             if job is not None and wakes.get(job_key(job.get("message_id"), job.get("job_id"))):
                 turn["started_topics"] = wakes[job_key(job.get("message_id"), job.get("job_id"))]
             out.append(turn)
-        job = next((record for record in reversed(records) if record.get("status") in RUNNING or record.get("status") == "waiting_user"), None)
+        job = next((record for record in reversed(records) if record.get("status") in RUNNING or (
+            record.get("status") == "waiting_user" and not board_read.set_aside(record, questions))), None)
         if (job is not None and job.get("status") in RUNNING and rows and rows[-1].get("role") != "user"
                 and str(rows[-1].get("job_id") or "") == str(job.get("job_id"))):
             job = None  # Its answer is the last line already, its record not yet ended: no second, running turn of it.

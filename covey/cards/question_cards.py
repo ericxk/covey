@@ -34,6 +34,17 @@ ASKED_SHOWN = 60  # Characters of the words the form shows of the last 先问一
 ASK_EMPTY = f"补充说明是空的，没有问。先在最下面的“补充说明”里写上你想问的，再点“{ASK_LABEL}”"
 ASK_SETTLED = "这组问题已经答过、收起或取消了，没有问；有话直接在话题里说"
 ASK_HELD = f"任务正停在这道题上等你回答，先问的话它读不到，没有问：回答它，或写在补充说明里点“{SKIP_ALL_LABEL}”"
+# 不处理 (T604 #15, app/questions.py set_aside): every question 不回答此题 with nothing added, nothing sent now; the record is
+# SET_ASIDE (its status and its response_kind) and off the 等你 lists. 撤销 (RESTORE_KIND) opens the form again until the
+# topic's next turn takes it as its answer (take_set_aside; the record answered then, its response_kind still SET_ASIDE).
+SET_ASIDE = "set_aside"
+SET_ASIDE_KIND = "bridge_question_set_aside"
+SET_ASIDE_LABEL = "不处理"
+RESTORE_KIND = "bridge_question_restore"
+RESTORE_LABEL = "撤销"
+SET_ASIDE_SETTLED = "这组问题已经答过、收起或取消了，没有撤下"
+SET_ASIDE_HELD = f"任务正停在这道题上等你回答，撤下的话它会一直等，没有撤下：回答它，或写在补充说明里点“{SKIP_ALL_LABEL}”"
+SET_ASIDE_ANSWER = f"这组题你点了“{SET_ASIDE_LABEL}”，已从“等你”里撤下；要回答的话先点卡上的“{RESTORE_LABEL}”"
 # A top-level card's single-choice question (``top_level_card``) shows each option as a submit button, so one tap
 # answers (a dropdown took four steps and 600 px, and iOS's picker could not be cancelled).
 # Its callback value's PICK is the option's index, or SKIP_VALUE for 不回答此题 (app/answers.py picked_fields).
@@ -180,7 +191,7 @@ def question_element(record, tags="", *, headed=False):
     if record.get("display_pending") or (record.get("body_delivery_required") and not record.get("body_delivery_confirmed")):
         return {"tag": "markdown", "element_id": "q_" + token,
                 "content": "完整结果或问题控件尚未送达，请使用本话题任务卡的重试按钮，重新投递后再回答。"}
-    if record.get("status") in {"cancelled", "uncertain", "submitting", "answered"}:
+    if record.get("status") in {"cancelled", "uncertain", "submitting", "answered", SET_ASIDE}:
         return _settled_panel(record, token)
     return _question_form(record, token, tags, headed)
 
@@ -194,6 +205,11 @@ def settled_title(record):
     status, delivery = record["status"], record.get("delivery_state", "delivered")
     if folded(record):
         return title + f" · 已收起 → #{record.get('superseded_by_job')} 又提了问题"
+    if status == SET_ASIDE:
+        return title + " · 你选了不处理 · 话题下一轮开始前可以撤销"
+    if status == "answered" and record.get("response_kind") == SET_ASIDE:
+        taken = record.get("continuation_job_id")
+        return title + " · 你选了不处理" + (f" → 随 #{taken} 告诉了模型" if taken else "")
     if status == "cancelled":
         reason = {"switched": "话题已换配置，直接在话题里回复新模型即可", "rewound": "这一轮已回退，问题作废",
                   "stale": STALE_NOTE, "lead_stop": "负责人按你的意思停了这个话题",
@@ -222,6 +238,11 @@ def settled_summary(record):
     if record.get("response_kind") == "feedback":
         asked = "\n".join("- " + q["question"][:300] for q in record["questions"])
         return f"原问题：\n{asked}\n\n你的反馈：\n{record['feedback']}\n\n原问题没有被回答，也不表示同意。"
+    if record.get("response_kind") == SET_ASIDE:
+        asked = "\n".join("- " + q["question"][:300] for q in record["questions"])
+        how = {SET_ASIDE: f"从“等你”里撤下了，话题下一轮开始时告诉模型；在那之前点“{RESTORE_LABEL}”，这张卡回到能答的样子。",
+               "answered": "已随话题的下一轮告诉模型。"}.get(record["status"], "")
+        return f"原问题：\n{asked}\n\n你选了不处理：每题记为不回答（不表示同意或授权）。{how}"
     parts = []
     for i, q in enumerate(record["questions"]):
         answer = "；".join((record.get("answers", {}).get(q["id"]) or {}).get("answers", []))
@@ -231,10 +252,13 @@ def settled_summary(record):
 
 
 def _settled_panel(record, token):
-    """The collapsed panel of a question whose answer is saved, being sent, unconfirmed or cancelled.
-    查看提交状态 only while the delivery is unconfirmed: once the follow-up runs, the title says it."""
+    """The collapsed panel of a question whose answer is saved, being sent, unconfirmed or cancelled, or that the owner
+    set aside (open then, with 撤销). 查看提交状态 only while the delivery is unconfirmed: once the follow-up runs, the
+    title says it."""
     title = settled_title(record)
-    panel = markdown_panel("q_" + token, title, settled_summary(record)[:10000] or title)
+    # Set aside it is open: 撤销 is in it, at hand while it still can be undone.
+    panel = markdown_panel("q_" + token, title, settled_summary(record)[:10000] or title,
+                           **({"expanded": True} if record["status"] == SET_ASIDE else {}))
     if record["status"] in {"submitting", "uncertain"} or (record["status"] == "answered"
                                                            and record.get("delivery_state") == "awaiting_ack"):
         panel["elements"].append(callback_button(STATUS_LABEL, {"kind": "bridge_question_status",
@@ -242,6 +266,9 @@ def _settled_panel(record, token):
     if record.get('status') == 'uncertain' and record.get('answers'):
         panel['elements'].append({'tag':'button','text':{'tag':'plain_text','content':'核查已保存回答并继续'},
             'behaviors':[{'type':'callback','value':{'kind':'bridge_question_resume','topic_id':record['topic_id'],'token':token}}]})
+    if record["status"] == SET_ASIDE:  # 不处理 taken back while the topic's next turn has not taken it.
+        panel["elements"].append(callback_button(RESTORE_LABEL, {"kind": RESTORE_KIND, "topic_id": record["topic_id"],
+                                                                 "token": token}))
     return panel
 
 
@@ -262,10 +289,11 @@ def top_level_card(record):
 
 
 def extras(record):
-    """Whether ``record``'s open form gets 先问一句 (T604 #13): a topic's question (not the butler's nor a lead's, which ask
-    at the chat's top level: ``Traits.card_target``) that no turn is held on. A turn waiting in place for its answer
-    (Claude's own question tool, ``native_live_question``) or paused on it (Codex's, ``native_paused_question``) reads
-    nothing else until it is answered: what is asked first would only queue behind it."""
+    """Whether ``record``'s open form gets 先问一句 (T604 #13) and 不处理 (#15): a topic's question (not the butler's nor a
+    lead's, which ask at the chat's top level: ``Traits.card_target``) that no turn is held on. A turn waiting in place
+    for its answer (Claude's own question tool, ``native_live_question``) or paused on it (Codex's,
+    ``native_paused_question``) reads nothing else until it is answered: what is asked first would only queue behind it,
+    and one set aside would leave it waiting for ever."""
     from covey.core.butler import traits
     return (bool(record.get("topic_id")) and not record.get("native_live_question")
             and not record.get("native_paused_question") and traits(record.get("topic_id"), record.get("chat_id")).card_target)
@@ -317,7 +345,9 @@ def extra_rules(record):
     """怎么回答's lines for the buttons ``extras`` puts under 提交回答; none without them."""
     if not extras(record):
         return []
-    return [f"对题目有疑问：写在“补充说明”，点“{ASK_LABEL}”。话题先回答你，这张卡不收起，看完再答；问的话不算回答。"]
+    return [f"对题目有疑问：写在“补充说明”，点“{ASK_LABEL}”。话题先回答你，这张卡不收起，看完再答；问的话不算回答。",
+            f"先不管这组题：点“{SET_ASIDE_LABEL}”。每题记为{SKIP_LABEL}，从“等你”里撤下，话题下一轮开始时告诉模型；"
+            f"在那之前可以点“{RESTORE_LABEL}”。"]
 
 
 def _reply_where(record):
@@ -380,10 +410,14 @@ def _question_form(record, token, tags="", headed=False):
 
 def _extras_row(record, token):
     """Under 提交回答 and 只发补充说明, the lesser buttons each as wide as its label (``extras``): 先问一句, a submit, so
-    the 补充说明 it asks with goes with it."""
+    the 补充说明 it asks with goes with it, and 不处理, a text button (docs/ui.md 6: giving up on something), which sends
+    no field."""
+    value = {"topic_id": record["topic_id"], "token": token}
     ask = {"tag": "button", "text": plain(ASK_LABEL), **button_look(), "form_action_type": "submit", "name": "ask_first",
-           "behaviors": callback({"kind": ASK_KIND, "topic_id": record["topic_id"], "token": token})}
-    return button_row([ask])
+           "behaviors": callback({"kind": ASK_KIND, **value})}
+    aside = {"tag": "button", "text": plain(SET_ASIDE_LABEL), "type": "text", "size": "medium", "name": "set_aside",
+             "behaviors": callback({"kind": SET_ASIDE_KIND, **value})}
+    return button_row([ask, aside])
 
 
 def _pick_row(record, options):

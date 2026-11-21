@@ -143,7 +143,7 @@
 ### 问题条目
 
 - 带 `asked_at`、`answered_at`（没答为 null）、`project_key`、`topic_number`。
-- **题目不再等的时刻和方式**（v9）：`closed_at`（秒，还在等或不知道时为 null）、`closed_by`：`owner` 你答了、`feedback` 只发补充说明或提了反馈、`skipped` 每题都选了不回答、`lead` 负责人替你答了、`superseded` 话题又问了新题、`stale` 每日维护关掉的过期题、`switched` 换配置、`rewound` 回退、`lead_stop` 负责人停了话题、`web_stop` 你在网页上停了话题、`cancelled` 别的取消；还在等或在负责人手上为空串。
+- **题目不再等的时刻和方式**（v9）：`closed_at`（秒，还在等或不知道时为 null）、`closed_by`：`owner` 你答了、`feedback` 只发补充说明或提了反馈、`skipped` 每题都选了不回答（飞书卡上点了“不处理”的也是）、`lead` 负责人替你答了、`superseded` 话题又问了新题、`stale` 每日维护关掉的过期题、`switched` 换配置、`rewound` 回退、`lead_stop` 负责人停了话题、`web_stop` 你在网页上停了话题、`cancelled` 别的取消；还在等或在负责人手上为空串。
 - 时刻来自问题记录自己的 `answered_at`、`cancelled_at`；更早的记录没有，依次取答案续跑任务的创建时间、负责人代答的时刻、收起它的新题的提问时间、提问任务最后一次写入。专项报告按它画“等你”：只有 `open` 的题算还在等。
 - 负责人先接手的题（[问题分流](projects.md#专项的问题分流)）`state` 是 `held`：还轮不到你答，网页不算“等你”；转给你后变回 `open`。
 

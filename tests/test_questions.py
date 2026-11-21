@@ -679,9 +679,10 @@ class QuestionCardLookTest(unittest.TestCase):
         self.assertNotIn("每个输入框最多", text_of(card))
         # The form sends what it always sent: the same field names and values.
         fields = {e["name"]: e for e in walk_dicts(form["elements"]) if e.get("name")}
-        # 先问一句 under 提交回答 (T604, test_ask_first) is a submit of its own name; the fields are unchanged.
+        # 先问一句 and 不处理 under 提交回答 (T604, test_ask_first, test_set_aside) have names of their own; the fields
+        # are unchanged.
         self.assertEqual(set(fields), {"option_0", "answer_0", "answer_1", "skip_1", "supplement", "skip_all", "submit",
-                                       "ask_first"})
+                                       "ask_first", "set_aside"})
         self.assertEqual([o["value"] for o in fields["option_0"]["options"]], ["0", "1", "skip"])
         self.assertEqual(question_element(two_questions())["elements"][0]["content"], "**等你 · 等你回答后继续**")
 
@@ -749,7 +750,7 @@ class SkipAllTest(QuestionFixture, unittest.TestCase):
             with self.subTest(len(questions)):
                 form = question_element({**self.record, "questions": questions})
                 # Two buttons on one row, 提交回答 first and blue (the owner, 2026-11-04 18:27); the row under it has
-                # the lesser ones (先问一句, test_ask_first).
+                # the lesser ones (先问一句 and 不处理, test_ask_first, test_set_aside).
                 row = form["elements"][-2]
                 buttons = [c["elements"][0] for c in row["columns"]]
                 self.assertEqual([b["text"]["content"] for b in buttons], ["提交回答", SKIP_ALL_LABEL])
@@ -758,9 +759,9 @@ class SkipAllTest(QuestionFixture, unittest.TestCase):
                 self.assertEqual((skip["form_action_type"], skip["name"]), ("submit", "skip_all"))
                 self.assertEqual(skip["behaviors"][0]["value"],
                                  {"kind": SKIP_ALL_KIND, "topic_id": self.record["topic_id"], "token": self.token})
-                # Besides them only the option buttons of a single-choice question (TopLevelPickTest) and 先问一句.
+                # Besides them only the option buttons of a single-choice question (TopLevelPickTest), 先问一句 and 不处理.
                 self.assertEqual([e["name"] for e in walk_dicts(form) if e.get("tag") == "button"
-                                  and not e["name"].startswith("pick_")], ["submit", "skip_all", "ask_first"])
+                                  and not e["name"].startswith("pick_")], ["submit", "skip_all", "ask_first", "set_aside"])
                 self.assertIn("**补充说明**（可选）", text_of(form))
 
     def test_whatever_was_picked_every_question_is_skipped_and_the_supplement_goes(self):

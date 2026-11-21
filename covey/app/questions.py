@@ -21,15 +21,15 @@ from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
 from covey.core.jobs import find_job_record, transition_job_record, upsert_job_record, list_job_records
-from covey.core import triage
+from covey.core import background, triage
 from covey.core.locks import resource_lock
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.run_dir import run_dir, runner_alive
 from covey.cards.elements import md
-from covey.cards.question_cards import (ASK_HELD, ASK_SETTLED, ASKED, FOLDED, answer_notice_card, extras, folded,
-                                        folded_refusal)
+from covey.cards.question_cards import (ASK_HELD, ASK_SETTLED, ASKED, FOLDED, SET_ASIDE, SET_ASIDE_ANSWER, SET_ASIDE_HELD,
+                                        SET_ASIDE_SETTLED, answer_notice_card, extras, folded, folded_refusal)
 from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, ask_id, ask_message, ask_title,
-                               question_feedback_fields, submitted_answer)
+                               question_feedback_fields, set_aside_answers, set_aside_message, submitted_answer)
 from covey.app.checkpoint_questions import CheckpointQuestions
 from covey.app.held_notes import HeldNotes
 from covey.app.native_questions import NativeQuestions
@@ -223,6 +223,8 @@ class Questions:
                 raise ValueError("回答已提交，正在创建后续任务；不会重复发送")
             if record["status"] in {"submitting", "uncertain"}:
                 raise ValueError("上次回答已保存，但送达状态未确认；请先核查任务，不会重复发送")
+            if record["status"] == SET_ASIDE:
+                raise ValueError(SET_ASIDE_ANSWER)
             if record["status"] != "pending":
                 raise ValueError("该问题已经提交，不能重复回答；可在话题中补充新的要求")
             if record.get("native_live_question") is True:
@@ -433,6 +435,97 @@ class Questions:
         append_history(ctx.history_path, "user", text, {"message_id": message_id})
         return self.enqueue_chat_job(ctx, shown, chat, message_id, prompt_content=text, recovery_context=prior,
                                      title=title, sender_id=sender, steer=True)
+
+    def set_aside(self, ctx, chat, token, event_id, *, by=""):
+        """不处理 on question ``token``'s form (T604 #15): every question 不回答此题 with nothing added (as 只发补充说明
+        without its note), saved and nothing sent; the record turns SET_ASIDE, so it leaves 等你 everywhere (core/board_read.py
+        asks reads pending ones only) and a message of the topic is no answer to it. The topic's next turn takes it as its
+        answer (``take_set_aside``); until then ``restore`` (撤销) opens the form again. Its task waits as it did.
+        ValueError when it can no longer be set aside; False when it already is (the same click again)."""
+        path = question_path(ctx, token)
+        with question_card_lock(path):
+            record = scoped_question(ctx, chat, token)
+            if folded(record):
+                raise QuestionFolded(folded_refusal(record))
+            if record.get("status") == SET_ASIDE:
+                return False
+            if record.get("status") != "pending":
+                raise ValueError(SET_ASIDE_SETTLED)
+            if not extras(record):
+                raise ValueError(SET_ASIDE_HELD)
+            self.require_delivered_question(ctx, record)
+            record = transition_question(path, {"pending"}, status=SET_ASIDE, response_kind=SET_ASIDE,
+                                         answers=set_aside_answers(record["questions"]), set_aside_at=time.time(),
+                                         set_aside_by=by, set_aside_event=event_id)
+            if record is None:
+                raise ValueError(SET_ASIDE_SETTLED)
+            self.paint_question_state(ctx, record)
+        self.runtime.log(f"question set aside token={token[:10]} job=#{record.get('job_id')}")
+        return True
+
+    def restore(self, ctx, chat, token, event_id):
+        """撤销 on a question set aside (``set_aside``): pending again, its form open, as it was before; refused once the
+        topic's next turn took it (the model has it then) or it was cancelled. False when it is pending already."""
+        path = question_path(ctx, token)
+
+        def back(current):
+            for key in ("answers", "response_kind", "set_aside_at", "set_aside_by", "set_aside_event", "answered_at"):
+                current.pop(key, None)
+            return {**current, "status": "pending", "restored_at": time.time(), "restore_event": event_id}
+        with question_card_lock(path):
+            record = scoped_question(ctx, chat, token)
+            if record.get("status") == "pending":
+                return False
+            restored = update_question(path, back, expected={SET_ASIDE}) if record.get("status") == SET_ASIDE else None
+            if restored is None:
+                current = scoped_question(ctx, chat, token)
+                self.paint_question_state(ctx, current)  # Shows where it went instead.
+                taken = current.get("continuation_job_id") if current.get("status") == "answered" else None
+                raise ValueError(f"这组题已经随 #{taken} 告诉了模型，撤不回了；有话直接在话题里说" if taken
+                                 else "这组问题已经取消了，撤不回；有话直接在话题里说")
+            self.paint_question_state(ctx, restored)
+        self.runtime.log(f"question set aside undone token={token[:10]} job=#{restored.get('job_id')}")
+        return True
+
+    def take_set_aside(self, ctx, job):
+        """The topic's next turn takes the questions set aside there (不处理, ``set_aside``) as their answer: each record
+        is answered by ``job`` (``continuation_job_id``) with its saved answers, and ``job``'s request starts with them
+        (app/answers.py set_aside_message, the held notes too, as an answer takes them), so the model hears it once and 撤销
+        ends. Called for every job a topic submits (app/task_controls.py acknowledge_waiting_answer, the topic's lock held):
+        records only here, the cards painted on a thread of their own. The Bridge's alone. The records taken."""
+        if self.runtime.in_runner:
+            return []
+        topic, chat = getattr(job, "topic_id", "") or ctx.topic_id, job.chat_id
+        rows = directory_store(ctx.state_dir / "questions").query(topic_id=topic, chat_id=chat, status=SET_ASIDE)
+        taken = []
+        for path, _ in sorted(rows, key=lambda row: row[1].get("created_at") or 0):
+            record = transition_question(path, {SET_ASIDE}, status="answered", delivery_state="delivered",
+                                         continuation_job_id=job.job_id)
+            if record is not None:
+                taken.append(record)
+        if not taken:
+            return []
+        scoped = dataclasses.replace(ctx, topic_id=topic)
+        notes = self.notes.claim_held(scoped, chat, taken[-1]["token"], "answer")
+        text = set_aside_message(taken, notes)
+        job.prompt_text = text + "\n\n" + (job.prompt_text or job.user_text)
+        append_history(ctx.history_path, "user", text)
+        self.runtime.log(f"questions set aside taken by job=#{job.job_id}: {','.join(r['token'][:10] for r in taken)}")
+        background.start(background.CARD_UPDATES, self._show_taken, scoped, chat, taken, notes, job.job_id)
+        return taken
+
+    def _show_taken(self, ctx, chat, taken, notes, job_id):
+        """``take_set_aside``'s cards: each question's, saying the turn took it, and the held notes it took. Never raises."""
+        for record in taken:
+            try:
+                with question_card_lock(question_path(ctx, record["token"])):
+                    self.paint_question_state(ctx, scoped_question(ctx, chat, record["token"]))
+            except Exception as exc:  # noqa: BLE001 - the record says where it went
+                self.runtime.log(f"set aside question not repainted: {type(exc).__name__}")
+        try:
+            self.notes.settle_notes(ctx, chat, notes, job_id)
+        except Exception as exc:  # noqa: BLE001 - the notes went with the turn
+            self.runtime.log(f"held notes not settled: {type(exc).__name__}")
 
     def enqueue_continuation(self, ctx, text, chat, message_id, recovery_context, title="", display="",
                              policy_retry=None, sender_id=""):

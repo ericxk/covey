@@ -377,10 +377,11 @@ read、refused、withdrawn：终态
 用户看到的见[回答模型的问题](usage.md#回答模型的问题)。`questions/<token>.json`，token 是 `sha256(任务消息ID-request_id)` 的前 16 位。`core/statuses.py` 的 `QUESTION_TRANSITIONS`：
 
 ```text
-pending    → submitting, cancelled, superseded
+pending    → submitting, cancelled, superseded, set_aside
 submitting → answered, uncertain, cancelled
 answered   → uncertain
 uncertain  → pending, answered, cancelled
+set_aside  → pending, answered, cancelled
 cancelled、superseded：终态
 ```
 
@@ -396,6 +397,7 @@ cancelled、superseded：终态
 - 提交在锁内转 `submitting` 并存答案，锁外发送，异常转 `uncertain`；“核查已保存回答”用保存的答案重交。原任务已结束时 `enqueue_continuation` 建续答任务（`after_ack` 后续）。
 - 收起旧问题（`fold_older_questions`，只在 Bridge 做）：较新的问题卡显示后，更早的仍是 `pending` 的问题转 `superseded`，卡整卡重画成收起样式；来源任务还在的不收。等它的暂存消息改等新问题（`HeldNotes.wait_instead`）。
 - 停止任务时本任务的待答问题转 `cancelled`。启动时 `recover_question_delivery` 把 `submitting`、`awaiting_ack` 记 `uncertain` 等用户核查，不自动重发。
+- 不处理（`bridge_question_set_aside`，`Questions.set_aside`）：同样只在 `extras` 为真的表单上。卡锁内 `pending → set_aside`，存下每题“不回答此题”的答案（`set_aside_answers`，即只发补充说明不带补充说明）、`response_kind: set_aside`，什么都不发。读 `pending` 的地方（等我的 `asks`、`pending_questions`、话题消息当回答、暂存消息、收起旧问题、每日维护）自然都不再算它；网页把只剩它的 `waiting_user` 任务读成结束了的一轮（`core/board_read.py` 的 `set_aside`）。撤销（`bridge_question_restore`，`restore`）`set_aside → pending`，去掉存的答案和时刻。话题下一轮（`publish_submission` 里的 `acknowledge_waiting_answer` 先调 `take_set_aside`，话题锁内、只改记录）把它转 `answered`（`continuation_job_id` 是这一轮），请求前面加 `set_aside_message`，暂存消息照回答的样子 `claim_held` 一起带上，卡和暂存消息卡另起线程重画。`retire_open_questions` 连它一起作废。
 - 先问一句（`bridge_question_ask`，`bot_only`，`Questions.ask_first`）：只在 `extras` 为真的表单上（话题的问题，不是 `native_live_question`、`native_paused_question` 那种只等这一个回答的会话）。卡锁内核对仍是 `pending`、正文已送达，记下 `asked_first`（时间、原话、点击的 event id：同一事件重投不再问）并整卡重画；回执后 `queue_ask` 把 `ask_message` 写进历史，`enqueue_chat_job(steer=True)` 排成消息 id 为 `ask-…` 的一轮（话题的任务在跑且收补充时由 `steers_on_arrival` 补充给它），`recovery_context` 是提问那一轮的检查点。问题不变：不转状态、不取暂存消息；`acknowledge_waiting_answer` 见到 `ask-` 不动在等回答的任务，`_continue_previous` 因为带了检查点也不动它。
 
 ## 撤回与编辑

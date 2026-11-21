@@ -244,7 +244,9 @@ class TaskControls(Redelivery):
         and ``job`` takes its checkpoint. Returns what repaints that task's card (None: nothing to
         paint), for the caller to run once ``job`` is queued: before it, its two writes held the
         continuation 1.2 s (S37). Not a 先问一句's turn (ASK_PREFIX, app/questions.py queue_ask): the question it
-        asks about still waits for its answer, so that task waits on, and the turn has the checkpoint it was given."""
+        asks about still waits for its answer, so that task waits on, and the turn has the checkpoint it was given.
+        Every turn first takes the questions the owner set aside there (不处理: Questions.take_set_aside)."""
+        self.questions.take_set_aside(ctx, job)
         if str(job.message_id or "").startswith(ASK_PREFIX):
             return None
         previous = next(iter(self.harness.topic_records(ctx, job.chat_id, status="waiting_user")), None)
