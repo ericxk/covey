@@ -8,7 +8,7 @@ choice, not this module's.
   已停止 for a stopped one (core/board_read.py BOARD_RESULTS);
   ``answer_head``: the status line's word atop a 话题区's answer card in its thread (有结果);
   ``BOARD``: how its other rows read there (在做, 排队, 等你);
-- ``RESULTS``: how one reads in the butler's snapshot (app/butler.py), 完成 among them, 已停止 too
+- ``RESULTS``: how one reads in the butler's snapshot (app/butler.py), 做完 among them, 停住了 and 已停止 too
   (core/board_read.py BOARD_RESULTS: the board's results, the snapshot's too);
 - ``OVERVIEW_OUTCOMES``, ``OVERVIEW_GROUPS``: 手上的事's (cards/overview.py);
 - ``DIGEST_START``: how 早晚汇总 (cards/digest.py) says a task waits for the owner to start it (waiting_workspace);
@@ -43,14 +43,16 @@ FOLLOW_UP = {"queued": "排队", "running": "在做", "done": OUTCOME_LINES["don
              "cancelled": OUTCOME_LINES["cancelled"], "interrupted": "停住了", "waiting_user": "又提了问题"}
 STATES = {"done": "做完", "failed": "停住了", "interrupted": "停住了", "cancelled": "已停止"}
 BOARD = {"running": "在做", "queued": "排队", "waiting": "等你"}
-RESULTS = {"done": "完成", "failed": "失败", "interrupted": "中断", "cancelled": "已停止"}
+RESULTS = {"done": "做完", "failed": "停住了", "interrupted": "停住了", "cancelled": "已停止"}
 # 手上的事 says what the 看板 and 早晚汇总 say (docs/ui.md 3).
 OVERVIEW_OUTCOMES = {"done": "做完", "failed": "停住了", "cancelled": "已停止", "interrupted": "停住了"}
 OVERVIEW_GROUPS = {"waiting": "等你", "result": "有结果", "running": "在做"}
 DIGEST_START = "等你开工"
 START_LINE = "等你在启动卡上点开始"
 START_ACT = "去开始"
-GROUP_NAMES = {"waiting": "等你回答", "result": "有结果未看", "running": "进行中", "recent": "最近", "": "更早"}
+# The butler's groups say the board's words (docs/ui.md 3, core/look.py STATES and GROUP_WORDS): the words the butler
+# reads are the words it says back (#48).
+GROUP_NAMES = {"waiting": "等你", "result": "有结果没看", "running": "在做", "recent": "最近", "": "更早"}
 START_PHASE = "处理本轮请求"  # TaskMonitor's phase before the checkpoint names one.
 # The phase written to a run's checkpoint before its model writes one (app/worker.py): the status line names none.
 SEED_PHASE = "准备处理本轮请求"

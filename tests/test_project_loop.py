@@ -661,7 +661,7 @@ class ReceiptTest(Case):
         self.after(job)
         [item] = project_loop.unread(self.state, PID)
         self.assertEqual((item["kind"], item["thread"]), ("thread_end", THREAD))
-        self.assertIn("任务 #41 完成", item["text"])
+        self.assertIn("任务 #41 做完", item["text"])
         self.assertIn("全部 12 张表对账一致", item["text"])
         self.assertEqual(self.reload()["tokens_used"], 1550)
 

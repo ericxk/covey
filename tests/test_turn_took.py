@@ -113,7 +113,7 @@ class WordsTest(unittest.TestCase):
         self.assertEqual(longtask.SEED_PHASE, turn_words.SEED_PHASE)
         self.assertEqual([review.outcome_line(s) for s in ("done", "failed", "cancelled", "waiting_user", "x")],
                          ["有结果", "停住了", "已停止", "等你", "有结果"])
-        self.assertEqual(dict(butler_app.GROUPS)["result"], "有结果未看")
+        self.assertEqual(dict(butler_app.GROUPS)["result"], "有结果没看")
 
 
 class TraceEndsFirstBackend(RecordingBackend):

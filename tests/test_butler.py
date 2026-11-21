@@ -946,7 +946,7 @@ class TurnTest(ButlerUnifiedCase):
         self.assertTrue(prompt.startswith('[管家规则]'))
         self.assertIn('topic_start', prompt)
         self.assertIn('不要在自己这一轮里做', prompt)
-        for name in ('等你回答', '有结果', '进行中', '管家开的话题'):
+        for name in ('等你', '有结果', '在做', '管家开的话题'):
             self.assertIn(name, prompt)
         self.assertIn('T7 topic 7', prompt)
         self.assertIn('：全部]', prompt)
@@ -1042,7 +1042,7 @@ class TurnTest(ButlerUnifiedCase):
         self.other_topic('a' * 32, 'done')
         self.send('om_2')
         _, prompt = self.turn(self.job_of('om_2'), 'sid')
-        self.assertIn('不再在“进行中”', prompt)
+        self.assertIn('不再在“在做”', prompt)
         self.assertIn('最近有结果', prompt)  # No read receipts in this state directory.
 
     def test_a_topic_taken_off_the_board_is_not_in_the_snapshot(self):
@@ -1080,7 +1080,7 @@ class TurnTest(ButlerUnifiedCase):
         self.send('om_1')
         _, prompt = self.turn(self.job_of('om_1'))
         self.assertNotIn('T7', prompt)
-        self.assertIn('有结果未看', prompt)
+        self.assertIn('有结果没看', prompt)
 
     def test_a_result_whose_conclusion_went_to_the_top_level_says_so(self):
         from covey.cards.relay_card import DONE

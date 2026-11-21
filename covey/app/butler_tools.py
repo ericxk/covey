@@ -44,7 +44,7 @@ from covey.core.workspaces import config_path
 TICK = 0.3
 REFUSED = "只接受正在跑的管家任务的调用：这次调用没有执行。"
 RECENT = TOOLS_AGE  # recent: what moved in the last three days (not the unseen results: ``result``).
-# A topic's group: the first of these it is in; result is 有结果未看, the board's (core/board_read.py unseen).
+# A topic's group: the first of these it is in; result is 有结果没看, the board's (core/board_read.py unseen).
 GROUPS = ("waiting", "result", "running", "recent")
 ALIASES = {"unread": "result"}  # The group's name in an older release's tool schema (a session may hold it).
 GROUP_NAMES = turn_words.GROUP_NAMES
@@ -183,7 +183,7 @@ def harness_title(env, name):
 
 
 def topic_row(env, topic_id, records, questions, unseen, now):
-    """One topic's line in topics_list and what it is filtered and sorted by; ``unseen``: 有结果未看's topics."""
+    """One topic's line in topics_list and what it is filtered and sorted by; ``unseen``: 有结果没看's topics."""
     data, latest = topic_data(env, topic_id), records[-1] if records else {}
     moved = max([when(record) for record in records] + [asked_at(q) for q in questions] + [0.0])
     groups = {"waiting": bool(questions),
@@ -205,7 +205,7 @@ def topic_row(env, topic_id, records, questions, unseen, now):
            "harness": harness_title(env, str(data.get("harness_id") or latest.get("harness_id") or "")),
            "said": cut(said, ASK_CHARS), "moved": moved, "topic_id": topic_id}
     # In one of waiting, result and running; also under result whenever its result is unseen (a topic waiting on a
-    # question older than the board's QUESTION_AGE may be), so that group is 有结果未看 whole; recent is every topic
+    # question older than the board's QUESTION_AGE may be), so that group is 有结果没看 whole; recent is every topic
     # that moved.
     return row, {group, *(name for name in ("result", "recent") if groups[name])}
 
@@ -249,7 +249,7 @@ def topics_list(env, request):
 
 def question_lines(question):
     """A pending question record as lines: each question, its options, single or multiple choice."""
-    lines = [f"等你回答（{stamp(asked_at(question))} 提出）："]
+    lines = [f"等你（{stamp(asked_at(question))} 问的）："]
     for q in question.get("questions") or []:
         options = [str(o.get("label") or "") for o in q.get("options") or [] if isinstance(o, dict)]
         head = f"- [{q.get('id')}] {q.get('header') + '：' if q.get('header') else ''}{q.get('question') or ''}"
@@ -265,7 +265,7 @@ def checkpoint_lines(record):
     path = str(record.get("checkpoint_path") or "")
     checkpoint = read_checkpoint(Path(path)) if path else {}
     lines = []
-    for key, name in (("phase", "阶段"), ("completed", "已完成"), ("next_step", "下一步"), ("question", "在问")):
+    for key, name in (("phase", "阶段"), ("completed", "做完的步骤"), ("next_step", "下一步"), ("question", "在问")):
         value = checkpoint.get(key)
         if isinstance(value, list):
             value = "；".join(str(item) for item in value)
@@ -287,7 +287,7 @@ def checkpoint_lines(record):
     return lines
 
 
-STEP_STATES = {"done": "完成", "doing": "在做", "todo": "待做"}
+STEP_STATES = {"done": "做完", "doing": "在做", "todo": "待做"}
 
 
 def step_lines(steps, times, running, now):
@@ -307,7 +307,7 @@ def step_lines(steps, times, running, now):
         if started is not None:
             parts.append(f"{stamp(started)} 开始")
         if ended is not None:
-            parts.append(f"{stamp(ended)} 完成")
+            parts.append(f"{stamp(ended)} 做完")
         if started is not None and ended is not None and ended >= started:
             parts.append(f"用时 {step_age(ended - started)}")
         elif step["state"] == "doing" and started is not None and running:

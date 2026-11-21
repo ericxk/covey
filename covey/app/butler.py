@@ -20,7 +20,7 @@ enabled: COVEY_BUTLER not 0, the mode on the settings card): what the owner writ
 - ``compact_butler``: past ``compact_tokens`` at the end of a turn, a compaction request: the Bridge compacts
   while the topic is idle (app/idle_compaction.py), else the next turn first (app/compaction.py).
 
-The snapshot lists 等你回答, 有结果未看, 进行中 and the topics the butler opened (main-thread/opened/, app/butler_topics.py)
+The snapshot lists 等你, 有结果没看, 在做 (the board's words, core/turn_words.py GROUP_NAMES) and the topics the butler opened (main-thread/opened/, app/butler_topics.py)
 from the indexes, with no Feishu call. Each turn saves it as topics/<id>/main-snapshot.json and says only what changed
 since: everything on a new session, after a compaction (before the turn or idle, compacted.json), and when the turn that took the last one did not end well.
 """

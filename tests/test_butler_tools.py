@@ -290,7 +290,7 @@ class HandlerTest(unittest.TestCase):
         lines = listed["text"].splitlines()
         self.assertTrue(listed["ok"])
         self.assertEqual([line.split(" · ")[0] for line in lines], ["T3", "T2", "T1", "T4"])
-        self.assertEqual([line.split(" · ")[2] for line in lines], ["等你回答", "有结果未看", "进行中", "更早"])
+        self.assertEqual([line.split(" · ")[2] for line in lines], ["等你", "有结果没看", "在做", "更早"])
         self.assertIn("问：现在发版吗？", lines[0])
         self.assertIn("最后：没有异常", lines[1])
         self.assertIn("在做：改代码", lines[2])
@@ -395,9 +395,9 @@ class HandlerTest(unittest.TestCase):
         from covey.app import pins
         from covey.core.butler_tool_specs import TOOLS
         note = next(tool["description"] for tool in TOOLS if tool["name"] == "topic_priority")
-        names = {"waiting": "等你回答", "running": "进行中", "result": "有结果"}
-        self.assertEqual(" → ".join(names[group] for group in pins.GROUPS), "等你回答 → 进行中 → 有结果")
-        self.assertIn("等你回答 → 进行中 → 有结果", note)
+        names = {"waiting": "等你", "running": "在做", "result": "有结果"}
+        self.assertEqual(" → ".join(names[group] for group in pins.GROUPS), "等你 → 在做 → 有结果")
+        self.assertIn("等你 → 在做 → 有结果", note)
 
 
 class OpeningArgumentsTest(unittest.TestCase):

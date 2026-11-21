@@ -32,18 +32,18 @@ CRITERIA_CHANGE = {"type": "array", "maxItems": 4, "items": {"type": "string"},
 
 TOOLS = (
     {"name": "topics_list",
-     "description": "列出主人私聊里的话题：等你回答 / 有结果未看 / 进行中 / 最近的，每行是 T 号、标题、所在组、工作区、Harness、"
+     "description": "列出主人私聊里的话题：等你 / 有结果没看 / 在做 / 最近的，每行是 T 号、标题、所在组、工作区、Harness、"
                     "在问什么或最后一句、更新时间。问进度、找相关话题、决定要不要转交时先用它；每条消息开头的快照已经有概况。",
      "input_schema": {"type": "object", "properties": {
          "group": {"type": "string", "enum": ["waiting", "result", "running", "recent", "all"],
-                   "description": "waiting 等你回答，result 有结果未看（和看板同一口径：停止的也算，没看过的不论多久都在），"
-                                  "running 进行中，recent 最近 3 天动过的（默认），all 全部"},
+                   "description": "waiting 等你，result 有结果没看（和看板同一口径：停住的、停止的也算，没看过的不论多久都在），"
+                                  "running 在做，recent 最近 3 天动过的（默认），all 全部"},
          "query": {"type": "string", "description": "按 T 号、标题（首条消息的第一行）、工作区过滤；"
                                                     "按链接、路径、内容找是哪个话题做的，用 topics_search"},
          "limit": {"type": "integer", "minimum": 1, "maximum": 60, "description": "最多几行，默认 20"}}}},
     {"name": "topics_search",
      "description": "按线索找是哪个话题的哪一轮做的：飞书文档链接或 token、文件路径、关键词，一次 1 到 5 条。"
-                    "搜主人私聊里所有话题的每一轮（主人的话、结果、检查点的产物和已完成等），不只标题和首条消息。"
+                    "搜主人私聊里所有话题的每一轮（主人的话、结果、检查点的产物和做完的步骤等），不只标题和首条消息。"
                     "每条命中是 T 号 · #轮次 · 时间 · 怎么出现的（第一次出现：之前的轮次都没有，多半是这一轮做的；"
                     "结果里也有：主人给过或之前出现过，这一轮的结果里也有；只是提到：只在主人的话里）· 片段。"
                     "主人说“之前话题给的文档/文件/结果”时先用它，链接和路径比关键词准；wiki 链接没命中时，"
@@ -53,8 +53,8 @@ TOOLS = (
                    "description": "线索：飞书链接（取其中的 token）、token、文件路径、关键词"},
          "limit": {"type": "integer", "minimum": 1, "maximum": 30, "description": "最多列几轮，默认 10"}}}},
     {"name": "topic_read",
-     "description": "读一个话题最近几轮：主人的问题、结论（结果的开头）、检查点（阶段、已完成、产物、下一步、在等主人什么、"
-                    "每一步的状态和开始/完成时间与用时、提交/部署/验收），"
+     "description": "读一个话题最近几轮：主人的问题、结论（结果的开头）、检查点（阶段、做完的步骤、产物、下一步、在等主人什么、"
+                    "每一步的状态和开始、做完的时间与用时、提交/部署/自检），"
                     "以及没回答的问题和选项。给 job 读指定的那一轮（如 topics_search 找到的），结果给得更长。"
                     "回答进度问题或替主人答题前用它；不要去读话题的原始记录文件。",
      "input_schema": {"type": "object", "required": ["topic"], "properties": {
@@ -115,7 +115,7 @@ TOOLS = (
          "answers": {"type": "object", "description": "题目 id（或题目原文）→ 选项原文；多选的给数组",
                      "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}}}}},
     {"name": "topic_priority",
-     "description": "主人说某个话题急时，把它在看板里本组内提到最前（不打乱“等你回答 → 进行中 → 有结果”的先后）。"
+     "description": "主人说某个话题急时，把它在看板里本组内提到最前（不打乱“等你 → 在做 → 有结果”的先后）。"
                     "主人说某个话题不用管了时，给 remove: true，把它从看板和快照里撤下；话题本身不动，它有新问题或新结果时会自己回来。",
      "input_schema": {"type": "object", "required": ["topic"], "properties": {
          "topic": TOPIC, "remove": {"type": "boolean", "description": "true：从看板撤下，而不是提前"}}}},
@@ -282,8 +282,8 @@ PROJECT_TOOLS = (
          "report": {"type": "string", "enum": ["ask_only", "milestones", "each_thread", "verbose"]},
          "detail": {"type": "string", "enum": ["一行", "简", "全"]}}}},
     {"name": "project_finish",
-     "description": "目标和完成标准都达到、话题都结束了，收尾：专项记为完成。还有话题在跑或等主人时会拒绝；整理专项建出来、主人还没在里面说过话、你也没派过活的专项也会拒绝。"
-                    "summary 写一句做成了什么（最多 200 字），会作为完成的汇报。",
+     "description": "目标和完成标准都达到、话题都结束了，收尾：专项记为做完。还有话题在跑或等主人时会拒绝；整理专项建出来、主人还没在里面说过话、你也没派过活的专项也会拒绝。"
+                    "summary 写一句做成了什么（最多 200 字），会作为做完的汇报。",
      "input_schema": {"type": "object", "required": ["summary"], "properties": {
          "summary": {"type": "string", "description": "一句话：做成了什么"}}}},
 )

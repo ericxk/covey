@@ -212,6 +212,26 @@ class RetiredWordsTest(unittest.TestCase):
         self.assertClean(tool_texts(butler_tool_specs.listed({butler_tool_specs.LEAD_ENV: "p1"})), "lead tools listed")
         self.assertClean(strings([butler_tool_specs.START_PROJECT, butler_tool_specs.SEND_PROJECT]), "project arguments")
 
+    def test_the_butler_reads_the_boards_status_words(self):
+        """#48: the words the butler reads are the words it says back. Its snapshot, topics_list and topic_read said
+        等你回答 / 有结果未看 / 进行中 and 完成 / 失败 / 中断 while the cards say 等你 / 有结果没看 / 在做 and 做完 / 停住了
+        (docs/ui.md 3, core/look.py STATES), so it told the owner "T12 失败了" of a card that said 停住了."""
+        from covey.core import look, turn_words
+        from covey.app import butler_tools
+        self.assertEqual([turn_words.GROUP_NAMES[key] for key in ("waiting", "result", "running")],
+                         [look.word("waiting"), look.group_word("result"), look.word("running")])
+        self.assertEqual(turn_words.RESULTS, {"done": look.word("done"), "failed": look.word("stopped"),
+                                              "interrupted": look.word("stopped"), "cancelled": look.word("cancelled")})
+        self.assertEqual(butler_tools.STEP_STATES["done"], look.word("done"))
+        retired = ("等你回答", "需要你回答", "有结果未看", "做完没看", "进行中", "已完成", "执行失败", "已中断")
+        self.environment(**ALL_ON)
+        everything = (*butler_tool_specs.TOOLS, *butler_tool_specs.KNOWLEDGE_TOOLS, *butler_tool_specs.HISTORY_TOOLS,
+                      *butler_tool_specs.PROJECT_TOOLS, *butler_tool_specs.TRIAGE_TOOLS, *butler_tool_specs.BUTLER_PROJECT_TOOLS)
+        texts = [*tool_texts(everything), prompts.butler_rules(), project_lead.lead_rules(),
+                 *turn_words.GROUP_NAMES.values(), *turn_words.RESULTS.values()]
+        found = [(word, text[:40]) for text in texts for word in retired if word in text]
+        self.assertEqual(found, [])
+
     def test_the_tools_say_when_the_butler_passes_project(self):
         """The two arguments say it in plain words: several topics over days, or the owner's own 开个专项 / 转成专项; else not."""
         for argument in (butler_tool_specs.START_PROJECT, butler_tool_specs.SEND_PROJECT):

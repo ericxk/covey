@@ -448,8 +448,8 @@ class TopicReadTest(unittest.TestCase):
             at = lines.index("  检查点步骤（第 3/4 步）：")
             clock = stamp
             self.assertEqual(lines[at + 1:at + 5], [
-                f"    1. [完成] 读代码 · {clock(t0)} 开始 · {clock(t0 + 1800)} 完成 · 用时 30 分钟",
-                f"    2. [完成] 跳过的 · {clock(t0 + 1800)} 完成",
+                f"    1. [做完] 读代码 · {clock(t0)} 开始 · {clock(t0 + 1800)} 做完 · 用时 30 分钟",
+                f"    2. [做完] 跳过的 · {clock(t0 + 1800)} 做完",
                 f"    3. [在做] 改卡片 · {clock(t0 + 1800)} 开始 · 已 " + lines[at + 3].rsplit("已 ", 1)[1],
                 "    4. [待做] 写测试"])
             self.assertEqual(lines[-1], "  检查点改动：提交 a6bc148；部署 未部署；自检 全量测试")
@@ -460,7 +460,7 @@ class TopicReadTest(unittest.TestCase):
             # The checkpoint gone (an older turn's), the record's copy.
             kept = butler_tools.checkpoint_lines({"steps": [{"title": "读代码", "state": "done"}], "status": "done",
                                                 "delivery": {"commit": "a6bc148"}})
-            self.assertEqual(kept, ["  检查点步骤（1/1 步已完成）：", "    1. [完成] 读代码",
+            self.assertEqual(kept, ["  检查点步骤（1/1 步已完成）：", "    1. [做完] 读代码",
                                     "  检查点改动：提交 a6bc148；部署 未部署；自检 未自检"])
 
 
