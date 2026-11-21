@@ -204,6 +204,7 @@
 | `app/steering.py` | Supplements (补充) to a task of this topic: which task takes one, and how it gets there |
 | `app/strangers.py` | The one line a person who is not the owner gets for writing to the bot in private |
 | `app/stuck_check.py` | 看看: a read-only look at a turn that may be stuck, from the button under its task card's status line, answered … |
+| `app/subagent_recovery.py` | What a failed or interrupted Claude turn's subagents delivered, for the next turn |
 | `app/submission.py` | Submitting a topic's message as a job |
 | `app/switch_handoff.py` | A topic's first run after 🔁 换配置 rebinds it |
 | `app/task_card.py` | The streaming task card on CardKit |
@@ -513,6 +514,7 @@
 | `backends/claude/rewind.py` | ↩️ 回退 on Claude Code: drop the last turn of a session and put back the files it changed |
 | `backends/claude/runtime.py` | One turn of the Claude CLI over its JSONL transport, following the official Agent SDK protocol (run_stream) |
 | `backends/claude/sessions.py` | Claude Code session store for the Lark bridge |
+| `backends/claude/subagent_report.py` | What each subagent of a Claude turn delivered, from `<session>/subagents/agent-*.jsonl` and its `.meta.json` |
 | `backends/claude/subagents.py` | Claude Code's subagents on lighter models than the turn's (main-thread.json `subagents`, the 设置 card's 新话题 tab |
 | `backends/claude/tool_guard.py` | The PreToolUse hook of a 代答 topic's Claude Code turn |
 | `backends/claude/transcript.py` | One row of a Claude Code session transcript (a JSONL file), read the way every reader of it does |

@@ -61,7 +61,7 @@ CHECKPOINT_RULES = "\n".join((
     "完整覆盖并尽量回读核验，不要只为原子性请用户放开工具权限。检查点由桥接器读取、不在工作区内，写它不算修改工作区文件；"
     "用户要求不改文件时也照常写检查点。",
     "- 字段：phase（当前阶段，用用户的语言写成一句短语，任务卡状态行会显示它，不要写 waiting_for_x 这类英文标识）、"
-    "completed（已完成步骤列表）、artifacts（产物绝对路径列表）、external_tasks（外部任务 ID/查询方式列表）、"
+    "completed（已完成步骤列表；子 Agent 返回后记一句它的结论，长报告写成文件、登记进 artifacts）、artifacts（产物绝对路径列表）、external_tasks（外部任务 ID/查询方式列表）、"
     "next_step（下一步）、requires_user（布尔值）、question（待用户回答的问题摘要）、updated_at（ISO 时间）。"
     "不要把密钥写入检查点。",
     "- 要用户决策时：保存 requires_user=true 和非空的 question 摘要。有多个待回答项时，另写 questions 数组，每题单独一个对象："
@@ -364,11 +364,38 @@ def checkpoint_note(checkpoint: Path, previous: dict | None = None, *, shown: st
         previous = {k: v for k, v in previous.items() if k != "saved_user_answers"}
         if isinstance(previous.get("checkpoint"), dict):
             previous["checkpoint"] = {k: v for k, v in previous["checkpoint"].items() if k != "saved_user_answers"}
+    # What the dead turn's subagents delivered is a block of its own (``subagents_note``), not JSON in the status.
+    delivered = (previous or {}).get("subagents")
+    previous = {k: v for k, v in previous.items() if k != "subagents"} if previous else previous
     return f"本任务检查点文件：{shown or checkpoint}" + (
         "\n上次任务状态（仅供核查，不能直接信任为已完成）：\n" + json.dumps(previous, ensure_ascii=False)
         if previous
         else ""
-    )
+    ) + subagents_note(delivered)
+
+
+END_WORDS = {"finished": "已完成", "failed": "出错", "unfinished": "没做完"}
+
+
+def subagents_note(delivered) -> str:
+    """The block of what the previous turn's subagents delivered (``delivered``: ``{"items": [{"description", "end",
+    "text"}], "more": count, "files": [path]}`` as app/subagent_recovery.py writes it); '' for none or anything else."""
+    if not isinstance(delivered, dict) or not isinstance(delivered.get("items"), list):
+        return ""
+    lines = []
+    for item in delivered["items"]:
+        if isinstance(item, dict) and isinstance(item.get("description"), str):
+            end = END_WORDS.get(item.get("end"), "没做完")
+            text = item.get("text") if isinstance(item.get("text"), str) and item.get("text") else "（没有文字）"
+            lines.append(f"- {item['description']}（{end}）：{text}")
+    if not lines:
+        return ""
+    files = [f for f in delivered.get("files") or [] if isinstance(f, str)]
+    more = delivered.get("more") if type(delivered.get("more")) is int and delivered["more"] > 0 else 0
+    tail = [f"另有 {more} 个子 Agent 的结果写在：" + "、".join(files)] if more and files else (
+        ["更完整的结果写在：" + "、".join(files)] if files else [])
+    return ("\n\n上一轮的这些子 Agent 已经交付：直接用它们的结果，不要重做；标“没做完”的才需要接着做，先核对再动手。\n"
+            + "\n".join(lines + tail))
 
 
 def audit_recovery(previous: dict, directory: Path, *, stat_paths=None) -> dict:

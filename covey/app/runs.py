@@ -16,8 +16,9 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import (device_files, knowledge_turn, memory_turn, owner_send, project_context, tool_limits,
-                       workspace_gists)
+from covey.app import (device_files, knowledge_turn, memory_turn, owner_send, project_context, subagent_recovery,
+                       tool_limits, workspace_gists)
+from covey.core.statuses import ENDED
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, bridge_rules, earlier_history, first_turn_message,
@@ -492,16 +493,36 @@ class Runs:
         prior = job.recovery_context
         if prior is None:
             prior = self._continue_previous(ctx, job)
-        if prior is not None:
+        dead = None
+        if prior is None:
+            dead = self._dead_subagents(ctx, job)
+            job.recovery_context = {"subagents": dead} if dead else None
+        if prior is not None and set(prior) == {"subagents"}:
+            pass  # Only what the subagents delivered (a second call for the same turn): nothing to audit.
+        elif prior is not None:
             job.recovery_context = prior
             audit = (audit_recovery(prior, ctx.remote_workdir,
                                     stat_paths=devices.stat_paths(ctx.state_dir, ctx.device, ctx.remote_workdir))
                      if ctx.device else audit_recovery(prior,ctx.workdir))
             prior = {**prior, "bridge_preflight": audit}
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
+        elif dead:
+            prior = {"subagents": dead}  # No checkpoint to verify: only the block of what they delivered.
         shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
         return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
                 + self._revisit_note(ctx, job) + self._criteria_note(ctx, job) + self._images_note(ctx, job))
+
+    def _dead_subagents(self, ctx: BridgeContext, job: ReplyJob) -> dict | None:
+        """What the subagents of the topic's last ended task delivered (app/subagent_recovery.py), when that task failed
+        or was interrupted and ``job`` is the owner's next message, not a retry (which carries it already); None else."""
+        if job.recovery_context is not None or job.kind != "chat":
+            return None
+        try:
+            ended = next((r for r in self.harness.topic_records(ctx, job.chat_id)
+                          if r.get("job_id") != job.job_id and r.get("status") in ENDED), None)
+        except (OSError, ValueError, AttributeError):
+            return None
+        return subagent_recovery.collect(self.harness, ctx, ended) if ended else None
 
     @staticmethod
     def _criteria_note(ctx: BridgeContext, job: ReplyJob) -> str:

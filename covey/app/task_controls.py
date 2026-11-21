@@ -28,7 +28,7 @@ from covey.cards.review import recent_user_questions
 from covey.core.saved_results import has_saved_reply, load_authorized_reply
 from covey.core.locks import LOCK, topic_lock
 from covey.core.store import directory_store
-from covey.app import auto_retry
+from covey.app import auto_retry, subagent_recovery
 from covey.app.recovery_cards import paint_answered, recovery_card
 from covey.app.task_card import card_failure_notice
 from covey.app.redelivery import Redelivery
@@ -495,6 +495,11 @@ class TaskControls(Redelivery):
             return self.redeliver_failed_delivery(ctx, chat_id, message_id, record)
         return self.requeue(ctx, chat_id, message_id, record, automatic=automatic)
 
+    def dead_subagents(self, ctx, record):
+        """{"subagents": ...} of a failed or interrupted turn's subagents (app/subagent_recovery.py), {} for none."""
+        found = subagent_recovery.collect(self.harness, ctx, record)
+        return {"subagents": found} if found else {}
+
     def requeue(self, ctx, chat_id, message_id, record, *, automatic=0, fallback=None):
         """Queue the recorded task again with its recorded model settings, under the topic's
         current binding (a click on a stale card was refused before this). ``fallback``: a retry after a safety
@@ -518,7 +523,8 @@ class TaskControls(Redelivery):
                        recovery_context=None if fallback else {
                            "previous_status":record.get("status"),"previous_result":record.get("final_text"),
                            "checkpoint":read_checkpoint(Path(record["checkpoint_path"])) if record.get("checkpoint_path") else (record.get("recovery_context") or {}).get("checkpoint", {}),
-                           "workdir":record.get("workdir")},
+                           "workdir":record.get("workdir"),
+                           **self.dead_subagents(ctx, record)},
                        chat_id=chat_id, message_id=message_id, timeout=ctx.timeout,
                        topic_id=ctx.topic_id, reply_to_message_id=ctx.reply_to_message_id,
                        workspace_name=ctx.workspace_name, workdir=ctx.workdir, history_path=ctx.history_path,

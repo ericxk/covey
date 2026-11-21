@@ -235,6 +235,11 @@ class ClaudeBackend(BackendRuntime):
         from covey.backends.claude.export import export_turn
         return export_turn(ctx, session_id, since, until, self.child_env(ctx))
 
+    def subagent_report(self, ctx, session_id, since):
+        """Each subagent of the session's turn from ``since``: its description, end and last text (backends/claude/subagent_report.py)."""
+        from covey.backends.claude.subagent_report import report
+        return report(ctx, session_id, since, self.child_env(ctx))
+
     def rewind_point(self, ctx, session_id, prompt_uuid):
         """Where dropping the turn ``prompt_uuid`` began leaves the session (backends/claude/rewind.py)."""
         return rewind.rewind_point(ctx, session_id, prompt_uuid, self.child_env(ctx))
