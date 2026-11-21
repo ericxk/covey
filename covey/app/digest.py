@@ -456,7 +456,11 @@ class Digest:
             row["url"] = urls.get((row.get("topic") or "", row.get("card") or ""), "")
             if row.get("kind") == "start":
                 row["act"] = turn_words.START_ACT
-        return {**view, "asked": True, "stamp": clock_words(now, now), "can_dismiss": dismissable(),
+        # ``at``: when it was read (a redraw from this view later says so, cards/board.py empty_state); ``first_use``: it
+        # lists nothing and the chat never had a topic (还没有话题), told from a clear board.
+        first = not any(view[key] for key in ("waiting", "stale", "running", "done")) and not board_read.has_topics(ctx.state_dir, chat)
+        return {**view, "asked": True, "stamp": clock_words(now, now), "at": now, "can_dismiss": dismissable(),
+                **({"first_use": True} if first else {}),
                 "done_since": clock_words(view["since"], now) if view.get("since") else "",
                 **self.where(chat), **self.tidy(ctx, chat),
                 **self.projects_view(ctx, chat, view), **self.revisit_view(ctx, chat, now)}
@@ -703,7 +707,7 @@ class Digest:
                         (record.get("view") or {}).get("revision"), int):
                     return True
                 changed = {**record, "digest": view, "view": {**record["view"], "revision": record["view"]["revision"] + 1}}
-                confirmed = settle(ctx, path, record, changed, board_card(view), self.messenger, BOARD_KIND)
+                confirmed = settle(ctx, path, record, changed, board_card(view, time.time()), self.messenger, BOARD_KIND)
             self.runtime.log(f"digest board redrawn message={message_id[-8:]} confirmed={confirmed}")
             return True
         return False

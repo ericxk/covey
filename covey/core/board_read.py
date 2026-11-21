@@ -249,6 +249,13 @@ def topic_jobs(state, chat) -> dict:
     return topics
 
 
+def has_topics(state, chat) -> bool:
+    """Whether ``chat`` ever had a topic: a job record of a topic that is not the butler's. The card that has nothing
+    to list tells a first use from a clear board with it (cards/ui.py empty_words)."""
+    return any(isinstance(row.get("topic_id"), str) and row["topic_id"] and not is_butler_topic(row["topic_id"], chat)
+               for _, row in directory_store(jobs_dir(state)).query(chat_id=chat))
+
+
 def job_number(record):
     try:
         return int(record.get("job_id") or 0)

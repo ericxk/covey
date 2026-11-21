@@ -103,6 +103,20 @@ class CardTests(unittest.TestCase):
         self.assertEqual(texts(card), ["要你处理 / 都在掌握中 / 现在没有在做的任务，也没有在等你的事"])
         self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["都在掌握中"])
 
+    def test_a_first_use_says_what_to_do_first_and_not_that_all_is_in_hand(self):
+        """T604 #53: the card of a chat that never had a topic; ``first_use`` is app/overview.py's."""
+        for shown in (view(), {**view(), "board": {"counts": {"waiting": 0, "running": 0, "result": 0, "unseen": 0},
+                                                   "pinned": 0, "waiting": [], "running": [], "result": [], "stale": []}}):
+            card = overview_card({**shown, "first_use": True}, NOW)
+            lines = texts(card)
+            self.assertEqual(lines[0], "要你处理 / 还没有话题 / 在私聊里发一句要做的事，第一个话题从这里开始")
+            self.assertNotIn("都在掌握中", json.dumps(card, ensure_ascii=False))
+            self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["还没有话题"])
+        # With something asking, the flag changes nothing.
+        asking = {"label": "T1", "title": "问", "ask": "？", "since": NOW - 60, "url": "https://x/q"}
+        self.assertEqual(texts(overview_card({**view(waiting=[asking]), "first_use": True}, NOW)),
+                         texts(overview_card(view(waiting=[asking]), NOW)))
+
     def test_text_from_a_topic_is_escaped_and_cut_and_long_parts_are_counted(self):
         rows = [{"label": f"T{n}", "title": "a*b_<x>" + "长" * 40, "harness": "", "workspace": "",
                  "status": "cancel_requested", "started": NOW - 10, "phase": ""} for n in range(SHOWN + 3)]
@@ -313,6 +327,19 @@ class OverviewTests(OverviewCase):
         self.overview.tick(self.ctx, NOW + 30 + overview.RECENT)
         card = self.card(self.app.messenger.put_card.call_args)
         self.assertEqual(texts(card)[0], "要你处理 / 都在掌握中 / 现在没有在做的任务，也没有在等你的事")
+
+    def test_an_empty_card_is_a_first_use_only_until_the_chat_has_had_a_topic(self):
+        self.overview.tick(self.ctx, NOW)
+        card = self.card(self.app.messenger.create_and_send_card.call_args)
+        self.assertEqual(texts(card)[0], "要你处理 / 还没有话题 / 在私聊里发一句要做的事，第一个话题从这里开始")
+        self.job("om_a", 1)
+        self.overview.tick(self.ctx, NOW + 30)
+        self.job("om_a", 1, status="done")
+        self.overview.tick(self.ctx, NOW + 60)
+        self.overview.tick(self.ctx, NOW + 60 + overview.RECENT)
+        card = self.card(self.app.messenger.put_card.call_args)
+        self.assertEqual(texts(card)[0], "要你处理 / 都在掌握中 / 现在没有在做的任务，也没有在等你的事")
+        self.assertIs(self.overview.never_had, False)  # For good: not asked again.
 
     def test_an_ended_task_whose_topic_runs_again_is_not_listed_as_ended(self):
         self.job("om_a", 1)

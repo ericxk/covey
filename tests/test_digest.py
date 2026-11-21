@@ -19,7 +19,8 @@ from support.records import state_dir, write_topic
 from support.world import UnifiedCase
 from covey.app import digest, overview, pins
 from covey.app.digest import (CATCH_UP, ENV, RECORD, ZONE, Digest, collect, due, parse_times, since_of,
-                                       slots)
+                                       slots, taken_off)
+from covey.cards.board import board_card
 from covey.cards.digest import SHOWN, digest_card, digest_text
 from covey.cards.overview import DISMISS
 from covey.core.jobs import upsert_job_record
@@ -603,15 +604,53 @@ class BoardTests(UnifiedCase):
         self.assertEqual((self.state / RECORD).read_bytes(), before)  # last_slot, pending and sent as they were.
         # 这些都不用回答了 on it: 手上的事's click, then this card redrawn in place from its record.
         dismiss, = [v for v in buttons(card) if v.get("kind") == DISMISS]
-        self.app.handle_card_action_event({"event_id": "c1", "operator_id": "owner", "chat_id": CHAT,
-                                           "message_id": "om_board1", "action_value": dismiss}, self.ctx)
+        with mock.patch.object(digest, "board_card", wraps=board_card) as drawn:
+            self.app.handle_card_action_event({"event_id": "c1", "operator_id": "owner", "chat_id": CHAT,
+                                               "message_id": "om_board1", "action_value": dismiss}, self.ctx)
+        self.assertIsInstance(drawn.call_args.args[1], float)  # A redraw from the saved view is told the time (T604 #53).
         board = [(cid, c) for cid, c, _ in self.puts if cid == "bcard"]
         self.assertTrue(board)
         self.assertIn("已撤下 1 个", json.dumps(board[-1][1], ensure_ascii=False))
         self.app.messenger.patch_card.assert_not_called()
         self.assertEqual((self.state / RECORD).read_bytes(), before)
 
+    def test_a_chat_that_never_had_a_topic_says_so_not_that_all_is_in_hand(self):
+        """T604 #53: the same empty card for a first use and for a clear board hid which it was."""
+        self.press("ev1")
+        text = json.dumps(self.card(), ensure_ascii=False)
+        self.assertIn("还没有话题", text)
+        self.assertIn("在私聊里发一句要做的事", text)
+        self.assertNotIn("都在掌握中", text)
+        self.assertEqual([tag["text"]["content"] for tag in self.card()["header"]["text_tag_list"]], ["还没有话题"])
+        self.assertTrue(self.app.digest.board_view(self.ctx, CHAT)["first_use"])
+        upsert_job_record(self.state, "j-old", job_id=1, status="done", chat_id=CHAT, topic_id="old")  # Never ran: not listed.
+        view = self.app.digest.board_view(self.ctx, CHAT)
+        self.assertNotIn("first_use", view)
+        self.assertIn("**都在掌握中**", json.dumps(board_card(view), ensure_ascii=False))
+        # The butler's own topic is not a topic of the owner's.
+        upsert_job_record(self.state, "j-butler", job_id=2, status="done", chat_id="oc_b", topic_id=butler_topic_id("oc_b"))
+        self.assertTrue(self.app.digest.board_view(self.ctx, "oc_b")["first_use"])
+
+    def test_a_board_redrawn_from_its_saved_view_says_it_is_a_record_when_nothing_asks(self):
+        upsert_job_record(self.state, "j-old", job_id=1, status="done", chat_id=CHAT, topic_id="old")
+        view = self.app.digest.board_view(self.ctx, CHAT)
+        view = {**view, "stale": [{"topic": "s1", "label": "T9", "title": "旧问题"}], "dismissable": True}
+        taken = taken_off(view, {"s1"})
+        fresh = json.dumps(board_card(taken, view["at"] + 60), ensure_ascii=False)
+        self.assertIn("**都在掌握中**", fresh)  # Drawn a minute after it was read: it is now.
+        later = board_card(taken, view["at"] + 3600)
+        text = json.dumps(later, ensure_ascii=False)
+        self.assertIn(f"{view['stamp']} 时没有等你的事", text)
+        self.assertIn("不是现在的", text)
+        self.assertNotIn("都在掌握中", text)
+        self.assertEqual([tag["text"]["content"] for tag in later["header"]["text_tag_list"]], [f"{view['stamp']} 的记录"])
+        asked = {**taken, "waiting": [{"topic": "w", "label": "T1", "title": "问", "url": "u", "line": "等你回答", "meta": []}]}
+        text = json.dumps(board_card(asked, view["at"] + 3600), ensure_ascii=False)
+        self.assertIn("1 等你", text)  # Something asks: the card says that, however old.
+        self.assertNotIn("的记录", text)
+
     def test_nothing_to_list_says_so_and_a_second_click_folds_and_unfolds(self):
+        upsert_job_record(self.state, "j-old", job_id=1, status="done", chat_id=CHAT, topic_id="old")  # Not a first use.
         self.press("ev1")
         text = json.dumps(self.card(), ensure_ascii=False)
         self.assertIn("都在掌握中", text)

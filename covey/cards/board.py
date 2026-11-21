@@ -10,6 +10,10 @@ question, the row's one primary button), 不管了 (a text button: takes a stopp
 DISMISS, ``from`` ORIGIN, app/digest.py redraws this card). A topic of a live project is not listed by itself: its
 project's block counts it.
 
+With nothing listed it says which kind of empty it is (ui.empty_words, ``empty_state``): 还没有话题 for an owner who never had
+one (``first_use``), 某个时刻的记录 for a card redrawn from its saved view long after it was read (``at``, ``now``),
+else 都在掌握中.
+
 A cancelled topic is 停住了 unless the owner stopped it himself (core/look.py owner_stopped; docs/ui.md 3): then it is
 已停止, background, in the fold. A row's ``tone`` (app/digest.py collect) says which; a view without it reads by its
 status, as before.
@@ -28,6 +32,7 @@ from covey.core.text import cut, literal as literal_text
 from covey.core.turn_words import TASK_CARD_ACT
 
 BOARD_FROM = "board"  # As app/project_tidy.py BOARD_FROM: a proposal decided on the 看板.
+SNAPSHOT_AGE = 600  # A card redrawn from its saved view this long after it was read is a record, not now (``empty_state``).
 ORIGIN = "digest"  # As cards/digest.py: app/overview.py claim hands a 不管了 on this card to app/digest.py.
 ICON = "bitablekanban_outlined"
 STOPPED = frozenset({"failed", "cancelled", "interrupted"})
@@ -146,7 +151,7 @@ def state_counts(found) -> dict:
             "result": len(found["result"]), "running": len(found["running"]) - stuck}
 
 
-def band(found):
+def band(found, empty=None):
     """The conclusion band: how many things ask for him, the most pressing topic, every state's count as a bar; the
     whole opens the most pressing topic."""
     counts = state_counts(found)
@@ -161,17 +166,20 @@ def band(found):
         words = f"{look.word(first)} · {head_of(lead)}"
         line = "先看：" + (words if len(words) <= LEAD else words[:LEAD - 1] + "…")
     headline = ui.number(asked, "件事") if asked else "**都在掌握中**"
-    return ui.conclusion_band("要你处理", headline, literal_text(line) if lead else "现在没有在等你的事",
+    quiet = "现在没有在等你的事"
+    if empty and not asked:  # Not a clear board: no topic yet, or a record from some time ago (ui.empty_words).
+        headline, quiet = empty[:2]
+    return ui.conclusion_band("要你处理", headline, literal_text(line) if lead and not (empty and not asked) else quiet,
                               below=ui.seg_bar(counts), url=(lead or {}).get("url") or "")
 
 
-def counts(found) -> list:
+def counts(found, empty=None) -> list:
     """The title bar's tags: (text, color) of the states that have someone, most pressing first, counted as the band
     counts them (state_counts: one that may be stuck is not also 在做)."""
     sizes = state_counts(found)
     tags = [(f"{sizes[key]} {look.word(key)}", look.STATES[key].color) for key in ("waiting", "stopped", "stuck", "running")
             if sizes[key]]
-    return tags or [("都在掌握中", "green")]
+    return tags or [((empty[2], "neutral") if empty else ("都在掌握中", "green"))]
 
 
 def one_line(text, limit=GOAL_CHARS) -> str:
@@ -227,9 +235,22 @@ def revisit_blocks(rows):
     return shown
 
 
-def board_card(view):
+def empty_state(view, found, now=None):
+    """ui.empty_words for ``view``: 还没有话题 when it lists nothing and says the owner never had a topic (``first_use``,
+    app/digest.py board_view); a record as of its ``stamp`` when ``now`` is more than SNAPSHOT_AGE after it was drawn
+    (``at``): the card redrawn from its saved view, 不管了 took a topic off it later. None otherwise."""
+    listed = any(found[key] for key in found) or view.get("cleared")
+    first = bool(view.get("first_use")) and not listed and not view.get("projects")
+    old = bool(now and view.get("at") and now - view["at"] > SNAPSHOT_AGE and view.get("stamp"))
+    return ui.empty_words(first=first, when=view.get("stamp") if old else "")
+
+
+def board_card(view, now=None):
+    """The 看板 for ``view``; ``now``: given by a redraw from a saved view (not a fresh read), so that a card whose
+    figures are old says so when nothing asks (empty_state)."""
     found = groups(view)
-    elements = [band(found)]
+    empty = empty_state(view, found, now)
+    elements = [band(found, empty)]
     waiting = found["waiting"]
     if waiting or view.get("stale") or view.get("cleared"):
         elements.append(heading("waiting", waiting_count(found)))
@@ -287,7 +308,7 @@ def board_card(view):
     if view.get("stamp"):
         # 刷新 redraws it here; a second click on the menu's 看板 folds it (the owner wanted fresh figures, not a fold).
         elements.append(item(note(f"更新于 {view['stamp']}"), text_button("刷新", {"kind": REFRESH_KIND})))
-    tags = counts(found)
+    tags = counts(found, empty)
     head = {"title": plain("看板"), "subtitle": plain("私聊里在推进的事"),
             "text_tag_list": [{"tag": "text_tag", "text": plain(text), "color": color} for text, color in tags[:3]],
             "template": "default", "icon": {"tag": "standard_icon", "token": ICON, "color": "blue"},

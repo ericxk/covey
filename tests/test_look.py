@@ -194,6 +194,24 @@ class BoardTest(unittest.TestCase):
         self.assertIn("**都在掌握中**", card)
         self.assertIn("1 有结果", card)
 
+    def test_an_empty_card_tells_a_first_use_from_a_record_from_a_clear_board(self):
+        """T604 #53: 都在掌握中 only for a board that is clear now; the others say what they are."""
+        first = board.board_card({"first_use": True})
+        text = json.dumps(first, ensure_ascii=False)
+        self.assertIn("**还没有话题**", text)
+        self.assertIn("第一个话题从这里开始", text)
+        self.assertNotIn("都在掌握中", text)
+        self.assertEqual([tag["text"]["content"] for tag in first["header"]["text_tag_list"]], ["还没有话题"])
+        # A first use with something listed (or a project) is not one.
+        self.assertIn("**都在掌握中**", json.dumps(board.board_card({"first_use": True, "running": [{"label": "T1"}]}), ensure_ascii=False))
+        old = {"at": 1000.0, "stamp": "10:05"}
+        self.assertIn("**都在掌握中**", json.dumps(board.board_card(old), ensure_ascii=False))  # Not told the time: as before.
+        self.assertIn("**都在掌握中**", json.dumps(board.board_card(old, 1000.0 + board.SNAPSHOT_AGE), ensure_ascii=False))
+        later = json.dumps(board.board_card(old, 1000.0 + board.SNAPSHOT_AGE + 1), ensure_ascii=False)
+        self.assertIn("**10:05 时没有等你的事**", later)
+        self.assertIn("这是 10:05 的记录，不是现在的；点刷新看现在的", later)
+        self.assertNotIn("都在掌握中", later)
+
 
 if __name__ == "__main__":
     unittest.main()

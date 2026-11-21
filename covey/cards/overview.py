@@ -159,7 +159,7 @@ def sizes(waiting, running, ended):
             "running": len(running) - stuck}
 
 
-def band(found, now, quiet):
+def band(found, now, quiet, empty=None):
     """The conclusion band (cards/board.py band): how many things ask for him, the most pressing topic, every state's
     count as a bar; ``quiet``, its grey line when nothing asks."""
     lead = {"waiting": [waiting_row(row, now) for row in found["waiting"]],
@@ -175,16 +175,18 @@ def band(found, now, quiet):
     if row is not None and first in ACT:
         words = f"{look.word(first)} · {head_of(row)}"
         line = literal_text("先看：" + (words if len(words) <= LEAD else words[:LEAD - 1] + "…"))
-    headline = ui.number(asked, "件事") if asked else "**都在掌握中**"
+    headline = ui.number(asked, "件事") if asked else empty[0] if empty else "**都在掌握中**"
+    if empty and not asked:
+        line = empty[1]
     return ui.conclusion_band("要你处理", headline, line, below=ui.seg_bar(counts),
                               url=(row or {}).get("url") or "" if first in ACT else ""), counts
 
 
-def tags(counts):
+def tags(counts, empty=None):
     """The title bar's tags: (text, colour) of the states that have someone, most pressing first (cards/board.py counts)."""
     found = [(f"{counts[key]} {look.word(key)}", look.STATES[key].color) for key in ("waiting", "stopped", "stuck", "running")
              if counts.get(key)]
-    return found or [("都在掌握中", "green")]
+    return found or [(empty[2], "neutral") if empty else ("都在掌握中", "green")]
 
 
 def head(subtitle, found):
@@ -232,7 +234,7 @@ def dismissed_line(labels):
     return note(f"已撤下 {len(labels)} 个：{named(labels)}")
 
 
-def _board(board, now, shown=SHOWN):
+def _board(board, now, shown=SHOWN, empty=None):
     """The index under the pinned board: the band with the counts and how many are pinned, the rest by group."""
     counts = board["counts"]
     sized = {"waiting": counts["waiting"], "result": counts.get("unseen", counts["result"]), "running": counts["running"]}
@@ -240,7 +242,9 @@ def _board(board, now, shown=SHOWN):
     # How many are pinned: the title bar says it.
     line = ("在 Pin 页里点话题的卡片，直接打开那个话题" if board["pinned"]
             else "现在没有在等你的事" if not asked else "")
-    elements = [ui.conclusion_band("要你处理", ui.number(asked, "件事") if asked else "**都在掌握中**", line,
+    if empty and not asked:
+        line = empty[1]
+    elements = [ui.conclusion_band("要你处理", ui.number(asked, "件事") if asked else empty[0] if empty else "**都在掌握中**", line,
                                    below=ui.seg_bar(sized))]
     # Top to bottom as the Pin board (app/pins.py GROUPS).
     if board["waiting"]:
@@ -255,7 +259,7 @@ def _board(board, now, shown=SHOWN):
         elements.append(stale_line(board["stale"], button=True))
     if board.get("dismissed"):
         elements.append(note(f"你撤下的 {len(board['dismissed'])} 个：{named(board['dismissed'])}"))
-    return elements, tags({"waiting": asked, "running": counts["running"]})
+    return elements, tags({"waiting": asked, "running": counts["running"]}, empty)
 
 
 def overview_card(view, now, stamp="", where="私聊"):
@@ -271,14 +275,15 @@ def overview_card(view, now, stamp="", where="私聊"):
 
 
 def _drawn(view, now, stamp, where, shown):
+    empty = ui.empty_words(first=bool(view.get("first_use")))  # Only 还没有话题: this card is redrawn, never a record.
     if "board" in view:
         board = view["board"]
-        elements, found = _board(board, now, shown)
+        elements, found = _board(board, now, shown, empty)
         subtitle = f"Pin 着 {board['pinned']} 个话题" if board["pinned"] else f"{where}里在推进的事"
         summary = f"{TITLE} · {board_counts(board)}"
     else:
-        top, counts = band(view, now, "现在没有在做的任务，也没有在等你的事")
-        elements, found = [top], tags(counts)
+        top, counts = band(view, now, "现在没有在做的任务，也没有在等你的事", empty)
+        elements, found = [top], tags(counts, empty)
         if view["waiting"]:
             elements += _waiting_part(view["waiting"], now, shown=shown)
         if view["running"]:

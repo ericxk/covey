@@ -30,7 +30,7 @@ SHOWN = 8
 TITLE_CHARS, STATE_CHARS = 30, 40
 PARTS = (("waiting", "等你"), ("running", "在做"), ("done", "做完"))
 ASKED = "随时查看"  # 看板's title: the card the owner asked for, not a timed one.
-EMPTY = "现在没有要你处理的：没有等你的、没有在做的，{} 之后也没有做完的。"
+EMPTY = "{} 时没有要你处理的：没有等你的、没有在做的，{} 之后也没有做完的。"  # A record as of its time (the card stays in the chat).
 ICON = "waiting_outlined"
 
 
@@ -99,7 +99,7 @@ def digest_card(view):
             elements.append(note(f"另有 {len(rows) - SHOWN} 个"))
         elements += last
     if not elements:
-        elements.append(md(EMPTY.format(clock(view["since"]))))
+        elements.append(md(EMPTY.format(clock(view["slot"]), clock(view["since"]))))
     lines = daily_lines(view)
     if lines:
         elements.append(md("\n".join(lines)))
@@ -207,7 +207,7 @@ def digest_text(view):
                 lines.append(f"另有 {len(rows) - SHOWN} 个")
             lines += last
     if len(lines) == 1:
-        lines.append(EMPTY.format(clock(view["since"])))
+        lines.append(EMPTY.format(clock(view["slot"]), clock(view["since"])))
     lines += daily_lines(view)
     rows = view.get("remember") or []
     if rows:

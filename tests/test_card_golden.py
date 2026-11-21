@@ -1240,7 +1240,10 @@ def overview_cards():
                       "running": [], "ended": []}
     return {"pinned_board": overview_card({**view, "board": board}, FROZEN, "14:40"),
             "overview_butler_waiting": overview_card(butler_waiting, FROZEN, "14:40"),
-            "pinned_board_empty": overview_card({**view, "board": empty}, FROZEN, "14:40")}
+            "pinned_board_empty": overview_card({**view, "board": empty}, FROZEN, "14:40"),
+            # The owner never had a topic (T604 #53): both modes say what to do first.
+            "overview_first_use": overview_card({**view, "first_use": True}, FROZEN, "14:40"),
+            "pinned_board_first_use": overview_card({**view, "board": empty, "first_use": True}, FROZEN, "14:40")}
 
 
 def digest_cards():
@@ -1298,6 +1301,11 @@ def digest_cards():
                                                   "url": "https://applink.feishu.cn/t/488"},
                                                  {"topic": "i", "label": "T505", "title": "优化 Bootstrap 下一环节", "url": ""}]}]}),
             "board_empty": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00"}),
+            # Nothing to list, told apart (T604 #53): the owner never had a topic; a record from 08:00 drawn later.
+            "board_first_use": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00",
+                                           "at": FROZEN, "first_use": True}),
+            "board_record": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00",
+                                        "at": FROZEN, "cleared": ["T370"]}, FROZEN + 3 * 3600),
             "board_butler_waiting": board_card({"waiting": [{"topic": "m", "label": "管家", "title": "", "url": "",
                                                              "line": "等你回答：现在部署吗？", "meta": ["等了 1分"]}],
                                                 "stale": [], "running": [], "done": [], "stamp": "08:00"}),

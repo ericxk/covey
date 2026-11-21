@@ -59,6 +59,19 @@ def state_pill(key) -> str:
     return f"<text_tag color='{found.color}'>{found.word}</text_tag>"
 
 
+def empty_words(*, first=False, when=""):
+    """What a card with nothing asking for the owner says when "都在掌握中" would mislead (docs/ui.md 7 空状态):
+    (headline in Markdown, grey line, the title bar's tag) for ``first`` (he has had no topic yet: say what to do) or
+    a record as of ``when`` (a time as the 看板 says it: what it lists is not now); None for a clear board, which
+    keeps its own words (都在掌握中, 现在没有在等你的事)."""
+    if first:
+        return "**还没有话题**", "在私聊里发一句要做的事，第一个话题从这里开始", "还没有话题"
+    if when:
+        return (f"**{literal(when)} 时没有等你的事**", f"这是 {literal(when)} 的记录，不是现在的；点刷新看现在的",
+                f"{literal(when)} 的记录")
+    return None
+
+
 def container(elements, *, background="", border="", radius="10px", padding="0px", spacing="2px", url="") -> dict:
     box = {"tag": "interactive_container", "width": "fill", "padding": padding, "corner_radius": radius,
            "vertical_spacing": spacing}

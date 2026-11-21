@@ -89,6 +89,7 @@ class Overview:
         self.drawn = None  # What the card last drawn showed, without its 更新于.
         self.drawn_at = 0.0
         self.failures = 0
+        self.never_had = None  # Whether the chat has had no topic yet (None: not asked; False once it had one, for good).
         self.send_tried = 0.0
         self.pin_tried = 0.0
         self.pins = PinnedTopics(runtime, messenger, voice)
@@ -188,7 +189,18 @@ class Overview:
                                 key=lambda row: row["at"], reverse=True)}
         if read is not None:
             view["board"] = self.board(state, chat, found, looked)
+        if self.never_had is not False and not self.listed(view):
+            # Nothing to list: a first use (还没有话题) or a clear board (cards/ui.py empty_words).
+            self.never_had = not board_read.has_topics(state, chat)
+            if self.never_had:
+                view["first_use"] = True
         return view
+
+    @staticmethod
+    def listed(view) -> bool:
+        board = view.get("board") or {}
+        return bool(view["waiting"] or view["running"] or view["ended"] or any(
+            board.get(key) for key in ("waiting", "running", "result", "stale", "dismissed")))
 
     def board(self, state, chat, found, looked):
         """What the card shows over the pinned board: each group's count (``waiting`` 等我's, ``found``: core/board_read.py

@@ -814,7 +814,7 @@ class DigestTest(StateCase):
         view = {"slot": 1.0, "since": 0.0, "waiting": [], "stale": [], "running": [], "done": [], "older": 0}
         self.assertNotIn("新记的知识", json.dumps(digest_card(view), ensure_ascii=False))
         self.assertNotIn("新记的知识", digest_text(view))
-        self.assertIn("现在没有要你处理的", digest_text({**view, "knowledge": {"rows": [{"op": "新增", "id": "k1", "where": "通用",
+        self.assertIn("08:00 时没有要你处理的", digest_text({**view, "knowledge": {"rows": [{"op": "新增", "id": "k1", "where": "通用",
                                                                                  "text": "x"}], "more": 0}}))
 
     def test_collect_adds_the_part_only_with_something_to_list(self):
