@@ -1,5 +1,5 @@
-"""Group chats: who is served (app/access.py), the bot's own @, group activation, 免@, the 群管理 card
-(app/group_manager.py), and the controls a group topic does not offer."""
+"""Group chats: who is served (app/access.py), the bot's own @, the owner's first @ and the confirmation card it sends
+him, 免@, the 群管理 card (app/group_manager.py), and the controls a group topic does not offer."""
 from __future__ import annotations
 
 import json
@@ -16,8 +16,11 @@ from covey.app.cards import Cards
 from covey.app.app import BridgeApp
 from covey.app.access import FREE_ENV, FREE_MODES
 from covey.app.card_actions import ACTIONS, RETIRED_TEXT
-from covey.cards.group_manager import FREE_CHOICES, KINDS
+from covey.cards.group_manager import FREE_CHOICES, KINDS, state_words
+from covey.core import spaces
+from covey.core.groups import group_path, save_group
 from covey.core.proxy import write_contact, write_settings
+from covey.core.state import write_json
 from covey.cards.launch_config import MANAGE_OPTION, PICKER_PREFIX, WORKSPACE_ACTION
 from covey.core.jobs import BridgeReplyJob, find_job_record, upsert_job_record
 from covey.core.topics import read_topic, remember_topic_message
@@ -30,6 +33,7 @@ BOT = {'id': 'ou_bot', 'key': '@_user_1', 'name': 'Covey'}
 MEMBER = 'ou_member0012345678'
 OTHER = 'ou_other00012345678'
 ZS = {'id': 'ou_zs', 'key': '@_user_2', 'name': '张三'}
+CONFIRM = 'bridge_group_confirm'  # cards/group_manager.py: the confirmation card's buttons, as the clicks carry it.
 
 
 def group_event(mid, content, sender='owner', *, mentions=(BOT,), chat='group', **fields):
@@ -73,13 +77,17 @@ class GroupMessageTests(GroupFixture, UnifiedCase):
         super().setUp()
         self.group_setup()
 
-    def test_the_owners_first_at_activates_the_group_for_its_members(self):
+    def test_the_owners_first_at_activates_nothing_and_his_word_opens_the_group_to_its_members(self):
         self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual((self.ignored(), self.topic_dirs()), (['group_inactive'], []))
         self.send(group_event('o1', '@Covey 第一个任务'))
         record = self.access.group('group')
-        self.assertEqual((record['active'], record['external'], record['activated_by']), (True, False, 'owner'))
+        self.assertEqual((record['active'], record['external'], record['pending_by']), (False, False, 'owner'))
+        self.assertTrue(self.access.pending('group'))
         self.send(group_event('m2', '@Covey 帮我看看', MEMBER))
+        self.assertEqual(self.ignored(), ['group_inactive'] * 2)  # Waiting for his word: as an inactive group.
+        self.activate('group')  # His word (app/group_manager.py: the confirmation card, or the 群聊 card).
+        self.send(group_event('m3', '@Covey 帮我看看', MEMBER))
         self.send(group_event('o2', '@Covey 又一个任务'))
         self.assertEqual(len(self.topic_dirs()), 3)
         self.assertEqual(self.lookups, ['group'])  # Decided once.
@@ -92,10 +100,11 @@ class GroupMessageTests(GroupFixture, UnifiedCase):
         self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual(self.ignored(), ['group_inactive'])
         self.assertEqual(len(self.topic_dirs()), 1)  # The owner is served all the same.
+        self.assertFalse(self.access.pending('group'))
         self.chat = {'external': False}
         self.send(group_event('o2', '@Covey 任务'))
         self.assertEqual(self.lookups, ['group', 'group'])
-        self.assertTrue(self.access.active('group'))
+        self.assertEqual((self.access.active('group'), self.access.pending('group')), (False, True))
 
     def test_a_failed_lookup_still_records_the_chat_as_a_group(self):
         self.chat = None
@@ -147,6 +156,7 @@ class GroupMessageTests(GroupFixture, UnifiedCase):
         self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual(self.access.switch(self.ctx, 'group', True), '是外部群，只处理主人的消息，没有启用。')
         self.assertEqual((self.access.group('group')['external'], self.access.active('group')), (True, False))
+        self.assertFalse(self.access.pending('group'))  # Nothing to ask the owner.
         self.assertEqual((self.ignored(), self.lookups), (['group_inactive'], ['group']))
 
     def test_bots_at_all_and_other_mentions_are_not_served(self):
@@ -213,6 +223,7 @@ class GroupMessageTests(GroupFixture, UnifiedCase):
         self.assertEqual(self.access.own_ids(), {'ou_bot9', 'cli_app'})  # The saved open_id.
 
     def test_the_old_switch_texts_are_tasks_and_leave_the_group_on(self):
+        self.activate('group')
         self.send(group_event('o1', '@Covey 任务'))
         self.send(group_event('off', '@Covey 停用本群'))
         self.send(group_event('m2', '@Covey 停用本群', MEMBER))
@@ -549,7 +560,8 @@ class GroupManagerFixture(GroupFixture):
     def text(self):
         return json.dumps(self.cards[-1], ensure_ascii=False)
 
-    def buttons(self):
+    def buttons(self, card=None):
+        """(label, value, disabled) of each button on ``card``, the 群聊 card drawn last by default."""
         found = []
 
         def walk(value):
@@ -561,7 +573,7 @@ class GroupManagerFixture(GroupFixture):
             elif isinstance(value, list):
                 for child in value:
                     walk(child)
-        walk(self.cards[-1])
+        walk(self.cards[-1] if card is None else card)
         return found
 
     def click(self, value, operator='owner', message='om_groups', event_id='c1'):
@@ -629,6 +641,201 @@ class GroupManagerTests(GroupManagerFixture, UnifiedCase):
         self.click(pager[1][1])
         self.assertEqual(sum(1 for b in self.buttons() if b[0] == '停用'), 2)
         self.assertIn('第 2/2 页', self.text())
+
+
+class GroupConfirmTests(GroupManagerFixture, UnifiedCase):
+    """The owner's first @ in a group sends him one confirmation card in his private chat ``dm`` (app/group_manager.py
+    ask); its 启用 / 先不启用 are the 群聊 card's 启用 / 停用. ``sent`` is every message the Bridge sent (a card's answered
+    with the message id om_ask<n>; none while ``deliver`` is off), ``patched`` every card replaced whole."""
+
+    def setUp(self):
+        super().setUp()
+        self.sent, self.patched, self.deliver = [], [], True
+
+        def send(profile, chat, text, key, *, voice, card=None, on_card=None, **kwargs):
+            if not self.deliver:
+                return False
+            self.sent.append({'chat': chat, 'text': text, 'key': key, 'card': card})
+            if card is not None and on_card is not None:
+                on_card(f'om_ask{len(self.sent)}')
+            return True
+        self.app.messenger.send_message = mock.Mock(side_effect=send)
+        self.app.messenger.patch_card = mock.Mock(side_effect=lambda profile, message, card: (
+            self.patched.append((message, card)), True)[1])
+
+    def asks(self):
+        return [s for s in self.sent if s['card'] is not None]
+
+    def choice(self, card, label):
+        return next(value for text, value, _ in self.buttons(card) if text == label)
+
+    def confirm(self, value, operator='owner', message='om_ask1', event_id='k1'):
+        self.app.handle_card_action_event({'event_id': event_id, 'operator_id': operator, 'chat_id': 'dm',
+                                           'message_id': message, 'action_value': value}, self.ctx)
+
+    @staticmethod
+    def words(card):
+        return json.dumps(card, ensure_ascii=False)
+
+    def test_the_card_names_the_group_says_what_it_means_and_its_word_opens_the_group(self):
+        self.send(group_event('o1', '@Covey 第一个任务'))
+        [ask] = self.asks()
+        self.assertEqual((ask['chat'], self.access.group('group')['asked_message']), ('dm', 'om_ask1'))
+        text = self.words(ask['card'])
+        for words in ('群「**群up**」', '群里所有成员 @ 机器人都能开话题', '全部权限和凭据', '你的模型额度', '卡片、答案和产物',
+                      '等你确认', '只在信得过的群里启用'):
+            self.assertIn(words, text)
+        self.assertEqual([(label, v['kind'], v['chat'], v['on']) for label, v, _ in self.buttons(ask['card'])],
+                         [('启用', CONFIRM, 'group', True), ('先不启用', CONFIRM, 'group', False)])
+        self.assertIn('群「群up」', ask['text'])  # Its Markdown, had Feishu refused the card.
+        self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
+        self.assertEqual((self.ignored(), len(self.topic_dirs())), (['group_inactive'], 1))
+        self.confirm(self.choice(ask['card'], '启用'))
+        self.assertEqual((self.access.active('group'), self.access.pending('group')), (True, False))
+        [(message, card)] = self.patched
+        self.assertEqual((message, self.buttons(card)), ('om_ask1', []))  # Replaced whole with what holds.
+        self.assertIn('群「**群up**」已启用', self.words(card))
+        self.send(group_event('m2', '@Covey 帮我看看', MEMBER))
+        self.assertEqual(len(self.topic_dirs()), 2)
+        self.assertEqual(self.lookups, ['group'])  # The name came with the one lookup.
+        self.assertEqual(self.outcomes(), ['group_confirm_on'])
+        self.assertEqual(len(self.sent), 1)  # Nothing else went out, in the group or elsewhere.
+
+    def test_not_now_keeps_the_group_the_owners_and_his_next_at_asks_nothing(self):
+        self.send(group_event('o1', '@Covey 任务'))
+        [ask] = self.asks()
+        self.confirm(self.choice(ask['card'], '先不启用'))
+        record = self.access.group('group')
+        self.assertEqual((record['active'], bool(record['deactivated_at']), self.access.pending('group')),
+                         (False, True, False))
+        self.assertIn('没有启用', self.words(self.patched[-1][1]))
+        self.send(group_event('o2', '@Covey 任务'))
+        self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
+        self.assertEqual((len(self.asks()), self.lookups, self.ignored()), (1, ['group'], ['group_inactive']))
+        self.assertEqual(state_words(self.access.group('group')), ('已停用', 'neutral'))  # As 停用 leaves it.
+        self.activate('group')  # The 群聊 card still switches it on.
+        self.assertTrue(self.access.allows(MEMBER, 'group'))
+        self.assertEqual(self.outcomes(), ['group_confirm_off'])
+
+    def test_one_card_a_group_whatever_arrives_at_once_or_again(self):
+        ask = self.access.owner_message(self.ctx, 'group', 'owner')
+        self.assertEqual((ask.chat_id, ask.name, ask.since), ('group', '群up', self.access.group('group')['pending_at']))
+        self.assertIsNone(self.access.owner_message(self.ctx, 'group', 'owner'))  # Its card is going out.
+        self.send(group_event('o1', '@Covey 任务'))
+        self.assertEqual(self.asks(), [])
+        self.access.asked(ask, '', False)  # It did not go out: the next @ sends it.
+        self.send(group_event('o2', '@Covey 任务'))
+        self.send(group_event('o2', '@Covey 任务'))  # Feishu delivered it again.
+        self.send(group_event('o3', '@Covey 任务'))
+        self.assertEqual(len(self.asks()), 1)
+        self.assertEqual(self.lookups, ['group', 'group'])  # The lookup, then the name for the card sent later.
+        long_ago = '2020-01-01T00:00:00Z'
+        save_group(self.ctx.state_dir, 'oc_lost', lambda r: {**r, 'external': False, 'pending_at': long_ago,
+                                                             'asking_at': long_ago})
+        self.send(group_event('o4', '@Covey 任务', chat='oc_lost'))  # A send that never said how it went.
+        self.assertEqual([a['card']['header']['subtitle']['content'] for a in self.asks()], ['群「群up」', '群「群st」'])
+
+    def test_a_card_that_did_not_go_out_goes_at_the_next_at(self):
+        self.deliver = False
+        self.send(group_event('o1', '@Covey 任务'))
+        self.assertTrue(any('confirmation card not sent (delivery failed)' in line for line in self.logs))
+        self.assertNotIn('asking_at', self.access.group('group'))
+        self.deliver = True
+        self.send(group_event('o2', '@Covey 任务'))
+        self.assertEqual(len(self.asks()), 1)
+        first, second = self.app.messenger.send_message.call_args_list
+        self.assertEqual(first.args[3], second.args[3])  # One key a wait: a card that did land is not sent twice.
+        (self.ctx.state_dir / 'owner-chat.json').unlink()  # No private chat with the owner yet.
+        self.send(group_event('o3', '@Covey 任务', chat='oc_g2'))
+        self.assertTrue(any('confirmation card not sent (no private chat' in line for line in self.logs))
+        self.access.remember_owner_chat('dm')
+        self.send(group_event('o4', '@Covey 任务', chat='oc_g2'))
+        self.assertEqual([a['chat'] for a in self.asks()], ['dm', 'dm'])
+        self.assertEqual(len(self.topic_dirs()), 4)  # Each of the owner's messages served all the same.
+
+    def test_a_click_on_a_decided_card_changes_nothing(self):
+        self.send(group_event('o1', '@Covey 任务'))
+        [ask] = self.asks()
+        on, off = self.choice(ask['card'], '启用'), self.choice(ask['card'], '先不启用')
+        self.confirm(on)
+        self.confirm(off, event_id='k2')  # The card as it was before it was redrawn.
+        self.assertTrue(self.access.active('group'))
+        self.assertIn('已经定过了', self.words(self.patched[-1][1]))
+        self.assertIn('已启用', self.words(self.patched[-1][1]))
+        self.access.switch(self.ctx, 'group', False)  # Then turned off on the 群聊 card.
+        self.confirm(on, event_id='k3')
+        self.assertFalse(self.access.active('group'))
+        self.confirm(on, operator=MEMBER, event_id='k4')  # Not the owner, in his private chat.
+        clicked = {'chat_id': 'dm', 'message_id': 'om_ask1'}
+        self.assertEqual(self.app.group_manager.confirm(self.ctx, clicked, on, False), 'owner_only')
+        self.confirm({**on, 'chat': 'oc_gone'}, event_id='k5')
+        self.assertIn('没有这个群的记录了', self.words(self.patched[-1][1]))
+        self.assertFalse(self.access.active('group'))
+        self.assertEqual(self.outcomes(), ['group_confirm_on', 'group_confirm_decided', 'group_confirm_decided',
+                                           'not_owner', 'group_unknown'])
+
+    def test_a_card_feishu_does_not_redraw_says_what_holds_in_the_chat(self):
+        self.send(group_event('o1', '@Covey 任务'))
+        self.app.messenger.patch_card = mock.Mock(return_value=False)
+        self.confirm(self.choice(self.asks()[0]['card'], '启用'))
+        self.assertTrue(self.access.active('group'))
+        self.assertEqual((self.sent[-1]['chat'], self.sent[-1]['card']), ('dm', None))
+        self.assertIn('群「群up」已启用', self.sent[-1]['text'])
+
+    def test_no_card_where_nobody_else_could_be_served(self):
+        self.access.lookup = lambda profile, chat_id: (self.lookups.append(chat_id),
+                                                       {'external': chat_id == 'oc_ext', 'name': '外部'})[1]
+        self.send(group_event('o1', '@Covey 任务', chat='oc_ext'))
+        self.access.spaces = spaces.Settings(allow_team_spaces=False)
+        self.send(group_event('o2', '@Covey 任务', chat='oc_off'))
+        self.access.spaces = spaces.Settings(personal_groups=frozenset({'oc_mine'}))
+        self.send(group_event('o3', '@Covey 任务', chat='oc_mine'))
+        self.assertEqual(self.asks(), [])
+        self.assertEqual([self.access.pending(chat) for chat in ('oc_ext', 'oc_off', 'oc_mine')], [False] * 3)
+        self.assertEqual(self.access.group('oc_ext')['external'], True)
+
+    def test_records_from_before_serve_as_they_did_and_a_waiting_one_reads_fine(self):
+        old = {'oc_on': {'active': True, 'external': False, 'activated_by': 'owner',
+                         'activated_at': '2026-11-01T00:00:00Z'},
+               'oc_off': {'active': False, 'external': False, 'deactivated_at': '2026-11-02T00:00:00Z',
+                          'deactivated_by': 'owner'},
+               'oc_ext': {'active': False, 'external': True},
+               'oc_kept': {'active': False, 'external': False},  # Looked up while team spaces were off.
+               'oc_failed': {'active': False, 'external': None, 'lookup_failed_at': '2026-11-03T00:00:00Z'},
+               'oc_wait': {'active': False, 'external': False, 'pending_at': '2026-11-20T00:00:00Z',
+                           'pending_by': 'owner', 'asked_at': '2026-11-20T00:00:01Z', 'asked_message': 'om_earlier'}}
+        for chat, fields in old.items():
+            write_json(group_path(self.ctx.state_dir, chat), {'chat_id': chat, **fields})
+        for n, chat in enumerate(old):
+            self.send(group_event(f'o{n}', '@Covey 任务', chat=chat))
+            self.send(group_event(f'm{n}', '@Covey 帮我看看', MEMBER, chat=chat))
+        self.assertEqual([chat for chat in old if self.access.allows(MEMBER, chat)], ['oc_on'])
+        self.assertEqual(self.ignored(), ['group_inactive'] * 5)
+        self.assertEqual(self.lookups, ['oc_failed'])  # Only the group never looked up is, then asked about.
+        self.assertEqual([a['card']['header']['subtitle']['content'] for a in self.asks()], ['群「群ed」'])
+        self.assertEqual([chat for chat in old if self.access.pending(chat)], ['oc_failed', 'oc_wait'])
+        self.assertEqual(state_words(self.access.group('oc_wait')), ('等你确认', 'orange'))
+        self.assertEqual(state_words(self.access.group('oc_kept')), ('已停用', 'neutral'))
+
+    def test_the_groups_card_shows_a_waiting_group_first_and_switches_it_either_way(self):
+        self.activate('oc_g1')
+        self.send(group_event('o1', '@Covey 任务', chat='oc_g2'))
+        self.send(group_event('o2', '@Covey 任务', chat='oc_g3'))
+        self.open()
+        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], '3 个群 · 已启用 1 · 等你确认 2')
+        self.assertIn("**群g2** <text_tag color='orange'>等你确认</text_tag>", self.text())
+        self.assertEqual([(label, value['chat'], value['on']) for label, value, _ in self.buttons()],
+                         [('启用', 'oc_g2', True), ('先不启用', 'oc_g2', False), ('启用', 'oc_g3', True),
+                          ('先不启用', 'oc_g3', False), ('停用', 'oc_g1', False)])
+        not_now = [value for label, value, _ in self.buttons() if label == '先不启用' and value['chat'] == 'oc_g2'][0]
+        self.click(not_now)
+        self.assertEqual((self.access.pending('oc_g2'), bool(self.access.group('oc_g2').get('deactivated_at'))),
+                         (False, True))
+        self.assertIn('群「群g2」已停用', self.text())
+        self.click([value for label, value, _ in self.buttons() if label == '启用' and value['chat'] == 'oc_g3'][0],
+                   event_id='c2')
+        self.assertTrue(self.access.active('oc_g3'))
+        self.assertEqual(self.outcomes(), ['group_manager'] * 2)
 
 
 class GroupFreeCardTests(GroupManagerFixture, UnifiedCase):

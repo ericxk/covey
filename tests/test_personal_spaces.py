@@ -357,7 +357,7 @@ class SpaceRecordTests(GroupFixture, UnifiedCase):
 
     def test_the_group_tab_says_each_groups_space_type_only_with_a_spaces_section(self):
         manager = self.app.group_manager
-        self.send(group_event('o1', '@Covey 第一个任务'))
+        self.activate('group')  # A team space: the owner's @ there, then his word (app/group_manager.py ask).
         plain = json.dumps(manager.card({'token': 't' * 24, 'revision': 1, 'page': 0}, {}), ensure_ascii=False)
         self.assertNotIn('空间', plain)
         self.assertEqual(manager.listed()[1], None)

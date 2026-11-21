@@ -576,6 +576,28 @@ def free_groups():
             {"chat_id": "oc_fake_group6", "active": False, "external": True, "free_talk": "owner"}]
 
 
+def waiting_groups():
+    """Three groups for the 群聊 card: one active, one waiting for the owner's word (its card went out), one stopped."""
+    return [{"chat_id": "oc_fake_group1", "active": True, "external": False},
+            {"chat_id": "oc_fake_group7", "active": False, "external": False, "pending_at": "2026-11-04T10:00:00Z",
+             "pending_by": "ou_fake_owner", "asked_at": "2026-11-04T10:00:01Z", "asked_message": "om_fake_ask"},
+            {"chat_id": "oc_fake_group5", "active": False, "external": False, "deactivated_at": "2026-11-04T09:00:00Z",
+             "deactivated_by": "ou_fake_owner"}]
+
+
+def group_ask_cards():
+    """The confirmation card the owner's first @ in a group sends to his private chat (cards/group_manager.py ask_card):
+    waiting for his word, after 启用, after 先不启用, a click on a card decided since, the group's record gone."""
+    from covey.cards.group_manager import ASKING, DECIDED, MISSING, OFF, ON, ask_card
+
+    view = {"chat": "oc_fake_group7", "name": "项目群"}
+    return {"asking": ask_card({**view, "state": ASKING}),
+            "enabled": ask_card({**view, "state": ON}),
+            "declined": ask_card({**view, "state": OFF}),
+            "decided": ask_card({**view, "state": ON, "notice": DECIDED}),
+            "gone": ask_card({**view, "state": MISSING})}
+
+
 def menu_panels():
     from covey.cards.directory import directory_card
     from covey.cards.group_manager import group_manager_card
@@ -611,6 +633,11 @@ def menu_panels():
         "groups_free_proxy": group_manager_card(
             "a" * 24, {"revision": 2, "free": "oc_fake_group2", "members": []}, free_groups(), names,
             free={"blocked": {"oc_fake_group2"}}),
+        # A group waiting for the owner's word (his first @ there, app/access.py pending): first, 启用 and 先不启用; with
+        # 免@ offered its row has three buttons.
+        "groups_pending": group_manager_card("a" * 24, {"revision": 1, "page": 0}, waiting_groups(), names),
+        "groups_pending_free": group_manager_card("a" * 24, {"revision": 1, "page": 0}, waiting_groups(), names,
+                                                  free={"blocked": set()}),
         "workspaces": manager_card("a" * 24, view, config, {"/absolute/w2": False, "/absolute/w3": None},
                                    standalone=True),
         "workspaces_from_launch": manager_card("a" * 24, view, config, {}, standalone=False),
@@ -1245,7 +1272,7 @@ GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "qu
           "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
           "main_thread": butler_panels, "settings": settings_cards,
           "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards,
-          "project": project_cards, "tidy": tidy_cards, "nodes": node_cards_samples}
+          "project": project_cards, "tidy": tidy_cards, "nodes": node_cards_samples, "group_ask": group_ask_cards}
 
 
 def render():

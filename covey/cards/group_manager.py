@@ -1,13 +1,20 @@
 """The 群聊 card (app/group_manager.py), the bot menu's 群聊 panel: every group the bot has a record of
-(app/access.py), a row each with its state as a coloured tag and a 停用 or 启用 text button, PAGE_SIZE a
-page. Each button's value carries its kind, the card's token and the revision drawn.
+(app/access.py), a row each with its state as a coloured tag and a 停用 or 启用 text button (a group waiting for
+the owner's word: 启用 and 先不启用, and it comes first), PAGE_SIZE a page. Each button's value carries its kind, the
+card's token and the revision drawn.
 
 With 免@ offered (``free``, app/access.py FREE_ENV) a row also shows its 免@ mode as a blue tag and a 免@ button;
 that opens the group's 免@ page (VIEW): the four choices of who talks there without the @ (FREE), and with
-你和选中的人 the group's members, MEMBER_PAGE a page, each picked or dropped (MEMBER); 返回群列表 goes back."""
+你和选中的人 the group's members, MEMBER_PAGE a page, each picked or dropped (MEMBER); 返回群列表 goes back.
+
+The confirmation card (``ask_card``): the owner's first @ in a group that can be a team space sends it to his private
+chat. It names the group, says who could use the bot there and what that means, and has 启用 and 先不启用 (CONFIRM,
+with the group's chat and name); once he chose (or the group was decided on the 群聊 card) it is drawn whole as what
+holds."""
 from __future__ import annotations
 
 from covey.cards import ui
+from covey.core.groups import pending
 from covey.core.text import literal
 from covey.cards.elements import (callback_button, folded_panel, grey, item, md, menu_item, note, panel_header,
                                             row, styled_panel, tag, text_button)
@@ -17,7 +24,8 @@ PAGE = 'bridge_group_page'  # With ``members``: the 免@ page's members.
 VIEW = 'bridge_group_view'  # A group's 免@ page (``chat``), or back to the list (``chat`` '').
 FREE = 'bridge_group_free'  # A group's 免@ mode (``chat``, ``mode``: '' off or a FREE_CHOICES key).
 MEMBER = 'bridge_group_member'  # One member picked or dropped (``chat``, ``member``, ``on``).
-KINDS = frozenset({SWITCH, PAGE, VIEW, FREE, MEMBER})
+CONFIRM = 'bridge_group_confirm'  # The confirmation card's 启用 / 先不启用 (``chat``, ``on``; ``name`` to draw it again).
+KINDS = frozenset({SWITCH, PAGE, VIEW, FREE, MEMBER, CONFIRM})
 PAGE_SIZE = 10
 MEMBER_PAGE = 8
 # Who talks without the @, by app/access.py FREE_MODES ('' off): the label and what it means.
@@ -35,8 +43,18 @@ INACTIVE_ONLY = '这个群没有启用：只处理你的消息，启用后才能
 NO_MEMBERS = '读不到群成员：应用要开通「获取群成员」权限（im:chat.members:read）。已选的人仍然有效。'
 ALONE = '群里除了你还没有别人可选：拉人进群后再点一次“免@”。'
 TITLE = '群聊'
-NOTE = '已启用的群里，群成员 @ 机器人就能发起任务；停用后只处理你的消息。你第一次在一个群里 @ 机器人时，它会出现在这里并启用。'
+NOTE = ('已启用的群里，群成员 @ 机器人就能发起任务；停用后只处理你的消息。你第一次在一个群里 @ 机器人时，它会出现在这里，'
+        '私聊里会来一张卡问你启不启用。')
 EMPTY = '还没有群：在群里 @ 机器人一次，那个群就会出现在这里。'
+# The confirmation card's states: waiting for the owner's word, what holds once given (here or on the 群聊 card), and
+# no record of the group any more. Each with its tag in the title bar.
+ASKING, ON, OFF, MISSING = 'asking', 'on', 'off', 'missing'
+ASK_TAGS = {ASKING: ('等你确认', 'orange'), ON: ('已启用', 'green'), OFF: ('没有启用', 'neutral'), MISSING: ('没有记录', 'neutral')}
+DECIDED = '⚠️ 这个群已经定过了，这次点击没有改动。'  # A click on a confirmation card of a group decided since.
+WHO = '群里所有成员 @ 机器人都能开话题、追问、补充、回答问题、点卡片'
+WHAT = ('这些话题在你的机器上跑，用你的全部权限和凭据（文件、git、模型密钥、飞书机器人身份）', '用的是你的模型额度',
+        '群里的人都看得到卡片、答案和产物')
+WHERE = '设置卡「群聊」标签'
 
 
 def name_of(record, names):
@@ -45,8 +63,8 @@ def name_of(record, names):
 
 
 def ordered(groups, names):
-    """Active groups first, then by name."""
-    return sorted(groups, key=lambda g: (not g.get('active'), name_of(g, names)))
+    """Groups waiting for the owner's word first, then the active ones, then by name."""
+    return sorted(groups, key=lambda g: (not pending(g), not g.get('active'), name_of(g, names)))
 
 
 def state_words(record):
@@ -55,6 +73,8 @@ def state_words(record):
         return '外部群 · 只处理你的消息', 'neutral'
     if record.get('active') is True:
         return '已启用', 'green'
+    if pending(record):
+        return ASK_TAGS[ASKING]
     return ('未确认', 'orange') if record.get('external') is None and not record.get('deactivated_at') else ('已停用', 'neutral')
 
 
@@ -122,7 +142,9 @@ def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None
     active = sum(1 for g in groups if g.get('active') is True and g.get('external') is False)
     if kinds is not None:
         active = sum(1 for g in groups if kinds.get(g['chat_id']) == 'team' and g.get('active') is True)
-    head = panel_header('groups', TITLE, f'{len(groups)} 个群 · 已启用 {active}' if groups else '还没有群')
+    waiting = sum(1 for g in groups if pending(g))
+    counts = f'{len(groups)} 个群 · 已启用 {active}' + (f' · 等你确认 {waiting}' if waiting else '')
+    head = panel_header('groups', TITLE, counts if groups else '还没有群')
     elements = list(top) + ([ui.receipt(view['notice'])] if view.get('notice') else [])
     if not groups:
         elements.append(md(EMPTY))
@@ -140,6 +162,10 @@ def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None
         elif record.get('active') is True:
             elements.append(item(line, *buttons, text_button('停用', value(SWITCH, chat=record['chat_id'], on=False),
                                                              tone='danger')))
+        elif pending(record):  # Its confirmation card's two choices; 先不启用 is 停用 (app/group_manager.py switch).
+            elements.append(item(line, *buttons,
+                                 text_button('启用', value(SWITCH, chat=record['chat_id'], on=True), tone='primary'),
+                                 text_button('先不启用', value(SWITCH, chat=record['chat_id'], on=False))))
         else:
             elements.append(item(line, *buttons, text_button('启用', value(SWITCH, chat=record['chat_id'], on=True),
                                                              tone='primary')))
@@ -212,3 +238,57 @@ def member_rows(value, view, record):
 def folded_card():
     """The menu's own 群聊 card folded in place (app/group_manager.py, a second click on the menu's 群聊)."""
     return folded_panel('groups', TITLE, menu_item(TITLE))
+
+
+def ask_name(view):
+    """The name the confirmation card calls its group by: Feishu's, else the end of its chat id."""
+    return view.get('name') or '群 …' + view['chat'][-6:]
+
+
+def ask_card(view):
+    """The confirmation card of group ``view['chat']`` (``name`` as Feishu gave it) in ``state`` (ASK_TAGS): ASKING
+    says who could use the bot there and what that means, with 启用 and 先不启用; ON and OFF what holds and where to
+    change it; ``notice`` (why the click changed nothing, or a refusal) above them."""
+    chat, state, name = view['chat'], view.get('state') or ASKING, ask_name(view)
+    shown = literal(name)
+    elements = [ui.receipt(view['notice'])] if view.get('notice') else []
+    if state == ASKING:
+        def value(on):
+            return {'kind': CONFIRM, 'chat': chat, 'on': on, 'name': view.get('name') or ''}
+        elements += [md(f'你在群「**{shown}**」@ 了机器人，现在那里只处理你的消息。'),
+                     md(f'**启用后**，{WHO}：\n' + '\n'.join(f'- {line}' for line in WHAT)),
+                     item(md(' '), text_button('启用', value(True), tone='primary'), text_button('先不启用', value(False))),
+                     note(f'只在信得过的群里启用。先不启用的话，你再 @ 也不会再问；要改，在{WHERE}里改。')]
+    elif state == ON:
+        elements += [md(f'群「**{shown}**」已启用：{WHO}。'),
+                     note(f'{WHAT[0]}，{WHAT[1]}。要停用，在{WHERE}里点「停用」。')]
+    elif state == OFF:
+        elements += [md(f'群「**{shown}**」没有启用：那里只处理你的消息，你再 @ 也不会再问。'),
+                     note(f'要启用，在{WHERE}里点「启用」。')]
+    else:
+        elements.append(md('没有这个群的记录了，这次点击什么都没改。'))
+    head = panel_header('groups', TITLE, f'群「{name}」', [ASK_TAGS[state]])
+    return styled_panel(head, elements, ask_summary(view))
+
+
+def ask_summary(view):
+    """The confirmation card's line in the chat list."""
+    state, name = view.get('state') or ASKING, ask_name(view)
+    return {ASKING: f'要你定：群「{name}」启不启用', ON: f'群「{name}」已启用', OFF: f'群「{name}」没有启用'}.get(state, TITLE)
+
+
+def ask_text(view):
+    """The confirmation card as Markdown, for when Feishu takes no card: the same words, the 群聊 tab for its buttons."""
+    state, name = view.get('state') or ASKING, ask_name(view)
+    lines = [view['notice']] if view.get('notice') else []
+    if state == ASKING:
+        lines += [f'**{ask_summary(view)}**', f'你在群「{name}」@ 了机器人，现在那里只处理你的消息。',
+                  f'启用后，{WHO}。' + '；'.join(WHAT) + '。',
+                  f'要启用，在{WHERE}里点「启用」；不点就一直只处理你的消息。']
+    elif state == ON:
+        lines += [f'群「{name}」已启用：{WHO}。要停用，在{WHERE}里点「停用」。']
+    elif state == OFF:
+        lines += [f'群「{name}」没有启用：那里只处理你的消息。要启用，在{WHERE}里点「启用」。']
+    else:
+        lines.append('没有这个群的记录了，这次点击什么都没改。')
+    return '\n'.join(lines)

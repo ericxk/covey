@@ -9,6 +9,8 @@ from covey.core.locks import resource_lock
 from covey.core.state import read_object, utc_now_iso, write_json
 
 GROUPS_DIR = 'groups'
+# A group waiting for the owner's word (``pending``) and its confirmation card going out: both end with any decision.
+WAITING = ('pending_at', 'pending_by', 'asking_at')
 
 
 def group_path(state_dir, chat_id):
@@ -47,6 +49,20 @@ def list_groups(state_dir) -> list[dict]:
     return found
 
 
+def pending(record) -> bool:
+    """Whether the group waits for the owner's word (app/access.py): known not to be external, never turned on or off
+    since his first @ marked it (``pending_at``). A release before it reads such a record as an inactive group."""
+    return (bool(record.get('pending_at')) and record.get('external') is False and record.get('active') is not True
+            and not record.get('deactivated_at'))
+
+
+def decided(record):
+    """``record`` no longer waiting for the owner's word (WAITING dropped)."""
+    for key in WAITING:
+        record.pop(key, None)
+    return record
+
+
 def activated(record, owner, external):
     """``record`` as the lookup's ``external`` decides it: active unless external, and then activated by ``owner``."""
     record.update(external=external, active=not external)
@@ -54,4 +70,5 @@ def activated(record, owner, external):
         record.update(activated_by=owner, activated_at=utc_now_iso())
         record.pop('deactivated_at', None)
         record.pop('deactivated_by', None)
+        decided(record)
     return record

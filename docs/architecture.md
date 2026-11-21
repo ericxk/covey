@@ -90,10 +90,10 @@ feishu/events.py consume：每个订阅一个 lark-cli 消费者，逐行交给�
 `app/access.py` 的 `Access`（`Runtime.access`，任务进程里也有）是唯一的判断处，别处不比较 open_id。
 
 - **消息**（`admit`）：私聊只认主人，配对也只在私聊；群里只认 @ 了本机器人的消息（@所有人不算），发送者是主人或这个群已激活。被拒的记一行 `ignored message … reason=…`。
-- **群记录** `groups/<sha256(chat_id)>.json`（`core/groups.py`）：只有 Bridge 写（`group` 锁）。主人第一次 @ 时在锁外查群信息，不是外部群才激活；查询失败不激活；停用过的群不自动激活。
+- **群记录** `groups/<sha256(chat_id)>.json`（`core/groups.py`）：只有 Bridge 写（`group` 锁）。没有哪次 @ 会激活群：主人第一次 @ 时在锁外查群信息（`Access.owner_message`），外部群只记下；能做团队空间的（`team_allowed`）记 `pending_at`，等主人的话（`Access.pending`，期间按未激活的群服务）。`app/group_manager.py` 的 `ask` 在锁外往主人私聊（`owner_chat`）发一张启用确认卡，键由群和 `pending_at` 组成。一个群只发一张：锁内记 `asking_at` 认领，发出后记 `asked_at`、`asked_message`；没发出去（还没有私聊、投递失败）就去掉 `asking_at`，主人下次 @ 再发；`asking_at` 过了 `ASK_AGAIN`（10 分钟）还没结果的算丢了。确认卡的“启用”“先不启用”（`bridge_group_confirm`，`GroupManager.confirm`）在群还等着时就是 `Access.switch` 的启用、停用，定过以后再点什么都不改；群聊卡照样两头都能切，等着的群在那里也有这两个按钮。查询失败什么都不定；停用过的群不再问。旧记录照旧读：已激活的仍激活；等待中的记录在旧版本上读作未启用的群。
 - **免@**（`COVEY_GROUP_ALL_MESSAGES=1`，见[群聊免@](configuration.md#群聊免)）：群记录的 `free_talk` 和 `free_talk_members` 决定谁不用 @（`talks_freely`）。免@ 不扩大谁被服务；对别人说的（`for_others`）、代答群（`proxy_chat`）不免@。
 - **点击**（`allows`）：主人，或已激活群里的任何人。工作区管理、目录选择和菜单只给主人（`is_owner`），其他人点了在卡上拒绝（outcome `owner_only`）。
-- **空间**（`core/spaces.py`，设置见[空间](configuration.md#空间spaces)）：`owner_accounts` 里的账号都是主人；`allow_team_spaces` 为 false 时没有群被激活；`personal_groups` 里的群只服务主人。默认设置下这些都不改变上面的规则。通知（早晚汇总、手上的事、告警）发到 `Access.notify_chat()`。个人群和 `owner_accounts` 的私聊各有管家（`Access.agent_chat`，`ButlerEnv.chat()` 随工具调用所属的管家），个人群有置顶菜单卡（`app/group_menu.py`，记录在 `<state>/group-menu.json`）和自己的看板记录（`app/group_boards.py`、`app/pins.py` 的 `record_path`；手上的事、话题看板、早晚汇总的记录名带 chat_id，`notify_space` 那个群用不带 chat_id 的默认那份）。
+- **空间**（`core/spaces.py`，设置见[空间](configuration.md#空间spaces)）：`owner_accounts` 里的账号都是主人；`allow_team_spaces` 为 false 时没有群被激活，也不发启用确认卡；`personal_groups` 里的群只服务主人。默认设置下这些都不改变上面的规则。通知（早晚汇总、手上的事、告警）发到 `Access.notify_chat()`。个人群和 `owner_accounts` 的私聊各有管家（`Access.agent_chat`，`ButlerEnv.chat()` 随工具调用所属的管家），个人群有置顶菜单卡（`app/group_menu.py`，记录在 `<state>/group-menu.json`）和自己的看板记录（`app/group_boards.py`、`app/pins.py` 的 `record_path`；手上的事、话题看板、早晚汇总的记录名带 chat_id，`notify_space` 那个群用不带 chat_id 的默认那份）。
   - 记录里仍只有一个 `owner_open_id`；只有主人本人的私聊算“主人私聊”。`owner_accounts` 的私聊记在 `<state>/owner-chats.json`（open_id → chat_id），不覆盖主人本人的 `owner-chat.json`。
   - `<state>/spaces/<sha256(chat_id)>.json` 记每个个人群的类型和标题，只给设置卡「群聊」页显示，不参与判断。一个 chat 是什么空间由 `Access.space_of()` 回答。
 - 代答用 `owner_user_id` 认出主人自己发的消息，不是谁被服务的判断。

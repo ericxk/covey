@@ -86,11 +86,14 @@ class CardRouting:
             if not admitted.owner:
                 event = access.member_text(event)
             else:
-                # The owner's @ activates the group (app/access.py); there are no text commands (the bot menu).
-                access.owner_message(ctx, str(event.get('chat_id') or ''), self.runtime.owner_open_id)
+                # The owner's first @ in a group asks him in his private chat whether to open it to its members
+                # (app/access.py owner_message, app/group_manager.py ask); there are no text commands (the bot menu).
+                ask = access.owner_message(ctx, str(event.get('chat_id') or ''), self.runtime.owner_open_id)
+                if ask is not None:
+                    self.group_manager.ask(ctx, ask)
         if admitted.group and not str(event.get('content') or '').strip():
             timing.outcome('ignored')
-            access.ignore(event, 'empty')  # Only the bot's @ (an owner's has activated the group): nothing to run.
+            access.ignore(event, 'empty')  # Only the bot's @ (an owner's may have asked him about the group).
             return
         if any(feature.handle_event(ctx, event, admitted.owner) for feature in self.extension_features
                if hasattr(feature, 'handle_event')):

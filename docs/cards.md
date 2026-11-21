@@ -173,6 +173,7 @@
 | 代答设置卡 | `bridge_proxy_*` | `ProxyPanel.click`：`proxy_panel`；旧 revision 且动作已不适用 `proxy_stale`，不是最新那张 `proxy_expired` |
 | 重新发送卡 | `bridge_proxy_resend` | `ProxyResend.click`，见[重新发送卡](proxy.md#重新发送卡) |
 | 群管理卡 | `bridge_group_*` | `GroupManager.click`；启用、停用经 `Access.switch`，在卡锁之外，然后整卡重画 |
+| 启用确认卡（主人第一次在群里 @ 时发到私聊，`GroupManager.ask`） | `bridge_group_confirm`（带 `chat`、`on`、`name`） | `GroupManager.confirm`：群还在等主人的话时经 `Access.switch` 启用或停用（`group_confirm_on`、`group_confirm_off`），已经定过的什么都不改（`group_confirm_decided`），没有群记录 `group_unknown`；卡没有记录，应答后（`after_ack`）用 `patch_card` 整卡换成结果，换不了就在私聊里说一句 |
 | 旧的敏感词看板链接卡（网页看板已经去掉） | `bridge_dashboard_rotate` | `RedactionPanel.click`：链接卡上在卡下回一句“网页看板已经去掉了…”（`dashboard_gone`）；设置卡「脱敏」标签上整卡重画、带同一句提示 |
 | 设置卡「脱敏」标签 | `bridge_redaction_*`（带 `token`、`revision`；`_page`、`_edit` 和 `_term` 的 `op: edit` 是标签改版前的旧按钮，点了整卡按新布局重画并说“这个按钮已更新”） | `RedactionPanel.click`：`redaction_tab`；同一事件再投递 `duplicate`。改词表在卡锁之外（`edit_terms`、`put_back`、`update_config`；`_add` 和 `_remove` 是同一个填词表单的两个提交按钮），在卡锁里记下结果就回执，整卡重画在回执之后（`after_ack`，连点只画最后一次）；「探测」在自己的后台线程里，跑完再画 |
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |

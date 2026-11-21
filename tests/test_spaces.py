@@ -81,7 +81,8 @@ class SpacesAccessTests(GroupFixture, UnifiedCase):
         self.assertEqual(self.access.spaces, spaces.DEFAULT)
         self.assertFalse(self.access.is_owner(ALIAS))
         self.send(group_event('o1', '@Covey 第一个任务'))
-        self.assertTrue(self.access.active('group'))
+        self.assertEqual((self.access.pending('group'), self.access.space_of('group')), (True, ''))  # His word first.
+        self.activate('group')
         self.assertEqual(self.access.space_of('group'), spaces.TEAM)
         self.assertEqual(self.access.notify_chat(), self.access.owner_chat())
 
@@ -89,6 +90,7 @@ class SpacesAccessTests(GroupFixture, UnifiedCase):
         self.access.spaces = spaces.Settings(allow_team_spaces=False)
         self.send(group_event('o1', '@Covey 第一个任务'))
         self.assertFalse(self.access.group('group').get('active'))
+        self.assertFalse(self.access.pending('group'))  # Nothing to ask the owner.
         self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual(self.ignored(), ['group_inactive'])
         self.assertEqual(len(self.topic_dirs()), 1)
@@ -112,11 +114,13 @@ class SpacesAccessTests(GroupFixture, UnifiedCase):
         self.send(group_event('m1', '@Covey 帮我看看', MEMBER))
         self.assertEqual(self.ignored(), ['group_inactive'])
         self.assertEqual(len(self.topic_dirs()), 2)
-        self.assertFalse(self.access.group('group').get('active'))
+        self.assertEqual((self.access.group('group').get('active'), self.access.pending('group')), (False, False))
         self.assertEqual(self.access.space_of('group'), spaces.PERSONAL)
         self.assertEqual(self.access.space_of('other'), '')
-        # Other groups stay team spaces.
+        # Other groups still become team spaces, on the owner's word.
         self.send(group_event('o2', '@Covey 这个群', chat='group2'))
+        self.assertTrue(self.access.pending('group2'))
+        self.activate('group2')
         self.assertEqual(self.access.space_of('group2'), spaces.TEAM)
 
     def test_the_alias_is_the_owner_and_members_are_not(self):

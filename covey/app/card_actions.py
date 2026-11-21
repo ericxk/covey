@@ -129,6 +129,8 @@ ACTIONS = {
     "bridge_group_view": CardAction("打开群的免@设置"),
     "bridge_group_free": CardAction("设置群的免@"),
     "bridge_group_member": CardAction("选择免@的群成员"),
+    # The confirmation card the owner's first @ in a group sends to his private chat: 启用 / 先不启用 (app/group_manager.py).
+    "bridge_group_confirm": CardAction("确认是否启用群"),
     # The 设置 card's 脱敏 tab (cards/redaction_panel.py KINDS).
     "bridge_dashboard_rotate": CardAction("换口令"),  # Retired with the web dashboard: a click says it went.
     "bridge_redaction_page": CardAction("切换脱敏页面"),  # Retired: a click draws the card again.

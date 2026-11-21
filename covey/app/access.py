@@ -13,10 +13,13 @@
   chats never talk freely (the proxy sends as the owner there, ``proxy_chat``). Without the switch the field is
   read as absent and every group message needs the @, as before; with it, the messages nobody talks freely in
   are dropped without a log line (Feishu now sends all of them).
-- A group becomes active the first time the owner @s the bot there, unless Feishu says it
-  is external: it then stays the owner's only. The owner switches it on the 群管理 card
-  (app/group_manager.py, opened from the bot menu). A chat lookup that fails activates
-  nothing; the owner's next @ tries again.
+- No @ makes a group active. The first time the owner @s the bot there, Feishu says whether it is external (it
+  then stays the owner's only); one that can be a team space (``team_allowed``) then waits for the owner's word
+  (``pending``): one confirmation card in his private chat (app/group_manager.py ``ask``) names it and says who could
+  use the bot there and what that means. Its 启用 and 先不启用 are the 群聊 card's 启用 and 停用 (``switch``, the card
+  opened from the bot menu), which switches any group either way. While it waits only the owner is served there, as
+  in an inactive group. A chat lookup that fails decides nothing, and a card that did not go out is no card: the
+  owner's next @ tries again.
 - A bot's message is never served.
 - Card clicks: the owner, or anyone in an active group. The workspace manager, the
   directory picker (and a typed launch path) and pairing stay the owner's everywhere
@@ -24,7 +27,8 @@
 
 - Spaces (core/spaces.py, the ``spaces`` section of harnesses.json): ``owner_accounts`` are more open_ids that are the
   owner wherever ``is_owner`` decides (the records keep the one ``owner_open_id``; only that account's direct message
-  names the owner's private chat); ``allow_team_spaces`` false activates no group, so only the owner is served;
+  names the owner's private chat); with ``allow_team_spaces`` false no group waits for the owner's word or is
+  switched on, so only the owner is served;
   a group in ``personal_groups`` is the owner's own space: members are not served there even where one is active;
   ``notify_space`` is where ``notify_chat`` points. ``space_of`` tells what a chat is.
 
@@ -32,8 +36,12 @@ Everything refused is silent apart from one log line (``ignored message … reas
 ``card action … outcome=…`` for clicks). Each group is one record (read and written by core/groups.py),
 ``groups/<sha256(chat_id)>.json``: ``chat_id``, ``active``, ``activated_by``,
 ``activated_at``, ``external`` (None until a lookup answered), and ``deactivated_at`` /
-``deactivated_by`` after 停用; ``free_talk`` (absent: off), ``free_talk_members`` (open_ids, kept while another
-mode is on), ``free_talk_by`` / ``free_talk_at`` once set. The chat lookup runs before the record's lock is taken.
+``deactivated_by`` after 停用; ``pending_at`` / ``pending_by`` while it waits for the owner's word, ``asking_at``
+while its confirmation card goes out (one silent for ASK_AGAIN seconds counts as lost), ``asked_at`` /
+``asked_message`` once it went out ('' when only its text did); ``free_talk`` (absent: off), ``free_talk_members``
+(open_ids, kept while another mode is on), ``free_talk_by`` / ``free_talk_at`` once set. The chat lookup and the
+card's send run outside the record's lock. Records from before the confirmation card read as they did: an active group
+stays active.
 
 The owner's private chat with the bot, where the bot menu's answers go (app/bot_menu.py), is
 ``owner-chat.json``: ``owner`` and ``chat_id``, written when the owner's direct message names
@@ -44,15 +52,17 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import time
 
 from covey.core import devices
 from covey.core import env as cenv
 from covey.core.locks import resource_lock  # owner-chats.json
-from covey.core.groups import activated, list_groups, read_group, save_group
+from covey.core.groups import activated, decided, list_groups, read_group, save_group
+from covey.core.groups import pending as waits
 from covey.core.proxy import read_contacts, read_settings
 from covey.core import spaces
 from covey.core.spaces import CHAT_ID, OPEN_ID
-from covey.core.state import read_object, utc_now_iso, write_json
+from covey.core.state import epoch_seconds, read_object, utc_now_iso, write_json
 from covey.feishu.mentions import drop_mentions, mention_id, quote_label_lines
 from covey.feishu.transport import call, lark_argv
 
@@ -62,6 +72,7 @@ FREE_ENV = 'COVEY_GROUP_ALL_MESSAGES'
 FREE_OWNER, FREE_SOME, FREE_ALL = 'owner', 'some', 'all'
 FREE_MODES = (FREE_OWNER, FREE_SOME, FREE_ALL)
 MEMBER_PAGES = 5  # Pages of 100 a member list reads: a group of more than 500 lists its first 500.
+ASK_AGAIN = 600  # Seconds a confirmation card going out may stay silent before the owner's next @ sends it again.
 
 
 def free_talk_on() -> bool:
@@ -74,6 +85,15 @@ class Admission:
     """A message the Bridge serves: from the owner or not, in a group or a direct chat."""
     owner: bool
     group: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class Ask:
+    """The owner's word wanted on group ``chat_id`` (``owner_message``): its name as the lookup gave it ('' when none
+    ran) and since when it waits (``pending_at``: one card a wait, sent under a key made of it)."""
+    chat_id: str
+    name: str
+    since: str
 
 
 def chat_info(profile, chat_id, log=lambda _: None):
@@ -146,6 +166,11 @@ class Access:
             return False
         record = self.group(chat_id)
         return record.get('active') is True and record.get('external') is False
+
+    def pending(self, chat_id) -> bool:
+        """Whether group ``chat_id`` waits for the owner's word (core/groups.py ``pending``): served as an inactive
+        one."""
+        return waits(self.group(chat_id))
 
     def allows(self, user_id, chat_id) -> bool:
         """A click or a routed message from ``user_id`` in ``chat_id``: the owner, or an active group."""
@@ -416,14 +441,20 @@ class Access:
         """Apply ``change(record)`` to the group's record under its lock; no Feishu call inside."""
         return save_group(self.runtime.state_dir, chat_id, change)
 
-    def _external(self, ctx, chat_id):
-        """True or False as Feishu says; None when the lookup failed (logged)."""
+    def _looked_up(self, ctx, chat_id):
+        """(True or False as Feishu says whether the group is external, None when the lookup failed (logged); its name,
+        '' when Feishu gave none)."""
         data = self.lookup(ctx.profile, chat_id)
-        external = (data or {}).get('external')
+        data = data if isinstance(data, dict) else {}
+        external = data.get('external')
         if not isinstance(external, bool):
             self.runtime.log(f'group lookup failed chat={chat_id[-8:]}; not activated')
-            return None
-        return external
+            return None, ''
+        return external, str(data.get('name') or '')
+
+    def _external(self, ctx, chat_id):
+        """True or False as Feishu says; None when the lookup failed (logged)."""
+        return self._looked_up(ctx, chat_id)[0]
 
     def _activate(self, record, owner, external, chat_id):
         """core/groups.py ``activated``, except where the group cannot be a team space (``team_allowed``): the lookup is
@@ -434,35 +465,68 @@ class Access:
         return record
 
     def owner_message(self, ctx, chat_id, owner):
-        """The owner @-ed the bot in group ``chat_id``: activate it the first time, and after a
-        failed lookup, unless the owner turned it off."""
+        """The owner @-ed the bot in group ``chat_id``. The first time, and after a failed lookup, Feishu says whether
+        it is external; unless it is, or the group cannot be a team space (``team_allowed``), it then waits for the
+        owner's word (``pending``) instead of becoming active. A group he turned off is never looked at again. The
+        Ask when this @ is the one to ask him (``asking_at`` while its card goes out, ``asked_at`` once it did: one
+        card a group, however many @ come at once); None otherwise. ``owner``: who its wait is recorded as begun by."""
         record = self.group(chat_id)
-        if record and (record.get('external') is not None or record.get('deactivated_at')):
-            return
-        external = self._external(ctx, chat_id)
-        if external is None:
+        look = not record or record.get('external') is None and not record.get('deactivated_at')
+        if not look and not self._may_ask(record):
+            return None  # Decided, or its card is out or going out.
+        external, name = self._looked_up(ctx, chat_id) if look else (None, '')
+        if look and external is None:
             # Still known as a group (its topics offer no fork); the owner's next @ looks again.
             self._save(chat_id, lambda current: {**current, 'lookup_failed_at': utc_now_iso()})
-            return
+            return None
+        asking = []
 
         def decide(current):
-            if current.get('external') is not None or current.get('deactivated_at'):
-                return None  # Decided while the lookup ran.
-            return self._activate(current, owner, external, chat_id)
+            if look and current.get('external') is None and not current.get('deactivated_at'):
+                current.update(external=external, active=False)  # Not decided while the lookup ran; no @ activates.
+                if not external and self.team_allowed(chat_id):
+                    current.update(pending_at=utc_now_iso(), pending_by=owner)
+            if self._may_ask(current):
+                current['asking_at'] = utc_now_iso()
+                asking.append(Ask(chat_id, name, current['pending_at']))
+            return current
         record = self._save(chat_id, decide)
-        self.runtime.log(f"group chat={chat_id[-8:]} external={external} active={record.get('active')}")
+        if look:
+            self.runtime.log(f"group chat={chat_id[-8:]} external={external} active={record.get('active')} "
+                             f"pending={waits(record)}")
+        return asking[0] if asking else None
+
+    @staticmethod
+    def _may_ask(record) -> bool:
+        """Whether an @ of the owner's may send the confirmation card of group ``record``: it waits for his word, its
+        card has not gone out, and none is going out (one silent for ASK_AGAIN seconds counts as lost)."""
+        if not waits(record) or record.get('asked_at'):
+            return False
+        since = epoch_seconds(record.get('asking_at'))
+        return since is None or time.time() - since > ASK_AGAIN
+
+    def asked(self, ask, message_id='', sent=True) -> None:
+        """The confirmation card ``ask`` (``owner_message``) went out, ``message_id`` the card's ('' when only its text
+        did); or it did not (``sent`` False), and the owner's next @ there sends it again."""
+        def change(record):
+            record.pop('asking_at', None)
+            if sent:
+                record.update(asked_at=utc_now_iso(), asked_message=str(message_id or ''))
+            return record
+        self._save(ask.chat_id, change)
 
     def groups(self) -> list[dict]:
         """Every group record (core/groups.py list_groups)."""
         return list_groups(self.runtime.state_dir)
 
     def switch(self, ctx, chat_id, on) -> str:
-        """停用 / 启用 of a group from the owner (the 群管理 card); what happened, to follow the group's name."""
+        """停用 / 启用 of a group from the owner (the 群聊 card; the confirmation card's 先不启用 / 启用); what happened,
+        to follow the group's name. Either ends its wait for his word (``pending``); 停用 also keeps his @ from asking."""
         owner = self.runtime.owner_open_id
         if not on:
             def off(record):
                 record.update(active=False, deactivated_at=utc_now_iso(), deactivated_by=owner)
-                return record
+                return decided(record)
             self._save(chat_id, off)
             self.runtime.log(f'group chat={chat_id[-8:]} turned off')
             return '已停用：只处理主人的消息和操作。'

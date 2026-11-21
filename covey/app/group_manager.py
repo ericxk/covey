@@ -12,16 +12,27 @@ reads the group's members (Access.members, before the lock) into the view, for �
 goes through Access.set_free_talk / pick_member. Without the switch these clicks change nothing and say so.
 
 The card's record is <state>/group-managers/<token>.json; the card is cards/group_manager.py.
+
+The confirmation card (``ask``): the owner's first @ in a group that can be a team space (Access.owner_message) has
+one sent to his private chat, as a message of its own (its Markdown when Feishu takes no card) under a key of the
+group and its wait; the group's record learns whether it went out (Access.asked), so a card that did not go out is
+sent again at his next @ there. Its 启用 and 先不启用 (CONFIRM, ``confirm``) are Access.switch's 启用 and 停用 while
+the group waits; once it is decided, here or on the 群聊 card (where a waiting group has the same two buttons), a
+click on it changes nothing. Either way the card is then drawn whole with what holds (``redraw``, after the click is
+answered: the card has no record, patch_card replaces it).
 """
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
 from covey.app.access import FREE_MODES, FREE_SOME, free_talk_on
+from covey.app.card_lanes import after_ack
 from covey.app.menu_panel import MenuPanel, hub_top
 from covey.core import spaces
-from covey.cards.group_manager import (EXTERNAL_ONLY, FREE, FREE_CHOICES, INACTIVE_ONLY, KINDS, MEMBER, PAGE,
-                                                PROXY_BLOCKED, SWITCH, VIEW, folded_card, free_limit, group_manager_card,
+from covey.core.groups import pending
+from covey.cards.group_manager import (ASKING, CONFIRM, DECIDED, EXTERNAL_ONLY, FREE, FREE_CHOICES, INACTIVE_ONLY,
+                                                KINDS, MEMBER, MISSING, OFF, ON, PAGE, PROXY_BLOCKED, SWITCH, VIEW,
+                                                ask_card, ask_text, folded_card, free_limit, group_manager_card,
                                                 name_of)
 from covey.cards.settings_hub import GROUPS
 
@@ -45,9 +56,11 @@ class GroupManager:
         return value.get('kind') in KINDS
 
     def claim(self, ctx, event, raw, owner):
-        """The click's outcome when it is a 群管理 card's, else None (app/unified.py PANELS): the owner's
-        private chat."""
-        return self.click(ctx, event, raw, owner) if self.matches(raw) else None
+        """The click's outcome when it is a 群管理 card's or a confirmation card's, else None (app/unified.py PANELS):
+        the owner's private chat."""
+        if not self.matches(raw):
+            return None
+        return self.confirm(ctx, event, raw, owner) if raw['kind'] == CONFIRM else self.click(ctx, event, raw, owner)
 
     def names(self, ctx, groups):
         """{chat_id: name} of the groups Feishu named."""
@@ -227,13 +240,72 @@ class GroupManager:
         return {'free': chat_id, 'notice': f"✓ {'选上了' if on else '取消了'} {who}"}
 
     def switch(self, ctx, chat_id, on, names):
-        """停用 or 启用 of one group; the line the card shows."""
+        """停用 or 启用 of one group (a waiting group's 先不启用 is its 停用); the line the card shows."""
         access = self.runtime.access
         if not isinstance(chat_id, str) or not isinstance(on, bool) or not access.group(chat_id):
             return GONE
         record = access.group(chat_id)
         name = name_of(record, names)
-        if on == (record.get('active') is True):
+        if on == (record.get('active') is True) and (on or not pending(record)):
             return f"群「{name}」已经是{'启用' if on else '停用'}的了。"
         reply = access.switch(ctx, chat_id, on)
         return ('✓ ' if reply.startswith('已') else '⚠️ ') + f'群「{name}」' + reply
+
+    # The confirmation card ------------------------------------------------------------------------------------------
+
+    def ask(self, ctx, wanted):
+        """The confirmation card ``wanted`` (an Ask of Access.owner_message) sent to the owner's private chat; the
+        group's record learns whether it went out (Access.asked). A send that raises went nowhere: the owner's message
+        it came with is served all the same."""
+        access, tail = self.runtime.access, wanted.chat_id[-8:]
+        chat, cards, sent = access.owner_chat(), [], False
+        try:
+            if chat:  # An @ after a card that did not go out ran no lookup: the name is read now.
+                name = wanted.name or self.names(ctx, [{'chat_id': wanted.chat_id}]).get(wanted.chat_id, '')
+                view = {'chat': wanted.chat_id, 'name': name, 'state': ASKING}
+                key = self.voice.safe_key(f'group-ask-{wanted.chat_id}-{wanted.since}')  # One card a wait.
+                sent = self.messenger.send_message(ctx.profile, chat, ask_text(view), key, voice=self.voice,
+                                                   card=ask_card(view), on_card=cards.append)
+        except Exception as exc:  # noqa: BLE001 - the card is the one thing missing; his next @ asks again
+            self.runtime.log(f'group chat={tail} confirmation card failed: {type(exc).__name__}')
+        access.asked(wanted, cards[0] if cards else '', sent)
+        if sent:
+            self.runtime.log(f"group chat={tail} confirmation card sent card={'yes' if cards else 'no'}")
+        else:
+            why = 'delivery failed' if chat else 'no private chat with the owner yet'
+            self.runtime.log(f"group chat={tail} confirmation card not sent ({why}); the owner's next @ asks again")
+
+    def confirm(self, ctx, event, value, owner):
+        """A click on a confirmation card: 启用 or 先不启用 of its group while it waits for the owner's word, else
+        nothing; the card is drawn again after the click is answered. The outcome its ``card action`` line records."""
+        chat, on = value.get('chat'), value.get('on')
+        if not owner:
+            return 'owner_only'
+        if not isinstance(chat, str) or not chat or not isinstance(on, bool) or not event.get('message_id'):
+            return 'group_unknown'
+        access = self.runtime.access
+        view = {'chat': chat, 'name': value.get('name') if isinstance(value.get('name'), str) else '', 'notice': ''}
+        if not access.group(chat):
+            view['state'], outcome = MISSING, 'group_unknown'
+        else:
+            if access.pending(chat):
+                reply = access.switch(ctx, chat, on)  # No lookup: a waiting group is known not to be external.
+                outcome = 'group_confirm_on' if on else 'group_confirm_off'
+                if not reply.startswith('已'):
+                    view['notice'] = '⚠️ ' + reply
+            else:
+                view['notice'], outcome = DECIDED, 'group_confirm_decided'
+            view['state'] = ON if access.active(chat) else OFF
+        after_ack(lambda: self.redraw(ctx, event, view))
+        return outcome
+
+    def redraw(self, ctx, event, view):
+        """The confirmation card ``event`` clicked drawn whole for ``view``; when Feishu does not take it, what holds is
+        said in the chat instead."""
+        message, chat = str(event.get('message_id') or ''), str(event.get('chat_id') or '')
+        if self.messenger.patch_card(ctx.profile, message, ask_card(view)):
+            return
+        self.runtime.log(f"group chat={view['chat'][-8:]} confirmation card not redrawn message={message[-8:]}")
+        if chat:
+            key = self.voice.safe_key(f"group-asked-{message}-{event.get('event_id') or ''}")
+            self.messenger.send_message(ctx.profile, chat, ask_text(view), key, voice=self.voice)

@@ -241,6 +241,7 @@ class MenuTests(UnifiedCase):
         access = self.app.runtime.access
         access.identify(app_id='cli_app', bot_open_id='ou_bot')
         access.lookup = lambda profile, chat_id: {'external': False}
+        access.switch(self.ctx, 'group', True)  # An open group: the owner's @ asks nothing (app/group_manager.py ask).
         self.app.handle_event({'chat_id': 'dm', 'chat_type': 'p2p', 'sender_type': 'user', 'sender_id': 'owner',
                                'message_id': 'u1', 'content': '本周用量'}, self.ctx)
         self.app.handle_event({'chat_id': 'group', 'chat_type': 'group', 'sender_type': 'user',
