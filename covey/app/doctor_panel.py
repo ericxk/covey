@@ -47,6 +47,9 @@ def summarize(report, key, now) -> dict:
                            'permission_env': [str(line) for line in mine.get('permission_env') or ()][:PERMISSION_LINES],
                            'switches': [[str(pair[0]), str(pair[1])] for pair in mine.get('switches') or ()
                                         if isinstance(pair, (list, tuple)) and len(pair) == 2]}
+        cleanup = mine.get('claude_cleanup') if isinstance(mine.get('claude_cleanup'), dict) else None
+        if cleanup:
+            data['claude_cleanup'] = {key: cleanup.get(key) for key in ('state', 'days', 'path', 'hint')}
     return data
 
 

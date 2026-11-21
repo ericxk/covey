@@ -33,7 +33,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.core import app_manifest, extensions, qr, welcome
+from covey.core import app_manifest, claude_retention, extensions, qr, welcome
 from covey.core import env as cenv
 from covey.core.paths import REPO_ROOT, data_home
 from covey.core.state import write_json
@@ -388,6 +388,12 @@ class Installer:
         if not self.working and not self.extra:
             raise Fail("没有能调通的 Harness。先装好并登录 Claude Code 或 Codex（官方链接见 docs/harnesses.md），再重新运行 ./install")
         self.finish_proxy()
+
+    def retention_hint(self):
+        """One line when Claude Code works here and its settings keep few days of sessions (core/claude_retention.py); the
+        installer only says it, never touches the user's Claude config."""
+        if "claude" in self.working and (line := claude_retention.hint(claude_retention.check(self.env))):
+            self.note("提示：" + line)
 
     def write_harness_config(self):
         """<data>/harnesses.json: the working Harnesses enabled, the default (the roster's first) first; what else the
@@ -785,6 +791,7 @@ class Installer:
             self.check_environment()
             self.ensure_lark_cli()
             self.check_harnesses()
+            self.retention_hint()
             self.feishu_app()
             if self.interactive:
                 self.run_hooks("ext_login")

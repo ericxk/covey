@@ -330,6 +330,7 @@
 | `core/butler_tracks.py` | 多路并行 (docs/butler.md 同时做几件事 |
 | `core/card_sequence.py` | One rule for the sequence of every CardKit write to an existing card |
 | `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge, and the artifacts a task lists in one |
+| `core/claude_retention.py` | How long Claude Code keeps its session transcripts, read from its settings (never changed here) |
 | `core/completion.py` | One post-root deadline, independent of model-request retry policy |
 | `core/criteria.py` | A topic's completion criteria (完成标准) |
 | `core/defaults.py` | Product defaults, separate from provider-native default metadata |

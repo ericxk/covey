@@ -2,7 +2,7 @@
 
 ``doctor_rows`` turns the panel's summary (app/doctor_panel.py ``summarize``) into rows (ok, what, detail): the Manager,
 this bot's service (its generation, the connections that bring messages and clicks, dropped events, a permission variable
-it should not keep), the optional switches it has set (INFO, ``switch_row``), start at boot, and each Harness's last probe; ``ok`` None is something to know rather than a fault
+it should not keep), the optional switches it has set (INFO, ``switch_row``), how long Claude Code keeps session transcripts (``cleanup_row``, only with the Claude Harness), start at boot, and each Harness's last probe; ``ok`` None is something to know rather than a fault
 (no hosting chosen, never probed), INFO only said (other bots in the root). The title bar says how many need a look and when the report was read. No buttons:
 the tab only reads (another click on 诊断 folds it, the next one reads again)."""
 from __future__ import annotations
@@ -73,6 +73,17 @@ def switch_row(service) -> tuple:
     return INFO, f"设了 {len(pairs)} 个开关", "｜".join(f"{name}={value}" for name, value in pairs)
 
 
+def cleanup_row(found) -> tuple:
+    """Claude Code's keeping of session transcripts (core/claude_retention.py, ``claude_cleanup`` of the summary): to know
+    (orange) with the fix when it keeps few days; fine from 90 days; INFO when its settings cannot be read."""
+    state, days = found.get("state"), found.get("days")
+    if state in ("low", "missing"):
+        return None, f"Claude Code 只保留最近 {days} 天的会话", found.get("hint") or ""
+    if state == "ok":
+        return True, f"Claude Code 会话保留 {days} 天", "更早的话题仍能接着做、能回退一步"
+    return INFO, "没读出 Claude Code 保留会话几天", f"{found.get('path') or 'settings.json'} 读不了或不是 JSON；Claude Code 默认只留 30 天"
+
+
 def boot_row(boot) -> tuple:
     status, mode = boot.get("status"), boot.get("mode")
     if status == "ready" and boot.get("autostart") is False:
@@ -106,7 +117,8 @@ def doctor_rows(data) -> list:
     if data.get("error"):
         return [(False, "这次没查成", "读服务配置时出错；在服务器上运行 covey_doctor.py 看完整报告")]
     rows = [manager_row(data.get("manager") or {}), service_row(data.get("service")),
-            *([switch_row(data["service"])] if data.get("service") else []), boot_row(data.get("boot") or {}),
+            *([switch_row(data["service"])] if data.get("service") else []),
+            *([cleanup_row(data["claude_cleanup"])] if data.get("claude_cleanup") else []), boot_row(data.get("boot") or {}),
             *harness_rows(data.get("harnesses"))]
     if data.get("others"):
         rows.append((INFO, f"同一服务根下还有 {data['others']} 个机器人", "它们的情况见 covey_doctor.py"))

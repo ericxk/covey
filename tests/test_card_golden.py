@@ -1177,6 +1177,15 @@ def settings_cards():
         "doctor_switches": doctor_card("c" * 24, view, summarize(doctor_report(switches=[
             ["COVEY_BUTLER_TRACKS", "1"], ["COVEY_DIGEST_TIMES", "09:30,21:30"], ["COVEY_WEB_CONFIG", "已设"]]), "k1", FROZEN - 300),
                                        top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
+        # Claude Code keeps few days of sessions (core/claude_retention.py): to know, with the fix; and fine at 90 days or more.
+        "doctor_cleanup_low": doctor_card("c" * 24, view, summarize(doctor_report(claude_cleanup={
+            "state": "missing", "days": 30, "path": "/absolute/claude/settings.json",
+            "hint": "Claude Code 只保留最近 30 天的会话，更早的话题不能接着做、也不能回退一步；想留久一点，请自己在 "
+                    "/absolute/claude/settings.json 里加一行 \"cleanupPeriodDays\": 3650（Covey 不会替你改）"}), "k1", FROZEN - 300),
+                                          top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
+        "doctor_cleanup_ok": doctor_card("c" * 24, view, summarize(doctor_report(claude_cleanup={
+            "state": "ok", "days": 3650, "path": "/absolute/claude/settings.json"}), "k1", FROZEN - 300),
+                                         top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
         "doctor_problems": doctor_card("c" * 24, view, summarize(doctor_trouble(), "k1", FROZEN - 60),
                                        top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
         "doctor_failed": doctor_card("c" * 24, view, {"checked_at": FROZEN, "error": "OSError"},

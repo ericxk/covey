@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from covey.core.state import read_json
 from covey.service.boot import boot_health, init_identity, manager_health
 from covey.feishu.connections import EventStatusUnavailable, event_status_apps
 from covey.core.paths import service_root
+from covey.core import claude_retention
 from covey.core.ignored_env import loosened
 from covey.core.switches import shown as switches_set
 
@@ -129,6 +131,35 @@ def devices_row(state_dir):
             'devices': rows, 'advice': 'a device that is not passed: covey_devices.py --state-dir <state> check <alias>'}
 
 
+def claude_enabled(manifest):
+    """Whether the Claude Harness is enabled for the service ``manifest``: its harnesses.json (the ``--harness-config`` of its
+    command, else the data root's) has no ``enabled_harnesses`` or lists it; a file that cannot be read counts as enabled."""
+    command = [str(part) for part in manifest.get('command') or ()]
+    if '--harness-config' in command[:-1]:
+        path = Path(command[command.index('--harness-config') + 1])
+    else:
+        from covey.core.paths import data_home
+        path = data_home() / 'harnesses.json'
+    config = read_json(path, {})
+    names = config.get('enabled_harnesses') if isinstance(config, dict) else None
+    return not isinstance(names, list) or 'claude' in names
+
+
+def retention_row(manifest):
+    """How long Claude Code keeps session transcripts for the service ``manifest`` (core/claude_retention.py: its settings,
+    as the service's CLAUDE_CONFIG_DIR says), None without the Claude Harness. Read only: the setting is the user's."""
+    try:
+        if not claude_enabled(manifest):
+            return None
+    except (OSError, ValueError, TypeError):
+        return None
+    found = claude_retention.check({**os.environ, **(manifest.get('environment') or {})})
+    row = {key: found[key] for key in ('state', 'days', 'path')}
+    if claude_retention.needs_hint(found):
+        row['hint'] = claude_retention.hint(found)
+    return row
+
+
 def diagnose(root, *, check_events=True, probe=False):
     manager = manager_health(str(root))
     manager_ok = bool(manager and is_owned(manager.get('process')) and manager.get('lag', 999) < 120)
@@ -145,6 +176,8 @@ def diagnose(root, *, check_events=True, probe=False):
             row['permission_env'] = loose
         # The optional switches this service has set (core/switches.py: known names only, no credential-like name or value).
         row['switches'] = [list(pair) for pair in switches_set(manifest.get('environment') or {})]
+        if (retention := retention_row(manifest)) is not None:
+            row['claude_cleanup'] = retention  # Said on the 诊断 tab; never makes the service degraded.
         if manifest['desired_state'] != 'running':
             row['status'] = 'stopped'
             services.append(row)
