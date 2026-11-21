@@ -45,6 +45,23 @@ CODEX_INSTRUCTIONS = (
 )
 
 
+# A Bridge tool's call may take as long as core/butler_requests.py waits for its answer (120 seconds): Codex gives
+# it longer, so the server's own answer (done, or "not answered yet: check before doing it again") comes first.
+BRIDGE_TOOL_SECONDS = 150.0
+
+
+def bridge_servers(ctx):
+    """The thread config entries of ``options["mcp_config"]`` (the butler's Bridge tools, core/butler.py mcp_config):
+    each server of it as a stdio MCP server of this thread, beside the workspace reader. Empty for every other turn."""
+    config = {}
+    for name, server in ((ctx.options.get("mcp_config") or {}).get("mcpServers") or {}).items():
+        prefix = f"mcp_servers.{name}."
+        config.update({prefix + "command": server["command"], prefix + "args": list(server.get("args") or ()),
+                       prefix + "env": dict(server.get("env") or {}), prefix + "enabled": True,
+                       prefix + "tool_timeout_sec": BRIDGE_TOOL_SECONDS})
+    return config
+
+
 def thread_params(ctx, session_id, instructions="", process=None):
     """The thread/start, thread/resume or thread/fork parameters of this turn, and the session it
     forks (None unless a new topic forks one). Codex keeps the developer instructions a thread
@@ -81,6 +98,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
             "mcp_servers.bridge_workspace.command": command,
             "mcp_servers.bridge_workspace.args": args,
             "mcp_servers.bridge_workspace.enabled": True,
+            **({} if device_of(ctx) else bridge_servers(ctx)),
         },
         "developerInstructions": "\n\n".join(filter(None, (instructions, CODEX_INSTRUCTIONS))),
     }

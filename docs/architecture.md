@@ -565,7 +565,7 @@ cancelled、superseded：终态
 - **维护**：账本保留 7 天（`Temporary` 规则的 `main-thread/tracks`）；这些事用过的 Claude 会话文件按账本里的 `session_id`，那一轮结束满 3 天且 3 天没改没读的删（`TrackSessions`，只动 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）下 `projects/*/<session_id>.jsonl`）。
 - **开关**：`COVEY_BUTLER_TRACKS` 关着不写账本、不加这一块。
 
-管家只用 Claude Code（`app/butler.py` 的 `HARNESS`）。设置卡选的是管家、但 Claude Code 没启用时，私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness claude is not enabled`。
+管家的 Harness 是设置里的 `harness`（空是 Claude Code，`core/butler.py` 的 `HARNESS`），只用 `bridge_tools` 为真的 Harness（Claude Code、本机上的 Codex 和 Antigravity，见 [butler.md 换 Harness](butler.md#换-harness)）。选的那个没启用或接不了工具时，私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness <名字> is not enabled or cannot take the Bridge tools`。
 
 ## 专项（第 2 期，开发中，默认关）
 

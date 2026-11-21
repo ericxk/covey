@@ -10,7 +10,11 @@ if args[:1] == ["models"]:
     print("gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-neon-low\tGemini 4 Neon (Low)\n"
           "gemini-pro-orchestrator\tOrchestrator (Carbon)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)")
     sys.exit(0)
-record = {"argv": args, "stdin": sys.stdin.read(), "cwd": os.getcwd()}
+record = {"argv": args, "stdin": sys.stdin.read(), "cwd": os.getcwd(), "home": os.environ.get("HOME", "")}
+try:  # The MCP servers this run's home gives agy (backends/agy/home.py).
+    record["mcp"] = json.load(open(os.path.join(record["home"], ".gemini", "config", "mcp_config.json")))
+except (OSError, ValueError):
+    pass
 json.dump(record, open(os.environ["FAKE_AGY_RECORD"], "w"))
 with open(os.environ["FAKE_AGY_RECORD"] + ".all", "a") as runs:  # Every process of the turn, in order.
     runs.write(json.dumps(record) + "\n")

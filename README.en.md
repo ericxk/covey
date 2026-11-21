@@ -35,7 +35,7 @@ The settings card, redaction tab: type the words, stand-ins are generated automa
 ## What it does
 
 - **A topic is a session.** Send a message to open a topic, pick model, thinking budget, workspace and run mode, and start; later messages in the topic continue the same session.
-- **Private-chat butler.** What you write at the top level of the private chat goes to one resident Claude Code session. It answers quick questions itself and opens topics for real work; the conclusions come back to the chat.
+- **Private-chat butler.** What you write at the top level of the private chat goes to one resident session (Claude Code by default; Codex or Antigravity on the settings card). It answers quick questions itself and opens topics for real work; the conclusions come back to the chat.
 - **Work on the card.** Watch the execution trace, stop a task, steer it while it runs, answer the model's questions, switch harness or model mid-conversation; Claude topics can also step back one turn.
 - **Results and artifacts.** The answer is sent as its own card; registered artifacts are uploaded to cloud storage with a link.
 - **Long tasks survive restarts.** Each task runs in its own process, so restarting or upgrading the bot does not stop it.

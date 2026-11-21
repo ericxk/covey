@@ -23,6 +23,7 @@ from covey.app import butler as session
 from covey.backends.claude.compaction import command as compaction_command
 from covey.backends.claude.argv import stream_argv, turn_env
 from covey.core import butler, butler_settings, principles
+from covey.core.harness import HarnessCapabilities
 from covey.core.harness import RunResult
 from covey.core.jobs import job_key, job_path, read_job_record, upsert_job_record
 from covey.core.process import JobCancelled, process_identity
@@ -218,6 +219,36 @@ class RoutingTest(ButlerUnifiedCase):
         self.assertEqual(self.topic()['binding_revision'], 2)
         self.assertEqual(self.job_of('om_2').binding_revision, 2)
         self.assertIsNone(self.app.apps['claude'].sessions.read_session_id(pointer))
+
+    def test_another_harness_waits_until_nothing_runs_and_starts_a_new_session(self):
+        """T614: the butler's Harness is a setting. A turn under way keeps the one it has; once nothing runs the topic
+        is bound to the new one, on a new session (a pointer it had from before is behind the conversation)."""
+        self.send('om_1')
+        self.assertEqual(self.topic()['harness_id'], 'claude')
+        codex = self.app.apps['codex']
+        stale = self.state / 'topics' / BUTLER / codex.spec.session_filename
+        stale.write_text('01a1fcc9-38c1-7272-91fa-7be36d477776\n')
+        self.settings(harness='codex', model='', effort='')
+        self.assertEqual(self.app.butler.keep_topic(self.ctx, codex, CHAT), 'claude')  # A job is here.
+        self.assertEqual(self.topic()['harness_id'], 'claude')
+        self.done(self.job_of('om_1'))
+        self.send('om_2')
+        self.assertEqual((self.topic()['harness_id'], self.topic()['binding_revision']), ('codex', 2))
+        job = self.job_of('om_2')
+        self.assertEqual((job.harness_id, job.binding_revision), ('codex', 2))
+        self.assertIsNone(codex.sessions.read_session_id(stale))
+        self.done(job)
+        self.settings(harness='')  # Back to Claude Code, the default.
+        self.send('om_3')
+        self.assertEqual((self.topic()['harness_id'], self.job_of('om_3').harness_id), ('claude', 'claude'))
+
+    def test_a_harness_that_cannot_take_the_bridge_tools_leaves_the_messages_to_topics(self):
+        self.send('om_0')  # The owner's private chat is known.
+        self.settings(harness='codex')
+        with mock.patch.object(type(self.app.apps['codex'].backend), 'capabilities',
+                               return_value=HarnessCapabilities(bridge_tools=False)):
+            self.assertIsNone(self.app.butler.app_for(self.ctx, self.event('om_1'), True))
+        self.assertIs(self.app.butler.app_for(self.ctx, self.event('om_1'), True), self.app.apps['codex'])
 
     def test_its_redaction_setting_reaches_its_topic_and_the_relay_from_the_next_turn(self):
         """T444 (the owner, 2026-11-08): 私聊默认 has 脱敏 as a topic's launch card does. The setting goes into the butler's
@@ -894,7 +925,7 @@ class SwitchOffHoldTest(ButlerUnifiedCase):
 
 class TurnTest(ButlerUnifiedCase):
     def turn(self, job, session_id=None, compaction=None):
-        compaction = compaction or SimpleNamespace(request=lambda ctx: None)
+        compaction = compaction or SimpleNamespace(request=lambda ctx: None, supported=lambda ctx: True)
         app = self.app.apps['claude']
         target = app.submission.event_context(app.harness.context, self.event(job.message_id))
         return session.butler_turn(target, job, 'THE MESSAGE', session_id, compaction, self.logs.append)
@@ -951,6 +982,20 @@ class TurnTest(ButlerUnifiedCase):
         self.assertIn('T8 topic 8', changed)
         self.assertNotIn('T7', changed)
         self.assertIn('只列和上一轮相比变了的', changed)
+
+    def test_on_a_harness_the_bridge_does_not_compact_every_turn_has_the_whole_snapshot(self):
+        """T614: Codex and agy compact on their own, which the Bridge does not see: a snapshot of only what changed
+        could then stand on nothing, so each turn has all of it."""
+        own = SimpleNamespace(request=lambda ctx: None, supported=lambda ctx: False)
+        self.other_topic('a' * 32, 'running')
+        self.send('om_1')
+        self.turn(self.job_of('om_1'), compaction=own)
+        self.done(self.job_of('om_1'))
+        self.send('om_2')
+        _, again = self.turn(self.job_of('om_2'), 'sid', own)
+        self.assertNotIn('和上一轮相比没有变化', again)
+        self.assertIn('：全部]', again)
+        self.assertIn('T7', again)
 
     def test_a_topic_that_ended_moves_to_results(self):
         self.other_topic('a' * 32, 'running')
@@ -1016,7 +1061,7 @@ class TurnTest(ButlerUnifiedCase):
         self.turn(self.job_of('om_1'))
         self.done(self.job_of('om_1'))
         self.send('om_2')
-        _, prompt = self.turn(self.job_of('om_2'), 'sid', SimpleNamespace(request=lambda ctx: {'at': 1}))
+        _, prompt = self.turn(self.job_of('om_2'), 'sid', SimpleNamespace(request=lambda ctx: {'at': 1}, supported=lambda ctx: True))
         self.assertIn('：全部]', prompt)
 
     def test_after_a_turn_that_ended_badly_the_whole_snapshot_again(self):
@@ -1467,14 +1512,36 @@ class HarnessNoteTest(unittest.TestCase):
     """The start says so when the private chat is 管家 but the butler's Harness is not enabled: the
     owner's messages then open topics, and nothing else told (acceptance on a test bot without Claude Code)."""
 
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name)
+
     def thread(self, apps):
         return session.Butler(SimpleNamespace(runtime=SimpleNamespace(), apps=apps))
 
+    @staticmethod
+    def app(tools=True):
+        backend = SimpleNamespace(capabilities=lambda ctx: HarnessCapabilities(bridge_tools=tools))
+        return SimpleNamespace(backend=backend, harness=SimpleNamespace(context=None))
+
     def test_a_missing_harness_is_one_warning_line_and_an_enabled_one_none(self):
         with mock.patch.object(session.contract, "enabled", return_value=True):
-            note = self.thread({}).harness_note()
+            note = self.thread({}).harness_note(self.state)
             self.assertIn(f"Harness {session.HARNESS} is not enabled", note)
             self.assertIn("纯话题", note)
-            self.assertEqual(self.thread({session.HARNESS: object()}).harness_note(), "")
+            self.assertEqual(self.thread({session.HARNESS: self.app()}).harness_note(self.state), "")
         with mock.patch.object(session.contract, "enabled", return_value=False):
-            self.assertEqual(self.thread({}).harness_note(), "", "the main thread off: nothing to warn of")
+            self.assertEqual(self.thread({}).harness_note(self.state), "", "the main thread off: nothing to warn of")
+
+    def test_the_settings_harness_counts_and_only_one_that_takes_the_bridge_tools(self):
+        butler_settings.update(self.state, harness="agy")
+        with mock.patch.object(session.contract, "enabled", return_value=True):
+            claude_only = self.thread({session.HARNESS: self.app()})
+            self.assertIn("Harness agy is not enabled", claude_only.harness_note(self.state))
+            self.assertEqual(claude_only.harness_app(self.state), ("agy", None))
+            toolless = self.thread({"agy": self.app(tools=False)})
+            self.assertEqual(toolless.harness_app(self.state), ("agy", None))
+            agy = self.app()
+            self.assertEqual(self.thread({"agy": agy}).harness_app(self.state), ("agy", agy))
+            self.assertEqual(self.thread({"agy": agy}).harness_note(self.state), "")

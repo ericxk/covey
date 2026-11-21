@@ -6,6 +6,7 @@ The shared delivery invariants (saved redelivery, sealed sessions) are in test_b
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -753,6 +754,27 @@ class WorkspaceReaderTests(unittest.TestCase):
    # The reader describes itself; the instructions say nothing about how files are read or written (#748).
    self.assertNotIn('bridge_workspace',params['developerInstructions'])
 
+
+ def test_the_butlers_bridge_tools_are_a_server_of_new_and_resumed_threads(self):
+  # T614: the butler's turn (options["mcp_config"]) on Codex: its Bridge server beside the workspace reader, with a
+  # tool wait above the server's own 120 seconds; every other turn has none of it.
+  from covey.backends.codex.appserver import BRIDGE_TOOL_SECONDS, thread_params
+  server={'command':'/usr/bin/python3','args':['-B','/release/bin/covey_butler_mcp.py'],'env':{'COVEY_BUTLER_JOB':'om_1-1'}}
+  for sid in [None,SID]:
+   ctx=codex_context(self.root,'app-server')
+   ctx=dataclasses.replace(ctx,options={**ctx.options,'mcp_config':{'mcpServers':{'bridge':server}}})
+   rpc=FakeRpc([finished()])
+   with codex_server(rpc):
+    CodexBackend().run(RunRequest(ctx,'开个话题',sid))
+   cfg=next(p for name,p in rpc.requests if name in ['thread/start','thread/resume'])['config']
+   self.assertEqual((cfg['mcp_servers.bridge.command'],cfg['mcp_servers.bridge.args'],cfg['mcp_servers.bridge.env']),
+                    (server['command'],server['args'],server['env']))
+   self.assertIs(cfg['mcp_servers.bridge.enabled'],True)
+   self.assertEqual(cfg['mcp_servers.bridge.tool_timeout_sec'],BRIDGE_TOOL_SECONDS)
+   self.assertGreater(BRIDGE_TOOL_SECONDS,120)
+   self.assertTrue(cfg['mcp_servers.bridge_workspace.enabled'])
+  plain=thread_params(codex_context(self.root,'app-server'),None)[0]['config']
+  self.assertFalse([key for key in plain if key.startswith('mcp_servers.bridge.')])
 
  def test_bridge_rules_lead_the_developer_instructions_of_new_and_resumed_threads(self):
   from covey.backends.codex.appserver import CODEX_INSTRUCTIONS, thread_params

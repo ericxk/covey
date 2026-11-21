@@ -129,11 +129,12 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual((header['title']['content'], header['subtitle']['content'], header['icon']['token']),
                          ('管家', 'Claude Code · 默认模型', 'robot_outlined'))
         text = self.text()
-        # T546: the private chat mode is a row under 更多, not a red button on top; the Harness is in the title bar.
-        for part in ("<font color='grey'>私聊顶层的消息</font>　交给管家", '**更多**',
-                     "<font color='grey'>供应商</font>　Claude 自带", '压缩阈值', '20 万'):
+        # T546: the private chat mode is a row under 更多, not a red button on top. T614: the Harness is a row of its
+        # own, the Harnesses that can run the butler, and so is its 工作区.
+        for part in ("<font color='grey'>私聊顶层的消息</font>　交给管家", '**更多**', "<font color='grey'>Harness</font>　Claude Code",
+                     "<font color='grey'>供应商</font>　Claude 自带", "<font color='grey'>工作区</font>　默认工作区", '压缩阈值', '20 万'):
             self.assertIn(part, text)
-        for part in ('**新话题默认**', '**直接开工**', '管家按用途挑', '改成纯话题', '**私聊模式**', 'Harness</font>'):
+        for part in ('**新话题默认**', '**直接开工**', '管家按用途挑', '改成纯话题', '**私聊模式**'):
             self.assertNotIn(part, text)
         self.assertLess(text.index('压缩阈值'), text.index('私聊顶层的消息'))
         self.assertGreater(text.index('**更多**'), text.index("<font color='grey'>供应商</font>"))
@@ -330,6 +331,13 @@ class ButlerPanelTests(UnifiedCase):
                                                  available_models(self.app.topics, self.ctx), ['project'])
         folds = [p['element_id'] for p in walk_panels(card)]
         self.assertEqual(len(folds), 12, folds)  # Every row there is: 5 of the butler's, 7 of a new topic's.
+        self.assertEqual([f for f in folds if len(f) > 20], [])
+        # The 设置 card's 管家 tab: its Harness and 工作区 rows too (T614), and the mode's.
+        card = panel_card.butler_panel_card('a' * 24, {'revision': 9999}, current,
+                                                 available_models(self.app.topics, self.ctx), ["project"], page=panel_card.BUTLER)
+        folds = [p['element_id'] for p in walk_panels(card)]
+        self.assertEqual(folds, [f'set_{key}_r9999' for key in
+                                 ('harness', 'provider', 'model', 'effort', 'redact', 'space', 'compact', 'mode')])
         self.assertEqual([f for f in folds if len(f) > 20], [])
 
     def test_switches_tiers_trusted_and_notes(self):
@@ -557,6 +565,47 @@ class ButlerPanelTests(UnifiedCase):
         self.click(self.option(panel_card.REDACTION, 'off'), event_id='c7')
         self.assertFalse(self.settings().redaction)
         self.assertEqual(self.values(panel_card.REDACTION), [])
+
+    def test_the_butlers_harness_and_workspace_rows(self):
+        """T614 (the owner, 2026-11-21): 管家 chooses its Harness as a new topic does, among those that can run it
+        (agy, Codex beside Claude Code); another Harness empties the model and budget. With 脱敏 on, one that cannot
+        redact is not offered and the page says to turn 脱敏 off first. Its workspace is a row too."""
+        def entry(harness, title, model, **more):
+            return {'harness': harness, 'model': model, 'title': title, 'display_name': model.upper(),
+                    'levels': ['low', 'high'], 'bridge_tools': True, **more}
+        choices = {'claude:a1': entry('claude', 'Claude Code', 'a1', redaction=True, compaction=True),
+                   'codex:g1': entry('codex', 'Codex', 'g1'), 'agy:n1': entry('agy', 'Antigravity', 'n1'),
+                   'pi:p1': {**entry('pi', 'Pi', 'p1'), 'bridge_tools': False}}
+        self.enterContext(mock.patch.object(panel, 'available_models', lambda topics, ctx: choices))
+        settings.update(self.ctx.state_dir, model='a1', effort='high')
+        self.ask()
+        self.assertEqual(self.rows(panel_card.HARNESS), [('claude', 'Claude Code'), ('codex', 'Codex'), ('agy', 'Antigravity')])
+        self.assertIn('压缩阈值', self.text())
+        self.click(self.option(panel_card.HARNESS, 'agy'), event_id='h1')
+        current = self.settings()
+        self.assertEqual((current.harness, current.butler_harness, current.model, current.effort), ('agy', 'agy', '', ''))
+        self.assertIn(panel.SAVED_NEW_SESSION, self.text())
+        self.assertTrue(self.cards[-1]['header']['subtitle']['content'].startswith('Antigravity · '))
+        self.assertEqual([o for o, _ in self.rows(panel_card.MODEL)], ['', 'n1'])
+        self.assertNotIn('压缩阈值', self.text())  # The Bridge does not compact agy's session.
+        self.assertEqual(self.values(panel_card.REDACTION), [])  # agy cannot redact.
+        self.click(self.option(panel_card.MODEL, 'n1'), event_id='h2')
+        self.assertEqual(self.settings().model, 'n1')
+        self.click(self.option(panel_card.HARNESS, 'claude'), event_id='h3')
+        self.assertEqual((self.settings().harness, self.settings().butler_harness), ('', 'claude'))
+        # 脱敏 on: only a Harness that can redact, and the page says why.
+        self.click(self.option(panel_card.REDACTION, 'on'), event_id='h4')
+        self.assertEqual(self.rows(panel_card.HARNESS), [('claude', 'Claude Code')])
+        self.assertIn(panel_card.REDACT_FIRST, self.text())
+        self.click({**self.option(panel_card.HARNESS, 'claude'), 'option': 'codex'}, event_id='h5')
+        self.assertIn(GONE, self.text())
+        self.assertEqual(self.settings().butler_harness, 'claude')
+        # Its workspace.
+        self.assertEqual([o for o, _ in self.rows(panel_card.SPACE)][0], '')
+        self.click(self.option(panel_card.SPACE, 'project'), event_id='h6')
+        self.assertEqual(self.settings().workspace, 'project')
+        self.click({**self.option(panel_card.SPACE, 'project'), 'option': 'gone'}, event_id='h7')
+        self.assertIn(GONE, self.text())
 
     def test_a_row_of_a_card_drawn_before_the_pages_lands_on_its_page(self):
         """A 设置 card sent before the pages showed every row on its one 管家 tab (key BUTLER): a click on a 新话题默认

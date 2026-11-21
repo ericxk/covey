@@ -100,7 +100,10 @@ class JobDispatch:
         self.close_retired_jobs(ctx)
         self.release_started_launches(ctx)
         # The butler's messages a turn that ended while no Bridge watched never took: turns of their own now.
-        detached.queue_stranded(self, ctx, self.apps.get(BUTLER_HARNESS))
+        # By the butler's Harness now (app/butler.py harness_app), Claude Code's when it has none.
+        butler = getattr(self, "butler", None)
+        app = (butler.harness_app(ctx.state_dir)[1] if butler is not None else None) or self.apps.get(BUTLER_HARNESS)
+        detached.queue_stranded(self, ctx, app)
 
     def release_started_launches(self, ctx):
         """A restart between 开始任务's acknowledgement and its follow-up left a bound topic's

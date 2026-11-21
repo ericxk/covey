@@ -46,8 +46,10 @@ NAMES_SECONDS = 1800  # A group's name, as Feishu gave it, is asked again after 
 NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT, cards.TOPIC_RUN_MODE,
                       cards.TOPIC_REDACTION, cards.TOPIC_WORKSPACE, cards.START_ROW, cards.SUBAGENTS,
-                      cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION, cards.MODE})
-BUTLER_KINDS = frozenset({cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION})
+                      cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION, cards.SPACE,
+                      cards.MODE})
+BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION,
+                          cards.SPACE})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
            "node_add", "node_remove", "refresh", "proxy")  # payload["what"].
 PROXY_TAB, PROXY_LABEL = "proxy", "代答"  # The bot menu's own 代答 card, a tab of the page's 设置 (not of the card's).
@@ -121,7 +123,7 @@ class WebSettings:
         labels = {**LABELS, PROXY_TAB: PROXY_LABEL}
         tabs = [*tabs, *([PROXY_TAB] if self.proxy_panel() is not None else [])]
         data = {"tabs": [{"key": tab, "label": labels[tab]} for tab in tabs], "feishu": self.feishu()}
-        build = {TOPIC: lambda: self.topic(ctx, settings, choices, chat), BUTLER: lambda: self.butler(settings, choices),
+        build = {TOPIC: lambda: self.topic(ctx, settings, choices, chat), BUTLER: lambda: self.butler(ctx, settings, choices),
                  WORKSPACE: lambda: self.workspaces(ctx, settings), REDACTION: lambda: self.redaction(ctx),
                  GROUPS: lambda: self.groups(ctx, now), NODES: lambda: self.nodes(ctx),
                  PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT)}
@@ -186,15 +188,18 @@ class WebSettings:
                 "more": [row(cards.subagent_setting(settings), True)], "more_note": cards.SUBAGENT_NOTE,
                 "locked": cards.LOCKED if on else ""}
 
-    def butler(self, settings, choices) -> dict:
-        """管家: off (纯话题), the mode's row alone; else its Harness, its rows, and under 更多 压缩阈值 and the mode. The page may change
-        them all; 每条直接开一个话题 only after it asked ``mode_confirm`` (the card's 确定改)."""
+    def butler(self, ctx, settings, choices) -> dict:
+        """管家: off (纯话题), the mode's row alone; else its rows (Harness first) and under 更多 压缩阈值 and the mode. The page
+        may change them all; 每条直接开一个话题 only after it asked ``mode_confirm`` (the card's 确定改). ``harness``: the
+        Harness's name, for a page that still shows it in its own line; ``note``: REDACT_FIRST when it counts."""
         mode = {**row(cards.mode_setting(settings), True), "confirm": {MODE_TOPICS: cards.MODE_CONFIRM}}
         if not settings.enabled:
             return {"summary": cards.subtitle(settings, choices, BUTLER), "on": False, "rows": [mode], "note": cards.MODE_OFF}
-        own = cards.butler_setting_list(settings, choices, LIMIT)
+        own = cards.butler_setting_list(settings, choices, LIMIT, panel_rules.workspace_names(ctx.state_dir))
+        harness = settings.butler_harness
         return {"summary": cards.subtitle(settings, choices, BUTLER), "on": True,
-                "harness": tiers(choices, cards.CLAUDE)[0].get(cards.CLAUDE) or "Claude Code",
+                "harness": tiers(choices, harness)[0].get(harness) or harness,
+                **({"note": cards.REDACT_FIRST} if cards.redact_first(settings, choices) else {}),
                 "rows": [row(each, True) for each in own if each.key != "compact"],
                 "more": [row(each, True) for each in own if each.key == "compact"] + [mode], "locked": cards.LOCKED}
 
@@ -296,7 +301,8 @@ class WebSettings:
         if not changes:
             return "没有变化"
         butler_settings.update(ctx.state_dir, **changes)
-        return panel_rules.MODE_NOTICES.get(changes.get("enabled")) or panel_rules.SAVED.get(cards.PAGE_OF.get(kind), "已保存。")
+        return (panel_rules.MODE_NOTICES.get(changes.get("enabled")) or panel_rules.SAVED_OF.get(kind)
+                or panel_rules.SAVED.get(cards.PAGE_OF.get(kind), "已保存。"))
 
     def change_row(self, ctx, payload) -> str:
         kind, option = str(payload.get("kind") or ""), payload.get("option")

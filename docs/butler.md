@@ -1,6 +1,6 @@
 # 管家
 
-管家是私聊里一个常驻的 Claude Code 会话（设置卡的私聊模式选“管家”时）。主人在私聊**顶层**发的消息都交给它：能直接答的自己答，要干活的开话题或转给已有话题，主人说“T12 选 A”时替主人答选择题。用户视角见[使用指南 · 管家](usage.md#管家)，部署开关见[配置](configuration.md)。
+管家是私聊里一个常驻的会话（设置卡的私聊模式选“管家”时），默认跑在 Claude Code 上，也可以在设置卡「管家」页换成 Codex 或 Antigravity。主人在私聊**顶层**发的消息都交给它：能直接答的自己答，要干活的开话题或转给已有话题，主人说“T12 选 A”时替主人答选择题。用户视角见[使用指南 · 管家](usage.md#管家)，部署开关见[配置](configuration.md)。
 
 管家交给负责人跟进的长期的事见[专项](projects.md)，网页上的工作台见[网页工作台](web.md)。这篇讲管家是什么、由哪几块组成、一轮怎么走；放置表的每一格、工具通道的协议、各功能的记录和刷新方式等改代码时才查的细节在[管家的实现细节](butler-internals.md)，标题和这里一一对应。
 
@@ -24,7 +24,7 @@
 
 **纯话题**下和没有管家时一样：顶层每条消息开一个话题；引用管家以前的卡当作新消息开话题（`core/topics.py` 的 `context_for_topic`），引用“交给一个话题”的管家卡照旧进那个话题；正在跑的管家那一轮跑完，按 `BUTLER_OFF` 收尾；会话和记录留着；管家开过的话题不再回带、不再放顶层问题卡副本。群聊两种模式都没有管家。
 
-管家只用 Claude Code（`app/butler.py` 的 `HARNESS`）。设置卡选的是管家、但 Claude Code 没启用时，私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness claude is not enabled`。新部署私聊里的[欢迎卡](usage.md#第一次使用)（`app/welcome.py` 的 `butler_state`）也当面说：没有管家时写为什么（Claude Code 没启用、`COVEY_BUTLER=0`、私聊模式是纯话题，或 Claude Code 刚才没起来）和怎么补（装好并登录 Claude Code 再运行一次 `./install`；纯话题时在设置卡「管家」页改回交给管家），并说明每条消息会开一个话题、先出启动卡；有管家时说明你的话下面出现表情就是收到了，有东西要给你看时才发卡（一轮跑过 90 秒才发任务卡，见[提问不开串](#提问不开串)）。
+管家的 Harness 是设置里的 `harness`（空就是 Claude Code，`core/butler.py` 的 `HARNESS`），只能选能接 Bridge 工具的（`core/harness.py` 的 `bridge_tools`：Claude Code、本机上的 Codex 和 Antigravity；见[换 Harness](#换-harness)）。选的 Harness 没启用或接不了工具时，私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness <名字> is not enabled or cannot take the Bridge tools`。新部署私聊里的[欢迎卡](usage.md#第一次使用)（`app/welcome.py` 的 `butler_state`）也当面说：没有管家时写为什么（Claude Code 没启用、`COVEY_BUTLER=0`、私聊模式是纯话题，或 Claude Code 刚才没起来）和怎么补（装好并登录 Claude Code 再运行一次 `./install`；纯话题时在设置卡「管家」页改回交给管家），并说明每条消息会开一个话题、先出启动卡；有管家时说明你的话下面出现表情就是收到了，有东西要给你看时才发卡（一轮跑过 90 秒才发任务卡，见[提问不开串](#提问不开串)）。
 
 ## 和话题的不同
 
@@ -290,6 +290,17 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 - **管家的脱敏**：从下一轮起走敏感词中继；Bridge 每次交消息前写它的 `topic.json`，中继每轮读（`backends/claude/redaction.py`）。
 
+### 换 Harness
+
+管家的 Harness 和开新话题一样在设置卡上选（「管家」页第一行），供应商、模型、思考预算跟着它走；换了 Harness，模型和预算回到它的默认。
+
+- **什么时候生效**：管家手上没有在跑的一轮时（`app/butler.py` 的 `write_topic`，和换工作区一样）：`topic.json` 的 `harness_id` 换成新的，`binding_revision` 加一，新 Harness 的会话指针清掉（以前在它上面的会话落后于之后的对话）。有一轮在跑时新消息照旧进旧 Harness 的这一轮。新会话的第一轮带最近的对话（和换工作区一样），不做交接摘要。多路并行的各路也跟着换，各自等空闲。
+- **工具**：MCP 服务还是 `bin/covey_butler_mcp.py`，`mcp_config` 由各后端自己接：Claude Code 是 `--mcp-config`，Codex 是线程配置的 `mcp_servers.bridge.*`，Antigravity 是这一轮私有主目录里的 `mcp_config.json`（[harnesses.md](harnesses.md#antigravity)）。规则和快照在每轮消息的正文里，和 Harness 无关。工具名 Claude Code、Codex 里是 `mcp__bridge__<工具名>`，Antigravity 里是 `mcp_bridge_<工具名>`，规则里两种都写。
+- **压缩和快照**：只有 Claude Code 由 Bridge 压缩（capability `compaction`）。Codex、Antigravity 自己压缩，Bridge 看不到，所以每一轮都给完整快照，不只给变了的行。
+- **脱敏**：只有 Claude Code 能脱敏。开着脱敏时不能换到别的 Harness；换过去以后脱敏一行不显示。
+- **不跟着管家换的**：专项负责人仍是 Claude Code（`app/project_loop.py` 的 `HARNESS`）；多路并行的判断模型和待命进程仍用 Claude Code；子 Agent 一项只对 Claude Code 生效。
+- **回退旧版本**：旧版本不读 `harness`，管家回到 Claude Code，但模型还是新 Harness 的模型 id；回退前先在设置卡上把 Harness 换回 Claude Code。
+
 ### 设置卡
 
 管家的设置是设置卡（`app/settings_hub.py`，菜单键 `bridge_settings`）的前两个标签，标签行见 `cards/settings_hub.py` 的 `LABELS`：新话题 · 管家 · 工作区 · 脱敏 · 群聊（· 设备）。菜单打开时停在新话题。画卡和点击在 `app/butler_panel.py`、`cards/butler_panel.py`。新话题一页管所有新话题，代答在菜单里单独一项，私聊模式收在管家页的“更多”里。
@@ -297,7 +308,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 | 页 | 内容 |
 | --- | --- |
 | 新话题 | 所有新话题的预选（启动卡 `app/preselection.py` 和管家开的话题都照它）：Harness、供应商、模型、思考预算、运行方式、脱敏、工作区；管家开着时“直接开工”一行（`START_CHOICES`：都直接开工 = 三档全开，只读的直接开工 = `readonly` + `trusted`，都等你点开始 = 不开），中间那档下面列记住的工作区，每项可删；“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
-| 管家 | 管家的供应商、模型、思考预算、脱敏（Harness 固定 Claude Code，写在副标题）；“更多”里压缩阈值和私聊模式（`MODE_CHOICES`）。纯话题模式下只有私聊模式一行 |
+| 管家 | 管家的 Harness（能跑管家的才列）、供应商、模型、思考预算、脱敏（Harness 能脱敏才有）、工作区；“更多”里压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code）和私聊模式（`MODE_CHOICES`）。开着脱敏时 Harness 只列能脱敏的，页上写一句先关脱敏才能换（`REDACT_FIRST`）。纯话题模式下只有私聊模式一行 |
 | 工作区 | 工作区列表；每行一行灰字写用途，“改用途”换成输入框，“保存用途”存 |
 
 每行点开是选项，点一个就记下并整卡重画；只有主人能改。私聊模式改成纯话题要再点“确定改”。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向、脱敏默认的迁移和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。

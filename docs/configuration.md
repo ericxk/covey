@@ -12,7 +12,7 @@
 
 | 功能 | 开关 | 怎么确认开着 | 怎么关 |
 | --- | --- | --- | --- |
-| [管家](#管家) | `COVEY_BUTLER`（不设即允许） | 私聊发一句话由管家回答或开话题；设置卡有「管家」标签。管家只用 Claude Code，Claude Code 没启用时私聊照旧开话题 | `COVEY_BUTLER=0`；或主人在设置卡「管家」页把私聊顶层改成“每条直接开一个话题” |
+| [管家](#管家) | `COVEY_BUTLER`（不设即允许） | 私聊发一句话由管家回答或开话题；设置卡有「管家」标签。管家默认用 Claude Code，设置卡「管家」页可换成 Codex 或 Antigravity；选的 Harness 没启用时私聊照旧开话题 | `COVEY_BUTLER=0`；或主人在设置卡「管家」页把私聊顶层改成“每条直接开一个话题” |
 | [专项](projects.md) | `COVEY_PROJECTS=1`（`./install` 写） | 管家把长期要跟进的事开成专项时，私聊出现专项卡 | `COVEY_PROJECTS=0` |
 | [整理专项](#整理专项)（只提议） | `COVEY_PROJECT_TIDY=suggest`（`./install` 写，要 `COVEY_PROJECTS=1`） | 话题多了以后私聊出现“建个专项？”的提议卡；有菜单「看板」时看板卡上有「整理专项」 | `COVEY_PROJECT_TIDY=off` |
 | 以后这类按推荐走 | `COVEY_STANDING_ANSWERS=1`（`./install` 写） | 每题都有推荐项的问题卡下面多这个按钮 | `COVEY_STANDING_ANSWERS=0` |

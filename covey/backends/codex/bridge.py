@@ -92,7 +92,8 @@ class CodexBackend(BackendRuntime):
         return str(ctx.options.get("sandbox") or DEFAULT_SANDBOX)
 
     def capabilities(self, ctx):
-        return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, turn_export=True), ctx)
+        return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, turn_export=True,
+                                              bridge_tools=True), ctx)
 
     # The signed-in account's models plus the gateways' Responses models (<prefix><model>, core/gateways.py).
     def model_catalog(self, ctx: BridgeContext) -> dict:

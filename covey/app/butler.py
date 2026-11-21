@@ -44,6 +44,7 @@ from covey.core import butler_tracks
 from covey.core import board_read, butler_opened, butler_settings, placement, projects, timing, turn_words
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, topic_label as topic_words
+from covey.core.harness import backend_capabilities
 from covey.core.attachments import message_words
 from covey.core.checkpoint import checkpoint_steps
 from covey.core.jobs import job_key, job_path, read_job_record
@@ -61,7 +62,7 @@ from covey.core.workspaces import load_config
 from covey.feishu.message_parts import collect_message_parts_named, json_object, strip_paragraph_markup
 from covey.feishu.message_request import configure_top_level
 
-HARNESS = "claude"  # core/roster.py.
+HARNESS = contract.HARNESS  # Its Harness when the settings name none (core/butler_settings.py Settings.harness).
 RELEASE = Path(__file__).resolve().parents[2]
 SNAPSHOT = "main-snapshot.json"
 RESULTS = turn_words.RESULTS  # How the snapshot says a result ended (core/board_read.py BOARD_RESULTS).
@@ -127,14 +128,27 @@ class Butler:
         (app/track_standby.py)."""
         track_standby.shutdown()
 
-    def harness_note(self) -> str:
-        """The start's warning when the private chat is set to 管家 but the butler's Harness
-        (``HARNESS``) is not enabled: the owner's messages then open topics as with the butler off, which
-        nothing else says (acceptance on a test bot without Claude Code). '' otherwise."""
-        if not contract.enabled() or self.topics.apps.get(HARNESS) is not None:
+    def harness_app(self, state_dir):
+        """(name, app) of the Harness the butler runs on: the settings' (``HARNESS`` when they name none). The app is
+        None when that Harness is not enabled here or cannot take the Bridge's tools (core/harness.py bridge_tools)."""
+        name = butler_settings.load(state_dir).butler_harness
+        app = self.topics.apps.get(name)
+        if app is None or not backend_capabilities(app.backend, app.harness.context).bridge_tools:
+            return name, None
+        return name, app
+
+    def harness_note(self, state_dir) -> str:
+        """The start's warning when the private chat is set to 管家 but the butler's Harness is not enabled (or cannot
+        run it): the owner's messages then open topics as with the butler off, which nothing else says (acceptance
+        on a test bot without Claude Code). '' otherwise."""
+        if not contract.enabled():
             return ""
-        return (f"main thread is on but its Harness {HARNESS} is not enabled: private chat messages open topics "
-                f"instead; enable {HARNESS} in harnesses.json or choose 纯话题 on the settings card")
+        name, app = self.harness_app(state_dir)
+        if app is not None:
+            return ""
+        return (f"main thread is on but its Harness {name} is not enabled or cannot take the Bridge tools: private chat "
+                f"messages open topics instead; enable {name} in harnesses.json, choose another Harness on the settings "
+                f"card's 管家 tab or choose 纯话题")
 
     @staticmethod
     def configure(ctx) -> None:
@@ -174,7 +188,8 @@ class Butler:
     def app_for(self, ctx, event, owner):
         """The app that runs this message as the butler's, or None when it is not the butler's: not a chat
         with a butler (Access.agent_chat: the owner's private chats, the personal groups), in
-        or under a topic, the butler off (the switch 0 or the mode 纯话题), or Claude Code not available."""
+        or under a topic, the butler off (the switch 0 or the mode 纯话题), or its Harness not available
+        (``harness_app``). The app is the settings' Harness; ``keep_topic`` may keep the one a running turn has."""
         chat = str(event.get("chat_id") or "")
         # ``enabled`` reads the mode of the state ``configure`` set: this one (app/unified.py, one state a process).
         if not owner or not contract.enabled() \
@@ -201,7 +216,7 @@ class Butler:
         if (not is_butler_topic(known[0], chat)) if known else (
                 any(above) and not pins.panel_message(ctx.state_dir, chat, above[0])):
             return None
-        app = self.topics.apps.get(HARNESS)
+        app = self.harness_app(ctx.state_dir)[1]
         if app is None:
             return None
         try:
@@ -216,7 +231,8 @@ class Butler:
         if app is None:
             return False
         chat = str(event.get("chat_id") or "")
-        self.keep_topic(ctx, app, chat)
+        # A turn under way on the Harness the butler had keeps it until the topic is idle (``write_topic``).
+        app = self.topics.apps.get(self.keep_topic(ctx, app, chat)) or app
         message = str(event.get("message_id") or event.get("id") or "")
         if self.tracks.enabled() and self.tracks.handle(ctx, app, event, chat, message, bare=bare_message(event),
                                                         text=event_text(event)[1]):
@@ -248,10 +264,11 @@ class Butler:
             return 0
         return contract.traits(butler_topic_id(chat), chat).hold_seconds
 
-    def keep_topic(self, ctx, app, chat):
+    def keep_topic(self, ctx, app, chat) -> str:
         """The topic.json as the settings say: created on the first message. A new model, budget or 脱敏 applies to
-        the next turn. Another workspace applies once nothing runs, on a new session (Claude Code finds a session by
-        its directory; the topic's history goes with the new session's first message)."""
+        the next turn. Another workspace or Harness (``app``, the settings') applies once nothing runs, on a new
+        session (Claude Code finds a session by its directory; another Harness has a session of its own; the topic's
+        history goes with the new session's first message). The Harness the topic is bound to now."""
         settings = butler_settings.load(ctx.state_dir)
         topic_id = butler_topic_id(chat)
         config = load_config(ctx.state_dir, ctx.default_workdir)
@@ -270,7 +287,7 @@ class Butler:
             else:
                 data.pop(REDACTION_KEY, None)
             return data
-        self.write_topic(ctx, app, topic_id, name, workdir, build)
+        return self.write_topic(ctx, app, topic_id, name, workdir, build)
 
     def keep_track_topic(self, ctx, app, chat, slot) -> str:
         """The topic.json of track ``slot`` (1..SLOTS, core/butler_tracks.py), created or brought up to date: slot 0's
@@ -289,7 +306,7 @@ class Butler:
                 raise ValueError("the main thread's topic.json cannot be read")
             data = {**{key: value for key, value in root.items() if key not in ("topic_id", "track")},
                     "topic_id": topic_id, "track": slot}
-            for key in ("workdir", "workspace_name", "binding_revision"):  # ``write_topic`` moves these, nothing running.
+            for key in ("workdir", "workspace_name", "harness_id", "binding_revision"):  # ``write_topic`` moves these.
                 if saved and key in saved:
                     data[key] = saved[key]
             return data
@@ -297,16 +314,19 @@ class Butler:
         self.write_topic(ctx, app, topic_id, root.get("workspace_name", ""), root.get("workdir", ""), build)
         return topic_id
 
-    def write_topic(self, ctx, app, topic_id, name, workdir, build) -> None:
+    def write_topic(self, ctx, app, topic_id, name, workdir, build) -> str:
         """Write the butler's family topic ``topic_id``'s topic.json as ``build(saved)`` says (``saved``: what is
-        there, None when nothing is), under LOCK. A workspace that changed with nothing running in the topic
-        takes its next turn on a new session: ``name``, ``workdir`` are the new one."""
+        there, None when nothing is), under LOCK. A workspace or a Harness that changed with nothing running in the
+        topic takes its next turn on a new session: ``name``, ``workdir`` and ``app`` are the new ones, and the new
+        Harness's session pointer is cleared (a session it had before is behind the conversation since). The
+        topic's Harness, as written."""
         path = topic_file(ctx.state_dir, topic_id)
         with LOCK:
             saved = read_object(path)
             data = build(saved or None)
-            if saved and data.get("workdir") != workdir and not self.runtime.jobs.in_topic(topic_id):
-                data.update(workspace_name=name, workdir=workdir,
+            moved = data.get("workdir") != workdir or data.get("harness_id") != app.spec.name
+            if saved and moved and not self.runtime.jobs.in_topic(topic_id):
+                data.update(workspace_name=name, workdir=workdir, harness_id=app.spec.name,
                             binding_revision=int(data.get("binding_revision", 1)) + 1)
                 pointer = path.parent / app.spec.session_filename
                 with self.runtime.session_lock:
@@ -315,6 +335,7 @@ class Butler:
                         compare_and_set_session(pointer, app.spec.session_pattern, revision, session, None)
             if data != saved:
                 write_json(path, data, ensure_ascii=False, indent=2)
+            return str(data.get("harness_id") or app.spec.name)
 
     def supplement(self, app, chat, ctx, prompt, message, *, bare=False, content="", sender="", target=None, fresh=None):
         """True when this turn took ``prompt`` (or may have: rule 6, it is not sent again); False to queue it behind.
@@ -377,8 +398,10 @@ def butler_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
     try:
         # A request this turn takes compacts the session first; one left to the idle compaction does not.
         request = None if track else compaction.request(ctx)
+        # Whole on a Harness the Bridge does not compact (compaction.supported): it may compact on its own, unseen.
         snapshot = take_snapshot(ctx, job.chat_id, key, save=not track,
-                                 full=bool(track) or not session_id or (request is not None and not left_for_idle(request)))
+                                 full=bool(track) or not session_id or not compaction.supported(ctx)
+                                 or (request is not None and not left_for_idle(request)))
     except Exception as exc:  # noqa: BLE001 - the owner's message goes on without it
         log(f"main thread snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
         snapshot = "[快照暂时读不到，需要时用 topics_list]"

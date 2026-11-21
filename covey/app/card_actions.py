@@ -150,6 +150,8 @@ ACTIONS = {
     "bridge_main_enable": CardAction("开关管家"),
     "bridge_main_mode": CardAction("选择私聊模式"),
     "bridge_main_start_row": CardAction("选择直接开工"),
+    "bridge_main_harness": CardAction("选择管家 Harness"),
+    "bridge_main_workspace": CardAction("选择管家工作区"),
     "bridge_main_model": CardAction("选择管家模型"),
     "bridge_main_effort": CardAction("选择管家思考预算"),
     "bridge_main_provider": CardAction("选择管家供应商"),

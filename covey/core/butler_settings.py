@@ -44,7 +44,11 @@ class Settings:
     # The private chat mode (docs/butler.md 私聊模式): True 管家, False 纯话题, the chat's top level
     # opening topics as before. Saved as ``mode``, and as ``enabled`` for an older release.
     enabled: bool = True
-    model: str = ""  # The butler's own Claude Code model; "" the default.
+    # The butler's own Harness (core/roster.py NAMES; "" is contract.HARNESS, Claude Code), model and budget; ""
+    # the Harness's default model. A Harness that cannot run the butler (no Bridge tools, not enabled) is not used:
+    # app/butler.py says so and the chat's messages open topics, as when Claude Code was not enabled.
+    harness: str = ""
+    model: str = ""
     effort: str = ""
     # Its own turns through the term relay (core/redaction.py), from the next one: app/butler.py keep_topic
     # writes it into its topic.json, which the relay reads. Each request goes through whole, so the session goes on.
@@ -60,6 +64,11 @@ class Settings:
     # (core/migrate.py desk-retire). It is no longer read, so every topic the butler
     #  opens is a 话题区; a file that says true gets one warning line at the Bridge's start
     # (``desk_topics_left``), and ``save`` keeps the value it has for an older release. Not a field: no one can set it.
+
+    @property
+    def butler_harness(self) -> str:
+        """The Harness the butler runs on: ``harness``, or Claude Code."""
+        return self.harness or contract.HARNESS
 
     def note(self, workspace: str) -> str:
         return dict(self.workspace_notes).get(workspace, "")
@@ -87,6 +96,7 @@ def from_json(data) -> Settings:
     notes = data.get("workspace_notes")
     return Settings(
         enabled=contract.agent_mode(data),
+        harness=_text(data.get("harness")),
         model=_text(data.get("model")), effort=_text(data.get("effort")), redaction=data.get("redaction") is True,
         workspace=_text(data.get("workspace")),
         compact_tokens=compact if type(compact) is int and compact >= 0 else base.compact_tokens,

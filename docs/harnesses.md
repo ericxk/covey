@@ -77,6 +77,7 @@ CLI 登录和注册服务要用同一个系统账号、同一套环境变量。�
 - **工作区只读工具**：每个会话挂本任务专用的 `bridge_workspace` MCP 服务，可读工作区、附件目录和换配置的 `handoff/`，拒绝 `..`、符号链接和二进制；实际权限只由 `--sandbox` 决定。
 - **本轮结果**：thread 和 turn 双重绑定，只用当前 turn 的完整 items（不完整时按 ID 回读），取 `final_answer` 阶段的 agentMessage。下载请求与结果从 rollout 还原，不记的部分列在 `not_recorded`。
 - **执行指标**：token 取 `thread/tokenUsage/updated` 的累计减本轮基线（`CodexTurnUsage`），子 Agent 会话各自减基线；生成时间从 `turn/start` 计，扣除工具和提问区间（重试也算在内，token/s 会偏低）；TTFT `codex_item`、`codex_delta`。
+- **管家的工具**：管家跑在 Codex 上时（设置卡「管家」页的 Harness），它那一轮的线程另挂 Bridge 工具服务 `bridge`（`backends/codex/appserver.py` 的 `bridge_servers`），工具等待上限 `tool_timeout_sec` 150 秒，比服务自己的 120 秒长。`approvalPolicy: never` 下调用不弹审批（0.167.2 实测）。
 - **参数**写在 bootstrap 命令上，不进 `harnesses.json`（[常用参数](#常用参数)）；网关模型见[模型网关](#模型网关codexpi-与-dsh)。
 
 ## Claude Code
@@ -119,6 +120,7 @@ Antigravity 是 Google 的 Agent 开发平台，这里用它的命令行 `agy`�
 - **模型和档位**：启动卡的预算就是 `--effort`；模型目录（`launch-models/agy.json`）说没有这个档位时不启动，没有档位的模型不传 `--effort`。
 - **失败**：`result.error` 像登录失败记 `authentication_error`、像额度用完记 `quota_exhausted`、像 429 记 `rate_limited`，其余 `root_failed`。agy 的原文不上卡片，stderr 最后几行（去掉登录链接、隐藏凭据）只进 `bridge.log`。
 - **补充**是“停下再接着做”（`AgyControl`）：agy 运行中不收新消息，收下补充即“后端已接收”，给 agy 发 SIGINT，它以 `interrupted` 结束并保留已做的部分；它还在跑的命令先 TERM、5 秒后 KILL；然后同一会话起新进程，消息是补充，这时算“模型已读取”。和 Claude 不同，正在执行的那一步会被打断。
+- **管家的工具**：agy 只从 `~/.gemini/config/mcp_config.json`（和插件）读 MCP 服务，`--settings` 不收 `mcpServers`。管家跑在 agy 上时，那一轮的 `HOME` 换成 `<state>/tmp/agy-home-*`（`backends/agy/home.py`）：真实主目录的每一项、`.gemini` 和它的 `config` 里的每一项都是指回原处的符号链接，只有 `mcp_config.json` 是这一轮自己的：主人原有的服务（文件是纯 JSON 时；带注释的读不了，这一轮就不带，`bridge.log` 记一行）加上 Bridge 的 `bridge`。每个工具标 `tools.<名字>.eager`（开跑前问一次服务的 `tools/list`），不然 agy 只给模型一个工具说明文件、要先读再调；`timeoutSeconds` 150。登录、会话、日志都经链接写回原处；这一轮在主目录顶层新建的文件随私有目录一起删掉。agy 会在 `~/.gemini/antigravity-cli/mcp/bridge/` 留工具说明的缓存。
 - 没有原生问答、原生图片（只给路径，它用自带的 `read_file` 打开）、原生分叉、脱敏、回退一步、下载请求与结果；不能在设备上跑。
 
 ## 模型网关（Codex、Pi 与 dsh）

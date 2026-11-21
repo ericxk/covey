@@ -192,6 +192,15 @@ def redacts(choices, harness):
     return any(entry.get('redaction') for key, entry in choices.items() if harness_of(key, entry) == harness)
 
 
+def butler_harnesses(choices, *, redacting=False):
+    """{name: title} of the Harnesses on the menu that can run the butler (their entries say ``bridge_tools``,
+    app/launch_models.py), in menu order; with ``redacting``, only those that can redact too (the butler's 脱敏 is on:
+    a Harness without it is not offered until 脱敏 is off)."""
+    return {name: title for name, title in tiers(choices, '')[0].items()
+            if any(entry.get('bridge_tools') and (entry.get('redaction') or not redacting)
+                   for key, entry in choices.items() if harness_of(key, entry) == name)}
+
+
 def models_of(choices, harness, provider=None):
     """{model id: name} of ``harness``'s models (of ``provider``, all when None) as the launch card's 模型 row lists
     them (tiers): the same filter, order and names."""

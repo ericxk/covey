@@ -24,12 +24,12 @@ from typing import Callable, NamedTuple
 
 from covey.app.card_actions import form_fields
 from covey.app.launch_models import available_models
-from covey.core.menu_choice import (budget_effort, default_entry, entry_of, model_provider, models_of, redacts,
-                                             tiers)
+from covey.core.menu_choice import (budget_effort, butler_harnesses, default_entry, entry_of, model_provider,
+                                             models_of, redacts, tiers)
 from covey.app.butler_env import reply
 from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
-from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
+from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, HARNESS, KINDS, SPACE, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
                                                     NOTE_LENGTH, NOTES, PAGE_OF, PROVIDER, REDACTION, START,
                                                     START_CHOICES, START_ROW, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
@@ -53,6 +53,9 @@ MODE_NOTICES = {True: '已改成交给管家：私聊顶层的消息交给管家
                 False: '已改成每条直接开一个话题；已开的话题照常在各自的话题串里继续。'}
 # Said on the card once another setting was saved (docs/ui.md 5.2: 保存后用一句灰字回执), by the page of the row.
 SAVED = {BUTLER: '已保存：管家下一轮起照这个来。', TOPIC: '已保存：之后新开的话题照这个来。', WORKSPACE: '已保存。'}
+# A row whose change waits for the butler to be idle and starts a new session (app/butler.py write_topic).
+SAVED_NEW_SESSION = '已保存：管家手上这一轮做完后换过去，开一个新会话，最近的对话会带上。'
+SAVED_OF = {HARNESS: SAVED_NEW_SESSION, SPACE: SAVED_NEW_SESSION}
 
 
 def workspace_names(state_dir):
@@ -121,15 +124,31 @@ def pick_harness(rows, choices, option, state_dir):
 
 
 def pick_redaction(rows, choices, option, state_dir):
-    """私聊默认's 脱敏: on only where Claude Code can redact."""
-    if option not in ('on', 'off') or option == 'on' and not redacts(choices, CLAUDE):
+    """The butler's 脱敏: on only where its Harness can redact."""
+    if option not in ('on', 'off') or option == 'on' and not redacts(choices, rows.harness):
         return None
     return {'redaction': option == 'on'}
+
+
+def pick_butler_harness(rows, choices, option, state_dir):
+    """The butler's Harness: one that can run it (butler_harnesses), and with 脱敏 on one that can redact too (the card
+    lists no other: REDACT_FIRST); another one empties the model and budget. Claude Code is saved as '', the default."""
+    if option == rows.harness:
+        return {}
+    if option not in butler_harnesses(choices, redacting=butler_settings.load(state_dir).redaction):
+        return None
+    return {'harness': '' if option == CLAUDE else option, 'model': '', 'effort': ''}
+
+
+def pick_butler_workspace(rows, choices, option, state_dir):
+    """The butler's workspace: '' the default one, else a saved one."""
+    return {'workspace': option} if not option or option in workspace_names(state_dir) else None
 
 
 # A settings row's kind -> (its page, what a choice on it changes: rows, choices, option, state_dir -> the settings
 # fields, {} for none, None when the choice is no longer offered). The two pages share the 供应商, 模型 and 思考预算 rows'.
 ROW_CHANGES = {
+    HARNESS: (BUTLER, pick_butler_harness), SPACE: (BUTLER, pick_butler_workspace),
     PROVIDER: (BUTLER, pick_provider), MODEL: (BUTLER, pick_model), EFFORT: (BUTLER, pick_effort),
     REDACTION: (BUTLER, pick_redaction),
     COMPACT: (BUTLER, lambda rows, choices, option, state_dir: {'compact_tokens': int(option)} if option.isdigit() else None),
@@ -264,7 +283,8 @@ class ButlerPanel:
             notice = GONE if changes is None else ''
             if changes:
                 butler_settings.update(ctx.state_dir, **changes)
-                notice = MODE_NOTICES.get(changes.get('enabled')) or SAVED.get(PAGE_OF.get(value['kind']), '')
+                notice = (MODE_NOTICES.get(changes.get('enabled')) or SAVED_OF.get(value['kind'])
+                          or SAVED.get(PAGE_OF.get(value['kind']), ''))
         with self.menu.lock(path):
             record = self.menu.clicked(path, event)  # Read again: another click may have drawn it since.
             if record is None:
@@ -311,12 +331,13 @@ class ButlerPanel:
         if change is None:
             return None
         if page == BUTLER:
-            # The butler's own: Claude Code; no model is Claude Code's default model (default_entry), whose
-            # budgets the 思考预算 row offers and the turn runs with --effort. Its topic.json takes a budget as it is
-            # (app/butler.py keep_topic): 推荐 is saved as the level it names now.
-            rows = Rows(CLAUDE, settings.model, settings.effort, False,
-                        lambda: (entry_of(choices, CLAUDE, settings.model) if settings.model
-                                 else default_entry(choices, CLAUDE)),
+            # The butler's own Harness; no model is its default model (default_entry), whose budgets the 思考预算 row
+            # offers and the turn runs with. Its topic.json takes a budget as it is (app/butler.py keep_topic): 推荐 is
+            # saved as the level it names now.
+            harness = settings.butler_harness
+            rows = Rows(harness, settings.model, settings.effort, False,
+                        lambda: (entry_of(choices, harness, settings.model) if settings.model
+                                 else default_entry(choices, harness)),
                         lambda entry, option: budget_effort(entry, option) if option else '',
                         lambda **fields: fields)
         else:

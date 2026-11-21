@@ -545,7 +545,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.runtime.log(f"history={ctx.history_path}")
         self.runtime.log(f"session_path={ctx.session_path}")
         self.runtime.log(f"state_dir={ctx.state_dir}")
-        note = self.butler.harness_note()
+        note = self.butler.harness_note(ctx.state_dir)
         if note:
             self.runtime.log(note)
         start_catalog_refresh(self.topics)

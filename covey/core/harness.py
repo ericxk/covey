@@ -111,6 +111,9 @@ class HarnessCapabilities:
     # rewind_point/rewind_files(ctx, session_id, prompt_uuid), ``resume_at`` and the prompt_read event: drops a
     # session's last turn (↩️ 回退, app/rewind.py)
     rewind: bool = False
+    # Takes ``options["mcp_config"]`` (the butler's Bridge tools, core/butler.py mcp_config) into the turn: the butler
+    # runs only on a Harness that does (app/butler.py).
+    bridge_tools: bool = False
 
 
 def backend_capabilities(backend, ctx):
@@ -120,7 +123,8 @@ def backend_capabilities(backend, ctx):
 
 # What a Harness process on a device cannot do: each reads files of the hub (the session store, the request log, the
 # file snapshots) or runs the hub's relay, none of which exist there.
-DEVICE_OFF = ("native_fork", "compaction", "turn_export", "redaction", "rewind", "command_stop")
+# bridge_tools: the butler's tools are a process on this machine, its state directory too.
+DEVICE_OFF = ("native_fork", "compaction", "turn_export", "redaction", "rewind", "command_stop", "bridge_tools")
 
 
 def for_device(capabilities, ctx):

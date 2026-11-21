@@ -468,6 +468,7 @@
 | 文件 | 管什么 |
 | --- | --- |
 | `backends/agy/bridge.py` | Antigravity (Google's `agy` CLI): Gemini and the other models of the owner's Google account, headless |
+| `backends/agy/home.py` | agy's private home for one turn that takes the Bridge's tools (`options["mcp_config"]`, the butler's) |
 
 ### backends/claude
 

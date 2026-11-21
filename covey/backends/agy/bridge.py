@@ -14,11 +14,15 @@ supplement stops the turn and goes on with it: SIGINT ends agy at once with ``re
 (its conversation keeps what was done; seen on 1.5.13), the commands it left running are stopped,
 and the same conversation goes on in a new process with the supplement as its message (AgyControl). The
 job's reply is the last process's answer.
+
+The butler's turn (``options["mcp_config"]``, its Bridge tools) runs with a home of its own whose MCP config adds them
+(backends/agy/home.py): agy reads MCP servers from one file in the home and from nowhere a turn could name.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from pathlib import Path
 import re
 import os
@@ -28,8 +32,9 @@ import subprocess
 import threading
 import time
 
+from covey.backends.agy.home import PrivateHome
 from covey.core.harness import (BackendConfig, BackendRuntime, HARNESS_REGISTRY, HarnessCapabilities, HarnessSpec,
-                                JobCancelled, UUID_RE)
+                                JobCancelled, UUID_RE, for_device)
 from covey.core import env as cenv
 from covey.core import procfs
 from covey.core.process import is_owned, process_identity, stop_group, stream_subprocess_lines
@@ -221,7 +226,7 @@ class AntigravityBackend(BackendRuntime):
                              args.skip_permissions, {"harness_id": "agy"})
 
     def capabilities(self, ctx):
-        return HarnessCapabilities(steering=True, steer_reads=True)
+        return for_device(HarnessCapabilities(steering=True, steer_reads=True, bridge_tools=True), ctx)
 
     def environment(self, ctx):
         return child_process_env(ctx.workdir)
@@ -288,7 +293,15 @@ class AntigravityBackend(BackendRuntime):
                    "error_texts": {**ctx.options.get("error_texts", {}), "authentication_error": NOT_LOGGED_IN}}
         request = dataclasses.replace(request, context=dataclasses.replace(ctx, options=options))
         stdin = json.dumps({"event": "user", "message": {"content": request.prompt}}, ensure_ascii=False) + "\n"
-        return run_stream(request, self.argv(ctx, request.session_id), stdin, self.environment(ctx))
+        argv, env = self.argv(ctx, request.session_id), self.environment(ctx)
+        if not ctx.options.get("mcp_config"):
+            return run_stream(request, argv, stdin, env)
+        # The butler's turn: its Bridge tools through a home of its own (backends/agy/home.py).
+        home = PrivateHome(ctx.state_dir, env.get("HOME") or Path.home(), ctx.options["mcp_config"], env)
+        with home as path:
+            if home.note:
+                logging.getLogger(__name__).warning("agy private home: %s", home.note)
+            return run_stream(request, argv, stdin, {**env, "HOME": str(path)})
 
     def prompt_runtime_note(self, ctx):
         return ("Antigravity permission mode: always-proceed (--dangerously-skip-permissions)" if ctx.skip_permissions

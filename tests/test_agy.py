@@ -96,6 +96,65 @@ class AntigravityTests(unittest.TestCase):
         rows.texts = {}
         self.assertEqual(rows.reply(), "全文")
 
+    def test_the_butlers_turn_gets_the_bridge_tools_through_a_home_of_its_own(self):
+        """T614: agy reads MCP servers from ~/.gemini/config/mcp_config.json alone. The butler's turn runs with a home
+        of its own: every entry a link to the real one but that file, which adds the Bridge's server (eager tools, a
+        wait above the server's own 120 seconds) to the owner's; the real file is left alone and the home goes."""
+        from covey.core.butler import mcp_config
+        real = self.root / ".gemini" / "config"
+        real.mkdir(parents=True)
+        owner = {"mcpServers": {"mine": {"command": "my-server", "args": ["--x"]}}}
+        (real / "mcp_config.json").write_text(json.dumps(owner))
+        (real / "config.json").write_text("{}")
+        (self.root / ".gemini" / "antigravity-cli").mkdir()
+        (self.root / ".gitconfig").write_text("[user]\n")
+        config = mcp_config(Path(__file__).resolve().parents[1], self.root / "state", "om_1-1", sys.executable)
+        ctx = dataclasses.replace(self.ctx, options={**self.ctx.options, "mcp_config": config})
+        result, _events, _replies, _sessions, record = self.run_agy("ok", ctx=ctx)
+        self.assertFalse(result.is_error, result.text)
+        home = Path(record["home"])
+        self.assertNotEqual(home, self.root)
+        self.assertEqual(home.parent, self.root / "state" / "tmp")
+        self.assertFalse(home.exists())  # Removed with the turn, its links never followed.
+        self.assertEqual(json.loads((real / "mcp_config.json").read_text()), owner)
+        self.assertTrue((real / "config.json").exists() and (self.root / ".gitconfig").exists())
+        servers = record["mcp"]["mcpServers"]
+        self.assertEqual(servers["mine"], owner["mcpServers"]["mine"])
+        bridge = servers["bridge"]
+        self.assertEqual((bridge["command"], bridge["args"], bridge["env"]),
+                         (config["mcpServers"]["bridge"]["command"], config["mcpServers"]["bridge"]["args"],
+                          config["mcpServers"]["bridge"]["env"]))
+        self.assertEqual(bridge["timeoutSeconds"], 150)
+        self.assertIn("topic_start", bridge["tools"])
+        self.assertTrue(all(tool == {"eager": True} for tool in bridge["tools"].values()))
+
+    def test_a_private_home_links_everything_but_the_mcp_file_and_says_when_the_owners_file_is_not_json(self):
+        from covey.backends.agy.home import PrivateHome
+        real = self.root / ".gemini" / "config"
+        real.mkdir(parents=True)
+        (real / "mcp_config.json").write_text('{"mcpServers": {"mine": {"command": "x"},},}  // agy takes this')
+        (self.root / ".gemini" / "antigravity-cli").mkdir()
+        server = {"command": sys.executable, "args": ["-c", "pass"]}  # Answers nothing: its tools are not eager.
+        home = PrivateHome(self.root / "state", self.root, {"mcpServers": {"bridge": server}}, dict(os.environ))
+        with home as path:
+            self.assertTrue((path / ".gemini" / "antigravity-cli").is_symlink())
+            self.assertTrue((path / ".gemini" / "config").is_dir() and not (path / ".gemini" / "config").is_symlink())
+            self.assertTrue((path / ".gitconfig").is_symlink() or not (self.root / ".gitconfig").exists())
+            data = json.loads((path / ".gemini" / "config" / "mcp_config.json").read_text())
+            self.assertEqual(list(data["mcpServers"]), ["bridge"])
+            self.assertNotIn("tools", data["mcpServers"]["bridge"])
+            self.assertIn("not plain JSON", home.note)
+        self.assertFalse(path.exists())
+        self.assertTrue((self.root / ".gemini" / "antigravity-cli").is_dir())
+        (real / "mcp_config.json").write_text("")  # As agy leaves it with no server: nothing to say.
+        home = PrivateHome(self.root / "state", self.root, {"mcpServers": {"bridge": server}}, dict(os.environ))
+        with home:
+            self.assertEqual(home.note, "")
+
+    def test_any_other_turn_keeps_the_real_home(self):
+        _result, _events, _replies, _sessions, record = self.run_agy("ok")
+        self.assertEqual(Path(record["home"]), self.root)
+
     def test_agys_own_default_model_and_budget_pass_no_flag(self):
         result, *_rest, record = self.run_agy("ok", ctx=dataclasses.replace(self.ctx, model="", effort=""))
         self.assertFalse(result.is_error, result.text)

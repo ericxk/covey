@@ -172,7 +172,12 @@ def available_models(topics, ctx):
         # A Harness with work modes offers them with each model, its default first.
         modes = {'work_modes': list(app.backend.work_modes)} if getattr(app.backend, 'work_modes', ()) else {}
         # A Harness that can redact offers the 敏感词脱敏 choice with each model (core/redaction.py).
-        modes = {**modes, 'redaction': True} if backend_capabilities(app.backend, ctx).redaction else modes
+        capabilities = backend_capabilities(app.backend, ctx)
+        modes = {**modes, 'redaction': True} if capabilities.redaction else modes
+        # A Harness that can run the butler (its Bridge tools), on the 设置 card's 管家 tab (cards/butler_panel.py).
+        modes = {**modes, 'bridge_tools': True} if capabilities.bridge_tools else modes
+        # One the Bridge compacts: the 管家 tab's 压缩阈值 counts only there.
+        modes = {**modes, 'compaction': True} if capabilities.compaction else modes
         try:
             cached = read_json(ctx.state_dir / 'launch-models' / (name + '.json'))
             # A failed background probe must not keep removed models forever; one that got no answer keeps the

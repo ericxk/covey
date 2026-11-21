@@ -217,7 +217,7 @@ class Handed(ButlerCase):
     def turn(self, topic=BUTLER, mid="om_m2", job_id=11, request=None, session_id=None):
         job = SimpleNamespace(topic_id=topic, chat_id=CHAT, message_id=mid, job_id=job_id, kind="chat",
                               prompt_text=None, user_text="新问题", cancel_event=threading.Event())
-        compaction = SimpleNamespace(request=mock.Mock(return_value=request))
+        compaction = SimpleNamespace(request=mock.Mock(return_value=request), supported=lambda ctx: True)
         ctx = dataclasses.replace(self.ctx, state_dir=self.state)
         harness = None if topic == BUTLER else SimpleNamespace(backend=None, spec=SimpleNamespace(session_filename="s"))
         with mock.patch.object(session.contract, "traits_of",
