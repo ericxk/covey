@@ -155,11 +155,14 @@ def task_sketch():
 
 
 def answer_sketch():
-    """The answer card in the topic: the conclusion band, the answer, 产物 and 输入/输出."""
+    """The answer card in the topic as app/answer_delivery.py makes it: the conclusion band over the reply's lead
+    (app/saved_send.py status_head), the answer after that line (``said``: not said twice), 产物 and 输入/输出."""
     from covey.cards.answer_card import input_parts, tail
-    from covey.cards.review import answer_band, answer_card
+    from covey.cards.review import answer_band, answer_card, answer_lead
+    from covey.core.failure import HEADLINE_CHARS
+    lead = answer_lead(answer_text(), HEADLINE_CHARS)
     card = answer_card(answer_text(), f"{LABEL} 有结果 · 结论", tail(artifacts(), input_parts(*INPUTS), outputs(242)),
-                       [answer_band("done", LABEL, TITLE, "登录页加好了，构建和测试都通过")])
+                       [answer_band("done", LABEL, TITLE, lead)], said=lead)
     return [("card", card)]
 
 
