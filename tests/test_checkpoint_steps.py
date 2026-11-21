@@ -52,6 +52,12 @@ class RulesTest(unittest.TestCase):
                                                     {"label": "先不合并"}]}]
         self.assertEqual(question_cards.recommended(asked), [(0, 0)])
 
+    def test_the_rules_name_the_background_line_the_card_shows(self):
+        # T604 #14: a question may carry one line of background, which the card writes under it.
+        self.assertIn('"context":"一句背景：这题在改什么、为什么现在问"', CHECKPOINT_RULES)
+        self.assertEqual(question_cards.question_context({"question": "端口？", "context": "8080 被网关占了"}),
+                         "8080 被网关占了")
+
 
 class ParseTest(unittest.TestCase):
     def test_steps_are_cut_to_what_can_be_shown(self):

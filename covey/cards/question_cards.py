@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callback, callback_button, card, markdown_panel,
-                                  notice_card, plain, topic_button)
+                                  note, notice_card, plain, topic_button)
 from covey.cards.review import compact_text
 from covey.cards.streaming import RECOMMENDED
 from covey.cards.ui import band_label, conclusion_band, styled
@@ -32,6 +32,7 @@ GENERIC_HEADER = re.compile(r"(补充信息|补充|信息|问题|说明|确认|�
 # Where an answered question went: its follow-up task (continuation_job_id) in this state.
 FOLLOW_UP = turn_words.FOLLOW_UP
 ASK_HEADLINE = 36  # Characters of the question the band's 要你定 shows; the whole question is in the form under it.
+CONTEXT_CHARS = 120  # Characters of a question's background line (``question_context``).
 # The superseded_reason of a question folded once a newer question card of its topic was shown
 # (app/questions.py fold_older_questions); without it, an older duplicate retired once a later
 # identical form was answered (app/checkpoint_questions.py).
@@ -347,15 +348,26 @@ def _pick_row(record, options):
             "columns": [{"tag": "column", "width": "auto", "elements": [button]} for button in buttons]}
 
 
+def question_context(q):
+    """The one line of background a checkpoint's question may carry (``context``, core/checkpoint.py CHECKPOINT_RULES:
+    what the question changes, why it is asked now), on one line and at most CONTEXT_CHARS; '' without one, or when it
+    is not text."""
+    raw = q.get("context") if isinstance(q, dict) else None
+    return compact_text(raw, CONTEXT_CHARS) if isinstance(raw, str) else ""
+
+
 def _question_fields(i, q, count=1, record=None):
-    """Question ``i`` of ``count``: its number and header in bold, its text, its options as a list, the
-    dropdown (with ``record``, a picks() card's: a button per option), the answer box and, without options,
-    a skip box."""
+    """Question ``i`` of ``count``: its number and header in bold, its text, its background (``question_context``) in
+    small grey print under it, its options as a list, the dropdown (with ``record``, a picks() card's: a button per
+    option), the answer box and, without options, a skip box."""
     elements = []
     lead = question_lead(i, count, q)
     for start in range(0, len(q["question"]), 6000):
         chunk = q["question"][start : start + 6000]
         elements.append({"tag": "markdown", "content": lead + "\n" + chunk if lead and not start else chunk})
+    background = question_context(q)
+    if background:  # Read on a phone, a question alone did not say what it would change (T604 #14).
+        elements.append(note("背景：" + literal(background)))
     options = q.get("options") or []
     if options:
         if any(o.get("description") for o in options):

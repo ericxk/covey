@@ -684,6 +684,39 @@ class QuestionCardLookTest(unittest.TestCase):
         self.assertEqual(question_element(two_questions())["elements"][0]["content"], "**等你 · 等你回答后继续**")
 
 
+class QuestionContextTest(unittest.TestCase):
+    """A checkpoint's question may carry one line of background (``context``, T604 #14: on a phone a question alone did
+    not say what it would change): small grey print under the question; without one the card is as before."""
+
+    def test_the_background_is_one_grey_line_under_its_question(self):
+        record = two_questions()
+        record["questions"][0]["context"] = "看板要从外网打开\n  8080 已被网关占用"
+        form = question_element(record)
+        texts = [e.get("content", "") for e in form["elements"] if e.get("tag") == "markdown"]
+        at = texts.index("**1/2 · /workspace 口径**\n按什么口径建 workspace？")
+        self.assertEqual(texts[at + 1], "<font color='grey'>背景：看板要从外网打开 8080 已被网关占用</font>")
+        line = next(e for e in form["elements"] if "背景：" in e.get("content", ""))
+        self.assertEqual(line["text_size"], "notation")
+        self.assertEqual(texts[at + 2], "- **按会话单独建（推荐）**：每个会话自成一个\n- **维持排除**：暂不放开")
+        self.assertEqual(sum("背景：" in text for text in texts), 1)  # The second question has none.
+
+    def test_without_text_the_card_is_as_before(self):
+        plain_card = question_card(two_questions(), "T191")
+        for context in (None, "", "   ", 3, ["a"], {"a": 1}):
+            with self.subTest(repr(context)):
+                record = two_questions()
+                record["questions"][0]["context"] = context
+                self.assertEqual(question_card(record, "T191"), plain_card)
+
+    def test_the_line_is_cut_and_shown_as_written(self):
+        record = two_questions()
+        record["questions"][0]["context"] = "# 标题 [链接](x) " + "长" * 300
+        line = next(e["content"] for e in question_element(record)["elements"] if "背景：" in e.get("content", ""))
+        self.assertTrue(line.startswith("<font color='grey'>背景：标题 链接 长"))  # Plain words: no heading, no link.
+        self.assertTrue(line.endswith("…</font>"))
+        self.assertLessEqual(line.count("长"), 120)
+
+
 class QuestionStatusClickTest(QuestionFixture, unittest.TestCase):
     def test_an_old_cards_status_button_still_shows_the_answer(self):
         # Cards sent before kept 查看提交状态 after the answer went through; its click still works.

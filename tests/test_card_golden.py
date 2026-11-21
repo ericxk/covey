@@ -322,6 +322,11 @@ def question_cards():
         questions=[{"id": "q", "header": "选择", "question": "选哪个？", "multiSelect": True,
                     "options": [{"label": "甲（推荐）"}, {"label": "乙"}]}], answers={}))
     cards["element_on_task_card"] = question_element(question_record(), "tag", headed=True)
+    # A question with one line of background (core/checkpoint.py CHECKPOINT_RULES ``context``, T604 #14): grey under it.
+    cards["card_context"] = question_card(question_record(questions=[
+        {"id": "port", "header": "端口", "question": "新服务用哪个端口？", "context": "看板要从外网打开，8080 已被网关占用",
+         "options": [{"label": "8443（推荐）", "description": "不用改网关"}, {"label": "9090"}]},
+        {"id": "note", "header": "补充", "question": "还有别的要求吗？"}], answers={}), "T70")
     # One question with options at the private chat's top level: a button per option (cards/question_cards.py picks).
     cards["card_top_pick"] = question_card({**question_record(questions=question_record()["questions"][:1], answers={}),
                                             TOP_COPY: True}, "T70")

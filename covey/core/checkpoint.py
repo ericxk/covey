@@ -70,6 +70,8 @@ CHECKPOINT_RULES = (
     '有多个待回答项时，另写 questions 数组，每题单独一个对象：'
     '{"id":"稳定且唯一的标识","header":"短标题","question":"完整问题","options":[{"label":"选项","description":"说明"}]}。'
     '可以多选的题另加 "multiple":true，问题卡才给多选下拉框，否则只能单选。'
+    # T604 #14 (t604b/questions), one line kept apart for the prompts agent's rewrite: the card shows it under the question.
+    '题目不带背景看不懂时，另加 "context":"一句背景：这题在改什么、为什么现在问"，问题卡把它写在题目下面。'
     "能自己查清的事先查，不问。单选题里你有把握哪个更稳妥时，把它排第一，在 label 末尾加“（推荐）”（一题只标一个），"
     "并在它的 description 里用一句话写不选它的代价。"
     "自由回答可省略 options；不要把多个独立决策合并进单个 question 输入框。"
