@@ -218,6 +218,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
             # delivery_text, the saved reply, stays as it was; app/topic_links.py).
             display_text = topic_links.linkify(display_text, ctx.state_dir, job.chat_id, profile=ctx.profile,
                                                skip=(job.topic_id,))
+        display_text = butler_reply.unfollowed(self, display_text)  # #25: put off with no topic to bring it back.
         if snapshot is not None:
             try:
                 # Local artifacts only: diffs are never published to Feishu automatically.

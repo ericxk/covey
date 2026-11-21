@@ -10,6 +10,8 @@ topics never get here.
   a turn that opened no topic: the worker then sends the answer card.
 - ``dropped_lines``: a turn stopped or refused lists the owner's messages it took as supplements, so the owner can
   edit and send them again; nothing is sent again by itself.
+- ``unfollowed``: a done turn whose reply puts something off ("稍后", "我去查") while it handed nothing to a topic says,
+  under the reply, that nobody follows it up (#25).
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from covey.cards.review import answer_lead
 from covey.core.deliveries import CLOCK_SLACK, read_delivery, shown_preview
 from covey.core.jobs import job_key
 from covey.app import project_lead, topic_links
-from covey.core import butler_opened, placement
+from covey.core import butler_opened, placement, turn_words
 from covey.core.butler import traits_of
 from covey.core.saved_results import saved_delivery_kind
 from covey.core.state import read_object
@@ -382,3 +384,24 @@ def show_dropped(delivery) -> bool:
     except Exception as exc:  # noqa: BLE001 - only the list is missing
         delivery.runtime.log(f"main thread supplements not listed job=#{job.job_id}: {type(exc).__name__}")
         return False
+
+
+def unfollowed(delivery, text) -> str:
+    """``text`` (the reply as its card shows it) with turn_words.UNFOLLOWED under it when the butler's done turn put
+    something off in its reply (turn_words.defers) while it opened, forked and handed on to no topic (main-thread/opened/,
+    #25): the butler does not wake up by itself, so nothing brings that matter back. Display only (the saved reply stays
+    as the model wrote it); ``text`` as it is for every other turn, and when the records cannot be read."""
+    job, ctx, turn = delivery.job, delivery.ctx, delivery.turn
+    reply, outcome = getattr(turn, "verified_delivery", None), getattr(turn, "verified_outcome", None)
+    if (traits_of(job).name != "butler" or turn.status != "done" or reply is None
+            or getattr(outcome, "status", "") != "completed" or not turn_words.defers(turn.final_text)):
+        return text
+    try:
+        if saved_delivery_kind(reply, outcome) == "file" or any(
+                butler_opened.answered(record) for _, record in butler_opened.by_job(ctx.state_dir, job_key(job.message_id, job.job_id))):
+            return text
+    except Exception as exc:  # noqa: BLE001 - the reply goes out as it is
+        delivery.runtime.log(f"main thread follow-up not checked job=#{job.job_id}: {type(exc).__name__}")
+        return text
+    delivery.runtime.log(f"main thread reply put off with no topic job=#{job.job_id}")
+    return f"{str(text or '').rstrip()}\n\n{turn_words.UNFOLLOWED}"

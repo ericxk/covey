@@ -14,7 +14,7 @@ from support.butler import CHAT, BUTLER, ButlerCase
 from covey.app import butler_reply
 from covey.app.turn_delivery import TurnDelivery
 from covey.app.worker import STOPPED_NOTE
-from covey.core import butler
+from covey.core import butler, turn_words
 from covey.core.deliveries import delivery_path, save_delivery
 from covey.core.jobs import job_key
 from covey.core.state import write_json
@@ -110,6 +110,60 @@ class InPlaceTest(DeliverCase):
         delivery, send_text = self.deliver(self.job(topic="a" * 32), cards)
         self.assertFalse(delivery.in_place)
         send_text.assert_called_once()
+
+
+class UnfollowedTest(Case):
+    """#25: a butler reply that puts something off while its turn handed nothing to a topic says, under it, that nobody
+    follows it up: nothing wakes the butler after its turn."""
+
+    def delivery(self, job, reply, status="done", outcome="completed"):
+        turn = SimpleNamespace(status=status, final_text=reply, verified_delivery=SimpleNamespace(text=reply, fingerprint="f"),
+                               verified_outcome=SimpleNamespace(status=outcome, notice=lambda: "", error_code=""))
+        return SimpleNamespace(job=job, ctx=self.ctx, turn=turn, runtime=mock.Mock())
+
+    def test_a_reply_put_off_with_no_topic_says_nobody_follows_it_up(self):
+        said = "我去查一下，稍后告诉你。"
+        shown = butler_reply.unfollowed(self.delivery(self.job(), said), said)
+        self.assertEqual(shown, said + "\n\n" + turn_words.UNFOLLOWED)
+        self.assertIn("这件事没有交给话题，这一轮结束后不会有人接着做", shown)
+        # Handed on in the same turn: the topic brings it back.
+        self.opened("r1", time.time(), topic_id="a" * 32, plan={}, title="查日志", answer={"ok": True, "data": {}})
+        self.assertEqual(butler_reply.unfollowed(self.delivery(self.job(), said), said), said)
+
+    def test_only_a_done_butler_turn_whose_reply_puts_off_without_naming_a_topic(self):
+        said = "等下我看看日志。"
+        for reply, status, outcome, topic in (
+                ("已经看完了：14 个通过。", "done", "completed", BUTLER),  # Nothing put off.
+                ("迁移账单（T12）还在跑，稍后结论会发过来。", "done", "completed", BUTLER),  # A topic brings it back.
+                ("等下载完成后再看。", "done", "completed", BUTLER),  # 等下载 is not 等下.
+                (said, "failed", "failed", BUTLER), (said, "done", "cancelled", BUTLER),
+                (said, "done", "completed", "a" * 32)):  # A topic's own reply.
+            self.assertEqual(butler_reply.unfollowed(self.delivery(self.job(topic), reply, status, outcome), reply), reply,
+                             (reply, status, outcome, topic))
+        # A request that failed hands nothing on.
+        self.opened("r2", time.time(), topic_id="a" * 32, plan={}, title="查日志", answer={"ok": False, "data": {}})
+        self.assertTrue(butler_reply.unfollowed(self.delivery(self.job(), said), said).endswith(turn_words.UNFOLLOWED))
+
+    def test_the_words_that_put_off(self):
+        for text in ("稍后告诉你", "等下我看看", "我先看看", "我去查查", "回头再说", "我这就去处理", "晚点给你", "待会儿发你"):
+            self.assertTrue(turn_words.defers(text), text)
+        for text in ("等下载完再说", "T12 稍后会发来", "放到T12里，一会儿有结论", "已经改好了", ""):
+            self.assertFalse(turn_words.defers(text), text)
+
+    def test_the_card_shows_the_line_and_the_saved_reply_stays_as_written(self):
+        said = "我去查一下，稍后告诉你。"
+        cards = mock.Mock()
+        cards.render_stream_final = lambda job, text, **kwargs: text
+        cards.exceeds_stream_card_limit = lambda text: False
+        turn = SimpleNamespace(status="done", status_message="", final_text=said, verified_delivery=SimpleNamespace(text=said, fingerprint="f"),
+                               verified_outcome=SimpleNamespace(status="completed", notice=lambda: "", error_code=""),
+                               outcome=None, allow_resume=True)
+        delivery = TurnDelivery(self.job(), self.ctx, turn, prefix="p", cards=cards, runtime=mock.Mock(), artifacts=mock.Mock(),
+                                questions=mock.Mock(), steering=mock.Mock(), record_job_state=mock.Mock(),
+                                send_text=mock.Mock(return_value=True))
+        display, saved, _ = delivery.texts(None)
+        self.assertTrue(display.endswith(turn_words.UNFOLLOWED))
+        self.assertEqual(saved, said)
 
 
 class LeadInPlaceTest(DeliverCase):

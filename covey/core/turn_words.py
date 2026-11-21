@@ -22,9 +22,15 @@ choice, not this module's.
 - ``request_line``: the round's request in one line (the status card's line, the answer card's "你问" block, a
   topic's title without one of the butler's: core/topics.py topic_title).
 
+- ``defers``: a butler reply that says it will come back later ("稍后", "等下", "我去查") and names no topic that would
+  bring it back; ``UNFOLLOWED`` the line the Bridge adds under such a reply when its turn handed nothing to a topic
+  (app/butler_reply.py unfollowed, #25), and app/patrol_rules.py records it.
+
 Standard library only, importing nothing of the Bridge's.
 """
 from __future__ import annotations
+
+import re
 
 # The words of docs/ui.md 第 3 节 (core/look.py STATES; tests/test_look.py checks they are its words): no mark before
 # them, a card colours them (cards/task_status.py, cards/ui.py state_word).
@@ -206,3 +212,18 @@ def ask_words(record, listed=0) -> str:
     if not listed:
         return f"{len(asked)} 个问题"
     return f"{len(asked)} 个问题：" + "；".join(str(q.get("question") or "")[:listed] for q in asked)
+
+
+# A reply that promises to come back: nothing wakes the butler after its turn (app/prompts.py AREA_OPENING), so only a
+# topic it opened or handed the matter to brings anything back. 等下载、等下单 are not 等下.
+DEFERS = re.compile(r"稍后|等一?下(?![载单面])|待会儿?|一会儿|过会儿|回头(?:再|我|给你)|晚点|晚些时候"
+                    r"|我(?:这就|马上)?(?:去|先去|再去)(?:查|看|找|问|试|确认|处理)|我先(?:查|看|找|问|试)(?:一下|看|查)")
+TOPIC_NAMED = re.compile(r"(?<![A-Za-z0-9_])T\d{1,6}(?!\d)")
+UNFOLLOWED = "（这件事没有交给话题，这一轮结束后不会有人接着做；要做就再说一句。）"
+
+
+def defers(text) -> bool:
+    """Whether a butler reply puts something off for later (DEFERS) without naming a topic (a T number) that would bring
+    it back."""
+    text = str(text or "")
+    return bool(DEFERS.search(text)) and not TOPIC_NAMED.search(text)
