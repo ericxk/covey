@@ -35,7 +35,8 @@ from covey.app.card_actions import action_label, form_fields
 from covey.app.card_lanes import after_ack
 from covey.app.form_cards import replace_form_card, save_record
 from covey.app.launch_models import available_models, run_choice
-from covey.core.menu_choice import budget_effort, effort_options, find_choice, harness_of, tier_pick, tiers
+from covey.core.menu_choice import (budget_effort, effort_options, explicit, find_choice, harness_of, plain_budget,
+                                    tier_pick, tiers)
 from covey.app.menu_panel import OPEN, MenuPanel, hub_top, valid_token
 from covey.cards.settings_hub import PROXY
 from covey.cards.proxy_panel import (ADD, ADD_ALL, BUDGET, DISABLE, ENABLE, FIND, HARNESS, KINDS, LOGIN,
@@ -405,11 +406,11 @@ class ProxyPanel:
         if kind == HARNESS:
             if option not in tiers(choices, option)[0]:
                 return '⚠️ 这个 Harness 已不在可选目录中，请重新选择。'
-            key = tier_pick(choices, key, harness=option) or key
+            key = tier_pick(explicit(choices), key, harness=option) or key
         elif kind == PROVIDER:
             if not harness or option not in tiers(choices, harness)[1]:
                 return '⚠️ 这个供应商已不在可选目录中，请重新选择。'
-            key = tier_pick(choices, key, harness=harness, provider=option) or key
+            key = tier_pick(explicit(choices), key, harness=harness, provider=option) or key
         elif kind == TIER_MODEL:
             key = f'{harness}:{option}'
             if key not in choices:
@@ -450,9 +451,8 @@ class ProxyPanel:
         """The menu entry ``key`` with the budget option ``budget`` ('' its own default) as the settings bound to new
         contact topics; Proxy.sync_topics moves the idle ones over (set_model marks the change)."""
         choice = choices[key]
-        if not budget:
-            options, default = effort_options(choice)
-            budget = default or options[0][0]
+        if not budget:  # A level by name, as the 思考预算 row lists them (T615).
+            budget = plain_budget(choice)
         model, effort = run_choice(choice, budget_effort(choice, budget))
         self.proxy.commands.set_model(ctx, choice['harness'], model, effort)
         return f"✓ 代答话题模型：{choice['label']} / {effort or '模型默认'}。已有联系人话题空闲时也会换过去。"

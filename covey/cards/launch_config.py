@@ -20,8 +20,8 @@ from typing import NamedTuple
 
 from covey.cards.elements import fold, grey, md, panel_header, styled_panel
 from covey.core.defaults import WORK_MODES
-from covey.core.menu_choice import (budget_options, effort_text, model_provider, model_tiers, models_of, tiers,
-                                             work_modes)
+from covey.core.menu_choice import (budget_options, effort_text, explicit, model_provider, model_tiers, models_of,
+                                    plain_budgets, tiers, work_modes)
 from covey.core.workspaces import RUN_MODES
 
 MODEL_ACTION = 'bridge_launch_model'
@@ -125,11 +125,10 @@ def model_settings(choices, model, *, kinds, revision, effort, work_mode=''):
     return settings
 
 
-def effort_choices(entry, default=DEFAULT, native=True):
-    """('' ``default``, then the launch card's budgets of the model (core/menu_choice.py budget_options: 推荐 high,
-    the levels from the highest, 模型原生默认); without ``native``, none of 'default', which '' is already."""
-    options = budget_options(entry)[0] if entry else []
-    return [('', default)] + [option for option in options if native or option[0] != 'default']
+def effort_choices(entry, default=DEFAULT, empty=True):
+    """The 设置 card's 思考预算 options of the model ``entry`` (a menu entry, or None): '' ``default`` first where
+    ``empty``, then core/menu_choice.py plain_budgets (the levels by name, no 推荐 or 模型原生默认)."""
+    return ([('', default)] if empty else []) + (plain_budgets(entry) if entry else [])
 
 
 def listed(options, current, limit):
@@ -153,22 +152,24 @@ def harness_setting(key, kind, harness, choices, *, first=()):
 
 
 # A row's key goes into its fold's element ID, set_<key>_r<revision>: CardKit takes 20 characters, so a key takes 10.
-def tier_rows(choices, harness, model, effort, entry, *, keys, kinds, limit, follows=None, native=True, empty=True):
+def tier_rows(choices, harness, model, effort, entry, *, keys, kinds, limit, follows=None, empty=True):
     """The 供应商, 模型 and 思考预算 rows of ``harness`` (chosen) for the settings that save a Harness, a model id and a
     budget: the 设置 card's 私聊默认, 新话题默认 and 代答 (``keys`` and ``kinds`` theirs, in that order). Each as the
-    launch card's (core/menu_choice.py tiers, budget_options), with an empty choice first where ``empty``, named by
-    ``follows`` (row key -> text) or 默认. A Harness of several providers (Codex: its own, Acme) chooses a provider
-    before a model, and its 模型 row lists that provider's models only (at most ``limit``). The 思考预算 row offers the
-    budgets of ``entry`` (the model's menu entry, or what an empty 模型 runs; no row without either), with 模型原生默认
-    where ``native`` or without ``empty``. Without ``empty`` (代答: always a model, as the launch card) a row has no
-    empty choice, and an empty current choice is drawn 未选."""
+    launch card's (core/menu_choice.py tiers), with an empty choice first where ``empty``, named by ``follows`` (row
+    key -> text) or 默认. Every other choice names what it runs (T615): the 模型 row has no "Default (recommended)"
+    (explicit) and the 思考预算 row no 推荐 or 模型原生默认 (effort_choices); a saved one of them is still drawn, chosen,
+    by its old name until another replaces it. A Harness of several providers (Codex: its own, Acme) chooses a
+    provider before a model, and its 模型 row lists that provider's models only (at most ``limit``). The 思考预算 row
+    offers the budgets of ``entry`` (the model's menu entry, or what an empty 模型 runs; no row without either).
+    Without ``empty`` (管家, 代答: always a model, as the launch card) a row has no empty choice, and an empty
+    current choice is drawn 未选."""
     follows = follows or {}
 
     def blank(key):
         return [('', follows.get(key) or DEFAULT)] if empty else []
 
-    def kept(options, current, text):
-        return known(options, current, text) if current or empty else options
+    def kept(options, current, names):
+        return known(options, current, names.get(current, current)) if current or empty else options
 
     providers = tiers(choices, harness)[1]
     several = len(providers) > 1
@@ -176,15 +177,18 @@ def tier_rows(choices, harness, model, effort, entry, *, keys, kinds, limit, fol
     rows = []
     if providers or model:
         rows.append(Setting(keys[0], '供应商', kinds[0], provider, kept(
-            (blank(keys[0]) if several or not providers else []) + list(providers.items()), provider, provider)))
+            (blank(keys[0]) if several or not providers else []) + list(providers.items()), provider, {})))
     if model or not several:
+        shown = provider if several else None
         rows.append(Setting(keys[1], '模型', kinds[1], model, listed(kept(
-            ([] if several else blank(keys[1]))
-            + list(models_of(choices, harness, provider if several else None).items()), model, model), model, limit)))
+            ([] if several else blank(keys[1])) + list(models_of(explicit(choices), harness, shown).items()),
+            model, models_of(choices, harness, shown)), model, limit)))
     if model or entry:
-        budgets = (effort_choices(entry, follows.get(keys[2]) or DEFAULT, native=native) if empty
-                   else budget_options(entry)[0] if entry else [])
-        rows.append(Setting(keys[2], '思考预算', kinds[2], effort, kept(budgets, effort, effort)))
+        budgets = effort_choices(entry, follows.get(keys[2]) or DEFAULT, empty=empty)
+        # A model without levels runs 模型自动管理 with none saved ('').
+        effort = effort or ('default' if not empty and entry and not entry.get('levels') else '')
+        rows.append(Setting(keys[2], '思考预算', kinds[2], effort,
+                            kept(budgets, effort, dict(budget_options(entry)[0]) if entry else {})))
     return rows
 
 

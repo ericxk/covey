@@ -22,6 +22,7 @@ from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, json_siz
 from covey.cards.launch_config import (BUDGET_ACTION, HARNESS_ACTION, MODEL_ACTION, PROVIDER_ACTION,
                                                 WORK_MODE_ACTION, model_settings)
 from covey.core.defaults import RECOMMENDED
+NAMELESS = (RECOMMENDED, 'default')  # The budgets that do not say what they run: off the 设置 card (T615).
 from covey.core import butler, butler_settings as settings
 from covey.core.jobs import upsert_job_record
 from covey.core.butler_requests import Request
@@ -127,7 +128,7 @@ class ButlerPanelTests(UnifiedCase):
         self.ask()
         header = self.cards[-1]['header']
         self.assertEqual((header['title']['content'], header['subtitle']['content'], header['icon']['token']),
-                         ('管家', 'Claude Code · 默认模型', 'robot_outlined'))
+                         ('管家', 'Claude Code · 模型未选', 'robot_outlined'))
         text = self.text()
         # T546: the private chat mode is a row under 更多, not a red button on top. T614: the Harness is a row of its
         # own, the Harnesses that can run the butler, and so is its 工作区.
@@ -147,7 +148,8 @@ class ButlerPanelTests(UnifiedCase):
         # its Harness is no choice.
         self.assertEqual(self.values(panel_card.EFFORT), [])
         self.assertEqual([v['option'] for v in self.values(panel_card.PROVIDER)], ['anthropic'])
-        self.assertEqual([v['option'] for v in self.values(panel_card.MODEL)], ['', 'claude-model'])
+        self.assertEqual([v['option'] for v in self.values(panel_card.MODEL)], ['claude-model'])  # T615: no 默认.
+        self.assertIn("<font color='grey'>模型</font>　未选", text)
         self.assertEqual([v['option'] for v in self.values(panel_card.REDACTION)], ['off', 'on'])
         self.assertEqual([v['option'] for v in self.values(panel_card.COMPACT)], ['0', '100000', '200000', '300000'])
         self.assertEqual(self.values(panel_card.TOPIC_HARNESS), [])
@@ -268,7 +270,9 @@ class ButlerPanelTests(UnifiedCase):
     def test_each_row_writes_its_field_and_redraws_the_whole_card(self):
         self.ask()
         steps = [
-            ((panel_card.MODEL, 'claude-model'), lambda s: (s.model, s.effort), ('claude-model', '')),
+            # T615: a model saves a budget by name with it (its 推荐 level), no empty one.
+            ((panel_card.MODEL, 'claude-model'), lambda s: (s.model, s.effort), ('claude-model', 'xhigh')),
+            ((panel_card.EFFORT, 'high'), lambda s: s.effort, 'high'),
             ((panel_card.EFFORT, 'xhigh'), lambda s: s.effort, 'xhigh'),
             ((panel_card.COMPACT, '100000'), lambda s: s.compact_tokens, 100000),
             ((panel_card.REDACTION, 'on'), lambda s: s.redaction, True),
@@ -449,13 +453,14 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(self.settings().topic_defaults.model, 'acme/gpt-6-astra')  # Its first model, as launching.
         self.assertEqual(self.rows(panel_card.TOPIC_MODEL), acme['model'])
         self.assertEqual([text for _, text in acme['model']], ['GPT-6 Astra', 'GPT-6.1 Sol'])
-        self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], acme['effort'])
-        self.click(self.option(panel_card.TOPIC_EFFORT, RECOMMENDED), event_id='c2')
+        # The launch card's levels by name, no 推荐 or 原生默认 (T615).
+        self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], [o for o in acme['effort'] if o[0] not in NAMELESS])
+        self.click(self.option(panel_card.TOPIC_EFFORT, 'xhigh'), event_id='c2')
         self.click(self.option(panel_card.TOPIC_MODEL, 'acme/gpt-6.1-sol'), event_id='c3')
         self.assertEqual((self.settings().topic_defaults.model, self.settings().topic_defaults.effort),
-                         ('acme/gpt-6.1-sol', RECOMMENDED))
+                         ('acme/gpt-6.1-sol', 'xhigh'))
         self.click(self.option(panel_card.TOPIC_MODEL, 'acme/gpt-6-astra'), event_id='c4')
-        # topic_start opens with the provider's model and the budget 推荐 names.
+        # topic_start opens with the provider's model and the budget chosen.
         found = resolve(self.app.topics, self.ctx.state_dir, 'dm', self.settings().topic_defaults)
         self.assertEqual((found['model_key'], found['model'], found['effort']),
                          ('codex:acme/gpt-6-astra', 'acme/gpt-6-astra', 'xhigh'))
@@ -467,8 +472,8 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(self.rows(panel_card.TOPIC_PROVIDER), maso['provider'])
         self.assertEqual(self.rows(panel_card.TOPIC_MODEL)[1:], maso['model'])
         self.click(self.option(panel_card.TOPIC_MODEL, 'gpt56_sol'), event_id='c7')
-        self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], maso['effort'])
-        self.assertIn(RECOMMENDED, [o for o, _ in self.rows(panel_card.TOPIC_EFFORT)])
+        self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], [o for o in maso['effort'] if o[0] not in NAMELESS])
+        self.assertNotIn(RECOMMENDED, [o for o, _ in self.rows(panel_card.TOPIC_EFFORT)])
         self.assertEqual(self.outcomes(), ['main_panel'] * 7)
 
     def test_the_butlers_model_rows_are_the_launch_cards_and_old_defaults_still_read(self):
@@ -483,16 +488,21 @@ class ButlerPanelTests(UnifiedCase):
         self.ask()
         claude = self.launch_rows('claude:claude-model')
         self.assertEqual(self.rows(panel_card.PROVIDER), claude['provider'])
-        self.assertEqual(self.rows(panel_card.MODEL)[1:], claude['model'])
+        self.assertEqual(self.rows(panel_card.MODEL), claude['model'])  # T615: no 默认.
         self.click(self.option(panel_card.MODEL, 'claude-model'), event_id='c1')
-        # The butler's budgets are the launch card's but 原生默认, which 默认 is; 推荐 saves the level it names.
-        self.assertEqual(self.rows(panel_card.EFFORT)[1:], [o for o in claude['effort'] if o[0] != 'default'])
-        self.click(self.option(panel_card.EFFORT, RECOMMENDED), event_id='c2')
+        # The butler's budgets are the launch card's levels by name (T615): no 推荐, 原生默认 or 默认; the model came
+        # with the level 推荐 names.
+        self.assertEqual(self.rows(panel_card.EFFORT), [o for o in claude['effort'] if o[0] not in NAMELESS])
         self.assertEqual(claude['effort'][0], (RECOMMENDED, '推荐 xhigh'))
         self.assertEqual(self.settings().effort, 'xhigh')
+        # 推荐 on a card drawn before is no choice.
+        self.click(self.option(panel_card.EFFORT, 'low'), event_id='c2')
+        self.click({**self.option(panel_card.EFFORT, 'low'), 'option': RECOMMENDED}, event_id='c2b')
+        self.assertIn(GONE, self.text())
+        self.assertEqual(self.settings().effort, 'low')
         self.page(panel_card.TOPIC)
         self.assertEqual([o for o, _ in self.rows(panel_card.TOPIC_PROVIDER)], ['openai'])
-        self.assertEqual(self.outcomes(), ['main_panel'] * 2)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 3)
 
     def test_with_the_default_model_both_pages_offer_its_budgets(self):
         """ACCEPT-325 问题 1 (the owner): 私聊默认 had no 思考预算 while its 模型 was 默认. The butler then runs
@@ -511,14 +521,17 @@ class ButlerPanelTests(UnifiedCase):
         self.ask()
         self.assertEqual(self.settings().model, '')
         native = self.launch_rows('claude:default')['effort']
-        self.assertEqual(self.rows(panel_card.EFFORT)[1:], [o for o in native if o[0] != 'default'])
-        self.assertEqual(self.rows(panel_card.EFFORT)[0], ('', panel_card.DEFAULT))
+        # T615: its levels by name; no 默认, 推荐 or 原生默认, and "Default (recommended)" is no 模型 choice.
+        self.assertEqual(self.rows(panel_card.EFFORT), [o for o in native if o[0] not in NAMELESS])
+        self.assertEqual([o for o, _ in self.rows(panel_card.MODEL)], ['claude-model'])
+        self.assertIn("<font color='grey'>模型</font>　未选", self.text())
         self.click(self.option(panel_card.EFFORT, 'max'), event_id='c1')
         self.assertEqual((self.settings().model, self.settings().effort), ('', 'max'))
         self.assertNotIn(GONE, self.text())
         self.page(panel_card.TOPIC)
         last = self.launch_rows('claude:claude-model')['effort']
-        self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], last)
+        self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], [o for o in last if o[0] not in NAMELESS])
+        self.assertNotIn('default', [o for o, _ in self.rows(panel_card.TOPIC_MODEL)])
         self.click(self.option(panel_card.TOPIC_EFFORT, 'medium'), event_id='c2')
         self.assertEqual(self.settings().topic_defaults, settings.TopicDefaults(harness='claude', effort='medium'))
         self.assertEqual(resolve(self.app.topics, self.ctx.state_dir, 'dm', self.settings().topic_defaults)['effort'],
@@ -543,19 +556,20 @@ class ButlerPanelTests(UnifiedCase):
         self.enterContext(mock.patch.object(panel, 'available_models', lambda topics, ctx: choices))
         self.ask()
         self.assertTrue(self.cards[-1]['header']['subtitle']['content'].startswith('Claude Code · '))
-        self.assertEqual(self.rows(panel_card.PROVIDER), [('', '默认'), ('anthropic', 'Claude 自带'), ('kiro', 'Kiro')])
+        self.assertEqual(self.rows(panel_card.PROVIDER), [('anthropic', 'Claude 自带'), ('kiro', 'Kiro')])  # No 默认.
         self.assertEqual(self.values(panel_card.MODEL), [])  # Several providers: a provider first.
         self.click(self.option(panel_card.PROVIDER, 'kiro'), event_id='c1')
-        self.assertEqual((self.settings().model, self.settings().effort), ('k1', ''))
+        self.assertEqual((self.settings().model, self.settings().effort), ('k1', 'xhigh'))
         self.assertEqual([o for o, _ in self.rows(panel_card.MODEL)], ['k1', 'k2'])
         self.click(self.option(panel_card.EFFORT, 'max'), event_id='c2')
         self.click(self.option(panel_card.PROVIDER, 'anthropic'), event_id='c3')
         self.assertEqual((self.settings().model, self.settings().effort), ('a1', 'max'))  # The budget it offers too.
-        self.click(self.option(panel_card.PROVIDER, ''), event_id='c4')
-        self.assertEqual((self.settings().model, self.settings().effort), ('', ''))
+        self.click({**self.option(panel_card.PROVIDER, 'kiro'), 'option': ''}, event_id='c4')  # A card drawn before's 默认.
+        self.assertIn(GONE, self.text())
+        self.assertEqual((self.settings().model, self.settings().effort), ('a1', 'max'))
         self.click(self.option(panel_card.REDACTION, 'on'), event_id='c5')
         self.assertTrue(self.settings().redaction)
-        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], 'Claude Code · 默认模型 · 脱敏')
+        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], 'Claude Code · A1 · 脱敏')
         self.click({**self.option(panel_card.PROVIDER, 'kiro'), 'option': 'gone'}, event_id='c6')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.outcomes(), ['main_panel'] * 6)
@@ -568,7 +582,7 @@ class ButlerPanelTests(UnifiedCase):
 
     def test_the_butlers_harness_and_workspace_rows(self):
         """T614 (the owner, 2026-11-21): 管家 chooses its Harness as a new topic does, among those that can run it
-        (agy, Codex beside Claude Code); another Harness empties the model and budget. With 脱敏 on, one that cannot
+        (agy, Codex beside Claude Code); another Harness takes its first model and a budget by name (T615). With 脱敏 on, one that cannot
         redact is not offered and the page says to turn 脱敏 off first. Its workspace is a row too."""
         def entry(harness, title, model, **more):
             return {'harness': harness, 'model': model, 'title': title, 'display_name': model.upper(),
@@ -583,10 +597,11 @@ class ButlerPanelTests(UnifiedCase):
         self.assertIn('压缩阈值', self.text())
         self.click(self.option(panel_card.HARNESS, 'agy'), event_id='h1')
         current = self.settings()
-        self.assertEqual((current.harness, current.butler_harness, current.model, current.effort), ('agy', 'agy', '', ''))
+        # No 推荐 level (high is not xhigh or max): the highest.
+        self.assertEqual((current.harness, current.butler_harness, current.model, current.effort), ('agy', 'agy', 'n1', 'high'))
         self.assertIn(panel.SAVED_NEW_SESSION, self.text())
         self.assertTrue(self.cards[-1]['header']['subtitle']['content'].startswith('Antigravity · '))
-        self.assertEqual([o for o, _ in self.rows(panel_card.MODEL)], ['', 'n1'])
+        self.assertEqual([o for o, _ in self.rows(panel_card.MODEL)], ['n1'])
         self.assertNotIn('压缩阈值', self.text())  # The Bridge does not compact agy's session.
         self.assertEqual(self.values(panel_card.REDACTION), [])  # agy cannot redact.
         self.click(self.option(panel_card.MODEL, 'n1'), event_id='h2')

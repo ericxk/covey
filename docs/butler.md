@@ -304,7 +304,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 ### 换 Harness
 
-管家的 Harness 和开新话题一样在设置卡上选（「管家」页第一行），供应商、模型、思考预算跟着它走；换了 Harness，模型和预算回到它的默认。
+管家的 Harness 和开新话题一样在设置卡上选（「管家」页第一行），供应商、模型、思考预算跟着它走；换了 Harness，模型换成它列出的第一个，思考预算保留原来那一档（新模型没有这一档时换成它的次高档，没有次高档时换成不带编排的最高一档）。
 
 - **什么时候生效**：管家手上没有在跑的一轮时（`app/butler.py` 的 `write_topic`，和换工作区一样）：`topic.json` 的 `harness_id` 换成新的，`binding_revision` 加一，新 Harness 的会话指针清掉（以前在它上面的会话落后于之后的对话）。有一轮在跑时新消息照旧进旧 Harness 的这一轮。新会话的第一轮带最近的对话（和换工作区一样），不做交接摘要。多路并行的各路也跟着换，各自等空闲。
 - **工具**：MCP 服务还是 `bin/covey_butler_mcp.py`，`mcp_config` 由各后端自己接：Claude Code 是 `--mcp-config`，Codex 是线程配置的 `mcp_servers.bridge.*`，Antigravity 是这一轮私有主目录里的 `mcp_config.json`（[harnesses.md](harnesses.md#antigravity)）。规则和快照在每轮消息的正文里，和 Harness 无关。工具名 Claude Code、Codex 里是 `mcp__bridge__<工具名>`，Antigravity 里是 `mcp_bridge_<工具名>`，规则里两种都写。
@@ -325,7 +325,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 | 记忆（`COVEY_MEMORY=1`） | 下一轮带上什么（选工作区，带几条、各范围用了多少、快满或放不下的提示、原文），按范围列出的条目，每条“删除”，原则多一个“常驻”（`app/memory_panel.py`） |
 | 能做什么 | 只读：启用的 Harness 和现在用不了的、开着的功能和读的开关、没开的怎么开、启用的扩展（`app/about_panel.py`） |
 
-每行点开是选项，点一个就记下并整卡重画；只有主人能改。私聊模式改成纯话题要再点“确定改”。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向、脱敏默认的迁移和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
+每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；管家页这两行也没有“默认”。新话题页的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡不变。私聊模式改成纯话题要再点“确定改”。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向、脱敏默认的迁移和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
 
 ## 话题链接
 

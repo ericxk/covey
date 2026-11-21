@@ -8,7 +8,8 @@ entry from before the field, named 自带), ``display_name``, budgets (``levels`
 """
 from __future__ import annotations
 
-from covey.core.defaults import EFFORT_ORDER, RECOMMENDED, WORK_MODES, recommended_effort, stored_work_mode
+from covey.core.defaults import (EFFORT_ORDER, ORCHESTRATION_MODES, RECOMMENDED, WORK_MODES, recommended_effort,
+                                 stored_work_mode)
 from covey.core.providers import provider_of
 
 AUTO_EFFORT_LABEL = '模型自动管理（无可选预算）'
@@ -94,6 +95,38 @@ def budget_options(choice):
     """The 思考预算 row's (options, default): effort_options as the settings lists name them (推荐 high)."""
     options, default = effort_options(choice)
     return [(value, label.replace('推荐 · ', '推荐 ')) for value, label in options], default
+
+
+def plain_budgets(choice):
+    """The 设置 card's 思考预算 options of ``choice``: its levels from the highest, each by its name; not 推荐 or
+    模型原生默认, which do not say what they run (the owner asked them off, T615). A model without levels keeps its one
+    模型自动管理."""
+    options = budget_options(choice)[0]
+    return [option for option in options if option[0] not in (RECOMMENDED, 'default')] or options
+
+
+def plain_budget(choice, effort=''):
+    """The budget a 设置 row saves for ``choice`` when the model changes under it: ``effort`` where plain_budgets
+    offers it, else the level 推荐 names now, else the highest one that is no orchestration mode; 'default' (模型自动管理)
+    for a model without levels."""
+    levels = [value for value, _ in plain_budgets(choice)]
+    if effort in levels:
+        return effort
+    if not choice.get('levels'):
+        return 'default'
+    try:
+        recommended = choice.get('recommended') or recommended_effort(choice['levels'])
+    except ValueError:
+        recommended = ''
+    if recommended in levels:
+        return recommended
+    return next((level for level in levels if level not in ORCHESTRATION_MODES), levels[0])
+
+
+def explicit(choices):
+    """``choices`` without the entries that name no model of their own (NATIVE, Claude Code's "Default
+    (recommended)": whichever model it picks), as the 设置 card's 模型 rows list them (T615)."""
+    return {key: entry for key, entry in choices.items() if key.partition(':')[2] != NATIVE}
 
 
 def effort_text(choice, selected):

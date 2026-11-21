@@ -132,8 +132,9 @@ def follow_text(parts, names=FOLLOW):
 
 def butler_setting_list(settings, choices, limit, workspaces=()):
     """The butler's own rows: its Harness (those that can run it, butler_harnesses: with 脱敏 on, only those that can
-    redact; the current one kept), then 供应商, 模型 and 思考预算 as a new topic's of that Harness (tier_rows, with ''
-    the default model, whose budgets are default_entry's), 脱敏 where it can redact, 工作区 (``workspaces``, the saved
+    redact; the current one kept), then 供应商, 模型 and 思考预算 as a new topic's of that Harness (tier_rows without
+    empty choices: each names what it runs; a model saved before, '', is drawn 未选 and its budgets are
+    default_entry's), 脱敏 where it can redact, 工作区 (``workspaces``, the saved
     names; '' the default) and 压缩阈值 where the Bridge compacts it."""
     harness, model = settings.butler_harness, settings.model
     offered = butler_harnesses(choices, redacting=settings.redaction)
@@ -141,7 +142,7 @@ def butler_setting_list(settings, choices, limit, workspaces=()):
                     known(list(offered.items()), harness, tiers(choices, harness)[0].get(harness) or harness))]
     entry = entry_of(choices, harness, model) if model else default_entry(choices, harness)
     rows += tier_rows(choices, harness, model, settings.effort, entry, keys=('provider', 'model', 'effort'),
-                      kinds=(PROVIDER, MODEL, EFFORT), limit=limit, native=False)
+                      kinds=(PROVIDER, MODEL, EFFORT), limit=limit, empty=False)
     if settings.redaction or redacts(choices, harness):
         rows.append(redaction_setting('redact', REDACTION, 'on' if settings.redaction else 'off'))
     space = workspace_setting('space', SPACE, settings.workspace, workspaces, first=[('', BUTLER_SPACE)])
@@ -374,7 +375,7 @@ def subtitle(settings, choices, page):
             return '没开：每条消息直接开一个话题'
         harness = settings.butler_harness
         title = tiers(choices, harness)[0].get(harness) or ('Claude Code' if harness == CLAUDE else harness)
-        model = models_of(choices, harness).get(settings.model, settings.model) if settings.model else '默认模型'
+        model = models_of(choices, harness).get(settings.model, settings.model) if settings.model else '模型未选'
         return ' · '.join([title, model] + (['脱敏'] if settings.redaction else []))
     harness = tiers(choices, defaults.harness)[0].get(defaults.harness, defaults.harness or FOLLOW['last'])
     model = models_of(choices, defaults.harness).get(defaults.model, defaults.model) if defaults.model else ''

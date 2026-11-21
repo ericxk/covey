@@ -24,8 +24,8 @@ from typing import Callable, NamedTuple
 
 from covey.app.card_actions import form_fields
 from covey.app.launch_models import available_models
-from covey.core.menu_choice import (budget_effort, butler_harnesses, default_entry, entry_of, model_provider,
-                                             models_of, redacts, tiers)
+from covey.core.menu_choice import (budget_effort, butler_harnesses, default_entry, entry_of, explicit,
+                                    model_provider, models_of, plain_budget, redacts, tiers)
 from covey.app.butler_env import reply
 from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
@@ -64,15 +64,24 @@ def workspace_names(state_dir):
     return [str(name) for name in workspaces] if isinstance(workspaces, dict) else []
 
 
-def offered(entry, effort, native=True):
-    """Whether the 思考预算 row of ``entry`` (a menu entry, or None) offers ``effort`` (cards/butler_panel.py
-    effort_choices: '', the launch card's budgets)."""
-    return effort in dict(effort_choices(entry, native=native))
+def offered(entry, effort, empty=True):
+    """Whether the 思考预算 row of ``entry`` (a menu entry, or None) offers ``effort`` (cards/launch_config.py
+    effort_choices: '' where ``empty``, the levels by name)."""
+    return effort in dict(effort_choices(entry, empty=empty))
 
 
-def kept(entry, effort, native=True):
-    """``effort`` where the newly chosen model ``entry`` offers it too, else '' (its default)."""
-    return effort if entry and offered(entry, effort, native) else ''
+def kept(entry, effort, empty=True):
+    """``effort`` where the newly chosen model ``entry`` offers it too; else '' (what the row's empty choice says)
+    where ``empty``, else a level of its own (core/menu_choice.py plain_budget)."""
+    if entry and offered(entry, effort, empty):
+        return effort
+    return plain_budget(entry, effort) if entry and not empty else ''
+
+
+def new_budget(rows, entry):
+    """The budget saved with the newly chosen model ``entry`` (kept), as the page saves a 思考预算 option."""
+    effort = kept(entry, rows.effort, rows.empty)
+    return rows.budget(entry, effort) if effort and entry else effort
 
 
 class Rows(NamedTuple):
@@ -81,7 +90,7 @@ class Rows(NamedTuple):
     harness: str  # '' none chosen: the 新话题默认 rows under it offer nothing.
     model: str
     effort: str
-    native: bool  # Whether 模型原生默认 is a budget of its own (effort_choices).
+    empty: bool  # Whether the rows have an empty choice (新话题默认's: what it follows); 管家's name each.
     entry: Callable  # () -> the menu entry whose budgets the 思考预算 row offers (or None).
     budget: Callable  # (entry, option) -> the budget saved for a 思考预算 option.
     save: Callable  # (**fields) -> the settings fields that set them.
@@ -89,29 +98,37 @@ class Rows(NamedTuple):
 
 def pick_provider(rows, choices, option, state_dir):
     """供应商: a provider with its first model (the model id carries the provider: acme/gpt-6-astra), as on the launch
-    card, and the budget where that model offers it too; '' leaves the model to the default."""
+    card, and the budget where that model offers it too; '' (新话题默认 only) leaves the model to the default."""
     providers = tiers(choices, rows.harness)[1] if rows.harness else {}
-    if not rows.harness or option and option not in providers:
+    if not rows.harness or option and option not in providers or not option and not rows.empty:
         return None
     if option == model_provider(rows.harness, rows.model, choices):
         return {}
-    first = next(iter(models_of(choices, rows.harness, option)), '') if option else ''
+    first = next(iter(models_of(explicit(choices), rows.harness, option)), '') if option else ''
     if option and not first:
         return None
-    return rows.save(model=first, effort=kept(entry_of(choices, rows.harness, first), rows.effort, rows.native))
+    return rows.save(model=first, effort=new_budget(rows, entry_of(choices, rows.harness, first)))
 
 
 def pick_model(rows, choices, option, state_dir):
-    """模型: any of the Harness's models (a card drawn before may list another provider's), the budget where it offers
-    it too."""
-    if not rows.harness or option and option not in models_of(choices, rows.harness):
+    """模型: any of the Harness's models by name (a card drawn before may list another provider's, or "Default
+    (recommended)": no more, T615), the budget where it offers it too; '' only on 新话题默认. The saved one again
+    changes nothing."""
+    if option == rows.model:
+        return {}
+    if not rows.harness or option and option not in models_of(explicit(choices), rows.harness) \
+            or not option and not rows.empty:
         return None
-    return rows.save(model=option, effort=kept(entry_of(choices, rows.harness, option), rows.effort, rows.native))
+    return rows.save(model=option, effort=new_budget(rows, entry_of(choices, rows.harness, option)))
 
 
 def pick_effort(rows, choices, option, state_dir):
+    """思考预算: a level by name ('' only on 新话题默认); 推荐 or 模型原生默认 of a card drawn before is no more (T615).
+    The saved one again changes nothing."""
+    if option == rows.effort:
+        return {}
     entry = rows.entry()
-    if not offered(entry, option, native=rows.native):
+    if not offered(entry, option, empty=rows.empty):
         return None
     return rows.save(effort=rows.budget(entry, option))
 
@@ -132,12 +149,17 @@ def pick_redaction(rows, choices, option, state_dir):
 
 def pick_butler_harness(rows, choices, option, state_dir):
     """The butler's Harness: one that can run it (butler_harnesses), and with 脱敏 on one that can redact too (the card
-    lists no other: REDACT_FIRST); another one empties the model and budget. Claude Code is saved as '', the default."""
+    lists no other: REDACT_FIRST); another one takes its first model by name and that model's budget
+    (core/menu_choice.py plain_budget), so the rows say what the butler runs (T615). Claude Code is saved as '', the
+    default Harness."""
     if option == rows.harness:
         return {}
     if option not in butler_harnesses(choices, redacting=butler_settings.load(state_dir).redaction):
         return None
-    return {'harness': '' if option == CLAUDE else option, 'model': '', 'effort': ''}
+    first = next(iter(models_of(explicit(choices), option)), '')
+    entry = entry_of(choices, option, first)
+    return {'harness': '' if option == CLAUDE else option, 'model': first,
+            'effort': budget_effort(entry, plain_budget(entry, rows.effort)) if entry else ''}
 
 
 def pick_butler_workspace(rows, choices, option, state_dir):
