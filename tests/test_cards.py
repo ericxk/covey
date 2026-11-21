@@ -230,11 +230,11 @@ def sample_cards(work=None):
             "id": "0" * 32, "reply": "收到 哥\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "赵六")
            for state in ("failed", "again", "resending", "sent", "uncertain", "void", "dropped")},
     }
-    from covey.app.welcome import EXAMPLES
+    from covey.app.welcome import EXAMPLES, TOPIC_EXAMPLES
     from covey.cards.welcome import NO_CLAUDE, SENT, welcome_card
     welcome = {"host": "devbox", "harnesses": ["Codex"], "down": [["Codex", "没登录"]], "workspace": "work",
                "workdir": str(work), "butler": "", "examples": list(EXAMPLES), "tried": {"1": {"state": SENT}}}
-    cards.update(welcome=welcome_card(welcome), welcome_no_butler=welcome_card({**welcome, "butler": NO_CLAUDE}))
+    cards.update(welcome=welcome_card(welcome), welcome_no_butler=welcome_card({**welcome, "butler": NO_CLAUDE, "examples": list(TOPIC_EXAMPLES)}))
     trace = ToolTrace()
     for i in range(40):
         trace.note(f"n{i}", f"第 {i} 步说明 " * 20)

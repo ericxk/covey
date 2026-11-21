@@ -210,7 +210,7 @@ class SendTest(WelcomeCase):
         self.assertEqual((record["state"], record["message_id"], record["chat_id"], record["sequence"]),
                          (welcome.SENT, "om_welcome", CHAT, 0))
         self.assertEqual(self.app.runtime.access.owner_chat(), CHAT)  # Menus, digests and the rest find it now.
-        self.assertEqual(record["view"]["examples"], list(feature.EXAMPLES))
+        self.assertEqual(record["view"]["examples"], list(feature.TOPIC_EXAMPLES))
         self.assertIn("Claude Code", record["view"]["harnesses"])
         self.assertEqual(record["view"]["workspace"], "project")
         self.assertEqual(self.welcome.threads(), ())  # Sent: no thread at the next start.
@@ -293,7 +293,7 @@ class ClickTest(WelcomeCase):
             self.sent()
             self.assertEqual(self.record()["view"]["butler"], cards.OFF)
             self.assertEqual(self.click(1), "welcome_try")
-        text = feature.EXAMPLES[1]
+        text = feature.TOPIC_EXAMPLES[1]
         profile, chat, words, key = self.app.messenger.send_text.call_args.args
         self.assertEqual((chat, words), (CHAT, text))
         record = read_job_record(job_path(self.state, "om_ex1"))  # The posted message is the owner's message.
@@ -321,6 +321,29 @@ class ClickTest(WelcomeCase):
         self.assertEqual([(job.message_id, job.user_text) for job in jobs], [("om_ex1", feature.EXAMPLES[0])])
         self.assertEqual(self.app.messenger.react.call_args.args[1:], ("om_ex1", "OnIt"))  # The reaction the card speaks of.
         self.app.messenger.send_message.assert_not_called()  # Nothing else said: the butler's turn answers.
+
+    def test_the_examples_take_him_round_with_the_butler_and_without_it(self):
+        words = feature.EXAMPLES, feature.TOPIC_EXAMPLES
+        self.assertTrue(all(len(each) == 3 for each in words))
+        # With the butler the first two say "open a topic" (it answers a minute's work in place); the third is the 看板.
+        self.assertTrue(all(text.startswith(feature.OPEN) for text in feature.EXAMPLES[:2]))
+        self.assertIn("看板", feature.EXAMPLES[2])
+        # Without it every message is a topic: no such words, the third an ordinary question.
+        self.assertFalse(any(feature.OPEN in text for text in feature.TOPIC_EXAMPLES))
+        self.assertEqual(feature.TOPIC_EXAMPLES[:2], tuple(text[len(feature.OPEN):] for text in feature.EXAMPLES[:2]))
+        self.assertIn("问我", feature.TOPIC_EXAMPLES[1])  # The choice that comes back as a question card.
+
+    def test_the_card_is_sent_with_the_examples_of_its_mode(self):
+        with mock.patch.dict(os.environ, {butler.ENV: "0"}):
+            self.sent()
+            self.assertEqual(self.record()["view"]["examples"], list(feature.TOPIC_EXAMPLES))
+
+    def test_with_the_butler_the_card_is_sent_with_the_butlers_examples(self):
+        switch_on(self)
+        self.addCleanup(configure_top_level, None)
+        self.sent()
+        self.assertEqual((self.record()["view"]["butler"], self.record()["view"]["examples"]), ("", list(feature.EXAMPLES)))
+        self.assertTrue(self.record()["view"]["examples"][0].startswith(feature.OPEN))
 
     def test_only_the_owner_and_only_on_the_card_sent(self):
         self.sent()
@@ -369,7 +392,7 @@ class ClickTest(WelcomeCase):
         self.assertEqual(self.click(0, message="om_landed"), "welcome_try")  # Only that card carries the kind.
         record = self.record()
         self.assertEqual((record["state"], record["message_id"], record["chat_id"]), (welcome.SENT, "om_landed", CHAT))
-        self.assertEqual(self.app.messenger.send_text.call_args.args[1:3], (CHAT, feature.EXAMPLES[0]))
+        self.assertEqual(self.app.messenger.send_text.call_args.args[1:3], (CHAT, feature.TOPIC_EXAMPLES[0]))
         self.assertEqual(self.app.messenger.put_card.call_args.args[1], "card_w")
         self.assertEqual(self.app.runtime.access.owner_chat(), CHAT)  # The example, the owner's message, names it.
 

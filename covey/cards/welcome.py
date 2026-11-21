@@ -81,7 +81,7 @@ def welcome_card(view) -> dict:
     elements += example_rows(view)
     if view.get("notice"):
         elements.append(note(literal(view["notice"])))
-    elements.append(note("这几句都只读，不改文件。新话题用的模型和工作区在菜单「设置」里改。"))
+    elements.append(note("这几句都只读，不改文件。发完点菜单「看板」，看它们做到哪、有没有在等你；新话题用的模型和工作区在「设置」里改。"))
     headline = "每条消息开一个话题" if butler else "有事直接在这里说"
     head = panel_header(ICON, TITLE, f"装在 {view['host']}" if view.get("host") else "")
     return ui.styled(styled_panel(head, elements, f"{TITLE} · {headline}", spacing="8px"))

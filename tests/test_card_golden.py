@@ -1482,13 +1482,14 @@ def app_setup_cards():
 def welcome_cards():
     """The welcome card (cards/welcome.py): with the butler; without it (Claude Code not enabled, a Harness not logged
     in); and after a click, one example sent and one that did not go out, with its line."""
-    from covey.app.welcome import EXAMPLES
+    from covey.app.welcome import EXAMPLES, TOPIC_EXAMPLES
     from covey.cards.welcome import FAILED, NO_CLAUDE, SENT, welcome_card
 
     view = {"host": "devbox", "harnesses": ["Codex", "Claude Code"], "down": [], "workspace": "work",
             "workdir": "/absolute/work", "butler": "", "examples": list(EXAMPLES)}
     return {"butler": welcome_card(view),
-            "no_butler": welcome_card({**view, "harnesses": ["Codex", "Pi"], "down": [["Pi", "没登录"]], "butler": NO_CLAUDE}),
+            "no_butler": welcome_card({**view, "harnesses": ["Codex", "Pi"], "down": [["Pi", "没登录"]], "butler": NO_CLAUDE,
+                                      "examples": list(TOPIC_EXAMPLES)}),
             "tried": welcome_card({**view, "tried": {"0": {"state": SENT}, "2": {"state": FAILED}},
                                    "notice": f"「{EXAMPLES[2]}」没发出去，再点一次。"})}
 

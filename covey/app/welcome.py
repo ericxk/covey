@@ -15,6 +15,9 @@ a task as if the owner had typed it. Off: COVEY_WELCOME=0 (no record, no thread,
   unavailable, the default workspace, and with the butler a word on its reactions; without it why not (Claude Code not
   enabled, COVEY_BUTLER=0, the mode 纯话题, Claude Code not started) and how to get it, and that each message opens a
   topic with its launch card.
+- The examples (``EXAMPLES`` with the butler, ``TOPIC_EXAMPLES`` without it: ``view`` picks by ``butler_state``, the card keeps
+  the words it was sent with): a topic that ends in an answer, a topic whose reply is a choice (a question card), and
+  what waits for him (the butler's snapshot and the 看板; without it an ordinary question, the card's grey line says 看板).
 - A click on 发这句 (cards/welcome.py KIND, bot_only: it starts a task; the owner's alone, Access.is_owner): once per
   event (claim_once) and once per example (``tried``: a failed one may be clicked again). Acknowledged at once; then
   the card is drawn again with the example marked (beside), and the example goes into the chat as a plain text
@@ -53,7 +56,15 @@ POLL = 5  # How often a pending card looks for the owner's private chat (his fir
 RETRY = 600  # Seconds between two sends Feishu refused the same way.
 TRIES = 6  # Sends one process makes each way (the chat, the open_id); the next start tries again.
 INBOUND = "inbound-messages"  # app/card_routing.py INBOUND_DIR: one marker per click taken in.
-EXAMPLES = ("看看这台机器的 CPU、内存和磁盘", "这个工作区里有什么，用三句话说清", "Covey 能帮我做什么？举三个例子")
+# Three read-only examples that take him round: a topic that ends in an answer, a topic whose natural reply is a choice
+# (its question card; picking changes nothing), and what waits for him. With the butler (EXAMPLES): "开个话题，" makes
+# the first two topics (it answers in place what takes a minute or less) and the third is its snapshot's and the 看板.
+# Without it (TOPIC_EXAMPLES) every message is a topic: the third is an ordinary question, and the card's grey line
+# points to the 看板.
+OPEN = "开个话题，"
+_TOPICS = ("把默认工作区过一遍，用三句话说清它是做什么的", "读一下默认工作区，列三个我可以先了解的部分，问我先看哪个")
+EXAMPLES = (OPEN + _TOPICS[0], OPEN + _TOPICS[1], "现在有哪些事在等我？菜单「看板」怎么看")
+TOPIC_EXAMPLES = (*_TOPICS, "Covey 能帮我做什么？举三个例子")
 REASONS = {"authentication": "没登录", "executable_missing": "找不到命令"}  # app/availability.py local_check reasons.
 
 
@@ -196,9 +207,10 @@ class Welcome:
             workdir = str(config["workspaces"][workspace])
         except (OSError, ValueError, KeyError, TypeError):
             workspace = workdir = ""
+        butler = self.butler_state(ctx.state_dir)
         return {"host": platform.node(), "harnesses": titles, "down": down,
-                "workspace": workspace, "workdir": workdir, "butler": self.butler_state(ctx.state_dir),
-                "examples": list(EXAMPLES)}
+                "workspace": workspace, "workdir": workdir, "butler": butler,
+                "examples": list(TOPIC_EXAMPLES if butler else EXAMPLES)}
 
     def butler_state(self, state_dir) -> str:
         """'' when the owner's top-level messages go to the butler now, else why not (``butler_state``, on the
