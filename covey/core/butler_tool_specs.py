@@ -301,9 +301,13 @@ TRIAGE_TOOLS = (
                      "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}}}}},
     {"name": "project_escalate",
      "description": "专项里一个话题交给你的问题，你答不了或不该替主人答，转给主人：问题卡马上发给主人，卡上带上你写的 why。"
-                    "拿不准、涉及部署、发布、对外发送、花钱、删东西、不可逆的操作，都转。3 分钟没人处理也会自动转给主人。",
+                    "拿不准、涉及部署、发布、对外发送、花钱、删东西、不可逆的操作，都转。3 分钟没人处理也会自动转给主人。"
+                    "手机上主人只看得到这张卡：能写就写 context（这题在改什么）和 recommend（你推荐哪个选项，原文）、if_not（不选它的代价）。",
      "input_schema": {"type": "object", "required": ["thread", "why"], "properties": {
-         "thread": THREAD, "why": {"type": "string", "description": "一句话：为什么要主人定"}}}},
+         "thread": THREAD, "why": {"type": "string", "description": "一句话：为什么要主人定"},
+         "context": {"type": "string", "description": "可选，背景一句话：这题在改什么、为什么现在问（最多 120 字）"},
+         "recommend": {"type": "string", "description": "可选，你推荐的选项（写选项原文）"},
+         "if_not": {"type": "string", "description": "可选，一句话：不选推荐项的代价（写了 recommend 才有用）"}}}},
 )
 PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS)
 # The lead's two tools were project_thread_start and project_thread_send in older releases. The list names only the new ones;

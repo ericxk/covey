@@ -368,6 +368,27 @@ class ToolTest(ToolsCase):
         show.assert_called_once()
         self.assertIn("记忆里没有这个版本的依据", json.dumps(question_card({**record, "display_pending": False}, "T1"), ensure_ascii=False))
 
+    def test_the_lead_may_add_background_and_a_recommendation_to_the_card(self):
+        with mock.patch.object(flow, "show", return_value=True):
+            answer = self.tool("project_escalate", thread=self.label, why="要不要停服务得你定", context="导出会锁表约 5 分钟",
+                               recommend="今晚 23 点", if_not="白天停会挡住下单")
+        self.assertTrue(answer["ok"], answer)
+        record = read_object(self.path)
+        self.assertEqual((record["triage"]["context"], record["triage"]["recommend"], record["triage"]["if_not"]),
+                         ("导出会锁表约 5 分钟", "今晚 23 点", "白天停会挡住下单"))
+        text = json.dumps(question_card({**record, "display_pending": False}, "T1"), ensure_ascii=False)
+        for words in ("背景：导出会锁表约 5 分钟", "负责人推荐：今晚 23 点", "不选它的代价：白天停会挡住下单"):
+            self.assertIn(words, text)
+
+    def test_without_them_the_escalated_card_is_as_before(self):
+        with mock.patch.object(flow, "show", return_value=True):
+            self.tool("project_escalate", thread=self.label, why="记忆里没有依据")
+        record = read_object(self.path)
+        self.assertFalse({"context", "recommend", "if_not"} & set(record["triage"]))
+        text = json.dumps(question_card({**record, "display_pending": False}, "T1"), ensure_ascii=False)
+        self.assertNotIn("负责人推荐", text)
+        self.assertNotIn("背景：", text)
+
     def test_a_topic_that_is_not_the_projects_or_has_nothing_held_says_so(self):
         again = self.tool("project_escalate", thread=self.label, why="x")  # Holds nothing once handed back.
         with mock.patch.object(flow, "show", return_value=True):

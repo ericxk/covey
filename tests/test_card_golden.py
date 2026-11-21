@@ -327,6 +327,12 @@ def question_cards():
         {"id": "port", "header": "端口", "question": "新服务用哪个端口？", "context": "看板要从外网打开，8080 已被网关占用",
          "options": [{"label": "8443（推荐）", "description": "不用改网关"}, {"label": "9090"}]},
         {"id": "note", "header": "补充", "question": "还有别的要求吗？"}], answers={}), "T70")
+    # A question the project's lead handed back (app/triage.py escalate): its why; with background and a recommendation (T604 #14).
+    cards["card_escalated"] = question_card(question_record(answers={}, triage={
+        "state": "escalated", "why": "记忆里没有这个版本的依据", "by": "lead"}), "T70")
+    cards["card_escalated_recommend"] = question_card(question_record(answers={}, triage={
+        "state": "escalated", "why": "要不要停服务得你定", "by": "lead", "context": "导出会锁表约 5 分钟",
+        "recommend": "今晚 23 点", "if_not": "白天停会挡住下单"}), "T70")
     # 不处理 (T604 #15): set aside, with 撤销; then taken by the topic's next turn (#432), no 撤销 left.
     skipped = {"fmt": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}, "note": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}}
     cards["card_set_aside"] = question_card(question_record("set_aside", response_kind="set_aside", answers=skipped), "T70")

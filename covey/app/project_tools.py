@@ -330,6 +330,10 @@ def project_escalate(env, request):
     if not triage.enabled():
         return reply(False, TRIAGE_OFF)
     why = text_of(request.args, "why", limit=120)
+    # Optional, for the card the owner reads on a phone (cards/question_cards.py ``lead_notes``); absent: the card as before.
+    extra = {key: " ".join(str(request.args.get(key) or "").split())[:limit]
+             for key, limit in (("context", 120), ("recommend", 100), ("if_not", 120))}
+    extra = {key: value for key, value in extra.items() if value}
     try:
         app, ctx, chat = held_topic(env, request, record)
     except ValueError as exc:
@@ -337,7 +341,7 @@ def project_escalate(env, request):
     rows = triage_flow.held_questions(env.state_dir, {ctx.topic_id})
     if not rows:
         return reply(False, "这个话题现在没有交给你的问题（可能已经转给主人，或超过 3 分钟了）。")
-    sent = [triage_flow.escalate(env, row, why, by="lead") for _, row in rows]
+    sent = [triage_flow.escalate(env, row, why, by="lead", **extra) for _, row in rows]
     acted(env, pid, request, "escalate")
     label = topic_label(Path(env.state_dir), ctx.topic_id) or ctx.topic_id[:8]
     return reply(True, f"已转给主人：{label} 的问题卡" + ("已发出。" if all(sent) else "还没发出去，系统会请主人重新投递。"), sent=all(sent))

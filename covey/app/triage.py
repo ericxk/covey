@@ -135,13 +135,16 @@ def summary(record, answered=None) -> str:
     return line
 
 
-def escalate(env, record, why, *, by="lead") -> bool:
+def escalate(env, record, why, *, by="lead", context="", recommend="", if_not="") -> bool:
     """The held question sent on to the owner: its triage moves to ``escalated`` (with ``why``, which its card says), and the card
     goes out through the door the question would have used. True when the card was sent; a card that could not go is made good by
-    the topic's 重新投递 (the task's record says its question was not delivered). A question no longer held changes nothing (False)."""
+    the topic's 重新投递 (the task's record says its question was not delivered). A question no longer held changes nothing (False).
+    ``context`` (a line of background), ``recommend`` (the option the lead recommends) and ``if_not`` (what not taking it costs) go
+    into the triage record when given and on the card (cards/question_cards.py ``lead_notes``)."""
     state = Path(env.state_dir)
     path = question_path(state, record["token"])
-    moved = update_question(path, lambda row: {**triage.moved(row, triage.ESCALATED, why=cut(why, 120), by=by, at=time.time()),
+    moved = update_question(path, lambda row: {**triage.moved(row, triage.ESCALATED, why=cut(why, 120), by=by, at=time.time(),
+                                                **{k: cut(v, 120) for k, v in (("context", context), ("recommend", recommend), ("if_not", if_not)) if v}),
                                                "display_pending": True} if triage.held(row) else None)
     if moved is None:
         return False

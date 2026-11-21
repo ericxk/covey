@@ -379,7 +379,7 @@ def _question_form(record, token, tags="", headed=False):
         elements = [{"tag": "markdown", "content": f"**{tags + ' · ' if tags else ''}{look.word('waiting')} · {state}**"},
                     {"tag": "markdown", "content": line}]
     if triage.state(record) == triage.ESCALATED and triage.of(record).get("why"):
-        elements.insert(1, {"tag": "markdown", "content": f"负责人转给你的理由：{triage.of(record)['why']}"})
+        elements[1:1] = lead_notes(record)
     if asked_line(record):  # What the owner asked first and where its answer comes (T604 #13).
         elements.append(receipt(asked_line(record)))
     elements.append(markdown_panel("qh_" + token, "怎么回答", how_to_answer(record), size="notation", quiet=True))
@@ -432,6 +432,21 @@ def _pick_row(record, options):
     buttons.append(pick("pick_skip", SKIP_LABEL, SKIP_VALUE))
     return {"tag": "column_set", "flex_mode": "flow", "horizontal_spacing": BUTTON_SPACING,
             "columns": [{"tag": "column", "width": "auto", "elements": [button]} for button in buttons]}
+
+
+def lead_notes(record):
+    """What the project's lead hands the owner with a question it escalated (app/triage.py escalate): its why, then, when it
+    wrote them, a line of background in grey and its recommendation with what not taking it costs. Only the why without them."""
+    found = triage.of(record)
+    elements = [{"tag": "markdown", "content": f"负责人转给你的理由：{found['why']}"}]
+    if found.get("context"):
+        elements.append(note("背景：" + literal(compact_text(found["context"], CONTEXT_CHARS))))
+    if found.get("recommend"):
+        line = f"**负责人推荐：{literal(compact_text(found['recommend'], 100))}**"
+        if found.get("if_not"):
+            line += f"\n不选它的代价：{literal(compact_text(found['if_not'], CONTEXT_CHARS))}"
+        elements.append({"tag": "markdown", "content": line})
+    return elements
 
 
 def question_context(q):
