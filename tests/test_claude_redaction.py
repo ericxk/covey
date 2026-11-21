@@ -314,6 +314,57 @@ class TurnTests(Base):
         self.assertEqual(backend.prompt_notes(self.ctx)[-1], REDACTION_NOTE)
         self.assertTrue(backend.capabilities(self.ctx).redaction)
 
+    def test_claude_turn_hook_wraps_unredacted_and_chains_with_redaction(self):
+        import contextlib
+        from types import SimpleNamespace
+        from covey.core import extensions
+
+        seen = []
+
+        @contextlib.contextmanager
+        def fake_turn(ctx, env, *, run_id=""):
+            seen.append((run_id, ctx.topic_id))
+            settings = {"ANTHROPIC_BASE_URL": self.upstream.url, "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}
+            yield dataclasses.replace(ctx, options={**ctx.options, redaction.SETTINGS_ENV: settings}), env
+
+        hook = SimpleNamespace(turn=fake_turn)
+        backend = ClaudeBackend()
+        # Unredacted turn receives the hook's settings directly.
+        with mock.patch.object(extensions, "hook", return_value=hook), \
+                mock.patch("covey.backends.claude.runtime.run_stream", return_value="ran") as run_stream:
+            self.assertEqual(backend.run(self.request()), "ran")
+        self.assertEqual(run_stream.call_args.args[1].context.options[redaction.SETTINGS_ENV]["ANTHROPIC_BASE_URL"],
+                         self.upstream.url)
+        # Compact and handoff summary pass through the same hook.
+        with mock.patch.object(extensions, "hook", return_value=hook), \
+                mock.patch("covey.backends.claude.runtime.compact_only", return_value=True) as compact_only, \
+                mock.patch("covey.backends.claude.handoff.summarize", return_value=("sum", "ok")) as summarize:
+            self.assertTrue(backend.compact_session(self.request()))
+            self.assertEqual(backend.handoff_summary(self.ctx, "11111111-1111-4111-8111-111111111111", "p",
+                                                     redact=False, run_id="h1"), ("sum", "ok"))
+        self.assertEqual(compact_only.call_args.args[1].context.options[redaction.SETTINGS_ENV]["ANTHROPIC_BASE_URL"],
+                         self.upstream.url)
+        self.assertEqual(summarize.call_args.args[1].options[redaction.SETTINGS_ENV]["ANTHROPIC_BASE_URL"],
+                         self.upstream.url)
+        # When redaction is also on, redaction.resolve_upstream chains to the hook's base URL.
+        self.topic()
+        captured = {}
+
+        def capture_stream(_backend, req, _env):
+            captured["url"] = req.context.options[redaction.SETTINGS_ENV]["ANTHROPIC_BASE_URL"]
+            status, body = call(captured["url"] + "/v1/messages", json.dumps({"q": TERM}).encode())
+            captured["status"], captured["body"] = status, body
+            return "redacted-ran"
+
+        with mock.patch.object(extensions, "hook", return_value=hook), \
+                mock.patch("covey.backends.claude.runtime.run_stream", side_effect=capture_stream):
+            self.assertEqual(backend.run(self.request()), "redacted-ran")
+        self.assertNotEqual(captured["url"], self.upstream.url)
+        self.assertEqual(captured["status"], 200)
+        self.assertEqual(json.loads(captured["body"])["content"][0]["text"], f"about {TERM}")
+        self.assertNotIn(TERM.encode(), self.upstream.seen[-1][3])
+        self.assertEqual(seen, [(RUN, "t1"), (RUN, "t1"), ("h1", "t1"), (RUN, "t1")])
+
 
 class GuardTests(Base):
     def run_turn(self, backend):

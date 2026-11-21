@@ -149,6 +149,12 @@ def settings_upstream(env):
 
 def resolve_upstream(ctx, env, config):
     """Where the turn's requests go on to (see the module docstring); Unavailable for a broken address."""
+    chained = str((ctx.options.get(SETTINGS_ENV) or {}).get("ANTHROPIC_BASE_URL") or "").strip()
+    if chained:
+        upstream = checked_url(chained)
+        if not upstream:
+            raise Unavailable("模型服务地址（ANTHROPIC_BASE_URL）无法识别，敏感词中继不知道该发往哪里，本轮未发送")
+        return upstream
     if str(env.get("ANTHROPIC_BASE_URL") or "").strip():
         upstream = checked_url(env["ANTHROPIC_BASE_URL"])
         if not upstream:

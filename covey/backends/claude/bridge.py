@@ -14,10 +14,12 @@ redaction through its term relay (``backends/claude/redaction.py``). A topic on 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import shlex
 from typing import Any
 
+from covey.core import extensions
 from covey.core.harness import BackendRuntime, HarnessCapabilities, HARNESS_REGISTRY, for_device
 
 from covey.core.process import device_of
@@ -203,10 +205,13 @@ class ClaudeBackend(BackendRuntime):
         if device_of(request.context):
             return False  # The session is on a device: its file is not ours to read (compact_before_turn).
         ctx, env = request.context, self.child_env(request.context)
-        if not redaction.wanted(ctx):
-            return compact_only(self, request, env)
-        with redaction.turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
-            return compact_only(self, dataclasses.replace(request, context=ctx), env)
+        want_redact = redaction.wanted(ctx)
+        with _extension_turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
+            request = dataclasses.replace(request, context=ctx)
+            if not want_redact:
+                return compact_only(self, request, env)
+            with redaction.turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
+                return compact_only(self, dataclasses.replace(request, context=ctx), env)
 
     def handoff_summary(self, ctx, session_id, prompt, *, redact, cancel=None, run_id=""):
         """(text, outcome) of a handoff summary on a fork of ``session_id`` (backends/claude/handoff.py), for the
@@ -217,10 +222,12 @@ class ClaudeBackend(BackendRuntime):
         from covey.backends.claude.handoff import summarize
         env = self.child_env(ctx)
         try:
-            if not redact and not redaction.wanted(ctx):
-                return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
-            with redaction.turn(ctx, env, run_id=run_id) as (ctx, env):
-                return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
+            want_redact = redact or redaction.wanted(ctx)
+            with _extension_turn(ctx, env, run_id=run_id) as (ctx, env):
+                if not want_redact:
+                    return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
+                with redaction.turn(ctx, env, run_id=run_id) as (ctx, env):
+                    return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
         except redaction.Unavailable:
             return "", "敏感词中继不可用，没有发送"
 
@@ -280,16 +287,30 @@ class ClaudeBackend(BackendRuntime):
         return None
 
 
+@contextlib.contextmanager
+def _extension_turn(ctx, env, *, run_id=""):
+    """Optional extension hook around a Claude Code turn (core/extensions.py ``claude_turn``)."""
+    hook = extensions.hook("claude_turn")
+    if hook is None:
+        yield ctx, env
+        return
+    with hook.turn(ctx, env, run_id=run_id) as wrapped:
+        yield wrapped
+
+
 def redacted_stream(backend, request, env):
     """``run_stream`` for the turn; through the term relay when the topic chose redaction. A turn that
     cannot be redacted fails before Claude Code starts, with the reason on the card."""
     from covey.backends.claude.runtime import run_stream
     ctx = request.context
     try:
-        if not redaction.wanted(ctx):
-            return run_stream(backend, request, env)
-        with redaction.turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
-            return run_stream(backend, dataclasses.replace(request, context=ctx), env)
+        want_redact = redaction.wanted(ctx)
+        with _extension_turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
+            request = dataclasses.replace(request, context=ctx)
+            if not want_redact:
+                return run_stream(backend, request, env)
+            with redaction.turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
+                return run_stream(backend, dataclasses.replace(request, context=ctx), env)
     except redaction.Unavailable as exc:
         return redaction.unavailable_result(request, exc)
 
