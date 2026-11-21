@@ -263,8 +263,8 @@ class Review(CardActionQueue):
                 "workdir": workdir}
 
     def launch(self, path, saved, chat, target):
-        """The review topic's card, binding and first turn, each once; its answer ({first, again}), None when its card
-        did not go out."""
+        """The review topic's card, binding and first turn, each once; its answer ({first, again}, kept once the first
+        turn is queued), None when its card did not go out."""
         from covey.app import butler_topics
         from covey.core.history_storage import append_history
         from covey.core.jobs import find_job_record
@@ -292,13 +292,16 @@ class Review(CardActionQueue):
             if not (data.get("origin") or {}).get("review_of"):
                 data.setdefault("origin", {})["review_of"] = {"topic_id": saved["source_topic_id"], "job_id": saved["job_id"]}
                 write_json(new_ctx.history_path.parent / "topic.json", data, ensure_ascii=False, indent=2)
+        named = f"{label}「{saved['title']}」" if label else f"「{saved['title']}」"
         if not (find_job_record(Path(env.state_dir), mid) or app.runtime.jobs.settling(mid)):
             prompt = self.prompt(saved, label, new_ctx)
             content = f"独立复核 {saved['source']} 任务 #{saved['job_id']} 的改动"
             append_history(new_ctx.history_path, "user", content, {"message_id": mid, "chat_id": chat})
-            app.submission.enqueue_chat_job(new_ctx, content, chat, mid, prompt_content=prompt, title=saved["title"])
+            if app.submission.enqueue_chat_job(new_ctx, content, chat, mid, prompt_content=prompt,
+                                               title=saved["title"]) is None:
+                # The model settings could not be told (app/submission.py): no answer kept, a click again tries again.
+                return {"first": f"{named}已开，但第一轮没有提交：模型配置无法确认（见话题里的说明）；可以稍后再点一次。"}
         model = app.cards.model_label(app.harness.context, plan["model"]) if plan["model"] else ""
-        named = f"{label}「{saved['title']}」" if label else f"「{saved['title']}」"
         how = f"{model or app.spec.title}，只读" + ("，开着脱敏" if plan.get("redaction") else "")
         answer = {"first": f"已开 {named}（{how}）：它只看你的原话、完成标准和这一轮的改动，结论在它的话题里。",
                   "again": f"这一轮已经开过独立复核：{named}，结论在它的话题里。"}

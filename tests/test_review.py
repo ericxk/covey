@@ -148,6 +148,20 @@ class OpenTest(ButlerTopicsCase):
         self.assertEqual(self.app.messenger.create_and_send_card.call_count, cards + 1)
         self.assertIn("这一轮已经开过独立复核", self.said()[-1])
 
+    def test_a_first_turn_the_queue_refuses_is_said_and_a_click_again_tries_again(self):
+        target = self.app.apps
+        with mock.patch.object(type(next(iter(target.values())).submission), "enqueue_chat_job", return_value=None):
+            self.app.review.open(self.ctx, self.click, self.raw)
+        self.assertIn("第一轮没有提交", self.said()[-1])
+        token = review.token_of(self.source, self.job_id)
+        self.assertNotIn("answer", json.loads(review.record_path(self.ctx.state_dir, token).read_text()))
+        cards = self.app.messenger.create_and_send_card.call_count
+        self.app.review.open(self.ctx, {**self.click, "event_id": "ev-2"}, self.raw)  # Its card is there: not sent again.
+        self.assertEqual(self.app.messenger.create_and_send_card.call_count, cards)
+        job, record = self.opened()
+        self.assertIsNotNone(job)
+        self.assertIn("answer", record)
+
     def test_only_the_owner_and_only_an_ended_turn(self):
         with mock.patch.object(self.app.review, "submit") as submit:
             self.assertEqual(self.app.review.claim(self.ctx, self.click, self.raw, False), "owner_only")

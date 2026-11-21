@@ -122,7 +122,21 @@ def absent_commits(job, delivery) -> list:
     workdir = _field(job, "workdir")
     if _field(job, "device") or not workdir:
         return []
-    return missing_commits(workdir, delivery_commits(delivery)) or []
+    commits = tuple(delivery_commits(delivery))
+    key, now = (workdir, commits), time.monotonic()
+    found = _ABSENT.get(key)
+    if found is None or now - found[0] > ABSENT_SECONDS:
+        found = (now, missing_commits(workdir, commits) or [])
+        _ABSENT.pop(key, None)
+        _ABSENT[key] = found
+        while len(_ABSENT) > ABSENT_KEPT:
+            _ABSENT.pop(next(iter(_ABSENT)))
+    return list(found[1])
+
+
+# The answer card and its relay ask about the same commits of one turn one after the other: the second is not asked again.
+ABSENT_SECONDS, ABSENT_KEPT = 120, 32
+_ABSENT: dict = {}
 
 
 def notes(state_dir, job) -> list:

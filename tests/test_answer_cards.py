@@ -631,7 +631,7 @@ class DeliveryTest(Case):
         cards.body_cut.return_value = False
 
         def send(ctx, chat, text, key, card=None, on_card=None):
-            if refuse_card and card is not None:
+            if refuse_card and card is not None and not key.endswith("-tail"):
                 set_failure(Failure("audit_rejected"))
                 return False
             if card is not None and on_card is not None:
@@ -693,6 +693,13 @@ class DeliveryTest(Case):
         self.assertEqual(self.files, ["## 结论\n被拦的回答"])
         said = [call.args[2] for call in send_text.call_args_list]
         self.assertEqual(said[-1], AUDIT_FILE_NOTE)
+        # Its 产物 and 输入/输出 on the small card after the file, as a long answer's, under a key of their own.
+        small = send_text.call_args_list[-2]
+        self.assertTrue(small.args[3].endswith("-audit-file-tail"), small.args[3])
+        self.assertEqual(ids(small.kwargs["card"])[-2:], [ARTIFACTS_ID, FACTS_ID])
+        self.assertNotIn("被拦的回答", json.dumps(small.kwargs["card"], ensure_ascii=False))
+        self.assertEqual([entry["where"] for entry in read_object(answer_cards.record_path(self.state, self.key))["cards"]],
+                         ["tail"])  # Kept for the upload.
         last = self.delivery.record_job_state.call_args_list[-1]
         self.assertEqual((last.args[2], last.kwargs["delivery_ok"]), ("done", True))
         self.assertNotIn("被拦的回答", json.dumps(self.receipts(), ensure_ascii=False))
