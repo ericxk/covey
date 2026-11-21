@@ -91,7 +91,7 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(word=word), self.assertRaisesRegex(ValueError, why):
                 self.change([word])
         with self.assertRaisesRegex(ValueError, "only non-secret proxy URLs"):
-            self.change(["HTTPS_PROXY=http://user:secret@proxy.example.invalid:3128"])
+            self.change(["HTTPS_PROXY=http://user:secret@proxy.example.invalid:3128"])  # privacy: allow a fake proxy password to be refused
         with self.assertRaisesRegex(ValueError, "only explicit non-secret"):
             self.change(["COVEY_DIGEST_TIMES=09:30\n21:30"])
         self.assertEqual(self.manifest(), self.first)

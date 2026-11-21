@@ -55,7 +55,7 @@ class SummaryTests(unittest.TestCase):
                        "status_message": "主任务中途出错", "harness_id": "claude", "model": "claude-fable-5",
                        "effort": "xhigh", "auto_resume": 1, "retry_of": "om_before",
                        "checkpoint_path": str(checkpoint),
-                       "final_text": "部署失败：curl -H 'Authorization: Bearer sk-live-1234567890abcdef' 返回 401",
+                       "final_text": "部署失败：curl -H 'Authorization: Bearer sk-live-1234567890abcdef' 返回 401",  # privacy: allow a fake key to be redacted
                        "timings": {"backend_requested": now - 70, "execution_finished": now - 40},
                        "created_at": "2026-11-21T02:00:00Z"}
 
@@ -75,7 +75,7 @@ class SummaryTests(unittest.TestCase):
         answer = next(line for line in lines if line.startswith("回答开头："))
         self.assertIn("部署失败：curl -H", answer)
         self.assertIn("[已隐藏]", answer)
-        self.assertNotIn("sk-live-1234567890abcdef", block)  # core/text.py redact.
+        self.assertNotIn("sk-live-1234567890abcdef", block)  # core/text.py redact.  # privacy: allow a fake key to be redacted
         self.assertTrue(next(line for line in lines if line.startswith("时间：")).endswith("（用时 30秒）"))
 
     def test_a_turn_with_nothing_recorded_still_says_what_it_knows(self):
