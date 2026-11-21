@@ -435,10 +435,10 @@ class RoundTests(UnifiedCase):
         self.overview.tick(self.ctx, NOW)
         self.assertEqual(self.feishu.order(), [f"om_j{n}" for n in range(MAX_PINS + 2, 2, -1)] + ["om_index1"])
         card = json.dumps(self.app.messenger.create_and_send_card.call_args.args[2], ensure_ascii=False)
-        self.assertIn("在做 · 未 Pin（12）", card)  # The first card: drawn before any pin.
+        self.assertIn("**在做 · 未 Pin**  <font color='grey'>12</font>", card)  # The first card: drawn before any pin.
         self.overview.tick(self.ctx, NOW + 20)
         card = json.dumps(self.last_card(), ensure_ascii=False)
-        self.assertIn("在做 · 未 Pin（2）", card)
+        self.assertIn("**在做 · 未 Pin**  <font color='grey'>2</font>", card)
         self.assertIn("话题 401", card)
         self.assertIn("话题 402", card)
 
@@ -623,9 +623,11 @@ class CardTests(unittest.TestCase):
             "counts": {"waiting": 0, "result": 0, "running": 0}, "pinned": 0, "waiting": [], "result": [],
             "running": [], "stale": []}}
         card = overview_card(view, NOW)
-        self.assertEqual([element["content"] for element in card["body"]["elements"]],
-                         ["等你 0 · 在做 0 · 有结果 0"])
-        self.assertEqual(card["header"]["subtitle"]["content"], "等你 0 · 在做 0 · 有结果 0")
+        # The 看板's look (T604 #52): the band alone, the counts in the chat list's preview.
+        (band,) = card["body"]["elements"]
+        self.assertIn("都在掌握中", json.dumps(band, ensure_ascii=False))
+        self.assertEqual(card["header"]["subtitle"]["content"], "私聊里在推进的事")
+        self.assertEqual(card["config"]["summary"]["content"], "手上的事 · 等你 0 · 在做 0 · 有结果 0")
 
     def test_a_stopped_topic_without_a_pin_is_listed_with_the_results(self):
         rows = [{"label": "T401", "title": "改看板", "topic": "t1", "status": "cancelled", "at": NOW - 60},
@@ -634,9 +636,10 @@ class CardTests(unittest.TestCase):
             "counts": {"waiting": 0, "result": 2, "running": 0}, "pinned": 0, "waiting": [], "result": rows,
             "running": [], "stale": []}}
         card = json.dumps(overview_card(view, NOW), ensure_ascii=False)
-        self.assertIn("有结果 · 未 Pin（2）", card)
-        self.assertIn("已停止 · ", card)
-        self.assertIn("做完 · ", card)
+        self.assertIn("**有结果 · 未 Pin**  <font color='grey'>2</font>", card)
+        # Each row's state as the 看板 says it (cards/ui.py topic_row): the stop, the result not seen.
+        self.assertIn("<font color='grey'>**已停止**</font> **T401 改看板**", card)
+        self.assertIn("<font color='green'>**有结果**</font> **T402 查日志**", card)
 
 
 if __name__ == "__main__":

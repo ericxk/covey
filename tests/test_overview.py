@@ -2,8 +2,10 @@
 COVEY_PINNED_OVERVIEW=1; what it lists, when it is redrawn, pinned, replaced."""
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import time
 import unittest
 from unittest import mock
@@ -19,9 +21,26 @@ from covey.core.state import write_private_text
 NOW = 1793856000.0  # 2026-11-05T14:40:00+08:00
 
 
+def plain(content):
+    """A Markdown text as it reads: tags, bold marks and the state's dot taken off, entities read, spaces one."""
+    text = html.unescape(re.sub(r"</?(font|text_tag)[^>]*>|\*\*|●", "", content))
+    return " ".join(text.replace("　", " ").split())
+
+
 def texts(card):
-    """Each element's markdown, in order."""
-    return [element.get("content", "") for element in card["body"]["elements"]]
+    """What the card says, one string per element of its body in order (the band, a group's heading, a topic row
+    (cards/ui.py topic_row: its state word and head / its line / its figures), a grey note), its Markdown read as
+    ``plain``."""
+    def contents(node):
+        if isinstance(node, dict):
+            if node.get("tag") == "markdown":
+                yield node["content"]
+            for value in node.values():
+                yield from contents(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from contents(value)
+    return [" / ".join(part for part in map(plain, contents(element)) if part) for element in card["body"]["elements"]]
 
 
 def hm(seconds):
@@ -41,8 +60,10 @@ class CardTests(unittest.TestCase):
         self.assertEqual(when(NOW - 3 * 86400, NOW), time.strftime("%m-%d %H:%M", time.localtime(NOW - 3 * 86400)))
 
     def test_waiting_running_and_ended_in_that_order(self):
+        """The 看板's look (T604 #52): the band, then each group's heading and its topic rows."""
         card = overview_card(view(
-            waiting=[{"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": NOW - 180}],
+            waiting=[{"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": NOW - 180,
+                      "url": "https://applink.example/q"}],
             running=[{"label": "T395", "title": "为啥这么多重复的", "harness": "Claude Code",
                       "workspace": "algo-agent-devskills", "status": "running", "started": NOW - 39 * 60,
                       "phase": "删除分支在补文档"},
@@ -50,43 +71,73 @@ class CardTests(unittest.TestCase):
                       "status": "queued", "started": None, "phase": ""}],
             ended=[{"label": "T394", "title": "群晖公钥", "status": "done", "at": NOW - 60}]), NOW, "14:40")
         lines = texts(card)
-        self.assertEqual(lines[0], "**等你（1）**")
-        self.assertEqual(lines[1], "**T396** 你为啥没有pin？\n<font color='grey'>" + hm(NOW - 180) + " 问的 · 置顶汇总卡</font>")
-        self.assertEqual(lines[2], "**在做（2）**")
-        self.assertEqual(lines[3], "**T395** 为啥这么多重复的\n<font color='grey'>" + hm(NOW - 39 * 60) + " 开始 · 删除分支在补文档 · "
-                                   "Claude Code · algo-agent-devskills</font>")
-        self.assertEqual(lines[4], "**T391** logid\n<font color='grey'>排队中 · Codex · DataLab</font>")
-        self.assertEqual(lines[5], "**刚结束（1）**")
-        self.assertEqual(lines[6], "**T394** 群晖公钥\n<font color='grey'>做完 · "
-                                   f"{time.strftime('%H:%M', time.localtime(NOW - 60))}</font>")
-        self.assertEqual(lines[7], "<font color='grey'>更新于 14:40 · 只列这个私聊里的任务</font>")
-        self.assertEqual(card["header"]["title"]["content"], "手上的事")
-        self.assertEqual(card["header"]["subtitle"]["content"], "等你 1 · 在做 2")
+        self.assertTrue(lines[0].startswith("要你处理 / 1 件事 / 先看：等你 · T396 你为啥没有pin？ / "), lines[0])
+        self.assertEqual(lines[1:], [
+            "等你 1", f"等你 T396 你为啥没有pin？ › / 置顶汇总卡 / {hm(NOW - 180)} 问的",  # › : it opens its card.
+            "在做 2", f"在做 T395 为啥这么多重复的 / 删除分支在补文档 / {hm(NOW - 39 * 60)} 开始 ｜ Claude Code ｜ "
+                    "algo-agent-devskills",
+            "在做 T391 logid / 排队中 ｜ Codex ｜ DataLab",
+            "刚结束 1", f"有结果 T394 群晖公钥 / {hm(NOW - 60)}",
+            "更新于 14:40 · 只列这个私聊里的任务"])
+        head = card["header"]
+        self.assertEqual((head["title"]["content"], head["subtitle"]["content"], head["template"]),
+                         ("手上的事", "私聊里在推进的事", "default"))
+        self.assertEqual([tag["text"]["content"] for tag in head["text_tag_list"]], ["1 等你", "2 在做"])
         self.assertEqual(card["config"]["summary"]["content"], "手上的事 · 等你 1 · 在做 2")
         self.assertTrue(card["config"]["update_multi"])  # Redrawn in place for everyone who sees it.
-        self.assertEqual({element["tag"] for element in card["body"]["elements"]}, {"markdown"})  # No buttons.
+        self.assertIn("band-0", card["config"]["style"]["color"])  # The band's colours (cards/ui.py styled).
+        # The question's row opens its card and has 去回答; nothing else is a button.
+        shown = json.dumps(card, ensure_ascii=False)
+        self.assertEqual(re.findall(r'"text": \{"tag": "plain_text", "content": "([^"]+)"\}, "type"', shown), ["去回答"])
+        self.assertEqual(shown.count('"default_url": "https://applink.example/q"'), 3)  # The band, the row, its button.
+
+    def test_a_task_that_may_be_stuck_says_so_first(self):
+        card = overview_card(view(running=[{"label": "T395", "title": "跑测试", "status": "running", "started": NOW - 3600,
+                                            "phase": "全量", "progress": ["可能卡住了"]}]), NOW)
+        lines = texts(card)
+        self.assertTrue(lines[0].startswith("要你处理 / 1 件事 / 先看：可能卡住 · T395 跑测试"), lines[0])
+        self.assertEqual(lines[2], f"可能卡住 T395 跑测试 / 全量 / {hm(NOW - 3600)} 开始")
 
     def test_nothing_to_show_and_no_stamp(self):
         card = overview_card(view(), NOW)
-        self.assertEqual(texts(card), ["<font color='grey'>现在没有在做的任务，也没有在等你的事。</font>"])
-        self.assertEqual(card["header"]["subtitle"]["content"], "没有在做的任务")
+        self.assertEqual(texts(card), ["要你处理 / 都在掌握中 / 现在没有在做的任务，也没有在等你的事"])
+        self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["都在掌握中"])
 
     def test_text_from_a_topic_is_escaped_and_cut_and_long_parts_are_counted(self):
         rows = [{"label": f"T{n}", "title": "a*b_<x>" + "长" * 40, "harness": "", "workspace": "",
                  "status": "cancel_requested", "started": NOW - 10, "phase": ""} for n in range(SHOWN + 3)]
-        lines = texts(overview_card(view(running=rows), NOW))
-        self.assertEqual(lines[1], "**T0** a\\*b\\_&lt;x&gt;" + "长" * 23 + "…\n<font color='grey'>" + hm(NOW - 10) + " 开始 · 正在停止</font>")
-        self.assertEqual(len(lines), 1 + SHOWN + 1)
-        self.assertEqual(lines[-1], "<font color='grey'>还有 3 件没列出</font>")
+        card = overview_card(view(running=rows), NOW)
+        lines = texts(card)
+        self.assertEqual(lines[2], "在做 T0 a*b_<x>" + "长" * 22 + "… / 正在停止 / " + hm(NOW - 10) + " 开始")
+        self.assertNotIn("<x>", json.dumps(card, ensure_ascii=False))  # Escaped: no tag of the topic's takes effect.
+        self.assertEqual(len(lines), 2 + SHOWN + 1)
+        self.assertEqual(lines[-1], "还有 3 件没列出")
 
     def test_questions_waiting_over_a_day_are_one_line_of_topic_numbers(self):
         rows = [{"label": "T394", "title": "群晖", "ask": "要不要装公钥？", "since": NOW - 60},
                 *({"label": f"T{n}", "title": "旧", "ask": "补充信息", "since": NOW - 86400 - n} for n in range(12))]
         lines = texts(overview_card(view(waiting=rows), NOW))
-        self.assertEqual(lines, ["**等你（13）**", "**T394** 群晖\n<font color='grey'>" + hm(NOW - 60) + " 问的 · 要不要装公钥？</font>",
-                                 "<font color='grey'>另有 12 个等了一天以上：T0、T1、T2、T3、T4、T5、T6、T7、T8、T9等</font>"])
+        self.assertEqual(lines[1:], ["等你 13", f"等你 T394 群晖 / 要不要装公钥？ / {hm(NOW - 60)} 问的",
+                                     "另有 12 个等了一天以上：T0、T1、T2、T3、T4、T5、T6、T7、T8、T9等"])
         lines = texts(overview_card(view(waiting=rows[1:3]), NOW))
-        self.assertEqual(lines, ["**等你（2）**", "<font color='grey'>另有 2 个等了一天以上：T0、T1</font>"])
+        self.assertEqual(lines[1:], ["等你 2", "另有 2 个等了一天以上：T0、T1"])
+
+    def test_a_full_card_lists_fewer_rows_a_group_to_keep_within_what_cardkit_takes(self):
+        from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, json_size
+
+        url = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x&thread_position=7"
+        card = overview_card(view(
+            waiting=[{"label": f"T{n}", "title": "长" * 40, "ask": "问" * 120, "since": NOW - 60 * n, "url": url}
+                     for n in range(12)],
+            running=[{"label": f"T{n}", "title": "长" * 40, "harness": "Claude Code", "workspace": "algo-agent-devskills",
+                      "status": "running", "started": NOW - 600, "phase": "阶" * 80, "progress": ["预计 15:20 左右做完"]}
+                     for n in range(12)],
+            ended=[{"label": f"T{n}", "title": "长" * 40, "status": "failed", "at": NOW - 30} for n in range(12)]), NOW, "14:40")
+        self.assertLessEqual(element_count(card), CARD_NODES)
+        self.assertLessEqual(json_size(card), CARD_BYTES)
+        lines = texts(card)
+        self.assertEqual(lines.count("还有 6 件没列出"), 3)  # Six rows a group, then a line saying how many more.
+        self.assertIn("等你 12", lines)
 
     def test_the_retired_card_says_it_no_longer_changes(self):
         self.assertIn("已不再更新", json.dumps(retired_card(), ensure_ascii=False))
@@ -202,10 +253,10 @@ class OverviewTests(OverviewCase):
         self.assertEqual(chat, "oc_dm")
         self.assertNotIn("reply_to_message_id", kwargs)  # Its own message, in no topic.
         self.assertEqual(key, self.app.voice.key("overview", "oc_dm-1"))
-        self.assertEqual(texts(card)[:4], [
-            "**等你（1）**", "**T395** 为啥这么多重复的\n<font color='grey'>" + hm(NOW - 120) + " 问的 · 要不要做？</font>",
-            "**在做（1）**", "**T395** 为啥这么多重复的\n<font color='grey'>" + hm(NOW - 600) + " 开始 · 删除分支在补文档 · "
-                             "Claude Code · algo-agent-devskills</font>"])
+        self.assertEqual(texts(card)[1:5], [
+            "等你 1", f"等你 T395 为啥这么多重复的 / 要不要做？ / {hm(NOW - 120)} 问的",
+            "在做 1", f"在做 T395 为啥这么多重复的 / 删除分支在补文档 / {hm(NOW - 600)} 开始 ｜ Claude Code ｜ "
+                    "algo-agent-devskills"])
         self.app.messenger.pin.assert_called_once_with("test-bot", "om_card1")
         record = self.record()
         self.assertEqual({k: record[k] for k in ("chat_id", "card_id", "message_id", "sequence", "generation",
@@ -231,7 +282,7 @@ class OverviewTests(OverviewCase):
         self.assertEqual(put.call_args.args[:2], ("test-bot", "card1"))
         self.assertEqual(put.call_args.kwargs["sequence"], 1)
         self.assertEqual(put.call_args.kwargs["key"], "overview-1-1")
-        self.assertEqual(texts(self.card(put.call_args))[0], "**在做（2）**")
+        self.assertEqual(texts(self.card(put.call_args))[1], "在做 2")
         self.assertEqual(self.record()["sequence"], 1)
         self.overview.tick(self.ctx, NOW + 50)  # Unchanged: no redraw before REFRESH.
         self.assertEqual(put.call_count, 1)
@@ -258,11 +309,10 @@ class OverviewTests(OverviewCase):
         self.job("om_a", 1, status="done")
         self.overview.tick(self.ctx, NOW + 30)
         card = self.card(self.app.messenger.put_card.call_args)
-        self.assertEqual(texts(card)[:2], ["**刚结束（1）**", "**T395** 为啥这么多重复的\n<font color='grey'>做完 · "
-                                           f"{time.strftime('%H:%M', time.localtime(NOW + 30))}</font>"])
+        self.assertEqual(texts(card)[1:3], ["刚结束 1", f"有结果 T395 为啥这么多重复的 / {hm(NOW + 30)}"])
         self.overview.tick(self.ctx, NOW + 30 + overview.RECENT)
         card = self.card(self.app.messenger.put_card.call_args)
-        self.assertEqual(texts(card)[0], "<font color='grey'>现在没有在做的任务，也没有在等你的事。</font>")
+        self.assertEqual(texts(card)[0], "要你处理 / 都在掌握中 / 现在没有在做的任务，也没有在等你的事")
 
     def test_an_ended_task_whose_topic_runs_again_is_not_listed_as_ended(self):
         self.job("om_a", 1)
@@ -271,9 +321,9 @@ class OverviewTests(OverviewCase):
         self.job("om_b", 2, phase="第二轮")  # The topic's next turn.
         self.overview.tick(self.ctx, NOW + 30)
         lines = texts(self.card(self.app.messenger.put_card.call_args))
-        self.assertEqual(lines[:2], ["**在做（1）**", "**T395** 为啥这么多重复的\n<font color='grey'>排队中 · 第二轮 · "
-                                                       "Claude Code · algo-agent-devskills</font>"])
-        self.assertNotIn("**刚结束（1）**", lines)
+        self.assertEqual(lines[1:3], ["在做 1", "在做 T395 为啥这么多重复的 / 第二轮 / 排队中 ｜ Claude Code ｜ "
+                                                "algo-agent-devskills"])
+        self.assertNotIn("刚结束 1", lines)
 
     def test_a_task_that_asked_a_question_is_not_ended(self):
         self.job("om_a", 1)
@@ -281,8 +331,8 @@ class OverviewTests(OverviewCase):
         self.job("om_a", 1, status="waiting_user")
         self.question("q1")
         self.overview.tick(self.ctx, NOW + 30)
-        self.assertEqual(texts(self.card(self.app.messenger.put_card.call_args))[0], "**等你（1）**")
-        self.assertNotIn("**刚结束（1）**", texts(self.card(self.app.messenger.put_card.call_args)))
+        self.assertEqual(texts(self.card(self.app.messenger.put_card.call_args))[1], "等你 1")
+        self.assertNotIn("刚结束 1", texts(self.card(self.app.messenger.put_card.call_args)))
 
     def test_the_latest_question_comes_first(self):
         self.topic("t2", 394, "群晖")
@@ -290,13 +340,13 @@ class OverviewTests(OverviewCase):
         self.question("q2", topic="t2", created_at=NOW - 60)
         self.overview.tick(self.ctx, NOW)
         lines = texts(self.card(self.app.messenger.create_and_send_card.call_args))
-        self.assertEqual([line.split()[0] for line in lines[1:3]], ["**T394**", "**T395**"])
+        self.assertEqual([line.split()[1] for line in lines[2:4]], ["T394", "T395"])
 
     def test_a_phase_the_model_did_not_write_is_left_out(self):
         self.job("om_a", 1, phase="准备处理本轮请求", timings={"backend_started": NOW})
         self.overview.tick(self.ctx, NOW)
-        line = texts(self.card(self.app.messenger.create_and_send_card.call_args))[1]
-        self.assertTrue(line.endswith(hm(NOW) + " 开始 · Claude Code · algo-agent-devskills</font>"), line)
+        line = texts(self.card(self.app.messenger.create_and_send_card.call_args))[2]
+        self.assertEqual(line, f"在做 T395 为啥这么多重复的 / {hm(NOW)} 开始 ｜ Claude Code ｜ algo-agent-devskills")
 
     def test_a_failed_pin_is_tried_again_later_and_a_pinned_card_never_again(self):
         self.app.messenger.pin.return_value = False
@@ -376,7 +426,7 @@ class OverviewTests(OverviewCase):
     def test_a_topic_without_a_record_or_history(self):
         self.job("om_a", 1, topic="t-missing")
         self.overview.tick(self.ctx, NOW)
-        self.assertIn("（话题未知）", texts(self.card(self.app.messenger.create_and_send_card.call_args))[1])
+        self.assertIn("（话题未知）", texts(self.card(self.app.messenger.create_and_send_card.call_args))[2])
 
 
 if __name__ == "__main__":

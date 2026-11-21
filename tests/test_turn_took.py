@@ -105,7 +105,9 @@ class WordsTest(unittest.TestCase):
 
         self.assertIs(review.outcome_line, turn_words.outcome_line)
         self.assertIs(question_cards.FOLLOW_UP, turn_words.FOLLOW_UP)
-        self.assertIs(overview_card.OUTCOMES, turn_words.OVERVIEW_OUTCOMES)
+        # 手上的事's ended rows say their state as the 看板 does (T604 #52: core/look.py STATES, cards/ui.py topic_row).
+        from covey.core import look
+        self.assertLessEqual(set(overview_card.ENDED_TONES.values()), set(look.STATES))
         self.assertIs(butler_tools.GROUP_NAMES, turn_words.GROUP_NAMES)
         self.assertIs(butler_app.RESULTS, turn_words.RESULTS)
         self.assertIs(overview.UNSET_PHASES, turn_words.UNSET_PHASES)

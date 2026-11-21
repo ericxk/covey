@@ -273,7 +273,7 @@
 | `cards/memory_panel.py` | The 设置 card's 记忆 tab: the owner's memory by scope, and what the next turn carries |
 | `cards/node_cards.py` | The cards of nodes: an alert (⚠️ testbox 内存紧张, what was seen, since when, who used the most memory |
 | `cards/node_panel.py` | The 设置 card's 设备 tab: every node with its state now, adding a device, removing one |
-| `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change |
+| `cards/overview.py` | The 手上的事 card, pinned in the owner's private chat with the bot and redrawn whole as its tasks change, in the … |
 | `cards/owner_send.py` | The 代发草稿 card: a message a topic drafted for the owner to send as themselves |
 | `cards/project_card.py` | The 专项卡 (app/project_cards.py |
 | `cards/project_proposal.py` | 整理专项's cards: the proposal card (建个专项？), its rename form, the 整理专项 card of a scheduled or asked-for 整理, and … |
