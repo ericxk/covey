@@ -2,9 +2,9 @@
 draws (``snapshot``), and the few changes the page may make (``change``, app/web_ops.py's ``settings``), both through the code the card
 itself draws and writes with. Nothing here is a second copy of a rule.
 
-- What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py), the card's 配置 as the two pages the page has for it, 新话题
-  and 管家 unless COVEY_BUTLER=0 (``web_tabs``), then 工作区, 脱敏, 群聊, 设备 with COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the
-  card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
+- What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py): 配置 as the card has it (v22 ``config``: its sections 新话题,
+  管家 unless COVEY_BUTLER=0, 独立复核 with COVEY_REVIEW=1, and 更多, all open: the page has no card's size), 工作区, 脱敏, 群聊, 设备 with
+  COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
   ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
   (cards/workspace_manager.py ``list_entries``, ``tag_words``), 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
   ``facts``) and its terms as they are (the page edits the list, so the terms go into the page's database;
@@ -34,13 +34,12 @@ from covey.app.menu_panel import hub_tabs
 from covey.cards import butler_panel as cards
 from covey.cards.group_manager import FREE_CHOICES, KIND_WORDS, PROXY_BLOCKED, free_limit, free_mode, free_words, name_of, ordered, state_words
 from covey.cards.redaction_panel import SWITCH_ROWS, TOPICS
-from covey.cards.settings_hub import (ABOUT, BUTLER, CONFIG, DOCTOR, GROUPS, LABELS, MEMORY, NODES, PROXY, REDACTION, TOPIC,
+from covey.cards.settings_hub import (ABOUT, CONFIG, DOCTOR, GROUPS, LABELS, MEMORY, NODES, PROXY, REDACTION, TOPIC,
                                       WORKSPACE)
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app import web_launch, web_panels
 from covey.app.access import free_talk_on
 from covey.core import butler, butler_settings
-from covey.core.menu_choice import tiers
 from covey.core.workspaces import add_workspace, load_config, missing_workspaces, remove_workspaces
 
 LIMIT = 60  # The most options a row lists (the card cuts to fit its size; the page need not).
@@ -50,7 +49,7 @@ NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT, cards.TOPIC_RUN_MODE,
                       cards.TOPIC_REDACTION, cards.TOPIC_WORKSPACE, cards.START_ROW, cards.SUBAGENTS,
                       cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION, cards.SPACE,
-                      cards.MODE})
+                      cards.MODE, cards.REVIEW_HARNESS, cards.REVIEW_PROVIDER, cards.REVIEW_MODEL, cards.REVIEW_EFFORT})
 BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION,
                           cards.SPACE})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
@@ -67,15 +66,8 @@ TERMS_UNREADABLE = "词表读不出来，请到飞书设置卡上看"
 
 
 def web_tabs() -> list:
-    """The 设置 card's tabs (hub_tabs) as the page has them: its 配置 as 新话题 and, unless COVEY_BUTLER=0, 管家 (the pages
-    the card had before 配置, data contract v7); the card's own tabs (CARD_ONLY) left out."""
-    tabs = []
-    for tab in hub_tabs():
-        if tab == CONFIG:
-            tabs += [TOPIC] + ([BUTLER] if butler.available() else [])
-        elif tab not in CARD_ONLY:
-            tabs.append(tab)
-    return tabs
+    """The 设置 card's tabs (hub_tabs) as the page has them: the card's own tabs (CARD_ONLY) left out."""
+    return [tab for tab in hub_tabs() if tab not in CARD_ONLY]
 
 
 def group_key(chat_id) -> str:
@@ -138,7 +130,7 @@ class WebSettings:
         labels = {**LABELS, PROXY_TAB: PROXY_LABEL}
         tabs = [*tabs, *([PROXY_TAB] if self.proxy_panel() is not None else [])]
         data = {"tabs": [{"key": tab, "label": labels[tab]} for tab in tabs], "feishu": self.feishu()}
-        build = {TOPIC: lambda: self.topic(ctx, settings, choices, chat), BUTLER: lambda: self.butler(ctx, settings, choices),
+        build = {CONFIG: lambda: self.config(ctx, settings, choices, chat),
                  WORKSPACE: lambda: self.workspaces(ctx, settings), REDACTION: lambda: self.redaction(ctx),
                  GROUPS: lambda: self.groups(ctx, now), NODES: lambda: self.nodes(ctx),
                  PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT)}
@@ -187,9 +179,24 @@ class WebSettings:
         found = weekly_usage.summarize(records, now, titles)
         return {**found, "outcomes": dict(found["outcomes"]), "ended": dict(found["ended"]), "at": now}
 
+    def config(self, ctx, settings, choices, chat) -> dict:
+        """配置 (v22), as the card's page (cards/butler_panel.py config_page) with every section open: ``topic`` (新话题), ``main``
+        (管家, unless COVEY_BUTLER=0), ``review`` (独立复核, with COVEY_REVIEW=1), each with its ``title``; under 更多 (``more``) 子
+        Agent; ``summary`` the card's title bar."""
+        from covey.app import review
+        on = butler.available() and settings.enabled
+        found = {"summary": cards.config_subtitle(settings, choices, on, review.enabled(), butler.available()),
+                 "topic": {"title": cards.SECTIONS[cards.TOPIC_PART], **self.topic(ctx, settings, choices, chat)}}
+        if butler.available():
+            found["main"] = {"title": cards.SECTIONS[cards.BUTLER_PART], **self.butler(ctx, settings, choices)}
+        if review.enabled():
+            found["review"] = {"title": cards.SECTIONS[cards.REVIEW_PART], "note": cards.REVIEW_NOTE,
+                               "rows": [row(each, True) for each in cards.review_setting_list(settings, choices, LIMIT)]}
+        return {**found, "more": [row(cards.subagent_setting(settings), True)], "more_note": cards.SUBAGENT_NOTE,
+                "locked": cards.LOCKED if on else ""}
+
     def topic(self, ctx, settings, choices, chat) -> dict:
-        """新话题, as the card's page: its rows (every one the page may change), 直接开工 with the butler on, 记住的工作区 while it counts,
-        子 Agent under 更多."""
+        """配置's 新话题: its rows (every one the page may change), 直接开工 with the butler on, 记住的工作区 while it counts."""
         panel, defaults = self.panel(), settings.topic_defaults
         on = butler.available() and settings.enabled
         found = cards.topic_settings(defaults, choices, panel_rules.workspace_names(ctx.state_dir), LIMIT,
@@ -198,25 +205,18 @@ class WebSettings:
         rows = [row(each, True) for each in found + ([cards.start_setting(settings)] if on else [])]
         trusted = [{"key": key, "text": f"{key.rpartition('|')[0]} · {'只读' if key.endswith('|read') else '改文件'}"}
                    for key in settings.trusted] if on and cards.trusted_shown(settings) else None
-        return {"summary": cards.subtitle(settings, choices, TOPIC), "note": cards.TOPIC_NOTE, "rows": rows,
-                "start_note": cards.START_NOTE if on else "", "trusted": trusted,
-                "more": [row(cards.subagent_setting(settings), True)], "more_note": cards.SUBAGENT_NOTE,
-                "locked": cards.LOCKED if on else ""}
+        return {"note": cards.TOPIC_NOTE, "rows": rows, "start_note": cards.START_NOTE if on else "", "trusted": trusted}
 
     def butler(self, ctx, settings, choices) -> dict:
-        """管家: off (纯话题), the mode's row alone; else its rows (Harness first) and under 更多 压缩阈值 and the mode. The page
-        may change them all; 每条直接开一个话题 only after it asked ``mode_confirm`` (the card's 确定改). ``harness``: the
-        Harness's name, for a page that still shows it in its own line; ``note``: REDACT_FIRST when it counts."""
+        """配置's 管家, its rows as the card's section has them: off (纯话题), the mode's row alone; else its own (Harness first,
+        压缩阈值 where it counts) and the mode last. The page may change them all; 每条直接开一个话题 only after it asked
+        ``mode_confirm`` (the card's 确定改). ``note``: MODE_OFF, or REDACT_FIRST when it counts."""
         mode = {**row(cards.mode_setting(settings), True), "confirm": {MODE_TOPICS: cards.MODE_CONFIRM}}
         if not settings.enabled:
-            return {"summary": cards.subtitle(settings, choices, BUTLER), "on": False, "rows": [mode], "note": cards.MODE_OFF}
+            return {"on": False, "rows": [mode], "note": cards.MODE_OFF}
         own = cards.butler_setting_list(settings, choices, LIMIT, panel_rules.workspace_names(ctx.state_dir))
-        harness = settings.butler_harness
-        return {"summary": cards.subtitle(settings, choices, BUTLER), "on": True,
-                "harness": tiers(choices, harness)[0].get(harness) or harness,
-                **({"note": cards.REDACT_FIRST} if cards.redact_first(settings, choices) else {}),
-                "rows": [row(each, True) for each in own if each.key != "compact"],
-                "more": [row(each, True) for each in own if each.key == "compact"] + [mode], "locked": cards.LOCKED}
+        return {"on": True, **({"note": cards.REDACT_FIRST} if cards.redact_first(settings, choices) else {}),
+                "rows": [row(each, True) for each in own] + [mode]}
 
     def nodes(self, ctx) -> dict:
         """设备: app/web_panels.py ``nodes_tab``."""

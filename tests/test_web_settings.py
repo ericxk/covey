@@ -37,8 +37,8 @@ class WebSettingsTest(UnifiedCase):
         return self.web.snapshot("dm")
 
     def row(self, tab, kind, data=None):
-        data = data or self.snap()
-        found = [r for r in data[tab]["rows"] + (data[tab].get("more") or []) if r["kind"] == kind]
+        data = (data or self.snap())["config"]  # 配置 (v22): its sections topic, main and review, and 更多.
+        found = [r for r in (data[tab]["rows"] if tab in data else []) + data["more"] if r["kind"] == kind]
         self.assertEqual(len(found), 1, kind)
         return found[0]
 
@@ -57,15 +57,22 @@ class WebSettingsTest(UnifiedCase):
                 json.dump(data, out, ensure_ascii=False, indent=1)
         from covey.app.proxy_send import available
         # 设备 only with nodes; 代答 only where a sender is (an extension, covey_internal).
-        self.assertEqual([t["label"] for t in data["tabs"]], ["新话题", "管家", "工作区", "脱敏", "群聊"] + (["代答"] if available() else []))
+        # T619: the card's 配置 is one page here too, every section open (no card's size to keep to).
+        self.assertEqual([t["label"] for t in data["tabs"]], ["配置", "工作区", "脱敏", "群聊"] + (["代答"] if available() else []))
         self.assertNotIn("nodes", data)
-        topic = data["topic"]
-        self.assertEqual([r["label"] for r in topic["rows"]][-3:], ["脱敏", "工作区", "直接开工"])
-        self.assertTrue(all(r["editable"] for r in topic["rows"] + topic["more"]))
-        self.assertEqual(topic["more"][0]["label"], "子 Agent")
-        butler = data["main"]
-        self.assertEqual([r["label"] for r in butler["more"]], ["压缩阈值", "私聊顶层的消息"])
-        mode = butler["more"][-1]
+        config = data["config"]
+        self.assertEqual([config[part]["title"] for part in ("topic", "main")], ["新话题", "管家"])
+        self.assertNotIn("review", config)  # COVEY_REVIEW unset.
+        self.assertTrue(config["summary"].startswith("新话题 "))
+        topic = config["topic"]
+        self.assertEqual([r["label"] for r in topic["rows"]][:1] + [r["label"] for r in topic["rows"]][-3:],
+                         ["Harness", "脱敏", "工作区", "直接开工"])
+        self.assertTrue(all(r["editable"] for r in topic["rows"] + config["more"]))
+        self.assertEqual(config["more"][0]["label"], "子 Agent")
+        butler = config["main"]
+        self.assertEqual([r["label"] for r in butler["rows"]][0], "Harness")
+        self.assertEqual([r["label"] for r in butler["rows"]][-2:], ["压缩阈值", "私聊顶层的消息"])
+        mode = butler["rows"][-1]
         self.assertEqual((mode["text"], mode["editable"]), ("交给管家", True))  # T554 2nd round: with a confirm on the page.
         self.assertEqual(mode["confirm"], {"topics": cards.MODE_CONFIRM})
         names = [w["name"] for w in data["workspace"]["items"]]
@@ -73,6 +80,25 @@ class WebSettingsTest(UnifiedCase):
         gone = next(w for w in data["workspace"]["items"] if w["name"] == "gone")
         self.assertIn({"text": "目录不存在", "tone": "red"}, gone["tags"])
         self.assertEqual(data["groups"]["summary"], "还没有群")
+
+    def test_the_review_section_is_the_cards_and_its_model_changes_on_the_page(self):
+        """T619 (the owner, 2026-11-21: 也都设置成一样对齐): with COVEY_REVIEW=1 配置 has 独立复核 as the card does, its rows
+        changed on the page through the card's code."""
+        with mock.patch.dict(os.environ, {"COVEY_REVIEW": "1"}):
+            review = self.snap()["config"]["review"]
+            self.assertEqual((review["title"], review["note"]), ("独立复核", cards.REVIEW_NOTE))
+            harness, = review["rows"]  # Picked by itself: the Harness row alone.
+            self.assertEqual((harness["kind"], harness["current"], harness["editable"]), (cards.REVIEW_HARNESS, "", True))
+            self.assertEqual(harness["options"][0]["text"], cards.REVIEW_AUTO)
+            self.assertEqual(self.op(what="row", kind=cards.REVIEW_HARNESS, option="claude"),
+                             ("done", "已保存：之后点的独立复核照这个来。"))
+            chosen = settings.load(self.ctx.state_dir).review
+            self.assertEqual((chosen.harness, chosen.model), ("claude", "claude-model"))
+            self.assertEqual([r["kind"] for r in self.snap()["config"]["review"]["rows"]],
+                             [cards.REVIEW_HARNESS, cards.REVIEW_PROVIDER, cards.REVIEW_MODEL, cards.REVIEW_EFFORT])
+            self.assertIn("复核 ", self.snap()["config"]["summary"])
+            self.assertEqual(self.op(what="row", kind=cards.REVIEW_HARNESS, option="")[0], "done")
+            self.assertEqual(settings.load(self.ctx.state_dir).review, settings.ReviewModel())
 
     def test_a_row_changed_on_the_page_is_the_cards_change_and_shows_on_both(self):
         state, words = self.op(what="row", kind=cards.TOPIC_RUN_MODE, option="worktree")
@@ -97,7 +123,7 @@ class WebSettingsTest(UnifiedCase):
         self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.run_mode, "direct")
         settings.update(self.ctx.state_dir, enabled=False)  # 纯话题: the butler's rows count for nothing.
         self.assertEqual(self.op(what="row", kind=cards.COMPACT, option="0")[0], "failed")
-        self.assertEqual([r["kind"] for r in self.snap()["main"]["rows"]], [cards.MODE])
+        self.assertEqual([r["kind"] for r in self.snap()["config"]["main"]["rows"]], [cards.MODE])
 
     def test_a_workspaces_use_trusted_and_the_redaction_switches(self):
         self.assertEqual(self.op(what="note", workspace="docs", note="  文档 和 手册 "), ("done", "已保存。"))
@@ -107,7 +133,7 @@ class WebSettingsTest(UnifiedCase):
         self.assertEqual(settings.load(self.ctx.state_dir).note("docs"), "")
         self.assertEqual(self.op(what="note", workspace="elsewhere", note="x"), ("failed", "没有这个工作区"))
         settings.update(self.ctx.state_dir, start=("trusted",), trusted=("project|edit",))
-        self.assertEqual(self.snap()["topic"]["trusted"], [{"key": "project|edit", "text": "project · 改文件"}])
+        self.assertEqual(self.snap()["config"]["topic"]["trusted"], [{"key": "project|edit", "text": "project · 改文件"}])
         self.assertEqual(self.op(what="untrust", key="project|edit")[0], "done")
         self.assertEqual(settings.load(self.ctx.state_dir).trusted, ())
         redaction.update_config(self.ctx.state_dir, lambda config: config["terms"].append(
@@ -194,7 +220,7 @@ class WebSettingsTest(UnifiedCase):
             paths = [path for path, _ in calls]
             self.assertEqual(paths, ["/sync/inbox", "/sync/upsert", "/sync/ack"])
             pushed, = calls[1][1]["items"]
-            run_mode, = [r for r in pushed["data"]["topic"]["rows"] if r["kind"] == cards.TOPIC_RUN_MODE]
+            run_mode, = [r for r in pushed["data"]["config"]["topic"]["rows"] if r["kind"] == cards.TOPIC_RUN_MODE]
             self.assertEqual(run_mode["current"], "worktree")
             outbox.clear()
             calls.clear()
@@ -210,7 +236,7 @@ class WebSettingsTest(UnifiedCase):
         self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics", confirm=True),
                          ("done", butler_panel.MODE_NOTICES[False]))
         self.assertFalse(settings.load(self.ctx.state_dir).enabled)
-        mode, = self.snap()["main"]["rows"]
+        mode, = self.snap()["config"]["main"]["rows"]
         self.assertTrue(mode["editable"])  # 纯话题: the row that turns the butler on again.
         self.assertEqual(self.op(what="row", kind=cards.MODE, option="agent"), ("done", butler_panel.MODE_NOTICES[True]))
         self.assertTrue(settings.load(self.ctx.state_dir).enabled)
