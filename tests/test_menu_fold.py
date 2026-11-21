@@ -21,7 +21,7 @@ from covey.core.state import read_json, write_json
 
 # Each item: its title on the card unfolded, the menu word its folded line names.
 ITEMS = {'weekly_usage': ('本周用量', '用量'), 'proxy_settings': ('代答', '代答'), 'manage_groups': ('群聊', '群聊'),
-         MENU_KEY: ('新话题', '设置')}  # 设置 opens on 新话题 (T546).
+         MENU_KEY: ('模型', '设置')}  # 设置 opens on its first tab, 模型 (T619; 新话题 since T546).
 
 
 def tab_values(card):
@@ -96,7 +96,7 @@ class MenuFoldTests(ProxyCase):
                 self.assertEqual((card_id, sequence, folded['header']['title']['content']), (cid, 1, title))
                 lines = folded['body']['elements']
                 self.assertEqual(lines[-1]['content'], f"<font color='grey'>已收起 · 再点"
-                                 f"{'「新话题」或' if key == MENU_KEY else ''}菜单「{word}」展开</font>")
+                                 f"{'「模型」或' if key == MENU_KEY else ''}菜单「{word}」展开</font>")
                 self.assertEqual(len(lines), 2 if key == MENU_KEY else 1)  # 设置: the tab row above the line.
                 self.assertEqual(self.click(key, f'{key}-3'), (key, 'unfold'))
                 card_id, whole, sequence = self.puts[-1]
@@ -227,16 +227,16 @@ class MenuFoldTests(ProxyCase):
     def test_the_tab_shown_folds_and_unfolds_another_tab_turns_unfolded(self):
         self.click(MENU_KEY, 'ev1')
         tabs = tab_values(self.card())
-        main = next(v for v in tabs if v['tab'] == 'topic')  # The tab shown.
+        main = next(v for v in tabs if v['tab'] == 'models')  # The tab shown (T619: the first, 模型).
         path = self.app.settings_hub.path(self.ctx, main['token'])
         self.assertEqual(self.press(main, 'ev-t1', 'om_1'), 'settings_fold')
         card_id, folded, sequence = self.puts[-1]
-        self.assertEqual((card_id, sequence, folded['header']['title']['content']), ('cid1', 1, '新话题'))
+        self.assertEqual((card_id, sequence, folded['header']['title']['content']), ('cid1', 1, '模型'))
         self.assertEqual([v['tab'] for v in tab_values(folded)],
-                         ['topic', 'main', 'workspace', 'redaction', 'groups', 'about', 'doctor'])  # 能做什么, 诊断: always.
+                         ['models', 'topic', 'main', 'workspace', 'redaction', 'groups', 'about', 'doctor'])  # 能做什么, 诊断: always.
         self.assertEqual(len(folded['body']['elements']), 2)  # The tab row and the line, none of the panel.
         record = read_json(path)
-        self.assertEqual((record[FOLDED], record['tab'], record['turned']), (True, 'topic', ['ev-t1']))
+        self.assertEqual((record[FOLDED], record['tab'], record['turned']), (True, 'models', ['ev-t1']))
         self.assertEqual(self.press(main, 'ev-t1', 'om_1'), 'settings_unfold')  # Delivered again: nothing more.
         self.assertEqual(len(self.puts), 2)
         self.assertEqual(self.press(main, 'ev-t2', 'om_1'), 'settings_unfold')

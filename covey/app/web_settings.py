@@ -33,7 +33,7 @@ from covey.app.menu_panel import hub_tabs
 from covey.cards import butler_panel as cards
 from covey.cards.group_manager import FREE_CHOICES, KIND_WORDS, PROXY_BLOCKED, free_limit, free_mode, free_words, name_of, ordered, state_words
 from covey.cards.redaction_panel import SWITCH_ROWS, TOPICS
-from covey.cards.settings_hub import ABOUT, BUTLER, DOCTOR, GROUPS, LABELS, MEMORY, NODES, PROXY, REDACTION, TOPIC, WORKSPACE
+from covey.cards.settings_hub import ABOUT, BUTLER, DOCTOR, GROUPS, LABELS, MEMORY, MODELS, NODES, PROXY, REDACTION, TOPIC, WORKSPACE
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app import web_launch, web_panels
 from covey.app.access import free_talk_on
@@ -42,7 +42,8 @@ from covey.core.menu_choice import tiers
 from covey.core.workspaces import add_workspace, load_config, missing_workspaces, remove_workspaces
 
 LIMIT = 60  # The most options a row lists (the card cuts to fit its size; the page need not).
-CARD_ONLY = (MEMORY, ABOUT, DOCTOR)  # The 设置 card's tabs the page's data contract has no page for: not pushed.
+CARD_ONLY = (MODELS, MEMORY, ABOUT, DOCTOR)  # The 设置 card's tabs the page's data contract has no page for: not pushed.
+# (模型: the page keeps the model rows on its 新话题 and 管家 pages, as the card had them.)
 NAMES_SECONDS = 1800  # A group's name, as Feishu gave it, is asked again after this long.
 NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT, cards.TOPIC_RUN_MODE,
@@ -302,8 +303,7 @@ class WebSettings:
         if not changes:
             return "没有变化"
         butler_settings.update(ctx.state_dir, **changes)
-        return (panel_rules.MODE_NOTICES.get(changes.get("enabled")) or panel_rules.SAVED_OF.get(kind)
-                or panel_rules.SAVED.get(cards.PAGE_OF.get(kind), "已保存。"))
+        return panel_rules.MODE_NOTICES.get(changes.get("enabled")) or panel_rules.saved_notice(kind)
 
     def change_row(self, ctx, payload) -> str:
         kind, option = str(payload.get("kind") or ""), payload.get("option")

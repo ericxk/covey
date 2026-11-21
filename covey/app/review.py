@@ -9,9 +9,10 @@ what it checked: an implementer's reasoning leads its reviewer along.
 
 The new topic runs where the reviewed one ran, its workspace and directory as 原目录 (an uncommitted change is there to
 see), read-only as the butler's read-only topics are (``origin.readonly``; its message says what it may and may not do),
-on a model of another vendor than the turn's that is available now (``pick``: core/model_names.py vendor_of,
-app/availability.py usable), else another model, else the same one in a session of its own; a topic that redacts keeps
-redacting, on a model that can. It is opened as the web page opens one (app/web_launch.py): app/butler_topics.py's topic
+on the model the 设置 card's 模型 page names for it (core/butler_settings.py ReviewModel, ``configured``) while that one
+can run it, else on a model of another vendor than the turn's that is available now (``pick``: core/model_names.py
+vendor_of, app/availability.py usable), else another model, else the same one in a session of its own; a topic that
+redacts keeps redacting, on a model that can. It is opened as the web page opens one (app/web_launch.py): app/butler_topics.py's topic
 card at the top level of the chat, its topic.json bound (``origin.kind`` "review", ``review_of``), its first turn queued.
 One review a turn: <state>/reviews/<token>.json keeps each step, so a second click, or one after a restart, opens nothing
 more and says which topic it is. The click is the owner's alone (app/access.py), taken before topic routing
@@ -126,6 +127,32 @@ def pick(topics, runtime, state_dir, chat, topic, redacting):
              if vendor_of(harness_of(key, ranked[key]), ranked[key].get("model") or key.partition(":")[2],
                           ranked[key].get("display_name")) != turn]
     return next(iter(other or [key for key in keys if key != own] or keys), "")
+
+
+def configured(topics, runtime, state_dir, redacting):
+    """The model the 设置 card names for 独立复核 (core/butler_settings.py ReviewModel) as resolve's args ({harness,
+    model, effort}); a str saying why it cannot run this review now; None when the card names none (``pick`` then)."""
+    from covey.app import availability
+    from covey.app.launch_models import available_models
+    from covey.core import butler_settings
+    from covey.core.menu_choice import entry_of
+
+    review = butler_settings.load(state_dir).review
+    if not review.harness:
+        return None
+    app = topics.apps.get(review.harness)
+    if app is None:
+        return f"设置里选的 {review.harness} 本机没有启用"
+    title = app.spec.title
+    if not availability.usable(runtime, state_dir, review.harness):
+        return f"设置里选的 {title} 现在用不了"
+    choices = available_models(topics, app.models.configured_context(app.harness.context))
+    entry = entry_of(choices, review.harness, review.model) if review.model else None
+    if review.model and entry is None:
+        return f"设置里选的模型 {review.model} 已不在 {title} 的模型列表里"
+    if redacting and not (entry or {}).get("redaction"):
+        return "原话题开着脱敏，设置里选的模型不能脱敏"
+    return {"harness": review.harness, "model": review.model, "effort": review.effort}
 
 
 def review_prompt(*, label, title, source, job_id, workdir, words, commits, absent, diff_items) -> str:
@@ -249,15 +276,24 @@ class Review(CardActionQueue):
         if not workdir or not Path(workdir).is_dir():
             return "这个话题的工作目录不在了。"
         redacting = topic.get(TOPIC_KEY) is True
-        key = pick(self.topics, self.topics.runtime, state, chat, topic, redacting)
-        if not key:
-            return "现在没有能用的模型（开着脱敏的话题只能用能脱敏的模型）。"
-        harness, _, model = key.partition(":")
-        found = resolve(self.topics, state, chat, butler_settings.load(state).topic_defaults,
-                        {"harness": harness, "model": model})
-        if isinstance(found, str):
-            return found
-        return {"harness": found["harness"], "model": found["model"], "model_key": found["model_key"],
+        defaults = butler_settings.load(state).topic_defaults
+        args = configured(self.topics, self.topics.runtime, state, redacting)
+        found, aside = None, ""
+        if isinstance(args, dict):
+            found = resolve(self.topics, state, chat, defaults, args)
+            if isinstance(found, str):  # A budget the model no longer offers: picked as without a setting.
+                found, aside = None, f"设置里选的模型用不了（{found.rstrip('。')}）"
+        elif isinstance(args, str):
+            aside = args
+        if found is None:
+            key = pick(self.topics, self.topics.runtime, state, chat, topic, redacting)
+            if not key:
+                return "现在没有能用的模型（开着脱敏的话题只能用能脱敏的模型）。"
+            harness, _, model = key.partition(":")
+            found = resolve(self.topics, state, chat, defaults, {"harness": harness, "model": model})
+            if isinstance(found, str):
+                return found
+        return {"aside": aside, "harness": found["harness"], "model": found["model"], "model_key": found["model_key"],
                 "effort": found["effort"], "work_mode": "", "start": True, "run_mode": "direct", "redaction": redacting,
                 "workspace": str(topic.get("workspace_name") or record.get("workspace_name") or Path(workdir).name),
                 "workdir": workdir}
@@ -303,7 +339,8 @@ class Review(CardActionQueue):
                 return {"first": f"{named}已开，但第一轮没有提交：模型配置无法确认（见话题里的说明）；可以稍后再点一次。"}
         model = app.cards.model_label(app.harness.context, plan["model"]) if plan["model"] else ""
         how = f"{model or app.spec.title}，只读" + ("，开着脱敏" if plan.get("redaction") else "")
-        answer = {"first": f"已开 {named}（{how}）：它只看你的原话、完成标准和这一轮的改动，结论在它的话题里。",
+        aside = f"{plan['aside']}，换成了自动挑的模型。" if plan.get("aside") else ""
+        answer = {"first": f"已开 {named}（{how}）：它只看你的原话、完成标准和这一轮的改动，结论在它的话题里。{aside}",
                   "again": f"这一轮已经开过独立复核：{named}，结论在它的话题里。"}
         saved["answer"] = answer
         write_json(path, saved, ensure_ascii=False, indent=1)

@@ -40,6 +40,16 @@ class TopicDefaults:
 
 
 @dataclasses.dataclass(frozen=True)
+class ReviewModel:
+    """What 独立复核 (app/review.py) runs on, set on the 设置 card's 模型 page: "" harness picks by itself (another
+    vendor's model first, the chat's most used); else this Harness's ``model`` with ``effort`` while it can (usable now,
+    on the menu, redacting where the reviewed topic redacts), the pick otherwise."""
+    harness: str = ""
+    model: str = ""
+    effort: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
 class Settings:
     # The private chat mode (docs/butler.md 私聊模式): True 管家, False 纯话题, the chat's top level
     # opening topics as before. Saved as ``mode``, and as ``enabled`` for an older release.
@@ -60,6 +70,7 @@ class Settings:
     trusted: tuple = ()  # trust_key()s the owner told it to start without asking.
     workspace_notes: tuple = ()  # (workspace name, one line on what it is for), in the owner's order.
     subagents: str = SUBAGENTS[0]  # SUBAGENTS.
+    review: ReviewModel = ReviewModel()  # 独立复核's model (ReviewModel); saved as ``review``.
     # Retired: main-thread.json's desk_topics opened front-desk topics in older releases, frozen since
     # (core/migrate.py desk-retire). It is no longer read, so every topic the butler
     #  opens is a 话题区; a file that says true gets one warning line at the Bridge's start
@@ -94,6 +105,7 @@ def from_json(data) -> Settings:
     run_mode = _text(topic.get("run_mode"), "direct")
     compact = data.get("compact_tokens")
     notes = data.get("workspace_notes")
+    review = data.get("review") if isinstance(data.get("review"), dict) else {}
     return Settings(
         enabled=contract.agent_mode(data),
         harness=_text(data.get("harness")),
@@ -108,7 +120,9 @@ def from_json(data) -> Settings:
         trusted=tuple(k for k in data.get("trusted") or () if isinstance(k, str) and "|" in k),
         workspace_notes=tuple((str(k), str(v)) for k, v in notes.items() if isinstance(v, str))
         if isinstance(notes, dict) else (),
-        subagents=data["subagents"] if data.get("subagents") in SUBAGENTS else base.subagents)
+        subagents=data["subagents"] if data.get("subagents") in SUBAGENTS else base.subagents,
+        review=ReviewModel(harness=_text(review.get("harness")), model=_text(review.get("model")),
+                           effort=_text(review.get("effort"))))
 
 
 def to_json(settings: Settings) -> dict:

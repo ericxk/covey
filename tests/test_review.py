@@ -177,6 +177,42 @@ class OpenTest(ButlerTopicsCase):
         self.assertEqual(self.app.messenger.create_and_send_card.call_count, cards)
         self.assertIn("没开独立复核：这一轮还没结束", self.said()[-1])
 
+    def test_the_model_the_settings_card_names_runs_it_while_it_can(self):
+        """T619 (the owner, 2026-11-21): 独立复核's model is set on the 设置 card's 模型 page; the same vendor as the turn
+        too, when that is what the owner chose."""
+        from covey.core import butler_settings
+        butler_settings.update(self.ctx.state_dir, review=butler_settings.ReviewModel(
+            harness="claude", model="claude-model", effort="high"))
+        self.app.review.open(self.ctx, self.click, self.raw)
+        job, record = self.opened()
+        topic = load_topic(self.ctx.state_dir, record["topic_id"])
+        self.assertEqual((topic["harness_id"], topic["model"]), ("claude", "claude-model"))
+        self.assertEqual(record["plan"]["effort"], "high")
+        self.assertEqual(record["plan"]["aside"], "")
+        self.assertNotIn("自动挑", self.said()[-1])
+
+    def test_a_model_the_settings_card_names_that_cannot_run_it_is_said_and_picked_by_itself(self):
+        from covey.core import butler_settings
+        butler_settings.update(self.ctx.state_dir, review=butler_settings.ReviewModel(harness="claude", model="gone-model"))
+        self.app.review.open(self.ctx, self.click, self.raw)
+        job, record = self.opened()
+        topic = load_topic(self.ctx.state_dir, record["topic_id"])
+        self.assertNotEqual(topic["harness_id"], "claude")  # Picked as without a setting: another vendor.
+        self.assertIn("gone-model", record["plan"]["aside"])
+        self.assertIn("换成了自动挑的模型", self.said()[-1])
+        # Not enabled here, or not usable now: picked by itself too, and said why.
+        state = self.ctx.state_dir
+        for harness, said in (("nowhere", "本机没有启用"),):
+            butler_settings.update(state, review=butler_settings.ReviewModel(harness=harness, model="m"))
+            self.assertIn(said, review.configured(self.app.topics, self.app.runtime, state, False))
+        butler_settings.update(state, review=butler_settings.ReviewModel(harness="claude", model="claude-model"))
+        with mock.patch("covey.app.availability.usable", return_value=False):
+            self.assertIn("现在用不了", review.configured(self.app.topics, self.app.runtime, state, False))
+        self.assertEqual(review.configured(self.app.topics, self.app.runtime, state, False),
+                         {"harness": "claude", "model": "claude-model", "effort": ""})
+        butler_settings.update(state, review=butler_settings.ReviewModel())
+        self.assertIsNone(review.configured(self.app.topics, self.app.runtime, state, False))
+
     def test_a_redacting_topic_reviews_only_on_a_model_that_redacts(self):
         from covey.core.redaction import TOPIC_KEY
         path = self.ctx.state_dir / "topics" / self.source / "topic.json"

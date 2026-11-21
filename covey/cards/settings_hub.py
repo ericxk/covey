@@ -1,7 +1,8 @@
-"""The 设置 card's tab row (app/settings_hub.py): 新话题 | 管家 | 工作区 | 脱敏 | 群聊 (| 记忆) (| 设备) | 能做什么 | 诊断 at
-the top of the body of the panel the card shows now, the panel's own card under it. 新话题 and 管家 are the
-butler's settings in two pages (app/butler_panel.py): 新话题 what every new topic is preselected with (the launch card's
-and the butler's alike) and which of the butler's start at once, 管家 the butler's own and the private chat mode. 工作区
+"""The 设置 card's tab row (app/settings_hub.py): 模型 | 新话题 | 管家 | 工作区 | 脱敏 | 群聊 (| 记忆) (| 设备) | 能做什么 | 诊断 at
+the top of the body of the panel the card shows now, the panel's own card under it. 模型, 新话题 and 管家 are the
+butler's settings in three pages (app/butler_panel.py): 模型 every model the owner sets (a new topic's, the butler's,
+独立复核's, 子 Agent), 新话题 the rest of what every new topic is preselected with (the launch card's and the butler's
+alike) and which of the butler's start at once, 管家 the rest of the butler's own and the private chat mode. 工作区
 is the workspace list with each workspace's 用途 (app/workspace_manager.py), 脱敏 the redaction term list
 (app/redaction_panel.py), 记忆 the owner's memory by scope and what the next turn carries (app/memory_panel.py, only with
 COVEY_MEMORY=1), 能做什么 what this deployment can do and what it lacks (app/about_panel.py, read only), 诊断
@@ -21,21 +22,23 @@ TAB = 'bridge_settings_tab'
 KINDS = frozenset({TAB})
 # BUTLER (管家) keeps the key of the one 管家 tab before it: an older card's 管家 tab is its first page.
 BUTLER, TOPIC, WORKSPACE, REDACTION, PROXY, GROUPS = 'main', 'topic', 'workspace', 'redaction', 'proxy', 'groups'
+MODELS = 'models'  # 模型 (app/butler_panel.py): every model the owner sets, 新话题's, 管家's, 独立复核's, 子 Agent, on one page.
 NODES = 'nodes'  # 设备 (app/node_panel.py), only with COVEY_NODE_LISTEN.
 MEMORY = 'memory'  # 记忆 (app/memory_panel.py), only with COVEY_MEMORY=1.
 ABOUT = 'about'  # 能做什么 (app/about_panel.py), always.
 DOCTOR = 'doctor'  # 诊断 (app/doctor_panel.py): service/doctor.py's report, read-only.
 OTHER = 'other'  # The retired page 其他: an older card's tab and record name it.
 RETIRED = {OTHER: WORKSPACE}  # A retired tab -> the tab its click and its record land on.
-BUTLER_PAGES = (BUTLER, TOPIC)  # The butler's pages (app/butler_panel.py): 管家 only with it, 新话题 always.
+# The butler's pages (app/butler_panel.py): 管家 only with it, 新话题 and 模型 always. 管家 first: a record without a tab.
+BUTLER_PAGES = (BUTLER, TOPIC, MODELS)
 # In the row's order. 代答 last: no tab any more (app/menu_panel.py hub_tabs), only an older record's.
-LABELS = {TOPIC: '新话题', BUTLER: '管家', WORKSPACE: '工作区', REDACTION: '脱敏', GROUPS: '群聊', MEMORY: '记忆', NODES: '设备',
+LABELS = {MODELS: '模型', TOPIC: '新话题', BUTLER: '管家', WORKSPACE: '工作区', REDACTION: '脱敏', GROUPS: '群聊', MEMORY: '记忆', NODES: '设备',
           ABOUT: '能做什么', DOCTOR: '诊断', PROXY: '代答'}
 # Each panel's title (cards/butler_panel.py TITLES, cards/workspace_manager.py, cards/redaction_panel.py,
 # cards/proxy_panel.py, cards/group_manager.py, cards/memory_panel.py, cards/about_panel.py) and icon.
-TITLES = {BUTLER: '管家', TOPIC: '新话题', WORKSPACE: '工作区', NODES: '设备', REDACTION: '脱敏看板', PROXY: '代答',
+TITLES = {MODELS: '模型', BUTLER: '管家', TOPIC: '新话题', WORKSPACE: '工作区', NODES: '设备', REDACTION: '脱敏看板', PROXY: '代答',
           GROUPS: '群聊', MEMORY: '记忆', ABOUT: '能做什么', DOCTOR: '诊断'}
-ICONS = {BUTLER: 'robot_outlined', TOPIC: 'launch', WORKSPACE: 'workspaces', NODES: 'computer_outlined', REDACTION: 'redaction',
+ICONS = {MODELS: 'robot_outlined', BUTLER: 'robot_outlined', TOPIC: 'launch', WORKSPACE: 'workspaces', NODES: 'computer_outlined', REDACTION: 'redaction',
          PROXY: 'proxy',
          GROUPS: 'groups', MEMORY: 'member_outlined', ABOUT: 'setting_outlined', DOCTOR: 'setting_outlined'}
 SPACING = '0px'  # Between two tabs: the text buttons' own padding parts them; 8px wrapped 群聊 in a side panel.

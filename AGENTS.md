@@ -192,7 +192,7 @@
 | `app/runtime.py` | Process-wide Bridge state, one object passed by reference to every part that needs it |
 | `app/saved_send.py` | A turn's saved reply, paused question or canonical text sent the same way on its first send and on each … |
 | `app/sessions.py` | Sessions: one Harness's native-session pointer of a topic |
-| `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 新话题 and 管家, the … |
+| `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in three pages, 模型, 新话题 and … |
 | `app/source_watch.py` | The owner recalled or edited a message the Bridge acts on |
 | `app/stale.py` | Close the records daily maintenance found waiting too long (core.stale.stale_records) |
 | `app/standing_answers.py` | 以后这类按推荐走: the button under a question card whose every question has one recommended option |

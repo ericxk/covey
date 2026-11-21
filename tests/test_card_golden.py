@@ -1072,9 +1072,9 @@ def settings_cards():
     from covey.cards.redaction_panel import redaction_card
     from covey.cards.settings_hub import folded_hub, tab_row
     from covey.cards.workspace_manager import manager_card
-    from covey.core.butler_settings import Settings
+    from covey.core.butler_settings import ReviewModel, Settings
 
-    tabs = ["topic", "main", "workspace", "redaction", "groups"]
+    tabs = ["models", "topic", "main", "workspace", "redaction", "groups"]
 
     def row(tab):
         return [tab_row(tab, "c" * 24, tabs)]
@@ -1092,7 +1092,13 @@ def settings_cards():
 
     return {
         **{page: butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
-                                        top=row(page), page=page) for page in ("main", "topic")},
+                                        top=row(page), page=page) for page in ("main", "topic", "models")},
+        # 模型 with 独立复核 on (COVEY_REVIEW=1): picked by itself, then a model chosen for it (T619).
+        "models_review": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
+                                           top=row("models"), page="models", review_on=True),
+        "models_review_chosen": butler_panel_card(
+            "c" * 24, view, Settings(review=ReviewModel(harness="codex", model="gpt-6-astra", effort="high")),
+            BUTLER_CHOICES, ["bridge", "docs"], top=row("models"), page="models", review_on=True),
         "topic_trusted": butler_panel_card("c" * 24, view, dataclasses.replace(kept, start=("readonly", "trusted")),
                                            BUTLER_CHOICES, ["bridge", "docs"], top=row("topic"), page="topic"),
         "main_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,

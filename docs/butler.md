@@ -315,17 +315,18 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 ### 设置卡
 
-管家的设置是设置卡（`app/settings_hub.py`，菜单键 `bridge_settings`）的前两个标签，标签行见 `cards/settings_hub.py` 的 `LABELS`：新话题 · 管家 · 工作区 · 脱敏 · 群聊（· 记忆）（· 设备）· 能做什么。菜单打开时停在新话题。画卡和点击在 `app/butler_panel.py`、`cards/butler_panel.py`。新话题一页管所有新话题，代答在菜单里单独一项，私聊模式收在管家页的“更多”里。
+管家的设置是设置卡（`app/settings_hub.py`，菜单键 `bridge_settings`）的前三个标签，标签行见 `cards/settings_hub.py` 的 `LABELS`：模型 · 新话题 · 管家 · 工作区 · 脱敏 · 群聊（· 记忆）（· 设备）· 能做什么 · 诊断。菜单打开时停在模型。画卡和点击在 `app/butler_panel.py`、`cards/butler_panel.py`。模型一页把要选模型的几处放在一起（新话题、管家、独立复核、子 Agent），新话题、管家两页管剩下的设置；代答的模型仍在菜单里单独的代答卡上，私聊模式收在管家页的“更多”里。
 
 | 页 | 内容 |
 | --- | --- |
-| 新话题 | 所有新话题的预选（启动卡 `app/preselection.py` 和管家开的话题都照它）：Harness、供应商、模型、思考预算、运行方式、脱敏、工作区；管家开着时“直接开工”一行（`START_CHOICES`：都直接开工 = 三档全开，只读的直接开工 = `readonly` + `trusted`，都等你点开始 = 不开），中间那档下面列记住的工作区，每项可删；“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
-| 管家 | 管家的 Harness（能跑管家的才列）、供应商、模型、思考预算、脱敏（Harness 能脱敏才有）、工作区；“更多”里压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code）和私聊模式（`MODE_CHOICES`）。开着脱敏时 Harness 只列能脱敏的，页上写一句先关脱敏才能换（`REDACT_FIRST`）。纯话题模式下只有私聊模式一行 |
+| 模型 | 一段一处，每段 Harness、供应商、模型、思考预算：**新话题**（所有新话题预选的模型，启动卡 `app/preselection.py` 和管家开的话题都照它）；**管家**（管家自己的，能跑管家的 Harness 才列；管家没开或部署不允许时没有这段；开着脱敏时 Harness 只列能脱敏的，段下写一句先关脱敏才能换，`REDACT_FIRST`）；**独立复核**（`COVEY_REVIEW=1` 才有，`review_setting_list`：Harness 第一项“自动挑（优先换一家厂商）”，选了 Harness 才有下面三行，存在 `main-thread.json` 的 `review`）；“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
+| 新话题 | 所有新话题其余的预选：运行方式、脱敏、工作区；管家开着时“直接开工”一行（`START_CHOICES`：都直接开工 = 三档全开，只读的直接开工 = `readonly` + `trusted`，都等你点开始 = 不开），中间那档下面列记住的工作区，每项可删 |
+| 管家 | 管家其余的设置：脱敏（Harness 能脱敏才有）、工作区；“更多”里压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code）和私聊模式（`MODE_CHOICES`）。纯话题模式下只有私聊模式一行 |
 | 工作区 | 工作区列表；每行一行灰字写用途，“改用途”换成输入框，“保存用途”存 |
 | 记忆（`COVEY_MEMORY=1`） | 下一轮带上什么（选工作区，带几条、各范围用了多少、快满或放不下的提示、原文），按范围列出的条目，每条“删除”，原则多一个“常驻”（`app/memory_panel.py`） |
 | 能做什么 | 只读：启用的 Harness 和现在用不了的、开着的功能和读的开关、没开的怎么开、启用的扩展（`app/about_panel.py`） |
 
-每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；管家页这两行也没有“默认”。新话题页的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡不变。私聊模式改成纯话题要再点“确定改”。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向、脱敏默认的迁移和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
+每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；模型页管家、独立复核两段的这两行也没有“默认”。新话题段的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡不变。私聊模式改成纯话题要再点“确定改”。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。独立复核选了模型时，点「独立复核」就用它（`app/review.py` 的 `configured`），同一家厂商也照用；它的 Harness 本机没启用或现在用不了、模型不在目录里了、原话题开着脱敏而它不能脱敏、或思考预算模型不再支持时，照没设时自动挑，并在开复核的那句回复里说一句原因。旧卡按钮的去向、脱敏默认的迁移和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
 
 ## 话题链接
 

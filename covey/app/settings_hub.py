@@ -1,8 +1,8 @@
-"""The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 新话题 and 管家
+"""The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in three pages, 模型, 新话题 and 管家
 (app/butler_panel.py), the workspace list with each workspace's 用途 (app/workspace_manager.py), the redaction term
 list (app/redaction_panel.py), the 群聊 (app/group_manager.py), with COVEY_MEMORY=1 the 记忆 (app/memory_panel.py), with
 nodes the 设备 (app/node_panel.py), the 能做什么 (app/about_panel.py) and the 诊断 (app/doctor_panel.py, service/doctor.py's
-report, read-only) panels on one card in the owner's private chat, a tab row on top (cards/settings_hub.py: 新话题 · 管家 ·
+report, read-only) panels on one card in the owner's private chat, a tab row on top (cards/settings_hub.py: 模型 · 新话题 · 管家 ·
 工作区 · 脱敏 · 群聊 · 记忆 · 设备 · 能做什么 · 诊断).
 代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
 there (app/proxy_panel.py). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
@@ -31,7 +31,7 @@ A card sent before this record existed (gen 286) is held by its panel's own reco
 tab click moves that record here under the same token (``takeover``: its sequence, view and fields go on, the old
 record is MOVED) and then turns as above. A card whose record was MOVED by the scheme before finds nothing.
 
-The menu opens it on 新话题 (``first_tab``), in either private chat mode and with COVEY_BUTLER=0 too. 管家 (BUTLER,
+The menu opens it on 模型 (``first_tab``), in either private chat mode and with COVEY_BUTLER=0 too. 管家 (BUTLER,
 the key of the one 管家 tab before the pages: an older card's tab click there lands on it) is a tab unless
 COVEY_BUTLER=0 rules the butler out, in the mode 纯话题 too (its row of the mode turns the butler on). The butler's menu
 key (app/butler_panel.py MENU_KEY) and its tool settings_panel send it on 管家; the bot menu's older keys, 工作区
@@ -111,7 +111,7 @@ class SettingsHub:
 
     @staticmethod
     def first_tab():
-        """新话题, always the first tab (app/menu_panel.py hub_tabs)."""
+        """模型, always the first tab (app/menu_panel.py hub_tabs): every model on one page (T619)."""
         return hub_tabs()[0]
 
     def open(self, ctx, chat_id, source, shown=None, tab='', quote=''):

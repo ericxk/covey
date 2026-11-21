@@ -52,7 +52,7 @@ def hub_top(tab, token, view):
 
 
 def hub_tabs():
-    """The 设置 card's tabs: 新话题 always (it preselects the launch card too); 管家 unless the deployment rules the
+    """The 设置 card's tabs: 模型 and 新话题 always (they preselect the launch card too); 管家 unless the deployment rules the
     butler out (COVEY_BUTLER=0), in the mode 纯话题 too, where its row of the mode turns the butler on; 记忆 only with
     COVEY_MEMORY=1 (core/memory.py); 设备 only with COVEY_NODE_LISTEN (core/nodes.py); 能做什么 and 诊断 always. 代答 is
     never a tab: the bot menu has its own item."""

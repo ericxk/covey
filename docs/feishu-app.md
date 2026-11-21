@@ -51,7 +51,7 @@
 | 代答 | `proxy_settings` | `robot_outlined`；`docs/media/menu-icons/proxy.png` | 启用的扩展有代答发送器 |
 | 设置 | `bridge_settings` | `setting_outlined`；`docs/media/menu-icons/settings.png` | 总要 |
 
-- “设置”是一张卡上几个标签：新话题、管家（设了 `COVEY_BUTLER=0` 时没有）、工作区、脱敏、群聊（开了节点再加设备）、诊断，见[机器人菜单](usage.md#机器人菜单)。菜单只对主人有反应，结果发在主人和机器人的私聊里。
+- “设置”是一张卡上几个标签：模型、新话题、管家（设了 `COVEY_BUTLER=0` 时没有）、工作区、脱敏、群聊（开了节点再加设备）、诊断，见[机器人菜单](usage.md#机器人菜单)。菜单只对主人有反应，结果发在主人和机器人的私聊里。
 - 以前单独配的菜单项照旧能点：`manage_workspaces`（工作区）、`redaction_dashboard`（脱敏）、`manage_groups`（群聊，图标 `docs/media/menu-icons/groups.png`）、`main_thread_settings`。它们算进 5 项上限，自动补齐不删也不换。
 - 上传的图标飞书 7.22 以上显示；菜单补上后约 5 分钟出现在输入框上方。
 
