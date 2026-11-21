@@ -284,11 +284,13 @@ class MirrorTest(MirrorCase):
         card = json.dumps(sends.call_args.args[2], ensure_ascii=False)
         self.assertIn("A 比 B 快", card)
         self.assertIn("用哪个做法", card)
-        # One single-choice question: its options are buttons, as on a front-desk card; the one in the topic keeps
-        # its dropdown.
+        # One single-choice question: its options are buttons, as on a front-desk card, and on the one in the topic
+        # (T604); only where to reply differs.
         self.assertIn('"pick": 0', card)
         self.assertIn("引用这张卡直接回复", card)
-        self.assertNotIn('"pick"', json.dumps(standalone_card(self.tctx, self.record), ensure_ascii=False))
+        topic_card = json.dumps(standalone_card(self.tctx, self.record), ensure_ascii=False)
+        self.assertIn('"pick": 0', topic_card)
+        self.assertIn("直接在话题里回复", topic_card)
         saved = read_object(self.path)
         self.assertEqual((saved["mirror_message_id"], saved["mirror_state"]), (mid, "sent"))
         self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, mid), self.topic)  # Quoting it answers there.

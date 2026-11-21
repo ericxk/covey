@@ -164,7 +164,7 @@
 ### 顶层问题卡副本的记录
 
 - **表单上面是这一轮的输出**：原生问题是到这时的进展说明和回答；检查点问题是任务卡正文。超过 `MIRROR_OUTPUT_BYTES` 的先单独发一条。
-- 只有一道有选项的单选题时，每个选项一个按钮，点了就提交（`app/answers.py` 的 `picked_fields`）。
+- 只有一道有选项的单选题时，每个选项一个按钮，点了就提交（`app/answers.py` 的 `picked_fields`）；话题里的卡也一样（`cards/question_cards.py` 的 `picks`）。
 - **记录**：问题记录多 `mirror_state`（`creating` → `sent`/`uncertain`，锁内写、锁外发，规则 1）、`mirror_message_id`、`mirror_card_id`；别名记成话题的并带 `routes_to`。
 - **一起收起**：`QuestionDisplay.paint` 也重画副本（`paint_mirror`，sequence 从映射 `reserve`，规则 3）。
 - 副本没能发出时，原生问题回带一行（`relay_question`，记在 `main-thread/relays/questions/`）。

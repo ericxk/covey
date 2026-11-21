@@ -510,7 +510,9 @@ class QuestionTest(QuestionFixture, unittest.TestCase):
         self.assertTrue(self.app.runtime.jobs.queue.empty())
 
     def test_question_card_has_no_default_answer_and_supports_multiline(self):
-        element = question_element(self.record)
+        # Two questions: the dropdown (one single-choice question has a button per option, TopLevelPickTest).
+        element = question_element({**self.record, "questions": self.record["questions"] + [
+            {"id": "b", "question": "顺序？", "options": [{"label": "先后"}]}]})
         selector = next(e for e in element["elements"] if e["tag"] == "select_static")
         self.assertNotIn("initial_option", selector)
         field = next(e for e in element["elements"] if e["tag"] == "input")
@@ -721,7 +723,9 @@ class SkipAllTest(QuestionFixture, unittest.TestCase):
                 self.assertEqual((skip["form_action_type"], skip["name"]), ("submit", "skip_all"))
                 self.assertEqual(skip["behaviors"][0]["value"],
                                  {"kind": SKIP_ALL_KIND, "topic_id": self.record["topic_id"], "token": self.token})
-                self.assertEqual(len([e for e in walk_dicts(form) if e.get("tag") == "button"]), 2)
+                # Besides them only the option buttons of a single-choice question (TopLevelPickTest).
+                self.assertEqual([e["name"] for e in walk_dicts(form) if e.get("tag") == "button"
+                                  and not e["name"].startswith("pick_")], ["submit", "skip_all"])
                 self.assertIn("**补充说明**（可选）", text_of(form))
 
     def test_whatever_was_picked_every_question_is_skipped_and_the_supplement_goes(self):
@@ -761,9 +765,10 @@ class SkipAllTest(QuestionFixture, unittest.TestCase):
 
 
 class TopLevelPickTest(QuestionFixture, unittest.TestCase):
-    """A top-level copy's question with options (cards/question_cards.py top_level_card), one picked: each option a
-    button that answers at once (batch 5, 2026-11-07: the dropdown took four steps, and iOS's picker could not be
-    cancelled). Other cards keep the dropdown."""
+    """A question with options, one picked (cards/question_cards.py picks): each option a button that answers at once,
+    on a top-level copy (batch 5, 2026-11-07: the dropdown took four steps, and iOS's picker could not be cancelled)
+    and on the topic's own card (T604: colleagues answer in the topic). Several questions and multiple choice keep the
+    dropdown."""
 
     def setUp(self):
         super().setUp()
@@ -792,10 +797,19 @@ class TopLevelPickTest(QuestionFixture, unittest.TestCase):
             form_button(form, name)
         self.assertTrue([e for e in walk_dicts(form) if e.get("name") == "answer_0"])
 
+    def test_a_topic_card_shows_option_buttons_too(self):
+        form = question_element(self.record)
+        self.assertFalse([e for e in walk_dicts(form) if str(e.get("tag")).endswith("select_static")])
+        row = next(e for e in walk_dicts(form) if e.get("tag") == "column_set" and e.get("flex_mode") == "flow")
+        self.assertEqual([c["elements"][0]["name"] for c in row["columns"]], ["pick_0", "pick_1", "pick_skip"])
+        self.assertIn("点选项就提交；都不合适时写在回答框再点“提交回答”，也可以直接在话题里回复。", text_of(form))
+        self.assertIn("也可以直接在话题里回复，当作这道题的回答。", text_of(form))
+        for name in ("submit", "skip_all"):
+            form_button(form, name)
+
     def test_other_cards_keep_the_dropdown(self):
         other = {"id": "b", "question": "顺序？", "options": [{"label": "先后"}]}
-        cases = {"topic": self.record,
-                 "two questions": {**self.record, "questions": self.record["questions"] + [other]},
+        cases = {"two questions": {**self.record, "questions": self.record["questions"] + [other]},
                  "multiple": {**self.record, "questions": [{**self.record["questions"][0], "multiple": True}]},
                  "no options": {**self.record, "questions": [{"id": "c", "question": "说说？"}]}}
         for name, record in cases.items():

@@ -229,8 +229,10 @@ def _settled_panel(record, token):
 
 
 def single_choice(questions):
-    """Whether ``questions`` is one question with options, one of which is picked: what option buttons can answer."""
-    return len(questions) == 1 and bool(questions[0].get("options")) and not questions[0].get("multiple")
+    """Whether ``questions`` is one question with options, one of which is picked: what option buttons can answer.
+    A record saved before ``multiSelect`` was read as ``multiple`` (app/checkpoint_questions.py) says it the native way."""
+    return (len(questions) == 1 and bool(questions[0].get("options"))
+            and not (questions[0].get("multiple") or questions[0].get("multiSelect")))
 
 
 TOP_COPY = "top_copy"  # Set (never saved) on the record a 话题区 question's top-level copy is drawn from: mirror_card.
@@ -243,9 +245,10 @@ def top_level_card(record):
 
 
 def picks(record):
-    """Whether ``record``'s form shows its options as buttons: a single_choice question on a card at the top level
-    (``top_level_card``). A topic's cards keep the dropdown (the owner: 话题里的卡先不动)."""
-    return single_choice(record["questions"]) and top_level_card(record)
+    """Whether ``record``'s form shows its options as buttons: a single_choice question, on a topic's card as on its
+    top-level copy (``top_level_card``). Several questions or a multiple choice keep the dropdown. The topic's cards
+    kept it until colleagues answered there too (T604; the owner had said 话题里的卡先不动)."""
+    return single_choice(record["questions"])
 
 
 def how_to_answer(record):
