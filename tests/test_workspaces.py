@@ -156,7 +156,7 @@ class SubmissionLockTest(TopicFixture, unittest.TestCase):
         self.release, self.sending = threading.Event(), threading.Event()
         self.addCleanup(self.release.set)
 
-        def card(ctx, job, content):
+        def card(ctx, job, content, **_):
             if job.message_id == "om_a":
                 self.sending.set()
                 self.release.wait(10)

@@ -116,7 +116,8 @@ class BridgeApp:
                                      questions=self.questions, artifacts=self.artifacts, models=self.models,
                                      steering=self.steering, record_job_state=record_job_state)
         self.submission = Submission(harness, runtime=runtime, messenger=messenger, cards=self.cards, models=self.models,
-                                     controls=self.controls, record_job_state=record_job_state, topics=topics)
+                                     controls=self.controls, record_job_state=record_job_state, topics=topics,
+                                     steering=self.steering)
         self.interaction = Interaction(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                        questions=self.questions, steering=self.steering)
         self.runs = Runs(harness, runtime=runtime, interaction=self.interaction, forks=self.forks, switch=self.switch,
@@ -225,7 +226,9 @@ class BridgeApp:
 
     def handle_event(self, event: dict[str, Any], ctx: BridgeContext, *, fetch_message_details: bool = True,
                      supplement=None, hold=0, routed=False) -> None:
-        """A message of a topic of this Harness: access check, attachments and forwards, history, then a job.
+        """A message of a topic of this Harness: access check, attachments and forwards, history, then a job, which
+        goes into the topic's running task instead when that task takes supplements (app/submission.py
+        steers_on_arrival, COVEY_TOPIC_STEER; without ``supplement`` only, the butler's being its own).
         In a group each prompt starts with who sent it (app/access.py). ``fetch_message_details``
         False skips looking up quoted messages (tests). ``supplement(ctx, prompt, message_id, content=, sender=)``:
         True when it took the message into a running task instead (the butler's, app/butler.py); it
@@ -273,10 +276,14 @@ class BridgeApp:
                 return
         append_history(ctx.history_path, "user", prompt, {**enriched.event, "display_content": content})
         timing.mark("history")
-        submit = dict(prompt_content=prompt, received_at=received_at, sender_id=sender, **({"hold": hold} if hold else {}))
+        # A topic's message while its task runs goes into that task (app/submission.py steers_on_arrival).
+        submit = dict(prompt_content=prompt, received_at=received_at, sender_id=sender, steer=supplement is None,
+                      **({"hold": hold} if hold else {}))
         try:
-            self.submission.enqueue_chat_job(ctx, content, chat_id, message_id, **submit)
-            source_watch.note(self, ctx, event, message_id, chat_id, sender, enriched.text)
+            job = self.submission.enqueue_chat_job(ctx, content, chat_id, message_id, **submit)
+            # Gone into the task before it, it is watched as a supplement of that task (a recall or an edit follows).
+            source_watch.note(self, ctx, event, message_id, chat_id, sender, enriched.text,
+                              steered=getattr(job, "cancelled_before_start", False) is True)
         except HarnessChanged:
             # 换配置 committed while this message was read: it goes to the topic's Harness now, once (its
             # history line is the topic's, already written).

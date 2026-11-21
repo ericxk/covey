@@ -40,7 +40,7 @@ from covey.cards.steer_receipts import (CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND,
                                                  stage_line)
 from covey.app.steer_forms import STEER_CLOSED
 from covey.app.steer_receipts_flow import REQUEUE_IN_FLIGHT
-from covey.cards.streaming import STEER_LABEL, build_stop_action_row
+from covey.cards.streaming import STEER_LABEL, build_stop_action_row, steer_label
 from covey.core import run_dir as rd
 from covey.core.deliveries import (REQUEUE, delivery_path, end_unread, offers, read_delivery, reconcile,
                                             save_delivery, update_delivery)
@@ -572,14 +572,20 @@ class FerryAccelerationRetiredTest(TopicFixture, unittest.TestCase):
 
     def test_a_ferry_acceleration_word_is_an_ordinary_message_even_with_the_retired_switch(self):
         """Ferry auto-acceleration is gone: "加速" while a ferry-* turn runs is a new message, as it
-        was with the switch off, and nothing is steered."""
+        was with the switch off: queued with COVEY_TOPIC_STEER=0, nothing steered; by default it goes into the
+        running turn as any message does (app/steering.py steer_on_arrival), its own words and nothing else."""
         self.start()
-        with mock.patch.dict(os.environ, {"COVEY_FERRY_AUTO_ACCELERATE": "1"}):
+        with mock.patch.dict(os.environ, {"COVEY_FERRY_AUTO_ACCELERATE": "1", "COVEY_TOPIC_STEER": "0"}):
             self.receive("om_boost", "加速", root="om_run")
         queued = self.app.runtime.jobs.queue.get_nowait()
         self.assertEqual(queued.user_text, "加速")
         self.control.steer.assert_not_called()
         self.assertIsNone(read_delivery(delivery_path(self.ctx.state_dir, self.running.topic_id, "om_boost")))
+        self.app.runtime.unregister_reply_job(queued)  # Gone: the next message is queued behind the running turn.
+        with mock.patch.dict(os.environ, {"COVEY_FERRY_AUTO_ACCELERATE": "1"}):
+            self.receive("om_boost_2", "加速", root="om_run")
+        self.control.steer.assert_called_once_with("加速", "queued-steer-om_boost_2")
+        self.assertIsNone(read_delivery(delivery_path(self.ctx.state_dir, self.running.topic_id, "om_boost_2")))
 
 
 class QueueStatusTest(unittest.TestCase):
@@ -610,7 +616,7 @@ class QueuedReceiptTest(MergeFormClicks, TopicFixture, unittest.TestCase):
         self.running.backend_control = SimpleNamespace(steer=mock.Mock(), supports_steer=True)
         self.app.cards.set_task_element = mock.Mock(return_value=True)
         self.app.messenger.send_message.reset_mock()
-        self.app.cards.create_streaming_reply = mock.Mock(side_effect=lambda ctx, job, content: SimpleNamespace(
+        self.app.cards.create_streaming_reply = mock.Mock(side_effect=lambda ctx, job, content, **_: SimpleNamespace(
             card_id="card-" + job.message_id, message_id="msg-" + job.message_id, sequence=1, disabled=False))
         self.receive("om_next", "顺便把日志也看一下", root="om_run", thread="omt_run")
         self.queued = self.app.runtime.jobs.queue.get_nowait()
@@ -1106,7 +1112,9 @@ class QueuedSteerTest(MergeFormClicks, TopicFixture, unittest.TestCase):
         self.running.timings["backend_requested"] = time.time() - 125
         with mock.patch.object(self.app.cards, "create_streaming_reply", return_value=None) as create:
             third = self.third_message()
-        self.assertIn(f"送入 #{self.queued.job_id}", create.call_args.args[2])
+        # The card's first line says where the message goes; its 补充 button names the task it sends it into.
+        self.assertEqual(create.call_args.kwargs["status"], f"这句话会在 #{self.queued.job_id} 结束后单独执行")
+        self.assertIn(f"点“现在补给 #{self.queued.job_id}”，这句话马上交给 #{self.queued.job_id}", create.call_args.args[2])
         # U3: how long the task running ahead of it has run, and since when.
         self.assertIn(f"排队中 · 本话题前方 2 个任务 · #{self.running.job_id} 已运行 2分0", create.call_args.args[2])
         restored = runner_spawn.load_job(json.loads(json.dumps(runner_spawn.dump_job(third))))
@@ -1114,11 +1122,13 @@ class QueuedSteerTest(MergeFormClicks, TopicFixture, unittest.TestCase):
         self.assertEqual(find_job_record(self.ctx_topic.state_dir, third.message_id)["steer_target_job_id"],
                          self.queued.job_id)
         restored.harness_capabilities = SimpleNamespace(steering=True)
-        card = str(build_stop_action_row(restored, include_steer=True))
-        self.assertIn(STEER_LABEL, card)
+        self.assertEqual(steer_label(restored), f"现在补给 #{self.queued.job_id}")
+        card = str(build_stop_action_row(restored, include_steer=True, label=steer_label(restored)))
+        self.assertIn(f"现在补给 #{self.queued.job_id}", card)
         self.assertIn(f"#{self.queued.job_id}", queue_hint(restored))
-        restored.execution_started = True
-        self.assertIn(STEER_LABEL, str(build_stop_action_row(restored, include_steer=True)))
+        restored.execution_started = True  # Its own task runs: its 补充 supplements that task.
+        self.assertEqual(steer_label(restored), STEER_LABEL)
+        self.assertIn(STEER_LABEL, str(build_stop_action_row(restored, include_steer=True, label=steer_label(restored))))
 
     def test_legacy_queued_card_also_targets_nearest_preceding_question(self):
         third = self.third_message()
@@ -1150,3 +1160,329 @@ class QueuedSteerTest(MergeFormClicks, TopicFixture, unittest.TestCase):
                                                                  "action_value": self.value})
         self.running.backend_control.steer.assert_not_called()
         self.app.messenger.publish_card.assert_called_once()  # a started job opens the ordinary supplement form
+
+
+class ArrivalSteerTest(TopicFixture, unittest.TestCase):
+    """COVEY_TOPIC_STEER (on by default): a message sent in a topic while its task runs goes into that task the way a
+    click on its queued card's 补充 sends it (app/steering.py steer_on_arrival): the message itself, one delivery
+    record, the card the receipt; what sends nothing leaves it queued as the next round, the card saying why."""
+
+    def setUp(self):
+        super().setUp()
+        self.backend.declare(steering=True, steer_reads=True)
+        self.receive("om_run", "第一项任务")
+        self.running = self.app.runtime.jobs.queue.get_nowait()
+        self.running.execution_started = True
+        self.control = SimpleNamespace(steer=mock.Mock(return_value=None), supports_steer=True)
+        self.running.backend_control = self.control
+        self.running.timings["backend_requested"] = 0
+        self.ctx_topic = self.topic("om_run")
+        self.app.harness.context = self.ctx
+        self.drawn = {}  # message id: (body, status line) of its card
+        self.app.cards.create_streaming_reply = mock.Mock(side_effect=self.card)
+        self.app.cards.close_streaming_reply = mock.Mock()
+        self.app.cards.replace_record_card = mock.Mock(return_value=True)
+        self.app.cards.update_job_streaming_reply = mock.Mock(return_value=True)
+        self.app.cards.update_card_activity = mock.Mock(return_value=True)
+        self.app.cards.set_task_element = mock.Mock(return_value=True)
+
+    def card(self, ctx, job, content, **kwargs):
+        self.drawn[job.message_id] = (content, kwargs.get("status", ""))
+        return SimpleNamespace(card_id="card-" + job.message_id, message_id="msg-" + job.message_id, sequence=1,
+                               disabled=False)
+
+    def say(self, message, text):
+        self.receive(message, text, root="om_run", thread="omt_run")
+        return next(job for job in self.app.runtime.jobs.queue.queue if job.message_id == message)
+
+    def delivery(self, message):
+        return read_delivery(delivery_path(self.ctx_topic.state_dir, self.running.topic_id, "queued-steer-" + message))
+
+    def receipt(self):
+        return text_of(self.app.cards.replace_record_card.call_args.args[2])
+
+    def others(self):
+        """The topic's jobs besides the running one."""
+        return [job for job in self.app.runtime.jobs.topic_jobs(self.running.topic_id, "oc_chat") if job is not self.running]
+
+    def synchronous(self):
+        return mock.patch("covey.app.steering.background.start", side_effect=lambda _, fn, *a: fn(*a))
+
+    def ended(self):
+        """The running task's end, as its worker settles its supplements (app/worker.py end_unread_steers)."""
+        from covey.core.jobs import context_for_job
+        with self.synchronous():
+            self.app.steering.end_unread_steers(context_for_job(self.ctx, self.running), self.running)
+
+    def test_a_message_while_the_task_runs_goes_into_it_and_its_card_becomes_the_receipt(self):
+        queued = self.say("om_next", "等一下，别改那个文件")
+        self.control.steer.assert_called_once_with("等一下，别改那个文件", "queued-steer-om_next")
+        self.assertTrue(queued.cancelled_before_start)
+        self.assertEqual(self.others(), [])
+        # Its card said where it was going, then became the receipt: into #N, no round of its own.
+        self.assertEqual(self.drawn["om_next"][1], f"正在补充到 #{self.running.job_id}")
+        self.assertNotIn("现在补给", self.drawn["om_next"][0])
+        receipt = self.receipt()
+        self.assertIn(f"已补充到 #{self.running.job_id}**，不另开一轮", receipt)
+        self.assertIn(f"来源：#{self.running.job_id} 在做时发到话题里的消息，自动作为补充交给它", receipt)
+        record = find_job_record(self.ctx_topic.state_dir, "om_next")
+        self.assertEqual((record["status"], record["merged_into_job_id"]), ("cancelled", self.running.job_id))
+        delivery = self.delivery("om_next")
+        self.assertEqual((delivery["status"], delivery["receipt"]["auto"], delivery["requeue"]["sender_id"]),
+                         ("sent", True, "ou_user"))
+        history = self.ctx_topic.history_path.read_text().splitlines()
+        self.assertEqual(sum("别改那个文件" in line for line in history), 1)  # Its arrival's line alone.
+        self.assertFalse([c for c in self.app.messenger.send_message.call_args_list if "已排队" in str(c)])
+        self.app.process_reply_job(queued, self.ctx)
+        self.assertEqual(len(self.backend.calls), 0)  # It never runs as a round of its own.
+
+    def test_several_messages_in_a_row_each_go_in_once_in_order(self):
+        for n in range(3):
+            self.say(f"om_more_{n}", f"再补一条 {n}")
+        self.assertEqual([c.args for c in self.control.steer.call_args_list],
+                         [(f"再补一条 {n}", f"queued-steer-om_more_{n}") for n in range(3)])
+        self.assertEqual([self.delivery(f"om_more_{n}")["status"] for n in range(3)], ["sent"] * 3)
+        self.assertEqual(self.others(), [])
+        # The same message again (Feishu delivers at least once) is never sent a second time.
+        self.say("om_more_0", "再补一条 0")
+        self.assertEqual(self.control.steer.call_count, 3)
+        self.assertEqual(self.others(), [])
+
+    def test_a_task_closing_takes_nothing_and_the_message_stays_queued_saying_why(self):
+        self.control.steer.side_effect = SteerRefused("任务正在收尾，不能再补充；请在本轮结束后发送下一轮要求")
+        queued = self.say("om_late", "再加一项")
+        self.assertFalse(queued.cancelled_before_start)
+        self.assertEqual(self.others(), [queued])
+        notice = self.app.cards.update_job_streaming_reply.call_args.args[2]
+        self.assertIn(f"⚠️ 没有补充到 #{self.running.job_id}：任务正在收尾，不能再补充", notice)
+        self.assertNotIn("请在本轮结束后", notice)
+        self.assertIn(f"点“现在补给 #{self.running.job_id}”", notice)
+        self.app.cards.update_card_activity.assert_called_once_with(
+            mock.ANY, queued, f"这句话会在 #{self.running.job_id} 结束后单独执行")
+        self.assertEqual(self.delivery("om_late")["status"], "refused")
+        self.ended()  # Nothing was sent: it is the next round already, never queued a second time.
+        self.assertEqual(self.others(), [queued])
+        self.app.runtime.unregister_reply_job(self.running)
+        self.app.process_reply_job(queued, self.ctx)
+        self.assertEqual(len(self.backend.calls), 1)
+
+    def test_a_task_waiting_for_an_answer_takes_nothing(self):
+        self.control.pause_for_question = "fmt"
+        queued = self.say("om_wait", "先这样")
+        self.control.steer.assert_not_called()
+        self.assertEqual(self.others(), [queued])
+        self.assertIn(f"没有补充到 #{self.running.job_id}：它在等回答", self.app.cards.update_job_streaming_reply.call_args.args[2])
+        self.assertIsNone(self.delivery("om_wait"))
+
+    def test_a_task_whose_answer_is_final_takes_nothing_and_the_message_runs_next(self):
+        self.running.answer_finalized = True  # Its turn is over; its answer is being delivered.
+        queued = self.say("om_after", "再看一下")
+        self.control.steer.assert_not_called()
+        self.assertEqual(self.others(), [queued])
+        self.assertIn(f"没有补充到 #{self.running.job_id}：它已经结束", self.app.cards.update_job_streaming_reply.call_args.args[2])
+        self.app.cards.update_card_activity.assert_called_once_with(
+            mock.ANY, queued, f"这句话会在 #{self.running.job_id} 结束后单独执行")
+
+    def test_with_the_switch_off_it_is_queued_as_before(self):
+        with mock.patch.dict(os.environ, {"COVEY_TOPIC_STEER": "0"}):
+            queued = self.say("om_next", "顺便看下日志")
+        self.control.steer.assert_not_called()
+        self.assertEqual(self.others(), [queued])
+        body, status = self.drawn["om_next"]
+        self.assertEqual(status, f"这句话会在 #{self.running.job_id} 结束后单独执行")
+        self.assertIn(f"点“现在补给 #{self.running.job_id}”，这句话马上交给 #{self.running.job_id}", body)
+        self.assertIsNone(self.delivery("om_next"))
+
+    def test_a_harness_without_supplements_queues_it(self):
+        self.backend.declare()  # As dsh: no 补充.
+        queued = self.say("om_next", "顺便看下日志")
+        self.control.steer.assert_not_called()
+        self.assertEqual(self.others(), [queued])
+        self.assertEqual(self.drawn["om_next"][1], f"这句话会在 #{self.running.job_id} 结束后单独执行")
+        self.assertIn("这条消息排在前面的任务之后执行", self.drawn["om_next"][0])
+
+    def test_an_unconfirmed_one_never_runs_again_and_keeps_its_check(self):
+        self.control.steer.side_effect = RuntimeError("connection lost")
+        queued = self.say("om_next", "x")
+        self.assertTrue(queued.cancelled_before_start)
+        delivery = self.delivery("om_next")
+        self.assertEqual(delivery["status"], "uncertain")
+        self.assertIn(CHECK_KIND, self.receipt())
+        self.ended()
+        self.assertEqual(self.others(), [])  # Rule 6: it may have arrived, so it is never queued by itself.
+
+    def test_one_its_task_never_read_becomes_the_next_round_once(self):
+        self.say("om_next", "等一下，别改那个文件")
+        self.ended()
+        again, = self.others()
+        self.assertTrue(again.message_id.startswith("requeue-"))
+        self.assertEqual((again.user_text, again.prompt_text, again.sender_id, again.topic_id),
+                         ("等一下，别改那个文件", "等一下，别改那个文件", "ou_user", self.running.topic_id))
+        delivery = self.delivery("om_next")
+        self.assertEqual((delivery["requeue_state"], delivery["requeued_job_id"]), ("queued", again.job_id))
+        receipt = self.receipt()
+        self.assertIn(f"#{self.running.job_id} 结束前没有读到这条补充**，已排成新一轮 #{again.job_id}", receipt)
+        self.assertNotIn(REQUEUE_KIND, receipt)
+        # Once: the end again, the Bridge after a runner, a restart, a click queue nothing more.
+        self.ended()
+        detached.queue_lost(self.app, self.running, self.ctx)
+        detached.queue_stranded(SimpleNamespace(apps={"claude": self.app}, runtime=self.app.runtime), self.ctx, None)
+        token = delivery["token"]
+        with self.assertRaisesRegex(ValueError, "已经排过队"):
+            self.app.steering.steer_receipt_action(self.ctx_topic, "oc_chat", REQUEUE_KIND, {"token": token}, "click")
+        self.assertEqual(self.others(), [again])
+
+    def test_a_stopped_task_leaves_it_to_the_owner(self):
+        self.say("om_next", "等一下")
+        self.running.cancel_event.set()  # The owner stopped the turn and what came with it.
+        self.ended()
+        self.assertEqual(self.others(), [])
+        self.assertIn(REQUEUE_KIND, self.receipt())  # 重新排队 is offered, nothing queued by itself.
+        self.assertNotIn("requeue_next", self.delivery("om_next"))
+
+    def test_one_held_until_the_task_could_take_it_becomes_the_next_round_when_it_ends_first(self):
+        self.running.backend_control = None  # Started, its backend not up yet: the supplement is held.
+        queued = self.say("om_next", "先别动配置")
+        self.assertTrue(queued.cancelled_before_start)
+        self.assertEqual(self.delivery("om_next")["status"], "held")
+        with self.synchronous():
+            from covey.core.jobs import context_for_job
+            self.app.steering.settle_held_at_end(context_for_job(self.ctx, self.running), self.running)
+        again, = self.others()
+        self.assertEqual(again.user_text, "先别动配置")
+        self.assertEqual(self.delivery("om_next")["requeued_job_id"], again.job_id)
+        self.assertIn(f"#{self.running.job_id} 没有收到这条补充**，已排成新一轮 #{again.job_id}", self.receipt())
+
+    def test_a_task_runner_marks_it_and_its_bridge_queues_it(self):
+        self.say("om_next", "等一下")
+        with mock.patch.object(type(self.app.runtime), "in_runner", new_callable=mock.PropertyMock, return_value=True):
+            self.ended()
+        self.assertEqual(self.others(), [])
+        self.assertTrue(self.delivery("om_next")["requeue_next"])
+        # Its own mark: a release before it reads every requeue_auto as the butler's.
+        self.assertNotIn("requeue_auto", self.delivery("om_next"))
+        self.assertIn("正在排成新一轮", self.receipt())
+        self.assertNotIn(REQUEUE_KIND, self.receipt())
+        with mock.patch.dict(os.environ, {"COVEY_TOPIC_STEER": "0"}):
+            detached.queue_lost(self.app, self.running, self.ctx)  # Off: the Bridge reads none of them.
+        self.assertEqual(self.others(), [])
+        with self.synchronous():
+            detached.queue_lost(self.app, self.running, self.ctx)  # The Bridge, once the runner is done.
+        again, = self.others()
+        self.assertEqual(self.delivery("om_next")["requeued_job_id"], again.job_id)
+
+    def test_one_whose_turn_ended_with_no_bridge_is_queued_at_the_next_start_by_its_harness(self):
+        self.say("om_next", "等一下")
+        with mock.patch.object(type(self.app.runtime), "in_runner", new_callable=mock.PropertyMock, return_value=True):
+            self.ended()
+        self.app.runtime.unregister_reply_job(self.running)  # Gone while no Bridge watched it.
+        butler = SimpleNamespace(steering=SimpleNamespace(queue_stranded=mock.Mock(return_value=[])),
+                                 harness=SimpleNamespace(context=self.ctx))
+        gateway = SimpleNamespace(apps={"butler": butler, "claude": self.app}, runtime=self.app.runtime)
+        with self.synchronous():
+            detached.queue_stranded(gateway, self.ctx, butler)
+        again, = self.app.runtime.jobs.topic_jobs(self.running.topic_id, "oc_chat")
+        self.assertEqual(self.delivery("om_next")["requeued_job_id"], again.job_id)
+        # The butler's app is handed the records it may take, the topic's among them only for its Harness to judge.
+        self.assertTrue(butler.steering.queue_stranded.call_args.kwargs["butler"])
+
+    def test_a_recall_of_one_that_went_in_tells_its_task(self):
+        from covey.app import source_watch
+        self.say("om_next", "等一下，别改那个文件")
+        self.assertEqual(source_watch.steer_target(self.app.runtime, self.ctx_topic.state_dir, "oc_chat", "om_next"),
+                         (self.running.job_id, self.running.topic_id))
+        self.assertIsNone(source_watch.steer_target(self.app.runtime, self.ctx_topic.state_dir, "oc_chat", "om_other"))
+
+
+class ArrivalRuleTest(unittest.TestCase):
+    """app/submission.py steers_on_arrival: which message goes into the task before it as it arrives."""
+
+    def job(self, **fields):
+        values = dict(job_id=2, steer_target_job_id=1, topic_id="t" * 32, chat_id="oc_chat",
+                      harness_capabilities=HarnessCapabilities(steering=True))
+        values.update(fields)
+        return SimpleNamespace(**values)
+
+    def target(self, **fields):
+        values = dict(job_id=1, cancel_event=threading.Event(), execution_started=True, backend_control=object())
+        values.update(fields)
+        values["runtime"] = SimpleNamespace(backend_control=values.pop("backend_control"), answer_finalized=False)
+        target = SimpleNamespace(**values)
+        target.backend_control = target.runtime.backend_control
+        target.answer_finalized = False
+        return target
+
+    def test_only_a_steering_topic_task_that_has_started_takes_it(self):
+        from covey.app.submission import steers_on_arrival
+        from covey.core import butler
+        self.assertTrue(steers_on_arrival(self.job(), [self.target()]))
+        self.assertTrue(steers_on_arrival(self.job(), [self.target(backend_control=None)]))  # Starting: held.
+        self.assertTrue(steers_on_arrival(self.job(), [self.target(backend_control=SimpleNamespace(
+            pause_for_question="q"))]))  # Waiting for an answer: tried, its card says why nothing went.
+        self.assertFalse(steers_on_arrival(self.job(), []))
+        self.assertFalse(steers_on_arrival(self.job(), [self.target(execution_started=False, backend_control=None)]))
+        ended = self.target()
+        ended.cancel_event.set()
+        self.assertTrue(steers_on_arrival(self.job(), [ended]))  # Ended, not gone yet: tried, the card says why.
+        self.assertFalse(steers_on_arrival(self.job(steer_target_job_id=3), [self.target()]))  # Bound to another.
+        self.assertFalse(steers_on_arrival(self.job(harness_capabilities=HarnessCapabilities()), [self.target()]))
+        with mock.patch.dict(os.environ, {"COVEY_TOPIC_STEER": "0"}):
+            self.assertFalse(steers_on_arrival(self.job(), [self.target()]))
+        with mock.patch("covey.app.submission.traits_of", return_value=butler.BUTLER):
+            self.assertFalse(steers_on_arrival(self.job(), [self.target()]))  # The butler's go their own way.
+
+
+class QueuedLabelTest(TopicFixture, unittest.TestCase):
+    """A queued card's 补充 reads 现在补给 #N (the task its click sends the message into); once the card's own task
+    runs, a click supplements that task, and the label says 补充 again."""
+
+    def started(self, label="现在补给 #1"):
+        from covey.app.task_card import StreamingReply
+        self.receive("om_a", "one")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        job.execution_started = True
+        job.progress = StreamingReply("card-a", "om_card", sequence=1, steer_label=label)
+        return job, self.topic("om_a")
+
+    def test_the_first_status_line_gives_the_button_its_label_back_in_the_same_batch(self):
+        job, ctx = self.started()
+        job.body_clear_pending = True
+        with FakeCardKit() as lark:
+            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "执行中 · 已运行 0 秒"))
+            self.assertTrue(self.app.cards.update_card_activity(ctx, job, "执行中 · 已运行 2 秒"))
+        first, second = lark.calls
+        actions = [json.loads(a["params"]["element"]) for a in json.loads(first.data["actions"])]
+        self.assertEqual([a["element_id"] for a in actions], ["activity", "answer", "steer_action"])
+        self.assertEqual((actions[2]["text"]["content"], actions[2]["value"]["job_id"]), (STEER_LABEL, job.job_id))
+        self.assertTrue(second.path.endswith("/elements/activity"))
+        self.assertEqual(job.progress.steer_label, "")
+
+    def test_an_answer_before_the_first_line_relabels_it_on_its_own_once(self):
+        job, ctx = self.started()
+        with FakeCardKit() as lark:
+            self.app.cards.update_card_activity(ctx, job, "执行中")
+            self.app.cards.update_card_activity(ctx, job, "执行中 · 已运行 2 秒")
+        self.assertEqual([c.path.rsplit("/", 1)[-1] for c in lark.calls], ["steer_action", "activity", "activity"])
+        self.assertEqual(json.loads(lark.calls[0].data["element"])["text"]["content"], STEER_LABEL)
+
+    def test_a_card_drawn_with_its_label_needs_none(self):
+        job, ctx = self.started(label="")
+        job.body_clear_pending = True
+        with FakeCardKit() as lark:
+            self.app.cards.update_card_activity(ctx, job, "执行中")
+        actions = [json.loads(a["params"]["element"])["element_id"] for a in json.loads(lark.calls[0].data["actions"])]
+        self.assertEqual(actions, ["activity", "answer"])
+
+    def test_the_card_remembers_the_label_it_was_drawn_with(self):
+        from covey.app.submission import queued_line
+        from covey.cards.streaming import build_stream_card
+        self.receive("om_a", "one")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        job.steer_target_job_id, job.harness_capabilities = 7, HarnessCapabilities(steering=True)
+        stream = self.app.cards.stream
+        card = build_stream_card("排队中", "任务", stream, job=job, include_stop_action=True, status=queued_line(job))
+        self.assertIn("这句话会在 #7 结束后单独执行", text_of(card))
+        self.assertEqual(stream._progress(card, "card-q", "om_q").steer_label, "现在补给 #7")
+        job.execution_started = True
+        running = build_stream_card("执行中", "任务", stream, job=job, include_stop_action=True)
+        self.assertEqual(stream._progress(running, "card-r", "om_r").steer_label, "")

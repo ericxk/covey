@@ -58,6 +58,7 @@ BOXED_PANELS = {"current_question", "task_details"}
 # a panel the user opened stays open. A card sent before it had one gets the whole panel when the turn ends.
 TASK_DETAILS_TEXT_ID = "task_details_text"
 STEER_LABEL = "补充"  # docs/ui.md 第 6 节; "📝 补充当前任务" in older releases.
+STEER_ELEMENT_ID = "steer_action"
 # The slim card's fold (the butler's, core/butler.py Traits.slim_card): the
 # tiles, 本轮请求, 任务详情 and the running buttons, folded under 详情 below the body and its status line; what a
 # card puts "after the body" or "at the bottom" goes in it too (app/task_card.py body_anchor, bottom_anchor).
@@ -183,22 +184,38 @@ def answer_element(element_id: str, content: str) -> dict[str, Any]:
     return {"tag": "markdown", "element_id": element_id, "text_size": "normal_v2", "content": content}
 
 
+def steer_label(job: Any, slim: bool = False) -> str:
+    """The label of ``job``'s 补充 button: on a topic's queued card with a task before it, 现在补给 #N, the task its click
+    sends the message into (``steer_target_job_id``; docs/ui.md 6); 补充 once the job runs (a click supplements it then)
+    and on the butler's slim card (``slim``)."""
+    target = getattr(job, "steer_target_job_id", None)
+    if slim or not target or getattr(job, "execution_started", False):
+        return STEER_LABEL
+    return f"现在补给 #{target}"
+
+
+def steer_button(job: Any, label: str = STEER_LABEL) -> dict[str, Any]:
+    """``job``'s 补充 button (STEER_ELEMENT_ID): the same value however it is labelled (``steer_label``)."""
+    return topic_button(label, element_id=STEER_ELEMENT_ID, tone="primary", value={
+        "kind": "bridge_steer", "topic_id": getattr(job, "topic_id", ""), "job_id": job.job_id})
+
+
 def build_stop_action_row(job: Any, include_steer: bool = False, *, essential: bool = False,
-                          switch: bool = False) -> list[dict[str, Any]]:
+                          switch: bool = False, label: str = STEER_LABEL) -> list[dict[str, Any]]:
     """The job's buttons (bordered, button_look) in a row that wraps (flow, each column as wide as its label,
     so none is cut in a topic's side panel), at the bottom of the card. 停止 ends the task, so it comes
     last, in red. It has no ``confirm``: the client sends nothing on 确定 once the card was redrawn while its
     dialog was open (a running card's status line redraws every few seconds, and a
     real 停止 → 确定 never reached the Bridge; a probe card redrawn under an open dialog did the same). An
     `essential` row has only 停止: the card to fall back on when CardKit rejects the full one. ``switch``: with
-    换配置 (CardLook.switch). The element IDs and values are those of every card before (the status line was under the row
-    in older releases; it is in the status block at the top now)."""
+    换配置 (CardLook.switch). ``label``: the 补充 button's (``steer_label``). The element IDs and values are those of
+    every card before (the status line was under the row in older releases; it is in the status block at the top
+    now)."""
     buttons = []
     if essential:
         include_steer = False
     if include_steer:
-        buttons.append(topic_button(STEER_LABEL, element_id="steer_action", tone="primary", value={
-            "kind": "bridge_steer", "topic_id": getattr(job, "topic_id", ""), "job_id": job.job_id}))
+        buttons.append(steer_button(job, label))
     if getattr(job, "topic_id", "") and not essential and switch:
         button = switch_button(job.topic_id, job.job_id, job.harness_id, job.binding_revision)
         button["element_id"] = "running_switch"  # CardKit element IDs must fit 20 characters.
@@ -216,13 +233,15 @@ def build_stream_card(
     job: Any | None = None,
     include_stop_action: bool = False,
     essential: bool = False,
+    status: str = "",
 ) -> dict[str, Any]:
     """The task card (the "E" sample): a white title bar of the topic, task and title alone; the
     status, the rest of the status line under it (STATUS_MORE_ID), the grey 输入/输出 box (``io_box``: 输入 in three
     lines, 输出 the run's figures, FIGURES_ELEMENT_ID), the body (the answer as it streams, the lead under 结论 at the
     end), then 执行过程 when the first step comes (inserted after the body), 本轮请求 and 任务详情 as grey blocks, and
     the buttons at the bottom. Every element keeps the ID it had on cards sent before, which keep their order
-    (app/task_card.py StreamingReply.dashboard, io_box).
+    (app/task_card.py StreamingReply.dashboard, io_box). ``status``: the status line to start with, 等待处理 when
+    empty (a queued card's says where its message goes, app/submission.py queued_line).
 
     The butler's card is slim (core/butler.py Traits.slim_card): no title
     bar (the quoted message says it, and a sent one never changes), the body first (a queued card's stage goes in
@@ -236,14 +255,14 @@ def build_stream_card(
     if job is not None:
         request = build_collapsible_markdown_panel("current_question", "本轮请求",
                                                    question_preview(job.user_text, max_lines=40, max_chars=4000))
-        buttons = (build_stop_action_row(job, look.steer, essential=essential, switch=look.switch)
-                   if include_stop_action else [])
+        buttons = (build_stop_action_row(job, look.steer, essential=essential, switch=look.switch,
+                                         label=steer_label(job, slim)) if include_stop_action else [])
         if slim:
-            status, content = slim_start(content)
-            elements = [answer, slim_activity_element(status),
+            line, content = slim_start(content)  # The slim card's line comes from its body, not ``status``.
+            elements = [answer, slim_activity_element(line),
                         slim_details([e for e in (io_box(job), request, task_details_panel(job), *buttons) if e])]
         else:
-            elements = [e for e in (activity_element("等待处理"), more_element(), io_box(job), answer, request,
+            elements = [e for e in (activity_element(status or "等待处理"), more_element(), io_box(job), answer, request,
                                     task_details_panel(job), *buttons) if e]
     heading = card_title_for_question(title, runtime)
     card = {

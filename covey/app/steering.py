@@ -5,7 +5,8 @@ does: a queued task takes it into its request, a starting one keeps it until its
 take it, a running one is sent it now, and a task waiting for an answer or ended takes none.
 What became of each supplement is its delivery record (core/deliveries.py). The 补充 forms are in
 app/steer_forms.py and the receipt cards and their buttons in app/steer_receipts_flow.py, both parts of
-Steering.
+Steering. A topic's message sent while the topic's task runs goes into it as it arrives (``steer_on_arrival``,
+COVEY_TOPIC_STEER), the way a 补充 click on its queued card sends it.
 """
 
 from __future__ import annotations
@@ -16,8 +17,8 @@ import threading
 import time
 
 from covey.cards.steer_receipts import CHECK_KIND, INTERRUPT_KIND, REQUEUE_KIND, WITHDRAW_KIND
-from covey.core.deliveries import (REQUEUE, delivery_path, delivery_token, end_unread, lost, offers,
-                                            read_delivery, reconcile, save_delivery, shown_preview, update_delivery)
+from covey.core.deliveries import (REQUEUE, delivery_path, delivery_token, end_unread, lost, marked, offers,
+                                   on_arrival, read_delivery, reconcile, save_delivery, shown_preview, update_delivery)
 from covey.cards.steer_form import closed_card, latest_request
 from covey.core.jobs import upsert_job_record, find_job_record
 from covey.core import background, timing
@@ -26,11 +27,12 @@ from covey.core.harness import backend_capabilities
 from covey.core.locks import resource_lock
 from covey.core.history_storage import append_history
 from covey.core.text import literal
+from covey.core.topics import load_topic
 from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
 from covey.app import device_files
 from covey.app.butler import SUPPLEMENT_LOST, SUPPLEMENT_UNCERTAIN
 from covey.app.runtime import job_stage
-from covey.app.submission import queue_hint
+from covey.app.submission import queue_hint, queued_line
 from covey.app.detached import update_queued
 from covey.app.steer_forms import SteerForms
 from covey.app.steer_receipts_flow import SteerReceiptFlow
@@ -39,6 +41,14 @@ from covey.app.steer_interrupt import SteerInterrupt
 
 STEER_WATCH_SECONDS = 120
 STEER_KINDS = frozenset({"bridge_steer", CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND, INTERRUPT_KIND})
+QUEUED_STEER = "queued-steer-"  # A queued message's delivery id: this prefix and its message id.
+
+
+def refusal_reason(text) -> str:
+    """What a refusal (SteerRefused) says of the task, without its advice ("；请在本轮结束后发送下一轮要求", "，请先回答"):
+    a message that stays queued is the next round already."""
+    reason = str(text or "").split("；", 1)[0]
+    return reason.split("，请", 1)[0] or "任务现在不能接收补充"
 
 
 class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
@@ -53,7 +63,8 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
     - ``record_job_state``: records a queued task that took a supplement into its request.
     - ``enqueue_chat_job``: queues a refused or withdrawn supplement again as its own task.
     - ``event_context``: the context a message starts a turn in (app/submission.py), for a butler
-      supplement its turn never took, queued as a turn of its own (``queue_lost``).
+      supplement its turn never took, queued as a turn of its own (``queue_lost``), and a topic's
+      message that went in as it arrived, in its topic (``requeue_context``).
     They are late-bound: they sit above Steering.
     """
 
@@ -88,27 +99,58 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
             stage = "starting"  # A task runner's only job is its own, about to start: never a queued one.
         return (None, stage) if stage == "ended" else (job, stage)
 
-    def queued_card_notice(self, ctx, chat, queued, notice, mid):
+    def queued_card_notice(self, ctx, chat, queued, notice, mid, *, arrival=False):
         """Say it on the queued message's own card: the card changes as the message moves on, where a
-        separate text would stay behind."""
+        separate text would stay behind. ``arrival``: the card of a message that did not go into the task before it as
+        it arrived (``steer_on_arrival``) gets back its status line, where it said it was being sent
+        (app/submission.py queued_line)."""
+        line = queued_line(queued) if arrival else ""
         with queued.execution_lock:
             if (queued.progress and not queued.execution_started and self.cards.update_job_streaming_reply(
                     ctx, queued, self.cards.render_stream_status(queued, "排队中", [f"⚠️ {notice}", queue_hint(queued)]),
                     force=True, idempotency_prefix=self.voice.key("queued-notice", mid), allow_replacement=False)):
+                if line:
+                    self.cards.update_card_activity(ctx, queued, line)
                 return
-        self.messenger.reply(ctx, chat, notice + "。", self.voice.key("queued-notice", mid), voice=self.voice)
+        # No card to say it on: the line says where the message goes as well.
+        self.messenger.reply(ctx, chat, notice + (f"；{line}" if line else "") + "。", self.voice.key("queued-notice", mid),
+                             voice=self.voice)
 
-    def steer_queued_job(self, ctx, chat, queued, mid, *, text=None, form="", raw=None):
+    def steer_on_arrival(self, ctx, chat, queued, mid):
+        """A topic's message, just queued behind the task it is bound to while that task runs (COVEY_TOPIC_STEER,
+        app/submission.py steers_on_arrival), goes into it the way a click on its queued card's 补充 sends it
+        (``steer_queued_job``): the message with its attachments and the topic's context, one delivery record, the card
+        the receipt, marked ``auto`` (core/deliveries.py on_arrival). What sends nothing (that task waits for an answer,
+        is closing or has ended, its backend refuses) leaves it queued as the next round, its card saying why in one
+        line; it never runs as well once it may have gone in (rule 6). Whether it went in (or may have)."""
+        try:
+            taken = self.steer_queued_job(ctx, chat, queued, mid, auto=True)
+        except Exception as exc:  # noqa: BLE001 - the message thread goes on; what did not go in stays queued
+            # It started (the task before it ended) or was stopped meanwhile, or its record could not be read.
+            self.runtime.log(f"topic message not steered on arrival job=#{queued.job_id}: {type(exc).__name__}: {exc}")
+            with queued.execution_lock:
+                waiting = not (queued.execution_started or queued.cancelled_before_start or queued.cancel_event.is_set())
+            if waiting:
+                why = f"：{exc}" if isinstance(exc, (ValueError, SteerUncertain)) and str(exc) else ""
+                self.queued_card_notice(ctx, chat, queued, f"没有补充到 #{queued.steer_target_job_id}{why}", mid,
+                                        arrival=True)
+            return False
+        if taken:
+            timing.outcome("supplement")
+        return taken
+
+    def steer_queued_job(self, ctx, chat, queued, mid, *, text=None, form="", raw=None, auto=False):
         """Supplement the preceding task bound to this card, whether queued or already running, with the queued
         message, or ``text`` written for it in its 补充 form (``form``, the form's message: the receipt goes
-        there, and a refusal)."""
-        target = self.merge_target(ctx, chat, queued, mid, form)
+        there, and a refusal). ``auto``: as it arrived, no click (``steer_on_arrival``). Whether it went in (or may
+        have: it never runs then)."""
+        target = self.merge_target(ctx, chat, queued, mid, form, arrival=auto)
         if target is None:
-            return
+            return False
         # The message as written keeps its attachments' lines (prompt_text); changed, what the form says.
         sent = (queued.prompt_text or queued.user_text) if text is None or text == queued.user_text.strip() else text
         shown = queued.user_text if text is None else text
-        delivery_id = "queued-steer-" + queued.message_id
+        delivery_id = QUEUED_STEER + queued.message_id
         # Holding the lock keeps the worker from starting this message while it is
         # delivered. If nothing is sent, the message stays queued and runs in order.
         refused = ""
@@ -116,12 +158,17 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
             if queued.execution_started or queued.cancelled_before_start or queued.cancel_event.is_set():
                 raise ValueError(f"任务 #{queued.job_id} 已开始或已取消，未作为补充发送")
             # The message is already in the topic history from when it arrived.
+            # One that went in as it arrived becomes a round of its own should its task never take it
+            # (``requeue_lost``): queued as its sender's, as the message would have run.
+            again = {"text": shown, "prompt": sent,
+                     **({"sender_id": queued.sender_id} if auto and getattr(queued, "sender_id", "") else {})}
             try:
                 saved = self.deliver_steer(
                     ctx, target, sent, delivery_id, record_history=False,
                     receipt=({"kind": "browse", "source": form, "text": shown} if form else
-                             {"kind": "job", "key": queued.message_id, "job_id": queued.job_id, "text": shown}),
-                    requeue={"text": shown, "prompt": sent})
+                             {"kind": "job", "key": queued.message_id, "job_id": queued.job_id, "text": shown,
+                              **({"auto": True} if auto else {})}),
+                    requeue=again)
             except SteerRefused as exc:
                 refused = str(exc)
             except SteerUncertain:
@@ -137,11 +184,15 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                 queued.cancel_event.set()
         if refused:
             # Nothing was sent: the message stays queued, and its card says why; a form takes the text again.
+            if auto:  # Its card's first line says it runs on its own; this one says why, in its own words.
+                self.queued_card_notice(ctx, chat, queued, f"没有补充到 #{target.job_id}：{refusal_reason(refused)}", mid,
+                                        arrival=True)
+                return False
             notice = f"补充没有发出：{refused}；本条继续排队，按顺序执行"
             if not (form and self.cards.repaint_browse_card(ctx, chat, mid, form, self.steer_form_card(
                     target, raw, text=text or "", notice=f"⚠️ {notice}。"))):
                 self.queued_card_notice(ctx, chat, queued, notice, mid)
-            return
+            return False
         note = {"sent": f"已作为补充送入正在执行的任务 #{target.job_id}，不再单独执行",
                 "read": f"已作为补充送入正在执行的任务 #{target.job_id}，不再单独执行",
                 "held": f"已转为任务 #{target.job_id} 的补充，任务准备好后自动送入；不再单独执行"}.get(
@@ -160,9 +211,10 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                     f"**#{queued.job_id} {note}**\n送达状态见下方补充卡上的回执。", f"#{queued.job_id} 已转为补充"))
             if not self.show_steer_receipt(ctx, saved):
                 self.messenger.reply(ctx, chat, note + "。", self.voice.key("queued-steer-ack", mid), voice=self.voice)
-            return
+            return True
         if not (queued.progress and self.show_steer_receipt(ctx, saved)):
             self.messenger.reply(ctx, chat, note + "。", self.voice.key("queued-steer-ack", mid), voice=self.voice)
+        return True
 
     def watch_steer(self, ctx, path, seconds=STEER_WATCH_SECONDS):
         """Keep reading a task runner's late acknowledgement and repaint the receipt once it settles."""
@@ -376,6 +428,9 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
     def settle_steer(self, ctx, job, mid, **changes):
         record = update_delivery(delivery_path(ctx.state_dir, job.topic_id, mid), **changes)
         if record and record.get("receipt"):
+            if record.get("status") == "refused" and on_arrival(record):
+                # Taken off the queue as it arrived, then never sent: a round of its own, marked before it is shown.
+                self.requeue_lost(ctx, job, [record])
             background.start(background.CARD_UPDATES, self.show_steer_receipt, ctx, record)
         elif record and record.get("status") in {"refused", "uncertain"} and traits_of(job).lists_supplements:
             # Refused was never sent: a turn of its own. Uncertain may have arrived (rule 6): only said.
@@ -385,24 +440,26 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
     def requeue_lost(self, ctx, job, records):
         """Butler supplements the turn ``job`` certainly never took (refused: never sent; or ended unread on a
         harness that reports reads) become turns of their own, as if the owner had just sent them: each is marked
-        ``requeue_auto`` (core/deliveries.py) and queued by ``queue_lost``, here at once, from a task runner by
+        ``requeue_auto`` (core/deliveries.py marked) and queued by ``queue_lost``, here at once, from a task runner by
         its Bridge once the runner is done (app/detached.py), or at the Bridge's next start when none was there to
-        (``queue_stranded``). Not after a stop (the owner stopped the turn and what
+        (``queue_stranded``). A topic's messages that went in as they arrived (``on_arrival``) the same, marked
+        ``requeue_next``, each queued as its receipt's 重新排队 would queue it. Not after a stop (the owner stopped the turn and what
         came with it) or for a record from before its ``requeue`` was saved: those are said as before. Returns the
         records it marked."""
         if job.cancel_event.is_set():
             return []
-        marked = []
+        found = []
         for record in records:
             if not record.get("requeue") or not record.get("mid"):
                 continue
             path = delivery_path(ctx.state_dir, record.get("topic_id") or job.topic_id, record["mid"])
-            current = update_delivery(path, requeue_auto=True)
+            # A topic's message that went in as it arrived has a mark of its own (core/deliveries.py marked).
+            current = update_delivery(path, **{"requeue_next" if on_arrival(record) else "requeue_auto": True})
             if current and REQUEUE in offers(current):
-                marked.append(current)
-        if marked and not self.runtime.in_runner:
+                found.append(current)
+        if found and not self.runtime.in_runner:
             background.start(background.CARD_UPDATES, self.queue_lost, ctx, job)
-        return marked
+        return found
 
     def queue_lost(self, ctx, job):
         """Queue the butler supplements of ``job`` marked ``requeue_auto`` as turns of their own, oldest first,
@@ -416,51 +473,101 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                      if isinstance(value, (int, float)) and value > 0), default=0)
         return self._queue_marked(ctx, lost(ctx.state_dir, job.message_id, since), job.chat_id, f"#{job.job_id}")
 
-    def queue_stranded(self, ctx, running):
+    def queue_stranded(self, ctx, running, *, found=None, butler=True):
         """At the Bridge's start (app/detached.py queue_stranded): the marked supplements whose turn ended while no
         Bridge watched it, its runner gone while the Bridge was down or the Bridge stopped before its own
         ``queue_lost`` ran, queued as ``queue_lost`` does, oldest first across turns. Those of a turn still
-        ``running`` (an adopted or live runner's job key) or in the registry wait for its end. Returns the jobs
-        queued."""
+        ``running`` (an adopted or live runner's job key) or in the registry wait for its end. ``found``: the marked
+        records (core/deliveries.py lost), read once for every Harness; this one takes the butler's when it is the
+        butler's (``butler``) and those of the topics on its Harness that went in as they arrived (``on_arrival``).
+        Returns the jobs queued."""
         if self.runtime.in_runner:
             return []
-        found = [(path, record) for path, record in lost(ctx.state_dir)
-                 if record.get("job_key") not in running and not self.runtime.jobs.settling(record.get("job_key"))]
+        found = [(path, record) for path, record in (lost(ctx.state_dir) if found is None else found)
+                 if record.get("job_key") not in running and not self.runtime.jobs.settling(record.get("job_key"))
+                 and (self.topic_harness(ctx, record) == self.harness.spec.name if on_arrival(record) else butler)]
         return self._queue_marked(ctx, found, "", "the restart") if found else []
+
+    @staticmethod
+    def topic_harness(ctx, record) -> str:
+        """The Harness the topic of ``record`` is bound to now (its topic.json); '' when it cannot be read."""
+        try:
+            return str(load_topic(ctx.state_dir, str(record.get("topic_id") or "")).get("harness_id") or "")
+        except (OSError, ValueError, AttributeError):
+            return ""
+
+    def requeue_context(self, ctx, record):
+        """The context a topic's message that went in as it arrived (``on_arrival``) is queued again in: its topic's,
+        as a message in its thread (app/topics.py topic_target), on this Harness; None when the topic is gone or on
+        another Harness now (换配置): then it is not queued, and its receipt offers 重新排队 again."""
+        try:
+            topic = load_topic(ctx.state_dir, str(record.get("topic_id") or ""))
+        except (OSError, ValueError):
+            return None
+        if topic.get("harness_id") != self.harness.spec.name or not topic.get("root_id") or self.event_context is None:
+            return None
+        target = self.event_context(self.harness.context or ctx,
+                                    {"chat_id": record.get("chat_id"), "message_id": topic["root_id"]})
+        return target if target.topic_id == record.get("topic_id") else None
 
     def _queue_marked(self, ctx, found, chat, after):
         """Queue each (path, record) of ``found`` still marked and not tried, in order. An error may have queued it
         (``_requeue``: requeue_state uncertain): never queued again (rule 6), and said once under the owner's
-        message, after the queuing."""
+        message, after the queuing. A topic's message that went in as it arrived (``on_arrival``) is queued as
+        重新排队 queues it (a message id of its own, ``requeue-…``, the topic's thread), and its receipt says so."""
         queued, unsure = [], []
         with self.queuing_lost:
             for path, _ in found:
                 with resource_lock("question", path):
                     record = read_delivery(path)
-                    if not record or not record.get("requeue_auto") or REQUEUE not in offers(record):
+                    if not record or not marked(record) or REQUEUE not in offers(record):
                         continue
                     record = update_delivery(path, requeue_state="submitting", requeue_at=time.time()) or record
                 mid, chat_id = str(record.get("mid") or ""), str(record.get("chat_id") or chat)
+                topic = on_arrival(record)
                 try:
-                    event = {"chat_id": chat_id, "message_id": mid}
-                    target = (self.event_context(self.harness.context, event) if self.event_context is not None
-                              else dataclasses.replace(ctx, reply_to_message_id=mid))
-                    record = self._requeue(target, chat_id, path, record, message_id=mid)
+                    if topic:
+                        target = self.requeue_context(ctx, record)
+                        if target is None:
+                            raise ValueError("话题已不在这个 Harness 上")
+                        record = self._requeue(target, chat_id, path, record)
+                    else:
+                        event = {"chat_id": chat_id, "message_id": mid}
+                        target = (self.event_context(self.harness.context, event) if self.event_context is not None
+                                  else dataclasses.replace(ctx, reply_to_message_id=mid))
+                        record = self._requeue(target, chat_id, path, record, message_id=mid)
                 except ValueError as exc:  # Refused before it was queued, its reason sent: not tried again.
-                    update_delivery(path, requeue_auto=False)
-                    self.runtime.log(f"main thread supplement not queued message={mid[-10:]}: {exc}")
+                    current = update_delivery(path, **{"requeue_next" if topic else "requeue_auto": False})
+                    if topic:  # Its receipt offers 重新排队 again.
+                        current = update_delivery(path, requeue_state="") if (current or {}).get(
+                            "requeue_state") == "submitting" else current
+                        self._show_safely(ctx, current)
+                    self.runtime.log(f"{'topic' if topic else 'main thread'} supplement not queued "
+                                     f"message={mid[-10:]}: {exc}")
                     continue
                 except Exception as exc:  # noqa: BLE001 - it may be queued: requeue_state uncertain, never again
-                    self.runtime.log(f"main thread supplement queue unconfirmed message={mid[-10:]}: "
-                                     f"{type(exc).__name__}")
-                    unsure.append((chat_id, mid))
+                    self.runtime.log(f"{'topic' if topic else 'main thread'} supplement queue unconfirmed "
+                                     f"message={mid[-10:]}: {type(exc).__name__}")
+                    if not topic:  # A topic's receipt says it (``_requeue`` repainted it); no message to say it under.
+                        unsure.append((chat_id, mid))
                     continue
                 queued.append(record.get("requeued_job_id"))
-                self.runtime.log(f"main thread supplement queued as its own turn message={mid[-10:]} "
-                                 f"job=#{record.get('requeued_job_id')} after={after}")
+                self.runtime.log(f"{'topic' if topic else 'main thread'} supplement queued as its own turn "
+                                 f"message={mid[-10:]} job=#{record.get('requeued_job_id')} after={after}")
+                if topic:
+                    self._show_safely(target, record)
         for chat_id, mid in unsure:
             self.tell_requeue_unsure(ctx, chat_id, mid)
         return queued
+
+    def _show_safely(self, ctx, record):
+        """``show_steer_receipt`` that only logs what fails: the record says where the supplement is."""
+        if not record:
+            return
+        try:
+            self.show_steer_receipt(ctx, record)
+        except Exception as exc:  # noqa: BLE001 - the next paint of the receipt shows it
+            self.runtime.log(f"steer receipt not repainted: {type(exc).__name__}")
 
     def tell_requeue_unsure(self, ctx, chat, mid):
         """A lost supplement whose queuing raised may be a turn of its own already: never queued again (rule 6), so
@@ -494,16 +601,24 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
     def end_unread_steers(self, ctx, job, *, listed=False):
         """The task ended. On a harness that reports reads (Claude), a supplement still "sent" was never
         read: its receipt says so and offers 重新排队执行. Others never report reads: theirs stay as they are.
-        The butler's have no receipt: they become turns of their own (``requeue_lost``). ``listed``: a
+        The butler's have no receipt: they become turns of their own (``requeue_lost``), and so do a topic's
+        messages that went in as they arrived (``on_arrival``), their receipts saying it. ``listed``: a
         stopped or refused butler turn's card listed its supplements (app/butler_reply.py), so they get
         neither a turn nor a line of their own under the owner's message."""
         since = (getattr(job, "timings", None) or {}).get("backend_requested", 0)
-        main = []
+        main, arrived = [], []
         for record in end_unread(ctx.state_dir, job.message_id, since):
-            if record.get("receipt"):
+            if on_arrival(record):
+                arrived.append(record)
+            elif record.get("receipt"):
                 background.start(background.CARD_UPDATES, self.show_steer_receipt, ctx, record)
             elif traits_of(job).lists_supplements and not listed:
                 main.append(record)
+        if arrived:
+            # A topic's messages that went in as they arrived: rounds of their own, marked before they are shown.
+            self.requeue_lost(ctx, job, arrived)
+            for record in arrived:
+                background.start(background.CARD_UPDATES, self.show_steer_receipt, ctx, record)
         requeued = {record.get("mid") for record in self.requeue_lost(ctx, job, main)} if main else set()
         for record in main:
             if record.get("mid") not in requeued:

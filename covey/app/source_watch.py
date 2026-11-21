@@ -85,13 +85,18 @@ def read_back(detail, message_id, stamp):
 
 
 def steer_target(runtime, state_dir, chat_id, message_id):
-    """(job id, topic id) of the live task of ``chat_id`` the message went into as a supplement; None without one."""
-    from covey.core.deliveries import delivery_path
+    """(job id, topic id) of the live task of ``chat_id`` the message went into as a supplement; None without one. A
+    topic's message that went in as it arrived (app/steering.py steer_on_arrival) is the delivery of its queued card."""
+    from covey.app.steering import QUEUED_STEER
+    from covey.core.deliveries import delivery_path, read_delivery
 
     with runtime.jobs.lock:
         jobs = [job for job in runtime.jobs.by_id.values() if job.chat_id == chat_id]
     for job in sorted(jobs, key=lambda job: -int(job.job_id)):
         if delivery_path(state_dir, job.topic_id, message_id).exists():
+            return int(job.job_id), job.topic_id
+        record = read_delivery(delivery_path(state_dir, job.topic_id, QUEUED_STEER + message_id))
+        if record and record.get("job_id") == job.job_id:
             return int(job.job_id), job.topic_id
     return None
 

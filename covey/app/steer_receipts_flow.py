@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 
 from covey.cards.steer_receipts import INTERRUPT_KIND, REQUEUE_KIND, receipt_card, stage_line
-from covey.core.deliveries import REQUEUE, offers, read_delivery, reconcile, update_delivery
+from covey.core.deliveries import REQUEUE, offers, on_arrival, read_delivery, reconcile, update_delivery
 from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
 from covey.core.locks import resource_lock
@@ -37,7 +37,8 @@ class SteerReceiptFlow:
             card_record = find_job_record(ctx.state_dir, str(receipt.get("key") or ""))
             if not card_record:
                 return False
-            source = f"来源：#{card_record['job_id']} 排队的消息，已转为补充，不再单独执行。"
+            source = (f"来源：#{record.get('job_id')} 在做时发到话题里的消息，自动作为补充交给它，不另开一轮。"
+                      if on_arrival(record) else f"来源：#{card_record['job_id']} 排队的消息，已转为补充，不再单独执行。")
             return self.cards.replace_record_card(ctx, card_record, receipt_card(record, source=source))
         if receipt.get("kind") == "browse" and receipt.get("source"):
             return self.cards.repaint_browse_card(ctx, record.get("chat_id", ""), f"steer-receipt-{time.time_ns()}",

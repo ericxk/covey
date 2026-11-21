@@ -67,7 +67,7 @@
 | `answer` | 正文 |
 | `current_question` | 卡上的问题 |
 | `task_details` | 任务详情，带框折叠面板，正文 ID `task_details_text` |
-| `action_row` | 按钮行：补充（`primary`）、停止（`danger`） |
+| `action_row` | 按钮行：补充（`primary`，`steer_action`；排队卡上写“现在补给 #N”，任务开始后改回“补充”）、停止（`danger`） |
 
 - 灰框“输入”六段：Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 脱敏 ｜ 工作区（`input_lines`），来自建卡时存的 `job.input_parts`（`answer_cards.inputs`，同答案卡；`CARD_FACTS` 带它，替换卡不丢）。
 - “输出”运行中写 开始 ｜ 已运行 ｜ token ｜ token/s ｜ 上下文（`running_figures`、`with_ran`，顺序 `RUNNING_LINES`），结束后写 用时 ｜ token/s ｜ token ｜ 缓存命中（`output_parts`、`output_lines`），还没有数字时是“—”。没开始处理就结束的（排队中取消）照结束写，也是“—”。

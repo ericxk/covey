@@ -14,8 +14,8 @@ from typing import Any
 from covey.cards.cardkit_actions import batch_body, content_body, dumps, settings_body, update
 from covey.cards.elements import find_element
 from covey.cards.card_cost import CARD_COST_BUDGET, CARD_TOO_BIG, card_cost, text_cost, truncate_card_content
-from covey.cards.streaming import (CardLook, SLIM_DETAILS_ID, STOP_ACTION_ELEMENT_ID, build_stream_card,
-                                            card_details_text, other_costs)
+from covey.cards.streaming import (CardLook, SLIM_DETAILS_ID, STEER_ELEMENT_ID, STEER_LABEL, STOP_ACTION_ELEMENT_ID,
+                                   build_stream_card, card_details_text, other_costs)
 from covey.cards.task_figures import FIGURES_ELEMENT_ID, IO_BOX_ID, io_figures, io_lines
 from covey.cards.task_status import (STATUS_MORE_ID, activity_element, more_element, ran_of, status_elements,
                                               slim_status_markdown, status_markdown, status_rows)
@@ -109,6 +109,10 @@ class StreamingReply:
     top_text: str = ""
     # The 看看 button is under the status line (Cards.show_stuck): the turn may be stuck.
     look_shown: bool = False
+    # The 补充 button's label as a queued card drew it, while it is not STEER_LABEL (现在补给 #N, cards/streaming.py
+    # steer_label): once its own task runs, its 补充 supplements that task, and the label says so again
+    # (Cards.relabel_steer). '' for every other card, one sent before and once relabelled.
+    steer_label: str = ""
 
     def save_sequence(self, sequence):
         """Keep the job record's card_sequence at least LEASE ahead of what this card has used."""
@@ -304,7 +308,8 @@ class StreamingCard:
         return card_look(job, self.idempotency_prefix == "codex-lark")
 
     def create(self, profile: str | None, job: Any, initial_content: str, *,
-               include_stop_action: bool = True) -> Any | None:
+               include_stop_action: bool = True, status: str = "") -> Any | None:
+        """``job``'s task card, its body ``initial_content`` and its status line ``status`` (build_stream_card)."""
         essential = False
         for attempt in range(1, 4):
             card = build_stream_card(
@@ -314,6 +319,7 @@ class StreamingCard:
                 job=job,
                 include_stop_action=include_stop_action and str(job.kind or "chat") == "chat",
                 essential=essential,
+                status=status,
             )
             payload = self.messenger.create_card(profile, card)
             card_id = extract_card_id(payload or {})
@@ -375,6 +381,9 @@ class StreamingCard:
         body = next(e for e in card["body"]["elements"] if e.get("element_id") == self.element_id)
         details = card_details_text(card)
         figures = find_element(card, FIGURES_ELEMENT_ID)
+        label = str(((find_element(card, STEER_ELEMENT_ID) or {}).get("text") or {}).get("content") or "")
+        if label and label != STEER_LABEL:
+            fields = {"steer_label": label, **fields}  # A queued card's 现在补给 #N: relabelled once its task runs.
         return self.progress_factory(
             card_id=card_id,
             message_id=message_id,

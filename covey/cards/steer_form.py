@@ -5,21 +5,23 @@ from __future__ import annotations
 from covey.cards.elements import card, markdown_panel, md, plain
 
 
-def steer_form(job_id, label, raw, *, text="", notice=""):
+def steer_form(job_id, label, raw, *, text="", notice="", arrives=True):
     """The 补充 form of task ``job_id`` (``label`` names it), filled in with ``text``; its submit
-    button calls back with ``raw``."""
+    button calls back with ``raw``. ``arrives``: a message sent in the topic goes into the running task by itself
+    (COVEY_TOPIC_STEER, the butler's always); else it is queued, and its card's 现在补给 #N sends it."""
     # 1,000 characters is the most a Feishu input takes; a longer one, or one with files, is sent as a message
-    # in the topic and then 补充当前任务 on its queued card.
+    # in the topic, which goes into the task as it arrives (or by its queued card's 现在补给 #N).
     field = {"tag": "input", "name": "supplement", "input_type": "multiline_text", "required": True,
              "rows": 6, "auto_resize": True, "max_rows": 15, "width": "fill", "max_length": 1000,
              "placeholder": plain(f"补充任务 #{job_id} 的要求")}
     if text:
         field["default_value"] = text
     head = f"**补充任务 {label}**" + (f"\n{notice}" if notice else "")
+    longer = "它会补充给这个任务" if arrives else f"再点那条消息卡上的“现在补给 #{job_id}”"
     return card([
         md(head),
         md("<font color='grey'>提交后送入正在执行的任务；任务结束后这张卡失效。最多 1000 字；更长的内容或附件，"
-           "直接在本话题发消息，再点那条消息卡上的“补充当前任务”。</font>", size="notation"),
+           f"直接在本话题发消息，{longer}。</font>", size="notation"),
         {"tag": "form", "name": "steer", "elements": [field, {
             "tag": "button", "name": "submit", "form_action_type": "submit", "type": "primary",
             "text": plain(f"提交补充到 #{job_id}"),

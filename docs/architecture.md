@@ -74,6 +74,7 @@ feishu/events.py consume：每个订阅一个 lark-cli 消费者，逐行交给�
  → app/topics.py Topics.route：core/workspaces.py 的 topic_context 找到或建立 topic.json，按 harness_id 选 BridgeApp
  → app/app.py BridgeApp.handle_event：附件、转发、被回复消息；有待答问题 → app/interaction.py 走问答；否则写历史
  → app/submission.py submit_topic_job：未开始 → waiting_workspace + 启动卡；已开始 → 排队卡；先写 queued/ 再入队
+ → 前面的任务在跑（COVEY_TOPIC_STEER）→ app/steering.py steer_on_arrival：像点排队卡上的补充一样送进它，卡换成回执
  → core/scheduler.py WorkspaceScheduler：同话题串行，跨话题有上限地并行
  → app/job_dispatch.py process_reply_job：核对绑定和快照、预检、Harness.ensure_started
  → app/detached.py run_detached → app/runner_spawn.py start_runner：写 handoff.json，起任务进程
@@ -356,6 +357,9 @@ read、refused、withdrawn：终态
 - `deliver_steer` 写 `submitting` 再发：`SteerNotReady` → `held`，`SteerRefused` → `refused`（什么都没发出），其他异常 → `uncertain`（可能已送达，从不自动重发），成功 → `sent`。
 - `held` 由持有任务控制权的进程保存，到 `running` 才发；经任务进程时 Bridge 限时等 ack，超时 `uncertain`。
 - 排队卡上的补充发给排队时绑定的目标任务。声明 `steer_reads` 的后端（Claude）一轮结束时仍是 `sent` 的补充记 `target_ended`，回执写模型没有读到。
+- 话题里任务在跑时发来的消息（`COVEY_TOPIC_STEER`，默认开，`core/deliveries.py` 的 `topic_steer`）：`BridgeApp.handle_event` 照常写历史、`enqueue_chat_job(steer=True)`；`reserve_submission` 在 `LOCK` 内绑定目标（`steer_target_job_id`，前面最近的那个），`steers_on_arrival` 判断要不要马上送：开关开着、后端声明 `steering`、不是管家一家（`Traits.lists_supplements`，管家走自己的 `Butler.supplement`）、目标已开始（在等回答、正在收尾或已经结束的也试，好在卡上说原因）。要送的排队卡状态行先写“正在补充到 #N”，出了 `topic_lock` 后 `Steering.steer_on_arrival` 走和点击一样的 `steer_queued_job`（`auto=True`）：同一个 `queued-steer-<消息 id>` 送达记录，回执 `receipt` 带 `auto`（`on_arrival`），`requeue` 带发送人。没发出（`SteerRefused`、目标在等回答或已结束）这条照旧排队，卡上一行原因、状态行改回 `queued_line`；可能已送达的照规则 6 不单独执行。消息处理是一条线程按收到的顺序做的，连着发的几条各自送、按顺序。
+- 自动送进去的补充确定没被读到（`held` 后 `refused`，或 `target_ended`）时和管家的一样标记，只是标 `requeue_next`（`core/deliveries.py` 的 `marked`；老版本把每个 `requeue_auto` 都当管家的补充，回退到老版本时它们就只留回执上的“重新排队”）。`settle_steer`、`end_unread_steers` 里先标再画回执，由 `queue_lost` 经 `_queue_marked` 用 `_requeue` 排成新一轮：消息 id 是 `requeue-<token>`（原消息 id 已是那张排队卡的任务），上下文是话题的（`requeue_context`：topic.json 的 `root_id`，话题换了 Harness 就不排、回执留“重新排队”），只排一次（`requeue_state`）。任务进程只标记，结束后 `app/detached.py` 的 `queue_lost` 排（开关开着时话题任务也排）；Bridge 不在时由下次启动的 `queue_stranded` 排：只读一遍记录，管家的交给管家所在的 Harness，话题的交给话题所在的 Harness。主人停止的一轮不自动排；可能已送达的不排。
+- 排队卡的补充按钮写“现在补给 #N”（`cards/streaming.py` 的 `steer_label`，管家的分档卡照旧“补充”）；卡发出时 `StreamingReply.steer_label` 记下这个字样，任务开始后第一次写状态行时（`Cards._start_top` 的同一批，或单独写一次 `relabel_steer`）改回“补充”。
 - 回执卡的按钮由 `offers` 决定；“重新排队执行”每条只排一次（`requeue_state`、`requeued_job_id`）。
 - 话题里同时有在跑和排队的任务时，管家转话（`topic_send`、`project_send`）和网页上说的话都交给在跑的那个（`app/runtime.py` 的 `supplement_target_of`：已开始的里最新的，没有才是排队的里最新的），回执写实际收到它的任务号；只有排队的任务时并进它的请求，回执写“并进排队中的任务 #N”（不能只交给排队的：在跑的那个会一条也收不到）。
 - 没读到的补充（`app/steer_interrupt.py`）：持有任务后端的进程（任务进程，或 Bridge 自己跑的任务）在补充 `sent` 后起一个 `steer-unread` 线程，送达后 `URGENT_SECONDS`（20 秒，`COVEY_STEER_URGENT_SECONDS`）和 `REPAINT_AT` 各看一次：还没读到就重画回执（“已等 N 秒”）；第一次看时补充是急的（`core/steer.py` 的 `is_urgent`），就调后端的 `stop_command`。点“打断它，马上读”（`bridge_steer_interrupt`，按 `job_id` 转给任务进程）走同一个 `interrupt`。每条补充只试一次（`interrupt_at`；没东西可停时清掉，可以再点），记录里留 `interrupt`（结果的话）和 `interrupted`（停掉的命令）。

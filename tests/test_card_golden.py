@@ -118,6 +118,7 @@ def task_cards():
                                    "✅ T70 · #431 · 已完成"),
         "status_text": render_stream_status(sample_job(), "排队中", ["⚠️ 提示", "前面还有 1 个任务"], queue_depth=2),
         **answer_tail_cards(),
+        **queued_cards(run),
     }
     for status in ("done", "failed", "cancelled", "waiting_user"):
         cards[f"final_text_{status}"] = render_stream_final(sample_job(), "任务 #431 的回答正文", status=status)
@@ -403,6 +404,37 @@ def proxy_cards():
     return cards
 
 
+def queued_cards(run):
+    """A topic's queued card with a task before it (app/submission.py queued_line, queue_hint; cards/streaming.py
+    steer_label): its first line says where the message goes and its 补充 the task it sends it into (现在补给 #430);
+    one being sent into that task as it arrived says so until its receipt (steering_line); one that stayed queued
+    says why in one line; a Harness that takes no supplements (dsh) has no 补充.
+    """
+    from covey.app.submission import queue_hint, queued_line, steering_line
+    from covey.cards.review import render_stream_status
+    from covey.cards.streaming import build_stream_card
+    from covey.core.harness import HarnessCapabilities
+
+    queued = sample_job(steer_target_job_id=430, user_text="等一下，别改那个文件")
+    plain = sample_job(steer_target_job_id=430, user_text="等一下，别改那个文件",
+                       harness_capabilities=HarnessCapabilities())
+    stage = "排队中 · 排在 #430 后面 · #430 已运行 5分（18:55 开始）"
+    return {
+        "queued_behind": build_stream_card(render_stream_status(queued, stage, [queue_hint(queued)]), "任务", run,
+                                           job=queued, include_stop_action=True, status=queued_line(queued)),
+        "queued_steering": build_stream_card(render_stream_status(queued, stage), "任务", run, job=queued,
+                                             include_stop_action=True, status=steering_line(queued)),
+        "queued_refused_text": render_stream_status(queued, "排队中", [
+            "⚠️ 没有补充到 #430：任务正在收尾，不能再补充", queue_hint(queued)]),
+        "queued_behind_no_steer": build_stream_card(render_stream_status(plain, stage, [queue_hint(plain)]), "任务",
+                                                    run, job=plain, include_stop_action=True,
+                                                    status=queued_line(plain)),
+    }
+
+
+ARRIVAL_SOURCE = "来源：#431 在做时发到话题里的消息，自动作为补充交给它，不另开一轮。"
+
+
 def steer_cards():
     from covey.cards.held_note import feedback_chooser, note_card
     from covey.cards.steer_form import closed_card, latest_request, steer_form
@@ -432,12 +464,33 @@ def steer_cards():
         "requeue_uncertain": {"status": "refused", "sent_at": None, "requeue": True, "requeue_state": "uncertain"},
         "requeued": {"status": "refused", "sent_at": None, "requeue": True, "requeued_job_id": 433},
     }
+    arrival = {"receipt": {"kind": "job", "key": "om_fake_next", "job_id": 432, "text": "再补充一点\n第二行",
+                           "auto": True},
+               "requeue": {"text": "再补充一点\n第二行", "prompt": "再补充一点\n第二行", "sender_id": "ou_fake_owner"}}
+    arrivals = {
+        "arrival": {},
+        "arrival_read": {"status": "read", "read_at": FROZEN - 5, "reads": True},
+        "arrival_held": {"status": "held", "held_at": FROZEN - 15, "sent_at": None, "error": "任务刚开始"},
+        "arrival_uncertain": {"status": "uncertain", "error": "补充已转交任务进程，暂未确认送达；不会重复发送"},
+        "arrival_requeuing": {"reads": True, "target_ended": True, "ended_at": FROZEN - 2, "requeue_next": True},
+        "arrival_requeued": {"reads": True, "target_ended": True, "ended_at": FROZEN - 2, "requeue_next": True,
+                             "requeue_state": "queued", "requeued_job_id": 433},
+        "arrival_refused_requeued": {"status": "refused", "sent_at": None, "held_at": FROZEN - 15,
+                                     "error": "任务已经在收尾，这条补充没有发出", "requeue_next": True,
+                                     "requeue_state": "queued", "requeued_job_id": 433},
+        # Its task was stopped: not queued by itself, 重新排队 offered.
+        "arrival_stopped": {"reads": True, "target_ended": True, "ended_at": FROZEN - 2},
+    }
     return {
         "form": steer_form(431, "T70 · #431", {"kind": "bridge_steer_submit", "job_id": 431}),
         "form_refused": steer_form(431, "T70 · #431", {"kind": "bridge_steer_submit", "job_id": 431}, text="已写",
                                    notice="⚠️ 没有送达"),
         "closed": closed_card("任务已结束", "T70 · #431 · 已结束", unsent="没发出的补充"),
         "receipt": receipt_card(receipt, source="来源：#432"),
+        # A topic's message that went into #431 as it arrived (core/deliveries.py on_arrival): into #431, no round of
+        # its own; held, or never read, it becomes the next round by itself (on its way, then queued as #433).
+        **{f"receipt_{name}": receipt_card({**receipt, **arrival, **fields}, source=ARRIVAL_SOURCE)
+           for name, fields in arrivals.items()},
         **{f"receipt_{name}": receipt_card({**receipt, **fields}) for name, fields in receipts.items()},
         "stage_lines": {name: stage_line({**receipt, **fields}) for name, fields in receipts.items()},
         "latest_request": latest_request("📝 **最新补充** 19:00 · 再补充一点"),

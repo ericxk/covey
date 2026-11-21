@@ -34,8 +34,8 @@ from covey.cards.review import (compact_text, outcome_line, render_stream_final,
 from covey.cards.elements import grey
 from covey.cards.task_status import ACTIVITY_ELEMENT_ID, LOOK_ID, STATUS_MORE_ID, look_element
 from covey.core import butler, projects
-from covey.cards.streaming import (ACTION_ROW_ELEMENT_ID, SIDE_CHAT_ELEMENT_ID, answer_element,
-                                            card_title_for_question)
+from covey.cards.streaming import (ACTION_ROW_ELEMENT_ID, SIDE_CHAT_ELEMENT_ID, STEER_ELEMENT_ID, answer_element,
+                                   card_title_for_question, steer_button)
 from covey.cards.card_cost import exceeds_stream_card_limit
 from covey.core.redaction import topic_redaction
 from covey.cards.trace_view import TraceView, clock
@@ -95,11 +95,14 @@ class Cards:
         self.details = TaskDetails(self)
         self.records = RecordCards(self)
 
-    def create_streaming_reply(self, ctx: BridgeContext, job: ReplyJob, initial_content: str) -> StreamingReply | None:
+    def create_streaming_reply(self, ctx: BridgeContext, job: ReplyJob, initial_content: str, *,
+                               status: str = "") -> StreamingReply | None:
+        """``job``'s task card, its body ``initial_content``; ``status``: its status line, when not 等待处理 (a queued
+        card's, app/submission.py queued_line)."""
         if not self.streaming:
             return None
         self.card_facts(ctx, job)
-        progress = self.stream.create(ctx.profile, job, initial_content)
+        progress = self.stream.create(ctx.profile, job, initial_content, **({"status": status} if status else {}))
         job.card_missing = progress is None  # Sent again while the task runs (resend_missing).
         if progress:
             remember_topic_message(ctx.state_dir, job.topic_id, job.chat_id, progress.message_id)
@@ -249,7 +252,27 @@ class Cards:
                     return True
                 self.update_job_streaming_reply(ctx, job, " ", force=True, allow_replacement=True,
                                                 idempotency_prefix=f"{self.harness.spec.idempotency_prefix}-progress")
+            self.relabel_steer(ctx, job)  # The answer came before the first line (_start_top relabels it then).
             return self.stream.update_activity(ctx.profile, job.progress, content)
+
+    def steer_relabel(self, job):
+        """The batch action that gives a queued card's 现在补给 #N (StreamingReply.steer_label) back its 补充, once its own
+        task runs: a click supplements that task now. None for every other card. The caller holds the card lock."""
+        progress = job.progress
+        if (not getattr(progress, "steer_label", "") or not job.execution_started or job.action_controls_removed
+                or progress.disabled):
+            return None
+        return update(steer_button(job))
+
+    def relabel_steer(self, ctx, job):
+        """``steer_relabel`` in a write of its own, tried once. The caller holds the card lock."""
+        action = self.steer_relabel(job)
+        if action is None:
+            return
+        job.progress.steer_label = ""
+        if not self._write(ctx, job, "PUT", f"elements/{STEER_ELEMENT_ID}", element_body(steer_button(job)),
+                           "steer-label"):
+            self.runtime.log(f"queued card's 补充 not relabelled job=#{job.job_id}")
 
     def reveal(self, ctx: BridgeContext, job: ReplyJob, content: str) -> bool:
         """The task card of a butler turn held back (``job.card_deferred``, core/placement.py Row.quiet), sent by
@@ -304,17 +327,20 @@ class Cards:
         return True
 
     def _start_top(self, ctx, job, content):
-        """The first status line and the body's queued text cleared, in one batch; whether CardKit took
-        it. The caller holds the card lock."""
+        """The first status line and the body's queued text cleared, in one batch (a queued card's 现在补给 #N its
+        补充 again too, ``steer_relabel``); whether CardKit took it. The caller holds the card lock."""
         progress = job.progress
         if progress.disabled:
             return False
+        relabel = self.steer_relabel(job)
         actions = [*status_actions(content or " ", getattr(progress, "status_rows", False),
                                    getattr(progress, "slim", False), io_card(progress)),
-                   update(answer_element(progress.element_id, " "))]
+                   update(answer_element(progress.element_id, " ")), *([relabel] if relabel else [])]
         if self._batch(ctx, job, actions, "job-start"):
             progress.last_content = " "
             progress.update_failures = 0
+            if relabel:
+                progress.steer_label = ""
             took_status(progress, content or " ")
             return True
         count_update_failure(progress)

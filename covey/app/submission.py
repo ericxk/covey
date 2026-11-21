@@ -10,9 +10,11 @@ from covey.core import background, devices, failure, placement, timing
 from covey.core.jobs import BridgeReplyJob, carry_device, find_job_record
 from covey.core.metrics import mark, run_start, took_text
 from covey.core.model_settings import recorded_model_settings, recorded_work_mode
+from covey.core.deliveries import topic_steer
 from covey.cards.review import recent_user_questions, render_stream_status
+from covey.cards.streaming import steer_label
 from covey.core.scheduler import MAX_WORKERS
-from covey.core.butler import HOLD_STATUS
+from covey.core.butler import HOLD_STATUS, traits_of
 from covey.core.state import write_json
 from covey.core.history_storage import recent_history
 from covey.core.topics import bind_topic, read_topic, workspace_locked
@@ -21,6 +23,7 @@ from covey.core.workspaces import load_config, resolve_selection, topic_context,
 from covey.app import butler_reactions
 from covey.app.card_actions import action_value
 from covey.app.card_lanes import after_ack
+from covey.app.runtime import job_stage
 from covey.cards.recovery import DIAGNOSE_KIND, SPLIT_KIND
 from covey.app.runner_spawn import prestart_runner
 from covey.app.task_card import card_failure_notice
@@ -28,9 +31,39 @@ from covey.app.launch import WAITING_STATUS, publish_launch_cards
 from covey.app.launch_submit import launch_in_progress
 
 
+def steers_on_arrival(job, ahead) -> bool:
+    """Whether ``job``, a topic's message just queued behind ``ahead`` (the topic's tasks before it), goes at once into
+    the task it is bound to (``steer_target_job_id``, the last of them), as a click on its queued card's 补充 sends it
+    (app/steering.py steer_on_arrival): the switch is on (``topic_steer``), the Harness takes supplements (not dsh),
+    the topic is not the butler's family (its supplements have no receipt card and go their own way, app/butler.py
+    supplement) and that task has started. One waiting for an answer, closing or ended is tried too: it takes nothing,
+    and the card says why."""
+    target = ahead[-1] if ahead else None
+    return (target is not None and target.job_id == job.steer_target_job_id and topic_steer()
+            and getattr(job.harness_capabilities, "steering", False) is True
+            and not traits_of(job).lists_supplements and job_stage(target) != "queued")
+
+
+def queued_line(job) -> str:
+    """The status line of a topic's queued card with a task before it (docs/ui.md 5.2: the status line is the
+    conclusion): where its message goes. '' with none before it (等待处理)."""
+    target = job.steer_target_job_id
+    return f"这句话会在 #{target} 结束后单独执行" if target else ""
+
+
+def steering_line(job) -> str:
+    """The status line of a queued card whose message is being sent into the task before it (``steers_on_arrival``):
+    its receipt or, should nothing go, ``queued_line`` follows within seconds."""
+    return f"正在补充到 #{job.steer_target_job_id}"
+
+
 def queue_hint(job):
+    """What a queued card says its message waits for and what its buttons do. The butler's slim card keeps its words
+    (its 补充 stays 补充, cards/streaming.py steer_label)."""
     if getattr(job.harness_capabilities, "steering", False):
         target = job.steer_target_job_id
+        if target and not traits_of(job).slim_card:
+            return f"点“{steer_label(job)}”，这句话马上交给 #{target}，不再单独执行；点“停止”取消排队。"
         if target:
             return (f"本条还没执行。点“补充当前任务”打开补充表单（已填好本条，可改），提交后送入 #{target}，"
                     "本条不再单独执行；点“停止”取消本条排队。")
@@ -84,9 +117,12 @@ class Submission:
     - ``controls``: an answered task's card is acknowledged when its continuation is queued.
     - ``record_job_state``: the Harness's job-state recorder (late-bound: it sits above).
     - ``topics``: the Bridge's Harnesses, for the launch card (None in an app built alone).
+    - ``steering``: a topic's message sent while its task runs goes into it (``steers_on_arrival``,
+      app/steering.py steer_on_arrival); None, never.
     """
 
-    def __init__(self, harness, *, runtime, messenger, cards, models, controls, record_job_state, topics) -> None:
+    def __init__(self, harness, *, runtime, messenger, cards, models, controls, record_job_state, topics,
+                 steering=None) -> None:
         self.harness = harness
         self.runtime = runtime
         self.messenger = messenger
@@ -96,6 +132,7 @@ class Submission:
         self.controls = controls
         self.record_job_state = record_job_state
         self.topics = topics
+        self.steering = steering
 
     def event_context(self, ctx, event):
         ctx = self.models.configured_context(ctx)
@@ -135,15 +172,17 @@ class Submission:
         self.enqueue_chat_job(ctx, content, chat_id, message_id, prompt_content=prompt)
         return ""
 
-    def submit_topic_job(self, ctx, job):
-        """Decide and register under LOCK; the cards and notices after it, in this topic's order."""
+    def submit_topic_job(self, ctx, job, *, steer=False):
+        """Decide and register under LOCK; the cards and notices after it, in this topic's order. ``steer``: a
+        topic's message, which goes into the task before it when it runs (``steers_on_arrival``). The plan."""
         with topic_lock(ctx):
             self._release_waiting(ctx, job.chat_id)  # A started topic's launch messages go first.
             timing.mark("records")
             with LOCK:
-                plan = self.reserve_submission(ctx, job)
+                plan = self.reserve_submission(ctx, job, steer=steer)
             timing.mark("reserve")
             self.publish_submission(ctx, job, plan)
+        return plan
 
     def release_waiting(self, ctx, chat_id):
         """Queue the messages that waited for this topic's launch, oldest first: after 开始任务 is
@@ -163,9 +202,10 @@ class Submission:
             self.publish_submission(ctx, job, plan)
         return len(records)
 
-    def reserve_submission(self, ctx, job):
+    def reserve_submission(self, ctx, job, *, steer=False):
         """What this submission does, decided under LOCK. A queued job is registered here, so a
-        binding switch or idle maintenance sees the topic busy before its card exists."""
+        binding switch or idle maintenance sees the topic busy before its card exists. ``steer``: as
+        ``submit_topic_job`` says; the plan's ``steer`` is whether it goes into the task before it."""
         data = read_topic(ctx)
         if data.get('harness_id') != self.harness.spec.name:
             raise HarnessChanged('话题 Harness 已改变，请在当前选择下重新提交')
@@ -188,7 +228,8 @@ class Submission:
         from covey.core.harness import backend_capabilities
         job.harness_capabilities = backend_capabilities(self.harness.backend, ctx)
         self.runtime.jobs.register(job)
-        return {"ahead": len(ahead), "jobs_ahead": ahead, "capacity_full": capacity_full}
+        return {"ahead": len(ahead), "jobs_ahead": ahead, "capacity_full": capacity_full,
+                "steer": steer and self.steering is not None and steers_on_arrival(job, ahead)}
 
     def publish_submission(self, ctx, job, plan):
         if plan.get("wait") == "launching":
@@ -201,11 +242,14 @@ class Submission:
             self.selection_card(ctx, job.chat_id, job.message_id)
             return
         ahead, capacity_full = plan["ahead"], plan["capacity_full"]
+        steering = plan.get("steer", False)  # It goes into the task before it next (Steering.steer_on_arrival).
         held = (getattr(job, "start_held_until", 0) or 0) > time.time()
         status = (queue_status(ctx.state_dir, plan.get("jobs_ahead") or []) if plan.get("jobs_ahead")
                   else f"排队中 · 本话题前方 {ahead} 个任务" if ahead
                   else f"排队中 · 并发已满（最多 {MAX_WORKERS} 个任务）" if capacity_full
                   else HOLD_STATUS if held else "已入队")
+        # The status line, the card's first: where the message goes (the butler's slim card takes its own from the body).
+        line = (steering_line(job) if steering else queued_line(job)) if ahead and not traits_of(job).slim_card else ""
         # A held one may wait longer than a prestarted runner waits for its handoff.
         if not ahead and not capacity_full and not held:
             # It runs next: its task runner starts while its card and record are written (S35).
@@ -220,8 +264,10 @@ class Submission:
                     self.cards.card_facts(ctx, job)
                 except Exception as exc:  # noqa: BLE001 - the answer card falls back to the job's own fields
                     self.runtime.log(f"held card facts unavailable job=#{job.job_id}: {type(exc).__name__}")
+            # Being sent into the task before it, the card says no more than where it waits: its receipt follows.
             job.progress = None if job.card_deferred else self.cards.create_streaming_reply(
-                ctx, job, render_stream_status(job, status, [queue_hint(job)] if ahead else []))
+                ctx, job, render_stream_status(job, status, [queue_hint(job)] if ahead and not steering else []),
+                **({"status": line} if line else {}))
             card_notice = ""
             if not job.progress and self.cards.streaming and not job.card_deferred:
                 # Read the failure now: later calls on this thread replace it.
@@ -251,6 +297,8 @@ class Submission:
             butler_reactions.start(self.messenger, ctx.state_dir, ctx.profile, job, self.runtime.log)
         if carded:
             return  # The queued card says all of it and changes with the message; no second notice.
+        if steering:
+            return  # What became of it is said next (Steering.steer_queued_job), not that it is queued.
         if card_notice:
             # The card should exist: say it is missing and what that costs, not just "queued".
             notice = card_notice
@@ -342,11 +390,14 @@ class Submission:
     def enqueue_chat_job(
         self, ctx: Any, content: str, chat_id: str, message_id: str,
         *, prompt_content: str | None = None, recovery_context: dict | None = None, received_at=None, title: str = "",
-        sender_id: str = "", hold: float = 0, policy_retry: dict | None = None,
+        sender_id: str = "", hold: float = 0, policy_retry: dict | None = None, steer: bool = False,
     ) -> BridgeReplyJob | None:
         """Submit one message of ctx's topic as a new job of this Harness; ``sender_id`` is who sent it.
         ``hold``: seconds it waits before it starts (the butler's, app/butler.py). ``policy_retry``: an
-        answer's continuation of a retry after a safety refusal keeps its mark (app/policy_retry.py)."""
+        answer's continuation of a retry after a safety refusal keeps its mark (app/policy_retry.py). ``steer``: a
+        message the owner (or whoever the topic serves) sent in the topic (app/app.py handle_event): while the task
+        before it runs, it goes into that task (``steers_on_arrival``), outside the topic's lock as a 补充 click
+        does; the job is then cancelled, its card the receipt."""
         try:
             ctx = self.models.prepare_submission_context(ctx)
         except (ValueError, OSError, RuntimeError) as exc:
@@ -383,5 +434,7 @@ class Submission:
         from covey.app import project_loop
 
         project_loop.owner_turn(ctx.state_dir, job.topic_id, chat_id, message_id)  # The owner's turn in a lead's topic.
-        self.submit_topic_job(ctx, job)
+        plan = self.submit_topic_job(ctx, job, steer=steer)
+        if plan.get("steer"):
+            self.steering.steer_on_arrival(ctx, chat_id, job, message_id)
         return job

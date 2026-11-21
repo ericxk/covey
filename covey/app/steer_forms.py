@@ -8,11 +8,11 @@ import hashlib
 from types import SimpleNamespace
 
 from covey.cards.steer_receipts import CHECK_KIND, INTERRUPT_KIND, REQUEUE_KIND, WITHDRAW_KIND, receipt_card, stage_line
-from covey.core.deliveries import delivery_path, read_delivery, reconcile
+from covey.core.deliveries import delivery_path, read_delivery, reconcile, topic_steer
 from covey.cards.steer_form import closed_card, steer_form
 from covey.app.card_actions import action_value
 from covey.core.jobs import upsert_job_record
-from covey.core.butler import traits, worded
+from covey.core.butler import traits, traits_of, worded
 from covey.core.state import read_json
 from covey.core.steer import SteerRefused
 from covey.app.detached import update_queued
@@ -75,14 +75,16 @@ class SteerForms:
         return True
 
     def steer_form_card(self, job, raw, *, text="", notice=""):
-        """The 补充 form names the task it feeds; it is replaced by a receipt or closed when the task ends."""
+        """The 补充 form names the task it feeds; it is replaced by a receipt or closed when the task ends. It says
+        where a longer message goes: into the task as it arrives (COVEY_TOPIC_STEER; the butler's always)."""
         return steer_form(job.job_id, " · ".join(x for x in (job.topic_label, f"#{job.job_id}") if x), raw,
-                          text=text, notice=notice)
+                          text=text, notice=notice, arrives=topic_steer() or traits_of(job).lists_supplements)
 
-    def merge_target(self, ctx, chat, queued, mid, form=""):
+    def merge_target(self, ctx, chat, queued, mid, form="", *, arrival=False):
         """The task a queued message's supplement goes to, bound once to the one before it; None, said on the
         queued card (or the ``form`` it was written in), when that task ended, was stopped or waits for an
-        answer: it is never sent to another."""
+        answer: it is never sent to another. ``arrival``: the message as it arrived (Steering.steer_on_arrival), its
+        card saying why in one line."""
         ahead = self.runtime.jobs.ahead_of(queued)
         with queued.execution_lock:
             if queued.steer_target_job_id is None:
@@ -92,9 +94,13 @@ class SteerForms:
                 update_queued(ctx.state_dir, queued)
         target_id = queued.steer_target_job_id
         target = next((j for j in ahead if j.job_id == target_id), None)
-        if target is not None and self.steer_stage(target) in {"paused", "ended"}:
+        stage = self.steer_stage(target) if target is not None else "ended"
+        if target is not None and stage in {"paused", "ended"}:
             target = None
-        if target is None:
+        if target is None and arrival:
+            why = "它在等回答" if stage == "paused" else "它已经结束"
+            self.queued_card_notice(ctx, chat, queued, f"没有补充到 #{target_id}：{why}", mid, arrival=True)
+        elif target is None:
             notice = (f"上一任务 #{target_id} 已结束、已取消或正在等待回答，未发送补充；本条继续排队，不会改投其他任务"
                       if target_id else "没有可补充的上一任务；本条继续排队，按顺序执行")
             if not (form and self.close_merge_form(ctx, chat, queued, form, notice)):

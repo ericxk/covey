@@ -8,7 +8,8 @@ from __future__ import annotations
 import time
 
 from covey.cards.elements import button_row, card, markdown_panel, topic_button
-from covey.core.deliveries import CHECK, INTERRUPT, REQUEUE, WITHDRAW, offers, shown_text, unread as unread_now
+from covey.core.deliveries import (CHECK, INTERRUPT, REQUEUE, WITHDRAW, offers, on_arrival, shown_text,
+                                   unread as unread_now)
 from covey.cards.ui import band_label, conclusion_band, styled, todo_bar
 from covey.core.butler import worded
 from covey.core.text import literal
@@ -87,19 +88,38 @@ def history_lines(record):
     return " → ".join(rows)
 
 
+def requeuing(record) -> bool:
+    """A topic's message that went in as it arrived (core/deliveries.py on_arrival) and that its task certainly never
+    took, on its way to a round of its own by itself (app/steering.py requeue_lost): not queued yet."""
+    lost = record.get("status") == "refused" or (record.get("status") == "sent" and record.get("target_ended")
+                                                 and not record.get("merged"))
+    return (on_arrival(record) and bool(lost) and not record.get("requeued_job_id")
+            and (record.get("requeue_state") == "submitting"
+                 or bool(record.get("requeue_next")) and REQUEUE in offers(record)))
+
+
 def receipt_card(record, *, source=""):
     """The compact receipt: one line, details on demand, a check button while unconfirmed. A supplement that did not
     get through (the task ended before the model read it, refused, unconfirmed) leads with a conclusion band instead
     (docs/ui.md 5.2: 停住了 · 补充 #N, why, what to do), the card ``styled``; one on its way is a line that does not
-    stand out (告诉你一声)."""
+    stand out (告诉你一声). A topic's message that went in as it arrived (core/deliveries.py on_arrival) says it went
+    into #N, not a round of its own; one its task never took becomes such a round by itself (``requeuing``), its
+    receipt a line saying so, with nothing to do."""
     job_id = record.get("job_id")
     status = record.get("status", "submitting")
     unread = status == "sent" and record.get("target_ended") and not record.get("merged")
-    if unread:
+    arrived = on_arrival(record)
+    again = record.get("requeued_job_id")
+    handled = arrived and (unread or status == "refused") and bool(again or requeuing(record))
+    if handled:
+        head = (f"**#{job_id} 结束前没有读到这条补充**" if unread else f"**#{job_id} 没有收到这条补充**") + (
+            f"，已排成新一轮 #{again}" if again else "，正在排成新一轮")
+        summary = f"补充 #{job_id} 已排成新一轮" if again else f"补充 #{job_id} 正在排成新一轮"
+    elif unread:
         head = f"**任务 #{job_id} 已结束，模型没有读到这条补充**"
         summary = f"补充 #{job_id} 未被读取"
     elif status in {"sent", "read"}:
-        head = f"**已补充到 #{job_id}**" + ("，不再单独排队" if source else "")
+        head = f"**已补充到 #{job_id}**" + ("，不另开一轮" if arrived else "，不再单独排队" if source else "")
         summary = f"已补充到 #{job_id}"
     elif status == "refused":
         head = f"**没有补充到 #{job_id}**：{record.get('error') or '任务当前不能接收补充'}"
@@ -121,12 +141,16 @@ def receipt_card(record, *, source=""):
     details = []
     if record.get("requeued_job_id"):
         details.append(f"已重新排队为任务 #{record['requeued_job_id']}。")
+    elif handled:
+        details.append("确定没有送到模型，自动排成新一轮，只排一次。")
     elif record.get("requeue_state") in {"submitting", "uncertain"}:
         details.append("重新排队已提交，结果未确认；不会重复排队，需要时直接在本话题再发送一次。")
     if source:
         details.append(source)
     details.append("状态：" + history_lines(record))
-    if unread:
+    if unread and handled:
+        details.append(f"后端接收了这条补充，但 #{job_id} 在模型读到它之前就结束了，这句话单独排成新一轮。")
+    elif unread:
         details.append("后端接收了这条补充，但任务在模型读到它之前就结束了（停止、完成或中断）。需要时"
                        + ("点“重新排队”，或" if record.get("requeue") else "") + "直接在本话题再发送一次。")
     elif unread_now(record):
@@ -148,7 +172,7 @@ def receipt_card(record, *, source=""):
     details = [worded(line, record) for line in details]
     details.append("补充内容：\n" + "\n".join("> " + line for line in str(shown_text(record)).splitlines()[:40]))
     band = None
-    if unread or status in {"refused", "uncertain"}:
+    if (unread or status in {"refused", "uncertain"}) and not handled:
         if unread:
             headline, why, todo = "模型没有读到这条补充", f"任务 #{job_id} 在它读到之前结束了", "重新排队，或在话题里再发一次"
         elif status == "refused":
@@ -162,7 +186,7 @@ def receipt_card(record, *, source=""):
         line = {**line, "text_size": "notation"}
     elements = ([band] if band is not None else []) + [line,
                                                        markdown_panel("steer_receipt", "查看详情", "\n\n".join(details))]
-    offered = offers(record)
+    offered = offers(record) - ({REQUEUE} if handled else set())  # Queued by itself: no click to queue it.
     buttons = [(label, kind, tone) for offer, label, kind, tone in BUTTONS if offer in offered]
     if buttons:
         elements.append(button_row([

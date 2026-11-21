@@ -13,7 +13,9 @@ marks it the same way (``app/steering.py``). A butler supplement (no receipt) th
 certainly never took, refused or ended unread, gains ``requeue_auto``: the Bridge queues it as a
 turn of its own once (``lost``, app/steering.py ``queue_lost``; at the Bridge's start, those whose turn ended
 while no Bridge watched it, ``queue_stranded``), through the same ``requeue_state``
-and ``requeued_job_id`` as a 重新排队执行 click. Every change
+and ``requeued_job_id`` as a 重新排队执行 click. A topic's message that went into its task on arrival
+(COVEY_TOPIC_STEER, app/steering.py steer_on_arrival; ``on_arrival``: its receipt, the queued card's, says ``auto``)
+gains ``requeue_next`` the same way (``marked``) and is queued as 重新排队 queues it. Every change
 after the record is created goes through ``update_delivery``. The receipt card
 that shows a record is rendered by ``cards/steer_receipts.py``, with the buttons ``offers`` names.
 """
@@ -25,8 +27,18 @@ import time
 from pathlib import Path
 
 from covey.core.locks import resource_lock
+from covey.core.process_env import env_flag
 from covey.core.run_dir import ACKS, EXIT, INBOX, OP
 from covey.core.state import keyed_json_path, read_json, write_json
+
+# A topic's message sent while the topic's task runs goes into that task as a supplement (app/submission.py
+# steers_on_arrival), unless 0: then it is queued as the next round, as before (docs/configuration.md).
+TOPIC_STEER = "COVEY_TOPIC_STEER"
+
+
+def topic_steer() -> bool:
+    """Whether a topic's message goes into the task running there (TOPIC_STEER, on unless 0)."""
+    return env_flag(TOPIC_STEER, True)
 
 
 def delivery_token(topic_id, mid):
@@ -110,11 +122,18 @@ def end_unread(state_dir, job_key, since=0.0):
     return ended
 
 
+def marked(record) -> bool:
+    """Whether ``record`` waits to be queued as a turn of its own: a butler supplement's ``requeue_auto``, or a topic's
+    message's that went in as it arrived, ``requeue_next`` (``on_arrival``; its own name, so a release before it, which
+    reads every ``requeue_auto`` as the butler's, leaves it to its receipt's 重新排队)."""
+    return bool(record.get("requeue_next") if on_arrival(record) else record.get("requeue_auto"))
+
+
 def lost(state_dir, job_key=None, since=0.0):
     """The butler supplements of the task ``job_key`` (None: of every task, a Bridge's start) its turn never took
-    and that wait to be queued as turns of their own (``requeue_auto``, not tried yet: ``offers`` still has REQUEUE),
-    oldest first, as (path, record). Files last written before ``since`` (less CLOCK_SLACK) are skipped unread, as in
-    ``end_unread``."""
+    and that wait to be queued as turns of their own (``marked``, not tried yet: ``offers`` still has REQUEUE),
+    oldest first, as (path, record); a topic's messages that went in as they arrived too. Files last written before
+    ``since`` (less CLOCK_SLACK) are skipped unread, as in ``end_unread``."""
     found = []
     since = float(since or 0) - CLOCK_SLACK
     for path in (Path(state_dir) / "interaction-deliveries").glob("*.json"):
@@ -125,7 +144,7 @@ def lost(state_dir, job_key=None, since=0.0):
             continue
         record = read_delivery(path)
         if (isinstance(record, dict) and (job_key is None or record.get("job_key") == job_key)
-                and record.get("requeue_auto") and REQUEUE in offers(record)):
+                and marked(record) and REQUEUE in offers(record)):
             found.append((path, record))
     return sorted(found, key=lambda item: float(item[1].get("saved_at") or 0))
 
@@ -163,6 +182,13 @@ def reconcile(path, record):
 
 # What a receipt offers: its buttons (cards/steer_receipts.py), and the 重新排队执行 clicks app/steering.py takes.
 WITHDRAW, CHECK, REQUEUE, INTERRUPT = "withdraw", "check", "requeue", "interrupt"
+
+
+def on_arrival(record) -> bool:
+    """Whether ``record`` is of a topic's message that went into the task before it as it arrived (COVEY_TOPIC_STEER,
+    app/steering.py steer_on_arrival), not by a click: its receipt, the message's queued card, is marked ``auto``."""
+    receipt = record.get("receipt") if isinstance(record, dict) else None
+    return isinstance(receipt, dict) and receipt.get("kind") == "job" and receipt.get("auto") is True
 
 
 def unread(record) -> bool:

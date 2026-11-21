@@ -17,6 +17,7 @@
 | [整理专项](#整理专项)（只提议） | `COVEY_PROJECT_TIDY=suggest`（`./install` 写，要 `COVEY_PROJECTS=1`） | 话题多了以后私聊出现“建个专项？”的提议卡；开了早晚汇总时看板卡上有「整理专项」 | `COVEY_PROJECT_TIDY=off` |
 | 以后这类按推荐走 | `COVEY_STANDING_ANSWERS=1`（`./install` 写） | 每题都有推荐项的问题卡下面多这个按钮 | `COVEY_STANDING_ANSWERS=0` |
 | 撤回与编辑 | `COVEY_SOURCE_WATCH`（默认开） | 撤回一条已变成任务的消息，任务跟着停；编辑后任务收到改后的内容 | `COVEY_SOURCE_WATCH=0` |
+| [任务在跑时发的话补充给它](usage.md#追问排队与并行) | `COVEY_TOPIC_STEER`（默认开） | 话题里任务在跑时发一句，那张卡变成回执“已补充到 #N，不另开一轮”，不再排成下一轮 | `COVEY_TOPIC_STEER=0`（照旧排成下一轮） |
 | [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
 | [欢迎卡](usage.md#第一次使用) | `COVEY_WELCOME`（默认开） | 新部署第一次启动后私聊里有一张「欢迎使用 Covey」卡；升级前已在用的部署不发 | `COVEY_WELCOME=0` |
 | [敏感词脱敏](#敏感词脱敏) | 没有开关 | 设置卡有「脱敏」标签；话题开了脱敏才替换，只支持 Claude 的模型 | 设置卡上关 |
@@ -378,6 +379,7 @@
 | `COVEY_DISPATCH_CARD`（旧名 COVEY_MAIN_DISPATCH_CARD、LARK_BRIDGE_MAIN_DISPATCH_CARD） | `app/dispatch_cards.py`（`enabled`；`app/butler_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 后台线程） | 空：关；`1` 开派发卡：管家派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
 | `COVEY_STEER_URGENT_SECONDS` | `app/steer_interrupt.py`（`urgent_seconds`，任务进程和 Bridge 都读） | `20`：急的补充（带“马上”“立刻”“停”“过期”这类词）送达这么多秒还没被读到，就停掉模型正在等的那条命令（推送、部署这类不停），见[架构 · 补充投递](architecture.md#补充投递)；`0` 关自动打断，回执卡上的“打断它，马上读”照常 | 否 |
 | `COVEY_SOURCE_WATCH` | `app/source_watch.py`（`enabled`：`note` 据此登记主人的消息，`threads()` 据此起 `source-watch` 后台线程） | 开：主人撤回或编辑了变成任务或补充的消息，任务随之停下或收到改后的内容（见[架构 · 撤回与编辑](architecture.md#撤回与编辑)）；`0` 关：不读回消息，和原来一样按收到时的原文做 | 否 |
+| `COVEY_TOPIC_STEER` | `core/deliveries.py`（`topic_steer`：`app/submission.py` 的 `steers_on_arrival` 据此决定话题里的消息进不进在跑的任务，`app/detached.py` 据此在任务进程结束后、Bridge 启动时把没读到的补成新一轮） | 开：话题里任务在跑时发来的消息自动补充给那个任务（和点排队卡上的「现在补给 #N」一样，只送一次），没发出就照旧排成下一轮，确定模型没读到的自动排成新一轮，见[架构 · 补充投递](architecture.md#补充投递)；`0` 关：和原来一样排成下一轮，要补充时点排队卡上的按钮 | 否 |
 | `COVEY_BUTLER_TRACKS`（旧名 COVEY_MAIN_TRACKS、LARK_BRIDGE_MAIN_TRACKS） | `core/butler_tracks.py`（`enabled`；`core/butler.py` 的 `is_butler_topic` 据此把槽 1 到 4 的话题也算管家；`app/butler_tracks.py` 的 `Tracks.enabled` 再加上管家允许、模式是管家 才分流） | 空：关；`1` 开[同时做几件事](butler.md#同时做几件事开关默认关)：家族里有任务在做时，主人的下一句先按规则（`core/track_route.py`）和小模型分流，并进某件在做的事、停止或新开一件（槽 1 到 4）。关着时消息的走法和原来一样 | 否 |
 | `COVEY_PROJECTS` | `core/projects.py`、`core/butler.py`、`core/placement.py`、`core/board_read.py`、`core/butler_tool_specs.py` | 空：关（`./install` 新装的服务写 `1`）；`1` 开专项和负责人的运行（入口是管家直接开，和 `COVEY_PROJECT_UPGRADE` 的转成专项）。关着时谓词全为假，放置表和看板和原来一样，不建记录。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_BUTLER_TRACKS_MAX`（旧名 COVEY_MAIN_TRACKS_MAX、LARK_BRIDGE_MAIN_TRACKS_MAX） | `core/butler_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
