@@ -92,6 +92,7 @@ NOT_BACKED_UP = {
     "runs": "task runners' run directories: a restore starts no task",
     "inbound-messages": "marks against Feishu delivering a message twice, kept 7 days",
     "revisits": "到点回来看's turns to queue: a restore starts no task",
+    "limit-notices": "the once-only record of a notice already sent: a restore sends nothing again",
     "stranger-replies": "marks of the one line a day a person who is not the owner got, kept 7 days",
     "answer-cards": "answer cards of the last 7 days, for their 产物 links",
     "job-diffs": "each turn's diff report, up to 200 MiB, uploaded to the cloud space",

@@ -169,6 +169,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ pinned-overview.json、pinned-topics.json、board-priority.json、status-cards/、topic-seen.json   手上的事和话题看板
 │  ├─ topic-links.json             卡上 T 号的话题链接
 │  ├─ revisits/                    到点回来看（`COVEY_REVISIT`）：每个话题一个，几点回来看、看什么、排出的那一轮
+│  ├─ limit-notices/               几个话题同一原因停下的合并提示（`COVEY_LIMIT_NOTICE`）：每组一个，发没发过
 │  ├─ digest.json                  早晚汇总
 │  ├─ memory-candidates.json       晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（`COVEY_MEMORY=1`）
 │  ├─ projects/                    专项（`COVEY_PROJECTS`）：`<专项>.json`；`<专项>/` 里是记忆 `memory.json`、资料库索引 `library.json` 和复制的文件 `library/`、收件箱 `inbox/`；整理专项的记录 `tidy/`

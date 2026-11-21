@@ -131,6 +131,7 @@
 | `app/launch_receipt.py` | Replace a submitted launch form with its immutable topic configuration |
 | `app/launch_submit.py` | A launch form's submission |
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
+| `app/limit_notice.py` | One notice in the owner's private chat when several topics stopped on the same cause with an automatic retry … |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
 | `app/memory_candidates.py` | 每天一次的候选整理: what the owner corrected more than once in the day's ended topics, at most SHOWN a day, put in the … |
 | `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on becomes memory, and a click takes it back |

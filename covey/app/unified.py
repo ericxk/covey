@@ -23,7 +23,7 @@ from typing import Any
 
 from covey.core import env as cenv
 from covey.app.app import BridgeApp
-from covey.app import auto_retry, policy_retry
+from covey.app import auto_retry, limit_notice, policy_retry
 from covey.app.availability import watch as watch_availability
 from covey.app.card_lanes import CardLanes
 from covey.app.card_routing import INBOUND_DIR, CardRouting
@@ -88,7 +88,7 @@ def fold_questions(gateway, ctx):
 
 
 # What the outbox loop does each round after resuming saved deliveries (app/outbox.py run).
-OUTBOX_STEPS = (auto_retry.tick, policy_retry.tick, fold_questions, save_record_indexes)
+OUTBOX_STEPS = (auto_retry.tick, policy_retry.tick, limit_notice.tick, fold_questions, save_record_indexes)
 
 
 class UnifiedBridgeApp(CardRouting, JobDispatch):

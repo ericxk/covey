@@ -206,6 +206,7 @@ continued、done、failed、cancelled、interrupted：终态
 | `inbound-messages/` | 每个收到的消息 ID 一个空标记，飞书重投时跳过 | Bridge | 无：`O_EXCL` 新建 |
 | `stranger-replies/` | 别人私聊时回过的那句：每人每天一个空标记 | Bridge | 无：`O_EXCL` 新建 |
 | `revisits/` | 到点回来看（`COVEY_REVISIT`）：每个话题一个，等到点（`pending`）或那一轮已排出（`fired`） | Bridge | `revisit`，进程内 |
+| `limit-notices/` | 几个话题同一原因停下的合并提示（`COVEY_LIMIT_NOTICE`）：每组（私聊、Harness、原因）一个，`sending` → `sent` 或 `uncertain`，不再发第二次 | Bridge（outbox 循环） | `record`（锁内不调飞书） |
 | `answer-cards/` | 单独发出的答案卡：要发的卡（`outgoing`）、发出的卡和产物状态 | 两者 | `answer-cards`，跨进程；锁内只读写这个文件 |
 | 表单目录（`launch-forms/` 等）、`cards/.locks/` | 卡的 card_id、sequence、表单状态；卡片锁文件 | 发卡的进程 | 卡片锁 |
 | `groups/` | 群记录 | Bridge | `group`，进程内 |
