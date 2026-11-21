@@ -4,6 +4,8 @@ answer (app/questions.py set_aside, restore, take_set_aside)."""
 from __future__ import annotations
 
 import json
+import os
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -13,8 +15,10 @@ from support.world import TopicFixture
 
 from covey.app import binding, web_pairing
 from covey.app.answers import SET_ASIDE_START, SKIPPED
+from covey.app.digest import ENV as DIGEST_ENV
 from covey.app.web_collect import Collector
-from covey.cards.question_cards import (RESTORE_KIND, RESTORE_LABEL, SET_ASIDE, SET_ASIDE_ANSWER, SET_ASIDE_HELD,
+from covey.cards.board import OPEN_KIND, groups, waiting_count
+from covey.cards.question_cards import (OTHERS, RESTORE_KIND, RESTORE_LABEL, SET_ASIDE, SET_ASIDE_ANSWER, SET_ASIDE_HELD,
                                         SET_ASIDE_KIND, SET_ASIDE_LABEL, SET_ASIDE_SETTLED, how_to_answer, question_card,
                                         question_element)
 from covey.core import board_read
@@ -58,7 +62,7 @@ class SetAsideCardTest(unittest.TestCase):
         self.assertEqual(QUESTION_TRANSITIONS[SET_ASIDE], {"pending", "answered", "cancelled"})
 
 
-class SetAsideTest(TopicFixture, unittest.TestCase):
+class SetAsideFixture(TopicFixture):
     """A checkpoint's question of task #N, its turn ended (waiting_user), its card in the topic."""
 
     def setUp(self):
@@ -97,6 +101,9 @@ class SetAsideTest(TopicFixture, unittest.TestCase):
         self.receive(mid, text, root="om_ask")
         return next(job for job in self.app.runtime.jobs.queue.queue if job.message_id == mid)
 
+
+
+class SetAsideTest(SetAsideFixture, unittest.TestCase):
     def test_it_leaves_waiting_and_nothing_is_sent(self):
         self.assertEqual(self.waiting(), 1)
         self.click()
@@ -194,3 +201,83 @@ class SetAsideTest(TopicFixture, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OthersWaitingTest(SetAsideFixture, unittest.TestCase):
+    """After the owner settles a question, the card says what else waits for him, as many as the 看板's 等你 (cards/
+    question_cards.py others_row, app/question_display.py with_others)."""
+
+    def setUp(self):
+        super().setUp()
+        self.app.questions.paint_question_state = lambda ctx, record: self.app.questions.display.paint(ctx, record)
+        self.drawn = []
+        self.app.questions.paint_standalone_question = lambda ctx, record: self.drawn.append(record)
+        self.enterContext(mock.patch.object(self.app.runtime.access, "notify_chat", return_value="oc_chat"))
+        self.env = self.enterContext(mock.patch.dict(os.environ, {"COVEY_BOARD": ""}))
+
+    def other(self, token="other", chat="oc_chat", status="pending"):
+        """Another topic's question, asked a moment ago."""
+        from covey.core.state import write_private_text
+        write_private_text(self.ctx_topic.state_dir / "questions" / (token + ".json"), json.dumps({
+            "token": token, "topic_id": "other-" + token, "chat_id": chat, "job_id": 9, "status": status,
+            "created_at": time.time() - 60, "question_message_id": "om_" + token,
+            "questions": [{"id": "q", "header": "别的", "question": "要不要做？"}]}))
+
+    def test_a_question_set_aside_says_how_many_others_wait_and_offers_the_board(self):
+        self.other("a")
+        self.other("b")
+        self.env["COVEY_BOARD"] = "1"
+        self.click()
+        self.assertEqual(self.drawn[-1][OTHERS], {"n": 2, "board": True})
+        self.assertEqual(self.drawn[-1][OTHERS]["n"], self.waiting())  # The very count 手上的事 and the 看板 say.
+        card = question_card(self.drawn[-1], "T70")
+        self.assertIn("还有 2 件等你", json.dumps(card, ensure_ascii=False))
+        opener = [e for e in walk_dicts(card) if e.get("tag") == "button" and e["behaviors"][0]["value"] == {"kind": OPEN_KIND}]
+        self.assertEqual([e["text"]["content"] for e in opener], ["去看板"])
+        self.assertNotIn(OTHERS, self.saved())  # Never saved: a later paint counts again.
+
+    def test_without_the_board_the_line_has_no_button_and_with_nothing_else_waiting_there_is_no_line(self):
+        self.other("a")
+        self.click()
+        card = json.dumps(question_card(self.drawn[-1], "T70"), ensure_ascii=False)
+        self.assertIn("还有 1 件等你", card)
+        self.assertNotIn(OPEN_KIND, card)
+        self.click(RESTORE_KIND, "ev-undo")  # Open again: no line on a form.
+        self.assertNotIn("件等你", json.dumps(question_card(self.drawn[-1], "T70"), ensure_ascii=False))
+        self.other("a", status="answered")  # Answered meanwhile.
+        self.click(event="ev-again")
+        self.assertNotIn(OTHERS, self.drawn[-1])
+        self.assertNotIn("件等你", json.dumps(question_card(self.drawn[-1], "T70"), ensure_ascii=False))
+
+    def test_a_message_of_the_topic_taken_as_the_answer_says_it_too_and_n_is_the_boards(self):
+        self.other("a")
+        self.click()
+        self.say("om_next", "先做别的：把报告发我")
+        self.assertEqual([record["status"] for record in self.drawn], [SET_ASIDE, "answered"])
+        self.assertEqual(self.drawn[-1][OTHERS]["n"], 1)
+        from covey.app import digest
+        with mock.patch.dict(os.environ, {DIGEST_ENV: "09:30"}):
+            view = digest.collect(self.ctx_topic.state_dir, "oc_chat", "slot", 0, time.time())
+        self.assertEqual(waiting_count(groups(view)), self.drawn[-1][OTHERS]["n"])
+
+    def test_a_feedback_a_cancel_and_another_chat_get_no_line(self):
+        self.other("a")
+        display = self.app.questions.display
+        for fields in ({"status": "answered", "response_kind": "feedback"}, {"status": "cancelled"}, {"status": "pending"},
+                       {"status": "answered", "chat_id": "oc_elsewhere"}):
+            self.assertNotIn(OTHERS, display.with_others(self.ctx_topic, {**self.record, **fields}))
+        # The record on disk is still pending here, so it is counted with the other one: whatever the 看板 counts.
+        self.assertEqual(display.with_others(self.ctx_topic, {**self.record, "status": "answered"})[OTHERS]["n"],
+                         self.waiting())
+
+    def test_a_submitted_answer_and_a_supplement_only_both_say_it(self):
+        from covey.app.answers import skip_all_fields
+        for answer, event in (({"option_0": "0", "answer_1": "好"}, "ev-submit"),
+                              (skip_all_fields(self.record["questions"], {"supplement": "这些不合适"}), "ev-skip")):
+            with self.subTest(event):
+                self.other("a")
+                self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.record["token"], answer, event)
+                self.assertEqual((self.drawn[-1]["status"], self.drawn[-1][OTHERS]["n"]), ("answered", self.waiting()))
+                self.assertIn("还有 1 件等你", json.dumps(question_card(self.drawn[-1], "T70"), ensure_ascii=False))
+                self.path.write_text(json.dumps(self.record, ensure_ascii=False))  # Pending again for the next one.
+                self.drawn.clear()

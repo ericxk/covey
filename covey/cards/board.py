@@ -47,7 +47,9 @@ REFRESH_KIND, SEEN_KIND = "bridge_board_refresh", "bridge_board_seen"
 REVISIT_KIND = "bridge_board_revisit_cancel"
 ALL_SEEN = "全部记为看过"  # 记为看过 on every result row at once: SEEN_KIND with ``topics``, at most SEEN_MAX.
 SEEN_MAX = 30
-KINDS = frozenset({REFRESH_KIND, SEEN_KIND, REVISIT_KIND})
+# 去看板 under an answered question (cards/question_cards.py others_row): a new 看板 card, as the bot menu's item sends one.
+OPEN_KIND = "bridge_board_open"
+KINDS = frozenset({REFRESH_KIND, SEEN_KIND, REVISIT_KIND, OPEN_KIND})
 NO_LINK = "找不到它在私聊里的位置，打不开"  # A row whose topic has no link (app/digest.py board_view).
 LEAD = 30  # Characters of the most pressing topic's words on the band.
 GOAL_CHARS = 60  # Of a project's or a proposal's goal on its grey line.

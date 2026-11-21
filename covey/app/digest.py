@@ -64,7 +64,7 @@ from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
-from covey.cards.board import KINDS as BOARD_KINDS, REVISIT_KIND, SEEN_KIND, SEEN_MAX, board_card
+from covey.cards.board import KINDS as BOARD_KINDS, OPEN_KIND, REVISIT_KIND, SEEN_KIND, SEEN_MAX, board_card
 from covey.cards.digest import ORIGIN, REMEMBER_KIND, digest_card, digest_text, folded_board
 from covey.core import app_manifest, board_read, knowledge, look, memory, patrol, projects, turn_words
 from covey.core import project_proposals
@@ -580,8 +580,8 @@ class Digest:
         return isinstance(raw, dict) and (raw.get("kind") in BOARD_KINDS or raw.get("kind") == REMEMBER_KIND)
 
     def claim(self, ctx, event, raw, owner):
-        """刷新 or 记为看过 on a 看板 card (cards/board.py KINDS; app/unified.py PANELS), else None: the owner's only; the
-        card redrawn from a fresh view once the click is acknowledged."""
+        """刷新 or 记为看过 on a 看板 card, or 去看板 under an answered question (cards/board.py KINDS; app/unified.py PANELS),
+        else None: the owner's only; the card redrawn from a fresh view once the click is acknowledged, or the 看板 sent."""
         if not self.matches(raw):
             return None
         kind = raw["kind"]
@@ -593,6 +593,13 @@ class Digest:
         if kind == REMEMBER_KIND:
             return self.remember(ctx, event, raw)
         message = str(event.get("message_id") or "")
+        if kind == OPEN_KIND:
+            # 去看板 under an answered question: the bot menu's 看板, a new card for this click (its event id keys it).
+            chat, source = str(event.get("chat_id") or ""), str(event.get("event_id") or "")
+            if not self.board_on() or not source or not chat or chat != (self.fixed or self.runtime.access.notify_chat()):
+                return "board_open_ignored"
+            after_ack(lambda: self.board(ctx, chat, source))
+            return "board_open"
         if kind == REVISIT_KIND:
             # 取消 on a row of 到点回来看: that revisit (its ``set_at``: a newer one the topic asked for since stays).
             topic, set_at = raw.get("topic"), raw.get("set_at")

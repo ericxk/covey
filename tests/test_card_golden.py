@@ -344,6 +344,11 @@ def question_cards():
     cards = {f"card_{status}": question_card(question_record(status, continuation_job_id=432), "T70")
              for status in ("pending", "answered", "cancelled", "superseded", "expired", "submitting", "uncertain")}
     cards["card_answered_running"] = question_card(question_record("answered", delivery_state="running"))
+    # 还有 N 件等你 under a card the owner settled (``others_waiting``, never saved): with 去看板, and without it.
+    cards["card_answered_others"] = question_card(question_record(
+        "answered", continuation_job_id=432, others_waiting={"n": 3, "board": True}), "T70")
+    cards["card_set_aside_others"] = question_card(question_record(
+        "set_aside", response_kind="set_aside", answers={}, others_waiting={"n": 1, "board": False}), "T70")
     cards["card_folded"] = question_card(question_record("superseded", superseded_reason="newer_question",
                                                          superseded_by_job=432, refusal="这组问题已收起"))
     cards["card_multi_select"] = question_card(question_record(

@@ -38,7 +38,7 @@ from pathlib import Path
 
 from covey.core import env as cenv
 from covey.app.card_lanes import after_ack
-from covey.app.pins import GROUPS, PinnedTopics, dismiss, kept, last_click, record_path, undismiss
+from covey.app.pins import GROUPS, PinnedTopics, dismiss, kept, last_click, record_path, taken_off, undismiss
 from covey.app.topic_links import link_for
 from covey.cards.overview import DISMISS, DISMISS_MAX, UNDO, clock, overview_card, retired_card
 from covey.core.card_sequence import CardHandle, file_card, reserve
@@ -71,6 +71,12 @@ UNSET_PHASES = turn_words.UNSET_PHASES
 def dismissable():
     """Whether 这些都不用回答了 takes effect (``Overview.claim``): 手上的事 and the pinned board both on."""
     return Overview.enabled() and PinnedTopics.enabled()
+
+
+def waiting_count(state, chat, now) -> int:
+    """How many things wait for the owner in ``chat``, counted as the 看板 and 手上的事 count them: core/board_read.py
+    waits with the topics taken off the board left out while the board is on (app/digest.py collect), its ``count``."""
+    return board_read.waits(state, chat, now, off=taken_off(state, chat, now) if dismissable() else ()).count()
 
 
 class Overview:

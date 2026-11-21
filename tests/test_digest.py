@@ -20,7 +20,7 @@ from support.world import UnifiedCase
 from covey.app import digest, overview, pins
 from covey.app.digest import (CATCH_UP, ENV, RECORD, ZONE, Digest, collect, due, parse_times, since_of,
                                        slots, taken_off)
-from covey.cards.board import board_card
+from covey.cards.board import OPEN_KIND, board_card
 from covey.cards.digest import SHOWN, digest_card, digest_text
 from covey.cards.overview import DISMISS, UNDO
 from covey.core.jobs import upsert_job_record
@@ -620,6 +620,24 @@ class BoardTests(UnifiedCase):
         self.assertIn("T527", json.dumps(fold, ensure_ascii=False))  # The owner's own: 已停止, in the fold.
         self.assertIn("已停止", json.dumps(fold, ensure_ascii=False))
         self.assertNotIn("T528", json.dumps(fold, ensure_ascii=False))
+
+    def test_the_button_under_an_answered_question_sends_the_board_to_the_owner_only(self):
+        """去看板 (cards/board.py OPEN_KIND): a new 看板 card, as the menu's item sends one; keyed by the click's event."""
+        def click(event_id, owner="owner", chat=CHAT):
+            return self.app.handle_card_action_event({"event_id": event_id, "operator_id": owner, "chat_id": chat,
+                                                      "message_id": "om_answered", "action_value": {"kind": OPEN_KIND}}, self.ctx)
+        click("ev-other", owner="someone")
+        self.assertEqual(self.puts, [])
+        click("ev-elsewhere", chat="oc_elsewhere")
+        self.assertEqual(self.puts, [])
+        click("ev-open")
+        self.assertEqual(len(self.puts), 1)
+        self.assertEqual(self.card()["header"]["title"]["content"], "看板")
+        click("ev-open")  # Delivered twice: one card.
+        self.assertEqual(len(self.puts), 1)
+        with mock.patch.dict(os.environ, {ENV: ""}):  # No 看板 in this bot.
+            click("ev-off")
+        self.assertEqual(len(self.puts), 1)
 
     def test_off_without_a_time(self):
         with mock.patch.dict(os.environ, {ENV: ""}):

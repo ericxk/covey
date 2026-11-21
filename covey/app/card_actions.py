@@ -203,6 +203,8 @@ ACTIONS = {
     # The 看板's 刷新 and 记为看过 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).
     "bridge_board_refresh": CardAction("刷新看板"),
     "bridge_board_seen": CardAction("记为看过"),
+    # 去看板 under a question the owner settled (cards/board.py OPEN_KIND): a new 看板 card (app/digest.py Digest.claim).
+    "bridge_board_open": CardAction("打开看板"),
     # 取消 on the 看板's 到点回来看 (cards/board.py REVISIT_KIND, COVEY_REVISIT=1): only the topic's revisit record goes.
     "bridge_board_revisit_cancel": CardAction("取消到点回来看"),
     # 你反复说的 on the evening digest (cards/digest.py REMEMBER_KIND, COVEY_MEMORY=1): 记下 writes a principle (app/digest.py).

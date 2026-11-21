@@ -23,8 +23,9 @@ from covey.app.card_lanes import clicked_message
 from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.cards.elements import card, md, note
-from covey.cards.question_cards import answer_notice_card, mirror_card, question_card, question_element, triage_element
-from covey.core import butler, placement, triage
+from covey.cards.question_cards import (OTHERS, SET_ASIDE, answer_notice_card, mirror_card, question_card, question_element,
+                                        triage_element)
+from covey.core import app_manifest, butler, placement, triage
 from covey.core.jobs import find_job_record
 from covey.core.state import write_private_text
 from covey.core.store import update_question
@@ -75,7 +76,27 @@ class QuestionDisplay:
             self.questions.paint_question_state(ctx, record)
         return record
 
+    def with_others(self, ctx, record):
+        """``record`` with what else waits for the owner (``OTHERS``, never saved) once he has settled it himself (an
+        answer, 只发补充说明, a message of the topic taken as one, 不处理; a feedback or a cancel is not one): the 看板's
+        count (app/overview.py waiting_count), in the chat that has a 看板 card (the private chat, a personal group)
+        only; the record as it was when nothing else waits or the count cannot be read."""
+        if record.get("status") not in ("answered", SET_ASIDE) or record.get("response_kind") == "feedback":
+            return record
+        chat, access = record.get("chat_id") or "", self.runtime.access
+        if not chat or chat != access.notify_chat() and chat not in getattr(access, "agent_groups", ()):
+            return record
+        try:
+            from covey.app.overview import waiting_count  # Not at start: a task runner never needs 手上的事 until it paints.
+
+            waiting = waiting_count(ctx.state_dir, chat, time.time())
+        except Exception as exc:  # noqa: BLE001 - the card without its line
+            self.runtime.log(f"waiting count unreadable: {type(exc).__name__}")
+            return record
+        return {**record, OTHERS: {"n": waiting, "board": app_manifest.board()}} if waiting else record
+
     def paint(self, ctx, record):
+        record = self.with_others(ctx, record)
         if record.get("display_pending") or (record.get("body_delivery_required")
                 and not self.questions.checkpoints.result_delivered(ctx, record)):
             return

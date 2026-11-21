@@ -4,8 +4,9 @@ from __future__ import annotations
 import re
 import time
 
-from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callback, callback_button, card, markdown_panel,
-                                  note, notice_card, plain, topic_button)
+from covey.cards.board import OPEN_KIND
+from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callback, callback_button, card, item, markdown_panel,
+                                  note, notice_card, plain, text_button, topic_button)
 from covey.cards.review import compact_text
 from covey.cards.streaming import RECOMMENDED
 from covey.cards.ui import band_label, conclusion_band, receipt, styled
@@ -45,6 +46,9 @@ RESTORE_LABEL = "撤销"
 SET_ASIDE_SETTLED = "这组问题已经答过、收起或取消了，没有撤下"
 SET_ASIDE_HELD = f"任务正停在这道题上等你回答，撤下的话它会一直等，没有撤下：回答它，或写在补充说明里点“{SKIP_ALL_LABEL}”"
 SET_ASIDE_ANSWER = f"这组题你点了“{SET_ASIDE_LABEL}”，已从“等你”里撤下；要回答的话先点卡上的“{RESTORE_LABEL}”"
+# 还有 N 件等你 under a card whose question the owner just settled (``others_row``): ``OTHERS`` is set on the record, never
+# saved (app/question_display.py ``paint``): {"n": what still waits for him as the 看板 counts it, "board": 去看板 offered}.
+OTHERS = "others_waiting"
 # A top-level card's single-choice question (``top_level_card``) shows each option as a submit button, so one tap
 # answers (a dropdown took four steps and 600 px, and iOS's picker could not be cancelled).
 # Its callback value's PICK is the option's index, or SKIP_VALUE for 不回答此题 (app/answers.py picked_fields).
@@ -506,6 +510,16 @@ def _question_fields(i, q, count=1, record=None):
     return elements
 
 
+def others_row(record):
+    """The grey line 还有 N 件等你 under a settled question's card, with 去看板 when the bot has the 看板 (the button sends
+    one, cards/board.py OPEN_KIND); [] unless the record says something else waits (``OTHERS``)."""
+    others = record.get(OTHERS)
+    if record.get("status") == "pending" or not isinstance(others, dict) or not others.get("n"):
+        return []
+    line = receipt(f"还有 {others['n']} 件等你")
+    return [item(line, text_button("去看板", {"kind": OPEN_KIND}))] if others.get("board") else [line]
+
+
 def question_card(record, topic=""):
     """The standalone question card; ``topic``: its topic's label, with the task's number before
     the form. No 🔁 换配置: the task card above it has one.
@@ -535,7 +549,7 @@ def question_card(record, topic=""):
                else f"{look.word('waiting')} · {count} 题" if pending else "相同问题已回答 · 无需重复提交"
                if record.get('status') == 'superseded' and not folded(record)
                else element.get('header', {}).get('title', {}).get('content', '回答已保存'))
-    elements = ([band] if band else []) + [element]
+    elements = ([band] if band else []) + [element, *others_row(record)]
     if form and record.get("token") and standing_offered(record):
         elements.append(standing_row(record))
     if record.get('refusal'):
