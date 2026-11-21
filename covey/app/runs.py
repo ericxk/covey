@@ -22,7 +22,7 @@ from covey.core.statuses import ENDED
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, bridge_rules, earlier_history, first_turn_message,
-                                        principles_block, resume_message, resume_reminders, workspace_block)
+                                        principles_block, context_full, resume_message, resume_reminders, workspace_block)
 from covey.app.sessions import mark_system_rules, started_with_system_rules
 from covey.app.recovery_cards import paint_answered
 from covey.app.switch_handoff import capped
@@ -322,7 +322,7 @@ class Runs:
         source = session_id or ctx.options.get("fork_session")
         live.rules_session = system and (started_with_system_rules(ctx, self.harness.spec.name, source) if source else True)
         prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
-        prompt += self._checkpoint_note(ctx, job) + tool_limits.note(ctx)
+        prompt += self._checkpoint_note(ctx, job) + self._context_note(ctx, job, session_id) + tool_limits.note(ctx)
         attachments = self._image_attachments(ctx, prompt)
         if ctx.device:
             prompt, attachments, live.ctx = self._stage_attachments(ctx, job, prompt, attachments)
@@ -523,6 +523,20 @@ class Runs:
         except (OSError, ValueError, AttributeError):
             return None
         return subagent_recovery.collect(self.harness, ctx, ended) if ended else None
+
+    def _context_note(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> str:
+        """The line (app/prompts.py context_full) for an ordinary topic's resumed turn whose previous turn ended with the context
+        over 60% of its window: the checkpoint first. '' for a new session, the butler's family (it compacts; a project's lead
+        rebuilds its session from the disk) and a 代答 topic, and when the previous turn's window is not known."""
+        topic = job.topic_id or ctx.topic_id
+        if not session_id or not job.checkpoint_path or proxy_topic(ctx) or is_butler_topic(topic, job.chat_id):
+            return ""
+        try:
+            last = next((r for r in self.harness.topic_records(ctx, job.chat_id)
+                         if r.get("job_id") != job.job_id and r.get("status") in ENDED), None)
+        except (OSError, ValueError, AttributeError):
+            return ""
+        return "\n\n" + context_full(last) if context_full(last) else ""
 
     @staticmethod
     def _criteria_note(ctx: BridgeContext, job: ReplyJob) -> str:

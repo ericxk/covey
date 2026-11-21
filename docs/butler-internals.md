@@ -71,7 +71,7 @@
 - **说法**：`worded` 按 `WORDING` 改 Bridge 自己写的文字（“本话题” → “私聊里”），模型的回答和主人原话不动。
 - **快照**：存到 `topics/<id>/main-snapshot.json`，下一轮只列变了的行；新会话、压缩过、上一轮没正常结束时带全量。检查点有 `steps` 时写第几步和本步用时。看板撤下的话题不进前三组。
 - **MCP 配置**：不改 `runs/` 协议。`butler_turn` 算出 `mcp_config(...)` 放进 `ctx.options["mcp_config"]`；`backends/claude/runtime.py` 据此加 `--mcp-config`、`--allowedTools mcp__bridge`，并设 `ENABLE_TOOL_SEARCH=false`，让工具随会话加载（否则模型会发出不带参数的调用）。不加 `--strict-mcp-config`。所有后端都不走系统级，规则和原则都在 `RunRequest.prompt` 里。
-- **压缩**：`/compact` 带 `COMPACT_INSTRUCTIONS`：摘要约 2000 token 以内，只留待办、话题、未决问题和偏好。话题没有自动阈值。
+- **压缩**：`/compact` 带 `COMPACT_INSTRUCTIONS`：摘要约 2000 token 以内，只留待办、话题、未决问题和偏好。话题没有自动阈值，靠 CLI 自己在窗口将满时压缩；只在普通话题接着做的那一轮，上一轮的上下文已超过后端报告的窗口的 60% 时，往消息里加一行“先把检查点的 completed 和 next_step 更新到最新”（`app/prompts.py` 的 `context_full`）。管家有压缩，专项负责人的会话超限就重建，都不加；不知道窗口多大的不加。
 - **空闲压缩**（`app/idle_compaction.py`）：任务进程退出后等 `IDLE_SECONDS`（90 秒）；那时这一轮是 `done`、话题里没有任务、请求没标 `failed`，就起一个只压缩的任务进程（`covey_runner.py --compact-only`），标记写在 `<state>/main-thread/compacting/<话题>/`，不建任务、不出卡。成了写 `compacted.json`，没成标 `failed`、下一轮开头先压。压缩中主人发来新消息时，新一轮停掉它、放回请求。上下文到阈值 `FALLBACK`（1.5）倍的、`failed` 的，在下一轮开头压缩。Bridge 启动时清理遗留标记。
 - **已下线的前台话题**：`main-thread.json` 的 `desk_topics` 读到 `true` 也按 `false`；以前开的前台话题由 `core/migrate.py` 的 `desk-retire` 冻结（topic.json 加 `retired: "desk"`），引用它旧卡的消息交给管家，旧卡上的按钮只回一句 `RETIRED_TEXT`。
 

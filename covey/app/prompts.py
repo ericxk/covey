@@ -56,6 +56,21 @@ RESUME_HEAD = (
 RESUME_REMINDERS = "\n".join((*RESUME_HEAD, SEARCH_RULE, LANGUAGE_RULE))
 
 
+# A topic's resumed turn whose previous turn left the model's context over FULL_SHARE of its window (the CLI compacts
+# only near the end): one line telling it to bring the checkpoint up to date first (``context_full``).
+FULL_SHARE = 0.6
+CONTEXT_FULL = "上下文快满了：先把检查点的 completed 和 next_step 更新到最新，再接着做。"
+
+
+def context_full(record: dict | None) -> str:
+    """CONTEXT_FULL when ``record`` (the previous turn's) holds a context size over FULL_SHARE of the window the
+    backend reported for that model; '' for anything else, a window not known included."""
+    tokens, window = (record or {}).get("context_tokens"), (record or {}).get("context_window")
+    if type(tokens) is int and type(window) is int and window > 0 and tokens >= FULL_SHARE * window:
+        return CONTEXT_FULL
+    return ""
+
+
 def resume_reminders() -> str:
     """RESUME_REMINDERS, with an enabled extension's ``search_reminder`` in place of SEARCH_RULE."""
     return "\n".join((*RESUME_HEAD, extensions.setting(SEARCH_REMINDER_SETTING, "").strip() or SEARCH_RULE, LANGUAGE_RULE))
