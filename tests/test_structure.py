@@ -539,6 +539,7 @@ DYNAMIC_ENV = {
     ("extensions/covey_internal/maso/runtime.py", "key"),  # The MASO SDK's variables it removes.
     ("covey/core/extensions.py", "name"),  # unused_env: RETIRED_ENV's, read only to name them.
     ("covey/core/ignored_env.py", "name"),  # ignored_env: IGNORED_ENV's, read only to name them.
+    ("covey/core/switches.py", "spelling"),  # shown: the spellings of KNOWN's names (each has its row), read from a manifest's environment.
     ("covey/service/installer.py", "key"),  # default_switches: INSTALL_SWITCHES' literals, each with its own row.
     # A model gateway's variables are named by its configuration (core/gateways.py), not by the code.
     ("covey/core/gateways.py", "self.base_url_env"), ("covey/core/gateways.py", "variable"),

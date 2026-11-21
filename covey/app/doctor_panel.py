@@ -44,7 +44,9 @@ def summarize(report, key, now) -> dict:
                            'generation': mine.get('generation'), 'bridge': bridge.get('status'),
                            'connection': connection.get('status'), 'connected': events.get('owned_required_consumers'),
                            'dropped': int(events.get('dropped') or 0),
-                           'permission_env': [str(line) for line in mine.get('permission_env') or ()][:PERMISSION_LINES]}
+                           'permission_env': [str(line) for line in mine.get('permission_env') or ()][:PERMISSION_LINES],
+                           'switches': [[str(pair[0]), str(pair[1])] for pair in mine.get('switches') or ()
+                                        if isinstance(pair, (list, tuple)) and len(pair) == 2]}
     return data
 
 

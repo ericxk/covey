@@ -3,7 +3,7 @@ the topic's thread with a plain block the owner copies to whoever helps him, so 
 which turn and what it did last.
 
 ``summary`` reads, and changes nothing: the version (this Bridge's release and its Manager generation, the release the
-turn's task runner ran when another), the topic and the task (label, ids, Harness and model, status), when it started and
+turn's task runner ran when another), the optional switches the Bridge has set (core/switches.py), the topic and the task (label, ids, Harness and model, status), when it started and
 ended, the last step that succeeded (its process record, core/trace_store.py), its checkpoint, the retries along its chain
 (app/auto_retry.py KINDS' counts, the task it retried), and the error: core/failure.py's reason and technical detail, the
 record's own error fields and the start of its failed answer, each with what looks like a secret hidden (core/text.py
@@ -26,6 +26,7 @@ from covey.app.card_actions import action_value
 from covey.app.card_lanes import after_ack
 from covey.core import failure
 from covey.core import progress as turn_progress
+from covey.core import switches
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record
 from covey.core.metrics import run_seconds, run_start, timings_of, took_text
@@ -147,7 +148,7 @@ def summary(state_dir, record, *, bridge_release, generation="-") -> str:
     label = topic_label(state_dir, topic) if topic else ""
     model = " ".join(str(record.get(field) or "") for field in ("model", "effort")).strip()
     status = " / ".join(str(record.get(field)) for field in ("status", "execution_status") if record.get(field))
-    lines = [TITLE, "版本：" + version,
+    lines = [TITLE, "版本：" + version, "开关：" + (switches.words(switches.shown()) or "没设可选开关"),
              "话题：" + " ".join(part for part in (label, f"（{topic}）" if topic else "") if part) if topic else "",
              "任务：" + " · ".join(part for part in (f"#{record.get('job_id')}", str(record.get("harness_id") or ""),
                                                    model, status) if part)]

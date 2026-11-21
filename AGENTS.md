@@ -419,6 +419,7 @@
 | `core/steer.py` | What became of a supplement sent into a running task, and which are urgent |
 | `core/steps.py` | The steps an adapter publishes as `tool` events (a tool call, a command, a compaction) and the words a model … |
 | `core/store.py` | Indexed JSON records with legacy-compatible reads and isolated invalid files |
+| `core/switches.py` | Which of the optional switches a service has set, for the people who help with it |
 | `core/task_processes.py` | What a task's commands leave running once its Harness has closed, found by the marker its runner puts in its … |
 | `core/text.py` | Text shown on a card from what a task or a tool said: secrets hidden, bounded, escaped |
 | `core/timing.py` | Millisecond timing of the live flows |

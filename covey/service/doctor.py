@@ -14,6 +14,7 @@ from covey.service.boot import boot_health, init_identity, manager_health
 from covey.feishu.connections import EventStatusUnavailable, event_status_apps
 from covey.core.paths import service_root
 from covey.core.ignored_env import loosened
+from covey.core.switches import shown as switches_set
 
 
 def hosting_report(receipt, run=subprocess.run, root=None):
@@ -142,6 +143,8 @@ def diagnose(root, *, check_events=True, probe=False):
         loose = loosened(manifest.get('environment') or {})
         if loose:
             row['permission_env'] = loose
+        # The optional switches this service has set (core/switches.py: known names only, no credential-like name or value).
+        row['switches'] = [list(pair) for pair in switches_set(manifest.get('environment') or {})]
         if manifest['desired_state'] != 'running':
             row['status'] = 'stopped'
             services.append(row)

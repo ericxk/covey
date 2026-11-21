@@ -1173,6 +1173,10 @@ def settings_cards():
         # 诊断 (cards/doctor_card.py): service/doctor.py's report in words, read-only; one where every part needs a look.
         "doctor": doctor_card("c" * 24, view, summarize(doctor_report(), "k1", FROZEN - 300),
                               top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
+        # The switches the service has set (core/switches.py), a row of its own after the service's.
+        "doctor_switches": doctor_card("c" * 24, view, summarize(doctor_report(switches=[
+            ["COVEY_BUTLER_TRACKS", "1"], ["COVEY_DIGEST_TIMES", "09:30,21:30"], ["COVEY_WEB_CONFIG", "已设"]]), "k1", FROZEN - 300),
+                                       top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
         "doctor_problems": doctor_card("c" * 24, view, summarize(doctor_trouble(), "k1", FROZEN - 60),
                                        top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
         "doctor_failed": doctor_card("c" * 24, view, {"checked_at": FROZEN, "error": "OSError"},

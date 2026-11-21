@@ -44,10 +44,10 @@ class RowsTests(unittest.TestCase):
         self.assertNotIn("detail", data["harnesses"]["codex"])  # No command output kept.
         rows = doctor_rows(data)
         self.assertEqual([(ok, what) for ok, what, _ in rows],
-                         [(True, "服务管理器在运行"), (True, "机器人正常"), (True, "开机会自动拉起"),
+                         [(True, "服务管理器在运行"), (True, "机器人正常"), ("info", "没设可选开关"), (True, "开机会自动拉起"),
                           (True, "Claude Code 能调通"), (False, "Codex 调不通"), ("info", "同一服务根下还有 1 个机器人")])
         self.assertIn("第 463 代", rows[1][2])
-        self.assertIn("连不上模型服务", rows[4][2])
+        self.assertIn("连不上模型服务", rows[5][2])
 
     def test_what_needs_a_look(self):
         broken = report("k1", manager=None, boot={"status": "ready", "mode": "manager", "autostart": False},
@@ -62,8 +62,8 @@ class RowsTests(unittest.TestCase):
         self.assertEqual(rows[1][:2], (False, "机器人有问题"))
         for words in ("和飞书的连接卡住了", "收消息或卡片点击的连接没就绪", "丢了 3 个事件", "权限变量"):
             self.assertIn(words, rows[1][2])
-        self.assertEqual(rows[2][:2], (None, "开机不会自动拉起"))
-        self.assertEqual(rows[3][:2], (None, "还没测过模型能不能调通"))
+        self.assertEqual(rows[3][:2], (None, "开机不会自动拉起"))
+        self.assertEqual(rows[4][:2], (None, "还没测过模型能不能调通"))
         self.assertEqual(doctor_rows(summarize(report("k1"), "not-this-one", NOW))[1][:2],
                          (None, "没找到这个机器人的服务清单"))
         self.assertEqual([row[:2] for row in doctor_rows({"checked_at": NOW, "error": "OSError"})],
