@@ -454,9 +454,16 @@ def project_rules() -> tuple[str, ...]:
     return (PROJECT_RULE,) if projects.enabled() else ()
 
 
+# The owner asking how to use Covey itself: the butler reads the running release's own one-page guide first (a release
+# is the core's git archive, docs/ and all) instead of guessing or reading the code.
+QUICKSTART = Path(__file__).resolve().parents[2] / "docs" / "quickstart.md"
+USAGE_RULE = f"- 主人问 Covey 本身怎么用（看板在哪、怎么开记忆这类），先读 {QUICKSTART} 再答，不要凭印象说。"
+
+
 def butler_rules() -> str:
     """The butler's rules."""
-    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), *project_rules(), area_rule()))
+    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), USAGE_RULE, *project_rules(),
+                      area_rule()))
 
 
 BUTLER_RULES_TEXT = butler_rules()

@@ -17,7 +17,7 @@ from covey.core.butler_tool_specs import START_BUTLER, START_OWN, TOOLS, listed
 
 from covey.app.prompts import (AREA_OPENING, BUTLER_RULES_ENV, BUTLER_RULES, SHARED_RULES, butler_on, butler_message,
                                 butler_rules, shared_rules,
-                               AREA_RULE, PIN_WORDS, PINNED_OVERVIEW_ENV, area_rule)
+                               AREA_RULE, PIN_WORDS, PINNED_OVERVIEW_ENV, QUICKSTART, area_rule)
 from covey.core import knowledge
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "butler_prompt.txt"
@@ -33,7 +33,8 @@ class ButlerRulesTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def golden(self) -> bytes:
-        return GOLDEN.read_bytes()
+        """The golden message with the path USAGE_RULE names put in: where this checkout's docs/quickstart.md is."""
+        return GOLDEN.read_bytes().replace(b"{QUICKSTART}", str(QUICKSTART).encode())
 
     def test_with_the_switch_off_the_turns_message_is_the_baseline_byte_for_byte(self):
         for value in ("", "0", "true", " ", "yes"):

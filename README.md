@@ -54,7 +54,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 ## 装好以后
 
-1. **第一句话**：私聊机器人发一句话，管家直接回答或开一个话题去做；照[使用指南 · 第一次使用](docs/usage.md#第一次使用)走一遍。
+1. **第一句话**：私聊机器人发一句话，管家直接回答或开一个话题去做；一页纸的用法见[五分钟上手](docs/quickstart.md)，再照[使用指南 · 第一次使用](docs/usage.md#第一次使用)走一遍。
 2. **再打开几个功能**：新装只开了上面“装好就开着的”几项，推荐再开的见[开关速查](docs/configuration.md#推荐打开)，改开关按[三步](docs/configuration.md#改开关三步)做。
 3. **升级**：`git fetch` 后用 `scripts/deploy_bridge.sh` 把新提交部署成固定的 release，先 `--check-only`；不要在服务运行的检出里直接 `git pull`。见[升级与回滚](docs/deploy.md#升级与回滚)。
 
@@ -65,6 +65,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | 文档 | 内容 |
 | --- | --- |
 | [安装](docs/install.md) | `./install` 的前提、过程、选项、验收、常见问题 |
+| [五分钟上手](docs/quickstart.md) | 一页纸：第一句话、日常怎么用、常被问到的（看板在哪、怎么开记忆）；管家被问到用法时先读它 |
 | [使用指南](docs/usage.md) | 第一次使用、开任务、补充、回答、换配置、任务卡、管家、看板、群聊、代答 |
 | [使用参考](docs/reference.md) | 使用指南各节的细节：启动卡和设置卡各项、任务卡状态行、补充的送达状态、问题卡、答案卡、看板和汇总、代答卡、自动重试 |
 | [管家](docs/butler.md) | 私聊管家是什么、一轮怎么走、开话题和回带、工具、原则、知识库、记忆、设置卡 |
