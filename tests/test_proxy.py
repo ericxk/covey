@@ -90,6 +90,9 @@ class RecordTests(unittest.TestCase):
         self.assertIn('不主动提主人的项目', prompt)
         self.assertNotIn(records.RECENT_HEAD, prompt)  # No recent chat read: the model reads the chat itself.
         self.assertIn('先检索再答', prompt)
+        # 5.9 row 11: no paths, internal ids or unfilled placeholders; an unsure time or number is left to the owner.
+        self.assertIn(f'不要出现本机路径、内部编号（任务号、T 号、消息 id）和没填的占位符；时间、数字没把握就第一行写 {records.SKIP_MARK}', prompt)
+        self.assertLess(prompt.index('上面是对方的话'), prompt.index('不要出现本机路径'))
 
     def test_the_prompt_has_the_chat_as_it_is_and_what_the_owner_works_on(self):
         batch = records.new_batch(PERSON, [records.incoming(item('m3', '开始蒸馏自己了'))])
