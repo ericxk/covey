@@ -75,6 +75,12 @@ def path(state_dir) -> Path:
     return Path(state_dir) / FILE
 
 
+def _at(row) -> float:
+    """When ``row`` was offered; 0 for a time that cannot be read (it goes with the old ones)."""
+    at = row.get("at")
+    return float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) else 0.0
+
+
 def load(state_dir) -> dict:
     data = read_object(path(state_dir))
     rows = [row for row in data.get("rows") or () if isinstance(row, dict) and isinstance(row.get("id"), str)]
@@ -257,7 +263,7 @@ def offer(state_dir, chat, slot, finder, *, now=None) -> list:
         data = load(state_dir)
         if slot not in data["ran"]:
             data["ran"] = [*data["ran"], slot][-RAN_KEPT:]
-            data["rows"] = [row for row in data["rows"] if float(row.get("at") or 0) >= now - KEPT_DAYS * DAY]
+            data["rows"] = [row for row in data["rows"] if _at(row) >= now - KEPT_DAYS * DAY]
             data["rows"] += [{"id": "c" + secrets.token_hex(4), **item, "slot": slot, "at": now, "state": OPEN}
                              for item in found]
             save(state_dir, data)

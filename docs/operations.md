@@ -151,6 +151,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 │  ├─ topic-links.json             卡上 T 号的话题链接
 │  ├─ revisits/                    到点回来看（`COVEY_REVISIT`）：每个话题一个，几点回来看、看什么、排出的那一轮
 │  ├─ digest.json                  早晚汇总
+│  ├─ memory-candidates.json       晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（`COVEY_MEMORY=1`）
 │  ├─ projects/                    专项（`COVEY_PROJECTS`）：`<专项>.json`；`<专项>/` 里是记忆 `memory.json`、资料库索引 `library.json` 和复制的文件 `library/`、收件箱 `inbox/`；整理专项的记录 `tidy/`
 │  ├─ owner-send/                  代发的草稿和发送记录
 │  ├─ patrol/                      我本来想找你的事（`COVEY_PATROL=shadow`）的记录
@@ -161,7 +162,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
    ├─ backend-health/              各后端最近一次任务的结果和模型目录查询结果，doctor 从这里读
    ├─ launch-models/、native-models/   模型目录缓存、扩展的实测档位
    ├─ pi-sessions/、<网关名>/、<扩展>-sessions/   后端自己的会话和运行文件（<网关名>/relay.log 是模型网关的繁忙记录）
-   ├─ stuck-check/、standing-forms/、track-judge/   小模型一次调用的工作目录：「看看」、以后这类按推荐走的起草、同时做几件事的判断
+   ├─ stuck-check/、standing-forms/、track-judge/、memory-candidates/   小模型一次调用的工作目录：「看看」、以后这类按推荐走的起草、同时做几件事的判断、你反复说的分组
    └─ claude-diagnostics/、<扩展>-diagnostics/   后端诊断
 ```
 

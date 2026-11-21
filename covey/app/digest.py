@@ -652,10 +652,14 @@ class Digest:
         if proxied:
             found["proxy"] = proxied
         if self.candidates is not None and memory.enabled():
-            rows = [remember_row(row) for row in self.candidates.offer(ctx, chat, slot)]
-            if rows:
+            try:
+                rows = [remember_row(row) for row in self.candidates.offer(ctx, chat, slot)]
                 for row in rows:
                     row["sources"] = self.link(ctx, chat, "、".join(row["labels"])) if row["labels"] else ""
+            except Exception as exc:  # noqa: BLE001 - the digest goes out without them
+                self.runtime.log(f"digest candidates unreadable: {type(exc).__name__}")
+                rows = []
+            if rows:
                 found["remember"] = rows
         return found
 

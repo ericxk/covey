@@ -64,12 +64,13 @@ BACKUP_DIRS = {
 # 手上的事 and the digests go to; migrations.json the migrations the records backed up with it have had (core/migrate.py).
 # The pinned board's records (pinned-overview.json, pinned-topics.json, board-priority.json, topic-seen.json) and
 # digest.json: what is pinned and sent is known from them alone, so a restore pins and sends nothing twice; so is the
-# welcome card's (welcome.json, core/welcome.py), sent once a deployment.
+# welcome card's (welcome.json, core/welcome.py), sent once a deployment. memory-candidates.json: the evening digest's
+# 你反复说的 and what the owner decided (app/memory_candidates.py): what he declined is not offered again after a restore.
 BACKUP_FILES = {"workspace-config.json", "session_index.jsonl", "bot-identity.json", "launch-defaults.json",
                 "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md",
                 "principles.json", "main-thread.json", "redaction/config.json", "owner-chat.json", "migrations.json",
                 "pinned-overview.json", "pinned-topics.json", "board-priority.json", "topic-seen.json", "digest.json",
-                "welcome.json"}
+                "welcome.json", "memory-candidates.json"}
 
 
 # Folders under a backed-up directory that a backup leaves out, by the directory: a project's library/ holds copies of
@@ -120,6 +121,7 @@ NOT_BACKED_UP = {
     "stuck-check": "the working directory of a small model's run",
     "standing-forms": "the working directory of a small model's run",
     "track-judge": "the working directory of a small model's run",
+    "memory-candidates": "the working directory of a small model's run",
     "launch-models": "model lists, asked again",
     "native-models": "model lists, asked again",
     "pi-sessions": "a backend's own sessions: no Harness's session store is backed up",

@@ -197,6 +197,12 @@ class RecordTests(State):
         self.assertEqual((row["state"], row["error"]), (candidates.OPEN, candidates.FULL))
         self.assertNotIn("principle_delete", row["error"])
 
+    def test_a_stored_row_whose_time_cannot_be_read_goes_with_the_old_ones(self):
+        write_json(candidates.path(self.state), {"rows": [{"id": "c00000001", "text": "x", "at": "bad", "slot": 5.0}]})
+        rows = candidates.offer(self.state, CHAT, 100.0, lambda: [])
+        self.assertEqual(rows, [])
+        self.assertEqual(candidates.load(self.state)["rows"], [])
+
     def test_不用_sets_it_aside_for_good(self):
         rows = candidates.offer(self.state, CHAT, 100.0, lambda: [{"text": "别用表情", "topics": [], "labels": [],
                                                                     "workspace": ""}])
@@ -325,6 +331,19 @@ class EveningTests(State):
             text = json.dumps(self.messenger.sends[-1]["card"], ensure_ascii=False)
             self.assertNotIn("你反复说的", text)
             self.assertNotIn("本周找你", text)
+
+    def test_candidates_that_cannot_be_read_leave_the_digest_as_it_is(self):
+        def broken(ctx, chat, slot):
+            raise OSError("disk")
+        self.feature.candidates = SimpleNamespace(offer=broken)
+        self.topic("r" * 16, 9)
+        upsert_job_record(self.state, "j-run", job_id=99, status="running", chat_id=CHAT, topic_id="r" * 16,
+                          timings={"backend_started": self.now - 60})
+        with mock.patch.dict(os.environ, {"COVEY_MEMORY": "1"}):
+            self.feature.tick(self.ctx, self.evening, now=self.slot + 5)
+        self.assertEqual(len(self.messenger.sends), 1)
+        self.assertNotIn("你反复说的", json.dumps(self.messenger.sends[0]["card"], ensure_ascii=False))
+        self.assertIn("digest candidates unreadable: OSError", self.logs)
 
     def test_counts_never_make_a_card_be_sent(self):
         self.feature.tick(self.ctx, self.evening, now=self.slot + 5)

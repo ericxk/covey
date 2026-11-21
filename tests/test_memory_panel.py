@@ -208,6 +208,41 @@ class MemoryTabTests(MemoryCase):
         self.assertIn('第 2/4 页', text_of(self.card()))
 
 
+class WorstCaseTests(HubCase):
+    def test_the_longest_memory_still_fits_one_card(self):
+        from covey.cards.settings_hub import tab_row
+        names = [f"工作区{i:02d}" + "名" * 40 for i in range(12)]
+        row = {"key": "principle:p000001", "text": "长" * 200, "by": "你说的", "pinned": True, "pinnable": True,
+               "where": "专项「" + "名" * 60 + "」", "out": True, "at": 1}
+        parts = [{"scope": scope, "title": "工作区 " + names[0] if scope == memory.WORKSPACE else "全局",
+                  "rows": [{**row, "key": f"principle:p{i:06x}"} for i in range(30)],
+                  **({"others": "其他工作区：" + "、".join(names)} if scope == memory.WORKSPACE else {})}
+                 for scope in memory.SCOPES]
+        data = {"preview": {"workspace": names[0], "workspaces": names, "count": 30, "chars": 6000, "left": 9,
+                            "rooms": [["全局", 1200, 1200], ["工作区 " + names[0], 800, 800]],
+                            "warnings": ["⚠️ " + "满" * 60] * 4, "text": "块" * 6000}, "parts": parts}
+        top = [tab_row(MEMORY, "c" * 24, ["topic", "main", "workspace", "redaction", "groups", "memory", "nodes", "about"])]
+        for scope in ("", *memory.SCOPES):
+            view = {"revision": 99999, "hub": True, "open": scope, "page": 0, "confirm": "principle:p000001",
+                    "notice": "已删掉：" + "长" * 24}
+            card = cards.memory_card("c" * 24, view, data, top=top)
+            self.assertLessEqual(element_count(card["body"]["elements"]), CARD_NODES, scope)
+            self.assertLessEqual(json_size(card), CARD_BYTES, scope)
+
+    def test_the_lines_of_full_scopes_are_a_few_and_one_for_the_rest(self):
+        from covey.app import memory_panel
+        self.enterContext(mock.patch.dict(os.environ, {'COVEY_MEMORY': '1'}))
+        for i in range(8):
+            topic = f'{i:02d}' * 8
+            for n in range(4):
+                topic_memory.add(self.state, topic, f'话题 {i} 的第 {n} 条：' + '满' * 190)
+            upsert_job_record(self.state, f'job-{i}', job_id=i + 1, topic_id=topic, chat_id='dm', status='done',
+                              memory_notes=[{'kind': 'remembered', 'text': 'x', 'scope': '管这个话题', 'entry_id': 'x'}])
+        warnings = memory_panel.facts(self.state, ['project'], 'project')['preview']['warnings']
+        self.assertEqual(len(warnings), memory_panel.WARNINGS)
+        self.assertIn('另有 5 个专项或话题快满了或放不下', warnings[-1])
+
+
 class PinTests(HubCase):
     def test_pin_holds_a_group_to_its_limit_and_reads_back(self):
         ids = [principles.save(self.state, principles.OWNER, f'第 {i} 条')[0]['id'] for i in range(principles.PINNED_LIMIT + 1)]

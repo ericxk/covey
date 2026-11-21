@@ -28,7 +28,7 @@ from covey.app.card_lanes import after_ack
 from covey.app.memory_collect import TOPIC_WORDS
 from covey.app.menu_panel import FOLDED, MenuPanel, hub_top
 from covey.app.prompts import memory_block
-from covey.cards.memory_panel import DELETE, KINDS, OPEN, PIN, WORKSPACE, memory_card
+from covey.cards.memory_panel import DELETE, KINDS, OPEN, PIN, WORKSPACE, WORKSPACES, memory_card
 from covey.cards.settings_hub import MEMORY
 from covey.core import knowledge, memory, principles, project_memory, projects, topic_memory
 from covey.core.jobs import select_job_records
@@ -37,7 +37,7 @@ from covey.core.workspaces import load_config
 
 SEEN = 8
 NEAR = 0.8  # A scope this full (of its limit) says so on the card.
-WORKSPACES = 12  # Workspaces the 工作区 row offers (the chosen one always among them).
+WARNINGS = 4  # Lines of scopes near or past their limit; the rest is one line.
 ENTRY = re.compile(r"[0-9A-Za-z_-]{1,40}")  # A project's or a topic's entry id.
 DROP_REASON = "主人在设置卡「记忆」里删掉"
 OWNER_ONLY = '⚠️ 仅机器人主人可以改记忆。'
@@ -137,9 +137,12 @@ def facts(state_dir, names, chosen) -> dict:
         warnings.append(room_line(label, memory.fill(items)[memory.TOPIC]))
     parts.append({"scope": memory.TOPIC, "title": "话题", "rows": newest(rows)})
     shown = list(dict.fromkeys([chosen, *names]))[:WORKSPACES] if chosen else names[:WORKSPACES]
+    warnings = [line for line in warnings if line]
+    if len(warnings) > WARNINGS:  # Each project and topic may say so: one card holds a few of them.
+        warnings = [*warnings[:WARNINGS - 1], f"另有 {len(warnings) - WARNINGS + 1} 个专项或话题快满了或放不下，展开下面的专项、话题看。"]
     preview = {"workspace": chosen, "workspaces": shown, "count": len(kept),
                "chars": sum(memory.line_size(item) for item in kept), "left": left, "rooms": rooms,
-               "warnings": [line for line in warnings if line], "text": memory_block(kept, left)}
+               "warnings": warnings, "text": memory_block(kept, left)}
     return {"preview": preview, "parts": parts}
 
 
