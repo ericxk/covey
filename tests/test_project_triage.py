@@ -169,6 +169,56 @@ class ShowTest(Held):
         self.assertFalse(flow.show(env, self.saved()))
         display.mirror.assert_not_called()
 
+    def test_a_live_question_in_a_task_runner_is_shown_by_that_runner(self):
+        """T488 #5528, 2026-11-21: the lead handed an AskUserQuestion on; the Bridge tried the card itself with the runner's
+        RemoteControl, which cannot, and the owner got nothing. The runner that waits on it shows it now."""
+        self.write(native_live_question=True)
+        env, display = self.target(True)
+        questions = env.topics.target(None, None, None)[0].questions
+        questions.runtime, questions.show_handed_on = SimpleNamespace(jobs=None), mock.Mock()
+        for answer in (True, False):
+            with mock.patch("covey.app.runner_ipc.show_in_runner", return_value=answer) as handed:
+                self.assertIs(flow.show(env, self.saved()), answer)
+            self.assertEqual(handed.call_args.args[2]["token"], TOKEN)
+        questions.show_handed_on.assert_not_called()
+        display.mirror.assert_not_called()  # The runner makes the top-level copy, with what the turn wrote.
+
+    def test_a_live_question_of_a_turn_run_here_is_shown_here(self):
+        self.write(native_live_question=True)
+        env, _ = self.target(True)
+        questions = env.topics.target(None, None, None)[0].questions
+        job = SimpleNamespace(job_id=41)
+        questions.runtime = SimpleNamespace(jobs=SimpleNamespace(live_job=lambda topic, chat, job_id: job))
+        questions.show_handed_on = mock.Mock(return_value=True)
+        with mock.patch("covey.app.runner_ipc.show_in_runner", return_value=None):
+            self.assertTrue(flow.show(env, self.saved()))
+        self.assertIs(questions.show_handed_on.call_args.args[1], job)
+        questions.runtime = SimpleNamespace(jobs=SimpleNamespace(live_job=lambda topic, chat, job_id: None))
+        with mock.patch("covey.app.runner_ipc.show_in_runner", return_value=None):
+            self.assertFalse(flow.show(env, self.saved()))
+
+
+class ShowInRunnerTest(Held):
+    """The Bridge's side of runner_ipc.SHOW_QUESTION: the inbox message and its acknowledgement."""
+
+    def test_no_runner_no_message(self):
+        from covey.app import runner_ipc
+        runtime = SimpleNamespace(in_runner=False)
+        with mock.patch.object(runner_ipc, "runner_for", return_value=None), mock.patch.object(runner_ipc, "write_inbox") as wrote:
+            self.assertIsNone(runner_ipc.show_in_runner(runtime, self.state, question()))
+        wrote.assert_not_called()
+        self.assertIsNone(runner_ipc.show_in_runner(SimpleNamespace(in_runner=True), self.state, question()))
+
+    def test_the_runner_says_whether_the_card_went_and_an_older_one_says_nothing(self):
+        from covey.app import runner_ipc
+        runtime = SimpleNamespace(in_runner=False)
+        for reply, expected in (({"ok": True}, True), ({"ok": False, "error": "x"}, False), (None, False)):
+            with mock.patch.object(runner_ipc, "runner_for", return_value=self.state), \
+                    mock.patch.object(runner_ipc, "write_inbox", return_value="op") as wrote, \
+                    mock.patch.object(runner_ipc, "await_reply", return_value=reply):
+                self.assertIs(runner_ipc.show_in_runner(runtime, self.state, question()), expected)
+            self.assertEqual(wrote.call_args.args[1], {"kind": runner_ipc.SHOW_QUESTION, "token": TOKEN})
+
 
 class GateTest(unittest.TestCase):
     """E4: the words that keep a question from the lead (the list was tuned against 30 days of the owner's questions)."""
@@ -695,6 +745,53 @@ class HeldLiveQuestionTest(HeldFixture):
             self.app.questions.native.show(self.ctx_topic, self.job, self.rpc, self.path, record, False, True)
         self.assertTrue(self.app.questions.publish_question_card.called)
         self.assertNotIn("triage", json.loads(self.path.read_text()))
+
+
+class EscalatedLiveQuestionTest(HeldFixture):
+    """The process that runs the turn shows a live question the lead handed on (show_handed_on): the card, and the top-level copy
+    with what the turn wrote before it asked."""
+
+    def setUp(self):
+        super().setUp()
+        self.record.update(native_live_question=True, display_pending=True, body_delivery_required=False)
+        self.path.write_text(json.dumps(self.record))
+        self.rpc.control_lock = threading.RLock()
+        self.job.cancel_event = threading.Event()
+        self.app.questions.display.mirror = mock.Mock(return_value="om_top")
+        self.app.questions.display.paint_task_card = mock.Mock()
+        mock.patch.object(self.app.questions.native, "live_control").start()
+
+    def escalated(self):
+        record = json.loads(self.path.read_text())
+        record["triage"] = {"state": triage.ESCALATED, "project": PID, "by": "lead"}
+        self.path.write_text(json.dumps(record))
+        return record
+
+    def test_the_card_goes_out_and_is_copied_with_what_the_turn_wrote(self):
+        with mock.patch("covey.app.questions.turn_output", return_value="第 4 批三列报告") as wrote:
+            self.assertTrue(self.app.questions.show_handed_on(self.ctx_topic, self.job, self.escalated()))
+        self.assertTrue(self.app.questions.publish_question_card.called)
+        self.assertFalse(json.loads(self.path.read_text())["display_pending"])
+        self.assertTrue(find_job_record(self.state, self.job.message_id)["question_delivery_ok"])
+        record, output = self.app.questions.display.mirror.call_args.args[1:3]
+        self.assertEqual((record["token"], output), (self.token, "第 4 批三列报告"))
+        self.assertIs(wrote.call_args.args[0], self.job)
+        self.assertTrue(self.app.questions.display.paint_task_card.called)
+
+    def test_a_card_that_did_not_go_is_not_copied(self):
+        self.app.questions.publish_question_card.return_value = False
+        self.assertFalse(self.app.questions.show_handed_on(self.ctx_topic, self.job, self.escalated()))
+        self.app.questions.display.mirror.assert_not_called()
+        self.assertFalse(find_job_record(self.state, self.job.message_id)["question_delivery_ok"])
+
+    def test_a_held_question_gets_no_top_level_line_while_the_lead_has_it(self):
+        record = json.loads(self.path.read_text())
+        record["triage"] = {"state": triage.HELD, "project": PID, "deadline": time.time() + 100}
+        self.path.write_text(json.dumps(record))
+        with mock.patch("covey.app.butler_relay.question_asked") as asked:
+            self.app.questions.native.mirror(self.ctx_topic, self.job, self.path)
+        self.app.questions.display.mirror.assert_not_called()
+        asked.assert_not_called()
 
 
 class MemoryInterplayTest(Held):

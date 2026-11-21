@@ -1395,6 +1395,46 @@
    "calls": [],
    "left": []
   },
+  "show_question": {
+   "acks": [
+    {
+     "error": "",
+     "ok": true
+    },
+    {
+     "error": "问题不是这个任务的",
+     "ok": false,
+     "refused": false
+    },
+    {
+     "error": "FileNotFoundError",
+     "ok": false,
+     "refused": false
+    }
+   ],
+   "calls": [
+    [
+     "show",
+     "qqqqqqqqqqqqqqqq"
+    ]
+   ],
+   "left": []
+  },
+  "show_question_not_sent": {
+   "acks": [
+    {
+     "error": "问题控件没有送到",
+     "ok": false
+    }
+   ],
+   "calls": [
+    [
+     "show",
+     "qqqqqqqqqqqqqqqq"
+    ]
+   ],
+   "left": []
+  },
   "steer": {
    "acks": [
     {
@@ -1508,7 +1548,9 @@
   "runner inbox steer failed: SteerRefused",
   "runner inbox answer failed: ValueError",
   "runner inbox answer failed: KeyError",
-  "runner inbox card_event failed: KeyError"
+  "runner inbox card_event failed: KeyError",
+  "runner inbox show_question failed: ValueError",
+  "runner inbox show_question failed: FileNotFoundError"
  ],
  "serve_requests_failing_op": "1793800000000003000-00000003",
  "serve_requests_left": [],

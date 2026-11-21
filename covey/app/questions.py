@@ -32,7 +32,7 @@ from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, ask_id
                                question_feedback_fields, set_aside_answers, set_aside_message, submitted_answer)
 from covey.app.checkpoint_questions import CheckpointQuestions
 from covey.app.held_notes import HeldNotes
-from covey.app.native_questions import NativeQuestions
+from covey.app.native_questions import NativeQuestions, turn_output
 from covey.app.question_display import QuestionDisplay, question_card_lock
 from covey.app.triage import Triage
 from covey.core.state import write_private_text
@@ -105,6 +105,16 @@ class Questions:
 
     def retry_live_questions(self, ctx, chat_id, job):
         return self.native.retry_live(ctx, chat_id, job)
+
+    def show_handed_on(self, ctx, job, record):
+        """A live question of ``job`` the project's lead handed on to the owner, shown by this process (app/triage.py
+        show_here; a task runner's inbox message runner_ipc.SHOW_QUESTION). Whether its card went out."""
+        from covey.app.triage import show_here
+
+        def written():
+            with job.trace_lock:
+                return turn_output(job)
+        return show_here(self, ctx, job, record, written)
 
     def deliver_checkpoint_questions(self, ctx, job, use_result_card=False):
         return self.checkpoints.deliver(ctx, job, use_result_card)

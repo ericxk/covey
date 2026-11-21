@@ -34,6 +34,8 @@ from covey.core.topics import load_topic
 ACK_TIMEOUT = 8.0
 ANSWER_TIMEOUT = 45.0  # Covers a continuation the runner asks the bridge to enqueue.
 ENQUEUE_TIMEOUT = 30.0
+SHOW_QUESTION = "show_question"  # Inbox: show a held live question the lead handed on (app/triage.py show_here).
+SHOW_TIMEOUT = 20.0  # The runner acknowledges once the card and its top-level copy are out.
 # The bridge's signal that a runner's inbox has something (wake_runner): read now, not at the next look.
 WAKE_SIGNAL = signal.SIGUSR1
 
@@ -253,6 +255,20 @@ def forward_card_action(runtime, target, event: dict, raw: dict) -> bool:
     return False
 
 
+def show_in_runner(runtime, state_dir: Path, record: dict) -> bool | None:
+    """A held live question the project's lead handed on to the owner (app/triage.py show), shown by the task runner whose
+    turn waits on it: whether its card went out, or None when no live runner of a job has it (it runs here). A runner of a
+    release before SHOW_QUESTION never acknowledges it: False after SHOW_TIMEOUT, the question left for 重新投递."""
+    if runtime.in_runner:
+        return None
+    directory = runner_for(runtime, Path(state_dir), job_id=record.get("job_id"), key=str(record.get("job_key") or ""))
+    if directory is None:
+        return None
+    op = write_inbox(directory, {"kind": SHOW_QUESTION, "token": str(record.get("token") or "")})
+    result = await_reply(Path(directory) / ACKS / (op + ".json"), time.monotonic() + SHOW_TIMEOUT)
+    return bool(result and result.get("ok"))
+
+
 def forward_answer(runtime, ctx, chat, token, fields, event_id) -> bool:
     """Hand a typed answer to the runner that asked the question; False when the bridge answers it."""
     if runtime.in_runner:
@@ -399,6 +415,12 @@ def take_inbox(gateway, app, job, ctx, directory: Path) -> None:
             elif kind == "answer":
                 app.questions.submit_answer(job_ctx, payload["chat_id"], payload["token"], payload["fields"], payload["event_id"])
                 ack(directory, payload["id"], True)
+            elif kind == SHOW_QUESTION:
+                record = read_json(Path(job_ctx.state_dir) / "questions" / (str(payload["token"]) + ".json"))
+                if record.get("job_id") != job.job_id or app.runtime.jobs.find(job.job_id) is not job:
+                    raise ValueError("问题不是这个任务的")
+                shown = app.questions.show_handed_on(job_ctx, job, record)
+                ack(directory, payload["id"], shown, "" if shown else "问题控件没有送到")
             elif kind == "bridge_restarted" and job.tool_trace is not None:
                 if app.runtime.jobs.find(job.job_id) is job:
                     at = _dt.datetime.fromtimestamp(payload["at"]).astimezone().strftime("%H:%M")
@@ -407,7 +429,7 @@ def take_inbox(gateway, app, job, ctx, directory: Path) -> None:
                         "text": f"机器人 {at} 重启过，任务未中断。"}, None, from_backend=False)
         except Exception as exc:  # noqa: BLE001 - one bad request never stops the task
             gateway.runtime.log(f"runner inbox {kind} failed: {type(exc).__name__}")
-            if kind in {"steer", "answer"}:
+            if kind in {"steer", "answer", SHOW_QUESTION}:
                 ack(directory, payload["id"], False, str(exc) if isinstance(exc, ValueError) else type(exc).__name__,
                     refused=isinstance(exc, SteerRefused))
         finally:

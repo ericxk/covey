@@ -18,6 +18,7 @@ from covey.core.roster import LIVE_QUESTIONS
 from covey.cards.question_cards import question_element
 from covey.app import butler_relay
 from covey.app.triage import LEAD
+from covey.core import triage as triage_state
 from covey.app.question_display import question_card_lock
 from covey.core.state import write_private_text
 from covey.core.store import directory_store, transition_question
@@ -75,6 +76,8 @@ class NativeQuestions:
         above it (app/question_display.py mirror); never fails the question."""
         try:
             record = json.loads(Path(path).read_text())
+            if triage_state.held(record):
+                return  # With the project's lead: copied once it is the owner's (app/triage.py show_here).
             if self.questions.display.mirror(ctx, record, turn_output(job), job=job):
                 return
             if record.get("status") == "pending" and not json.loads(Path(path).read_text()).get("mirror_state"):

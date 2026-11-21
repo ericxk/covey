@@ -558,6 +558,17 @@ def record_runner_side(r: Recorder, scratch: Path) -> dict:
     deliver("restart_no_trace", {"kind": "bridge_restarted", "at": NOW}, {"kind": "unknown"})
     job.tool_trace = {}
     deliver("restart", {"kind": "bridge_restarted", "at": NOW})
+    # A held live question the lead handed on, shown by this runner (app/triage.py show_here): its own job's question only.
+    questions = app.harness.context.state_dir / "questions"
+    questions.mkdir(parents=True, exist_ok=True)
+    (questions / ("q" * 16 + ".json")).write_text(json.dumps({"token": "q" * 16, "job_id": 7}))
+    (questions / ("o" * 16 + ".json")).write_text(json.dumps({"token": "o" * 16, "job_id": 8}))
+    shown = {"value": True}
+    app.questions.show_handed_on = lambda c, j, record: calls.append(["show", record["token"]]) or shown["value"]
+    deliver("show_question", {"kind": "show_question", "token": "q" * 16}, {"kind": "show_question", "token": "o" * 16},
+            {"kind": "show_question", "token": "x" * 16})
+    shown["value"] = False
+    deliver("show_question_not_sent", {"kind": "show_question", "token": "q" * 16})
     return {"runner_take_inbox": results, "runner_take_inbox_log": logs}
 
 

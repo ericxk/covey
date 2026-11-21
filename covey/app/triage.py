@@ -167,6 +167,7 @@ def escalate(env, record, why, *, by="lead", context="", recommend="", if_not=""
 def show(env, record) -> bool:
     """The card of ``record`` (a question that was held and is the owner's now) sent, as its own Harness's app sends one."""
     from covey.app.redelivery import delivery_context
+    from covey.app.runner_ipc import show_in_runner  # Here: runner_ipc's inbox reaches back to show_here.
     state, topic, chat = Path(env.state_dir), str(record.get("topic_id")), str(record.get("chat_id"))
     found = env.topics.target(state, topic, chat)
     if found is None:
@@ -174,16 +175,20 @@ def show(env, record) -> bool:
     app, ctx, _ = found
     ctx = dataclasses.replace(ctx, topic_id=topic)
     if record.get("native_live_question") is True:
+        # The turn still runs and waits on it. In a task runner (the usual case) only that process holds the live
+        # control the answer goes to, and what the turn has written so far: it shows the card and its top-level copy
+        # (show_here). T488 #5528, 2026-11-21: this Bridge's RemoteControl has none of it, so the card never went.
+        handed = show_in_runner(app.questions.runtime, state, record)
+        if handed is not None:
+            return handed
         job = app.questions.runtime.jobs.live_job(topic, chat, record.get("job_id"))
-        message = app.questions.retry_live_questions(ctx, chat, job) if job is not None else None
-        sent = bool(message and message.startswith("原生问题控件已重新投递"))
-    else:
-        original = find_job_record(state, record.get("job_key")) or {}
-        if not original:
-            return False
-        rebuilt = saved_job(original, chat, topic, original.get("reply_to_message_id") or ctx.reply_to_message_id,
-                            checkpoint_question_deferred=original.get("checkpoint_question_deferred", False))
-        sent = bool(app.questions.deliver_checkpoint_questions(delivery_context(ctx, original, rebuilt), rebuilt, False))
+        return bool(job is not None and app.questions.show_handed_on(ctx, job, record))
+    original = find_job_record(state, record.get("job_key")) or {}
+    if not original:
+        return False
+    rebuilt = saved_job(original, chat, topic, original.get("reply_to_message_id") or ctx.reply_to_message_id,
+                        checkpoint_question_deferred=original.get("checkpoint_question_deferred", False))
+    sent = bool(app.questions.deliver_checkpoint_questions(delivery_context(ctx, original, rebuilt), rebuilt, False))
     if sent:
         try:
             app.questions.display.paint_task_card(ctx, read_object(question_path(state, record["token"])))
@@ -199,6 +204,34 @@ def show(env, record) -> bool:
         except Exception as exc:  # noqa: BLE001 - the card is in its thread and on the board
             env.runtime.log(f"question triage top-level copy failed: {type(exc).__name__}")
     return sent
+
+
+def show_here(questions, ctx, job, record, written) -> bool:
+    """The live question ``record`` (held, the owner's now) shown by the process that runs ``job``, the turn waiting on it
+    (``questions``: its Harness's Questions, app/questions.py show_handed_on; in a task runner its inbox's
+    runner_ipc.SHOW_QUESTION): its card (``retry_live_questions``, which checks the question is still the backend's), the
+    task card's line, and the copy at the private chat's top level with what the turn wrote before it asked (``written()``,
+    app/native_questions.py turn_output, as a question that was never held gets it). Whether the card went out; never
+    raises."""
+    state, token = Path(ctx.state_dir), str(record.get("token"))
+    try:
+        message = questions.retry_live_questions(ctx, record.get("chat_id"), job)
+    except Exception as exc:  # noqa: BLE001 - the task's record says the question was not delivered
+        questions.runtime.log(f"question triage live card failed token={token[:8]}: {type(exc).__name__}")
+        return False
+    if not (message and message.startswith("原生问题控件已重新投递")):
+        questions.runtime.log(f"question triage live card not sent token={token[:8]}: {message}")
+        return False
+    current = read_object(question_path(state, token)) or record
+    try:
+        questions.display.paint_task_card(ctx, current)
+    except Exception as exc:  # noqa: BLE001 - the card is out; the task card keeps its older line
+        questions.runtime.log(f"question triage task card not repainted: {type(exc).__name__}")
+    try:
+        questions.display.mirror(ctx, current, written(), job=job)
+    except Exception as exc:  # noqa: BLE001 - the card is in its thread and on the board
+        questions.runtime.log(f"question triage top-level copy failed: {type(exc).__name__}")
+    return True
 
 
 def sweep(env, now=None) -> None:

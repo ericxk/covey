@@ -148,7 +148,7 @@ continued、done、failed、cancelled、interrupted：终态
 | `handoff.json` | 重建参数和序列化任务 |
 | `runner.json` | 任务进程身份和 release |
 | `wake.json` | 任务进程的身份；Bridge 每写一次收件箱就经 pidfd 发 SIGUSR1（`wake_runner`），旧 release 照旧轮询 |
-| `inbox/` → `acks/` | 点击、回答、补充、重启通知与确认 |
+| `inbox/` → `acks/` | 点击、回答、补充、重启通知、转给主人的活问题（`show_question`）与确认 |
 | `requests/` → `replies/` | 续答入队请求 |
 | `done.json`、`exit.json` | 只剩产物上传时、退出时 |
 
