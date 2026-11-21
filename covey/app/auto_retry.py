@@ -26,8 +26,8 @@ import time
 from typing import NamedTuple
 
 from covey.app.outbox import RETRY_NOTE, retry_label
-from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, OTHER_HARNESS, SWITCH_MODEL, failure_details,
-                                  interrupted_summary, result_actions, result_note, retry_status, switch_route)
+from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, OTHER_HARNESS, REPORT_NOTE, SWITCH_MODEL,
+                                  failure_details, interrupted_summary, result_actions, result_note, retry_status, switch_route)
 from covey.core import failure
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record, job_key, select_job_records, update_job_record_if
@@ -244,7 +244,9 @@ def actions(topic_id, job_id, can_stop, record=None, other=False):
 
 def result_note_text(label, follow):
     note = RETRY_NOTE if label == "检查并继续" else label + "：" + RETRY_NOTE.split("：", 1)[1]
-    return "\n".join([note, *(FOLLOW_UP_NOTES[name] for name in follow)])
+    # 复制诊断 comes with 看原因 (cards/recovery.py result_actions): its line after 看原因's.
+    return "\n".join([note, *(line for name in follow
+                              for line in (FOLLOW_UP_NOTES[name], *((REPORT_NOTE,) if name == "diagnose" else ())))])
 
 
 def result_elements(topic_id, job_id, record, other=False):

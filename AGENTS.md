@@ -41,8 +41,8 @@
 | 换配置 | `app/harness_switch.py`、`app/binding.py`、`app/switch_handoff.py` | [话题中途换配置](docs/architecture.md#话题中途换配置) |
 | 回退一步（Claude） | `app/rewind.py`、`backends/claude/rewind.py` | [回退一步](docs/architecture.md#回退一步) |
 | 结果、投递与重投 | `app/turn_settle.py`、`app/worker.py`、`app/turn_delivery.py`、`app/redelivery.py`、`app/outbox.py` | [结果授权与投递](docs/architecture.md#结果授权与投递) |
-| 失败、恢复与自动重试 | `core/recovery.py`、`core/failure.py`（原因和下一步）、`app/recovery_cards.py`、`app/auto_retry.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
-| 设置卡与机器人菜单 | `app/bot_menu.py`、`app/menu_panel.py`、`app/settings_hub.py`（标签「记忆」`app/memory_panel.py`、「能做什么」`app/about_panel.py`）、`feishu/events.py` | [机器人菜单](docs/usage.md#机器人菜单) |
+| 失败、恢复与自动重试 | `core/recovery.py`、`core/failure.py`（原因和下一步）、`app/recovery_cards.py`、`app/auto_retry.py`；「复制诊断」`app/diag_summary.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
+| 设置卡与机器人菜单 | `app/bot_menu.py`、`app/menu_panel.py`、`app/settings_hub.py`（标签「记忆」`app/memory_panel.py`、「能做什么」`app/about_panel.py`、「诊断」`app/doctor_panel.py`）、`feishu/events.py` | [机器人菜单](docs/usage.md#机器人菜单) |
 | 欢迎卡（新部署只发一次，`COVEY_WELCOME`）和 `./install` 等第一句回答 | `app/welcome.py`、`cards/welcome.py`、`core/welcome.py`（记录、`first_answer`）、`service/installer.py` 的 `wait_answer` | [第一次使用](docs/usage.md#第一次使用)、[第一个回答](docs/install.md#第一个回答) |
 | 代答 | `app/proxy.py`（批次）、`app/proxy_intake.py`（收消息）、`app/proxy_topics.py`（联系人话题）、`app/proxy_commands.py`（查找、群成员）、`app/proxy_send.py`（读回和发送器接口；发送器 `extensions/covey_internal/proxy_sender.py`、`extensions/covey_internal/proxy_login.py`）、`core/proxy.py` | [proxy.md](docs/proxy.md)、[代答](docs/architecture.md#代答) |
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
@@ -56,7 +56,7 @@
 | 扩展（`COVEY_EXTENSIONS` 或 `extensions/enabled` 启用的包，核心不按名字引用；扩展自带 README） | `core/extensions.py`（manifest 并进 `core/roster.py`、`core/providers.py` 的表，`features(app)` 并进 `app/unified.py` 的 `self.features`） | [扩展](docs/architecture.md#扩展) |
 | 节点与机器状况（`COVEY_NODE_LISTEN`） | `core/node_agent.py`（设备和本机上常驻的节点）、`core/nodes.py`（名单、口令、记录）、`core/node_rules.py`（告警规则）、`app/node_gateway.py`（TLS 服务）、`app/node_alerts.py`、`app/nodes.py`、`cards/node_cards.py` | [节点](docs/architecture.md#节点默认关)、[配置](docs/configuration.md#节点与机器状况默认关) |
 | 维护与备份 | `core/maintenance.py`（规则表在 `core/maintenance_rules.py`，备份在 `core/backup.py`）、`app/stale.py`、`core/migrate.py` | [备份、归档与维护](docs/operations.md#备份归档与维护) |
-| 服务、看门狗、诊断 | `service/manager.py`、`service/boot.py`、`service/memguard.py`、`service/doctor.py` | [服务组成](docs/operations.md#服务组成)、[troubleshooting.md](docs/troubleshooting.md) |
+| 服务、看门狗、诊断 | `service/manager.py`（停了告诉主人 `service/down_notice.py`）、`service/boot.py`、`service/memguard.py`、`service/doctor.py`（设置卡「诊断」`app/doctor_panel.py`） | [服务组成](docs/operations.md#服务组成)、[troubleshooting.md](docs/troubleshooting.md) |
 
 ## 模块表
 
@@ -106,9 +106,11 @@
 | `app/detached.py` | Run each task in its own process so a bridge restart or deploy does not stop it |
 | `app/device_files.py` | Files between the hub and a device's topic, always through the device program |
 | `app/devices.py` | Devices at the app's edge |
+| `app/diag_summary.py` | 复制诊断 next to 看原因 under a turn that did not succeed |
 | `app/digest.py` | 早晚汇总: at the times of day COVEY_DIGEST_TIMES lists, one card at the top level of the owner's private chat … |
 | `app/directory_picker.py` | Bounded directory browsing: one listing or name search at a time, never on the event threads |
 | `app/dispatch_cards.py` | 派发卡, when COVEY_DISPATCH_CARD=1 |
+| `app/doctor_panel.py` | The 设置 card's 诊断 tab: what service/doctor.py finds of this deployment, in a few lines |
 | `app/forks.py` | Forks: a new topic that continues from another topic, opened by the butler's topic_fork |
 | `app/form_cards.py` | Form cards: a card with a record of its own that every click on it reads |
 | `app/group_boards.py` | 手上的事, the pinned board and 早晚汇总 in each personal group |
@@ -179,8 +181,8 @@
 | `app/redelivery.py` | Sending a recorded task's saved result or question again, without running the model (检查并继续 on a task whose … |
 | `app/relay_send.py` | Sending what goes back to the butler's top level |
 | `app/relay_targets.py` | Where a topic turn's outcome goes back to at the butler's top level |
-| `app/revisits.py` | 到点回来看 at the Bridge: a topic that waits on something outside (a training, CI, a deploy) ends its turn with … |
 | `app/review.py` | 独立复核: a read-only topic that reviews one finished turn's changes, opened only when the owner clicks the … |
+| `app/revisits.py` | 到点回来看 at the Bridge: a topic that waits on something outside (a training, CI, a deploy) ends its turn with … |
 | `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code) |
 | `app/runner.py` | The task runner process: one job of the Bridge, to completion |
 | `app/runner_ipc.py` | Messages between the Bridge and a job's task runner through its run directory |
@@ -260,6 +262,7 @@
 | `cards/digest.py` | The digest card: sent at the times the deployer set, at the top level of the owner's private chat |
 | `cards/directory.py` | The directory browser card |
 | `cards/dispatch_card.py` | The 派发卡 (app/dispatch_cards.py |
+| `cards/doctor_card.py` | The 设置 card's 诊断 tab: what service/doctor.py found of this deployment, a line a part, in words |
 | `cards/elements.py` | Schema 2.0 card skeletons and the buttons several cards share |
 | `cards/facts.py` | A turn's figures from its process snapshot, worked out in one place for the task card's tiles and the answer … |
 | `cards/group_manager.py` | The 群聊 card, the bot menu's 群聊 panel |

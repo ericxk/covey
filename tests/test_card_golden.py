@@ -998,10 +998,33 @@ def butler_panels():
                                               changed, BUTLER_CHOICES, names)}
 
 
+def doctor_report(**service):
+    """service/doctor.py diagnose's report of service k1 (and one more in the root), for the 诊断 tab's samples."""
+    row = {"id": "k1", "desired_state": "running", "status": "ready", "alive": True, "generation": 463,
+           "bridge": {"status": "ready", "remote_connection": {"status": "receiving"}},
+           "events": {"status": "ready", "owned_required_consumers": True, "dropped": 0}, **service}
+    return {"status": "ready", "runtime_status": "ready", "boot": {"status": "ready", "mode": "systemd-user"},
+            "manager": {"lag": 0.42}, "services": [row, {"id": "k2", "desired_state": "running", "status": "ready"}],
+            "harness_probe": {"claude": {"ok": True, "reason": "ok", "checked_at": FROZEN - 3600},
+                              "codex": {"ok": False, "reason": "network", "checked_at": FROZEN - 120,
+                                        "advice": "连不上模型服务（网络或代理问题）：检查出口，必要时设置 HTTPS_PROXY 后重新注册服务"}}}
+
+
+def doctor_trouble():
+    """doctor_report with every part that needs a look: no Manager, the connection stalled, events dropped, a permission
+    variable kept, start at boot broken, no probe yet."""
+    service = {"status": "degraded", "permission_env": ["LARK_BRIDGE_CODEX_SANDBOX=read-only"],
+               "bridge": {"status": "degraded", "remote_connection": {"status": "stalled"}},
+               "events": {"status": "degraded", "owned_required_consumers": False, "dropped": 2}}
+    return {**doctor_report(**service), "manager": None, "boot": {"status": "degraded", "mode": "cron"}, "harness_probe": {}}
+
+
 def settings_cards():
     """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the butler's
     two pages, 新话题 (with 记住的工作区 under 直接开工 too) and 管家 (its question before 每条直接开一个话题, and in the
-    mode 纯话题), 工作区 (with the butler's 用途, being edited, and without) and 脱敏. 代答 is an older card's tab."""
+    mode 纯话题), 工作区 (with the butler's 用途, being edited, and without), 脱敏 and 诊断. 代答 is an older card's tab."""
+    from covey.app.doctor_panel import summarize
+    from covey.cards.doctor_card import doctor_card
     from covey.cards.group_manager import group_manager_card
     from covey.cards.butler_panel import WORKSPACE_NOTE, butler_panel_card, notes_button
     from covey.cards.elements import note
@@ -1079,6 +1102,14 @@ def settings_cards():
         # A record still on the retired 其他 folds as 工作区.
         "other_folded": folded_hub("other", "c" * 24, tabs),
         **memory_tab_cards(), **about_tab_cards(),
+        # 诊断 (cards/doctor_card.py): service/doctor.py's report in words, read-only; one where every part needs a look.
+        "doctor": doctor_card("c" * 24, view, summarize(doctor_report(), "k1", FROZEN - 300),
+                              top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
+        "doctor_problems": doctor_card("c" * 24, view, summarize(doctor_trouble(), "k1", FROZEN - 60),
+                                       top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
+        "doctor_failed": doctor_card("c" * 24, view, {"checked_at": FROZEN, "error": "OSError"},
+                                     top=[tab_row("doctor", "c" * 24, tabs + ["doctor"])]),
+        "doctor_folded": folded_hub("doctor", "c" * 24, tabs + ["doctor"]),
     }
 
 

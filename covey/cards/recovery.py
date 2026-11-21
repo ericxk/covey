@@ -20,6 +20,10 @@ RETRY_KIND = "bridge_job_retry"
 # 看原因, a read-only turn that looks into why, and 拆小再试 (app/task_controls.py follow_up).
 DIAGNOSE_KIND, SPLIT_KIND = "bridge_job_diagnose", "bridge_job_split"
 FOLLOW_UPS = {"diagnose": ("看原因", DIAGNOSE_KIND), "split": ("拆小再试", SPLIT_KIND)}
+# 复制诊断 beside 看原因 (app/diag_summary.py): the topic gets a block of the version, ids, last good step, retries and the
+# error to copy to whoever helps; no turn starts.
+REPORT_KIND, REPORT_LABEL = "bridge_job_report", "复制诊断"
+REPORT_NOTE = "复制诊断：在话题里发一段诊断摘要（版本、任务编号、最近成功的一步、重试和打了码的错误），复制给帮你排障的人。"
 FOLLOW_UP_NOTES = {"diagnose": "看原因：开一轮只读排查，看看这一轮为什么没成功，不改文件、不重跑。",
                    "split": "拆小再试：把这件事拆成更小的几步重新做，被拦下的那块先跳过。",
                    "switch_model": "换个模型：打开换配置，换一个模型接着做这件事。",
@@ -75,9 +79,9 @@ def offers_switch(elements) -> bool:
 
 def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=(), route=None):
     """The row after a failed task's answer: ``label`` (检查并继续, 现在重试, 重新投递结果; "" for none), with
-    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 看原因, 拆小再试; SWITCH_MODEL: 换个模型 and
-    OTHER_HARNESS: 换个 Harness, both with the topic's ``route``, its (harness_id, binding_revision), and left out
-    without one)."""
+    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 看原因, with 复制诊断 after it, 拆小再试; SWITCH_MODEL:
+    换个模型 and OTHER_HARNESS: 换个 Harness, both with the topic's ``route``, its (harness_id, binding_revision), and left
+    out without one)."""
     value = {"topic_id": topic_id, "job_id": job_id}
     columns = [column_button(label, {"kind": RETRY_KIND, **value})] if label else []
     if stop_kind:
@@ -85,6 +89,8 @@ def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=(), rout
     for name in follow_ups:
         if name in FOLLOW_UPS:
             columns.append(column_button(FOLLOW_UPS[name][0], {"kind": FOLLOW_UPS[name][1], **value}))
+            if name == "diagnose":
+                columns.append(column_button(REPORT_LABEL, {"kind": REPORT_KIND, **value}))
         elif name in (SWITCH_MODEL, OTHER_HARNESS) and route:
             columns.append(column_button(SWITCH_LABEL if name == SWITCH_MODEL else OTHER_LABEL, {
                 "kind": SWITCH_OPEN, **value, "harness_id": route[0], "binding_revision": route[1],

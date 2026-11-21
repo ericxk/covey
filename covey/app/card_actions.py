@@ -46,6 +46,9 @@ ACTIONS = {
     # steps. Each queues a turn of the topic.
     "bridge_job_diagnose": CardAction("看原因", bot_only=True, handler="submission.follow_up"),
     "bridge_job_split": CardAction("拆小再试", bot_only=True, handler="submission.follow_up"),
+    # 复制诊断 beside 看原因 (app/diag_summary.py): the Bridge replies in the topic with the turn's diagnosis block; it starts
+    # no task, and the turn's runner may be gone.
+    "bridge_job_report": CardAction("复制诊断", bot_only=True, handler="diag_summary.copy_action"),
     "bridge_fork": CardAction("侧聊或分叉", bot_only=True, handler=RETIRED),  # Off the cards.
     "bridge_compact": CardAction("压缩上下文", bot_only=True, handler=RETIRED),  # Off the cards as well.
     "bridge_turn_export": CardAction("下载请求与结果", bot_only=True, handler=EXPORT),  # Packs in a thread of the Bridge.

@@ -242,7 +242,7 @@ python3 -B scripts/bridge_timing.py --state "$STATE_DIR" --since 19:30   # 可�
 
 ## 健康诊断
 
-出问题先跑 doctor：
+出问题先跑 doctor。飞书里也能看它的摘要：菜单「设置」的「诊断」标签（只读，见[使用参考 · 设置卡](reference.md#设置卡)）；同事来求助时，让他在停住的任务卡上点“复制诊断”，把那段摘要发过来，版本、任务编号、最近成功的一步和错误都在里面。
 
 ```bash
 python3 -B bin/covey_doctor.py

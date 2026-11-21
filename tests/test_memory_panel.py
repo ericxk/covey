@@ -13,7 +13,7 @@ from covey.app.menu_panel import hub_tabs
 from covey.app.prompts import PRINCIPLES_HEAD, memory_block, principles_block
 from covey.cards import memory_panel as cards
 from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, json_size
-from covey.cards.settings_hub import ABOUT, MEMORY, TAB
+from covey.cards.settings_hub import ABOUT, DOCTOR, MEMORY, TAB
 from covey.core import memory, principles, topic_memory
 from covey.core.jobs import upsert_job_record
 from covey.core.state import write_json
@@ -72,7 +72,7 @@ class MemoryCase(HubCase):
 class MemoryTabTests(MemoryCase):
     def test_the_tab_is_there_with_the_switch_only_and_about_always(self):
         self.assertIn(MEMORY, hub_tabs())
-        self.assertEqual(hub_tabs()[-1], ABOUT)
+        self.assertEqual(hub_tabs()[-2:], [ABOUT, DOCTOR])  # 能做什么, then the 诊断 tab (app/doctor_panel.py).
         with mock.patch.dict(os.environ, {'COVEY_MEMORY': ''}):
             self.assertNotIn(MEMORY, hub_tabs())
             self.assertIn(ABOUT, hub_tabs())

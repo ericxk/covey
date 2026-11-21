@@ -29,7 +29,7 @@ from covey.core.groups import group_path
 from covey.core.state import read_json, write_json
 
 MEMBER = 'ou_member0012345678'
-LABELS = ['新话题', '管家', '工作区', '脱敏', '群聊', '能做什么']  # 记忆 only with COVEY_MEMORY=1, 设备 with nodes.
+LABELS = ['新话题', '管家', '工作区', '脱敏', '群聊', '能做什么', '诊断']  # 记忆 only with COVEY_MEMORY=1, 设备 with nodes.
 
 
 def row_of(current):
