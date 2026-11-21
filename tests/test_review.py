@@ -82,6 +82,9 @@ class ButtonTest(unittest.TestCase):
                 self.assertEqual(len(review.buttons(job)), 1)
                 self.assertEqual(review.buttons(SimpleNamespace(**{**job.__dict__, "device": "box"})), [])
                 self.assertEqual(review.buttons(SimpleNamespace(**{**job.__dict__, "topic_id": ""})), [])
+                from covey.core.butler import butler_topic_id
+                butler = SimpleNamespace(**{**job.__dict__, "chat_id": "oc_1", "topic_id": butler_topic_id("oc_1")})
+                self.assertEqual(review.buttons(butler), [])  # The butler's own turn.
             # After the 输入/输出 box (docs/ui.md 5.2: buttons last).
             shown = tail(None, ("Claude Code",), ("用时 1分",), buttons=built)
             self.assertEqual([element.get("element_id") for element in shown], ["answer_facts", REVIEW_ID])

@@ -48,15 +48,18 @@ def enabled() -> bool:
 
 def buttons(job) -> list:
     """The buttons under an answer's 输入/输出 box (cards/answer_card.py tail's ``buttons``): 独立复核 (review_element) for
-    a turn of a topic on this machine that changed code (app/answer_cards.py changed_code), with the switch on
-    (``enabled``); [] otherwise."""
+    a turn of a topic on this machine, not the butler's own, that changed code (app/answer_cards.py changed_code), with
+    the switch on (``enabled``); [] otherwise."""
     from covey.app import answer_cards
+
+    from covey.core.butler import is_butler_topic
 
     def field(name):
         return job.get(name) if isinstance(job, dict) else getattr(job, name, None)
     topic, job_id = str(field("topic_id") or ""), field("job_id")
-    if not enabled() or not topic or not job_id or field("device") or not answer_cards.changed_code(job):
-        return []
+    if (not enabled() or not topic or not job_id or field("device") or is_butler_topic(topic, field("chat_id"))
+            or not answer_cards.changed_code(job)):
+        return []  # The butler's own turns (its family: a lead too) review nothing of a topic's.
     return [review_element(topic, job_id)]
 
 
