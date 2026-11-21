@@ -312,7 +312,7 @@ class CreatedTest(DispatchCase):
         self.assertEqual(self.record("r2")["mid"], self.job_key())
 
     def test_a_topic_that_waits_on_its_launch_card_says_it_waits_for_the_owner(self):
-        butler_settings.update(self.ctx.state_dir, start=())
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(run_mode="worktree"))
         self.start(harness="codex")
         self.assertEqual(self.dispatch_sends()[-1].args[2]["header"]["text_tag_list"][0]["text"]["content"], "等你")
 

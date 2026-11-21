@@ -11,7 +11,6 @@ The samples carry only fake open_ids, chat and message IDs and /absolute/... pat
 
 from __future__ import annotations
 
-import dataclasses
 
 import json
 import lzma
@@ -1081,7 +1080,6 @@ def butler_panels():
     changed = Settings(enabled=False, model="claude-opus-5-5", effort="high", compact_tokens=300_000, redaction=True,
                        topic_defaults=TopicDefaults(harness="codex", model="gpt-6", effort="xhigh", run_mode="worktree",
                                                     workspace="bridge"),
-                       start=("readonly", "requested"), trusted=("bridge|edit", "docs|read"),
                        workspace_notes=(("bridge", "Harness Bridge 本体"), ("docs", "文档")))
     follows = {"t_harness": "跟随上次：Claude Code · Opus · max", "t_model": "跟随上次：Opus · max",
                "t_effort": "Bridge 默认：high"}
@@ -1143,7 +1141,7 @@ def settings_cards():
     groups = [{"chat_id": f"oc_fake_group{i}", "active": i % 3 != 0, "external": False} for i in range(4)]
     view = {"revision": 1, "hub": True}
     config = {"default": "bridge", "workspaces": {"bridge": "/absolute/bridge", "docs": "/absolute/docs"}, "recent": {}}
-    kept = Settings(trusted=("bridge|read", "docs|write"), workspace_notes=(("bridge", "Bridge 的代码"),))
+    kept = Settings(workspace_notes=(("bridge", "Bridge 的代码"),))
 
     def value(kind, **more):
         return {"kind": kind, "token": "c" * 24, "revision": 1, **more}
@@ -1161,8 +1159,6 @@ def settings_cards():
             "c" * 24, {**view, "open": "review"},
             Settings(review=ReviewModel(harness="codex", model="gpt-6-astra", effort="high")),
             BUTLER_CHOICES, ["bridge", "docs"], top=row("config"), page="config", review_on=True),
-        "config_trusted": butler_panel_card("c" * 24, view, dataclasses.replace(kept, start=("readonly", "trusted")),
-                                            BUTLER_CHOICES, ["bridge", "docs"], top=row("config"), page="config"),
         "config_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,
                                             ["bridge", "docs"], top=row("config"), page="config"),
         "config_topics": butler_panel_card("c" * 24, {**view, "open": "butler"}, Settings(enabled=False), BUTLER_CHOICES,

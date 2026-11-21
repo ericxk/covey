@@ -4,14 +4,13 @@ itself draws and writes with. Nothing here is a second copy of a rule.
 
 - What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py): 配置 as the card has it (v22 ``config``: its sections 新话题,
   管家 unless COVEY_BUTLER=0, 独立复核 with COVEY_REVIEW=1, and 更多, all open: the page has no card's size), 工作区, 脱敏, 群聊, 设备 with
-  COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
-  ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
+  COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
   (cards/workspace_manager.py ``list_entries``, ``tag_words``), 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
   ``facts``) and its terms as they are (the page edits the list, so the terms go into the page's database;
   never a stand-in), the groups with their state and 免@
   (cards/group_manager.py ``state_words``, ``free_words``; a group is named by a hash of its chat id) and the nodes' lines (app/node_panel.py
   ``facts``). ``editable`` says which rows the page may change (EDITABLE); every other row says 去飞书改 (``feishu``: the bot's applink).
-- What the page may change: every row of 新话题 and 记住的工作区's 移除; 管家's 供应商, 模型, 思考预算 and
+- What the page may change: every row of 新话题; 管家's 供应商, 模型, 思考预算 and
   压缩阈值 (its 脱敏 and 私聊顶层的消息 are read only); a workspace's 用途; 脱敏's two switches and terms; a group's 停用 / 启用 (its 免@ is read only).
   Data contract v15: the butler's 脱敏 and 私聊顶层的消息 (每条直接开一个话题 with
   ``confirm``), 免@ set to 关闭 or 只有你 (``free``), a workspace added by its path, removed, the missing ones removed, and the 设备 and 代答
@@ -47,7 +46,7 @@ CARD_ONLY = (MEMORY, ABOUT, DOCTOR)  # The 设置 card's tabs the page's data co
 NAMES_SECONDS = 1800  # A group's name, as Feishu gave it, is asked again after this long.
 NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT, cards.TOPIC_RUN_MODE,
-                      cards.TOPIC_REDACTION, cards.TOPIC_WORKSPACE, cards.START_ROW, cards.SUBAGENTS,
+                      cards.TOPIC_REDACTION, cards.TOPIC_WORKSPACE, cards.SUBAGENTS,
                       cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION, cards.SPACE,
                       cards.MODE, cards.REVIEW_HARNESS, cards.REVIEW_PROVIDER, cards.REVIEW_MODEL, cards.REVIEW_EFFORT})
 BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION,
@@ -80,6 +79,12 @@ def row(setting, editable=False, follow="") -> dict:
     options = [{"value": str(value), "text": str(text)} for value, text in setting.options]
     return {"key": setting.key, "kind": setting.kind, "label": setting.label, "current": str(setting.current),
             "text": setting.text, "options": options, "editable": bool(editable and setting.kind in EDITABLE)}
+
+
+def rows_of(settings_) -> list:
+    """``settings_`` as the page's rows, in the order of the card's lines, each with its ``line`` (1, 2, ...: the rows the
+    card draws side by side, cards/butler_panel.py ``lines``): the page may lay a line out as it likes."""
+    return [{**row(each, True), "line": number} for number, line in enumerate(cards.lines(settings_), 1) for each in line]
 
 
 class WebSettings:
@@ -191,32 +196,31 @@ class WebSettings:
             found["main"] = {"title": cards.SECTIONS[cards.BUTLER_PART], **self.butler(ctx, settings, choices)}
         if review.enabled():
             found["review"] = {"title": cards.SECTIONS[cards.REVIEW_PART], "note": cards.REVIEW_NOTE,
-                               "rows": [row(each, True) for each in cards.review_setting_list(settings, choices, LIMIT)]}
-        return {**found, "more": [row(cards.subagent_setting(settings), True)], "more_note": cards.SUBAGENT_NOTE,
+                               "rows": rows_of(cards.review_setting_list(settings, choices, LIMIT))}
+        return {**found, "more": rows_of([cards.subagent_setting(settings)]), "more_note": cards.SUBAGENT_NOTE,
                 "locked": cards.LOCKED if on else ""}
 
     def topic(self, ctx, settings, choices, chat) -> dict:
-        """配置's 新话题: its rows (every one the page may change), 直接开工 with the butler on, 记住的工作区 while it counts."""
+        """配置's 新话题: its rows (every one the page may change), in the card's two lines."""
         panel, defaults = self.panel(), settings.topic_defaults
         on = butler.available() and settings.enabled
         found = cards.topic_settings(defaults, choices, panel_rules.workspace_names(ctx.state_dir), LIMIT,
                                      panel.follows(ctx, defaults, choices, chat), LIMIT, panel.fallback(ctx, defaults, choices, chat),
                                      butler=on)
-        rows = [row(each, True) for each in found + ([cards.start_setting(settings)] if on else [])]
-        trusted = [{"key": key, "text": f"{key.rpartition('|')[0]} · {'只读' if key.endswith('|read') else '改文件'}"}
-                   for key in settings.trusted] if on and cards.trusted_shown(settings) else None
-        return {"note": cards.TOPIC_NOTE, "rows": rows, "start_note": cards.START_NOTE if on else "", "trusted": trusted}
+        return {"note": cards.TOPIC_NOTE, "rows": rows_of(found)}
 
     def butler(self, ctx, settings, choices) -> dict:
         """配置's 管家, its rows as the card's section has them: off (纯话题), the mode's row alone; else its own (Harness first,
         压缩阈值 where it counts) and the mode last. The page may change them all; 每条直接开一个话题 only after it asked
         ``mode_confirm`` (the card's 确定改). ``note``: MODE_OFF, or REDACT_FIRST when it counts."""
-        mode = {**row(cards.mode_setting(settings), True), "confirm": {MODE_TOPICS: cards.MODE_CONFIRM}}
+        mode = cards.mode_setting(settings)
+        confirm = lambda rows: [{**each, "confirm": {MODE_TOPICS: cards.MODE_CONFIRM}} if each["key"] == mode.key else each
+                                for each in rows]
         if not settings.enabled:
-            return {"on": False, "rows": [mode], "note": cards.MODE_OFF}
+            return {"on": False, "rows": confirm(rows_of([mode])), "note": cards.MODE_OFF}
         own = cards.butler_setting_list(settings, choices, LIMIT, panel_rules.workspace_names(ctx.state_dir))
         return {"on": True, **({"note": cards.REDACT_FIRST} if cards.redact_first(settings, choices) else {}),
-                "rows": [row(each, True) for each in own] + [mode]}
+                "rows": confirm(rows_of(own + [mode]))}
 
     def nodes(self, ctx) -> dict:
         """设备: app/web_panels.py ``nodes_tab``."""
@@ -326,7 +330,7 @@ class WebSettings:
             raise ValueError(GONE)
         settings = butler_settings.load(ctx.state_dir)
         on = butler.available() and settings.enabled
-        if kind in BUTLER_KINDS and not on or kind == cards.START_ROW and not on:
+        if kind in BUTLER_KINDS and not on:
             raise ValueError("管家没开，这一项现在不起作用")
         if kind == cards.MODE:
             if not butler.available():
@@ -336,10 +340,7 @@ class WebSettings:
         return self.apply(ctx, kind, {"option": option})
 
     def change_untrust(self, ctx, payload) -> str:
-        key = str(payload.get("key") or "")
-        if key not in butler_settings.load(ctx.state_dir).trusted:
-            raise ValueError("这一条已经不在了")
-        return self.apply(ctx, cards.UNTRUST, {"key": key})
+        raise ValueError("记住的工作区已下线：管家开的话题一律直接开工")
 
     def change_note(self, ctx, payload) -> str:
         """A workspace's 用途, by the card's 保存用途 (ButlerPanel ``notes``): empty removes it."""

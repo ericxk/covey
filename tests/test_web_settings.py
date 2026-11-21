@@ -66,7 +66,10 @@ class WebSettingsTest(UnifiedCase):
         self.assertTrue(config["summary"].startswith("新话题 "))
         topic = config["topic"]
         self.assertEqual([r["label"] for r in topic["rows"]][:1] + [r["label"] for r in topic["rows"]][-3:],
-                         ["Harness", "脱敏", "工作区", "直接开工"])
+                         ["Harness", "工作区", "运行方式", "脱敏"])
+        self.assertEqual(sorted(topic), ["note", "rows", "title"])  # v24: no 直接开工 row, start_note or trusted.
+        self.assertEqual({r["label"]: r["line"] for r in topic["rows"]}.get("Harness"), 1)
+        self.assertEqual({r["label"]: r["line"] for r in topic["rows"]}.get("工作区"), 2)
         self.assertTrue(all(r["editable"] for r in topic["rows"] + config["more"]))
         self.assertEqual(config["more"][0]["label"], "子 Agent")
         butler = config["main"]
@@ -125,17 +128,14 @@ class WebSettingsTest(UnifiedCase):
         self.assertEqual(self.op(what="row", kind=cards.COMPACT, option="0")[0], "failed")
         self.assertEqual([r["kind"] for r in self.snap()["config"]["main"]["rows"]], [cards.MODE])
 
-    def test_a_workspaces_use_trusted_and_the_redaction_switches(self):
+    def test_a_workspaces_use_the_retired_untrust_and_the_redaction_switches(self):
         self.assertEqual(self.op(what="note", workspace="docs", note="  文档 和 手册 "), ("done", "已保存。"))
         self.assertEqual(settings.load(self.ctx.state_dir).note("docs"), "文档 和 手册")
         self.assertEqual(next(w for w in self.snap()["workspace"]["items"] if w["name"] == "docs")["note"], "文档 和 手册")
         self.assertEqual(self.op(what="note", workspace="docs", note=""), ("done", "已保存。"))
         self.assertEqual(settings.load(self.ctx.state_dir).note("docs"), "")
         self.assertEqual(self.op(what="note", workspace="elsewhere", note="x"), ("failed", "没有这个工作区"))
-        settings.update(self.ctx.state_dir, start=("trusted",), trusted=("project|edit",))
-        self.assertEqual(self.snap()["config"]["topic"]["trusted"], [{"key": "project|edit", "text": "project · 改文件"}])
-        self.assertEqual(self.op(what="untrust", key="project|edit")[0], "done")
-        self.assertEqual(settings.load(self.ctx.state_dir).trusted, ())
+        self.assertEqual(self.op(what="untrust", key="project|edit"), ("failed", "记住的工作区已下线：管家开的话题一律直接开工"))
         redaction.update_config(self.ctx.state_dir, lambda config: config["terms"].append(
             {"term": "Secretproj", "stand_in": "", "anywhere": False}))
         data = self.snap()["redaction"]

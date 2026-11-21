@@ -3,7 +3,7 @@ topic_fork, handlers as app/butler_env.py describes them. Only in the owner's pr
 
 - ``topic_start`` sends the topic card (cards/topic_card.py) at the chat's top level, opens the topic on it as
   app/forks.py opens a fork on its root, and replaces the card once with the topic's number. A topic that
-  starts at once (core/butler_settings.py starts_at_once) is bound as a fork is and its first turn is
+  starts at once (always, but in a worktree) is bound as a fork is and its first turn is
   submitted; any other waits on its launch card, prefilled from ``origin.launch`` in its topic.json
   (app/launch.py build_launch_card), with the prompt as the waiting turn.
 - ``topic_send`` gives the owner's words to a topic: a supplement to its turn while one runs (app/steering.py
@@ -206,9 +206,7 @@ def topic_start(env, request):
         if isinstance(plan, str):
             return reply(False, plan)
         # A worktree takes minutes to check out; the launch card creates it and survives a restart.
-        plan["start"] = plan["run_mode"] == "direct" and butler_settings.starts_at_once(
-            settings, workspace=plan["workspace"], readonly=args.get("readonly") is True,
-            user_requested=args.get("user_requested") is True)
+        plan["start"] = plan["run_mode"] == "direct"
         # Judged read-only and started without the owner's click: its first turn says so and is held to it
         # (app/tool_limits.py LOOK). A plan saved before it has none: as before.
         plan["read_only"] = bool(plan["start"]) and args.get("readonly") is True

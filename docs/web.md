@@ -59,7 +59,7 @@
 - **答题**：和飞书问题卡一样：点选项，或选项都不合适时自己写；某道题可以选“不回答此题”；也可以只发补充说明不答、先问一句再答，或点“不处理”先放下（话题下一轮前可撤销）。管家自己的问题只能在飞书里答。
 - **停、重开、记为看过、不管了**：和飞书卡片上的同名按钮做同一件事。
 - **开新话题**：选项和启动卡一样（模型、思考预算、工作模式、脱敏、工作区、运行方式），直接开工；要独立 worktree 的话题会在飞书里出一张填好的启动卡，点开始。
-- **设置**：设置卡的各页都能看，第一页和卡上一样是“配置”，分新话题、管家、独立复核（开了独立复核才有）、更多几段；卡片一次只展开一段，网页各段都展开。能改的有新话题的每一行和记住的工作区，管家的每一行（Harness、供应商、模型、思考预算、脱敏、工作区、压缩阈值）和私聊顶层的消息，独立复核的模型，子 Agent，工作区的用途和增删，脱敏的两个开关和词表的批量增删，群的停用与免@（只能改成关闭或只有你），用 ssh 添加和移除设备，代答的开关和白名单。其余只读，每页有“去飞书改”。
+- **设置**：设置卡的各页都能看，第一页和卡上一样是“配置”，分新话题、管家、独立复核（开了独立复核才有）、更多几段；卡片一次只展开一段，网页各段都展开。能改的有新话题的每一行，管家的每一行（Harness、供应商、模型、思考预算、脱敏、工作区、压缩阈值）和私聊顶层的消息，独立复核的模型，子 Agent，工作区的用途和增删，脱敏的两个开关和词表的批量增删，群的停用与免@（只能改成关闭或只有你），用 ssh 添加和移除设备，代答的开关和白名单。其余只读，每页有“去飞书改”。
 - **整理专项**：开了[整理专项](projects.md#整理专项)时，看板首屏有“整理专项 · 要你定 N 条”，可以直接定。
 - **作废一条专项记忆**：和专项卡上的“删”一样。
 
@@ -171,7 +171,7 @@
 
 另推几条 `settings` 条目。设置条目由取操作的线程（`web-inbox`，每秒一次）单独推：网页改了一项设置，回执之前就推（网页看到“已保存”时读到的已是新值）；`main-thread.json`、工作区列表或脱敏词表一改，下一秒就推；推的线程全量对时也推一次（内容没变 `rev` 不变就不发）。
 
-- **`settings`**（v7）：飞书设置卡的各页，同名同序：配置（v22；v21 及以前是新话题、管家两页 `topic`、`main`）、工作区、脱敏、群聊、设备（只在设了 `COVEY_NODE_LISTEN` 时有）。`config` 是 `{summary, topic, main?, review?, more, more_note, locked}`：`topic`（新话题：`title`、`rows`、`note`、`start_note`、`trusted`）、`main`（管家，`COVEY_BUTLER=0` 时没有：`title`、`on`、`rows`、`note`，私聊顶层的消息是 `rows` 的最后一行）、`review`（独立复核，`COVEY_REVIEW=1` 才有：`title`、`rows`、`note`），`more` 是子 Agent 一行，`summary` 是卡片标题栏那句。每页的行和卡片用同一套函数画（`cards/butler_panel.py` 的 `topic_settings`、`butler_setting_list` 等）：标签、当前值、可选项，`editable` 说网页能不能改。另带 `feishu`（打开机器人的 applink）。代码在 `app/web_settings.py`、`app/web_panels.py`。
+- **`settings`**（v7）：飞书设置卡的各页，同名同序：配置（v22；v21 及以前是新话题、管家两页 `topic`、`main`）、工作区、脱敏、群聊、设备（只在设了 `COVEY_NODE_LISTEN` 时有）。`config` 是 `{summary, topic, main?, review?, more, more_note, locked}`：`topic`（新话题：`title`、`rows`、`note`）、`main`（管家，`COVEY_BUTLER=0` 时没有：`title`、`on`、`rows`、`note`，私聊顶层的消息是 `rows` 的最后一行）、`review`（独立复核，`COVEY_REVIEW=1` 才有：`title`、`rows`、`note`），`more` 是子 Agent 一行，`summary` 是卡片标题栏那句。每页的行和卡片用同一套函数画（`cards/butler_panel.py` 的 `topic_settings`、`butler_setting_list` 等）：标签、当前值、可选项，`editable` 说网页能不能改。另带 `feishu`（打开机器人的 applink）。代码在 `app/web_settings.py`、`app/web_panels.py`。
   - 工作区带标签、路径尾部、最近使用和用途；每条带 `removable`（默认的那个不能移除），另带 `missing`（目录确认不存在的有几个）（v15）。
   - 脱敏带统计、开着脱敏的话题、两个开关和词表（v14：`terms` 按词表顺序的原词，另带 `ignore_case`、`max_terms`、`max_length` 给网页保存前检查；**替身词不推**；原词会进网页应用的库，为的是在网页上批量编辑）；`records` 是最近几轮替换了多少，只有数字（v15）。
   - 群用 chat id 的哈希当 key，带状态和免@；每个群带 `free_mode` 和 `free_choices`（v15）。群名照群聊卡的读法问飞书，同一个群 30 分钟问一次。
@@ -238,7 +238,7 @@
 **`settings`**：只认主人（`app/access.py` 的 `is_owner`），写设置走和卡片同一处，回执也是卡片那句。`payload.what`：
 
 - `row`：`kind` 是卡片那一行的 kind、`option` 是选项值。也收管家的脱敏和“私聊顶层的消息”（`kind` 为 MODE；改成“每条直接开一个话题”要带 `confirm: true`）。
-- `untrust`（`key`）：移除一条记住的工作区。
+- `untrust`（`key`）：已下线（v24），回 failed“记住的工作区已下线：管家开的话题一律直接开工”。
 - `note`（`workspace`、`note`）：工作区用途，空串清掉。
 - `redaction`（`name`、`on`）：脱敏的“不区分大小写”“回复还原”。
 - `terms`（`add`、`remove` 是原词列表）：一次先删后加；删的按“不区分大小写”开关比、不在的跳过，加的已在词表里跳过；有一个加不进（太短、太长、控制字符、`=>`、超 1000 个）就一个都不存。回执只说个数，不写原词（回执存在网页的发件箱里）。
@@ -273,3 +273,4 @@
 | v21 | 话题的 `config`；`switch` 操作；`say` 的 `files` 和取附件的两个开放接口 |
 | v22 | `settings` 的新话题、管家两页并成 `config`，加独立复核一段 |
 | v23 | 管家那一轮的 `handed`、话题回答的 `relayed_at`（私聊区） |
+| v24 | `config` 的每一行加 `line`（卡片上并排的那一行，从 1 起；行序按卡片的排法：新话题 工作区、运行方式、脱敏，管家 工作区、脱敏、压缩阈值）；去掉新话题的“直接开工”行、`start_note`、`trusted`；`untrust` 下线 |

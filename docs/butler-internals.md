@@ -143,7 +143,7 @@
   - 工作区只认已登记的名字（`core/workspaces.py`），设置了 `topic_defaults.workspace` 就总用它。
   - Harness、模型、预算逐项取值（`app/butler_model_choice.py`）：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置 > Bridge 默认。上次的值已不可用时往下找；调用给的不可用时回错误并列出可选。主人点名用哪个 Harness、模型、思考预算时，工具说明和管家规则都要求照填（`harness` 写 id，也认显示名，如 Claude Code，不分大小写、忽略空格和连字符）；没点名就不填。
   - topic.json 写 `origin`（`kind: "main"`、`request`、`job_key`、`why`、`readonly`、`user_requested`、`title`）。
-  - `starts_at_once` 为真时照分叉绑定配置（`workspace_locked`、`harness_locked`），第一轮直接提交；否则（或运行方式是独立 worktree）话题里出启动卡，预选在 `origin.launch`。
+  - 运行方式不是独立 worktree 时（`plan["start"]`）照分叉绑定配置（`workspace_locked`、`harness_locked`），第一轮直接提交；否则话题里出启动卡，预选在 `origin.launch`。
 - **`topic_send`**：管家自己和代答话题不接。`text` 是任务说明，`note` 一句背景，都只给模型。
   - 有没结束的任务：作为补充交给最新那个（`deliver_steer`），话题串里出“管家转来你 HH:MM 的补充：”加主人原话。被拒（`SteerRefused`）、不确定（`SteerUncertain`）都照实回答，不重发（规则 6）。
   - 已经停了：串里出“管家转来你 HH:MM 的消息：”，再照话题里的消息处理（有没答的问题就作为回答，否则开下一轮）。还在等启动卡的话题不转。
@@ -216,9 +216,9 @@
 
 ## 设置卡的细节
 
-- 不用下拉框：每行点开是选项，点一个就记下并整卡重画。可选项和启动卡同源（`cards/launch_config.py` 的 `tiers`、`budget_options`）。留空的项（“跟上次一样”）写实际会用什么。
+- 不用下拉框：每项点开是选项，点一个就记下并整卡重画；一行里几项并排（`lines`、`setting_line`，见 cards.md）。可选项和启动卡同源（`cards/launch_config.py` 的 `tiers`、`budget_options`）。留空的项（“跟上次一样”）写实际会用什么。
 - **私聊模式**：管家模式下选“每条直接开一个话题”不马上存，卡上出一句后果（`MODE_CONFIRM`）和“取消”“确定改”；“确定改”是 `bridge_main_enable`（`on: false`），点别的任何一项都收起这句。选“交给管家”马上存。旧卡上的“改成纯话题 / 改成管家”按钮（同一个 kind）照旧马上生效。
-- **直接开工**：三档不是 `START_CHOICES` 之一时（以前一档一档开关过），这一行照实写开着的几档，选一项后换成那一项。旧卡上一档一个的按钮（`bridge_main_start`）照旧能点。
+- **直接开工已下线**：旧卡上的 `bridge_main_start`、`bridge_main_start_row`、`bridge_main_untrust` 仍归设置卡认领（`RETIRED_KINDS`），点了不改设置，回执写 `RETIRED_NOTICE`，卡按现在的样子重画。
 - **脱敏默认**：只有配置页新话题一段的这一行（`topic_defaults.redaction`）。脱敏标签以前的“新话题默认开”（`redaction/config.json` 的 `default_on`）不再读；`core/migrate.py` 的 `redaction-default` 在它开着时把这一行打开一次。
 - **配置一页**：以前的新话题、管家两页（以及短暂存在过的模型页）合成「配置」（`cards/settings_hub.py` 的 `CONFIG`），旧页签的键 `topic`、`main`、`models` 退役到它（`RETIRED`）：旧卡上点这些页签、停在这些页上的记录、这些页上的按钮都落到配置页，按钮照存并展开它所在的段（`PAGE_OF`、`PART_OF`）。「展开」是 `bridge_main_section`，只改卡片的 `view.open`，不改设置。网页工作台的设置页仍是新话题、管家两页（`app/web_settings.py` 的 `web_tabs`）。
 - **独立复核的模型**存在 `main-thread.json` 的 `review`（`harness`、`model`、`effort`；`core/butler_settings.py` 的 `ReviewModel`），`harness` 空是自动挑。选 Harness 时带上它目录里第一个模型和一档说得出名字的思考预算，和管家的一样；选“自动挑”清空三项。旧版本不认这一项，回滚后再改设置会丢掉它。

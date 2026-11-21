@@ -3,10 +3,9 @@ settings card (app/butler_panel.py); the butler cannot change its own. A missing
 its default, so an older or hand-edited file still loads. The private chat mode (``enabled``) is read through
 core/butler.py ``agent_mode``, the one rule every process (task runners, the MCP server) shares.
 
-``starts_at_once`` is Persona's planStartsAtOnce (nwverse/persona server/internal/assistant/tasks.go): a topic the
-butler opens starts at once when it only reads, when the owner asked for that very work in the message, or
-when it is a kind (workspace × reads or edits) the owner told it to start without asking; any other waits on its
-launch card for the owner's 开始任务.
+A topic the butler opens always starts at once (its only wait is a worktree's launch card). The settings 直接开工
+(``start``) and 记住的工作区 (``trusted``) that decided it are retired (docs/legacy.md): a file that still has them
+loads, they are not read and not written back.
 """
 from __future__ import annotations
 
@@ -21,7 +20,6 @@ FILE = contract.SETTINGS_FILE
 SCHEMA = 1
 COMPACT_TOKENS = 200_000
 RUN_MODES = ("direct", "worktree")  # core/workspaces.py RUN_MODES: 原目录, 独立 worktree.
-TIERS = ("readonly", "requested", "trusted")  # What may start at once (starts_at_once).
 # Which models Claude Code's subagents run on, in every Claude Code turn the Bridge starts (topics and the butler
 # ; backends/claude/subagents.py): "light" Sonnet, with a read-only Explore on Haiku; "same" Claude Code's own
 # way (each on the turn's model). Bot-wide, under 更多 on the 设置 card's 配置; missing or unknown reads as "light".
@@ -66,8 +64,6 @@ class Settings:
     workspace: str = ""  # Where the butler runs; "" the default workspace.
     compact_tokens: int = COMPACT_TOKENS  # Its context is compacted between turns past this; 0 never.
     topic_defaults: TopicDefaults = TopicDefaults()
-    start: tuple = TIERS  # The kinds of topic that start at once (TIERS).
-    trusted: tuple = ()  # trust_key()s the owner told it to start without asking.
     workspace_notes: tuple = ()  # (workspace name, one line on what it is for), in the owner's order.
     subagents: str = SUBAGENTS[0]  # SUBAGENTS.
     review: ReviewModel = ReviewModel()  # 独立复核's model (ReviewModel); saved as ``review``.
@@ -83,16 +79,6 @@ class Settings:
 
     def note(self, workspace: str) -> str:
         return dict(self.workspace_notes).get(workspace, "")
-
-
-def trust_key(workspace: str, readonly: bool) -> str:
-    return f"{workspace}|{'read' if readonly else 'edit'}"
-
-
-def starts_at_once(settings: Settings, *, workspace: str, readonly: bool, user_requested: bool) -> bool:
-    return (("readonly" in settings.start and bool(readonly))
-            or ("requested" in settings.start and bool(user_requested))
-            or ("trusted" in settings.start and trust_key(workspace, readonly) in settings.trusted))
 
 
 def _text(value, default=""):
@@ -116,8 +102,6 @@ def from_json(data) -> Settings:
             harness=_text(topic.get("harness")), model=_text(topic.get("model")), effort=_text(topic.get("effort")),
             run_mode=run_mode if run_mode in RUN_MODES else "direct",
             redaction=topic.get("redaction") is True, workspace=_text(topic.get("workspace"))),
-        start=tuple(t for t in TIERS if t in data["start"]) if isinstance(data.get("start"), list) else base.start,
-        trusted=tuple(k for k in data.get("trusted") or () if isinstance(k, str) and "|" in k),
         workspace_notes=tuple((str(k), str(v)) for k, v in notes.items() if isinstance(v, str))
         if isinstance(notes, dict) else (),
         subagents=data["subagents"] if data.get("subagents") in SUBAGENTS else base.subagents,
@@ -128,7 +112,7 @@ def from_json(data) -> Settings:
 def to_json(settings: Settings) -> dict:
     data = dataclasses.asdict(settings)
     data.update(schema_version=SCHEMA, mode=contract.AGENT if settings.enabled else contract.TOPICS,
-                start=list(settings.start), trusted=list(settings.trusted), workspace_notes=dict(settings.workspace_notes))
+                workspace_notes=dict(settings.workspace_notes))
     return data
 
 

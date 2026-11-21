@@ -84,14 +84,15 @@ def tap(value, elements, padding):
             'behaviors': [{'type': 'callback', 'value': value}], 'elements': elements}
 
 
-def setting_row(setting, *, token, open_key='', changed=False, stamp='', value=None):
+def setting_row(setting, *, token, open_key='', changed=False, stamp='', value=None, cell=False):
     """A settings-list row: a fold whose title is the label, grey (blue and bold when ``changed``), then the
     choice, and whose options open under it in the client (``open_key``: the row drawn open). Its element ID
     takes ``stamp`` (else the card's token, new on each launch card): the client keeps a fold open or closed
     across a redraw of the same ID (the web client kept a row open after its choice), so a choice's
     redraw closes the row. An option is
     one tappable line, two card nodes (a card holds 200), the current one blue and bold after ✓, the others
-    after a full-width space so the names line up. ``value``: more fields of each option's callback (the 代答 tab's
+    after a full-width space so the names line up. ``cell``: a row of a line (setting_line) as a small unit, its title the label
+    in grey over the choice. ``value``: more fields of each option's callback (the 代答 tab's
     revision)."""
     label = f"**<font color='blue'>{setting.label}</font>**" if changed else grey(setting.label)
     lines = [tap({'kind': setting.kind, 'token': token, **(value or {}), 'option': option},
@@ -101,8 +102,28 @@ def setting_row(setting, *, token, open_key='', changed=False, stamp='', value=N
     options = {'tag': 'column_set', 'flex_mode': 'none', 'columns': [
         {'tag': 'column', 'width': 'weighted', 'weight': 1, 'background_style': 'bg-white',
          'padding': '2px 8px 2px 8px', 'vertical_spacing': '0px', 'elements': lines}]}
-    return fold(f'set_{setting.key}_{stamp or token[:4]}', md(f'{label}　{setting.text}'), [options],
-                expanded=setting.key == open_key, padding='0px 0px 6px 0px', spacing='0px', title_padding='7px 0px 7px 0px')
+    title = md(f'{label}\n{setting.text}') if cell else md(f'{label}　{setting.text}')
+    return fold(f'set_{setting.key}_{stamp or token[:4]}', title, [options],
+                expanded=setting.key == open_key, padding='0px 0px 6px 0px', spacing='0px',
+                title_padding='5px 0px 5px 0px' if cell else '7px 0px 7px 0px')
+
+
+# A line of settings (setting_line): the rows side by side as small units, the label over the choice, each still a fold whose
+# options open under its unit. 'flow': the units are as wide as their words and wrap where the card is narrow (the
+# 话题侧栏, a phone), so a line is one line where it fits and two where it does not, never a label cut short; 'bisect'
+# is the same two to a line whatever the width (columns of equal width, the fallback if a client lays 'flow' out badly).
+LINE_FLEX = 'flow'
+
+
+def setting_line(settings, *, token, stamp='', value=None):
+    """``settings`` as one line of units (setting_row ``cell``) in a column_set; a line of one is that row alone."""
+    cells = [setting_row(s, token=token, stamp=stamp, value=value, cell=True) for s in settings]
+    if len(cells) == 1:
+        return setting_row(settings[0], token=token, stamp=stamp, value=value)
+    equal = LINE_FLEX in ('bisect', 'trisect')
+    columns = [{'tag': 'column', 'width': 'weighted' if equal else 'auto', **({'weight': 1} if equal else {}),
+                'vertical_align': 'top', 'elements': [cell]} for cell in cells]
+    return {'tag': 'column_set', 'flex_mode': LINE_FLEX, 'horizontal_spacing': '12px', 'columns': columns}
 
 
 def model_settings(choices, model, *, kinds, revision, effort, work_mode=''):

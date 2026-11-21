@@ -233,6 +233,17 @@
 | `bridge_fork` | 💬 侧聊、🔀 分叉 | 要从这个话题分出新话题，在私聊里跟管家说 |
 | `bridge_compact` | 📦 压缩上下文 | 会话快到模型窗口时，Claude Code 会自己压缩 |
 
+设置卡的 `bridge_main_start`、`bridge_main_start_row`、`bridge_main_untrust`（直接开工、记住的工作区）不走这条：它们仍由设置卡认领（`app/butler_panel.py`，`RETIRED_KINDS`），回一句“直接开工已下线”并重画，不改设置。
+
+### 设置卡配置页的一行多项
+
+配置页一段里的几项并排成一行（`cards/butler_panel.py` 的 `lines`、`cards/launch_config.py` 的 `setting_line`）：新话题第一行 Harness、供应商、模型、思考预算，第二行工作区、运行方式、脱敏；管家第一行同上，第二行工作区、脱敏、压缩阈值，私聊顶层的消息单独一行；独立复核四项一行；更多是子 Agent 一项。
+
+- 一行是一个 `column_set`，`flex_mode` 取 `LINE_FLEX`（默认 `flow`），每格一个 `auto` 宽的 `column`，里面还是原来的折叠行 `setting_row`（`cell=True`：标题是灰色标签在上、当前值在下），点开列选项，点一个选项照旧记下并整卡重画。不用下拉框（`select`）的原因不变：iOS 飞书的 select 是全屏选择器，取消按钮在状态栏下面（见 `cards/launch_config.py` 的模块说明）。
+- `flow` 让格子按文字宽度排，放不下就换行：电脑上一行放下，话题侧栏（约 300px）和手机上折成两三行，不会把标签截成“…”。某个客户端把 `flow` 排坏时，把 `LINE_FLEX` 改成 `bisect`（每格等宽、每行两格），其余代码不用动。
+- 只有一项的行（子 Agent、私聊顶层的消息）还是原来的整行折叠。一格比原来多一个 `column`，每行多一个 `column_set`；元素数仍按 `CARD_NODES` 的预算由 `fits` 裁选项。
+- 卡片 JSON 变了，要真机验收（手机、话题侧栏、深色）：格子换行、点开的选项宽度、点开后其余格的位置。
+
 ## 卡片的客户端限制
 
 - 不要单独替换表单里的一个组件，表单内容要变时整卡替换（来由）。

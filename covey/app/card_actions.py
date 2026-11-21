@@ -165,7 +165,7 @@ ACTIONS = {
     # The 管家 settings card (cards/butler_panel.py KINDS).
     "bridge_main_enable": CardAction("开关管家"),
     "bridge_main_mode": CardAction("选择私聊模式"),
-    "bridge_main_start_row": CardAction("选择直接开工"),
+    "bridge_main_start_row": CardAction("直接开工（已下线）"),
     "bridge_main_harness": CardAction("选择管家 Harness"),
     "bridge_main_workspace": CardAction("选择管家工作区"),
     "bridge_main_model": CardAction("选择管家模型"),
@@ -186,8 +186,8 @@ ACTIONS = {
     "bridge_main_review_model": CardAction("选择独立复核模型"),
     "bridge_main_review_effort": CardAction("选择独立复核思考预算"),
     "bridge_main_section": CardAction("展开设置的一段"),
-    "bridge_main_start": CardAction("设置直接开工"),
-    "bridge_main_untrust": CardAction("删除记住的工作区"),
+    "bridge_main_start": CardAction("直接开工（已下线）"),
+    "bridge_main_untrust": CardAction("记住的工作区（已下线）"),
     "bridge_main_notes": CardAction("保存工作区用途"),
     # The 设置 card's tab row (cards/settings_hub.py KINDS).
     "bridge_settings_tab": CardAction("切换设置标签"),
