@@ -552,6 +552,29 @@ class Questions:
                                      recovery_context=recovery_context, title=title, policy_retry=policy_retry,
                                      sender_id=sender_id)
 
+    def retire_orphaned_live_questions(self, ctx, chat):
+        """The topic's pending live questions (``native_live_question``) whose task is gone: no task runner or job of this
+        Bridge has it and its record is not running. Nothing can answer one any more (only that task held the backend
+        control) and it would hold every later message of the topic, so it is cancelled. A task that ended before its
+        backend's cancel_questions reached a question it never showed left one (T488 #5528, T620). The ones cancelled."""
+        if self.runtime.in_runner:
+            return []
+        retired = []
+        for path, row in directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat,
+                                                                            status="pending"):
+            if row.get("native_live_question") is not True or triage.held(row):
+                continue
+            key = str(row.get("job_key") or "")
+            if not key or _still_running(self.runtime, ctx.state_dir, key, find_job_record(ctx.state_dir, key)):
+                continue
+            with question_card_lock(path):
+                record = transition_question(path, {"pending"}, status="cancelled", cancelled_reason="task_ended")
+            if record:
+                self.paint_question_state(ctx, record)  # Nothing for one never shown.
+                self.runtime.log(f"orphaned live question cancelled token={record['token'][:10]} job=#{record.get('job_id')}")
+                retired.append(record)
+        return retired
+
     def undelivered_checkpoint_jobs(self, ctx, chat):
         return self.checkpoints.undelivered_jobs(ctx, chat)
 

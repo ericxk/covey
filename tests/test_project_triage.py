@@ -1073,5 +1073,50 @@ class ForwardedAnswerTest(Held):
         self.assertNotIn("已替主人答了", answer["text"])
 
 
+
+class EndedTaskQuestionTest(HeldFixture):
+    """T488, 2026-11-21: the owner stopped #5528 while its AskUserQuestion was never shown (handed on to the owner, its card not
+    sent). Its question stayed pending with display_pending, and every later message of the topic got 原结果或问题控件尚未送达.
+    A task's end cancels its questions never shown too, and a live question whose task is gone no longer holds the topic."""
+
+    def setUp(self):
+        super().setUp()
+        self.record.update(native_live_question=True, display_pending=True, body_delivery_required=False,
+                           request_id="req-live", triage={"state": triage.ESCALATED, "project": PID, "by": "lead"})
+        self.path.write_text(json.dumps(self.record))
+        caps = mock.patch("covey.core.harness.backend_capabilities", return_value=SimpleNamespace(questions=True, steering=True))
+        caps.start()
+        self.addCleanup(caps.stop)
+        self.app.messenger.reply = mock.Mock(return_value=True)
+
+    def status(self):
+        return json.loads(self.path.read_text())["status"]
+
+    def test_the_end_of_the_task_cancels_a_question_never_shown(self):
+        self.app.questions.dispatch_question_event(self.ctx_topic, self.job, "cancel_questions", {}, None)
+        self.assertEqual(self.status(), "cancelled")
+
+    def test_a_held_question_goes_with_its_task_too(self):
+        data = json.loads(self.path.read_text())
+        data["triage"] = {"state": triage.HELD, "project": PID, "deadline": time.time() + 100}
+        self.path.write_text(json.dumps(data))
+        self.app.questions.dispatch_question_event(self.ctx_topic, self.job, "cancel_questions", {}, None)
+        self.assertEqual(self.status(), "cancelled")
+
+    def test_a_live_question_of_a_task_that_ended_no_longer_refuses_the_owner(self):
+        self.app.runtime.jobs.unregister(self.job)
+        upsert_job_record(self.state, self.job.message_id, status="cancelled", execution_status="cancelled",
+                          question_delivery_ok=False, checkpoint_question_deferred=False)
+        self.app.interaction.interactive_command(self.ctx_topic, "继续", "oc_chat", "m-owner")
+        self.assertEqual(self.status(), "cancelled")
+        self.assertFalse(any("尚未送达" in str(call.args[2]) for call in self.app.messenger.reply.call_args_list))
+
+    def test_while_its_task_still_runs_it_stays_and_the_owner_is_told(self):
+        self.assertEqual(self.app.questions.retire_orphaned_live_questions(self.ctx_topic, "oc_chat"), [])
+        self.app.interaction.interactive_command(self.ctx_topic, "继续", "oc_chat", "m-owner")
+        self.assertEqual(self.status(), "pending")
+        self.assertIn("尚未送达", self.app.messenger.reply.call_args.args[2])
+
+
 if __name__ == "__main__":
     unittest.main()

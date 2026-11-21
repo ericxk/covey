@@ -64,11 +64,15 @@ class NativeQuestions:
                         self.cards.set_task_element(ctx, job, question_element(record))
             return
         if kind == "cancel_questions":
-            for record in self.questions.pending_questions(ctx, job.chat_id):
-                if record["job_id"] == job.job_id:
-                    record = transition_question(ctx.state_dir / "questions" / (record["token"] + ".json"), {"pending"}, status="cancelled")
-                    if record:
-                        self.questions.paint_question_state(ctx, record)
+            # Every pending question of the task, the ones never shown too (display_pending: held for a project's lead,
+            # or whose card did not go): pending_questions lists only shown ones, and one left pending holds every later
+            # message of its topic once its task is gone (T620).
+            rows = directory_store(ctx.state_dir / "questions").query(job_id=job.job_id, topic_id=ctx.topic_id,
+                                                                      chat_id=job.chat_id, status="pending")
+            for path, _ in rows:
+                record = transition_question(path, {"pending"}, status="cancelled")
+                if record:
+                    self.questions.paint_question_state(ctx, record)  # Nothing for one never shown.
             return
 
     def mirror(self, ctx, job, path):

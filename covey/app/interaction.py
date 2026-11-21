@@ -246,6 +246,9 @@ class Interaction:
             # their message is its answer or a note, not a refusal for a card that was never shown).
             triage_flow.owner_spoke(triage_flow.ENV, ctx.topic_id, chat)
             rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
+        if any(row.get("native_live_question") is True for _, row in rows) and \
+                self.questions.retire_orphaned_live_questions(ctx, chat):
+            rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
         timing.mark("cmd_questions")
         undelivered = self.questions.undelivered_checkpoint_jobs(ctx, chat)
         timing.mark("cmd_undelivered")
