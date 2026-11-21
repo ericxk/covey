@@ -370,6 +370,37 @@ class LookTest(unittest.TestCase):
         messenger = SimpleNamespace(reply=lambda ctx, chat, text, key, voice: replies.append((chat, text, key)))
         return StuckCheck(harness, runtime=SimpleNamespace(log=lambda line: None), messenger=messenger)
 
+    def test_the_small_model_words_it_on_any_harness_unless_the_topic_redacts(self):
+        # #17: a Codex topic's 看看 is worded by Haiku through this Bridge's Claude Harness; without one, or for a topic
+        # that redacts, the rules' sentence stands.
+        from covey.app import stuck_check
+        from covey.app.stuck_check import StuckCheck
+        from covey.core.redaction import TOPIC_KEY
+        from covey.core.state import write_json
+
+        state = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(state, ignore_errors=True))
+        write_json(state / "topics" / "t1" / "topic.json", {"topic_id": "t1"})
+        claude = SimpleNamespace(harness=SimpleNamespace(backend="claude-backend",
+                                                         context=SimpleNamespace(backend_cmd=["claude"], state_dir=state)))
+        codex = SimpleNamespace(spec=SimpleNamespace(name="codex"), backend="codex-backend", voice=None)
+        ctx = SimpleNamespace(state_dir=state, backend_cmd=["codex"])
+        record = {"topic_id": "t1"}
+        with mock.patch.object(stuck_check, "ask_model", return_value="还在跑测试") as ask:
+            check = StuckCheck(codex, runtime=None, messenger=None, topics=SimpleNamespace(apps={"claude": claude}))
+            self.assertEqual(check.worded(ctx, record, {}, "规则"), "还在跑测试")
+            self.assertEqual(ask.call_args.args[2:], ("claude-backend", claude.harness.context))
+            alone = StuckCheck(codex, runtime=None, messenger=None, topics=SimpleNamespace(apps={}))
+            self.assertEqual(alone.worded(ctx, record, {}, "规则"), "")  # No Claude Harness here.
+            own = StuckCheck(SimpleNamespace(spec=SimpleNamespace(name="claude"), backend="own", voice=None),
+                             runtime=None, messenger=None)
+            self.assertEqual(own.worded(ctx, record, {}, "规则"), "还在跑测试")  # A Claude topic asks its own, as before.
+            self.assertEqual(ask.call_args.args[2:], ("own", ctx))
+            write_json(state / "topics" / "t1" / "topic.json", {"topic_id": "t1", TOPIC_KEY: True})
+            calls = ask.call_count
+            self.assertEqual(check.worded(ctx, record, {}, "规则"), "")  # It redacts: nothing goes to a model.
+            self.assertEqual(ask.call_count, calls)
+
     def test_a_click_on_an_ended_turn_says_so_and_a_running_one_is_looked_at_once(self):
         from covey.app import stuck_check
         replies = []

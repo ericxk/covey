@@ -107,7 +107,7 @@ class BridgeApp:
         self.artifacts = Artifacts(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                    copies=self.questions)
         self.turn_export = TurnExport(harness, runtime=runtime, cards=self.cards, artifacts=self.artifacts)
-        self.stuck_check = StuckCheck(harness, runtime=runtime, messenger=messenger)
+        self.stuck_check = StuckCheck(harness, runtime=runtime, messenger=messenger, topics=topics)
         self.switch = SwitchHandoff(harness, runtime=runtime, cards=self.cards, topics=topics)
         self.steering = Steering(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                  record_job_state=record_job_state, enqueue_chat_job=enqueue_chat_job,

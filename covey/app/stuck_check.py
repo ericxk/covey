@@ -6,9 +6,10 @@ may be the stuck one) and looks in a thread of its own (``look``): the job's tas
 the processes under it and which of them used the CPU over SAMPLE_SECONDS (``processes``: names and states, never their
 command lines), when its runner.log was last written and its last lines, the trace's latest steps and the turn's
 progress. ``verdict`` says in one sentence what that means (still working, waiting for a command, waiting for the
-model, its runner gone); with the Claude Harness and a topic that does not redact, the small model (app/track_judge.py's
-way of asking: Haiku, no tools, no session, killed at MODEL_SECONDS) words that sentence from the same facts, and the
-rules' sentence stands when it cannot. The reply is that sentence and the facts it rests on. Nothing is stopped,
+model, its runner gone); for a topic that does not redact, the small model (app/track_judge.py's way of asking: Haiku
+through this Bridge's Claude Harness, no tools, no session, killed at MODEL_SECONDS) words that sentence from the same
+facts, on any Harness's topic (#17: a topic of another Harness is asked about through the Claude Harness, when this
+Bridge has one), and the rules' sentence stands when it cannot. The reply is that sentence and the facts it rests on. Nothing is stopped,
 changed or started, and no task runs.
 
 The stops route's 看原因 (a turn that ended) is the same kind of read-only look; the two are to be merged.
@@ -218,12 +219,14 @@ def ask_model(found, rule, backend, ctx, limit=MODEL_SECONDS) -> str:
 
 
 class StuckCheck:
-    """One Harness's 看看 (the module). ``harness``: its job records, its name and backend; ``messenger``: the reply."""
+    """One Harness's 看看 (the module). ``harness``: its job records, its name and backend; ``messenger``: the reply;
+    ``topics``: the Bridge's Harnesses, whose Claude one judges another Harness's topic."""
 
-    def __init__(self, harness, *, runtime, messenger) -> None:
+    def __init__(self, harness, *, runtime, messenger, topics=None) -> None:
         self.harness = harness
         self.runtime = runtime
         self.messenger = messenger
+        self.topics = topics  # The Bridge's Harnesses: another Harness's topic is judged through the Claude one.
         self.voice = harness.voice
         self.looking = set()  # Job keys looked at now: a second click meanwhile adds nothing.
         self.lock = threading.Lock()
@@ -269,18 +272,26 @@ class StuckCheck:
                 self.looking.discard(key)
 
     def worded(self, ctx, record, found, rule) -> str:
-        """The small model's sentence, '' unless the topic's Harness is Claude Code and the topic does not redact."""
-        if getattr(getattr(self.harness, "spec", None), "name", "") != "claude":
-            return ""
+        """The small model's sentence, '' when it cannot be asked safely: the topic redacts (its facts would reach a model
+        unredacted), or no Claude Harness can ask it (``judge``)."""
         try:
             if topic_redaction(ctx.state_dir, record.get("topic_id")):
                 return ""
         except ValueError:
             return ""
-        backend = getattr(self.harness, "backend", None)
-        if backend is None or not getattr(ctx, "backend_cmd", None):
+        backend, judge_ctx = self.judge(ctx)
+        if backend is None or judge_ctx is None or not getattr(judge_ctx, "backend_cmd", None):
             return ""
-        return ask_model(found, rule, backend, ctx)
+        return ask_model(found, rule, backend, judge_ctx)
+
+    def judge(self, ctx):
+        """(backend, context) the small model is asked through: this Harness's own when it is Claude Code, else this
+        Bridge's Claude Harness (``topics``; #17); (None, None) without one."""
+        if getattr(getattr(self.harness, "spec", None), "name", "") == "claude":
+            return getattr(self.harness, "backend", None), ctx
+        apps = getattr(self.topics, "apps", None) or {}
+        claude = getattr(apps.get("claude"), "harness", None)
+        return getattr(claude, "backend", None), getattr(claude, "context", None)
 
     def reply(self, ctx, chat, text, name, event_id):
         if chat:
