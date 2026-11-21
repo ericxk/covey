@@ -6,10 +6,10 @@ that takes it (``handler``: app/app.py dispatches a topic's click by it). Launch
 pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 (app/rewind.py) are matched before this table and are not in it. The 代答设置 card's kinds, the
 重新发送 card's, the 代发草稿 card's, 群管理's, the 脱敏 tab's (the retired 敏感词看板's 换口令 too), the 管家 settings card's, the 设置 card's tabs, 手上的事's
-这些都不用回答了, 飞书应用待补's, a group's menu card and the shared session's control are here but never reach a task, so
+这些都不用回答了, 飞书应用待补's, the welcome card's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
 app/owner_send.py, app/group_manager.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
-app/overview.py, app/digest.py, app/app_setup.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
+app/overview.py, app/digest.py, app/app_setup.py, app/welcome.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
 from __future__ import annotations
@@ -176,6 +176,9 @@ ACTIONS = {
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).
     "bridge_app_setup": CardAction("补齐飞书应用配置"),
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),
+    # 发这句 on the welcome card (cards/welcome.py KIND): the owner's, taken before topic routing (app/welcome.py); bot_only:
+    # its example becomes a message of the owner's, which starts a task.
+    "bridge_welcome_try": CardAction("发欢迎卡上的示例", bot_only=True),
     # The menu card of a group with a butler (app/group_menu.py KIND).
     "bridge_group_menu": CardAction("群里的菜单"),
     # 以后这类按推荐走 under a question card and its own card's 记下 / 改一下 / 算了 (app/standing_answers.py): the Bridge

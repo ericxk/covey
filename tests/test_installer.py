@@ -3,6 +3,7 @@ QR 编码对照 lark-cli 自己画的真实二维码；Harness 探测的分类�
 没有浏览器时的退路、扩展钩子、服务注册的参数，全部用假 lark-cli 和假浏览器驱动，不联网。"""
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import stat
@@ -15,7 +16,7 @@ from unittest import mock
 
 from support import REPO, exec_tempdir
 
-from covey.core import app_manifest, qr
+from covey.core import app_manifest, qr, welcome
 from covey.service import install_probe, installer
 from covey.service.install_probe import Probe
 
@@ -542,6 +543,65 @@ class ServiceTest(InstallerCase):
     def test_boot_registration_failing_is_said_not_fatal(self):
         ins, _ = self.start(install_code=2)
         self.assertTrue(any("开机自启没注册上" in x for x in ins.leftovers))
+
+
+class AnswerWaitTest(InstallerCase):
+    """docs/install.md 第一个回答: after the service is up, a run in a terminal waits for the first answer in the private
+    chat (core/welcome.py first_answer), says each step once, and ends on Ctrl-C or after ANSWER_SECONDS: never a failure."""
+
+    def finish(self, stages, *, interactive=True, ready=True, state=welcome.SENT, seconds=None):
+        """run() with every step done and the service ready or not, ``first_answer`` answering ``stages`` (a list, one
+        per look, or one stage for every look): its exit code."""
+        ins = self.make(interactive=interactive)
+        ins.app_id, ins.poll_seconds, ins.answer_seconds = "cli_fake", 0, seconds
+        folder = self.data / "harness-cli_fake"
+        folder.mkdir(parents=True, exist_ok=True)
+        if state:
+            (folder / welcome.RECORD).write_text(json.dumps({"state": state}))
+        answer = {"side_effect": stages} if isinstance(stages, list) else {"return_value": stages}
+        with contextlib.ExitStack() as stack:
+            for name in ("check_environment", "ensure_lark_cli", "check_harnesses", "feishu_app", "start_service"):
+                stack.enter_context(mock.patch.object(installer.Installer, name))
+            stack.enter_context(mock.patch.object(installer.Installer, "write_harness_config",
+                                                  return_value=self.data / "harnesses.json"))
+            stack.enter_context(mock.patch.object(installer.Installer, "wait_ready",
+                                                  lambda self: setattr(self, "ready", ready)))
+            self.looked = stack.enter_context(mock.patch.object(installer.welcome, "first_answer", **answer))
+            return ins.run()
+
+    def test_a_terminal_run_waits_until_the_first_answer_and_says_each_step_once(self):
+        stages = [welcome.NONE, welcome.NONE, welcome.LAUNCH, welcome.LAUNCH, welcome.RECEIVED, welcome.ANSWERED]
+        self.assertEqual(0, self.finish(stages))
+        self.assertIn("完成。去飞书私聊刚建的机器人发一句话，这里等它回答（最多 10 分钟，Ctrl-C 不等）。", self.text())
+        said = [line.strip() for line in self.lines[self.lines.index(next(x for x in self.lines if "这里等它回答" in x)) + 1:]]
+        self.assertEqual(said, ["私聊里有一张欢迎卡，点上面的示例也行", installer.ANSWER_WORDS[welcome.LAUNCH],
+                                installer.STARTED_WORDS, installer.ANSWER_WORDS[welcome.ANSWERED]])
+        self.assertEqual(self.looked.call_args.args[0], self.data / "harness-cli_fake")
+
+    def test_running_out_is_no_failure_and_says_what_to_look_at(self):
+        for stage, words in ((welcome.NONE, "扫码后机器人没反应"), (welcome.LAUNCH, "开始任务"), (welcome.RECEIVED, "发消息后没有反应")):
+            with self.subTest(stage=stage):
+                self.lines.clear()
+                self.assertEqual(0, self.finish(stage, seconds=0))
+                self.assertEqual(self.lines[-1], installer.TIMEOUT_WORDS[stage])
+                self.assertIn(words, self.lines[-1])
+                self.assertIn("不影响安装", self.lines[-1])
+
+    def test_ctrl_c_ends_the_wait_and_the_install_is_done(self):
+        self.assertEqual(0, self.finish([welcome.NONE, KeyboardInterrupt()]))
+        self.assertIn("不等了；机器人照常在运行。", self.text())
+        self.assertNotIn("已取消", self.text())
+
+    def test_no_terminal_no_service_or_a_chat_answered_before_waits_for_nothing(self):
+        plain = "\n完成。去飞书私聊刚建的机器人发一句话。"
+        for case in ({"interactive": False}, {"ready": False}, {"state": welcome.SKIPPED}, {"stages": welcome.ANSWERED}):
+            with self.subTest(**{key: str(value) for key, value in case.items()}):
+                self.lines.clear()
+                self.assertEqual(0, self.finish(**{"stages": welcome.NONE, **case}))
+                self.assertEqual(self.lines[-1], plain)
+                self.assertNotIn("这里等它回答", self.text())
+                if "stages" not in case:
+                    self.looked.assert_not_called()
 
 
 class AppReadyTest(InstallerCase):

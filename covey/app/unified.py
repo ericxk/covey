@@ -104,7 +104,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'redaction_panel', 'nodes.panel',
-              'butler_panel', 'settings_hub', 'overview', 'digest', 'app_setup', 'group_menu', 'project_tidy',
+              'butler_panel', 'settings_hub', 'overview', 'digest', 'app_setup', 'welcome', 'group_menu', 'project_tidy',
               'standing_answers')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
@@ -114,7 +114,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
              'project_loop', 'patrol', 'devices', 'nodes', 'web_sync', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
-             'standing_answers')
+             'standing_answers', 'welcome')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -192,6 +192,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.source_watch import SourceWatch
         from covey.app.topic_seen import TopicSeen
         from covey.app.weekly_usage import WeeklyUsage
+        from covey.app.welcome import Welcome
         from covey.app.workspace_manager import WorkspaceManager
         with self.parts_lock:
             if 'features' in self.__dict__:
@@ -242,6 +243,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             # The Feishu app kept up with the Bridge (app/app_setup.py): what it lacks offered in the owner's private
             # chat, added by the developer console after a QR login.
             self.app_setup = AppSetup(self.runtime, self.messenger, self.voice)
+            # The welcome card (app/welcome.py): once per new deployment, at the top of the owner's private chat; its
+            # examples are taken as the owner's own messages, through handle_event.
+            self.welcome = Welcome(self.runtime, self.messenger, self.voice, self.topics, self.handle_event)
             # The 派发卡 (app/dispatch_cards.py), when COVEY_DISPATCH_CARD=1: the thread that keeps the cards of
             # the work the butler handed to topics up to date; without the switch it has no thread.
             self.dispatch_cards = DispatchCards(self.runtime, self.messenger, self.voice, self.titles)
@@ -272,7 +276,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.source_watch = SourceWatch(self.runtime, self.topics, self.messenger, self.voice)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.proxy,
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
-                        self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup,
+                        self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup, self.welcome,
                         self.dispatch_cards, self.project_cards, self.projects, self.project_tidy,
                         self.project_loop, self.patrol, self.devices, self.nodes, self.web_sync, self.source_watch,
                         *self.extension_features)
@@ -360,6 +364,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             from covey.core.migrate import migrate
             migrate(ctx.state_dir, log=self.runtime.log)
             self.butler.settle(ctx, self.runtime.log)  # The private chat mode, once (docs/butler.md 私聊模式).
+            self.welcome.settle(ctx)  # Whether this deployment gets its welcome card, once (app/welcome.py).
             if butler_settings.desk_topics_left(ctx.state_dir):  # Retired (docs/butler.md 会话).
                 self.runtime.log(butler_settings.DESK_TOPICS_RETIRED)
             from covey.feishu.sdk import enabled, lark_cli_direct

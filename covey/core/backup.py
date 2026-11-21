@@ -63,11 +63,13 @@ BACKUP_DIRS = {
 # core/memory.py), the butler's settings and the sensitive terms. owner-chat.json names the private chat the menu,
 # 手上的事 and the digests go to; migrations.json the migrations the records backed up with it have had (core/migrate.py).
 # The pinned board's records (pinned-overview.json, pinned-topics.json, board-priority.json, topic-seen.json) and
-# digest.json: what is pinned and sent is known from them alone, so a restore pins and sends nothing twice.
+# digest.json: what is pinned and sent is known from them alone, so a restore pins and sends nothing twice; so is the
+# welcome card's (welcome.json, core/welcome.py), sent once a deployment.
 BACKUP_FILES = {"workspace-config.json", "session_index.jsonl", "bot-identity.json", "launch-defaults.json",
                 "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md",
                 "principles.json", "main-thread.json", "redaction/config.json", "owner-chat.json", "migrations.json",
-                "pinned-overview.json", "pinned-topics.json", "board-priority.json", "topic-seen.json", "digest.json"}
+                "pinned-overview.json", "pinned-topics.json", "board-priority.json", "topic-seen.json", "digest.json",
+                "welcome.json"}
 
 
 # Folders under a backed-up directory that a backup leaves out, by the directory: a project's library/ holds copies of

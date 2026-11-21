@@ -42,6 +42,7 @@
 | 结果、投递与重投 | `app/turn_settle.py`、`app/worker.py`、`app/turn_delivery.py`、`app/redelivery.py`、`app/outbox.py` | [结果授权与投递](docs/architecture.md#结果授权与投递) |
 | 失败、恢复与自动重试 | `core/recovery.py`、`core/failure.py`（原因和下一步）、`app/recovery_cards.py`、`app/auto_retry.py` | [中断与恢复卡](docs/architecture.md#中断与恢复卡) |
 | 设置卡与机器人菜单 | `app/bot_menu.py`、`app/menu_panel.py`、`app/settings_hub.py`、`feishu/events.py` | [机器人菜单](docs/usage.md#机器人菜单) |
+| 欢迎卡（新部署只发一次，`COVEY_WELCOME`）和 `./install` 等第一句回答 | `app/welcome.py`、`cards/welcome.py`、`core/welcome.py`（记录、`first_answer`）、`service/installer.py` 的 `wait_answer` | [第一次使用](docs/usage.md#第一次使用)、[第一个回答](docs/install.md#第一个回答) |
 | 代答 | `app/proxy.py`（批次）、`app/proxy_intake.py`（收消息）、`app/proxy_topics.py`（联系人话题）、`app/proxy_commands.py`（查找、群成员）、`app/proxy_send.py`（读回和发送器接口；发送器 `extensions/covey_internal/proxy_sender.py`、`extensions/covey_internal/proxy_login.py`）、`core/proxy.py` | [proxy.md](docs/proxy.md)、[代答](docs/architecture.md#代答) |
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/butler_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [butler.md](docs/butler.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
@@ -231,6 +232,7 @@
 | `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (网页应用) and … |
 | `app/web_turns.py` | What a turn tells the web page beside its words (docs/web.md, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |
+| `app/welcome.py` | The welcome card: sent once per new deployment to the owner's private chat, its examples taken as his messages |
 | `app/worker.py` | Ordinary topic-job execution and local records |
 | `app/workspace_manager.py` | Manage the saved workspace list |
 
@@ -286,6 +288,7 @@
 | `cards/turn_export.py` | The 下载请求与结果 element at the bottom of an ended task card |
 | `cards/ui.py` | The shared parts of the 夜航 look as schema 2.0 card elements |
 | `cards/weekly_usage.py` | The 本周用量 card, the bot menu's 用量 panel, in the 夜航 look: the window in its title bar |
+| `cards/welcome.py` | The welcome card in the 夜航 look: what this machine has, how a message is answered, three examples |
 | `cards/workspace_manager.py` | The 工作区 card, the bot menu's 工作区 panel and the launch card's ⚙️ 添加或管理工作区… |
 
 ### core
@@ -412,6 +415,7 @@
 | `core/usage.py` | Numeric-only output throughput |
 | `core/web_profile.py` | 代答's Feishu web login (its browser profile) |
 | `core/web_sync.py` | 网页工作台同步的数据: the config, the four kinds of items pushed to the web page, and the ledger of the operations … |
+| `core/welcome.py` | The welcome card's record and a new deployment's first answer, as the Bridge and ./install read them |
 | `core/workspaces.py` | Local allowlist and immutable topic workspace bindings |
 
 ### feishu

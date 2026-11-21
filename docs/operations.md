@@ -134,7 +134,8 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 │  ├─ launch-defaults/、launch-defaults.json   启动卡预选：每个聊天上一次的选择；最近一次的
 │  ├─ model-usage.json             最近 14 天的模型选择，决定下拉顺序和常用思考预算
 │  ├─ model-settings/              话题的模型设置
-│  └─ menu-panels.json、settings-cards/、group-managers/、main-thread-panels/、weekly-usage-cards/、digest-boards/、dashboard-links/   菜单发出的各张卡
+│  ├─ menu-panels.json、settings-cards/、group-managers/、main-thread-panels/、weekly-usage-cards/、digest-boards/、dashboard-links/   菜单发出的各张卡
+│  └─ welcome.json                 欢迎卡：发了没有、发在哪、点过哪几句示例（新部署第一次启动时写 pending；那时已有任务、话题或私聊记录的部署写 skipped，永不发）
 ├─ 主人的设置
 │  ├─ workspace-config.json        工作区列表和默认工作区
 │  ├─ groups/                      每个主人 @ 过机器人的群：是否外部群、是否对成员开放、免@
@@ -319,7 +320,7 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 
 维护不删除工作区目录或用户产物。
 
-**备份包含**话题（历史、Session 指针、收到的附件）、任务记录、排队任务、执行过程、检查点、问题、暂存的补充与投递记录、已验证结果和产物投递记录、启动卡和工作区管理卡状态、启动卡预选、`model-usage.json`、群记录、模型设置、后端观测，主人的原则 `principles.json`、知识条目 `knowledge/`、管家设置 `main-thread.json`、脱敏词表 `redaction/config.json`、专项 `projects/`（不含资料库复制的文件）、手上的事和话题看板的记录（`pinned-overview.json`、`pinned-topics.json`、`board-priority.json`、`topic-seen.json`、`status-cards/`）、`digest.json`、网页工作台的操作记录 `web/`、`owner-chat.json`、`migrations.json`，以及 `workspace-config.json`、`session_index.jsonl`、`bot-identity.json`，还有代答的 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`（清单是 `core/backup.py` 的 `BACKUP_DIRS`、`BACKUP_FILES`）。
+**备份包含**话题（历史、Session 指针、收到的附件）、任务记录、排队任务、执行过程、检查点、问题、暂存的补充与投递记录、已验证结果和产物投递记录、启动卡和工作区管理卡状态、启动卡预选、`model-usage.json`、群记录、模型设置、后端观测，主人的原则 `principles.json`、知识条目 `knowledge/`、管家设置 `main-thread.json`、脱敏词表 `redaction/config.json`、专项 `projects/`（不含资料库复制的文件）、手上的事和话题看板的记录（`pinned-overview.json`、`pinned-topics.json`、`board-priority.json`、`topic-seen.json`、`status-cards/`）、`digest.json`、欢迎卡的记录 `welcome.json`、网页工作台的操作记录 `web/`、`owner-chat.json`、`migrations.json`，以及 `workspace-config.json`、`session_index.jsonl`、`bot-identity.json`，还有代答的 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`（清单是 `core/backup.py` 的 `BACKUP_DIRS`、`BACKUP_FILES`）。
 
 **不包含**凭据（主人的网页端登录 `proxy/web/`、代答发送工具的 `proxy/send-as-user/`、节点的口令）、代答的截图和批次记录、专项资料库复制的文件、工作区源码与产物、各 Harness 自己的会话存储、`runs/`、扩展后端的会话目录（如 `<扩展>-sessions/`）、`job-diffs/`、已发出卡片的表单状态和日志；上面状态目录里的每一项不进备份的原因写在 `core/backup.py` 的 `NOT_BACKED_UP`，新加的状态文件要在那里或备份清单里写明（`tests/test_maintenance.py` 的 `BackupListTest` 核对）。完整的灾难恢复要另外保留这些。备份和归档含对话内容，要保持私有。
 

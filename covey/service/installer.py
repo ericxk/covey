@@ -9,7 +9,8 @@
                     （feishu/install_browser.py）；浏览器装不上或 ``--no-browser`` 时退回手机多次扫码
   5 注册并启动服务   scripts/bootstrap_harness_bridge.sh，先 bin/covey_service_install.py --mode auto --activate（托管），再 bootstrap（注册）；
                     先用将注册的 python3 给检出预编译 .pyc（scripts/precompile_release.py，失败只提示）
-  6 等待就绪        bin/covey_doctor.py 退出码 0
+  6 等待就绪        bin/covey_doctor.py 退出码 0；在终端里运行时接着等私聊里第一句话真的有了回答（core/welcome.py
+                    first_answer，最多 ANSWER_SECONDS，每到一步一行；Ctrl-C 不等，超时不算失败，只说该查什么）
 
 幂等：已有的 lark-cli profile、授权、应用配置、服务都复用，只做缺的；``--reconfigure`` 才重来。
 浏览器登录态放本次运行的临时目录，结束时删掉（``--keep-login`` 留下并说明路径）。
@@ -32,7 +33,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.core import app_manifest, extensions, qr
+from covey.core import app_manifest, extensions, qr, welcome
 from covey.core import env as cenv
 from covey.core.paths import REPO_ROOT, data_home
 from covey.core.state import write_json
@@ -53,6 +54,24 @@ PROBED = ("claude", "codex")  # The Harnesses one real call proves; dsh, Pi and 
 STEPS = 6
 URL = re.compile(r"https://\S+")
 RELEASES = "https://nodejs.org/"  # Where a machine without npm gets Node.js.
+ANSWER_SECONDS = 600  # How long a run in a terminal waits for the first answer in the private chat (docs/install.md).
+MINUTES = ANSWER_SECONDS // 60
+# What the wait says once the first message gets that far (core/welcome.py first_answer), each once; RECEIVED after LAUNCH
+# is the launch card started.
+ANSWER_WORDS = {welcome.LAUNCH: "收到了：话题里出了启动卡，点「开始任务」它才开工",
+                welcome.RECEIVED: "收到了，在回答…",
+                welcome.STOPPED: "这一轮停住了，卡上写了原因：点「检查并继续」，或再发一句",
+                welcome.ANSWERED: "已回答，装好了。"}
+STARTED_WORDS = "开工了，在回答…"
+# What a wait that ran out says, by how far it got. Never a failure of the install.
+TIMEOUT_WORDS = {
+    welcome.NONE: f"{MINUTES} 分钟内没等到私聊里的消息（不影响安装，机器人照常在运行）。发了没反应的话，看 docs/troubleshooting.md "
+                  "的「扫码后机器人没反应」。",
+    welcome.LAUNCH: "启动卡还在等你点「开始任务」（不影响安装）。",
+    welcome.RECEIVED: f"收到了，但 {MINUTES} 分钟内还没回答完（不影响安装）。看飞书里的任务卡；没动静时看 docs/troubleshooting.md "
+                      "的「发消息后没有反应」。",
+}
+TIMEOUT_WORDS[welcome.STOPPED] = TIMEOUT_WORDS[welcome.RECEIVED]
 
 
 def say_now(text):
@@ -198,7 +217,8 @@ class Installer:
         self.env = cenv.canonical(dict(os.environ if env is None else env))
         self.interactive = (not args.non_interactive and sys.stdin.isatty()) if interactive is None else interactive
         self.probe, self.survey_app, self.app_id_of, self.app_name_of = probe, survey_app, app_id_of, app_name_of
-        self.ready_seconds = None  # tests
+        self.ready_seconds = self.answer_seconds = None  # tests
+        self.ready = False  # The doctor said the service is ready (wait_ready).
         self.waiting_steps = []  # Phone steps (their numbers) whose scan is not seen in the app's online version yet
         self.browser_factory, self.browser, self.browser_home = browser_factory, None, None
         self.data = Path(args.data_home).expanduser().resolve() if args.data_home else (
@@ -705,6 +725,7 @@ class Installer:
         while time.monotonic() < deadline:
             if self.service_up():
                 self.note("机器人已就绪")
+                self.ready = True
                 return
             time.sleep(3)
         if self.waiting_steps:
@@ -714,6 +735,47 @@ class Installer:
             return
         self.leftovers.append(f"服务起来了但还没就绪；诊断：python3 -B bin/covey_doctor.py --root "
                               f"{self.data / 'bridge-services'} --runtime-only")
+
+    def waits_for_answer(self):
+        """Whether the run waits for the first answer (``wait_answer``): in a terminal, once the service is ready, for a
+        deployment whose private chat has had no answer yet; not for one that was in use before (core/welcome.py
+        SKIPPED), nor when the records cannot be read."""
+        if not (self.interactive and self.ready and self.app_id):
+            return False
+        state = self.service_state()
+        try:
+            return welcome.read(state).get("state") != welcome.SKIPPED and welcome.first_answer(state) != welcome.ANSWERED
+        except (OSError, ValueError):
+            return False
+
+    def wait_answer(self):
+        """Until the owner's first private message has been answered (core/welcome.py first_answer), at most
+        ANSWER_SECONDS: one line each time it gets further (ANSWER_WORDS), and one once the welcome card is there.
+        Ctrl-C ends the wait; running out only says what to look at (TIMEOUT_WORDS)."""
+        state = self.service_state()
+        deadline = time.monotonic() + (self.answer_seconds if self.answer_seconds is not None else ANSWER_SECONDS)
+        said, stage = set(), welcome.NONE
+        try:
+            while True:
+                try:
+                    if "card" not in said and welcome.read(state).get("state") == welcome.SENT:
+                        said.add("card")
+                        self.note("私聊里有一张欢迎卡，点上面的示例也行")
+                    stage = welcome.first_answer(state)
+                except (OSError, ValueError):
+                    pass  # Read again at the next look.
+                if stage in ANSWER_WORDS and stage not in said:
+                    self.note(STARTED_WORDS if stage == welcome.RECEIVED and welcome.LAUNCH in said else ANSWER_WORDS[stage])
+                    said.add(stage)
+                if stage == welcome.ANSWERED:
+                    return
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(self.poll_seconds)
+        except KeyboardInterrupt:
+            self.say("    不等了；机器人照常在运行。")
+            return
+        self.say(TIMEOUT_WORDS[stage])
 
     # Run ---------------------------------------------------------------------------------------
 
@@ -742,7 +804,12 @@ class Installer:
         for line in self.leftovers:
             self.say(f"还差：{line}")
         name = self.app_name_of(self.args.profile) if self.app_id else ""
-        self.say(f"\n完成。去飞书私聊机器人「{name}」发一句话。" if name else "\n完成。去飞书私聊刚建的机器人发一句话。")
+        bot = f"机器人「{name}」" if name else "刚建的机器人"
+        if not self.waits_for_answer():
+            self.say(f"\n完成。去飞书私聊{bot}发一句话。")
+            return 0
+        self.say(f"\n完成。去飞书私聊{bot}发一句话，这里等它回答（最多 {MINUTES} 分钟，Ctrl-C 不等）。")
+        self.wait_answer()
         return 0
 
 

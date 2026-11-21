@@ -230,6 +230,11 @@ def sample_cards(work=None):
             "id": "0" * 32, "reply": "收到 哥\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "赵六")
            for state in ("failed", "again", "resending", "sent", "uncertain", "void", "dropped")},
     }
+    from covey.app.welcome import EXAMPLES
+    from covey.cards.welcome import NO_CLAUDE, SENT, welcome_card
+    welcome = {"host": "devbox", "harnesses": ["Codex"], "down": [["Codex", "没登录"]], "workspace": "work",
+               "workdir": str(work), "butler": "", "examples": list(EXAMPLES), "tried": {"1": {"state": SENT}}}
+    cards.update(welcome=welcome_card(welcome), welcome_no_butler=welcome_card({**welcome, "butler": NO_CLAUDE}))
     trace = ToolTrace()
     for i in range(40):
         trace.note(f"n{i}", f"第 {i} 步说明 " * 20)
@@ -1047,7 +1052,8 @@ class CardActionTableTest(unittest.TestCase):
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
                                     "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_turn_export",
                                     "bridge_project_triage_fix", "bridge_project_ask_continue", "bridge_project_ask_finish",
-                                    "bridge_job_look", "bridge_job_diagnose", "bridge_job_split"})  # 看看 reads a stuck task; 查原因 and 拆小再试 queue a turn. Triage: the correction queues a message in a member topic; the pause card's two wake the lead.
+                                    "bridge_job_look", "bridge_job_diagnose", "bridge_job_split",
+                                    "bridge_welcome_try"})  # 看看 reads a stuck task; 查原因 and 拆小再试 queue a turn. Triage: the correction queues a message in a member topic; the pause card's two wake the lead. The welcome card's example is the owner's message.
         self.assertFalse(runner_ipc.forward_card_action(Runtime(script_path="unit"), None, {},
                                                      {"kind": "bridge_fork"}))
 

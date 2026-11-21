@@ -166,7 +166,7 @@
 - 表单内容要变时整卡原位替换，经 `app/launch.py` 的 `rebuild_launch_card`：卡锁内先登记新表单（新 token）再 PUT 整卡；只换卡面用 `app/form_cards.py` 的 `replace_form_card`。CardKit 确认后旧表单记 `replaced`（`replaced_by` 指向新表单），旧卡上点“开始任务”按新表单启动；未确认时新表单记 `unpublished`，永不启动。
 - 两卡式或 schema 3 之前的启动卡（`retired_form`）不再启动任务，点了只回复一句，什么都不改。
 
-不属于任何话题的主人卡片在话题路由之前由 `PANELS` 表处理（见下节第 3 步），kind 都在 `ACTIONS`、都不建任务。它们由机器人菜单（`app/bot_menu.py`）发到主人私聊；菜单同一项再点、它的卡还是私聊里最新的顶层消息时，卡经自己的记录原地收起或展开（`MenuPanel.toggle`）。
+不属于任何话题的主人卡片在话题路由之前由 `PANELS` 表处理（见下节第 3 步），kind 都在 `ACTIONS`，除欢迎卡的「发这句」外都不建任务。它们多数由机器人菜单（`app/bot_menu.py`）发到主人私聊；菜单同一项再点、它的卡还是私聊里最新的顶层消息时，卡经自己的记录原地收起或展开（`MenuPanel.toggle`）。
 
 | 卡 | kind | 处理（outcome 以处理者的名字开头，群成员点了是 `owner_only`） |
 |---|---|---|
@@ -179,6 +179,7 @@
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |
 | 手上的事 | `bridge_overview_dismiss`（带 `topics`） | `Overview.claim`：只改看板记录，应答后由 `tick` 整卡重画 |
 | 飞书应用待补 | `covey_app_setup`、`bridge_app_setup_skip` | `AppSetup.claim`（表的最后）：`app_setup_start`、`app_setup_busy`、`app_setup_stale` |
+| 欢迎卡（新部署只发一次，`app/welcome.py`） | `bridge_welcome_try`（带 `example`，示例的序号；`bot_only`） | `Welcome.claim`：只认主人（别人点了 `owner_only`）；同一事件再投递 `duplicate`，不是发出的那张卡或序号不对 `welcome_stale`，这句已经点过 `welcome_again`；否则 `welcome_try`：锁内记下这句在发（`tried`），应答后整卡重画成「已发出」，再把这句作为一条文字消息发到私聊顶层，交给 `handle_event` 当作主人的消息处理（有管家是管家的一轮，没有是一个新话题和它的启动卡）；没发出去的这句可以再点，可能已发出的不再发 |
 
 - 设置卡一张卡一条记录：点击在锁下核对后先应答，再整卡重画成目标标签，sequence 从这条记录取。点当前标签收起（`folded_hub`），再点展开。旧版每个面板一条记录的卡由 `takeover` 接过来，旧记录标成 `moved`。
 - 代答设置卡的慢操作在点击里只记视图，结果在后续里画。
@@ -187,7 +188,7 @@
 
 `app/card_actions.py` 的 `ACTIONS` 是任务卡按钮 kind 和失败提示里的名称（停止、重试、下载请求与结果、补充及其状态/重新排队/撤回、暂存消息、回答及其核查/状态、执行过程、产物），另有上节的主人卡片。
 
-- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）、看看（`bridge_job_look`，`app/stuck_check.py`：不建任务，但要由 Bridge 从外面看这一轮的任务进程，不能交给可能卡住的它）。
+- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）、看看（`bridge_job_look`，`app/stuck_check.py`：不建任务，但要由 Bridge 从外面看这一轮的任务进程，不能交给可能卡住的它）。欢迎卡的「发这句」（`bridge_welcome_try`）也是：它在话题路由之前由 `app/welcome.py` 认领，示例作为主人的消息进入私聊，开管家的一轮或一个新话题。
 - 卡片事件只有一个消费后台线程，它把点击交给 `app/card_lanes.py` 的分道：同一话题按到达顺序逐个处理，跨话题并行，不在话题里的卡片各占一道。
 - 处理器返回即点击已回执（`card action` 那行的 `elapsed_ms`）。`after_ack` 留下的慢活在本话题的后续道里按序执行（记 `card follow-up`），下一次点击不等它，失败按这次点击的口径回复。不在分道里（文字回答、任务进程、测试）时 `after_ack` 当场执行。停止服务时只跑后续道，`drain` 等已开始的做完或超时。
 - 飞书的卡片回调 3 秒内要应答，所以点击里只做决定和改被点的卡，发新卡、发通知都放进后续。例如开始任务的任务卡（`Submission.release_waiting`；回执在另一条后续道同时写，`after_ack(beside=True)`），重新排队执行（锁内记 `requeue_state=submitting`，后续未完时再点回复“正在重新排队”），开新话题（同一事件重投用同一 token 只开一次）。任务卡总在 `enqueue_reply_job` 之前发出，任务不会在卡片出现前开始。

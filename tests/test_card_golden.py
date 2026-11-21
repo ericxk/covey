@@ -1113,6 +1113,20 @@ def app_setup_cards():
             "unavailable": unavailable_card(view, "没有装了 Playwright 的 Python（COVEY_PLAYWRIGHT_PYTHON）")}
 
 
+def welcome_cards():
+    """The welcome card (cards/welcome.py): with the butler; without it (Claude Code not enabled, a Harness not logged
+    in); and after a click, one example sent and one that did not go out, with its line."""
+    from covey.app.welcome import EXAMPLES
+    from covey.cards.welcome import FAILED, NO_CLAUDE, SENT, welcome_card
+
+    view = {"host": "devbox", "harnesses": ["Codex", "Claude Code"], "down": [], "workspace": "work",
+            "workdir": "/absolute/work", "butler": "", "examples": list(EXAMPLES)}
+    return {"butler": welcome_card(view),
+            "no_butler": welcome_card({**view, "harnesses": ["Codex", "Pi"], "down": [["Pi", "没登录"]], "butler": NO_CLAUDE}),
+            "tried": welcome_card({**view, "tried": {"0": {"state": SENT}, "2": {"state": FAILED}},
+                                   "notice": f"「{EXAMPLES[2]}」没发出去，再点一次。"})}
+
+
 def project_cards():
     """The 专项卡 (cards/project_card.py): the live card in each state, and the lines it shrinks to."""
     from covey.cards import project_card as pc, triage_card
@@ -1271,7 +1285,7 @@ GROUPS = {"task": task_cards, "trace": trace_panels, "launch": launch_cards, "qu
           "turn_export": turn_export_panels, "switch": switch_cards, "topic": topic_panels,
           "weekly_usage": usage_cards, "menu": menu_panels, "main_topic": main_topic_cards, "main_task": main_task_cards, "status_card": status_cards_samples,
           "main_thread": butler_panels, "settings": settings_cards,
-          "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards,
+          "overview": overview_cards, "digest": digest_cards, "app_setup": app_setup_cards, "welcome": welcome_cards,
           "project": project_cards, "tidy": tidy_cards, "nodes": node_cards_samples, "group_ask": group_ask_cards}
 
 

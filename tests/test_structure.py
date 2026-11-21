@@ -47,6 +47,7 @@ from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
 from covey.cards.board import KINDS as BOARD_KINDS
 from covey.cards.app_setup import SKIP as APP_SETUP_SKIP, START as APP_SETUP_START
+from covey.cards.welcome import KIND as WELCOME_KIND
 from covey.cards import launch_config
 from covey.cards.rewind import KINDS as REWIND_KINDS
 from covey.cards.workspace_manager import MANAGER_PREFIX
@@ -85,6 +86,7 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= {OVERVIEW_DISMISS}  # 手上的事's 这些都不用回答了 (app/overview.py).
         before_routing |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (app/digest.py).
         before_routing |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (app/app_setup.py).
+        before_routing |= {WELCOME_KIND}  # 发这句 on the welcome card (app/welcome.py).
         before_routing |= {GROUP_MENU_KIND}  # A personal group's menu card (app/group_menu.py).
         before_routing |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (app/redaction_panel.py).
         before_routing |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (app/node_panel.py).

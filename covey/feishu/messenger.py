@@ -14,8 +14,8 @@ from covey.core.state import read_json, write_json
 from covey.core.topics import remember_topic_message
 from covey.feishu import cardkit, sdk
 from covey.feishu.delivery import resolve_message_format, safe_idempotency_key, send_message_with_fallback
-from covey.feishu.message_request import message_argv
-from covey.feishu.transport import call, lark_argv, message_id_of, run_cli
+from covey.feishu.message_request import message_argv, runner as message_runner
+from covey.feishu.transport import call, data_of, lark_argv, message_id_of, run_cli
 
 _MESSAGE_ID = re.compile(r"om_[A-Za-z0-9_-]+")
 _PATH_ID = re.compile(r"[A-Za-z0-9_-]+")  # An id put in an API path (a reaction id) as it is.
@@ -201,6 +201,26 @@ class Messenger:
         private message (app/bot_menu.py). Feishu's answer, None when it was not sent."""
         return call(message_argv(profile, user_id=open_id, flag="--text", value=text, key=key),
                     timeout=30, log=self.log, uuid=key)
+
+    def send_card_to_user(self, profile, open_id, card_id, key):
+        """The card ``card_id`` as a message to the user ``open_id`` under ``key`` (already safe), which opens the bot's
+        private chat with them if there is none yet (the welcome card, app/welcome.py): (its message ID, the chat's ID
+        when Feishu's answer names it), both '' when it was not sent (``last_failure`` says whether it may have)."""
+        content = json.dumps({"type": "card", "data": {"card_id": card_id}}, ensure_ascii=False)
+        payload = call(message_argv(profile, user_id=open_id, flag="--content", value=content, key=key),
+                       timeout=30, log=self.log, uuid=key)
+        data, message_id = data_of(payload), message_id_of(payload)
+        chat_id = str(data.get("chat_id") or "") if message_id and isinstance(data, dict) else ""
+        return message_id, chat_id
+
+    def send_text(self, profile, chat_id, text, key) -> str:
+        """``text`` as one plain text message (no Markdown, so it reads back as written) at the top level of ``chat_id``
+        under ``key`` (already safe): its message ID, '' when it was not sent (``last_failure`` says whether it may
+        have). A welcome card's example (app/welcome.py)."""
+        if text.startswith("@") or text == "-":
+            text = "\u200b" + text  # lark-cli reads "@path" as a file and "-" as stdin (feishu/delivery.py).
+        argv = message_argv(profile, chat_id=chat_id, flag="--text", value=text, key=key)
+        return message_id_of(call(argv, timeout=30, log=self.log, uuid=key, runner=message_runner(argv, self.log)))
 
     def reply_image(self, profile, message_id, path):
         """The image file ``path`` as a reply to ``message_id``, run in its folder (lark-cli takes the image by a
