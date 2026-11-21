@@ -9,7 +9,7 @@ from covey.core.checkpoint import current_step, step_words
 from covey.core.metrics import clock_text, duration, step_age, took_text
 from covey.core.text import safe_text, step_event, step_label
 from covey.core import turn_words
-from covey.core.progress import activity_line, ago_words, eta_words, stuck_words, usual_words
+from covey.core.progress import activity_line, ago_words, command_words, eta_words, stuck_words, usual_words
 from covey.core.turn_words import RUNNING, STUCK, UNSET_PHASES
 
 
@@ -135,9 +135,16 @@ def quiet_note(facts):
     card), else, from LONG_QUIET, that it may be waiting for something; '' otherwise."""
     if facts.progress is not None and facts.progress.get("maybe_stuck"):
         return stuck_words(facts.stuck_after)
-    if facts.quiet >= LONG_QUIET:
+    if facts.quiet >= LONG_QUIET and not waits_for_command(facts):
         return "较长时间没有新进展，可能正在等待外部任务；尚不能据此判定失败。"
     return ""
+
+
+def waits_for_command(facts):
+    """The turn's newest step is a command still running, from a minute on (core/progress.py ``command``): the line says
+    it waits for it, in the running colour, never 可能卡住, however long it takes."""
+    command = (facts.progress or {}).get("command")
+    return isinstance(command, dict) and command["seconds"] >= ACTIVITY_SHOWN and not facts.finished
 
 
 def head(facts):
@@ -188,7 +195,9 @@ def trace_summary(facts):
     # wrapped over three lines; the sub-task's own time is on its entry in 执行过程.
     said = bool(phrase and facts.wall - newest <= quiet + 1)
     line = NOW + (phrase if said else current)
-    if facts.progress is not None:
+    if waits_for_command(facts):
+        line += " · " + command_words(facts.progress)  # Instead of its quiet minutes: the command is what the turn waits for.
+    elif facts.progress is not None:
         # What it last did and when, to the minute (2 分钟前在跑测试), never a command line; when the line names the
         # newest step already (a sub-task's), its age alone.
         if (newest is not None or facts.stirred) and quiet >= ACTIVITY_SHOWN:
@@ -199,7 +208,7 @@ def trace_summary(facts):
             line += " · " + (ago_words(quiet) if named else activity_line(facts.progress, facts.wall))
     elif (newest is not None or facts.stirred) and quiet >= QUIET_SHOWN:
         line += f" · 最近进展 {clock_text(quiet)}前"
-    if quiet >= LONG_QUIET and facts.alive is True:
+    if quiet >= LONG_QUIET and facts.alive is True and not waits_for_command(facts):
         line += " · 进程仍在运行"
     summary += "\n" + line
     note = quiet_note(facts)

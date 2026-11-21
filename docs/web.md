@@ -91,7 +91,8 @@
   - `last_activity` 是“在跑测试”这样的人话。
   - `eta_seconds` 估不出来为 null，到分钟（按这一轮平均每步用时减去当前这步已做的时间）。
   - `slow_step`：当前这步已经比平均每步慢时是 `{number, since, seconds, usual}`，此时 `eta_seconds` 为 null，网页可写“第 3 步已做 35 分钟，此前平均每步约 6 分钟”；否则为 null。
-  - `maybe_stuck`：超过 `COVEY_PROGRESS_STUCK_MINUTES` 分钟没有动静。
+  - `maybe_stuck`：超过 `COVEY_PROGRESS_STUCK_MINUTES` 分钟没有动静；最新一步是还在跑的命令时不算。
+  - `command`：只在最新一步是还在跑的命令时才有这个键，`{since, seconds, long}`（开始的时刻、已跑的秒数到分钟、是否已跑满卡住的分钟数），网页可写“在等一条命令跑完 · 已 38 分钟”；旧网页不认识这个键，不受影响。
 - **模型名**（v11）：`model_name` 是读得懂的名字（`core/model_names.py`：`router/claude-opus-5-5` → Opus 5.5，去掉路由前缀、预算后缀和 `[1m]`，`default` 为空串）；`model` 照旧是原值。
 - **最后一轮的编号**（v12）：`last_seq` 是这次推的各轮里最大的 `seq`（没有轮次为 0）。网页收到后删掉这个话题 `seq` 比它大的轮次：在跑的一轮按“已有轮数 + 1”推，回答进来后编号可能落在更前面，原来那条“在跑”就再也不会被覆盖。收尾中的任务（回答已写进历史、记录还是“在跑”）不判“没发出去”，也不再画一条“在跑”的轮。
 - **什么时候进的专项**（v13）：专项的成员话题带 `joined_at`（秒）。专项报告只算这个话题加入以后结束的轮次，和专项卡的 token 同一个口径。

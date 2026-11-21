@@ -143,8 +143,8 @@ class RunningStatusTest(unittest.TestCase):
         self.assertIn("已运行 2分05秒", updates[-1])
         self.assertIn("现在：", updates[-1])
         self.assertIn("运行全量测试", updates[-1])
-        # Its last activity to the minute, in words: never the command (core/progress.py activity_words).
-        self.assertIn(" · 2 分钟前在跑测试", updates[-1])
+        # A command still running is what the turn waits for, in minutes: never the command line itself.
+        self.assertIn(" · 在等一条命令跑完 · 已 2 分钟", updates[-1])
         self.assertNotIn(BACKEND_ALIVE, updates[-1])
         job.backend_process = SimpleNamespace(poll=lambda: 1)
         monitor.last_ui = float("-inf")  # The card refreshes at most every 2 s.
@@ -328,7 +328,7 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor.tick()
         # T182 #1128 wrapped the sub-task's name, its time, the age and its last step over three lines:
         # now its latest step and the age only.
-        self.assertTrue(updates[-1].endswith("\n现在：子任务正在运行测试：运行问题卡测试 · 2 分钟前"), updates[-1])
+        self.assertTrue(updates[-1].endswith("\n现在：子任务正在运行测试：运行问题卡测试 · 在等一条命令跑完 · 已 2 分钟"), updates[-1])
         self.assertNotRegex(updates[-1], r"\d+ 小时")
         self.assertNotIn("unittest", updates[-1])
         self.assertNotIn("较长时间没有新进展", updates[-1])
@@ -377,8 +377,11 @@ class SubtaskProgressTest(unittest.TestCase):
         monitor, updates = self.monitor(trace, wall, records)
         monitor.tick()
         # The model's purpose without the command (2026-11-02 review); the kind still comes from the command.
-        self.assertIn("现在：执行命令 · 运行全量测试 · 1 小时 1 分钟前在跑测试 · 进程仍在运行", updates[-1])
-        self.assertIn("超过 30 分钟没有动静，可能卡住了", updates[-1])
+        # The command still runs: the turn waits for it, however long (blue 在做, no 可能卡住, no 看看).
+        self.assertIn("现在：执行命令 · 运行全量测试 · 在等一条命令跑完 · 已 1 小时 1 分钟", updates[-1])
+        self.assertNotIn("可能卡住", updates[-1])
+        self.assertNotIn("进程仍在运行", updates[-1])
+        self.assertEqual(records[-1]["command_since"], int(self.T0))
         self.assertEqual(records[-1]["last_activity"], "在跑测试")
         self.assertEqual(records[-1]["last_activity_at"], int(self.T0))
         self.assertEqual(records[-1]["last_progress_age_seconds"], 3700)

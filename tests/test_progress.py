@@ -223,7 +223,7 @@ class MonitorTest(unittest.TestCase):
                                        "started_at": NOW + 600})
         self.walk(monitor, wall)
         self.assertIn(" · 预计还要约 15 分钟", updates[-1])  # 300 s a step, 3 left, less 120 s: 13 to five.
-        self.assertIn(" · 2 分钟前在跑测试", updates[-1])
+        self.assertIn(" · 在等一条命令跑完 · 已 2 分钟", updates[-1])  # A command still running is waited for, not "quiet".
         self.assertNotIn("pytest", updates[-1].split("当前：")[0])
         self.assertEqual((records[-1]["last_activity"], records[-1]["last_activity_at"]), ("在跑测试", int(NOW + 600)))
         self.assertEqual(job.turn_progress["plan_total"], 5)
@@ -262,7 +262,7 @@ class MonitorTest(unittest.TestCase):
         monitor.tick()
         line = updates[-1].split("现在：")[1].split("\n")[0]
         self.assertEqual(line.count("前台睡眠 300 秒"), 1, line)
-        self.assertTrue(line.endswith(" · 2 分钟前"), line)
+        self.assertTrue(line.endswith(" · 在等一条命令跑完 · 已 2 分钟"), line)
 
     def test_the_card_is_told_once_when_it_may_be_stuck_and_once_when_it_moves_again(self):
         wall, told, updates = [NOW], [], []
@@ -419,6 +419,131 @@ class LookTest(unittest.TestCase):
         app.look(ctx, "oc_chat", {"job_id": 7, "status": "running", "key": "k7", "topic_id": "t" * 32}, "ev1")
         self.assertTrue(replies[-1][1].startswith("🔍 看了一下任务 #7："), replies[-1])
         self.assertEqual(replies[-1][2], "stuck-look-ev1")
+
+
+class RunningCommandTest(unittest.TestCase):
+    """A turn whose newest step is a command still running waits for it: never 可能卡住, however long (the quiet-turn rule
+    stays for every other turn)."""
+
+    def trace(self, *, status="running", at=NOW - 2400, name="bash"):
+        from covey.core.trace import ToolTrace
+        trace = ToolTrace()
+        trace.accept("tool", {"id": "c", "name": name, "status": status, "detail": "跑评测 · python3 eval.py", "started_at": at,
+                              "ended_at": None if status == "running" else at + 5})
+        return trace
+
+    def test_a_running_command_is_never_stuck_and_says_how_long_it_has_run(self):
+        record = running(last_activity_at=NOW - 2400, command_since=NOW - 2400)
+        found = progress.progress(record, now=NOW, stuck_after=1800)
+        self.assertFalse(found["maybe_stuck"])
+        self.assertEqual(found["command"], {"since": int(NOW - 2400), "seconds": 2400, "long": True})
+        self.assertEqual(progress.command_words(found), "在等一条命令跑完 · 已 40 分钟")
+        self.assertEqual(progress.board_words(found, NOW), ["在等一条命令跑完"])
+        # A turn quiet as long with no command running keeps the 30-minute rule.
+        quiet = progress.progress(running(last_activity_at=NOW - 2400), now=NOW, stuck_after=1800)
+        self.assertTrue(quiet["maybe_stuck"])
+        self.assertNotIn("command", quiet)
+        self.assertEqual(progress.board_words(quiet, NOW), ["可能卡住了"])
+
+    def test_a_short_command_is_not_on_the_board_and_a_trace_gives_the_same(self):
+        found = progress.progress(running(), now=NOW, trace=self.trace(at=NOW - 300), stuck_after=1800)
+        self.assertEqual(found["command"], {"since": int(NOW - 300), "seconds": 300, "long": False})
+        self.assertNotIn(progress.COMMAND_WAIT, progress.board_words(found, NOW))
+        long = progress.progress(running(), now=NOW, trace=self.trace(), stuck_after=1800)
+        self.assertEqual((long["maybe_stuck"], long["command"]["seconds"]), (False, 2400))
+
+    def test_only_the_newest_step_being_a_running_command_counts(self):
+        self.assertEqual(progress.running_command(self.trace(), NOW), NOW - 2400)
+        self.assertIsNone(progress.running_command(self.trace(name="read"), NOW))
+        self.assertIsNone(progress.running_command(self.trace(status="done"), NOW))
+        trace = self.trace()
+        trace.accept("tool", {"id": "r", "name": "read", "status": "done", "detail": "app/runs.py", "started_at": NOW - 100,
+                              "ended_at": NOW - 90})  # Newer: the model moved on while the command goes on.
+        self.assertIsNone(progress.running_command(trace, NOW))
+        ended = self.trace()
+        ended.finish()  # The turn ended: the step reads unconfirmed, nothing waits.
+        self.assertIsNone(progress.running_command(ended, NOW))
+
+    def test_the_hold_is_bounded_by_what_the_bridge_knows(self):
+        held = dict(last_activity_at=NOW - 7200, command_since=NOW - 7200)
+        self.assertIn("command", progress.progress(running(**held), now=NOW, stuck_after=1800))
+        # The backend process has exited but the command's end was never recorded: it cannot hold the turn for ever.
+        gone = progress.progress(running(process_alive=False, **held), now=NOW, stuck_after=1800)
+        self.assertTrue(gone["maybe_stuck"])
+        self.assertNotIn("command", gone)
+        # The task runner stopped writing its record: no one vouches for the command.
+        stale = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(NOW - progress.COMMAND_FRESH - 60))
+        self.assertTrue(progress.progress(running(health_checked_at=stale, **held), now=NOW, stuck_after=1800)["maybe_stuck"])
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(NOW - 30))
+        self.assertFalse(progress.progress(running(health_checked_at=fresh, process_alive=True, **held), now=NOW,
+                                           stuck_after=1800)["maybe_stuck"])
+        for fields in ({"status": "queued"}, {"status": "cancel_requested"}):
+            self.assertNotIn("command", progress.progress(running(**held, **fields), now=NOW))
+        self.assertNotIn("command", progress.progress(running(**held), now=NOW, waiting=True))
+
+    def test_every_reader_says_the_same(self):
+        from covey.app.butler import progress_words
+        from covey.cards.overview import running_kind
+        from covey.cards.streaming import progress_lines
+        from covey.core import look
+        record = running(last_activity_at=NOW - 2400, command_since=NOW - 2400)
+        found = progress.progress(record, now=NOW)
+        self.assertEqual(progress_words(record, [], NOW), ["在等一条命令跑完 · 已 40 分钟"])
+        row = {"progress": progress.board_words(found, NOW, clock=True)}
+        self.assertEqual(running_kind(row), "running")  # The 看板 row and 手上的事 row: blue 在做, not 可能卡住.
+        self.assertIn("在等一条命令跑完 · 已 40 分钟", progress_lines({**found, "at": NOW}))
+        self.assertEqual(look.record_tone(record, stuck=found["maybe_stuck"]), "running")
+
+
+class CommandMonitorTest(unittest.TestCase):
+    monitor = MonitorTest.monitor
+
+    def test_the_record_keeps_the_command_while_it_runs_and_clears_it_once(self):
+        wall, records, updates, told = [NOW], [], [], []
+        job, monitor = self.monitor(wall, records=records, updates=updates, stuck=told.append)
+        job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "running", "detail": "跑评测 · python3 eval.py",
+                                       "started_at": NOW})
+        for seconds in (0, 600, 1900, 2400):
+            wall[0] = NOW + seconds
+            monitor.last_ui = float("-inf")
+            monitor.tick()
+        self.assertEqual(told, [])  # No 看看 button: it never may be stuck.
+        self.assertEqual(records[-1]["command_since"], int(NOW))
+        self.assertIn("\n现在：执行命令 · 跑评测 · 在等一条命令跑完 · 已 40 分钟", updates[-1])
+        self.assertNotIn("可能卡住", updates[-1])
+        self.assertNotIn("较长时间没有新进展", updates[-1])
+        job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "done", "detail": "跑评测 · python3 eval.py",
+                                       "started_at": NOW, "ended_at": NOW + 2401})
+        wall[0] = NOW + 2410
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+        monitor.tick()
+        self.assertEqual([r.get("command_since", "absent") for r in records[-2:]], [None, "absent"])  # Written empty once.
+        self.assertNotIn("在等一条命令跑完", updates[-1])
+
+    def test_a_command_after_the_backend_exited_is_not_waited_for(self):
+        wall, updates = [NOW], []
+        job, monitor = self.monitor(wall, updates=updates)
+        job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "running", "detail": "跑评测 · python3 eval.py",
+                                       "started_at": NOW})
+        monitor.tick()
+        job.backend_process = SimpleNamespace(poll=lambda: 1)
+        wall[0] = NOW + 2400
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+        self.assertNotIn("在等一条命令跑完", updates[-1])
+        self.assertIn("可能卡住", updates[-1])
+
+    def test_a_turn_without_a_command_keeps_the_thirty_minute_rule(self):
+        wall, told = [NOW], []
+        job, monitor = self.monitor(wall, stuck=told.append)
+        job.tool_trace.accept("tool", {"id": "a", "name": "read", "status": "done", "detail": "app/runs.py",
+                                       "started_at": NOW, "ended_at": NOW + 1})
+        monitor.tick()
+        wall[0] = NOW + 2400
+        monitor.last_ui = float("-inf")
+        monitor.tick()
+        self.assertEqual(told, [True])
 
 
 class BoardTest(unittest.TestCase):

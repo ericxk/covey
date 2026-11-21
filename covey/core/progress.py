@@ -6,7 +6,7 @@ status cards (app/status_cards.py), 手上的事 (app/overview.py), 早晚汇总
 ``progress(record, checkpoint=..., trace=..., history=..., now=...)`` is a pure function of a job record, the turn's
 checkpoint and its execution trace (a core/trace.py ToolTrace or its snapshot), and the 用时 of the topic's earlier
 turns (``turn_seconds``). It answers {phase, plan_done, plan_total, last_activity_at, last_activity, eta_seconds,
-slow_step, maybe_stuck}:
+slow_step, maybe_stuck, command}:
 
 - ``phase``: the checkpoint's phase, '' while the model has written none (core/turn_words.py UNSET_PHASES);
 - ``plan_done``, ``plan_total``: the checkpoint's steps done and listed (core/checkpoint.py checkpoint_steps), None
@@ -29,7 +29,13 @@ slow_step, maybe_stuck}:
   steps, from 1), since (epoch seconds: when the step before it ended), seconds (it has taken so far), usual (the
   average step)}, seconds to the minute; else None. The readers say it instead of an estimate (``slow_words``);
 - ``maybe_stuck``: a turn running (not queued, stopping or waiting for an answer) whose last activity is known and
-  ``stuck_seconds`` ago or more (COVEY_PROGRESS_STUCK_MINUTES, 30 by default).
+  ``stuck_seconds`` ago or more (COVEY_PROGRESS_STUCK_MINUTES, 30 by default), unless it waits for a command;
+- ``command``: {since, seconds (to the minute), long (it has run ``stuck_seconds`` or more)} while the newest step is a
+  command still running (``running_command``; from the trace, else from the record's ``command_since`` that the task
+  monitor keeps): that turn is never ``maybe_stuck``, the readers say it waits for the command (``command_words``). Not held
+  once the Bridge knows the backend process has exited (the record's ``process_alive`` False: a command whose end was never
+  recorded would else hold the turn for ever), nor when the record's last health check is older than COMMAND_FRESH (the task
+  runner is gone), nor for a turn waiting for an answer or not running; the key is left out otherwise (a result without it is as before: the web page's progress).
 
 The words the readers show it with are here too (``ago_words``, ``eta_words``, ``finish_words``, ``slow_words``,
 ``activity_line``, ``stuck_words``, ``board_words``), each to the minute: a card is written only when what it shows changes (AGENTS.md rule 3)."""
@@ -55,8 +61,9 @@ MIN_HISTORY = 3  # Earlier turns of the topic the estimate is put towards (``est
 MIN_DONE = 2  # Steps done for an estimate without that history.
 MIN_ELAPSED = 60  # No estimate in a turn's first minute.
 WORDS_CHARS = 40  # ``last_activity`` at most.
+COMMAND_FRESH = 600  # A record's health check older than this (seconds) no longer vouches that its command runs (``progress``).
 FIELDS = ("phase", "plan_done", "plan_total", "last_activity_at", "last_activity", "eta_seconds", "slow_step",
-          "maybe_stuck")
+          "maybe_stuck")  # And ``command`` while one is waited for.
 
 # A trace step's coarse kind (core/text.py step_action, command_kind) as a verb and its object: 在跑测试 while it runs,
 # 跑了测试 once it ended, 跑测试失败 when it failed.
@@ -147,6 +154,23 @@ def _parts(node):
 def newest_activity(trace, now=None):
     """(epoch seconds, words) of the trace's newest step anywhere in it, a sub-task's start or end too: a step's start or,
     once it ended, its end; (None, '') without one. A sub-task's own step names it (子任务「标注」在跑测试)."""
+    stamp, words, _ = _newest(trace, now)
+    return stamp, words
+
+
+def running_command(trace, now=None):
+    """When the newest step of the trace (``newest_activity``'s) started, if it is a command (a shell or background
+    command step) still running: the turn then waits for a process, which is not being stuck. None otherwise: another
+    step is newer, the command ended, or its end was never recorded and the turn has ended (the trace then reads the
+    step unconfirmed, core/trace.py close)."""
+    _, _, step = _newest(trace, now)
+    if isinstance(step, dict) and step.get("status") == "running" and step.get("title") in COMMAND_TITLES:
+        return _number(step.get("started"))
+    return None
+
+
+def _newest(trace, now=None):
+    """(epoch seconds, words, the step) of ``newest_activity``; the step is None when an agent's state change is newest."""
     now = time.time() if now is None else now
 
     def plausible(stamp):
@@ -165,14 +189,14 @@ def newest_activity(trace, now=None):
         name = (agents.get(sid) or {}).get("name") if isinstance(agents.get(sid), dict) else None
         return f"子任务「{_cut(_plain(name), 20)}」" if name else "子任务"
 
-    best = (None, "")
+    best = (None, "", None)
     for sid, agent in agents.items():
         if not isinstance(agent, dict):
             continue
         for stamp, state in ((_number(agent.get("started_at")), "开始了"),
                              (_number(agent.get("ended_at")), AGENT_WORDS.get(agent.get("status"), "做完了"))):
             if plausible(stamp) and (best[0] is None or stamp >= best[0]):
-                best = (stamp, who(sid) + state)
+                best = (stamp, who(sid) + state, None)
     for node, owner in nodes:
         steps, _, _ = _parts(node)
         for key, step in (steps.items() if isinstance(steps, dict) else ()):
@@ -182,7 +206,7 @@ def newest_activity(trace, now=None):
             stamp = ended if plausible(ended) else _number(step.get("started"))
             if plausible(stamp) and (best[0] is None or stamp >= best[0]):
                 words = activity_words(step)
-                best = (stamp, words if owner is None else who(owner) + words)
+                best = (stamp, words if owner is None else who(owner) + words, step)
     return best
 
 
@@ -287,13 +311,30 @@ def progress(record, *, checkpoint=None, trace=None, history=(), now=None, stuck
     elapsed = max(0.0, now - begun) if begun is not None else None
     status = str(record.get("status") or "")
     stuck_after = stuck_seconds() if stuck_after is None else stuck_after
-    # Only from a known last activity: a record the task monitor never wrote says nothing of it.
-    stuck = bool(status in RUNNING_STATUSES and not waiting and at is not None and now - at >= stuck_after)
+    command = _command(record, trace, now, stuck_after) if status in RUNNING_STATUSES and not waiting else None
+    # Only from a known last activity: a record the task monitor never wrote says nothing of it. Never while a command runs.
+    stuck = bool(status in RUNNING_STATUSES and not waiting and command is None and at is not None
+                 and now - at >= stuck_after)
     eta, slow = (estimate(elapsed, steps, record.get("step_times"), now, history) if status in RUNNING_STATUSES
                  else (None, None))
-    return {"phase": phase, "plan_done": done, "plan_total": total,
-            "last_activity_at": int(at) if at is not None else None, "last_activity": _cut(words, WORDS_CHARS),
-            "eta_seconds": eta, "slow_step": slow, "maybe_stuck": stuck}
+    found = {"phase": phase, "plan_done": done, "plan_total": total,
+             "last_activity_at": int(at) if at is not None else None, "last_activity": _cut(words, WORDS_CHARS),
+             "eta_seconds": eta, "slow_step": slow, "maybe_stuck": stuck}
+    if command is not None:  # Only then: a result without it is as before (the web page's progress, docs/web.md).
+        found["command"] = command
+    return found
+
+
+def _command(record, trace, now, stuck_after):
+    """``progress``'s ``command``: the newest step a command still running, its process not known to be gone."""
+    since = running_command(trace, now) if trace is not None else _number(record.get("command_since"))
+    if since is None or not -60 <= now - since < 7 * 86400 or record.get("process_alive") is False:
+        return None
+    checked = epoch_seconds(record.get("health_checked_at"))
+    if checked is not None and now - checked > COMMAND_FRESH:
+        return None
+    seconds = max(0, now - since)
+    return {"since": int(since), "seconds": int(seconds // 60 * 60), "long": seconds >= stuck_after}
 
 
 # -- words -------------------------------------------------------------------------------------------------------------
@@ -351,10 +392,21 @@ def activity_line(found, now) -> str:
     return ago_words(max(0, now - at)) + (found.get("last_activity") or "有动静")
 
 
+COMMAND_WAIT = "在等一条命令跑完"  # What a turn whose newest step is a running command says instead of 可能卡住.
+
+
 def stuck_words(stuck_after=None) -> str:
     """The line of a turn that may be stuck: "超过 30 分钟没有动静，可能卡住了"."""
     minutes = (stuck_seconds() if stuck_after is None else stuck_after) // 60
     return f"超过 {minutes_words(minutes * 60)}没有动静，可能卡住了"
+
+
+def command_words(found) -> str:
+    """"在等一条命令跑完 · 已 38 分钟" of a ``progress`` result's ``command``, to the minute; '' without one."""
+    command = found.get("command") if isinstance(found, dict) else None
+    if not isinstance(command, dict):
+        return ""
+    return f"{COMMAND_WAIT} · 已 {minutes_words(command['seconds'])}"
 
 
 def plan_words(found) -> str:
@@ -382,13 +434,15 @@ def finish_words(found, now) -> str:
 
 def board_words(found, now, *, clock=False) -> list:
     """What a board's row of a running turn adds to its phase (each reader has its own phase or step words): 可能卡住了,
-    else that the current step is slower than the ones before (``slow_step``: 第 3 步比此前几步慢), else the estimate
+    else, once a command has run as long as it takes to be stuck, that the turn waits for it (``COMMAND_WAIT``), else that the current step is slower than the ones before (``slow_step``: 第 3 步比此前几步慢), else the estimate
     (``eta_words``, or with ``clock`` ``finish_words``); never a command, a last activity or a step's minutes, which
     would change the row every minute. Empty parts are left out."""
     if not isinstance(found, dict):
         return []
     if found.get("maybe_stuck"):
         return ["可能卡住了"]
+    if isinstance(found.get("command"), dict) and found["command"].get("long"):
+        return [COMMAND_WAIT]  # Without its minutes, as for a slow step: the row does not change every minute.
     if isinstance(found.get("slow_step"), dict):
         return [f"第 {found['slow_step']['number']} 步比此前几步慢"]
     words = finish_words(found, now) if clock else eta_words(found.get("eta_seconds"))

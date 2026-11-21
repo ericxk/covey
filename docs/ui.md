@@ -96,7 +96,7 @@
 | --- | --- | --- | --- | --- |
 | `waiting` | **等你** | `waiting_user`；`waiting_workspace` 说成“等你开工” | 要你处理 | 时钟 |
 | `stopped` | **停住了** | `failed`、`interrupted`、超时、官方拒绝、不是主人停的 `cancelled` | 要你处理 | 三角警示 |
-| `stuck` | **可能卡住** | `running` 且 `maybe_stuck` | 要你看一眼 | 三角警示 |
+| `stuck` | **可能卡住** | `running` 且 `maybe_stuck`（最新一步是还在跑的命令时不算：写“在等一条命令跑完 · 已 38 分钟”，仍是在做的蓝色） | 要你看一眼 | 三角警示 |
 | `result` | **有结果** | `done`、`continued` 且没看过；分组标题写“有结果没看” | 告诉你一声 | 勾 |
 | `running` | **在做** | `running`、`cancel_requested` | 背景 | 转圈 |
 | `queued` | **排队** | `queued` | 背景 | — |

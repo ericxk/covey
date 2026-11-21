@@ -85,6 +85,9 @@ class TaskMonitor:
         self.estimate = None
         self.stuck_after = turn_progress.stuck_seconds()
         self.newest, self.checkpoint_at = (None, ""), None
+        # When the trace's newest step, a command, started while it still runs (core/progress.py running_command): the turn
+        # waits for it, which is not being stuck; kept on the record as ``command_since`` for the readers without the trace.
+        self.command, self.command_kept = None, False
 
     def output(self):
         """Streamed answer text is progress. Lock-free: tick holds the lock across card I/O."""
@@ -133,6 +136,7 @@ class TaskMonitor:
                 **({"last_activity_at": found["last_activity_at"], "last_activity": found["last_activity"]}
                    if found is not None and found["last_activity_at"] is not None else {}),
                 **self.step_fields(),
+                **self.command_fields(),
                 **({"estimate_seconds": self.estimate} if self.estimate is not None else {}),
                 **({"device_state": facts.device} if facts.device else {}),
             )
@@ -152,6 +156,14 @@ class TaskMonitor:
         if self.delivery:
             fields["delivery"] = self.delivery
         return fields
+
+    def command_fields(self):
+        """The record's ``command_since``: written while a command is the newest step, emptied once when it is not any more;
+        nothing for a turn that never had one (a record as before)."""
+        if self.command is None and not self.command_kept:
+            return {}
+        self.command_kept = self.command is not None
+        return {"command_since": self.command}
 
     def facts(self, now):
         """(Facts, whether the checkpoint changed): the checkpoint, the backend process and the trace at
@@ -176,7 +188,7 @@ class TaskMonitor:
         device = self.device_facts()
         steps, step_doing = step_text(self.steps, self.step_times, wall)
         waiting = cp.get("requires_user") is True and bool(question)
-        found = self.progress(wall, quiet, elapsed, waiting or bool(retry))
+        found = self.progress(wall, quiet, elapsed, waiting or bool(retry), alive)
         return Facts(
             elapsed=elapsed, quiet=quiet, alive=alive, finished=alive is False and returncode == 0,
             phase=self.phase, last_event=self.last_event,
@@ -191,7 +203,7 @@ class TaskMonitor:
             stuck_after=self.stuck_after,
         ), changed
 
-    def progress(self, wall, quiet, elapsed, waiting):
+    def progress(self, wall, quiet, elapsed, waiting, alive=None):
         """The turn's progress now (core/progress.py progress): its last activity ``quiet`` seconds ago, in the words of
         the newest thing seen (the trace's newest step, streamed text, a reasoning start, the model's request, the
         checkpoint's change). The caller holds the lock."""
@@ -201,7 +213,8 @@ class TaskMonitor:
         words = max(seen, key=lambda item: item[0])[1] if seen else ""
         begun = wall - elapsed
         record = {"status": "running", "phase": self.phase, "steps": self.steps, "step_times": self.step_times,
-                  "timings": {"backend_requested": begun}, "last_activity_at": wall - quiet, "last_activity": words}
+                  "timings": {"backend_requested": begun}, "last_activity_at": wall - quiet, "last_activity": words,
+                  "command_since": self.command, "process_alive": alive}
         return turn_progress.progress(record, history=self.history, now=wall, stuck_after=self.stuck_after,
                                       waiting=waiting)
 
@@ -256,11 +269,13 @@ class TaskMonitor:
             # start the first token may be that start (Codex): then only output or tokens move on.
             started = (self.output_at is not None or bool(getattr(trace, "output_tokens", None))
                        or (getattr(trace, "ttft_seconds", None) is not None and self.reasoning_at is None))
+            self.command = None
             current = (THINKING if started else REASONING if self.reasoning_at is not None
                        else self.starting if self.starting and self.requested_at is None else WAITING_FOR_MODEL)
             return current, None, None
         with self.job.trace_lock or contextlib.nullcontext():
             self.newest = turn_progress.newest_activity(trace, now)
+            self.command = turn_progress.running_command(trace, now)
             return trace_progress(trace, now)
 
     def run(self):

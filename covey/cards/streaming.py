@@ -24,7 +24,7 @@ from covey.cards.task_figures import FIGURES_ELEMENT_ID, IO_BOX_ID, STATUS_BLOCK
 from covey.cards.task_status import (activity_element, more_element, slim_activity_element,
                                               slim_start)
 from covey.cards.trace_view import clock, ttft_line
-from covey.core.progress import eta_words, slow_words, stuck_words
+from covey.core.progress import command_words, eta_words, slow_words, stuck_words
 from covey.core.trace import has_subtasks, turn_usage
 
 
@@ -164,6 +164,8 @@ def progress_lines(found) -> list[str]:
         lines.append(f"最近动静：{clock(at)} {safe_text(found.get('last_activity') or '有动静', 60)}")
     if found.get("maybe_stuck"):
         lines.append(stuck_words())
+    elif found.get("command"):
+        lines.append(command_words(found))
     elif found.get("slow_step"):
         lines.append(slow_words(found, clock=clock))
     elif found.get("eta_seconds") is not None:

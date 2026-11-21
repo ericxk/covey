@@ -477,6 +477,8 @@ def progress_words(record, jobs, now) -> list:
         [job for job in jobs if job.get("topic_id") == record.get("topic_id")], exclude=record.get("job_id")))
     if found["maybe_stuck"]:
         return [f"可能卡住了（{turn_progress.stuck_words().split('，')[0]}）"]
+    if found.get("command"):
+        return [turn_progress.command_words(found)]
     activity = turn_progress.activity_line(found, now)
     pace = turn_progress.slow_words(found) or turn_progress.eta_words(found["eta_seconds"])
     return [part for part in ("最近动静 " + activity if activity else "", pace) if part]

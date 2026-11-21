@@ -64,6 +64,19 @@ CHOICES = {
 }
 
 
+def status_line_sample(quiet, progress):
+    """The task card's status line (core/status_line.py status_text) of a turn running a command, quiet for ``quiet`` seconds, with
+    ``progress`` (core/progress.py) fields over a quiet one's."""
+    from covey.core.status_line import Facts, status_text
+    found = {"phase": "", "plan_done": None, "plan_total": None, "last_activity_at": 1000, "last_activity": "在跑评测",
+             "eta_seconds": None, "slow_step": None, "maybe_stuck": False, **progress}
+    facts = Facts(elapsed=quiet + 60, quiet=quiet, alive=True, finished=False, phase="跑评测", last_event="", checked="11-05 14:03:09",
+                  question="", waiting=False, native_question_active=False,
+                  activity=("执行命令 · 跑评测", 1000, None), traced=True, wall=1000 + quiet, stirred=True, retry=None,
+                  epoch=1000.0 + quiet, long_mode=True, frame=0, progress=found, stuck_after=1800)
+    return status_text(facts)
+
+
 def task_cards():
     from covey.cards.review import (answer_card, answer_lead, answer_summary, outcome_line, recent_user_questions,
                                              render_history, render_stream_final, render_stream_status, running_summary,
@@ -105,6 +118,16 @@ def task_cards():
         "task_details_stuck": task_details_panel(sample_job(turn_progress={
             "phase": "", "plan_done": None, "plan_total": None, "last_activity_at": FROZEN - 2400,
             "last_activity": "在跑测试", "eta_seconds": None, "maybe_stuck": True, "at": FROZEN}), running),
+        # The newest step a command still running (core/progress.py ``command``): 任务详情 says the turn waits for it.
+        "task_details_command": task_details_panel(sample_job(turn_progress={
+            "phase": "", "plan_done": None, "plan_total": None, "last_activity_at": FROZEN - 2400,
+            "last_activity": "在跑评测", "eta_seconds": None, "maybe_stuck": False, "at": FROZEN,
+            "command": {"since": FROZEN - 2400, "seconds": 2400, "long": True}}), running),
+        # The task card's status line (core/status_line.py): a turn quiet 40 minutes, with a command still running (在做, in
+        # blue, waiting for it), the same for a command of five minutes, and a turn as quiet with none running (可能卡住).
+        "status_line_command": status_line_sample(2400, {"command": {"since": 0, "seconds": 2400, "long": True}}),
+        "status_line_command_short": status_line_sample(300, {"command": {"since": 0, "seconds": 300, "long": False}}),
+        "status_line_stuck": status_line_sample(2400, {"maybe_stuck": True}),
         # 看看 under the status line of a turn that may be stuck (Cards.show_stuck).
         "look_button": look_element(sample_job()),
         "status_block": status_block("⏳ 执行中 · 已运行 1 分\n第二行", figures_element(snapshot)),
@@ -1018,6 +1041,9 @@ def status_cards_samples():
                                         "第 3 轮 · 14:25 开始 · 第 3/5 步：改卡片 · 预计 15:20 左右做完", "这一轮：加上进度"),
         "running_stuck": status_card("T484 · 进度和预计时间", "在做", "第 3 轮 · 14:25 开始 · 阶段：跑全量 · 可能卡住了",
                                      "这一轮：加上进度"),
+        # A long command still running: the row says the turn waits for it, in the running colour (core/progress.py board_words).
+        "running_command": status_card("T484 · 进度和预计时间", "在做", "第 3 轮 · 14:25 开始 · 阶段：跑全量 · 在等一条命令跑完",
+                                       "这一轮：加上进度"),
     }
 
 
