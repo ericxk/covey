@@ -124,18 +124,24 @@ def images_note(text) -> str:
 
 # 话题要点 (COVEY_PROJECT_TIDY, core/topic_gist.py): put in each turn's message of an ordinary topic or a project's topic, after
 # the checkpoint file (app/runs.py), never into the rules above, so a topic's rules stay the same with the switch on or off.
+# Written when the topic has none or its goal or scope moved (#31): a follow-up question no longer costs a checkpoint write.
+# A turn that writes none leaves the last one as it is (app/project_tidy.py saw keeps only what a turn wrote); a topic that
+# never wrote one is read whole once by 整理专项 (app/project_sorter.py backfill).
 TOPIC_GIST_RULE = (
-    "话题要点：每一轮结束前都在检查点里写 topic_gist（短任务、问答也写；检查点里别的字段照常保留），写这个话题本质上在做什么："
+    "话题要点：这个话题还没有要点，或这一轮让它的目标或涉及的范围变了，才在检查点里写 topic_gist（检查点里别的字段照常保留）；"
+    "没变就不用写，Bridge 沿用上一份。写这个话题本质上在做什么："
     '{"essence":"本质，对象 + 要达成的事，一句话","goal":"现在的目标：要做成什么，不写进度和状态；做完了照抄原来的目标","involves":"涉及的仓库、系统、环节",'
-    '"related":["相关话题的 T 号"],"changed":"和上次比变了什么，没变写“没变”"}。'
+    '"related":["相关话题的 T 号"],"changed":"和上次比变了什么，第一次写就写“第一次”"}。'
     "本质要读了整段对话再写，不写标题里第一件具体的事，也不写这件事现在所在的环节；开头聊的是一件事、后来改成了另一件，就写现在这件。"
-    "下面是上次的话题要点：没变就原样照抄，变了就改，本质变了在 changed 里写清从什么变成什么。"
 )
+GIST_BEFORE = "下面是上次的话题要点：目标和范围都没变就不写；变了就整份重写，本质变了在 changed 里写清从什么变成什么。"
+GIST_NONE = "（这个话题还没有话题要点，这一轮第一次写。）"
 
 
 def gist_note(previous_lines: str) -> str:
-    """TOPIC_GIST_RULE with the topic's current gist (core/topic_gist.py lines), or the words for a topic that has none."""
-    return TOPIC_GIST_RULE + "\n" + (previous_lines if previous_lines else "（这个话题还没有话题要点，这一轮第一次写。）")
+    """TOPIC_GIST_RULE with the topic's current gist (core/topic_gist.py lines) after GIST_BEFORE, or GIST_NONE for a topic
+    that has none."""
+    return TOPIC_GIST_RULE + "\n" + (GIST_BEFORE + "\n" + previous_lines if previous_lines else GIST_NONE)
 
 
 def checkpoint_gist(cp):

@@ -1,6 +1,7 @@
 """话题要点 (docs/projects.md 整理专项, COVEY_PROJECT_TIDY): a few lines each topic keeps of what it is about at heart, written by
-the topic's own model at the end of every turn (the checkpoint's ``topic_gist``, core/checkpoint.py checkpoint_gist) or, for a
-topic from before, once by a read-only call when 整理专项 first meets it (app/project_sorter.py backfill).
+the topic's own model at the end of a turn that found it missing or moved its goal or scope (the checkpoint's ``topic_gist``,
+core/checkpoint.py checkpoint_gist; a turn without one leaves the last) or, for a topic that never wrote one, once by a
+read-only call when 整理专项 first meets it (app/project_sorter.py backfill).
 
 The record, <state>/topics/<topic_id>/gist.json: {schema_version, topic_id, essence (本质), goal (现在的目标), involves (涉及),
 related (相关话题: T numbers), changed (和上次比变了什么), updated_at, source (``turn`` or ``backfill``), job (the job key it came

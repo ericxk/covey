@@ -27,7 +27,7 @@ from covey.app import digest, project_lead
 from covey.core import butler_tool_specs, projects, topic_gist
 from covey.core import env as cenv
 from covey.core import project_proposals as proposals
-from covey.core.checkpoint import TOPIC_GIST_RULE
+from covey.core.checkpoint import GIST_BEFORE, GIST_NONE, TOPIC_GIST_RULE, gist_note
 from covey.core.jobs import upsert_job_record
 from covey.core.state import read_object, write_json
 from covey.core.topics import label_title
@@ -153,6 +153,27 @@ class GistTest(TidyCase):
         self.assertEqual((saved["essence"], [item["text"] for item in saved["essences"]]), (B, [A, B]))
         self.turn(topic, "接着改", gist={"essence": B + "（064 是第一个例子）"})
         self.assertNotIn((topic, "essence"), self.tidy.scan(self.state, CHAT, time.time()))  # Reworded, not changed.
+
+    def test_a_gist_is_written_only_when_the_goal_or_scope_moved_and_a_turn_without_one_keeps_the_last(self):
+        # #31: "短任务、问答也写" cost a follow-up question a checkpoint write of its own. Now the rule asks for one only for
+        # a topic without a gist or whose goal or scope moved; the Bridge keeps the last one when a turn writes none.
+        self.assertNotIn("短任务、问答也写", TOPIC_GIST_RULE)
+        self.assertNotIn("每一轮结束前都", TOPIC_GIST_RULE)
+        for words in ("还没有要点，或这一轮让它的目标或涉及的范围变了，才在检查点里写 topic_gist", "没变就不用写，Bridge 沿用上一份"):
+            self.assertIn(words, TOPIC_GIST_RULE)
+        self.assertEqual(gist_note(""), TOPIC_GIST_RULE + "\n" + GIST_NONE)
+        self.assertEqual(gist_note("本质：x"), TOPIC_GIST_RULE + "\n" + GIST_BEFORE + "\n本质：x")
+        topic = self.topic(A)
+        self.tidy.tick(self.ctx)
+        self.assertTrue(sorter.needs_gist(self.state, topic, "om_x"))  # Never wrote one: 整理专项 still reads it whole.
+        self.turn(topic, "复现一下", gist={"essence": A, "goal": "复现"})
+        self.tidy.scan(self.state, CHAT, time.time())
+        kept = topic_gist.read(self.state, topic)
+        self.assertEqual((kept["essence"], kept["goal"], kept["source"]), (A, "复现", "turn"))
+        self.turn(topic, "那个日志在哪")  # A follow-up: no topic_gist in its checkpoint.
+        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [(topic, "turn")])
+        self.assertEqual(topic_gist.read(self.state, topic), kept)
+        self.assertFalse(sorter.needs_gist(self.state, topic, "om_x"))
 
     def test_the_changed_essence_is_judged_for_that_topic_and_nothing_with_fewer_than_five_topics(self):
         topic = self.topic(A, gist={"essence": A})

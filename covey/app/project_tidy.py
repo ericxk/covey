@@ -1,10 +1,11 @@
 """整理专项 (docs/projects.md 整理专项, COVEY_PROJECT_TIDY=suggest|auto with COVEY_PROJECTS=1, off by default): projects grow out of the
 topics by a mechanism, not by the one look the butler takes when it opens a topic.
 
-- **话题要点**: every ordinary topic's (and project topic's) turn ends with its own model writing ``topic_gist`` in its checkpoint
-  (app/runs.py puts the rule and the topic's current gist in each turn's message). The thread here (``tick``, every TICK
-  seconds) reads the checkpoints of the turns that ended since it last looked (``scan``: the jobs' index, ``cursor``) and keeps
-  each gist in the topic's gist.json (core/topic_gist.py).
+- **话题要点**: an ordinary topic's (and project topic's) turn ends with its own model writing ``topic_gist`` in its checkpoint
+  when the topic has none or its goal or scope moved (app/runs.py puts the rule and the topic's current gist in each turn's
+  message). The thread here (``tick``, every TICK seconds) reads the checkpoints of the turns that ended since it last looked
+  (``scan``: the jobs' index, ``cursor``) and keeps each gist written in the topic's gist.json (core/topic_gist.py); a turn
+  that wrote none leaves the last one.
 - **Real time** (``realtime``), for one topic against the projects and the topics of the last COVEY_PROJECT_TIDY_DAYS days: a new
   topic's first turn ended; its essence changed (core/topic_gist.py ``moved``); its turn ended on its third day or later
   (COVEY_PROJECT_TIDY_AGE_DAYS), or it has COVEY_PROJECT_TIDY_WORDS turns the owner started. Each of the last two once a topic.
