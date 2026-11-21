@@ -8,7 +8,8 @@ A topic puts ``send_as_owner`` into its checkpoint (core/owner_send.py ``drafts`
 (``collect``) finds the recipient with the owner's login (``resolve``: e-mail, open_id of the owner's app, a name,
 or a chat) and sends the 代发草稿 card in the topic's thread (cards/owner_send.py), and a line at the chat's top level
 pointing to it. Only the owner's click sends (app/access.py, through the caller): 发送 sends what the card's box holds,
-the owner may have changed it; 不发 drops it; a name that found several people offers each to choose. The click only
+the owner may have changed it; 不发 drops it; a name that found several people offers each to choose; 先问一句 (``ask``)
+takes the owner's question about the draft to its topic and leaves the draft as it is. The click only
 decides, under the record's lock (records, no Feishu: rule 1), and the send runs after the acknowledgement (``send``):
 under Proxy.web_lock (one run of the send tool at a time, with 代答's sends and its QR login), through the sender of
 the ``proxy_sender`` hook (ProxySend.web_send) with the draft standing in for a 代答 contact and batch, so its key is
@@ -28,12 +29,14 @@ import re
 import time
 from pathlib import Path
 
+from covey.app.answers import ask_id, ask_title
 from covey.app.card_actions import form_fields
 from covey.app.card_lanes import after_ack
 from covey.app.form_cards import replace_form_card
 from covey.app.proxy_commands import chat_info, search_people
 from covey.app.proxy_send import available
-from covey.cards.owner_send import DROP, PICK, PICKS, SEND, TEXT_FIELD, editable, owner_send_card
+from covey.cards.owner_send import (ASK, ASK_FIELD, ASK_LABEL, DROP, PICK, PICKS, SEND, TEXT_FIELD, editable,
+                                    owner_send_card)
 from covey.core import env as cenv
 from covey.core import owner_send as records
 from covey.core.butler import is_butler_topic
@@ -51,6 +54,11 @@ CHANGED = "⚠️ 卡片刚更新过，草稿已经换了，这次点击没有�
 EMPTY = "⚠️ 正文是空的，没有发送。"
 TOO_LONG = f"⚠️ 正文超过 {records.TEXT_LIMIT} 字，没有发送。"
 OFF = "⚠️ 这一轮写了以你的身份发消息的草稿，但这个部署不能以你的身份发（没有代答发送器，或 COVEY_OWNER_SEND=0），没有发。"
+# 先问一句 (T604 #13): what the topic's model reads (``ask_message``), and the lines the topic gets when nothing was asked.
+ASK_START = ("用户看了你起草的代发消息，先问一句。还没发出：草稿卡还开着，等他确认。这一轮只回答他问的；"
+             "他要你改，就在检查点里用同一个 id 重写这条草稿。")
+ASK_EMPTY = f"⚠️ 先问一句没有问：先在代发草稿卡上“{ASK_LABEL}”那一行写上你想问的，再点“{ASK_LABEL}”。"
+ASK_GONE = "⚠️ 先问一句没有问：写这条草稿的话题找不到了（换了 Harness 或已关闭），可以直接在话题里说。"
 
 
 def enabled() -> bool:
@@ -70,6 +78,13 @@ def turn_note(ctx, job) -> str:
         return "\n\n" + records.RULE + ("\n之前的代发草稿：\n" + "\n".join(lines) if lines else "")
     except Exception:  # noqa: BLE001 - a turn never fails for its note
         return ""
+
+
+def ask_message(record, words) -> str:
+    """What the topic's model reads for a 先问一句 on draft ``record``: what it is (not a decision on the draft), which
+    draft (its id and whom it is for; not its text, which may hold a key), and the owner's ``words``."""
+    who = record.get("to_label") or (record.get("to") or {}).get("name") or "对方"
+    return f"{ASK_START}\n草稿 {record.get('ref') or ''}，发给 {who}。\n他问：\n{words}"
 
 
 def person(candidate) -> dict:
@@ -236,7 +251,7 @@ class OwnerSend:
 
     @staticmethod
     def matches(value):
-        return value.get("kind") in (SEND, DROP, PICK)
+        return value.get("kind") in (SEND, DROP, PICK, ASK)
 
     def claim(self, ctx, event, raw, owner):
         """The click's outcome when it is a 代发草稿 card's, else None (app/unified.py PANELS)."""
@@ -254,6 +269,13 @@ class OwnerSend:
             if not owner:
                 self.publish(ctx, record, {**shown, "notice": OWNER_ONLY})
                 return "owner_only"
+            if value.get("kind") == ASK and record.get("status") in ("drafted", "unsent") and shown.get("state") != "choose":
+                # The card is not redrawn: what the owner changed in the draft's box stays (T604 #13).
+                words = (form_fields(event) or {}).get(ASK_FIELD)
+                words = words.strip() if isinstance(words, str) else ""
+                after_ack(functools.partial(self.ask, ctx, record, words, str(event.get("operator_id") or ""),
+                                            str(event.get("event_id") or event.get("message_id") or "")))
+                return "owner_send_ask" if words else "owner_send_ask_empty"
             view, outcome, record = self.decide(ctx, record, value, event, shown)
             self.publish(ctx, record, {**view, **({"hide": True} if shown.get("hide") else {})})
         if outcome == "owner_send":
@@ -265,8 +287,8 @@ class OwnerSend:
         """(view, outcome, record to draw) of the owner's click. Under the record's lock: records only, no Feishu."""
         status, kind = record.get("status"), value.get("kind")
         state = "choose" if shown.get("state") == "choose" else status
-        if status not in ("drafted", "unsent"):
-            return {"state": status}, "owner_send_stale", record
+        if status not in ("drafted", "unsent") or kind == ASK:  # A 先问一句 here: a card that offers it no more.
+            return {"state": state if status in ("drafted", "unsent") else status}, "owner_send_stale", record
         if kind == PICK:
             pick = value.get("pick")
             candidates = record.get("candidates") or []
@@ -297,6 +319,32 @@ class OwnerSend:
                              confirmed_by=str(event.get("operator_id") or ""), attempts=int(record.get("attempts") or 0) + 1,
                              send_started_at=time.time(), reason="")
         return ({"state": "sending"}, "owner_send", moved) if moved else ({"state": status}, "owner_send_stale", record)
+
+    def ask(self, ctx, record, words, sender, event_id) -> None:
+        """先问一句 on draft ``record``'s card (T604 #13), after the click's acknowledgement: ``words`` go to the topic that
+        drafted it the way a message of the topic goes (app/questions.py queue_ask: into the task it runs, else as its
+        next turn), with the drafting turn's checkpoint; the draft stays as it is, unsent. A line in the topic when
+        nothing was asked (no words; the topic gone or on a Harness this Bridge no longer has)."""
+        topic, chat = str(record.get("topic_id") or ""), str(record.get("chat_id") or "")
+        found = self.proxy.topics.target(ctx.state_dir, topic, chat) if words else None
+        if found is None:
+            self.tell(ctx, record, ASK_EMPTY if not words else ASK_GONE, f"ask-{event_id}")
+            return
+        app, target, _ = found
+        drafted = find_job_record(ctx.state_dir, str(record.get("job_key") or "")) or {}
+        prior = read_checkpoint(Path(drafted["checkpoint_path"])) if drafted.get("checkpoint_path") else None
+        job = app.questions.queue_ask(target, chat, words, ask_message(record, words), ask_id(record["id"], event_id),
+                                      title=ask_title(words), prior=prior, sender=sender)
+        self.proxy.runtime.log(f"owner send asked draft={record['id'][:8]} job=#{getattr(job, 'job_id', None)}")
+
+    def tell(self, ctx, record, words, key) -> None:
+        """``words`` as a line in the draft's topic thread. Never raises."""
+        try:
+            self.proxy.messenger.send_message(ctx.profile, record["chat_id"], words,
+                                              self.proxy.voice.key("owner-send-tell", f"{record['id']}-{key}"),
+                                              voice=self.proxy.voice, reply_to_message_id=record.get("reply_to") or "")
+        except Exception as exc:  # noqa: BLE001 - nothing was asked; the card stays
+            self.proxy.runtime.log(f"owner send line failed draft={record['id'][:8]}: {type(exc).__name__}")
 
     # The send ----------------------------------------------------------------------------------------------
 

@@ -327,6 +327,9 @@ def question_cards():
         {"id": "port", "header": "端口", "question": "新服务用哪个端口？", "context": "看板要从外网打开，8080 已被网关占用",
          "options": [{"label": "8443（推荐）", "description": "不用改网关"}, {"label": "9090"}]},
         {"id": "note", "header": "补充", "question": "还有别的要求吗？"}], answers={}), "T70")
+    # 先问一句 (T604 #13): the open form says what was asked first; the topic answers it, the form stays.
+    cards["card_asked_first"] = question_card(question_record(answers={}, asked_first={
+        "at": FROZEN - 30, "text": "表格和列表在手机上哪个好看？", "event": "e"}), "T70")
     # One question with options at the private chat's top level: a button per option (cards/question_cards.py picks).
     cards["card_top_pick"] = question_card({**question_record(questions=question_record()["questions"][:1], answers={}),
                                             TOP_COPY: True}, "T70")
@@ -414,6 +417,13 @@ def proxy_cards():
     for state in ("failed", "resending", "sent", "uncertain", "dropped"):
         cards[f"resend_{state}"] = resend_card({"state": state, "notice": "⚠️ 没有重新发送：代答已关闭。"}, {
             "id": "0" * 32, "reply": "收到\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "张三")
+    # The 代发草稿 card (cards/owner_send.py) waiting for the owner, with 先问一句 under the box (T604 #13), and sent.
+    from covey.cards.owner_send import owner_send_card
+    draft = {"id": "d" * 32, "ref": "zs", "status": "drafted", "topic_label": "T9「通知」", "why": "把开好的 key 交给他",
+             "text": "key 开好了，在共享盘的 keys 目录", "recipient": {"name": "张三", "department": "算法", "kind": "p2p"}}
+    cards["owner_send_drafted"] = owner_send_card(draft, {"state": "drafted"})
+    cards["owner_send_unsent"] = owner_send_card({**draft, "status": "unsent", "reason": "网页端未登录"}, {"state": "unsent"})
+    cards["owner_send_sent"] = owner_send_card({**draft, "status": "sent", "sent_at_text": "18:59"}, {"state": "sent"})
     return cards
 
 

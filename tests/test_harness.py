@@ -61,7 +61,8 @@ from covey.cards.app_setup import SKIP as APP_SETUP_SKIP, START as APP_SETUP_STA
 from covey.cards.welcome import KIND as WELCOME_KIND
 from covey.cards.proxy_panel import KINDS as PROXY_PANEL_KINDS
 from covey.cards.proxy_resend import RESEND as PROXY_RESEND, SUGGEST as PROXY_SUGGEST
-from covey.cards.owner_send import DROP as OWNER_SEND_DROP, PICK as OWNER_SEND_PICK, SEND as OWNER_SEND
+from covey.cards.owner_send import (ASK as OWNER_SEND_ASK, DROP as OWNER_SEND_DROP, PICK as OWNER_SEND_PICK,
+                                    SEND as OWNER_SEND)
 from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_note
 from covey.core.harness import JobCancelled
 from covey.core.jobs import BridgeReplyJob as ReplyJob, find_job_record, list_job_records
@@ -669,7 +670,8 @@ class RetiredHarnessTests(unittest.TestCase):
         private |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (tests/test_nodes.py).
         private |= MEMORY_PANEL_KINDS  # The 设置 card's 记忆 tab (tests/test_memory_panel.py).
         private |= set(TIDY_KINDS)  # 整理专项's cards, the private chat's or a topic card's 移出 (tests/test_project_tidy.py).
-        private |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK}  # The 代发草稿 card (tests/test_owner_send.py).
+        private |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK,
+                    OWNER_SEND_ASK}  # The 代发草稿 card (tests/test_owner_send.py, test_ask_first.py).
         clicks = [{'action_value': {'kind': kind, 'topic_id': self.topic.topic_id, 'job_id': 7, 'token': 'ab' * 8,
                                     'harness_id': GONE, 'binding_revision': 2}}
                   for kind in ACTIONS if kind not in private]

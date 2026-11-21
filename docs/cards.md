@@ -194,7 +194,7 @@
 
 `app/card_actions.py` 的 `ACTIONS` 是任务卡按钮 kind 和失败提示里的名称（停止、重试、下载请求与结果、补充及其状态/重新排队/撤回、暂存消息、回答及其核查/状态、执行过程、产物），另有上节的主人卡片。
 
-- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）、看看（`bridge_job_look`，`app/stuck_check.py`：不建任务，但要由 Bridge 从外面看这一轮的任务进程，不能交给可能卡住的它）、复制诊断（`bridge_job_report`，`app/diag_summary.py`：不建任务，读记录回一段诊断摘要，这一轮的任务进程可能已经不在了）。欢迎卡的「发这句」（`bridge_welcome_try`）也是：它在话题路由之前由 `app/welcome.py` 认领，示例作为主人的消息进入私聊，开管家的一轮或一个新话题。
+- 会建任务的是 `bot_only`：只由 Bridge 处理，从不转发给任务进程。包括重试（`bridge_job_retry`）、重新排队（`bridge_steer_requeue`）、暂存消息（`bridge_note`）、问题卡的先问一句（`bridge_question_ask`：排一轮或补充给在跑的任务）、停止自动重试（`bridge_job_retry_cancel`）、下载请求与结果（`bridge_turn_export`，在 Bridge 的后台线程里打包上传）、看看（`bridge_job_look`，`app/stuck_check.py`：不建任务，但要由 Bridge 从外面看这一轮的任务进程，不能交给可能卡住的它）、复制诊断（`bridge_job_report`，`app/diag_summary.py`：不建任务，读记录回一段诊断摘要，这一轮的任务进程可能已经不在了）。欢迎卡的「发这句」（`bridge_welcome_try`）也是：它在话题路由之前由 `app/welcome.py` 认领，示例作为主人的消息进入私聊，开管家的一轮或一个新话题。
 - 卡片事件只有一个消费后台线程，它把点击交给 `app/card_lanes.py` 的分道：同一话题按到达顺序逐个处理，跨话题并行，不在话题里的卡片各占一道。
 - 处理器返回即点击已回执（`card action` 那行的 `elapsed_ms`）。`after_ack` 留下的慢活在本话题的后续道里按序执行（记 `card follow-up`），下一次点击不等它，失败按这次点击的口径回复。不在分道里（文字回答、任务进程、测试）时 `after_ack` 当场执行。停止服务时只跑后续道，`drain` 等已开始的做完或超时。
 - 飞书的卡片回调 3 秒内要应答，所以点击里只做决定和改被点的卡，发新卡、发通知都放进后续。例如开始任务的任务卡（`Submission.release_waiting`；回执在另一条后续道同时写，`after_ack(beside=True)`），重新排队执行（锁内记 `requeue_state=submitting`，后续未完时再点回复“正在重新排队”），开新话题（同一事件重投用同一 token 只开一次）。任务卡总在 `enqueue_reply_job` 之前发出，任务不会在卡片出现前开始。

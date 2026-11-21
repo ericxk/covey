@@ -1,8 +1,9 @@
 """The 代发草稿 card (app/owner_send.py): a message a topic drafted for the owner to send as themselves. It shows whom it
 goes to (name, department, e-mail, as the owner's login found them), why, and the text in a box the owner may change;
-发送 sends what the box holds, 不发 drops it. Several people found for a name: a row each to choose. Then what came
-of it, the button back when it certainly did not go out (重新发送). Every value carries its kind and the draft's id; 发送
-also the digest of the text drawn, so a click on an older drawing is told apart."""
+发送 sends what the box holds, 不发 drops it; 先问一句 sends what the line under the box holds to the topic, as a
+question about the draft, and changes nothing here (T604 #13). Several people found for a name: a row each to choose.
+Then what came of it, the button back when it certainly did not go out (重新发送). Every value carries its kind and the
+draft's id; 发送 also the digest of the text drawn, so a click on an older drawing is told apart."""
 from __future__ import annotations
 
 import re
@@ -14,7 +15,10 @@ from covey.core.text import literal
 SEND = "bridge_owner_send"
 DROP = "bridge_owner_send_drop"
 PICK = "bridge_owner_send_pick"
+ASK = "bridge_owner_send_ask"  # 先问一句 (T604 #13, app/owner_send.py ask).
 TEXT_FIELD = "text"
+ASK_FIELD = "ask"  # The line 先问一句 sends.
+ASK_LABEL = "先问一句"
 PICKS = 5  # Candidates drawn for a name.
 EDIT_LIMIT = 1000  # An input box's max_length: CardKit refuses more (ErrCode 11310).
 # Feishu's audit refuses a bot's card with an e-mail address in it ("contain sensitive data: EMAIL_ADDRESS"); a
@@ -97,12 +101,17 @@ def owner_send_card(record, view) -> dict:
                          "要改的话在话题里说，让它重写草稿。")]
         elements.append({"tag": "form", "name": "owner_send", "elements": [
             *body,
+            # 先问一句's words: one line, sent with the form only by its button (the draft's box is not read then).
+            {"tag": "input", "name": ASK_FIELD, "width": "fill", "max_length": EDIT_LIMIT,
+             "placeholder": plain(f"有疑问可以先问话题一句，写在这里点“{ASK_LABEL}”")},
             button_row([
                 {"tag": "button", "name": "owner_send_go", "form_action_type": "submit", "type": "primary_filled",
                  "size": "medium", "text": plain("重新发送" if state == "unsent" else "发送"),
                  "behaviors": callback(_value(SEND, record, text=digest(text)))},
                 {"tag": "button", "name": "owner_send_drop", "type": "default", "size": "medium", "text": plain("不发送"),
-                 "behaviors": callback(_value(DROP, record))}]),
+                 "behaviors": callback(_value(DROP, record))},
+                {"tag": "button", "name": "owner_send_ask", "form_action_type": "submit", "type": "default",
+                 "size": "medium", "text": plain(ASK_LABEL), "behaviors": callback(_value(ASK, record))}]),
         ]})
     else:
         label = "发出的原文：" if state == "sent" else "正文："

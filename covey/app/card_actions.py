@@ -90,6 +90,8 @@ ACTIONS = {
     # Handled by the Bridge, which hands the answer on to a runner that still waits for it (forward_answer);
     # bot_only: it queues a follow-up task.
     "bridge_question_skip": CardAction("只发补充说明", bot_only=True, handler=QUESTIONS),
+    # 先问一句 (T604 #13): the 补充说明 goes to the topic as its next turn or into the task it runs; bot_only: it queues a turn.
+    "bridge_question_ask": CardAction("先问一句", bot_only=True, handler=QUESTIONS),
     "bridge_question_resume": CardAction("核查已保存回答", handler=QUESTIONS),
     "bridge_question_status": CardAction("查看回答状态", handler=QUESTIONS),
     "bridge_trace": CardAction("查看执行过程", handler=QUESTIONS),
@@ -126,6 +128,7 @@ ACTIONS = {
     "bridge_owner_send": CardAction("以你的身份发送"),
     "bridge_owner_send_drop": CardAction("不发代发草稿"),
     "bridge_owner_send_pick": CardAction("选代发收件人"),
+    "bridge_owner_send_ask": CardAction("先问话题一句"),  # T604 #13: a question about the draft, which stays as it is.
     # The 设置 card's 设备 tab (app/node_panel.py, COVEY_NODE_LISTEN): handled before topic routing.
     "bridge_nodes_add": CardAction("添加设备"),
     "bridge_nodes_remove": CardAction("移除设备"),

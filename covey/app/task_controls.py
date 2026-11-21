@@ -21,6 +21,7 @@ from covey.core.process import signal_group
 from covey.core.state import utc_now_iso
 from covey.core.history_storage import recent_history
 from covey.core.topics import RETIRED_TEXT as TOPIC_RETIRED, remember_topic_message, retired_topic
+from covey.app.answers import ASK_PREFIX
 from covey.app.card_actions import RETIRED_TEXT, action_value
 from covey.app.card_lanes import after_ack
 from covey.cards.review import recent_user_questions
@@ -242,7 +243,10 @@ class TaskControls(Redelivery):
         """``job`` continues the topic's task that waits for an answer: that task's record says so now,
         and ``job`` takes its checkpoint. Returns what repaints that task's card (None: nothing to
         paint), for the caller to run once ``job`` is queued: before it, its two writes held the
-        continuation 1.2 s (S37)."""
+        continuation 1.2 s (S37). Not a 先问一句's turn (ASK_PREFIX, app/questions.py queue_ask): the question it
+        asks about still waits for its answer, so that task waits on, and the turn has the checkpoint it was given."""
+        if str(job.message_id or "").startswith(ASK_PREFIX):
+            return None
         previous = next(iter(self.harness.topic_records(ctx, job.chat_id, status="waiting_user")), None)
         timing.mark("ack_query")
         if not previous:

@@ -7,6 +7,7 @@ native question returns. Questions (app/questions.py) saves, sends and queues th
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from covey.app.held_notes import note_parts
@@ -269,6 +270,31 @@ def answer_message(record, answers, feedback, notes):
         last = record["questions"][-1]["id"]
         delivered = {**answers, last: {"answers": [*answers[last]["answers"], *riders]}}
     return shown, text, delivered
+
+
+# 先问一句 (T604 #13; app/questions.py ask_first, app/owner_send.py ask): the owner's question about a question card or
+# a 代发草稿, which the topic answers as its next turn or in the task it runs. It answers nothing, and the card stays open.
+ASK_PREFIX = "ask-"  # Its turn's message id: app/task_controls.py leaves the task waiting for the answer as it is.
+ASK_START = "用户看了你的问题，先问一句。这不是回答：问题卡还开着，他看了你的解释再去答。这一轮只回答他问的，不用重新提问。"
+ASK_CHARS = 200  # Of each question, reminded in ``ask_message``.
+
+
+def ask_id(key, event_id):
+    """The message id of the turn a 先问一句 click asks with: the same click (an event Feishu sent again) the same id."""
+    return ASK_PREFIX + hashlib.sha256(f"{key}-{event_id}".encode()).hexdigest()[:16]
+
+
+def ask_title(words):
+    """The task card's title of a 先问一句's turn."""
+    return compact_text("先问一句：" + str(words or ""), TITLE_CHARS)
+
+
+def ask_message(record, words):
+    """What the topic's model gets for a 先问一句 on ``record``'s questions: what it is (not an answer), its questions
+    again in short, and the owner's ``words``."""
+    asked = "\n".join("- " + compact_text(q.get("question") or "", ASK_CHARS) for q in record.get("questions") or ()
+                      if isinstance(q, dict))
+    return f"{ASK_START}\n你的问题：\n{asked}\n他问：\n{words}"
 
 
 def answer_fields(record, answers, note, owner=False):

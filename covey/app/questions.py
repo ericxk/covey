@@ -26,9 +26,10 @@ from covey.core.locks import resource_lock
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.run_dir import run_dir, runner_alive
 from covey.cards.elements import md
-from covey.cards.question_cards import FOLDED, answer_notice_card, folded, folded_refusal
-from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, question_feedback_fields,
-                                        submitted_answer)
+from covey.cards.question_cards import (ASK_HELD, ASK_SETTLED, ASKED, FOLDED, answer_notice_card, extras, folded,
+                                        folded_refusal)
+from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, ask_id, ask_message, ask_title,
+                               question_feedback_fields, submitted_answer)
 from covey.app.checkpoint_questions import CheckpointQuestions
 from covey.app.held_notes import HeldNotes
 from covey.app.native_questions import NativeQuestions
@@ -386,6 +387,52 @@ class Questions:
 
     def show_answer_notice(self, ctx, chat, token, text, mid):
         return self.display.show_answer_notice(ctx, chat, token, text, mid)
+
+    def ask_first(self, ctx, chat, token, words, event_id, *, sender=""):
+        """先问一句 on question ``token``'s form (T604 #13): the record keeps it (cards/question_cards.py ASKED) and both
+        cards say it, their form still open; once the click is acknowledged the asking topic gets ``words`` the way
+        it gets a message (``queue_ask``). Nothing is answered: the question stays pending and its task waits as it
+        did. ValueError when it can no longer be asked (answered, folded, a turn held on it, its form not shown yet).
+        False for the same click again, which asks nothing."""
+        path = question_path(ctx, token)
+        with question_card_lock(path):  # As an answer: a click on a form still being recorded waits for it.
+            record = scoped_question(ctx, chat, token)
+            if folded(record):
+                raise QuestionFolded(folded_refusal(record))
+            if record.get("status") != "pending":
+                raise ValueError(ASK_SETTLED)
+            if not extras(record):
+                raise ValueError(ASK_HELD)
+            self.require_delivered_question(ctx, record)
+            if (record.get(ASKED) or {}).get("event") == event_id:
+                return False
+            asked = {"at": time.time(), "text": words, "event": event_id}
+            record = update_question(path, lambda current: {**current, ASKED: asked}, expected={"pending"})
+            if record is None:
+                raise ValueError(ASK_SETTLED)
+            self.paint_question_state(ctx, record)  # Redrawn whole: 补充说明 is empty again.
+        after_ack(functools.partial(self._queue_question_ask, ctx, chat, record, words, event_id, sender))
+        return True
+
+    def _queue_question_ask(self, ctx, chat, record, words, event_id, sender=""):
+        """``ask_first``'s turn: with the asking task's checkpoint, as an answer's continuation would have it, so the
+        task that waits for the answer is not taken for one that went on (app/runs.py _continue_previous)."""
+        original = self.harness.topic_record(ctx, chat, record["job_id"]) or {}
+        prior = read_checkpoint(Path(original["checkpoint_path"])) if original.get("checkpoint_path") else None
+        job = self.queue_ask(ctx, chat, words, ask_message(record, words), ask_id(record["token"], event_id),
+                             title=ask_title(words), prior=prior, sender=sender)
+        self.runtime.log(f"question asked first token={record['token'][:10]} job=#{getattr(job, 'job_id', None)}")
+
+    def queue_ask(self, ctx, chat, shown, text, message_id, *, title="", prior=None, sender=""):
+        """A 先问一句 in ctx's topic, from a question card or a 代发草稿 card (app/owner_send.py): ``text`` (what the model
+        reads; ``shown`` the owner's words, which its card shows) written to the topic's history, then queued the way a
+        message of the topic is (app/submission.py enqueue_chat_job with ``steer``): into the task the topic runs, as
+        a supplement, when it takes one, else as the topic's next turn. ``message_id`` starts with ASK_PREFIX, so the
+        turn does not take the task that waits for an answer for one that went on (app/task_controls.py). ``prior``: the
+        checkpoint it goes on from. The job, or None when it was not queued (the topic was told why)."""
+        append_history(ctx.history_path, "user", text, {"message_id": message_id})
+        return self.enqueue_chat_job(ctx, shown, chat, message_id, prompt_content=text, recovery_context=prior,
+                                     title=title, sender_id=sender, steer=True)
 
     def enqueue_continuation(self, ctx, text, chat, message_id, recovery_context, title="", display="",
                              policy_retry=None, sender_id=""):

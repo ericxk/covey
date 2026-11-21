@@ -237,7 +237,10 @@ class CardTests(unittest.TestCase):
                   "recipient": {"name": "张三", "email": "zhangsan.zs@example.com"}}
         card = json.dumps(owner_send_card(record, {"state": "drafted"}), ensure_ascii=False)
         self.assertNotIn("@example.com", card)
-        self.assertNotIn('"tag": "input"', card)
+        # No box for the text (it would send the mask); only 先问一句's line, which sends no text (T604).
+        self.assertNotIn('"name": "text"', card)
+        self.assertEqual(card.count('"tag": "input"'), 1)
+        self.assertIn('"name": "ask"', card)
         hidden = json.dumps(owner_send_card({**record, "text": "正文"}, {"state": "drafted", "hide": True}), ensure_ascii=False)
         self.assertNotIn("正文\"", hidden.replace("正文飞书", ""))
 

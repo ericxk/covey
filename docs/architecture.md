@@ -396,6 +396,7 @@ cancelled、superseded：终态
 - 提交在锁内转 `submitting` 并存答案，锁外发送，异常转 `uncertain`；“核查已保存回答”用保存的答案重交。原任务已结束时 `enqueue_continuation` 建续答任务（`after_ack` 后续）。
 - 收起旧问题（`fold_older_questions`，只在 Bridge 做）：较新的问题卡显示后，更早的仍是 `pending` 的问题转 `superseded`，卡整卡重画成收起样式；来源任务还在的不收。等它的暂存消息改等新问题（`HeldNotes.wait_instead`）。
 - 停止任务时本任务的待答问题转 `cancelled`。启动时 `recover_question_delivery` 把 `submitting`、`awaiting_ack` 记 `uncertain` 等用户核查，不自动重发。
+- 先问一句（`bridge_question_ask`，`bot_only`，`Questions.ask_first`）：只在 `extras` 为真的表单上（话题的问题，不是 `native_live_question`、`native_paused_question` 那种只等这一个回答的会话）。卡锁内核对仍是 `pending`、正文已送达，记下 `asked_first`（时间、原话、点击的 event id：同一事件重投不再问）并整卡重画；回执后 `queue_ask` 把 `ask_message` 写进历史，`enqueue_chat_job(steer=True)` 排成消息 id 为 `ask-…` 的一轮（话题的任务在跑且收补充时由 `steers_on_arrival` 补充给它），`recovery_context` 是提问那一轮的检查点。问题不变：不转状态、不取暂存消息；`acknowledge_waiting_answer` 见到 `ask-` 不动在等回答的任务，`_continue_previous` 因为带了检查点也不动它。
 
 ## 撤回与编辑
 

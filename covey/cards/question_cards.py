@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import re
+import time
 
 from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callback, callback_button, card, markdown_panel,
                                   note, notice_card, plain, topic_button)
 from covey.cards.review import compact_text
 from covey.cards.streaming import RECOMMENDED
-from covey.cards.ui import band_label, conclusion_band, styled
+from covey.cards.ui import band_label, conclusion_band, receipt, styled
 from covey.core import look, triage, turn_words
 from covey.core.stale import STALE_NOTE
 from covey.core.text import literal
@@ -23,6 +24,16 @@ SKIP_ALL_KIND = "bridge_question_skip"
 SKIP_ALL_LABEL = "只发补充说明"
 SUPPLEMENT_HINT = "不答这些题时，写原因或新要求"
 STATUS_LABEL = "查看提交状态"
+# 先问一句 (T604 #13, app/questions.py ask_first): what the owner wrote in 补充说明 goes to the topic as a question about
+# these questions, as its next turn or into the task it runs; the form stays open and nothing is answered. The record
+# keeps the last one (ASKED, its time, words and click), which the form shows under its first line.
+ASK_KIND = "bridge_question_ask"
+ASK_LABEL = "先问一句"
+ASKED = "asked_first"
+ASKED_SHOWN = 60  # Characters of the words the form shows of the last 先问一句.
+ASK_EMPTY = f"补充说明是空的，没有问。先在最下面的“补充说明”里写上你想问的，再点“{ASK_LABEL}”"
+ASK_SETTLED = "这组问题已经答过、收起或取消了，没有问；有话直接在话题里说"
+ASK_HELD = f"任务正停在这道题上等你回答，先问的话它读不到，没有问：回答它，或写在补充说明里点“{SKIP_ALL_LABEL}”"
 # A top-level card's single-choice question (``top_level_card``) shows each option as a submit button, so one tap
 # answers (a dropdown took four steps and 600 px, and iOS's picker could not be cancelled).
 # Its callback value's PICK is the option's index, or SKIP_VALUE for 不回答此题 (app/answers.py picked_fields).
@@ -250,6 +261,27 @@ def top_level_card(record):
     return bool(record.get(TOP_COPY))
 
 
+def extras(record):
+    """Whether ``record``'s open form gets 先问一句 (T604 #13): a topic's question (not the butler's nor a lead's, which ask
+    at the chat's top level: ``Traits.card_target``) that no turn is held on. A turn waiting in place for its answer
+    (Claude's own question tool, ``native_live_question``) or paused on it (Codex's, ``native_paused_question``) reads
+    nothing else until it is answered: what is asked first would only queue behind it."""
+    from covey.core.butler import traits
+    return (bool(record.get("topic_id")) and not record.get("native_live_question")
+            and not record.get("native_paused_question") and traits(record.get("topic_id"), record.get("chat_id")).card_target)
+
+
+def asked_line(record):
+    """The form's line for its last 先问一句 (ASKED): when, the start of the words, where the answer comes; '' without one."""
+    asked = record.get(ASKED)
+    if not isinstance(asked, dict) or not str(asked.get("text") or "").strip():
+        return ""
+    at = asked.get("at")
+    when = time.strftime("%H:%M ", time.localtime(at)) if isinstance(at, (int, float)) and not isinstance(at, bool) else ""
+    words = literal(compact_text(asked["text"], ASKED_SHOWN))
+    return f"{when}你先问了一句「{words}」，回答在话题里；这张卡还开着，看完再答。"
+
+
 def picks(record):
     """Whether ``record``'s form shows its options as buttons: a single_choice question, on a topic's card as on its
     top-level copy (``top_level_card``). Several questions or a multiple choice keep the dropdown. The topic's cards
@@ -265,19 +297,27 @@ def how_to_answer(record):
             "选项都不合适时写在回答框，再点“提交回答”。",
             "其他想说的写在最下面的“补充说明”，点选项时一起带上。",
             f"不想答这道题（问题不合适、想改要求）：写在“补充说明”，点“{SKIP_ALL_LABEL}”。",
+            *extra_rules(record),
             f"也可以{_reply_where(record)}，当作这道题的回答。"])
     multiple = len(record["questions"]) > 1
     rules = [f"不想回答的题选“{SKIP_LABEL}”（没有选项的题勾选它）。",
              "选项都不合适时写在回答框；写了回答就以你写的为准，下拉框里选的不算。",
              "其他想说的（例如不回答的原因）写在最下面的“补充说明”。",
              f"不想答这些题（问题不合适、想改要求或给新要求）：写在“补充说明”，点“{SKIP_ALL_LABEL}”。所有题记为"
-             f"{SKIP_LABEL}，不表示同意；模型按补充说明重新评估。"]
+             f"{SKIP_LABEL}，不表示同意；模型按补充说明重新评估。", *extra_rules(record)]
     if multiple:
         rules += [("每题都处理后提交才能继续。" if record["blocking"] else "每题都处理后才能提交。"),
                   f"{_reply_where(record)}会先保存为补充，提交回答时一起带上；也可在补充回执上选择作为问题反馈发送。"]
     else:
         rules.append(f"也可以{_reply_where(record)}，当作这道题的回答。")
     return "\n".join("- " + rule for rule in rules)
+
+
+def extra_rules(record):
+    """怎么回答's lines for the buttons ``extras`` puts under 提交回答; none without them."""
+    if not extras(record):
+        return []
+    return [f"对题目有疑问：写在“补充说明”，点“{ASK_LABEL}”。话题先回答你，这张卡不收起，看完再答；问的话不算回答。"]
 
 
 def _reply_where(record):
@@ -310,6 +350,8 @@ def _question_form(record, token, tags="", headed=False):
                     {"tag": "markdown", "content": line}]
     if triage.state(record) == triage.ESCALATED and triage.of(record).get("why"):
         elements.insert(1, {"tag": "markdown", "content": f"负责人转给你的理由：{triage.of(record)['why']}"})
+    if asked_line(record):  # What the owner asked first and where its answer comes (T604 #13).
+        elements.append(receipt(asked_line(record)))
     elements.append(markdown_panel("qh_" + token, "怎么回答", how_to_answer(record), size="notation", quiet=True))
     for i, q in enumerate(record["questions"]):
         elements.extend(_question_fields(i, q, count, record if buttons else None))
@@ -331,7 +373,17 @@ def _question_form(record, token, tags="", headed=False):
     elements.append({"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": [
         {"tag": "column", "width": "weighted", "weight": 1, "elements": [submit]},
         {"tag": "column", "width": "weighted", "weight": 1, "elements": [skip]}]})
+    if extras(record):
+        elements.append(_extras_row(record, token))
     return {"tag": "form", "element_id": "q_" + token, "name": "question_form_" + token, "elements": elements}
+
+
+def _extras_row(record, token):
+    """Under 提交回答 and 只发补充说明, the lesser buttons each as wide as its label (``extras``): 先问一句, a submit, so
+    the 补充说明 it asks with goes with it."""
+    ask = {"tag": "button", "text": plain(ASK_LABEL), **button_look(), "form_action_type": "submit", "name": "ask_first",
+           "behaviors": callback({"kind": ASK_KIND, "topic_id": record["topic_id"], "token": token})}
+    return button_row([ask])
 
 
 def _pick_row(record, options):
