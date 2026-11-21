@@ -162,6 +162,20 @@ class ShowTest(Held):
         self.assertEqual((record["token"], output), (TOKEN, "三张样卡在上面"))
         self.assertEqual(display.mirror.call_args.kwargs["job"]["key"], "k-bbbb")
 
+    def test_the_copy_of_a_question_handed_on_brings_the_turn_s_longer_progress_notes(self):
+        from covey.core.trace import STAGE_HEADING, task_trace
+        from covey.core.trace_store import save_trace
+        upsert_job_record(self.state, "k-bbbb", final_text="三张样卡在上面", reply_to_message_id="om_root")
+        trace = task_trace()
+        trace.note("n1", "初步结果：v1.7-B 和 v1.8 都比基线多过题。" + "细节" * 200)
+        save_trace(self.state, "k-bbbb", trace.snapshot())
+        self.write(display_pending=False, question_message_id="om_q")
+        env, display = self.target(True)
+        self.assertTrue(flow.show(env, self.saved()))
+        output = display.mirror.call_args.args[2]
+        self.assertTrue(output.startswith("三张样卡在上面\n\n---\n\n" + STAGE_HEADING))
+        self.assertIn("初步结果", output)
+
     def test_no_copy_when_the_card_did_not_go(self):
         upsert_job_record(self.state, "k-bbbb", final_text="x", reply_to_message_id="om_root")
         self.write()

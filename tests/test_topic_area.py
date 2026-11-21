@@ -393,6 +393,22 @@ class MirrorTest(MirrorCase):
         self.assertTrue(saved.get("mirror_message_id"))
         self.assertEqual(saved["mirror_output"], "输出")
 
+    def test_a_waiting_turn_s_copy_brings_its_longer_progress_notes(self):
+        from covey.core.trace import STAGE_HEADING, task_trace
+        trace = task_trace()
+        trace.note("n1", "第 4 批三组都跑完、评完了。" + "细节" * 200)
+        self.job.tool_trace = trace
+        delivery = SimpleNamespace(job=self.job, ctx=self.tctx, questions=self.app_.questions, retry=None,
+                                   runtime=self.app.runtime,
+                                   turn=SimpleNamespace(status="waiting_user", verified_delivery=SimpleNamespace(text="输出"),
+                                                        status_message=""))
+        with mock.patch.object(self.app.messenger, "send_message", mock.Mock()):
+            self.assertEqual(butler_relay.after_turn(delivery, True, "waiting_user", messenger=self.app.messenger,
+                                                     profile="p", voice=self.app_.voice), "mirrored")
+        output = read_object(self.path)["mirror_output"]
+        self.assertTrue(output.startswith("输出\n\n---\n\n" + STAGE_HEADING))
+        self.assertIn("第 4 批三组都跑完", output)
+
 
 
 class MirrorFilesTest(MirrorCase):

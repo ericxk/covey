@@ -359,6 +359,20 @@ class DeliverTest(Case):
         self.assertIn("输出", str(facts))
         self.assertIn("T410 ›", str(facts))
 
+    def test_a_done_turn_brings_its_longer_progress_notes_after_the_answer(self):
+        """The owner, 2026-11-21 (T620): 13:51's "基线组已经补跑起来了……" stayed in 执行过程; the relay had the last words only."""
+        from covey.core.trace import STAGE_HEADING, task_trace
+        trace = task_trace()
+        trace.note("n1", "我先看下文件。")
+        trace.note("n2", "基线组已经补跑起来了。" + "细节" * 200)
+        send = self.deliver(self.job(progress=SimpleNamespace(), tool_trace=trace))
+        body = json.dumps(send.call_args.kwargs["card"]["body"], ensure_ascii=False)
+        self.assertIn("基线组已经补跑起来了", body)
+        self.assertIn(STAGE_HEADING, body)
+        self.assertNotIn("我先看下文件", body)
+        self.assertLess(body.index("两种做法都行"), body.index("基线组已经补跑起来了"))  # The answer first, its band unchanged.
+        self.assertIn("两种做法都行，先用第一种", str(send.call_args.kwargs["card"]["body"]["elements"][1]))
+
     def test_a_turn_that_changed_code_has_its_change_folded_above_the_box(self):
         point = self.state / "delivery-checkpoint.json"
         point.write_text(json.dumps({"delivery": {"commit": "a6bc148d38ce", "deployed": "第 322 代"}}, ensure_ascii=False))

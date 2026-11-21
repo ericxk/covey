@@ -6,13 +6,14 @@ topic_send starts a topic's next turn or gives the owner's words to the turn tha
 turn ends, its task runner (app/turn_delivery.py TurnDelivery.deliver, after the task card's last words) relays it, where
 core/placement.py's row says (``after_turn``: question_copy, conclusion, stop):
 
-- done: the saved reply whole (rule 5: only the verified reply that was delivered), the owner reads the answer
+- done: the saved reply whole (rule 5: only the verified reply that was delivered), then the turn's longer 进展说明
+  (core/trace.py stage_notes: what a long turn reported on its way, already on its task card), the owner reads the answer
   where he asked, as the topic's answer card has it (cards/answer_card.py: 产物 and the 输入/输出 box, 输出 ending in
   a link to the topic's card). A reply
   too large for one card (CARD_TEXT_BYTES) goes as Markdown messages in order (feishu/delivery.py splits them), its
   产物 and box on a small card after them;
 - waiting for an answer: the turn's questions as answerable cards (app/question_display.py mirror) with what the
-  turn wrote above them; only when no copy could be shown "**T10 需要你回答**", the question, and where to answer;
+  turn wrote above them, its longer 进展说明 too; only when no copy could be shown "**T10 需要你回答**", the question, and where to answer;
 - stopped or failed with no automatic retry planned: "**T10 停了**：the status line".
 
 Every turn of a 话题区 relays, the ones his answers or his messages in
@@ -60,6 +61,7 @@ from covey.core.jobs import find_job_record, job_field, job_key
 from covey.core.state import read_object
 from covey.core.store import directory_store
 from covey.core.topics import route_message, topic_title
+from covey.core.trace import stage_notes, with_stage_notes
 
 STOPPED_STATUSES = frozenset({"failed", "cancelled"})
 # What a project member's turn the owner waits for relays (``awaited_target``): its question stays the question flow's
@@ -119,9 +121,16 @@ def _question(state_dir, job):
         str(q.get("question") or "").strip() for q in asked if q.get("question"))
 
 
+def _stages(job) -> list:
+    """The turn's longer 进展说明 (core/trace.py stage_notes), from the task's own trace; [] without one."""
+    trace = getattr(job, "tool_trace", None)
+    return stage_notes(dict(trace.steps)) if trace is not None else []
+
+
 def _facts(state_dir, job, turn, outcome):
     if outcome == DONE:
-        return {"text": turn.verified_delivery.text}  # after_turn adds the answer card's parts.
+        # The saved reply, then what the turn reported on its way (a long turn's stage reports live in its 进展说明).
+        return {"text": with_stage_notes(turn.verified_delivery.text, _stages(job))}  # after_turn adds the answer card's parts.
     if outcome == WAITING:
         return {"question": _question(state_dir, job)}
     return {"reason": turn.status_message}
@@ -229,6 +238,7 @@ def mirror_questions(delivery):
     output = getattr(delivery, "display_text", None)  # As the topic's card shows it: without the question.
     if output is None:
         output = turn.verified_delivery.text if getattr(turn, "verified_delivery", None) is not None else ""
+    output = with_stage_notes(output, _stages(job))
     rows = directory_store(Path(ctx.state_dir) / "questions").query(job_id=job_field(job, "job_id"),
                                                                     topic_id=job_field(job, "topic_id"), status="pending")
     shown = False

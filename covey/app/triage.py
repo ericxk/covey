@@ -34,6 +34,8 @@ from covey.core.state import keyed_json_path, read_object
 from covey.core.store import directory_store, update_question
 from covey.core.text import cut
 from covey.core.topics import topic_label
+from covey.core.trace import stage_notes, with_stage_notes
+from covey.core.trace_store import load_trace
 
 LEAD, OWNER = "lead", "owner"
 NOTE = "（负责人按专项记忆替主人答的）"  # The 补充说明 of an answer the lead gave.
@@ -239,8 +241,9 @@ def show(env, record) -> bool:
         # so the owner sees it in the private chat.
         try:
             job = find_job_record(state, record.get("job_key")) or None
+            notes = stage_notes((load_trace(state, job) or {}).get("steps")) if job else []
             app.questions.display.mirror(ctx, read_object(question_path(state, record["token"])),
-                                         str((job or {}).get("final_text") or ""), job=job)
+                                         with_stage_notes((job or {}).get("final_text") or "", notes), job=job)
         except Exception as exc:  # noqa: BLE001 - the card is in its thread and on the board
             env.runtime.log(f"question triage top-level copy failed: {type(exc).__name__}")
     return sent

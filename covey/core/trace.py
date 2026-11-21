@@ -20,6 +20,8 @@ USAGE_FIELDS = ("input_tokens", "cache_read_tokens", "cache_write_tokens", "outp
 CONTEXT_FIELDS = ("context_tokens", "context_window")
 SUBTASK_ROWS = 5  # Up to this many subtasks are listed one by one; more are summed per level.
 SUBTASK_LEVELS = 10  # Deeper levels are summed into the last one.
+STAGE_NOTE_CHARS = 300  # A 进展说明 at least this long is a report of the turn (stage_notes), not a passing line.
+STAGE_HEADING = "**这一轮中途的汇报**"
 
 
 def reduce_subtask_usage(data):
@@ -370,3 +372,32 @@ def has_subtasks(usage):
     """Whether a turn's usage (``turn_usage``) has subtasks, reported or not: 主任务 then leads its main
     task's figures."""
     return bool(usage["count"] or usage["unreported"] or usage["subtasks"])
+
+
+def stage_notes(steps) -> list:
+    """The longer 进展说明 of a turn (at least STAGE_NOTE_CHARS characters), [(started, text)] in the order written: what a
+    long turn reported while it waited ("基线组已经补跑起来了……", "初步结果：……") before a tool call moved its words out of
+    the answer. ``steps``: a trace's steps (ToolTrace.steps, or a snapshot's ``steps``). The owner, 2026-11-21: these are
+    answers, and they stayed folded in 执行过程 while only the turn's last words went to the private chat."""
+    found = []
+    for step in (steps or {}).values():
+        if not isinstance(step, dict) or step.get("status") != "note" or step.get("title") != "进展说明":
+            continue
+        text = str(step.get("detail") or "").strip()
+        if len(text) >= STAGE_NOTE_CHARS:
+            found.append((step.get("started") if isinstance(step.get("started"), (int, float)) else None, text))
+    return found
+
+
+def with_stage_notes(text, notes) -> str:
+    """``text`` (what the turn said last) followed by its ``notes`` (stage_notes) under STAGE_HEADING, each headed by its
+    time: the words a relay or a question's copy at the private chat's top level carries. ``text`` alone without notes."""
+    text = str(text or "").strip()
+    if not notes:
+        return text
+    parts = [STAGE_HEADING]
+    for started, note in notes:
+        when = time.strftime("%H:%M", time.localtime(started)) if started else ""
+        parts.append((f"**{when} · 进展说明**\n\n" if when else "") + note)
+    section = "\n\n".join(parts)
+    return f"{text}\n\n---\n\n{section}" if text else section

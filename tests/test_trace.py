@@ -1415,3 +1415,26 @@ class PanelModelTest(unittest.TestCase):
         self.assertEqual(panel_json(TraceView(trace.snapshot()).panel_model(False))["columns"][0]["elements"],
                          [{"tag": "markdown", "element_id": "trace_details",
                            "content": "**执行过程**　" + grey("无执行记录")}])
+
+
+class StageNotesTest(unittest.TestCase):
+    """The owner, 2026-11-21 (T620): a long turn's stage reports (进展说明 of 1000+ characters) stayed folded in 执行过程 while
+    only its last words went to the private chat. The longer ones go along, each under its time; the passing lines do not."""
+
+    def test_only_the_longer_notes_in_order_under_their_time(self):
+        from covey.core.trace import STAGE_HEADING, STAGE_NOTE_CHARS, stage_notes, task_trace, with_stage_notes
+        trace = task_trace()
+        trace.note("n1", "我先看下文件。")
+        trace.note("n2", "初步结果：" + "甲" * STAGE_NOTE_CHARS, received_at=time.mktime((2026, 11, 21, 16, 48, 0, 0, 0, -1)))
+        trace.steps["t1"] = {"title": "Bash", "detail": "乙" * 400, "status": "done"}
+        trace.note("agent-x", "丙" * 400, "子任务")
+        trace.note("n3", "全部跑完：" + "丁" * STAGE_NOTE_CHARS, received_at=time.mktime((2026, 11, 21, 17, 8, 0, 0, 0, -1)))
+        notes = stage_notes(trace.steps)
+        self.assertEqual([text[:5] for _, text in notes], ["初步结果：", "全部跑完："])
+        text = with_stage_notes("## 结论\n要你定", notes)
+        self.assertTrue(text.startswith("## 结论\n要你定\n\n---\n\n" + STAGE_HEADING))
+        self.assertLess(text.index("**16:48 · 进展说明**"), text.index("**17:08 · 进展说明**"))
+        self.assertNotIn("我先看下文件", text)
+        self.assertEqual(with_stage_notes(" 只有回答 ", []), "只有回答")
+        self.assertTrue(with_stage_notes("", notes).startswith(STAGE_HEADING))
+        self.assertEqual(stage_notes(None), [])
