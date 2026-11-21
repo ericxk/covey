@@ -8,7 +8,7 @@ state's dot and word, its T number and title, one line in words, grey figures; a
 (such ones can wait for days).
 
 ``view`` is plain data from app/overview.py: ``waiting`` rows (label, title, ask, since, url), newest first, ``running``
-rows (label, title, harness, workspace, status, started, phase, progress: its estimate as a time of day or 可能卡住了) and ``ended`` rows (label, title, status, at); times
+rows (label, title, harness, workspace, status, started, phase, progress: its estimate as a time of day or 可能卡住了) and ``ended`` rows (label, title, status, at, line: why it stopped or the first line of its result); times
 are epoch seconds, ``started`` None while the task waits in the queue.
 
 With the pinned board on (app/pins.py) ``view`` also has ``board``: ``counts`` (group -> how many), ``pinned`` (how
@@ -105,8 +105,9 @@ def ended_kind(row) -> str:
 
 
 def ended_row(row, now):
-    """A task that ended a moment ago as a 看板 row: when, and 已看 for a board result seen within its KEEP_SEEN."""
-    return named_row(row, meta=[when(row["at"], now), "已看" if row.get("seen") else ""])
+    """A task that ended a moment ago as a 看板 row: its line (``line``, core/board_read.py ended_line: why it stopped,
+    the first line of a result), when, and 已看 for a board result seen within its KEEP_SEEN."""
+    return named_row(row, line=row.get("line") or "", meta=[when(row["at"], now), "已看" if row.get("seen") else ""])
 
 
 def heading(word, count, icon):

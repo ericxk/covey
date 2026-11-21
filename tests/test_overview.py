@@ -153,6 +153,15 @@ class CardTests(unittest.TestCase):
         self.assertEqual(lines.count("还有 6 件没列出"), 3)  # Six rows a group, then a line saying how many more.
         self.assertIn("等你 12", lines)
 
+    def test_ended_rows_have_a_line_cut_to_the_rows_length(self):
+        ended = [{"label": "T394", "title": "群晖", "status": "failed", "at": NOW - 60, "line": "测试没过：" + "长" * 200},
+                 {"label": "T393", "title": "日志", "status": "done", "at": NOW - 90, "line": "已经改好了"}]
+        lines = texts(overview_card(view(ended=ended), NOW))
+        self.assertEqual(lines[2], f"停住了 T394 群晖 / 测试没过：{'长' * 74}… / {hm(NOW - 60)}")
+        self.assertEqual(lines[3], f"有结果 T393 日志 / 已经改好了 / {hm(NOW - 90)}")
+        self.assertEqual(texts(overview_card(view(ended=[{**ended[1], "line": ""}]), NOW))[2],
+                         f"有结果 T393 日志 / {hm(NOW - 90)}")  # An older view without a line reads as before.
+
     def test_the_retired_card_says_it_no_longer_changes(self):
         self.assertIn("已不再更新", json.dumps(retired_card(), ensure_ascii=False))
 
@@ -316,6 +325,29 @@ class OverviewTests(OverviewCase):
         self.assertFalse(self.app.messenger.put_card.called)
         self.overview.tick(self.ctx, NOW + overview.REFRESH)  # The safety redraw, hourly.
         self.assertEqual(self.app.messenger.put_card.call_count, 1)
+
+    def test_an_ended_row_says_why_it_stopped_or_what_the_result_was_as_the_board_does(self):
+        """刚结束 rows carry the 看板's line (core/board_read.py ended_line), cut to a row's length, with no clock in it."""
+        from covey.app.digest import collect
+        self.topic("t2", 396, "测试")
+        self.job("om_a", 1, timings={"backend_started": NOW})
+        self.job("om_b", 2, topic="t2", timings={"backend_started": NOW})
+        self.overview.tick(self.ctx, NOW)
+        self.job("om_a", 1, status="failed", failure_code="rate_limited", phase="跑全量",
+                 timings={"backend_started": NOW, "execution_finished": NOW + 20})
+        self.job("om_b", 2, topic="t2", status="done", final_text="## 结论\n\n**已经改好了**，测试都过。\n后面还有很多",
+                 timings={"backend_started": NOW, "execution_finished": NOW + 20})
+        self.overview.tick(self.ctx, NOW + 30)
+        lines = texts(self.card(self.app.messenger.put_card.call_args))
+        stopped = next(line for line in lines if line.startswith("停住了 T395"))
+        result = next(line for line in lines if line.startswith("有结果 T396"))
+        self.assertEqual(result, f"有结果 T396 测试 / 已经改好了，测试都过。 / {hm(NOW + 30)}")
+        self.assertEqual(stopped.count(" / "), 2, stopped)  # head / reason / time: not the time alone.
+        self.assertIn("停在：跑全量", stopped)
+        # The same words the 看板's rows have (app/digest.py collect), from the same function.
+        done = {row["topic"]: row for row in collect(self.state, "oc_dm", NOW + 60, NOW - 60, NOW + 60)["done"]}
+        self.assertEqual(done["t1"]["line"], stopped.split(" / ")[1])
+        self.assertEqual(done["t2"]["line"], "已经改好了，测试都过。")
 
     def test_a_task_that_ended_stays_under_recently_ended_for_a_while(self):
         self.job("om_a", 1, timings={"backend_started": NOW})

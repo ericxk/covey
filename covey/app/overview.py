@@ -175,10 +175,13 @@ class Overview:
         running = {record.get("key") or str(record.get("job_id")): self.running_row(state, record) for record in jobs}
         for key, row in self.seen.items():
             if key not in running:
-                status = (read_job_record(job_path(state, key)) or {}).get("status")
+                record = read_job_record(job_path(state, key)) or {}
+                status = record.get("status")
                 if status in TERMINAL:
+                    # Its line as the 看板 says it; no ``now``, so that the card changes with its content only.
                     self.ended[key] = {"label": row["label"], "title": row["title"], "topic": row["topic"],
-                                       "status": status, "at": now}
+                                       "status": status, "at": now,
+                                       "line": board_read.ended_line(record)}
         self.seen = running
         self.ended = {key: row for key, row in self.ended.items() if now - row["at"] < RECENT and key not in running}
         waiting = [self.waiting_row(state, wait) for wait in found.all]
@@ -230,7 +233,7 @@ class Overview:
             return self.running_row(state, record)
         label, title = self.topic(state, row["topic"])
         return {"label": label, "title": title, "topic": row["topic"], "status": record.get("status"),
-                "at": row["at"], "seen": row["topic"] not in self.pins.unseen}
+                "at": row["at"], "seen": row["topic"] not in self.pins.unseen, "line": board_read.ended_line(record)}
 
     def waiting_row(self, state, wait):
         """The row of ``wait`` (core/board_read.py Wait): who asks, what (or that it waits for 开始), since when, and

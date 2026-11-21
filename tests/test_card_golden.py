@@ -1306,8 +1306,10 @@ def overview_cards():
 
     board = {"counts": {"waiting": 2, "result": 3, "running": 11, "unseen": 2}, "pinned": 10,
              "waiting": [{"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": FROZEN - 180}],
-             "result": [{"label": "T394", "title": "群晖公钥", "status": "failed", "at": FROZEN - 600, "seen": False},
-                        {"label": "T393", "title": "日志", "status": "cancelled", "at": FROZEN - 900, "seen": True}],
+             "result": [{"label": "T394", "title": "群晖公钥", "status": "failed", "at": FROZEN - 600, "seen": False,
+                         "line": "测试没过：test_web_sync 2 个失败；停在：跑全量"},
+                        {"label": "T393", "title": "日志", "status": "cancelled", "at": FROZEN - 900, "seen": True,
+                         "line": "被停止了"}],
              "running": [{"label": "T391", "title": "logid", "harness": "Codex", "workspace": "DataLab",
                           "status": "queued", "started": None, "phase": ""},
                          {"label": "T390", "title": "重构", "harness": "Claude Code", "workspace": "algo-agent-devskills",
@@ -1323,7 +1325,14 @@ def overview_cards():
     butler_waiting = {"waiting": [{"label": "管家", "title": "", "ask": "现在部署吗？", "since": FROZEN - 60},
                                   {"label": "T396", "title": "你为啥没有pin？", "ask": "置顶汇总卡", "since": FROZEN - 180}],
                       "running": [], "ended": []}
+    # 刚结束 rows say why a task stopped or what its result was (core/board_read.py ended_line).
+    ended = {**view, "ended": [{"label": "T394", "title": "群晖公钥", "status": "failed", "at": FROZEN - 600,
+                                "line": "测试没过：test_web_sync 2 个失败；停在：跑全量"},
+                               {"label": "T395", "title": "重复的卡", "status": "done", "at": FROZEN - 300,
+                                "line": "已经改好了，测试都过。" + "很长" * 40},
+                               {"label": "T396", "title": "日志", "status": "done", "at": FROZEN - 200, "seen": True}]}
     return {"pinned_board": overview_card({**view, "board": board}, FROZEN, "14:40"),
+            "overview_ended": overview_card(ended, FROZEN, "14:40"),
             "overview_butler_waiting": overview_card(butler_waiting, FROZEN, "14:40"),
             "pinned_board_empty": overview_card({**view, "board": empty}, FROZEN, "14:40"),
             # The owner never had a topic (T604 #53): both modes say what to do first.

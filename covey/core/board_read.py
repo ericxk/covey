@@ -34,11 +34,13 @@ before), never for what is unseen.
 from __future__ import annotations
 
 import dataclasses
+import re
 from pathlib import Path
 
 from covey.core.jobs import jobs_dir, select_job_records, topic_job_records
-from covey.core import look, projects
+from covey.core import look, projects, turn_words
 from covey.core.butler import is_butler_topic, traits
+from covey.core.failure import failure_view
 from covey.core.metrics import run_start, timings_of
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import OPEN_FORMS, RUNNING
@@ -278,6 +280,32 @@ def topic_label(state, topic_id):
     write it: "" without a number yet, and then （话题未知） for no title (core/topics.py label_title)."""
     label, title = label_title(state, topic_id)
     return (label, title) if label else ("", title or "（话题未知）")
+
+
+LINE_CHARS = 60  # Of a result's first line on the 看板.
+
+
+def first_line(text) -> str:
+    """A result's first line in words, its Markdown marks off, cut to LINE_CHARS."""
+    for line in str(text or "").splitlines():
+        line = re.sub(r"^[#>*\-\s]+|[*`]", "", line).strip()
+        if len(line) >= 4:
+            return line if len(line) <= LINE_CHARS else line[:LINE_CHARS - 1] + "…"
+    return ""
+
+
+def ended_line(record, now=None) -> str:
+    """The one line an ended job's row says on the 看板 and on 手上的事's 刚结束: why it stopped (core/failure.py, or who
+    stopped it) and where, the first line of a result that is done, else ''. ``now`` only for a pending retry's wait."""
+    status = record.get("status")
+    if status == "done":
+        return first_line(record.get("final_text"))
+    if status not in ("failed", "cancelled", "interrupted"):
+        return ""
+    failed = failure_view(record, now)
+    why = failed["title"] if failed else turn_words.STOPPED_BY.get(str(record.get("cancel_requested_by") or ""), "被停止了")
+    phase = " ".join(str(record.get("phase") or "").split())
+    return why + (f"；停在：{phase}" if phase and phase not in turn_words.UNSET_PHASES else "")
 
 
 def ended_at(record):

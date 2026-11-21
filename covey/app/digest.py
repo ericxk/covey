@@ -196,16 +196,7 @@ def clock_words(at, now) -> str:
     return then.strftime("%m-%d %H:%M")
 
 
-LINE_CHARS = 60  # Of a result's first line on the 看板.
-
-
-def first_line(text) -> str:
-    """A result's first line in words, its Markdown marks off, cut to LINE_CHARS."""
-    for line in str(text or "").splitlines():
-        line = re.sub(r"^[#>*\-\s]+|[*`]", "", line).strip()
-        if len(line) >= 4:
-            return line if len(line) <= LINE_CHARS else line[:LINE_CHARS - 1] + "…"
-    return ""
+first_line = board_read.first_line  # As ever, for what imports it here.
 
 
 def board_since(times, now, last):
@@ -332,15 +323,13 @@ def collect(state, chat, slot, since, now, *, board=False):
         line, meta, card = "", [f"用时 {turn_words.wait_words(took)}" if took is not None else ""], ""
         if status in ("failed", "cancelled", "interrupted"):  # 停住了 on the 看板: why, where it stopped, what next.
             failed = failure_view(record, now)
-            why = (failed["title"] if failed else
-                   turn_words.STOPPED_BY.get(str(record.get("cancel_requested_by") or ""), "被停止了"))
-            line = why + (f"；停在：{phase_of(record)}" if phase_of(record) else "")
+            line = board_read.ended_line(record, now)  # The same line 手上的事's 刚结束 row says.
             acts = (failed or {}).get("actions") or []
             step = FAILURE_LABELS.get(acts[0], "") if acts else ""
             meta = [f"{clock_words(ended_at(record), now)} 停", f"下一步：在任务卡上点「{step}」" if step else ""]
             card = str(record.get("card_message_id") or "")  # The 看板's row opens its task card (its buttons are there).
         elif status == "done":
-            line = first_line(record.get("final_text"))
+            line = board_read.ended_line(record, now)
         done.append({**row(topic, turn_words.STATES.get(status, status), f"用时 {took_text(took)}" if took is not None else "",
                            topic not in unseen), "status": status, "line": line, "meta": meta, "card": card,
                      # 停住了, 已停止 (the owner's own stop), 有结果 or 做完 (core/look.py; cards/board.py groups by it).
