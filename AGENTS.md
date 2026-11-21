@@ -500,6 +500,7 @@
 | `backends/claude/events.py` | Claude Code stream-json rows as public Harness events |
 | `backends/claude/export.py` | One turn's model requests and responses, from Claude Code's own session records (the 下载请求与结果 button) |
 | `backends/claude/handoff.py` | A handoff summary from a Claude Code session the topic is leaving |
+| `backends/claude/hooks.py` | The SDK hook callbacks a turn's Claude Code is started with (`TurnHooks`) |
 | `backends/claude/models.py` | Public model metadata from the Claude initialization response, never account data |
 | `backends/claude/policy.py` | Explicit upstream safety signals only |
 | `backends/claude/process.py` | The Claude CLI's process and its JSONL transport |

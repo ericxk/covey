@@ -20,6 +20,7 @@
 | 撤回与编辑 | `COVEY_SOURCE_WATCH`（默认开） | 撤回一条已变成任务的消息，任务跟着停；编辑后任务收到改后的内容 | `COVEY_SOURCE_WATCH=0` |
 | [任务在跑时发的话补充给它](usage.md#追问排队与并行) | `COVEY_TOPIC_STEER`（默认开） | 话题里任务在跑时发一句，那张卡变成回执“已补充到 #N，不另开一轮”，不再排成下一轮 | `COVEY_TOPIC_STEER=0`（照旧排成下一轮） |
 | [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
+| [子 Agent 守则](harnesses.md#claude-code) | `COVEY_CLAUDE_HOOKS`（默认开） | Claude Code 的子 Agent（Explore 除外）开工时带上四句守则；子 Agent 调 Bridge 的工具（开话题、转交）被拒；管家这一轮自己调满 6 次别的工具时被提醒一次交给话题 | `COVEY_CLAUDE_HOOKS=0`（不注册这些 hook，和原来一样） |
 | [欢迎卡](usage.md#第一次使用) | `COVEY_WELCOME`（默认开） | 新部署第一次启动后私聊里有一张「欢迎使用 Covey」卡；升级前已在用的部署不发 | `COVEY_WELCOME=0` |
 | [别人私聊时回一句](usage.md#基本概念) | `COVEY_STRANGER_REPLY`（默认开） | 让同事私聊你的机器人：他收到“这是你的个人助手，只处理你的消息”，同一个人每天最多一次；设了 `COVEY_INVITE_URL` 时后面带上安装说明的链接 | `COVEY_STRANGER_REPLY=0`（照旧不回） |
 | [机器人停了告诉你](operations.md#机器人停了会告诉主人) | `COVEY_DOWN_NOTICE`（默认开） | Manager 连续 3 次拉不起机器人、启动出错持续 2 分钟，或机器人 10 分钟收不到飞书消息时，私聊里收到一条“⚠️ 机器人没起来…”，好了再收到一条“✅ 机器人恢复了” | `COVEY_DOWN_NOTICE=0` |
@@ -491,6 +492,7 @@
 | `COVEY_RUNNER_PYTHONPATH` | `app/runner.py` | Bridge 交给任务进程，不要手设 | 否 |
 | `COVEY_TASK_DIR` | `app/leftovers.py`、`core/device_link.py` | 任务进程给本轮命令设置，不要手设 | 否 |
 | `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录和 Pi 借用的登录都从它取）、`core/model_settings.py` | `~/.codex` | 否 |
+| `COVEY_CLAUDE_HOOKS` | `backends/claude/hooks.py`（`enabled`：`TurnHooks.registration` 据此在每轮 Claude Code 的 initialize 里注册 SDK hook） | 开：子 Agent（Explore 除外）开工时收到守则（`SubagentStart`），子 Agent 调 `mcp__bridge__*` 被拒（`PreToolUse`），管家这一轮自己调满 6 次非 Bridge 工具时提醒一次交给话题（`PostToolUse`，主人说了“你直接做”的那一轮没有）；`0` 关：不注册，每轮和原来一样 | 否 |
 | `CLAUDE_CONFIG_DIR` | `backends/claude/sessions.py`、`backends/claude/redaction.py`、`core/maintenance_rules.py` | `~/.claude` | 否 |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`、`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING` | `backends/claude/bridge.py`（Bridge 的环境里设了就用它的值，否则给 claude 子进程设成 `1`） | `1` | 否 |
 | `DSH_HOME` | `backends/dsh/bridge.py` | `~/.dsh` | 否 |

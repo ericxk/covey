@@ -1,5 +1,6 @@
 """The control side of a running Claude CLI (ClaudeControl): the prompt and supplements it is sent, the root
-AskUserQuestion it asks and its answer, the other tool permission requests denied, under one control lock."""
+AskUserQuestion it asks and its answer, the other tool permission requests denied, and the turn's SDK hook callbacks
+answered (backends/claude/hooks.py), under one control lock."""
 
 from __future__ import annotations
 
@@ -53,8 +54,9 @@ class ClaudeControl:
         """A native question keeps the turn open until it is answered; the turn takes no supplement meanwhile."""
         return bool(self.user_requests)
 
-    def __init__(self, process, state, emit):
+    def __init__(self, process, state, emit, hooks=None):
         self.transport, self.reply_state, self.emit = process, state, emit
+        self.hooks = hooks  # The turn's SDK hook callbacks (backends/claude/hooks.py TurnHooks), or None.
         self.control_lock = threading.RLock()
         self.user_requests = set()
         self.questions = {}
@@ -222,6 +224,11 @@ class ClaudeControl:
                 raise ValueError("Invalid Claude control request payload")
             if not isinstance(rid, str) or not rid or rid in self.questions:
                 raise ValueError("Invalid Claude control request")
+            if request.get("subtype") == "hook_callback":
+                # A hook callback the turn registered (backends/claude/hooks.py); {} goes on as without one.
+                self.response(rid, self.hooks.answer(request.get("callback_id"), request.get("input"))
+                              if self.hooks is not None else {})
+                return
             if (
                 request.get("subtype") != "can_use_tool"
                 or request.get("tool_name") != "AskUserQuestion"

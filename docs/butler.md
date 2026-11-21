@@ -60,6 +60,7 @@
 - 写给主人的话当他没看过别处：提到话题写它在做的事、T 号放括号里，话题里的数字和结论直接写进回复。
 - 怎么做由管家定（先查什么、交给哪个话题、失败了换办法）；做什么、不可逆的、对外可见的、花钱的由主人定，问的时候先说倾向。
 - 一轮结束后管家不会自己醒来：没有在跑的话题会把结果带回来时不说“稍后”“等下”，没答完的派进话题。
+- **提醒一次**：管家这一轮自己调满 6 次 Bridge 以外的工具时，Claude Code 的 `PostToolUse` hook 提醒它一次把剩下的交给话题、说一句放到了哪里就结束（`app/prompts.py` 的 `TOOL_NUDGE_TEXT`，`backends/claude/hooks.py`）；主人这句话说了“你直接做”“别开话题”“就在这儿做”的不提醒。管家派出的子 Agent 调不了 Bridge 工具（[Harness 说明 · Claude Code](harnesses.md#claude-code)）。
 - “写给人看的话（含工具说明）用主人的语言”只在每轮的桥接规则或续接提醒里说一次（`app/prompts.py` 的 `LANGUAGE_RULE`），管家规则不再重复。
 - 主人问 Covey 本身怎么用（看板在哪、怎么开记忆），先读运行中这份代码自己的 `docs/quickstart.md`（[五分钟上手](quickstart.md)，规则里写的是它的绝对路径，`USAGE_RULE`）再答。
 

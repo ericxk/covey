@@ -973,6 +973,21 @@ class TurnTest(ButlerUnifiedCase):
         self.assertEqual(app.runs.checkpoint_rules(target, topic_job), checkpoint_rules())
         self.assertEqual(app.runs._images_note(target, topic_job), '')  # Its rules have it already.
 
+    def test_the_butlers_turn_is_reminded_past_six_tool_calls_unless_the_owner_said_to_do_it_there(self):
+        """#34: the reminder's option for backends/claude/hooks.py; none when the owner said 你直接做 for this turn."""
+        from covey.app.prompts import TOOL_NUDGE_CALLS, TOOL_NUDGE_TEXT
+        self.send('om_1')
+        job = self.job_of('om_1')
+        target, _ = self.turn(job)
+        self.assertEqual(target.options['tool_nudge'], {'after': TOOL_NUDGE_CALLS, 'text': TOOL_NUDGE_TEXT})
+        self.assertEqual(TOOL_NUDGE_CALLS, 6)
+        for words in ('交给话题', 'topic_start', 'topic_send', '结束这一轮', '快做完了就做完再答'):
+            self.assertIn(words, TOOL_NUDGE_TEXT)
+        for said in ('这个你直接做', '别开话题，就在这儿做', '不用开话题'):
+            job.user_text = said
+            target, _ = self.turn(job)
+            self.assertNotIn('tool_nudge', target.options, said)
+
     def test_the_owners_principles_reach_the_butler_with_its_own_workspaces(self):
         """core/principles.py: the butler's turn reads 通用 and its own workspace's group, as a topic's does."""
         self.send('om_1')

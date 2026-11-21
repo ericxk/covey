@@ -38,7 +38,7 @@ from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import butler_tracks as tracks_module
 from covey.app.butler_tracks import Tracks
-from covey.app.prompts import first_turn_message, butler_message, resume_message, earlier_history
+from covey.app.prompts import first_turn_message, butler_message, resume_message, earlier_history, tool_nudge
 from covey.core import butler as contract
 from covey.core import butler_tracks
 from covey.core import board_read, butler_opened, butler_settings, placement, projects, timing, turn_words
@@ -392,6 +392,9 @@ def butler_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
                                             "mcp_config": mcp_config(RELEASE, ctx.state_dir, key, sys.executable)})
     if job.kind != "chat":
         return ctx, prompt
+    nudge = tool_nudge(getattr(job, "user_text", ""))  # #34: one reminder past its own tool calls (backends/claude/hooks.py).
+    if nudge:
+        ctx = dataclasses.replace(ctx, options={**ctx.options, "tool_nudge": nudge})
     note = ""
     if track and harness is not None:
         ctx, prompt, note = track_start(ctx, job, prompt, session_id, harness, log)

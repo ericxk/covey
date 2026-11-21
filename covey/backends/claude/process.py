@@ -262,13 +262,15 @@ class ClaudeProcess:
         except queue.Empty:
             return None
 
-    def initialize(self):
+    def initialize(self, hooks=None):
+        """The initialize control request and its answer; ``hooks`` (backends/claude/hooks.py registration), when
+        given, registers the turn's SDK hook callbacks."""
         rid = str(uuid.uuid4())
         self.send(
             {
                 "type": "control_request",
                 "request_id": rid,
-                "request": {"subtype": "initialize", "forwardSubagentText": True},
+                "request": {"subtype": "initialize", "forwardSubagentText": True, **({"hooks": hooks} if hooks else {})},
             }
         )
         deadline = time.monotonic() + 30

@@ -19,6 +19,7 @@ from covey.backends.claude.compaction import compact_before_turn
 from covey.backends.claude.completion import ClaudeReplyState, result_failure
 from covey.backends.claude.control import ClaudeControl
 from covey.backends.claude.events import ClaudeEventAdapter
+from covey.backends.claude.hooks import TurnHooks
 from covey.backends.claude.process import (ClaudeProcess, IMAGE_FRAME, failure_event, save_transport_details, transport_error,
                                                     transport_failure_details)
 from covey.core.attachments import MAX_IMAGE_BYTES, read_images
@@ -253,8 +254,9 @@ def run_stream(backend, request, env):
         compact_before_turn(request, env, spawn, emit, flush_events, adapter.usage)
         process = spawn()
         stage = "initialize"
-        process.initialize()
-        control = ClaudeControl(process, state, emit)
+        hooks = TurnHooks(ctx)  # The subagents' rules, the Bridge's tools refused to them, the butler's one reminder.
+        process.initialize(hooks.registration())
+        control = ClaudeControl(process, state, emit, hooks)
         control.foreground = adapter.foreground_commands
         for row in process.prelude:
             state.accept(row)

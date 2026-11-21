@@ -12,6 +12,7 @@ multi-line message never shifts their indentation.
 from __future__ import annotations
 
 import datetime as _dt
+import re
 from pathlib import Path
 from typing import Any
 
@@ -494,6 +495,22 @@ def butler_rules() -> str:
 
 
 BUTLER_RULES_TEXT = butler_rules()
+
+# #34: a butler turn that has made this many tool calls of its own, none of them the Bridge's, is reminded once to hand
+# the rest to a topic (backends/claude/hooks.py, its context's ``tool_nudge``: app/butler.py butler_turn); not a turn whose
+# owner said to do it right there (the butler rules' 例外).
+TOOL_NUDGE_CALLS = 6
+TOOL_NUDGE_TEXT = (f"[Bridge 提醒] 这一轮你已经自己调了 {TOOL_NUDGE_CALLS} 次工具。剩下的交给话题：新的事用 topic_start，"
+                   "同一件事用 topic_send，对主人说一句放到了哪里就结束这一轮，好接住他的下一句；快做完了就做完再答。")
+DIRECT_WORDS = re.compile(r"你直接做|直接做吧|你自己做|别开话题|不要开话题|不用开话题|就在这儿做|就在这里做")
+
+
+def tool_nudge(text) -> dict:
+    """The butler turn's ``tool_nudge`` (backends/claude/hooks.py): when and what to remind it; {} when the owner's words
+    (``text``) say to do it right there (DIRECT_WORDS)."""
+    if DIRECT_WORDS.search(str(text or "")):
+        return {}
+    return {"after": TOOL_NUDGE_CALLS, "text": TOOL_NUDGE_TEXT}
 
 
 def butler_message(snapshot: str, message: str, note: str = "") -> str:
