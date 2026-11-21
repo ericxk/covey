@@ -393,7 +393,7 @@ def unfollowed(delivery, text) -> str:
     as the model wrote it); ``text`` as it is for every other turn, and when the records cannot be read."""
     job, ctx, turn = delivery.job, delivery.ctx, delivery.turn
     reply, outcome = getattr(turn, "verified_delivery", None), getattr(turn, "verified_outcome", None)
-    if (traits_of(job).name != "butler" or turn.status != "done" or reply is None
+    if (placement.ROLES.get(traits_of(job).name) != placement.BUTLER_ROLE or turn.status != "done" or reply is None
             or getattr(outcome, "status", "") != "completed" or not turn_words.defers(turn.final_text)):
         return text
     try:
