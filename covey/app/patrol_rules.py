@@ -15,7 +15,12 @@ candidates (``Candidate``), every kind below, each about one object:
   the same workspace as the project's topics) and is in none;
 - ``project_idle``: an active project, or one a guard paused, with receipts nobody read (or the pause) and no task running
   for COVEY_PATROL_PROJECT_MINUTES (720); the idle close of a project is app/project_loop.py's, not read here;
-- ``project_messy``: a project with PROJECT_THREADS topics or more, or topics in PROJECT_SPREAD workspaces or more.
+- ``project_messy``: a project with PROJECT_THREADS topics or more, or topics in PROJECT_SPREAD workspaces or more;
+- ``deferred`` (#55, record only): a butler turn of the last day that ended done with a reply that puts something off
+  (core/turn_words.py defers) while it opened, forked and handed on to no topic: nothing brings that matter back;
+- ``unrelayed`` (#55, record only): a topic's turn that ended done over COVEY_PATROL_RELAY_MINUTES (10) ago, within the
+  last day, whose conclusion was due at the top level (app/relay_targets.py) and whose relay record does not say it went
+  (main-thread/relays/: none, ``submitting``, ``uncertain`` or ``unsent``).
 
 ``sig`` is the state the object was found in: the same sig is the same matter (core/patrol.py). Words are the title's
 ASCII words of three letters and Chinese pairs, minus the pairs every request has (``STOP``).
@@ -28,8 +33,9 @@ import re
 from pathlib import Path
 
 from covey.app.pins import board_results, kept, laid
-from covey.core import board_read, patrol, projects
+from covey.core import board_read, butler, butler_opened, patrol, projects, turn_words
 from covey.core.board_read import ended_at, order, unrun
+from covey.core.jobs import job_key, select_job_records
 from covey.core.metrics import took_text
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import RUNNING, TERMINAL
@@ -72,6 +78,7 @@ class Look:
     unseen: dict
     off: dict
     projects: list
+    butler_turns: list = dataclasses.field(default_factory=list)  # ``butler_turns``: the board's read leaves them out.
 
 
 def look(state, chat, now) -> Look:
@@ -79,7 +86,25 @@ def look(state, chat, now) -> Look:
     read = board_read.read(state, chat, now, keep=kept(state, chat) if laid() else ())
     unseen, off = board_results(state, chat, now, read)
     found = projects.records(state, chat) if projects.enabled() else []
-    return Look(Path(state), chat, now, read, unseen, off, found)
+    return Look(Path(state), chat, now, read, unseen, off, found, butler_turns(state, chat, now))
+
+
+def butler_turn(topic, chat) -> bool:
+    """Whether ``topic`` is the butler's (its family's), not a project's lead."""
+    return butler.is_butler_topic(topic, chat) and not butler.is_lead(topic, chat)
+
+
+def butler_turns(state, chat, now) -> list:
+    """The butler's turns that ended done within patrol.GONE, newest first; only those records are read."""
+    since = now - patrol.GONE
+
+    def recent(fields):
+        topic, updated = fields.get("topic_id"), fields.get("updated_at")
+        if topic is not None and not butler_turn(topic, chat):
+            return False
+        return updated is None or (epoch_seconds(updated) or now) >= since
+    return select_job_records(state, lambda record: butler_turn(record.get("topic_id"), chat) and ended_at(record) >= since,
+                              chat_id=chat, status="done", narrow=recent)
 
 
 def words(text) -> set:
@@ -333,6 +358,79 @@ def tidied(reader: Reader, config) -> list:
     return found
 
 
+# What a record of the past says and will keep saying, per state directory and job key: whether a butler job handed
+# anything on (main-thread/opened/ is scanned once for it), whether a topic job's conclusion was due at the top level,
+# whether its relay went. Bounded: cleared past CACHE_KEPT.
+CACHE_KEPT = 2000
+_handed, _due, _relayed = {}, {}, set()
+
+
+def _remember(cache, key, value):
+    if len(cache) >= CACHE_KEPT:
+        cache.clear()
+    cache[key] = value
+    return value
+
+
+def handed(state, key) -> bool:
+    """Whether the butler job ``key`` opened, forked or handed on to a topic (an answered request of it)."""
+    found = _handed.get((str(state), key))
+    if found is None:
+        found = _remember(_handed, (str(state), key), any(butler_opened.answered(record)
+                                                           for _, record in butler_opened.by_job(state, key)))
+    return found
+
+
+def deferred(reader: Reader, config) -> list:
+    """#55: the butler said it would come back to something and nothing will (core/turn_words.py defers)."""
+    seen, found = reader.seen, []
+    for record in seen.butler_turns:
+        key = str(record.get("key") or job_key(str(record.get("message_id") or ""), record.get("job_id") or ""))
+        text = str(record.get("final_text") or "")
+        if not turn_words.defers(text) or handed(seen.state, key):
+            continue
+        asked = clipped(turn_words.request_line(record.get("user_text")))
+        found.append(Candidate("deferred", f"deferred:{key}", key, seen.chat, asked,
+                               f"管家答“{clipped(text)}”，这一轮没开也没转话题，没人接着做", (str(record.get("topic_id") or ""),),
+                               wait=seen.now - ended_at(record)))
+    return found
+
+
+def unrelayed(reader: Reader, config) -> list:
+    """#55: a topic's conclusion due at the top level whose relay is not known to have gone."""
+    from covey.app.relay_send import relay_path
+    from covey.app.relay_targets import awaited_target, relay_target
+
+    seen, found = reader.seen, []
+    for record in seen.read.jobs:
+        topic = record.get("topic_id") or ""
+        if record.get("status") != "done" or not topic or topic in seen.off:
+            continue
+        waited = seen.now - ended_at(record)
+        if not config.get("relay_minutes", patrol.number("relay_minutes")) * 60 <= waited < patrol.GONE:
+            continue
+        key = str(record.get("key") or job_key(str(record.get("message_id") or ""), record.get("job_id") or ""))
+        if (str(seen.state), key) in _relayed:
+            continue
+        state = str(read_object(relay_path(seen.state, key)).get("state") or "")
+        if state in ("sent", "inline", "skipped"):
+            if len(_relayed) >= CACHE_KEPT:
+                _relayed.clear()
+            _relayed.add((str(seen.state), key))
+            continue
+        due = _due.get((str(seen.state), key))
+        if due is None:
+            due = _remember(_due, (str(seen.state), key), bool(relay_target(seen.state, record) or awaited_target(seen.state, record)))
+        if not due:
+            continue
+        label, title = reader.label(topic)
+        why = "没有确认发出" if state else "没有发出"
+        found.append(Candidate("unrelayed", f"unrelayed:{key}", state or "none", seen.chat, title,
+                               f"{label}：做完 {hours(waited)} 了，结论回聊天区的那条{why}", (topic,), wait=waited,
+                               project=reader.project_of(topic)))
+    return found
+
+
 def find(seen: Look, config=None) -> list:
     """Every candidate ``seen`` holds, one per object and kind. With 整理专项 on, ``tidied`` stands in for ``groups`` and
     ``joins``."""
@@ -342,6 +440,6 @@ def find(seen: Look, config=None) -> list:
     reader = Reader(seen)
     found = []
     alike = (tidied,) if project_proposals.enabled() else (groups, joins)
-    for rule in (asks, unseen, fails, stuck, *alike, project_rows):
+    for rule in (asks, unseen, fails, stuck, *alike, project_rows, deferred, unrelayed):
         found += rule(reader, config)
     return found

@@ -243,8 +243,8 @@
 
 开关和怎么看见 butler.md [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰)。
 
-- **第一层是规则**（`app/patrol_rules.py`），每分钟一次、不调模型，从看板、手上的事、汇总已经在读的记录里找候选：问题等了很久没回（默认 120 分钟）；做完的结果没人看（360 分钟）；同一个话题连着失败 2 次，或任务 180 分钟没有动静；最近三天的话题里看起来是同一件事的，或该归进某个在做的专项的（开了整理专项时改读它的提议）；专项有回执没人读或被护栏停住后 720 分钟没有进展，或专项的话题太多太散。同一件事状态没变不重复记。
+- **第一层是规则**（`app/patrol_rules.py`），每分钟一次、不调模型，从看板、手上的事、汇总已经在读的记录里找候选：问题等了很久没回（默认 120 分钟）；做完的结果没人看（360 分钟）；同一个话题连着失败 2 次，或任务 180 分钟没有动静；最近三天的话题里看起来是同一件事的，或该归进某个在做的专项的（开了整理专项时改读它的提议）；专项有回执没人读或被护栏停住后 720 分钟没有进展，或专项的话题太多太散。同一件事状态没变不重复记。另有两条只记、不交给小模型（`core/patrol.py` 的 `RECORD_ONLY`）：`deferred`，最近一天里管家做完的一轮回答里有推迟的话（`core/turn_words.py` 的 `defers`），这一轮却没开、没分叉也没转交任何话题；`unrelayed`，话题做完超过 10 分钟（`COVEY_PATROL_RELAY_MINUTES`）、结论该回聊天区（`app/relay_targets.py`），回带记录却没有说发出了（没有记录，或 `submitting`、`uncertain`、`unsent`）。
 - **第二层是小模型**（`app/patrol_judge.py`），每 30 分钟一次，有新候选才调：给它候选、精简的上下文和主人的原则，它对每条给“丢掉 / 记下 / 该处理”、一句理由和本来要做的动作；每天最多 48 次，同一条试 4 轮仍不成就放弃。要脱敏的话题标题不外发。
 - **第三层是管家核查执行**，还没有。
 - **记录**在 `<state>/patrol/`（`candidates/<日期>.jsonl`、`decisions/<日期>.jsonl`、`state.json`），保留 14 天。
-- **可调数值**：`COVEY_PATROL_ASK_MINUTES`、`COVEY_PATROL_UNSEEN_MINUTES`、`COVEY_PATROL_STALL_MINUTES`、`COVEY_PATROL_FAILS`、`COVEY_PATROL_PROJECT_MINUTES`、`COVEY_PATROL_TICK_SECONDS`、`COVEY_PATROL_JUDGE_MINUTES`、`COVEY_PATROL_DAILY_CALLS`、`COVEY_PATROL_JUDGE_MS`，默认值和范围见[配置](configuration.md)的一览；验收时把时间都调到几分钟、小模型间隔调到 1 分钟，几分钟内就能看到结果。
+- **可调数值**：`COVEY_PATROL_ASK_MINUTES`、`COVEY_PATROL_UNSEEN_MINUTES`、`COVEY_PATROL_STALL_MINUTES`、`COVEY_PATROL_FAILS`、`COVEY_PATROL_PROJECT_MINUTES`、`COVEY_PATROL_RELAY_MINUTES`、`COVEY_PATROL_TICK_SECONDS`、`COVEY_PATROL_JUDGE_MINUTES`、`COVEY_PATROL_DAILY_CALLS`、`COVEY_PATROL_JUDGE_MS`，默认值和范围见[配置](configuration.md)的一览；验收时把时间都调到几分钟、小模型间隔调到 1 分钟，几分钟内就能看到结果。

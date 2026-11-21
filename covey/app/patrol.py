@@ -28,9 +28,9 @@ TRIES = 4  # Rounds a candidate may fail to be judged in.
 
 def record(data, found, now, state_dir=None) -> list:
     """Put ``found`` (Candidates) into ``data`` (core/patrol.load): the ones new, or in another state than when last
-    seen, or not seen for a day, are added to ``pending``, appended to the day's candidates file when ``state_dir`` is
-    given and kept in ``seen``; the ones seen as before only have their ``last`` moved. Objects not found for a day
-    are forgotten. The rows recorded."""
+    seen, or not seen for a day, are added to ``pending`` (but the RECORD_ONLY kinds), appended to the day's candidates
+    file when ``state_dir`` is given and kept in ``seen``; the ones seen as before only have their ``last`` moved.
+    Objects not found for a day are forgotten. The rows recorded."""
     seen, new = data["seen"], []
     for candidate in found:
         entry = seen.get(candidate.key)
@@ -45,7 +45,8 @@ def record(data, found, now, state_dir=None) -> list:
             patrol.append(state_dir, "candidates", now, {key: value for key, value in row.items() if key != "tries"})
     for key in [key for key, entry in seen.items() if not isinstance(entry, dict) or now - float(entry.get("last") or 0) >= 14 * patrol.GONE]:
         del seen[key]
-    data["pending"] = [*data["pending"], *new][-PENDING_KEPT:]
+    # The record-only kinds (core/patrol.py RECORD_ONLY) are written down and never judged.
+    data["pending"] = [*data["pending"], *(row for row in new if row.get("kind") not in patrol.RECORD_ONLY)][-PENDING_KEPT:]
     return new
 
 

@@ -35,7 +35,9 @@ RETAIN_DAYS = 14
 GONE = 86400  # An object not found for this long is forgotten: found again, it is new.
 ZONE = datetime.timezone(datetime.timedelta(hours=8))  # Asia/Shanghai, as the digest's days.
 
-KINDS = ("ask", "unseen", "fails", "stuck", "group", "join", "project_idle", "project_messy")
+KINDS = ("ask", "unseen", "fails", "stuck", "group", "join", "project_idle", "project_messy", "deferred", "unrelayed")
+# Recorded in candidates/ and never put to the small model (#55: watched for a week first, rules only).
+RECORD_ONLY = frozenset({"deferred", "unrelayed"})
 VERDICTS = ("drop", "note", "handle")
 ACTIONS = ("ask", "join", "tidy", "wake", "none")
 
@@ -49,6 +51,7 @@ NUMBERS = {
     "stall_minutes": (180, 1, 10080),  # A running task's record stays unchanged this long.
     "fails": (2, 2, 20),  # Turns of one topic failed in a row.
     "project_minutes": (720, 1, 43200),  # A project with work waiting does not move this long.
+    "relay_minutes": (10, 1, 1440),  # A topic's result whose relay to the top level is not confirmed sent this long.
     "judge_minutes": (30, 1, 1440),  # Between two calls of the small model.
     "tick_seconds": (60, 5, 3600),  # Between two looks of the rules.
     "daily_calls": (48, 1, 1000),  # Calls of the small model a day.
@@ -64,6 +67,7 @@ def raw(name, environ=None):
         "stall_minutes": cenv.get("COVEY_PATROL_STALL_MINUTES", "", environ),
         "fails": cenv.get("COVEY_PATROL_FAILS", "", environ),
         "project_minutes": cenv.get("COVEY_PATROL_PROJECT_MINUTES", "", environ),
+        "relay_minutes": cenv.get("COVEY_PATROL_RELAY_MINUTES", "", environ),
         "judge_minutes": cenv.get("COVEY_PATROL_JUDGE_MINUTES", "", environ),
         "tick_seconds": cenv.get("COVEY_PATROL_TICK_SECONDS", "", environ),
         "daily_calls": cenv.get("COVEY_PATROL_DAILY_CALLS", "", environ),

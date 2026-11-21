@@ -458,6 +458,7 @@
 | `COVEY_PROGRESS_STUCK_MINUTES` | `core/progress.py`（`stuck_seconds`）、`core/longtask.py`（`TaskMonitor`） | 30：在跑的一轮这么多分钟没有任何动静就算“可能卡住了”：任务卡状态行、看板、汇总里这么写，状态行下出「看看」按钮。1 到 1440 | 否 |
 | `COVEY_PATROL_FAILS` | `core/patrol.py`（`number`） | 2：同一个话题连着失败几次算（2 到 20） | 否 |
 | `COVEY_PATROL_PROJECT_MINUTES` | `core/patrol.py`（`number`） | 720：专项有事没人动这么多分钟算（1 到 43200） | 否 |
+| `COVEY_PATROL_RELAY_MINUTES` | `core/patrol.py`（`number`） | 10：话题做完这么多分钟后，该回聊天区的结论还没确认发出就记一条 `unrelayed`（1 到 1440；只记，不交给小模型） | 否 |
 | `COVEY_PATROL_TICK_SECONDS` | `core/patrol.py`（`number`） | 60：规则看一次记录的间隔，秒（5 到 3600） | 否 |
 | `COVEY_PATROL_JUDGE_MINUTES` | `core/patrol.py`（`number`） | 30：小模型两次调用的间隔，分钟（1 到 1440）；试用时设 `1` | 否 |
 | `COVEY_PATROL_DAILY_CALLS` | `core/patrol.py`（`number`） | 48：小模型一天最多调几次（1 到 1000） | 否 |

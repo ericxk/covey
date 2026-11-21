@@ -18,8 +18,8 @@ from covey.app import patrol, patrol_judge, patrol_rules, track_judge
 from covey.app.digest import Digest, collect, wanted_view
 from covey.app.track_standby import Failed
 from covey.cards.digest import digest_card, digest_text
-from covey.core import patrol as store, principles, projects
-from covey.core.jobs import upsert_job_record
+from covey.core import butler, patrol as store, principles, projects
+from covey.core.jobs import job_key, upsert_job_record
 from covey.core.maintenance import maintain
 from covey.core.state import write_private_text
 from covey.feishu.messenger import Voice
@@ -213,6 +213,75 @@ class RuleTests(Records, unittest.TestCase):
 def candidate(key="ask:a", sig="q1", kind="ask", **fields):
     return patrol_rules.Candidate(kind, key, sig, CHAT, fields.pop("title", "标题"), fields.pop("what", "T1：有个问题等了你 3小时0分"),
                                   fields.pop("topics", ("a",)), **fields)
+
+
+class FollowUpRuleTests(Records, unittest.TestCase):
+    """#55: the butler said it would come back to something and handed it to no topic; a topic's conclusion due at the
+    top level whose relay is not known to have gone. Recorded only: never judged, nothing sent."""
+
+    def setUp(self):
+        super().setUp()
+        for cache in (patrol_rules._handed, patrol_rules._due, patrol_rules._relayed):
+            cache.clear()
+
+    def butler_job(self, key, job_id, text, ended):
+        self.job(key, job_id, "done", butler.butler_topic_id(CHAT), message_id=key, user_text="看看昨晚的日志",
+                 final_text=text, timings={"execution_finished": ended})
+
+    def topic_job(self, key, job_id, ended, topic="t"):
+        self.job(key, job_id, "done", topic, message_id=key, final_text="结论：好了", timings={"execution_finished": ended})
+
+    def test_a_butler_reply_put_off_with_no_topic_is_recorded(self):
+        self.butler_job("om_b1", 1, "我去查一下，稍后告诉你。", self.now - 60)
+        found = [c for c in self.find() if c.kind == "deferred"]
+        self.assertEqual([(c.key, c.sig, c.title) for c in found],
+                         [(f"deferred:{job_key('om_b1', 1)}", job_key("om_b1", 1), "看看昨晚的日志")])
+        self.assertIn("没开也没转话题", found[0].what)
+        # Handed on in that turn, a reply naming a topic, a reply that puts nothing off, one over a day old: none.
+        self.butler_job("om_b2", 2, "等下我看看。", self.now - 60)
+        write_private_text(self.state / "main-thread" / "opened" / "r2.json", json.dumps(
+            {"job_key": job_key("om_b2", 2), "topic_id": "t", "answer": {"ok": True, "data": {}}}))
+        self.butler_job("om_b3", 3, "迁移账单（T12）在跑，稍后结论会发过来。", self.now - 60)
+        self.butler_job("om_b4", 4, "已经查完：14 个通过。", self.now - 60)
+        self.butler_job("om_b5", 5, "我去查一下，稍后告诉你。", self.now - store.GONE - 60)
+        self.assertEqual([c.key for c in self.find() if c.kind == "deferred"], [f"deferred:{job_key('om_b1', 1)}"])
+        # A topic's own reply is no butler's.
+        self.topic("t", 1, "发布方案")
+        self.job("om_t1", 9, "done", "t", message_id="om_t1", final_text="我去查一下，稍后告诉你。",
+                 timings={"execution_finished": self.now - 60})
+        self.assertEqual(len([c for c in self.find() if c.kind == "deferred"]), 1)
+
+    def test_a_conclusion_due_at_the_top_level_and_not_known_sent_is_recorded_after_ten_minutes(self):
+        from covey.app import relay_send
+        self.topic("t", 1, "发布方案")
+        self.topic_job("om_t1", 1, self.now - 20 * 60)
+        with mock.patch("covey.app.relay_targets.relay_target", return_value={"kind": "start"}):
+            found = [c for c in self.find() if c.kind == "unrelayed"]
+            self.assertEqual([(c.key, c.sig, c.topics) for c in found], [(f"unrelayed:{job_key('om_t1', 1)}", "none", ("t",))])
+            self.assertIn("T1", found[0].what)
+            path = relay_send.relay_path(self.state, job_key("om_t1", 1))
+            write_private_text(path, json.dumps({"state": "uncertain"}))
+            self.assertEqual([c.sig for c in self.find() if c.kind == "unrelayed"], ["uncertain"])
+            write_private_text(path, json.dumps({"state": "sent"}))
+            self.assertEqual([c for c in self.find() if c.kind == "unrelayed"], [])
+            self.topic_job("om_t2", 2, self.now - 5 * 60)  # Not ten minutes yet.
+            self.assertEqual([c for c in self.find() if c.kind == "unrelayed"], [])
+            with mock.patch.dict(os.environ, {"COVEY_PATROL_RELAY_MINUTES": "3"}):
+                self.assertEqual([c.key for c in self.find() if c.kind == "unrelayed"], [f"unrelayed:{job_key('om_t2', 2)}"])
+        self.topic_job("om_t3", 3, self.now - 20 * 60)
+        with mock.patch("covey.app.relay_targets.relay_target", return_value=None):
+            self.assertEqual([c for c in self.find() if c.kind == "unrelayed"], [])  # Not due at the top level.
+
+    def test_they_are_recorded_and_never_put_to_the_model(self):
+        self.assertEqual(store.RECORD_ONLY, {"deferred", "unrelayed"})
+        self.assertTrue(store.RECORD_ONLY <= set(store.KINDS))
+        data = store.load(self.state)
+        rows = patrol.record(data, [candidate(kind="deferred", key="deferred:x"), candidate(kind="unrelayed", key="unrelayed:y"),
+                                    candidate()], self.now, self.state)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([row["kind"] for row in data["pending"]], ["ask"])
+        lines = (store.folder(self.state) / "candidates" / f"{store.day_of(self.now)}.jsonl").read_text().splitlines()
+        self.assertEqual(sorted(json.loads(line)["kind"] for line in lines), ["ask", "deferred", "unrelayed"])
 
 
 class RecordTests(Records, unittest.TestCase):
