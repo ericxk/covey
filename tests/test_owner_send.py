@@ -168,6 +168,21 @@ class ClickTests(OwnerSendCase):
         self.assertIn("主人改过正文", lines[0])
         self.assertIn(records.RULE, module.turn_note(self.jctx, self.job))
 
+    def test_a_draft_with_a_blank_left_is_not_sent_until_the_box_is_filled(self):
+        # T604 #41: the topic's text and the owner's edit are both checked; the card stays open and says what is left.
+        web_send = self.sent_with({"ok": True, "submitted": True, "message_id": "om_x"})
+        self.finished([{"id": "zs", "to": {"email": "zhangsan@example.com"}, "text": "会议改到【日期】，请确认", "why": "交付"}])
+        with mock.patch("covey.app.proxy_commands.user_cli", lark([ZHANG])):
+            self.owner.collect(self.job, self.ctx)
+        record = records.read(self.state, records.record_id(KEY, "zs"))
+        self.assertIn("没填的占位符", json.dumps(module.owner_send_card(record, {"state": "drafted"}), ensure_ascii=False))
+        for box in ("会议改到【日期】，请确认", "会议改到 {{date}}", "会议改到 TODO", "会议改到 xx月xx日"):
+            self.assertEqual(self.click(record, SEND, box=box, text=records.digest(record["text"])), "owner_send_refused", box)
+        web_send.assert_not_called()
+        self.assertEqual(records.read(self.state, record["id"])["status"], "drafted")
+        self.assertEqual(self.click(record, SEND, box="会议改到周五下午三点", text=records.digest(record["text"])), "owner_send")
+        self.assertEqual(web_send.call_args.args[-1], "会议改到周五下午三点")
+
     def test_changed_card_is_refused(self):
         web_send = self.sent_with({"ok": True, "submitted": True})
         record = self.draft()
@@ -243,6 +258,15 @@ class CardTests(unittest.TestCase):
         self.assertIn('"name": "ask"', card)
         hidden = json.dumps(owner_send_card({**record, "text": "正文"}, {"state": "drafted", "hide": True}), ensure_ascii=False)
         self.assertNotIn("正文\"", hidden.replace("正文飞书", ""))
+
+
+class PlaceholderTests(unittest.TestCase):
+    def test_what_counts_as_an_unfilled_blank(self):
+        for text in ("发给【姓名】", "{{name}} 你好", "密码是 ${PASSWORD}", "TODO 补上", "待填", "xx月xx日开会", "<此处填写>", "[待补充]"):
+            self.assertTrue(records.placeholders(text), text)
+        for text in ("会议改到周五下午三点", "用 todo 列表跟进", "价格 100元", "x 轴", "xx"):
+            self.assertEqual(records.placeholders(text), [], text)
+        self.assertEqual(records.placeholders("【a】和【a】和{{b}}"), ["【a】", "{{b}}"])
 
 
 class ReadOnlyTests(OwnerSendCase):

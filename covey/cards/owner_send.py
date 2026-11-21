@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from covey.cards.elements import button_row, callback, md, note, panel_card, plain
-from covey.core.owner_send import digest
+from covey.core.owner_send import digest, placeholders
 from covey.core.text import literal
 
 SEND = "bridge_owner_send"
@@ -99,6 +99,11 @@ def owner_send_card(record, view) -> dict:
             body = [md("要发的正文：\n" + "\n".join(literal(line) for line in masked(text).split("\n"))),
                     note(f"正文超过 {EDIT_LIMIT} 字或含邮箱、手机号（卡上已遮住），卡上不能改；发出的是话题写的原文。"
                          "要改的话在话题里说，让它重写草稿。")]
+        blanks = placeholders(text)
+        if blanks:  # T604 #41: 发送 refuses it (app/owner_send.py decide) until the box holds none.
+            elements.append(md("⚠️ **正文里还有没填的占位符**：" + "、".join(f"`{b.replace('`', '')}`" for b in blanks[:3])
+                               + ("。先在框里改掉，现在点“发送”会被拒绝。" if editable(text)
+                                  else "。这条在卡上不能改，请在话题里说，让它重写草稿；现在点“发送”会被拒绝。")))
         elements.append({"tag": "form", "name": "owner_send", "elements": [
             *body,
             # 先问一句's words: one line, sent with the form only by its button (the draft's box is not read then).

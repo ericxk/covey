@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from pathlib import Path
 
@@ -45,8 +46,26 @@ RULE = (
     '"text":"完整正文（纯文本）","why":"一句话：为什么要以主人身份发"}]，最多 3 条；正文里有密钥、AK 时改写 "text_file":"正文文件的绝对路径"，'
     "不要把密钥写进检查点。收件人优先写邮箱：@ 消息里的 open_id 是机器人应用的，主人身份查不到。"
     "本轮结束后话题里会出一张代发草稿卡，主人确认（可改正文）后才以主人身份发出，结果会在话题里说，并在之后的轮次告诉你；"
-    "在回复里说明草稿已备好、等主人在卡上确认，不要说已经发出。"
+    "在回复里说明草稿已备好、等主人在卡上确认，不要说已经发出。正文里不要留【…】、{{…}}、TODO、xx月 这类没填的占位符，卡上会拒绝发送。"
 )
+
+
+# A draft still holding a blank to fill in is not sent as it is (app/owner_send.py ``decide`` refuses, the card says so). A local
+# copy of the 代答 pre-send check's placeholder pattern (core/proxy.py ``_PLACEHOLDER``, branch t604b/guard), kept apart so the two
+# branches do not conflict; change both together.
+PLACEHOLDER = re.compile(
+    r"【[^】\n]{1,30}】|\{\{[^{}\n]{0,40}\}\}|\$\{[^{}\n]{1,40}\}|<[^<>\n]{0,10}(?:待|填|此处|这里)[^<>\n]{0,10}>|"
+    r"[\[［](?:待|填)[^\]］\n]{0,20}[\]］]|(?<![A-Za-z])(?:TODO|TBD|FIXME|XXX)(?![A-Za-z])|待填|"
+    r"[Xx]{2,}(?:月|日|号|点|时|分|元|个|人)")
+
+
+def placeholders(text) -> list[str]:
+    """The unfilled placeholders in ``text`` (【…】, {{…}}, ${…}, TODO, 待填, xx月 and the like), each once, in order."""
+    found: list[str] = []
+    for match in PLACEHOLDER.finditer(str(text or "")):
+        if match.group(0) not in found:
+            found.append(match.group(0))
+    return found
 
 
 def folder(state_dir) -> Path:

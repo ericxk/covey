@@ -434,6 +434,11 @@ def proxy_cards():
              "text": "key 开好了，在共享盘的 keys 目录", "recipient": {"name": "张三", "department": "算法", "kind": "p2p"}}
     cards["owner_send_drafted"] = owner_send_card(draft, {"state": "drafted"})
     cards["owner_send_unsent"] = owner_send_card({**draft, "status": "unsent", "reason": "网页端未登录"}, {"state": "unsent"})
+    # A draft with a blank left in it (T604 #41): the card says so; and one whose text the card cannot edit.
+    blank = {**draft, "text": "会议改到【日期】，请确认"}
+    cards["owner_send_blank"] = owner_send_card(blank, {"state": "drafted"})
+    cards["owner_send_blank_refused"] = owner_send_card(blank, {"state": "drafted", "notice": "⚠️ 正文里还有没填的占位符（【日期】），没有发送。请在框里改掉再点发送。"})
+    cards["owner_send_blank_read_only"] = owner_send_card({**blank, "text": blank["text"] + " a@example.com"}, {"state": "drafted"})
     cards["owner_send_sent"] = owner_send_card({**draft, "status": "sent", "sent_at_text": "18:59"}, {"state": "sent"})
     return cards
 

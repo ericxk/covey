@@ -54,6 +54,8 @@ CHANGED = "⚠️ 卡片刚更新过，草稿已经换了，这次点击没有�
 EMPTY = "⚠️ 正文是空的，没有发送。"
 TOO_LONG = f"⚠️ 正文超过 {records.TEXT_LIMIT} 字，没有发送。"
 OFF = "⚠️ 这一轮写了以你的身份发消息的草稿，但这个部署不能以你的身份发（没有代答发送器，或 COVEY_OWNER_SEND=0），没有发。"
+BLANK = "⚠️ 正文里还有没填的占位符（{shown}），没有发送。请在框里改掉再点发送。"
+BLANK_FIXED = "⚠️ 正文里还有没填的占位符（{shown}），没有发送；这条在卡上不能改，请在话题里说，让它重写草稿。"
 # 先问一句 (T604 #13): what the topic's model reads (``ask_message``), and the lines the topic gets when nothing was asked.
 ASK_START = ("用户看了你起草的代发消息，先问一句。还没发出：草稿卡还开着，等他确认。这一轮只回答他问的；"
              "他要你改，就在检查点里用同一个 id 重写这条草稿。")
@@ -314,6 +316,10 @@ class OwnerSend:
             return {"state": state, "notice": EMPTY}, "owner_send_refused", record
         if len(text) > records.TEXT_LIMIT:
             return {"state": state, "notice": TOO_LONG}, "owner_send_refused", record
+        blanks = records.placeholders(text)  # T604 #41: a draft with a blank left in it is not sent as it is.
+        if blanks:
+            words = BLANK if editable(record.get("text")) and not shown.get("hide") else BLANK_FIXED
+            return {"state": state, "notice": words.format(shown="、".join(blanks[:3]))}, "owner_send_refused", record
         moved = records.move(ctx.state_dir, record, "sending", text=text,
                              edited=bool(record.get("edited")) or text != record.get("text"),
                              confirmed_by=str(event.get("operator_id") or ""), attempts=int(record.get("attempts") or 0) + 1,

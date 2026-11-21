@@ -268,7 +268,7 @@ class AskDraftTest(unittest.TestCase):
         upsert_job_record(self.state, "om_job1", status="done", checkpoint_path=str(self.checkpoint), job_id=9,
                           topic_id="t" * 64, chat_id="oc_owner")
         self.record = {"id": "d" * 32, "ref": "zs", "status": "drafted", "job_key": "om_job1", "job_id": 9,
-                       "topic_id": "t" * 64, "chat_id": "oc_owner", "reply_to": "om_thread", "to": {"email": "z@x.invalid"},
+                       "topic_id": "t" * 64, "chat_id": "oc_owner", "reply_to": "om_thread", "to": {"email": "z@example.com"},
                        "text": "AK 开好了", "why": "交付", "recipient": {"name": "张三", "open_id": "ou_zs"},
                        "to_label": "张三", "card_id": "card_d", "message_id": "om_draft", "view": {"state": "drafted"},
                        "history": [["drafted", 1, ""]]}
