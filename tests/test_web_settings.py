@@ -10,7 +10,7 @@ FIXTURE = os.environ.get("COVEY_WEB_SETTINGS_FIXTURE", "")  # Writes the snapsho
 from unittest import mock
 
 from support.world import UnifiedCase
-from covey.app import butler_panel, web_settings
+from covey.app import butler_panel, web_settings, web_switch as web_switch_words
 from covey.app.butler_env import ButlerEnv
 from covey.app.web_ops import Ops
 from covey.app.web_sync import WebSync
@@ -404,3 +404,63 @@ class WebSettingsTest(UnifiedCase):
             sync.inbox_once()
         record = json.loads((self.ctx.state_dir / "web" / "launches" / "op-l9.json").read_text())
         self.assertIn(record["topic_id"], sync.collector.dirty)
+
+    # -- 网页换配置 (data contract v21, T616): the topic page's 工作区 · Harness · 模型 line is 🔁 换配置 ------------------------
+
+    def opened(self, model, done=True):
+        """A topic the page opened with ``model`` in 'docs', its first task done (else queued); (topic id, its topic.json path)."""
+        from covey.core.jobs import find_job_record, upsert_job_record
+        self.app.messenger.create_and_send_card = mock.Mock(return_value=("card1", "om_root1"))
+        state, words = self.launch("op-s0", text="整理账单", model=model["key"], effort=model["start_budget"], workspace="docs",
+                                   run_mode="direct", redaction="off")
+        self.assertEqual(state, "done", words)
+        job = find_job_record(self.ctx.state_dir, "web-op-s0")
+        if done:
+            upsert_job_record(self.ctx.state_dir, job["key"], status="done")
+        topic = job["topic_id"]
+        return topic, self.ctx.state_dir / "topics" / topic / "topic.json"
+
+    def switch(self, topic, op_id="op-s1", **payload):
+        """The page's ``switch``; the first task's job is no longer in the in-memory queue (it ran)."""
+        access = self.app.runtime.access
+        with mock.patch.object(access, "owner_chat", return_value="oc_dm"), \
+                mock.patch.object(self.app.topics.runtime.jobs, "in_topic", return_value=False):
+            return self.ops.run({"kind": "switch", "op_id": op_id, "topic_key": topic, "payload": payload})
+
+    def test_a_switch_from_the_page_rebinds_the_topic_and_says_so_in_feishu(self):
+        from covey.app import web_switch
+        models = self.snap()["launch"]["models"]
+        first = models[0]
+        other = next(m for m in models if m["key"] != first["key"])
+        topic, path = self.opened(first)
+        before = json.loads(path.read_text())
+        config = web_switch.topic_config(before)
+        self.assertEqual((config["model"], config["workspace"], config["run_mode"]), (first["key"], "docs", "direct"))
+        replies = []
+        for app in self.app.topics.apps.values():
+            app.messenger.reply = mock.Mock(side_effect=lambda *a, **k: replies.append(a[2]))
+        self.assertEqual(self.switch(topic, op_id="op-s9", **config), ("failed", "配置没有变化"))
+        state, words = self.switch(topic, model=other["key"], effort=other["start_budget"], work_mode="", workspace="project",
+                                   run_mode="direct", redaction="off")
+        self.assertEqual(state, "done", words)
+        self.assertRegex(words, r"^已换配置：.* → .*；工作区 docs → project，下一句话起由新会话接着做$")
+        after = json.loads(path.read_text())
+        self.assertEqual((after["harness_id"], after["workspace_name"], after["binding_revision"]),
+                         (other["harness"], "project", before.get("binding_revision", 1) + 1))
+        self.assertEqual(len(replies), 1)
+        self.assertIn("🔁 已换配置", replies[0])
+        self.assertEqual(web_switch.topic_config(after)["model"].split(":")[0], other["harness"])
+
+    def test_a_switch_is_refused_while_a_task_runs_for_a_new_worktree_and_for_choices_not_offered(self):
+        model = self.snap()["launch"]["models"][0]
+        topic, _ = self.opened(model, done=False)
+        base = dict(model=model["key"], effort=model["start_budget"], workspace="docs", run_mode="direct", redaction="off")
+        self.assertEqual(self.switch(topic, "op-r1", **{**base, "run_mode": "worktree"}), ("failed", web_switch_words.WORKTREE_ON_CARD))
+        self.assertEqual(self.switch(topic, "op-r2", **{**base, "model": "nope:none"}), ("failed", "这个模型已不在可选目录中，请重新选"))
+        self.assertEqual(self.switch(topic, "op-r3", **{**base, "workspace": "elsewhere"}), ("failed", "没有登记工作区「elsewhere」，请重新选"))
+        self.assertEqual(self.switch("f" * 32, "op-r4", **base)[0], "failed")
+        state, words = self.switch(topic, "op-r5", **{**base, "workspace": "project"})
+        self.assertEqual(state, "failed")
+        self.assertIn("还有任务在排队或执行，请先停止", words)
+        with mock.patch.object(self.app.runtime.access, "is_owner", return_value=False):
+            self.assertEqual(self.switch(topic, "op-r6", **base), ("failed", "只有主人能换配置"))

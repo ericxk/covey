@@ -5,6 +5,7 @@ with the switch off there is no thread and no request. The butler's conversation
 level of the private chat (the id ``web-<op_id>`` is quoted, replied to and reacted on by nothing); ``seen`` marks a topic's result as read."""
 from __future__ import annotations
 
+import base64
 import dataclasses
 import datetime
 import json
@@ -52,6 +53,7 @@ class Web:
 
     def __init__(self, test):
         self.upserts, self.acks, self.outbox, self.seen, self.fail = [], [], [], [], 0
+        self.uploads = {}  # id -> (meta, [part bytes]): the files the owner uploaded on the page (data contract v21).
         self.server = LoopbackServer(self.handle, "web-fake").__enter__()
         test.addCleanup(self.server.__exit__)
 
@@ -67,6 +69,15 @@ class Web:
         elif handler.path.startswith("/sync/inbox"):
             after = int(handler.path.split("after=")[1].split("&")[0])
             answer = {"items": [row for row in self.outbox if row["seq"] > after and row.get("state", "new") == "new"]}
+        elif handler.path.startswith("/sync/upload"):
+            query = dict(part.split("=", 1) for part in handler.path.split("?", 1)[1].split("&"))
+            found = self.uploads.get(query["id"])
+            if found is None:
+                status, answer = 404, {"ok": False}
+            elif handler.path.startswith("/sync/upload/part"):
+                answer = {"n": int(query["n"]), "data": base64.b64encode(found[1][int(query["n"])]).decode()}
+            else:
+                answer = {**found[0], "id": query["id"], "parts": len(found[1])}
         elif handler.path.startswith("/sync/ack"):
             for result in json.loads(body)["results"]:
                 self.acks.append(result)
@@ -1031,6 +1042,68 @@ class InboxTest(WebCase):
         self.assertEqual(ledger.after(), 5)
 
 
+class FilesTest(WebCase):
+    """T616: the + of the page's chat box: files uploaded to the page come with a say (data contract v21)."""
+
+    def upload(self, upload_id, name, mime, data, parts=2, done=True):
+        cut = max(1, -(-len(data) // parts))
+        self.web.uploads[upload_id] = ({"name": name, "mime": mime, "size": len(data), "done": done},
+                                       [data[i:i + cut] for i in range(0, len(data), cut)])
+        return {"id": upload_id, "name": name, "mime": mime, "size": len(data)}
+
+    def test_a_say_with_files_saves_them_in_the_topic_and_lists_them_as_a_feishu_message_does(self):
+        self.topic()
+        image = self.upload("a" * 32, "截图.png", "image/png", b"\x89PNG" + b"x" * 100)
+        doc = self.upload("b" * 32, "../../etc/计划 v2.md", "text/markdown", "- 第一项\n- 第二项\n".encode(), parts=3)
+        self.web.op("say", 1, "op-f1", TOPIC, text="看看这两个", files=[image, doc])
+        self.sync.inbox_once()
+        self.assertEqual([(r["op_id"], r["state"]) for r in self.web.acks], [("op-f1", "done")])
+        [(topic, message, content)] = self.app.queued
+        media = self.state / "topics" / TOPIC / "incoming_media"
+        saved = sorted(media.iterdir())
+        self.assertEqual([path.read_bytes() for path in saved], [b"\x89PNG" + b"x" * 100, "- 第一项\n- 第二项\n".encode()])
+        self.assertTrue(all(path.parent == media for path in saved))  # The page's name never leaves the topic's folder.
+        self.assertTrue(content.startswith("看看这两个\n\n收到的附件（已下载到本地）："), content)
+        self.assertIn(f"- 图片 1: `{saved[0]}`", content)
+        self.assertIn(f"- 文件 1（../../etc/计划 v2.md）: `{saved[1]}`", content)
+        from covey.core.attachments import native_image_attachments
+        self.assertEqual([item["path"] for item in native_image_attachments(content, media)], [str(saved[0].resolve())])
+
+    def test_files_alone_are_a_say_and_one_that_cannot_be_taken_fails_it_whole(self):
+        self.topic()
+        image = self.upload("c" * 32, "a.png", "image/png", b"png-bytes")
+        self.web.op("say", 1, "op-f2", TOPIC, text="", files=[image])
+        self.web.op("say", 2, "op-f3", TOPIC, text="还有这个", files=[image, {"id": "d" * 32, "name": "过期.pdf", "mime": "application/pdf", "size": 3}])
+        self.web.op("say", 3, "op-f4", TOPIC, text="x", files=[{"id": "../x", "name": "a"}])
+        self.sync.inbox_once()
+        self.assertEqual([(r["op_id"], r["state"]) for r in self.web.acks], [("op-f2", "done"), ("op-f3", "failed"), ("op-f4", "failed")])
+        self.assertEqual(self.web.acks[1]["message"], "附件 过期.pdf 取不到：已过期或没传完")
+        self.assertEqual(len(self.app.queued), 1)
+        self.assertTrue(self.app.queued[0][2].startswith("收到的附件（已下载到本地）："))
+
+    def test_a_file_not_finished_or_bigger_than_it_said_is_refused(self):
+        self.topic()
+        half = self.upload("e" * 32, "half.bin", "application/octet-stream", b"12345", done=False)
+        self.web.op("say", 1, "op-f5", TOPIC, text="x", files=[half])
+        big = self.upload("f" * 32, "big.bin", "application/octet-stream", b"12345")
+        self.web.uploads["f" * 32][0]["size"] = 3
+        self.web.op("say", 2, "op-f6", TOPIC, text="x", files=[big])
+        self.sync.inbox_once()
+        self.assertEqual([r["message"] for r in self.web.acks], ["附件 half.bin 还没传完", "附件 big.bin 比它说的大"])
+        self.assertEqual(self.app.queued, [])
+
+    def test_a_say_with_files_to_the_butler_lists_them_in_its_top_level_message(self):
+        self.butler_topic()
+        self.hearing()
+        image = self.upload("9" * 32, "a.png", "image/png", b"png")
+        self.web.op("say", 1, "op-f7", BUTLER, text="这张图", files=[image])
+        self.sync.inbox_once()
+        [event] = self.heard
+        text = json.loads(event["content"])["text"]
+        [saved] = (self.state / "topics" / BUTLER / "incoming_media").iterdir()
+        self.assertEqual(text, f"这张图\n\n收到的附件（已下载到本地）：\n- 图片 1: `{saved}`\n请在需要理解图片或文件内容时读取上述本地路径。")
+
+
 class ButlerSayTest(WebCase):
     def test_say_to_the_butler_is_the_owners_top_level_message_and_reaches_it_once(self):
         self.butler_topic()
@@ -1482,6 +1555,25 @@ class ExtrasTest(WebCase):
         states = {item["key"]: item["data"]["state"] for item in self.web.items("topic")}
         self.assertEqual((states[TOPIC], states[OTHER]), ("做完", "空闲"))
 
+    def test_a_topic_says_what_it_runs_with_for_the_pages_switch(self):
+        """T616 (data contract v21): the chat box's 工作区 · Harness · 模型 line opens 换配置, which starts from the topic's ``config``."""
+        self.topic()
+        write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="claude", topic_number=7, workspace_name="ws1", model="opus",
+                    effort="high", workdir="/absolute/ws1")
+        self.butler_topic()
+        self.sync.push_once(T0)
+        topics = {item["key"]: item["data"] for item in self.web.items("topic")}
+        self.assertEqual(topics[TOPIC]["config"], {"model": "claude:opus", "effort": "high", "work_mode": "", "workspace": "ws1",
+                                                   "run_mode": "direct", "redaction": "off"})
+        self.assertNotIn("config", topics[BUTLER])
+        from covey.app import web_switch
+        # A budget preset is its model with the preset's budget; a Bridge worktree is ``worktree``.
+        menu = {"claude:opus-x": {"harness": "claude", "presets": {"max": "opus-max", "high": "opus-x"}}}
+        self.assertEqual(web_switch.topic_config({"harness_id": "claude", "model": "opus-max", "workdir": "/wt/abc/repo",
+                                                  "redaction": True}, menu, prefix="/wt/"),
+                         {"model": "claude:opus-x", "effort": "max", "work_mode": "", "workspace": "", "run_mode": "worktree", "redaction": "on"})
+        self.assertIsNone(web_switch.topic_config({}))
+
     def test_a_topic_says_its_last_turn_so_the_page_drops_a_stale_running_one(self):
         """2026-11-19 T552: a task pushed as running at seq count + 1 whose answer came in at a lower seq left that running row on
         the page for good (T519, T559 ...): the 专项报告 counted its tokens twice and drew it as running. The topic says its last
@@ -1547,7 +1639,7 @@ class ExtrasTest(WebCase):
         })
 
     def test_a_question_says_its_background_and_what_its_lesser_buttons_can_do(self):
-        """T617 (data contract v20): each question's 背景 line, ``extras`` (先问一句 and 不处理 can be clicked), the last 先问一句 and a
+        """T617 (data contract v21): each question's 背景 line, ``extras`` (先问一句 and 不处理 can be clicked), the last 先问一句 and a
         question set aside, ``restorable`` until the topic's next turn takes it."""
         self.topic()
         self.question(questions=[{"id": "q1", "question": "用哪个库？", "context": "决定依赖", "options": [{"label": "A"}]}],

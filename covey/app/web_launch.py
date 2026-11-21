@@ -38,13 +38,13 @@ def _title(text) -> str:
     return line[:TITLE_CHARS] or "网页上开的话题"
 
 
-def _base(env):
+def base_app(env):
     topics = env.topics
     app = topics.apps.get(topics.default) or next(iter(topics.apps.values()))
     return app, app.models.configured_context(app.harness.context)
 
 
-def _config(env, ctx, chat):
+def workspace_config(env, ctx, chat):
     from covey.app.launch import device_harnesses, device_titles
     from covey.core.workspaces import load_config, visible_workspaces
     config = load_config(ctx.state_dir, ctx.default_workdir)
@@ -67,7 +67,7 @@ def _reads(env, ctx, chat) -> dict:
 
 def _selection(env, choices, config, harnesses, reads, draft=None):
     from covey.app.preselection import launch_selection
-    _, base = _base(env)
+    _, base = base_app(env)
     defaults = reads["defaults"]
     return launch_selection(choices, reads["usage"], config, device_harnesses=harnesses,
                             model=f"{env.topics.default}:{base.model}", workspace=config["default"], work_mode="", fresh=True,
@@ -82,7 +82,7 @@ def catalog(env, ctx, chat) -> dict:
     from covey.core.defaults import WORK_MODES
     from covey.core.workspaces import RUN_MODES
     choices = available_models(env.topics, ctx)
-    config, titles, harnesses = _config(env, ctx, chat)
+    config, titles, harnesses = workspace_config(env, ctx, chat)
     reads = _reads(env, ctx, chat)
     found = _selection(env, choices, config, harnesses, reads)
     ranked = found.choices
@@ -115,12 +115,12 @@ def record_path(state_dir, op_id) -> Path:
     return keyed_json_path(Path(state_dir) / "web", FOLDER, op_id)
 
 
-def plan_of(env, ctx, chat, payload) -> dict:
-    """The topic's plan from the page's choices, checked as 开始任务 checks them; ValueError says why not."""
-    from covey.app.launch_models import available_models, run_choice
-    from covey.core import devices
-    from covey.core.menu_choice import budget_options, chosen_work_mode, harness_of
-    from covey.core.workspaces import RUN_MODES, resolve_binding
+def model_choice(env, ctx, payload) -> tuple:
+    """(harness, key, menu entry, budget, work mode, redaction) of the page's choices of a model, checked as 开始任务 checks them (the
+    model on the menu, a budget it offers, a work mode it has, 敏感词脱敏 only where it can redact); ValueError says why not. The 换配置
+    of the page (app/web_switch.py) checks its model the same way."""
+    from covey.app.launch_models import available_models
+    from covey.core.menu_choice import budget_options, harness_of
     choices = available_models(env.topics, ctx)
     key = str(payload.get("model") or "")
     choice = choices.get(key)
@@ -138,10 +138,20 @@ def plan_of(env, ctx, chat, payload) -> dict:
     redaction = payload.get("redaction") == "on"
     if redaction and not choice.get("redaction"):
         raise ValueError("这个模型不能脱敏")
+    return harness, key, choice, effort, work_mode, redaction
+
+
+def plan_of(env, ctx, chat, payload) -> dict:
+    """The topic's plan from the page's choices, checked as 开始任务 checks them; ValueError says why not."""
+    from covey.app.launch_models import run_choice
+    from covey.core import devices
+    from covey.core.menu_choice import chosen_work_mode
+    from covey.core.workspaces import RUN_MODES, resolve_binding
+    harness, key, choice, effort, work_mode, redaction = model_choice(env, ctx, payload)
     run_mode = str(payload.get("run_mode") or "direct")
     if run_mode not in RUN_MODES:
         raise ValueError("运行方式只能是原目录或独立 worktree")
-    config, _, _ = _config(env, ctx, chat)
+    config, _, _ = workspace_config(env, ctx, chat)
     workspace = str(payload.get("workspace") or "")
     if workspace not in config["workspaces"]:
         raise ValueError(f"没有登记工作区「{workspace}」，请重新选")
@@ -170,7 +180,7 @@ def launch(env, op_id, chat, payload) -> str:
         raise ValueError("要先写这个话题做什么")
     if len(text) > TEXT_CHARS:
         raise ValueError(f"话太长（超过 {TEXT_CHARS} 字）")
-    _, base = _base(env)
+    _, base = base_app(env)
     ctx = SimpleNamespace(state_dir=Path(env.state_dir), profile=env.profile, default_workdir=base.default_workdir)
     path = record_path(env.state_dir, op_id)
     record = read_object(path)

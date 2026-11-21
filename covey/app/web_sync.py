@@ -60,7 +60,7 @@ class WebSync:
         self.images = None  # web_images.WebImages, made once the state directory is known (images_ready)
         self.collector = Collector(env, self.stuck, runtime.log)
         self.images_ready()
-        self.ops = Ops(env, hear)
+        self.ops = Ops(env, hear, fetch=self.client.request)
         self.sent = {}  # (type, key) -> the rev pushed last.
         self.backlog = {}  # (type, key) -> an item of a pass not sent yet, the newest read of it (push_once).
         self.sent_loaded, self.sent_saved, self.sent_changed = False, 0.0, False  # <state>/web/sent.json (load_sent, save_sent).

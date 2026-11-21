@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import pins, project_lead, project_loop, web_images, web_pairing, web_said, web_turns
+from covey.app import pins, project_lead, project_loop, web_images, web_pairing, web_said, web_switch, web_turns
 from covey.core import board_read, failure, look, project_library, project_memory, projects, web_sync
 from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
@@ -23,6 +23,7 @@ from covey.core.trace_store import load_trace
 
 PASS_SLICE = 25  # Topics of a full pass looked at per step, after the hot ones: a pass is many steps, never one long look.
 TOPIC_DAYS = 30  # A full look takes the topics with a job written within this many days.
+MENU_SECONDS = 60.0  # How long the model menu a topic's ``config`` reads is kept (Collector.menu).
 TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
 BUTLER_TITLE = "管家"
@@ -76,6 +77,21 @@ class Collector:
         self.origins = None  # web_said.Origins of the owner's chat: who wrote each hand-on, read once.
         self.moved = 0.0  # Monotonic time of the last progress of a look and its push: a topic built, a batch sent (WebSync.loop's stuck check).
         self.lock = threading.Lock()
+        self.menu_at, self.menu_models = -MENU_SECONDS, {}  # The model menu (available_models) a topic's ``config`` reads, read again after MENU_SECONDS.
+
+    def menu(self) -> dict:
+        """The launch card's model menu (app/launch_models.py available_models), read at most every MENU_SECONDS; {} when it cannot be read
+        (a topic's ``config`` then names its own model as it is)."""
+        now = time.monotonic()
+        if now - self.menu_at >= MENU_SECONDS:
+            self.menu_at = now
+            try:
+                from covey.app.launch_models import available_models
+                from covey.app.web_launch import base_app
+                self.menu_models = available_models(self.env.topics, base_app(self.env)[1])
+            except Exception:  # noqa: BLE001 - a push never fails for it
+                self.menu_models = {}
+        return self.menu_models
 
     def touch(self, topic) -> None:
         """The page acted on ``topic``: it is built on the next look whatever the indexes say."""
@@ -220,6 +236,10 @@ class Collector:
         body["tone"] = self.tone(records, latest, questions, body["unseen"], body.get("progress"), starts)
         if self.board is not None and not (butler or project):
             body["board"] = self.board.get(topic, "")
+        if not (butler or project):  # What it runs with, for 换配置 on the page (data contract v21, app/web_switch.py).
+            config = web_switch.topic_config(data, self.menu())
+            if config:
+                body["config"] = config
         gist = self.gist(state, topic) if not (butler or project) else None
         if gist:
             body["gist"] = gist

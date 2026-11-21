@@ -30,7 +30,7 @@
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
 | 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_realtime.py`（实时归并、新专项扫一遍）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [projects.md](docs/projects.md#整理专项)、[配置](docs/configuration.md#整理专项) |
 | 专项（`COVEY_PROJECTS=1`）：负责人、专项卡、问题分流、停住后问主人 | `core/projects.py`、`app/project_lead.py`、`app/project_tools.py`、`app/project_loop.py`、`app/project_cards.py`、`cards/project_card.py`、`app/triage.py`、`core/project_memory.py`、`core/project_library.py` | [projects.md](docs/projects.md)、[架构 · 专项](docs/architecture.md#专项第-2-期开发中默认关) |
-| 网页工作台（`COVEY_WEB=1`） | `core/web_sync.py`、`app/web_sync.py`、`app/web_collect.py`、`app/web_ops.py`、`app/web_settings.py` | [web.md](docs/web.md) |
+| 网页工作台（`COVEY_WEB=1`） | `core/web_sync.py`、`app/web_sync.py`、`app/web_collect.py`、`app/web_ops.py`、`app/web_settings.py`；换配置 `app/web_switch.py`，附件 `app/web_files.py` | [web.md](docs/web.md) |
 | 到点回来看（`COVEY_REVISIT=1`）：话题约好几点再看一次，到点 Bridge 排一轮 | `app/revisits.py`（线程、`after_runner`、`silent`、看板的行）、`core/revisits.py`（记录）、`cards/board.py` 的 `revisit_blocks` | [到点回来看](docs/usage.md#到点回来看) |
 | 早晚汇总 | `app/digest.py`、`cards/digest.py`；晚间汇总的“你反复说的” `app/memory_candidates.py`，“本周找你” `app/weekly_usage.py` 的 `reached` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/launch_submit.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
@@ -232,6 +232,7 @@
 | `app/turn_settle.py` | How a finished turn ended, settled before anything is delivered (rule 5's core) |
 | `app/unified.py` | The Bridge: one Feishu ingress, immutable topic routes, one app per Harness |
 | `app/web_collect.py` | 网页工作台同步的收集: `Collector` reads the records of the owner's chat and makes the items (topics, turns, questions … |
+| `app/web_files.py` | 网页上传的附件 (docs/web.md, COVEY_WEB=1 |
 | `app/web_images.py` | The images of a turn on the web page |
 | `app/web_launch.py` | 网页开新话题 (docs/web.md, COVEY_WEB=1 |
 | `app/web_ops.py` | 网页上发来的操作怎么执行: `Ops.run` does one operation of the page's outbox as the owner's own and says (state, message) … |
@@ -240,6 +241,7 @@
 | `app/web_push_client.py` | 网页工作台同步的客户端: the page's /openapi over HTTP (`Client`, `WebError`) and the thread a push step runs in, left … |
 | `app/web_said.py` | Who said a topic's owner line and the words the web page shows for it |
 | `app/web_settings.py` | 网页工作台的设置页 (docs/web.md, COVEY_WEB=1 |
+| `app/web_switch.py` | 网页换配置 (docs/web.md, COVEY_WEB=1 |
 | `app/web_sync.py` | 网页工作台同步: pushes the state of the owner's projects, topics, turns and questions to the web page (网页应用) and … |
 | `app/web_turns.py` | What a turn tells the web page beside its words (docs/web.md, COVEY_WEB=1 |
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |

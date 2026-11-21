@@ -35,6 +35,10 @@ KINDS) as the owner's own and says (state, message) for the ack.
   card's receipt (已保存：之后新开的话题照这个来。), a row the page may not change (私聊顶层的消息, 免@, ...) is ``failed``.
 - ``launch``: a new topic with the page's choices, started at once (app/web_launch.py): its topic card at the top level of the
   private chat, its first turn the owner's words; a worktree's gets the launch card prefilled.
+- ``switch``: the topic's configuration changed as 🔁 换配置's 确认更换 changes it (app/web_switch.py, data contract v21); its thread in Feishu
+  says so too. Refused while a task of it is queued or runs, for nothing changed, and for a worktree that would have to be made now.
+- ``say`` with ``files`` (data contract v21): the owner's attachments, uploaded to the page, are taken from it (app/web_files.py, ``fetch``:
+  the page's client) into the topic's incoming_media and listed after the words as a Feishu message's are; one that cannot be taken fails the say.
 - ``dismiss``: 不管了, the topic taken off the board as the 看板 card's 不管了 does (app/pins.py dismiss); without the board ``failed``.
 - ``tidy_decide``: 好 (``choice`` ok) or 不用 (decline) on the 整理专项 panel's suggestion ``proposal`` (data contract v16), through its
   card's own click (app/project_tidy.py web_decide); done says what came of it, failed why nothing was done (decided already, ...).
@@ -55,6 +59,7 @@ from pathlib import Path
 from covey.app import project_loop
 from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields, submitted_answer
 from covey.app.runtime import job_stage, supplement_target_of
+from covey.app import web_files
 from covey.app.web_settings import WebSettings
 from covey.core import board_read, project_memory, projects, triage, web_sync
 from covey.core.attachments import message_words
@@ -80,9 +85,10 @@ class Ops:
     the owner's top-level message ``event`` as the Feishu consumer would give it and answers why it did not take it ('' when it did);
     None: the butler cannot be spoken to from the page."""
 
-    def __init__(self, env, hear=None) -> None:
+    def __init__(self, env, hear=None, fetch=None) -> None:
         self.env = env
         self.hear = hear
+        self.fetch = fetch  # request(method, path) of the page's /openapi (app/web_push_client.py Client.request): a say's files; None: none taken.
         self.web_settings = WebSettings(env)  # The 设置 page's snapshot (app/web_sync.py) and its changes (``settings``).
 
     @property
@@ -95,7 +101,8 @@ class Ops:
         try:
             handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
                        "forget": self.forget, "tidy": self.tidy, "settings": self.settings,
-                       "dismiss": self.dismiss, "tidy_decide": self.tidy_decide, "launch": self.launch}.get(kind)
+                       "dismiss": self.dismiss, "tidy_decide": self.tidy_decide, "launch": self.launch,
+                       "switch": self.switch}.get(kind)
             if handler is None:
                 raise ValueError(f"不认识的操作：{kind[:20]}")
             chat = self.runtime.access.owner_chat()
@@ -121,14 +128,16 @@ class Ops:
 
     def say(self, state, chat, row, payload) -> str:
         topic, text = str(row.get("topic_key") or ""), str(payload.get("text") or "").strip()
-        if not text:
+        files = web_files.listed(payload.get("files"))
+        if not text and not files:
             raise ValueError("话是空的")
         if len(text) > SAY_CHARS:
             raise ValueError(f"话太长（超过 {SAY_CHARS} 字）")
         if is_butler_root(topic, chat):
-            return self.tell_butler(chat, row, text)
+            return self.tell_butler(chat, row, self.attach(state, topic, text, files))
         lead = projects.lead_record(state, topic, chat)
         app = self.lead_app(state, lead) if lead else self.topic(state, chat, topic)[0]
+        text = self.attach(state, topic, text, files)
         if self.asking(state, chat, topic):
             if lead:
                 raise ValueError("负责人正在等你答题，请在题目里回答")
@@ -160,6 +169,23 @@ class Ops:
         if queued is None:
             raise ValueError("话题现在排不上这一轮，话已记进历史但没有开始")
         return "已开下一轮"
+
+    def attach(self, state, topic, text, files) -> str:
+        """``text`` with ``files`` taken from the page into the topic's incoming_media and listed after it; ``text`` itself without files."""
+        if not files:
+            return text
+        if self.fetch is None:
+            raise ValueError("Covey 现在取不到网页上的附件")
+        return web_files.with_files(text, web_files.fetch(self.fetch, state / "topics" / topic / "incoming_media", files))
+
+    def switch(self, state, chat, row, payload) -> str:
+        from covey.app import web_switch
+        topic = str(row.get("topic_key") or "")
+        if is_butler_root(topic, chat) or projects.lead_record(state, topic, chat):
+            raise ValueError("管家和负责人的配置不在网页上换")
+        if not self.runtime.access.is_owner(self.runtime.owner_open_id or ""):
+            raise ValueError("只有主人能换配置")
+        return web_switch.switch(self.env, row.get("op_id"), chat, topic, payload)
 
     def lead_app(self, state, record):
         """The Harness app of the project's lead, whose topic is the page's say target as the project card's quoted reply is in Feishu
