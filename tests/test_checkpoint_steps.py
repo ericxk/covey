@@ -297,6 +297,42 @@ class AnswerCardTest(unittest.TestCase):
             self.assertEqual(answer_cards.change(SimpleNamespace(checkpoint_path=str(point), diff_json_path=str(diff))), {})
             self.assertEqual(answer_cards.change(SimpleNamespace(checkpoint_path="")), {})
 
+    def test_a_commit_its_workdir_lacks_is_marked_under_the_fold(self):
+        # #18: the commit is what the model wrote; the Bridge looks it up in the repository of the turn's workdir.
+        from support.git import commit_all, init_git_repo, run_git
+        from covey.cards.answer_card import CHECK_ID
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, point = Path(directory) / "repo", Path(directory) / "cp.json"
+            root.mkdir()
+            init_git_repo(root)
+            (root / "a.txt").write_text("a")
+            commit_all(root)
+            head = run_git(root, "rev-parse", "HEAD").strip()
+            point.write_text(json.dumps({"delivery": {"commit": f"{head} a6bc148d38", "deployed": "第 322 代"}}))
+            job = SimpleNamespace(checkpoint_path=str(point), workdir=root)
+            changed = answer_cards.change(job)
+            self.assertEqual(changed["not_found"], ["a6bc148d38"])
+            shown = tail(None, self.inputs, self.outputs, change=changed)
+            self.assertEqual([element.get("element_id") for element in shown], [CHANGE_ID, CHECK_ID, "answer_facts"])
+            self.assertEqual(shown[1]["content"], "<font color='orange'>提交号对不上</font>"
+                                                  "<font color='grey'>：工作区的仓库里没有 a6bc148</font>")
+            rows = self.fold(shown)["elements"]
+            self.assertEqual(rows[0]["columns"][1]["elements"][0]["content"].split("\n"),
+                             [head, "a6bc148d38 <font color='grey'>（工作区的仓库里没有）</font>"])
+            relayed = relay_card("T1", DONE, text="好了", inputs=self.inputs, outputs=self.outputs, change=changed)[0]
+            self.assertIn("提交号对不上", json.dumps(relayed, ensure_ascii=False))
+            # Every commit there: the 改动 as before, no line.
+            point.write_text(json.dumps({"delivery": {"commit": head, "deployed": "第 322 代"}}))
+            self.assertNotIn("not_found", answer_cards.change(job))
+            # Nothing said when it cannot be told: a turn on a device, no workdir, a workdir no repository is in.
+            point.write_text(json.dumps({"delivery": {"commit": "a6bc148d38"}}))
+            self.assertIn("not_found", answer_cards.change(job))
+            for other in (SimpleNamespace(checkpoint_path=str(point), workdir=root, device="box"),
+                          SimpleNamespace(checkpoint_path=str(point), workdir=None),
+                          {"checkpoint_path": str(point), "workdir": str(Path(directory) / "gone")}):
+                self.assertEqual(answer_cards.change(other), {"commit": "a6bc148d38", "deployed": "", "verified": ""})
+
 
 class TopicReadTest(unittest.TestCase):
     def test_each_step_with_its_times_and_the_delivery(self):

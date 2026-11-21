@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 
 from covey.cards.elements import card, chevron, collapsible, grey, item, json_size, md, text_button
-from covey.core.checkpoint import change_summary, delivery_commits
+from covey.core.checkpoint import change_summary, delivery_commits, short_commit
 from covey.cards.facts import context_text, start_text, token_total, usage_figures
 from covey.core.metrics import took_text
 from covey.core.text import literal, share
@@ -198,12 +198,25 @@ def facts_element(inputs=(), outputs=(), link=""):
 
 
 CHANGE_WORD = "改动"
+# A 改动's commits the repository of the turn's workdir has no commit for (app/answer_cards.py absent_commits), when
+# any: what the model wrote, checked by the Bridge (git, no model).
+NOT_FOUND = "not_found"
+CHECK_ID = "answer_change_check"
+MISMATCH = "提交号对不上"
+ABSENT = "（工作区的仓库里没有）"
+
+
+def not_found(change) -> list:
+    """The commits of ``change`` the Bridge did not find (NOT_FOUND), [] for none or for a string of an older release."""
+    found = change.get(NOT_FOUND) if isinstance(change, dict) else None
+    return [str(commit) for commit in found if commit] if isinstance(found, list) else []
 
 
 def change_element(change):
     """The 改动 fold (CHANGE_ID) of a turn that changed code (app/answer_cards.py change): folded, one small grey line "改动 · 951327a · 第 331 代 · 已自检"
     (core/checkpoint.py change_summary), in the 产物 panel's look (a quiet ``collapsible``); open, a row each of
-    提交 (every commit in full, one a line), 部署 and 自检 (as the checkpoint wrote them, not cut). A string
+    提交 (every commit in full, one a line, one not found in the workdir's repository followed by ABSENT), 部署 and
+    自检 (as the checkpoint wrote them, not cut). A string
     (``change`` of an older release, "已提交 a6bc148 · 已部署 第 322 代 · 未验收"): that one grey line,
     no fold. None without one."""
     if isinstance(change, str):
@@ -211,11 +224,27 @@ def change_element(change):
         return md(grey(literal_text(f"{CHANGE_WORD} · {words}")), size="notation", element_id=CHANGE_ID) if words else None
     if not isinstance(change, dict) or not change:
         return None
-    commits = delivery_commits(change)
-    rows = [labelled("提交", "\n".join(literal_text(commit) for commit in commits) if commits else grey("未提交")),
+    commits, absent = delivery_commits(change), set(not_found(change))
+    shown = "\n".join(literal_text(commit) + (" " + grey(ABSENT) if commit in absent else "") for commit in commits)
+    rows = [labelled("提交", shown if commits else grey("未提交")),
             labelled("部署", literal_text(change.get("deployed")) if change.get("deployed") else grey("未部署")),
             labelled("自检", literal_text(change.get("verified")) if change.get("verified") else grey("未自检"))]
     return collapsible(CHANGE_ID, f"{CHANGE_WORD} · {change_summary(change)}", rows, quiet=True, spacing="4px")
+
+
+def check_element(change):
+    """The line under the 改动 fold (CHECK_ID) when the repository of the turn's workdir has no commit for an id the
+    model wrote (``not_found``): "提交号对不上" in the colour of 要你看一眼 (core/look.py stuck), then which, grey:
+    "提交号对不上：工作区的仓库里没有 951327a". None when every commit was found or it could not be told."""
+    absent = not_found(change)
+    if not absent:
+        return None
+    from covey.cards.ui import font
+    from covey.core.look import STATES
+
+    ids = "、".join(short_commit(commit) for commit in absent)
+    return md(font(MISMATCH, STATES["stuck"].color) + grey(literal_text(f"：工作区的仓库里没有 {ids}")), size="notation",
+              element_id=CHECK_ID)
 
 
 def box(element_id, inputs, outputs, outputs_id=""):
@@ -263,8 +292,10 @@ def memory_element(notes, topic_id="", job_id=""):
 
 def tail(files=None, inputs=(), outputs=(), link="", change=None):
     """What follows an answer: its 产物 panel (``files``, None without), its 改动 fold (``change``,
-    ``change_element``: None, {} or '' without) and the facts box."""
-    return [element for element in (files, change_element(change), facts_element(inputs, outputs, link)) if element]
+    ``change_element``: None, {} or '' without) and the line marking a commit not found (``check_element``), and the
+    facts box."""
+    return [element for element in (files, change_element(change), check_element(change),
+                                    facts_element(inputs, outputs, link)) if element]
 
 
 def tail_card(elements, summary, lead=""):

@@ -819,6 +819,9 @@ def answer_tail_cards():
                                                 [head]),
             "answer_relay_delivery": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
                                                 change=handed)[0],
+            # #18: a commit the repository of the turn's workdir lacks (app/answer_cards.py absent_commits), marked.
+            "answer_card_delivery_mismatch": answer_card(text, "✅ T443 · 结论", tail(
+                files, inputs, outputs, change={**handed, "not_found": ["a6bc148d38ce8c230e96e"]}), [head]),
             # A release before 2026-11-09 kept the line as a string: one grey 改动 line.
             "answer_relay_delivery_string": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs,
                                                        delivery="已提交 a6bc148 · 已部署 第 322 代 · 未验收")[0]}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -117,6 +118,37 @@ def _status_paths(workdir: Path) -> dict[str, str]:
         if path:
             paths[path] = code
     return paths
+
+
+COMMIT_CHECK_SECONDS = 5  # missing_commits' one git call; a slower answer reads as "cannot be told".
+COMMIT_CHECK_MAX = 20  # Of the commits a turn names, the first ones asked about.
+COMMIT_ID = re.compile(r"[0-9a-fA-F]{7,40}")
+
+
+def missing_commits(workdir: Path | str, commits, *, timeout: float = COMMIT_CHECK_SECONDS) -> list[str] | None:
+    """Which of ``commits`` (hex ids, as a turn's checkpoint ``delivery`` names them; other words are not asked
+    about) the git repository ``workdir`` is in has no commit for: one ``git cat-file --batch-check`` of
+    ``<id>^{commit}`` each, bounded by ``timeout``, no lock taken, no model asked. A short id more than one object
+    shares is not counted as missing. None when it cannot be told: no such directory, not a repository, no git, too
+    slow, or an answer that does not read."""
+    ids = list(dict.fromkeys(str(commit) for commit in commits or () if COMMIT_ID.fullmatch(str(commit))))
+    ids = ids[:COMMIT_CHECK_MAX]
+    if not ids:
+        return []
+    try:
+        if not Path(workdir).is_dir():
+            return None
+        # No lazy fetch: a partial clone would ask its remote for an object it lacks.
+        proc = subprocess.run(["git", "-C", str(workdir), "cat-file", "--batch-check"],
+                              input="".join(f"{commit}^{{commit}}\n" for commit in ids), text=True,
+                              capture_output=True, check=False, timeout=timeout,
+                              env={**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"})
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    lines = proc.stdout.splitlines()
+    if proc.returncode != 0 or len(lines) != len(ids):
+        return None
+    return [commit for commit, line in zip(ids, lines) if line.strip() == f"{commit}^{{commit}} missing"]
 
 
 def _changed_paths_between(root: Path, before: str, after: str) -> dict[str, str]:

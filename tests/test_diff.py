@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from support.git import commit_all, init_git_repo
 from covey.core.diff import (
@@ -14,6 +15,7 @@ from covey.core.diff import (
     append_diff_summary_note,
     capture_job_diff_snapshot,
     finalize_job_diff,
+    missing_commits,
     render_diff_summary_note,
 )
 
@@ -201,6 +203,44 @@ class BridgeDiffTest(unittest.TestCase):
             result = finalize_job_diff(snapshot, root / ".state", make_job())
 
             self.assertEqual(result.files, [])
+
+
+class MissingCommitsTest(unittest.TestCase):
+    """#18: the commits a turn's delivery names, checked against the repository of its workdir (git, no model)."""
+
+    def repo(self, tmp):
+        root = Path(tmp) / "repo"
+        (root / "sub").mkdir(parents=True)
+        init_git_repo(root)
+        (root / "sub" / "a.txt").write_text("a\n", encoding="utf-8")
+        commit_all(root)
+        head = output(["git", "rev-parse", "HEAD"], root).strip()
+        tree = output(["git", "rev-parse", "HEAD^{tree}"], root).strip()
+        return root, head, tree
+
+    def test_a_commit_the_repository_lacks_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, head, tree = self.repo(tmp)
+            # Full or short, from a subdirectory too; a tree's id is no commit; each asked once, in order.
+            self.assertEqual(missing_commits(root / "sub", [head, head[:7], "deadbee", tree, "deadbee"]),
+                             ["deadbee", tree])
+            self.assertEqual(missing_commits(root, [head]), [])
+            # Words that are not ids are never given to git.
+            self.assertEqual(missing_commits(root, ["bridge/x 分支", "--all", "abc"]), [])
+
+    def test_it_says_nothing_when_it_cannot_be_told(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, head, _ = self.repo(tmp)
+            plain = Path(tmp) / "plain"
+            plain.mkdir()
+            with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": tmp}):
+                self.assertIsNone(missing_commits(plain, ["deadbee"]))  # Not a repository.
+            self.assertIsNone(missing_commits(Path(tmp) / "gone", ["deadbee"]))
+            with mock.patch("covey.core.diff.subprocess.run", side_effect=subprocess.TimeoutExpired("git", 5)) as run:
+                self.assertIsNone(missing_commits(root, ["deadbee"]))  # Too slow.
+            self.assertEqual(run.call_args.kwargs["timeout"], 5)
+            with mock.patch("covey.core.diff.subprocess.run", side_effect=FileNotFoundError("git")):
+                self.assertIsNone(missing_commits(root, ["deadbee"]))  # No git.
 
 
 if __name__ == "__main__":

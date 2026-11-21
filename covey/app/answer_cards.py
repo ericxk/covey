@@ -23,10 +23,11 @@ import copy
 import time
 from pathlib import Path
 
-from covey.cards.answer_card import ARTIFACTS_ID, MEMORY_ID, input_parts, output_parts
+from covey.cards.answer_card import ARTIFACTS_ID, MEMORY_ID, NOT_FOUND, input_parts, output_parts
 from covey.cards.elements import replace_element
 from covey.cards.review import answer_card, answer_lead, answer_summary, bare_answer_summary
-from covey.core.checkpoint import checkpoint_delivery, read_checkpoint, shows_change
+from covey.core.checkpoint import checkpoint_delivery, delivery_commits, read_checkpoint, shows_change
+from covey.core.diff import missing_commits
 from covey.core.locks import resource_lock
 from covey.core.metrics import job_took
 from covey.core.state import keyed_json_path, read_json, read_object, write_json
@@ -100,10 +101,25 @@ def files_changed(job) -> bool:
 def change(job) -> dict:
     """The 改动 of ``job`` for its answer card's fold (cards/answer_card.py change_element): its checkpoint's
     ``delivery`` (core/checkpoint.py checkpoint_delivery, as written) when the turn changed code (``shows_change``:
-    a commit, or files changed and a delivery), else {}."""
+    a commit, or files changed and a delivery), else {}. With NOT_FOUND too when the repository of the turn's
+    workdir has no commit for an id it names (``absent_commits``), so the card marks what the model wrote wrong."""
     path = _field(job, "checkpoint_path")
     found = checkpoint_delivery(read_checkpoint(Path(path))) if path else {}
-    return found if found and shows_change(found, files_changed(job)) else {}
+    if not (found and shows_change(found, files_changed(job))):
+        return {}
+    absent = absent_commits(job, found)
+    return {**found, NOT_FOUND: absent} if absent else found
+
+
+def absent_commits(job, delivery) -> list:
+    """The commit ids ``delivery`` names that the git repository of ``job``'s workdir lacks (core/diff.py
+    missing_commits: one bounded git call, never under a lock: a turn's delivery and its relay take none); [] when
+    there are none or it cannot be told: a turn on a device (its workdir is there), no workdir, not a repository,
+    no git, too slow."""
+    workdir = _field(job, "workdir")
+    if _field(job, "device") or not workdir:
+        return []
+    return missing_commits(workdir, delivery_commits(delivery)) or []
 
 
 ANSWER_HEADING = "用户补充回答"  # How an answer form's turn begins (app/answers.py): 你答, not 你问.
