@@ -241,6 +241,8 @@ class Interaction:
         fold_older_questions(ctx, [self.questions], topic=(ctx.topic_id, chat))
         timing.mark("cmd_reconcile")
         rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
+        # Handed on before this message and still not shown: owner_spoke below has not just tried them.
+        unshown = {row.get("token") for _, row in rows if triage_flow.unshown(row)}
         if triage_flow.ENV is not None and any(triage.held(row) for _, row in rows):
             # The owner speaks in a topic whose question the project's lead holds: it is theirs now (the card goes out first, so
             # their message is its answer or a note, not a refusal for a card that was never shown).
@@ -249,13 +251,21 @@ class Interaction:
         if any(row.get("native_live_question") is True for _, row in rows) and \
                 self.questions.retire_orphaned_live_questions(ctx, chat):
             rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
+        if triage_flow.ENV is not None and unshown:
+            # A live question handed on to the owner whose card never went, its task still waiting on it: the card is asked of
+            # the task once more, so this message answers it (or is kept as a note) instead of a refusal with nothing to click.
+            again = [triage_flow.reshow(triage_flow.ENV, row) for _, row in rows if row.get("token") in unshown]
+            if any(again):
+                rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
         timing.mark("cmd_questions")
         undelivered = self.questions.undelivered_checkpoint_jobs(ctx, chat)
         timing.mark("cmd_undelivered")
         if undelivered or any(row.get("display_pending") or (row.get("body_delivery_required")
                 and not self.questions.checkpoint_result_delivered(ctx, row)) for _, row in rows):
-            self.messenger.reply(ctx, chat, f"原结果或问题控件尚未送达，请先{retry_hint()} 重新投递；本条没有续接或排队。",
-                                 self.voice.key("answer-awaiting-result", mid), voice=self.voice)
+            text = ("这一轮有一道问题要你答，但问题卡没发出来，刚又试了一次也没成功；本条没有续接或排队。可以先停止这个任务，再在这里接着说。"
+                    if not undelivered and triage_flow.ENV is not None and any(triage_flow.unshown(row) for _, row in rows)
+                    else f"原结果或问题控件尚未送达，请先{retry_hint()} 重新投递；本条没有续接或排队。")
+            self.messenger.reply(ctx, chat, text, self.voice.key("answer-awaiting-result", mid), voice=self.voice)
             return True
         from covey.core.harness import backend_capabilities
         capabilities = backend_capabilities(self.harness.backend, ctx)

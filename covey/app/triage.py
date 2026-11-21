@@ -31,7 +31,7 @@ from covey.cards.question_cards import triage_element
 from covey.core import project_gates, project_memory, projects, triage
 from covey.core.jobs import find_job_record, saved_job, upsert_job_record
 from covey.core.state import keyed_json_path, read_object
-from covey.core.store import update_question
+from covey.core.store import directory_store, update_question
 from covey.core.text import cut
 from covey.core.topics import topic_label
 
@@ -40,6 +40,8 @@ NOTE = "（负责人按专项记忆替主人答的）"  # The 补充说明 of an
 LOG_KEPT = 40  # Rows of a project's 分流记录.
 ROW = 120  # Characters of a row's question and answer.
 RECEIPT = "question"  # The inbox receipt's kind.
+RESHOW_EVERY = 60  # Seconds between the sweep's tries at the card of a live question handed on that never went (``reshow``).
+RESHOW_TRIES = 5  # The sweep's tries; the owner's message in the topic asks once more each time.
 
 
 def question_path(state_dir, token) -> Path:
@@ -158,9 +160,47 @@ def escalate(env, record, why, *, by="lead", context="", recommend="", if_not=""
         ok = show(env, moved)
     except Exception as exc:  # noqa: BLE001 - the 重新投递 below is the way back
         env.runtime.log(f"question triage escalation failed token={str(moved.get('token'))[:8]}: {type(exc).__name__}")
-    if not ok:
+    if not ok and moved.get("native_live_question") is True:
+        # The turn still runs and waits on it: its record is not failed (a terminal status its runner could not leave, rule
+        # 4); the card is asked for again by the sweep and by the owner's next message (``reshow``).
+        upsert_job_record(state, moved.get("job_key"), question_delivery_ok=False)
+    elif not ok:
         upsert_job_record(state, moved.get("job_key"), status="failed", question_delivery_ok=False,
                           status_message="问题要主人答，但问题控件还没送到；请重新投递")
+    return ok
+
+
+def unshown(record) -> bool:
+    """A live question handed on to the owner whose card never went: pending, ``display_pending``, escalated. Its turn waits on it
+    while nobody sees it (the task runner did not acknowledge ``show_question`` in time, or its card failed)."""
+    return (isinstance(record, dict) and record.get("status", "pending") == "pending" and record.get("native_live_question") is True
+            and record.get("display_pending") is True and triage.state(record) == triage.ESCALATED)
+
+
+def reshow_due(record, now) -> bool:
+    """Whether the sweep asks for ``record``'s card again: unshown, fewer than RESHOW_TRIES tries, RESHOW_EVERY seconds since the
+    last one (or the hand-over)."""
+    found = triage.of(record)
+    last = float(found.get("reshown_at") or found.get("at") or 0)
+    return unshown(record) and int(found.get("reshows") or 0) < RESHOW_TRIES and now - last >= RESHOW_EVERY
+
+
+def reshow(env, record, now=None) -> bool:
+    """The card of an ``unshown`` question asked for again (``show``: of the task runner that waits on it), the try counted in its
+    triage (``reshows``, ``reshown_at``) first. Whether it went out; a question no longer unshown changes nothing (False). Never
+    raises. A task that is gone has no runner to ask: its question is retired instead (Questions.retire_orphaned_live_questions)."""
+    state, now = Path(env.state_dir), time.time() if now is None else now
+    stamped = update_question(question_path(state, record["token"]), lambda row: {
+        **row, "triage": {**triage.of(row), "reshown_at": now, "reshows": int(triage.of(row).get("reshows") or 0) + 1}}
+        if unshown(row) else None)
+    if stamped is None:
+        return False
+    ok = False
+    try:
+        ok = show(env, stamped)
+    except Exception as exc:  # noqa: BLE001 - the next try, or the owner's next message, asks again
+        env.runtime.log(f"question triage card again failed token={str(record.get('token'))[:8]}: {type(exc).__name__}")
+    env.runtime.log(f"question triage card again token={str(record.get('token'))[:8]} try={triage.of(stamped)['reshows']} ok={ok}")
     return ok
 
 
@@ -267,6 +307,9 @@ def sweep(env, now=None) -> None:
                 receipt(state, projects.read_record(state, found.get("project") or ""), record, now)
         except Exception as exc:  # noqa: BLE001 - the others are looked at all the same
             env.runtime.log(f"question triage sweep failed token={str(record.get('token'))[:8]}: {type(exc).__name__}")
+    for _, record in directory_store(state / "questions").query(status="pending"):
+        if reshow_due(record, now):
+            reshow(env, record, now)
 
 
 def settle_closed(env) -> None:

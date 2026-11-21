@@ -1118,5 +1118,90 @@ class EndedTaskQuestionTest(HeldFixture):
         self.assertIn("尚未送达", self.app.messenger.reply.call_args.args[2])
 
 
+
+class UnshownLiveQuestionTest(HeldFixture):
+    """The owner, 2026-11-21 (T620): a live question handed on whose card did not go (the task runner did not acknowledge
+    show_question within its 20 seconds) left the turn waiting on a question nobody saw, and the owner's message got 尚未送达
+    with nothing to click. The sweep asks for the card again, the owner's message asks once more and then answers it, and the
+    task's record is not failed while its turn still runs."""
+
+    def setUp(self):
+        super().setUp()
+        self.record.update(native_live_question=True, display_pending=True, body_delivery_required=False, request_id="req-live",
+                           triage={"state": triage.ESCALATED, "project": PID, "by": "lead", "at": NOW})
+        self.path.write_text(json.dumps(self.record))
+        upsert_job_record(self.state, self.job.message_id, status="running", execution_status="running", checkpoint_question_deferred=False)
+        self.env = SimpleNamespace(state_dir=self.state, runtime=self.app.runtime,
+                                   topics=SimpleNamespace(target=lambda state, topic, chat: (self.app, self.ctx_topic, None)))
+        mock.patch.object(flow, "ENV", self.env).start()
+        mock.patch("covey.core.harness.backend_capabilities", return_value=SimpleNamespace(questions=True, steering=True)).start()
+        self.app.questions.submit_answer = mock.Mock()
+        self.app.messenger.reply = mock.Mock(return_value=True)
+        self.tries = []
+
+    def shows(self, ok):
+        def show(env, record):
+            self.tries.append(record["token"])
+            if ok:
+                data = json.loads(self.path.read_text())
+                self.path.write_text(json.dumps({**data, "display_pending": False}))
+            return ok
+        return mock.patch.object(flow, "show", side_effect=show)
+
+    def saved(self):
+        return json.loads(self.path.read_text())
+
+    def test_a_card_that_did_not_go_does_not_fail_the_running_task(self):
+        record = {**self.saved(), "triage": {"state": triage.HELD, "project": PID, "deadline": NOW}}
+        self.path.write_text(json.dumps(record))
+        with self.shows(False):
+            self.assertFalse(flow.escalate(self.env, record, "要主人定"))
+        job = find_job_record(self.state, self.job.message_id)
+        self.assertEqual((job["status"], job["question_delivery_ok"]), ("running", False))
+
+    def test_the_sweep_asks_again_every_minute_until_it_goes(self):
+        now = time.time()
+        data = self.saved()
+        data["triage"]["at"] = now
+        self.path.write_text(json.dumps(data))
+        with self.shows(False):
+            flow.sweep(self.env, now + 10)
+            self.assertEqual(self.tries, [])  # Not within the minute of the hand-over.
+            flow.sweep(self.env, now + flow.RESHOW_EVERY)
+            flow.sweep(self.env, now + flow.RESHOW_EVERY + 10)
+            self.assertEqual(len(self.tries), 1)
+        with self.shows(True):
+            flow.sweep(self.env, now + 2 * flow.RESHOW_EVERY)
+            flow.sweep(self.env, now + 3 * flow.RESHOW_EVERY)
+        self.assertEqual(len(self.tries), 2)
+        self.assertEqual(triage.of(self.saved())["reshows"], 2)
+
+    def test_the_sweep_gives_up_after_its_tries(self):
+        now = time.time()
+        data = self.saved()
+        data["triage"]["at"] = now
+        self.path.write_text(json.dumps(data))
+        with self.shows(False):
+            for step in range(1, flow.RESHOW_TRIES + 4):
+                flow.sweep(self.env, now + step * flow.RESHOW_EVERY)
+        self.assertEqual(len(self.tries), flow.RESHOW_TRIES)
+
+    def test_the_owners_message_shows_it_and_answers_it(self):
+        with self.shows(True):
+            self.assertTrue(self.app.interaction.interactive_command(self.ctx_topic, "新版", "oc_chat", "m-owner"))
+        self.assertEqual(self.tries, [self.token])
+        self.assertEqual(self.app.questions.submit_answer.call_args.args[3]["answer_0"], "新版")
+        self.app.messenger.reply.assert_not_called()
+
+    def test_a_card_that_still_does_not_go_says_so_without_a_retry_button(self):
+        with self.shows(False):
+            self.assertTrue(self.app.interaction.interactive_command(self.ctx_topic, "新版", "oc_chat", "m-owner"))
+        said = self.app.messenger.reply.call_args.args[2]
+        self.assertIn("问题卡没发出来", said)
+        self.assertNotIn("重新投递", said)
+        self.assertEqual(self.saved()["status"], "pending")
+        self.app.questions.submit_answer.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
