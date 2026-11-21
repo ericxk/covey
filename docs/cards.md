@@ -97,7 +97,7 @@
 
 `cards/trace_view.py` 的 `TraceView` 只从快照生成元素：
 
-- 面板是带框的折叠面板 `trace_details`，第一行 `trace_metrics`（运行中写“N 步”），然后是 `trace_body`。标题运行中固定写“执行过程 · 进行中”，结束后写“执行过程 · N 步”：标题只能随整个折叠面板一起换，换了会把用户的展开状态翻回去，所以运行中只按 ID 换里面的元素，结束时整块换一次。`TraceView.panel_model` 返回 `PanelModel`，`panel_json` 由它画出标题和第一行。中断卡 `panel_model(timed=True)` 在步数后加用时。
+- 面板是带框的折叠面板 `trace_details`，第一行 `trace_metrics`（运行中写“N 步”），然后是 `trace_body`。运行中也收起（`PanelModel.expanded` 只有老卡翻页重画时为真）：状态行已经写着“现在：…”。标题运行中固定写“执行过程 · 进行中”，结束后写“执行过程 · N 步”：标题只能随整个折叠面板一起换，换了会把用户的展开状态翻回去，所以运行中只按 ID 换里面的元素，结束时标题变了才整块换一次（`incremental_actions` 比的是折叠面板除内容和 `expanded` 以外的部分，`frame`）。`TraceView.panel_model` 返回 `PanelModel`，`panel_json` 由它画出标题和第一行。中断卡 `panel_model(timed=True)` 在步数后加用时。
 - 主任务和子任务的条目按开始时间排在一起，分成进展说明、子任务和机器人的行、两条之间的一段操作（`trace_items`）。
 - 一段操作（`run_elements`）不超过 `SHOW_OPERATIONS`（8）项全列，更长的只列最后 `KEEP_OPERATIONS`（3）项，前面的收进 `ops_<哈希>` 折叠；运行中的始终列出。步骤一行：✓ ● ✕、种类、耗时或状态、开始时间、非 0 退出码，下一行灰字摘要。
 - 进展说明是 `note_element`（蓝底）。代码在画的时候还原（`literal_code`，快照里是转义过的文字）；`text_chunks` 优先切在换行、句末、空格，不切开实体；子任务最后一条说明超过 `FOLD_CHARS` 时其余放进折叠；同一子任务连续的条目只在第一条写名字（`assemble`）。
@@ -130,6 +130,15 @@
 - 运行结束时 `TaskMonitor.stop` 不再写卡，worker 用 `Cards.show_outcome(…, timed=True)` 一次 `batch_update`：状态行写结局（`outcome_line`：有结果、已停止、停住了、等你，`cards/task_status.py` 的 `marked` 画成带颜色圆点的状态词）和结束时刻（`Cards._ended_line`），删按钮行，结束执行过程面板，“输出”换成结束的数字。没有按钮行时先写面板再写状态行。之后 `finalize_trace` 只剩任务详情要写，然后才准备和发出结果，状态行不会空着。
 - 用时是 `core/metrics.py` 的 `run_seconds`（起点 `run_start`，终点 `execution_finished`），写法 `took_text`；答案卡、回带、状态卡和 Pin 用同一个函数。
 - 写成后 `StreamingReply.outcome` 记下结局，`Cards.render_stream_final` 据此让正文不重复结局；没写成时正文以结局开头。
+
+### 追问只发答案卡
+
+话题里的追问（`app/submission.py` 的 `quick_hold`：主人在话题串里发的、话题答过至少一次（`follow_up`）、马上开工的一轮，话题自己的角色，回答单独发在串里，不是代答话题）先不发任务卡，和管家那一轮一样记 `job.card_deferred`，另记 `card_after` 秒（`COVEY_QUICK_ANSWER_SECONDS`，默认 10，0 关）。任务卡什么时候出：
+
+- 状态行每次刷新时（`Cards.reveal`、`held_due`）：跑满 `card_after` 秒，或者执行过程有了第一步（工具调用、进展说明、子任务），当场发卡，已有的步骤随即画上（`queue_trace`）。
+- 模型问问题时先发卡再问（`app/interaction.py`，`Cards.reveal_held`）。
+- 结束时还没发卡的（`core/jobs.py` 的 `quick_held`）：完整、已授权的回答（`app/worker.py` 的 `quick_answer`）只发答案卡，答案卡底部带“换配置”“回退”（`topic_controls`，任务卡上本来有它们；“下载请求与结果”在任务卡上更新，所以这种轮次没有）；其余结局（停住、停止、等你、没授权）先发卡，后面照常写在卡上；答案卡没发出去的也补发任务卡，写上没送达和“重新投递结果”（`TurnDelivery.deliver`）。
+- 发出的回答仍是经 `verified_reply` 授权、存下来的那份（规则 5），任务卡仍只由 `Cards` 写（规则 3）。
 
 ### 卡片摘要与回答开头
 

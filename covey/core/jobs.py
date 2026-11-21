@@ -118,6 +118,11 @@ class BridgeReplyJob:
     # (core/placement.py Row.quiet; app/cards.py Cards.reveal); False once it has one, or for any other job. Saved: the
     # task runner sends the card.
     card_deferred: bool = _state(False)
+    # A topic's follow-up whose card is held back as well (app/submission.py quick_hold, docs/cards.md 追问只发答案卡):
+    # until it has run this many seconds, made its first step or asks (app/cards.py Cards.reveal); one that answers
+    # before sends only its answer card (``quick_held``). 0 for every other job (a held butler turn waits
+    # butler.CARD_AFTER). Saved, with card_deferred: the task runner sends the card.
+    card_after: float = _state(0.0)
     # The owner's message a retry or resume of such a turn reacts on and links in its 你问 block (app/task_controls.py
     # requeue): its own message id is the retry's, not a Feishu one. '' for every other job. Saved: its task runner reacts.
     reaction_message: str = _state("")
@@ -596,6 +601,15 @@ def harness_of(job_or_record: Any, fallback: str = "") -> str:
     if isinstance(job_or_record, dict):
         return str(job_or_record.get("backend") or "") or fallback
     return getattr(job_or_record, "harness_id", "") or fallback
+
+
+def quick_held(job) -> bool:
+    """Whether ``job``'s task card is still held back as a topic's follow-up's (``card_after``): a turn that ends as a
+    quick answer then sends only its answer card (app/worker.py); any other end, a question or an answer that did not
+    go out sends the card first (app/cards.py Cards.reveal_held)."""
+    after = getattr(job, "card_after", 0)
+    return (getattr(job, "card_deferred", False) is True and isinstance(after, (int, float)) and after > 0
+            and not getattr(job, "progress", None))
 
 
 def job_field(job, name):

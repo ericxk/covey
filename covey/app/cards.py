@@ -42,7 +42,7 @@ from covey.cards.trace_view import TraceView, clock
 from covey.cards.trace_updates import incremental_actions, panel_json
 from covey.core.harness import BridgeContext, backend_capabilities
 from covey.core.jobs import BridgeReplyJob as ReplyJob
-from covey.core.jobs import RUN_STAGES, find_job_record, job_key, upsert_job_record
+from covey.core.jobs import RUN_STAGES, find_job_record, job_key, quick_held, upsert_job_record
 from covey.core.locks import card_lock
 from covey.core.metrics import run_seconds, run_start, took_text
 from covey.core.topics import remember_topic_message, topic_label
@@ -58,6 +58,25 @@ STOPPING = "正在停止… · 已收到停止请求，正在中断后台任务�
 # this many seconds apart.
 CARD_RESENDS = 3
 CARD_RESEND_EVERY = 60.0
+
+
+def held_steps(job) -> bool:
+    """Whether the turn of ``job`` made a step its process panel shows (a tool call, a note, a sub-task)."""
+    trace = getattr(job, "tool_trace", None)
+    return bool(getattr(trace, "steps", None) or getattr(trace, "children", None))
+
+
+def held_due(job) -> bool:
+    """Whether the held card of ``job`` (``job.card_deferred``) goes out now (Cards.reveal): once its run has
+    lasted butler.CARD_AFTER seconds (a butler turn's), or ``job.card_after`` seconds (a topic's follow-up's,
+    app/submission.py quick_hold), which also goes at its first step: a turn that works says so on its card at once,
+    one that only answers sends its answer card alone (追问只发答案卡)."""
+    begun = run_start(getattr(job, "timings", None))
+    if begun is None:
+        return False
+    if not quick_held(job):
+        return time.time() - begun >= butler.CARD_AFTER
+    return time.time() - begun >= job.card_after or held_steps(job)
 
 
 class Cards:
@@ -275,30 +294,59 @@ class Cards:
             self.runtime.log(f"queued card's 补充 not relabelled job=#{job.job_id}")
 
     def reveal(self, ctx: BridgeContext, job: ReplyJob, content: str) -> bool:
-        """The task card of a butler turn held back (``job.card_deferred``, core/placement.py Row.quiet), sent by
-        its task runner once the turn has run butler.CARD_AFTER seconds, as any task card is (in the owner's
-        message's thread, app/butler.py configure), its status line ``content``; the job record gets its address
-        (stop clicks, recovery and the board find it there). Tried once; not for a turn stopping or delivering."""
+        """The task card of a turn held back (``job.card_deferred``), sent by its task runner as any task card is (in
+        the owner's message's thread, app/butler.py configure), its status line ``content``, once it is due
+        (``held_due``): a butler turn's (core/placement.py Row.quiet) once the turn has run butler.CARD_AFTER seconds,
+        a topic's follow-up's (``job.card_after``, app/submission.py quick_hold) once it has run that long or made its
+        first step; the job record gets its address (stop clicks, recovery and the board find it there). Tried once;
+        not for a turn stopping or delivering."""
         if not getattr(job, "card_deferred", False) or job.cancel_requested_at or job.answer_finalized:
             return False
         if projects.is_wake(job.message_id):
             return False  # A lead's wake-up turn (app/project_loop.py): the project's card says what it does.
-        begun = run_start(getattr(job, "timings", None))
-        if begun is None or time.time() - begun < butler.CARD_AFTER:
+        if not held_due(job):
             return False
+        return self._send_held(ctx, job, content)
+
+    def reveal_held(self, ctx: BridgeContext, job: ReplyJob, why: str) -> bool:
+        """A topic's follow-up's held card (core/jobs.py quick_held) sent now, whatever ``reveal`` would say: the turn
+        asks (``why`` "question", app/interaction.py), ended other than as a quick answer ("ended", app/worker.py) or
+        its answer did not go out ("undelivered", app/turn_delivery.py), and what follows is said on it as on any task
+        card. Never for a butler turn's (its own way, app/quiet_delivery.py). Whether it went out; never raises."""
+        if not quick_held(job):
+            return False
+        try:
+            return self._send_held(ctx, job, "", why=why)
+        except Exception as exc:  # noqa: BLE001 - what follows goes as it does for a card that never went out
+            self.runtime.log(f"held card not sent job=#{job.job_id} why={why}: {type(exc).__name__}")
+            return False
+
+    def _send_held(self, ctx, job, content, why=""):
+        """``reveal``'s and ``reveal_held``'s send: once, the job record getting its address."""
+        quick = quick_held(job)
         job.card_deferred = False
         progress = self.create_streaming_reply(ctx, job, render_stream_status(job, content or "执行中"))
         if not progress:
-            self.runtime.log(f"main thread card not sent job=#{job.job_id}")
+            self.runtime.log(f"{'held' if quick else 'main thread'} card not sent job=#{job.job_id}")
             return False
         job.progress = progress
         try:
             upsert_job_record(ctx.state_dir, job_key(job.message_id, job.job_id), card_id=progress.card_id,
                               card_message_id=progress.message_id)
         except OSError as exc:  # The next state write saves it (core/jobs.py job_record_fields).
-            self.runtime.log(f"main thread card not recorded job=#{job.job_id}: {type(exc).__name__}")
-        self.runtime.log(f"main thread card sent after {butler.CARD_AFTER}s job=#{job.job_id} "
-                         f"card_id={progress.card_id}")
+            self.runtime.log(f"{'held' if quick else 'main thread'} card not recorded job=#{job.job_id}: "
+                             f"{type(exc).__name__}")
+        if not quick:
+            self.runtime.log(f"main thread card sent after {butler.CARD_AFTER}s job=#{job.job_id} "
+                             f"card_id={progress.card_id}")
+            return True
+        self.runtime.log(f"held card sent job=#{job.job_id} why={why or 'due'} card_id={progress.card_id}")
+        if why in ("", "question"):
+            # Running: the next status line write clears the body (app/worker.py TurnProgress), and the steps it
+            # made so far are drawn now, not with its next one.
+            job.progress_body_cleared = job.body_clear_pending = True
+            if held_steps(job):
+                self.queue_trace(ctx, job, urgent=True)
         return True
 
     def resend_missing(self, ctx: BridgeContext, job: ReplyJob, content: str) -> bool:

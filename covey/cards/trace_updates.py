@@ -55,15 +55,21 @@ def mutable_elements(panel):
     return {e["element_id"]: e for e in [*([metrics] if metrics else []), *details.get("elements", [details])]}
 
 
+def frame(details) -> dict:
+    """What the collapsible shows besides what is inside it and whether it is open: its tag, title and look."""
+    return {key: value for key, value in details.items() if key not in ("elements", "expanded")}
+
+
 def incremental_actions(previous, panel):
     (old_metrics, old_details), (new_metrics, new_details) = parts(previous), parts(panel)
     if (old_metrics is None) != (new_metrics is None):
         # A panel of the older form (its figures above the collapsible), by this release: whole.
         return [update(panel)]
-    if old_details.get("expanded") != new_details.get("expanded"):
-        # Only a replacement of the collapsible carries `expanded`. Live updates never change
-        # it, so the user's own open/closed state survives them; the end of a task folds the
-        # panel once (open while running, folded when finished).
+    if frame(old_details) != frame(new_details):
+        # Only a replacement of the collapsible changes its title, and it carries `expanded`, which would undo the
+        # user's own open or closed: live updates never change the title (进行中 while the task runs), so they leave
+        # it; the end of a task (N 步 then) replaces it once, folded. Running panels are drawn folded too (the status
+        # line says 现在：…); one drawn open (an old card's page redraw, or a release before) is not folded by them.
         return [update(new) for old, new in ((old_metrics, new_metrics), (old_details, new_details)) if old != new]
     actions = []
     old = mutable_elements(previous)

@@ -760,6 +760,7 @@ def answer_tail_cards():
                                          output_parts, review_element, tail, tail_card)
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_band, answer_card
+    from covey.cards.topic_actions import topic_panel
 
     files = markdown_panel(ARTIFACTS_ID, "产物 2 个 · REPORT.md 等", "- [REPORT.md](https://example.invalid/a) · 12 KB\n"
                            "- [本轮改动.diff](https://example.invalid/b) · 3 KB", quiet=True)
@@ -834,6 +835,11 @@ def answer_tail_cards():
             "answer_card_thread_band_stopped": answer_card(
                 text, "T443 已停止 · 结论", tail(None, inputs, outputs),
                 [answer_band("cancelled", "T443", "改看板的 Pin 目标", "停在了第二步")]),
+            # 追问只发答案卡 (docs/cards.md): a follow-up that only answered sent no task card; its 换配置 and 回退 go
+            # under its answer (app/answer_delivery.py topic_controls).
+            "answer_card_quick": answer_card(
+                text, "T443 有结果 · 结论", [*tail(None, inputs, outputs), topic_panel(TOPIC, 443, ("claude", 2), rewind=True)],
+                [answer_band("done", "T443", "改看板的 Pin 目标", "按钮已经改好")]),
             "relay_waiting": relay_card("T439", WAITING, question="用哪种格式输出？表格还是列表，表格方便对比、列表方便手机上看")[0],
             "relay_stopped": relay_card("T439", STOPPED, reason="到了任务的时间上限，这一轮停在这里；可以接着做，或拆小再试")[0],
             "answer_card_asked": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [ask]),

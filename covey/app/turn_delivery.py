@@ -14,7 +14,7 @@ from covey.core.turn_words import retry_hint
 from covey.core.checkpoint import QUESTION_ONLY_REPLY, checkpoint_reply_display, read_checkpoint
 from covey.core.diff import append_diff_summary_note, finalize_job_diff
 from covey.core.saved_results import display_saved_reply, saved_delivery_kind, paused_question_delivery_key
-from covey.core.jobs import job_key
+from covey.core.jobs import job_key, quick_held
 from covey.core import background, failure, placement
 from covey.core.metrics import mark
 from covey.feishu.outgoing_images import prepare_outgoing_markdown_images
@@ -142,6 +142,9 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         set_failure(None)
         delivered, updated = self.send(final_card, display_text, delivery_text, standalone_verified,
                                        standalone_question)
+        if not delivered and quick_held(job):
+            # A quick answer that did not go out: its held card now, which says so with 重新投递 (finish_card).
+            cards.reveal_held(ctx, job, "undelivered")
         # The task the line answers: the web page's turn finds its record by it (app/web_collect.py pair), not by guessing.
         append_history(ctx.history_path, "assistant", delivery_text, {"job_id": job.job_id})
         execution_status = turn.status

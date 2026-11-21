@@ -209,6 +209,23 @@ def handoff_note(topic, path, rounds, summary="", summary_path=None):
             "- 更换前留下的待确认问题已作废，按用户最新的消息继续。")
 
 
+def can_rewind(harness, ctx) -> bool:
+    """The panel has ↩️ 回退 (app/rewind.py): the Harness can drop a turn; not in a 代答 topic, whose replies
+    have gone to the contact."""
+    return backend_capabilities(harness.backend, ctx).rewind and not proxy_topic(ctx) and topic_traits(ctx).rewind
+
+
+def topic_controls(harness, ctx, job_id):
+    """换配置 and 回退 under turn #job_id of ``ctx``'s topic run by ``harness`` (cards/topic_actions.py topic_panel):
+    at the bottom of its task card (``attach_topic_controls``), or of its answer card when it has none (a quick
+    answer, app/answer_delivery.py); None when there are none."""
+    if not ctx.topic_id:
+        return None
+    name = ctx.options.get("harness_id")
+    return topic_panel(ctx.topic_id, job_id, (name, ctx.options.get("binding_revision", 1)) if name else None,
+                       rewind=can_rewind(harness, ctx), switch=topic_traits(ctx).switch_config)
+
+
 class SwitchHandoff:
     """One Harness's side of a 换配置 switch: the controls on an ended task card and the
     handoff into its first run after a switch.
@@ -229,15 +246,11 @@ class SwitchHandoff:
         """A finished turn's 换配置 and 回退 (cards/topic_actions.py topic_panel), at the bottom of its card."""
         if not job.progress or job.topic_controls_attached or not ctx.topic_id:
             return
-        name = ctx.options.get("harness_id")
-        panel = topic_panel(ctx.topic_id, job.job_id, (name, ctx.options.get("binding_revision", 1)) if name else None,
-                            rewind=self.can_rewind(ctx), switch=topic_traits(ctx).switch_config)
+        panel = topic_controls(self.harness, ctx, job.job_id)
         job.topic_controls_attached = bool(panel and self.cards.set_task_element(ctx, job, panel, at_bottom=True))
 
     def can_rewind(self, ctx):
-        """The panel has ↩️ 回退 (app/rewind.py): the Harness can drop a turn; not in a 代答 topic, whose replies
-        have gone to the contact."""
-        return backend_capabilities(self.harness.backend, ctx).rewind and not proxy_topic(ctx) and topic_traits(ctx).rewind
+        return can_rewind(self.harness, ctx)
 
     def attach_switch_controls(self, ctx, job):
         """An ended turn's 换配置 alone: failed, stopped or interrupted."""

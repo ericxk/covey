@@ -11,7 +11,7 @@ from covey.core import timing, triage
 from covey.core.checkpoint import release_user_wait
 from covey.core.trace import CONTEXT_FIELDS, ToolTrace, finish_record_trace, task_trace
 from covey.core.turn_words import retry_hint
-from covey.core.jobs import job_key, upsert_job_record
+from covey.core.jobs import job_key, quick_held, upsert_job_record
 from covey.core.locks import card_lock
 from covey.cards.elements import md
 from covey.cards.question_cards import (ASK_EMPTY, ASK_KIND, ASK_SETTLED, PICK, RESTORE_KIND, SET_ASIDE_KIND,
@@ -208,6 +208,9 @@ class Interaction:
                 self.cards.queue_trace(ctx, job, True)
             return
         if kind in {"question", "turn_finished", "cancel_questions"}:
+            if kind == "question" and quick_held(job):
+                # A topic's follow-up's held card goes out first: its question is asked as on any task card.
+                self.cards.reveal_held(ctx, job, "question")
             self.questions.dispatch_question_event(ctx, job, kind, data, rpc)
 
     def _policy_tolerated(self, ctx, job, data):
@@ -468,7 +471,7 @@ class Interaction:
                     raise ValueError(f"请输入 1–{limit} 之间的整数页码")
                 # A typed page that does not exist: said above the records; the next pick redraws without it.
                 notice = f"⚠️ “{literal(value[:10])}”不是有效页码，请输入 1–{limit} 之间的整数"
-        model = TraceView(trace.snapshot()).panel_model(True)
+        model = TraceView(trace.snapshot()).panel_model(True, opened=True)  # Opened: its page was picked inside it.
         if notice:
             model = model._replace(notice=md(notice, element_id="trace_page_notice", size="notation"))
         self.cards.update_record_panel(ctx, chat, mid, event, record, panel_json(model))

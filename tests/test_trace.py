@@ -27,7 +27,7 @@ from covey.backends.codex.events import CodexEventAdapter, apply_agent_event
 from covey.cards.streaming import task_details_panel, task_details_text
 from covey.cards.task_figures import figure_cells
 from covey.cards.trace import cut_escaped
-from covey.cards.trace_updates import incremental_actions
+from covey.cards.trace_updates import incremental_actions, panel_json
 from covey.cards.trace_view import (
     FOLD_CHARS, TRACE_ELEMENTS, TraceView, element_count, json_size as json_bytes, text_chunks)
 from covey.core.text import safe_text, short_count
@@ -977,6 +977,28 @@ class IncrementalTests(unittest.TestCase):
         self.assertTrue(all(a['action']=='update_element' for a in actions))
         self.assertEqual(incremental_actions(after,split_panel(trace_panel(t, False))),[])
 
+    def test_a_running_panel_starts_folded_and_the_owner_s_open_survives_until_the_end(self):
+        # #16: the status line says 现在：…, so 执行过程 starts folded; the owner opens it, live updates leave the
+        # collapsible (its title and open state) alone, the end replaces it once, folded, its title N 步.
+        t = self.trace()
+        live = split_panel(trace_panel(t, True))
+        details = live["columns"][0]["elements"][0]
+        self.assertEqual((details["element_id"], details["expanded"]), ("trace_details", False))
+        opened = TraceView(t.snapshot()).panel_model(True, opened=True)  # An old card's page redraw: drawn open.
+        self.assertTrue(opened.expanded)
+        t.note("extra", "new event")
+        later = split_panel(trace_panel(t, True))
+        for before in (live, panel_json(opened)):
+            actions = incremental_actions(before, later)
+            self.assertTrue(actions)
+            self.assertFalse(any(a["params"].get("element_id") in ("process_panel", "trace_details") for a in actions))
+        t.finish()
+        ended = split_panel(trace_panel(t, False))
+        actions = incremental_actions(later, ended)
+        details = [json.loads(a["params"]["element"]) for a in actions if a["params"].get("element_id") == "trace_details"]
+        self.assertEqual([(d["expanded"], d["header"]["title"]["content"]) for d in details],
+                         [(False, "**执行过程**　<font color='grey'>25 步</font>")])
+
     def test_metrics_only_update_cannot_reset_open_or_collapsed_process(self):
         t=self.trace();before=split_panel(trace_panel(t, True));t.input_tokens=123456
         after=split_panel(trace_panel(t, True))
@@ -1371,7 +1393,7 @@ class PanelModelTest(unittest.TestCase):
         from covey.cards.trace_updates import panel_json
         trace = ToolTrace()
         model = TraceView(trace.snapshot()).panel_model(True)
-        self.assertEqual((model.state, model.live, model.expanded, model.rows), ("等待进展", True, True, 0))
+        self.assertEqual((model.state, model.live, model.expanded, model.rows), ("等待进展", True, False, 0))
         details = panel_json(model)["columns"][0]["elements"][0]
         self.assertEqual(details["header"]["title"]["content"], "**执行过程**　" + grey("进行中"))
         self.assertEqual(details["elements"][0], {"tag": "markdown", "element_id": "trace_metrics",

@@ -10,7 +10,8 @@ from covey.app import answer_cards, saved_send
 from covey.cards.review import answer_lead
 from covey.core import placement
 from covey.core.failure import HEADLINE_CHARS
-from covey.core.jobs import find_job_record, job_key
+from covey.app.switch_handoff import topic_controls
+from covey.core.jobs import find_job_record, job_key, quick_held
 from covey.core.saved_results import saved_delivery_key, saved_delivery_kind
 from covey.feishu.transport import last_failure, set_failure
 
@@ -32,6 +33,8 @@ class AnswerParts:
         # Use the same immutable route and key on first send and every retry.
         # Do not switch transports after an ambiguous send result.
         tail, files, status = self.answer_tail()
+        if quick_held(job):
+            tail = [*tail, *self.topic_controls()]  # A quick answer has no task card to carry them.
         key = saved_delivery_key(self.prefix, job_key(job.message_id, job.job_id), turn.verified_delivery)
         # The butler's card is in the owner's message's thread (core/placement.py Row.answer TOP): its
         # answer goes to the top level as a message of its own, a "你问" link to that message above it.
@@ -100,6 +103,17 @@ class AnswerParts:
         except Exception as exc:  # noqa: BLE001 - the answer goes all the same
             self.runtime.log(f"answer card tail unavailable: {type(exc).__name__}: {exc}")
             return [], False, None
+
+    def topic_controls(self):
+        """换配置 and 回退 at the bottom of a quick answer's card (追问只发答案卡, docs/cards.md): its task card never went
+        out (core/jobs.py quick_held), and they are the turn's (回退 takes only the topic's latest turn). [] when the
+        topic has none; never raises: the answer goes without them."""
+        try:
+            panel = topic_controls(self.cards.harness, self.ctx, self.job.job_id)
+        except Exception as exc:  # noqa: BLE001 - the answer goes all the same
+            self.runtime.log(f"answer card controls unavailable: {type(exc).__name__}")
+            return []
+        return [panel] if panel else []
 
     def headed(self, row) -> bool:
         """Whether this turn's answer card in its thread leads with its status line and its task card keeps no 结论

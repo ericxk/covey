@@ -481,7 +481,9 @@ class PanelModel(NamedTuple):
     """The process panel 执行过程 (TraceView.panel_model), drawn by cards/trace_updates.py ``panel_json``."""
     state: str  # "12 步", "等待进展" or "无执行记录", with " · 用时 …" on an ended timed one.
     live: bool  # The turn runs: the title says 进行中 and the first line inside has ``state``.
-    expanded: bool  # Open while drawn running, folded when ended.
+    # Drawn open: only a redraw the owner asked for by opening it (an old card's page controls, app/interaction.py
+    # show_trace_page). A running panel starts folded too: the status line says 现在：… (docs/ui.md 5.2).
+    expanded: bool
     elements: list  # The records, or one line that there are none.
     rows: int  # The records' count.
     notice: dict | None = None  # Above the records: a typed page that does not exist (app/interaction.py).
@@ -559,10 +561,11 @@ class TraceView:
         first = 1 if elements and elements[0].get("element_id") == "trace_older" else 0
         return [short.get(id(e), e) if i > first else e for i, e in enumerate(elements)], lines
 
-    def panel_model(self, running=True, *, timed=False):
+    def panel_model(self, running=True, *, timed=False, opened=False):
         """The process panel as data, one page (``fold_older``); cards/trace_updates.py
         ``panel_json`` draws it. ``timed``: an ended turn's state says how long it took, on a card whose status
-        line does not (the interrupted task's)."""
+        line does not (the interrupted task's). ``opened``: drawn open (``PanelModel.expanded``); every other panel
+        is drawn folded, running or ended, and the owner opens it."""
         elements, lines = self._elements(running)
         # The rows and the time; no token line: the 输入/输出 box has the tokens and the speed, 任务详情 the TTFT
         # (cards/streaming.py task_details_text, by ``ttft_line``), kept
@@ -573,7 +576,7 @@ class TraceView:
             state += f" · 用时 {took_text(max(0, (self.ended_at or time.time()) - self.started_at))}"
         empty = ("正在处理，尚无可展示的执行记录。" if live
                  else "执行已结束，本轮没有可展示的执行记录。")
-        return PanelModel(state, live, running, elements or [md(empty, size="notation")], len(lines))
+        return PanelModel(state, live, opened, elements or [md(empty, size="notation")], len(lines))
 
     def _walk(self):
         """Every step of the task's tree, one iterative timeline, a sub-task's right after the step that started it:

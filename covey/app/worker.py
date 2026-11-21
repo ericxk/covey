@@ -20,7 +20,8 @@ from covey.core.diff import capture_job_diff_snapshot
 from covey.core.harness import JobCancelled, backend_capabilities, normalize_run_result
 from covey.core.saved_results import reruns_after_withdrawal, observe_verified_reply
 from covey.app import devices as device_turns
-from covey.core.jobs import DEVICE_LOST_STATUS, RECALLED, SIGTERM_STATUS, context_for_job, job_key, topic_job_records
+from covey.core.jobs import (DEVICE_LOST_STATUS, RECALLED, SIGTERM_STATUS, context_for_job, job_key, quick_held,
+                             topic_job_records)
 from covey.core.progress import turn_seconds
 from covey.core import timing
 from covey.core.metrics import mark, mark_first_output
@@ -312,6 +313,14 @@ def _run_turn(job, ctx, *, harness, runtime, cards, sessions, runs, record_job_s
     return turn, snapshot
 
 
+def quick_answer(turn) -> bool:
+    """Whether ``turn`` ended as a quick answer (追问只发答案卡, docs/cards.md): done, with its saved, authorized reply
+    (rule 5), all of it: a topic's follow-up whose card is still held back then sends only its answer card."""
+    outcome = getattr(turn, "verified_outcome", None)
+    return (turn.status == "done" and turn.verified_delivery is not None
+            and getattr(outcome, "status", "") == "completed")
+
+
 def _deliver_turn(job, ctx, turn, snapshot, *, harness, runtime, messenger, cards, artifacts, questions, steering,
                   record_job_state, send_text, capabilities):
     """The ended turn's outcome atop its card, its automatic retry planned, its result delivered (TurnDelivery)
@@ -320,6 +329,10 @@ def _deliver_turn(job, ctx, turn, snapshot, *, harness, runtime, messenger, card
     # the top blank until the answer appeared lower down. The execution ended here: the status line's 用时 is the
     # answer card's and the relay's (core/metrics.py run_seconds; TurnDelivery.deliver's mark keeps this one).
     mark(job, 'execution_finished')
+    if quick_held(job) and not quick_answer(turn):
+        # A topic's follow-up whose card is still held back (app/cards.py Cards.reveal) that did not just answer: its
+        # card goes out now, and its failure, stop or question is said there as on any task card.
+        cards.reveal_held(ctx, job, "ended")
     show_outcome(cards, ctx, job, turn.status, runtime)
 
     retry = auto_retry.plan(harness, ctx, job, turn)

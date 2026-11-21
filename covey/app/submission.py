@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from covey.core import background, devices, failure, placement, timing
+from covey.core import env as cenv
 from covey.core.jobs import BridgeReplyJob, carry_device, find_job_record
 from covey.core.metrics import mark, run_start, took_text
 from covey.core.model_settings import recorded_model_settings, recorded_work_mode
@@ -17,7 +18,7 @@ from covey.core.scheduler import MAX_WORKERS
 from covey.core.butler import HOLD_STATUS, traits_of
 from covey.core.state import write_json
 from covey.core.history_storage import recent_history
-from covey.core.topics import bind_topic, read_topic, workspace_locked
+from covey.core.topics import bind_topic, proxy_topic, read_topic, workspace_locked
 from covey.core.locks import LOCK, topic_lock
 from covey.core.workspaces import load_config, resolve_selection, topic_context, touch_workspace
 from covey.app import butler_reactions
@@ -42,6 +43,48 @@ def steers_on_arrival(job, ahead) -> bool:
     return (target is not None and target.job_id == job.steer_target_job_id and topic_steer()
             and getattr(job.harness_capabilities, "steering", False) is True
             and not traits_of(job).lists_supplements and job_stage(target) != "queued")
+
+
+# 追问只发答案卡 (docs/cards.md): a topic's follow-up holds its task card back this many seconds at most (``quick_hold``).
+QUICK_ENV = "COVEY_QUICK_ANSWER_SECONDS"
+QUICK_SECONDS = 10
+QUICK_MAX = 120
+
+
+def quick_seconds(environ=None) -> int:
+    """COVEY_QUICK_ANSWER_SECONDS: how long a topic's follow-up holds its task card back (``quick_hold``); QUICK_SECONDS
+    when unset or not a whole number from 0 to QUICK_MAX; 0 holds none (every turn's card at once, as before)."""
+    raw = str(cenv.get(QUICK_ENV, "", environ) or "").strip()
+    try:
+        seconds = int(raw)
+    except ValueError:
+        return QUICK_SECONDS
+    return seconds if 0 <= seconds <= QUICK_MAX else QUICK_SECONDS
+
+
+def follow_up(job) -> bool:
+    """Whether ``job`` follows a turn of its topic that answered: its history (as read when it was queued, back to the
+    topic's last reset) has an answer in it. A topic's first message is no follow-up."""
+    return any(isinstance(row, dict) and row.get("role") == "assistant" for row in job.history_snapshot or ())
+
+
+def quick_hold(ctx, job) -> int:
+    """How many seconds ``job``, a message the owner sent in a topic's thread that starts at once, holds its task card
+    back (``quick_seconds``; app/cards.py Cards.reveal sends it once the turn has run them, made its first step or
+    asks, app/worker.py only its answer card when it answered before): a follow-up (``follow_up``) in a topic's own
+    turn (core/placement.py TOPIC_ROLE, MEMBER_ROLE) whose answer goes on its own in its thread, not a 代答 topic's.
+    0 for any other: its card at once."""
+    seconds = quick_seconds()
+    if (not seconds or not str(job.message_id or "").startswith("om_") or not follow_up(job)
+            or proxy_topic(ctx)):
+        return 0
+    try:
+        where = placement.plan(ctx.state_dir, job)
+    except Exception:  # noqa: BLE001 - its card at once, as before
+        return 0
+    if where.role not in (placement.TOPIC_ROLE, placement.MEMBER_ROLE) or where.row.answer != placement.THREAD:
+        return 0
+    return seconds
 
 
 def queued_line(job) -> str:
@@ -231,7 +274,8 @@ class Submission:
         job.harness_capabilities = backend_capabilities(self.harness.backend, ctx)
         self.runtime.jobs.register(job)
         return {"ahead": len(ahead), "jobs_ahead": ahead, "capacity_full": capacity_full,
-                "steer": steer and self.steering is not None and steers_on_arrival(job, ahead)}
+                "steer": steer and self.steering is not None and steers_on_arrival(job, ahead),
+                "follow_up": steer}
 
     def publish_submission(self, ctx, job, plan):
         if plan.get("wait") == "launching":
@@ -260,6 +304,10 @@ class Submission:
             # A butler turn of the 话题区 layout (core/placement.py Row.quiet): none yet either; its task runner
             # sends it once the turn has run CARD_AFTER seconds (Cards.reveal), the owner's message gets OnIt below.
             job.card_deferred = placement.quiet(ctx.state_dir, job)
+            if not job.card_deferred and plan.get("follow_up") and not ahead and not capacity_full and not held:
+                # A topic's follow-up that starts at once (追问只发答案卡): its card too, for a few seconds (quick_hold).
+                job.card_after = quick_hold(ctx, job)
+                job.card_deferred = job.card_after > 0
             if job.card_deferred:
                 # What its card would be drawn with, its answer card's 输入 too (the workspace was "—").
                 try:
