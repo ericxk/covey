@@ -60,6 +60,17 @@ class ButlerTopicsCase(UnifiedCase):
 
 
 class TopicStartTest(ButlerTopicsCase):
+    def test_a_similar_topic_in_the_same_repository_is_said_but_does_not_stop_it(self):
+        # Persona's duplicate hint: it only says so (app/repo_peers.py duplicates).
+        first = self.start("r1", title="查昨晚的失败日志")
+        self.assertTrue(first["ok"], first)
+        with mock.patch("covey.app.repo_peers.duplicates", return_value=["T9《查昨晚的失败日志》"]) as found:
+            second = self.start("r2", title="查失败日志")
+        self.assertTrue(second["ok"] and second["data"]["started"], second)
+        self.assertTrue(second["text"].endswith("。可能重复：T9《查昨晚的失败日志》 也在同一个仓库做相近的事（照开，没拦）"), second["text"])
+        self.assertEqual(found.call_args.args[3], "查失败日志")
+        self.assertNotIn("可能重复", first["text"])
+
     def test_a_topic_that_starts_at_once_is_bound_and_its_first_turn_submitted(self):
         answer = self.start("r1", harness="codex", effort="high")
         self.assertTrue(answer["ok"], answer)

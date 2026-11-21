@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import (device_files, knowledge_turn, memory_turn, owner_send, project_context, subagent_recovery,
+from covey.app import (device_files, knowledge_turn, memory_turn, owner_send, project_context, repo_peers, subagent_recovery,
                        tool_limits, workspace_gists)
 from covey.core.statuses import ENDED
 from covey.app.leftovers import stop_task_leftovers
@@ -322,7 +322,7 @@ class Runs:
         source = session_id or ctx.options.get("fork_session")
         live.rules_session = system and (started_with_system_rules(ctx, self.harness.spec.name, source) if source else True)
         prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
-        prompt += self._checkpoint_note(ctx, job) + self._context_note(ctx, job, session_id) + tool_limits.note(ctx)
+        prompt += self._checkpoint_note(ctx, job) + self._context_note(ctx, job, session_id) + self._repo_note(ctx, job) + tool_limits.note(ctx)
         attachments = self._image_attachments(ctx, prompt)
         if ctx.device:
             prompt, attachments, live.ctx = self._stage_attachments(ctx, job, prompt, attachments)
@@ -523,6 +523,12 @@ class Runs:
         except (OSError, ValueError, AttributeError):
             return None
         return subagent_recovery.collect(self.harness, ctx, ended) if ended else None
+
+    @staticmethod
+    def _repo_note(ctx: BridgeContext, job: ReplyJob) -> str:
+        """One line when other topics work in this topic's git repository (app/repo_peers.py); '' without."""
+        line = repo_peers.note(ctx, job)
+        return "\n\n" + line if line else ""
 
     def _context_note(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> str:
         """The line (app/prompts.py context_full) for an ordinary topic's resumed turn whose previous turn ended with the context

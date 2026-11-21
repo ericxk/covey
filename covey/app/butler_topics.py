@@ -29,7 +29,7 @@ import re
 import time
 from pathlib import Path
 
-from covey.app import dispatch_cards, butler_handoff
+from covey.app import dispatch_cards, butler_handoff, repo_peers
 from covey.app.forks import FINISHED, fork_token
 from covey.app.butler_env import arg_text, reply
 from covey.app.butler_model_choice import resolve
@@ -240,9 +240,11 @@ def _open(env, request, path, record, chat, prompt, args):
     named = f"{label}「{title}」" if label else f"「{title}」"
     where = ("，话题串挂在主人这条提问下面" if record.get("area_root")
              else "，话题串的根是顶层一张小卡（主人这条提问下面已经有一个话题串）" if record.get("area_taken") else "")
+    twins = repo_peers.duplicates(env.state_dir, record["topic_id"], plan.get("workdir"), title)
     text = (f"已开 {named}：直接开工{where}" if plan["start"]
             else f"已开 {named}：启动卡在话题里，等主人点开始{where}"
             + ("（运行方式是独立 worktree，由启动卡创建）" if plan["run_mode"] == "worktree" else ""))
+    text += f"。可能重复：{'、'.join(twins)} 也在同一个仓库做相近的事（照开，没拦）" if twins else ""
     return done(path, record, reply(True, text, topic_id=record["topic_id"], label=label, root_message_id=root,
                                      started=bool(plan["start"])))
 

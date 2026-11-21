@@ -189,6 +189,8 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | `project_send` | pid*、text* | 把主人的话交给专项的负责人，按主人触发的一轮处理（同上） |
 | `projects_tidy` | scope | 整理一遍专项（只在开了[整理专项](projects.md#整理专项)时列） |
 
+`topic_start` 开出的话题和同一个仓库里 30 分钟内还在做的话题标题相近时，回复末尾加“可能重复：T12《…》 也在同一个仓库做相近的事”，只提示，照常开（`app/repo_peers.py` 的 `duplicates`）。
+
 开了专项时 `topic_start`、`topic_send` 各多一个可选的 `project`（开专项、把话题转成专项）。查询类工具只读记录、不持记录锁；`question_answer` 和卡上点“提交回答”走同一条路。各工具的规则见[实现细节 · 工具的细节](butler-internals.md#工具的细节)。
 
 ### 按线索找话题

@@ -183,6 +183,7 @@
 | `app/redelivery.py` | Sending a recorded task's saved result or question again, without running the model (检查并继续 on a task whose … |
 | `app/relay_send.py` | Sending what goes back to the butler's top level |
 | `app/relay_targets.py` | Where a topic turn's outcome goes back to at the butler's top level |
+| `app/repo_peers.py` | A topic hears that another topic works in the same git repository |
 | `app/review.py` | 独立复核: a read-only topic that reviews one finished turn's changes, opened only when the owner clicks the … |
 | `app/revisit_hint.py` | A line under an ordinary topic's answer that says nothing will come back to what the reply put off (display … |
 | `app/revisits.py` | 到点回来看 at the Bridge: a topic that waits on something outside (a training, CI, a deploy) ends its turn with … |
