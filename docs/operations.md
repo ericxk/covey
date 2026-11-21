@@ -61,11 +61,29 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 | 内存看门狗 | Manager 每 30 秒看一次，已启用而没在运行时拉起 | 见[内存看门狗](#内存看门狗) |
 
 - 一个状态目录同时只能有一个 Bridge（单实例锁）。不要手工再启动一个，也不要删 `bridge.pid` 来绕过检查。
+- Bridge 一直起不来或收不到消息时，Manager 会在私聊里告诉主人，见下文[机器人停了会告诉主人](#机器人停了会告诉主人)。
 - 一个 lark-cli profile 只能被一份运行中的服务清单占用。另一个状态目录用同一 profile 注册时，`launch` 报 `another managed bridge already owns this profile`。
 
 开了 `COVEY_EVENT_TRANSPORT=sdk`（[配置](configuration.md#飞书-sdk-与直连)）时没有 lark-cli 事件消费者子进程，四类事件由 Bridge 的 `event-websocket` 线程收；`bridge.log` 里的 `ready event_key=` 两行照旧有，事件总线和 `bus.log` 这一层没有。
 
 **一条消息怎么走。** 消费者读到事件 → Bridge 判断谁被服务、找话题 → 发启动卡或排队卡 → 调度器取到任务，写交接文件、启动任务进程 → 任务进程启动后端、读后端事件、写任务卡、投递结果 → 退出。点击先到 Bridge：任务进程还活着时整条转进它的收件箱，否则由 Bridge 处理。详见[架构与开发说明](architecture.md)。
+
+### 机器人停了会告诉主人
+
+Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由托管它的 Manager 来说（`service/down_notice.py`，开关 `COVEY_DOWN_NOTICE`，默认开）：
+
+| 什么时候 | 主人收到 |
+| --- | --- |
+| Manager 连续 3 次启动 Bridge 都失败（`status` 的 `failures` 到 3） | “⚠️ 机器人没起来：服务管理器已经连续 3 次启动它都失败了（最近一次退出码 …）…”，带排查入口 |
+| 同一个启动错误（`<root>/errors/<id>.json`，如工作目录或解释器不在了）让 Bridge 2 分钟起不来；Bridge 进程还在跑时（比如只是状态文件写不进去）不算 | “⚠️ 服务管理器已经 N 分钟启动不了机器人（错误原文）…” |
+| Bridge 在跑，但 10 分钟收不到飞书消息：健康快照里和飞书的连接 `stalled`、`disconnected`、`unresponsive`，或收消息的消费者一直没就绪 | “⚠️ 机器人已经 N 分钟收不到飞书消息了…” |
+| 上面任一条发出去以后，Bridge 正常运行（健康快照 `ready`）满 5 分钟 | “✅ 机器人恢复了…”，只发一次 |
+
+- 用的就是这个机器人：Manager 读服务清单里的 profile，以机器人身份（`im +messages-send --user-id … --as bot`）发给 `<状态目录>/bot-identity.json` 里的主人，带服务清单里的 `PATH` 和代理。Bridge 一次都没成功启动过（还没有 `bot-identity.json`）时发不了，`manager.log` 记一行。
+- 发送在单独的线程里，Manager 的巡检不等它。没发出去的每 2 分钟用同一个幂等键再试（飞书一小时内同一个键只发一次），50 分钟后放弃。发之前先把要发的写进 `<root>/notices/<id>.json`，Manager 中途重启也接着发完，不重复。
+- 冷却：同一个服务的“停了”消息至少隔 1 小时；没收到“停了”就不会收到“恢复了”；`stop` 停掉的服务什么都不说。
+- `manager.log` 里对应的行：`told the owner it is down (crash|error|offline)`、`told the owner it is back (…)`、`the down message to the owner did not go out (…)`。
+- 关掉：服务清单里设 `COVEY_DOWN_NOTICE=0`（`covey_service.py set --state-dir "$STATE_DIR" COVEY_DOWN_NOTICE=0`，见[配置 · 改开关](configuration.md#改开关三步)）。关着时 Manager 不读、不写、不发，和以前一样。
 
 ## 数据目录
 
@@ -78,6 +96,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 │  ├─ services/<id>.json           服务清单；<id> 是状态目录绝对路径的 SHA-256 前 24 位
 │  ├─ status/<id>.json             Manager 观测到的状态：进程身份、代次、失败次数、Bridge 健康快照
 │  ├─ errors/<id>.json             Manager 处理这个服务时正在出的错，处理成功后删除
+│  ├─ notices/<id>.json            告诉主人“机器人停了 / 恢复了”的记录（COVEY_DOWN_NOTICE）
 │  ├─ manager.json、manager.log    当前 Manager 的进程身份、Manager 日志
 │  ├─ boot-installation.json       开机注册回执
 │  └─ memory-guard/                内存看门狗的现场、事件和告警

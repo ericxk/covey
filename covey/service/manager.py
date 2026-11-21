@@ -26,6 +26,7 @@ from covey.core.paths import entry_script, service_root
 from covey.core.file_lock import file_lock
 from covey.service import memguard
 from covey.service.boot import serve
+from covey.service.down_notice import DownNotice, enabled as notice_enabled
 from covey.core.process import (cleanup_group, instance_lock, is_owned, log_to, process_identity, query,
                                          service_key, terminate_owned)
 from covey.core.state import read_json, write_durable_json as save
@@ -189,6 +190,9 @@ class Manager:
         self.last_tick = time.monotonic()
         self.unresponsive = {}
         self.reported = {}  # The error last said for each service, for when it cannot be saved (a full disk).
+        # The owner's word when a service stays down and when it is back (COVEY_DOWN_NOTICE), sent through the bot's
+        # lark-cli profile in the service's own environment.
+        self.notices = DownNotice(root, say, lambda manifest: service_environment(os.environ, manifest["environment"]))
 
     def health_server(self, sock):
         serve(sock, lambda: {"process": process_identity(os.getpid()), "lag": time.monotonic() - self.last_tick},
@@ -197,9 +201,12 @@ class Manager:
     def reconcile_all(self):
         for path in sorted((self.root / "services").glob("*.json")):
             error = error_path(self.root, path.name.removesuffix(".json"))
+            manifest, failed = None, None
             try:
-                self.reconcile(read_json(path, None))
+                manifest = read_json(path, None)
+                self.reconcile(manifest)
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, KeyError, TypeError) as exc:
+                failed = str(exc)
                 # A broken backend/config, or a manifest removed mid-pass, must not take other
                 # services down: the boot watchdog would restart into the same file.
                 if self.reported.get(path.name) != str(exc) and (read_json(error, None) or {}).get("error") != str(exc):
@@ -213,6 +220,20 @@ class Manager:
                 self.reported.pop(path.name, None)
                 with contextlib.suppress(OSError):  # It has ended: the same error again is news.
                     error.unlink()
+            self.tell(manifest, failed)
+
+    def tell(self, manifest, failed):
+        """The owner's word on the service of ``manifest`` after its pass (service/down_notice.py); ``failed``: the error
+        the pass ended with. Never a reason for the pass, or the Manager, to stop. Switched off, nothing is read or
+        written: the pass is as it was."""
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("id"), str) or not notice_enabled(manifest):
+            return
+        try:
+            status = read_json(status_path(self.root, manifest["id"]), {})
+            status = status if isinstance(status, dict) else {}
+            self.notices.check(manifest, status, failed, alive=is_owned(status.get("process")))
+        except Exception as exc:  # noqa: BLE001 - never the services' problem
+            self.notices.once(manifest["id"], f"notice check failed: {type(exc).__name__}: {exc}")
 
     def reconcile(self, manifest):
         key = manifest["id"]

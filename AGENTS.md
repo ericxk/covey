@@ -466,6 +466,7 @@
 | `service/browser_setup.py` | ./install 准备无头浏览器的全部细节（service/installer.py 调用）：用机器上已有的 Chrome/Chromium，没有就下载 Playwright 的 … |
 | `service/device_check.py` | Check the devices of devices.json from the command line |
 | `service/doctor.py` | Read-only layered diagnostics |
+| `service/down_notice.py` | The Manager tells the owner when his bot is down (COVEY_DOWN_NOTICE in the service's manifest, on unless 0) |
 | `service/install.py` | Install an explicit boot registration without changing platform init files |
 | `service/install_probe.py` | ./install 对 Harness 做的一次真实探测：薄适配层，判断本身在 core/harness_probe.py（安装器、doctor、可用性检查共用一份）。 |
 | `service/installer.py` | ./install 的安装器本体：一遍跑完，扫一次码，最后发一句话就有回答（docs/install.md）。 |
