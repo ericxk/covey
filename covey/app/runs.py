@@ -27,7 +27,7 @@ from covey.app.recovery_cards import paint_answered
 from covey.app.switch_handoff import capped
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
-from covey.core import devices, turn_words
+from covey.core import criteria, devices, turn_words
 from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, gist_note, read_checkpoint,
                                             release_user_wait)
 from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
@@ -469,7 +469,14 @@ class Runs:
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
         shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
         return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
-                + self._revisit_note(ctx, job))
+                + self._revisit_note(ctx, job) + self._criteria_note(ctx, job))
+
+    @staticmethod
+    def _criteria_note(ctx: BridgeContext, job: ReplyJob) -> str:
+        """The topic's completion criteria and how its checkpoint marks them (core/criteria.py note), '' for a topic
+        without: its message is as before."""
+        found = criteria.note(criteria.read(ctx.state_dir, job.topic_id or ctx.topic_id))
+        return "\n\n" + found if found else ""
 
     @staticmethod
     def _gist_note(ctx: BridgeContext, job: ReplyJob) -> str:

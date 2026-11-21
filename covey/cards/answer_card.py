@@ -290,12 +290,31 @@ def memory_element(notes, topic_id="", job_id=""):
         {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": rows}]}
 
 
-def tail(files=None, inputs=(), outputs=(), link="", change=None):
+CRITERIA_ID = "answer_criteria"
+
+
+def criteria_element(rows):
+    """The topic's completion criteria its turn did not meet (core/criteria.py unmet: (state, item) each), on its
+    answer card (CRITERIA_ID): grey 完成标准 in a column, then a line each, "没满足：<item>" with 没满足 in the colour of
+    要你看一眼 (core/look.py stuck), "没查：<item>" grey. None without rows: every one met, or the topic has none."""
+    from covey.cards.ui import font
+    from covey.core.criteria import UNMET
+    from covey.core.look import STATES
+
+    lines = [(font(state, STATES["stuck"].color) if state == UNMET else grey(state)) + grey("：") + literal_text(item)
+             for state, item in rows or () if item]
+    if not lines:
+        return None
+    return {**labelled("完成标准", "\n".join(lines)), "element_id": CRITERIA_ID}
+
+
+def tail(files=None, inputs=(), outputs=(), link="", change=None, notes=(), buttons=()):
     """What follows an answer: its 产物 panel (``files``, None without), its 改动 fold (``change``,
-    ``change_element``: None, {} or '' without) and the line marking a commit not found (``check_element``), and the
-    facts box."""
-    return [element for element in (files, change_element(change), check_element(change),
-                                    facts_element(inputs, outputs, link)) if element]
+    ``change_element``: None, {} or '' without) and the line marking a commit not found (``check_element``), the
+    ``notes`` (elements: the completion criteria not met, ``criteria_element``), the facts box, then ``buttons``
+    (elements)."""
+    return [element for element in (files, change_element(change), check_element(change), *(notes or ()),
+                                    facts_element(inputs, outputs, link), *(buttons or ())) if element]
 
 
 def tail_card(elements, summary, lead=""):

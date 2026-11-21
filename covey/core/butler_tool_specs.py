@@ -23,6 +23,12 @@ HARNESS_ARG = ("主人点名用哪个 Harness 时必须填（如“用 Claude Co
 MODEL_ARG = "主人点名用哪个模型时必须填，写模型名；主人没点名就不填，用设置里的默认"
 EFFORT_ARG = "主人点名思考预算时必须填（如“用高预算”“max”）；主人没点名就不填，用设置里的默认"
 DONE = "结论由 Bridge 发给主人，你不用等、也不用转述。"
+# 完成标准 (core/criteria.py): each turn of the topic marks them, its answer card shows those not met.
+CRITERIA = {"type": "array", "maxItems": 4, "items": {"type": "string"},
+            "description": "可选，做完的标准，1 到 4 条，每条一句话：主人说的，或这件事做完必须满足的（如“全量测试通过”"
+                           "“合进 main 并推送”）。话题每轮结束逐条核对，没满足的显示在答案卡上。问答、查询、调研不写"}
+CRITERIA_CHANGE = {"type": "array", "maxItems": 4, "items": {"type": "string"},
+                   "description": "可选，主人要改这个话题的完成标准时给出新的 1 到 4 条（给空数组就去掉）；不改不填"}
 
 TOOLS = (
     {"name": "topics_list",
@@ -78,6 +84,7 @@ TOOLS = (
          "readonly": {"type": "boolean", "description": "只查看、只回答，不改任何文件、不执行有副作用的命令时为 true"},
          "user_requested": {"type": "boolean", "description": "主人在最新这条消息里亲口要求做这件事（直接下令、“去做”“开个话题”）为 true；你自己推断的为 false"},
          "why": {"type": "string", "description": "一行中文：为什么选这个工作区和配置"},
+         "criteria": CRITERIA,
          "harness": {"type": "string", "description": HARNESS_ARG},
          "model": {"type": "string", "description": MODEL_ARG},
          "effort": {"type": "string", "description": EFFORT_ARG}}}},
@@ -92,6 +99,7 @@ TOOLS = (
          "note": {"type": "string", "description": "可选，一句背景（最多 100 字）：写在你卡上“转给”那一行，也交给话题的模型；"
                                                    "不写路径，不写给主人看的话"},
          "title": {"type": "string", "description": "可选，开下一轮时任务卡上的标题，中文，20 字以内；不填用话题原来的标题"},
+         "criteria": CRITERIA_CHANGE,
          "attachments": ATTACHMENTS}}},
     {"name": "topic_fork",
      "description": "从一个已有话题分叉出新话题：新话题带着原话题的背景，原话题不受影响。相关但不是同一件事、又需要原话题的上下文时用。",
@@ -227,6 +235,7 @@ PROJECT_TOOLS = (
          "readonly": {"type": "boolean", "description": "只查看、只回答，不改任何文件、不执行有副作用的命令时为 true"},
          "user_requested": {"type": "boolean", "description": "主人在这个专项里亲口要求做这件事为 true；你自己推断的为 false"},
          "why": {"type": "string", "description": "一行中文：为什么选这个工作区和配置"},
+         "criteria": CRITERIA,
          "harness": {"type": "string", "description": HARNESS_ARG},
          "model": {"type": "string", "description": MODEL_ARG},
          "effort": {"type": "string", "description": EFFORT_ARG}}}},

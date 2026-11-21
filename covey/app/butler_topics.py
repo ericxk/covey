@@ -35,7 +35,7 @@ from covey.app.butler_env import arg_text, reply
 from covey.app.butler_model_choice import resolve
 from covey.cards.topic_card import topic_card
 from covey.app.relay_targets import butler_job_owner_message
-from covey.core import devices, butler, butler_settings, projects
+from covey.core import criteria, devices, butler, butler_settings, projects
 from covey.core.attachments import attachment_block
 from covey.core.card_sequence import file_card, reserve
 from covey.core.harness import backend_capabilities
@@ -291,6 +291,9 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
         with topic_lock(target), LOCK:
             data = read_topic(target)
             data.update(harness_id=plan["harness"], binding_revision=1, origin=origin)
+            items = criteria.clean(args.get("criteria"))
+            if items:  # 完成标准 (core/criteria.py): each turn is told them, its answer card shows those not met.
+                data[criteria.KEY] = items
             if lead is not None:  # Written with the binding: the thread's first turn is queued only after it.
                 data["project"] = projects.project_field(lead[0], projects.MEMBER)
             if plan["start"]:
@@ -399,6 +402,22 @@ def hand_line(env, ctx, chat, request, record, kind, owner, text, items, token):
                         voice=env.voice, card=butler_handoff.thread_card(kind, owner, text, items, back), on_card=keep)
 
 
+def set_criteria(env, ctx, raw):
+    """The topic's completion criteria replaced by the call's ``criteria`` (core/criteria.py clean; an empty list takes
+    them away), under LOCK, no Feishu call; the new ones, None when the call gave none."""
+    items = criteria.clean(raw)
+    if items is None:
+        return None
+    with LOCK:
+        data = read_topic(ctx)
+        if items:
+            data[criteria.KEY] = items
+        else:
+            data.pop(criteria.KEY, None)
+        write_json(ctx.history_path.parent / "topic.json", data, ensure_ascii=False, indent=2)
+    return items
+
+
 def topic_send(env, request):
     chat = env.chat()
     if not chat:
@@ -426,6 +445,9 @@ def topic_send(env, request):
               "at": time.time(), **({"note": note} if note else {})}  # The note: the card's 转给 line.
     save(path, record)
     data = {"topic_id": ctx.topic_id, "label": label}
+    changed = set_criteria(env, ctx, request.args.get("criteria"))
+    if changed is not None:
+        data["criteria"] = changed
     title = arg_text(request.args.get("title"), 40) or topic_title(Path(env.state_dir), ctx.topic_id)
     owner, items = handed(env, request, ctx)
     job = live_turn(app, ctx, chat)

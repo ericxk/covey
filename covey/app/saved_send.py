@@ -161,7 +161,8 @@ def tail_parts(state_dir, record, topic_id, voice, job, harness, snapshot, ctx):
     panel = answer_files(state_dir, record, topic_id, voice) if record else None
     ledger = answer_cards.ledger_of(state_dir, record, voice) if panel else None
     elements = answer_tail(panel, answer_cards.inputs(job, harness, snapshot, ctx),
-                           answer_cards.outputs(job, snapshot), change=answer_cards.change(job))
+                           answer_cards.outputs(job, snapshot), change=answer_cards.change(job),
+                           notes=answer_cards.notes(state_dir, job))
     return elements, panel is not None, (ledger or {}).get("status")
 
 

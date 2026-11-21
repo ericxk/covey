@@ -166,8 +166,8 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | `topics_search` | clues*、limit | 按线索找是哪个话题哪一轮做的 |
 | `topic_read` | topic*、job、turns | 读话题最近几轮：问题、结论、检查点、没答的问题 |
 | `workspaces_list` | 无 | 列工作区：名字、路径、用途、最近的话题 |
-| `topic_start` | title*、prompt*、workspace*、readonly*、user_requested*、why*、attachments、harness、model、effort | 为新的事开话题 |
-| `topic_send` | topic*、text*、note、title、attachments | 把主人的话追加给已有话题 |
+| `topic_start` | title*、prompt*、workspace*、readonly*、user_requested*、why*、attachments、criteria、harness、model、effort | 为新的事开话题 |
+| `topic_send` | topic*、text*、note、title、criteria、attachments | 把主人的话追加给已有话题 |
 | `topic_fork` | topic*、title*、prompt*、attachments | 从已有话题分叉 |
 | `question_answer` | topic*、answers* | 替主人答选择题 |
 | `topic_priority` | topic*、remove | 看板本组内提前，或撤下 |
@@ -196,6 +196,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 - **`topic_start`**：工作区只认已登记的名字；Harness、模型、预算逐项取值（`app/butler_model_choice.py`：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置 > Bridge 默认）。直接开工时第一轮直接提交，否则话题里出预填好的启动卡。
 - **`topic_send`**：话题有没结束的任务时作为补充交给它，已经停了就作为下一条消息（有没答的问题就作为回答）。话题串里出一张“管家转来你 HH:MM 的消息”的灰底卡。
+- **完成标准**（`criteria`，`core/criteria.py`，#22）：`topic_start` 可带 1 到 4 条，存进话题的 topic.json；主人要改时管家用 `topic_send` 的 `criteria` 换掉（空数组去掉）。问答、查询、调研不带。有标准的话题每一轮的消息在检查点文件后面多一段“完成标准”（`criteria.note`），模型在检查点 `criteria` 里逐条写满足 / 没满足 / 没查；答案卡和回带卡只列没标满足的（没写的算没查）。专项负责人的 `project_topic_start` 也能带。
 - **`topic_fork`**：从源话题最近一次结束的任务分叉（`app/forks.py` 的 `create_fork`），复制原生会话。
 - **话题卡**（`cards/topic_card.py`）：“T12 · 标题”加一行灰字配置，没有按钮。
 - **幂等**：每次调用在 `<state>/main-thread/opened/<请求>.json` 记做到哪一步（`core/butler_opened.py`），同一个请求再来返回存下的回答。

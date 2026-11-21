@@ -321,6 +321,7 @@
 | `core/card_sequence.py` | One rule for the sequence of every CardKit write to an existing card |
 | `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge, and the artifacts a task lists in one |
 | `core/completion.py` | One post-root deadline, independent of model-request retry policy |
+| `core/criteria.py` | A topic's completion criteria (完成标准) |
 | `core/defaults.py` | Product defaults, separate from provider-native default metadata |
 | `core/deliveries.py` | Supplements sent into a running task: one delivery record each |
 | `core/device_link.py` | DeviceProcess: a Harness process that runs on a device, dressed as the `subprocess.Popen` the backends use |

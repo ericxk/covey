@@ -23,9 +23,10 @@ import copy
 import time
 from pathlib import Path
 
-from covey.cards.answer_card import ARTIFACTS_ID, MEMORY_ID, NOT_FOUND, input_parts, output_parts
+from covey.cards.answer_card import ARTIFACTS_ID, MEMORY_ID, NOT_FOUND, criteria_element, input_parts, output_parts
 from covey.cards.elements import replace_element
 from covey.cards.review import answer_card, answer_lead, answer_summary, bare_answer_summary
+from covey.core import criteria
 from covey.core.checkpoint import checkpoint_delivery, delivery_commits, read_checkpoint, shows_change
 from covey.core.diff import missing_commits
 from covey.core.locks import resource_lock
@@ -120,6 +121,18 @@ def absent_commits(job, delivery) -> list:
     if _field(job, "device") or not workdir:
         return []
     return missing_commits(workdir, delivery_commits(delivery)) or []
+
+
+def notes(state_dir, job) -> list:
+    """The parts between an answer's 改动 and its 输入/输出 box (cards/answer_card.py tail's ``notes``): the completion
+    criteria of ``job``'s topic its turn's checkpoint does not mark met (core/criteria.py unmet, ``criteria_element``).
+    [] without: a topic with no criteria, every one met."""
+    items = criteria.read(state_dir, _field(job, "topic_id"))
+    if not items:
+        return []
+    path = _field(job, "checkpoint_path")
+    found = criteria_element(criteria.unmet(items, read_checkpoint(Path(path)) if path else {}))
+    return [found] if found else []
 
 
 ANSWER_HEADING = "用户补充回答"  # How an answer form's turn begins (app/answers.py): 你答, not 你问.

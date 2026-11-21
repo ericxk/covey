@@ -151,7 +151,8 @@ def send_once(state_dir, job, path, key, target, outcome, send, profile=None, lo
             tail_built, _ = linked(state_dir, target["chat_id"], tail_card(
                 [*([facts["ask"]] if facts.get("ask") else []),
                  *answer_tail(facts.get("files"), facts["inputs"], facts.get("outputs") or (), link=target["label"],
-                              change=facts.get("change") or facts.get("delivery"))],
+                              change=facts.get("change") or facts.get("delivery"), notes=facts.get("notes") or (),
+                              buttons=facts.get("buttons") or ())],
                 summary(target["label"], "产物与详情", ""), "上面是这一轮的回答，产物和详情在这里"), "", profile, cards=links)
             tails = []
             if send(target["chat_id"], f"{target['label']} 这一轮的产物和详情", key + "-tail", reply_to,

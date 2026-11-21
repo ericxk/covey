@@ -29,13 +29,15 @@ def summary(label, words, text):
 
 
 def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, outputs=(), files=None,
-               files_status=None, ask=None, at=None, took=None, artifacts=0, change=None, delivery=""):
+               files_status=None, ask=None, at=None, took=None, artifacts=0, change=None, delivery="", notes=(),
+               buttons=()):
     """(card, text): the relay's card, no title bar (None for a reply over CARD_TEXT_BYTES: the Markdown alone), and
     the same as Markdown when the card is refused.
     ``outcome`` DONE (``text`` the saved reply; ``inputs``, ``outputs`` and ``files``, the answer card's 输入/输出
     lines and 产物 panel, cards/answer_card.py, its 输出 ending in ``label``, which ``linked`` makes a link: the
     answer card again, with one link more; ``change``, its 改动 fold: a dict, or ``delivery``, the 交付
-    line an older release kept as a string), WAITING (``question``) or STOPPED (``reason``, one line).
+    line an older release kept as a string; ``notes`` and ``buttons``, its other parts, as the answer card's tail
+    takes them), WAITING (``question``) or STOPPED (``reason``, one line).
     ``ask``: the "你问" block above it all (a relay at the top level quoting no card, threaded). ``at``, ``took``,
     ``artifacts``: what a relay held (inline_pending) by an older release had besides, for a grey line no
     card has now, not shown; without ``inputs`` its box has no 输入 line."""
@@ -52,7 +54,7 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         rest = after_lead(body, conclusion) if band else body
         built = banded(card([*head, *band, *([md(rest)] if rest.strip() else []),
                              *answer_tail(files, () if inputs is None else inputs, outputs, link=label,
-                                          change=change or delivery)],
+                                          change=change or delivery, notes=notes, buttons=buttons)],
                             lead, update_multi=True))
         # A long 改动 fold may take a card past its limit (as cards/review.py answer_card): the reply goes as
         # Markdown, its parts after it (app/relay_send.py send_once).

@@ -284,6 +284,9 @@ def after_turn(delivery, delivered, execution_status, *, messenger, profile, voi
             changed = _part(log, job, "change", lambda: answer_cards.change(job), {})
             if changed:
                 facts["change"] = changed  # Only with one: a relay's facts without it are as before.
+            noted = _part(log, job, "notes", lambda: answer_cards.notes(state_dir, job), [])
+            if noted:
+                facts["notes"] = noted  # The completion criteria not met, as the answer card shows them.
         state = relay(state_dir, job, outcome, send=send, profile=profile, log=log, **facts)
         if record and facts.get("files") and hasattr(delivery.artifacts, "refresh_answer_cards"):
             # The upload may have ended while the relay went out: its 产物 brought up to date (never raises).
