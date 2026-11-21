@@ -8,10 +8,13 @@ one list of items, and one block of a turn's rules (app/prompts.py memory_block)
 - ``by`` is who said it: ``OWNER`` (你说的: a principle and a knowledge entry are only noted when the owner asked; a project
   line of source owner, owner_answer or owner_fix) or ``LEAD`` (它总结的: the lead's own note, source lead or any other).
 - ``redacted``: it came from a topic with redaction on; only such a topic reads it.
+- ``pinned``: a principle the owner marked 常驻 (core/principles.py ``pin``).
 
-``select`` keeps, per scope, what fits the scope's character limit (``LIMITS``), the owner's words first, a whole entry or none (no
-entry is cut in the middle), the newest first within each; the entries kept get a short number "M123" that is the same every
-turn (a hash of the ref; one taken by another bumps to the next). Nothing here reads a file but through those stores, and nothing is
+``select`` keeps, per scope, what fits the scope's character limit (``LIMITS``): the pinned ones first whatever their room
+(never crowded out), then the owner's words first, a whole entry or none (no entry is cut in the middle), the newest first
+within each; the entries kept get a short number "M123" that is the same every turn (a hash of the ref; one taken by
+another bumps to the next). ``fill`` is the same choice scope by scope, with the room used and what was left out: the
+设置 card's 记忆 tab says it (app/memory_panel.py) rather than leave it to the one line the block ends with. Nothing here reads a file but through those stores, and nothing is
 written. Standard library and core only."""
 from __future__ import annotations
 
@@ -45,9 +48,9 @@ def _at(value) -> float:
     return float(epoch_seconds(value) or 0.0)
 
 
-def make(ref, scope, by, text, at=0, redacted=False) -> dict:
+def make(ref, scope, by, text, at=0, redacted=False, pinned=False) -> dict:
     return {"ref": ref, "scope": scope, "by": by, "text": " ".join(str(text or "").split()), "at": _at(at),
-            "redacted": bool(redacted)}
+            "redacted": bool(redacted), "pinned": bool(pinned)}
 
 
 def items(*, principles=((), ()), entries=((), ()), project=(), topic=(), project_id="", redacted=False) -> list:
@@ -56,7 +59,8 @@ def items(*, principles=((), ()), entries=((), ()), project=(), topic=(), projec
     the live rows of those memories. A redacted line is only for a turn with ``redacted`` on."""
     found = []
     for scope, rows in zip((GLOBAL, WORKSPACE), principles):
-        found += [make(f"principle:{row['id']}", scope, OWNER, row["text"], row.get("at")) for row in rows]
+        found += [make(f"principle:{row['id']}", scope, OWNER, row["text"], row.get("at"), pinned=row.get("pinned") is True)
+                  for row in rows]
     for scope, rows in zip((GLOBAL, WORKSPACE), entries):
         for row in rows:
             text = f"{knowledge.KINDS[row['kind']]}：{row['text']}" + (f"（原因：{row['why']}）" if row.get("why") else "")
@@ -81,20 +85,31 @@ def line_size(item) -> int:
     return len(item["text"]) + 24  # The number, the scope and the speaker around the text, about.
 
 
-def select(found) -> tuple[list, int]:
-    """(the items to carry, how many were left out): per scope up to its ``LIMITS``, the owner's words first, the newest first
-    within each; the carried ones numbered (``n``) and listed by scope (全局 to 话题), within one the owner's words first, the oldest
-    first."""
-    kept, left = [], 0
+def fill(found) -> dict:
+    """Scope -> {kept, left (the items), used (characters, about), limit}: per scope up to its ``LIMITS``, the pinned ones first
+    whatever their room, then the owner's words first, the newest first within each; an item that does not fit is left out and a
+    smaller one after it may still fit."""
+    scopes = {}
     for scope in SCOPES:
-        used = 0
-        mine = sorted((item for item in found if item["scope"] == scope), key=lambda item: (item["by"] != OWNER, -item["at"], item["ref"]))
+        used, kept, left = 0, [], []
+        mine = sorted((item for item in found if item["scope"] == scope),
+                      key=lambda item: (not item.get("pinned"), item["by"] != OWNER, -item["at"], item["ref"]))
         for item in mine:
-            if used + line_size(item) > LIMITS[scope]:
-                left += 1
+            if not item.get("pinned") and used + line_size(item) > LIMITS[scope]:
+                left.append(item)
                 continue
             used += line_size(item)
             kept.append(item)
+        scopes[scope] = {"kept": kept, "left": left, "used": used, "limit": LIMITS[scope]}
+    return scopes
+
+
+def select(found) -> tuple[list, int]:
+    """(the items to carry, how many were left out): ``fill``'s, the carried ones numbered (``n``) and listed by scope (全局 to
+    话题), within one the owner's words first, the oldest first."""
+    scopes = fill(found)
+    kept = [item for scope in SCOPES for item in scopes[scope]["kept"]]
+    left = sum(len(scopes[scope]["left"]) for scope in SCOPES)
     taken = set()
     for item in sorted(kept, key=lambda item: item["ref"]):
         item["n"] = number(item["ref"], taken)

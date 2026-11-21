@@ -51,6 +51,7 @@ from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
+from covey.cards.memory_panel import KINDS as MEMORY_PANEL_KINDS
 from covey.cards.project_proposal import KINDS as TIDY_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
@@ -664,6 +665,7 @@ class RetiredHarnessTests(unittest.TestCase):
         private |= {GROUP_MENU_KIND}  # A personal group's menu card (tests/test_personal_spaces.py).
         private |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (tests/test_redaction_panel.py).
         private |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (tests/test_nodes.py).
+        private |= MEMORY_PANEL_KINDS  # The 设置 card's 记忆 tab (tests/test_memory_panel.py).
         private |= set(TIDY_KINDS)  # 整理专项's cards, the private chat's or a topic card's 移出 (tests/test_project_tidy.py).
         private |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK}  # The 代发草稿 card (tests/test_owner_send.py).
         clicks = [{'action_value': {'kind': kind, 'topic_id': self.topic.topic_id, 'job_id': 7, 'token': 'ab' * 8,

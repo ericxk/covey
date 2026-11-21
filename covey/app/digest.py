@@ -101,6 +101,12 @@ def parse_times(raw, log=lambda _: None):
     return sorted(minutes)
 
 
+def configured(log=lambda _: None):
+    """The digest times COVEY_DIGEST_TIMES lists (``parse_times``), [] when unset: the digest is off."""
+    raw = cenv.get(ENV, "").strip()
+    return parse_times(raw, log) if raw else []
+
+
 def slots(times, now):
     """The digest times (epoch seconds) at or before ``now``, the latest last, over the last three days."""
     today = datetime.datetime.fromtimestamp(now, ZONE).date()
@@ -587,8 +593,7 @@ class Digest:
         return False
 
     def times(self):
-        raw = cenv.get(ENV, "").strip()
-        return parse_times(raw, self.runtime.log) if raw else []
+        return configured(self.runtime.log)
 
     def threads(self):
         """Its worker, only when COVEY_DIGEST_TIMES lists a time (app/unified.py worker_targets)."""

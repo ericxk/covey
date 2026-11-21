@@ -22,8 +22,8 @@ from __future__ import annotations
 import re
 
 from covey.app.form_cards import click_token, publish_form, settle
-from covey.cards.settings_hub import BUTLER, LABELS, NODES, PROXY, tab_row
-from covey.core import butler, nodes
+from covey.cards.settings_hub import BUTLER, LABELS, MEMORY, NODES, PROXY, tab_row
+from covey.core import butler, memory, nodes
 from covey.core.locks import resource_lock
 from covey.core.state import read_json
 
@@ -53,10 +53,11 @@ def hub_top(tab, token, view):
 
 def hub_tabs():
     """The 设置 card's tabs: 新话题 always (it preselects the launch card too); 管家 unless the deployment rules the
-    butler out (COVEY_BUTLER=0), in the mode 纯话题 too, where its row of the mode turns the butler on; 设备 only with
-    COVEY_NODE_LISTEN (core/nodes.py). 代答 is never a tab: the bot menu has its own item."""
+    butler out (COVEY_BUTLER=0), in the mode 纯话题 too, where its row of the mode turns the butler on; 记忆 only with
+    COVEY_MEMORY=1 (core/memory.py); 设备 only with COVEY_NODE_LISTEN (core/nodes.py); 能做什么 always. 代答 is never a
+    tab: the bot menu has its own item."""
     return [t for t in LABELS if (t != BUTLER or butler.available()) and t != PROXY
-            and (t != NODES or nodes.enabled())]
+            and (t != NODES or nodes.enabled()) and (t != MEMORY or memory.enabled())]
 
 
 class MenuPanel:

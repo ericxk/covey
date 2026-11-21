@@ -63,12 +63,17 @@ def recommended(questions):
 STANDING_ENV = "COVEY_STANDING_ANSWERS"  # 1 puts the button on the cards; off unset (rule 4), ./install writes 1.
 
 
+def standing_enabled():
+    """Whether COVEY_STANDING_ANSWERS turns 以后这类按推荐走 on (read on every call; the 设置 card's 能做什么 asks too)."""
+    from covey.core.process_env import env_flag
+    return env_flag(STANDING_ENV, False)
+
+
 def standing_offered(record):
     """Whether ``record``'s open form gets 以后这类按推荐走: the switch is on, its every question has one recommended
     option, and it is a topic's (a card can name it: not the butler's, whose questions are not a workspace's)."""
     from covey.core.butler import traits
-    from covey.core.process_env import env_flag
-    return (env_flag(STANDING_ENV, False) and bool(record.get("topic_id")) and recommended(record.get("questions")) is not None
+    return (standing_enabled() and bool(record.get("topic_id")) and recommended(record.get("questions")) is not None
             and traits(record.get("topic_id"), record.get("chat_id")).card_target)
 
 

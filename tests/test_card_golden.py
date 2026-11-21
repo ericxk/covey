@@ -1035,7 +1035,82 @@ def settings_cards():
         "workspace_folded": folded_hub("workspace", "c" * 24, tabs),
         # A record still on the retired 其他 folds as 工作区.
         "other_folded": folded_hub("other", "c" * 24, tabs),
+        **memory_tab_cards(), **about_tab_cards(),
     }
+
+
+FULL_TABS = ["topic", "main", "workspace", "redaction", "groups", "memory", "nodes", "about"]
+
+
+def memory_tab_cards():
+    """The 设置 card's 记忆 tab (cards/memory_panel.py, COVEY_MEMORY=1; T604 #29, #27): the next turn's block for the chosen
+    workspace with each scope's room (one past it: 放不下 2 条), the entries by scope (常驻, 这次带不上, 它总结的, a topic's), a
+    section open on its page with an entry asking 确认删除, and no memory at all."""
+    from covey.app.prompts import memory_block
+    from covey.cards.memory_panel import memory_card
+    from covey.cards.settings_hub import tab_row
+
+    def entry(key, text, *, by="你说的", pinned=False, out=False, where="", at=0):
+        return {"key": key, "text": text, "by": by, "pinned": pinned, "pinnable": key.startswith("principle:"),
+                "where": where, "out": out, "at": at}
+    kept = [{"n": "M12", "scope": "global", "by": "owner", "text": "回答先给结论，细节放后面"},
+            {"n": "M240", "scope": "global", "by": "owner", "text": "测试通过就合并进 main 并推送，不用再问"},
+            {"n": "M31", "scope": "workspace", "by": "owner", "text": "决定：卡片 JSON 变了要真实客户端验收"}]
+    data = {"preview": {"workspace": "bridge", "workspaces": ["bridge", "docs"], "count": 3, "chars": 1132, "left": 2,
+                        "rooms": [["全局", 1100, 1200], ["工作区 bridge", 32, 800]],
+                        "warnings": ["⚠️ 全局放不下 2 条，下一轮不带它们（最早的先放不下）：要一直带上的点「常驻」，用不着的删掉。"],
+                        "text": memory_block(kept, 2)},
+            "parts": [{"scope": "global", "title": "全局", "rows": [
+                          entry("principle:p00000c", "回答先给结论，细节放后面", pinned=True),
+                          entry("principle:p0000f0", "测试通过就合并进 main 并推送，不用再问"),
+                          entry("knowledge:k000001", "坑：NAS 上别递归扫整个工作区", out=True),
+                          entry("principle:p000001", "周报用表格", out=True)]},
+                      {"scope": "workspace", "title": "工作区 bridge", "rows": [
+                          entry("knowledge:k00001f", "决定：卡片 JSON 变了要真实客户端验收")],
+                       "others": "其他工作区：docs 3 条（上面的工作区一行换着看）"},
+                      {"scope": "project", "title": "专项", "rows": [
+                          entry("project:acc0unt1:a1b2c3", "额度低于 10% 先停新话题", by="它总结的", where="专项「账号额度运行台」")]},
+                      {"scope": "topic", "title": "话题", "rows": [
+                          entry(f"topic:{'ab' * 8}:d4e5f6", "这个话题不要再问部署", where="T412")]}]}
+    view = {"revision": 3, "hub": True, "token": "c" * 24, "workspace": "bridge", "open": "", "page": 0}
+    row = [tab_row("memory", "c" * 24, FULL_TABS)]
+    empty = {"preview": {"workspace": "bridge", "workspaces": ["bridge"], "count": 0, "chars": 0, "left": 0,
+                         "rooms": [["全局", 0, 1200], ["工作区 bridge", 0, 800]], "warnings": [], "text": ""},
+             "parts": [{"scope": "global", "title": "全局", "rows": []},
+                       {"scope": "workspace", "title": "工作区 bridge", "rows": []},
+                       {"scope": "project", "title": "专项", "rows": [], "empty": "专项的记忆没开（COVEY_PROJECT_MEMORY=1）"},
+                       {"scope": "topic", "title": "话题", "rows": []}]}
+    return {"memory": memory_card("c" * 24, view, data, top=row),
+            "memory_open": memory_card("c" * 24, {**view, "open": "global", "confirm": "principle:p0000f0",
+                                                  "notice": "已标常驻：回答先给结论，细节放后面"}, data, top=row),
+            "memory_empty": memory_card("c" * 24, view, empty, top=row)}
+
+
+def about_tab_cards():
+    """The 设置 card's 能做什么 tab (cards/about_panel.py; T604 #62), read only: what this deployment has on and how to get
+    the rest; without Claude Code there is no butler and it says how to get one."""
+    from covey.cards.about_panel import about_card
+    from covey.cards.settings_hub import folded_hub, tab_row
+    from covey.cards.welcome import BUTLER_WORDS, NO_CLAUDE
+
+    features = [
+        {"name": "管家", "on": True, "line": "私聊顶层的话先交给管家，能答的直接答，要做的开话题", "switch": "COVEY_BUTLER"},
+        {"name": "早晚汇总和看板", "on": True, "line": "每天 09:30、21:30 在私聊发汇总卡；菜单有「看板」", "switch": "COVEY_DIGEST_TIMES"},
+        {"name": "专项", "on": True, "line": "要分几个话题、跨几天做的事开成专项，有负责人跟进", "switch": "COVEY_PROJECTS"},
+        {"name": "记忆", "on": False, "line": "设 COVEY_MEMORY=1", "switch": "COVEY_MEMORY"},
+        {"name": "新话题带上最近话题的要点", "on": False, "line": "设 COVEY_WORKSPACE_GISTS=3（话题要点要整理专项开着才会写）",
+         "switch": "COVEY_WORKSPACE_GISTS"},
+        {"name": "代答", "on": False, "line": "要一个带代答发送器的扩展（核心没有），再设 COVEY_PROXY_PROFILE",
+         "switch": "COVEY_PROXY_PROFILE"}]
+    view = {"host": "devbox", "harnesses": ["Claude Code", "Codex"], "down": [["Codex", "没登录"]], "features": features,
+            "extensions": []}
+    why, how = BUTLER_WORDS[NO_CLAUDE]
+    no_butler = [{**features[0], "on": False, "line": f"{why}；{how}"}, *features[1:]]
+    return {"about": about_card("c" * 24, view, top=[tab_row("about", "c" * 24, FULL_TABS)]),
+            "about_no_butler": about_card("c" * 24, {**view, "harnesses": ["Codex"], "down": [], "features": no_butler,
+                                                     "extensions": ["covey_internal"], "notice": "⚠️ 仅机器人主人可以看这一页。"},
+                                          top=[tab_row("about", "c" * 24, [t for t in FULL_TABS if t != "main"])]),
+            "about_folded": folded_hub("about", "c" * 24, FULL_TABS)}
 
 
 def overview_cards():

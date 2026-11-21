@@ -1,7 +1,8 @@
 """The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in two pages, 新话题 and 管家
 (app/butler_panel.py), the workspace list with each workspace's 用途 (app/workspace_manager.py), the redaction term
-list (app/redaction_panel.py), the 群聊 (app/group_manager.py) and, with nodes, 设备 (app/node_panel.py) panels on one
-card in the owner's private chat, a tab row on top (cards/settings_hub.py: 新话题 · 管家 · 工作区 · 脱敏 · 群聊 · 设备).
+list (app/redaction_panel.py), the 群聊 (app/group_manager.py), with COVEY_MEMORY=1 the 记忆 (app/memory_panel.py), with
+nodes the 设备 (app/node_panel.py) and the 能做什么 (app/about_panel.py) panels on one card in the owner's private chat, a
+tab row on top (cards/settings_hub.py: 新话题 · 管家 · 工作区 · 脱敏 · 群聊 · 记忆 · 设备 · 能做什么).
 代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
 there (app/proxy_panel.py). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
 retired: an older card's tab click on it, or a record still on it, lands on 工作区 (cards/settings_hub.py
@@ -42,13 +43,15 @@ from __future__ import annotations
 import functools
 
 from covey.app import butler_panel, workspace_manager
+from covey.app.about_panel import AboutPanel
 from covey.app.bot_menu import Panels
 from covey.app.card_lanes import after_ack
 from covey.app.form_cards import save_record, settle
+from covey.app.memory_panel import MemoryPanel
 from covey.app.menu_panel import FOLDED, HUB_FOLDER, HUB_LOCK, MOVED, OPEN, MenuPanel, hub_tabs, valid_token
 from covey.app.proxy_panel import EXPIRED
-from covey.cards.settings_hub import (GROUPS, KINDS, LABELS, BUTLER, BUTLER_PAGES, NODES, PROXY, REDACTION, WORKSPACE,
-                                               folded_hub, successor)
+from covey.cards.settings_hub import (ABOUT, GROUPS, KINDS, LABELS, BUTLER, BUTLER_PAGES, MEMORY, NODES, PROXY, REDACTION,
+                                      WORKSPACE, folded_hub, successor)
 from covey.core import butler
 from covey.core.state import read_json
 
@@ -63,13 +66,16 @@ TURNS = 8  # The last tab clicks' event_ids the record keeps.
 
 
 class SettingsHub:
-    def __init__(self, runtime, messenger, voice, main, proxy, groups, workspaces, redaction, nodes=None):
+    def __init__(self, runtime, messenger, voice, main, proxy, groups, workspaces, redaction, nodes=None, *, topics):
         """``main``, ``workspaces``, ``redaction``, ``proxy``, ``groups``: the ButlerPanel (its two pages),
         WorkspaceManager, RedactionPanel, ProxyPanel and GroupManager the tabs show. The butler's buttons on the 工作区
-        tab redraw it through the WorkspaceManager (ButlerPanel.pages)."""
+        tab redraw it through the WorkspaceManager (ButlerPanel.pages). ``topics``: the Bridge's Topics, whose Harnesses
+        the 能做什么 tab names. The 记忆 tab (``memory``, its clicks app/unified.py PANELS's) and 能做什么 are made here."""
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
+        self.memory = MemoryPanel(runtime, messenger, voice)
+        self.about = AboutPanel(runtime, messenger, voice, topics)
         self.panels = {**dict.fromkeys(BUTLER_PAGES, main), WORKSPACE: workspaces, REDACTION: redaction, PROXY: proxy,
-                       GROUPS: groups, **({NODES: nodes} if nodes is not None else {})}
+                       GROUPS: groups, MEMORY: self.memory, ABOUT: self.about, **({NODES: nodes} if nodes is not None else {})}
         main.pages[WORKSPACE] = workspaces.tab_card
         self.redaction = redaction
         self.recalls = Panels(runtime, messenger)

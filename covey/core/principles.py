@@ -1,7 +1,8 @@
 """The owner's principles (docs/butler.md 主人的原则): long-standing rules and preferences the owner stated once,
 so that every topic's turn and the butler's read them again (app/prompts.py principles_block) and the owner
 need not repeat "按照之前的设计理念". The butler records them with its tools (app/butler_tools.py principle_save,
-principle_delete, principles_list); the settings card will show and delete them through ``entries`` and ``delete``.
+principle_delete, principles_list); the 设置 card's 记忆 tab (app/memory_panel.py, COVEY_MEMORY=1) shows them,
+deletes them (``delete``) and marks them 常驻 (``pin``).
 
 <state>/principles.json::
 
@@ -10,11 +11,14 @@ principle_delete, principles_list); the settings card will show and delete them 
      "workspaces": {"<workspace name>": [principle, ...]}}  # a topic in that workspace, the butler in its own
 
     principle: {"id": "p1a2b3c", "text": "≤200 字，一行", "at": "2026-11-08T12:00:00Z",
-                "source": {"job_key": "<管家任务键>", "job_id": 12}}
+                "source": {"job_key": "<管家任务键>", "job_id": 12}, "pinned": true}
 
-Each group keeps at most GROUP_LIMIT, oldest first. A write reads, changes and replaces the whole file
-(core/state.py write_json) under its shared file lock (core/locks.py, across processes): the Bridge's butler
-tools and, later, the settings card. Nothing inside the lock sends to Feishu. Readers take no lock: a replace is
+Each group keeps at most GROUP_LIMIT, oldest first. ``pinned`` (常驻, absent: not) is the owner's mark from the 设置
+card's 记忆 tab (``pin``, app/memory_panel.py): a pinned principle is never left out of a turn for want of room
+(core/memory.py select, app/prompts.py principles_block); at most PINNED_LIMIT in a group.
+
+A write reads, changes and replaces the whole file (core/state.py write_json) under its shared file lock (core/locks.py,
+across processes): the Bridge's butler tools and the 设置 card. Nothing inside the lock sends to Feishu. Readers take no lock: a replace is
 atomic. A file that cannot be read, or holds anything else, reads as empty; the first write over it keeps it as
 principles.json.bad-<epoch> rather than lose it. Standard library only.
 """
@@ -35,6 +39,7 @@ OWNER, WORKSPACE = "owner", "workspace"
 SCOPES = (OWNER, WORKSPACE)
 TEXT_LIMIT = 200  # Characters of one principle.
 GROUP_LIMIT = 30  # Principles in one group (通用, or one workspace).
+PINNED_LIMIT = 8  # Pinned (常驻) principles in one group: they are carried whatever their room.
 ID = re.compile(r"p[0-9a-f]{6}")
 _END = "。.；;，,！!、 "
 
@@ -61,7 +66,10 @@ def _item(value):
     if not text or not isinstance(pid, str) or not ID.fullmatch(pid):
         return None
     source = value.get("source") if isinstance(value.get("source"), dict) else {}
-    return {"id": pid, "text": text[:TEXT_LIMIT], "at": str(value.get("at") or ""), "source": dict(source)}
+    item = {"id": pid, "text": text[:TEXT_LIMIT], "at": str(value.get("at") or ""), "source": dict(source)}
+    if value.get("pinned") is True:
+        item["pinned"] = True
+    return item
 
 
 def _group(values):
@@ -152,6 +160,30 @@ def save(state_dir, scope, text, *, workspace="", source=None, now=None) -> tupl
         group.append(item)
         _write(state_dir, data, bad, now)
     return dict(item), True
+
+
+def pin(state_dir, pid, on, *, now=None) -> dict | None:
+    """Mark the principle ``pid`` 常驻 (``on``) or not: it, with its "scope" and "workspace", as it is now; None when
+    there is none. ValueError says why nothing was written (PINNED_LIMIT in its group already)."""
+    pid = str(pid or "").strip()
+    with shared_file_lock(path(state_dir)):
+        data, bad = _read(state_dir)
+        groups = [(OWNER, "", data["owner"]), *((WORKSPACE, name, group) for name, group in data["workspaces"].items())]
+        for scope, name, group in groups:
+            for item in group:
+                if item["id"] != pid:
+                    continue
+                if bool(item.get("pinned")) != bool(on):
+                    if on and sum(1 for other in group if other.get("pinned")) >= PINNED_LIMIT:
+                        where = "通用" if scope == OWNER else f"工作区 {name} "
+                        raise ValueError(f"{where}的常驻已有 {PINNED_LIMIT} 条：先取消一条再标")
+                    if on:
+                        item["pinned"] = True
+                    else:
+                        item.pop("pinned", None)
+                    _write(state_dir, data, bad, time.time() if now is None else now)
+                return {"scope": scope, "workspace": name, **item}
+    return None
 
 
 def delete(state_dir, pid, *, now=None) -> dict | None:

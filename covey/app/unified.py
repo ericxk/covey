@@ -104,8 +104,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'redaction_panel', 'nodes.panel',
-              'butler_panel', 'settings_hub', 'overview', 'digest', 'app_setup', 'welcome', 'group_menu', 'project_tidy',
-              'standing_answers')
+              'butler_panel', 'settings_hub', 'settings_hub.memory', 'overview', 'digest', 'app_setup', 'welcome',
+              'group_menu', 'project_tidy', 'standing_answers')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
@@ -213,13 +213,13 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                                                   lambda harness=self.claude: detect_upstream(harness))
             # The butler's settings card (docs/butler.md 设置卡): the 设置 card's 管家 tab.
             self.butler_panel = ButlerPanel(self.topics)
-            # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 代答 and 群聊 on one card, a tab row on top.
+            # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 群聊, 记忆, 设备, 能做什么 on one card, a tab row on top.
             # 节点 (app/nodes.py): the gateway the nodes dial, the hub's own node, their alerts and the 设置 card's 设备
             # tab; no thread and no tab unless COVEY_NODE_LISTEN is set.
             self.nodes = Nodes(self.runtime, self.messenger, self.voice)
             self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.butler_panel,
                                             self.proxy.panel, self.group_manager, self.workspace_manager,
-                                            self.redaction_panel, nodes=self.nodes.panel)
+                                            self.redaction_panel, nodes=self.nodes.panel, topics=self.topics)
             # 手上的事 (app/overview.py): the card pinned in the owner's private chat, when COVEY_PINNED_OVERVIEW=1.
             self.overview = Overview(self.runtime, self.messenger, self.voice, self.titles)
             # The butler's tools (app/butler_tools.py), unless COVEY_BUTLER=0: the state directory and

@@ -8,7 +8,7 @@ pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 重新发送 card's, the 代发草稿 card's, 群管理's, the 脱敏 tab's (the retired 敏感词看板's 换口令 too), the 管家 settings card's, the 设置 card's tabs, 手上的事's
 这些都不用回答了, 飞书应用待补's, the welcome card's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
-app/owner_send.py, app/group_manager.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py,
+app/owner_send.py, app/group_manager.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py, app/memory_panel.py,
 app/overview.py, app/digest.py, app/app_setup.py, app/welcome.py, app/group_menu.py, app/standing_answers.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
@@ -170,6 +170,11 @@ ACTIONS = {
     "bridge_main_notes": CardAction("保存工作区用途"),
     # The 设置 card's tab row (cards/settings_hub.py KINDS).
     "bridge_settings_tab": CardAction("切换设置标签"),
+    # The 设置 card's 记忆 tab (cards/memory_panel.py KINDS, COVEY_MEMORY=1): handled before topic routing (app/memory_panel.py).
+    "bridge_memory_workspace": CardAction("换记忆页的工作区"),
+    "bridge_memory_open": CardAction("展开记忆"),
+    "bridge_memory_delete": CardAction("删除记忆"),
+    "bridge_memory_pin": CardAction("标记常驻记忆"),
     # 手上的事's line of old questions (cards/overview.py DISMISS): only the board's record changes.
     "bridge_overview_dismiss": CardAction("撤下看板"),
     # The 看板's 刷新 and 记为看过 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).

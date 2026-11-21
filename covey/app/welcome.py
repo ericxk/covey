@@ -59,6 +59,33 @@ def enabled() -> bool:
     return env_flag(SWITCH, True)
 
 
+def harnesses(apps, runtime) -> tuple[list, list]:
+    """(the titles of the Harnesses this Bridge enables, in the roster's order; [title, why] of those its availability
+    watch found unavailable). Read here and now: no Feishu call."""
+    names = [name for name in NAMES if name in apps]
+    preflight = (getattr(runtime, "availability_health", None) or {}).get("preflight") or {}
+    down = [[apps[name].spec.title, REASONS[check["reason"]]] for name in names for check in [preflight.get(name) or {}]
+            if check.get("status") == "unavailable" and check.get("reason") in REASONS]
+    return [apps[name].spec.title for name in names], down
+
+
+def butler_state(apps) -> str:
+    """'' when the owner's top-level messages go to the butler now, else why not (cards/welcome.py BUTLER_WORDS);
+    ``apps``: the Bridge's Harness apps by name. The 设置 card's 能做什么 says the same (app/about_panel.py)."""
+    if not contract.available():
+        return cards.OFF
+    app = apps.get(HARNESS)
+    if app is None:
+        return cards.NO_CLAUDE
+    if not contract.enabled():
+        return cards.TOPICS
+    try:
+        app.harness.refuse_while_unavailable()
+    except RuntimeError:
+        return cards.DOWN
+    return ""
+
+
 def drawn(record) -> dict:
     """The card's view as it is to be drawn now: the one it was sent with, the examples tried and the notice."""
     return {**(record.get("view") or {}), "tried": record.get("tried") or {}, "notice": record.get("notice") or ""}
@@ -159,34 +186,19 @@ class Welcome:
 
     def view(self, ctx) -> dict:
         """What the card shows (cards/welcome.py), read here and now: no Feishu call."""
-        apps = self.topics.apps
-        names = [name for name in NAMES if name in apps]
-        preflight = (getattr(self.runtime, "availability_health", None) or {}).get("preflight") or {}
-        down = [[apps[name].spec.title, REASONS[check["reason"]]] for name in names for check in [preflight.get(name) or {}]
-                if check.get("status") == "unavailable" and check.get("reason") in REASONS]
+        titles, down = harnesses(self.topics.apps, self.runtime)
         try:
             config = load_config(ctx.state_dir, ctx.default_workdir)
             workspace = str(config["default"])
             workdir = str(config["workspaces"][workspace])
         except (OSError, ValueError, KeyError, TypeError):
             workspace = workdir = ""
-        return {"host": platform.node(), "harnesses": [apps[name].spec.title for name in names], "down": down,
+        return {"host": platform.node(), "harnesses": titles, "down": down,
                 "workspace": workspace, "workdir": workdir, "butler": self.butler_state(), "examples": list(EXAMPLES)}
 
     def butler_state(self) -> str:
-        """'' when the owner's top-level messages go to the butler now, else why not (cards/welcome.py BUTLER_WORDS)."""
-        if not contract.available():
-            return cards.OFF
-        app = self.topics.apps.get(HARNESS)
-        if app is None:
-            return cards.NO_CLAUDE
-        if not contract.enabled():
-            return cards.TOPICS
-        try:
-            app.harness.refuse_while_unavailable()
-        except RuntimeError:
-            return cards.DOWN
-        return ""
+        """'' when the owner's top-level messages go to the butler now, else why not (``butler_state``)."""
+        return butler_state(self.topics.apps)
 
     # A click ---------------------------------------------------------------------------------------------------
 

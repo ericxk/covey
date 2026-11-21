@@ -33,7 +33,7 @@
 | --- | --- | --- |
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES=09:30,21:30`（按 Asia/Shanghai） | 到点在私聊发汇总卡；没设 `COVEY_BOARD=1` 时菜单也多「看板」（应用里还没有这一项时，「飞书应用待补」卡会补上） |
 | [手上的事与话题看板](#手上的事与话题看板) | `COVEY_PINNED_OVERVIEW=1`，再加 `COVEY_PINNED_TOPICS=1` | 私聊置顶一张「手上的事」；后者再把等你、在做、有结果的话题自动 Pin 上（要置顶权限和“消息已读”事件，「飞书应用待补」卡会提示） |
-| [记忆](#记忆) | `COVEY_MEMORY=1` | 你在话题里说的长期要求一轮结束后记下，答案卡底部露一行和“不对”按钮 |
+| [记忆](#记忆) | `COVEY_MEMORY=1` | 你在话题里说的长期要求一轮结束后记下，答案卡底部露一行和“不对”按钮；设置卡多「记忆」标签 |
 | [知识条目](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1` | 说“记一下”的事记成条目，话题首轮带上，汇总多一节 |
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家在做一件事时，你的下一句可以并进去或另起一件，不用等 |
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | 管家把事交给话题后，私聊聊天区多一张实时刷新的卡 |
@@ -156,7 +156,7 @@
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES` | `digest` 后台线程、菜单「看板」 |
 | [菜单「看板」](usage.md#看板)（`./install` 新装默认开） | `COVEY_BOARD=1` | 没有早晚汇总也有菜单「看板」；不起后台线程，不定时发卡 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` | 管家多 `knowledge_*` 和 `history_search` 工具；话题首轮带知识条目，规则多一行查历史的命令 |
-| [记忆](#记忆) | `COVEY_MEMORY=1` | 每轮规则里多一块“记忆”；一轮结束后记下主人的长期要求，答案卡底部露一行和“不对”按钮 |
+| [记忆](#记忆) | `COVEY_MEMORY=1` | 每轮规则里多一块“记忆”；一轮结束后记下主人的长期要求，答案卡底部露一行和“不对”按钮；设置卡多「记忆」标签 |
 | [新话题带上最近话题的要点](#新话题带上最近话题的要点) | `COVEY_WORKSPACE_GISTS=3` | 不多线程；新会话的规则多一块同工作区最近话题的要点 |
 | [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡多「管家」标签 |
 | [管家规则](#管家规则) | `COVEY_BUTLER_RULES=1` | 不多线程，只换管家规则的两条 |
@@ -235,8 +235,9 @@
 ### 记忆
 
 - `COVEY_MEMORY=1`（只认 `1`）：打开“记忆”（[管家 · 记忆](butler.md#记忆开关默认关)）。不依赖别的开关：原则一直有，`COVEY_KNOWLEDGE=1` 时知识条目也进来，`COVEY_PROJECTS=1` 且 `COVEY_PROJECT_MEMORY=1` 时专项记忆也进来；话题自己的记忆放在 `<state>/topics/<话题>/memory.json`，打开后才会有。
-- 关着（默认）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`。
-- 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着。
+- 关着（默认）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`，设置卡没有「记忆」标签。
+- 开着时设置卡多一个「记忆」标签（`app/memory_panel.py`）：按范围列出每一条、能删、能把原则标成常驻（`principles.json` 里那一条多 `"pinned": true`，每组最多 8 条，放不下时也照带），并显示选中工作区下一轮会带上的那一块和每个范围的余量。
+- 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉。
 - 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`。
 
 ### 新话题带上最近话题的要点
@@ -246,7 +247,7 @@
 - 只给新会话的规则，续接的轮次不带，所以一个会话的规则不会跟着别的话题变。
 - 只在主人自己的一轮、普通话题里带；管家的话题、代答话题不带。只看同一个聊天的话题：群里的话题不会读到私聊的要点，反过来也一样。开了脱敏的话题的要点只给开了脱敏的话题。
 - 话题要点是整理专项（`COVEY_PROJECT_TIDY`）开着时每轮写的；没有要点的话题跳过，所以整理专项关着时这一块总是空的。只看最近 14 天有过任务的话题。
-- 不设（默认）：规则和原来逐字相同。
+- 不设（默认）：规则和原来逐字相同。设置卡「能做什么」里有这一行。
 
 ### 知识条目与历史搜索
 
@@ -414,7 +415,7 @@
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞） | 空：关，只有专项的第一条回执唤醒负责人；`1`：话题一轮结束、主人在专项的话题里说话、停滞提醒也唤醒，并开停滞检查。见[架构 · 专项](architecture.md#专项第-2-期开发中默认关) | 否 |
 | `COVEY_PROJECT_MEMORY` | `core/projects.py`（`memory_enabled`，要 `COVEY_PROJECTS=1`）、`app/project_context.py`（专项的话题开工带上记忆和资料库索引、主人答专项的问题卡记一条决定、主人发给负责人的文件和各话题的产物、交付进资料库）、`app/project_lead.py`（`library_index`：状态包的资料库）、`app/runs.py`（`bridge_rules`、`_with_rules` 取专项块） | 空：关，专项的话题开工不多带东西、不自动记、不收资料库；`1`：开工带上专项记忆和资料库索引，主人的回答记成决定，主人发的文件和话题的产物进资料库。见[专项记忆与资料库](projects.md#专项记忆与资料库) | 否 |
 | `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py` | 空：关，规则、续接提醒和答案卡与没有这个功能时逐字相同；`1`：原则、知识条目、专项记忆、话题记忆拼成一块“记忆”，主人说的长期要求一轮结束后记下。见[记忆](#记忆) | 否 |
-| `COVEY_WORKSPACE_GISTS` | `app/workspace_gists.py`（`count`；`app/runs.py` 的 `Runs.bridge_rules` 只在新会话的规则里放这一块） | 空：关，规则和原来逐字相同。`1` 到 `10`：同一聊天、同一工作区新开的话题，第一轮的规则带上这个工作区最近这么多个别的话题的[话题要点](projects.md#整理专项)（要点要整理专项开着才会写）；只在主人自己的一轮、普通话题里带，脱敏话题的要点只给脱敏话题。见[新话题带上最近话题的要点](#新话题带上最近话题的要点) | 否 |
+| `COVEY_WORKSPACE_GISTS` | `app/workspace_gists.py`（`count`；`app/runs.py` 的 `Runs.bridge_rules` 只在新会话的规则里放这一块）、`app/about_panel.py`（设置卡「能做什么」那一行） | 空：关，规则和原来逐字相同。`1` 到 `10`：同一聊天、同一工作区新开的话题，第一轮的规则带上这个工作区最近这么多个别的话题的[话题要点](projects.md#整理专项)（要点要整理专项开着才会写）；只在主人自己的一轮、普通话题里带，脱敏话题的要点只给脱敏话题。见[新话题带上最近话题的要点](#新话题带上最近话题的要点) | 否 |
 | `COVEY_PROJECT_TRIAGE` | `core/triage.py`（`enabled`，要 `COVEY_PROJECTS=1`）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`）、`app/triage.py`、`app/project_loop.py`（`ProjectLoop.tick` 扫扣住的问题） | 空：关，专项的话题的问题直接发给主人；`1`：选择题先交给负责人，3 分钟内它能替主人答的就答，其余才发问题卡。见[专项的问题分流](projects.md#专项的问题分流) | 否 |
 | `COVEY_PROJECT_BUDGET` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 空：没有上限，专项不会因为 token 停住；正整数：一个专项的 token 合计（负责人和各话题，缓存算在输入里）到了就停住（`state_reason` 是 `tokens`） | 否 |
 | `COVEY_PROJECT_TOKENS` | `core/projects.py`（`token_limit`） | `COVEY_PROJECT_BUDGET` 的旧名，它没设时才读。名字里有 TOKEN，服务清单把它当成密钥不保存，重新 `launch` 带不进去：要设上限用 `COVEY_PROJECT_BUDGET` | 否 |

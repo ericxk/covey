@@ -136,13 +136,13 @@ PRINCIPLES_HEAD = ("主人的原则（主人说过、长期适用的原则和偏
 def principles_block(owner, workspace=(), workspace_name: str = "", limit: int = PRINCIPLES_CHARS) -> str:
     """The owner's principles a turn reads: 通用 (``owner``), then those of ``workspace_name`` (``workspace``), each
     oldest first; '' when there are none. Past ``limit`` characters of lines the oldest are left out, either group,
-    and a last line says how many."""
-    rows = [(str(item.get("at") or ""), 0, i, "- " + item["text"]) for i, item in enumerate(owner)]
-    rows += [(str(item.get("at") or ""), 1, i, "- " + item["text"]) for i, item in enumerate(workspace)]
+    and a last line says how many; one marked 常驻 (``pinned``, core/principles.py pin) never is."""
+    rows = [(str(item.get("at") or ""), 0, i, "- " + item["text"], item.get("pinned") is True) for i, item in enumerate(owner)]
+    rows += [(str(item.get("at") or ""), 1, i, "- " + item["text"], item.get("pinned") is True) for i, item in enumerate(workspace)]
     if not rows:
         return ""
-    kept, used = [], 0
-    for row in sorted(rows, key=lambda row: (row[0], row[1], row[2]), reverse=True):
+    kept, used = [row for row in rows if row[4]], sum(len(row[3]) + 1 for row in rows if row[4])
+    for row in sorted((row for row in rows if not row[4]), key=lambda row: (row[0], row[1], row[2]), reverse=True):
         if used + len(row[3]) + 1 > limit:
             break
         kept.append(row)
