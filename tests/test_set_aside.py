@@ -187,7 +187,8 @@ class SetAsideTest(TopicFixture, unittest.TestCase):
         self.assertEqual(Collector.word([job], job, questions), "做完")
         self.assertNotEqual(Collector.tone([job], job, questions, True, None), "waiting")
         item = web_pairing.question(self.saved(), "t" * 64, 1)
-        self.assertEqual((item["state"], item["closed_by"], item["turn_key"]), ("answered", "skipped", ""))
+        # set_aside until the topic's next turn takes it, so the page offers 撤销 (T617, data contract v20; it read skipped before).
+        self.assertEqual((item["state"], item["closed_by"], item["turn_key"], item["restorable"]), ("answered", "set_aside", "", True))
         self.assertFalse(board_read.set_aside({**job, "status": "done"}, questions))
 
 

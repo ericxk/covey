@@ -97,8 +97,22 @@ class FakeApp:
         self.submission = SimpleNamespace(event_context=self.event_context, enqueue_chat_job=self.enqueue)
         self.steering = SimpleNamespace(steer_stage=lambda job: "running", deliver_steer=self.deliver)
         self.questions = SimpleNamespace(submit_answer=lambda ctx, chat, token, fields, event: self.answers.append((ctx.topic_id, token, fields, event)),
-                                         paint_question_state=lambda ctx, record: self.painted.append((record["token"], record["status"])))
+                                         paint_question_state=lambda ctx, record: self.painted.append((record["token"], record["status"])),
+                                         ask_first=self.ask_first, set_aside=self.set_aside, restore=self.restore)
+        self.lesser = []  # (what, token, words or by, event) of 先问一句, 不处理 and 撤销.
         self.controls = SimpleNamespace(cancel_reply_job_from_card=lambda ctx, action, chat, message, others=0: self.stopped.append(action))
+
+    def ask_first(self, ctx, chat, token, words, event, *, sender=""):
+        self.lesser.append(("ask", token, words, event, sender))
+        return True
+
+    def set_aside(self, ctx, chat, token, event, *, by=""):
+        self.lesser.append(("aside", token, by, event))
+        return True
+
+    def restore(self, ctx, chat, token, event):
+        self.lesser.append(("restore", token, "", event))
+        return True
 
     def event_context(self, base, event):
         topic = message_topic(self.case.state, CHAT, event["message_id"])
@@ -750,6 +764,58 @@ class InboxTest(WebCase):
         self.sync.inbox_once()
         self.assertEqual([(r["state"], r["message"][:6]) for r in self.web.acks], [("failed", "只发补充说明"), ("done", "补充说明已交")])
         self.assertEqual([a[2] for a in self.app.answers], [{"skip_0": True, "supplement": "先放一放"}])
+
+    def test_each_question_can_be_left_unanswered_or_answered_in_words(self):
+        """T617, 2026-11-21: the page's form had only the options, where the card has 不回答此题 for each question and an answer box
+        for when no option fits. ``{"skip": true}`` is the first, words that are no option the second."""
+        self.topic()
+        self.question(questions=[{"id": "q1", "question": "用哪个库？", "options": [{"label": "A"}, {"label": "B"}]},
+                                 {"id": "q2", "question": "放哪？", "options": []},
+                                 {"id": "q3", "question": "几点？", "options": [{"label": "早上"}]}])
+        self.web.op("answer", 1, "op-4", TOPIC, token=TOKEN, answers={"q1": "都不合适，用标准库", "q2": {"skip": True}, "q3": {"skip": True}})
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "done")
+        fields = self.app.answers[0][2]
+        self.assertEqual(fields, {"answer_0": "都不合适，用标准库", "skip_1": True, "skip_2": True, "supplement": ""})
+        from covey.app.answers import SKIPPED, form_answers
+        record = read_object(self.state / "questions" / f"{TOKEN}.json")
+        self.assertEqual(form_answers(record["questions"], fields),
+                         {"q1": {"answers": ["都不合适，用标准库"]}, "q2": {"answers": [SKIPPED]}, "q3": {"answers": [SKIPPED]}})
+
+    def test_the_butlers_proxy_answer_cannot_skip_a_question(self):
+        from covey.app.answers import answer_fields
+        record = {"questions": [{"id": "q1", "question": "用哪个？", "options": [{"label": "A"}]}]}
+        with self.assertRaises(ValueError):
+            answer_fields(record, {"q1": {"skip": True}}, "")
+
+    def test_ask_first_set_aside_and_restore_go_to_the_questions_own_paths(self):
+        self.topic()
+        self.question()
+        self.web.op("answer", 1, "op-4", TOPIC, token=TOKEN, ask=True, note="")
+        self.web.op("answer", 2, "op-5", TOPIC, token=TOKEN, ask=True, note="A 和 B 差在哪？")
+        self.web.op("answer", 3, "op-6", TOPIC, token=TOKEN, aside=True)
+        self.sync.inbox_once()
+        self.assertEqual([r["state"] for r in self.web.acks], ["failed", "done", "done"])
+        self.assertIn("先写上", self.web.acks[0]["message"])
+        self.assertEqual(self.app.lesser, [("ask", TOKEN, "A 和 B 差在哪？", "web-op-5", "ou_owner"), ("aside", TOKEN, "ou_owner", "web-op-6")])
+        self.question(status="set_aside", set_aside_at=T0 + 10, set_aside_event="web-op-6")
+        self.web.op("answer", 4, "op-7", TOPIC, token=TOKEN, answers={"q1": "A"})
+        self.web.op("answer", 5, "op-8", TOPIC, token=TOKEN, restore=True)
+        self.sync.inbox_once()
+        self.assertEqual([r["state"] for r in self.web.acks[3:]], ["failed", "done"])
+        self.assertIn("先点撤销", self.web.acks[3]["message"])
+        self.assertIn("在网页上", self.web.acks[3]["message"])
+        self.assertEqual(self.app.lesser[-1], ("restore", TOKEN, "", "web-op-8"))
+        self.assertEqual(self.app.answers, [])
+
+    def test_set_aside_on_a_question_answered_already_says_who_answered(self):
+        self.topic()
+        self.question(status="answered", answers={"q1": {"answers": ["A"]}}, answered_at=T0 + 60)
+        self.web.op("answer", 1, "op-9", TOPIC, token=TOKEN, aside=True)
+        self.sync.inbox_once()
+        self.assertEqual(self.web.acks[0]["state"], "failed")
+        self.assertIn("答过了", self.web.acks[0]["message"])
+        self.assertEqual(self.app.lesser, [])
 
     def test_the_butlers_proxy_answer_still_refuses_a_free_text_question(self):
         from covey.app.answers import answer_fields
@@ -1479,6 +1545,24 @@ class ExtrasTest(WebCase):
             "tok-open-001": ("open", None, "", None),
             "tok-stale-01": ("cancelled", T0 + 100, "stale", None),
         })
+
+    def test_a_question_says_its_background_and_what_its_lesser_buttons_can_do(self):
+        """T617 (data contract v20): each question's 背景 line, ``extras`` (先问一句 and 不处理 can be clicked), the last 先问一句 and a
+        question set aside, ``restorable`` until the topic's next turn takes it."""
+        self.topic()
+        self.question(questions=[{"id": "q1", "question": "用哪个库？", "context": "决定依赖", "options": [{"label": "A"}]}],
+                      asked_first={"at": T0 + 3, "text": "A 稳吗？", "event": "om_x"})
+        self.question("tok-live-0001", native_live_question=True, created_at=T0 + 1)
+        self.question("tok-aside-001", status="set_aside", set_aside_at=T0 + 20, created_at=T0 + 2,
+                      answers={"q1": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}})
+        self.sync.push_once(T0 + 40)
+        by = {item["key"]: item["data"] for item in self.web.items("question")}
+        self.assertEqual(by[TOKEN]["questions"][0]["context"], "决定依赖")
+        self.assertEqual((by[TOKEN]["extras"], by[TOKEN]["asked"], by[TOKEN]["restorable"]), (True, {"at": T0 + 3, "text": "A 稳吗？"}, False))
+        self.assertEqual((by["tok-live-0001"]["extras"], by["tok-live-0001"]["asked"]), (False, None))
+        aside = by["tok-aside-001"]
+        self.assertEqual((aside["state"], aside["closed_by"], aside["closed_at"], aside["restorable"], aside["extras"]),
+                         ("answered", "set_aside", T0 + 20, True, False))
 
     def test_the_memory_and_library_of_a_project_say_who_wrote_them(self):
         self.thread(OTHER, "对账", 8, status="done")

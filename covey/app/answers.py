@@ -323,9 +323,9 @@ def answer_fields(record, answers, note, owner=False):
     """The form fields 提交回答 would send for ``answers`` (question id or text -> option label, or labels for a
     multiple choice), with ``note`` as the 补充说明: ``form_answers`` the other way, for the butler's
     question_answer (app/butler_tools.py, its PROXY_NOTE). ``owner``: the owner's own answer (the web page,
-    app/web_ops.py): a question without options takes the text given, and a text that is no option of its question
-    is a written answer, as the card's answer box is (a written answer wins in form_answers). ValueError says what
-    does not fit."""
+    app/web_ops.py): a question without options takes the text given, a text that is no option of its question
+    is a written answer, as the card's answer box is (a written answer wins in form_answers), and ``{"skip": true}``
+    is 不回答此题 (the card's ``skip_i``). ValueError says what does not fit."""
     if not isinstance(answers, dict) or not answers:
         raise ValueError("answers 要是“题目 id → 选项原文”的对象")
     questions = [q for q in record.get("questions") or [] if isinstance(q, dict)]
@@ -352,6 +352,9 @@ def answer_fields(record, answers, note, owner=False):
     for i, q in enumerate(questions):
         value = given[i]
         labels = [str(o.get("label") or "") for o in q.get("options") or [] if isinstance(o, dict)]
+        if owner and isinstance(value, dict) and value.get("skip") is True:
+            fields[f"skip_{i}"] = True  # 不回答此题, with or without options.
+            continue
         if owner and isinstance(value, str) and value.strip() and value.strip() not in labels:
             fields[f"answer_{i}"] = value.strip()  # Written, as in the card's answer box.
             continue

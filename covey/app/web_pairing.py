@@ -9,6 +9,7 @@ import time
 from covey.app import web_images, web_said
 from covey.app.web_said import NOT_ANSWERED  # turn.data answers' choice of a question the owner chose not to answer (data contract v4).
 from covey.app.answers import SKIPPED
+from covey.cards.question_cards import ASKED, SET_ASIDE, extras, question_context
 from covey.core import board_read, triage, web_sync
 from covey.core.jobs import job_key, topic_job_records
 from covey.core.state import epoch_seconds, read_object
@@ -177,7 +178,8 @@ def question(row, topic, count, project="", number=0, records=(), rows=()):
         shown.append({"id": str(each.get("id") or index), "header": str(each.get("header") or ""), "question": str(each.get("question") or ""),
                       "options": [{"label": str(o.get("label") or ""), "description": str(o.get("description") or "")}
                                   for o in each.get("options") or () if isinstance(o, dict)],
-                      "multiple": bool(each.get("multiple"))})
+                      "multiple": bool(each.get("multiple")),
+                      "context": question_context(each)})  # The card's 背景 line (data contract v20).
     answers = row.get("answers") if isinstance(row.get("answers"), dict) else {}
     said = web_images.scrub("；".join("、".join(str(a) for a in (value.get("answers") if isinstance(value, dict) else [value]) or ())
                                       for value in answers.values()))
@@ -188,7 +190,17 @@ def question(row, topic, count, project="", number=0, records=(), rows=()):
     return {"topic_key": topic, "turn_key": f"{topic}:{count + 1}" if status == "pending" else "", "questions": shown,
             "state": state, "answer": said, "asked_at": moment(row.get("created_at")),
             "answered_at": closed_at if state == "answered" else None, "closed_at": closed_at, "closed_by": closed_by,
-            "project_key": project, "topic_number": number}
+            "project_key": project, "topic_number": number, **lesser(row, state, closed_by)}
+
+
+def lesser(row, state, closed_by) -> dict:
+    """What the page needs of the form's lesser buttons (data contract v20, cards/question_cards.py extras): ``extras`` whether 先问一句
+    and 不处理 can be clicked on an open question, ``asked`` the last 先问一句 ({at, text}) or null, ``restorable`` whether a question set
+    aside (``closed_by`` set_aside) can still be opened again (its topic's next turn has not taken it)."""
+    asked = row.get(ASKED) if isinstance(row.get(ASKED), dict) else {}
+    text = web_images.scrub(str(asked.get("text") or "").strip())
+    return {"extras": bool(state == "open" and extras(row)), "restorable": closed_by == "set_aside",
+            "asked": {"at": moment(asked.get("at")) or None, "text": text[:500]} if text else None}
 
 
 def closed(row, state, records=(), rows=()) -> tuple:
@@ -201,6 +213,8 @@ def closed(row, state, records=(), rows=()) -> tuple:
     it, the asking task's last write when it was cancelled with it."""
     if state not in ("answered", "cancelled"):
         return None, ""
+    if row.get("status") == SET_ASIDE:  # 不处理, not taken by the topic's next turn yet: 撤销 can still open it (v20).
+        return moment(row.get("set_aside_at")) or None, "set_aside"
     found = triage.of(row)
     if state == "answered":
         if found.get("state") == triage.ANSWERED:
@@ -244,6 +258,7 @@ SETTLED_WORDS = {
     "owner": "这题你已经{where}答过了（{at}）：{answer}。这次没有再交给任务；要改主意，在这个话题里直接说一句。",
     "feedback": "这题你已经{where}发过补充说明（{at}），题目算没答。还要说什么，在这个话题里直接说一句。",
     "skipped": "这题你已经{where}选了不回答（{at}）。要接着说，在这个话题里直接说一句。",
+    "set_aside": "这组题你已经{where}点了先不管（{at}），每题记为不回答。要回答，先点撤销再答；或在这个话题里直接说一句。",
     "lead": "专项负责人已经替你答了（{at}）：{answer}。不对的话，在专项卡的分流记录里点「不对」，或在这个话题里直接说一句改过来。",
     "superseded": "这组问题已经收起：话题后来又问了新的问题（{at}）。请答新的那组。",
     "stale": "这题放了太久，已被每日维护关掉（{at}）。要继续，在这个话题里直接说一句。",
@@ -267,5 +282,5 @@ def settled_words(row, records=(), rows=()) -> str:
     at, how = closed(row, state, records, rows)
     when = time.strftime("%m-%d %H:%M", time.localtime(at)) if at else "时间不详"
     answer = "；".join(each["choice"] for each in answer_rows(row) if each["choice"] != NOT_ANSWERED) or "（没有选项）"
-    where = "在网页上" if str(row.get("answer_event") or "").startswith(WEB_EVENT) else "在飞书里"
+    where = "在网页上" if str(row.get("answer_event") or row.get("set_aside_event") or "").startswith(WEB_EVENT) else "在飞书里"
     return SETTLED_WORDS.get(how, SETTLED_WORDS["cancelled"]).format(at=when, answer=answer[:200], where=where)

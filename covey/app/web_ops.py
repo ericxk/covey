@@ -20,9 +20,11 @@ KINDS) as the owner's own and says (state, message) for the ack.
 - ``seen``: the topic's latest result is marked as seen, as the owner's read receipt in Feishu does (core/topic_seen.py record_reads), so
   the board, the Pins and 手上的事 and the next push (``unseen`` false) follow. Asked again it says done and writes nothing.
 - ``answer``: the question's own submit path (app/questions.py submit_answer) with the fields of app/answers.py answer_fields as the owner's
-  own answer (``owner``: a question without options takes the text written). ``skip`` true: 只发补充说明, its ``note`` required. A
-  question that no longer waits (``settled``): the same answer it has is ``done`` and sent nothing; any other is ``failed`` saying who
-  closed it and how (you, the lead, a newer question, maintenance, a stop or a switch) and what to do now.
+  own answer (``owner``: a question without options takes the text written, ``{"skip": true}`` is 不回答此题). ``skip`` true: 只发补充说明,
+  its ``note`` required. The form's lesser buttons (cards/question_cards.py extras) by their own paths (app/questions.py): ``ask`` true is
+  先问一句 with ``note`` as the words, ``aside`` true is 不处理, ``restore`` true is its 撤销. A question that no longer waits (``settled``):
+  the same answer it has is ``done`` and sent nothing; any other is ``failed`` saying who closed it and how (you, the lead, a newer
+  question, maintenance, a stop or a switch) and what to do now.
 - ``stop``: the topic's task stops as a click on its card's 停止 does: forwarded to its task runner when it has one (app/runner_ipc.py), else
   stopped here (app/task_controls.py cancel_reply_job_from_card), as app/butler_tracks.py Tracks.stop does. A question the topic waits on is
   closed too, as a project's lead stops a member topic (app/binding.py retire_open_questions: cancelled with the reason ``web_stop``, the
@@ -62,7 +64,7 @@ from covey.core.jobs import JOB_STOP_ACTION_KIND, topic_job_records
 from covey.core.state import read_object
 from covey.core.steer import SteerRefused, SteerUncertain
 from covey.core.topics import remember_topic_message, topic_file
-from covey.cards.question_cards import SUPPLEMENT
+from covey.cards.question_cards import SET_ASIDE, SUPPLEMENT
 from covey.feishu.events import REPLY_CONTEXT
 
 DONE, FAILED = "done", "failed"
@@ -218,6 +220,8 @@ class Ops:
         record = read_object(state / "questions" / (token + ".json"))
         if not record or record.get("chat_id") != chat or (topic and record.get("topic_id") != topic):
             raise ValueError("这个问题不认识，或不属于你的私聊")
+        if payload.get("restore") is True or payload.get("aside") is True:
+            return self.aside(state, chat, row, record, restore=payload.get("restore") is True)
         if record.get("status", "pending") != "pending":
             return self.settled(state, record, payload)
         if triage.held(record):
@@ -228,6 +232,12 @@ class Ops:
         app, ctx = self.topic(state, chat, topic)
         note = payload.get("note")
         note = str(note).strip() if isinstance(note, str) else ""
+        if payload.get("ask") is True:
+            if not note:
+                raise ValueError("先问一句要先写上你想问的")
+            if not app.questions.ask_first(ctx, chat, token, note, PREFIX + str(row.get("op_id")), sender=self.runtime.owner_open_id or ""):
+                return "这句已经问过了"
+            return "已问话题，回答在话题里；题目还开着，看完再答"
         if payload.get("skip") is True:
             try:
                 fields = skip_all_fields(record.get("questions") or [], {SUPPLEMENT: note})
@@ -238,6 +248,27 @@ class Ops:
         fields = answer_fields(record, payload.get("answers"), note, owner=True)
         app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
         return "答案已交给任务"
+
+    def aside(self, state, chat, row, record, *, restore=False) -> str:
+        """不处理 (or, ``restore``, its 撤销) on the question ``record`` as its card's button does (app/questions.py set_aside, restore):
+        off 等你 with every question 不回答此题, told to the topic's next turn; until then 撤销 opens it again. A question that waits no
+        more and was not set aside is refused as an answer to it is (``settled``)."""
+        token, topic = str(record.get("token") or ""), str(record.get("topic_id") or "")
+        if is_butler_root(topic, chat):
+            raise ValueError("管家的问题请在飞书里处理")
+        if not restore and record.get("status", "pending") not in ("pending", SET_ASIDE):
+            return self.settled(state, record, {"skip": True})
+        if not restore and triage.held(record):
+            raise ValueError("这个问题还在专项负责人手上，到时间会转给你")
+        app, ctx = self.topic(state, chat, topic)
+        event = PREFIX + str(row.get("op_id"))
+        if restore:
+            if not app.questions.restore(ctx, chat, token, event):
+                return "这组题已经在等你回答了"
+            return "已撤销：题目重新等你回答"
+        if not app.questions.set_aside(ctx, chat, token, event, by=self.runtime.owner_open_id or ""):
+            return "这组题已经先不管了"
+        return "先不管了：每题记为不回答，话题下一轮开始时告诉模型；在那之前可以撤销"
 
     @staticmethod
     def settled(state, record, payload) -> str:
