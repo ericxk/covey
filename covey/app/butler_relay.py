@@ -50,8 +50,8 @@ from pathlib import Path
 
 from covey.app import answer_cards, review
 from covey.app.artifacts import answer_files
-from covey.app.relay_send import (QUESTION_RELAYS, SKIPPED, messenger_send, record_only, record_unsent,
-                                           relay_path, send_once as _send_once)
+from covey.app.relay_send import (QUESTION_RELAYS, SKIPPED, merge_seconds, messenger_send, record_only, record_unsent,
+                                           relay_path, send_merged, send_once as _send_once)
 from covey.app.relay_targets import areas_of, awaited_target, relay_target
 from covey.cards.relay_card import DONE, STOPPED, WAITING
 from covey.core import butler, placement
@@ -59,7 +59,7 @@ from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record, job_field, job_key
 from covey.core.state import read_object
 from covey.core.store import directory_store
-from covey.core.topics import route_message
+from covey.core.topics import route_message, topic_title
 
 STOPPED_STATUSES = frozenset({"failed", "cancelled"})
 # What a project member's turn the owner waits for relays (``awaited_target``): its question stays the question flow's
@@ -147,6 +147,12 @@ def relay(state_dir, job, outcome, *, send, profile=None, log=None, **facts):
         # record says so; a failure, a refusal, a timeout or an interruption still relays.
         return record_only(state_dir, relay_path(state_dir, key), key, job, outcome, SKIPPED, log, target,
                            why="owner_stop")
+    seconds = merge_seconds() if outcome == DONE else 0
+    if seconds:
+        # 做完了 relays that come close together go as one (app/relay_send.py send_merged); 等你 and 停住了 never wait.
+        title = topic_title(Path(state_dir), str(target.get("topic_id") or job_field(job, "topic_id")))
+        return send_merged(state_dir, job, relay_path(state_dir, key), key, target, send, profile=profile, log=log,
+                           seconds=seconds, title=title, **facts)
     return _send_once(state_dir, job, relay_path(state_dir, key), key, target, outcome, send, profile=profile, log=log,
                       **facts)
 

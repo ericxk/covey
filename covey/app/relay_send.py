@@ -3,7 +3,8 @@ its card made first, then main-thread/relays/<job key>.json says ``submitting`` 
 made under, rules 1 and 2, then ``sent`` with the message id, or ``uncertain``; a job with a record is never sent
 again), ``unsent`` for one that failed before any Feishu call (``record_unsent``: kept and logged, never sent later),
 the one way a relay goes out through the Messenger (``messenger_send``), its T numbers as links (``linked``), and
-what each message sent says about whose it is (``remember_sent``)."""
+what each message sent says about whose it is (``remember_sent``). ``send_merged``: a 做完了 relay that may wait
+COVEY_RELAY_MERGE_SECONDS for others of its chat (PENDING, listed in WAITING) and go out with them as one card."""
 from __future__ import annotations
 
 import time
@@ -12,8 +13,10 @@ from pathlib import Path
 from covey.app import answer_cards
 from covey.app.relay_targets import ask_for, turn_card
 from covey.cards.answer_card import tail as answer_tail, tail_card
-from covey.cards.relay_card import WAITING as WAITING_OUTCOME, relay_card, summary
-from covey.core import butler
+from covey.cards.relay_card import DONE as DONE_OUTCOME, WAITING as WAITING_OUTCOME, merged_card, relay_card, summary
+from covey.cards.review import answer_lead
+from covey.core import background, butler
+from covey.core.failure import HEADLINE_CHARS
 from covey.core.jobs import job_field
 from covey.core.locks import resource_lock
 from covey.core.state import keyed_json_path, read_object, write_json
@@ -124,24 +127,44 @@ def send_once(state_dir, job, path, key, target, outcome, send, profile=None, lo
     runtime's log, None: none) gets as one line ``main relay state=…``; the record's state. A card that cannot be made
     leaves the record ``unsent`` (``record_unsent``): ``submitting`` only ever says it is about to go or went."""
     try:
-        card = turn_card(state_dir, job, outcome)
-        # What the topic did with the owner's words, in the speaker's sentence (cards/answer_card.py says).
-        facts = {**facts, "ask": ask_for(state_dir, job, target, profile, at=card, log=log, doing=outcome)}
-        reply_to = ""  # A message of its own at the top level, quoting no card.
-        built, text = relay_card(target["label"], outcome, **facts)
-        topic = str(target.get("topic_id") or job_field(job, "topic_id"))
-        links = {topic: card}
-        built, text = linked(state_dir, target["chat_id"], built, text, profile, cards=links)
+        made = _made(state_dir, job, target, outcome, profile, log, facts)
     except Exception as exc:  # noqa: BLE001 - nothing went out: the record says so, the turn's delivery stands
         return record_unsent(state_dir, path, key, job, outcome, type(exc).__name__, log, target)
     with lock(state_dir):
         saved = read_object(path)
         if saved:
             return saved.get("state") or "uncertain"
-        record = {"state": "submitting", "outcome": outcome, "job_key": key, "job_id": job_field(job, "job_id"),
-                  "topic_id": job_field(job, "topic_id"), "chat_id": target["chat_id"], "reply_to": target["reply_to"],
-                  "kind": target["kind"], "request": target["token"], "at": time.time()}
+        record = _record(job, key, target, outcome, "submitting")
         write_json(path, record, ensure_ascii=False, indent=1)
+    return _send(state_dir, [(path, record)], key, target, outcome, send, made, profile, log)
+
+
+def _made(state_dir, job, target, outcome, profile, log, facts):
+    """(card, text, links, facts) of ``job``'s relay: its card (None: the Markdown ``text`` alone) with its T numbers as
+    links (``links``: {topic: the card each opens}), and ``facts`` with the "你问" block."""
+    card = turn_card(state_dir, job, outcome)
+    # What the topic did with the owner's words, in the speaker's sentence (cards/answer_card.py says).
+    facts = {**facts, "ask": ask_for(state_dir, job, target, profile, at=card, log=log, doing=outcome)}
+    built, text = relay_card(target["label"], outcome, **facts)
+    topic = str(target.get("topic_id") or job_field(job, "topic_id"))
+    links = {topic: card}
+    built, text = linked(state_dir, target["chat_id"], built, text, profile, cards=links)
+    return built, text, links, facts
+
+
+def _record(job, key, target, outcome, state):
+    return {"state": state, "outcome": outcome, "job_key": key, "job_id": job_field(job, "job_id"),
+            "topic_id": job_field(job, "topic_id"), "chat_id": target["chat_id"], "reply_to": target["reply_to"],
+            "kind": target["kind"], "request": target["token"], "at": time.time()}
+
+
+def _send(state_dir, taken, key, target, outcome, send, made, profile, log):
+    """The send of the records ``taken`` ([(path, record)], each ``submitting`` already): one relay with ``made``
+    (``_made``), or several merged as one (``send_merged``, ``made`` then the merged card's), outside the lock; then each
+    ``sent`` or ``uncertain`` with that message. The first record's state."""
+    built, text, links, facts = made
+    merged = len(taken) > 1
+    reply_to = ""  # A message of its own at the top level, quoting no card.
     sent = []
     try:
         ok = send(target["chat_id"], text, key, reply_to, built, sent.append)
@@ -164,15 +187,148 @@ def send_once(state_dir, job, path, key, target, outcome, send, profile=None, lo
     if ok and sent and built is not None and facts.get("files"):
         # Its 产物 brought up to date once uploaded (app/answer_cards.py refresh).
         answer_cards.register(state_dir, key, "relay", sent[-1], built, facts.get("files_status"))
-    record.update(state="sent" if ok else "uncertain", message_id=sent[0] if sent else "", error=error,
-                  sent_at=time.time())
+    keys = [record["job_key"] for _, record in taken]
+    for _, record in taken:
+        record.update(state="sent" if ok else "uncertain", message_id=sent[0] if sent else "", error=error,
+                      sent_at=time.time())
+        if merged:
+            record["merged"] = keys  # The relays that went out as this one message.
     with lock(state_dir):
-        write_json(path, record, ensure_ascii=False, indent=1)
+        for path, record in taken:
+            write_json(path, record, ensure_ascii=False, indent=1)
     if ok and sent:
-        dispatch_note(state_dir, target, outcome, "sent", sent[0])
-    # The topic's messages: the owner's quote of one goes to that topic, whose waiting question takes it as the answer.
-    remember_sent(state_dir, target["chat_id"], target.get("topic_id"), sent, skip_errors=True)
+        for _, record in taken:
+            dispatch_note(state_dir, record.pop("target", None) or target, outcome, "sent", sent[0])
+    # The topic's messages: the owner's quote of one goes to that topic, whose waiting question takes it as the answer;
+    # a merged one is several topics', so a quote of it stays at the top level (the butler's).
+    remember_sent(state_dir, target["chat_id"], "" if merged else target.get("topic_id"), sent, skip_errors=True)
+    record = taken[0][1]
     if log is not None:
         log(f"main relay state={record['state']} outcome={outcome} job={str(key)[-10:]} kind={target['kind']}"
-            f" message={record['message_id'][-8:]}" + (f" error={error}" if error else ""))
+            f" message={record['message_id'][-8:]}" + (f" merged={len(taken)}" if merged else "")
+            + (f" error={error}" if error else ""))
     return record["state"]
+
+
+# 做完了 relays that come close together go as one (COVEY_RELAY_MERGE_SECONDS) --------------------------------------------
+
+MERGE_ENV = "COVEY_RELAY_MERGE_SECONDS"
+MERGE_SECONDS = 20
+MERGE_MAX = 45  # Within what a task runner waits for its background work after its result (app/runner.py UPDATE_GRACE).
+PENDING = "pending"  # A 做完了 relay waiting for the others of its chat (``send_merged``): nothing sent, nothing to resend.
+WAITING = RELAYS / "waiting.json"  # {chat id: [the PENDING records' keys, in the order they came]}, under ``lock``.
+AT_WORK = frozenset({"queued", "running", "cancel_requested"})
+
+
+def pause(seconds) -> None:
+    """The window a pending relay waits (``send_merged``), on its own thread."""
+    time.sleep(seconds)
+
+
+def merge_seconds(environ=None) -> int:
+    """COVEY_RELAY_MERGE_SECONDS: how long a 做完了 relay waits for others of its chat while other tasks there are at work;
+    MERGE_SECONDS when unset or not a whole number from 0 to MERGE_MAX; 0 merges none (each at once, as before)."""
+    from covey.core import env as cenv
+
+    raw = str(cenv.get(MERGE_ENV, "", environ) or "").strip()
+    try:
+        seconds = int(raw)
+    except ValueError:
+        return MERGE_SECONDS
+    return seconds if 0 <= seconds <= MERGE_MAX else MERGE_SECONDS
+
+
+def others_at_work(state_dir, job, chat) -> bool:
+    """Whether a task of ``chat`` in a topic other than ``job``'s own is queued or running: its 做完了 may come within
+    seconds. The butler's own turns relay nothing; a failure to read says no (the relay goes at once, as before)."""
+    from covey.core.jobs import jobs_dir, job_key
+    from covey.core.store import directory_store
+
+    mine, own_topic = job_key(str(job_field(job, "message_id")), job_field(job, "job_id")), job_field(job, "topic_id")
+    butler_topic = butler.butler_topic_id(chat)
+    try:
+        for _, record in directory_store(jobs_dir(Path(state_dir))).query(chat_id=chat, status=AT_WORK):
+            topic = record.get("topic_id")
+            if record.get("key") != mine and topic and topic not in (own_topic, butler_topic):
+                return True
+    except Exception:  # noqa: BLE001 - none known: at once
+        return False
+    return False
+
+
+def send_merged(state_dir, job, path, key, target, send, profile=None, log=None, *, seconds, title="", **facts):
+    """A 做完了 relay (DONE) that may go out with others of its chat (docs/butler.md 结论回到顶层): ``send_once``'s, sent at
+    once as it sends it when no other task of the chat is at work (``others_at_work``) and no relay there waits; else its
+    record PENDING (in WAITING), and ``seconds`` later every relay of the chat still pending goes as one message
+    (``take``): one alone as its own card, several as one 「N 个话题做完了」 card (cards/relay_card.py merged_card), each
+    record then ``submitting`` and ``sent`` or ``uncertain`` with that message. A record is taken from PENDING once,
+    under the lock, so each relay still goes once (rule 6). ``title``: the topic's, on the merged card. The state."""
+    outcome = DONE_OUTCOME
+    try:
+        made = _made(state_dir, job, target, outcome, profile, log, facts)
+    except Exception as exc:  # noqa: BLE001 - nothing went out: the record says so, the turn's delivery stands
+        return record_unsent(state_dir, path, key, job, outcome, type(exc).__name__, log, target)
+    chat = target["chat_id"]
+    busy = others_at_work(state_dir, job, chat)  # A read of the job records: not under the relay lock.
+    with lock(state_dir):
+        saved = read_object(path)
+        if saved:
+            return saved.get("state") or "uncertain"
+        waiting = read_object(Path(state_dir) / WAITING)
+        queued = [other for other in waiting.get(chat) or () if other != key]
+        alone = not busy and not queued
+        record = _record(job, key, target, outcome, "submitting" if alone else PENDING)
+        if not alone:
+            record.update(target=target, item={"label": target["label"], "title": title,
+                                               "lead": answer_lead(facts.get("text") or "", HEADLINE_CHARS),
+                                               "topic_id": target.get("topic_id") or job_field(job, "topic_id"),
+                                               "card": made[2].get(str(target.get("topic_id") or job_field(job, "topic_id")), "")})
+            waiting[chat] = [*queued, key]
+            write_json(Path(state_dir) / WAITING, waiting, ensure_ascii=False, indent=1)
+        write_json(path, record, ensure_ascii=False, indent=1)
+    if alone:
+        return _send(state_dir, [(path, record)], key, target, outcome, send, made, profile, log)
+    if log is not None:
+        log(f"main relay state={PENDING} outcome={outcome} job={str(key)[-10:]} kind={target['kind']} wait={seconds}s")
+
+    def later():
+        pause(seconds)
+        try:
+            take(state_dir, chat, path, key, target, send, made, profile, log)
+        except Exception as exc:  # noqa: BLE001 - the records say what went; one still pending goes with the next
+            if log is not None:
+                log(f"main relay merge failed job={str(key)[-10:]}: {type(exc).__name__}")
+    background.start(background.RELAY, later)
+    return PENDING
+
+
+def take(state_dir, chat, path, key, target, send, made, profile=None, log=None):
+    """The relays of ``chat`` still PENDING, the one at ``path`` first, taken as one send (``send_merged``): nothing
+    when that one went with another's already. The state of the one at ``path``."""
+    with lock(state_dir):
+        own = read_object(path)
+        if own.get("state") != PENDING:
+            return own.get("state") or "uncertain"
+        waiting = read_object(Path(state_dir) / WAITING)
+        taken = []
+        for other in dict.fromkeys([key, *(waiting.get(chat) or ())]):
+            other_path = relay_path(state_dir, other)
+            record = read_object(other_path)
+            if record.get("state") == PENDING and record.get("chat_id") == chat:
+                record.update(state="submitting", batch=key)
+                write_json(other_path, record, ensure_ascii=False, indent=1)
+                taken.append((other_path, record))
+        gone = {record["job_key"] for _, record in taken}
+        waiting[chat] = [other for other in waiting.get(chat) or () if other not in gone
+                         and read_object(relay_path(state_dir, other)).get("state") == PENDING]
+        if not waiting[chat]:
+            waiting.pop(chat)
+        write_json(Path(state_dir) / WAITING, waiting, ensure_ascii=False, indent=1)
+    if len(taken) > 1:
+        items = [record.get("item") or {"label": record.get("job_key", "")} for _, record in taken]
+        built, text = merged_card(items)
+        links = {item["topic_id"]: item.get("card") or "" for item in items if item.get("topic_id")}
+        built, text = linked(state_dir, chat, built, text, profile, cards=links)
+        made = (built, text, links, {})
+        key = key + "-merged"
+    return _send(state_dir, taken, key, target, DONE_OUTCOME, send, made, profile, log)

@@ -19,6 +19,12 @@ def clock(seconds, *, dated=False):
     return time.strftime("%m-%d %H:%M" if dated else "%H:%M", time.localtime(seconds))
 
 
+def since(seconds):
+    """When an alert began, dated when not today: one that waited out the night (app/node_alerts.py hold) began
+    yesterday."""
+    return clock(seconds, dated=time.localtime(seconds)[:3] != time.localtime()[:3])
+
+
 def lasted(seconds):
     minutes = int(max(0, seconds) // 60)
     if minutes < 1:
@@ -153,7 +159,7 @@ def sections(event, tasks):
 
 def alert_card(event, name, tasks):
     head = panel_header("robot_outlined", f"⚠️ {title_of(event, name)}", color="red")
-    elements = [md(safe_text(what(event), 300)), note(f"从 {clock(event.get('at') or time.time())} 起")]
+    elements = [md(safe_text(what(event), 300)), note(f"从 {since(event.get('at') or time.time())} 起")]
     for title, lines, grey in sections(event, tasks):
         elements.append(md("\n".join([title] + [f"- {line}" for line in lines])))
         if grey:
@@ -170,7 +176,7 @@ def cleared_card(event, name, tasks, cleared_at):
 
 
 def alert_text(event, name, tasks):
-    lines = [f"⚠️ **{title_of(event, name)}**", safe_text(what(event), 300), f"从 {clock(event.get('at') or time.time())} 起"]
+    lines = [f"⚠️ **{title_of(event, name)}**", safe_text(what(event), 300), f"从 {since(event.get('at') or time.time())} 起"]
     for title, rows, grey in sections(event, tasks):
         lines += [title] + [f"- {row}" for row in rows] + ([grey] if grey else [])
     return "\n".join(lines)

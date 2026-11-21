@@ -21,7 +21,7 @@ from covey.app import runner_ipc, runner_spawn
 from covey.feishu import sdk
 from covey.app.unified import UnifiedBridgeApp
 from covey.core import timing
-from covey.core.background import CARD_CLOSE, CARD_UPDATES, RECORDS, UPLOAD, WARMUP
+from covey.core.background import CARD_CLOSE, CARD_UPDATES, RECORDS, RELAY, UPLOAD, WARMUP
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import context_for_job, jobs_dir
 from covey.core.locks import configure_card_locks
@@ -33,7 +33,7 @@ from covey.feishu.transport import configure_receipts
 
 UPLOAD_GRACE = 30 * 60
 UPDATE_GRACE = 60
-BACKGROUND = {UPLOAD, CARD_UPDATES, CARD_CLOSE, WARMUP}
+BACKGROUND = {UPLOAD, CARD_UPDATES, CARD_CLOSE, WARMUP, RELAY}
 
 
 def warm_records(state_dir):
@@ -79,10 +79,10 @@ def _background(before: set) -> list:
 
 def _wait_background(before: set, *, uploads=True) -> None:
     """Uploads and card updates the job started finish before the process ends; ``uploads`` False:
-    all but the uploads."""
+    all but the uploads and a relay waiting for others (RELAY), which do not hold the topic."""
     started = time.monotonic()
     for thread in _background(before):
-        if not uploads and thread.name == UPLOAD:
+        if not uploads and thread.name in (UPLOAD, RELAY):
             continue
         elapsed = time.monotonic() - started
         limit = UPLOAD_GRACE if thread.name == UPLOAD else min(UPDATE_GRACE, UPLOAD_GRACE)

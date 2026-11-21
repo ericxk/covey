@@ -8,6 +8,9 @@ CARD_UPDATES = "card-updates"  # Card writes off the event thread: CoalescedUpda
 CARD_CLOSE = "card-close"  # The streaming reply's close (app/turn_delivery.py close_streaming_reply_async).
 WARMUP = "sdk-warmup"  # The SDK client built and warmed (feishu/sdk.py warm_sdk); a task runner waits for it too.
 RECORDS = "records-warmup"  # The job and question stores caught up (app/runner.py warm_records); not waited for.
+# A 做完了 relay waiting for the others of its chat to go out with them (app/relay_send.py send_merged): waited for after
+# the topic is freed, as the uploads are.
+RELAY = "relay-merge"
 
 
 def start(kind, target, *args):

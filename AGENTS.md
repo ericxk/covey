@@ -390,6 +390,7 @@
 | `core/proxy.py` | Proxy replies (代答): the owner's whitelist of chats and each batch of their messages taken in |
 | `core/qr.py` | 二维码：把一段文字（链接）编成 QR，给 ./install 在终端里画、存 PNG（service/installer.py）。 编码用的是 Project Nayuki 的 QR Code generator … |
 | `core/qrcodegen.py` |  |
+| `core/quiet_hours.py` | The quiet hours at night, when a card that can wait is held until they are over |
 | `core/recovery.py` | What a failed, interrupted or stopped task's record allows next, decided in one place |
 | `core/redaction.py` | Sensitive-term redaction: the owner's term list, which topics use it and what each turn replaced |
 | `core/redaction_views.py` | What the 设置 card's 脱敏 tab shows of the relays' records |

@@ -121,6 +121,7 @@ class ProjectTidy:
                                  ][-QUEUE_MAX:]
             proposals.change(state, queue)
         self.proposal_cards.follow(ctx, chat)
+        self.proposal_cards.release(ctx, chat, now)  # Those held for the night (core/quiet_hours.py), in the morning.
         self.runs.scheduled(ctx, chat, now)
         if not self.shared.busy.locked():
             self.drain(ctx, chat, now)

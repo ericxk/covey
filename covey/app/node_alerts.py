@@ -10,6 +10,8 @@
   cleared before it was sent is dropped. At most PER_HOUR alerts are sent an hour; the rest are only logged.
 - **silent nodes** (``offline``): a node other than the hub's own that was connected and has not been heard from for
   OFFLINE_SECONDS raises; heard again, it clears.
+- **at night** (core/quiet_hours.py): an alert that is not ``severe`` waits for the quiet hours to end, still pending;
+  cleared before then, it is dropped as any pending one is.
 
 No record lock is held while Feishu is called: the record is written, then the send, then the outcome.
 """
@@ -22,7 +24,7 @@ import time
 from pathlib import Path
 
 from covey.cards.node_cards import alert_card, alert_text, cleared_card
-from covey.core import nodes
+from covey.core import nodes, quiet_hours
 from covey.core.jobs import find_job_record
 from covey.core.loops import every
 from covey.core.state import ensure_private_dir, read_object, write_json
@@ -33,6 +35,16 @@ PER_HOUR = 6
 OFFLINE_SECONDS = 600.0
 SEND_TRIES, PATCH_TRIES = 3, 5
 KEEP_DONE = 7 * 86400
+
+
+# Alerts sent at any hour: a process was killed for memory, a disk takes no writes. Memory tight, a disk nearly full and a
+# node gone silent (a laptop asleep) wait out the night (core/quiet_hours.py).
+SEVERE = frozenset({"oom", "write"})
+
+
+def severe(rule) -> bool:
+    """Whether an alert of ``rule`` (``mem``, ``oom``, ``disk:<path>``, ``write:<path>``, ``offline``) goes out at night too."""
+    return str(rule or "").split(":", 1)[0] in SEVERE
 
 
 def alert_path(state_dir, alias, rule):
@@ -123,11 +135,23 @@ class NodeAlerts:
             alert = read_object(path)
             state = alert.get("state")
             if state == "pending":
+                if not severe((alert.get("event") or {}).get("rule")) and quiet_hours.quiet(now, self.environ):
+                    self.hold(path, alert, now)
+                    continue
                 self.send(ctx, path, alert)
             elif state == "clearing":
                 self.redraw(ctx, path, alert)
             elif state in ("done", "dropped", "unsent", "unpatched") and now - path.stat().st_mtime > KEEP_DONE:
                 path.unlink(missing_ok=True)
+
+    def hold(self, path, alert, now):
+        """A pending alert that is not severe, at night: it stays pending (a clear drops it); the first time, its record
+        says since when and the log says so."""
+        if alert.get("held"):
+            return
+        write_json(path, dict(alert, held=now), ensure_ascii=False)
+        event = alert.get("event") or {}
+        self.runtime.log(f"node alert held {quiet_hours.words(now, self.environ)} {event.get('alias')} {event.get('rule')}")
 
     def name(self, ctx, alias):
         entry = nodes.registry(ctx.state_dir).get(alias) or {}

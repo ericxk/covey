@@ -238,6 +238,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 - **只发一次**（`app/relay_send.py` 的 `send_once`）：锁内写意图、锁外发，没确认记 `uncertain`，从不重发（规则 1）。
 - 回带消息是话题的消息，看过它就算看过话题。
+- **连着做完的合成一条**（`send_merged`，`COVEY_RELAY_MERGE_SECONDS`，默认 20 秒，0 关）：“完成”的回带发出时聊天里还有别的话题的任务在跑或排队、或者已有回带在等，就先记 `pending`（`main-thread/relays/waiting.json` 按聊天列着）等这么多秒，再把这期间等着的一起发：只有自己的照常是结论卡，两条以上发一张「N 个话题做完了」卡（`cards/relay_card.py` 的 `merged_card`：每个话题一行 T 号、标题和回答第一句，点 T 号打开）。哪条记录都只从 `pending` 被取走一次（锁内改成 `submitting`），仍然只发一次；合成的那条算顶层的消息，引用它交给管家。没有别的任务在做时照旧马上发。“等你”和“停住了”从不等、不合并。
 
 记录文件、产物更新和维护见[实现细节 · 结论回到顶层的细节](butler-internals.md#结论回到顶层的细节)。
 

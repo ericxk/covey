@@ -1,13 +1,14 @@
 """The card a topic turn's outcome takes back to the butler's top level (app/butler_relay.py, docs/butler.md
 结论回到顶层): ``relay_card``, pure, and what it shares with the question card's copy there
-(cards/question_cards.py mirror_card): a topic's reply as card Markdown (``reply_body``)."""
+(cards/question_cards.py mirror_card): a topic's reply as card Markdown (``reply_body``). ``merged_card``: 做完了 relays that
+came close together, as one card (app/relay_send.py send_merged)."""
 from __future__ import annotations
 
 from covey.cards.answer_card import tail as answer_tail
-from covey.cards.elements import card, json_size, md, note
+from covey.cards.elements import card, grey, json_size, md, note
 from covey.cards.review import (ANSWER_CARD_BYTES, after_lead, answer_lead, bold_minor_headings,
                                 inline_one_line_code)
-from covey.cards.ui import band_label, banded, conclusion_band, styled
+from covey.cards.ui import band_label, banded, conclusion_band, number, styled
 from covey.core import look
 from covey.core.failure import HEADLINE_CHARS, split_title
 from covey.core.text import literal, redact
@@ -80,3 +81,27 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
     elements = head + [band] + ([md(body)] if shown else []) + [note(tail)]
     markdown = "\n\n".join(part for part in (first, body, tail) if part)
     return styled(card(elements, lead)), markdown
+
+
+MERGED_NOTE = "点 T 号打开它的回答"
+
+
+def merged_card(items):
+    """(card, text): 做完了 relays that came close together (app/relay_send.py send_merged) as one card, the Markdown when
+    the card is refused. ``items``: each relay's {label (T41), title, lead (its reply's first line)}, in the order they
+    came. The band says how many; one line each, its T number made a link by the sender (app/relay_send.py ``linked``),
+    its lead grey under it."""
+    count = len(items)
+    rows = []
+    for item in items:
+        head = " ".join(part for part in (literal(item.get("label") or ""), literal(item.get("title") or "")) if part)
+        lead = literal(item.get("lead") or "")
+        rows.append(f"**{head or '话题'}**" + (f"\n{grey(lead)}" if lead else ""))
+    band = conclusion_band(band_label("result", f"{count} 个话题"), number(count, "个话题做完了"))
+    labels = "、".join(str(item.get("label") or "话题") for item in items)
+    built = styled(card([band, *(md(row) for row in rows), note(MERGED_NOTE)],
+                        summary(f"{count} 个话题", look.word("result"), labels)))
+    lines = [f"**{count} 个话题做完了**"] + [
+        "- " + " ".join(part for part in (str(item.get("label") or ""), str(item.get("title") or "")) if part)
+        + (f"：{item['lead']}" if item.get("lead") else "") for item in items]
+    return built, "\n".join(lines)

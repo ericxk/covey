@@ -10,7 +10,7 @@ from covey.app import project_sorter as sorter
 from covey.app import tidy_facts as facts
 from covey.cards import project_proposal as cards
 from covey.core import project_proposals as proposals
-from covey.core import projects
+from covey.core import projects, quiet_hours
 from covey.core.state import read_object, write_json
 from covey.core.topics import label_title
 
@@ -238,7 +238,28 @@ class ProposalCards:
         if not new or saved.get("state") != proposals.OPEN or (saved.get("card") or {}).get("message_id"):
             return ""
         self.gists(ctx, chat, saved.get("topics") or ())
+        now = time.time()
+        if not made.get("run") and quiet_hours.quiet(now):
+            # The real-time look's, at night (core/quiet_hours.py): its card waits for the morning (``release``); the 看板
+            # lists it meanwhile (core/project_proposals.py waiting). One a 整理 the owner set or asked for goes now.
+            proposals.update_proposal(state, saved["id"], lambda data: data.update(held=now))
+            self.runtime.log(f"project tidy proposal held {quiet_hours.words(now)} proposal={saved['id'][:8]}")
+            return "held"
         return "proposed" if self.send_proposal(ctx, chat, saved) else ""
+
+    def release(self, ctx, chat, now) -> int:
+        """The proposal cards held for the morning (``propose``), sent once the quiet hours are over, each tried once as
+        any proposal card is; how many went. Decided or merged into another meanwhile: as the record says now."""
+        if quiet_hours.quiet(now):
+            return 0
+        state, sent = Path(ctx.state_dir), 0
+        for record in proposals.proposals(state, (proposals.OPEN,)):
+            if not record.get("held") or (record.get("card") or {}).get("message_id"):
+                continue
+            held = proposals.update_proposal(state, record["id"], lambda data: data.pop("held", None))
+            if held.get("state") == proposals.OPEN and self.send_proposal(ctx, chat, held):
+                sent += 1
+        return sent
 
     def gists(self, ctx, chat, topics) -> None:
         """The 话题要点 of each of ``topics`` that has none, so its proposal card says what each is about (one read a topic;

@@ -755,7 +755,7 @@ def menu_panels():
 def answer_tail_cards():
     """The answer card with its 产物 and 输入/输出 (cards/answer_card.py, 2026-11-08), its relay at the top level and
     the small card after an answer sent as a file."""
-    from covey.cards.relay_card import DONE, STOPPED, WAITING, relay_card
+    from covey.cards.relay_card import DONE, STOPPED, WAITING, merged_card, relay_card
     from covey.cards.answer_card import (ARTIFACTS_ID, acceptance_element, criteria_element, input_parts, memory_element,
                                          output_parts, review_element, tail, tail_card)
     from covey.cards.elements import markdown_panel
@@ -841,6 +841,9 @@ def answer_tail_cards():
                 text, "T443 有结果 · 结论", [*tail(None, inputs, outputs), topic_panel(TOPIC, 443, ("claude", 2), rewind=True)],
                 [answer_band("done", "T443", "改看板的 Pin 目标", "按钮已经改好")]),
             "relay_waiting": relay_card("T439", WAITING, question="用哪种格式输出？表格还是列表，表格方便对比、列表方便手机上看")[0],
+            # 做完了 relays that came close together, as one (app/relay_send.py send_merged).
+            "relay_merged": merged_card([{"label": "T439", "title": "改看板的 Pin 目标", "lead": "按钮已经改好"},
+                                         {"label": "T441", "title": "查一下昨晚的日志", "lead": "没有异常"}])[0],
             "relay_stopped": relay_card("T439", STOPPED, reason="到了任务的时间上限，这一轮停在这里；可以接着做，或拆小再试")[0],
             "answer_card_asked": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [ask]),
             "answer_relay_asked": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,

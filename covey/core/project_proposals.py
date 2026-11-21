@@ -280,13 +280,15 @@ def free(state_dir, topics) -> list:
 
 
 def waiting(state_dir) -> list:
-    """The proposals waiting for the owner, the newest first: the open 新建 ones on a proposal card of their own with at least
-    MIN_CREATE topics, the same topics (or some of them) once. The 看板 (app/digest.py), the butler's projects_list
-    (app/projects.py) and 整理专项's 还在等你定 say these, so all three say the same."""
+    """The proposals waiting for the owner, the newest first: the open 新建 ones on a proposal card of their own (or whose
+    card waits for the morning, ``held``: app/tidy_proposals.py) with at least MIN_CREATE topics, the same topics (or some
+    of them) once. The 看板 (app/digest.py), the butler's projects_list (app/projects.py) and 整理专项's 还在等你定 say
+    these, so all three say the same."""
     found, seen = [], []
     for record in sorted(proposals(state_dir, (OPEN,)), key=lambda record: record.get("created_at") or 0, reverse=True):
         mine = frozenset(record.get("topics") or ())
-        if record.get("kind") != CREATE or len(mine) < MIN_CREATE or not (record.get("card") or {}).get("message_id"):
+        if (record.get("kind") != CREATE or len(mine) < MIN_CREATE
+                or not ((record.get("card") or {}).get("message_id") or record.get("held"))):
             continue  # A row of an older 整理专项 card (of an older release) stays on that card.
         if any(mine <= other or other <= mine for other in seen):
             continue

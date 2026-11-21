@@ -20,6 +20,8 @@
 | 撤回与编辑 | `COVEY_SOURCE_WATCH`（默认开） | 撤回一条已变成任务的消息，任务跟着停；编辑后任务收到改后的内容 | `COVEY_SOURCE_WATCH=0` |
 | [任务在跑时发的话补充给它](usage.md#追问排队与并行) | `COVEY_TOPIC_STEER`（默认开） | 话题里任务在跑时发一句，那张卡变成回执“已补充到 #N，不另开一轮”，不再排成下一轮 | `COVEY_TOPIC_STEER=0`（照旧排成下一轮） |
 | [追问只发答案卡](usage.md#追问排队与并行) | `COVEY_QUICK_ANSWER_SECONDS`（默认 10） | 话题里追问一句、它不用工具几秒内就答完时，串里只有答案卡，没有任务卡 | `COVEY_QUICK_ANSWER_SECONDS=0`（每轮先出任务卡） |
+| [夜里不打扰](usage.md#早晚汇总) | `COVEY_QUIET_HOURS`（没设时按早晚汇总的时间，汇总只有一个时间或没开时没有） | 夜里整理专项自己发现的提议卡、不严重的机器告警攒到早上再发 | `COVEY_QUIET_HOURS=off` |
+| [连着做完的回带合成一条](butler.md#结论回到顶层) | `COVEY_RELAY_MERGE_SECONDS`（默认 20，要管家开着） | 别的话题还在做时，“完成”的回带等 20 秒，这期间做完的合成一张「N 个话题做完了」 | `COVEY_RELAY_MERGE_SECONDS=0`（每条马上发） |
 | [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
 | [子 Agent 守则](harnesses.md#claude-code) | `COVEY_CLAUDE_HOOKS`（默认开） | Claude Code 的子 Agent（Explore 除外）开工时带上四句守则；子 Agent 调 Bridge 的工具（开话题、转交）被拒；管家这一轮自己调满 6 次别的工具时被提醒一次交给话题 | `COVEY_CLAUDE_HOOKS=0`（不注册这些 hook，和原来一样） |
 | [欢迎卡](usage.md#第一次使用) | `COVEY_WELCOME`（默认开） | 新部署第一次启动后私聊里有一张「欢迎使用 Covey」卡；升级前已在用的部署不发 | `COVEY_WELCOME=0` |
@@ -411,7 +413,7 @@
 | `COVEY_HARNESS_PROBE` | `app/availability.py`（`PROBE_ENV`；探测本身在 `core/harness_probe.py`） | 关；开了才在可用性检查里对 Claude、Codex 各做一次真实调用（缓存 6 小时，失败 10 分钟），没登录时启动卡上不给这个 Harness | 否 |
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
 | `COVEY_GROUP_MEMBERS` | `app/access.py`（`members_default`；群聊卡、启用确认卡和 `app/tool_limits.py` 经它） | `full`：没在群聊卡上选过的群，群成员的任务和你的一样；`read`：这些群的群成员任务只读（见[群成员只读](#群成员只读)） | 否 |
-| `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它或 `COVEY_BOARD=1` 才要菜单「看板」）、`app/tidy_run.py`（`scheduled`：整理专项的定时也按这些时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
+| `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它或 `COVEY_BOARD=1` 才要菜单「看板」）、`app/tidy_run.py`（`scheduled`：整理专项的定时也按这些时间）、`core/quiet_hours.py`（`COVEY_QUIET_HOURS` 没设时，夜里是最后一个时间到第一个时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
 | `COVEY_BOARD` | `core/app_manifest.py`（`board_switch`：`required` 据此要菜单「看板」，`app/digest.py` 的 `menu_items` 据此加这一项） | 关：菜单「看板」跟着早晚汇总，设了 `COVEY_DIGEST_TIMES` 才有，和原来一样；`1`：没有早晚汇总也有。`./install` 新装的服务写 `1`（`service/installer.py` 的 `INSTALL_SWITCHES`） | 否 |
 | `COVEY_REVISIT` | `core/revisits.py`（`enabled`：`app/revisits.py` 的 `revisits` 后台线程、`app/runs.py` 普通话题每轮的规则行、`app/digest.py` 看板的“到点回来看”一组都看它；任务进程里 `app/turn_delivery.py` 据此决定没有变化的那一轮不发） | 关：检查点里的 `revisit` 不读，不写 `revisits/`，和原来一样；`1` 开，见[到点回来看](usage.md#到点回来看) | 否 |
 | `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：不开知识条目 | 否 |
@@ -427,6 +429,8 @@
 | `COVEY_DISPATCH_CARD`（旧名 COVEY_MAIN_DISPATCH_CARD、LARK_BRIDGE_MAIN_DISPATCH_CARD） | `app/dispatch_cards.py`（`enabled`；`app/butler_topics.py` 的 `dispatch_card` 和 `app/relay_send.py` 的 `dispatch_note` 据此调用，`threads()` 据此起 `dispatch_cards` 后台线程） | 空：关；`1` 开派发卡：管家派出话题后发一张活卡片，刷新到结论回带后缩成一行 | 否 |
 | `COVEY_STEER_URGENT_SECONDS` | `app/steer_interrupt.py`（`urgent_seconds`，任务进程和 Bridge 都读） | `20`：急的补充（带“马上”“立刻”“停”“过期”这类词）送达这么多秒还没被读到，就停掉模型正在等的那条命令（推送、部署这类不停），见[架构 · 补充投递](architecture.md#补充投递)；`0` 关自动打断，回执卡上的“打断它，马上读”照常 | 否 |
 | `COVEY_SOURCE_WATCH` | `app/source_watch.py`（`enabled`：`note` 据此登记主人的消息，`threads()` 据此起 `source-watch` 后台线程） | 开：主人撤回或编辑了变成任务或补充的消息，任务随之停下或收到改后的内容（见[架构 · 撤回与编辑](architecture.md#撤回与编辑)）；`0` 关：不读回消息，和原来一样按收到时的原文做 | 否 |
+| `COVEY_QUIET_HOURS` | `core/quiet_hours.py`（`window`、`quiet`：`app/tidy_proposals.py` 的 `propose` 夜里先不发实时判断的提议卡、`release` 早上发，`app/node_alerts.py` 的 `deliver_all` 夜里不发不严重的告警） | 空：按 `COVEY_DIGEST_TIMES` 从最后一个时间到第一个时间（`09:30,21:30` 是 21:30 到 09:30；只有一个时间或没设时没有夜里）；`HH:MM-HH:MM` 设定时段（Asia/Shanghai，含开始、不含结束）；`off` 或 `0`（或写错）：没有，每张卡马上发（以前的做法） | 否 |
+| `COVEY_RELAY_MERGE_SECONDS` | `app/relay_send.py`（`merge_seconds`、`send_merged`；`app/butler_relay.py` 的 `relay` 只对“完成”的回带用它） | 20：“完成”的回带发出时聊天里还有别的话题的任务在跑、在排队，或已有回带在等，就等这么多秒，期间等着的合成一条「N 个话题做完了」；没有别的在做时照旧马上发。`0`：关，每条马上发（以前的做法）；0 到 45 以外和非整数按 20 | 否 |
 | `COVEY_QUICK_ANSWER_SECONDS` | `app/submission.py`（`quick_seconds`、`quick_hold`：话题里的追问先不发任务卡，存进任务的 `card_after`；`app/cards.py` 的 `Cards.reveal` 到点或第一步时发卡，`app/worker.py` 答完时只发答案卡） | 10：话题里的追问最多这么多秒不发任务卡，期间有了第一步（工具调用、进展说明、子任务）或问问题就发；这几秒内只答了话的只发答案卡，见[卡片 · 追问只发答案卡](cards.md#追问只发答案卡)。`0`：关，每轮先出任务卡（以前的做法）；0 到 120 以外和非整数按 10 | 否 |
 | `COVEY_TOPIC_STEER` | `core/deliveries.py`（`topic_steer`：`app/submission.py` 的 `steers_on_arrival` 据此决定话题里的消息进不进在跑的任务，`app/detached.py` 据此在任务进程结束后、Bridge 启动时把没读到的补成新一轮） | 开：话题里任务在跑时发来的消息自动补充给那个任务（和点排队卡上的「现在补给 #N」一样，只送一次），没发出就照旧排成下一轮，确定模型没读到的自动排成新一轮，见[架构 · 补充投递](architecture.md#补充投递)；`0` 关：和原来一样排成下一轮，要补充时点排队卡上的按钮 | 否 |
 | `COVEY_BUTLER_TRACKS`（旧名 COVEY_MAIN_TRACKS、LARK_BRIDGE_MAIN_TRACKS） | `core/butler_tracks.py`（`enabled`；`core/butler.py` 的 `is_butler_topic` 据此把槽 1 到 4 的话题也算管家；`app/butler_tracks.py` 的 `Tracks.enabled` 再加上管家允许、模式是管家 才分流） | 空：关；`1` 开[同时做几件事](butler.md#同时做几件事开关默认关)：家族里有任务在做时，主人的下一句先按规则（`core/track_route.py`）和小模型分流，并进某件在做的事、停止或新开一件（槽 1 到 4）。关着时消息的走法和原来一样 | 否 |
