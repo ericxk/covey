@@ -31,9 +31,9 @@ hour sends it once, later it is skipped. The card is built and saved before it i
 a send not confirmed is tried again RETRY seconds later with the same key and card, at most SEND_TRIES times
 (Feishu's idempotency window and feishu/transport.py's receipts post nothing twice), then given up.
 
-看板 (the bot menu's BOARD_KEY, only with a time set: a deployment without the digest has no such item) is the same
-card at any time, 随时查看 · HH:MM in its title (the view's ``asked``): what waits and runs now, and what ended since the
-last digest time (``last_slot``, ``board_since``). It reads digest.json and never writes it: the times and their
+看板 (the bot menu's BOARD_KEY, with a time set or COVEY_BOARD=1, core/app_manifest.py board_switch: with neither, no
+such item) is the same card at any time, 随时查看 · HH:MM in its title (the view's ``asked``): what waits and runs now, and what ended since the
+last digest time (``last_slot``, ``board_since``; without the digest, the last day). It reads digest.json and never writes it: the times and their
 sends go on as before. Nothing to list, the card says so (a click wants an answer). Its record is
 <state>/BOARD_FOLDER/<token>.json (app/menu_panel.py), the view in ``digest``; the bot menu keeps one such card and a
 second click on the newest folds and unfolds it in place (app/bot_menu.py), unfolded with a fresh view. Its
@@ -56,7 +56,7 @@ from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
 from covey.cards.board import KINDS as BOARD_KINDS, SEEN_KIND, SEEN_MAX, board_card
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
-from covey.core import board_read, knowledge, look, patrol, projects, turn_words
+from covey.core import app_manifest, board_read, knowledge, look, patrol, projects, turn_words
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
@@ -376,12 +376,16 @@ class Digest:
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
 
     def menu_items(self):
-        """The bot menu's 看板, only with a digest time set (app/unified.py menu)."""
-        return {BOARD_KEY: self.board} if self.times() else {}
+        """The bot menu's 看板, with a digest time set or COVEY_BOARD=1 (app/unified.py menu)."""
+        return {BOARD_KEY: self.board} if self.board_on() else {}
 
     def menu_folds(self):
         """A second 看板 on its card, the newest in the chat (app/bot_menu.py)."""
-        return {BOARD_KEY: self.fold_board} if self.times() else {}
+        return {BOARD_KEY: self.fold_board} if self.board_on() else {}
+
+    def board_on(self) -> bool:
+        """Whether the bot menu has 看板: the digest's times, or the board on its own (core/app_manifest.py)."""
+        return app_manifest.board_switch() or bool(self.times())
 
     def board_view(self, ctx, chat, now=None):
         """看板's view now (``asked``): ``chat``'s digest.json only read. Feishu calls (the T links), so outside any

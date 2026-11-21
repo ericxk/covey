@@ -47,7 +47,7 @@
 | 菜单 | 事件 key | 图标（自动补齐用飞书内置线性图标；手工配可以上传右边的文件） | 什么时候要 |
 | --- | --- | --- | --- |
 | 用量 | `weekly_usage` | `insert-chart_outlined`；`docs/media/menu-icons/usage.png` | 总要 |
-| 看板 | `digest_board` | `bitablekanban_outlined` | 设了 `COVEY_DIGEST_TIMES` |
+| 看板 | `digest_board` | `bitablekanban_outlined` | 设了 `COVEY_BOARD=1`（`./install` 写）或 `COVEY_DIGEST_TIMES` |
 | 代答 | `proxy_settings` | `robot_outlined`；`docs/media/menu-icons/proxy.png` | 启用的扩展有代答发送器 |
 | 设置 | `bridge_settings` | `setting_outlined`；`docs/media/menu-icons/settings.png` | 总要 |
 
