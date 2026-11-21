@@ -513,10 +513,16 @@ class MaintenanceTest(Case):
         maintain(self.state, apply=True, now=time.time(), backup=False)
         self.assertEqual(memory.stored(self.state, PID), [])
 
-    def test_the_projects_folder_is_not_in_a_backup(self):
+    def test_a_backup_holds_a_projects_record_and_memory_but_not_its_librarys_files(self):
+        # Projects were out of every backup (2026-11-16) for the files a library copies, up to PROJECT_LIMIT each;
+        # T604 keeps the rest, the owner's projects and their memory.
         self.put_files()
         memory.add(self.state, PID, "窗口在周六", "fact", now=NOW)
-        self.assertEqual([path for path in backup.backup_paths(self.state) if "projects" in path.parts], [])
+        held = [path.relative_to(self.state).as_posix() for path in backup.backup_paths(self.state)
+                if "projects" in path.parts]
+        self.assertIn(f"projects/{PID}/memory.json", held)
+        self.assertIn(f"projects/{PID}/{library.FILE}", held)
+        self.assertEqual([name for name in held if f"/{library.FOLDER}/" in name], [])
 
 
 if __name__ == "__main__":

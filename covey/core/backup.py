@@ -26,11 +26,10 @@ BACKUP_DIRS = {
     "topics",
     "jobs",
     "checkpoints",
-    "menu-events",
-    "command-menus",
     "browse-cards",
     "artifact-deliveries",
     "questions",
+    "held-notes",  # The notes kept while several questions wait: they go with the answer (questions/ is backed up).
     "interaction-deliveries",
     "result-files",
     "model-settings",
@@ -48,22 +47,94 @@ BACKUP_DIRS = {
     # 代答: of proxy/ only its settings, whitelist and the owner's style note; never web/
     # (the owner's Feishu web login), send-as-user/ (the send tool's credentials), shots/, batches/ or tmp/.
     "proxy/contacts",
+    # 专项 (core/projects.py) and 整理专项's decisions (projects/tidy/); of a project's folder its memory, index and inbox,
+    # not the files its library copied (BACKUP_SKIP).
+    "projects",
+    "knowledge",  # 知识条目 (core/knowledge.py): what the owner asked to be remembered.
+    "status-cards",  # 手上的事's topic cards it pinned: Feishu lists no pins of a private chat (app/pins.py).
+    # 网页工作台 (core/web_sync.py): the ledger of the page's operations, so a restore does none of them twice; its key
+    # is in the config's key_file, outside the state directory.
+    "web",
 }
 
 
 # model-usage.json: the chats' recent model selections, so the model selects keep their order after a restore.
+# principles.json, main-thread.json and redaction/config.json are the owner's: his principles (and so his memory's,
+# core/memory.py), the butler's settings and the sensitive terms. owner-chat.json names the private chat the menu,
+# 手上的事 and the digests go to; migrations.json the migrations the records backed up with it have had (core/migrate.py).
+# The pinned board's records (pinned-overview.json, pinned-topics.json, board-priority.json, topic-seen.json) and
+# digest.json: what is pinned and sent is known from them alone, so a restore pins and sends nothing twice.
 BACKUP_FILES = {"workspace-config.json", "session_index.jsonl", "bot-identity.json", "launch-defaults.json",
-                "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md"}
+                "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md",
+                "principles.json", "main-thread.json", "redaction/config.json", "owner-chat.json", "migrations.json",
+                "pinned-overview.json", "pinned-topics.json", "board-priority.json", "topic-seen.json", "digest.json"}
+
+
+# Folders under a backed-up directory that a backup leaves out, by the directory: a project's library/ holds copies of
+# the files the owner gave it, up to core/project_library.py PROJECT_LIMIT a project; its index library.json goes.
+BACKUP_SKIP = {"projects": frozenset({"library"})}
+
+
+# What a backup leaves out of a state directory, and why. With BACKUP_DIRS and BACKUP_FILES it decides every entry
+# docs/operations.md's 状态目录 lists (tests/test_maintenance.py BackupListTest): an entry added there, or a new name
+# the code puts under a state directory, says here or there whether a backup holds it. A directory backed up in
+# part (proxy/, redaction/) is decided by its parts in the two lists.
+NOT_BACKED_UP = {
+    "bridge.pid": "the running Bridge's process number",
+    "bridge.log*": "logs",
+    "bridge-console.log*": "logs",
+    "maintenance-status.json": "what the last maintenance of this directory did",
+    "backups": "the backups themselves",
+    "tmp": "temporary files of the Bridge and its task runners",
+    "runs": "task runners' run directories: a restore starts no task",
+    "inbound-messages": "marks against Feishu delivering a message twice, kept 7 days",
+    "answer-cards": "answer cards of the last 7 days, for their 产物 links",
+    "job-diffs": "each turn's diff report, up to 200 MiB, uploaded to the cloud space",
+    "artifact-drive": "the uploads of 产物 to the cloud space",
+    "artifact-upload": "files on their way to the cloud space",
+    "turn-exports": "下载请求与结果's packs of sent cards",
+    "policy-stops": "official refusals' stop records (policy-stop.md)",
+    "policy-inbox": "the feed of official refusals to the running Bridge",
+    "policy-source*.json": "the feed of official refusals to the running Bridge",
+    "cards": "card locks",
+    "switch-forms": "the state of cards already sent",
+    "rewind-forms": "the state of cards already sent",
+    "menu-panels.json": "the state of cards already sent",
+    "settings-cards": "the state of cards already sent",
+    "group-managers": "the state of cards already sent",
+    "main-thread-panels": "the state of cards already sent",
+    "weekly-usage-cards": "the state of cards already sent",
+    "digest-boards": "the state of cards already sent",
+    "dashboard-links": "the state of cards already sent",
+    "topic-links.json": "a cache of what Feishu said of messages (app/topic_links.py)",
+    "main-thread": "the butler's tool requests and send-once ledgers, kept 7 days",
+    "app-setup": "自动补齐飞书应用's runs",
+    "owner-send": "代发's drafts and sends, tied to cards already sent",
+    "patrol": "what the butler would have said (COVEY_PATROL=shadow), kept 14 days",
+    "devices": "a device's working files on the hub",
+    "nodes": "节点's keys (credentials) and samples",
+    "stuck-check": "the working directory of a small model's run",
+    "standing-forms": "the working directory of a small model's run",
+    "track-judge": "the working directory of a small model's run",
+    "launch-models": "model lists, asked again",
+    "native-models": "model lists, asked again",
+    "pi-sessions": "a backend's own sessions: no Harness's session store is backed up",
+    "<网关名>": "a model gateway's relay log",
+    "<扩展>-sessions": "a backend's own sessions: no Harness's session store is backed up",
+    "claude-diagnostics": "diagnostics",
+    "<扩展>-diagnostics": "diagnostics",
+}
 
 
 def backup_paths(state):
-    """The files a backup holds: no lock files, writers' temporary files or symlinked folders."""
+    """The files a backup holds: no lock files, writers' temporary files, symlinked folders or ``BACKUP_SKIP``."""
     paths = [state / name for name in sorted(BACKUP_FILES)]
     for name in sorted(BACKUP_DIRS):
         if (state / name).is_symlink():
             continue
+        skipped = BACKUP_SKIP.get(name, frozenset())
         for folder, dirs, files in os.walk(state / name):
-            dirs[:] = sorted(d for d in dirs if d != ".locks")
+            dirs[:] = sorted(d for d in dirs if d != ".locks" and d not in skipped)
             paths += [Path(folder) / f for f in sorted(files) if not (f.startswith(".") and f.endswith(".tmp"))]
     return paths
 

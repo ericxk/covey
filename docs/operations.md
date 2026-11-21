@@ -148,11 +148,17 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 │  ├─ pinned-overview.json、pinned-topics.json、board-priority.json、status-cards/、topic-seen.json   手上的事和话题看板
 │  ├─ topic-links.json             卡上 T 号的话题链接
 │  ├─ digest.json                  早晚汇总
+│  ├─ projects/                    专项（`COVEY_PROJECTS`）：`<专项>.json`；`<专项>/` 里是记忆 `memory.json`、资料库索引 `library.json` 和复制的文件 `library/`、收件箱 `inbox/`；整理专项的记录 `tidy/`
+│  ├─ owner-send/                  代发的草稿和发送记录
+│  ├─ patrol/                      我本来想找你的事（`COVEY_PATROL=shadow`）的记录
+│  ├─ devices/、nodes/             多设备在本机的工作文件；节点的名单、口令和采样
+│  ├─ web/                         网页工作台：网页上发来的操作的账本 `inbox.json`、推过的内容、网页开的话题
 │  └─ app-setup/                   自动补齐飞书应用的状态和运行目录
 └─ 后端
    ├─ backend-health/              各后端最近一次任务的结果和模型目录查询结果，doctor 从这里读
    ├─ launch-models/、native-models/   模型目录缓存、扩展的实测档位
    ├─ pi-sessions/、<网关名>/、<扩展>-sessions/   后端自己的会话和运行文件（<网关名>/relay.log 是模型网关的繁忙记录）
+   ├─ stuck-check/、standing-forms/、track-judge/   小模型一次调用的工作目录：「看看」、以后这类按推荐走的起草、同时做几件事的判断
    └─ claude-diagnostics/、<扩展>-diagnostics/   后端诊断
 ```
 
@@ -305,7 +311,7 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 | 代答批次 `proxy/batches/` | 只删已结束且 30 天没改动的 |
 | 专项记录 `projects/`（`COVEY_PROJECTS`，开发中） | 只删状态是 `done` 或 `cancelled` 且 180 天没改动的，连同它的 `projects/<id>/` 目录（`remove_projects`）；`active`、`paused` 的不动 |
 | 主动记录 `patrol/candidates/`、`patrol/decisions/`（`COVEY_PATROL`） | 日文件 14 天没改动的删（`remove_patrol`）；`state.json` 不动 |
-| 专项的记忆和资料库 `projects/<id>/memory.json`、`library/`（`COVEY_PROJECT_MEMORY`，开发中） | 已结束（做完、已取消）的专项，记忆条目写下 180 天后删（含墓碑，风格行留着，`trim_project_memory`；在做和停住的不动）；专项 `done` 且记录 30 天没改动后，资料库的文件删掉、索引留着名字和 sha256（`purge_project_files`）；单个专项的文件超过 200 MiB 时从最旧的删（话题的产物在前，主人发的文件在后）。`projects/` 从不进备份（备份只收 `core/backup.py` 列的目录） |
+| 专项的记忆和资料库 `projects/<id>/memory.json`、`library/`（`COVEY_PROJECT_MEMORY`，开发中） | 已结束（做完、已取消）的专项，记忆条目写下 180 天后删（含墓碑，风格行留着，`trim_project_memory`；在做和停住的不动）；专项 `done` 且记录 30 天没改动后，资料库的文件删掉、索引留着名字和 sha256（`purge_project_files`）；单个专项的文件超过 200 MiB 时从最旧的删（话题的产物在前，主人发的文件在后）。备份收专项记录、记忆和资料库索引，不收资料库复制的文件 `library/` |
 | 锁文件 `.locks/` | 记录已不存在或 7 天未改动的删除；`cards/.locks/` 里没人持有的都删 |
 | `job-diffs/` | 超过 30 天的删除；总量超过 200 MiB 时从最旧的删，但只删云空间上传已确认的，一天内写的不删 |
 | 备份 | 最多 7 份、合计不超过 400 MiB，超出时从最旧的删，最新一份总保留；重启打断留下的 `.tmp` 一天后删 |
@@ -313,9 +319,9 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 
 维护不删除工作区目录或用户产物。
 
-**备份包含**话题（历史、Session 指针、收到的附件）、任务记录、排队任务、执行过程、检查点、问题与投递记录、已验证结果和产物投递记录、启动卡和工作区管理卡状态、启动卡预选、`model-usage.json`、群记录、模型设置、后端观测，以及 `workspace-config.json`、`session_index.jsonl`、`bot-identity.json`，还有代答的 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`（清单是 `core/maintenance.py` 的 `BACKUP_DIRS`、`BACKUP_FILES`）。
+**备份包含**话题（历史、Session 指针、收到的附件）、任务记录、排队任务、执行过程、检查点、问题、暂存的补充与投递记录、已验证结果和产物投递记录、启动卡和工作区管理卡状态、启动卡预选、`model-usage.json`、群记录、模型设置、后端观测，主人的原则 `principles.json`、知识条目 `knowledge/`、管家设置 `main-thread.json`、脱敏词表 `redaction/config.json`、专项 `projects/`（不含资料库复制的文件）、手上的事和话题看板的记录（`pinned-overview.json`、`pinned-topics.json`、`board-priority.json`、`topic-seen.json`、`status-cards/`）、`digest.json`、网页工作台的操作记录 `web/`、`owner-chat.json`、`migrations.json`，以及 `workspace-config.json`、`session_index.jsonl`、`bot-identity.json`，还有代答的 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`（清单是 `core/backup.py` 的 `BACKUP_DIRS`、`BACKUP_FILES`）。
 
-**不包含**凭据（主人的网页端登录 `proxy/web/`、代答发送工具的 `proxy/send-as-user/`）、代答的截图和批次记录、工作区源码与产物、各 Harness 自己的会话存储、`runs/`、扩展后端的会话目录（如 `<扩展>-sessions/`）、`job-diffs/` 和日志。完整的灾难恢复要另外保留这些。备份和归档含对话内容，要保持私有。
+**不包含**凭据（主人的网页端登录 `proxy/web/`、代答发送工具的 `proxy/send-as-user/`、节点的口令）、代答的截图和批次记录、专项资料库复制的文件、工作区源码与产物、各 Harness 自己的会话存储、`runs/`、扩展后端的会话目录（如 `<扩展>-sessions/`）、`job-diffs/`、已发出卡片的表单状态和日志；上面状态目录里的每一项不进备份的原因写在 `core/backup.py` 的 `NOT_BACKED_UP`，新加的状态文件要在那里或备份清单里写明（`tests/test_maintenance.py` 的 `BackupListTest` 核对）。完整的灾难恢复要另外保留这些。备份和归档含对话内容，要保持私有。
 
 ```bash
 python3 -B bin/covey_maintenance.py --state-dir "$STATE_DIR"            # 预览维护计划（JSON）

@@ -67,8 +67,8 @@ PROXY_BATCH_DAYS = 30
 PROJECT_DAYS = 180
 # What a project's memory and library keep (core/project_memory.py, core/project_library.py; COVEY_PROJECT_MEMORY=1): the files of
 # a project that is done go PROJECT_FILES_DAYS after it ended (the index stays), the memory's entries go PROJECT_MEMORY_DAYS after
-# they were written, one project's files stay under core/project_library.py PROJECT_LIMIT. projects/ is not in a backup
-# (core/backup.py).
+# they were written, one project's files stay under core/project_library.py PROJECT_LIMIT. A backup holds projects/ but not
+# the files a library copied (core/backup.py BACKUP_SKIP).
 PROJECT_FILES_DAYS = 30
 
 

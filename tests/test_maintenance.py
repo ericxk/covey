@@ -1,9 +1,11 @@
 """Storage maintenance (core/maintenance.py) and archives and backups that stay readable (core/backup.py)."""
 from __future__ import annotations
 
+import fnmatch
 import gzip
 import json
 import os
+import re
 import tarfile
 import tempfile
 import threading
@@ -17,6 +19,7 @@ from covey.core.checkpoint import read_checkpoint
 from covey.core.backup import restore_backup, verify_backup
 from covey.core.maintenance import maintain
 from covey.core.history_storage import recent_history
+from support import REPO
 from support.records import write_job
 
 
@@ -598,3 +601,83 @@ class StorageMaintenanceTest(unittest.TestCase):
         self.assertIn(f"任务卡顶部状态行改为“{stale.STALE_NOTE}”", report)
         self.assertEqual((len(plan["archive"]), plan["stale_jobs"]), (1, ["asked"]))
         self.assertTrue(old.exists())
+
+
+def listed_entries():
+    """The top-level names docs/operations.md's 状态目录 lists, as written there ("bridge.log*", "<网关名>")."""
+    text = (REPO / "docs" / "operations.md").read_text(encoding="utf-8")
+    block = text.split("### 状态目录", 1)[1].split("```text", 1)[1].split("```", 1)[0]
+    names = set()
+    for line in block.splitlines():
+        found = re.match(r"^[│ ]+[├└]─ (\S+)", line)  # An entry: indented under its group's line.
+        if found:
+            names.update(item.split("/", 1)[0] for item in found.group(1).split("、"))
+    return names
+
+
+# A state directory, then / "a name": what the code puts right under one (a name kept in a constant is not seen).
+STATE_JOIN = re.compile(r'(?:Path\((?:(?:self\.)?(?:ctx|runtime|app)\.|self\.)?state_dir\)|(?:(?:self\.)?(?:ctx|runtime|app)\.'
+                        r'|self\.)?\bstate_dir|\bstate)\s*/\s*"([^"/]+)"')
+# Names the code joins to a variable named so that are no entry of a state directory: a context's defaults before its
+# topic is known (app/harnesses.py BridgeContext); each topic keeps its own under topics/<话题>/.
+ELSEWHERE = {"history.jsonl": "a context's default history, before its topic is known (app/harnesses.py)",
+             "incoming_media": "a context's default attachments folder, beside that history",
+             "model-settings.json": "a context's default model settings (core/model_settings.py); the Bridge's are in "
+                                    "model-settings/"}
+
+
+class BackupListTest(unittest.TestCase):
+    """Every entry of a state directory says whether a backup holds it (core/backup.py): the owner's principles,
+    knowledge entries, the butler's settings, the term list and the projects were left out of every backup until
+    T604 found it, with nothing to say so."""
+
+    def decided(self, name):
+        from covey.core import backup
+        kept = backup.BACKUP_DIRS | backup.BACKUP_FILES
+        return (name in kept or name in backup.NOT_BACKED_UP
+                or any(entry.startswith(name + "/") for entry in kept))
+
+    def test_every_entry_of_the_state_directory_is_backed_up_or_says_why_not(self):
+        from covey.core import backup
+        listed = listed_entries()
+        self.assertGreater(len(listed), 60)  # The tree was read.
+        self.assertEqual(sorted(name for name in listed if not self.decided(name)), [])
+        self.assertEqual([name for name, why in backup.NOT_BACKED_UP.items() if not why.strip()], [])
+
+    def test_the_lists_name_only_what_the_state_directory_lists(self):
+        from covey.core import backup
+        listed = listed_entries()
+        named = {entry.split("/", 1)[0] for entry in backup.BACKUP_DIRS | backup.BACKUP_FILES | set(backup.NOT_BACKED_UP)}
+        self.assertEqual(sorted(named - listed), [])
+        self.assertEqual(sorted((backup.BACKUP_DIRS | backup.BACKUP_FILES) & set(backup.NOT_BACKED_UP)), [])
+
+    def test_every_name_the_code_puts_under_a_state_directory_is_listed(self):
+        listed = listed_entries()
+        found = {}
+        for path in sorted((REPO / "covey").rglob("*.py")):
+            for name in STATE_JOIN.findall(path.read_text(encoding="utf-8")):
+                found.setdefault(name, path.relative_to(REPO).as_posix())
+        self.assertGreater(len(found), 30)  # The code was read.
+        missing = {name: where for name, where in found.items()
+                   if name not in ELSEWHERE and not any(fnmatch.fnmatch(name, entry) for entry in listed)}
+        self.assertEqual(missing, {}, "name it in docs/operations.md 状态目录 and decide its backup (core/backup.py)")
+
+    def test_the_owners_records_go_into_a_backup_and_a_projects_library_files_do_not(self):
+        from covey.core import backup
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            kept = ["principles.json", "main-thread.json", "redaction/config.json", "knowledge/owner.jsonl",
+                    "knowledge/workspaces/app.jsonl", "projects/abc123def456.json", "projects/abc123def456/memory.json",
+                    "projects/abc123def456/library.json", "projects/tidy/state.json", "owner-chat.json",
+                    "pinned-topics.json", "status-cards/x.json", "held-notes/y.json", "web/inbox.json", "digest.json"]
+            left = ["projects/abc123def456/library/f/report.pdf", "redaction/card-key", "redaction/turns.jsonl",
+                    "projects/.locks/abc123def456.lock", "tmp/x", "bridge.log"]
+            for name in kept + left:
+                (state / name).parent.mkdir(parents=True, exist_ok=True)
+                (state / name).write_text("{}", encoding="utf-8")
+            held = {path.relative_to(state).as_posix() for path in backup.backup_paths(state) if path.exists()}
+            self.assertEqual(sorted(set(kept) - held), [])
+            self.assertEqual(sorted(set(left) & held), [])
+            archive = backup.create_backup(state)
+            restore_backup(archive, state / "restored")
+            self.assertEqual((state / "restored" / "principles.json").read_text(encoding="utf-8"), "{}")
