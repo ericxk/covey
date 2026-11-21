@@ -127,11 +127,11 @@ class TopicStartTest(ButlerTopicsCase):
     def test_a_topic_that_waits_gets_a_prefilled_launch_card_and_no_binding(self):
         from covey.app.launch import build_launch_card
 
-        self.settings(start=())
+        self.settings(topic_defaults=butler_settings.TopicDefaults(run_mode="worktree"))  # The only wait left: the card creates the worktree.
         answer = self.start(harness="maso", readonly=False)
         self.assertTrue(answer["ok"], answer)
         self.assertFalse(answer["data"]["started"])
-        self.assertTrue(answer["text"].endswith("：启动卡在话题里，等主人点开始"))
+        self.assertTrue(answer["text"].endswith("：启动卡在话题里，等主人点开始（运行方式是独立 worktree，由启动卡创建）"))
         topic = load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
         self.assertNotIn("workspace_locked", topic)
         self.assertNotIn("model", topic)
@@ -435,7 +435,7 @@ class TopicSendTest(ButlerTopicsCase):
         self.assertIsNone(self.job("send-u"))
 
     def test_a_topic_waiting_on_its_launch_card_is_not_sent_to(self):
-        self.settings(start=())
+        self.settings(topic_defaults=butler_settings.TopicDefaults(run_mode="worktree"))
         data = self.start(readonly=False)["data"]
         answer = self.call("topic_send", topic=data["label"], text="再加一条")
         self.assertFalse(answer["ok"])

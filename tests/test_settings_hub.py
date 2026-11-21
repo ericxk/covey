@@ -363,9 +363,11 @@ class SettingsHubTests(HubCase):
                          ('配置', 'config', ('配置', 'primary_filled')))  # The menu opens on it, 新话题 open.
         self.assertTrue(values(self.card(), butler_card.TOPIC_HARNESS))
         self.assertFalse(values(self.card(), butler_card.HARNESS))
-        self.assertEqual(len(values(self.card(), butler_card.START_ROW)), len(butler_card.START_CHOICES))
-        self.assertEqual(self.press(self.option(butler_card.START_ROW, 'safe'), 'ev-s1'), 'main_panel')
-        self.assertEqual(settings.load(self.state).start, ('readonly', 'trusted'))
+        # 直接开工 is retired: an older card's row still turns the card and changes nothing.
+        before = settings.load(self.state)
+        self.assertEqual(self.press({'kind': butler_card.START_ROW, 'token': token, 'revision': 1, 'option': 'safe'}, 'ev-s1'),
+                         'main_panel')
+        self.assertEqual(settings.load(self.state), before)
         self.assertEqual(self.open_part('butler', 'ev-s2'), 'main_panel')
         self.assertTrue(values(self.card(), butler_card.HARNESS))
         self.assertFalse(values(self.card(), butler_card.TOPIC_HARNESS))
@@ -395,8 +397,7 @@ class SettingsHubTests(HubCase):
                                    'levels': ['low', 'high', 'xhigh']} for i in range(40)}
         choices.update({f'claude:c{i}': {'harness': 'claude', 'model': f'c{i}', 'title': 'Claude Code',
                                          'display_name': f'C{i}', 'levels': ['high', 'max']} for i in range(10)})
-        current = settings.Settings(model='c9', topic_defaults=settings.TopicDefaults(harness='codex', model='m39'),
-                                    trusted=tuple(f'w{i}|edit' for i in range(8)))
+        current = settings.Settings(model='c9', topic_defaults=settings.TopicDefaults(harness='codex', model='m39'))
         for page in BUTLER_PAGES:  # Each page of the butler's.
             row = [tab_row(page, 'a' * 24, tabs)]
             card = butler_card.butler_panel_card('a' * 24, {'revision': 1, 'hub': True}, current, choices,
@@ -447,8 +448,8 @@ class SixTabsTests(HubCase):
         self.assertEqual(values(self.card(), 'bridge_dashboard_rotate'), [])  # The web dashboard is gone.
 
     @requires_extension()
-    def test_the_workspace_tab_is_the_manager_with_the_butlers_notes_and_trusted_is_on_topic(self):
-        settings.update(self.state, trusted=('alpha|read',), workspace_notes=(('alpha', '甲'),), start=('readonly', 'trusted'))
+    def test_the_workspace_tab_is_the_manager_with_the_butlers_notes(self):
+        settings.update(self.state, workspace_notes=(('alpha', '甲'),))
         self.open()
         self.assertEqual(self.press(self.tab('工作区'), 'ev-t1'), 'settings_tab')
         text = json.dumps(self.card(), ensure_ascii=False)
@@ -484,12 +485,8 @@ class SixTabsTests(HubCase):
         self.run_queued()
         from covey.core.workspaces import load_config
         self.assertEqual(load_config(self.state, self.ctx.default_workdir)['default'], 'beta')
-        # 记住的工作区 is on 新话题 now: 删除 a trusted one there, the tab stays.
         self.assertEqual(self.press(self.tab('配置'), 'ev-t5'), 'settings_tab')
-        self.assertIn('记住的工作区（1）', json.dumps(self.card(), ensure_ascii=False))
-        untrust, = [v for _, v in values(self.card(), butler_card.UNTRUST)]
-        self.assertEqual(self.press(untrust, 'ev-u1'), 'main_panel')
-        self.assertEqual((settings.load(self.state).trusted, self.title()), ((), '配置'))
+        self.assertNotIn('记住的工作区', json.dumps(self.card(), ensure_ascii=False))  # Retired.
         self.assertEqual(self.press(self.tab('工作区'), 'ev-t6'), 'settings_tab')
         # Turned away, the manager's buttons find nothing.
         self.press(self.tab('群聊'), 'ev-t2')
@@ -536,7 +533,7 @@ class SixTabsTests(HubCase):
         token = self.hub.token('dm', 'ev-menu')
         path = self.hub.path(self.ctx, token)
         write_json(path, {**read_json(path), 'tab': 'other'})  # Shown on 其他, before it was retired.
-        # Its 直接开工 lands on 新话题.
+        # Its 直接开工 (retired) lands on 配置 and changes nothing.
         start = {'kind': butler_card.START, 'token': token, 'revision': 1, 'tier': 'readonly', 'on': True}
         self.assertEqual(self.press(start, 'ev-s1'), 'main_panel')
         self.assertEqual((self.title(), self.hub_record()['tab']), ('配置', 'config'))
@@ -548,8 +545,7 @@ class SixTabsTests(HubCase):
         self.assertEqual(self.press({'kind': TAB, 'tab': 'proxy', 'from': 'other', 'token': token}, 'ev-t2'),
                          'settings_tab')
         self.assertEqual(self.title(), '代答')  # An older card's 代答 click from 其他: the panel is still drawn.
-        # 记住的工作区 removed from it lands on 新话题, the page that lists it now; the menu's 设置 folds a record on
-        # 其他 as 工作区.
+        # 记住的工作区 (retired) removed from it lands on 配置 as well; the menu's 设置 folds a record on 其他 as 工作区.
         write_json(path, {**read_json(path), 'tab': 'other'})
         untrust = {'kind': butler_card.UNTRUST, 'token': token, 'revision': 1, 'key': 'alpha|read'}
         self.assertEqual(self.press(untrust, 'ev-u1'), 'main_panel')

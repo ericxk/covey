@@ -17,7 +17,7 @@
 
 `core/butler.py` 的 `enabled` 是唯一的判断，各处都问它。两层：
 
-1. **部署允许**（`available`）：`COVEY_BUTLER=0` 时不允许：管家的后台线程不起，菜单键不认，设置卡「配置」页没有管家一段，新话题一段没有直接开工。其他值都允许。
+1. **部署允许**（`available`）：`COVEY_BUTLER=0` 时不允许：管家的后台线程不起，菜单键不认，设置卡「配置」页没有管家一段。其他值都允许。
 2. **主人选的模式**（`agent_mode`）：`main-thread.json` 的 `mode`，`agent` 是管家，`topics` 是纯话题。主人在设置卡「配置」页“管家”一段里的“私聊顶层的消息”一行切换（选“每条直接开一个话题”要再点“确定改”），保存即生效；Bridge 和任务进程每次 stat 一下，变了才重读。保存时同时写 `enabled` 给旧版本。
 
 **默认值只写一次**：Bridge 启动、处理事件之前（`Butler.settle` → `settle_mode`），文件里没有 `mode` 就写：状态目录里没有任务也没有话题时写管家；否则 `COVEY_BUTLER=1` 且设置没关的写管家，其余写纯话题。之后只看 `mode`。
@@ -64,7 +64,7 @@
 - “写给人看的话（含工具说明）用主人的语言”只在每轮的桥接规则或续接提醒里说一次（`app/prompts.py` 的 `LANGUAGE_RULE`），管家规则不再重复。
 - 主人问 Covey 本身怎么用（看板在哪、怎么开记忆），先读运行中这份代码自己的 `docs/quickstart.md`（[五分钟上手](quickstart.md)，规则里写的是它的绝对路径，`USAGE_RULE`）再答。
 
-**开工三档**（`starts_at_once`，设置 `start`）：只读的、主人在这条消息里亲口要的、主人记住过的“工作区 × 只读/改文件”直接开工；其余在话题里出预填好的启动卡。
+**直接开工**：管家开的话题一律直接开工（运行方式是独立 worktree 的除外，它出预填好的启动卡，由卡建 worktree）。以前的“开工三档”（设置 `start`）和“记住的工作区”（`trusted`）已下线（[legacy.md](legacy.md)）：main-thread.json 里的旧字段读时忽略、不再写回，设置卡和网页不再有这两项。
 
 判为只读（`readonly`）又直接开工的，第一轮的任务说明末尾写“这一轮只读”（`app/tool_limits.py` 的 `LOOK_NOTE`；请求记录的计划里记 `read_only`，任务记录也记），并且照 Harness 能做到的限住（`TOOL_LIMIT` 的 `look`）：Claude Code 没有改文件的工具（Edit、Write、NotebookEdit，子 Agent 也没有；命令行还在，给只读的命令用），Codex 在只读沙箱里跑（命令能跑，写不了文件、上不了网），别的 Harness 只有那句话。只管这一轮：主人之后在话题里说的话、点重试或检查并继续，照常跑；等启动卡、主人点了开始的也照常。
 
@@ -201,7 +201,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 `app/butler_topics.py`，只在主人私聊里动作，飞书调用都在锁外（规则 1、2）。
 
-- **`topic_start`**：工作区只认已登记的名字；Harness、模型、预算逐项取值（`app/butler_model_choice.py`：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置 > Bridge 默认）。直接开工时第一轮直接提交，否则话题里出预填好的启动卡。
+- **`topic_start`**：工作区只认已登记的名字；Harness、模型、预算逐项取值（`app/butler_model_choice.py`：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置 > Bridge 默认）。第一轮直接提交；运行方式是独立 worktree 时话题里出预填好的启动卡。
 - **`topic_send`**：话题有没结束的任务时作为补充交给它，已经停了就作为下一条消息（有没答的问题就作为回答）。话题串里出一张“管家转来你 HH:MM 的消息”的灰底卡。
 - **完成标准**（`criteria`，`core/criteria.py`，#22）：`topic_start` 可带 1 到 4 条，存进话题的 topic.json；主人要改时管家用 `topic_send` 的 `criteria` 换掉（空数组去掉）。问答、查询、调研不带。有标准的话题每一轮的消息在检查点文件后面多一段“完成标准”（`criteria.note`），模型在检查点 `criteria` 里逐条写满足 / 没满足 / 没查；答案卡和回带卡只列没标满足的（没写的算没查）。专项负责人的 `project_topic_start` 也能带。
 - **`topic_fork`**：从源话题最近一次结束的任务分叉（`app/forks.py` 的 `create_fork`），复制原生会话。
@@ -301,7 +301,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 ## 设置
 
-`<state>/main-thread.json`，字段见 `Settings`：`mode`/`enabled`；管家的 `model`、`effort`、`redaction`、`workspace`、`compact_tokens`；新话题的 `topic_defaults`（`harness`、`model`、`effort`、`run_mode`、`redaction`、`workspace`）；子 Agent 用什么模型 `subagents`；直接开工 `start`、记住的 `trusted`、工作区用途 `workspace_notes`。缺的或坏的字段按默认值读。只经 `update` 写，只有设置卡（和网页的设置页，走同一处）能写。
+`<state>/main-thread.json`，字段见 `Settings`：`mode`/`enabled`；管家的 `model`、`effort`、`redaction`、`workspace`、`compact_tokens`；新话题的 `topic_defaults`（`harness`、`model`、`effort`、`run_mode`、`redaction`、`workspace`）；子 Agent 用什么模型 `subagents`；工作区用途 `workspace_notes`。缺的或坏的字段按默认值读。只经 `update` 写，只有设置卡（和网页的设置页，走同一处）能写。
 
 - **管家的脱敏**：从下一轮起走敏感词中继；Bridge 每次交消息前写它的 `topic.json`，中继每轮读（`backends/claude/redaction.py`）。
 
@@ -322,7 +322,7 @@ Bridge 记一份主人的长期原则，所有 Harness 的话题和管家都带�
 
 | 页 | 内容 |
 | --- | --- |
-| 配置 | 一段一处，一次只展开一段（`SECTIONS`，卡片的 `view.open`；CardKit 一张卡约 200 个元素，放不下所有段的选项），其余段是标题、“展开”和一行灰字写着现在的值（`summary`）；点哪一行就展开哪一段（`PART_OF`）。**新话题**（默认展开）：所有新话题的预选，启动卡 `app/preselection.py` 和管家开的话题都照它，Harness、供应商、模型、思考预算、运行方式、脱敏、工作区；管家开着时“直接开工”一行（`START_CHOICES`：都直接开工 = 三档全开，只读的直接开工 = `readonly` + `trusted`，都等你点开始 = 不开），中间那档下面列记住的工作区，每项可删。**管家**（部署不允许时没有）：Harness（能跑管家的才列；开着脱敏时只列能脱敏的，段下写一句先关脱敏才能换，`REDACT_FIRST`）、供应商、模型、思考预算、脱敏（Harness 能脱敏才有）、工作区、压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code）、私聊模式（`MODE_CHOICES`）；纯话题模式下只有私聊模式一行。**独立复核**（`COVEY_REVIEW=1` 才有，`review_setting_list`）：Harness 第一项“自动挑（优先换一家厂商）”，选了 Harness 才有下面三行，存在 `main-thread.json` 的 `review`。“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
+| 配置 | 一段一处，一次只展开一段（`SECTIONS`，卡片的 `view.open`；CardKit 一张卡约 200 个元素，放不下所有段的选项），其余段是标题、“展开”和一行灰字写着现在的值（`summary`）；点哪一行就展开哪一段（`PART_OF`）。**新话题**（默认展开）：所有新话题的预选，启动卡 `app/preselection.py` 和管家开的话题都照它，第一行 Harness、供应商、模型、思考预算，第二行工作区、运行方式、脱敏（`lines`：模型四项一行、其余一行，私聊模式单独一行；一行里各项是并排的小格，标签在上、当前值在下，窄屏自动换行，各自点开选项，见 [cards.md](cards.md#设置卡配置页的一行多项)）。**管家**（部署不允许时没有）：第一行 Harness（能跑管家的才列；开着脱敏时只列能脱敏的，段下写一句先关脱敏才能换，`REDACT_FIRST`）、供应商、模型、思考预算，第二行工作区、脱敏（Harness 能脱敏才有）、压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code），私聊模式单独一行（`MODE_CHOICES`）；纯话题模式下只有私聊模式一行。**独立复核**（`COVEY_REVIEW=1` 才有，`review_setting_list`）：Harness 第一项“自动挑（优先换一家厂商）”，选了 Harness 才有供应商、模型、思考预算（四项一行），存在 `main-thread.json` 的 `review`。“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
 | 工作区 | 工作区列表；每行一行灰字写用途，“改用途”换成输入框，“保存用途”存 |
 | 记忆（`COVEY_MEMORY=1`） | 下一轮带上什么（选工作区，带几条、各范围用了多少、快满或放不下的提示、原文），按范围列出的条目，每条“删除”，原则多一个“常驻”（`app/memory_panel.py`） |
 | 能做什么 | 只读：启用的 Harness 和现在用不了的、开着的功能和读的开关、没开的怎么开、启用的扩展（`app/about_panel.py`） |

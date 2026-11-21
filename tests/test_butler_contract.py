@@ -46,18 +46,16 @@ class SettingsTest(unittest.TestCase):
             loaded = settings.load(tmp)
         self.assertEqual(loaded, settings.Settings())
         self.assertEqual(loaded.compact_tokens, settings.COMPACT_TOKENS)
-        self.assertEqual(loaded.start, settings.TIERS)
 
     def test_bad_fields_read_as_defaults(self):
         with mock.patch.dict(os.environ, {butler.ENV: "1"}):
-            loaded = settings.from_json({"enabled": "yes", "mode": "both", "compact_tokens": -1, "start": "all",
-                                         "trusted": [1, "x|read"],
+            loaded = settings.from_json({"enabled": "yes", "mode": "both", "compact_tokens": -1,
+                                         "start": ["readonly"], "trusted": [1, "x|read"],  # Retired: ignored.
                                          "topic_defaults": {"run_mode": "elsewhere", "redaction": "on"},
                                          "workspace_notes": {"a": "用途", "b": 3}})
         self.assertTrue(loaded.enabled)
         self.assertEqual(loaded.compact_tokens, settings.COMPACT_TOKENS)
-        self.assertEqual(loaded.start, settings.TIERS)
-        self.assertEqual(loaded.trusted, ("x|read",))
+        self.assertFalse(hasattr(loaded, "start") or hasattr(loaded, "trusted"))
         self.assertEqual(loaded.topic_defaults.run_mode, "direct")
         self.assertFalse(loaded.topic_defaults.redaction)
         self.assertEqual(loaded.workspace_notes, (("a", "用途"),))
@@ -65,7 +63,7 @@ class SettingsTest(unittest.TestCase):
 
     def test_round_trip_and_update(self):
         with tempfile.TemporaryDirectory() as tmp:
-            first = settings.Settings(enabled=False, compact_tokens=0, start=("requested",), trusted=("ws|edit",),
+            first = settings.Settings(enabled=False, compact_tokens=0,
                                       topic_defaults=settings.TopicDefaults(workspace="ws", redaction=True),
                                       workspace_notes=(("ws", "Bridge 仓库"),))
             settings.save(tmp, first)
@@ -75,16 +73,14 @@ class SettingsTest(unittest.TestCase):
             self.assertTrue(second.enabled)
             self.assertEqual(settings.load(tmp), second)
 
-    def test_start_tiers(self):
-        everything = settings.Settings(trusted=(settings.trust_key("ws", False),))
-        starts = settings.starts_at_once
-        self.assertTrue(starts(everything, workspace="x", readonly=True, user_requested=False))
-        self.assertTrue(starts(everything, workspace="x", readonly=False, user_requested=True))
-        self.assertTrue(starts(everything, workspace="ws", readonly=False, user_requested=False))
-        self.assertFalse(starts(everything, workspace="x", readonly=False, user_requested=False))
-        only_asked = settings.Settings(start=("requested",), trusted=everything.trusted)
-        self.assertFalse(starts(only_asked, workspace="ws", readonly=True, user_requested=False))
-        self.assertTrue(starts(only_asked, workspace="ws", readonly=True, user_requested=True))
+    def test_the_retired_start_and_trusted_fields_are_read_past_and_not_written_back(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {butler.ENV: "1"}):
+            (Path(tmp) / settings.FILE).write_text(json.dumps({"start": ["readonly"], "trusted": ["ws|edit"], "model": "m"}))
+            self.assertEqual(settings.load(tmp), settings.Settings(model="m"))
+            settings.update(tmp, effort="high")
+            written = json.loads((Path(tmp) / settings.FILE).read_text())
+            self.assertNotIn("start", written)
+            self.assertNotIn("trusted", written)
 
 
 class RequestsTest(unittest.TestCase):

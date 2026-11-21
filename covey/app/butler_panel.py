@@ -2,7 +2,7 @@
 chat. The butler only sends it (the tool ``settings_panel``, TOOLS); it cannot change its settings.
 
 It is the bot menu's 设置 card's tab 配置 (app/settings_hub.py, cards/settings_hub.py CONFIG), one section a use: 新话题
-(every new topic's preselection, 直接开工 and 记住的工作区), 管家 (the butler's own, and the private chat mode: 每条直接开一个话题
+(every new topic's preselection), 管家 (the butler's own, and the private chat mode: 每条直接开一个话题
 is saved only after 确定改, the record's view keeping ``confirm`` meanwhile), 独立复核 (app/review.py) and 子 Agent; the
 pages 管家, 新话题 and 模型 it took the place of are retired into it; its 保存用途
 button is on the 工作区 tab, which app/workspace_manager.py draws (``pages``: this panel redraws that tab through it
@@ -30,10 +30,10 @@ from covey.app.butler_env import reply
 from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
 from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, HARNESS, KINDS, SPACE, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
-                                                    NOTE_LENGTH, NOTES, PAGE_OF, PROVIDER, REDACTION, START,
-                                                    START_CHOICES, START_ROW, SUBAGENTS,
+                                                    NOTE_LENGTH, NOTES, PAGE_OF, PROVIDER, REDACTION, RETIRED_KINDS,
+                                                    RETIRED_NOTICE, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
-                                                    TOPIC_RUN_MODE, TOPIC_WORKSPACE, UNTRUST, CLAUDE, follow_text,
+                                                    TOPIC_RUN_MODE, TOPIC_WORKSPACE, CLAUDE, follow_text,
                                                     REVIEW_EFFORT, REVIEW_HARNESS, REVIEW_MODEL, REVIEW_PROVIDER,
                                                     PART_OF, SECTION, SECTIONS,
                                                     butler_panel_card)
@@ -41,7 +41,7 @@ from covey.cards.launch_config import effort_choices
 from covey.cards.settings_hub import BUTLER, BUTLER_PAGES, CONFIG, OTHER, RETIRED, TOPIC, WORKSPACE
 from covey.core import butler, butler_settings
 from covey.core.jobs import job_file, read_job_record
-from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES, TIERS
+from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES
 from covey.core.state import read_object
 from covey.core.workspaces import RUN_MODES, config_path
 
@@ -184,7 +184,7 @@ def pick_review_harness(rows, choices, option, state_dir):
 
 def saved_notice(kind):
     """What the card says once a row of ``kind`` was saved (SAVED_OF, else its scope's or its page's SAVED)."""
-    scope = ROW_CHANGES.get(kind, (None,))[0] or (TOPIC if kind in (START, UNTRUST) else None)
+    scope = ROW_CHANGES.get(kind, (None,))[0]
     return SAVED_OF.get(kind) or SAVED.get(scope) or SAVED.get(PAGE_OF.get(kind), '已保存。')
 
 
@@ -212,8 +212,6 @@ ROW_CHANGES = {
     # 子 Agent: bot-wide (backends/claude/subagents.py), not a new topic's default, though on that page.
     SUBAGENTS: (TOPIC, lambda rows, choices, option, state_dir: (
         {'subagents': option} if option in SUBAGENT_MODES else None)),
-    START_ROW: (TOPIC, lambda rows, choices, option, state_dir: (
-        {'start': START_CHOICES[option][0]} if option in START_CHOICES else {} if option == 'custom' else None)),
     REVIEW_HARNESS: (REVIEW, pick_review_harness), REVIEW_PROVIDER: (REVIEW, pick_provider),
     REVIEW_MODEL: (REVIEW, pick_model), REVIEW_EFFORT: (REVIEW, pick_effort),
 }
@@ -339,6 +337,8 @@ class ButlerPanel:
             if changes:
                 butler_settings.update(ctx.state_dir, **changes)
                 notice = MODE_NOTICES.get(changes.get('enabled')) or saved_notice(value['kind'])
+            elif value['kind'] in RETIRED_KINDS:
+                notice = RETIRED_NOTICE
         with self.menu.lock(path):
             record = self.menu.clicked(path, event)  # Read again: another click may have drawn it since.
             if record is None:
@@ -373,13 +373,8 @@ class ButlerPanel:
         if kind == MODE:  # 交给管家 (每条直接开一个话题 waits for 确定改: click); the mode it is already: nothing.
             on = MODE_CHOICES.get(option, (None,))[0]
             return None if on is None else {} if on == settings.enabled else {'enabled': on}
-        if kind == START:
-            tier, on = value.get('tier'), value.get('on')
-            if tier not in TIERS or not isinstance(on, bool):
-                return None
-            return {'start': tuple(t for t in TIERS if (t == tier and on) or (t != tier and t in settings.start))}
-        if kind == UNTRUST:
-            return {'trusted': tuple(k for k in settings.trusted if k != value.get('key'))}
+        if kind in RETIRED_KINDS:  # 直接开工 and 记住的工作区 are retired (docs/legacy.md): an older card's click changes nothing.
+            return {}
         if kind == NOTES:
             return self.notes(settings, value, form_fields(event))
         if not isinstance(option, str):

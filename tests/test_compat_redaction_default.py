@@ -48,14 +48,14 @@ class RedactionDefaultTests(unittest.TestCase):
                 self.assertFalse((self.state / butler_settings.FILE).exists())
 
     def test_the_rest_of_the_settings_file_is_kept(self):
-        butler_settings.update(self.state, model='opus', start=('readonly',),
+        butler_settings.update(self.state, model='opus', subagents='same',
                                topic_defaults=butler_settings.TopicDefaults(harness='claude', effort='high'))
         save_config(self.state, {'default_on': True})
         mode = json.loads((self.state / butler_settings.FILE).read_text())['mode']
         migrate.migrate(self.state)
         settings = butler_settings.load(self.state)
-        self.assertEqual((settings.model, settings.start, settings.topic_defaults),
-                         ('opus', ('readonly',), butler_settings.TopicDefaults(harness='claude', effort='high',
+        self.assertEqual((settings.model, settings.subagents, settings.topic_defaults),
+                         ('opus', 'same', butler_settings.TopicDefaults(harness='claude', effort='high',
                                                                                redaction=True)))
         self.assertEqual(json.loads((self.state / butler_settings.FILE).read_text())['mode'], mode)
 
