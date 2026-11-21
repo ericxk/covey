@@ -290,6 +290,28 @@ def memory_element(notes, topic_id="", job_id=""):
         {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": rows}]}
 
 
+ACCEPTANCE_ID = "answer_acceptance"
+LOCAL_ONLY = "只做了本地验证"  # 去哪看 without a link the owner can click (docs/usage.md).
+
+
+def acceptance_element(acceptance):
+    """改了什么 / 去哪看 / 怎么验 of a UI change or a turn the owner asked to accept (core/checkpoint.py
+    checkpoint_acceptance), three rows of grey labels (ACCEPTANCE_ID): 去哪看 the link the model copied from its reply
+    when there is one the owner can click (acceptance_link), else 只做了本地验证; a row the model left empty is left out
+    but 去哪看. None without a what or a how."""
+    from covey.core.checkpoint import acceptance_link
+
+    if not isinstance(acceptance, dict) or not (acceptance.get("what") or acceptance.get("how")):
+        return None
+    url = acceptance_link(acceptance.get("where"))
+    where = f"[{literal_text(url)}]({url})" if url else grey(LOCAL_ONLY)
+    rows = [labelled(label, text) for label, text in (
+        ("改了什么", literal_text(acceptance.get("what")) if acceptance.get("what") else ""), ("去哪看", where),
+        ("怎么验", literal_text(acceptance.get("how")) if acceptance.get("how") else "")) if text]
+    return {"tag": "column_set", "element_id": ACCEPTANCE_ID, "columns": [
+        {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": rows}]}
+
+
 CRITERIA_ID = "answer_criteria"
 
 
@@ -325,7 +347,8 @@ def review_element(topic_id, job_id):
 def tail(files=None, inputs=(), outputs=(), link="", change=None, notes=(), buttons=()):
     """What follows an answer: its 产物 panel (``files``, None without), its 改动 fold (``change``,
     ``change_element``: None, {} or '' without) and the line marking a commit not found (``check_element``), the
-    ``notes`` (elements: the completion criteria not met, ``criteria_element``), the facts box, then ``buttons``
+    ``notes`` (elements: what to check of a UI change, ``acceptance_element``; the completion criteria not met,
+    ``criteria_element``), the facts box, then ``buttons``
     (elements: 独立复核, ``review_element``)."""
     return [element for element in (files, change_element(change), check_element(change), *(notes or ()),
                                     facts_element(inputs, outputs, link), *(buttons or ())) if element]

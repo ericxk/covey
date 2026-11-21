@@ -52,6 +52,12 @@ def release_user_wait(path: Path, *, drop_questions: bool = False) -> None:
     write_private_text(path, json.dumps(data, ensure_ascii=False))
 
 
+# 改了什么 / 去哪看 / 怎么验 on the answer card of a UI change or a turn the owner asked to accept (#21,
+# ``checkpoint_acceptance``): the one line CHECKPOINT_RULES needs for it.
+ACCEPTANCE_RULE = ('改了界面或主人说要验收时，另写 acceptance：{"what":"改了什么（30 字内，主人能看到的变化）",'
+                   '"where":"去哪看：回复里给过的可点链接原样抄，没有不填","how":"怎么验：点哪里、做什么、该看到什么；'
+                   '回复里没说的别编"}。')
+
 # The same for every turn: it names no file, each turn's message gives the checkpoint file.
 CHECKPOINT_RULES = (
     "这是执行约定：对于多阶段或长时间任务，在开始执行、完成阶段、提交外部任务及等待用户时，"
@@ -86,6 +92,7 @@ CHECKPOINT_RULES = (
     '只有这一轮改了代码、有提交时才写 delivery：{"commit":"完整提交号（多个用空格分开）","deployed":"部署到哪里/第几代","verified":"怎么验收的"}，'
     "没做的项留空；调研、报告、问答的轮次不写 delivery。"
     "verified 只写实际跑过的检查和结果，没验证就留空，别把推断写成已测；deployed 只写已生效的环境，只提了合并请求的留空。"
+    + ACCEPTANCE_RULE
 )
 
 # 话题要点 (COVEY_PROJECT_TIDY, core/topic_gist.py): put in each turn's message of an ordinary topic or a project's topic, after
@@ -164,6 +171,32 @@ def checkpoint_delivery(cp) -> dict:
         raw = {**raw, "commit": " ".join(_words(item, DELIVERY_CHARS) for item in commit if _words(item, DELIVERY_CHARS))}
     found = {name: _words(raw.get(name), DELIVERY_CHARS) for name in DELIVERY_FIELDS}
     return found if any(found.values()) else {}
+
+
+ACCEPTANCE_FIELDS = ("what", "where", "how")
+ACCEPTANCE_CHARS = {"what": 60, "where": 300, "how": 300}
+LINK = re.compile(r"(?:https?://|applink\.feishu\.cn/|lark://)[^\s<>()（）\"'`，。；、]+", re.IGNORECASE)
+LOCAL_HOST = re.compile(r"^(?:https?://)?(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])(?:[:/]|$)", re.IGNORECASE)
+
+
+def checkpoint_acceptance(cp) -> dict:
+    """The checkpoint's ``acceptance`` (ACCEPTANCE_RULE) as {what, where, how} strings, each cut to its
+    ACCEPTANCE_CHARS; {} without a what or a how to show."""
+    raw = cp.get("acceptance") if isinstance(cp, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    found = {name: _words(raw.get(name), ACCEPTANCE_CHARS[name]) for name in ACCEPTANCE_FIELDS}
+    return found if found["what"] or found["how"] else {}
+
+
+def acceptance_link(where) -> str:
+    """The first link in ``where`` the owner can click (https, a Feishu applink), '' for none: a local address
+    (localhost, 127.0.0.1) is not one."""
+    for match in LINK.finditer(str(where or "")):
+        url = match.group().rstrip(".,;:!?）)")
+        if not LOCAL_HOST.match(url):
+            return url if "://" in url else "https://" + url
+    return ""
 
 
 COMMIT_SPLIT = re.compile(r"[\s,，、;；]+")

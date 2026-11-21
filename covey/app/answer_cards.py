@@ -23,11 +23,13 @@ import copy
 import time
 from pathlib import Path
 
-from covey.cards.answer_card import ARTIFACTS_ID, MEMORY_ID, NOT_FOUND, criteria_element, input_parts, output_parts
+from covey.cards.answer_card import (ARTIFACTS_ID, MEMORY_ID, NOT_FOUND, acceptance_element, criteria_element,
+                                     input_parts, output_parts)
 from covey.cards.elements import replace_element
 from covey.cards.review import answer_card, answer_lead, answer_summary, bare_answer_summary
 from covey.core import criteria
-from covey.core.checkpoint import checkpoint_delivery, delivery_commits, read_checkpoint, shows_change
+from covey.core.checkpoint import (checkpoint_acceptance, checkpoint_delivery, delivery_commits, read_checkpoint,
+                                   shows_change)
 from covey.core.diff import missing_commits
 from covey.core.locks import resource_lock
 from covey.core.metrics import job_took
@@ -124,15 +126,15 @@ def absent_commits(job, delivery) -> list:
 
 
 def notes(state_dir, job) -> list:
-    """The parts between an answer's 改动 and its 输入/输出 box (cards/answer_card.py tail's ``notes``): the completion
-    criteria of ``job``'s topic its turn's checkpoint does not mark met (core/criteria.py unmet, ``criteria_element``).
-    [] without: a topic with no criteria, every one met."""
-    items = criteria.read(state_dir, _field(job, "topic_id"))
-    if not items:
-        return []
+    """The parts between an answer's 改动 and its 输入/输出 box (cards/answer_card.py tail's ``notes``): what to check of
+    a UI change or a turn the owner asked to accept (the checkpoint's acceptance, ``acceptance_element``, #21), then the
+    completion criteria of ``job``'s topic its turn's checkpoint does not mark met (core/criteria.py unmet,
+    ``criteria_element``, #22). [] without either."""
     path = _field(job, "checkpoint_path")
-    found = criteria_element(criteria.unmet(items, read_checkpoint(Path(path)) if path else {}))
-    return [found] if found else []
+    cp = read_checkpoint(Path(path)) if path else {}
+    items = criteria.read(state_dir, _field(job, "topic_id"))
+    found = (acceptance_element(checkpoint_acceptance(cp)), criteria_element(criteria.unmet(items, cp)) if items else None)
+    return [element for element in found if element]
 
 
 def changed_code(job) -> bool:

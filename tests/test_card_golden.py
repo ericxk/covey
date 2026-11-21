@@ -733,8 +733,8 @@ def answer_tail_cards():
     """The answer card with its 产物 and 输入/输出 (cards/answer_card.py, 2026-11-08), its relay at the top level and
     the small card after an answer sent as a file."""
     from covey.cards.relay_card import DONE, STOPPED, WAITING, relay_card
-    from covey.cards.answer_card import (ARTIFACTS_ID, criteria_element, input_parts, memory_element, output_parts,
-                                         review_element, tail, tail_card)
+    from covey.cards.answer_card import (ARTIFACTS_ID, acceptance_element, criteria_element, input_parts, memory_element,
+                                         output_parts, review_element, tail, tail_card)
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_band, answer_card
 
@@ -848,6 +848,14 @@ def answer_tail_cards():
             "answer_card_criteria": answer_card(text, "✅ T443 · 结论", tail(
                 files, inputs, outputs, change=handed, notes=[criteria_element([
                     ("没满足", "合进 main 并推送"), ("没查", "在手机上点开看过，按钮颜色对")])]), [head]),
+            # #21: 改了什么 / 去哪看 / 怎么验 of a UI change (the checkpoint's acceptance), with a link and without one.
+            "answer_card_acceptance": answer_card(text, "✅ T443 · 结论", tail(
+                files, inputs, outputs, change=handed, notes=[acceptance_element({
+                    "what": "看板的按钮改成蓝色，点了回一句", "where": "https://example.invalid/board",
+                    "how": "打开看板，点任一按钮：按钮是蓝色，点完卡上回“收到”"})]), [head]),
+            "answer_card_acceptance_local": answer_card(text, "✅ T443 · 结论", tail(
+                files, inputs, outputs, notes=[acceptance_element({"what": "看板的按钮改成蓝色", "where": "",
+                                                                   "how": "本地起页面看过按钮颜色"})]), [head]),
             # #20: 独立复核 under the box of a turn that changed code (COVEY_REVIEW=1, app/review.py).
             "answer_card_review": answer_card(text, "✅ T443 · 结论", tail(
                 files, inputs, outputs, change=handed, buttons=[review_element("tf0443", 2906)]), [head]),

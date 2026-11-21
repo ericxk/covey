@@ -15,9 +15,9 @@ from covey.app import answer_cards, butler_tools
 from covey.cards.answer_card import CHANGE_ID, tail
 from covey.cards import question_cards
 from covey.cards.relay_card import DONE, relay_card
-from covey.core.checkpoint import (CHECKPOINT_RULES, MAX_STEPS, checked, checkpoint_delivery, checkpoint_steps,
-                                            change_summary, clock_steps, delivery_commits, shows_change,
-                                            step_words)
+from covey.core.checkpoint import (ACCEPTANCE_RULE, CHECKPOINT_RULES, MAX_STEPS, checked, checkpoint_delivery,
+                                   checkpoint_steps, change_summary, clock_steps, delivery_commits, shows_change,
+                                   step_words)
 from covey.core.longtask import TaskMonitor
 from covey.core.text import stamp
 from covey.core.status_line import Facts, status_summary, step_text
@@ -30,7 +30,8 @@ def steps(*states):
 
 class RulesTest(unittest.TestCase):
     def test_the_rules_name_both_fields_briefly(self):
-        added = CHECKPOINT_RULES[CHECKPOINT_RULES.index("长任务另写 steps"):]
+        # Up to the acceptance line (#21), whose own words AcceptanceTest keeps short.
+        added = CHECKPOINT_RULES[CHECKPOINT_RULES.index("长任务另写 steps"):CHECKPOINT_RULES.index(ACCEPTANCE_RULE)]
         for words in ('"state":"done|doing|todo"', "同时只有一个 doing", "delivery", '"commit"', '"deployed"',
                       '"verified"'):
             self.assertIn(words, added)
@@ -332,6 +333,57 @@ class AnswerCardTest(unittest.TestCase):
                           SimpleNamespace(checkpoint_path=str(point), workdir=None),
                           {"checkpoint_path": str(point), "workdir": str(Path(directory) / "gone")}):
                 self.assertEqual(answer_cards.change(other), {"commit": "a6bc148d38", "deployed": "", "verified": ""})
+
+
+class AcceptanceTest(unittest.TestCase):
+    """#21: 改了什么 / 去哪看 / 怎么验 of a UI change or a turn the owner asked to accept, from the checkpoint."""
+
+    def test_the_rule_asks_for_it_only_where_it_applies(self):
+        self.assertTrue(CHECKPOINT_RULES.endswith(ACCEPTANCE_RULE))
+        self.assertIn("改了界面或主人说要验收时，另写 acceptance", ACCEPTANCE_RULE)
+        for words in ('"what"', '"where"', '"how"', "原样抄", "回复里没说的别编"):
+            self.assertIn(words, ACCEPTANCE_RULE)
+        self.assertLessEqual(sum(1 for char in ACCEPTANCE_RULE if "一" <= char <= "鿿"), 70)
+
+    def test_it_is_read_and_its_link_must_be_one_the_owner_can_click(self):
+        from covey.core.checkpoint import acceptance_link, checkpoint_acceptance
+
+        self.assertEqual(checkpoint_acceptance({}), {})
+        self.assertEqual(checkpoint_acceptance({"acceptance": "看板"}), {})
+        self.assertEqual(checkpoint_acceptance({"acceptance": {"where": "https://example.invalid/x"}}), {})  # Nothing to check.
+        found = checkpoint_acceptance({"acceptance": {"what": "看板的按钮改成蓝色" * 10, "how": "点开看板"}})
+        self.assertEqual((len(found["what"]), found["where"], found["how"]), (60, "", "点开看板"))
+        self.assertEqual(acceptance_link("预览：https://example.invalid/board，点开看"), "https://example.invalid/board")
+        self.assertEqual(acceptance_link("applink.feishu.cn/client/thread/open?x=1"),
+                         "https://applink.feishu.cn/client/thread/open?x=1")
+        for local in ("http://localhost:8080/board", "本地 http://127.0.0.1:3000 看过", "/tmp/board.html", ""):
+            self.assertEqual(acceptance_link(local), "", local)
+
+    def test_the_answer_card_has_three_lines_above_the_criteria(self):
+        from covey.cards.answer_card import ACCEPTANCE_ID, CRITERIA_ID
+
+        with tempfile.TemporaryDirectory() as directory:
+            topic = Path(directory) / "topics" / "t1" / "topic.json"
+            topic.parent.mkdir(parents=True)
+            topic.write_text(json.dumps({"criteria": ["按钮是蓝色"]}, ensure_ascii=False))
+            point = Path(directory) / "cp.json"
+            point.write_text(json.dumps({"acceptance": {"what": "看板按钮改成蓝色", "how": "打开看板，按钮应是蓝色",
+                                                        "where": "http://localhost:8080"}}, ensure_ascii=False))
+            notes = answer_cards.notes(Path(directory), SimpleNamespace(topic_id="t1", checkpoint_path=str(point)))
+            self.assertEqual([element["element_id"] for element in notes], [ACCEPTANCE_ID, CRITERIA_ID])
+            rows = notes[0]["columns"][0]["elements"]
+            self.assertEqual([[column["elements"][0]["content"] for column in row["columns"]] for row in rows], [
+                ["<font color='grey'>改了什么</font>", "看板按钮改成蓝色"],
+                ["<font color='grey'>去哪看</font>", "<font color='grey'>只做了本地验证</font>"],
+                ["<font color='grey'>怎么验</font>", "打开看板，按钮应是蓝色"]])
+            point.write_text(json.dumps({"acceptance": {"what": "看板按钮改成蓝色",
+                                                        "where": "https://example.invalid/board"}}, ensure_ascii=False))
+            rows = answer_cards.notes(Path(directory), SimpleNamespace(topic_id="", checkpoint_path=str(point)))[0]
+            texts = [row["columns"][1]["elements"][0]["content"] for row in rows["columns"][0]["elements"]]
+            self.assertEqual(texts[0], "看板按钮改成蓝色")
+            self.assertTrue(texts[1].startswith("[https://example") and texts[1].endswith("](https://example.invalid/board)"))
+            point.write_text(json.dumps({"delivery": {"commit": "951327a"}}))
+            self.assertEqual(answer_cards.notes(Path(directory), SimpleNamespace(topic_id="", checkpoint_path=str(point))), [])
 
 
 class TopicReadTest(unittest.TestCase):
