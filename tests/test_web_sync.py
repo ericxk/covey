@@ -1558,11 +1558,11 @@ class ExtrasTest(WebCase):
     def test_a_topic_waiting_for_start_says_what_it_waits_for_and_runs_with(self):
         """2026-11-21 T622, a reply to a node's alert whose task waited 21 minutes for 开始 on its launch card: the page said
         等你 · 第 1 轮 over 再早的 1 轮网页上没有载入 and 第 2 轮 · 排队中… (the topic's ``round`` counted the task, no turn stood for
-        it), nothing said what to do, and its head said Codex · GPT-6 Astra · xuke.code, the binding the topic was given to wait
+        it), nothing said what to do, and its head said Codex · GPT-6 Astra · ws-root, the binding the topic was given to wait
         with, for the card's Claude Code · Opus 5.5 · covey. Its words get a 等你 turn that says to press 开始 on the launch card,
         what it would run with and the card's link once known; the topic says the card's choice and has no ``config``."""
         write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="codex", topic_number=7, origin={"title": "看看占比"},
-                    workspace_name="xuke.code")
+                    workspace_name="ws-root")
         write_job(self.state, f"k-{TOPIC[:4]}", topic_id=TOPIC, chat_id=CHAT, job_id=7, status="waiting_workspace", model="gpt-6-astra",
                   timings={"received": T0 - 600})
         append_history(self.state / "topics" / TOPIC / "history.jsonl", "user", "帮忙看看是什么数据占比比较多", {"message_id": "om_ask"})

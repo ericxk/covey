@@ -226,7 +226,7 @@ class Collector:
         updated = max((epoch_seconds(record.get("updated_at")) or 0 for record in records), default=0)
         ran = [record for record in records if not board_read.unrun(record)]
         # Waiting for 开始, it runs with what its launch card has chosen, not the binding it was given to wait with (the
-        # default Harness and workspace of a reply that opened it, 2026-11-21 T622: Codex · GPT-6 Astra · xuke.code on the
+        # default Harness and workspace of a reply that opened it, 2026-11-21 T622: Codex and the default workspace on the
         # page, Claude Code · Opus 5.5 · covey on the card).
         choice = launch_choice(form) or {"workspace": str(data.get("workspace_name") or ""), "harness": str(data.get("harness_id") or ""),
                                          "model": str((latest or {}).get("model") or ""), "model_name": model_name((latest or {}).get("model"))}
