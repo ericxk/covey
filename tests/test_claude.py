@@ -498,7 +498,7 @@ class ClaudeAlignmentTests(unittest.TestCase):
         self.events.clear()
         answer, clock = self.run_scripted("queue-lost-after-failure", event_hook=event)
         self.assertLess(clock.monotonic() - 1000, 20)
-        self.assertEqual((answer.outcome.status, answer.outcome.error_code), ("failed", "root_failed"))
+        self.assertEqual((answer.outcome.status, answer.outcome.error_code), ("failed", "server_fault"))  # The API 502.
         self.assertIsNone(answer.public_reply)
 
     def test_a_settle_wait_with_no_finished_turn_is_still_a_settle_timeout(self):
@@ -525,10 +525,10 @@ class ClaudeAlignmentTests(unittest.TestCase):
             with self.subTest(name):
                 answer = self.finish_rows(rows, rc=rc)
                 self.assertEqual((answer.outcome.status, answer.outcome.error_code), ("failed", "rate_limited"))
-        # Overloaded (529) is not a rate limit, as in the other backends.
+        # Overloaded (529) is not a rate limit, as in the other backends: a passing server fault.
         overloaded = result(is_error=True, terminal_reason="api_error", api_error_status=529,
                             result='API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}')
-        self.assertEqual(self.finish_rows([init, overloaded]).outcome.error_code, "root_failed")
+        self.assertEqual(self.finish_rows([init, overloaded]).outcome.error_code, "server_fault")
         # A rate limit whose cleanup is unconfirmed still says rate limit; nothing is sent.
         state = ClaudeReplyState(self.ctx, None, run_id=RUN, publish=self.saved.append)
         for row in (init, result(is_error=True, terminal_reason="api_error", api_error_status=429)):

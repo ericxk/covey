@@ -14,7 +14,9 @@ thread, no record, nothing read.
   is queued again under the next try; one whose turn ended without ``after_runner`` seeing it (the Bridge was down) is
   settled by the thread the same way. The records are on disk: a restart goes on where it was.
 - The revisit turn ended (``after_runner``): its own ``revisit`` sets the next one (``round`` one more, at most
-  core/revisits.py MAX_ROUND in a row), else the record goes; a turn that did not end done ends the watch.
+  core/revisits.py MAX_ROUND in a row), else the record goes; a turn that did not end done ends the watch, unless
+  an automatic retry (app/auto_retry.py: a rate limit, a server fault) is scheduled for it: the watch waits for that
+  retry and goes on with its end (``lineage``), a retry that is cancelled or runs out ends it as before.
 - Quiet (``silent``, app/turn_delivery.py TurnDelivery, in the task runner): a revisit turn that found nothing new
   (``"unchanged": true``) and asks for the next look is not told: its saved reply is kept and counts as delivered (no
   answer card, no relay to the top level), its task card shows its first sentence, and the 看板 keeps the topic as seen
@@ -33,7 +35,7 @@ from covey.core.board_read import ended_at, unrun
 from covey.core.butler import is_butler_topic
 from covey.core.checkpoint import read_checkpoint
 from covey.core.history_storage import append_history
-from covey.core.jobs import find_job_record, job_field, job_key, topic_job_records
+from covey.core.jobs import find_job_record, job_field, job_key, select_job_records, topic_job_records
 from covey.core.loops import every
 from covey.core.projects import topic_project
 from covey.core.statuses import ENDED, NOT_ENDED
@@ -76,11 +78,44 @@ def after_runner(log, state_dir, job) -> None:
         log(f"revisit after job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
 
 
+HOPS = 8  # Automatic retries followed from a revisit turn at most.
+
+
+def lineage(state, record):
+    """(the message of the revisit turn ``record`` belongs to or its own, the record that settles it, whether it is
+    still to come): a revisit turn that failed has an automatic retry scheduled, queued or running (app/auto_retry.py),
+    and that retry's end is the turn's; ``record`` may be the turn or one of its retries. Without a revisit turn in its
+    lineage, (its own message, ``record``, False)."""
+    origin = record
+    for _ in range(HOPS):
+        before = find_job_record(state, origin["retry_of"]) if origin.get("retry_of") else None
+        if before is None:
+            break
+        origin = before
+    message = str(origin.get("message_id") or "")
+    if not records.is_revisit(message):
+        return str(record.get("message_id") or ""), record, False
+    current = origin
+    for _ in range(HOPS):
+        if current.get("auto_retry_state") in ("pending", "submitting"):
+            return message, current, True
+        if current.get("auto_retry_state") != "queued":
+            break
+        found = select_job_records(state, lambda r, key=current["key"]: r.get("retry_of") == key)
+        if not found or found[0].get("status") not in ENDED:
+            return message, current, True  # Queued or running: its end is the turn's.
+        current = found[0]
+    return message, current, False
+
+
 def settle(log, state, record, now=None) -> None:
     """What the turn of job ``record`` (ended) does to its topic's revisit, decided under the record's lock: the Bridge's
     after_runner and its thread may both see a revisit turn end, and only the first one acts."""
+    message, record, waiting = lineage(state, record)
+    if waiting:
+        return  # A retry of a revisit turn that failed is to come: the watch waits for it.
     topic, chat = str(record.get("topic_id") or ""), str(record.get("chat_id") or "")
-    status, message = str(record.get("status") or ""), str(record.get("message_id") or "")
+    status = str(record.get("status") or "")
     if not topic or status not in ENDED or not ordinary(state, topic, chat):
         return
     revisit_turn = records.is_revisit(message)

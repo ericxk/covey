@@ -142,7 +142,7 @@ def snapshot(state):
 
 
 # A last task that failed this way: another one now would very likely fail the same (``usable``).
-NOT_NOW = frozenset({"rate_limited", "quota_exhausted", "model_blocked", "authentication_error"})
+NOT_NOW = frozenset({"rate_limited", "server_fault", "quota_exhausted", "model_blocked", "authentication_error"})
 NOT_NOW_SECONDS = 900
 
 

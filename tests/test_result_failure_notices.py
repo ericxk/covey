@@ -45,6 +45,7 @@ class FixedFailureNoticeTests(unittest.TestCase):
             "budget_exceeded": ("费用预算", "上限"),
             "authentication_error": ("身份或权限", "授权"),
             "rate_limited": ("限流", "额度"),
+            "server_fault": ("临时故障", "连接中断"),
             "workspace_routing_timeout": ("工作区路由", "超时", "代理"),
             "workdir_missing": ("工作目录不存在", "检查并继续"),
             "background_timeout": ("后台任务", "时间上限", "已停止"),

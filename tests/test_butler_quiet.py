@@ -264,7 +264,8 @@ class DeliverTest(DeliverCase):
         self.artifacts.send_result_file.assert_not_called()
         self.deliver(self.job(), status="failed", reply="本轮任务未全部完成。上游 429。", verified=False,
                      retry=auto_retry.Planned(time.time() + 60, 1))
-        self.assertIn("第 1/", self.send_text.call_args.args[2])
+        self.assertIn("自动重试", self.send_text.call_args.args[2])
+        self.assertNotIn("第 1/", self.send_text.call_args.args[2])  # A ladder of hours has no count.
         self.assertEqual(self.send_text.call_args.args[0].reply_to_message_id, "")
 
     def test_a_failure_with_a_saved_reply_says_it_failed_and_where_the_answer_went(self):

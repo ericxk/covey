@@ -59,6 +59,7 @@ LIMITS = {
 # Its own words and next steps.
 OWN = {
     "rate_limited": ("上游限流，和任务内容无关", (RETRY, SWITCH_MODEL)),
+    "server_fault": ("模型服务临时故障（过载或连接中断），和任务内容无关", (RETRY, SWITCH_MODEL)),
     "quota_exhausted": ("模型服务的额度用完了，额度恢复前重试不会成功；可以换个模型接着做", (SWITCH_MODEL,)),
     "model_blocked": ("账号因多次安全拒绝被模型服务暂时拦住了（一般次日解除），重试不会成功；可以换个模型接着做",
                       (SWITCH_MODEL,)),
@@ -99,8 +100,8 @@ def failure_code(record):
         return ""
     if record.get("auto_retry_state"):  # app/auto_retry.py KINDS: a retried failure says its kind.
         kind = record.get("auto_retry_kind") or "rate_limited"
-        if kind in ("rate_limited", "incomplete"):
-            return "rate_limited" if kind == "rate_limited" else "settle_timeout"
+        if kind in ("rate_limited", "incomplete", "server_fault"):
+            return {"incomplete": "settle_timeout"}.get(kind, kind)
     line = str(record.get("status_message") or "")
     found = next((name for name, words in STATUS_MESSAGES.items() if words and line.startswith(words)), "")
     if found and found != "cancelled":
@@ -116,7 +117,8 @@ def _pending(record):
 
 
 def _later(record, now, doing, total):
-    """"约 3 分钟后（14:05）会自动重试（第 1/2 次）" for a pending automatic retry, else ""."""
+    """"约 3 分钟后（14:05）会自动重试（第 1/2 次）" for a pending automatic retry, else ""; a limit's known reset is said
+    before it (限流预计 16:20 恢复，约 3 分钟后（16:21）会自动重试)."""
     pending = _pending(record)
     if pending is None:
         return ""
@@ -127,7 +129,8 @@ def _later(record, now, doing, total):
         minutes = f"约 {max(1, math.ceil((at - now) / 60))} 分钟后"
     when = f"{minutes}（{when}）" if minutes and when else minutes or (when + " " if when else "") or "稍后"
     count = f"（第 {attempt}/{total} 次）" if isinstance(attempt, int) and total else ""
-    return f"{when}会{doing}{count}"
+    reset = clock(record.get("auto_retry_reset_at")) if record.get("auto_retry_reset_at") else ""
+    return f"{'限流预计 ' + reset + ' 恢复，' if reset else ''}{when}会{doing}{count}"
 
 
 def _policy_title(record):
@@ -159,7 +162,7 @@ def failure_view(record, now=None):
     code = failure_code(record)
     if not code:
         return None
-    total = 2 if code == "rate_limited" else 1
+    total = 3 if code == "server_fault" else 0 if code == "rate_limited" else 1
     if code == "policy":
         title, actions = _policy_title(record), (SPLIT, SWITCH_MODEL)
         model = record.get("policy_retry_model")
@@ -177,7 +180,7 @@ def failure_view(record, now=None):
         title, actions = "这一轮被打断了；可以接着做，或先看原因", (CONTINUE, DIAGNOSE)
     elif code in OWN:
         title, actions = OWN[code]
-        if code == "rate_limited":
+        if code in ("rate_limited", "server_fault"):
             later = _later(record, now, "自动重试", total)
             title += f"；{later}" if later else "；可以稍后重试，着急可以换个模型"
     elif code in LIMITS:

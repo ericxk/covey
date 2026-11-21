@@ -25,6 +25,7 @@
 | [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
 | [子 Agent 守则](harnesses.md#claude-code) | `COVEY_CLAUDE_HOOKS`（默认开） | Claude Code 的子 Agent（Explore 除外）开工时带上四句守则；子 Agent 调 Bridge 的工具（开话题、转交）被拒；管家这一轮自己调满 6 次别的工具时被提醒一次交给话题 | `COVEY_CLAUDE_HOOKS=0`（不注册这些 hook，和原来一样） |
 | [欢迎卡](usage.md#第一次使用) | `COVEY_WELCOME`（默认开） | 新部署第一次启动后私聊里有一张「欢迎使用 Covey」卡；升级前已在用的部署不发 | `COVEY_WELCOME=0` |
+| [限流和临时故障后自动继续](reference.md#自动重试) | `COVEY_AUTO_RETRY_LONG`（默认开） | 限流后的自动重试最久等约 3 小时（Claude 说了恢复时间就等到那时），529/5xx/断连也自动重试几次，每次另加 0–30 秒随机；任务卡上写着几点自动继续 | `COVEY_AUTO_RETRY_LONG=0`（照旧限流只重试两次、临时故障不重试、没有随机） |
 | [别人私聊时回一句](usage.md#基本概念) | `COVEY_STRANGER_REPLY`（默认开） | 让同事私聊你的机器人：他收到“这是你的个人助手，只处理你的消息”，同一个人每天最多一次；设了 `COVEY_INVITE_URL` 时后面带上安装说明的链接 | `COVEY_STRANGER_REPLY=0`（照旧不回） |
 | [机器人停了告诉你](operations.md#机器人停了会告诉主人) | `COVEY_DOWN_NOTICE`（默认开） | Manager 连续 3 次拉不起机器人、启动出错持续 2 分钟，或机器人 10 分钟收不到飞书消息时，私聊里收到一条“⚠️ 机器人没起来…”，好了再收到一条“✅ 机器人恢复了” | `COVEY_DOWN_NOTICE=0` |
 | [敏感词脱敏](#敏感词脱敏) | 没有开关 | 设置卡有「脱敏」标签；话题开了脱敏才替换，只支持 Claude 的模型 | 设置卡上关 |
@@ -192,6 +193,7 @@
 | [事件长连接走 SDK](#飞书-sdk-与直连) | `COVEY_EVENT_TRANSPORT=sdk` | `event-websocket` 线程代替 lark-cli 事件消费者 |
 | [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 默认开；`COVEY_APP_CHECK=0` 关 | `app-setup` 后台线程 |
 | [欢迎卡](usage.md#第一次使用) | 默认开；`COVEY_WELCOME=0` 关 | 启动时欢迎卡还没发出才有 `welcome` 后台线程，发出后它不再做事 |
+| [限流和临时故障后自动继续](reference.md#自动重试) | 默认开；`COVEY_AUTO_RETRY_LONG=0` 关 | 不多线程；任务记录多 `auto_retry_reset_at`、`auto_retry_progress`、`auto_retry_idle`、`auto_fault`、`auto_idle` |
 | [别人私聊时回一句](usage.md#基本概念) | 默认开；`COVEY_STRANGER_REPLY=0` 关 | 不多线程；别人私聊机器人时每人每天回一句纯文本，记在 `stranger-replies/` |
 | [内存看门狗](operations.md#内存看门狗) | `bin/covey_memguard.py enable` | 独立进程；`memguard` 后台线程转发告警 |
 | [本机运行锁](runtime-locks.md) | `COVEY_LOCK_ROOT` | 同机多个服务共用的锁 |
@@ -488,6 +490,7 @@
 | `COVEY_OWNER_SEND` | `app/owner_send.py`（`enabled`） | 开（有代答发送器时）：话题以主人身份发消息走代发草稿卡；`0` 关，见[代发](proxy.md#代发) | 否 |
 | `COVEY_APP_CHECK` | `app/app_setup.py` | 开：检查飞书应用、缺了发卡；`0` 关 | 否 |
 | `COVEY_WELCOME` | `app/welcome.py`（`enabled`：`settle` 据此写 `welcome.json`，`threads()` 据此起 `welcome` 后台线程） | 开：新部署第一次启动后在主人私聊发一张欢迎卡，每个部署只发一次（之前已有任务、话题或私聊记录的部署不发）；`0` 关：不写记录、不起线程、不发，和原来一样 | 否 |
+| `COVEY_AUTO_RETRY_LONG` | `app/auto_retry.py`（`long_ladder`：`plan` 排自动重试时据此选等待时间表、是否有临时故障一类、是否读恢复时间、是否加随机、做了实事是否清零；`applies`、`status_line` 也看它） | 开（默认，只有 `0` 关）：限流 60 秒到 1 小时共六次、临时故障 30 秒到 5 分钟共三次、读得到恢复时间就等到那时、每次另加 0–30 秒随机；`0`：和原来一样，限流 60、180 秒两次，临时故障不重试，没有随机 | 否 |
 | `COVEY_STRANGER_REPLY` | `app/strangers.py`（`enabled`） | 开：别人私聊机器人时回一句纯文本“这是某某的个人助手，只处理某某的消息”，每人每天最多一次；`0` 关：和原来一样不回，只记一行 `ignored message … reason=not_owner` | 否 |
 | `COVEY_INVITE_URL` | `app/strangers.py`（`invite_url`） | 扩展的 `invite_url`，都没有时空：那句话不带链接。设了 http(s) 地址时末尾加“想要一个自己的：<地址>”，一般指向安装说明 | 否 |
 | `COVEY_DOWN_NOTICE` | `service/down_notice.py`（`enabled`：Manager 每轮从各服务清单的环境里读，`service/manager.py` 的 `tell`） | 开：Bridge 连续 3 次没能启动、同一个启动错误持续 2 分钟，或运行中 10 分钟收不到飞书消息时，Manager 用这个服务的 lark-cli profile 以机器人身份给主人发一条文字消息，恢复（正常运行 5 分钟）后再发一条；同一个服务的“停了”消息至少隔 1 小时；`0` 关：Manager 不读、不写、不发，和原来一样。见[运维 · 机器人停了会告诉主人](operations.md#机器人停了会告诉主人) | 否 |

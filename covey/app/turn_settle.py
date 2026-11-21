@@ -31,6 +31,7 @@ class TurnResult:
     verified_delivery: Any = None
     verified_outcome: Any = None
     outcome: Any = None  # The backend's ExecutionOutcome as settled, when it gave one.
+    limit: Any = None  # What a limit or fault said of itself (RunResult.limit): its reset, the rows it came as.
     failure_detail: str = ""  # The backend's own words for a failure (RunResult.failure_detail): a refusal's who and what.
 
 
@@ -151,6 +152,7 @@ def _settle_status(turn, result, job, outcome, reply, is_error):
         reply = "本轮未完成，公开回复仅已保全，尚未满足发送条件。原生会话不可续接。"
     turn.outcome = outcome
     turn.failure_detail = str(getattr(result, "failure_detail", "") or "")
+    turn.limit = getattr(result, "limit", None)
     if outcome is not None:
         turn.status = outcome.job_status
         turn.status_message = "任务完成" if turn.status == "done" else STATUS_MESSAGES.get(

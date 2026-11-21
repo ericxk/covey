@@ -85,6 +85,10 @@ class BridgeReplyJob:
     auto_retry: int = 0  # The n-th automatic retry after a rate limit in a chain (app/auto_retry.py); 0 for others.
     auto_continue: int = 0  # The same after an incomplete turn; the chain carries both counts.
     auto_resume: int = 0  # The same after a restart interrupted the turn (auto_retry.RESTARTED).
+    # The same after a passing server fault (auto_retry.SERVER_FAULT), and the automatic retries in a row at a limit's reset
+    # that made no progress (auto_retry.MAX_IDLE). Declared state: an older release's job files and runners leave them alone.
+    auto_fault: int = _state(0)
+    auto_idle: int = _state(0)
     backend_process: Any = field(default=None, repr=False)
     execution_lock: Any = field(default_factory=threading.Lock, repr=False)
     execution_started: bool = False

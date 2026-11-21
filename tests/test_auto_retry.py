@@ -64,6 +64,9 @@ class AutoRetryTest(UnifiedCase):
         self.claude = self.app.apps['claude']
         self.backend = self.claude.harness.backend = Failing()
         self.claude.cards.update_record_elements = mock.Mock(return_value=True)
+        patcher = mock.patch.object(auto_retry, 'jitter', return_value=0.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def failed_job(self, mid='task', automatic=0, continued=0, timeout=None):
         """A Claude task in its own topic that ended as the backend's ``ending``: its record."""
@@ -119,8 +122,38 @@ class AutoRetryTest(UnifiedCase):
                          ('failed', 'pending', 1))
         self.assertGreaterEqual(record['auto_retry_at'], before + 60)
         self.assertLess(record['auto_retry_at'], time.time() + 61)
-        self.assertRegex(record['status_message'], r'^模型服务限流，将于 \d\d:\d\d 自动重试（第 1/2 次）$')
+        self.assertRegex(record['status_message'], r'^模型服务限流，将于 \d\d:\d\d 自动重试$')
         self.assertIn('模型服务限流', record['final_text'])
+
+    def test_a_passing_server_fault_is_retried_on_a_short_ladder_of_its_own(self):
+        self.backend.ending = ('failed', 'server_fault')
+        self.backend.capabilities = lambda ctx: HarnessCapabilities(rate_limit_retry=True, fault_retry=True)
+        before = time.time()
+        record = self.failed_job()
+        self.assertEqual((record['auto_retry_state'], record['auto_retry_kind'], record['auto_retry_attempt']),
+                         ('pending', 'server_fault', 1))
+        self.assertGreaterEqual(record['auto_retry_at'], before + 30)
+        self.assertLess(record['auto_retry_at'], time.time() + 31)
+        self.assertRegex(record['status_message'], r'^模型服务临时故障，将于 \d\d:\d\d 自动重试（第 1/3 次）$')
+        self.assertIn('模型服务临时故障', record['final_text'])
+        self.tick(record)
+        [job] = self.queued()
+        self.assertEqual((job.auto_fault, job.auto_retry), (1, 0))
+        retry = find_job_record(self.ctx.state_dir, job.message_id)
+        self.assertEqual((retry['auto_fault'], retry['status_message']), (1, '自动重试已入队（第 1/3 次）'))
+        # A Harness that cannot tell a fault apart (no fault_retry) leaves it as it was.
+        self.backend.capabilities = lambda ctx: HarnessCapabilities(rate_limit_retry=True)
+        self.assertNotIn('auto_retry_state', self.failed_job('other'))
+
+    def test_a_retry_that_made_progress_before_the_limit_starts_over(self):
+        record = self.failed_job('long', automatic=4)
+        self.assertEqual(record['auto_retry_attempt'], 5)
+        with mock.patch.object(auto_retry, 'made_progress', return_value=True):
+            record = self.failed_job('longer', automatic=4)
+        self.assertEqual((record['auto_retry_attempt'], record['auto_retry_progress']), (1, True))
+        self.tick(record)
+        [job] = self.queued()
+        self.assertEqual((job.auto_retry, job.auto_continue, job.auto_fault), (1, 0, 0))
 
     def test_the_due_retry_is_queued_once_as_the_button_does(self):
         record = self.failed_job()
@@ -128,7 +161,7 @@ class AutoRetryTest(UnifiedCase):
         self.assertEqual(self.queued(), [])
         after = self.tick(record)
         self.assertEqual((after['auto_retry_state'], after['status_message']),
-                         ('queued', '模型服务限流，已自动重试（第 1/2 次）'))
+                         ('queued', '模型服务限流，已自动重试'))
         [job] = self.queued()
         self.assertEqual((job.auto_retry, job.user_text), (1, 'initial'))
         self.assertEqual(job.binding_revision, record['binding_revision'])  # The topic's binding.
@@ -136,7 +169,7 @@ class AutoRetryTest(UnifiedCase):
         self.assertEqual(after['retried_by'], job.message_id)
         retry = find_job_record(self.ctx.state_dir, job.message_id)
         self.assertEqual((retry['auto_retry'], retry['retry_of'], retry['status_message']),
-                         (1, record['key'], '自动重试已入队（第 1/2 次）'))
+                         (1, record['key'], '自动重试已入队'))
         self.tick(record, after=600)
         self.assertEqual(len(self.queued()), 1)  # Never a second retry for one failure.
 
@@ -156,8 +189,11 @@ class AutoRetryTest(UnifiedCase):
         second = self.failed_job('second', automatic=1)
         self.assertEqual((second['auto_retry_state'], second['auto_retry_attempt']), ('pending', 2))
         self.assertGreaterEqual(second['auto_retry_at'], before + 180)
-        self.assertIn('（第 2/2 次）', second['status_message'])
-        last = self.failed_job('third', automatic=2)
+        self.assertLess(second['auto_retry_at'], time.time() + 181)
+        later = self.failed_job('sixth', automatic=5)
+        self.assertEqual((later['auto_retry_state'], later['auto_retry_attempt']), ('pending', 6))
+        self.assertGreaterEqual(later['auto_retry_at'], before + 3600)
+        last = self.failed_job('seventh', automatic=6)
         self.assertNotIn('auto_retry_state', last)
         self.assertEqual(last['status_message'], STATUS_MESSAGES['rate_limited'])
 
@@ -320,7 +356,7 @@ class AutoRetryTest(UnifiedCase):
         job, third = self.run_queued(RATE_LIMITED)
         self.assertEqual((job.auto_retry, job.auto_continue), (1, 1))  # The continue did not reset the count.
         self.assertEqual((third['auto_retry_kind'], third['auto_retry_attempt']), ('rate_limited', 2))
-        self.assertIn('（第 2/2 次）', third['status_message'])
+        self.assertNotIn('次）', third['status_message'])  # A ladder a productive retry starts over has no count.
         self.tick(third)
         job, last = self.run_queued(INCOMPLETE)
         self.assertEqual((job.auto_retry, job.auto_continue), (2, 1))
@@ -333,7 +369,7 @@ class AutoRetryTest(UnifiedCase):
         job, second = self.run_queued(RATE_LIMITED)
         self.assertEqual((job.auto_retry, job.auto_continue), (0, 1))
         self.assertEqual((second['auto_retry_kind'], second['auto_retry_attempt']), ('rate_limited', 1))
-        self.assertIn('（第 1/2 次）', second['status_message'])
+        self.assertNotIn('次）', second['status_message'])
         self.tick(second)
         job, third = self.run_queued(INCOMPLETE)
         self.assertEqual((job.auto_retry, job.auto_continue), (1, 1))

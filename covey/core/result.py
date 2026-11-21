@@ -20,7 +20,7 @@ ERROR_CODES = frozenset({"", "child_error", "child_aborted", "child_unknown", "s
     "protocol_error", "session_guard", "process_exit", "identity_mismatch", "output_missing", "storage_failed",
     "max_turns", "budget_exceeded", "authentication_error", "rate_limited", "workspace_routing_timeout",
     "workdir_missing", "background_timeout", "quota_exhausted", "model_blocked", "redaction_failed",
-    "read_only_refused"}) | POLICY_CODES
+    "read_only_refused", "server_fault"}) | POLICY_CODES
 
 
 # What the user can do next, where a failure has a clear way on. The plain words replace
@@ -30,6 +30,9 @@ RECOVERY = {
                      "- 限流一般几分钟内恢复。稍后在本话题直接发一条消息（例如“继续”）：会开一个新会话，"
                      "带上本话题最近的对话；上一轮做到一半的操作不会自动接着执行，需要时让模型先核对。\n"
                      "- 着急或额度已用完时，点任务卡上的“🔁 换配置”，换一个模型接着做。"),
+    "server_fault": ("本轮没有产出回复。\n\n**怎么继续**\n"
+                     "- 这类故障一般很快恢复。可以点“现在重试”，或稍后在本话题发一条消息（例如“继续”）：会开一个新会话，"
+                     "带上本话题最近的对话；上一轮做到一半的操作不会自动接着执行，需要时让模型先核对。"),
     "quota_exhausted": ("本轮没有产出回复。\n\n**怎么继续**\n"
                         "- 额度恢复前，重试和“继续”都不会成功，机器人也不会自动重试。\n"
                         "- 点任务卡上的“🔁 换配置”，换一个模型接着做。"),
@@ -53,6 +56,7 @@ NOTICE = {
 # for the others (app/turn_settle.py _settle_status; app/auto_retry.py KINDS says it again once a retry is off).
 STATUS_MESSAGES = {
     "rate_limited": "模型服务限流，本轮没有产出回复",
+    "server_fault": "模型服务临时故障，本轮没有产出回复",
     "quota_exhausted": "模型服务额度已用完，本轮没有产出回复",
     "model_blocked": "模型服务因安全拒绝拦截了当前账号，本轮没有产出回复",
     "background_timeout": "已到任务的时间上限，后台任务已停止，发出最后一条完整回复",
@@ -84,6 +88,7 @@ DETAILS = {
     "budget_exceeded": "已达到本次运行的费用预算上限。",
     "authentication_error": "模型服务拒绝了当前身份或权限，请检查授权。",
     "rate_limited": "模型服务限流：请求或 token 速率超过了上游限制，或者用量额度不足，与任务内容无关。",
+    "server_fault": "模型服务临时故障：过载（529）、服务端错误（5xx）或连接中断，与任务内容无关。",
     "quota_exhausted": "模型服务的用量额度已用完（上游返回 402，或 403 quota exceeded），与任务内容无关。",
     "model_blocked": "模型服务暂停了当前账号使用这个模型：多次触发安全拒绝后被拦截，不是限流。",
     "workspace_routing_timeout": "连接模型服务超时：工作区路由发现失败，请检查服务网络或代理配置。",

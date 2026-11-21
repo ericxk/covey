@@ -93,7 +93,7 @@ CLI 登录和注册服务要用同一个系统账号、同一套环境变量。�
 - **子 Agent 的模型**（`backends/claude/subagents.py`，设置卡“新话题”页的“子 Agent”）：默认“轻量”，子进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，并用 `--agents` 把内置 Explore 换成只读、跑在 Haiku 上的同名子 Agent；“跟主模型”两样都不加。Claude Code 接的网关认不出 `sonnet`、`haiku` 别名时选“跟主模型”。
 - **模型目录**：一次双向初始化，不提交 prompt。档位只取模型声明的 `low` 到 `max`，声明了 `xhigh` 的另有 `ultracode`。子进程带 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`，经 `ANTHROPIC_BASE_URL` 接托管网关时还列出网关的模型（如 `claude/claude-opus-5`）；某次一个都没列出时沿用 24 小时内的 `<state>/native-models/claude-gateway.json`。已删除的网关模型的话题在启动前失败，提示换配置。
 - **本轮结果与收尾**：只取当前调用的 JSONL，result 文本等于最后一条完整根消息才算数。最终 result 后关输入，约 10 秒后停止进程组（还有补充没被接收时不关）；后台命令或子 Agent 结束时 Claude Code 会再起一轮通知，机器人等它们全部结束，只受 `--claude-timeout` 约束，这一轮的回复是各轮回复按顺序连起来（紧挨着的相同段落只留一段，`backends/claude/completion.py` 的 `final_texts`）。有结果后 CLI 非零退出时按部分结果投递（会话封住）；因停止或超时结束、已有完整回复的照常发出并加说明。原生错误详情在 `<状态目录>/claude-diagnostics/<run-id>.json`，不要外传。
-- **限流与额度**：429 记 `rate_limited`（会自动重试），529 记 `root_failed`，402 记 `quota_exhausted`，451 记 `model_blocked`（后两种提示换配置）。明确的官方拒绝或降级会停止当前任务，见[官方拒绝与降级停止](policy-stop.md)。
+- **限流与额度**：429 记 `rate_limited`（会自动重试），529、500、502、503、504、连接重置、流空闲超时记 `server_fault`（临时故障，会自动重试），402 记 `quota_exhausted`，451 记 `model_blocked`（后两种提示换配置）。明确的官方拒绝或降级会停止当前任务，见[官方拒绝与降级停止](policy-stop.md)。
 - **执行指标**：输出 token 是每条消息最大的 `output_tokens` 之和；缓存取 `cache_read_input_tokens`、`cache_creation_input_tokens`；子任务按 `parent_tool_use_id` 算，退出后读 `subagents/agent-*.jsonl` 补值；上下文取 result 的 `modelUsage`；生成时间扣除 tool_use 到 tool_result；TTFT `claude_delta`。下载请求与结果从会话记录的 `api-request*` 行还原，按 `requestDigest` 核对上的记 `digest_verified`。
 
 ## Pi

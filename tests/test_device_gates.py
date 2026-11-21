@@ -86,7 +86,7 @@ class Capabilities(unittest.TestCase):
     def test_a_context_without_the_device_fields_is_local(self):
         self.assertEqual(backend_capabilities(ClaudeBackend(), object()), HarnessCapabilities(
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
-            native_fork=True, rate_limit_retry=True, incomplete_retry=True, steer_reads=True, compaction=True,
+            native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
             command_stop=True, turn_export=True, redaction=True, rewind=True, bridge_tools=True, read_only=True))
 
 

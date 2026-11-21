@@ -100,6 +100,7 @@ class HarnessCapabilities:
     system_instructions: bool = False
     rate_limit_retry: bool = False  # a turn rate-limited with no reply is retried automatically (app/auto_retry.py)
     incomplete_retry: bool = False  # a turn ended incomplete (settle_timeout) with no reply is continued once, too
+    fault_retry: bool = False  # tells a passing server fault (529, 5xx, a dropped connection: server_fault) from other failures
     model_requests: bool = False  # sends model_request when the main task's first model call starts (after its setup)
     steer_reads: bool = False  # sends steer_read when the model takes a supplement in (Claude replays it)
     # its control's stop_command(note) stops the command the model waits on, so a supplement is read now
@@ -219,6 +220,9 @@ class RunResult:
     # (Acme's 429 is its upstream's capacity, not the owner's quota). Replaces the shared
     # detail on the failure card; the label and recovery steps stay.
     failure_detail: str = ""
+    # What a limit or a passing server fault said of itself ({reset_at: epoch seconds, evidence: [rows]}), for the
+    # automatic retry (app/auto_retry.py); None for a turn that ended otherwise.
+    limit: dict | None = None
 
 
 def normalize_run_result(value):

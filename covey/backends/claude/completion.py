@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import json
+import time
 import uuid
 
 from covey.core.harness import RunResult, UUID_RE
+from covey.core.limit_reset import evidence, fault_in, row_reset, row_text, text_reset
 from covey.core.result import ExecutionOutcome, MAX_REPLY_BYTES, VerifiedRootReply
 from covey.core.state import write_private_text
 from covey.backends.claude.policy import policy_signal
@@ -14,7 +16,8 @@ from covey.core.model_policy import same_refusal
 
 TERMINAL_TASK_STATES = frozenset({"completed", "failed", "stopped"})
 # Failures that say only that the turn did not end well: a rate limit Claude Code gave up on
-# in this turn names them better. 529 overloaded is not a rate limit here, as in the other backends.
+# in this turn names them better. 529 overloaded is not a rate limit here, as in the other backends: it is a
+# passing server fault (``server_fault``), retried on a shorter ladder (app/auto_retry.py).
 RATE_LIMIT_MASKED = frozenset({"root_failed", "root_incomplete", "output_missing", "process_exit", "settle_timeout"})
 
 
@@ -39,6 +42,8 @@ def result_failure(row):
     if row.get("api_error_status") == 429 or (
             row.get("is_error") is True and "rate_limit_error" in str(row.get("errors") or "") + str(row.get("result") or "")):
         return "failed", "rate_limited"
+    if row.get("is_error") is True and fault_in(row.get("api_error_status"), str(row.get("errors") or "") + str(row.get("result") or "")):
+        return "failed", "server_fault"
     if subtype != "success" or row.get("is_error") is not False or row.get("errors"):
         return "failed", "root_failed"
     if reason not in (None, "completed") or row.get("stop_reason") not in (None, "end_turn", "stop_sequence"):
@@ -48,7 +53,10 @@ def result_failure(row):
     return "completed", ""
 
 
-def save_diagnostic(ctx, run_id, row, status, code, *, cleanup=True, policy_event=None):
+MAX_EVIDENCE = 3  # Rows of a limit or fault kept as they came (limit_evidence).
+
+
+def save_diagnostic(ctx, run_id, row, status, code, *, cleanup=True, policy_event=None, limit=None):
     # Never persist the prompt, credentials, tool results or the entire stream.
     fields = {
         key: row.get(key)
@@ -61,7 +69,9 @@ def save_diagnostic(ctx, run_id, row, status, code, *, cleanup=True, policy_even
     write_private_text(
         ctx.state_dir / "claude-diagnostics" / (run_id + ".json"),
         json.dumps({"version": 1, "status": status, "error_code": code, **({} if cleanup else {"cleanup_confirmed": False}),
-                    **fields, **({"policy_event": policy_event} if policy_event else {})}, ensure_ascii=False),
+                    **fields, **({"policy_event": policy_event} if policy_event else {}),
+                    # The rows a limit or a fault came as, to see the real format (no secrets: core/limit_reset.py evidence).
+                    **({"limit": limit} if limit else {})}, ensure_ascii=False),
     )
 
 
@@ -104,6 +114,11 @@ class ClaudeReplyState:
         self.session_state = None
         # Claude Code gave up on a rate limit in the current turn (an assistant row's error).
         self.rate_limited = False
+        # A passing server fault (an assistant row's error "server_error", 529, a dropped connection) ended it; and
+        # what a limit said of itself: when it resets (epoch seconds) and the rows it came as (MAX_EVIDENCE).
+        self.server_fault = False
+        self.limit_reset = None
+        self.limit_evidence = []
         self.policy_event = None
         # A subagent's first refusal in this task is let through (docs/policy-stop.md): the main task gets the
         # subagent's error and goes on. The next refusal, the main task's or a subagent's, latches policy_event.
@@ -124,7 +139,22 @@ class ClaudeReplyState:
             self.invalidate()
         self.inputs.append(input_id)
         self.session_state = None
-        self.rate_limited = False
+        self.rate_limited = self.server_fault = False
+        self.limit_reset, self.limit_evidence = None, []
+
+    def note_limit(self, row, reset=None):
+        """Keep what ``row`` (a limit's or a fault's) says: its reset, and the row's format."""
+        reset = reset or row_reset(row)
+        if reset:
+            self.limit_reset = reset
+        if len(self.limit_evidence) < MAX_EVIDENCE:
+            self.limit_evidence.append(evidence(row))
+
+    def limit_fields(self):
+        """What the turn's outcome carries of a limit or fault (RunResult.limit); None without any."""
+        if not (self.limit_reset or self.limit_evidence):
+            return None
+        return {**({"reset_at": self.limit_reset} if self.limit_reset else {}), "evidence": list(self.limit_evidence)}
 
     def accept(self, row):
         if self.session_id and row.get("session_id") == self.session_id and not self.policy_event:
@@ -172,11 +202,20 @@ class ClaudeReplyState:
             state = row.get("status", "running") if subtype == "task_notification" else "running"
             if isinstance(tid, str) and tid and not (state == "running" and self.tasks.get(tid) in TERMINAL_TASK_STATES):
                 self.tasks[tid] = state
+        elif kind == "rate_limit_event":
+            info = row.get("rate_limit_info")
+            if isinstance(info, dict) and info.get("status") != "allowed":
+                self.note_limit(row)  # A warning too: the next real limit shows what its event looks like.
         elif kind in {"assistant", "stream_event"}:
             if self.result is not None:
                 self.invalidate()
             if kind == "assistant" and row.get("error") == "rate_limit":
                 self.rate_limited = True
+                self.note_limit(row, row_reset(row) or text_reset(row_text(row), time.time()))
+            elif kind == "assistant" and (row.get("error") == "server_error" or (
+                    row.get("isApiErrorMessage") is True and fault_in(None, row_text(row)))):
+                self.server_fault = True
+                self.note_limit(row)
             if kind == "assistant":
                 message = row.get("message")
                 message = message if isinstance(message, dict) else {}
@@ -291,11 +330,14 @@ class ClaudeReplyState:
             elif not self.ready():
                 status, code = "failed", "root_incomplete"
         candidate = self.candidate
-        if status in ("failed", "timed_out") and code in RATE_LIMIT_MASKED and self.rate_limited and candidate is None:
-            status, code = "failed", "rate_limited"
+        if status in ("failed", "timed_out") and code in RATE_LIMIT_MASKED and candidate is None:
+            if self.rate_limited:
+                status, code = "failed", "rate_limited"
+            elif self.server_fault:
+                status, code = "failed", "server_fault"
         if not cleanup:
             # Still a rate limit when that is why the turn ended: the outcome says cleanup is unconfirmed.
-            status, code = "unknown", code if code == "rate_limited" else "cleanup_unconfirmed"
+            status, code = "unknown", code if code in ("rate_limited", "server_fault") else "cleanup_unconfirmed"
         elif status == "completed" and (unsettled := self.unsettled_tasks()):
             status = "failed"
             code = (
@@ -308,7 +350,8 @@ class ClaudeReplyState:
         if status != "completed":
             # Diagnostics are an aid; failing to write them must not lose the outcome or a saved reply.
             with contextlib.suppress(OSError):
-                save_diagnostic(self.ctx, self.run_id, self.result, status, code, cleanup=cleanup, policy_event=self.policy_event)
+                save_diagnostic(self.ctx, self.run_id, self.result, status, code, cleanup=cleanup, policy_event=self.policy_event,
+                                limit=self.limit_fields())
         outcome = ExecutionOutcome(
             status,
             code,
@@ -327,4 +370,5 @@ class ClaudeReplyState:
             candidate,
             outcome,
             failure_detail=detail,
+            limit=self.limit_fields() if status != "completed" else None,
         )

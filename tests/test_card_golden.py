@@ -568,6 +568,22 @@ def recovery_cards():
                                                                "policy_stop": {"kind": "refusal", "category": "cyber", "scope": "main",
                                                                                "child_id": "", "response_id": "", "source_model": "",
                                                                                "target_model": "", "evidence": "refusal_stop"}}),
+        # A failed task card while its automatic retry waits (app/auto_retry.py result_elements): a rate limit with no
+        # reset known, with the reset Claude Code named, and a passing server fault with its count.
+        "failed_controls_limit_pending": failed_controls(TOPIC, 431, {
+            **record, "status": "failed", "execution_status": "failed", "failure_code": "rate_limited",
+            "auto_retry_state": "pending", "auto_retry_kind": "rate_limited", "auto_retry_attempt": 3,
+            "auto_retry_at": FROZEN + 600}),
+        "failed_controls_limit_reset_pending": failed_controls(TOPIC, 431, {
+            **record, "status": "failed", "execution_status": "failed", "failure_code": "rate_limited",
+            "auto_retry_state": "pending", "auto_retry_kind": "rate_limited", "auto_retry_attempt": 1,
+            "auto_retry_at": FROZEN + 3660, "auto_retry_reset_at": FROZEN + 3600}),
+        "failed_controls_fault_pending": failed_controls(TOPIC, 431, {
+            **record, "status": "failed", "execution_status": "failed", "failure_code": "server_fault",
+            "auto_retry_state": "pending", "auto_retry_kind": "server_fault", "auto_retry_attempt": 1,
+            "auto_retry_at": FROZEN + 30}, other=True),
+        "failed_controls_fault": failed_controls(TOPIC, 431, {**record, "status": "failed", "execution_status": "failed",
+                                                              "failure_code": "server_fault"}, other=True),
         "retry_status": retry_status("自动重试 · 10:00"),
         "result_note": result_note("说明"),
     }

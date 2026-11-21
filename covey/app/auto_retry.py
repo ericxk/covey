@@ -2,41 +2,57 @@
 (on Harnesses that declare ``rate_limit_retry``), an incomplete end (``incomplete_retry``), or a restart
 that interrupted it (any Harness: RESTARTED, plan_restart).
 
-A rate-limited turn is retried up to twice in a row, an incomplete or interrupted one once, ``delays``
-seconds after each failure. Each kind counts its own retries along a chain (the job's ``auto_retry``,
-``auto_continue`` and ``auto_resume``; a retry's job carries them on), so they add up and never
-multiply. The worker that delivered the failure, or the Bridge that marked the task interrupted (a
+A rate-limited turn is retried up to six times (60 s to an hour apart, about 2-3 hours in all), one a passing
+server fault (SERVER_FAULT: 529, 5xx, a dropped connection) three times (30 s to 5 minutes), an incomplete or
+interrupted one once, ``delays`` seconds after each failure plus 0-30 s of jitter (so topics stopped together do not
+retry together). When Claude Code said when a limit resets (core/limit_reset.py, within MAX_RESET_WAIT) the retry is
+at the reset plus a minute instead. Each kind counts its own retries along a chain (the job's ``auto_retry``,
+``auto_fault``, ``auto_continue`` and ``auto_resume``; a retry's job carries them on), so they add up and never
+multiply. A retry turn that made progress (``made_progress``) starts the chain's counts again, so a long round is not
+cut off by an old count; MAX_IDLE retries in a row at a reset with no progress stop the chain (the failure card
+stays). COVEY_AUTO_RETRY_LONG=0 gives back the old ladder (two tries, no fault kind, no reset, no jitter). The worker that delivered the failure, or the Bridge that marked the task interrupted (a
 restart found it unfinished, or its task runner got a SIGTERM), writes the schedule into that job's
 record (``auto_retry_state`` "pending", ``auto_retry_at``, ``auto_retry_attempt``, ``auto_retry_kind``;
-none means rate-limited);
+none means rate-limited; ``auto_retry_reset_at``, ``auto_retry_progress``, ``auto_retry_idle``);
 the Bridge's outbox loop runs ``tick``, which fires it through TaskControls.retry_topic, the
 path of the button, so a restart keeps it. The state then moves on, under the record lock, to
 "submitting" and "queued", or to "cancelled" (``auto_retry_note`` says why), or to "uncertain"
 when a submit raised or a Bridge stopped during it: an uncertain one never runs again (AUTO_RETRY_TRANSITIONS).
 Clicking 检查并继续 or 停止自动重试, a newer job in the topic, or a model switch cancels it.
 Older Bridges and task runners ignore these keys; one of 74023f9 runs an incomplete one as its first
-rate-limit retry.
+rate-limit retry, and one that does not know ``server_fault`` shows such a failure as an unfinished one.
 """
 from __future__ import annotations
 
 import dataclasses
 import datetime as _dt
 from pathlib import Path
+import random
 import time
 from typing import NamedTuple
 
 from covey.app.outbox import RETRY_NOTE, retry_label
 from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, OTHER_HARNESS, REPORT_NOTE, SWITCH_MODEL,
                                   failure_details, interrupted_summary, result_actions, result_note, retry_status, switch_route)
+from covey.core import env as cenv
 from covey.core import failure
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record, job_key, select_job_records, update_job_record_if
+from covey.core.metrics import run_seconds
 from covey.core.result import INCOMPLETE_STATUS, STATUS_MESSAGES
 from covey.core.saved_results import has_saved_reply
 from covey.core.topics import context_for_topic, read_topic, topic_label
 
 CANCEL_KIND = "bridge_job_retry_cancel"
-RATE_LIMITED, INCOMPLETE, RESTARTED = "rate_limited", "incomplete", "restarted"
+RATE_LIMITED, INCOMPLETE, RESTARTED, SERVER_FAULT = "rate_limited", "incomplete", "restarted", "server_fault"
+SWITCH = "COVEY_AUTO_RETRY_LONG"
+JITTER = 30  # Seconds at most added to every scheduled retry.
+RESET_AFTER = 60  # A retry at a limit's reset goes this long after it (and the jitter).
+MAX_RESET_WAIT = 6 * 3600  # A reset further off than this is not waited for on the clock: the ladder is.
+MAX_IDLE = 3  # Retries at a reset in a row that made no progress, after which the chain stops.
+PROGRESS_STEPS, PROGRESS_SECONDS = 3, 60  # What a retry turn did to have made progress: tool steps, and that it ran.
+LONG_KINDS = (RATE_LIMITED, SERVER_FAULT)  # The kinds a retry that made progress starts over.
+IDLE = "auto_idle"  # The job field counting the retries in a row that made no progress.
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,11 +67,16 @@ class Kind:
     action: str  # What the retry does, as they say it.
     failed_status: str  # The record's status line with no retry pending: turn_settle._settle_status's (core/result.py).
     moved: str  # How the failed task's card says its task went on.
+    counted: bool = True  # Whether its status lines say "第 n/N 次" (not for a ladder a retry that made progress starts over).
+    legacy: tuple = ()  # Its delays with COVEY_AUTO_RETRY_LONG=0, () for a kind that did not exist then.
 
 
 KINDS = {
-    RATE_LIMITED: Kind(("failed", "rate_limited"), "rate_limit_retry", "auto_retry", (60, 180), "模型服务限流",
-                       "自动重试", STATUS_MESSAGES["rate_limited"], "限流后自动重试"),
+    RATE_LIMITED: Kind(("failed", "rate_limited"), "rate_limit_retry", "auto_retry", (60, 180, 600, 1800, 3600, 3600),
+                       "模型服务限流", "自动重试", STATUS_MESSAGES["rate_limited"], "限流后自动重试", False, (60, 180)),
+    # A 529, a 5xx or a dropped connection that Claude Code gave up on: gone in minutes, if at all.
+    SERVER_FAULT: Kind(("failed", "server_fault"), "fault_retry", "auto_fault", (30, 120, 300), "模型服务临时故障",
+                       "自动重试", STATUS_MESSAGES["server_fault"], "临时故障后自动重试"),
     # Claude's main task ended while subtasks or later work had not: 10 of 31 failures in 9 days (2026-10).
     INCOMPLETE: Kind(("timed_out", "settle_timeout"), "incomplete_retry", "auto_continue", (60,), "本轮未全部完成",
                      "自动检查并继续", INCOMPLETE_STATUS, "未全部完成后自动检查并继续"),
@@ -84,11 +105,46 @@ AUTO_RETRY_TRANSITIONS = {
 
 
 class Planned(NamedTuple):
-    """The automatic retry a finished turn gets."""
+    """The automatic retry a finished turn gets. ``reset_at``: the limit's reset it waits for (0: none known);
+    ``progress``: the turn made progress, so the chain's counts start over; ``idle``: retries in a row at a reset
+    that made none, this turn's too."""
 
     due_at: float
     attempt: int
     kind: str = RATE_LIMITED
+    reset_at: float = 0.0
+    progress: bool = False
+    idle: int = 0
+
+
+def long_ladder() -> bool:
+    """Whether the long ladder, the fault kind, the resets and the jitter are on (COVEY_AUTO_RETRY_LONG, on unless 0)."""
+    return str(cenv.get(SWITCH, "1")).strip() != "0"
+
+
+def delays_of(kind):
+    """Seconds before the first, the second, ... retry of ``kind``'s chain."""
+    spec = KINDS[kind]
+    return spec.delays if long_ladder() or not spec.legacy else spec.legacy
+
+
+def jitter() -> float:
+    return random.uniform(0, JITTER) if long_ladder() else 0.0
+
+
+def count_words(kind, attempt):
+    """"（第 1/3 次）" for a kind that counts, else ""."""
+    spec = KINDS[kind]
+    return f"（第 {attempt}/{len(delays_of(kind))} 次）" if spec.counted or not long_ladder() else ""
+
+
+def made_progress(job, now=None) -> bool:
+    """Whether the turn of ``job`` did real work before it ended: at least PROGRESS_STEPS tool steps and PROGRESS_SECONDS
+    of running. A turn the limit refused at once, or one stuck in a server's own retries, has neither."""
+    trace = getattr(job, "tool_trace", None)
+    steps = getattr(trace, "total", 0)
+    ran = run_seconds(getattr(job, "timings", None), None, now) or 0
+    return isinstance(steps, int) and steps >= PROGRESS_STEPS and ran >= PROGRESS_SECONDS
 
 
 def pending(record):
@@ -105,21 +161,27 @@ def kind_of(record):
 
 def applies(app, ctx, kind):
     """Whether ``kind`` retries the tasks of ``app``'s Harness (in ``ctx``)."""
+    if kind == SERVER_FAULT and not long_ladder():
+        return False
     flag = KINDS[kind].capability
     return not flag or bool(getattr(backend_capabilities(app.backend, ctx), flag))
 
 
-def status_line(due_at, attempt, kind=RATE_LIMITED):
-    """The record's status line while a retry is pending; the topic notice says it too."""
-    at = _dt.datetime.fromtimestamp(due_at).astimezone().strftime("%H:%M")
+def clock(at):
+    return _dt.datetime.fromtimestamp(at).astimezone().strftime("%H:%M")
+
+
+def status_line(due_at, attempt, kind=RATE_LIMITED, reset_at=0.0, *_):
+    """The record's status line while a retry is pending; the topic notice says it too. ``reset_at``: the limit's
+    reset, when it is known. (More arguments are Planned's other fields.)"""
     spec = KINDS[kind]
-    return f"{spec.reason}，将于 {at} {spec.action}（第 {attempt}/{len(spec.delays)} 次）"
+    when = f"，预计 {clock(reset_at)} 恢复" if reset_at else ""
+    return f"{spec.reason}{when}，将于 {clock(due_at)} {spec.action}{count_words(kind, attempt)}"
 
 
 def queued_line(kind, attempt):
     """The retry's own task card while it is queued."""
-    spec = KINDS[kind]
-    return f"{spec.action}已入队（第 {attempt}/{len(spec.delays)} 次）"
+    return f"{KINDS[kind].action}已入队{count_words(kind, attempt)}"
 
 
 def plan(harness, ctx, job, turn, now=None):
@@ -135,15 +197,37 @@ def plan(harness, ctx, job, turn, now=None):
     if (kind is None or turn.verified_delivery is not None or not job.topic_id
             or job.cancel_event.is_set() or (kind == INCOMPLETE and (job.timeout or 0) > 0)):
         return None
+    now = time.time() if now is None else now
+    if not applies(harness, ctx, kind):
+        return None
     spec = KINDS[kind]
-    done = int(getattr(job, spec.count) or 0)
-    if done >= len(spec.delays) or not applies(harness, ctx, kind):
+    # This turn was itself an automatic retry (of any kind): did it get anywhere?
+    retried = any(int(getattr(job, s.count, 0) or 0) for s in KINDS.values())
+    progress = kind in LONG_KINDS and long_ladder() and retried and made_progress(job, now)
+    done = 0 if progress else int(getattr(job, spec.count, 0) or 0)
+    idle = 0 if progress or not retried else int(getattr(job, IDLE, 0) or 0) + 1
+    ladder = delays_of(kind)
+    if done >= len(ladder):
         return None
     record = find_job_record(ctx.state_dir, job_key(job.message_id, job.job_id)) or {}
     if (has_saved_reply(ctx, record) or record.get("result_retry_policy") == "native_answer_once"
             or record.get("paused_question_delivery") is not None):
         return None  # 检查并继续 would redeliver or refuse it, not queue it again.
-    return Planned((time.time() if now is None else now) + spec.delays[done], done + 1, kind)
+    reset = limit_reset(turn, now) if kind == RATE_LIMITED and long_ladder() else 0.0
+    if reset and idle >= MAX_IDLE:
+        return None  # MAX_IDLE retries at a reset that went nowhere: the failure card stays.
+    due = (max(reset, now) + RESET_AFTER if reset else now + ladder[done]) + jitter()
+    return Planned(due, done + 1, kind, reset, progress, idle)
+
+
+def limit_reset(turn, now) -> float:
+    """When the limit that ended ``turn`` resets, for a retry at that time: 0 when it said none, or it is more than
+    MAX_RESET_WAIT off (the ladder then)."""
+    said = getattr(turn, "limit", None)
+    reset = said.get("reset_at") if isinstance(said, dict) else None
+    if isinstance(reset, bool) or not isinstance(reset, (int, float)) or not 0 < reset - now <= MAX_RESET_WAIT:
+        return 0.0
+    return float(reset)  # A reset already past is no time to wait for: the ladder's first rung.
 
 
 def plan_restart(record, now=None):
@@ -159,7 +243,7 @@ def plan_restart(record, now=None):
     done = int(record.get(spec.count) or 0)
     if done >= len(spec.delays):
         return None  # Itself the automatic retry after a restart: a second restart leaves it to the user.
-    return Planned((time.time() if now is None else now) + spec.delays[done], done + 1, RESTARTED)
+    return Planned((time.time() if now is None else now) + spec.delays[done] + jitter(), done + 1, RESTARTED)
 
 
 def advance(state_dir, key, old, new, **fields):
@@ -188,21 +272,34 @@ def schedule_fields(planned):
     if planned is None:
         return {}
     return {"auto_retry_state": "pending", "auto_retry_at": planned.due_at, "auto_retry_attempt": planned.attempt,
-            "auto_retry_kind": planned.kind, "auto_retry_note": ""}
+            "auto_retry_kind": planned.kind, "auto_retry_note": "",
+            # Only when set: a record that has none reads as before.
+            **({"auto_retry_reset_at": planned.reset_at} if planned.reset_at else {}),
+            **({"auto_retry_progress": True} if planned.progress else {}),
+            **({"auto_retry_idle": planned.idle} if planned.idle else {})}
+
+
+COUNTS = tuple(spec.count for spec in KINDS.values()) + (IDLE,)
+# The counts a ReplyJob takes as arguments; the others are declared state (core/jobs.py), which an older release's job
+# files and runners leave alone.
+INIT_COUNTS = ("auto_retry", "auto_continue", "auto_resume")
 
 
 def chain_counts(record, attempt):
     """The retry counts of the job that retries ``record``: none after a click (``attempt`` 0); after
     the automatic retry, ``attempt`` for its kind, and the other kind's count as ``record``'s job had it."""
     if not attempt:
-        return {spec.count: 0 for spec in KINDS.values()}
-    counts = {spec.count: int(record.get(spec.count) or 0) for spec in KINDS.values()}
+        return {name: 0 for name in COUNTS}
+    # A turn that made progress started the chain over (Planned.progress): the other kinds' counts too.
+    counts = {spec.count: 0 if record.get("auto_retry_progress") else int(record.get(spec.count) or 0)
+              for spec in KINDS.values()}
     counts[KINDS[kind_of(record)].count] = attempt
+    counts[IDLE] = int(record.get("auto_retry_idle") or 0)
     return counts
 
 
 # A failure another Harness may get past now: a limit of the one the topic is on (#36).
-OTHER_CODES = frozenset({"rate_limited", "quota_exhausted"})
+OTHER_CODES = frozenset({"rate_limited", "quota_exhausted", "server_fault"})
 
 
 def other_harness(state_dir, record, topics) -> bool:
@@ -256,9 +353,9 @@ def result_elements(topic_id, job_id, record, other=False):
     elements = [actions(topic_id, job_id, pending(record), record, other), result_note(result_note_text(label, follow))]
     if pending(record):
         kind = kind_of(record)
-        how = "，做法同“检查并继续”" if kind == RATE_LIMITED else ""
+        how = "，做法同“检查并继续”" if kind in LONG_KINDS else ""
         elements.insert(0, retry_status(
-            f"⏳ {status_line(record['auto_retry_at'], record['auto_retry_attempt'], kind)}{how}。"
+            f"⏳ {status_line(record['auto_retry_at'], record['auto_retry_attempt'], kind, record.get('auto_retry_reset_at') or 0)}{how}。"
             f"现在点“{label}”会立即重试；点“停止自动重试”、在本话题发消息或换配置会取消这次自动重试。"))
     return elements
 
@@ -387,7 +484,7 @@ def fire(app, ctx, target, record):
     queued = bool(current.get("retried_by"))
     current = advance(ctx.state_dir, key, "submitting", "queued" if queued else "cancelled",
                       auto_retry_note="" if queued else "refused",
-                      status_message=(f"{spec.reason}，已{spec.action}（第 {attempt}/{len(spec.delays)} 次）"
+                      status_message=(f"{spec.reason}，已{spec.action}{count_words(kind_of(record), attempt)}"
                                       if queued else spec.failed_status))
     app.runtime.log(f"auto retry of job #{record['job_id']} {'queued' if queued else 'refused'} (attempt {attempt})")
     if not queued and current is not None:

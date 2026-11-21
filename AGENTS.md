@@ -353,6 +353,7 @@
 | `core/ignored_env.py` | Backend parameters the environment no longer sets, and the two whose old values a service must not keep |
 | `core/jobs.py` | Shared durable job-state helpers for the Feishu bridge scripts |
 | `core/knowledge.py` | 知识条目: short entries the owner asked to be remembered ("记一下"), kept in one place so every Harness reads them … |
+| `core/limit_reset.py` | When a model limit resets, and what a passing server fault looks like, read off Claude Code's own output … |
 | `core/listen.py` | Where a local server listens (`parse_bind`: `[::]:10601`, `0.0.0.0:10601` or a bare port, meaning `[::]` |
 | `core/locks.py` | Resource-scoped locks |
 | `core/logs.py` | Logs of a state directory |
