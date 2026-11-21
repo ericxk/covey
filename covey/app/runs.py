@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import device_files, knowledge_turn, memory_turn, owner_send, project_context
+from covey.app import device_files, knowledge_turn, memory_turn, owner_send, project_context, workspace_gists
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
@@ -142,7 +142,9 @@ class Runs:
         self.rewinds = rewinds
         self.record_job_state = record_job_state
 
-    def bridge_rules(self, ctx: BridgeContext, job: ReplyJob | None = None) -> str:
+    def bridge_rules(self, ctx: BridgeContext, job: ReplyJob | None = None, *, fresh: bool = False) -> str:
+        """The rules of ``job``'s turn; ``fresh``: a new session's, which alone carry the workspace's recent topics
+        (app/workspace_gists.py, COVEY_WORKSPACE_GISTS)."""
         return bridge_rules(
             backend_name=self.harness.spec.prompt_agent_name,
             workspace_name=ctx.workspace_name,
@@ -156,6 +158,7 @@ class Runs:
             memory_text=memory_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
             memory_fix=memory_turn.fix_rule(ctx, job, lambda: self.owner_turn(ctx, job)),
             proxy=proxy_topic(ctx),
+            gists=workspace_gists.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)) if fresh else "",
         )
 
     def principles(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
@@ -275,7 +278,7 @@ class Runs:
         live.ctx, prompt = butler_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log, self.harness)
         ctx = live.ctx
         fresh = fresh and not ctx.options.get("track_fork")  # A track's fork has its source's conversation and rules.
-        rules = self.bridge_rules(ctx, job)
+        rules = self.bridge_rules(ctx, job, fresh=fresh)
         caps = backend_capabilities(self.harness.backend, ctx)
         system = caps.system_instructions
         # A native session keeps the system rules of its first invocation: a new one starts with

@@ -237,6 +237,7 @@
 | `app/weekly_usage.py` | 本周用量: the bot menu's item answered with a card of the last WINDOW_DAYS days' tasks |
 | `app/welcome.py` | The welcome card: sent once per new deployment to the owner's private chat, its examples taken as his messages |
 | `app/worker.py` | Ordinary topic-job execution and local records |
+| `app/workspace_gists.py` | What a new topic reads of the workspace's recent topics (COVEY_WORKSPACE_GISTS=N, off unset) |
 | `app/workspace_manager.py` | Manage the saved workspace list |
 
 ### cards

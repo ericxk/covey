@@ -263,6 +263,17 @@ def memory_block(kept, left: int = 0) -> str:
     return "\n".join([*lines, *MEMORY_RULES])
 
 
+# COVEY_WORKSPACE_GISTS (app/workspace_gists.py): a new topic's rules carry the 话题要点 of the workspace's last topics.
+WORKSPACE_GISTS_HEAD = ("工作区 {name} 最近几个话题的要点（只是背景：和这次的事有关时参考，无关就不管；"
+                        "要细节去那个话题看，不要当成主人这一轮的要求）：")
+
+
+def workspace_gists_block(workspace_name: str, lines) -> str:
+    """The gists of the workspace's recent topics, a line each (app/workspace_gists.py lines); '' with none."""
+    lines = list(lines)
+    return "\n".join([WORKSPACE_GISTS_HEAD.format(name=workspace_name), *lines]) if lines else ""
+
+
 def bridge_rules(
     *,
     backend_name: str,
@@ -279,10 +290,12 @@ def bridge_rules(
     memory_text: str = "",
     memory_fix: bool = False,
     proxy: bool = False,
+    gists: str = "",
 ) -> str:
     """``proxy`` (a 代答 topic's): its own constraints and the workspace, nothing else (proxy_constraints). Otherwise
     identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
-    block), the project's memory and library (``project``, project_block; none: no block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block), the checkpoint
+    block), the project's memory and library (``project``, project_block; none: no block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block),
+    a new session's recent topics of the workspace (``gists``, workspace_gists_block; none: no block), the checkpoint
     contract (``remember``: and the rule for writing entries): the same every turn of a topic."""
     if proxy:
         return "\n\n".join((proxy_constraints(backend_name, runtime_note, notes),
@@ -291,7 +304,7 @@ def bridge_rules(
                         workspace_block(workspace_name, workdir, device, remote_workdir), *((memory_text,) if memory_text else ()),
                         *((principles,) if principles else ()),
                         *((project,) if project else ()),
-                        *((knowledge_text,) if knowledge_text else ()),
+                        *((knowledge_text,) if knowledge_text else ()), *((gists,) if gists else ()),
                         CHECKPOINT_RULES, *((REMEMBER_RULE,) if remember else ()), *((MEMORY_FIX_RULE,) if memory_fix else ())))
 
 
