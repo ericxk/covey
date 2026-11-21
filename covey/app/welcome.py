@@ -35,8 +35,10 @@ from covey.app.butler import HARNESS
 from covey.app.card_lanes import after_ack
 from covey.cards import welcome as cards
 from covey.core import butler as contract
+from covey.core import butler_settings
 from covey.core import welcome
 from covey.core.card_sequence import file_card, reserve
+from covey.core.harness import backend_capabilities
 from covey.core.process_env import env_flag
 from covey.core.roster import NAMES
 from covey.core.state import claim_once, utc_now_iso
@@ -69,13 +71,14 @@ def harnesses(apps, runtime) -> tuple[list, list]:
     return [apps[name].spec.title for name in names], down
 
 
-def butler_state(apps) -> str:
+def butler_state(apps, harness=HARNESS) -> str:
     """'' when the owner's top-level messages go to the butler now, else why not (cards/welcome.py BUTLER_WORDS);
-    ``apps``: the Bridge's Harness apps by name. The 设置 card's 能做什么 says the same (app/about_panel.py)."""
+    ``apps``: the Bridge's Harness apps by name; ``harness``: the butler's (core/butler_settings.py butler_harness,
+    Claude Code unless the 设置 card chose another). The 设置 card's 能做什么 says the same (app/about_panel.py)."""
     if not contract.available():
         return cards.OFF
-    app = apps.get(HARNESS)
-    if app is None:
+    app = apps.get(harness)
+    if app is None or not backend_capabilities(app.backend, app.harness.context).bridge_tools:
         return cards.NO_CLAUDE
     if not contract.enabled():
         return cards.TOPICS
@@ -194,11 +197,13 @@ class Welcome:
         except (OSError, ValueError, KeyError, TypeError):
             workspace = workdir = ""
         return {"host": platform.node(), "harnesses": titles, "down": down,
-                "workspace": workspace, "workdir": workdir, "butler": self.butler_state(), "examples": list(EXAMPLES)}
+                "workspace": workspace, "workdir": workdir, "butler": self.butler_state(ctx.state_dir),
+                "examples": list(EXAMPLES)}
 
-    def butler_state(self) -> str:
-        """'' when the owner's top-level messages go to the butler now, else why not (``butler_state``)."""
-        return butler_state(self.topics.apps)
+    def butler_state(self, state_dir) -> str:
+        """'' when the owner's top-level messages go to the butler now, else why not (``butler_state``, on the
+        Harness its settings in ``state_dir`` name)."""
+        return butler_state(self.topics.apps, butler_settings.load(state_dir).butler_harness)
 
     # A click ---------------------------------------------------------------------------------------------------
 

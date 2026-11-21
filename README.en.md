@@ -45,7 +45,7 @@ The settings card, redaction tab: type the words, stand-ins are generated automa
 
 ## Quick start
 
-Requirements: Claude Code or Codex installed and logged in on this machine, Linux or macOS, Python 3.10+. The butler needs Claude Code: with Codex alone there is no butler, and each private message opens a topic of its own.
+Requirements: Claude Code or Codex installed and logged in on this machine, Linux or macOS, Python 3.10+. The butler runs on Claude Code by default; with only Codex or Antigravity, choose it as the butler's Harness on the settings card's 管家 tab (until then each private message opens a topic of its own).
 
 ```bash
 git clone https://github.com/ericxk/covey.git && cd covey

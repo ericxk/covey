@@ -43,7 +43,7 @@ Covey 在飞书里驱动你自己开发机上的编程 Agent。一个机器人�
 
 ## 快速开始
 
-前提：机器上已装好并登录了 Claude Code 或 Codex，Linux 或 macOS，Python 3.10+。要管家就要有 Claude Code：只有 Codex 时没有管家，私聊里每句话直接开一个话题。
+前提：机器上已装好并登录了 Claude Code 或 Codex，Linux 或 macOS，Python 3.10+。管家默认跑在 Claude Code 上；只有 Codex 或 Antigravity 时，在设置卡「管家」页把 Harness 换成它，换之前私聊里每句话直接开一个话题。
 
 ```bash
 git clone https://github.com/ericxk/covey.git && cd covey

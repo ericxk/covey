@@ -6,7 +6,7 @@ Covey 是飞书里的个人 Agent：你在飞书私聊自己的机器人说一�
 
 ## 装
 
-前提：机器上已装好并登录了 Claude Code 或 Codex（任一个；只有 Claude Code 能当管家，也就是私聊里直接跟你对话的那一层），Linux 或 macOS，Python 3.10+，手机飞书扫一次码。
+前提：机器上已装好并登录了 Claude Code 或 Codex（任一个；管家，也就是私聊里直接跟你对话的那一层，默认用 Claude Code，只有 Codex 时在「设置」→「管家」把 Harness 换成 Codex），Linux 或 macOS，Python 3.10+，手机飞书扫一次码。
 
 ```bash
 git clone https://github.com/ericxk/covey.git && cd covey

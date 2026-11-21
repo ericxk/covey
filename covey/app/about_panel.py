@@ -4,7 +4,7 @@ button, no model, no Feishu call). Shown always, so a colleague who did not inst
 What it reads, here and now, through each feature's own switch function (never a copy of the variable's rule): the
 Harnesses this Bridge enables and those its availability watch found unavailable (app/welcome.py ``harnesses``), the
 features of FEATURES, each on or off with one line (on: what it does and the switch it reads; off: how to get it, e.g.
-没有 Claude Code → 没有管家, app/welcome.py ``butler_state``), and the enabled extension packages (core/extensions.py).
+管家用的 Harness 没启用 → 没有管家, app/welcome.py ``butler_state``), and the enabled extension packages (core/extensions.py).
 docs/configuration.md 开关速查 is the same list for the deployer.
 
 The tab's record is the 设置 card's (app/settings_hub.py, app/menu_panel.py); its view holds no facts (they are read at
@@ -22,7 +22,7 @@ from covey.cards.question_cards import STANDING_ENV, standing_enabled
 from covey.cards.settings_hub import ABOUT
 from covey.cards.welcome import BUTLER_WORDS
 from covey.core import extensions, knowledge, memory, nodes, patrol, project_proposals, projects
-from covey.core import butler_tracks
+from covey.core import butler_settings, butler_tracks
 
 OWNER_ONLY = '⚠️ 仅机器人主人可以看这一页。'
 CLAUDE = "claude"  # The Harness the butler, the small model's judgments and redaction need.
@@ -38,7 +38,7 @@ def _digest(probe):
 
 
 def _butler(probe):
-    state = welcome.butler_state(probe.apps)
+    state = welcome.butler_state(probe.apps, butler_settings.load(probe.state_dir).butler_harness)
     if not state:
         return True, "私聊顶层的话先交给管家，能答的直接答，要做的开话题", "COVEY_BUTLER"
     why, how = BUTLER_WORDS[state]
@@ -46,7 +46,7 @@ def _butler(probe):
 
 
 def _tracks(probe):
-    if butler_tracks.enabled() and not welcome.butler_state(probe.apps):
+    if butler_tracks.enabled() and not welcome.butler_state(probe.apps, butler_settings.load(probe.state_dir).butler_harness):
         return True, "管家在做一件事时，你的下一句可以并进去或另起一件", butler_tracks.ENV
     if butler_tracks.enabled():
         return False, "开着，但要先有管家", butler_tracks.ENV

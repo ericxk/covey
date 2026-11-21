@@ -29,7 +29,8 @@ TRIED = frozenset({STARTING, SENT, UNCERTAIN})  # The button is off: never sent 
 NO_CLAUDE, OFF, TOPICS, DOWN = "no_claude", "off", "topics", "down"  # Why the private chat has no butler.
 # Why there is no butler (the band's grey line) and how to get it (its 要你做 bar, labelled 要管家).
 BUTLER_WORDS = {
-    NO_CLAUDE: ("管家要用 Claude Code，这台机器上它没启用", "装好并登录 Claude Code，再运行一次 ./install"),
+    NO_CLAUDE: ("管家用的 Harness（默认 Claude Code）在这台机器上没启用",
+                "装好并登录 Claude Code 再运行一次 ./install；只有 Codex 或 Antigravity 时，在「设置」→「管家」把 Harness 换成它"),
     OFF: ("部署时关了管家（COVEY_BUTLER=0）", "去掉这个设置，照 docs/configuration.md 的「改开关三步」重新注册服务"),
     TOPICS: ("私聊顶层的消息设成了每条直接开一个话题", "菜单「设置」→「管家」，改成交给管家"),
     DOWN: ("管家用的 Claude Code 刚才没起来", "几分钟后自动再试，不用做什么"),

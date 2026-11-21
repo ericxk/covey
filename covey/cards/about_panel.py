@@ -1,8 +1,8 @@
 """The 设置 card's 能做什么 tab (app/about_panel.py): what this deployment can do and what it lacks, read only.
 
 One layer under the tab row: 这台机器 (the Harnesses this Bridge enables, those unavailable now), 能做的 (each feature on,
-one line of what it does and, grey, the switch it reads), 还没开的 (each feature off, one line of how to get it: 没有
-Claude Code → 没有管家), 扩展 (the enabled packages), and a grey line on where the switches live. No button: a tap on the
+one line of what it does and, grey, the switch it reads), 还没开的 (each feature off, one line of how to get it: 管家用的
+Harness 没启用 → 没有管家), 扩展 (the enabled packages), and a grey line on where the switches live. No button: a tap on the
 tab draws it again from the deployment as it is then. ``view`` (app/about_panel.py ``facts``):
 
 - ``host``: the machine's name; ``harnesses``: the titles enabled; ``down``: [title, why] of those unavailable now;

@@ -16,6 +16,7 @@ from test_butler_topics import CHAT, ButlerTopicsCase
 
 from covey.app import availability, review
 from covey.cards.answer_card import REVIEW_ID, REVIEW_KIND, tail
+from covey.core.harness import HarnessCapabilities
 from covey.core.jobs import upsert_job_record
 from covey.core.model_names import vendor_of
 from covey.core.state import write_json
@@ -182,7 +183,7 @@ class OpenTest(ButlerTopicsCase):
         data = json.loads(path.read_text())
         path.write_text(json.dumps({**data, TOPIC_KEY: True}))
         with mock.patch("covey.app.launch_models.backend_capabilities",
-                        side_effect=lambda backend, ctx: SimpleNamespace(redaction=False)):
+                        side_effect=lambda backend, ctx: HarnessCapabilities(redaction=False)):
             self.app.review.open(self.ctx, self.click, self.raw)
         self.assertIn("没开独立复核：现在没有能用的模型", self.said()[-1])
 
