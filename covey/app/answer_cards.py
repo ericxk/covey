@@ -135,6 +135,16 @@ def notes(state_dir, job) -> list:
     return [found] if found else []
 
 
+def changed_code(job) -> bool:
+    """Whether ``job``'s turn changed code: the Bridge saw it change files in its workspace (``files_changed``), or its
+    checkpoint's delivery names a commit (core/checkpoint.py shows_change). No git call."""
+    if files_changed(job):
+        return True
+    path = _field(job, "checkpoint_path")
+    found = checkpoint_delivery(read_checkpoint(Path(path))) if path else {}
+    return bool(found) and shows_change(found)
+
+
 ANSWER_HEADING = "用户补充回答"  # How an answer form's turn begins (app/answers.py): 你答, not 你问.
 
 

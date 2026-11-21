@@ -180,6 +180,7 @@
 | `app/relay_send.py` | Sending what goes back to the butler's top level |
 | `app/relay_targets.py` | Where a topic turn's outcome goes back to at the butler's top level |
 | `app/revisits.py` | 到点回来看 at the Bridge: a topic that waits on something outside (a training, CI, a deploy) ends its turn with … |
+| `app/review.py` | 独立复核: a read-only topic that reviews one finished turn's changes, opened only when the owner clicks the … |
 | `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code) |
 | `app/runner.py` | The task runner process: one job of the Bridge, to completion |
 | `app/runner_ipc.py` | Messages between the Bridge and a job's task runner through its run directory |
@@ -358,7 +359,7 @@
 | `core/menu_choice.py` | A model menu's entries and the choices on them |
 | `core/metrics.py` | Content-free job timings |
 | `core/migrate.py` | One-time migrations of old records, so the code that reads records needs no compat branch for them |
-| `core/model_names.py` | How model ids read: a readable name from an id, the budget a preset id ends with, and where a budget ranks |
+| `core/model_names.py` | How model ids read: a readable name from an id, the budget a preset id ends with, where a budget ranks, and … |
 | `core/model_policy.py` | Bounded model safety metadata and user-facing stop reasons |
 | `core/model_settings.py` | Persisted model defaults with per-job configuration snapshots |
 | `core/node_agent.py` | The Node: the program that stays on a device (and on the hub itself) and keeps one connection to its hub |

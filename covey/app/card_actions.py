@@ -57,6 +57,9 @@ ACTIONS = {
     # process alive the click goes to it (it carries the job's id), as 补充 and 停止 on the task card do.
     "bridge_dispatch_steer": CardAction("补充派出去的任务", handler="steering.dispatch_steer"),
     "bridge_dispatch_stop": CardAction("停止派出去的任务", handler="controls.dispatch_stop"),
+    # 独立复核 under an answer card's 输入/输出 box (cards/answer_card.py review_element, COVEY_REVIEW=1): the owner's; the
+    # Bridge takes it before topic routing (app/review.py, PANELS) and opens a topic of its own.
+    "bridge_review_open": CardAction("独立复核", bot_only=True),
     # 不对 on the memory lines of an answer card (cards/answer_card.py memory_element, COVEY_MEMORY=1): takes a line back, starts no task.
     "bridge_memory_wrong": CardAction("撤销刚记下的记忆", handler="controls.memory_wrong"),  # COVEY_MEMORY=1: starts no task.
     # The 专项卡's buttons (cards/project_card.py): the card's message routes to the project's lead topic, so a click is

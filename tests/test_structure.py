@@ -62,6 +62,7 @@ from covey.core import extensions
 from covey.core.harness import HARNESS_REGISTRY
 from covey.core.jobs import JOB_STOP_ACTION_KIND
 from covey.app.standing_answers import KINDS as STANDING_KINDS
+from covey.app.review import KIND as REVIEW_KIND
 from covey.core.paths import BIN_DIR, entry_script, tool_root
 from covey.core.roster import CORE_HARNESSES, HARNESSES, LIVE_QUESTIONS, NAMES, PAUSED_QUESTIONS, RETIRED
 
@@ -96,6 +97,7 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= MEMORY_PANEL_KINDS  # The 设置 card's 记忆 tab (app/memory_panel.py).
         before_routing |= set(TIDY_KINDS)  # 整理专项's cards (app/project_tidy.py).
         before_routing |= STANDING_KINDS  # 以后这类按推荐走 and its card (app/standing_answers.py).
+        before_routing |= {REVIEW_KIND}  # 独立复核 on an answer card (app/review.py).
         before_routing |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK}  # The 代发草稿 card (app/owner_send.py).
         init = next(node for node in ast.walk(ast.parse((PACKAGE / "app" / "app.py").read_text()))
                     if isinstance(node, ast.FunctionDef) and node.name == "__init__")

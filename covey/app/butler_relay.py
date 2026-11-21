@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from covey.app import answer_cards
+from covey.app import answer_cards, review
 from covey.app.artifacts import answer_files
 from covey.app.relay_send import (QUESTION_RELAYS, SKIPPED, messenger_send, record_only, record_unsent,
                                            relay_path, send_once as _send_once)
@@ -287,6 +287,9 @@ def after_turn(delivery, delivered, execution_status, *, messenger, profile, voi
             noted = _part(log, job, "notes", lambda: answer_cards.notes(state_dir, job), [])
             if noted:
                 facts["notes"] = noted  # The completion criteria not met, as the answer card shows them.
+            offered = _part(log, job, "buttons", lambda: review.buttons(job), [])
+            if offered:
+                facts["buttons"] = offered  # 独立复核 (COVEY_REVIEW=1), as on the answer card.
         state = relay(state_dir, job, outcome, send=send, profile=profile, log=log, **facts)
         if record and facts.get("files") and hasattr(delivery.artifacts, "refresh_answer_cards"):
             # The upload may have ended while the relay went out: its 产物 brought up to date (never raises).

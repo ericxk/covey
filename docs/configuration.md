@@ -39,6 +39,7 @@
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家在做一件事时，你的下一句可以并进去或另起一件，不用等 |
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | 管家把事交给话题后，私聊聊天区多一张实时刷新的卡 |
 | [群成员只读](#群成员只读) | `COVEY_GROUP_MEMBERS=read` | 没在群聊卡上单独选过的群，群成员开的任务只能读文件和搜索；群聊卡上这些群写着「群成员只读」，启用确认卡也照这个写 |
+| [独立复核](usage.md#答案在哪里) | `COVEY_REVIEW=1` | 改了代码的答案卡下面多「独立复核」：点了才开一个只读话题，换一家的模型只看你的原话、完成标准和这一轮的改动 |
 | 专项的进阶 | `COVEY_PROJECT_AUTOWAKE=1`、`COVEY_PROJECT_ASK=1`、`COVEY_PROJECT_MEMORY=1`、`COVEY_PROJECT_TRIAGE=1`、`COVEY_PROJECT_UPGRADE=butler`（都要 `COVEY_PROJECTS=1`，最后一个还要派发卡） | 依次是：话题一轮结束就叫醒负责人；专项停住时发卡问你继续、收尾还是停；专项有自己的记忆和资料库；话题的问题先给负责人分流；管家派出的事能静默转成专项。说明见[专项 · 专项卡](projects.md#专项卡) |
 
 ### 按需打开
@@ -362,6 +363,7 @@
 ### 其他
 
 - `COVEY_APP_CHECK=0`：不检查飞书应用、不发「飞书应用待补」卡。检查和补齐见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用)。
+- `COVEY_REVIEW=1`：改了代码的一轮（`core/diff.py` 记到改了文件，或检查点的 `delivery` 写了提交号），答案卡和回带卡的灰框下面多一个「独立复核」（`app/review.py`）。只在主人点了才开话题，从不自己开；不设就没有这个按钮，已发出的卡上的按钮点了照样开（开关只管画不画）。设备上的话题不给。
 - `--health-timeout`：`launch` 的参数，默认 120 秒，0 关闭。Bridge 本地健康接口连续这么久没有响应就替换进程。bootstrap 不传它，所以经 bootstrap 注册的都是 120。
 - `COVEY_PRIVACY_DENYLIST`（只给 `scripts/privacy_check.py` 读，Bridge 本身不读）：指向仓库外的文本文件，每行一个公司域名或内部名词，隐私检查按它查；不设就只查通用规则，扩展里放有一份，见[隐私检查](testing.md#隐私检查)。
 
@@ -375,6 +377,7 @@
 | --- | --- | --- | --- |
 | `COVEY_DATA_HOME` | `core/paths.py`、`core/devices.py`（找 `devices.json`）、`core/extensions.py`（找本部署启用、停用的扩展 `extensions/enabled`） | 按 [数据目录](operations.md#数据目录) 推算 | 否 |
 | `COVEY_SERVICE_ROOT` | `core/paths.py` | `<数据根>/bridge-services` | 否 |
+| `COVEY_REVIEW` | `app/review.py`（`enabled`，`buttons` 据此画按钮） | 关；`1`：改了代码的答案卡和回带卡多「独立复核」 | 否 |
 | `COVEY_STANDING_ANSWERS` | `cards/question_cards.py`（`standing_offered`） | 关；`1`：问题卡上给「以后这类按推荐走」。`./install` 新装的服务写 `1`（`service/installer.py` 的 `INSTALL_SWITCHES`） | 否 |
 | `COVEY_STATE_DIR`；`LARK_CLAUDE_BRIDGE_STATE_DIR`、`LARK_DSH_BRIDGE_STATE_DIR`、`LARK_PI_BRIDGE_STATE_DIR`、`COVEY_AGY_STATE_DIR` | `app/harnesses.py`（只有默认 Harness 读，其余总用 Bridge 的 `--state-dir`） | `<数据根>/<Harness 的目录名>` | 否 |
 | `COVEY_PROFILE` | `backends/codex/bridge.py`、`backends/dsh/bridge.py`、`backends/pi/bridge.py`、`backends/agy/bridge.py`（Bridge 的 `--profile`） | 空：lark-cli 的默认 profile | 否 |

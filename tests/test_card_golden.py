@@ -733,8 +733,8 @@ def answer_tail_cards():
     """The answer card with its 产物 and 输入/输出 (cards/answer_card.py, 2026-11-08), its relay at the top level and
     the small card after an answer sent as a file."""
     from covey.cards.relay_card import DONE, STOPPED, WAITING, relay_card
-    from covey.cards.answer_card import (ARTIFACTS_ID, criteria_element, input_parts, memory_element, output_parts, tail,
-                                         tail_card)
+    from covey.cards.answer_card import (ARTIFACTS_ID, criteria_element, input_parts, memory_element, output_parts,
+                                         review_element, tail, tail_card)
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_band, answer_card
 
@@ -848,6 +848,9 @@ def answer_tail_cards():
             "answer_card_criteria": answer_card(text, "✅ T443 · 结论", tail(
                 files, inputs, outputs, change=handed, notes=[criteria_element([
                     ("没满足", "合进 main 并推送"), ("没查", "在手机上点开看过，按钮颜色对")])]), [head]),
+            # #20: 独立复核 under the box of a turn that changed code (COVEY_REVIEW=1, app/review.py).
+            "answer_card_review": answer_card(text, "✅ T443 · 结论", tail(
+                files, inputs, outputs, change=handed, buttons=[review_element("tf0443", 2906)]), [head]),
             # #18: a commit the repository of the turn's workdir lacks (app/answer_cards.py absent_commits), marked.
             "answer_card_delivery_mismatch": answer_card(text, "✅ T443 · 结论", tail(
                 files, inputs, outputs, change={**handed, "not_found": ["a6bc148d38ce8c230e96e"]}), [head]),

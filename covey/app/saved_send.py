@@ -24,7 +24,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from covey.app import answer_cards
+from covey.app import answer_cards, review
 from covey.app.access import Access
 from covey.app.artifacts import answer_files
 from covey.cards.answer_card import head_element, tail as answer_tail
@@ -162,7 +162,7 @@ def tail_parts(state_dir, record, topic_id, voice, job, harness, snapshot, ctx):
     ledger = answer_cards.ledger_of(state_dir, record, voice) if panel else None
     elements = answer_tail(panel, answer_cards.inputs(job, harness, snapshot, ctx),
                            answer_cards.outputs(job, snapshot), change=answer_cards.change(job),
-                           notes=answer_cards.notes(state_dir, job))
+                           notes=answer_cards.notes(state_dir, job), buttons=review.buttons(job))
     return elements, panel is not None, (ledger or {}).get("status")
 
 

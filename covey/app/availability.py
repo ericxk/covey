@@ -141,6 +141,26 @@ def snapshot(state):
     return values
 
 
+# A last task that failed this way: another one now would very likely fail the same (``usable``).
+NOT_NOW = frozenset({"rate_limited", "quota_exhausted", "model_blocked", "authentication_error"})
+NOT_NOW_SECONDS = 900
+
+
+def usable(runtime, state, name, now=None) -> bool:
+    """Whether the Harness ``name`` may take a task now, as far as the Bridge knows without asking it: the availability
+    watch's last preflight (runtime.availability_health) does not say it is unavailable, and its latest task did not
+    fail in the last NOT_NOW_SECONDS with a limit or a login error (NOT_NOW; a later answer on it clears that). A
+    Harness never sampled or seen counts as usable."""
+    preflight = ((getattr(runtime, "availability_health", None) or {}).get("preflight") or {}).get(name) or {}
+    if preflight.get("status") == "unavailable":
+        return False
+    now = time.time() if now is None else now
+    rows = [row for row in snapshot(state) if row.get("backend") == name and isinstance(row.get("checked_at"), (int, float))]
+    latest = max(rows, key=lambda row: row["checked_at"], default=None)
+    return not (latest and latest.get("status") == "failed" and latest.get("error") in NOT_NOW
+                and now - latest["checked_at"] < NOT_NOW_SECONDS)
+
+
 def check_or_raise(name, ctx):
     executable = _executable(ctx)
     passed = _logins.get(executable) if name == 'claude' and not device_of(ctx) else None

@@ -308,11 +308,25 @@ def criteria_element(rows):
     return {**labelled("完成标准", "\n".join(lines)), "element_id": CRITERIA_ID}
 
 
+REVIEW_ID = "answer_review"
+REVIEW_KIND = "bridge_review_open"  # app/review.py KIND.
+REVIEW_LABEL = "独立复核"
+
+
+def review_element(topic_id, job_id):
+    """独立复核 under the 输入/输出 box of a turn that changed code (app/review.py, COVEY_REVIEW=1): a bordered button in a
+    row of its own (REVIEW_ID); a click opens a read-only topic that reviews this turn's changes on another model."""
+    from covey.cards.elements import button_row, callback, topic_button
+
+    return button_row([topic_button(REVIEW_LABEL, behaviors=callback(
+        {"kind": REVIEW_KIND, "topic_id": str(topic_id or ""), "job_id": job_id}))], REVIEW_ID)
+
+
 def tail(files=None, inputs=(), outputs=(), link="", change=None, notes=(), buttons=()):
     """What follows an answer: its 产物 panel (``files``, None without), its 改动 fold (``change``,
     ``change_element``: None, {} or '' without) and the line marking a commit not found (``check_element``), the
     ``notes`` (elements: the completion criteria not met, ``criteria_element``), the facts box, then ``buttons``
-    (elements)."""
+    (elements: 独立复核, ``review_element``)."""
     return [element for element in (files, change_element(change), check_element(change), *(notes or ()),
                                     facts_element(inputs, outputs, link), *(buttons or ())) if element]
 
