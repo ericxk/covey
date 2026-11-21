@@ -191,6 +191,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 | `stop` | 先把期望状态持久写成 `stopped`，Manager 向 Bridge 的进程组发 SIGTERM，15 秒后仍在就 SIGKILL。命令最多等 25 秒确认，否则报 `service stop not confirmed`。机器重启后仍保持停用 |
 | `start` | 期望状态写回 `running` |
 | `restart` | 代次加一，Manager 换一个 Bridge 进程 |
+| `set KEY=VALUE …`、`unset KEY …`（可加 `--dry-run`） | 只改服务清单里这几个变量，按原命令重新注册（代次加一），见[配置 · 改开关三步](configuration.md#改开关三步) |
 
 - `stop`、`restart` 和部署都不结束任务进程。机器人停着期间任务照常执行、刷新卡片，但点卡片和发消息没有响应。
 - Bridge 没有热重载，`SIGHUP` 不触发重新执行；换代码用 `restart` 或部署。

@@ -64,13 +64,22 @@
 
 ### 改开关三步
 
-环境变量写在服务清单里，Bridge 只认清单，不认你登录终端里后来设的变量。每次重新注册，清单里本项目的变量都**整组换成**执行注册的那个终端里的，所以先把现有的载入终端，再改：
+环境变量写在服务清单里，Bridge 只认清单，不认你登录终端里后来设的变量。改开关用 `covey_service.py set`，在服务正在运行的代码目录里（`STATE_DIR` 见[运维 · 找到数据根和 APP_ID](operations.md#找到数据根和-app_id)）：
 
-1. **载入现在的设置**：新开一个终端，进入服务正在运行的代码目录，按[载入服务清单的环境](deploy.md#载入服务清单的环境)把清单里的变量载入终端。
-2. **改，再重新注册**：`export COVEY_DIGEST_TIMES=09:30,21:30`；关一个开关时把它设成关闭值（多数是 `0`，各自的取值见上表和[一览](#环境变量与选项一览)），不要只 `unset`。然后：
-   - 服务还从 `./install` 的检出运行（没有用 `deploy_bridge.sh` 升级过）：在检出里重新运行 `./install`，它发现设置变了会重新注册；
-   - 服务从 `releases/` 下的固定 release 运行：在那个 release 目录里运行 bootstrap，见[改设置后重新注册](deploy.md#改设置后重新注册)。
-3. **确认**：`python3 -B bin/covey_service.py status --state-dir "$STATE_DIR"` 里的 `generation` 加了一，`bridge.log` 有新的 `bridge started`；再在飞书里按上表“怎么确认”那一列看一眼。
+1. **先看会改什么**：`python3 -B bin/covey_service.py set --state-dir "$STATE_DIR" --dry-run COVEY_DIGEST_TIMES=09:30,21:30`，打印一行 JSON，`changed` 里是每个变量的 `from` 和 `to`，什么都不改。
+2. **改**：去掉 `--dry-run` 再跑一次。关一个开关时把它设成关闭值（多数是 `0`，各自的取值见上表和[一览](#环境变量与选项一览)），如 `set … COVEY_BUTLER_TRACKS=0`；去掉一个设置用 `unset`：`python3 -B bin/covey_service.py unset --state-dir "$STATE_DIR" COVEY_HISTORY_CMD`。一次可以写几个。
+3. **确认**：输出的 `generation` 加了一，`bridge.log` 有新的 `bridge started`；再在飞书里按上表“怎么确认”那一列看一眼。
+
+`set` 和 `unset` 做的就是[改设置后重新注册](deploy.md#改设置后重新注册)那几步，只是不经过终端：读出清单里现在的变量，只改给出的这几个（存成清单用的旧名 `LARK_BRIDGE_<X>`，见[环境变量的旧名](compat.md#环境变量的旧名)），按清单原样的启动命令、工作目录、profile、日志和健康超时重新注册，代次加一，Manager 换一个 Bridge 进程。所以终端里有什么变量都不影响它，清单里的代理等变量也不会丢；它不换代码（换代码是升级，见[升级与回滚](deploy.md#升级与回滚)）。值没变时什么都不做。
+
+它拒绝、什么都不改的情况：
+
+- 名字像凭据的（含 `SECRET`、`TOKEN`、`PASSWORD`、`CREDENTIAL`，或以 `KEY` 为一段）、不归清单管的（只收 `COVEY_*`、`LARK_*_BRIDGE_*`、`PATH`、`LANG`、`CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`DSH_HOME` 和代理变量）、Manager 和开机守护自己设的（`COVEY_MANAGED` 等）；值带换行，或代理带用户名密码。
+- 部署预检（[部署新版本](deploy.md#部署新版本)）会挡的：已经不生效的权限变量设成了收紧的值、重启会打断的任务、正在建 worktree 的启动卡、正在发的代答批次、另一个部署正在进行（`deploy.lock`）。
+- `unset` 的变量 Manager 自己的环境里也有（第一次 `launch` 时那个终端带进去的）：只删清单里的，Bridge 照样拿到它，所以拒绝并提示改用关闭值，见[服务清单里的环境变量](#服务清单里的环境变量)。
+- 服务 `stop` 着：先 `covey_service.py start`。
+
+`set` 管不到的，比如改 Codex 等写在服务命令行上的参数，照手工的做法：按[载入服务清单的环境](deploy.md#载入服务清单的环境)把清单里的变量载入一个新终端，改好后按[改设置后重新注册](deploy.md#改设置后重新注册)重新注册（检出运行的重跑 `./install`，release 运行的在那个 release 目录里跑 bootstrap）。
 
 `covey_service.py restart` 只换进程、不换清单，所以改开关不能只 `restart`；`harnesses.json` 和 `devices.json` 才是改完文件 `restart` 就行。
 
@@ -81,7 +90,7 @@
 | 服务命令行 | Bridge 自己的参数（`--workdir`、`--profile`、`--app-id`、`--state-dir`、`--owner`、`--harness-config`）和默认 Harness（Codex）的参数 | 重新注册（`scripts/bootstrap_harness_bridge.sh` 或 `scripts/deploy_bridge.sh`） |
 | `harnesses.json`（`--harness-config`） | 其余 Harness 的参数和模型顺序 | 改文件后重启（`restart` 或重新注册） |
 | `devices.json`（`$COVEY_DATA_HOME/devices.json`，或 `COVEY_DEVICES_FILE` 指的文件） | 多设备（开发中，默认关）：每台设备怎么 ssh、能跑哪些 Harness、给任务的环境和谁能用；`COVEY_DEVICES=1` 才读 | 改文件后重启 |
-| 服务清单里的环境变量 | 可选功能的开关、Harness 的环境（`PATH`、`CODEX_HOME`、代理等） | 在终端里设好后重新注册，见下文 |
+| 服务清单里的环境变量 | 可选功能的开关、Harness 的环境（`PATH`、`CODEX_HOME`、代理等） | `covey_service.py set`（[改开关三步](#改开关三步)），或在终端里设好后重新注册，见下文 |
 | 状态目录里的设置文件 | 主人在飞书里改的设置：工作区列表、私聊模式、代答、脱敏词表等 | 在飞书的设置卡上改，实时生效 |
 
 服务清单不保存 App Secret、访问令牌和 Harness 凭据。它们留在 lark-cli 和各 CLI 自己的配置里。
@@ -140,7 +149,7 @@
 | 保存：本项目的设置 | 所有 `COVEY_*` 和 `LARK_<名称>_BRIDGE_*`，例如 `COVEY_DATA_HOME`、`COVEY_CARD_TRANSPORT` |
 | 不保存 | `COVEY_MANAGED`（Manager 启动 Bridge 时设置）、`COVEY_REQUIRED_MOUNT`（开机守护设置）、`COVEY_SERVICE_ROOT`（也不传给 Bridge）；名字像凭据的（含 `SECRET`、`TOKEN`、`PASSWORD`、`CREDENTIAL`，或以 `KEY` 为一段）；其他所有变量 |
 
-- **终端里没有的变量，清单里也就没了。** 在没有代理变量的终端里重新注册，清单里的代理就会丢；终端里多出的 `LARK_*BRIDGE_*` 也会被保存。所以先[载入服务清单的环境](deploy.md#载入服务清单的环境)再改，重新注册前对比一遍（[部署新版本](deploy.md#部署新版本)第 3 步）。
+- **终端里没有的变量，清单里也就没了。** 在没有代理变量的终端里重新注册，清单里的代理就会丢；终端里多出的 `LARK_*BRIDGE_*` 也会被保存。所以先[载入服务清单的环境](deploy.md#载入服务清单的环境)再改，重新注册前对比一遍（[部署新版本](deploy.md#部署新版本)第 3 步）。只改开关时用 `covey_service.py set`（[改开关三步](#改开关三步)），它从清单读、不看终端。
 - **关开关要设成关闭值，不能只 `unset`。** Bridge 的环境是 Manager 自己的环境加上清单里的变量（再加 `PYTHONDONTWRITEBYTECODE=1`、`COVEY_MANAGED=1`、`TMPDIR=<state>/tmp`）。Manager 是第一次 `launch` 时从那个终端拉起的，带着当时的变量一直跑；之后的 `launch` 只换清单，所以终端里去掉的变量还留在 Manager 的环境里。设成关闭值（如 `COVEY_BUTLER_TRACKS=0`）后清单里的值会盖过它。实在要清掉 Manager 环境里的旧变量：取 `"$SERVICE_ROOT/manager.json"` 里 `process.pid`，`kill -TERM -- -<pid>` 结束它的进程组（Bridge 和任务进程各在自己的会话里，不受影响），`pgrep -g <pid>` 确认没有残留，再在干净的终端里 `launch`。systemd 等托管方式拉起的 Manager 不带终端变量，重启单元即可。
 - **`restart` 不补变量。** 开机后 Manager 由开机守护拉起，不读交互 shell 的初始化文件，所以 `PATH`、代理和本项目的设置只能靠清单；清单里缺的变量要重新 `launch`。
 - 变量值不能含换行。代理 URL 只能是 `http`、`https`、`socks4`、`socks4a`、`socks5`、`socks5h`，要有主机名，不能带用户名、密码、路径、查询参数或片段（`NO_PROXY` 不校验）。不符合时 `launch` 拒绝写入，报 `only explicit non-secret runtime paths/settings can be persisted` 或 `only non-secret proxy URLs without credentials can be persisted`。带凭据的代理不能托管。
@@ -510,7 +519,7 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 
 | 参数 | 谁读 | 默认 | 弃用 |
 | --- | --- | --- | --- |
-| `--root`、`--state-dir`、`--workdir`、`--profile`、`--interval`、`--health-timeout`、`--log` | `service/manager.py`（`bin/covey_service.py`） | 见 `--help` | 否 |
+| `--root`、`--state-dir`、`--workdir`、`--profile`、`--interval`、`--health-timeout`、`--log`、`--dry-run` | `service/manager.py`（`bin/covey_service.py`；`--dry-run` 是 `set`、`unset` 的：只打印会改什么，见[改开关三步](#改开关三步)） | 见 `--help` | 否 |
 | `--root`、`--mode`、`--activate`、`--label`、`--status`、`--uninstall`、`--no-autostart` | `service/install.py` | 见 `--help`（`--mode` 有 `auto`、`systemd`、`launchd`、`cron`、`manager`，扩展可加；`auto` 在没有 systemd/launchd 时给 crontab 加一行 `@reboot`，`--no-autostart` 跳过；`--label` 是 launchd 标签，默认 `com.covey.manager`；公司托管模式的 `--persistent-virtio-pfs` 见扩展 README） | 否 |
 | `--root`、`--runtime-only`、`--skip-events`、`--probe-harnesses` | `service/doctor.py` | 见 `--help` | 否 |
 | `--state-dir`、`--app-id` | `service/pairing.py` | 见 `--help` | 否 |

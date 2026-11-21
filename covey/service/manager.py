@@ -390,6 +390,142 @@ class Manager:
         return 0
 
 
+SETTING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def parse_settings(words, unset=False):
+    """``KEY=VALUE`` words (``unset``: ``KEY`` words) as {name: value, or None to remove it}; ValueError for one that
+    is neither, or a name given twice."""
+    changes = {}
+    for word in words:
+        name, sep, value = word.partition("=")
+        if not SETTING_NAME.fullmatch(name) or bool(sep) == unset:
+            raise ValueError(f"{word!r}: write {'KEY' if unset else 'KEY=VALUE'}, e.g. "
+                             + ("COVEY_DIGEST_TIMES" if unset else "COVEY_DIGEST_TIMES=09:30,21:30"))
+        if any(set(cenv.spellings(name)) & set(cenv.spellings(other)) for other in changes):
+            raise ValueError(f"{name} is given twice")
+        changes[name] = None if unset else value
+    return changes
+
+
+def manager_environment(root):
+    """The environment a service's Bridge starts from besides its manifest (service_environment): that of the running
+    Manager, read from /proc, else this process's own (a Manager ensure_manager would start inherits it); None when the
+    running Manager's cannot be read."""
+    identity = (read_json(root / "manager.json", None) or {}).get("process")
+    if not is_owned(identity):
+        return dict(os.environ)
+    try:
+        raw = (Path("/proc") / str(int(identity["pid"])) / "environ").read_bytes()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return dict(item.split("=", 1) for item in raw.decode("utf-8", "replace").split("\0") if "=" in item)
+
+
+def restart_refusals(state):
+    """What a restart of the Bridge of ``state`` would cut short now, as scripts/deploy_bridge.sh's pre-checks see it:
+    jobs it would interrupt (restart_blockers), a launch form creating its worktree, a 代答 batch being sent."""
+    from covey.core import run_dir  # Only here: the Manager itself never loads the job records.
+    refusals = [f"job #{row.get('job_id')} ({row.get('status')}) would be interrupted"
+                for row in run_dir.restart_blockers(state, run_dir.live_keys(state))]
+    for folder, status, what in (("launch-forms", "creating_worktree", "a launch form is creating its worktree"),
+                                 ("proxy/batches", "sending", "a 代答 batch is being sent")):
+        for path in sorted((state / folder).glob("*.json")):
+            record = read_json(path, None)
+            if isinstance(record, dict) and record.get("status") == status:
+                refusals.append(f"{what} ({path.stem[:12]})")
+    return refusals
+
+
+@contextlib.contextmanager
+def deploy_lock(root, take=True):
+    """<root>/deploy.lock, the one scripts/deploy_bridge.sh holds through a deploy, held while a setting changes (not
+    kept when ``take`` is False: a dry run only looks); ValueError when a deploy holds it."""
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(root / "deploy.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        import fcntl
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            try:
+                holder = json.loads(os.pread(fd, 4096, 0) or b"null")
+            except ValueError:
+                holder = None
+            raise ValueError(f"a deploy is running ({json.dumps(holder, ensure_ascii=False)}): wait and run this again")\
+                from None
+        if take:
+            import socket
+            os.ftruncate(fd, 0)
+            os.pwrite(fd, json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "command": "covey_service.py set",
+                                      "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}).encode(), 0)
+        yield
+    finally:
+        os.close(fd)
+
+
+def change_settings(root, state, changes, *, dry_run=False):
+    """Change the settings ``changes`` names ({name: value, None to remove it}) in the service manifest of ``state`` and
+    register it again with its own command, workdir, profile, log and health timeout: what docs/deploy.md 改设置后重新注册
+    does from a terminal that loaded the manifest's environment, without a terminal. The generation goes up by one and the
+    Manager replaces the Bridge. Refused (ValueError): a service that is not registered or is stopped, a name the manifest
+    does not keep (a credential's, anything but COVEY_*, LARK_*_BRIDGE_*, PATH, LANG, CODEX_HOME, CLAUDE_CONFIG_DIR, DSH_HOME
+    and the proxy variables), a value it cannot keep, what scripts/deploy_bridge.sh's pre-check stops (a loosened
+    permission variable, jobs a restart would interrupt, a deploy running), and an unset the Manager's own environment
+    would undo. ``dry_run``: the report of what would change, nothing changed. The report: {state_dir, changed:
+    {name: {from, to}}, dry_run, generation}."""
+    from covey.core.ignored_env import loosened
+    state = Path(state).expanduser().resolve()
+    with deploy_lock(root, take=not dry_run):
+        manifest = read_json(manifest_path(root, service_key(state)), None)
+        if not isinstance(manifest, dict):
+            raise ValueError(f"no service is registered for {state} in {root}: register it first (./install or "
+                             "scripts/bootstrap_harness_bridge.sh)")
+        if manifest.get("desired_state") != "running":
+            raise ValueError("the service is stopped: start it first (covey_service.py start), then change the setting")
+        old = dict(manifest.get("environment") or {})
+        new, changed, inherited = dict(old), {}, None
+        for name, value in changes.items():
+            if not persistable(name):
+                raise ValueError(f"{name} is not kept in a service manifest: " + (
+                    "the Manager, the boot watchdog or a task sets it itself" if name in MANAGER_ENV_KEYS | TASK_ENV_KEYS
+                    else "its name looks like a credential's, and credentials never go into one"
+                    if SECRET_NAME.search(name) else
+                    "only COVEY_* and LARK_*_BRIDGE_* settings, PATH, LANG, CODEX_HOME, CLAUDE_CONFIG_DIR, DSH_HOME "
+                    "and the proxy variables are (docs/configuration.md 服务清单里的环境变量)"))
+            spellings = cenv.spellings(name)
+            before = next((old[spelling] for spelling in spellings if spelling in old), None)  # As cenv.get reads it.
+            if value is None and before is not None:
+                if inherited is None:
+                    inherited = manager_environment(root) or {}
+                kept = next((spelling for spelling in spellings if spelling in inherited), None)
+                if kept:
+                    raise ValueError(f"{kept} is also in the Manager's own environment, so the Bridge would still get it "
+                                     f"once the manifest no longer has it: turn a switch off with its off value instead "
+                                     f"(covey_service.py set {spellings[0]}=0, or the value docs/configuration.md gives)")
+            for spelling in spellings:
+                new.pop(spelling, None)
+            if value is not None:
+                new[spellings[-1]] = value  # The manifest's spelling (core/env.py canonical).
+            if before != value:
+                changed[spellings[-1]] = {"from": before, "to": value}
+        report = {"state_dir": str(state), "changed": changed, "dry_run": dry_run,
+                  "generation": manifest.get("generation")}
+        if not changed:
+            return report
+        validate_environment(new)
+        refusals = loosened(new) + restart_refusals(state)
+        if refusals:
+            raise ValueError("not changed: " + "; ".join(refusals))
+        if dry_run:
+            return report
+        registered = register(root, state, manifest["command"], workdir=Path(manifest["workdir"]),
+                              profile=manifest.get("profile", ""), log=Path(manifest["log"]), environment=new,
+                              health_timeout=manifest.get("health_timeout"))
+    ensure_manager(root)
+    return {**report, "generation": registered["generation"]}
+
+
 def ensure_manager(root):
     probe = instance_lock("manager-" + service_key(root))
     if probe is None:
@@ -419,6 +555,12 @@ def main(argv=None):
     for action in ("stop", "stop-if-registered", "start", "restart", "status"):
         p = sub.add_parser(action)
         p.add_argument("--state-dir", type=Path, required=True)
+    for action, words in (("set", "KEY=VALUE"), ("unset", "KEY")):
+        p = sub.add_parser(action, help=f"{action} settings in the service manifest and register it again "
+                                         "(docs/configuration.md 改开关)")
+        p.add_argument("--state-dir", type=Path, required=True)
+        p.add_argument("--dry-run", action="store_true", help="print what would change; change nothing")
+        p.add_argument("settings", nargs="+", metavar=words)
     run = sub.add_parser("run")
     run.add_argument("--interval", type=float, default=2, help=argparse.SUPPRESS)  # seconds between reconciles
     args = parser.parse_args(argv)
@@ -426,6 +568,10 @@ def main(argv=None):
     if args.action == "run":
         log_to(root / "manager.log")
         return Manager(root, interval=args.interval).run()
+    if args.action in ("set", "unset"):
+        changes = parse_settings(args.settings, unset=args.action == "unset")
+        print(json.dumps(change_settings(root, args.state_dir, changes, dry_run=args.dry_run), ensure_ascii=False))
+        return 0
     if args.action == "launch":
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
         paths = runtime_environment()
