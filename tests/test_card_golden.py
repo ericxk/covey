@@ -1323,6 +1323,7 @@ def overview_cards():
              "stale": [{"label": f"T{n}", "title": "旧", "topic": f"topic-{n}", "ask": "补充信息",
                         "since": FROZEN - 2 * 86400} for n in (380, 381)],
              "dismissed": ["T401", "T402"]}
+    undo = {**board, "undo": {"topic-401": FROZEN - 60, "topic-402": FROZEN - 60}}  # 撤销最近一次 beside the line.
     empty = {"counts": {"waiting": 0, "result": 0, "running": 0}, "pinned": 0, "waiting": [], "result": [],
              "running": [], "stale": []}
     view = {"waiting": [], "running": [], "ended": []}
@@ -1338,6 +1339,7 @@ def overview_cards():
                                {"label": "T396", "title": "日志", "status": "done", "at": FROZEN - 200, "seen": True}]}
     return {"pinned_board": overview_card({**view, "board": board}, FROZEN, "14:40"),
             "overview_ended": overview_card(ended, FROZEN, "14:40"),
+            "pinned_board_undo": overview_card({**view, "board": undo}, FROZEN, "14:40"),
             "overview_butler_waiting": overview_card(butler_waiting, FROZEN, "14:40"),
             "pinned_board_empty": overview_card({**view, "board": empty}, FROZEN, "14:40"),
             # The owner never had a topic (T604 #53): both modes say what to do first.
@@ -1370,6 +1372,8 @@ def digest_cards():
             "older_unseen": digest_card({**view, "waiting": [], "running": [], "done": view["done"][:2], "older": 1}),
             "old_questions": digest_card(old),
             "after_dismiss": digest_card(cleared(old, {"t370", "t371", "t372"})),
+            # 撤销 on the line it left (``cleared_taken``: what it puts back); a view saved before it has no button.
+            "after_dismiss_undo": digest_card(cleared(old, {"t370", "t371", "t372"}, FROZEN + 60)),
             # The bot menu's 看板 (app/digest.py board): the same card at any time, and with nothing to list.
             "asked": digest_card({**old, "asked": True}),
             "asked_empty": digest_card({"slot": FROZEN, "since": FROZEN - 3 * 3600, "waiting": [], "stale": [],
@@ -1405,6 +1409,9 @@ def digest_cards():
                                            "at": FROZEN, "first_use": True}),
             "board_record": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00",
                                         "at": FROZEN, "cleared": ["T370"]}, FROZEN + 3 * 3600),
+            "board_dismissed_undo": board_card({"waiting": [], "stale": [], "running": [], "done": [], "stamp": "08:00",
+                                                "at": FROZEN, "cleared": ["T370", "T371"],
+                                                "cleared_taken": {"t370": FROZEN + 60, "t371": FROZEN + 60}}, FROZEN + 120),
             "board_butler_waiting": board_card({"waiting": [{"topic": "m", "label": "管家", "title": "", "url": "",
                                                              "line": "等你回答：现在部署吗？", "meta": ["等了 1分"]}],
                                                 "stale": [], "running": [], "done": [], "stamp": "08:00"}),

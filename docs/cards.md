@@ -196,6 +196,7 @@
 | 设置卡「记忆」标签（`COVEY_MEMORY=1`） | `bridge_memory_workspace`（带 `option`）、`bridge_memory_open`（带 `scope`、`page`）、`bridge_memory_delete`（带 `key`、`op`）、`bridge_memory_pin`（带 `key`、`on`）；都带 `token`、`revision` | `MemoryPanel.click`：`memory_tab`；同一事件再投递 `duplicate`。删除、常驻在卡锁之外改存储（各自原来的删除办法），整卡重画在应答之后（`after_ack`） |
 | 早晚汇总的“你反复说的” | `bridge_digest_remember`（带 `id`、`op`：`save` 或 `drop`） | `Digest.claim`：`digest_remember`，值不对 `digest_remember_ignored`；应答后定下这一条（`memory_candidates.decide`），再照汇总卡保存的样子 `patch_card` 重画 |
 | 手上的事 | `bridge_overview_dismiss`（带 `topics`） | `Overview.claim`：只改看板记录，应答后由 `tick` 整卡重画 |
+| 不管了留下的那行灰字（手上的事、看板、早晚汇总）的「撤销」 | `bridge_overview_undismiss`（带 `taken`：{话题: 撤下时的 `at`}，早晚汇总和看板上还带 `from`） | `Overview.claim` → `Overview.undo`：只认主人；`undismiss` 把记录里 `at` 还对得上的话题放回（撤下之后又撤了一次的、问题已答或已收的，什么都不动）；应答后 `tick` 整卡重画，来源卡（`unhanded`：看板整卡按新读数重画，早晚汇总按保存的样子重画）也跟着画 |
 | 飞书应用待补 | `covey_app_setup`、`bridge_app_setup_skip` | `AppSetup.claim`（表的最后）：`app_setup_start`、`app_setup_busy`、`app_setup_stale` |
 | 欢迎卡（新部署只发一次，`app/welcome.py`） | `bridge_welcome_try`（带 `example`，示例的序号；`bot_only`） | `Welcome.claim`：只认主人（别人点了 `owner_only`）；同一事件再投递 `duplicate`，不是发出的那张卡或序号不对 `welcome_stale`，这句已经点过 `welcome_again`；否则 `welcome_try`：锁内记下这句在发（`tried`），应答后整卡重画成「已发出」，再把这句作为一条文字消息发到私聊顶层，交给 `handle_event` 当作主人的消息处理（有管家是管家的一轮，没有是一个新话题和它的启动卡）；没发出去的这句可以再点，可能已发出的不再发 |
 

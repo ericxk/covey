@@ -259,7 +259,7 @@ def board_card(view, now=None):
         if view.get("stale"):
             elements.append(stale_line(view["stale"], button=bool(view.get("dismissable")), origin=ORIGIN))
         elif view.get("cleared"):
-            elements.append(dismissed_line(view["cleared"]))
+            elements.append(dismissed_line(view["cleared"], view.get("cleared_taken"), ORIGIN))
     if found["stopped"]:
         elements.append(heading("stopped", len(found["stopped"])))
         elements += blocks("stopped", found["stopped"], lambda row: task_card_button(row) + ([button("不管了", tone="text", value={

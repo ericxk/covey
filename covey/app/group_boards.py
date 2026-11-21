@@ -49,6 +49,7 @@ class GroupBoards:
             digest = self.digests[chat] = Digest(self.runtime, self.messenger, self.voice, chat=chat,
                                                  name="digest-" + chat[-8:])
             self.board(chat).handed[digest.origin] = digest.dismissed
+            self.board(chat).unhanded[digest.origin] = digest.undismissed
             if self.main_digest is not None:
                 self.main_digest.others[chat] = digest  # Its 看板's 刷新 and 记为看过 (cards/board.py KINDS).
         return digest

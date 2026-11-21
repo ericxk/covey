@@ -269,18 +269,52 @@ def buffered(rows, pins, priority, now):
     return ranked(placed, priority) if kept else rows
 
 
-def dismiss(state, chat, topics, at, group=""):
+def dismiss(state, chat, topics, at, group="", by=""):
     """Take ``topics`` off ``chat``'s board as of ``at`` (epoch seconds), under 等你回答 etc. when ``group`` says:
-    the board's record changes, no job or question does. The topics that were not taken off already."""
+    the board's record changes, no job or question does. The topics that were not taken off already. ``by`` "card":
+    the owner's 不管了 click (``undismiss`` and ``last_click`` know such an entry; a hand unpin or the butler's is not)."""
     path = record_path(state, chat)
     with resource_lock("pinned-topics", str(path)):
         record = read_object(path)
         dismissed = record.get("dismissed") if record.get("chat_id") == chat else None
         dismissed = dict(dismissed) if isinstance(dismissed, dict) else {}
         new = [topic for topic in topics if topic not in dismissed]
-        dismissed.update({topic: {"group": group, "at": float(at)} for topic in topics})
+        dismissed.update({topic: {"group": group, "at": float(at), **({"by": by} if by else {})} for topic in topics})
         write_json(path, {**record, "schema_version": 1, "chat_id": chat, "dismissed": dismissed})
     return new
+
+
+UNDO_AGE = 86400  # 手上的事 offers 撤销 for the owner's latest 不管了 this long.
+
+
+def last_click(dismissed, now):
+    """{topic: at} of the owner's latest 不管了 click still in ``dismissed`` (the entries ``dismiss`` wrote with
+    by="card", the newest ``at`` and the topics sharing it: one click took them off together), within UNDO_AGE of
+    ``now``; {} when there is none. Not what he unpinned by hand or the butler took off."""
+    clicks = {topic: value["at"] for topic, value in (dismissed if isinstance(dismissed, dict) else {}).items()
+              if isinstance(value, dict) and value.get("by") == "card" and isinstance(value.get("at"), (int, float))
+              and not isinstance(value.get("at"), bool)}
+    if not clicks or now - max(clicks.values()) >= UNDO_AGE:
+        return {}
+    last = max(clicks.values())
+    return {topic: at for topic, at in clicks.items() if at == last}
+
+
+def undismiss(state, chat, taken):
+    """Put back what one 不管了 took off: each topic of ``taken`` ({topic: the ``at`` it was taken off at}) whose entry
+    is still that one (``at`` the same). One taken off again since (another ``at``), or already back (its question
+    was answered or retired, a newer one brought it back: ``active_dismissed``) is left as it is. The topics put back."""
+    path = record_path(state, chat)
+    with resource_lock("pinned-topics", str(path)):
+        record = read_object(path)
+        dismissed = record.get("dismissed") if record.get("chat_id") == chat else None
+        if not isinstance(dismissed, dict):
+            return []
+        back = [topic for topic, at in taken.items() if isinstance(dismissed.get(topic), dict)
+                and isinstance(dismissed[topic].get("at"), (int, float)) and abs(dismissed[topic]["at"] - at) < 0.001]
+        if back:
+            write_json(path, {**record, "dismissed": {topic: value for topic, value in dismissed.items() if topic not in back}})
+    return back
 
 
 def plan(wanted, current, stale=frozenset()):
@@ -470,6 +504,9 @@ class PinnedTopics:
             for topic, value in (theirs if isinstance(theirs, dict) else {}).items():
                 if isinstance(value, dict) and self.read.get(topic) != value:
                     record["dismissed"][topic] = value
+            for topic in list(record["dismissed"]):
+                if topic in self.read and topic not in (theirs if isinstance(theirs, dict) else {}):
+                    record["dismissed"].pop(topic)  # Put back (``undismiss``) since the round read it.
             write_json(path, record)
 
 

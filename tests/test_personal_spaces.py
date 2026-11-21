@@ -302,6 +302,7 @@ class GroupBoardsDigestThreadTests(GroupFixture, UnifiedCase):
         self.assertEqual(names, ['overview-oc_room', 'digest-oc_room'])
         room = self.app.group_boards.boards['oc_room']
         self.assertEqual(room.handed[digest.Digest.origin], self.app.group_boards.digests['oc_room'].dismissed)
+        self.assertEqual(room.unhanded[digest.Digest.origin], self.app.group_boards.digests['oc_room'].undismissed)  # 撤销 too.
 
 
 class SettingsCardChatTests(UnifiedCase):

@@ -245,6 +245,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.digest.candidates = Candidates(self.runtime, self.topics)
             # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
             self.overview.handed[self.digest.origin] = self.digest.dismissed
+            self.overview.unhanded[self.digest.origin] = self.digest.undismissed  # 撤销 under its 已撤下 line.
             # Which topics the owner has seen (app/topic_seen.py): read receipts, when COVEY_PINNED_TOPICS=1.
             self.topic_seen = TopicSeen(self.runtime, lambda ctx, key, handle: self.consume_events(ctx, key, handle))
             # The Feishu app kept up with the Bridge (app/app_setup.py): what it lacks offered in the owner's private

@@ -22,7 +22,7 @@ from covey.app.digest import (CATCH_UP, ENV, RECORD, ZONE, Digest, collect, due,
                                        slots, taken_off)
 from covey.cards.board import board_card
 from covey.cards.digest import SHOWN, digest_card, digest_text
-from covey.cards.overview import DISMISS
+from covey.cards.overview import DISMISS, UNDO
 from covey.core.jobs import upsert_job_record
 from covey.core.butler import butler_topic_id
 from covey.core.state import write_json, write_private_text
@@ -328,6 +328,20 @@ class CardTests(unittest.TestCase):
         self.assertIn("已撤下 2 个：T1、T2", digest_text(view))
         self.assertIsNone(digest.cleared(view, {"t1"}))  # Nothing of theirs left on it.
 
+    def test_the_line_has_undo_only_for_a_click_that_says_what_it_took_and_undone_is_its_inverse(self):
+        taken = digest.cleared(self.stale_view(dismissable=True), {"t1", "t2"}, 50.0)
+        card = digest_card(taken)
+        self.assertEqual(buttons(card), [{"kind": UNDO, "taken": {"t1": 50.0, "t2": 50.0}, "from": "digest"}])
+        self.assertIn("已撤下 2 个：T1、T2", json.dumps(card, ensure_ascii=False))
+        back = digest.undone(taken, {"t1"}, {"t1", "t2"})  # One of the two put back (an older view saved no ats: none).
+        self.assertEqual(([row["topic"] for row in back["stale"]], back["cleared"], back["cleared_taken"]),
+                         (["t1"], ["T2"], {"t2": 50.0}))
+        whole = digest.undone(taken, {"t1", "t2"}, {"t1"})  # t2 was answered since: not listed again.
+        self.assertEqual(([row["topic"] for row in whole["stale"]], any(key in whole for key in ("cleared", "cleared_taken"))),
+                         (["t1"], False))
+        self.assertIsNone(digest.undone(digest.cleared(self.stale_view(), {"t1"}), {"t1"}, {"t1"}))  # No ats saved.
+        self.assertIsNone(digest.undone(taken, {"t9"}, {"t9"}))
+
     def test_a_view_saved_before_the_line_draws_as_before(self):
         row = {"label": "T1", "title": "a", "state": "在做", "took": "", "seen": False}
         card = digest_card({"slot": at(8, 9, 30), "since": at(7, 23, 30), "waiting": [], "running": [row],
@@ -380,10 +394,47 @@ class ClickTests(UnifiedCase):
         self.assertTrue(self.app.messenger.create_and_send_card.called)  # 手上的事 drawn after the click.
         message, card = self.app.messenger.patch_card.call_args.args[1:]
         self.assertEqual(message, "om_digest")
-        self.assertEqual(buttons(card), [])
+        at = json.loads((self.state / pins.RECORD).read_text())["dismissed"]["old"]["at"]
+        self.assertEqual(buttons(card), [{"kind": UNDO, "taken": {"old": at}, "from": "digest"}])  # 撤销.
         self.assertIn("已撤下 1 个：[T404](https://link/T404)", json.dumps(card, ensure_ascii=False))
         saved = json.loads((self.state / RECORD).read_text())["sent"]["om_digest"]["view"]
         self.assertEqual((saved["stale"], saved["cleared"]), ([], ["[T404](https://link/T404)"]))
+
+    def test_undo_puts_the_old_question_back_on_the_card_and_on_the_board(self):
+        write_json(self.state / RECORD, {"sent": {"om_digest": {"slot": 1.0, "view": self.view}}})
+        self.click(self.value)
+        undo, = [v for v in buttons(self.app.messenger.patch_card.call_args.args[2]) if v["kind"] == UNDO]
+        self.click(undo)
+        self.assertEqual(json.loads((self.state / pins.RECORD).read_text())["dismissed"], {})
+        message, card = self.app.messenger.patch_card.call_args.args[1:]
+        self.assertEqual(buttons(card), [self.value])  # The line of old questions and its 不管了 again, no 已撤下.
+        self.assertNotIn("已撤下", json.dumps(card, ensure_ascii=False))
+        saved = json.loads((self.state / RECORD).read_text())["sent"]["om_digest"]["view"]
+        self.assertEqual(([row["topic"] for row in saved["stale"]], "cleared" in saved, "cleared_taken" in saved),
+                         (["old"], False, False))
+
+    def test_undo_after_the_question_was_answered_leaves_the_line_gone_and_nothing_back(self):
+        write_json(self.state / RECORD, {"sent": {"om_digest": {"slot": 1.0, "view": self.view}}})
+        self.click(self.value)
+        undo, = [v for v in buttons(self.app.messenger.patch_card.call_args.args[2]) if v["kind"] == UNDO]
+        write_private_text(self.state / "questions" / "q-old.json", json.dumps({
+            "token": "q-old", "topic_id": "old", "chat_id": CHAT, "job_id": 9, "status": "answered",
+            "created_at": time.time() - 2 * 86400, "question_message_id": "om_q-old", "questions": []}))
+        self.click(undo)
+        message, card = self.app.messenger.patch_card.call_args.args[1:]
+        self.assertEqual(buttons(card), [])  # Not listed again: nothing waits on it.
+        self.assertNotIn("另有", json.dumps(card, ensure_ascii=False))
+        self.assertNotIn("已撤下", json.dumps(card, ensure_ascii=False))
+
+    def test_undo_is_the_owners_only(self):
+        write_json(self.state / RECORD, {"sent": {"om_digest": {"slot": 1.0, "view": self.view}}})
+        self.click(self.value)
+        self.app.messenger.patch_card.reset_mock()
+        undo = {"kind": UNDO, "taken": {"old": json.loads((self.state / pins.RECORD).read_text())["dismissed"]["old"]["at"]},
+                "from": "digest"}
+        self.assertEqual(self.app.overview.claim(self.ctx, {"message_id": "om_digest"}, undo, False), "owner_only")
+        self.assertEqual(list(json.loads((self.state / pins.RECORD).read_text())["dismissed"]), ["old"])
+        self.app.messenger.patch_card.assert_not_called()
 
     def test_a_card_without_a_saved_view_is_left_as_it_is(self):
         write_json(self.state / RECORD, {"last_slot": 1.0, "message_id": "om_digest"})  # Sent before views were kept.
@@ -612,6 +663,16 @@ class BoardTests(UnifiedCase):
         self.assertTrue(board)
         self.assertIn("已撤下 1 个", json.dumps(board[-1][1], ensure_ascii=False))
         self.app.messenger.patch_card.assert_not_called()
+        self.assertEqual((self.state / RECORD).read_bytes(), before)
+        # 撤销 on that card: the record's entry goes and the 看板 is redrawn from a fresh view, the question listed again.
+        undo, = [v for v in buttons(board[-1][1]) if v.get("kind") == UNDO]
+        self.assertEqual(undo["from"], "digest")
+        self.app.handle_card_action_event({"event_id": "c2", "operator_id": "owner", "chat_id": CHAT,
+                                           "message_id": "om_board1", "action_value": undo}, self.ctx)
+        board = [(cid, c) for cid, c, _ in self.puts if cid == "bcard"]
+        text = json.dumps(board[-1][1], ensure_ascii=False)
+        self.assertIn("不管了", text)
+        self.assertNotIn("已撤下", text)
         self.assertEqual((self.state / RECORD).read_bytes(), before)
 
     def test_a_chat_that_never_had_a_topic_says_so_not_that_all_is_in_hand(self):

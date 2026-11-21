@@ -198,6 +198,8 @@ ACTIONS = {
     "bridge_memory_pin": CardAction("标记常驻记忆"),
     # 手上的事's line of old questions (cards/overview.py DISMISS): only the board's record changes.
     "bridge_overview_dismiss": CardAction("撤下看板"),
+    # 撤销 on the line 不管了 leaves (cards/overview.py UNDO): the board's record changes back (app/overview.py Overview.undo).
+    "bridge_overview_undismiss": CardAction("撤销撤下看板"),
     # The 看板's 刷新 and 记为看过 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).
     "bridge_board_refresh": CardAction("刷新看板"),
     "bridge_board_seen": CardAction("记为看过"),

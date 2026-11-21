@@ -25,7 +25,8 @@ questions waiting over a day has 这些都不用回答了 (DISMISS, the owner's 
 it takes them off the board, and the card is redrawn once the click is acknowledged. The same line and button are on
 the 早晚汇总 card (app/digest.py), shown only when the click can take effect (``dismissable``); its value's ``from``
 names that card, and ``handed`` (app/unified.py fills it) gets the click once acknowledged, beside the redraw, to
-change that card too. ``tick`` runs one at a time
+change that card too. The line it leaves has 撤销 (UNDO, ``undo``: the owner's only; what that 不管了 took off comes back, only the
+topics whose entry is still that click's: app/pins.py undismiss; ``unhanded`` is ``handed`` for it). ``tick`` runs one at a time
 (``turn``), from the loop or after such a click, so the card's writes keep their order (core/card_sequence.py).
 """
 from __future__ import annotations
@@ -37,9 +38,9 @@ from pathlib import Path
 
 from covey.core import env as cenv
 from covey.app.card_lanes import after_ack
-from covey.app.pins import GROUPS, PinnedTopics, dismiss, kept, record_path
+from covey.app.pins import GROUPS, PinnedTopics, dismiss, kept, last_click, record_path, undismiss
 from covey.app.topic_links import link_for
-from covey.cards.overview import DISMISS, DISMISS_MAX, clock, overview_card, retired_card
+from covey.cards.overview import DISMISS, DISMISS_MAX, UNDO, clock, overview_card, retired_card
 from covey.core.card_sequence import CardHandle, file_card, reserve
 from covey.core.jobs import job_path, read_job_record
 from covey.core.locks import resource_lock
@@ -98,6 +99,7 @@ class Overview:
         # A card other than this one with the line of old questions (its value's ``from``) -> what it does once a
         # click there is acknowledged: (ctx, the clicked message's id, the topics taken off).
         self.handed = {}
+        self.unhanded = {}  # The same for 撤销 (UNDO): origin -> what it does with (ctx, message id, the topics put back).
 
     @staticmethod
     def enabled():
@@ -223,9 +225,10 @@ class Overview:
         # 有结果未看 (core/board_read.py unseen): the results on it not seen yet, the topics taken off left out.
         counts = {group: sum(row["group"] == group for row in rows) for group in GROUPS}
         counts["waiting"] = found.count()  # 等我, the number every reader says (not the board's cells).
+        undo = last_click(off, self.now)  # 撤销最近一次: his latest 不管了 click, if still on.
         return {"counts": {**counts, "unseen": len(self.pins.unseen)},
                 "pinned": sum(row["topic"] in held for row in rows), **listed, "stale": old,
-                "dismissed": [self.topic(state, topic)[0] for topic in gone]}
+                "dismissed": [self.topic(state, topic)[0] for topic in gone], **({"undo": undo} if undo else {})}
 
     def board_row(self, state, row):
         record = row["record"]
@@ -348,7 +351,7 @@ class Overview:
 
     @staticmethod
     def matches(raw):
-        return isinstance(raw, dict) and raw.get("kind") == DISMISS
+        return isinstance(raw, dict) and raw.get("kind") in (DISMISS, UNDO)
 
     def claim(self, ctx, event, raw, owner):
         """A click on 这些都不用回答了 (app/unified.py PANELS), else None: the topics its value names taken off the
@@ -362,17 +365,38 @@ class Overview:
         if not owner:
             return "owner_only"
         chat = self.chat()
+        if raw["kind"] == UNDO:
+            return self.undo(ctx, event, raw, chat)
         topics = raw.get("topics") if isinstance(raw.get("topics"), list) else []
         topics = list(dict.fromkeys(topic for topic in topics if isinstance(topic, str) and topic))[:DISMISS_MAX]
         if not chat or not topics or not dismissable():
             return "overview_dismiss_ignored"
-        new = dismiss(ctx.state_dir, chat, topics, time.time(), "waiting")
+        at = time.time()
+        new = dismiss(ctx.state_dir, chat, topics, at, "waiting", "card")
         self.runtime.log(f"pinned overview dismissed topics={len(new)}/{len(topics)}")
         hand, message = self.handed.get(raw.get("from")), str(event.get("message_id") or "")
         if hand is not None and message:
-            after_ack(lambda: hand(ctx, message, topics), beside=True)
+            after_ack(lambda: hand(ctx, message, topics, at), beside=True)
         after_ack(lambda: self.tick(ctx, redraw=True))
         return "overview_dismiss"
+
+    def undo(self, ctx, event, raw, chat):
+        """撤销 under 不管了's line (the owner's, checked by ``claim``): the topics its value names, each with the ``at`` it
+        was taken off at, put back (app/pins.py undismiss: one taken off again since, or already back because its
+        question was answered or retired, is left alone); this card redrawn once the click is acknowledged, and a card
+        it came from (``from``, ``unhanded``) too, beside it, with the topics really put back."""
+        raw_taken = raw.get("taken") if isinstance(raw.get("taken"), dict) else {}
+        taken = {topic: at for topic, at in list(raw_taken.items())[:DISMISS_MAX]
+                 if isinstance(topic, str) and topic and isinstance(at, (int, float)) and not isinstance(at, bool)}
+        if not chat or not taken:
+            return "overview_undismiss_ignored"
+        back = undismiss(ctx.state_dir, chat, taken)
+        self.runtime.log(f"pinned overview undismissed topics={len(back)}/{len(taken)}")
+        hand, message = self.unhanded.get(raw.get("from")), str(event.get("message_id") or "")
+        if hand is not None and message:
+            after_ack(lambda: hand(ctx, message, list(taken)), beside=True)
+        after_ack(lambda: self.tick(ctx, redraw=True))
+        return "overview_undismiss"
 
     def settle(self, ctx, chat):
         """A chat that changed between 'a board of its own' and 'the default one' (``spaces.notify_space``) leaves records

@@ -5,7 +5,7 @@ said in the heading; the ones not unseen in grey, marked 已看). A row is the t
 to it once app/topic_links.py found one), its title, one line of state or phase and how long; a part shows SHOWN
 rows and says how many more there are. Under 等你, the questions waiting over a day are one grey line of topic
 numbers, 手上的事's (cards/overview.py stale_line), with its button 不管了 when ``dismissable``; once
-clicked, the line is 已撤下 N 个 (dismissed_line), grey, without the button.
+clicked, the line is 已撤下 N 个 (dismissed_line), grey, with 撤销 (``cleared_taken``: what it puts back).
 
 ``view`` is plain data: ``slot`` and ``since`` (epoch seconds), ``waiting``, ``running`` and ``done`` rows, each
 {label (Markdown, maybe a link), title, state, took, seen}, ``older``; ``stale`` rows {topic, label, title}, ``knowledge`` and ``wanted`` (rows {what, why, would}: 我本来想找你的事), ``dismissable``
@@ -58,7 +58,7 @@ def tail(view):
     """The 等你 part's last line: its old questions (with the button when ``dismissable``), or the ones taken off."""
     if view.get("stale"):
         return [stale_line(view["stale"], button=bool(view.get("dismissable")), origin=ORIGIN)]
-    return [dismissed_line(view["cleared"])] if view.get("cleared") else []
+    return [dismissed_line(view["cleared"], view.get("cleared_taken"), ORIGIN)] if view.get("cleared") else []
 
 
 def tail_text(view):

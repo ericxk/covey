@@ -545,7 +545,9 @@ class DismissTests(RoundTests):
         self.assertTrue(self.app.messenger.put_card.called)
         self.assertIn("另有 1 个等了一天以上：T406", card)
         self.assertIn("你撤下的 2 个：T404、T405", card)
-        self.assertEqual(self.button(self.last_card()), [{"kind": "bridge_overview_dismiss", "topics": ["t6"]}])
+        self.assertEqual(self.button(self.last_card()), [
+            {"kind": "bridge_overview_dismiss", "topics": ["t6"]},
+            {"kind": "bridge_overview_undismiss", "taken": {"t4": NOW + 30, "t5": NOW + 30}}])  # 撤销最近一次.
         # Not the owner: refused, nothing changes.
         self.assertEqual(self.overview.claim(self.ctx, {}, values[0], False), "owner_only")
         self.assertIsNone(self.overview.claim(self.ctx, {}, {"kind": "bridge_job_stop"}, True))
@@ -554,6 +556,90 @@ class DismissTests(RoundTests):
         self.overview.tick(self.ctx, NOW + 3 * pins.GAP)
         self.assertEqual(sorted(self.record()["dismissed"]), ["t5"])
         self.assertIn("om_res", self.feishu.order())
+
+    def undo_values(self):
+        return [value for value in self.button(self.last_card()) if value["kind"] == "bridge_overview_undismiss"]
+
+    def test_undo_puts_back_the_latest_click_only_and_not_what_he_unpinned_or_the_butler_took_off(self):
+        for token, topic in (("q1", "t4"), ("q2", "t5"), ("q3", "t6")):
+            self.question(token, topic, NOW - 2 * 86400)
+        self.job("run", 1, timings={"backend_started": NOW - 60}, topic="t1")
+        self.overview.tick(self.ctx, NOW)
+        self.click({"kind": "bridge_overview_dismiss", "topics": ["t4"]}, NOW + 30)
+        self.click({"kind": "bridge_overview_dismiss", "topics": ["t5", "t6"]}, NOW + 60)
+        dismiss(self.state, "oc_dm", ["t1"], NOW + 90, "running")  # The butler's (or a hand unpin's): newer, not a click.
+        self.overview.tick(self.ctx, NOW + 100)
+        card = json.dumps(self.last_card(), ensure_ascii=False)
+        self.assertIn("你撤下的 4 个", card)
+        self.assertIn("撤销最近一次", card)
+        undo, = self.undo_values()
+        self.assertEqual(undo, {"kind": "bridge_overview_undismiss", "taken": {"t5": NOW + 60, "t6": NOW + 60}})
+        self.click(undo, NOW + 110)
+        self.assertTrue(any("outcome=overview_undismiss " in line for line in self.logs), self.logs)
+        self.assertEqual(sorted(self.record()["dismissed"]), ["t1", "t4"])
+        card = json.dumps(self.last_card(), ensure_ascii=False)  # Redrawn at once, the two back among the old ones.
+        self.assertIn("另有 2 个等了一天以上：T405、T406", card)
+        undo, = self.undo_values()  # Now his earlier click is the latest one.
+        self.assertEqual(undo["taken"], {"t4": NOW + 30})
+
+    def test_undoing_a_dismissal_whose_question_was_answered_or_retired_meanwhile_does_nothing_wrong(self):
+        self.question("q1", "t4", NOW - 2 * 86400)
+        self.question("q2", "t5", NOW - 2 * 86400)
+        self.overview.tick(self.ctx, NOW)
+        self.click({"kind": "bridge_overview_dismiss", "topics": ["t4", "t5"]}, NOW + 30)
+        undo, = self.undo_values()
+        self.question("q1", "t4", NOW - 2 * 86400, status="answered")  # Answered on its card meanwhile.
+        self.question("q2", "t5", NOW - 2 * 86400, status="superseded")  # Retired (its task is gone).
+        self.overview.tick(self.ctx, NOW + 3 * pins.GAP)  # The round forgets what nothing waits for any more.
+        self.assertEqual(self.record()["dismissed"], {})
+        self.click(undo, NOW + 4 * pins.GAP)  # No crash, nothing brought back that no longer waits.
+        self.assertTrue(any("outcome=overview_undismiss " in line for line in self.logs), self.logs)
+        self.assertIn("pinned overview undismissed topics=0/2", self.logs)
+        card = json.dumps(self.last_card(), ensure_ascii=False)
+        self.assertNotIn("另有", card)
+        self.assertNotIn("你撤下的", card)
+        self.assertEqual(self.undo_values(), [])
+
+    def test_an_undo_of_an_earlier_click_leaves_a_topic_taken_off_again_since(self):
+        self.question("q1", "t4", NOW - 2 * 86400)
+        self.overview.tick(self.ctx, NOW)
+        self.click({"kind": "bridge_overview_dismiss", "topics": ["t4"]}, NOW + 30)
+        old, = self.undo_values()
+        self.click({"kind": "bridge_overview_dismiss", "topics": ["t4"]}, NOW + 60)  # Again, from another card.
+        self.click(old, NOW + 90)
+        self.assertEqual(self.record()["dismissed"]["t4"]["at"], NOW + 60)
+        self.assertIn("pinned overview undismissed topics=0/1", self.logs)
+
+    def test_undo_is_the_owners_and_reads_its_value_as_data(self):
+        self.question("q1", "t4", NOW - 2 * 86400)
+        self.overview.tick(self.ctx, NOW)
+        self.click({"kind": "bridge_overview_dismiss", "topics": ["t4"]}, NOW + 30)
+        undo, = self.undo_values()
+        self.assertEqual(self.overview.claim(self.ctx, {}, undo, False), "owner_only")
+        self.assertEqual(sorted(self.record()["dismissed"]), ["t4"])
+        for bad in ({"kind": undo["kind"]}, {"kind": undo["kind"], "taken": ["t4"]},
+                    {"kind": undo["kind"], "taken": {"t4": "x", "": 1, "t5": True}}):
+            self.assertEqual(self.overview.claim(self.ctx, {}, bad, True), "overview_undismiss_ignored")
+        self.assertEqual(sorted(self.record()["dismissed"]), ["t4"])
+
+    def test_an_undo_during_a_round_is_not_written_back_by_it(self):
+        self.job("a", 1, timings={"backend_started": NOW - 60}, topic="t1")
+        self.job("b", 2, timings={"backend_started": NOW - 30}, topic="t2")
+        self.overview.tick(self.ctx, NOW)
+        dismiss(self.state, "oc_dm", ["t2"], NOW + 5, "running", "card")
+        self.overview.tick(self.ctx, NOW + 2 * pins.GAP)  # Its pin comes off.
+        self.job("c", 3, timings={"backend_started": NOW}, topic="t3")  # Something to pin: the round has a step.
+        pin_info = self.feishu.pin_info
+
+        def meanwhile(profile, message):
+            pins.undismiss(self.state, "oc_dm", {"t2": NOW + 5})
+            return pin_info(profile, message)
+        self.app.messenger.pin_info = meanwhile
+        self.overview.tick(self.ctx, NOW + 4 * pins.GAP)
+        self.app.messenger.pin_info = pin_info
+        self.assertEqual(self.record()["dismissed"], {})
+        self.overview.tick(self.ctx, NOW + 6 * pins.GAP)
+        self.assertIn("om_b", self.feishu.order())  # Back on the board, pinned again.
 
     def test_a_dismissal_written_during_a_round_is_kept(self):
         self.job("a", 1, timings={"backend_started": NOW - 60}, topic="t1")

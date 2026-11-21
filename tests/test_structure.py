@@ -46,7 +46,7 @@ from covey.cards.memory_panel import KINDS as MEMORY_PANEL_KINDS
 from covey.cards.digest import REMEMBER_KIND
 from covey.cards.project_proposal import KINDS as TIDY_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
-from covey.cards.overview import DISMISS as OVERVIEW_DISMISS
+from covey.cards.overview import DISMISS as OVERVIEW_DISMISS, UNDO as OVERVIEW_UNDO
 from covey.cards.board import KINDS as BOARD_KINDS
 from covey.cards.app_setup import SKIP as APP_SETUP_SKIP, START as APP_SETUP_START
 from covey.cards.welcome import KIND as WELCOME_KIND
@@ -87,7 +87,7 @@ class CardActionTableTest(unittest.TestCase):
         # (ctx, event). The owner's cards the Bridge takes before topic routing name none (app/unified.py).
         before_routing = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
         before_routing |= set(extensions.card_kinds())  # An enabled extension's cards (its features claim them).
-        before_routing |= {OVERVIEW_DISMISS}  # 手上的事's 这些都不用回答了 (app/overview.py).
+        before_routing |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (app/overview.py).
         before_routing |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (app/digest.py).
         before_routing |= {REMEMBER_KIND}  # 你反复说的 on the evening digest (app/digest.py).
         before_routing |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (app/app_setup.py).

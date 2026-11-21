@@ -17,7 +17,7 @@ pin under ``waiting``, ``result`` (as ``ended`` rows, ``seen`` marked 已看) an
 ``running``, and ``stale``, the questions waiting too long to be on it. The card is then the board's index: the
 band with the counts and how many are pinned, only the rows without a pin. Its line of old questions has the button
 不管了 (DISMISS, its value the topics listed), and ``dismissed``, the T numbers of the topics the owner
-took off the board, is one line at the bottom."""
+took off the board, is one line at the bottom, with 撤销最近一次 (UNDO) when ``undo`` ({topic: at}) names his latest 不管了."""
 from __future__ import annotations
 
 import datetime
@@ -38,6 +38,7 @@ STALE = 86400  # A question waiting this long is listed by its topic number only
 LABELS = 10  # Topic numbers that line names.
 DISMISS = "bridge_overview_dismiss"  # 不管了 (这些都不用回答了 in older releases) (app/overview.py claim).
 DISMISS_MAX = 50  # Topics its value names at most.
+UNDO = "bridge_overview_undismiss"  # 撤销 on the line 不管了 leaves (app/overview.py claim): puts back what that click took off.
 
 
 def when(seconds, now):
@@ -229,10 +230,18 @@ def stale_line(rows, button=False, origin=""):
     return item(line, text_button("不管了", value))
 
 
-def dismissed_line(labels):
-    """What the line of ``stale_line`` becomes on a card that is not redrawn from the board (the 早晚汇总's) once
-    its button took ``labels``' topics off: grey, no button."""
-    return note(f"已撤下 {len(labels)} 个：{named(labels)}")
+def undo_button(taken, label="撤销", origin=""):
+    """撤销 for a 不管了: its value ``taken``, {topic: the ``at`` it was taken off at} (app/pins.py undismiss puts back
+    those whose entry is still that one), ``origin`` as for stale_line."""
+    return text_button(label, {"kind": UNDO, "taken": dict(list(taken.items())[:DISMISS_MAX]), **({"from": origin} if origin else {})})
+
+
+def dismissed_line(labels, taken=None, origin=""):
+    """What the line of ``stale_line`` becomes on a card that is not redrawn from the board (the 早晚汇总's, the 看板's) once
+    its button took ``labels``' topics off: grey, with 撤销 (``taken``: what it puts back; a view saved before it has none,
+    and then no button)."""
+    line = note(f"已撤下 {len(labels)} 个：{named(labels)}")
+    return item(line, undo_button(taken, origin=origin)) if taken else line
 
 
 def _board(board, now, shown=SHOWN, empty=None):
@@ -259,7 +268,10 @@ def _board(board, now, shown=SHOWN, empty=None):
     if board["stale"]:
         elements.append(stale_line(board["stale"], button=True))
     if board.get("dismissed"):
-        elements.append(note(f"你撤下的 {len(board['dismissed'])} 个：{named(board['dismissed'])}"))
+        line = note(f"你撤下的 {len(board['dismissed'])} 个：{named(board['dismissed'])}")
+        # 撤销最近一次: the line lists everything taken off, hand unpins and the butler's too; the button puts back
+        # only the owner's latest 不管了 (app/pins.py last_click).
+        elements.append(item(line, undo_button(board["undo"], "撤销最近一次")) if board.get("undo") else line)
     return elements, tags({"waiting": asked, "running": counts["running"]}, empty)
 
 

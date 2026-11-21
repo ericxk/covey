@@ -19,7 +19,8 @@ board's own reading of its record) are in none of it, and the line of old questi
 这些都不用回答了 (cards/overview.py stale_line, its value's ``from`` "digest"). Its click is 手上的事's
 (app/overview.py claim: the owner's only, the topics taken off, 手上的事 redrawn), which hands it on once
 acknowledged (Overview.handed, app/unified.py): ``dismissed`` redraws this card from the view saved when it was
-sent, the line turned grey, 已撤下 N 个, no button (Messenger.patch_card, outside the lock). A card sent before views
+sent, the line turned grey, 已撤下 N 个, with 撤销 (``undismissed``: the line gone and the old questions that still
+wait back, Messenger.patch_card, outside the lock; a 看板 card is redrawn from a fresh view instead). A card sent before views
 were saved is left as it is. All empty, the line of old questions too, nothing is sent (the time counts as done);
 only that line, the card is sent: it is what the owner has to deal with.
 
@@ -57,7 +58,7 @@ from concurrent import futures as concurrent_futures
 from covey.core import env as cenv
 from covey.app import memory_candidates, weekly_usage
 from covey.app.overview import dismissable
-from covey.app.pins import board_results, kept, laid, record_path
+from covey.app.pins import board_results, kept, laid, record_path, taken_off as taken_off_now
 from covey.app import revisits, topic_links
 from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
@@ -381,23 +382,49 @@ def wanted_view(state, chat, since, slot):
     return rows[:WANTED_SHOWN]
 
 
-def cleared(view, topics):
-    """``view`` once 这些都不用回答了 took ``topics`` off: their stale rows gone, their labels under ``cleared``;
-    None when none of its stale rows is theirs (the card says so already)."""
+def cleared(view, topics, at=None):
+    """``view`` once 这些都不用回答了 took ``topics`` off (as of ``at``): their stale rows gone, their labels under
+    ``cleared``, the rows themselves under ``cleared_rows`` and ``{topic: at}`` under ``cleared_taken`` (what 撤销 puts
+    back: ``undone``); None when none of its stale rows is theirs (the card says so already)."""
     taken = [row for row in view.get("stale") or [] if row.get("topic") in topics]
     if not taken:
         return None
-    return {**view, "stale": [row for row in view.get("stale") or [] if row not in taken],
-            "cleared": [*(view.get("cleared") or []), *(row.get("label") or "" for row in taken)]}
+    out = {**view, "stale": [row for row in view.get("stale") or [] if row not in taken],
+           "cleared": [*(view.get("cleared") or []), *(row.get("label") or "" for row in taken)]}
+    if at is not None:
+        out["cleared_rows"] = [*(view.get("cleared_rows") or []), *taken]
+        out["cleared_taken"] = {**(view.get("cleared_taken") or {}), **{row["topic"]: at for row in taken}}
+    return out
 
 
-def taken_off(view, topics):
+def undone(view, back, found):
+    """``view`` once 撤销 put the topics ``back`` (a list) on the board: their lines gone from ``cleared``, and the ones
+    still waiting (``found``: their topics, from core/board_read.py waits) among the stale rows again; one answered or
+    retired since is not listed. None when the card has none of them under ``cleared_taken``."""
+    taken = dict(view.get("cleared_taken") or {})
+    if not any(topic in taken for topic in back):
+        return None
+    rows = [row for row in view.get("cleared_rows") or [] if row.get("topic") in back]
+    labels = list(view.get("cleared") or [])
+    for row in rows:
+        if row.get("label") in labels:
+            labels.remove(row.get("label"))
+    out = {**view, "cleared": labels, "stale": [*(view.get("stale") or []), *(row for row in rows if row.get("topic") in found)],
+           "cleared_rows": [row for row in view.get("cleared_rows") or [] if row.get("topic") not in back],
+           "cleared_taken": {topic: at for topic, at in taken.items() if topic not in back}}
+    for key in ("cleared", "cleared_rows", "cleared_taken"):
+        if not out[key]:
+            out.pop(key)
+    return out
+
+
+def taken_off(view, topics, at=None):
     """A 看板's ``view`` once ``topics`` were taken off (这些都不用回答了, or a stopped topic's 不管了): their stale rows
     under ``cleared`` and their blocks gone; None when none of them is on it."""
     on = any(row.get("topic") in topics for key in ("stale", "waiting", "running", "done") for row in view.get(key) or ())
     if not on:
         return None
-    view = cleared(view, topics) or dict(view)
+    view = cleared(view, topics, at) or dict(view)
     return {**view, **{key: [row for row in view.get(key) or () if row.get("topic") not in topics]
                        for key in ("waiting", "running", "done")}}
 
@@ -679,7 +706,7 @@ class Digest:
             return True
         return False
 
-    def board_dismissed(self, ctx, message_id, topics):
+    def board_dismissed(self, ctx, message_id, topics, at=None):
         """``dismissed`` on a 看板 card: its record's view redrawn with those topics taken off; whether it was one."""
         folder = self.menu.directory(ctx)
         try:
@@ -691,7 +718,7 @@ class Digest:
                 continue
             with self.menu.lock(path):
                 record = read_object(path)
-                view = taken_off(record.get("digest"), set(topics)) if isinstance(record.get("digest"), dict) else None
+                view = taken_off(record.get("digest"), set(topics), at) if isinstance(record.get("digest"), dict) else None
                 if view is None or record.get("message_id") != message_id or not isinstance(
                         (record.get("view") or {}).get("revision"), int):
                     return True
@@ -790,7 +817,7 @@ class Digest:
             sent[message] = {"slot": slot, "view": view}
         return dict(sorted(sent.items(), key=lambda item: float(item[1].get("slot") or 0))[-SENT_KEPT:])
 
-    def dismissed(self, ctx, message_id, topics):
+    def dismissed(self, ctx, message_id, topics, at=None):
         """After a click on this card's 这些都不用回答了 (Overview.handed, once acknowledged): the card redrawn
         from its saved view with that line grey, 已撤下 N 个, no button; the view saved once Feishu took it. A card
         without a saved view (sent before they were, or no longer kept) is left as it is."""
@@ -799,9 +826,9 @@ class Digest:
             sent = read_object(path).get("sent")
         entry = sent.get(message_id) if isinstance(sent, dict) else None
         view = entry.get("view") if isinstance(entry, dict) else None
-        if entry is None and self.board_dismissed(ctx, message_id, topics):
+        if entry is None and self.board_dismissed(ctx, message_id, topics, at):
             return
-        view = cleared(view, set(topics)) if isinstance(view, dict) else None
+        view = cleared(view, set(topics), at) if isinstance(view, dict) else None
         if view is None:
             self.runtime.log(f"digest card not redrawn message={message_id[-8:]}: no view of those topics kept")
             return
@@ -815,3 +842,36 @@ class Digest:
                 write_json(path, {**record, "sent": {**sent, message_id: {**sent[message_id], "view": view}}},
                            ensure_ascii=False)
         self.runtime.log(f"digest card redrawn message={message_id[-8:]} cleared={len(view['cleared'])}")
+
+    def undismissed(self, ctx, message_id, back):
+        """After a click on 撤销 under this card's 已撤下 line (Overview.unhanded, once acknowledged; ``back``: the
+        topics put back): a 看板 card is redrawn from a fresh view, which lists what waits now; the timed card from its
+        saved view with the topics that still wait among the old questions again (one answered or retired since is
+        not listed, and the line goes), and that view saved once Feishu took it."""
+        if self.board_refresh(ctx, message_id):
+            return
+        path = self.path(ctx)
+        with resource_lock("digest", str(path)):
+            sent = read_object(path).get("sent")
+        entry = sent.get(message_id) if isinstance(sent, dict) else None
+        view = entry.get("view") if isinstance(entry, dict) else None
+        chat = self.fixed or self.runtime.access.notify_chat()
+        if not isinstance(view, dict) or not chat:
+            self.runtime.log(f"digest card not redrawn message={message_id[-8:]}: no view kept")
+            return
+        now = time.time()
+        waiting = {wait.topic for wait in board_read.waits(ctx.state_dir, chat, now, off=taken_off_now(ctx.state_dir, chat, now)).all}
+        view = undone(view, set(back), waiting)
+        if view is None:
+            self.runtime.log(f"digest card not redrawn message={message_id[-8:]}: none of those topics on it")
+            return
+        if not self.messenger.patch_card(ctx.profile, message_id, digest_card(view)):
+            self.runtime.log(f"digest card redraw failed message={message_id[-8:]}")
+            return
+        with resource_lock("digest", str(path)):
+            record = read_object(path)
+            sent = record.get("sent") if isinstance(record.get("sent"), dict) else {}
+            if isinstance(sent.get(message_id), dict):
+                write_json(path, {**record, "sent": {**sent, message_id: {**sent[message_id], "view": view}}},
+                           ensure_ascii=False)
+        self.runtime.log(f"digest card redrawn message={message_id[-8:]} put back={len(back)}")
