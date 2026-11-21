@@ -96,7 +96,7 @@ def tag_words(entry, default):
     """The row's tags as (text, colour): the card's and the web page's."""
     return ([('兜底', 'neutral')] if entry['name'] == default else []) + (
         [('设备 ' + entry['device'], 'blue')] if entry.get('device') else []) + (
-        [('目录不存在', 'red')] if entry['state'] is False else [('未确认', 'orange')] if entry['state'] is None else [])
+        [('目录不存在', 'red')] if entry['state'] is False else [('未确认', 'neutral')] if entry['state'] is None else [])
 
 
 def entry_tags(entry, default):
@@ -131,7 +131,7 @@ def manager_card(token, view, config, status, *, standalone, hub=False, top=(), 
     gone, unknown = [e for e in entries if e['state'] is False], [e for e in entries if e['state'] is None]
     subtitle = f'共 {len(entries)} 个'
     tags = ([(f'{len(gone)} 个目录不存在', 'red')] if gone else []) + (
-        [(f'{len(unknown)} 个未确认', 'orange')] if unknown else [])
+        [(f'{len(unknown)} 个未确认', 'neutral')] if unknown else [])
     elements = []
     if busy:
         elements.append(md(BUSY_NOTE))

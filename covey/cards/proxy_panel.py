@@ -92,14 +92,15 @@ def kind_tag(contact):
 
 
 def state_tags(running, paused, waiting, *, counted=False):
-    """A row's state as tags: 运行中 green, 已暂停 grey, 处理中 orange; ``counted`` adds the numbers of a group."""
+    """A row's state as tags: 运行中 green, 已暂停 grey, 处理中 blue (在做's colour: orange says 等你, docs/ui.md 2.2);
+    ``counted`` adds the numbers of a group."""
     tags = []
     if running:
         tags.append(tag(f'运行中 {running}' if counted else '运行中', 'green'))
     if paused:
         tags.append(tag(f'已暂停 {paused}' if counted else '已暂停', 'neutral'))
     if waiting:
-        tags.append(tag(f'处理中 {waiting}', 'orange'))
+        tags.append(tag(f'处理中 {waiting}', 'blue'))
     return ' '.join(tags)
 
 

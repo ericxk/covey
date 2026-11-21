@@ -148,7 +148,7 @@
 
 `COVEY_PROJECT_ASK=1` 时，护栏停住专项（`state_reason` 是 `tokens`、`wakes`、`stalled`，见[架构 · 专项](architecture.md#专项第-2-期开发中默认关)），`ProjectLoop.pause` 在同一次写记录里加一份 `pause_ask`：`{reason, why, at, choice, halted, card}`。`ProjectCards` 看到它，在专项卡所在的位置发一张**停住卡**（`cards/project_card.py` 的 `ask_card`）：
 
-- 卡头专项名 + 橙色“停住”标签。
+- 卡头专项名 + 红色“停住了”标签（护栏停的算停住了，见 [UI 规范](ui.md#3-状态词表)；橙色只给等你和可能卡住）。
 - `pa_why` 一句话写为什么停（`project_loop.pause_words`）：“token 用到上限 1000 万”（只在设了 `COVEY_PROJECT_BUDGET` 时有，默认没有 token 上限）、“负责人连续叫醒 30 次没有你的消息”、“负责人一小时内叫醒了 12 次”、“62 分钟没有进展”。
 - `pa_note` 写在做的话题怎么样了；三个按钮 `pa_go` 继续、`pa_wrap` 收尾、`pa_stop` 停。
 

@@ -8,7 +8,9 @@ from __future__ import annotations
 from covey.core.text import literal
 from covey.cards.elements import card, md
 
-STATE_COLORS = {"在做": "blue", "排队": "neutral", "等你回答": "orange", "做完": "green", "失败": "red", "中断": "red",
+# The words app/status_cards.py lines says (core/turn_words.py BOARD and STATES) and their colours: orange for 等你 and
+# 可能卡住 alone, red for 停住了 (docs/ui.md 2.2); 做完 stays green here, the pin's word for a result.
+STATE_COLORS = {"在做": "blue", "排队": "neutral", "等你": "orange", "可能卡住": "orange", "做完": "green", "停住了": "red",
                 "已停止": "neutral"}
 
 

@@ -34,6 +34,7 @@ from covey.cards import answer_card
 from covey.cards.answer_card import literal_text
 from covey.cards.elements import (CARD_BYTES, CARD_NODES, button_row, card, collapsible, fits, grey, item, md, note,
                                   panel_header, styled_panel, text_button, topic_button)
+from covey.core import look
 
 HEAD_CHARS = 30
 MEMBER_TITLE = 36  # Of a topic's title on its fold's title line.
@@ -304,8 +305,12 @@ def moved_card(name, url=""):
 
 def ask_card(name, why, *, project_id, lead_topic, note=""):
     """The card a guard's pause sends the owner: ``why`` in a sentence ("token 用到上限 1000 万"), ``note`` what became of the
-    running topics, and 继续 / 收尾 / 停止. The buttons carry the project's id and the lead's topic, as the project card's do."""
-    head = panel_header("chat_outlined", clipped(name, HEAD_CHARS) or "专项", "", [(PAUSED, "orange")], color="orange")
+    running topics, and 继续 / 收尾 / 停止. The buttons carry the project's id and the lead's topic, as the project card's do.
+    Its tag is 停住了 in its red (core/look.py STATES: a guard's stop is not the owner's, docs/ui.md 3), not orange, which
+    says 等你 and 可能卡住 alone."""
+    stopped = look.STATES["stopped"]
+    head = panel_header("chat_outlined", clipped(name, HEAD_CHARS) or "专项", "", [(stopped.word, stopped.color)],
+                        color=stopped.color)
     value = {"project_id": project_id, "topic_id": lead_topic}
     elements = [md(f"**{literal_text(clipped(why, 80))}**", element_id="pa_why", size="normal_v2")]
     if note:
@@ -314,7 +319,7 @@ def ask_card(name, why, *, project_id, lead_topic, note=""):
         topic_button("继续", element_id="pa_go", tone="primary", value={"kind": ASK_KINDS["continue"], **value}),
         topic_button("收尾", element_id="pa_wrap", value={"kind": ASK_KINDS["finish"], **value}),
         topic_button("停止", element_id="pa_stop", tone="danger", value={"kind": ASK_KINDS["stop"], **value})], "pa_btns"))
-    return styled_panel(head, elements, f"{PAUSED} · {clipped(name, HEAD_CHARS)}：{clipped(why, 40)}")
+    return styled_panel(head, elements, f"{stopped.word} · {clipped(name, HEAD_CHARS)}：{clipped(why, 40)}")
 
 
 ASKED_MARKS = {"continue": "▶️ 你选了继续", "finish": "🏁 你选了收尾", "stop": "⏹ 你选了停"}

@@ -87,7 +87,8 @@ def state_words(record):
         return '已启用', 'green'
     if pending(record):
         return ASK_TAGS[ASKING]
-    return ('未确认', 'orange') if record.get('external') is None and not record.get('deactivated_at') else ('已停用', 'neutral')
+    # Not known to be internal yet, and not waiting for the owner (that is ASKING): grey (docs/ui.md 2.2: orange says 等你).
+    return ('未确认', 'neutral') if record.get('external') is None and not record.get('deactivated_at') else ('已停用', 'neutral')
 
 
 def state(record):

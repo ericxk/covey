@@ -691,7 +691,9 @@ class AskCardTest(CardCase):
     def test_the_card_says_why_in_a_sentence_and_has_the_three_buttons(self):
         built = view.ask_card("把订单库迁到新集群", "token 用到上限 1000 万", project_id=PID, lead_topic=LEAD, note="在做的 2 个话题已请它们停下。")
         self.assertTrue(all(ELEMENT_ID.match(name) for name in ids(built)), ids(built))
-        self.assertEqual(built["header"]["text_tag_list"][0]["text"]["content"], "停住")
+        # 停住了 in red (a guard's stop, docs/ui.md 3): orange says 等你 and 可能卡住 alone (T604 #50).
+        tag = built["header"]["text_tag_list"][0]
+        self.assertEqual((tag["text"]["content"], tag["color"], built["header"]["icon"]["color"]), ("停住了", "red", "red"))
         self.assertEqual(find_element(built, "pa_why")["content"], "**token 用到上限 1000 万**")
         self.assertIn("2 个话题", find_element(built, "pa_note")["content"])
         buttons = [(name, find_element(built, name)) for name in ("pa_go", "pa_wrap", "pa_stop")]

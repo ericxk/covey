@@ -197,3 +197,68 @@ class BoardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ColourRulesTest(unittest.TestCase):
+    """docs/ui.md 2.2 (T604 #50), over every card sample the golden file has, as the builders draw them now
+    (tests/test_card_golden.py render): orange says 等你 (and what waits for the owner's choice) and 可能卡住 alone; no red
+    text sits on a red ground, there being no red ground at all."""
+
+    FONT = re.compile(r"<font color='(orange|red)'>(.*?)</font>")
+    TAG = re.compile(r"<text_tag color='(orange|red)'>(.*?)</text_tag>")
+    # What orange may say: the two states (with their count), a group or a choice waiting for the owner, the state's dot and
+    # segment of the 看板's bar, a 要你做 bar's label (cards/ui.py todo_bar), and the icons of those states.
+    ORANGE_WORDS = re.compile(r"^\**(\d+ )?(等你|可能卡住|等你确认)\**$|^\d+ 条建议$|^\d+ 个匹配$|^●$|^━+$|^\*\*要\S{1,3}\*\*$")
+    ORANGE_ICONS = {"time_outlined", "warning_outlined", "chat_outlined"}
+
+    @classmethod
+    def setUpClass(cls):
+        from test_card_golden import render
+
+        cls.samples = json.loads(json.dumps(render(), ensure_ascii=False))
+
+    def uses(self):
+        samples = self.samples
+        found = []
+
+        def visit(node, sample):
+            if isinstance(node, dict):
+                if node.get("tag") == "text_tag" and node.get("color") in ("orange", "red"):
+                    found.append((sample, node["color"], "words", str((node.get("text") or {}).get("content"))))
+                if node.get("tag") == "standard_icon" and node.get("color") in ("orange", "red"):
+                    found.append((sample, node["color"], "icon", str(node.get("token"))))
+                if str(node.get("background_style") or "").startswith(("orange", "red", "carmine")) or \
+                        str(node.get("template") or "") in ("orange", "red", "carmine"):
+                    found.append((sample, "ground", "ground", str(node.get("background_style") or node.get("template"))))
+                for value in node.values():
+                    if isinstance(value, str):
+                        found.extend((sample, color, "words", text) for color, text in
+                                     self.FONT.findall(value) + self.TAG.findall(value))
+                    else:
+                        visit(value, sample)
+            elif isinstance(node, list):
+                for value in node:
+                    visit(value, sample)
+        for sample, card in samples.items():
+            visit(card, sample)
+        return found
+
+    def test_orange_says_waiting_or_maybe_stuck_alone(self):
+        off = [(sample, kind, text) for sample, color, kind, text in self.uses() if color == "orange" and not (
+            self.ORANGE_WORDS.match(text) if kind == "words" else text in self.ORANGE_ICONS)]
+        self.assertEqual(off, [])
+
+    def test_no_red_ground_so_no_red_text_on_one(self):
+        self.assertEqual([use for use in self.uses() if use[1] == "ground"], [])
+
+    def test_the_cards_it_was_said_by_say_it_so(self):
+        from covey.cards import group_manager, proxy_panel, status_card, workspace_manager
+        from covey.cards.project_card import ask_card
+
+        head = ask_card("迁库", "62 分钟没有进展", project_id="p", lead_topic="t")["header"]
+        self.assertEqual((head["text_tag_list"][0]["text"]["content"], head["text_tag_list"][0]["color"]), ("停住了", "red"))
+        self.assertEqual(group_manager.state_words({"chat_id": "oc_x"}), ("未确认", "neutral"))
+        self.assertIn("<text_tag color='blue'>处理中 2</text_tag>", proxy_panel.state_tags(0, 0, 2))
+        self.assertEqual(workspace_manager.tag_words({"name": "w", "state": None}, "d"), [("未确认", "neutral")])
+        self.assertIn("color='orange'>等你<", status_card.status_tag("等你"))
+        self.assertIn("color='red'>停住了<", status_card.status_tag("停住了"))

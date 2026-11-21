@@ -70,7 +70,8 @@ def offer_card(view):
     buttons.append(text_button("不管了", {"kind": SKIP}))
     elements.append(item(md(" "), *buttons))
     elements.append(note("有代答的网页端登录时直接用它，不用扫码；登录只在这一次用，完了就删。"))
-    return styled_panel(panel_header(ICON, TITLE, subtitle(view), [(f"缺 {len(offer)} 项", "orange")]), elements,
+    # Grey: orange says 等你 and 可能卡住 alone (docs/ui.md 2.2); the primary button asks.
+    return styled_panel(panel_header(ICON, TITLE, subtitle(view), [(f"缺 {len(offer)} 项", "neutral")]), elements,
                         f"{TITLE} · 缺 {len(offer)} 项")
 
 
@@ -148,5 +149,5 @@ def unavailable_card(view, reason):
     elements = [md(f"这台机器上没法自动补：{reason}"), *grouped_md(view["offer"]),
                 note("照 docs/manual-install.md「配置飞书应用」在开发者后台补上并发布；装好浏览器环境后（见 docs/operations.md "
                      "「自动补齐飞书应用」）下次部署会再提醒。"),
-                md(tag("待手动补", "orange"))]
-    return styled_panel(panel_header(ICON, TITLE, subtitle(view), [("没法自动补", "orange")]), elements, TITLE)
+                md(tag("待手动补", "neutral"))]
+    return styled_panel(panel_header(ICON, TITLE, subtitle(view), [("没法自动补", "neutral")]), elements, TITLE)
