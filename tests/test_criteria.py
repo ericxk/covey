@@ -86,7 +86,7 @@ class CardTest(unittest.TestCase):
             row = shown[1]["columns"]
             self.assertEqual(row[0]["elements"][0]["content"], "<font color='grey'>完成标准</font>")
             self.assertEqual(row[1]["elements"][0]["content"].split("\n"), [
-                "<font color='orange'>没满足</font><font color='grey'>：</font>合进 main 并推送",
+                "**没满足**<font color='grey'>：</font>合进 main 并推送",
                 "<font color='grey'>没查</font><font color='grey'>：</font>在手机上点开看过"])
             relayed = relay_card("T1", DONE, text="好了", inputs=self.inputs, notes=notes)[0]
             self.assertIn(CRITERIA_ID, json.dumps(relayed))

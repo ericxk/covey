@@ -77,8 +77,9 @@ ADD_NOTE = ('可写多个（空格、逗号、顿号或换行分开，也可粘�
 EMPTY = '还没有人：在下面「添加」里查找后加入。'
 ICONS = {'model': 'robot_outlined', 'whitelist': 'member_outlined', 'add': 'member-add_outlined',
          'recent': 'waiting_outlined'}
-# 最近's three kinds (core/proxy.py recent): the words and the tag colour each.
-RECENT_WORDS = {DRAFTED: ('拟好没发', 'orange'), UNSURE: ('发送结果待核', 'orange'), ANSWERED: ('你自己回了', 'neutral')}
+# 最近's three kinds (core/proxy.py recent): the words and the tag colour each, neutral: orange says 等你 and 可能卡住
+# alone (docs/ui.md 2.2), and a held reply waits on its 没有代你回复 card, not here.
+RECENT_WORDS = {DRAFTED: ('拟好没发', 'neutral'), UNSURE: ('发送结果待核', 'neutral'), ANSWERED: ('你自己回了', 'neutral')}
 RECENT_NOTE = '原文和原因在各联系人的话题里；待核的不会自动重发，到会话里看一眼。'
 KIND_COLORS = {'p2p': 'wathet', 'group': 'violet'}
 

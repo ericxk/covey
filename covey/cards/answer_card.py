@@ -234,17 +234,13 @@ def change_element(change):
 
 def check_element(change):
     """The line under the 改动 fold (CHECK_ID) when the repository of the turn's workdir has no commit for an id the
-    model wrote (``not_found``): "提交号对不上" in the colour of 要你看一眼 (core/look.py stuck), then which, grey:
-    "提交号对不上：工作区的仓库里没有 951327a". None when every commit was found or it could not be told."""
+    model wrote (``not_found``): "提交号对不上" in bold body text (orange says 等你 and 可能卡住 alone, docs/ui.md 2.2),
+    then which, grey: "提交号对不上：工作区的仓库里没有 951327a". None when every commit was found or it could not be told."""
     absent = not_found(change)
     if not absent:
         return None
-    from covey.cards.ui import font
-    from covey.core.look import STATES
-
     ids = "、".join(short_commit(commit) for commit in absent)
-    return md(font(MISMATCH, STATES["stuck"].color) + grey(literal_text(f"：工作区的仓库里没有 {ids}")), size="notation",
-              element_id=CHECK_ID)
+    return md(f"**{MISMATCH}**" + grey(literal_text(f"：工作区的仓库里没有 {ids}")), size="notation", element_id=CHECK_ID)
 
 
 def box(element_id, inputs, outputs, outputs_id=""):
@@ -317,13 +313,12 @@ CRITERIA_ID = "answer_criteria"
 
 def criteria_element(rows):
     """The topic's completion criteria its turn did not meet (core/criteria.py unmet: (state, item) each), on its
-    answer card (CRITERIA_ID): grey 完成标准 in a column, then a line each, "没满足：<item>" with 没满足 in the colour of
-    要你看一眼 (core/look.py stuck), "没查：<item>" grey. None without rows: every one met, or the topic has none."""
-    from covey.cards.ui import font
+    answer card (CRITERIA_ID): grey 完成标准 in a column, then a line each, "没满足：<item>" with 没满足 in bold body text
+    (orange says 等你 and 可能卡住 alone, docs/ui.md 2.2), "没查：<item>" grey. None without rows: every one met, or the
+    topic has none."""
     from covey.core.criteria import UNMET
-    from covey.core.look import STATES
 
-    lines = [(font(state, STATES["stuck"].color) if state == UNMET else grey(state)) + grey("：") + literal_text(item)
+    lines = [(f"**{state}**" if state == UNMET else grey(state)) + grey("：") + literal_text(item)
              for state, item in rows or () if item]
     if not lines:
         return None

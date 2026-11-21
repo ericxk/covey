@@ -134,8 +134,8 @@ class RecentTests(ProxyCase):
         part = panel.recent_part(rows, [PERSON])
         text = json.dumps(part, ensure_ascii=False)
         self.assertIn('最近', text)
-        self.assertIn("**张三** <text_tag color='orange'>拟好没发</text_tag>", text)
-        self.assertIn('**已移出的联系人** <text_tag color=\'orange\'>发送结果待核</text_tag>', text)
+        self.assertIn("**张三** <text_tag color='neutral'>拟好没发</text_tag>", text)
+        self.assertIn('**已移出的联系人** <text_tag color=\'neutral\'>发送结果待核</text_tag>', text)
         self.assertRegex(text, r'\d\d-\d\d \d\d:\d\d')  # Not today: with the date.
         self.assertEqual(panel.recent_part([], [PERSON]), [])
         card = self.proxy.panel.card(self.ctx, 'tok', {'revision': 1, 'token': 'tok'})

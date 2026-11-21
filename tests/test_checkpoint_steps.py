@@ -358,7 +358,7 @@ class AnswerCardTest(unittest.TestCase):
             self.assertEqual(changed["not_found"], ["a6bc148d38"])
             shown = tail(None, self.inputs, self.outputs, change=changed)
             self.assertEqual([element.get("element_id") for element in shown], [CHANGE_ID, CHECK_ID, "answer_facts"])
-            self.assertEqual(shown[1]["content"], "<font color='orange'>提交号对不上</font>"
+            self.assertEqual(shown[1]["content"], "**提交号对不上**"
                                                   "<font color='grey'>：工作区的仓库里没有 a6bc148</font>")
             rows = self.fold(shown)["elements"]
             self.assertEqual(rows[0]["columns"][1]["elements"][0]["content"].split("\n"),

@@ -60,7 +60,7 @@ class BoardMenuTest(UnifiedCase):
                                        self.ctx)
         outcomes = [line.split("outcome=")[1] for line in self.logs if line.startswith("bot menu key=")]
         self.assertEqual((outcomes, len(puts)), (["digest_board"], 1))
-        self.assertIn("都在掌握中", json.dumps(puts[0], ensure_ascii=False))
+        self.assertIn("还没有话题", json.dumps(puts[0], ensure_ascii=False))  # A chat that never had a topic (cards/board.py empty_state).
         self.assertFalse((self.ctx.state_dir / RECORD).exists())
 
 
