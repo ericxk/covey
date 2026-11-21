@@ -70,6 +70,43 @@ def answer_lead(value: Any, limit: int = LEAD_CHARS) -> str:
     return ""
 
 
+LEAD_ENDS = "。.!！?？:：;；,，、 "
+GENERIC_LABEL = re.compile(r"^(?:%s)[:：]\s*" % "|".join(sorted(map(re.escape, GENERIC_HEADINGS), key=len, reverse=True)),
+                           re.IGNORECASE)
+# A line whose marks a conclusion band cannot show (code, a link, an image, a tag) or that is part of a list, a
+# table or a quote: it stays in the answer.
+KEPT_LINE = re.compile(r"#{1,6}\s|[|>]|```|~~~|[-*+]\s|\d{1,3}[.)]\s")
+
+
+def after_lead(text: Any, lead: str) -> str:
+    """A Markdown answer without its opening line when the conclusion band above it already says that line whole:
+    ``lead`` is ``answer_lead`` of the same answer as the band shows it. A card said its conclusion twice, the
+    band's and the answer's first line under it (docs/media/screenshots/03-answer-card.png). Only a first line of
+    plain words that is the lead and nothing more goes (a "## 结论" over it too); a lead that was cut ("…"), a line
+    with more sentences, code, a link or a list mark, and any other answer stay as they are."""
+    text = str(text or "").replace("\r\n", "\n")
+    lead = str(lead or "").strip()
+    if not lead or lead.endswith("…"):
+        return text
+    lines = text.split("\n")
+    filled = [i for i, line in enumerate(lines) if line.strip()]
+    if not filled:
+        return text
+    at = filled[0]
+    heading = re.match(r"#{1,6}\s", lines[at].strip()) or re.fullmatch(r"\*\*[^*].*\*\*[:：]?", lines[at].strip())
+    if heading and compact_text(lines[at], len(lines[at]) + 1).rstrip(LEAD_ENDS).lower() in GENERIC_HEADINGS:
+        if len(filled) < 2:
+            return text
+        at = filled[1]
+    first = lines[at].strip()
+    if KEPT_LINE.match(first) or any(mark in first for mark in ("`", "](", "://", "<")):
+        return text
+    said = compact_text(first, len(first) + 1).rstrip(LEAD_ENDS)
+    if GENERIC_LABEL.sub("", said) != GENERIC_LABEL.sub("", lead.rstrip(LEAD_ENDS)):
+        return text
+    return "\n".join(lines[at + 1:]).lstrip("\n")
+
+
 def question_preview(value: Any, *, max_lines: int, max_chars: int) -> str:
     text = str(value or "").strip().replace("\r\n", "\n").replace("\r", "\n") or "(空)"
     lines = text.split("\n")
@@ -305,13 +342,16 @@ def answer_band(status: str, label: str, title: str, lead: str) -> dict:
     return conclusion_band(band_label(turn_words.TONES.get(outcome_line(status), "result"), label, title), literal(lead))
 
 
-def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | tuple = ()) -> dict | None:
+def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | tuple = (), said: str = "") -> dict | None:
     """A turn's answer sent on its own, as a card of one Markdown block (``bold_minor_headings``,
     ``inline_one_line_code``): the chat list previews ``summary`` where a Markdown message showed its first
     characters ("#### 先确认…"). ``tail``: what follows the answer (cards/answer_card.py tail: 产物 and the
     输入/输出 box), a card that can be updated then (its 产物 once uploaded); ``head``: what goes above it (the
-    "你问" block of an answer at the private chat's top level). None when it would not fit one card message; it then
-    goes as Markdown."""
-    built = banded(card([*head, {"tag": "markdown", "content": bold_minor_headings(inline_one_line_code(text)),
-                                 "text_size": "normal_v2"}, *tail], summary, update_multi=bool(tail)))
+    "你问" block of an answer at the private chat's top level). ``said``: the lead a conclusion band in ``head``
+    shows; the answer then goes without the line that only repeats it (``after_lead``), and without a Markdown block
+    when that line was all of it. None when it would not fit one card message; it then goes as Markdown."""
+    body = after_lead(text, said) if said and head else text
+    answer = [{"tag": "markdown", "content": bold_minor_headings(inline_one_line_code(body)),
+               "text_size": "normal_v2"}] if body.strip() or not head else []
+    built = banded(card([*head, *answer, *tail], summary, update_multi=bool(tail)))
     return built if len(json.dumps(built, ensure_ascii=False).encode("utf-8")) <= ANSWER_CARD_BYTES else None

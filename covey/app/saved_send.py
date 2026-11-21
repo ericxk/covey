@@ -74,17 +74,17 @@ def label_of(ctx, job_id) -> str:
     return topic_label(ctx.state_dir, ctx.topic_id) or f"#{job_id}"
 
 
-def plan(ctx, job_id, status, reply, text, *, key, file, top, tail, head, bare, files, upload_status) -> Outgoing:
+def plan(ctx, job_id, status, reply, text, *, key, file, top, tail, head, bare, files, upload_status, said="") -> Outgoing:
     """The Outgoing of the saved ``reply`` (``text`` as it is delivered) of task #job_id ended ``status``: a message
     with its answer card (cards/review.py answer_card via app/answer_cards.py saved_answer_card, ``tail`` under the
     answer and ``head`` atop it), or a file with a small card after it carrying ``head`` and ``tail`` when there is a
-    ``tail``."""
+    ``tail``. ``said``: the lead ``head``'s conclusion band shows (``band_lead``), '' without a band."""
     head, tail = list(head), list(tail)
     if file:
         small = (banded(answer_tail_card([*head, *tail], f"{label_of(ctx, job_id)} · 产物与详情",
                                          TOP_FILE_LEAD if top else TAIL_LEAD)) if tail else None)
         return signed(Outgoing(key, top, True, None, small, files, upload_status), text)
-    built = answer_cards.saved_answer_card(ctx, job_id, status, reply, text, tail, head, bare=bare)
+    built = answer_cards.saved_answer_card(ctx, job_id, status, reply, text, tail, head, bare=bare, said=said)
     return signed(Outgoing(key, top, False, built, None, files, upload_status), text)
 
 
@@ -192,6 +192,12 @@ def status_head(state_dir, topic_id, status, lead=""):
     return answer_band("failed" if status == "interrupted" else status, label, title, lead)
 
 
+def band_lead(top, headed, head, reply) -> str:
+    """The lead the conclusion band of ``head`` shows (``status_head``), for the answer under it to start after it
+    (cards/review.py after_lead): '' at the top level, in a thread that is not headed, and when no head was made."""
+    return answer_lead(reply.text, HEADLINE) if head and headed and not top else ""
+
+
 def heads(top, headed, ask, status):
     """The blocks atop an answer card: the "你问" block (``ask()``) at the top level, the status line (``status()``)
     in a headed thread, else none; a part that cannot be made is left out."""
@@ -251,9 +257,11 @@ def rebuilt(ctx, record, saved_job, reply, text, *, key, file, bare, harness, ca
         except Exception as exc:  # noqa: BLE001 - the answer goes without it
             log(f"answer card status line unavailable: {type(exc).__name__}")
             return None
-    head = heads(top, not top and owner_headed(row, runtime, record.get("chat_id")), ask, status_line)
+    headed = not top and owner_headed(row, runtime, record.get("chat_id"))
+    head = heads(top, headed, ask, status_line)
     return plan(ctx, record["job_id"], record.get("execution_status"), reply, text, key=key, file=file, top=top,
-                tail=tail, head=head, bare=bare, files=files, upload_status=status)
+                tail=tail, head=head, bare=bare, files=files, upload_status=status,
+                said=band_lead(top, headed, head, reply))
 
 
 def send_paused(ctx, where, job, text, key, *, send, artifacts):

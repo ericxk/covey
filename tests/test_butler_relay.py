@@ -103,7 +103,9 @@ class CardTest(unittest.TestCase):
         band, *elements = card["body"]["elements"]  # The conclusion band first (docs/ui.md 5.2).
         self.assertIn("有结果 · T410", str(band))
         self.assertIn("先说结论", str(band))
-        self.assertTrue(elements[0]["content"].startswith("先说结论。"))
+        # The band says the first line; the reply under it goes on from there (cards/review.py after_lead).
+        self.assertTrue(elements[0]["content"].startswith("细节。"))
+        self.assertNotIn("先说结论", elements[0]["content"])
         self.assertTrue(elements[0]["content"].endswith("最后一段。"))  # Not cut: no "…", no 全文在 T410.
         self.assertIn("T410 ›", str(elements[-1]))  # The answer card's 输入/输出 box, 输出 ending in its T number.
         self.assertNotIn("全文", text)
@@ -348,7 +350,9 @@ class DeliverTest(Case):
         self.assertIn("做完了你", str(speaker))
         self.assertNotIn("· 你问", str(speaker))
         self.assertIn("有结果 · T410", str(kwargs["card"]["body"]["elements"][1]))  # The conclusion band.
-        self.assertIn("两种做法都行", kwargs["card"]["body"]["elements"][2]["content"])
+        # REPLY is "## 结论" over one line: the band says it whole, no block repeats it under the band.
+        self.assertIn("两种做法都行，先用第一种", str(kwargs["card"]["body"]["elements"][1]))
+        self.assertEqual(json.dumps(kwargs["card"]["body"], ensure_ascii=False).count("两种做法都行"), 1)
         # The answer card's 输入/输出 box (cards/answer_card.py), 输出 ending in the T number.
         facts = kwargs["card"]["body"]["elements"][-1]
         self.assertEqual(facts["element_id"], "answer_facts")
@@ -395,7 +399,7 @@ class DeliverTest(Case):
             with mock.patch.object(answer_cards, name, side_effect=AttributeError("x")):
                 send = self.deliver(self.job(progress=SimpleNamespace()))
             send.assert_called_once()
-            self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][2]["content"])
+            self.assertIn("两种做法都行", str(send.call_args.kwargs["card"]["body"]["elements"][1]))
             saved = read_object(relay_send.relay_path(self.state, job_key("main-t1", 9)))
             self.assertEqual("sent", saved["state"])
 
@@ -515,7 +519,7 @@ class AwaitedDeliverTest(AwaitedCase):
         self.lead_turn("main-lead1")
         send = self.deliver(self.job(progress=SimpleNamespace()))
         send.assert_called_once()
-        self.assertIn("两种做法都行", send.call_args.kwargs["card"]["body"]["elements"][2]["content"])
+        self.assertIn("两种做法都行", str(send.call_args.kwargs["card"]["body"]["elements"][1]))
 
     def test_one_a_wake_up_turn_handed_on_sends_nothing(self):
         self.lead_turn("lead-a1b2c3d4e5f6-3")

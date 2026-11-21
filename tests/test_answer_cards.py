@@ -20,7 +20,7 @@ from covey.app.turn_delivery import TurnDelivery
 from covey.cards.answer_card import (ARTIFACTS_ID, FACTS_ID, facts_element, input_lines, input_parts,
                                               output_parts, tail)
 from covey.cards.elements import replace_element
-from covey.cards.review import ANSWER_CARD_BYTES, answer_card
+from covey.cards.review import ANSWER_CARD_BYTES, after_lead, answer_card, answer_lead
 from covey.core.jobs import job_key, upsert_job_record
 from covey.core.state import read_object, write_json
 
@@ -374,6 +374,53 @@ class AnswerFoldTest(unittest.TestCase):
         self.assertEqual(mirror_card(record, "T1", "", ask=block)["body"]["elements"][0], block)
 
 
+class SaidOnceTest(unittest.TestCase):
+    """A conclusion band says the answer's first line; the answer under it starts after that line (cards/review.py
+    after_lead). The card said it twice, the band's and the first line of the reply under it."""
+
+    def rest(self, text, limit=40):
+        return after_lead(text, answer_lead(text, limit))
+
+    def test_a_first_line_that_is_the_lead_goes_and_nothing_else_does(self):
+        self.assertEqual(self.rest("登录页加好了，构建和测试都通过。\n\n- 新增 `/login`\n- 补了测试"), "- 新增 `/login`\n- 补了测试")
+        self.assertEqual(self.rest("**结论**：登录页加好了。\n- 细节"), "- 细节")
+        self.assertEqual(self.rest("## 结论\n\n登录页加好了。\n\n细节：x"), "细节：x")
+        self.assertEqual(self.rest("好的，已停。"), "")
+        # The band was given the lead without the answer's own "结论：" before it.
+        self.assertEqual(after_lead("**结论**：登录页加好了。\n细节", "登录页加好了"), "细节")
+
+    def test_what_the_band_does_not_say_whole_stays(self):
+        for text in ("根因是 gateway 超时。另外还有一处。\n细节",  # More in the line than its first sentence.
+                     "已合并 [PR](https://x.example/1)。\n细节",  # A link the band shows as words only.
+                     "跑了 `pytest`，全过。\n细节", "- 第一条\n- 第二条", "> 引用的话。\n后文", "1. 第一步\n2. 第二步",
+                     "```\ncode\n```\n结果在此。\n后文", "| a | b |\n| - | - |\n后文。", "# 改看板\n正文。", ""):
+            self.assertEqual(self.rest(text), text, text)
+        long = "这一句" + "很" * 60 + "长。\n后文"
+        self.assertTrue(answer_lead(long, 40).endswith("…"))
+        self.assertEqual(self.rest(long), long)  # A cut lead: the whole sentence is only in the answer.
+        self.assertEqual(after_lead("登录页加好了。\n细节", ""), "登录页加好了。\n细节")
+        self.assertEqual(after_lead("登录页加好了。\n细节", "别的话"), "登录页加好了。\n细节")
+
+    def test_the_answer_card_under_a_band_and_the_relay_card_say_it_once(self):
+        text = "登录页加好了，构建和测试都通过。\n\n- 补了 3 个组件测试"
+        band = {"tag": "markdown", "content": "band"}
+        plain = json.dumps(answer_card(text, "s"), ensure_ascii=False)
+        self.assertEqual(plain.count("登录页加好了"), 1)  # No band: the answer whole.
+        headed = answer_card(text, "s", head=[band], said=answer_lead(text, 40))
+        self.assertNotIn("登录页加好了", json.dumps(headed["body"], ensure_ascii=False))
+        self.assertIn("补了 3 个组件测试", json.dumps(headed, ensure_ascii=False))
+        # Without a head there is nothing above the answer that says it: ``said`` alone changes nothing.
+        self.assertIn("登录页加好了", json.dumps(answer_card(text, "s", said=answer_lead(text, 40))["body"], ensure_ascii=False))
+        # One sentence that the band says whole: no empty Markdown block under it.
+        alone = answer_card("好的，已停。", "s", head=[band], said="好的，已停")
+        self.assertEqual([e for e in alone["body"]["elements"] if e.get("content") == ""], [])
+        self.assertNotIn("好的，已停", json.dumps(alone["body"], ensure_ascii=False))
+        relayed, body = relay_card("T7", DONE, text=text)
+        self.assertEqual(body, text)  # What goes as Markdown when the card cannot is the reply whole.
+        self.assertEqual(json.dumps(relayed["body"], ensure_ascii=False).count("登录页加好了，构建和测试都通过"), 1)
+        self.assertIn("补了 3 个组件测试", json.dumps(relayed, ensure_ascii=False))
+
+
 class DefaultsTest(unittest.TestCase):
     def test_claude_s_model_reaches_the_process_snapshot(self):
         from covey.backends.claude.usage import ClaudeTurnUsage
@@ -426,9 +473,12 @@ class CardTest(unittest.TestCase):
         built = answer_card("## 结论\n好了", "T439 有结果 · 结论", parts)
         self.assertEqual(ids(built), [None, ARTIFACTS_ID, FACTS_ID])
         self.assertTrue(built["config"]["update_multi"])  # Its 产物 are written in later.
-        relay, _ = relay_card("T439", DONE, text="## 结论\n好了", inputs=["Claude Code"], outputs=["**1**"],
-                              files=self.files)
+        relay, _ = relay_card("T439", DONE, text="## 结论\n好了。\n\n细节在下面", inputs=["Claude Code"],
+                              outputs=["**1**"], files=self.files)
         self.assertEqual(ids(relay), [None, None, ARTIFACTS_ID, FACTS_ID])  # The conclusion band leads the relay.
+        whole, _ = relay_card("T439", DONE, text="## 结论\n好了", inputs=["Claude Code"], outputs=["**1**"],
+                              files=self.files)
+        self.assertEqual(ids(whole), [None, ARTIFACTS_ID, FACTS_ID])  # The band says all of a one-line reply.
         self.assertIn("T439 ›", json.dumps(relay, ensure_ascii=False))
         self.assertNotIn("T439 ›", json.dumps(built, ensure_ascii=False))
         # Without artifacts: the box alone; a plain answer card without a tail as before.
@@ -440,7 +490,8 @@ class CardTest(unittest.TestCase):
         # Held by a release before 2026-11-08: at, took and artifacts, no inputs. The reply and its T number's box,
         # no grey line.
         old, text = relay_card("T439", DONE, text="好了", at=1.0, took=60, artifacts=2)
-        self.assertEqual(ids(old), [None, None, FACTS_ID])  # The band, the reply, the box.
+        self.assertEqual(ids(old), [None, FACTS_ID])  # The band (it says the one-line reply whole) and the box.
+        self.assertEqual(text, "好了")
         self.assertIn("T439 ›", json.dumps(old, ensure_ascii=False))
         self.assertNotIn("产物 2 个", json.dumps(old, ensure_ascii=False))
         self.assertEqual(text, "好了")
@@ -648,9 +699,12 @@ class DeliveryTest(Case):
         from covey.core.topics import topic_file
         write_json(topic_file(self.state, "t1"), {"topic_number": 443, "origin": {"title": "改看板"}})
         with mock.patch.object(placement, "layout", return_value=placement.AREA):
-            send_text = self.deliver("## 结论\n好了")
+            send_text = self.deliver("## 结论\n好了。\n\n细节在下面")
         built = send_text.call_args.kwargs["card"]
         self.assertEqual(ids(built), [None, None, ARTIFACTS_ID, FACTS_ID])  # A reply with a lead: the conclusion band.
+        # The band says the lead; the reply under it starts after it (cards/review.py after_lead).
+        self.assertEqual(json.dumps(built["body"], ensure_ascii=False).count("好了"), 1)
+        self.assertIn("细节在下面", built["body"]["elements"][1]["content"])
         head = json.dumps(built["body"]["elements"][0], ensure_ascii=False)
         self.assertIn("有结果 · T443 改看板", re.sub(r"<[^>]*>|\*\*", "", head).replace("&#35;", "#"))
         self.assertEqual(self.receipts()[-1], " ")

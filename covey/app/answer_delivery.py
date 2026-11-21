@@ -31,12 +31,14 @@ class AnswerParts:
         row = placement.plan(ctx.state_dir, job).row
         top = row.answer == placement.TOP
         # In a 话题区's thread it leads with the turn's status, T number and title instead.
-        head = saved_send.heads(top, not top and self.headed(row), self.ask_block,
+        headed = not top and self.headed(row)
+        head = saved_send.heads(top, headed, self.ask_block,
                                 lambda: self.answer_head(answer_lead(turn.verified_delivery.text, HEADLINE_CHARS)))
         outgoing = saved_send.plan(
             ctx, job.job_id, turn.status, turn.verified_delivery, delivery_text, key=key,
             file=saved_delivery_kind(turn.verified_delivery, turn.verified_outcome) == "file", top=top, tail=tail,
-            head=head, bare=self.bare(), files=files, upload_status=status)
+            head=head, bare=self.bare(), files=files, upload_status=status,
+            said=saved_send.band_lead(top, headed, head, turn.verified_delivery))
         saved_send.keep(ctx.state_dir, job_key(job.message_id, job.job_id), outgoing, self.runtime.log)
         sent.delivered, self.answer_message = saved_send.send_saved(
             ctx, job, delivery_text, outgoing, send=self.send_text, artifacts=self.artifacts, log=self.runtime.log)

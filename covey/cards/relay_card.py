@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from covey.cards.answer_card import tail as answer_tail
 from covey.cards.elements import card, json_size, md, note
-from covey.cards.review import ANSWER_CARD_BYTES, answer_lead, bold_minor_headings, inline_one_line_code
+from covey.cards.review import (ANSWER_CARD_BYTES, after_lead, answer_lead, bold_minor_headings,
+                                inline_one_line_code)
 from covey.cards.ui import band_label, banded, conclusion_band, styled
 from covey.core import look
 from covey.core.failure import HEADLINE_CHARS, split_title
@@ -47,8 +48,11 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         # The conclusion band (docs/ui.md 5.2 聊天结果卡): "有结果 · T41", the reply's lead as its conclusion.
         conclusion = answer_lead(text, HEADLINE_CHARS)
         band = [conclusion_band(band_label("result", label), literal(conclusion))] if conclusion else []
-        built = banded(card([*head, *band, md(body), *answer_tail(files, () if inputs is None else inputs, outputs,
-                                                                  link=label, change=change or delivery)],
+        # The band says the reply's first line: the reply under it starts after that line (cards/review.py after_lead).
+        rest = after_lead(body, conclusion) if band else body
+        built = banded(card([*head, *band, *([md(rest)] if rest.strip() else []),
+                             *answer_tail(files, () if inputs is None else inputs, outputs, link=label,
+                                          change=change or delivery)],
                             lead, update_multi=True))
         # A long 改动 fold may take a card past its limit (as cards/review.py answer_card): the reply goes as
         # Markdown, its parts after it (app/relay_send.py send_once).

@@ -389,14 +389,16 @@ def clicked(state_dir, key, message_id) -> bool:
     return any(entry.get("message_id") == message_id for entry in read_object(record_path(state_dir, key)).get("cards") or ())
 
 
-def saved_answer_card(ctx, job_id, status, reply, text, tail=(), head=(), bare=False):
+def saved_answer_card(ctx, job_id, status, reply, text, tail=(), head=(), bare=False, said=""):
     """The card a saved reply goes out as (Messenger.send_message's ``card``): ``text``, the reply as it is
     delivered, in lark-cli's Markdown style but with its headings' levels kept (``answer_card`` bolds the
     small ones), and the chat list's preview "✅ T34 · lead" (``answer_summary``; the task card's names the time). Made
     of the saved reply, the topic and the turn's status alone, so each retry sends the same card under the
     same key. ``bare``: a butler turn that sent no card (app/quiet_delivery.py QuietDelivery.bare), previewed without its task number
-    (cards/review.py bare_answer_summary)."""
+    (cards/review.py bare_answer_summary). ``said``: the lead ``head``'s conclusion band shows (cards/review.py
+    answer_card)."""
     lead = answer_lead(reply.text)
     label = topic_label(ctx.state_dir, ctx.topic_id) or f"#{job_id}"
     return answer_card(optimize_markdown(text, step_headings=False),
-                       bare_answer_summary(status, lead) if bare else answer_summary(label, status, lead), tail, head)
+                       bare_answer_summary(status, lead) if bare else answer_summary(label, status, lead), tail, head,
+                       said=said)
