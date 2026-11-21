@@ -185,6 +185,7 @@ ACTIONS = {
     "bridge_main_review_provider": CardAction("选择独立复核供应商"),
     "bridge_main_review_model": CardAction("选择独立复核模型"),
     "bridge_main_review_effort": CardAction("选择独立复核思考预算"),
+    "bridge_main_section": CardAction("展开设置的一段"),
     "bridge_main_start": CardAction("设置直接开工"),
     "bridge_main_untrust": CardAction("删除记住的工作区"),
     "bridge_main_notes": CardAction("保存工作区用途"),

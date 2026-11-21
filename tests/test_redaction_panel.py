@@ -350,7 +350,7 @@ class RedactionTabTests(HubCase):
         token = self.button(cards.SWITCH, name='restore')['token']
         self.press({**self.button(cards.SWITCH, name='restore'), 'name': 'default_on', 'on': True, 'token': token}, 'ev-s1')
         self.assertFalse(load_config(self.state)['default_on'])
-        self.assertIn('挪到了设置卡「新话题」页', self.text())
+        self.assertIn('挪到了设置卡「配置」页“新话题”一段', self.text())
         self.press(self.button(cards.SWITCH, name='ignore_case'), 'ev-s2')
         self.assertFalse(load_config(self.state)['ignore_case'])
         self.assertIn(CASE_CLASH, self.text())

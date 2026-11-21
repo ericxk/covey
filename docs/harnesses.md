@@ -77,7 +77,7 @@ CLI 登录和注册服务要用同一个系统账号、同一套环境变量。�
 - **工作区只读工具**：每个会话挂本任务专用的 `bridge_workspace` MCP 服务，可读工作区、附件目录和换配置的 `handoff/`，拒绝 `..`、符号链接和二进制；实际权限只由 `--sandbox` 决定。
 - **本轮结果**：thread 和 turn 双重绑定，只用当前 turn 的完整 items（不完整时按 ID 回读），取 `final_answer` 阶段的 agentMessage。下载请求与结果从 rollout 还原，不记的部分列在 `not_recorded`。
 - **执行指标**：token 取 `thread/tokenUsage/updated` 的累计减本轮基线（`CodexTurnUsage`），子 Agent 会话各自减基线；生成时间从 `turn/start` 计，扣除工具和提问区间（重试也算在内，token/s 会偏低）；TTFT `codex_item`、`codex_delta`。
-- **管家的工具**：管家跑在 Codex 上时（设置卡「管家」页的 Harness），它那一轮的线程另挂 Bridge 工具服务 `bridge`（`backends/codex/appserver.py` 的 `bridge_servers`），工具等待上限 `tool_timeout_sec` 150 秒，比服务自己的 120 秒长。`approvalPolicy: never` 下调用不弹审批（0.167.2 实测）。
+- **管家的工具**：管家跑在 Codex 上时（设置卡「配置」页的“管家”一段的 Harness），它那一轮的线程另挂 Bridge 工具服务 `bridge`（`backends/codex/appserver.py` 的 `bridge_servers`），工具等待上限 `tool_timeout_sec` 150 秒，比服务自己的 120 秒长。`approvalPolicy: never` 下调用不弹审批（0.167.2 实测）。
 - **参数**写在 bootstrap 命令上，不进 `harnesses.json`（[常用参数](#常用参数)）；网关模型见[模型网关](#模型网关codexpi-与-dsh)。
 
 ## Claude Code
@@ -91,7 +91,7 @@ CLI 登录和注册服务要用同一个系统账号、同一套环境变量。�
 - **会话保留天数**（`core/claude_retention.py`）：Claude Code 按它自己的 `cleanupPeriodDays`（`settings.json`，缺省 30 天，要正整数）删掉整个配置目录里更早的会话文件，更早的话题就接不上、回退一步也读不到。诊断页和 `./install` 读 `$CLAUDE_CONFIG_DIR/settings.json`（没设就 `~/.claude/settings.json`；项目级和托管的设置不读），缺省或少于约 90 天时提示加一行 `"cleanupPeriodDays": 3650`；Covey 只提示，不改你的 Claude 配置。
 - **交接摘要**（`backends/claude/handoff.py`）：话题从有会话的 Claude 绑定换走后，新绑定的第一轮先用原模型在原目录 `--resume <旧会话> --fork-session`，请它写一份约 1500 字以内的交接摘要（最多等 180 秒，不带跳过权限和 Bridge 工具，分叉的会话用完删掉）。哪些情况不做见[使用参考 · 换配置之后](reference.md#换配置之后)和[架构](architecture.md#话题中途换配置)。
 - **子 Agent 守则与 hook**（`backends/claude/hooks.py`，`COVEY_CLAUDE_HOOKS`，默认开）：每轮的 initialize 请求注册 SDK hook 回调，由 `backends/claude/control.py` 应答 `hook_callback`。子 Agent（Explore 除外，它有自己的提示词）开工时 `SubagentStart` 给它四句守则：替主 Agent 干活、不对主人说话也不发消息和文件；最终回复写清做了什么、结果、没做完的、产物绝对路径；要主人拍板的不可逆的事不猜，用能原样转给主人的问题收尾；之后可能被带着答案叫回来。有 Bridge 工具的轮次（管家、负责人）注册 `PreToolUse`：子 Agent 调 `mcp__bridge__*` 被拒，理由是“写进最终回复，主 Agent 会转达”；主线程自己调照常。管家这一轮（主人没说“你直接做”）另注册 `PostToolUse`：主线程调满 6 次非 Bridge 工具时提醒一次交给话题（`app/butler.py` 的 `tool_nudge`）。`COVEY_CLAUDE_HOOKS=0` 不注册，和原来一样。
-- **子 Agent 的模型**（`backends/claude/subagents.py`，设置卡“新话题”页的“子 Agent”）：默认“轻量”，子进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，并用 `--agents` 把内置 Explore 换成只读、跑在 Haiku 上的同名子 Agent；“跟主模型”两样都不加。Claude Code 接的网关认不出 `sonnet`、`haiku` 别名时选“跟主模型”。
+- **子 Agent 的模型**（`backends/claude/subagents.py`，设置卡「配置」页“更多”里的“子 Agent”）：默认“轻量”，子进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，并用 `--agents` 把内置 Explore 换成只读、跑在 Haiku 上的同名子 Agent；“跟主模型”两样都不加。Claude Code 接的网关认不出 `sonnet`、`haiku` 别名时选“跟主模型”。
 - **模型目录**：一次双向初始化，不提交 prompt。档位只取模型声明的 `low` 到 `max`，声明了 `xhigh` 的另有 `ultracode`。子进程带 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`，经 `ANTHROPIC_BASE_URL` 接托管网关时还列出网关的模型（如 `claude/claude-opus-5`）；某次一个都没列出时沿用 24 小时内的 `<state>/native-models/claude-gateway.json`。已删除的网关模型的话题在启动前失败，提示换配置。
 - **本轮结果与收尾**：只取当前调用的 JSONL，result 文本等于最后一条完整根消息才算数。最终 result 后关输入，约 10 秒后停止进程组（还有补充没被接收时不关）；后台命令或子 Agent 结束时 Claude Code 会再起一轮通知，机器人等它们全部结束，只受 `--claude-timeout` 约束，这一轮的回复是各轮回复按顺序连起来（紧挨着的相同段落只留一段，`backends/claude/completion.py` 的 `final_texts`）。有结果后 CLI 非零退出时按部分结果投递（会话封住）；因停止或超时结束、已有完整回复的照常发出并加说明。原生错误详情在 `<状态目录>/claude-diagnostics/<run-id>.json`，不要外传。
 - **限流与额度**：429 记 `rate_limited`（会自动重试），529、500、502、503、504、连接重置、流空闲超时记 `server_fault`（临时故障，会自动重试），402 记 `quota_exhausted`，451 记 `model_blocked`（后两种提示换配置）。明确的官方拒绝或降级会停止当前任务，见[官方拒绝与降级停止](policy-stop.md)。

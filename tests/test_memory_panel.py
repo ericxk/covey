@@ -305,5 +305,5 @@ class AboutTabTests(HubCase):
     def test_someone_else_is_refused_on_the_card(self):
         self.about()
         event = {'event_id': 'ev-o', 'chat_id': 'dm', 'message_id': 'om_s1'}
-        self.assertEqual(self.hub.click(self.ctx, event, self.tab('新话题'), False), 'owner_only')
+        self.assertEqual(self.hub.click(self.ctx, event, self.tab('配置'), False), 'owner_only')
         self.assertIn('仅机器人主人可以看这一页', text_of(self.card()))

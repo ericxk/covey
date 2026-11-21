@@ -2,8 +2,9 @@
 draws (``snapshot``), and the few changes the page may make (``change``, app/web_ops.py's ``settings``), both through the code the card
 itself draws and writes with. Nothing here is a second copy of a rule.
 
-- What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py: 新话题, 管家 unless COVEY_BUTLER=0, 工作区, 脱敏, 群聊, 设备 with
-  COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY), each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
+- What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py), the card's 配置 as the two pages the page has for it, 新话题
+  and 管家 unless COVEY_BUTLER=0 (``web_tabs``), then 工作区, 脱敏, 群聊, 设备 with COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the
+  card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``start_setting``,
   ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
   (cards/workspace_manager.py ``list_entries``, ``tag_words``), 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
   ``facts``) and its terms as they are (the page edits the list, so the terms go into the page's database;
@@ -33,7 +34,8 @@ from covey.app.menu_panel import hub_tabs
 from covey.cards import butler_panel as cards
 from covey.cards.group_manager import FREE_CHOICES, KIND_WORDS, PROXY_BLOCKED, free_limit, free_mode, free_words, name_of, ordered, state_words
 from covey.cards.redaction_panel import SWITCH_ROWS, TOPICS
-from covey.cards.settings_hub import ABOUT, BUTLER, DOCTOR, GROUPS, LABELS, MEMORY, MODELS, NODES, PROXY, REDACTION, TOPIC, WORKSPACE
+from covey.cards.settings_hub import (ABOUT, BUTLER, CONFIG, DOCTOR, GROUPS, LABELS, MEMORY, NODES, PROXY, REDACTION, TOPIC,
+                                      WORKSPACE)
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app import web_launch, web_panels
 from covey.app.access import free_talk_on
@@ -42,8 +44,7 @@ from covey.core.menu_choice import tiers
 from covey.core.workspaces import add_workspace, load_config, missing_workspaces, remove_workspaces
 
 LIMIT = 60  # The most options a row lists (the card cuts to fit its size; the page need not).
-CARD_ONLY = (MODELS, MEMORY, ABOUT, DOCTOR)  # The 设置 card's tabs the page's data contract has no page for: not pushed.
-# (模型: the page keeps the model rows on its 新话题 and 管家 pages, as the card had them.)
+CARD_ONLY = (MEMORY, ABOUT, DOCTOR)  # The 设置 card's tabs the page's data contract has no page for: not pushed.
 NAMES_SECONDS = 1800  # A group's name, as Feishu gave it, is asked again after this long.
 NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT, cards.TOPIC_RUN_MODE,
@@ -63,6 +64,18 @@ GONE = "这个选项已不可用，页面会按最新设置重画"
 READ_ONLY = "这一项网页上只读，请到飞书设置卡上改"
 TERMS_SHAPE = "词表改动的格式不对，页面会按最新词表重画"
 TERMS_UNREADABLE = "词表读不出来，请到飞书设置卡上看"
+
+
+def web_tabs() -> list:
+    """The 设置 card's tabs (hub_tabs) as the page has them: its 配置 as 新话题 and, unless COVEY_BUTLER=0, 管家 (the pages
+    the card had before 配置, data contract v7); the card's own tabs (CARD_ONLY) left out."""
+    tabs = []
+    for tab in hub_tabs():
+        if tab == CONFIG:
+            tabs += [TOPIC] + ([BUTLER] if butler.available() else [])
+        elif tab not in CARD_ONLY:
+            tabs.append(tab)
+    return tabs
 
 
 def group_key(chat_id) -> str:
@@ -119,7 +132,7 @@ class WebSettings:
         """The item's data: {tabs: [{key, label}], feishu, <tab key>: what it shows}."""
         now = time.time() if now is None else now
         ctx = self.context()
-        tabs = [tab for tab in hub_tabs() if tab not in CARD_ONLY]
+        tabs = web_tabs()
         settings = butler_settings.load(ctx.state_dir)
         choices = self.choices(ctx)
         labels = {**LABELS, PROXY_TAB: PROXY_LABEL}

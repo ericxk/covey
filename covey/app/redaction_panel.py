@@ -84,7 +84,7 @@ def detect_upstream(harness):
 
 # 新话题默认开 is the 新话题 page's 脱敏 row now (cards/redaction_panel.py SWITCH_ROWS): an older card's switch says so.
 MOVED_SWITCH = 'default_on'
-MOVED_NOTICE = '「新话题默认开」挪到了设置卡「新话题」页的「脱敏」一行。'
+MOVED_NOTICE = '「新话题默认开」挪到了设置卡「配置」页“新话题”一段的「脱敏」一行。'
 
 
 def card_key(state_dir) -> bytes:

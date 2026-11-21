@@ -119,7 +119,7 @@ class DoctorTabTests(HubCase):
         self.press(self.tab("诊断"), "ev-t4")  # Unfold, reading anew.
         self.assertIn("这次没查成", json.dumps(self.card(), ensure_ascii=False))
         event = {"event_id": "ev-t5", "chat_id": "dm", "message_id": "om_s1"}
-        self.assertEqual(self.hub.click(self.ctx, event, self.tab("新话题"), False), "owner_only")
+        self.assertEqual(self.hub.click(self.ctx, event, self.tab("配置"), False), "owner_only")
         self.assertIn(OWNER_ONLY, json.dumps(self.card(), ensure_ascii=False))
 
 

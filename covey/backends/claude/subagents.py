@@ -1,5 +1,5 @@
-"""Claude Code's subagents on lighter models than the turn's (main-thread.json ``subagents``, the 设置 card's 新话题
-tab; core/butler_settings.py SUBAGENTS). Without it, every subagent, even the built-in Explore, runs on the
+"""Claude Code's subagents on lighter models than the turn's (main-thread.json ``subagents``, under 更多 on
+the 设置 card's 配置; core/butler_settings.py SUBAGENTS). Without it, every subagent, even the built-in Explore, runs on the
 turn's model (measured on claude 2.1.318).
 
 "light" (the default): every turn's claude, topics and the butler alike, its compaction included, gets

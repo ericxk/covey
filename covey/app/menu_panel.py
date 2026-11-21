@@ -5,8 +5,8 @@ Its record is <state>/<folder>/<token>.json, changed under the resource lock ``l
 card's view in ``view_field``. ``via`` is what sends for the card: its ``messenger`` and ``voice``, looked up
 at each call.
 
-The bot menu's 设置 (app/settings_hub.py) is one card showing one of the butler's three pages, the 代答 or the
-群聊 panel under a tab row, held by one record of its own: <state>/HUB_FOLDER/<token>.json, with the tab it shows
+The bot menu's 设置 (app/settings_hub.py) is one card showing one of its panels (the butler's 配置, the 代答 or the
+群聊 panel) under a tab row, held by one record of its own: <state>/HUB_FOLDER/<token>.json, with the tab it shows
 (``tab``) and that tab's view (``hub`` in it: ``hub_top`` draws the row). A panel made with its ``tab`` (or tabs: the
 butler's pages) finds that record by the token its buttons carry (``path``), changes it under the one lock
 HUB_LOCK (``lock``) and acts on a click only while the card shows its tab (``clicked``, ``shows``); its writes take
@@ -22,8 +22,8 @@ from __future__ import annotations
 import re
 
 from covey.app.form_cards import click_token, publish_form, settle
-from covey.cards.settings_hub import BUTLER, LABELS, MEMORY, NODES, PROXY, tab_row
-from covey.core import butler, memory, nodes
+from covey.cards.settings_hub import LABELS, MEMORY, NODES, PROXY, RETIRED, tab_row
+from covey.core import memory, nodes
 from covey.core.locks import resource_lock
 from covey.core.state import read_json
 
@@ -52,11 +52,11 @@ def hub_top(tab, token, view):
 
 
 def hub_tabs():
-    """The 设置 card's tabs: 模型 and 新话题 always (they preselect the launch card too); 管家 unless the deployment rules the
-    butler out (COVEY_BUTLER=0), in the mode 纯话题 too, where its row of the mode turns the butler on; 记忆 only with
+    """The 设置 card's tabs: 配置 always (it preselects the launch card too; its 管家 part only unless the deployment
+    rules the butler out, COVEY_BUTLER=0), a retired one never (RETIRED); 记忆 only with
     COVEY_MEMORY=1 (core/memory.py); 设备 only with COVEY_NODE_LISTEN (core/nodes.py); 能做什么 and 诊断 always. 代答 is
     never a tab: the bot menu has its own item."""
-    return [t for t in LABELS if (t != BUTLER or butler.available()) and t != PROXY
+    return [t for t in LABELS if t not in RETIRED and t != PROXY
             and (t != NODES or nodes.enabled()) and (t != MEMORY or memory.enabled())]
 
 

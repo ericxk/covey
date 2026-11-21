@@ -219,10 +219,10 @@
 - 不用下拉框：每行点开是选项，点一个就记下并整卡重画。可选项和启动卡同源（`cards/launch_config.py` 的 `tiers`、`budget_options`）。留空的项（“跟上次一样”）写实际会用什么。
 - **私聊模式**：管家模式下选“每条直接开一个话题”不马上存，卡上出一句后果（`MODE_CONFIRM`）和“取消”“确定改”；“确定改”是 `bridge_main_enable`（`on: false`），点别的任何一项都收起这句。选“交给管家”马上存。旧卡上的“改成纯话题 / 改成管家”按钮（同一个 kind）照旧马上生效。
 - **直接开工**：三档不是 `START_CHOICES` 之一时（以前一档一档开关过），这一行照实写开着的几档，选一项后换成那一项。旧卡上一档一个的按钮（`bridge_main_start`）照旧能点。
-- **脱敏默认**：只有新话题页这一行（`topic_defaults.redaction`）。脱敏标签以前的“新话题默认开”（`redaction/config.json` 的 `default_on`）不再读；`core/migrate.py` 的 `redaction-default` 在它开着时把这一行打开一次。
-- **模型页**：模型行以前在新话题、管家两页上，现在都在模型页（`cards/butler_panel.py` 的 `PAGE_OF`），旧卡上这些行的点击照存，卡转到模型页。菜单的“设置”打开停在模型页（`hub_tabs` 的第一个）。网页工作台的设置页没有模型页，模型行仍在它的新话题、管家两页上（`app/web_settings.py` 的 `CARD_ONLY`）。
+- **脱敏默认**：只有配置页新话题一段的这一行（`topic_defaults.redaction`）。脱敏标签以前的“新话题默认开”（`redaction/config.json` 的 `default_on`）不再读；`core/migrate.py` 的 `redaction-default` 在它开着时把这一行打开一次。
+- **配置一页**：以前的新话题、管家两页（以及短暂存在过的模型页）合成「配置」（`cards/settings_hub.py` 的 `CONFIG`），旧页签的键 `topic`、`main`、`models` 退役到它（`RETIRED`）：旧卡上点这些页签、停在这些页上的记录、这些页上的按钮都落到配置页，按钮照存并展开它所在的段（`PAGE_OF`、`PART_OF`）。「展开」是 `bridge_main_section`，只改卡片的 `view.open`，不改设置。网页工作台的设置页仍是新话题、管家两页（`app/web_settings.py` 的 `web_tabs`）。
 - **独立复核的模型**存在 `main-thread.json` 的 `review`（`harness`、`model`、`effort`；`core/butler_settings.py` 的 `ReviewModel`），`harness` 空是自动挑。选 Harness 时带上它目录里第一个模型和一档说得出名字的思考预算，和管家的一样；选“自动挑”清空三项。旧版本不认这一项，回滚后再改设置会丢掉它。
-- **子 Agent** 在模型页的“更多”里，但对整个机器人生效：Bridge 起的每一轮 Claude Code（话题和管家，连同轮前压缩）都照它。
+- **子 Agent** 在配置页的“更多”里，但对整个机器人生效：Bridge 起的每一轮 Claude Code（话题和管家，连同轮前压缩）都照它。
   - `subagents` 是 `light`（默认，没有这一项或值不认识也算）时，进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 换掉内置的 Explore：只读（Read、Grep、Glob、Bash），跑在 Haiku 上，只找文件、搜代码、看日志，不改东西、不下判断。这一轮的模型是 Haiku 时不设 `CLAUDE_CODE_SUBAGENT_MODEL`。
   - `same` 什么都不加，每个子 Agent 都跑主模型。
   - `backends/claude/subagents.py` 读这个设置；`ctx.options` 的 `subagent_model` 有值时压过设置（空字符串是不设），也不加 Haiku 的 Explore（安全拒绝后的重试用）。

@@ -16,7 +16,7 @@
 | 后端参数的环境变量（`core/ignored_env.py` 的 `IGNORED_ENV`，扩展的 Harness 另有） | 不再读取，设了会在启动日志提示换成哪个参数；其中两个权限变量设了非默认值会让诊断和部署预检失败，bootstrap 拒绝注册。见下面[不再读取的变量](#不再读取的变量) |
 | 自动加速（`COVEY_FERRY_AUTO_ACCELERATE`） | 不再读这个变量。单独发的“加速”“超频”和别的消息一样，按普通消息或补充处理 |
 | `main-thread.json` 的 `desk_topics`（前台话题布局） | 读到 `true` 也按 `false` 处理，启动时记一行 warning，保存设置时原值留着。以前开的前台话题（登记在 `<state>/main-thread/desk/`）由启动时的迁移 `desk-retire` 冻结，不再接新消息 |
-| 脱敏标签的“新话题默认开”（`redaction/config.json` 的 `default_on`） | 不再读：新话题默认开不开脱敏是设置卡「新话题」页的“脱敏”一行（`main-thread.json` 的 `topic_defaults.redaction`）。启动时的迁移 `redaction-default` 在它开着时把那一行打开一次；值留在 `config.json` 给旧版本。旧卡上点这个开关只说它挪到了哪里 |
+| 脱敏标签的“新话题默认开”（`redaction/config.json` 的 `default_on`） | 不再读：新话题默认开不开脱敏是设置卡「配置」页“新话题”一段的“脱敏”一行（`main-thread.json` 的 `topic_defaults.redaction`）。启动时的迁移 `redaction-default` 在它开着时把那一行打开一次；值留在 `config.json` 给旧版本。旧卡上点这个开关只说它挪到了哪里 |
 | 脱敏词表里的替身词（`stand_in`） | 替身词一律自动生成：读时忽略旧词表的 `stand_in`，启动时的迁移 `redaction-stand-in` 把旧词表重写一遍；旧版本设的 `"anywhere": true` 照旧生效，不能新设 |
 | 文字命令、斜杠命令 | 以 `/` 开头的消息和以前的命令词（“代答”“本周用量”“管理工作区”“换配置”“停用本群”等）当作普通任务或补充。只有配对口令 `/pair` 还认。应用里残留的原生斜杠命令要在开发者后台删除并发布 |
 | 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`manage_groups`、`main_thread_settings`（`proxy_settings` 现在又是正式的「代答」项） | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |

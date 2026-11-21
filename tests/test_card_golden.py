@@ -1096,7 +1096,7 @@ def settings_cards():
     from covey.cards.workspace_manager import manager_card
     from covey.core.butler_settings import ReviewModel, Settings
 
-    tabs = ["models", "topic", "main", "workspace", "redaction", "groups"]
+    tabs = ["config", "workspace", "redaction", "groups"]
 
     def row(tab):
         return [tab_row(tab, "c" * 24, tabs)]
@@ -1113,20 +1113,27 @@ def settings_cards():
         return {"kind": kind, "token": "c" * 24, "revision": 1, **more}
 
     return {
-        **{page: butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
-                                        top=row(page), page=page) for page in ("main", "topic", "models")},
-        # 模型 with 独立复核 on (COVEY_REVIEW=1): picked by itself, then a model chosen for it (T619).
-        "models_review": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
-                                           top=row("models"), page="models", review_on=True),
-        "models_review_chosen": butler_panel_card(
-            "c" * 24, view, Settings(review=ReviewModel(harness="codex", model="gpt-6-astra", effort="high")),
-            BUTLER_CHOICES, ["bridge", "docs"], top=row("models"), page="models", review_on=True),
-        "topic_trusted": butler_panel_card("c" * 24, view, dataclasses.replace(kept, start=("readonly", "trusted")),
-                                           BUTLER_CHOICES, ["bridge", "docs"], top=row("topic"), page="topic"),
-        "main_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,
-                                          ["bridge", "docs"], top=row("main"), page="main"),
-        "main_topics": butler_panel_card("c" * 24, view, Settings(enabled=False), BUTLER_CHOICES, ["bridge", "docs"],
-                                         top=row("main"), page="main"),
+        # 配置 (T619): the butler's settings on one page, a section open at a time (新话题 first; 管家 from the butler's
+        # tool; 独立复核 with COVEY_REVIEW=1, picked by itself or a model chosen for it).
+        "config": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"], top=row("config"),
+                                    page="config"),
+        "config_butler": butler_panel_card("c" * 24, {**view, "open": "butler"}, Settings(), BUTLER_CHOICES,
+                                           ["bridge", "docs"], top=row("config"), page="config"),
+        "config_review": butler_panel_card("c" * 24, {**view, "open": "review"}, Settings(), BUTLER_CHOICES,
+                                           ["bridge", "docs"], top=row("config"), page="config", review_on=True),
+        "config_review_chosen": butler_panel_card(
+            "c" * 24, {**view, "open": "review"},
+            Settings(review=ReviewModel(harness="codex", model="gpt-6-astra", effort="high")),
+            BUTLER_CHOICES, ["bridge", "docs"], top=row("config"), page="config", review_on=True),
+        "config_trusted": butler_panel_card("c" * 24, view, dataclasses.replace(kept, start=("readonly", "trusted")),
+                                            BUTLER_CHOICES, ["bridge", "docs"], top=row("config"), page="config"),
+        "config_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,
+                                            ["bridge", "docs"], top=row("config"), page="config"),
+        "config_topics": butler_panel_card("c" * 24, {**view, "open": "butler"}, Settings(enabled=False), BUTLER_CHOICES,
+                                           ["bridge", "docs"], top=row("config"), page="config"),
+        # A record still on a retired page (管家, 新话题, 模型) is drawn as 配置.
+        "main_retired": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
+                                          top=row("main"), page="main"),
         "workspace": manager_card("c" * 24, view, config, {}, standalone=True, hub=True, top=row("workspace"),
                                   notes=(dict(kept.workspace_notes), lambda names: notes_button(value, names)),
                                   after=[note(WORKSPACE_NOTE)]),
@@ -1162,8 +1169,8 @@ def settings_cards():
         "groups": group_manager_card("c" * 24, {**view, "page": 0}, groups, {"oc_fake_group0": "群0"},
                                      top=row("groups")),
         # Folded by a click on the tab shown or the menu's 设置: the panel's title bar and the tab row.
-        "main_folded": folded_hub("main", "c" * 24, tabs),
-        "topic_folded": folded_hub("topic", "c" * 24, tabs),
+        "config_folded": folded_hub("config", "c" * 24, tabs),
+        "main_folded": folded_hub("main", "c" * 24, tabs),  # A record still on 管家 folds as 配置.
         "proxy_folded": folded_hub("proxy", "c" * 24, tabs),
         "groups_folded_no_main": folded_hub("groups", "c" * 24, [t for t in tabs if t != "main"]),
         "workspace_folded": folded_hub("workspace", "c" * 24, tabs),
@@ -1194,7 +1201,7 @@ def settings_cards():
     }
 
 
-FULL_TABS = ["topic", "main", "workspace", "redaction", "groups", "memory", "nodes", "about"]
+FULL_TABS = ["config", "workspace", "redaction", "groups", "memory", "nodes", "about"]
 
 
 def memory_tab_cards():

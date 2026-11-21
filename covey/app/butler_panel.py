@@ -1,17 +1,15 @@
 """The 管家 settings card (docs/butler.md 设置卡): the owner changes the butler's settings in the private
 chat. The butler only sends it (the tool ``settings_panel``, TOOLS); it cannot change its settings.
 
-It is three tabs of the bot menu's 设置 card (app/settings_hub.py), one a page (cards/settings_hub.py BUTLER_PAGES):
-模型 (every model the owner sets: a new topic's, the butler's, 独立复核's (app/review.py) and 子 Agent, one section each),
-新话题 (the rest of every new topic's preselection, 直接开工 and 记住的工作区) and 管家 (the rest of the butler's own, and
-under 更多 the private chat mode: 每条直接开一个话题 is saved only after 确定改, the record's view keeping ``confirm``
-meanwhile); its 保存用途
+It is the bot menu's 设置 card's tab 配置 (app/settings_hub.py, cards/settings_hub.py CONFIG), one section a use: 新话题
+(every new topic's preselection, 直接开工 and 记住的工作区), 管家 (the butler's own, and the private chat mode: 每条直接开一个话题
+is saved only after 确定改, the record's view keeping ``confirm`` meanwhile), 独立复核 (app/review.py) and 子 Agent; the
+pages 管家, 新话题 and 模型 it took the place of are retired into it; its 保存用途
 button is on the 工作区 tab, which app/workspace_manager.py draws (``pages``: this panel redraws that tab through it
-after its click). A card on the retired page 其他 still acts: its 直接开工 and 记住的工作区 land on
-新话题, its 用途 on 工作区 (PAGE_OF). The tool and, unless COVEY_BUTLER=0, the menu key MENU_KEY send that card on
-管家; the chat keeps one 设置 card, a new one recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the record's
-``tab`` follows), so a click on a 设置 card drawn before the pages, all of them on its 管家 tab, lands on the page
-of the row it changed. No topic, no job. The 设置 card's record holds the tab's view (revision, notice); a card
+after its click). A card on a retired page (其他, 管家, 新话题, 模型) still acts: its rows land on 配置, its 用途 on 工作区
+(PAGE_OF). The tool and, unless COVEY_BUTLER=0, the menu key MENU_KEY send that card on 配置; the chat keeps one 设置
+card, a new one recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the
+record's ``tab`` follows). No topic, no job. The 设置 card's record holds the tab's view (revision, notice); a card
 sent before there was a 设置 card (gen 286) has its own record, <state>/main-thread-panels/<token>.json, and still
 acts. The settings themselves are read from core/butler_settings.py at each draw and written only by
 ``update``, so every card shows what holds now. Each click changes one field to the state its value names, then
@@ -37,9 +35,10 @@ from covey.cards.butler_panel import (COMPACT, EFFORT, ENABLE, HARNESS, KINDS, S
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
                                                     TOPIC_RUN_MODE, TOPIC_WORKSPACE, UNTRUST, CLAUDE, follow_text,
                                                     REVIEW_EFFORT, REVIEW_HARNESS, REVIEW_MODEL, REVIEW_PROVIDER,
+                                                    PART_OF, SECTION, SECTIONS,
                                                     butler_panel_card)
 from covey.cards.launch_config import effort_choices
-from covey.cards.settings_hub import BUTLER, BUTLER_PAGES, MODELS, OTHER, RETIRED, TOPIC, WORKSPACE
+from covey.cards.settings_hub import BUTLER, BUTLER_PAGES, CONFIG, OTHER, RETIRED, TOPIC, WORKSPACE
 from covey.core import butler, butler_settings
 from covey.core.jobs import job_file, read_job_record
 from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES, TIERS
@@ -185,7 +184,7 @@ def pick_review_harness(rows, choices, option, state_dir):
 
 def saved_notice(kind):
     """What the card says once a row of ``kind`` was saved (SAVED_OF, else its scope's or its page's SAVED)."""
-    scope = ROW_CHANGES.get(kind, (None,))[0]
+    scope = ROW_CHANGES.get(kind, (None,))[0] or (TOPIC if kind in (START, UNTRUST) else None)
     return SAVED_OF.get(kind) or SAVED.get(scope) or SAVED.get(PAGE_OF.get(kind), '已保存。')
 
 
@@ -240,9 +239,9 @@ class ButlerPanel:
         """The click's outcome when it is a 管家 settings card's, else None (app/unified.py PANELS)."""
         return self.click(ctx, event, raw, owner) if self.matches(raw) else None
 
-    def card(self, ctx, view, tab=BUTLER, chat=''):
-        """The card of ``view``: on the 设置 card (``hub`` in it) the page ``tab`` (another panel's: ``pages``), else
-        the pages one under the other. ``chat``: the chat it is in, whose last launch a new topic follows ('' the
+    def card(self, ctx, view, tab=CONFIG, chat=''):
+        """The card of ``view``: on the 设置 card (``hub`` in it) the page ``tab`` (配置, a retired one as it; another
+        panel's: ``pages``), else the card of its own (gen 286). ``chat``: the chat it is in, whose last launch a new topic follows ('' the
         owner's private chat; a personal group opens its own)."""
         tab = RETIRED.get(tab, tab)
         if view.get('hub') and tab in self.pages:
@@ -251,14 +250,13 @@ class ButlerPanel:
 
         settings, choices = butler_settings.load(ctx.state_dir), available_models(self.topics, ctx)
         page = tab if view.get('hub') and tab in BUTLER_PAGES else None
-        topic = page in (None, MODELS)  # Where a new topic's model rows are.
         defaults = settings.topic_defaults
         return butler_panel_card(view['token'], view, settings, choices, workspace_names(ctx.state_dir),
-                                      top=hub_top(page or BUTLER, view['token'], view), page=page,
-                                      follows=self.follows(ctx, defaults, choices, chat) if topic else {},
-                                      fallback=self.fallback(ctx, defaults, choices, chat) if topic else None,
+                                      top=hub_top(page or CONFIG, view['token'], view), page=page,
+                                      follows=self.follows(ctx, defaults, choices, chat),
+                                      fallback=self.fallback(ctx, defaults, choices, chat),
                                       butler_on=butler.available() and settings.enabled,
-                                      review_on=review.enabled())
+                                      review_on=review.enabled(), butler_allowed=butler.available())
 
     def resolved(self, ctx, defaults, choices, chat=''):
         """What a topic the butler of ``chat`` opens now runs with over ``defaults`` (app/butler_topics.py resolve,
@@ -310,7 +308,7 @@ class ButlerPanel:
         return {}
 
     def tab_card(self, ctx, token, record):
-        return self.card(ctx, record['view'], record.get('tab', BUTLER), record.get('chat_id') or '')
+        return self.card(ctx, record['view'], record.get('tab', CONFIG), record.get('chat_id') or '')
 
     def tab_shown(self, ctx, token):
         self.topics.runtime.log(f'main thread panel shown token={token[:8]}')
@@ -318,7 +316,7 @@ class ButlerPanel:
     def refuse(self, ctx, path, event):
         """OWNER_ONLY on the card ``event`` clicked; whether it was a settings card's."""
         return self.menu.refuse(ctx, path, event, OWNER_ONLY,
-                                lambda view, record: self.card(ctx, view, record.get('tab', BUTLER),
+                                lambda view, record: self.card(ctx, view, record.get('tab', CONFIG),
                                                                record.get('chat_id') or ''))
 
     def click(self, ctx, event, value, owner):
@@ -330,6 +328,8 @@ class ButlerPanel:
         outcome, confirm = 'main_panel', False
         if not owner:
             outcome, notice = 'owner_only', OWNER_ONLY
+        elif value['kind'] == SECTION:
+            notice = '' if value.get('open') in SECTIONS else GONE  # 展开: no setting changes, the view's ``open``.
         elif value['kind'] == MODE and MODE_CHOICES.get(value.get('option'), (True,))[0] is False \
                 and butler_settings.load(ctx.state_dir).enabled:
             notice, confirm = '', True  # 每条直接开一个话题 is saved by 确定改 only (mode_confirm).
@@ -348,9 +348,13 @@ class ButlerPanel:
             view.pop('confirm', None)  # Any other click closes the question 每条直接开一个话题 asked.
             if confirm:
                 view['confirm'] = True
+            # 配置 opens the section 展开 names, or the one of the row clicked (a card drawn before the sections too).
+            part = value.get('open') if value['kind'] == SECTION else PART_OF.get(value['kind'])
+            if outcome == 'main_panel' and part in SECTIONS:
+                view['open'] = part
             if value['kind'] == NOTES:
                 view.pop('notes_edit', None)  # 保存用途 ends the 工作区 tab's editing (app/workspace_manager.py).
-            tab = record.get('tab', BUTLER)
+            tab = record.get('tab', CONFIG)
             if view.get('hub') and outcome == 'main_panel':
                 tab = PAGE_OF.get(value['kind'], tab)  # The page of the row it changed (a card from before the pages).
                 record = {**record, 'tab': tab}

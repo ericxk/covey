@@ -1,13 +1,12 @@
 """The 管家 settings card (app/butler_panel.py), in the bot menu panels' style: the owner changes the butler's
- settings (core/butler_settings.py) on it, in three pages, each a tab of the 设置 card
-(cards/settings_hub.py BUTLER_PAGES): 模型 (every model the owner sets, one section each: 新话题's Harness, 供应商, 模型
-and 思考预算, what every new topic is preselected with; 管家's own, a Harness that can run it, while the butler serves
-the chat; 独立复核's, ``review_setting_list``, with COVEY_REVIEW=1; and 子 Agent, which every Claude Code turn the
-Bridge starts follows, the butler's too, backends/claude/subagents.py), 新话题 (the rest of what every new topic is
-preselected with, the launch card's and the topics the butler opens alike: 运行方式, 脱敏, 工作区; then 直接开工, one row
-of START_CHOICES, with 记住的工作区 under it while it counts, ``trusted_section``) and 管家 (the rest of the butler's own:
-脱敏 and 工作区; under 更多 when to compact and the private chat mode, MODE_CHOICES: 每条直接开一个话题 asks once more,
-``mode_confirm``, before it is saved). The Harness, 供应商, 模型 and 思考预算 rows offer what the launch card's do
+ settings (core/butler_settings.py) on it, on one page, the 设置 card's tab 配置 (cards/settings_hub.py CONFIG; the pages
+管家, 新话题 and 模型 it took the place of are retired into it), a section a use (``config_page``): 新话题 (what every
+new topic is preselected with, the launch card's and the topics the butler opens alike: Harness, 供应商, 模型, 思考预算,
+运行方式, 脱敏, 工作区; then 直接开工, one row of START_CHOICES, with 记住的工作区 under it while it counts,
+``trusted_section``), 管家 (its own Harness, a Harness that can run it, 供应商, 模型, 思考预算, 脱敏, 工作区, when to compact
+and the private chat mode, MODE_CHOICES: 每条直接开一个话题 asks once more, ``mode_confirm``, before it is saved), 独立复核
+(``review_setting_list``, with COVEY_REVIEW=1) and under 更多 子 Agent, which every Claude Code turn the Bridge starts
+follows, the butler's too (backends/claude/subagents.py). The Harness, 供应商, 模型 and 思考预算 rows offer what the launch card's do
 (core/menu_choice.py tiers, budget_options). Each workspace's 用途 is on the 设置 card's 工作区 tab (cards/workspace_manager.py, drawn by
 app/workspace_manager.py); the page 其他 that held it is retired. A card of its own (from before the 设置 card, gen 286) shows the pages one under the other,
 then 记住的工作区 and 工作区用途 (``other_page``).
@@ -26,7 +25,7 @@ from covey.cards.launch_config import (DEFAULT, Setting, harness_setting, known,
                                                 redaction_setting, run_mode_setting, setting_row, settings_block,
                                                 tier_rows, workspace_setting)
 from covey.core.menu_choice import butler_harnesses, default_entry, entry_of, models_of, redacts, tiers
-from covey.cards.settings_hub import ICONS, BUTLER, MODELS, TITLES, TOPIC, WORKSPACE
+from covey.cards.settings_hub import BUTLER, CONFIG, ICONS, TITLES, WORKSPACE, successor
 from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES, TIERS
 from covey.core.workspaces import RUN_MODES
 
@@ -51,6 +50,7 @@ UNTRUST = 'bridge_main_untrust'
 NOTES = 'bridge_main_notes'
 MODE = 'bridge_main_mode'  # The private chat mode's row (MODE_CHOICES); ENABLE is its 确定改 (and an older card's button).
 START_ROW = 'bridge_main_start_row'  # 直接开工's row (START_CHOICES); START is an older card's one tier.
+SECTION = 'bridge_main_section'  # 配置's 展开 of a closed section (SECTIONS): the view's ``open``, no setting.
 # 独立复核's model (core/butler_settings.py ReviewModel), on 模型.
 REVIEW_HARNESS = 'bridge_main_review_harness'
 REVIEW_PROVIDER = 'bridge_main_review_provider'
@@ -59,18 +59,20 @@ REVIEW_EFFORT = 'bridge_main_review_effort'
 ROWS = frozenset({HARNESS, MODEL, EFFORT, PROVIDER, REDACTION, SPACE, COMPACT, TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT, TOPIC_RUN_MODE,
                   TOPIC_REDACTION, TOPIC_WORKSPACE, SUBAGENTS, MODE, START_ROW, REVIEW_HARNESS, REVIEW_PROVIDER,
                   REVIEW_MODEL, REVIEW_EFFORT})  # Settings-list rows: the value's ``option`` is the choice.
-KINDS = ROWS | {ENABLE, START, UNTRUST, NOTES}
-# The page each button is on: a click on a card drawn before the pages (all on one), on a page that had the model rows
-# before 模型, or on the retired 其他, redraws the page of its row now (the models on 模型, 直接开工 on 新话题, 记住的工作区
-# and 用途 on 工作区).
-PAGE_OF = {**dict.fromkeys((ENABLE, MODE, REDACTION, SPACE, COMPACT), BUTLER),
-           **dict.fromkeys((HARNESS, MODEL, EFFORT, PROVIDER, TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT,
-                            SUBAGENTS, REVIEW_HARNESS, REVIEW_PROVIDER, REVIEW_MODEL, REVIEW_EFFORT), MODELS),
-           **dict.fromkeys((TOPIC_RUN_MODE, TOPIC_REDACTION, TOPIC_WORKSPACE, START, START_ROW, UNTRUST), TOPIC),
-           NOTES: WORKSPACE}
-# The model rows' keys (Setting.key) of 新话题 and of 管家, drawn on 模型 and not on their own pages.
-TOPIC_MODEL_KEYS = ('t_harness', 't_provider', 't_model', 't_effort')
-BUTLER_MODEL_KEYS = ('harness', 'provider', 'model', 'effort')
+KINDS = ROWS | {ENABLE, START, UNTRUST, NOTES, SECTION}
+# 配置's sections that open one at a time (the card has room for one's options, CardKit's element budget): the view's
+# ``open`` names it, OPEN_FIRST when it names none. A closed one is its heading, 展开 and one grey line of what it holds.
+TOPIC_PART, BUTLER_PART, REVIEW_PART = 'topic', 'butler', 'review'
+SECTIONS = {TOPIC_PART: '新话题', BUTLER_PART: '管家', REVIEW_PART: '独立复核'}
+OPEN_FIRST = TOPIC_PART
+# The section a row is in: a click on it opens that section (a card drawn before the sections names any row).
+PART_OF = {**dict.fromkeys((TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT, TOPIC_RUN_MODE, TOPIC_REDACTION,
+                            TOPIC_WORKSPACE, START, START_ROW, UNTRUST), TOPIC_PART),
+           **dict.fromkeys((HARNESS, PROVIDER, MODEL, EFFORT, REDACTION, SPACE, COMPACT, MODE, ENABLE), BUTLER_PART),
+           **dict.fromkeys((REVIEW_HARNESS, REVIEW_PROVIDER, REVIEW_MODEL, REVIEW_EFFORT), REVIEW_PART)}
+# The page each button is on: a click on a card drawn before the pages, on one of the retired pages 管家, 新话题 and 模型
+# or on the retired 其他 redraws the page of its row now (配置; 用途 on 工作区).
+PAGE_OF = {**dict.fromkeys(KINDS - {NOTES}, CONFIG), NOTES: WORKSPACE}
 
 TITLE = '管家'  # A card of its own; on the 设置 card each page's title and icon (cards/settings_hub.py TITLES, ICONS).
 ICON = 'robot_outlined'
@@ -105,10 +107,6 @@ WORKSPACE_NOTE = '管家按用途挑工作区。'
 NOTES_HINT = '一句话说明这个工作区做什么'  # A 用途 input's placeholder.
 # 新话题's first line: the page preselects every new topic (app/preselection.py, app/butler_topics.py).
 TOPIC_NOTE = '你自己开的、管家开的话题都照这些预选；启动卡上还能改。'
-# 新话题's first line on the 设置 card, whose model rows are on 模型.
-TOPIC_PAGE_NOTE = '你自己开的、管家开的话题都照这些预选，启动卡上还能改；模型在「模型」页。'
-# 管家's first line on the 设置 card.
-BUTLER_PAGE_NOTE = '管家用的模型在「模型」页。'
 # 独立复核's Harness row's empty choice, and the line under its rows (app/review.py pick, configured).
 REVIEW_AUTO = '自动挑（优先换一家厂商）'
 REVIEW_NOTE = ('自动挑：优先另一家厂商、你最近常用的模型。选定的模型现在用不了，或原话题开着脱敏而它不能脱敏时，'
@@ -264,20 +262,62 @@ def review_setting_list(settings, choices, limit):
     return rows
 
 
-def models_page(settings, choices, workspaces, limit, follows, models, fallback, rows, *, butler_on, review_on):
-    """模型's body: a section a use, each with its model rows (``rows`` draws them): 新话题 (topic_settings'
-    TOPIC_MODEL_KEYS), 管家 (butler_setting_list's BUTLER_MODEL_KEYS) while ``butler_on``, 独立复核
-    (review_setting_list) while ``review_on``, 子 Agent."""
-    topic = [s for s in topic_settings(settings.topic_defaults, choices, workspaces, limit, follows, models, fallback,
-                                       butler=butler_on) if s.key in TOPIC_MODEL_KEYS]
-    elements = [section('新话题'), rows(topic), note(TOPIC_NOTE)]
-    if butler_on:
-        own = [s for s in butler_setting_list(settings, choices, limit) if s.key in BUTLER_MODEL_KEYS]
-        elements += [section('管家'), rows(own)]
-        if redact_first(settings, choices):
-            elements.append(note(REDACT_FIRST))
+def shown_value(setting):
+    """What a settings row shows as chosen, as setting_row draws it closed."""
+    return dict(setting.options).get(setting.current, setting.current or '未选')
+
+
+def summary(settings_):
+    """A closed section's grey line: each row's chosen value after its label, '·' between, the Harness's and the
+    model's alone and no 供应商 (the model says it): 'Codex · Codex Model · 思考预算 low · 运行方式 原目录'."""
+    parts = []
+    for s in settings_:
+        if s.label == '供应商':
+            continue
+        shown = literal(str(shown_value(s)))
+        bare = s.label in ('Harness', '模型') and shown not in ('未选', DEFAULT)  # A name says what it is.
+        parts.append(shown if bare else f'{s.label} {shown}')
+    return ' · '.join(parts)
+
+
+def config_page(settings, choices, workspaces, limit, follows, models, fallback, rows, value, confirm, *,
+                butler_allowed, butler_on, review_on, open_=OPEN_FIRST):
+    """配置's body, a section a use (``rows`` draws a section's rows, ``value`` a button's value): 新话题 (topic_settings,
+    with 直接开工 and 记住的工作区 while ``butler_on``); 管家 while ``butler_allowed`` (the deployment allows the butler):
+    its own rows (butler_setting_list) and the private chat mode, the mode's row alone in 纯话题, ``confirm`` asking
+    before 每条直接开一个话题 is saved (mode_confirm, the section open); 独立复核 (review_setting_list) while
+    ``review_on``; under 更多 子 Agent. Only the section ``open_`` (SECTIONS) shows its rows; each other is its heading
+    with 展开 (SECTION) and a grey line of what it holds (``summary``)."""
+    parts = {TOPIC_PART: topic_settings(settings.topic_defaults, choices, workspaces, limit, follows, models, fallback,
+                                        butler=butler_on) + ([start_setting(settings)] if butler_on else [])}
+    if butler_allowed:
+        parts[BUTLER_PART] = ([mode_setting(settings)] if not settings.enabled
+                              else butler_setting_list(settings, choices, limit, workspaces) + [mode_setting(settings)])
     if review_on:
-        elements += [section('独立复核'), rows(review_setting_list(settings, choices, limit)), note(REVIEW_NOTE)]
+        parts[REVIEW_PART] = review_setting_list(settings, choices, limit)
+    open_ = BUTLER_PART if confirm and BUTLER_PART in parts else open_ if open_ in parts else OPEN_FIRST
+    elements = []
+    for part, settings_ in parts.items():
+        if part != open_:
+            elements += [item(section(SECTIONS[part]), text_button('展开', value(SECTION, open=part), tone='primary')),
+                         note(summary(settings_))]
+            continue
+        elements += [section(SECTIONS[part]), rows(settings_)]
+        if part == TOPIC_PART:
+            elements.append(note(TOPIC_NOTE))
+            if butler_on:
+                elements.append(note(START_NOTE))
+                if trusted_shown(settings):
+                    elements += trusted_section(settings, value)
+        elif part == BUTLER_PART:
+            if not settings.enabled:  # 纯话题: nothing else of the butler's counts.
+                elements.append(note(MODE_OFF))
+            elif redact_first(settings, choices):
+                elements.append(note(REDACT_FIRST))
+            if confirm:
+                elements += mode_confirm(value)
+        else:
+            elements.append(note(REVIEW_NOTE))
     elements += [section('更多'), rows([subagent_setting(settings)]), note(SUBAGENT_NOTE)]
     if butler_on:
         elements.append(note(LOCKED))
@@ -285,15 +325,17 @@ def models_page(settings, choices, workspaces, limit, follows, models, fallback,
 
 
 def butler_panel_card(token, view, settings, choices, workspaces, top=(), follows=None, page=None,
-                           fallback=None, butler_on=True, review_on=False):
+                           fallback=None, butler_on=True, review_on=False, butler_allowed=True):
     """The whole card for ``view`` (revision, notice) over ``settings`` (core/butler_settings.py Settings),
     ``choices`` (app/launch_models.py available_models) and ``workspaces``, the saved workspace names: ``page``
-    (cards/settings_hub.py BUTLER_PAGES) on the 设置 card, the three one under the other on a card of its own (None). ``top``: elements above
-    the body (the 设置 card's tab row), within the same budget; ``follows`` and ``fallback`` as topic_settings.
-    ``butler_on``: whether the butler serves the private chat now (its mode 管家 and the deployment allowing it): without
-    it 新话题 has no 直接开工 and 模型 no 管家. ``review_on``: whether 独立复核 is on (app/review.py enabled), for its
-    rows on 模型. ``view['confirm']``: 管家 asks to confirm 每条直接开一个话题 (``mode_confirm``). 整理专项 is
-    not here: the 看板's alone (cards/board.py)."""
+    (cards/settings_hub.py BUTLER_PAGES, a retired one as 配置) on the 设置 card, a card of its own (None, gen 286) as it
+    was. ``top``: elements above the body (the 设置 card's tab row), within the same budget; ``follows`` and
+    ``fallback`` as topic_settings. ``butler_on``: whether the butler serves the private chat now (its mode 管家 and the
+    deployment allowing it, ``butler_allowed``): without it 新话题 has no 直接开工. ``review_on``: whether 独立复核 is on
+    (app/review.py enabled), for its rows. ``view['confirm']``: 管家 asks to confirm 每条直接开一个话题
+    (``mode_confirm``), ``view['open']`` the section of 配置 that shows its rows (SECTIONS). 整理专项 is not here: the
+    看板's alone (cards/board.py)."""
+    page = successor(page) if page else None
     revision = view['revision']
     stamp = f'r{revision % 10000}'
 
@@ -321,33 +363,9 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
             elements += other_page(settings, workspaces[:shown], len(workspaces), value)
             elements.append(note(NOTE))
             return elements
-        if page == BUTLER and not settings.enabled:
-            # 纯话题: nothing else on the page counts.
-            return elements + [rows([mode_setting(settings)]), note(MODE_OFF)]
-        if page == BUTLER:
-            own = butler_setting_list(settings, choices, limit, workspaces)
-            elements += [note(BUTLER_PAGE_NOTE),
-                         rows([s for s in own if s.key not in BUTLER_MODEL_KEYS and s.key != 'compact'])]
-            if redact_first(settings, choices):
-                elements.append(note(REDACT_FIRST))
-            elements += [section('更多'), rows([s for s in own if s.key == 'compact'] + [mode_setting(settings)])]
-            if view.get('confirm'):
-                elements += mode_confirm(value)
-            elements.append(note(LOCKED))
-            return elements
-        on = butler_on
-        if page == MODELS:
-            return elements + models_page(settings, choices, workspaces, limit, follows, models, fallback, rows,
-                                          butler_on=on, review_on=review_on)
-        elements += [note(TOPIC_PAGE_NOTE), rows([s for s in topic_settings(
-            settings.topic_defaults, choices, workspaces, limit, follows, models, fallback, butler=on)
-            if s.key not in TOPIC_MODEL_KEYS] + ([start_setting(settings)] if on else []))]
-        if on:
-            elements.append(note(START_NOTE))
-            if trusted_shown(settings):
-                elements += trusted_section(settings, value)
-            elements.append(note(LOCKED))
-        return elements
+        return elements + config_page(settings, choices, workspaces, limit, follows, models, fallback, rows, value,
+                                      view.get('confirm'), butler_allowed=butler_allowed, butler_on=butler_on,
+                                      review_on=review_on, open_=view.get('open') or OPEN_FIRST)
 
     # Too much for one card: fewer options a row down to SHORT; then fewer workspaces' lines, where that keeps the new
     # topic's whole model list; else that list down to SHORT, then fewer workspaces' lines, then fewer options.
@@ -365,7 +383,8 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
         if fits(elements, NODES, BYTES):
             break
     title = TITLE if page is None else TITLES[page]
-    line = models_subtitle(settings, choices, butler_on, review_on) if page == MODELS else subtitle(settings, choices, page)
+    line = (config_subtitle(settings, choices, butler_on, review_on, butler_allowed) if page == CONFIG
+            else subtitle(settings, choices, page))
     return styled_panel(panel_header(ICON if page is None else ICONS[page], title, line),
                         elements, title + ' · 设置')
 
@@ -421,8 +440,8 @@ def other_page(settings, named, every, value):
     return elements
 
 
-def models_subtitle(settings, choices, butler_on, review_on):
-    """模型's title bar: each use's model in a word, '新话题 Claude Code · 管家 Opus · 复核 自动'."""
+def config_subtitle(settings, choices, butler_on, review_on, butler_allowed=True):
+    """配置's title bar: each use's model in a word, '新话题 Claude Code · 管家 Opus · 复核 自动'; '管家没开' in 纯话题."""
     def named(harness, model, empty):
         if model:
             return models_of(choices, harness).get(model, model)
@@ -431,14 +450,16 @@ def models_subtitle(settings, choices, butler_on, review_on):
     parts = [f"新话题 {named(defaults.harness, defaults.model, FOLLOW['last'])}"]
     if butler_on:
         parts.append(f"管家 {named(settings.butler_harness, settings.model, '')}".strip())
+    elif butler_allowed:
+        parts.append('管家没开')
     if review_on:
         parts.append(f"复核 {named(review.harness, review.model, '自动')}")
     return ' · '.join(parts)
 
 
 def subtitle(settings, choices, page):
-    """The title bar's line: the mode, compaction and the new topics' Harness on a card of its own; a page's own
-    state on the 设置 card."""
+    """The title bar's line: the mode, compaction and the new topics' Harness on a card of its own; the state of the
+    retired page 管家 (BUTLER) or 新话题 (any other), as the web page's 新话题 and 管家 still say it (app/web_settings.py)."""
     mode, defaults = MODES[settings.enabled][0], settings.topic_defaults
     if page is None:
         harness = tiers(choices, defaults.harness)[0].get(defaults.harness, defaults.harness or DEFAULT)

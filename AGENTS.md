@@ -196,7 +196,7 @@
 | `app/runtime.py` | Process-wide Bridge state, one object passed by reference to every part that needs it |
 | `app/saved_send.py` | A turn's saved reply, paused question or canonical text sent the same way on its first send and on each … |
 | `app/sessions.py` | Sessions: one Harness's native-session pointer of a topic |
-| `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings in three pages, 模型, 新话题 and … |
+| `app/settings_hub.py` | The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings on one page, 配置, the workspace … |
 | `app/source_watch.py` | The owner recalled or edited a message the Bridge acts on |
 | `app/stale.py` | Close the records daily maintenance found waiting too long (core.stale.stale_records) |
 | `app/standing_answers.py` | 以后这类按推荐走: the button under a question card whose every question has one recommended option |
@@ -520,7 +520,7 @@
 | `backends/claude/runtime.py` | One turn of the Claude CLI over its JSONL transport, following the official Agent SDK protocol (run_stream) |
 | `backends/claude/sessions.py` | Claude Code session store for the Lark bridge |
 | `backends/claude/subagent_report.py` | What each subagent of a Claude turn delivered, from `<session>/subagents/agent-*.jsonl` and its `.meta.json` |
-| `backends/claude/subagents.py` | Claude Code's subagents on lighter models than the turn's (main-thread.json `subagents`, the 设置 card's 新话题 tab |
+| `backends/claude/subagents.py` | Claude Code's subagents on lighter models than the turn's (main-thread.json `subagents`, under 更多 on the 设置 … |
 | `backends/claude/tool_guard.py` | The PreToolUse hook of a 代答 topic's Claude Code turn |
 | `backends/claude/transcript.py` | One row of a Claude Code session transcript (a JSONL file), read the way every reader of it does |
 | `backends/claude/usage.py` | Current-invocation root and subagent usage and arrival-time latency, without model text |

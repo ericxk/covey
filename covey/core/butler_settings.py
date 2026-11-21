@@ -24,7 +24,7 @@ RUN_MODES = ("direct", "worktree")  # core/workspaces.py RUN_MODES: 原目录, �
 TIERS = ("readonly", "requested", "trusted")  # What may start at once (starts_at_once).
 # Which models Claude Code's subagents run on, in every Claude Code turn the Bridge starts (topics and the butler
 # ; backends/claude/subagents.py): "light" Sonnet, with a read-only Explore on Haiku; "same" Claude Code's own
-# way (each on the turn's model). Bot-wide, on the 设置 card's 新话题 tab; missing or unknown reads as "light".
+# way (each on the turn's model). Bot-wide, under 更多 on the 设置 card's 配置; missing or unknown reads as "light".
 SUBAGENTS = ("light", "same")
 
 

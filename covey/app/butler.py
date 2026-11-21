@@ -147,8 +147,8 @@ class Butler:
         if app is not None:
             return ""
         return (f"main thread is on but its Harness {name} is not enabled or cannot take the Bridge tools: private chat "
-                f"messages open topics instead; enable {name} in harnesses.json, choose another Harness on the settings "
-                f"card's 管家 tab or choose 纯话题")
+                f"messages open topics instead; enable {name} in harnesses.json, choose another Harness in the settings "
+                f"card's 配置, its 管家 part, or choose 纯话题")
 
     @staticmethod
     def configure(ctx) -> None:

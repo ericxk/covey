@@ -17,7 +17,7 @@ from covey.app.butler_env import ButlerEnv
 from covey.app import butler_panel as panel
 from covey.app.butler_panel import GONE, OWNER_ONLY, TOOLS, settings_panel
 from covey.cards import butler_panel as panel_card
-from covey.cards.settings_hub import TAB, TITLES as HUB_TITLES
+from covey.cards.settings_hub import TAB, TITLES as HUB_TITLES, successor
 from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, json_size
 from covey.cards.launch_config import (BUDGET_ACTION, HARNESS_ACTION, MODEL_ACTION, PROVIDER_ACTION,
                                                 WORK_MODE_ACTION, model_settings)
@@ -90,8 +90,22 @@ class ButlerPanelTests(UnifiedCase):
         return [outcome for outcome in (line.split('outcome=')[1].split()[0] for line in self.logs
                                         if line.startswith('card action')) if not outcome.startswith('settings_')]
 
+    def part(self, name):
+        """配置 with its section ``name`` (panel_card.SECTIONS) open, by its tab and its 展开; nothing when it is open
+        already."""
+        self.page(panel_card.CONFIG)
+        found = [v for v in self.values(panel_card.SECTION) if v.get('open') == name]
+        if found:
+            self.parts = getattr(self, 'parts', 0) + 1
+            self.assertEqual(self.click(found[0], event_id=f'part{self.parts}',
+                                        message=f'om_panel{self.app.messenger.create_and_send_card.call_count}'), 1)
+
     def page(self, tab):
-        """The 设置 card turned to the butler's page ``tab`` (panel_card.PAGES), or 工作区, by its tab."""
+        """The 设置 card turned to ``tab``, 配置 (a retired page of the butler's as it) or 工作区, by its tab; nothing when
+        it shows that tab already."""
+        tab = successor(tab)
+        if self.cards[-1]['header']['title']['content'] == HUB_TITLES[tab]:
+            return
         self.turns = getattr(self, 'turns', 0) + 1
         value, = [v for v in self.values(TAB) if v['tab'] == tab]
         # On the newest card: each ask sends one, om_panel1, om_panel2, ...
@@ -125,56 +139,51 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(self.app.messenger.create_and_send_card.call_count, 2)
 
     def test_the_default_settings_card(self):
-        self.ask()
+        self.ask()  # The butler's settings_panel: 配置 with its 管家 part open.
         header = self.cards[-1]['header']
         self.assertEqual((header['title']['content'], header['subtitle']['content'], header['icon']['token']),
-                         ('管家', 'Claude Code · 模型未选', 'robot_outlined'))
+                         ('配置', '新话题 跟上次一样 · 管家 Claude Code', 'robot_outlined'))
         text = self.text()
-        # T546: the private chat mode is a row under 更多, not a red button on top. T614: its 工作区 is a row of its
-        # own. T619: its model rows are on 模型.
-        for part in ("<font color='grey'>私聊顶层的消息</font>　交给管家", '**更多**', panel_card.BUTLER_PAGE_NOTE,
-                     "<font color='grey'>工作区</font>　默认工作区", '压缩阈值', '20 万'):
+        # T619: one page, a section a use (新话题, 管家; 独立复核 only with COVEY_REVIEW=1), one open at a time (CardKit has
+        # room for one's options), the others a heading, 展开 and a grey line of what they hold; 更多 always. T546: the
+        # private chat mode is a row of the butler's, not a red button on top. T614: the butler's Harness and 工作区 are
+        # rows of their own.
+        for part in ('**新话题**', '**管家**', '**更多**', panel_card.SUBAGENT_NOTE, panel_card.LOCKED,
+                     "<font color='grey'>私聊顶层的消息</font>　交给管家", "<font color='grey'>Harness</font>　Claude Code",
+                     "<font color='grey'>供应商</font>　Claude 自带", "<font color='grey'>工作区</font>　默认工作区",
+                     '压缩阈值', '20 万', '展开'):
             self.assertIn(part, text)
-        for part in ('**新话题默认**', '**直接开工**', '管家按用途挑', '改成纯话题', '**私聊模式**',
-                     "<font color='grey'>Harness</font>", "<font color='grey'>供应商</font>"):
+        for part in ('**新话题默认**', '**直接开工**', '改成纯话题', '**私聊模式**', '**独立复核**', '记住的工作区',
+                     panel_card.TOPIC_NOTE, panel_card.START_NOTE):
             self.assertNotIn(part, text)
+        self.assertLess(text.index('**新话题**'), text.index('**管家**'))
+        self.assertLess(text.index('**管家**'), text.index('压缩阈值'))
         self.assertLess(text.index('压缩阈值'), text.index('私聊顶层的消息'))
-        self.assertGreater(text.index('**更多**'), text.index("<font color='grey'>工作区</font>"))
+        self.assertLess(text.index('私聊顶层的消息'), text.index('**更多**'))
         self.assertNotIn('select_static', text)
-        self.assertIn(panel_card.LOCKED, text)
         self.assertNotIn(panel_card.NOTE, text)
+        self.assertEqual([v['open'] for v in self.values(panel_card.SECTION)], ['topic'])
         self.assertEqual([v['option'] for v in self.values(panel_card.MODE)], ['agent', 'topics'])
         self.assertEqual(self.values(panel_card.ENABLE), [])
         self.assertEqual([v['option'] for v in self.values(panel_card.REDACTION)], ['off', 'on'])
         self.assertEqual([v['option'] for v in self.values(panel_card.COMPACT)], ['0', '100000', '200000', '300000'])
-        self.assertEqual(self.values(panel_card.MODEL), [])
-        self.assertEqual(self.values(panel_card.TOPIC_HARNESS), [])
-        # 模型: every model on one page (T619), the butler's after a new topic's.
-        self.page(panel_card.MODELS)
-        text = self.text()
-        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], '新话题 跟上次一样 · 管家 Claude Code')
-        for part in ('**新话题**', '**管家**', '**更多**', "<font color='grey'>Harness</font>　Claude Code",
-                     "<font color='grey'>供应商</font>　Claude 自带", panel_card.TOPIC_NOTE, panel_card.SUBAGENT_NOTE,
-                     panel_card.LOCKED):
-            self.assertIn(part, text)
-        self.assertLess(text.index('**新话题**'), text.index('**管家**'))
-        self.assertNotIn('**独立复核**', text)  # COVEY_REVIEW unset.
         # No model chosen: no budget row; Claude Code's one provider and its models are offered for the butler.
         self.assertEqual(self.values(panel_card.EFFORT), [])
         self.assertEqual([v['option'] for v in self.values(panel_card.PROVIDER)], ['anthropic'])
         self.assertEqual([v['option'] for v in self.values(panel_card.MODEL)], ['claude-model'])  # T615: no 默认.
         self.assertIn("<font color='grey'>模型</font>　未选", text)
+        self.assertEqual(self.values(panel_card.TOPIC_HARNESS), [])  # 新话题 closed: what it holds in a grey line.
+        self.assertIn('原目录', text)
+        # 新话题 opened: its rows; 管家 closed.
+        self.part('topic')
+        text = self.text()
+        for part in (panel_card.TOPIC_NOTE, panel_card.START_NOTE, panel_card.PICK, "<font color='grey'>直接开工</font>　都直接开工"):
+            self.assertIn(part, text)
+        self.assertEqual([v['open'] for v in self.values(panel_card.SECTION)], ['butler'])
+        self.assertEqual(self.values(panel_card.MODEL), [])
         self.assertEqual(self.values(panel_card.TOPIC_MODEL), [])
         self.assertIn('codex', [v['option'] for v in self.values(panel_card.TOPIC_HARNESS)])
-        self.assertEqual(self.values(panel_card.REDACTION), [])
-        self.page(panel_card.TOPIC)
-        text = self.text()
-        for part in (panel_card.PICK, '原目录', panel_card.TOPIC_PAGE_NOTE, panel_card.START_NOTE, panel_card.LOCKED,
-                     "<font color='grey'>直接开工</font>　都直接开工"):
-            self.assertIn(part, text)
-        self.assertEqual(self.values(panel_card.TOPIC_MODEL), [])
-        self.assertEqual(self.values(panel_card.TOPIC_HARNESS), [])
-        self.assertEqual(self.values(panel_card.MODEL), [])
+        self.assertIn('交给管家', text)  # The closed 管家's line.
         # 直接开工 is one row (T546); 记住的工作区 only where it counts (not with every kind starting at once).
         self.assertEqual([v['option'] for v in self.values(panel_card.START_ROW)], ['all', 'safe', 'none'])
         self.assertEqual(self.values(panel_card.START), [])
@@ -202,23 +211,23 @@ class ButlerPanelTests(UnifiedCase):
         default = self.app.apps[self.app.topics.default]
         base = default.models.configured_context(default.harness.context)
         self.ask('r1')
-        self.page(panel_card.MODELS)
+        self.part('topic')
         self.assertEqual(shown('Harness'), f"系统默认：{default.spec.title} · {base.model} · {base.effort}")
         write_json(chat_defaults_path(self.ctx.state_dir, 'dm'), {'chat_id': 'dm', 'model_choice': 'codex:codex-model',
                                                                    'effort': 'xhigh'})
         self.ask('r2')
-        self.page(panel_card.MODELS)
+        self.part('topic')
         self.assertEqual(shown('Harness'), '跟上次一样：Codex · Codex Model · xhigh')
         settings.update(self.ctx.state_dir, topic_defaults=settings.TopicDefaults(harness='codex'))
         self.ask('r3')
-        self.page(panel_card.MODELS)
+        self.part('topic')
         self.assertEqual((shown('Harness'), shown('模型')), ('Codex', '跟上次一样：Codex Model'))
         # ACCEPT-325 问题 2: each empty option says what a tap sets, the row and those under it emptied, not the value
         # chosen now; the 模型 row's says no 默认 beside the catalog's "Default (recommended)".
         settings.update(self.ctx.state_dir, topic_defaults=settings.TopicDefaults(harness='codex', model='codex-model',
                                                                                   effort='low'))
         self.ask('r5')
-        self.page(panel_card.MODELS)
+        self.part('topic')
         self.assertEqual(self.rows(panel_card.TOPIC_HARNESS)[0], ('', '跟上次一样：Codex · Codex Model · xhigh'))
         self.assertEqual(self.rows(panel_card.TOPIC_MODEL)[0], ('', '跟上次一样：Codex Model'))
         self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[0], ('', '跟上次一样：xhigh'))
@@ -229,13 +238,13 @@ class ButlerPanelTests(UnifiedCase):
         write_json(chat_defaults_path(self.ctx.state_dir, 'dm'), {'chat_id': 'dm', 'model_choice': 'claude:claude-model',
                                                                    'effort': 'xhigh'})
         self.ask('r6')
-        self.page(panel_card.MODELS)  # Another Harness's last launch: the Bridge's model, said without 默认.
+        self.part('topic')  # Another Harness's last launch: the Bridge's model, said without 默认.
         self.assertEqual(self.rows(panel_card.TOPIC_MODEL)[0][1].partition('：')[0], '系统默认')
         write_json(chat_defaults_path(self.ctx.state_dir, 'dm'), {'chat_id': 'dm', 'model_choice': 'codex:codex-model',
                                                                    'effort': 'xhigh'})
         settings.update(self.ctx.state_dir, topic_defaults=settings.TopicDefaults(harness='claude', model='claude-model'))
         self.ask('r4')
-        self.page(panel_card.MODELS)  # Another Harness's launch: the Bridge's budget.
+        self.part('topic')  # Another Harness's launch: the Bridge's budget.
         self.assertEqual(shown('思考预算'), f"系统默认：{claude.effort or '模型默认'}")
 
     def test_a_changed_settings_card(self):
@@ -245,23 +254,18 @@ class ButlerPanelTests(UnifiedCase):
                         start=('readonly',), trusted=('project|edit', 'docs|read'),
                         workspace_notes=(('project', 'Bridge 本体'),))
         self.ask()
-        header = self.cards[-1]['header']
-        self.assertEqual(header['subtitle']['content'], '没开：每条消息直接开一个话题')
-        text = self.text()  # 纯话题: the mode's row alone counts.
-        for part in ("<font color='grey'>私聊顶层的消息</font>　每条直接开一个话题", panel_card.MODE_OFF):
+        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], '新话题 Codex Model · 管家没开')
+        text = self.text()  # 纯话题: the butler's section is the mode's row alone.
+        for part in ("<font color='grey'>私聊顶层的消息</font>　每条直接开一个话题", panel_card.MODE_OFF, '**管家**',
+                     'Codex · Codex Model · 思考预算 xhigh · 运行方式 独立 worktree'):  # The closed 新话题's line.
             self.assertIn(part, text)
-        for part in ('压缩阈值', '思考预算', '改成管家'):
+        for part in ('压缩阈值', '改成管家', panel_card.LOCKED):
             self.assertNotIn(part, text)
-        self.page(panel_card.MODELS)  # 纯话题: no 管家 section.
-        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], '新话题 Codex Model')
-        text = self.text()
-        self.assertIn("<font color='grey'>Harness</font>　Codex", text)
-        self.assertNotIn('**管家**', text)
-        self.assertNotIn(panel_card.LOCKED, text)
-        self.page(panel_card.TOPIC)
-        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], 'Codex · Codex Model · 独立 worktree')
+        self.assertEqual(self.values(panel_card.MODEL), [])
+        self.part('topic')
         text = self.text()
         for part in (f"<font color='grey'>{label}</font>　{choice}" for label, choice in (
+                ('Harness', 'Codex'), 
                 ('运行方式', '独立 worktree'), ('工作区', 'docs'))):
             self.assertIn(part, text)
         # 纯话题: no topic of the butler's, so no 直接开工; the empty 工作区 choice follows the last launch alone.
@@ -271,72 +275,69 @@ class ButlerPanelTests(UnifiedCase):
         self.assertNotIn(panel_card.PICK, text)
         settings.update(self.ctx.state_dir, enabled=True)
         self.page(panel_card.WORKSPACE)
-        self.page(panel_card.TOPIC)
+        self.part('topic')
         text = self.text()
         self.assertIn("<font color='grey'>直接开工</font>　只读的直接开工", text)  # Not one of the three: as it is.
         self.assertEqual(self.rows(panel_card.START_ROW)[-1], ('custom', '只读的直接开工'))
         self.assertNotIn('记住的工作区', text)  # Its tier is off.
         settings.update(self.ctx.state_dir, start=('readonly', 'trusted'))
         self.page(panel_card.WORKSPACE)
-        self.page(panel_card.TOPIC)
+        self.part('topic')
         text = self.text()
         for part in ('**project** · 改文件', '**docs** · 只读', '记住的工作区（2）'):
             self.assertIn(part, text)
         self.page(panel_card.WORKSPACE)
         self.assertIn('用途：Bridge 本体', self.text())
-        self.page(panel_card.MODELS)
+        self.part('butler')
         self.assertIn("✓ **<font color='blue'>high</font>**", self.text())
 
     def test_each_row_writes_its_field_and_redraws_the_whole_card(self):
-        self.ask()
-        self.page(panel_card.MODELS)
+        self.ask()  # T619: one page, 配置; the butler's tool opens it with 管家 open.
         steps = [
             # T615: a model saves a budget by name with it (its 推荐 level), no empty one.
             ((panel_card.MODEL, 'claude-model'), lambda s: (s.model, s.effort), ('claude-model', 'xhigh')),
             ((panel_card.EFFORT, 'high'), lambda s: s.effort, 'high'),
             ((panel_card.EFFORT, 'xhigh'), lambda s: s.effort, 'xhigh'),
+            ((panel_card.COMPACT, '100000'), lambda s: s.compact_tokens, 100000),
+            ((panel_card.REDACTION, 'on'), lambda s: s.redaction, True),
+            'topic',  # 新话题 opened by its 展开: a click and a put of its own.
             ((panel_card.TOPIC_HARNESS, 'codex'), lambda s: s.topic_defaults.harness, 'codex'),
             ((panel_card.TOPIC_MODEL, 'codex-model'), lambda s: s.topic_defaults.model, 'codex-model'),
             ((panel_card.TOPIC_EFFORT, 'low'), lambda s: s.topic_defaults.effort, 'low'),
             ((panel_card.TOPIC_HARNESS, 'claude'), lambda s: (s.topic_defaults.harness, s.topic_defaults.model,
                                                               s.topic_defaults.effort), ('claude', '', '')),
-            panel_card.BUTLER,  # The next page, by its tab.
-            ((panel_card.COMPACT, '100000'), lambda s: s.compact_tokens, 100000),
-            ((panel_card.REDACTION, 'on'), lambda s: s.redaction, True),
-            panel_card.TOPIC,
             ((panel_card.TOPIC_RUN_MODE, 'worktree'), lambda s: s.topic_defaults.run_mode, 'worktree'),
             ((panel_card.TOPIC_WORKSPACE, 'docs'), lambda s: s.topic_defaults.workspace, 'docs'),
             ((panel_card.TOPIC_REDACTION, 'on'), lambda s: s.topic_defaults.redaction, True),
         ]
-        pages = 1 + sum(isinstance(step, str) for step in steps)  # Each turned by a tab, a put of its own.
         for n, step in enumerate(steps):
             if isinstance(step, str):
-                self.page(step)
+                self.part(step)
                 continue
             (kind, option), field, expected = step
             self.assertEqual(self.click(self.option(kind, option), event_id=f'c{n}'), 1, kind)
             self.assertEqual(field(self.settings()), expected, kind)
             self.assertIn('header', self.cards[-1])  # The whole card, put again.
-        clicks = len(steps) - (pages - 1)
-        self.assertEqual(self.app.messenger.put_card.call_count, clicks + pages)
+        clicks = len(steps)
+        self.assertEqual(self.app.messenger.put_card.call_count, clicks)
         self.assertEqual([c.kwargs['sequence'] for c in self.app.messenger.put_card.call_args_list],
-                         list(range(1, clicks + pages + 1)))
+                         list(range(1, clicks + 1)))
         self.assertEqual(self.outcomes(), ['main_panel'] * clicks)
         # The rows' fold IDs take the revision, so a redraw closes the row just chosen.
         folds = [p['element_id'] for p in walk_panels(self.cards[-1])]
-        self.assertTrue(all(f.endswith(f'_r{clicks + pages + 1}') for f in folds if f.startswith('set_')), folds)
+        self.assertTrue(all(f.endswith(f'_r{clicks + 1}') for f in folds if f.startswith('set_')), folds)
 
-    def test_the_subagents_row_on_the_models_page_toggles_the_bot_wide_setting(self):
+    def test_the_subagents_row_under_more_toggles_the_bot_wide_setting(self):
         self.assertEqual(self.settings().subagents, 'light')  # No field yet: the default.
         self.ask()
-        self.page(panel_card.MODELS)
+        self.part('topic')
         text = self.text()
         self.assertIn("<font color='grey'>子 Agent</font>　轻量（Sonnet，搜索用 Haiku）", text)
         self.assertIn(panel_card.SUBAGENT_NOTE, text)
         self.assertEqual(self.click(self.option(panel_card.SUBAGENTS, 'same'), event_id='s1'), 1)
         self.assertEqual(self.settings().subagents, 'same')
         self.assertEqual(json.loads(settings.path(self.ctx.state_dir).read_text())['subagents'], 'same')
-        self.assertEqual(self.cards[-1]['header']['title']['content'], HUB_TITLES[panel_card.MODELS])
+        self.assertEqual(self.cards[-1]['header']['title']['content'], HUB_TITLES[panel_card.CONFIG])
         self.assertIn("<font color='grey'>子 Agent</font>　跟主模型", self.text())
         self.assertEqual(self.click(self.option(panel_card.SUBAGENTS, 'light'), event_id='s2'), 1)
         self.assertEqual(self.settings().subagents, 'light')
@@ -344,9 +345,8 @@ class ButlerPanelTests(UnifiedCase):
         self.click({**self.option(panel_card.SUBAGENTS, 'same'), 'option': 'big'}, event_id='s3')
         self.assertEqual(self.settings().subagents, 'light')
         self.assertIn(GONE, self.text())
-        for page in (panel_card.BUTLER, panel_card.TOPIC):
-            self.page(page)
-            self.assertNotIn('子 Agent', self.text())
+        self.page(panel_card.WORKSPACE)
+        self.assertNotIn('子 Agent', self.text())
 
     def test_a_bad_or_missing_subagents_field_reads_as_light(self):
         for data in ({}, {'subagents': 'huge'}, {'subagents': 3}):
@@ -361,22 +361,21 @@ class ButlerPanelTests(UnifiedCase):
         folds = [p['element_id'] for p in walk_panels(card)]
         self.assertEqual(len(folds), 12, folds)  # Every row there is: 5 of the butler's, 7 of a new topic's.
         self.assertEqual([f for f in folds if len(f) > 20], [])
-        # The 设置 card's 管家 tab: its 工作区 row (T614) and the mode's; its model rows on 模型 (T619).
-        card = panel_card.butler_panel_card('a' * 24, {'revision': 9999}, current,
-                                                 available_models(self.app.topics, self.ctx), ["project"], page=panel_card.BUTLER)
-        folds = [p['element_id'] for p in walk_panels(card)]
-        self.assertEqual(folds, [f'set_{key}_r9999' for key in ('redact', 'space', 'compact', 'mode')])
-        # 模型: a new topic's, the butler's, 独立复核's and 子 Agent.
+        # The 设置 card's 配置 (T619), 管家 (a retired page) drawn as it, each of its sections open in turn: a new topic's
+        # rows and 直接开工, the butler's (its Harness and 工作区 too, T614) and the mode, 独立复核's; 子 Agent always.
         current = settings.Settings(model='claude-model', topic_defaults=current.topic_defaults,
                                     review=settings.ReviewModel(harness='claude', model='claude-model'))
-        card = panel_card.butler_panel_card('a' * 24, {'revision': 9999}, current,
-                                                 available_models(self.app.topics, self.ctx), ["project"],
-                                                 page=panel_card.MODELS, review_on=True)
-        folds = [p['element_id'] for p in walk_panels(card)]
-        self.assertEqual(folds, [f'set_{key}_r9999' for key in (
-            't_harness', 't_provider', 't_model', 't_effort', 'harness', 'provider', 'model', 'effort',
-            'r_harness', 'r_provider', 'r_model', 'r_effort', 'subagent')])
-        self.assertEqual([f for f in folds if len(f) > 20], [])
+        keys = {'topic': ('t_harness', 't_provider', 't_model', 't_effort', 't_run_mode', 't_redact', 't_space', 'start'),
+                'butler': ('harness', 'provider', 'model', 'effort', 'redact', 'space', 'compact', 'mode'),
+                'review': ('r_harness', 'r_provider', 'r_model', 'r_effort')}
+        for page in (panel_card.CONFIG, 'main'):
+            for part, shown in keys.items():
+                card = panel_card.butler_panel_card('a' * 24, {'revision': 9999, 'open': part}, current,
+                                                         available_models(self.app.topics, self.ctx), ["project"],
+                                                         page=page, review_on=True)
+                folds = [p['element_id'] for p in walk_panels(card)]
+                self.assertEqual(folds, [f'set_{key}_r9999' for key in (*shown, 'subagent')])
+                self.assertEqual([f for f in folds if len(f) > 20], [])
 
     def test_switches_tiers_trusted_and_notes(self):
         settings.update(self.ctx.state_dir, trusted=('project|edit', 'docs|read'),
@@ -406,7 +405,7 @@ class ButlerPanelTests(UnifiedCase):
         self.assertTrue(self.settings().enabled)
         self.assertTrue(butler.enabled())
         self.assertIn(panel.MODE_NOTICES[True], self.text())
-        self.page(panel_card.TOPIC)
+        self.part('topic')
         self.click(self.option(panel_card.START_ROW, 'safe'), event_id='c3')
         self.assertEqual(self.settings().start, ('readonly', 'trusted'))
         self.assertIn('记住的工作区（2）', self.text())  # It counts now.
@@ -419,7 +418,7 @@ class ButlerPanelTests(UnifiedCase):
         self.click(removed, event_id='c5')
         self.assertEqual(self.settings().trusted, ('docs|read',))
         self.assertNotIn('**project** · 改文件', self.text())
-        self.assertEqual(self.cards[-1]['header']['title']['content'], HUB_TITLES[panel_card.TOPIC])
+        self.assertEqual(self.cards[-1]['header']['title']['content'], HUB_TITLES[panel_card.CONFIG])
         self.page(panel_card.WORKSPACE)
         save = {'kind': panel_card.NOTES, 'token': token, 'workspaces': ['docs', 'project']}
         typed = {'project': '  Bridge\n本体 ', 'docs': ''}
@@ -427,7 +426,7 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(self.settings().workspace_notes, (('gone', '已删的工作区'), ('project', 'Bridge 本体')))
         self.assertEqual(self.cards[-1]['header']['title']['content'], '工作区')  # The tab it was clicked on.
         self.assertIn('用途：Bridge 本体', self.text())
-        self.assertEqual(self.outcomes(), ['main_panel'] * 10)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 11)  # 新话题's 展开 among them.
 
     def test_only_the_owner_changes_and_an_option_gone_changes_nothing(self):
         self.ask()
@@ -445,7 +444,7 @@ class ButlerPanelTests(UnifiedCase):
         self.click({**self.option(panel_card.COMPACT, '0'), 'option': '-5'}, event_id='c5')
         self.assertIn(GONE, self.text())
         self.click({**self.option(panel_card.REDACTION, 'off'), 'option': 'maybe'}, event_id='c6')
-        self.page(panel_card.MODELS)
+        self.part('topic')
         self.click({**self.option(panel_card.TOPIC_HARNESS, 'codex'), 'option': 'retired'}, event_id='c4')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.settings(), settings.Settings())
@@ -477,7 +476,7 @@ class ButlerPanelTests(UnifiedCase):
         self.sent = iter(f'om_panel{i}' for i in range(1, 9))
         settings.update(self.ctx.state_dir, topic_defaults=settings.TopicDefaults(harness='codex'))
         self.ask()
-        self.page(panel_card.MODELS)
+        self.part('topic')
         acme = self.launch_rows('codex:acme/gpt-6-astra')
         # Two providers: the provider first, its models after it is chosen.
         self.assertEqual([o for o, _ in self.rows(panel_card.TOPIC_PROVIDER)], ['', 'openai', 'acme'])
@@ -508,7 +507,7 @@ class ButlerPanelTests(UnifiedCase):
         self.click(self.option(panel_card.TOPIC_MODEL, 'gpt56_sol'), event_id='c7')
         self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], [o for o in maso['effort'] if o[0] not in NAMELESS])
         self.assertNotIn(RECOMMENDED, [o for o, _ in self.rows(panel_card.TOPIC_EFFORT)])
-        self.assertEqual(self.outcomes(), ['main_panel'] * 7)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 8)  # 新话题's 展开 first.
 
     def test_the_butlers_model_rows_are_the_launch_cards_and_old_defaults_still_read(self):
         # A main-thread.json from before 供应商 (the live file's shape, 2026-11-08): read as it was.
@@ -520,7 +519,6 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(self.settings().topic_defaults, settings.TopicDefaults(harness='codex', model='codex-model',
                                                                                 effort='xhigh'))
         self.ask()
-        self.page(panel_card.MODELS)
         claude = self.launch_rows('claude:claude-model')
         self.assertEqual(self.rows(panel_card.PROVIDER), claude['provider'])
         self.assertEqual(self.rows(panel_card.MODEL), claude['model'])  # T615: no 默认.
@@ -535,8 +533,9 @@ class ButlerPanelTests(UnifiedCase):
         self.click({**self.option(panel_card.EFFORT, 'low'), 'option': RECOMMENDED}, event_id='c2b')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.settings().effort, 'low')
+        self.part('topic')
         self.assertEqual([o for o, _ in self.rows(panel_card.TOPIC_PROVIDER)], ['openai'])  # The same page.
-        self.assertEqual(self.outcomes(), ['main_panel'] * 3)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 4)
 
     def test_with_the_default_model_both_pages_offer_its_budgets(self):
         """ACCEPT-325 问题 1 (the owner): 私聊默认 had no 思考预算 while its 模型 was 默认. The butler then runs
@@ -553,7 +552,6 @@ class ButlerPanelTests(UnifiedCase):
         settings.update(self.ctx.state_dir, topic_defaults=settings.TopicDefaults(harness='claude'))
         self.sent = iter(f'om_panel{i}' for i in range(1, 9))
         self.ask()
-        self.page(panel_card.MODELS)
         self.assertEqual(self.settings().model, '')
         native = self.launch_rows('claude:default')['effort']
         # T615: its levels by name; no 默认, 推荐 or 原生默认, and "Default (recommended)" is no 模型 choice.
@@ -564,6 +562,7 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual((self.settings().model, self.settings().effort), ('', 'max'))
         self.assertNotIn(GONE, self.text())
         last = self.launch_rows('claude:claude-model')['effort']  # The same page.
+        self.part('topic')
         self.assertEqual(self.rows(panel_card.TOPIC_EFFORT)[1:], [o for o in last if o[0] not in NAMELESS])
         self.assertNotIn('default', [o for o, _ in self.rows(panel_card.TOPIC_MODEL)])
         self.click(self.option(panel_card.TOPIC_EFFORT, 'medium'), event_id='c2')
@@ -573,7 +572,7 @@ class ButlerPanelTests(UnifiedCase):
         # A budget the default model does not offer is no choice: an older card's click changes nothing.
         self.click({**self.option(panel_card.TOPIC_EFFORT, 'medium'), 'kind': panel_card.EFFORT}, event_id='c3')
         self.assertEqual(self.settings().effort, 'max')
-        self.assertEqual(self.outcomes(), ['main_panel'] * 3)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 4)
 
     def test_the_butlers_provider_and_redaction_rows(self):
         """T444 (the owner, 2026-11-08): 管家 has what a topic's settings have: Harness (Claude Code, no choice: said in
@@ -589,8 +588,7 @@ class ButlerPanelTests(UnifiedCase):
                                  'provider': 'kiro', 'provider_title': 'Kiro', 'levels': levels, 'redaction': True}}
         self.enterContext(mock.patch.object(panel, 'available_models', lambda topics, ctx: choices))
         self.ask()
-        self.assertTrue(self.cards[-1]['header']['subtitle']['content'].startswith('Claude Code · '))
-        self.page(panel_card.MODELS)
+        self.assertTrue(self.cards[-1]['header']['subtitle']['content'].endswith('管家 Claude Code'))
         self.assertEqual(self.rows(panel_card.PROVIDER), [('anthropic', 'Claude 自带'), ('kiro', 'Kiro')])  # No 默认.
         self.assertEqual(self.values(panel_card.MODEL), [])  # Several providers: a provider first.
         self.click(self.option(panel_card.PROVIDER, 'kiro'), event_id='c1')
@@ -602,18 +600,15 @@ class ButlerPanelTests(UnifiedCase):
         self.click({**self.option(panel_card.PROVIDER, 'kiro'), 'option': ''}, event_id='c4')  # A card drawn before's 默认.
         self.assertIn(GONE, self.text())
         self.assertEqual((self.settings().model, self.settings().effort), ('a1', 'max'))
-        self.page(panel_card.BUTLER)  # 脱敏 is on 管家.
         self.click(self.option(panel_card.REDACTION, 'on'), event_id='c5')
         self.assertTrue(self.settings().redaction)
-        self.assertEqual(self.cards[-1]['header']['subtitle']['content'], 'Claude Code · A1 · 脱敏')
-        self.page(panel_card.MODELS)
+        self.assertTrue(self.cards[-1]['header']['subtitle']['content'].endswith('管家 A1'))
         self.click({**self.option(panel_card.PROVIDER, 'kiro'), 'option': 'gone'}, event_id='c6')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.outcomes(), ['main_panel'] * 6)
         # Without a model that can redact, 脱敏 cannot be turned on (it stays shown while on, to turn it off).
         for entry in choices.values():
             entry['redaction'] = False
-        self.page(panel_card.BUTLER)
         self.click(self.option(panel_card.REDACTION, 'off'), event_id='c7')
         self.assertFalse(self.settings().redaction)
         self.assertEqual(self.values(panel_card.REDACTION), [])
@@ -632,7 +627,6 @@ class ButlerPanelTests(UnifiedCase):
         settings.update(self.ctx.state_dir, model='a1', effort='high')
         self.ask()
         self.assertIn('压缩阈值', self.text())
-        self.page(panel_card.MODELS)
         self.assertEqual(self.rows(panel_card.HARNESS), [('claude', 'Claude Code'), ('codex', 'Codex'), ('agy', 'Antigravity')])
         self.click(self.option(panel_card.HARNESS, 'agy'), event_id='h1')
         current = self.settings()
@@ -643,25 +637,19 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual([o for o, _ in self.rows(panel_card.MODEL)], ['n1'])
         self.click(self.option(panel_card.MODEL, 'n1'), event_id='h2')
         self.assertEqual(self.settings().model, 'n1')
-        self.page(panel_card.BUTLER)
-        self.assertTrue(self.cards[-1]['header']['subtitle']['content'].startswith('Antigravity · '))
         self.assertNotIn('压缩阈值', self.text())  # The Bridge does not compact agy's session.
         self.assertEqual(self.values(panel_card.REDACTION), [])  # agy cannot redact.
-        self.page(panel_card.MODELS)
         self.click(self.option(panel_card.HARNESS, 'claude'), event_id='h3')
         self.assertEqual((self.settings().harness, self.settings().butler_harness), ('', 'claude'))
         # 脱敏 on: only a Harness that can redact, and both pages say why.
-        self.page(panel_card.BUTLER)
         self.click(self.option(panel_card.REDACTION, 'on'), event_id='h4')
         self.assertIn(panel_card.REDACT_FIRST, self.text())
-        self.page(panel_card.MODELS)
         self.assertEqual(self.rows(panel_card.HARNESS), [('claude', 'Claude Code')])
         self.assertIn(panel_card.REDACT_FIRST, self.text())
         self.click({**self.option(panel_card.HARNESS, 'claude'), 'option': 'codex'}, event_id='h5')
         self.assertIn(GONE, self.text())
         self.assertEqual(self.settings().butler_harness, 'claude')
         # Its workspace, on 管家.
-        self.page(panel_card.BUTLER)
         self.assertEqual([o for o, _ in self.rows(panel_card.SPACE)][0], '')
         self.click(self.option(panel_card.SPACE, 'project'), event_id='h6')
         self.assertEqual(self.settings().workspace, 'project')
@@ -669,37 +657,45 @@ class ButlerPanelTests(UnifiedCase):
         self.assertIn(GONE, self.text())
 
     def test_a_row_of_a_card_drawn_before_the_pages_lands_on_its_page(self):
-        """A 设置 card sent before the pages showed every row on its one 管家 tab (key BUTLER): a click on a 新话题默认
-        or 其他 row there redraws the page it belongs to now (直接开工 on 新话题默认 since 其他 was retired), and the
-        record's tab follows."""
+        """A 设置 card drawn before 配置 (T619: its pages 管家, 新话题 and 模型, or the one 管家 tab before them, key BUTLER):
+        a click on any of its rows redraws 配置 with that row's section open (用途 on 工作区), and the record's tab
+        follows."""
         self.ask()
         token = self.values(panel_card.MODE)[0]['token']
         hub = self.app.settings_hub
+        path = hub.path(self.ctx, token)
+        write_json(path, {**json.loads(path.read_text()), 'tab': 'topic'})  # Shown on 新话题, before 配置.
         old = {'kind': panel_card.TOPIC_RUN_MODE, 'token': token, 'revision': 1, 'option': 'worktree'}
         self.assertEqual(self.click(old, event_id='c1'), 1)
         self.assertEqual(self.settings().topic_defaults.run_mode, 'worktree')
-        self.assertEqual(self.cards[-1]['header']['title']['content'], '新话题')
-        record = json.loads(hub.path(self.ctx, token).read_text())
-        self.assertEqual(record['tab'], panel_card.TOPIC)
+        self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')
+        record = json.loads(path.read_text())
+        self.assertEqual((record['tab'], record['view']['open']), (panel_card.CONFIG, 'topic'))
         self.assertEqual([(value['tab'], button['type']) for button, value in walk(self.cards[-1], [])
-                          if value['kind'] == TAB][:3], [('models', 'text'), ('topic', 'primary_filled'), ('main', 'text')])
+                          if value['kind'] == TAB][:2], [('config', 'primary_filled'), ('workspace', 'text')])
         self.click({'kind': panel_card.START, 'token': token, 'revision': 1, 'tier': 'readonly', 'on': False},
                    event_id='c2')
         self.assertEqual(self.settings().start, ('requested', 'trusted'))
-        self.assertEqual(self.cards[-1]['header']['title']['content'], '新话题')
-        # 记住的工作区 is on 新话题 since T546; 用途 stays on 工作区.
         self.click({'kind': panel_card.UNTRUST, 'token': token, 'revision': 1, 'key': 'x|read'}, event_id='c2b')
-        self.assertEqual(self.cards[-1]['header']['title']['content'], '新话题')
+        self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')
         self.click({'kind': panel_card.NOTES, 'token': token, 'revision': 1, 'workspaces': []}, event_id='c2c')
         self.assertEqual(self.cards[-1]['header']['title']['content'], '工作区')
+        write_json(path, {**json.loads(path.read_text()), 'tab': 'main'})  # Shown on 管家, before 配置.
         self.click({'kind': panel_card.COMPACT, 'token': token, 'revision': 1, 'option': '0'}, event_id='c3')
-        self.assertEqual(self.cards[-1]['header']['title']['content'], '管家')
-        # A model row of a card drawn before 模型 (T619) lands on 模型.
+        self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')
+        self.assertEqual(json.loads(path.read_text())['view']['open'], 'butler')
+        self.assertTrue(self.values(panel_card.COMPACT))
+        write_json(path, {**json.loads(path.read_text()), 'tab': 'models'})  # Shown on 模型, before 配置.
         self.click({'kind': panel_card.TOPIC_HARNESS, 'token': token, 'revision': 1, 'option': 'codex'}, event_id='c4')
         self.assertEqual(self.settings().topic_defaults.harness, 'codex')
-        self.assertEqual(self.cards[-1]['header']['title']['content'], '模型')
-        self.assertEqual(json.loads(hub.path(self.ctx, token).read_text())['tab'], panel_card.MODELS)
-        self.assertEqual(self.outcomes(), ['main_panel'] * 6)
+        self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')
+        self.assertEqual(json.loads(path.read_text())['tab'], panel_card.CONFIG)
+        self.assertTrue(self.values(panel_card.TOPIC_HARNESS))
+        # 展开 of a section no release has changes nothing.
+        self.click({'kind': panel_card.SECTION, 'token': token, 'revision': 1, 'open': 'gone'}, event_id='c5')
+        self.assertIn(GONE, self.text())
+        self.assertTrue(self.values(panel_card.TOPIC_HARNESS))
+        self.assertEqual(self.outcomes(), ['main_panel'] * 7)
 
     def test_a_new_topics_whole_model_list_comes_before_the_workspaces_lines(self):
         """MASO's 13 models (2026-11-08) all listed, as on the launch card: workspaces' lines give way first."""

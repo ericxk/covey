@@ -5,7 +5,7 @@
 ## 前提
 
 - 这台机器上已装好并登录了 Claude Code 或 Codex（任一个）。怎么装、怎么登录见[安装和登录 Harness](harnesses.md#安装和登录-harness)；安装器不教、也不替你装。
-- **管家默认用 Claude Code。** 只有 Codex 或 Antigravity 时机器人照样能用，但新装时私聊里每句话都开一个话题、先出启动卡；要管家，在设置卡「管家」页把 Harness 换成它（[管家 · 换 Harness](butler.md#换-harness)）。整理专项、“我本来想找你的事”这些小判断默认也问 Claude Code；没有它时可以让它们走模型网关（`COVEY_JUDGE_GATEWAY`，见[配置 · 整理专项](configuration.md#整理专项)），不设就判断不了。
+- **管家默认用 Claude Code。** 只有 Codex 或 Antigravity 时机器人照样能用，但新装时私聊里每句话都开一个话题、先出启动卡；要管家，在设置卡「配置」页的“管家”一段把 Harness 换成它（[管家 · 换 Harness](butler.md#换-harness)）。整理专项、“我本来想找你的事”这些小判断默认也问 Claude Code；没有它时可以让它们走模型网关（`COVEY_JUDGE_GATEWAY`，见[配置 · 整理专项](configuration.md#整理专项)），不设就判断不了。
 - Python 3.10+。没有 `lark-cli` 时安装器会用 npm 装它（没有 npm 时它会告诉你去装 Node.js）。
 - 公司同事装核心加扩展，照扩展库 README 的「同事第一次安装」一节装；本文只写核心自己的装法。
 

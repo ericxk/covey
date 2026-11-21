@@ -12,7 +12,7 @@
 
 | 功能 | 开关 | 怎么确认开着 | 怎么关 |
 | --- | --- | --- | --- |
-| [管家](#管家) | `COVEY_BUTLER`（不设即允许） | 私聊发一句话由管家回答或开话题；设置卡有「管家」标签。管家默认用 Claude Code，设置卡「管家」页可换成 Codex 或 Antigravity；选的 Harness 没启用时私聊照旧开话题 | `COVEY_BUTLER=0`；或主人在设置卡「管家」页把私聊顶层改成“每条直接开一个话题” |
+| [管家](#管家) | `COVEY_BUTLER`（不设即允许） | 私聊发一句话由管家回答或开话题；设置卡「配置」页有管家一段。管家默认用 Claude Code，设置卡「配置」页的“管家”一段可换成 Codex 或 Antigravity；选的 Harness 没启用时私聊照旧开话题 | `COVEY_BUTLER=0`；或主人在设置卡「配置」页的“管家”一段把私聊顶层改成“每条直接开一个话题” |
 | [专项](projects.md) | `COVEY_PROJECTS=1`（`./install` 写） | 管家把长期要跟进的事开成专项时，私聊出现专项卡 | `COVEY_PROJECTS=0` |
 | [整理专项](#整理专项)（只提议） | `COVEY_PROJECT_TIDY=suggest`（`./install` 写，要 `COVEY_PROJECTS=1`） | 话题多了以后私聊出现“建个专项？”的提议卡；有菜单「看板」时看板卡上有「整理专项」 | `COVEY_PROJECT_TIDY=off` |
 | 以后这类按推荐走 | `COVEY_STANDING_ANSWERS=1`（`./install` 写） | 每题都有推荐项的问题卡下面多这个按钮 | `COVEY_STANDING_ANSWERS=0` |
@@ -178,7 +178,7 @@
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1`；`COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` | 管家多 `knowledge_*` 和 `history_search` 工具；话题首轮带知识条目，规则多一行查历史的命令 |
 | [记忆](#记忆) | `COVEY_MEMORY=1` | 每轮规则里多一块“记忆”；一轮结束后记下主人的长期要求，答案卡底部露一行和“不对”按钮；设置卡多「记忆」标签 |
 | [新话题带上最近话题的要点](#新话题带上最近话题的要点) | `COVEY_WORKSPACE_GISTS=3` | 不多线程；新会话的规则多一块同工作区最近话题的要点 |
-| [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡多「管家」标签 |
+| [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡「配置」页多管家一段 |
 | [管家规则](#管家规则) | `COVEY_BUTLER_RULES=1` | 不多线程，只换管家规则的两条 |
 | [专项](projects.md)（`./install` 新装默认开） | `COVEY_PROJECTS=1` | `projects/` 记录、负责人话题和它的 `project_*` 工具、看板并格；进阶开关见[开关速查](#推荐打开) |
 | [整理专项](#整理专项) | `COVEY_PROJECT_TIDY=suggest`（要 `COVEY_PROJECTS=1`） | `project_tidy` 后台线程；管家多 `projects_tidy`，看板卡多「整理专项」，提议卡、整理专项卡 |
@@ -382,7 +382,7 @@
 ### 其他
 
 - `COVEY_APP_CHECK=0`：不检查飞书应用、不发「飞书应用待补」卡。检查和补齐见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用)。
-- `COVEY_REVIEW=1`：改了代码的一轮（`core/diff.py` 记到改了文件，或检查点的 `delivery` 写了提交号），答案卡和回带卡的灰框下面多一个「独立复核」（`app/review.py`）。只在主人点了才开话题，从不自己开；用什么模型在设置卡「模型」页的“独立复核”一段选（存 `main-thread.json` 的 `review`，不选是自动挑），开关打开时这一段才出现；不设就没有这个按钮，已发出的卡上的按钮点了照样开（开关只管画不画）。设备上的话题不给。
+- `COVEY_REVIEW=1`：改了代码的一轮（`core/diff.py` 记到改了文件，或检查点的 `delivery` 写了提交号），答案卡和回带卡的灰框下面多一个「独立复核」（`app/review.py`）。只在主人点了才开话题，从不自己开；用什么模型在设置卡「配置」页的“独立复核”一段选（存 `main-thread.json` 的 `review`，不选是自动挑），开关打开时这一段才出现；不设就没有这个按钮，已发出的卡上的按钮点了照样开（开关只管画不画）。设备上的话题不给。
 - `--health-timeout`：`launch` 的参数，默认 120 秒，0 关闭。Bridge 本地健康接口连续这么久没有响应就替换进程。bootstrap 不传它，所以经 bootstrap 注册的都是 120。
 - `COVEY_PRIVACY_DENYLIST`（只给 `scripts/privacy_check.py` 读，Bridge 本身不读）：指向仓库外的文本文件，每行一个公司域名或内部名词，隐私检查按它查；不设就只查通用规则，扩展里放有一份，见[隐私检查](testing.md#隐私检查)。
 
