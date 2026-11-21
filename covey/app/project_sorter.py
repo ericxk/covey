@@ -14,13 +14,13 @@ record written but the gists the backfill reads (core/topic_gist.py); app/projec
   asked once more, its last answer taken. ``focus`` (a real-time 整理): only suggestions about that topic count.
 
 Both calls ask COVEY_PROJECT_TIDY_MODEL (core/project_proposals.py model, Sonnet by default) the way app/track_judge.py asks Haiku (no tools, MCP servers, hooks or saved session, killed past the limit),
-through the Claude Harness's own wrapping; a topic that redacts (core/redaction.py) is never sent and is counted apart. Every
+through the Claude Harness's own wrapping, or without it the model gateway COVEY_JUDGE_GATEWAY names (app/track_judge.py
+``ask``, its model then that one); a topic that redacts (core/redaction.py) is never sent and is counted apart. Every
 failure is a reason, never an exception (``Failed``)."""
 from __future__ import annotations
 
 import dataclasses
 import json
-import os
 import time
 from pathlib import Path
 
@@ -149,18 +149,11 @@ def hidden(state, topic) -> bool:
 # The calls -----------------------------------------------------------------------------------------------------------
 
 def ask(system, data, backend, ctx, limit) -> str:
-    """The model's raw answer (Claude Code's JSON envelope) to ``data``, one call of the 整理 model with ``system``; Failed otherwise."""
-    if backend is None or ctx is None:
-        raise Failed("no_backend")
-    cwd = proposals.folder(ctx.state_dir) / "judge"
-    cwd.mkdir(parents=True, exist_ok=True)
-    env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
-    try:
-        argv = track_judge.claude_argv(backend, ctx, track_judge.use_flag(), system=system, model=proposals.model())
-        return track_judge.run(argv, data, env, Path(cwd), limit)
-    except Failed as exc:
-        track_judge.refused(exc)
-        raise
+    """The model's raw answer (Claude Code's JSON envelope) to ``data``, one call of the 整理 model with ``system``: through
+    the Claude Harness, or without one the model gateway COVEY_JUDGE_GATEWAY names (app/track_judge.py ``ask``); Failed
+    otherwise."""
+    cwd = proposals.folder(ctx.state_dir) / "judge" if ctx is not None else None
+    return track_judge.ask(system, data, backend=backend, ctx=ctx, limit=limit, cwd=cwd, model=proposals.model())
 
 
 def first_object(text, key):

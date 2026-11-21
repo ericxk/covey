@@ -246,7 +246,7 @@
 
 仓库代码里不设就是关（AGENTS.md 规则 4）；`./install` 写服务清单时，终端里没设的就写上 `COVEY_PROJECTS=1`、`COVEY_PROJECT_TIDY=suggest`、`COVEY_STANDING_ANSWERS=1` 这三个（`service/installer.py` 的 `INSTALL_SWITCHES`，见[默认已开](#默认已开)），终端里设了的（新名旧名都算）不动。要关，按[改开关三步](#改开关三步)设 `COVEY_PROJECT_TIDY=off`。
 
-可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_AGE_DAYS`（3，话题跨进第几天算一次实时时机）、`COVEY_PROJECT_TIDY_WORDS`（15，主人在话题里说到第几句算一次）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。补话题要点和判断用 Claude Code 的 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），走 Claude Harness 自己的包装，和[同时做几件事](butler.md#同时做几件事开关默认关)的小模型判断同一套做法；没有 Claude Harness 时判断不了，整理卡写“没有可用的 Claude Code 来判断”。
+可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_AGE_DAYS`（3，话题跨进第几天算一次实时时机）、`COVEY_PROJECT_TIDY_WORDS`（15，主人在话题里说到第几句算一次）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。补话题要点和判断用 Claude Code 的 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），走 Claude Harness 自己的包装，和[同时做几件事](butler.md#同时做几件事开关默认关)的小模型判断同一套做法。没有 Claude Harness（比如只装了 Codex）时，设了 `COVEY_JUDGE_GATEWAY=<网关名>:<模型>` 就改问那个[模型网关](harnesses.md#模型网关codexpi-与-dsh)（`harnesses.json` 的 `gateways` 或扩展带的网关，用你给它配的个人密钥；这时 `COVEY_PROJECT_TIDY_MODEL` 不管用，模型就是这里写的，选一个读得懂整段对话的）；不设时判断不了，整理卡写“没有可用的 Claude Code 来判断”。
 
 ### 记忆
 
@@ -431,6 +431,7 @@
 | `COVEY_BUTLER_TRACKS_MAX`（旧名 COVEY_MAIN_TRACKS_MAX、LARK_BRIDGE_MAIN_TRACKS_MAX） | `core/butler_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
 | `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS=1` 才会问） | `claude`（默认）：Claude Code 的 Haiku；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一件 | 否 |
+| `COVEY_JUDGE_GATEWAY` | `app/judge_gateway.py`（`configured`；`app/track_judge.py` 的 `ask` 在没有 Claude Harness 时用它，整理专项 `app/project_sorter.py`、“我本来想找你的事” `app/patrol_judge.py`、同时做几件事 `app/track_judge.py` 的小模型判断都经它） | 空：和原来一样，没有 Claude Harness 时这些判断不做（`no_backend`）；`<网关名>:<模型>`（如 `acme:claude-haiku-4-5`）：没有 Claude Harness 时一次 HTTP 请求问这个网关的这个模型，协议按网关目录缓存里这个模型的，没有时只给 dsh 用的网关走 Anthropic Messages、其余走 OpenAI Responses；有 Claude Harness 时不用它。网关名或模型写错、没有密钥、超时、非 200 都记成这次判断失败的原因 | 否 |
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py` | 3000：小模型硬上限（毫秒，200 到 10000），超过按新开一件 | 否 |
 | `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开，收到管家消息时提前起好一个待命的 Claude Code 进程（空闲 10 分钟或 Bridge 停止时结束）；`0`、`off`、`false`、`no` 关，每次现起，慢约 1 秒 | 否 |
 | `COVEY_TRACK_JUDGE_HEDGE` | `app/track_judge.py`（`hedge`；`warm` 据此多留几个待命进程，`judge` 同时问它们，进程在 `app/track_standby.py`） | 2：同一问同时交给几个待命进程（1 到 3），第一个能用的答案算数；只在待命开着、通道是 `claude` 时有用 | 否 |

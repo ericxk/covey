@@ -123,6 +123,7 @@
 | `app/idle_compaction.py` | The butler's compaction while it is idle: the owner no longer waits for it |
 | `app/interaction.py` | Backend event dispatch and task-card callbacks |
 | `app/job_dispatch.py` | Running a dequeued job (process_reply_job |
+| `app/judge_gateway.py` | The small model's one-shot questions through a model gateway where there is no Claude Code to ask |
 | `app/knowledge_collect.py` | A topic's turn writes what the owner asked it to remember |
 | `app/knowledge_turn.py` | What a turn reads of the knowledge entries and the history command (COVEY_HISTORY_CMD), for app/runs.py |
 | `app/launch.py` | The launch card of unified topics: its form, defaults and rebuilds, and closing or retiring a launch form |

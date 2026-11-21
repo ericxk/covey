@@ -1,7 +1,8 @@
 """The second layer (docs/butler.md 我本来想找你的事): the small model (Haiku, the way app/track_judge.py asks it) reads the
 candidates app/patrol_rules.py found and says, for each, drop it, note it or handle it, why in one short line, and
 what the butler would do about it. One call takes at most BATCH candidates; it is one process with no tools, MCP servers
-or saved session, killed at COVEY_PATROL_JUDGE_MS (default 30000), and nothing it answers is acted on.
+or saved session, killed at COVEY_PATROL_JUDGE_MS (default 30000), and nothing it answers is acted on. Without the Claude
+Harness it asks the model gateway COVEY_JUDGE_GATEWAY names (app/track_judge.py ``ask``), else nothing (``no_backend``).
 
 The input is one JSON object: ``items`` (index from 1, ``kind`` in words, ``title``, ``what``, ``waited`` words) and the
 owner's ``principles`` (core/principles.py: what he asked to be told or not told about, newest last, at most
@@ -16,10 +17,8 @@ the candidate cannot have (``join``, ``tidy`` and ``wake`` need a project) becom
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 
-from covey.app import track_judge
+from covey.app import judge_gateway, track_judge
 from covey.app.track_standby import Failed
 from covey.core import patrol, principles, redaction
 from covey.core.metrics import took_text
@@ -102,22 +101,16 @@ def parse(text, batch) -> list:
 
 
 def ask(data, backend, ctx, limit):
-    """The model's raw answer to ``data`` (a JSON text), one Claude Code through the Harness's own wrapping."""
-    cwd = patrol.folder(ctx.state_dir) / "judge"
-    cwd.mkdir(parents=True, exist_ok=True)
-    env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
-    try:
-        argv = track_judge.claude_argv(backend, ctx, track_judge.use_flag(), system=SYSTEM)
-        return track_judge.run(argv, data, env, Path(cwd), limit)
-    except Failed as exc:
-        track_judge.refused(exc)
-        raise
+    """The model's raw answer to ``data`` (a JSON text): one Claude Code through the Harness's own wrapping, or without
+    one the model gateway COVEY_JUDGE_GATEWAY names (app/track_judge.py ``ask``)."""
+    cwd = patrol.folder(ctx.state_dir) / "judge" if ctx is not None else None
+    return track_judge.ask(SYSTEM, data, backend=backend, ctx=ctx, limit=limit, cwd=cwd)
 
 
 def decide(state_dir, batch, *, backend, ctx, log=print, environ=None):
     """(the decisions on ``batch``, reason). ``backend`` and ``ctx``: the Claude backend and a context for it."""
     try:
-        if backend is None or ctx is None:
+        if (backend is None or ctx is None) and judge_gateway.configured(environ) is None:
             raise Failed("no_backend")
         limit = patrol.number("judge_ms", environ) / 1000
         raw = ask(json.dumps(payload(state_dir, batch), ensure_ascii=False), backend, ctx, limit)

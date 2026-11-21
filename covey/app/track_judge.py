@@ -12,7 +12,9 @@ Two channels, COVEY_TRACK_JUDGE: ``claude`` (the default) starts a one-shot Clau
 its own with no tools, MCP servers, hooks or saved session, its argv given to the Harness's ``backend.wrap_argv`` and
 its environment from ``backend.child_env`` so the machine's login shell, proxy and variables apply (the caller hands in
 the Claude backend and a context for it; this module imports no backend); ``cmd:/absolute/path`` starts that command
-instead, with one JSON object on its standard input and one JSON line expected on its standard output. Either gets
+instead, with one JSON object on its standard input and one JSON line expected on its standard output. Where the Claude
+Harness is not enabled, ``claude`` asks the model gateway COVEY_JUDGE_GATEWAY names (app/judge_gateway.py), unset: as
+before, ``no_backend``; ``ask`` is that choice for the other small-model questions too. Either gets
 (and the model's prompt carries) the same object: ``message``, ``tasks`` (``index`` from 1, ``phase``, ``request``; at
 most MAX_TASKS, the newest), and when there are any ``question`` (what the waiting task asks) and ``quote`` (the text the
 message replies to), each text cut to CLIP characters. The answer is ``{"route":"merge"|"new","target":<index|null>,
@@ -42,7 +44,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from covey.app import track_standby
+from covey.app import judge_gateway, track_standby
 from covey.app.track_standby import Failed
 from covey.core import env as cenv
 from covey.core.process import signal_group
@@ -204,6 +206,24 @@ def warm(backend, ctx, environ=None) -> bool:
         return False
 
 
+def ask(system: str, data: str, *, backend, ctx, limit: float, cwd, model: str = MODEL, environ=None) -> str:
+    """One question's raw answer, as Claude Code's JSON envelope (``answer_text`` reads it): through the Claude Harness
+    (``backend`` and ``ctx``, the way ``judge`` asks Haiku, in ``cwd``) when there is one, else through the model
+    gateway COVEY_JUDGE_GATEWAY names (app/judge_gateway.py); Failed("no_backend") when neither. ``system``, ``model``:
+    the question's own (app/patrol_judge.py, app/project_sorter.py)."""
+    if backend is not None and ctx is not None:
+        Path(cwd).mkdir(parents=True, exist_ok=True)
+        env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
+        try:
+            return run(claude_argv(backend, ctx, use_flag(), system=system, model=model), data, env, Path(cwd), limit)
+        except Failed as exc:
+            refused(exc)
+            raise
+    if judge_gateway.configured(environ) is None:
+        raise Failed("no_backend")
+    return judge_gateway.ask(system, data, limit, state_dir=getattr(ctx, "state_dir", None), environ=environ)
+
+
 def run(argv, stdin: str, env, cwd, limit: float) -> str:
     """The standard output of ``argv`` given ``stdin``, a process group of its own, killed outright (SIGKILL on the
     group, the shell and its children too) when ``limit`` seconds pass. Failed with the reason otherwise."""
@@ -288,10 +308,11 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
     ``backend`` and ``ctx``: the Claude backend and a context for it (``claude`` channel only)."""
     started = time.monotonic()
     via = mode(environ)
+    gateway = via == "claude" and (backend is None or ctx is None) and judge_gateway.configured(environ) is not None
 
     def done(verdict: Verdict, how: str = "", **fields) -> Verdict:
         verdict = dataclasses.replace(verdict, ms=round((time.monotonic() - started) * 1000))
-        shown = via.split(":")[0]
+        shown = "gateway" if gateway else via.split(":")[0]
         if how:
             log(f"track judge {how} reason={verdict.why} ms={verdict.ms} via={shown}" + "".join(f" {k}={v}" for k, v in fields.items()))
         else:
@@ -311,7 +332,9 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
     data = json.dumps(payload(message, tasks, question), ensure_ascii=False)
     limit = limit_ms(environ) / 1000
     try:
-        if via == "claude":
+        if gateway:  # No Claude Code to ask: the model gateway COVEY_JUDGE_GATEWAY names (app/judge_gateway.py).
+            raw = judge_gateway.ask(SYSTEM, data, limit, environ=environ)
+        elif via == "claude":
             if backend is None or ctx is None:
                 raise Failed("no_backend")
             try:
