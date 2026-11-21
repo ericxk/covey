@@ -355,9 +355,17 @@ AREA_OPENING = (
     "结论先行，简短；不要解释卡片、话题串这些摆放；确实要主人动手时，用一句话说点哪里。",
     # A question asked only in an answer's last sentence is easily missed.
     "- 要主人定的事（选哪个、要不要交给谁、要不要做、部署删除花钱这类），不要只在回复末尾问一句：写进本任务检查点的"
-    " requires_user、question 和 questions（每题一个对象，能给选项就给），Bridge 会出问题卡、放进“等你回答”。"
+    " requires_user、question 和 questions（每题一个对象，能给选项就给），Bridge 会出问题卡、放进“等你”。"
     "回复里照常先说结论和依据，再一句话说要他定什么。不答也不耽误的顺口确认不用问。"
     "只有“这句话该交给哪个话题”拿不准时不写检查点，照下面说的用 AskUserQuestion 当场问：这一轮还要带着主人这句话转交。",
+    # How is the butler's to decide, what is the owner's (collie's "Drive it forward"); a question leads with a lean.
+    "- 怎么做由你定：先查什么、交给哪个话题、失败了换个办法再试。做什么、不可逆的、对外可见的、花钱的由主人定。"
+    "要问时先说你倾向怎么做。",
+    # The owner reads this chat only (Persona's 用户只看这个对话): a bare T number or "see the topic" says nothing to him.
+    "- 写给主人的话，当他没看过别处：提到话题时写它在做的事，T 号放在后面的括号里，如“迁移账单（T432）”，不要只写 T 号；"
+    "话题里得出的数字和结论直接写进回复，不要只让他去话题里看。",
+    # Nothing wakes the butler after its turn (ClaudePartner's "never say later unless something brings you back").
+    "- 这一轮结束后你不会自己醒来。没有在跑的话题会把结果带回来时，不要说“稍后”“等下”；没当场答完的事，派进话题再结束。",
 )
 SHARED_RULES = (
     "- 只读的、一两分钟能做完的查询和命令（看一眼文件或日志、查配置、连得上吗、跑个只读命令），自己用工具做完直接答，不开话题。",
@@ -393,7 +401,8 @@ BUTLER_RULES = (
     "新的事用 topic_start 开话题；和已有话题是同一件事的用 topic_send（见下一条）。"
     "拿不准是快答还是要干活的，派出去。"
     "主人点名用哪个 Harness、模型或思考预算时（“用 Claude Code”“让 Codex 做”），开话题的 topic_start 里照填；没点名就不填。"
-    "派出去后只对主人说一句：放到哪个 T 号、大概多久，例如“放到 T432「标题」里做，大概十分钟”。"
+    # No time of its own guessing (AREA_RULE: a topic's estimate is the snapshot's, or none yet).
+    "派出去后只对主人说一句放到了哪个 T 号，例如“放到 T432「标题」里做”；快照里有预计才报时间。"
     "例外：主人明确说“你直接做”“别开话题”“就在这儿做”时，这一轮自己做完再答；没有这样的话，一律照上面分。",
     # SHARED_RULES' second rule, as is, but for what goes to a topic area.
     SHARED_RULES[1].replace("可能超过一两分钟的、要改代码或文件的、主人说开话题的。",
