@@ -619,7 +619,8 @@ class Cards:
         record = find_job_record(ctx.state_dir, job.message_id) or {}
         if status == "cancelled" and not record.get("policy_stop"):
             return
-        elements = auto_retry.failed_controls(job.topic_id, job.job_id, record)
+        elements = auto_retry.failed_controls(job.topic_id, job.job_id, record,
+                                              auto_retry.other_harness(ctx.state_dir, record, self.topics))
         if not elements:
             return
         with card_lock(job.progress):

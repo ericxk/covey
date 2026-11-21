@@ -26,8 +26,8 @@ import time
 from typing import NamedTuple
 
 from covey.app.outbox import RETRY_NOTE, retry_label
-from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, SWITCH_MODEL, failure_details, interrupted_summary,
-                                  result_actions, result_note, retry_status, switch_route)
+from covey.cards.recovery import (FOLLOW_UP_NOTES, FOLLOW_UPS, OTHER_HARNESS, SWITCH_MODEL, failure_details,
+                                  interrupted_summary, result_actions, result_note, retry_status, switch_route)
 from covey.core import failure
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record, job_key, select_job_records, update_job_record_if
@@ -201,20 +201,43 @@ def chain_counts(record, attempt):
     return counts
 
 
-def next_steps(record):
+# A failure another Harness may get past now: a limit of the one the topic is on (#36).
+OTHER_CODES = frozenset({"rate_limited", "quota_exhausted"})
+
+
+def other_harness(state_dir, record, topics) -> bool:
+    """Whether ``record``'s failed task card offers 换个 Harness (cards/recovery.py OTHER_HARNESS, #36): it failed on a
+    limit (OTHER_CODES), it can be switched (``switch_route``), its topic does not redact (another Harness could not
+    take its terms) and another Harness is enabled (``topics.apps``). Which one, and whether it can take a task now,
+    is decided on the click (app/harness_switch.py); nothing switches by itself."""
+    from covey.core.redaction import topic_redaction
+
+    if not record or failure.failure_code(record) not in OTHER_CODES or not switch_route(record):
+        return False
+    try:
+        if topic_redaction(state_dir, record.get("topic_id")):
+            return False
+    except ValueError:
+        return False
+    return any(name != record.get("harness_id") for name in (getattr(topics, "apps", None) or {}))
+
+
+def next_steps(record, other=False):
     """(the label of the 检查并继续 click on ``record``'s failed task card, its follow-ups): what core/failure.py
-    failure_view offers. A rate limit's click reads 现在重试; 看原因 and 拆小再试 start turns of their own."""
+    failure_view offers. A rate limit's click reads 现在重试; 看原因 and 拆小再试 start turns of their own. ``other``
+    (``other_harness``): 换个 Harness after 换个模型."""
     view = failure.failure_view(record) if record else None
     actions = (view or {}).get("actions", [])
     label = failure.LABELS[failure.RETRY] if failure.RETRY in actions else "检查并继续"
-    return label, tuple(name for name in actions if name in FOLLOW_UPS
-                        or (name == SWITCH_MODEL and record and switch_route(record)))
+    follow = tuple(name for name in actions if name in FOLLOW_UPS
+                   or (name == SWITCH_MODEL and record and switch_route(record)))
+    return label, follow + ((OTHER_HARNESS,) if other and SWITCH_MODEL in follow else ())
 
 
-def actions(topic_id, job_id, can_stop, record=None):
+def actions(topic_id, job_id, can_stop, record=None, other=False):
     """The 检查并继续 row of a failed task card (``next_steps`` of ``record``); a pending automatic retry adds
     停止自动重试."""
-    label, follow = next_steps(record)
+    label, follow = next_steps(record, other)
     return result_actions(topic_id, job_id, label, stop_kind=CANCEL_KIND if can_stop else "", follow_ups=follow,
                           route=switch_route(record or {}))
 
@@ -224,11 +247,11 @@ def result_note_text(label, follow):
     return "\n".join([note, *(FOLLOW_UP_NOTES[name] for name in follow)])
 
 
-def result_elements(topic_id, job_id, record):
+def result_elements(topic_id, job_id, record, other=False):
     """What a failed task card shows after its answer when 检查并继续 applies: a pending
     automatic retry's status, the buttons and the note."""
-    label, follow = next_steps(record)
-    elements = [actions(topic_id, job_id, pending(record), record), result_note(result_note_text(label, follow))]
+    label, follow = next_steps(record, other)
+    elements = [actions(topic_id, job_id, pending(record), record, other), result_note(result_note_text(label, follow))]
     if pending(record):
         kind = kind_of(record)
         how = "，做法同“检查并继续”" if kind == RATE_LIMITED else ""
@@ -242,8 +265,9 @@ def show(app, ctx, record, text):
     """Say on the failed task card what became of its retry; only 检查并继续 stays. An interrupted task's card
     (RESTARTED) said in its chat-list preview when it would continue: that goes too."""
     try:
+        other = other_harness(ctx.state_dir, record, getattr(app, "topics", None))
         ok = app.cards.update_record_elements(ctx, record, [retry_status(text), actions(record["topic_id"],
-                                                                                   record["job_id"], False, record)])
+                                                                                   record["job_id"], False, record, other)])
         if kind_of(record) == RESTARTED:
             name = topic_label(ctx.state_dir, record.get("topic_id", "")) or f"#{record.get('job_id')}"
             ok = app.cards.set_record_summary(ctx, record, interrupted_summary(name, "检查并继续")) and ok
@@ -368,12 +392,12 @@ def fire(app, ctx, target, record):
         show(app, ctx, current, CANCELLED["refused"])
 
 
-def failed_controls(topic_id, job_id, record) -> list:
+def failed_controls(topic_id, job_id, record, other=False) -> list:
     """The elements a failed task card gets after its answer (app/cards.py Cards.finish_result_controls inserts
     them): 技术详情, the words its body said before its one-line reason (app/turn_delivery.py card_text); its retry
     button as ``retry_label`` names it, with a pending automatic retry's status and 停止自动重试 when that is
     检查并继续 (``result_elements``), and the follow-ups core/failure.py offers (看原因, 拆小再试; a policy stop
-    gets 拆小再试 alone); [] when the record offers none."""
+    gets 拆小再试 alone; ``other``, other_harness: 换个 Harness too); [] when the record offers none."""
     view = failure.failure_view(record) if record else None
     # Only where the body says the reason instead (app/turn_delivery.py card_text, which wrote failure_code).
     details = ([failure_details(str(record["final_text"]))]
@@ -381,8 +405,8 @@ def failed_controls(topic_id, job_id, record) -> list:
                and not record.get("policy_stop") and record.get("final_text") else [])
     label = retry_label(record)
     if label == "检查并继续":
-        return details + result_elements(topic_id, job_id, record)
-    follow = next_steps(record)[1]
+        return details + result_elements(topic_id, job_id, record, other)
+    follow = next_steps(record, other)[1]
     if not label and not follow:
         return details
     return details + [result_actions(topic_id, job_id, label, follow_ups=follow, route=switch_route(record))]

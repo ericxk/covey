@@ -292,6 +292,25 @@ class HarnessSwitchTests(UnifiedCase):
         again, _, send = self.open()  # The same click redelivered.
         send.assert_not_called()
 
+    def test_another_harness_is_preselected_from_a_limits_failure_card(self):
+        # #36: 换个 Harness opens the same card with the first model of another Harness usable now; the owner confirms.
+        from covey.core.state import write_json as save
+        save(self.ctx.state_dir / 'backend-health' / 'claude-a.json', {
+            'backend': 'claude', 'model': '', 'checked_at': __import__('time').time(), 'status': 'failed',
+            'error': 'quota_exhausted'})  # Claude Code just ran out too: not the one.
+        form, _, send = self.open(click='other', other=True)
+        self.assertEqual(form['harness_id'], 'codex')  # The topic is still where it was.
+        chosen = form['selected_model']
+        self.assertFalse(chosen.startswith(('codex:', 'claude:')), chosen)
+        self.assertEqual(form['current']['key'], 'codex:codex-model')
+        card = json.dumps(switch_form.build_switch_card(form), ensure_ascii=False)
+        self.assertIn('确认更换', card)
+        self.assertEqual(self.topic()['harness_id'], 'codex')  # Nothing switched by itself.
+        # No other Harness usable now: said, and no card.
+        with mock.patch('covey.app.availability.usable', return_value=False):
+            self.assertEqual(self.open(click='none', other=True)[0]['token'], form['token'])  # No new form.
+        self.assertIn(hs.NO_OTHER_HARNESS, self.said()[-1])
+
     def test_the_stop_first_paragraph_shows_only_while_the_topic_has_a_task(self):
         stop_first = '任务还在排队或执行时不能更换'
         form, path, _ = self.open(click='idle')

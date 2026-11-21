@@ -22,11 +22,16 @@ DIAGNOSE_KIND, SPLIT_KIND = "bridge_job_diagnose", "bridge_job_split"
 FOLLOW_UPS = {"diagnose": ("看原因", DIAGNOSE_KIND), "split": ("拆小再试", SPLIT_KIND)}
 FOLLOW_UP_NOTES = {"diagnose": "看原因：开一轮只读排查，看看这一轮为什么没成功，不改文件、不重跑。",
                    "split": "拆小再试：把这件事拆成更小的几步重新做，被拦下的那块先跳过。",
-                   "switch_model": "换个模型：打开换配置，换一个模型接着做这件事。"}
+                   "switch_model": "换个模型：打开换配置，换一个模型接着做这件事。",
+                   "other_harness": "换个 Harness：打开换配置，预选一个现在能用的别的 Harness，你确认后才换，接着做这件事。"}
 # 换个模型 (core/failure.py SWITCH_MODEL): the 换配置 card's own click (bridge_switch_open), so a failure whose retry cannot
 # succeed (额度用完, 账号被拦, 安全拒绝) offers the one next step that can right in its row, not only under 执行过程.
 SWITCH_MODEL = "switch_model"
 SWITCH_LABEL = "换个模型"
+# 换个 Harness on a limit's failure (app/auto_retry.py other_harness, #36): the same 换配置 click with ``other``, which
+# preselects another Harness usable now (app/harness_switch.py); never switched without the owner's 确认更换.
+OTHER_HARNESS = "other_harness"
+OTHER_LABEL = "换个 Harness"
 DETAILS_ID = "failure_details"
 
 
@@ -70,8 +75,9 @@ def offers_switch(elements) -> bool:
 
 def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=(), route=None):
     """The row after a failed task's answer: ``label`` (检查并继续, 现在重试, 重新投递结果; "" for none), with
-    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 看原因, 拆小再试; SWITCH_MODEL: 换个模型, with the
-    topic's ``route``, its (harness_id, binding_revision), and left out without one)."""
+    ``stop_kind`` 停止自动重试, then ``follow_ups`` (FOLLOW_UPS: 看原因, 拆小再试; SWITCH_MODEL: 换个模型 and
+    OTHER_HARNESS: 换个 Harness, both with the topic's ``route``, its (harness_id, binding_revision), and left out
+    without one)."""
     value = {"topic_id": topic_id, "job_id": job_id}
     columns = [column_button(label, {"kind": RETRY_KIND, **value})] if label else []
     if stop_kind:
@@ -79,9 +85,10 @@ def result_actions(topic_id, job_id, label, *, stop_kind="", follow_ups=(), rout
     for name in follow_ups:
         if name in FOLLOW_UPS:
             columns.append(column_button(FOLLOW_UPS[name][0], {"kind": FOLLOW_UPS[name][1], **value}))
-        elif name == SWITCH_MODEL and route:
-            columns.append(column_button(SWITCH_LABEL, {"kind": SWITCH_OPEN, **value, "harness_id": route[0],
-                                                        "binding_revision": route[1]}))
+        elif name in (SWITCH_MODEL, OTHER_HARNESS) and route:
+            columns.append(column_button(SWITCH_LABEL if name == SWITCH_MODEL else OTHER_LABEL, {
+                "kind": SWITCH_OPEN, **value, "harness_id": route[0], "binding_revision": route[1],
+                **({"other": True} if name == OTHER_HARNESS else {})}))
     return {"tag": "column_set", "element_id": "result_actions", "columns": columns}
 
 

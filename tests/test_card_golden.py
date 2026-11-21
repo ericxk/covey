@@ -530,6 +530,9 @@ def recovery_cards():
         # A failed task card's 技术详情 and next steps (core/failure.py): 检查并继续 and 查原因; a policy stop's 拆小再试.
         "failed_controls": failed_controls(TOPIC, 431, {**record, "status": "failed", "execution_status": "failed",
                                                         "failure_code": "root_failed", "final_text": "本轮任务未全部完成。主任务后续执行失败。"}),
+        # #36: a used-up quota's 换个模型 and 换个 Harness (app/auto_retry.py other_harness), both the 换配置 click.
+        "failed_controls_quota": failed_controls(TOPIC, 431, {**record, "status": "failed", "execution_status": "failed",
+                                                              "failure_code": "quota_exhausted"}, other=True),
         "failed_controls_policy": failed_controls(TOPIC, 431, {**record, "status": "cancelled", "final_text": "本轮已停止。",
                                                                "policy_stop": {"kind": "refusal", "category": "cyber", "scope": "main",
                                                                                "child_id": "", "response_id": "", "source_model": "",

@@ -47,6 +47,28 @@ SELECTS = frozenset({HARNESS, PROVIDER, MODEL, BUDGET, WORK_MODE, WORKSPACE, RUN
 RECORDED = frozenset({BUDGET, WORK_MODE, WORKSPACE, RUN_MODE})
 KINDS = frozenset({OPEN, CONFIRM, CANCEL, PAGE} | SELECTS)
 REBUILD_FAILED = "选项没有刷新成功，卡片上的选项可能还是之前的。请重新选一次，再点确认更换。"
+NO_OTHER_HARNESS = "现在没有别的 Harness 能接着做（没启用、刚报过限流或额度用完，或者这个话题开着脱敏）；可以稍后再试，或点「换个模型」。"
+
+
+def other_harness_key(topics, state_dir, sel, topic) -> str:
+    """The menu entry 换个 Harness preselects (#36): the first in the card's order (the chat's recent ones first,
+    app/preselection.py switch_selection) on another Harness than the topic's that can take a task now
+    (app/availability.py usable); '' for none, and for a topic that redacts. The owner still confirms the switch."""
+    from covey.app import availability
+    from covey.core.menu_choice import harness_of
+
+    if sel.redacting:
+        return ""
+    usable = {}
+    for key, entry in sel.choices.items():
+        name = harness_of(key, entry)
+        if name == topic.get("harness_id"):
+            continue
+        if name not in usable:
+            usable[name] = availability.usable(topics.runtime, state_dir, name)
+        if usable[name]:
+            return key
+    return ""
 
 
 def done_text(record, choice, effort, mode, place, redaction, was, switched):
@@ -272,6 +294,12 @@ class HarnessSwitch(CardActionQueue):
             except (OSError, ValueError):
                 names = []
             sel = switch_selection(choices, model_usage.recent(ctx.state_dir, chat), topic, names)
+            if raw.get("other"):  # 换个 Harness on a limit's failure (cards/recovery.py OTHER_HARNESS, #36).
+                picked = other_harness_key(self.topics, ctx.state_dir, sel, topic)
+                if not picked:
+                    self.tell(app, target, chat, NO_OTHER_HARNESS, "no-other", click)
+                    return
+                sel = sel._replace(selected=picked, effort=sel.usual.get(picked) or effort_options(choices[picked])[1])
             current = choices.get(sel.key, {})
             mode, run_mode = str(topic.get("work_mode") or ""), run_mode_of(topic.get("workdir") or "")
             record = {"token": token, "topic_id": target.topic_id, "chat_id": chat, "job_id": raw.get("job_id"),
