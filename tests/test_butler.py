@@ -33,7 +33,7 @@ from covey.core.steer import SteerRefused
 from covey.core.topic_seen import SEEN_FILE
 from covey.core.topics import remember_topic_message, topic_number
 from covey.core.state import write_json
-from covey.app.pins import record_path
+from covey.app.pins import NOTICES_KEPT, panel_message, record_path, remember_notice
 from covey.core.workspaces import add_workspace
 from covey.feishu import message_request
 
@@ -161,6 +161,25 @@ class RoutingTest(ButlerUnifiedCase):
             self.send('om_r' + parent, root=parent, parent_id=parent)
             self.assertEqual(self.job_of('om_r' + parent).topic_id, BUTLER, parent)
             self.done(self.job_of('om_r' + parent))
+
+    def test_a_reply_to_an_alert_at_the_top_level_goes_to_the_butler(self):
+        """2026-11-21 T622: a reply to a disk alert at the top level of the private chat opened a topic on the alert, whose task
+        waited 21 minutes for 开始 on its launch card in the alert's thread. An alert the Bridge sent at the top level is one of
+        its own cards, as 手上的事 is (app/pins.py remember_notice): a reply to it is the butler's, which starts on it as its
+        settings say; a message no one kept is a topic's as ever."""
+        self.assertTrue(remember_notice(self.state, CHAT, 'om_alert'))
+        self.send('om_ra', root='om_alert', parent_id='om_alert')
+        self.assertEqual(self.job_of('om_ra').topic_id, BUTLER)
+        self.done(self.job_of('om_ra'))
+        self.send('om_rb', root='om_other_alert', parent_id='om_other_alert')
+        self.assertNotEqual(self.record('om_rb')['topic_id'], BUTLER)
+        # The record keeps the newest NOTICES_KEPT; ids that are no message are not kept.
+        for n in range(NOTICES_KEPT):
+            remember_notice(self.state, CHAT, f'om_n{n}')
+        self.assertFalse(panel_message(self.state, CHAT, 'om_alert'))
+        self.assertTrue(panel_message(self.state, CHAT, f'om_n{NOTICES_KEPT - 1}'))
+        self.assertFalse(remember_notice(self.state, CHAT, ''))
+        self.assertFalse(remember_notice(self.state, CHAT, 'not-a-message'))
 
     def test_a_group_message_is_not_taken(self):
         self.send('om_1')  # The owner's private chat is known.

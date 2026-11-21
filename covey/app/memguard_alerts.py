@@ -1,8 +1,9 @@
 """The memory watchdog's alerts, sent by the Bridge (service/memguard.py writes each to <data_dir>/outbox/).
 
 An alert names the task whose marker the process carried (COVEY_TASK_DIR, core/task_processes.py): one of
-this Bridge's tasks goes to that task's topic; one without a task to the owner's private chat; another Bridge's
-is left for it. A file is claimed by renaming it, so of two Bridges on one machine only one sends it. At most
+this Bridge's tasks goes to that task's topic; one without a task to the owner's private chat, kept there as one of
+the Bridge's own messages (app/pins.py remember_notice: a reply to it is the butler's); another Bridge's is left for
+it. A file is claimed by renaming it, so of two Bridges on one machine only one sends it. At most
 PER_HOUR are sent; the next one sent says how many were not. alerts.jsonl beside the outbox keeps every alert.
 With the nodes on (COVEY_NODE_LISTEN) the container-memory alert is dropped: the hub's own node alerts on the
 same memory (core/node_rules.py), and the owner would get two cards for one thing. Its other rules are sent.
@@ -15,6 +16,7 @@ import os
 import time
 from pathlib import Path
 
+from covey.app import pins
 from covey.core import nodes
 from covey.core.jobs import find_job_record
 from covey.core.loops import every
@@ -117,7 +119,9 @@ class MemguardAlerts:
             text += f"\n另有 {self.suppressed} 条告警因限流没有发送，见看门狗数据目录的 alerts.jsonl。"
         self.sent.append(now)
         key = self.voice.safe_key(f"memguard-{alert.get('id') or os.urandom(6).hex()}")
-        if self.messenger.send_message(ctx.profile, chat, text, key, reply_to_message_id=reply_to, voice=self.voice):
+        # At the top level (no topic's): a reply to it is the butler's (app/pins.py remember_notice).
+        top = {} if reply_to else {"on_sent": lambda message: pins.remember_notice(ctx.state_dir, chat, message)}
+        if self.messenger.send_message(ctx.profile, chat, text, key, reply_to_message_id=reply_to, voice=self.voice, **top):
             self.suppressed = 0
             self.runtime.log(f"memory watchdog alert sent rule={alert.get('rule')} topic={'yes' if reply_to else 'no'}")
         else:

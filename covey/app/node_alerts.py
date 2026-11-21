@@ -3,7 +3,8 @@
 
 - **where**: to the topic of the task whose process used the most memory when the event names one (a process's
   ``task``, the job key of its COVEY_TASK_DIR, found with core/jobs.py ``find_job_record``), else the top level of
-  the owner's private chat.
+  the owner's private chat, kept there as one of the Bridge's own cards (app/pins.py remember_notice): a reply to it
+  is the butler's, not a topic opened on the alert.
 - **one card an alert**: a ``raise`` (or a ``once``) becomes an alert record ``<state>/nodes/alerts/<alias>-<rule
   hash>.json``, sent once (cards/node_cards.py ``alert_card``; its Markdown when the card is refused); the ``clear``
   of the same rule redraws that card in place (``cleared_card``, Messenger.patch_card), never a new message. A raise
@@ -23,6 +24,7 @@ import os
 import time
 from pathlib import Path
 
+from covey.app import pins
 from covey.cards.node_cards import alert_card, alert_text, cleared_card
 from covey.core import nodes, quiet_hours
 from covey.core.jobs import find_job_record
@@ -193,9 +195,11 @@ class NodeAlerts:
         write_json(path, alert, ensure_ascii=False)  # The try counts even if the process ends during it.
         name, tasks = self.name(ctx, event["alias"]), self.tasks(ctx, event)
         cards = []
+        # At the top level (no topic's): a reply to it is the butler's (app/pins.py remember_notice).
+        top = {} if target[1] else {"on_sent": lambda message: pins.remember_notice(ctx.state_dir, target[0], message)}
         ok = self.messenger.send_message(ctx.profile, target[0], alert_text(event, name, tasks),
                                          self.voice.safe_key(alert["key"]), reply_to_message_id=target[1],
-                                         voice=self.voice, card=alert_card(event, name, tasks), on_card=cards.append)
+                                         voice=self.voice, card=alert_card(event, name, tasks), on_card=cards.append, **top)
         if ok:
             self.sent.append(now)
             alert.update(state="sent", message_id=cards[0] if cards else "", sent_at=now)

@@ -212,7 +212,7 @@ class Butler:
             # butler's family (core/butler.py is_butler_topic), so it stayed here and reached the butler.
             return None
         # A reply to a message no topic knows opens a topic on it, as ever; to one of the butler's stays here, and to
-        # 手上的事 or an 早晚汇总 (no topic's: the Bridge's own, app/pins.py panel_message) too.
+        # 手上的事, an 早晚汇总 or an alert sent at the top level (no topic's: the Bridge's own, app/pins.py panel_message) too.
         if (not is_butler_topic(known[0], chat)) if known else (
                 any(above) and not pins.panel_message(ctx.state_dir, chat, above[0])):
             return None

@@ -21,7 +21,8 @@ from unittest import mock
 
 from support import REPO, make_context
 
-from covey.app import node_alerts, node_gateway
+from covey.app import node_alerts, node_gateway, pins
+from covey.core.jobs import upsert_job_record
 from covey.cards import node_cards
 from covey.core import node_agent, node_rules, nodes
 
@@ -372,10 +373,13 @@ class FakeMessenger:
     def __init__(self, ok=True):
         self.ok, self.sent, self.patched = ok, [], []
 
-    def send_message(self, profile, chat, text, key, *, reply_to_message_id="", voice=None, card=None, on_card=None):
+    def send_message(self, profile, chat, text, key, *, reply_to_message_id="", voice=None, card=None, on_card=None,
+                     on_sent=None):
         self.sent.append((chat, reply_to_message_id, text, card))
         if self.ok and on_card:
             on_card("om_card")
+        if self.ok and on_sent:
+            on_sent("om_card")
         return self.ok
 
     def patch_card(self, profile, message_id, card):
@@ -426,6 +430,20 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(len(self.messenger.sent), 1)
         self.assertEqual(self.messenger.patched[0][0], "om_card")
         self.assertIn("已恢复", json.dumps(self.messenger.patched[0][1], ensure_ascii=False))
+
+    def test_an_alert_at_the_top_level_is_the_bridges_own_one_in_a_topic_is_not(self):
+        """2026-11-21 T622: a reply to a disk alert at the top level opened a topic on it, to wait for 开始. The alert sent there
+        is kept as one of the Bridge's own cards (app/pins.py remember_notice): a reply to it is the butler's. One sent into a
+        task's topic is that topic's, as before."""
+        self.event("raise")
+        self.alerts.round(self.ctx)
+        self.assertTrue(pins.panel_message(self.ctx.state_dir, "oc_owner", "om_card"))
+        upsert_job_record(self.ctx.state_dir, "k9", job_id=9, chat_id="oc_topic", reply_to_message_id="om_root", status="running")
+        self.event("raise", rule="disk", top=[{"comm": "pytest", "rss": 9 << 30, "task": "k9"}])
+        (self.ctx.state_dir / pins.NOTICES).unlink()
+        self.alerts.round(self.ctx)
+        self.assertEqual(self.messenger.sent[-1][:2], ("oc_topic", "om_root"))
+        self.assertFalse(pins.panel_message(self.ctx.state_dir, "oc_topic", "om_card"))
 
     def test_cleared_before_it_went_is_never_sent(self):
         self.runtime.access = type("A", (), {"notify_chat": staticmethod(lambda: "")})()

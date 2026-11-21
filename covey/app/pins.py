@@ -80,6 +80,7 @@ order differs, at most once every GAP seconds, longer after rounds that failed.
 from __future__ import annotations
 
 import functools
+import time
 from pathlib import Path
 
 from covey.core import env as cenv
@@ -115,16 +116,42 @@ def configure_boards(chats):
 
 
 def panel_message(state, chat, message) -> bool:
-    """Whether ``message`` is a card the Bridge itself keeps at ``chat``'s top level: 手上的事 (app/overview.py) or one
-    of the last 早晚汇总 cards (app/digest.py). No topic sent it, so a reply to it is the butler's (app/butler.py app_for:
-    回复谁的消息就交给谁, docs/ui.md 5.3), not a new topic opened on it. Never raises."""
+    """Whether ``message`` is a card the Bridge itself keeps at ``chat``'s top level: 手上的事 (app/overview.py), one
+    of the last 早晚汇总 cards (app/digest.py) or an alert it sent there (``remember_notice``). No topic sent it, so a
+    reply to it is the butler's (app/butler.py app_for: 回复谁的消息就交给谁, docs/ui.md 5.3), not a new topic opened
+    on it. Never raises."""
     if not message:
         return False
-    for name in ("pinned-overview.json", "digest.json"):  # app/overview.py RECORD, app/digest.py RECORD
+    for name in ("pinned-overview.json", "digest.json", NOTICES):  # app/overview.py RECORD, app/digest.py RECORD
         record = read_object(record_path(state, chat, name))
         if record.get("message_id") == message or (isinstance(record.get("sent"), dict) and message in record["sent"]):
             return True
     return False
+
+
+NOTICES = "top-notices.json"  # The alerts the Bridge sent at a chat's top level: {sent: {message id: when}}.
+NOTICES_KEPT = 200  # The newest of them the record keeps.
+
+
+def remember_notice(state, chat, message) -> bool:
+    """``message``, an alert the Bridge sent at ``chat``'s top level (a node's, app/node_alerts.py; the memory
+    watchdog's, app/memguard_alerts.py), kept as one of its own cards there (``panel_message``): a reply to it is the
+    butler's, which starts on it as its settings say, not a topic opened on the alert to wait for 开始 on a launch card
+    (2026-11-21 T622, a reply to a disk alert, waited so for 21 minutes). The newest NOTICES_KEPT are kept. The
+    message is out already: False when it could not be kept, never raised."""
+    if not (state and chat and str(message or "").startswith("om_")):
+        return False
+    path = record_path(state, chat, NOTICES)
+    try:
+        with resource_lock("top-notices", str(path)):
+            record = read_object(path)
+            sent = dict(record["sent"]) if isinstance(record.get("sent"), dict) else {}
+            sent[str(message)] = time.time()
+            newest = sorted(sent.items(), key=lambda item: seconds(item[1], 0.0))[-NOTICES_KEPT:]
+            write_json(path, {"schema_version": 1, "sent": dict(newest)})
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
 
 
 def record_path(state, chat, name=RECORD):

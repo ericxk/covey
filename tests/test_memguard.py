@@ -22,7 +22,7 @@ from support import exec_tempdir
 from support.memguard import GuardCase, alive
 from support.processes import leftover_check
 
-from covey.app import memguard_alerts
+from covey.app import memguard_alerts, pins
 from covey.app.memguard_alerts import MemguardAlerts
 from covey.core.jobs import upsert_job_record
 from covey.service import memguard
@@ -204,8 +204,12 @@ class AlertTests(unittest.TestCase):
         upsert_job_record(self.state, 'om_task', message_id='om_task', job_id=42, chat_id='oc_topic_chat',
                           reply_to_message_id='om_root', status='done')
         self.sent, self.log, self.owner = [], [], 'oc_owner'
-        messenger = SimpleNamespace(send_message=lambda profile, chat, text, key, reply_to_message_id='', voice=None:
-                                    self.sent.append((chat, reply_to_message_id, text, key)) or True)
+        def send_message(profile, chat, text, key, reply_to_message_id='', voice=None, on_sent=None):
+            self.sent.append((chat, reply_to_message_id, text, key))
+            if on_sent:
+                on_sent(f'om_sent{len(self.sent)}')
+            return True
+        messenger = SimpleNamespace(send_message=send_message)
         runtime = SimpleNamespace(log=self.log.append, access=SimpleNamespace(notify_chat=lambda: self.owner))
         voice = SimpleNamespace(safe_key=lambda value: value[:50])
         self.alerts = MemguardAlerts(runtime, messenger, voice)
@@ -230,6 +234,10 @@ class AlertTests(unittest.TestCase):
             ('oc_owner', '', '【内存看门狗】容器匿名内存已达 81%')])
         self.assertEqual(sorted(p.name for p in self.outbox.iterdir()), [other.name])  # Left for its Bridge.
         self.assertTrue(all(key.startswith('memguard-20261104T') for *_, key in self.sent))
+        # The one at the owner's top level is the Bridge's own message (app/pins.py remember_notice: a reply to it is the
+        # butler's); the one in the task's topic is that topic's (2026-11-21 T622).
+        self.assertEqual([pins.panel_message(self.state, chat, f'om_sent{n}') for n, (chat, *_) in enumerate(self.sent, 1)],
+                         [False, True])
 
     def test_with_the_nodes_on_the_container_alert_is_left_to_them(self):
         container = self.alert('【内存看门狗】容器匿名内存已达 81%', rule='container')

@@ -64,13 +64,14 @@ BACKUP_DIRS = {
 # 手上的事 and the digests go to; migrations.json the migrations the records backed up with it have had (core/migrate.py).
 # The pinned board's records (pinned-overview.json, pinned-topics.json, board-priority.json, topic-seen.json) and
 # digest.json: what is pinned and sent is known from them alone, so a restore pins and sends nothing twice; so is the
-# welcome card's (welcome.json, core/welcome.py), sent once a deployment. memory-candidates.json: the evening digest's
+# welcome card's (welcome.json, core/welcome.py), sent once a deployment. top-notices.json: the alerts sent at the top
+# level of a chat (app/pins.py remember_notice), so a reply to one is still the butler's after a restore. memory-candidates.json: the evening digest's
 # 你反复说的 and what the owner decided (app/memory_candidates.py): what he declined is not offered again after a restore.
 BACKUP_FILES = {"workspace-config.json", "session_index.jsonl", "bot-identity.json", "launch-defaults.json",
                 "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md",
                 "principles.json", "main-thread.json", "redaction/config.json", "owner-chat.json", "migrations.json",
                 "pinned-overview.json", "pinned-topics.json", "board-priority.json", "topic-seen.json", "digest.json",
-                "welcome.json", "memory-candidates.json"}
+                "welcome.json", "memory-candidates.json", "top-notices.json"}
 
 
 # Folders under a backed-up directory that a backup leaves out, by the directory: a project's library/ holds copies of
