@@ -107,6 +107,7 @@ python3 -B scripts/card_sketches.py --out /absolute/sketches --install          
 - 渲染器只认这几张卡用到的元素，碰到不认识的 tag 或底色直接报错，不悄悄跳过：卡片用了新元素时在 `Page.render` 里补上。颜色按 [UI 规范](ui.md#2-颜色)的浅色近似值，卡片自带的 `config.style.color`（结论带）照卡片里写的画。
 - 只用演示数据：不写真名、内部名、群名、open_id 和本机路径。换数据改脚本里的 `ASK`、`TITLE`、`INPUTS` 和各 `*_sketch` 函数。
 - 换了图要核对 README、`README.en.md` 和使用说明里的图注还对得上。
+- README 链着的三步演示页 `docs/demo/index.html`（派到话题、回答一道题、看答案和产物）是同一批卡片和演示数据拼成的一个静态网页，页头写明是演示数据，不引用别处的脚本和字体。卡片变了和重渲示意图时一起重新生成：`python3 -B scripts/card_sketches.py --demo`（只要标准库和本仓库，不要浏览器）。
 
 ### 支持包与后端契约
 

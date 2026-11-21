@@ -5,6 +5,10 @@ use, a headless Chromium for the PNGs (docs/testing.md 卡片示意图).
     python3 -B scripts/card_sketches.py --out /absolute/dir                 # the HTML pages only
     <python with Playwright> -B scripts/card_sketches.py --out /absolute/dir --png [--browser /absolute/chrome]
     <python with Pillow> -B scripts/card_sketches.py --out /absolute/dir --install   # the PNGs into the docs
+    python3 -B scripts/card_sketches.py --demo                              # docs/demo/index.html
+
+The demo page (``--demo``, docs/demo/index.html, linked from the READMEs) is the same cards as three clickable steps:
+派到话题, 回答一道题, 看答案和产物; one static file, no script from elsewhere, its header saying it is demo data.
 
 Only demo data: no real name, chat, open_id or path. The renderer stops at an element it does not know rather than
 leave it out; Feishu draws the real thing, so the pages are sketches (fonts, spacing and emoji differ).
@@ -25,6 +29,10 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 SHOTS_DIR = REPO / "docs" / "media" / "screenshots"
+DEMO_PAGE = REPO / "docs" / "demo" / "index.html"
+DEMO_NOTE = ("演示数据：这一页由 Covey 的卡片 JSON 和一组演示数据画成，不连飞书、不用账号；按钮只在这一页里切换，"
+             "卡片的样子以飞书里为准。")
+STEPS = ("派到话题", "回答一道题", "看答案和产物")
 FROZEN = 1795154760.0  # 2026-11-20 14:06 at UTC+8: the demo's clock.
 ZONE = "CST-8"
 ASK = "给 demo-app 加个登录页，邮箱加密码就行"
@@ -182,6 +190,55 @@ def redaction_sketch():
     return [("card", card)]
 
 
+OPTIONS = ({"label": "首页（推荐）", "description": "和现在注册成功后一样；选另一个要多记一个跳转参数"},
+           {"label": "登录前打开的页面", "description": "用户少点一次，但要处理跳转参数"})
+
+
+def question(picked=""):
+    """The demo topic's question card: one choice, the recommended option first (cards/question_cards.py
+    question_card); answered with ``picked`` when it is given."""
+    from covey.cards.question_cards import question_card
+    record = {"token": "q" * 24, "status": "answered" if picked else "pending", "topic_id": "t" * 64,
+              "chat_id": "oc_demo", "job_id": 12, "blocking": True, "harness_id": "claude", "binding_revision": 1,
+              "created_at": FROZEN - 120, "answers": {"after": {"answers": [picked]}} if picked else {},
+              "questions": [{"id": "after", "header": "登录后", "question": "登录成功以后跳到哪里？", "options": list(OPTIONS)}]}
+    return question_card(record, LABEL)
+
+
+def opened(card, element_id=""):
+    """``card`` with its folds open (``element_id``: that one alone), so the demo shows what is in them."""
+    import copy
+    card = copy.deepcopy(card)
+    stack = [card]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("tag") == "collapsible_panel" and (not element_id or node.get("element_id") == element_id):
+                node["expanded"] = True
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return card
+
+
+def demo_steps():
+    """The demo page's steps: (title, what it shows, items before the question, the question's two cards or None, items
+    after), from the sketches' cards."""
+    from covey.cards.answer_card import ARTIFACTS_ID
+    chat, relay = butler_sketch()[:3], butler_sketch()[-1][1]
+    task = task_sketch()[-1][1]
+    answer = opened(answer_sketch()[-1][1], ARTIFACTS_ID)
+    answered = {option["label"]: opened(question(option["label"])) for option in OPTIONS}
+    return [
+        (STEPS[0], "你在私聊里说一句话，管家给它开一个话题 T7，话题串挂在这句话下面；点进话题是这一轮的任务卡，实时写着在做什么。",
+         [*chat, ("time", "话题 T7 · 14:02"), ("card", task)], None, []),
+        (STEPS[1], "模型拿不准的事写成问题卡，放进“等你”：点一个选项就提交，它接着做。在下面的卡上点一个试试。",
+         [("time", "话题 T7 · 14:04")], (question(), answered), []),
+        (STEPS[2], "做完后答案单独发成一张答案卡：结论在最上面，登记的产物上传到云空间给链接；管家再把结论带回私聊。",
+         [("time", "话题 T7 · 14:06"), ("card", answer), ("time", "私聊 · 14:06"), ("card", relay)], None, []),
+    ]
+
+
 SKETCHES = {"01-butler": butler_sketch, "02-task-card": task_sketch, "03-answer-card": answer_sketch,
             "04-launch-card": launch_sketch, "05-settings-redaction": redaction_sketch}
 
@@ -225,7 +282,7 @@ EMOJI = {"✅": '<i class="em ok">✓</i>', "⏳": '<i class="em wait">…</i>',
          "❌": '<i class="em no">×</i>', "⚠️": '<i class="em warn">!</i>', "📝": '<i class="em plain">✎</i>',
          "🔁": '<i class="em plain">⇄</i>', "↩️": '<i class="em plain">↶</i>', "⚙️": '<i class="em plain">⚙</i>',
          "📥": '<i class="em plain">↓</i>', "📦": '<i class="em plain">▣</i>', "🕒": '<i class="em wait">…</i>',
-         "💡": '<i class="em plain">✦</i>', "🔒": '<i class="em plain">⚿</i>'}
+         "💡": '<i class="em plain">✦</i>', "🔒": '<i class="em plain">⚿</i>', "❓": '<i class="em wait">?</i>'}
 ICON = {"robot_outlined": "◆", "start_outlined": "▶", "setting_outlined": "⚙", "down-small-ccm_outlined": "⌄",
         "right-small-ccm_outlined": "›", "yes_outlined": "✓", "folder_outlined": "▤", "chat_outlined": "✉",
         "group_outlined": "☰", "member_outlined": "●", "replace_outlined": "⇄", "undo_outlined": "↶",
@@ -276,10 +333,7 @@ class Page:
                 escaped = re.sub(r"\[([^\]]+)\]\(([^)]*)\)", r"<a>\1</a>", escaped)
                 out.append(escaped)
         out.extend("</" + tag + ">" for tag in reversed(stack))
-        drawn = "".join(out)
-        for emoji, badge in EMOJI.items():
-            drawn = drawn.replace(emoji, badge)
-        return drawn.replace("⁠", "")
+        return badges("".join(out))
 
     def markdown(self, text, size="normal_v2", align=""):
         lines = str(text).split("\n")
@@ -408,7 +462,7 @@ class Page:
             drawn = self.markdown(title.get("content", ""), title.get("text_size", "normal_v2"))
         else:
             drawn = (f'<div class="md" style="font-size:{SIZE.get(title.get("text_size"), 14)}px;'
-                     f'color:{self.color(title.get("text_color", "default"))}">{escape(title.get("content", ""))}</div>')
+                     f'color:{self.color(title.get("text_color", "default"))}">{badges(escape(title.get("content", "")))}</div>')
         opened = bool(element.get("expanded"))
         chevron = f'<i class="chev">{"⌃" if opened else "⌄"}</i>'
         follows = head.get("icon_position") == "follow_text"
@@ -445,7 +499,12 @@ class Page:
     def page(self, items, clock="14:02"):
         """``items``: ('user', text), ('card', card JSON), ('time', a clock line), and under the owner's message
         ('reaction', its name) and ('thread', what its thread holds)."""
-        out = [f'<div class="page"><div class="time">{clock}</div>']
+        return ("<!doctype html><meta charset=utf-8><style>" + CSS + "</style><div class=\"page\">"
+                + f'<div class="time">{clock}</div>' + self.chat(items) + f'<div class="cap">{CAPTION}</div></div>')
+
+    def chat(self, items):
+        """The messages of ``items`` (``page``) as HTML."""
+        out = []
         for kind, value in items:
             if kind == "user":
                 out.append(f'<div class="user">{escape(value)}</div>')
@@ -458,12 +517,82 @@ class Page:
             else:
                 out.append('<div class="msg"><div class="av">C</div><div><div class="who">Covey</div>'
                            + self.card(value) + "</div></div>")
-        out.append(f'<div class="cap">{CAPTION}</div></div>')
-        return "<!doctype html><meta charset=utf-8><style>" + CSS + "</style>" + "".join(out)
+        return "".join(out)
+
+
+def demo_page():
+    """docs/demo/index.html: the steps as tabs, the question's options switching its card to the answered one."""
+    def at_clock(make):
+        real_localtime = time.localtime
+        zone = os.environ.get("TZ")
+        os.environ["TZ"] = ZONE
+        time.tzset()
+        try:
+            with mock.patch("time.time", return_value=FROZEN), \
+                    mock.patch("time.localtime", lambda seconds=None: real_localtime(FROZEN if seconds is None else seconds)):
+                return make()
+        finally:
+            if zone is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = zone
+            time.tzset()
+
+    tabs, stages = [], []
+    for n, (title, words, before, asked, after) in enumerate(at_clock(demo_steps), 1):
+        tabs.append(f'<button class="tab{" on" if n == 1 else ""}" data-step="{n}">{n} · {escape(title)}</button>')
+        body = Page().chat(before)
+        if asked:
+            body += f'<div id="ask-open">{Page().chat([("card", asked[0])])}</div>' + "".join(
+                f'<div class="ask-done" data-answer="{html.escape(label)}" hidden>{Page().chat([("card", card)])}</div>'
+                for label, card in asked[1].items())
+        body += Page().chat(after)
+        last = n == len(STEPS)
+        go = "" if last else f'<button class="next" data-step="{n + 1}">下一步：{escape(STEPS[n])}</button>'
+        stages.append(f'<section class="stage{" on" if n == 1 else ""}" id="step-{n}"><p class="what">{escape(words)}</p>'
+                      f'<div class="page">{body}</div>{go}</section>')
+    return ("<!doctype html><html lang=zh-CN><meta charset=utf-8><meta name=viewport content=\"width=device-width\">"
+            "<title>Covey 演示：派到话题、回答一道题、看答案和产物</title><style>" + CSS + DEMO_CSS + "</style>"
+            '<div class="demo"><h1>Covey 演示</h1>'
+            f'<div class="banner">{escape(DEMO_NOTE)}</div><nav class="tabs">{"".join(tabs)}</nav>{"".join(stages)}'
+            f'<div class="cap">{CAPTION}</div></div><script>{DEMO_JS}</script></html>\n')
+
+
+DEMO_CSS = """
+body{background:#f7f8fa}.demo{max-width:660px;margin:0 auto;padding:18px 10px 30px}
+h1{font-size:20px;margin:0 0 10px 10px}
+.banner{margin:0 10px 12px;padding:9px 12px;border-radius:8px;background:#fff5eb;border:1px solid #ffd8a8;color:#8a4b00;
+font-size:13px;line-height:1.5}
+.tabs{display:flex;gap:6px;margin:0 10px 6px;flex-wrap:wrap}
+.tab,.next{font:inherit;font-size:13px;border-radius:16px;padding:5px 12px;border:1px solid #d0d3d6;background:#fff;
+cursor:pointer;color:#1f2329}
+.tab.on{background:#4b52e0;border-color:#4b52e0;color:#fff}
+.stage{display:none}.stage.on{display:block}
+.what{margin:6px 10px 0;font-size:14px;line-height:1.6;color:#373c43}
+.page{width:auto;max-width:620px}
+.next{margin:2px 0 0 20px;border-color:#4b52e0;color:#4b52e0}
+#ask-open .btn.pick{cursor:pointer;box-shadow:0 0 0 2px #c9cdfa}#ask-open .btn.pick:hover{filter:brightness(.95)}
+"""
+DEMO_JS = """
+function show(n){document.querySelectorAll('.stage').forEach(function(s){s.classList.toggle('on',s.id==='step-'+n)});
+document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('on',t.dataset.step===String(n))});
+window.scrollTo(0,0)}
+document.querySelectorAll('.tab,.next').forEach(function(b){b.onclick=function(){show(b.dataset.step)}});
+document.querySelectorAll('#ask-open .btn').forEach(function(b){
+var done=[].filter.call(document.querySelectorAll('.ask-done'),function(d){return d.dataset.answer===b.textContent.trim()})[0];
+if(!done)return;b.classList.add('pick');b.onclick=function(){document.getElementById('ask-open').hidden=true;done.hidden=false}});
+"""
 
 
 def escape(text):
     return html.escape(str(text), quote=False).replace("&amp;#", "&#")
+
+
+def badges(drawn):
+    """HTML with the cards' emoji as the small drawn badges of EMOJI (no colour emoji font here)."""
+    for emoji, badge in EMOJI.items():
+        drawn = drawn.replace(emoji, badge)
+    return drawn.replace("⁠", "")
 
 
 def pixels(padding):
@@ -554,12 +683,20 @@ def install(out):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--out", required=True, help="where the HTML pages and PNGs go")
+    parser.add_argument("--out", help="where the HTML pages and PNGs go (not with --demo)")
+    parser.add_argument("--demo", action="store_true", help=f"write {DEMO_PAGE.relative_to(REPO)} and nothing else")
     parser.add_argument("--png", action="store_true", help="shoot each page as a PNG (needs Playwright)")
     parser.add_argument("--browser", default="", help="a Chromium to shoot with instead of Playwright's own")
     parser.add_argument("--install", action="store_true",
                         help=f"put the PNGs of --out into {SHOTS_DIR.relative_to(REPO)} (needs Pillow), nothing else")
     args = parser.parse_args(argv)
+    if args.demo:
+        DEMO_PAGE.parent.mkdir(parents=True, exist_ok=True)
+        DEMO_PAGE.write_text(demo_page(), encoding="utf-8")
+        print(DEMO_PAGE)
+        return 0
+    if not args.out:
+        parser.error("--out is required")
     out = Path(args.out)
     if args.install:
         install(out)

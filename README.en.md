@@ -10,7 +10,7 @@ Most of the documentation is written in Chinese for now.
 
 ## What it looks like
 
-These are **card sketches** rendered from Covey's card JSON with demo data, not screenshots of the real client; the real look is whatever Feishu draws. The interface is in Chinese.
+These are **card sketches** rendered from Covey's card JSON with demo data, not screenshots of the real client; the real look is whatever Feishu draws. The interface is in Chinese. To click through the flow, open the [three-step demo page](docs/demo/index.html) in a browser from a checkout (hand off to a topic, answer a question, see the answer and its artifacts; demo data; GitHub shows its source).
 
 <img src="docs/media/screenshots/01-butler.png" width="560" alt="In the private chat, one sentence is enough: the butler opens a topic under it and brings the conclusion back">
 
