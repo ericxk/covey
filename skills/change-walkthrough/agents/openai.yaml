@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Walkthrough"
+  short_description: "Write a one-page walkthrough of a big change for a colleague"
+  default_prompt: "Use $change-walkthrough to write a one-page walkthrough of this branch or commit range for a colleague."

@@ -202,6 +202,6 @@ systemctl --user restart covey-manager.service   # 改名前装的机器上单�
 
 托管方式本身见[运维 · 服务托管](operations.md#服务托管)。
 
-**7. 更新 Skills。** 运行 `./scripts/install_skills.sh`，它把本仓库的 Skills 同步到 `${CODEX_HOME:-~/.codex}/skills` 和 `${CLAUDE_HOME:-~/.claude}/skills`，同名目录整个替换。安装 Skills 不会重启机器人。
+**7. 更新 Skills。** 运行 `./scripts/install_skills.sh`，它把本仓库的 Skills 同步到 `${CODEX_HOME:-~/.codex}/skills` 和 `${CLAUDE_HOME:-~/.claude}/skills`，同名目录整个替换。现有两个：`harness-bridge-onboarding`（带新人装机器人）和 `change-walkthrough`（把一批大改动写成一页走读，给同事讲清改了什么、怎么看、怎么验证、从哪接上）。安装 Skills 不会重启机器人。
 
 **8. 需要时更新内存看门狗。** 部署不会更新看门狗的本地副本；要用新代码时从新 release 执行一次 `bin/covey_memguard.py enable`（见[运维 · 内存看门狗](operations.md#内存看门狗)）。

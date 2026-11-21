@@ -36,7 +36,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 | 选项 | 含义 |
 | --- | --- |
 | `--reconfigure` | 重来：重新建应用、授权、补配置并重注册服务。不加时，已有的应用、授权、配置、服务都复用，重复运行是安全的 |
-| `--skills` | 同时同步 `skills/` 到 Codex 和 Claude 的 Skills 目录 |
+| `--skills` | 同时同步 `skills/` 到 Codex 和 Claude 的 Skills 目录（`harness-bridge-onboarding`、`change-walkthrough`） |
 | `--non-interactive` | 不提问；缺什么就报什么退出；最后也不等第一个回答 |
 | `--data-home DIR` | 数据根（不给时用 `COVEY_DATA_HOME`，再不然是仓库同级的 `<仓库目录名>-data`） |
 | `--workdir DIR` | 默认工作区 |
