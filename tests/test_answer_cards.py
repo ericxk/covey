@@ -23,6 +23,7 @@ from covey.cards.elements import replace_element
 from covey.cards.review import ANSWER_CARD_BYTES, after_lead, answer_card, answer_lead
 from covey.core.jobs import job_key, upsert_job_record
 from covey.core.state import read_object, write_json
+from covey.feishu.transport import Failure, last_failure, set_failure
 
 VOICE = SimpleNamespace(safe_key=lambda key: key, key_prefix="p", message_format=lambda: "markdown",
                         chunk_limit=lambda: 3800)
@@ -610,7 +611,9 @@ class AttachTest(Case):
 
 
 class DeliveryTest(Case):
-    def deliver(self, reply, chat="oc_1", progress=True):
+    def deliver(self, reply, chat="oc_1", progress=True, refuse_card=False, file_ok=True):
+        """``refuse_card``: Feishu's audit refuses the answer card even masked (feishu/delivery.py); ``file_ok``: whether
+        a result file goes out."""
         self.files = []
         job = make_job(job_id=7, chat_id=chat, message_id="om_1", topic_id="t1",
                        progress=SimpleNamespace() if progress else None,
@@ -628,6 +631,9 @@ class DeliveryTest(Case):
         cards.body_cut.return_value = False
 
         def send(ctx, chat, text, key, card=None, on_card=None):
+            if refuse_card and card is not None:
+                set_failure(Failure("audit_rejected"))
+                return False
             if card is not None and on_card is not None:
                 on_card("om_answer" if not key.endswith("-tail") else "om_tail")
             return True
@@ -635,7 +641,8 @@ class DeliveryTest(Case):
         runtime = mock.Mock()
         runtime.access.owner_chat.return_value = "oc_1"  # The owner's private chat (app/access.py).
         delivery = TurnDelivery(job, self.ctx, turn, prefix="p", cards=cards, runtime=runtime,
-                                artifacts=SimpleNamespace(voice=VOICE, send_result_file=lambda c, j, text: self.files.append(text) or True),
+                                artifacts=SimpleNamespace(voice=VOICE, send_result_file=lambda c, j, text: (
+                                    self.files.append(text) or file_ok)),
                                 questions=mock.Mock(), steering=mock.Mock(),
                                 record_job_state=mock.Mock(), send_text=send_text)
         with mock.patch.object(TurnDelivery, "texts", return_value=(reply, reply, False)), \
@@ -678,6 +685,23 @@ class DeliveryTest(Case):
         Path(self.record["checkpoint_path"]).write_text(json.dumps({"artifacts": [str(self.root / "REPORT.md")], "delivery": {"verified": "答了"}},
                                                                 ensure_ascii=False))
         self.assertEqual(ids(self.deliver("好了").call_args.kwargs["card"]), [None, ARTIFACTS_ID, FACTS_ID])
+
+    def test_an_answer_the_audit_refuses_even_masked_goes_as_a_file_with_one_line_why(self):
+        # #24: only the saved text, never the model again (rule 5); the card keeps none of its words.
+        from covey.app.answer_delivery import AUDIT_FILE_NOTE
+        send_text = self.deliver("## 结论\n被拦的回答", refuse_card=True)
+        self.assertEqual(self.files, ["## 结论\n被拦的回答"])
+        said = [call.args[2] for call in send_text.call_args_list]
+        self.assertEqual(said[-1], AUDIT_FILE_NOTE)
+        last = self.delivery.record_job_state.call_args_list[-1]
+        self.assertEqual((last.args[2], last.kwargs["delivery_ok"]), ("done", True))
+        self.assertNotIn("被拦的回答", json.dumps(self.receipts(), ensure_ascii=False))
+        self.assertIsNone(last_failure())
+        # The file not sent either: the audit's refusal stays the turn's failure, said as before.
+        from covey.app.outbox import AUDIT_REFUSED_NOTE
+        self.deliver("## 结论\n被拦的回答", refuse_card=True, file_ok=False)
+        last = self.delivery.record_job_state.call_args_list[-1]
+        self.assertEqual((last.args[2], last.args[3], last.kwargs["delivery_ok"]), ("failed", AUDIT_REFUSED_NOTE, False))
 
     def test_the_answer_cards_message_is_saved_on_the_job_for_the_pinned_board(self):
         self.deliver("好了")  # No 产物 to keep up to date: still the card's message, which a 话题区's pin is.

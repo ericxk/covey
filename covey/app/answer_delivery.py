@@ -1,7 +1,10 @@
 """TurnDelivery's (app/turn_delivery.py) answer card sent on its own: ``AnswerParts`` sends the verified reply as its card
 where the placement table puts it, with its 产物 and 输入/输出 (app/answer_cards.py makes their lines and keeps the
-cards for the upload) and the line or "你问" block atop it, through app/saved_send.py, as each redelivery sends it."""
+cards for the upload) and the line or "你问" block atop it, through app/saved_send.py, as each redelivery sends it. A reply
+Feishu's audit refuses even masked goes as a file of the same saved text, with one line why (``refused_as_file``)."""
 from __future__ import annotations
+
+import dataclasses
 
 from covey.app import answer_cards, saved_send
 from covey.cards.review import answer_lead
@@ -9,6 +12,10 @@ from covey.core import placement
 from covey.core.failure import HEADLINE_CHARS
 from covey.core.jobs import find_job_record, job_key
 from covey.core.saved_results import saved_delivery_key, saved_delivery_kind
+from covey.feishu.transport import last_failure, set_failure
+
+# The line after a saved reply Feishu's audit refused even masked (feishu/delivery.py), sent as a file instead (#24).
+AUDIT_FILE_NOTE = "飞书内容审核拦下了这条回答（打码后也没通过），原文作为文件发在上面。"
 
 
 class AnswerParts:
@@ -42,6 +49,28 @@ class AnswerParts:
         saved_send.keep(ctx.state_dir, job_key(job.message_id, job.job_id), outgoing, self.runtime.log)
         sent.delivered, self.answer_message = saved_send.send_saved(
             ctx, job, delivery_text, outgoing, send=self.send_text, artifacts=self.artifacts, log=self.runtime.log)
+        refused = last_failure()
+        if not sent.delivered and not outgoing.file and refused is not None and refused.category == "audit_rejected":
+            sent.delivered = self.refused_as_file(outgoing, delivery_text)
+
+    def refused_as_file(self, outgoing, delivery_text) -> bool:
+        """Feishu's audit refused the saved reply even masked (feishu/delivery.py): the same saved text as a file where
+        the answer would have gone, then one line why (AUDIT_FILE_NOTE), #24. Only the saved text is sent, the model is
+        not run again (rule 5). Whether the file went; when it did not, the audit's refusal stays the turn's failure."""
+        job, ctx = self.job, self.ctx
+        refused = last_failure()
+        where = dataclasses.replace(ctx, reply_to_message_id="") if outgoing.top else ctx
+        if not self.artifacts.send_result_file(where, job, delivery_text):
+            set_failure(refused)
+            return False
+        self.audit_file = True
+        self.runtime.log(f"answer of job #{job.job_id} refused by Feishu's audit even masked; sent as a file")
+        try:
+            self.send_text(where, job.chat_id, AUDIT_FILE_NOTE, f"{self.prefix}-audit-file-{job.message_id}")
+        except Exception as exc:  # noqa: BLE001 - the file is out; the line is an extra
+            self.runtime.log(f"audit file note failed: {type(exc).__name__}")
+        set_failure(None)
+        return True
 
     def process_snapshot(self):
         """The turn's process snapshot (core/trace.py; ``deliver``'s snapshot is the workdir's, for the diff):

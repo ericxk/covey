@@ -107,6 +107,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         # The answer card sent on its own (_answer_apart), saved as the job's answer_message_id: the pinned board
         # pins it for a 话题区's result (app/pins.py).
         self.answer_message = ""
+        self.audit_file = False  # Feishu's audit refused the saved reply: it went as a file (AnswerParts.refused_as_file).
 
     def deliver(self, snapshot):
         """Record the finished turn, then show and send its result."""
@@ -365,7 +366,9 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         already), with the plain lead, or a fixed sentence with "": the
         fallback and a 代答 turn's "↓ 不代你回复…" lines, which the topic's ⏸ card or line explains."""
         reply, outcome = self.turn.verified_delivery, self.turn.verified_outcome
-        lead = answer_lead(reply.text) if reply is not None and saved_delivery_kind(reply, outcome) != "file" else ""
+        # A reply the audit refused went as a file (AnswerParts.refused_as_file): its words stay off the card too.
+        lead = (answer_lead(reply.text) if reply is not None and saved_delivery_kind(reply, outcome) != "file"
+                and not self.audit_file else "")
         if lead and proxy_topic(self.ctx):
             # A 代答 turn that sends nothing leads with its control mark, which the topic's ⏸ card or line
             # below says in words (repo review U5: "↓ [不回复]").
