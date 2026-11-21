@@ -17,6 +17,7 @@ from covey.cards.card_cost import CARD_COST_BUDGET, CARD_TOO_BIG, card_cost, tex
 from covey.cards.streaming import (CardLook, SLIM_DETAILS_ID, STEER_ELEMENT_ID, STEER_LABEL, STOP_ACTION_ELEMENT_ID,
                                    build_stream_card, card_details_text, other_costs)
 from covey.cards.task_figures import FIGURES_ELEMENT_ID, IO_BOX_ID, io_figures, io_lines
+from covey.cards.trace_view import TRACE_COST
 from covey.cards.task_status import (STATUS_MORE_ID, activity_element, more_element, ran_of, status_elements,
                                               slim_status_markdown, status_markdown, status_rows)
 from covey.core import butler
@@ -235,6 +236,20 @@ def running_figures(progress: Any, content: str) -> dict | None:
 
 
 MIN_BODY_COST = 2000  # A body this small refused as too big: the rest of the card is, not the body.
+PANEL_FLOOR = 20_000  # What the process panel may cost however long the body: CardKit's refusals began above 358,000.
+
+
+def panel_room(progress: Any) -> int:
+    """What the process panel may cost (cards/card_cost.py) on the card of ``progress``: TRACE_COST (cards/trace_view.py),
+    less when its body and other parts, as last written, leave less of CARD_COST_BUDGET, never under PANEL_FLOOR. The
+    body is cut to what the rest leaves when it is written (``reserved_cost``); a panel that grows after a long body (a
+    Claude turn's background tasks after its reply) yields to it here, so the card stays within the budget either way."""
+    others = getattr(progress, "others", None)
+    if not isinstance(others, dict):
+        return TRACE_COST
+    rest = sum(cost for name, cost in others.items() if name != "process_panel")
+    body = text_cost(str(getattr(progress, "last_content", "") or ""))
+    return max(PANEL_FLOOR, min(TRACE_COST, CARD_COST_BUDGET - rest - body))
 
 
 def reserved_cost(progress: Any) -> int:

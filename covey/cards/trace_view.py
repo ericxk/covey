@@ -7,6 +7,7 @@ import re
 import time
 from typing import NamedTuple
 
+from covey.cards.card_cost import card_cost, text_cost
 from covey.cards.elements import (element_count, fold, grey, json_size, markdown_blocks,
                                            markdown_panel, md)
 from covey.core.metrics import clock_text, took_text
@@ -185,35 +186,61 @@ def older_fold(briefs, dropped=0):
     return small_fold("trace_older", f"更早的 {len(briefs) + dropped} 条记录（只留首句）", markdown_blocks(lines))
 
 
-def fold_older(elements, briefs, bytes_left, nodes_left, end=None):
-    """``elements`` as they are when they fit the room, else with as few of the oldest as it takes moved into
+class Room(NamedTuple):
+    """What the records of the process panel may take: bytes of JSON, CardKit's tagged nodes, and CardKit's size
+    (cards/card_cost.py card_cost: every line and mark counts, so a panel of many very short steps is small in bytes
+    and large there)."""
+    bytes: int
+    nodes: int
+    cost: int
+
+
+def measure(elements) -> tuple:
+    """(bytes, nodes, cost) of ``elements`` the way a Room counts them."""
+    return (sum(json_size(e) + 2 for e in elements), sum(element_count(e) for e in elements),
+            sum(card_cost(e) for e in elements))
+
+
+def within(used, room) -> bool:
+    return used[0] <= room.bytes and used[1] <= room.nodes and used[2] <= room.cost
+
+
+def fold_older(elements, briefs, room, end=None):
+    """``elements`` as they are when they fit ``room``, else with as few of the oldest as it takes moved into
     ``older_fold`` (one line each; an element without a brief line, a note's later chunk, goes without one),
     the fold's own oldest lines left out if even it is too long. Nothing from ``end`` on folds (the last
     进展说明 and what came after it). A long task keeps every 进展说明 it has room for, without pages (about one
     task in ten has more than a card holds, up to 72 KB)."""
-    costs = [(json_size(e) + 2, element_count(e)) for e in elements]
-    total = (sum(c[0] for c in costs), sum(c[1] for c in costs))
-    if total[0] <= bytes_left and total[1] <= nodes_left:
+    costs = [measure([e]) for e in elements]
+    total = tuple(map(sum, zip(*costs))) if costs else (0, 0, 0)
+    if within(total, room):
         return elements
 
-    def fits(panel, size, nodes):
-        return size + json_size(panel) + 2 <= bytes_left and nodes + element_count(panel) <= nodes_left
+    def fits(panel, used):
+        return within(tuple(a + b for a, b in zip(used, measure([panel]))), room)
 
     end = len(elements) if end is None else end
-    size, nodes, lines = total[0], total[1], []
+    used, lines, least = total, [], []  # least[i]: what lines[:i] add to the fold at the least (bytes, size).
     for count in range(1, end + 1):  # Fold the oldest `count`; the fold grows by a line at a time.
-        size, nodes = size - costs[count - 1][0], nodes - costs[count - 1][1]
+        used = tuple(a - b for a, b in zip(used, costs[count - 1]))
         if briefs.get(id(elements[count - 1])):
-            lines.append(briefs[id(elements[count - 1])])
+            line = briefs[id(elements[count - 1])]
+            last = least[-1] if least else (0, 0)
+            lines.append(line)
+            least.append((last[0] + json_size(line) + 1, last[1] + text_cost(line) + 1))
         if not lines:
-            if size <= bytes_left and nodes <= nodes_left:
+            if within(used, room):
                 return elements[count:]
             continue
-        # The fold's size grows with its lines: measure it only once the rest leaves room for a fold at all.
-        if size + json_size(lines) <= bytes_left and fits(older_fold(lines), size, nodes):
+        # The fold's size grows with its lines: measure it only once the rest leaves room for its lines at all (a
+        # measure of the whole fold at each step took seconds for a task of thousands of short steps).
+        if (used[0] + least[-1][0] <= room.bytes and used[2] + least[-1][1] <= room.cost
+                and fits(older_fold(lines), used)):
             return [older_fold(lines)] + elements[count:]
     for dropped in range(1, len(lines) + 1):
-        if fits(older_fold(lines[dropped:], dropped), size, nodes):
+        kept = (least[-1][0] - least[dropped - 1][0], least[-1][1] - least[dropped - 1][1])
+        if (used[0] + kept[0] <= room.bytes and used[2] + kept[1] <= room.cost
+                and fits(older_fold(lines[dropped:], dropped), used)):
             return [older_fold(lines[dropped:], dropped)] + elements[end:]
     return elements[end:]
 
@@ -221,7 +248,16 @@ def fold_older(elements, briefs, bytes_left, nodes_left, end=None):
 # CardKit update docs advise <=30 KB per card; 200 tagged nodes is a hard
 # limit. Reserve space for the request, task controls, status and delivery text.
 OLD_SNAPSHOT_BYTES = 23200  # The budget of a snapshot saved without one; a new trace writes its own (core/trace.py TRACE_BYTES).
-TRACE_ELEMENTS = 115  # five nodes reserved for the stable transport wrapper
+TRACE_ELEMENTS = 115  # The whole panel's nodes, its wrapper's (WRAPPER_NODES) among them.
+# The wrapper cards/trace_updates.py panel_json puts around the records: the two column sets and their columns, the
+# collapsible with its title and chevron, the figures line, and a page notice of an older card's.
+WRAPPER_NODES = 9
+# The whole panel's CardKit size (cards/card_cost.py), of the card's CARD_COST_BUDGET (300,000). A panel full to its bytes
+# with ordinary steps measured 100,000-112,000, a 600-line plan beside 100 commands 130,000; one of many very short steps
+# and notes 211,000 (a card of it left the answer less than a third of its room). Its wrapper's part (WRAPPER_COST) comes
+# off first.
+TRACE_COST = 150_000
+WRAPPER_COST = 3000
 CHILD_STEPS_BELOW = "子任务的过程记录见下方"
 CHILD_NO_EVENTS = "尚未收到子任务的公开过程事件"
 
@@ -406,27 +442,27 @@ def assemble(items):
 
 
 def item_cost(item, state=None):
-    """(bytes, nodes) of an item's elements as assemble writes them, a run in ``state``."""
+    """(bytes, nodes, cost) of an item's elements as assemble writes them, a run in ``state`` (``measure``)."""
     if item["kind"] == "run":
         parts = run_elements(item["rows"], state or item["state"])
     else:
         parts = item["full"] if item["kind"] == "note" else [item["element"]]
-    return sum(json_size(e) + 2 for e in parts), sum(element_count(e) for e in parts)
+    return measure(parts)
 
 
-def fit_items(items, bytes_left, nodes_left):
+def fit_items(items, room):
     """Make room the way the owner asked: the oldest runs' details go first, each run then its
     count line, the last run last; a run's operations still running stay. The 进展说明 are folded afterwards, by
     fold_older, only when even that is not enough."""
     costs = [item_cost(item) for item in items]
-    size, nodes = sum(c[0] for c in costs), sum(c[1] for c in costs)
+    used = tuple(map(sum, zip(*costs))) if costs else (0, 0, 0)
     runs = [i for i, item in enumerate(items) if item["kind"] == "run"]
     order = [(i, "collapsed") for i in runs[:-1]] + [(i, "folded") for i in runs[-1:]]
     for i, state in order:
-        if size <= bytes_left and nodes <= nodes_left:
+        if within(used, room):
             break
         cost = item_cost(items[i], state)
-        size, nodes = size - costs[i][0] + cost[0], nodes - costs[i][1] + cost[1]
+        used = tuple(total - old + new for total, old, new in zip(used, costs[i], cost))
         costs[i] = cost
         items[i]["state"] = state
     return items
@@ -544,29 +580,30 @@ class TraceView:
         title = f"{time.strftime('%H:%M:%S', time.localtime(agent['started_at']))} · {agent['name']} · {status} · {elapsed:.1f} 秒"
         return markdown_panel("sub_" + hashlib.sha256(sid.encode()).hexdigest()[:16], title, content[:2400], size="notation")
 
-    def _elements(self, running):
+    def _elements(self, running, cost=TRACE_COST):
         """(elements, lines) of the panel, oldest first: the oldest operations' details hidden first when there is
-        no room for all (fit_items), then the oldest entries folded (fold_older)."""
+        no room for all (fit_items), then the oldest entries folded (fold_older). ``cost``: the whole panel's CardKit
+        size at most (TRACE_COST, less where the card has less room: app/task_card.py panel_room)."""
         chunk_bytes = max(400, min(4000, self.byte_budget - 7500))
         lines, child_elements, notes, tool_rows = self._trace_lines()
-        bytes_left, nodes_left = self.byte_budget - 1400, TRACE_ELEMENTS - 4
+        room = Room(self.byte_budget - 1400, TRACE_ELEMENTS - WRAPPER_NODES, max(0, cost - WRAPPER_COST))
         items = trace_items(lines, child_elements, notes, tool_rows, chunk_bytes)
         hidden = self.total - len(self.steps)
         if hidden:
             line = md(f"已隐藏 {hidden} 条较早工具记录；进展说明保留全文。", size="notation")
             items.insert(0, {"kind": "other", "element": line, "brief": line["content"]})
         # Measured with every sub-task named, so the first entry after the fold has room for its name.
-        elements, short, briefs, protected = assemble(fit_items(items, bytes_left, nodes_left))
-        elements = fold_older(elements, briefs, bytes_left, nodes_left, protected)
+        elements, short, briefs, protected = assemble(fit_items(items, room))
+        elements = fold_older(elements, briefs, room, protected)
         first = 1 if elements and elements[0].get("element_id") == "trace_older" else 0
         return [short.get(id(e), e) if i > first else e for i, e in enumerate(elements)], lines
 
-    def panel_model(self, running=True, *, timed=False, opened=False):
+    def panel_model(self, running=True, *, timed=False, opened=False, cost=TRACE_COST):
         """The process panel as data, one page (``fold_older``); cards/trace_updates.py
         ``panel_json`` draws it. ``timed``: an ended turn's state says how long it took, on a card whose status
         line does not (the interrupted task's). ``opened``: drawn open (``PanelModel.expanded``); every other panel
-        is drawn folded, running or ended, and the owner opens it."""
-        elements, lines = self._elements(running)
+        is drawn folded, running or ended, and the owner opens it. ``cost``: its CardKit size at most (``_elements``)."""
+        elements, lines = self._elements(running, cost)
         # The rows and the time; no token line: the 输入/输出 box has the tokens and the speed, 任务详情 the TTFT
         # (cards/streaming.py task_details_text, by ``ttft_line``), kept
         # current while the turn runs. The time is on the status line (✅ 已完成 · 用时 …), not here as well.

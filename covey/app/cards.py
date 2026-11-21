@@ -22,7 +22,7 @@ import time
 
 from covey.app.task_card import (StreamingCard, StreamingReply, bind_record, body_anchor, bottom_anchor,
                                           count_update_failure, details_anchor, drop_element, io_card, note_element,
-                                          status_actions, took_status, under_body, write_live)
+                                          panel_room, status_actions, took_status, under_body, write_live)
 from covey.app import answer_cards
 from covey.app.launch_models import available_models
 from covey.core.menu_choice import find_choice
@@ -558,7 +558,8 @@ class Cards:
         drawn yet comes with the result, as before). The caller holds the card lock."""
         if snapshot is None or job.trace_rendered_panel is None or job.trace_rendered_card != job.progress.card_id:
             return None
-        return panel_json(TraceView(ToolTrace.restore(snapshot).snapshot()).panel_model(running=False))
+        return panel_json(TraceView(ToolTrace.restore(snapshot).snapshot()).panel_model(
+            running=False, cost=panel_room(job.progress)))
 
     def _replace_top(self, ctx, job, content, name, extra=()):
         """``content`` in the status line and the action row deleted, in one batch with ``extra``

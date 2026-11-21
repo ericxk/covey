@@ -14,7 +14,7 @@ from covey.cards import answer_card
 from covey.core.trace import ToolTrace
 from covey.cards.trace_updates import incremental_actions, panel_json
 from covey.cards.trace_view import TraceView
-from covey.app.task_card import note_element
+from covey.app.task_card import note_element, panel_room
 from covey.core.jobs import upsert_job_record
 from covey.core.locks import card_lock
 from covey.core.metrics import run_seconds, run_start, took_text
@@ -201,7 +201,7 @@ class TaskDetails:
                 if stale():
                     return
                 running = trace.ended_at is None
-                panel = panel_json(TraceView(trace.snapshot()).panel_model(running=running))
+                panel = panel_json(TraceView(trace.snapshot()).panel_model(running=running, cost=panel_room(job.progress)))
                 # A running turn's 任务详情 goes with its panel: once 0a26e8e took the model's figures off
                 # the running panel's title, a running card showed them nowhere.
                 details = self._live_details(job, snapshot) if running else None
