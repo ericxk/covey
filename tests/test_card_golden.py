@@ -768,7 +768,7 @@ def answer_tail_cards():
     the small card after an answer sent as a file."""
     from covey.cards.relay_card import DONE, STOPPED, WAITING, merged_card, relay_card
     from covey.cards.answer_card import (ARTIFACTS_ID, acceptance_element, criteria_element, input_parts, memory_element,
-                                         output_parts, review_element, tail, tail_card)
+                                         output_parts, review_element, revisit_hint_element, tail, tail_card)
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_band, answer_card
     from covey.cards.topic_actions import topic_panel
@@ -836,6 +836,12 @@ def answer_tail_cards():
                 {"kind": "remembered", "text": "选型类的事不用先问侧重点", "scope": "管这个专项", "entry_id": "a1b2c3"},
                 {"kind": "voided", "text": "选型前先问侧重点", "scope": "管这个专项", "entry_id": "d4e5f6"},
                 {"kind": "undone", "text": "产物放 out/", "scope": "管这个话题", "entry_id": "0a1b2c"}], "tf0001", 439)]),
+            # An ordinary topic's reply that put something off with nothing to come back (app/revisit_hint.py): the line, and
+            # with COVEY_REVISIT=1 its 约 30 分钟后回来看 button.
+            "answer_card_unwatched": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs, buttons=[
+                revisit_hint_element("tf0001", 439)])),
+            "answer_card_unwatched_revisit": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs, buttons=[
+                revisit_hint_element("tf0001", 439, button=True)])),
             "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
             "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),
                                                       [head_element("⏹ 已停止", "T443", "改看板的 Pin 目标")]),

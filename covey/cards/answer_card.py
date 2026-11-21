@@ -286,6 +286,23 @@ def memory_element(notes, topic_id="", job_id=""):
         {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": rows}]}
 
 
+REVISIT_HINT_ID = "answer_revisit_hint"
+REVISIT_HINT_KIND = "bridge_revisit_hint"
+REVISIT_HINT_LINE = "这一轮结束后没有人会回来看"
+REVISIT_HINT_BUTTON = "约 30 分钟后回来看"
+
+
+def revisit_hint_element(topic_id="", job_id="", button=False):
+    """The grey line under an ordinary topic's answer that put something off with nothing to bring it back (app/revisit_hint.py):
+    "这一轮结束后没有人会回来看", and with 到点回来看 on (``button``) a 约 30 分钟后回来看 button that sets that topic's revisit
+    (``REVISIT_HINT_KIND``)."""
+    line = md(grey(REVISIT_HINT_LINE), size="notation")
+    row = item(line, text_button(REVISIT_HINT_BUTTON, {"kind": REVISIT_HINT_KIND, "topic_id": str(topic_id or ""),
+                                                       "job_id": job_id})) if button else line
+    return {"tag": "column_set", "element_id": REVISIT_HINT_ID, "columns": [
+        {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": [row]}]}
+
+
 ACCEPTANCE_ID = "answer_acceptance"
 LOCAL_ONLY = "只做了本地验证"  # 去哪看 without a link the owner can click (docs/usage.md).
 

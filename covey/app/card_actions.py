@@ -65,6 +65,9 @@ ACTIONS = {
     "bridge_review_open": CardAction("独立复核", bot_only=True),
     # 不对 on the memory lines of an answer card (cards/answer_card.py memory_element, COVEY_MEMORY=1): takes a line back, starts no task.
     "bridge_memory_wrong": CardAction("撤销刚记下的记忆", handler="controls.memory_wrong"),  # COVEY_MEMORY=1: starts no task.
+    # 约 30 分钟后回来看 under an ordinary topic's answer that put something off (cards/answer_card.py revisit_hint_element, COVEY_REVISIT=1):
+    # the owner's; sets that topic's revisit (app/revisit_hint.py), starts no task.
+    "bridge_revisit_hint": CardAction("约 30 分钟后回来看", handler="controls.revisit_hint"),
     # The 专项卡's buttons (cards/project_card.py): the card's message routes to the project's lead topic, so a click is
     # that topic's. Not bot_only: none starts a task (补充 opens the form of the lead's running turn, and says so when it has
     # none), and the value names a project, not a job, so the Bridge takes it in any case (runner_ipc.forward_card_action).

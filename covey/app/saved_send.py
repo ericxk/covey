@@ -24,7 +24,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from covey.app import answer_cards, review
+from covey.app import answer_cards, review, revisit_hint
 from covey.app.access import Access
 from covey.app.artifacts import answer_files
 from covey.cards.answer_card import head_element, tail as answer_tail
@@ -154,15 +154,16 @@ def send_saved(ctx, job, text, outgoing, *, send, artifacts, log):
     return delivered, message
 
 
-def tail_parts(state_dir, record, topic_id, voice, job, harness, snapshot, ctx):
+def tail_parts(state_dir, record, topic_id, voice, job, harness, snapshot, ctx, hint=()):
     """(elements, whether they show 产物, the upload's status they show) under an answer sent on its own
     (cards/answer_card.py tail): the 产物 of the job ``record`` as the upload stands now and the 输入/输出 box of
-    ``job`` run by ``harness`` (its process ``snapshot``)."""
+    ``job`` run by ``harness`` (its process ``snapshot``); ``hint``: the line of an ordinary topic's reply that put something
+    off (app/revisit_hint.py), last."""
     panel = answer_files(state_dir, record, topic_id, voice) if record else None
     ledger = answer_cards.ledger_of(state_dir, record, voice) if panel else None
     elements = answer_tail(panel, answer_cards.inputs(job, harness, snapshot, ctx),
                            answer_cards.outputs(job, snapshot), change=answer_cards.change(job),
-                           notes=answer_cards.notes(state_dir, job), buttons=review.buttons(job))
+                           notes=answer_cards.notes(state_dir, job), buttons=[*review.buttons(job), *hint])
     return elements, panel is not None, (ledger or {}).get("status")
 
 
@@ -240,7 +241,10 @@ def rebuilt(ctx, record, saved_job, reply, text, *, key, file, bare, harness, ca
     job = record_job(record, saved_job, harness=harness, cards=cards, ctx=ctx, log=log)
     try:
         snapshot = load_trace(Path(state_dir), record)
-        tail, files, status = tail_parts(state_dir, record, ctx.topic_id, voice, job, harness, snapshot, ctx)
+        hint = revisit_hint.elements(state_dir, topic_id=ctx.topic_id, chat_id=record.get("chat_id"), job_id=job.job_id,
+                                     text=reply.text, done=record.get("status") == "done",
+                                     checkpoint_path=str(record.get("checkpoint_path") or ""), snapshot=snapshot)
+        tail, files, status = tail_parts(state_dir, record, ctx.topic_id, voice, job, harness, snapshot, ctx, hint)
     except Exception as exc:  # noqa: BLE001 - the answer goes all the same
         log(f"answer card tail unavailable: {type(exc).__name__}: {exc}")
         tail, files, status = [], False, None

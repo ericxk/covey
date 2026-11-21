@@ -326,6 +326,11 @@ class TaskControls(Redelivery):
         from covey.app import memory_collect
         return memory_collect.undo(self, ctx, event)
 
+    def revisit_hint(self, ctx, event):
+        """约 30 分钟后回来看 under an answer that put something off (app/revisit_hint.py): the topic's revisit is set."""
+        from covey.app import revisit_hint
+        return revisit_hint.click(self, ctx, event)
+
     def project_triage_wrong(self, ctx, event):
         """不对 on a row of a 专项卡's 分流记录: the form of the correction (app/project_clicks.py triage_wrong)."""
         from covey.app import project_clicks
