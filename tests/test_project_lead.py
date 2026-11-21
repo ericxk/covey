@@ -91,6 +91,15 @@ class RulesTest(Case):
                       "采纳了哪边的哪部分", "两边都没回答的问题"):
             self.assertIn(words, rules)
 
+    def test_a_topic_saying_it_is_done_is_checked_before_the_project_is_finished(self):
+        # #19: a topic's "done" is its claim; an MR only opened, or merged but not deployed, is not done.
+        rules = project_lead.lead_rules()
+        finish = next(line for line in rules.split("\n") if "project_finish 收尾" in line)
+        for words in ("话题说做完只是它的说法", "收尾前对照完成标准抽查关键产物", "topic_read 看检查点的提交、部署和自检",
+                      "只提了合并请求、合了没部署的，不算做完"):
+            self.assertIn(words, finish)
+        self.assertLess(finish.index("抽查关键产物"), finish.index("整理专项把已有话题收进来建的专项"))
+
     def test_the_rules_say_the_style_the_record_has(self):
         rules = project_lead.lead_rules({"report": "ask_only", "spawn": "保守"})  # An older record's spawn is read past.
         self.assertIn("只在需要主人定的时候说", rules)
