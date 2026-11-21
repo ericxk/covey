@@ -28,15 +28,15 @@ from covey.app.switch_handoff import capped
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
 from covey.core import criteria, devices, turn_words
-from covey.core.checkpoint import (CHECKPOINT_RULES, audit_recovery, checkpoint_note, gist_note, read_checkpoint,
-                                            release_user_wait)
+from covey.core.checkpoint import (audit_recovery, checkpoint_note, checkpoint_rules, gist_note, images_note,
+                                            read_checkpoint, release_user_wait)
 from covey.core.harness import (BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
                                          backend_capabilities, normalize_run_result)
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import upsert_job_record
 from covey.core import memory
 from covey.core import principles as owner_principles
-from covey.core.butler import is_butler_topic
+from covey.core.butler import is_butler_topic, traits
 from covey.core.metrics import mark
 from covey.core.proxy import brief_history, owner_turn_note
 from covey.core.redaction import topic_redaction
@@ -160,7 +160,39 @@ class Runs:
             memory_fix=memory_turn.fix_rule(ctx, job, lambda: self.owner_turn(ctx, job)),
             proxy=proxy_topic(ctx),
             gists=workspace_gists.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)) if fresh else "",
+            checkpoint=self.checkpoint_rules(ctx, job),
         )
+
+    @staticmethod
+    def slim(ctx: BridgeContext, job: ReplyJob | None) -> bool:
+        """Whether ``job``'s turn is the butler's or a lead's (Traits.own_turn): it answers and dispatches, so its
+        checkpoint contract has no steps, delivery or images (``checkpoint_rules``). No job: a topic's."""
+        return job is not None and traits(job.topic_id or ctx.topic_id, job.chat_id).own_turn
+
+    def checkpoint_rules(self, ctx: BridgeContext, job: ReplyJob | None, *, resumed: bool = False) -> str:
+        """The checkpoint contract of ``job``'s turn (core/checkpoint.py checkpoint_rules, 5.9 row 7): the part every turn
+        uses for a ``slim`` one; all of it at the head of a topic's new session, which may run long, change code or
+        show an image. A topic's ``resumed`` turn, whose session read that, is reminded of the part every turn uses and
+        of what the topic uses (``_used``)."""
+        if self.slim(ctx, job):
+            return checkpoint_rules(steps=False, delivery=False, images=False)
+        if not resumed or job is None:
+            return checkpoint_rules()
+        steps, delivery, images = self._used(ctx, job)
+        return checkpoint_rules(steps=steps, delivery=delivery, images=images)
+
+    def _used(self, ctx: BridgeContext, job: ReplyJob) -> tuple[bool, bool, bool]:
+        """(steps, delivery, images): whether a turn of the topic before ``job`` listed steps (a long task), whether one
+        changed code (it wrote a delivery, or the Bridge saw it change files: its diff), and whether the owner's words
+        of this turn are about an image to show at once (core/checkpoint.py IMAGE_WORDS)."""
+        images = bool(images_note(job.user_text))
+        try:
+            records = [record for record in self.harness.topic_records(ctx, job.chat_id)
+                       if record.get("message_id") != job.message_id]
+        except (OSError, ValueError, AttributeError):  # Unreadable: remind of all of it, as before the split.
+            return True, True, True
+        return (any(record.get("steps") for record in records),
+                any(record.get("delivery") or record.get("diff_json_path") for record in records), images)
 
     def principles(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
         """The owner's principles block for ``job``'s turn (core/principles.py): ctx's workspace's always (the
@@ -448,7 +480,7 @@ class Runs:
                 + ("\n\n" + principles if principles else "")
                 + ("\n\n" + project if project else "")
                 + ("\n\n" + knowledge_text if knowledge_text else "")
-                + "\n\n" + CHECKPOINT_RULES + ("\n\n" + REMEMBER_RULE if remember else "")
+                + "\n\n" + self.checkpoint_rules(ctx, job, resumed=True) + ("\n\n" + REMEMBER_RULE if remember else "")
                 + ("\n\n" + MEMORY_FIX_RULE if memory_fix else ""))
         return prompt
 
@@ -469,7 +501,7 @@ class Runs:
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
         shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
         return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
-                + self._revisit_note(ctx, job) + self._criteria_note(ctx, job))
+                + self._revisit_note(ctx, job) + self._criteria_note(ctx, job) + self._images_note(ctx, job))
 
     @staticmethod
     def _criteria_note(ctx: BridgeContext, job: ReplyJob) -> str:
@@ -477,6 +509,12 @@ class Runs:
         without: its message is as before."""
         found = criteria.note(criteria.read(ctx.state_dir, job.topic_id or ctx.topic_id))
         return "\n\n" + found if found else ""
+
+    def _images_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
+        """show_images's rule in the message of a ``slim`` turn (its rules lack it) whose owner's words are about an image
+        to show at once (core/checkpoint.py images_note); '' otherwise."""
+        note = images_note(job.user_text) if self.slim(ctx, job) else ""
+        return "\n\n" + note if note else ""
 
     @staticmethod
     def _gist_note(ctx: BridgeContext, job: ReplyJob) -> str:

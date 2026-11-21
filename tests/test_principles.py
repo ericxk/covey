@@ -20,7 +20,7 @@ from covey.app.prompts import (BUTLER_RULES_TEXT, PRINCIPLES_HEAD, bridge_rules,
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.core import butler_requests, butler, principles
-from covey.core.checkpoint import CHECKPOINT_RULES
+from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_rules
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.butler_tool_specs import TOOLS
@@ -119,7 +119,7 @@ def item(text, at):
 
 class BlockTest(unittest.TestCase):
     def test_no_principles_leave_the_rules_as_they_were(self):
-        before = "\n\n".join((constraints("unit"), workspace_block("ws", Path(".")), CHECKPOINT_RULES))
+        before = "\n\n".join((constraints("unit"), workspace_block("ws", Path(".")), checkpoint_rules()))
         self.assertEqual(bridge_rules(backend_name="unit", workspace_name="ws", workdir=Path(".")), before)
         self.assertEqual(bridge_rules(backend_name="unit", workspace_name="ws", workdir=Path("."), principles=""), before)
         self.assertEqual(principles_block([], [], "ws"), "")
@@ -130,7 +130,7 @@ class BlockTest(unittest.TestCase):
         self.assertEqual(block.splitlines(), [PRINCIPLES_HEAD, "通用：", "- 回复用中文", "工作区 bridge：", "- 和启动卡对齐"])
         rules = bridge_rules(backend_name="unit", workspace_name="bridge", workdir=Path("."), principles=block)
         self.assertEqual(rules, "\n\n".join((constraints("unit"), workspace_block("bridge", Path(".")), block,
-                                             CHECKPOINT_RULES)))
+                                             checkpoint_rules())))
 
     def test_past_the_limit_the_oldest_of_either_group_are_left_out(self):
         owner = [item(f"通用 {i} " + "字" * 150, f"2026-11-0{1 + i % 2}T00:00:{i:02d}Z") for i in range(30)]

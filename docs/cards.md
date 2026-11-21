@@ -114,6 +114,7 @@
 
 检查点的可选字段 `steps`、`delivery`（`core/checkpoint.py` 的 `checkpoint_steps`、`checkpoint_delivery`）：
 
+- 写给模型的约定（`core/checkpoint.py` 的 `checkpoint_rules`）：每轮都带 `CHECKPOINT_RULES`（何时写、字段、要主人定时怎么写、恢复和文件），`steps`、`delivery`、`show_images` 三条用到才带（`app/runs.py` 的 `Runs.checkpoint_rules`）：话题新会话的第一条消息全带；续接的轮次在这个话题有一轮列过步骤时带 `steps`，有一轮改过代码（写过 `delivery`，或 Bridge 记到它改了文件）时带 `delivery`，主人这句话说到二维码、截图、登录时带 `show_images`；管家和负责人的轮次三条都不带，主人对管家说到图时这一轮的消息里带 `show_images` 那条（`_images_note`）。Bridge 读这些字段不看规则带没带，检查点的 JSON 不变。
 - 容错：类型不对的项丢掉，未知状态和第二个 `doing` 当 `todo`，最多 `MAX_STEPS` 步。
 - `clock_steps` 按 Bridge 的时钟记每步第一次 `doing` 和 `done`；有过步骤后 `persist` 带 `steps`、`step_times`，没有过不写这些键。
 - 状态行、状态卡（`app/status_cards.py`）、快照（`app/butler.py`）、`topic_read`（`app/butler_tools.py` 的 `step_lines`）用同一套说法（`step_words`）。

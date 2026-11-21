@@ -24,6 +24,7 @@ from covey.backends.claude.compaction import command as compaction_command
 from covey.backends.claude.argv import stream_argv, turn_env
 from covey.core import butler, butler_settings, principles
 from covey.core.harness import HarnessCapabilities
+from covey.core.checkpoint import CHECKPOINT_RULES, DELIVERY_RULE, IMAGES_RULE, STEPS_RULE, checkpoint_rules
 from covey.core.harness import RunResult
 from covey.core.jobs import job_key, job_path, read_job_record, upsert_job_record
 from covey.core.process import JobCancelled, process_identity
@@ -950,6 +951,27 @@ class TurnTest(ButlerUnifiedCase):
         self.assertIn('T7 topic 7', prompt)
         self.assertIn('：全部]', prompt)
         self.assertTrue(prompt.endswith('THE MESSAGE'))
+
+    def test_the_butlers_checkpoint_contract_is_the_part_every_turn_uses(self):
+        """5.9 row 7: the butler answers and dispatches, so its rules carry no steps, delivery or show_images; its message
+        gets show_images's rule when the owner speaks of a QR code or a screenshot. A topic's turn has all of it."""
+        self.send('om_1')
+        job = self.job_of('om_1')
+        app = self.app.apps['claude']
+        target, _ = self.turn(job)
+        rules = app.runs.bridge_rules(target, job)
+        self.assertIn(CHECKPOINT_RULES, rules)
+        for part in (STEPS_RULE, DELIVERY_RULE, IMAGES_RULE):
+            self.assertNotIn(part, rules)
+        self.assertTrue(app.runs.slim(target, job))
+        self.assertEqual(app.runs._images_note(target, job), '')
+        job.user_text = '登录要扫码，二维码发我'
+        self.assertEqual(app.runs._images_note(target, job), '\n\n' + IMAGES_RULE.removeprefix('- '))
+        self.assertEqual(app.runs.bridge_rules(target), rules.replace(CHECKPOINT_RULES, checkpoint_rules()))
+        topic_job = SimpleNamespace(topic_id='a' * 32, chat_id=CHAT, user_text='二维码发我')
+        self.assertFalse(app.runs.slim(target, topic_job))
+        self.assertEqual(app.runs.checkpoint_rules(target, topic_job), checkpoint_rules())
+        self.assertEqual(app.runs._images_note(target, topic_job), '')  # Its rules have it already.
 
     def test_the_owners_principles_reach_the_butler_with_its_own_workspaces(self):
         """core/principles.py: the butler's turn reads 通用 and its own workspace's group, as a topic's does."""

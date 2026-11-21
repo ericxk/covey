@@ -1,5 +1,5 @@
 """Images a running task shows its owner at once (the checkpoint's ``show_images``, core/checkpoint.py
-CHECKPOINT_RULES): a login QR code, a screenshot he has to act on.
+IMAGES_RULE): a login QR code, a screenshot he has to act on.
 
 The task card's 产物 go up when the turn ends; a QR code expires in minutes. A turn that sends its
 QR codes itself with lark-cli replies to the root its history shows for the owner's last message, which may be a

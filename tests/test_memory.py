@@ -22,7 +22,7 @@ from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.cards import answer_card as cards
 from covey.core import knowledge, memory, principles, project_memory, projects, topic_memory
-from covey.core.checkpoint import CHECKPOINT_RULES
+from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_rules
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import find_job_record
 from covey.core.state import write_json
@@ -235,7 +235,7 @@ class TurnTest(TurnCase):
         quiet_job, said = self.job("帮我检查代码"), self.job("以后别再先问我侧重点了")
         self.assertNotIn(MEMORY_FIX_RULE, runs.bridge_rules(self.ctx, quiet_job))
         rules = runs.bridge_rules(self.ctx, said)
-        self.assertTrue(rules.endswith(CHECKPOINT_RULES + "\n\n" + MEMORY_FIX_RULE))
+        self.assertTrue(rules.endswith(checkpoint_rules() + "\n\n" + MEMORY_FIX_RULE))
         resumed = runs._with_rules(self.ctx, said, "MSG", rules, system=False, fresh=False, rules_session=False)
         self.assertTrue(resumed.endswith(MEMORY_FIX_RULE))
         butler_job = self.job("以后别再问", topic="butler-x")

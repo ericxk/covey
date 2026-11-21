@@ -19,7 +19,7 @@ from covey.cards.review import render_history
 from covey.core import env as cenv
 from covey.core import knowledge, projects
 from covey.core import memory as core_memory
-from covey.core.checkpoint import CHECKPOINT_RULES
+from covey.core.checkpoint import checkpoint_rules
 from covey.core.butler_tool_specs import BUTLER_RULES_ENV
 
 # Commands' and subtasks' descriptions show on the task card's 执行过程 (core/text.py step_action): the owner
@@ -291,12 +291,14 @@ def bridge_rules(
     memory_fix: bool = False,
     proxy: bool = False,
     gists: str = "",
+    checkpoint: str | None = None,
 ) -> str:
     """``proxy`` (a 代答 topic's): its own constraints and the workspace, nothing else (proxy_constraints). Otherwise
     identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
     block), the project's memory and library (``project``, project_block; none: no block), the owner's knowledge entries (``knowledge_text``, knowledge_block; none: no block),
     a new session's recent topics of the workspace (``gists``, workspace_gists_block; none: no block), the checkpoint
-    contract (``remember``: and the rule for writing entries): the same every turn of a topic."""
+    contract (``checkpoint``, core/checkpoint.py checkpoint_rules; None: all of it; ``remember``: and the rule for writing
+    entries): the same every turn of a topic."""
     if proxy:
         return "\n\n".join((proxy_constraints(backend_name, runtime_note, notes),
                             workspace_block(workspace_name, workdir, device, remote_workdir)))
@@ -305,7 +307,8 @@ def bridge_rules(
                         *((principles,) if principles else ()),
                         *((project,) if project else ()),
                         *((knowledge_text,) if knowledge_text else ()), *((gists,) if gists else ()),
-                        CHECKPOINT_RULES, *((REMEMBER_RULE,) if remember else ()), *((MEMORY_FIX_RULE,) if memory_fix else ())))
+                        checkpoint_rules() if checkpoint is None else checkpoint,
+                        *((REMEMBER_RULE,) if remember else ()), *((MEMORY_FIX_RULE,) if memory_fix else ())))
 
 
 def earlier_history(rows: list[dict[str, Any]], message_id: str, user_text: str) -> list[dict[str, Any]]:

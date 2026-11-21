@@ -30,7 +30,7 @@ from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.cards.digest import digest_card, digest_text
 from covey.core import knowledge, butler_mcp, butler_requests, butler, butler_tool_specs
-from covey.core.checkpoint import CHECKPOINT_RULES
+from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_rules
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import find_job_record
 from covey.core.state import write_json
@@ -306,7 +306,7 @@ class TurnTest(StateCase):
         return "\n\n".join((constraints(runs.harness.spec.prompt_agent_name, runs.harness.backend.prompt_runtime_note(self.ctx),
                                         tuple(getattr(runs.harness.backend, "prompt_notes", lambda ctx: ())(self.ctx))),
                             workspace_block(self.ctx.workspace_name, self.ctx.workdir),
-                            *((principles,) if principles else ()), CHECKPOINT_RULES))
+                            *((principles,) if principles else ()), checkpoint_rules()))
 
     def save(self):
         knowledge.save(self.ctx.state_dir, "owner", "decision", "发版前先跑全量")
@@ -338,7 +338,7 @@ class TurnTest(StateCase):
         self.assertIn("通用：\n- [决定] 发版前先跑全量\n工作区 ws：\n- [坑] ws 里别用 rg 扫 NAS", rules)
         self.assertNotIn("别处的事实", rules)
         self.assertLess(rules.index(KNOWLEDGE_HEAD), rules.index(CHECKPOINT_RULES))
-        self.assertTrue(rules.endswith(CHECKPOINT_RULES + "\n\n" + REMEMBER_RULE))
+        self.assertTrue(rules.endswith(checkpoint_rules() + "\n\n" + REMEMBER_RULE))
         self.assertNotIn("/absolute/kb-history", rules)
 
     def test_without_entries_there_is_no_block_but_the_remember_rule_still_is(self):

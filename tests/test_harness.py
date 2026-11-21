@@ -63,7 +63,8 @@ from covey.cards.proxy_panel import KINDS as PROXY_PANEL_KINDS
 from covey.cards.proxy_resend import RESEND as PROXY_RESEND, SUGGEST as PROXY_SUGGEST
 from covey.cards.owner_send import (ASK as OWNER_SEND_ASK, DROP as OWNER_SEND_DROP, PICK as OWNER_SEND_PICK,
                                     SEND as OWNER_SEND)
-from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_note
+from covey.core.checkpoint import (CHECKPOINT_RULES, DELIVERY_PART, IMAGES_RULE, STEPS_RULE,
+                                   checkpoint_note, checkpoint_rules)
 from covey.core.harness import JobCancelled
 from covey.core.jobs import BridgeReplyJob as ReplyJob, find_job_record, list_job_records
 from covey.core.maintenance import maintain
@@ -426,6 +427,34 @@ class TwoStagePromptTest(unittest.TestCase):
         for part in (RESUME_REMINDERS, f"Current workdir: {self.root.resolve()}", CHECKPOINT_RULES,
                      "本任务检查点文件：" + checkpoint):
             self.assertIn(part, resumed)
+
+    def test_a_resumed_turn_is_reminded_of_steps_delivery_and_images_only_where_the_topic_uses_them(self) -> None:
+        # 5.9 row 7: a new session's first message has the whole contract; a resumed turn, the part every turn uses and
+        # what the topic uses: steps once a turn of it listed steps, delivery once one changed code, show_images when
+        # the owner's words are about an image.
+        app = harness_app(CLAUDE_SPEC, FakeBackend(), ClaudeSessionStore())
+        quiet(app)
+        ctx = make_context(self.root, topic_id="t" * 32)
+        job = ReplyJob(job_id=3, user_text="接着做", chat_id="oc", message_id="om3", timeout=0, topic_id=ctx.topic_id)
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job), checkpoint_rules())
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), CHECKPOINT_RULES)
+        resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
+        self.assertTrue(resumed.endswith("\n\n" + CHECKPOINT_RULES))
+        job.user_text = "登录要扫码，把二维码发我"
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), CHECKPOINT_RULES + "\n" + IMAGES_RULE)
+        job.user_text = "接着做"
+        write_job(ctx.state_dir, "om1", job_id=1, topic_id=ctx.topic_id, chat_id="oc", backend="claude",
+                  status="done", steps=[{"title": "读代码", "state": "done"}])
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), CHECKPOINT_RULES + "\n" + STEPS_RULE)
+        write_job(ctx.state_dir, "om2", job_id=2, topic_id=ctx.topic_id, chat_id="oc", backend="claude",
+                  status="done", diff_json_path="/absolute/diff.json")
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True),
+                         "\n".join((CHECKPOINT_RULES, STEPS_RULE, DELIVERY_PART)))
+        write_job(ctx.state_dir, "om3", job_id=3, topic_id=ctx.topic_id, chat_id="oc", backend="claude",
+                  status="running", delivery={"commit": "a6bc148"})  # This turn's own record counts for nothing.
+        write_job(ctx.state_dir, "om0", job_id=9, topic_id="u" * 32, chat_id="oc", backend="claude",
+                  status="done", delivery={"commit": "a6bc148"})  # Nor another topic's.
+        self.assertNotIn(IMAGES_RULE, app.runs.checkpoint_rules(ctx, job, resumed=True))
 
     def test_claude_and_codex_carry_the_rules_in_the_message(self) -> None:
         # Owner 2026-11-02: the model's own system prompt (developer instructions) stays as it is.

@@ -52,50 +52,75 @@ def release_user_wait(path: Path, *, drop_questions: bool = False) -> None:
     write_private_text(path, json.dumps(data, ensure_ascii=False))
 
 
+# What every turn carries (5.9 row 7): when to write, the fields, how to ask the user, recovery and files. It names no
+# file: each turn's message gives the checkpoint file. The JSON is the same as before the split; only the words moved.
+CHECKPOINT_RULES = "\n".join((
+    "这是执行约定（检查点）：",
+    "- 何时写：多阶段或长时间的任务，在开始执行、完成阶段、提交外部任务和等待用户时，把完整 JSON 写入本轮消息里"
+    "“本任务检查点文件”给出的文件。原生工具支持时优先用原子替换；用户禁止 CLI 或工具不支持原子替换时，用原生文件工具"
+    "完整覆盖并尽量回读核验，不要只为原子性请用户放开工具权限。检查点由桥接器读取、不在工作区内，写它不算修改工作区文件；"
+    "用户要求不改文件时也照常写检查点。",
+    "- 字段：phase（当前阶段，用用户的语言写成一句短语，任务卡状态行会显示它，不要写 waiting_for_x 这类英文标识）、"
+    "completed（已完成步骤列表）、artifacts（产物绝对路径列表）、external_tasks（外部任务 ID/查询方式列表）、"
+    "next_step（下一步）、requires_user（布尔值）、question（待用户回答的问题摘要）、updated_at（ISO 时间）。"
+    "不要把密钥写入检查点。",
+    "- 要用户决策时：保存 requires_user=true 和非空的 question 摘要。有多个待回答项时，另写 questions 数组，每题单独一个对象："
+    '{"id":"稳定且唯一的标识","header":"短标题","question":"完整问题","options":[{"label":"选项","description":"说明"}]}；'
+    '可以多选的题另加 "multiple":true，问题卡才给多选下拉框，否则只能单选；自由回答可省略 options；'
+    "不要把多个独立决策合并进单个 question 输入框。"
+    '题目不带背景看不懂时，另加 "context":"一句背景：这题在改什么、为什么现在问"，问题卡把它写在题目下面。'
+    "能自己查清的事先查，不问。"
+    "单选题里你有把握哪个更稳妥时，把它排第一，在 label 末尾加“（推荐）”（一题只标一个），"
+    "并在它的 description 里用一句话写不选它的代价。卡住了才来问的，在 question 里写清缺什么、已经试过什么、各是什么结果。",
+    "- 用户怎么答：正常答题时，全部问题得到明确回答后再继续。只有一个待回答问题时，可告知用户直接回复本话题；"
+    "有多个问题时，正常回答需在问题卡片中逐题作答并点击“提交回答”。用户也可以不逐题回答、只发补充说明（反馈原问题或更改需求）："
+    "收到这种回答时应重新评估，不能把未回答部分视为同意或授权，也不能将补充说明仅当作漏答而坚持要求填完原表单。",
+    "- 最终回复先交代已形成的方案、依据和必要的决策背景，再列出待确认问题；没有形成方案或说明时应明确说明缺少什么，"
+    "不得声称已有方案或编造内容。",
+    "- 不要在后端进程中无限等待输入；等待长命令期间也应保留查询外部任务的方法。恢复或重试时（没有检查点也一样）先核查"
+    "工作目录、已有产物与外部任务状态，再决定继续哪些步骤；不得仅凭旧步骤描述就假定成功，不得重复提交已存在的训练/部署等外部任务。",
+    "- 用户要求交付文件时，完成文件并在 artifacts 中登记绝对路径；桥接任务卡提供发送文件入口，后端不需要单独的飞书附件工具，"
+    "不要因此设置 requires_user=true 或请求开启消息工具。登记成功只说明文件已准备好，不代表已经发送，实际发送由任务卡处理。"
+    "不要自己用 lark-cli 或别的工具往飞书发消息、图片或文件：你拿不到本话题的正确位置，会发到别处，用户看不到。",
+))
+# What only some turns use (``checkpoint_rules``): ``steps`` and ``delivery`` a turn that may run long or change code (a
+# topic's), ``show_images`` one that may have an image to show at once (a topic's; the butler's when its message is about
+# one, app/runs.py). The Bridge reads each the same whether its rule was given or not (``checkpoint_steps``,
+# ``checkpoint_delivery``, app/turn_images.py).
+STEPS_RULE = '- 长任务另写 steps 有序数组，每项 {"title":"短语","state":"done|doing|todo"}，同时只有一个 doing，开始和每完成一步都更新。'
+DELIVERY_RULE = (
+    '- 只有这一轮改了代码、有提交时才写 delivery：{"commit":"完整提交号（多个用空格分开）","deployed":"部署到哪里/第几代",'
+    '"verified":"怎么验收的"}，没做的项留空；调研、报告、问答的轮次不写 delivery。'
+    "verified 只写实际跑过的检查和结果，没验证就留空，别把推断写成已测；deployed 只写已生效的环境，只提了合并请求的留空。")
 # 改了什么 / 去哪看 / 怎么验 on the answer card of a UI change or a turn the owner asked to accept (#21,
-# ``checkpoint_acceptance``): the one line CHECKPOINT_RULES needs for it.
+# ``checkpoint_acceptance``): carried with DELIVERY_RULE, as a turn that changes something writes both.
 ACCEPTANCE_RULE = ('改了界面或主人说要验收时，另写 acceptance：{"what":"改了什么（30 字内，主人能看到的变化）",'
                    '"where":"去哪看：回复里给过的可点链接原样抄，没有不填","how":"怎么验：点哪里、做什么、该看到什么；'
                    '回复里没说的别编"}。')
-
-# The same for every turn: it names no file, each turn's message gives the checkpoint file.
-CHECKPOINT_RULES = (
-    "这是执行约定：对于多阶段或长时间任务，在开始执行、完成阶段、提交外部任务及等待用户时，"
-    "将完整 JSON 写入本轮消息中“本任务检查点文件”给出的文件；原生工具支持时优先使用原子替换。"
-    "检查点由桥接器读取、不在工作区内，写它不算修改工作区文件；用户要求不改文件时也照常写检查点。"
-    "若用户禁止 CLI 或工具不支持原子替换，可用原生文件工具完整覆盖，尽可能回读核验；不要仅为原子性额外请求用户放开工具权限。"
-    "字段：phase（当前阶段，用用户的语言写成一句短语，任务卡状态行会显示它，不要写 waiting_for_x 这类英文标识），completed（已完成步骤列表），"
-    "artifacts（产物绝对路径列表），external_tasks（外部任务 ID/查询方式列表），"
-    "next_step（下一步），requires_user（布尔值），question（待用户回答的问题摘要），updated_at（ISO 时间）。"
-    '有多个待回答项时，另写 questions 数组，每题单独一个对象：'
-    '{"id":"稳定且唯一的标识","header":"短标题","question":"完整问题","options":[{"label":"选项","description":"说明"}]}。'
-    '可以多选的题另加 "multiple":true，问题卡才给多选下拉框，否则只能单选。'
-    # T604 #14 (t604b/questions), one line kept apart for the prompts agent's rewrite: the card shows it under the question.
-    '题目不带背景看不懂时，另加 "context":"一句背景：这题在改什么、为什么现在问"，问题卡把它写在题目下面。'
-    "能自己查清的事先查，不问。单选题里你有把握哪个更稳妥时，把它排第一，在 label 末尾加“（推荐）”（一题只标一个），"
-    "并在它的 description 里用一句话写不选它的代价。"
-    "自由回答可省略 options；不要把多个独立决策合并进单个 question 输入框。"
-    "必须保留非空 question 摘要。正常答题时，全部问题得到明确回答后再继续。"
-    "只有一个待回答问题时，可告知用户直接回复本话题；有多个问题时，正常回答需在问题卡片中逐题作答并点击“提交回答”。"
-    "用户也可以不逐题回答、只发补充说明（反馈原问题或更改需求）；收到这种回答时应重新评估，"
-    "不能把未回答部分视为同意或授权，也不能将补充说明仅当作漏答而坚持要求填完原表单。"
-    "在等待长命令期间也应保留查询外部任务的方法。需要用户决策时保存 requires_user=true 和 question。最终回复先交代已形成的方案、依据和必要的决策背景，再列出待确认问题；没有形成方案或说明时应明确说明缺少什么，不得声称已有方案或编造内容。"
-    "不要在后端进程中无限等待输入。恢复或重试时先检查工作目录、已有产物与外部任务状态；"
-    "不得仅凭旧步骤描述就假定成功，不得重复提交已存在的训练/部署等外部任务。"
-    "没有检查点时也必须先核查现有状态，再决定继续哪些步骤。不要把密钥写入检查点。"
-    "用户要求交付文件时，完成文件并在 artifacts 中登记绝对路径。桥接任务卡提供发送文件入口；"
-    "后端不需要单独的飞书附件工具，不要因此设置 requires_user=true 或请求开启消息工具。"
-    "登记成功只能说明文件已准备好，不代表附件已经发送；实际发送由任务卡处理。"
-    '要用户马上看的图片（登录二维码、要他确认的截图）写进 show_images：[{"path":"图片绝对路径","note":"一句说明","urgent":true}]，'
+# The delivery part as a turn's rules carry it (``checkpoint_rules``): DELIVERY_RULE, then ACCEPTANCE_RULE.
+DELIVERY_PART = DELIVERY_RULE + "\n- " + ACCEPTANCE_RULE
+IMAGES_RULE = (
+    '- 要用户马上看的图片（登录二维码、要他确认的截图）写进 show_images：[{"path":"图片绝对路径","note":"一句说明","urgent":true}]，'
     "桥接器读到检查点就把图发到本话题，urgent 的同时发到私聊聊天区；同一路径的文件改写后会再发一次。"
-    "这只在本轮还在执行时生效：等用户扫码或确认时让本轮保持运行。"
-    "不要自己用 lark-cli 或别的工具往飞书发消息、图片或文件：你拿不到本话题的正确位置，会发到别处，用户看不到。"
-    '长任务另写 steps 有序数组，每项 {"title":"短语","state":"done|doing|todo"}，同时只有一个 doing，开始和每完成一步都更新。'
-    '只有这一轮改了代码、有提交时才写 delivery：{"commit":"完整提交号（多个用空格分开）","deployed":"部署到哪里/第几代","verified":"怎么验收的"}，'
-    "没做的项留空；调研、报告、问答的轮次不写 delivery。"
-    "verified 只写实际跑过的检查和结果，没验证就留空，别把推断写成已测；deployed 只写已生效的环境，只提了合并请求的留空。"
-    + ACCEPTANCE_RULE
-)
+    "这只在本轮还在执行时生效：等用户扫码或确认时让本轮保持运行。")
+
+
+def checkpoint_rules(*, steps=True, delivery=True, images=True) -> str:
+    """CHECKPOINT_RULES and, as asked, the parts only some turns use (STEPS_RULE, DELIVERY_RULE with ACCEPTANCE_RULE,
+    IMAGES_RULE), in that order: the checkpoint contract a turn's rules carry. All of it by default, as a topic's turn
+    has it."""
+    return "\n".join((CHECKPOINT_RULES, *((STEPS_RULE,) if steps else ()),
+                      *((DELIVERY_PART,) if delivery else ()), *((IMAGES_RULE,) if images else ())))
+
+
+# An owner's message about an image to show at once (a login to scan, a screenshot to act on): a turn whose rules lack
+# IMAGES_RULE is given it in its message (``images_note``).
+IMAGE_WORDS = re.compile(r"二维码|扫码|扫一下|登录|登陆|截图|截屏|截个图|图片|screenshot|qr ?code", re.IGNORECASE)
+
+
+def images_note(text) -> str:
+    """IMAGES_RULE as a note of a turn's message when ``text`` (the owner's words) is about an image (IMAGE_WORDS); ''."""
+    return IMAGES_RULE.removeprefix("- ") if IMAGE_WORDS.search(str(text or "")) else ""
 
 # 话题要点 (COVEY_PROJECT_TIDY, core/topic_gist.py): put in each turn's message of an ordinary topic or a project's topic, after
 # the checkpoint file (app/runs.py), never into the rules above, so a topic's rules stay the same with the switch on or off.

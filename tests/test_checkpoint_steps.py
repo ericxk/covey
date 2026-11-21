@@ -15,9 +15,9 @@ from covey.app import answer_cards, butler_tools
 from covey.cards.answer_card import CHANGE_ID, tail
 from covey.cards import question_cards
 from covey.cards.relay_card import DONE, relay_card
-from covey.core.checkpoint import (ACCEPTANCE_RULE, CHECKPOINT_RULES, MAX_STEPS, checked, checkpoint_delivery,
-                                   checkpoint_steps, change_summary, clock_steps, delivery_commits, shows_change,
-                                   step_words)
+from covey.core.checkpoint import (ACCEPTANCE_RULE, CHECKPOINT_RULES, DELIVERY_PART, DELIVERY_RULE, IMAGES_RULE, MAX_STEPS,
+                                   STEPS_RULE, checked, checkpoint_delivery, checkpoint_rules, checkpoint_steps, change_summary,
+                                   clock_steps, delivery_commits, images_note, shows_change, step_words)
 from covey.core.longtask import TaskMonitor
 from covey.core.text import stamp
 from covey.core.status_line import Facts, status_summary, step_text
@@ -30,8 +30,7 @@ def steps(*states):
 
 class RulesTest(unittest.TestCase):
     def test_the_rules_name_both_fields_briefly(self):
-        # Up to the acceptance line (#21), whose own words AcceptanceTest keeps short.
-        added = CHECKPOINT_RULES[CHECKPOINT_RULES.index("长任务另写 steps"):CHECKPOINT_RULES.index(ACCEPTANCE_RULE)]
+        added = STEPS_RULE + DELIVERY_RULE  # The acceptance line (#21) comes after them; AcceptanceTest keeps it short.
         for words in ('"state":"done|doing|todo"', "同时只有一个 doing", "delivery", '"commit"', '"deployed"',
                       '"verified"'):
             self.assertIn(words, added)
@@ -42,6 +41,43 @@ class RulesTest(unittest.TestCase):
         # What ``verified`` and ``deployed`` may claim: only what was run, only what took effect.
         for words in ("verified 只写实际跑过的检查和结果，没验证就留空", "别把推断写成已测", "只提了合并请求的留空"):
             self.assertIn(words, added)
+
+    def test_every_turn_carries_a_few_lines_and_the_rest_only_where_it_is_used(self):
+        # 5.9 row 7: one paragraph of 1623 characters with a dozen fields mixed, on every turn. Now a head and seven lines
+        # (when to write, the fields, how to ask), and steps, delivery and show_images apart.
+        lines = CHECKPOINT_RULES.split("\n")
+        self.assertEqual(lines[0], "这是执行约定（检查点）：")
+        self.assertLessEqual(len(lines), 8)
+        self.assertTrue(all(line.startswith("- ") for line in lines[1:]))
+        for words in ("- 何时写：", "- 字段：", "- 要用户决策时：", "- 用户怎么答："):
+            self.assertEqual(sum(line.startswith(words) for line in lines), 1, words)
+        # The JSON is the same: every field it had, under the same name.
+        for field in ("phase", "completed", "artifacts", "external_tasks", "next_step", "requires_user", "question",
+                      "updated_at", "questions", '"multiple":true', '"header"', '"options"'):
+            self.assertIn(field, CHECKPOINT_RULES)
+        for part, field in ((STEPS_RULE, "steps"), (DELIVERY_RULE, "delivery"), (IMAGES_RULE, "show_images")):
+            self.assertNotIn(field, CHECKPOINT_RULES)
+            self.assertIn(field, part)
+            self.assertTrue(part.startswith("- ") and "\n" not in part)
+        self.assertEqual(checkpoint_rules(), "\n".join((CHECKPOINT_RULES, STEPS_RULE, DELIVERY_PART, IMAGES_RULE)))
+        self.assertEqual(checkpoint_rules(steps=False, delivery=False, images=False), CHECKPOINT_RULES)
+        self.assertEqual(checkpoint_rules(steps=False, images=False), CHECKPOINT_RULES + "\n" + DELIVERY_PART)
+        # Nothing of the old paragraph is lost: each of its sentences' key words is in one of the parts.
+        for words in ("原子替换", "写它不算修改工作区文件", "回读核验", "waiting_for_x", "不要把密钥写入检查点", "提交回答",
+                      "不能把未回答部分视为同意或授权", "不得声称已有方案或编造内容", "无限等待输入", "保留查询外部任务的方法",
+                      "不得重复提交已存在的训练/部署等外部任务", "没有检查点也一样", "发送文件入口", "不代表已经发送",
+                      "不要自己用 lark-cli", "urgent", "让本轮保持运行", "只提了合并请求的留空"):
+            self.assertIn(words, checkpoint_rules(), words)
+
+    def test_a_stuck_turn_says_what_it_tried(self):
+        # #14: collie's BLOCKED report says what was tried; a question that only says "选哪个" leaves the owner guessing.
+        self.assertIn("卡住了才来问的，在 question 里写清缺什么、已经试过什么、各是什么结果。", CHECKPOINT_RULES)
+
+    def test_a_turn_without_the_image_rule_gets_it_when_the_owner_speaks_of_an_image(self):
+        for text in ("帮我登录一下", "二维码发我", "截个图看看", "给我一张 screenshot", "扫码登录 QR code"):
+            self.assertEqual(images_note(text), IMAGES_RULE.removeprefix("- "), text)
+        for text in ("", None, "看看昨天的日志", "部署到第 331 代"):
+            self.assertEqual(images_note(text), "", text)
 
     def test_the_rules_teach_the_mark_the_standing_answer_button_looks_for(self):
         # 以后这类按推荐走 is offered only under a card whose every question has one option marked （推荐）
@@ -345,7 +381,11 @@ class AcceptanceTest(unittest.TestCase):
     """#21: 改了什么 / 去哪看 / 怎么验 of a UI change or a turn the owner asked to accept, from the checkpoint."""
 
     def test_the_rule_asks_for_it_only_where_it_applies(self):
-        self.assertTrue(CHECKPOINT_RULES.endswith(ACCEPTANCE_RULE))
+        # Carried with delivery (core/checkpoint.py checkpoint_rules): a turn that changes something writes both.
+        self.assertEqual(DELIVERY_PART, DELIVERY_RULE + "\n- " + ACCEPTANCE_RULE)
+        self.assertIn(DELIVERY_PART, checkpoint_rules())
+        self.assertNotIn(ACCEPTANCE_RULE, checkpoint_rules(delivery=False))
+        self.assertNotIn(ACCEPTANCE_RULE, CHECKPOINT_RULES)
         self.assertIn("改了界面或主人说要验收时，另写 acceptance", ACCEPTANCE_RULE)
         for words in ('"what"', '"where"', '"how"', "原样抄", "回复里没说的别编"):
             self.assertIn(words, ACCEPTANCE_RULE)
