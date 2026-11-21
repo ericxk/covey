@@ -90,6 +90,7 @@ NOT_BACKED_UP = {
     "tmp": "temporary files of the Bridge and its task runners",
     "runs": "task runners' run directories: a restore starts no task",
     "inbound-messages": "marks against Feishu delivering a message twice, kept 7 days",
+    "stranger-replies": "marks of the one line a day a person who is not the owner got, kept 7 days",
     "answer-cards": "answer cards of the last 7 days, for their 产物 links",
     "job-diffs": "each turn's diff report, up to 200 MiB, uploaded to the cloud space",
     "artifact-drive": "the uploads of 产物 to the cloud space",

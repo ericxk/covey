@@ -181,6 +181,8 @@ class UnifiedCase(unittest.TestCase):
                 'updated_at': time.time(), 'models': {name + '-model': {'display_name': name + ' model',
                            'levels': ['low', 'high', 'xhigh', 'max'], 'default': 'high'}}}))
         self.app.messenger.send_message = mock.Mock(return_value=True)
+        # The one line a person who is not the owner gets in private (app/strangers.py): never a real send.
+        self.app.messenger.send_text = mock.Mock(return_value='')
         self.app.messenger.recall = mock.Mock(return_value=True)  # The bot menu's Panels: never a real recall.
         # A quiet butler turn's reactions (app/butler_reactions.py): never a real one.
         self.app.messenger.react = mock.Mock(return_value='reaction-1')

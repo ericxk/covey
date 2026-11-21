@@ -11,7 +11,7 @@ from operator import attrgetter
 import time
 from typing import Any
 
-from covey.app import butler_tracks, dispatch_cards, runner_ipc
+from covey.app import butler_tracks, dispatch_cards, runner_ipc, strangers
 from covey.app.binding import JOB_STARTING, STALE_CARD, stale_job_card
 from covey.app.card_actions import action_value, card_object, click_kind, moved_card_text, ACTIONS
 from covey.cards.launch_config import SUBMIT_PREFIX
@@ -66,6 +66,7 @@ class CardRouting:
         timing.mark('access')
         if admitted is None:
             timing.outcome('ignored')
+            strangers.answer(self.runtime, self.messenger, self.voice, ctx, event)  # A person's direct message.
             return
         # Feishu delivers at least once: the same message again, even after a restart, is not a new task.
         message_id = str(event.get('message_id') or event.get('id') or '')

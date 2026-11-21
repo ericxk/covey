@@ -467,8 +467,11 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         self.runtime.owner_open_id = owner
         bot_open_id = self.bot_open_id(ctx) or persisted.get('bot_open_id') or ''
         self.runtime.access.identify(app_id=actual, bot_open_id=bot_open_id)
+        # The owner's name as his login here gives it, else as an earlier start kept it: app/strangers.py's line.
+        named = user.get('userName') if user.get('openId') == owner else None
+        name = next((n.strip() for n in (named, persisted.get('owner_name')) if isinstance(n, str) and n.strip()), '')
         save = {'app_id': actual, 'owner': owner, 'profile': ctx.profile, 'schema_version': 1,
-                **({'bot_open_id': bot_open_id} if bot_open_id else {})}
+                **({'bot_open_id': bot_open_id} if bot_open_id else {}), **({'owner_name': name} if name else {})}
         write_json(path, save)
 
     def bot_open_id(self, ctx):

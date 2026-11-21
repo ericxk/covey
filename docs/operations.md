@@ -105,7 +105,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 ├─ 进程与身份
 │  ├─ bridge.pid                   当前 Bridge 进程号（单实例锁）
 │  ├─ bridge.log*、bridge-console.log*   日志，见“日志”一节
-│  ├─ bot-identity.json            应用 ID、owner、profile、机器人自己的 open_id；状态目录和应用一一对应
+│  ├─ bot-identity.json            应用 ID、owner、profile、机器人自己的 open_id、主人的名字；状态目录和应用一一对应
 │  ├─ owner-chat.json              主人和机器人的私聊（菜单、手上的事、汇总都发在这里）
 │  ├─ migrations.json              已做过的旧记录迁移（core/migrate.py）
 │  ├─ maintenance-status.json、backups/   上次维护结果、每日备份
@@ -121,6 +121,7 @@ SERVICE_ROOT="$(python3 -B bin/covey_paths.py service-root)"
 │  ├─ interaction-deliveries/      补充和回答的送达记录
 │  ├─ delivery-receipts/           飞书写操作的幂等回执
 │  ├─ inbound-messages/            收到的消息的去重标记
+│  ├─ stranger-replies/            别人私聊时回过的那句（每人每天一个标记）
 │  ├─ verified-results/、result-files/   已授权的回复正文、长回复文件
 │  ├─ answer-cards/                单独发出的答案卡（补产物链接用）
 │  ├─ session_index.jsonl、system-rules-sessions/、native-session-guards/   会话指针与续接保护
@@ -306,7 +307,7 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 | 检查点 | 不在活跃状态、30 天未更新的压缩为 `.json.gz`，仍可用于“检查并继续” |
 | 执行过程 `traces/<任务键>.jsonl` | 任务已结束、30 天未更新、任务进程也不在的压缩为 `.jsonl.gz`，不删除；先写好并落盘 `.gz` 再删原文件 |
 | 任务记录 | 已结束的删掉没有代码再读的字段，其他字段和 `updated_at` 不变（`records_slimmed=`）；`jobs/`、`questions/`、`held-notes/` 的 `.journal` 超过 1 MiB 时删掉重来 |
-| `tmp/`、`artifact-upload/`、`inbound-messages/`、`proxy/shots/`、`main-thread/opened/`、`main-thread/relays/`、`main-thread/dispatch/`、`main-thread/tracks/` | 7 天内没有改动、也没有进程用着的整个删除 |
+| `tmp/`、`artifact-upload/`、`inbound-messages/`、`stranger-replies/`、`proxy/shots/`、`main-thread/opened/`、`main-thread/relays/`、`main-thread/dispatch/`、`main-thread/tracks/` | 7 天内没有改动、也没有进程用着的整个删除 |
 | 同时做几件事里这些事用过的 Claude 会话文件 | 按 `main-thread/tracks/` 账本里的 `session_id`，那一轮结束满 3 天、文件 3 天没改没读的删（`remove_track_sessions`）；不在账本里的不动 |
 | `runs/` 运行目录 | 任务进程已不在、最新文件早于 7 天的删除；任务记录和执行过程保留 |
 | 代答批次 `proxy/batches/` | 只删已结束且 30 天没改动的 |

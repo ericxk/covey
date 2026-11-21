@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | 收消息、路由、建任务 | `app/card_routing.py`、`app/topics.py`、`app/submission.py` | [一条消息的数据流](docs/architecture.md#一条消息的数据流) |
 | 卡片按钮与点击 | `app/card_actions.py`、`app/card_routing.py`、`app/card_lanes.py` | [卡片点击的数据流](docs/architecture.md#卡片点击的数据流)、[cards.md](docs/cards.md) |
-| 谁被服务、群聊 | `app/access.py`、`core/groups.py`、`app/group_manager.py` | [谁被服务](docs/architecture.md#谁被服务) |
+| 谁被服务、群聊、别人私聊时回一句（`COVEY_STRANGER_REPLY`，默认开） | `app/access.py`、`core/groups.py`、`app/group_manager.py`、`app/strangers.py` | [谁被服务](docs/architecture.md#谁被服务) |
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 话题与回带 | `app/butler_topics.py`（新话题的 Harness、模型、预算在 `app/butler_model_choice.py`；请求幂等账本 `core/butler_opened.py`）、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py` | [butler.md](docs/butler.md) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
@@ -192,6 +192,7 @@
 | `app/steer_interrupt.py` | A supplement the model has not read yet: how long it has waited, and stopping the command that holds it back |
 | `app/steer_receipts_flow.py` | What became of a supplement, on its receipt card |
 | `app/steering.py` | Supplements (补充) to a task of this topic: which task takes one, and how it gets there |
+| `app/strangers.py` | The one line a person who is not the owner gets for writing to the bot in private |
 | `app/stuck_check.py` | 看看: a read-only look at a turn that may be stuck, from the button under its task card's status line, answered … |
 | `app/submission.py` | Submitting a topic's message as a job |
 | `app/switch_handoff.py` | A topic's first run after 🔁 换配置 rebinds it |

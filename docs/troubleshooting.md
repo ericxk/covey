@@ -63,7 +63,7 @@ tail -n 100 "$STATE_DIR/bridge.log"
 | 先看什么 | 怎么修 |
 | --- | --- |
 | `bridge.log` 最近一次启动后有没有 `ready event_key=im.message.receive_v1` | 没有：看 `consumer exited rc=` 和 doctor 的事件消费者一段；查应用的订阅、权限、发布是否都在同一个应用上 |
-| `bridge.log` 有没有这条消息的 `ignored message … reason=…` | 有：消息被准入挡下。`not_owner` 是发消息的人不是主人（机器人只服务一个人，同事要自己部署）；群里 `not_mentioned` 是没有 @ 机器人；`group_inactive` 是这个群没对群成员开放：还在等你确认、你点了“先不启用”或停用了，见[在群里用](usage.md#在群里用) |
+| `bridge.log` 有没有这条消息的 `ignored message … reason=…` | 有：消息被准入挡下。`not_owner` 是发消息的人不是主人（机器人只服务一个人，同事要自己部署；私聊的对方每天第一次会收到一句说明，日志 `stranger told … sent=yes`）；群里 `not_mentioned` 是没有 @ 机器人；`group_inactive` 是这个群没对群成员开放：还在等你确认、你点了“先不启用”或停用了，见[在群里用](usage.md#在群里用) |
 | 有 `timing flow=message` 却没看到卡 | 看同一行的 `outcome` 和后面的 `feishu call … result=`：飞书拒收时有错误码 |
 | 在话题里发消息没有新任务 | 话题里有待答问题或没送达的结果时，消息按回答处理或被拦下，见[回答模型的问题](usage.md#回答模型的问题) |
 | 机器人根本没在跑 | 看下一节 |

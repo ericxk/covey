@@ -33,8 +33,9 @@
   ``notify_space`` is where ``notify_chat`` points. ``space_of`` tells what a chat is.
 
 Everything refused is silent apart from one log line (``ignored message … reason=…`` here,
-``card action … outcome=…`` for clicks). Each group is one record (read and written by core/groups.py),
-``groups/<sha256(chat_id)>.json``: ``chat_id``, ``active``, ``activated_by``,
+``card action … outcome=…`` for clicks), but for a person's direct message refused as not the owner's (``stranger``):
+app/strangers.py tells them once a day whose assistant this is. Each group is one record (read and written by
+core/groups.py), ``groups/<sha256(chat_id)>.json``: ``chat_id``, ``active``, ``activated_by``,
 ``activated_at``, ``external`` (None until a lookup answered), and ``deactivated_at`` /
 ``deactivated_by`` after 停用; ``pending_at`` / ``pending_by`` while it waits for the owner's word, ``asking_at``
 while its confirmation card goes out (one silent for ASK_AGAIN seconds counts as lost), ``asked_at`` /
@@ -207,6 +208,15 @@ class Access:
             else:
                 self.remember_account_chat(sender, chat)
         return Admission(owner=owner, group=group)
+
+    def stranger(self, event) -> str:
+        """The open_id of a person whose direct message ``admit`` refuses as not the owner's (``not_owner``) once the
+        Bridge has an owner: whom app/strangers.py may tell whose assistant this is. '' for any other message."""
+        sender = str(event.get('sender_id') or '')
+        if (event.get('chat_type') == 'group' or event.get('sender_type') not in (None, '', 'user') or not sender
+                or not self.runtime.owner_open_id or self.is_owner(sender)):
+            return ''
+        return sender
 
     def unmentioned(self, event, chat_id, sender) -> str:
         """Why a group message without the bot's @ is not served; '' when its sender talks freely there (免@)."""

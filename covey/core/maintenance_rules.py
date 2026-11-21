@@ -400,9 +400,10 @@ class Temporary(Rule):
     # went back to the top level (app/butler_relay.py), read for the RESULT_AGE the board and snapshot look back;
     # main-thread/dispatch: the 派发卡's records and conclusion notes (app/dispatch_cards.py); main-thread/tracks: the
     # ledger of what the butler's tracks answered (core/track_ledger.py; their session files go sooner,
-    # TrackSessions); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py).
+    # TrackSessions); answer-cards: the cards an answer went out on, kept until their 产物 are uploaded (app/answer_cards.py);
+    # stranger-replies: the day's marks of the one line a person who is not the owner got (app/strangers.py).
     folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/relays",
-               "main-thread/dispatch", "main-thread/tracks", "answer-cards")
+               "main-thread/dispatch", "main-thread/tracks", "answer-cards", "stranger-replies")
     title = "删除 tmp/、artifact-upload/、proxy/shots/ 条目"
 
     def select(self, run):

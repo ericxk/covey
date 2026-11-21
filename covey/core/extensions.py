@@ -58,6 +58,7 @@ SETTING_NAMES = {
     "contact_notes": "app/artifact_policy.py: a regex of the paths the 代答 contacts' notes are kept in",
     "contact_notes_hint": "core/proxy.py: what the 代答 prompt says about creating a missing notes directory",
     "contact_notes_dir": "app/proxy_commands.py: the notes directory under a workdir, with {task} for the task id",
+    "invite_url": "app/strangers.py: where a person who writes to someone else's bot gets one of their own",
 }
 # compat: variables of features that were taken out -> the feature; still set, they are ignored and the Bridge logs one
 # line for each (``unused_env``). Paseo (the covey_paseo extension) was taken out.

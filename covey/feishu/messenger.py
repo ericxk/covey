@@ -216,7 +216,8 @@ class Messenger:
     def send_text(self, profile, chat_id, text, key) -> str:
         """``text`` as one plain text message (no Markdown, so it reads back as written) at the top level of ``chat_id``
         under ``key`` (already safe): its message ID, '' when it was not sent (``last_failure`` says whether it may
-        have). A welcome card's example (app/welcome.py)."""
+        have). A welcome card's example (app/welcome.py); the line a person who is not the owner gets in private
+        (app/strangers.py)."""
         if text.startswith("@") or text == "-":
             text = "\u200b" + text  # lark-cli reads "@path" as a file and "-" as stdin (feishu/delivery.py).
         argv = message_argv(profile, chat_id=chat_id, flag="--text", value=text, key=key)
