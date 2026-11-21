@@ -18,7 +18,7 @@
 | 以后这类按推荐走 | `COVEY_STANDING_ANSWERS=1`（`./install` 写） | 每题都有推荐项的问题卡下面多这个按钮 | `COVEY_STANDING_ANSWERS=0` |
 | [菜单「看板」](usage.md#看板) | `COVEY_BOARD=1`（`./install` 写） | 菜单里有「看板」，随时点开看现在等你、停住、在做的事；不用开早晚汇总（应用里还没有这一项时，「飞书应用待补」卡会补上） | `COVEY_BOARD=0`（开了早晚汇总时「看板」照旧跟着它） |
 | 撤回与编辑 | `COVEY_SOURCE_WATCH`（默认开） | 撤回一条已变成任务的消息，任务跟着停；编辑后任务收到改后的内容 | `COVEY_SOURCE_WATCH=0` |
-| [任务在跑时发的话补充给它](usage.md#追问排队与并行) | `COVEY_TOPIC_STEER`（默认开） | 话题里任务在跑时发一句，那张卡变成回执“已补充到 #N，不另开一轮”，不再排成下一轮 | `COVEY_TOPIC_STEER=0`（照旧排成下一轮） |
+| [任务在跑时发的话补充给它](usage.md#追问排队与并行) | `COVEY_TOPIC_STEER`（默认开） | 话题里任务在跑时发一句，那张卡变成回执“已补充到 #N，不另开一轮”，你那句话上加一个 ✅ 表情（DONE），不再排成下一轮 | `COVEY_TOPIC_STEER=0`（照旧排成下一轮） |
 | [追问只发答案卡](usage.md#追问排队与并行) | `COVEY_QUICK_ANSWER_SECONDS`（默认 10） | 话题里追问一句、它不用工具几秒内就答完时，串里只有答案卡，没有任务卡 | `COVEY_QUICK_ANSWER_SECONDS=0`（每轮先出任务卡） |
 | [夜里不打扰](usage.md#早晚汇总) | `COVEY_QUIET_HOURS`（没设时按早晚汇总的时间，汇总只有一个时间或没开时没有） | 夜里整理专项自己发现的提议卡、不严重的机器告警攒到早上再发 | `COVEY_QUIET_HOURS=off` |
 | [连着做完的回带合成一条](butler.md#结论回到顶层) | `COVEY_RELAY_MERGE_SECONDS`（默认 20，要管家开着） | 别的话题还在做时，“完成”的回带等 20 秒，这期间做完的合成一张「N 个话题做完了」 | `COVEY_RELAY_MERGE_SECONDS=0`（每条马上发） |

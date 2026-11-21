@@ -6,7 +6,8 @@ take it, a running one is sent it now, and a task waiting for an answer or ended
 What became of each supplement is its delivery record (core/deliveries.py). The 补充 forms are in
 app/steer_forms.py and the receipt cards and their buttons in app/steer_receipts_flow.py, both parts of
 Steering. A topic's message sent while the topic's task runs goes into it as it arrives (``steer_on_arrival``,
-COVEY_TOPIC_STEER), the way a 补充 click on its queued card sends it.
+COVEY_TOPIC_STEER), the way a 补充 click on its queued card sends it; once it is in, DONE goes on his message too
+(``acknowledge_arrival``), beside the receipt card.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from covey.core.text import literal
 from covey.core.topics import load_topic
 from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
 from covey.app import device_files
+from covey.app.butler_reactions import DONE
 from covey.app.butler import SUPPLEMENT_LOST, SUPPLEMENT_UNCERTAIN
 from covey.app.runtime import job_stage
 from covey.app.submission import queue_hint, queued_line
@@ -137,7 +139,24 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
             return False
         if taken:
             timing.outcome("supplement")
+            self.acknowledge_arrival(ctx, queued, mid)
         return taken
+
+    def acknowledge_arrival(self, ctx, queued, mid) -> bool:
+        """DONE on the owner's message once its supplement is in the running task (delivery sent or read), as a receipt
+        beside the card: nothing for a held, refused or uncertain one. Called with no lock held; a failure is a log
+        line, the supplement is in either way."""
+        saved = read_delivery(delivery_path(ctx.state_dir, queued.topic_id, QUEUED_STEER + mid)) or {}
+        if saved.get("status") not in ("sent", "read"):
+            return False
+        try:
+            if self.messenger.react(ctx.profile, mid, DONE):
+                return True
+        except Exception as exc:  # noqa: BLE001 - the card is the receipt
+            self.runtime.log(f"supplement reaction failed job=#{queued.job_id}: {type(exc).__name__}")
+            return False
+        self.runtime.log(f"supplement reaction not added job=#{queued.job_id} emoji={DONE}")
+        return False
 
     def steer_queued_job(self, ctx, chat, queued, mid, *, text=None, form="", raw=None, auto=False):
         """Supplement the preceding task bound to this card, whether queued or already running, with the queued

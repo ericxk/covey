@@ -1301,6 +1301,40 @@ class ArrivalSteerTest(TopicFixture, unittest.TestCase):
         self.assertEqual(self.drawn["om_next"][1], f"这句话会在 #{self.running.job_id} 结束后单独执行")
         self.assertIn("这条消息排在前面的任务之后执行", self.drawn["om_next"][0])
 
+    def test_a_supplement_that_went_in_puts_a_done_reaction_on_the_owners_message(self):
+        self.app.messenger.react = mock.Mock(return_value="rid")
+        self.say("om_next", "等一下，别改那个文件")
+        self.app.messenger.react.assert_called_once_with(self.ctx.profile, "om_next", "DONE")
+        self.assertIn("已补充到", self.receipt())  # The receipt card stays.
+
+    def test_a_reaction_that_fails_leaves_the_supplement_in_and_its_receipt(self):
+        self.app.messenger.react = mock.Mock(side_effect=RuntimeError("feishu down"))
+        queued = self.say("om_next", "x")
+        self.assertTrue(queued.cancelled_before_start)
+        self.assertEqual(self.delivery("om_next")["status"], "sent")
+        self.assertIn("已补充到", self.receipt())
+
+    def test_no_reaction_when_it_was_refused(self):
+        self.app.messenger.react = mock.Mock(return_value="rid")
+        self.control.steer.side_effect = SteerRefused("任务正在收尾")
+        self.say("om_refused", "a")
+        self.assertEqual(self.delivery("om_refused")["status"], "refused")
+        self.app.messenger.react.assert_not_called()
+
+    def test_no_reaction_when_the_delivery_is_uncertain(self):
+        self.app.messenger.react = mock.Mock(return_value="rid")
+        self.control.steer.side_effect = RuntimeError("connection lost")
+        self.say("om_unsure", "b")
+        self.assertEqual(self.delivery("om_unsure")["status"], "uncertain")
+        self.app.messenger.react.assert_not_called()
+
+    def test_no_reaction_while_the_supplement_is_held_for_a_task_not_ready(self):
+        self.app.messenger.react = mock.Mock(return_value="rid")
+        self.running.backend_control = None  # Started, its backend not up yet: held.
+        self.say("om_held", "c")
+        self.assertEqual(self.delivery("om_held")["status"], "held")
+        self.app.messenger.react.assert_not_called()
+
     def test_an_unconfirmed_one_never_runs_again_and_keeps_its_check(self):
         self.control.steer.side_effect = RuntimeError("connection lost")
         queued = self.say("om_next", "x")
