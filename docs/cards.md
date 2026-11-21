@@ -178,6 +178,8 @@
 | 旧的敏感词看板链接卡（网页看板已经去掉） | `bridge_dashboard_rotate` | `RedactionPanel.click`：链接卡上在卡下回一句“网页看板已经去掉了…”（`dashboard_gone`）；设置卡「脱敏」标签上整卡重画、带同一句提示 |
 | 设置卡「脱敏」标签 | `bridge_redaction_*`（带 `token`、`revision`；`_page`、`_edit` 和 `_term` 的 `op: edit` 是标签改版前的旧按钮，点了整卡按新布局重画并说“这个按钮已更新”） | `RedactionPanel.click`：`redaction_tab`；同一事件再投递 `duplicate`。改词表在卡锁之外（`edit_terms`、`put_back`、`update_config`；`_add` 和 `_remove` 是同一个填词表单的两个提交按钮），在卡锁里记下结果就回执，整卡重画在回执之后（`after_ack`，连点只画最后一次）；「探测」在自己的后台线程里，跑完再画 |
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |
+| 设置卡「记忆」标签（`COVEY_MEMORY=1`） | `bridge_memory_workspace`（带 `option`）、`bridge_memory_open`（带 `scope`、`page`）、`bridge_memory_delete`（带 `key`、`op`）、`bridge_memory_pin`（带 `key`、`on`）；都带 `token`、`revision` | `MemoryPanel.click`：`memory_tab`；同一事件再投递 `duplicate`。删除、常驻在卡锁之外改存储（各自原来的删除办法），整卡重画在应答之后（`after_ack`） |
+| 早晚汇总的“你反复说的” | `bridge_digest_remember`（带 `id`、`op`：`save` 或 `drop`） | `Digest.claim`：`digest_remember`，值不对 `digest_remember_ignored`；应答后定下这一条（`memory_candidates.decide`），再照汇总卡保存的样子 `patch_card` 重画 |
 | 手上的事 | `bridge_overview_dismiss`（带 `topics`） | `Overview.claim`：只改看板记录，应答后由 `tick` 整卡重画 |
 | 飞书应用待补 | `covey_app_setup`、`bridge_app_setup_skip` | `AppSetup.claim`（表的最后）：`app_setup_start`、`app_setup_busy`、`app_setup_stale` |
 | 欢迎卡（新部署只发一次，`app/welcome.py`） | `bridge_welcome_try`（带 `example`，示例的序号；`bot_only`） | `Welcome.claim`：只认主人（别人点了 `owner_only`）；同一事件再投递 `duplicate`，不是发出的那张卡或序号不对 `welcome_stale`，这句已经点过 `welcome_again`；否则 `welcome_try`：锁内记下这句在发（`tried`），应答后整卡重画成「已发出」，再把这句作为一条文字消息发到私聊顶层，交给 `handle_event` 当作主人的消息处理（有管家是管家的一轮，没有是一个新话题和它的启动卡）；没发出去的这句可以再点，可能已发出的不再发 |

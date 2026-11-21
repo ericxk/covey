@@ -238,7 +238,7 @@
 - `COVEY_MEMORY=1`（只认 `1`）：打开“记忆”（[管家 · 记忆](butler.md#记忆开关默认关)）。不依赖别的开关：原则一直有，`COVEY_KNOWLEDGE=1` 时知识条目也进来，`COVEY_PROJECTS=1` 且 `COVEY_PROJECT_MEMORY=1` 时专项记忆也进来；话题自己的记忆放在 `<state>/topics/<话题>/memory.json`，打开后才会有。
 - 关着（默认）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`，设置卡没有「记忆」标签。
 - 开着时设置卡多一个「记忆」标签（`app/memory_panel.py`）：按范围列出每一条、能删、能把原则标成常驻（`principles.json` 里那一条多 `"pinned": true`，每组最多 8 条，放不下时也照带），并显示选中工作区下一轮会带上的那一块和每个范围的余量。
-- 开着且设了[早晚汇总](#早晚汇总)时，每天的晚间汇总多一节“你反复说的”（`app/memory_candidates.py`）：从那之前 24 小时里结束的普通话题（不读开了脱敏的话题、管家话题、代答话题，只读主人自己那一轮的原话里带纠正字眼的句子）找主人在两个以上话题里重复说的纠正，最多 3 条，每天看一次。分组用 Claude Code 的小模型（Haiku，和[同时做几件事](butler.md#同时做几件事开关默认关)的判断同一套做法，最多 45 秒）；没有 Claude Code 或调用失败时只按“几乎一样的话”分组。点「记下」才记成一条原则（来源话题都在一个工作区就记到那个工作区，否则通用），点「不用」以后不再提同一句；记录在 `<state>/memory-candidates.json`。日志：`memory candidates found=N via=model|rules sentences=N`、`memory candidates none: …`、`memory candidates judge failed reason=…`，不写原话。
+- 开着且设了[早晚汇总](#早晚汇总)时，每天的晚间汇总多一节“你反复说的”（`app/memory_candidates.py`）：从那之前 24 小时里结束的普通话题（不读开了脱敏的话题、管家话题、代答话题，只读主人自己那一轮的原话里带纠正字眼的句子）找主人在两个以上话题里重复说的纠正，最多 3 条，每天看一次。分组用 Claude Code 的小模型（Haiku，和[同时做几件事](butler.md#同时做几件事开关默认关)的判断同一套做法，最多 30 秒）；没有 Claude Code 或调用失败时只按“几乎一样的话”分组。点「记下」才记成一条原则（来源话题都在一个工作区就记到那个工作区，否则通用），点「不用」以后不再提同一句；记录在 `<state>/memory-candidates.json`。日志：`memory candidates found=N via=model|rules sentences=N`、`memory candidates none: …`、`memory candidates judge failed reason=…`，不写原话。
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉。
 - 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`。
 

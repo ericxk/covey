@@ -39,7 +39,7 @@ from covey.core.butler import is_butler_topic
 from covey.core.jobs import select_job_records
 from covey.core.locks import resource_lock
 from covey.core.redaction import topic_redaction
-from covey.core.state import read_object, write_json
+from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.text import cut
 from covey.core.topics import label_title, load_topic
 
@@ -54,7 +54,7 @@ PER_TOPIC = 6  # Sentences of one topic sent to the model.
 MAX_SENTENCES = 40
 SENTENCE = 120  # Characters of a sentence sent.
 TEXT = 80  # Characters of a candidate's rule.
-JUDGE_SECONDS = 45
+JUDGE_SECONDS = 30  # As the patrol judge's default (COVEY_PATROL_JUDGE_MS): about forty short sentences.
 ENDED = ("done", "waiting_user", "failed", "interrupted", "cancelled")
 # A correction's words: memory's own (app/memory_turn.py WORDS) and the ones a repeated correction is said with.
 CUES = (*memory_turn.WORDS, "不要", "别", "不是", "应该", "说过", "又", "总是", "老是", "必须", "一定要", "记得", "改成", "先")
@@ -118,8 +118,12 @@ def cued(text) -> list:
 def sentences(state_dir, chat, since, until, owner_turn) -> list:
     """[{topic, text}] the day's correction sentences (the module's docstring), the oldest first; ``owner_turn(chat,
     sender)`` is app/access.py's: whether a turn was the owner's own."""
+    def fresh(fields):  # A turn that ended in the window was written in it, or after; a record without the time is read.
+        at = epoch_seconds(fields.get("updated_at"))
+        return at is None or at > since
+
     records = select_job_records(state_dir, lambda record: record.get("status") in ENDED and since < ended_at(record) <= until,
-                                 chat_id=chat)
+                                 chat_id=chat, narrow=fresh)
     found, per = [], {}
     for record in sorted(records, key=ended_at):
         topic = str(record.get("topic_id") or "")
