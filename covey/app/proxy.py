@@ -19,7 +19,9 @@ chat in the proxy group, and each batch's way from the messages taken in to the 
   sends the saved reply again. A send that may have gone out is never sent again (``uncertain``).
   Nothing goes out while 代答 is off or the contact paused (held), for a removed contact (dropped), or
   as a batch's own reply past STALE_AFTER unless the owner clicked 重新发送 (held): ``stopped``, read
-  fresh, and again under ``lock`` just before ``sending``.
+  fresh, and again under ``lock`` just before ``sending``. Before that each reply ``decide`` would send is checked
+  for local paths, internal ids, secret-shaped strings and unfilled placeholders (``check_reply``): counted only by
+  default, held for the owner on its 重新发送 card with COVEY_PROXY_REPLY_CHECK=hold.
 Records and their rules: core/proxy.py.
 """
 from __future__ import annotations
@@ -328,7 +330,7 @@ class Proxy:
         recent, named = None, None
         if not batch.get("mirror_id"):
             if self.web.owner_replied(ctx, settings, contact, batch):
-                records.move_batch(ctx.state_dir, batch, "skipped", reason="你已亲自回复")
+                records.move_batch(ctx.state_dir, batch, "skipped", reason=records.OWNER_REPLIED)
                 self.runtime.log(f"proxy skipped batch={batch['id'][:8]}: the owner replied")
                 return
             recent = self.recent_chat(ctx, settings, contact)
@@ -529,6 +531,10 @@ class Proxy:
             if named:
                 return self.hold_named(ctx, settings, batch, reply, job_id, named)
         if reason is None:
+            hits = self.check_reply(ctx, batch, reply, job_id)
+            if hits:
+                why = f"回复里有{'、'.join(records.CHECK_WORDS[kind] for kind in hits)}，先给你看"
+                return self.hold_shown(ctx, settings, batch, reply, job_id, why)
             return self.send(ctx, settings, contact, batch, reply, job_id) or True
         if batch["status"] == "held" and batch.get("passed_over") and newer is None and record.get("status") != "continued":
             # The reply passed over for this turn: neither went out, said once.
@@ -556,14 +562,42 @@ class Proxy:
 
     def hold_named(self, ctx, settings, batch, reply, job_id, named):
         """``batch`` held with ``reply`` (which names ``named``, projects the chat never brought up) as its
-        suggestion: the owner sends it with 按建议回复, or says in the topic how to answer."""
-        why = f"回复里提到了你的「{'」「'.join(named)}」，对方没提过，先给你看"
-        held = records.move_batch(ctx.state_dir, batch, "held", reason=why, considered_job_id=job_id, reply=reply,
-                                  reply_job_id=job_id)
+        suggestion (``hold_shown``)."""
         self.runtime.log(f"proxy held batch={batch['id'][:8]} job=#{job_id}: its reply names {', '.join(named)}")
+        return self.hold_shown(ctx, settings, batch, reply, job_id,
+                               f"回复里提到了你的「{'」「'.join(named)}」，对方没提过，先给你看")
+
+    def hold_shown(self, ctx, settings, batch, reply, job_id, why):
+        """``batch`` held for ``why`` with ``reply`` as its suggestion: the 重新发送 card shows it, the owner sends it with
+        按建议回复 or says in the topic how to answer. A held batch (the owner's turn answered it) stays held, its
+        tries of an earlier reply over."""
+        if batch["status"] == "held":
+            held = records.note_held(ctx.state_dir, batch, why, considered_job_id=job_id, reply=reply,
+                                     reply_job_id=job_id, send_failed=False)
+        else:
+            held = records.move_batch(ctx.state_dir, batch, "held", reason=why, considered_job_id=job_id, reply=reply,
+                                      reply_job_id=job_id)
         if held is not None and not self.resend.show(ctx, settings, held, "declined", notice=f"⏸ {why}。"):
             self.note(ctx, settings, held, f"⏸ 没有代你回复：{why}。\n要回的话，在本话题 @机器人 告诉我怎么回。")
         return False
+
+    def check_reply(self, ctx, batch, reply, job_id):
+        """The kinds ``reply`` hits in the pre-send check (core/proxy.py reply_hits) when they keep it from going out
+        (CHECK_ENV is CHECK_HOLD); with CHECK_COUNT (the default) a hit is only logged and counted (CHECKS_FILE) and
+        the reply goes out as before. [] otherwise. Never raises: a check that fails lets the reply go as before."""
+        mode = records.reply_check_mode()
+        if mode == records.CHECK_OFF:
+            return []
+        try:
+            hits = records.reply_hits(plain_mentions(reply))
+            records.count_check(ctx.state_dir, hits, batch=batch["id"], job_id=job_id, mode=mode)
+        except (OSError, ValueError, TypeError) as exc:
+            self.runtime.log(f"proxy reply check failed batch={batch['id'][:8]}: {type(exc).__name__}")
+            return []
+        if hits:
+            self.runtime.log(f"proxy reply check batch={batch['id'][:8]} job=#{job_id} hits={','.join(hits)} "
+                             f"mode={mode}" + ("; held" if mode == records.CHECK_HOLD else "; sent as before"))
+        return hits if mode == records.CHECK_HOLD else []
 
     @staticmethod
     def newer_batch(ctx, batch):
@@ -589,7 +623,7 @@ class Proxy:
             self.stop(ctx, settings, batch, job_id, *stop)
             return
         if self.web.owner_replied(ctx, settings, contact, batch):
-            skipped = records.move_batch(ctx.state_dir, batch, "skipped", reason="你已亲自回复")
+            skipped = records.move_batch(ctx.state_dir, batch, "skipped", reason=records.OWNER_REPLIED)
             self.tell(ctx, settings, batch, "dropped", "⏭ 你已经亲自回复了，这条不再代发。", shown=skipped)
             return
         sends = records.read_batches(ctx.state_dir, statuses=None)

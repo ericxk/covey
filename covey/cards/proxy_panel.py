@@ -1,6 +1,8 @@
 """The 代答 card (app/proxy_panel.py), the bot menu's 代答 panel: on or off and the group in its title
 bar; a status line (开着/关着 ｜ 白名单 ｜ 在处理); 开启 (primary) or 关闭 (a text button), 去登录 only when the
-web login is gone or unknown (else a grey 网页登录正常) and refresh; the whitelist, a row each with its state as coloured tags and pause/resume/remove
+web login is gone or unknown (else a grey 网页登录正常) and refresh; 最近, only when the last day had one of its three
+kinds (a reply written and not sent, a send whose result is not known, one the owner answered himself: core/proxy.py
+``recent``); the whitelist, a row each with its state as coloured tags and pause/resume/remove
 text buttons (a group's members added together fold into one row with buttons for all of them, and
 逐个管理 lists them under it, each with 删除; long lists turn pages; over FOLD_ROWS rows it is a folded
 panel); a search for several names at once whose result lists each name (全部添加 adds every unique
@@ -10,6 +12,7 @@ card's settings rows (Harness, 供应商, 模型, 思考预算; no select) under
 carries its kind, the panel's token and the revision drawn."""
 from __future__ import annotations
 
+import time
 from collections import Counter
 
 from covey.cards.ui import receipt
@@ -19,7 +22,7 @@ from covey.cards.elements import (CARD_BYTES, CARD_NODES, callback_button, colla
                                             styled_panel, tag)
 from covey.cards.launch_config import harness_setting, setting_row, settings_block, tier_rows
 from covey.core.menu_choice import harness_of
-from covey.core.proxy import GROUP_NAME, NAMES, source_of
+from covey.core.proxy import ANSWERED, DRAFTED, GROUP_NAME, NAMES, UNSURE, source_of
 
 ENABLE = 'bridge_proxy_enable'
 DISABLE = 'bridge_proxy_disable'
@@ -72,7 +75,11 @@ MODEL_NOTE = '所有联系人话题共用：新话题直接用，已有话题空
 ADD_NOTE = ('可写多个（空格、逗号、顿号或换行分开，也可粘贴“@张三 @李四”）；'
             '“全部添加”加入唯一匹配，多个匹配的在候选里点“添加”。')
 EMPTY = '还没有人：在下面「添加」里查找后加入。'
-ICONS = {'model': 'robot_outlined', 'whitelist': 'member_outlined', 'add': 'member-add_outlined'}
+ICONS = {'model': 'robot_outlined', 'whitelist': 'member_outlined', 'add': 'member-add_outlined',
+         'recent': 'waiting_outlined'}
+# 最近's three kinds (core/proxy.py recent): the words and the tag colour each.
+RECENT_WORDS = {DRAFTED: ('拟好没发', 'orange'), UNSURE: ('发送结果待核', 'orange'), ANSWERED: ('你自己回了', 'neutral')}
+RECENT_NOTE = '原文和原因在各联系人的话题里；待核的不会自动重发，到会话里看一眼。'
 KIND_COLORS = {'p2p': 'wathet', 'group': 'violet'}
 
 
@@ -177,10 +184,11 @@ def columns(*cells):
     return row(*cells, align='center')
 
 
-def proxy_panel_card(token, view, *, settings, contacts, batches, choices, current, busy='', top=()):
+def proxy_panel_card(token, view, *, settings, contacts, batches, choices, current, busy='', top=(), recent=()):
     """The whole card. ``current`` is (model key, budget option) of the settings' model on the menu,
     None when it is not there; while ``busy`` (what a click is still doing) every control except
-    刷新 is disabled. ``top``: elements above the body (the 设置 card's tab row), counted in the budget."""
+    刷新 is disabled. ``top``: elements above the body (the 设置 card's tab row), counted in the budget. ``recent``:
+    core/proxy.py ``recent``, 最近's rows."""
     ui = Controls(token, view['revision'], busy)
     pending = Counter(b.get('contact') for b in batches)
     rows = []
@@ -193,7 +201,7 @@ def proxy_panel_card(token, view, *, settings, contacts, batches, choices, curre
         rows += [member_row(ui, contact, pending) for contact in entry] if opened else []
     add, group_rows, candidate_rows = add_part(ui, view, {c['key'] for c in contacts})
     head = title_bar(settings)
-    above = list(top) + top_part(ui, view, settings, contacts, pending)
+    above = list(top) + top_part(ui, view, settings, contacts, pending) + recent_part(recent, contacts)
     # A search's candidates first: the 模型 row lists fewer models (the chosen one kept) when they would not all fit.
     for limit in MODEL_ROWS:
         elements, whole = fitted(ui, view, contacts, head, above, rows, add, group_rows, candidate_rows,
@@ -256,6 +264,23 @@ def top_part(ui, view, settings, contacts, pending):
                       + ([] if login_ok else [ui.button(LOGIN, '去登录', fit=True, small=True)])
                       + [ui.button(REFRESH, '刷新', fit=True, small=True)])))
     return top
+
+
+def clock(at, now=None):
+    """``at`` (epoch seconds) as the card says a time: HH:MM today, MM-DD HH:MM before."""
+    shown, today = time.localtime(at), time.localtime(time.time() if now is None else now)
+    return time.strftime('%H:%M' if shown[:3] == today[:3] else '%m-%d %H:%M', shown)
+
+
+def recent_part(recent, contacts, now=None):
+    """最近: a line each of ``recent`` (core/proxy.py recent: kind, contact, at), the contact's name, its kind as a tag
+    and when; nothing when there is none."""
+    if not recent:
+        return []
+    names = {c['key']: c.get('name') or '' for c in contacts}
+    lines = [f"**{literal(names.get(row['contact']) or '已移出的联系人')}** {tag(*RECENT_WORDS[row['kind']])} "
+             f"{grey(clock(row['at'], now))}" for row in recent if row.get('kind') in RECENT_WORDS]
+    return [heading('recent', '最近'), md('\n'.join(lines)), note(RECENT_NOTE)] if lines else []
 
 
 def model_rows(settings, choices, current, limit=MODEL_ROWS[0]):

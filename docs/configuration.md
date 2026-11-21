@@ -24,6 +24,7 @@
 | [别人私聊时回一句](usage.md#基本概念) | `COVEY_STRANGER_REPLY`（默认开） | 让同事私聊你的机器人：他收到“这是你的个人助手，只处理你的消息”，同一个人每天最多一次；设了 `COVEY_INVITE_URL` 时后面带上安装说明的链接 | `COVEY_STRANGER_REPLY=0`（照旧不回） |
 | [敏感词脱敏](#敏感词脱敏) | 没有开关 | 设置卡有「脱敏」标签；话题开了脱敏才替换，只支持 Claude 的模型 | 设置卡上关 |
 | [代发](proxy.md#代发) | `COVEY_OWNER_SEND`（默认开） | 只在有代答发送器时才有：话题能起草“以主人身份发出”的消息，主人在卡上确认后发 | `COVEY_OWNER_SEND=0` |
+| [代答发前检查](proxy.md#发前闸门)（只记） | `COVEY_PROXY_REPLY_CHECK`（默认 `count`） | 只在有代答发送器时才有：回复里有本机路径、内部编号、像密钥的字符串、没填的占位符时，`bridge.log` 有 `proxy reply check`，`<state>/proxy/reply-checks.json` 计数；回复照常发。设 `hold` 才拦 | `COVEY_PROXY_REPLY_CHECK=off` |
 
 ### 推荐打开
 
@@ -194,6 +195,8 @@
 - 别的工具要用就复制一份到自己的运行目录，不要直接打开它（同一个 profile 只能有一个 Chromium）。
 - 复制前确认 `<state>/proxy/batches/` 里没有 `status` 为 `sending` 的批次，并排除 `Cache`、`Code Cache`、`Service Worker`、`GPUCache`、`Dawn*Cache`、`IndexedDB`、`Singleton*`。
 - 它的缓存超过 200 MiB 时由维护删掉（日志 `proxy web login caches removed: N MiB`），cookie 和登录不受影响；条件见[架构 · 代答](architecture.md#代答)。
+
+发前检查（[代答 · 发前闸门](proxy.md#发前闸门)）：`COVEY_PROXY_REPLY_CHECK` 不设或 `count` 时只记命中（日志 `proxy reply check …`、`<state>/proxy/reply-checks.json`），回复照常发；`hold` 时命中的回复不发，留给你在重新发送卡上看；`off` 不查。先用默认的只记跑一周，看 `reply-checks.json` 的 `recent` 里有多少是误报，再决定开不开 `hold`。
 
 代答的日志行见[排障 · 代答](troubleshooting.md#代答没有回复或没有发出)。
 
@@ -458,6 +461,7 @@
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 关；`1` 开（还要 `COVEY_PINNED_OVERVIEW=1`） | 否 |
 | `COVEY_PROXY_PROFILE` | `app/proxy.py` | 空：代答不可用 | 否 |
 | `COVEY_PROXY_GROUP_NAME` | `app/proxy.py` | `代答`：第一次开启代答时新建的群叫这个名字；已建的群按群 ID 找，名字照旧 | 否 |
+| `COVEY_PROXY_REPLY_CHECK` | `core/proxy.py`（`reply_check_mode`；`app/proxy.py` 的 `check_reply` 经它） | `count`：代答回复的发前检查只记命中、照常发；`hold`：命中的不发，留给你看；`off` 或 `0`：不查 | 否 |
 | `COVEY_OWNER_SEND` | `app/owner_send.py`（`enabled`） | 开（有代答发送器时）：话题以主人身份发消息走代发草稿卡；`0` 关，见[代发](proxy.md#代发) | 否 |
 | `COVEY_APP_CHECK` | `app/app_setup.py` | 开：检查飞书应用、缺了发卡；`0` 关 | 否 |
 | `COVEY_WELCOME` | `app/welcome.py`（`enabled`：`settle` 据此写 `welcome.json`，`threads()` 据此起 `welcome` 后台线程） | 开：新部署第一次启动后在主人私聊发一张欢迎卡，每个部署只发一次（之前已有任务、话题或私聊记录的部署不发）；`0` 关：不写记录、不起线程、不发，和原来一样 | 否 |

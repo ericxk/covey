@@ -169,6 +169,7 @@ tail -n 100 "$STATE_DIR/bridge.log"
 | `proxy held batch=… job=#…: <原因>` | 关闭、暂停、过时，这批不发 |
 | `proxy overtaken batch=…`、`proxy stop job=#N batch=…` | 对方的新消息顶掉了在跑的一轮；`proxy batch=… job=#N runs on: …` 是没顶掉的原因 |
 | `proxy passed over batch=… job=#N: the later turn #M …` | 主人在话题里更新的一轮代替了这条回复 |
+| `proxy reply check batch=… job=#N hits=… mode=count; sent as before` | 发前检查命中（本机路径、内部编号、像密钥的字符串、没填的占位符），只记、照常发；`mode=hold; held` 是拦下了，话题里有卡。计数在 `<state>/proxy/reply-checks.json` |
 | `proxy send batch=… ok= type= submitted= message_id=`（发送器写的，在扩展里） | 一次发送；`type` 是发送工具的错误类型，`note=` 是已发出但回读没完成 |
 | `proxy batch=… waits: the send tool's login is under way` | 发送工具正在扫码登录 |
 | `proxy send tool logged out: the owner was told`（发送器写的，在扩展里） | 发送工具登录失效，私聊提示过一次；`proxy send tool login is back` 是恢复了 |

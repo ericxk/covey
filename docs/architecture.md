@@ -455,6 +455,7 @@ cancelled、superseded：终态
 - **不重发**（规则 1、6）：按过回车的只读回，找到是 `sent`，否则 `uncertain`。
 - **卡片**（规则 3、8、9）：设置卡和重新发送卡在自己的卡锁内取 sequence、整卡替换；kind `bridge_proxy_*` 在 `ACTIONS`，由 Bridge 自己处理。
 - **授权**（规则 5）：只发 `load_authorized_reply` 取到的已授权回复；重新发送不跑模型。
+- **发前检查**（`Proxy.check_reply`，`COVEY_PROXY_REPLY_CHECK`）：`decide` 发之前查回复里的本机路径、内部编号、像密钥的字符串和没填的占位符，默认只记（`<state>/proxy/reply-checks.json`，只有 `proxy` 后台线程写），`hold` 时命中的转 `held` 留给主人；不调飞书，不进 `Proxy.lock`。代答话题的工具收窄见[一次运行](#一次运行)的 `TOOL_LIMIT`（`proxy`）。
 - **主人**（规则 11）：主人判断来自 `Access`；`owner_user_id` 只用来认出主人自己发的消息。
 - **网页端登录**：`<state>/proxy/web/profile`（0700）只有一份、不进备份。它的缓存目录（`core/maintenance.py` 的 `WEB_CACHES`）合计超过 200 MiB 时，维护后台线程（每小时看一次）在没有发送中的批次、没有进程用着它时删掉。
 

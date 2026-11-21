@@ -155,7 +155,7 @@ class ProxyPanel:
         return proxy_panel_card(token, view, settings=settings, contacts=records.read_contacts(ctx.state_dir),
                                 batches=records.read_batches(ctx.state_dir), choices=choices,
                                 current=self.current(settings, choices), busy=(self.working.get(token) or [''])[0],
-                                top=hub_top(PROXY, token, view))
+                                top=hub_top(PROXY, token, view), recent=records.recent(ctx.state_dir))
 
     def publish(self, ctx, path, record, view):
         """The whole card drawn for ``view``, saved with it; False when CardKit did not confirm (the

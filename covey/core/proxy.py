@@ -31,6 +31,7 @@ each batch in a topic of the proxy group and sends the answer as the owner with 
 - panels/<token>.json: a 代答设置 card and the view it shows; ``latest.json`` names the newest one,
   the only one that acts (app/proxy_panel.py, under the card's own lock).
 - resend/<batch id>.json: a 重新发送 card, its sequence and the view it shows (app/proxy_resend.py).
+- reply-checks.json: what the pre-send check of replies found (``count_check``, CHECK_ENV).
 
 Contacts and batches are read whole by every poll and every card drawn, at about 1 ms a file on
 the NAS (300 contacts: 0.3–0.5 s), so a folder is read again only after it changed: every write here
@@ -86,6 +87,11 @@ MEMBER_LIMIT = 500  # A group with more people is not added whole.
 # Bridge that was down, or a queue that held the job, would send an answer the chat has moved past.
 STALE_AFTER = 2 * 3600
 REMOVED = "联系人已移出白名单"
+OWNER_REPLIED = "你已亲自回复"  # A batch skipped because the owner answered the chat himself.
+# The 代答 card's 最近 (``recent``): batches of the last RECENT_HOURS of three kinds only, the newest RECENT_ROWS.
+RECENT_HOURS = 24
+RECENT_ROWS = 5
+DRAFTED, UNSURE, ANSWERED = "drafted", "unsure", "answered"
 # Held because the owner spoke in the topic while the batch's own job ran: their later turn there was told its
 # reply goes out, so it is the one sent (repo review D2).
 LATER_TURN = "等你在本话题这一轮的回复"
@@ -603,6 +609,95 @@ def brief_history(rows: list[dict]) -> list[dict]:
                 row = {**row, "content": content[:min(cuts)] + "\n（代答规则同最新一批，这里略）"}
         kept.append(row)
     return kept
+
+
+def recent(state_dir: Path, now=None) -> list[dict]:
+    """The 代答 card's 最近: the batches of the last RECENT_HOURS that are one of three kinds, newest first, at most
+    RECENT_ROWS: DRAFTED (a reply written and not sent: held with its ``reply``), UNSURE (a send that may have gone
+    out, ``uncertain``), ANSWERED (the owner answered the chat himself, skipped as OWNER_REPLIED). Each {``kind``,
+    ``contact``, ``at``}, ``at`` when it last moved."""
+    now = time.time() if now is None else now
+    found = []
+    for batch in read_batches(state_dir, statuses=None):
+        moves = batch.get("history") or []
+        last = moves[-1] if moves and isinstance(moves[-1], list) and len(moves[-1]) > 1 else None
+        at = last[1] if last and isinstance(last[1], (int, float)) else batch.get("updated_at") or 0
+        if not isinstance(at, (int, float)) or now - at > RECENT_HOURS * 3600:
+            continue
+        status = batch.get("status")
+        kind = (DRAFTED if status == "held" and batch.get("reply") else UNSURE if status == "uncertain" else
+                ANSWERED if status == "skipped" and batch.get("reason") == OWNER_REPLIED else "")
+        if kind:
+            found.append({"kind": kind, "contact": str(batch.get("contact") or ""), "at": at})
+    return sorted(found, key=lambda row: -row["at"])[:RECENT_ROWS]
+
+
+# The check every 代答 reply gets before it goes out (app/proxy.py ``decide``): what only the owner's machine and the
+# Bridge know, or a draft not filled in. CHECK_ENV says what a hit does: CHECK_COUNT (unset) logs and counts it and
+# sends the reply as before, to see how often it would have held a good one; CHECK_HOLD holds the reply for the owner
+# (the 重新发送 card's 按建议回复); CHECK_OFF checks nothing.
+CHECK_ENV = "COVEY_PROXY_REPLY_CHECK"
+CHECK_COUNT, CHECK_HOLD, CHECK_OFF = "count", "hold", "off"
+CHECKS_FILE = "reply-checks.json"  # proxy/: how many replies were checked and hit, by kind, and the latest hits.
+CHECKS_KEPT = 50
+_PATH = re.compile(
+    r"(?<![\w.:/~@-])(?:~/|/(?:home|Users|root|mnt|data|opt|tmp|var|etc|srv|usr|private|Volumes|workspaces?|proc|run|"
+    r"media|nas|Library|Applications)/)[\w.\-/@+]+|(?<![\w])[A-Za-z]:\\[\w.\-\\]+")
+_ID = re.compile(
+    r"\b(?:ou|oc|om|on|omt)_[0-9a-z]{16,}\b|\bcli_[0-9a-z]{16}\b|"
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{32,}\b|"
+    r"\b(?:main|answer|note|requeue|fork|web)-[0-9a-f]{12,}\b")
+_SECRET = re.compile(
+    r"\bsk-(?:ant-)?[A-Za-z0-9_\-]{20,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{30,}|"
+    r"\bxox[abprs]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{35}|"
+    r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|"
+    r"\b[tu]-[A-Za-z0-9._\-]{30,}|Bearer\s+[A-Za-z0-9._\-]{16,}|"
+    r"(?i:\b(?:password|passwd|secret|token|api[_-]?key)[\"']?\s*[=:：]\s*[\"']?[^\s\"']{6,})")
+_PLACEHOLDER = re.compile(
+    r"【[^】\n]{1,30}】|\{\{[^{}\n]{0,40}\}\}|\$\{[^{}\n]{1,40}\}|<[^<>\n]{0,10}(?:待|填|此处|这里)[^<>\n]{0,10}>|"
+    r"[\[［](?:待|填)[^\]］\n]{0,20}[\]］]|(?<![A-Za-z])(?:TODO|TBD|FIXME|XXX)(?![A-Za-z])|"
+    r"[Xx]{2,}(?:月|日|号|点|时|分|元|个|人)")
+# Each kind with what it is called to the owner, in the order a hit names them.
+REPLY_CHECKS = (("path", "本机路径", _PATH), ("id", "内部编号", _ID), ("secret", "像密钥的字符串", _SECRET),
+                ("placeholder", "没填的占位符", _PLACEHOLDER))
+CHECK_WORDS = {kind: words for kind, words, _ in REPLY_CHECKS}
+
+
+def reply_check_mode() -> str:
+    """What a hit of the pre-send check does (CHECK_ENV): CHECK_HOLD, CHECK_OFF (``off`` or ``0``), else CHECK_COUNT."""
+    from covey.core import env as cenv
+
+    value = cenv.get(CHECK_ENV, "").strip().lower()
+    return CHECK_HOLD if value == CHECK_HOLD else CHECK_OFF if value in (CHECK_OFF, "0") else CHECK_COUNT
+
+
+def reply_hits(text: str) -> list[str]:
+    """The kinds of REPLY_CHECKS ``text`` (a reply about to go out) hits, in their order; [] for none."""
+    return [kind for kind, _, pattern in REPLY_CHECKS if pattern.search(str(text or ""))]
+
+
+def count_check(state_dir: Path, hits, *, batch="", job_id=0, mode=CHECK_COUNT) -> dict:
+    """One reply checked (``hits`` its kinds, [] none) added to CHECKS_FILE: ``since``, ``checked``, ``hit``, ``kinds``
+    {kind: count}, ``recent`` (the latest CHECKS_KEPT hits: ``at``, ``batch``, ``job``, ``kinds``, ``mode``). Only the
+    proxy's worker writes it. The counts as they are now."""
+    path = proxy_dir(state_dir) / CHECKS_FILE
+    try:
+        found = read_json(path)
+    except (OSError, ValueError):
+        found = {}
+    found = found if isinstance(found, dict) else {}
+    now = round(time.time())
+    kinds = found.get("kinds") if isinstance(found.get("kinds"), dict) else {}
+    recent = [r for r in found.get("recent") or () if isinstance(r, dict)]
+    counts = {"since": found.get("since") or now, "checked": int(found.get("checked") or 0) + 1,
+              "hit": int(found.get("hit") or 0) + bool(hits), "kinds": kinds, "recent": recent}
+    for kind in hits:
+        kinds[kind] = int(kinds.get(kind) or 0) + 1
+    if hits:
+        counts["recent"] = [*recent, {"at": now, "batch": batch[:8], "job": job_id, "kinds": list(hits),
+                                      "mode": mode}][-CHECKS_KEPT:]
+    write_json(path, counts, ensure_ascii=False, indent=1)
+    return counts
 
 
 def submitted_at(batch: dict) -> float:

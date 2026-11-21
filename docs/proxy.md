@@ -107,6 +107,16 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 `stopped` 在 `Proxy.lock` 内、转 `sending` 前再判断一次。卡上的暂停、删除、关闭也在这把锁内写，所以它们要么让这次不发，要么见到的已是 `sending`。
 
+**发前检查**（`Proxy.check_reply`，`core/proxy.py` 的 `reply_hits`）：`decide` 要发的每条回复（批次自己的一轮和主人在话题里的一轮都算；重新发送、按建议回复是主人看过的，不查）先查四样：本机路径（`/home/`、`/mnt/`、`~/` 这类开头）、内部编号（`ou_`、`oc_`、`om_` 这类 ID、UUID、32 位以上的十六进制、`main-…` 这类任务键）、像密钥的字符串（`sk-…`、`ghp_…`、JWT、私钥头、`token=…`）、没填的占位符（`【…】`、`{{…}}`、`${…}`、`TODO`、`xx月`）。命中时按 `COVEY_PROXY_REPLY_CHECK`：
+
+| 取值 | 命中时 |
+| --- | --- |
+| 不设或 `count`（默认） | 只记：日志 `proxy reply check batch=… job=#N hits=path,id mode=count; sent as before`，计数进 `<state>/proxy/reply-checks.json`（查过几条、命中几条、各类几次、最近 50 次命中的批次和任务号），回复照常发出 |
+| `hold` | 不发：批次转 `held`（主人那一轮的已是 `held`，就记下新回复），回复存成建议，出“没有代你回复”的重新发送卡，原因写“回复里有本机路径、内部编号…，先给你看”；主人点“按建议回复”就照原样发，或在话题里说怎么回 |
+| `off` 或 `0` | 不查 |
+
+日志和计数文件只记类别，不记回复原文；要看是不是误报，按任务号到联系人话题里看那一轮的回答。
+
 回复里的 at 标签一律变成纯文字（`plain_mentions`）：`<at user_id="all">所有人</at>` 变成 `@所有人`，`<at user_id="ou_…">张三</at>` 变成 `@张三`。保存的 `reply`、幂等键、读回比对和重新发送卡都用换过的文字。
 
 ## 发送
@@ -126,7 +136,9 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 ## 设置卡
 
-代答设置是机器人菜单单独的一项「代答」（事件键 `proxy_settings`，`ProxyPanel.open`，再点收起 `fold`；`core/app_manifest.py` 只在启用的扩展有 `proxy_sender` hook 时要求这一项）。设置卡里记录还停在「代答」标签的旧卡，仍由 `app/settings_hub.py` 经 `tab_card` 画。画卡在 `cards/proxy_panel.py`：状态行、开关与登录、白名单、添加，最后是模型行；网页登录有效与否取自发送器登录状态 `web_login.login_seen`（开着代答时才轮询，`ProxyPanel.card` 算成 `login_ok`），没确认过按失效画“去登录”。
+代答设置是机器人菜单单独的一项「代答」（事件键 `proxy_settings`，`ProxyPanel.open`，再点收起 `fold`；`core/app_manifest.py` 只在启用的扩展有 `proxy_sender` hook 时要求这一项）。设置卡里记录还停在「代答」标签的旧卡，仍由 `app/settings_hub.py` 经 `tab_card` 画。画卡在 `cards/proxy_panel.py`：状态行、开关与登录、最近、白名单、添加，最后是模型行；网页登录有效与否取自发送器登录状态 `web_login.login_seen`（开着代答时才轮询，`ProxyPanel.card` 算成 `login_ok`），没确认过按失效画“去登录”。
+
+- **最近**（`core/proxy.py` 的 `recent`，`cards/proxy_panel.py` 的 `recent_part`）：只列 24 小时内（`RECENT_HOURS`）这三类批次，新的在前，至多 5 条（`RECENT_ROWS`）：拟好没发（`held` 且有 `reply`：建议回复、发送没成、发前检查拦下的、等每小时限额的）、发送结果待核（`uncertain`）、你自己回了（因 `OWNER_REPLIED` 转 `skipped`）。每条一行：联系人名（已移出的写“已移出的联系人”）、类别标签、时间（今天只写时刻）。一条都没有时没有这一节。每次画卡读一遍批次目录（有缓存）。
 
 - **记录**：独立发的卡记在 `<state>/proxy/panels/<token>.json`，从设置卡打开时记在设置卡的记录里（`app/menu_panel.py`）；`latest.json` 指向最新的一张，只有它能操作，点旧卡整卡换成过期提示。
 - **点击**：控件的值带 `bridge_proxy_*` kind（都在 `ACTIONS`，不是 `bot_only`）、token 和画出时的 revision。`app/card_routing.py` 按 `PANELS` 表交给 `ProxyPanel`（`claim`、`click`），不经话题路由，不转发任务进程。点击在本卡的锁内判断，记录改动经 `Proxy` 的方法，然后整卡重画（`replace_form_card`，`reserve` 取 sequence），从不 PUT 表单里的单个组件。非主人写在卡上（`OWNER_ONLY`）。

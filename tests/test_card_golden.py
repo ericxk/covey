@@ -396,6 +396,14 @@ def proxy_cards():
                 {"key": f"p2p:ou_fake_s{i}", "kind": "p2p", "target": f"ou_fake_s{i}", "name": f"成员{i}",
                  "paused": i == 0, "source": {"chat_id": "oc_fake_s", "name": "项目群"}} for i in range(3)],
             batches=[{"contact": "p2p:ou_fake_s1"}], choices=CHOICES, current=("codex:gpt-6-astra", "xhigh")),
+        # 最近 (core/proxy.py recent): a reply drafted and not sent, a send not known to have gone out, one the owner
+        # answered himself; a contact removed since is named so.
+        "panel_recent": proxy_panel_card(
+            "f" * 24, {"revision": 5}, settings=settings, contacts=[{**person, "paused": False}], batches=[],
+            choices=CHOICES, current=("codex:gpt-6-astra", "xhigh"),
+            recent=[{"kind": "drafted", "contact": person["key"], "at": FROZEN - 120},
+                    {"kind": "unsure", "contact": "p2p:ou_fake_gone", "at": FROZEN - 600},
+                    {"kind": "answered", "contact": person["key"], "at": FROZEN - 2 * 86400}]),
         "expired": expired_card(),
     }
     for state in ("failed", "resending", "sent", "uncertain", "dropped"):
