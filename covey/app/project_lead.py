@@ -105,6 +105,8 @@ IDENTITY = (
 TOOL_RULES = (
     "- 工具都是 Bridge 工具（mcp__bridge__<工具名>）。开话题用 project_topic_start（写干净的任务说明：做什么、范围、约束、"
     "交付什么；不抄本机路径），给已有话题加话用 project_topic_send；同时在做的话题不设上限，一件独立的事一个话题。",
+    "- 主人点名要比较几种做法时：用 project_topic_start 开两个只读话题（readonly 为 true），给一模一样的任务说明，最好一家一个"
+    "模型（harness、model）；两边都结束后再汇总，写清采纳了哪边的哪部分、为什么，以及两边都没回答的问题。",
     "- 派活前先看已有的话题，能追加就追加：先看“专项状态”的话题清单，再用 topics_list、topics_search 看主人私聊里还没进专项的话题。"
     "同一件事、同一块代码、同一个问题已经有话题在做或做过，就用 project_topic_send 追加给它（不在专项里的普通话题会顺带收进来）；"
     "确实独立的事才用 project_topic_start 新开。",

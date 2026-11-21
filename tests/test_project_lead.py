@@ -84,6 +84,13 @@ class RulesTest(Case):
         self.assertIn("专员做法层", project_lead.lead_rules(practice="专员做法层"))
         self.assertNotIn("专员做法层", base)
 
+    def test_a_comparison_the_owner_asks_for_is_two_read_only_topics_and_a_summary(self):
+        # #37: the same task twice, read-only, one vendor each; the summary says what came from whom and what neither answered.
+        rules = project_lead.lead_rules()
+        for words in ("主人点名要比较几种做法时", "开两个只读话题（readonly 为 true）", "一模一样的任务说明", "一家一个模型",
+                      "采纳了哪边的哪部分", "两边都没回答的问题"):
+            self.assertIn(words, rules)
+
     def test_the_rules_say_the_style_the_record_has(self):
         rules = project_lead.lead_rules({"report": "ask_only", "spawn": "保守"})  # An older record's spawn is read past.
         self.assertIn("只在需要主人定的时候说", rules)
