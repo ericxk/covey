@@ -1132,6 +1132,15 @@ def digest_cards():
                                                  "tone": "cancelled", "state": "已取消", "took": "用时 2分0秒"},
                                                 {"topic": "l", "label": "T533", "title": "看板", "status": "done",
                                                  "tone": "done", "state": "做完", "took": "用时 9分0秒", "seen": True}]}),
+            # 到点回来看 (COVEY_REVISIT=1, app/revisits.py): a topic waiting for its time with 取消, one being looked at now.
+            "board_revisits": board_card({"waiting": [], "stale": [], "done": [], "stamp": "08:00",
+                                          "running": [{"topic": "r", "label": "T42", "title": "跑全量", "line": "现在：在跑测试",
+                                                       "url": "https://applink.feishu.cn/t/42", "meta": ["3/5 步"]}],
+                                          "revisits": [{"topic": "w", "label": "T40", "title": "盯训练", "at": "15:30",
+                                                        "look": "看 loss 降到 0.3 没有", "set_at": 1795000000.5,
+                                                        "url": "https://applink.feishu.cn/t/40", "fired": False},
+                                                       {"topic": "x", "label": "T41", "title": "等 CI", "at": "08:00",
+                                                        "look": "", "set_at": 1795000001.0, "url": "", "fired": True}]}),
             # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
             "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "DataLab Prompt 优化"]}}),

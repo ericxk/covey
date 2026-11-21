@@ -38,9 +38,11 @@ ACT = ("waiting", "stopped", "stuck")  # 要你处理: what the band counts.
 # The 看板's own buttons (app/digest.py Digest.claim, before topic routing): 刷新 redraws the card from a fresh view in
 # place (a second menu click folds it instead), 记为看过 takes a result off 有结果没看 (core/board_read.py mark_seen).
 REFRESH_KIND, SEEN_KIND = "bridge_board_refresh", "bridge_board_seen"
+# 取消 on a row of 到点回来看 (app/revisits.py, COVEY_REVISIT=1): that topic's revisit taken back (app/digest.py Digest.claim).
+REVISIT_KIND = "bridge_board_revisit_cancel"
 ALL_SEEN = "全部记为看过"  # 记为看过 on every result row at once: SEEN_KIND with ``topics``, at most SEEN_MAX.
 SEEN_MAX = 30
-KINDS = frozenset({REFRESH_KIND, SEEN_KIND})
+KINDS = frozenset({REFRESH_KIND, SEEN_KIND, REVISIT_KIND})
 NO_LINK = "找不到它在私聊里的位置，打不开"  # A row whose topic has no link (app/digest.py board_view).
 LEAD = 30  # Characters of the most pressing topic's words on the band.
 GOAL_CHARS = 60  # Of a project's or a proposal's goal on its grey line.
@@ -208,6 +210,23 @@ def proposal_block(item):
     return block_
 
 
+def revisit_blocks(rows):
+    """到点回来看 (app/revisits.py board_rows): each topic that asked to be looked at again, when and what, 取消 while it waits;
+    one whose turn is queued already says it is being looked at."""
+    shown = [{"tag": "markdown", "content": f"**到点回来看**  <font color='grey'>{len(rows)}</font>", "text_size": "normal_v2",
+              "icon": {"tag": "standard_icon", "token": "time_outlined", "color": "grey"}}]
+    for row in rows[:SHOWN]:
+        what = f"：{row['look']}" if row.get("look") else ""
+        line = f"正在回来看{what}" if row.get("fired") else f"{row.get('at') or ''} 回来看{what}"
+        cancel = [] if row.get("fired") else [button("取消", tone="text", value={
+            "kind": REVISIT_KIND, "topic": row.get("topic") or "", "set_at": row.get("set_at")})]
+        shown.append(ui.topic_row("running" if row.get("fired") else "queued", head_of(row), line, url=row.get("url") or "",
+                                  buttons=buttons_row(cancel)))
+    if len(rows) > SHOWN:
+        shown.append(note(f"另有 {len(rows) - SHOWN} 个：" + "、".join(row.get("label") or "话题" for row in rows[SHOWN:])))
+    return shown
+
+
 def board_card(view):
     found = groups(view)
     elements = [band(found)]
@@ -235,6 +254,8 @@ def board_card(view):
     if found["running"]:
         elements.append(heading("running", len(found["running"])))
         elements += blocks("running", found["running"], lambda row: task_card_button(row) if row.get("stuck") else [])
+    if view.get("revisits"):
+        elements += revisit_blocks(view["revisits"])
     if view.get("tidy") is not None or view.get("projects"):
         projects, pending = view.get("projects") or [], view.get("pending") or []
         # One count of each, said the same way as the 整理专项 card and the butler's projects_list: 专项 that exist, and

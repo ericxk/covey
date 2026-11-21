@@ -49,12 +49,12 @@ from concurrent import futures as concurrent_futures
 from covey.core import env as cenv
 from covey.app.overview import dismissable
 from covey.app.pins import board_results, kept, laid, record_path
-from covey.app import topic_links
+from covey.app import revisits, topic_links
 from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
-from covey.cards.board import KINDS as BOARD_KINDS, SEEN_KIND, SEEN_MAX, board_card
+from covey.cards.board import KINDS as BOARD_KINDS, REVISIT_KIND, SEEN_KIND, SEEN_MAX, board_card
 from covey.cards.digest import ORIGIN, digest_card, digest_text, folded_board
 from covey.core import app_manifest, board_read, knowledge, look, patrol, projects, turn_words
 from covey.core import project_proposals
@@ -407,7 +407,18 @@ class Digest:
         return {**view, "asked": True, "stamp": clock_words(now, now), "can_dismiss": dismissable(),
                 "done_since": clock_words(view["since"], now) if view.get("since") else "",
                 **self.where(chat), **self.tidy(ctx, chat),
-                **self.projects_view(ctx, chat, view)}
+                **self.projects_view(ctx, chat, view), **self.revisit_view(ctx, chat, now)}
+
+    def revisit_view(self, ctx, chat, now):
+        """到点回来看's rows on the 看板 (app/revisits.py board_rows), each with its topic's link; {} without any (the switch
+        off: the view is as before)."""
+        rows = revisits.board_rows(ctx.state_dir, chat, lambda at: clock_words(at, now))
+        if not rows:
+            return {}
+        urls = self.urls(ctx, [(row["topic"], "") for row in rows])
+        for row in rows:
+            row["url"] = urls.get((row["topic"], ""), "")
+        return {"revisits": rows}
 
     def urls(self, ctx, pairs) -> dict:
         """{(topic, card): ``url``} for each pair with a topic, read in parallel (a Feishu read each when the link is
@@ -508,7 +519,14 @@ class Digest:
         if not owner:
             return "owner_only"
         message = str(event.get("message_id") or "")
-        if kind == SEEN_KIND:
+        if kind == REVISIT_KIND:
+            # 取消 on a row of 到点回来看: that revisit (its ``set_at``: a newer one the topic asked for since stays).
+            topic, set_at = raw.get("topic"), raw.get("set_at")
+            if not isinstance(topic, str) or not topic or isinstance(set_at, bool) or not isinstance(set_at, (int, float)):
+                return "board_revisit_ignored"
+            gone = revisits.records.cancel(ctx.state_dir, topic, set_at)
+            self.runtime.log(f"revisit cancelled topic={topic[-8:]} gone={gone}")
+        elif kind == SEEN_KIND:
             # One row's 记为看过 names its ``topic``; 全部记为看过 names them all (``topics``, cards/board.py SEEN_MAX).
             chat = self.fixed or self.runtime.access.notify_chat()
             topics = raw.get("topics") if isinstance(raw.get("topics"), list) else [raw.get("topic")]
@@ -521,7 +539,7 @@ class Digest:
                 self.runtime.log(f"digest board seen topic={topic[-8:]} fresh={fresh}")
         if message:
             after_ack(lambda: self.board_refresh(ctx, message))
-        return "board_seen" if kind == SEEN_KIND else "board_refresh"
+        return {SEEN_KIND: "board_seen", REVISIT_KIND: "board_revisit_cancel"}.get(kind, "board_refresh")
 
     def board_refresh(self, ctx, message_id):
         """A 看板 card redrawn from a fresh view, after a proposal on it was decided (app/project_tidy.py ``handed``),

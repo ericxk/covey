@@ -56,6 +56,7 @@
 | [飞书 SDK](#飞书-sdk-与直连) | 在运行 Bridge 的 Python 里装 `.[feishu-sdk]` | `COVEY_CARD_TRANSPORT=sdk`、`COVEY_EVENT_TRANSPORT=sdk` |
 | [内存看门狗](operations.md#内存看门狗) | 不是环境变量 | `python3 -B bin/covey_memguard.py enable` |
 | [本机运行锁](runtime-locks.md) | 同一台机器上有几个服务要共用锁 | `COVEY_LOCK_ROOT` |
+| [到点回来看](usage.md#到点回来看) | 菜单「看板」（看和取消在那里，`COVEY_BOARD=1`）；话题常要等训练、CI 这类外部的事 | `COVEY_REVISIT=1` |
 
 ### 改开关三步
 
@@ -174,6 +175,7 @@
 | [别人私聊时回一句](usage.md#基本概念) | 默认开；`COVEY_STRANGER_REPLY=0` 关 | 不多线程；别人私聊机器人时每人每天回一句纯文本，记在 `stranger-replies/` |
 | [内存看门狗](operations.md#内存看门狗) | `bin/covey_memguard.py enable` | 独立进程；`memguard` 后台线程转发告警 |
 | [本机运行锁](runtime-locks.md) | `COVEY_LOCK_ROOT` | 同机多个服务共用的锁 |
+| [到点回来看](usage.md#到点回来看) | `COVEY_REVISIT=1` | `revisits` 后台线程；普通话题每轮多一行规则；`revisits/` 记录；看板多“到点回来看”一组 |
 
 ### 代答
 
@@ -371,6 +373,7 @@
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
 | `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它或 `COVEY_BOARD=1` 才要菜单「看板」）、`app/tidy_run.py`（`scheduled`：整理专项的定时也按这些时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
 | `COVEY_BOARD` | `core/app_manifest.py`（`board_switch`：`required` 据此要菜单「看板」，`app/digest.py` 的 `menu_items` 据此加这一项） | 关：菜单「看板」跟着早晚汇总，设了 `COVEY_DIGEST_TIMES` 才有，和原来一样；`1`：没有早晚汇总也有。`./install` 新装的服务写 `1`（`service/installer.py` 的 `INSTALL_SWITCHES`） | 否 |
+| `COVEY_REVISIT` | `core/revisits.py`（`enabled`：`app/revisits.py` 的 `revisits` 后台线程、`app/runs.py` 普通话题每轮的规则行、`app/digest.py` 看板的“到点回来看”一组都看它；任务进程里 `app/turn_delivery.py` 据此决定没有变化的那一轮不发） | 关：检查点里的 `revisit` 不读，不写 `revisits/`，和原来一样；`1` 开，见[到点回来看](usage.md#到点回来看) | 否 |
 | `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：不开知识条目 | 否 |
 | `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/butler.py`（`mcp_config` 同上）、`core/butler_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根和数据根的 `extensions/enabled`；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |

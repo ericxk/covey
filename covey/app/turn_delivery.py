@@ -27,7 +27,7 @@ from covey.core.butler import traits_of, worded
 from covey.core.paths import tool_root
 from covey.feishu.transport import last_failure, set_failure
 from covey.app.outbox import AUDIT_REFUSED_NOTE, record_attempt
-from covey.app import auto_retry, butler_reply, project_loop, saved_send, topic_links
+from covey.app import auto_retry, butler_reply, project_loop, revisits, saved_send, topic_links
 from covey.app.answer_delivery import AnswerParts
 from covey.app.quiet_delivery import QuietDelivery
 
@@ -101,6 +101,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         self.cut = False  # The card took the result cut short (send): the full text went elsewhere.
         self.in_place = False  # A butler turn's verified reply is on its task card, no answer card (butler_reply).
         self.silent = False  # A project lead's wake-up turn: its saved reply is not sent (app/project_loop.py silent).
+        self.quiet_revisit = False  # A revisit turn that found nothing new: not sent, not relayed (app/revisits.py silent).
         self.listed = False  # A stopped or refused butler turn's card (or top-level notice) lists its supplements.
         self.display_text = None  # The reply as its card shows it, once deliver has it.
         # The answer card sent on its own (_answer_apart), saved as the job's answer_message_id: the pinned board
@@ -133,7 +134,8 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         if standalone_verified and not self.in_place:
             # A quiet butler turn with no card that only handed work on: its Get reaction says it (D1).
             self.in_place = butler_reply.handed_quietly(self)
-        self.silent = standalone_verified and not self.in_place and project_loop.silent(self)
+        self.quiet_revisit = standalone_verified and not self.in_place and revisits.silent(self)
+        self.silent = self.quiet_revisit or standalone_verified and not self.in_place and project_loop.silent(self)
         self.note_standalone_result(standalone_verified and not self.in_place and not self.silent, standalone_question)
         mark(job, 'delivery_started')
         set_failure(None)
@@ -168,7 +170,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         delivered = self.deliver_questions(delivered, updated, execution_status, final_card, delivery_text,
                                       question_omitted, standalone_verified, standalone_question)
         self.finish_card(delivered, execution_status, final_card, standalone_verified, standalone_question)
-        if self.relay is not None:
+        if self.relay is not None and not self.quiet_revisit:
             # A turn the butler started or handed on: its outcome back at the top level (after_turn never raises).
             self.relay(self, delivered, execution_status)
         if self.ledger is not None:

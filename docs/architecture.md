@@ -160,6 +160,7 @@ continued、done、failed、cancelled、interrupted：终态
 - `done.json`：Bridge 见到它（`job_done`）先交还调度槽位，同话题的下一条照常进行；点击仍转给活着的任务进程；outbox 和自动重试等它退出。
 - 遗留进程：任务进程把 `COVEY_TASK_DIR` 设为运行目录，每条命令都继承。后端返回后 `app/leftovers.py` 用 `core/task_processes.py` 找出带标记、已脱离任务进程的存活进程：搜索工具（`SEARCH_TOOLS`）先 SIGTERM 再 SIGKILL，其余只在执行过程里列出。内存看门狗也读这个标记，把告警发到任务所在的话题。
 - `runner_alive` 要求 pid 的启动时间、boot ID 和记录一致且 cmdline 含运行目录。
+- 到点回来看（`COVEY_REVISIT=1`，`app/revisits.py`）：一轮结束后 Bridge 读它检查点的 `revisit`（几分钟后、看什么），写 `revisits/<话题>.json`；`revisits` 线程每 30 秒看一遍，到点且话题没有在跑、排队或等回答的任务时，先在锁内记 `fired` 和这一轮的消息 ID（`revisit-…`），再在锁外像 `app/project_loop.py` 叫醒负责人那样把它当话题里的一条消息入队；记了没入队的 120 秒后重排，Bridge 停着时结束的那一轮由线程补结算。检查点写 `"unchanged": true` 又约了下一次的那一轮，任务进程里 `TurnDelivery` 不发（`revisits.silent`，同专项叫醒的 `silent`，保存的回复算已投递，也不回带）。没有变化以外的结果、最后一次和第 24 次照常投递。
 
 ### 重启认领
 
@@ -202,6 +203,7 @@ continued、done、failed、cancelled、interrupted：终态
 | `verified-results/`、`native-session-guards/` | 已验证回复的候选与授权；会话保护 | 两者 | 目录下 `.lock` 的 flock |
 | `inbound-messages/` | 每个收到的消息 ID 一个空标记，飞书重投时跳过 | Bridge | 无：`O_EXCL` 新建 |
 | `stranger-replies/` | 别人私聊时回过的那句：每人每天一个空标记 | Bridge | 无：`O_EXCL` 新建 |
+| `revisits/` | 到点回来看（`COVEY_REVISIT`）：每个话题一个，等到点（`pending`）或那一轮已排出（`fired`） | Bridge | `revisit`，进程内 |
 | `answer-cards/` | 单独发出的答案卡：要发的卡（`outgoing`）、发出的卡和产物状态 | 两者 | `answer-cards`，跨进程；锁内只读写这个文件 |
 | 表单目录（`launch-forms/` 等）、`cards/.locks/` | 卡的 card_id、sequence、表单状态；卡片锁文件 | 发卡的进程 | 卡片锁 |
 | `groups/` | 群记录 | Bridge | `group`，进程内 |

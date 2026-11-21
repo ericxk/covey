@@ -180,9 +180,10 @@ def after_runner(gateway, job, ctx) -> None:
     """The Bridge, once ``job``'s run has ended (app/detached.py finish_detached; app/unified.py for a run here). A
     butler turn whose card handed on to one topic alone gives the card to it: quoting the card goes there (引用直达).
     Never raises."""
-    from covey.app import project_loop
+    from covey.app import project_loop, revisits
 
     project_loop.after_runner(gateway.runtime.log, ctx.state_dir, job)  # A project's task: its tokens, a thread's receipt.
+    revisits.after_runner(gateway.runtime.log, ctx.state_dir, job)  # 到点回来看: the topic's next look (COVEY_REVISIT=1).
     try:
         if not butler.available():  # Not only with it on: a card handed on before the owner chose 纯话题 too.
             return

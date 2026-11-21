@@ -175,6 +175,8 @@ ACTIONS = {
     # The 看板's 刷新 and 记为看过 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).
     "bridge_board_refresh": CardAction("刷新看板"),
     "bridge_board_seen": CardAction("记为看过"),
+    # 取消 on the 看板's 到点回来看 (cards/board.py REVISIT_KIND, COVEY_REVISIT=1): only the topic's revisit record goes.
+    "bridge_board_revisit_cancel": CardAction("取消到点回来看"),
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).
     "bridge_app_setup": CardAction("补齐飞书应用配置"),
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),

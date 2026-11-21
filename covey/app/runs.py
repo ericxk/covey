@@ -451,7 +451,8 @@ class Runs:
             prior = {**prior, "bridge_preflight": audit}
             self.record_job_state(ctx,job,"running","已检查本地恢复信息；执行前须核查外部任务",recovery_audit=prior["bridge_preflight"])
         shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
-        return "\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
+        return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
+                + self._revisit_note(ctx, job))
 
     @staticmethod
     def _gist_note(ctx: BridgeContext, job: ReplyJob) -> str:
@@ -463,6 +464,16 @@ class Runs:
         if not project_proposals.enabled() or not topic or is_butler_topic(topic, job.chat_id):
             return ""
         return "\n\n" + gist_note(topic_gist.lines(topic_gist.read(ctx.state_dir, topic)))
+
+    @staticmethod
+    def _revisit_note(ctx: BridgeContext, job: ReplyJob) -> str:
+        """到点回来看's rule (COVEY_REVISIT=1, an ordinary topic: app/revisits.py ordinary), '' otherwise."""
+        from covey.app import revisits
+
+        topic = job.topic_id or ctx.topic_id
+        if not revisits.records.enabled() or not revisits.ordinary(ctx.state_dir, topic, job.chat_id):
+            return ""
+        return "\n\n" + revisits.REVISIT_RULE
 
     def _continue_previous(self, ctx: BridgeContext, job: ReplyJob) -> dict | None:
         """A task of the topic waiting for answers when ``job`` starts without being one: it becomes continued and
