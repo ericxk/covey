@@ -584,16 +584,16 @@ class ClaudeAlignmentTests(unittest.TestCase):
     def test_the_prompt_tells_claude_how_background_tasks_keep_the_task_open(self):
         native = dataclasses.replace(self.ctx, timeout=0, options={"transport": "stream-json"})
         note, = self.backend.prompt_notes(native)
-        self.assertIn("until they end, with no time limit", note)
-        self.assertIn("never leave a server", note)
-        self.assertIn("wait for it before ending your turn", note)
+        self.assertIn("直到它们结束，没有时限", note)
+        self.assertIn("不要在后台留下服务", note)
+        self.assertIn("等它出来再结束这一轮", note)
         limited = dataclasses.replace(native, timeout=1800)
         note, = self.backend.prompt_notes(limited)
-        self.assertIn("at most the task timeout of 30 minutes", note)
-        self.assertIn("last complete reply", note)
-        self.assertIn("write every reply to stand on its own", note)
+        self.assertIn("桥接器最多等到任务超时（30 分钟）", note)
+        self.assertIn("最后一条完整的回复", note)
+        self.assertIn("每条回复都要能单独成立", note)
         configured = dataclasses.replace(native, options={"transport": "stream-json", "completion_wait_seconds": 7200})
-        self.assertIn("at most 2 hours after each reply", self.backend.prompt_notes(configured)[0])
+        self.assertIn("桥接器最多等到每次回复后 2 小时", self.backend.prompt_notes(configured)[0])
 
     def test_native_child_text_does_not_replace_root(self):
         answer = self.run_native("child")

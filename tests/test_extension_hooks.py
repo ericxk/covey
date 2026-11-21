@@ -72,6 +72,54 @@ class HookTests(unittest.TestCase):
         self.assertEqual(extensions.setting("web_tenant_domain"), "bytedance.larkoffice.com")
 
 
+class SearchRulesTests(unittest.TestCase):
+    """5.9 rows 12 and 13: the rules are in Chinese and the core says one sentence about searches; a deployment on a
+    shared disk gives its full lines through an extension's SETTINGS ``search_rules`` and ``search_reminder``."""
+
+    def test_the_core_says_one_sentence_and_an_extension_its_lines(self):
+        from covey.app import prompts
+        with mock.patch.object(extensions, "manifests", return_value=()):
+            rules = prompts.constraints("unit")
+            self.assertIn("\n- 搜索限定目录并设超时。\n", rules)
+            for word in ("NAS", "PGID", "PID 1", "rg --files"):
+                self.assertNotIn(word, rules)
+            self.assertIn("\n- 搜索限定目录并设超时。\n", prompts.proxy_constraints("unit"))
+            self.assertEqual(prompts.resume_reminders(), prompts.RESUME_REMINDERS)
+            self.assertIn("\n搜索限定目录并设超时。\n", prompts.RESUME_REMINDERS)
+        lines = "- 别把整个 NAS 扫一遍\n按进程组停命令（`kill -TERM -- -<PGID>`）\n  接上一条的第二行"
+        ext = manifest_of(settings={"search_rules": lines, "search_reminder": "限定目录、设超时；按进程组停。"})
+        with mock.patch.object(extensions, "manifests", return_value=(ext,)):
+            rules = prompts.constraints("unit")
+            self.assertIn("\n- 别把整个 NAS 扫一遍\n- 按进程组停命令（`kill -TERM -- -<PGID>`）\n  接上一条的第二行\n", rules)
+            self.assertNotIn(prompts.SEARCH_RULE, rules)
+            self.assertIn("\n- 别把整个 NAS 扫一遍\n", prompts.proxy_constraints("unit"))
+            self.assertIn("\n限定目录、设超时；按进程组停。\n", prompts.resume_reminders())
+            self.assertNotIn(prompts.SEARCH_RULE, prompts.resume_reminders())
+
+    def test_a_manifest_may_set_them(self):
+        fake = SimpleNamespace(SETTINGS={"search_rules": "- x", "search_reminder": "y"})
+        with mock.patch.object(extensions, "_import", return_value=fake):
+            self.assertEqual(extensions.read("x").settings, {"search_rules": "- x", "search_reminder": "y"})
+
+    def test_the_rules_are_in_one_language(self):
+        from covey.app import prompts
+        from covey.backends.claude.bridge import ClaudeBackend
+        with mock.patch.object(extensions, "manifests", return_value=()):
+            texts = (prompts.constraints("Claude Code", "Claude Code 权限模式：default", ("说明",)),
+                     prompts.proxy_constraints("Claude Code"), prompts.RESUME_REMINDERS,
+                     prompts.workspace_block("ws", Path(".")), prompts.first_turn_message("消息", []),
+                     prompts.resume_message("消息"))
+        for text in texts:
+            for english in ("You are", "Constraints for", "Reply only", "Scope every search", "process group",
+                            "Current workdir", "Recent conversation", "Latest user message", "Read and follow"):
+                self.assertNotIn(english, text)
+        backend = ClaudeBackend()
+        ctx = SimpleNamespace(skip_permissions=False, options={}, timeout=1800, topic_id="")
+        self.assertNotIn("permission", backend.prompt_runtime_note(ctx))
+        with mock.patch("covey.backends.claude.bridge._redacted_topic", return_value=False):
+            self.assertNotIn("Background", backend.prompt_notes(ctx)[0])
+
+
 class WithoutHooksTests(unittest.TestCase):
     """The same checks with the hooks taken away, whether or not an extension is enabled."""
 

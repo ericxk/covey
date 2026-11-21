@@ -346,13 +346,13 @@ class PromptTest(DeviceCase):
     def test_the_block_names_the_device_and_its_directory_never_the_stand_in(self):
         ctx = devices.with_binding(self.ctx, devices.bind_workdir(self.ctx, "gpu1:~/proj"), workspace_name="w")
         text = workspace_block("w", ctx.workdir, ctx.device, ctx.remote_workdir)
-        self.assertIn("Current workdir: ~/proj (on device gpu1", text)
+        self.assertIn("当前工作目录：~/proj（在设备 gpu1", text)
         self.assertNotIn("standin", text)
         self.assertNotIn(str(self.state), text)
 
     def test_the_local_block_is_what_it_was(self):
         text = workspace_block("w", self.root)
-        self.assertIn(f"Current workspace: w\nCurrent workdir: {self.root.resolve()}\nRead and follow", text)
+        self.assertIn(f"当前工作区：w\n当前工作目录：{self.root.resolve()}\n先读并遵守", text)
         self.assertEqual(text, workspace_block("w", self.root, "", ""))
 
     def test_the_history_command_is_not_offered_to_a_device_topic(self):

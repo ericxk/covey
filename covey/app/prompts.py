@@ -17,28 +17,47 @@ from typing import Any
 
 from covey.cards.review import render_history
 from covey.core import env as cenv
-from covey.core import knowledge, projects
+from covey.core import extensions, knowledge, projects
 from covey.core import memory as core_memory
 from covey.core.checkpoint import checkpoint_rules
 from covey.core.butler_tool_specs import BUTLER_RULES_ENV
 
-# Commands' and subtasks' descriptions show on the task card's 执行过程 (core/text.py step_action): the owner
-# reads them, so they are in the owner's language too.
-TOOL_NOTES_LANGUAGE = ("工具调用里写给人看的说明（命令和子任务的 description、待办条目）也用用户提问的语言写；"
-                       "用户用中文时写中文。这些说明会显示在飞书任务卡的“执行过程”里。")
+# The one rule about language (5.9 row 13: said once in a turn's rules, which are all in Chinese). Commands' and subtasks'
+# descriptions show on the task card's 执行过程 (core/text.py step_action): the owner reads them, so they are in his
+# language too.
+LANGUAGE_RULE = ("写给人看的话都用用户提问的语言，用户用中文就写中文：最终回复、进度说明、总结，以及工具调用里写给人看的说明"
+                 "（命令和子任务的 description、待办条目，它们会显示在飞书任务卡的“执行过程”里）。")
+
+# Scoped searches and stopping commands (5.9 row 12): the core's one sentence. The lines about walking a shared NAS
+# and its runaway searches are a deployment's (an extension's SETTINGS ``search_rules``, core/extensions.py), as is
+# their sentence in the resumed turns' reminder (``search_reminder``).
+SEARCH_RULE = "搜索限定目录并设超时。"
+SEARCH_RULES_SETTING, SEARCH_REMINDER_SETTING = "search_rules", "search_reminder"
+
+
+def search_rules() -> tuple[str, ...]:
+    """The constraints' lines about searches and stopping commands, each a "- " bullet: an enabled extension's
+    ``search_rules`` (its lines as written), else SEARCH_RULE."""
+    text = extensions.setting(SEARCH_RULES_SETTING, "").strip()
+    if not text:
+        return ("- " + SEARCH_RULE,)
+    return tuple(line if line.startswith(("- ", "  ")) else "- " + line for line in text.splitlines() if line.strip())
+
 
 # For a backend without a system channel the rules are only in a fresh session's message;
-# these lines restate the reply contract on each resumed turn.
-RESUME_REMINDERS = "\n".join((
-    "Continue the current topic/session. Ask follow-up questions in this topic.",
-    "Keep reports local unless the user requests publication; do not select a globally latest review.",
-    "Reply only with the Feishu-friendly Markdown message text that should be sent back to Feishu.",
-    "Use short sections, bullets, numbered steps, and fenced code blocks where useful.",
-    "Preserve the requested plan and decision context before asking for confirmation; do not shorten them to a question.",
-    "Scope searches to specific directories with a real timeout; stop commands by process group and leave none running.",
-    "默认使用用户提问的语言回复；如果用户使用中文，最终回复、进度说明和总结都用中文。",
-    TOOL_NOTES_LANGUAGE,
-))
+# these lines restate the reply contract on each resumed turn (``resume_reminders``).
+RESUME_HEAD = (
+    "接着这个话题（会话）做，要追问就在这个话题里问。",
+    "报告留在本地，用户要求发布时才发；不要选全局最新的评审结果。",
+    "只回复要发回飞书的消息正文，用适合飞书的 Markdown：短小节、列表、编号步骤，需要时用代码块。",
+    "要确认之前，先把用户要的方案和决策背景写完整，不要缩成一句提问。",
+)
+RESUME_REMINDERS = "\n".join((*RESUME_HEAD, SEARCH_RULE, LANGUAGE_RULE))
+
+
+def resume_reminders() -> str:
+    """RESUME_REMINDERS, with an enabled extension's ``search_reminder`` in place of SEARCH_RULE."""
+    return "\n".join((*RESUME_HEAD, extensions.setting(SEARCH_REMINDER_SETTING, "").strip() or SEARCH_RULE, LANGUAGE_RULE))
 
 
 def _now() -> str:
@@ -46,39 +65,26 @@ def _now() -> str:
 
 
 def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = ()) -> str:
-    runtime_note = runtime_note or f"{backend_name} permissions controlled by this bridge"
+    runtime_note = runtime_note or f"{backend_name} 的权限由这个桥接器控制"
     return "\n".join((
-        f"You are {backend_name}, replying to the user through Feishu.",
+        f"你是 {backend_name}，通过飞书回复用户。",
         "",
-        "Constraints for this bridge:",
-        "- Reply only with the message text that should be sent back to Feishu.",
-        "- Match detail to the request. Preserve the complete requested plan, evidence and decision context; avoid filler.",
-        "- Format replies as Feishu-friendly Markdown: use short sections, bullets, numbered steps,",
-        "  and fenced code blocks for commands, logs, paths, diffs, or snippets.",
-        "- Avoid huge paragraphs; prefer scannable structure. Do not add decorative filler.",
-        f"- You are running from a Feishu bridge with {runtime_note}.",
-        "- If permissions permit it, you may inspect files, edit code, and run verification commands",
-        "  for the current workspace when the user asks you to do so.",
-        "- Avoid destructive operations, secret access, broad filesystem changes, and long-running",
-        "  services from Feishu unless the user's latest message is explicit and low-risk.",
-        "- Scope every search: never walk a home, a workspace root, a data or NAS tree as a whole",
-        "  (`rg --files`, `find`, `ls -R`, `du`); a filter after a pipe does not limit the walk. Search the",
-        "  specific repository or subdirectory, limit the depth, and give the command a real timeout",
-        "  (e.g. `timeout --kill-after=2s 30s`). After a timeout, narrow the search instead of retrying it.",
-        "- Stop a command by its whole process group (`kill -TERM -- -<PGID>`), not only its shell or the last",
-        "  filter of a pipeline, then check that nothing you started is still running, including processes",
-        "  adopted by PID 1. A search that ends with 134 (`memory allocation ... failed`) or 137 walked too",
-        "  much: narrow it; do not rerun it unchanged or raise a memory limit.",
+        "这个桥接器的约束：",
+        "- 只回复要发回飞书的消息正文。",
+        "- 详略跟着请求走：用户要的完整方案、证据和决策背景都写全，不写空话。",
+        "- 用适合飞书的 Markdown：短小节、列表、编号步骤；命令、日志、路径、diff 和代码片段放进代码块。",
+        "- 不写大段文字，排成一眼能扫完的结构；不加装饰性的话。",
+        f"- 你在飞书桥接器里运行，{runtime_note}。",
+        "- 权限允许时，用户要你做的，你可以在当前工作区里看文件、改代码、跑验证命令。",
+        "- 不做破坏性操作、不碰密钥、不大范围改文件系统、不从飞书启动长期运行的服务，除非用户最新一条消息明确要求而且风险低。",
+        *search_rules(),
         # A supplement such as 'the QR code expired, send a new one' must not wait minutes for a wait loop to end.
-        "- What the user sends while you work reaches you only between tool calls. To wait for the user (a scan, a",
-        "  confirmation) or for something outside (a deploy, a job, a page), poll with short commands of at most",
-        "  30 seconds each, not one long blocking command or loop, so a new instruction is read within seconds.",
-        "- This Feishu topic is one persistent session. Ask follow-up questions here and continue here.",
-        "- Do not automatically publish process, diff or review documents to Feishu; keep local reports",
-        "  unless the user requests publication. Never select another topic's latest review run.",
-        "- Do not include hidden reasoning, tool logs, or implementation details unless directly useful.",
-        "- 默认使用用户提问的语言回复；如果用户使用中文，最终回复、进度说明和总结都用中文。",
-        "- " + TOOL_NOTES_LANGUAGE,
+        "- 你干活时用户发来的话，只在两次工具调用之间才送到你这里。要等用户（扫码、确认）或外面的事（部署、任务、网页）时，"
+        "用每次最多 30 秒的短命令轮询，不要用一个长时间阻塞的命令或循环，这样新的指示几秒内就能读到。",
+        "- 这个飞书话题是一个持续的会话：要追问就在这里问，在这里接着做。",
+        "- 不要自动把过程、diff 或评审文档发到飞书，报告留在本地，用户要求发布时才发；不要选别的话题最新的评审结果。",
+        "- 除非直接有用，不写隐藏的推理、工具日志和实现细节。",
+        "- " + LANGUAGE_RULE,
         # A backend's own constraints, one bullet each, after the shared ones.
         *("- " + note for note in notes),
     ))
@@ -88,39 +94,33 @@ def proxy_constraints(backend_name: str, runtime_note: str = "", notes: tuple[st
     """The rules of a 代答 topic's turns, in place of ``constraints`` and the checkpoint contract: its replies
     go to other people as the owner, in plain text; the Markdown layout, the checkpoint, its questions and 话题要点
     of an ordinary topic only drew its turns into bookkeeping (two of a turn's three tool calls wrote the checkpoint)."""
-    runtime_note = runtime_note or f"{backend_name} permissions controlled by this bridge"
+    runtime_note = runtime_note or f"{backend_name} 的权限由这个桥接器控制"
     return "\n".join((
-        f"You are {backend_name}, answering for the owner through a Feishu bridge (代答).",
+        f"你是 {backend_name}，通过飞书桥接器替主人回复别人（代答）。",
         "",
-        "Constraints for this bridge:",
+        "这个桥接器的约束：",
         "- 这是代答话题：每一轮替主人回复一个联系人，最终回复会原样以主人的身份发给对方；怎么回写在每批消息里。",
-        f"- You are running from a Feishu bridge with {runtime_note}.",
+        f"- 你在飞书桥接器里运行，{runtime_note}。",
         "- 只做读取和查询（聊天、文档、代码、记录）；不改代码和配置、不部署、不删东西（联系人笔记照每批的说明更新）；"
         "不要自己用 lark-cli 或别的工具发飞书消息，回复由 Bridge 发出。",
         "- 不用写检查点，也不写话题要点。",
-        "- Scope every search: never walk a home, a workspace root, a data or NAS tree as a whole",
-        "  (`rg --files`, `find`, `ls -R`, `du`); a filter after a pipe does not limit the walk. Search the",
-        "  specific repository or subdirectory, limit the depth, and give the command a real timeout",
-        "  (e.g. `timeout --kill-after=2s 30s`). After a timeout, narrow the search instead of retrying it.",
-        "- Stop a command by its whole process group (`kill -TERM -- -<PGID>`), not only its shell or the last",
-        "  filter of a pipeline, then check that nothing you started is still running.",
-        "- " + TOOL_NOTES_LANGUAGE,
+        *search_rules(),
+        "- " + LANGUAGE_RULE,
         *("- " + note for note in notes),
     ))
 
 
 def workspace_block(workspace_name: str, workdir: Path, device: str = "", remote_workdir: str = "") -> str:
     # On a device the directory is the device's, written as text: the hub's stand-in is never shown (it is no directory).
-    place = (f"Current workdir: {remote_workdir} (on device {device}; the files of this task are on that machine)\n"
-             if device else f"Current workdir: {Path(workdir).resolve()}\n")
+    place = (f"当前工作目录：{remote_workdir}（在设备 {device} 上，这个任务的文件都在那台机器上）\n"
+             if device else f"当前工作目录：{Path(workdir).resolve()}\n")
     return (
-        f"Current workspace: {workspace_name or 'default'}\n"
+        f"当前工作区：{workspace_name or 'default'}\n"
         + place +
-        "Read and follow the applicable AGENTS.md / CLAUDE.md and storage conventions in this workspace. "
-        "Keep project outputs in the locations prescribed by that workspace; use its .local/ "
-        "only when permitted, and honor any configured external/NAS data directory. "
-        "The bridge source repository, service state directory and an isolated HOME do not determine the project output root. "
-        "An explicit checkpoint path is for that checkpoint only; do not infer an artifact directory from it."
+        "先读并遵守这个工作区里适用的 AGENTS.md / CLAUDE.md 和存储约定。"
+        "项目产出放在这个工作区规定的位置；只在允许时用它的 .local/，有配置的外部或 NAS 数据目录就用它。"
+        "桥接器的源码仓库、服务状态目录和隔离的 HOME 都不决定项目产出的根目录。"
+        "明确给出的检查点路径只用来写检查点，不要据此推断产物目录。"
     )
 
 
@@ -324,15 +324,18 @@ def earlier_history(rows: list[dict[str, Any]], message_id: str, user_text: str)
     return kept[:-1] if content and user_text.strip().endswith(content) else kept
 
 
+RECENT_HEAD = "最近的对话："  # app/switch_handoff.py names it.
+
+
 def first_turn_message(user_text: str, history_snapshot: list[dict[str, Any]]) -> str:
     history = render_history(history_snapshot)
     return "\n".join((
-        f"Current time: {_now()}",
+        f"当前时间：{_now()}",
         "",
-        "Recent conversation:",
-        history or "[none]",
+        RECENT_HEAD,
+        history or "（无）",
         "",
-        "Latest user message:",
+        "用户最新的消息：",
         user_text,
     ))
 
@@ -340,9 +343,9 @@ def first_turn_message(user_text: str, history_snapshot: list[dict[str, Any]]) -
 def resume_message(user_text: str) -> str:
     """A message continuing an existing Harness session: the session already has the conversation."""
     return "\n".join((
-        f"Current time: {_now()}",
+        f"当前时间：{_now()}",
         "",
-        "Latest Feishu user message:",
+        "用户最新的飞书消息：",
         user_text,
     ))
 
@@ -391,7 +394,6 @@ SHARED_RULES = (
     "（所有工作区都适用的记通用，只对某个工作区成立的记那个工作区），回复里说一句“已记下：……”；"
     "只对这件事、这一轮的要求不记。主人说“忘掉/删掉那条”时，用 principles_list 找到它，再用 principle_delete 删掉。"
     "记下的原则每一轮都附在 Bridge 的规则里，你和各个话题都会看到。",
-    "- " + TOOL_NOTES_LANGUAGE,
 )
 # 管家 (COVEY_BUTLER_RULES=1, docs/butler.md 管家规则): the butler only answers quickly and hands the rest on, so
 # it is free for the owner's next question. It takes the place of SHARED_RULES' first two rules (everything under a

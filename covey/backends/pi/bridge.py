@@ -188,7 +188,7 @@ class PiBackend(BackendRuntime):
             return run_rpc(request, argv, env, context_window=home.context_window(ctx.model, account), label=label)
 
     def prompt_runtime_note(self, ctx):
-        return "Pi has no sandbox: every command runs with the bot user's full permissions"
+        return "Pi 没有沙箱：每条命令都以机器人用户的全部权限运行"
 
     def startup_lines(self, ctx):
         return [f"pi_cmd={ctx.backend_cmd} model={ctx.model} reasoning_effort={ctx.effort} "

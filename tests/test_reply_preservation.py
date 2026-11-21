@@ -441,9 +441,9 @@ class ReplyPreservationTest(unittest.TestCase):
         self.assertIn("写它不算修改工作区文件；用户要求不改文件时也照常写检查点", CHECKPOINT_RULES)
         rules = bridge_rules(backend_name="unit", workspace_name="unit", workdir=Path("."))
         self.assertNotIn("Keep replies concise and useful", rules)
-        self.assertIn("complete requested plan", rules)
+        self.assertIn("用户要的完整方案、证据和决策背景都写全", rules)
         self.assertIn(CHECKPOINT_RULES, rules)
-        self.assertIn("before asking for confirmation", RESUME_REMINDERS)
+        self.assertIn("要确认之前，先把用户要的方案和决策背景写完整", RESUME_REMINDERS)
 
 
 if __name__ == "__main__":

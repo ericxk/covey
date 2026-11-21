@@ -368,9 +368,9 @@ class TwoStagePromptTest(unittest.TestCase):
         ctx = make_context(self.root)
         app.runs.generate_reply_for_worker(ctx, self._job(), None, None)
         prompt = backend.prompts[-1]
-        self.assertIn("You are Claude Code, replying to the user through Feishu.", prompt)
+        self.assertIn("你是 Claude Code，通过飞书回复用户。", prompt)
         self.assertIn("unit sandbox note", prompt)
-        self.assertIn("Recent conversation", prompt)
+        self.assertIn("最近的对话", prompt)
         self.assertIn("帮我检查代码", prompt)
 
     def test_resumed_chat_gets_slim_wrapper(self) -> None:
@@ -378,10 +378,10 @@ class TwoStagePromptTest(unittest.TestCase):
         ctx = make_context(self.root)
         app.runs.generate_reply_for_worker(ctx, self._job(), "11111111-1111-4111-8111-111111111111", None)
         prompt = backend.prompts[-1]
-        self.assertIn("Latest Feishu user message", prompt)
+        self.assertIn("用户最新的飞书消息", prompt)
         self.assertIn("帮我检查代码", prompt)
-        self.assertNotIn("Recent conversation", prompt)
-        self.assertNotIn("You are Claude Code", prompt)
+        self.assertNotIn("最近的对话", prompt)
+        self.assertNotIn("你是 Claude Code", prompt)
 
     def _turn(self, backend, sid=None, *, user_text="帮我检查代码", history=None, message_id="om", options=None):
         app = harness_app(CLAUDE_SPEC, backend, ClaudeSessionStore())
@@ -403,28 +403,28 @@ class TwoStagePromptTest(unittest.TestCase):
                 backend = InstructedBackend(note="unit sandbox note")
                 prompt, checkpoint = self._turn(backend, sid)
                 rules = backend.instructions[-1]
-                self.assertTrue(rules.startswith("You are Claude Code, replying to the user through Feishu."))
-                for part in ("unit sandbox note", f"Current workdir: {self.root.resolve()}", "AGENTS.md / CLAUDE.md",
+                self.assertTrue(rules.startswith("你是 Claude Code，通过飞书回复用户。"))
+                for part in ("unit sandbox note", f"当前工作目录：{self.root.resolve()}", "AGENTS.md / CLAUDE.md",
                              CHECKPOINT_RULES):
                     self.assertIn(part, rules)
                 self.assertNotIn(checkpoint, rules)
                 # The message has what changes per turn: the time, the user's message, the checkpoint file.
                 self.assertIn("帮我检查代码", prompt)
                 self.assertIn("本任务检查点文件：" + checkpoint, prompt)
-                for part in ("Constraints for this bridge", "这是执行约定", "Current workdir", "AGENTS.md",
+                for part in ("这个桥接器的约束", "这是执行约定", "当前工作目录", "AGENTS.md",
                              RESUME_REMINDERS.splitlines()[0]):
                     self.assertNotIn(part, prompt)
-                self.assertEqual("Recent conversation" in prompt, sid is None)
+                self.assertEqual("最近的对话" in prompt, sid is None)
 
     def test_a_backend_without_one_gets_them_in_the_first_message_and_the_contract_every_turn(self) -> None:
         backend = FakeBackend(note="unit sandbox note")
         first, checkpoint = self._turn(backend)
-        self.assertTrue(first.startswith("You are Claude Code, replying to the user through Feishu."))
-        for part in ("unit sandbox note", "Recent conversation", CHECKPOINT_RULES, "本任务检查点文件：" + checkpoint):
+        self.assertTrue(first.startswith("你是 Claude Code，通过飞书回复用户。"))
+        for part in ("unit sandbox note", "最近的对话", CHECKPOINT_RULES, "本任务检查点文件：" + checkpoint):
             self.assertIn(part, first)
         resumed, checkpoint = self._turn(FakeBackend(), "11111111-1111-4111-8111-111111111111")
-        self.assertNotIn("Constraints for this bridge", resumed)
-        for part in (RESUME_REMINDERS, f"Current workdir: {self.root.resolve()}", CHECKPOINT_RULES,
+        self.assertNotIn("这个桥接器的约束", resumed)
+        for part in (RESUME_REMINDERS, f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES,
                      "本任务检查点文件：" + checkpoint):
             self.assertIn(part, resumed)
 
@@ -465,7 +465,7 @@ class TwoStagePromptTest(unittest.TestCase):
                 backend.capabilities = real().capabilities
                 first, _ = self._turn(backend)
                 self.assertEqual(backend.instructions[-1], "")
-                self.assertTrue(first.startswith("You are Claude Code, replying to the user through Feishu."))
+                self.assertTrue(first.startswith("你是 Claude Code，通过飞书回复用户。"))
                 for part in ("unit sandbox note", CHECKPOINT_RULES):
                     self.assertIn(part, first)
                 resumed, _ = self._turn(backend, "11111111-1111-4111-8111-111111111111")
@@ -473,7 +473,7 @@ class TwoStagePromptTest(unittest.TestCase):
                 self.assert_lean(resumed, False)
 
     def assert_lean(self, prompt, lean):
-        for part in (RESUME_REMINDERS, f"Current workdir: {self.root.resolve()}", CHECKPOINT_RULES):
+        for part in (RESUME_REMINDERS, f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES):
             (self.assertNotIn if lean else self.assertIn)(part, prompt)
 
     def test_a_new_session_is_marked_and_resumes_with_the_lean_message(self) -> None:
@@ -492,7 +492,7 @@ class TwoStagePromptTest(unittest.TestCase):
         resumed, checkpoint = self._turn(backend, "22222222-2222-4222-8222-222222222222")
         self.assert_lean(resumed, False)
         self.assertIn("本任务检查点文件：" + checkpoint, resumed)
-        self.assertNotIn("Constraints for this bridge", resumed)
+        self.assertNotIn("这个桥接器的约束", resumed)
         self.assertIn(CHECKPOINT_RULES, backend.instructions[-1])  # Sent anyway: harmless if ignored.
         self.assertFalse(started_with_system_rules(make_context(self.root), CLAUDE_SPEC.name,
                                                    "22222222-2222-4222-8222-222222222222"))
@@ -505,9 +505,9 @@ class TwoStagePromptTest(unittest.TestCase):
                 if marked:
                     mark_system_rules(ctx, CLAUDE_SPEC.name, source)
                 first, _ = self._turn(InstructedBackend(sid=forked), options={"fork_session": source})
-                self.assertIn("Recent conversation", first)
+                self.assertIn("最近的对话", first)
                 self.assertEqual(started_with_system_rules(ctx, CLAUDE_SPEC.name, forked), marked)
-                self.assert_lean(first.split("Latest user message", 1)[1], marked)
+                self.assert_lean(first.split("用户最新的消息", 1)[1], marked)
                 resumed, _ = self._turn(InstructedBackend(sid=forked), forked)
                 self.assert_lean(resumed, marked)
 
@@ -535,7 +535,7 @@ class TwoStagePromptTest(unittest.TestCase):
                    {"role": "assistant", "content": "日志正常"},
                    {"role": "user", "content": "帮我检查代码", "message_id": "om"}]
         prompt, _ = self._turn(InstructedBackend(), history=history)
-        self.assertIn("Recent conversation:\nuser: 先看看日志\nassistant: 日志正常\n\nLatest user message:\n帮我检查代码",
+        self.assertIn("最近的对话：\nuser: 先看看日志\nassistant: 日志正常\n\n用户最新的消息：\n帮我检查代码",
                       prompt)
         self.assertEqual(prompt.count("帮我检查代码"), 1)
         # An answer continuation has no message ID of its own: its text is the last row.
@@ -553,7 +553,7 @@ class TwoStagePromptTest(unittest.TestCase):
                 prompt, _ = self._turn(backend, sid, user_text=text, history=history)
                 parts = [prompt, *getattr(backend, "instructions", [])]
                 self.assertFalse([line for part in parts for line in part.splitlines() if line.startswith(" " * 8)])
-                self.assertIn("\nLatest user message:\n第一行\n" if sid is None else "\nLatest Feishu user message:\n第一行\n",
+                self.assertIn("\n用户最新的消息：\n第一行\n" if sid is None else "\n用户最新的飞书消息：\n第一行\n",
                               prompt)
 
     @requires_extension()
@@ -562,12 +562,12 @@ class TwoStagePromptTest(unittest.TestCase):
             spec, backend, store = components(name)
             ctx = make_context(self.root, **ctx_fields)
             return harness_app(spec, backend, store).runs.bridge_rules(ctx)
-        self.assertIn("- You are running from a Feishu bridge with Codex sandbox mode: danger-full-access.",
+        self.assertIn("- 你在飞书桥接器里运行，Codex 沙箱模式：danger-full-access。",
                       rules("codex", options={"sandbox": "danger-full-access"}))
-        self.assertIn("with Codex sandbox mode: danger-full-access.", rules("codex", options={"sandbox": "danger-full-access"}))
-        self.assertIn("with Claude Code permission mode: bypass (--dangerously-skip-permissions).",
+        self.assertIn("运行，Codex 沙箱模式：danger-full-access。", rules("codex", options={"sandbox": "danger-full-access"}))
+        self.assertIn("运行，Claude Code 权限模式：bypass（--dangerously-skip-permissions）。",
                       rules("claude", skip_permissions=True))
-        self.assertIn("answers only AskUserQuestion and denies other permission requests.",
+        self.assertIn("桥接器只回答 AskUserQuestion，其他权限请求一律拒绝。",
                       rules("claude", skip_permissions=False))
         maso = rules("maso")
         self.assertIn("\n- 当前运行于独立 MASO 进程，", maso)

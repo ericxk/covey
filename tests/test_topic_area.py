@@ -614,10 +614,17 @@ class RulesTest(AreaCase):
         self.assertIn("主人原话和附件 Bridge 会自动附上", rules)
 
     def test_tool_notes_are_in_the_owners_language_everywhere(self):
-        """T444 V11: commands' and subtasks' descriptions show on the card's 执行过程."""
-        from covey.app.prompts import RESUME_REMINDERS, constraints
-        for text in (constraints("Claude"), RESUME_REMINDERS, butler_message("快照", "消息")):
-            self.assertIn("工具调用里写给人看的说明（命令和子任务的 description、待办条目）也用用户提问的语言写", text)
+        """T444 V11: commands' and subtasks' descriptions show on the card's 执行过程. 5.9 row 13: said once in a turn's
+        rules, the constraints (a new session) or the reminder (a resumed turn); the butler's and the lead's rules, which
+        open the message of every one of their turns, no longer say it again."""
+        from covey.app import project_lead
+        from covey.app.prompts import LANGUAGE_RULE, RESUME_REMINDERS, constraints, proxy_constraints
+        for text in (constraints("Claude"), RESUME_REMINDERS, proxy_constraints("Claude")):
+            self.assertEqual(text.count("用户提问的语言"), 1)
+            self.assertIn(LANGUAGE_RULE, text)
+        self.assertIn("工具调用里写给人看的说明（命令和子任务的 description、待办条目", LANGUAGE_RULE)
+        for text in (butler_message("快照", "消息"), project_lead.lead_rules()):
+            self.assertNotIn("用户提问的语言", text)
 
 if __name__ == "__main__":
     import unittest

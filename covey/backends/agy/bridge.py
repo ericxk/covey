@@ -304,8 +304,8 @@ class AntigravityBackend(BackendRuntime):
             return run_stream(request, argv, stdin, {**env, "HOME": str(path)})
 
     def prompt_runtime_note(self, ctx):
-        return ("Antigravity permission mode: always-proceed (--dangerously-skip-permissions)" if ctx.skip_permissions
-                else "Antigravity permission mode: request-review; an action that needs approval is skipped")
+        return ("Antigravity 权限模式：always-proceed（--dangerously-skip-permissions）" if ctx.skip_permissions
+                else "Antigravity 权限模式：request-review，要批准的操作会被跳过")
 
     def startup_lines(self, ctx):
         return [f"agy_cmd={ctx.backend_cmd} model={ctx.model or '(agy default)'} effort={ctx.effort or '(default)'} "

@@ -24,7 +24,6 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app.prompts import TOOL_NOTES_LANGUAGE
 from covey.app.triage_view import pack_block
 from covey.core import board_read, butler, project_library, project_memory, projects, triage
 from covey.core.checkpoint import read_checkpoint
@@ -143,12 +142,11 @@ def style_rule(style) -> str:
 
 def lead_rules(style=None, practice=PRACTICE) -> str:
     """The lead's rules: identity, tools, the style as the record has it, the practice layer (``practice``; none by
-    default), the language of tool notes."""
+    default). The language rule is the bridge rules' (app/prompts.py LANGUAGE_RULE), said there once."""
     tools = TOOL_RULES if not triage.enabled() else (*(rule.replace(NOT_YET, "") for rule in TOOL_RULES), *TRIAGE_RULES)
     layers = [*IDENTITY, *tools, style_rule(style_of({"style": style})) if style else style_rule(STYLE_DEFAULT)]
     if practice:
         layers.append(practice)
-    layers.append("- " + TOOL_NOTES_LANGUAGE)
     return "\n".join(layers)
 
 

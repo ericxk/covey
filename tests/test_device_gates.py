@@ -421,7 +421,7 @@ class DeviceTurn:
         prompt = self.prompts[0]
         self.assertIn("本任务检查点文件：" + mirror["path"], prompt)
         self.assertNotIn(job.checkpoint_path, prompt)
-        self.assertIn("(on device gpu1", prompt)
+        self.assertIn("（在设备 gpu1 上", prompt)
         history = knowledge_history()
         for hub in (str(self.state), str(self.root), "incoming_media", "history.py", "standin", history):
             if hub:

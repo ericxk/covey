@@ -140,7 +140,7 @@ class CodexBackend(BackendRuntime):
         return rollout_root()
 
     def prompt_runtime_note(self, ctx: BridgeContext) -> str:
-        return f"Codex sandbox mode: {self.sandbox(ctx)}"
+        return f"Codex 沙箱模式：{self.sandbox(ctx)}"
 
     def startup_lines(self, ctx: BridgeContext) -> list[str]:
         return [

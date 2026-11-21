@@ -444,7 +444,7 @@ class HarnessSwitchTests(UnifiedCase):
         self.assertIsNone(self.codex.sessions.read_session_id(self.source.session_path))  # A fresh session there.
         self.assertIn('工作区：project（原目录） → other（原目录）', json.dumps(replace.call_args.args[4], ensure_ascii=False))
         note = switch_handoff.handoff_note(topic, Path('/t.md'), 5)
-        self.assertIn(f'工作目录从 {self.work} 换成了上面的 Current workdir', note)
+        self.assertIn(f'工作目录从 {self.work} 换成了上面的当前工作目录', note)
 
     def test_a_harness_the_device_does_not_declare_is_refused_and_a_declared_one_switches(self):
         from support.fake_device import FakeDevice

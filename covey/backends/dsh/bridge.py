@@ -195,7 +195,7 @@ class DshBackend(BackendRuntime):
                 pass
 
     def prompt_runtime_note(self, ctx):
-        return "dsh permission mode: danger-full-access"
+        return "dsh 权限模式：danger-full-access"
 
     def startup_lines(self, ctx):
         return [f"dsh_cmd={ctx.backend_cmd} model={ctx.model} reasoning_effort={ctx.effort} home={native_home()}"]

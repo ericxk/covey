@@ -249,10 +249,10 @@ class TurnTest(unittest.TestCase):
                     finish_native_session(self.ctx, CLAUDE_SPEC.name, claimed, job.bridge_run_id, True)
                 prompt = backend.prompts[-1]
                 self.assertNotIn(CHECKPOINT_RULES, prompt)
-                self.assertNotIn("Feishu-friendly Markdown", prompt)
+                self.assertNotIn("适合飞书的 Markdown", prompt)
                 self.assertNotIn("本任务检查点文件", prompt)
                 if sid is None:
-                    self.assertIn("answering for the owner through a Feishu bridge (代答)", prompt)
+                    self.assertIn("通过飞书桥接器替主人回复别人（代答）", prompt)
         # Any other topic keeps them.
         write_topic(self.ctx, proxy=None)
         self.assertIn(CHECKPOINT_RULES, self.app().runs.bridge_rules(self.ctx, self.job()))

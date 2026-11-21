@@ -187,10 +187,10 @@ class StoragePathsTest(unittest.TestCase):
                                      timeout=0, kind=kind, history_snapshot=[])
                 app.runs.generate_reply_for_worker(ctx, job, sid, None)
                 prompt = backend.prompts[-1]
-                self.assertIn(f"Current workdir: {self.repo.resolve()}", prompt)
+                self.assertIn(f"当前工作目录：{self.repo.resolve()}", prompt)
                 self.assertIn("AGENTS.md / CLAUDE.md", prompt)
-                self.assertIn("do not determine the project output root", prompt)
-                self.assertIn("checkpoint path is for that checkpoint only", prompt)
+                self.assertIn("都不决定项目产出的根目录", prompt)
+                self.assertIn("明确给出的检查点路径只用来写检查点", prompt)
 
 
 if __name__ == "__main__":

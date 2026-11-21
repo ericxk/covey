@@ -20,8 +20,8 @@ from covey.app import (device_files, knowledge_turn, memory_turn, owner_send, pr
                        workspace_gists)
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
-from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
-                                        first_turn_message, principles_block, resume_message, workspace_block)
+from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, bridge_rules, earlier_history, first_turn_message,
+                                        principles_block, resume_message, resume_reminders, workspace_block)
 from covey.app.sessions import mark_system_rules, started_with_system_rules
 from covey.app.recovery_cards import paint_answered
 from covey.app.switch_handoff import capped
@@ -475,7 +475,7 @@ class Runs:
             remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
             memory_text = memory_turn.block(ctx, job, owner_turn=owner)
             memory_fix = memory_turn.fix_rule(ctx, job, owner)
-            prompt += "\n\n" + RESUME_REMINDERS + (
+            prompt += "\n\n" + resume_reminders() + (
                 "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir) + ("\n\n" + memory_text if memory_text else "")
                 + ("\n\n" + principles if principles else "")
                 + ("\n\n" + project if project else "")

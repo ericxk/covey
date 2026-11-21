@@ -36,9 +36,8 @@ DEFAULT_MODEL = "claude-fable-5"
 DEFAULT_EFFORT = "xhigh"
 DEFAULT_CLAUDE_CMD = "claude"
 # prompt_notes of a topic that chose redaction (backends/claude/redaction.py).
-REDACTION_NOTE = ("Some names in this conversation were replaced with stand-ins before it reached you, some "
-                  "of them RX followed by 8 hex digits. Write a stand-in exactly as it appears, also in paths "
-                  "and code; do not guess or ask what it stands for.")
+REDACTION_NOTE = ("这段对话里有些名字在发给你之前换成了替身，其中一些是 RX 加 8 位十六进制数。替身照原样写，路径和代码里也一样；"
+                  "不要猜，也不要问它代表什么。")
 DEFAULT_CLAUDE_TIMEOUT = 0
 SKIP_PERMISSIONS_DEFAULT = True
 LOGIN_SHELL_DEFAULT = False
@@ -246,31 +245,28 @@ class ClaudeBackend(BackendRuntime):
 
     def prompt_runtime_note(self, ctx: BridgeContext) -> str:
         if ctx.skip_permissions:
-            return "Claude Code permission mode: bypass (--dangerously-skip-permissions)"
+            return "Claude Code 权限模式：bypass（--dangerously-skip-permissions）"
         # backends/claude/control.py answers the root AskUserQuestion and denies anything else.
-        return ("Claude Code permission mode: default; the bridge answers only AskUserQuestion "
-                "and denies other permission requests")
+        return "Claude Code 权限模式：default，桥接器只回答 AskUserQuestion，其他权限请求一律拒绝"
 
     def prompt_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
         return self._completion_notes(ctx) + (REDACTION_NOTE,) * _redacted_topic(ctx)
 
     def _completion_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
         wait, total = ctx.options.get("completion_wait_seconds"), ctx.options.get("completion_total_seconds")
-        limits = ([f"{_duration(wait)} after each reply"] if wait else []) + (
-            [f"{_duration(total)} after the first"] if total else []) + (
-            [f"the task timeout of {_duration(ctx.timeout)}"] if ctx.timeout > 0 else [])
+        limits = ([f"每次回复后 {_duration(wait)}"] if wait else []) + (
+            [f"第一次回复后 {_duration(total)}"] if total else []) + (
+            [f"任务超时（{_duration(ctx.timeout)}）"] if ctx.timeout > 0 else [])
         # A reply that only says "still waiting" would stand as the answer once the work has ended.
-        last_reply = (" Your last reply is the answer the user keeps, so write every reply to stand on its own; "
-                      "when the answer needs the result of background work, wait for it before ending your turn.")
+        last_reply = ("你的最后一条回复就是用户留下的答案，所以每条回复都要能单独成立；"
+                      "答案要用到后台工作的结果时，等它出来再结束这一轮。")
         if not limits:
-            return ("Background commands or agents still running after your reply keep this task open until "
-                    "they end, with no time limit, and the user sees it as running until then. Start one only "
-                    "for work that ends by itself (a wait, a build, a check), stop it once it is no longer "
-                    "needed, and never leave a server or a `tail -f` running in the background." + last_reply,)
-        return ("Background commands or agents still running after your reply keep this task open. "
-                f"The bridge waits for them at most {' or '.join(limits)}; then it stops Claude and those "
-                "tasks and sends your last complete reply with a notice. Do not start a background wait you "
-                "expect to outlast that; say in your reply when the user should ask again instead." + last_reply,)
+            return ("回复之后还在跑的后台命令或 Agent 会让这个任务一直开着，直到它们结束，没有时限，在那之前用户看到的都是在做。"
+                    "只为会自己结束的事（等待、构建、检查）开后台任务，用不上了就停掉，不要在后台留下服务或 `tail -f`。"
+                    + last_reply,)
+        return ("回复之后还在跑的后台命令或 Agent 会让这个任务一直开着。"
+                f"桥接器最多等到{'或'.join(limits)}；之后停掉 Claude 和这些任务，把你最后一条完整的回复连同一条说明发出去。"
+                "不要开预计会超过这个时间的后台等待，改在回复里说用户什么时候再问。" + last_reply,)
 
     def startup_lines(self, ctx: BridgeContext) -> list[str]:
         window, between = ctx.options.get("auto_compact_window"), ctx.options.get("compact_between_turns")
@@ -335,10 +331,10 @@ def _token_count(value: str) -> int:
 def _duration(seconds):
     seconds = int(seconds)
     if seconds % 3600 == 0:
-        return f"{seconds // 3600} hour" + ("s" if seconds != 3600 else "")
+        return f"{seconds // 3600} 小时"
     if seconds % 60 == 0:
-        return f"{seconds // 60} minutes"
-    return f"{seconds} seconds"
+        return f"{seconds // 60} 分钟"
+    return f"{seconds} 秒"
 
 
 HARNESS_REGISTRY.register("claude", ClaudeBackend)

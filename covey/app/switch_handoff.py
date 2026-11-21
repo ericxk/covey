@@ -193,8 +193,8 @@ def refused_session(ctx, backend, session_id):
 
 def handoff_note(topic, path, rounds, summary="", summary_path=None):
     switch = topic["switches"][-1]
-    place = (f"工作目录从 {switch['from']['workdir']} 换成了上面的 Current workdir；之前各轮的改动在原目录里，"
-             "没有提交的不会出现在新目录，需要时去原目录看。\n" if moved(switch) else "工作区不变，仍是上面的 Current workdir。\n")
+    place = (f"工作目录从 {switch['from']['workdir']} 换成了上面的当前工作目录；之前各轮的改动在原目录里，"
+             "没有提交的不会出现在新目录，需要时去原目录看。\n" if moved(switch) else "工作区不变，仍是上面的当前工作目录。\n")
     kept = SUMMARY_ROUNDS if summary else HANDOFF_ROUNDS
     if len(summary) > SUMMARY_CHARS:
         summary = summary[:SUMMARY_CHARS] + "…（完整摘要见摘要文件）"
@@ -203,7 +203,7 @@ def handoff_note(topic, path, rounds, summary="", summary_path=None):
     return (f"\n\n本话题刚从 {_binding_label(switch['from'])} 更换为 {_binding_label(switch['to'])}，由你接着处理。"
             + place + brief +
             f"- 完整会话记录：{path}（共 {rounds} 轮，按时间顺序记录每条用户消息和每轮最终回复，不含工具调用过程）。"
-            f"上面的 Recent conversation 只有最近 {kept} 轮原文（每条最多 {MESSAGE_CHARS} 字）；"
+            f"上面的“最近的对话”只有最近 {kept} 轮原文（每条最多 {MESSAGE_CHARS} 字）；"
             "需要更早的背景、决定或产物位置时先读这个文件，不要凭印象猜。文件较大时分段读取。\n"
             "- 记录开头列出了之前各模型的原生会话文件，需要工具调用细节时再查。\n"
             "- 更换前留下的待确认问题已作废，按用户最新的消息继续。")

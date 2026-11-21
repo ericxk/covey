@@ -567,8 +567,8 @@ class TurnTest(TracksCase):
         self.assertTrue(ctx.options["track_fork"])
         harness.backend.rewind_point.assert_called_once()
         self.assertEqual(harness.backend.rewind_point.call_args.args[1:], (self.SESSION, "U1"))
-        self.assertIn("Latest Feishu user message:\n新问题", prompt)
-        self.assertNotIn("Recent conversation", prompt)
+        self.assertIn("用户最新的飞书消息：\n新问题", prompt)
+        self.assertNotIn("最近的对话", prompt)
         self.assertIn("同时在做的几件事之一", prompt)
         self.assertIn("[快照", prompt)
         compaction.request.assert_not_called()
@@ -593,7 +593,7 @@ class TurnTest(TracksCase):
             json.dumps({"role": "user", "content": "之前聊过的事", "message_id": "om_old"}) + "\n")
         (ctx, prompt), _ = self.turn(self.track_job(), self.harness())  # The butler has no session yet.
         self.assertNotIn("fork_session", ctx.options)
-        self.assertIn("Recent conversation:", prompt)
+        self.assertIn("最近的对话：", prompt)
         self.assertIn("之前聊过的事", prompt)
         self.assertNotIn("track_fork", ctx.options)
 
@@ -603,7 +603,7 @@ class TurnTest(TracksCase):
                           prompt_uuid="U1", prompt_session=self.SESSION)
         (ctx, prompt), _ = self.turn(self.track_job(), self.harness(keep=""))
         self.assertNotIn("fork_session", ctx.options)
-        self.assertIn("Recent conversation:", prompt)
+        self.assertIn("最近的对话：", prompt)
 
     def test_a_backend_that_cannot_fork_falls_back(self):
         self.root_session()
@@ -635,7 +635,7 @@ class TurnTest(TracksCase):
             with mock.patch.object(runtime_tracks, "fork_options", return_value=options):
                 prompt, rules, system, _ = self.claude.runs._prompt(_Live(ctx), job, None)
             self.assertEqual(rules in prompt, fresh, options)
-            self.assertIn("同时在做的几件事之一" if options else "Recent conversation:", prompt)
+            self.assertIn("同时在做的几件事之一" if options else "最近的对话：", prompt)
 
     def test_a_track_on_its_own_session_resumes_it_and_forks_nothing(self):
         self.root_session()
