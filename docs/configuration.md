@@ -54,6 +54,7 @@
 | 功能 | 要准备什么 | 开关 |
 | --- | --- | --- |
 | [代答](#代答) | 带发送器的扩展（核心没有发送器）、主人本人登录的 lark-cli profile | `COVEY_PROXY_PROFILE`，见[代答 · 前置条件与怎么开](proxy.md#前置条件与怎么开) |
+| 没有 Claude Code 时的小模型判断 | harnesses.json 里或扩展提供的模型网关，和你在这个网关上的密钥 | `COVEY_JUDGE_GATEWAY=<网关名>:<模型>`：整理专项、“我本来想找你的事”、同时做几件事这几个一问一答的判断改走网关；管家仍然只能是 Claude Code（见清单里这一行） |
 | [网页工作台](web.md) | 一个配套的网页应用和它的开放接口密钥 | `COVEY_WEB=1`、`COVEY_WEB_CONFIG` |
 | [多设备](#多设备开发中默认关)（开发中） | 能 ssh 过去的其他机器、`devices.json` | `COVEY_DEVICES=1` |
 | [节点与机器状况](#节点与机器状况默认关) | 一个设备能连进来的监听地址 | `COVEY_NODE_LISTEN` |
