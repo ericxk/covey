@@ -76,6 +76,26 @@ class BoardTests(unittest.TestCase):
         self.assertNotIn("seen", [row["topic"] for row in rows])
         self.assertIn("r1", [row["topic"] for row in rows])
 
+    def test_a_task_waiting_for_start_waits_with_its_launch_card(self):
+        """2026-11-21 T622: a reply to a node's alert opened a topic whose task waited 21 minutes for 开始 on its launch card,
+        in the alert's thread. Every reader said 等你 (core/board_read.py waits) but the board pinned nothing of it, and the
+        owner found the topic nowhere in the private chat. It waits as a question does (core/board_read.py starts): its
+        launch card is the pin; a question of its topic comes first, one that came in over QUESTION_AGE ago is not on the
+        board (手上的事 lists it apart), and a topic waiting is in no other group."""
+        def wait(topic, at, job_id):
+            return board_read.Wait(topic, "start", job(topic, job_id, "waiting_workspace"), at, f"om_launch_{topic}")
+        starts = {"s": wait("s", NOW - 60, 1), "asks": wait("asks", NOW - 30, 2),
+                  "old": wait("old", NOW - pins.QUESTION_AGE - 1, 3), "ran": wait("ran", NOW - 20, 5)}
+        jobs = [job("ran", 4, "done", timings={"delivered": NOW - 100}), job("ran", 5, "waiting_workspace"),
+                job("old", 3, "waiting_workspace"), job("s", 1, "waiting_workspace"), job("asks", 2, "waiting_workspace")]
+        rows = board([question("asks", NOW - 10)], jobs, {}, {}, NOW, starts=starts)
+        self.assertEqual([(row["group"], row["topic"], row["message_id"], row["at"]) for row in rows], [
+            ("waiting", "asks", "om_q_asks", NOW - 10), ("waiting", "ran", "om_launch_ran", NOW - 20),
+            ("waiting", "s", "om_launch_s", NOW - 60)])
+        self.assertEqual(rows[1]["record"]["job_id"], 5)
+        # Without them (a caller that has none) nothing waits for 开始, as before.
+        self.assertEqual(board([], jobs, {}, {}, NOW), [])
+
     def test_a_stopped_turn_stays_with_the_results_as_one_done(self):
         ran = {"backend_started": NOW - 300, "execution_finished": NOW - 100}
         stopped = job("s", 2, "cancelled", timings=ran)
@@ -315,6 +335,29 @@ class RoundTests(UnifiedCase):
         self.assertIn("在 Pin 页里点话题的卡片，直接打开那个话题", card)
         self.assertIn("另有 1 个等了一天以上：T404", card)
         self.assertNotIn("话题 401", card)  # Pinned: not listed again.
+
+    def test_a_task_waiting_for_start_is_pinned_by_its_launch_card(self):
+        """2026-11-21 T622: pinned under 等你回答 by its launch card (a topic opened by a reply to a node's alert has no other
+        card at the top level), and 手上的事 does not list it again; once 开始 is pressed it runs as any topic."""
+        self.job("ws", 1, status="waiting_workspace", topic="t1", timings={"received": NOW - 60})
+        write_json(self.state / "launch-forms" / "f1.json", {"topic_id": "t1", "chat_id": "oc_dm", "status": "ready",
+                                                             "message_id": "om_launch1", "harness_id": "claude"})
+        self.job("run", 2, timings={"backend_started": NOW - 30}, topic="t2")
+        self.overview.tick(self.ctx, NOW)
+        self.assertEqual(self.feishu.order(), ["om_launch1", "om_run", "om_index1"])
+        self.assertEqual([(pin["message_id"], pin["topic_id"], pin["group"]) for pin in self.record()["pins"]],
+                         [("om_launch1", "t1", "waiting"), ("om_run", "t2", "running")])
+        self.overview.tick(self.ctx, NOW + 2 * pins.GAP)  # The card redrawn as the index of the pins.
+        card = json.dumps(self.last_card(), ensure_ascii=False)
+        self.assertIn("等你 1 · 在做 1", card)
+        self.assertNotIn("话题 401", card)  # Pinned: not listed again.
+        # 开始: the card is used, the task runs; the topic's pin goes to its task card once it has run DEMOTE seconds.
+        write_json(self.state / "launch-forms" / "f1.json", {"topic_id": "t1", "chat_id": "oc_dm", "status": "submitted",
+                                                             "message_id": "om_launch1", "harness_id": "claude"})
+        self.job("ws", 1, status="queued", topic="t1")
+        self.job("ws", 1, status="running", topic="t1", timings={"received": NOW - 60, "backend_started": NOW + 10})
+        self.overview.tick(self.ctx, NOW + 10 + pins.DEMOTE)
+        self.assertEqual(self.feishu.order(), ["om_ws", "om_run", "om_index1"])
 
     def test_a_change_waits_for_the_gap_and_moves_only_what_must(self):
         self.job("a", 1, timings={"backend_started": NOW - 60}, topic="t1")

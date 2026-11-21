@@ -17,7 +17,8 @@ results), as do 手上的事 with the board on and 早晚汇总 (each twice befo
 "A result the owner has not seen" (有结果未看) is one rule, the board's, and
 all five readers take it from ``groups`` and ``unseen`` below: the same topics, at the same time, from the same
 records. ``groups`` splits a read as the board does: waiting (the newest pending question shown, asked within
-QUESTION_AGE), running (a job in RUNNING with a task card) and results (``board_result``): the topic's latest job
+QUESTION_AGE; without one, a job waiting for 开始 on a launch card that can still start it, ``starts``, within
+QUESTION_AGE too), running (a job in RUNNING with a task card) and results (``board_result``): the topic's latest job
 that ran (``unrun``) ended done, failed, interrupted or stopped (BOARD_RESULTS, cancelled among them) with a task
 card; seen once its topic was read at or after its end, or for a top-level topic's answer the top level read once
 it was there (``seen_at``, ``top_read``), and once seen it stays seen (the board record's ``results``); one not seen
@@ -65,13 +66,15 @@ class Read:
     order; ``jobs`` its jobs running, written within RESULT_AGE or of a topic in ``keep``, newest first
     (core/jobs.py select_job_records); both without the butler's topic (Traits.listed). ``seen``
     topic-seen.json, ``priority`` board-priority.json. ``cells``: a project's thread topic -> its lead's topic id
-    (core/projects.py cells), {} without COVEY_PROJECTS; ``groups`` takes it, so a project is one cell."""
+    (core/projects.py cells), {} without COVEY_PROJECTS; ``groups`` takes it, so a project is one cell. ``starts``:
+    topic -> its Wait for 开始 on a launch card (``starts``), which ``groups`` puts under waiting."""
     questions: list
     jobs: list
     seen: dict
     priority: dict
     keep: frozenset = frozenset()
     cells: dict = dataclasses.field(default_factory=dict)
+    starts: dict = dataclasses.field(default_factory=dict)
 
 
 def listed(topic_id, chat) -> bool:
@@ -145,7 +148,7 @@ def read(state, chat, now, keep=frozenset()) -> Read:
     jobs = select_job_records(state, lambda record: listed(record.get("topic_id"), chat) and (
         fresh(record, now) or record.get("topic_id") in wanted), chat_id=chat,
         narrow=lambda fields: may_be_read(fields, now, wanted, chat))
-    return Read(questions, jobs, read_seen(state), times(Path(state) / PRIORITY), keep, cells)
+    return Read(questions, jobs, read_seen(state), times(Path(state) / PRIORITY), keep, cells, starts(state, chat))
 
 
 def asks(record) -> bool:
@@ -168,12 +171,18 @@ def set_aside(record, questions) -> bool:
     return any(q.get("status") == "set_aside" for q in mine) and not any(asks(q) for q in mine)
 
 
-def launch_card(state, topic_id, chat) -> str:
-    """The message id of ``topic_id``'s newest launch card that can still start it (OPEN_FORMS), '' when none."""
+def launch_form(state, topic_id, chat) -> dict:
+    """The record of ``topic_id``'s newest launch card that can still start it (OPEN_FORMS, its card sent), {} when
+    none: what 开始 would run with (app/launch.py: ``selected_model`` of its ``models``, ``selected_effort``,
+    ``form_defaults``) and the card (``message_id``)."""
     rows = directory_store(Path(state) / "launch-forms").query(topic_id=topic_id, chat_id=chat)
-    cards = [(row.get("updated_at") or row.get("created_at") or "", str(row.get("message_id") or ""))
-             for _, row in rows if row.get("status") in OPEN_FORMS and row.get("message_id")]
-    return max(cards, key=lambda item: str(item[0]))[1] if cards else ""
+    forms = [row for _, row in rows if row.get("status") in OPEN_FORMS and row.get("message_id")]
+    return max(forms, key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), default={})
+
+
+def launch_card(state, topic_id, chat) -> str:
+    """The message id of ``topic_id``'s newest launch card that can still start it (``launch_form``), '' when none."""
+    return str(launch_form(state, topic_id, chat).get("message_id") or "")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -223,20 +232,32 @@ def waits(state, chat, now, off=()) -> Waits:
             # Its copy at the private chat's top level when it has one (app/question_display.py mirror), else its card.
             found[topic] = Wait(topic, "question", row, float(at),
                                 str(row.get("mirror_message_id") or row["question_message_id"]))
-    starts = {}
-    for record in select_job_records(state, None, chat_id=chat, status=frozenset({START})):
-        topic = record.get("topic_id") or ""
-        if topic and topic not in found and topic not in off and listed(topic, chat):
-            at = started_at(record)
-            if at > (starts[topic].since if topic in starts else -1):
-                starts[topic] = Wait(topic, "start", record, at, "")
-    for topic, wait in starts.items():
-        card = launch_card(state, topic, chat)
-        if card:
-            found[topic] = dataclasses.replace(wait, card=card)
+    for topic, wait in starts(state, chat).items():
+        if topic not in found and topic not in off:
+            found[topic] = wait
     rows = sorted(found.values(), key=lambda wait: wait.since, reverse=True)
     return Waits([wait for wait in rows if now - wait.since <= QUESTION_AGE],
                  [wait for wait in rows if now - wait.since > QUESTION_AGE])
+
+
+def starts(state, chat) -> dict:
+    """topic -> its Wait for 开始 (``kind`` "start") of ``chat``'s topics ``listed``: its newest job waiting for 开始
+    (START), when the topic has a launch card that can still start it (``launch_card``, the Wait's ``card``); a
+    topic without such a card waits for nothing the owner can act on. Index queries only: the jobs in START and the
+    launch forms of their topics. ``waits`` counts them under 等我; ``read`` hands them to the board (``groups``)."""
+    newest = {}
+    for record in select_job_records(state, None, chat_id=chat, status=frozenset({START})):
+        topic = record.get("topic_id") or ""
+        if topic and listed(topic, chat):
+            at = started_at(record)
+            if at > (newest[topic].since if topic in newest else -1):
+                newest[topic] = Wait(topic, "start", record, at, "")
+    found = {}
+    for topic, wait in newest.items():
+        card = launch_card(state, topic, chat)
+        if card:
+            found[topic] = dataclasses.replace(wait, card=card)
+    return found
 
 
 def topic_jobs(state, chat) -> dict:
@@ -441,10 +462,13 @@ def rules(record, chat, now, seen, *, board=True, relayed=None, inline=None) -> 
 @dataclasses.dataclass(frozen=True)
 class Groups:
     """A read split as the board splits it, topic -> record: ``waiting`` the newest question, ``running`` the job
-    its pin shows (``order``), ``results`` (record, when it ended, when the owner first saw it or None)."""
+    its pin shows (``order``), ``results`` (record, when it ended, when the owner first saw it or None);
+    ``starting`` topic -> its Wait for 开始 (``starts``), the rest of the waiting group: a topic with no question
+    waiting that waits for the owner to press 开始 on its launch card."""
     waiting: dict
     running: dict
     results: dict
+    starting: dict = dataclasses.field(default_factory=dict)
 
 
 def order(record):
@@ -452,8 +476,12 @@ def order(record):
     return (record.get("status") not in (None, "queued"), int(record.get("job_id") or 0)) if record else (False, -1)
 
 
-def groups(questions, jobs, seen, now, rules=Rules(), cells=None) -> Groups:
+def groups(questions, jobs, seen, now, rules=Rules(), cells=None, starts=None) -> Groups:
     """The board's three groups of ``questions`` and ``jobs`` (a ``read``'s), a topic in the first it is in.
+
+    ``starts`` (a ``read``'s: topic -> its Wait for 开始, ``starts``): a topic with no question waiting that waits
+    for 开始 on its launch card waits too (``starting``), as a question would: within QUESTION_AGE, its launch card
+    the card the owner acts on. Without them (a caller that has none) no topic waits for 开始 on the board.
 
     ``cells`` (a ``read``'s: a project's thread topic -> its lead's topic id, core/projects.py): the threads of one project
     are one topic here, the lead's, so the board has a cell for the project and not one for each thread. In a cell the
@@ -470,6 +498,12 @@ def groups(questions, jobs, seen, now, rules=Rules(), cells=None) -> Groups:
         if (topic and asks(record) and isinstance(at, (int, float)) and now - at <= QUESTION_AGE
                 and at > (waiting.get(topic) or {}).get("created_at", -1)):
             waiting[topic] = record
+    starting = {}
+    for member, wait in (starts or {}).items():
+        topic = cell(member)
+        if (topic and topic not in waiting and now - wait.since <= QUESTION_AGE
+                and wait.since > (starting[topic].since if topic in starting else -1)):
+            starting[topic] = wait
     latest = {}
     for record in jobs:
         member = record.get("topic_id") or ""
@@ -477,14 +511,14 @@ def groups(questions, jobs, seen, now, rules=Rules(), cells=None) -> Groups:
         if (member and not unrun(record)
                 and int(record.get("job_id") or 0) > int(latest.get(member, {}).get("job_id") or 0)):
             latest[member] = record
-        if (topic and topic not in waiting and record.get("status") in RUNNING and record.get("card_message_id")
-                and order(record) > order(running.get(topic, {}))):
+        if (topic and topic not in waiting and topic not in starting and record.get("status") in RUNNING
+                and record.get("card_message_id") and order(record) > order(running.get(topic, {}))):
             running[topic] = record
     members = {}
     for member, record in latest.items():
         members.setdefault(cell(member), []).append(record)
     for topic, records in members.items():
-        if topic in waiting or topic in running:
+        if topic in waiting or topic in starting or topic in running:
             continue
         found = []
         for record in records:
@@ -495,7 +529,7 @@ def groups(questions, jobs, seen, now, rules=Rules(), cells=None) -> Groups:
                 found.append((record, *result))
         if found:
             results[topic] = max(found, key=lambda item: (item[2] is None, item[1], int(item[0].get("job_id") or 0)))
-    return Groups(waiting, running, results)
+    return Groups(waiting, running, results, starting)
 
 
 def unseen(found: Groups, off=()) -> dict:

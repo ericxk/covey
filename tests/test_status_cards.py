@@ -108,6 +108,17 @@ class LinesTest(Base):
         answered = {**running, "user_text": "用户补充回答：\n要不要现在开工？\n开工"}
         self.assertEqual(lines(self.state, "oc_dm", self.row("running", answered), NOW)[3], "这一轮：要不要现在开工？")
 
+    def test_a_topic_waiting_for_start_says_what_it_waits_for(self):
+        """2026-11-21 T622: a topic whose task waits for 开始 on its launch card waits on the board (core/board_read.py
+        starts); its card says what it waits for, not a 问题 line of a question it does not have."""
+        waiting = {"topic_id": "tq", "job_id": 1, "status": "waiting_workspace", "created_at": "2026-11-21T11:36:03Z",
+                   "timings": {"received": NOW - 600}}
+        row = {"topic": "tq", "group": "waiting", "record": waiting, "at": NOW - 600, "started": NOW - 600}
+        _, state, facts, line = lines(self.state, "oc_dm", row, NOW)
+        self.assertEqual((state, line), ("等你", "等你在启动卡上点开始"))
+        self.assertIn("第 1 轮", facts)
+        self.assertIn(status_cards.when(NOW - 600, NOW), facts)
+
     def test_a_topic_without_a_title_uses_its_first_message(self):
         write_topic(self.state, {"topic_number": 7, "chat_id": "oc_dm", "root_id": "om_q7"}, topic_id="t7")
         (self.state / "topics" / "t7" / "history.jsonl").write_text(

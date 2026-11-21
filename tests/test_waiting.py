@@ -13,7 +13,7 @@ from unittest import mock
 
 from support.records import state_dir, write_job, write_topic
 
-from covey.app import butler, digest, overview
+from covey.app import butler, digest, overview, pins
 from covey.app.web_collect import Collector
 from covey.cards import board as board_card
 from covey.core import board_read
@@ -107,6 +107,11 @@ class OneCountTest(unittest.TestCase):
         # The butler's snapshot.
         groups = butler.snapshot_groups(SimpleNamespace(state_dir=self.state), CHAT, self.now)
         self.assertEqual(set(groups["waiting"]), expected)
+        # The pinned board: the ones it pins (within QUESTION_AGE, of the topics it lists), by the same cards; the launch
+        # card too (2026-11-21 T622: a topic waiting for 开始 was 等你 everywhere but had no pin, and could not be found).
+        rows, _ = pins.PinnedTopics(None, None).look(self.state, CHAT, self.now)
+        self.assertEqual({row["topic"]: row["message_id"] for row in rows if row["group"] == "waiting"},
+                         {self.topics[1]: "om_q1", self.topics[2]: "om_launch2"})
         # The web page: 等你 for a question that asks and for a task waiting for 开始 with a launch card, not for residue.
         questions = lambda token, **fields: [{"status": "pending", "topic_id": "t", "question_message_id": f"om_{token}", **fields}]
         self.assertEqual(Collector.word([], None, questions("a")), "等你")

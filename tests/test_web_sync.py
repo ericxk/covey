@@ -1555,6 +1555,55 @@ class ExtrasTest(WebCase):
         states = {item["key"]: item["data"]["state"] for item in self.web.items("topic")}
         self.assertEqual((states[TOPIC], states[OTHER]), ("做完", "空闲"))
 
+    def test_a_topic_waiting_for_start_says_what_it_waits_for_and_runs_with(self):
+        """2026-11-21 T622, a reply to a node's alert whose task waited 21 minutes for 开始 on its launch card: the page said
+        等你 · 第 1 轮 over 再早的 1 轮网页上没有载入 and 第 2 轮 · 排队中… (the topic's ``round`` counted the task, no turn stood for
+        it), nothing said what to do, and its head said Codex · GPT-6 Astra · xuke.code, the binding the topic was given to wait
+        with, for the card's Claude Code · Opus 5.5 · covey. Its words get a 等你 turn that says to press 开始 on the launch card,
+        what it would run with and the card's link once known; the topic says the card's choice and has no ``config``."""
+        write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="codex", topic_number=7, origin={"title": "看看占比"},
+                    workspace_name="xuke.code")
+        write_job(self.state, f"k-{TOPIC[:4]}", topic_id=TOPIC, chat_id=CHAT, job_id=7, status="waiting_workspace", model="gpt-6-astra",
+                  timings={"received": T0 - 600})
+        append_history(self.state / "topics" / TOPIC / "history.jsonl", "user", "帮忙看看是什么数据占比比较多", {"message_id": "om_ask"})
+        write_json(self.state / "launch-forms" / "f1.json", {
+            "topic_id": TOPIC, "chat_id": CHAT, "status": "ready", "message_id": "om_launch", "harness_id": "codex", "schema_version": 3,
+            "compact": True, "selected_model": "claude:opus", "selected_effort": "max",
+            "models": {"claude:opus": {"display_name": "Opus 5.5", "harness": "claude", "model": "opus", "label": "Claude Code · Opus 5.5"}},
+            "form_defaults": {"workspace": "covey", "path": "", "run_mode": "direct"}})
+        self.sync.push_once(T0)
+        topic = next(item for item in self.web.items("topic") if item["key"] == TOPIC)["data"]
+        self.assertEqual((topic["state"], topic["tone"], topic["round"], topic["last_seq"]), ("等你", "waiting", 1, 2))
+        self.assertEqual((topic["harness"], topic["model"], topic["model_name"], topic["workspace"]), ("claude", "opus", "Opus 5.5", "covey"))
+        self.assertNotIn("config", topic)
+        turns = [item["data"] for item in self.web.items("turn") if item["data"]["topic_key"] == TOPIC]
+        self.assertEqual([(turn["seq"], turn["role"], turn["status"]) for turn in turns], [(1, "owner", "done"), (2, "agent", "waiting")])
+        waiting = turns[-1]
+        self.assertTrue(waiting["body"].startswith(app_collect.START_WORDS), waiting["body"])
+        self.assertIn("点了开始会用：Claude Code · Opus 5.5 · 思考预算 max · 工作区 covey", waiting["body"])
+        self.assertIn("启动卡在飞书里这个话题的话题串中", waiting["body"])  # No link known: the push reads no message from Feishu.
+        self.assertEqual((waiting["job_id"], waiting["started_at"]), ("7", T0 - 600))
+        # Once 手上的事 has read where the card is (app/topic_links.py), the turn links to it.
+        write_json(self.state / "topic-links.json", {TOPIC: {"messages": {"om_launch": {
+            "thread_id": "omt_1", "position": "3", "thread_position": "0"}}}})
+        self.sync.collector.touch(TOPIC)
+        self.sync.push_once(T0 + 1)
+        body = [item["data"] for item in self.web.items("turn") if item["key"] == f"{TOPIC}:2"][-1]["body"]
+        self.assertIn(f"[去飞书点开始](https://applink.feishu.cn/client/thread/open?open_chat_id={CHAT}&open_thread_id=omt_1"
+                      "&thread_position=0)", body)
+        # The card used (开始): the task runs as any, and the topic says what it is bound to again.
+        write_json(self.state / "launch-forms" / "f1.json", {"topic_id": TOPIC, "chat_id": CHAT, "status": "submitted",
+                                                             "message_id": "om_launch"})
+        write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="claude", topic_number=7, workspace_name="covey", model="opus")
+        write_job(self.state, f"k-{TOPIC[:4]}", status="queued", model="opus")
+        write_job(self.state, f"k-{TOPIC[:4]}", status="running", timings={"received": T0 - 600, "backend_started": T0})
+        self.sync.push_once(T0 + 2)
+        topic = [item["data"] for item in self.web.items("topic") if item["key"] == TOPIC][-1]
+        self.assertEqual((topic["tone"], topic["harness"], topic["workspace"]), ("running", "claude", "covey"))
+        self.assertIn("config", topic)
+        last = [item["data"] for item in self.web.items("turn") if item["key"] == f"{TOPIC}:2"][-1]
+        self.assertEqual(last["status"], "running")
+
     def test_a_topic_says_what_it_runs_with_for_the_pages_switch(self):
         """T616 (data contract v21): the chat box's 工作区 · Harness · 模型 line opens 换配置, which starts from the topic's ``config``."""
         self.topic()

@@ -16,7 +16,9 @@ top_read, KEEP_SEEN and RESULT_AGE below; its results not seen are 有结果未�
 top to bottom:
 
 - waiting (等你回答, the owner's 等我): the newest pending question shown in the topic, asked within QUESTION_AGE;
-  newest first.
+  without one, its task waiting for 开始 on a launch card that can still start it (core/board_read.py starts), come
+  in within QUESTION_AGE too: every other reader of 等我 counts it (core/board_read.py waits), and a topic opened by
+  a reply to a card that is no topic's (a node's alert) has no other card the owner can find it by. Newest first.
 - running (进行中, 在做): a job in RUNNING with a task card, the topic's running one before its queued next; started
   last first. Above the results (等我 → 在做 → 做完).
 - result (有结果, the owner's 做完): the topic's latest job (by job_id; not one cancelled before it ran,
@@ -38,7 +40,8 @@ top to bottom:
 
 What each topic's pin is (``aimed``, by the placement table's ``status_card``, core/placement.py): in the 话题区
 layout (管家), a topic's own cards in its thread: its
-question card while it waits, its task card while it runs, the answer card its round sent into its thread once
+question card while it waits (its launch card while it waits for 开始), its task card while it runs, the answer
+card its round sent into its thread once
 done or stopped (the job's ``answer_message_id``: a stopped turn's last full reply, under ⏹ 已停止; its task card
 when the answer is on it or went otherwise, or a stopped turn had none). In the other
 layouts a topic with a thread is pinned by its status card (app/status_cards.py: its number and title, state and
@@ -148,7 +151,7 @@ def kept(state, chat):
 
 
 def board(questions, jobs, seen, priority, now, since=0.0, relayed=None, *, read_top=0.0, keep_since=None,
-          results=None, inline=None, stopped_since=None, cells=None):
+          results=None, inline=None, stopped_since=None, cells=None, starts=None):
     """The topics as they would be pinned, top to bottom, each {topic, group, message_id, at, record}, a result's
     with ``seen`` (when the owner first saw it, None: not yet): ``at`` is when it was asked, ended or started;
     ``record`` the question's or job's record. The groups are core/board_read.py groups with these ``Rules``: a
@@ -157,15 +160,18 @@ def board(questions, jobs, seen, priority, now, since=0.0, relayed=None, *, read
     ``keep_since`` (None: none did) is as in older releases: within RESULT_AGE, not seen in its topic, and not done at
     the top level (``relayed``, a job record -> bool: app/butler_relay.py relayed). A stopped one that
     ended before ``stopped_since`` (None: none did) is not on it: older releases left them out.
-    ``cells``: a project's threads are one topic, the lead's (core/board_read.py groups)."""
+    ``cells``: a project's threads are one topic, the lead's (core/board_read.py groups). ``starts``: the topics
+    waiting for 开始 on a launch card (core/board_read.py starts), under 等你回答 with that card."""
     return rows_of(board_read.groups(questions, jobs, seen, now, board_read.Rules(
-        since, keep_since, stopped_since, results or {}, read_top, relayed, inline), cells), priority)
+        since, keep_since, stopped_since, results or {}, read_top, relayed, inline), cells, starts), priority)
 
 
 def rows_of(found, priority):
     """The board's rows of ``found`` (core/board_read.py Groups), ranked."""
     rows = [entry(topic, "waiting", record["question_message_id"], record["created_at"], record)
             for topic, record in found.waiting.items()]
+    # A task waiting for 开始 is 等我 as a question is (core/board_read.py starts): its launch card is the pin.
+    rows += [entry(topic, "waiting", wait.card, wait.since, wait.record) for topic, wait in found.starting.items()]
     rows += [entry(topic, "running", record["card_message_id"], started_at(record), record)
              for topic, record in found.running.items()]
     rows += [{**entry(topic, "result", record["card_message_id"], at, record), "seen": first}
@@ -374,7 +380,8 @@ class PinnedTopics:
         questions, self.priority = read.questions, read.priority
         found = board_read.groups(questions, read.jobs, read.seen, now, board_read.Rules(
             self.since, self.keep_since, self.stopped_since, table, top_read(read.seen, chat),
-            functools.partial(butler_relay.relayed, state), functools.partial(butler_relay.inline_at, state)), read.cells)
+            functools.partial(butler_relay.relayed, state), functools.partial(butler_relay.inline_at, state)), read.cells,
+            read.starts)
         self.rows = [aimed(state, chat, row) for row in rows_of(found, self.priority)]
         self.results = {row["topic"]: {"at": row["at"], "seen": row["seen"]} for row in self.rows
                         if row["group"] == "result"}

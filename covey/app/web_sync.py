@@ -6,8 +6,9 @@ there is no thread and no request.
   builds the items (``Collector``, app/web_collect.py), keeps those whose ``rev`` (core/web_sync.py) differs from what was sent, and posts them to
   /sync/upsert in batches; ``web-inbox`` asks /sync/inbox, writes each operation's seq and op_id into the ledger before it is done, does it
   (``Ops.run``) and acknowledges it at /sync/ack. A failed request backs off (2, 4 ... 30 seconds) and touches no other thread.
-- What is read, and how often: every ``push_seconds`` only the running tasks and the pending questions (two index queries, the records they
-  name), plus the topics that stopped running a moment ago or that the page just acted on; every FULL_SECONDS a full pass of all topics
+- What is read, and how often: every ``push_seconds`` only the running tasks, the pending questions and the tasks waiting for 开始 on a
+  launch card (three index queries, the records they name; core/board_read.py starts), plus the topics that stopped running a moment ago
+  or that the page just acted on; every FULL_SECONDS a full pass of all topics
   of the last TOPIC_DAYS days, PASS_SLICE of them a step before the hot ones (a pass of hundreds of topics is many steps, not one look of
   minutes in which nothing else goes out), the projects, and the deletions once the pass ends. A topic's state and "做完没看" are the board's reading (core/board_read.py, app/pins.py
   board_results), not a scan of every job record each second. The butler's conversation (core/butler.py butler_topic_id; the other tracks

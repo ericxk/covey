@@ -34,7 +34,8 @@ from covey.core.butler import traits
 from covey.core.state import keyed_json_path, read_object, write_json
 from covey.core.text import cut
 from covey.core.topics import remember_topic_message, topic_file, topic_label, topic_title
-from covey.core.turn_words import BLANK_PHASES, BOARD, STATES, request_line
+from covey.core.board_read import START
+from covey.core.turn_words import BLANK_PHASES, BOARD, START_LINE, STATES, request_line
 
 FOLDER = "status-cards"
 SCHEMA = 1
@@ -84,6 +85,10 @@ def lines(state_dir, chat, row, now):
     job_id = int(record.get("job_id") or 0)
     turn = sum(1 for job in jobs if 0 < int(job.get("job_id") or 0) <= job_id) or len(jobs) or 1
     title = title_of(state_dir, topic)
+    if row["group"] == "waiting" and record.get("status") == START:
+        # Its task waits for 开始 on its launch card (core/board_read.py starts): no question, what it waits for.
+        facts = " · ".join(part for part in (when(row.get("at"), now), f"第 {turn} 轮") if part)
+        return title, BOARD["waiting"], facts, START_LINE
     if row["group"] == "waiting":
         asked = [q for q in record.get("questions") or [] if isinstance(q, dict)]
         words = next((str(q.get("question") or q.get("header") or "") for q in asked

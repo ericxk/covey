@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import pins, project_lead, project_loop, web_images, web_pairing, web_said, web_switch, web_turns
+from covey.app import pins, project_lead, project_loop, topic_links, web_images, web_pairing, web_said, web_switch, web_turns
 from covey.core import board_read, failure, look, project_library, project_memory, projects, web_sync
 from covey.core import progress as turn_progress
 from covey.core.history_storage import history_lines
@@ -33,6 +33,8 @@ FIGURES_KEPT = 8192  # Ended turns whose figures are remembered (a few numbers e
 RECEIPTS_KEPT = 200  # The newest receipts of a project's inbox that are looked at.
 EDIT_PREFIX = "edit-"  # The message id of the owner's edit sent into a running task (app/source_watch.py): edit-<message id>-<stamp>.
 UNSTARTED_WORDS = "没开工，已取消"  # The line under the owner's words whose task was cancelled before it started (its record's reason after it).
+# The line under the owner's words whose task waits for 开始 on its launch card (``start_turn``); the page puts 等你： before it.
+START_WORDS = "在启动卡上点开始，这一轮才会开工"
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
 
 
@@ -116,6 +118,7 @@ class Collector:
         self.projects = {str(record.get("id")): record for record in records}
         family = [butler, *self.leads]  # The conversations that are not on the board: the butler's and the projects' leads.
         hot = {row.get("topic_id") for row in (*running, *asking) if row.get("topic_id")}
+        hot |= set(board_read.starts(state, chat))  # Waiting for 开始 on a launch card: 等我 as a question is.
         hot |= self.family_live(state, chat, family)  # A turn of one runs or asks (the board does not list them).
         with self.lock:
             touched, self.dirty = self.dirty | back, set()
@@ -208,21 +211,27 @@ class Collector:
         questions = [row for _, row in asking]
         latest = next((record for record in reversed(records) if not board_read.unrun(record)), None)
         # 等我 as every reader counts it (core/board_read.py waits): a question that asks, else a task waiting for 开始
-        # on a launch card that can still start it.
-        starts = bool(latest and latest.get("status") == board_read.START and board_read.launch_card(state, topic, chat))
+        # on a launch card that can still start it (``form``, its record).
+        form = board_read.launch_form(state, topic, chat) if latest and latest.get("status") == board_read.START else {}
+        starts = bool(form)
         word = self.word(records, latest, questions, starts)
         self.states[topic] = word
         label, title = ("", BUTLER_TITLE) if butler else ("", LEAD_TITLE) if project else board_read.topic_label(state, topic)
         data = read_object(topic_file(state, topic))
         found = None if butler else projects.topic_project(state, topic)
-        turns, count = self.turns(state, topic, records, latest, word, project, now, questions)
+        turns, count = self.turns(state, topic, records, latest, word, project, now, questions, form=form)
         number = int(label[1:]) if label[1:].isdigit() else 0
         updated = max((epoch_seconds(record.get("updated_at")) or 0 for record in records), default=0)
         ran = [record for record in records if not board_read.unrun(record)]
+        # Waiting for 开始, it runs with what its launch card has chosen, not the binding it was given to wait with (the
+        # default Harness and workspace of a reply that opened it, 2026-11-21 T622: Codex · GPT-6 Astra · xuke.code on the
+        # page, Claude Code · Opus 5.5 · covey on the card).
+        choice = launch_choice(form) or {"workspace": str(data.get("workspace_name") or ""), "harness": str(data.get("harness_id") or ""),
+                                         "model": str((latest or {}).get("model") or ""), "model_name": model_name((latest or {}).get("model"))}
         body = {
             "number": number, "title": title, "project_key": (project["id"] if project else found.id if found else ""), "state": word,
-            "workspace": str(data.get("workspace_name") or ""), "harness": str(data.get("harness_id") or ""),
-            "model": str((latest or {}).get("model") or ""), "model_name": model_name((latest or {}).get("model")), "updated_at": updated, "unseen": topic in self.unseen and not butler and not project,
+            "workspace": choice["workspace"], "harness": choice["harness"],
+            "model": choice["model"], "model_name": choice["model_name"], "updated_at": updated, "unseen": topic in self.unseen and not butler and not project,
             "kind": "butler" if butler else "lead" if project else "topic", "round": len(ran)}
         if ran:
             body["started_at"] = board_read.started_at(ran[0])
@@ -236,7 +245,9 @@ class Collector:
         body["tone"] = self.tone(records, latest, questions, body["unseen"], body.get("progress"), starts)
         if self.board is not None and not (butler or project):
             body["board"] = self.board.get(topic, "")
-        if not (butler or project):  # What it runs with, for 换配置 on the page (data contract v21, app/web_switch.py).
+        # What it runs with, for 换配置 on the page (data contract v21, app/web_switch.py); none while it waits for 开始, its
+        # launch card's to choose (a switch now would bind it to what the card is about to replace).
+        if not (butler or project or starts):
             config = web_switch.topic_config(data, self.menu())
             if config:
                 body["config"] = config
@@ -334,10 +345,11 @@ class Collector:
         self.history[topic] = (stamp, rows)
         return rows
 
-    def turns(self, state, topic, records, latest, word, project=None, now=0.0, questions=()) -> tuple:
+    def turns(self, state, topic, records, latest, word, project=None, now=0.0, questions=(), form=None) -> tuple:
         """([turn data with seq], number of turns in the history) for ``topic``: the newest TURNS_KEPT, and one more for the task that runs
-        (its progress notes as the body), waits or ended without an answer. The newest EXTRA_TURNS answers of a task also carry its process,
-        plan and figures (core web_turns.py). A project's lead (``project``, its record) has its own reading: ``lead_turns``."""
+        (its progress notes as the body), waits (for an answer, or for 开始 on the launch card ``form``: ``start_turn``) or ended without an
+        answer. The newest EXTRA_TURNS answers of a task also carry its process, plan and figures (core web_turns.py). A project's lead
+        (``project``, its record) has its own reading: ``lead_turns``."""
         rows = self.rows(state, topic)
         wakes = {}
         if project is not None:
@@ -410,7 +422,27 @@ class Collector:
                         "body": web_sync.clip(UNSTARTED_WORDS + (f"（{why}）" if why else "")),
                         "job_id": str(unstarted.get("job_id") or ""), "started_at": 0,
                         "ended_at": epoch_seconds(unstarted.get("updated_at")) or 0, "artifacts": []})
+        elif form and latest is not None and (not rows or rows[-1].get("role") == "user"):
+            out.append(self.start_turn(state, topic, total + 1, latest, form))
         return out, total
+
+    @staticmethod
+    def start_turn(state, topic, seq, job, form) -> dict:
+        """The turn of the owner's words whose task ``job`` waits for 开始 on the launch card ``form`` (core/board_read.py launch_form):
+        等你 (``status`` waiting), what to do, what 开始 would run them with, and a link that opens the card in Feishu when one is
+        known (app/topic_links.py, from its file only: the push reads no message from Feishu). 2026-11-21 T622: without it the page
+        drew 排队中… under the words, said 等你 with nothing to act on, and (the topic's ``round`` counting the task) numbered them a
+        round past it, under 再早的 1 轮网页上没有载入."""
+        choice = launch_choice(form)
+        runs = " · ".join(part for part in (choice["label"], f"思考预算 {choice['effort']}" if choice["effort"] else "",
+                                            f"工作区 {choice['workspace']}" if choice["workspace"] else "") if part)
+        link = start_link(state, topic, form.get("message_id"))
+        lines = [START_WORDS + "。"]
+        if runs:
+            lines.append(f"点了开始会用：{runs}（卡上还能改）。")
+        lines.append(f"[去飞书点开始]({link})" if link else "启动卡在飞书里这个话题的话题串中。")
+        return {"topic_key": topic, "seq": seq, "role": "agent", "status": "waiting", "body": web_sync.clip("\n\n".join(lines)),
+                "job_id": str(job.get("job_id") or ""), "started_at": board_read.started_at(job), "ended_at": 0, "artifacts": []}
 
     def entries(self, rows, records, answered=None, questions=(), topic="") -> list:
         """[(time, turn data, job record or None)] of a topic's history lines; the job only on an assistant line. ``answered``
@@ -659,6 +691,33 @@ class Collector:
         if any(self.states.get(topic) == "等你" for topic in topics):
             return "等你", "有问题等你回答"
         return "在做", ""
+
+
+def launch_choice(form) -> dict:
+    """What the launch form ``form`` (core/board_read.py launch_form) would start its topic with now, from the selects it recorded
+    (app/launch.py form_draft): {harness, model, model_name, label, effort, workspace}; {} without a form."""
+    if not form:
+        return {}
+    key = str(form.get("selected_model") or "")
+    entry = (form.get("models") or {}).get(key)
+    entry = entry if isinstance(entry, dict) else {}
+    harness, _, model = key.partition(":")
+    harness, model = str(entry.get("harness") or harness or form.get("harness_id") or ""), str(entry.get("model") or model)
+    defaults = form.get("form_defaults") if isinstance(form.get("form_defaults"), dict) else {}
+    return {"harness": harness, "model": model, "model_name": str(entry.get("display_name") or "") or model_name(model),
+            "label": str(entry.get("label") or ""), "effort": str(form.get("selected_effort") or ""),
+            "workspace": str(defaults.get("path") or defaults.get("workspace") or "")}
+
+
+def start_link(state, topic, card) -> str:
+    """The applink that opens ``topic``'s launch card ``card`` in Feishu (app/topic_links.py link_for), from topic-links.json only
+    (手上的事 keeps it there, app/overview.py link): '' when it is not there, as the push reads no message from Feishu."""
+    def unread(message_id, profile):
+        raise LookupError(message_id)
+    try:
+        return topic_links.link_for(state, topic, card=str(card or ""), fetch=unread)
+    except Exception:  # noqa: BLE001 - no link, the words say where the card is
+        return ""
 
 
 def never_started(records) -> bool:
