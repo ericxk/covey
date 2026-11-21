@@ -111,7 +111,7 @@ IM 事件只有机器人身份，看不到主人的会话，所以 `ProxyIntake.
 
 | 取值 | 命中时 |
 | --- | --- |
-| 不设或 `count`（默认） | 只记：日志 `proxy reply check batch=… job=#N hits=path,id mode=count; sent as before`，计数进 `<state>/proxy/reply-checks.json`（查过几条、命中几条、各类几次、最近 50 次命中的批次和任务号），回复照常发出 |
+| 不设或 `count`（默认） | 只记：日志 `proxy reply check batch=… job=#N hits=path,id mode=count; sent as before`，计数进 `<state>/proxy/reply-checks.json`（查过几条、命中几条、各类几次、最近 50 次命中的批次和任务号；同一条回复再判一次，比如被每小时限额挡住、下一轮轮询再判，不重记），回复照常发出 |
 | `hold` | 不发：批次转 `held`（主人那一轮的已是 `held`，就记下新回复），回复存成建议，出“没有代你回复”的重新发送卡，原因写“回复里有本机路径、内部编号…，先给你看”；主人点“按建议回复”就照原样发，或在话题里说怎么回 |
 | `off` 或 `0` | 不查 |
 

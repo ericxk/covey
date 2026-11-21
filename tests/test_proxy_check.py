@@ -65,6 +65,13 @@ class ReplyCheckTests(ProxyCase):
         self.assertIn('hits=path mode=count; sent as before', line)
         self.assertNotIn('/mnt/data', line)  # The log says the kinds, never the reply.
 
+    def test_a_reply_decided_again_is_counted_and_said_once(self):
+        self.assertTrue(records.count_check(self.state, ['path'], batch='b' * 32, job_id=4))
+        self.assertFalse(records.count_check(self.state, ['path'], batch='b' * 32, job_id=4))  # The same reply.
+        self.assertTrue(records.count_check(self.state, [], batch='b' * 32, job_id=5))  # The owner's next turn.
+        counts = self.counts()
+        self.assertEqual((counts['checked'], counts['hit'], counts['kinds'], len(counts['recent'])), (2, 1, {'path': 1}, 1))
+
     def test_a_clean_reply_is_counted_with_nothing_logged(self):
         self.submitted()
         self.run_tick('在共享盘的 docs 里', SENT).assert_called_once()

@@ -640,6 +640,7 @@ CHECK_ENV = "COVEY_PROXY_REPLY_CHECK"
 CHECK_COUNT, CHECK_HOLD, CHECK_OFF = "count", "hold", "off"
 CHECKS_FILE = "reply-checks.json"  # proxy/: how many replies were checked and hit, by kind, and the latest hits.
 CHECKS_KEPT = 50
+CHECKS_SEEN = 200  # Replies (batch, job) the file remembers as counted: one decided again is not counted twice.
 _PATH = re.compile(
     r"(?<![\w.:/~@-])(?:~/|/(?:home|Users|root|mnt|data|opt|tmp|var|etc|srv|usr|private|Volumes|workspaces?|proc|run|"
     r"media|nas|Library|Applications)/)[\w.\-/@+]+|(?<![\w])[A-Za-z]:\\[\w.\-\\]+")
@@ -676,28 +677,34 @@ def reply_hits(text: str) -> list[str]:
     return [kind for kind, _, pattern in REPLY_CHECKS if pattern.search(str(text or ""))]
 
 
-def count_check(state_dir: Path, hits, *, batch="", job_id=0, mode=CHECK_COUNT) -> dict:
-    """One reply checked (``hits`` its kinds, [] none) added to CHECKS_FILE: ``since``, ``checked``, ``hit``, ``kinds``
-    {kind: count}, ``recent`` (the latest CHECKS_KEPT hits: ``at``, ``batch``, ``job``, ``kinds``, ``mode``). Only the
-    proxy's worker writes it. The counts as they are now."""
+def count_check(state_dir: Path, hits, *, batch="", job_id=0, mode=CHECK_COUNT) -> bool:
+    """The reply of ``batch``'s job ``job_id`` checked (``hits`` its kinds, [] none), added to CHECKS_FILE: ``since``,
+    ``checked``, ``hit``, ``kinds`` {kind: count}, ``recent`` (the latest CHECKS_KEPT hits: ``at``, ``batch``, ``job``,
+    ``kinds``, ``mode``), ``seen`` (the replies counted). Whether it was counted now: a reply decided again (one
+    HOURLY_LIMIT holds off is, each poll) is counted once. Only the proxy's worker writes it."""
     path = proxy_dir(state_dir) / CHECKS_FILE
     try:
         found = read_json(path)
     except (OSError, ValueError):
         found = {}
     found = found if isinstance(found, dict) else {}
+    key = f"{batch[:16]}:{job_id}"
+    seen = [k for k in found.get("seen") or () if isinstance(k, str)]
+    if key in seen:
+        return False
     now = round(time.time())
     kinds = found.get("kinds") if isinstance(found.get("kinds"), dict) else {}
     recent = [r for r in found.get("recent") or () if isinstance(r, dict)]
     counts = {"since": found.get("since") or now, "checked": int(found.get("checked") or 0) + 1,
-              "hit": int(found.get("hit") or 0) + bool(hits), "kinds": kinds, "recent": recent}
+              "hit": int(found.get("hit") or 0) + bool(hits), "kinds": kinds, "recent": recent,
+              "seen": [*seen, key][-CHECKS_SEEN:]}
     for kind in hits:
         kinds[kind] = int(kinds.get(kind) or 0) + 1
     if hits:
         counts["recent"] = [*recent, {"at": now, "batch": batch[:8], "job": job_id, "kinds": list(hits),
                                       "mode": mode}][-CHECKS_KEPT:]
     write_json(path, counts, ensure_ascii=False, indent=1)
-    return counts
+    return True
 
 
 def submitted_at(batch: dict) -> float:

@@ -590,11 +590,11 @@ class Proxy:
             return []
         try:
             hits = records.reply_hits(plain_mentions(reply))
-            records.count_check(ctx.state_dir, hits, batch=batch["id"], job_id=job_id, mode=mode)
+            counted = records.count_check(ctx.state_dir, hits, batch=batch["id"], job_id=job_id, mode=mode)
         except (OSError, ValueError, TypeError) as exc:
             self.runtime.log(f"proxy reply check failed batch={batch['id'][:8]}: {type(exc).__name__}")
             return []
-        if hits:
+        if hits and counted:  # Said once a reply: one HOURLY_LIMIT holds off is decided again each poll.
             self.runtime.log(f"proxy reply check batch={batch['id'][:8]} job=#{job_id} hits={','.join(hits)} "
                              f"mode={mode}" + ("; held" if mode == records.CHECK_HOLD else "; sent as before"))
         return hits if mode == records.CHECK_HOLD else []
