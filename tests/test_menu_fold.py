@@ -232,7 +232,8 @@ class MenuFoldTests(ProxyCase):
         self.assertEqual(self.press(main, 'ev-t1', 'om_1'), 'settings_fold')
         card_id, folded, sequence = self.puts[-1]
         self.assertEqual((card_id, sequence, folded['header']['title']['content']), ('cid1', 1, '新话题'))
-        self.assertEqual([v['tab'] for v in tab_values(folded)], ['topic', 'main', 'workspace', 'redaction', 'groups'])
+        self.assertEqual([v['tab'] for v in tab_values(folded)],
+                         ['topic', 'main', 'workspace', 'redaction', 'groups', 'about', 'doctor'])  # 能做什么, 诊断: always.
         self.assertEqual(len(folded['body']['elements']), 2)  # The tab row and the line, none of the panel.
         record = read_json(path)
         self.assertEqual((record[FOLDED], record['tab'], record['turned']), (True, 'topic', ['ev-t1']))

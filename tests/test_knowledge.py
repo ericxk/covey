@@ -24,7 +24,7 @@ from covey.core import env as cenv
 from covey.app import digest, knowledge_collect, knowledge_turn, butler_knowledge, butler_tools
 from covey.app.butler_env import ButlerEnv
 from covey.app.prompts import (AREA_OPENING, area_rule, KNOWLEDGE_HEAD, KNOWLEDGE_NEW_HEAD, REMEMBER_RULE,
-                                        RESUME_REMINDERS, SHARED_RULES, USAGE_RULE, constraints, history_line,
+                                        SHARED_RULES, USAGE_RULE, constraints, history_line, resume_reminders,
                                         knowledge_block, butler_rules, workspace_block)
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
@@ -322,7 +322,7 @@ class TurnTest(StateCase):
         self.assertEqual(runs.bridge_rules(self.ctx), self.old_rules(runs, None))
         rules = runs.bridge_rules(self.ctx, job)
         resumed = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=False, rules_session=False)
-        self.assertEqual(resumed, "MSG\n\n" + RESUME_REMINDERS + "\n\n" + workspace_block(self.ctx.workspace_name, self.ctx.workdir)
+        self.assertEqual(resumed, "MSG\n\n" + resume_reminders() + "\n\n" + workspace_block(self.ctx.workspace_name, self.ctx.workdir)
                          + "\n\n" + CHECKPOINT_RULES)
         fresh = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=True, rules_session=False)
         self.assertEqual(fresh, rules + "\n\nMSG")

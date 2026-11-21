@@ -38,7 +38,7 @@ from covey.app.detached import queued_path, restart_blockers
 from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app.launch_models import available_models
 from covey.app.harnesses import components
-from covey.app.prompts import RESUME_REMINDERS
+from covey.app.prompts import resume_reminders
 from covey.app.sessions import SYSTEM_RULES_DIR, mark_system_rules, started_with_system_rules
 from covey.app.topics import RetiredHarness, retired_notice
 from covey.app.unified import UnifiedBridgeApp
@@ -412,7 +412,7 @@ class TwoStagePromptTest(unittest.TestCase):
                 self.assertIn("帮我检查代码", prompt)
                 self.assertIn("本任务检查点文件：" + checkpoint, prompt)
                 for part in ("这个桥接器的约束", "这是执行约定", "当前工作目录", "AGENTS.md",
-                             RESUME_REMINDERS.splitlines()[0]):
+                             resume_reminders().splitlines()[0]):
                     self.assertNotIn(part, prompt)
                 self.assertEqual("最近的对话" in prompt, sid is None)
 
@@ -424,7 +424,7 @@ class TwoStagePromptTest(unittest.TestCase):
             self.assertIn(part, first)
         resumed, checkpoint = self._turn(FakeBackend(), "11111111-1111-4111-8111-111111111111")
         self.assertNotIn("这个桥接器的约束", resumed)
-        for part in (RESUME_REMINDERS, f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES,
+        for part in (resume_reminders(), f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES,
                      "本任务检查点文件：" + checkpoint):
             self.assertIn(part, resumed)
 
@@ -473,7 +473,7 @@ class TwoStagePromptTest(unittest.TestCase):
                 self.assert_lean(resumed, False)
 
     def assert_lean(self, prompt, lean):
-        for part in (RESUME_REMINDERS, f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES):
+        for part in (resume_reminders(), f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES):
             (self.assertNotIn if lean else self.assertIn)(part, prompt)
 
     def test_a_new_session_is_marked_and_resumes_with_the_lean_message(self) -> None:

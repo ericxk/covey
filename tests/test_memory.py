@@ -17,7 +17,7 @@ from support.world import harness_app
 
 from covey.app import answer_cards, memory_collect, memory_turn
 from covey.app.card_actions import ACTIONS
-from covey.app.prompts import MEMORY_FIX_RULE, MEMORY_HEAD, MEMORY_RULES, RESUME_REMINDERS, memory_block
+from covey.app.prompts import MEMORY_FIX_RULE, MEMORY_HEAD, MEMORY_RULES, memory_block, resume_reminders
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.cards import answer_card as cards
@@ -191,7 +191,7 @@ class TurnTest(TurnCase):
         resumed = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=False, rules_session=False)
         self.assertEqual(resumed.count(MEMORY_HEAD), 1)
         self.assertEqual(resumed.count("发版前先跑全量"), 1)
-        self.assertIn(RESUME_REMINDERS, resumed)
+        self.assertIn(resume_reminders(), resumed)
 
     def test_the_numbers_a_turn_carried_are_in_its_record(self):
         self.env(**ON)

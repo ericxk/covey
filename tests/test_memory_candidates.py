@@ -263,7 +263,8 @@ class ProxyCountTests(State):
             self.assertEqual(proxy_view(self.state, now), {})  # 代答 off and nothing of today's.
             proxy_records.write_settings(self.state, {"enabled": True})
             self.assertEqual(proxy_view(self.state, now), {"sent": 0, "unsent": 0})
-        self.assertEqual(proxy_view(self.state, now), {})  # No sender: no 代答.
+        with mock.patch("covey.app.proxy_send.available", return_value=False):  # An extension may bring a sender.
+            self.assertEqual(proxy_view(self.state, now), {})  # No sender: no 代答.
 
 
 class FakeMessenger:
