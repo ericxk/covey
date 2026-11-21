@@ -200,7 +200,9 @@ class ClaudeEventAdapter:
         if block["tool_use_id"] in self.agents:
             agent = self.agents[block["tool_use_id"]]
             if not block.get("is_error") and launched_in_background(block, row):
-                agent["background"] = True
+                if not agent.get("background"):
+                    agent["background"] = True
+                    self.emit("agent_state", agent.copy())  # The trace says it keeps the task open (core/progress.py background_tasks).
             if block.get("is_error") or not agent.get("background"):
                 agent.update(status="errored" if block.get("is_error") else "completed", ended_at=time.time())
                 self.emit("agent_state", agent.copy())

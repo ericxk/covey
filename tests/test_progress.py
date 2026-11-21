@@ -546,6 +546,78 @@ class CommandMonitorTest(unittest.TestCase):
         self.assertEqual(told, [True])
 
 
+class BackgroundTasksTest(unittest.TestCase):
+    """The reply is out but background tasks keep the turn open: the status line says what it still waits for."""
+
+    def trace(self, *, commands=(), agents=(), foreground=None):
+        from covey.core.trace import ToolTrace
+        trace = ToolTrace()
+        for index, detail in enumerate(commands):
+            trace.accept("tool", {"id": f"b{index}", "name": "background", "status": "running", "detail": detail,
+                                  "started_at": NOW - 600})
+        for index, name in enumerate(agents):
+            trace.accept("agent_state", {"id": f"a{index}", "name": name, "status": "running", "started_at": NOW - 500,
+                                         "parent_id": None, "background": True})
+        if foreground:
+            trace.accept("tool", {"id": "f", "name": foreground, "status": "running", "detail": "x", "started_at": NOW - 5})
+        return trace
+
+    def test_commands_and_agents_are_described_by_the_models_words_never_the_command(self):
+        names = progress.background_tasks(self.trace(commands=["跑全量测试 · python3 -m unittest -q", "pytest -q"],
+                                                     agents=["等 CI 结果"]))
+        self.assertEqual(sorted(names), ["等 CI 结果", "跑全量测试", "跑测试"])  # No purpose: the kind of command.
+        self.assertNotIn("unittest", " ".join(names))
+
+    def test_a_foreground_step_or_a_sub_task_the_model_waits_for_means_no_reply_is_out(self):
+        self.assertEqual(progress.background_tasks(self.trace(commands=["跑测试 · pytest"], foreground="bash")), [])
+        trace = self.trace(commands=["跑测试 · pytest"])
+        trace.accept("agent_state", {"id": "w", "name": "读日志", "status": "running", "started_at": NOW, "parent_id": None,
+                                     "background": False})
+        self.assertEqual(progress.background_tasks(trace), [])
+        ended = self.trace(commands=["跑测试 · pytest"])
+        ended.finish()
+        self.assertEqual(progress.background_tasks(ended), [])
+
+    def test_the_words_name_two_or_three_cut_short_then_count_the_rest(self):
+        said = progress.background_words
+        self.assertEqual(said([]), "")
+        self.assertEqual(said(["", ""]), "还在等后台 2 个")
+        self.assertEqual(said(["跑全量测试", "等 CI"]), "还在等后台 2 个：跑全量测试、等 CI")
+        self.assertEqual(said(["A", "B", "C"]), "还在等后台 3 个：A、B、C")
+        self.assertEqual(said(["A", "B", "C", "D", "E"]), "还在等后台：A、B、C 等 5 个")
+        self.assertEqual(said(["A", "", "C"]), "还在等后台：A、C 等 3 个")
+
+    def monitor_lines(self, trace, wall=NOW):
+        from covey.core.status_line import status_text
+        job, monitor = MonitorTest.monitor(self, [wall])
+        job.tool_trace = trace
+        facts, _ = monitor.facts(monitor.clock())
+        return facts, status_text(facts)
+
+    def test_the_status_line_says_it_in_grey_under_the_now_line_and_drops_it_when_they_end(self):
+        trace = self.trace(commands=["跑全量测试 · python3 -m unittest"], agents=["等 CI 结果"])
+        facts, text = self.monitor_lines(trace)
+        lines = text.split("\n")
+        self.assertTrue(lines[0].startswith("在做 · 已运行"))  # The running colour; never orange for this.
+        self.assertTrue(lines[1].startswith("现在："))
+        self.assertEqual(lines[2], "还在等后台 2 个：等 CI 结果、跑全量测试")
+        self.assertEqual(len(lines), 3)
+        from covey.cards.task_status import status_markdown
+        self.assertIn("<font color='grey'>还在等后台", status_markdown(text).replace('"', "'"))
+        trace.accept("tool", {"id": "b0", "name": "background", "status": "done", "detail": "跑全量测试 · x",
+                              "started_at": NOW - 600, "ended_at": NOW})
+        trace.accept("agent_state", {"id": "a0", "name": "等 CI 结果", "status": "completed", "started_at": NOW - 500,
+                                     "ended_at": NOW, "parent_id": None, "background": True})
+        self.assertNotIn("还在等后台", self.monitor_lines(trace)[1])
+
+    def test_descriptions_are_escaped_and_cut_for_the_card(self):
+        trace = self.trace(agents=["**很长很长很长很长很长很长很长很长很长很长很长的描述** `x`"])
+        text = self.monitor_lines(trace)[1].split("\n")[-1]
+        self.assertTrue(text.startswith("还在等后台 1 个："), text)
+        self.assertNotIn("**", text)
+        self.assertLessEqual(len(text), 80)
+
+
 class BoardTest(unittest.TestCase):
     def test_the_butler_snapshot_says_the_three_things(self):
         from covey.app.butler import progress_words

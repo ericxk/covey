@@ -64,16 +64,16 @@ CHOICES = {
 }
 
 
-def status_line_sample(quiet, progress):
+def status_line_sample(quiet, progress, background=()):
     """The task card's status line (core/status_line.py status_text) of a turn running a command, quiet for ``quiet`` seconds, with
-    ``progress`` (core/progress.py) fields over a quiet one's."""
+    ``progress`` (core/progress.py) fields over a quiet one's, and the ``background`` tasks' descriptions the reply left open."""
     from covey.core.status_line import Facts, status_text
     found = {"phase": "", "plan_done": None, "plan_total": None, "last_activity_at": 1000, "last_activity": "在跑评测",
              "eta_seconds": None, "slow_step": None, "maybe_stuck": False, **progress}
     facts = Facts(elapsed=quiet + 60, quiet=quiet, alive=True, finished=False, phase="跑评测", last_event="", checked="11-05 14:03:09",
                   question="", waiting=False, native_question_active=False,
                   activity=("执行命令 · 跑评测", 1000, None), traced=True, wall=1000 + quiet, stirred=True, retry=None,
-                  epoch=1000.0 + quiet, long_mode=True, frame=0, progress=found, stuck_after=1800)
+                  epoch=1000.0 + quiet, long_mode=True, frame=0, progress=found, stuck_after=1800, background=background)
     return status_text(facts)
 
 
@@ -128,6 +128,11 @@ def task_cards():
         "status_line_command": status_line_sample(2400, {"command": {"since": 0, "seconds": 2400, "long": True}}),
         "status_line_command_short": status_line_sample(300, {"command": {"since": 0, "seconds": 300, "long": False}}),
         "status_line_stuck": status_line_sample(2400, {"maybe_stuck": True}),
+        # The reply is out and background tasks keep the task open: one grey line under 现在：, the descriptions named (two or
+        # three), the rest counted, only the count when none is known.
+        "status_line_background": status_line_sample(120, {}, ("跑全量测试", "等 CI")),
+        "status_line_background_many": status_line_sample(120, {}, ("跑全量测试", "等 CI", "读日志", "整理结果", "")),
+        "status_line_background_count": status_line_sample(120, {}, ("", "")),
         # 看看 under the status line of a turn that may be stuck (Cards.show_stuck).
         "look_button": look_element(sample_job()),
         "status_block": status_block("⏳ 执行中 · 已运行 1 分\n第二行", figures_element(snapshot)),

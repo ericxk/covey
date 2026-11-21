@@ -9,7 +9,7 @@ from covey.core.checkpoint import current_step, step_words
 from covey.core.metrics import clock_text, duration, step_age, took_text
 from covey.core.text import safe_text, step_event, step_label
 from covey.core import turn_words
-from covey.core.progress import activity_line, ago_words, command_words, eta_words, stuck_words, usual_words
+from covey.core.progress import BACKGROUND_CHARS, activity_line, ago_words, background_words, command_words, eta_words, stuck_words, usual_words
 from covey.core.turn_words import RUNNING, STUCK, UNSET_PHASES
 
 
@@ -128,6 +128,9 @@ class Facts(NamedTuple):
     # and whether it may be stuck. None: the lines as before it (a caller with no monitor).
     progress: dict | None = None
     stuck_after: int | None = None  # The monitor's threshold in seconds (core/progress.py stuck_seconds); None: the environment's.
+    # The background tasks that keep the turn open after its reply (core/progress.py background_tasks): their descriptions,
+    # '' for one without; the line under 现在： says what the turn still waits for.
+    background: tuple = ()
 
 
 def quiet_note(facts):
@@ -211,6 +214,8 @@ def trace_summary(facts):
     if quiet >= LONG_QUIET and facts.alive is True and not waits_for_command(facts):
         line += " · 进程仍在运行"
     summary += "\n" + line
+    if facts.background:
+        summary += "\n" + background_words([safe_text(name, BACKGROUND_CHARS) if name else "" for name in facts.background])
     note = quiet_note(facts)
     if note:
         summary += "\n" + note

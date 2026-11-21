@@ -88,6 +88,8 @@ class TaskMonitor:
         # When the trace's newest step, a command, started while it still runs (core/progress.py running_command): the turn
         # waits for it, which is not being stuck; kept on the record as ``command_since`` for the readers without the trace.
         self.command, self.command_kept = None, False
+        # The background tasks the turn waits on once its reply is out (core/progress.py background_tasks), described.
+        self.background = ()
 
     def output(self):
         """Streamed answer text is progress. Lock-free: tick holds the lock across card I/O."""
@@ -200,7 +202,7 @@ class TaskMonitor:
                      or self.requested_at is not None),
             retry=retry, epoch=time.time(), long_mode=self.long_mode or elapsed >= self.long_after,
             frame=self.frame, steps=steps, step_doing=step_doing, device=device, progress=found,
-            stuck_after=self.stuck_after,
+            stuck_after=self.stuck_after, background=self.background,
         ), changed
 
     def progress(self, wall, quiet, elapsed, waiting, alive=None):
@@ -269,13 +271,14 @@ class TaskMonitor:
             # start the first token may be that start (Codex): then only output or tokens move on.
             started = (self.output_at is not None or bool(getattr(trace, "output_tokens", None))
                        or (getattr(trace, "ttft_seconds", None) is not None and self.reasoning_at is None))
-            self.command = None
+            self.command, self.background = None, ()
             current = (THINKING if started else REASONING if self.reasoning_at is not None
                        else self.starting if self.starting and self.requested_at is None else WAITING_FOR_MODEL)
             return current, None, None
         with self.job.trace_lock or contextlib.nullcontext():
             self.newest = turn_progress.newest_activity(trace, now)
             self.command = turn_progress.running_command(trace, now)
+            self.background = tuple(turn_progress.background_tasks(trace))
             return trace_progress(trace, now)
 
     def run(self):

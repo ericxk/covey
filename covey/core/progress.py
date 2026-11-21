@@ -169,6 +169,48 @@ def running_command(trace, now=None):
     return None
 
 
+BACKGROUND_TITLES = {"后台命令", "启动后台命令"}
+BACKGROUND_STATES = {"running", "pendingInit"}
+
+
+def background_tasks(trace) -> list:
+    """The background tasks the turn waits on, one description each ('' when none is known): the trace's agents that run in
+    the background and its background command steps, still running, while nothing in the foreground runs (no tool step, no
+    sub-task the model waits for): the reply is out and these keep the task open. A command's description is the model's own
+    purpose for it, never the command; an agent's is its description. [] for an ended trace."""
+    if getattr(trace, "ended_at", None) is not None or (isinstance(trace, dict) and trace.get("ended_at") is not None):
+        return []
+    nodes, seen, agents = [trace], {id(trace)}, {}
+    for node in nodes:
+        _, own, children = _parts(node)
+        agents.update(own if isinstance(own, dict) else {})
+        for child in (children.values() if isinstance(children, dict) else ()):
+            if id(child) not in seen:
+                seen.add(id(child))
+                nodes.append(child)
+    found = []
+    for sid, agent in agents.items():
+        if not isinstance(agent, dict) or agent.get("status") not in BACKGROUND_STATES:
+            continue
+        if agent.get("background") is not True:
+            return []  # The model waits for this sub-task: it works, it has no reply out.
+        name = _plain(agent.get("name"))
+        found.append("" if name == "子任务" else name)
+    for node in nodes:
+        steps, _, _ = _parts(node)
+        for key, step in (steps.items() if isinstance(steps, dict) else ()):
+            if not isinstance(step, dict) or step.get("agent_id") is not None or key in agents or step.get("status") != "running":
+                continue
+            if step.get("title") not in BACKGROUND_TITLES:
+                return []  # A foreground step runs.
+            detail = _plain(step.get("detail"))
+            said, separated, command = detail.partition(" · ")
+            kind = command_kind(command if separated else detail)
+            verb, thing = VERBS[kind]
+            found.append(said if separated else "" if kind == "运行命令" else verb + thing)  # Never the command itself.
+    return found
+
+
 def _newest(trace, now=None):
     """(epoch seconds, words, the step) of ``newest_activity``; the step is None when an agent's state change is newest."""
     now = time.time() if now is None else now
@@ -407,6 +449,24 @@ def command_words(found) -> str:
     if not isinstance(command, dict):
         return ""
     return f"{COMMAND_WAIT} · 已 {minutes_words(command['seconds'])}"
+
+
+BACKGROUND_NAMED = 3  # Descriptions a line of background tasks names at most.
+BACKGROUND_CHARS = 20  # Each description cut to this by the caller (it escapes them: a cut of escaped text would break an entity).
+
+
+def background_words(names) -> str:
+    """"还在等后台 2 个：跑全量测试、等 CI" of ``background_tasks``; with more than are named (or one without a description)
+    "还在等后台：A、B、C 等 5 个"; only the count when none is known; '' without any."""
+    names = list(names or ())
+    named = [name for name in names if name][:BACKGROUND_NAMED]
+    if not names:
+        return ""
+    if not named:
+        return f"还在等后台 {len(names)} 个"
+    if len(names) > len(named):
+        return f"还在等后台：{'、'.join(named)} 等 {len(names)} 个"
+    return f"还在等后台 {len(names)} 个：{'、'.join(named)}"
 
 
 def plan_words(found) -> str:

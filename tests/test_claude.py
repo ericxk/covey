@@ -798,6 +798,28 @@ class ClaudeAlignmentTests(unittest.TestCase):
         agents = [d for k, d in events if k == "agent_state"]
         self.assertTrue(agents and all(a["name"] == "Survey entry scripts" for a in agents))
 
+    def test_a_background_agent_and_command_reach_the_trace_as_tasks_that_keep_the_turn_open(self):
+        # The status line's 还在等后台 (core/progress.py background_tasks) reads them from the trace.
+        from covey.core import progress
+        from covey.core.trace import task_trace
+        trace = task_trace()
+        adapter = ClaudeEventAdapter(lambda k, d: trace.accept(k, dict(d)))
+        adapter.accept({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a1", "name": "Agent",
+                        "input": {"description": "Count files", "prompt": "..."}}]}})  # No run_in_background: Claude Code decides.
+        adapter.accept({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a1", "content": "x"}],
+                        }, "tool_use_result": {"status": "async_launched", "isAsync": True, "agentId": "a8c3"}})
+        adapter.accept({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "bg", "name": "Bash",
+                        "input": {"command": "python3 -m unittest", "description": "Run full test suite",
+                                  "run_in_background": True}}]}})
+        adapter.accept({"type": "system", "subtype": "task_started", "tool_use_id": "bg", "task_id": "t-bg",
+                        "task_type": "local_bash", "is_backgrounded": True, "description": "Run full test suite"})
+        self.assertEqual(sorted(progress.background_tasks(trace)), ["Count files", "Run full test suite"])
+        adapter.accept({"type": "system", "subtype": "task_notification", "tool_use_id": "bg", "task_id": "t-bg",
+                        "status": "completed"})
+        adapter.accept({"type": "system", "subtype": "task_notification", "tool_use_id": "a1", "task_id": "t1",
+                        "status": "completed"})
+        self.assertEqual(progress.background_tasks(trace), [])
+
     def test_a_subagent_claude_code_runs_in_the_background_runs_until_its_notification(self):
         # S31 K6 (Claude Code 2.1.310): two Explore agents were launched in the background without
         # run_in_background; their rows read 已完成 · 0.0 秒 at launch, before their commands ran.
