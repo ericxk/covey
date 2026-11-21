@@ -73,7 +73,7 @@ VENDORS = (("anthropic", ("claude", "opus", "sonnet", "haiku", "fable")),
            ("alibaba", ("qwen", "qwq")),
            ("moonshot", ("kimi", "moonshot")),
            ("zhipu", ("glm", "chatglm")),
-           ("bytedance", ("doubao", "seed")),
+           ("doubao", ("doubao", "seed")),  # The maker named by its models: the company list keeps its name out of the core.
            ("xai", ("grok",)),
            ("mistral", ("mistral", "codestral", "devstral")))
 # A Harness's own maker, for a model whose words name none (its default, "" in a record).
