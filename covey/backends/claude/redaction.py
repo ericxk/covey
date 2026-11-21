@@ -305,10 +305,10 @@ def _ms(started):
     return round((time.monotonic() - started) * 1000)
 
 
-def settings_argv(ctx):
-    """``--settings`` pointing Claude Code at the turn's relay; [] for a turn without one."""
+def settings(ctx) -> dict:
+    """The part of the turn's Claude Code --settings that points it at the turn's relay; {} for a turn without one."""
     env = ctx.options.get(SETTINGS_ENV)
-    return ["--settings", json.dumps({"env": env}, ensure_ascii=False)] if env else []
+    return {"env": env} if env else {}
 
 
 def turn_event(ctx):

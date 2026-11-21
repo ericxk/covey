@@ -302,7 +302,10 @@ def serve_requests(gateway, app, job, ctx, directory: Path) -> None:
                                                              prompt_content=payload["text"],
                                                              recovery_context=payload.get("recovery_context"),
                                                              title=str(payload.get("title") or ""),
-                                                             policy_retry=retried)
+                                                             policy_retry=retried,
+                                                             # Who sent the answered task's message; a runner from
+                                                             # before it sends none (app/tool_limits.py READ).
+                                                             sender_id=str(payload.get("sender_id") or ""))
             if continuation is None:
                 raise ValueError("后续任务未能入队")
             ack(directory, payload["id"], True, folder=REPLIES, job_id=continuation.job_id)
@@ -323,7 +326,8 @@ class RunnerLink:
     def __init__(self, directory: Path) -> None:
         self.directory = Path(directory)
 
-    def enqueue(self, harness, ctx, text, chat, message_id, recovery_context, title="", display="", policy_retry=None):
+    def enqueue(self, harness, ctx, text, chat, message_id, recovery_context, title="", display="", policy_retry=None,
+                sender_id=""):
         deadline = time.time() + ENQUEUE_TIMEOUT
         op = post(self.directory / REQUESTS, {
             "kind": "enqueue_answer", "harness": harness, "chat_id": chat, "topic_id": ctx.topic_id,
@@ -331,6 +335,8 @@ class RunnerLink:
             **({"work_mode": ctx.work_mode} if ctx.work_mode else {}),
             # Only on a retry's continuation: a Bridge from before it ignores it (serve_requests reads what it knows).
             **({"policy_retry": dict(policy_retry)} if policy_retry else {}),
+            # Only when the answered job kept who sent it; a Bridge from before it ignores it too.
+            **({"sender_id": sender_id} if sender_id else {}),
             "recovery_context": recovery_context, "deadline": deadline, "title": title, "display": display})
         result = await_reply(self.directory / REPLIES / (op + ".json"), time.monotonic() + ENQUEUE_TIMEOUT + 3)
         if result is None:

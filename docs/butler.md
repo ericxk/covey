@@ -62,6 +62,8 @@
 
 **开工三档**（`starts_at_once`，设置 `start`）：只读的、主人在这条消息里亲口要的、主人记住过的“工作区 × 只读/改文件”直接开工；其余在话题里出预填好的启动卡。
 
+判为只读（`readonly`）又直接开工的，第一轮的任务说明末尾写“这一轮只读”（`app/tool_limits.py` 的 `LOOK_NOTE`；请求记录的计划里记 `read_only`，任务记录也记），并且照 Harness 能做到的限住（`TOOL_LIMIT` 的 `look`）：Claude Code 没有改文件的工具（Edit、Write、NotebookEdit，子 Agent 也没有；命令行还在，给只读的命令用），Codex 在只读沙箱里跑（命令能跑，写不了文件、上不了网），别的 Harness 只有那句话。只管这一轮：主人之后在话题里说的话、点重试或检查并继续，照常跑；等启动卡、主人点了开始的也照常。
+
 ### 管家规则
 
 `COVEY_BUTLER_RULES=1` 时，[直答与转交](#直答与转交)的前两条换成 `app/prompts.py` 的 `BUTLER_RULES`（两条），让管家只快答和分派，这样它接得住主人的连问；`topic_start` 的工具说明里同样的话也换了；其余规则不动。

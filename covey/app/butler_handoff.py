@@ -22,6 +22,7 @@ import re
 import shutil
 from pathlib import Path
 
+from covey.app.tool_limits import LOOK_NOTE
 from covey.core.attachments import (ATTACHMENTS_HEADER, FAILED_HEADER, ListedAttachment, attachment_block,
                                              attachment_summary, message_words, parse_attachment_block)
 from covey.core.deliveries import CLOCK_SLACK, read_delivery
@@ -277,12 +278,14 @@ def note(kind, *, label, title, owner: Asked, source="") -> str:
             f"{settled}{done}")
 
 
-def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra="", source="") -> str:
-    """What the topic's model gets: the Bridge's ``note``, the butler's task (its ``extra`` line after it),
-    the owner's words quoted, and the attachments block of ``items`` (those carried into the topic)."""
+def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra="", source="", read_only=False) -> str:
+    """What the topic's model gets: the Bridge's ``note``, the butler's task (its ``extra`` line after it, then
+    LOOK_NOTE for a turn started at once because it was judged read-only, ``read_only``), the owner's words quoted,
+    and the attachments block of ``items`` (those carried into the topic)."""
     who = "负责人" if owner.lead else "管家"
     parts = [note(kind, label=label, title=title, owner=owner, source=source),
-             f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")]
+             f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")
+             + ("\n\n" + LOOK_NOTE if read_only else "")]
     if owner.words or items:
         quoted = []
         for index, (words, at) in enumerate(owner.said):

@@ -7,10 +7,13 @@ With 免@ offered (``free``, app/access.py FREE_ENV) a row also shows its 免@ m
 that opens the group's 免@ page (VIEW): the four choices of who talks there without the @ (FREE), and with
 你和选中的人 the group's members, MEMBER_PAGE a page, each picked or dropped (MEMBER); 返回群列表 goes back.
 
+An active group's row also says whether its members are read-only (app/access.py ``member_mode``: a blue 群成员只读
+tag) and has 设为只读 or 取消只读 (MEMBERS, with the mode it sets).
+
 The confirmation card (``ask_card``): the owner's first @ in a group that can be a team space sends it to his private
-chat. It names the group, says who could use the bot there and what that means, and has 启用 and 先不启用 (CONFIRM,
-with the group's chat and name); once he chose (or the group was decided on the 群聊 card) it is drawn whole as what
-holds."""
+chat. It names the group, says who could use the bot there and what that means (as the group's members would be:
+``members``, read-only or not), and has 启用 and 先不启用 (CONFIRM, with the group's chat and name); once he chose (or the
+group was decided on the 群聊 card) it is drawn whole as what holds."""
 from __future__ import annotations
 
 from covey.cards import ui
@@ -25,7 +28,9 @@ VIEW = 'bridge_group_view'  # A group's 免@ page (``chat``), or back to the lis
 FREE = 'bridge_group_free'  # A group's 免@ mode (``chat``, ``mode``: '' off or a FREE_CHOICES key).
 MEMBER = 'bridge_group_member'  # One member picked or dropped (``chat``, ``member``, ``on``).
 CONFIRM = 'bridge_group_confirm'  # The confirmation card's 启用 / 先不启用 (``chat``, ``on``; ``name`` to draw it again).
-KINDS = frozenset({SWITCH, PAGE, VIEW, FREE, MEMBER, CONFIRM})
+MEMBERS = 'bridge_group_members'  # 设为只读 / 取消只读 of an active group (``chat``, ``mode``: app/access.py MEMBER_MODES).
+KINDS = frozenset({SWITCH, PAGE, VIEW, FREE, MEMBER, CONFIRM, MEMBERS})
+READ, FULL = 'read', 'full'  # app/access.py MEMBERS_READ, MEMBERS_FULL (cards/ imports no app/).
 PAGE_SIZE = 10
 MEMBER_PAGE = 8
 # Who talks without the @, by app/access.py FREE_MODES ('' off): the label and what it means.
@@ -45,6 +50,10 @@ ALONE = '群里除了你还没有别人可选：拉人进群后再点一次“�
 TITLE = '群聊'
 NOTE = ('已启用的群里，群成员 @ 机器人就能发起任务；停用后只处理你的消息。你第一次在一个群里 @ 机器人时，它会出现在这里，'
         '私聊里会来一张卡问你启不启用。')
+READ_NOTE = '设为只读后，群成员开的任务只能读文件和搜索，不能改文件、跑命令；你自己的消息照旧。'
+READ_TAG = '群成员只读'
+# What the owner's click on 设为只读 / 取消只读 did, after the group's name.
+MODE_DONE = {READ: '设为只读：群成员开的任务只能读文件和搜索', FULL: '取消了只读：群成员开的任务和你的一样'}
 EMPTY = '还没有群：在群里 @ 机器人一次，那个群就会出现在这里。'
 # The confirmation card's states: waiting for the owner's word, what holds once given (here or on the 群聊 card), and
 # no record of the group any more. Each with its tag in the title bar.
@@ -54,6 +63,9 @@ DECIDED = '⚠️ 这个群已经定过了，这次点击没有改动。'  # A c
 WHO = '群里所有成员 @ 机器人都能开话题、追问、补充、回答问题、点卡片'
 WHAT = ('这些话题在你的机器上跑，用你的全部权限和凭据（文件、git、模型密钥、飞书机器人身份）', '用的是你的模型额度',
         '群里的人都看得到卡片、答案和产物')
+# The same where the members' turns are read-only (the deployment's default for a group not chosen for, ``members``).
+WHAT_READ = ('群成员开的任务只能读文件和搜索，不能改文件、跑命令，但读得到你机器上的文件', *WHAT[1:])
+LATER_READ = '启用后可以在群聊卡里把这个群设为只读：群成员开的任务只能读文件和搜索。'
 WHERE = '设置卡「群聊」标签'
 
 
@@ -118,17 +130,24 @@ def free_limit(record, blocked):
 KIND_WORDS = {'personal': '个人空间', 'team': '团队空间', 'proxy': '代答空间'}
 
 
+def members_of(record, default=FULL):
+    """Group ``record``'s members' mode as chosen (READ, FULL), else ``default`` (the deployment's)."""
+    mode = record.get('member_mode')
+    return mode if mode in (READ, FULL) else default
+
+
 def kind_tag(kind):
     """The row's space type as a tag ('' when unknown)."""
     return ' ' + tag(KIND_WORDS[kind], 'blue' if kind == 'personal' else 'neutral') if kind in KIND_WORDS else ''
 
 
-def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None):
+def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None, members=FULL):
     """The whole card for ``view`` (revision, page, notice; ``free``: the group whose 免@ page it shows) over the
     ``groups`` records; ``top``: elements above the body (the 设置 card's tab row: a page of PAGE_SIZE rows leaves
     room for it). ``free``: None when the deployment offers no 免@, else {'blocked': the proxy's chats}. ``kinds``:
     None unless the deployment sets spaces (harnesses.json ``spaces``), else {chat_id: the space type}: each row says it,
-    and a personal group (owned by the settings, not switched here) has no 启用 / 停用."""
+    and a personal group (owned by the settings, not switched here) has no 启用 / 停用. ``members``: the deployment's
+    members' mode for a group not chosen for (app/access.py ``members_default``)."""
     def value(kind, **more):
         return {'kind': kind, 'token': token, 'revision': view['revision'], **more}
 
@@ -151,8 +170,11 @@ def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None
     shown = groups[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
     for record in shown:
         personal = kinds is not None and kinds.get(record['chat_id']) == 'personal'
+        on = record.get('active') is True and record.get('external') is False and not personal
+        read = on and members_of(record, members) == READ
         line = md(f"**{literal(name_of(record, names))}**" + (kind_tag(kinds.get(record['chat_id'])) if kinds is not None else '')
-                  + ('' if personal else f" {state(record)}") + (free_tag(record) if free is not None and not personal else ''))
+                  + ('' if personal else f" {state(record)}") + (' ' + tag(READ_TAG, 'blue') if read else '')
+                  + (free_tag(record) if free is not None and not personal else ''))
         if personal:
             elements.append(line)
             continue
@@ -160,8 +182,10 @@ def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None
         if record.get('external') is True:
             elements.append(item(line, *buttons) if buttons else line)
         elif record.get('active') is True:
-            elements.append(item(line, *buttons, text_button('停用', value(SWITCH, chat=record['chat_id'], on=False),
-                                                             tone='danger')))
+            mode = text_button('取消只读', value(MEMBERS, chat=record['chat_id'], mode=FULL)) if read else text_button(
+                '设为只读', value(MEMBERS, chat=record['chat_id'], mode=READ))
+            elements.append(item(line, *buttons, *([mode] if on else []),
+                                 text_button('停用', value(SWITCH, chat=record['chat_id'], on=False), tone='danger')))
         elif pending(record):  # Its confirmation card's two choices; 先不启用 is 停用 (app/group_manager.py switch).
             elements.append(item(line, *buttons,
                                  text_button('启用', value(SWITCH, chat=record['chat_id'], on=True), tone='primary'),
@@ -175,7 +199,7 @@ def group_manager_card(token, view, groups, names, top=(), free=None, kinds=None
                                    disabled=disabled)
         elements.append(row((note(f'第 {page + 1}/{pages} 页'), 2), (turn('上一页', page - 1, page == 0), 1),
                             (turn('下一页', page + 1, page == pages - 1), 1), align='center'))
-    elements.append(note(NOTE))
+    elements.append(note(NOTE + READ_NOTE))
     return styled_panel(head, elements, TITLE)
 
 
@@ -248,20 +272,23 @@ def ask_name(view):
 def ask_card(view):
     """The confirmation card of group ``view['chat']`` (``name`` as Feishu gave it) in ``state`` (ASK_TAGS): ASKING
     says who could use the bot there and what that means, with 启用 and 先不启用; ON and OFF what holds and where to
-    change it; ``notice`` (why the click changed nothing, or a refusal) above them."""
+    change it; ``notice`` (why the click changed nothing, or a refusal) above them. ``members``: READ when the group's
+    members would be read-only (the deployment's default), else FULL."""
     chat, state, name = view['chat'], view.get('state') or ASKING, ask_name(view)
     shown = literal(name)
+    what = WHAT_READ if view.get('members') == READ else WHAT
     elements = [ui.receipt(view['notice'])] if view.get('notice') else []
     if state == ASKING:
         def value(on):
             return {'kind': CONFIRM, 'chat': chat, 'on': on, 'name': view.get('name') or ''}
+        later = '' if view.get('members') == READ else LATER_READ
         elements += [md(f'你在群「**{shown}**」@ 了机器人，现在那里只处理你的消息。'),
-                     md(f'**启用后**，{WHO}：\n' + '\n'.join(f'- {line}' for line in WHAT)),
+                     md(f'**启用后**，{WHO}：\n' + '\n'.join(f'- {line}' for line in what)),
                      item(md(' '), text_button('启用', value(True), tone='primary'), text_button('先不启用', value(False))),
-                     note(f'只在信得过的群里启用。先不启用的话，你再 @ 也不会再问；要改，在{WHERE}里改。')]
+                     note(f'只在信得过的群里启用。先不启用的话，你再 @ 也不会再问；要改，在{WHERE}里改。{later}')]
     elif state == ON:
         elements += [md(f'群「**{shown}**」已启用：{WHO}。'),
-                     note(f'{WHAT[0]}，{WHAT[1]}。要停用，在{WHERE}里点「停用」。')]
+                     note(f'{what[0]}，{what[1]}。要停用，在{WHERE}里点「停用」。')]
     elif state == OFF:
         elements += [md(f'群「**{shown}**」没有启用：那里只处理你的消息，你再 @ 也不会再问。'),
                      note(f'要启用，在{WHERE}里点「启用」。')]
@@ -280,10 +307,11 @@ def ask_summary(view):
 def ask_text(view):
     """The confirmation card as Markdown, for when Feishu takes no card: the same words, the 群聊 tab for its buttons."""
     state, name = view.get('state') or ASKING, ask_name(view)
+    what = WHAT_READ if view.get('members') == READ else WHAT
     lines = [view['notice']] if view.get('notice') else []
     if state == ASKING:
         lines += [f'**{ask_summary(view)}**', f'你在群「{name}」@ 了机器人，现在那里只处理你的消息。',
-                  f'启用后，{WHO}。' + '；'.join(WHAT) + '。',
+                  f'启用后，{WHO}。' + '；'.join(what) + '。',
                   f'要启用，在{WHERE}里点「启用」；不点就一直只处理你的消息。']
     elif state == ON:
         lines += [f'群「{name}」已启用：{WHO}。要停用，在{WHERE}里点「停用」。']

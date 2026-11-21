@@ -19,7 +19,8 @@ ERROR_CODES = frozenset({"", "child_error", "child_aborted", "child_unknown", "s
     "root_failed", "root_incomplete", "cancelled", "timeout", "transport_error", "cleanup_unconfirmed",
     "protocol_error", "session_guard", "process_exit", "identity_mismatch", "output_missing", "storage_failed",
     "max_turns", "budget_exceeded", "authentication_error", "rate_limited", "workspace_routing_timeout",
-    "workdir_missing", "background_timeout", "quota_exhausted", "model_blocked", "redaction_failed"}) | POLICY_CODES
+    "workdir_missing", "background_timeout", "quota_exhausted", "model_blocked", "redaction_failed",
+    "read_only_refused"}) | POLICY_CODES
 
 
 # What the user can do next, where a failure has a clear way on. The plain words replace
@@ -39,6 +40,7 @@ RECOVERY = {
     "background_timeout": ("本轮没有可以发出的完整回复。需要继续时，在本话题发一条消息：会开一个新会话，"
                            "带上本话题最近的对话；被停止的后台任务不会自动重跑。"),
     "redaction_failed": "问题解决后，在本话题再发一条消息即可接着做。",
+    "read_only_refused": "点任务卡上的“🔁 换配置”换到 Claude 或 Codex 的模型，再在本话题发一条消息。",
 }
 RECOVERY_DEFAULT = "未取得可交付的已验证公开回复，原生会话不可续接。"
 # The line before a saved reply sent despite the failure, where the default wording misleads.
@@ -88,6 +90,7 @@ DETAILS = {
     "workdir_missing": "本话题的工作目录不存在，后端没有启动。恢复该目录后可点“检查并继续”，或在主聊天新开话题选择其他目录。",
     "background_timeout": "回复之后仍有后台任务在运行，已到任务的时间上限，机器人已停止执行进程和这些后台任务。",
     "redaction_failed": "本话题开着敏感词脱敏，但本轮没法脱敏，没有发给模型服务。",
+    "read_only_refused": "这个群的群成员只读，这个 Harness 做不到只读，后端没有启动。",
 }
 # The whole failure text of Codex, Pi and dsh by error code (core/reply_state.failure_text), the Harness that
 # failed named by {label}. The same codes are worded twice for now, in DETAILS and here.

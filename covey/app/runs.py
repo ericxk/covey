@@ -16,7 +16,8 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from covey.app import device_files, knowledge_turn, memory_turn, owner_send, project_context, workspace_gists
+from covey.app import (device_files, knowledge_turn, memory_turn, owner_send, project_context, tool_limits,
+                       workspace_gists)
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, RESUME_REMINDERS, bridge_rules, earlier_history,
@@ -271,6 +272,8 @@ class Runs:
         ``live``'s context (a fork's first run and the butler's turn replace it) and whether its session has the
         rules at system level."""
         fresh = not session_id
+        # What the turn may do (app/tool_limits.py), in its context before anything of it runs.
+        live.ctx = tool_limits.limited(self.runtime.access, live.ctx, job, self.runtime.log)
         # A fork replaces ctx; the callbacks read it when they are called.
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
         # The butler's turn (app/butler.py): its rules and snapshot open the message, its Bridge tools
@@ -286,7 +289,7 @@ class Runs:
         source = session_id or ctx.options.get("fork_session")
         live.rules_session = system and (started_with_system_rules(ctx, self.harness.spec.name, source) if source else True)
         prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
-        prompt += self._checkpoint_note(ctx, job)
+        prompt += self._checkpoint_note(ctx, job) + tool_limits.note(ctx)
         attachments = self._image_attachments(ctx, prompt)
         if ctx.device:
             prompt, attachments, live.ctx = self._stage_attachments(ctx, job, prompt, attachments)
@@ -347,7 +350,16 @@ class Runs:
             # Never sent unredacted: a Harness without the relay does not start (core/redaction.py).
             outcome = ExecutionOutcome("failed", "redaction_failed", cleanup_confirmed=True, protection_confirmed=True)
             return RunResult(outcome.summary(refused), session_id, True, None, outcome, failure_detail=refused)
+        refused = self._limit_refusal(ctx)
+        if refused:
+            # A member's turn of a read-only group never runs where it could do more (app/tool_limits.py READ).
+            outcome = ExecutionOutcome("failed", "read_only_refused", cleanup_confirmed=True, protection_confirmed=True)
+            return RunResult(outcome.summary(refused), session_id, True, None, outcome, failure_detail=refused)
         return None
+
+    def _limit_refusal(self, ctx: BridgeContext) -> str:
+        """Why the turn may not start for its limit (app/tool_limits.py refusal), or '' when it may."""
+        return tool_limits.refusal(ctx, backend_capabilities(self.harness.backend, ctx), self.harness.spec.title)
 
     def _run(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None, progress_callback, callbacks, prompt: str,
              system_rules: str, attachments) -> RunResult:
@@ -390,10 +402,12 @@ class Runs:
             # A retry after a safety refusal (app/policy_retry.py) starts from its own snapshot, the refused round
             # taken out: a switch handoff would bring that round back, and the switch notice, again.
             return ctx, first_turn_message(user_text, earlier_history(history_snapshot, job.message_id, user_text))
-        # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, 敏感词脱敏).
+        # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, 敏感词脱敏, a
+        # member's read-only turn on a Harness that cannot hold it).
         history_snapshot, handoff = self.switch.switch_handoff(
             ctx, history_snapshot, getattr(job, "cancel_event", None),
-            ready=lambda: (bool(ctx.device) or Path(ctx.workdir).is_dir()) and not self._redaction_refusal(ctx),
+            ready=lambda: ((bool(ctx.device) or Path(ctx.workdir).is_dir()) and not self._redaction_refusal(ctx)
+                           and not self._limit_refusal(ctx)),
             note=lambda text: self._bridge_note(ctx, job, "bridge-handoff", text))
         earlier = earlier_history(history_snapshot, job.message_id, user_text)
         if proxy_topic(ctx):

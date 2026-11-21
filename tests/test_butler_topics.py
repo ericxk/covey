@@ -81,6 +81,21 @@ class TopicStartTest(ButlerTopicsCase):
         self.assertEqual((job.user_text, job.topic_id, job.harness_id), ("看看昨晚的失败", data["topic_id"], "codex"))
         self.app.apps["codex"].submission.selection_card.assert_not_called()
 
+    def test_a_topic_started_at_once_as_read_only_says_so_and_is_held_to_it(self):
+        from covey.app.tool_limits import LOOK_NOTE
+
+        self.start("ro", harness="codex")
+        job = self.job("ro")
+        self.assertTrue(job.read_only)
+        self.assertIn(LOOK_NOTE, job.prompt_text)
+        self.assertIn("这一轮只读", job.prompt_text)
+        self.assertNotIn("这一轮只读", job.user_text)  # The card shows the owner's words, not the Bridge's.
+        # Started at once for another reason, not judged read-only: as before.
+        self.start("rw", harness="codex", readonly=False, user_requested=True)
+        job = self.job("rw")
+        self.assertFalse(job.read_only)
+        self.assertNotIn("这一轮只读", job.prompt_text)
+
     def test_the_topic_card_goes_to_the_top_level_and_is_redrawn_with_its_number(self):
         data = self.start()["data"]
         sent = self.app.messenger.create_and_send_card.call_args

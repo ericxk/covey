@@ -157,7 +157,7 @@ class ClaudeBackend(BackendRuntime):
         from covey.core.attachments import MAX_IMAGE_BYTES
         return for_device(HarnessCapabilities(questions=True, image_bytes=MAX_IMAGE_BYTES, image_frame=IMAGE_FRAME, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, steer_reads=True, compaction=True,
-            command_stop=True, turn_export=True, redaction=True, rewind=True, bridge_tools=True), ctx)
+            command_stop=True, turn_export=True, redaction=True, rewind=True, bridge_tools=True, read_only=True), ctx)
 
     def model_catalog(self, ctx):
         return model_catalog(self, ctx, self.child_env(ctx))

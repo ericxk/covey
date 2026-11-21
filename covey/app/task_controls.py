@@ -513,7 +513,8 @@ class TaskControls(Redelivery):
                        workspace_name=ctx.workspace_name, workdir=ctx.workdir, history_path=ctx.history_path,
                        session_path=ctx.session_path, sessions_dir=ctx.sessions_dir, history_snapshot=history,
                        recent_questions=recent_user_questions(history, str(record.get("user_text") or "")),
-                       **counts)
+                       # The same request, whoever clicked: still the task of whoever sent it (app/tool_limits.py READ).
+                       sender_id=str(record.get("sender_id") or ""), **counts)
         carry_device(job, ctx)
         if fallback:
             job.policy_retry = {name: fallback[name] for name in ("of", "category", "model")}

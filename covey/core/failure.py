@@ -66,6 +66,8 @@ OWN = {
     "workspace_routing_timeout": ("连不上模型服务（工作区路由超时），可能是网络或代理的问题", (RETRY, DIAGNOSE)),
     "workdir_missing": ("本话题的工作目录不在了，这一轮没有开始；恢复目录后可以接着做", (CONTINUE,)),
     "redaction_failed": ("本话题开着敏感词脱敏，这一轮没法脱敏，没有发给模型；问题解决后可以重试", (RETRY,)),
+    "read_only_refused": ("这个群的群成员只读，这个模型做不到只读，这一轮没有开始；可以换个模型（Claude 或 Codex）",
+                          (SWITCH_MODEL,)),
 }
 
 

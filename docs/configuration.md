@@ -37,6 +37,7 @@
 | [知识条目](#知识条目与历史搜索) | `COVEY_KNOWLEDGE=1` | 说“记一下”的事记成条目，话题首轮带上，汇总多一节 |
 | [同时做几件事](butler.md#同时做几件事开关默认关) | `COVEY_BUTLER_TRACKS=1` | 管家在做一件事时，你的下一句可以并进去或另起一件，不用等 |
 | [派发卡](#派发卡) | `COVEY_DISPATCH_CARD=1` | 管家把事交给话题后，私聊聊天区多一张实时刷新的卡 |
+| [群成员只读](#群成员只读) | `COVEY_GROUP_MEMBERS=read` | 没在群聊卡上单独选过的群，群成员开的任务只能读文件和搜索；群聊卡上这些群写着「群成员只读」，启用确认卡也照这个写 |
 | 专项的进阶 | `COVEY_PROJECT_AUTOWAKE=1`、`COVEY_PROJECT_ASK=1`、`COVEY_PROJECT_MEMORY=1`、`COVEY_PROJECT_TRIAGE=1`、`COVEY_PROJECT_UPGRADE=butler`（都要 `COVEY_PROJECTS=1`，最后一个还要派发卡） | 依次是：话题一轮结束就叫醒负责人；专项停住时发卡问你继续、收尾还是停；专项有自己的记忆和资料库；话题的问题先给负责人分流；管家派出的事能静默转成专项。说明见[专项 · 专项卡](projects.md#专项卡) |
 
 ### 按需打开
@@ -291,6 +292,12 @@
 - 设置记在 `<state>/groups/<…>.json` 的 `free_talk`、`free_talk_members`。不设变量时卡上没有免@，这些设置不生效。
 - 开通权限后机器人所在每个群的全部消息都会推给 Bridge：没人免@ 的消息在准入一步丢掉，不写历史、不记日志。日志：`group chat=… free_talk=…`；被拒的免@ 消息是 `ignored message … reason=for_others|proxy_chat`。
 
+### 群成员只读
+
+群聊卡上每个已启用的群都可以“设为只读”：群成员（不是你）开的任务只能读文件和搜索（Claude 只有 Read、Grep、Glob，不挂你的 MCP；Codex 用只读沙箱；别的 Harness 做不到，这一轮不启动），你自己的消息照旧。选过的群记在 `<state>/groups/<…>.json` 的 `member_mode`。
+
+`COVEY_GROUP_MEMBERS=read`：没在群聊卡上选过的群也按只读（启用确认卡照这个写）；不设或别的值是 `full`，和以前一样。卡上选过的以卡上为准。日志：`group chat=… member_mode=…`、每轮 `turn limit job=#N limit=read`。
+
 ### 多设备（开发中，默认关）
 
 让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。设备上能跑 Claude Code 和 Codex 的话题；默认关，真机验收在进行。结构、连接、离线恢复和文件进出见[架构 · 设备](architecture.md#设备多设备默认关)，Harness 在设备上的差别见[Harness 说明](harnesses.md#在设备上运行)。
@@ -385,6 +392,7 @@
 | `COVEY_PINNED_OVERVIEW` | `app/overview.py`（`app/pins.py` 的 `laid` 也读：两个开关都开时看板记录的规则才算数；`app/prompts.py` 的 `area_rule` 也读：开着才在管家规则里说“进度主人看 Pin”） | 关；`1` 开 | 否 |
 | `COVEY_HARNESS_PROBE` | `app/availability.py`（`PROBE_ENV`；探测本身在 `core/harness_probe.py`） | 关；开了才在可用性检查里对 Claude、Codex 各做一次真实调用（缓存 6 小时，失败 10 分钟），没登录时启动卡上不给这个 Harness | 否 |
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
+| `COVEY_GROUP_MEMBERS` | `app/access.py`（`members_default`；群聊卡、启用确认卡和 `app/tool_limits.py` 经它） | `full`：没在群聊卡上选过的群，群成员的任务和你的一样；`read`：这些群的群成员任务只读（见[群成员只读](#群成员只读)） | 否 |
 | `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（有它或 `COVEY_BOARD=1` 才要菜单「看板」）、`app/tidy_run.py`（`scheduled`：整理专项的定时也按这些时间） | 空：不发早晚汇总，整理专项也没有定时的一次 | 否 |
 | `COVEY_BOARD` | `core/app_manifest.py`（`board_switch`：`required` 据此要菜单「看板」，`app/digest.py` 的 `menu_items` 据此加这一项） | 关：菜单「看板」跟着早晚汇总，设了 `COVEY_DIGEST_TIMES` 才有，和原来一样；`1`：没有早晚汇总也有。`./install` 新装的服务写 `1`（`service/installer.py` 的 `INSTALL_SWITCHES`） | 否 |
 | `COVEY_REVISIT` | `core/revisits.py`（`enabled`：`app/revisits.py` 的 `revisits` 后台线程、`app/runs.py` 普通话题每轮的规则行、`app/digest.py` 看板的“到点回来看”一组都看它；任务进程里 `app/turn_delivery.py` 据此决定没有变化的那一轮不发） | 关：检查点里的 `revisit` 不读，不写 `revisits/`，和原来一样；`1` 开，见[到点回来看](usage.md#到点回来看) | 否 |
@@ -506,6 +514,7 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--json` | `service/plugins.py`（`bin/covey_plugins.py`） | `list` 的 JSON 输出；子命令 `list`、`enable`、`disable`、`doctor` 见[扩展](architecture.md#扩展)的「装和卸」 | 否 |
 | `--state-dir`、`--no-probe`、`--json` | `service/device_check.py`（`bin/covey_devices.py`） | 见 `--help`；见[多设备](#多设备开发中默认关)的「自检」 | 否 |
 | `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help` | 否 |
+| `--notes` | `backends/claude/tool_guard.py`（`bin/covey_tool_guard.py`：代答话题 Claude Code 的 PreToolUse 钩子，Bridge 自己写进那一轮的 `--settings`） | 空：编辑工具哪里都不能写；Bridge 给的是联系人的笔记目录 | 否 |
 | `--home`、`--start`、`--idle`、`--max`、`--dy` | `feishu/web_client.py`（`bin/covey_feishu_web.py`） | 见 [浏览器服务](testing.md#浏览器服务) | 否 |
 | `--app-id`、`--home`、`--plan`、`--login-from`、`--console`、`--login-seconds` | `feishu/app_console.py`（`bin/covey_app_console.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |
 | `--profile`、`--app-id`、`--review`、`--json`、`--python`、`--login-from`、`--work` | `service/app_check.py`（`bin/covey_app_setup.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |

@@ -315,11 +315,13 @@ class Questions:
             # A retry on an older model after a safety refusal goes on as one: its subagents on that model, and
             # never retried again (app/policy_retry.py).
             retried = original.get("policy_retry") if isinstance(original.get("policy_retry"), dict) else None
+            # The answered task goes on as the task of whoever sent its message (app/tool_limits.py READ).
+            sender = str(original.get("sender_id") or "")
             # The answer is saved and its card says so: the click is acknowledged. The new task's card
             # and the notices take seconds; they follow, in this topic's order.
             self.answering.add(token)
             after_ack(functools.partial(self._queue_continuation, ctx, chat, token, record, path, answers, feedback,
-                                        prior, title, retried))
+                                        prior, title, retried, sender))
             return
         self._commit_answer(ctx, chat, token, record, path, notes, feedback)
 
@@ -340,7 +342,8 @@ class Questions:
                                                                                   for item in given]}}
         return text, delivered
 
-    def _queue_continuation(self, ctx, chat, token, record, path, answers, feedback, prior, title, policy_retry=None):
+    def _queue_continuation(self, ctx, chat, token, record, path, answers, feedback, prior, title, policy_retry=None,
+                            sender_id=""):
         try:
             # The held notes as they are now: one withdrawn or kept for the next round since the click stays out.
             notes = self.notes.claim_held(ctx, chat, token, "feedback" if feedback else "answer",
@@ -350,7 +353,7 @@ class Questions:
             if record.get('reconcile_saved'):
                 text = '上次回答送达状态未确认。先核查后端会话、已有产物和外部操作是否已完成，避免重复执行。\n' + text
             continuation = self.enqueue_continuation(ctx, text, chat, "answer-" + token, prior, title=title,
-                                                     display=shown, policy_retry=policy_retry)
+                                                     display=shown, policy_retry=policy_retry, sender_id=sender_id)
             if continuation is None:
                 raise ValueError("回答已保存，但后续任务未能入队；请检查模型配置后再核查提交状态")
             record["continuation_job_id"] = continuation.job_id
@@ -385,16 +388,19 @@ class Questions:
         return self.display.show_answer_notice(ctx, chat, token, text, mid)
 
     def enqueue_continuation(self, ctx, text, chat, message_id, recovery_context, title="", display="",
-                             policy_retry=None):
+                             policy_retry=None, sender_id=""):
         """Queue the job that carries an answer on; a task runner asks its bridge to do this.
 
         `display` is the request its card shows when `text` carries lines meant only for the model; `policy_retry`
-        the answered job's mark of a retry after a safety refusal (core/jobs.py), which the continuation keeps."""
+        the answered job's mark of a retry after a safety refusal (core/jobs.py), which the continuation keeps, and
+        `sender_id` who sent the answered job's message ('' none known)."""
         if self.runtime.runner is not None:
             return self.runtime.runner.enqueue(self.harness.spec.name, ctx, text, chat, message_id, recovery_context,
-                                               title=title, display=display, policy_retry=policy_retry)
+                                               title=title, display=display, policy_retry=policy_retry,
+                                               sender_id=sender_id)
         return self.enqueue_chat_job(ctx, display or text, chat, message_id, prompt_content=text,
-                                     recovery_context=recovery_context, title=title, policy_retry=policy_retry)
+                                     recovery_context=recovery_context, title=title, policy_retry=policy_retry,
+                                     sender_id=sender_id)
 
     def undelivered_checkpoint_jobs(self, ctx, chat):
         return self.checkpoints.undelivered_jobs(ctx, chat)

@@ -597,7 +597,8 @@ class GroupManagerTests(GroupManagerFixture, UnifiedCase):
                          ('群聊', '2 个群 · 已启用 1', 'group_outlined'))
         self.assertIn("**群g1** <text_tag color='green'>已启用</text_tag>", self.text())
         self.assertIn("**群g2** <text_tag color='neutral'>已停用</text_tag>", self.text())
-        (stop, value_stop, _), (start, value_start, _) = self.buttons()
+        (read, value_read, _), (stop, value_stop, _), (start, value_start, _) = self.buttons()
+        self.assertEqual((read, value_read['chat'], value_read['mode']), ('设为只读', 'oc_g1', 'read'))
         self.assertEqual((stop, value_stop['chat'], value_stop['on']), ('停用', 'oc_g1', False))
         self.assertEqual((start, value_start['chat'], value_start['on']), ('启用', 'oc_g2', True))
         self.click(value_stop)
@@ -612,10 +613,32 @@ class GroupManagerTests(GroupManagerFixture, UnifiedCase):
         self.assertEqual(self.said(), [])
         self.assertEqual(self.outcomes(), ['group_manager'] * 3)
 
+    def test_an_active_group_is_set_read_only_and_back_and_its_members_turns_follow(self):
+        self.activate('oc_g1')
+        self.open()
+        read = [value for label, value, _ in self.buttons() if label == '设为只读'][0]
+        self.click(read)
+        self.assertEqual(self.access.member_mode('oc_g1'), 'read')
+        self.assertTrue(self.access.read_only('oc_g1', MEMBER))
+        self.assertIn('群「群g1」设为只读：群成员开的任务只能读文件和搜索', self.text())
+        self.assertIn("群成员只读</text_tag>", self.text())
+        back = [value for label, value, _ in self.buttons() if label == '取消只读'][0]
+        self.click(read, event_id='c2')  # The older card's button: says it is so already.
+        self.assertIn('群「群g1」本来就是群成员只读。', self.text())
+        self.click(back, event_id='c3')
+        self.assertFalse(self.access.read_only('oc_g1', MEMBER))
+        self.assertIn('取消了只读', self.text())
+        self.click({**back, 'mode': 'none'}, event_id='c4')
+        self.assertIn('没有这个群的记录了', self.text())
+        self.assertEqual(self.access.member_mode('oc_g1'), 'full')
+        self.click(read, operator=MEMBER, event_id='c5')  # Not the owner, in his private chat: refused.
+        self.assertEqual(self.access.member_mode('oc_g1'), 'full')
+        self.assertIn('bridge_group_members', ACTIONS)
+
     def test_others_a_stale_card_and_a_group_gone_change_nothing(self):
         self.activate('oc_g1')
         self.open()
-        (_, value, _), = self.buttons()
+        _, (_, value, _) = self.buttons()  # 设为只读, 停用.
         drawn = len(self.cards)
         self.click(value, operator=MEMBER)  # Not the owner, in the owner's private chat.
         self.click(value, message='om_other')  # Not the card the record names.
@@ -824,9 +847,9 @@ class GroupConfirmTests(GroupManagerFixture, UnifiedCase):
         self.open()
         self.assertEqual(self.cards[-1]['header']['subtitle']['content'], '3 个群 · 已启用 1 · 等你确认 2')
         self.assertIn("**群g2** <text_tag color='orange'>等你确认</text_tag>", self.text())
-        self.assertEqual([(label, value['chat'], value['on']) for label, value, _ in self.buttons()],
+        self.assertEqual([(label, value['chat'], value.get('on', value.get('mode'))) for label, value, _ in self.buttons()],
                          [('启用', 'oc_g2', True), ('先不启用', 'oc_g2', False), ('启用', 'oc_g3', True),
-                          ('先不启用', 'oc_g3', False), ('停用', 'oc_g1', False)])
+                          ('先不启用', 'oc_g3', False), ('设为只读', 'oc_g1', 'read'), ('停用', 'oc_g1', False)])
         not_now = [value for label, value, _ in self.buttons() if label == '先不启用' and value['chat'] == 'oc_g2'][0]
         self.click(not_now)
         self.assertEqual((self.access.pending('oc_g2'), bool(self.access.group('oc_g2').get('deactivated_at'))),

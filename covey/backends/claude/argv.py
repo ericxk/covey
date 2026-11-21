@@ -5,8 +5,14 @@ from __future__ import annotations
 
 import json
 
-from covey.backends.claude import redaction, subagents
+from covey.backends.claude import redaction, subagents, tool_guard
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
+from covey.core.harness import LOOK, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
+
+# No MCP server at all: the catalog's probe, and a turn held to READ or PROXY (none of the owner's MCP servers).
+NO_MCP = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+READ_TOOLS = ("Read", "Grep", "Glob")  # A READ turn's tools (core/harness.py), the lead's too (app/project_lead.py).
+FILE_TOOLS = ("Edit", "Write", "NotebookEdit")  # What a LOOK turn goes without: Claude Code's tools that change files.
 
 
 def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""):
@@ -27,9 +33,7 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         # Catalog discovery submits no prompt and loads no project MCP servers,
         # tools or hooks. The regular runtime keeps the user's CLI configuration.
         argv += [
-            "--strict-mcp-config",
-            "--mcp-config",
-            '{"mcpServers":{}}',
+            *NO_MCP,
             "--settings",
             '{"disableAllHooks":true}',
             "--tools",
@@ -63,15 +67,28 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
             config = ctx.options["mcp_config"]
             argv += ["--mcp-config", json.dumps(config, ensure_ascii=False, separators=(",", ":")),
                      "--allowedTools", ",".join("mcp__" + name for name in config.get("mcpServers", {}))]
-        if ctx.options.get("tools"):
+        limit = ctx.options.get(TOOL_LIMIT)
+        if limit in (READ, PROXY):
+            # Its tools narrowed (core/harness.py TOOL_LIMIT), with none of the owner's MCP servers; a turn with Bridge
+            # tools of its own (the butler's, a lead's) is never one of these.
+            argv += ["--tools", ",".join(READ_TOOLS if limit == READ else tool_guard.TOOLS)]
+            argv += [] if ctx.options.get("mcp_config") else NO_MCP
+        elif limit == LOOK:
+            # No tool that changes files, in its subagents too; its shell stays for read-only commands.
+            argv += ["--disallowedTools", ",".join(FILE_TOOLS)]
+        elif ctx.options.get("tools"):
             # A project's lead (app/project_lead.py LEAD_TOOLS): Claude Code's own tools narrowed to these; the MCP tools
             # above are not among the built-in ones --tools names, so they stay.
             argv += ["--tools", ",".join(ctx.options["tools"])]
         # Its subagents' read-only Explore on Haiku (backends/claude/subagents.py), unless the setting says "same" or
         # the app sets the subagents' model (a retry after a refusal).
         argv += subagents.argv(ctx)
-        # A redacted topic's turn, its compaction included, talks to the model through the term relay.
-        argv += redaction.settings_argv(ctx)
+        # One --settings: a redacted topic's turn, its compaction included, talks to the model through the term relay;
+        # a 代答 turn's shell and edit tools go through its PreToolUse hook (backends/claude/tool_guard.py).
+        settings = redaction.settings(ctx)
+        if limit == PROXY:
+            settings["hooks"] = tool_guard.settings(ctx.options.get(TOOL_NOTES, ""))
+        argv += ["--settings", json.dumps(settings, ensure_ascii=False)] if settings else []
     return backend.wrap_argv(argv, ctx)
 
 

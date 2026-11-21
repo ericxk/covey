@@ -114,6 +114,19 @@ class HarnessCapabilities:
     # Takes ``options["mcp_config"]`` (the butler's Bridge tools, core/butler.py mcp_config) into the turn: the butler
     # runs only on a Harness that does (app/butler.py).
     bridge_tools: bool = False
+    # holds a turn to its ``options[TOOL_LIMIT]`` (app/tool_limits.py): Claude Code's tools, Codex's sandbox. Without it
+    # a READ turn does not run and the other limits are words in the prompt only.
+    read_only: bool = False
+
+
+# What a turn may do, where its Harness can hold it to that (``HarnessCapabilities.read_only``): a context's
+# ``options[TOOL_LIMIT]``, set by app/runs.py from app/tool_limits.py's ``limit``, absent for a turn as before. READ: a
+# group member's turn in a group whose members are read-only (reading and searching only); LOOK: a turn started without
+# the owner's click because the butler judged it read-only (no file changes); PROXY: a 代答 topic's turn (reading,
+# searching, lark-cli's read commands, writing the contact's notes).
+TOOL_LIMIT = "tool_limit"
+READ, LOOK, PROXY = "read", "look", "proxy"
+TOOL_NOTES = "tool_notes"  # With PROXY: the contact's notes directory, the one place its edit tools may write ('' none).
 
 
 def backend_capabilities(backend, ctx):

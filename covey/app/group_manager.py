@@ -11,6 +11,9 @@ else's click is refused on the card. On the bot menu's 设置 card it is the 群
 reads the group's members (Access.members, before the lock) into the view, for 你和选中的人. A mode or a member
 goes through Access.set_free_talk / pick_member. Without the switch these clicks change nothing and say so.
 
+群成员只读: an active group's 设为只读 / 取消只读 (MEMBERS) goes through Access.set_member_mode; the card shows every
+group without a choice as the deployment's default (app/access.py members_default).
+
 The card's record is <state>/group-managers/<token>.json; the card is cards/group_manager.py.
 
 The confirmation card (``ask``): the owner's first @ in a group that can be a team space (Access.owner_message) has
@@ -25,15 +28,15 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
-from covey.app.access import FREE_MODES, FREE_SOME, free_talk_on
+from covey.app.access import FREE_MODES, FREE_SOME, MEMBER_MODES, free_talk_on, members_default
 from covey.app.card_lanes import after_ack
 from covey.app.menu_panel import MenuPanel, hub_top
 from covey.core import spaces
 from covey.core.groups import pending
 from covey.cards.group_manager import (ASKING, CONFIRM, DECIDED, EXTERNAL_ONLY, FREE, FREE_CHOICES, INACTIVE_ONLY,
-                                                KINDS, MEMBER, MISSING, OFF, ON, PAGE, PROXY_BLOCKED, SWITCH, VIEW,
-                                                ask_card, ask_text, folded_card, free_limit, group_manager_card,
-                                                name_of)
+                                                KINDS, MEMBER, MEMBERS, MISSING, MODE_DONE, OFF, ON, PAGE, PROXY_BLOCKED,
+                                                SWITCH, VIEW, ask_card, ask_text, folded_card, free_limit,
+                                                group_manager_card, name_of)
 from covey.cards.settings_hub import GROUPS
 
 FOLDER = 'group-managers'
@@ -95,7 +98,7 @@ class GroupManager:
         groups, kinds = self.listed()
         free = {'blocked': {g['chat_id'] for g in groups if access.proxy_chat(g['chat_id'])}} if free_talk_on() else None
         return group_manager_card(view['token'], view, groups, names, top=hub_top(GROUPS, view['token'], view),
-                                  free=free, kinds=kinds)
+                                  free=free, kinds=kinds, members=members_default())
 
     def members(self, ctx, chat_id):
         """Group ``chat_id``'s users but the owner, as the 免@ page lists them; None when Feishu did not list them."""
@@ -178,6 +181,8 @@ class GroupManager:
             outcome, changes['notice'] = 'owner_only', OWNER_ONLY
         elif value['kind'] == SWITCH:
             changes['notice'] = self.switch(ctx, value.get('chat'), value.get('on'), names)
+        elif value['kind'] == MEMBERS:
+            changes['notice'] = self.member_mode(value.get('chat'), value.get('mode'), names)
         elif value['kind'] == PAGE:
             page = value.get('page')
             key = 'member_page' if value.get('members') else 'page'
@@ -251,6 +256,17 @@ class GroupManager:
         reply = access.switch(ctx, chat_id, on)
         return ('✓ ' if reply.startswith('已') else '⚠️ ') + f'群「{name}」' + reply
 
+    def member_mode(self, chat_id, mode, names):
+        """设为只读 or 取消只读 of one group's members (``mode``, app/access.py MEMBER_MODES); the line the card shows."""
+        access = self.runtime.access
+        if not isinstance(chat_id, str) or mode not in MEMBER_MODES or not access.group(chat_id):
+            return GONE
+        name = name_of(access.group(chat_id), names)
+        if access.member_mode(chat_id) == mode:  # Done already: an older card's button.
+            return f"群「{name}」本来就是群成员只读。" if mode == 'read' else f"群「{name}」的群成员本来就不是只读。"
+        access.set_member_mode(chat_id, mode)
+        return f"✓ 群「{name}」{MODE_DONE[mode]}。"
+
     # The confirmation card ------------------------------------------------------------------------------------------
 
     def ask(self, ctx, wanted):
@@ -262,7 +278,8 @@ class GroupManager:
         try:
             if chat:  # An @ after a card that did not go out ran no lookup: the name is read now.
                 name = wanted.name or self.names(ctx, [{'chat_id': wanted.chat_id}]).get(wanted.chat_id, '')
-                view = {'chat': wanted.chat_id, 'name': name, 'state': ASKING}
+                view = {'chat': wanted.chat_id, 'name': name, 'state': ASKING,
+                        'members': access.member_mode(wanted.chat_id)}
                 key = self.voice.safe_key(f'group-ask-{wanted.chat_id}-{wanted.since}')  # One card a wait.
                 sent = self.messenger.send_message(ctx.profile, chat, ask_text(view), key, voice=self.voice,
                                                    card=ask_card(view), on_card=cards.append)
@@ -284,7 +301,8 @@ class GroupManager:
         if not isinstance(chat, str) or not chat or not isinstance(on, bool) or not event.get('message_id'):
             return 'group_unknown'
         access = self.runtime.access
-        view = {'chat': chat, 'name': value.get('name') if isinstance(value.get('name'), str) else '', 'notice': ''}
+        view = {'chat': chat, 'name': value.get('name') if isinstance(value.get('name'), str) else '', 'notice': '',
+                'members': access.member_mode(chat)}
         if not access.group(chat):
             view['state'], outcome = MISSING, 'group_unknown'
         else:

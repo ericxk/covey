@@ -213,6 +213,7 @@
 | `app/tidy_state.py` | What the parts of 整理专项 share and change while it runs |
 | `app/tidy_web.py` | 整理专项 on the web page |
 | `app/tidy_words.py` | The words and rows 整理专项 draws a topic with |
+| `app/tool_limits.py` | What a turn may do beyond the Bridge's words, held where its Harness can |
 | `app/topic_links.py` | Links that open a topic from a card |
 | `app/topic_seen.py` | Which topics the owner has seen, from Feishu's read receipts |
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
@@ -500,6 +501,7 @@
 | `backends/claude/runtime.py` | One turn of the Claude CLI over its JSONL transport, following the official Agent SDK protocol (run_stream) |
 | `backends/claude/sessions.py` | Claude Code session store for the Lark bridge |
 | `backends/claude/subagents.py` | Claude Code's subagents on lighter models than the turn's (main-thread.json `subagents`, the 设置 card's 新话题 tab |
+| `backends/claude/tool_guard.py` | The PreToolUse hook of a 代答 topic's Claude Code turn |
 | `backends/claude/transcript.py` | One row of a Claude Code session transcript (a JSONL file), read the way every reader of it does |
 | `backends/claude/usage.py` | Current-invocation root and subagent usage and arrival-time latency, without model text |
 
@@ -543,7 +545,7 @@
 
 ### bin
 
-入口壳，只解析参数后调 `covey` 里的函数：`covey_app_console.py`、`covey_app_setup.py`、`covey_bridge.py`、`covey_butler_mcp.py`、`covey_devices.py`、`covey_doctor.py`、`covey_feishu_web.py`、`covey_install.py`、`covey_install_browser.py`、`covey_maintenance.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_paths.py`、`covey_plugins.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_workspace_reader.py`、`covey_workspaces.py`。
+入口壳，只解析参数后调 `covey` 里的函数：`covey_app_console.py`、`covey_app_setup.py`、`covey_bridge.py`、`covey_butler_mcp.py`、`covey_devices.py`、`covey_doctor.py`、`covey_feishu_web.py`、`covey_install.py`、`covey_install_browser.py`、`covey_maintenance.py`、`covey_memguard.py`、`covey_pairing.py`、`covey_paths.py`、`covey_plugins.py`、`covey_runner.py`、`covey_service.py`、`covey_service_install.py`、`covey_tool_guard.py`、`covey_workspace_reader.py`、`covey_workspaces.py`。
 
 改名前的入口名留作转发壳，服务清单、开机钩子和各部署的脚本还在用：`bridge_app_setup.py`、`bridge_doctor.py`、`bridge_main_mcp.py`、`bridge_memguard.py`、`bridge_pairing.py`、`bridge_service.py`、`bridge_service_install.py`、`covey_main_mcp.py`、`lark_app_console.py`、`lark_bridge_maintenance.py`、`lark_bridge_paths.py`、`lark_bridge_workspaces.py`、`lark_feishu_web.py`、`lark_harness_bridge.py`、`lark_install_browser.py`、`lark_task_runner.py`、`lark_workspace_reader.py`。
 <!-- code-map:end -->

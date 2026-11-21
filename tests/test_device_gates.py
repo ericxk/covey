@@ -87,7 +87,7 @@ class Capabilities(unittest.TestCase):
         self.assertEqual(backend_capabilities(ClaudeBackend(), object()), HarnessCapabilities(
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, steer_reads=True, compaction=True,
-            command_stop=True, turn_export=True, redaction=True, rewind=True, bridge_tools=True))
+            command_stop=True, turn_export=True, redaction=True, rewind=True, bridge_tools=True, read_only=True))
 
 
 def claude_caps():

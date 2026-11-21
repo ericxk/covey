@@ -648,6 +648,9 @@ def group_ask_cards():
 
     view = {"chat": "oc_fake_group7", "name": "项目群"}
     return {"asking": ask_card({**view, "state": ASKING}),
+            # The deployment's members' default is read-only (COVEY_GROUP_MEMBERS=read): what members could do says so.
+            "asking_read": ask_card({**view, "state": ASKING, "members": "read"}),
+            "enabled_read": ask_card({**view, "state": ON, "members": "read"}),
             "enabled": ask_card({**view, "state": ON}),
             "declined": ask_card({**view, "state": OFF}),
             "decided": ask_card({**view, "state": ON, "notice": DECIDED}),
@@ -694,6 +697,16 @@ def menu_panels():
         "groups_pending": group_manager_card("a" * 24, {"revision": 1, "page": 0}, waiting_groups(), names),
         "groups_pending_free": group_manager_card("a" * 24, {"revision": 1, "page": 0}, waiting_groups(), names,
                                                   free={"blocked": set()}),
+        # 群成员只读: one active group set read-only on the card (its tag, 取消只读), one not (设为只读); with the
+        # deployment's default read-only, every active group not chosen for is read-only too.
+        "groups_read": group_manager_card("a" * 24, {"revision": 2, "page": 0,
+                                                     "notice": "✓ 群「群1」设为只读：群成员开的任务只能读文件和搜索"},
+                                          [{**waiting_groups()[0], "member_mode": "read"}, *waiting_groups()[1:],
+                                           {"chat_id": "oc_fake_group2", "active": True, "external": False}], names),
+        "groups_read_default": group_manager_card("a" * 24, {"revision": 1, "page": 0},
+                                                  [{"chat_id": "oc_fake_group1", "active": True, "external": False},
+                                                   {"chat_id": "oc_fake_group2", "active": True, "external": False,
+                                                    "member_mode": "full"}], names, members="read"),
         "workspaces": manager_card("a" * 24, view, config, {"/absolute/w2": False, "/absolute/w3": None},
                                    standalone=True),
         "workspaces_from_launch": manager_card("a" * 24, view, config, {}, standalone=False),

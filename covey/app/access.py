@@ -21,6 +21,10 @@
   in an inactive group. A chat lookup that fails decides nothing, and a card that did not go out is no card: the
   owner's next @ tries again.
 - A bot's message is never served.
+- 群成员只读 (``member_mode``: MEMBERS_READ or MEMBERS_FULL, chosen on the 群聊 card; a group without a choice has the
+  deployment's MEMBERS_ENV, MEMBERS_FULL when unset, as before): a turn a member started there (``read_only``: not the
+  owner's own, ``owner_turn``) gets only reading and searching (app/tool_limits.py READ). It changes nothing of who is
+  served or what a member may click.
 - Card clicks: the owner, or anyone in an active group. The workspace manager, the
   directory picker (and a typed launch path) and pairing stay the owner's everywhere
   (``is_owner``); their controllers refuse others on the card.
@@ -40,7 +44,8 @@ core/groups.py), ``groups/<sha256(chat_id)>.json``: ``chat_id``, ``active``, ``a
 ``deactivated_by`` after 停用; ``pending_at`` / ``pending_by`` while it waits for the owner's word, ``asking_at``
 while its confirmation card goes out (one silent for ASK_AGAIN seconds counts as lost), ``asked_at`` /
 ``asked_message`` once it went out ('' when only its text did); ``free_talk`` (absent: off), ``free_talk_members``
-(open_ids, kept while another mode is on), ``free_talk_by`` / ``free_talk_at`` once set. The chat lookup and the
+(open_ids, kept while another mode is on), ``free_talk_by`` / ``free_talk_at`` once set; ``member_mode`` (absent: the
+deployment's), ``member_mode_by`` / ``member_mode_at`` once the owner chose. The chat lookup and the
 card's send run outside the record's lock. Records from before the confirmation card read as they did: an active group
 stays active.
 
@@ -74,11 +79,27 @@ FREE_OWNER, FREE_SOME, FREE_ALL = 'owner', 'some', 'all'
 FREE_MODES = (FREE_OWNER, FREE_SOME, FREE_ALL)
 MEMBER_PAGES = 5  # Pages of 100 a member list reads: a group of more than 500 lists its first 500.
 ASK_AGAIN = 600  # Seconds a confirmation card going out may stay silent before the owner's next @ sends it again.
+# What a member's turn in a group may do (``member_mode``): read and search only, or as the owner's own.
+MEMBERS_ENV = 'COVEY_GROUP_MEMBERS'
+MEMBERS_READ, MEMBERS_FULL = 'read', 'full'
+MEMBER_MODES = (MEMBERS_READ, MEMBERS_FULL)
 
 
 def free_talk_on() -> bool:
     """Whether this deployment offers 免@ (its app receives every group message): FREE_ENV is 1."""
     return cenv.get(FREE_ENV, '').strip() == '1'
+
+
+def members_default() -> str:
+    """What a member's turn may do in a group the owner chose nothing for: MEMBERS_READ when MEMBERS_ENV says ``read``,
+    else MEMBERS_FULL (as before the choice existed)."""
+    return MEMBERS_READ if cenv.get(MEMBERS_ENV, '').strip().lower() == MEMBERS_READ else MEMBERS_FULL
+
+
+def member_mode_of(record) -> str:
+    """Group ``record``'s ``member_mode`` as chosen, else the deployment's (``members_default``)."""
+    mode = record.get('member_mode')
+    return mode if mode in MEMBER_MODES else members_default()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -285,6 +306,30 @@ class Access:
                           free_talk_at=utc_now_iso())
             return record
         return self._save(chat_id, change)
+
+    def member_mode(self, chat_id) -> str:
+        """What a member's turn in group ``chat_id`` may do (MEMBER_MODES): its record's choice, else the deployment's."""
+        return member_mode_of(self.group(chat_id))
+
+    def set_member_mode(self, chat_id, mode) -> dict:
+        """The owner chose ``mode`` (MEMBER_MODES) for the members' turns of group ``chat_id``; its record."""
+        owner = self.runtime.owner_open_id
+        record = self._save(chat_id, lambda current: {**current, 'member_mode': mode, 'member_mode_by': owner,
+                                                      'member_mode_at': utc_now_iso()})
+        self.runtime.log(f'group chat={chat_id[-8:]} member_mode={mode}')
+        return record
+
+    def read_only(self, chat_id, sender_id) -> bool:
+        """Whether a turn started by ``sender_id`` in ``chat_id`` only reads and searches (app/tool_limits.py READ): a
+        team space's turn that is not the owner's own (``owner_turn``) where the members are read-only
+        (``member_mode``). A job that kept no sender counts as a member's while the group is active, and as the owner's
+        where only he is served. Never in a direct chat, a personal group or a chat without a group record."""
+        record = self.group(chat_id)
+        if not record or not self.team_allowed(chat_id) or self.owner_turn(chat_id, sender_id):
+            return False
+        if not sender_id and not self.active(chat_id):
+            return False
+        return member_mode_of(record) == MEMBERS_READ
 
     def owner_turn(self, chat_id, sender_id) -> bool:
         """Whether a turn is the owner's own, so it reads the owner's 通用 principles (app/runs.py): when the message

@@ -23,7 +23,7 @@ from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.state import ensure_private_dir
 from covey.backends.codex.sessions import rollout_root
 from covey.backends.codex import gateway as gateway_models
-from covey.backends.codex.appserver import run_appserver
+from covey.backends.codex.appserver import run_appserver, sandbox_mode
 from covey.backends.gateway.catalog import turn_relay
 from covey.core import gateways
 
@@ -89,11 +89,11 @@ class CodexBackend(BackendRuntime):
         )
 
     def sandbox(self, ctx: BridgeContext) -> str:
-        return str(ctx.options.get("sandbox") or DEFAULT_SANDBOX)
+        return sandbox_mode(ctx)
 
     def capabilities(self, ctx):
         return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, turn_export=True,
-                                              bridge_tools=True), ctx)
+                                              bridge_tools=True, read_only=True), ctx)
 
     # The signed-in account's models plus the gateways' Responses models (<prefix><model>, core/gateways.py).
     def model_catalog(self, ctx: BridgeContext) -> dict:

@@ -125,6 +125,10 @@ class BridgeReplyJob:
     # "category", "model"}; its subagents run on that model too (context_for_job), and it never retries again. {} for
     # every other job. Saved: its task runner reads it.
     policy_retry: dict = _state(factory=dict)
+    # The first turn of a topic the butler opened without the owner's click because it judged the work read-only
+    # (app/butler_topics.py): held to it where its Harness can (app/tool_limits.py LOOK). False for every other job.
+    # Saved: its task runner reads it.
+    read_only: bool = _state(False)
     interrupted: bool = _state(False)  # Its task runner took a SIGTERM (app/runner.py interrupt), not a stop.
     result_backend: str = _state("")
     last_backend_control: Any = _state()
@@ -452,6 +456,8 @@ def record_bridge_job_state(
         payload["device"], payload["remote_workdir"] = job.device, str(getattr(job, "remote_workdir", "") or "")
     if getattr(job, "policy_retry", None):
         payload["policy_retry"] = dict(job.policy_retry)  # Never retried again (app/policy_retry.py eligible).
+    if getattr(job, "read_only", False) is True:
+        payload["read_only"] = True  # A launch card's wait keeps it (app/submission.py job_from_record).
     resolved_sessions_dir = getattr(job, "sessions_dir", None) or sessions_dir
     if resolved_sessions_dir:
         payload["sessions_dir"] = str(resolved_sessions_dir)

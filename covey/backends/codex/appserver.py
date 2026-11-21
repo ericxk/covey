@@ -17,7 +17,7 @@ from covey.backends.codex.events import CodexEventAdapter
 from covey.backends.codex.rpc import AppServer, RpcError, failed
 from covey.backends.codex.turn import close_turn, paused_question_end, read_turn
 from covey.backends.codex.usage import CodexTurnUsage
-from covey.core.harness import JobCancelled, RunResult
+from covey.core.harness import LOOK, READ, TOOL_LIMIT, JobCancelled, RunResult
 from covey.core.paths import entry_script
 from covey.core.process import device_of
 from covey.core.protocol import deliver_event
@@ -60,6 +60,13 @@ def bridge_servers(ctx):
                        prefix + "env": dict(server.get("env") or {}), prefix + "enabled": True,
                        prefix + "tool_timeout_sec": BRIDGE_TOOL_SECONDS})
     return config
+def sandbox_mode(ctx) -> str:
+    """The turn's sandbox: read-only for a turn held to READ or LOOK (core/harness.py TOOL_LIMIT), else the Harness's
+    --sandbox (danger-full-access unless it says otherwise). A 代答 turn keeps it: in a sandbox lark-cli could not read
+    the chats (no network, its login not refreshed)."""
+    if ctx.options.get(TOOL_LIMIT) in (READ, LOOK):
+        return "read-only"
+    return str(ctx.options.get("sandbox") or "danger-full-access")
 
 
 def thread_params(ctx, session_id, instructions="", process=None):
@@ -90,7 +97,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
         "model": ctx.model,
         "cwd": cwd,
         "approvalPolicy": "never",
-        "sandbox": ctx.options.get("sandbox", "danger-full-access"),
+        "sandbox": sandbox_mode(ctx),
         "config": {
             **ctx.options.get("thread_config", {}),
             **({"model_reasoning_effort": ctx.effort} if ctx.effort else {}),
@@ -128,6 +135,9 @@ def start_turn(rpc, request, ctx, prompt, session_id):
             "input": [{"type": "text", "text": prompt}] + [{"type": "localImage", "path": path} for path in image_paths(ctx, request.inputs.attachments)],
             "model": ctx.model,
             **({"effort": ctx.effort} if ctx.effort else {}),
+            # A read-only turn says so for the turn too, whatever the thread resumed with; any other turn sends nothing
+            # here, as before (its thread/resume's sandbox holds).
+            **({"sandboxPolicy": {"type": "readOnly"}} if ctx.options.get(TOOL_LIMIT) in (READ, LOOK) else {}),
         },
         timeout=60,
     )

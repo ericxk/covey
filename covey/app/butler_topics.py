@@ -209,6 +209,9 @@ def topic_start(env, request):
         plan["start"] = plan["run_mode"] == "direct" and butler_settings.starts_at_once(
             settings, workspace=plan["workspace"], readonly=args.get("readonly") is True,
             user_requested=args.get("user_requested") is True)
+        # Judged read-only and started without the owner's click: its first turn says so and is held to it
+        # (app/tool_limits.py LOOK). A plan saved before it has none: as before.
+        plan["read_only"] = bool(plan["start"]) and args.get("readonly") is True
         record = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "title": title,
                   "why": why, "plan": plan, "at": time.time(), "sequence": 0}
         save(path, record)
@@ -322,10 +325,12 @@ def _enqueue(env, app, request, record, chat, prompt, event, token, label) -> bo
     ctx = app.submission.event_context(app.harness.context, event)
     owner, items = handed(env, request, ctx)
     content = butler_handoff.shown(owner, prompt, items)
+    read_only = record["plan"].get("read_only") is True
     sent = butler_handoff.handoff_prompt(butler_handoff.START, label=label, title=record["title"], task=prompt, owner=owner,
-                                       items=items)
+                                       items=items, read_only=read_only)
     append_history(ctx.history_path, "user", content, {"message_id": mid})
-    return app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=record["title"]) is None
+    return app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=record["title"],
+                                           read_only=read_only) is None
 
 
 def place(env, request, chat) -> tuple:
