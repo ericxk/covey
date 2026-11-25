@@ -1,0 +1,16 @@
+/* 回答里的数学公式（KaTeX，docs/ui.md 2.6）：颜色跟着正文走（KaTeX 用 currentColor，深浅色主题自动跟），
+   行内公式和正文同一基线、略大一点；块级公式居中，比对话列宽时在自己的框里横向滚动，不撑破页面也不被裁掉。 */
+.mdans .katex{font-size:1.1em}
+.mdans .katex-display{margin:8px 0 12px;padding:4px 2px;overflow:auto hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.mdans .katex-display>.katex{font-size:1.16em}
+/* 正文给每个 span 都上了 --t1（covey.css），公式里的 span 改回跟着外面那段走（段落、表格、引用各自的灰度）；
+   \color 是 KaTeX 写的行内样式，照样生效 */
+.cv .mdans .cv-math,.cv .mdans .cv-math span{color:inherit}
+/* 写错的公式（KaTeX 画成原文，title 里是错误说明）：等宽、虚下划线，看得出是没排出来的公式 */
+.mdans .katex-error{font:0.92em var(--mono);border-bottom:1px dashed currentcolor;white-space:pre-wrap;cursor:help}
+/* 太长或排不了、KaTeX 还没加载好（懒加载），显示 TeX 原文；块级的也占一整行，加载好后换成公式时少跳一下 */
+.mdans code.cv-math-raw{white-space:pre-wrap;word-break:break-all}
+.mdans code.cv-math-raw.cv-math-display{display:block;width:fit-content;max-width:100%;margin:8px auto 12px}
+@media (max-width:767px){
+  .mdans .katex-display>.katex{font-size:1.08em}
+}
