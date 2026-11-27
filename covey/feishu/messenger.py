@@ -7,8 +7,10 @@ import json
 import re
 import subprocess
 import threading
+import time
 from typing import Any
 
+from covey.core import card_limits
 from covey.core import env as cenv
 from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
@@ -17,8 +19,8 @@ from covey.core.topics import remember_topic_message, topic_label, topic_title
 from covey.feishu import cardkit, sdk
 from covey.feishu.delivery import resolve_message_format, safe_idempotency_key, send_message_with_fallback
 from covey.feishu.message_request import message_argv, runner as message_runner
-from covey.feishu.transport import (NOT_SENT, SENT, UNCERTAIN, call, data_of, last_failure, lark_argv, message_id_of, outcome,
-                                    reason, run_cli)
+from covey.feishu.transport import (NOT_SENT, SENT, UNCERTAIN, Failure, call, data_of, last_failure, lark_argv, message_id_of,
+                                    outcome, reason, run_cli, set_failure)
 
 _MESSAGE_ID = re.compile(r"om_[A-Za-z0-9_-]+")
 _PATH_ID = re.compile(r"[A-Za-z0-9_-]+")  # An id put in an API path (a reaction id) as it is.
@@ -103,6 +105,17 @@ def not_shown_text(about, topic, failure, created) -> str:
         where = ""
     where = str(where or "").rstrip("。") or ("稍后再试；急的话直接在话题里说" if topic else "稍后再试")
     return f"⚠️ {head}{went}：{reason(failure)}。{where}。"
+
+
+def not_updated_text(what, failure, how, where="") -> str:
+    """The line ``patch_or_tell`` sends under a card it could not update: which card (``what``), that it surely did not change
+    (``how`` NOT_SENT) or may not have, why (transport.py ``reason``) and where to go on (``where``, else to try again)."""
+    went = "没更新" if how == NOT_SENT else "可能没更新"
+    where = str(where or "").rstrip("。") or "卡上的状态可能是旧的，稍后再点一次或直接在话题里说"
+    return f"⚠️ 这张{what or '卡片'}{went}：{reason(failure)}。{where}。"
+
+
+CHECK_LOG_SECONDS = 60.0  # A card over a target alone is logged at most once a minute for each kind of write.
 
 
 def unsent_outcome(messenger) -> str:
@@ -216,12 +229,71 @@ class Messenger:
                              "im", "messages", "delete", "--message-id", message_id, ids=(message_id,),
                              yes=True) is not None
 
+    def refused(self, card, *, step, message=False, whole=True) -> bool:
+        """Whether a card write must not go (WAVE12 W2-D 包 C): ``card`` (a whole card, or the part a CardKit write carries)
+        over what Feishu takes (core/card_limits.py ``check``: more than 200 tagged nodes; a card message over 30 KB). Then
+        nothing is sent, the failure is the one Feishu would answer (transport.py ``Failure`` with its code, so ``reason``
+        and a caller that reads the code see what they would have) and a log line says by how much. A card within them but
+        over a target (195 nodes, 29 KB, a ``whole`` CardKit card's rendered size) is only logged, at most once a minute a
+        ``step``. Never raises: a card that cannot be measured goes as before."""
+        over = card_limits.check(card, message=message)
+        if over is None:
+            near = card_limits.over_target(card, message=message, cost=whole)
+            if near and self._may_log(step):
+                self.log(f"card over its target step={step} {near}")
+            return False
+        set_failure(Failure("api_rejected", code=over.code, detail=over.words()))
+        self.log(f"card refused before sending step={step} code={over.code} nodes={over.nodes}"
+                 + (f" bytes={over.bytes}" if over.bytes else "") + f" limit={over.limit}")
+        return True
+
+    def _may_log(self, step) -> bool:
+        times = self.__dict__.setdefault("_check_logged", {})
+        now = time.monotonic()
+        if now - times.get(step, -CHECK_LOG_SECONDS) < CHECK_LOG_SECONDS:
+            return False
+        times[step] = now
+        return True
+
     def patch_card(self, profile, message_id, card) -> bool:
         """Replace the card of a card message the bot sent (an ``update_multi`` card, within 14 days, at most
-        30 KB) whole; False when Feishu refused or the call failed. Last write wins: no sequence."""
+        30 KB) whole; False when Feishu refused or the call failed, or the card is over its limits (``refused``: not
+        sent). Last write wins: no sequence. What became of it is ``last_outcome``."""
+        self._set_outcome(UNCERTAIN)
+        if self.refused(card, step="patch", message=True):
+            self._set_outcome(NOT_SENT)
+            return False
         data = {"content": json.dumps(card, ensure_ascii=False)}
-        return self._bot(profile, "im", "messages", "patch", "--params", json.dumps({"message_id": message_id}),
-                         "--data", json.dumps(data, ensure_ascii=False)) is not None
+        return self._noted(self._bot(profile, "im", "messages", "patch", "--params", json.dumps({"message_id": message_id}),
+                                     "--data", json.dumps(data, ensure_ascii=False)) is not None)
+
+    def patch_or_tell(self, profile, message_id, card, *, voice: Voice | None, chat_id="", what="卡片", where="") -> bool:
+        """``patch_card``, and when the card did not take: one short line under it (a reply to ``message_id``) saying which
+        card did not update and why (``not_updated_text``), so the owner is not left looking at its old state. At most one
+        line a card (in this process, and under one key a card, so a retry of it says nothing new), never from inside such
+        a line; ``voice`` None: the log line only. Whether the card was replaced; ``last_outcome`` is the card's."""
+        if self.patch_card(profile, message_id, card):
+            return True
+        how, failure = self.last_outcome(), last_failure()
+        self.log(f"card not updated what={what} outcome={how} category={getattr(failure, 'category', '-') or '-'} "
+                 f"code={getattr(failure, 'code', '') or '-'}")
+        local = self._outcomes()
+        told = self.__dict__.setdefault("_told", set())
+        if voice is None or not message_id or getattr(local, "telling", False) or message_id in told:
+            return False
+        told.add(message_id)
+        local.telling = True
+        try:
+            self.send_message(profile, chat_id, not_updated_text(what, failure, how, where),
+                              voice.safe_key(voice.key("card-not-updated", message_id)), reply_to_message_id=message_id,
+                              voice=voice)
+        except Exception as exc:  # noqa: BLE001 - the card's outcome is what the caller asks about
+            self.log(f"card not updated line not sent ({type(exc).__name__})")
+        finally:
+            local.telling = False
+        self._set_outcome(how)
+        set_failure(failure)
+        return False
 
     def pin(self, profile, message_id) -> bool:
         """Pin (Pin 消息) a message in its chat as the bot; pinning one already pinned succeeds too. False when
@@ -346,7 +418,10 @@ class Messenger:
         return sent
 
     def create_card(self, profile, card):
-        """Register ``card`` with CardKit; CardKit's response, None when the call failed."""
+        """Register ``card`` with CardKit; CardKit's response, None when the call failed or the card is over its limits
+        (``refused``: not sent)."""
+        if self.refused(card, step="create"):
+            return None
         return self.cardkit(profile, "POST", CARDS, card_json(card))
 
     def create_and_send_card(self, profile, chat_id, card, key, *, voice: Voice,
@@ -366,13 +441,19 @@ class Messenger:
         return card_id, message_id
 
     def put_card(self, profile, card_id, card, *, sequence, key, **kwargs):
-        """Replace a card's whole JSON; CardKit's response, None when unconfirmed."""
+        """Replace a card's whole JSON; CardKit's response, None when unconfirmed or the card is over its limits
+        (``refused``: not sent; its ``sequence`` is left unused, which CardKit takes)."""
+        if self.refused(card, step="put"):
+            return None
         return self.cardkit(profile, "PUT", f"{CARDS}/{card_id}",
                             {"card": card_json(card), "sequence": sequence, "uuid": key}, **kwargs)
 
     def write_card(self, profile, method, card_id, part, body, *, sequence, key, **kwargs):
         """One write to ``part`` of a card (``elements``, ``elements/<id>``, ``settings``,
-        ``batch_update``): ``body`` plus the write's sequence and key."""
+        ``batch_update``): ``body`` plus the write's sequence and key. None, not sent, when the part alone is over a
+        card's limits (``refused``)."""
+        if self.refused(body, step="write", whole=False):
+            return None
         return self.cardkit(profile, method, f"{CARDS}/{card_id}/{part}",
                             {**body, "sequence": sequence, "uuid": key}, **kwargs)
 

@@ -138,7 +138,8 @@ class ProposalCards:
         for item in found:
             item.update({key: value for key, value in row.items() if value is not None})
         write_json(path, saved, ensure_ascii=False, indent=1)
-        self.messenger.patch_card(ctx.profile, saved["message_id"], cards.tidy_card(saved["view"]))
+        self.messenger.patch_or_tell(ctx.profile, saved["message_id"], cards.tidy_card(saved["view"]), voice=self.voice,
+                                     what="「整理专项」卡")
         return True
 
     def unrepeat(self, ctx) -> int:

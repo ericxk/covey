@@ -378,6 +378,7 @@
 | `core/butler_settings.py` | The butler's settings: <state>/main-thread.json |
 | `core/butler_tool_specs.py` | The Bridge tools the butler's session gets |
 | `core/butler_tracks.py` | 多路并行 (docs/butler.md 同时做几件事 |
+| `core/card_limits.py` | What one Feishu card may hold, measured the same way wherever it is drawn or sent |
 | `core/card_sequence.py` | One rule for the sequence of every CardKit write to an existing card |
 | `core/checkpoint.py` | Durable task checkpoints written by the agent and read by the bridge, and the artifacts a task lists in one |
 | `core/claude_retention.py` | How long Claude Code keeps its session transcripts, read from its settings (never changed here) |

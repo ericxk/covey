@@ -9,7 +9,7 @@ from covey.cards.elements import (BUTTON_SPACING, button_look, button_row, callb
                                   shown_width, text_button, topic_button)
 from covey.cards.review import compact_text, opening
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, peek, receipt, speaker_row, split_ask
-from covey.core import look, triage, turn_words, ui_samples
+from covey.core import card_limits, look, triage, turn_words, ui_samples
 from covey.core.stale import STALE_NOTE
 from covey.core.text import literal
 
@@ -703,8 +703,9 @@ SAMPLE_LEFT_OUT = "这版样张放不下这张卡，没有画"
 SAMPLE_IN_TOPIC = "这版样张放不下这张卡，话题里的问题卡上有"  # Left out of the top-level copy, drawn on the card in the topic.
 SAMPLES_LEFT_OUT = "这 {n} 版样张放不下这张卡，没有画"
 SAMPLES_IN_TOPIC = "，话题里的问题卡上画了 {n} 版"
-# What one card may hold (scripts/cardkit_check.py LIMITS: 30 KB of JSON, 200 tagged nodes), a little kept free.
-CARD_BYTES, CARD_NODES = 29_000, 195
+# What one card may hold (scripts/cardkit_check.py LIMITS: 30 KB of JSON, 200 tagged nodes), a little kept free: the targets of
+# core/card_limits.py.
+CARD_BYTES, CARD_NODES = card_limits.TARGET_BYTES, card_limits.TARGET_NODES
 
 
 def sample_blocks(record, left_out=(), elsewhere=()):

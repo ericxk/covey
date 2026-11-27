@@ -38,6 +38,9 @@ AFTER = ("建成专项后：这件事的话题（以后分出去的也算）在�
 ASK_AUTO = "你已经连着 {} 次直接点了建：以后这种直接建，只留撤回？"
 NAME_FIELD, GOAL_FIELD, WHY_FIELD, TOPICS_FIELD, MORE_FIELD = "name", "goal", "why", "topics", "more"
 CARD_ROWS = 5
+# The 整理专项 card's other lists, each at most this long, the rest counted on a line ("另有 N 条", ``more_line``): a card of a
+# 整理 that did or skipped a few hundred things stays within what Feishu takes (core/card_limits.py, WAVE12 W2-D 包 C).
+DID_LINES, SKIPPED_LINES, NAMES_SHOWN, LINE_CHARS = 20, 5, 20, 200
 OUTCOME = {"done": "已照办", "declined": "不用", "never": "以后不再提议", "failed": "没做成", "expired": "已过时"}
 PROPOSAL_OUTCOME = {**OUTCOME, "declined": "不管了"}  # The proposal card's word for its 不管了 (暂不考虑 in older releases)
 KIND_WORDS = {"create": "新建", "join": "归进", "leave": "移出", "merge": "合并", "split": "拆开", "rename": "改名", "fold": "收起"}
@@ -294,6 +297,23 @@ def failed_block(view) -> list:
     return out
 
 
+def shortened(line) -> str:
+    """One line of a list as it is, cut to LINE_CHARS only when longer."""
+    line = str(line or "")
+    return line if len(line) <= LINE_CHARS else cut(line, LINE_CHARS)
+
+
+def more_line(left) -> list:
+    """The grey line under a list cut short: 另有 N 条 (none when nothing was left out)."""
+    return [note(f"另有 {left} 条没列出")] if left > 0 else []
+
+
+def names_line(names) -> str:
+    """Project names on one line, at most NAMES_SHOWN of them, the rest counted ("等 N 个")."""
+    shown = "、".join(f"「{literal_text(shortened(name))}」" for name in names[:NAMES_SHOWN])
+    return shown + (f" 等 {len(names)} 个" if len(names) > NAMES_SHOWN else "")
+
+
 def tidy_card(view):
     """The 整理专项 card. ``view``: run (id), state (running, done, failed), progress {done, total, current} while it runs, why (the
     failure in words), did [lines done at once], rows [{proposal, line, state, note}] (at most CARD_ROWS), skipped {words},
@@ -313,12 +333,12 @@ def tidy_card(view):
         elements += failed_block(view)
     did = list(view.get("did") or ())
     if did:
-        elements += [section("已经做了")] + [md("· " + literal_text(line)) for line in did]
+        elements += [section("已经做了")] + [md("· " + literal_text(shortened(line))) for line in did[:DID_LINES]]
+        elements += more_line(len(did) - DID_LINES)
     proposed = [name for name in view.get("proposed") or () if name]
     if proposed:
         # Each new project is a proposal card of its own, with its topics linked and summed up, to change and confirm one by one.
-        elements += [section(f"新专项的提议（{len(proposed)} 个）"),
-                     md("、".join(f"「{literal_text(name)}」" for name in proposed)),
+        elements += [section(f"新专项的提议（{len(proposed)} 个）"), md(names_line(proposed)),
                      note("每个一张提议卡，在下面：话题都列全、能点开、带摘要，可以增删话题、改名，再逐个确认。")]
     if rows and all(row.get("item") for row in rows):
         # Each suggestion a block of its own (one long line of a dozen T numbers, the action and its reason mixed and
@@ -341,13 +361,14 @@ def tidy_card(view):
     pending = [name for name in view.get("pending") or () if name]
     if pending:
         # What this 整理 would propose again and still waits for him: named, to decide on the 看板 — never “没有要改的” while they wait.
-        elements += [section(f"还在等你定（{len(pending)} 个）"),
-                     md("、".join(f"「{literal_text(name)}」" for name in pending)),
+        elements += [section(f"还在等你定（{len(pending)} 个）"), md(names_line(pending)),
                      note("之前提过、你还没定。在看板的专项区可以直接点「建专项」或「不管了」。")]
     if state == "done" and not did and not rows and not proposed and not pending:
         elements.append(md("专项和最近动过的话题都看过了，没有要改的。"))
-    for words in view.get("skipped") or ():
-        elements.append(note(words if view.get("skipped_md") else literal_text(words)))
+    skipped = list(view.get("skipped") or ())
+    for words in skipped[:SKIPPED_LINES]:
+        elements.append(note(words if view.get("skipped_md") else literal_text(shortened(words))))  # Markdown is never cut.
+    elements += more_line(len(skipped) - SKIPPED_LINES)
     # What still waits for him, as the band counts it: a row he decided is not a suggestion any more (T647 B7: the tag said
     # "3 条建议" in the waiting colour over a card whose one open row was left, and never 整理好了 once all were decided).
     count = undecided(rows) + len(proposed) + len(pending)

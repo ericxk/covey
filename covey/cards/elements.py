@@ -5,7 +5,7 @@ were first sent with: config (width_mode, update_multi, summary), then body (pad
 vertical_spacing, elements)."""
 from __future__ import annotations
 
-import json
+from covey.core import card_limits
 
 
 def card(elements, summary=None, *, default_width=False, update_multi=False, padding="", spacing="", header=None):
@@ -285,26 +285,10 @@ def markdown_blocks(lines, limit=3000):
     return [md("\n".join(block), size="notation") for block in blocks]
 
 
-# What CardKit takes in a card: 200 tagged nodes, every plain_text included (300305), and about 30 KB of JSON.
-CARD_NODES, CARD_BYTES = 200, 30000
-
-
-def element_count(value):
-    """The CardKit nodes in ``value``: every dict with a tag, at any depth."""
-    if isinstance(value, dict):
-        return int("tag" in value) + sum(element_count(v) for v in value.values())
-    if isinstance(value, list):
-        return sum(element_count(v) for v in value)
-    return 0
-
-
-def json_size(value):
-    return len(json.dumps(value, ensure_ascii=False).encode())
-
-
-def fits(elements, nodes, size):
-    """Whether ``elements`` keeps within ``nodes`` CardKit nodes and ``size`` bytes of JSON."""
-    return element_count(elements) <= nodes and json_size(elements) <= size
+# What CardKit takes in a card: 200 tagged nodes, every plain_text included (300305), and about 30 KB of JSON. Measured by
+# core/card_limits.py (the sending side checks every card with it too); the names stay here as before.
+CARD_NODES, CARD_BYTES = card_limits.CARD_NODES, card_limits.CARD_BYTES
+element_count, json_size, fits = card_limits.element_count, card_limits.json_size, card_limits.fits
 
 
 # Walking a card's body: the elements at any depth, an element's ``elements`` before its ``columns`` and theirs (a

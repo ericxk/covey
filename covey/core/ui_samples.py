@@ -11,13 +11,15 @@ becomes its title as a bold line, and an image whose key is a test's fake one a 
 sample over SAMPLE_BYTES or SAMPLE_NODES once inert, is not kept; what the whole card may hold is the card's to count
 (cards/question_cards.py ``fitted``).
 
-Standard library only.
+Standard library and core/card_limits.py only.
 """
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
+
+from covey.core import card_limits
 
 FIELD = "sample"  # An option's: the path the turn wrote, then what ``carry`` kept.
 MOST = 4  # Options of one question that get their sample drawn; the docs ask for 2 or 3.
@@ -93,14 +95,12 @@ def inert(value, index: int, counter=None):
 
 
 def nodes(value) -> int:
-    """The tagged nodes in ``value`` (cards/elements.py element_count; here so this module needs nothing else)."""
-    if isinstance(value, dict):
-        return int("tag" in value) + sum(nodes(child) for child in value.values())
-    return sum(nodes(child) for child in value) if isinstance(value, list) else 0
+    """The tagged nodes in ``value`` (core/card_limits.py element_count, which cards/elements.py names too)."""
+    return card_limits.element_count(value)
 
 
 def size(value) -> int:
-    return len(json.dumps(value, ensure_ascii=False).encode())
+    return card_limits.json_size(value)
 
 
 def elements_of(data):

@@ -431,8 +431,16 @@ class BatchSwitch:
                 self.busy.discard(token)
 
     def paint(self, ctx, record) -> None:
+        """The card redrawn from ``record``; one that does not take says so under it once (Messenger ``patch_or_tell``)."""
         if record.get("message_id"):
-            self.messenger.patch_card(ctx.profile, record["message_id"], cards.card(record))
+            self.messenger.patch_or_tell(ctx.profile, record["message_id"], cards.card(record), voice=self.voice(),
+                                         chat_id=str(record.get("chat_id") or ""), what=f"「{cards.TITLE}」卡")
+
+    def voice(self):
+        """The voice the card's line speaks with: the default Harness's (app/topics.py ``default``), else any; None without."""
+        apps = getattr(self.topics, "apps", None) or {}
+        app = apps.get(getattr(self.topics, "default", "")) or next(iter(apps.values()), None)
+        return getattr(app, "voice", None)
 
     def put_row(self, target, index, **fields) -> dict:
         with resource_lock("batch-switch", target):

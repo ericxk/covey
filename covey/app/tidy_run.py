@@ -260,4 +260,5 @@ class Runs:
 
     def redraw(self, ctx, record) -> None:
         if record.get("message_id"):
-            self.messenger.patch_card(ctx.profile, record["message_id"], cards.tidy_card(record["view"]))
+            self.messenger.patch_or_tell(ctx.profile, record["message_id"], cards.tidy_card(record["view"]), voice=self.voice,
+                                         chat_id=str(record.get("chat_id") or ""), what="「整理专项」卡")

@@ -1463,6 +1463,64 @@ def state_writes(source, rel):
     return found
 
 
+class CardWriteTest(unittest.TestCase):
+    """G3 (WAVE12 C11, W2-D 包 C): a card write's outcome is never thrown away. A call of ``.patch_card(`` or ``.put_card(``
+    whose result is a bare expression or is given to ``_`` leaves the card at its old state with nothing said: use
+    feishu/messenger.py ``patch_or_tell`` (it says so under the card once), or look at what came back. Those that rightly
+    do not care (a card that cuts itself and is written again at once) are listed (``LEFT``), and a listed one that is gone
+    fails too. The package and the extensions a release carries are read (``gated_sources``)."""
+
+    METHODS = {"patch_card", "put_card"}
+    LEFT: dict = {}  # "<file>::<enclosing def>::<method>": calls whose outcome is rightly not looked at.
+
+    @classmethod
+    def dropped(cls, sources):
+        keys = []
+        for rel, source in sources:
+            stack = []
+
+            def walk(node, parent=None):
+                scoped = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                if scoped:
+                    stack.append(node.name)
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in cls.METHODS
+                        and (isinstance(parent, ast.Expr) or (isinstance(parent, ast.Assign) and all(
+                            isinstance(target, ast.Name) and target.id == "_" for target in parent.targets)))):
+                    keys.append(f"{rel}::{'.'.join(stack) or '<module>'}::{node.func.attr}:{node.lineno}")
+                for child in ast.iter_child_nodes(node):
+                    walk(child, node)
+                if scoped:
+                    stack.pop()
+
+            walk(ast.parse(source))
+        return counted(key.rsplit(":", 1)[0] for key in keys), keys
+
+    def test_no_card_write_throws_its_outcome_away(self):
+        found, lines = self.dropped(gated_sources())
+        new, stale = against(found, self.LEFT)
+        self.assertEqual(new, {}, "改卡的结果不能丢：用 Messenger.patch_or_tell，或看返回值（WAVE12 G3）\n" + "\n".join(lines))
+        self.assertEqual(stale, {}, "这几处已经不丢结果了：把它们从 LEFT 里删掉")
+
+    def test_a_bare_call_one_given_to_underscore_and_a_stale_listing_are_caught(self):
+        sources = [("covey/app/a.py", textwrap.dedent('''
+            class C:
+                def paint(self, m):
+                    m.patch_card(1, 2, {})
+                    _ = m.put_card(1, 2, {}, sequence=1, key="k")
+                    ok = m.patch_card(1, 2, {})
+                    if not m.put_card(1, 2, {}, sequence=1, key="k"):
+                        pass
+                    m.patch_or_tell(1, 2, {}, voice=None)
+                    return m.patch_card(1, 2, {})
+        '''))]
+        found, lines = self.dropped(sources)
+        self.assertEqual(found, {"covey/app/a.py::C.paint::patch_card": 1, "covey/app/a.py::C.paint::put_card": 1})
+        self.assertEqual(lines, ["covey/app/a.py::C.paint::patch_card:4", "covey/app/a.py::C.paint::put_card:5"])
+        new, stale = against(found, {"covey/app/a.py::C.paint::patch_card": 1, "covey/app/gone.py::f::put_card": 1})
+        self.assertEqual(set(new), {"covey/app/a.py::C.paint::put_card"})
+        self.assertEqual(stale, {"covey/app/gone.py::f::put_card": 1})
+
+
 class StateWriteTest(unittest.TestCase):
     """G1 (W1-F): no new read for a write through read_object; the functions found today are listed in
     tests/golden/state_writes.json, which only shrinks."""

@@ -145,7 +145,7 @@ class WebLogin:
             now = self.clock()
             if now - view["at"] > cards.VALID_SECONDS:
                 self.put(ctx.state_dir, request_id, state="expired")
-                self.messenger.patch_card(ctx.profile, message_id, cards.expired_card(view))
+                self.messenger.patch_or_tell(ctx.profile, message_id, cards.expired_card(view), voice=self.voice, what=f"「{cards.TITLE}」卡")
                 return "expired"
             decided = int(now)
             item = {"type": "login", "key": request_id, "rev": f"{request_id}-{int(now * 1000)}",
@@ -155,18 +155,20 @@ class WebLogin:
             except Exception as exc:  # noqa: BLE001 - said on the card
                 failed = str(exc) if exc.args else type(exc).__name__
                 self.runtime.log(f"web login decision not taken request={request_id[:8]}: {type(exc).__name__}")
-                self.messenger.patch_card(ctx.profile, message_id, cards.pending_card(view, failed or type(exc).__name__))
+                self.messenger.patch_or_tell(ctx.profile, message_id, cards.pending_card(view, failed or type(exc).__name__),
+                                             voice=self.voice, what=f"「{cards.TITLE}」卡")
                 return "failed"
             took = answer.get("upserted") if isinstance(answer, dict) else None
             if isinstance(took, int) and not isinstance(took, bool) and took < 1:
                 # The page answered and changed nothing: its request is no longer waiting (expired or decided over there, or the
                 # page is not a self-hosted one). Nothing is to be retried: the card says the login is void.
                 self.put(ctx.state_dir, request_id, state="void", approved=approved, decided_at=decided)
-                self.messenger.patch_card(ctx.profile, message_id, cards.void_card(view, approved))
+                self.messenger.patch_or_tell(ctx.profile, message_id, cards.void_card(view, approved), voice=self.voice, what=f"「{cards.TITLE}」卡")
                 self.runtime.log(f"web login void request={request_id[:8]}")
                 return "void"
             self.put(ctx.state_dir, request_id, state="approved" if approved else "denied", decided_at=decided)
-            self.messenger.patch_card(ctx.profile, message_id, cards.result_card(view, approved, decided))
+            self.messenger.patch_or_tell(ctx.profile, message_id, cards.result_card(view, approved, decided), voice=self.voice,
+                                         what=f"「{cards.TITLE}」卡")
             self.runtime.log(f"web login {'approved' if approved else 'denied'} request={request_id[:8]}")
             return "sent"
         finally:

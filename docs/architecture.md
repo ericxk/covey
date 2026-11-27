@@ -504,6 +504,7 @@ cancelled、superseded：终态
 - 样张（[UI 规范 · 改外观先选样张](ui.md#12-改外观先选样张)）：检查点问题的选项带 `sample`（卡片 JSON 文件的绝对路径）时，`CheckpointQuestions.defer` 用 `core/ui_samples.py` 的 `carry` 读一次文件，把清成点不动的元素存进问题记录代替路径；`question_card` 在第一道题上方画出各版，答完就不画。带样张的问题不放在任务卡上（`deliver` 单独发卡），专项的话题问的不交负责人（`core/project_gates.py` 的 `SAMPLE`）。
 - 一张卡放得下（`cards/question_cards.py` 的 `fitted`）：CardKit 一张卡最多 200 个带 tag 的节点（`plain_text` 也算，超了报 300305）、约 30 KB，问题卡按 195 个、29 KB 留余量，量的是发出去的整张卡：顶层副本的头像行、主人的话、这一轮输出和产物（`mirror_fit` 的 `outer`）跟表单一起算。放不下时一级一级少画：副本先把输出拆到前面单独的卡上（`mirror` 看 `Fit.whole`），再从最后一版往前不画样张本体（副本上不画的那版话题里的卡画了，就写“话题里的问题卡上有”），再把所有样张并成一行灰字加选项列表，再把每题的题目、背景、选项说明合成一段、去掉“怎么回答”的折叠，再去掉有选项的题的回答框，最后只列题目、留补充说明和提交回答（`BRIEF`：把回答写进补充说明提交，或到网页工作台逐题答；管家自己的题不提网页）。重画（已答、拒绝、产物刷新）走同一套。
 - 卡没建成或没发出去（`feishu/messenger.py` 的 `publish_card`）：原地发一行字代替，写清哪个话题（T 号和标题，读不到就写读不到）、什么卡、为什么（`feishu/transport.py` 的 `reason`：300305 超 200 个组件、200860 超大小、230028 安全审核，其余按失败类别，未知的码带飞书原话的前 60 个字）、去哪接着做（调用方给的 `CardAbout.where`，问题卡是“在话题里回复作答，或到网页工作台答题”，副本是“到 T12 里的问题卡作答”），同一张卡只说一次（键不变）。顶层副本失败而这一轮的“等你”回带随后就发（`after_turn` 的布局有 `conclusion` 或 `stop`）时不另说，回带卡写了去哪答；自己会回一句的调用方（暂存卡、回答提示）传 `quiet`。
+- 卡改不动（`feishu/messenger.py` 的 `patch_or_tell`）：整理专项、批量换配置、飞书应用待补、网页登录确认等卡整卡替换失败时，在卡下回一行说哪张卡没更新、为什么，同一张卡只说一次；超过飞书硬上限的卡在发送层就不发（`core/card_limits.py` 的 `check`，见 [cards.md](cards.md#卡片发不出去时)）。
 - 先问一句现在只在代发草稿卡上（[代答 · 代发](proxy.md#代发)）：`Questions.queue_ask` 把 `ask_message` 写进历史，`enqueue_chat_job(steer=True)` 排成消息 id 为 `ask-…` 的一轮；`acknowledge_waiting_answer` 见到 `ask-` 不动在等回答的任务。问题卡上的先问一句已去掉，旧记录里留下的 `asked_first` 不再读。
 
 ## 撤回与编辑

@@ -327,6 +327,9 @@ class Messenger:
         self.patched.append((message_id, card))
         return True
 
+    def patch_or_tell(self, profile, message_id, card, **kwargs):  # feishu/messenger.py: patch_card, a line when it fails.
+        return self.patch_card(profile, message_id, card)
+
 
 def lacking_online(*names):
     keys = [k for k in FULL["menu_keys"] if k not in names]

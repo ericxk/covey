@@ -271,6 +271,8 @@
 
 - 任务卡首次创建被 CardKit 拒绝时，`StreamingCard.create` 去掉可选按钮只留“停止”重建一次，其他元素与完整卡相同；仍失败时在话题里说明（[任务卡没出来](reference.md#任务卡没出来)），日志记 `task card missing`。
 - 飞书接口失败都记一行 `delivery failed`（类别、错误码、操作、是否可重试、次数和截断的说明），不记请求内容。
+- 写卡出口预检（`core/card_limits.py` 的 `check`，`feishu/messenger.py` 的 `refused`）：`patch_card`、`create_card`、`put_card`、`write_card` 发出前都量一次。超过飞书硬上限的不发请求、直接按飞书会回的失败返回（`Failure`，错误码 300305 / 200860，`reason` 照常说清），日志记 `card refused before sending`：任何卡超过 200 个带 tag 的节点；卡片消息（IM 改卡）的 JSON 超过 30 KB。CardKit 的卡不按字节拦（它按渲染大小拒收，任务卡正文最多 28,000 字），只在渲染估算超过 `CARD_COST_BUDGET` 时记日志。超过目标值（195 个节点、29 KB）但没到硬上限的只记 `card over its target`（每种写法每分钟最多一行），不拦。
+- 改卡失败（`Messenger.patch_or_tell`）：整卡替换没成时在这张卡下面回一行，写清哪张卡没更新（确定没发出的写“没更新”，可能已生效的写“可能没更新”）和原因（`transport.reason`），同一张卡只说一次（进程内记着、发送键按卡固定），这一行自己不再触发改卡提示。改卡的结果不许丢：`tests/test_structure.py` 的 `CardWriteTest`（门禁 G3）拦裸调用或赋给 `_` 的 `.patch_card(` / `.put_card(`。
 - 卡片大小：CardKit 拒绝过大的卡（`200860 card over max size`），按渲染后的行、段落、行内标记和表格单元格算，不按字节：几千行短行会被拒，几万字的一段中文不会。`card_cost` 按字节加每行、每个标记、每个单元格的开销估算，实测的拒绝点都在 358,000 以上。
 - 正文只用整卡预算 `CARD_COST_BUDGET`（300,000）减去其他元素（`StreamingReply.others`，加、改、删元素时随时更新）后剩下的部分，截在行尾并注明已截断（`truncate_card_content`）。截断后 `StreamingReply.cut` 为真，结果另以文件或分段消息完整发出。
 - 执行过程面板自己也有上限，三样都算：JSON 24 KB（`core/trace.py` 的 `TRACE_BYTES`）、115 个节点（`cards/trace_view.py` 的 `TRACE_ELEMENTS`，外壳的 9 个在内：两层列、折叠面板和它的标题与箭头、数字行、旧卡的翻页提示）、大小 150,000（`TRACE_COST`）。很多很短的步骤（一个字的进展说明夹着一条条命令）字节不多，按上面的算法却很大：以前 23 KB 的面板要占掉整卡 300,000 里的 211,000，正文只剩三分之一。超了先把最早的几段操作收成计数，再把最早的记录收进“更早的 N 条记录”。正文先写得很长、面板后来才长时（Claude 回复以后后台任务还在跑），面板只用正文和其他部分剩下的（`app/task_card.py` 的 `panel_room`，至少 20,000），整卡仍在预算内。

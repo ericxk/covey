@@ -259,6 +259,7 @@ class Clicks:
                 saved["view"] = view
                 write_json(path, saved, ensure_ascii=False, indent=1)
             if message:  # A 整理 whose card was never sent has nothing to redraw.
-                self.messenger.patch_card(ctx.profile, message, cards.tidy_card(view))
+                self.messenger.patch_or_tell(ctx.profile, message, cards.tidy_card(view), voice=self.voice, chat_id=chat,
+                                             what="「整理专项」卡")
         after_ack(act)
         return {cards.OK_KIND: "tidy_ok", cards.ALL_KIND: "tidy_all"}.get(raw["kind"], "tidy_row_decline")

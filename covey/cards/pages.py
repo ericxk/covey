@@ -25,6 +25,7 @@ import re
 from covey.cards.elements import CARD_NODES, card, element_count, json_size, md, note
 from covey.cards.review import ANSWER_CARD_BYTES
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, labelled, role_of, speaker_row, split_ask
+from covey.core import card_limits
 
 SENT_BYTES = 29_000  # A card's JSON escaped once more, as a message request carries it, under Feishu's 30 KB.
 PAGE_NODES = CARD_NODES - 10  # Tagged nodes a card may have, a few kept free (CardKit refuses one over 200: 300305).
@@ -49,9 +50,7 @@ class Paged:
     after: tuple = ()  # When ``alone``: what goes atop the caller's card of it (a relay's 这一轮中途的汇报, relay_pages).
 
 
-def sent_size(built) -> int:
-    """The bytes of ``built`` as a message request carries it: its JSON, escaped again as a string."""
-    return len(json.dumps(json.dumps(built, ensure_ascii=False), ensure_ascii=False).encode("utf-8"))
+sent_size = card_limits.sent_size  # The bytes of a card as a message request carries it (core/card_limits.py).
 
 
 def fits(built, *, cardkit=False) -> bool:

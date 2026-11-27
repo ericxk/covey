@@ -3,62 +3,20 @@ it, and a task card's body is cut to fit beside the card's other elements (trunc
 
 from __future__ import annotations
 
-import json
-import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from covey.core import card_limits
+
+# The measure itself is core/card_limits.py's (the sending side checks cards with it too); its names stay here as before.
+CARD_COST_BUDGET = card_limits.CARD_COST_BUDGET
+LINE_COST, BREAK_COST, MARK_COST, CELL_COST, CODE_LINE_COST = (card_limits.LINE_COST, card_limits.BREAK_COST,
+                                                              card_limits.MARK_COST, card_limits.CELL_COST,
+                                                              card_limits.CODE_LINE_COST)
+CARD_TOO_BIG = card_limits.SIZE_OVER
+_line_cost, text_cost, card_cost = card_limits.line_cost, card_limits.text_cost, card_limits.card_cost
 
 if TYPE_CHECKING:
     from covey.cards.streaming import CardRuntime
-
-
-# CardKit refuses a card over its size (code 200860, card over max size), and the size is not the card
-# JSON's bytes: each rendered line, paragraph, inline mark and table cell costs as much as 70-600 bytes
-# of text, counted over the whole card (a process panel's lines leave fewer for the answer). Measured
-# with cards created and patched but never sent: 2,190 lines of one number each (9.8 KB)
-# were refused, 40,000 characters of Chinese prose (117 KB) were not. A body of 5,000 numbers (23.9 KB)
-# was refused three times and its card stayed at 执行中. ``card_cost`` estimates that size; at every
-# measured refusal (numbers, short Chinese and English lines, paragraphs, lists, bold and code marks,
-# tables, headings, code blocks, prose), with the card's other elements, it read at least 358,000;
-# 40,000 characters of 40-character Chinese lines were taken at 323,000, so the budget errs short.
-CARD_COST_BUDGET = 300_000
-LINE_COST, BREAK_COST, MARK_COST, CELL_COST, CODE_LINE_COST = 200, 40, 150, 300, 70
-CARD_TOO_BIG = "200860"
-_MARKS = re.compile(r"\*\*|`|\]\(|<font|<at ")
-
-
-def _line_cost(line: str, fenced: bool) -> int:
-    """What one line adds to the card's size beyond its bytes."""
-    stripped = line.strip()
-    if not stripped:
-        return BREAK_COST
-    if fenced:
-        return CODE_LINE_COST
-    marks = _MARKS.findall(stripped)
-    cost = LINE_COST + MARK_COST * ((marks.count("**") + marks.count("`")) // 2
-                                    + sum(mark not in ("**", "`") for mark in marks))
-    return cost + (CELL_COST * max(0, stripped.count("|") - 1) if stripped.startswith("|") else 0)
-
-
-def text_cost(text: str) -> int:
-    """How much of CardKit's card size ``text`` takes as markdown: its UTF-8 bytes and its nodes."""
-    cost, fenced = len(text.encode("utf-8")), False
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
-            cost += LINE_COST
-        else:
-            cost += _line_cost(line, fenced)
-    return cost
-
-
-def card_cost(element: Any) -> int:
-    """``text_cost`` over a card or element: its JSON, and the nodes of every text in it."""
-    def nodes(value):
-        if isinstance(value, dict):
-            return sum(text_cost(child) - len(child.encode("utf-8")) if key == "content" and isinstance(child, str)
-                       else nodes(child) for key, child in value.items())
-        return sum(map(nodes, value)) if isinstance(value, list) else 0
-    return len(json.dumps(element, ensure_ascii=False).encode("utf-8")) + nodes(element)
 
 
 def _cut_to_cost(text: str, room: int) -> str:

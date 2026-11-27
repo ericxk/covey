@@ -38,6 +38,9 @@ class Messenger:
         self.patched.append((message_id, card))
         return True
 
+    def patch_or_tell(self, profile, message_id, card, **kwargs):  # feishu/messenger.py: patch_card, a line when it fails.
+        return self.patch_card(profile, message_id, card)
+
 
 class Case(unittest.TestCase):
     def setUp(self):

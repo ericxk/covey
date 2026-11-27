@@ -180,7 +180,7 @@ class AppSetup:
             return "app_setup_stale"
         if raw["kind"] == cards.SKIP:
             self.save(ctx, skipped=view.get("digest"))
-            self.messenger.patch_card(ctx.profile, message_id, cards.skipped_card(view))
+            self.messenger.patch_or_tell(ctx.profile, message_id, cards.skipped_card(view), voice=self.voice, what=f"「{cards.TITLE}」卡")
             self.runtime.log("app setup skipped by the owner")
             return "app_setup_skip"
         if not self.busy.acquire(blocking=False):
@@ -199,9 +199,9 @@ class AppSetup:
             self.run_console(ctx, message_id, view, review, folder)
         except Exception as exc:  # noqa: BLE001 - said on the card
             self.runtime.log(f"app setup run failed: {type(exc).__name__}: {str(exc)[:200]}")
-            self.messenger.patch_card(ctx.profile, message_id, cards.result_card({
+            self.messenger.patch_or_tell(ctx.profile, message_id, cards.result_card({
                 **view, "failed": {"words": "准备", "detail": f"{type(exc).__name__}"}, "steps": {},
-                "still": [n["id"] for n in view["offer"]]}))
+                "still": [n["id"] for n in view["offer"]]}), voice=self.voice, what=f"「{cards.TITLE}」卡")
         finally:
             if folder is not None:
                 remove(folder, self.runtime.log)  # The login copy, the QR, the screenshots.
@@ -220,16 +220,17 @@ class AppSetup:
         online, lacking, full = survey(ctx.profile, app_id)
         offer = app_manifest.offered(lacking, full, review=review)
         if not offer:
-            self.messenger.patch_card(ctx.profile, message_id, cards.result_card({**view, "offer": view["offer"],
-                                                                                   "still": [], "steps": {}}))
+            self.messenger.patch_or_tell(ctx.profile, message_id, cards.result_card({**view, "offer": view["offer"],
+                                                                                      "still": [], "steps": {}}),
+                                         voice=self.voice, what=f"「{cards.TITLE}」卡")
             self.runtime.log("app setup run: nothing is missing any more")
             return
         view = {**view, "offer": [need_dict(n) for n in offer], "version": online.get("version", ""),
                 "with_review": review}
         python = playwright_python()
         if python is None:
-            self.messenger.patch_card(ctx.profile, message_id, cards.unavailable_card(
-                view, f"没有装了 Playwright 的 Python（{PYTHON_ENV}）"))
+            self.messenger.patch_or_tell(ctx.profile, message_id, cards.unavailable_card(
+                view, f"没有装了 Playwright 的 Python（{PYTHON_ENV}）"), voice=self.voice, what=f"「{cards.TITLE}」卡")
             self.runtime.log("app setup run: no Playwright interpreter")
             return
         plan = app_manifest.plan(offer, remark=app_manifest.remark(offer))
@@ -242,8 +243,8 @@ class AppSetup:
         if cenv.get(CONSOLE_ENV, "").strip():
             argv += ["--console", cenv.get(CONSOLE_ENV).strip()]
         steps, state = {}, {"qr": False, "page": ""}
-        progress = lambda: self.messenger.patch_card(ctx.profile, message_id, cards.progress_card(
-            {**view, "steps": steps, **state}))
+        progress = lambda: self.messenger.patch_or_tell(ctx.profile, message_id, cards.progress_card(
+            {**view, "steps": steps, **state}), voice=self.voice, what=f"「{cards.TITLE}」卡")
         progress()
         outcome = self.follow(ctx, message_id, argv, folder, steps, state, progress)
         steps["check"] = "doing"
@@ -260,7 +261,7 @@ class AppSetup:
                 self.reply_image(ctx, message_id, Path(outcome["shot"]), folder)
         elif outcome.get("event") != "done":
             result["failed"] = {"words": "浏览器", "detail": outcome.get("detail") or "没有结果", "changed": []}
-        self.messenger.patch_card(ctx.profile, message_id, cards.result_card(result))
+        self.messenger.patch_or_tell(ctx.profile, message_id, cards.result_card(result), voice=self.voice, what=f"「{cards.TITLE}」卡")
         self.save(ctx, last_run={"at": utc_now_iso(), "outcome": outcome.get("event", ""), "still": still,
                                  "version": outcome.get("version", ""), "step": outcome.get("step", "")})
         self.runtime.log(f"app setup run outcome={outcome.get('event') or '-'} step={outcome.get('step') or '-'} "
