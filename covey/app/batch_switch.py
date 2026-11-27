@@ -42,7 +42,7 @@ from covey.core.harness import backend_capabilities
 from covey.core.locks import resource_lock
 from covey.core.process import is_owned, process_identity
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
-from covey.core.state import claim_once, keyed_json_path, read_object, write_json
+from covey.core.state import Unreadable, claim_once, keyed_json_path, read_for_write, read_object, write_json
 from covey.core.topics import topic_label, topic_title
 from covey.feishu.messenger import unsent_outcome
 from covey.feishu.transport import NOT_SENT
@@ -55,6 +55,8 @@ SENT = ("已在私聊发出批量换配置卡：{count} 个话题，主人点「
         "告诉主人确认卡在私聊里，别说已经换了。")
 UNCERTAIN_SENT = ("批量换配置卡可能已经发到私聊（飞书没有确认），什么都还没换。告诉主人去私聊找这张卡，找到就点「确认更换」；"
                   "找不到就请他再说一次，别说已经换了。")
+# What the tool says when the request's record is there but cannot be read now (core/state.py Unreadable): nothing written.
+UNREADABLE = "批量换配置的记录暂时读不出，什么都没换、也没发卡：稍后再说一次。"
 # What a row says when a switching stopped part way (``settled``): at a restart, and at an error that stopped ``switch_all``.
 LEFT_WHY = ("换的时候 Bridge 重启了，可能没换成：先在话题里看一眼，再点「再试没换的」",
             "Bridge 重启前还没轮到它，没有换：点「再试没换的」接着换")
@@ -209,7 +211,10 @@ def topics_switch(env, request):
         return reply(False, refused)
     token = request_token(request)
     target = path(env.state_dir, token)
-    record = read_object(target)
+    try:
+        record = read_for_write(target)
+    except Unreadable:
+        return reply(False, UNREADABLE)
     if record.get("answer"):
         return record["answer"]  # The same request: the card is out already.
     if not record.get("rows"):
@@ -245,30 +250,40 @@ def topics_switch(env, request):
         # It may have gone (rule 1): never sent again by itself; a click on it is the proof it went (``claim``).
         answer = reply(False, UNCERTAIN_SENT)
         if not finish(target, status="uncertain", answer=answer):
-            return read_object(target).get("answer") or sent_answer(read_object(target))
+            return taken(target, answer)
         env.runtime.log(f"batch switch card uncertain token={token[:12]}")
         return answer
     if not ok or not sent:
         # Surely not sent, or gone as Markdown (no card to click): the same request sends it again.
+        unsent = reply(False, "批量换配置卡没有发出去（飞书拒绝了卡片），什么都没换；可以稍后再试。")
         if not finish(target, status="failed"):
-            return read_object(target).get("answer") or sent_answer(read_object(target))
-        return reply(False, "批量换配置卡没有发出去（飞书拒绝了卡片），什么都没换；可以稍后再试。")
+            return taken(target, unsent)
+        return unsent
     answer = sent_answer(record)
     if not finish(target, status="pending", message_id=str(sent[0]), answer=answer):
-        return read_object(target).get("answer") or answer  # A click took the card first (``claim``).
+        return taken(target, answer)  # A click took the card first (``claim``).
     env.runtime.log(f"batch switch card sent token={token[:12]} topics={len(ready)} skipped={len(skipped)}")
     return answer
 
 
 def finish(target, **fields) -> bool:
     """The record at ``target`` given ``fields`` once its card's send is over, under its lock, while it is still ``sending``
-    (a click on the card may have taken it already, ``claim``): whether it was."""
+    (a click on the card may have taken it already, ``claim``): whether it was. Not when it cannot be read now (nothing
+    written over it)."""
     with resource_lock("batch-switch", target):
-        record = read_object(target)
+        try:
+            record = read_for_write(target)
+        except Unreadable:
+            return False
         if record.get("status") != "sending":
             return False
         save(target, {**record, **fields})
     return True
+
+
+def taken(target, answer) -> dict:
+    """The tool's answer when ``finish`` did not write: the record's own (a click took the card first), else ``answer``."""
+    return read_object(target).get("answer") or answer
 
 
 def numbered(state_dir, chat, names) -> dict:
@@ -342,7 +357,10 @@ class BatchSwitch:
         if not message_id:
             return None
         with resource_lock("batch-switch", target):
-            record = read_object(target)
+            try:
+                record = read_for_write(target)
+            except Unreadable:
+                return None
             if record.get("message_id") or record.get("status") not in ("sending", "uncertain") or not record.get("rows"):
                 return None
             record = {**record, "status": "pending", "message_id": message_id,
@@ -354,7 +372,7 @@ class BatchSwitch:
         """The record at ``target`` settled when it is ``running`` and its process is gone (``left``, ``settled``), its card
         redrawn: whether it was."""
         with resource_lock("batch-switch", target):
-            record = read_object(target)
+            record = read_for_write(target)  # Unreadable: left as it is (settle_all logs it; the next click tries again).
             if record.get("status") != "running" or not left(record):
                 return False
             record = settled(record)
@@ -379,7 +397,11 @@ class BatchSwitch:
         """What the click does, run after its acknowledgement: the outcome ('cancelled', 'switched', 'ignored')."""
         try:
             with resource_lock("batch-switch", target):
-                record = read_object(target)
+                try:
+                    record = read_for_write(target)
+                except Unreadable as exc:  # Nothing written: the card is redrawn as it was.
+                    self.runtime.log(f"batch switch record unreadable token={token[:12]}: {exc}"[:300])
+                    record = {}
                 if record.get("status") == "running" and left(record):
                     # Its switching stopped with its process (``busy`` keeps this one's own click off): settled first,
                     # so 再试没换的 goes on with it.
@@ -414,7 +436,7 @@ class BatchSwitch:
 
     def put_row(self, target, index, **fields) -> dict:
         with resource_lock("batch-switch", target):
-            record = read_object(target)
+            record = read_for_write(target)  # Unreadable stops switch_all: never a row written into an empty record.
             record["rows"][index] = {**record["rows"][index], **fields}
             save(target, record)
         return record
@@ -435,10 +457,14 @@ class BatchSwitch:
         finally:
             # Never left ``running``: what an error stopped part way is settled as a restart is.
             with resource_lock("batch-switch", target):
-                record = read_object(target)
-                if record.get("status") == "running":
-                    record = settled(record, BROKEN_WHY)
-                    save(target, record)
+                try:
+                    now = read_for_write(target)
+                except Unreadable:
+                    now = {}  # Nothing written; the card is drawn from what this switching knows.
+                if now.get("status") == "running":
+                    now = settled(now, BROKEN_WHY)
+                    save(target, now)
+                record = now or record
             try:  # Its card says what came of it, an error that stopped it included.
                 self.paint(ctx, record)
             except Exception as exc:  # noqa: BLE001 - the record says it; the next click redraws it

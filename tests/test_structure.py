@@ -1395,8 +1395,17 @@ def state_writes(source, rel):
     """[(``rel:function``, line)] of the functions of ``source`` (methods as ``Class.method``; nested functions count as
     their outer one's) that read a record for a write: before a write in the same function, a record read
     (``_record_read``) of the path it writes, a call of a reader of this module (a top-level function with a record read
-    and no write) on the names that path is made of, or ``{**read_object(...)}``."""
+    and no write) on the names that path is made of, or ``{**read_object(...)}``. A writer of this module (a top-level
+    function that writes the path one of its arguments gives, ``save(target, record)``) counts as a write of that path."""
     tree = ast.parse(source)
+    writers = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            params = [a.arg for a in node.args.args]
+            for c in ast.walk(node):
+                if isinstance(c, ast.Call) and _called(c.func) in STATE_WRITES and c.args \
+                        and isinstance(c.args[0], ast.Name) and c.args[0].id in params:
+                    writers[node.name] = params.index(c.args[0].id)
     readers = set()
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -1407,10 +1416,13 @@ def state_writes(source, rel):
 
     def check(func, name):
         calls = [n for n in ast.walk(func) if isinstance(n, ast.Call)]
-        written = [c for c in calls if _called(c.func) in STATE_WRITES and c.args]
+        direct = [c for c in calls if _called(c.func) in STATE_WRITES and c.args]
+        wrapped = [c for c in calls if isinstance(c.func, ast.Name) and c.func.id in writers and c.func.id != func.name
+                   and len(c.args) > writers[c.func.id]]
+        written = direct + wrapped
         if not written:
             return
-        writes = [c.args[0] for c in written]
+        writes = [c.args[0] for c in direct] + [c.args[writers[c.func.id]] for c in wrapped]
         last = max(c.end_lineno for c in written)  # A read after every write (a fallback, a reply) writes nothing back.
         calls = [c for c in calls if c.lineno <= last]
         local = {}
@@ -1500,9 +1512,14 @@ class StateWriteTest(unittest.TestCase):
                     def change():
                         write_json(path, found)
                     change()
+            def store(target, record):
+                write_json(target, record, indent=2)
+            def by_writer(target):
+                record = read_object(target)
+                store(target, {**record, "c": 3})
         ''')
         self.assertEqual([name for name, _ in state_writes(bad, "x.py")],
-                         ["x.py:plain", "x.py:by_name", "x.py:by_reader", "x.py:spread", "x.py:Panel.save"])
+                         ["x.py:plain", "x.py:by_name", "x.py:by_reader", "x.py:spread", "x.py:Panel.save", "x.py:by_writer"])
         good = textwrap.dedent('''
             from covey.core.state import read_for_write, read_json, read_object, update_json, write_json
             def plain(state_dir):

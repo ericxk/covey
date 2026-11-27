@@ -290,6 +290,27 @@ class MidStateTest(BatchCase):
         self.assertEqual(self.switch(), record["answer"])  # The same request again: the card is out, none sent.
         self.assertEqual(self.app.messenger.send_message.call_count, 1)
 
+    def test_a_record_that_cannot_be_read_now_is_never_written_over(self):
+        """G1 (W1-F): a torn record read as {} was a new request (a card again) or a click on nothing written over it."""
+        self.switch()
+        token = self.record()["token"]
+        target = batch_switch.path(self.ctx.state_dir, token)
+        body = target.read_bytes()
+        target.write_bytes(body[: len(body) // 2])
+        torn = target.read_bytes()
+        answer = self.switch()
+        self.assertFalse(answer["ok"])
+        self.assertIn("暂时读不出", json.dumps(answer, ensure_ascii=False))
+        self.assertEqual(self.app.messenger.send_message.call_count, 1)  # No second card.
+        event = {"event_id": "e-torn", "message_id": "om_batch", "chat_id": CHAT}
+        self.assertEqual(self.app.batch_switch.claim(self.ctx, event, {"kind": cards.CONFIRM, "batch": token}, True),
+                         "batch_switch_stale")
+        self.assertEqual(self.app.batch_switch.decide(self.ctx, target, cards.CONFIRM, token), "ignored")
+        self.assertEqual(self.app.batch_switch.adopt(target, "om_batch"), None)
+        self.assertEqual(batch_switch.finish(target, status="pending"), False)
+        self.assertEqual(target.read_bytes(), torn)
+        self.assertEqual([self.harness(0), self.harness(1)], [self.before, self.before])
+
     def test_a_card_feishu_refused_is_failed_and_the_same_request_sends_it_again_under_its_key(self):
         refused = mock.Mock(return_value=False)
         self.app.messenger.send_message, self.app.messenger.last_outcome = refused, mock.Mock(return_value="not_sent")
