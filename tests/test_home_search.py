@@ -10,15 +10,17 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from support import make_context
+from support import exec_tempdir, make_context
 from covey.backends.claude import argv as claude_argv
 from covey.backends.claude import tool_guard
 from covey.backends.claude.bridge import ClaudeBackend
+from covey.core import home as covey_home
 from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
 
 
@@ -102,7 +104,7 @@ class HomeSearchTests(unittest.TestCase):
     # A recursive search with no depth limit whose target is the home (or above it).
     REFUSED = (
         'rg foo', 'rg --files', 'rg -n "a b" .', 'rg -uuu foo', 'rg foo *', 'rg -g "*.py" foo', 'ripgrep foo',
-        'grep -rn foo .', 'grep -r foo', 'grep -R --include=*.py foo', 'egrep -Ri x', 'cat x | grep -r foo',
+        'grep -rn foo .', 'grep --directories=recurse foo', 'grep -d recurse foo', 'grep -r foo', 'grep -R --include=*.py foo', 'egrep -Ri x', 'cat x | grep -r foo',
         'find .', 'find', 'find . -name "*.py"', 'find -L . -type f', 'ls -R', 'ls -laR .', 'ls --recursive',
         'du -sh .', 'du -sh *', 'du -d 1', 'du --max-depth=1 .', 'tree', 'tree -a', 'fd py', 'fd -e py', 'fdfind x',
         'rg foo $COVEY_HOME', 'rg foo "${COVEY_HOME}"', 'find / -name libfoo.so', 'rg foo ..',
@@ -246,6 +248,197 @@ class HomeSearchHookTests(unittest.TestCase):
                 self.assertEqual(bool(done.stderr.strip()), expected == 2)
         done = subprocess.run(command, input='garbage', capture_output=True, text=True, timeout=60, cwd=self.home)
         self.assertEqual(done.returncode, 0)
+
+
+SHIM_BIN = Path(__file__).resolve().parents[1] / 'bin'
+
+
+class SearchShimTests(unittest.TestCase):
+    """The search shims in <数据根>/bin (core/home.py ``ensure_shim``, ``SEARCH_SHIM_TEXT``) run for real, in front of fake
+    programs of the same names: the home and the fake home are made in a directory that may be executed."""
+
+    def setUp(self):
+        tmp = exec_tempdir()
+        self.addCleanup(tmp.cleanup)
+        root = Path(os.path.realpath(tmp.name))
+        self.home, self.data, self.real = root / 'home', root / 'data', root / 'real'
+        for folder in (self.home / 'repo' / 'sub', self.home / 'data-dir', self.real, root / 'elsewhere'):
+            folder.mkdir(parents=True)
+        (self.home / 'repo' / 'a.txt').write_text('x\n')
+        for name in covey_home.SEARCH_SHIMS:
+            fake = self.real / name
+            fake.write_text(f'#!/bin/sh\necho "REAL {name} $*"\n')
+            fake.chmod(0o755)
+        covey_home.ensure_shim(self.data, tool_bin=SHIM_BIN)
+        self.bin = self.data / 'bin'
+        self.path = os.pathsep.join([str(self.bin), str(self.real), '/usr/bin', '/bin'])
+
+    def shim(self, command, cwd=None, *, env=None, stdin=None, path=None):
+        """``command`` (one shim name and its words) in a sh, as a Harness's shell would run it."""
+        env = {'PATH': path or self.path, 'COVEY_HOME': str(self.home), **(env or {})}
+        env = {key: value for key, value in env.items() if value is not None}
+        return subprocess.run(['/bin/sh', '-c', command], cwd=str(cwd or self.home), env=env, timeout=60,
+                              stdin=stdin if stdin is not None else subprocess.DEVNULL,
+                              capture_output=True, text=True)
+
+    def assertRefused(self, done):
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertEqual(done.stdout, '')
+        self.assertEqual(len(done.stderr.strip().splitlines()), 1, done.stderr)
+        self.assertIn('递归扫整个主目录', done.stderr)
+
+    def assertRan(self, done, name):
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.startswith(f'REAL {name}'), done.stdout)
+
+    def test_the_shims_are_written_for_the_search_commands_and_are_valid_sh(self):
+        self.assertEqual(sorted(path.name for path in self.bin.iterdir()), sorted(['covey', *covey_home.SEARCH_SHIMS]))
+        for name in covey_home.SEARCH_SHIMS:
+            shim = self.bin / name
+            self.assertTrue(shim.stat().st_mode & 0o100, name)
+            self.assertEqual(subprocess.run(['/bin/sh', '-n', str(shim)], capture_output=True).returncode, 0)
+            self.assertIn(f'"{SHIM_BIN}/covey_tool_guard.py"', shim.read_text())
+            self.assertIn(covey_home.SHIM_MARK, shim.read_text())
+        bash = subprocess.run(['bash', '-n', str(self.bin / 'rg')], capture_output=True)
+        self.assertEqual(bash.returncode, 0, bash.stderr)
+
+    def test_a_search_of_the_whole_home_is_refused_with_one_line_and_exit_2(self):
+        for command in ('rg x', 'rg x .', f'rg x {self.home}', 'rg --files', 'find', f'find {self.home}', 'find . -name x',
+                        f'du -sh {self.home}', 'du -sh .', 'tree', 'fd x', 'ls -R', f'ls -lR {self.home}',
+                        'ls --recursive', 'grep -r x .', 'grep -rn x', f'grep -R x {self.home}', 'grep -d recurse x',
+                        'grep --directories=recurse x', 'rg x ..'):
+            with self.subTest(command=command):
+                self.assertRefused(self.shim(command))
+        self.assertRefused(self.shim('cd .. && rg x', cwd=self.home / 'repo'))
+        self.assertRefused(self.shim(f'rg x {self.home.parent}', cwd=self.home / 'repo'))
+        self.assertRefused(self.shim('cd ' + str(self.home) + ' && rg x'))
+
+    def test_a_search_of_a_repository_a_depth_limit_or_not_a_search_runs_the_real_program(self):
+        for command, name in (('rg x repo', 'rg'), (f'rg x {self.home}/repo', 'rg'), ('find repo -name x', 'find'),
+                              ('find . -maxdepth 2', 'find'), ('rg --max-depth 2 x', 'rg'), ('tree -L 2', 'tree'),
+                              ('fd -d 2 x', 'fd'), ('ls', 'ls'), ('ls -la', 'ls'), ('ls -R repo', 'ls'),
+                              ('grep x a.txt', 'grep'), ('grep -c x a.txt', 'grep'), ('du -sh repo', 'du'),
+                              ('rg --version', 'rg'), ('grep -r x repo', 'grep')):
+            with self.subTest(command=command):
+                self.assertRan(self.shim(command), name)
+        for command, name in (('rg x', 'rg'), ('rg x .', 'rg'), ('find . -name x', 'find'), ('grep -rn x', 'grep'),
+                              ('ls -R', 'ls'), ('du -sh .', 'du'), (f'rg x {self.home}/repo/sub', 'rg')):
+            with self.subTest(command=command, cwd='repo'):
+                self.assertRan(self.shim(command, cwd=self.home / 'repo'), name)
+        self.assertRan(self.shim('rg x', cwd=self.data), 'rg')  # Another directory entirely.
+        self.assertRan(self.shim('rg x', cwd=self.home / 'data-dir'), 'rg')
+
+    def test_the_real_program_gets_its_arguments_untouched(self):
+        done = self.shim("rg 'a b' 'c d' --max-depth 2")
+        self.assertEqual(done.stdout.strip(), 'REAL rg a b c d --max-depth 2')
+
+    def test_what_a_pipe_or_a_file_feeds_to_rg_is_not_a_search_of_the_home(self):
+        done = self.shim('rg x', stdin=subprocess.PIPE)  # Overridden below: a real pipe with data.
+        done = subprocess.run(['/bin/sh', '-c', 'echo hello | rg hello'], cwd=str(self.home), timeout=60, text=True,
+                              env={'PATH': self.path, 'COVEY_HOME': str(self.home)}, capture_output=True)
+        self.assertRan(done, 'rg')
+        done = subprocess.run(['/bin/sh', '-c', 'rg hello < repo/a.txt'], cwd=str(self.home), timeout=60, text=True,
+                              env={'PATH': self.path, 'COVEY_HOME': str(self.home)}, capture_output=True)
+        self.assertRan(done, 'rg')
+        self.assertRefused(self.shim('rg hello'))  # No stdin data (/dev/null): it walks the directory.
+
+    def test_without_covey_home_every_command_runs_as_it_is(self):
+        for command, name in (('rg x', 'rg'), ('find .', 'find'), ('ls -R', 'ls'), ('grep -r x .', 'grep')):
+            with self.subTest(command=command):
+                self.assertRan(self.shim(command, env={'COVEY_HOME': None}), name)
+                self.assertRan(self.shim(command, env={'COVEY_HOME': ''}), name)
+
+    def test_a_fault_in_the_shim_lets_the_real_program_run(self):
+        fake = self.data / 'release' / 'bin'
+        fake.mkdir(parents=True)
+        for body in ('raise SystemExit(2)\n', 'raise RuntimeError("boom")\n', 'import sys; sys.exit(1)\n', ''):
+            with self.subTest(guard=body):
+                (fake / 'covey_tool_guard.py').write_text(body)
+                covey_home.ensure_shim(self.data, tool_bin=fake, force=True)
+                self.assertRan(self.shim('rg x'), 'rg')
+                self.assertRan(self.shim('find .'), 'find')
+        (fake / 'covey_tool_guard.py').unlink()  # The release's bin/ is gone.
+        self.assertRan(self.shim('rg x'), 'rg')
+        covey_home.ensure_shim(self.data, tool_bin=SHIM_BIN, force=True)
+        text = (self.bin / 'rg').read_text().replace(sys.executable, str(self.data / 'no-such-python'))
+        (self.bin / 'rg').write_text(text)  # An interpreter that does not start.
+        self.assertRan(self.shim('rg x'), 'rg')
+        self.assertEqual(self.shim('rg x', path=str(self.bin)).returncode, 127)  # Nothing real to run.
+
+    def test_the_real_program_is_looked_for_past_the_shim_directory_however_it_is_in_path(self):
+        link = self.data / 'link-bin'
+        link.symlink_to(self.bin)
+        twice = os.pathsep.join([str(self.bin), str(link), str(self.bin) + '/', '', str(self.real), '/bin'])
+        for path in (twice, os.pathsep.join([str(self.real), str(self.bin)]), str(link) + os.pathsep + str(self.real)):
+            with self.subTest(path=path):
+                self.assertRan(self.shim('rg x repo', path=path), 'rg')
+        done = self.shim('rg x repo', path=os.pathsep.join([str(self.bin), str(link)]))
+        self.assertEqual(done.returncode, 127, done.stderr)  # No loop: the shim only.
+        self.assertRan(subprocess.run([str(link / 'rg'), 'x', 'repo'], cwd=str(self.home), timeout=60, text=True,
+                                      capture_output=True, env={'PATH': twice, 'COVEY_HOME': str(self.home)}), 'rg')
+
+    def test_the_shim_dir_not_in_path_still_finds_the_real_program(self):
+        done = subprocess.run([str(self.bin / 'rg'), 'x', 'repo'], cwd=str(self.home), timeout=60, text=True,
+                              capture_output=True, env={'PATH': f'{self.real}:/bin', 'COVEY_HOME': str(self.home)})
+        self.assertRan(done, 'rg')
+
+    def test_a_deploy_rewrites_the_shims_and_a_foreign_file_is_left_alone(self):
+        foreign = self.bin / 'tree'
+        foreign.write_text('#!/bin/sh\necho mine\n')
+        old = self.data / 'rel1' / 'bin'
+        old.mkdir(parents=True)
+        (old / 'covey_tool_guard.py').write_text('')
+        covey_home.ensure_shim(self.data, tool_bin=old, force=True)
+        self.assertIn(f'"{old}/covey_tool_guard.py"', (self.bin / 'rg').read_text())
+        self.assertEqual(foreign.read_text(), '#!/bin/sh\necho mine\n')
+        (self.bin / 'rg').unlink()
+        covey_home.ensure_shim(self.data, tool_bin=SHIM_BIN)  # A missing one is written again, the others kept.
+        self.assertIn(f'"{SHIM_BIN}/covey_tool_guard.py"', (self.bin / 'rg').read_text())
+        self.assertIn(f'"{old}/covey_tool_guard.py"', (self.bin / 'find').read_text())
+        (old / 'covey_tool_guard.py').unlink()
+        covey_home.ensure_shim(self.data, tool_bin=SHIM_BIN)  # Its release is gone: rewritten.
+        self.assertIn(f'"{SHIM_BIN}/covey_tool_guard.py"', (self.bin / 'find').read_text())
+
+
+class ShimModeTests(unittest.TestCase):
+    """main in its shim mode (backends/claude/tool_guard.py ``shim_main``): the rule is the home-search one."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.home = os.path.realpath(tmp.name)
+        os.makedirs(os.path.join(self.home, 'repo'))
+
+    def run_shim(self, *words, cwd=None, home=None, stdin='/dev/null'):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {'COVEY_HOME': self.home if home is None else home}), \
+                mock.patch('os.getcwd', return_value=cwd or self.home), contextlib.redirect_stderr(err), \
+                mock.patch('os.fstat', return_value=os.stat(stdin)):
+            code = tool_guard.main(['--mode', 'shim', *words])
+        return code, err.getvalue()
+
+    def test_it_refuses_with_the_code_the_shim_turns_into_2_and_one_line(self):
+        for words in (('rg', 'x'), ('find',), ('du', '-sh'), ('ls', '-R'), ('grep', '-rn', 'x'), ('fd', 'x'), ('tree',)):
+            with self.subTest(words=words):
+                code, said = self.run_shim(*words)
+                self.assertEqual(code, tool_guard.SHIM_REFUSED)
+                self.assertEqual(len(said.strip().splitlines()), 1)
+        self.assertEqual(self.run_shim('rg', 'x', cwd=os.path.join(self.home, 'repo'))[0], 0)
+        self.assertEqual(self.run_shim('find', '.', '-maxdepth', '2')[0], 0)
+        self.assertEqual(self.run_shim('ls')[0], 0)
+        self.assertEqual(self.run_shim('rg', 'x', home='')[0], 0)
+        self.assertEqual(self.run_shim('rg', 'x', stdin=self.home)[0], tool_guard.SHIM_REFUSED)  # A directory is no input.
+        self.assertEqual(self.run_shim('rg', 'x', stdin=os.path.join(self.home, '..'))[0], tool_guard.SHIM_REFUSED)
+        os.mkfifo(os.path.join(self.home, 'fifo'))
+        self.assertEqual(self.run_shim('rg', 'x', stdin=os.path.join(self.home, 'fifo'))[0], 0)  # A pipe is: ``… | rg x``.
+
+    def test_what_goes_wrong_lets_it_run(self):
+        with mock.patch.object(tool_guard, 'searcher_targets', side_effect=RuntimeError('boom')):
+            self.assertEqual(self.run_shim('rg', 'x'), (0, ''))
+        with mock.patch.object(tool_guard, 'shim_refusal', side_effect=RuntimeError('boom')):
+            self.assertEqual(self.run_shim('rg', 'x'), (0, ''))
+        self.assertEqual(self.run_shim(), (0, ''))
+        self.assertEqual(self.run_shim('cat', 'x'), (0, ''))
 
 
 if __name__ == '__main__':

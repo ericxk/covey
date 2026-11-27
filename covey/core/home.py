@@ -7,7 +7,8 @@ mark (``SEED_MARK``) that says so. ``home.json`` holds the templates of a topic'
 whether the Harness's cache variables point into the run directory; a taken-over home without one shows no outputs
 directory (its own AGENTS.md says where outputs go). ``env`` is what every Harness process gets: ``COVEY_HOME``,
 ``COVEY_TOPIC``, ``COVEY_STATE`` and ``<数据根>/bin`` (where ``ensure_shim`` puts the ``covey`` command) first on
-``PATH``.
+``PATH``. Next to it ``ensure_shim`` writes the search shims (``SEARCH_SHIMS``): ``rg``, ``find``, ``du`` ... that refuse a
+recursive search of the whole home for every Harness (docs/harnesses.md 主目录搜索垫片).
 """
 from __future__ import annotations
 
@@ -27,6 +28,8 @@ RUN_SCOPES = ("topic_day", "turn")
 TEMPLATE_VARS = ("home", "date", "no", "slug", "topic8", "run")
 SEED_MARK = ".covey-home"  # In a home Covey made (seed_home); a taken-over directory never gets one.
 SHIM = "covey"  # <数据根>/bin/covey: ``covey repo …`` and ``covey memory …`` (ensure_shim).
+SEARCH_SHIMS = ("rg", "find", "fd", "du", "tree", "grep", "ls")  # <数据根>/bin/<name>: the search shims (SEARCH_SHIM_TEXT).
+SHIM_MARK = "Covey 的搜索垫片"  # In every search shim: ensure_shim never overwrites a file without it.
 SLUG_CHARS = 24
 CACHE_VARS = ("TMPDIR", "XDG_CACHE_HOME", "PIP_CACHE_DIR", "UV_CACHE_DIR", "npm_config_cache")
 # The home's AGENTS.md (and CLAUDE.md, the same text) in a home Covey made: ≤60 lines, the home's few rules.
@@ -203,6 +206,58 @@ def cache_env(run_dir) -> dict:
             "UV_CACHE_DIR": cache + "/uv", "npm_config_cache": cache + "/npm"}
 
 
+SEARCH_SHIM_TEXT = """#!/bin/sh
+# Covey 的搜索垫片（Covey 生成，升级时重写）：Harness 进程的 PATH 里，这个目录在最前。
+# 不限深度地递归搜索主目录（或它的上级）时拒绝；别的命令、判定出错、解释器起不来，一律原样执行真程序。
+name=${0##*/}
+shimdir=${0%/*}
+quick=0
+real() {
+  oifs=$IFS
+  IFS=:
+  for d in $PATH; do
+    [ -n "$d" ] || d=.
+    [ "$d" = "$shimdir" ] && continue
+    [ -f "$d/$name" ] && [ -x "$d/$name" ] || continue
+    [ "$d/$name" -ef "$0" ] && continue
+    IFS=$oifs
+    exec "$d/$name" "$@"
+  done
+  IFS=$oifs
+  echo "$name: command not found" >&2
+  exit 127
+}
+[ -n "$COVEY_HOME" ] || real "$@"
+[ -f "{bin}/covey_tool_guard.py" ] || real "$@"
+case "$name" in
+  grep) skip=1
+    for a; do case "$a" in --recursive|--dereference-recursive|--directories=recurse|recurse) skip=0 ;; --*) ;; -*[rR]*|-d*) skip=0 ;; esac; done
+    [ "$skip" = 1 ] && real "$@" ;;
+  ls) skip=1
+    for a; do case "$a" in --recursive) skip=0 ;; --*) ;; -*R*) skip=0 ;; esac; done
+    [ "$skip" = 1 ] && real "$@" ;;
+esac
+h=$(cd -P -- "$COVEY_HOME" 2>/dev/null && pwd -P)
+if [ -n "$h" ]; then
+  # Python is for what the text alone cannot settle: a start directory that is the home or above it, or a path that is.
+  here=$(pwd -P)
+  case "$h/" in "$here"/*) ;; *) quick=1 ;; esac
+  [ "$here" = / ] && quick=0
+  for a; do
+    case "$a" in
+      /*//*|/*/.|/*/./*|*..*|~*|*=/*|*\\$*) quick=0 ;;
+      "$h"/?*) ;;
+      /*) quick=0 ;;
+    esac
+  done
+  [ "$quick" = 1 ] && real "$@"
+fi
+"{python}" -I -S -B "{bin}/covey_tool_guard.py" --mode shim "$name" "$@"
+[ "$?" = 3 ] && exit 2
+real "$@"
+"""
+
+
 def bin_dir(root=None) -> Path:
     """``<数据根>/bin``: the ``covey`` command (``ensure_shim``), first on every Harness process's ``PATH``."""
     return Path(root or data_home()) / "bin"
@@ -212,27 +267,47 @@ def shim_text(tool_bin=None, python=None) -> str:
     return SHIM_TEXT.format(python=python or _python(), bin=str(tool_bin or BIN_DIR))
 
 
+def search_shim_text(tool_bin=None, python=None) -> str:
+    # Not ``format``: the sh text is full of ``${...}``.
+    return SEARCH_SHIM_TEXT.replace("{python}", python or _python()).replace("{bin}", str(tool_bin or BIN_DIR))
+
+
 def _python() -> str:
     import sys
     return sys.executable or "python3"
 
 
 def ensure_shim(root=None, *, tool_bin=None, force=False) -> Path | None:
-    """Write ``<数据根>/bin/covey`` (``SHIM_TEXT``) naming this release's bin/ when it is missing, names a bin/ that is
-    gone, or ``force`` (a deploy points it at the new release). The path; None when it cannot be written."""
-    target = bin_dir(root) / SHIM
+    """Write ``<数据根>/bin/covey`` (``SHIM_TEXT``) and the search shims (``SEARCH_SHIMS``, ``SEARCH_SHIM_TEXT``) naming
+    this release's bin/ when one is missing, names a bin/ that is gone, or ``force`` (a deploy points them at the new
+    release). A file in bin/ without ``SHIM_MARK`` that is not ``covey`` is never overwritten. The ``covey`` path; None
+    when it cannot be written (a search shim that cannot be is skipped: the search is then just not guarded)."""
     tool_bin = Path(tool_bin or BIN_DIR)
+    target = bin_dir(root) / SHIM
     try:
-        if not force and target.is_file():
-            named = re.search(r'"([^"]+)/covey_repo\.py"', target.read_text(encoding="utf-8"))
-            if named and Path(named.group(1), "covey_repo.py").is_file():
-                return target
-        target.parent.mkdir(parents=True, exist_ok=True)
-        write_private_text(target, shim_text(tool_bin))
-        target.chmod(0o755)
+        _write_shim(target, shim_text(tool_bin), tool_bin, "covey_repo.py", force)
     except OSError:
         return None
+    for name in SEARCH_SHIMS:
+        try:
+            _write_shim(target.parent / name, search_shim_text(tool_bin), tool_bin, "covey_tool_guard.py", force,
+                        mark=SHIM_MARK)
+        except OSError:
+            continue
     return target
+
+
+def _write_shim(target, text, tool_bin, script, force, mark="") -> None:
+    if target.exists() and not target.is_symlink() and mark:
+        if mark not in target.read_text(encoding="utf-8", errors="replace"):
+            return  # Not ours.
+    if not force and target.is_file():
+        named = re.search(r'"([^"]+)/' + re.escape(script) + '"', target.read_text(encoding="utf-8", errors="replace"))
+        if named and Path(named.group(1), script).is_file():
+            return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_private_text(target, text)
+    target.chmod(0o755)
 
 
 TURN_ENV = ("COVEY_HOME", "COVEY_TOPIC", "COVEY_STATE")  # What ``env`` adds for a turn: never a service's setting.

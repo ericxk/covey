@@ -37,11 +37,16 @@ one of those, ``xargs`` of one, a git command that writes (``commit``, ``checkou
 runs). What a program writes by itself (a script, ``python -c``) it cannot see: docs/harnesses.md and tests/test_matrix.py
 list that as the shell's limit. Anything that goes wrong in here refuses the call.
 
+``shim`` (``shim_main``; ``--mode shim <命令名> <参数…>``): not a hook but what the search shims in ``<数据根>/bin``
+(core/home.py ``SEARCH_SHIMS``: ``rg``, ``find``, ``fd``, ``du``, ``tree``, ``grep``, ``ls``) ask before they run the real
+program, so every Harness's shell command gets the home-search rule, not only Claude Code's. The home is ``$COVEY_HOME``,
+the start directory the cwd; the same ``searcher_targets``/``find_targets``/``covers_home``. Exit ``SHIM_REFUSED`` with one
+line on stderr for a search of the whole home, 0 otherwise, and 0 for any fault. Input from a pipe or a file (fd 0) is what
+``rg <词>`` then searches. Programs searching inside themselves (``os.walk``) never reach it.
+
 Standard library only."""
 from __future__ import annotations
 
-import argparse
-import json
 import os
 import re
 import shlex
@@ -316,7 +321,7 @@ def searcher_targets(name, words, cwd, home, *, stdin=False):
     if options & spec["idle"] or options & spec["depth"]:
         return []
     if not spec["always"] and not (options & {"-" + c for c in spec["recursive"]} or options & spec["recursive_long"]
-                                   or "-d" in options and _value(words, "-d", "--directories") == "recurse"):
+                                   or bool(options & {"-d", "--directories"}) and _value(words, "-d", "--directories") == "recurse"):
         return []
     paths = positionals if options & spec["given"] else positionals[spec["first"]:]
     if name == "fd":
@@ -615,7 +620,9 @@ def search_refusal(call, home) -> str:
 # ---- look: a LOOK turn on this machine (module docstring) ----
 
 LOOK_MODE = "look"
-MODES = (PROXY_MODE, HOME_SEARCH, LOOK_MODE)
+SHIM_MODE = "shim"
+MODES = (PROXY_MODE, HOME_SEARCH, LOOK_MODE, SHIM_MODE)
+SHIM_REFUSED = 3  # The exit code of ``shim_main`` for a search it refuses (the shim turns it into 2; Python's own 1 and 2 are faults).
 LOOK_HOOKED = ("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")
 # Programs that write each of their path arguments (``first`` leading ones are not paths: chmod's mode, chown's owner).
 WRITES_EACH = {"rm": 0, "rmdir": 0, "unlink": 0, "touch": 0, "mkdir": 0, "truncate": 0, "shred": 0, "chmod": 1,
@@ -858,8 +865,49 @@ def look_refusal(call, allow_file, allow_dir) -> str:
     return ""
 
 
+def shim_refusal(name, words, cwd, home, *, stdin=False) -> str:
+    """Why the command ``name`` (a search shim's, core/home.py ``SEARCH_SHIMS``) with ``words`` run in ``cwd`` would walk
+    all of ``home`` unbounded; '' when it would not or when it cannot tell (any error included)."""
+    try:
+        if not home or not cwd:
+            return ""
+        name = ALIASES.get(name, name)
+        if name == "find":
+            targets = find_targets(words, cwd, home)
+        elif name in SEARCHERS:
+            targets = searcher_targets(name, words, cwd, home, stdin=stdin)
+        else:
+            return ""
+        if any(target and covers_home(target, home) for target in targets):
+            return SEARCH_WORDS.format(what=f"`{name}`", home=home, fix=SHELL_FIX)
+    except Exception:  # noqa: BLE001 - the shim lets through what it cannot read
+        return ""
+    return ""
+
+
+def shim_main(argv) -> int:
+    """``--mode shim <命令名> <参数…>`` (the search shims in <数据根>/bin, core/home.py): the home is ``$COVEY_HOME``, the
+    directory the process's cwd. ``SHIM_REFUSED`` (the reason on stderr) to refuse, 0 to run it; a fault never refuses."""
+    try:
+        import stat
+        home, cwd = os.environ.get("COVEY_HOME", ""), os.getcwd()
+        mode = os.fstat(0).st_mode
+        fed = stat.S_ISFIFO(mode) or stat.S_ISREG(mode) or stat.S_ISSOCK(mode)  # What rg takes for input to search.
+        reason = shim_refusal(argv[0], argv[1:], cwd, home, stdin=fed) if argv else ""
+    except Exception:  # noqa: BLE001
+        return 0
+    if reason:
+        print(reason, file=sys.stderr)
+        return SHIM_REFUSED
+    return 0
+
+
 def main(argv=None, stdin=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:2] == ["--mode", SHIM_MODE]:  # Its arguments are another command's: argparse must not read them.
+        return shim_main(argv[2:])
+    import argparse  # Not at the top: a search shim starts this module on every ``rg`` and wants it light.
+    import json
     parser = argparse.ArgumentParser(prog="covey_tool_guard.py",
                                      description="Claude Code's PreToolUse hook: the call's JSON on stdin, exit 2 refuses it.")
     parser.add_argument("--mode", choices=MODES, default=PROXY_MODE,

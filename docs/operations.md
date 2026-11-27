@@ -489,6 +489,7 @@ python3 -B bin/covey_maintenance.py --restore /absolute/bridge-NNN.tar.gz --dest
 
 防止搜索命令吃满机器内存：一个递归遍历 NAS 的 `rg --files` 能在几分钟内占到上百 GiB。看门狗是 `covey/service/memguard.py`，只用标准库，告警由 Bridge 的 `app/memguard_alerts.py` 发。
 
+- 看门狗是事后兜底；事前有[主目录搜索垫片](harnesses.md#执行权限)：`<数据根>/bin` 里的 `rg`、`find`、`fd`、`du`、`tree`、`grep -r`、`ls -R` 在每个本机 Harness 进程里拒绝不限深度地递归搜整个主目录（出错放行，程序自己递归的拦不住）。
 - `enable` 把它复制到本地盘（`~/.local/libexec/lark-bridge/memguard.py`）后从那里运行，NAS 卡住时照常工作。
 - 监督进程（`daemon`，abstract socket 保证一台机器一份）拉起工作进程（`run`）：工作进程退出就重启，心跳停 90 秒就替换，监督进程没了它也退出。
 - Manager 每 30 秒看一次，已启用而没在运行时拉起它（最多每分钟一次），所以机器重启后它随 Manager 启动。

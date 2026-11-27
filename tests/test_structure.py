@@ -712,9 +712,10 @@ class InventoryTest(unittest.TestCase):
     def test_settings_are_read_through_core_env_so_the_old_names_work_too(self):
         """T778: core/memory.py read COVEY_MEMORY from os.environ alone, and a service whose Manager starts it with the
         manifest's names (LARK_BRIDGE_MEMORY) had no memory at all. A setting is read through core/env.py get, which knows
-        both spellings; these two are not a manifest's (set by the node's own hook) or read both names themselves."""
+        both spellings; these are not a manifest's (set by the node's own hook, or by Covey for the Harness process) or read both names themselves."""
         direct = re.compile(r"""(?:(?:os\.environ|environ)\)?(?:\.get\(|\[)|os\.getenv\()\s*(?:["']COVEY_|[A-Z_]*ENV\b)""")
-        allowed = {("covey/core/node_agent.py", "COVEY_NODE_AUTOSTART"), ("covey/service/browser_setup.py", "COVEY_BROWSER_EXECUTABLE")}
+        allowed = {("covey/core/node_agent.py", "COVEY_NODE_AUTOSTART"), ("covey/service/browser_setup.py", "COVEY_BROWSER_EXECUTABLE"),
+                   ("covey/backends/claude/tool_guard.py", "COVEY_HOME")}  # Set by core/home.py env for the process itself.
         found = []
         for path in sorted(PACKAGE.rglob("*.py")):
             name = str(path.relative_to(REPO))
