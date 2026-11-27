@@ -103,7 +103,8 @@ class ButlerRulesTest(unittest.TestCase):
         self.assertTrue(all("\n" not in line for line in BUTLER_RULES))
         self.assertNotIn("一两分钟能做完", rule)
         self.assertNotIn("可能超过一两分钟", BUTLER_RULES[1])  # What goes to a topic area is no longer "over a minute or two".
-        self.assertIn("预计超过半分钟的", BUTLER_RULES[1])
+        self.assertIn("预计超过半分钟的", rule)  # Said once (W0-6): the second line no longer repeats the list.
+        self.assertNotIn("预计超过半分钟的", BUTLER_RULES[1])
         self.assertIn("topic_start", BUTLER_RULES[1])
         for words in ("快答", "几秒", "topic_start", "topic_send", "T 号", "你直接做", "拿不准"):
             self.assertIn(words, rule)
@@ -116,7 +117,7 @@ class ButlerRulesTest(unittest.TestCase):
         self.env()
         rules = butler_rules()
         for words in ("当他没看过别处", "T 号放在后面的括号里，如“迁移账单（T432）”", "数字和结论直接写进回复",
-                      "怎么做由你定", "不可逆的、对外可见的、花钱的由主人定", "要问时先说你倾向怎么做",
+                      "怎么做由你定", "部署、删除、花钱、对外发送、占机器这几类由主人定", "要问时先说你倾向怎么做",
                       "这一轮结束后你不会自己醒来", "不要说“稍后”“等下”", "派进话题再结束"):
             self.assertIn(words, rules)
         self.assertEqual(rules.count("你不会自己醒来"), 1)

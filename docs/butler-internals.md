@@ -130,7 +130,8 @@
   - 关着时清单和原来一字不差。专项本身见[专项](projects.md)。
 - 查询类工具（`app/butler_tools.py`）只读记录，不持记录锁。`topics_list` 的“有结果没看”（`group: result`）是看板的口径（`board_results`），“最近”是 `TOOLS_AGE`（3 天）。`topic_read` 默认读 2 轮，检查点列阶段、已完成、产物、下一步、在问，以及 `steps` 和 `delivery`。
 - `question_answer` 只答最新一组 pending 的问题：每题都要答，答案是选项原文，有自由文字题就整组拒绝。经 `app/answers.py` 的 `answer_fields` 转成表单字段，补充说明写 `PROXY_NOTE`，再经 `app/questions.py` 的 `submit_answer` 提交，和卡上点“提交回答”同一条路。
-- `topic_priority` 写 `board-priority.json`；`remove` 经 `app/pins.py` 的 `dismiss` 写 `dismissed`，看板没开时回 false。
+- `topic_priority` 写 `board-priority.json`；`remove` 经 `app/pins.py` 的 `dismiss` 写 `dismissed`，看板没开时回 false。只撤看板，任务照跑。
+- `topic_stop`（W0-7）和负责人的 `project_topic_stop` 共用 `app/project_tools.py` 的 `stop_topic`：`stop_tasks` 停排队和在跑的任务（`by` 是 `word`，算你自己停的），`binding.retire_open_questions` 把等你回答的问题记成 `cancelled`、原因 `butler_stop`（问题卡写“管家按你的意思停了这个话题”，网页按 `cancelled` 显示），`close_open_launches` 收掉没开工的启动卡。专项的话题（`project.role` 是 thread）拒绝，回复让管家用 `project_send` 交给负责人；管家、负责人和代答话题由 `find_topic` 拒绝。
 
 ## 按线索找话题的细节
 

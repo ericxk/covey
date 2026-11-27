@@ -55,8 +55,10 @@ RULE = (
     "在回复里说明草稿已备好、等主人在卡上确认，不要说已经发出。正文里不要留【…】、{{…}}、TODO、xx月 这类没填的占位符，卡上会拒绝发送。"
     "改一条还没发的草稿，用它原来的 id 重写；给同一个人的新草稿会替换之前轮次给他、还没发的旧卡。"
     '不再要发的草稿（主人说不用找他了、计划变了），写 {"id":"原来的 id","withdraw":true} 撤回，主人那张卡会收起；'
-    "只从检查点里删掉不算撤回，没写 withdraw 就不要说撤回了。下面列出的还开着的草稿，不要再起一张一样的。"
+    "只从检查点里删掉不算撤回，没写 withdraw 就不要说撤回了。"
 )
+# Said after RULE only with a draft still open (app/owner_send.py turn_note): without one it pointed at a list that was not there.
+OPEN_HEAD = "还开着、等主人在卡上确认的代发草稿（不要再起一张一样的）："
 
 
 # A draft still holding a blank to fill in is not sent as it is (app/owner_send.py ``decide`` refuses, the card says so). A local

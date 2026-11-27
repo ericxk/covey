@@ -38,7 +38,7 @@ from covey.app.triage_view import pack_block
 from covey.core import board_read, butler, collab, devices, project_actions, project_checklist, project_library, project_memory, projects, triage
 from covey.core import memory as core_memory
 from covey.core import turn_source
-from covey.core.checkpoint import checked, checkpoint_delivery, delivery_commits, read_checkpoint, short_commit
+from covey.core.checkpoint import ASK_SHORT, checked, checkpoint_delivery, delivery_commits, read_checkpoint, short_commit
 from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
@@ -157,7 +157,7 @@ TOOL_RULES = (
     "就一次问主人要不要部署这一批（主人在场的这一轮直接在回复里问，叫醒你的轮用 project_note 标 report）：列出话题、提交和各自的自检，"
     "一句话说部署会动什么。主人点头后用 project_topic_send 交给其中一个话题（或 project_topic_start 开一个）部署这一批，任务说明写明"
     "“主人已同意部署这一批”和提交清单。不要每合一个就问一次，也不要没问主人就派部署。",
-    "- 发布、对外发送、花钱、删东西、不可逆的操作，你没有工具，也不要替主人决定：这些在话题里做，话题会照旧问主人。"
+    f"- {ASK_SHORT}这几类事你没有工具做，也不要替主人决定：部署照上一条，其余在话题里做，话题会照旧问主人。"
     "话题里问到主人的选择题，不由你答（分流还没开）。",
     "- 对主人说话要克制：这一轮的回复只有主人在场触发的轮才会发给他；叫醒你的轮，回复不发，要说的话用 project_note 并标 report。",
     "- 主人在场的这一轮里你开的话题、给话题加的话，那一轮结束时 Bridge 会把它的结论（或它停了）直接发给主人；"
@@ -170,7 +170,7 @@ TRIAGE_RULES = (
     "只替主人答你能依据专项记忆、决定日志和主人在这个专项里说过的话答的题（专项记忆里的“待核对参考”是你整理的口径，不能单独作为依据；"
     "“当前决定”只管那道题问的范围，换了批次、目标或扩大范围的转给主人）：用 project_answer，每题都答，答案写选项原文，多选给数组；"
     "回答会注明是你替主人答的，记在专项卡上，主人可以点“不对”纠正。",
-    "- 拿不准、记忆里没有依据、涉及部署、发布、对外发送、花钱、删东西、不可逆的操作，都用 project_escalate 转给主人并写清 why，别猜；"
+    f"- 拿不准、记忆里没有依据、涉及{ASK_SHORT}或别的撤不回的操作，都用 project_escalate 转给主人并写清 why，别猜；"
     "自由文字的问题不会交给你。主人纠正过的做法，用 project_remember 记下，之后照做。",
 )
 # With 协作 on (COVEY_COLLAB=1): the lead answers for the project's goal (docs/projects.md 负责人对照目标跟进), not for

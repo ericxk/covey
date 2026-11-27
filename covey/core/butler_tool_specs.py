@@ -9,6 +9,7 @@ Every handler answers {"ok": bool, "text": what the model reads, "data": {...}};
 from __future__ import annotations
 
 from covey.core import env as cenv
+from covey.core.checkpoint import ASK_SHORT
 from covey.core.process_env import env_flag
 
 TOPIC = {"type": "string", "description": "话题：T 号（如 T412）或 topic_id"}
@@ -39,6 +40,14 @@ REDACTION_ARG = {"type": "boolean",
                  "description": "这个话题脱不脱敏，不填用设置里新话题的默认。新话题默认脱敏、所选 Harness 又不能脱敏时，"
                                 "这次调用会被拒绝并写明原因：先问主人，主人明确同意这个话题不脱敏后，才带 false 再调一次"}
 DONE = "结论由 Bridge 发给主人，你不用等、也不用转述。"
+# 派活门槛, what goes to a topic, said in one wording per mode: DISPATCH_OWN in topic_start's description (START_OWN) and in
+# app/prompts.py SHARED_RULES; with the butler's rules on (COVEY_BUTLER_RULES, unless 0) DISPATCH_BUTLER in START_BUTLER and
+# in app/prompts.py BUTLER_RULES, which says it once (its second line no longer repeats the list).
+DISPATCH_OWN = "可能超过一两分钟的、要改代码或文件的、主人说开话题的"
+DISPATCH_BUTLER = "要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的、主人说开话题的"
+START_OWN = f"（{DISPATCH_OWN}），而不是在自己这一轮里做；只读、一两分钟能做完的查询和命令你自己做。"
+START_BUTLER = (f"（{DISPATCH_BUTLER}），不要先自己试一试，派出去；只有几秒内就能答完的快答（不用工具，或一两次只读查询）才自己答，"
+                "拿不准就派出去，主人明确说“你直接做”时例外。")
 # 完成标准 (core/criteria.py): each turn of the topic marks them, its answer card shows those not met.
 CRITERIA = {"type": "array", "maxItems": 4, "items": {"type": "string"},
             "description": "可选，做完的标准，1 到 4 条，每条一句话：主人说的，或这件事做完必须满足的（如“全量测试通过”"
@@ -73,7 +82,7 @@ MEMORY_TOOLS = (
          "why": {"type": "string", "description": "可选，为什么，200 字内"},
          "repos": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "description": "可选，只对这些仓库成立"}}}},
     {"name": "memory_revise",
-     "description": "改一条记忆（key 是短码或旧 id，如 R7K2、p1a2b3c）：update 改正文或标题；supersede 用新的替代，旧的收进历史；"
+     "description": "改一条记忆（key 是短码或旧 id，如 R7K2M、p1a2b3c）：update 改正文或标题；supersede 用新的替代，旧的收进历史；"
                     "retire 不再成立或已办完，收进历史。先用 memory_search 找到 key，对不上是哪条时问主人。改完回复改了哪条。",
      "input_schema": {"type": "object", "required": ["key", "action"], "properties": {
          "key": {"type": "string", "description": "记忆的短码或旧 id"},
@@ -124,8 +133,8 @@ TOOLS = (
      "description": "列出仓库地图：名字、状态（可写/只读/冻结）、用途、路径、最近用它的话题。开话题要写 repos 前用它。",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "topic_start",
-     "description": "为一件新的事开一个话题去做（可能超过一两分钟的、要改代码或文件的、主人说开话题的），而不是在自己这一轮里做；"
-                    "只读、一两分钟能做完的查询和命令你自己做。话题挂在主人这条提问下面；和已有话题是同一件事时不要新开，用 topic_send。"
+     "description": "为一件新的事开一个话题去做" + START_OWN +
+                    "话题挂在主人这条提问下面；和已有话题是同一件事时不要新开，用 topic_send。"
                     "一件独立的事一个话题；"
                     "prompt 是交给话题的任务说明：用主人的说法写清楚要做什么、范围和主人提的约束（路径、别做什么、怎么交付），"
                     "可以补指代的是哪个话题、之前定过什么（最多 200 字，只写对话里的事实）。不要写“开个话题”“单开一个”"
@@ -176,9 +185,17 @@ TOOLS = (
                      "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}}}}},
     {"name": "topic_priority",
      "description": "主人说某个话题急时，把它在看板里本组内提到最前（不打乱“等你 → 在做 → 有结果”的先后）。"
-                    "主人说某个话题不用管了时，给 remove: true，把它从看板和快照里撤下；话题本身不动，它有新问题或新结果时会自己回来。",
+                    "主人只要把某个话题从看板撤下时，给 remove: true，把它从看板和快照里撤下；话题本身不动、任务照跑，"
+                    "它有新问题或新结果时会自己回来。主人要它不再做的，用 topic_stop。",
      "input_schema": {"type": "object", "required": ["topic"], "properties": {
          "topic": TOPIC, "remove": {"type": "boolean", "description": "true：从看板撤下，而不是提前"}}}},
+    # W0-7 (T892): the butler stops an ordinary topic as a lead stops a member (app/butler_tools.py topic_stop).
+    {"name": "topic_stop",
+     "description": "主人要某个普通话题不再做时（“T412 停掉”“别做了”“不要了”），真停掉它：排队和在跑的任务停下，"
+                    "等主人回答的问题和没开工的启动卡收掉；话题还在，主人在里面说一句就接着做。只从看板撤下、任务照跑的用 topic_priority。"
+                    "专项的话题不能用它停：用 project_send 交给负责人，写明停哪个。",
+     "input_schema": {"type": "object", "required": ["topic"], "properties": {
+         "topic": TOPIC, "why": {"type": "string", "description": "可选，一句为什么停（用主人的说法，120 字内），写进收掉的问题和任务"}}}},
     *MEMORY_TOOLS,
     {"name": "settings_panel",
      "description": "主人要看或改管家的设置时，在私聊里发出设置卡；设置只能由主人在卡上改，你不能改。",
@@ -221,11 +238,6 @@ ALL_NAMES = NAMES + tuple(tool["name"] for tool in HISTORY_TOOLS)
 # 管家 (COVEY_BUTLER_RULES=1, app/prompts.py BUTLER_RULES): topic_start's description says what the rules say, not that
 # the butler does a minute or two's work itself. The name is app/prompts.py's BUTLER_RULES_ENV.
 BUTLER_RULES_ENV = "COVEY_BUTLER_RULES"
-START_OWN = ("（可能超过一两分钟的、要改代码或文件的、主人说开话题的），而不是在自己这一轮里做；"
-             "只读、一两分钟能做完的查询和命令你自己做。")
-START_BUTLER = ("（要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的、主人说开话题的），"
-                "不要先自己试一试，派出去；只有几秒内就能答完的快答（不用工具，或一两次只读查询）才自己答，"
-                "拿不准就派出去，主人明确说“你直接做”时例外。")
 assert any(tool["name"] == "topic_start" and START_OWN in tool["description"] for tool in TOOLS)
 
 
@@ -339,7 +351,7 @@ TRIAGE_TOOLS = (
                      "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}}}}},
     {"name": "project_escalate",
      "description": "专项里一个话题交给你的问题，你答不了或不该替主人答，转给主人：问题卡马上发给主人，卡上带上你写的 why。"
-                    "拿不准、涉及部署、发布、对外发送、花钱、删东西、不可逆的操作，都转。3 分钟没人处理也会自动转给主人。"
+                    f"拿不准、涉及{ASK_SHORT}或别的撤不回的操作，都转。3 分钟没人处理也会自动转给主人。"
                     "手机上主人只看得到这张卡：能写就写 context（这题在改什么）和 recommend（你推荐哪个选项，原文）、if_not（不选它的代价）。",
      "input_schema": {"type": "object", "required": ["thread", "why"], "properties": {
          "thread": THREAD, "why": {"type": "string", "description": "一句话：为什么要主人定"},
@@ -525,7 +537,7 @@ def lead_tools(environ=None) -> tuple:
 # loads the others up front first and lists these by name once the room is taken: they work the same, the model reads
 # one's schema when it calls it. Its budget is the skills' too, and over it agy drops the largest tool whole, which was
 # topic_start (T750: the butler forked a finished topic in its place).
-SECONDARY = frozenset({"topic_priority", "settings_panel", "topics_switch", "repos_list",
+SECONDARY = frozenset({"topic_priority", "topic_stop", "settings_panel", "topics_switch", "repos_list",
                        "project_memory_revise",  # T852: a lead revises a line now and then; agy reads its schema when it calls it.
                        *(tool["name"] for tool in MEMORY_TOOLS + HISTORY_TOOLS), TIDY_TOOL["name"]})
 # The tools that hand work to topics, what a turn of the butler or of a lead is for: such a Harness loads them first.

@@ -41,11 +41,14 @@ class CodexReplyState(ReplyState):
     error = RpcError  # A failed save is an RpcError, as the app server's callers catch it.
 
 
-# After the bridge rules: questions and sub-agents on the Codex protocol.
+# After the bridge rules: questions and sub-agents on the Codex protocol. What to ask at all is the checkpoint rules' (core/checkpoint.py
+# ASK_RULE: only what the owner must decide, asked once at the end); request_user_input pauses the turn until he answers
+# (backends/codex/turn.py end_turn), so it is not called a question asked while the work goes on (W0-6, T892).
 CODEX_INSTRUCTIONS = (
-    "你通过飞书话题与用户交互。必须得到回答才能继续的问题，按检查点约定写 requires_user=true、question 和可选的 questions；"
-    "桥接器会先交付完整回复，再创建问题卡片并在回答后续接。可以边做边问的非阻塞问题调用 request_user_input"
-    "（不要使用 request_user_input_async），以便飞书展示。不要把未回答视为同意。提问正文支持长文本；避免在普通最终答案中假装等待工具回答。"
+    "你通过飞书话题与用户交互。问不问、问什么照执行约定里“什么时候问主人”：要问的留到最后合成一次问，"
+    "按检查点约定写 requires_user=true、question 和可选的 questions；桥接器会先交付完整回复，再创建问题卡片并在回答后续接。"
+    "request_user_input 也会出问题卡，但它会停下这一轮、等用户回答才接着做，只在不答就做不下去时用"
+    "（不要使用 request_user_input_async）。不要把未回答视为同意。提问正文支持长文本；避免在普通最终答案中假装等待工具回答。"
     "子 agent 仅执行明确的子任务；最终由主任务汇总结果。结束主任务前必须等待所有子 agent 达到最终状态并收集结果，不能把仍在运行的子 agent 留到下一轮。"
 )
 
@@ -57,7 +60,7 @@ BRIDGE_TOOL_SECONDS = 150.0
 
 # The turns held to reading (core/harness.py TOOL_LIMIT): the read-only sandbox for the thread and the turn.
 READ_ONLY = (READ, LOOK, CONSULT, LEAD)
-QUESTION_FLAG = "features.default_mode_request_user_input=true"  # The non-blocking question, on for every turn but CONSULT.
+QUESTION_FLAG = "features.default_mode_request_user_input=true"  # request_user_input (it pauses the turn), on for every turn but CONSULT.
 # A 代答 turn's (PROXY) switches: its question as before, and Codex's memories (made from other sessions and injected into each
 # new one) neither read into it nor made by its server (keep_out_of_memories keeps its thread out of the others').
 PROXY_FLAGS = (QUESTION_FLAG, "features.memories=false", "memories.generate_memories=false", "memories.use_memories=false")
@@ -181,7 +184,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
 
 
 def server_flags(ctx) -> list:
-    """The app server's -c switches after its thread limit: the non-blocking question on, as before; a CONSULT turn's
+    """The app server's -c switches after its thread limit: request_user_input on, as before; a CONSULT turn's
     (backends/codex/consult.py FLAGS) instead: apps, plugins, memories, hooks and the question off; a READ, LOOK or LEAD
     turn's (READING_FLAGS): apps, plugins, memories and hooks off, the question on; a 代答 turn's (``PROXY_FLAGS``): the
     question on and Codex's memories neither read into the turn nor made by this server."""

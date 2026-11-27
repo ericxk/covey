@@ -89,7 +89,7 @@ def turn_note(ctx, job) -> str:
             return ""
         waiting = records.open_lines(ctx.state_dir, topic)
         lines = records.turn_lines(ctx.state_dir, topic)
-        return ("\n\n" + records.RULE + ("\n还开着、等主人在卡上确认的代发草稿：\n" + "\n".join(waiting) if waiting else "")
+        return ("\n\n" + records.RULE + ("\n" + records.OPEN_HEAD + "\n" + "\n".join(waiting) if waiting else "")
                 + ("\n之前的代发草稿：\n" + "\n".join(lines) if lines else ""))
     except Exception:  # noqa: BLE001 - a turn never fails for its note
         return ""

@@ -179,7 +179,8 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | `topic_send` | topic*、text*、note、title、criteria、attachments | 把主人的话追加给已有话题 |
 | `topic_fork` | topic*、title*、prompt*、attachments | 从已有话题分叉 |
 | `question_answer` | topic*、answers* | 替主人答选择题 |
-| `topic_priority` | topic*、remove | 看板本组内提前，或撤下 |
+| `topic_priority` | topic*、remove | 看板本组内提前，或撤下（任务照跑） |
+| `topic_stop` | topic*、why | 真停掉一个普通话题：排队和在跑的任务停下，等你回答的问题和没开工的启动卡收掉；话题还在，在里面说一句就接着做。专项的话题不停，回一句交给负责人 |
 | `memory_save` | text*、kind*、scope*、title、why、repos | 记一条记忆：`kind` 是 rule 规矩、note 资料、decision 决定，`scope` 是 global、project、topic |
 | `memory_revise` | key*、action*、text、title | 改一条记忆：update、supersede、retire |
 | `memory_search` | query*、limit | 查记忆 |

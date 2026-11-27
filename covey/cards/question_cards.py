@@ -169,7 +169,7 @@ def with_dedup(record) -> dict:
 
 CANCEL_REASONS = {"switched": "话题已换配置，直接在话题里回复新模型即可", "rewound": "这一轮已回退，问题作废",
                   "stale": STALE_NOTE, "lead_stop": "负责人按你的意思停了这个话题",
-                  "web_stop": "你在网页上停了这个话题"}  # stale: closed by daily maintenance.
+                  "web_stop": "你在网页上停了这个话题", "butler_stop": "管家按你的意思停了这个话题"}  # stale: closed by daily maintenance.
 
 
 def settled_title(record):

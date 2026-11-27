@@ -1060,3 +1060,83 @@ class AttachmentBlockTest(UnifiedCase):
         self.assertIn("看下这个", words)
         self.assertNotIn("ou_fake_zhang", words)
         self.assertNotIn("提及信息", words)
+
+
+class TopicStopTest(ButlerTopicsCase):
+    """topic_stop (W0-7, T892): "T412 不用管了" only took the topic off the board and its task ran on. The butler now stops an
+    ordinary topic as a project's lead stops a member (app/project_tools.py stop_topic); taking it off the board alone
+    (topic_priority remove) leaves its task running; a project's topic is its lead's to stop."""
+
+    def stop(self, topic, request_id="s1", **args):
+        from covey.app import butler_tools
+        return butler_tools.TOOLS["topic_stop"](self.env, Request(request_id, "topic_stop", {"topic": topic, **args}, "main-job", 0.0))
+
+    def ask(self, data, job, token="q1"):
+        """The job waits on a question, as a checkpoint or native question leaves it."""
+        from support.records import write_job
+        write_job(self.ctx.state_dir, job.message_id, status="waiting_user", topic_id=data["topic_id"], chat_id=CHAT)
+        write_json(Path(self.ctx.state_dir) / "questions" / (token + ".json"), {
+            "token": token, "topic_id": data["topic_id"], "chat_id": CHAT, "job_id": job.job_id, "job_key": job.message_id,
+            "status": "pending", "created_at": 1.0, "questions": [{"question": "用哪个库？"}]})
+
+    def test_it_is_the_butlers_and_not_a_leads(self):
+        from covey.core import butler_tool_specs
+        self.assertIn("topic_stop", butler_tool_specs.NAMES)
+        self.assertNotIn("topic_stop", [tool["name"] for tool in butler_tool_specs.lead_tools()])
+
+    def test_a_queued_task_is_stopped_and_the_topic_stays(self):
+        data = self.start("s0")["data"]
+        job = self.job("s0")
+        answer = self.stop(data["topic_id"], why="主人说不用管了")
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual(answer["data"]["stopped"], 1)
+        self.assertTrue(job.cancel_event.is_set())
+        self.assertIn("主人在话题里说一句就接着做", answer["text"])
+        self.assertTrue(load_topic(self.ctx.state_dir, data["topic_id"]))  # The topic itself stays.
+
+    def test_a_topic_waiting_for_the_owners_answer_is_stopped_and_its_question_put_away(self):
+        data = self.start("s0")["data"]
+        job = self.job("s0")
+        self.app.runtime.unregister_reply_job(job)  # Waiting for the answer: no task runs.
+        self.ask(data, job)
+        answer = self.stop(data["topic_id"], why="主人不要这个了")
+        self.assertTrue(answer["ok"], answer)
+        question = json.loads((Path(self.ctx.state_dir) / "questions" / "q1.json").read_text())
+        self.assertEqual((question["status"], question["cancel_reason"]), ("cancelled", "butler_stop"))
+        record = find_job_record(self.ctx.state_dir, job.message_id)
+        self.assertEqual(record["status"], "cancelled")
+        self.assertEqual(record["cancel_requested_by"], "word")  # The owner's own stop (core/look.py OWNER_STOPS).
+        self.assertIn("管家按主人的意思停了这个话题：主人不要这个了", record["status_message"])
+        from covey.cards.question_cards import CANCEL_REASONS
+        self.assertIn("管家按你的意思停了这个话题", CANCEL_REASONS["butler_stop"])
+
+    def test_taking_it_off_the_board_alone_leaves_its_task_running(self):
+        from covey.app import butler_tools
+        data = self.start("s0")["data"]
+        job = self.job("s0")
+        with mock.patch.dict(os.environ, {"COVEY_PINNED_TOPICS": "1", "COVEY_PINNED_OVERVIEW": "1"}):
+            answer = butler_tools.TOOLS["topic_priority"](
+                self.env, Request("p1", "topic_priority", {"topic": data["topic_id"], "remove": True}, "main-job", 0.0))
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn("任务照跑", answer["text"])
+        self.assertFalse(job.cancel_event.is_set())
+
+    def test_a_projects_topic_is_refused_and_sent_to_its_lead(self):
+        from covey.core import projects
+        data = self.start("s0")["data"]
+        job = self.job("s0")
+        with mock.patch.dict(os.environ, {projects.ENV: "1"}):
+            projects.create(self.ctx.state_dir, projects.new_record(chat_id=CHAT, name="迁移账单", goal="目标",
+                                                                    project_id="a1b2c3d4e5f6", now=1.0))
+            topic = load_topic(self.ctx.state_dir, data["topic_id"])
+            write_json(Path(self.ctx.state_dir) / "topics" / data["topic_id"] / "topic.json",
+                       {**topic, "project": projects.project_field("a1b2c3d4e5f6", projects.MEMBER)}, ensure_ascii=False)
+            answer = self.stop(data["topic_id"])
+        self.assertFalse(answer["ok"], answer)
+        self.assertIn("project_send", answer["text"])
+        self.assertIn("迁移账单", answer["text"])
+        self.assertFalse(job.cancel_event.is_set())
+
+    def test_a_topic_that_is_not_there_is_refused(self):
+        answer = self.stop("T999")
+        self.assertFalse(answer["ok"])

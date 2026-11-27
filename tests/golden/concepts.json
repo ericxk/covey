@@ -464,6 +464,7 @@
    "topic_read",
    "topic_send",
    "topic_start",
+   "topic_stop",
    "topics_list",
    "topics_search",
    "topics_switch"

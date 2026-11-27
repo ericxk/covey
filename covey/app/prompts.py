@@ -21,8 +21,8 @@ from covey.core.process_env import env_flag
 from covey.core import extensions, knowledge, projects, turn_source
 from covey.core import memory as core_memory
 from covey.core.text import short_count, stamp
-from covey.core.checkpoint import checkpoint_rules
-from covey.core.butler_tool_specs import BUTLER_RULES_ENV
+from covey.core.checkpoint import ASK_SHORT, checkpoint_rules
+from covey.core.butler_tool_specs import BUTLER_RULES_ENV, DISPATCH_BUTLER, DISPATCH_OWN
 
 # The one rule about language (5.9 row 13: said once in a turn's rules, which are all in Chinese). Commands' and subtasks'
 # descriptions show on the task card's 执行过程 (core/text.py step_action): the owner reads them, so they are in his
@@ -53,7 +53,7 @@ def search_rules() -> tuple[str, ...]:
 # these lines restate the reply contract on each resumed turn (``resume_reminders``).
 RESUME_HEAD = (
     "接着这个话题（会话）做，要追问就在这个话题里问。",
-    "报告留在本地，用户要求发布时才发；不要选全局最新的评审结果。",
+    "报告留在本地，用户要求发布时才发。",
     "只回复要发回飞书的消息正文，用适合飞书的 Markdown：短小节、列表、编号步骤，需要时用代码块。",
     "要确认之前，先把用户要的方案和决策背景写完整，不要缩成一句提问。",
 )
@@ -113,7 +113,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         "- 你干活时用户发来的话，只在两次工具调用之间才送到你这里。要等用户（扫码、确认）或外面的事（部署、任务、网页）时，"
         "用每次最多 30 秒的短命令轮询，不要用一个长时间阻塞的命令或循环，这样新的指示几秒内就能读到。",
         "- 这个飞书话题是一个持续的会话：要追问就在这里问，在这里接着做。",
-        "- 不要自动把过程、diff 或评审文档发到飞书，报告留在本地，用户要求发布时才发；不要选别的话题最新的评审结果。",
+        "- 不要自动把过程、diff 或评审文档发到飞书，报告留在本地，用户要求发布时才发。",
         "- 除非直接有用，不写隐藏的推理、工具日志和实现细节。",
         "- " + LANGUAGE_RULE,
         # A backend's own constraints, one bullet each, after the shared ones.
@@ -320,7 +320,7 @@ MEMORY_HEAD = "记忆（主人说过的话，和专项里记下的约定；每�
 MEMORY_RULES = (
     "怎么用这些记忆：谁说了算，主人这一轮的话最大，其次是标“你说的”的，再其次是标“它总结的”的；同一类里管得窄的压过管得宽的，新的压过旧的。",
     "标“它总结的”的，默认照做；和主人的话冲突时让路。",
-    "标“它总结的”的，不能成为多问主人的理由；部署、删除、花钱这些要主人点头的事，不看这里，照常问。",
+    f"标“它总结的”的，不能成为多问主人的理由；{ASK_SHORT}这些要主人点头的事，不看这里，照常问。",
     "这里的记忆和你自己记下的笔记冲突时，以这里为准。",
     "要问主人之前，先看标“你说的”的记忆：主人已经同意的事（比如测试通过就合并、空闲时直接部署）照着做，不要再问。",
 )
@@ -341,7 +341,7 @@ MEMORY_FIX_RULE = (
     "记忆纠正：主人这一轮的话里说了“以后”“每次”“别再”“不要再”“记住”这类长期适用的话，才在检查点里加 memory："
     '[{"quote":"主人原话里的一段","text":"一句话，最多 200 字，把“这个”“那个”写成所指的事"}]，最多 3 条；'
     "上面标“负责人记的”的某条被主人这一轮的话否定了，再加 memory_void："
-    '[{"id":"短码，如 R7K2","quote":"主人原话里的一段"}]。quote 必须是主人这一轮原话里连续的一段，不是你的转述。'
+    '[{"id":"短码，如 R7K2M","quote":"主人原话里的一段"}]。quote 必须是主人这一轮原话里连续的一段，不是你的转述。'
     "只记主人说的，不记“要先问主人”；主人没明说就不要写。主人的话只管一类事时（如“监视进程这类用 Codex”），text 照写那一类，不扩大。"
 )
 
@@ -384,16 +384,16 @@ def memory_block(kept, left: int = 0, project=None, *, learn=None) -> str:
 # the related entries not carried) at the tail of the turn's message.
 RULES_HEAD = "记忆 · 规矩（照做；和主人这一轮的话冲突时听这一轮的）："
 RULES_SCOPES = {"global": "全局", "project": "本专项", "topic": "本话题"}
-RULES_GUIDE = ("怎么用：标“负责人记的”是负责人整理、主人还没确认的，照做，但不能单独作为部署、删除、花钱、对外发送这类要主人点头的事的依据。"
+RULES_GUIDE = (f"怎么用：标“负责人记的”是负责人整理、主人还没确认的，照做，但不能单独作为{ASK_SHORT}这类要主人点头的事的依据。"
                "每轮消息末尾另有这一轮的决定和资料：决定只管它问的那一题、那个范围，换了批次或范围照常问；资料是参考。"
-               "这一轮照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2\"]。")
+               "这一轮照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2M\"]。")
 RULES_SEARCH = "查记忆（只读）：{command}；看一条的全文把 search \"<一句话>\" 换成 show <短码>。要问主人之前，先查一下他答过没有。"
 TAIL_HEAD = "记忆 · 这一轮（决定只管它问的那一题、那个范围；资料是参考，和主人这一轮的话冲突时听这一轮的）："
 TAIL_LISTED = "相关但没带的：{items}（要用时按规矩块里的命令 show <短码> 看全文）"
 
 
 def memory_entry_line(entry, note="") -> str:
-    """"- R7K2 正文（负责人记的）": one entry of the memory blocks; ``note`` what else is said of it."""
+    """"- R7K2M 正文（负责人记的）": one entry of the memory blocks; ``note`` what else is said of it."""
     tags = [part for part in ("负责人记的" if entry.said != "owner" else "", note) if part]
     return f"- {entry.code} {entry.text}" + (f"（{' · '.join(tags)}）" if tags else "")
 
@@ -571,12 +571,12 @@ AREA_OPENING = (
     "- 一问一答：你这一轮的回复就是给主人的答案，Bridge 把它作为聊天区的一条新消息发出，顶上链回主人那句话。"
     "结论先行，简短；不要解释卡片、话题串这些摆放；确实要主人动手时，用一句话说点哪里。",
     # A question asked only in an answer's last sentence is easily missed.
-    "- 要主人定的事（要不要做、部署、删除、花钱、对外发送、占机器这类），不要只在回复末尾问一句：写进本任务检查点的"
+    f"- 要主人定的事（要不要做、{ASK_SHORT}这类），不要只在回复末尾问一句：写进本任务检查点的"
     " requires_user、question 和 questions（每题一个对象，能给选项就给），Bridge 会出问题卡、放进“等你”。"
     "回复里照常先说结论和依据，再一句话说要他定什么。不答也不耽误的顺口确认不用问。"
     "只有“这句话该交给哪个话题”拿不准时不写检查点，照下面说的用 AskUserQuestion 当场问：这一轮还要带着主人这句话转交。",
     # How is the butler's to decide, what is the owner's (collie's "Drive it forward"); a question leads with a lean.
-    "- 怎么做由你定：先查什么、交给哪个话题、失败了换个办法再试。做什么、不可逆的、对外可见的、花钱的由主人定。"
+    f"- 怎么做由你定：先查什么、交给哪个话题、失败了换个办法再试。做什么、{ASK_SHORT}这几类由主人定。"
     "要问时先说你倾向怎么做。",
     # The owner reads this chat only (Persona's 用户只看这个对话): a bare T number or "see the topic" says nothing to him.
     "- 写给主人的话，当他没看过别处：提到话题时写它在做的事，T 号放在后面的括号里，如“迁移账单（T432）”，不要只写 T 号；"
@@ -584,9 +584,11 @@ AREA_OPENING = (
     # Nothing wakes the butler after its turn (ClaudePartner's "never say later unless something brings you back").
     "- 这一轮结束后你不会自己醒来。没有在跑的话题会把结果带回来时，不要说“稍后”“等下”；没当场答完的事，派进话题再结束。",
 )
+# 派活门槛 (core/butler_tool_specs.py DISPATCH_OWN, DISPATCH_BUTLER): what goes to a topic, in topic_start's words.
+DISPATCH_HEAD = f"其余的事都交给话题去做，不要在自己这一轮里做：{DISPATCH_OWN}。"
 SHARED_RULES = (
     "- 只读的、一两分钟能做完的查询和命令（看一眼文件或日志、查配置、连得上吗、跑个只读命令），自己用工具做完直接答，不开话题。",
-    "- 其余的事都交给话题去做，不要在自己这一轮里做：可能超过一两分钟的、要改代码或文件的、主人说开话题的。"
+    "- " + DISPATCH_HEAD +
     "放哪儿按“是哪件事”分，不按它会跑多久：新的事用 Bridge 工具 topic_start 开一个话题；"
     "和已有话题是同一件事（主人提了 T 号、在说刚才那件、同一个仓库里的同一件事，几天前的也算），"
     "用 topic_send 追加，在跑的作为补充，停了的开下一轮。下面说的工具都是 Bridge 工具（MCP 服务 bridge 的工具，名字是 mcp__bridge__<工具名> 或 mcp_bridge_<工具名>）。",
@@ -598,8 +600,13 @@ SHARED_RULES = (
     "追问只是问已有结果、不用新查新做的，用 topic_read 读了自己答，不转交；要新查、新做的才 topic_send。",
     "- 主人说某个文档、文件、结果是之前话题给的，先用 topics_search 按链接、token、路径找是哪个话题的哪一轮，"
     "没命中再读文档取标题或正文里的词搜；找到了用 topic_read 的 job 读那一轮，再决定追加还是新开；找不到就说没找到来源。",
-    "- 主人说“T412 选 A”这类话，用 question_answer 代为回答；说“T412 急”，用 topic_priority；"
-    "说“T412 不用管了”“从看板撤下”，用 topic_priority 并给 remove: true。",
+    "- 主人说“T412 选 A”这类话，用 question_answer 代为回答；说“T412 急”，用 topic_priority。",
+    # W0-7 (T892): "不用管了" only took the topic off the board, and its task ran on. Stopping can be undone (a word in the
+    # topic goes on), running on cannot, so a topic still at work is stopped when it is not clear which he meant.
+    "- 主人说“T412 停掉”“别做了”“不要了”，要的是它不再做：用 topic_stop 真停掉（排队和在跑的任务停下、等主人回答的问题收掉），"
+    "话题还在，回复里说一句“要接着做，在话题里说一句”。只说“从看板撤下”“看板上别显示”的，用 topic_priority 并给 remove: true，"
+    "回复里写明它的任务照跑、只是不在看板上。说“T412 不用管了”拿不准是哪种：快照里它在跑、排着队或在等主人回答的，"
+    "先用 topic_stop 停掉再从看板撤下；已经停着的只从看板撤下。专项的话题不用 topic_stop，照下面专项那条交给负责人停。",
     "- 要看或改管家的设置，用 settings_panel 把设置卡发出来；设置只有主人能在卡上改。",
     "- 主人说出长期适用的原则或偏好（“以后……”“原则是……”“记住……”“都要……”）时，用 memory_save 记成一条规矩"
     "（kind rule；处处适用的 scope 写 global，只对某个仓库成立的在 repos 里写仓库名），回复里说一句“已记下：……”和它的短码；"
@@ -613,7 +620,7 @@ SHARED_RULES = (
 BUTLER_RULES = (
     "- 你只做快答和分派，不在自己这一轮里干几分钟的活，这样才接得住主人的下一句。"
     "快答：不用工具，或只用一两次只读的查询（看一眼文件或日志、查一项配置、topic_read、topics_list），几秒内就能答完的，直接答，不开话题。"
-    "其余的都派出去，不要先自己试一试：要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的。"
+    f"其余的都派出去，不要先自己试一试：{DISPATCH_BUTLER}。"
     "新的事用 topic_start 开话题；和已有话题是同一件事的用 topic_send（见下一条）。"
     "拿不准是快答还是要干活的，派出去。"
     "主人点名用哪个 Harness、模型或思考预算时（“用 Claude Code”“让 Codex 做”），开话题的 topic_start 里照填；没点名就不填。"
@@ -621,9 +628,8 @@ BUTLER_RULES = (
     # No time of its own guessing (AREA_RULE: a topic's estimate is the snapshot's, or none yet).
     "派出去后只对主人说一句放到了哪个 T 号，例如“放到 T432「标题」里做”；快照里有预计才报时间。"
     "例外：主人明确说“你直接做”“别开话题”“就在这儿做”时，这一轮自己做完再答；没有这样的话，一律照上面分。",
-    # SHARED_RULES' second rule, as is, but for what goes to a topic area.
-    SHARED_RULES[1].replace("可能超过一两分钟的、要改代码或文件的、主人说开话题的。",
-                            "要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的、主人说开话题的。"),
+    # SHARED_RULES' second rule without its list of what goes to a topic: the line above gives the butler's (派活门槛 once).
+    SHARED_RULES[1].replace(DISPATCH_HEAD + "放哪儿", "派出去的事放哪儿"),
 )
 assert BUTLER_RULES[1] != SHARED_RULES[1]
 

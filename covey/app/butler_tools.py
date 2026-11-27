@@ -11,7 +11,8 @@ Feishu outside them (rules 1 and 2).
 
 The handlers here, in TOOLS: the read-only ones (topics_list, topic_read, repos_list: records read without
 their locks; topics_search, which looks into every turn, is app/butler_search.py), topic_priority (<state>/board-priority.json; with ``remove``, the topic off the pinned board:
-app/pins.py dismiss) and question_answer, which answers a topic's pending
+app/pins.py dismiss: the topic's tasks go on), topic_stop (the owner's ordinary topic stopped as a project's lead stops a member:
+app/project_tools.py stop_topic) and question_answer, which answers a topic's pending
 choice question through the same path as 提交回答 on its card (app/questions.py submit_answer), and the owner's
 principles: principle_save, principle_delete, principles_list (core/principles.py, <state>/principles.json), which an
 older session's or server's request still names (the memory tools that took their place are app/butler_memory.py's). A project's lead's
@@ -23,13 +24,13 @@ import re
 import time
 from pathlib import Path
 
-from covey.app import config_basis, pins, project_tools
+from covey.app import butler_topics, config_basis, pins, project_tools
 from covey.core import board_read
 from covey.core.board_read import PRIORITY, TOOLS_AGE, job_number, topic_jobs, topic_questions
 from covey.app.answers import AnswerIncomplete, answer_fields
 from covey.app.butler_env import reply
 from covey.app.overview import UNSET_PHASES
-from covey.core import butler_requests, butler, butler_settings, devices, principles, turn_words
+from covey.core import butler_requests, butler, butler_settings, devices, principles, projects, turn_words
 from covey.core.checkpoint import (checkpoint_delivery, checkpoint_steps, current_step, read_checkpoint,
                                             step_words)
 from covey.core.jobs import job_path, read_job_record
@@ -442,7 +443,8 @@ def topic_priority(env, request):
         if not pins.enabled():
             return reply(False, "看板没开，没有可撤的。")
         pins.dismiss(Path(env.state_dir), chat, [topic_id], time.time())
-        return reply(True, f"已把 {label(env, topic_id)} 从看板撤下；它有新问题或新结果时会自己回来。",
+        return reply(True, f"已把 {label(env, topic_id)} 从看板撤下：它的任务照跑，有新问题或新结果时会自己回来；"
+                           "回复里告诉主人任务照跑。主人要它不再做，用 topic_stop。",
                      topic_id=topic_id, removed=True)
     path = Path(env.state_dir) / PRIORITY
     with resource_lock("board-priority", str(path)):
@@ -450,6 +452,39 @@ def topic_priority(env, request):
         data[topic_id] = time.time()
         write_json(path, data, ensure_ascii=False)
     return reply(True, f"已把 {label(env, topic_id)} 在看板里本组内提到最前。", topic_id=topic_id)
+
+
+# topic_stop (W0-7, T892): "T412 不用管了" took the topic off the board alone and its task ran on.
+
+STOP_NOTE = "管家按主人的意思停了这个话题"
+
+
+def topic_stop(env, request):
+    """Stop one of the owner's ordinary topics for him: its queued and running tasks, the question it waits on (``cancelled``,
+    the reason ``butler_stop``) and its launch cards not started (app/project_tools.py ``stop_topic``, as a project's lead
+    stops a member; ``by`` ``word``: the owner's own word, core/look.py OWNER_STOPS). The topic stays; a word in it goes on.
+    A project's topic is its lead's to stop (app/prompts.py PROJECT_RULE): refused with where to take it."""
+    chat = env.chat()
+    if not chat:
+        return reply(False, "还不知道主人的私聊。")
+    found = butler_topics.find_topic(env, chat, request.args.get("topic"))
+    if isinstance(found, str):
+        return reply(False, found)
+    app, ctx, _ = found
+    topic = ctx.topic_id
+    name = label(env, topic)
+    member = projects.topic_project(env.state_dir, topic) if projects.is_member_topic(env.state_dir, topic) else None
+    if member is not None:
+        record = projects.read_record(env.state_dir, member.id) or {}
+        where = f"专项「{record.get('name')}」（{member.id}）" if record.get("name") else f"专项 {member.id}"
+        return reply(False, f"{name} 是{where}的话题，管家不直接停它：用 project_send 交给那个专项的负责人，写明停 {name}；"
+                            "负责人会停掉它的任务、收掉它等主人回答的问题。", project_id=member.id)
+    stopped, launches = project_tools.stop_topic(env, app, ctx, chat, request, by="word", reason="butler_stop",
+                                                 note=STOP_NOTE)
+    cards = f"，没开工的启动卡收掉 {launches} 张" if launches else ""
+    return reply(True, f"已停掉 {name}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉{cards}；"
+                       "话题还在，主人在话题里说一句就接着做。回复里告诉主人这一点。",
+                 topic_id=topic, stopped=stopped, launches=launches)
 
 
 # question_answer.
@@ -598,6 +633,6 @@ def answer_of(value) -> dict:
 # The project tools of a lead (app/project_tools.py) are listed to a lead's session only (core/butler_tool_specs.py); their
 # handlers refuse any other job. The old names (workspaces_list, principle_*) stay for a request an older server wrote.
 TOOLS = {"topics_list": topics_list, "topic_read": topic_read, "repos_list": repos_list, "workspaces_list": workspaces_list,
-         "topic_priority": topic_priority, "question_answer": question_answer,
+         "topic_priority": topic_priority, "topic_stop": topic_stop, "question_answer": question_answer,
          "principle_save": principle_save, "principle_delete": principle_delete, "principles_list": principles_list,
          **project_tools.TOOLS}

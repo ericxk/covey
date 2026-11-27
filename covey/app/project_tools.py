@@ -289,13 +289,27 @@ def take_in(env, chat, pid, topic, text) -> str:
 STOP_NOTE = "负责人按主人的意思停了这个话题"
 
 
-def project_topic_stop(env, request):
-    """Stop one member topic for the owner: its queued and running tasks (app/project_clicks.py ``stop_tasks``, forwarded to the
-    task runner as a stop on the card is), then the question it waits on and its waiting turn, as a switch of configuration voids
-    them (app/binding.py ``retire_open_questions``, here ``cancelled`` with the reason ``lead_stop``). The topic stays in
-    the project's list and counts as ended. No lock is held across a call."""
+def stop_topic(env, app, ctx, chat, request, *, by, reason, note) -> tuple:
+    """(tasks asked to stop, launch cards closed) of stopping the topic of ``ctx`` for the owner: its queued and running tasks
+    (app/project_clicks.py ``stop_tasks``, forwarded to the task runner as a stop on the card is, ``by`` who stopped them:
+    core/jobs.py STOP_SOURCES), then the question it waits on and its waiting turn, as a switch of configuration voids them
+    (app/binding.py ``retire_open_questions``, here ``cancelled`` for ``reason`` with ``note`` and the call's ``why``), then
+    its launch cards not started yet. A project's lead (``project_topic_stop``) and the butler (app/butler_tools.py
+    topic_stop) stop a topic so. No lock is held across a call."""
     from covey.app import binding, project_clicks
+    from covey.app.launch import close_open_launches
 
+    topic = ctx.topic_id
+    stopped = project_clicks.stop_tasks(app.controls, ctx, [topic], chat, f"{reason.replace('_', '-')}-{request.id}", by=by)
+    why = " ".join(str(request.args.get("why") or "").split())[:120]
+    binding.retire_open_questions(env.topics, app, ctx, chat, reason=reason, job_status="cancelled", by=by,
+                                  message=note + (f"：{why}" if why else ""))
+    return stopped, close_open_launches(ctx, chat, getattr(env, "messenger", None), note)
+
+
+def project_topic_stop(env, request):
+    """Stop one member topic for the owner (``stop_topic``, the reason ``lead_stop``). The topic stays in the project's list
+    and counts as ended."""
     pid, record = lead(env, request)
     if record.get("state") not in (projects.ACTIVE, projects.PAUSED):
         raise ValueError(ended_words(record, "停话题"))
@@ -308,12 +322,7 @@ def project_topic_stop(env, request):
     label = topic_label(Path(env.state_dir), topic) or topic[:8]
     if topic not in (record.get("threads") or ()):
         return reply(False, f"{label} 不是这个专项的话题，不能从这里停它。")
-    stopped = project_clicks.stop_tasks(app.controls, ctx, [topic], chat, f"lead-stop-{request.id}", by="lead")
-    why = " ".join(str(request.args.get("why") or "").split())[:120]
-    binding.retire_open_questions(env.topics, app, ctx, chat, reason="lead_stop", job_status="cancelled", by="lead",
-                                  message=STOP_NOTE + (f"：{why}" if why else ""))
-    from covey.app.launch import close_open_launches
-    launches = close_open_launches(ctx, chat, getattr(env, "messenger", None), STOP_NOTE)
+    stopped, launches = stop_topic(env, app, ctx, chat, request, by="lead", reason="lead_stop", note=STOP_NOTE)
     acted(env, pid, request, "stop")
     cards = f"，没开工的启动卡收掉 {launches} 张" if launches else ""
     return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉{cards}；"

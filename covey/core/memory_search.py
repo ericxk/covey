@@ -475,7 +475,7 @@ def where_of(item) -> str:
 
 
 def line(item) -> str:
-    """One line of a lookup: "- R7K2 · 规矩 · 全局 · 你定的：正文"."""
+    """One line of a lookup: "- R7K2M · 规矩 · 全局 · 你定的：正文"."""
     tags = [item.get("code") or item["ref"], KIND_WORDS.get(item["kind"], item["kind"]), where_of(item),
             "你定的" if item.get("said") == "owner" else "别人总结的"]
     if STATUS_WORDS.get(item.get("status")):
@@ -567,7 +567,7 @@ def main(argv=None) -> int:
     find = commands.add_parser("search", help="按一句话查")
     find.add_argument("query", help="要查的一句话")
     _common(find, query=True)
-    one = commands.add_parser("show", help="按短码（如 R7K2）或 ref 看一条的全文")
+    one = commands.add_parser("show", help="按短码（如 R7K2M）或 ref 看一条的全文")
     one.add_argument("key", help="短码、ref 或旧 id")
     _common(one)
     every = commands.add_parser("list", help="列出这一轮看得到的记忆")

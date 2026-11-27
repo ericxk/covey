@@ -325,7 +325,8 @@ class TurnNoteTests(OwnerSendCase):
         self.assertIn("上次没发出（发送工具调用 lark-cli 失败），卡上可以重新发送", waiting[1])
         self.assertIn("卡还开着，等主人确认", waiting[2])
         note = module.turn_note(self.jctx, self.job)
-        self.assertIn("还开着、等主人在卡上确认的代发草稿：\n" + "\n".join(waiting), note)
+        self.assertIn(records.OPEN_HEAD + "\n" + "\n".join(waiting), note)
+        self.assertIn("不要再起一张一样的", note)
         self.assertIn('"withdraw":true', note)
 
     def test_the_earlier_checkpoint_shown_leaves_out_the_drafts_taken_in(self):
