@@ -438,9 +438,10 @@ class AnswerTest(Held):
         self.seen = {}
         self.failure = None
 
-    def submit(self, ctx, chat, token, fields, event_id):
+    def submit(self, ctx, chat, token, fields, event_id, *, by=None):
         self.seen = self.saved()
         self.submitted.append((chat, token, fields, event_id))
+        self.by = by
         if self.failure:
             raise self.failure
         write_json(self.path, {**self.saved(), "status": "answered", "answers": {"0": {"answers": ["新版"]}}}, ensure_ascii=False)
@@ -455,6 +456,8 @@ class AnswerTest(Held):
         self.assertEqual(fields["option_0"], "0")
         self.assertEqual(fields["supplement"], flow.NOTE)
         self.assertIn("负责人", flow.NOTE)
+        # The lead's, in the owner's place (WAVE12 C2): never his decision, its continuation answer_for.
+        self.assertEqual((self.by.party, self.by.channel, self.by.message_id), ("lead", "tool", "lead-r1"))
         # The form's own gate: shown as delivered when it was sent, and still the lead's while it went.
         self.assertFalse(self.seen["display_pending"])
         self.assertEqual(triage.state(self.seen), triage.HELD)
@@ -508,7 +511,7 @@ class ToolTest(ToolsCase):
 
     def test_the_lead_answers_and_the_row_is_on_the_card(self):
         app = self.env.topics.target(self.state, self.topic, CHAT)[0]
-        with mock.patch.object(app.questions, "submit_answer", side_effect=lambda *a: write_json(
+        with mock.patch.object(app.questions, "submit_answer", side_effect=lambda *a, **k: write_json(
                 self.path, {**read_object(self.path), "status": "answered", "answers": {"0": {"answers": ["旧版"]}}},
                 ensure_ascii=False)) as submit:
             answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=[self.owner_ground()])
@@ -606,7 +609,7 @@ class LeadSideTest(Held):
     def test_with_the_switch_the_rules_say_how_to_triage_and_no_longer_that_it_is_off(self):
         rules = project_lead.lead_rules()
         self.assertNotIn("分流还没开", rules)
-        for word in ("project_answer", "project_escalate", "不对", "自由文字"):
+        for word in ("project_answer", "project_escalate", "分流记录", "自由文字"):
             self.assertIn(word, rules)
 
     def test_the_two_tools_are_listed_to_the_lead_only_with_the_switch(self):
@@ -991,12 +994,15 @@ class HeldSpeakTest(HeldFixture):
     def speak(self, text="新版"):
         return self.app.interaction.interactive_command(self.ctx_topic, text, "oc_chat", "m-owner")
 
-    def test_the_held_question_goes_to_the_owner_and_their_message_answers_it(self):
+    def test_the_held_question_goes_to_the_owner_and_their_message_is_held_for_its_answer(self):
+        # WAVE12 C2's second condition: the question is shown to him only now, so what he wrote is no answer to it (he had
+        # not seen it), but a note that goes with the answer he gives on its card.
         self.assertTrue(self.speak())
         saved = json.loads(self.path.read_text())
         self.assertEqual((triage.state(saved), saved["triage"]["by"], saved["triage"]["why"]), (triage.ESCALATED, "owner", "你在这个话题里说话了"))
         self.assertTrue(self.app.questions.publish_question_card.called)
-        self.assertEqual(self.app.questions.submit_answer.call_args.args[3]["answer_0"], "新版")
+        self.app.questions.submit_answer.assert_not_called()
+        self.assertEqual(self.app.questions.hold_note.call_args.args[2], "新版")
         self.app.messenger.reply.assert_not_called()
 
     def test_several_questions_keep_the_message_as_a_note(self):
@@ -1076,7 +1082,7 @@ class ForwardedAnswerTest(Held):
         self.write()
         self.route()
         self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append), topics=mock.Mock())
-        self.app = SimpleNamespace(questions=SimpleNamespace(submit_answer=lambda *args: None))  # Forwarded: the record stays pending.
+        self.app = SimpleNamespace(questions=SimpleNamespace(submit_answer=lambda *args, **kwargs: None))  # Forwarded: pending.
         patch = mock.patch.object(flow, "show", return_value=True)
         self.show = patch.start()
         self.addCleanup(patch.stop)

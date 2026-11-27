@@ -426,6 +426,14 @@ def record_bridge_side(r: Recorder, scratch: Path) -> dict:
                 results.append([reply, r.outcome(runner_ipc.forward_answer, runtime, ctx, "oc_chat", token,
                                                   {"q": f"a{number}"}, f"ev-a{number}")])
         results.append(["bad token", r.outcome(runner_ipc.forward_answer, runtime, ctx, "oc_chat", "xyz", {}, "e")])
+    # Who answered (W1-B, WAVE12 C2): ``by`` the open_id a runner of every release reads, ``answer_by`` beside it.
+    thread.join(5)
+    thread = answer(directory / rd.INBOX, directory / rd.ACKS, [{"ok": True}], seen)
+    with mock.patch.object(runner_ipc, "runner_for", lambda *a, **k: directory), \
+            mock.patch.object(runner_ipc, "wake_runner", lambda d: False), \
+            mock.patch.object(runner_ipc, "ANSWER_TIMEOUT", 20.0):
+        results.append([{"ok": True}, r.outcome(runner_ipc.forward_answer, runtime, ctx, "oc_chat", token, {"q": "by"},
+                                                "ev-by", by="ou_owner", answer_by={"party": "owner", "channel": "card"})])
     thread.join(5)
     out["answer_acks"] = results
     out["answer_inbox"] = [{k: ("<OP>" if k == "id" else v) for k, v in p.items()} for p in seen]
@@ -463,6 +471,14 @@ def record_bridge_side(r: Recorder, scratch: Path) -> dict:
         with mock.patch.object(runner_ipc, "ENQUEUE_TIMEOUT", 20.0):
             results.append([replies_mode[0], r.outcome(lambda: vars(link.enqueue("codex", task_ctx, "t", "oc_chat",
                                                                                  "om_c9", None)))])
+        # The continuation of an answer whose party is known carries its 轮次来源 (W1-B): a Bridge of before ignores it.
+        thread.join(5)
+        stamped = {"v": 1, "kind": "answer", "asserted_by": "owner", "recorded_by": "bridge",
+                   "origin": {"question": "00112233445566ff"}, "level": "owner", "via": "card"}
+        thread = answer(directory / rd.REQUESTS, directory / rd.REPLIES, [{"ok": True, "job_id": 11}], seen)
+        with mock.patch.object(runner_ipc, "ENQUEUE_TIMEOUT", 20.0):
+            results.append([{"ok": True, "job_id": 11}, r.outcome(lambda: vars(link.enqueue(
+                "codex", task_ctx, "t", "oc_chat", "answer-00112233445566ff", None, source=stamped)))])
     thread.join(5)
     out["enqueue_replies"] = results
     out["enqueue_requests"] = [{k: ("<OP>" if k == "id" else ("<DEADLINE>" if k == "deadline" else v))
@@ -507,10 +523,13 @@ def record_runner_side(r: Recorder, scratch: Path) -> dict:
             if text == "later":
                 raise SteerNotReady("还没准备好")
 
-    def submit_answer(ctx, chat, token, fields, event_id):
+    def submit_answer(ctx, chat, token, fields, event_id, *, by=None):
         if fields.get("q") == "bad":
             raise ValueError("问题已结束")
-        calls.append(["answer", chat, token, fields, event_id])
+        from covey.app.answers import by_fields, open_id_of
+
+        calls.append(["answer", chat, token, fields, event_id,
+                      *([{"open_id": open_id_of(by), **by_fields(by)}] if by is not None else [])])
 
     stage = {"value": "running"}
     app = SimpleNamespace(
@@ -554,6 +573,10 @@ def record_runner_side(r: Recorder, scratch: Path) -> dict:
     deliver("answer", {"kind": "answer", "chat_id": "oc_chat", "token": "t" * 16, "fields": {"q": "a"}, "event_id": "ev-a"},
             {"kind": "answer", "chat_id": "oc_chat", "token": "t" * 16, "fields": {"q": "bad"}, "event_id": "ev-b"},
             {"kind": "answer", "token": "t" * 16})
+    # Who answered: a Bridge of W1-B sends ``answer_by`` with the open_id (``by``), one of before the open_id alone.
+    deliver("answer_by", {"kind": "answer", "chat_id": "oc_chat", "token": "t" * 16, "fields": {"q": "a"}, "event_id": "ev-o",
+                          "by": "ou_owner", "answer_by": {"party": "owner", "channel": "card"}},
+            {"kind": "answer", "chat_id": "oc_chat", "token": "t" * 16, "fields": {"q": "a"}, "event_id": "ev-s", "by": "ou_owner"})
     deliver("click", {"kind": "card_event", "event": {"event_id": "ev-c", "message_id": "om_card"}}, {"kind": "card_event"})
     deliver("restart_no_trace", {"kind": "bridge_restarted", "at": NOW}, {"kind": "unknown"})
     job.tool_trace = {}

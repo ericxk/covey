@@ -45,7 +45,7 @@ from covey.app import assist, memory_collect, memory_turn, track_judge
 from covey.app import memory_candidates
 from covey.app.memory_candidates import CUES
 from covey.app.track_judge import Failed
-from covey.core import memory, memory_gate, memory_review, memstore, project_memory, projects, topic_memory
+from covey.core import memory, memory_gate, memory_review, memstore, project_memory, projects, topic_memory, turn_source
 from covey.core.butler_opened import handed_on
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record, upsert_job_record
@@ -149,11 +149,21 @@ def is_lead(state_dir, topic_id) -> bool:
     return found is not None and found.role == projects.LEAD
 
 
+def _question_token(record) -> str:
+    """The token of the question the turn of ``record`` answered, as the owner: of a stamped source its ``answer``'s
+    origin.question ('' for any other kind, a lead's answer for him included); of one without, the "answer-<token>" message
+    id (the question record then says who answered, app/butler_asks.py owner_answer)."""
+    found = turn_source.kind(record)
+    if found == turn_source.LEGACY:
+        message = str(record.get("message_id") or "")
+        return message.removeprefix("answer-") if message.startswith("answer-") else ""
+    return turn_source.origin(record).get("question", "") if found == turn_source.ANSWER else ""
+
+
 def asked_card(state_dir, record) -> list:
     """The question card an answer's turn answered, [{question, options}] (at most ASKED, each cut): its words are the Bridge's
     or a model's, never his, and only tell what his answer points at; [] for any other turn or a record that cannot be read."""
-    message = str(record.get("message_id") or "")
-    token = message.removeprefix("answer-") if message.startswith("answer-") else ""
+    token = _question_token(record)
     if not token or "/" in token or token.startswith("."):
         return []
     try:

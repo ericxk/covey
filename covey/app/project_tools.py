@@ -291,7 +291,7 @@ STOP_NOTE = "负责人按主人的意思停了这个话题"
 
 
 def stop_topic(env, app, ctx, chat, request, *, by, reason, note) -> tuple:
-    """(tasks asked to stop, launch cards closed) of stopping the topic of ``ctx`` for the owner: its queued and running tasks
+    """(tasks asked to stop, questions or waiting turns put away, launch cards closed) of stopping the topic of ``ctx`` for the owner: its queued and running tasks
     (app/project_clicks.py ``stop_tasks``, forwarded to the task runner as a stop on the card is, ``by`` who stopped them:
     core/jobs.py STOP_SOURCES), then the question it waits on and its waiting turn, as a switch of configuration voids them
     (app/binding.py ``retire_open_questions``, here ``cancelled`` for ``reason`` with ``note`` and the call's ``why``), then
@@ -299,13 +299,20 @@ def stop_topic(env, app, ctx, chat, request, *, by, reason, note) -> tuple:
     topic_stop) stop a topic so. No lock is held across a call."""
     from covey.app import binding, project_clicks
     from covey.app.launch import close_open_launches
+    from covey.core.store import directory_store
 
     topic = ctx.topic_id
     stopped = project_clicks.stop_tasks(app.controls, ctx, [topic], chat, f"{reason.replace('_', '-')}-{request.id}", by=by)
     why = " ".join(str(request.args.get("why") or "").split())[:120]
+    # What is put away is counted first (retire_open_questions returns nothing): an idle topic has none, and says so.
+    asks = sum(1 for _, row in directory_store(ctx.state_dir / "questions").query(topic_id=topic, chat_id=chat)
+               if row.get("status") in binding.OPEN_FOR_THE_OWNER)
+    waiting = sum(1 for _, row in directory_store(ctx.state_dir / "jobs").query(topic_id=topic, chat_id=chat)
+                  if row.get("status") == "waiting_user" and row.get("key"))
+    retired = max(asks, waiting)
     binding.retire_open_questions(env.topics, app, ctx, chat, reason=reason, job_status="cancelled", by=by,
                                   message=note + (f"：{why}" if why else ""))
-    return stopped, close_open_launches(ctx, chat, getattr(env, "messenger", None), note)
+    return stopped, retired, close_open_launches(ctx, chat, getattr(env, "messenger", None), note)
 
 
 def project_topic_stop(env, request):
@@ -323,11 +330,11 @@ def project_topic_stop(env, request):
     label = topic_label(Path(env.state_dir), topic) or topic[:8]
     if topic not in (record.get("threads") or ()):
         return reply(False, f"{label} 不是这个专项的话题，不能从这里停它。")
-    stopped, launches = stop_topic(env, app, ctx, chat, request, by="lead", reason="lead_stop", note=STOP_NOTE)
+    stopped, retired, launches = stop_topic(env, app, ctx, chat, request, by="lead", reason="lead_stop", note=STOP_NOTE)
     acted(env, pid, request, "stop")
     cards = f"，没开工的启动卡收掉 {launches} 张" if launches else ""
     return reply(True, f"已停掉 {label}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉{cards}；"
-                 "它仍记在专项里、算结束。要接着做，用 project_topic_send。", stopped=stopped, launches=launches, topic_id=topic)
+                 "它仍记在专项里、算结束。要接着做，用 project_topic_send。", stopped=stopped, retired=retired, launches=launches, topic_id=topic)
 
 
 def project_note(env, request):
@@ -659,7 +666,7 @@ def project_answer(env, request):
     except ValueError as exc:
         return reply(False, str(exc))
     try:
-        found = triage_flow.grounds(env, record, request.args.get("evidence"))
+        found = triage_flow.grounds(env, record, request.args.get("evidence"), asked=triage_flow.held_words(env, ctx.topic_id))
     except ValueError as exc:
         return reply(False, f"没有替主人答：{exc}", refused="evidence")
     try:
@@ -672,7 +679,8 @@ def project_answer(env, request):
     if done["status"] == "pending":
         return reply(True, f"已把回答交给 {done['label']} 的任务进程：{done['line']}。它还没确认收到；"
                      f"{triage.ANSWERING} 秒内没送到，问题会转给主人（专项卡的分流记录会写）。先别再答一次。", status="pending")
-    return reply(True, f"已替主人答了 {done['line']}（话题照常往下做，记在专项卡的分流记录里，主人可以点“不对”纠正）。", status=done["status"])
+    return reply(True, f"已替主人答了 {done['line']}（话题照常往下做，记在专项卡的分流记录里，主人不同意会在那个话题里直接说）。",
+                 status=done["status"])
 
 
 def project_escalate(env, request):

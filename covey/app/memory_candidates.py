@@ -121,15 +121,17 @@ def _proxy(state_dir, topic_id) -> bool:
 
 def not_owner_reason(*items, text="") -> str:
     """Why the words of the turn of ``items`` (a job and its record) are not the owner's own ('' when they are): the turn's
-    source (core/turn_source.py) decides, by its kind and who asserted it, and only the owner's own message or answer passes; a
+    source (core/turn_source.py) decides, by its level and whether its words are the owner's, and only his own message or answer passes; a
     turn with none is as before, and then the message id the Bridge makes up (BRIDGE_IDS: a revisit, a hand-on, a review) and,
     as a last resort, the way its text begins (BRIDGE_TEXT) say it is the Bridge's."""
     value = turn_source.of(*items)
     if value is not None:
+        found = turn_source.kind(*items)
         asserted = value.get("asserted_by") if isinstance(value, Mapping) else ""
-        if (not turn_source.behavior(*items).owner_words or turn_source.kind(*items) != turn_source.OWNER
-                or asserted != turn_source.PARTY_OWNER):
-            return "source"
+        if (not turn_source.behavior(*items).owner_words or found not in (turn_source.OWNER, turn_source.ANSWER)
+                or asserted != turn_source.PARTY_OWNER
+                or (found == turn_source.ANSWER and turn_source.level(*items) != turn_source.LEVEL_OWNER)):
+            return "source"  # A hand-on, a wake-up, a lead's answer for him, a 协作 turn; an answer of his own passes.
     for item in items:
         message = item.get("message_id") if isinstance(item, Mapping) else getattr(item, "message_id", "")
         if isinstance(message, str) and message.startswith(BRIDGE_IDS):

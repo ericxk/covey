@@ -30,6 +30,7 @@ from covey.core.store import directory_store
 from covey.feishu.messenger import CardAbout
 
 IN_FLIGHT = "回答正在发送，稍后再操作这条补充"
+RELAYED_BY = ("butler", "lead")  # A held note's ``by``: words the butler or a project's lead sent the topic, not the owner's.
 
 
 def waiting_for(pending):
@@ -85,9 +86,12 @@ class HeldNotes:
         rows = directory_store(ctx.state_dir / "held-notes").query(topic_id=ctx.topic_id, chat_id=chat)
         return sorted((r for _, r in rows if r.get("status") in statuses), key=lambda r: r.get("created_at", 0))
 
-    def hold_note(self, ctx, chat, text, mid, pending, attachments="", *, top=""):
+    def hold_note(self, ctx, chat, text, mid, pending, attachments="", *, top="", by=""):
         """Keep ``text`` (message ``mid``) for the next submitted answer and show its card in the topic. ``top``: ``mid``
-        was typed outside the topic's thread (app/butler_reactions.py top_message): 排队中 on it while it is held."""
+        was typed outside the topic's thread (app/butler_reactions.py top_message): 排队中 on it while it is held. ``by``:
+        whose words they are when not the owner's ("butler", "lead": app/interaction.py note_by), kept on the record so the
+        answer it goes with tells the model so (app/answers.py answer_message, P1-6); '' the owner's (or a group member's in
+        a topic of his own), as before."""
         token = hashlib.sha256(f"{ctx.topic_id}-{mid}".encode()).hexdigest()[:32]
         path = self.note_path(ctx, token)
         with resource_lock("question", path):
@@ -97,7 +101,7 @@ class HeldNotes:
                       "message_id": mid, "status": "held", "created_at": time.time(),
                       "question_tokens": [q["token"] for q in pending], "waiting": waiting_for(pending),
                       **({"attachments": attachments} if attachments else {}),
-                      **({"top": True} if top and top == mid else {})}
+                      **({"top": True} if top and top == mid else {}), **({"by": by} if by in RELAYED_BY else {})}
             write_private_text(path, json.dumps(record, ensure_ascii=False))
         if self.top_of(record):
             butler_reactions.top_waits(self.messenger, ctx.profile, mid, self._log)
@@ -137,7 +141,9 @@ class HeldNotes:
             self.repaint_note(ctx, record)
         return record
 
-    def note_action(self, ctx, chat, raw, mid):
+    def note_action(self, ctx, chat, raw, mid, *, by=None):
+        """A click on a held note's card (``by``: who clicked, app/answers.py AnswerBy): 撤回, 随回答带上, 留作下一轮, or
+        当作反馈, which submits it as the feedback of its question, the clicker's."""
         token = str(raw.get("token") or "")
         if len(token) != 32 or any(c not in "0123456789abcdef" for c in token):
             raise ValueError("补充标识无效")
@@ -187,7 +193,7 @@ class HeldNotes:
                 said, paths = note_parts(record)
                 top = self.top_of(record)
                 self.questions.submit_question_feedback(ctx, chat, pending[0]["token"], said, mid, attachments=paths,
-                                                        **({"top": top} if top else {}))
+                                                        **({"top": top} if top else {}), by=by)
         else:
             raise ValueError("未知操作")
         if changed is None:

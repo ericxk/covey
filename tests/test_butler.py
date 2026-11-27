@@ -175,6 +175,14 @@ class RoutingTest(ButlerUnifiedCase):
             self.assertEqual(self.job_of('om_r' + parent).topic_id, BUTLER, parent)
             self.done(self.job_of('om_r' + parent))
 
+    def test_a_quote_named_reply_to_of_the_pinned_overview_stays_with_the_butler(self):
+        # WAVE12 RT-7 ① (W1-B regression, W0-3 normalises it upstream: feishu/events.py with_parent in app/card_routing.py):
+        # the WS intake's event names the quoted panel card reply_to with parent_id None; app/butler.py app_for reads
+        # parent_id, so pins.panel_message sees the card and the message stays the butler's, not a new topic on it.
+        write_json(record_path(self.state, CHAT, 'pinned-overview.json'), {'chat_id': CHAT, 'message_id': 'om_board'})
+        self.send('om_rb', root='om_mine', reply_to='om_board', parent_id=None)
+        self.assertEqual(self.job_of('om_rb').topic_id, BUTLER)
+
     def test_a_reply_to_an_alert_at_the_top_level_goes_to_the_butler(self):
         """2026-11-21 T622: a reply to a disk alert at the top level of the private chat opened a topic on the alert, whose task
         waited 21 minutes for 开始 on its launch card in the alert's thread. An alert the Bridge sent at the top level is one of

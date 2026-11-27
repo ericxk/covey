@@ -19,10 +19,11 @@ its queued file and its handoff's extras; a model's tool argument never sets it.
 - The readers ``level``, ``origin``, ``via`` and ``downstream`` say of any job, stamped or LEGACY, whose words it carries, where
   they came from, through what, and which running jobs came of one owner's message.
 
-Readers first (WAVE12 W1-0): this release runs and reads the five kinds of the hands-on and continuations (``relay``,
-``lead``, ``wake``, ``answer``, ``answer_for``; each its row of ``BEHAVIOR``) and the optional ``via``, and stamps none of
-them; the release after it stamps them. So a job stamped by that release still runs as its row says here, after a rollback
-to this one, where an older release cancels it.
+Readers first (WAVE12 W1-0), writers after (W1-B): the five kinds of the hands-on and continuations (``relay``,
+``lead``, ``wake``, ``answer``, ``answer_for``; each its row of ``BEHAVIOR``) and the optional ``via`` are run and read since
+W1-0, which stamped none of them; from W1-B the Bridge stamps them through ``stamp`` (the butler's and a lead's hands-on,
+the continuations of answers; ``wake`` is W1-A's). A job stamped so still runs as its row says after a rollback to W1-0,
+where an older release cancels it: W1-0's release is the rollback floor.
 
 Standard library and core only: cards, the MCP server and an extension's isolated interpreter may read it.
 """
@@ -210,6 +211,27 @@ def make(kind_, *, asserted_by, origin=None, collab="", ask="", via="") -> dict:
     if via:
         made[VIA] = via
     return made
+
+
+# Who says it by default, for each kind the Bridge stamps (``stamp``): a hand-on is the butler's unless the owner's message
+# is in its origin, a lead's are the lead's, a wake-up the Bridge's, an answer the owner's (the butler's for him carries his
+# message), a lead's answer for him the lead's.
+STAMP_BY = {RELAY: PARTY_BUTLER, LEAD: PARTY_LEAD, WAKE: PARTY_BRIDGE, ANSWER: PARTY_OWNER, ANSWER_FOR: PARTY_LEAD}
+# The one switch back (WAVE12 §3.6 风险 1): False and ``stamp`` returns None everywhere, so every job it would have stamped
+# is LEGACY again, as before W1-B. A code change, not a setting: no environment variable is read for it.
+STAMPING = True
+
+
+def stamp(kind_, *, asserted_by="", origin=None, via="") -> dict | None:
+    """The field a job of the hands-on and continuations (``STAMP_BY``'s kinds) is queued with: ``make`` of ``kind_``,
+    ``asserted_by`` its STAMP_BY party unless given (a relay that carries the owner's message: PARTY_OWNER with his
+    ``origin.message_id``), ``via`` one of VIAS. None (the job goes LEGACY, as before) when STAMPING is off. A kind outside
+    STAMP_BY, a party outside PARTIES or a ``via`` outside VIAS raises ValueError, as ``make`` does."""
+    if kind_ not in STAMP_BY:
+        raise ValueError(f"not a stamped turn source: {kind_!r}")
+    if not STAMPING:
+        return None
+    return make(kind_, asserted_by=asserted_by or STAMP_BY[kind_], origin=origin, via=via)
 
 
 def _known(*items):

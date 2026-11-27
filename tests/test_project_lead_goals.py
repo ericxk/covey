@@ -1013,7 +1013,7 @@ class GroundsTest(ToolsCase):
         app = self.env.topics.target(self.state, self.topic, CHAT)[0]
         self.submit = mock.patch.object(app.questions, "submit_answer", side_effect=self.landed).start()
 
-    def landed(self, ctx, chat, token, fields, event_id):
+    def landed(self, ctx, chat, token, fields, event_id, *, by=None):
         path = self.state / "questions" / (token + ".json")
         write_json(path, {**read_object(path), "status": "answered", "answers": {"0": {"answers": ["旧版"]}}}, ensure_ascii=False)
 

@@ -675,6 +675,21 @@ class AnswerFieldsTest(unittest.TestCase):
             answer_fields(free, {"ship": "发", "where": "灰度", "why": "因为"}, PROXY_NOTE)
 
 
+SAID = "om_said"  # The owner's message the butler's turn answers (question_answer needs one, WAVE12 C2).
+
+
+def said(state):
+    """The butler's turn of the owner's message SAID, its record as the Bridge writes it."""
+    import datetime
+
+    from covey.core.butler import butler_topic_id
+    from covey.core.jobs import upsert_job_record
+
+    upsert_job_record(state, SAID, job_id=50, message_id=SAID, topic_id=butler_topic_id("oc_chat"), chat_id="oc_chat",
+                      user_text="要一半就行", prompt_text="要一半就行", sender_id="ou_user",
+                      created_at=datetime.datetime.fromtimestamp(NOW - 5, datetime.timezone.utc).isoformat())
+
+
 class FinishedTaskAnswerTest(AnswerFollowUpFixture, unittest.TestCase):
     """question_answer when the task that asked has ended: the answer is saved and a continuation task queued."""
 
@@ -689,7 +704,8 @@ class FinishedTaskAnswerTest(AnswerFollowUpFixture, unittest.TestCase):
         env = ButlerEnv(runtime("oc_chat"),
                       SimpleNamespace(harnesses={}, target=lambda *args: (self.app, self.ctx_topic, {})),
                       None, None, state_dir=state, profile="unit")
-        request = butler_requests.Request("r2", "question_answer", {"topic": "T8", "answers": {"q": "一半"}}, "main-1", NOW)
+        said(state)
+        request = butler_requests.Request("r2", "question_answer", {"topic": "T8", "answers": {"q": "一半"}}, SAID, NOW)
         answer = butler_tools.question_answer(env, request)
         self.assertTrue(answer["ok"], answer)
         self.assertEqual(answer["data"]["status"], "answered")
@@ -697,7 +713,12 @@ class FinishedTaskAnswerTest(AnswerFollowUpFixture, unittest.TestCase):
         self.app.questions.enqueue_continuation.assert_called_once()
         sent = self.app.questions.enqueue_continuation.call_args.args[1]
         self.assertIn("范围？\n一半", sent)
-        self.assertIn(PROXY_NOTE, sent)
+        self.assertIn(PROXY_NOTE + "主人原话（", sent)
+        self.assertIn("要一半就行", sent)
+        # The butler's, on the owner's message (WAVE12 C2): kept on the record, its continuation his answer with it.
+        self.assertEqual(self.record()["answer_by"], {"party": "butler", "channel": "tool", "message_id": SAID})
+        self.assertEqual(self.app.questions.enqueue_continuation.call_args.kwargs["source"]["origin"],
+                         {"question": self.record()["token"], "message_id": SAID})
 
 
 class QuestionAnswerTest(QuestionFixture, unittest.TestCase):
@@ -716,23 +737,40 @@ class QuestionAnswerTest(QuestionFixture, unittest.TestCase):
 
         self.env = ButlerEnv(runtime("oc_chat"), SimpleNamespace(harnesses={}, target=target), None, None,
                            state_dir=state, profile="unit")
+        said(state)
 
-    def call(self, **args):
-        return butler_tools.question_answer(self.env, butler_requests.Request("r1", "question_answer", args, "main-1", NOW))
+    def call(self, job_key=None, **args):
+        return butler_tools.question_answer(self.env, butler_requests.Request("r1", "question_answer", args,
+                                                                              job_key or SAID, NOW))
 
     def test_the_answer_reaches_the_task_marked_as_the_butlers(self):
         answer = self.call(topic="T7", answers={"scope": "全部"})
         self.assertTrue(answer["ok"], answer)
         self.assertIn("范围？ → 全部", answer["text"])
         self.assertEqual(self.targets, [(self.job.topic_id, "oc_chat")])
-        self.rpc.answer.assert_called_once_with(17, {"scope": {"answers": ["全部", "补充说明：" + PROXY_NOTE]}})
+        note = PROXY_NOTE + "主人原话（" + butler_tools.stamp(NOW - 5, "%H:%M", "") + "）：要一半就行"
+        self.rpc.answer.assert_called_once_with(17, {"scope": {"answers": ["全部", "补充说明：" + note]}})
         saved = json.loads(self.path.read_text())
         self.assertEqual((saved["status"], saved["supplement"], saved["answer_event"]),
-                         ("answered", PROXY_NOTE, "main-r1"))
+                         ("answered", note, "main-r1"))
         again = self.call(topic="T7", answers={"scope": "全部"})
         self.assertFalse(again["ok"])
         self.assertIn("没有等主人回答的问题", again["text"])
         self.rpc.answer.assert_called_once()
+
+    def test_without_the_owners_message_the_butler_answers_nothing(self):
+        # WAVE12 C2: a turn of no message of his (a wake-up, a hand-on, a turn whose record is gone) has none to answer by.
+        from covey.core.jobs import upsert_job_record
+
+        upsert_job_record(self.ctx_topic.state_dir, "main-req-9", job_id=60, message_id="main-req-9", chat_id="oc_chat",
+                          user_text="管家自己整理的", sender_id="ou_user")
+        for key in ("main-req-9", "gone-1"):
+            with self.subTest(key):
+                answer = self.call(job_key=key, topic="T7", answers={"scope": "全部"})
+                self.assertFalse(answer["ok"])
+                self.assertIn("取不到主人原话", answer["text"])
+        self.rpc.answer.assert_not_called()
+        self.assertEqual(json.loads(self.path.read_text())["status"], "pending")
 
     def test_a_label_not_in_the_list_sends_nothing(self):
         with self.assertRaisesRegex(ValueError, "不是"):

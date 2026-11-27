@@ -29,8 +29,10 @@ from covey.core.run_dir import run_dir, runner_alive
 from covey.cards.elements import md
 from covey.cards.question_cards import (FOLDED, SET_ASIDE, SET_ASIDE_ANSWER, SET_ASIDE_HELD, SET_ASIDE_SETTLED,
                                         answer_notice_card, aside_offered, folded, folded_refusal)
-from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, open_id_of, question_feedback_fields,
-                               set_aside_answers, set_aside_message, submitted_answer)
+from covey.app.answers import (ATTACHMENTS, CARD, WEB, answer_by, answer_message, answer_title, by_fields,
+                               continuation_source, from_fields, open_id_of, question_feedback_fields, set_aside_answers,
+                               set_aside_message, submitted_answer, via_of)
+from covey.core.turn_source import PARTY_BUTLER, PARTY_OWNER
 from covey.app.checkpoint_questions import CheckpointQuestions
 from covey.app.held_notes import HeldNotes
 from covey.app.native_questions import NativeQuestions, turn_output
@@ -85,7 +87,9 @@ class Questions:
         self.voice = harness.voice
         self.cards = cards
         self.enqueue_chat_job = enqueue_chat_job
-        self.answering = set()  # Questions whose saved answer is being queued after its click was acknowledged.
+        # Questions whose saved answer is on its way: delivered to the task that asks, or queued after its click was
+        # acknowledged. Another answer of them meanwhile is told one went (WAVE12 §5.4 R2).
+        self.answering = set()
         self.notes = HeldNotes(harness, messenger=messenger, cards=cards, questions=self)
         self.display = QuestionDisplay(harness, runtime=runtime, messenger=messenger, cards=cards, questions=self)
         self.native = NativeQuestions(harness, runtime=runtime, cards=cards, questions=self)
@@ -174,9 +178,10 @@ class Questions:
         outside the topic's thread (app/butler_reactions.py top_message): DONE on it once the running task took the
         answer, else the continuation's reactions. ``by``: who submitted it, when known: the open_id of a card's click, or
         an AnswerBy (app/answers.py), of which its open_id is read: only the owner's own submit writes the rule its extra
-        question proposes (app/question_dedup.py settle)."""
-        by = open_id_of(by)
-        if forward_answer(self.runtime, ctx, chat, token, fields, event_id, by=by):
+        question proposes (app/question_dedup.py settle). The record keeps who (``answer_by``, WAVE12 C2) and the turn that
+        carries the answer on is stamped from it (app/answers.py continuation_source)."""
+        by = answer_by(by)
+        if forward_answer(self.runtime, ctx, chat, token, fields, event_id, by=open_id_of(by), answer_by=by_fields(by)):
             self._took(ctx, top)  # The task runner that asked the question took the answer.
             return None
         return self._submit_answer(ctx, chat, token, fields, event_id, **({"top": top} if top else {}), by=by)
@@ -214,6 +219,8 @@ class Questions:
                     self.require_delivered_question(ctx, record)
                     update_question(path, lambda current: {**current, 'status': 'pending', 'reconcile_saved': True})
                     fields = {f'answer_{i}':'；'.join(record['answers'][q['id']]['answers']) for i,q in enumerate(record['questions'])}
+                    # Who gave the saved answer, as it was saved: the one resubmitted is still theirs.
+                    saved_by = from_fields(record.get('answer_by'))
             if queued:
                 # Its continuation was queued after all (a task runner stopped waiting for the Bridge's
                 # receipt): that task has the answer. Another under the same key would share its record.
@@ -226,7 +233,7 @@ class Questions:
                              if n.get('answer_token') == token and not n.get('job_id')]
                     notes.settle_notes(ctx, chat, taken, queued.get('job_id'))
                 return
-            self.submit_answer(ctx, chat, token, fields, mid)
+            self.submit_answer(ctx, chat, token, fields, mid, by=saved_by)
 
     def require_delivered_question(self, ctx, record):
         if record.get("display_pending") or (record.get("body_delivery_required") and (
@@ -234,13 +241,28 @@ class Questions:
             raise ValueError(f"完整结果或问题控件尚未送达，请先{retry_hint()} 重新投递，不能提前确认")
 
     def owner_submitted(self, by) -> bool:
-        """Whether ``by`` (an open_id, None when not known) is the owner's: app/access.py is_owner. Only such an answer is
-        noted as the owner's decision (app/project_context.py remember_answer)."""
+        """Whether the answer ``by`` gave (an AnswerBy, an open_id, None when not known) is the owner's word: his own (a click,
+        his message, the web page: of the owner's party, or of none known, the open_id of an older runner's) by an open_id
+        app/access.py is_owner says is his, or the butler's on a message of his (WAVE12 C2: its ``message_id``, the butler
+        turn of his own message). A lead's in his place never is. Only such an answer is noted as the owner's decision
+        (app/project_context.py remember_answer)."""
+        by = answer_by(by)
+        if by is None or by.party not in ("", PARTY_OWNER, PARTY_BUTLER):
+            return False
+        if by.party == PARTY_BUTLER and not by.message_id:
+            return False
         access = getattr(self.runtime, "access", None)
         try:
-            return bool(by) and access is not None and bool(access.is_owner(by))
+            return bool(by.open_id) and access is not None and bool(access.is_owner(by.open_id))
         except Exception:  # noqa: BLE001 - not known to be his
             return False
+
+    @staticmethod
+    def owner_clicked(by) -> bool:
+        """Whether ``by`` is the owner's own click or web page answer (or, of no known party, an older runner's open_id):
+        only such an answer writes the rule its extra question proposes (app/question_dedup.py settle, WAVE12 C2)."""
+        by = answer_by(by)
+        return by is not None and (by.party == "" or by.party == PARTY_OWNER and by.channel in (CARD, WEB))
 
     def _submit_answer(self, ctx, chat, token, fields, event_id, *, top="", by=None):
         path = question_path(ctx, token)
@@ -253,7 +275,9 @@ class Questions:
                 raise QuestionFolded(folded_refusal(record))
             self.require_delivered_question(ctx, record)
             if record["status"] == "submitting" and token in self.answering:
-                raise ValueError("回答已提交，正在创建后续任务；不会重复发送")
+                # Another answer of this Bridge is on its way (WAVE12 §5.4 R2: a click and a lead's answer at once): it won.
+                live = self.runtime.jobs.live_job(ctx.topic_id, chat, record["job_id"]) is not None
+                raise ValueError("回答已提交，正在送给任务；不会重复发送" if live else "回答已提交，正在创建后续任务；不会重复发送")
             if record["status"] in {"submitting", "uncertain"}:
                 raise ValueError("上次回答已保存，但送达状态未确认；请先核查任务，不会重复发送")
             if record["status"] == SET_ASIDE:
@@ -274,14 +298,22 @@ class Questions:
                 if removed:
                     raise ValueError(retired_provider_notice(removed))
             answers, response = submitted_answer(record, fields)
-            # Persist intent first. Never retry an ambiguous write as another task.
+            # Persist intent first, who gave it in the same write (WAVE12 C2). Never retry an ambiguous write as another task.
+            given_by = by_fields(by)
             record = transition_question(path, {"pending"}, status="submitting", answers=answers, answer_event=event_id,
-                                         **response)
+                                         **({"answer_by": given_by} if given_by else {}), **response)
+            self.answering.add(token)  # On its way from here: another answer of the same instant is told it lost.
+        owners = self.owner_submitted(by)
         project_context.remember_answer(ctx.state_dir, ctx.topic_id, record, self.runtime.log,  # A project's topic: a decision noted.
-                                        owners=self.owner_submitted(by))
+                                        owners=owners, settles=owners and self.owner_clicked(by),
+                                        origin={"question": str(record.get("token") or ""),
+                                                **({"message_id": answer_by(by).message_id}
+                                                   if owners and answer_by(by).message_id else {}),
+                                                **({"via": via_of(by)} if via_of(by) else {})})
         try:
             return self._deliver_answer(ctx, chat, token, record, answers, event_id, path, **({"top": top} if top else {}))
         except Exception:
+            self.answering.discard(token)
             self._answer_unconfirmed(ctx, path)
             raise
 
@@ -361,6 +393,7 @@ class Questions:
                                         prior, title, retried, sender, **({"top": top} if top else {})))
             return
         self._commit_answer(ctx, chat, token, record, path, notes, feedback)
+        self.answering.discard(token)  # Delivered (a continuation's is let go once it is queued, _queue_continuation).
         self._took(ctx, top)  # The running task has the answer.
 
     def _device_message(self, ctx, chat, job, token, record, text, delivered):
@@ -390,9 +423,12 @@ class Questions:
             append_history(ctx.history_path, "user", text)
             if record.get('reconcile_saved'):
                 text = '上次回答送达状态未确认。先核查后端会话、已有产物和外部操作是否已完成，避免重复执行。\n' + text
+            # Whose answer it carries on (WAVE12 C1): ``answer`` for the owner's (or the butler's on his message), ``answer_for``
+            # for a lead's in his place; none (as before) when it is not known.
+            source = continuation_source(record)
             continuation = self.enqueue_continuation(ctx, text, chat, "answer-" + token, prior, title=title,
                                                      display=shown, policy_retry=policy_retry, sender_id=sender_id,
-                                                     **({"top": top} if top else {}))
+                                                     **({"top": top} if top else {}), **({"source": source} if source else {}))
             if continuation is None:
                 raise ValueError("回答已保存，但后续任务未能入队；请检查模型配置后再核查提交状态")
             record["continuation_job_id"] = continuation.job_id
@@ -529,20 +565,22 @@ class Questions:
             self.runtime.log(f"held notes not settled: {type(exc).__name__}")
 
     def enqueue_continuation(self, ctx, text, chat, message_id, recovery_context, title="", display="",
-                             policy_retry=None, sender_id="", top=""):
+                             policy_retry=None, sender_id="", top="", source=None):
         """Queue the job that carries an answer on; a task runner asks its bridge to do this.
 
         `display` is the request its card shows when `text` carries lines meant only for the model; `policy_retry`
         the answered job's mark of a retry after a safety refusal (core/jobs.py), which the continuation keeps, and
         `sender_id` who sent the answered job's message ('' none known). `top`: the message whose reactions say how it
-        stands (app/butler_reactions.py top_message); the Bridge's alone (a task runner's answers are clicks)."""
+        stands (app/butler_reactions.py top_message); the Bridge's alone (a task runner's answers are clicks). `source`:
+        its 轮次来源 (app/answers.py continuation_source), none for one of no known party."""
         if self.runtime.runner is not None:
             return self.runtime.runner.enqueue(self.harness.spec.name, ctx, text, chat, message_id, recovery_context,
                                                title=title, display=display, policy_retry=policy_retry,
-                                               sender_id=sender_id)
+                                               sender_id=sender_id, **({"source": source} if source else {}))
         return self.enqueue_chat_job(ctx, display or text, chat, message_id, prompt_content=text,
                                      recovery_context=recovery_context, title=title, policy_retry=policy_retry,
-                                     sender_id=sender_id, **({"top": top} if top else {}))
+                                     sender_id=sender_id, **({"top": top} if top else {}),
+                                     **({"source": source} if source else {}))
 
     def retire_orphaned_live_questions(self, ctx, chat):
         """The topic's pending live questions (``native_live_question``) whose task is gone: no task runner or job of this
@@ -570,12 +608,12 @@ class Questions:
     def undelivered_checkpoint_jobs(self, ctx, chat):
         return self.checkpoints.undelivered_jobs(ctx, chat)
 
-    def hold_note(self, ctx, chat, text, mid, pending, attachments="", *, top=""):
+    def hold_note(self, ctx, chat, text, mid, pending, attachments="", *, top="", by=""):
         return self.notes.hold_note(ctx, chat, text, mid, pending, attachments=attachments,
-                                    **({"top": top} if top else {}))
+                                    **({"top": top} if top else {}), **({"by": by} if by else {}))
 
-    def note_action(self, ctx, chat, raw, mid):
-        return self.notes.note_action(ctx, chat, raw, mid)
+    def note_action(self, ctx, chat, raw, mid, *, by=None):
+        return self.notes.note_action(ctx, chat, raw, mid, by=by)
 
     def publish_question_card(self, ctx, record, *, visible=None):
         return self.display.publish(ctx, record, visible=visible)

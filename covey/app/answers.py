@@ -36,11 +36,80 @@ class AnswerBy:
     message_id: str = ""  # The owner's message: his own (message), the one the butler answers by (tool), the page's op (web).
 
 
+CARD, MESSAGE, WEB, TOOL = "card", "message", "web", "tool"  # AnswerBy.channel
+CHANNELS = frozenset({CARD, MESSAGE, WEB, TOOL})
+BY_KEYS = ("party", "channel", "message_id")  # What a question record (``answer_by``) and a runner's inbox keep of an AnswerBy.
+
+
 def open_id_of(by):
     """The open_id ``by`` names: an AnswerBy's (None when it has none); anything else (an open_id, None) as it is."""
     if isinstance(by, AnswerBy):
         return by.open_id or None
     return by
+
+
+def answer_by(by):
+    """``by`` as an AnswerBy: itself; an open_id (the string a task runner of an older release, or a Bridge of one, sends)
+    as one of no known party (``party`` ''), only its open_id; None for none."""
+    if isinstance(by, AnswerBy):
+        return by
+    if isinstance(by, str) and by:
+        return AnswerBy(party="", channel="", open_id=by)
+    return None
+
+
+def by_fields(by) -> dict:
+    """What a question record (``answer_by``) and a runner's inbox (``answer_by``) keep of ``by`` (BY_KEYS, the empty ones
+    left out); {} for none or an open_id alone."""
+    by = answer_by(by)
+    if by is None or not by.party:
+        return {}
+    return {key: str(getattr(by, key)) for key in BY_KEYS if getattr(by, key)}
+
+
+def from_fields(fields, open_id=None):
+    """The AnswerBy a runner's inbox carries: ``fields`` (``by_fields``'s, a Bridge of this release sends them) with the
+    payload's ``open_id`` (its ``by``); the open_id alone (``answer_by``) when ``fields`` is none or not one (a Bridge of
+    an older release sent only that)."""
+    from covey.core import turn_source
+
+    if isinstance(fields, dict) and fields.get("party") in turn_source.PARTIES:
+        channel = str(fields.get("channel") or "")
+        return AnswerBy(party=str(fields["party"]), channel=channel if channel in CHANNELS else "",
+                        open_id=str(open_id or ""), message_id=str(fields.get("message_id") or ""))
+    return answer_by(open_id)
+
+
+def via_of(by) -> str:
+    """What an answer came in through, as core/turn_source.py ``via`` names it: its channel (card, message, web), or for a
+    tool's its party's (butler, lead); '' when not known."""
+    by = answer_by(by)
+    if by is None:
+        return ""
+    if by.channel in (CARD, MESSAGE, WEB):
+        return by.channel
+    return by.party if by.channel == TOOL and by.party in ("butler", "lead") else ""
+
+
+def continuation_source(record):
+    """The 轮次来源 of the turn that carries the answer of question ``record`` on (core/turn_source.py ``stamp``): ``answer_for``
+    for a lead's answer in the owner's place, ``answer`` for the owner's own (his click, his message, the web page) or the
+    butler's on a message of his (``answer_by``'s ``message_id``), each with the question's token in its origin and the
+    message where there is one; None (LEGACY, as before) for an answer of no known party (an open_id alone, none)."""
+    from covey.core import turn_source
+
+    by = record.get("answer_by") if isinstance(record.get("answer_by"), dict) else {}
+    party, token = by.get("party"), str(record.get("token") or "")
+    if not token or party not in (turn_source.PARTY_OWNER, turn_source.PARTY_BUTLER, turn_source.PARTY_LEAD):
+        return None
+    if party == turn_source.PARTY_BUTLER and not by.get("message_id"):
+        return None  # The butler answers only on the owner's message (app/butler_tools.py question_answer).
+    message = str(by.get("message_id") or "") if party != turn_source.PARTY_LEAD else ""
+    origin = {"question": token, **({"message_id": message} if message else {})}
+    via = via_of(AnswerBy(party=str(party), channel=str(by.get("channel") or "")))
+    if party == turn_source.PARTY_LEAD:
+        return turn_source.stamp(turn_source.ANSWER_FOR, origin=origin, via=via)
+    return turn_source.stamp(turn_source.ANSWER, origin=origin, via=via)
 
 
 SKIPPED = "用户选择不回答此题（不表示同意或授权）"
@@ -236,8 +305,12 @@ def shown_answer_title(shown):
 
 FEEDBACK_START = "用户对当前提问的反馈（未回答原问题，不表示同意或授权，请重新评估问题和需求）：\n"  # ``answer_message``'s for feedback.
 ANSWER_START = "用户补充回答："  # ``answer_message``'s ``shown`` for answered questions begins so;
-# its 补充说明 (UNANSWERED_NOTE's heading too) and 另外补充 sections each follow a blank line so.
-NOTE_SECTION = re.compile(r"\n\n用户(补充说明|另外补充)[^\n]*?：\n")
+# its 补充说明 (UNANSWERED_NOTE's heading too) and 另外补充 sections each follow a blank line so, and so do the words the
+# butler or a project's lead sent the topic while it waited (held notes of theirs, P1-6): never the owner's, said so.
+RELAYED_HEADS = {"butler": "管家转来的补充", "lead": "负责人转来的补充"}
+RELAYED_NOT_HIS = "（不是用户本人说的，不表示用户同意或授权；只作参考）"
+NOTE_SECTION = re.compile(r"\n\n(?:用户)?(补充说明|另外补充|管家转来的补充|负责人转来的补充)[^\n]*?：\n")
+RELAYED = "relayed"  # ``answer_parts``' kind of the words of a relayed note: not the owner's (app/memory_candidates.py owner_words).
 
 
 def answer_parts(shown, questions=()):
@@ -256,7 +329,7 @@ def answer_parts(shown, questions=()):
         parts += [*([("question", question.strip())] if question.strip() else []), ("answer", answer.strip())]
     for name, said in zip(pieces[1::2], pieces[2::2]):
         if said.strip():
-            parts += [("heading", name), ("note", said.strip())]
+            parts += [("heading", name), (RELAYED if name in RELAYED_HEADS.values() else "note", said.strip())]
     return parts
 
 
@@ -304,12 +377,18 @@ def answer_message(record, answers, feedback, notes):
         riders.append(head + record["supplement"])
     delivered = answers
     extra_notes = [note for note in notes if not feedback or note_parts(note)[0].strip() != feedback]
-    if extra_notes:
-        parts = [note_parts(note) for note in extra_notes]
+    # The owner's notes first, as before; then each relayed one's under whose it is (P1-6: they read as his).
+    groups = [("用户另外补充", [note for note in extra_notes if note.get("by") not in RELAYED_HEADS], "")]
+    groups += [(head, [note for note in extra_notes if note.get("by") == by], RELAYED_NOT_HIS)
+               for by, head in RELAYED_HEADS.items()]
+    for head, chosen, mark in groups:
+        if not chosen:
+            continue
+        parts = [note_parts(note) for note in chosen]
         extra = "\n\n".join(said + ("\n" + paths if paths else "") for said, paths in parts)
-        shown += "\n\n用户另外补充：\n" + "\n\n".join(said for said, _ in parts)
-        text += "\n\n用户另外补充：\n" + extra
-        riders.append("另外补充：" + extra)
+        shown += f"\n\n{head}{mark}：\n" + "\n\n".join(said for said, _ in parts)
+        text += f"\n\n{head}{mark}：\n" + extra
+        riders.append(f"{head.removeprefix('用户')}{mark}：" + extra)
     if riders:
         # A native answer reaches the model as the question's result: notes ride on the last answer,
         # so the model answers once with everything instead of again for a separate supplement.

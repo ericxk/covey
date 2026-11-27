@@ -192,7 +192,7 @@ def elsewhere(state_dir, project_id, lines, log=None) -> None:
                 log(f"project memory answer {line['index']} noted as history: it names project {about[0]}'s lines")
 
 
-def remember_answer(state_dir, topic_id, record, log=None, *, owners=False) -> None:
+def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, settles=None, origin=None) -> None:
     """Note the owner's saved answer ``record`` (a question record with ``answers``) of ``topic_id`` as decisions (core/memstore.py
     add_decision): the project's (COVEY_PROJECT_MEMORY=1) for a topic or the lead of a project, the topic's own (COVEY_MEMORY on)
     for an ordinary one; a decision each question answered (``answer_line``), its ``question_ref`` ``<token>-<place>`` so it is
@@ -204,7 +204,12 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False) -> N
     writes its rule only for ``owners`` too.
     An answer the lead gave in the owner's place (COVEY_PROJECT_TRIAGE=1: the record is still ``held`` while it is saved,
     app/triage.py ``answer``) is not the owner's word and is not noted; the 分流记录 and the decision log hold it, and the
-    owner's 不对 corrects it. A question the lead passed on (``escalated``) and the owner answered is noted as always."""
+    owner corrects it in the topic (the 分流记录's 不对 is retired, T898). A question the lead passed on (``escalated``) and the owner answered is noted as always.
+    ``settles``: whether the extra question's pick writes its rule (WAVE12 C2: the owner's own click or web page answer;
+    ``owners`` when not given). ``origin``: where the owner's word came in (app/questions.py: the question's token, his
+    message's id, ``via``), kept on each decision's origin."""
+    settles = owners if settles is None else settles
+    came = {key: str(value) for key, value in (origin or {}).items() if key in ("question", "message_id", "via") and value}
     try:
         if record.get("response_kind") == "feedback" or triage.state(record) in {triage.HELD, triage.ANSWERED}:
             return
@@ -232,10 +237,10 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False) -> N
                                       polarity=question_dedup.polarity(line["answer"]),
                                       status="done" if line.get("valid") == "done" else "active", redacted=redacted,
                                       origin={"topic_key": str(topic_id or ""), "item": line["item"], "index": line["index"],
-                                              **({"job": str(record["job_key"])} if record.get("job_key") else {})},
+                                              **({"job": str(record["job_key"])} if record.get("job_key") else {}), **came},
                                       who="owner")
-        question_dedup.settle(state, topic_id, record, {line["item"]: line["answer"] for line in answered(record)}, owner=owners,
-                              log=log)  # Only the owner's own submit (``owners``: app/questions.py owner_submitted) writes a rule.
+        question_dedup.settle(state, topic_id, record, {line["item"]: line["answer"] for line in answered(record)}, owner=settles,
+                              log=log)  # Only the owner's own click or web answer (``settles``: app/questions.py) writes a rule.
     except Exception as exc:  # noqa: BLE001 - the answer is delivered whether or not it was noted
         if log is not None:
             log(f"memory of an answer failed: {type(exc).__name__}")

@@ -17,7 +17,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.core import timing
+from covey.core import timing, turn_source
+from covey.app.answers import from_fields
 from covey.core.state import read_json, write_json
 from covey.app.card_actions import BOT_ONLY, click_kind
 from covey.core.jobs import context_for_job
@@ -271,8 +272,10 @@ def show_in_runner(runtime, state_dir: Path, record: dict) -> bool | None:
     return bool(result and result.get("ok"))
 
 
-def forward_answer(runtime, ctx, chat, token, fields, event_id, *, by=None) -> bool:
-    """Hand a typed answer to the runner that asked the question; False when the bridge answers it."""
+def forward_answer(runtime, ctx, chat, token, fields, event_id, *, by=None, answer_by=None) -> bool:
+    """Hand a typed answer to the runner that asked the question; False when the bridge answers it. ``by``: the open_id of
+    who gave it (the key a runner of every release reads); ``answer_by``: app/answers.py by_fields of its AnswerBy, a key
+    a runner of an older release ignores."""
     if runtime.in_runner:
         return False
     job_id = _question_job_id(ctx.state_dir, token)
@@ -283,7 +286,8 @@ def forward_answer(runtime, ctx, chat, token, fields, event_id, *, by=None) -> b
     if directory is None:
         return False
     op = write_inbox(directory, {"kind": "answer", "chat_id": chat, "token": token, "fields": fields,
-                                  "event_id": event_id, **({"by": by} if by else {})})
+                                  "event_id": event_id, **({"by": by} if by else {}),
+                                  **({"answer_by": dict(answer_by)} if answer_by else {})})
     timing.mark("forward")
     result = await_reply(directory / ACKS / (op + ".json"), time.monotonic() + ANSWER_TIMEOUT)
     timing.mark("acked")
@@ -294,6 +298,21 @@ def forward_answer(runtime, ctx, chat, token, fields, event_id, *, by=None) -> b
     if not result.get("ok"):
         raise ValueError(result.get("error") or "回答未送达当前任务")
     return True
+
+
+def continuation_source(payload) -> dict | None:
+    """The 轮次来源 a runner's ``enqueue_answer`` asks its continuation to carry (``turn_source``, app/answers.py
+    continuation_source made it): only an answer's (``answer``, ``answer_for``) of this release's version, of the question its
+    message id names; None (LEGACY, as before) for none (a runner of an older release sends none) or anything else."""
+    source = payload.get("turn_source")
+    if not isinstance(source, dict) or source.get("kind") not in (turn_source.ANSWER, turn_source.ANSWER_FOR):
+        return None
+    if turn_source.refusal({turn_source.FIELD: source}):
+        return None
+    token = str(payload.get("message_id") or "").removeprefix("answer-")
+    if turn_source.origin({turn_source.FIELD: source}).get("question") != token:
+        return None
+    return dict(source)
 
 
 def serve_requests(gateway, app, job, ctx, directory: Path) -> None:
@@ -315,6 +334,7 @@ def serve_requests(gateway, app, job, ctx, directory: Path) -> None:
                                          work_mode=str(payload.get("work_mode") or ""))
             # A retry's continuation keeps its mark (app/policy_retry.py); a runner from before it sends none.
             retried = payload.get("policy_retry") if isinstance(payload.get("policy_retry"), dict) else None
+            source = continuation_source(payload)
             continuation = owner.submission.enqueue_chat_job(target, payload.get("display") or payload["text"],
                                                              payload["chat_id"], payload["message_id"],
                                                              prompt_content=payload["text"],
@@ -323,7 +343,8 @@ def serve_requests(gateway, app, job, ctx, directory: Path) -> None:
                                                              policy_retry=retried,
                                                              # Who sent the answered task's message; a runner from
                                                              # before it sends none (app/tool_limits.py READ).
-                                                             sender_id=str(payload.get("sender_id") or ""))
+                                                             sender_id=str(payload.get("sender_id") or ""),
+                                                             **({"source": source} if source else {}))
             if continuation is None:
                 raise ValueError("后续任务未能入队")
             ack(directory, payload["id"], True, folder=REPLIES, job_id=continuation.job_id)
@@ -345,7 +366,7 @@ class RunnerLink:
         self.directory = Path(directory)
 
     def enqueue(self, harness, ctx, text, chat, message_id, recovery_context, title="", display="", policy_retry=None,
-                sender_id=""):
+                sender_id="", source=None):
         deadline = time.time() + ENQUEUE_TIMEOUT
         op = post(self.directory / REQUESTS, {
             "kind": "enqueue_answer", "harness": harness, "chat_id": chat, "topic_id": ctx.topic_id,
@@ -355,6 +376,8 @@ class RunnerLink:
             **({"policy_retry": dict(policy_retry)} if policy_retry else {}),
             # Only when the answered job kept who sent it; a Bridge from before it ignores it too.
             **({"sender_id": sender_id} if sender_id else {}),
+            # Whose answer it carries on (app/answers.py continuation_source); a Bridge from before W1-B ignores it.
+            **({"turn_source": dict(source)} if source else {}),
             "recovery_context": recovery_context, "deadline": deadline, "title": title, "display": display})
         result = await_reply(self.directory / REPLIES / (op + ".json"), time.monotonic() + ENQUEUE_TIMEOUT + 3)
         if result is None:
@@ -415,8 +438,10 @@ def take_inbox(gateway, app, job, ctx, directory: Path) -> None:
                 if callable(watch):
                     watch(job_ctx, job, payload["event_id"])
             elif kind == "answer":
+                # Who gave it: the Bridge's AnswerBy (``answer_by``, W1-B) with its open_id (``by``); a Bridge of before W1-B
+                # sends the open_id alone, and one of before W0-1 neither.
                 app.questions.submit_answer(job_ctx, payload["chat_id"], payload["token"], payload["fields"], payload["event_id"],
-                                            **({"by": payload["by"]} if payload.get("by") else {}))  # A Bridge's of before: none.
+                                            by=from_fields(payload.get("answer_by"), payload.get("by") or None))
                 ack(directory, payload["id"], True)
             elif kind == SHOW_QUESTION:
                 record = read_json(Path(job_ctx.state_dir) / "questions" / (str(payload["token"]) + ".json"))

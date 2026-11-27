@@ -17,7 +17,12 @@ from covey.cards.elements import md
 from covey.cards.question_cards import (ASK_KIND, DRAFT, PICK, RESTORE_KIND, SET_ASIDE_KIND, SET_ASIDE_SETTLED, SKIP_ALL_KIND, folded,
                                         folded_refusal, question_feedback_card)
 from covey.app.card_lanes import after_ack
-from covey.app.answers import ATTACHMENTS, AnswerIncomplete, picked_fields, skip_all_fields, with_note
+from covey.app import provenance
+from covey.app.answers import (ATTACHMENTS, CARD, MESSAGE, AnswerBy, AnswerIncomplete, picked_fields, skip_all_fields,
+                               with_note)
+from covey.core import butler as butler_contract
+from covey.core import turn_source
+from covey.core.turn_source import PARTY_OWNER
 from covey.app.question_display import standalone_card, top_card
 from covey.app.questions import (QuestionFolded, fold_older_questions, question_card_lock, question_path,
                                           scoped_question)
@@ -121,6 +126,28 @@ def clicked_card(event, ctx, record, copy_card=top_card):
     copy = event.get("message_id") and event.get("message_id") == record.get("mirror_message_id")
     return copy_card(ctx, record) if copy else standalone_card(ctx, record)
 
+
+
+def note_by(source) -> str:
+    """Whose words a held note of ``source`` (a synthetic one, app/provenance.py) is, for its record and the answer it goes
+    with (app/answers.py answer_message, P1-6): a lead's ("lead") or the butler's ("butler", also for a caller of before
+    ``source``, app/butler_topics.py's only)."""
+    return "lead" if turn_source.kind({turn_source.FIELD: source} if source else None) in (turn_source.LEAD, turn_source.ANSWER_FOR) else "butler"
+
+
+def card_messages(state_dir, record) -> set:
+    """The messages of a question ``record``'s card a reply may quote to answer it (WAVE12 C2): the card's own
+    (``question_message_id``), its copy at the chat's top level (``mirror_message_id``) and the card of the task that asks,
+    whose form it may be on (its record's ``card_message_id``)."""
+    found = {str(record.get(name) or "") for name in ("question_message_id", "mirror_message_id")}
+    try:
+        from covey.core.jobs import find_job_record
+
+        job = find_job_record(Path(state_dir), str(record.get("job_key") or "")) if record.get("job_key") else None
+        found.add(str((job or {}).get("card_message_id") or ""))
+    except (OSError, ValueError):
+        pass
+    return found - {""}
 
 class Interaction:
     """One Harness's topic interaction while a task runs or waits: the backend's structured
@@ -239,23 +266,30 @@ class Interaction:
             self._dispatch_structured_event(ctx, job, "progress_note", {
                 "id": f"policy-tolerated-{time.time_ns()}", "title": BRIDGE_NOTE, "text": f"机器人 {at}：{text}"}, None)
 
-    def interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False):
+    def interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False, source=None,
+                            quoted=""):
         """Whether the message ``mid`` was an answer, a held note or refused as either (said in the topic); False: a
         turn of its own. ``top``: its ``top_message`` (app/butler_reactions.py), quoted from outside the topic's thread,
         whose reactions say which (DONE in, 排队中 kept, CrossMark refused, a continuation's own). ``by``: who sent it (an
-        open_id), for the answer it may be (app/questions.py owner_submitted). ``note_only``: the words are not the owner's
-        (the butler's or a project lead's, app/butler_topics.py topic_send): never an answer, only a held note while a
-        question waits (it goes with the owner's answer), and the owner is not taken to have spoken."""
+        open_id), for the answer it may be (app/questions.py owner_submitted). ``source``: the 轮次来源 the words would run
+        with (core/turn_source.py; app/butler_topics.py topic_send stamps the butler's and a lead's): one an agent or the
+        Bridge made (app/provenance.py synthetic) is never an answer, only a held note while a question waits (it goes with
+        the owner's answer, marked as not his), and the owner is not taken to have spoken. ``note_only``: the same for a
+        caller of before ``source`` (W0-1). ``quoted``: the message it quotes, which a message of a top-level topic (the
+        butler's family) must be a waiting question's card to answer it (WAVE12 C2)."""
         try:
             return self._interactive_command(ctx, content, chat, mid, attachments, **({"top": top} if top else {}),
-                                             by=by, note_only=note_only)
+                                             by=by, note_only=note_only, source=source, quoted=quoted)
         except (ValueError, OSError, RuntimeError) as exc:
             inbound_ledger.note(ctx.state_dir, mid, "refused", topic_id=ctx.topic_id, reason=f"交互暂未完成：{exc}"[:80])
             self.messenger.reply(ctx, chat, f"交互暂未完成：{exc}", self.voice.key("interaction-error", mid), voice=self.voice)
             butler_reactions.top_refused(self.messenger, ctx.profile, top, self.runtime.log)
             return True
 
-    def _interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False):
+    def _interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False, source=None,
+                             quoted=""):
+        # The words an agent or the Bridge made (WAVE12 C2, first condition): a held note at most, never an answer.
+        note_only = note_only or bool(source and provenance.synthetic(source))
         self.questions.reconcile_checkpoint_questions(ctx, chat)
         # Before the message is routed: it answers, or waits for, only the newest question card.
         fold_older_questions(ctx, [self.questions], topic=(ctx.topic_id, chat))
@@ -263,11 +297,15 @@ class Interaction:
         rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
         # Handed on before this message and still not shown: owner_spoke below has not just tried them.
         unshown = {row.get("token") for _, row in rows if triage_flow.unshown(row)}
+        released = set()  # Held for the lead until this message: shown to the owner just now, not yet seen (C2, second).
         if triage_flow.ENV is not None and not note_only and any(triage.held(row) for _, row in rows):
             # The owner speaks in a topic whose question the project's lead holds: it is theirs now (the card goes out first, so
-            # their message is its answer or a note, not a refusal for a card that was never shown).
+            # their message is a note for its answer, not a refusal for a card that was never shown, nor its answer: he has
+            # not seen it).
+            held = {row.get("token") for _, row in rows if triage.held(row)}
             triage_flow.owner_spoke(triage_flow.ENV, ctx.topic_id, chat)
             rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
+            released = {row.get("token") for _, row in rows if row.get("token") in held and not triage.held(row)}
         if any(row.get("native_live_question") is True for _, row in rows) and \
                 self.questions.retire_orphaned_live_questions(ctx, chat):
             rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
@@ -280,8 +318,18 @@ class Interaction:
         timing.mark("cmd_questions")
         undelivered = self.questions.undelivered_checkpoint_jobs(ctx, chat)
         timing.mark("cmd_undelivered")
-        if undelivered or any(row.get("display_pending") or (row.get("body_delivery_required")
-                and not self.questions.checkpoint_result_delivered(ctx, row)) for _, row in rows):
+        withheld = [row for _, row in rows if row.get("display_pending") or (row.get("body_delivery_required")
+                    and not self.questions.checkpoint_result_delivered(ctx, row))]
+        if note_only and not undelivered and withheld and all(triage.held(row) for row in withheld):
+            # Words of an agent's for a topic whose question the project's lead holds (never shown to the owner, by design:
+            # the triage): held for its answer, the lead's or the owner's (P1-7: it was refused as a card not delivered and
+            # lost). The caller is told to answer or hand it on (app/butler_topics.py held_next).
+            inbound_ledger.note(ctx.state_dir, mid, "held_note", topic_id=ctx.topic_id)
+            self.questions.hold_note(ctx, chat, content, mid, sorted(withheld, key=lambda r: r.get("created_at", 0)),
+                                     attachments=attachments, by=note_by(source),
+                                     **({"top": top} if top else {}))
+            return True
+        if undelivered or withheld:
             text = ("这一轮有一道问题要你答，但问题卡没发出来，刚又试了一次也没成功；本条没有续接或排队。可以先停止这个任务，再在这里接着说。"
                     if not undelivered and triage_flow.ENV is not None and any(triage_flow.unshown(row) for _, row in rows)
                     else f"原结果或问题控件尚未送达，请先{retry_hint()} 重新投递；本条没有续接或排队。")
@@ -297,21 +345,42 @@ class Interaction:
         pending = self.questions.pending_questions(ctx, chat)
         timing.mark("cmd_pending")
         blocking = pending
+        if pending and not note_only and butler_contract.traits(ctx.topic_id, chat).top_level:
+            # The butler's family answers at the chat's top level, where every new request of the owner's is written too: a
+            # message answers a question there only when it quotes that question's card (its own or its copy, C2's third
+            # condition; the 1eb6728490 swallow took a new request for an answer). Any other is a turn of its own; the
+            # questions wait on.
+            blocking = [record for record in pending if quoted and quoted in card_messages(ctx.state_dir, record)]
+            if not blocking:
+                return False
         # An image sent as the answer reaches the model as its downloaded path; cards show only "附件：图片 1 张".
-        if len(blocking) == 1 and len(blocking[0]["questions"]) == 1 and not note_only:
+        if len(blocking) == 1 and len(blocking[0]["questions"]) == 1 and not note_only and blocking[0]["token"] not in released:
             inbound_ledger.note(ctx.state_dir, mid, "answer", topic_id=ctx.topic_id)
             self.questions.submit_answer(ctx, chat, blocking[0]["token"],
                                {"answer_0": content, **({ATTACHMENTS: attachments} if attachments else {})}, mid,
-                               **({"top": top} if top else {}), by=by)
+                               **({"top": top} if top else {}), by=self.answerer(by, MESSAGE, mid))
             return True
         if blocking:
-            # Several answers are awaited, or the words are not the owner's (``note_only``): keep the message for the
-            # first submitted answer.
+            # Several answers are awaited, the words are not the owner's (``note_only``), or the one question was held for
+            # the lead until this message (``released``, shown to him only now): keep the message for the first submitted
+            # answer, marked whose it is.
             inbound_ledger.note(ctx.state_dir, mid, "held_note", topic_id=ctx.topic_id)
             self.questions.hold_note(ctx, chat, content, mid, blocking, attachments=attachments,
-                                     **({"top": top} if top else {}))
+                                     **({"by": note_by(source)} if note_only else {}), **({"top": top} if top else {}))
             return True
         return False
+
+    def answerer(self, open_id, channel, message_id=""):
+        """The AnswerBy (app/answers.py) of who clicked or wrote, ``open_id``: the owner's party when app/access.py says the
+        open_id is his, else of no known party (a group member answering in a topic of his own: kept by its open_id, as
+        before W1-B; none of his answers is noted as the owner's)."""
+        access = getattr(self.runtime, "access", None)
+        try:
+            owner = bool(open_id) and access is not None and bool(access.is_owner(open_id))
+        except Exception:  # noqa: BLE001 - not known to be his
+            owner = False
+        return AnswerBy(party=PARTY_OWNER if owner else "", channel=channel, open_id=str(open_id or ""),
+                        message_id=str(message_id or ""))
 
     def interaction_action(self, ctx, event):
         """A click on a question's card (提交回答, 不处理 and its 撤销, an older card's 只发补充说明 and 先问一句, its state, a saved
@@ -355,7 +424,8 @@ class Interaction:
                 return True
             if raw.get("mode") == "feedback_submit":
                 try:
-                    self.questions.submit_question_feedback(ctx, chat, raw["token"], fields.get("feedback"), mid)
+                    self.questions.submit_question_feedback(ctx, chat, raw["token"], fields.get("feedback"), mid,
+                                                            by=self.answerer(event.get("operator_id"), CARD))
                 except QuestionFolded:  # Folded between the read above and the answer's own check.
                     self.show_folded(ctx, chat, event, token, mid)
                     return True
@@ -370,7 +440,7 @@ class Interaction:
                     fields = picked_fields(record["questions"], fields, raw[PICK])
                 elif record.get("status") == "pending":  # 提交回答: with 补充说明, what was left unanswered is skipped.
                     fields = with_note(record["questions"], fields)
-                self.questions.submit_answer(ctx, chat, raw["token"], fields, mid, by=event.get("operator_id"))
+                self.questions.submit_answer(ctx, chat, raw["token"], fields, mid, by=self.answerer(event.get("operator_id"), CARD))
             except AnswerIncomplete as exc:
                 # On the card clicked, with what was typed kept: a notice in the topic's thread was not seen from its
                 # copy at the top level (T631, 2026-11-22). A form on a task card still gets the notice.
@@ -388,7 +458,7 @@ class Interaction:
         elif kind in STEER_KINDS:
             self.steering.steer_action(ctx, chat, event, raw, fields, mid)
         elif kind == NOTE_KIND:
-            self.questions.note_action(ctx, chat, raw, mid)
+            self.questions.note_action(ctx, chat, raw, mid, by=self.answerer(event.get("operator_id"), CARD))
         return True
 
     def skip_all(self, ctx, chat, event, token, fields, mid):
@@ -403,7 +473,8 @@ class Interaction:
         if record.get("status") != "pending":
             with question_card_lock(question_path(ctx, token)):
                 self.questions.paint_question_state(ctx, scoped_question(ctx, chat, token))
-            self.questions.submit_answer(ctx, chat, token, fields, mid, by=event.get("operator_id"))  # Refused there, in its own words.
+            self.questions.submit_answer(ctx, chat, token, fields, mid,  # Refused there, in its own words.
+                                         by=self.answerer(event.get("operator_id"), CARD))
             return
         try:
             answer = skip_all_fields(record["questions"], fields)
@@ -411,7 +482,7 @@ class Interaction:
             self.refuse_on_card(ctx, chat, event, token, str(exc), mid, draft=fields)
             return
         try:
-            self.questions.submit_answer(ctx, chat, token, answer, mid, by=event.get("operator_id"))
+            self.questions.submit_answer(ctx, chat, token, answer, mid, by=self.answerer(event.get("operator_id"), CARD))
         except QuestionFolded:
             self.show_folded(ctx, chat, event, token, mid)
 

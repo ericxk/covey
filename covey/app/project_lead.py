@@ -176,7 +176,7 @@ TRIAGE_RULES = (
     "- 分流：专项的话题问了选择题，会先交给你（“专项状态”里“交给你的话题问题”，收件箱里有 question 回执），3 分钟内你不处理就转给主人。"
     "只替主人答你能依据专项记忆、决定日志和主人在这个专项里说过的话答的题（专项记忆里的“待核对参考”是你整理的口径，不能单独作为依据；"
     "“当前决定”只管那道题问的范围，换了批次、目标或扩大范围的转给主人）：用 project_answer，每题都答，答案写选项原文，多选给数组；"
-    "回答会注明是你替主人答的，记在专项卡上，主人可以点“不对”纠正。",
+    "回答会注明是你替主人答的，记在专项卡的分流记录里，主人不同意会在那个话题里直接说。",
     f"- 拿不准、记忆里没有依据、涉及{ASK_SHORT}或别的撤不回的操作，都用 project_escalate 转给主人并写清 why，别猜；"
     "自由文字的问题不会交给你。主人纠正过的做法，用 project_remember 记下，之后照做。",
 )
@@ -491,13 +491,19 @@ def owner_message(record) -> bool:
 
 
 def owner_word_lines(state_dir, record) -> list:
-    """The owner's own words in the lead's topic, the newest first (at most OWNER_WORDS_SHOWN), each naming itself as
-    project_answer's evidence does: msg:<message id>."""
+    """The owner's own words in the lead's topic, and those the butler handed the lead (the project record's ``relayed``,
+    app/butler_projects.py project_send, WAVE12 C2: his message in the butler's chat, his words), the newest first (at most
+    OWNER_WORDS_SHOWN), each naming itself as project_answer's evidence does: msg:<message id>."""
     lead = str(record.get("lead_topic_id") or "")
-    jobs = sorted((job for job in topic_job_records(state_dir, lead) if owner_message(job)) if lead else (),
-                  key=lambda job: int(job.get("job_id") or 0), reverse=True)
-    return [f"- msg:{job['message_id']} · {stamp(epoch_seconds(job.get('created_at')) or 0)} · "
-            f"{cut(job.get('user_text'), OWNER_WORDS_TEXT)}" for job in jobs[:OWNER_WORDS_SHOWN]]
+    rows = [(epoch_seconds(job.get("created_at")) or 0, str(job["message_id"]), job.get("user_text"), "")
+            for job in (topic_job_records(state_dir, lead) if lead else ()) if owner_message(job)]
+    seen = {row[1] for row in rows}
+    rows += [(float(item.get("at") or 0), str(item["message_id"]), item.get("text"), "（管家转来）")
+             for item in record.get("relayed") or () if isinstance(item, dict) and item.get("message_id")
+             and str(item["message_id"]).startswith(OWNER_PREFIXES) and item["message_id"] not in seen]
+    rows.sort(key=lambda row: row[0], reverse=True)
+    return [f"- msg:{message} · {stamp(at)} · {via}{cut(text, OWNER_WORDS_TEXT)}"
+            for at, message, text, via in rows[:OWNER_WORDS_SHOWN]]
 
 
 BRIEF_EMPTY = "还没写简报：project_goal 写背景，project_checklist 的 actions 拆 3–8 个动作"

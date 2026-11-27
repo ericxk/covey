@@ -27,10 +27,13 @@ from pathlib import Path
 from covey.app import butler_topics, config_basis, pins, project_tools
 from covey.core import board_read
 from covey.core.board_read import PRIORITY, TOOLS_AGE, job_number, topic_jobs, topic_questions
-from covey.app.answers import AnswerIncomplete, answer_fields
+from covey.app import butler_handoff
+from covey.app.answers import TOOL, AnswerBy, AnswerIncomplete, answer_fields
+from covey.core.turn_source import PARTY_BUTLER
 from covey.app.butler_env import reply
 from covey.app.overview import UNSET_PHASES
 from covey.core import butler_requests, butler, butler_settings, devices, principles, projects, turn_words
+from covey.core.butler_opened import done, record_path
 from covey.core.checkpoint import (checkpoint_delivery, checkpoint_steps, current_step, read_checkpoint,
                                             step_words, turn_summary)
 from covey.core.jobs import job_path, read_job_record
@@ -475,21 +478,45 @@ def topic_stop(env, request):
     app, ctx, _ = found
     topic = ctx.topic_id
     name = label(env, topic)
+    path = record_path(env.state_dir, request)
+    record = read_object(path)
+    if record.get("answer"):
+        return record["answer"]  # The same request: the saved answer, nothing stopped twice (and no "nothing to stop").
     member = projects.topic_project(env.state_dir, topic) if projects.is_member_topic(env.state_dir, topic) else None
     if member is not None:
         record = projects.read_record(env.state_dir, member.id) or {}
         where = f"专项「{record.get('name')}」（{member.id}）" if record.get("name") else f"专项 {member.id}"
         return reply(False, f"{name} 是{where}的话题，管家不直接停它：用 project_send 交给那个专项的负责人，写明停 {name}；"
                             "负责人会停掉它的任务、收掉它等主人回答的问题。", project_id=member.id)
-    stopped, launches = project_tools.stop_topic(env, app, ctx, chat, request, by="word", reason="butler_stop",
-                                                 note=STOP_NOTE)
-    cards = f"，没开工的启动卡收掉 {launches} 张" if launches else ""
-    return reply(True, f"已停掉 {name}：请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停），等主人回答的问题已收掉{cards}；"
-                       "话题还在，主人在话题里说一句就接着做。回复里告诉主人这一点。",
-                 topic_id=topic, stopped=stopped, launches=launches)
+    stopped, retired, launches = project_tools.stop_topic(env, app, ctx, chat, request, by="word", reason="butler_stop",
+                                                          note=STOP_NOTE)
+    data = {"topic_id": topic, "stopped": stopped, "retired": retired, "launches": launches}
+    if not (stopped or retired or launches):
+        return done(path, record, reply(True, f"{name} 目前没有在跑的任务、等主人回答的问题或没开工的启动卡，没有要停的；"
+                                              "话题没动，回复里照实告诉主人。", **data, nothing=True))
+    parts = [f"请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）" if stopped else "",
+             f"等主人回答的问题收掉 {retired} 道" if retired else "",
+             f"没开工的启动卡收掉 {launches} 张" if launches else ""]
+    return done(path, record, reply(True, f"已停掉 {name}：{'，'.join(p for p in parts if p)}；"
+                                          "话题还在，主人在话题里说一句就接着做。回复里告诉主人这一点。", **data))
 
 
 # question_answer.
+
+NO_OWNER_MESSAGE = ("没有代答 {topic}：这一轮不是主人的消息开的（取不到主人原话），不能替主人回答。等主人自己在话题里回答，"
+                    "或主人在私聊里说了答案后再调 question_answer。")
+OWNER_WORDS = 120  # Characters of the owner's words the answer's 补充说明 quotes.
+
+
+def proxy_note(owner) -> str:
+    """The 补充说明 of an answer the butler gives on the owner's words (``owner``: butler_handoff.Asked of its turn): PROXY_NOTE
+    and what he said, the start of it, so the topic and the owner see the answer's ground."""
+    words = " ".join(owner.words.split())
+    if not words:
+        return PROXY_NOTE
+    clock = f"（{owner.clock}）" if owner.clock else ""
+    return PROXY_NOTE + f"主人原话{clock}：{words[:OWNER_WORDS]}{'…' if len(words) > OWNER_WORDS else ''}"
+
 
 def question_answer(env, request):
     chat = env.chat()
@@ -506,13 +533,19 @@ def question_answer(env, request):
     if not asked:
         return reply(False, f"{label(env, topic_id)} 没有等主人回答的问题。")
     record = asked[-1]  # The newest: an older one still pending is folded under it once its card shows.
-    fields = answer_fields(record, request.args.get("answers"), PROXY_NOTE)
+    # The owner's message the butler's turn answers (WAVE12 C2): the answer is his on it, or none is given.
+    owner = butler_handoff.asked(env.state_dir, request.job_key) if request.job_key else butler_handoff.Asked()
+    if not owner.message_id:
+        return reply(False, NO_OWNER_MESSAGE.format(topic=label(env, topic_id)))
+    fields = answer_fields(record, request.args.get("answers"), proxy_note(owner))
     try:
-        # Who the butler's turn answers (its record's sender): the owner's answer given to the butler is noted as his
-        # decision, as his click would be (app/questions.py owner_submitted); anyone else's is not.
+        # Who the butler's turn answers (its record's sender) and on which of his messages: the owner's answer given to the
+        # butler is noted as his decision, as his click would be (app/questions.py owner_submitted); anyone else's is not.
         sender = (read_job_record(job_path(Path(env.state_dir), str(request.job_key or ""))) or {}).get("sender_id") \
             if request.job_key else ""
-        app.questions.submit_answer(ctx, chat, record["token"], fields, f"main-{request.id}", by=str(sender or "") or None)
+        app.questions.submit_answer(ctx, chat, record["token"], fields, f"main-{request.id}",
+                                    by=AnswerBy(party=PARTY_BUTLER, channel=TOOL, open_id=str(sender or ""),
+                                                message_id=owner.message_id))
     except AnswerIncomplete as exc:
         return reply(False, f"没有提交：{exc}")
     saved = read_object(Path(env.state_dir) / "questions" / (record["token"] + ".json"))

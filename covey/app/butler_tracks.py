@@ -63,8 +63,13 @@ class Entry:
 
 def live_entries(runtime, state, chat, now, last_owner=None) -> list:
     """The family's tasks that have not ended: those in this process's registry (queued, starting, running, paused),
-    and the records of tasks waiting for the owner's answer that left it (``WAITING_FRESH``; those of the butler's
-    own slot only while something else is live). A task that is no more than a record has ``job`` None."""
+    and the records of tasks waiting for the owner's answer that left it (``WAITING_FRESH``), the butler's own slot's
+    too. A task that is no more than a record has ``job`` None.
+
+    The butler's own slot waiting alone counts (WAVE12 C2, the 1eb6728490 swallow): without it the router said ``legacy``,
+    the message went the usual path into slot 0 and, as the only question there waited, became its answer, a new request
+    of the owner's taken for the answer to "放到哪个话题区做？". Now the router sees the waiting track, and a message that
+    does not quote its question card starts a track of its own (``Tracks.decide``)."""
     found, last_owner = [], last_owner or {}
     ids = core.family_ids(chat)
     for slot, topic in enumerate(ids):
@@ -80,8 +85,6 @@ def live_entries(runtime, state, chat, now, last_owner=None) -> list:
     have = {entry.live.job_id for entry in found}
     records = []
     for slot, topic in enumerate(ids):
-        if slot == 0 and not found:
-            continue
         for _, record in directory_store(state / "jobs").query(topic_id=topic, chat_id=chat, status="waiting_user"):
             at = epoch_seconds(record.get("updated_at") or record.get("created_at"))
             if at is None or now - at > WAITING_FRESH or str(record.get("job_id")) in have:
@@ -172,6 +175,10 @@ class Tracks:
         message = route.Message(
             text=text, live=tuple(entry.live for entry in entries), quote=self.quote(ctx, event, chat, entries),
             now=now, bare=bare, judge=track_judge.mode() != "off")
+        return unasked(self.route(ctx, event, chat, text, bare, entries, now, message))
+
+    def route(self, ctx, event, chat, text, bare, entries, now, message) -> route.Decision:
+        """``decide``'s decision before ``unasked``: the rules', the bare words', or the small model's."""
         decision = route.route(message)
         if decision.why == "9" and decision.action in (route.ASK_JUDGE, route.NEW) and not bare and text.strip():
             held = self.bare.get(chat)  # Words right after a forward, a file or a link: they go where it went.
@@ -338,13 +345,22 @@ class Tracks:
             butler_reactions.split(messenger, ctx.profile, message, log)
 
 
+def unasked(decision) -> route.Decision:
+    """``decision`` unless it takes a message that quotes no card of the waiting track for that track's answer (the router's
+    rule 6, a short message while one track waits, or the small model's merge into it): a track of its own instead (``new``,
+    why kept), as the top level's words answer a question of the butler's only when they quote its card (WAVE12 C2, the
+    interaction's own check app/interaction.py ``quotes_card``). Rule 4 (it quotes the waiting track's card) stands."""
+    if decision.action == route.MERGE and decision.answers and decision.why != "4":
+        return route.Decision(route.NEW, None, decision.why + "-unquoted")
+    return decision
+
+
 # -- a track's turn (in the task runner) -------------------------------------------------------------------------------
 
 def quoted_id(event) -> str:
-    """The message ``event`` quotes. The event is the consumer's, before ``enrich_incoming_event``: a lark-cli that names
-    the reply context (1.0.69 and later, feishu/events.py REPLY_CONTEXT) gives ``reply_to`` and no ``parent_id`` at all,
-    so reading ``parent_id`` alone saw no quote and a "停止" quoting a track stopped the newest one."""
-    return str(event.get("parent_id") or event.get("reply_to") or "")
+    """The message ``event`` quotes: its ``parent_id``, which app/card_routing.py has set from ``reply_to`` for a lark-cli
+    that names the reply context (1.0.69 and later, feishu/events.py REPLY_CONTEXT, ``with_parent``) before any route."""
+    return str(event.get("parent_id") or "")
 
 
 def clear_pointer(harness, state_dir, topic_id) -> None:

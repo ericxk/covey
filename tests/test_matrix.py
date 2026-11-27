@@ -425,6 +425,112 @@ class WebRowTest(HarnessCellsCase):
                 self.assertEqual((target["chat_id"], target["reply_to"], target["kind"]), (self.chat, f"om_root_{name}", "follow"))
 
 
+class AnswerRowTest(HarnessCellsCase):
+    """答题入口 × Harness (WAVE12 W1-B, C2): the five ways an answer comes in (the owner's message in the topic, his click,
+    the web page, the butler's question_answer on his message, a lead's project_answer), each kept on the question as who
+    gave it, its continuation stamped so (``answer`` or ``answer_for``) and run on every Harness; and the butler's question
+    at the top level answered only by a message quoting its card, in Feishu and from the web page."""
+
+    ENTRIES = {
+        "message": ({"party": "owner", "channel": "message", "message_id": "om_said"}, "answer"),
+        "card": ({"party": "owner", "channel": "card"}, "answer"),
+        "web": ({"party": "owner", "channel": "web", "message_id": "web-op-1"}, "answer"),
+        "butler": ({"party": "butler", "channel": "tool", "message_id": "om_said"}, "answer"),
+        "lead": ({"party": "lead", "channel": "tool", "message_id": "lead-r1"}, "answer_for"),
+    }
+
+    def asked(self, name, entry):
+        """A topic on Harness ``name`` whose turn ended asking one choice question; (app, ctx, token)."""
+        import hashlib
+
+        app = self.apps[name]
+        key, token = f"om_ask_{name}_{entry}", hashlib.sha256(f"{name}-{entry}".encode()).hexdigest()[-16:]
+        ctx = app.submission.event_context(app.harness.context, {"chat_id": self.chat, "message_id": key})
+        topic = ctx.topic_id
+        write_topic(ctx, {"topic_id": topic}, chat_id=self.chat, harness_id=name, topic_number=9, root_id=key)
+        checkpoint = self.root / f"cp-{name}-{entry}.json"
+        checkpoint.write_text(json.dumps({"requires_user": True}))
+        write_job(self.state, key, job_id=40, message_id=key, topic_id=topic, chat_id=self.chat, status="waiting_user",
+                  checkpoint_path=str(checkpoint), backend=name, model=f"{name}-model", effort="high",
+                  sender_id=self.app.runtime.owner_open_id or "")
+        write_json(self.state / "questions" / f"{token}.json", {
+            "token": token, "job_id": 40, "job_key": key, "topic_id": topic, "chat_id": self.chat, "status": "pending",
+            "blocking": True, "request_id": "checkpoint-" + key, "created_at": 1, "question_message_id": f"om_q_{token}",
+            "questions": [{"id": "fmt", "question": "用哪种格式？", "options": [{"label": "表格"}, {"label": "列表"}]}]})
+        return app, ctx, token
+
+    def answer(self, app, ctx, token, entry):
+        from covey.app.answers import AnswerBy
+
+        owner = self.app.runtime.owner_open_id or ""
+        if entry == "message":
+            app.questions.submit_answer(ctx, self.chat, token, {"answer_0": "表格"}, "om_said",
+                                        by=app.interaction.answerer(owner, "message", "om_said"))
+        elif entry == "card":
+            app.interaction.interaction_action(ctx, {
+                "chat_id": self.chat, "event_id": f"ev-{token}", "message_id": f"om_q_{token}", "operator_id": owner,
+                "action_value": {"kind": "bridge_question", "topic_id": ctx.topic_id, "token": token},
+                "form_value": {"option_0": "0"}})
+        else:
+            party, channel, message = {"web": ("owner", "web", "web-op-1"), "butler": ("butler", "tool", "om_said"),
+                                       "lead": ("lead", "tool", "lead-r1")}[entry]
+            app.questions.submit_answer(ctx, self.chat, token, {"option_0": "0"}, f"{entry}-{token}",
+                                        by=AnswerBy(party, channel, open_id=owner if party != "lead" else "",
+                                                    message_id=message))
+
+    def test_every_way_to_answer_says_who_and_its_continuation_runs_on_every_harness(self):
+        from covey.core import turn_source
+
+        self.app.runtime.owner_open_id = self.app.runtime.owner_open_id or "ou_owner"
+        for name in CORE_HARNESSES:
+            for entry, (kept, kind) in self.ENTRIES.items():
+                with self.subTest(harness=name, entry=entry), \
+                        mock.patch("covey.core.model_settings.strict_recorded_model_settings",
+                                   return_value=(f"{name}-model", "high")):
+                    app, ctx, token = self.asked(name, entry)
+                    app.questions.paint_question_state = mock.Mock()
+                    app.cards.repaint_browse_card = mock.Mock(return_value=True)
+                    self.answer(app, ctx, token, entry)
+                    saved = json.loads((self.state / "questions" / f"{token}.json").read_text())
+                    self.assertEqual(saved["answer_by"], kept)
+                    job = next(job for job in app.runtime.jobs.queue.queue if job.message_id == "answer-" + token)
+                    self.assertEqual((job.turn_source["kind"], job.turn_source["origin"]["question"]), (kind, token))
+                    self.assertEqual(turn_source.refusal(job, capabilities=self.capabilities(name)), "")
+
+    def test_the_butlers_question_at_the_top_level_is_answered_only_quoting_its_card(self):
+        from covey.app.questions import Questions
+
+        ctx = self.apps["claude"].submission.event_context(self.apps["claude"].harness.context,
+                                                           {"chat_id": self.chat, "message_id": "om_butler"})
+        topic = butler_topic_id(self.chat)
+        write_json(self.state / "questions" / ("b" * 16 + ".json"), {
+            "token": "b" * 16, "job_id": 41, "job_key": "om_b_ask", "topic_id": topic, "chat_id": self.chat,
+            "status": "pending", "blocking": True, "request_id": "checkpoint-om_b_ask", "created_at": 1, "at_top": True,
+            "question_message_id": "om_bq", "mirror_message_id": "om_bq_top",
+            "questions": [{"id": "where", "question": "放到哪个话题区做？", "options": [{"label": "新开"}]}]})
+        import dataclasses
+
+        ctx = dataclasses.replace(ctx, topic_id=topic)
+        app = self.apps["claude"]
+        cases = {  # (surface, the message id, what it quotes): an answer?
+            ("飞书", "不引用"): ("om_new", "", False),
+            ("飞书", "引用题卡"): ("om_quote", "om_bq", True),
+            ("飞书", "引用顶层副本"): ("om_quote_top", "om_bq_top", True),
+            ("网页", "不引用"): ("web-op-9", "", False),  # The page's words to the butler quote nothing.
+        }
+        with mock.patch("covey.core.harness.backend_capabilities",
+                        return_value=SimpleNamespace(questions=True, steering=True)), \
+                mock.patch.object(Questions, "pending_questions",
+                                  lambda self, ctx, chat: [json.loads((ctx.state_dir / "questions" / ("b" * 16 + ".json"))
+                                                                      .read_text())]):
+            for (surface, how), (message, quoted, answers) in cases.items():
+                with self.subTest(surface=surface, how=how), mock.patch.object(app.questions, "submit_answer") as submit:
+                    taken = app.interaction.interactive_command(ctx, "我看看还有没有别的方案", self.chat, message,
+                                                                by=self.app.runtime.owner_open_id or "ou_owner",
+                                                                **({"quoted": quoted} if quoted else {}))
+                    self.assertEqual((bool(taken), submit.called), (answers, answers))
+
+
 class FeishuSurfaceTest(unittest.TestCase):
     """界面 · 飞书: each entry's turn has a place in the private chat (core/placement.py), whatever its Harness."""
 

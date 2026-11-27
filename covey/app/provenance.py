@@ -6,9 +6,8 @@ served is known (app/access.py), on top of core/turn_source.py, which cannot see
 - ``synthetic``: the turn was made by the Bridge or an agent, not by the owner's message: a hand-on of the butler's or a
   lead's, a lead's wake-up, a lead's answer for him, a turn of 协作.
 
-Readers first (WAVE12 W1-0): nothing calls these yet; the places that now compare message id prefixes (app/memory_turn.py,
-app/butler_asks.py, app/memory_candidates.py, app/collab_flow.py, app/memory_collect.py, app/memory_learn.py, the web
-page's) move to them with the release that stamps the new kinds.
+Every reader of the app layer that asks whether a turn's words are the owner's asks ``owner_said`` (W1-B: no message id
+prefix is compared for it elsewhere), and whether a turn was made by the Bridge or an agent asks ``synthetic``.
 """
 from __future__ import annotations
 
@@ -31,8 +30,12 @@ def retried(item) -> bool:
 
 def owner_said(item, access) -> bool:
     """Whether the job ``item`` (a job or its record) carries the owner's own words: of his level (core/turn_source.py
-    ``level``), his turn (``access.owner_turn`` of its chat and sender) and no automatic retry (``retried``)."""
+    ``level``), of a source whose words are his (``behavior``'s ``owner_words``: a relay carries the owner's message in its
+    origin, but its text is the butler's), his turn (``access.owner_turn`` of its chat and sender) and no automatic retry
+    (``retried``)."""
     if turn_source.level(item) != turn_source.LEVEL_OWNER or retried(item):
+        return False
+    if not turn_source.behavior(item).owner_words:
         return False
     return bool(access.owner_turn(str(job_field(item, "chat_id") or ""), str(job_field(item, "sender_id") or "")))
 

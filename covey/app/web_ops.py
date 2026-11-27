@@ -84,7 +84,7 @@ import time
 from pathlib import Path
 
 from covey.app import auto_retry, memory_collect, project_clicks, project_lead, project_loop, project_tools
-from covey.app.answers import AnswerIncomplete, answer_fields, skip_all_fields, submitted_answer
+from covey.app.answers import WEB, AnswerBy, AnswerIncomplete, answer_fields, skip_all_fields, submitted_answer
 from covey.app.binding import stale_job_card
 from covey.app.runtime import job_stage, supplement_target_of
 from covey.app import quota_watch, self_upgrade, web_files, web_memory, web_quota
@@ -394,6 +394,12 @@ class Ops:
             raise ValueError(why)
         return "已交给管家"
 
+    def web_by(self, row):
+        """The AnswerBy (app/answers.py) of an answer given on the web page: the owner's (the page is his), through the web,
+        its op id the message it came in by (WAVE12 C2)."""
+        return AnswerBy(party=turn_source.PARTY_OWNER, channel=WEB, open_id=self.runtime.owner_open_id or "",
+                        message_id=PREFIX + str(row.get("op_id")))
+
     def answer_with_words(self, state, chat, topic, row, text) -> str:
         """The owner's words to a topic waiting on a question, as a message in its thread in Feishu: the answer of the one question waiting
         (written, as the card's answer box takes it); several, or one the lead holds, are refused and stay open."""
@@ -408,7 +414,7 @@ class Ops:
         record = waiting[0]
         app, ctx = self.topic(state, chat, topic)
         app.questions.submit_answer(ctx, chat, str(record.get("token")), {"answer_0": text}, PREFIX + str(row.get("op_id")),
-                                     by=self.runtime.owner_open_id or None)  # The page is the owner's.
+                                     by=self.web_by(row))  # The page is the owner's.
         return "已作为这道题的回答交给任务"
 
     @staticmethod
@@ -445,10 +451,10 @@ class Ops:
                 fields = skip_all_fields(record.get("questions") or [], {SUPPLEMENT: note})
             except AnswerIncomplete:
                 raise ValueError("补充说明是空的：写上你想说的再提交") from None
-            app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")), by=self.runtime.owner_open_id or None)
+            app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")), by=self.web_by(row))
             return "补充说明已交给任务（题目算没答）"
         fields = answer_fields(record, payload.get("answers"), note, owner=True)
-        app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")), by=self.runtime.owner_open_id or None)
+        app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")), by=self.web_by(row))
         if note and not any(key.startswith(("option_", "answer_")) for key in fields):
             return "补充说明已交给任务（题目算没答）"
         return "答案已交给任务"

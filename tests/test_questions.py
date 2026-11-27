@@ -28,6 +28,7 @@ from support.cards import form_button, remember_browse_card, text_of, walk_dicts
 from support.fake_lark import FakeCardKit
 from support.world import QuestionFixture, TopicFixture
 
+from covey.app.answers import AnswerBy
 from covey.app.questions import QuestionFolded, fold_older_questions, recover_question_delivery
 from covey.app.artifact_policy import artifact_key
 from covey.core.checkpoint import artifact_paths
@@ -287,7 +288,9 @@ class QuestionTest(QuestionFixture, unittest.TestCase):
         with mock.patch.object(self.app.questions, "submit_answer") as submit:
             self.receive("om_owner_answer", "全部", root="om_question")
         self.assertEqual(submit.call_args.args[2:4], (self.token, {"answer_0": "全部"}))
-        self.assertEqual(submit.call_args.kwargs["by"], "ou_user")  # app/questions.py owner_submitted: his decision.
+        # app/questions.py owner_submitted: his decision; who and how (WAVE12 C2 AnswerBy), the message he wrote it in.
+        self.assertEqual(submit.call_args.kwargs["by"], AnswerBy(party="owner", channel="message", open_id="ou_user",
+                                                                 message_id="om_owner_answer"))
 
     def add_second_question(self):
         self.record["questions"].append({"id": "order", "question": "顺序？", "options": []})

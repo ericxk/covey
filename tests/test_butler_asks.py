@@ -183,6 +183,38 @@ class HandOnTest(Case):
         self.assertTrue(kwargs["prompt_content"].startswith(text + "\n\n"), kwargs["prompt_content"])
         self.assertIn("> 1. 张三：订单服务 502 了\n> 2. 李四：先看网关日志", kwargs["prompt_content"])
 
+    def test_the_attachments_of_his_message_reach_the_butlers_model_and_not_the_card(self):
+        # W0-3 P1-3: a topic's hand-over left the files behind, and the butler did not even know there were any.
+        from covey.core.attachments import ATTACHMENTS_HEADER
+
+        body = "\n".join(f"第 {i} 段：" + "这是一段比较长的原话，" * 6 for i in range(1, 9))
+        media = self.state / "topics" / TOPIC / "incoming_media"
+        media.mkdir(parents=True)
+        image = media / "om_x-1.png"
+        image.write_bytes(b"\x89PNG fake")
+        prompt = "\n\n".join((body, ATTACHMENTS_HEADER, f"- 图片 1: `{image}`", "请在需要理解图片或文件内容时读取上述本地路径。"))
+        asks.collect(self.gateway, self.turn(ask=self.ASK, user_text=body[:40] + "\n附件：图片 1 张", prompt_text=prompt), self.ctx)
+        shown = self.send_text.call_args.args[2]
+        got = self.enqueue.call_args.kwargs["prompt_content"]
+        copy = self.state / "topics" / butler.butler_topic_id(CHAT) / "incoming_media" / "om_x-1.png"
+        self.assertTrue(copy.is_file())  # In the butler's own incoming_media.
+        self.assertIn(f"`{copy}`", got)
+        self.assertIn("图片 1 张", got)
+        self.assertTrue(all(f"> 第 {i} 段：" in got for i in range(1, 9)))  # The whole words, line breaks kept.
+        self.assertNotIn(str(image), got)
+        self.assertNotIn("incoming_media", shown)  # The card and the history say no path.
+        self.assertEqual(self.enqueue.call_args.args[1], shown)
+
+    def test_an_attachment_outside_the_topics_files_is_not_carried(self):
+        from covey.core.attachments import ATTACHMENTS_HEADER
+
+        elsewhere = self.state / "elsewhere.png"
+        elsewhere.write_bytes(b"x")
+        prompt = "\n\n".join(("看这张图", ATTACHMENTS_HEADER, f"- 图片 1: `{elsewhere}`"))
+        asks.collect(self.gateway, self.turn(ask=self.ASK, prompt_text=prompt), self.ctx)
+        self.assertNotIn(str(elsewhere), self.enqueue.call_args.kwargs["prompt_content"])
+        self.assertNotIn("附件", self.enqueue.call_args.kwargs["prompt_content"])
+
     def test_words_no_more_than_the_message_says_and_a_turn_not_on_his_message_add_nothing(self):
         asks.collect(self.gateway, self.turn(ask=self.ASK, prompt_text="开个专项推进这件事"), self.ctx)
         self.assertEqual(self.enqueue.call_args.kwargs["prompt_content"], self.TEXT)

@@ -119,7 +119,7 @@ def lead_note(record) -> str:
 
 def triage_lines(record) -> tuple:
     """The 分流记录's lines, the newest first: a string, or (string, question token) for a row of an answer the lead gave that the
-    owner has not corrected yet (it gets the 不对 button, cards/project_card.py)."""
+    owner has not corrected yet (its 不对 button is retired, T898: the owner says it in the topic)."""
     rows = record.get("triage") if isinstance(record.get("triage"), list) else []
     lines = []
     for row in reversed(rows[-LIST_CAP:]):

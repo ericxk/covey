@@ -38,7 +38,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from covey.app import collab_channel
+from covey.app import collab_channel, provenance
 from covey.app.collab_cards import CollabCards
 from covey.app import collab_checks as checks
 from covey.core import collab, projects, turn_source
@@ -46,14 +46,13 @@ from covey.core import collab_records as records
 from covey.core.butler import traits
 from covey.core.checkpoint import read_checkpoint
 from covey.core.history_storage import append_history
-from covey.core.jobs import context_for_record, find_job_record, harness_of, job_field, job_key, topic_job_records
+from covey.core.jobs import context_for_record, find_job_record, harness_of, job_key, topic_job_records
 from covey.core.loops import every
 from covey.core.saved_results import load_authorized_reply
 from covey.core.state import read_object
 from covey.core.statuses import ENDED
 from covey.core.text import cut
 from covey.core.topics import load_topic, remember_topic_message, topic_file
-from covey.core.web_sync import PREFIX as WEB_PREFIX
 
 FIELD = "collab_ask"  # The checkpoint's asks: [{to, question}] (or one {to, question}).
 GAP_FIELD = "collab_gap"  # A continuation's gap it cannot close, for the lead (one line).
@@ -64,7 +63,6 @@ QUESTION_CHARS = 1500
 GAP_CHARS = 300
 PENDING = (collab.CHECKING, collab.QUEUED, collab.TAKEN)
 ENDED_WELL = ("done", "waiting_user")
-DIRECT = ("om_", WEB_PREFIX)  # The owner's own words the Bridge took in: a Feishu message, the web page's.
 
 # Put after the checkpoint file in the owner's own turn of a topic that may ask (``turn_note``).
 RULE = ("请别的话题帮忙：主人要你问问别的话题（他点了 T 号），或你需要另一个话题自己会话里的结论时，在检查点写 "
@@ -115,18 +113,11 @@ def gap_of(cp) -> str:
     return cut(" ".join(str(raw or "").split()), GAP_CHARS) if raw else ""
 
 
-def retried(job) -> bool:
-    from covey.app.auto_retry import COUNTS
-
-    return bool(job_field(job, "policy_retry")) or any(int(job_field(job, name) or 0) > 0 for name in COUNTS)
-
-
 def direct(job, access) -> bool:
-    """Whether ``job`` is the owner's own words to its topic (his Feishu message or the web page's), of a source whose
-    words are his (no turn of 协作), not an automatic retry, his by rule 11."""
-    return (str(job_field(job, "message_id") or "").startswith(DIRECT)
-            and turn_source.kind(job) in (turn_source.LEGACY, turn_source.OWNER) and not retried(job)
-            and bool(access.owner_turn(str(job_field(job, "chat_id") or ""), str(job_field(job, "sender_id") or ""))))
+    """Whether ``job`` is the owner's own words to its topic (his Feishu message or the web page's, or his answer when it is
+    stamped), of a source whose words are his (no hand-on, no turn of 协作), not an automatic retry, his by rule 11
+    (app/provenance.py ``owner_said``)."""
+    return provenance.owner_said(job, access)
 
 
 def owner_rows(state, topic, chat, after) -> list:
@@ -135,7 +126,7 @@ def owner_rows(state, topic, chat, after) -> list:
     for record in topic_job_records(Path(state), topic, chat_id=chat):
         if int(record.get("job_id") or 0) <= int(after or 0):
             continue
-        if turn_source.behavior(record).owner_words and str(record.get("message_id") or "").startswith(DIRECT):
+        if turn_source.behavior(record).owner_words and turn_source.level(record) == turn_source.LEVEL_OWNER:
             rows.append(record)
     return sorted(rows, key=lambda record: int(record.get("job_id") or 0))
 

@@ -79,13 +79,49 @@ def enabled() -> bool:
     return available() and cenv.get("COVEY_OWNER_SEND", "1").strip() != "0"
 
 
-def turn_note(ctx, job) -> str:
+def allowed(job, ctx, access=None) -> str:
+    """'' when ``job``'s turn may offer 代发 drafts (WAVE12 C2), else why not, one word for the log; the one test of
+    ``turn_note`` (the rule a turn is told) and ``collect`` (the drafts of its checkpoint), so no turn is told a rule
+    it may not use. Not when:
+    - ``source``: its 轮次来源 drafts none (core/turn_source.py ``owner_send``: a 协作 ask, a lead's wake-up, a lead's answer
+      for the owner, 话题转交管家, a kind this release does not know);
+    - ``not-his``: a stamped turn whose words are not the owner's level (a lead's work for a topic, the butler's hand-on of
+      no message of his, a 协作 reply; core/turn_source.py ``level``): RT-2, the words an agent sent cannot draft in his name;
+    - ``proxy-topic`` (a 代答 topic), ``main-thread`` (the butler's family, its lead topics too), ``read-only`` (a turn held
+      to reading);
+    - ``not-owner``: the turn is not the owner's (app/access.py ``owner_turn`` of its chat and sender: a group member's,
+      in a topic of his own), when ``access`` is given.
+    A turn of no source (the owner's message, an older release's hand-on or continuation) is judged by the rest, as before."""
+    chat = str(getattr(job, "chat_id", "") or (job.get("chat_id") if isinstance(job, dict) else "") or "")
+    topic = str(getattr(job, "topic_id", "") or (job.get("topic_id") if isinstance(job, dict) else "")
+                or getattr(ctx, "topic_id", "") or "")
+    if not turn_source.behavior(job).owner_send:
+        return "source"
+    if turn_source.of(job) is not None and turn_source.level(job) != turn_source.LEVEL_OWNER:
+        return "not-his"
+    if proxy_topic(ctx):
+        return "proxy-topic"
+    if topic and is_butler_topic(topic, chat):
+        return "main-thread"
+    if (getattr(job, "read_only", False) if not isinstance(job, dict) else job.get("read_only")) is True:
+        return "read-only"
+    if access is not None:
+        sender = str(getattr(job, "sender_id", "") or (job.get("sender_id") if isinstance(job, dict) else "") or "")
+        try:
+            if not access.owner_turn(chat, sender):
+                return "not-owner"
+        except Exception:  # noqa: BLE001 - not known to be his
+            return "not-owner"
+    return ""
+
+
+def turn_note(ctx, job, access=None) -> str:
     """What a topic's turn is told after its message while 代发 is on: the rule, and what became of the topic's
-    drafts that ended lately (core/owner_send.py turn_lines). '' off, in a 代答 topic or the butler's chat. Read
-    only: a task runner calls it."""
+    drafts that ended lately (core/owner_send.py turn_lines). '' off, or for a turn that may draft none (``allowed``:
+    a 代答 topic, the butler's chat, an agent's words, a group member's turn). Read only: a task runner calls it."""
     try:
         topic = str(getattr(job, "topic_id", "") or getattr(ctx, "topic_id", "") or "")
-        if not enabled() or not topic or proxy_topic(ctx) or is_butler_topic(topic, str(getattr(job, "chat_id", "") or "")):
+        if not enabled() or not topic or allowed(job, ctx, access):
             return ""
         waiting = records.open_lines(ctx.state_dir, topic)
         lines = records.turn_lines(ctx.state_dir, topic)
@@ -192,9 +228,7 @@ class OwnerSend:
             jctx = context_for_job(ctx, job)
             reason = ("not-finished" if record.get("status") not in ENDED_WELL
                       else "not-authorized" if not record.get("verified_reply_authorized")
-                      else "proxy-topic" if proxy_topic(jctx)
-                      else "main-thread" if is_butler_topic(str(record.get("topic_id") or ""), str(record.get("chat_id") or ""))
-                      else "")
+                      else allowed(record, jctx, getattr(self.proxy.runtime, "access", None)))
             if reason:
                 self.proxy.runtime.log(f"owner send ignored reason={reason} job=#{record.get('job_id')}")
                 return
@@ -506,7 +540,7 @@ class OwnerSend:
 
 def collect(gateway, job, ctx) -> None:
     """After a task's runner exited (app/detached.py, app/job_dispatch.py): its drafts. Nothing without the Bridge's proxy,
-    nor for a turn whose source may draft none (core/turn_source.py: a 协作 ask)."""
+    nor for a turn that may draft none (``allowed``, which ``OwnerSend.collect`` asks of its record)."""
     if not turn_source.behavior(job).owner_send:
         return
     proxy = getattr(gateway, "proxy", None)

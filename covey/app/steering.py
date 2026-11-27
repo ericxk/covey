@@ -185,7 +185,9 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
             # A message quoted from outside the topic's thread (``top``) keeps its reactions on a turn of its own too.
             again = {"text": shown, "prompt": sent,
                      **({"sender_id": queued.sender_id} if auto and getattr(queued, "sender_id", "") else {}),
-                     **({"top": queued.top_message} if getattr(queued, "top_message", "") else {})}
+                     **({"top": queued.top_message} if getattr(queued, "top_message", "") else {}),
+                     # Its 轮次来源, should it run as a turn of its own again (WAVE12 C1; the requeue reads it from W2-B).
+                     **({"source": dict(queued.turn_source)} if getattr(queued, "turn_source", None) else {})}
             try:
                 saved = self.deliver_steer(
                     ctx, target, sent, delivery_id, record_history=False,
@@ -294,7 +296,9 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         note of it instead of the note being written now: the caller shows its receipt first. ``shown``: what the
         card and the topic's history say instead of ``text`` (the butler's hand-on, app/butler_handoff.py). ``asked``:
         the owner's words of it, which a turn held for them notes for its "你问" block once it takes it in
-        (``merge_before_start``); '' (a forward, an image, a link with no words) notes nothing. A supplement is the owner's
+        (``merge_before_start``); '' (a forward, an image, a link with no words) notes nothing. ``requeue``: what it is
+        queued as should the turn never take it (``requeue_lost``): ``text``, ``prompt``, ``sender_id``, ``top`` and its
+        轮次来源 ``source`` (WAVE12 C1: none for the owner's message). A supplement is the owner's
         words (a source that is not his never goes into a running task, core/turn_source.py): one that went, or may have
         gone, into a project lead's wake-up turn makes it a turn he is in (app/project_loop.py owner_steered, W0-2)."""
         try:

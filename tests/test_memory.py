@@ -23,7 +23,7 @@ from covey.app.prompts import (MEMORY_FIX_RULE, MEMORY_HEAD, MEMORY_LAYER_RULES,
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.cards import answer_card as cards
-from covey.core import knowledge, memory, memstore, principles, project_memory, projects, topic_memory
+from covey.core import knowledge, memory, memstore, principles, project_memory, projects, topic_memory, turn_source
 from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_rules
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import find_job_record
@@ -255,6 +255,12 @@ class TurnTest(TurnCase):
             self.assertFalse(memory_turn.fix_rule(self.ctx, butler_job, lambda: True))
         self.assertFalse(memory_turn.fix_rule(self.ctx, said, lambda: False))
         self.assertFalse(memory_turn.fix_rule(self.ctx, self.job("以后别再问", message_id="main-tok1", prompt_text="管家转来的"), lambda: True))
+        # A hand-on that carries his message id (stamped) is not his words, whatever its id begins with (W1-B).
+        for made in (turn_source.make("relay", asserted_by="owner", origin={"message_id": "om_1"}),
+                     turn_source.make("lead", asserted_by="lead", origin={"topic": "t1"})):
+            handed = self.job("以后别再问", message_id="om_77")
+            handed.turn_source = made
+            self.assertFalse(memory_turn.fix_rule(self.ctx, handed, lambda: True))
         # A page's words and a reply in a topic's thread carry prompt_text too: still the owner's own turn.
         self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("以后别再问", message_id="web-op1", prompt_text="以后别再问"), lambda: True))
         self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("以后别再问", prompt_text="话题起始消息：…\n\n以后别再问"), lambda: True))

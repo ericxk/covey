@@ -31,7 +31,8 @@ from pathlib import Path
 
 from covey.app import project_lead, question_dedup
 from covey.app.triage_view import held_questions, lead_held
-from covey.app.answers import AnswerIncomplete, answer_fields
+from covey.app.answers import TOOL, AnswerBy, AnswerIncomplete, answer_fields
+from covey.core.butler import is_butler_topic
 from covey.cards.question_cards import triage_element
 from covey.core import memory as core_memory
 from covey.core import project_gates, project_memory, projects, triage, turn_source
@@ -459,6 +460,8 @@ ESCALATE = "依据不够就用 project_escalate 转给主人（写清你推荐�
 NOT_OWNER = ("这些依据都不是主人说的：待核对参考是你整理的口径，（无出处）的旧记录条件可能不全，都不能单独作为替主人答题的依据。"
              "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
 WHO = {turn_source.LEVEL_OWNER: "你说的", turn_source.LEVEL_AGENT: "它总结的"}
+OTHER_QUESTION = ("这条“当前决定”答的是另一道题（和这次问的不是同一件事），不能单独作为替主人答这道题的依据。"
+                  "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
 
 
 def ground_id(text) -> str:
@@ -491,27 +494,58 @@ def coded(state_dir, project, ref, rows=()) -> tuple:
 
 
 def owner_message(env, project, message_id) -> dict:
-    """The job record of ``message_id`` when it is the owner's own words in ``project`` (its lead's topic or a member topic, its
-    chat): a message the Bridge took in from him (project_lead.owner_message), sent by him (app/access.py owner_turn); else
-    {}."""
+    """The job record of ``message_id`` when it is the owner's own words in ``project``: a message the Bridge took in from him
+    (project_lead.owner_message), sent by him (app/access.py owner_turn), in the project's chat, in its lead's topic or a member
+    topic, or one the butler handed its lead (the record's ``relayed``, app/butler_projects.py project_send: his message in
+    the butler's family, WAVE12 C2); else {}."""
     record = (find_job_record(Path(env.state_dir), message_id) or {}) if MESSAGE_ID.fullmatch(message_id) else {}
     topics = {str(project.get("lead_topic_id") or ""), *(topic for topic in project.get("threads") or () if isinstance(topic, str))}
+    handed = any(isinstance(item, dict) and item.get("message_id") == message_id for item in project.get("relayed") or ())
+    where = record.get("topic_id") in topics or (handed and is_butler_topic(str(record.get("topic_id") or ""),
+                                                                            str(record.get("chat_id") or "")))
     access = getattr(getattr(env, "runtime", None), "access", None)
-    if (record.get("message_id") != message_id or record.get("topic_id") not in topics or record.get("chat_id") != project.get("chat_id")
+    if (record.get("message_id") != message_id or not where or record.get("chat_id") != project.get("chat_id")
             or not project_lead.owner_message(record) or access is None
             or not access.owner_turn(str(record.get("chat_id") or ""), str(record.get("sender_id") or ""))):
         return {}
     return record
 
 
-def grounds(env, project, evidence) -> list:
+def held_words(env, topic_id) -> str:
+    """The words of the newest question held for the lead in ``topic_id`` (the one project_answer answers, ``answer``):
+    each question of it, one a line; '' for none."""
+    rows = held_questions(Path(env.state_dir), {topic_id})
+    if not rows:
+        return ""
+    return "\n".join(str(q.get("question") or "") for q in rows[-1][1].get("questions") or () if isinstance(q, dict))
+
+
+def other_question(env, row, asked) -> bool:
+    """Whether the decision ``row`` (a line of the project's memory, its ``question``) is of another question than ``asked``
+    (the held question's words): the two not alike both ways (app/question_dedup.py MUTUAL_DUP, core/memory_search.py
+    mutual_similarity), so it does not decide this one by itself (WAVE12 C2). False when either has no words, or the
+    measure cannot be taken (the decision then stands, as before)."""
+    question = str(row.get("question") or "").strip()
+    if not question or not str(asked or "").strip():
+        return False
+    try:
+        from covey.core.memory_search import mutual_similarity
+
+        similarity, _ = mutual_similarity(question, str(asked), state_dir=Path(env.state_dir))
+    except Exception:  # noqa: BLE001 - not measured: as before
+        return False
+    return float(similarity) < question_dedup.MUTUAL_DUP
+
+
+def grounds(env, project, evidence, asked="") -> list:
     """The grounds the lead gave for answering in the owner's place (project_answer's ``evidence``), each checked here and
     never taken from what the model says of it: [{ref, kind (memory or message), level, layer, part, text}]. An entry id is a
     line of the project's memory (core/project_memory.py entries; its level and layer core/memory.py describe's); msg:<message
     id> (or the bare id) the owner's own message in the project (``owner_message``). ValueError says what is wrong, and the
     answer is not sent: none given, one that is not there (made up), a style line, one voided, done, superseded or only for
     that once (``ONCE``), or none of the owner's words among them (the lead's notes, 待核对参考, and the owner's older lines
-    without an origin are never the ground alone)."""
+    without an origin are never the ground alone). ``asked``: the held question's words: a decision of another question
+    (``other_question``) is kept as a ground but never the owner's word for this one."""
     given = evidence if isinstance(evidence, list) else SPLIT.split(evidence) if isinstance(evidence, str) else []
     given = list(dict.fromkeys(ground_id(item) for item in given if ground_id(item)))
     if not given:
@@ -549,13 +583,14 @@ def grounds(env, project, evidence) -> list:
         elif facts["applies"] == project_memory.ONCE:
             problems.append(f"{ref} 只限当次，不能拿来答别的题")
         else:
-            found.append({"ref": ref, "kind": "memory", "level": facts["level"], "layer": facts["layer"],
-                          "part": facts["part"] or "", "text": cut(row.get("text"), 200), "applies": facts["applies"],
-                          **({"code": code} if code else {})})
+            other = row.get("kind") == "decision" and other_question(env, row, asked)
+            found.append({"ref": ref, "kind": "memory", "level": turn_source.LEVEL_AGENT if other else facts["level"],
+                          "layer": facts["layer"], "part": facts["part"] or "", "text": cut(row.get("text"), 200),
+                          "applies": facts["applies"], **({"code": code} if code else {}), **({"other": True} if other else {})})
     if problems:
         raise ValueError("；".join(problems) + "。" + ESCALATE)
     if not any(item["level"] == turn_source.LEVEL_OWNER for item in found):
-        raise ValueError(NOT_OWNER)
+        raise ValueError(OTHER_QUESTION if any(item.get("other") for item in found) else NOT_OWNER)
     return found
 
 
@@ -599,7 +634,9 @@ def answer(env, app, ctx, chat, project, answers, event_id, found=()) -> dict:
     if taken is None:
         raise ValueError("这个问题已经不在你手上了（转给了主人，或已经有回答）。")
     try:
-        app.questions.submit_answer(ctx, chat, record["token"], fields, event_id)
+        # The lead's, in the owner's place (WAVE12 C2): never noted as his decision, its continuation ``answer_for``.
+        app.questions.submit_answer(ctx, chat, record["token"], fields, event_id,
+                                    by=AnswerBy(party=turn_source.PARTY_LEAD, channel=TOOL, message_id=str(event_id or "")))
     except Exception as exc:
         escalate(env, taken, "负责人的回答没有送出：" + cut(str(exc), 80), by="error")
         if isinstance(exc, AnswerIncomplete):

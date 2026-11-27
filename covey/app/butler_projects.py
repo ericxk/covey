@@ -16,7 +16,7 @@ from pathlib import Path
 
 from covey.app import project_facts
 from covey.app.butler_env import arg_text, reply
-from covey.core import butler_opened, project_proposals, projects
+from covey.core import butler_opened, project_proposals, projects, turn_source
 from covey.core.butler_opened import done
 from covey.core.jobs import find_job_record
 from covey.core.state import read_object
@@ -180,6 +180,9 @@ def project_send(env, request):
         f"没收进：{'；'.join(unjoined)}。把这些告诉主人。" if unjoined else "")
     shown = butler_handoff.shown(owner, text, items)
     data = {"project_id": record["id"], "lead_topic_id": lead}
+    # The butler's hand-on (WAVE12 C1): the owner's, with his message, when the butler turn answers one of his.
+    source = (turn_source.stamp(turn_source.RELAY, asserted_by=turn_source.PARTY_OWNER, origin={"message_id": owner.message_id},
+                                via="butler") if owner.message_id else turn_source.stamp(turn_source.RELAY, via="butler"))
     job = butler_topics.live_turn(app, ctx, chat)
     if job is not None:
         try:
@@ -190,14 +193,50 @@ def project_send(env, request):
         except SteerRefused as exc:  # Nothing was sent (rule 6).
             return done(path, note, reply(False, f"没有送进专项「{name}」负责人正在跑的任务 #{job.job_id}：{exc}。没有发出；"
                                         "等这一轮结束后再转。", **data))
+        relayed(state, record["id"], owner, mid, steer=True, log=env.runtime.log)
         return done(path, note, reply(True, f"已转给专项「{name}」的负责人："
                                           f"{butler_topics.steered_words(job, saved)}。{taken}", **data, steered=True))
     if not (find_job_record(state, mid) or app.runtime.jobs.settling(mid)):
         append_history(ctx.history_path, "user", shown, {"message_id": mid})
-        if app.submission.enqueue_chat_job(ctx, shown, chat, mid, prompt_content=sent, title=name) is None:
+        if app.submission.enqueue_chat_job(ctx, shown, chat, mid, prompt_content=sent, title=name,
+                                           **({"source": source} if source else {})) is None:
             return done(path, note, reply(False, f"专项「{name}」负责人的下一轮没有提交：模型配置无法确认。", **data))
+        if source:
+            # A turn the butler started for the owner, as a message of his in the lead's topic was (its words are not his:
+            # the submission's owner_turn does not run for it): the counts of wake-ups start again, a paused project goes on.
+            from covey.app import project_loop
+
+            project_loop.owner_turn(state, lead, chat, mid)
+        relayed(state, record["id"], owner, mid, steer=False, log=env.runtime.log)
     return done(path, note, reply(True, f"已转给专项「{name}」的负责人：它开了新的一轮，结果会由 Bridge 发给主人。{taken}",
                                 **data, steered=False))
+
+
+RELAYED = "relayed"  # The project record's list of the owner's words the butler handed its lead (WAVE12 C2).
+RELAYED_KEPT = 20
+RELAYED_TEXT = 300
+
+
+def relayed(state_dir, project_id, owner, job_key, *, steer, log=None) -> None:
+    """The owner's words of the butler turn ``owner`` (butler_handoff.Asked) handed to the lead (its job ``job_key``, into its
+    running turn when ``steer``) kept on the project record (``RELAYED``: message_id, text, at, job, steer; the newest
+    RELAYED_KEPT, each RELAYED_TEXT characters): the lead's owner words and the grounds of its answers in his place read them
+    (app/project_lead.py owner_word_lines, app/triage.py owner_message), as the owner's message in the lead's topic is. Nothing
+    without his message (``message_id``). Never raises."""
+    if not owner.message_id or not owner.words.strip():
+        return
+    row = {"message_id": owner.message_id, "text": cut(owner.words, RELAYED_TEXT), "at": owner.at or time.time(),
+           "job": str(job_key or ""), "steer": bool(steer)}
+
+    def change(record):
+        rows = [item for item in record.get(RELAYED) or () if isinstance(item, dict)
+                and item.get("message_id") != row["message_id"]]
+        record[RELAYED] = [*rows, row][-RELAYED_KEPT:]
+    try:
+        projects.update(Path(state_dir), project_id, change)
+    except (KeyError, ValueError, OSError) as exc:
+        if log is not None:
+            log(f"project relayed words not kept: {type(exc).__name__}")
 
 
 def take_topics(env, chat, record, raw) -> tuple:

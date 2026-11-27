@@ -480,7 +480,8 @@ class Runs:
 
     def _turn_message(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> tuple[BridgeContext, str]:
         """The message before the rules, and the context to run in (a fork's first run has its own)."""
-        user_text = (job.prompt_text or job.user_text) + proxy_turn_note(ctx, job) + owner_send.turn_note(ctx, job)
+        user_text = ((job.prompt_text or job.user_text) + proxy_turn_note(ctx, job)
+                     + owner_send.turn_note(ctx, job, getattr(self.runtime, "access", None)))
         if session_id:
             return ctx, resume_message(user_text)
         history_snapshot = (

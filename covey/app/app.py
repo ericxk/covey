@@ -258,7 +258,10 @@ class BridgeApp:
         # A topic's message sent where its thread is not (引用直达 at the top level): its reactions say how it stands.
         top = butler_reactions.top_message(ctx, event) if supplement is None else ""
         self.runtime.log(f"received message id={message_id}" + (" top" if top else ""))
-        if self.workspace_command(ctx, content, chat_id, message_id, attachments, **({"top": top} if top else {}), by=sender):
+        # What it quotes: a top-level topic's question is answered only by a message quoting its card (WAVE12 C2).
+        quoted = str(event.get("parent_id") or event.get("reply_to") or "")
+        if self.workspace_command(ctx, content, chat_id, message_id, attachments, **({"top": top} if top else {}), by=sender,
+                                  **({"quoted": quoted} if quoted else {})):
             timing.outcome("answer")  # An answer, a held note or why neither (app/interaction.py).
             return
         timing.mark("command")
@@ -415,9 +418,12 @@ class BridgeApp:
         if chat_id and getattr(ctx, "topic_id", ""):
             self.reply(ctx, chat_id, "旧卡片功能已移除，请在话题里直接描述需求。", self.key("retired-card", event_id))
 
-    def workspace_command(self, ctx, content, chat_id, message_id, attachments="", *, top="", by=None, note_only=False):
+    def workspace_command(self, ctx, content, chat_id, message_id, attachments="", *, top="", by=None, note_only=False,
+                          source=None, quoted=""):
         """Whether the message was an answer or a held note (app/interaction.py interactive_command), or why neither;
-        ``top``: its ``top_message`` (app/butler_reactions.py), whose reactions say which; ``by``: who sent it;
-        ``note_only``: words that are not the owner's (the butler's, a lead's), never an answer."""
+        False: a turn of its own. ``by``: who sent it (an open_id), for the answer it may be (app/questions.py owner_submitted).
+        ``source``: the 轮次来源 of words an agent sent (the butler's, a lead's, app/butler_topics.py topic_send), never an
+        answer; ``note_only`` the same for a caller of before it. ``quoted``: the message it quotes."""
         return self.interaction.interactive_command(ctx, content, chat_id, message_id, attachments,
-                                                    **({"top": top} if top else {}), by=by, note_only=note_only)
+                                                    **({"top": top} if top else {}), by=by, note_only=note_only,
+                                                    source=source, quoted=quoted)

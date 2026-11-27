@@ -1278,13 +1278,7 @@ class AnswerSourceTest(unittest.TestCase):
 
     METHODS = {"submit_answer", "submit_question_feedback"}
     GATE = {"covey.core.memory_gate": {"write"}}
-    UNSAID = {  # "<file>::<enclosing def>::<method>": calls without ``by``.
-        "covey/app/held_notes.py::HeldNotes.note_action::submit_question_feedback": 1,
-        "covey/app/interaction.py::Interaction.interaction_action::submit_question_feedback": 1,
-        "covey/app/questions.py::Questions.resume_saved_answer::submit_answer": 1,
-        "covey/app/runner_ipc.py::take_inbox::submit_answer": 1,  # Passes the runner's ``by`` on when it sent one.
-        "covey/app/triage.py::answer::submit_answer": 1,
-    }
+    UNSAID = {}  # "<file>::<enclosing def>::<method>": calls without ``by`` (W1-B gave each its AnswerBy: none left).
 
     @classmethod
     def unsaid(cls, sources):
@@ -1334,12 +1328,21 @@ class AnswerSourceTest(unittest.TestCase):
 
 
 class TurnSourceStampTest(unittest.TestCase):
-    """WAVE12 W1-0 reads the five new kinds of core/turn_source.py and stamps none: no module makes a field of one
-    (``make`` or a ``stamp`` with it). The package that stamps a kind lists where (``STAMPED``)."""
+    """WAVE12 W1-0 read the five new kinds of core/turn_source.py and stamped none; W1-B stamps ``relay``, ``lead``, ``answer``
+    and ``answer_for`` (W1-A ``wake``): each place that makes a field of one (``make`` or a ``stamp`` with it) is listed
+    (``STAMPED``), so a new one is seen."""
 
     NEW = {"relay", "lead", "wake", "answer", "answer_for"}
     NAMES = {"RELAY", "LEAD", "WAKE", "ANSWER", "ANSWER_FOR"}
-    STAMPED = {}  # "<file>::<enclosing def>::<kind>": calls (W1-B, W1-A).
+    STAMPED = {  # "<file>::<enclosing def>::<kind>": calls (W1-B, W1-A).
+        # W1-B: the continuations of answers (app/questions.py _queue_continuation queues them so).
+        "covey/app/answers.py::continuation_source::answer": 1,
+        "covey/app/answers.py::continuation_source::answer_for": 1,
+        # W1-B: the butler's hand-on to a project's lead, and to a topic (topic_start, topic_send, topic_fork; a lead's too).
+        "covey/app/butler_projects.py::project_send::relay": 2,
+        "covey/app/butler_topics.py::source_of::lead": 1,
+        "covey/app/butler_topics.py::source_of::relay": 2,
+    }
 
     @classmethod
     def stamps(cls, sources):
@@ -1356,7 +1359,7 @@ class TurnSourceStampTest(unittest.TestCase):
                     keys.append(f"{rel}::{scope}::{kind}")
         return counted(keys)
 
-    def test_no_module_stamps_a_new_kind_yet(self):
+    def test_each_stamp_of_a_new_kind_is_listed(self):
         new, stale = against(self.stamps(gated_sources()), self.STAMPED)
         self.assertEqual(new, {}, "新 kind 的盖章归 W1-B / W1-A：盖的那个包在 STAMPED 里登记")
         self.assertEqual(stale, {})

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from covey.app.answers import ANSWER_START, FEEDBACK_START, SKIPPED, answer_parts
 from covey.app.source_watch import EDIT_HEAD, RECALL_HEAD
-from covey.core import butler_opened, projects, triage
+from covey.core import butler_opened, projects, triage, turn_source
 from covey.core.jobs import find_job_record
 from covey.core.text import cut
 
@@ -48,9 +48,27 @@ class Origins:
             self.known[message_id] = self.read(message_id)
         return self.known[message_id]
 
+    def stamped(self, message_id) -> tuple | None:
+        """(by, via) of a hand-on whose job record carries a ``turn_source`` of a relay or a lead's (core/turn_source.py): a
+        lead's is the lead's; a relay is the owner's when it carries his message (``level``), shown through ``via`` (the
+        butler's unless it says a lead), else the butler's. None for a record without one: ``read`` goes on as before."""
+        record = find_job_record(self.state, message_id)
+        found = turn_source.kind(record) if record else turn_source.LEGACY
+        if found == turn_source.LEAD:
+            return "lead", ""
+        if found != turn_source.RELAY:
+            return None
+        if turn_source.level(record) != turn_source.LEVEL_OWNER:
+            return "butler", ""
+        via = turn_source.via(record)
+        return "owner", via if via in ("butler", "lead") else "butler"  # The page names who handed it on, not the entry.
+
     def read(self, message_id) -> tuple:
         from covey.app.relay_targets import butler_job_owner_message
 
+        found = self.stamped(message_id)
+        if found is not None:
+            return found
         record = butler_opened.by_token(self.state, message_id[len(HANDED):])
         if record.get("by") == "lead":
             return "lead", ""  # A lead's own words, even once its job's record or its project is gone.

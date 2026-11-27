@@ -897,7 +897,9 @@ class InboxTest(WebCase):
         topic, token, fields, event = self.app.answers[0]
         self.assertEqual((topic, token, event), (TOPIC, TOKEN, "web-op-4"))
         self.assertEqual(fields, {"option_0": "1", "supplement": "就这个"})
-        self.assertEqual(self.app.answered_by, ["ou_owner"])  # The page is the owner's: his answer, noted as his (W0-1).
+        # The page is the owner's: his answer, noted as his (W0-1), through the web, its op the message (WAVE12 C2).
+        [by] = self.app.answered_by
+        self.assertEqual((by.party, by.channel, by.open_id, by.message_id), ("owner", "web", "ou_owner", "web-op-4"))
 
     def test_an_answer_to_an_answered_or_unknown_question_fails(self):
         self.topic()

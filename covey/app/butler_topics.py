@@ -45,7 +45,8 @@ from covey.app.butler_model_choice import resolve
 from covey.app.launch_models import available_models
 from covey.cards.topic_card import topic_card
 from covey.app.relay_targets import butler_job_owner_message
-from covey.core import criteria, devices, butler, butler_settings, dispatch_records, projects
+from covey.core import criteria, devices, butler, butler_settings, dispatch_records, projects, triage, turn_source
+from covey.core.store import directory_store
 from covey.core.attachments import attachment_block
 from covey.core.card_sequence import file_card, reserve
 from covey.core.harness import backend_capabilities
@@ -53,7 +54,7 @@ from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
 from covey.core.locks import LOCK, topic_lock
 from covey.core.butler_opened import done, record_path, request_token, save
-from covey.core.butler import is_butler_topic
+from covey.core.butler import is_butler_topic, is_lead
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import read_object, write_json
 from covey.core.history_storage import append_history
@@ -76,6 +77,21 @@ def lead_of(env, request):
         return None
     found = projects.topic_project(Path(env.state_dir), topic)
     return (found.id, projects.read_record(Path(env.state_dir), found.id).get("name") or "") if found else None
+
+
+def source_of(env, request, owner) -> dict | None:
+    """The 轮次来源 of the turn a call ``request`` hands a topic (core/turn_source.py ``stamp``, WAVE12 C1): a project's lead's
+    (``lead_of``) ``lead`` from its topic; the butler's ``relay``, said by the owner with his message in its origin when the
+    butler turn answers one of his (``owner``: butler_handoff.asked's ``message_id``), else the butler's. None when stamping
+    is off (as before W1-B)."""
+    if lead_of(env, request) is not None:
+        job = find_job_record(Path(env.state_dir), request.job_key) or {}
+        topic = str(job.get("topic_id") or "")
+        return turn_source.stamp(turn_source.LEAD, origin={"topic": topic} if topic else None, via="lead")
+    if owner.message_id:
+        return turn_source.stamp(turn_source.RELAY, asserted_by=turn_source.PARTY_OWNER,
+                                 origin={"message_id": owner.message_id}, via="butler")
+    return turn_source.stamp(turn_source.RELAY, via="butler")
 
 
 def dispatch_card(env, request, topic_id, **how):
@@ -117,6 +133,12 @@ def topic_ref(env, chat, name):
         found = text
     if not found:
         return f"没有找到话题 {text or '（空）'}：用 topics_list 查 T 号。"
+    if is_lead(found, chat):
+        # A project's lead is of the butler's family but is not "the butler itself": say whose topic it is and where to go.
+        project = projects.topic_project(Path(env.state_dir), found)
+        name = (projects.read_record(Path(env.state_dir), project.id) or {}).get("name") if project else ""
+        return (f"{text} 是专项{f'「{name}」' if name else ''}的负责人话题，管家不直接动它：要对负责人说话用 project_send；"
+                "要停整个专项，请主人在专项卡上点“停”，或告诉主人。")
     if is_butler_topic(found, chat):
         return "这是管家自己，不是一个话题。"
     if retired_topic(Path(env.state_dir), found):
@@ -550,8 +572,9 @@ def _enqueue(env, app, request, record, chat, prompt, event, token, label) -> bo
     sent = butler_handoff.handoff_prompt(butler_handoff.START, label=label, title=record["title"], task=prompt, owner=owner,
                                        items=items, read_only=read_only)
     append_history(ctx.history_path, "user", content, {"message_id": mid})
+    source = source_of(env, request, owner)
     return app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=record["title"],
-                                           read_only=read_only) is None
+                                           read_only=read_only, **({"source": source} if source else {})) is None
 
 
 def place(env, request, chat) -> tuple:
@@ -694,12 +717,22 @@ def topic_send(env, request):
         return done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))
     hand_line(env, ctx, chat, request, record, butler_handoff.NEXT, owner, text, items, token)
     # A topic waiting on its question keeps these words for the owner's answer (a held note, never the answer: W0-1, the
-    # words are the butler's or a lead's), and a topic whose result or question card has not arrived takes nothing.
+    # words are the butler's or a lead's, their source says so: WAVE12 C2), and a topic whose result or question card has
+    # not arrived takes nothing. A question the project's lead holds (the triage, never shown to the owner) keeps them too
+    # (P1-7), for its answer, the lead's or the owner's.
+    source = source_of(env, request, owner)
     waiting = len(app.questions.pending_questions(ctx, chat))
-    if app.workspace_command(ctx, words, chat, mid, "\n".join(attachment_block(items)), note_only=True):
+    triaged = any(triage.held(row) for _, row in directory_store(Path(env.state_dir) / "questions").query(
+        topic_id=ctx.topic_id, chat_id=chat, status="pending"))
+    if app.workspace_command(ctx, words, chat, mid, "\n".join(attachment_block(items)), note_only=True,
+                             **({"source": source} if source else {})):
         if waiting:
             return done(path, record, reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它在等主人回答问题，"
                                              f"这条作为补充暂存，主人回答时一起带给它（话题里有暂存卡）。{held_next(lead)}",
+                                             **data, steered=False, held=True))
+        if triaged:
+            return done(path, record, reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它的问题正在分流"
+                                             f"（交给负责人，主人还没看到），这条作为补充暂存，这道题答了时一起带给它。{held_next(lead)}",
                                              **data, steered=False, held=True))
         return done(path, record, reply(False, f"{label} 没有开下一轮：它的结果或问题卡还没送达，话题里有说明。", **data))
     if not (find_job_record(Path(env.state_dir), mid) or app.runtime.jobs.settling(mid)):
@@ -708,7 +741,8 @@ def topic_send(env, request):
         sent = butler_handoff.handoff_prompt(butler_handoff.NEXT, label=label, title=title, task=text, owner=owner,
                                            items=items, extra=note)
         # Its card is headed by the topic's title, not the owner's words about where it goes.
-        if app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=title) is None:
+        if app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=title,
+                                           **({"source": source} if source else {})) is None:
             return done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
     dispatch_card(env, request, ctx.topic_id, **project_hint(request))
     return done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
@@ -783,7 +817,9 @@ def topic_fork(env, request):
         sent = butler_handoff.handoff_prompt(butler_handoff.FORK, label=new_label, title=title, task=prompt, owner=owner,
                                            items=items, source=label)
         append_history(target.history_path, "user", content, {"message_id": mid})
-        target_app.submission.enqueue_chat_job(target, content, chat, mid, prompt_content=sent, title=title)
+        stamped = source_of(env, request, owner)  # Not ``source``: that is the turn the fork is made from.
+        target_app.submission.enqueue_chat_job(target, content, chat, mid, prompt_content=sent, title=title,
+                                               **({"source": stamped} if stamped else {}))
     data = {"topic_id": fork["topic_id"], "label": new_label, "root_message_id": fork["root_id"],
             "source_topic_id": ctx.topic_id, "source_job_id": source["job_id"]}
     return done(path, record, reply(True, f"已从 {label} 的任务 #{source['job_id']} 分叉出 {new_label}「{title}」，"

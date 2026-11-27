@@ -228,6 +228,15 @@
     "ok",
     false
    ]
+  ],
+  [
+   {
+    "ok": true
+   },
+   [
+    "ok",
+    true
+   ]
   ]
  ],
  "answer_inbox": [
@@ -276,6 +285,21 @@
    "event_id": "ev-a4",
    "fields": {
     "q": "a4"
+   },
+   "id": "<OP>",
+   "kind": "answer",
+   "token": "00112233445566ff"
+  },
+  {
+   "answer_by": {
+    "channel": "card",
+    "party": "owner"
+   },
+   "by": "ou_owner",
+   "chat_id": "oc_chat",
+   "event_id": "ev-by",
+   "fields": {
+    "q": "by"
    },
    "id": "<OP>",
    "kind": "answer",
@@ -396,6 +420,18 @@
      "job_id": 10
     }
    ]
+  ],
+  [
+   {
+    "job_id": 11,
+    "ok": true
+   },
+   [
+    "ok",
+    {
+     "job_id": 11
+    }
+   ]
   ]
  ],
  "enqueue_requests": [
@@ -481,6 +517,33 @@
    "text": "t",
    "title": "",
    "topic_id": "t1",
+   "work_mode": "focus"
+  },
+  {
+   "chat_id": "oc_chat",
+   "deadline": "<DEADLINE>",
+   "display": "",
+   "effort": "high",
+   "harness": "codex",
+   "id": "<OP>",
+   "kind": "enqueue_answer",
+   "message_id": "answer-00112233445566ff",
+   "model": "m",
+   "recovery_context": null,
+   "text": "t",
+   "title": "",
+   "topic_id": "t1",
+   "turn_source": {
+    "asserted_by": "owner",
+    "kind": "answer",
+    "level": "owner",
+    "origin": {
+     "question": "00112233445566ff"
+    },
+    "recorded_by": "bridge",
+    "v": 1,
+    "via": "card"
+   },
    "work_mode": "focus"
   }
  ],
@@ -1353,6 +1416,47 @@
       "q": "a"
      },
      "ev-a"
+    ]
+   ],
+   "left": []
+  },
+  "answer_by": {
+   "acks": [
+    {
+     "error": "",
+     "ok": true
+    },
+    {
+     "error": "",
+     "ok": true
+    }
+   ],
+   "calls": [
+    [
+     "answer",
+     "oc_chat",
+     "tttttttttttttttt",
+     {
+      "q": "a"
+     },
+     "ev-o",
+     {
+      "channel": "card",
+      "open_id": "ou_owner",
+      "party": "owner"
+     }
+    ],
+    [
+     "answer",
+     "oc_chat",
+     "tttttttttttttttt",
+     {
+      "q": "a"
+     },
+     "ev-s",
+     {
+      "open_id": "ou_owner"
+     }
     ]
    ],
    "left": []

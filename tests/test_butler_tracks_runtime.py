@@ -218,14 +218,52 @@ class RouteTest(TracksCase):
         self.assertFalse(self.job_of("om_2").cancel_event.is_set())
         self.assertIn("还有 1 件事在做。", " ".join(str(call.args[2]) for call in reply.call_args_list))
 
-    def test_the_answer_to_a_track_that_asks_joins_it(self):
+    def test_the_answer_to_a_track_that_asks_joins_it_only_quoting_it(self):
+        self.send("om_1", LONG)
+        control = Control(paused=True)
+        self.run_job("om_1", control)
+        # Quoting the track's card (rule 4): its answer, the usual continuation, queued behind.
+        self.send("om_2", "好的", parent_id="om_1")
+        self.judge.assert_not_called()
+        self.assertEqual(control.sent, [])  # A paused task takes no supplement.
+        self.assertEqual([job.message_id for job in self.app.runtime.jobs.topic_jobs(BUTLER, CHAT)], ["om_1", "om_2"])
+
+    def test_a_short_message_quoting_nothing_while_a_track_asks_is_a_track_of_its_own(self):
+        # WAVE12 C2, the 1eb6728490 swallow: rule 6 took any short unquoted message for the waiting track's answer.
         self.send("om_1", LONG)
         control = Control(paused=True)
         self.run_job("om_1", control)
         self.send("om_2", "好的")
         self.judge.assert_not_called()
-        self.assertEqual(control.sent, [])  # A paused task takes no supplement: the usual continuation, queued behind.
-        self.assertEqual([job.message_id for job in self.app.runtime.jobs.topic_jobs(BUTLER, CHAT)], ["om_1", "om_2"])
+        self.assertEqual(control.sent, [])
+        self.assertEqual(self.slot_of("om_2"), 1)
+        self.assertEqual([job.message_id for job in self.app.runtime.jobs.topic_jobs(BUTLER, CHAT)], ["om_1"])
+
+    def test_the_butlers_question_waiting_alone_is_answered_only_quoting_its_card(self):
+        # WAVE12 C2 / RT-7 ②, the 1eb6728490 swallow (2026-11-27): only the butler's own slot waited on its question card
+        # ("放到哪个话题区做？"), nothing else ran, and the owner's next request at the top level, quoting nothing, became
+        # its answer. Now that request is a track of its own and the question waits; quoting its card answers it.
+        upsert_job_record(self.state, "om_ask", job_id=31, message_id="om_ask", topic_id=BUTLER, chat_id=CHAT,
+                          status="waiting_user", user_text="HarnessBridge 整体重构")
+        token = "e" * 16
+        write_json(self.state / "questions" / f"{token}.json", {
+            "token": token, "job_id": 31, "job_key": "om_ask", "topic_id": BUTLER, "chat_id": CHAT, "status": "pending",
+            "blocking": True, "request_id": "checkpoint-om_ask", "created_at": 1, "at_top": True,
+            "question_message_id": "om_qcard",
+            "questions": [{"id": "where", "question": "HarnessBridge 整体重构放到哪个话题区做？", "options": [{"label": "新开"}]}]})
+        remember_topic_message(self.state, BUTLER, CHAT, "om_qcard")  # As the card's send records it (feishu/messenger.py).
+        with mock.patch.object(self.claude.questions, "submit_answer") as submit, \
+                mock.patch("covey.core.harness.backend_capabilities",
+                           return_value=SimpleNamespace(questions=True, steering=True, native_fork=False)):
+            self.send("om_new", "我看地域和严肃群里有不少人使用 herdr, orca 等方案，你帮我看看还有没有其他方案")
+            submit.assert_not_called()
+            self.assertEqual(self.slot_of("om_new"), 1)
+            self.assertEqual(json.loads((self.state / "questions" / f"{token}.json").read_text())["status"], "pending")
+            self.send("om_short", "新开")  # Short, an option's words, quoting nothing: still no answer (rule 6 retired).
+            submit.assert_not_called()
+            self.send("om_answer", "新开", parent_id="om_qcard")
+        self.assertEqual(submit.call_args.args[2], token)
+        self.assertEqual(submit.call_args.kwargs["by"].message_id, "om_answer")
 
     def test_the_judge_runs_claude_code_with_its_own_context_not_the_default_harness(self):
         # Deploy check 2026-11-16: with Codex the default Harness the event's context made the judge run `codex -p`.

@@ -24,6 +24,8 @@ from covey.core.history_storage import recent_history
 from covey.core.topics import RETIRED_TEXT as TOPIC_RETIRED, remember_topic_message, retired_topic
 from covey.core.turn_words import retry_hint
 from covey.app.answers import ASK_PREFIX
+
+ANSWER_PREFIX = "answer-"  # An answer's continuation (app/questions.py _queue_continuation).
 from covey.app.card_actions import RETIRED_TEXT, action_value
 from covey.app.card_lanes import after_ack
 from covey.cards.review import recent_user_questions
@@ -359,13 +361,21 @@ class TaskControls(Redelivery):
         paint), for the caller to run once ``job`` is queued: before it, its two writes held the
         continuation 1.2 s (S37). Not a 先问一句's turn (ASK_PREFIX, app/questions.py queue_ask): the question it
         asks about still waits for its answer, so that task waits on, and the turn has the checkpoint it was given.
+        Not a turn whose source may not answer a waiting question either (core/turn_source.py ``answers_questions``: the
+        butler's or a lead's hand-on, a 协作 turn, WAVE12 C1), nor, in the butler's family, a message that is no answer
+        to the question still waiting there (app/interaction.py took it for a turn of its own: it quoted no card of it):
+        the task waits on, and app/runs.py _continue_previous says at its start that the questions went unanswered.
         Every turn first takes the questions the owner set aside there (不处理: Questions.take_set_aside)."""
         self.questions.take_set_aside(ctx, job)
-        if str(job.message_id or "").startswith(ASK_PREFIX):
+        if str(job.message_id or "").startswith(ASK_PREFIX) or not turn_source.behavior(job).answers_questions:
             return None
         previous = next(iter(self.harness.topic_records(ctx, job.chat_id, status="waiting_user")), None)
         timing.mark("ack_query")
         if not previous:
+            return None
+        topic = str(getattr(job, "topic_id", "") or getattr(ctx, "topic_id", "") or "")
+        if (traits(topic, job.chat_id).top_level and not str(job.message_id or "").startswith(ANSWER_PREFIX)
+                and self._still_asked(ctx, previous)):
             return None
         if job.recovery_context is None and previous.get("checkpoint_path"):
             job.recovery_context = read_checkpoint(Path(previous["checkpoint_path"]))
@@ -380,6 +390,12 @@ class TaskControls(Redelivery):
         if not previous.get("card_id"):
             return None
         return functools.partial(self.paint_answered, ctx, job.chat_id, job.job_id, previous)
+
+    @staticmethod
+    def _still_asked(ctx, previous) -> bool:
+        """Whether a question of the task ``previous`` (its record) still waits for its answer (pending)."""
+        return any(row.get("job_key") == previous.get("key") for _, row in directory_store(ctx.state_dir / "questions").query(
+            topic_id=previous.get("topic_id"), chat_id=previous.get("chat_id"), status="pending"))
 
     def paint_answered(self, ctx, chat, job_id, previous):
         paint_answered(self.cards, self.runtime.log, ctx, chat, job_id, previous)

@@ -109,8 +109,10 @@ def note(state_dir, message_id, fate="", *, event=None, **fields) -> None:
 
 
 def received(state_dir, event) -> None:
-    """The message was claimed (app/card_routing.py): its entry, with no fate yet."""
-    note(state_dir, str(event.get("message_id") or event.get("id") or ""), event=event)
+    """The message was claimed (app/card_routing.py): its entry, with no fate yet, and the message it quotes (``quoted``,
+    WAVE12 C2: whether a top-level message answered a question card is told by it)."""
+    quoted = str(event.get("parent_id") or event.get("reply_to") or "")
+    note(state_dir, str(event.get("message_id") or event.get("id") or ""), event=event, **({"quoted": quoted} if quoted else {}))
 
 
 def lost_before(state_dir, message_id, now=None) -> bool:

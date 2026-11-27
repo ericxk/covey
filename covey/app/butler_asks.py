@@ -34,9 +34,10 @@ import json
 import time
 from pathlib import Path
 
-from covey.app.butler_handoff import asked
+from covey.app import provenance
+from covey.app.butler_handoff import asked, carry, summary
 from covey.core import butler, projects, triage, turn_source
-from covey.core.attachments import message_words
+from covey.core.attachments import attachment_block, message_words, parse_attachment_block
 from covey.core.checkpoint import read_checkpoint
 from covey.core.history_storage import append_history, history_lines
 from covey.core.jobs import context_for_job, find_job_record, job_field
@@ -44,13 +45,11 @@ from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
 from covey.core.text import cut
 from covey.core.topics import load_topic, remember_topic_message, topic_file, topic_label
-from covey.core.web_sync import PREFIX as WEB_PREFIX
 
 FIELD = "ask_butler"
 FOLDER = "butler-asks"
 ASK_CHARS, WHY_CHARS, WORDS_CHARS = 400, 120, 200
 ENDED_WELL = ("done", "waiting_user")
-DIRECT = ("om_", WEB_PREFIX)  # The message ids of the owner's own words the Bridge took in: Feishu's, the web page's.
 ANSWER = "answer-"  # An answer's continuation: "answer-<question token>" (app/questions.py).
 NOT_HIS = ("main-", "lead-")  # The answer events of the butler's question_answer and a lead's project_answer.
 SAME_DAYS = 7
@@ -75,18 +74,14 @@ def enabled() -> bool:
     return projects.enabled() and butler.enabled()
 
 
-def retried(job) -> bool:
-    """Whether ``job`` (a job or its record) is an automatic retry: of a limit or a fault (app/auto_retry.py counts it), or
-    after a safety refusal (app/policy_retry.py)."""
-    from covey.app.auto_retry import COUNTS
-
-    return bool(job_field(job, "policy_retry")) or any(int(job_field(job, name) or 0) > 0 for name in COUNTS)
+retried = provenance.retried  # The one test of an automatic retry (app/provenance.py).
 
 
 def owner_answer(state_dir, message_id) -> bool:
     """Whether ``message_id`` is the continuation of an answer the owner gave himself (on the question card, from the web
     page, or a message of the topic taken as one): "answer-<token>" of a question on record that neither the butler
-    (question_answer, "main-…") nor a lead (project_answer, "lead-…", its 分流 answered) answered for him. Never raises."""
+    (question_answer, "main-…") nor a lead (project_answer, "lead-…", its 分流 answered) answered for him. Never raises.
+    Only for a job without ``turn_source`` (``direct``): a stamped answer says so in its source."""
     token = message_id.removeprefix(ANSWER) if message_id.startswith(ANSWER) else ""
     if not state_dir or not token or "/" in token or token.startswith("."):
         return False
@@ -103,9 +98,12 @@ def direct(job, access, state_dir="") -> bool:
     words from the web page or his answer to the topic's question (``owner_answer``, read under ``state_dir``; not the
     butler's or a lead's hand-on or answer, a wake-up, a revisit), of a source whose words are his as before (no 协作
     turn), not an automatic retry, and his (app/access.py owner_turn)."""
-    message = str(job_field(job, "message_id") or "")
-    return ((message.startswith(DIRECT) or owner_answer(state_dir, message))
-            and turn_source.kind(job) in (turn_source.LEGACY, turn_source.OWNER) and not retried(job)
+    if provenance.owner_said(job, access):
+        return True
+    if turn_source.of(job) is not None:
+        return False  # A stamped job says whose words it carries (a stamped answer is the owner's by its origin.question).
+    message = str(job_field(job, "message_id") or "")  # Without the field: the answer's question record says who answered.
+    return (owner_answer(state_dir, message) and not retried(job)
             and bool(access.owner_turn(str(job_field(job, "chat_id") or ""), str(job_field(job, "sender_id") or ""))))
 
 
@@ -218,12 +216,33 @@ def whole_words(record, words) -> str:
     return whole if whole and " ".join(whole.split()) != " ".join(str(words or "").split()) else ""
 
 
-def butler_prompt(text, label, whole) -> str:
+def butler_prompt(text, label, whole, items=()) -> str:
     """What the butler's model reads of the handed-on message ``text``: the message itself, then the owner's words whole when
-    there is more of them (``whole_words``); the card and the history show ``text`` alone."""
-    if not whole:
-        return text
-    return text + "\n\n" + WHOLE_HEAD.format(label=label) + "\n" + "\n".join("> " + line for line in whole.split("\n"))
+    there is more of them (``whole_words``), then the attachments of his message (``items``, carried into the butler's own
+    incoming_media: ``carried``); the card and the history show ``text`` alone."""
+    out = text
+    if whole:
+        out += "\n\n" + WHOLE_HEAD.format(label=label) + "\n" + "\n".join("> " + line for line in whole.split("\n"))
+    if items:
+        out += f"\n\n主人在 {label} 的这条消息带了附件：{summary(items)}（已复制到你能读到的位置，列在下面）\n" \
+               + "\n".join(attachment_block(items))
+    return out
+
+
+def carried(state_dir, record, chat) -> list:
+    """The attachments of the owner's message ``record`` (its job record: the topic's turn) that the topic's model read, linked
+    or copied into the butler's incoming_media (app/butler_handoff.py ``carry``: only files saved in the topic's or the state
+    directory's incoming_media), so the butler's model sees them as it does a message sent to it (W0-3 P1-3: it did not even
+    know there were any); [] when it is not his message or had none."""
+    from covey.app.project_lead import OWNER_PREFIXES
+
+    record = record or {}
+    if not str(record.get("message_id") or "").startswith(OWNER_PREFIXES):
+        return []
+    state, topic = Path(state_dir), str(record.get("topic_id") or "")
+    roots = (state / "topics" / topic / "incoming_media", state / "incoming_media")
+    items = parse_attachment_block(str(record.get("prompt_text") or ""))
+    return carry(items, state / "topics" / butler.butler_topic_id(chat) / "incoming_media", roots) if items else []
 
 
 def collect(gateway, job, ctx) -> None:
@@ -267,7 +286,7 @@ def hand_on(gateway, job, ctx, record, ask) -> None:
             return
         words = owner_words(state, topic, str(record.get("message_id") or ""), key)
         text = message_text(label, ask["ask"], words)
-        prompt = butler_prompt(text, label, whole_words(record, words))
+        prompt = butler_prompt(text, label, whole_words(record, words), carried(state, record, chat))
         group = chat in getattr(getattr(access, "spaces", None), "personal_groups", ())
         mine = {"job_key": key, "job_id": record.get("job_id"), "topic_id": topic, "chat_id": chat, "ask": ask["ask"],
                 "why": ask["why"], "text": text, "group": group, "state": "sending", "at": now}
