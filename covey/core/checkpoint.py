@@ -518,3 +518,125 @@ def checkpoint_reply_display(reply: str, question: str, deferred: bool) -> str:
         if separator and body.strip() and tail.strip() == question.strip():
             return body.rstrip()
     return reply
+
+
+# A checkpoint's questions as a turn wrote them, made into what a question card takes (T891 B5): a model that wrote an id
+# as a number, left one out, wrote a question as a string, put its words in ``header`` only or options as strings (or with
+# ``text``/``title`` for ``label``), or said ``multiSelect``, had its form refused (问题登记失败), and every later message of
+# its topic waited for a redelivery that failed the same way; one that wrote ``questions`` without ``question`` stood 等你
+# with no card. Questions already as the card takes them come back as they were, field for field.
+FREE_QUESTION_ID = "answer"  # The one question made of a checkpoint's ``question`` when it lists none.
+FREE_QUESTION_HEADER = "补充信息"
+MULTIPLE_ALIASES = ("multiSelect", "multi_select")  # Claude's own question tool, and its snake-case slip.
+LABEL_ALIASES = ("text", "title")
+
+
+def _label(value):
+    """An option's label as a string, '' for none (a bool is none: never a label a model meant)."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return str(value).strip()
+
+
+def _option(raw):
+    """``raw`` as an option ({"label", ...}), None when it has no label to show."""
+    if isinstance(raw, (str, int, float)) and not isinstance(raw, bool):
+        label = _label(raw)
+        return {"label": label} if label else None
+    if not isinstance(raw, dict):
+        return None
+    if _label(raw.get("label")):
+        return raw if isinstance(raw.get("label"), str) else {**raw, "label": _label(raw["label"])}
+    for alias in LABEL_ALIASES:
+        if _label(raw.get(alias)):
+            option = {key: value for key, value in raw.items() if key != alias}
+            option["label"] = _label(raw[alias])
+            return option
+    return None
+
+
+def _question(raw):
+    """``raw`` as a question with ``question`` words, None when it has none or asks for a secret (``isSecret``: a card
+    never collects one). Its id is left for ``normalize_questions``."""
+    if isinstance(raw, str):
+        return {"question": raw.strip()} if raw.strip() else None
+    if not isinstance(raw, dict) or raw.get("isSecret"):
+        return None
+    question = dict(raw)
+    words = raw.get("question")
+    if not (isinstance(words, str) and words.strip()):
+        header = raw.get("header")
+        if not (isinstance(header, str) and header.strip()):
+            return None
+        question["question"] = header.strip()
+    if "multiple" not in question:
+        for alias in MULTIPLE_ALIASES:
+            if alias in question:
+                question["multiple"] = question[alias] is True
+                break
+    for alias in MULTIPLE_ALIASES:
+        question.pop(alias, None)
+    if "options" in raw:
+        raws = raw.get("options")
+        options = [made for made in map(_option, raws if isinstance(raws, list) else ()) if made is not None]
+        if options != raws:
+            if options:
+                question["options"] = options
+            else:
+                question.pop("options")
+    return question
+
+
+def normalize_questions(questions, summary) -> list:
+    """A checkpoint's ``questions`` as a question card takes them (app/checkpoint_questions.py defer): each a dict with a
+    string ``id``, unique (a number as its digits, none ``q<n>``, a repeat with ``-2``, ``-3``…), and ``question`` words
+    (a string entry is them; else ``header``'s), its options each a dict with a ``label`` (a string is one; ``text`` or
+    ``title`` stands for it; one without is dropped), ``multiSelect``/``multi_select`` as ``multiple``; any other field
+    (``kind``, ``context``, ``multiple``, ``sample``…) kept as it is. A question without words, or one asking for a secret
+    (``isSecret``), is dropped. No list, or an empty one: one free question of ``summary`` (the checkpoint's
+    ``question``). ValueError when nothing is left to ask. Pure: reads and writes nothing."""
+    if not isinstance(questions, list) or not questions:
+        words = summary.strip() if isinstance(summary, str) else ""
+        if not words:
+            raise ValueError("检查点没有可问的问题")
+        return [{"id": FREE_QUESTION_ID, "header": FREE_QUESTION_HEADER, "question": words}]
+    made, taken = [], set()
+    for index, raw in enumerate(questions, 1):
+        question = _question(raw)
+        if question is None:
+            continue
+        given = question.get("id")
+        if isinstance(given, str) and given.strip():
+            base = given.strip()
+        elif isinstance(given, int) and not isinstance(given, bool):
+            base = str(given)
+        else:
+            base = f"q{index}"
+        name, n = base, 1
+        while name in taken:
+            n += 1
+            name = f"{base}-{n}"
+        taken.add(name)
+        if question.get("id") != name:
+            question["id"] = name
+        made.append(question)
+    if not made:
+        raise ValueError("检查点问题结构无效或不支持（没有题面，或要的是密钥）")
+    return made
+
+
+def question_summary(cp) -> str:
+    """What checkpoint ``cp`` asks in one text: its ``question``, else its questions' words one a line; '' for none."""
+    words = cp.get("question") if isinstance(cp, dict) else None
+    if isinstance(words, str) and words.strip():
+        return words.strip()
+    try:
+        return "\n".join(q["question"] for q in normalize_questions(cp.get("questions") if isinstance(cp, dict) else None, ""))
+    except ValueError:
+        return ""
+
+
+def needs_owner(cp) -> bool:
+    """Whether checkpoint ``cp`` waits for the owner: ``requires_user`` true and something to ask (``question_summary``).
+    One that says it waits but asks nothing does not (it stood 等你 with no card to answer)."""
+    return isinstance(cp, dict) and cp.get("requires_user") is True and bool(question_summary(cp))

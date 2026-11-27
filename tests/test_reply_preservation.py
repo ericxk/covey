@@ -261,7 +261,9 @@ class ReplyPreservationTest(unittest.TestCase):
         self.assertEqual(c.backend.calls, 1)
 
     def test_invalid_checkpoint_question_does_not_replace_successful_body(self):
-        c = self.case(questions=["not-a-question-object"])
+        # A question a card cannot collect (a secret) is still refused: the body stays (W1-F step 7 drops it, and with none
+        # left nothing is asked).
+        c = self.case(questions=[{"id": "pw", "question": "密码是多少？", "isSecret": True}])
         self.assertEqual(c.record["status"], "failed")
         self.assertEqual(c.record["execution_status"], "waiting_user")
         self.assertTrue(c.record["delivery_ok"])
@@ -270,6 +272,19 @@ class ReplyPreservationTest(unittest.TestCase):
         self.assertIn(BODY, c.tx.cards["result-card"][0]["content"])
         self.assertIsNone(c.question)
         self.assertNotIn("调用失败", c.record["final_text"])
+
+    def test_a_checkpoint_question_written_loosely_is_still_asked(self):
+        # W1-F step 7 (T891 B5): a number id, a string question, a string option, ``title`` for a label and
+        # ``multi_select`` failed the registration (问题登记失败), and the topic held every later message for it.
+        c = self.case(questions=[{"id": 1, "question": "先做哪个？", "options": ["A", {"title": "B"}], "multi_select": True},
+                                 "还有别的要求吗？"])
+        self.assertTrue(c.record["question_delivery_ok"])
+        self.assertNotIn("checkpoint_question_error", {k for k, v in c.record.items() if v})
+        self.assertEqual([(q["id"], q["question"]) for q in c.question["questions"]],
+                         [("1", "先做哪个？"), ("q2", "还有别的要求吗？")])
+        self.assertEqual([o["label"] for o in c.question["questions"][0]["options"]], ["A", "B"])
+        self.assertIs(c.question["questions"][0]["multiple"], True)
+        self.assertFalse(c.app.questions.undelivered_checkpoint_jobs(c.ctx, "oc-unit"))
 
     def test_a_checkpoint_question_marked_multiple_gets_a_multi_select(self):
         # T290 2026-11-03: "可以多选" in the question text alone gave a single select.
@@ -381,12 +396,40 @@ class ReplyPreservationTest(unittest.TestCase):
         self.assertEqual(c.backend.calls, 1)
 
     def test_retry_registration_failure_restores_original_question(self):
+        # A registration whose first try was not the turn's (a restart cut it short): a redelivery that fails it is the
+        # first failure, so the original reply is put back with the question in it and the topic still waits.
         original = BODY + "\n\n" + QUESTION
         c = self.case(body=original, with_card=False, question_store_error=True, text_ok=False, file_ok=False)
+        upsert_job_record(c.ctx.state_dir, c.job.message_id, checkpoint_question_tries=0)
         c.tx.text_ok = True
         self.assertIn("问题仍未能登记", c.app.controls.retry_topic(c.ctx, "oc-unit", "retry-registration-fails"))
         self.assertTrue(any(e[0] == "body_text" and e[1] == original and e[2] for e in c.tx.events))
-        self.assertEqual(find_job_record(c.ctx.state_dir, c.job.message_id)["final_text"], original)
+        current = find_job_record(c.ctx.state_dir, c.job.message_id)
+        self.assertEqual((current["final_text"], current["checkpoint_question_tries"]), (original, 1))
+        self.assertTrue(c.app.questions.undelivered_checkpoint_jobs(c.ctx, "oc-unit"))
+        self.assertEqual(c.backend.calls, 1)
+
+    def test_a_second_registration_failure_stops_the_wait_and_asks_in_words(self):
+        # W1-F step 7 (T891 B5): the turn's registration failed, its redelivery's failed again: trying once more would
+        # fail the same way while every message of the topic waited. The wait ends (checkpoint_question_stopped), the
+        # question goes to the topic as words, and the topic's next message is a turn of its own.
+        from covey.app.redelivery import QUESTION_STOPPED_REPLY
+        from covey.core.checkpoint import read_checkpoint
+        from covey.core.recovery import WAIT_CANCELLED, classify
+        original = BODY + "\n\n" + QUESTION
+        c = self.case(body=original, with_card=False, question_store_error=True, text_ok=False, file_ok=False)
+        self.assertEqual(c.record["checkpoint_question_tries"], 1)  # The turn's try.
+        self.assertTrue(c.app.questions.undelivered_checkpoint_jobs(c.ctx, "oc-unit"))
+        c.tx.text_ok = True
+        before = len(c.tx.events)
+        self.assertEqual(QUESTION_STOPPED_REPLY, c.app.controls.retry_topic(c.ctx, "oc-unit", "retry-registration-fails"))
+        said = [e[1] for e in c.tx.events[before:] if e[0] == "body_text" and e[2]]
+        self.assertTrue(any(text.startswith("问题卡登记不了，问题是：") and QUESTION in text for text in said), said)
+        current = find_job_record(c.ctx.state_dir, c.job.message_id)
+        self.assertEqual((current["checkpoint_question_stopped"], current["checkpoint_question_tries"]), (True, 2))
+        self.assertFalse(read_checkpoint(Path(c.job.checkpoint_path)).get("requires_user"))  # release_user_wait.
+        self.assertFalse(c.app.questions.undelivered_checkpoint_jobs(c.ctx, "oc-unit"))  # The topic takes messages.
+        self.assertEqual(classify(current, saved=False).kind, WAIT_CANCELLED)
         self.assertEqual(c.backend.calls, 1)
 
     def test_restart_recovers_saved_registration_intent_without_question_record(self):

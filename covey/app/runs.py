@@ -32,7 +32,8 @@ from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
 from covey.core import criteria, devices, gateways, quota_hold, turn_source, turn_words
 from covey.core.checkpoint import (audit_recovery, checkpoint_note, checkpoint_rules, gist_note, images_note,
-                                            read_checkpoint, release_user_wait)
+                                            needs_owner, normalize_questions, question_summary, read_checkpoint,
+                                            release_user_wait)
 from covey.core.harness import (CONSULT, TOOL_LIMIT, BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
                                          backend_capabilities, normalize_run_result)
 from covey.core.jobs import BridgeReplyJob as ReplyJob
@@ -747,13 +748,16 @@ class Runs:
             self.runtime.log(f"proxy job=#{job.job_id} checkpoint question dropped")
             return
         question_allowed = result.outcome is None or (result.outcome.status == "completed" and result.outcome.resume_allowed)
-        asks = question_allowed and not result.is_error and cp.get("requires_user") is True and bool(cp.get("question"))
+        # Something to ask (core/checkpoint.py needs_owner): ``question``, or only ``questions``, which used to stand 等你
+        # with no card; ``requires_user`` with neither waits for nothing.
+        asks = question_allowed and not result.is_error and needs_owner(cp)
+        if question_allowed and not result.is_error and cp.get("requires_user") is True and not asks:
+            self.runtime.log(f"checkpoint asks nothing job=#{job.job_id}: requires_user without a question; not waiting")
         # Only a native question still waiting holds the checkpoint's back; answered ones do not.
         if asks and self.questions.has_open_native_questions(ctx, job.job_id):
             self.runtime.log(f"checkpoint question skipped job=#{job.job_id}: native question still open")
             asks = False
         if asks:
-            questions = cp.get("questions") or [{"id": "answer", "header": "补充信息", "question": cp["question"]}]
             # Registration is delivery bookkeeping, not a second model result.
             # Preserve a successful backend reply even if question storage fails.
             job.checkpoint_question_deferred = True
@@ -762,9 +766,15 @@ class Runs:
                 upsert_job_record(ctx.state_dir, job.message_id, final_text=result.text,
                                   execution_status="waiting_user", delivery_ok=False,
                                   checkpoint_question_deferred=True, checkpoint_question_registration_pending=True)
+                # As the turn wrote them, made into what a card takes (core/checkpoint.py normalize_questions).
+                questions = normalize_questions(cp.get("questions"), question_summary(cp))
                 self.questions.defer_checkpoint_question(ctx, job, questions)
                 upsert_job_record(ctx.state_dir, job.message_id, checkpoint_question_registration_pending=False)
                 job.checkpoint_question_registration_pending = False
             except Exception as exc:
                 job.checkpoint_question_error = "问题登记失败（" + type(exc).__name__ + "）"
                 self.runtime.log(job.checkpoint_question_error)
+                try:  # The first try: a redelivery's second one that fails too stops the wait (app/redelivery.py).
+                    upsert_job_record(ctx.state_dir, job.message_id, checkpoint_question_tries=1)
+                except Exception as error:  # noqa: BLE001 - its redelivery then tries once more before it stops
+                    self.runtime.log(f"checkpoint question tries not kept: {type(error).__name__}")

@@ -8,6 +8,7 @@ import dataclasses
 import json
 
 from covey.core import ui_samples
+from covey.core.checkpoint import normalize_questions
 from covey.core.jobs import upsert_job_record
 from covey.core.locks import resource_lock
 from covey.cards.elements import md
@@ -146,12 +147,10 @@ class CheckpointQuestions:
                 break
 
     def defer(self, ctx, job, questions):
-        """Only the already-returned checkpoint path may defer a question."""
-        if (not isinstance(questions, list) or not questions or any(not isinstance(q, dict)
-                or not isinstance(q.get("id"), str) or not q["id"]
-                or not isinstance(q.get("question"), str) or not q["question"].strip()
-                or q.get("isSecret") for q in questions)):
-            raise ValueError("检查点问题结构无效或不支持")
+        """Only the already-returned checkpoint path may defer a question. ``questions`` as the turn wrote them, made into
+        what a card takes first (core/checkpoint.py normalize_questions: a number id, a string option, ``header`` for
+        empty words…); ValueError when nothing is left to ask."""
+        questions = normalize_questions(questions, "")
         # A multi-select question says "multiple" (core/checkpoint.py); Claude's own question tool's
         # "multiSelect" is taken too. Without either the card had a single select, though the question
         # said 可多选.

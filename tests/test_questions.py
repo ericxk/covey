@@ -584,6 +584,44 @@ class TurnEndCheckpointQuestionTest(QuestionFixture, unittest.TestCase):
                 self.assertIn(f"checkpoint question skipped job=#{self.job.job_id}: native question still open",
                               self.logged)
 
+    def test_questions_without_a_question_are_asked(self):
+        # W1-F step 7 (T891 B5): ``questions`` alone stood 等你 with no card (the turn asked only with ``question``).
+        write_private_text(self.path, json.dumps({**self.record, "status": "answered"}))
+        Path(self.job.checkpoint_path).write_text(json.dumps({
+            "requires_user": True, "questions": [{"id": 2, "header": "方案", "options": ["A", "B"]}]}))
+        defer = self.leave()
+        defer.assert_called_once()
+        self.assertEqual(defer.call_args.args[2], [{"id": "2", "header": "方案", "question": "方案",
+                                                    "options": [{"label": "A"}, {"label": "B"}]}])
+
+    def test_requires_user_with_nothing_to_ask_waits_for_nothing_and_says_so(self):
+        write_private_text(self.path, json.dumps({**self.record, "status": "answered"}))
+        Path(self.job.checkpoint_path).write_text(json.dumps({"requires_user": True, "question": ""}))
+        self.leave().assert_not_called()
+        self.assertIn(f"checkpoint asks nothing job=#{self.job.job_id}: requires_user without a question; not waiting",
+                      self.logged)
+        self.assertFalse(self.job.checkpoint_question_deferred)
+
+    def test_a_failed_registration_counts_its_first_try(self):
+        write_private_text(self.path, json.dumps({**self.record, "status": "answered"}))
+        with mock.patch.object(self.app.runs.questions, "defer_checkpoint_question", side_effect=OSError("NAS")):
+            self.app.runs._leave_checkpoint_question(self.ctx_topic, self.job,
+                                                     mock.Mock(outcome=None, is_error=False, text="方案如下"))
+        record = find_job_record(self.ctx_topic.state_dir, self.job.message_id)
+        self.assertEqual((record["checkpoint_question_tries"], self.job.checkpoint_question_error),
+                         (1, "问题登记失败（OSError）"))
+
+    def test_a_done_turn_waits_only_when_it_asks_something(self):
+        from covey.app import turn_settle
+        for checkpoint, status in (({"requires_user": True, "question": "按 A 做？"}, "waiting_user"),
+                                   ({"requires_user": True, "questions": [{"id": "a", "question": "按 A 做？"}]}, "waiting_user"),
+                                   ({"requires_user": True}, "done")):
+            with self.subTest(checkpoint=checkpoint):
+                Path(self.job.checkpoint_path).write_text(json.dumps(checkpoint))
+                turn = SimpleNamespace(verified_delivery=object(), status="done", allow_resume=True)
+                turn_settle._settle_status(turn, mock.Mock(public_reply=None), self.job, None, "回复", False)
+                self.assertEqual(turn.status, status)
+
     def test_only_native_records_count_as_open(self):
         write_private_text(self.path, json.dumps({**self.record, "status": "cancelled"}))
         checkpoint = {**self.record, "token": "c" * 16, "request_id": "checkpoint-" + self.job.message_id}

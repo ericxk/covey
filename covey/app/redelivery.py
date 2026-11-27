@@ -12,7 +12,8 @@ from covey.app import saved_send
 from covey.app.outbox import PAUSED_REASON, needs_question, record_attempt
 from covey.cards.relay_card import STOPPED
 from covey.core import placement
-from covey.core.checkpoint import checkpoint_reply_display, read_checkpoint
+from covey.core.checkpoint import (checkpoint_reply_display, normalize_questions, question_summary, read_checkpoint,
+                                  release_user_wait)
 from covey.core.jobs import saved_job as rebuilt_job
 from covey.core.jobs import find_job_record, upsert_job_record
 from covey.core.saved_results import (authorized_delivery, display_saved_reply,
@@ -35,6 +36,15 @@ REDELIVERED_STATUS = "结果已重新投递"
 REDELIVERY_UNCONFIRMED = "结果可能已经送达，但飞书没有确认；请先查看本话题。再点“重新投递结果”只会重发同一条，不会多发一份。"
 # A card its first send tried, which was not kept to send again as it was (Redelivery.saved_outgoing).
 TRIED_NOT_KEPT = "这条结果之前已经发过一次，可能已经送达；请先查看本话题。不会另发一张卡，也不会重新执行任务。"
+
+
+# A checkpoint question whose registration failed twice (Redelivery.stop_question_wait).
+QUESTION_TRIES = 2
+QUESTION_STOPPED = "问题卡登记不了，问题是：\n{question}\n\n直接在本话题回复即可。"
+QUESTION_UNREAD = "（问题的原文读不出来，请看上面的回复）"
+QUESTION_STOPPED_STATUS = "问题卡登记不了，等待已取消；问题已用文字发到本话题，直接回复即可"
+QUESTION_STOPPED_REPLY = "正文已重新投递；问题卡还是登记不了，已取消等待，问题已用文字发到本话题，直接回复即可。"
+QUESTION_STOPPED_UNSAID = "正文已重新投递；问题卡还是登记不了，已取消等待，问题的文字也没发出去：请看上面的回复，直接在本话题说怎么做。"
 
 
 def unconfirmed_send():
@@ -180,6 +190,30 @@ class Redelivery:
             self.attempted(ctx, record['key'], Failure('reconciliation_required'))
             return "原生问答暂停或投递状态未通过核对；不会重新执行任务。"
 
+    def stop_question_wait(self, ctx, delivery_ctx, chat_id, record, saved_job, exc, tries, key):
+        """A checkpoint question whose registration failed a second time (the turn's try, then a redelivery's; ``tries``):
+        trying again would fail the same way while every later message of the topic waits for it. The wait ends instead
+        (``checkpoint_question_stopped``, the checkpoint's release_user_wait): the topic takes the next message
+        (app/checkpoint_questions.py undelivered_jobs), 检查并继续 says the wait was cancelled (core/recovery.py
+        WAIT_CANCELLED), and the question goes to the topic as words (QUESTION_STOPPED, under ``key``), answered by a
+        reply. What the click hears."""
+        path = Path(saved_job.checkpoint_path) if saved_job.checkpoint_path else None
+        asked = question_summary(read_checkpoint(path)) if path else ""
+        upsert_job_record(ctx.state_dir, record["key"], status="failed", question_delivery_ok=False,
+                          checkpoint_question_stopped=True, checkpoint_question_tries=tries,
+                          checkpoint_question_registration_pending=False,
+                          checkpoint_question_error="问题登记失败（" + type(exc).__name__ + "）",
+                          status_message=QUESTION_STOPPED_STATUS)
+        if path is not None:
+            try:
+                release_user_wait(path)
+            except OSError as error:  # The record says it stopped: nothing reads the checkpoint's wait after that.
+                self.runtime.log(f"checkpoint wait not released job={record['key'][-10:]}: {type(error).__name__}")
+        self.runtime.log(f"checkpoint question stopped job={record['key'][-10:]} tries={tries}: {type(exc).__name__}")
+        said = self.messenger.reply(delivery_ctx, chat_id, QUESTION_STOPPED.format(question=asked or QUESTION_UNREAD),
+                                    key, voice=self.voice)
+        return QUESTION_STOPPED_REPLY if said else QUESTION_STOPPED_UNSAID
+
     def redeliver_failed_delivery(self, ctx, chat_id, message_id, record):
         """Send again a result (or its question forms) whose delivery failed; the model does not run again."""
         saved_job = rebuilt_job(record, chat_id, ctx.topic_id,
@@ -228,15 +262,21 @@ class Redelivery:
                 or saved_job.checkpoint_question_registration_pending):
             try:
                 cp = read_checkpoint(Path(saved_job.checkpoint_path))
-                questions = cp.get("questions") or [{"id": "answer", "header": "补充信息", "question": cp.get("question", "")}]
+                # As the turn wrote them, made into what a card takes (core/checkpoint.py normalize_questions).
+                questions = normalize_questions(cp.get("questions"), question_summary(cp))
                 self.questions.defer_checkpoint_question(delivery_ctx, saved_job, questions)
                 saved_job.checkpoint_question_error = ""
                 upsert_job_record(ctx.state_dir, record["key"], checkpoint_question_error="",
                                   checkpoint_question_registration_pending=False)
             except Exception as exc:
+                tries = int((find_job_record(ctx.state_dir, record["key"]) or record).get("checkpoint_question_tries") or 0) + 1
+                if tries >= QUESTION_TRIES:
+                    return self.stop_question_wait(ctx, delivery_ctx, chat_id, record, saved_job, exc, tries,
+                                                   key("question-stopped", text))
                 original_ok = restore_original_if_needed()
                 upsert_job_record(ctx.state_dir, record["key"], status="failed", question_delivery_ok=False,
                     delivery_ok=original_ok, checkpoint_question_error="问题登记失败（" + type(exc).__name__ + "）",
+                    checkpoint_question_tries=tries,
                     status_message=f"问题登记失败；原始回复已保留，{retry_hint()} 可重新投递")
                 return ("正文已重新投递，问题仍未能登记，请稍后重试。" if original_ok
                         else f"原始回复仍未能完整发送，问题登记也未完成；请稍后{retry_hint()}。")

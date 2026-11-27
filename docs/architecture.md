@@ -491,8 +491,9 @@ cancelled、superseded：终态
 | --- | --- | --- |
 | 实时问题 | `LIVE_QUESTIONS` | 答案作为工具结果交回仍开着的回合：`control_lock` 内核对证明，写 `awaiting_ack` 再 `control.answer`；原执行进程不在了就不能提交 |
 | 暂停问题 | `PAUSED_QUESTIONS` | `wait_for_answer` 中断回合，会话保护保持阻断；续答任务开始前核对正文已送达、回答没被消费过，写 `native_answer_once` 再续接 |
-| 检查点问题 | 任何后端 | 本轮正常完成、检查点 `requires_user` 为真、没有未答完的原生问题时登记；正文送达后才展示控件，任务转 `waiting_user` |
+| 检查点问题 | 任何后端 | 本轮正常完成、检查点 `requires_user` 为真且有可问的（`question` 或 `questions`，`core/checkpoint.py` 的 `needs_owner`）、没有未答完的原生问题时登记；正文送达后才展示控件，任务转 `waiting_user` |
 
+- 检查点问题登记前先归一化（`core/checkpoint.py` 的 `normalize_questions`，`runs._leave_checkpoint_question`、`CheckpointQuestions.defer`、重投三处共用）：数字或缺的 `id` 补成字符串、重复的加后缀，字符串题面、空题面用 `header`，字符串选项、`text`/`title` 当 `label`，`multiSelect`/`multi_select` 当 `multiple`，要密钥的题（`isSecret`）丢掉，其余字段原样保留；写对的原样不动。没有 `questions` 时用 `question` 出一道自由回答题；一题都不剩才算登记失败。`requires_user` 为真却什么都没问的不等主人（日志一行）。登记失败记 `checkpoint_question_tries`，重投时第二次还失败就不再等（`checkpoint_question_stopped`、检查点 `release_user_wait`），把问题用文字发到话题，直接回复即可，话题的下一句照常排成新的一轮（`Redelivery.stop_question_wait`）。
 - 正文没送达时不展示控件、不接受回答。只有一个待答问题且只有一题时话题消息就是回答，否则存为暂存消息，回答真正发送时才取走（`claim_held`），只发一次或不发。
 - 提交在锁内转 `submitting` 并存答案，锁外发送，异常转 `uncertain`；“核查已保存回答”用保存的答案重交。原任务已结束时 `enqueue_continuation` 建续答任务（`after_ack` 后续）。
 - 收起旧问题（`fold_older_questions`，只在 Bridge 做）：较新的问题卡显示后，更早的仍是 `pending` 的问题转 `superseded`，卡整卡重画成收起样式；来源任务还在的不收。等它的暂存消息改等新问题（`HeldNotes.wait_instead`）。

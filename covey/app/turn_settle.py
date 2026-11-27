@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from covey.app.availability import observe
-from covey.core.checkpoint import read_checkpoint
+from covey.core.checkpoint import needs_owner, read_checkpoint
 from covey.core.harness import JobCancelled
 from covey.core.jobs import harness_of
 from covey.core.butler import traits_of, worded
@@ -168,5 +168,7 @@ def _settle_status(turn, result, job, outcome, reply, is_error):
         if is_error:
             turn.status, turn.status_message = "failed", "后端调用失败"
         turn.final_text = reply if not is_error else f"⚠️ {reply}"
-    if turn.status == "done" and (turn.allow_resume or job.paused_question_delivery is not None) and read_checkpoint(Path(job.checkpoint_path)).get("requires_user") is True:
+    # Waits only when there is something to ask (core/checkpoint.py needs_owner): ``requires_user`` with no question at all
+    # stood 等你 with no card to answer.
+    if turn.status == "done" and (turn.allow_resume or job.paused_question_delivery is not None) and needs_owner(read_checkpoint(Path(job.checkpoint_path))):
         turn.status, turn.status_message = "waiting_user", worded("等待你在本话题回答", main)
