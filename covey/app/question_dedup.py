@@ -6,7 +6,8 @@ project (core/memstore.py) whose question says the same (``same_question``): cor
 from the question's words with its one-way similarity at least ``DEFAULT_TAU_DUP`` (what that threshold was set on: a
 question → the decision that answered it), and the old question's words and the new one's are alike both ways too
 (``mutual_similarity`` at least ``MUTUAL_DUP``, measured on the blind set's 20 asked-again questions and 3 that must not
-match); two classes that say different things (``category``, neither of them ``other``) never match.
+match); two classes that say different things (``category``, neither of them ``other``) never match, nor two questions whose
+figures differ (``params_signature``: +16 核 is not +2 核, v2l not v2k, !305 not !304; WAVE12 RT-5②).
 While core/memory_search.py has neither of the two, with COVEY_MEMORY off, or in a 代答 topic, nothing is matched. What a
 hit does is the dispatch's:
 
@@ -250,6 +251,27 @@ def same_question(item, mutual_sim, covered, tau) -> bool:
     return one_way and item.get("covered", True) is not False and covered and float(mutual_sim) >= MUTUAL_DUP
 
 
+# The figures a question turns on (WAVE12 W2-C, RT-5②): an amount with its unit (+16 核, 32 GiB, 3 台, 50%), a version (v2l),
+# a topic's number (T912), a merge request's (!305), an issue's (#12). Two questions whose figures differ ask different
+# things, however alike their words: ``check`` never matches them (live sample 171b294954: +16 核/+32 GiB asked again after
+# +2 核/+4 GiB was answered got that answer's grey line). The spec's expression, its ``\b`` written as ASCII lookarounds: Python's
+# ``\b`` sees a CJK character as a word character, so 版本v2l would lose its version and keep only its 2. Longer units first,
+# so a figure keeps its whole unit.
+_EDGE, _END = r"(?<![A-Za-z0-9_])", r"(?![A-Za-z0-9_])"
+_PARAM_RE = re.compile(
+    r"[+-]?\d+(?:\.\d+)?\s*(?:cpu|核|gib|gb|g|mib|mb|m|tib|tb|t|台|卡|张|次|个|%|k|w|c)?"
+    rf"|{_EDGE}v\d+(?:\.\d+)*[a-z]?{_END}|{_EDGE}T\d+{_END}|!\d+|#\d+",
+    re.I,
+)
+
+
+def params_signature(text: str) -> tuple[str, ...]:
+    """The figures of ``text`` (``_PARAM_RE``), each once, sorted, case and spaces folded and a leading ``+`` dropped (+16 核 is
+    16核); () for none. Two questions with different signatures are never the same question (``check``)."""
+    found = (" ".join(match.split()).replace(" ", "").lower() for match in _PARAM_RE.findall(str(text or "")))
+    return tuple(sorted({figure[1:] if figure.startswith("+") else figure for figure in found if figure}))
+
+
 def check(ctx, record: dict, questions) -> dict:
     """{question id: Hit} of ``questions`` answered before in the topic or its project; {} while nothing may be matched."""
     try:
@@ -266,12 +288,15 @@ def check(ctx, record: dict, questions) -> dict:
             if not isinstance(question, dict) or not question.get("id") or not asked(question):
                 continue
             words, kind = asked(question), category(query_of(question))
+            figures = params_signature(question.get("question") or question.get("header"))  # What a decision keeps of it.
             context = search_context(topic, project, tau, "dedup")
             best, best_mutual = None, 0.0
             for entry, item in _candidates(state, search, question, context, CANDIDATES):
                 old, answer = split(entry)
                 if entry.owner_key not in owners or not old or not answer or not same_class(category(f"{old} {answer}"), kind):
                     continue
+                if params_signature(old) != figures:
+                    continue  # Other figures, another question (RT-5②): no refusal in the turn, no grey line.
                 both, covered = mutual(words, old, state_dir=state)
                 if same_question(item, both, covered, tau) and (best is None or float(both) > best_mutual):
                     sim = item.get("sim")

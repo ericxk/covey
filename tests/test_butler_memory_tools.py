@@ -164,5 +164,96 @@ class SearchTest(Case):
         self.assertEqual((answer["ok"], answer["data"]), (True, {"count": 0, "items": []}))
 
 
+class LeadSearchTest(unittest.TestCase):
+    """WAVE12 W2-C: a project's lead has memory_search (core/butler_tool_specs.py LEAD_SHARED, SECONDARY on agy), and its call
+    reads only its own project's memory and its topics' (app/butler_memory.py memory_search, app/butler_knowledge.py
+    lead_scope): never 全局, never another project's or an ordinary topic's, whatever it names; the butler's reads as before."""
+
+    def setUp(self):
+        import os
+
+        from support.records import state_dir, write_job, write_topic
+        from covey.core import butler, projects
+
+        self.state = state_dir(self)
+        patch = mock.patch.dict(os.environ, {projects.ENV: "1"})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
+        self.chat, self.other = "oc_owner_dm", "f6e5d4c3b2a1"
+        for pid, name in ((PID, "改造"), (self.other, "别的")):
+            projects.create(self.state, projects.new_record(chat_id=self.chat, name=name, project_id=pid, now=1_800_000_000))
+        self.lead, self.member, self.theirs, self.plain = (projects.lead_topic_id(self.chat, PID), "ab" * 16, "ce" * 16, "cd" * 16)
+        write_topic(self.state, topic_id=self.lead, chat_id=self.chat, project=projects.project_field(PID, projects.LEAD))
+        write_topic(self.state, topic_id=self.member, chat_id=self.chat, topic_number=31,
+                    project=projects.project_field(PID, projects.MEMBER))
+        write_topic(self.state, topic_id=self.theirs, chat_id=self.chat, topic_number=32,
+                    project=projects.project_field(self.other, projects.MEMBER))
+        write_topic(self.state, topic_id=self.plain, chat_id=self.chat, topic_number=33)
+        write_job(self.state, "lead-job", topic_id=self.lead, chat_id=self.chat, job_id=9, status="running")
+        write_job(self.state, "butler-job", topic_id="", chat_id=self.chat, job_id=10, status="running")
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=lambda line: None, access=None))
+        self.mine = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="部署窗口在晚上十点以后")
+        self.topic_line = memstore.add(self.state, kind="note", scope="topic", owner_key=self.member, text="部署脚本在 ops 目录")
+        memstore.add(self.state, kind="rule", scope="project", owner_key=self.other, text="部署窗口在早上八点以前")
+        memstore.add(self.state, kind="rule", scope="global", text="部署前先跑预检")
+        memstore.add(self.state, kind="note", scope="topic", owner_key=self.plain, text="部署记录写在普通话题里")
+
+    def search(self, job="lead-job", **args):
+        from covey.app import butler_memory
+
+        return butler_memory.memory_search(self.env, SimpleNamespace(job_key=job, args=args, id="r1", tool="memory_search"))
+
+    def test_the_lead_lists_memory_search_and_agy_keeps_it_out_of_the_up_front_room(self):
+        from covey.core import butler_tool_specs
+
+        names = [tool["name"] for tool in butler_tool_specs.listed({"COVEY_PROJECT_LEAD": PID, "COVEY_PROJECTS": "1"})]
+        self.assertIn("memory_search", names)
+        self.assertNotIn("memory_save", names)
+        self.assertNotIn("memory_revise", names)
+        self.assertIn("memory_search", butler_tool_specs.SECONDARY)
+
+    def test_a_query_reads_only_its_own_project_as_a_turn_not_the_owners(self):
+        seen = []
+        real = __import__("covey.core.memory_search", fromlist=["eval_search"]).eval_search
+
+        def spy(state, query, context=None, limit=5):
+            seen.append(dict(context or {}))
+            return real(state, query, context, limit)
+        with mock.patch("covey.core.memory_search.eval_search", spy):
+            answer = self.search(query="部署窗口")
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual((seen[0]["owner"], seen[0]["project"], seen[0]["topic"]), (False, PID, ""))
+        self.assertIn(self.mine.code, answer["text"])
+        for words in ("早上八点", "先跑预检", "普通话题"):
+            self.assertNotIn(words, answer["text"])
+        with mock.patch("covey.core.memory_search.eval_search", spy):
+            self.search(query="部署脚本", topic="T31")  # One of its topics: that topic's lines too.
+        self.assertEqual((seen[1]["owner"], seen[1]["project"], seen[1]["topic"]), (False, PID, self.member))
+
+    def test_another_project_or_a_topic_not_its_own_is_refused(self):
+        for args in ({"project": self.other}, {"project": "别的"}, {"topic": "T32"}, {"topic": "T33"}, {"topic": "T99"}):
+            with mock.patch("covey.core.memory_search.eval_search") as search:
+                answer = self.search(query="部署", **args)
+            self.assertFalse(answer["ok"], args)
+            self.assertIn("只能查本专项的记忆", answer["text"])
+            search.assert_not_called()
+        self.assertTrue(self.search(query="部署窗口", project=PID)["ok"])  # Its own, named: as without.
+
+    def test_no_query_lists_its_projects_newest_and_never_another_scope(self):
+        answer = self.search()
+        self.assertEqual(answer["data"]["count"], 1)
+        self.assertIn(self.mine.code, answer["text"])
+        answer = self.search(topic=self.member)
+        self.assertEqual([item["code"] for item in answer["data"]["items"]], [self.topic_line.code])
+
+    def test_the_butler_still_reads_everything_as_the_owner(self):
+        seen = []
+        with mock.patch("covey.core.memory_search.eval_search", lambda state, query, context=None, limit=5:
+                        seen.append(dict(context or {})) or []):
+            self.search(job="butler-job", query="部署", project=self.other)
+        self.assertEqual((seen[0]["owner"], seen[0]["project"]), (True, self.other))
+
+
 if __name__ == "__main__":
     unittest.main()

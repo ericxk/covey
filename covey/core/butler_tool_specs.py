@@ -479,8 +479,10 @@ def current_name(name):
     """``name``, or the new name of a tool the list no longer has under it (RENAMED_TOOLS)."""
     return RENAMED_TOOLS.get(name, name) if isinstance(name, str) else name
 LEAD_READ = ("topics_list", "topic_read", "topics_search", "repos_list")  # What of TOOLS the lead has: it reads, the topics act.
-# What else of TOOLS the lead has: topics_switch only proposes, on a card the owner confirms (app/batch_switch.py).
-LEAD_SHARED = LEAD_READ + ("topics_switch",)
+# What else of TOOLS the lead has: topics_switch only proposes, on a card the owner confirms (app/batch_switch.py);
+# memory_search reads its own project's memory only (WAVE12 W2-C: app/butler_memory.py memory_search keeps a lead's call to
+# it). Both SECONDARY: agy names them, their schemas take nothing of the lead's up-front room.
+LEAD_SHARED = LEAD_READ + ("topics_switch", "memory_search")
 
 
 # 专项 for the butler (COVEY_PROJECTS=1 in the server's environment, which the Bridge hands on: core/butler.py mcp_config):

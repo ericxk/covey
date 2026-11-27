@@ -286,19 +286,41 @@ STATE_WORDS = {"done": "（已办）", "archived": "（已收起）"}
 SEARCH_LIMIT, SEARCH_MAX, SEARCH_TEXT = 8, 20, 120
 
 
-def memory_search(env, args):
-    """memory_search: the entries that answer ``query`` (the most recent ones with none)."""
+LEAD_ELSEWHERE = "负责人只能查本专项的记忆（本专项和它的话题的）：{what}不是这个专项的，这次没有查。"
+
+
+def lead_scope(env, args, lead) -> tuple:
+    """(project, topic) a project's lead's memory_search reads (WAVE12 W2-C): its own project ``lead``, and a topic only of
+    that project (its lead's or a member's); ValueError for any other, named: no other project's line, no 全局 one, no
+    ordinary topic's (core/memory_search.py reads with ``owner`` False)."""
+    if args.get("project") and _project_of(env.state_dir, args.get("project")) != lead:
+        raise ValueError(LEAD_ELSEWHERE.format(what=f"专项 {str(args.get('project'))[:40]} "))
+    topic = _topic_of(env.state_dir, args.get("topic")) if args.get("topic") else ""
+    if args.get("topic"):
+        found = projects.topic_project(Path(env.state_dir), topic) if topic else None
+        if found is None or found.id != lead:
+            raise ValueError(LEAD_ELSEWHERE.format(what=f"话题 {str(args.get('topic'))[:40]} "))
+    return lead, topic
+
+
+def memory_search(env, args, *, lead=""):
+    """memory_search: the entries that answer ``query`` (the most recent ones with none). For a project's lead (``lead``,
+    its project's id: app/butler_memory.py memory_search) only its own project's and its topics' (``lead_scope``), read as
+    a turn not the owner's reads them."""
     from covey.core import memory_search as ranking
     query = knowledge.clean_text(args.get("query"))
     try:
         limit = max(1, min(int(args.get("limit") or SEARCH_LIMIT), SEARCH_MAX))
     except (TypeError, ValueError):
         limit = SEARCH_LIMIT
-    project = _project_of(env.state_dir, args.get("project")) if args.get("project") else ""
-    topic = _topic_of(env.state_dir, args.get("topic")) if args.get("topic") else ""
+    if lead:
+        project, topic = lead_scope(env, args, lead)
+    else:
+        project = _project_of(env.state_dir, args.get("project")) if args.get("project") else ""
+        topic = _topic_of(env.state_dir, args.get("topic")) if args.get("topic") else ""
     kinds = tuple(k for k in (args.get("kinds") or ()) if k in KIND_WORDS)
     if query:
-        context = {"owner": True, "project": project, "topic": topic, "statuses": SEARCH_STATUS,
+        context = {"owner": not lead, "project": project, "topic": topic, "statuses": SEARCH_STATUS,
                    **({"kinds": kinds} if kinds else {})}
         rows = ranking.eval_search(env.state_dir, query, context, limit)
         states = {}
@@ -307,7 +329,10 @@ def memory_search(env, args):
             states[row["ref"]] = row.get("status") or (found.status if found else "active")
     else:
         scope, owner = ("project", project) if project else ("topic", topic) if topic else ("", "")
+        if lead:  # The topic it names, else its project; never a line kept back from what is sent out (redacted).
+            scope, owner = ("topic", topic) if topic else ("project", lead)
         found = memstore.entries(env.state_dir, scope=scope, owner_key=owner, **({"kinds": kinds} if kinds else {}))
+        found = [entry for entry in found if not (lead and getattr(entry, "redacted", False))]
         found = sorted(found, key=lambda entry: entry.at, reverse=True)[:limit]
         rows = [{"ref": e.ref, "code": e.code, "kind": e.kind, "scope": e.scope, "title": e.title, "text": e.text,
                  "sim": 0.0} for e in found]

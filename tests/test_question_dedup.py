@@ -544,6 +544,66 @@ class OlderCallersTest(Case):
             project_tools.project_memory_revise(env, self.lead_request(op="retire", id=theirs.code))
 
 
+QUOTA_OLD = {"id": "quota", "header": "配额", "question": "+2 核/+4 GiB 配额申请要提吗？",
+             "options": [{"label": "提"}, {"label": "先不提"}]}
+QUOTA_NEW = {**QUOTA_OLD, "question": "+16 核/+32 GiB 配额申请要提吗？"}
+FIGURE_PAIRS = ((QUOTA_OLD["question"], QUOTA_NEW["question"]), ("版本v2k 现在发给同事吗？", "版本v2l 现在发给同事吗？"),
+                ("!304 现在合进主干吗？", "!305 现在合进主干吗？"))
+
+
+class FigureSignatureTest(Case):
+    """RT-5② (WAVE12 W2-C, live sample 171b294954): a question asked after one alike in words but with other figures (an
+    amount, a version, a merge request) is another question: never refused in the turn, no grey line, nothing for the lead."""
+
+    def test_the_signature_tells_the_three_pairs_apart_and_folds_only_case_spaces_and_a_plus(self):
+        for old, new in FIGURE_PAIRS:
+            self.assertNotEqual(question_dedup.params_signature(old), question_dedup.params_signature(new), (old, new))
+        self.assertEqual(question_dedup.params_signature(QUOTA_NEW["question"]), ("16核", "32gib"))
+        self.assertEqual(question_dedup.params_signature("版本v2l 要发吗"), ("v2l",))  # No CJK character takes the version's edge.
+        self.assertEqual(question_dedup.params_signature("话题T912合吗"), ("t912",))
+        for one, other in (("+16 核", "16核"), ("V1.9 的 diff", "v1.9 的diff"), ("50 % 流量", "50%流量"),
+                           ("Repair 能不能改题面？", "Repair 环节可以改题面吗？"), ("r20 要不要重跑？", "r20 那道题要重跑吗？")):
+            self.assertEqual(question_dedup.params_signature(one), question_dedup.params_signature(other), (one, other))
+        self.assertEqual(question_dedup.params_signature(""), ())
+
+    def test_other_figures_are_no_hit_and_the_same_figures_still_are(self):
+        similarity_ready(self)
+        for n, (old, new) in enumerate(FIGURE_PAIRS):
+            answer(self.state, {"question": old}, "先不", at=NOW - 3600 - n)
+        for old, new in FIGURE_PAIRS:
+            self.assertEqual(question_dedup.check(self.ctx(), {"topic_id": MEMBER}, [ask_of(new)]), {}, new)
+            hit = question_dedup.check(self.ctx(), {"topic_id": MEMBER}, [ask_of(old)]).get("q")
+            self.assertIsNotNone(hit, old)  # Asked again with the same figures: found as before.
+            self.assertEqual(hit.question, old)
+
+    def test_a_refusing_backend_asks_it_with_no_grey_line_and_the_lead_gets_no_old_answer(self):
+        similarity_ready(self)
+        answer(self.state, QUOTA_OLD, "提")
+        rpc = Rpc()
+        saved, calls = self.ask(self.native(), self.job(), [QUOTA_NEW], rpc)
+        self.assertEqual((rpc.refused, calls), ([], ["dedup", "register"]))
+        self.assertNotIn(question_dedup.MARK_KEY, saved[0])
+        self.assertNotIn("上次你答过", json.dumps(question_dedup.drawn(saved[0]), ensure_ascii=False))
+        self.assertEqual(question_dedup.lead_line(saved[0]), "")
+        rpc = Rpc()  # The old one asked again has its grey line as before (配额 is a gate word: never refused).
+        saved, _ = self.ask(self.native(), self.job(key="om_q2", job_id=2), [QUOTA_OLD], rpc, request="req-2")
+        (again,) = [row for row in saved if row["questions"] == [QUOTA_OLD]]
+        self.assertIn("上次你答过：提", again[question_dedup.MARK_KEY]["quota"]["line"])
+        old, new = FIGURE_PAIRS[2]  # Not of the five: one with the same figures is refused in the turn, one with others asked.
+        answer(self.state, {"question": old}, "合进去", at=NOW - 7200)
+        for n, (text, refused) in enumerate(((new, 0), (old, 1)), 3):
+            rpc = Rpc()
+            self.ask(self.native(), self.job(key=f"om_q{n}", job_id=n), [ask_of(text)], rpc, request=f"req-{n}")
+            self.assertEqual(len(rpc.refused), refused, text)
+
+    def test_with_the_real_search_the_live_sample_is_no_longer_matched(self):
+        answer(self.state, QUOTA_OLD, "提")
+        answer(self.state, {"question": "Repair 能不能改题面？"}, "不能改，只能补测试", at=NOW - 7200)
+        check = lambda text: question_dedup.check(self.ctx(), {"topic_id": MEMBER}, [ask_of(text)]).get("q")  # noqa: E731
+        self.assertIsNone(check(QUOTA_NEW["question"]))
+        self.assertIsNotNone(check("+2 核/+4 GiB 的配额申请现在要提吗？"))
+
+
 class NoInternalNamesTest(unittest.TestCase):
     def test_the_module_says_no_backend_by_its_internal_name_and_no_plan_file(self):
         words = Path(question_dedup.__file__).read_text(encoding="utf-8") + Path(native_questions.__file__).read_text(encoding="utf-8")

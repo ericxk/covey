@@ -40,7 +40,7 @@ PID = "a1b2c3d4e5f6"
 LEAD = projects.lead_topic_id(CHAT, PID)
 ON = {projects.ENV: "1"}
 NOW = 1_800_000_000.0
-LEAD_NAMES = ["topics_list", "topics_search", "topic_read", "repos_list", "topics_switch",
+LEAD_NAMES = ["topics_list", "topics_search", "topic_read", "repos_list", "memory_search", "topics_switch",
               "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_ask", "project_goal", "project_remember", "project_memory_revise",
               "project_style", "project_finish"]
 

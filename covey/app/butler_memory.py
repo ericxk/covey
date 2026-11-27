@@ -110,9 +110,25 @@ def memory_revise(env, request):
     return reply(False, f"没有 {key[:20]} 这条：用 memory_search 找到它的短码或 id。")
 
 
+LEAD_NO_SEARCH = "这一版的记忆查不了专项范围：用状态包里的专项记忆。"
+
+
 def memory_search(env, request):
+    """memory_search for the butler, and for a project's lead (WAVE12 W2-C, core/butler_tool_specs.py LEAD_SHARED): a lead's
+    call (app/butler_topics.py lead_of) reads only its own project's memory, whatever it names (app/butler_knowledge.py
+    memory_search ``lead``)."""
+    from covey.app.butler_topics import lead_of
+
     args = request.args if isinstance(request.args, dict) else {}
     made = memory_handler("memory_search")
+    found = lead_of(env, request)
+    if found is not None:
+        if made is None:
+            return reply(False, LEAD_NO_SEARCH)
+        try:
+            return answer_of(made(env, dict(args), lead=found[0]))
+        except ValueError as refused:
+            return reply(False, str(refused))
     if made is not None:
         return answer_of(made(env, dict(args)))  # As called: query, limit and whatever narrows it (project, topic, kinds…).
     if "query" not in args:  # An older session's principles_list.
