@@ -731,6 +731,80 @@ class ReadWorktreeTest(Sandbox):
         self.use("--json")
         self.assertTrue(Path(second).is_dir())
 
+    def test_a_write_into_the_read_worktree_is_no_topic_write_is_said_next_turn_and_is_not_read_again(self):
+        """W1-C P1-9: a turn that wrote into the shared read worktree had its topic record it as "写，worktree …/_read/…",
+        no word next turn, and every topic reading that commit read the changed file."""
+        tree = Path(json.loads(self.use("--json")[1])["worktree"])
+        repos_turn.settle(self.ctx(), self.job, self.task)
+        (tree / "app.py").write_text("print('changed in the read tree')\n")
+        wrote = SimpleNamespace(topic_id=TOPIC, job_id=4, message_id="om_2",
+                                tool_trace=trace_of(("修改文件", str(tree / "app.py"))))
+        repos_turn.settle(self.ctx(), wrote, None)
+        (entry,) = self.topic_data()["repos"]
+        self.assertEqual((entry["mode"], entry["worktree"]), ("read", str(tree)))  # Not the topic's write …
+        self.assertEqual(entry[repos_turn.READ_WRITES], [str(tree)])
+        self.assertNotIn("rules_miss", entry)
+        block = repos_turn.tail(self.ctx(), self.job)  # … and its next turn is told.
+        self.assertIn(f"core 的只读 worktree {tree} 现在有 1 处没提交的改动", block)
+        self.assertIn("covey repo use core --write", block)
+        self.assertNotIn("（写，", block)
+        self.assertEqual(repos_turn.write_dirs(self.ctx(), self.job), [])
+        # Another topic reading that commit gets a clean one; the changed one stays as it is.
+        made = json.loads(self.use("--json")[1])
+        self.assertEqual((made["worktree"], made["created"]), (str(tree) + "-2", True))
+        self.assertEqual(Path(made["worktree"], "app.py").read_text(), "print('old')\n")
+        self.assertEqual((tree / "app.py").read_text(), "print('changed in the read tree')\n")
+        # The topic's next turn keeps saying so while the change is there, and stops once it is taken out.
+        repos_turn.settle(self.ctx(), self.job, None)
+        self.assertNotIn(repos_turn.READ_WRITES, self.topic_data()["repos"][0])
+        run_git(tree, "checkout", "--", "app.py")
+        self.assertNotIn("只读 worktree", repos_turn.tail(self.ctx(), self.job).replace("最新主干的只读 worktree", ""))
+
+    def test_an_entry_that_says_it_writes_in_a_read_worktree_reads_as_a_read(self):
+        """W1-C P1-9 and P1-11: an entry a release before it (or one rolled back to) wrote as "write, worktree _read/…" is
+        never a topic's writable worktree: not in a Codex turn's writable roots, not snapshotted for a diff."""
+        tree = str(self.data / "worktrees" / "_read" / "core" / self.latest[:12])
+        self.topic(home_start=True, repos=[{"name": "core", "path": str(self.repo), "mode": "write", "worktree": tree}])
+        (entry,) = topic_repos.of_topic(self.topic_data())
+        self.assertEqual((entry.mode, entry.worktree), ("read", tree))
+        self.assertNotIn(tree, topic_repos.writable_roots(self.topic_data()))
+        self.assertEqual(repos_turn.write_dirs(self.ctx(), self.job), [])
+
+    def test_a_read_worktree_still_being_checked_out_is_never_handed_out(self):
+        """W1-C P1-10: the lock-free path handed out a read worktree another topic was still checking out (only its .git,
+        11.5 s on the live NAS); it waits for the lock now and gets the tree once its checkout is complete."""
+        run_git(self.repo, "fetch", "-q", "origin")
+        folder = self.data / "worktrees" / "_read" / "core"
+        tree = folder / self.latest[:12]
+        folder.mkdir(parents=True)
+        lock = open(folder / ".lock", "a+")  # Another topic's checkout holds the repository's lock …
+        self.addCleanup(lock.close)
+        import fcntl
+        import threading
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        run_git(self.repo, "worktree", "add", "--no-checkout", "--detach", str(tree), self.latest)  # … half done.
+        got = {}
+        reader = threading.Thread(target=lambda: got.update(made=repomap.read_worktree(repomap.read(self.state)[0])))
+        reader.start()
+        reader.join(1.0)
+        self.assertTrue(reader.is_alive(), got)  # Not handed out while the checkout runs.
+        run_git(tree, "reset", "-q", "--hard")  # The checkout completes …
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        reader.join(30)
+        self.assertEqual((got["made"]["worktree"], got["made"]["created"]), (str(tree), False))
+        self.assertEqual((tree / "app.py").read_text(), "print('old')\n")
+        self.assertTrue(Path(str(tree) + repomap.READ_USED).exists())  # Marked complete under the lock.
+
+    def test_a_complete_read_worktree_without_its_marker_is_marked_under_the_lock_and_used_again(self):
+        """One made before the marker meant "complete" (or whose marker could not be written) is used as it is, not made
+        again, once the lock says no checkout runs."""
+        first = json.loads(self.use("--json")[1])["worktree"]
+        Path(first + repomap.READ_USED).unlink()
+        again = json.loads(self.use("--json")[1])
+        self.assertEqual((again["worktree"], again["created"]), (first, False))
+        self.assertTrue(Path(first + repomap.READ_USED).exists())
+
+
 
 class HomeBlockTest(Sandbox):
     def test_a_home_topic_has_the_home_block_and_an_older_one_none(self):

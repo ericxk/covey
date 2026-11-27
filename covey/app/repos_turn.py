@@ -7,7 +7,9 @@ wrote to it without reading them, and a reminder when the last turn changed a re
 the topic's worktree. Rules inlined (or printed by ``covey repo use``) whole count as read; a head cut short does not:
 they stay unread, so a turn that then writes the repository without reading them gets them again (T900 W0-4). A
 repository read in the latest main branch's read worktree (core/repomap.py ``read_worktree``) is shown there, with its
-commit and time, and its rules come from it (T900 W0-5). A topic from before the home shows its repositories only once
+commit and time, and its rules come from it (T900 W0-5); a write into one (the last turn's steps, or changes git shows
+in it now) is no write of the topic's, and its next turn is told to move the change to its own worktree (W1-C P1-9). A
+topic from before the home shows its repositories only once
 one was declared or asked for (``covey repo use``); its inlined rules and reminders it gets all the same. ``settle`` folds a task's
 ``runs/<任务键>/repos.json`` and the repositories its tool calls touched (core/topic_repos.py ``touched``) into
 ``topic.json`` when its turn ends, and the repositories it used into the repo map. ``repos_list`` is the Bridge tool's
@@ -27,6 +29,9 @@ RULES_INLINE_BYTES = 4096
 WRITE_KEYS = ("worktree", "branch", "base", "base_oid")  # A ``covey repo use`` request's, as the topic keeps them.
 READ_KEYS = ("base_at", "stale")  # A read worktree's besides (core/repomap.py ``read_worktree``).
 CHECKOUT_WRITES = "checkout_writes"  # A topic.json repos entry's: the last turn changed the repository's main checkout.
+# A topic.json repos entry's: the read worktrees (core/repomap.py ``read_worktree``) the last turn wrote into. Never a write
+# of the topic's (W1-C P1-9): the entry keeps its mode, and the next turn is told.
+READ_WRITES = "read_writes"
 
 
 def _topic(ctx, job) -> tuple[str, dict]:
@@ -99,6 +104,7 @@ def tail(ctx, job) -> str:
         if raw.get(entry.name, {}).get(CHECKOUT_WRITES):
             parts.append(f"上一轮改到了 {entry.name} 的主检出（{entry.path}）。之后改用 `covey repo use {entry.name} --write` "
                          "打印的 worktree，主检出里的改动先提交或挪过去。")
+    parts += read_tree_notes(entries, raw)
     for entry in entries:
         if not inline_due(entry):
             continue
@@ -109,6 +115,31 @@ def tail(ctx, job) -> str:
         parts.append(f"{entry.name} 的规范（{name} 开头{'，后面还有，动手前读全文' if cut else ''}；{why}，先照它做）：\n"
                      f"<<<\n{text.rstrip()}\n>>>")
     return "\n\n".join(parts)
+
+
+def read_tree_notes(entries, raw) -> list[str]:
+    """What a turn is told of the shared read worktrees its topic wrote into (``READ_WRITES``) or reads in with changes in
+    them now (``repomap.read_changes``): every topic reading that commit reads those files, so the change is moved to the
+    topic's own worktree and taken out of the read one (W1-C P1-9)."""
+    notes = []
+    for entry in entries:
+        trees = [str(tree) for tree in raw.get(entry.name, {}).get(READ_WRITES) or () if isinstance(tree, str)]
+        if entry.mode != "write" and topic_repos.is_read_worktree(entry.worktree):
+            trees.append(entry.worktree)
+        for tree in dict.fromkeys(trees):
+            count = read_changes_of(tree)
+            if count == 0 or (count is None and tree not in (raw.get(entry.name, {}).get(READ_WRITES) or ())):
+                continue  # Clean (taken out already), or nothing known of it.
+            what = f"现在有 {count} 处没提交的改动" if count else "上一轮往里写了文件"
+            notes.append(f"{entry.name} 的只读 worktree {tree} {what}。它是各话题共用的最新主干，只能读：别的话题读到的会是改过的"
+                         f"内容。要改代码用 `covey repo use {entry.name} --write` 打印的 worktree，把改动挪过去，再撤掉只读 worktree "
+                         f"里的改动（`git -C {tree} status` 查看）。")
+    return notes
+
+
+def read_changes_of(tree) -> int | None:
+    """``repomap.read_changes`` of ``tree``, None for one gone or one git cannot tell."""
+    return repomap.read_changes(tree) if tree and os.path.isdir(tree) else None
 
 
 def _workdir_repo(data) -> dict | None:
@@ -173,6 +204,7 @@ def settle(ctx, job, task_dir, *, later=False):
             by_name[made["name"]] = made
         for item in entries:
             item.pop(CHECKOUT_WRITES, None)
+            item.pop(READ_WRITES, None)
             if item.get("name") in inlined:
                 item["rules_inlined_at" if inlined[item["name"]] else "rules_read_at"] = now
         for request in asked:
@@ -210,13 +242,16 @@ def settle(ctx, job, task_dir, *, later=False):
                 by_name[repo.name] = item
             if repo.worktree and repo.worktree != repo.path and not item.get("worktree") and ours(repo.worktree):
                 item["worktree"] = repo.worktree
-            if repo.mode == "write":
+            if repo.mode == "write" and topic_repos.is_read_worktree(repo.worktree):
+                # A write into a shared read worktree (P1-9): no write of the topic's, said next turn (``read_tree_notes``).
+                item[READ_WRITES] = list(dict.fromkeys([*(item.get(READ_WRITES) or ()), repo.worktree]))
+            elif repo.mode == "write":
                 item["mode"] = "write"
             if repo.rules_read_at:
                 item["rules_read_at"] = repo.rules_read_at
         for repo in found:
             item = by_name[repo.name]
-            if repo.mode != "write":
+            if repo.mode != "write" or topic_repos.is_read_worktree(repo.worktree):
                 continue
             if not item.get("rules_read_at"):
                 item["rules_miss"] = int(item.get("rules_miss") or 0) + 1

@@ -48,7 +48,11 @@ FETCH_SECONDS = 20
 STATUS_SECONDS = 5
 PRUNE_IDLE = 24 * 3600  # A worktree untouched this long, clean and merged, is listed by prune-plan.
 READ_IDLE = 24 * 3600  # A read worktree no turn used this long is removed, when clean, as `use` reads that repository again.
-READ_USED = ".used"  # Beside a read worktree, ``<提交前 12 位>.used``: its mtime is when a turn last used it.
+# Beside a read worktree, ``<提交前 12 位>.used``: its mtime is when a turn last used it. Written only once the worktree's
+# checkout is complete (``read_worktree``, under its lock), so it also says the worktree may be read: a worktree without it is
+# being checked out by another topic (P1-10) and is never handed out by the lock-free path.
+READ_USED = ".used"
+READ_SPARES = 3  # A read worktree with changes is never read again: the next of ``<12 位>``, ``<12 位>-2``, ``<12 位>-3`` is.
 STATUS_WORDS = {"active": "可用", "readonly": "只读", "frozen": "已冻结"}
 
 
@@ -498,14 +502,17 @@ def _used_marker(tree) -> Path:
     return tree.parent / (tree.name + READ_USED)
 
 
-def touch_read(tree, now=None) -> None:
-    """Mark the read worktree ``tree`` used now (``READ_IDLE`` counts from it); a marker that cannot be written is left."""
+def touch_read(tree, now=None, *, make=False) -> None:
+    """Mark the read worktree ``tree`` used now (``READ_IDLE`` counts from it); a marker that cannot be written is left.
+    Only ``make`` (the checkout of ``tree`` is complete: ``read_worktree`` under its lock) writes a marker that is not there:
+    a topic touching its tree while another one checks it out again must not mark a half checkout readable."""
     if not tree or not Path(tree).is_dir():
         return
     now = time.time() if now is None else now
     marker = _used_marker(tree)
     with contextlib.suppress(OSError):
-        marker.touch()
+        if make:
+            marker.touch()
         os.utime(marker, (now, now))
 
 
@@ -513,6 +520,24 @@ def _usable(tree: Path, oid: str, main_git: str) -> bool:
     """Whether ``tree`` is a worktree of the repository whose ``.git`` is ``main_git`` with ``oid`` checked out."""
     return ((tree / ".git").is_file() and _oid(tree) == oid
             and os.path.realpath(topic_repos.repo_of(str(tree)) or "") == os.path.realpath(main_git))
+
+
+def read_changes(tree) -> int | None:
+    """How many uncommitted changes (``git status --porcelain``, untracked files included) the read worktree ``tree`` has:
+    a read worktree is every topic's latest main branch, so any is a write some turn made into it (P1-9). None when git
+    cannot tell (a slow status, a broken tree)."""
+    return _changes(tree) if tree and Path(tree).is_dir() else None
+
+
+def _ready(tree: Path, oid: str, main_git: str) -> bool:
+    """Whether the read worktree ``tree`` may be handed out without the lock: ``oid`` checked out, its checkout complete
+    (its ``.used`` marker, P1-10) and nothing changed in it (P1-9; a status git cannot tell counts as unchanged)."""
+    return _used_marker(tree).exists() and _usable(tree, oid, main_git) and not read_changes(tree)
+
+
+def _read_names(oid: str) -> list[str]:
+    """The directories a commit's read worktree may be in, in order (``READ_SPARES``)."""
+    return [oid[:12]] + [f"{oid[:12]}-{index}" for index in range(2, READ_SPARES + 1)]
 
 
 def _prune_read(repo: Repo, folder: Path, keep: str, now: float) -> None:
@@ -545,21 +570,25 @@ def read_worktree(repo: Repo, *, root=None, now=None) -> dict:
 
     ``<root>/_read/<仓库>/<提交前 12 位>/`` (core/topic_repos.py ``read_worktrees``) at ``origin/<主干>`` after a fetch
     (``_latest``); one already there for that commit (another topic's, an earlier turn's) is used again without writing
-    anything. ``stale``: why it may be behind (its fetch failed: the remote branch as last fetched), '' when fetched now.
-    Made under a lock per repository; then the repository's read worktrees no turn used for ``READ_IDLE`` are removed
-    (``_prune_read``). Raises RepoError (``later``: this turn's sandbox cannot write it) when there is none to read."""
+    anything, once its checkout is complete (its ``.used`` marker: a topic coming while another checks it out waits for the
+    lock instead of reading a directory with only ``.git`` in it, P1-10). One some turn wrote into (changes in
+    ``git status``) is not read again: the next free name (``_read_names``) gets a clean one, the changed one stays for
+    the owner to look at (P1-9). ``stale``: why it may be behind (its fetch failed: the remote branch as last fetched), ''
+    when fetched now. Made under a lock per repository; then the repository's read worktrees no turn used for
+    ``READ_IDLE`` are removed (``_prune_read``). Raises RepoError (``later``: this turn's sandbox cannot write it) when
+    there is none to read."""
     now = time.time() if now is None else now
     ref, oid, stale = _latest(repo)
     if not oid or ref == "HEAD":
         raise RepoError(stale or f"{repo.name} 找不到远端主干的提交")
     folder = topic_repos.read_worktrees(root) / repo.name
-    dest = folder / oid[:12]
     main_git = topic_repos.repo_of(repo.path) or str(Path(repo.path) / ".git")
-    made = {"worktree": str(dest), "base": f"{ref}@{oid[:8]}", "base_oid": oid, "base_at": _commit_time(repo.path, oid),
-            "stale": stale, "created": False}
-    if _usable(dest, oid, main_git):  # Another topic's, or an earlier turn's: nothing to write (a read-only sandbox too).
-        touch_read(dest, now)
-        return made
+    made = {"base": f"{ref}@{oid[:8]}", "base_oid": oid, "base_at": _commit_time(repo.path, oid), "stale": stale,
+            "created": False}
+    for name in _read_names(oid):  # Another topic's, or an earlier turn's: nothing to write (a read-only sandbox too).
+        if _ready(folder / name, oid, main_git):
+            touch_read(folder / name, now)
+            return {"worktree": str(folder / name), **made}
     try:
         folder.mkdir(parents=True, exist_ok=True)
         lock = open(folder / ".lock", "a+")
@@ -567,29 +596,39 @@ def read_worktree(repo: Repo, *, root=None, now=None) -> dict:
         raise RepoError(f"建不了只读 worktree 目录 {folder}：{exc.strerror or exc}", later=True) from None
     with lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if not _usable(dest, oid, main_git):
-            if dest.exists() and not (dest / ".git").exists():
-                shutil.rmtree(dest, ignore_errors=True)  # What an add cut short left (no worktree): only ever made here.
+        dest = None
+        for name in _read_names(oid):
+            tree = folder / name
+            if tree.exists() and not (tree / ".git").exists():
+                shutil.rmtree(tree, ignore_errors=True)  # What an add cut short left (no worktree): only ever made here.
                 _git(["worktree", "prune"], repo.path)
-            if dest.exists():
-                raise RepoError(f"{dest} 已经在了，但不是 {repo.name} {oid[:8]} 的只读 worktree")
-            if not _writable(main_git):
-                raise RepoError(f"这一轮的沙箱写不了 {main_git}，建不了只读 worktree", later=True)
-            args = ["-c", "checkout.workers=8", "worktree", "add", "--detach", str(dest), oid]
-            for attempt in range(2):
-                code, _, err = _git(args, repo.path, timeout=300)
-                if code == 0 or attempt or ".lock" not in err:
-                    break
-                time.sleep(1)  # Another topic's git held a lock of the same repository: once more.
-            if code != 0:
-                shutil.rmtree(dest, ignore_errors=True)
-                _git(["worktree", "prune"], repo.path)
-                later = "Read-only file system" in err or "Permission denied" in err
-                raise RepoError(f"建只读 worktree 失败：{(err.splitlines() or ['git 退出码 %d' % code])[-1][:300]}", later=later)
-            made["created"] = True
-        touch_read(dest, now)
+            if not tree.exists():
+                dest = dest or tree
+                continue
+            if not _usable(tree, oid, main_git) or read_changes(tree):
+                continue  # Another commit's, or changed by some turn: left as it is.
+            # Complete: no checkout runs while the lock is held (one from before the marker said so gets it now).
+            touch_read(tree, now, make=True)
+            _prune_read(repo, folder, tree.name, now)
+            return {"worktree": str(tree), **made}
+        if dest is None:
+            raise RepoError(f"{repo.name} {oid[:8]} 的只读 worktree 都有改动（{folder}），没有干净的可读")
+        if not _writable(main_git):
+            raise RepoError(f"这一轮的沙箱写不了 {main_git}，建不了只读 worktree", later=True)
+        args = ["-c", "checkout.workers=8", "worktree", "add", "--detach", str(dest), oid]
+        for attempt in range(2):
+            code, _, err = _git(args, repo.path, timeout=300)
+            if code == 0 or attempt or ".lock" not in err:
+                break
+            time.sleep(1)  # Another topic's git held a lock of the same repository: once more.
+        if code != 0:
+            shutil.rmtree(dest, ignore_errors=True)
+            _git(["worktree", "prune"], repo.path)
+            later = "Read-only file system" in err or "Permission denied" in err
+            raise RepoError(f"建只读 worktree 失败：{(err.splitlines() or ['git 退出码 %d' % code])[-1][:300]}", later=later)
+        touch_read(dest, now, make=True)  # Its checkout is complete: from now on the lock-free path may hand it out.
         _prune_read(repo, folder, dest.name, now)
-    return made
+    return {"worktree": str(dest), **made, "created": True}
 
 
 # ---- the command ---------------------------------------------------------------------------------------------------

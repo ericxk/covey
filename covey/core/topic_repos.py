@@ -89,6 +89,10 @@ def from_dict(item) -> TopicRepo | None:
         known[key] = value
     if known.get("mode") not in MODES:
         known["mode"] = "read"
+    if known.get("mode") == "write" and is_read_worktree(known.get("worktree")):
+        # A shared read worktree is never a topic's to write in: an entry that says so (a write into it folded in by a
+        # release before W1-C's P1-9, or by one rolled back to) is read as the read it was.
+        known["mode"] = "read"
     if known.get("source") not in SOURCES:
         known["source"] = "touched"
     return TopicRepo(**known)
@@ -263,8 +267,8 @@ def writable_roots(topic_data, *, task_dir=None, worktrees=None, frozen=(), inpl
     frozen = {os.path.normpath(str(path)) for path in frozen}
     inplace = {os.path.normpath(str(path)) for path in inplace}
     for repo in of_topic(topic_data):
-        if repo.mode != "write" or os.path.normpath(repo.path) in frozen:
-            continue
+        if repo.mode != "write" or os.path.normpath(repo.path) in frozen or is_read_worktree(repo.worktree):
+            continue  # A read worktree (``read_worktrees``) is never writable, whatever an entry says.
         git = repo_of(repo.path)
         if git:
             roots.append(git)
