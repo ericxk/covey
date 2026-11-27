@@ -1393,9 +1393,9 @@ def _names_in(node):
 
 def state_writes(source, rel):
     """[(``rel:function``, line)] of the functions of ``source`` (methods as ``Class.method``; nested functions count as
-    their outer one's) that read a record for a write: a record read (``_record_read``) of the path a write in the same
-    function writes, a call of a reader of this module (a top-level function with a record read and no write) on the names
-    that path is made of, or ``{**read_object(...)}`` in a function that writes."""
+    their outer one's) that read a record for a write: before a write in the same function, a record read
+    (``_record_read``) of the path it writes, a call of a reader of this module (a top-level function with a record read
+    and no write) on the names that path is made of, or ``{**read_object(...)}``."""
     tree = ast.parse(source)
     readers = set()
     for node in tree.body:
@@ -1407,9 +1407,12 @@ def state_writes(source, rel):
 
     def check(func, name):
         calls = [n for n in ast.walk(func) if isinstance(n, ast.Call)]
-        writes = [c.args[0] for c in calls if _called(c.func) in STATE_WRITES and c.args]
-        if not writes:
+        written = [c for c in calls if _called(c.func) in STATE_WRITES and c.args]
+        if not written:
             return
+        writes = [c.args[0] for c in written]
+        last = max(c.end_lineno for c in written)  # A read after every write (a fallback, a reply) writes nothing back.
+        calls = [c for c in calls if c.lineno <= last]
         local = {}
         for n in ast.walk(func):
             if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
@@ -1467,6 +1470,11 @@ class StateWriteTest(unittest.TestCase):
         gone = sorted(allowed - {name for name, _ in found})
         self.assertEqual(gone, [], "这些函数已经不再这样读了：从 tests/golden/state_writes.json 去掉")
 
+    def test_the_modules_this_package_fixed_stay_off_the_list(self):
+        """W1-F step 3: the settings, the owner's ledger, the 专项 records and the 辅助模型's record."""
+        fixed = ("core/butler_settings.py:", "core/owner_ledger.py:", "core/projects.py:", "core/assist.py:")
+        self.assertEqual(sorted(name for name in self.allowed() if name.startswith(fixed)), [])
+
     def test_the_scan_finds_each_kind_of_read_for_a_write(self):
         bad = textwrap.dedent('''
             from covey.core.state import read_object, read_json, write_json
@@ -1509,6 +1517,13 @@ class StateWriteTest(unittest.TestCase):
                 return {**read_object(path(state_dir)), "b": 2}
             def other_file(state_dir):
                 write_json(path(state_dir, "b"), read_object(path(state_dir, "a")))
+            def load(state_dir):
+                return read_object(path(state_dir))
+            def falls_back(state_dir):
+                try:
+                    write_json(path(state_dir), read_for_write(path(state_dir)))
+                except OSError:
+                    return load(state_dir)
         ''')
         self.assertEqual(state_writes(good, "y.py"), [])
 

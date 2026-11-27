@@ -60,7 +60,6 @@
   "app/web_launch.py:launch",
   "app/web_login.py:WebLogin.put",
   "app/web_panels.py:write_join",
-  "core/assist.py:change",
   "core/avatars.py:lead_name",
   "core/avatars.py:remember_key",
   "core/backup.py:back_up",

@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from covey.core.locks import resource_lock
-from covey.core.state import read_object, write_json
+from covey.core.state import read_for_write, read_object, write_json
 
 FILE = "assist-state.json"
 BREAK_SECONDS = 900  # The same window as app/availability.py NOT_NOW_SECONDS.
@@ -157,10 +157,11 @@ def forget() -> None:
 
 def change(state_dir, edit) -> dict:
     """``edit(data)`` on the file's record under its lock, written when it says so (returns something true) or always when
-    it returns None; the record after. Never raises: a record that cannot be written stays as it was."""
+    it returns None; the record after. Never raises: a record that cannot be written stays as it was, as does one that is
+    there and cannot be read now (core/state.py Unreadable: its breakers and counts are not started over)."""
     try:
         with resource_lock("assist-state", str(path(state_dir))):
-            data = _shaped(read_object(path(state_dir)))
+            data = _shaped(read_for_write(path(state_dir)))
             wrote = edit(data)
             if wrote is None or wrote:
                 write_json(path(state_dir), data, ensure_ascii=False, indent=1)
