@@ -84,8 +84,6 @@
   "core/project_proposals.py:change_topic",
   "core/project_proposals.py:put_proposal",
   "core/project_proposals.py:update_proposal",
-  "core/projects.py:create",
-  "core/projects.py:update",
   "core/revisits.py:change",
   "core/spaces.py:save_space",
   "core/topic_gist.py:mark_unreadable",

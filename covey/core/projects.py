@@ -27,6 +27,7 @@ from pathlib import Path
 from covey.core import env as cenv
 from covey.core.process_env import env_flag
 from covey.core.locks import resource_lock
+from covey.core import state as cstate
 from covey.core.state import keyed_json_path, read_object, write_json
 
 ENV = "COVEY_PROJECTS"  # ``1``: on; anything else, unset too: off.
@@ -163,12 +164,26 @@ def records(state_dir, chat_id=None) -> list:
     return sorted(found, key=lambda record: (record.get("created_at") or 0, record["id"]))
 
 
+class Unreadable(cstate.Unreadable, KeyError):
+    """A 专项 record that is there but cannot be read now (core/state.py Unreadable: nothing is written over it). Also a
+    KeyError, as ``update`` raised for such a record before, so a caller that stops at a missing record stops at this."""
+
+
+def _for_write(path) -> dict:
+    """The record at ``path`` read under its lock for a write: {} without a file; Unreadable when it cannot be read."""
+    try:
+        return cstate.read_for_write(path)
+    except cstate.Unreadable as exc:
+        raise Unreadable(*exc.args) from exc
+
+
 def create(state_dir, record) -> tuple:
     """(the record on disk, whether this call wrote it): written only when there is none under its id, so a repeated
-    call (the upgrade runs its steps again after a restart) finds the first one."""
+    call (the upgrade runs its steps again after a restart) finds the first one. Unreadable (nothing written) when there
+    is a file under its id that cannot be read now: it was written over."""
     path = record_path(state_dir, record["id"])
     with _lock(path):
-        saved = read_object(path)
+        saved = _for_write(path)
         if saved.get("id") == record["id"]:
             return saved, False
         write_json(path, record, ensure_ascii=False, indent=2)
@@ -178,10 +193,11 @@ def create(state_dir, record) -> tuple:
 def update(state_dir, project_id, change) -> dict:
     """Read the record, let ``change(record)`` edit it in place (no I/O in it: the lock is held), write it, return it.
     KeyError for a record that does not exist. A change of ``state`` must be one ``PROJECT_TRANSITIONS`` allows (ValueError,
-    nothing written); ``updated_at`` is set on every write; nothing is written when ``change`` changed nothing."""
+    nothing written); ``updated_at`` is set on every write; nothing is written when ``change`` changed nothing. Unreadable
+    (a KeyError too, nothing written) for a record that is there and cannot be read now."""
     path = record_path(state_dir, project_id)
     with _lock(path):
-        record = read_object(path)
+        record = _for_write(path)
         if record.get("id") != project_id:
             raise KeyError(project_id)
         before = copy.deepcopy(record)
