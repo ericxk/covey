@@ -318,7 +318,8 @@ class Runs:
         rules at system level."""
         fresh = not session_id
         # What the turn may do (app/tool_limits.py), in its context before anything of it runs.
-        live.ctx = tool_limits.limited(self.runtime.access, live.ctx, job, self.runtime.log)
+        live.ctx = tool_limits.limited(self.runtime.access, live.ctx, job, self.runtime.log,
+                                       held=backend_capabilities(self.harness.backend, live.ctx).look_gate)
         # A fork replaces ctx; the callbacks read it when they are called.
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
         # The butler's turn (app/butler.py): its rules and snapshot open the message, its Bridge tools

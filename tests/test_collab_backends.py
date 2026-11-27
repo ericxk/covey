@@ -72,7 +72,8 @@ class LimitTest(unittest.TestCase):
                 self.assertIn("还不能做只读咨询", tool_limits.refusal(ctx, caps, "Later"))
         self.assertEqual(tool_limits.refusal(ctx, HarnessCapabilities(read_only=True, collab=True), "Claude"), "")
         self.assertTrue(tool_limits.note(ctx).endswith(tool_limits.CONSULT_NOTE))
-        self.assertEqual(tool_limits.note(make_context(Path("/x"), options={TOOL_LIMIT: LOOK})), "")
+        # A LOOK turn's words end its message now (W1-C, C6), by whether its Harness holds its writes.
+        self.assertIn("这一轮只读", tool_limits.note(make_context(Path("/x"), options={TOOL_LIMIT: LOOK})))
 
 
 class ClaudeConsultTest(unittest.TestCase):

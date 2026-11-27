@@ -30,7 +30,6 @@ import re
 import shutil
 from pathlib import Path
 
-from covey.app.tool_limits import LOOK_NOTE
 from covey.core.attachments import (ATTACHMENT_LINE_RE, ATTACHMENTS_HEADER, ATTACHMENTS_HINT, FAILED_HEADER, ListedAttachment,
                                              attachment_block, attachment_summary, message_words, parse_attachment_block)
 from covey.core.deliveries import CLOCK_SLACK, read_delivery
@@ -350,14 +349,14 @@ def quoted_words(text) -> str:
 
 
 def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra="", source="", read_only=False) -> str:
-    """What the topic's model gets: the Bridge's ``note``, the butler's task (its ``extra`` line after it, then
-    LOOK_NOTE for a turn started at once because it was judged read-only, ``read_only``), the owner's words quoted,
-    and the attachments block of ``items`` (those carried into the topic). A lead's (``owner.lead``) quotes nothing: what
-    it hands on is its task alone (app/butler_topics.py handed)."""
+    """What the topic's model gets: the Bridge's ``note``, the butler's task (its ``extra`` line after it), the owner's
+    words quoted, and the attachments block of ``items`` (those carried into the topic). A lead's (``owner.lead``) quotes
+    nothing: what it hands on is its task alone (app/butler_topics.py handed). ``read_only`` (a turn started at once because
+    it was judged read-only) adds nothing here any more: its words end the turn's message (app/tool_limits.py note, W1-C), so
+    the topic's history does not keep them for the turns after it."""
     who = "负责人" if owner.lead else "管家"
     parts = [note(kind, label=label, title=title, owner=owner, source=source),
-             f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")
-             + ("\n\n" + LOOK_NOTE if read_only else "")]
+             f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")]
     if owner.lead and items:
         parts.append(f"负责人转给你的附件：{summary(items)}（见下方“收到的附件”）")
     if not owner.lead and (owner.words or items):

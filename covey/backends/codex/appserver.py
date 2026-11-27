@@ -22,7 +22,7 @@ from covey.backends.codex.usage import CodexTurnUsage
 from covey.backends.codex import consult
 from covey.core import repomap, topic_repos
 from covey.core.failure import said_of
-from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
+from covey.core.harness import CONSULT, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
 from covey.core.paths import entry_script
 from covey.core.process import device_of
 from covey.core.protocol import deliver_event
@@ -83,6 +83,17 @@ def bridge_servers(ctx):
                        prefix + "tool_timeout_sec": BRIDGE_TOOL_SECONDS,
                        **({prefix + "default_tools_approval_mode": "approve"} if approve else {})})
     return config
+def look_writes(ctx) -> list:
+    """The workspace server's ``--allow-file``/``--allow-dir`` of a LOOK turn whose writes are held (``options[LOOK_ROOTS]``
+    held, app/tool_limits.py look_roots; W1-C, contract C6): the read-only sandbox stays, and the server's
+    ``workspace_write_file`` (core/look_write.py) writes the turn's checkpoint file and the topic's outputs directory, nothing
+    else. [] for any other turn, and on a device."""
+    roots = ctx.options.get(LOOK_ROOTS) or {}
+    if ctx.options.get(TOOL_LIMIT) != LOOK or device_of(ctx) or not roots.get("held"):
+        return []
+    return ["--allow-file", str(roots.get("file") or ""), "--allow-dir", str(roots.get("dir") or "")]
+
+
 def sandbox_mode(ctx) -> str:
     """The turn's sandbox: read-only for a turn held to READ, LOOK, CONSULT or LEAD (core/harness.py TOOL_LIMIT), else the
     Harness's --sandbox (danger-full-access unless it says otherwise). A 代答 turn keeps it: in a sandbox lark-cli could
@@ -159,6 +170,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
                 "--extra-root", str(ctx.history_path.parent / "handoff")]
         for root in reader_roots(ctx, data):
             args += ["--extra-root", root]
+        args += look_writes(ctx)
     params = {
         "model": ctx.model,
         "cwd": cwd,
@@ -171,6 +183,9 @@ def thread_params(ctx, session_id, instructions="", process=None):
             "mcp_servers.bridge_workspace.command": command,
             "mcp_servers.bridge_workspace.args": args,
             "mcp_servers.bridge_workspace.enabled": True,
+            # Its write tool runs without asking: with the approval policy ``never`` Codex refuses an MCP tool that asks
+            # (as the Bridge's tools of a LEAD turn, bridge_servers); where it writes is the server's check.
+            **({"mcp_servers.bridge_workspace.default_tools_approval_mode": "approve"} if look_writes(ctx) else {}),
             **({} if device_of(ctx) else bridge_servers(ctx)),
         },
         "developerInstructions": "\n\n".join(filter(None, (instructions, CODEX_INSTRUCTIONS))),

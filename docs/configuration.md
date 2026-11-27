@@ -589,7 +589,7 @@
 | `COVEY_RUNNER_PYTHONPATH` | `app/runner.py` | Bridge 交给任务进程，不要手设 | 否 |
 | `COVEY_TASK_DIR` | `app/leftovers.py`、`core/device_link.py`、`core/topic_repos.py`（`covey repo use` 写本任务的 `repos.json`，Codex 的可写根） | 任务进程给本轮命令设置，不要手设 | 否 |
 | `COVEY_STATE` | `core/repomap.py`（`bin/covey_repo.py` 找仓库地图和话题记录） | Bridge 给每个本机的 Harness 进程设成状态目录（`core/home.py` 的 `env`），不要手设；空时 `covey repo list` 说地图是空的，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
-| `COVEY_HOME` | `core/repomap.py`（`bin/covey_repo.py`：相对路径从这里算） | Bridge 给每个本机的 Harness 进程设成主目录（服务的 `--workdir`），不要手设，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
+| `COVEY_HOME` | `core/repomap.py`（`bin/covey_repo.py`：相对路径从这里算）、`backends/claude/tool_guard.py`（只读首轮的钩子：命令里的 `$COVEY_HOME` 按它解开） | Bridge 给每个本机的 Harness 进程设成主目录（服务的 `--workdir`），不要手设，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
 | `COVEY_TOPIC` | `core/repomap.py`（`bin/covey_repo.py`） | Bridge 给每个本机的 Harness 进程设成这一轮的话题 id，`covey repo` 据此找本话题的 worktree 目录和用到的仓库，不要手设 | 否 |
 | `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录从它取）、`core/model_settings.py`、`backends/codex/consult.py`（协作咨询轮的私有 home 从它链接）、`app/memory_harvest.py`（记忆自己长读 Codex 的记忆摘要）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.codex` | 否 |
 | `COVEY_CLAUDE_HOOKS` | `backends/claude/hooks.py`（`enabled`：`TurnHooks.registration` 据此在每轮 Claude Code 的 initialize 里注册 SDK hook） | 开：子 Agent（Explore 除外）开工时收到守则（`SubagentStart`），子 Agent 调 `mcp__bridge__*` 被拒（`PreToolUse`），管家这一轮自己调满 6 次非 Bridge 工具时提醒一次交给话题（`PostToolUse`，主人说了“你直接做”的那一轮没有）；`0` 关：不注册，每轮和原来一样 | 否 |
@@ -639,7 +639,8 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--state`、`--limit`、`--json` | `core/inbound_ledger.py`（`bin/covey_inbound.py`，查主人消息的去向） | 状态目录（必填）、`recent` 最多列几条（10）、JSON 输出；子命令 `where <消息 id>`、`recent` | 否 |
 | `--state-dir`、`--no-probe`、`--json` | `service/device_check.py`（`bin/covey_devices.py`） | 见 `--help`；见[多设备](#多设备开发中默认关)的「自检」 | 否 |
 | `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help` | 否 |
-| `--mode`、`--notes`、`--home` | `backends/claude/tool_guard.py`（`bin/covey_tool_guard.py`：Claude Code 的 PreToolUse 钩子，Bridge 自己写进那一轮的 `--settings`。`--mode proxy` 是代答话题的，`--notes` 是联系人的笔记目录；`--mode home-search` 是从主目录启动的一轮的，`--home` 是主目录，只拦目标是主目录根（或它的上级）又没限深度的递归搜索，`cd <仓库> && rg`、具体子目录、`find -maxdepth` 照常跑，自己出错时放行） | `proxy`；`--notes` 空：编辑工具哪里都不能写 | 否 |
+| `--allow-file`、`--allow-dir` | `backends/codex/workspace_reader.py`（给了才多一个 `workspace_write_file`）、`core/look_write.py`（`bin/covey_look_write.py`，Antigravity 只读首轮私有主目录里的服务）、`backends/claude/tool_guard.py`（`--mode look`）：管家判为只读的第一轮能写的检查点文件和产物目录，Bridge 自己传，见 [Harness · 执行权限](harnesses.md#执行权限) | 空：哪里都不能写 | 否 |
+| `--mode`、`--notes`、`--home` | `backends/claude/tool_guard.py`（`bin/covey_tool_guard.py`：Claude Code 的 PreToolUse 钩子，Bridge 自己写进那一轮的 `--settings`。`--mode proxy` 是代答话题的，`--notes` 是联系人的笔记目录；`--mode home-search` 是从主目录启动的一轮的，`--home` 是主目录，只拦目标是主目录根（或它的上级）又没限深度的递归搜索，`cd <仓库> && rg`、具体子目录、`find -maxdepth` 照常跑，自己出错时放行；`--mode look` 是管家判为只读的第一轮的，只放行写 `--allow-file`、`--allow-dir`，自己出错时拒绝） | `proxy`；`--notes` 空：编辑工具哪里都不能写 | 否 |
 | `--home`、`--start`、`--idle`、`--max`、`--dy` | `feishu/web_client.py`（`bin/covey_feishu_web.py`） | 见 [浏览器服务](testing.md#浏览器服务) | 否 |
 | `--app-id`、`--home`、`--plan`、`--login-from`、`--console`、`--login-seconds` | `feishu/app_console.py`（`bin/covey_app_console.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |
 | `--profile`、`--app-id`、`--review`、`--json`、`--python`、`--login-from`、`--work` | `service/app_check.py`（`bin/covey_app_setup.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |

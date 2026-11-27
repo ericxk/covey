@@ -159,8 +159,9 @@ class ClaudeBackend(BackendRuntime):
         return for_device(HarnessCapabilities(questions=True, image_bytes=MAX_IMAGE_BYTES, image_frame=IMAGE_FRAME, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
             command_stop=True, session_files=True, redaction=True, rewind=True, bridge_tools=True, read_only=True,
-            # 协作 asks held to CONSULT in a fork (C8 on the installed CLI: tests/test_collab_c8.py).
-            collab=True), ctx)
+            # 协作 asks held to CONSULT in a fork (C8 on the installed CLI: tests/test_collab_c8.py). look_gate: a LOOK turn's
+            # PreToolUse hook (backends/claude/tool_guard.py --mode look, W1-C).
+            collab=True, look_gate=True), ctx)
 
     def model_catalog(self, ctx):
         return with_extension_models(model_catalog(self, ctx, self.child_env(ctx)))

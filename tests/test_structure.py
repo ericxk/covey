@@ -217,6 +217,7 @@ ENTRIES = {
     "covey_maso_runtime.py": "covey_internal.maso.runtime",  # compat shim for the company extension (extensions/covey_internal/)
     "covey_workspace_reader.py": "covey.backends.codex.workspace_reader",
     "covey_tool_guard.py": "covey.backends.claude.tool_guard",
+    "covey_look_write.py": "covey.core.look_write",
 }
 
 

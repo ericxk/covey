@@ -7,8 +7,14 @@ before.
   群成员只读). Claude Code gets Read, Grep and Glob and none of the owner's MCP servers; Codex runs in its read-only
   sandbox; a Harness that can do neither does not run it (``refusal``). Its message ends with MEMBER_NOTE.
 - LOOK: the first turn of a topic the butler opened without the owner's click because it judged the work read-only
-  (app/butler_topics.py; the job's ``read_only``, its task text LOOK_NOTE). Claude Code goes without the tools that
-  change files (its shell stays, for read-only commands); Codex runs read-only; another Harness has the words alone.
+  (app/butler_topics.py; the job's ``read_only``). It changes no repository, workspace, ``.git`` or live state and writes
+  only its checkpoint file and the topic's outputs directory (``look_roots``, made before the turn; W1-C, contract C6). A
+  Harness that holds that (``HarnessCapabilities.look_gate``, the roots' ``held``) checks every write with
+  core/look_write.py: Claude Code's PreToolUse hook (backends/claude/tool_guard.py ``--mode look``, its shell's obvious
+  writes too), Codex's read-only sandbox with the workspace server's ``workspace_write_file``, Antigravity's deny rules for
+  its file tools with the same tool in its private home. Elsewhere (a device, DeepSeek Harness, an extension's) it is as
+  before: Claude Code without its file tools, Codex read-only, the others the words alone. Its message ends with
+  LOOK_HELD or LOOK_WORDS (``note``), never its task text, so the topic's history does not keep it.
 - PROXY: a 代答 topic's turn (core/topics.py proxy_topic). Claude Code gets Read, Grep, Glob, Bash, Edit and Write and
   none of the owner's MCP servers, and a hook that lets its shell run only lark-cli's read commands and its edit tools
   write only in the contact's notes (backends/claude/tool_guard.py, TOOL_NOTES); the other Harnesses run as before.
@@ -28,17 +34,24 @@ gives way to the first three and takes a LOOK's place.
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
+from covey.app import home_turn
 from covey.core import turn_source
-from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
+from covey.core.harness import CONSULT, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
 from covey.core.proxy import read_contacts
 from covey.core.topics import proxy_topic, read_topic
 
 # The end of a READ turn's message, and the head of the line a LOOK turn's task text has (app/butler_handoff.py).
 MEMBER_NOTE = ("[Bridge 说明] 这一轮只读：发起这一轮的是群成员，主人把这个群设成了群成员只读。只能读文件和搜索，"
                "不能改文件、不能联网，也不执行有副作用的命令，检查点也不用写；要改东西才能做完的，在回复里写清楚要改什么，留给主人。")
-LOOK_NOTE = ("这一轮只读：这件事被判断为只要查看和回答，所以没等主人点开始就开工了。这一轮不改任何文件、"
-             "不执行有副作用的命令，检查点也不用写；要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。")
+# The end of a LOOK turn's message (``note``): LOOK_HELD where its Harness holds the writes to the two places (``look_roots``
+# held), LOOK_WORDS where the words are all there is (or its sandbox writes nothing at all).
+LOOK_HEAD = "[Bridge 说明] 这一轮只读：这件事被判断为只要查看和回答，所以没等主人点开始就开工了。"
+LOOK_HELD = (LOOK_HEAD + "不改任何代码仓库、工作区、.git 和现网状态，不执行有副作用的命令；能写的只有本轮检查点 {file} "
+             "和本话题产物目录 {dir}（结论、报告放这里），别处的写入会被拒绝。要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。")
+LOOK_WORDS = (LOOK_HEAD + "不改任何代码仓库、工作区、.git 和现网状态，不执行有副作用的命令；只写本轮检查点 {file}（写不了就略过）"
+              "和本话题产物目录 {dir}，别处都不写。要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。")
 # The end of a CONSULT turn's message (app/collab_channel.py puts the ask above it).
 CONSULT_NOTE = ("[Bridge 说明] 这一轮是只读咨询：只能读文件和搜索，不能改文件、不能执行命令、不能联网，"
                 "不写检查点、不提问。回复就是给对方的答复：先写结论，再写依据（文件路径、哪一轮做的结论）；"
@@ -78,14 +91,41 @@ def notes_of(ctx) -> str:
     return str(found.get("session_dir") or "")
 
 
-def limited(access, ctx, job, log=lambda _: None):
-    """``ctx`` with the turn's limit in its options (a PROXY turn's with the contact's notes too); ``ctx`` itself for
-    a turn without one."""
+def outputs_of(ctx) -> Path:
+    """The topic's outputs directory: the home's (app/home_turn.py outputs_dir, ``home.json``'s ``runs_template``), else
+    ``<state>/topics/<id>/outputs``."""
+    found = ""
+    try:
+        found = home_turn.outputs_dir(ctx)
+    except (OSError, ValueError, KeyError, TypeError):
+        found = ""
+    return Path(found) if found else Path(ctx.state_dir) / "topics" / (ctx.topic_id or "topic") / "outputs"
+
+
+def look_roots(ctx, job, held=False) -> dict:
+    """Where a LOOK turn may write (contract C6): ``{"file": its checkpoint file, "dir": the topic's outputs directory
+    (made now), "held": whether its Harness holds its writes to those two}``; ``held`` is the Harness's
+    ``HarnessCapabilities.look_gate`` (off on a device), and false when either is missing or the directory cannot be made."""
+    file = str(getattr(job, "checkpoint_path", "") or "")
+    folder = outputs_of(ctx)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        held = False
+    return {"file": file, "dir": str(folder), "held": bool(held and file)}
+
+
+def limited(access, ctx, job, log=lambda _: None, *, held=False):
+    """``ctx`` with the turn's limit in its options (a PROXY turn's with the contact's notes too, a LOOK turn's with its
+    ``look_roots``; ``held``: the Harness's ``look_gate``); ``ctx`` itself for a turn without one."""
     found = limit(access, ctx, job)
     if not found:
         return ctx
     extra = {TOOL_NOTES: notes_of(ctx)} if found == PROXY else {}
-    log(f"turn limit job=#{getattr(job, 'job_id', '')} limit={found}")
+    if found == LOOK:
+        extra = {LOOK_ROOTS: look_roots(ctx, job, held)}
+    log(f"turn limit job=#{getattr(job, 'job_id', '')} limit={found}"
+        + (f" held={int(extra[LOOK_ROOTS]['held'])}" if found == LOOK else ""))
     return dataclasses.replace(ctx, options={**ctx.options, TOOL_LIMIT: found, **extra})
 
 
@@ -104,6 +144,11 @@ def refusal(ctx, capabilities, title) -> str:
 
 
 def note(ctx) -> str:
-    """What the turn's message ends with: MEMBER_NOTE for a READ turn, CONSULT_NOTE for a CONSULT one, '' otherwise."""
+    """What the turn's message ends with: MEMBER_NOTE for a READ turn, CONSULT_NOTE for a CONSULT one, LOOK_HELD or
+    LOOK_WORDS for a LOOK one (by its ``look_roots``' ``held``), '' otherwise."""
     found = ctx.options.get(TOOL_LIMIT)
+    if found == LOOK:
+        roots = ctx.options.get(LOOK_ROOTS) or {}
+        words = LOOK_HELD if roots.get("held") else LOOK_WORDS
+        return "\n\n" + words.format(file=roots.get("file") or "（本轮没有）", dir=roots.get("dir") or "（本话题没有）")
     return "\n\n" + MEMBER_NOTE if found == READ else "\n\n" + CONSULT_NOTE if found == CONSULT else ""

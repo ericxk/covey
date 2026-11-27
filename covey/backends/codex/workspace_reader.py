@@ -1,5 +1,7 @@
 """Small read-only MCP server scoped to one task workspace (and the topic's received
-attachments); never runs commands."""
+attachments); never runs commands. For a LOOK turn (``--allow-file``/``--allow-dir``, backends/codex/appserver.py) it
+also has core/look_write.py's ``workspace_write_file``: the turn's checkpoint file and the topic's outputs directory, the
+only places a turn in the read-only sandbox writes (W1-C, contract C6)."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,13 @@ import os
 from pathlib import Path
 import stat
 import sys
+
+
+def look_write():
+    """core/look_write.py, imported only for a LOOK turn's write tool: this file is also pushed alone to a device and run
+    there (core/device_link.py workspace_reader), where no LOOK turn writes through it and the package is not there."""
+    from covey.core import look_write as module
+    return module
 
 MAX_FILE = 4 * 1024 * 1024
 MAX_OUTPUT = 48 * 1024
@@ -23,13 +32,19 @@ TOOLS = [
 
 
 class WorkspaceReader:
-    def __init__(self, root, extra_roots=()):
+    def __init__(self, root, extra_roots=(), *, allow_file="", allow_dir=""):
         self.root = Path(root).resolve(strict=True)
         if not self.root.is_dir():
             raise ValueError("Workspace must be a directory")
         # Read-only extra roots, such as the topic's incoming_media. One may not
         # exist yet when the server starts; it is checked on each read.
         self.extra_roots = [Path(extra).absolute() for extra in extra_roots]
+        # A LOOK turn's: where workspace_write_file may write (core/look_write.py); neither, no such tool.
+        self.allow_file, self.allow_dir = str(allow_file or ""), str(allow_dir or "")
+
+    def tools(self) -> list:
+        """What ``tools/list`` answers: the two reading tools, and the write tool of a LOOK turn."""
+        return TOOLS + ([look_write().TOOL] if self.allow_file or self.allow_dir else [])
 
     def open(self, value, *, directory=False):
         if not isinstance(value, str) or not value or len(value) > 4096:
@@ -71,6 +86,8 @@ class WorkspaceReader:
     def call(self, name, args):
         if not isinstance(args, dict):
             raise ValueError("Tool arguments must be an object")
+        if name == "workspace_write_file" and (self.allow_file or self.allow_dir):
+            return look_write().call(name, args, allow_file=self.allow_file, allow_dir=self.allow_dir, cwd=str(self.root))
         spec = next((x for x in TOOLS if x["name"] == name), None)
         if spec is None or set(args) - set(spec["inputSchema"]["properties"]):
             raise ValueError("Unknown tool or argument")
@@ -122,8 +139,8 @@ class WorkspaceReader:
             os.close(fd)
 
 
-def serve(root, source=sys.stdin, destination=sys.stdout, extra_roots=()):
-    reader = WorkspaceReader(root, extra_roots)
+def serve(root, source=sys.stdin, destination=sys.stdout, extra_roots=(), allow_file="", allow_dir=""):
+    reader = WorkspaceReader(root, extra_roots, allow_file=allow_file, allow_dir=allow_dir)
     for line in source:
         try:
             row = json.loads(line)
@@ -137,7 +154,7 @@ def serve(root, source=sys.stdin, destination=sys.stdout, extra_roots=()):
             result = {"protocolVersion": requested if requested in {"2024-11-05", "2025-03-26", "2025-06-18"} else "2024-11-05",
                       "capabilities": {"tools": {}}, "serverInfo": {"name": "bridge-workspace", "version": "1.0"}}
         elif method == "tools/list":
-            result = {"tools": TOOLS}
+            result = {"tools": reader.tools()}
         elif method == "ping":
             result = {}
         elif method == "tools/call":
@@ -163,5 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--extra-root", action="append", default=[], type=Path,
                         help="additional read-only directory, e.g. the topic's received attachments")
+    parser.add_argument("--allow-file", default="", help="a LOOK turn's checkpoint file: workspace_write_file may write it")
+    parser.add_argument("--allow-dir", default="", help="a LOOK turn's outputs directory: workspace_write_file may write in it")
     args = parser.parse_args()
-    serve(args.root, extra_roots=args.extra_root)
+    serve(args.root, extra_roots=args.extra_root, allow_file=args.allow_file, allow_dir=args.allow_dir)

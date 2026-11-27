@@ -97,10 +97,12 @@ class CodexBackend(BackendRuntime):
     def capabilities(self, ctx):
         # collab: a 协作 ask held to CONSULT in a private CODEX_HOME (backends/codex/consult.py; C8 on the installed CLI:
         # tests/test_collab_c8.py, the exec-policy, apps, network and memory checks). rate_limit_retry, fault_retry: what
-        # backends/codex/turn.py codex_failure_code tells apart. ask_once: backends/codex/judge.py.
+        # backends/codex/turn.py codex_failure_code tells apart. ask_once: backends/codex/judge.py. look_gate: a LOOK turn
+        # in its read-only sandbox writes its checkpoint and the topic's outputs through the workspace server's
+        # workspace_write_file (backends/codex/appserver.py look_writes; W1-C plan B, tests/test_collab_c8.py CodexLookC6).
         return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, session_files=True,
                                               bridge_tools=True, read_only=True, collab=True, rate_limit_retry=True,
-                                              fault_retry=True, ask_once=True), ctx)
+                                              fault_retry=True, ask_once=True, look_gate=True), ctx)
 
     def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow=""):
         """One question to Codex and nothing else (backends/codex/judge.py): the answer's text, or AskFailed. ``follow``:

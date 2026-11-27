@@ -155,14 +155,13 @@ class TopicStartTest(ButlerTopicsCase):
         self.assertEqual((job.user_text, job.topic_id, job.harness_id), ("看看昨晚的失败", data["topic_id"], "codex"))
         self.app.apps["codex"].submission.selection_card.assert_not_called()
 
-    def test_a_topic_started_at_once_as_read_only_says_so_and_is_held_to_it(self):
-        from covey.app.tool_limits import LOOK_NOTE
-
+    def test_a_topic_started_at_once_as_read_only_is_held_to_it_and_its_task_text_keeps_no_read_only_words(self):
+        """W1-C (C6): the job is marked read-only (app/tool_limits.py holds it and says so at the end of the turn's
+        message); its task text, which the topic's history keeps, no longer carries the read-only words."""
         self.start("ro", harness="codex")
         job = self.job("ro")
         self.assertTrue(job.read_only)
-        self.assertIn(LOOK_NOTE, job.prompt_text)
-        self.assertIn("这一轮只读", job.prompt_text)
+        self.assertNotIn("这一轮只读", job.prompt_text)
         self.assertNotIn("这一轮只读", job.user_text)  # The card shows the owner's words, not the Bridge's.
         # Started at once for another reason, not judged read-only: as before.
         self.start("rw", harness="codex", readonly=False, user_requested=True)

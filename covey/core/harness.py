@@ -119,6 +119,10 @@ class HarnessCapabilities:
     # holds a turn to its ``options[TOOL_LIMIT]`` (app/tool_limits.py): Claude Code's tools, Codex's sandbox. Without it
     # a READ turn does not run and the other limits are words in the prompt only.
     read_only: bool = False
+    # holds a LOOK turn's writes to its checkpoint file and the topic's outputs directory (core/look_write.py; W1-C, C6):
+    # Claude Code's PreToolUse hook, Codex's and Antigravity's workspace_write_file in a sandbox or deny rules that write
+    # nothing else. Without it a LOOK turn's limits are as they were and its words say so (app/tool_limits.py note).
+    look_gate: bool = False
     # runs a 协作 turn (core/turn_source.py NEEDS): an ask in a temporary fork of the helper's native session, in a channel
     # topic of its own (app/collab_channel.py), held to CONSULT there; the helper's session, its pointer, history and 回退
     # marker are never touched, and the fork's limits hold for that turn alone. Declared once a real write was refused in
@@ -160,6 +164,9 @@ class AskFailed(Exception):
 TOOL_LIMIT = "tool_limit"
 READ, LOOK, PROXY, CONSULT, LEAD = "read", "look", "proxy", "consult", "lead"
 TOOL_NOTES = "tool_notes"  # With PROXY: the contact's notes directory, the one place its edit tools may write ('' none).
+# With LOOK (app/tool_limits.py look_roots): {"file": the turn's checkpoint, "dir": the topic's outputs directory, "held":
+# whether this Harness holds its writes to those two (``HarnessCapabilities.look_gate``)}; core/look_write.py checks a path.
+LOOK_ROOTS = "look_roots"
 
 
 def backend_capabilities(backend, ctx):
@@ -171,9 +178,9 @@ def backend_capabilities(backend, ctx):
 # file snapshots) or runs the hub's relay, none of which exist there.
 # bridge_tools: the butler's tools are a process on this machine, its state directory too. collab: no device ran C8, and
 # its session store is the device's (app/collab_checks.py refuses a topic on a device). ask_once: its private home and
-# directory are this machine's.
+# directory are this machine's. look_gate: the hook script, the write tool's server and the private home are this machine's.
 DEVICE_OFF = ("native_fork", "compaction", "session_files", "redaction", "rewind", "command_stop", "bridge_tools", "collab",
-              "ask_once")
+              "ask_once", "look_gate")
 
 
 def for_device(capabilities, ctx):
