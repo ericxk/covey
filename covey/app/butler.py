@@ -39,7 +39,8 @@ from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import butler_tracks as tracks_module
 from covey.app.butler_tracks import Tracks
-from covey.app.prompts import first_turn_message, butler_message, resume_message, earlier_history, tool_nudge
+from covey.app.prompts import (ask_words, first_turn_message, butler_message, resume_message, earlier_history,
+                                tool_nudge)
 from covey.core import butler as contract
 from covey.core import butler_tracks
 from covey.core import board_read, butler_opened, inbound_ledger, butler_settings, placement, projects, timing, turn_words
@@ -47,6 +48,7 @@ from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, topic_label as topic_words
 from covey.core.attachments import message_words
 from covey.core.checkpoint import checkpoint_steps
+from covey.core.harness import backend_capabilities
 from covey.core.jobs import job_key, job_path, read_job_record
 from covey.core.locks import LOCK
 from covey.core.butler import is_butler_topic, butler_topic_id, mcp_config
@@ -420,7 +422,9 @@ def butler_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
     except Exception as exc:  # noqa: BLE001 - the owner's message goes on without it
         log(f"main thread snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
         snapshot = "[快照暂时读不到，需要时用 topics_list]"
-    return ctx, butler_message(snapshot, prompt, digest_note(ctx, job, key, track, note, log))
+    # How it asks the owner while the turn runs: its Harness's question tool, or the checkpoint (W2-A).
+    ask = ask_words(backend_capabilities(getattr(harness, "backend", None), ctx)) if harness is not None else None
+    return ctx, butler_message(snapshot, prompt, digest_note(ctx, job, key, track, note, log), ask)
 
 
 def digest_note(ctx, job, key, track, note, log) -> str:

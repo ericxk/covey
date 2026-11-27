@@ -161,7 +161,9 @@ class ClaudeBackend(BackendRuntime):
             command_stop=True, session_files=True, redaction=True, rewind=True, bridge_tools=True, read_only=True,
             # 协作 asks held to CONSULT in a fork (C8 on the installed CLI: tests/test_collab_c8.py). look_gate: a LOOK turn's
             # PreToolUse hook (backends/claude/tool_guard.py --mode look, W1-C).
-            collab=True, look_gate=True), ctx)
+            collab=True, look_gate=True,
+            # question_tool: backends/claude/control.py answers the root's AskUserQuestion; nudges: TurnHooks' PostToolUse.
+            question_tool="AskUserQuestion", nudges=True), ctx)
 
     def model_catalog(self, ctx):
         return with_extension_models(model_catalog(self, ctx, self.child_env(ctx)))

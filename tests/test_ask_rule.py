@@ -151,6 +151,55 @@ class CodexInstructionsTest(unittest.TestCase):
         self.assertIn("合成一次问", CODEX_INSTRUCTIONS)
 
 
+class CodexInstructionsByLimitTest(unittest.TestCase):
+    """W2-A: Codex's developer instructions by the turn's TOOL_LIMIT (backends/codex/appserver.py codex_instructions)."""
+
+    def instructions(self, limit=None, **options):
+        from types import SimpleNamespace
+        from covey.backends.codex.appserver import codex_instructions
+        from covey.core.harness import TOOL_LIMIT
+        return codex_instructions(SimpleNamespace(options={**({TOOL_LIMIT: limit} if limit else {}), **options}))
+
+    def test_an_ordinary_turn_has_them_all(self):
+        from covey.core.harness import PROXY
+        self.assertEqual(self.instructions(), CODEX_INSTRUCTIONS)
+        self.assertEqual(self.instructions(PROXY), CODEX_INSTRUCTIONS)
+
+    def test_a_consult_turn_asks_nobody(self):
+        from covey.backends.codex.appserver import SUBAGENTS
+        from covey.core.harness import CONSULT
+        found = self.instructions(CONSULT)
+        self.assertEqual(found, SUBAGENTS)
+        for words in ("request_user_input", "检查点", "问主人", "问题卡"):
+            self.assertNotIn(words, found)
+
+    def test_a_lead_asks_with_its_bridge_tool_and_has_no_checkpoint_contract(self):
+        from covey.backends.codex.appserver import LEAD_ASK_TOOL
+        from covey.core.harness import LEAD
+        found = self.instructions(LEAD)
+        self.assertIn(LEAD_ASK_TOOL.strip(), found)
+        self.assertIn("不写检查点", found)
+        for words in ("requires_user", "按检查点约定"):
+            self.assertNotIn(words, found)
+        self.assertTrue("project_ask" in butler_tool_specs.PROJECT_NAMES or "project_note" in found)
+
+    def test_a_members_read_only_turn_writes_no_checkpoint(self):
+        from covey.core.harness import READ
+        found = self.instructions(READ)
+        self.assertIn("检查点不用写", found)
+        self.assertNotIn("requires_user", found)
+
+    def test_a_look_turn_says_where_it_can_write(self):
+        from covey.backends.codex.appserver import LOOK_HELD_WRITE, LOOK_NO_WRITE
+        from covey.core.harness import LOOK, LOOK_ROOTS
+        held = self.instructions(LOOK, **{LOOK_ROOTS: {"file": "/x/cp.json", "dir": "/x/out", "held": True}})
+        self.assertIn(LOOK_HELD_WRITE, held)
+        self.assertIn("requires_user", held)
+        words = self.instructions(LOOK, **{LOOK_ROOTS: {"file": "/x/cp.json", "dir": "/x/out", "held": False}})
+        self.assertIn(LOOK_NO_WRITE, words)
+        self.assertNotIn("requires_user", words)
+
+
 class WordingTest(unittest.TestCase):
     def test_the_dispatch_threshold_is_said_once_in_each_mode(self):
         self.assertIn(butler_tool_specs.DISPATCH_BUTLER, prompts.BUTLER_RULES[0])

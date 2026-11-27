@@ -22,7 +22,7 @@ from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunReq
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.state import ensure_private_dir
 from covey.backends.codex import gateway as gateway_models
-from covey.backends.codex.appserver import run_appserver, sandbox_mode
+from covey.backends.codex.appserver import QUESTION_TOOL, run_appserver, sandbox_mode
 from covey.backends.codex.consult import ConsultHome, ReadingHome
 from covey.core.harness import CONSULT, LEAD, READ, TOOL_LIMIT
 from covey.backends.gateway.catalog import turn_relay
@@ -102,7 +102,8 @@ class CodexBackend(BackendRuntime):
         # workspace_write_file (backends/codex/appserver.py look_writes; W1-C plan B, tests/test_collab_c8.py CodexLookC6).
         return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, session_files=True,
                                               bridge_tools=True, read_only=True, collab=True, rate_limit_retry=True,
-                                              fault_retry=True, ask_once=True, look_gate=True), ctx)
+                                              fault_retry=True, ask_once=True, look_gate=True,
+                                              question_tool=QUESTION_TOOL), ctx)
 
     def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow=""):
         """One question to Codex and nothing else (backends/codex/judge.py): the answer's text, or AskFailed. ``follow``:

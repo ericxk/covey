@@ -21,6 +21,7 @@ from covey.backends.codex.turn import close_turn, logged_words, paused_question_
 from covey.backends.codex.usage import CodexTurnUsage
 from covey.backends.codex import consult
 from covey.core import repomap, topic_repos
+from covey.core.butler_tool_specs import PROJECT_NAMES
 from covey.core.failure import said_of
 from covey.core.harness import CONSULT, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
 from covey.core.paths import entry_script
@@ -44,13 +45,41 @@ class CodexReplyState(ReplyState):
 # After the bridge rules: questions and sub-agents on the Codex protocol. What to ask at all is the checkpoint rules' (core/checkpoint.py
 # ASK_RULE: only what the owner must decide, asked once at the end); request_user_input pauses the turn until he answers
 # (backends/codex/turn.py end_turn), so it is not called a question asked while the work goes on (W0-6, T892).
-CODEX_INSTRUCTIONS = (
-    "你通过飞书话题与用户交互。问不问、问什么照执行约定里“什么时候问主人”：要问的留到最后合成一次问，"
-    "按检查点约定写 requires_user=true、question 和可选的 questions；桥接器会先交付完整回复，再创建问题卡片并在回答后续接。"
-    "request_user_input 也会出问题卡，但它会停下这一轮、等用户回答才接着做，只在不答就做不下去时用"
-    "（不要使用 request_user_input_async）。不要把未回答视为同意。提问正文支持长文本；避免在普通最终答案中假装等待工具回答。"
-    "子 agent 仅执行明确的子任务；最终由主任务汇总结果。结束主任务前必须等待所有子 agent 达到最终状态并收集结果，不能把仍在运行的子 agent 留到下一轮。"
-)
+QUESTION_TOOL = "request_user_input"  # Its model's question tool (backends/codex/bridge.py question_tool).
+# The words of CODEX_INSTRUCTIONS, chosen by the turn's TOOL_LIMIT (``codex_instructions``, W2-A): a 协作 ask (CONSULT)
+# asks nobody and writes no checkpoint, a project's lead (LEAD) asks with its Bridge tool and has no checkpoint contract
+# (C4, G7), a group member's read-only turn (READ) writes no checkpoint (app/tool_limits.py MEMBER_NOTE), a LOOK turn writes
+# its checkpoint only through the workspace server's write tool, where it has one (C6).
+ASK_CHECKPOINT = ("你通过飞书话题与用户交互。问不问、问什么照执行约定里“什么时候问主人”：要问的留到最后合成一次问，"
+                  "按检查点约定写 requires_user=true、question 和可选的 questions；桥接器会先交付完整回复，再创建问题卡片并在回答后续接。")
+ASK_TOOL = (f"{QUESTION_TOOL} 也会出问题卡，但它会停下这一轮、等用户回答才接着做，只在不答就做不下去时用"
+            f"（不要使用 {QUESTION_TOOL}_async）。不要把未回答视为同意。提问正文支持长文本；避免在普通最终答案中假装等待工具回答。")
+SUBAGENTS = ("子 agent 仅执行明确的子任务；最终由主任务汇总结果。结束主任务前必须等待所有子 agent 达到最终状态并收集结果，"
+             "不能把仍在运行的子 agent 留到下一轮。")
+CODEX_INSTRUCTIONS = ASK_CHECKPOINT + ASK_TOOL + SUBAGENTS
+# A lead asks the owner with project_ask (W1-A, C4) once the Bridge has it, before that with project_note (kind ask).
+LEAD_ASK_TOOL = "project_ask " if "project_ask" in PROJECT_NAMES else "project_note（kind 写 ask）"
+ASK_LEAD = (f"你通过 Bridge 工具和主人、专项的话题打交道，不写检查点。要主人定的事照负责人规则用 Bridge 工具 {LEAD_ASK_TOOL}问，"
+            f"不要用 {QUESTION_TOOL}。不要把未回答视为同意。")
+ASK_MEMBER = ("你通过飞书话题与用户交互。这一轮只读，检查点不用写；要主人定的事写在回复里。"
+              f"{QUESTION_TOOL} 会停下这一轮等回答，只在不答就做不下去时用（不要使用 {QUESTION_TOOL}_async）。不要把未回答视为同意。")
+LOOK_HELD_WRITE = "这一轮只读：检查点文件和本话题产物目录用 bridge_workspace 的 workspace_write_file 写，别处写不了。"
+LOOK_NO_WRITE = "这一轮只读、写不了文件：检查点不用写，要主人定的事写在回复里。"
+
+
+def codex_instructions(ctx) -> str:
+    """CODEX_INSTRUCTIONS as the turn's TOOL_LIMIT has them: SUBAGENTS alone for CONSULT, ASK_LEAD for LEAD, ASK_MEMBER for
+    READ; LOOK with what its gate lets it write first (``look_writes``); every other turn the whole of it."""
+    limit = ctx.options.get(TOOL_LIMIT)
+    if limit == CONSULT:
+        return SUBAGENTS
+    if limit == LEAD:
+        return ASK_LEAD + SUBAGENTS
+    if limit == READ:
+        return ASK_MEMBER + SUBAGENTS
+    if limit == LOOK:
+        return (ASK_CHECKPOINT + LOOK_HELD_WRITE if look_writes(ctx) else LOOK_NO_WRITE) + ASK_TOOL + SUBAGENTS
+    return CODEX_INSTRUCTIONS
 
 
 # A Bridge tool's call may take as long as core/butler_requests.py waits for its answer (120 seconds): Codex gives
@@ -188,7 +217,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
             **({"mcp_servers.bridge_workspace.default_tools_approval_mode": "approve"} if look_writes(ctx) else {}),
             **({} if device_of(ctx) else bridge_servers(ctx)),
         },
-        "developerInstructions": "\n\n".join(filter(None, (instructions, CODEX_INSTRUCTIONS))),
+        "developerInstructions": "\n\n".join(filter(None, (instructions, codex_instructions(ctx)))),
     }
     if ctx.options.get("model_provider"):
         params["modelProvider"] = ctx.options["model_provider"]

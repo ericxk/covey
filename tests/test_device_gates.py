@@ -90,7 +90,7 @@ class Capabilities(unittest.TestCase):
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
             command_stop=True, session_files=True, redaction=True, rewind=True, bridge_tools=True, read_only=True, collab=True,
-            look_gate=True))
+            look_gate=True, question_tool="AskUserQuestion", nudges=True))
 
 
 def claude_caps():

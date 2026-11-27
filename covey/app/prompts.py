@@ -589,6 +589,26 @@ def resume_message(user_text: str) -> str:
     ))
 
 
+# How the butler asks the owner while its turn runs (W2-A, G8 tests/test_matrix.py RulesRowTest). AREA_OPENING and
+# SHARED_RULES say it in ASK_TOOL's name, a Harness whose model puts a question card up at once (core/harness.py
+# question_tool); ``ask_words`` gives a turn's own Harness's words, which ``butler_rules`` puts in their place: Codex's
+# request_user_input, or, on a Harness without one (Antigravity, dsh), the checkpoint's questions, whose card comes once the
+# turn has ended, so the hand-on waits for the answer.
+ASK_TOOL = "AskUserQuestion"
+ASK_PICK = "用 {tool} 出一道单选题"
+ASK_ROUTE = "只有“这句话该交给哪个话题”拿不准时不写检查点，照下面说的用 {tool} 当场问：这一轮还要带着主人这句话转交。"
+LATER_PICK = "在本任务检查点的 questions 里出一道单选题（这一轮先不转交，主人答了再转）"
+
+
+def ask_words(caps) -> dict:
+    """How a turn on a Harness of ``caps`` (core/harness.py HarnessCapabilities, or None) asks the owner to pick while it
+    runs: {"tool": its question tool ('' none), "pick": the words of one single-choice question, "route": AREA_OPENING's
+    sentence that asks which topic at once ('' without a tool: that question waits for the checkpoint like any other)}."""
+    tool = str(getattr(caps, "question_tool", "") or "")
+    return {"tool": tool, "pick": ASK_PICK.format(tool=tool) if tool else LATER_PICK,
+            "route": ASK_ROUTE.format(tool=tool) if tool else ""}
+
+
 # The butler's rules (app/butler.py), at the head of each of its turns' messages: the owner wants the
 # Bridge's rules in the user message, not the system prompt. Without "do the work in a topic" a single session in
 # DeepSeek's experiment never handed any work on. One layout (core/placement.py), the 话题区: the butler's card
@@ -602,7 +622,7 @@ AREA_OPENING = (
     f"- 要主人定的事（要不要做、{ASK_SHORT}这类），不要只在回复末尾问一句：写进本任务检查点的"
     " requires_user、question 和 questions（每题一个对象，能给选项就给），Bridge 会出问题卡、放进“等你”。"
     "回复里照常先说结论和依据，再一句话说要他定什么。不答也不耽误的顺口确认不用问。"
-    "只有“这句话该交给哪个话题”拿不准时不写检查点，照下面说的用 AskUserQuestion 当场问：这一轮还要带着主人这句话转交。",
+    + ASK_ROUTE.format(tool=ASK_TOOL),
     # How is the butler's to decide, what is the owner's (collie's "Drive it forward"); a question leads with a lean.
     f"- 怎么做由你定：先查什么、交给哪个话题、失败了换个办法再试。做什么、{ASK_SHORT}这几类由主人定。"
     "要问时先说你倾向怎么做。",
@@ -623,7 +643,7 @@ SHARED_RULES = (
     "- 用 topic_start、topic_send、topic_fork 交给话题时，写干净的任务说明：主人原话和附件 Bridge 会自动附上，"
     "你不用抄，也不要写路由的话、不要抄附件的本机路径。",
     "- 一句话里有几件独立的事，就开几个话题。话题都从主目录开工，不用选工作区；要改代码的，把用到的仓库写进 repos（repos_list 里的名字，要改的写 write），拿不准就问主人。",
-    "- 两个以上话题都可能是这件事时不要猜：用 AskUserQuestion 出一道单选题，选项是候选话题（T 号和标题）和“另开”。"
+    "- 两个以上话题都可能是这件事时不要猜：" + ASK_PICK.format(tool=ASK_TOOL) + "，选项是候选话题（T 号和标题）和“另开”。"
     "需要已有话题的上下文、又不是同一件事的，用 topic_fork 分叉。"
     "追问只是问已有结果、不用新查新做的，用 topic_read 读了自己答，不转交；要新查、新做的才 topic_send。",
     "- 主人说某个文档、文件、结果是之前话题给的，先用 topics_search 按链接、token、路径找是哪个话题的哪一轮，"
@@ -741,10 +761,13 @@ QUICKSTART = Path(__file__).resolve().parents[2] / "docs" / "quickstart.md"
 USAGE_RULE = f"- 主人问 Covey 本身怎么用、能做什么（看板在哪、怎么开记忆、有什么特别的这类），先读 {QUICKSTART} 再答，不要凭印象说。"
 
 
-def butler_rules() -> str:
-    """The butler's rules."""
-    return "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), USAGE_RULE, *project_rules(),
+def butler_rules(ask=None) -> str:
+    """The butler's rules; ``ask``: its Harness's ``ask_words`` in place of ASK_TOOL's (None: as they are)."""
+    text = "\n".join(("[管家规则]", *AREA_OPENING, *shared_rules(), *knowledge_rules(), USAGE_RULE, *project_rules(),
                       area_rule()))
+    if not ask or ask.get("tool") == ASK_TOOL:
+        return text
+    return text.replace(ASK_ROUTE.format(tool=ASK_TOOL), ask["route"]).replace(ASK_PICK.format(tool=ASK_TOOL), ask["pick"])
 
 
 BUTLER_RULES_TEXT = butler_rules()
@@ -766,7 +789,8 @@ def tool_nudge(text) -> dict:
     return {"after": TOOL_NUDGE_CALLS, "text": TOOL_NUDGE_TEXT}
 
 
-def butler_message(snapshot: str, message: str, note: str = "") -> str:
+def butler_message(snapshot: str, message: str, note: str = "", ask=None) -> str:
     """A butler turn's message: its rules, the snapshot of the owner's topics, then the turn's own message.
-    ``note``: a track's parallel note (app/butler_tracks.py), between the snapshot and the message."""
-    return "\n\n".join((butler_rules(), snapshot, *((note,) if note else ()), message))
+    ``note``: a track's parallel note (app/butler_tracks.py), between the snapshot and the message. ``ask``: the turn's
+    Harness's ``ask_words`` (None: ASK_TOOL's)."""
+    return "\n\n".join((butler_rules(ask), snapshot, *((note,) if note else ()), message))

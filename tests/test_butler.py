@@ -1030,6 +1030,29 @@ class TurnTest(ButlerUnifiedCase):
             target, _ = self.turn(job)
             self.assertNotIn('tool_nudge', target.options, said)
 
+    def test_the_butler_asks_the_way_its_harness_can(self):
+        """W2-A (G8 提问方式): Claude Code's and Codex's question tools by name; Antigravity and dsh, without one, the
+        checkpoint's questions, and no AskUserQuestion anywhere in their rules."""
+        from covey.app.prompts import LATER_PICK
+        self.send('om_1')
+        job = self.job_of('om_1')
+        app = self.app.apps['claude']
+        target = app.submission.event_context(app.harness.context, self.event(job.message_id))
+        compaction = SimpleNamespace(request=lambda ctx: None, supported=lambda ctx: True)
+        for name, tool in (('claude', 'AskUserQuestion'), ('codex', 'request_user_input'), ('agy', ''), ('dsh', '')):
+            with self.subTest(harness=name):
+                _, prompt = session.butler_turn(target, job, 'THE MESSAGE', None, compaction, self.logs.append,
+                                                self.app.apps[name].harness)
+                rules = prompt.split('\n\n')[0]
+                if tool:
+                    self.assertIn(f'用 {tool} 出一道单选题', rules)
+                    self.assertIn(f'照下面说的用 {tool} 当场问', rules)
+                else:
+                    self.assertIn(LATER_PICK, rules)
+                    self.assertNotIn('当场问', rules)
+                for other in {'AskUserQuestion', 'request_user_input'} - {tool}:
+                    self.assertNotIn(other, rules)
+
     def test_the_owners_principles_reach_the_butler_with_its_own_workspaces(self):
         """core/principles.py: the butler's turn reads 通用 and its own workspace's group, as a topic's does."""
         self.send('om_1')

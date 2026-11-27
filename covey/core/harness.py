@@ -136,6 +136,14 @@ class HarnessCapabilities:
     # the 辅助模型 setting. The background model's questions go there when it is this Harness (app/assist.py); Claude
     # Code's own one-shot is app/track_judge.py's.
     ask_once: bool = False
+    # The tool its model asks the owner with in the middle of a turn (a question card, answered before the turn goes on):
+    # Claude Code's AskUserQuestion, Codex's request_user_input; '' for none, where a question goes in the checkpoint's
+    # ``questions`` and the card comes after the turn. app/prompts.py ask_words says it so in the butler's rules (W2-A).
+    question_tool: str = ""
+    # Reminds the butler's own turn by itself once it has called ``tool_nudge``'s number of tools other than the Bridge's
+    # (Claude Code's PostToolUse hook, backends/claude/hooks.py). Without it the Bridge counts the turn's tool events and
+    # sends the reminder as an internal supplement (app/interaction.py, W2-A).
+    nudges: bool = False
 
 
 class AskFailed(Exception):
