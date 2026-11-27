@@ -296,23 +296,24 @@ class Interaction:
         """A tool step of ``job``'s turn: counted toward the butler's tool reminder on a Harness that can take a
         supplement and does not remind by itself (``BRIDGE_TOOLS``); the step that makes its ``after`` sends it, once,
         off this thread (the event thread holds the trace's lock; ``send_nudge``). Never raises."""
+        nudge = (getattr(ctx, "options", None) or {}).get("tool_nudge")
+        state = getattr(job, "tool_nudge", None)
+        if not isinstance(nudge, dict) or not isinstance(state, dict) or state.get("sent") or data.get("child_id"):
+            return  # Not the butler's turn with a reminder (a turn of a topic, a test's stand-in job), or already sent.
         try:
-            nudge = ctx.options.get("tool_nudge")
-            if not isinstance(nudge, dict) or data.get("child_id") or job.tool_nudge.get("sent"):
-                return
             after, text, step = nudge.get("after"), str(nudge.get("text") or ""), str(data.get("id") or "")
             if type(after) is not int or after <= 0 or not text or not step:
                 return
-            seen = job.tool_nudge.setdefault("seen", set())
+            seen = state.setdefault("seen", set())
             if step in seen:
                 return
             seen.add(step)
             caps = backend_capabilities(self.harness.backend, ctx)
             if caps.nudges or not caps.steering or bridge_tool(data):
                 return
-            job.tool_nudge["calls"] = calls = job.tool_nudge.get("calls", 0) + 1
+            state["calls"] = calls = state.get("calls", 0) + 1
             if calls >= after:
-                job.tool_nudge["sent"] = True
+                state["sent"] = True
                 background.start(background.CARD_UPDATES, self.send_nudge, ctx, job, text)
         except Exception as exc:  # noqa: BLE001 - a reminder never stands in the way of the turn's events
             self.runtime.log(f"butler tool reminder not counted job=#{job.job_id}: {type(exc).__name__}")
