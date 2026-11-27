@@ -1014,6 +1014,23 @@ class ReceiptTest(Case):
         self.assertIn("全部 12 张表对账一致", item["text"])
         self.assertEqual(self.reload()["tokens_used"], 1550)
 
+    def test_the_receipt_has_the_summary_and_where_the_whole_reply_is(self):
+        self.thread(THREAD, "迁移", 41)
+        self.after(self.job(THREAD, final_text="## 结论\n\n导出好了，12 张表一致\n\n明细见下"))
+        path = self.state / "result-files" / f"{job_key('om_t1', 41)}.md"
+        [item] = project_loop.unread(self.state, PID)
+        self.assertEqual(item["text"], f"T41 的任务 #41 做完：导出好了，12 张表一致（全文 {path}）")
+        self.assertEqual(path.read_text(), "## 结论\n\n导出好了，12 张表一致\n\n明细见下")
+
+    def test_a_long_replys_summary_is_cut_to_300_and_the_path_stays_whole(self):
+        self.thread(THREAD, "迁移", 41)
+        self.after(self.job(THREAD, final_text="结论" * 1000))
+        path = self.state / "result-files" / f"{job_key('om_t1', 41)}.md"
+        [item] = project_loop.unread(self.state, PID)
+        said = item["text"].split("做完：", 1)[1].rsplit("（全文 ", 1)[0]
+        self.assertEqual((len(said), said[-1]), (300, "…"))
+        self.assertTrue(item["text"].endswith(f"（全文 {path}）"))
+
     def test_counted_and_told_once(self):
         self.thread(THREAD, "迁移", 41)
         job = self.job(THREAD, final_text="好了")

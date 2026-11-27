@@ -62,8 +62,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from covey.app import auto_retry, butler_harness, project_context, project_lead, triage as triage_flow
+from covey.app.artifacts import write_result_file
 from covey.core import board_read, collab, collab_records, failure, projects, quota_hold, triage, turn_source
 from covey.core import env as cenv
+from covey.core.checkpoint import SUMMARY_CHARS, read_checkpoint, turn_summary
 from covey.core.history_storage import append_history
 from covey.core.jobs import (find_job_record, job_field, job_key, job_path, read_job_record, topic_job_records,
                               update_job_record_if)
@@ -96,6 +98,7 @@ EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
 RECEIPT_ENDS = ("done", "failed", "cancelled")  # What a member's receipt says; an interrupted turn goes on by itself.
 SAID = 300  # Characters of the owner's words in an ``owner_said`` receipt.
+RECEIPT_CHARS = 500  # Of a receipt's text: app/project_lead.py add_receipt keeps no more (a member's receipt keeps its path).
 RETOLD = ("thread", "note")  # The report kinds that would tell a result the owner was sent again; a milestone or finish goes on.
 ALWAYS_WAKE = ("start", "owner_choice", "question")  # The receipts that wake the lead without COVEY_PROJECT_AUTOWAKE=1.
 CHOICE_RECEIPT = {
@@ -669,8 +672,11 @@ def consult_tokens(log, state_dir, job) -> None:
 def after_runner(log, state_dir, job) -> None:
     """The Bridge, once ``job``'s run has ended (app/butler_relay.py after_runner): a task of a project's lead or one of its
     threads has its tokens added once to ``tokens_used``, and a member's turn that ended says so in a ``thread_end`` receipt
-    (what became of it in a sentence, its status and number). A consult's turn of 协作 has its tokens counted in its
-    collaboration's project (``consult_tokens``) and nothing else. Never raises."""
+    ("T12 的任务 #41 做完：<turn_summary>（全文 <path>）": its number, status, what became of it, where its whole reply is).
+    That whole reply, however short, is kept first (C7: app/artifacts.py write_result_file, ``result-files/<key>.md``, an
+    over-long one its runner sent as a file stays as it is) and noted in the library (app/project_context.py
+    result_to_library). A consult's turn of 协作 has its tokens counted in its collaboration's project
+    (``consult_tokens``) and nothing else. Never raises."""
     try:
         topic, chat = str(job_field(job, "topic_id")), str(job_field(job, "chat_id"))
         if not projects.enabled() or not topic:
@@ -685,19 +691,38 @@ def after_runner(log, state_dir, job) -> None:
         status = str(record.get("status") or "")
         if status not in COUNTED or not turn_source.behavior(record).own_delivery:
             return  # Nor a 协作 ask's turn: its collaboration writes the lead's receipt (app/collab_flow.py), no thread_end.
+        ended = found.role == projects.MEMBER and status in RECEIPT_ENDS
+        whole = kept_reply(log, state_dir, found.id, topic, key, record) if ended else ""  # Whether or not it is the first look.
         first = count_tokens(state_dir, found.id, key, record_tokens(record))
-        if first and found.role == projects.MEMBER and status in RECEIPT_ENDS:
-            said = project_lead.last_line(record.get("final_text"))
-            label = topic_label(Path(state_dir), topic) or topic[:8]
-            text = f"{label} 的任务 #{record.get('job_id')} {RESULTS.get(status, status)}" + (f"：{cut(said, 160)}" if said else "")
-            project_lead.add_receipt(state_dir, found.id, "thread_end", text, thread=topic,
-                                     relayed=relayed_to_owner(state_dir, key))
+        if first and ended:
+            checkpoint = str(record.get("checkpoint_path") or "")
+            head = f"{topic_label(Path(state_dir), topic) or topic[:8]} 的任务 #{record.get('job_id')} {RESULTS.get(status, status)}"
+            tail = f"（全文 {whole}）" if whole else ""
+            said = turn_summary(record, read_checkpoint(Path(checkpoint)) if checkpoint else {},
+                                max(40, min(SUMMARY_CHARS, RECEIPT_CHARS - len(head) - len(tail) - 1)))
+            project_lead.add_receipt(state_dir, found.id, "thread_end", head + (f"：{said}" if said else "") + tail,
+                                     thread=topic, relayed=relayed_to_owner(state_dir, key))
         if first and found.role == projects.MEMBER:
             project_context.turn_to_library(state_dir, found.id, topic, record, log)  # COVEY_PROJECT_MEMORY=1: its artifacts and delivery.
     except KeyError:
         return  # The project's record is gone.
     except Exception as exc:  # noqa: BLE001 - the task's end does not depend on it
         log(f"project receipt after job #{job_field(job, 'job_id')} failed: {type(exc).__name__}")
+
+
+def kept_reply(log, state_dir, project_id, topic, key, record) -> str:
+    """Where the member turn ``key``'s whole reply is kept (C7: app/artifacts.py write_result_file, written once; an
+    over-long one its runner sent as a file stays as it is), noted in the project's library; '' without a reply or when it
+    could not be written (logged)."""
+    try:
+        path = write_result_file(state_dir, key, record.get("final_text"))
+    except Exception as exc:  # noqa: BLE001 - the receipt goes all the same, without the path
+        log(f"project result file of job #{record.get('job_id')} failed: {type(exc).__name__}")
+        return ""
+    if path is None:
+        return ""
+    project_context.result_to_library(state_dir, project_id, topic, record, path, log)
+    return str(path)
 
 
 def relayed_to_owner(state_dir, key) -> bool:

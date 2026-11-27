@@ -11,6 +11,7 @@ from pathlib import Path
 from covey.core import ask_kinds
 from covey.core.paths import expand_user
 from covey.core.state import read_object, utc_now_iso, write_private_text
+from covey.core.turn_words import UNSET_PHASES
 
 UPLOADS = "artifact-drive"  # <state>/artifact-drive/: each job's ledger of its artifacts' upload to the cloud space (app/artifacts.py).
 
@@ -30,11 +31,12 @@ def read_checkpoint(path: Path) -> dict:
 
 def artifact_paths(record):
     """The files ``record``'s task registered as its artifacts: the checkpoint's ``artifacts``, its result file and its
-    diff file, each once. What may be published of them is app/artifact_policy.py."""
+    diff file, each once. What may be published of them is app/artifact_policy.py. A result file the Bridge only kept
+    (``result_file_kept``: a member turn's whole reply, app/artifacts.py write_result_file) was not sent: not one of them."""
     cp = read_checkpoint(Path(record["checkpoint_path"])) if record.get("checkpoint_path") else {}
     raw = cp.get("artifacts", [])
     paths = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
-    if record.get("result_file_path"):
+    if record.get("result_file_path") and not record.get("result_file_kept"):
         paths.append(record["result_file_path"])
     if record.get("diff_artifact_path"):
         paths.append(record["diff_artifact_path"])
@@ -357,6 +359,63 @@ def change_summary(delivery, width=CHANGE_LINE_WIDTH) -> str:
     if _width(line) > width:
         line = " · ".join((first, deployed, verified))
     return _fit(line, width)
+
+
+# ``delivery_line``: a delivery in a line, each field cut alone (C7): the first commits, the deployment, the check.
+DELIVERY_LABELS = (("commit", "提交"), ("deployed", "部署"), ("verified", "验收"))
+COMMITS_LISTED = 3
+DELIVERY_SHOWN = {"commit": 40, "deployed": 40, "verified": 60}  # A commit that is not a hex id: its words, as the others.
+
+
+def delivery_line(delivery) -> str:
+    """``delivery`` ({commit, deployed, verified}, ``checkpoint_delivery``) in one line, each field cut alone:
+    "提交 a6bc148 9d3aecd 51c2e07 +2；部署 第 12 代；验收 …": at most COMMITS_LISTED commits, a hex id of COMMIT_SHOWN
+    characters, ``+N`` for the rest; the deployment and the check (and a commit that is not a hex id) cut to their
+    DELIVERY_SHOWN characters, "…" where cut. '' without a field."""
+    parts = []
+    for name, label in DELIVERY_LABELS:
+        value = " ".join(str((delivery or {}).get(name) or "").split())
+        if not value:
+            continue
+        words = [word for word in COMMIT_SPLIT.split(value) if word] if name == "commit" else []
+        if words and HEX.fullmatch(words[0]):  # Commit ids (a list cut short at its end counts its pieces too).
+            value = " ".join(word[:COMMIT_SHOWN] for word in words[:COMMITS_LISTED]) + (
+                f" +{len(words) - COMMITS_LISTED}" if len(words) > COMMITS_LISTED else "")
+        else:
+            value = _words(value, DELIVERY_SHOWN[name])
+        parts.append(f"{label} {value}")
+    return "；".join(parts)
+
+
+SUMMARY_CHARS = 300
+# Lines of a reply that only head what follows: a Markdown heading, a line in bold alone, a rule, a code fence, or a
+# few characters ending in a colon (as core/turn_words.py request_line skips them).
+HEADING = re.compile(r"^(?:#{1,6}\s|\*\*[^*]+\*\*[:：]?$|[-*_]{3,}$|```|.{0,11}[:：]$)")
+
+
+def reply_opening(text) -> str:
+    """The first paragraph of ``text`` that says something, its lines that are not headings (``HEADING``) on one line;
+    '' for none."""
+    for block in re.split(r"\n\s*\n", str(text or "")):
+        lines = [line.strip() for line in block.splitlines()]
+        words = [line for line in lines if line and not HEADING.match(line)]
+        if words:
+            return " ".join(" ".join(words).split())
+    return ""
+
+
+def turn_summary(record, checkpoint=None, limit=SUMMARY_CHARS) -> str:
+    """What became of the turn of job ``record`` in at most ``limit`` characters (C7: a member's receipt, the lead's
+    table of topics, the butler's list of topics): its checkpoint's ``phase`` and ``delivery`` (``delivery_line``),
+    else the first paragraph of its reply that is not a heading (``reply_opening``). ``checkpoint``: the turn's
+    checkpoint as read; None reads the record's copy of them (core/longtask.py writes ``phase`` and ``delivery`` as it
+    sees them), so a list of every topic opens no file. A phase the Bridge wrote before the model wrote one is none."""
+    record = record if isinstance(record, dict) else {}
+    cp = checkpoint if isinstance(checkpoint, dict) else {}
+    phase = " ".join(str(cp.get("phase") or record.get("phase") or "").split())
+    delivery = checkpoint_delivery(cp) or checkpoint_delivery({"delivery": record.get("delivery")})
+    said = "；".join(part for part in (phase if phase not in UNSET_PHASES else "", delivery_line(delivery)) if part)
+    return _words(said or reply_opening(record.get("final_text")), limit)
 
 
 def clock_steps(steps, times, now) -> dict:

@@ -295,7 +295,7 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual([line.split(" · ")[0] for line in lines], ["T3", "T2", "T1", "T4"])
         self.assertEqual([line.split(" · ")[2] for line in lines], ["等你", "有结果没看", "在做", "更早"])
         self.assertIn("问：现在发版吗？", lines[0])
-        self.assertIn("最后：没有异常", lines[1])
+        self.assertIn("最后：查完了 没有异常", lines[1])  # Its reply's opening paragraph (core/checkpoint.py turn_summary).
         self.assertIn("在做：改代码", lines[2])
         self.assertIn("Claude Code", lines[2])
         self.assertTrue(lines[0].endswith("c3" * 16))
@@ -352,6 +352,15 @@ class HandlerTest(unittest.TestCase):
         self.assertIn("第一轮", self.call("topic_read", topic="c3" * 16, turns=5)["text"])
         with self.assertRaisesRegex(ValueError, "T9"):
             self.call("topic_read", topic="T9")
+
+    def test_topic_read_says_where_each_turns_whole_reply_is(self):
+        kept = self.state / "result-files" / "k2.md"
+        self.topic("c3" * 16, 3, "发版", jobs=[(1, {"status": "done", "user_text": "第一轮", "final_text": "旧"}),
+                                               (2, {"status": "done", "user_text": "第二轮", "final_text": "做完了",
+                                                    "result_file_path": str(kept), "result_file_kept": True})])
+        text = self.call("topic_read", topic="T3", turns=5)["text"]
+        self.assertIn(f"  结果开头：做完了\n  结果全文：{kept}", text)
+        self.assertEqual(text.count("结果全文："), 1)  # The first turn kept none.
 
     def test_another_chats_topic_is_not_found(self):
         self.topic("e5" * 16, 5, "别人的", chat="oc_other", jobs=[(1, {"status": "done"})])

@@ -6,7 +6,8 @@ next folder, when one is full: Feishu holds 1500 children in a folder); a record
 directory goes up as one zip, and configuration and credential paths are left
 off the card. Older cards
 keep their per-file "send to topic" buttons, and an over-long reply is still
-sent to the topic as a Markdown file.
+sent to the topic as a Markdown file. That file, ``result-files/<job key>.md`` (``write_result_file``), also keeps the
+whole reply of every turn of a project's member topic, sent or not (C7, app/project_loop.py after_runner).
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from covey.app.card_actions import action_value
 from covey.cards.answer_card import ARTIFACTS_ID
 from covey.cards.artifact_panels import artifact_panel, drive_artifact_panel
 from covey.core import background
-from covey.core.jobs import find_job_record, job_key, upsert_job_record
+from covey.core.jobs import find_job_record, job_field, job_key, upsert_job_record
 from covey.core.locks import resource_lock, shared_file_lock
 from covey.core.state import private_folder, private_staging, read_json, write_json, write_private_text
 from covey.feishu.drive import DriveError, drive_call, drive_upload, upload_chat_file
@@ -34,6 +35,31 @@ from covey.feishu.transport import classify, set_failure
 
 DRIVE_ROOT_FOLDER = "Harness Bridge 产物"
 DAYS_KEPT = 7  # Day folders root-folder.json remembers; older ones stay on Drive, only their entries go.
+RESULT_FILES = "result-files"  # <state>/result-files/<job key>.md: a turn's whole reply (``write_result_file``).
+
+
+def write_result_file(state_dir, job_or_key, text, *, replace=False):
+    """``text``, a turn's whole reply, in ``<state>/result-files/<job key>.md`` and that path in the job's record
+    (``result_file_path``); ``job_or_key`` a job (or its record) or its key. The path; None when nothing was kept.
+
+    - ``replace`` (``send_result_file``): the file is ``text`` whatever was there, as before C7.
+    - Without it (C7: app/project_loop.py after_runner keeps every member turn's reply, however short): a file already
+      there (an over-long reply ``send_result_file`` sent, a second call) stays as it is and the record is not touched;
+      a blank ``text`` keeps nothing. A file written here was sent nowhere: the record says so (``result_file_kept``),
+      so it is not one of the turn's 产物 (core/checkpoint.py artifact_paths); a later send of it says it was sent."""
+    key = job_or_key if isinstance(job_or_key, str) else job_key(str(job_field(job_or_key, "message_id")),
+                                                                 job_field(job_or_key, "job_id"))
+    path = Path(state_dir) / RESULT_FILES / (key + ".md")
+    if replace:
+        write_private_text(path, text)
+        if upsert_job_record(state_dir, key, result_file_path=str(path)).get("result_file_kept"):
+            upsert_job_record(state_dir, key, result_file_kept=False)
+        return path
+    if path.exists() or not str(text or "").strip():
+        return path if path.exists() else None
+    write_private_text(path, text)
+    upsert_job_record(state_dir, key, result_file_path=str(path), result_file_kept=True)
+    return path
 
 
 def answer_files(state_dir, record, topic_id, voice):
@@ -271,11 +297,10 @@ class Artifacts:
     def send_result_file(self, ctx, job, text):
         """``text``, a result too long for a card, as a file in reply to ``job``'s message, or, when ``ctx`` replies
         to none (a quiet butler turn's answer at the top level, app/worker.py top_ctx, D1), to the chat
-        itself; whether it went."""
+        itself; whether it went. The file is ``text`` (``write_result_file`` with ``replace``: what goes is what was
+        given, a restored reply over the one sent before it)."""
         key = job_key(job.message_id, job.job_id)
-        path = ctx.state_dir / "result-files" / (key + ".md")
-        write_private_text(path, text)
-        upsert_job_record(ctx.state_dir, key, result_file_path=str(path))
+        path = write_result_file(ctx.state_dir, key, text, replace=True)
         record = {
             "key": key,
             "workdir": str(ctx.workdir),

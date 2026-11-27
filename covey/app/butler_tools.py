@@ -32,7 +32,7 @@ from covey.app.butler_env import reply
 from covey.app.overview import UNSET_PHASES
 from covey.core import butler_requests, butler, butler_settings, devices, principles, projects, turn_words
 from covey.core.checkpoint import (checkpoint_delivery, checkpoint_steps, current_step, read_checkpoint,
-                                            step_words)
+                                            step_words, turn_summary)
 from covey.core.jobs import job_path, read_job_record
 from covey.core.locks import resource_lock
 from covey.core.metrics import step_age
@@ -40,7 +40,7 @@ from covey.core.loops import every
 from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.statuses import RUNNING
 from covey.core.topics import retired_topic, topic_file, topic_title
-from covey.core.text import cut, last_line, stamp
+from covey.core.text import cut, stamp
 from covey.core.workspaces import config_path
 
 TICK = 0.3
@@ -210,7 +210,7 @@ def topic_row(env, topic_id, records, questions, unseen, now):
         doing = phase if phase not in UNSET_PHASES else ""
         said = "在做：" + (doing or str(latest.get("user_text") or "").split("\n", 1)[0])
     else:
-        said = "最后：" + (last_line(latest.get("final_text"))
+        said = "最后：" + (turn_summary(latest, None, ASK_CHARS)  # The record's phase and delivery: no checkpoint opened per topic.
                           or str(latest.get("status_message") or latest.get("status") or ""))
     row = {"label": label(env, topic_id, data), "title": title(env, topic_id), "group": group,
            "workspace": str(latest.get("workspace_name") or data.get("workspace_name") or ""),
@@ -365,6 +365,8 @@ def topic_read(env, request):
             lines.append("  结果开头：" + (result if len(result) <= result_chars else result[:result_chars] + "…"))
         elif record.get("status_message"):
             lines.append("  状态：" + cut(record["status_message"], TEXT_CHARS))
+        if record.get("result_file_path"):  # The whole reply (C7: a member turn's, an over-long one sent as a file).
+            lines.append(f"  结果全文：{record['result_file_path']}")
         lines += checkpoint_lines(record)
     asked = topic_questions(env.state_dir, chat).get(topic_id, [])
     for question in asked:

@@ -206,7 +206,9 @@ def library_rows(state_dir, project_id) -> tuple:
     """(label, entry id) of the project's library index (core/project_library.py), the newest first, then (file name,) of the
     files in projects/<id>/library/ the index does not name (one level, no links), by name."""
     indexed = project_library.entries(state_dir, project_id)
-    rows = [(words(project_library.row_label(row), 100), row["id"]) for row in reversed(indexed)]
+    # A member turn's whole reply (``source`` result, W1-C C7) is for the lead and the topics to read, one a turn: not listed on
+    # the card, where it would push the owner's files out (its path is in the lead's receipt).
+    rows = [(words(project_library.row_label(row), 100), row["id"]) for row in reversed(indexed) if row.get("source") != "result"]
     folder = projects.folder(state_dir) / project_id / "library"
     named = {row["ref"] for row in indexed if row["kind"] == "file"}
     names = []

@@ -1218,7 +1218,8 @@ class Collector:
                 def number(topic):
                     return self.topic_number(state, topic)
                 memory = [self.memory_row(row, pid, carried, number) for row in entries if not row["deleted"]]
-                library = [self.library_row(state, row, number) for row in project_library.entries(state, pid) if not row.get("purged")]
+                library = [self.library_row(state, row, number) for row in project_library.entries(state, pid)
+                           if not row.get("purged") and row.get("source") != "result"]  # Whole replies: the lead's (C7).
                 version = view["version"]
             except Exception:  # noqa: BLE001 - the rest of the project is still worth pushing
                 memory, library, version = [], [], ""

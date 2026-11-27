@@ -77,6 +77,25 @@ class ArtifactTest(TopicFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, DIFF_PRUNED):
             resolve_artifact(record, artifact_key(str(diff)))
 
+    def test_a_kept_result_file_is_no_artifact_until_a_send_writes_it_over(self):
+        from covey.app.artifacts import write_result_file
+        from covey.core.jobs import job_path, read_job_record, upsert_job_record
+
+        state = self.ctx.state_dir
+        upsert_job_record(state, "artifact", status="done", checkpoint_path=str(self.cp), workdir=str(self.root))
+        path = write_result_file(state, "artifact", "短的结论")  # C7: kept, sent nowhere.
+        record = read_job_record(job_path(state, "artifact"))
+        self.assertEqual((record["result_file_path"], record["result_file_kept"]), (str(path), True))
+        self.assertEqual(drive_paths(record), [str(self.file)])  # No 产物 line for it on a card repainted later.
+        self.assertEqual(write_result_file(state, "artifact", "又一次"), path)
+        self.assertEqual(path.read_text(), "短的结论")
+        self.assertIsNone(write_result_file(state, "blank", "  \n"))
+        self.assertFalse((path.parent / "blank.md").exists())
+        self.assertEqual(write_result_file(state, "artifact", "要发的长文", replace=True), path)  # send_result_file's.
+        record = read_job_record(job_path(state, "artifact"))
+        self.assertEqual((path.read_text(), record["result_file_kept"]), ("要发的长文", False))
+        self.assertEqual(drive_paths(record), [str(self.file), str(path)])
+
     def test_upload_and_topic_delivery_are_deduplicated(self):
         with (
             mock.patch(

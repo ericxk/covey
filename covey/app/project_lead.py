@@ -38,13 +38,14 @@ from covey.app.triage_view import pack_block
 from covey.core import board_read, butler, collab, devices, project_actions, project_checklist, project_library, project_memory, projects, triage
 from covey.core import memory as core_memory
 from covey.core import turn_source
-from covey.core.checkpoint import ASK_SHORT, checked, checkpoint_delivery, delivery_commits, read_checkpoint, short_commit
+from covey.core.checkpoint import (ASK_SHORT, checked, checkpoint_delivery, delivery_commits, read_checkpoint, short_commit,
+                                   turn_summary)
 from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.statuses import ENDED, RUNNING
-from covey.core.text import cut, last_line, stamp  # noqa: F401  (last_line: app/project_loop.py)
+from covey.core.text import cut, last_line, stamp
 from covey.core.topics import topic_file, topic_label, topic_title
 from covey.core.turn_words import RESULTS, UNSET_PHASES
 from covey.core.web_sync import PREFIX as WEB_PREFIX
@@ -321,10 +322,13 @@ def inbox_items(state_dir, project_id) -> list:
 # The pack.
 
 def member_row(state_dir, topic_id) -> dict:
-    """One member topic as the pack's table has it: label, title, status words, one sentence, deliverables, whether a turn runs."""
+    """One member topic as the pack's table has it: label, title, status words, one sentence (an ended turn's: its checkpoint's
+    phase and delivery, else its reply's opening, core/checkpoint.py turn_summary), deliverables, whether a turn runs."""
     records = sorted(topic_job_records(state_dir, topic_id), key=lambda r: int(r.get("job_id") or 0))
     latest = records[-1] if records else {}
     status = str(latest.get("status") or "")
+    path = str(latest.get("checkpoint_path") or "")
+    checkpoint = read_checkpoint(Path(path)) if path else {}
     if status in RUNNING:
         phase = str(latest.get("phase") or "")
         status_words = "在做"
@@ -332,11 +336,10 @@ def member_row(state_dir, topic_id) -> dict:
     elif status == "waiting_user":
         status_words, said = "等主人回答", last_line(latest.get("status_message"))
     elif status in ENDED or status == "continued":
-        status_words, said = RESULTS.get(status, "已结束"), last_line(latest.get("final_text"))
+        status_words, said = RESULTS.get(status, "已结束"), turn_summary(latest, checkpoint, LINE)
     else:
         status_words, said = ("还没开工" if latest else "没有任务"), ""
-    path = str(latest.get("checkpoint_path") or "")
-    artifacts = (read_checkpoint(Path(path)) if path else {}).get("artifacts")
+    artifacts = checkpoint.get("artifacts")
     artifacts = [str(item) for item in artifacts if item] if isinstance(artifacts, list) else []
     return {"topic_id": topic_id, "label": topic_label(state_dir, topic_id) or topic_id[:8],
             "title": topic_title(state_dir, topic_id) or "（没有标题）", "status": status_words,

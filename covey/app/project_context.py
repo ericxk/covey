@@ -19,7 +19,8 @@ COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1; with either off every function here
   carries are copied into the library with their sha256.
 - ``turn_to_library`` (app/project_loop.py after_runner, the Bridge once a topic's run has ended; rule 8: a task process writes
   nothing of the project's): the artifacts the turn's checkpoint lists and its delivery become index lines, by path or link only,
-  nothing copied.
+  nothing copied; ``result_to_library`` (the same, C7): a member turn's whole reply, kept in result-files/, one line by its
+  path, ``redacted`` when its topic has redaction on (only such a topic reads it then: ``block``).
 
 Rule 1 (AGENTS.md): the records are written under their own lock; nothing is sent to Feishu. Nothing raises: a project's memory
 is never why a turn or an answer does not go through."""
@@ -35,11 +36,11 @@ from covey.core import board_read
 from covey.core import memory as core_memory
 from covey.core import memory_usage, memstore, project_library, project_memory, projects, triage
 from covey.core.attachments import ATTACHMENTS_HEADER, parse_attachment_block
-from covey.core.checkpoint import checkpoint_delivery, read_checkpoint
+from covey.core.checkpoint import DELIVERY_LABELS, checkpoint_delivery, read_checkpoint
 from covey.core.redaction import topic_redaction
 from covey.core.state import write_json
 from covey.core.text import cut
-from covey.core.topics import proxy_topic
+from covey.core.topics import proxy_topic, topic_label
 
 ANSWER_CHARS = 190  # Of an answer that does not fit with its question in one line: what it keeps before the question is cut.
 ANSWER_HEAD = "主人答："
@@ -149,7 +150,8 @@ def block(ctx, job, *, resumed: bool) -> str:
         pid, record = found
         state = ctx.state_dir
         memory = [] if core_memory.enabled() else project_memory_lines(memory_view(ctx, job))
-        library = [] if resumed else ["- " + line for line in project_library.index_lines(state, pid)]
+        topic = getattr(job, "topic_id", "") or ctx.topic_id
+        library = [] if resumed else ["- " + line for line in project_library.index_lines(state, pid, redacted_reader=marked(state, topic))]
         return project_block(record.get("name"), memory, library, limit=None)
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""
@@ -301,6 +303,31 @@ def owner_files(state_dir, topic_id, chat_id, text, media, log=None) -> None:
             log(f"project library of a message failed: {type(exc).__name__}")
 
 
+def source_redacted(state_dir, topic_id) -> bool:
+    """Whether what ``topic_id`` wrote is for the topics with redaction on alone: its own redaction is on, or its setting
+    cannot be read (``marked`` is the reader's side, off then)."""
+    try:
+        return bool(topic_redaction(state_dir, topic_id))
+    except ValueError:
+        return True
+
+
+def result_to_library(state_dir, project_id, topic_id, job_record, path, log=None) -> None:
+    """The whole reply of a member topic's turn that ended (C7: kept at ``path`` by app/project_loop.py after_runner,
+    app/artifacts.py write_result_file) noted in the library of ``project_id`` by its path, "T12 #41 结论全文" (source
+    ``result``); ``redacted`` when its topic has redaction on or that cannot be read (``source_redacted``): only a topic
+    with redaction on lists it then (core/project_library.py index_lines)."""
+    try:
+        if not projects.memory_enabled() or not path:
+            return
+        label = topic_label(Path(state_dir), topic_id) or str(topic_id)[:8]
+        project_library.add_ref(state_dir, project_id, "path", str(path), name=f"{label} #{job_record.get('job_id')} 结论全文",
+                                source="result", topic_id=topic_id, redacted=source_redacted(state_dir, topic_id))
+    except Exception as exc:  # noqa: BLE001 - the task's end does not depend on it
+        if log is not None:
+            log(f"project library of a result failed: {type(exc).__name__}")
+
+
 def turn_to_library(state_dir, project_id, topic_id, job_record, log=None) -> None:
     """The artifacts and the delivery of a topic's turn that ended well (``job_record``, its job record) noted in the library of
     ``project_id``: where they are, not copies."""
@@ -315,8 +342,7 @@ def turn_to_library(state_dir, project_id, topic_id, job_record, log=None) -> No
                                     source="artifact", topic_id=topic_id)
         delivery = checkpoint_delivery(checkpoint)
         if delivery:
-            line = "；".join(f"{label} {delivery[name]}" for name, label in (("commit", "提交"), ("deployed", "部署"), ("verified", "验收"))
-                            if delivery.get(name))
+            line = "；".join(f"{label} {delivery[name]}" for name, label in DELIVERY_LABELS if delivery.get(name))  # As line_of reads it.
             project_library.add_ref(state_dir, project_id, "delivery", line, name="交付", source="delivery", topic_id=topic_id)
     except Exception as exc:  # noqa: BLE001 - the task's end does not depend on it
         if log is not None:

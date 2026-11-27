@@ -160,7 +160,7 @@ class PackTest(Case):
         self.assertEqual(order, sorted(order))
         self.assertIn("把账单迁到新库，对账一致", pack)
         self.assertIn("T41 · 导出旧账单 · 在做 · 导出第 3 批", pack)
-        self.assertIn("T42 · 写对账脚本 · 做完 · 放在 reconcile.py", pack)
+        self.assertIn("T42 · 写对账脚本 · 做完 · 脚本写好了 放在 reconcile.py", pack)  # Its reply's opening paragraph.
         code = project_lead.memory_codes(self.state, PID)["m1"]  # Its short code (core/memstore.py), given when first read.
         self.assertIn(f"[constraint] 〔{code}〕旧库时区是 UTC+0", pack)  # An older release's entry in the record, under the kind's new name.
         self.assertIn("风格：report=milestones；detail=简\n", pack)

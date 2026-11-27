@@ -1,15 +1,17 @@
 """The library of a project (docs/projects.md 专项记忆与资料库, COVEY_PROJECT_MEMORY=1): the files the owner gave the project and a line
 for what its topics delivered, in ``<state>/projects/<id>/library/`` (the files) and ``library.json`` (the index).
 
-An entry is {id, name, kind, ref, sha256, size, source, topic_id, at, purged}. ``kind`` is ``file`` (a copy in library/, ``ref``
-its name there), ``path`` or ``link`` (an artifact of a topic: only where it is, nothing is copied) or ``delivery`` (a
-checkpoint's delivery in one line, ``ref`` the line). ``source`` is ``owner_file`` (the owner sent it to the lead), ``artifact`` or
-``delivery`` (a topic's turn). ``purged`` is the time the maintenance rule removed a file after the project was done: the
-entry, with its hash, stays.
+An entry is {id, name, kind, ref, sha256, size, source, topic_id, at, purged} and, when it says, ``redacted``. ``kind`` is
+``file`` (a copy in library/, ``ref`` its name there), ``path`` or ``link`` (an artifact of a topic: only where it is, nothing is
+copied) or ``delivery`` (a checkpoint's delivery in one line, ``ref`` the line). ``source`` is ``owner_file`` (the owner sent it
+to the lead), ``artifact``, ``delivery`` or ``result`` (a topic's turn; ``result`` a member turn's whole reply, C7). ``redacted``
+(true): it came from a topic with redaction on, so only a reader with redaction on lists it (``index_lines``). ``purged`` is
+the time the maintenance rule removed a file after the project was done: the entry, with its hash, stays.
 
 Limits: one file up to ``FILE_LIMIT`` is copied (a larger one is only noted by its path), ``PROJECT_LIMIT`` bytes of files in
 all, ``MAX_ENTRIES`` entries (the oldest of the topics' go with their files first, the owner's files last). ``index_lines`` is what the lead's pack and a topic's first
-turn read: at most ``INDEX_BYTES`` bytes.
+turn read: at most ``INDEX_BYTES`` bytes, at most ``RESULT_LINES`` of them the topics' whole replies, each topic named by its number,
+a delivery's fields cut one by one (``line_of``).
 
 Every write runs under the project record's lock (core/projects.py ``update``), the copy itself before it, so no lock is held for
 a long copy. Standard library and core only."""
@@ -17,20 +19,23 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import secrets
 import sys
 import time
 from pathlib import Path
 
 from covey.core import projects
+from covey.core.checkpoint import DELIVERY_LABELS, delivery_line
 from covey.core.text import stamp
 from covey.core.state import read_json, write_json
+from covey.core.topics import topic_label
 
 FILE = "library.json"
 FOLDER = "library"
 SCHEMA = 1
 KINDS = ("file", "path", "link", "delivery")
-SOURCES = {"owner_file": "主人发的", "artifact": "话题的产物", "delivery": "话题的交付"}
+SOURCES = {"owner_file": "主人发的", "artifact": "话题的产物", "delivery": "话题的交付", "result": "话题的结论"}
 MAX_ENTRIES = 100
 INDEX_BYTES = 2048
 FILE_LIMIT = 25 * 1024 * 1024
@@ -38,6 +43,8 @@ PROJECT_LIMIT = 200 * 1024 * 1024
 NAME_CHARS = 80
 REF_CHARS = 300
 LINE_CHARS = 160
+DELIVERY_LINE_CHARS = LINE_CHARS + 40  # Its fields are cut one by one (core/checkpoint.py delivery_line): this only bounds an old line.
+RESULT_LINES = 3  # Of the topics' whole replies in the index, the newest: one a member turn, they would push out the owner's files.
 
 
 def library_dir(state_dir, project_id) -> Path:
@@ -56,7 +63,8 @@ def _entry(row):
             "ref": str(row["ref"])[:REF_CHARS], "sha256": str(row.get("sha256") or ""),
             "size": size if type(size) is int and size >= 0 else 0, "source": str(row.get("source") or "")[:20],
             "topic_id": str(row.get("topic_id") or "")[:64], "at": at if isinstance(at, (int, float)) else 0,
-            "purged": purged if isinstance(purged, (int, float)) and not isinstance(purged, bool) and purged else 0}
+            "purged": purged if isinstance(purged, (int, float)) and not isinstance(purged, bool) and purged else 0,
+            **({"redacted": row["redacted"]} if isinstance(row.get("redacted"), bool) else {})}
 
 
 def _rows(state_dir, project_id, *, writing=False) -> list:
@@ -302,25 +310,47 @@ def trim(state_dir, project_id, limit=None, now=None) -> int:
         return 0
 
 
+def delivery_words(ref) -> str:
+    """A delivery's line as ``turn_to_library`` wrote it (app/project_context.py: "提交 …；部署 …；验收 …"), each field cut
+    alone (core/checkpoint.py delivery_line); a line not of those fields as it is."""
+    fields = {label: name for name, label in DELIVERY_LABELS}
+    found = {}
+    for part in re.split("；(?=(?:" + "|".join(fields) + ") )", str(ref or "")):
+        label, _, value = part.partition(" ")
+        if label not in fields or fields[label] in found:
+            return str(ref or "")
+        found[fields[label]] = value
+    return delivery_line(found)
+
+
 def line_of(state_dir, project_id, row, label="") -> str:
-    """One entry in a line (no leading dash) for the lead's pack and a topic's first turn: what it is, where, whose, when."""
+    """One entry in a line (no leading dash) for the lead's pack and a topic's first turn: what it is, where, whose (its
+    topic's number, ``label``, unless its name begins with it), when. A delivery's fields are cut one by one
+    (``delivery_words``: 7 digits of at most 3 commits and how many more, the deployment 40 characters, the check 60)."""
     source = SOURCES.get(row["source"], row["source"] or "资料")
+    label = "" if label and row["name"].startswith(label + " ") else label
     when = f"{source}，{stamp(row['at'], '%m-%d')}" + (f"，{label}" if label else "")
     if row["kind"] == "delivery":
-        return f"交付（{when}）：{row['ref']}"[:LINE_CHARS]
+        return f"交付（{when}）：{delivery_words(row['ref'])}"[:DELIVERY_LINE_CHARS]
     if row["kind"] == "file":
         where = "（文件已清理）" if row["purged"] else f"：{library_dir(state_dir, project_id) / row['ref']}"
         return f"{row['name']}（{when}）{where}"[:LINE_CHARS + 120]
     return f"{row['name']}（{when}）：{row['ref']}"[:LINE_CHARS + 120]
 
 
-def index_lines(state_dir, project_id, limit=INDEX_BYTES, labels=None) -> list:
-    """The index in lines, the newest first, the lines together at most ``limit`` bytes; a last line says how many did not fit.
-    ``labels``: {topic id: its short label} for a line's topic."""
-    rows = list(reversed(entries(state_dir, project_id)))
+def index_lines(state_dir, project_id, limit=INDEX_BYTES, labels=None, *, redacted_reader=False) -> list:
+    """The index in lines, the newest first, the lines together at most ``limit`` bytes, at most RESULT_LINES of them whole
+    replies (``result``); a last line says how many did not fit. ``labels``: {topic id: its short label} for a line's topic
+    (None: its number, T12, core/topics.py topic_label). ``redacted_reader``: whether the reader is a topic with redaction
+    on; an entry from such a topic (``redacted``) is for it alone, left out (and not counted) for any other reader."""
+    rows = [row for row in reversed(entries(state_dir, project_id)) if redacted_reader or not row.get("redacted")]
+    older = {row["id"] for row in [row for row in rows if row["source"] == "result"][RESULT_LINES:]}
+    listed = [row for row in rows if row["id"] not in older]
+    if labels is None:
+        labels = {topic: topic_label(Path(state_dir), topic) or topic[:8] for topic in {row["topic_id"] for row in listed} if topic}
     lines, used = [], 0
-    for row in rows:
-        line = line_of(state_dir, project_id, row, (labels or {}).get(row["topic_id"], ""))
+    for row in listed:
+        line = line_of(state_dir, project_id, row, labels.get(row["topic_id"], ""))
         size = len(line.encode()) + 3  # "- " and the line break the caller adds
         if used + size > limit - 60:
             break

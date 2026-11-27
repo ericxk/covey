@@ -398,6 +398,113 @@ class TurnTest(Case):
         self.assertEqual([row["topic_id"] for row in library.entries(self.state, PID)], [MEMBER])
 
 
+class ResultTest(Case):
+    """C7: every member turn that ended keeps its whole reply in result-files/<key>.md, noted in the library."""
+
+    def setUp(self):
+        super().setUp()
+        write_topic(self.state, topic_id=MEMBER, chat_id=CHAT, topic_number=12, project=projects.project_field(PID, projects.MEMBER))
+
+    def end(self, key, text, job_id=41, topic=MEMBER, **fields):
+        write_job(self.state, key, topic_id=topic, chat_id=CHAT, status="done", message_id=key, job_id=job_id, final_text=text, **fields)
+        project_loop.after_runner(self.logs.append, self.state, SimpleNamespace(topic_id=topic, chat_id=CHAT, message_id=key, job_id=job_id))
+        return self.state / "result-files" / f"{key}.md"
+
+    def results(self):
+        return [row for row in library.entries(self.state, PID) if row["source"] == "result"]
+
+    def test_a_short_reply_is_kept_whole_and_noted_once(self):
+        short = "导出好了，十二张表对账一致，差异为零。" * 6  # 114 characters: never a file to send.
+        path = self.end("om_r1", short)
+        self.assertEqual(path.read_text(), short)
+        saved = read_object(self.state / "jobs" / "om_r1.json")
+        self.assertEqual((saved["result_file_path"], saved["result_file_kept"]), (str(path), True))
+        [row] = self.results()
+        self.assertEqual((row["kind"], row["ref"], row["name"], row["topic_id"], row["redacted"]),
+                         ("path", str(path), "T12 #41 结论全文", MEMBER, False))
+        project_loop.after_runner(self.logs.append, self.state, SimpleNamespace(topic_id=MEMBER, chat_id=CHAT, message_id="om_r1", job_id=41))
+        self.assertEqual(len(self.results()), 1)
+        self.assertEqual(self.logs, [])
+
+    def test_the_card_and_the_web_page_do_not_list_the_whole_replies(self):
+        """They are the lead's and the topics' to read, one a member turn: the 专项卡's 资料库 and the web page's would
+        fill with them and push the owner's files out."""
+        from covey.app import project_facts
+        self.end("om_r9", "结论")
+        self.assertEqual(len(self.results()), 1)
+        self.assertEqual([row for row in project_facts.library_rows(self.state, PID) if "结论全文" in str(row[0])], [])
+
+    def test_a_long_reply_its_runner_sent_as_a_file_is_not_written_over(self):
+        path = self.state / "result-files" / "om_r2.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("长文全文" * 2000)
+        self.end("om_r2", "卡片上的那段", result_file_path=str(path))
+        self.assertEqual(path.read_text(), "长文全文" * 2000)
+        self.assertNotIn("result_file_kept", read_object(self.state / "jobs" / "om_r2.json"))
+        self.assertEqual([row["ref"] for row in self.results()], [str(path)])
+
+    def test_no_reply_keeps_nothing_and_the_lead_keeps_none(self):
+        self.end("om_r3", "")
+        self.end("om_r4", "负责人的回答", topic=LEAD)
+        self.assertFalse((self.state / "result-files").exists())
+        self.assertEqual(self.results(), [])
+
+    def test_a_redacted_topics_reply_is_listed_only_for_a_reader_with_redaction_on(self):
+        write_topic(self.state, topic_id=MEMBER, chat_id=CHAT, topic_number=12, redaction=True,
+                    project=projects.project_field(PID, projects.MEMBER))
+        path = self.end("om_r5", "含敏感词的结论")
+        [row] = self.results()
+        self.assertTrue(row["redacted"])
+        self.assertNotIn(str(path), "\n".join(library.index_lines(self.state, PID)))
+        self.assertIn(str(path), "\n".join(library.index_lines(self.state, PID, redacted_reader=True)))
+        self.assertIn(str(path), project_context.block(self.ctx(), self.job(), resumed=False))  # Its own topic: redaction on.
+        plain = "cd" * 16
+        write_topic(self.state, topic_id=plain, chat_id=CHAT, project=projects.project_field(PID, projects.MEMBER))
+        self.assertNotIn(str(path), project_context.block(self.ctx(plain), self.job(plain), resumed=False))
+        (self.state / "topics" / plain / "topic.json").write_text("{")
+        self.assertTrue(project_context.source_redacted(self.state, plain))  # Its setting cannot be read: redacted.
+        self.assertFalse(project_context.marked(self.state, plain))  # Nor does it read the redacted ones.
+
+    def test_a_delivery_line_is_cut_field_by_field_and_a_members_line_names_its_topic(self):
+        library.add_ref(self.state, PID, "delivery", "提交 a6bc1481234567 9d3aecd 51c2e07 1111111 2222222；部署 " + "第 12 代" * 20
+                        + "；验收 " + "测" * 100, name="交付", source="delivery", topic_id=MEMBER, now=NOW)
+        [line] = library.index_lines(self.state, PID)
+        self.assertIn("交付（话题的交付，", line)
+        self.assertIn("，T12）：", line)
+        self.assertIn("提交 a6bc148 9d3aecd 51c2e07 +2；", line)
+        deployed, verified = line.split("；部署 ")[1].split("；验收 ")
+        self.assertEqual((len(deployed), deployed[-1]), (40, "…"))
+        self.assertEqual(verified, "测" * 59 + "…")
+        self.assertEqual(library.delivery_words("提交 a6bc148；部署 第 12 代；验收 测试群点过"), "提交 a6bc148；部署 第 12 代；验收 测试群点过")
+        self.assertEqual(library.delivery_words("随手写的一行"), "随手写的一行")
+        path = self.end("om_r6", "好了")
+        [line] = [line for line in library.index_lines(self.state, PID) if "结论全文" in line]
+        self.assertTrue(line.startswith("T12 #41 结论全文（话题的结论，"))  # Its name has the number: not said twice.
+        self.assertNotIn("，T12）", line)
+        self.assertTrue(line.endswith(f"）：{path}"))
+
+    def test_the_index_lists_the_newest_replies_only_and_keeps_the_owners_file(self):
+        library.add_ref(self.state, PID, "path", "/data/in/brief.pdf", source="owner_file", now=NOW)
+        for number in range(5):
+            library.add_ref(self.state, PID, "path", f"/state/result-files/om_{number}.md", name=f"T12 #{number} 结论全文",
+                            source="result", topic_id=MEMBER, now=NOW + 1 + number, redacted=False)
+        lines = library.index_lines(self.state, PID)
+        self.assertEqual([line.rsplit("/", 1)[-1] for line in lines[:4]], ["om_4.md", "om_3.md", "om_2.md", "brief.pdf"])
+        self.assertEqual(lines[-1], "另有 2 条较早的未列出")
+
+    def test_the_summary_is_the_checkpoints_phase_and_delivery_else_the_replys_opening_within_300(self):
+        from covey.core.checkpoint import turn_summary
+
+        record = {"final_text": "## 结论\n\n**要点**\n已迁完\n全部 12 张表对账一致\n\n第二段", "phase": "处理本轮请求"}
+        self.assertEqual(turn_summary(record, {}), "已迁完 全部 12 张表对账一致")
+        self.assertEqual(turn_summary(record, {"phase": "迁移完成", "delivery": {"commit": ["a6bc1481234"], "deployed": "第 12 代"}}),
+                         "迁移完成；提交 a6bc148；部署 第 12 代")
+        self.assertEqual(turn_summary({**record, "phase": "核对中", "delivery": {"verified": "抽查三张"}}), "核对中；验收 抽查三张")
+        long = turn_summary({"final_text": "字" * 1000})
+        self.assertEqual((len(long), long[-1]), (300, "…"))
+        self.assertEqual(turn_summary({}, None), "")
+
+
 class IndexTest(Case):
     def test_the_index_is_newest_first_within_2_kb_and_says_how_many_did_not_fit(self):
         for number in range(40):
