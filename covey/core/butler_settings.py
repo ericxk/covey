@@ -15,7 +15,7 @@ from pathlib import Path
 from covey.core import butler as contract
 from covey.core.locks import resource_lock
 from covey.core.roster import RETIRED
-from covey.core.state import read_object, write_json
+from covey.core.state import read_for_write, read_object, write_json
 
 FILE = contract.SETTINGS_FILE
 SCHEMA = 1
@@ -177,10 +177,21 @@ def desk_topics_left(state_dir) -> bool:
         return False
 
 
-def _write(state_dir, settings: Settings) -> None:
-    """``settings`` written, under the caller's lock, with desk_topics as the file has it (not a Settings field):
-    an older release goes on reading what it wrote."""
-    kept = {key: value for key, value in read_object(path(state_dir)).items() if key == "desk_topics"}
+# What a write of the settings says when the file is there but cannot be read now (core/state.py Unreadable: nothing is
+# written, so a network disk's passing error never resets them to the defaults). The settings card and the web page show it.
+UNREADABLE = "设置文件暂时读不出，未改动：稍后再试"
+
+
+def _for_write(state_dir) -> dict:
+    """What main-thread.json holds, read under the caller's lock for a write: {} without a file; Unreadable when it is
+    there and cannot be read (the write is refused)."""
+    return read_for_write(path(state_dir))
+
+
+def _write(state_dir, settings: Settings, data: dict) -> None:
+    """``settings`` written, under the caller's lock, with desk_topics as the file has it (``data``, read by ``_for_write``;
+    not a Settings field): an older release goes on reading what it wrote."""
+    kept = {key: value for key, value in data.items() if key == "desk_topics"}
     write_json(path(state_dir), {**kept, **to_json(settings)}, ensure_ascii=False, indent=1)
 
 
@@ -205,19 +216,23 @@ def _told(state_dir, before, after) -> None:
 
 
 def save(state_dir, settings: Settings) -> None:
+    """``settings`` written whole. Unreadable (nothing written) when the file is there and cannot be read now."""
     with resource_lock("main-thread-settings", str(path(state_dir))):
-        before = load(state_dir)
-        _write(state_dir, settings)
+        data = _for_write(state_dir)
+        before = from_json(data)
+        _write(state_dir, settings, data)
     contract.forget_mode()
     _told(state_dir, before, settings)
 
 
 def update(state_dir, **changes) -> Settings:
-    """Read, change the fields given, write; the new settings. One writer at a time (the settings card)."""
+    """Read, change the fields given, write; the new settings. One writer at a time (the settings card). Unreadable
+    (nothing written: the fields not given would go back to their defaults) when the file is there and cannot be read now."""
     with resource_lock("main-thread-settings", str(path(state_dir))):
-        before = load(state_dir)
+        data = _for_write(state_dir)
+        before = from_json(data)
         settings = dataclasses.replace(before, **changes)
-        _write(state_dir, settings)
+        _write(state_dir, settings, data)
     contract.forget_mode()
     _told(state_dir, before, settings)
     return settings
@@ -227,7 +242,7 @@ def merge_topic_defaults(state_dir, **fields) -> None:
     """``fields`` of topic_defaults written as they are, the rest of the file left as it is (no field it lacks, the mode
     least of all: ``settle_mode`` writes that), for a migration (core/migrate.py redaction-default)."""
     with resource_lock("main-thread-settings", str(path(state_dir))):
-        data = read_object(path(state_dir))
+        data = _for_write(state_dir)
         topic = data.get("topic_defaults") if isinstance(data.get("topic_defaults"), dict) else {}
         write_json(path(state_dir), {**data, "topic_defaults": {**topic, **fields}}, ensure_ascii=False, indent=1)
     contract.forget_mode()
@@ -240,7 +255,7 @@ def preset_harness(state_dir, harness) -> bool:
     where Claude Code did not answer and this Harness did (service/installer.py butler_preset, docs/install.md 没有 Claude
     Code 时). A file that names a Harness (the owner chose it on the 设置 card) stays as it is. Whether it was written."""
     with resource_lock("main-thread-settings", str(path(state_dir))):
-        data = read_object(path(state_dir))
+        data = _for_write(state_dir)
         if _text(data.get("harness")):
             return False
         write_json(path(state_dir), {**data, "harness": harness}, ensure_ascii=False, indent=1)
@@ -262,7 +277,7 @@ def settle_mode(state_dir):
     the card's 开启), so a deployment the owner had keeps its way. From then on the mode alone decides, whatever the
     switch says (but 0). The mode written, or None when the file has one already."""
     with resource_lock("main-thread-settings", str(path(state_dir))):
-        data = read_object(path(state_dir))
+        data = _for_write(state_dir)
         if data.get("mode") in contract.MODES:
             return None
         settings = dataclasses.replace(from_json(data), enabled=_fresh(state_dir) or contract.agent_mode(data))

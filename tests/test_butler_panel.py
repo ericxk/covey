@@ -479,6 +479,23 @@ class ButlerPanelTests(UnifiedCase):
         self.assertIn(GONE, self.text())
         self.assertEqual(self.settings(), settings.Settings())
 
+    def test_a_settings_file_that_cannot_be_read_now_is_not_reset_and_the_card_says_so(self):
+        """W1-F (RT-6): read as {} a moment, a click on one row wrote the defaults over every other setting."""
+        settings.update(self.ctx.state_dir, compact_tokens=0, harness='codex')
+        self.ask()
+        self.part('topic')
+        path = settings.path(self.ctx.state_dir)
+        body = path.read_bytes()
+        path.write_bytes(body[: len(body) // 2])
+        torn = path.read_bytes()
+        self.click(self.option(panel_card.SUBAGENTS, 'same'), event_id='c7')
+        self.assertEqual(path.read_bytes(), torn)
+        self.assertIn(settings.UNREADABLE, self.text())
+        self.assertTrue(any('main thread settings not saved' in line for line in self.logs))
+        path.write_bytes(body)
+        self.click(self.option(panel_card.SUBAGENTS, 'same'), event_id='c8')
+        self.assertEqual((self.settings().subagents, self.settings().compact_tokens, self.settings().harness), ('same', 0, 'codex'))
+
     def launch_rows(self, key):
         """{row key: its option values and texts} of the launch card's settings list around menu entry ``key``."""
         rows = model_settings(available_models(self.app.topics, self.ctx), key, revision=1, effort='', kinds=(

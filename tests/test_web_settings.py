@@ -325,6 +325,19 @@ class WebSettingsTest(UnifiedCase):
         self.assertTrue(settings.load(self.ctx.state_dir).enabled)
         self.assertEqual(self.op(what="row", kind=cards.REDACTION, option="off")[0], "done")
 
+    def test_a_settings_file_that_cannot_be_read_now_is_not_reset_and_the_page_says_so(self):
+        """W1-F (RT-6): read as {} a moment, the write of one row put the defaults over every other setting."""
+        settings.update(self.ctx.state_dir, compact_tokens=0)
+        path = settings.path(self.ctx.state_dir)
+        body = path.read_bytes()
+        path.write_bytes(body[: len(body) // 2])
+        torn = path.read_bytes()
+        self.assertEqual(self.op(what="row", kind=cards.TOPIC_REDACTION, option="on"), ("failed", settings.UNREADABLE))
+        self.assertEqual(path.read_bytes(), torn)
+        path.write_bytes(body)
+        self.assertEqual(self.op(what="row", kind=cards.TOPIC_REDACTION, option="on")[0], "done")
+        self.assertEqual(settings.load(self.ctx.state_dir).compact_tokens, 0)
+
     def test_workspaces_added_by_path_removed_and_pruned_as_on_the_card(self):
         extra = self.root / "extra"
         extra.mkdir()

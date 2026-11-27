@@ -44,7 +44,7 @@ from covey.cards.settings_hub import BUTLER, BUTLER_PAGES, CONFIG, OTHER, REPOS,
 from covey.core import butler, butler_settings, projects
 from covey.core.jobs import job_file, read_job_record
 from covey.core.butler_settings import SUBAGENTS as SUBAGENT_MODES
-from covey.core.state import read_object
+from covey.core.state import Unreadable, read_object
 from covey.core.workspaces import config_path
 
 FOLDER = 'main-thread-panels'
@@ -52,6 +52,7 @@ LOCK = 'main-thread-panel'
 MENU_KEY = 'main_thread_settings'  # The bot menu's event key that opens the 设置 card on this tab.
 OWNER_ONLY = '⚠️ 只有机器人主人能改管家的设置。'
 GONE = '⚠️ 这个选项已不可用，卡片已按最新设置重画。'
+UNREADABLE_NOTICE = '⚠️ ' + butler_settings.UNREADABLE + '。'
 # Said on the card once the private chat mode changed (docs/butler.md 私聊模式).
 MODE_NOTICES = {True: '已改成交给管家：私聊顶层的消息交给管家。',
                 False: '已改成每条直接开一个话题；已开的话题照常在各自的话题串里继续。'}
@@ -357,8 +358,12 @@ class ButlerPanel:
             changes = self.changes(ctx, event, value)
             notice = GONE if changes is None else ''
             if changes:
-                butler_settings.update(ctx.state_dir, **changes)
-                notice = MODE_NOTICES.get(changes.get('enabled')) or saved_notice(value['kind'])
+                try:
+                    butler_settings.update(ctx.state_dir, **changes)
+                    notice = MODE_NOTICES.get(changes.get('enabled')) or saved_notice(value['kind'])
+                except Unreadable as exc:  # Nothing written: the settings as they were, not reset (W1-F).
+                    self.topics.runtime.log(f'main thread settings not saved: {exc}'[:300])
+                    notice = UNREADABLE_NOTICE
             elif value['kind'] in RETIRED_KINDS:
                 notice = RETIRED_NOTICE
             elif value['kind'] in OFFLINE_KINDS:

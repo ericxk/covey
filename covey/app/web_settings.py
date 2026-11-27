@@ -56,7 +56,7 @@ from covey.app.workspace_manager import derived_repos, repo_entries
 from covey.core import assist as assist_records
 from covey.core import butler, butler_settings, projects, repomap, web_sync
 from covey.core.jobs import running_job_records, topic_job_records
-from covey.core.state import epoch_seconds, read_object
+from covey.core.state import Unreadable, epoch_seconds, read_object
 from covey.core.statuses import ENDED
 from covey.core.workspaces import add_workspace, load_config, missing_workspaces, remove_workspaces, worktree_root
 
@@ -132,6 +132,15 @@ NEW_LAYOUT, TOPIC_DIR = re.compile(r"T(\d+)-([0-9a-f]{8})"), re.compile(r"(?:.*-
 def clean_line(text, limit) -> str:
     """``text`` on one line (white space collapsed), at most ``limit`` characters."""
     return " ".join(str(text).split())[:limit]
+
+
+def _update_settings(state_dir, changes) -> None:
+    """core/butler_settings.py ``update`` of ``changes``; ValueError (the page's receipt) when the settings file is there
+    and cannot be read now: nothing written, never the defaults over it (W1-F)."""
+    try:
+        butler_settings.update(state_dir, **changes)
+    except Unreadable:
+        raise ValueError(butler_settings.UNREADABLE) from None
 
 
 def edit_repos(state_dir, home, change) -> str:
@@ -734,7 +743,7 @@ class WebSettings:
             raise ValueError(GONE)
         if not changes:
             return "没有变化"
-        butler_settings.update(ctx.state_dir, **changes)
+        _update_settings(ctx.state_dir, changes)
         return panel_rules.MODE_NOTICES.get(changes.get("enabled")) or panel_rules.saved_notice(kind)
 
     def change_row(self, ctx, payload) -> str:
@@ -767,7 +776,7 @@ class WebSettings:
         if name not in panel_rules.workspace_names(ctx.state_dir) or not isinstance(text, str):
             raise ValueError("没有这个工作区")
         changes = panel_rules.ButlerPanel.notes(butler_settings.load(ctx.state_dir), {"workspaces": [name]}, {"note_0": text})
-        butler_settings.update(ctx.state_dir, **changes)
+        _update_settings(ctx.state_dir, changes)
         return panel_rules.SAVED[WORKSPACE]
 
     def change_redaction(self, ctx, payload) -> str:

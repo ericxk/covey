@@ -1361,7 +1361,7 @@ class Installer:
         try:
             written = butler_settings.preset_harness(self.service_state(), name)
         except OSError as exc:
-            self.note(f"没能把管家设成 {title}（{exc.strerror or type(exc).__name__}）：装好后在飞书「设置」→「配置」的管家一段换")
+            self.note(f"没能把管家设成 {title}（{exc.strerror or str(exc) or type(exc).__name__}）：装好后在飞书「设置」→「配置」的管家一段换")
             return
         self.note((f"Claude Code 没调通：管家用 {title}" if written else "Claude Code 没调通：管家的 Harness 选过了，照旧")
                   + f"；专项、整理专项照常开，负责人和小模型判断也用 {title}")
