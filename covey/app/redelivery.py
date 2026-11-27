@@ -21,7 +21,8 @@ from covey.core.saved_results import (authorized_delivery, display_saved_reply,
                                                saved_delivery_key, saved_delivery_kind)
 from covey.core.turn_words import retry_hint
 from covey.feishu.delivery import card_tried, markdown_tried
-from covey.feishu.transport import Failure, last_failure, set_failure
+from covey.feishu.transport import NOT_SENT, Failure, last_failure, set_failure
+from covey.feishu.transport import outcome as send_outcome
 
 
 def delivery_context(ctx, record, saved_job):
@@ -78,8 +79,7 @@ class Redelivery:
         state = record_attempt(ctx.state_dir, key, failure, delivered=delivered)
         if state == "delivered":
             self.delivered_relay(ctx, key, text)
-        elif state == "paused" and failure is not None and not failure.ambiguous \
-                and failure.category != "reconciliation_required":
+        elif state == "paused" and send_outcome(False, failure) == NOT_SENT:
             self.settle_relay(ctx, {**(find_job_record(ctx.state_dir, key) or {}), "key": key}, STOPPED, PAUSED_REASON)
         return state
 

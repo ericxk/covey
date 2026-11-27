@@ -145,8 +145,9 @@ def _facts(state_dir, job, turn, outcome):
 def relay(state_dir, job, outcome, *, send, profile=None, log=None, merge=True, **facts):
     """Relay ``job``'s ``outcome`` once: ``send(chat, text, key, reply_to, card, on_sent)`` sends it (Messenger's
     send_message; ``key`` is the job's key, the same at every call), ``log`` gets a line of what became of it. The
-    relay record's state: None when not relayed, else "sent", "uncertain", or for a job that had a record already,
-    what it says (nothing sent); "skipped" for a stop the owner pressed in the 话题区 (D4). ``merge`` False: a 做完了
+    relay record's state: None when not relayed, else "sent", "failed" (surely not sent: the same key goes again at the
+    next relay of the job, app/relay_send.py RETRIES), "uncertain", or for a job that had a record already, what it says
+    (nothing sent); "skipped" for a stop the owner pressed in the 话题区 (D4). ``merge`` False: a 做完了
     goes at once, never waiting for others of its chat (``settle_missing``: no task runner keeps its window)."""
     if not butler.enabled():
         return None

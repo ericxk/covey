@@ -57,6 +57,8 @@ python3 -B -m unittest discover -s tests -p test_steer.py        # 不经地图�
 - 名册里加了 Harness：先在 `SEEN` 里写它的后端怎么接 Bridge 工具、怎么让负责人只读，否则 `test_every_core_harness_says_how_its_cells_are_seen` 失败。
 - 某一格在某个 Harness 上做不到：修好，或者写进 `GAPS` 并写明原因（设计如此还是待接上）；`GAPS` 里的格后来做到了也会失败，提醒把它去掉。
 - 概念清单（`scripts/concepts.py`、`tests/golden/concepts.json`）见 AGENTS.md 的「概念清单」，由 `test_structure` 的 `ConceptFreezeTest` 核对。
+- 中间态（`sending`、`creating`、`running`、`submitting`、`uncertain`）：写这些状态的模块登记在 `tests/golden/midstates.json`，写明重启后怎么收尾；`test_matrix.py` 的 `RESTART_CELLS` 每个模块一行“重启后再点一次”（飞书、网页各一格：现有测试、不适用或缺口）。`test_structure` 的 `MidStateTest` 核对：新写一个中间态没登记、登记了源码里已没有、缺格都失败（G4）。
+- 写回同一文件前的读用 `core/state.py` 的 `read_for_write`；还用 `read_object` 这样读的函数列在 `tests/golden/state_writes.json`，只减不增，由 `test_structure` 的 `StateWriteTest` 核对（G1）。
 
 ### 不改行为的改动：副作用轨迹与补丁清单
 
