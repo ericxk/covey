@@ -149,6 +149,18 @@ class ReplyPreservationTest(unittest.TestCase):
         self.assertEqual(c.record["status"], "failed")
         self.assertFalse(any(e[0].startswith("question_") for e in c.tx.events))
 
+    def test_a_result_redelivered_tells_the_top_level_once_it_went(self):
+        # W1-F step 6 (T891 B4): a first send that failed left the butler's top level without the turn's end; the
+        # redelivery that gets it to the topic relays it then (app/task_controls.py delivered_relay), with the reply sent.
+        c = self.case(limit=300, text_ok=False, file_ok=False)
+        with mock.patch.object(type(c.app.controls), "delivered_relay") as relayed:
+            self.assertNotIn(REDELIVERED_STATUS, c.app.controls.retry_topic(c.ctx, "oc-unit", "retry-fails"))
+            relayed.assert_not_called()  # Not delivered: nothing said at the top level yet.
+            c.tx.file_ok = True
+            self.assertIn(REDELIVERED_STATUS, c.app.controls.retry_topic(c.ctx, "oc-unit", "retry-event"))
+        relayed.assert_called_once()
+        self.assertEqual(relayed.call_args.args[1:], (c.job.message_id, c.record["final_text"]))
+
     def test_failed_body_blocks_form_callback_restart_and_plain_answer(self):
         c = self.case(limit=300, text_ok=False, file_ok=False)
         self.assertFalse(c.record["delivery_ok"])

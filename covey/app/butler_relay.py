@@ -55,7 +55,7 @@ from pathlib import Path
 from covey.app import answer_cards, relay_stops, review
 from covey.app.artifacts import answer_files
 from covey.app.relay_send import (QUESTION_RELAYS, SKIPPED, merge_seconds, messenger_send, record_only, record_unsent,
-                                           relay_path, send_merged, send_once as _send_once)
+                                           relay_path, send_merged, send_once as _send_once, take_left as take_left_pending)
 from covey.app.relay_targets import areas_of, awaited_target, relay_target
 from covey.cards.answer_card import alerts
 from covey.cards.relay_card import DONE, STOPPED, WAITING
@@ -142,11 +142,12 @@ def _facts(state_dir, job, turn, outcome):
     return relay_stops.facts(state_dir, job)
 
 
-def relay(state_dir, job, outcome, *, send, profile=None, log=None, **facts):
+def relay(state_dir, job, outcome, *, send, profile=None, log=None, merge=True, **facts):
     """Relay ``job``'s ``outcome`` once: ``send(chat, text, key, reply_to, card, on_sent)`` sends it (Messenger's
     send_message; ``key`` is the job's key, the same at every call), ``log`` gets a line of what became of it. The
     relay record's state: None when not relayed, else "sent", "uncertain", or for a job that had a record already,
-    what it says (nothing sent); "skipped" for a stop the owner pressed in the 话题区 (D4)."""
+    what it says (nothing sent); "skipped" for a stop the owner pressed in the 话题区 (D4). ``merge`` False: a 做完了
+    goes at once, never waiting for others of its chat (``settle_missing``: no task runner keeps its window)."""
     if not butler.enabled():
         return None
     target = relay_target(state_dir, job)
@@ -165,13 +166,91 @@ def relay(state_dir, job, outcome, *, send, profile=None, log=None, **facts):
     # 做完了 relays that come close together go as one (app/relay_send.py send_merged); 等你 and 停住了 never wait, and nor
     # does one with what the owner must see (a commit not found, the criteria not met: cards/answer_card.py alerts), whose
     # own card says it and takes a reply to its topic (T647 P1-A2).
-    seconds = merge_seconds() if outcome == DONE and not alerts(facts.get("change"), facts.get("notes")) else 0
+    seconds = merge_seconds() if merge and outcome == DONE and not alerts(facts.get("change"), facts.get("notes")) else 0
     if seconds:
         title = topic_title(Path(state_dir), str(target.get("topic_id") or job_field(job, "topic_id")))
         return send_merged(state_dir, job, relay_path(state_dir, key), key, target, send, profile=profile, log=log,
                            seconds=seconds, title=title, **facts)
     return _send_once(state_dir, job, relay_path(state_dir, key), key, target, outcome, send, profile=profile, log=log,
                       **facts)
+
+
+# The end of a turn the task runner's own relay (``after_turn``) never reached, settled by the Bridge (W1-F) ------------
+
+def ended_outcome(record):
+    """What ``record``'s turn relays now that its topic has its result (a redelivery, app/redelivery.py): DONE for a done
+    one, WAITING for one waiting for the owner, STOPPED for a failed or cancelled one, else None."""
+    status = record.get("status")
+    if status == "done":
+        return DONE
+    if status == "waiting_user":
+        return WAITING
+    return STOPPED if status in STOPPED_STATUSES else None
+
+
+def _mirrored(state_dir, record) -> bool:
+    """Whether a question of ``record``'s turn is copied to the top level already (``mirror_questions``)."""
+    rows = directory_store(Path(state_dir) / "questions").query(job_id=record.get("job_id"), topic_id=record.get("topic_id"))
+    return any(row.get("mirror_message_id") for _, row in rows)
+
+
+def settle_missing(state_dir, record, outcome, *, send, profile, log, text=""):
+    """The relay of a turn whose end its task runner never relayed (docs/butler.md 结论回到顶层): the Bridge's, from the job
+    ``record`` (no turn object here): one left interrupted with nothing to go on by itself (app/task_controls.py left_stopped: app/detached.py
+    finish_detached, the Bridge's start), a result redelivered after its first send failed (app/redelivery.py), one the
+    outbox gave up sending (app/outbox.py, paused). ``outcome``: DONE with ``text`` the reply just sent to the topic (none:
+    nothing relayed, rule 5), WAITING, STOPPED (``text``, when given, its reason; else the task card's, relay_stops.facts).
+    The same gates as ``after_turn``: the butler on, the turn's own delivery, a row of the layout that relays it or the owner
+    waiting for it (relay_targets.awaited_target); never merged (``relay`` merge False). Each job relays once (rule 6):
+    one with a relay record already gets its state, nothing sent (relay_send.send_once), so the runner's own relay and
+    this one never both go; a waiting turn whose question is copied up already gets "mirrored". Never raises: a failure
+    is a log line and None."""
+    try:
+        if not record or outcome not in (DONE, WAITING, STOPPED) or not butler.enabled():
+            return None
+        if not turn_source.behavior(record).own_delivery:
+            return None  # A 协作 ask's turn: its collaboration's.
+        row = placement.plan(state_dir, record).row
+        if not (row.question_copy or row.conclusion or row.stop):
+            return None
+        if not (row.conclusion or row.stop) and not (outcome in AWAITED and awaited_target(state_dir, record)):
+            return None
+        if outcome == DONE and not str(text or "").strip():
+            return None  # Only the reply that went out is relayed, never one drawn here.
+        if outcome == WAITING and _mirrored(state_dir, record):
+            return "mirrored"
+        if outcome == DONE:
+            facts = {"text": text}
+        elif outcome == WAITING:
+            facts = {"question": _question(state_dir, record)}
+        else:
+            facts = relay_stops.facts(state_dir, record)
+            if text:
+                facts["reason"] = text
+        state = relay(state_dir, record, outcome, send=send, profile=profile, log=log, merge=False, **facts)
+        if state is not None and log is not None:
+            log(f"main relay settled outcome={outcome} job=#{record.get('job_id')} state={state}")
+        return state
+    except Exception as exc:  # noqa: BLE001 - the turn's end stands; only its relay is lost
+        if log is not None:
+            log(f"main relay settle of job #{record.get('job_id') if isinstance(record, dict) else '?'} failed: "
+                f"{type(exc).__name__}")
+        return None
+
+
+def take_left(state_dir, job, *, send, profile, log):
+    """A 做完了 relay of ``job`` left PENDING (relay_send.send_merged) by a task runner that has exited: its window's thread
+    went with it, so the relays of its chat still pending go now (relay_send.take_left). The Bridge's, once the runner is
+    gone (app/detached.py finish_detached, end_stranded). Never raises: the record's state, None for none."""
+    try:
+        if not butler.available():
+            return None
+        key = job_key(str(job_field(job, "message_id")), job_field(job, "job_id"))
+        return take_left_pending(state_dir, key, send, profile=profile, log=log)
+    except Exception as exc:  # noqa: BLE001 - it goes with the chat's next merged relay
+        if log is not None:
+            log(f"main relay pending of job #{job_field(job, 'job_id')} not taken: {type(exc).__name__}")
+        return None
 
 
 def question_relay_path(state_dir, key, token) -> Path:

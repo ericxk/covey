@@ -402,6 +402,9 @@ class BridgeApp:
             self.controls.report_unfinished(ctx, stale,
                                             turn_words.device_interrupted(stale) or interrupted_notice(stale.get('job_id')),
                                             self.key("stale", str(stale.get("key"))), keep_question_forms=True)
+            # One that goes on by itself (the restart's automatic 检查并继续) or keeps its question form says nothing more;
+            # else a turn the butler handed on says 停住了 at the top level (app/butler_relay.py settle_missing).
+            self.controls.relay_unfinished(ctx, str(stale.get("key")))
 
     def unclaimed_card_action(self, event: dict[str, Any], ctx: BridgeContext) -> None:
         """A click no topic handler took: a retired card."""

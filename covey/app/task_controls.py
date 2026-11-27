@@ -29,6 +29,7 @@ from covey.app.card_lanes import after_ack
 from covey.cards.review import recent_user_questions
 from covey.core.saved_results import has_saved_reply, load_authorized_reply
 from covey.core.locks import LOCK, topic_lock
+from covey.core.statuses import OPEN_QUESTIONS
 from covey.core.store import directory_store
 from covey.app import auto_retry, butler_reactions, relay_stops, subagent_recovery
 from covey.app.recovery_cards import paint_answered, recovery_card
@@ -101,6 +102,21 @@ class _Marked:
     @property
     def top_message(self):
         return self.record.get("top_message")
+
+
+def left_stopped(state_dir, record) -> bool:
+    """Whether ``record``'s turn was left interrupted with nothing to go on by itself: no automatic retry pending, queued
+    or that a restart would plan (app/auto_retry.py pending, plan_restart), no 检查并继续 already queued (``retried_by``),
+    no saved reply the outbox still sends, and no question of it still open (its form waits for the owner). The end
+    app/butler_relay.py settle_missing relays as 停住了."""
+    if not record or record.get("status") != "interrupted" or record.get("retried_by"):
+        return False
+    if auto_retry.pending(record) or record.get("auto_retry_state") == "submitting" or auto_retry.plan_restart(record):
+        return False
+    if record.get("outbox_version") == 1 and record.get("outbox_state") not in ("paused", "delivered"):
+        return False  # Its saved reply is still the outbox's to send (app/outbox.py): a 停住了 now would hold its 做完了 back.
+    rows = directory_store(Path(state_dir) / "questions").query(job_id=record.get("job_id"), topic_id=record.get("topic_id"))
+    return not any(row.get("status", "pending") in OPEN_QUESTIONS for _, row in rows)
 
 
 class TaskControls(Redelivery):
@@ -235,6 +251,53 @@ class TaskControls(Redelivery):
         if not self.show_recovery_card(ctx, record):
             self.messenger.send_message(ctx.profile, str(record.get("chat_id") or ""), notice, key,
                                         reply_to_message_id=str(record.get("reply_to_message_id") or ""), voice=self.voice)
+
+    def relay_unfinished(self, ctx, key):
+        """After ``report_unfinished`` of job ``key`` (a runner's end, app/detached.py finish_detached; the Bridge's
+        start, app/app.py notify_stale_jobs): a turn the butler handed on, left interrupted with nothing to go on by
+        itself (app/butler_relay.py left_stopped), has its 停住了 at the top level, which its task runner never sent;
+        the state of that relay, None for none. Never raises."""
+        from covey.app import butler_relay
+
+        try:
+            record = find_job_record(ctx.state_dir, key)
+            if not left_stopped(ctx.state_dir, record):
+                return None
+        except Exception as exc:  # noqa: BLE001 - the recovery card stands; only the top level's notice is lost
+            self.runtime.log(f"unfinished relay of job {str(key)[-10:]} not settled: {type(exc).__name__}")
+            return None
+        return self.settle_relay(ctx, record, butler_relay.STOPPED)
+
+    def settle_relay(self, ctx, record, outcome, text=""):
+        """``record``'s end at the top level for a turn the butler handed on, which its task runner's own relay never
+        reached (app/butler_relay.py settle_missing: sent once, never raises); the relay's state, None for none."""
+        from covey.app import butler_relay
+
+        return butler_relay.settle_missing(ctx.state_dir, record, outcome,
+                                           send=butler_relay.messenger_send(self.messenger, ctx.profile, self.voice),
+                                           profile=ctx.profile, log=self.runtime.log, text=text)
+
+    def delivered_relay(self, ctx, key, text=""):
+        """A redelivery (app/redelivery.py) just got job ``key``'s result to its topic: its 做完了 (``text``, the reply
+        sent), 等你 or 停住了 at the top level (``settle_relay``), as its task runner would have sent it had the first
+        send gone."""
+        from covey.app import butler_relay
+
+        try:
+            record = find_job_record(ctx.state_dir, key) or {}
+        except (OSError, ValueError) as exc:  # The redelivery stands; only the top level's notice is lost.
+            self.runtime.log(f"delivered relay of job {str(key)[-10:]} not settled: {type(exc).__name__}")
+            return None
+        outcome = butler_relay.ended_outcome(record)
+        return self.settle_relay(ctx, record, outcome, text if outcome == butler_relay.DONE else "") if outcome else None
+
+    def take_left_relay(self, ctx, job):
+        """A 做完了 relay ``job``'s task runner left waiting for others of its chat when it exited: sent now
+        (app/butler_relay.py take_left). Never raises."""
+        from covey.app import butler_relay
+
+        return butler_relay.take_left(ctx.state_dir, job, send=butler_relay.messenger_send(self.messenger, ctx.profile, self.voice),
+                                      profile=ctx.profile, log=self.runtime.log)
 
     def task_action(self, ctx, event):
         """检查并继续 and 停止自动重试 on a task's card; 检查并继续 on a stopped relay at the top level (app/relay_stops.py RELAY) is

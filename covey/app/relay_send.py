@@ -7,7 +7,8 @@ again; a 停住了 one keeps its card as sent, ``card``, for its buttons' clicks
 ``unsent`` for one that failed before any Feishu call (``record_unsent``: kept and logged, never sent later),
 the one way a relay goes out through the Messenger (``messenger_send``), its T numbers as links (``linked``), and
 what each message sent says about whose it is (``remember_sent``). ``send_merged``: a 做完了 relay that may wait
-COVEY_RELAY_MERGE_SECONDS for others of its chat (PENDING, listed in WAITING) and go out with them as one card."""
+COVEY_RELAY_MERGE_SECONDS for others of its chat (PENDING, listed in WAITING) and go out with them as one card; one a task
+runner left PENDING when it exited is the Bridge's to send (``take_left``)."""
 from __future__ import annotations
 
 import time
@@ -449,3 +450,29 @@ def take(state_dir, chat, path, key, target, send, made, profile=None, log=None)
         made = (built, text, links, {})
         key = key + "-merged"
     return _send(state_dir, taken, key, target, DONE_OUTCOME, send, made, profile, log)
+
+
+def take_left(state_dir, key, send, profile=None, log=None):
+    """The 做完了 relay of job ``key`` left PENDING by a task runner that exited before its window ended (killed, or its
+    wait for background work cut short): the Bridge's, once that runner is gone (app/butler_relay.py take_left). The
+    relays of its chat still pending go now as ``take`` sends them, this one first; one alone as a one-row 「做完了」 card
+    drawn from what its record kept (its T number, title and lead: the runner's card went with the runner, and only the
+    reply it kept the lead of is said, rule 5). Nothing when it is not pending (sent with another's, or never merged): a
+    record leaves PENDING once, under the lock (rule 6). The record's state, None without one."""
+    path = relay_path(state_dir, key)
+    with lock(state_dir):
+        own = read_object(path)
+    if own.get("state") != PENDING:
+        return own.get("state") or None
+    target, chat = own.get("target"), own.get("chat_id")
+    if not isinstance(target, dict) or not target.get("chat_id") or chat != target.get("chat_id"):
+        return PENDING  # From a release that kept no target: it goes with the chat's next merged relay.
+    item = own.get("item") if isinstance(own.get("item"), dict) else {"label": target.get("label") or ""}
+    links = {item["topic_id"]: item.get("card") or ""} if item.get("topic_id") else {}
+    from covey.app.topic_links import links_for
+
+    urls = links_for(state_dir, links, cards=links, profile=profile) if links else {}
+    built, text = merged_fit(state_dir, chat, [{**item, "url": urls.get(item.get("topic_id") or "", "")}], links, profile)
+    if log is not None:
+        log(f"main relay pending taken job={str(key)[-10:]}: its task runner has exited")
+    return take(state_dir, chat, path, key, target, send, (built, text, links, {}), profile, log)

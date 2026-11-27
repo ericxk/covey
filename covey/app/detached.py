@@ -320,6 +320,7 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
         queue_lost(app, job, ctx)
         collab_after(gateway, job, ctx)  # A 协作 turn the guard stopped: its record settles it.
         butler_relay.after_runner(gateway, job, ctx)
+        app.controls.take_left_relay(ctx, job)  # A 做完了 its runner left waiting for others of its chat.
         end_done(ctx.state_dir, job.message_id)
         return  # The guard owns the stopped runner's final card and notice.
     try:
@@ -341,6 +342,9 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
                                            device_notice(updated, job.job_id, directory),
                                            app.key("runner-lost", job.message_id),
                                            keep_question_forms=False, restart=cause in ("sigterm", "restart"))
+            # Nothing goes on by itself (no automatic retry, no live question): a turn the butler handed on says
+            # 停住了 at the top level, which its runner never sent (app/butler_relay.py settle_missing).
+            app.controls.relay_unfinished(context_for_job(ctx, job), job.message_id)
         # A turn on a device the runner left without seeing its Agent end (the runner was killed, the link was lost, a stop
         # could not be told): the device may still run it. Registered, never reaped here (core/device_reap.py).
         if record:
@@ -359,6 +363,7 @@ def finish_detached(gateway, app, job, ctx, directory: Path) -> None:
             ack(directory, payload["id"], False, local=True)
     queue_lost(app, job, ctx)
     after_job(gateway, app, job, ctx)
+    app.controls.take_left_relay(ctx, job)  # A 做完了 its runner left waiting for others of its chat: sent now.
     end_done(ctx.state_dir, job.message_id)
     _compact_when_idle(gateway, app, job, ctx)
 
@@ -412,7 +417,9 @@ def end_stranded(gateway, ctx) -> None:
                 why = "its Harness is not in the roster" if app is None else "its runner ended too long ago"
                 gateway.runtime.log(f"turn end dropped job=#{saved.get('job_id')}: {why}")
             else:
-                after_job(gateway, app, load_job(handoff["job"]), app.harness.context)
+                job = load_job(handoff["job"])
+                after_job(gateway, app, job, app.harness.context)
+                app.controls.take_left_relay(app.harness.context, job)  # A 做完了 left waiting when its runner exited.
                 gateway.runtime.log(f"turn end run at start job=#{saved.get('job_id')}: "
                                     "its runner exited while no Bridge watched it")
         except Exception as exc:  # noqa: BLE001 - one turn's end never holds up the start or the others

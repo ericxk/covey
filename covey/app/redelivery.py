@@ -9,11 +9,12 @@ import hashlib
 from pathlib import Path
 
 from covey.app import saved_send
-from covey.app.outbox import needs_question, record_attempt
+from covey.app.outbox import PAUSED_REASON, needs_question, record_attempt
+from covey.cards.relay_card import STOPPED
 from covey.core import placement
 from covey.core.checkpoint import checkpoint_reply_display, read_checkpoint
 from covey.core.jobs import saved_job as rebuilt_job
-from covey.core.jobs import upsert_job_record
+from covey.core.jobs import find_job_record, upsert_job_record
 from covey.core.saved_results import (authorized_delivery, display_saved_reply,
                                                paused_question_delivery, paused_question_delivery_key,
                                                saved_delivery_key, saved_delivery_kind)
@@ -58,6 +59,20 @@ class Redelivery:
                                     **({"card": card} if card is not None else {}),
                                     **({"on_card": on_card} if on_card is not None else {}))
 
+    def attempted(self, ctx, key, failure, *, delivered=False, text=""):
+        """app/outbox.py record_attempt of a redelivery of job ``key``, then the top level told (TaskControls'
+        ``delivered_relay`` and ``settle_relay``, app/task_controls.py): a result that just went, or 停住了 with
+        PAUSED_REASON once the outbox gives up (paused) on a send that surely did not go: not one that may have landed
+        (``failure`` ambiguous, reconciliation_required, or none to tell), whose relay would say what is not known.
+        The outbox state."""
+        state = record_attempt(ctx.state_dir, key, failure, delivered=delivered)
+        if state == "delivered":
+            self.delivered_relay(ctx, key, text)
+        elif state == "paused" and failure is not None and not failure.ambiguous \
+                and failure.category != "reconciliation_required":
+            self.settle_relay(ctx, {**(find_job_record(ctx.state_dir, key) or {}), "key": key}, STOPPED, PAUSED_REASON)
+        return state
+
     def saved_outgoing(self, ctx, record, saved_job, reply, outcome, text):
         """What ``record``'s saved reply goes out as again: what its first send kept under the same key, as it was
         (the same key never goes with other content), when its digest is that of ``text``, the reply authorized now
@@ -101,7 +116,7 @@ class Redelivery:
                     if outgoing is None:
                         self.runtime.log(f"saved result not sent again job={record['key'][-10:]}: "
                                          "its first send tried a card that was not kept")
-                        record_attempt(ctx.state_dir, record['key'], Failure('reconciliation_required'))
+                        self.attempted(ctx, record['key'], Failure('reconciliation_required'))
                         return TRIED_NOT_KEPT
                     sent, answer_message = saved_send.send_saved(
                         dataclasses.replace(ctx, reply_to_message_id=saved_job.reply_to_message_id), saved_job,
@@ -110,7 +125,7 @@ class Redelivery:
                         # Drawn as the upload stood at the first send: its 产物 as they are now (never raises).
                         self.artifacts.refresh_answer_cards(ctx, record)
                 if not sent:
-                    record_attempt(ctx.state_dir, record['key'], last_failure())
+                    self.attempted(ctx, record['key'], last_failure())
                     return "保存的结果仍未能发送，请稍后重试；不会重新执行任务。"
                 upsert_job_record(ctx.state_dir, record["key"], delivery_ok=True,
                     status='waiting_user' if needs_question(record) else outcome.job_status,
@@ -118,14 +133,14 @@ class Redelivery:
                     **({"answer_message_id": answer_message} if answer_message else {}))
                 if needs_question(record):
                     if not self.questions.deliver_checkpoint_questions(delivery_ctx, saved_job, False):
-                        record_attempt(ctx.state_dir, record['key'], last_failure())
+                        self.attempted(ctx, record['key'], last_failure())
                         return '正文已送达，问题控件仍未送达；不会重新执行任务。'
                     upsert_job_record(ctx.state_dir, record['key'], question_delivery_ok=True, status='waiting_user')
-                record_attempt(ctx.state_dir, record['key'], None, delivered=True)
+                self.attempted(ctx, record['key'], None, delivered=True, text=text)
                 return "保存的结果已重新投递；没有调用模型或恢复原生会话。"
         except Exception as exc:
             self.runtime.log("saved result redelivery refused: " + type(exc).__name__)
-            record_attempt(ctx.state_dir, record['key'], Failure('reconciliation_required'))
+            self.attempted(ctx, record['key'], Failure('reconciliation_required'))
             return "保存结果未通过发布条件或完整性检查，暂不能投递；不会重新执行任务。"
 
     def redeliver_paused_question(self, ctx, chat_id, record):
@@ -149,20 +164,20 @@ class Redelivery:
                                                            current["paused_question_delivery"]),
                         send=self.send_message, artifacts=self.artifacts)
                     if not sent:
-                        record_attempt(ctx.state_dir, current['key'], last_failure())
+                        self.attempted(ctx, current['key'], last_failure())
                         return "问题正文仍未送达，请稍后重试；不会执行任务。"
                     upsert_job_record(ctx.state_dir, current["key"], delivery_ok=True)
                 if not self.questions.deliver_checkpoint_questions(delivery_ctx, saved_job, False):
                     upsert_job_record(ctx.state_dir, current["key"], status="failed", question_delivery_ok=False)
-                    record_attempt(ctx.state_dir, current['key'], last_failure())
+                    self.attempted(ctx, current['key'], last_failure())
                     return "正文已送达，问题控件仍未送达；请稍后重试。"
                 upsert_job_record(ctx.state_dir, current["key"], status="waiting_user", delivery_ok=True,
                                   question_delivery_ok=True, status_message="原生问答已重新投递")
-                record_attempt(ctx.state_dir, current['key'], None, delivered=True)
+                self.attempted(ctx, current['key'], None, delivered=True)
                 return "原生问答已重新投递；没有重新执行任务。"
         except Exception as exc:
             self.runtime.log("native question redelivery refused: " + type(exc).__name__)
-            record_attempt(ctx.state_dir, record['key'], Failure('reconciliation_required'))
+            self.attempted(ctx, record['key'], Failure('reconciliation_required'))
             return "原生问答暂停或投递状态未通过核对；不会重新执行任务。"
 
     def redeliver_failed_delivery(self, ctx, chat_id, message_id, record):
@@ -238,4 +253,5 @@ class Redelivery:
                     else f"原始回复仍未能完整发送，问题控件也未送达；请稍后{retry_hint()}。")
         upsert_job_record(ctx.state_dir, record["key"], status=execution_status,
                           status_message=REDELIVERED_STATUS, delivery_ok=True, question_delivery_ok=True)
+        self.delivered_relay(ctx, record["key"], text)  # The top level's 做完了 or 等你, which the first send never sent.
         return REDELIVERED_STATUS + "。"

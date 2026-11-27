@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from covey.core.jobs import context_for_record, find_job_record, select_job_records, upsert_job_record
+from covey.cards.relay_card import STOPPED
 from covey.core.loops import every
 from covey.core import recovery
 from covey.core.recovery import classify, needs_question
@@ -14,6 +15,7 @@ RETRY_NOTE = "检查并继续：新开一个任务，带上本轮的检查点和
 REDELIVER_NOTE = "重新投递结果：只重新发送已保存的回复，不重新执行任务。"
 REDELIVER_LABEL = recovery.REDELIVER_LABEL
 AUDIT_REFUSED_NOTE = "飞书内容审核拒收了这条结果，打码后仍未通过；原文保存在本地任务记录，请在本话题继续说明需求"
+PAUSED_REASON = "结果没送到话题"  # The 停住了 at the top level of a result the outbox gave up on (app/butler_relay.py settle_missing).
 
 
 def retry_label(record):
@@ -22,6 +24,8 @@ def retry_label(record):
 
 
 def record_attempt(state, key, failure, *, delivered=False, now=None):
+    """One send of job ``key``'s saved result (``failure`` None when it went or is unclassified): the record's outbox
+    state ``delivered``, ``pending`` (tried again later) or ``paused`` (given up: not retryable, or 12 tries); returned."""
     now = time.time() if now is None else now
     record = find_job_record(state, key) or {}
     attempts = int(record.get('outbox_attempts') or 0) + 1
@@ -32,6 +36,7 @@ def record_attempt(state, key, failure, *, delivered=False, now=None):
                       outbox_next_at=now + delay,
                       delivery_error='' if delivered else (failure.category if failure else 'delivery_unclassified'),
                       **({'timings': {'delivered': now}} if delivered else {}))
+    return status
 
 
 def due(record, now):
@@ -72,6 +77,8 @@ def tick(gateway, ctx, *, now=None):
         except (OSError, ValueError, KeyError, TypeError):
             upsert_job_record(ctx.state_dir, record['key'], outbox_state='paused',
                               delivery_error='reconciliation_required')
+            # Given up: a turn the butler handed on says 停住了 at the top level (app/butler_relay.py settle_missing).
+            owner.controls.settle_relay(owner.harness.context, record, STOPPED, PAUSED_REASON)
 
 
 def run(gateway, ctx, *also):

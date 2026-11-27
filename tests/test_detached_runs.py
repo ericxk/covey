@@ -748,6 +748,27 @@ class BridgeSideTests(UnifiedCase):
                          ("interrupted", "sigterm", "pending", "restarted"))
         self.assertEqual(recovery.call_args.args[1]["auto_retry_state"], "pending")
 
+    def test_a_runner_gone_mid_turn_has_its_stop_relayed_and_its_pending_relay_taken(self):
+        # W1-F step 6 (T891 B4): a turn the butler handed on whose runner was killed left the top level silent; the Bridge
+        # relays its 停住了 once nothing goes on by itself, and takes a 做完了 the runner left waiting for its chat.
+        app, ctx, directory, _ = self.running_job(runner=False)
+        job = BridgeReplyJob(job_id=7, user_text="hi", chat_id="chat", message_id="task-7", timeout=0,
+                             topic_id=ctx.topic_id, harness_id=app.spec.name, reply_to_message_id="task")
+        with mock.patch.object(type(app.controls), "show_recovery_card", return_value=True), \
+                mock.patch.object(type(app.controls), "relay_unfinished") as relayed, \
+                mock.patch.object(type(app.controls), "take_left_relay") as taken:
+            detached.finish_detached(self.app, app, job, ctx, directory)
+        self.assertEqual(find_job_record(ctx.state_dir, "task-7")["status"], "interrupted")
+        self.assertEqual([call.args[1] for call in relayed.call_args_list], ["task-7"])
+        self.assertEqual([call.args[1].message_id for call in taken.call_args_list], ["task-7"])
+
+    def test_a_restart_relays_the_stop_of_a_turn_it_left_with_nothing_to_go_on(self):
+        app, ctx, directory, _ = self.running_job(runner=False)
+        with mock.patch.object(type(app.controls), "show_recovery_card", return_value=True), \
+                mock.patch.object(type(app.controls), "relay_unfinished") as relayed:
+            self.app.notify_stale_jobs(self.ctx)
+        self.assertIn("task-7", [call.args[1] for call in relayed.call_args_list])
+
     def test_a_click_on_a_job_with_a_live_runner_goes_to_its_inbox(self):
         app, ctx, directory, _ = self.running_job()
         with mock.patch.object(type(app.controls), "cancel_reply_job_from_card") as local:
@@ -1183,6 +1204,13 @@ class BridgeSideTests(UnifiedCase):
                          [("rg 会扫 NAS", "task-7")])
         self.assertEqual(sum("turn end run at start job=#7" in line for line in self.logs), 1)
         self.assertEqual(list((ctx.state_dir / detached.ENDS).glob("*.json")), [])
+
+    def test_a_start_takes_the_pending_relay_of_a_runner_that_exited_while_no_bridge_watched(self):
+        app, ctx, directory = self.stranded()
+        with mock.patch.object(detached, "after_job"), \
+                mock.patch.object(type(app.controls), "take_left_relay") as taken:
+            self.app.notify_stale_jobs(self.ctx)
+        self.assertEqual([call.args[1].message_id for call in taken.call_args_list], ["task-7"])
 
     def test_a_bridge_that_watched_its_runner_end_runs_the_end_and_no_start_runs_it_again(self):
         app, ctx, directory = self.stranded()
