@@ -6,6 +6,11 @@ CORE_HARNESSES. The surfaces are the Feishu cards (core/placement.py by role, th
 and the web page (app/web_collect.py). One subTest a cell, each asked the same way of every Harness; what a backend does in
 detail stays in its own tests (test_claude, test_codex, test_agy, test_dsh, test_butler_harness, test_lead_harness).
 
+话题 · 只读首轮 (LOOK, W1-C contract C6, gate G8) is a row of its own (``LookRowTest``): on each Harness, whether a turn the
+butler started without the owner's click writes only its checkpoint and the topic's outputs directory (the path gate, its
+``.git`` refusal, its shell) and whether the topic's next turn is free again; what the gate leaves to the words is in
+``BOUNDS``, and the company extension's MASO, outside the roster, in ``EXTENSION_CELLS``.
+
 A cell left out is what the owner kept finding by hand: the butler only on Claude Code (T614), a lead that could not choose
 its Harness (T664), the butler on Antigravity without topic_start (T750, T754), a topic opened on the web page whose outcome
 never came back to the private chat (T762). A Harness added to the roster fails ``test_every_core_harness_says_how_its_cells_are_seen`` until ``SEEN`` says how its backend takes the Bridge's
@@ -14,10 +19,14 @@ when it starts to hold, so the list stays true.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import shlex
+import tempfile
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -31,15 +40,18 @@ from covey.app import butler_harness, lead_harness, relay_targets, tool_limits, 
 from covey.app.butler_model_choice import resolve
 from covey.app.launch_models import available_models
 from covey.backends.agy import home as agy_home
-from covey.backends.agy.bridge import READ_ONLY_SETTINGS, AntigravityBackend
+from covey.backends.agy import bridge as agy_bridge
+from covey.backends.agy.bridge import LOOK_SETTINGS, READ_ONLY_SETTINGS, AntigravityBackend
 from covey.backends.claude import argv as claude_argv
+from covey.backends.claude import tool_guard
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.backends.codex import appserver
+from covey.backends.codex.workspace_reader import WorkspaceReader
 from covey.backends.dsh import bridge as dsh_bridge
-from covey.core import butler, butler_mcp, butler_settings, placement, projects
+from covey.core import butler, butler_mcp, butler_settings, look_write, placement, projects
 from covey.core.butler import butler_topic_id
 from covey.core.butler_tool_specs import HANDING
-from covey.core.harness import LEAD, READ, TOOL_LIMIT, backend_capabilities
+from covey.core.harness import LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, backend_capabilities
 from covey.core.history_storage import append_history
 from covey.core.menu_choice import butler_harnesses, harness_of
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
@@ -100,14 +112,103 @@ def agy_lead(ctx) -> bool:
     return "--settings" in argv and json.loads(argv[argv.index("--settings") + 1]) == READ_ONLY_SETTINGS
 
 
+def _value(args, flag):
+    return args[args.index(flag) + 1] if flag in args else ""
+
+
+def claude_look(ctx) -> dict:
+    """A LOOK turn on Claude Code: the look hook its argv carries, run as Claude Code runs it, on a Write call (``write``)
+    and a Bash call (``shell``); ``free``: a turn without the limit has neither the hook nor --disallowedTools."""
+    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
+    settings = json.loads(_value(argv, "--settings") or "{}")
+    hooks = [hook["command"] for group in (settings.get("hooks") or {}).get("PreToolUse") or ()
+             for hook in group.get("hooks") or () if "--mode look" in hook.get("command", "")]
+
+    def run(call) -> bool:  # Refused?
+        args = shlex.split(hooks[0])[3:]
+        with mock.patch("sys.stderr", io.StringIO()):
+            return tool_guard.main(args, stdin=io.StringIO(json.dumps(call))) == 2
+    if not hooks or "--disallowedTools" in argv:
+        return {"write": None, "shell": None}
+    return {"write": lambda path: run({"tool_name": "Write", "tool_input": {"file_path": path}}),
+            "shell": lambda command, cwd: run({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd})}
+
+
+def claude_free(ctx) -> bool:
+    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
+    return "--disallowedTools" not in argv and "--mode look" not in " ".join(argv)
+
+
+def codex_look(ctx) -> dict:
+    """A LOOK turn on Codex: the workspace server its thread starts, with its write tool (``write``); its shell is in the
+    read-only sandbox for the thread and the turn (``shell``: every write refused by the sandbox, tests/test_collab_c8.py)."""
+    params, _ = appserver.thread_params(ctx, None)
+    args = params["config"]["mcp_servers.bridge_workspace.args"]
+    approved = params["config"].get("mcp_servers.bridge_workspace.default_tools_approval_mode") == "approve"
+    if "--allow-file" not in args or not approved:
+        return {"write": None, "shell": None}
+    reader = WorkspaceReader(_value(args, "--root"), allow_file=_value(args, "--allow-file"), allow_dir=_value(args, "--allow-dir"))
+
+    def write(path) -> bool:
+        try:
+            reader.call("workspace_write_file", {"path": path, "content": "x"})
+        except ValueError:
+            return True
+        return False
+    sandboxed = params["sandbox"] == "read-only" and appserver.sandbox_mode(ctx) == "read-only"
+    return {"write": write, "shell": (lambda command, cwd: True) if sandboxed else None}
+
+
+def codex_free(ctx) -> bool:
+    params, _ = appserver.thread_params(ctx, None)
+    return params["sandbox"] != "read-only" and "--allow-file" not in params["config"]["mcp_servers.bridge_workspace.args"]
+
+
+def agy_look(ctx) -> dict:
+    """A LOOK turn on Antigravity: LOOK_SETTINGS deny its own file tools (agy 1.5.18: tests/test_collab_c8.py AgyLookC6),
+    and its private home's server (bin/covey_look_write.py) is the write tool; its shell is not denied (``shell`` None)."""
+    argv = AntigravityBackend().argv(ctx, None)
+    server = ((agy_bridge.home_config(ctx) or {}).get("mcpServers") or {}).get("bridge_workspace") or {}
+    args = list(server.get("args") or ())
+    denied = json.loads(_value(argv, "--settings") or "{}") == LOOK_SETTINGS
+    if not denied or "covey_look_write.py" not in " ".join(args):
+        return {"write": None, "shell": None}
+
+    def write(path) -> bool:
+        try:
+            look_write.call("workspace_write_file", {"path": path, "content": "x"},
+                            allow_file=_value(args, "--allow-file"), allow_dir=_value(args, "--allow-dir"))
+        except ValueError:
+            return True
+        return False
+    shell = (lambda command, cwd: True) if "command(*)" in LOOK_SETTINGS["permissions"]["deny"] else None
+    return {"write": write, "shell": shell}
+
+
+def agy_free(ctx) -> bool:
+    return "--settings" not in AntigravityBackend().argv(ctx, None) and agy_bridge.home_config(ctx) is None
+
+
+def dsh_look(ctx) -> dict:
+    """DeepSeek Harness has no gate for a LOOK turn: the words alone (app/tool_limits.py LOOK_WORDS)."""
+    return {"write": None, "shell": None}
+
+
+def dsh_free(ctx) -> bool:
+    return not dsh_bridge.lead_turn(ctx)
+
+
 # How each core Harness's backend is seen to take the Bridge's tools (the names a turn has at hand, given the server's
-# list: all of them, or Antigravity's up-front ones) and to hold a lead's turn to reading with those tools kept.
+# list: all of them, or Antigravity's up-front ones), to hold a lead's turn to reading with those tools kept, and to hold a
+# LOOK turn's writes (``look``: its write and shell gates as the backend wires them; ``free``: a turn without the limit).
 SEEN = {
-    "claude": {"tools": claude_tools, "lead": claude_lead},
-    "codex": {"tools": codex_tools, "lead": codex_lead},
-    "dsh": {"tools": dsh_tools, "lead": dsh_lead},
-    "agy": {"tools": agy_tools, "lead": agy_lead},
+    "claude": {"tools": claude_tools, "lead": claude_lead, "look": claude_look, "free": claude_free},
+    "codex": {"tools": codex_tools, "lead": codex_lead, "look": codex_look, "free": codex_free},
+    "dsh": {"tools": dsh_tools, "lead": dsh_lead, "look": dsh_look, "free": dsh_free},
+    "agy": {"tools": agy_tools, "lead": agy_lead, "look": agy_look, "free": agy_free},
 }
+LOOK_GATE, LOOK_GIT, LOOK_SHELL, LOOK_NEXT = ("话题 · 只读首轮 · 路径闸", "话题 · 只读首轮 · .git 拒写", "话题 · 只读首轮 · 命令行写",
+                                              "话题 · 只读首轮 · 第二轮解限")
 # Cells that do not hold on a Harness, on purpose or not yet, with why. A cell here that starts to hold fails
 # test_the_known_gaps_are_still_gaps: take it off.
 GAPS = {
@@ -117,6 +218,25 @@ GAPS = {
     ("话题 · 敏感词脱敏", "codex"): "设计如此：脱敏经 Claude 的词表中转，只有 Claude Code 能脱敏（docs/architecture.md 敏感词脱敏）",
     ("话题 · 敏感词脱敏", "dsh"): "设计如此：同上",
     ("话题 · 敏感词脱敏", "agy"): "设计如此：同上",
+    (LOOK_GATE, "dsh"): "dsh 没声明 look_gate：只读首轮只有文字约束（app/tool_limits.py LOOK_WORDS：只写检查点和产物目录，"
+                         "写不了就略过），没有路径闸",
+    (LOOK_GIT, "dsh"): "同上：没有路径闸，.git 也只靠文字",
+    (LOOK_SHELL, "agy"): "设计如此（规范 C6）：LOOK_SETTINGS 只拒 agy 自己的写文件工具、不拒 command(*)，留着跑只读调研脚本；"
+                         "命令行能写仓库（RT-4 第 5 类：agy 1.5.18 实测 echo >> 写进了仓库文件，AgyLookC6）",
+    (LOOK_SHELL, "dsh"): "同 dsh 路径闸：文字约束",
+}
+# What a LOOK turn's gate leaves to the words on a Harness whose cells above hold (RT-4 第 5 类 and W0-5's read worktree).
+BOUNDS = {
+    "claude": "命令行只拦明显的写（重定向、tee、sed -i、cp/mv/rm/touch/mkdir、dd of=、curl -o、find -delete、xargs 写命令、"
+              "写类 git、covey repo use --write）；脚本自己写文件（python -c、make、npm install）拦不住，靠文字",
+    "codex": "只读沙箱里命令行什么都写不了；covey repo use 要 fetch、建最新主干的只读 worktree、写 .used，在只读沙箱里做不到："
+             "退回读主检出并标“可能落后”（core/repomap.py use 的 note），下一轮（非只读）再用就是最新主干",
+    "agy": "命令行不拦（见 GAPS）；agy 1.5.18 的 edit_file 按 write_file 的权限名检查，FILE_WRITES 补齐的四个名字是防旧名和新版本的",
+    "dsh": "只有文字约束（见 GAPS）",
+}
+# The company extension's Harness, outside CORE_HARNESSES (its own tests: extensions/covey_internal/tests).
+EXTENSION_CELLS = {
+    (LOOK_GATE, "maso"): "MASO：只读首轮只有文字约束（maso/bridge.py prompt_notes 对齐 C6 口径：只写检查点和产物目录），没有路径闸",
 }
 
 
@@ -366,11 +486,78 @@ for _name in CORE_HARNESSES:
     setattr(WebSurfaceTest, f"test_the_four_entries_show_on_the_web_page_on_{_name}", lambda self, n=_name: self.check(n))
 
 
+class LookRowTest(HarnessCellsCase):
+    """话题 · 只读首轮 (LOOK) × Harness (W1-C contract C6, G8): a turn the butler started without the owner's click, as
+    each backend wires it with the turn's ``look_roots`` (``held`` its Harness's look_gate). The path gate writes the
+    checkpoint and the outputs directory and refuses a repository file, another job's checkpoint and a shared read
+    worktree; ``.git`` is refused through a link too; the shell's obvious writes are refused where the Harness can; the
+    topic's next turn is as before."""
+
+    def setUp(self):
+        super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        self.file = root / "state" / "checkpoints" / "om_look-7.json"
+        self.dir = root / "state" / "topics" / "t1" / "outputs"
+        self.repo = root / "home" / "covey"
+        self.read = root / "data" / "worktrees" / "_read" / "covey" / "b4d687c49c3a"
+        for folder in (self.file.parent, self.dir, self.repo / ".git", self.read):
+            folder.mkdir(parents=True)
+        (self.repo / "app.py").write_text("old\n")
+        (self.dir / "gitlink").symlink_to(self.repo / ".git")
+        self.home = root / "home"
+
+    def look_ctx(self, name, limit=True):
+        held = self.capabilities(name).look_gate
+        options = {TOOL_LIMIT: LOOK, LOOK_ROOTS: {"file": str(self.file), "dir": str(self.dir), "held": held}} if limit else {}
+        return make_context(self.home.parent, workdir=self.home, default_workdir=self.home, options=options)
+
+    def test_the_path_gate(self):
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                write = SEEN[name]["look"](self.look_ctx(name))["write"]
+                holds = write is not None and not write(str(self.file)) and not write(str(self.dir / "r.md")) and all(
+                    write(str(path)) for path in (self.repo / "app.py", self.file.parent / "om_other-8.json",
+                                                  self.read / "app.py", self.dir / ".." / "x.md"))
+                self.assertEqual(holds, held(LOOK_GATE, name), gap_words(LOOK_GATE, name))
+                if holds:
+                    self.assertEqual((self.repo / "app.py").read_text(), "old\n")
+
+    def test_git_is_refused_through_a_link_too(self):
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                write = SEEN[name]["look"](self.look_ctx(name))["write"]
+                holds = write is not None and write(str(self.dir / "gitlink" / "config")) and write(str(self.repo / ".git" / "config"))
+                self.assertEqual(holds, held(LOOK_GIT, name), gap_words(LOOK_GIT, name))
+
+    def test_the_shells_obvious_writes(self):
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                shell = SEEN[name]["look"](self.look_ctx(name))["shell"]
+                holds = shell is not None and shell(f"echo x >> {self.repo}/app.py", str(self.repo)) and shell(
+                    "git commit -am x", str(self.repo))
+                if holds and name == "claude":  # Reading runs.
+                    self.assertFalse(shell("rg -n old . && git log --oneline -3", str(self.repo)))
+                    self.assertFalse(shell("covey repo use covey", str(self.repo)))
+                self.assertEqual(holds, held(LOOK_SHELL, name), gap_words(LOOK_SHELL, name))
+
+    def test_the_next_turn_is_free_again(self):
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                self.assertTrue(SEEN[name]["free"](self.look_ctx(name, limit=False)), gap_words(LOOK_NEXT, name))
+
+    def test_every_harness_says_what_the_gate_leaves_to_the_words(self):
+        self.assertEqual(sorted(BOUNDS), sorted(CORE_HARNESSES))
+        self.assertTrue(all(why.strip() for why in (*BOUNDS.values(), *EXTENSION_CELLS.values())))
+
+
 class KnownGapsTest(HarnessCellsCase):
     def test_the_known_gaps_are_still_gaps(self):
-        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, test_redaction): one that holds now
-        fails there; this one keeps GAPS to cells those tests ask."""
-        self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", "话题 · 敏感词脱敏"})
+        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, test_redaction, LookRowTest): one
+        that holds now fails there; this one keeps GAPS to cells those tests ask."""
+        self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", "话题 · 敏感词脱敏", LOOK_GATE, LOOK_GIT,
+                                                          LOOK_SHELL})
 
 
 # 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's

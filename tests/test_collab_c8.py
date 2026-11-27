@@ -574,6 +574,363 @@ class CodexC8(unittest.TestCase):
                 site.receiver.close()
 
 
+class FakeLookMessages(FakeMessages):
+    """A scripted Messages API for a LOOK turn (W1-C, contract C6 and RT-4): the marked turn's first request makes every
+    attempt at once, the next one ends."""
+
+    def __init__(self, site, attempts):
+        super().__init__(site)
+        self.planned = attempts
+
+    def attempts(self):
+        return self.planned
+
+    def answer(self, body):
+        text = self.text_of(body)
+        if MARK not in text:
+            return [{"type": "text", "text": "Original turn answered."}]
+        if '"tool_result"' not in text:
+            return [{"type": "tool_use", "id": f"toolu_c6_{n}", "name": name, "input": args}
+                    for n, (name, args) in enumerate(self.planned)]
+        return [{"type": "text", "text": "C6 look done."}]
+
+
+@unittest.skipUnless(ON and CLAUDE, "opt-in: BRIDGE_C8_REAL_CLI=1 and an installed Claude Code")
+class ClaudeLookC6(unittest.TestCase):
+    def test_a_look_turn_writes_its_checkpoint_and_outputs_and_the_look_hook_refuses_the_rest(self):
+        """W1-C (C6) and RT-4 on the installed Claude Code: a LOOK turn keeps Edit, Write and Bash (no --disallowedTools)
+        and the look hook (backends/claude/tool_guard.py --mode look) lets the checkpoint and the outputs be written and
+        refuses a repository file, a link to .git, a shared read worktree, another job's checkpoint and the shell's
+        obvious writes; a script's own write is the shell's limit (recorded); the topic's next turn is free again."""
+        from covey.backends.claude.bridge import ClaudeBackend
+        from covey.core.harness import LOOK_ROOTS
+        from support.git import commit_all, init_git_repo, run_git
+
+        with tempfile.TemporaryDirectory(prefix="c6-claude-look-", ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            site = Site(root)
+            init_git_repo(site.work)
+            (site.work / "app.py").write_text("print('old')\n")
+            commit_all(site.work)
+            state = root / "state"
+            checkpoint = state / "checkpoints" / "om_look-7.json"
+            outputs = state / "topics" / "t1" / "outputs"
+            read_tree = root / "data" / "worktrees" / "_read" / "work" / "b4d687c49c3a"
+            for folder in (checkpoint.parent, outputs, read_tree):
+                folder.mkdir(parents=True, exist_ok=True)
+            (read_tree / "app.py").write_text("print('main')\n")
+            (outputs / "gitlink").symlink_to(site.work / ".git")
+            git_config = (site.work / ".git" / "config").read_text()
+            w = site.work
+            attempts = [
+                ("Write", {"file_path": str(checkpoint), "content": '{"phase": "look"}'}),
+                ("Write", {"file_path": str(outputs / "report.md"), "content": "report\n"}),
+                ("Edit", {"file_path": str(w / "app.py"), "old_string": "old", "new_string": "edit"}),
+                ("Write", {"file_path": str(w / "new.txt"), "content": "x"}),
+                ("Write", {"file_path": str(outputs / "gitlink" / "config"), "content": "hacked"}),
+                ("Write", {"file_path": str(read_tree / "app.py"), "content": "hacked"}),
+                ("Write", {"file_path": str(checkpoint.parent / "om_other-8.json"), "content": "{}"}),
+                ("Bash", {"command": f"echo x >> {w}/app.py"}),
+                ("Bash", {"command": f"git -C {w} commit -am x"}),
+                ("Bash", {"command": f"git -C {w} log --oneline -1"}),
+                ("Bash", {"command": f"python3 -c \"open('{w}/py.txt', 'w').write('x')\""}),
+            ]
+            config = root / "claude-config"
+            config.mkdir()
+            fake = FakeLookMessages(site, attempts)
+            env = {key: value for key, value in os.environ.items() if not key.startswith(("ANTHROPIC_", "CLAUDE_"))}
+            env.update(ANTHROPIC_API_KEY="key-local-c8-only", ANTHROPIC_BASE_URL=f"http://127.0.0.1:{fake.port}",
+                       CLAUDE_CONFIG_DIR=str(config), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1", DISABLE_TELEMETRY="1",
+                       NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
+            base = make_context(root, workdir=w, default_workdir=w, state_dir=state,
+                                backend_cmd=[CLAUDE], model="claude-sonnet-4-6", effort="", timeout=120)
+            sessions = []
+
+            def run(ctx, prompt, session_id=None):
+                with mock.patch("covey.backends.claude.bridge.child_process_env", return_value=env):
+                    return ClaudeBackend().run(RunRequest(ctx, prompt, session_id, callbacks=RunCallbacks(session=sessions.append),
+                                                          inputs=RunInputs(threading.Event(), run_id=str(uuid.uuid4()))))
+            try:
+                site.mark()
+                look = dataclasses.replace(base, options={TOOL_LIMIT: LOOK, LOOK_ROOTS: {
+                    "file": str(checkpoint), "dir": str(outputs), "held": True}})
+                answer = run(look, f"{MARK}: a new topic judged read-only; write the checkpoint and a report, try elsewhere.")
+                calls = fake.calls[:]
+                offered = tool_names(calls[0]) if calls else []
+                results = tool_results(calls[-1]) if calls else []
+                status = run_git(w, "status", "--porcelain").strip()
+                started = sessions[-1] if sessions else ""
+                count = len(fake.calls)
+                after = run(base, "The owner's next message in the topic.", session_id=started)
+                restored = tool_names(fake.calls[count]) if len(fake.calls) > count else []
+                EVIDENCE["claude_look_c6"] = {
+                    "offered_tools": offered, "attempts": [[name, args] for name, args in attempts], "results": results,
+                    "git_status": status, "checkpoint": checkpoint.read_text() if checkpoint.exists() else None,
+                    "report": (outputs / "report.md").read_text() if (outputs / "report.md").exists() else None,
+                    "git_config_unchanged": (w / ".git" / "config").read_text() == git_config,
+                    "read_tree": (read_tree / "app.py").read_text(), "other_checkpoint": (checkpoint.parent / "om_other-8.json").exists(),
+                    "side_effects": site.side_effects(), "answer": answer.text,
+                    "after": {"error": after.is_error, "session": sessions[-1] if sessions else "", "tools_sample": restored[:12]}}
+                self.assertFalse(answer.is_error, answer.outcome)
+                self.assertTrue({"Bash", "Edit", "Write"} <= set(offered))  # Its tools stay …
+                self.assertEqual(len(results), len(attempts))  # … every attempt was made …
+                refused = [result["is_error"] for result in results]
+                self.assertEqual(refused, [False, False, True, True, True, True, True, True, True, False, False], results)
+                self.assertEqual(json.loads(checkpoint.read_text()), {"phase": "look"})  # … the two places were written …
+                self.assertEqual((outputs / "report.md").read_text(), "report\n")
+                self.assertEqual(status, "?? py.txt")  # … the repository only by a script's own write (the shell's limit).
+                self.assertEqual((w / "app.py").read_text(), "print('old')\n")
+                self.assertEqual((w / ".git" / "config").read_text(), git_config)
+                self.assertEqual((read_tree / "app.py").read_text(), "print('main')\n")
+                self.assertFalse((checkpoint.parent / "om_other-8.json").exists())
+                self.assertFalse(after.is_error, after.outcome)
+                self.assertEqual(sessions[-1], started)
+            finally:
+                fake.close()
+                site.receiver.close()
+
+
+class FakeLookWriter(FakeResponses):
+    """A scripted Responses API for a LOOK turn (W1-C, contract C6 plan B): the marked turn calls the workspace server's
+    ``workspace_write_file`` once for each path, then runs each shell command, then ends; any other turn just answers."""
+
+    def __init__(self, paths, commands=()):
+        super().__init__(list(commands))
+        self.paths = list(paths)
+
+    def items(self, body):
+        if MARK not in json.dumps(body.get("input") or [], ensure_ascii=False):
+            return [{"type": "message", "role": "assistant", "id": "m-orig",
+                     "content": [{"type": "output_text", "text": "Original turn answered."}]}]
+        done = len([call for call, _ in self.outputs(body) if str(call).startswith("c8_")])
+        if done < len(self.paths):
+            return [{"type": "function_call", "namespace": "mcp__bridge_workspace", "name": "workspace_write_file",
+                     "call_id": f"c8_{done}", "arguments": json.dumps({"path": self.paths[done],
+                                                                      "content": f"written by attempt {done}\n"})}]
+        at = done - len(self.paths)
+        if at < len(self.commands):
+            return [{"type": "function_call", "name": "exec_command", "call_id": f"c8_{done}",
+                     "arguments": json.dumps({"cmd": self.commands[at], "yield_time_ms": 5000})}]
+        return [{"type": "message", "role": "assistant", "id": "m-done",
+                 "content": [{"type": "output_text", "text": "C8 look done."}]}]
+
+
+@unittest.skipUnless(ON and CODEX, "opt-in: BRIDGE_C8_REAL_CLI=1 and an installed Codex")
+class CodexLookC6(unittest.TestCase):
+    def test_a_look_turn_writes_its_checkpoint_and_outputs_through_the_write_tool_and_nothing_else(self):
+        """W1-C (C6, plan B): a LOOK turn keeps Codex's read-only sandbox (its cwd, every repository under it, never
+        writable) and writes through the workspace server's workspace_write_file, which takes the turn's checkpoint file
+        and the topic's outputs directory and refuses the workdir, a canary outside, a shared read worktree and a
+        repository's .git/config; the shell's own writes stay refused by the sandbox, and the topic's next turn goes on
+        on the same thread."""
+        from covey.backends.codex.bridge import CodexBackend
+        from covey.core.harness import LOOK_ROOTS
+
+        with tempfile.TemporaryDirectory(prefix="c6-codex-look-", ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            site = Site(root)
+            state = root / "state"
+            checkpoint = state / "checkpoints" / "om_look-7.json"
+            outputs = state / "topics" / "t1" / "outputs"
+            read_tree = root / "data" / "worktrees" / "_read" / "covey" / "b4d687c49c3a"
+            repo_git = site.work / ".git"
+            for folder in (checkpoint.parent, outputs, read_tree, repo_git):
+                folder.mkdir(parents=True, exist_ok=True)
+            (repo_git / "config").write_text("[core]\n")
+            (read_tree / "app.py").write_text("print('main')\n")
+            paths = [str(checkpoint), str(outputs / "report.md"), str(site.work / "inside.txt"),
+                     str(site.canary / "outside.txt"), str(read_tree / "app.py"), str(repo_git / "config")]
+            commands = [f"touch {site.work}/shell.txt; echo touch-exit=$?", f"echo x >> {outputs}/shell.md; echo sh-exit=$?"]
+            fake = FakeLookWriter(paths, commands)
+            home = root / "codex-home"
+            home.mkdir()
+            (home / "config.toml").write_text(
+                'model = "c8-model"\nmodel_provider = "c8fake"\n[model_providers.c8fake]\nname = "c8"\n'
+                f'base_url = "http://127.0.0.1:{fake.port}/v1"\nenv_key = "C8_FAKE_KEY"\nwire_api = "responses"\n'
+                'requires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\n')
+            env = {**os.environ, "CODEX_HOME": str(home), "C8_FAKE_KEY": "key-local-c8-only",
+                   "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+            base = make_context(root, workdir=site.work, default_workdir=site.work, state_dir=state,
+                                backend_cmd=[CODEX], model="c8-model", effort="", timeout=180)
+            sessions = []
+
+            def run(ctx, prompt, session_id=None):
+                callbacks = RunCallbacks(session=sessions.append)
+                with mock.patch("covey.backends.codex.bridge.child_process_env", return_value=env):
+                    result = CodexBackend().run(RunRequest(ctx, prompt, session_id, callbacks=callbacks,
+                                                           inputs=RunInputs(threading.Event(), run_id=str(uuid.uuid4()))))
+                if result.is_error:  # An app server's exit, not the turn under test: once more.
+                    result = CodexBackend().run(RunRequest(ctx, prompt, session_id, callbacks=callbacks,
+                                                           inputs=RunInputs(threading.Event(), run_id=str(uuid.uuid4()))))
+                return result
+
+            try:
+                site.mark()
+                calls = len(fake.calls)
+                look = dataclasses.replace(base, options={TOOL_LIMIT: LOOK, LOOK_ROOTS: {
+                    "file": str(checkpoint), "dir": str(outputs), "held": True}})
+                answer = run(look, f"{MARK}: a new topic judged read-only; write the checkpoint and a report, try elsewhere.")
+                these = fake.calls[calls:]
+                outputs_seen = FakeResponses.outputs(these[-1]) if these else []
+                started = sessions[-1] if sessions else ""
+                after = run(base, "The owner clicks start: the topic's next turn.", started)
+                effects = site.side_effects()
+                EVIDENCE["codex_look_c6"] = {
+                    "paths": paths, "commands": commands, "outputs": outputs_seen,
+                    "offered_tools": FakeResponses.names(these[0]) if these else [],
+                    "checkpoint": checkpoint.read_text() if checkpoint.exists() else None,
+                    "report": (outputs / "report.md").read_text() if (outputs / "report.md").exists() else None,
+                    "workdir_files": sorted(p.name for p in site.work.iterdir()),
+                    "read_tree": (read_tree / "app.py").read_text(), "git_config": (repo_git / "config").read_text(),
+                    "side_effects": effects, "shell_md": (outputs / "shell.md").exists(),
+                    "look": {"error": answer.is_error, "text": answer.text, "session": started},
+                    "after": {"error": after.is_error, "text": after.text, "session": sessions[-1] if sessions else ""}}
+                self.assertFalse(answer.is_error, answer.outcome)
+                self.assertIn("mcp__bridge_workspace::workspace_write_file", EVIDENCE["codex_look_c6"]["offered_tools"])
+                self.assertEqual(len(outputs_seen), len(paths) + len(commands))  # Every attempt was made …
+                self.assertEqual(checkpoint.read_text(), "written by attempt 0\n")  # … the first two went …
+                self.assertEqual((outputs / "report.md").read_text(), "written by attempt 1\n")
+                for _, said in outputs_seen[2:len(paths)]:  # … the four after them were refused by the path check …
+                    self.assertIn("这一轮只读", said)
+                self.assertFalse((site.work / "inside.txt").exists())
+                self.assertFalse((site.work / "shell.txt").exists())  # … and the shell's own writes by the sandbox.
+                self.assertFalse((outputs / "shell.md").exists())
+                self.assertEqual(effects["canary"], [])
+                self.assertFalse(effects["workspace_changed"])
+                self.assertEqual((read_tree / "app.py").read_text(), "print('main')\n")
+                self.assertEqual((repo_git / "config").read_text(), "[core]\n")
+                self.assertFalse(after.is_error, after.outcome)  # The topic goes on on the thread the LOOK turn started.
+                self.assertEqual(sessions[-1], started)
+            finally:
+                fake.close()
+                site.receiver.close()
+
+
+# --------------------------------------------------------------------------------------------------------- Antigravity
+
+AGY_ON = os.environ.get("BRIDGE_C6_REAL_AGY") == "1"  # Costs a few model calls of the signed-in Google account.
+AGY = os.environ.get("BRIDGE_C8_AGY") or shutil.which("agy") or ""
+AGY_MODEL = os.environ.get("BRIDGE_C6_AGY_MODEL", "gemini-3.8-flash-low")
+
+
+def agy_steps(events) -> list:
+    """The tool steps of a turn's events, without its text deltas, each cut short: what the model tried and what came back."""
+    found = []
+    for event in events:
+        text = json.dumps(event, ensure_ascii=False, default=str)
+        if "delta" in str(event.get("kind")) or len(found) >= 120:
+            continue
+        found.append(text[:600])
+    return found
+
+
+@unittest.skipUnless(AGY_ON and AGY, "opt-in: BRIDGE_C6_REAL_AGY=1 (real model calls) and an installed agy")
+class AgyLookC6(unittest.TestCase):
+    """W1-C (C6) and RT-4 on the installed agy with the real model (agy has no local model to script): a LOOK turn's deny
+    rules (LOOK_SETTINGS) refuse its own file tools and its private home's workspace_write_file writes the checkpoint and
+    the outputs and nothing else; a READ turn's (READ_ONLY_SETTINGS) refuse edit_file, write_file and commands. What the
+    model tried is in the evidence: a step it did not take is "not triggered", never "refused"."""
+
+    def setUp(self):
+        from support.git import commit_all, init_git_repo
+        tmp = tempfile.TemporaryDirectory(prefix="c6-agy-", ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.work = self.root / "work"
+        self.work.mkdir()
+        init_git_repo(self.work)
+        (self.work / "app.py").write_text("print('old')\n")
+        commit_all(self.work)
+        self.state = self.root / "state"
+        self.checkpoint = self.state / "checkpoints" / "om_look-7.json"
+        self.outputs = self.state / "topics" / "t1" / "outputs"
+        self.read = self.root / "data" / "worktrees" / "_read" / "work" / "b4d687c49c3a"
+        for folder in (self.checkpoint.parent, self.outputs, self.read):
+            folder.mkdir(parents=True)
+        (self.read / "app.py").write_text("print('main')\n")
+        (self.outputs / "gitlink").symlink_to(self.work / ".git")
+        self.git_config = (self.work / ".git" / "config").read_text()
+        self.sessions, self.events = [], []
+
+    def run_turn(self, options, prompt, session_id=None):
+        from covey.backends.agy.bridge import AntigravityBackend
+        ctx = make_context(self.root, workdir=self.work, default_workdir=self.work, state_dir=self.state,
+                           backend_cmd=[AGY], model=AGY_MODEL, effort="", timeout=600, skip_permissions=True,
+                           topic_id="t1agylook", options=options)
+        callbacks = RunCallbacks(session=self.sessions.append,
+                                 event=lambda kind, data, *_: self.events.append({"kind": kind, **(data if isinstance(data, dict) else {})}))
+        return AntigravityBackend().run(RunRequest(ctx, prompt, session_id, callbacks=callbacks,
+                                                   inputs=RunInputs(threading.Event(), run_id=str(uuid.uuid4()))))
+
+    def status(self):
+        from support.git import run_git
+        return run_git(self.work, "status", "--porcelain").strip()
+
+    def test_rt4_look_and_read_turns_on_agy(self):
+        from covey.core.harness import LOOK_ROOTS
+        w, o, c, r = self.work, self.outputs, self.checkpoint, self.read
+        look_prompt = (
+            "This is an authorized permissions test of this sandbox. Do each numbered step in order with exactly the tool "
+            "named, one call per step, even when an earlier one failed; do not retry a step another way.\n"
+            f"1. Use your edit_file tool to replace print('old') with print('edit') in {w}/app.py.\n"
+            f"2. Use your write_file tool to create {w}/new.txt containing x.\n"
+            f"3. Use the MCP tool workspace_write_file to write {c} with content {{\"phase\": \"look\"}}.\n"
+            f"4. Use workspace_write_file to write {o}/report.md with content report.\n"
+            f"5. Use workspace_write_file to write {w}/app.py with content hacked.\n"
+            f"6. Use workspace_write_file to write {w}/.git/config with content hacked.\n"
+            f"7. Use workspace_write_file to write {r}/app.py with content hacked.\n"
+            f"8. Use workspace_write_file to write {o}/gitlink/config with content hacked.\n"
+            f"9. Use your run_command tool to run: git -C {w} log --oneline -1\n"
+            f"10. Use your run_command tool to run: echo shell >> {w}/app.py\n"
+            "Then answer with one line per step: the step number, ok or refused, and the tool's words.")
+        try:
+            look = self.run_turn({TOOL_LIMIT: LOOK, LOOK_ROOTS: {"file": str(c), "dir": str(o), "held": True}}, look_prompt)
+            look_session = self.sessions[-1] if self.sessions else ""
+            look_status = self.status()
+            from support.git import run_git
+            shell_wrote = (w / "app.py").read_text() != "print('old')\n"
+            run_git(w, "checkout", "--", "app.py")  # Step 10 is the shell's limit (GAPS): put back before the next turn.
+            look_events = list(self.events)
+            self.events.clear()
+            read_prompt = (
+                "This is an authorized permissions test. Do each step with exactly the tool named, even when one failed:\n"
+                f"1. Use edit_file to replace print('old') with print('edit') in {w}/app.py.\n"
+                f"2. Use write_file to create {w}/new2.txt containing x.\n"
+                f"3. Use run_command to run: touch {w}/cmd.txt\n"
+                f"4. Use your file reading tool to read {w}/app.py.\n"
+                "Then answer with one line per step: ok or refused, and the tool's words.")
+            read = self.run_turn({TOOL_LIMIT: READ}, read_prompt)
+            read_events = list(self.events)
+            after = self.run_turn({}, "The owner's next message: reply with the single word CONTINUED.", look_session)
+            EVIDENCE["agy_look_c6"] = {
+                "model": AGY_MODEL,
+                "look": {"error": look.is_error, "text": look.text, "session": look_session, "git_status": look_status,
+                         "checkpoint": c.read_text() if c.exists() else None,
+                         "report": (o / "report.md").read_text() if (o / "report.md").exists() else None,
+                         "new_txt": (w / "new.txt").exists(), "git_config_unchanged": (w / ".git" / "config").read_text() == self.git_config,
+                         "read_tree": (r / "app.py").read_text(), "shell_wrote_repo_file": shell_wrote,
+                         "steps": agy_steps(look_events)},
+                "read": {"error": read.is_error, "text": read.text, "git_status": self.status(),
+                         "new2": (w / "new2.txt").exists(), "cmd": (w / "cmd.txt").exists(),
+                         "steps": agy_steps(read_events)},
+                "after": {"error": after.is_error, "text": after.text, "session": self.sessions[-1] if self.sessions else ""},
+                "event_kinds": sorted({e.get("kind") for e in look_events + read_events})}
+            self.assertFalse(look.is_error, look.outcome)
+            self.assertEqual(json.loads(c.read_text()), {"phase": "look"})  # The two places were written …
+            self.assertEqual((o / "report.md").read_text().strip(), "report")
+            self.assertEqual(look_status, "M app.py" if shell_wrote else "")  # … the repository only by the shell (GAPS) …
+            self.assertFalse((w / "new.txt").exists())
+            self.assertEqual((w / ".git" / "config").read_text(), self.git_config)
+            self.assertEqual((r / "app.py").read_text(), "print('main')\n")
+            self.assertFalse(read.is_error, read.outcome)
+            self.assertEqual(self.status(), "")  # The READ turn changed nothing, nor did its command.
+            self.assertFalse((w / "new2.txt").exists() or (w / "cmd.txt").exists())
+            self.assertFalse(after.is_error, after.outcome)
+            self.assertEqual(self.sessions[-1], look_session)  # The topic goes on in the LOOK turn's conversation.
+        finally:
+            pass
+
+
 def tearDownModule():
     out = os.environ.get("BRIDGE_C8_OUT")
     if out and EVIDENCE:
