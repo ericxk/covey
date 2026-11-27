@@ -4,8 +4,11 @@
 repositories the topic uses and whether their rules were read, a repository's rules inlined (its first
 ``RULES_INLINE_BYTES``) when the butler or the lead declared it and its rules were not read yet, or when the last turn
 wrote to it without reading them, and a reminder when the last turn changed a repository's main checkout instead of
-the topic's worktree. A topic from before the home shows its repositories only once one was declared or asked for
-(``covey repo use``); its inlined rules and reminders it gets all the same. ``settle`` folds a task's
+the topic's worktree. Rules inlined (or printed by ``covey repo use``) whole count as read; a head cut short does not:
+they stay unread, so a turn that then writes the repository without reading them gets them again (T900 W0-4). A
+repository read in the latest main branch's read worktree (core/repomap.py ``read_worktree``) is shown there, with its
+commit and time, and its rules come from it (T900 W0-5). A topic from before the home shows its repositories only once
+one was declared or asked for (``covey repo use``); its inlined rules and reminders it gets all the same. ``settle`` folds a task's
 ``runs/<任务键>/repos.json`` and the repositories its tool calls touched (core/topic_repos.py ``touched``) into
 ``topic.json`` when its turn ends, and the repositories it used into the repo map. ``repos_list`` is the Bridge tool's
 answer (docs/configuration.md 主目录与仓库地图).
@@ -21,6 +24,8 @@ from covey.core.state import read_json
 from covey.core.topics import home_start, topic_file, update_repos
 
 RULES_INLINE_BYTES = 4096
+WRITE_KEYS = ("worktree", "branch", "base", "base_oid")  # A ``covey repo use`` request's, as the topic keeps them.
+READ_KEYS = ("base_at", "stale")  # A read worktree's besides (core/repomap.py ``read_worktree``).
 CHECKOUT_WRITES = "checkout_writes"  # A topic.json repos entry's: the last turn changed the repository's main checkout.
 
 
@@ -36,9 +41,9 @@ def _topic(ctx, job) -> tuple[str, dict]:
 
 
 def inline_due(repo: topic_repos.TopicRepo) -> bool:
-    """Whether a turn inlines ``repo``'s rules: not read yet, and declared (the butler or the lead named it) or written
-    without them last turn (``rules_miss``)."""
-    return not repo.rules_read_at and (repo.source == "declared" or repo.rules_miss > 0)
+    """Whether a turn inlines ``repo``'s rules: not read yet, their head not shown since a turn last wrote it without them
+    (``rules_inlined_at``), and declared (the butler or the lead named it) or written without them (``rules_miss``)."""
+    return not repo.rules_read_at and not repo.rules_inlined_at and (repo.source == "declared" or repo.rules_miss > 0)
 
 
 def _map(ctx) -> dict:
@@ -61,6 +66,12 @@ def _row(entry, mapped) -> str:
     name, _, _ = _rules(entry, mapped, 0)
     read = (f"规范 {name} ✓已读" if entry.rules_read_at else f"规范 {name} 未读，动它之前先读") if name else "没有规范文件"
     if entry.mode != "write":
+        if topic_repos.is_read_worktree(entry.worktree):
+            if not os.path.isdir(entry.worktree):
+                return (f"- {entry.name}（读，{entry.path}；之前的只读 worktree 已清理，要读最新主干再跑 covey repo use {entry.name}；"
+                        f"{read}）")
+            stale = "；当时 fetch 没成功，可能落后" if entry.stale else ""
+            return f"- {entry.name}（读，最新主干的只读 worktree {entry.worktree}，{repomap.read_words(topic_repos.to_dict(entry))}{stale}；{read}）"
         return f"- {entry.name}（读，{entry.path}；{read}）"
     if entry.worktree and os.path.normpath(entry.worktree) != os.path.normpath(entry.path):
         return f"- {entry.name}（写，worktree {entry.worktree}" + (f"，分支 {entry.branch}" if entry.branch else "") + f"；{read}）"
@@ -139,7 +150,10 @@ def settle(ctx, job, task_dir, *, later=False):
     listed, patterns = {os.path.normpath(repo.path) for repo in repos}, repomap.exclude(ctx.state_dir)
     found = [repo for repo in found
              if os.path.normpath(repo.path) in listed or not repomap.excluded(os.path.basename(repo.path), patterns)]
-    inlined = {entry.name for entry in topic_repos.of_topic(data) if inline_due(entry)}
+    mapped = {os.path.normpath(repo.path): repo for repo in repos}
+    # What ``tail`` inlined this turn: read when whole, only shown when cut short (a head is no reading).
+    inlined = {entry.name: _rules(entry, mapped, RULES_INLINE_BYTES)[2]
+               for entry in topic_repos.of_topic(data) if inline_due(entry)}
     legacy = None if "repos" in data or home_start(data) else _workdir_repo(data)
     number = data.get("topic_number") if type(data.get("topic_number")) is int else 0
     own_trees = os.path.normpath(str(topic_repos.topic_worktrees(number, topic))) + os.sep
@@ -160,7 +174,7 @@ def settle(ctx, job, task_dir, *, later=False):
         for item in entries:
             item.pop(CHECKOUT_WRITES, None)
             if item.get("name") in inlined:
-                item["rules_read_at"] = now
+                item["rules_inlined_at" if inlined[item["name"]] else "rules_read_at"] = now
         for request in asked:
             name = str(request.get("name") or "")
             if not name or not str(request.get("path") or "").startswith("/"):
@@ -172,11 +186,22 @@ def settle(ctx, job, task_dir, *, later=False):
                 by_name[name] = item
             if request.get("mode") == "write":
                 item["mode"] = "write"
-            for key in ("worktree", "branch", "base", "base_oid"):
-                if request.get(key):
-                    item[key] = request[key]
-            if request.get("rules_file"):
-                item["rules_read_at"] = request.get("at") or now
+                for key in READ_KEYS:
+                    item.pop(key, None)
+                for key in WRITE_KEYS:
+                    if request.get(key):
+                        item[key] = request[key]
+            elif item.get("mode") != "write":
+                # A read: the read worktree it printed (or none: the repository itself) replaces an earlier read's. A topic
+                # writing the repository keeps its own worktree.
+                for key in WRITE_KEYS + READ_KEYS:
+                    if request.get(key):
+                        item[key] = request[key]
+                    else:
+                        item.pop(key, None)
+            if request.get("rules_file") and not item.get("rules_read_at"):
+                # A head cut short (``rules_cut``, from this release on) was shown, not read.
+                item["rules_inlined_at" if request.get("rules_cut") else "rules_read_at"] = request.get("at") or now
         for repo in found:
             item = by_name.get(repo.name)
             if item is None:
@@ -195,6 +220,7 @@ def settle(ctx, job, task_dir, *, later=False):
                 continue
             if not item.get("rules_read_at"):
                 item["rules_miss"] = int(item.get("rules_miss") or 0) + 1
+                item.pop("rules_inlined_at", None)  # Written without them: their head again next turn.
             checkout = not repo.worktree
             in_place = worktree_mode.get(os.path.normpath(repo.path)) == "inplace" or (
                 item.get("worktree") and os.path.normpath(item["worktree"]) == os.path.normpath(repo.path))
@@ -204,16 +230,23 @@ def settle(ctx, job, task_dir, *, later=False):
 
     entries = update_repos(ctx.state_dir, topic, change)
     names = {repo.name for repo in found} | {str(request.get("name")) for request in asked}
-    used = [repo for repo in map(topic_repos.from_dict, entries) if repo is not None and repo.name in names]
+    listed_now = [repo for repo in map(topic_repos.from_dict, entries) if repo is not None]
+    used = [repo for repo in listed_now if repo.name in names]
+    # The read worktrees the topic reads in: a turn of it keeps them (core/repomap.py READ_IDLE counts from its last).
+    reading = [repo.worktree for repo in listed_now if repo.mode != "write" and topic_repos.is_read_worktree(repo.worktree)]
 
     def note() -> None:
+        for tree in reading:
+            repomap.touch_read(tree, now)
+        if not used:
+            return
         try:
             repomap.note_used(ctx.state_dir, used, now=now)
             repomap.render(ctx.state_dir, where)
         except OSError:
             pass
     if later:
-        return note if used else None
+        return note if used or reading else None
     note()
     return None
 

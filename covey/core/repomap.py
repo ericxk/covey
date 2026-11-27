@@ -3,6 +3,8 @@
 Each repository has a name, a path, what it is for (``note``), a status (``frozen`` and ``readonly`` ones are never
 written to) and how a topic writes to it (``write_mode``: ``worktree`` makes the topic's own worktree under
 ``<数据根>/worktrees/T<号>-<id8>/<仓库>/``, ``inplace`` edits the checkout; a home Covey made defaults to ``inplace``).
+Reading a ``worktree`` repository is in a detached worktree of its latest main branch (``read_worktree``), never in its
+main checkout, which may be many commits behind.
 Read without ``LOCK`` (rule 2); written whole under its own file lock. ``repos.md`` is the map as a Harness reads it:
 in a home Covey made it is ``<home>/repos.md``, else ``<state>/repos.md`` (a taken-over home gets no file). ``main`` is
 bin/covey_repo.py (``list``, ``use``, ``status``, ``prune-plan``): a task finds its context in ``COVEY_STATE``,
@@ -44,6 +46,8 @@ GIT_SECONDS = 20  # A git call of the command: a fetch that takes longer is give
 FETCH_SECONDS = 20
 STATUS_SECONDS = 5
 PRUNE_IDLE = 24 * 3600  # A worktree untouched this long, clean and merged, is listed by prune-plan.
+READ_IDLE = 24 * 3600  # A read worktree no turn used this long is removed, when clean, as `use` reads that repository again.
+READ_USED = ".used"  # Beside a read worktree, ``<提交前 12 位>.used``: its mtime is when a turn last used it.
 STATUS_WORDS = {"active": "可用", "readonly": "只读", "frozen": "已冻结"}
 
 
@@ -385,17 +389,43 @@ def _oid(cwd, ref="HEAD") -> str:
 def _base(repo: Repo) -> tuple[str, str]:
     """(the ref a new worktree starts from, its commit): the remote's main branch after a fetch (``FETCH_SECONDS``),
     else the local one, else the checkout's HEAD."""
+    ref, oid, _ = _latest(repo)
+    return ref, oid
+
+
+def _latest(repo: Repo) -> tuple[str, str, str]:
+    """``_base``'s (ref, commit) and why it may not be the remote's latest: '' when ``origin/<主干>`` was fetched just
+    now, else the fetch's failure (its exit status only: git's words may hold the remote's address) or the branch
+    that was not found."""
     branch = repo.branch
     if not branch:
         code, out, _ = _git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo.path)
         branch = out.split("/", 1)[1] if code == 0 and "/" in out else ""
-    if branch:
-        _git(["fetch", "--quiet", "origin", branch], repo.path, timeout=FETCH_SECONDS)
-        for ref in (f"origin/{branch}", branch):
-            oid = _oid(repo.path, ref)
-            if oid:
-                return ref, oid
-    return "HEAD", _oid(repo.path)
+    if not branch:
+        return "HEAD", _oid(repo.path), "没有找到远端主干（origin/HEAD）"
+    code, _, _ = _git(["fetch", "--quiet", "origin", branch], repo.path, timeout=FETCH_SECONDS)
+    why = "" if code == 0 else (f"git fetch 超过 {FETCH_SECONDS} 秒没有结束" if code == 124 else f"git fetch 没成功（退出码 {code}）")
+    for ref in (f"origin/{branch}", branch):
+        oid = _oid(repo.path, ref)
+        if oid:
+            return ref, oid, why if ref.startswith("origin/") else (why or f"没有 origin/{branch}")
+    return "HEAD", _oid(repo.path), why or f"没有 origin/{branch}"
+
+
+def _has_origin(cwd) -> bool:
+    """Whether the repository has a remote ``origin``: one without has no main branch to be behind of (read where it is)."""
+    code, out, _ = _git(["remote"], cwd)
+    return code == 0 and "origin" in out.split()
+
+
+def _commit_time(cwd, oid) -> float:
+    code, out, _ = _git(["show", "-s", "--format=%ct", oid], cwd)
+    return float(out) if code == 0 and out.isdigit() else 0.0
+
+
+def when(at) -> str:
+    """A commit time as the prompt shows it: ``2026-11-27 18:20``; '' for none."""
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(at)) if at else ""
 
 
 def _writable(directory) -> bool:
@@ -468,6 +498,102 @@ def worktree_for(repo: Repo, number, topic_id, *, root=None) -> dict:
                 "created": True}
 
 
+def _used_marker(tree) -> Path:
+    tree = Path(tree)
+    return tree.parent / (tree.name + READ_USED)
+
+
+def touch_read(tree, now=None) -> None:
+    """Mark the read worktree ``tree`` used now (``READ_IDLE`` counts from it); a marker that cannot be written is left."""
+    if not tree or not Path(tree).is_dir():
+        return
+    now = time.time() if now is None else now
+    marker = _used_marker(tree)
+    with contextlib.suppress(OSError):
+        marker.touch()
+        os.utime(marker, (now, now))
+
+
+def _usable(tree: Path, oid: str, main_git: str) -> bool:
+    """Whether ``tree`` is a worktree of the repository whose ``.git`` is ``main_git`` with ``oid`` checked out."""
+    return ((tree / ".git").is_file() and _oid(tree) == oid
+            and os.path.realpath(topic_repos.repo_of(str(tree)) or "") == os.path.realpath(main_git))
+
+
+def _prune_read(repo: Repo, folder: Path, keep: str, now: float) -> None:
+    """Remove ``repo``'s read worktrees in ``folder`` no turn used for ``READ_IDLE`` (by their marker, else their
+    directory), ``keep`` aside. ``git worktree remove`` without ``--force``: one with changes or untracked files stays
+    (``covey repo prune-plan`` does not list it either; the owner sees it in the folder); never anything but a worktree."""
+    try:
+        trees = [entry for entry in folder.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+    except OSError:
+        return
+    for tree in trees:
+        if tree.name == keep:
+            continue
+        marker = _used_marker(tree)
+        try:
+            used = marker.stat().st_mtime if marker.exists() else tree.stat().st_mtime
+        except OSError:
+            continue
+        if now - used < READ_IDLE or not (tree / ".git").is_file():
+            continue
+        code, _, _ = _git(["worktree", "remove", str(tree)], repo.path, timeout=120)
+        if code == 0:
+            with contextlib.suppress(OSError):
+                marker.unlink()
+
+
+def read_worktree(repo: Repo, *, root=None, now=None) -> dict:
+    """The detached worktree of ``repo``'s latest main branch, for reading: ``{worktree, base, base_oid, base_at, stale,
+    created}``.
+
+    ``<root>/_read/<仓库>/<提交前 12 位>/`` (core/topic_repos.py ``read_worktrees``) at ``origin/<主干>`` after a fetch
+    (``_latest``); one already there for that commit (another topic's, an earlier turn's) is used again without writing
+    anything. ``stale``: why it may be behind (its fetch failed: the remote branch as last fetched), '' when fetched now.
+    Made under a lock per repository; then the repository's read worktrees no turn used for ``READ_IDLE`` are removed
+    (``_prune_read``). Raises RepoError (``later``: this turn's sandbox cannot write it) when there is none to read."""
+    now = time.time() if now is None else now
+    ref, oid, stale = _latest(repo)
+    if not oid or ref == "HEAD":
+        raise RepoError(stale or f"{repo.name} 找不到远端主干的提交")
+    folder = topic_repos.read_worktrees(root) / repo.name
+    dest = folder / oid[:12]
+    main_git = topic_repos.repo_of(repo.path) or str(Path(repo.path) / ".git")
+    made = {"worktree": str(dest), "base": f"{ref}@{oid[:8]}", "base_oid": oid, "base_at": _commit_time(repo.path, oid),
+            "stale": stale, "created": False}
+    if _usable(dest, oid, main_git):  # Another topic's, or an earlier turn's: nothing to write (a read-only sandbox too).
+        touch_read(dest, now)
+        return made
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        lock = open(folder / ".lock", "a+")
+    except OSError as exc:
+        raise RepoError(f"建不了只读 worktree 目录 {folder}：{exc.strerror or exc}", later=True) from None
+    with lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if not _usable(dest, oid, main_git):
+            if dest.exists():
+                raise RepoError(f"{dest} 已经在了，但不是 {repo.name} {oid[:8]} 的只读 worktree")
+            if not _writable(main_git):
+                raise RepoError(f"这一轮的沙箱写不了 {main_git}，建不了只读 worktree", later=True)
+            args = ["-c", "checkout.workers=8", "worktree", "add", "--detach", str(dest), oid]
+            for attempt in range(2):
+                code, _, err = _git(args, repo.path, timeout=300)
+                if code == 0 or attempt or ".lock" not in err:
+                    break
+                time.sleep(1)  # Another topic's git held a lock of the same repository: once more.
+            if code != 0:
+                shutil.rmtree(dest, ignore_errors=True)
+                _git(["worktree", "prune"], repo.path)
+                later = "Read-only file system" in err or "Permission denied" in err
+                raise RepoError(f"建只读 worktree 失败：{(err.splitlines() or ['git 退出码 %d' % code])[-1][:300]}", later=later)
+            made["created"] = True
+        touch_read(dest, now)
+        _prune_read(repo, folder, dest.name, now)
+    return made
+
+
 # ---- the command ---------------------------------------------------------------------------------------------------
 
 
@@ -523,7 +649,20 @@ def use(context, key, *, write=False, now=None) -> dict:
     if write and repo.status != "active":
         raise RepoError(f"仓库 {repo.name} {STATUS_WORDS.get(repo.status, repo.status)}，不能改。", code=3)
     directory = repo.path
-    if write and repo.write_mode == "inplace":
+    if not write and repo.write_mode != "inplace" and _has_origin(repo.path):
+        # Read in the latest main branch, not the main checkout (T900 W0-5); without one, the checkout, said to be maybe behind.
+        try:
+            made = read_worktree(repo, now=now)
+        except RepoError as exc:
+            out["note"] = f"没能建最新主干的只读 worktree（{str(exc).rstrip('。')}），读的是仓库目录本身，可能落后，未能确认是最新主干。"
+            out["stale"] = 1
+        else:
+            out.update({key: made[key] for key in ("worktree", "base", "base_oid", "base_at")}, created=made["created"],
+                       stale=int(bool(made["stale"])))
+            directory = made["worktree"]
+            if made["stale"]:
+                out["note"] = f"{made['stale']}：这是本机上次取到的 {made['base'].split('@')[0]}，可能落后，未能确认是最新主干。"
+    elif write and repo.write_mode == "inplace":
         out.update(worktree=repo.path, base_oid=_oid(repo.path))
         if not _writable(repo.path):
             out["note"] = "这一轮的沙箱写不了这个仓库；已记下，下一轮它会在可写范围里，这一轮先只读。"
@@ -531,7 +670,8 @@ def use(context, key, *, write=False, now=None) -> dict:
         data = _topic(state, topic)
         number = data.get("topic_number") if type(data.get("topic_number")) is int else 0
         known = next((entry for entry in topic_repos.of_topic(data) if entry.name == repo.name and entry.worktree
-                      and os.path.normpath(entry.worktree) != os.path.normpath(repo.path)), None)
+                      and os.path.normpath(entry.worktree) != os.path.normpath(repo.path)
+                      and not topic_repos.is_read_worktree(entry.worktree)), None)
         try:
             if known is not None and (Path(known.worktree) / ".git").exists():  # This topic's, from an earlier turn.
                 made = {"worktree": known.worktree, "branch": known.branch, "base": known.base,
@@ -552,14 +692,18 @@ def use(context, key, *, write=False, now=None) -> dict:
     if task_dir is not None and task_dir.is_dir():
         topic_repos.add_request(task_dir, {"at": now, "name": repo.name, "path": repo.path, "mode": out["mode"],
                                            "worktree": out["worktree"], "branch": out["branch"], "base": out["base"],
-                                           "base_oid": out["base_oid"], "rules_file": name, "pending": bool(out["note"]),
-                                           "created": bool(out.get("created"))})
+                                           "base_oid": out["base_oid"], "rules_file": name, "rules_cut": cut,
+                                           "pending": write and bool(out["note"]), "created": bool(out.get("created")),
+                                           **({"base_at": out["base_at"]} if out.get("base_at") else {}),
+                                           **({"stale": 1} if out.get("stale") else {})})
     return out
 
 
 def _show_use(out) -> str:
     lines = [f"仓库 {out['name']}（{'写' if out['mode'] == 'write' else '读'}）", f"仓库目录：{out['path']}"]
-    if out.get("worktree") and out["worktree"] != out["path"]:
+    if out["mode"] != "write" and out.get("worktree") and out["worktree"] != out["path"]:
+        lines.append(f"在这里读：{out['worktree']}（最新主干的只读 worktree，{read_words(out)}；detached，不要在这里改）")
+    elif out.get("worktree") and out["worktree"] != out["path"]:
         lines.append(f"在这里改：{out['worktree']}（{'新建' if out.get('created') else '本话题已有'}的 worktree）")
         if out.get("branch"):
             lines.append(f"分支：{out['branch']}" + (f"（基于 {out['base']}）" if out.get("base") else ""))
@@ -574,6 +718,14 @@ def _show_use(out) -> str:
     else:
         lines.append("这个仓库没有 AGENTS.md 或 CLAUDE.md。")
     return "\n".join(lines)
+
+
+def read_words(item) -> str:
+    """``origin/main 的提交 5994b3c2，提交于 2026-11-27 18:20`` of a read worktree (``use``'s output or a topic's entry)."""
+    ref, _, short = str(item.get("base") or "").partition("@")
+    short = short or str(item.get("base_oid") or "")[:8]
+    at = when(item.get("base_at") or 0)
+    return f"{ref or '主干'} 的提交 {short}" + (f"，提交于 {at}" if at else "")
 
 
 def _changes(directory) -> int | None:

@@ -459,6 +459,35 @@ class TwoStagePromptTest(unittest.TestCase):
                   status="done", delivery={"commit": "a6bc148"})  # Nor another topic's.
         self.assertNotIn(IMAGES_RULE, app.runs.checkpoint_rules(ctx, job, resumed=True))
 
+    def test_a_home_topics_resumed_turn_keeps_the_home_block_and_the_redaction_note_turned_on_later(self) -> None:
+        """T900 W0-4: a resumed turn's reminder had the workspace block, not the rules' 主目录段, so from its second turn a
+        topic from the home lost its repo map and ``covey repo use``; and a backend note that came after the session
+        started (redaction turned on in the middle) never reached a resumed turn."""
+        from covey.backends.claude.bridge import REDACTION_NOTE
+        topic = "h" * 32
+        app = harness_app(CLAUDE_SPEC, ClaudeBackend(), ClaudeSessionStore())
+        quiet(app)
+        ctx = make_context(self.root, topic_id=topic, history_path=self.root / "state" / "topics" / topic / "history.jsonl",
+                           options={"harness_id": "claude"})
+        job = ReplyJob(job_id=3, user_text="接着做", chat_id="oc", message_id="om3", timeout=0, topic_id=topic)
+        write_topic(ctx.state_dir, {"home_start": True}, topic_id=topic)
+        fresh = app.runs.bridge_rules(ctx, job)
+        resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
+        for part in (f"主目录：{self.root}", "仓库地图：", "主目录的规矩：", "covey repo use <仓库> --write"):
+            self.assertIn(part, fresh)
+            self.assertIn(part, resumed)
+        self.assertNotIn("当前工作区：", resumed)  # The workspace block is the rules' only for a topic not from the home.
+        self.assertNotIn(REDACTION_NOTE, resumed)
+        write_topic(ctx.state_dir, {"home_start": True, "redaction": True}, topic_id=topic)  # Turned on mid-topic.
+        resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
+        self.assertIn(REDACTION_NOTE, resumed)
+        self.assertIn(resume_reminders(app.runs.backend_notes(ctx)), resumed)
+        # A topic from before the home keeps its workspace block, as the rules have it.
+        write_topic(ctx.state_dir, {}, topic_id=topic)
+        resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
+        self.assertIn(f"当前工作区：ws\n当前工作目录：{self.root.resolve()}", resumed)
+        self.assertNotIn("仓库地图：", resumed)
+
     def test_claude_and_codex_carry_the_rules_in_the_message(self) -> None:
         # Owner 2026-11-02: the model's own system prompt (developer instructions) stays as it is.
         from covey.backends.codex.bridge import CodexBackend

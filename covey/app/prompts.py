@@ -83,9 +83,12 @@ def context_high(record: dict | None) -> str:
     return ""
 
 
-def resume_reminders() -> str:
-    """RESUME_REMINDERS, with an enabled extension's ``search_reminder`` in place of SEARCH_RULE."""
-    return "\n".join((*RESUME_HEAD, extensions.setting(SEARCH_REMINDER_SETTING, "").strip() or SEARCH_RULE, LANGUAGE_RULE))
+def resume_reminders(notes: tuple[str, ...] = ()) -> str:
+    """RESUME_REMINDERS, with an enabled extension's ``search_reminder`` in place of SEARCH_RULE, then the backend's own
+    constraints (``notes``: its ``prompt_notes`` this turn, such as the redaction note of a topic that turned redaction
+    on after its session started), a line each: the session's first message had only those of its own start."""
+    return "\n".join((*RESUME_HEAD, extensions.setting(SEARCH_REMINDER_SETTING, "").strip() or SEARCH_RULE, LANGUAGE_RULE,
+                      *notes))
 
 
 def _now() -> str:

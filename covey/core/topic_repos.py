@@ -61,6 +61,11 @@ class TopicRepo:
     first_at: float = 0.0
     rules_read_at: float = 0.0
     rules_miss: int = 0
+    # A head of its rules cut short was shown (inlined, or printed by ``covey repo use``): no reading, its rules stay unread,
+    # and it is not shown again until a turn writes it without them (app/repos_turn.py ``inline_due``).
+    rules_inlined_at: float = 0.0
+    base_at: float = 0.0  # A read worktree's (``read_worktrees``): the commit time of ``base_oid``.
+    stale: int = 0  # A read worktree's: 1 when its fetch failed, the remote branch as last fetched (it may be behind).
 
 
 _FIELDS = {item.name: item for item in fields(TopicRepo)}
@@ -218,6 +223,20 @@ def topic_worktrees(number, topic_id, root=None) -> Path:
         root = component_dir("worktrees", preserve_legacy=False)
     id8 = str(topic_id or "")[:8] or "topic"
     return Path(root) / (f"T{number}-{id8}" if number else id8)
+
+
+READ_DIR = "_read"
+
+
+def read_worktrees(root=None) -> Path:
+    """``<数据根>/worktrees/_read``: the detached worktrees ``covey repo use`` reads a repository's latest main branch in,
+    ``<仓库>/<提交前 12 位>/`` under it, shared by every topic reading that commit (core/repomap.py ``read_worktree``)."""
+    return topic_worktrees(0, "x", root).parent / READ_DIR
+
+
+def is_read_worktree(path, root=None) -> bool:
+    """Whether ``path`` is one of ``read_worktrees``: never a topic's own worktree to write in."""
+    return bool(path) and os.path.normpath(str(path)).startswith(os.path.normpath(str(read_worktrees(root))) + os.sep)
 
 
 def branch_name(number, topic_id) -> str:

@@ -23,8 +23,8 @@ from covey.core.statuses import ENDED
 from covey.app.leftovers import stop_task_leftovers
 from covey.app.butler import butler_turn
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, bridge_rules, earlier_history, first_turn_message,
-                                        principles_block, context_high, resume_message, resume_reminders, turn_tail,
-                                        workspace_block)
+                                        home_section, principles_block, context_high, resume_message, resume_reminders,
+                                        turn_tail)
 from covey.app.sessions import mark_system_rules, started_with_system_rules
 from covey.app.recovery_cards import paint_answered
 from covey.app.switch_handoff import capped
@@ -155,7 +155,7 @@ class Runs:
             workspace_name=ctx.workspace_name,
             workdir=ctx.workdir, device=ctx.device, remote_workdir=ctx.remote_workdir,
             runtime_note=self.harness.backend.prompt_runtime_note(ctx),
-            notes=tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx)),
+            notes=self.backend_notes(ctx),
             principles=self.principles(ctx, job),
             project=project_context.block(ctx, job, resumed=False),
             knowledge_text=knowledge_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job), resumed=False),
@@ -167,6 +167,11 @@ class Runs:
             checkpoint=self.checkpoint_rules(ctx, job),
             home=home_turn.static_block(ctx),
         )
+
+    def backend_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
+        """The backend's own constraints of ``ctx``'s turn (core/harness.py ``prompt_notes``), in the rules and in each
+        resumed turn's reminder: one that changed after the session started (redaction turned on) reaches the next turn."""
+        return tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx) or ())
 
     @staticmethod
     def slim(ctx: BridgeContext, job: ReplyJob | None) -> bool:
@@ -537,8 +542,12 @@ class Runs:
             remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
             memory_text = memory_turn.block(ctx, job, owner_turn=owner)
             memory_fix = memory_turn.fix_rule(ctx, job, owner)
-            prompt += "\n\n" + resume_reminders() + (
-                "\n\n" + workspace_block(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir) + ("\n\n" + memory_text if memory_text else "")
+            # The backend's constraints of this turn (the redaction note once the topic turned it on), and the 主目录段 as
+            # the rules have it: a topic from the home keeps its repo map and the rules of working from it (T900 W0-4).
+            where = home_section(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir,
+                                 home=home_turn.static_block(ctx))
+            prompt += "\n\n" + resume_reminders(self.backend_notes(ctx)) + (
+                "\n\n" + where + ("\n\n" + memory_text if memory_text else "")
                 + ("\n\n" + principles if principles else "")
                 + ("\n\n" + project if project else "")
                 + ("\n\n" + knowledge_text if knowledge_text else "")

@@ -525,6 +525,48 @@ class ReposTurnTest(Sandbox):
         (entry,) = self.topic_data()["repos"]
         self.assertEqual((entry["name"], entry["mode"], entry.get("rules_miss", 0)), ("core", "write", 0))
 
+    def test_a_head_cut_short_is_never_read_and_a_write_without_the_rules_brings_it_again(self):
+        """T900 W0-4: rules inlined only in part (their first RULES_INLINE_BYTES of 89 KB) counted as read: the row said
+        ✓已读 and a turn that then wrote the repository without reading them got no rules_miss."""
+        (self.repo / "AGENTS.md").write_text("# 规范\n" + "".join(f"第 {i} 条：只在 worktree 里改。\n" for i in range(400)))
+        self.topic(home_start=True, repos=[{"name": "core", "path": str(self.repo), "mode": "write", "source": "declared"}])
+        block = repos_turn.tail(self.ctx(), self.job)
+        self.assertIn("core 的规范（AGENTS.md 开头，后面还有，动手前读全文；这个仓库是派活时点名的，先照它做）", block)
+        repos_turn.settle(self.ctx(), self.job, None)
+        (entry,) = self.topic_data()["repos"]
+        self.assertNotIn("rules_read_at", entry)
+        self.assertGreater(entry["rules_inlined_at"], 0)
+        block = repos_turn.tail(self.ctx(), self.job)
+        self.assertIn("规范 AGENTS.md 未读，动它之前先读", block)
+        self.assertNotIn("<<<", block)  # Shown once: not the same 4 KB every turn.
+        self.job.tool_trace = trace_of(("修改文件", str(self.repo / "app.py")))  # Written without reading them.
+        repos_turn.settle(self.ctx(), self.job, None)
+        (entry,) = self.topic_data()["repos"]
+        self.assertEqual((entry["rules_miss"], "rules_inlined_at" in entry), (1, False))
+        block = repos_turn.tail(self.ctx(), self.job)
+        self.assertIn("上一轮改了它却没读它的规范", block)
+        self.assertIn("<<<\n# 规范", block)
+        self.job.tool_trace = trace_of(("读取文件", str(self.repo / "AGENTS.md")))
+        repos_turn.settle(self.ctx(), self.job, None)
+        block = repos_turn.tail(self.ctx(), self.job)
+        self.assertIn("规范 AGENTS.md ✓已读", block)
+        self.assertNotIn("<<<", block)
+
+    def test_covey_repo_use_printing_a_head_cut_short_is_no_reading(self):
+        """T900 W0-4: ``covey repo use`` prints at most 4 KB of the rules; a request saying so (``rules_cut``) leaves them
+        unread. One of an older release (no ``rules_cut``) counts as read, as before."""
+        self.topic(home_start=True)
+        task = self.state / "runs" / "om_3"
+        topic_repos.add_request(task, {"at": 9.0, "name": "core", "path": str(self.repo), "mode": "read",
+                                       "rules_file": "AGENTS.md", "rules_cut": True})
+        repos_turn.settle(self.ctx(), self.job, task)
+        (entry,) = self.topic_data()["repos"]
+        self.assertEqual((entry.get("rules_read_at"), entry["rules_inlined_at"]), (None, 9.0))
+        self.assertIn("规范 AGENTS.md 未读", repos_turn.tail(self.ctx(), self.job))
+        self.job.tool_trace = trace_of(("修改文件", str(self.repo / "app.py")))
+        repos_turn.settle(self.ctx(), self.job, None)
+        self.assertIn("上一轮改了它却没读它的规范", repos_turn.tail(self.ctx(), self.job))
+
     def test_the_tasks_requests_are_folded_in_with_their_worktree_and_base(self):
         self.topic(home_start=True)
         task = self.state / "runs" / "om_3"
@@ -566,6 +608,120 @@ class ReposTurnTest(Sandbox):
         self.assertEqual(found["home"], str(self.home))
         self.assertEqual(found["repos"][0]["used"], "write")
         self.assertEqual(found["unmapped"], [{"name": "x", "path": "/absolute/x", "used": "read", "worktree": ""}])
+
+
+class ReadWorktreeTest(Sandbox):
+    """T900 W0-5: ``covey repo use`` without ``--write`` read the repository's main checkout, 87 commits behind; it reads a
+    detached worktree of the latest main branch now, says which commit and when, and its rules come from it."""
+
+    def setUp(self):
+        super().setUp()
+        self.upstream = make_repo(self.root / "upstream", rules="# 规范\n旧规范。\n")
+        run_git(self.root, "clone", "-q", str(self.upstream), str(self.home / "core"))
+        self.repo = self.home / "core"
+        (self.upstream / "AGENTS.md").write_text("# 规范\n新规范：只读最新主干。\n", encoding="utf-8")
+        commit_all(self.upstream, "rules")  # The upstream moves on: the main checkout is behind.
+        self.latest = run_git(self.upstream, "rev-parse", "main").strip()
+        repomap.write(self.state, [repomap.Repo(name="core", path=str(self.repo))])
+        self.topic(home_start=True)
+        self.task = self.state / "runs" / "om_1"
+        self.task.mkdir(parents=True)
+        os.environ.update(COVEY_STATE=str(self.state), COVEY_HOME=str(self.home), COVEY_TOPIC=TOPIC,
+                          **{TASK_DIR_ENV: str(self.task)})
+        self.job = SimpleNamespace(topic_id=TOPIC, job_id=3, message_id="om_1", tool_trace=None)
+
+    def use(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = repomap.main(["use", "core", *argv])
+        return code, out.getvalue()
+
+    def test_reading_is_in_the_latest_main_branch_with_its_commit_and_time_and_its_rules(self):
+        self.assertNotEqual(run_git(self.repo, "rev-parse", "HEAD").strip(), self.latest)
+        code, out = self.use("--json")
+        made = json.loads(out)
+        tree = self.data / "worktrees" / "_read" / "core" / self.latest[:12]
+        self.assertEqual((code, made["worktree"], made["base_oid"], made["base"]),
+                         (0, str(tree), self.latest, f"origin/main@{self.latest[:8]}"))
+        self.assertEqual(run_git(tree, "rev-parse", "HEAD").strip(), self.latest)
+        self.assertEqual(run_git(self.repo, "rev-parse", "origin/main").strip(), self.latest)  # Fetched.
+        self.assertIn("新规范", made["rules"]["text"])  # The rules of the latest main branch, not the checkout's.
+        self.assertEqual((made["note"], made["stale"]), ("", 0))
+        code, text = self.use()
+        at = repomap.when(made["base_at"])
+        self.assertTrue(at)
+        self.assertIn(f"在这里读：{tree}（最新主干的只读 worktree，origin/main 的提交 {self.latest[:8]}，提交于 {at}", text)
+        self.assertNotIn("可能落后", text)
+        self.assertEqual(json.loads(self.use("--json")[1])["created"], False)  # The same commit: used again.
+        repos_turn.settle(self.ctx(), self.job, self.task)
+        (entry,) = self.topic_data()["repos"]
+        self.assertEqual((entry["mode"], entry["worktree"], entry["base_oid"]), ("read", str(tree), self.latest))
+        block = repos_turn.tail(self.ctx(), self.job)
+        self.assertIn(f"- core（读，最新主干的只读 worktree {tree}，origin/main 的提交 {self.latest[:8]}，提交于 {at}；规范 AGENTS.md", block)
+        self.assertEqual(repos_turn._rules(topic_repos.of_topic(self.topic_data())[0], {}, 4096)[1],
+                         "# 规范\n新规范：只读最新主干。\n")
+        # Writing it later is in the topic's own worktree, never the shared read one.
+        made = json.loads(self.use("--write", "--json")[1])
+        self.assertEqual(made["worktree"], str(self.data / "worktrees" / "T7-abcdef12" / "core"))
+        repos_turn.settle(self.ctx(), self.job, self.task)
+        self.use("--json")  # A read after it keeps the topic's own worktree.
+        repos_turn.settle(self.ctx(), self.job, self.task)
+        (entry,) = self.topic_data()["repos"]
+        self.assertEqual((entry["mode"], entry["worktree"]), ("write", made["worktree"]))
+        self.assertNotIn("base_at", entry)
+
+    def test_a_fetch_that_fails_says_it_may_be_behind(self):
+        run_git(self.repo, "fetch", "-q", "origin")
+        run_git(self.repo, "remote", "set-url", "origin", str(self.root / "gone.git"))
+        (self.upstream / "app.py").write_text("print('newer')\n")
+        commit_all(self.upstream, "newer")  # Not fetched: the remote branch as last fetched is a commit behind.
+        code, out = self.use("--json")
+        made = json.loads(out)
+        self.assertEqual((code, made["base_oid"], made["stale"]), (0, self.latest, 1))
+        self.assertIn("git fetch 没成功", made["note"])
+        self.assertIn("可能落后，未能确认是最新主干", made["note"])
+        self.assertNotIn(str(self.root / "gone.git"), made["note"])  # The exit status only, not git's words.
+        repos_turn.settle(self.ctx(), self.job, self.task)
+        self.assertIn("当时 fetch 没成功，可能落后", repos_turn.tail(self.ctx(), self.job))
+
+    def test_without_a_read_worktree_it_reads_the_checkout_and_says_so(self):
+        with mock.patch.object(repomap, "read_worktree", side_effect=repomap.RepoError("建不了", later=True)):
+            code, out = self.use("--json")
+        made = json.loads(out)
+        self.assertEqual((code, made["worktree"], made["stale"]), (0, "", 1))
+        self.assertIn("读的是仓库目录本身，可能落后，未能确认是最新主干", made["note"])
+        self.assertIn("旧规范", made["rules"]["text"])
+        self.assertFalse(topic_repos.requests(self.task)[0]["pending"])  # A read is never pending a write.
+        # A repository without a remote has no main branch to be behind of: read where it is, as before.
+        run_git(self.repo, "remote", "remove", "origin")
+        made = json.loads(self.use("--json")[1])
+        self.assertEqual((made["worktree"], made["note"]), ("", ""))
+
+    def test_read_worktrees_no_turn_used_for_a_day_are_removed_and_a_turn_keeps_its_own(self):
+        first = json.loads(self.use("--json")[1])["worktree"]
+        repos_turn.settle(self.ctx(), self.job, self.task)
+        old = time.time() - repomap.READ_IDLE - 60
+        marker = Path(first + repomap.READ_USED)
+        os.utime(marker, (old, old))
+        note = repos_turn.settle(self.ctx(), self.job, None, later=True)  # A turn of the topic reading it keeps it.
+        note()
+        self.assertGreater(marker.stat().st_mtime, old + 60)
+        os.utime(marker, (old, old))
+        (self.upstream / "app.py").write_text("print('next')\n")
+        commit_all(self.upstream, "next")
+        second = json.loads(self.use("--json")[1])["worktree"]
+        self.assertNotEqual(second, first)
+        self.assertFalse(Path(first).exists())  # Clean and idle a day: removed with the commit's marker.
+        self.assertFalse(marker.exists())
+        self.assertNotIn(first, run_git(self.repo, "worktree", "list"))
+        self.assertIn("之前的只读 worktree 已清理", repos_turn.tail(self.ctx(), self.job))
+        # One with changes stays, however idle.
+        (Path(second) / "scratch.txt").write_text("x")
+        os.utime(Path(second + repomap.READ_USED), (old, old))
+        (self.upstream / "app.py").write_text("print('last')\n")
+        commit_all(self.upstream, "last")
+        self.use("--json")
+        self.assertTrue(Path(second).is_dir())
 
 
 class HomeBlockTest(Sandbox):
