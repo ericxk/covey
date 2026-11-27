@@ -174,8 +174,9 @@ def ask(system, data, where, limit) -> str:
     through the 辅助模型 (app/assist.py ask); Failed otherwise. A new route each call: a loop over topics never keeps one."""
     state = assist.state_of(where.topics)
     cwd = proposals.folder(state) / "judge" if state is not None else Path(".")
+    # Never a redacting topic's words: ``hidden`` keeps them out of every question before it is put together.
     return assist.ask(where.feature, system, data, topics=where.topics, limit=limit, cwd=cwd, manual=where.manual,
-                      model=proposals.model())
+                      model=proposals.model(), redacted=False)
 
 
 def first_object(text, key):

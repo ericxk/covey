@@ -2,25 +2,35 @@
 processes, in <state>/assist-state.json, and the words of their reasons. app/assist.py decides and calls; this module only
 keeps the record. Standard library and core/ only: a task runner (app/switch_handoff.py) reads it too.
 
-The record, written under its lock (``change``), never with the owner's words or a model's answer:
+The record, written under its lock (``change``), never with the owner's words or a model's answer. What a failure leaves is
+kept for its lane (``Lane``: the Harness, the model the call ran on and the model gateway it went through, WAVE12 W2-D 包 D),
+so one lane's trouble never stops another's (Claude Code's Haiku and its 整理 model, Codex on its own login and through a
+gateway):
 
-- ``breakers``: {harness: {code, model, at, until}}: a background call failed on the environment (BREAKS: a login, a spent
-  quota, a CLI that did not start, a lost connection, a model the account cannot use); the automatic calls leave that Harness
-  alone until ``until`` (BREAK_SECONDS). A call the owner asked for (✨ 整理, 看看, the butler's projects_tidy) still tries
-  once, and its success clears it. A timeout never breaks.
-- ``cooling``: {"harness:feature": {at, until}}: an official safety refusal (REFUSED) of a batch feature's call (整理判断,
-  整理记忆, 晚间候选): that feature does not send to that Harness for COOL_SECONDS. A refusal of one item (回填 a topic, a
-  real-time merge, 记忆自己长) marks that item alone.
-- ``refusals``: {day, counts: {harness: n}}: the background's refusals of the day; at DAILY_REFUSALS a Harness takes no
-  more background calls that day (an account refused again and again may be blocked).
-- ``recent``: {feature: {harness, model, ok, code, ms, at, manual}}: each feature's latest call, for the web page's
-  后台活最近一次.
+- ``lanes``: {"harness|model|gateway": {harness, model, gateway, broken, cooling, refusals, tried}}:
+  - ``broken`` {code, model, at, until}: a background call failed on the environment (BREAKS: a login, a spent quota, a CLI
+    that did not start, a lost connection, a model the account cannot use); the automatic calls leave that lane alone until
+    ``until`` (BREAK_SECONDS). A timeout never breaks; a success clears it.
+  - ``cooling`` {feature: {at, until}}: an official safety refusal (REFUSED) of a batch feature's call (整理判断): that
+    feature does not send to that lane for COOL_SECONDS. A refusal of one item (回填 a topic, 记忆自己长) marks that item
+    alone.
+  - ``refusals`` {day, count}: the lane's refusals of the day; at DAILY_REFUSALS it takes no more background calls that day
+    (an account refused again and again may be blocked).
+  - ``tried``: when a call the owner asked for (✨ 整理, the butler's projects_tidy) last went past its break, cooling or
+    gate: one such try a lane each TRY_SECONDS (``may_try``, ``take_try``), so his clicks never hammer an account that
+    is refused.
+- ``breakers`` {harness: …}, ``cooling`` {"harness:feature": …}, ``refusals`` {day, counts: {harness: n}}: the same, kept
+  for a whole Harness by the releases before the lanes. Read still (each holds every lane of its Harness until it runs
+  out), never written again; a success of a lane clears its Harness's old break.
+- ``recent``: {feature: {harness, model, gateway, ok, code, ms, at, manual}}: each feature's latest call, for the web
+  page's 后台活最近一次.
 
-A change of the 辅助模型 setting clears ``cooling`` and ``breakers`` (``clear``): the owner chose again.
+A change of the 辅助模型 setting clears the breaks and the coolings (``clear``): the owner chose again.
 """
 from __future__ import annotations
 
 import copy
+import dataclasses
 import re
 import threading
 import time
@@ -35,6 +45,7 @@ COOL_SECONDS = 6 * 3600
 DAILY_REFUSALS = 3
 CACHE_SECONDS = 5.0  # How long a process trusts its own copy (``read``) before it reads the file again.
 RECENT_GAP = 60.0  # A feature's ``recent`` row is written again within this only when its outcome changed.
+TRY_SECONDS = 60  # A call the owner asked for goes past a lane's break, cooling or gate at most once this long (``tried``).
 
 # The reasons of one background call (core/harness.py AskFailed's, app/track_judge.py Failed's), by what they mean.
 # The environment of the Harness: the next call would fail the same; the automatic calls leave it for BREAK_SECONDS.
@@ -49,7 +60,7 @@ ONE_OFF = frozenset({"too_long", "bad_output", "out_of_range", "model_error", "e
                      "low_confidence"})
 # No model was asked: the setting says none, the one it names cannot take it now, or no Harness can.
 NOT_ASKED = frozenset({"none", "not_allowed", "no_backend", "broken", "cooling", "refusal_gate", "not_one_shot",
-                       "unusable", "not_enabled"})
+                       "unusable", "not_enabled", "redacted"})
 
 # What each reason is, in the words of a card or the web page (the Harness's name goes before them where there is one).
 WORDS = {
@@ -63,6 +74,7 @@ WORDS = {
     "no_backend": "没有能用的模型（Claude Code、Codex、Antigravity 都没启用）", "broken": "刚失败过，15 分钟内后台先不用它",
     "cooling": "这项后台活刚被它的官方内容安全拦过，6 小时内不再送给它", "refusal_gate": "今天后台被官方内容安全拦了好几次，今天后台先不用它",
     "not_one_shot": "不能一问一答", "unusable": "现在用不了", "not_enabled": "这台机器上没启用",
+    "redacted": "开了脱敏，内容不外发",
 }
 
 
@@ -113,14 +125,32 @@ def path(state_dir) -> Path:
     return Path(state_dir) / FILE
 
 
+@dataclasses.dataclass(frozen=True)
+class Lane:
+    """Where a background call goes: the Harness, the model id it runs on ('' its own default) and the model gateway it goes
+    through ('' none: the Harness's own login)."""
+    harness: str
+    model: str = ""
+    gateway: str = ""
+
+    @property
+    def key(self) -> str:
+        return f"{self.harness}|{self.model}|{self.gateway}"
+
+
+def lane_of(value) -> Lane:
+    """``value`` as a Lane: one already, or a Harness's name (the lane of its own default model and login)."""
+    return value if isinstance(value, Lane) else Lane(str(value or ""))
+
+
 def empty() -> dict:
-    return {"version": 1, "breakers": {}, "cooling": {}, "refusals": {"day": "", "counts": {}}, "recent": {}}
+    return {"version": 2, "lanes": {}, "breakers": {}, "cooling": {}, "refusals": {"day": "", "counts": {}}, "recent": {}}
 
 
 def _shaped(data) -> dict:
     out = empty()
     if isinstance(data, dict):
-        for key in ("breakers", "cooling", "recent"):
+        for key in ("lanes", "breakers", "cooling", "recent"):
             if isinstance(data.get(key), dict):
                 out[key] = {str(k): v for k, v in data[key].items() if isinstance(v, dict)}
         refusals = data.get("refusals")
@@ -176,74 +206,190 @@ def day_of(now) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(now))
 
 
-def broken(data, harness, now=None) -> dict | None:
-    """The break of ``harness`` still on at ``now`` in ``data`` (a ``read``), or None."""
+def _until(row, now) -> bool:
+    try:
+        return isinstance(row, dict) and float(row.get("until") or 0) > now
+    except (TypeError, ValueError):
+        return False
+
+
+def _lanes(data, harness) -> list:
+    """The rows of ``data``'s lanes of ``harness``."""
+    return [row for row in (data.get("lanes") or {}).values() if isinstance(row, dict) and row.get("harness") == harness]
+
+
+def _lane(data, lane) -> dict:
+    row = (data.get("lanes") or {}).get(lane.key)
+    return row if isinstance(row, dict) else {}
+
+
+def breaks(data, harness, now=None) -> list:
+    """Every break of ``harness`` still on at ``now`` in ``data`` (a ``read``): its lanes' ({code, model, at, until}, model
+    the lane's) and its old Harness-wide one."""
     now = time.time() if now is None else now
-    row = (data.get("breakers") or {}).get(harness)
-    return row if isinstance(row, dict) and float(row.get("until") or 0) > now else None
+    rows = [{**row["broken"], "model": row["broken"].get("model") or row.get("model") or ""}
+            for row in _lanes(data, harness) if _until(row.get("broken"), now)]
+    old = (data.get("breakers") or {}).get(harness)
+    return rows + ([old] if _until(old, now) else [])
 
 
-def cooling(data, harness, feature, now=None) -> dict | None:
+def broken(data, lane, now=None) -> dict | None:
+    """The break still on at ``now`` in ``data`` of ``lane``: a Lane's own, else its Harness's old one; a Harness's name: any
+    of that Harness (``breaks``'s first). None when there is none."""
     now = time.time() if now is None else now
-    row = (data.get("cooling") or {}).get(f"{harness}:{feature}")
-    return row if isinstance(row, dict) and float(row.get("until") or 0) > now else None
+    if not isinstance(lane, Lane):
+        rows = breaks(data, str(lane or ""), now)
+        return rows[0] if rows else None
+    row = _lane(data, lane).get("broken")
+    if _until(row, now):
+        return {**row, "model": row.get("model") or lane.model}
+    old = (data.get("breakers") or {}).get(lane.harness)
+    return old if _until(old, now) else None
 
 
-def refusals_today(data, harness, now=None) -> int:
+def cooling(data, lane, feature, now=None) -> dict | None:
+    """The cooling of ``feature`` still on at ``now`` on ``lane`` (a Lane's own, else its Harness's old one; a Harness's name:
+    any lane of it), or None."""
     now = time.time() if now is None else now
+    harness = lane.harness if isinstance(lane, Lane) else str(lane or "")
+    rows = [_lane(data, lane)] if isinstance(lane, Lane) else _lanes(data, harness)
+    for row in rows:
+        own = (row.get("cooling") or {}).get(feature)
+        if _until(own, now):
+            return own
+    old = (data.get("cooling") or {}).get(f"{harness}:{feature}")
+    return old if _until(old, now) else None
+
+
+def refusals_today(data, lane, now=None) -> int:
+    """The background refusals today of ``lane`` (a Lane, or a Harness's name: all its lanes), with its Harness's old count
+    of the day."""
+    now = time.time() if now is None else now
+    day = day_of(now)
+    harness = lane.harness if isinstance(lane, Lane) else str(lane or "")
+    count = 0
+    for row in [_lane(data, lane)] if isinstance(lane, Lane) else _lanes(data, harness):
+        own = row.get("refusals") or {}
+        if isinstance(own, dict) and own.get("day") == day and type(own.get("count")) is int:
+            count += own["count"]
     refusals = data.get("refusals") or {}
-    if refusals.get("day") != day_of(now):
-        return 0
-    return int((refusals.get("counts") or {}).get(harness) or 0)
+    if refusals.get("day") == day:
+        count += int((refusals.get("counts") or {}).get(harness) or 0)
+    return count
 
 
-def gated(data, harness, now=None) -> bool:
-    """Whether ``harness`` has had DAILY_REFUSALS background refusals today: no more background calls to it today."""
-    return refusals_today(data, harness, now) >= DAILY_REFUSALS
+def gated(data, lane, now=None) -> bool:
+    """Whether ``lane`` has had DAILY_REFUSALS background refusals today: no more background calls to it today."""
+    return refusals_today(data, lane, now) >= DAILY_REFUSALS
 
 
-def settle(state_dir, *, feature, harness, model="", code="", ms=0, manual=False, batch=False, now=None) -> dict:
-    """One call's outcome kept (``code`` '' for an answer): its ``recent`` row, a break for an environment failure (BREAKS),
-    a cooling and the day's count for a refusal (a batch feature's cooling; an item's refusal only counts), a success
-    clearing its Harness's break. The record after."""
+def may_try(data, lane, now=None) -> bool:
+    """Whether a call the owner asked for may go past ``lane``'s break, cooling or gate now: none did in TRY_SECONDS."""
+    now = time.time() if now is None else now
+    try:
+        return now - float(_lane(data, lane_of(lane)).get("tried") or 0) >= TRY_SECONDS
+    except (TypeError, ValueError):
+        return True
+
+
+def take_try(state_dir, lane, now=None) -> bool:
+    """``may_try`` and its mark (``tried``) at once, under the record's lock: whether this call is the one. Never raises."""
+    now = time.time() if now is None else now
+    lane, took = lane_of(lane), []
+
+    def edit(data):
+        if not may_try(data, lane, now):
+            return False
+        _own(data, lane)["tried"] = round(now)
+        took.append(True)
+        return True
+
+    change(state_dir, edit)
+    return bool(took)
+
+
+def _own(data, lane) -> dict:
+    """``lane``'s row in ``data``, made when it has none."""
+    row = data["lanes"].get(lane.key)
+    if not isinstance(row, dict):
+        row = data["lanes"][lane.key] = {"harness": lane.harness, "model": lane.model, "gateway": lane.gateway}
+    return row
+
+
+def _prune(data, now) -> None:
+    """Lanes with nothing on any more (no break, no cooling, no refusal today, no try in TRY_SECONDS) taken out."""
+    day = day_of(now)
+    for key, row in list(data["lanes"].items()):
+        if not _live(row, now, day):
+            data["lanes"].pop(key, None)
+
+
+def _live(row, now, day) -> bool:
+    """Whether a lane's row still holds anything: a break, a cooling, a refusal of ``day``, a try in TRY_SECONDS."""
+    cool, counts = row.get("cooling"), row.get("refusals")
+    try:
+        tried = now - float(row.get("tried") or 0) < TRY_SECONDS
+    except (TypeError, ValueError):
+        tried = False
+    return (_until(row.get("broken"), now) or (isinstance(cool, dict) and any(_until(each, now) for each in cool.values()))
+            or (isinstance(counts, dict) and counts.get("day") == day) or tried)
+
+
+def settle(state_dir, *, feature, harness, model="", gateway="", code="", ms=0, manual=False, batch=False, now=None) -> dict:
+    """One call's outcome kept (``code`` '' for an answer) for its lane (``harness``, ``model``, ``gateway``): its ``recent``
+    row, a break for an environment failure (BREAKS), a cooling and the day's count for a refusal (a batch feature's
+    cooling; an item's refusal only counts), a success clearing its lane's break (and its Harness's old one). The record
+    after."""
     now = time.time() if now is None else now
     kind = kind_of(code)
+    lane = Lane(str(harness or ""), str(model or ""), str(gateway or ""))
 
     def edit(data):
         changed = False
-        row = {"harness": harness, "model": model, "ok": not code, "code": code, "ms": int(ms), "at": round(now),
-               "manual": bool(manual)}
+        row = {"harness": harness, "model": model, "gateway": gateway, "ok": not code, "code": code, "ms": int(ms),
+               "at": round(now), "manual": bool(manual)}
         old = data["recent"].get(feature) or {}
-        if any(old.get(k) != row[k] for k in ("harness", "model", "ok", "code", "manual")) \
+        if any(old.get(k) != row[k] for k in ("harness", "model", "gateway", "ok", "code", "manual")) \
                 or now - float(old.get("at") or 0) >= RECENT_GAP:
             data["recent"][feature] = row
             changed = True
-        if harness and not code and harness in data["breakers"]:
-            data["breakers"].pop(harness, None)
-            changed = True
+        if harness and not code:
+            if _lane(data, lane).get("broken"):
+                _lane(data, lane).pop("broken", None)
+                changed = True
+            if harness in data["breakers"]:
+                data["breakers"].pop(harness, None)
+                changed = True
         if harness and kind == "break":
-            data["breakers"][harness] = {"code": code, "model": model, "at": round(now), "until": round(now + BREAK_SECONDS)}
+            _own(data, lane)["broken"] = {"code": code, "model": model, "at": round(now), "until": round(now + BREAK_SECONDS)}
             changed = True
         if harness and kind == "refused":
+            own = _own(data, lane)
             if batch:
-                data["cooling"][f"{harness}:{feature}"] = {"at": round(now), "until": round(now + COOL_SECONDS)}
+                own.setdefault("cooling", {})[feature] = {"at": round(now), "until": round(now + COOL_SECONDS)}
             day = day_of(now)
-            if data["refusals"].get("day") != day:
-                data["refusals"] = {"day": day, "counts": {}}
-            counts = data["refusals"]["counts"]
-            counts[harness] = int(counts.get(harness) or 0) + 1
+            counts = own.get("refusals") if isinstance(own.get("refusals"), dict) else {}
+            own["refusals"] = {"day": day, "count": (int(counts.get("count") or 0) if counts.get("day") == day else 0) + 1}
             changed = True
+        if changed:
+            _prune(data, now)
         return changed
 
     return change(state_dir, edit)
 
 
 def clear(state_dir) -> dict:
-    """The coolings and the breaks gone (the owner changed the 辅助模型 setting); the day's refusal counts stay."""
+    """The coolings and the breaks gone, every lane's and the old Harness-wide ones (the owner changed the 辅助模型 setting);
+    the day's refusal counts and the owner's last tries stay."""
     def edit(data):
-        if not data["cooling"] and not data["breakers"]:
+        lanes = [row for row in data["lanes"].values() if row.get("broken") or row.get("cooling")]
+        if not data["cooling"] and not data["breakers"] and not lanes:
             return False
         data["cooling"], data["breakers"] = {}, {}
+        for row in lanes:
+            row.pop("broken", None)
+            row.pop("cooling", None)
+        _prune(data, time.time())
         return True
     return change(state_dir, edit)
 

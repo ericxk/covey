@@ -1104,6 +1104,45 @@ class AssistExitTest(unittest.TestCase):
             with self.subTest(feature=feature):
                 self.assertIn("assist", (PACKAGE / rel).read_text())
 
+    # WAVE12 W2-D 包 D: every question says whether it carries a redacting topic's words (``redacted``, a keyword without a
+    # default), and one that does is refused at the exit. Read as the AST of the package and of the extensions a release
+    # carries (``gated_sources``), through any alias of the module or of the function.
+    ASK = {"covey.app.assist": {"ask"}}
+
+    @classmethod
+    def unsaid_redacted(cls, sources):
+        return [f"{rel}:{node.lineno}" for rel, source in sources for _, _, node in module_calls(source, cls.ASK)
+                if not any(keyword.arg == "redacted" for keyword in node.keywords)]
+
+    def test_every_question_says_whether_it_is_a_redacting_topics_and_the_exit_needs_it(self):
+        from covey.app import assist
+        self.assertEqual(self.unsaid_redacted(gated_sources()), [],
+                         "assist.ask 要显式带 redacted=（脱敏话题的内容不外发，WAVE12 W2-D 包 D）")
+        callers = {rel for rel, source in gated_sources() if module_calls(source, self.ASK)}
+        self.assertLessEqual({"covey/app/project_sorter.py", "covey/app/memory_learn.py"}, callers)  # The scan sees them.
+        parameter = inspect.signature(assist.ask).parameters["redacted"]
+        self.assertEqual((parameter.kind, parameter.default), (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.empty))
+        from covey.core import assist as records
+        self.assertIn("redacted", records.NOT_ASKED)
+        self.assertIn("redacted", records.WORDS)
+
+    def test_a_question_without_redacted_is_caught_through_any_alias(self):
+        sources = [("covey/app/a.py", textwrap.dedent('''
+            from covey.app import assist
+            from covey.app import assist as helper
+            from covey.app.assist import ask as put
+            import covey.app.assist as exit_
+
+            def f(kw):
+                assist.ask("tidy", "s", "d", topics=1, limit=1, cwd=1, redacted=False)
+                assist.ask("tidy", "s", "d", topics=1, limit=1, cwd=1, **kw)
+                helper.ask("tidy", "s", "d", topics=1, limit=1, cwd=1)
+                put("tidy", "s", "d", topics=1, limit=1, cwd=1)
+                exit_.ask("tidy", "s", "d", topics=1, limit=1, cwd=1, redacted=True)
+                other.ask("tidy")
+        '''))]
+        self.assertEqual(self.unsaid_redacted(sources), ["covey/app/a.py:9", "covey/app/a.py:10", "covey/app/a.py:11"])
+
 
 # WAVE12 C11 gates G6 and G9 (W1-0 sets them up with every caller of today listed; W1-D and W1-B take the lists down). A
 # source of the package, and of the extensions a release carries beside it (extensions/), is read as its AST: an alias of

@@ -427,8 +427,9 @@ def learn(runtime, messenger, ctx, record, topics, *, ask=None) -> list:
     as ``ask(SYSTEM, data, topics=…, limit=…, cwd=…)``."""
     state, key, job = ctx.state_dir, str(record["key"]), record.get("job_id")
     if ask is None:
-        def ask(system, data, **kw):
-            return assist.ask(assist.LEARN, system, data, state=state, **kw)
+        def ask(system, data, **kw):  # A topic that redacts was skipped (``reason_to_skip``); asked again right before it goes.
+            return assist.ask(assist.LEARN, system, data, state=state,
+                              redacted=_redacted(state, str(record.get("topic_id") or "")), **kw)
     try:
         said = memory_turn.owner_words(record, state)
         data = json.dumps(payload(ctx, record, said), ensure_ascii=False)

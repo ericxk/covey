@@ -255,9 +255,9 @@ def unfit(state_dir, harness, model, now=None) -> str:
     records say (the module docstring), or '': "assist broken", "model failing", "quota held". Never raises."""
     now = time.time() if now is None else now
     try:
-        row = assist.broken(assist.read(state_dir, fresh=True), harness, now)
-        if row is not None and (row.get("code") not in MODEL_BREAKS or not row.get("model") or row.get("model") == model):
-            return "assist broken"
+        for row in assist.breaks(assist.read(state_dir, fresh=True), harness, now):  # Each lane's, and the old Harness-wide one.
+            if row.get("code") not in MODEL_BREAKS or not row.get("model") or row.get("model") == model:
+                return "assist broken"
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     try:

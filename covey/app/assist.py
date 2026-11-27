@@ -19,10 +19,16 @@ Which Harness (``route``), from the 设置 card's 辅助模型 (core/butler_sett
   the next one take the call (at most MAX_TRIES Harnesses a call), but for 分流, which asks once and falls back to a new
   track on any failure: it is on the path of the owner's message. A timeout or a refusal never goes to another Harness.
 
-What a call leaves (core/assist.py ``settle``): its ``recent`` row; an environment failure breaks that Harness for the
-automatic calls for 15 minutes (a call the owner asked for, ``manual``, still tries once, and its answer clears the break);
-an official refusal of a batch feature (BATCH) cools that feature on that Harness for 6 hours, and every refusal counts
-toward the day's gate. A change of the setting clears the breaks and the coolings.
+What a call leaves (core/assist.py ``settle``), for its lane (core/assist.py Lane: the Harness, the model it ran on, the
+model gateway it went through; one lane's failures never stop another): its ``recent`` row; an environment failure breaks
+that lane for the automatic calls for 15 minutes; an official refusal of a batch feature (BATCH) cools that feature on that
+lane for 6 hours, and every refusal counts toward the lane's gate of the day. A call the owner asked for (``manual``) goes
+past a break, a cooling or the gate, once a lane a minute (core/assist.py TRY_SECONDS), and its answer clears the break.
+A change of the setting clears the breaks and the coolings.
+
+What goes out is never a redacting topic's (core/redaction.py): every caller says whether its words are one's (``ask``'s
+``redacted``, a keyword it must give, tests/test_structure.py AssistExitTest), and one that is is refused before anything
+starts (``Failed("redacted")``).
 
 Before a process starts the call is checked again against the settings read now (``allowed``): a Harness the owner no
 longer allows is refused with a log line ``assist refused harness=… feature=…``. No process is kept between calls: each
@@ -39,7 +45,7 @@ from typing import Callable
 from covey.app import track_judge
 from covey.app.track_judge import Failed
 from covey.core import assist as records
-from covey.core import butler, butler_settings
+from covey.core import butler, butler_settings, gateways
 from covey.core import project_proposals as proposals
 
 CLAUDE = track_judge.CLAUDE
@@ -73,11 +79,15 @@ NAMES = {"claude": "Claude Code", "codex": "Codex", "agy": "Antigravity"}
 @dataclasses.dataclass(frozen=True)
 class Choice:
     """One Harness a call may go through: its name, backend and context, and the model id of the setting it follows
-    (``follow``: its provider is the call's; '' none)."""
+    (``follow``: its provider is the call's; '' none). ``lane``: its core/assist.py Lane when the check worked it out (None:
+    worked out when the call is kept, ``lane_for``); ``bypass``: the reason (broken, cooling, refusal_gate) a call the owner
+    asked for goes past (core/assist.py ``take_try`` before it starts), '' none."""
     name: str
     backend: object = None
     ctx: object = None
     follow: str = ""
+    lane: object = None
+    bypass: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -210,26 +220,57 @@ def _agy_ready(state, ctx) -> str:
         return ""
 
 
-def check(state, runtime, apps, name, feature, *, manual, data, now=None) -> tuple:
-    """(reason, detail) the Harness ``name`` may not take a call of ``feature`` for, ('', '') when it may."""
+def lane_for(choice, feature):
+    """The core/assist.py Lane a call of ``feature`` through ``choice`` goes by: the Harness, the model it runs on
+    (``shown_model``) and the model gateway of that model (core/gateways.py ``for_model``; '' none)."""
+    if choice.lane is not None:
+        return choice.lane
+    model = shown_model(choice, FEATURES[feature].heavy)
+    try:
+        gateway = gateways.for_model(choice.name, model or choice.follow)
+    except Exception:  # noqa: BLE001 - a gateway list that cannot be read names none
+        gateway = None
+    return records.Lane(choice.name, model, getattr(gateway, "name", "") or "")
+
+
+def marked(data, harness) -> bool:
+    """Whether the record holds anything for ``harness`` (a lane of it, its old break, cooling or count): only then is its
+    lane worked out on the way (``check``: the 分流 of every butler message routes)."""
+    lanes = any(isinstance(row, dict) and row.get("harness") == harness for row in (data.get("lanes") or {}).values())
+    return (lanes or harness in (data.get("breakers") or {})
+            or any(key.split(":", 1)[0] == harness for key in (data.get("cooling") or {}))
+            or harness in ((data.get("refusals") or {}).get("counts") or {}))
+
+
+def check(state, runtime, apps, name, feature, *, manual, data, now=None, follow="") -> tuple:
+    """(reason, detail, lane, bypass): why the Harness ``name`` may not take a call of ``feature`` ('' it may); its lane when
+    the record named it (``marked``, else None); the reason a call the owner asked for (``manual``) goes past (a break, a
+    cooling, the gate: once a lane a minute, core/assist.py ``may_try``), '' none."""
     backend, ctx = tools_of(apps, name)
     if (apps or {}).get(name) is None:
-        return "not_enabled", ""
+        return "not_enabled", "", None, ""
     if backend is None:
-        return "not_one_shot", ""
+        return "not_one_shot", "", None, ""
     bad = unusable(runtime, name, now)
     if bad:
-        return "unusable", bad
+        return "unusable", bad, None, ""
     bad = ready(state, name, ctx)
     if bad:
-        return "unusable", bad
-    if not manual and records.broken(data, name, now):
-        return "broken", str(records.broken(data, name, now).get("code") or "")
-    if FEATURES[feature].batch and records.cooling(data, name, feature, now):
-        return "cooling", ""
-    if records.gated(data, name, now):
-        return "refusal_gate", ""
-    return "", ""
+        return "unusable", bad, None, ""
+    if not marked(data, name):
+        return "", "", None, ""
+    lane = lane_for(Choice(name, backend, ctx, follow), feature)
+    why, detail = "", ""
+    row = records.broken(data, lane, now)
+    if row is not None:
+        why, detail = "broken", str(row.get("code") or "")
+    elif FEATURES[feature].batch and records.cooling(data, lane, feature, now):
+        why = "cooling"
+    elif records.gated(data, lane, now):
+        why = "refusal_gate"
+    if why and manual and records.may_try(data, lane, now):
+        return "", "", lane, why
+    return why, detail, lane, ""
 
 
 # Where a call goes -------------------------------------------------------------------------------------------------
@@ -272,19 +313,19 @@ def route(topics, feature=TRACK, *, manual=False, state=None, now=None) -> Route
         return Route(mode=NONE, why="none")
     data = records.read(state)
     if choice.harness:
-        why, detail = check(state, runtime, apps, choice.harness, feature, manual=manual, data=data, now=now)
+        why, detail, lane, bypass = check(state, runtime, apps, choice.harness, feature, manual=manual, data=data, now=now)
         if why:
             return Route(mode="named", why=why, about=choice.harness, detail=detail)
         backend, ctx = tools_of(apps, choice.harness)
-        return Route(Choice(choice.harness, backend, ctx), mode="named")
+        return Route(Choice(choice.harness, backend, ctx, "", lane, bypass), mode="named")
     passed, first_bad = [], None
     for name, model in followed(settings, apps, default_of(topics)):
-        why, detail = check(state, runtime, apps, name, feature, manual=manual, data=data, now=now)
+        why, detail, lane, bypass = check(state, runtime, apps, name, feature, manual=manual, data=data, now=now, follow=model)
         if why:
             first_bad = first_bad or (why, name, detail)
             continue
         backend, ctx = tools_of(apps, name)
-        passed.append(Choice(name, backend, ctx, model))
+        passed.append(Choice(name, backend, ctx, model, lane, bypass))
     if passed:
         return Route(passed[0], tuple(passed[1:]))
     if first_bad:
@@ -315,16 +356,23 @@ def failed_of(route_) -> Failed:
     return exc
 
 
-def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None, log: Callable[[str], None] | None = None,
-        model="") -> str:
+def ask(feature, system, data, *, topics, limit, cwd, redacted: bool, manual=False, state=None,
+        log: Callable[[str], None] | None = None, model="") -> str:
     """One question of ``feature`` (FEATURES), its raw answer as Claude Code's JSON envelope (app/track_judge.py
-    ``answer_text`` reads it); Failed with the reason otherwise (``via``: the Harness it concerns, ``model``). ``manual``:
-    the owner asked for it (✨ 整理, 看看, the butler's projects_tidy): a break does not stop it. Asked again each call: a
-    loop over topics never keeps a backend across calls."""
+    ``answer_text`` reads it); Failed with the reason otherwise (``via``: the Harness it concerns, ``model``). ``redacted``:
+    whether ``system`` or ``data`` carries a redacting topic's words; such a question never goes (``Failed("redacted")``,
+    nothing started). ``manual``: the owner asked for it (✨ 整理, the butler's projects_tidy): a break, a cooling or the
+    day's gate does not stop it, once a lane a minute. Asked again each call: a loop over topics never keeps a backend
+    across calls."""
     if feature not in FEATURES:
         raise ValueError(f"unknown assist feature {feature!r}")
     state = state_of(topics, state)
     log = log or (getattr(getattr(topics, "runtime", None), "log", None) or print)
+    if redacted is not False:  # Only a plain False lets it go: a caller that is not sure sends nothing.
+        log(f"assist refused feature={feature} reason=redacted")
+        exc = Failed("redacted")
+        exc.via, exc.model = "", ""
+        raise exc
     kept = FEATURES[feature].row or feature  # The recent row (and a batch feature's cooling) it is kept under.
     found = route(topics, feature, manual=manual, state=state)
     if found.first is None:
@@ -340,6 +388,13 @@ def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None, 
             exc = Failed("not_allowed")
             exc.via, exc.model = choice.name, ""
             raise exc
+        lane = lane_for(choice, feature)
+        if choice.bypass:
+            if not records.take_try(state, lane):  # Another of his calls went past it within the minute.
+                exc = Failed(choice.bypass, "tried")
+                exc.via, exc.model = choice.name, lane.model
+                raise exc
+            log(f"assist past {choice.bypass} harness={choice.name} feature={feature}: the owner's call, once a minute")
         started = time.monotonic()
         try:
             # Claude Code's model: the question's own, else Haiku or 整理专项's; a native Harness picks by ``heavy``.
@@ -350,17 +405,17 @@ def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None, 
         except Failed as exc:
             ms = round((time.monotonic() - started) * 1000)
             code = exc.reason
-            records.settle(state, feature=kept, harness=choice.name, model=shown_model(choice, heavy), code=code, ms=ms,
+            records.settle(state, feature=kept, harness=choice.name, model=lane.model, gateway=lane.gateway, code=code, ms=ms,
                            manual=manual, batch=FEATURES[feature].batch)
             log(f"assist failed feature={feature} harness={choice.name} reason={code} ms={ms}"
                 + (f" detail={exc.detail[:160]}" if exc.detail else ""))
-            exc.via, exc.model = choice.name, shown_model(choice, heavy)
+            exc.via, exc.model = choice.name, lane.model
             if records.kind_of(code) == "break" and number + 1 < len(tries):
                 log(f"assist next feature={feature} from={choice.name} to={tries[number + 1].name}")
                 continue
             raise
         ms = round((time.monotonic() - started) * 1000)
-        records.settle(state, feature=kept, harness=choice.name, model=shown_model(choice, heavy), ms=ms, manual=manual,
+        records.settle(state, feature=kept, harness=choice.name, model=lane.model, gateway=lane.gateway, ms=ms, manual=manual,
                        batch=FEATURES[feature].batch)
         return raw
     raise failed_of(found)  # Not reached: the last try raises.
@@ -390,7 +445,8 @@ def judge(message, *, topics, redacted=False, question="", log=print, environ=No
                                 log=log, environ=environ, follow=choice.follow)
     if verdict.why not in track_judge.NOT_CALLED and state is not None:
         code = "" if verdict.why in ("ok", "low_confidence") else verdict.why
-        records.settle(state, feature=TRACK, harness=choice.name, model=shown_model(choice, False), code=code,
+        lane = lane_for(choice, TRACK)
+        records.settle(state, feature=TRACK, harness=choice.name, model=lane.model, gateway=lane.gateway, code=code,
                        ms=verdict.ms)
     return verdict
 

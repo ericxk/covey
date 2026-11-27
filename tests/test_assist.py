@@ -100,7 +100,8 @@ class Case(unittest.TestCase):
         if feature == assist.TRACK:
             return assist.judge(self.message(), topics=topics, log=self.logs.append)
         try:
-            return assist.ask(feature, "系统", "{}", topics=topics, limit=5, cwd=self.state / "judge", manual=manual)
+            return assist.ask(feature, "系统", "{}", topics=topics, limit=5, cwd=self.state / "judge", manual=manual,
+                              redacted=False)
         except Failed as exc:
             return exc
 
@@ -169,9 +170,9 @@ class NoStandbyTest(Case):
         topics = self.topics(answers={"codex": AskFailed("authentication_error")})
         self.setting(SETTINGS["codex"])
         self.call(topics, assist.TIDY)
-        self.assertIn("codex", records.read(self.state, fresh=True)["breakers"])
+        self.assertIsNotNone(records.broken(records.read(self.state, fresh=True), "codex"))
         self.setting(SETTINGS["auto"])  # core/butler_settings.py listen: app/assist.py on_settings_changed.
-        self.assertEqual(records.read(self.state, fresh=True)["breakers"], {})
+        self.assertIsNone(records.broken(records.read(self.state, fresh=True), "codex"))
 
 
 class FallbackTest(Case):
@@ -192,7 +193,7 @@ class FallbackTest(Case):
         verdict = assist.judge(self.message(), topics=topics, log=self.logs.append)
         self.assertEqual((verdict.route, verdict.why), ("new", "quota_exhausted"))
         self.assertEqual(self.spawns.calls, ["codex"])  # 分流 asks once: no second Harness on the message's path.
-        records.change(self.state, lambda data: data["breakers"].clear())
+        records.clear(self.state)
         self.spawns.calls.clear()
         raw = self.call(topics, assist.TIDY)
         self.assertEqual(self.spawns.calls, ["codex", "claude"])
@@ -213,14 +214,18 @@ class FallbackTest(Case):
         self.call(topics, assist.LEARN)
         assist.forget()  # A restart: nothing in memory.
         records.forget()
-        self.assertEqual(records.read(self.state, fresh=True)["breakers"]["codex"]["code"], "authentication_error")
+        self.assertEqual(records.broken(records.read(self.state, fresh=True), "codex")["code"], "authentication_error")
         self.spawns.calls.clear()
         self.assertEqual(self.call(topics, assist.LEARN).reason, "broken")
         self.assertEqual(self.spawns.calls, [])
         ok = self.topics()
-        self.call(ok, assist.TIDY, manual=True)  # ✨ 整理, the owner's click: tried once, and it clears the break.
+        self.call(ok, assist.TIDY)  # Another lane of Codex (its 整理 model): not stopped by the light model's break.
         self.assertEqual(self.spawns.calls, ["codex"])
-        self.assertNotIn("codex", records.read(self.state, fresh=True)["breakers"])
+        self.assertEqual(records.broken(records.read(self.state, fresh=True), "codex")["model"], "codex-light")
+        self.spawns.calls.clear()
+        self.call(ok, assist.LEARN, manual=True)  # The owner's call on the broken lane: tried once, and it clears the break.
+        self.assertEqual(self.spawns.calls, ["codex"])
+        self.assertIsNone(records.broken(records.read(self.state, fresh=True), "codex"))
 
     def test_the_last_check_refuses_a_harness_the_settings_no_longer_allow(self):
         topics = self.topics()
@@ -243,13 +248,14 @@ class RefusalTest(Case):
         self.spawns.calls.clear()
         self.assertEqual(assist.route(topics, assist.TIDY).harness, "claude")  # 自动: cooled on Codex only.
         self.setting(SETTINGS["codex"])
-        self.assertEqual(records.read(self.state, fresh=True)["cooling"], {})  # The owner chose again.
+        self.assertIsNone(records.cooling(records.read(self.state, fresh=True), "codex", assist.TIDY))  # The owner chose again.
 
     def test_an_items_refusal_marks_only_that_item(self):
         topics = self.topics(answers={"codex": AskFailed("policy_refusal")})
         self.setting(SETTINGS["codex"])
         self.call(topics, assist.BACKFILL)
-        self.assertEqual(records.read(self.state, fresh=True)["cooling"], {})
+        self.assertIsNone(records.cooling(records.read(self.state, fresh=True), "codex", assist.TIDY))
+        self.assertIsNone(records.cooling(records.read(self.state, fresh=True), "codex", assist.BACKFILL))
         self.assertEqual(assist.route(topics, assist.BACKFILL).harness, "codex")
         self.assertEqual(assist.route(topics, assist.TIDY).harness, "codex")  # Kept under 整理专项's row, not cooling it.
 
@@ -371,3 +377,124 @@ class ClaudeEnvelopeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedactedTest(Case):
+    """WAVE12 W2-D 包 D: a question that carries a redacting topic's words never goes, and every caller says whether it does."""
+
+    def test_a_redacted_question_is_refused_before_anything_starts(self):
+        topics = self.topics()
+        self.setting(SETTINGS["auto"])
+        for value in (True, None, 1):
+            with self.subTest(redacted=value):
+                with self.assertRaises(Failed) as caught:
+                    assist.ask(assist.TIDY, "系统", "{}", topics=topics, limit=5, cwd=self.state, redacted=value,
+                               log=self.logs.append)
+                self.assertEqual((caught.exception.reason, caught.exception.via), ("redacted", ""))
+        self.assertEqual(self.spawns.calls, [])
+        self.assertFalse(records.path(self.state).exists())  # Nothing kept: no call was made.
+        self.assertIn("assist refused feature=tidy reason=redacted", self.logs)
+        self.assertEqual(records.words("redacted"), "开了脱敏，内容不外发")
+        self.assertEqual(records.kind_of("redacted"), "not_asked")
+
+    def test_redacted_is_a_keyword_every_call_must_give(self):
+        with self.assertRaises(TypeError):
+            assist.ask(assist.TIDY, "系统", "{}", topics=self.topics(), limit=5, cwd=self.state)  # noqa - the point
+        self.assertEqual(self.spawns.calls, [])
+
+
+class LaneTest(Case):
+    """Breaks, coolings and the day's gate are kept for a lane (core/assist.py Lane: Harness, model, gateway): one lane's
+    trouble never stops another, an old record's Harness-wide rows still hold, and the owner's call goes past once a minute."""
+
+    def test_a_lane_s_break_stops_that_lane_only(self):
+        records.settle(self.state, feature="tidy", harness="codex", model="gw/big", gateway="gw", code="transport_error")
+        data = records.read(self.state, fresh=True)
+        self.assertEqual(records.broken(data, records.Lane("codex", "gw/big", "gw"))["code"], "transport_error")
+        self.assertIsNone(records.broken(data, records.Lane("codex", "big", "")))  # The same Harness on its own login.
+        self.assertIsNone(records.broken(data, records.Lane("claude", "gw/big", "gw")))
+        self.assertEqual(records.broken(data, "codex")["model"], "gw/big")  # A Harness's name: any of its lanes.
+        self.assertEqual(list(data["lanes"]), ["codex|gw/big|gw"])
+        self.assertEqual(data["breakers"], {})  # The old Harness-wide rows are never written again.
+        topics = self.topics(answers={"codex": AskFailed("authentication_error")})
+        self.setting(SETTINGS["codex"])
+        self.call(topics, assist.LEARN)  # codex-light breaks.
+        self.spawns.calls.clear()
+        ok = self.topics()
+        self.assertEqual(self.call(ok, assist.LEARN).reason, "broken")
+        self.assertEqual(track_judge.answer_text(self.call(ok, assist.TIDY), "claude"), ANSWER)  # codex-big goes on.
+        self.assertEqual(self.spawns.calls, ["codex"])
+        self.assertEqual(assist.recent(self.state)[0]["model"], "codex-big")
+
+    def test_a_refusal_cools_and_counts_for_its_lane_only(self):
+        self.setting(SETTINGS["codex"])  # First: a change of the setting clears the coolings.
+        for _ in range(records.DAILY_REFUSALS):
+            records.settle(self.state, feature="tidy", harness="codex", model="codex-big", code="policy_refusal", batch=True)
+        data = records.read(self.state, fresh=True)
+        big, light = records.Lane("codex", "codex-big"), records.Lane("codex", "codex-light")
+        self.assertTrue(records.gated(data, big))
+        self.assertIsNotNone(records.cooling(data, big, "tidy"))
+        self.assertFalse(records.gated(data, light))
+        self.assertIsNone(records.cooling(data, light, "tidy"))
+        self.assertEqual(records.refusals_today(data, "codex"), records.DAILY_REFUSALS)
+        topics = self.topics()
+        self.assertEqual(assist.route(topics, assist.TIDY).why, "cooling")
+        self.assertEqual(assist.route(topics, assist.LEARN).harness, "codex")
+
+    def test_an_old_record_s_harness_wide_rows_hold_every_lane_until_they_run_out(self):
+        now = NOW
+        old = {"version": 1, "breakers": {"codex": {"code": "quota_exhausted", "model": "", "at": NOW, "until": NOW + 600}},
+               "cooling": {"claude:tidy": {"at": NOW, "until": NOW + 600}},
+               "refusals": {"day": records.day_of(NOW), "counts": {"agy": records.DAILY_REFUSALS - 1}},
+               "recent": {"tidy": {"harness": "codex", "model": "", "ok": False, "code": "quota_exhausted", "ms": 9, "at": NOW}}}
+        records.path(self.state).write_text(json.dumps(old))
+        data = records.read(self.state, fresh=True)
+        self.assertEqual(records.broken(data, records.Lane("codex", "any", "gw"), now)["code"], "quota_exhausted")
+        self.assertIsNone(records.broken(data, records.Lane("codex", "any"), NOW + 601))
+        self.assertIsNotNone(records.cooling(data, records.Lane("claude", "sonnet"), "tidy", now))
+        self.assertEqual(records.refusals_today(data, records.Lane("agy", "g"), now), records.DAILY_REFUSALS - 1)
+        records.settle(self.state, feature="learn", harness="agy", model="g", code="policy_refusal", now=now)
+        data = records.read(self.state, fresh=True)
+        self.assertTrue(records.gated(data, records.Lane("agy", "g"), now))  # The old count and the lane's together.
+        self.assertFalse(records.gated(data, records.Lane("agy", "other"), now))
+        self.assertEqual(data["recent"]["tidy"]["code"], "quota_exhausted")  # The old rows read as they were.
+        records.settle(self.state, feature="tidy", harness="codex", model="codex-big", now=now)  # A success of a lane.
+        self.assertEqual(records.read(self.state, fresh=True)["breakers"], {})  # Clears its Harness's old break.
+
+    def test_the_owner_s_call_goes_past_a_break_a_cooling_or_the_gate_once_a_lane_a_minute(self):
+        topics = self.topics()
+        self.setting(SETTINGS["codex"])
+        lane = records.Lane("codex", "codex-big")
+        for kept in ({"broken": {"code": "authentication_error", "until": NOW * 2}},
+                     {"cooling": {"tidy": {"until": NOW * 2}}},
+                     {"refusals": {"day": records.day_of(time_now()), "count": records.DAILY_REFUSALS}}):
+            with self.subTest(kept=sorted(kept)):
+                records.forget()
+                records.path(self.state).write_text(json.dumps({"lanes": {lane.key: {"harness": "codex",
+                                                                                     "model": "codex-big", **kept}}}))
+                self.spawns.calls.clear()
+                why = {"broken": "broken", "cooling": "cooling", "refusals": "refusal_gate"}[next(iter(kept))]
+                self.assertEqual(self.call(topics, assist.TIDY).reason, why)  # An automatic call: not asked.
+                self.assertEqual(assist.route(topics, assist.TIDY, manual=True).first.bypass, why)
+                self.call(topics, assist.TIDY, manual=True)  # ✨ 整理: goes, once.
+                self.assertEqual(self.spawns.calls, ["codex"])
+                again = self.call(topics, assist.TIDY, manual=True)
+                if why != "broken":  # A break the answer cleared is no longer in the way; a cooling or the gate are.
+                    self.assertEqual((again.reason, self.spawns.calls), (why, ["codex"]))
+                self.assertTrue(any(f"assist past {why} harness=codex feature=tidy" in line for line in self.logs))
+                records.change(self.state, lambda data: data["lanes"][lane.key].update(tried=time_now() - 61))
+                self.call(topics, assist.TIDY, manual=True)  # A minute later: once more.
+                self.assertEqual(self.spawns.calls.count("codex"), 2 if why != "broken" else 3)
+
+    def test_two_calls_of_the_owner_at_once_take_the_one_try(self):
+        lane = records.Lane("codex", "codex-big")
+        self.assertTrue(records.take_try(self.state, lane, now=NOW))
+        self.assertFalse(records.take_try(self.state, lane, now=NOW + 30))
+        self.assertTrue(records.take_try(self.state, records.Lane("codex", "codex-light"), now=NOW + 30))
+        self.assertTrue(records.take_try(self.state, lane, now=NOW + records.TRY_SECONDS))
+        self.assertFalse(records.may_try(records.read(self.state, fresh=True), lane, now=NOW + records.TRY_SECONDS + 1))
+
+
+def time_now():
+    import time
+    return time.time()
