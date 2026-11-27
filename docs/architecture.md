@@ -51,6 +51,7 @@ bin/  →  app/  →  feishu/ · cards/ · backends/<名字>/  →  core/
 - 文字、卡片和 CardKit 写都经 `Messenger`；已发卡片的写从 `core/card_sequence.py` 的 `reserve` 取 sequence；按钮 kind 先登记在 `app/card_actions.py`；补充投递记录只经 `core/deliveries.py` 的 `update_delivery` 改。
 - 子进程用 `core/process.py`：`stream_subprocess_lines` 超时和停止（`JobCancelled`）都停整个进程组；`stop_group` 先 SIGTERM 再 SIGKILL，活下来的只报告不抛。
 - JSON 用 `core/state.py`：`read_json` 错误上抛；`write_json` 各写方用自己的临时文件再替换；`write_durable_json` 返回前落盘。
+- 读了要写回同一个文件时用 `core/state.py` 的 `read_for_write`（或 `update_json`），在写方持的锁里读：没有文件给空值，文件在但读不出（网络盘一时出错、半截文件、不是对象）抛 `Unreadable`（是 `OSError`），这次不写，界面回“暂时读不出，未改动”。`read_object` 读不出给 `{}`，只给只读路径用；写回前用它读会把整份文件盖成只剩这次改的几项（`tests/test_structure.py` 的 `StateWriteTest` 查，现有的列在 `tests/golden/state_writes.json`，只减不增）。
 - 按后端区分的路由和问答证明从 `core/roster.py` 派生；谁被服务只由 `app/access.py` 判断。
 - 兼容：现网 `harnesses.json` 能解析；`runs/<任务键>/` 和旧 release 的任务进程双向兼容；旧记录照常读（旧的内嵌执行过程由 `core/migrate.py` 一次性写成 `traces/<任务键>.jsonl`）；旧卡上的 kind 照常工作或带提示拒绝。
 
