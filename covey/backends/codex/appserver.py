@@ -21,7 +21,7 @@ from covey.backends.codex.turn import close_turn, logged_words, paused_question_
 from covey.backends.codex.usage import CodexTurnUsage
 from covey.backends.codex import consult
 from covey.core import repomap, topic_repos
-from covey.core.butler_tool_specs import PROJECT_NAMES
+from covey.core.butler_tool_specs import LEAD_ASK_TOOL
 from covey.core.failure import said_of
 from covey.core.harness import CONSULT, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
 from covey.core.paths import entry_script
@@ -57,9 +57,7 @@ ASK_TOOL = (f"{QUESTION_TOOL} 也会出问题卡，但它会停下这一轮、�
 SUBAGENTS = ("子 agent 仅执行明确的子任务；最终由主任务汇总结果。结束主任务前必须等待所有子 agent 达到最终状态并收集结果，"
              "不能把仍在运行的子 agent 留到下一轮。")
 CODEX_INSTRUCTIONS = ASK_CHECKPOINT + ASK_TOOL + SUBAGENTS
-# A lead asks the owner with project_ask (W1-A, C4) once the Bridge has it, before that with project_note (kind ask).
-LEAD_ASK_TOOL = "project_ask " if "project_ask" in PROJECT_NAMES else "project_note（kind 写 ask）"
-ASK_LEAD = (f"你通过 Bridge 工具和主人、专项的话题打交道，不写检查点。要主人定的事照负责人规则用 Bridge 工具 {LEAD_ASK_TOOL}问，"
+ASK_LEAD = (f"你通过 Bridge 工具和主人、专项的话题打交道，不写检查点。要主人定的事照负责人规则用 Bridge 工具 {LEAD_ASK_TOOL} 问，"
             f"不要用 {QUESTION_TOOL}。不要把未回答视为同意。")
 ASK_MEMBER = ("你通过飞书话题与用户交互。这一轮只读，检查点不用写；要主人定的事写在回复里。"
               f"{QUESTION_TOOL} 会停下这一轮等回答，只在不答就做不下去时用（不要使用 {QUESTION_TOOL}_async）。不要把未回答视为同意。")
