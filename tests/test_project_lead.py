@@ -293,6 +293,17 @@ class InboxTest(Case):
         later = project_lead.take_receipts(self.state, PID, "lead-2")  # The next turn gets the rest.
         self.assertEqual(([item["id"] for item in later], later.left), ([item["id"] for item in ends[:6]], 0))
 
+    def test_a_receipt_the_bridge_settled_takes_no_place_and_is_not_counted_as_left(self):
+        # W2-C, two parts together: a question handed to the owner settles its receipt (app/triage.py settle_receipt) and a
+        # full inbox gives the first and the newest with the rest counted (``chosen``): the settled one is neither.
+        settled = project_lead.add_receipt(self.state, PID, "question", "T41 在问", at=NOW - 100)
+        ends = [project_lead.add_receipt(self.state, PID, "thread_end", f"第 {n} 个", at=NOW + n) for n in range(22)]
+        self.assertTrue(project_lead.settle_receipt(self.state, PID, settled["id"], "转给主人"))
+        peeked = project_lead.peek_receipts(self.state, PID)
+        self.assertEqual(([item["id"] for item in peeked], peeked.left), ([item["id"] for item in ends[2:]], 2))
+        taken = project_lead.take_receipts(self.state, PID, "lead-1")
+        self.assertEqual(([item["id"] for item in taken], taken.left), ([item["id"] for item in ends[2:]], 2))
+
     def test_a_receipt_names_its_topic_by_number(self):
         self.thread("ab" * 16, "导出旧账单", 41)
         item = project_lead.add_receipt(self.state, PID, "thread_end", "做完了", thread="ab" * 16, at=NOW)

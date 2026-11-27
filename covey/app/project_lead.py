@@ -348,7 +348,7 @@ def _waiting(state_dir, project_id, key) -> list:
         taker = item.get("taken_by")
         if taker not in takers:
             takers[taker] = took_it(state_dir, taker, key)
-        if item.get(RECEIPT_DONE) and taker != key:
+        if item.get(RECEIPT_DONE) and (not key or taker != key):
             continue  # Settled by the Bridge (``settle_receipt``): no turn's to read, nor counted as left.
         if item.get("id") and takers[taker]:
             found.append((path, item))
