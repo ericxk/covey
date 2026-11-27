@@ -33,7 +33,7 @@ from pathlib import Path
 
 from covey.core import memory_rev
 from covey.core.locks import shared_file_lock
-from covey.core.state import read_json, utc_now_iso, write_json
+from covey.core.state import Unreadable, read_json, utc_now_iso, write_json
 
 FILE = "principles.json"
 VERSION = 1
@@ -92,11 +92,17 @@ def _empty():
     return {"version": VERSION, "owner": [], "workspaces": {}}
 
 
-def _read(state_dir):
-    """(data, bad): ``bad`` when the file is there but cannot be read as principles."""
+def _read(state_dir, *, writing=False):
+    """(data, bad): ``bad`` when the file is there but cannot be read as principles. With ``writing`` (a write under the
+    lock follows) a file that cannot be read at all raises core/state.py Unreadable, so a network disk's passing error
+    leaves it as it is; one that reads but is no principles file is ``bad`` (moved aside by ``_write``)."""
     try:
         return _parse(read_json(path(state_dir), None) or _empty()), False
-    except (OSError, ValueError):
+    except OSError as exc:
+        if writing:
+            raise Unreadable(*exc.args) from exc
+        return _empty(), True
+    except ValueError:
         return _empty(), True
 
 
@@ -157,7 +163,7 @@ def save(state_dir, scope, text, *, workspace="", source=None, now=None) -> tupl
         raise ValueError("工作区的原则要写是哪个工作区（workspaces_list 里的名字）")
     now = time.time() if now is None else now
     with shared_file_lock(path(state_dir)):
-        data, bad = _read(state_dir)
+        data, bad = _read(state_dir, writing=True)
         group = data["owner"] if scope == OWNER else data["workspaces"].setdefault(workspace, [])
         key = same_key(text)
         for item in group:
@@ -177,7 +183,7 @@ def pin(state_dir, pid, on, *, now=None) -> dict | None:
     there is none. ValueError says why nothing was written (PINNED_LIMIT in its group already)."""
     pid = str(pid or "").strip()
     with shared_file_lock(path(state_dir)):
-        data, bad = _read(state_dir)
+        data, bad = _read(state_dir, writing=True)
         groups = [(OWNER, "", data["owner"]), *((WORKSPACE, name, group) for name, group in data["workspaces"].items())]
         for scope, name, group in groups:
             for item in group:
@@ -208,7 +214,7 @@ def edit(state_dir, pid, text, *, base=None, now=None) -> dict | None:
         raise ValueError(f"一条原则最多 {TEXT_LIMIT} 字，这条 {len(text)} 字：概括成一句再记")
     pid = str(pid or "").strip()
     with shared_file_lock(path(state_dir)):
-        data, bad = _read(state_dir)
+        data, bad = _read(state_dir, writing=True)
         groups = [(OWNER, "", data["owner"]), *((WORKSPACE, name, group) for name, group in data["workspaces"].items())]
         for scope, name, group in groups:
             for item in group:
@@ -230,7 +236,7 @@ def delete(state_dir, pid, *, now=None) -> dict | None:
     """Remove the principle ``pid``: it, with its "scope" and "workspace", or None when there is none."""
     pid = str(pid or "").strip()
     with shared_file_lock(path(state_dir)):
-        data, bad = _read(state_dir)
+        data, bad = _read(state_dir, writing=True)
         groups = [(OWNER, "", data["owner"]), *((WORKSPACE, name, group) for name, group in data["workspaces"].items())]
         for scope, name, group in groups:
             for index, item in enumerate(group):

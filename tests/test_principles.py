@@ -105,6 +105,21 @@ class StoreTest(unittest.TestCase):
         self.assertEqual((self.state / "principles.json.bad-1234").read_text(), "{not json")
         self.assertEqual([item["text"] for item in principles.load(self.state)["owner"]], ["新的一条"])
 
+    def test_a_file_that_cannot_be_read_now_is_left_as_it_is(self):
+        """W1-F (C10): a network disk's passing error was read as a bad file, moved aside and the principles started over."""
+        from unittest import mock
+        from covey.core.state import Unreadable
+        first, _ = principles.save(self.state, "owner", "回复用中文", now=1)
+        file = principles.path(self.state)
+        before = file.read_bytes()
+        for write in (lambda: principles.save(self.state, "owner", "新的一条", now=2),
+                      lambda: principles.delete(self.state, first["id"], now=2)):
+            with mock.patch.object(principles, "read_json", side_effect=OSError(5, "Input/output error")):
+                with self.assertRaises(Unreadable):
+                    write()
+            self.assertEqual(file.read_bytes(), before)
+            self.assertEqual(sorted(p.name for p in self.state.iterdir() if p.name.startswith("principles.json")), ["principles.json"])
+
     def test_bad_entries_are_skipped(self):
         principles.path(self.state).write_text(json.dumps({"owner": [
             {"id": "p000001", "text": "好的"}, {"id": "bad", "text": "id 不对"}, {"id": "p000002", "text": ""}, "x"],

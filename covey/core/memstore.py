@@ -38,7 +38,8 @@ from pathlib import Path
 
 from covey.core import knowledge, memory_rev, principles, project_memory, projects, turn_source
 from covey.core.locks import shared_file_lock
-from covey.core.state import epoch_seconds, read_json, read_object, write_json, write_private_text
+from covey.core.state import epoch_seconds, read_object, write_json, write_private_text
+from covey.core.state import read_for_write as state_read_for_write
 
 KINDS = ("rule", "decision", "note")
 SCOPES = ("global", "project", "topic")
@@ -1275,21 +1276,10 @@ def undo(state_dir, token: str, *, who: str = "owner", now: float | None = None)
 
 
 def read_for_write(path) -> dict:
-    """The JSON object in ``path`` a write is about to change: {} when there is no file yet; OSError when there is one that
-    cannot be read or parsed (a network disk's passing error, a torn file), so the write is refused rather than writing the
-    whole file over with only what it adds (T870 Wave 3.5; core/principles.py and core/repomap.py keep the same guard)."""
-    path = Path(path)
-    try:
-        value = read_json(path)
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError) as exc:
-        if not path.exists():
-            return {}
-        raise OSError(f"{path.name} 读不出来，这次不写，免得盖掉原来的内容：{type(exc).__name__}") from exc
-    if not isinstance(value, dict):
-        raise OSError(f"{path.name} 不是一个对象，这次不写")
-    return value
+    """The JSON object in ``path`` a write is about to change: core/state.py ``read_for_write`` (kept under this name: callers
+    and tests reach it here). {} when there is no file yet; Unreadable (an OSError) when there is one that cannot be read or
+    parsed, so the write is refused rather than writing the whole file over with only what it adds (T870 Wave 3.5)."""
+    return state_read_for_write(path)
 
 
 def _review_data(state_dir, *, writing=False) -> dict:

@@ -9,6 +9,9 @@ import stat
 import tempfile
 import unittest
 
+from unittest import mock
+
+from covey.core import state
 from covey.core.state import epoch_seconds, read_json, read_object
 from covey.core.logs import line_log
 
@@ -46,6 +49,59 @@ class ReadTests(unittest.TestCase):
                 self.assertEqual(read_object(self.file(name + ".json", body)), {})
         self.assertEqual(read_object(self.folder / "missing.json"), {})
         self.assertEqual(read_object(self.folder), {})
+
+
+class ReadForWriteTests(unittest.TestCase):
+    """W1-F (C10): a write reads the file it is about to change with read_for_write, which refuses one that is there but cannot
+    be read rather than handing back {} for the write to put over it whole."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+
+    def test_a_missing_file_is_the_expected_kind_empty(self):
+        self.assertEqual(state.read_for_write(self.folder / "missing.json"), {})
+        self.assertEqual(state.read_for_write(self.folder / "missing.json", expect=list), [])
+
+    def test_a_torn_file_or_another_kind_is_unreadable_and_an_os_error(self):
+        path = self.folder / "settings.json"
+        for body, words in (('{"mode": "agent", ', "读不出来"), ("[1, 2]", "不是一个对象"), ("null", "不是一个对象")):
+            with self.subTest(body=body):
+                path.write_text(body)
+                with self.assertRaises(state.Unreadable) as raised:
+                    state.read_for_write(path)
+                self.assertIsInstance(raised.exception, OSError)
+                self.assertIn(words, str(raised.exception))
+                self.assertIn("settings.json", str(raised.exception))
+        path.write_text("{}")
+        with self.assertRaises(state.Unreadable):
+            state.read_for_write(path, expect=list)
+
+    def test_a_passing_io_error_is_unreadable_not_empty(self):
+        path = self.folder / "settings.json"
+        path.write_text('{"mode": "agent"}')
+        with mock.patch.object(Path, "read_text", side_effect=OSError(5, "Input/output error")):
+            with self.assertRaises(state.Unreadable):
+                state.read_for_write(path)
+        self.assertEqual(state.read_for_write(path), {"mode": "agent"})
+
+    def test_a_file_gone_between_the_read_and_the_look_is_missing(self):
+        path = self.folder / "settings.json"
+        with mock.patch.object(state, "read_json", side_effect=OSError(116, "Stale file handle")):
+            self.assertEqual(state.read_for_write(path), {})
+
+    def test_update_json_writes_what_change_gives_or_edits_and_leaves_an_unreadable_file(self):
+        path = self.folder / "ledger.json"
+        self.assertEqual(state.update_json(path, lambda data: data.update(a=1)), {"a": 1})
+        self.assertEqual(state.update_json(path, lambda data: {**data, "b": 2}, ensure_ascii=False, indent=1), {"a": 1, "b": 2})
+        self.assertEqual(read_json(path), {"a": 1, "b": 2})
+        self.assertIn("\n", path.read_text())  # dumps reach write_json.
+        path.write_text('{"a": 1, "b"')
+        with self.assertRaises(state.Unreadable):
+            state.update_json(path, lambda data: data.update(c=3))
+        self.assertEqual(path.read_text(), '{"a": 1, "b"')
+        self.assertEqual(state.update_json(self.folder / "rows.json", lambda rows: rows.append(1), default=list), [1])
 
 
 class EpochSecondsTests(unittest.TestCase):

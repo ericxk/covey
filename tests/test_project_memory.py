@@ -11,6 +11,7 @@ from unittest import mock
 from support.records import state_dir
 
 from covey.core import project_memory as memory, projects
+from covey.core.state import Unreadable
 
 CHAT = "oc_owner_dm"
 PID = "a1b2c3d4e5f6"
@@ -167,8 +168,10 @@ class ReviewLimitTest(Case):
         memory.add(self.state, PID, "窗口在周六", "fact", "lead", now=NOW)
         with mock.patch.object(memory, "read_json", side_effect=PermissionError("denied")):
             self.assertEqual(memory.stored(self.state, PID), [])
-            with self.assertRaises(PermissionError):
+            with self.assertRaises(Unreadable) as raised:  # core/state.py's, an OSError: callers stop at it as before.
                 memory.add(self.state, PID, "另一条", "fact", "lead", now=NOW + 1)
+            self.assertIsInstance(raised.exception, OSError)
+            self.assertIsInstance(raised.exception.__cause__, PermissionError)
         self.assertEqual([row["text"] for row in self.stored()], ["窗口在周六"])
 
     def test_a_file_that_cannot_be_parsed_is_kept_aside_with_a_log_line(self):

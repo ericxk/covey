@@ -51,7 +51,7 @@ import time
 from pathlib import Path
 
 from covey.core import memory_rev, projects, turn_source
-from covey.core.state import read_json, read_object, write_json
+from covey.core.state import Unreadable, read_json, read_object, write_json
 
 KINDS = ("decision", "constraint", "contact", "fact", "style")
 LEGACY_KINDS = {"practice": "constraint", "pitfall": "constraint"}  # What the lead's tool called two of them before.
@@ -187,9 +187,9 @@ def _shaped(data):
 
 def _read(path, shape, *, writing=False):
     """``shape(data)`` of the JSON file at ``path``; None when there is none. A read that fails is None (a reader shows
-    nothing). With ``writing`` (the next step writes the file whole) a file that cannot be read raises its OSError, so the write
-    fails and what is in it stays; a file that is there but is not of its kind (``shape`` gives None) is moved aside
-    (``<name>.bad-<time>``, one line in the log) and read as None."""
+    nothing). With ``writing`` (the next step writes the file whole) a file that cannot be read raises core/state.py Unreadable
+    (an OSError, its own words), so the write fails and what is in it stays; a file that is there but is not of its kind
+    (``shape`` gives None) is moved aside (``<name>.bad-<time>``, one line in the log) and read as None."""
     try:
         found = shape(read_json(path))
         if found is None:
@@ -201,9 +201,9 @@ def _read(path, shape, *, writing=False):
         if writing:
             _set_aside(path)
         return None
-    except OSError:
+    except OSError as exc:
         if writing:
-            raise
+            raise Unreadable(*exc.args) from exc
         return None
 
 

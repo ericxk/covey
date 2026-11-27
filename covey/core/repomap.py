@@ -30,6 +30,7 @@ from pathlib import Path
 
 from covey.core import env as cenv
 from covey.core import home as homes
+from covey.core import state as cstate
 from covey.core import topic_repos
 from covey.core.file_lock import file_lock
 from covey.core.state import write_private_text
@@ -130,9 +131,9 @@ def to_json(repo: Repo) -> dict:
     return {**repo.extra, **data}
 
 
-class Unreadable(ValueError):
+class Unreadable(cstate.Unreadable, ValueError):
     """``repos.json`` is there but cannot be read (``str``: "read", or "format" for JSON that is no object): never
-    written over."""
+    written over. core/state.py Unreadable (an OSError) and, as before, a ValueError."""
 
 
 @contextlib.contextmanager
@@ -143,16 +144,10 @@ def _locked(state_dir):
 
 def _raw(state_dir) -> dict:
     """What ``repos.json`` holds, {} when it is missing; Unreadable when it is there and cannot be read."""
-    file = path(state_dir)
-    if not file.exists():
-        return {}
     try:
-        data = json.loads(file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        raise Unreadable("read") from None
-    if not isinstance(data, dict):
-        raise Unreadable("format")
-    return data
+        return cstate.read_for_write(path(state_dir))
+    except cstate.Unreadable as exc:
+        raise Unreadable("format" if exc.__cause__ is None else "read") from None
 
 
 def _passed_over(raw) -> list:

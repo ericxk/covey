@@ -162,12 +162,55 @@ def keyed_json_path(state_dir, folder, key) -> Path:
 
 
 def read_object(path: Path) -> dict:
-    """The JSON object in ``path``; {} when the file is missing, cannot be read or holds anything else."""
+    """The JSON object in ``path``; {} when the file is missing, cannot be read or holds anything else. Only for reading:
+    a write about to change the file reads it with ``read_for_write`` (tests/test_structure.py StateWriteTest)."""
     try:
         value = read_json(path)
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+class Unreadable(OSError):
+    """A JSON record that is there but cannot be read (a network disk's passing error, a torn file, JSON of another kind):
+    the write about to change it is refused rather than writing the whole file over with only what it adds (T870 Wave 3.5,
+    W1-F). An OSError, so a caller that already stops at one stops at this too; ``str`` is a Chinese line for the log."""
+
+
+_KINDS = {dict: "一个对象", list: "一个列表"}
+
+
+def read_for_write(path, *, expect=dict):
+    """The JSON value in ``path`` a write is about to change: ``expect()`` when there is no file yet; Unreadable when there
+    is one that cannot be read or parsed, or holds anything but an ``expect``. Read under the lock the write holds."""
+    path = Path(path)
+    try:
+        value = read_json(path)
+    except FileNotFoundError:
+        return expect()
+    except (OSError, ValueError) as exc:
+        try:
+            gone = not path.exists()
+        except OSError:
+            gone = False
+        if gone:
+            return expect()
+        raise Unreadable(f"{path.name} 读不出来，这次不写，免得盖掉原来的内容：{type(exc).__name__}") from exc
+    if not isinstance(value, expect):
+        raise Unreadable(f"{path.name} 不是{_KINDS.get(expect, expect.__name__)}，这次不写")
+    return value
+
+
+def update_json(path, change, *, default=dict, **dumps):
+    """``read_for_write`` (``default`` as its ``expect``), ``change(value)``, ``write_json`` (``dumps`` as its own): the value
+    ``change`` returns, or the one it edited in place when it returns None, is written and returned. The caller holds the
+    file's lock; Unreadable leaves the file as it was."""
+    path = Path(path)
+    value = read_for_write(path, expect=default)
+    changed = change(value)
+    value = value if changed is None else changed
+    write_json(path, value, **dumps)
+    return value
 
 
 def write_durable_json(path: Path, value):
