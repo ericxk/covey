@@ -331,6 +331,91 @@ class TopicWordsTest(QuestionFixture, unittest.TestCase):
         self.assertNotIn("by", note)  # His own words.
 
 
+class SourcesMatrixTest(QuestionFixture, unittest.TestCase):
+    """§5.2 W1-B 必过 3: four sources (the owner, the butler, a lead, a group member) × a question waiting or none."""
+
+    def setUp(self):
+        super().setUp()
+        self.backend.declare(questions=True, steering=True)
+
+    def outcome(self, mid, by=None, source=None):
+        with mock.patch.object(self.app.questions, "submit_answer") as submit, \
+                mock.patch.object(self.app.questions, "hold_note") as hold:
+            taken = self.app.interaction.interactive_command(self.ctx_topic, "全部", "oc_chat", mid, by=by,
+                                                             **({"source": source} if source else {}))
+        if submit.called:
+            return "answer", submit.call_args.kwargs["by"]
+        if hold.called:
+            return "held", hold.call_args.kwargs.get("by", "")
+        return ("refused" if taken else "turn"), None
+
+    def test_who_may_answer_a_waiting_question_and_who_is_held(self):
+        sources = {
+            "owner": ({"mid": "om_o", "by": OWNER}, ("answer", "owner")),
+            "group member": ({"mid": "om_m", "by": "ou_member"}, ("answer", "")),  # His own topic: an answer, not the owner's.
+            "butler": ({"mid": "main-b", "source": turn_source.stamp("relay")}, ("held", "butler")),
+            "lead": ({"mid": "main-l", "source": turn_source.stamp("lead")}, ("held", "lead")),
+        }
+        for name, (call, (kind, party)) in sources.items():
+            with self.subTest(name, waiting=True):
+                found, by = self.outcome(**call)
+                self.assertEqual(found, kind)
+                self.assertEqual(by.party if kind == "answer" else by, party)
+        update_question(self.path, lambda row: {**row, "status": "cancelled"})  # The store's own write: its cache sees it.
+        for name, (call, _) in sources.items():
+            with self.subTest(name, waiting=False):
+                self.assertEqual(self.outcome(**call)[0], "turn")  # No question waits: a turn of its own, for every source.
+
+
+class GroundsTest(unittest.TestCase):
+    """§5.2 W1-B 必过 8: the lead's grounds take the owner's words the butler handed it (``relayed``), and a current decision
+    of another question is no ground of his for this one (MUTUAL_DUP)."""
+
+    def setUp(self):
+        import tempfile
+
+        from covey.core.butler import butler_topic_id
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name)
+        upsert_job_record(self.state, "om_b", job_id=3, message_id="om_b", topic_id=butler_topic_id("oc_owner"),
+                          chat_id="oc_owner", user_text="旧库先别动，用新版", sender_id=OWNER)
+        access = SimpleNamespace(owner_turn=lambda chat, sender: sender == OWNER)
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(access=access))
+        self.project = {"id": "p1", "chat_id": "oc_owner", "lead_topic_id": "l" * 64, "threads": ["t" * 64],
+                        "relayed": [{"message_id": "om_b", "text": "旧库先别动，用新版", "at": 1, "job": "main-x", "steer": False}]}
+
+    def test_the_owners_words_the_butler_handed_on_are_a_ground(self):
+        from covey.app import triage as flow
+
+        self.assertEqual(flow.owner_message(self.env, self.project, "om_b")["user_text"], "旧库先别动，用新版")
+        self.assertEqual(flow.owner_message(self.env, {**self.project, "relayed": []}, "om_b"), {})  # Not handed on.
+        found = flow.grounds(self.env, self.project, ["msg:om_b"], asked="用哪个库版本？")
+        self.assertEqual((found[0]["kind"], found[0]["level"]), ("message", "owner"))
+        from covey.app.project_lead import owner_word_lines
+
+        with mock.patch("covey.app.project_lead.topic_job_records", return_value=[]):
+            self.assertEqual(len(owner_word_lines(self.state, self.project)), 1)
+            self.assertIn("msg:om_b", owner_word_lines(self.state, self.project)[0])
+            self.assertIn("（管家转来）", owner_word_lines(self.state, self.project)[0])
+
+    def test_a_decision_of_another_question_is_no_ground_alone(self):
+        from covey.app import triage as flow
+
+        row = {"id": "d1", "kind": "decision", "question": "部署到哪个机房？", "text": "主人答：部署到哪个机房？→北京"}
+        facts = {"valid": "active", "layer": "decision", "applies": "", "level": "owner", "part": "decision"}
+        with mock.patch.object(flow, "ground_rows", return_value={"d1": row}), \
+                mock.patch.object(flow.core_memory, "describe", return_value=facts):
+            with mock.patch("covey.core.memory_search.mutual_similarity", return_value=(0.05, False)):
+                with self.assertRaisesRegex(ValueError, "另一道题"):
+                    flow.grounds(self.env, self.project, ["d1"], asked="用哪个库版本？")
+            with mock.patch("covey.core.memory_search.mutual_similarity", return_value=(0.6, True)):
+                self.assertEqual(flow.grounds(self.env, self.project, ["d1"], asked="部署到哪个机房？")[0]["level"], "owner")
+            # Not measured (no question asked, or the measure fails): as before.
+            self.assertEqual(flow.grounds(self.env, self.project, ["d1"])[0]["level"], "owner")
+
+
 class TopLevelAnswerTest(QuestionFixture, unittest.TestCase):
     """C2's third condition, the 1eb6728490 swallow: in the butler's family a message answers its question only by quoting
     the question's card (its own, its copy at the top level, or the card of the task that asks)."""

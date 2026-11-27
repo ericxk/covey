@@ -611,6 +611,7 @@ class LeadSideTest(Held):
         self.assertNotIn("分流还没开", rules)
         for word in ("project_answer", "project_escalate", "分流记录", "自由文字"):
             self.assertIn(word, rules)
+        self.assertNotIn("不对", rules)  # The 分流记录's 不对 is retired (T898 U7): the owner says it in the topic.
 
     def test_the_two_tools_are_listed_to_the_lead_only_with_the_switch(self):
         names = lambda environ: [tool["name"] for tool in butler_tool_specs.listed({butler.LEAD_ENV: PID, **environ})]  # noqa: E731

@@ -325,8 +325,8 @@ class Interaction:
             # the triage): held for its answer, the lead's or the owner's (P1-7: it was refused as a card not delivered and
             # lost). The caller is told to answer or hand it on (app/butler_topics.py held_next).
             inbound_ledger.note(ctx.state_dir, mid, "held_note", topic_id=ctx.topic_id)
-            self.questions.hold_note(ctx, chat, content, mid, sorted(withheld, key=lambda r: r.get("created_at", 0)),
-                                     attachments=attachments, by=note_by(source),
+            waiting = sorted((row for _, row in rows), key=lambda r: r.get("created_at", 0))  # Any of them answered takes it.
+            self.questions.hold_note(ctx, chat, content, mid, waiting, attachments=attachments, by=note_by(source),
                                      **({"top": top} if top else {}))
             return True
         if undelivered or withheld:
