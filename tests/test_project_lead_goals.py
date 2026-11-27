@@ -109,6 +109,42 @@ class ChecklistTest(unittest.TestCase):
                 self.pc.apply(record, rows, now=NOW + 1)
             self.assertEqual(record, before)  # The good row of a refused call is not written either.
 
+    def test_only_the_items_not_met_count_against_the_limit_and_the_whole_list_has_a_ceiling(self):
+        """W2-C: twenty items done leave room for twenty more not met; the 21st not met is refused, and so is the 101st item."""
+        record = {"id": PID}
+        self.pc.apply(record, [{"criterion": f"做完的 {n}", "state": "done", "evidence": f"提交 {n}"}
+                               for n in range(self.pc.MAX_ITEMS)], now=NOW)
+        self.pc.apply(record, [{"criterion": f"没做的 {n}"} for n in range(self.pc.MAX_ITEMS)], now=NOW + 1)
+        self.assertEqual(len(self.pc.items(record)), 2 * self.pc.MAX_ITEMS)
+        with self.assertRaisesRegex(ValueError, "没满足的条目最多 20 条，这次会有 21 条"):
+            self.pc.apply(record, [{"criterion": "再一条"}], now=NOW + 2)
+        record = {"id": PID}
+        self.pc.apply(record, [{"criterion": f"第 {n} 条", "state": "done", "evidence": "x"} for n in range(self.pc.MAX_TOTAL)],
+                      now=NOW)
+        with self.assertRaisesRegex(ValueError, "一共最多 100 条，这次会有 101 条"):
+            self.pc.apply(record, [{"criterion": "多一条", "state": "done", "evidence": "x"}], now=NOW + 1)
+
+    def test_an_item_turned_dropped_names_one_of_the_owners_words_the_bridge_found(self):
+        """W2-C: ``bases`` (what the lead's tool checked) holds the owner's words; a drop names one of them in its evidence. One
+        dropped before is left alone when it is changed again; with ``bases`` None (no tool) nothing is checked."""
+        self.assertEqual(self.pc.bases_of("主人说不做了，依据msg:om_abc1、ask:0123abcd；ask:pause-1700000000 x:no"),
+                         ["msg:om_abc1", "ask:0123abcd", "ask:pause-1700000000"])
+        record = {"id": PID}
+        self.pc.apply(record, [{"criterion": "导出"}, {"criterion": "旧格式", "state": "dropped", "gap": "主人说不要了"}], now=NOW)
+        for evidence in ("", "主人说过", "msg:om_other"):
+            with self.subTest(evidence=evidence), self.assertRaisesRegex(ValueError, "c1 标 dropped 要带主人的依据"):
+                self.pc.apply(record, [{"id": "c1", "state": "dropped", "gap": "主人说不做", "evidence": evidence}],
+                              bases={"msg:om_said"}, now=NOW + 1)
+        self.assertEqual(self.pc.items(record)[0]["state"], "open")
+        self.pc.apply(record, [{"id": "c1", "state": "dropped", "gap": "主人说不做", "evidence": "msg:om_said"}],
+                      bases={"msg:om_said"}, now=NOW + 2)
+        self.assertEqual(self.pc.items(record)[0]["state"], "dropped")
+        # Dropped before (c2, with no basis at all): a later change of its words is not checked again.
+        self.pc.apply(record, [{"id": "c2", "gap": "主人说这期不要了"}], bases=set(), now=NOW + 3)
+        self.pc.apply(record, [{"criterion": "新的", "state": "dropped", "gap": "主人说不做", "evidence": "ask:0123abcd"}],
+                      bases={"ask:0123abcd"}, now=NOW + 4)
+        self.assertEqual([item["state"] for item in self.pc.items(record)], ["dropped", "dropped", "dropped"])
+
     def test_a_gap_is_a_collab_gap_receipt_until_it_is_closed_with_how(self):
         receipts = [{"id": "0001-aa", "kind": collab.RECEIPT_GAP, "thread": THREAD, "text": "缺原版基线数据", "at": NOW},
                     {"id": "0002-bb", "kind": "thread_end", "text": "T41 做完了", "at": NOW},
@@ -464,11 +500,76 @@ class ChecklistToolTest(ToolsCase):
         self.assertEqual(self.reload()["checklist"], before["checklist"])
 
     def test_what_the_owner_let_go_is_named_when_the_project_is_finished(self):
-        self.tool("project_checklist", items=[{"criterion": "导出", "state": "done", "evidence": "/absolute/x.csv"},
-                                              {"criterion": "原版基线", "state": "dropped", "gap": "主人说这次不做"}])
+        write_job(self.state, "om_said1", topic_id=LEAD, chat_id=CHAT, job_id=9, message_id="om_said1", status="done",
+                  user_text="原版基线这次不做了")
+        written = self.tool("project_checklist", items=[{"criterion": "导出", "state": "done", "evidence": "/absolute/x.csv"},
+                                                        {"criterion": "原版基线", "state": "dropped", "gap": "主人说这次不做",
+                                                         "evidence": "msg:om_said1"}])
+        self.assertTrue(written["ok"], written)
         done = self.tool("project_finish", summary="导出做完")
         self.assertTrue(done["ok"], done)
         self.assertIn("主人说不做的：c2「原版基线」（主人说这次不做）", done["text"])
+
+    def owner_question(self, token, *, party="owner", topic=LEAD, status="answered", origin="project_ask"):
+        write_json(self.state / "questions" / f"{token}.json",
+                   {"token": token, "topic_id": topic, "chat_id": CHAT, "job_id": 2, "status": status, "origin": origin,
+                    "questions": CHOICE, "answers": {"0": {"answers": ["不做了"]}},
+                    "answer_by": {"party": party, "channel": "card"}}, ensure_ascii=False)
+
+    def test_a_drop_stands_only_on_the_owners_own_word_in_the_project(self):
+        """W2-C: an item turned dropped names his message in the project (msg:) or a question of the project he answered himself
+        (ask:), which the Bridge checks; anything else, or nothing, is refused and nothing is written."""
+        self.tool("project_checklist", items=[{"criterion": "导出"}, {"criterion": "原版基线"}])
+        write_job(self.state, "om_them", topic_id=LEAD, chat_id=CHAT, job_id=10, message_id="om_them", status="done",
+                  user_text="不做了", sender_id="ou_someone_else")
+        write_job(self.state, "om_mine", topic_id=LEAD, chat_id=CHAT, job_id=11, message_id="om_mine", status="done",
+                  user_text="基线不做了")
+        self.owner_question("a1b2c3d4e5f60001")
+        self.owner_question("a1b2c3d4e5f60002", party="lead")  # The lead answered it in his place.
+        self.owner_question("a1b2c3d4e5f60003", status="pending")  # Not answered yet.
+        self.owner_question("a1b2c3d4e5f60004", topic="a" * 32)  # A topic of no project's.
+        before = self.reload()["checklist"]
+        for evidence in ("", "主人说的", "msg:om_them", "msg:nothing1", "ask:a1b2c3d4e5f60002", "ask:a1b2c3d4e5f60003",
+                         "ask:a1b2c3d4e5f60004", "ask:pause-1700000000"):
+            with self.subTest(evidence=evidence):
+                answer = self.tool("project_checklist", items=[{"id": "c2", "state": "dropped", "gap": "主人说不做",
+                                                                "evidence": evidence}])
+                self.assertFalse(answer["ok"], answer)
+                self.assertIn("c2 标 dropped 要带主人的依据", answer["text"])
+                if evidence.startswith(("msg:", "ask:")):
+                    self.assertIn(f"Bridge 核对不上（不是主人在这个专项里说的话或他本人答过的题）：{evidence}", answer["text"])
+                self.assertEqual(self.reload()["checklist"], before)
+        for row, evidence in (("c2", "msg:om_mine"), ("c1", "主人在卡上答了 ask:a1b2c3d4e5f60001")):
+            answer = self.tool("project_checklist", items=[{"id": row, "state": "dropped", "gap": "主人说不做", "evidence": evidence}])
+            self.assertTrue(answer["ok"], answer)
+        self.assertEqual([item["state"] for item in checklist().items(self.reload())], ["dropped", "dropped"])
+
+    def test_the_owners_finish_on_the_pause_card_is_the_ground_its_receipt_names(self):
+        self.tool("project_checklist", items=[{"criterion": "导出"}])
+        ask = {"reason": "wakes", "why": "叫醒太多", "at": NOW + 5, "choice": "finish", "chosen_at": NOW + 9}
+        projects.update(self.state, PID, lambda data: data.update(pause_ask=ask))
+        project_loop.pause_receipt(self.state, PID, "finish", ask)
+        [receipt] = [item for item in project_lead.inbox_items(self.state, PID) if item["kind"] == "owner_choice"]
+        ref = f"ask:pause-{int(NOW + 5)}"
+        self.assertIn(f"evidence 写 {ref}", receipt["text"])
+        answer = self.tool("project_checklist", items=[{"id": "c1", "state": "dropped", "gap": "主人选了收尾，没做完：导出",
+                                                        "evidence": ref}])
+        self.assertTrue(answer["ok"], answer)
+        projects.update(self.state, PID, lambda data: data["pause_ask"].update(choice="continue"))
+        self.tool("project_checklist", items=[{"criterion": "再一条"}])
+        refused = self.tool("project_checklist", items=[{"id": "c2", "state": "dropped", "gap": "x", "evidence": ref}])
+        self.assertFalse(refused["ok"])  # He chose to go on: no ground for a drop.
+
+    def test_the_owners_answer_to_a_leads_question_names_itself_as_a_ground(self):
+        from covey.app.questions import with_approvals
+
+        record = {"token": "a1b2c3d4e5f60001", "topic_id": LEAD, "origin": "project_ask",
+                  "answer_by": {"party": "owner", "channel": "card"}}
+        self.assertIn("evidence 写 ask:a1b2c3d4e5f60001", with_approvals(self.state, record, "用户补充回答"))
+        for other in ({**record, "answer_by": {"party": "butler", "channel": "tool"}}, {**record, "origin": ""}):
+            self.assertEqual(with_approvals(self.state, other, "用户补充回答"), "用户补充回答")
+        os.environ.pop(turn_source.SWITCH)
+        self.assertEqual(with_approvals(self.state, record, "用户补充回答"), "用户补充回答")
 
     def test_a_finished_project_cannot_have_its_checklist_changed_but_it_can_be_read(self):
         self.assertTrue(self.tool("project_finish", summary="做完")["ok"])

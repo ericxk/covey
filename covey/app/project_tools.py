@@ -24,14 +24,17 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
   line of it, by its id or short code, ``revise_refusal`` says whose lines it may not touch; a decision of decisions.jsonl
   through core/memstore.py), ``project_style``, ``project_finish`` write the project's record
   (core/projects.py update, under its record lock; no Feishu call). ``project_finish`` refuses a project 整理专项 made that the
-  owner has not spoken in and the lead has handed no work to (``finish_gate``).
+  owner has not spoken to (in the lead's topic, through the butler's project_send, on the project's own cards or page:
+  ``owner_lead_at``) and whose lead has opened or fed no topic (``finish_gate``, W2-C).
 - ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5, COVEY_PROJECT_TRIAGE=1; they are listed
   to the lead only then, and answer that it is off otherwise): the lead answers a member topic's held choice question as the
   owner would (the question's own submit path, with a note that the lead answered) or hands it to the owner with a reason
   (app/triage.py). An answer stands on ``evidence`` the Bridge checks (app/triage.py grounds), with 协作 on or off (W0-2):
   no ground of the owner's that still holds, no answer.
 - With 协作 on, ``project_checklist`` keeps the project's 目标检查表 (core/project_checklist.py), and ``project_finish``
-  refuses while an item of it is not met or a 协作 gap is not dealt with (``checklist_gate``). Also with it on, the 简报
+  refuses while an item of it is not met or a 协作 gap is not dealt with (``checklist_gate``). An item turned ``dropped``
+  names the owner's word for it, which the Bridge checks (``dropped_bases``: his message in the project, or a question
+  he answered himself; W2-C). Also with it on, the 简报
   (docs/projects.md 项目简报): ``project_goal``'s ``background``, ``project_checklist``'s ``actions`` (core/project_actions.py),
   and the optional ``action`` and ``item`` of ``project_topic_start`` and ``project_topic_send``, which hang the topic on them
   (``place_of`` looks at the ids before anything is done, ``hang`` writes them once the topic is a member).
@@ -63,7 +66,7 @@ from covey.core import project_proposals as proposals
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import checkpoint_file, find_job_record
 from covey.core.locks import resource_lock
-from covey.core.state import write_private_text
+from covey.core.state import read_object, write_private_text
 from covey.core.store import directory_store
 from covey.core.text import cut
 from covey.core.topics import topic_label
@@ -90,8 +93,9 @@ TRIAGE_OFF = "问题分流没有开：负责人不能替主人答题，也不能
 CHECKLIST_OFF = "协作没有开（COVEY_COLLAB）：没有目标检查表，收尾照原来的规则。"
 BRIEF_OFF = "协作没有开（COVEY_COLLAB）：没有简报，不能带 background、action、item。"
 FINISH_NEXT = ("现在不能收尾。先安排补齐：project_topic_send 让原话题返工，或 project_topic_start 开新话题；核对过证据再用 project_checklist "
-               "把那一条标 done（写 evidence）；主人说不要了的标 dropped，在 gap 里写主人怎么说的；协作缺口处理完用 close_gaps 写怎么处理的。"
-               "要主人定范围或取舍的，合成一个问题用 project_note（kind 写 ask）问他。")
+               "把那一条标 done（写 evidence）；主人说不要了的标 dropped，gap 写主人怎么说的，evidence 写他的依据（msg:<消息 id> 或 "
+               "ask:<问题 token>）；协作缺口处理完用 close_gaps 写怎么处理的。要主人定范围或取舍的，合成一个问题用 project_ask 问他。")
+HANDED = ("start", "send")  # What of ``acted`` is the lead handing out work (``finish_gate``); a stop, an answer or a question is not.
 
 
 def lead(env, request) -> tuple:
@@ -112,11 +116,12 @@ def lead(env, request) -> tuple:
 
 
 STATE_NAMES = {projects.PAUSED: "停住", projects.DONE: "做完（已收尾）", projects.CANCELLED: "已取消"}
-DONE_NEXT = ("主人在专项里说一句话（负责人话题、专项的话题、管家转来、网页上）专项就会自动重开；"
+DONE_NEXT = ("主人对专项说一句话（负责人话题里、管家转来、网页上）专项就会自动重开；他在专项的某个话题里说话不会重开专项。"
              "告诉主人这一点和你打算怎么做，不要说做不了。")
-OWNER_FIRST = ("这个专项是整理专项时把已有的话题收进来建的，建好后主人还没在里面说过话、你也还没派过活："
+OWNER_FIRST = ("这个专项是整理专项时把已有的话题收进来建的，建好后主人还没对你说过话、你也还没开过或派过话题："
                "收进来的话题做完不等于专项完成，现在不能收尾。用 project_ask 说清每个话题做到哪、还剩什么、问主人下一步，"
-               "然后结束这一轮，等主人下一步；主人在专项里说过话、或你派过活之后才能 project_finish。")
+               "然后结束这一轮，等主人下一步；主人在负责人话题里（或经管家转给你）说过话、或你用 project_topic_start、"
+               "project_topic_send 派过活之后才能 project_finish。")
 
 
 def ended_words(record, what) -> str:
@@ -135,14 +140,28 @@ def active(record, what="这件事") -> None:
         raise ValueError(ended_words(record, what))
 
 
+def handed_out(record) -> bool:
+    """Whether the lead opened or fed a topic of ``record``'s project (``acted`` rows with ``start`` or ``send``, HANDED; a row of
+    an older release kept one ``what``)."""
+    for row in record.get("acted") or ():
+        if not isinstance(row, dict):
+            continue
+        whats = row.get("whats") if isinstance(row.get("whats"), list) else [row.get("what")]
+        if any(what in HANDED for what in whats):
+            return True
+    return False
+
+
 def finish_gate(record) -> str:
     """'' when the lead may finish ``record``; else why not (``OWNER_FIRST``): a project 整理专项 made of topics that were there
-    already (origin ``tidy``), which the owner has not spoken in since (``owner_at``, app/project_loop.py owner_spoke) and
-    its lead has handed no work to (``acted``). Its topics all done is how it began, not its goal reached (else a
-    project split off would be finished by its lead's first wake-up turn). A project the owner started (direct, an
-    upgrade) began with his words."""
+    already (origin ``tidy``), which the owner has not spoken to since (``owner_lead_at``, app/project_loop.py owner_spoke:
+    his turn in the lead's topic, the butler's project_send, the project's pause card or web page; his word in a member
+    topic, ``heard``, is that topic's and does not count) and whose lead has handed out no work (``handed_out``: a stop, an
+    answer, an escalation or a question is not). Its topics all done is how it began, not its goal reached (else a project
+    split off would be finished by its lead's first wake-up turn). A project the owner started (direct, an upgrade) began
+    with his words. W2-C: ``owner_at`` (any word of his in the project) and any ``acted`` row let it through before."""
     origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
-    if origin.get("kind") != "tidy" or record.get("owner_at") or record.get("acted"):
+    if origin.get("kind") != "tidy" or record.get("owner_lead_at") or handed_out(record):
         return ""
     return OWNER_FIRST
 
@@ -782,6 +801,45 @@ def topic_rows(env, record, rows, what) -> list:
     return out
 
 
+OWNER_ANSWERED = ("submitting", "answered", "uncertain")  # A question the owner gave his answer to (its delivery aside).
+
+
+def owner_basis(env, record, ref) -> bool:
+    """Whether ``ref`` (core/project_checklist.py BASIS: msg:<id> or ask:<token>) is the owner's own word in ``record``'s
+    project: his message in it (app/triage.py owner_message, project_answer's msg: ground), a question of the project's
+    topics (the lead's or a member's) he answered himself (its ``answer_by`` party owner, WAVE12 C2), or his 收尾 on the
+    project's pause card (core/project_checklist.py pause_ref). Reads only."""
+    kind, _, key = ref.partition(":")
+    if kind == "msg":
+        return bool(triage_flow.owner_message(env, record, key))
+    if ref.startswith(checklist.PAUSE_REF):
+        ask = record.get("pause_ask") if isinstance(record.get("pause_ask"), dict) else {}
+        return ask.get("choice") == "finish" and checklist.pause_ref(ask) == ref
+    if not triage_flow.MESSAGE_ID.fullmatch(key):
+        return False
+    question = read_object(triage_flow.question_path(env.state_dir, key))
+    topics = {str(record.get("lead_topic_id") or ""), *(topic for topic in record.get("threads") or () if isinstance(topic, str))}
+    by = question.get("answer_by") if isinstance(question.get("answer_by"), dict) else {}
+    return (question.get("token") == key and question.get("topic_id") in topics and question.get("chat_id") == record.get("chat_id")
+            and question.get("status") in OWNER_ANSWERED and by.get("party") == turn_source.PARTY_OWNER)
+
+
+def dropped_bases(env, record, rows) -> tuple:
+    """(the refs that are the owner's word, ``owner_basis``; those that are not) among what the rows of a project_checklist
+    call that turn an item ``dropped`` name in their ``evidence`` (an item's own evidence when the row gives none), each
+    once. core/project_checklist.py apply then takes a drop only on one of the first (W2-C)."""
+    by_id = {item["id"]: item for item in checklist.items(record)}
+    refs = []
+    for row in rows:
+        if isinstance(row, dict) and row.get("state") == checklist.DROPPED:
+            text = row.get("evidence") if "evidence" in row else by_id.get(str(row.get("id") or ""), {}).get("evidence")
+            refs.extend(checklist.bases_of(text))
+    good, bad = set(), []
+    for ref in dict.fromkeys(refs):
+        (good.add(ref) if owner_basis(env, record, ref) else bad.append(ref))
+    return good, bad
+
+
 def project_checklist(env, request):
     """The project's 目标检查表 (core/project_checklist.py, 协作 on): items added or changed (``items``; a ``topic`` or ``topics`` are
     this project's topics, T number or topic id), 协作 gaps closed (``close_gaps``), the 简报's actions added or changed
@@ -802,16 +860,19 @@ def project_checklist(env, request):
         except ValueError as exc:
             return reply(False, str(exc))
         receipts, changed = project_lead.inbox_items(state, pid), []
+        bases, unproven = dropped_bases(env, record, wanted)  # Read before the record's lock: nothing of it under the lock.
 
         def change(data):
             if rows or close:
-                changed[:] = checklist.apply(data, wanted, close, receipts=receipts, job=request.job_key)
+                changed[:] = checklist.apply(data, wanted, close, receipts=receipts, job=request.job_key, bases=bases)
             if acts:
                 changed.extend(project_actions.apply(data, wanted_actions, job=request.job_key))
         try:
             record = projects.update(state, pid, change)
         except ValueError as exc:
-            return reply(False, f"{what}没有改：{exc}")
+            told = (f"；这些依据 Bridge 核对不上（不是主人在这个专项里说的话或他本人答过的题）：{'、'.join(unproven)}"
+                    if unproven else "")
+            return reply(False, f"{what}没有改：{exc}{told}")
     else:
         changed = []
     members = project_lead.member_rows(state, record)

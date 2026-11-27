@@ -23,8 +23,10 @@ when something happened since it last looked, and the mechanical checks that sto
   open it again; ``idle_reopened_at`` keeps it from folding again before something has happened. With MAX_ACTIVE projects
   on, a new one (the butler's start, an upgrade, 整理专项's 建 and 拆) first folds the quietest one that rests and has been
   quiet a day (``make_room``) instead of being refused; only when none can be folded is it refused, naming the quietest.
-- A project its lead finished (``done``) opens again the same ways (``owner_spoke``, ``unfinish``): the owner speaking in
-  it means there is more to do; ``owner_at`` keeps when he last did (app/project_tools.py project_finish's gate).
+- A project its lead finished (``done``) opens again when the owner speaks to it (``owner_spoke``, ``unfinish``): his turn in
+  the lead's topic, the butler's ``project_send``, the web page; there is more to do. His word in a member's topic
+  (``heard``) is that topic's and leaves a finished project finished (W2-C; one folded away still opens). ``owner_at``
+  keeps when he last spoke in the project, ``owner_lead_at`` when he last spoke to it (app/project_tools.py finish_gate).
 - With COVEY_PROJECT_ASK=1 a pause a guard made is also put to the owner (``pause``): the record gets ``pause_ask`` ({reason,
   why, at, choice, card}), app/project_cards.py sends the card (继续 / 收尾 / 停) and ``answer_pause`` is what a click does
   to the record. A ``tokens`` pause also stops the member topics' running tasks; a ``wakes`` pause leaves them running; a
@@ -73,7 +75,7 @@ from pathlib import Path
 
 from covey.app import auto_retry, butler_harness, project_context, project_lead, triage as triage_flow
 from covey.app.artifacts import write_result_file
-from covey.core import board_read, collab, collab_records, failure, projects, quota_hold, triage, turn_source
+from covey.core import board_read, collab, collab_records, failure, project_checklist, projects, quota_hold, triage, turn_source
 from covey.core import env as cenv
 from covey.core.checkpoint import SUMMARY_CHARS, read_checkpoint, turn_summary
 from covey.core.history_storage import append_history
@@ -116,9 +118,11 @@ CHOICE_RECEIPT = {
     "finish": "主人看了停住的原因（{why}），选了收尾：这个专项不再开新的话题。请总结做完了什么、还有什么没做完，"
               "用 project_note 标 report 告诉主人，然后调 project_finish（还有话题在做时它会拒绝，等它们结束再收尾）。",
 }
-# With 协作 on the 收尾 receipt says how the 目标检查表 is left: the owner chose to stop, not that the rest was met.
-CHOICE_CHECKLIST = ("目标检查表里没满足的条目标 dropped，gap 写“主人选了收尾，没做完：还差什么”；没处理的协作缺口用 close_gaps 写同样的话。"
-                    "不要把没做完的标成 done。")
+# With 协作 on the 收尾 receipt says how the 目标检查表 is left: the owner chose to stop, not that the rest was met. A drop names
+# his word for it (W2-C, core/project_checklist.py BASIS): on the pause card that is his choice (CHOICE_BASIS).
+CHOICE_CHECKLIST = ("目标检查表里没满足的条目标 dropped，gap 写“主人选了收尾，没做完：还差什么”，evidence 写主人的依据；"
+                    "没处理的协作缺口用 close_gaps 写同样的话。不要把没做完的标成 done。")
+CHOICE_BASIS = "这次的依据是主人在停住卡上选的收尾：evidence 写 {ref}。"
 BATCH_ENV = "COVEY_PROJECT_BATCH_SECONDS"  # 协作 on: how long ordinary receipts are gathered before they wake the lead.
 BATCH_SECONDS = 20
 BATCH_STRETCH = 4  # The oldest receipt of a batch waits at most this many windows, however many keep coming.
@@ -192,10 +196,12 @@ def inbox(state_dir, project_id) -> list:
         item = read_object(path)
         taker = item.get("taken_by")
         status = (read_job_record(job_path(state_dir, taker)) or {}).get("status") if taker else None
-        if status in SETTLED:
+        done = bool(item.get(project_lead.RECEIPT_DONE))  # Settled by the Bridge (project_lead.settle_receipt): read by nobody now.
+        if status in SETTLED or done:
             settled[path.name] = item
         # project_lead.took_it with no turn of its own: untaken, or taken by a turn that did not end well.
-        found.append((item, bool(item.get("id")) and (not taker or (status not in project_lead.GOOD_ENDS and status not in RUNNING))))
+        found.append((item, bool(item.get("id")) and not done
+                      and (not taker or (status not in project_lead.GOOD_ENDS and status not in RUNNING))))
     with _settled_lock:
         _settled[str(folder)] = settled  # Only the files still there.
     return found
@@ -598,10 +604,11 @@ def owner_turn(state_dir, topic_id, chat_id, message_id) -> None:
 
 
 def owner_spoke(record) -> None:
-    """Edit ``record`` in place: the owner spoke in the project (his turn in the lead's topic, his word in a member's topic,
-    the butler's ``project_send``, the web page). ``owner_at`` says when (app/project_tools.py project_finish's gate), a
-    project its lead finished is open again (``unfinish``), and whatever ``reopen`` opens opens."""
-    record["owner_at"] = time.time()
+    """Edit ``record`` in place: the owner spoke to the project (his turn in the lead's topic or a supplement of his to its
+    turn, the butler's ``project_send``, the web page, his click on its pause card; not his word in a member's topic,
+    ``heard``). ``owner_at`` and ``owner_lead_at`` say when (app/project_approvals.py spoke_since, app/project_tools.py
+    finish_gate), a project its lead finished is open again (``unfinish``), and whatever ``reopen`` opens opens."""
+    record["owner_at"] = record["owner_lead_at"] = time.time()
     unfinish(record)
     reopen(record)
 
@@ -685,7 +692,8 @@ def pause_receipt(state_dir, project_id, choice, ask) -> None:
     if ask.get("reason") == "tokens" and type(ask.get("halted")) is int and ask["halted"] > 0:
         text += f"停住时有 {ask['halted']} 个话题的任务被请停了，不会自己接着做；要接着做的用 project_topic_send 再交给它们。"
     if choice == "finish" and turn_source.enabled():
-        text += CHOICE_CHECKLIST
+        ref = project_checklist.pause_ref(ask)
+        text += CHOICE_CHECKLIST + (CHOICE_BASIS.format(ref=ref) if ref else "")
     project_lead.add_receipt(state_dir, project_id, "owner_choice", text)
 
 
@@ -748,8 +756,10 @@ def pause_words(record, reason, now, idle=0) -> str:
 
 def heard(state_dir, topic_id, text) -> None:
     """The owner wrote ``text`` in the topic ``topic_id`` (app/app.py handle_event): a member of a project gets an
-    ``owner_said`` receipt, the wake-ups in a row start again (someone stepped in), and a project folded away or finished
-    is open again. Never raises."""
+    ``owner_said`` receipt, the wake-ups in a row start again (someone stepped in), and a project folded away is open again.
+    His word is that topic's (W2-C): a project its lead finished stays finished (it opened again before, and its lead's
+    next wake-up finished it once more; the receipt waits for the lead's next turn if he opens it), and the lead's finish
+    gate does not take it as his word to the project (``owner_lead_at``). Never raises."""
     try:
         if not projects.enabled() or not projects.is_member_topic(state_dir, topic_id):
             return
@@ -761,7 +771,6 @@ def heard(state_dir, topic_id, text) -> None:
         project_lead.add_receipt(state_dir, found.id, "owner_said", f"主人在 {label} 里说：{cut(text, SAID)}", thread=topic_id)
         def change(data):
             data["owner_at"] = time.time()
-            unfinish(data)  # A project its lead finished: his word opens it again.
             if projects.folded(data):
                 reopen(data)  # A project folded away for being idle: his word opens it again.
             data["wakes"] = {**wakes_of(data), "streak": 0, "recent": []}

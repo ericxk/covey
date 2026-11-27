@@ -220,6 +220,7 @@ def escalate(env, record, why, *, by="lead", context="", recommend="", if_not=""
     if found.get("project"):
         log_row(state, found["project"], f"转给你：{label} · {summary(moved)}" + (f"（{cut(why, 60)}）" if why else ""),
                 topic=moved.get("topic_id"), kind="escalated")
+        settle_receipt(state, found["project"], moved, by)
     ok = False
     try:
         ok = show(env, moved)
@@ -235,6 +236,27 @@ def escalate(env, record, why, *, by="lead", context="", recommend="", if_not=""
         upsert_job_record(state, moved.get("job_key"), status="failed", question_delivery_ok=False,
                           status_message="问题要主人答，但问题控件还没送到；请重新投递")
     return ok
+
+
+def settle_receipt(state_dir, project_id, record, by) -> None:
+    """The ``question`` receipt of ``record``, a question just handed to the owner, settled in the lead's inbox
+    (project_lead.settle_receipt, W2-C): it wakes the lead no more for a question that is the owner's now. The receipt is
+    the one ``receipt`` wrote (its id on the record); a record of an older release keeps only that there was one (True):
+    its topic's unread ``question`` receipts then. Never raises."""
+    try:
+        given = triage.of(record).get("receipt")
+        if isinstance(given, str) and given:
+            ids = [given]
+        elif given:
+            topic = str(record.get("topic_id") or "")
+            ids = [item["id"] for item in project_lead.inbox_items(state_dir, project_id)
+                   if item.get("kind") == RECEIPT and item.get("thread") == topic and not item.get("taken_by")]
+        else:
+            return
+        for receipt_id in ids:
+            project_lead.settle_receipt(state_dir, project_id, receipt_id, f"转给主人（{by}）")
+    except (OSError, ValueError, KeyError):
+        return
 
 
 def answering(record, now) -> bool:
@@ -486,13 +508,17 @@ def receipt(state_dir, project, record, now) -> None:
     label = topic_label(Path(state_dir), record.get("topic_id")) or str(record.get("topic_id"))[:8]
     first = (record.get("questions") or [{}])[0]
     before = question_dedup.lead_line(record)  # The owner's answer to the same question before (app/question_dedup.py).
-    project_lead.add_receipt(state_dir, project["id"], RECEIPT,
-                             f"{label} 的任务 #{record.get('job_id')} 问：{cut(str(first.get('question') or ''), 160)}"
-                             + (f"（{before}）" if before else "")
-                             + "（交给你：能答就 project_answer，不能就 project_escalate；3 分钟没处理会转给主人）",
-                             thread=str(record.get("topic_id") or ""), at=now)
-    update_question(question_path(state_dir, record["token"]),
-                    lambda row: {**row, "triage": {**triage.of(row), "receipt": True}} if triage.held(row) else None)
+    item = project_lead.add_receipt(state_dir, project["id"], RECEIPT,
+                                    f"{label} 的任务 #{record.get('job_id')} 问：{cut(str(first.get('question') or ''), 160)}"
+                                    + (f"（{before}）" if before else "")
+                                    + "（交给你：能答就 project_answer，不能就 project_escalate；3 分钟没处理会转给主人）",
+                                    thread=str(record.get("topic_id") or ""), at=now)
+    # Its id (W2-C): ``escalate`` settles that receipt once the question is the owner's. A question handed on meanwhile
+    # (the record no longer held) has it settled here.
+    marked = update_question(question_path(state_dir, record["token"]),
+                             lambda row: {**row, "triage": {**triage.of(row), "receipt": item["id"]}} if triage.held(row) else None)
+    if marked is None:
+        project_lead.settle_receipt(state_dir, project["id"], item["id"], "已不在分流")
 
 
 # The grounds of an answer the lead gives in the owner's place (``grounds``; project_answer's ``evidence``).

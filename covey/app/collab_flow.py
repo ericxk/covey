@@ -28,8 +28,12 @@ Bridge alone (rule 1: decided under the record's lock, sent outside it).
 - Expired: an ask queued QUEUE_SECONDS, or anything open at the window's end (WINDOW_SECONDS; both configurable:
   core/collab_records.py queue_seconds, window_seconds), is ``expired`` (a taken
   ask's turn stopped) and the integrator goes on with what it has; nothing the owner started is marked failed.
-- Stopped (``Collaboration.stop``, and the owner stopping the integrator's continuation): ``cancelled``, its asks and
-  continuation stopped, nothing else of the helpers touched; an answer that comes late is kept (``late``), wakes nobody.
+- Stopped (``Collaboration.stop``, and the owner stopping the integrator's continuation, core/jobs.py owner_stopped: a stop
+  that names nobody is not his): ``cancelled``, its asks and continuation stopped, nothing else of the helpers touched; an
+  answer that comes late is kept (``late``), wakes nobody. A continuation that failed, was interrupted or was stopped by
+  anyone else is queued once more by the record (REPLY_RETRIES, under a message id of its own; not while an automatic
+  retry of it is to come, whose end settles it the same way), and the next such end cancels the collaboration
+  (``stopped_by`` bridge) with a line in the integrator's topic (W2-C: it stayed open with nothing to come before).
 - Restarted: the thread reconciles from the records: a taken ask whose turn ended is settled from its record, one never
   queued is queued again under the same message id; a model is never run again to redeliver anything.
 """
@@ -46,7 +50,8 @@ from covey.core import collab_records as records
 from covey.core.butler import traits
 from covey.core.checkpoint import read_checkpoint
 from covey.core.history_storage import append_history
-from covey.core.jobs import context_for_record, find_job_record, harness_of, job_key, topic_job_records
+from covey.core.jobs import (context_for_record, find_job_record, harness_of, job_key, owner_stopped, topic_job_records,
+                             update_job_record_if)
 from covey.core.loops import every
 from covey.core.saved_results import load_authorized_reply
 from covey.core.state import read_object
@@ -84,6 +89,11 @@ EXPIRED_REASON = "到期没有答复"
 QUEUE_EXPIRED = "排队超过 {minutes} 分钟，对方一直在忙"
 FAILED_REASON = "对方这一轮没有完成（{status}）"
 NOT_QUEUED = "没能排上对方的通道"
+REPLY_RETRIES = 1  # A continuation that did not end well is queued again this many times (``settle_reply``).
+RETRY_COMING = ("pending", "submitting")  # An automatic retry of the turn still to come (app/auto_retry.py, app/policy_retry.py).
+GAVE_UP_REASON = "汇总方接着做没有完成"
+GAVE_UP_LINE = ("⚠️ 协作 {short} 停了：{who} 收到答复后接着汇总的一轮没有完成（{status}，试了 {tries} 次），Bridge 取消了这次协作。"
+                "要接着做，在这个话题里再说一次。")
 
 
 def enabled() -> bool:
@@ -803,8 +813,12 @@ class Collaboration:
         return "\n\n".join(rows)
 
     def settle_reply(self, ctx, job, now=None) -> None:
-        """The integrator's continuation ended: its row says how; the owner stopping it stops the collaboration;
-        nothing waiting and nothing new: ``done``."""
+        """The integrator's continuation ended: its row says how; the owner stopping it stops the collaboration
+        (core/jobs.py owner_stopped; W2-C: a stop that names nobody is not taken for his card's); nothing waiting and
+        nothing new: ``done``. One that did not end well otherwise (failed, interrupted, stopped by the lead, a guard or
+        the Bridge) is queued once more (REPLY_RETRIES; the failed one's ``retried_by`` names it, so its card's 检查并继续
+        does not queue a second), unless an automatic retry of it is to come (its end comes here the same way); the next
+        such end cancels the collaboration (``stopped_by`` bridge) and says so in the integrator's topic."""
         now = time.time() if now is None else now
         state = ctx.state_dir
         source = turn_source.of(job) or {}
@@ -812,7 +826,9 @@ class Collaboration:
         status = str(job.get("status") or "")
         if status not in ENDED and status != "waiting_user":
             return
-        stopped = status == "cancelled" and str(job.get("cancel_requested_by") or "card") in ("card", "word", "web")
+        stopped = status == "cancelled" and owner_stopped(job)
+        coming = any(job.get(name) in RETRY_COMING for name in ("auto_retry_state", "policy_retry_state"))
+        outcome = {}
 
         def move(current):
             if current.get("state") != collab.OPEN:
@@ -829,6 +845,19 @@ class Collaboration:
                     if ask.get("state") in PENDING:
                         records.move_ask(ask, collab.CANCELLED, now, reason=STOPPED_REASON)
                 return current
+            if status not in ENDED_WELL and mine is not None and not coming:
+                attempt = int(mine.get("attempt") or 1)
+                if attempt <= REPLY_RETRIES and not job.get("policy_stop"):
+                    message = collab.reply_message(cid, int(mine.get("number") or 1), attempt + 1)
+                    mine.update(state="queued", attempt=attempt + 1, message_id=message, at=now)
+                    outcome["retry"] = int(mine.get("number") or 1)
+                    return current
+                records.move_collab(current, collab.CANCELLED, now, stopped_by="bridge")
+                for ask in current.get("asks") or ():
+                    if ask.get("state") in PENDING:
+                        records.move_ask(ask, collab.CANCELLED, now, reason=GAVE_UP_REASON)
+                outcome["gave_up"] = attempt
+                return current
             waiting = any(ask.get("state") in PENDING or (records.settled(ask) and not ask.get("delivered_in"))
                           for ask in current.get("asks") or ())
             if not waiting and status in ENDED_WELL:
@@ -836,11 +865,31 @@ class Collaboration:
             return current
         record = records.change(state, cid, move)
         if record is not None and record.get("state") != collab.OPEN:
-            self.runtime.log(f"collab {record['state']} collab={cid[:8]}")
+            self.runtime.log(f"collab {record['state']} collab={cid[:8]}" + (" by=bridge" if outcome.get("gave_up") else ""))
+        if record is not None and outcome.get("retry"):
+            self.retried(ctx, job, record, outcome["retry"])
+        if record is not None and outcome.get("gave_up"):
+            integrator = record.get("integrator") or {}
+            self.tell(ctx, record["chat_id"], integrator.get("key", ""),
+                      GAVE_UP_LINE.format(short=cid[:8], who=integrator.get("label") or "汇总方", tries=outcome["gave_up"],
+                                          status=status), f"gave-up-{cid}")
         if record is not None:
             self.cards.refresh(ctx, cid, create=False)
         if record is not None and record.get("state") == collab.OPEN:
             self.advance(ctx, cid, now)
+
+    def retried(self, ctx, job, record, number) -> None:
+        """Continuation ``number`` queued once more after ``job``, its try that did not end well: ``job``'s record names the new
+        one (``retried_by``: its card's 检查并继续 then finds nothing to retry, never a second continuation)."""
+        reply = next((row for row in record.get("replies") or () if int(row.get("number") or 0) == number), {})
+        key = str(job.get("key") or job_key(str(job.get("message_id") or ""), job.get("job_id") or ""))
+        try:
+            update_job_record_if(Path(ctx.state_dir), key, lambda current: not current.get("retried_by"),
+                                 retried_by=str(reply.get("message_id") or ""))
+        except (OSError, ValueError) as exc:
+            self.runtime.log(f"collab continuation retry not marked collab={record['id'][:8]}: {type(exc).__name__}")
+        self.runtime.log(f"collab continuation queued again collab={record['id'][:8]} n={number}")
+        self.queue_reply(ctx, record["id"], number)
 
     # -- what is said and stopped ----------------------------------------------------------------------------------------
 

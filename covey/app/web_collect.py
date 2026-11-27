@@ -58,7 +58,7 @@ UNSTARTED_WORDS = "没开工，已取消"  # The line under the owner's words wh
 # The line under the owner's words whose task waits for 开始 on its launch card (``start_turn``); the page puts 等你： before it.
 START_WORDS = "在启动卡上点开始，这一轮才会开工"
 LIVE = ("running", "cancel_requested")  # The statuses whose turn has a topic.data progress.
-REPLY_MESSAGE = re.compile(r"collab-([0-9a-f]{24})-reply-\d+")  # core/collab.py reply_message: the integrator's continuation turn.
+REPLY_MESSAGE = re.compile(r"collab-([0-9a-f]{24})-reply-\d+(?:-r\d+)?")  # core/collab.py reply_message: the integrator's continuation turn.
 CONTINUED_WORDS = "（协作的答复到齐，接着汇总）"  # What the page shows of the long prompt the Bridge wrote for that turn.
 NOTES_SHOWN = 10  # The newest milestones and decisions a project item carries (its 进度 tab on the page, docs/web.md 专项条目).
 CHECKLIST_SHOWN = ("id", "criterion", "topic", "needs", "evidence", "gap", "state", "at")  # What an item of the 目标检查表 carries.

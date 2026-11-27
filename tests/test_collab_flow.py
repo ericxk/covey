@@ -472,6 +472,66 @@ class AnswerTest(Case):
         self.assertEqual(self.record()["asks"][0]["state"], collab.READ)
         self.assertEqual(len(self.queued()), 1)  # One continuation, not two.
 
+    def continued(self):
+        """The integrator's first continuation, queued once the helper answered."""
+        job = self.asked()
+        self.answer(job, "方案 B")
+        [reply] = self.queued()
+        return reply
+
+    def test_a_failed_continuation_is_queued_once_more_then_the_collaboration_ends_with_a_line(self):
+        """W2-C: one that did not end well is queued again under a message id of its own (the failed one's 检查并继续 finds
+        nothing to retry); the second ends the collaboration as the Bridge's and says so in the integrator's topic."""
+        reply = self.continued()
+        cid = self.record()["id"]
+        self.answer(reply, "", status="failed")
+        [again] = self.queued()
+        self.assertEqual(again.message_id, collab.reply_message(cid, 1, 2))
+        self.assertEqual(turn_source.kind(again), turn_source.REPLY)
+        record = self.record()
+        self.assertEqual((record["state"], record["replies"][0]["state"], record["replies"][0]["attempt"]), (collab.OPEN, "queued", 2))
+        self.assertEqual(find_job_record(self.state, reply.message_id)["retried_by"], again.message_id)
+        said = len(self.said())
+        self.answer(again, "", status="failed")
+        record = self.record()
+        self.assertEqual((record["state"], record["stopped_by"]), (collab.CANCELLED, "bridge"))
+        self.assertEqual(self.queued(), [])
+        [line] = [text for text in self.said()[said:] if "Bridge 取消了这次协作" in text]
+        self.assertIn("试了 2 次", line)
+        self.flow.tick(self.ctx, now=time.time() + collab_flow.LOST + 1)  # Nothing is open any more: nothing again.
+        self.assertEqual(self.queued(), [])
+
+    def stopped_by(self, by):
+        reply = self.continued()
+        upsert_job_record(self.state, reply.message_id, **({"cancel_requested_by": by} if by else {}))
+        self.answer(reply, "", status="cancelled")
+        [again] = self.queued()
+        self.assertEqual(again.message_id, collab.reply_message(self.record()["id"], 1, 2))
+        self.assertEqual(self.record()["state"], collab.OPEN)
+
+    def test_a_continuation_stopped_with_no_name_is_not_taken_for_the_owners_stop(self):
+        """W2-C: a stop that names nobody was taken for the owner's card before, and the collaboration was cancelled."""
+        self.stopped_by("")
+
+    def test_a_continuation_the_lead_stopped_is_queued_once_more(self):
+        self.stopped_by("lead")
+
+    def test_the_owner_stopping_the_continuation_still_cancels_it_as_his(self):
+        reply = self.continued()
+        upsert_job_record(self.state, reply.message_id, cancel_requested_by="card")
+        self.answer(reply, "", status="cancelled")
+        record = self.record()
+        self.assertEqual((record["state"], record["stopped_by"]), (collab.CANCELLED, "owner"))
+        self.assertEqual(self.queued(), [])
+
+    def test_an_automatic_retry_to_come_is_waited_for(self):
+        reply = self.continued()
+        upsert_job_record(self.state, reply.message_id, auto_retry_state="pending")
+        self.answer(reply, "", status="failed")
+        self.assertEqual(self.queued(), [])
+        record = self.record()
+        self.assertEqual((record["state"], record["replies"][0]["state"]), (collab.OPEN, "failed"))
+
     def test_a_continuation_retried_from_its_card_keeps_its_source(self):
         job = self.asked()
         self.answer(job, "方案 B")

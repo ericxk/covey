@@ -22,6 +22,7 @@ from support.fake_backends import codex_context
 from support.records import state_dir, write_job, write_topic
 
 from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as session, butler_tools, project_lead, project_tools
+from covey.app import project_loop
 from covey.app import projects as projects_app
 from covey.app.butler_tools import ButlerTools
 from covey.backends.claude.argv import stream_argv
@@ -1179,13 +1180,30 @@ class RecordToolsTest(ToolsCase):
         self.assertIn("收进来的话题做完不等于专项完成", blocked["text"])
         self.assertEqual(self.reload()["state"], projects.ACTIVE)
         self.assertIn("不要收尾", projects_app.Projects.gathered(self.state, self.reload()))
-        for opened in ({"owner_at": NOW}, {"acted": [{"job": "lead-job", "what": "start", "at": NOW}]}):
+        # W2-C: only the owner speaking to the project (owner_lead_at) or the lead handing out work (start, send) opens it.
+        clear = lambda record: [record.pop(name, None) for name in ("owner_at", "owner_lead_at", "acted")]  # noqa: E731
+        for opened in ({"owner_lead_at": NOW}, {"acted": [{"job": "lead-job", "what": "start", "at": NOW}]},
+                       {"acted": [{"job": "lead-job", "whats": ["ask", "send"], "at": NOW}]}):
             with self.subTest(opened=opened):
-                projects.update(self.state, PID, lambda record: (record.pop("owner_at", None), record.pop("acted", None),
-                                                                 record.update(opened)))
+                projects.update(self.state, PID, lambda record: (clear(record), record.update(opened)))
                 self.assertEqual(project_tools.finish_gate(self.reload()), "")
+        for closed in ({"owner_at": NOW}, {"acted": [{"job": "lead-job", "whats": ["stop", "answer", "escalate", "ask"], "at": NOW}]},
+                       {"acted": [{"job": "lead-job", "what": "ask", "at": NOW}]}):
+            with self.subTest(closed=closed):
+                projects.update(self.state, PID, lambda record: (clear(record), record.update(closed)))
+                self.assertIn("收进来的话题做完不等于专项完成", project_tools.finish_gate(self.reload()))
+        projects.update(self.state, PID, clear)
+        member = "b" * 32
+        write_topic(self.state, topic_id=member, chat_id=CHAT, harness_id="claude", project=projects.project_field(PID, projects.MEMBER))
+        projects.add_member(self.state, PID, member)
+        project_loop.heard(self.state, member, "这个话题再改一下")  # His word in a member topic: that topic's.
+        self.assertTrue(self.reload()["owner_at"])
+        self.assertIn("收进来的话题做完不等于专项完成", project_tools.finish_gate(self.reload()))
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_1")  # His turn in the lead's topic.
+        self.assertTrue(self.reload()["owner_lead_at"])
+        self.assertEqual(project_tools.finish_gate(self.reload()), "")
         for kind in ("direct", "upgrade"):  # The owner's own words began these.
-            projects.update(self.state, PID, lambda record: (record.pop("acted", None), record.update(origin={"kind": kind})))
+            projects.update(self.state, PID, lambda record: (clear(record), record.update(origin={"kind": kind})))
             self.assertEqual(project_tools.finish_gate(self.reload()), "")
 
     def test_the_triage_tools_say_it_is_off_without_the_switch(self):

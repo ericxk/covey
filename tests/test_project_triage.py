@@ -456,6 +456,34 @@ class SweepTest(SweepCase):
         flow.sweep(self.env, time.time() + 1000)  # Escalated is final: nothing more is sent.
         self.assertEqual(self.shown, [TOKEN])
 
+    def test_once_it_is_the_owners_its_receipt_wakes_the_lead_no_more_and_no_turn_takes_it(self):
+        """W2-C: the receipt the sweep wrote is settled when the question goes to the owner (here, its three minutes up)."""
+        flow.sweep(self.env, time.time())
+        [receipt] = self.receipts()
+        self.assertEqual(triage.of(self.saved())["receipt"], receipt["id"])
+        self.assertTrue(project_loop.autowake_due(self.receipts()))
+        flow.sweep(self.env, time.time() + triage.DEADLINE + 1)
+        self.assertEqual(triage.state(self.saved()), triage.ESCALATED)
+        self.assertEqual(self.receipts(), [])
+        self.assertEqual(project_lead.take_receipts(self.state, PID, "lead-later"), [])
+        self.assertFalse(project_lead.settle_receipt(self.state, PID, receipt["id"], "again"))  # Once.
+
+    def test_a_record_of_an_older_release_settles_its_topics_unread_question_receipts(self):
+        flow.sweep(self.env, time.time())
+        data = self.saved()
+        data["triage"]["receipt"] = True  # What an older release kept.
+        write_json(self.path, data, ensure_ascii=False)
+        project_lead.add_receipt(self.state, PID, "thread_end", "T41 做完了", thread=THREAD)
+        flow.escalate(self.env, self.saved(), "要主人定", by="lead")
+        self.assertEqual(self.receipts(), [])
+        self.assertEqual([item["kind"] for item in project_loop.unread(self.state, PID)], ["thread_end"])
+
+    def test_a_receipt_a_lead_turn_has_already_is_still_its_own(self):
+        flow.sweep(self.env, time.time())
+        [taken] = project_lead.take_receipts(self.state, PID, "lead-now")
+        flow.escalate(self.env, self.saved(), "要主人定", by="lead")  # project_escalate in that same turn.
+        self.assertEqual([item["id"] for item in project_lead.take_receipts(self.state, PID, "lead-now")], [taken["id"]])
+
     def test_an_answer_on_its_way_is_not_cut_off_by_the_time(self):
         late = time.time() + triage.DEADLINE + 1
         data = self.saved()
@@ -1056,7 +1084,10 @@ class PauseInterplayTest(Held):
         self.assertEqual(shown, [TOKEN])  # Never sent twice.
         rows = [row["kind"] for row in self.reload()["triage"]]
         self.assertEqual(rows.count("escalated"), 1)
-        self.assertEqual(len([item for item in project_loop.unread(self.state, PID) if item["kind"] == "question"]), 1)
+        # W2-C: the question is the owner's now, its receipt settled: it wakes the lead no more.
+        self.assertEqual(len([item for item in project_loop.unread(self.state, PID) if item["kind"] == "question"]), 0)
+        [receipt] = [item for item in project_lead.inbox_items(self.state, PID) if item["kind"] == "question"]
+        self.assertTrue(receipt["done"]["why"].startswith("转给主人"))
 
     def test_the_loop_is_wired_with_the_stop_and_the_end_of_a_turn_still_gets_all_its_notes(self):
         unified = (Path(project_loop.__file__).parent / "unified.py").read_text()

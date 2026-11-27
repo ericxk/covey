@@ -243,8 +243,9 @@ def relayed(state_dir, project_id, owner, job_key, *, steer, log=None) -> None:
     """The owner's words of the butler turn ``owner`` (butler_handoff.Asked) handed to the lead (its job ``job_key``, into its
     running turn when ``steer``) kept on the project record (``RELAYED``: message_id, text, at, job, steer; the newest
     RELAYED_KEPT, each RELAYED_TEXT characters): the lead's owner words and the grounds of its answers in his place read them
-    (app/project_lead.py owner_word_lines, app/triage.py owner_message), as the owner's message in the lead's topic is. Nothing
-    without his message (``message_id``). Never raises."""
+    (app/project_lead.py owner_word_lines, app/triage.py owner_message), as the owner's message in the lead's topic is; and
+    ``owner_lead_at`` says he spoke to the project (app/project_tools.py finish_gate, W2-C; also into a turn of the lead's
+    that was running). Nothing without his message (``message_id``). Never raises."""
     if not owner.message_id or not owner.words.strip():
         return
     row = {"message_id": owner.message_id, "text": cut(owner.words, RELAYED_TEXT), "at": owner.at or time.time(),
@@ -254,6 +255,7 @@ def relayed(state_dir, project_id, owner, job_key, *, steer, log=None) -> None:
         rows = [item for item in record.get(RELAYED) or () if isinstance(item, dict)
                 and item.get("message_id") != row["message_id"]]
         record[RELAYED] = [*rows, row][-RELAYED_KEPT:]
+        record["owner_lead_at"] = time.time()
     try:
         projects.update(Path(state_dir), project_id, change)
     except (KeyError, ValueError, OSError) as exc:

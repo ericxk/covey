@@ -15,6 +15,7 @@ how its session lives. Only a lead topic's turn (core/butler.py ``is_lead``) com
 - The inbox, ``projects/<id>/inbox/<n>.json`` ({id, kind, thread, text, at, taken_by}): receipts of what happened since
   the lead last looked (a member topic's turn ended, a question held, the owner spoke in a member topic). ``add_receipt`` writes
   one (the Bridge does, app/project_loop.py: a member's turn ended, the owner spoke in a member topic, nothing moved), ``take_receipts`` gives the lead's turn what it has not read.
+  ``settle_receipt`` marks one ``done`` that no turn is to read any more (app/triage.py: its question went to the owner).
 - With 协作 on (COVEY_COLLAB=1, docs/projects.md 负责人对照目标跟进) the lead answers for the project's goal: its rules say so
   (``COLLAB_RULES``), and its pack (the consult's ``read_only_pack`` too) shows the 简报 (``brief_block``: the background, once
   in a new session, and the actions a line each, core/project_actions.py), the 目标检查表 and the 协作 gaps not dealt
@@ -43,7 +44,7 @@ from covey.core.checkpoint import (ASK_SHORT, checked, checkpoint_delivery, deli
 from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT
 from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
-from covey.core.state import epoch_seconds, read_object, write_json
+from covey.core.state import epoch_seconds, read_for_write, read_object, write_json
 from covey.core.statuses import ENDED, RUNNING
 from covey.core.text import cut, last_line, stamp
 from covey.core.topics import topic_file, topic_label, topic_title
@@ -192,7 +193,8 @@ COLLAB_RULES = (
     "（读文件、用 topic_read 抽查）、两个结果有没有冲突、后面的条目要的前置结果有没有；有漏项就安排补齐：project_topic_send 让原话题返工，"
     "或 project_topic_start 开新话题，并用 project_checklist 写明缺口和由谁补。协作缺口处理完用 close_gaps 写怎么处理的。",
     "- 话题说做完只是它的说法：核对过证据才把那一条标 done（evidence 写提交号、产物路径或检查点里的自检）；还有没满足的条目或没处理的协作缺口时 "
-    "project_finish 会拒绝。主人说不要了的才标 dropped，在 gap 里写主人怎么说的；需要主人定范围、顺序或取舍时，合成一个问题用 project_ask 问他。",
+    "project_finish 会拒绝。主人说不要了的才标 dropped：gap 写主人怎么说的，evidence 写他的依据（msg:<消息 id> 或 ask:<问题 token>，"
+    "Bridge 会核对）；需要主人定范围、顺序或取舍时，合成一个问题用 project_ask 问他。",
     "- 协作咨询的回执（collab_answered）只供你参考，不会叫醒你，汇总方会自己交付结论。向主人汇报只说新的东西，比如“3 条标准只覆盖了 2 条，"
     "缺原版基线对照，还不能收尾”；不要把话题或汇总方的结论换个说法再发一遍。",
     "- 简报：第一轮用 project_goal 的 background 写背景，再用 project_checklist 的 actions 把目标拆成 3–8 个动作，"
@@ -272,6 +274,26 @@ def add_receipt(state_dir, project_id, kind, text, thread="", at=None, relayed=F
     return item
 
 
+RECEIPT_DONE = "done"  # {why, at}: a receipt the Bridge settled for the lead (app/triage.py: its question went to the owner).
+
+
+def settle_receipt(state_dir, project_id, receipt_id, why) -> bool:
+    """Mark the inbox's receipt ``receipt_id`` settled (``RECEIPT_DONE``, with ``why``), under its lock: no wake-up turn is
+    queued for it and no lead turn takes it any more (``take_receipts``; app/project_loop.py inbox), but one that has it
+    already reads it again on a second call. Whether it was marked now (False: none such, or settled before); one that
+    cannot be read raises core/state.py Unreadable and is left as it is. W2-C."""
+    path = inbox_dir(state_dir, project_id) / f"{receipt_id}.json"
+    if not receipt_id or not path.exists():
+        return False
+    with resource_lock("record", path):
+        item = read_for_write(path)  # Unreadable (an OSError) leaves it as it is.
+        if not item.get("id") or item.get(RECEIPT_DONE):
+            return False
+        item[RECEIPT_DONE] = {"why": str(why or "")[:40], "at": time.time()}
+        write_json(path, item, ensure_ascii=False, indent=1)
+    return True
+
+
 def took_it(state_dir, taken_by, key) -> bool:
     """Whether the receipts job ``taken_by`` took are still the lead's to read for job ``key``: its own, or those of a turn
     that did not end well (the receipts it was given may never have been read)."""
@@ -296,6 +318,8 @@ def take_receipts(state_dir, project_id, key, limit=INBOX_ROWS) -> list:
             item = read_object(path)
             if not item.get("id") or not took_it(state_dir, item.get("taken_by"), key):
                 continue
+            if item.get(RECEIPT_DONE) and item.get("taken_by") != key:
+                continue  # Settled by the Bridge before this turn had it (``settle_receipt``).
             if item.get("taken_by") != key:
                 item["taken_by"] = key
                 write_json(path, item, ensure_ascii=False, indent=1)

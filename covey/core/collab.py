@@ -223,6 +223,7 @@ def ask_message(ask, attempt=1) -> str:
     return f"{MESSAGE_PREFIX}{ask}" + (f"-r{int(attempt)}" if int(attempt) > 1 else "")
 
 
-def reply_message(collab, number) -> str:
-    """The message id of the integrator's ``number``-th continuation turn of ``collab``."""
-    return f"{MESSAGE_PREFIX}{collab}-reply-{int(number)}"
+def reply_message(collab, number, attempt=1) -> str:
+    """The message id of try ``attempt`` of the integrator's ``number``-th continuation turn of ``collab`` (one that did not
+    end well is queued once more, app/collab_flow.py settle_reply)."""
+    return f"{MESSAGE_PREFIX}{collab}-reply-{int(number)}" + (f"-r{int(attempt)}" if int(attempt) > 1 else "")

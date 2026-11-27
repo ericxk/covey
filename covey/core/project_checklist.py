@@ -6,7 +6,9 @@
   items it waits on (``needs``, their ids), where the proof is (``evidence``: a commit, a path, the check a topic's checkpoint
   said), what is still missing and who does it next (``gap``), and its state (``STATES``): ``open`` not met yet, ``done`` met,
   with its evidence, ``blocked`` held up (by ``needs`` or what ``gap`` says), ``dropped`` the owner let it go (``gap`` says
-  why). Ids are ``c1``, ``c2`` … in the order written and never given again. Optional, for the owner's 简报 and 进度表
+  why; an item turned dropped names in its ``evidence`` the owner's word for it, ``msg:<his message id>`` or
+  ``ask:<a question he answered>``, which the lead's tool checks: ``bases``, W2-C; one dropped before is left as it is).
+  Ids are ``c1``, ``c2`` … in the order written and never given again; MAX_ITEMS of them not met at most, MAX_TOTAL in all. Optional, for the owner's 简报 and 进度表
   (docs/web.md 专项条目): a short ``title`` (TITLE characters); ``waiting_on`` ``owner`` when the next step is the owner's
   ('' when the lead says it is not, writing ``none`` or ''; None when it never said: the gap's words are read then, ``owners``); ``done_at``, written
   by ``apply`` when the item turns done and cleared when it turns back (0 for one done before it was kept); ``topics``, the
@@ -36,7 +38,8 @@ OPEN, DONE, BLOCKED, DROPPED = "open", "done", "blocked", "dropped"
 STATES = (OPEN, DONE, BLOCKED, DROPPED)
 MET = frozenset({DONE, DROPPED})  # What project_finish lets through; ``dropped`` only because the owner let it go.
 STATE_WORDS = {OPEN: "没满足", DONE: "满足", BLOCKED: "卡住", DROPPED: "不做了"}
-MAX_ITEMS = 20
+MAX_ITEMS = 20  # Items not met (open, blocked) at once (W2-C: the met ones do not count against it).
+MAX_TOTAL = 100  # Items in all, met or not: the record does not grow without end.
 TEXT = 200  # Characters of a criterion, an evidence, a gap.
 HOW = 120  # Characters of how a gap was dealt with.
 NEEDS = 6  # Items one item may wait on.
@@ -54,6 +57,12 @@ DONE_COL, DOING_COL, NEXT_COL, OWNER_COL = "done", "doing", "next", "owner"  # `
 ITEM_ID = re.compile(r"c([1-9][0-9]{0,3})")
 GAP_ID = re.compile(r"g[0-9a-f]{6}")
 GAP_KIND = collab.RECEIPT_GAP
+# The owner's word an item turned ``dropped`` names in its ``evidence`` (W2-C): his message in the project (msg:<id>, the
+# pack's 主人在专项里说过的话) or a question he answered himself (ask:<token>, the line the Bridge puts after his answer; the
+# pause card's 收尾 too, app/project_loop.py pause_receipt). The lead's tool checks each (app/project_tools.py dropped_bases).
+BASIS = re.compile(r"(?<![0-9A-Za-z_])((?:msg|ask):[0-9A-Za-z_\-]{4,128})")
+NO_BASIS = ("{item} 标 dropped 要带主人的依据：evidence 写 msg:<消息 id>（主人在专项里说的话，状态包“主人在专项里说过的话”里的）"
+            "或 ask:<问题 token>（主人本人答过的题，Bridge 写在他的回答后面）；没有依据就用 project_ask 问主人哪些不做了，不要自己定")
 
 
 def clean(text, limit=TEXT) -> str:
@@ -80,6 +89,36 @@ def _item(row) -> dict | None:
             "done_at": done_at if isinstance(done_at, (int, float)) and not isinstance(done_at, bool) else 0,
             "topics": list(dict.fromkeys(topic for topic in (clean(each, 64) for each in row.get("topics") or ()
                                                               if isinstance(each, str)) if topic))[:TOPICS]}
+
+
+ASK_LINE = "[Bridge] 这道题是主人本人答的：要据此把目标检查表的条目标 dropped，evidence 写 ask:{token}。"
+
+
+def ask_line(question) -> str:
+    """The line after the owner's own answer to a lead's question (``question``, its record: origin ``project_ask``, his
+    ``answer_by``) that names it as the ground of a drop (``BASIS``); '' for any other. app/questions.py adds it with 协作 on."""
+    if not isinstance(question, dict):
+        return ""
+    by = question.get("answer_by") if isinstance(question.get("answer_by"), dict) else {}
+    token = str(question.get("token") or "")
+    if question.get("origin") != "project_ask" or by.get("party") != "owner" or not BASIS.fullmatch("ask:" + token):
+        return ""
+    return ASK_LINE.format(token=token)
+
+
+PAUSE_REF = "ask:pause-"  # + when the pause was put to the owner: his 收尾 on the pause card (``pause_ref``).
+
+
+def pause_ref(ask) -> str:
+    """The ref (``ask:pause-<n>``, ``BASIS``) of the owner's choice on the pause card ``ask`` (the record's ``pause_ask``,
+    app/project_loop.py): what the 收尾 receipt names as the ground of the drops it asks for; '' for none."""
+    at = ask.get("at") if isinstance(ask, dict) else None
+    return f"{PAUSE_REF}{int(at)}" if isinstance(at, (int, float)) and not isinstance(at, bool) and at > 0 else ""
+
+
+def bases_of(text) -> list:
+    """The owner's words ``text`` (an item's ``evidence``) names as the ground of a drop (``BASIS``), each once, in order."""
+    return list(dict.fromkeys(BASIS.findall(str(text or ""))))
 
 
 def stored(item) -> dict:
@@ -216,12 +255,14 @@ def _number(item_id) -> int:
     return int(found.group(1)) if found else 0
 
 
-def apply(record, rows=(), close=(), *, receipts=(), job="", now=None) -> list:
+def apply(record, rows=(), close=(), *, receipts=(), job="", now=None, bases=None) -> list:
     """Edit ``record`` in place (core/projects.py update's ``change``): ``rows`` are items to add (no ``id``: a
     ``criterion`` at least) or to change (an ``id`` of one there: the keys given replace those it has; ``topic`` already a
     topic id or ''), ``close`` the gaps dealt with ({gap, how}; ``receipts`` the inbox, to know the open ones). Everything is
     checked first: ValueError says what does not fit and nothing is changed. The ids of the items added or changed and of the
-    gaps closed, in order."""
+    gaps closed, in order. ``bases``: the owner's words the Bridge found to be his (``BASIS`` refs; the lead's tool always
+    gives them, app/project_tools.py): an item that turns ``dropped`` now must name one of them in its ``evidence``
+    (``NO_BASIS``); None checks none (the record's own tests)."""
     stamp = time.time() if now is None else now
     current = items(record)
     before = {item["id"]: item["state"] for item in current}
@@ -296,6 +337,9 @@ def apply(record, rows=(), close=(), *, receipts=(), job="", now=None) -> list:
             problems.append(f"{item_id} 标 blocked 要写卡在哪（needs 或 gap）")
         if item["state"] == DROPPED and not item["gap"]:
             problems.append(f"{item_id} 标 dropped 要在 gap 里写为什么不做了（主人怎么说的）")
+        if (item["state"] == DROPPED and bases is not None and before.get(item_id) != DROPPED
+                and not any(ref in bases for ref in bases_of(item["evidence"]))):
+            problems.append(NO_BASIS.format(item=item_id))
         if item["waiting_on"] == OWNER and item["state"] not in MET and not item["gap"]:
             problems.append(f"{item_id} 写了 waiting_on=owner，要在 gap 里写要主人做什么")
         # 完成时间: when it turns done (kept while it stays done), none once it turns back.
@@ -304,8 +348,11 @@ def apply(record, rows=(), close=(), *, receipts=(), job="", now=None) -> list:
                 item["done_at"] = stamp
         else:
             item["done_at"] = 0
-    if len(order) > MAX_ITEMS:
-        problems.append(f"目标检查表最多 {MAX_ITEMS} 条，这次会有 {len(order)} 条：合并几条再加")
+    unmet_count = sum(1 for item_id in order if by_id[item_id]["state"] not in MET)
+    if unmet_count > MAX_ITEMS:
+        problems.append(f"目标检查表没满足的条目最多 {MAX_ITEMS} 条，这次会有 {unmet_count} 条：合并几条再加，或先核对证据把做完的标 done")
+    if len(order) > MAX_TOTAL:
+        problems.append(f"目标检查表连满足的一共最多 {MAX_TOTAL} 条，这次会有 {len(order)} 条：合并几条再加")
     open_gaps = {gap["id"] for gap in gaps(record, receipts)}
     shut = []
     for row in close:

@@ -22,7 +22,7 @@ from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
 from covey.core.jobs import find_job_record, transition_job_record, upsert_job_record, list_job_records
-from covey.core import background, triage
+from covey.core import background, project_checklist, triage, turn_source
 from covey.core.locks import resource_lock
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.run_dir import run_dir, runner_alive
@@ -646,9 +646,12 @@ CONTINUATION_STATES = TERMINAL | {"queued", "running", "waiting_user"}
 
 def with_approvals(state_dir, record, text) -> str:
     """``text`` (an answer as the task reads it) with the Bridge's line of the deploy approvals the owner's answer gave
-    (app/project_approvals.py answer_line); as it is when none."""
-    line = project_approvals.answer_line(state_dir, record)
-    return text + "\n\n" + line if line else text
+    (app/project_approvals.py answer_line), and, with 协作 on, the ref that names his own answer to a lead's question as the
+    ground of a drop in the 目标检查表 (core/project_checklist.py ask_line, W2-C); as it is when none."""
+    lines = [project_approvals.answer_line(state_dir, record),
+             project_checklist.ask_line(record) if turn_source.enabled() else ""]
+    lines = [line for line in lines if line]
+    return text + "\n\n" + "\n".join(lines) if lines else text
 
 
 def _settle_question(path, change):

@@ -967,14 +967,20 @@ class IdleTest(Loop):
             self.assertEqual(self.state_of(), (projects.ACTIVE, ""))
             self.assertNotIn("idle", self.reload())
 
-    def test_his_word_in_a_topic_of_a_finished_project_opens_it_again(self):
+    def test_his_word_in_a_topic_of_a_finished_project_leaves_it_finished_and_his_word_to_it_opens_it(self):
+        """W2-C: his word in a member topic is that topic's (its receipt waits); his turn in the lead's topic opens the project."""
         self.thread(THREAD, "迁移", 41, status="done", timings={"execution_finished": NOW})
         self.update(state=projects.DONE, state_reason="迁完了", state_job="lead-x-1")
         project_loop.heard(self.state, THREAD, "迁移再看看")
         record = self.reload()
-        self.assertEqual((self.state_of(), record["reopened"][-1]["summary"]), ((projects.ACTIVE, ""), "迁完了"))
+        self.assertEqual((self.state_of(), record.get("reopened"), record["state_job"]), ((projects.DONE, "迁完了"), None, "lead-x-1"))
         self.assertTrue(record["owner_at"])
+        self.assertNotIn("owner_lead_at", record)
         self.assertIn("owner_said", [item["kind"] for item in project_loop.unread(self.state, PID)])
+        project_loop.owner_turn(self.state, LEAD, CHAT, "om_1")
+        record = self.reload()
+        self.assertEqual((self.state_of(), record["reopened"][-1]["summary"]), ((projects.ACTIVE, ""), "迁完了"))
+        self.assertTrue(record["owner_lead_at"])
 
     def test_a_project_just_opened_again_is_not_folded_before_something_has_happened(self):
         self.update(state=projects.PAUSED, state_reason=projects.IDLE, idle={"at": NOW, "days": 7})
