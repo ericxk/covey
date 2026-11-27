@@ -2,6 +2,7 @@
 go, supplements while it runs, its turn's message and tools, and compaction between its turns."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import signal
@@ -955,6 +956,123 @@ class HoldTest(ButlerUnifiedCase):
         self.assertNotIn('start_held_until', saved['fields'])
         self.assertNotIn('start_held_until', saved['extras'])
         self.assertEqual(load_job(json.loads(json.dumps(saved))).start_held_until, 0)
+
+
+class BridgeToolNudgeTest(ButlerUnifiedCase):
+    """W2-A (G8 管家工具提醒): the butler's tool reminder on a Harness that does not send it by itself (core/harness.py
+    nudges): the Bridge counts the main task's tool steps that are not the Bridge's and sends it once at ``after``, as an
+    internal supplement that is never the owner's words."""
+
+    def running(self, name, said='task', mid='om_1'):
+        from covey.app.prompts import tool_nudge
+        self.send(mid, said)
+        job = self.job_of(mid)
+        job.execution_started = True
+        job.backend_control = Control()
+        app = self.app.apps[name]
+        ctx = app.submission.event_context(app.harness.context, self.event(mid))
+        nudge = tool_nudge(said)
+        if nudge:
+            ctx = dataclasses.replace(ctx, options={**ctx.options, 'tool_nudge': nudge})
+        return app, ctx, job
+
+    def steps(self, app, ctx, job, steps, *, events=False):
+        """Each of ``steps`` ((id, name, detail) or a dict) as the backend's tool step, counted as the event thread counts
+        it (``events``: through the event's whole way, the task card's trace mocked), the reminder sent inline."""
+        inline = SimpleNamespace(CARD_UPDATES='card-updates', start=lambda _, fn, *a: fn(*a))
+        with mock.patch('covey.app.interaction.background', inline), mock.patch.object(app.cards, 'queue_trace'):
+            for step in steps:
+                data = step if isinstance(step, dict) else {'id': step[0], 'name': step[1], 'detail': step[2]}
+                data = {'status': 'running', 'started_at': 1.0, **data}
+                if events:
+                    app.interaction.structured_harness_event(ctx, job, 'tool', data, None)
+                else:
+                    app.interaction.count_for_nudge(ctx, job, data)
+
+    def delivery(self, job):
+        from covey.core.deliveries import delivery_path, read_delivery
+        return read_delivery(delivery_path(self.state, BUTLER, 'nudge_' + job_key(job.message_id, job.job_id)))
+
+    def test_codex_takes_one_reminder_after_six_of_its_own_tool_calls(self):
+        from covey.app.prompts import TOOL_NUDGE_TEXT
+        app, ctx, job = self.running('codex')
+        own = [(f'c{index}', 'bash', 'rg x repo') for index in range(5)]
+        bridge = [('b1', '调用工具', 'topic_read'), ('b2', '调用工具', 'topics_list T7')]
+        self.steps(app, ctx, job, own + bridge + [('c0', 'bash', 'rg x repo'), {'id': 'k1', 'name': 'bash', 'child_id': 'a'}],
+                   events=True)
+        self.assertEqual(job.backend_control.sent, [], "five of its own, two Bridge tools, an update and a subagent's")
+        self.steps(app, ctx, job, [('c5', 'bash', 'ls'), ('c6', 'bash', 'ls'), ('c7', 'read', '/x')], events=True)
+        self.assertEqual(job.backend_control.sent, [(TOOL_NUDGE_TEXT, 'nudge_' + job_key(job.message_id, job.job_id))])
+        record = self.delivery(job)
+        self.assertTrue(record['internal'])
+        self.assertEqual(record['status'], 'sent')
+        history = (self.state / 'topics' / BUTLER / 'history.jsonl').read_text()
+        self.assertNotIn(TOOL_NUDGE_TEXT, history)
+        self.assertTrue(any('butler tool reminder sent' in line for line in self.logs))
+
+    def test_on_antigravity_its_mcp_names_are_the_bridges(self):
+        app, ctx, job = self.running('agy')
+        self.steps(app, ctx, job, [(f'b{index}', f'mcp_bridge_{name}', '') for index, name in
+                                   enumerate(('topics_list', 'topic_read', 'topic_start', 'memory_search', 'repos_list', 'topics_search'))])
+        self.assertEqual(job.backend_control.sent, [])
+        self.steps(app, ctx, job, [(f's{index}', 'bash', 'ls') for index in range(6)])
+        self.assertEqual(len(job.backend_control.sent), 1)
+
+    def test_claude_code_reminds_by_itself_and_dsh_takes_no_supplement(self):
+        for name in ('claude', 'dsh'):
+            with self.subTest(harness=name):
+                app, ctx, job = self.running(name, mid='om_' + name)
+                self.steps(app, ctx, job, [(f'{name}{index}', 'bash', 'ls') for index in range(10)])
+                self.assertEqual(job.backend_control.sent, [])
+                self.assertIsNone(self.delivery(job))
+                self.done(job)
+
+    def test_not_when_the_owner_said_to_do_it_right_there(self):
+        app, ctx, job = self.running('codex', said='这个你直接做')
+        self.steps(app, ctx, job, [(f's{index}', 'bash', 'ls') for index in range(10)])
+        self.assertEqual(job.backend_control.sent, [])
+
+    def test_the_reminder_is_never_the_owners_words(self):
+        """Not a turn of its own, not a line under his message, not what the butler hands on as his words, not on the
+        stopped turn's card, not what waits behind a quiet turn."""
+        from covey.app import butler_handoff, butler_reply, unstick
+        from covey.core.deliveries import delivery_path, update_delivery
+        app, ctx, job = self.running('codex')
+        self.steps(app, ctx, job, [(f's{index}', 'bash', 'ls') for index in range(6)])
+        path = delivery_path(self.state, BUTLER, 'nudge_' + job_key(job.message_id, job.job_id))
+        update_delivery(path, requeue={'kind': 'chat'})  # Even with a requeue it is never queued.
+        key = job_key(job.message_id, job.job_id)
+        self.assertEqual(butler_handoff._supplements(self.state, {'topic_id': BUTLER}, job.message_id, 0), [])
+        self.assertEqual(butler_reply.supplements(self.state, job), [])
+        self.assertEqual(unstick.waiting_behind(self.state, job), [])
+        self.app.messenger.send_message.reset_mock()
+        steering = app.steering
+        inline = SimpleNamespace(CARD_UPDATES='card-updates', start=lambda _, fn, *a: fn(*a))
+        with mock.patch('covey.app.steering.background', inline), mock.patch.object(steering, 'reports_reads', return_value=True):
+            steering.end_unread_steers(ctx, job)
+            steering.tell_butler_lost(ctx, job, self.delivery(job))
+            self.assertEqual(steering.requeue_lost(ctx, job, [self.delivery(job)]), [])
+        self.app.messenger.send_message.assert_not_called()
+        self.assertEqual(len(self.butler_jobs()), 1)
+        self.assertNotIn(key, json.dumps([self.delivery(job).get('requeue_auto')]))
+
+    def test_one_the_turn_cannot_take_now_is_dropped_never_held(self):
+        from covey.core.steer import SteerNotReady
+        app, ctx, job = self.running('codex')
+        job.backend_control = Control(SteerNotReady('还没准备好'))
+        with mock.patch.object(app.steering, 'hold_steer') as hold:
+            self.steps(app, ctx, job, [(f's{index}', 'bash', 'ls') for index in range(6)])
+        hold.assert_not_called()
+        self.assertEqual(self.delivery(job)['status'], 'refused')
+        self.assertTrue(any('butler tool reminder not sent' in line for line in self.logs))
+
+    def test_one_that_may_have_arrived_says_nothing_under_the_owners_message(self):
+        app, ctx, job = self.running('codex')
+        job.backend_control = Control(RuntimeError('lost'))
+        self.app.messenger.send_message.reset_mock()
+        self.steps(app, ctx, job, [(f's{index}', 'bash', 'ls') for index in range(6)])
+        self.assertEqual(self.delivery(job)['status'], 'uncertain')
+        self.app.messenger.send_message.assert_not_called()
 
 
 class SwitchOffHoldTest(ButlerUnifiedCase):

@@ -86,7 +86,8 @@ def waiting_behind(state_dir, job) -> list:
     {message_id, chat_id}."""
     since = (getattr(job, "timings", None) or {}).get("backend_requested", 0)
     supplements = [{"message_id": str(record.get("mid")), "chat_id": job.chat_id}
-                   for record in unread_of(state_dir, job_key(job.message_id, job.job_id), since) if record.get("mid")]
+                   for record in unread_of(state_dir, job_key(job.message_id, job.job_id), since)
+                   if record.get("mid") and not record.get("internal")]  # Not the Bridge's own reminder (W2-A).
     return supplements + queued_behind(state_dir, job)
 
 

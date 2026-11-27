@@ -57,12 +57,12 @@
 规则在 `app/prompts.py` 的 `butler_rules`（`AREA_OPENING`、`AREA_RULE`），放在每轮用户消息开头：
 
 - 只读、一两分钟能做完的，管家自己做、直接答；只问已有结果的用 `topic_read` 读了自己答。
-- 改代码或文件、要跑几分钟以上、几件事并行、主人说开话题的，交给话题：新的事 `topic_start`，同一件事 `topic_send`；两个以上话题都对得上时用 AskUserQuestion 让主人选。
+- 改代码或文件、要跑几分钟以上、几件事并行、主人说开话题的，交给话题：新的事 `topic_start`，同一件事 `topic_send`；两个以上话题都对得上时让主人选：管家跑在有提问工具的 Harness 上（能力 `question_tool`：Claude Code 的 AskUserQuestion、Codex 的 request_user_input）就用它当场出单选题，没有的（Antigravity、dsh）在检查点 `questions` 里出题，这一轮先不转交、主人答了再转（`app/prompts.py` 的 `ask_words`，规则按这一轮的 Harness 渲染）。
 - 交出去后只说一句放到了哪，不报进度和结论（结论由 Bridge 回带，进度看 Pin）。
 - 写给主人的话当他没看过别处：提到话题写它在做的事、T 号放括号里，话题里的数字和结论直接写进回复。
 - 怎么做由管家定（先查什么、交给哪个话题、失败了换办法）；做什么、不可逆的、对外可见的、花钱的由主人定，问的时候先说倾向。
 - 一轮结束后管家不会自己醒来：没有在跑的话题会把结果带回来时不说“稍后”“等下”，没答完的派进话题。
-- **提醒一次**：管家这一轮自己调满 6 次 Bridge 以外的工具时，Claude Code 的 `PostToolUse` hook 提醒它一次把剩下的交给话题、说一句放到了哪里就结束（`app/prompts.py` 的 `TOOL_NUDGE_TEXT`，`backends/claude/hooks.py`）；主人这句话说了“你直接做”“别开话题”“就在这儿做”的不提醒。管家派出的子 Agent 调不了 Bridge 工具（[Harness 说明 · Claude Code](harnesses.md#claude-code)）。
+- **提醒一次**：管家这一轮自己调满 6 次 Bridge 以外的工具时，提醒它一次把剩下的交给话题、说一句放到了哪里就结束（`app/prompts.py` 的 `TOOL_NUDGE_TEXT`）；主人这句话说了“你直接做”“别开话题”“就在这儿做”的不提醒。Claude Code 由它的 `PostToolUse` hook 提醒（能力 `nudges`，`backends/claude/hooks.py`）；别的能执行中补充的 Harness（Codex、Antigravity、扩展的）由 Bridge 数这一轮主任务的工具步骤（Bridge 工具按名字结尾认，各 Harness 给 MCP 工具加的前缀不同），到数时把提醒作为补充送进去（`app/interaction.py` 的 `count_for_nudge`）。这条补充的投递记录带 `internal: true`：不记进话题历史、不上任务卡，不算主人说的话（不转给话题、不进停下时卡上列的补充、没读到也不排成新一轮或在主人消息下说一句），送不进去（还没准备好、已结束）就不送。dsh 不能执行中补充，没有这条提醒。管家派出的子 Agent 调不了 Bridge 工具（[Harness 说明 · Claude Code](harnesses.md#claude-code)）。
 - “写给人看的话（含工具说明）用主人的语言”只在每轮的桥接规则或续接提醒里说一次（`app/prompts.py` 的 `LANGUAGE_RULE`），管家规则不再重复。
 - 主人问 Covey 本身怎么用（看板在哪、怎么开记忆），先读运行中这份代码自己的 `docs/quickstart.md`（[五分钟上手](quickstart.md)，规则里写的是它的绝对路径，`USAGE_RULE`）再答。
 

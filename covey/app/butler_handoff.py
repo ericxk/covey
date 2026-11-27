@@ -135,7 +135,8 @@ def _inside(path, roots) -> bool:
 def _supplements(state_dir, record, job_key, since) -> list:
     """The delivery records of the supplements the butler job ``job_key`` took while it ran (sent, read, or held
     to be sent), in the order they came; merged ones are in its request already, ``requeue_auto`` ones a turn of their
-    own (app/steering.py requeue_lost: the turn never took them), which asks them. Files last written before
+    own (app/steering.py requeue_lost: the turn never took them), which asks them; ``internal`` ones the Bridge's own
+    words, never the owner's (app/interaction.py's tool reminder, W2-A). Files last written before
     ``since`` (the turn's start, less CLOCK_SLACK) are skipped unread, as core/deliveries.py end_unread does."""
     topic = str(record.get("topic_id") or "")
     found = []
@@ -150,7 +151,7 @@ def _supplements(state_dir, record, job_key, since) -> list:
         if (isinstance(delivery, dict) and delivery.get("job_key") == job_key
                 and (not topic or delivery.get("topic_id") == topic)
                 and delivery.get("status") in {"sent", "read", "held"} and not delivery.get("merged")
-                and not delivery.get("requeue_auto")):
+                and not delivery.get("requeue_auto") and not delivery.get("internal")):
             found.append(delivery)
     return sorted(found, key=lambda delivery: float(delivery.get("saved_at") or 0))
 

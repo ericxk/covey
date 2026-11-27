@@ -300,7 +300,7 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                                     before="current_question")
 
     def deliver_steer(self, ctx, job, text, mid, *, record_history=True, receipt=None, requeue=None, later=None,
-                      shown="", asked=""):
+                      shown="", asked="", internal=False):
         """Send a supplement once. Returns its delivery record, "held" while the task is still starting
         (sent by itself once it can take it); SteerRefused means nothing was sent, SteerUncertain that it
         may have arrived (it is never sent again automatically). A list ``later`` gets the task card's
@@ -313,11 +313,16 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         words (a source that is not his never goes into a running task, core/turn_source.py): one that went, or may have
         gone, into a project lead's wake-up turn makes it a turn he is in (app/project_loop.py owner_steered, W0-2). The
         mark is written before the supplement is sent (P1-8: a turn that took it and ended at once was judged without
-        it, its reply held back) and taken back when it surely did not go (refused, not ready, or not taken: rule 6)."""
-        marked = self._owner_in(ctx, job)
+        it, its reply held back) and taken back when it surely did not go (refused, not ready, or not taken: rule 6).
+        ``internal``: the Bridge's own words to the model (app/interaction.py's tool reminder, W2-A), never the owner's:
+        its record says ``internal``, it goes only into a running task (never held, merged or queued), the turn is not
+        taken to have him in it (no mark), the task card does not name it, and it never becomes a turn of its own, a
+        line under his message or a word the butler hands on (``requeue_lost``, ``tell_butler_lost``,
+        ``end_unread_steers``, app/butler_handoff.py, app/butler_reply.py)."""
+        marked = False if internal else self._owner_in(ctx, job)
         try:
             saved = self._deliver_steer(ctx, job, text, mid, record_history=record_history, receipt=receipt,
-                                        requeue=requeue, later=later, shown=shown, asked=asked)
+                                        requeue=requeue, later=later, shown=shown, asked=asked, internal=internal)
         except SteerUncertain:
             raise  # It may have gone: the mark stays.
         except (SteerRefused, SteerNotReady):
@@ -339,10 +344,12 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         project_loop.owner_unsteered(ctx.state_dir, job, self.runtime.log)
 
     def _deliver_steer(self, ctx, job, text, mid, *, record_history=True, receipt=None, requeue=None, later=None,
-                       shown="", asked=""):
+                       shown="", asked="", internal=False):
         stage = self.steer_stage(job)
         if stage == "ended":
             raise SteerRefused("任务已结束或已取消")
+        if internal and stage != "running":
+            raise SteerRefused("任务不在运行")  # The Bridge's own words are never held for later or merged into a request.
         if stage == "paused":
             # A paused Codex turn takes no input; sending one would fail the question it waits on.
             raise SteerRefused("任务正在等待回答问题，请先回答")
@@ -363,9 +370,9 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
                      "mid": mid, "saved_at": time.time(), **({"receipt": receipt} if receipt else {}),
                      **({"requeue": requeue} if requeue else {}), **({"reads": True} if self.reports_reads(ctx) else {}),
                      **({"stops": True} if self.stops_commands(ctx) else {}),
-                     **({"shown": shown} if shown else {})}
+                     **({"shown": shown} if shown else {}), **({"internal": True} if internal else {})}
             save_delivery(path, saved)
-        merged = self.merge_before_start(ctx, job, text, mid, path, asked=asked)
+        merged = None if internal else self.merge_before_start(ctx, job, text, mid, path, asked=asked)
         if merged is not None:
             if record_history:
                 append_history(ctx.history_path, "user", shown or text, {"message_id": mid})
@@ -381,6 +388,9 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
             outcome = control.steer(sent, mid)
             timing.mark("delivered")
         except SteerNotReady as exc:
+            if internal:
+                update_delivery(path, status="refused", error=str(exc))
+                raise SteerRefused(str(exc)) from None
             outcome, reason = "held", str(exc)
             if not getattr(control, "remote", False):
                 self.hold_steer(ctx, job, sent, mid, saved=lambda: self._mark_held(path, reason))
@@ -403,7 +413,7 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         current = update_delivery(path, status="sent", error="") or read_delivery(path) or saved
         if record_history:
             append_history(ctx.history_path, "user", shown or text, {"message_id": mid})
-        if not getattr(control, "remote", False):  # A task runner notes it on its own card, and watches it.
+        if not getattr(control, "remote", False) and not internal:  # A task runner notes it on its own card, and watches it.
             note = functools.partial(self.note_latest_request, ctx, job, text, mid)
             if later is None:
                 note()
@@ -708,7 +718,7 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         """The butler's supplements have no receipt card (app/butler.py): one the turn did not take is
         said in a line under the owner's message, which is never sent again by itself (rule 6)."""
         mid = str(record.get("mid") or "")
-        if not mid:
+        if not mid or internal(record):  # The Bridge's own reminder (W2-A): no message of his to answer under.
             return
         self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=mid), job.chat_id, SUPPLEMENT_LOST,
                              self.voice.key("main-supplement-lost", mid), voice=self.voice)

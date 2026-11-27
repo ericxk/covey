@@ -183,6 +183,10 @@ class BridgeReplyJob:
     card_resend_after: float = _state(0.0)
     # A stopped or refused butler turn's card listed its supplements (app/butler_reply.py show_dropped).
     supplements_listed: bool = _state(False)
+    # The butler turn's tool reminder the Bridge sends on a Harness that does not send its own (app/interaction.py
+    # ``count_for_nudge``, W2-A): {"seen": the main task's tool step ids counted, "calls": those not the Bridge's,
+    # "sent": True once sent}. Not saved: the process that holds the backend counts its own events.
+    tool_nudge: dict = _state(factory=dict)
     held_thread: Any = _state()
     steer_forms: list = _state(factory=list)
     # The task card and its process view.

@@ -7,7 +7,10 @@ from pathlib import Path
 
 from covey.app import butler_reactions, policy_guard
 from covey.app import triage as triage_flow
-from covey.core import inbound_ledger, timing, triage
+from covey.core import background, inbound_ledger, timing, triage
+from covey.core.butler_tool_specs import ALL_NAMES, BUTLER_PROJECT_NAMES, PROJECT_NAMES
+from covey.core.harness import backend_capabilities
+from covey.core.steer import SteerRefused, SteerUncertain
 from covey.core.checkpoint import release_user_wait
 from covey.core.trace import CONTEXT_FIELDS, ToolTrace, finish_record_trace, task_trace
 from covey.core.turn_words import retry_hint
@@ -120,6 +123,27 @@ def _record_turn_metric(cards, ctx, job, kind, data):
         cards.queue_trace(ctx, job, False)
 
 
+# The butler's tool reminder (app/prompts.py tool_nudge: its turn's ``tool_nudge`` option, {} when the owner said to do it
+# right there) on a Harness that does not send it by itself (core/harness.py nudges; Claude Code's PostToolUse hook does,
+# backends/claude/hooks.py): the Bridge counts the main task's tool steps that are not calls of its own tools and, at
+# ``after``, sends the text once as an internal supplement (``Interaction.count_for_nudge``, W2-A). A Bridge tool is told
+# by the end of the step's name, not its prefix: each Harness names an MCP tool its own way.
+BRIDGE_TOOLS = frozenset((*ALL_NAMES, *PROJECT_NAMES, *BUTLER_PROJECT_NAMES))
+TOOL_SEPARATORS = ("__", "_", ".", "/", ":")
+
+
+def bridge_tool(data) -> bool:
+    """Whether the tool step ``data`` is a call of one of the Bridge's tools: its name is one or ends in one after a
+    separator (mcp__bridge__topic_start, mcp_bridge_topic_start, bridge/topic_start), or, for a step whose name says only
+    that a tool was called (Codex's 调用工具), its detail's first word (the MCP tool's own name) is."""
+    words = [str(data.get("name") or "")]
+    detail = str(data.get("detail") or "").split()
+    if detail:
+        words.append(detail[0])
+    return any(word == name or word.endswith(tuple(sep + name for sep in TOOL_SEPARATORS))
+               for word in words if word for name in BRIDGE_TOOLS)
+
+
 def clicked_card(event, ctx, record, copy_card=top_card):
     """The question's card as the one clicked shows it: its top-level copy (app/question_display.py mirror, drawn by
     ``copy_card``: Questions.copy_card keeps its turn's 产物 on it) or the card in the topic."""
@@ -222,6 +246,8 @@ class Interaction:
                 return
             if kind == "agent_state":
                 job.agents = {**job.agents, data["id"]: {k:v for k,v in data.items() if k != "id"}}
+            if kind == "tool":
+                self.count_for_nudge(ctx, job, data)
             urgent = (data.get("urgent") is not False if kind == "progress_note"
                       else data.get("status") in {"failed", "errored", "completed"})
             self.cards.queue_trace(ctx, job, urgent)
@@ -265,6 +291,44 @@ class Interaction:
             at = time.strftime("%H:%M")
             self._dispatch_structured_event(ctx, job, "progress_note", {
                 "id": f"policy-tolerated-{time.time_ns()}", "title": BRIDGE_NOTE, "text": f"机器人 {at}：{text}"}, None)
+
+    def count_for_nudge(self, ctx, job, data):
+        """A tool step of ``job``'s turn: counted toward the butler's tool reminder on a Harness that can take a
+        supplement and does not remind by itself (``BRIDGE_TOOLS``); the step that makes its ``after`` sends it, once,
+        off this thread (the event thread holds the trace's lock; ``send_nudge``). Never raises."""
+        try:
+            nudge = ctx.options.get("tool_nudge")
+            if not isinstance(nudge, dict) or data.get("child_id") or job.tool_nudge.get("sent"):
+                return
+            after, text, step = nudge.get("after"), str(nudge.get("text") or ""), str(data.get("id") or "")
+            if type(after) is not int or after <= 0 or not text or not step:
+                return
+            seen = job.tool_nudge.setdefault("seen", set())
+            if step in seen:
+                return
+            seen.add(step)
+            caps = backend_capabilities(self.harness.backend, ctx)
+            if caps.nudges or not caps.steering or bridge_tool(data):
+                return
+            job.tool_nudge["calls"] = calls = job.tool_nudge.get("calls", 0) + 1
+            if calls >= after:
+                job.tool_nudge["sent"] = True
+                background.start(background.CARD_UPDATES, self.send_nudge, ctx, job, text)
+        except Exception as exc:  # noqa: BLE001 - a reminder never stands in the way of the turn's events
+            self.runtime.log(f"butler tool reminder not counted job=#{job.job_id}: {type(exc).__name__}")
+
+    def send_nudge(self, ctx, job, text):
+        """The butler's tool reminder into its running turn, as the Bridge's own words (``internal``: app/steering.py
+        deliver_steer), not in the topic's history. One the task cannot take now is not sent at all."""
+        mid = "nudge_" + job_key(job.message_id, job.job_id)
+        try:
+            self.steering.deliver_steer(ctx, job, text, mid, record_history=False, internal=True)
+        except (SteerRefused, SteerUncertain) as exc:
+            self.runtime.log(f"butler tool reminder not sent job=#{job.job_id}: {type(exc).__name__}")
+        except Exception as exc:  # noqa: BLE001 - off the event thread: logged, never raised
+            self.runtime.log(f"butler tool reminder failed job=#{job.job_id}: {type(exc).__name__}")
+        else:
+            self.runtime.log(f"butler tool reminder sent job=#{job.job_id}")
 
     def interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False, source=None,
                             quoted=""):

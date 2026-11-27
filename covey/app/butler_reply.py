@@ -336,7 +336,8 @@ def react_end(delivery) -> None:
 
 def supplements(state_dir, job) -> list[dict]:
     """The owner's messages the job took as supplements (its delivery records, merged into its request or sent to
-    it), oldest first; not those it refused (they queued as the next turn) or the owner withdrew. ``job``: the job,
+    it), oldest first; not those it refused (they queued as the next turn) or the owner withdrew, nor the Bridge's own
+    (``internal``, app/interaction.py's tool reminder). ``job``: the job,
     or its record (job_key, job_id, topic_id)."""
     if isinstance(job, dict):
         key, job_id, topic, since = job.get("job_key") or job.get("message_id"), job.get("job_id"), job.get("topic_id"), 0
@@ -354,7 +355,7 @@ def supplements(state_dir, job) -> list[dict]:
         record = read_delivery(path)
         if (isinstance(record, dict) and record.get("job_key") == key
                 and str(record.get("job_id")) == str(job_id) and record.get("topic_id") == topic
-                and record.get("status") not in {"refused", "withdrawn"}):
+                and record.get("status") not in {"refused", "withdrawn"} and not record.get("internal")):
             found.append(record)
     return sorted(found, key=lambda record: float(record.get("saved_at") or 0))
 
