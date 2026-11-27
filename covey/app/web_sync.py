@@ -75,6 +75,7 @@ CENTER_WAIT, CENTER_WAIT_MAX = 60.0, 1800.0  # The memory center's keys after a 
 # After the page's change was pushed (a quick build, before its ack) the pass builds it all again no sooner than this: the page's
 # next change within the undo bar's 5 s (an undo) does not find a full build holding the lock (T870 Wave 3.5).
 CENTER_REST = 20.0
+HELD_LOG_SECONDS = 60.0  # A push that finds its lock held says so at most this often an item (WebSync.lock_held).
 CENTER_LOCK_WAIT = 5.0  # A push before the page's ack waits this long for a build the pass is making, then goes without.
 INBOX_WAIT = 8  # Seconds a page that knows ``wait`` holds an empty /sync/inbox (it answers ``waited``); within the client's TIMEOUT.
 OP_WAIT = 5.0  # Seconds an inbox step waits for the operations it handed to their lanes before it asks again.
@@ -192,6 +193,9 @@ class WebSync:
         self.pass_ended = False  # A pass ended since the last quick look: that one posts, an empty batch too, so 最后同步 moves on.
         self.wake = threading.Event()  # Set when this process wrote a job or a question (core/store.py listen) or the page acted: look now.
         self.busy = 0  # Quick looks given up in a row because a store was busy.
+        # A push that found its lock held and went away (``lock_held``): name -> when (wall clock), until its next turn gives the item a
+        # full push (``catch_up``); name -> when its line was last logged (monotonic), at most one a minute an item.
+        self.held, self.held_logged = {}, {}
         self.sent_loaded, self.sent_saved, self.sent_changed = False, 0.0, False  # <state>/web/sent.json (load_sent, save_sent).
         self.sent_since = None  # When ``sent`` last started empty (wall clock).
         self.last_full = 0.0
@@ -821,6 +825,22 @@ class WebSync:
         except (OSError, ValueError):
             pass
 
+    def lock_held(self, name) -> int:
+        """A push's non-blocking lock was taken: remember it (``held[name]``, the first time since the last catch-up) so the item's next
+        turn pushes it in full, and log it once a minute an item. Always 0 (what the push returns)."""
+        since = self.held.setdefault(name, time.time())
+        clock = time.monotonic()
+        last = self.held_logged.get(name)
+        if last is None or clock - last >= HELD_LOG_SECONDS or clock < last:
+            self.held_logged[name] = clock
+            self.runtime.log(f"web sync {name} skipped: its lock is held (since {time.strftime('%H:%M:%S', time.localtime(since))})")
+        return 0
+
+    def catch_up(self, name, full) -> bool:
+        """``full``, or True when this item's earlier push found its lock held (``lock_held``); the mark is cleared. Called with the
+        lock held, so a push that is skipped again keeps it."""
+        return self.held.pop(name, None) is not None or full
+
     def settings_items(self, chat, now, full) -> list:
         """The ``settings`` item (app/web_settings.py) when it is due: on a full look, after the page changed a setting, when main-thread.json
         or the workspace list or the term list changed (three stats); else none. Never raises (a 设置 that cannot be read stops nothing)."""
@@ -844,10 +864,15 @@ class WebSync:
         """The ``settings`` item posted on its own when it is due and changed (``settings_items``): from the pass thread each step (a few
         stats of its files: a change on the card is on the page a second later, however long the quick looks take) and on a full pass;
         and from the inbox thread right after the page changed a setting, so it is on the page before the operation's ack. One at a
-        time (``settings_lock``). How many went (0 or 1); a failed post is logged and tried on the next look."""
+        time (``settings_lock``); a turn that finds the lock held leaves a mark (``lock_held``) and the next one pushes in full. How many went (0 or 1);
+        a failed post is logged and tried on the next look."""
         if not self.settings_lock.acquire(blocking=False):
-            return 0  # The other thread posts it, or a look left behind still holds it (a read on the network disk that hangs).
+            # The other thread posts it, or a look left behind still holds it (a read on the network disk that hangs): the item is due
+            # again, and the next turn pushes it in full.
+            self.settings_due = True
+            return self.lock_held("settings")
         try:
+            full = self.catch_up("settings", full)
             due = [each for each in self.settings_items(chat, now, full)
                    if self.sent.get((each["type"], each["key"])) != each["rev"]]
             if not due:
@@ -895,9 +920,12 @@ class WebSync:
         tenth) and tried again only on the next full pass or change, and never holds up the settings, which go in a request of their
         own. How many went (0 or 1)."""
         tidy = getattr(self.env, "tidy", None)
-        if tidy is None or not getattr(self.env, "state_dir", None) or not self.tidy_lock.acquire(blocking=False):
+        if tidy is None or not getattr(self.env, "state_dir", None):
             return 0
+        if not self.tidy_lock.acquire(blocking=False):
+            return self.lock_held("tidy")
         try:
+            full = self.catch_up("tidy", full)
             stamps = tidy.web_stamps()
             if not full and stamps == self.tidy_stamps:
                 return 0
@@ -937,9 +965,12 @@ class WebSync:
         the inbox thread after the page changed the memory, before the ack. With COVEY_MEMORY off it is ``{on: false}``, so a page
         that had the tab drops it, and nothing at all when the page never had one. A page older than v37 refuses the key: logged the first time and every tenth. How many went."""
         state = getattr(self.env, "state_dir", None)
-        if not state or not self.memory_lock.acquire(blocking=False):
+        if not state:
             return 0
+        if not self.memory_lock.acquire(blocking=False):
+            return self.lock_held("memory")
         try:
+            full = self.catch_up("memory", full)
             on = web_memory.enabled()
             if not on and ("settings", web_sync.MEMORY_KEY) not in self.sent:
                 return 0  # Never pushed (the memory was never on here): nothing on the page to take back.
@@ -977,16 +1008,19 @@ class WebSync:
         v43 refuses the keys: logged the first time and every tenth, tried again later and later (at most CENTER_WAIT_MAX).
         How many items went."""
         state = getattr(self.env, "state_dir", None)
-        if not state or not (self.center_lock.acquire(timeout=CENTER_LOCK_WAIT) if force else self.center_lock.acquire(blocking=False)):
+        if not state:
             return 0
+        if not (self.center_lock.acquire(timeout=CENTER_LOCK_WAIT) if force else self.center_lock.acquire(blocking=False)):
+            return 0 if force else self.lock_held("memory center")  # A forced push waited for it: that is as it was.
         try:
+            caught = self.catch_up("memory center", False)  # A pass skipped at the lock: built now, whatever REBUILD_SECONDS says.
             on = web_memory.enabled()
             had = [key for kind, key in list(self.sent) if kind == "settings" and web_sync.MEMORY_KEY_RE.match(key)]
             if not on and not had:
                 return 0
             stamps = (on, web_memory.stamps(state)) if on else (False,)
             clock = time.monotonic()
-            due = force or self.center_stamps is None or stamps != self.center_stamps or \
+            due = force or caught or self.center_stamps is None or stamps != self.center_stamps or \
                 (full and clock - (self.center_built or 0) >= web_memory.REBUILD_SECONDS)
             if not due or (not force and clock < max(self.center_wait, self.center_rest)):
                 return 0
@@ -1052,9 +1086,12 @@ class WebSync:
         web-upgrade thread), on a full pass, and before the ack of an ``upgrade`` operation. Nothing without an upgrader set up. A page
         older than v39 refuses the key: logged the first time and every tenth. How many went."""
         upgrader = self.ops.self_upgrade
-        if upgrader is None or not upgrader.on() or not self.upgrade_lock.acquire(blocking=False):
+        if upgrader is None or not upgrader.on():
             return 0
+        if not self.upgrade_lock.acquire(blocking=False):
+            return self.lock_held("upgrade")
         try:
+            full = self.catch_up("upgrade", full)
             stamps = upgrader.stamps()
             if not full and stamps == self.upgrade_stamps:
                 return 0
@@ -1086,9 +1123,12 @@ class WebSync:
         was pushed pushes ``sources: []``, so the page drops its tab. A page older than v42 refuses the key: logged the first time
         and every tenth. How many went."""
         state = getattr(self.env, "state_dir", None)
-        if not state or not self.quota_lock.acquire(blocking=False):
+        if not state:
             return 0
+        if not self.quota_lock.acquire(blocking=False):
+            return self.lock_held("quota")
         try:
+            full = self.catch_up("quota", full)
             stamps = web_quota.stamps(state)
             if not full and stamps == self.quota_stamps:
                 return 0

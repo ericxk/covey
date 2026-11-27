@@ -62,6 +62,7 @@ from covey.core.workspaces import add_workspace, load_config, missing_workspaces
 
 LIMIT = 60  # The most options a row lists (the card cuts to fit its size; the page need not).
 CARD_ONLY = (MEMORY, ABOUT, DOCTOR)  # The 设置 card's tabs the page's data contract has no page for: not pushed.
+COARSE_SECONDS = 60  # WebSettings.stamps: a file that changes as the bot works moves its stamp once this long.
 NAMES_SECONDS = 1800  # A group's name, as Feishu gave it, is asked again after this long.
 NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT,
@@ -465,6 +466,7 @@ class WebSettings:
     def __init__(self, env) -> None:
         self.env = env
         self.names = {}  # chat id -> (name, when asked)
+        self.node_aliases = None  # ((state dir, registry mtime), aliases) of node_files.
         self.worktrees = None  # (when, state dir, the page) of the last worktree scan (WORKTREE_CACHE).
 
     @property
@@ -484,24 +486,70 @@ class WebSettings:
         return SimpleNamespace(state_dir=Path(self.env.state_dir), profile=getattr(base, "profile", None) or self.env.profile,
                                default_workdir=getattr(base, "default_workdir", None))
 
-    def stamps(self) -> tuple:
-        """What a change of the settings on the card shows in, read each second: main-thread.json's, workspaces.json's, the term
-        list's (redaction/config.json), the join list's and the repository map's (repos.json) mtimes, and the 辅助模型's record
-        (assist-state.json)."""
-        from covey.core.workspaces import config_path
-        state = Path(self.env.state_dir)
-        out = []
-        from covey.core.redaction import config_path as terms_path
+    def sources(self, ctx) -> list:
+        """Every path the page's settings read their state from, all tabs together (``tab_sources``), each once, in the tabs' order:
+        what ``stamps`` stats each second. A directory stands for the records in it (a group, a 代答 contact, a launch form: every
+        write there is a rename, which moves the directory's mtime), so a tab never lists a folder's files one by one."""
+        found = []
+        for paths in self.tab_sources(ctx).values():
+            found.extend(path for path in paths if path not in found)
+        return found
+
+    def tab_sources(self, ctx) -> dict:
+        """{tab: [path]}: the state a tab of ``snapshot`` reads (``CONFIG`` also the 新话题 choices the page's chat box takes, ``launch``),
+        fixed paths only: nothing is listed or read here, so ``stamps`` stays a few stats. 设备's per-node files come from the
+        registry (read again only when its mtime moved)."""
         from covey.app.web_panels import joins_path
-        for path in (butler_settings.path(state), config_path(state), terms_path(state), joins_path(state), repomap.path(state)):
+        from covey.core import nodes, proxy as proxy_records
+        from covey.core.redaction import config_path as terms_path
+        from covey.core.redaction import stats_path as turns_path
+        from covey.core.workspaces import config_path
+        state = Path(ctx.state_dir)
+        return {
+            # 管家 and 新话题 rows, 辅助模型 (its record), the model choices (the launch card's forms, last launches, the model menu's
+            # cache, the recent selections) and what the 工作区 names list reads.
+            CONFIG: [butler_settings.path(state), assist_records.path(state), config_path(state), state / "launch-defaults.json",
+                     state / "launch-defaults", state / "launch-models", state / "model-settings", state / "model-usage.json"],
+            REPOS: [repomap.path(state), config_path(state), state / "jobs" / ".index"],  # The topics that run in a repository.
+            REDACTION: [terms_path(state), turns_path(state)],
+            GROUPS: [state / "groups"],
+            NODES: [nodes.nodes_dir(state) / "registry.json", joins_path(state), *self.node_files(state)],
+            PROXY_TAB: [proxy_records.proxy_dir(state) / "settings.json", proxy_records.proxy_dir(state) / "contacts"],
+        }
+
+    def node_files(self, state) -> list:
+        """The link and latest sample of each node of the registry (the 设备 lines): the aliases are read from the registry only when
+        its mtime moved, kept in between (``node_aliases``)."""
+        from covey.core import nodes
+        registry = nodes.nodes_dir(state) / "registry.json"
+        try:
+            stamp = registry.stat().st_mtime_ns
+        except OSError:
+            stamp = 0
+        kept = self.node_aliases
+        if kept is None or kept[0] != (str(state), stamp):
+            kept = self.node_aliases = ((str(state), stamp), [alias for alias in nodes.active(state) if nodes.ALIAS.match(alias)])  # Never raises: read_object.
+        return [nodes.node_dir(state, alias) / name for alias in kept[1] for name in ("link.json", "latest.json")]
+
+    def stamps(self) -> tuple:
+        """What a change of the settings shows in, read each second (the pass thread, app/web_sync.py settings_items): one stat of each
+        path ``sources`` lists, for every tab, so a change of a group, a node, the 代答 or the 新话题 choices moves it as the butler's
+        own settings do. A path's stamp is (mtime_ns, size), 0 for one that is not there; never raises. Three files change all the
+        time while the bot works, and one stamp each per COARSE_SECONDS keeps them from pushing the item every second: the jobs'
+        index (a repository's running topics), the redaction turns and a node's latest sample (``coarse``)."""
+        out = []
+        for path in self.sources(SimpleNamespace(state_dir=Path(self.env.state_dir))):
             try:
-                out.append(path.stat().st_mtime_ns)
+                stat = path.stat()
             except OSError:
                 out.append(0)
-        # The 辅助模型's record (core/assist.py): its 后台活最近一次 changes with each background call (at most once a minute
-        # a feature, unless its outcome changed), and the page has no timed full snapshot any more.
-        out.append(assist_records.stamp(state))
+                continue
+            out.append(stat.st_mtime_ns // (COARSE_SECONDS * 10 ** 9) if self.coarse(path) else (stat.st_mtime_ns, stat.st_size))
         return tuple(out)
+
+    @staticmethod
+    def coarse(path) -> bool:
+        return path.name in ("turns.jsonl", "latest.json") or path.parts[-2:] == ("jobs", ".index")
 
     # -- the snapshot ------------------------------------------------------------------------------------------------------------
 

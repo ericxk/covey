@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -17,6 +18,7 @@ from support.world import UnifiedCase
 from covey.app import butler_panel, web_settings, web_switch as web_switch_words
 from covey.app.butler_env import ButlerEnv
 from covey.app.web_ops import Ops
+from covey.app import web_sync as web_sync_app
 from covey.app.web_sync import WebSync
 from covey.cards import butler_panel as cards
 from covey.core import butler_settings as settings, groups as group_records, redaction, repomap, web_sync
@@ -27,7 +29,7 @@ from covey.core.defaults import RECOMMENDED
 
 
 
-class WebSettingsTest(UnifiedCase):
+class SettingsCase(UnifiedCase):
     def setUp(self):
         super().setUp()
         self.app.runtime.access.remember_owner_chat("dm")
@@ -43,6 +45,8 @@ class WebSettingsTest(UnifiedCase):
     def snap(self):
         return self.web.snapshot("dm")
 
+
+class WebSettingsTest(SettingsCase):
     def row(self, tab, kind, data=None):
         data = (data or self.snap())["config"]  # 配置 (v22): its sections topic, main and review, and 更多.
         found = [r for r in (data[tab]["rows"] if tab in data else []) + data["more"] if r["kind"] == kind]
@@ -1031,3 +1035,240 @@ class WebSettingsTest(UnifiedCase):
         self.assertIn("还有任务在排队或执行，请先停止", words)
         with mock.patch.object(self.app.runtime.access, "is_owner", return_value=False):
             self.assertEqual(self.switch(topic, "op-r6", **base), ("failed", "只有主人能换配置"))
+
+
+class StampCoverageTest(SettingsCase):
+    """T907 W2-D 包 E, gate G5: every state file ``snapshot`` reads is a source of ``stamps`` (the page's settings are pushed again within
+    a second of a change), and a change of the groups, the nodes, the 代答 or the 新话题 choices moves the stamps."""
+
+    def setUp(self):
+        super().setUp()
+        from covey.core import nodes, proxy as proxy_records
+        state = self.ctx.state_dir
+        self.state = Path(state)
+        chat = "oc_group0123456789"
+        group_records.save_group(state, chat, lambda record: {**record, "chat_id": chat, "active": True, "external": False})
+        redaction.config_path(state).parent.mkdir(parents=True, exist_ok=True)
+        write_json(redaction.config_path(state), {"terms": [{"term": "Leaky", "stand_in": ""}]})
+        redaction.stats_path(state).write_text(json.dumps({"time": "10:00", "number": 1, "requests": 1, "replaced": 1}) + "\n")
+        repomap_dir = Path(self.work)
+        (repomap_dir / ".git").mkdir(exist_ok=True)
+        write_json(repomap.path(state), {"schema": 1, "repos": {"project": {"path": str(repomap_dir)}}})
+        write_json(nodes.nodes_dir(state) / "registry.json", {"schema": 1, "nodes": {"local": {"title": "本机"}, "box": {"title": "盒子"}}})
+        for alias in ("local", "box"):
+            nodes.write_link(state, alias, connected=True, heard=time.time())
+            write_json(nodes.node_dir(state, alias) / "latest.json", {"t": time.time(), "got": time.time()})
+        write_json(proxy_records.proxy_dir(state) / "settings.json", {"enabled": True, "group_name": "代答群"})
+        proxy_records.write_contact(state, {"key": "k1", "name": "甲", "kind": "p2p", "added_at": 1.0})
+        self.fake_panel = SimpleNamespace(
+            proxy=SimpleNamespace(settings=lambda ctx: {**proxy_records.read_settings(ctx.state_dir), "user_profile": "me"},
+                                  topics=self.app.topics, web_login=SimpleNamespace(login_seen=(True, 1.0)),
+                                  web=SimpleNamespace(problems=lambda ctx, found: [])),
+            current=lambda found, choices: None)
+        from covey.core import nodes as node_words
+        patches = [mock.patch.dict(os.environ, {node_words.LISTEN_ENV: "127.0.0.1:1"}),
+                   mock.patch.object(self.web, "proxy_panel", return_value=self.fake_panel)]
+        for each in patches:
+            each.start()
+            self.addCleanup(each.stop)
+
+    def reads(self) -> set:
+        """The files under the state directory one ``snapshot`` reads: Path.read_text and read_bytes (core/state.py read_json and
+        read_object end in the first) and open() for reading."""
+        import builtins
+        seen, state = set(), str(self.state)
+
+        def note(path):
+            if isinstance(path, (str, os.PathLike)) and str(path).startswith(state + os.sep):
+                seen.add(Path(path))
+        read_text, read_bytes, opened = Path.read_text, Path.read_bytes, builtins.open
+
+        def text(path, *args, **kwargs):
+            note(path)
+            return read_text(path, *args, **kwargs)
+
+        def raw(path, *args, **kwargs):
+            note(path)
+            return read_bytes(path, *args, **kwargs)
+
+        def open_(file, mode="r", *args, **kwargs):
+            if not set(mode) & set("wax+"):
+                note(file)
+            return opened(file, mode, *args, **kwargs)
+        with mock.patch.object(Path, "read_text", text), mock.patch.object(Path, "read_bytes", raw), \
+                mock.patch.object(builtins, "open", open_):
+            data = self.snap()
+        for tab in ("config", "repos", "redaction", "groups", "nodes", "proxy"):
+            self.assertIn(tab, data)
+            self.assertNotIn("error", data[tab], tab)
+        return seen
+
+    def uncovered(self, read) -> list:
+        """The files read that no source stands for: a source is the file itself or the directory it is in."""
+        sources = set(self.web.sources(self.web.context()))
+        return sorted(str(path.relative_to(self.state)) for path in read if path not in sources and path.parent not in sources)
+
+    def test_every_file_the_snapshot_reads_is_a_source_of_the_stamps(self):
+        read = self.reads()
+        names = {str(path.relative_to(self.state)) for path in read}
+        # The fixture does read what each tab reads, or the gate would pass for nothing.
+        for expected in ("main-thread.json", "workspace-config.json", "assist-state.json", "redaction/config.json", "repos.json",
+                         "nodes/registry.json", "nodes/box/link.json", "nodes/box/latest.json", "proxy/settings.json"):
+            self.assertIn(expected, names)
+        self.assertTrue(any(name.startswith("groups/") for name in names), names)
+        self.assertTrue(any(name.startswith("proxy/contacts/") for name in names), names)
+        self.assertTrue(any(name.startswith("launch-") for name in names), names)
+        self.assertEqual(self.uncovered(read), [])
+
+    def test_the_gate_names_a_file_a_source_leaves_out(self):
+        read = self.reads()
+        real = web_settings.WebSettings.tab_sources
+        for tab, left in ((web_settings.GROUPS, "groups"), (web_settings.NODES, "nodes/box/link.json"),
+                          (web_settings.PROXY_TAB, "proxy/contacts"), (web_settings.CONFIG, "launch-models")):
+            def without(self_, ctx, tab=tab, left=left):
+                found = real(self_, ctx)
+                found[tab] = [path for path in found[tab] if not str(path).endswith(left)]
+                return found
+            with mock.patch.object(web_settings.WebSettings, "tab_sources", without):
+                missing = self.uncovered(read)
+            self.assertTrue(missing and all(name.startswith(left) for name in missing), (left, missing))
+
+    def test_a_change_of_a_tab_the_stamps_did_not_cover_moves_them(self):
+        from covey.core import nodes, proxy as proxy_records
+        state, chat = self.state, "oc_group0123456789"
+        steps = {
+            "群聊 (a record rewritten in place)": lambda: group_records.save_group(state, chat, lambda r: {**r, "active": False}),
+            "群聊 (a new one)": lambda: group_records.save_group(state, "oc_other", lambda r: {**r, "chat_id": "oc_other", "active": True}),
+            "设备 (a node's link)": lambda: nodes.write_link(state, "box", connected=False),
+            "设备 (the registry)": lambda: write_json(nodes.nodes_dir(state) / "registry.json", {"schema": 1, "nodes": {"local": {}}}),
+            "代答 (its settings)": lambda: write_json(proxy_records.proxy_dir(state) / "settings.json", {"enabled": False}),
+            "代答 (a contact)": lambda: proxy_records.write_contact(state, {"key": "k2", "name": "乙", "kind": "p2p", "added_at": 2.0}),
+            "开话题 (the last launch)": lambda: write_json(state / "launch-defaults.json", {"model": "x"}),
+            "开话题 (a model menu)": lambda: write_json(state / "launch-models" / "claude.json", {"updated_at": 1, "models": {}}),
+            "开话题 (the recent picks)": lambda: write_json(state / "model-usage.json", {"picks": []}),
+            "脱敏 (the terms)": lambda: write_json(redaction.config_path(state), {"terms": []}),
+        }
+        for name, change in steps.items():
+            before = self.web.stamps()
+            change()
+            self.assertNotEqual(self.web.stamps(), before, name)
+        before = self.web.stamps()  # Only the mtime: a record a writer on the network disk left with the same size.
+        os.utime(state / "groups", ns=(1, 1))
+        self.assertNotEqual(self.web.stamps(), before)
+
+    def test_what_changes_all_the_time_moves_the_stamps_once_a_minute(self):
+        from covey.core import nodes
+        latest = nodes.node_dir(self.state, "box") / "latest.json"
+        os.utime(latest, ns=(60 * 10 ** 9 * 1000, 60 * 10 ** 9 * 1000))
+        before = self.web.stamps()
+        os.utime(latest, ns=(60 * 10 ** 9 * 1000 + 5 * 10 ** 9,) * 2)
+        self.assertEqual(self.web.stamps(), before)
+        os.utime(latest, ns=(60 * 10 ** 9 * 1001,) * 2)
+        self.assertNotEqual(self.web.stamps(), before)
+
+    def test_a_path_that_is_not_there_is_zero_and_nothing_raises(self):
+        for path in self.state.glob("nodes/*/latest.json"):
+            path.unlink()
+        shutil.rmtree(self.state / "groups")
+        stamps = self.web.stamps()
+        self.assertIn(0, stamps)
+        self.assertEqual(len(stamps), len(self.web.sources(self.web.context())))
+
+
+class LockHeldTest(SettingsCase):
+    """T907 W2-D 包 E (P2-2): a push that finds its lock held leaves a mark and logs at most once a minute; the item's next turn pushes
+    in full."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.dict(os.environ, {web_sync.ENV: "1"})
+        p.start()
+        self.addCleanup(p.stop)
+        self.sync = WebSync(self.app.runtime, self.env)
+        log = mock.patch.object(self.app.runtime, "log")
+        self.log = log.start()
+        self.addCleanup(log.stop)
+        self.sync.client.request = mock.Mock(return_value={})
+        # name -> (the lock, how to call its push), each with what makes the push go as far as its ``catch_up``.
+        self.upgrader = SimpleNamespace(on=lambda: True, stamps=lambda: (1,), view=lambda: {"v": 1})
+        self.tidy = SimpleNamespace(web_stamps=lambda: (1,), web_view=lambda now: None)
+        for each in (mock.patch.object(self.sync.ops, "_upgrader", self.upgrader),
+                     mock.patch.object(self.env, "tidy", self.tidy, create=True)):
+            each.start()
+            self.addCleanup(each.stop)
+        self.pushes = {"settings": (self.sync.settings_lock, lambda: self.sync.push_settings("dm", 0.0)),
+                       "tidy": (self.sync.tidy_lock, lambda: self.sync.push_tidy(0.0)),
+                       "memory": (self.sync.memory_lock, lambda: self.sync.push_memory()),
+                       "memory center": (self.sync.center_lock, lambda: self.sync.push_memory_center()),
+                       "upgrade": (self.sync.upgrade_lock, lambda: self.sync.push_upgrade()),
+                       "quota": (self.sync.quota_lock, lambda: self.sync.push_quota())}
+
+    def lines(self):
+        return [call.args[0] for call in self.log.call_args_list if "its lock is held" in call.args[0]]
+
+    def test_a_lock_that_is_held_leaves_a_mark_and_one_line_a_minute(self):
+        for name, (lock, push) in self.pushes.items():
+            with self.subTest(name):
+                self.log.reset_mock()
+                self.assertTrue(lock.acquire(blocking=False))
+                try:
+                    self.assertEqual(push(), 0)
+                    self.assertIn(name, self.sync.held)
+                    first = self.sync.held[name]
+                    self.assertEqual(push(), 0)  # Within the minute: no second line, and the mark keeps its first time.
+                    self.assertEqual(self.sync.held[name], first)
+                    lines = self.lines()
+                    self.assertEqual(len(lines), 1)
+                    self.assertTrue(lines[0].startswith(f"web sync {name} skipped: its lock is held (since "), lines)
+                    self.sync.held_logged[name] -= web_sync_app.HELD_LOG_SECONDS + 1  # A minute on.
+                    push()
+                    self.assertEqual(len(self.lines()), 2)
+                finally:
+                    lock.release()
+
+    def test_the_next_turn_pushes_in_full_and_clears_the_mark(self):
+        seen = []
+        real = self.sync.catch_up
+        self.sync.catch_up = lambda name, full: seen.append((name, real(name, full))) or seen[-1][1]
+        for name, (lock, push) in self.pushes.items():
+            with self.subTest(name):
+                seen.clear()
+                push()
+                self.assertEqual(seen, [(name, False)])  # Not held before: not full.
+                self.assertTrue(lock.acquire(blocking=False))
+                try:
+                    push()
+                finally:
+                    lock.release()
+                self.assertIn(name, self.sync.held)
+                seen.clear()
+                push()
+                self.assertEqual(seen, [(name, True)])
+                self.assertNotIn(name, self.sync.held)
+                seen.clear()
+                push()
+                self.assertEqual(seen, [(name, False)])  # Once.
+
+    def test_the_settings_item_is_built_in_full_the_turn_after_and_is_due(self):
+        self.sync.settings_items("dm", 0.0, False)  # Built: nothing left due.
+        self.assertFalse(self.sync.settings_due)
+        self.assertTrue(self.sync.settings_lock.acquire(blocking=False))
+        try:
+            self.sync.push_settings("dm", 1.0)
+        finally:
+            self.sync.settings_lock.release()
+        self.assertTrue(self.sync.settings_due)
+        with mock.patch.object(self.sync, "settings_items", wraps=self.sync.settings_items) as items:
+            self.sync.push_settings("dm", 2.0)
+        self.assertEqual(items.call_args.args[2], True)  # ``full``
+
+    def test_a_forced_memory_center_push_does_not_mark_and_still_waits(self):
+        lock = self.sync.center_lock
+        self.assertTrue(lock.acquire(blocking=False))
+        try:
+            with mock.patch.object(web_sync_app, "CENTER_LOCK_WAIT", 0.01):
+                self.assertEqual(self.sync.push_memory_center(force=True), 0)
+        finally:
+            lock.release()
+        self.assertNotIn("memory center", self.sync.held)
+        self.assertEqual(self.lines(), [])
