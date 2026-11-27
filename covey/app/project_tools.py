@@ -9,7 +9,8 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
   (``spent_quota``, core/quota_hold.py).
 - ``project_topic_stop`` stops one member topic for the owner (its tasks, and the question it waits on, which is cancelled
   with the reason ``lead_stop``); the topic stays in the project's list and counts as ended.
-- ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style),
+- ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style; the kind
+  ``ask``, what the owner is to decide, is for him under every style, W0-2),
   ``project_goal`` (the goal and its done-when as the lead keeps them, ``lead_goal``: the web page shows it under the project's name),
   ``project_remember`` (the project's memory: ``kind`` rule or note with a ``title`` of at most 40 characters goes to
   core/memstore.py add, a rule the lead sets also to 待审核 for the owner; the older kinds as before; a line that is a snapshot,
@@ -21,8 +22,8 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 - ``project_answer`` and ``project_escalate`` are phase 2's question triage (P2-5, COVEY_PROJECT_TRIAGE=1; they are listed
   to the lead only then, and answer that it is off otherwise): the lead answers a member topic's held choice question as the
   owner would (the question's own submit path, with a note that the lead answered) or hands it to the owner with a reason
-  (app/triage.py). With 协作 on (COVEY_COLLAB=1), or when it names them, an answer stands on ``evidence`` the Bridge checks
-  (app/triage.py grounds): no ground of the owner's that still holds, no answer.
+  (app/triage.py). An answer stands on ``evidence`` the Bridge checks (app/triage.py grounds), with 协作 on or off (W0-2):
+  no ground of the owner's that still holds, no answer.
 - With 协作 on, ``project_checklist`` keeps the project's 目标检查表 (core/project_checklist.py), and ``project_finish``
   refuses while an item of it is not met or a 协作 gap is not dealt with (``checklist_gate``). Also with it on, the 简报
   (docs/projects.md 项目简报): ``project_goal``'s ``background``, ``project_checklist``'s ``actions`` (core/project_actions.py),
@@ -50,7 +51,7 @@ from covey.core.jobs import find_job_record
 from covey.core.text import cut
 from covey.core.topics import topic_label
 
-KINDS = ("milestone", "thread", "note")
+KINDS = (project_lead.ASK, "milestone", "thread", "note")  # project_note's; an ask always reports (W0-2).
 NEW_KINDS = ("rule", "note")  # core/memstore.py's: a 规矩 and a 资料 of the project (``project_remember`` with a ``title``).
 # Every kind project_remember takes: the two new ones, then the older ones, kept as they were (style is project_style's;
 # practice and pitfall are the older names of constraint). app/butler_memory.py passes rule and note on only when they are here.
@@ -69,7 +70,7 @@ CHECKLIST_OFF = "协作没有开（COVEY_COLLAB）：没有目标检查表，收
 BRIEF_OFF = "协作没有开（COVEY_COLLAB）：没有简报，不能带 background、action、item。"
 FINISH_NEXT = ("现在不能收尾。先安排补齐：project_topic_send 让原话题返工，或 project_topic_start 开新话题；核对过证据再用 project_checklist "
                "把那一条标 done（写 evidence）；主人说不要了的标 dropped，在 gap 里写主人怎么说的；协作缺口处理完用 close_gaps 写怎么处理的。"
-               "要主人定范围或取舍的，合成一个问题用 project_note 标 report 问他。")
+               "要主人定范围或取舍的，合成一个问题用 project_note（kind 写 ask）问他。")
 
 
 def lead(env, request) -> tuple:
@@ -93,7 +94,7 @@ STATE_NAMES = {projects.PAUSED: "停住", projects.DONE: "做完（已收尾）"
 DONE_NEXT = ("主人在专项里说一句话（负责人话题、专项的话题、管家转来、网页上）专项就会自动重开；"
              "告诉主人这一点和你打算怎么做，不要说做不了。")
 OWNER_FIRST = ("这个专项是整理专项时把已有的话题收进来建的，建好后主人还没在里面说过话、你也还没派过活："
-               "收进来的话题做完不等于专项完成，现在不能收尾。用 project_note（标 report）说清每个话题做到哪、还剩什么，"
+               "收进来的话题做完不等于专项完成，现在不能收尾。用 project_note（kind 写 ask）说清每个话题做到哪、还剩什么、问主人下一步，"
                "然后结束这一轮，等主人下一步；主人在专项里说过话、或你派过活之后才能 project_finish。")
 
 
@@ -333,7 +334,8 @@ def project_note(env, request):
     pid, record = lead(env, request)
     args = request.args
     kind = args.get("kind") if args.get("kind") in KINDS else "note"
-    report, decision = args.get("report") is True, args.get("decision") is True
+    # An ask is the owner's to answer: it is for him, whatever ``report`` says.
+    report, decision = args.get("report") is True or kind == project_lead.ASK, args.get("decision") is True
     item = project_lead.entry(text_of(args), report=report, kind=kind, job=request.job_key)
 
     def change(data):
@@ -344,7 +346,8 @@ def project_note(env, request):
             rows.append(row)
             del rows[:-kept]
     projects.update(env.state_dir, pid, change)
-    shown = ("，会按风格告诉主人" if project_lead.reportable(record.get("style"), kind) else "，按风格不会打扰主人") if report else ""
+    shown = ("，要主人定的事，任何汇报风格都会发给他" if kind == project_lead.ASK
+             else "，会按风格告诉主人" if project_lead.reportable(record.get("style"), kind) else "，按风格不会打扰主人") if report else ""
     return reply(True, f"已记在专项卡上{shown}" + ("；也记进了决定日志" if decision else "") + "。", id=item["id"], report=report)
 
 
@@ -644,9 +647,9 @@ def held_topic(env, request, record):
 
 
 def project_answer(env, request):
-    """Answer the member topic's held choice question for the owner (app/triage.py answer). With 协作 on (COVEY_COLLAB=1),
-    or ``evidence`` given, its grounds are checked first (app/triage.py grounds): none of the owner's that still holds, and
-    nothing is answered (the question stays held; the refusal says to escalate)."""
+    """Answer the member topic's held choice question for the owner (app/triage.py answer). Its grounds (``evidence``) are
+    checked first, with 协作 (COVEY_COLLAB) on or off (W0-2: off, the lead had answered on nothing): none of the owner's that
+    still holds (app/triage.py grounds), and nothing is answered (the question stays held; the refusal says to escalate)."""
     pid, record = lead(env, request)
     if not triage.enabled():
         return reply(False, TRIAGE_OFF)
@@ -655,12 +658,10 @@ def project_answer(env, request):
         app, ctx, chat = held_topic(env, request, record)
     except ValueError as exc:
         return reply(False, str(exc))
-    found = []
-    if turn_source.enabled() or "evidence" in request.args:
-        try:
-            found = triage_flow.grounds(env, record, request.args.get("evidence"))
-        except ValueError as exc:
-            return reply(False, f"没有替主人答：{exc}", refused="evidence")
+    try:
+        found = triage_flow.grounds(env, record, request.args.get("evidence"))
+    except ValueError as exc:
+        return reply(False, f"没有替主人答：{exc}", refused="evidence")
     try:
         done = triage_flow.answer(env, app, ctx, chat, record, request.args.get("answers"), f"lead-{request.id}", found)
     except ValueError as exc:

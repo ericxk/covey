@@ -64,8 +64,8 @@ def wanted_topics(env, chat, raw):
     return joins, refused
 
 
-GATHERED_NOTE = ("这些话题是整理时收进来的，它们做完不等于专项完成：这一轮写下目标（project_goal），用 project_note（标 report）"
-                 "说清每个话题做到哪、还剩什么，然后等主人下一步，不要收尾")
+GATHERED_NOTE = ("这些话题是整理时收进来的，它们做完不等于专项完成：这一轮写下目标（project_goal），用 project_note（kind 写 ask）"
+                 "说清每个话题做到哪、还剩什么、问主人下一步，然后等主人，不要收尾")
 JOINED, LEFT = "joined", "left"  # The receipts the lead gets.
 
 

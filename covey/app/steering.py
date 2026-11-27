@@ -294,7 +294,26 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         note of it instead of the note being written now: the caller shows its receipt first. ``shown``: what the
         card and the topic's history say instead of ``text`` (the butler's hand-on, app/butler_handoff.py). ``asked``:
         the owner's words of it, which a turn held for them notes for its "你问" block once it takes it in
-        (``merge_before_start``); '' (a forward, an image, a link with no words) notes nothing."""
+        (``merge_before_start``); '' (a forward, an image, a link with no words) notes nothing. A supplement is the owner's
+        words (a source that is not his never goes into a running task, core/turn_source.py): one that went, or may have
+        gone, into a project lead's wake-up turn makes it a turn he is in (app/project_loop.py owner_steered, W0-2)."""
+        try:
+            saved = self._deliver_steer(ctx, job, text, mid, record_history=record_history, receipt=receipt,
+                                        requeue=requeue, later=later, shown=shown, asked=asked)
+        except SteerUncertain:
+            self._owner_in(ctx, job)
+            raise
+        if isinstance(saved, dict) and (saved.get("status") in ("sent", "read", "held") or saved.get("merged")):
+            self._owner_in(ctx, job)
+        return saved
+
+    def _owner_in(self, ctx, job):
+        from covey.app import project_loop
+
+        project_loop.owner_steered(ctx.state_dir, job, self.runtime.log)
+
+    def _deliver_steer(self, ctx, job, text, mid, *, record_history=True, receipt=None, requeue=None, later=None,
+                       shown="", asked=""):
         stage = self.steer_stage(job)
         if stage == "ended":
             raise SteerRefused("任务已结束或已取消")

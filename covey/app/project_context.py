@@ -194,9 +194,12 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False) -> N
     """Note the owner's saved answer ``record`` (a question record with ``answers``) of ``topic_id`` as decisions (core/memstore.py
     add_decision): the project's (COVEY_PROJECT_MEMORY=1) for a topic or the lead of a project, the topic's own (COVEY_MEMORY on)
     for an ordinary one; a decision each question answered (``answer_line``), its ``question_ref`` ``<token>-<place>`` so it is
-    noted once; one whose question is about another project's memory is history (``elsewhere``). Only the record's
+    noted once; one whose question is about another project's memory is history (``elsewhere``). Only for ``owners``: the
+    owner himself submitted it (app/questions.py owner_submitted: his click, his message in the topic, his answer on the web
+    page or the one he gave the butler); an answer not known to be his is never noted as ``who="owner"`` (W0-1: the words a
+    lead or the butler sent a waiting topic had been noted as the owner's). Only the record's
     ``questions``: the card's extra question (app/question_dedup.py) is never a decision, its pick goes to ``settle``, which
-    writes its rule only for ``owners`` (the owner himself submitted it: app/questions.py owner_submitted).
+    writes its rule only for ``owners`` too.
     An answer the lead gave in the owner's place (COVEY_PROJECT_TRIAGE=1: the record is still ``held`` while it is saved,
     app/triage.py ``answer``) is not the owner's word and is not noted; the 分流记录 and the decision log hold it, and the
     owner's 不对 corrects it. A question the lead passed on (``escalated``) and the owner answered is noted as always."""
@@ -212,7 +215,7 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False) -> N
             raise KeyError("project record")  # Gone: nothing to note it in (logged below).
         if scope == "topic" and (not core_memory.enabled() or not (state / "topics" / owner / "topic.json").is_file()):
             return
-        lines = answered(record)
+        lines = answered(record) if owners else []
         if lines:
             token = str(record.get("token") or "")
             if scope == "project":

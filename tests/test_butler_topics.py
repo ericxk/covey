@@ -686,7 +686,8 @@ class TopicSendTest(ButlerTopicsCase):
         self.assertEqual((nxt.user_text, nxt.topic_id), ("再跑一次", data["topic_id"]))
         self.assertEqual(nxt.title, "查日志")  # The topic's title heads its card.
 
-    def test_a_stopped_topic_with_an_open_question_takes_it_as_a_topic_message_would(self):
+    def test_a_stopped_topic_with_an_open_question_holds_it_never_as_the_answer(self):
+        # W0-1 (T892 P0-1): the butler's words had answered the question and been noted as the owner's decision.
         data, job = self.opened()
         self.app.runtime.unregister_reply_job(job)
         upsert_job_record(self.ctx.state_dir, job.message_id, status="waiting_user")
@@ -696,7 +697,16 @@ class TopicSendTest(ButlerTopicsCase):
             answer = self.call("topic_send", "send-q", topic=data["label"], text="选第二个")
         self.assertTrue(answer["ok"], answer)
         self.assertEqual(command.call_args.args[1:3], ("选第二个", CHAT))
+        self.assertIs(command.call_args.kwargs["note_only"], True)
+        self.assertTrue(answer["data"]["held"])
+        self.assertIn("没有当成回答", answer["text"])
+        self.assertIn("question_answer", answer["text"])  # The butler's way to answer, once the owner said it.
         self.assertIsNone(self.job("send-q"))  # No next turn beside the question.
+
+    def test_a_leads_words_to_a_waiting_topic_point_at_its_own_tools(self):
+        self.assertIn("project_answer", butler_topics.held_next(("p1", "迁移")))
+        self.assertIn("project_escalate", butler_topics.held_next(("p1", "迁移")))
+        self.assertNotIn("project_answer", butler_topics.held_next(None))
 
     def test_a_topic_whose_result_has_not_arrived_takes_nothing(self):
         data, job = self.opened()
@@ -957,6 +967,22 @@ class HandoffTest(ButlerTopicsCase):
         self.assertIn(f"从 {data['label']} 分叉出这个话题", sent)
         self.assertIn(f"你在话题 {fork['label']}「换个思路」", sent)
         self.assertTrue((self.topic_media(fork["topic_id"]) / self.image.name).is_file())
+
+    def test_a_forward_and_the_message_he_quoted_reach_the_topics_model_whole_its_card_their_short_form(self):
+        # W0-3 (T892 P0-2): the butler's model read the forward's messages and the message the owner quoted; the topic's got
+        # "[合并转发 2 条]" and his words without the quote.
+        from covey.app import butler_handoff
+        forward = "合并转发消息，共 2 条记录。\n\n1. 张三：订单服务 502 了\n2. 李四：先看网关日志"
+        quoted = "交给话题查一下\n\n回复上下文：\n- parent_id: `om_q`\n- 被回复消息：昨晚 23:10 的告警"
+        upsert_job_record(self.ctx.state_dir, "main-job", job_id=7, user_text="[合并转发 2 条]", chat_id=CHAT,
+                          prompt_text=forward + butler_handoff.MERGED + quoted, created_at=self.AT)
+        self.start("h-fwd", attachments="none")
+        job = self.job("h-fwd")
+        for line in ("1. 张三：订单服务 502 了", "2. 李四：先看网关日志", "交给话题查一下", "- 被回复消息：昨晚 23:10 的告警"):
+            self.assertIn("> " + line, job.prompt_text)
+        self.assertEqual(job.user_text, "[合并转发 2 条]\n交给话题查一下")  # The card and the history: the short form.
+        history = [json.loads(line) for line in job.history_path.read_text().splitlines()]
+        self.assertNotIn("订单服务 502", history[-1]["content"])
 
     def test_supplements_merged_before_the_turn_started_are_the_owners_words_too(self):
         from covey.app import butler_handoff

@@ -141,6 +141,15 @@ MESSAGE_EVENT_JQ = (
 # only then may a plain message skip its own detail (feishu/media.py). The jq above lets no
 # event carry it.
 REPLY_CONTEXT = "reply_context_in_event"
+
+
+def with_parent(event: dict) -> dict:
+    """``event`` with the message it quotes as ``parent_id``: lark-cli and the WS intake (feishu/ws_intake.py message_event)
+    name it ``reply_to`` and leave ``parent_id`` empty, and every route reads ``parent_id`` (core/topics.py, app/butler.py
+    app_for: 引用直达). The same event when it names none or has one already; a copy otherwise (W0-3)."""
+    if event.get("parent_id") or not event.get("reply_to"):
+        return event
+    return {**event, "parent_id": event["reply_to"]}
 # ``timestamp``: when Feishu delivered the click (epoch microseconds), for its delay before it reached us (core/timing.py).
 CARD_ACTION_EVENT_JQ = "{event_id, operator_id, message_id, chat_id, token, action_tag, action_value, action_name, form_value, formValue, option, input_value, timestamp}"
 # A menu click names no chat: only who clicked which item.

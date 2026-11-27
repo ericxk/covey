@@ -1289,6 +1289,59 @@ class SilentTest(DeliverCase):
         self.send_text.assert_called_once()
         self.assertTrue(self.deliver(other, reply="还在等 T12。").silent)
 
+    def test_an_ask_goes_out_under_every_style(self):
+        # W0-2 (T892 P0-3): ask_only let no note through and the default no question: the lead could not ask the owner.
+        for style in project_lead.STYLE_CHOICES[project_lead.REPORT]:
+            self.assertTrue(project_lead.reportable({"report": style}, project_lead.ASK), style)
+        for style in ("ask_only", "milestones"):
+            with self.subTest(style=style):
+                projects.update(self.state, PID, lambda record: record.update(style={"report": style, "detail": "简"}))
+                job = self.lead()
+                self.note(job_key(job.message_id, job.job_id), kind=project_lead.ASK)
+                delivery = self.deliver(job, reply="要不要部署这一批？")
+                self.assertFalse(delivery.silent)
+                self.send_text.assert_called_once()
+
+    def test_the_owners_words_steered_into_a_wake_up_turn_make_it_his(self):
+        # W0-2 (T892 P0-5): the butler's project_send went into the running wake-up turn as a supplement; the turn stayed a
+        # wake-up (its message id), its reply was held back and the wake-ups went on counting.
+        from covey.core.jobs import job_path, read_job_record, upsert_job_record
+
+        job, other = self.lead(), self.lead(f"lead-{PID}-2")
+        for turn in (job, other):
+            upsert_job_record(self.state, job_key(turn.message_id, turn.job_id), message_id=turn.message_id,
+                              job_id=turn.job_id, topic_id=self.lead_topic, chat_id=BUTLER_CHAT, status="running")
+        projects.update(self.state, PID, lambda record: record.update(wakes={"count": 9, "streak": 9, "recent": [NOW]}))
+        self.assertTrue(project_loop.woken(self.state, job))
+        project_loop.owner_steered(self.state, job)
+        self.assertEqual(projects.read_record(self.state, PID)["wakes"]["streak"], 0)
+        record = read_job_record(job_path(self.state, job_key(job.message_id, job.job_id)))
+        self.assertIs(record[projects.OWNER_PRESENT], True)
+        self.assertFalse(project_loop.woken(self.state, job))
+        self.assertFalse(projects.woken(record))
+        delivery = self.deliver(job, reply="收到，改成先迁 orders 表。")
+        self.assertFalse(delivery.silent)
+        self.send_text.assert_called_once()
+        # A task runner's job of the same turn has no such attribute: its record says it.
+        runner_job = self.lead()
+        self.assertFalse(project_loop.woken(self.state, runner_job))
+        self.assertTrue(self.deliver(other, reply="还在等 T12。").silent)  # Another wake-up: as before.
+
+    def test_a_supplement_into_a_wake_up_turn_marks_the_owner_there(self):
+        from covey.app.steering import Steering
+
+        steering = Steering.__new__(Steering)
+        steering.runtime = SimpleNamespace(log=mock.Mock())
+        job = self.lead()
+        with mock.patch.object(Steering, "_deliver_steer", return_value={"status": "sent"}), \
+                mock.patch.object(project_loop, "owner_steered") as steered:
+            steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
+        steered.assert_called_once_with(self.ctx.state_dir, job, steering.runtime.log)
+        with mock.patch.object(Steering, "_deliver_steer", return_value={"status": "refused"}), \
+                mock.patch.object(project_loop, "owner_steered") as steered:
+            steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
+        steered.assert_not_called()  # Nothing went in.
+
     def test_the_owners_turn_in_the_lead_is_sent_as_before(self):
         delivery = self.deliver(self.lead("om_9"), reply="好的，我来拆。")
         self.assertFalse(delivery.silent)

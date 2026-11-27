@@ -500,16 +500,40 @@ class ToolTest(ToolsCase):
         flow.Triage(runtime=SimpleNamespace(log=print), cards=mock.Mock())._route(SimpleNamespace(state_dir=self.state), read_object(self.path))
         self.label = "T" + str(json.loads((self.state / "topics" / self.topic / "topic.json").read_text())["topic_number"])
 
+    def owner_ground(self) -> str:
+        """A line of the owner's answer to an earlier question card (his, with its origin: a ground project_answer may name)."""
+        record = {"token": "d" * 16, "topic_id": self.topic, "job_id": 3, "questions": CHOICE, "answers": {"0": {"answers": ["旧版"]}}}
+        [(entry, _)] = project_memory.note_answers(self.state, PID, record, [{"index": 1, "item": "0", "text": "主人答：用哪个库版本？→旧版"}])
+        return entry["id"]
+
     def test_the_lead_answers_and_the_row_is_on_the_card(self):
         app = self.env.topics.target(self.state, self.topic, CHAT)[0]
         with mock.patch.object(app.questions, "submit_answer", side_effect=lambda *a: write_json(
                 self.path, {**read_object(self.path), "status": "answered", "answers": {"0": {"answers": ["旧版"]}}},
                 ensure_ascii=False)) as submit:
-            answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"})
+            answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=[self.owner_ground()])
         self.assertTrue(answer["ok"], answer)
-        self.assertEqual(submit.call_args.args[3]["supplement"], flow.NOTE)
+        self.assertTrue(submit.call_args.args[3]["supplement"].startswith("（负责人替主人答的，依据："), submit.call_args.args[3])
         self.assertEqual(triage.state(read_object(self.path)), triage.ANSWERED)
         self.assertEqual(project_facts.triage_lines(self.reload())[0][1], TOKEN)
+
+    def test_without_collab_an_answer_on_no_grounds_is_refused(self):
+        # W0-2 (T892 P1-5): with 协作 (COVEY_COLLAB) off, project_answer checked nothing: the lead answered for the owner on nothing.
+        self.assertNotEqual(os.environ.get("COVEY_COLLAB"), "1")
+        app = self.env.topics.target(self.state, self.topic, CHAT)[0]
+        with mock.patch.object(app.questions, "submit_answer") as submit:
+            answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"})
+            lead, _ = project_memory.add(self.state, PID, "这个专项一律用旧版", "decision", "lead")
+            own = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=[lead["id"]])
+        for refused in (answer, own):
+            self.assertFalse(refused["ok"])
+            self.assertEqual(refused["data"]["refused"], "evidence")
+        self.assertIn("待核对参考", own["text"])  # The lead's own line is no ground alone.
+        submit.assert_not_called()
+        self.assertEqual(triage.state(read_object(self.path)), triage.HELD)
+        self.assertIn("project_answer 必须写 evidence", project_lead.lead_rules())
+        (tool,) = [tool for tool in butler_tool_specs.lead_tools({}) if tool["name"] == "project_answer"]
+        self.assertIn("evidence", tool["input_schema"]["required"])
 
     def test_the_lead_hands_the_question_back_with_why(self):
         with mock.patch.object(flow, "show", return_value=True) as show:
@@ -928,14 +952,14 @@ class MemoryInterplayTest(Held):
     def test_an_answer_the_owner_gave_to_a_question_handed_back_is_noted(self):
         data = self.saved()
         write_json(self.path, triage.moved(data, triage.ESCALATED, why="碰到硬闸", by="lead", at=time.time()), ensure_ascii=False)
-        project_context.remember_answer(self.state, THREAD, self.answered(self.saved()), self.logs.append)
+        project_context.remember_answer(self.state, THREAD, self.answered(self.saved()), self.logs.append, owners=True)
         self.assertEqual([(kind, source) for kind, source, _ in self.notes()], [("decision", "owner_answer")])
         self.assertIn("新版", self.notes()[0][2])
 
     def test_an_answer_to_a_question_the_triage_never_saw_is_noted_as_it_was(self):
         data = self.saved()
         data.pop("triage")
-        project_context.remember_answer(self.state, THREAD, self.answered(data), self.logs.append)
+        project_context.remember_answer(self.state, THREAD, self.answered(data), self.logs.append, owners=True)
         self.assertEqual([source for _, source, _ in self.notes()], ["owner_answer"])
 
     def test_the_owners_correction_is_a_decision_of_the_project_when_the_memory_is_on(self):
@@ -1171,7 +1195,8 @@ class ForwardedAnswerTest(Held):
         from covey.app import project_tools
         with mock.patch.object(project_tools, "held_topic", return_value=(self.app, self.ctx, CHAT)), \
                 mock.patch.object(project_tools.triage_flow, "answer", return_value=self.done), \
-                mock.patch.object(project_tools, "lead", return_value=(PID, self.reload())), mock.patch.object(project_tools, "active"):
+                mock.patch.object(project_tools, "lead", return_value=(PID, self.reload())), mock.patch.object(project_tools, "active"), \
+                mock.patch.object(project_tools.triage_flow, "grounds", return_value=[]):  # Its grounds hold (W0-2: always checked).
             answer = project_tools.project_answer(self.env, SimpleNamespace(args={"answers": {"0": "新版"}}, id="r9"))
         self.assertTrue(answer["ok"])
         self.assertIn("还没确认", answer["text"])

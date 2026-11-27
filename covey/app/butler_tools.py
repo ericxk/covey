@@ -506,7 +506,11 @@ def question_answer(env, request):
     record = asked[-1]  # The newest: an older one still pending is folded under it once its card shows.
     fields = answer_fields(record, request.args.get("answers"), PROXY_NOTE)
     try:
-        app.questions.submit_answer(ctx, chat, record["token"], fields, f"main-{request.id}")
+        # Who the butler's turn answers (its record's sender): the owner's answer given to the butler is noted as his
+        # decision, as his click would be (app/questions.py owner_submitted); anyone else's is not.
+        sender = (read_job_record(job_path(Path(env.state_dir), str(request.job_key or ""))) or {}).get("sender_id") \
+            if request.job_key else ""
+        app.questions.submit_answer(ctx, chat, record["token"], fields, f"main-{request.id}", by=str(sender or "") or None)
     except AnswerIncomplete as exc:
         return reply(False, f"没有提交：{exc}")
     saved = read_object(Path(env.state_dir) / "questions" / (record["token"] + ".json"))

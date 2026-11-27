@@ -239,19 +239,23 @@ class Interaction:
             self._dispatch_structured_event(ctx, job, "progress_note", {
                 "id": f"policy-tolerated-{time.time_ns()}", "title": BRIDGE_NOTE, "text": f"机器人 {at}：{text}"}, None)
 
-    def interactive_command(self, ctx, content, chat, mid, attachments="", *, top=""):
+    def interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False):
         """Whether the message ``mid`` was an answer, a held note or refused as either (said in the topic); False: a
         turn of its own. ``top``: its ``top_message`` (app/butler_reactions.py), quoted from outside the topic's thread,
-        whose reactions say which (DONE in, 排队中 kept, CrossMark refused, a continuation's own)."""
+        whose reactions say which (DONE in, 排队中 kept, CrossMark refused, a continuation's own). ``by``: who sent it (an
+        open_id), for the answer it may be (app/questions.py owner_submitted). ``note_only``: the words are not the owner's
+        (the butler's or a project lead's, app/butler_topics.py topic_send): never an answer, only a held note while a
+        question waits (it goes with the owner's answer), and the owner is not taken to have spoken."""
         try:
-            return self._interactive_command(ctx, content, chat, mid, attachments, **({"top": top} if top else {}))
+            return self._interactive_command(ctx, content, chat, mid, attachments, **({"top": top} if top else {}),
+                                             by=by, note_only=note_only)
         except (ValueError, OSError, RuntimeError) as exc:
             inbound_ledger.note(ctx.state_dir, mid, "refused", topic_id=ctx.topic_id, reason=f"交互暂未完成：{exc}"[:80])
             self.messenger.reply(ctx, chat, f"交互暂未完成：{exc}", self.voice.key("interaction-error", mid), voice=self.voice)
             butler_reactions.top_refused(self.messenger, ctx.profile, top, self.runtime.log)
             return True
 
-    def _interactive_command(self, ctx, content, chat, mid, attachments="", *, top=""):
+    def _interactive_command(self, ctx, content, chat, mid, attachments="", *, top="", by=None, note_only=False):
         self.questions.reconcile_checkpoint_questions(ctx, chat)
         # Before the message is routed: it answers, or waits for, only the newest question card.
         fold_older_questions(ctx, [self.questions], topic=(ctx.topic_id, chat))
@@ -259,7 +263,7 @@ class Interaction:
         rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
         # Handed on before this message and still not shown: owner_spoke below has not just tried them.
         unshown = {row.get("token") for _, row in rows if triage_flow.unshown(row)}
-        if triage_flow.ENV is not None and any(triage.held(row) for _, row in rows):
+        if triage_flow.ENV is not None and not note_only and any(triage.held(row) for _, row in rows):
             # The owner speaks in a topic whose question the project's lead holds: it is theirs now (the card goes out first, so
             # their message is its answer or a note, not a refusal for a card that was never shown).
             triage_flow.owner_spoke(triage_flow.ENV, ctx.topic_id, chat)
@@ -267,7 +271,7 @@ class Interaction:
         if any(row.get("native_live_question") is True for _, row in rows) and \
                 self.questions.retire_orphaned_live_questions(ctx, chat):
             rows = directory_store(ctx.state_dir / "questions").query(topic_id=ctx.topic_id, chat_id=chat, status="pending")
-        if triage_flow.ENV is not None and unshown:
+        if triage_flow.ENV is not None and unshown and not note_only:
             # A live question handed on to the owner whose card never went, its task still waiting on it: the card is asked of
             # the task once more, so this message answers it (or is kept as a note) instead of a refusal with nothing to click.
             again = [triage_flow.reshow(triage_flow.ENV, row) for _, row in rows if row.get("token") in unshown]
@@ -294,14 +298,15 @@ class Interaction:
         timing.mark("cmd_pending")
         blocking = pending
         # An image sent as the answer reaches the model as its downloaded path; cards show only "附件：图片 1 张".
-        if len(blocking) == 1 and len(blocking[0]["questions"]) == 1:
+        if len(blocking) == 1 and len(blocking[0]["questions"]) == 1 and not note_only:
             inbound_ledger.note(ctx.state_dir, mid, "answer", topic_id=ctx.topic_id)
             self.questions.submit_answer(ctx, chat, blocking[0]["token"],
                                {"answer_0": content, **({ATTACHMENTS: attachments} if attachments else {})}, mid,
-                               **({"top": top} if top else {}))
+                               **({"top": top} if top else {}), by=by)
             return True
         if blocking:
-            # Several answers are awaited: keep the message for the first submitted answer.
+            # Several answers are awaited, or the words are not the owner's (``note_only``): keep the message for the
+            # first submitted answer.
             inbound_ledger.note(ctx.state_dir, mid, "held_note", topic_id=ctx.topic_id)
             self.questions.hold_note(ctx, chat, content, mid, blocking, attachments=attachments,
                                      **({"top": top} if top else {}))

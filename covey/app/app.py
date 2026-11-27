@@ -258,7 +258,7 @@ class BridgeApp:
         # A topic's message sent where its thread is not (引用直达 at the top level): its reactions say how it stands.
         top = butler_reactions.top_message(ctx, event) if supplement is None else ""
         self.runtime.log(f"received message id={message_id}" + (" top" if top else ""))
-        if self.workspace_command(ctx, content, chat_id, message_id, attachments, **({"top": top} if top else {})):
+        if self.workspace_command(ctx, content, chat_id, message_id, attachments, **({"top": top} if top else {}), by=sender):
             timing.outcome("answer")  # An answer, a held note or why neither (app/interaction.py).
             return
         timing.mark("command")
@@ -412,8 +412,9 @@ class BridgeApp:
         if chat_id and getattr(ctx, "topic_id", ""):
             self.reply(ctx, chat_id, "旧卡片功能已移除，请在话题里直接描述需求。", self.key("retired-card", event_id))
 
-    def workspace_command(self, ctx, content, chat_id, message_id, attachments="", *, top=""):
+    def workspace_command(self, ctx, content, chat_id, message_id, attachments="", *, top="", by=None, note_only=False):
         """Whether the message was an answer or a held note (app/interaction.py interactive_command), or why neither;
-        ``top``: its ``top_message`` (app/butler_reactions.py), whose reactions say which."""
+        ``top``: its ``top_message`` (app/butler_reactions.py), whose reactions say which; ``by``: who sent it;
+        ``note_only``: words that are not the owner's (the butler's, a lead's), never an answer."""
         return self.interaction.interactive_command(ctx, content, chat_id, message_id, attachments,
-                                                    **({"top": top} if top else {}))
+                                                    **({"top": top} if top else {}), by=by, note_only=note_only)

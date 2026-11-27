@@ -423,9 +423,10 @@ class ThirdOfAClassTest(Case):
         is 你定的 (app/questions.py owner_submitted: the click's operator_id is the owner's)."""
         saved, _ = self.ask(self.native("codex"), self.job(), [MERGE], Rpc(live=False))
         record = self.submit(saved[0], {"option_0": "0", "option_1": "1"})
+        before = memstore.decisions(self.state, "project", PID)
         project_context.remember_answer(self.state, MEMBER, record, self.logs.append)  # Not known to be the owner's.
         self.assertEqual(memstore.entries(self.state, scope="project", owner_key=PID, kinds=("rule",)), [])
-        self.assertTrue(memstore.decisions(self.state, "project", PID))  # The answer itself is still noted.
+        self.assertEqual(memstore.decisions(self.state, "project", PID), before)  # Nor is the answer his decision (W0-1).
         from covey.app.questions import Questions
         access = SimpleNamespace(is_owner=lambda open_id: open_id == "ou_owner")
         asker = SimpleNamespace(runtime=SimpleNamespace(access=access))
@@ -454,7 +455,7 @@ class ThirdOfAClassTest(Case):
 class OrdinaryTopicTest(Case):
     def test_an_ordinary_topics_answer_is_a_decision_of_the_topic(self):
         record = {"token": "0123456789abcdef", "topic_id": PLAIN, "questions": [COLOR], "answers": {"color": {"answers": ["A 版"]}}}
-        project_context.remember_answer(self.state, PLAIN, record, self.logs.append)
+        project_context.remember_answer(self.state, PLAIN, record, self.logs.append, owners=True)
         (entry,) = memstore.decisions(self.state, "topic", PLAIN)
         self.assertEqual((entry.scope, entry.said, entry.origin["question"]), ("topic", "owner", "0123456789abcdef-1"))
         self.assertEqual(memstore.decisions(self.state, "project", PID), [])

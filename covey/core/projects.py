@@ -496,6 +496,21 @@ def is_wake(message_id) -> bool:
     return isinstance(message_id, str) and message_id.startswith(WAKE_PREFIX)
 
 
+# A lead's job record: the owner's words went into this wake-up turn as it ran (a supplement: his message in the lead's
+# topic, the butler's project_send, the web page; app/project_loop.py owner_steered), so the turn is his, not the
+# Bridge's alone (W0-2). ``woken`` reads it.
+OWNER_PRESENT = "owner_present"
+
+
+def woken(job) -> bool:
+    """Whether ``job`` (a job or its record) is a wake-up turn the owner was not in: a wake-up's message id
+    (``is_wake``) and none of his words went into it (``OWNER_PRESENT``)."""
+    from collections.abc import Mapping
+
+    get = job.get if isinstance(job, Mapping) else lambda name: getattr(job, name, None)
+    return is_wake(get("message_id")) and get(OWNER_PRESENT) is not True
+
+
 LEAD_ALIAS_PREFIX = "project-lead-"  # The alias the butler's project_send addresses a lead by (app/butler_projects.py lead_target).
 
 

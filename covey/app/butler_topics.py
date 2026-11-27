@@ -10,7 +10,9 @@ topic_fork, handlers as app/butler_env.py describes them. Only in the owner's pr
   anything is opened (``device_binding``) and runs there in 原目录.
 - ``topic_send`` gives the owner's words to a topic: a supplement to its turn while one runs (app/steering.py
   deliver_steer), else its next turn, headed by the topic's title. A line in the topic's thread says the butler
-   passed the owner's words on.
+   passed the owner's words on. A topic waiting on its question takes them as a held note for the owner's answer, never
+   as the answer (``note_only``: the butler's or a lead's words are not the owner's, W0-1); the answer is told how to
+   answer instead (``held_next``).
 
 What each topic's model gets is app/butler_handoff.py's: the Bridge's note, the butler's task, the owner's words
 from the butler turn's record and its attachments, carried into the topic's incoming_media; its card and
@@ -691,13 +693,14 @@ def topic_send(env, request):
     if not workspace_locked(ctx):
         return done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))
     hand_line(env, ctx, chat, request, record, butler_handoff.NEXT, owner, text, items, token)
-    # As a message written in the topic: its open question takes it, and a topic whose result or question card
-    # has not arrived takes nothing.
+    # A topic waiting on its question keeps these words for the owner's answer (a held note, never the answer: W0-1, the
+    # words are the butler's or a lead's), and a topic whose result or question card has not arrived takes nothing.
     waiting = len(app.questions.pending_questions(ctx, chat))
-    if app.workspace_command(ctx, words, chat, mid, "\n".join(attachment_block(items))):
+    if app.workspace_command(ctx, words, chat, mid, "\n".join(attachment_block(items)), note_only=True):
         if waiting:
-            return done(path, record, reply(True, f"已转给 {label}：它在等主人回答问题，这条没有开下一轮，按话题里的消息处理"
-                                             "（只有一道题时作为回答，否则留给下一次回答），结果看话题。", **data, steered=False))
+            return done(path, record, reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它在等主人回答问题，"
+                                             f"这条作为补充暂存，主人回答时一起带给它（话题里有暂存卡）。{held_next(lead)}",
+                                             **data, steered=False, held=True))
         return done(path, record, reply(False, f"{label} 没有开下一轮：它的结果或问题卡还没送达，话题里有说明。", **data))
     if not (find_job_record(Path(env.state_dir), mid) or app.runtime.jobs.settling(mid)):
         content = butler_handoff.shown(owner, text, items)
@@ -709,6 +712,16 @@ def topic_send(env, request):
             return done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
     dispatch_card(env, request, ctx.topic_id, **project_hint(request))
     return done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
+
+
+def held_next(lead) -> str:
+    """What the caller of ``topic_send`` is told to do about the question its words were held for: a project's lead
+    (``lead``: lead_of's (id, name), None for the butler) answers or hands on a question the triage gave it, never by sending words; the butler
+    waits for the owner, or answers with question_answer once the owner has said the answer himself."""
+    if lead is not None:
+        return ("不要再用加话代替回答：问题交给你分流时用 project_answer 替主人答（要有依据）或 project_escalate 转给主人，"
+                "否则等主人自己回答。")
+    return "不要再用加话代替回答：主人说了答案再用 question_answer 交上去，否则等主人在话题里回答。"
 
 
 # topic_fork ----------------------------------------------------------------------------------------------------

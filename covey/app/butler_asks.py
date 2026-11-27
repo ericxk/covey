@@ -15,7 +15,8 @@ there already.
   is handed on once (its record <state>/butler-asks/<key>.json is written before anything is sent, rule 1; the same
   words of the same topic within SAME_DAYS days are not handed again, a later turn copying its checkpoint): a text
   message of the bot's at the top level of the chat (``message_text``: "↪ T12 转给管家", the owner's words in the topic,
-  the topic's reading of them), then a turn of the butler's on that message, queued (never a 补充 of a running one) with
+  the topic's reading of them; the butler's model also reads his words whole, ``butler_prompt``: a forward's messages, the
+  message he quoted, W0-3), then a turn of the butler's on that message, queued (never a 补充 of a running one) with
   the turn source ``handover`` (core/turn_source.py: the owner asserted it, the Bridge recorded it, its origin the topic
   and the owner's message). The butler answers it as any of his turns (its rule: app/prompts.py ASKED_RULE), its answer
   under that message.
@@ -199,6 +200,32 @@ def message_text(label, ask, words) -> str:
     return "\n".join((HEAD.format(label=label), *((f"你在 {label} 说：{said}",) if said else ()), f"{label} 的理解：{ask}"))
 
 
+WHOLE_HEAD = "主人在 {label} 的原话全文（含合并转发和引用的消息，上面只是开头）："
+
+
+def whole_words(record, words) -> str:
+    """The owner's message the topic's turn began with (his Feishu or web message: ``record``, its job record), whole, as the
+    topic's model read it (its ``prompt_text``, app/butler_handoff.py model_words: a merged forward's messages, the message he
+    quoted), for the butler's model; '' when it says no more than ``words`` or is not his message (W0-3: the butler got 200
+    characters of it, a forward as "[合并转发 3 条]")."""
+    from covey.app.butler_handoff import model_words
+    from covey.app.project_lead import OWNER_PREFIXES
+
+    record = record or {}
+    if not str(record.get("message_id") or "").startswith(OWNER_PREFIXES):
+        return ""  # An answer's turn, a continuation: its prompt is the Bridge's, not his message.
+    whole = model_words(str(record.get("prompt_text") or ""))
+    return whole if whole and " ".join(whole.split()) != " ".join(str(words or "").split()) else ""
+
+
+def butler_prompt(text, label, whole) -> str:
+    """What the butler's model reads of the handed-on message ``text``: the message itself, then the owner's words whole when
+    there is more of them (``whole_words``); the card and the history show ``text`` alone."""
+    if not whole:
+        return text
+    return text + "\n\n" + WHOLE_HEAD.format(label=label) + "\n" + "\n".join("> " + line for line in whole.split("\n"))
+
+
 def collect(gateway, job, ctx) -> None:
     """After a task's runner exited: its ``ask_butler`` handed on, as the module says. Never raises. Nothing in a task
     runner (app/detached.py after_job calls none there): a runner queues no job; its Bridge hands it on once it exits."""
@@ -238,7 +265,9 @@ def hand_on(gateway, job, ctx, record, ask) -> None:
         if handed_before(state, topic, ask["ask"], now):
             gateway.runtime.log(f"butler ask skipped job=#{record.get('job_id')}: the same words were handed on")
             return
-        text = message_text(label, ask["ask"], owner_words(state, topic, str(record.get("message_id") or ""), key))
+        words = owner_words(state, topic, str(record.get("message_id") or ""), key)
+        text = message_text(label, ask["ask"], words)
+        prompt = butler_prompt(text, label, whole_words(record, words))
         group = chat in getattr(getattr(access, "spaces", None), "personal_groups", ())
         mine = {"job_key": key, "job_id": record.get("job_id"), "topic_id": topic, "chat_id": chat, "ask": ask["ask"],
                 "why": ask["why"], "text": text, "group": group, "state": "sending", "at": now}
@@ -267,7 +296,7 @@ def hand_on(gateway, job, ctx, record, ask) -> None:
                 stage, mine = "not_queued", {**mine, "message_id": message, "sent_at": time.time()}
                 write_json(path, {**mine, "state": "sent"}, ensure_ascii=False, indent=2)
                 queued = queue_turn(gateway, base, app, chat, message, text, owner, topic,
-                                    str(record.get("message_id") or ""))
+                                    str(record.get("message_id") or ""), prompt=prompt)
                 outcome = "" if queued is not None else "not_queued"
     except Exception as exc:  # noqa: BLE001 - said in the topic as what became of it
         gateway.runtime.log(f"butler ask raised job=#{record.get('job_id')} as {stage}: "
@@ -280,10 +309,11 @@ def hand_on(gateway, job, ctx, record, ask) -> None:
                         f"message={mine['message_id'][-8:]}")
 
 
-def queue_turn(gateway, base, app, chat, message, text, owner, topic, said) -> str | None:
+def queue_turn(gateway, base, app, chat, message, text, owner, topic, said, *, prompt="") -> str | None:
     """The butler's turn on ``message`` (the bot's message at the top level), queued behind whatever of the butler's runs:
     its topic.json as the settings say (app/butler.py keep_topic), the message the butler's, its history line, and the job
-    with the turn source ``handover``. The job's message id, None when it was not queued."""
+    with the turn source ``handover``; its model reads ``prompt`` (``butler_prompt``: the owner's words whole), its card and
+    history ``text``. The job's message id, None when it was not queued."""
     app = gateway.topics.apps.get(gateway.butler.keep_topic(base, app, chat)) or app
     topic_id = butler.butler_topic_id(chat)
     remember_topic_message(base.state_dir, topic_id, chat, message)
@@ -295,7 +325,7 @@ def queue_turn(gateway, base, app, chat, message, text, owner, topic, said) -> s
                                       **({"question": said.removeprefix(ANSWER)} if said.startswith(ANSWER) else {})})
     append_history(target.history_path, "user", text,
                    {"message_id": message, "chat_id": chat, **({"sender_id": owner} if owner else {})})
-    job = app.submission.enqueue_chat_job(target, text, chat, message, prompt_content=text, sender_id=owner, source=source)
+    job = app.submission.enqueue_chat_job(target, text, chat, message, prompt_content=prompt or text, sender_id=owner, source=source)
     return None if job is None else str(getattr(job, "message_id", "") or message)
 
 

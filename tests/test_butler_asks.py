@@ -172,6 +172,22 @@ class HandOnTest(Case):
                          ("sent", "om_handed", "om_handed", "话题开不了专项"))
         self.send_message.assert_not_called()
 
+    def test_the_butlers_model_reads_the_owners_message_whole_its_message_and_card_the_start(self):
+        # W0-3 (T892 P0-2): the butler got 200 characters of the owner's message, a forward as "[合并转发 2 条]".
+        whole = "合并转发消息，共 2 条记录。\n\n1. 张三：订单服务 502 了\n2. 李四：先看网关日志"
+        asks.collect(self.gateway, self.turn(ask=self.ASK, user_text="[合并转发 2 条]", prompt_text=whole), self.ctx)
+        text = self.send_text.call_args.args[2]
+        self.assertNotIn("订单服务 502", text)
+        (target, shown, chat, message), kwargs = self.enqueue.call_args
+        self.assertEqual(shown, text)
+        self.assertTrue(kwargs["prompt_content"].startswith(text + "\n\n"), kwargs["prompt_content"])
+        self.assertIn("> 1. 张三：订单服务 502 了\n> 2. 李四：先看网关日志", kwargs["prompt_content"])
+
+    def test_words_no_more_than_the_message_says_and_a_turn_not_on_his_message_add_nothing(self):
+        asks.collect(self.gateway, self.turn(ask=self.ASK, prompt_text="开个专项推进这件事"), self.ctx)
+        self.assertEqual(self.enqueue.call_args.kwargs["prompt_content"], self.TEXT)
+        self.assertEqual(asks.whole_words({"message_id": "answer-q7", "prompt_text": "用户补充回答：很长的一段"}, "x"), "")
+
     def test_an_answer_on_the_question_card_is_handed_on_with_the_question_as_its_origin(self):
         questions = self.state / "questions"
         questions.mkdir(parents=True, exist_ok=True)

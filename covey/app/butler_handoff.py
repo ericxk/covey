@@ -8,7 +8,9 @@ path.
 
 The owner's words come from the butler turn itself (``asked``), not from the model: its job record (the message
 and the supplements it took before it started) and the supplements it took while it ran (their delivery records,
-core/deliveries.py). The attachments those list are linked or copied into the target topic's incoming_media
+core/deliveries.py). The card and the history show their short form (``said``: "[合并转发 3 条]", his words without the
+message he quoted); the topic's model gets what the butler's model read of them (``full``, ``model_words``: a merged
+forward's messages, the message he quoted, the document-link note), the attachments listed once, below (W0-3). The attachments those list are linked or copied into the target topic's incoming_media
 (``carry``), so they reach its model as they would from a message sent there (core/attachments.py
 native_image_attachments, Codex's read-only roots); only files saved in the butler's own incoming_media (or the
 state directory's) are, as a listed path can come from a forwarded message's text.
@@ -29,8 +31,8 @@ import shutil
 from pathlib import Path
 
 from covey.app.tool_limits import LOOK_NOTE
-from covey.core.attachments import (ATTACHMENTS_HEADER, FAILED_HEADER, ListedAttachment, attachment_block,
-                                             attachment_summary, message_words, parse_attachment_block)
+from covey.core.attachments import (ATTACHMENT_LINE_RE, ATTACHMENTS_HEADER, ATTACHMENTS_HINT, FAILED_HEADER, ListedAttachment,
+                                             attachment_block, attachment_summary, message_words, parse_attachment_block)
 from covey.core.deliveries import CLOCK_SLACK, read_delivery
 from covey.core.jobs import find_job_record
 from covey.core.butler import butler_topic_id
@@ -54,10 +56,23 @@ class Asked:
     attachments: tuple = ()
     roots: tuple = ()
     lead: str = ""  # A project's lead hands the work on (app/project_tools.py), not the butler: the project's name.
+    full: tuple = ()  # Each of ``said`` as the butler's model read it (``model_words``), in the same order; () when not known.
 
     @property
     def words(self) -> str:
         return "\n".join(words for words, _ in self.said if words)
+
+    @property
+    def quoted(self) -> tuple:
+        """(words, when) of each message for the model's quote: its whole text (``full``) where there is one, else ``said``'s."""
+        if len(self.full) != len(self.said):
+            return self.said
+        return tuple((full or words, at) for (words, at), full in zip(self.said, self.full))
+
+    @property
+    def model_words(self) -> str:
+        """``words`` with what the Bridge read for them (``quoted``): for the model, never a card."""
+        return "\n".join(words for words, _ in self.quoted if words)
 
     @property
     def at(self) -> float:
@@ -72,6 +87,24 @@ class Asked:
             if clock and clock not in clocks:
                 clocks.append(clock)
         return "、".join(clocks)
+
+
+def model_words(text) -> str:
+    """What the model read of a message's model text (enrich_incoming_event's, a supplement's): the owner's words and the blocks
+    the Bridge read for them (a merged forward's messages, the message he quoted, its root, the mentions, the document-link
+    note), without the list of the attachments he sent (ATTACHMENTS_HEADER, its lines and its hint): a handoff lists the
+    copies the topic got (``carry``) once, below its quote."""
+    out, inside = [], False
+    for line in str(text or "").split("\n"):
+        stripped = line.strip()
+        if stripped == ATTACHMENTS_HEADER:
+            inside = True
+            continue
+        if inside and (not stripped or ATTACHMENT_LINE_RE.fullmatch(stripped) or stripped == ATTACHMENTS_HINT):
+            continue
+        inside = False
+        out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
 def _display_words(user_text, prompt):
@@ -128,14 +161,16 @@ def asked(state_dir, job_key) -> Asked:
     at = epoch_seconds(record.get("created_at")) or next(
         (timings[stage] for stage in ("received", "queued") if isinstance(timings.get(stage), (int, float))), 0)
     said, texts = [("\n".join(word for word in words if word), at)], [prompt]
+    full = ["\n\n".join(part for part in map(model_words, (first, *merged)) if part)]
     for delivery in _supplements(state_dir, record, job_key, at):
         text = str(delivery.get("text") or "")
         said.append((message_words(text), float(delivery.get("saved_at") or 0)))
+        full.append(model_words(text))
         texts.append(text)
     topic = str(record.get("topic_id") or butler_topic_id(str(record.get("chat_id") or "")))
     roots = (Path(state_dir) / "topics" / topic / "incoming_media", Path(state_dir) / "incoming_media")
     items = [item for text in texts for item in parse_attachment_block(text) if _inside(item.path, roots)]
-    return Asked(tuple(said), tuple(items), roots)
+    return Asked(tuple(said), tuple(items), roots, full=tuple(full))
 
 
 def choice_error(value) -> str:
@@ -327,7 +362,7 @@ def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra=""
         parts.append(f"负责人转给你的附件：{summary(items)}（见下方“收到的附件”）")
     if not owner.lead and (owner.words or items):
         quoted = []
-        for index, (words, at) in enumerate(owner.said):
+        for index, (words, at) in enumerate(owner.quoted):  # The whole of each, as the butler read it (W0-3).
             if index and not words:
                 continue  # A supplement of attachments only: they are in the block below.
             head = "主人随后补充" if index else "主人原话"

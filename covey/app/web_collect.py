@@ -1037,7 +1037,7 @@ class Collector:
                     out.append((at, data, None))
                 continue
             key = job_key(job.get("message_id"), job.get("job_id")) if job is not None else ""
-            if waking and (job is None or not project_loop.reported(state, topic, key)):
+            if waking and (job is None or projects.woken(job) and not project_loop.reported(state, topic, key)):
                 waking = False
                 continue
             waking = False

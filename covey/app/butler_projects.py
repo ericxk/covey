@@ -125,8 +125,8 @@ def lead_prompt(name, text, owner, items=()) -> str:
     parts = [f"{NOTE} 主人在私聊里对专项「{name}」说了话，由管家转给你；这是主人触发的一轮，不是自动唤醒，你的回复会由 Bridge "
              "发给主人。按他的意思调整专项：开话题、给话题加话、记决定或改风格就用 project_* 工具。",
              "管家整理的说明：\n" + text]
-    if owner.words:
-        parts.append("主人原话：\n" + "\n".join("> " + line for line in owner.words.split("\n")))
+    if owner.words:  # His words whole, as the butler read them: a forward's messages, the message he quoted (W0-3).
+        parts.append("主人原话：\n" + "\n".join("> " + line for line in owner.model_words.split("\n")))
     if items:
         parts.append("\n".join(attachment_block(items)))
     return "\n\n".join(parts)

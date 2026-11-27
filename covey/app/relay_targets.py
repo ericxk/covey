@@ -229,7 +229,7 @@ def relay_target(state_dir, job):
 def awaited_target(state_dir, job):
     """Where a project member's turn the owner waits for relays its conclusion or its stop (docs/projects.md 主人在等的结果):
     the lead handed it on (project_topic_start, project_topic_send or the supplement it gave, main-thread/opened/) in a turn
-    of the lead the owner was in, one that was not a wake-up (``projects.is_wake``); as ``relay_target`` gives it, quoting
+    of the lead the owner was in, one that was not a wake-up or one his words went into (``projects.woken``); as ``relay_target`` gives it, quoting
     the lead's card, else what the turn the owner spoke in has (``relay_quote``: the butler's card of a project_send).
     Else a turn he asked for himself from outside the topic's thread (``asked_outside``). None for any other turn: a
     member's row relays nothing of its own (core/placement.py), what a wake-up turn handed out is the lead's to tell (its
@@ -250,7 +250,7 @@ def _lead_handed(state_dir, job, topic_id, chat):
     lead_key = str(record.get("job_key") or "")
     lead_job = find_job_record(Path(state_dir), lead_key) or {}
     lead_topic = str(lead_job.get("topic_id") or "")
-    if (not lead_topic or projects.is_wake(lead_job.get("message_id"))
+    if (not lead_topic or projects.woken(lead_job)
             or not projects.is_lead_topic(state_dir, lead_topic, str(record.get("chat_id") or chat) or None)):
         return None
     reply_to = relay_quote(state_dir, lead_key)

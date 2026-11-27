@@ -290,12 +290,13 @@ PROJECT_TOOLS = (
          "thread": THREAD, "why": {"type": "string", "description": "可选，一句话：主人为什么要停"}}}},
     {"name": "project_note",
      "description": "在专项卡上记一句进展（最多 200 字）。report 为 true 的才是要告诉主人的，按风格过滤（只在里程碑和完成、话题结束、"
-                    "或详细时才发）；kind 说它是哪一类：milestone 里程碑，thread 话题的结果，note 一般进展。decision 为 true 时，"
+                    "或详细时才发）；kind 说它是哪一类：ask 要主人定的事（范围、取舍、部署这一批，任何风格都发给主人，不用另标 report），"
+                    "milestone 里程碑，thread 话题的结果，note 一般进展。decision 为 true 时，"
                     "也记进决定日志（之后每一轮都看到最近 10 条）。别每步都记。",
      "input_schema": {"type": "object", "required": ["text"], "properties": {
          "text": {"type": "string", "description": "一句话，最多 200 字"},
-         "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上"},
-         "kind": {"type": "string", "enum": ["milestone", "thread", "note"], "description": "默认 note"},
+         "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上（kind 为 ask 时总是发）"},
+         "kind": {"type": "string", "enum": ["ask", "milestone", "thread", "note"], "description": "默认 note；要主人定的写 ask"},
          "decision": {"type": "boolean", "description": "这是一条定下来的决定为 true"}}}},
     {"name": "project_goal",
      "description": "写下这个专项的目标和完成标准：给主人看的一两句（要做成什么、做到什么算完，最多 200 字），网页工作台的专项标题下就显示它。"
@@ -360,8 +361,8 @@ TRIAGE_TOOLS = (
          "if_not": {"type": "string", "description": "可选，一句话：不选推荐项的代价（写了 recommend 才有用）"}}}},
 )
 # 协作 (COVEY_COLLAB=1 in the server's environment, core/butler.py mcp_config hands it on; ``lead_tools``): the lead keeps
-# the project's 目标检查表 (app/project_tools.py project_checklist, core/project_checklist.py), and project_answer must
-# name its grounds (``evidence``, checked by the Bridge: app/triage.py grounds). Off, the lead's list is as it was.
+# the project's 目标检查表 (app/project_tools.py project_checklist, core/project_checklist.py). project_answer names its
+# grounds (``evidence``, checked by the Bridge: app/triage.py grounds) with 协作 on or off (W0-2).
 COLLAB_ENV = "COVEY_COLLAB"
 CHECKLIST_ITEM = {"type": "object", "properties": {
     "id": {"type": "string", "description": "条目 id（如 c2）；新加的不填"},
@@ -402,12 +403,12 @@ EVIDENCE = {"type": "array", "minItems": 1, "maxItems": 6, "items": {"type": "st
                            "或主人在这个专项里的原话 msg:<消息 id>（状态包“主人在专项里说过的话”里的）。"
                            "只有主人说的、仍有效的才算依据；待核对参考、作废、做完、被替代或只限当次的会被拒绝，"
                            "被拒了就用 project_escalate 转给主人。"}
-EVIDENCE_NOTE = "开了协作，要写 evidence：Bridge 核对每条依据，没有主人说的、仍有效的依据就拒绝，回答记着依据，主人核对得到。"
+EVIDENCE_NOTE = "要写 evidence：Bridge 核对每条依据，没有主人说的、仍有效的依据就拒绝，回答记着依据，主人核对得到。"
 PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS + CHECKLIST_TOOLS)
 
 
 def with_evidence(tool) -> dict:
-    """project_answer as the lead sees it with 协作 on: ``evidence`` required, its description saying so; others as they are."""
+    """project_answer as the lead sees it: ``evidence`` required, its description saying so; others as they are."""
     if tool["name"] != "project_answer":
         return tool
     schema = tool["input_schema"]
@@ -517,14 +518,14 @@ assert any(tool["name"] == "project_topic_start" and WOKEN in tool["description"
 
 
 def lead_tools(environ=None) -> tuple:
-    """The lead's tools; the two of the question triage with COVEY_PROJECT_TRIAGE=1 in ``environ``; with COVEY_COLLAB=1 there
-    also project_checklist, project_answer asks for its ``evidence`` (``with_evidence``) and the 简报's arguments are there
-    (``with_brief``). An ``environ`` without
+    """The lead's tools; the two of the question triage with COVEY_PROJECT_TRIAGE=1 in ``environ``, project_answer asking for its
+    ``evidence`` (``with_evidence``, with 协作 on or off: W0-2); with COVEY_COLLAB=1 there also project_checklist and the 简报's
+    arguments (``with_brief``). An ``environ`` without
     COVEY_PROJECT_AUTOWAKE=1 (the Bridge hands it on, core/butler.py mcp_config) has project_topic_start say no turn comes
     when its topic ends (NOT_WOKEN)."""
     triage = environ is not None and env_flag(TRIAGE_ENV, True, environ)
     collab = environ is not None and str(cenv.get(COLLAB_ENV, "", environ)).strip() == "1"
-    asked = tuple(map(with_evidence, TRIAGE_TOOLS)) if collab else TRIAGE_TOOLS
+    asked = tuple(map(with_evidence, TRIAGE_TOOLS))
     tools = PROJECT_TOOLS
     if environ is not None and not env_flag(AUTOWAKE_ENV, True, environ):
         tools = tuple({**tool, "description": tool["description"].replace(WOKEN, NOT_WOKEN)}

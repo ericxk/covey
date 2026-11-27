@@ -667,12 +667,19 @@ class PackTest(Case):
             self.assertEqual(project_lead.lead_rules(), rules)
         with mock.patch.dict(os.environ, TRIAGE):
             triaged = project_lead.state_pack(self.state, record, "lead-1", full=True, receipts=receipts)
-        for words in ("目标检查表", "先看：", "没处理的协作缺口", "主人在专项里说过的话", "msg:", "简报"):
+            triaged_rules = project_lead.lead_rules()
+        for words in ("目标检查表", "先看：", "没处理的协作缺口", "简报"):
             self.assertNotIn(words, pack)
             self.assertNotIn(words, triaged)
         self.assertIn("自上次唤醒以来的收件箱：\n" + "\n".join(map(project_lead.receipt_line, receipts)), pack)
-        for words in ("project_checklist", "目标检查表", "evidence", "collab_answered"):
+        for words in ("project_checklist", "目标检查表", "collab_answered"):
             self.assertNotIn(words, rules)
+        # With the triage on, project_answer names its grounds with 协作 off too (W0-2): the owner's words and the rule for them.
+        self.assertIn(project_lead.OWNER_WORDS_HEAD, triaged)
+        self.assertIn("project_answer 必须写 evidence", triaged_rules)
+        with mock.patch.dict(os.environ, {"COVEY_PROJECT_TRIAGE": "0"}):
+            self.assertNotIn("evidence", project_lead.lead_rules())
+            self.assertNotIn(project_lead.OWNER_WORDS_HEAD, project_lead.state_pack(self.state, record, "lead-1", full=True, receipts=receipts))
 
     def test_on_the_pack_shows_the_checklist_the_gaps_the_ids_the_owners_words_and_the_inbox_in_groups(self):
         mock.patch.dict(os.environ, {**COLLAB, **TRIAGE}).start()
@@ -1121,14 +1128,14 @@ class GroundsTest(ToolsCase):
         write_topic(self.state, {"topic_id": topic}, topic_id=topic, chat_id=CHAT, harness_id="claude", topic_number=77)
         return topic
 
-    def test_off_and_without_evidence_the_answer_is_as_before(self):
+    def test_off_and_without_evidence_nothing_is_answered_either(self):
+        # W0-2 (T892 P1-5): with 协作 off the answer went through on nothing; the grounds are checked whatever 协作 says.
         os.environ.pop(turn_source.SWITCH)
         answer = self.answer()
-        self.assertTrue(answer["ok"], answer)
-        self.assertEqual(self.submit.call_args.args[3]["supplement"], flow.NOTE)
-        row = self.reload()["triage"][-1]
-        self.assertTrue(row["text"].startswith("答了：" + self.label), row["text"])
-        self.assertNotIn("evidence", row)
+        self.assertFalse(answer["ok"])
+        self.assertEqual(answer["data"]["refused"], "evidence")
+        self.still_held()
+        self.assertTrue(self.answer([self.owner_answer()])["ok"])  # On the owner's grounds it goes, as with 协作 on.
 
     def test_off_evidence_given_is_still_checked(self):
         os.environ.pop(turn_source.SWITCH)
@@ -1143,7 +1150,8 @@ class ListingTest(Case):
 
     def test_off_the_leads_tools_are_as_they_were(self):
         self.assertEqual([tool["name"] for tool in butler_tool_specs.lead_tools({"COVEY_PROJECT_TRIAGE": "0"})], LEAD_NAMES)
-        self.assertEqual(butler_tool_specs.lead_tools({**TRIAGE})[-2:], butler_tool_specs.TRIAGE_TOOLS)
+        # project_answer asks for its evidence with 协作 off too (W0-2).
+        self.assertEqual(butler_tool_specs.lead_tools({**TRIAGE})[-2:], tuple(map(butler_tool_specs.with_evidence, butler_tool_specs.TRIAGE_TOOLS)))
         self.assertEqual(butler_tool_specs.lead_tools({turn_source.SWITCH: "0", **TRIAGE}), butler_tool_specs.lead_tools(TRIAGE))
         self.assertNotIn("project_checklist", [tool["name"] for tool in butler_mcp.tool_list({butler.LEAD_ENV: PID})])
         self.assertIn("project_answer", [tool["name"] for tool in butler_tool_specs.lead_tools({})])  # Triage unset is on.

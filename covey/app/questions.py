@@ -232,7 +232,8 @@ class Questions:
             raise ValueError(f"完整结果或问题控件尚未送达，请先{retry_hint()} 重新投递，不能提前确认")
 
     def owner_submitted(self, by) -> bool:
-        """Whether ``by`` (an open_id, None when not known) is the owner's: app/access.py is_owner."""
+        """Whether ``by`` (an open_id, None when not known) is the owner's: app/access.py is_owner. Only such an answer is
+        noted as the owner's decision (app/project_context.py remember_answer)."""
         access = getattr(self.runtime, "access", None)
         try:
             return bool(by) and access is not None and bool(access.is_owner(by))

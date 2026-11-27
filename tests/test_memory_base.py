@@ -121,7 +121,7 @@ class AnswerTest(Case):
         return memstore.decisions(self.state, "project", PID, statuses=None)
 
     def test_each_question_is_a_decision_of_its_own_whole_with_where_it_came_from(self):
-        project_context.remember_answer(self.state, MEMBER, question_record())
+        project_context.remember_answer(self.state, MEMBER, question_record(), owners=True)
         rows = self.decisions()
         self.assertEqual([row.origin["question"] for row in rows], [f"{TOKEN}-1", f"{TOKEN}-2", f"{TOKEN}-3"])
         self.assertEqual({(row.kind, row.said, row.by, row.status) for row in rows}, {("decision", "owner", "owner", "active")})
@@ -134,7 +134,7 @@ class AnswerTest(Case):
         self.assertFalse(project_memory.memory_path(self.state, PID).exists())  # Not a line of the 120 any more.
 
     def test_the_question_record_is_kept_whole_beside_the_memory(self):
-        project_context.remember_answer(self.state, MEMBER, question_record())
+        project_context.remember_answer(self.state, MEMBER, question_record(), owners=True)
         kept = project_memory.answer_record(self.state, PID, TOKEN)
         self.assertEqual((kept["questions"], kept["answers"], kept["supplement"], kept["job_key"]),
                          (QUESTIONS, ANSWERS, "周六前把核对结果给我", "om_q12"))  # Options, their descriptions and the context too.
@@ -146,15 +146,15 @@ class AnswerTest(Case):
         self.assertEqual(project_memory.answer_record(self.state, PID, "f" * 16), {})
 
     def test_the_same_answer_is_noted_once_and_one_the_owner_voided_is_not_noted_again(self):
-        project_context.remember_answer(self.state, MEMBER, question_record())
+        project_context.remember_answer(self.state, MEMBER, question_record(), owners=True)
         memstore.void(self.state, self.decisions()[1].ref, who="owner")
-        project_context.remember_answer(self.state, MEMBER, question_record())  # Submitted again after it was reconciled.
+        project_context.remember_answer(self.state, MEMBER, question_record(), owners=True)  # Submitted again after it was reconciled.
         self.assertEqual([row.status for row in self.decisions()], ["active", "void", "active"])
 
     def test_a_question_too_long_for_a_line_is_cut_there_and_whole_in_the_record(self):
         long = "条件" * 350
         project_context.remember_answer(self.state, MEMBER, question_record(questions=[{"id": "q", "question": long}],
-                                                                            answers={"q": {"answers": ["照第二种做"]}}))
+                                                                            answers={"q": {"answers": ["照第二种做"]}}), owners=True)
         (row,) = self.decisions()
         self.assertEqual(len(row.text), memstore.DECISION_CHARS)
         self.assertTrue(row.text.endswith("…→照第二种做"))  # The answer whole, the question cut before it.
@@ -162,19 +162,19 @@ class AnswerTest(Case):
 
     def test_skipped_questions_and_feedback_note_nothing_and_a_record_without_a_token_notes_each_question(self):
         project_context.remember_answer(self.state, MEMBER, question_record(answers={
-            "scope": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}, "check": {"answers": []}, "keep": {"answers": ["保留 30 天"]}}))
+            "scope": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}, "check": {"answers": []}, "keep": {"answers": ["保留 30 天"]}}), owners=True)
         self.assertEqual([row.origin["question"] for row in self.decisions()], [f"{TOKEN}-3"])
-        project_context.remember_answer(self.state, MEMBER, {**question_record("1" * 16), "response_kind": "feedback"})
+        project_context.remember_answer(self.state, MEMBER, {**question_record("1" * 16), "response_kind": "feedback"}, owners=True)
         bare = question_record()
         del bare["token"]
-        project_context.remember_answer(self.state, MEMBER, bare)
+        project_context.remember_answer(self.state, MEMBER, bare, owners=True)
         loose = [row for row in self.decisions() if not str(row.origin.get("question") or "").startswith(TOKEN)]
         self.assertEqual([(row.origin["item"], row.origin["index"]) for row in loose], [("scope", 1), ("check", 2), ("keep", 3)])
         self.assertFalse(any(row.origin.get("question") for row in loose))
 
     def test_every_reader_of_the_project_memory_has_the_decisions(self):
         project_context.remember_answer(self.state, MEMBER, question_record(
-            questions=[{"id": "q", "question": "第一批迁哪些表？"}], answers={"q": {"answers": ["账单和流水一起"]}}))
+            questions=[{"id": "q", "question": "第一批迁哪些表？"}], answers={"q": {"answers": ["账单和流水一起"]}}), owners=True)
         (entry,) = self.decisions()
         pack = project_lead.state_pack(self.state, self.record(), "lead-1", full=True, receipts=[])
         self.assertIn(f"〔{entry.code}〕主人答：第一批迁哪些表？→账单和流水一起", pack)

@@ -65,7 +65,8 @@ from covey.app import auto_retry, butler_harness, project_context, project_lead,
 from covey.core import board_read, collab, collab_records, failure, projects, quota_hold, triage, turn_source
 from covey.core import env as cenv
 from covey.core.history_storage import append_history
-from covey.core.jobs import find_job_record, job_field, job_key, job_path, read_job_record, topic_job_records
+from covey.core.jobs import (find_job_record, job_field, job_key, job_path, read_job_record, topic_job_records,
+                              update_job_record_if)
 from covey.core.loops import Stuck, Worker
 from covey.core.state import read_object
 from covey.core.statuses import ENDED, NOT_ENDED, RUNNING
@@ -88,7 +89,8 @@ LEFT_WAIT = 300
 START_WAIT = 20  # After the Bridge starts: its own recovery of interrupted turns goes first.
 HOUR = 3600
 WAKE_TEXT = ("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主人不在场：按回执判断下一步。"
-             "要告诉主人的用 project_note 并标 report，这一轮的回复不会发给主人。")
+             "要主人定的事用 project_note 问他（kind 写 ask，任何汇报风格都发）；进展按汇报风格用 project_note 标 report。"
+             "这一轮记了要发的汇报、或开了话题、加了话、停了话题、答或转交了问题，回复才会发给主人，否则不发；主人中途插话时也会发。")
 TOKEN_JOBS_KEPT = projects.TOKEN_JOBS_KEPT
 EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
@@ -253,7 +255,7 @@ def last_activity(state_dir, record, receipts) -> float:
     times = [float(record.get("created_at") or 0)]
     for topic in (lead, *(record.get("threads") or ())):
         for job in jobs_of(state_dir, topic):
-            if topic == lead and projects.is_wake(job.get("message_id")):
+            if topic == lead and projects.woken(job):
                 continue
             times.append(board_read.ended_at(job))
     times += [float(item.get("at") or 0) for item in receipts if item.get("kind") != "stalled"]
@@ -370,13 +372,54 @@ def reported(state_dir, topic_id, key) -> bool:
     return bool(rows)
 
 
+def present(state_dir, job) -> bool:
+    """Whether the owner's words went into ``job`` (a job or its record) as it ran (``projects.OWNER_PRESENT``, on the job
+    or, as a task runner's job has it, on its record: ``owner_steered`` writes it in the Bridge). Never raises."""
+    if job_field(job, projects.OWNER_PRESENT) is True:
+        return True
+    try:
+        record = read_job_record(job_path(Path(state_dir), job_key(job_field(job, "message_id"), job_field(job, "job_id"))))
+    except (OSError, ValueError):
+        return False
+    return isinstance(record, dict) and record.get(projects.OWNER_PRESENT) is True
+
+
+def woken(state_dir, job) -> bool:
+    """Whether ``job`` is a lead's wake-up turn the owner was not in (``projects.woken``, with its record read: ``present``)."""
+    return projects.is_wake(job_field(job, "message_id")) and not present(state_dir, job)
+
+
+def owner_steered(state_dir, job, log=None) -> None:
+    """The owner's words went into ``job``, a supplement it took or may have taken (app/steering.py deliver_steer: his message
+    in the topic, the butler's project_send, the web page). A project lead's wake-up turn is his now (W0-2): its record says
+    ``owner_present``, so its reply is sent (``silent``) and what it hands out relays as his turn's does, and the wake-ups count
+    afresh (``owner_spoke``), as his own turn's would. Nothing for any other job. Never raises."""
+    try:
+        message, topic = str(job_field(job, "message_id")), str(job_field(job, "topic_id"))
+        if not projects.enabled() or not projects.is_wake(message) or job_field(job, projects.OWNER_PRESENT) is True:
+            return
+        if not projects.is_lead_topic(state_dir, topic, str(job_field(job, "chat_id")) or None):
+            return
+        if not isinstance(job, dict):
+            setattr(job, projects.OWNER_PRESENT, True)
+        update_job_record_if(Path(state_dir), job_key(message, job_field(job, "job_id")), lambda current: True,
+                             **{projects.OWNER_PRESENT: True})
+        found = projects.topic_project(state_dir, topic)
+        if found is not None:
+            projects.update(state_dir, found.id, owner_spoke)
+    except (KeyError, ValueError, OSError, AttributeError, TypeError) as exc:
+        if log is not None:
+            log(f"owner presence not noted job=#{job_field(job, 'job_id')}: {type(exc).__name__}")
+
+
 def silent(delivery) -> bool:
     """Whether the reply of the turn ``delivery`` (app/turn_delivery.py TurnDelivery) is not to be sent: the turn is a wake-up
-    (message id ``lead-…``), done with its saved reply, and the lead recorded no report note in it. Its reply stays saved
-    and counts as delivered, so nothing redelivers it and no recovery card offers it again. Never raises."""
+    (message id ``lead-…``) the owner's words did not go into (``woken``: none of his supplements, W0-2), done with its saved
+    reply, and the lead recorded no report note in it. Its reply stays saved and counts as delivered, so nothing redelivers
+    it and no recovery card offers it again. Never raises."""
     job, turn = delivery.job, delivery.turn
     try:
-        if not projects.enabled() or not projects.is_wake(job_field(job, "message_id")):
+        if not projects.enabled() or not woken(delivery.ctx.state_dir, job):
             return False
         if turn.status != "done" or getattr(turn, "verified_delivery", None) is None \
                 or getattr(turn.verified_outcome, "status", "") != "completed":
@@ -1083,7 +1126,7 @@ def quiet_start(state_dir, job, now=None) -> bool:
     Never raises: on any doubt he is told, as before."""
     now = time.time() if now is None else now
     try:
-        if not projects.enabled() or not projects.is_wake(job_field(job, "message_id")):
+        if not projects.enabled() or not woken(state_dir, job):
             return False
         number = int(job_field(job, "job_id") or 0)
         earlier = [record for record in topic_job_records(Path(state_dir), job_field(job, "topic_id"))

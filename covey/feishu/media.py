@@ -16,7 +16,7 @@ from covey.core.attachments import (ATTACHMENTS_HEADER, ATTACHMENTS_HINT, FAILED
                                              attachment_summary, document_link_note)
 from covey.core.state import ensure_private_dir, write_private_text
 from covey.feishu import message_read
-from covey.feishu.events import REPLY_CONTEXT
+from covey.feishu.events import REPLY_CONTEXT, with_parent
 from covey.feishu.forward import (MERGE_FORWARD_TYPE, new_forward_state, render_merge_forward_detail,
                                            render_replied_message_context)
 from covey.feishu.mentions import drop_mentions, render_mentions
@@ -225,9 +225,7 @@ def enrich_incoming_event(
     In a group topic ``owner_id`` labels who sent quoted and forwarded messages, and the
     mentions naming one of ``hidden_mentions`` (this bot) are left out, also when the
     message detail fetched here lists them again."""
-    enriched_event = dict(event)
-    if not enriched_event.get("parent_id") and enriched_event.get("reply_to"):
-        enriched_event["parent_id"] = enriched_event["reply_to"]  # lark-cli's name for it.
+    enriched_event = dict(with_parent(event))  # lark-cli's name for the parent is reply_to.
     raw_content = str(event.get("content") or "").strip()
     message_id = str(event.get("message_id") or event.get("id") or "").strip()
     message_type = _current_message_type(enriched_event, message_id, str(event.get("message_type") or "").strip(),

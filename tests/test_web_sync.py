@@ -113,7 +113,9 @@ class FakeApp:
         self.harness = SimpleNamespace(context=object())
         self.submission = SimpleNamespace(event_context=self.event_context, enqueue_chat_job=self.enqueue)
         self.steering = SimpleNamespace(steer_stage=lambda job: "running", deliver_steer=self.deliver)
-        self.questions = SimpleNamespace(submit_answer=lambda ctx, chat, token, fields, event: self.answers.append((ctx.topic_id, token, fields, event)),
+        self.answered_by = []  # Who each answer of ``answers`` was by (app/questions.py owner_submitted).
+        self.questions = SimpleNamespace(submit_answer=lambda ctx, chat, token, fields, event, by=None: (
+                                             self.answered_by.append(by), self.answers.append((ctx.topic_id, token, fields, event))),
                                          paint_question_state=lambda ctx, record: self.painted.append((record["token"], record["status"])),
                                          set_aside=self.set_aside, restore=self.restore)
         self.lesser = []  # (what, token, by, event) of 不处理 and 撤销.
@@ -895,6 +897,7 @@ class InboxTest(WebCase):
         topic, token, fields, event = self.app.answers[0]
         self.assertEqual((topic, token, event), (TOPIC, TOKEN, "web-op-4"))
         self.assertEqual(fields, {"option_0": "1", "supplement": "就这个"})
+        self.assertEqual(self.app.answered_by, ["ou_owner"])  # The page is the owner's: his answer, noted as his (W0-1).
 
     def test_an_answer_to_an_answered_or_unknown_question_fails(self):
         self.topic()
@@ -2831,7 +2834,7 @@ class OpLaneTest(WebCase):
         self.question()
         order = []
 
-        def submit(ctx, chat, token, fields, event):
+        def submit(ctx, chat, token, fields, event, by=None):
             order.append(("answer", len(self.web.acks)))
             card_lanes.after_ack(lambda: order.append(("follow-up", len(self.web.acks))))
         self.app.questions.submit_answer = submit
@@ -2845,7 +2848,7 @@ class OpLaneTest(WebCase):
         self.topic()
         self.question()
 
-        def submit(ctx, chat, token, fields, event):
+        def submit(ctx, chat, token, fields, event, by=None):
             card_lanes.after_ack(lambda: 1 / 0)
         self.app.questions.submit_answer = submit
         self.web.op("answer", 1, "op-a2", TOPIC, token=TOKEN, answers={"q1": "A"})
@@ -2984,7 +2987,7 @@ class TouchPastStuckTest(WebCase):
         self.assertIn(TOPIC, self.sync.shared.alive_stuck())
         path = self.state / "questions" / f"{TOKEN}.json"
 
-        def submit(ctx, chat, token, fields, event):
+        def submit(ctx, chat, token, fields, event, by=None):
             # As app/questions.py: the answer is saved (submitting) at once; the history line, the next turn and answered after the ack.
             write_json(path, {**read_object(path), "status": "submitting"})
 

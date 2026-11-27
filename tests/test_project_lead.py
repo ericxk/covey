@@ -140,10 +140,10 @@ class RulesTest(Case):
         self.assertEqual(project_lead.style_of({"style": {"spawn": "积极", "report": "verbose"}}),
                          {"report": "verbose", "detail": "简"})  # An older record's spawn is no error and not read.
         self.assertEqual(project_lead.style_of({}), project_lead.STYLE_DEFAULT)
-        table = {"ask_only": (), "milestones": ("milestone", "finish"), "each_thread": ("milestone", "finish", "thread"),
-                 "verbose": ("milestone", "finish", "thread", "note")}
+        table = {"ask_only": ("ask",), "milestones": ("ask", "milestone", "finish"), "each_thread": ("ask", "milestone", "finish", "thread"),
+                 "verbose": ("ask", "milestone", "finish", "thread", "note")}
         for report, kinds in table.items():
-            for kind in ("milestone", "finish", "thread", "note"):
+            for kind in ("ask", "milestone", "finish", "thread", "note"):
                 self.assertIs(project_lead.reportable({"report": report}, kind), kind in kinds, (report, kind))
 
 

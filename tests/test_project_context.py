@@ -5,6 +5,7 @@ none of it does anything."""
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import time
 import unittest
@@ -170,7 +171,7 @@ class SwitchOffTest(Case):
         self.assertEqual(project_context.block(self.ctx(), self.job(), resumed=False), "")
         self.assertEqual(project_lead.library_index(self.state, PID), [])
         record = {"questions": [{"id": "q", "question": "用哪个？"}], "answers": {"q": {"answers": ["新库"]}}}
-        project_context.remember_answer(self.state, MEMBER, record)
+        project_context.remember_answer(self.state, MEMBER, record, owners=True)
         self.assertEqual([row["source"] for row in memory.live(self.state, self.record())], ["lead"])
         path = self.attachment("方案.md")
         project_context.owner_files(self.state, LEAD, CHAT, self.message(path), self.media)
@@ -196,30 +197,30 @@ class AnswerTest(Case):
         record = {"token": "0123456789abcdef", "questions": [{"id": "a", "question": "按日期还是按租户分区？"}, {"id": "b", "question": "先迁哪年？"},
                                 {"id": "c", "question": "要不要停机？"}],
                   "answers": {"a": {"answers": ["按日期"]}, "b": {"answers": ["2023", "2024"]}, "c": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}}}
-        project_context.remember_answer(self.state, MEMBER, record, self.logs.append)
+        project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True)
         rows = self.decisions()
         self.assertEqual([(row.kind, row.said, row.by) for row in rows], [("decision", "owner", "owner")] * 2)
         self.assertEqual([row.text for row in rows], ["主人答：按日期还是按租户分区？→按日期", "主人答：先迁哪年？→2023；2024"])
-        project_context.remember_answer(self.state, MEMBER, record)  # The same answer is not noted twice.
+        project_context.remember_answer(self.state, MEMBER, record, owners=True)  # The same answer is not noted twice.
         self.assertEqual(len(self.decisions()), 2)
         self.assertEqual(memory.live(self.state, self.record()), [])  # decisions.jsonl, not the memory's 120 lines.
 
     def test_the_lead_counts_feedback_and_a_plain_topic_do_not(self):
         record = {"questions": [{"id": "a", "question": "用哪个？"}], "answers": {"a": {"answers": ["新库"]}}}
-        project_context.remember_answer(self.state, LEAD, record)
+        project_context.remember_answer(self.state, LEAD, record, owners=True)
         self.assertEqual(len(self.decisions()), 1)
-        project_context.remember_answer(self.state, MEMBER, {**record, "response_kind": "feedback", "feedback": "不对"})
-        project_context.remember_answer(self.state, "cd" * 16, record)  # No such topic: nothing written for it.
-        project_context.remember_answer(self.state, MEMBER, {"questions": [{"id": "a", "question": "q"}], "answers": {"a": {"answers": []}}})
+        project_context.remember_answer(self.state, MEMBER, {**record, "response_kind": "feedback", "feedback": "不对"}, owners=True)
+        project_context.remember_answer(self.state, "cd" * 16, record, owners=True)  # No such topic: nothing written for it.
+        project_context.remember_answer(self.state, MEMBER, {"questions": [{"id": "a", "question": "q"}], "answers": {"a": {"answers": []}}}, owners=True)
         self.assertEqual(len(self.decisions()), 1)
         self.assertFalse((self.state / "topics" / ("cd" * 16)).exists())
-        project_context.remember_answer(self.state, MEMBER, {"answers": "broken"}, self.logs.append)
+        project_context.remember_answer(self.state, MEMBER, {"answers": "broken"}, self.logs.append, owners=True)
         self.assertEqual(self.logs, [])  # Nothing to note, nothing raised.
 
     def test_a_record_that_is_gone_is_logged_not_raised(self):
         record = {"questions": [{"id": "a", "question": "用哪个？"}], "answers": {"a": {"answers": ["新库"]}}}
         os.unlink(projects.record_path(self.state, PID))
-        project_context.remember_answer(self.state, MEMBER, record, self.logs.append)
+        project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True)
         self.assertEqual(len(self.logs), 1)
 
     def test_a_question_about_another_projects_memory_is_history_from_the_start(self):
@@ -236,7 +237,7 @@ class AnswerTest(Case):
                      {"id": "own", "question": f"这个专项的记忆〔{mine}〕以后怎么算？"}]
         record = {"token": token, "questions": questions,
                   "answers": {question["id"]: {"answers": ["长期都照这条做"]} for question in questions}}
-        project_context.remember_answer(self.state, MEMBER, record, self.logs.append)
+        project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True)
         status = {row.origin["question"]: row.status for row in self.decisions()}
         self.assertEqual(status, {f"{token}-1": "done", f"{token}-2": "active", f"{token}-3": "active"})  # Naming a project is not it.
         self.assertEqual(self.logs, [f"project memory answer 1 noted as history: it names project {other}'s lines"])
@@ -248,10 +249,10 @@ class AnswerTest(Case):
         plain = {"token": "0123456789abcdef", "questions": [{"id": "a", "question": "按日期还是按租户分区？"}],
                  "answers": {"a": {"answers": ["按日期"]}}}
         with mock.patch.object(memory, "across", side_effect=AssertionError("read")):
-            project_context.remember_answer(self.state, MEMBER, plain, self.logs.append)
+            project_context.remember_answer(self.state, MEMBER, plain, self.logs.append, owners=True)
         with mock.patch.object(memory, "across", side_effect=OSError("nas")):
             project_context.remember_answer(self.state, MEMBER, {**plain, "token": "fedcba9876543210", "questions": [
-                {"id": "a", "question": "〔abc123〕这条还要吗？"}]}, self.logs.append)
+                {"id": "a", "question": "〔abc123〕这条还要吗？"}]}, self.logs.append, owners=True)
         self.assertEqual([row.status for row in self.decisions()], ["active"] * 2)
         self.assertEqual(self.logs, ["project memory answers not read against the other projects: OSError"])
 
@@ -270,9 +271,16 @@ class SubmittedAnswerTest(QuestionFixture, unittest.TestCase):
         self.state = state
 
     def test_a_submitted_answer_in_a_project_topic_is_noted(self):
-        self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.token, {"option_0": "0"}, "answer-1")
+        self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.token, {"option_0": "0"}, "answer-1",
+                                         by=self.app.runtime.owner_open_id)
         rows = memstore.decisions(self.state, "project", PID)
         self.assertEqual([(row.kind, row.said, row.text) for row in rows], [("decision", "owner", "主人答：范围？→全部")])
+
+    def test_an_answer_not_known_to_be_the_owners_is_not_noted_as_his(self):
+        # W0-1 (T892 P0-1): words a lead or the butler sent the topic, or a group member's answer, are no decision of the owner's.
+        self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.token, {"option_0": "0"}, "answer-1", by="ou_member")
+        self.assertEqual(memstore.decisions(self.state, "project", PID), [])
+        self.assertEqual(json.loads(self.path.read_text())["status"], "answered")  # The answer itself went through.
 
     def test_with_the_switch_off_it_is_not(self):
         os.environ[projects.MEMORY_ENV] = "0"

@@ -73,8 +73,10 @@ STYLE_DEFAULT = {REPORT: "milestones", DETAIL: "简"}
 REPORT_WORDS = {"ask_only": "只在需要主人定的时候说", "milestones": "只报里程碑和完成", "each_thread": "每个话题结束都报一句",
                 "verbose": "详细，进展都报"}
 # Which of a lead's report notes reach the owner under each ``report`` (phase 2's P2-8 delivers them; the filter is here).
-REPORT_KINDS = {"ask_only": (), "milestones": ("milestone", "finish"), "each_thread": ("milestone", "finish", "thread"),
-                "verbose": ("milestone", "finish", "thread", "note")}
+# ``ask`` (W0-2): what the owner is to decide goes out under every style, ask_only's included, until project_ask (W1-A).
+ASK = "ask"
+REPORT_KINDS = {"ask_only": (ASK,), "milestones": (ASK, "milestone", "finish"), "each_thread": (ASK, "milestone", "finish", "thread"),
+                "verbose": (ASK, "milestone", "finish", "thread", "note")}
 
 
 def style_of(record) -> dict:
@@ -100,7 +102,8 @@ def keep_style(state_dir, style) -> None:
 
 
 def reportable(style, kind) -> bool:
-    """Whether a report note of ``kind`` (milestone, finish, thread, note) is for the owner under ``style`` (a record's style)."""
+    """Whether a report note of ``kind`` (ask, milestone, finish, thread, note) is for the owner under ``style`` (a record's
+    style): an ask always is."""
     return kind in REPORT_KINDS.get(style_of({"style": style})[REPORT], ())
 
 
@@ -134,6 +137,7 @@ TOOL_RULES = (
     "同一件事、同一块代码、同一个问题已经有话题在做或做过，就用 project_topic_send 追加给它（不在专项里的普通话题会顺带收进来）；"
     "确实独立的事才用 project_topic_start 新开。",
     "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
+    "要主人定的事（范围、取舍、部署这一批、要不要停）kind 写 ask，任何汇报风格都会发给主人；"
     "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
     "- 专项的目标和完成标准用 project_goal 写成给主人看的一两句（网页上专项标题下显示）：第一轮写，主人改了要求再更新；只写目标，不写进度。",
     "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下：kind 写 rule（规矩，以后照做的）或 note（资料，供参考的事实），"
@@ -154,12 +158,14 @@ TOOL_RULES = (
     "- 部署先看记忆：主人自己说过改完就部署的，专项的话题合进主干、检查过就自己部署到主人的服务，你不攒批问、也不派话题去部署；"
     "“合进待部署”还列着的是合了没部署成的，用 topic_read 看为什么，该补的让那个话题补上。主人没说过时部署攒批："
     "专项的话题合进主干后不各自问部署，“专项状态”的“合进待部署”列着它们。该合的都合了、主人要用了，或攒了半天，"
-    "就一次问主人要不要部署这一批（主人在场的这一轮直接在回复里问，叫醒你的轮用 project_note 标 report）：列出话题、提交和各自的自检，"
+    "就一次问主人要不要部署这一批（主人在场的这一轮直接在回复里问，叫醒你的轮用 project_note，kind 写 ask）：列出话题、提交和各自的自检，"
     "一句话说部署会动什么。主人点头后用 project_topic_send 交给其中一个话题（或 project_topic_start 开一个）部署这一批，任务说明写明"
     "“主人已同意部署这一批”和提交清单。不要每合一个就问一次，也不要没问主人就派部署。",
     f"- {ASK_SHORT}这几类事你没有工具做，也不要替主人决定：部署照上一条，其余在话题里做，话题会照旧问主人。"
     "话题里问到主人的选择题，不由你答（分流还没开）。",
-    "- 对主人说话要克制：这一轮的回复只有主人在场触发的轮才会发给他；叫醒你的轮，回复不发，要说的话用 project_note 并标 report。",
+    "- 对主人说话要克制：主人在场的轮（他发来的、管家转来的，或叫醒你的轮里他中途插了话），回复会发给他。"
+    "叫醒你的轮，只有这一轮用 project_note 记了按风格要发的汇报（kind 为 ask 的任何风格都发），或开了话题、给话题加了话、停了话题、"
+    "替主人答或转交了问题，回复才会整段发给主人，否则不发；所以叫醒你的轮回复也写成给主人看的一段话，要问的事用 kind 为 ask 的 project_note 问。",
     "- 主人在场的这一轮里你开的话题、给话题加的话，那一轮结束时 Bridge 会把它的结论（或它停了）直接发给主人；"
     "对主人说“T12 出结果会直接发到这里”，不要说“出结果后我发给你”。收件箱里写着“结论已由 Bridge 直接发给主人”的回执，"
     "主人已经看到了，不要再标 report 转述；只有你据此有了新的判断、下一步要主人定，才报那一句。",
@@ -182,14 +188,14 @@ COLLAB_RULES = (
     "（读文件、用 topic_read 抽查）、两个结果有没有冲突、后面的条目要的前置结果有没有；有漏项就安排补齐：project_topic_send 让原话题返工，"
     "或 project_topic_start 开新话题，并用 project_checklist 写明缺口和由谁补。协作缺口处理完用 close_gaps 写怎么处理的。",
     "- 话题说做完只是它的说法：核对过证据才把那一条标 done（evidence 写提交号、产物路径或检查点里的自检）；还有没满足的条目或没处理的协作缺口时 "
-    "project_finish 会拒绝。主人说不要了的才标 dropped，在 gap 里写主人怎么说的；需要主人定范围、顺序或取舍时，合成一个问题用 project_note 标 report 问他。",
+    "project_finish 会拒绝。主人说不要了的才标 dropped，在 gap 里写主人怎么说的；需要主人定范围、顺序或取舍时，合成一个问题用 project_note（kind 写 ask）问他。",
     "- 协作咨询的回执（collab_answered）只供你参考，不会叫醒你，汇总方会自己交付结论。向主人汇报只说新的东西，比如“3 条标准只覆盖了 2 条，"
     "缺原版基线对照，还不能收尾”；不要把话题或汇总方的结论换个说法再发一遍。",
     "- 简报：第一轮用 project_goal 的 background 写背景，再用 project_checklist 的 actions 把目标拆成 3–8 个动作，"
     "每个写清条目、话题和一句现状（note）；动作的状态由 Bridge 算，不用你写。开话题、给话题加话时带 action 或 item，主人在对话里要改简报就照改。",
 )
 EVIDENCE_RULE = (
-    "- 开了协作，project_answer 必须写 evidence：列出你依据的专项记忆条目短码（状态包专项记忆每行开头〔〕里的）或主人在这个专项里的原话"
+    "- project_answer 必须写 evidence：列出你依据的专项记忆条目短码（状态包专项记忆每行开头〔〕里的）或主人在这个专项里的原话"
     "（msg:消息 id，见状态包“主人在专项里说过的话”）。只有长期约定、当前决定里没标（无出处）、仍有效的条目和主人原话算依据；"
     "待核对参考是你整理的，只能一起列，不能单独作依据；作废、做完、被替代或只限当次的 Bridge 会拒绝。被拒了就用 project_escalate 转给主人，"
     "不要换个说法再答。回答会带上依据，记在专项卡的分流记录里。"
@@ -205,11 +211,13 @@ def lead_rules(style=None, practice=PRACTICE) -> str:
     """The lead's rules: identity (NOT_WOKEN for WOKEN without COVEY_PROJECT_AUTOWAKE=1), tools, the style as the record has it,
     the practice layer (``practice``; none by default). The language rule is the bridge rules' (app/prompts.py
     LANGUAGE_RULE), said there once. With 协作 on
-    (COVEY_COLLAB=1) the lead's duty to the goal (``COLLAB_RULES``) and, with the triage, the grounds an answer names
-    (``EVIDENCE_RULE``) follow the tools."""
+    (COVEY_COLLAB=1) the lead's duty to the goal (``COLLAB_RULES``) follows the tools; with the triage, on or off 协作, the
+    grounds an answer names (``EVIDENCE_RULE``, W0-2)."""
     tools = TOOL_RULES if not triage.enabled() else (*(rule.replace(NOT_YET, "") for rule in TOOL_RULES), *TRIAGE_RULES)
     if turn_source.enabled():
-        tools = (*tools, *COLLAB_RULES, *((EVIDENCE_RULE,) if triage.enabled() else ()))
+        tools = (*tools, *COLLAB_RULES)
+    if triage.enabled():
+        tools = (*tools, EVIDENCE_RULE)  # project_answer checks its grounds with 协作 on or off (W0-2).
     identity = IDENTITY if projects.autowake_enabled() else tuple(rule.replace(WOKEN, NOT_WOKEN) for rule in IDENTITY)
     layers = [*identity, *tools, style_rule(style_of({"style": style})) if style else style_rule(STYLE_DEFAULT)]
     if practice:
@@ -453,7 +461,7 @@ def entry_id(item) -> str:
 def memory_lines(view, codes=None) -> list:
     """The memory's lines as the pack says them (app/prompts.py project_memory_lines): each carried line starts with its short
     code in 〔〕 (core/memstore.py; its entry id when ``codes``, entry id -> code, has none), what project_memory_revise takes
-    and, with 协作 on, project_answer's evidence names (app/triage.py grounds)."""
+    and project_answer's evidence names (app/triage.py grounds)."""
     codes = codes or {}
     parts = {part: {**room, "kept": [{**item, "text": f"〔{codes.get(entry_id(item)) or entry_id(item)}〕{item['text']}"}
                                      for item in room["kept"]]}
@@ -671,9 +679,10 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     change between turns (members, memory, style, inbox, decisions), the goal being in the session already.
     ``receipts``: the inbox's items when the caller has taken them. The memory is core/memory.py project_view's, as a member
     topic reads it: ``since`` the lead's previous turn's start (a resumed session: what was voided since then is said),
-    ``redacted`` whether the lead's topic reads the lines from topics with redaction on. With 协作 on (COVEY_COLLAB=1) also
-    the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``), the memory's ids (``memory_lines``), the owner's own words
-    with the triage on (``owner_word_lines``) and the inbox in groups (``inbox_block``), in a new session and a resumed one."""
+    ``redacted`` whether the lead's topic reads the lines from topics with redaction on; with the triage on, the owner's own
+    words (``owner_word_lines``: grounds project_answer may name, W0-2). With 协作 on (COVEY_COLLAB=1) also
+    the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``)
+    and the inbox in groups (``inbox_block``), in a new session and a resumed one."""
     style = style_of(record)
     if receipts is None:
         receipts = take_receipts(state_dir, record["id"], key)
@@ -702,7 +711,7 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     memory = memory_lines(view, memory_codes(state_dir, record["id"]) if view["parts"] else None)
     if memory:
         out.append(LEAD_MEMORY_HEAD + "\n" + "\n".join(memory))
-    words = owner_word_lines(state_dir, record) if collab_on and triage.enabled() else []
+    words = owner_word_lines(state_dir, record) if triage.enabled() else []  # Grounds project_answer may name (W0-2).
     if words:
         out.append(OWNER_WORDS_HEAD + "\n" + "\n".join(words))
     if full:

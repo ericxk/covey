@@ -22,6 +22,7 @@ from covey.core.locks import LOCK
 from covey.core.state import claim_once, read_json, write_durable_json
 from covey.core.store import directory_store, one_scan
 from covey.core.topics import has_topic_message, message_topic, read_topic
+from covey.feishu.events import with_parent
 from covey.feishu.message_parts import collect_message_parts
 
 # One empty marker per owner message (and bot menu click) taken in; maintenance drops those a week old.
@@ -50,7 +51,8 @@ class CardRouting:
                       event_ms=timing.delay_ms(event.get('timestamp'), flow.wall))
         try:
             with one_scan():  # One message reads its job and question records once (core/store.py).
-                return self._handle_event(event, ctx)
+                # The quoted message as parent_id before any route reads it (lark-cli and the WS intake say reply_to).
+                return self._handle_event(with_parent(event), ctx)
         finally:
             timing.end(flow)
 

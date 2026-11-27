@@ -270,6 +270,25 @@ class QuestionTest(QuestionFixture, unittest.TestCase):
         self.assertFalse((self.ctx_topic.state_dir / "held-notes").exists())
         self.assertIn("也可以直接在话题里回复", json.dumps(question_element(self.record), ensure_ascii=False))
 
+    def test_words_that_are_not_the_owners_are_held_never_taken_as_the_answer(self):
+        # W0-1 (T892 P0-1): a lead's or the butler's topic_send to a topic waiting on its one question had answered it.
+        self.backend.declare(questions=True, steering=True)
+        with mock.patch.object(self.app.questions, "submit_answer") as submit:
+            taken = self.app.interaction.interactive_command(self.ctx_topic, "选第二个", "oc_chat", "main-req-1", note_only=True)
+        self.assertTrue(taken)
+        submit.assert_not_called()
+        self.rpc.answer.assert_not_called()
+        self.assertEqual(json.loads(self.path.read_text())["status"], "pending")  # Still in 等你.
+        (note,) = [json.loads(path.read_text()) for path in (self.ctx_topic.state_dir / "held-notes").glob("*.json")]
+        self.assertEqual((note["text"], note["status"], note["question_tokens"]), ("选第二个", "held", [self.token]))
+
+    def test_the_owners_message_answers_with_who_sent_it(self):
+        self.backend.declare(questions=True, steering=True)
+        with mock.patch.object(self.app.questions, "submit_answer") as submit:
+            self.receive("om_owner_answer", "全部", root="om_question")
+        self.assertEqual(submit.call_args.args[2:4], (self.token, {"answer_0": "全部"}))
+        self.assertEqual(submit.call_args.kwargs["by"], "ou_user")  # app/questions.py owner_submitted: his decision.
+
     def add_second_question(self):
         self.record["questions"].append({"id": "order", "question": "顺序？", "options": []})
         self.path.write_text(json.dumps(self.record))

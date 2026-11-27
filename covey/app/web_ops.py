@@ -407,7 +407,8 @@ class Ops:
             raise ValueError("有几道题在等你，请在题目里逐题回答")
         record = waiting[0]
         app, ctx = self.topic(state, chat, topic)
-        app.questions.submit_answer(ctx, chat, str(record.get("token")), {"answer_0": text}, PREFIX + str(row.get("op_id")))
+        app.questions.submit_answer(ctx, chat, str(record.get("token")), {"answer_0": text}, PREFIX + str(row.get("op_id")),
+                                     by=self.runtime.owner_open_id or None)  # The page is the owner's.
         return "已作为这道题的回答交给任务"
 
     @staticmethod
@@ -444,10 +445,10 @@ class Ops:
                 fields = skip_all_fields(record.get("questions") or [], {SUPPLEMENT: note})
             except AnswerIncomplete:
                 raise ValueError("补充说明是空的：写上你想说的再提交") from None
-            app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
+            app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")), by=self.runtime.owner_open_id or None)
             return "补充说明已交给任务（题目算没答）"
         fields = answer_fields(record, payload.get("answers"), note, owner=True)
-        app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")))
+        app.questions.submit_answer(ctx, chat, token, fields, PREFIX + str(row.get("op_id")), by=self.runtime.owner_open_id or None)
         if note and not any(key.startswith(("option_", "answer_")) for key in fields):
             return "补充说明已交给任务（题目算没答）"
         return "答案已交给任务"

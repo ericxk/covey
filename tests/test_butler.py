@@ -31,7 +31,7 @@ from covey.core.process import JobCancelled, process_identity
 from covey.core.session_state import capture_session_state, compare_and_set_session
 from covey.core.steer import SteerRefused
 from covey.core.topic_seen import SEEN_FILE
-from covey.core.topics import remember_topic_message, topic_number
+from covey.core.topics import remember_topic_message, route_message, topic_number
 from covey.core.state import write_json
 from covey.app.pins import NOTICES_KEPT, panel_message, record_path, remember_notice
 from covey.core.workspaces import add_workspace
@@ -79,8 +79,9 @@ class ButlerUnifiedCase(UnifiedCase):
         enrich_incoming_event adds: attachments, the quoted message)."""
         event = self.event(mid, content, root, **fields)
         with mock.patch('covey.app.app.enrich_incoming_event') as enrich:
-            enrich.return_value = SimpleNamespace(text=content if model_text is None else model_text,
-                                                  display_text=content, event=event)
+            # The event it was given, as enrich_incoming_event's (routing has named the quote parent_id by then).
+            enrich.side_effect = lambda given, *args, **kwargs: SimpleNamespace(
+                text=content if model_text is None else model_text, display_text=content, event=given)
             self.app.handle_event(event, self.ctx)
 
     def butler_jobs(self):
@@ -141,6 +142,18 @@ class RoutingTest(ButlerUnifiedCase):
         remember_topic_message(self.state, topic, CHAT, 'om_topic_card')
         self.send('om_2', parent_id='om_topic_card')
         self.assertEqual(self.record('om_2')['topic_id'], topic)
+
+    def test_a_quote_named_reply_to_reaches_the_topic_its_card_was_routed_to(self):
+        # W0-3 (Neon B-P0-1): lark-cli and the WS intake name the quoted message reply_to and leave parent_id empty, and the
+        # routes read parent_id alone: quoting the butler's hand-on card (in the owner's message's thread) stayed the butler's.
+        topic = self.open_topic()
+        self.send('om_1')
+        self.done(self.job_of('om_1'))
+        route_message(self.state, CHAT, 'om_card', topic)
+        self.send('om_2', root='om_1', reply_to='om_card', parent_id=None)
+        self.assertEqual(self.record('om_2')['topic_id'], topic)
+        self.send('om_3', root='om_1', parent_id='om_card')  # Named parent_id: the same, as before.
+        self.assertEqual(self.record('om_3')['topic_id'], topic)
 
     def test_a_reply_to_the_butlers_message_stays_with_it(self):
         self.send('om_1')
