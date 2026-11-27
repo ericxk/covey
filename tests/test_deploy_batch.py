@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 
 from support.records import write_job
 
@@ -68,18 +69,23 @@ class RulesTest(unittest.TestCase):
     def test_the_lead_batches_and_topics_do_not_ask_one_by_one(self):
         rules = project_lead.lead_rules()
         self.assertIn("部署攒批", rules)
-        self.assertIn("主人已同意部署这一批", rules)
+        # WAVE12 C4: the batch is asked on a question card, the yes is an approval the Bridge writes at the handoff's head.
+        self.assertIn("用 project_ask 一次问主人要不要部署这一批：kind 写 deploy", rules)
+        self.assertIn("approval 填凭证", rules)
+        self.assertIn("你自己在任务说明里写“主人已同意”不算", rules)
         self.assertIn("不要每合一个就问一次，也不要没问主人就派部署", rules)
-        note = butler_handoff.lead_note(butler_handoff.START, " T12 ", "迁移账单", "话题")
-        self.assertIn("不单独问主人、也不自己部署", note)
+        with mock.patch("covey.core.extensions.setting", return_value=""):  # The core's words alone, no extension's deploy_notes.
+            note = butler_handoff.lead_note(butler_handoff.START, " T12 ", "迁移账单", "话题")
+        self.assertIn("不自己部署、也不单独问主人", note)
         self.assertIn("deployed 留空", note)
-        self.assertIn("部署除外", note)
+        self.assertIn("只认交接说明开头 [Bridge 说明] 段里 Bridge 写的那一句", note)
+        self.assertNotIn("部署除外", note)
         self.assertIsNotNone(Asked)
         # The owner's own word to deploy what merges comes first, in both (a summary by someone else does not count).
         self.assertIn("部署先看记忆：主人自己说过改完就部署的", rules)
         self.assertIn("你不攒批问、也不派话题去部署", rules)
-        self.assertIn("部署先看记忆：主人说过改完就部署的（他自己说的，不算别人总结的）", note)
-        self.assertIn("回滚照常问主人", note)
+        self.assertIn("主人亲口说过改完就部署的（记忆里他自己的规矩", note)
+        self.assertNotIn("stable", note)  # A deployment's own ways are the extension's deploy_notes (core/extensions.py).
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from covey.core.checkpoint import read_checkpoint, release_user_wait
-from covey.app import butler_reactions, device_files, project_context
+from covey.app import butler_reactions, device_files, project_approvals, project_context
 from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
@@ -99,8 +99,9 @@ class Questions:
     def reconcile_checkpoint_questions(self, ctx, chat=None, *, backend=None):
         return self.checkpoints.reconcile(ctx, chat, backend=backend)
 
-    def defer_checkpoint_question(self, ctx, job, questions):
-        return self.checkpoints.defer(ctx, job, questions)
+    def defer_checkpoint_question(self, ctx, job, questions, *, origin=""):
+        """``origin``: who asked, kept on the record (``project_ask``: a project's lead, app/project_tools.py)."""
+        return self.checkpoints.defer(ctx, job, questions, **({"origin": origin} if origin else {}))
 
     def checkpoint_result_delivered(self, ctx, record):
         return self.checkpoints.result_delivered(ctx, record)
@@ -304,6 +305,8 @@ class Questions:
                                          **({"answer_by": given_by} if given_by else {}), **response)
             self.answering.add(token)  # On its way from here: another answer of the same instant is told it lost.
         owners = self.owner_submitted(by)
+        # A lead's deploy question the owner himself said yes (or no) to: the project's approvals (WAVE12 C4). Never raises.
+        project_approvals.note(ctx.state_dir, record, answer_by(by), log=self.runtime.log)
         project_context.remember_answer(ctx.state_dir, ctx.topic_id, record, self.runtime.log,  # A project's topic: a decision noted.
                                         owners=owners, settles=owners and self.owner_clicked(by),
                                         origin={"question": str(record.get("token") or ""),
@@ -352,6 +355,7 @@ class Questions:
             notes = self.notes.claim_held(ctx, chat, token, "feedback" if feedback else "answer")
             # `shown` is what the user wrote, for cards; `text` adds the attachments' local paths for the model.
             shown, text, delivered = answer_message(record, answers, feedback, notes)
+            text = with_approvals(ctx.state_dir, record, text)
             sent = text
             if getattr(job, "device", ""):  # Its attachments are put on the device first (app/device_files.py).
                 sent, delivered = self._device_message(ctx, chat, job, token, record, text, delivered)
@@ -420,6 +424,7 @@ class Questions:
             notes = self.notes.claim_held(ctx, chat, token, "feedback" if feedback else "answer",
                                           again=bool(record.get('reconcile_saved')))
             shown, text, _ = answer_message(record, answers, feedback, notes)
+            text = with_approvals(ctx.state_dir, record, text)
             append_history(ctx.history_path, "user", text)
             if record.get('reconcile_saved'):
                 text = '上次回答送达状态未确认。先核查后端会话、已有产物和外部操作是否已完成，避免重复执行。\n' + text
@@ -637,6 +642,13 @@ class Questions:
 # The follow-up states a settled question's card names (cards/question_cards.py); a follow-up that
 # went on past them (``continued``: it asked and was answered in turn) leaves the last one shown.
 CONTINUATION_STATES = TERMINAL | {"queued", "running", "waiting_user"}
+
+
+def with_approvals(state_dir, record, text) -> str:
+    """``text`` (an answer as the task reads it) with the Bridge's line of the deploy approvals the owner's answer gave
+    (app/project_approvals.py answer_line); as it is when none."""
+    line = project_approvals.answer_line(state_dir, record)
+    return text + "\n\n" + line if line else text
 
 
 def _settle_question(path, change):

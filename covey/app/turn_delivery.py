@@ -101,6 +101,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         self.cut = False  # The card took the result cut short (send): the full text went elsewhere.
         self.in_place = False  # A butler turn's verified reply is on its task card, no answer card (butler_reply).
         self.silent = False  # A project lead's wake-up turn: its saved reply is not sent (app/project_loop.py silent).
+        self.lead_quiet = False  # That one: its report notes go apart (app/project_loop.py report_out).
         self.quiet_revisit = False  # A revisit turn that found nothing new: not sent, not relayed (app/revisits.py silent).
         self.listed = False  # A stopped or refused butler turn's card (or top-level notice) lists its supplements.
         self.display_text = None  # The reply as its card shows it, once deliver has it.
@@ -136,7 +137,9 @@ class TurnDelivery(AnswerParts, QuietDelivery):
             # A quiet butler turn with no card that only handed work on: its Get reaction says it (D1).
             self.in_place = butler_reply.handed_quietly(self)
         self.quiet_revisit = standalone_verified and not self.in_place and revisits.silent(self)
-        self.silent = self.quiet_revisit or standalone_verified and not self.in_place and project_loop.silent(self)
+        # A lead's wake-up the owner was not in (W1-A C4): its reply is held back, its report notes go (report_out below).
+        self.lead_quiet = not self.quiet_revisit and standalone_verified and not self.in_place and project_loop.silent(self)
+        self.silent = self.quiet_revisit or self.lead_quiet
         if not turn_source.behavior(job).own_delivery:
             # A 协作 ask's turn (app/collab_flow.py): whatever its end, nothing is sent; its saved reply counts as delivered
             # (rule 5: its record keeps it), and its collaboration record settles it once its runner is gone.
@@ -146,6 +149,8 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         set_failure(None)
         delivered, updated = self.send(final_card, display_text, delivery_text, standalone_verified,
                                        standalone_question)
+        if self.lead_quiet and turn_source.behavior(job).own_delivery:
+            project_loop.report_out(self)  # Never raises; its questions still go as cards (deliver_questions).
         if not delivered and quick_held(job):
             # A quick answer that did not go out: its held card now, which says so with 重新投递 (finish_card).
             cards.reveal_held(ctx, job, "undelivered")

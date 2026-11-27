@@ -113,7 +113,14 @@ def long_wait(waits: str = "") -> str:
     return head + "更久的，先告诉用户现状和预计什么时候有结果，然后结束这一轮。"
 
 
-def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = (), waits: str = "") -> str:
+WORK_RULE = "- 权限允许时，用户要你做的，你可以在当前工作区里看文件、改代码、跑验证命令。"
+
+
+def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = (), waits: str = "", *,
+                lead: bool = False) -> str:
+    """The bridge's constraints of a turn; ``waits``: what a long wait is in its topic (``long_wait``); ``lead``: a
+    project's lead's, which reads only (its rules say what it does), so it is not told it may change code and run checks
+    (WORK_RULE, WAVE12 W1-A)."""
     runtime_note = runtime_note or f"{backend_name} 的权限由这个桥接器控制"
     return "\n".join((
         f"你是 {backend_name}，通过飞书回复用户。",
@@ -124,7 +131,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         "- 用适合飞书的 Markdown：短小节、列表、编号步骤；命令、日志、路径、diff 和代码片段放进代码块。",
         "- 不写大段文字，排成一眼能扫完的结构；不加装饰性的话。",
         f"- 你在飞书桥接器里运行，{runtime_note}。",
-        "- 权限允许时，用户要你做的，你可以在当前工作区里看文件、改代码、跑验证命令。",
+        *(() if lead else (WORK_RULE,)),
         "- 不做破坏性操作、不碰密钥、不大范围改文件系统、不从飞书启动长期运行的服务，除非用户最新一条消息明确要求而且风险低。",
         *search_rules(),
         # A supplement such as 'the QR code expired, send a new one' must not wait minutes for a wait loop to end.
@@ -503,6 +510,7 @@ def bridge_rules(
     checkpoint: str | None = None,
     home: str = "",
     waits: str = "",
+    lead: bool = False,
 ) -> str:
     """``proxy`` (a 代答 topic's): its own constraints and the workspace, nothing else (proxy_constraints). Otherwise
     identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
@@ -511,11 +519,11 @@ def bridge_rules(
     contract (``checkpoint``, core/checkpoint.py checkpoint_rules; None: all of it; ``remember``: and the rule for writing
     entries): the same every turn of a topic. Static only, so the rules stay one cacheable prefix: what changes turn by turn goes to the prompt's
     tail (``turn_tail``). ``home``: the home block (app/home_turn.py static_block) in place of the workspace block.
-    ``waits``: what a long wait is in this topic (``long_wait``)."""
+    ``waits``: what a long wait is in this topic (``long_wait``). ``lead``: a project's lead's turn (``constraints``)."""
     where = home_section(workspace_name, workdir, device, remote_workdir, home=home)
     if proxy:
         return "\n\n".join((proxy_constraints(backend_name, runtime_note, notes), where))
-    return "\n\n".join((constraints(backend_name, runtime_note, notes, waits), where,
+    return "\n\n".join((constraints(backend_name, runtime_note, notes, waits, lead=lead), where,
                         *memory_sections(memory_text=memory_text, principles=principles, project=project,
                                          knowledge_text=knowledge_text),
                         *((gists,) if gists else ()),

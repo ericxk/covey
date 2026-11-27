@@ -19,7 +19,10 @@ A project's lead hands work on in its own words (``Asked.lead``, app/butler_topi
 project's lead sent it, the model gets the lead's task and no quote, and the card, the history and the thread's line
 show that task. What the owner said in the lead's turn stays the lead's: one turn of it often hands several topics
 different work. His files go on only as the lead names them (its ``attachments``, none by default), carried as the
-butler's are.
+butler's are. The note says what a topic of a project does about deploying (core/checkpoint.py MEMBER_DEPLOY_RULE, and the
+extension setting ``deploy_notes`` for what a deployment of the company adds; neither for a read-only turn), and, when the
+lead's hand-on carries the owner's approval the Bridge checked (``Asked.grant``, app/project_approvals.py line), that line:
+the only one a topic takes as his yes (WAVE12 C4).
 """
 from __future__ import annotations
 
@@ -34,8 +37,9 @@ from covey.core.attachments import (ATTACHMENT_LINE_RE, ATTACHMENTS_HEADER, ATTA
                                              attachment_block, attachment_summary, message_words, parse_attachment_block)
 from covey.core.deliveries import CLOCK_SLACK, read_delivery
 from covey.core.jobs import find_job_record
+from covey.core import extensions
 from covey.core.butler import butler_topic_id
-from covey.core.checkpoint import ASK_SHORT
+from covey.core.checkpoint import ASK_SHORT, MEMBER_DEPLOY_RULE
 from covey.core.metrics import timings_of
 from covey.core.state import ensure_private_dir, epoch_seconds
 from covey.core.text import stamp
@@ -60,6 +64,7 @@ class Asked:
     # 话题转交管家 queued, an answer's continuation); '' when the turn carries none of his (a relay is then the butler's).
     message_id: str = ""
     ids: tuple = ()  # Each of ``said``'s message id, in the same order ('' where none is known): the turn's, each supplement's.
+    grant: str = ""  # A lead's hand-on: the Bridge's line of the deploy approval it carries (app/project_approvals.py line).
 
     @property
     def words(self) -> str:
@@ -297,20 +302,31 @@ def _spaced(name):
     return (" " if name[:1].isascii() else "") + name + (" " if name[-1:].isascii() else "")
 
 
-def lead_note(kind, name, project, noun) -> str:
-    """The note when the lead of the project ``project`` (a name) hands the work on: the topic is one of that project's topics."""
+def deploy_words(read_only=False) -> str:
+    """What a project's topic does about deploying (MEMBER_DEPLOY_RULE) and the extension's ``deploy_notes`` (core/extensions.py:
+    a deployment's own words, such as what else goes out with it); '' for a read-only turn, which deploys nothing."""
+    if read_only:
+        return ""
+    extra = " ".join(str(extensions.setting("deploy_notes") or "").split())
+    return MEMBER_DEPLOY_RULE + (extra if extra else "")
+
+
+def lead_note(kind, name, project, noun, *, grant="", read_only=False) -> str:
+    """The note when the lead of the project ``project`` (a name) hands the work on: the topic is one of that project's topics.
+    ``grant``: the Bridge's line of the owner's deploy approval the hand-on carries, at the end of the note."""
     head = f"{NOTE} 你在{noun}{name}，这是专项「{project}」的一个话题。"
     done = ("你的回复就是这一轮的结论，由 Bridge 处理，不用转述给谁。"
-            f"{ASK_SHORT}照常问主人，部署除外；其余能撤回、有推荐的按推荐做，在结论里写明怎么改回（执行约定里的“什么时候问主人”）。"
-            "部署先看记忆：主人说过改完就部署的（他自己说的，不算别人总结的），合进主干、部署前的检查过了就直接部署到主人自己的服务"
-            "（网页有改一起发布），别的部署在跑时等它结束，检查点 delivery 写提交和部署到的地方；主人没说过的，合进主干后不单独问主人、"
-            "也不自己部署，在检查点 delivery 写提交、deployed 留空，负责人把专项里合进去的攒成一批一次问主人；负责人转来“主人已同意"
-            "部署这一批”时照它部署。部署前的检查照常做；别人的机器、stable 通道、回滚照常问主人。")
+            f"{ASK_SHORT}照常问主人；其余能撤回、有推荐的按推荐做，在结论里写明怎么改回（执行约定里的“什么时候问主人”）。"
+            + deploy_words(read_only))
+    tail = f"{NOTE} {grant}" if grant else ""
     if kind == STEER:
-        return (f"{NOTE} 专项「{project}」的负责人给{name or '本' + noun}转来补充，你仍在这一轮里：把它并进手上的工作。")
+        said = f"{NOTE} 专项「{project}」的负责人给{name or '本' + noun}转来补充，你仍在这一轮里：把它并进手上的工作。"
+        return said + (f"\n{tail}" if tail else "")
     if kind == NEXT:
-        return f"{head}负责人把下一件事交给你，作为这个{noun}的下一轮；下面是任务说明。直接做事。{done}"
-    return f"{head}负责人把这件事交给你；下面是任务说明。直接做事，不要再试图开话题或切话题。{done}"
+        said = f"{head}负责人把下一件事交给你，作为这个{noun}的下一轮；下面是任务说明。直接做事。{done}"
+    else:
+        said = f"{head}负责人把这件事交给你；下面是任务说明。直接做事，不要再试图开话题或切话题。{done}"
+    return said + (f"\n{tail}" if tail else "")
 
 
 # The owner's words quoted whole may ask for more than this hand-on (another topic's, another project's): the butler has
@@ -318,15 +334,15 @@ def lead_note(kind, name, project, noun) -> str:
 ONLY_THIS = "原话里如果还有别的事，管家另有安排，你只做任务说明里的这件。"
 
 
-def note(kind, *, label, title, owner: Asked, source="") -> str:
+def note(kind, *, label, title, owner: Asked, source="", read_only=False) -> str:
     """The Bridge's note at the head of what the topic's model gets, for ``kind`` (START, NEXT, STEER, FORK);
-    ``source``: the topic a fork came from."""
+    ``source``: the topic a fork came from; ``read_only``: a turn that changes nothing (a lead's topic hears nothing of deploying)."""
     noun, where = "话题", "私聊聊天区"
     named = _named(label, title)
     name = _spaced(named) if named else ""
     here = _spaced(label) if label else f"这个{noun}"
     if owner.lead:
-        return lead_note(kind, name, owner.lead, noun)
+        return lead_note(kind, name, owner.lead, noun, grant=owner.grant, read_only=read_only)
     who = f"主人 {owner.clock} " if owner.clock else "主人"
     done = "你的回复就是这一轮的结论，由 Bridge 发给主人。"
     settled = (f"原话里“开个话题”“单开一个”“放到哪个 T 号里”“转给谁”这类安排管家已经办完了，你就是那个{noun}："
@@ -401,7 +417,7 @@ def handoff_prompt(kind, *, label, title, task, owner: Asked, items=(), extra=""
     it was judged read-only) adds nothing here any more: its words end the turn's message (app/tool_limits.py note, W1-C), so
     the topic's history does not keep them for the turns after it."""
     who = "负责人" if owner.lead else "管家"
-    parts = [note(kind, label=label, title=title, owner=owner, source=source),
+    parts = [note(kind, label=label, title=title, owner=owner, source=source, read_only=read_only),
              f"任务说明（{who}整理）：\n" + task + (f"\n{who}补充：{extra}" if extra else "")]
     if owner.lead and items:
         parts.append(f"负责人转给你的附件：{summary(items)}（见下方“收到的附件”）")

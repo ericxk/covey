@@ -34,13 +34,13 @@ from covey.core import criteria, devices, gateways, quota_hold, turn_source, tur
 from covey.core.checkpoint import (audit_recovery, checkpoint_note, checkpoint_rules, gist_note, images_note,
                                             needs_owner, normalize_questions, question_summary, read_checkpoint,
                                             release_user_wait)
-from covey.core.harness import (CONSULT, TOOL_LIMIT, BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
+from covey.core.harness import (CONSULT, LEAD, TOOL_LIMIT, BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
                                          backend_capabilities, normalize_run_result)
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import upsert_job_record
 from covey.core import memory
 from covey.core import principles as owner_principles
-from covey.core.butler import is_butler_topic, traits
+from covey.core.butler import is_butler_topic, is_lead, traits
 from covey.core.metrics import mark
 from covey.core.proxy import brief_history, owner_turn_note
 from covey.core.redaction import topic_redaction
@@ -122,6 +122,10 @@ class _Live:
     rules_session: bool = False
 
 
+ASK_ORIGIN = "project_ask"  # app/project_tools.py: the questions a lead's turn wrote into its checkpoint with project_ask.
+# A lead's turn keeps no checkpoint (WAVE12 C4): this line stands where a turn's checkpoint contract would.
+LEAD_RULE = "- 负责人这一轮不写检查点、不用检查点问主人：要主人定的事用 project_ask（Bridge 在这一轮结束时出问题卡），进展用 project_note。"
+
 class Runs:
     """- ``harness``: whose backend runs the turn, and its session pattern.
     - ``runtime``: the log.
@@ -168,6 +172,7 @@ class Runs:
             checkpoint=self.checkpoint_rules(ctx, job),
             home=home_turn.static_block(ctx),
             waits=self.waits_of(ctx, job),
+            lead=self.lead_turn(ctx, job),
         )
 
     @staticmethod
@@ -197,6 +202,14 @@ class Runs:
         return tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx) or ())
 
     @staticmethod
+    def lead_turn(ctx: BridgeContext, job: ReplyJob | None) -> bool:
+        """Whether ``job``'s turn is a project's lead's (its turn held to LEAD, or its topic the lead topic): it keeps no
+        checkpoint (WAVE12 C4), it asks with project_ask and tells with project_note."""
+        if ctx.options.get(TOOL_LIMIT) == LEAD:
+            return True
+        return job is not None and is_lead(job.topic_id or ctx.topic_id, job.chat_id)
+
+    @staticmethod
     def slim(ctx: BridgeContext, job: ReplyJob | None) -> bool:
         """Whether ``job``'s turn is the butler's or a lead's (Traits.own_turn): it answers and dispatches, so its
         checkpoint contract has no steps, delivery or images (``checkpoint_rules``). No job: a topic's."""
@@ -209,6 +222,8 @@ class Runs:
         of what the topic uses (``_used``)."""
         if ctx.options.get(TOOL_LIMIT) == CONSULT:
             return collab_channel.RULES  # A 协作 ask: no checkpoint at all (app/tool_limits.py CONSULT).
+        if self.lead_turn(ctx, job):
+            return LEAD_RULE  # A lead's turn: no checkpoint; its two tools say what it asks and tells (WAVE12 C4).
         if self.slim(ctx, job):
             return checkpoint_rules(steps=False, delivery=False, images=False)
         if not resumed or job is None:
@@ -605,6 +620,10 @@ class Runs:
             prior = {"subagents": dead}  # No checkpoint to verify: only the block of what they delivered.
         shown = devices.device_checkpoint_path(ctx, job.checkpoint_path) if ctx.device else ""
         prior = owner_send.untaken(ctx, job, prior)  # The 代发 drafts the Bridge took in are in the turn's 代发 note (T825).
+        if self.lead_turn(ctx, job):
+            # A lead keeps no checkpoint: no file to name, only what an answered turn of it left to check (its questions).
+            told = checkpoint_note(Path(job.checkpoint_path), prior).partition("\n")[2]
+            return "\n\n" + told if told else ""
         return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
                 + self._revisit_note(ctx, job) + self._ask_note(ctx, job) + self._collab_note(ctx, job)
                 + self._criteria_note(ctx, job) + self._images_note(ctx, job))
@@ -792,7 +811,9 @@ class Runs:
                                   checkpoint_question_deferred=True, checkpoint_question_registration_pending=True)
                 # As the turn wrote them, made into what a card takes (core/checkpoint.py normalize_questions).
                 questions = normalize_questions(cp.get("questions"), question_summary(cp))
-                self.questions.defer_checkpoint_question(ctx, job, questions)
+                # A lead's project_ask (app/project_tools.py): the record says so (the lead stays free while it waits).
+                origin = cp.get("origin") if cp.get("origin") == ASK_ORIGIN and self.lead_turn(ctx, job) else ""
+                self.questions.defer_checkpoint_question(ctx, job, questions, **({"origin": origin} if origin else {}))
                 upsert_job_record(ctx.state_dir, job.message_id, checkpoint_question_registration_pending=False)
                 job.checkpoint_question_registration_pending = False
             except Exception as exc:

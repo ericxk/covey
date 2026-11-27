@@ -175,6 +175,7 @@ class NativeQuestions:
             "backend_session_id": getattr(rpc, "session_id", "") or getattr(rpc, "thread_id", ""),
             "status": "pending",
             "created_at": time.time(),
+            **({"origin": data["origin"]} if isinstance(data.get("origin"), str) and data["origin"] else {}),
             **(marks or {}),
         }
         pause_question = (not defer_question and record["blocking"] and rpc is not None

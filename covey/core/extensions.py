@@ -70,6 +70,8 @@ SETTING_NAMES = {
     "search_rules": "app/prompts.py: the bridge constraints' lines on scoped searches and stopping commands, one per line, "
                     "in place of the core's one sentence (SEARCH_RULE)",
     "search_reminder": "app/prompts.py: that sentence of the reminder each resumed turn gets (resume_reminders)",
+    "deploy_notes": "app/butler_handoff.py: what a project's topic is told about deploying beyond the core's rule "
+                    "(MEMBER_DEPLOY_RULE), such as what goes out with a deploy; not for a read-only turn (WAVE12 C4)",
 }
 # compat: variables of features that were taken out -> the feature; still set, they are ignored and the Bridge logs one
 # line for each (``unused_env``). Paseo (the covey_paseo extension) was taken out.

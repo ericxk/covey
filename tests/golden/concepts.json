@@ -429,6 +429,7 @@
    "memory_save",
    "memory_search",
    "project_answer",
+   "project_ask",
    "project_checklist",
    "project_escalate",
    "project_finish",

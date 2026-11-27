@@ -372,6 +372,12 @@ def job_path(state_dir: Path, key: str) -> Path:
     return job_file(state_dir, key)
 
 
+def checkpoint_file(state_dir, key: str) -> Path:
+    """The checkpoint file of the task ``key`` (its job key): ``<state>/checkpoints/<key>.json``, where app/worker.py seeds it at the
+    turn's start and a lead's ``project_ask`` (app/project_tools.py) writes its questions."""
+    return Path(state_dir) / "checkpoints" / (str(key) + ".json")
+
+
 def read_job_record(path: Path) -> dict[str, Any] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))

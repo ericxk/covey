@@ -3,10 +3,13 @@ when something happened since it last looked, and the mechanical checks that sto
 
 - ``ProjectLoop`` (app/unified.py PARTS ``project_loop``, a feature object: ``threads()``, none without COVEY_PROJECTS=1): a
   thread that looks at every active project each ``TICK`` seconds. A project with receipts nobody has read (the inbox,
-  app/project_lead.py) and no lead turn queued, running or waiting for the owner gets one wake-up turn, queued like any
-  message of the lead's topic (``enqueue_chat_job``, message id ``lead-<project id>-<n>``, ``n`` kept in the record's
-  ``wakes``). A ``start`` receipt always wakes; the others only with COVEY_PROJECT_AUTOWAKE=1. After a restart the same
-  look finds the receipts on disk again (``take_receipts`` gives back what a turn that did not end well had taken).
+  app/project_lead.py) and no lead turn queued, running or waiting for the owner (``lead_busy``: a turn that only waits for
+  the answer to its project_ask does not count, W1-A C4 ③) gets one wake-up turn, queued like any message of the lead's
+  topic (``enqueue_chat_job``, message id ``lead-<project id>-<n>``, ``n`` kept in the record's ``wakes``) with the source
+  ``wake`` (WAVE12 C1: it answers no question the lead waits on, C4 ①). A ``start`` receipt always wakes; the others only
+  with COVEY_PROJECT_AUTOWAKE=1. After a restart the same look finds the receipts on disk again (``take_receipts`` gives
+  back what a turn that did not end well had taken). ``lead_free`` tells app/triage.py whether the lead can take a member's
+  question now; when it cannot, the question goes to the owner at once.
 - Guards, any of which pauses the project with ``state_reason`` ``tokens``, ``wakes`` or ``stalled`` (core/projects.py
   GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_BUDGET, only when a deployment
   sets it (``tokens_used`` is added once per task by ``after_runner`` all the same, the 专项卡 shows it); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
@@ -39,12 +42,18 @@ when something happened since it last looked, and the mechanical checks that sto
   retry, or the wake after the wait, reads them all in one turn, as any lead turn takes them. A receipt of the owner's own
   doing that came after that turn (``start``, ``owner_choice``) still wakes it, once. A wake-up that does not start after
   one that did not either tells the owner nothing (``quiet_start``): he was told when the first did not.
-- ``silent`` (app/turn_delivery.py TurnDelivery): a wake-up turn's reply is not sent to the owner, unless the lead recorded a
-  report note in it that its style lets through (``project_lead.reportable``); then it goes as the lead's reply does. A
-  member's turn the owner waits for (the lead handed it on while he was there) had its result sent to him by its runner
-  (app/relay_targets.py awaited_target): its ``thread_end`` receipt says ``relayed``, and a wake-up turn that read only such
-  receipts (and consults' ``collab_answered`` ones, which are the integrator's to deliver) and reported only ``thread`` or
-  ``note`` notes stays quiet (``told_already``): one result, told once.
+- ``silent`` (app/turn_delivery.py TurnDelivery): the reply of a wake-up turn the owner was not in (``woken``) is not sent,
+  done or waiting for the answer to what it asked (its question cards go all the same); its report notes that its style
+  lets through (``project_lead.reportable``) go instead, as one message under who says it (``report_out``, W1-A C4: the
+  three channels are project_ask, report notes, and the reply only when the owner is there). A member's turn the owner
+  waits for (the lead handed it on while he was there) has its result sent to him by its relay (app/relay_targets.py
+  awaited_target): a wake-up turn that read only such receipts (its relay read when the lead reports: on its way, sent or
+  maybe sent, ``receipt_told``; and consults' ``collab_answered`` ones, which are the integrator's to deliver) sends none of
+  its ``thread`` or ``note`` notes (``told_already``): one result, told once; one whose relay failed is the report's to tell.
+- 主人在场 (WAVE12 C5) is read in one place: ``woken`` (core/projects.py woken on the job and on its record, ``present``):
+  a wake-up is one by its ``wake`` source (or, queued before the stamp, its message id), and the owner is in it once a
+  supplement of his is about to go into it (``owner_steered``, written before the supplement is sent and taken back when it
+  surely did not go, P1-8) or its source carries his message.
 - With 协作 on (COVEY_COLLAB=1, docs/projects.md 负责人对照目标跟进): ordinary receipts that come close together wake the lead
   once (``settling``: it waits until none has come for ``batch_seconds``, at most BATCH_STRETCH times as long; a ``start``,
   the owner's choice, a held question or a 协作 gap wakes at once), and a consult's turn (``collab_ask``, in its 咨询通道)
@@ -55,6 +64,7 @@ Rules 1 and 5 (AGENTS.md): records are written under their own lock, nothing is 
 reply that goes out is the saved, authorized one."""
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections import namedtuple
@@ -91,8 +101,8 @@ LEFT_WAIT = 300
 START_WAIT = 20  # After the Bridge starts: its own recovery of interrupted turns goes first.
 HOUR = 3600
 WAKE_TEXT = ("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主人不在场：按回执判断下一步。"
-             "要主人定的事用 project_note 问他（kind 写 ask，任何汇报风格都发）；进展按汇报风格用 project_note 标 report。"
-             "这一轮记了要发的汇报、或开了话题、加了话、停了话题、答或转交了问题，回复才会发给主人，否则不发；主人中途插话时也会发。")
+             "要主人定的事用 project_ask 问他（出问题卡，任何汇报风格都发）；进展用 project_note 标 report，Bridge 按汇报风格把笔记原文发给主人。"
+             "这一轮的回复不发给主人（主人中途插话时才发），要他知道的写进 project_note 或 project_ask。")
 TOKEN_JOBS_KEPT = projects.TOKEN_JOBS_KEPT
 EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
@@ -223,6 +233,49 @@ def jobs_of(state_dir, topic) -> list:
 def open_turns(state_dir, topics) -> bool:
     """Whether any of ``topics`` has a task not ended: queued, running, or waiting for the owner."""
     return any(record.get("status") in NOT_ENDED for topic in topics for record in jobs_of(state_dir, topic))
+
+
+ASK_ORIGIN = "project_ask"  # A question record's ``origin`` when the lead asked it with project_ask (app/project_tools.py).
+
+
+def asks_owner(state_dir, record) -> bool:
+    """Whether the lead's task ``record`` only waits for the owner's answer to what it asked with project_ask (W1-A C4 ③): it
+    is ``waiting_user`` and a question of it still pending says ``origin`` ASK_ORIGIN. Such a turn is over as far as the lead
+    goes: it neither holds a wake-up back nor keeps a member's question from the lead."""
+    if record.get("status") != "waiting_user":
+        return False
+    key = str(record.get("key") or job_key(record.get("message_id"), record.get("job_id")))
+    return any(True for _ in directory_store(Path(state_dir) / "questions").query(
+        status="pending", where=lambda row: row.get("job_key") == key and row.get("origin") == ASK_ORIGIN))
+
+
+def lead_busy(state_dir, lead) -> bool:
+    """Whether the lead's topic ``lead`` has a turn that keeps a wake-up back: one queued, running or waiting for the owner,
+    but not one that only waits for the answer to a project_ask question (``asks_owner``): the owner may take his time, and
+    the receipts and the members' questions meanwhile go to the lead as ever (W1-A C4 ③)."""
+    return any(record.get("status") in NOT_ENDED and not asks_owner(state_dir, record) for record in jobs_of(state_dir, lead))
+
+
+def lead_free(state_dir, record, now=None) -> bool:
+    """Whether the lead of the project ``record`` can take a member's question now (app/triage.py ``_route``, W1-A C4 ③): no
+    turn of it busy (``lead_busy``), no guard over it (``hold``) and no wait for a limit or a backend down (``limit_wait``).
+    When it cannot, the question goes to the owner at once instead of waiting its three minutes for a lead that will not
+    come. Never raises: False when the record or the lead's turns cannot be read (the owner's card is the safe answer); a
+    wait that cannot be worked out (the lead's topic.json unreadable) holds nothing, as before W1-A (the three minutes do)."""
+    try:
+        now = time.time() if now is None else now
+        lead = str(record.get("lead_topic_id") or "")
+        if not lead or record.get("state") != projects.ACTIVE or lead_busy(state_dir, lead) or hold(record, now):
+            return False
+    except Exception:  # noqa: BLE001 - see above
+        return False
+    try:
+        return not limit_wait(state_dir, record, [], now)[0]
+    except Exception:  # noqa: BLE001 - see above
+        return True
+
+
+triage_flow.LEAD_FREE = lead_free  # app/triage.py _route asks it (it may not import this module: no import cycle).
 
 
 def has_question(state_dir, topics) -> bool:
@@ -358,78 +411,173 @@ def room_words(room) -> str:
     return f"为腾位置收起了最久没动静的专项「{room.folded}」，有新的事它会自动展开。" if room.folded else ""
 
 
-def reported(state_dir, topic_id, key) -> bool:
-    """Whether the turn ``key`` of the lead topic ``topic_id`` recorded a report note its project's style lets through, or
-    changed something (handed out work, stopped a topic, answered or handed on a question: the record's ``acted``,
-    app/project_tools.py): the reply of a wake-up turn is sent then, as an owner's turn's is (有变化才发). A turn whose only
-    reports are ``thread`` or ``note`` ones (RETOLD), about member turns whose results the owner was sent already (``told_already``), is not."""
-    found = projects.topic_project(state_dir, str(topic_id or ""))
-    record = projects.read_record(state_dir, found.id) if found is not None else {}
-    if any(isinstance(row, dict) and row.get("job") == key for row in record.get("acted") or ()):
-        return True
+def report_rows(state_dir, project_id, record, key) -> list:
+    """The report notes of the lead's turn ``key`` that go to the owner (``report_out``): ``report`` true and of a kind the
+    project's style lets through (project_lead.reportable), the RETOLD ones left out when the owner was sent the member's
+    result itself (``told_already``): one result, told once."""
     rows = [row for row in record.get("notes") or ()
             if isinstance(row, dict) and row.get("job") == key and row.get("report") is True
-            and project_lead.reportable(record.get("style"), row.get("kind"))]
-    if rows and all(row.get("kind") in RETOLD for row in rows) and found is not None and told_already(state_dir, found.id, key):
-        return False  # The owner was sent the member's result itself (``told_already``): not the same again.
-    return bool(rows)
+            and project_lead.reportable(record.get("style"), row.get("kind")) and str(row.get("text") or "").strip()]
+    if any(row.get("kind") in RETOLD for row in rows) and told_already(state_dir, project_id, key):
+        rows = [row for row in rows if row.get("kind") not in RETOLD]
+    return rows
+
+
+def reported(state_dir, topic_id, key) -> bool:
+    """Whether the turn ``key`` of the lead topic ``topic_id`` recorded a report note that goes to the owner (``report_rows``):
+    its project's style lets it through and, a ``thread`` or ``note`` one (RETOLD), the owner was not sent the member's result
+    itself (``told_already``). What a wake-up turn changed (``acted``) no longer counts (W1-A C4): the owner hears of a
+    wake-up only through its report notes (``report_out``) and its questions (project_ask). The web page shows such a turn's
+    reply by it (app/web_collect.py)."""
+    found = projects.topic_project(state_dir, str(topic_id or ""))
+    record = projects.read_record(state_dir, found.id) if found is not None else {}
+    return found is not None and bool(report_rows(state_dir, found.id, record, key))
 
 
 def present(state_dir, job) -> bool:
     """Whether the owner's words went into ``job`` (a job or its record) as it ran (``projects.OWNER_PRESENT``, on the job
-    or, as a task runner's job has it, on its record: ``owner_steered`` writes it in the Bridge). Never raises."""
+    or, as a task runner's job has it, on its record: ``owner_steered`` writes it in the Bridge, before the supplement
+    goes, P1-8), or its record is of a turn he is in all the same (``projects.woken`` false: his message in a wake-up's
+    source, WAVE12 C5). Never raises."""
     if job_field(job, projects.OWNER_PRESENT) is True:
         return True
     try:
         record = read_job_record(job_path(Path(state_dir), job_key(job_field(job, "message_id"), job_field(job, "job_id"))))
     except (OSError, ValueError):
         return False
-    return isinstance(record, dict) and record.get(projects.OWNER_PRESENT) is True
+    return isinstance(record, dict) and (record.get(projects.OWNER_PRESENT) is True
+                                         or projects.wake_turn(record) and not projects.woken(record))
 
 
 def woken(state_dir, job) -> bool:
-    """Whether ``job`` is a lead's wake-up turn the owner was not in (``projects.woken``, with its record read: ``present``)."""
-    return projects.is_wake(job_field(job, "message_id")) and not present(state_dir, job)
+    """Whether ``job`` is a lead's wake-up turn the owner was not in (``projects.woken``, with its record read: ``present``):
+    the one read of 主人在场 (WAVE12 C5) for ``silent``, app/web_collect.py and, on the record, app/relay_targets.py."""
+    return projects.woken(job) and not present(state_dir, job)
 
 
-def owner_steered(state_dir, job, log=None) -> None:
-    """The owner's words went into ``job``, a supplement it took or may have taken (app/steering.py deliver_steer: his message
-    in the topic, the butler's project_send, the web page). A project lead's wake-up turn is his now (W0-2): its record says
-    ``owner_present``, so its reply is sent (``silent``) and what it hands out relays as his turn's does, and the wake-ups count
-    afresh (``owner_spoke``), as his own turn's would. Nothing for any other job. Never raises."""
+def owner_steered(state_dir, job, log=None) -> bool:
+    """The owner's words go into ``job``, a supplement it is about to take (app/steering.py deliver_steer: his message in the
+    topic, the butler's project_send, the web page). A project lead's wake-up turn is his now (W0-2): its record says
+    ``owner_present``, so its reply is sent (``silent``) and what it hands out relays as his turn's does, and the wake-ups
+    count afresh (``owner_spoke``), as his own turn's would. Written before the supplement is sent (P1-8: a turn that took it
+    and ended at once was judged a wake-up the owner was not in, its reply held back and no new turn queued); one that then
+    does not go is taken back (``owner_unsteered``). Whether this call wrote the mark (False for any other job, or one marked
+    already). Never raises."""
     try:
         message, topic = str(job_field(job, "message_id")), str(job_field(job, "topic_id"))
-        if not projects.enabled() or not projects.is_wake(message) or job_field(job, projects.OWNER_PRESENT) is True:
-            return
+        if not projects.enabled() or not projects.wake_turn(job) or job_field(job, projects.OWNER_PRESENT) is True:
+            return False
         if not projects.is_lead_topic(state_dir, topic, str(job_field(job, "chat_id")) or None):
-            return
-        if not isinstance(job, dict):
-            setattr(job, projects.OWNER_PRESENT, True)
+            return False
+        if present(state_dir, job):
+            return False
         update_job_record_if(Path(state_dir), job_key(message, job_field(job, "job_id")), lambda current: True,
                              **{projects.OWNER_PRESENT: True})
+        if not isinstance(job, dict):
+            setattr(job, projects.OWNER_PRESENT, True)
         found = projects.topic_project(state_dir, topic)
         if found is not None:
             projects.update(state_dir, found.id, owner_spoke)
+        return True
     except (KeyError, ValueError, OSError, AttributeError, TypeError) as exc:
         if log is not None:
             log(f"owner presence not noted job=#{job_field(job, 'job_id')}: {type(exc).__name__}")
+        return False
+
+
+def owner_unsteered(state_dir, job, log=None) -> None:
+    """Take back the mark ``owner_steered`` wrote for a supplement that then surely did not go into ``job`` (refused, not
+    ready: rule 6, nothing was sent). The wake-up counts it reset stay reset: the owner did speak. Never raises."""
+    try:
+        update_job_record_if(Path(state_dir), job_key(str(job_field(job, "message_id")), job_field(job, "job_id")),
+                             lambda current: current.get(projects.OWNER_PRESENT) is True, **{projects.OWNER_PRESENT: False})
+        if not isinstance(job, dict):
+            setattr(job, projects.OWNER_PRESENT, False)
+    except (KeyError, ValueError, OSError, AttributeError, TypeError) as exc:
+        if log is not None:
+            log(f"owner presence not taken back job=#{job_field(job, 'job_id')}: {type(exc).__name__}")
+
+
+QUIET_ENDS = ("done", "waiting_user")  # The ends of a wake-up turn whose reply is held back (``silent``).
 
 
 def silent(delivery) -> bool:
-    """Whether the reply of the turn ``delivery`` (app/turn_delivery.py TurnDelivery) is not to be sent: the turn is a wake-up
-    (message id ``lead-…``) the owner's words did not go into (``woken``: none of his supplements, W0-2), done with its saved
-    reply, and the lead recorded no report note in it. Its reply stays saved and counts as delivered, so nothing redelivers
-    it and no recovery card offers it again. Never raises."""
+    """Whether the reply of the turn ``delivery`` (app/turn_delivery.py TurnDelivery) is not to be sent (W1-A C4 ④): the turn
+    is a wake-up the owner was not in (``woken``: none of his supplements went into it, W0-2 and P1-8), done with its saved
+    reply or waiting for the answer to what it asked (project_ask: the questions still go out as cards, through
+    TurnDelivery.deliver_questions, and a card that does not go says so as any does). Its reply stays saved and counts as
+    delivered, so nothing redelivers it and no recovery card offers it again; what the owner is to hear of it are its report
+    notes (``report_out``). A wake-up that failed is not hidden; nor one paused on a native question of its Harness, whose
+    words carry that question. Never raises."""
     job, turn = delivery.job, delivery.turn
     try:
         if not projects.enabled() or not woken(delivery.ctx.state_dir, job):
             return False
-        if turn.status != "done" or getattr(turn, "verified_delivery", None) is None \
+        if turn.status not in QUIET_ENDS or getattr(turn, "verified_delivery", None) is None \
                 or getattr(turn.verified_outcome, "status", "") != "completed":
             return False
-        return not reported(delivery.ctx.state_dir, job.topic_id, job_key(job.message_id, job.job_id))
+        return not (turn.status == "waiting_user" and getattr(job, "paused_question_delivery", None) is not None)
     except Exception as exc:  # noqa: BLE001 - the reply goes out as an owner's turn's does
         delivery.runtime.log(f"wake-up reply not held back job=#{job_field(job, 'job_id')}: {type(exc).__name__}")
+        return False
+
+
+REPORT_HEAD = "专项「{name}」负责人："  # What the lead's report notes of a wake-up turn go out under (``report_out``).
+ACTION_WORDS = {"start": "开了话题", "send": "给话题加了话", "stop": "停了话题", "answer": "替主人答了题",
+                "escalate": "把问题转给了主人", "ask": "问了主人"}
+WITH_ACTIONS = ("each_thread", "verbose")  # The styles whose reports say, in a line, what the turn did (``acted``).
+
+
+def acted_whats(record, key) -> list:
+    """What the lead's turn ``key`` did (the record's ``acted``: {job, whats} rows, an older release's {job, what}), once each,
+    in the order it did them."""
+    found = []
+    for row in record.get("acted") or ():
+        if not isinstance(row, dict) or row.get("job") != key:
+            continue
+        whats = row.get("whats") if isinstance(row.get("whats"), list) else [row.get("what")]
+        found += [what for what in whats if isinstance(what, str) and what and what not in found]
+    return found
+
+
+def report_text(record, rows, key) -> str:
+    """The message of a wake-up turn's report notes ``rows``: REPORT_HEAD and each note as the lead wrote it (several, one a
+    line), and under a style of WITH_ACTIONS a line of what the turn did."""
+    texts = [str(row.get("text") or "").strip() for row in rows]
+    body = texts[0] if len(texts) == 1 else "\n" + "\n".join(f"- {text}" for text in texts)
+    text = REPORT_HEAD.format(name=str(record.get("name") or "")) + body
+    whats = [ACTION_WORDS[what] for what in acted_whats(record, key) if what in ACTION_WORDS]
+    if whats and project_lead.style_of(record)[project_lead.REPORT] in WITH_ACTIONS:
+        text += "\n这一轮：" + "、".join(whats) + "。"
+    return text
+
+
+def report_out(delivery) -> bool:
+    """A wake-up turn whose reply is held back (``silent``) sends its report notes (``report_rows``) to the owner as one
+    message, where the reply would have gone, under REPORT_HEAD (W1-A C4: the report channel), once (key
+    ``lead-report-<任务键>``). Nothing when there is none: a turn that only did things tells nobody. Called by
+    app/turn_delivery.py TurnDelivery.deliver outside any lock (rule 1). Whether a message went; never raises."""
+    job, ctx = delivery.job, delivery.ctx
+    try:
+        if not projects.enabled():
+            return False
+        found = projects.topic_project(ctx.state_dir, str(job.topic_id or ""))
+        if found is None or found.role != projects.LEAD:
+            return False
+        key = job_key(job.message_id, job.job_id)
+        record = projects.read_record(ctx.state_dir, found.id)
+        rows = report_rows(ctx.state_dir, found.id, record, key)
+        if not rows:
+            return False
+        from covey.core import placement
+
+        top = placement.plan(ctx.state_dir, job).row.answer == placement.TOP
+        where = delivery.top_ctx() if top else ctx
+        sent = bool(delivery.send_text(where, job.chat_id, report_text(record, rows, key), f"lead-report-{key}"))
+        delivery.runtime.log(f"lead report {'sent' if sent else 'not sent'} job=#{job.job_id} notes={len(rows)}")
+        return sent
+    except Exception as exc:  # noqa: BLE001 - the notes stay on the 专项卡
+        delivery.runtime.log(f"lead report failed job=#{job_field(job, 'job_id')}: {type(exc).__name__}")
         return False
 
 
@@ -725,20 +873,59 @@ def kept_reply(log, state_dir, project_id, topic, key, record) -> str:
     return str(path)
 
 
-def relayed_to_owner(state_dir, key) -> bool:
-    """Whether the member's turn ``key`` had its conclusion or stop sent to the owner's top level, by its task runner before
-    the runner ended (app/butler_relay.py: a turn the owner waits for, app/relay_targets.py awaited_target)."""
+# The states of a member turn's relay (app/relay_send.py) in which its result reaches the owner, or may have: on its way
+# (``pending`` in the merge window, ``submitting``), ``sent``, or ``uncertain`` (it may have arrived and is never sent again
+# by itself). ``failed`` and ``unsent`` did not: the lead's report of it is then the owner's way to hear it (§5.4 R3).
+RELAY_TOLD = frozenset({"pending", "submitting", "sent", "uncertain"})
+RECEIPT_JOB = re.compile(r"的任务 #(\d+) ")  # The task number in a ``thread_end`` receipt's head (``after_runner``).
+
+
+def relay_state(state_dir, key) -> str:
+    """The state of the member turn ``key``'s relay record ('' for none)."""
     from covey.app.relay_send import relay_path
 
-    return read_object(relay_path(state_dir, key)).get("state") == "sent"
+    return str(read_object(relay_path(state_dir, key)).get("state") or "")
+
+
+def relayed_to_owner(state_dir, key) -> bool:
+    """Whether the member's turn ``key`` has its conclusion or stop going, or gone, to the owner's top level (RELAY_TOLD):
+    by its task runner before the runner ended, or by the Bridge after it (app/butler_relay.py: a turn the owner waits for,
+    app/relay_targets.py awaited_target; a merged relay waits ``pending`` a moment first)."""
+    return relay_state(state_dir, key) in RELAY_TOLD
+
+
+def receipt_job(state_dir, item) -> str:
+    """The task key of the member turn a ``thread_end`` receipt ``item`` is of: its ``job`` when it has one, else its topic's
+    task of the number its head names ('' when none is found)."""
+    given = item.get("job")
+    if isinstance(given, str) and given:
+        return given
+    found, thread = RECEIPT_JOB.search(str(item.get("text") or "")), str(item.get("thread") or "")
+    if found is None or not thread:
+        return ""
+    number = int(found.group(1))
+    for record in topic_job_records(Path(state_dir), thread):
+        if str(record.get("job_id") or "") == str(number):
+            return str(record.get("key") or job_key(record.get("message_id"), record.get("job_id")))
+    return ""
+
+
+def receipt_told(state_dir, item) -> bool:
+    """Whether the owner gets the result of the member turn the ``thread_end`` receipt ``item`` is of from its relay: its relay
+    record read now (RELAY_TOLD), not what it said when the receipt was written (§5.4 R3: a relay merged a moment later, or
+    the Bridge's own once the runner is gone; one that failed is not); without a record, what the receipt says (``relayed``)."""
+    key = receipt_job(state_dir, item)
+    state = relay_state(state_dir, key) if key else ""
+    return state in RELAY_TOLD if state else item.get("relayed") is True
 
 
 def told_already(state_dir, project_id, key) -> bool:
-    """Whether every receipt the lead's turn ``key`` read is of a member's turn whose result the owner was sent already
-    (``relayed``), or a consult's (``collab_answered``: its integrator delivers what came of it, the lead only reads it): a
-    ``thread`` or ``note`` report of that turn would tell him the same again, so it is not sent (``reported``)."""
+    """Whether every receipt the lead's turn ``key`` read is of a member's turn whose result the owner gets from its relay
+    (``receipt_told``, read when the lead reports: W1-A C4), or a consult's (``collab_answered``: its integrator delivers what
+    came of it, the lead only reads it): a ``thread`` or ``note`` report of that turn would tell him the same again, so it is
+    not sent (``report_rows``)."""
     taken = project_lead.taken_receipts(state_dir, project_id, key)
-    return bool(taken) and all(item.get("kind") == "thread_end" and item.get("relayed") is True
+    return bool(taken) and all(item.get("kind") == "thread_end" and receipt_told(state_dir, item)
                                or item.get("kind") == collab.RECEIPT_ANSWERED for item in taken)
 
 
@@ -904,7 +1091,7 @@ class ProjectLoop:
             due = autowake_due(pending)
             if due and settling(pending, now):
                 return  # 协作 on: more ordinary receipts may come in a moment (members ending together): one turn reads them all.
-            if due and not open_turns(state, [lead]):
+            if due and not lead_busy(state, lead):
                 if self.waits(record, state, pending, now):
                     return  # A wake would only fail (a limit, a backend down); no wake, so nothing for the wakes guard to count either.
                 reason = hold(record, now)
@@ -1025,7 +1212,11 @@ class ProjectLoop:
         if ctx.topic_id != topic:
             return False
         append_history(ctx.history_path, "user", WAKE_TEXT, {"message_id": message})
-        return app.submission.enqueue_chat_job(ctx, WAKE_TEXT, chat, message, prompt_content=WAKE_TEXT) is not None
+        # The Bridge's wake-up (WAVE12 C1 ``wake``): it answers no question the lead still waits on (C4 ①), its words are
+        # not the owner's, and it sends nothing as his (core/turn_source.py BEHAVIOR).
+        source = turn_source.stamp(turn_source.WAKE)
+        return app.submission.enqueue_chat_job(ctx, WAKE_TEXT, chat, message, prompt_content=WAKE_TEXT,
+                                               **({"source": source} if source else {})) is not None
 
 
 def lead_app(env, state, data):

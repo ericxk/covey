@@ -35,10 +35,12 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from covey.core import ask_kinds
+
 MAX_REJECTS = 1
 CLASS3_AFTER = 3
 CLASS3_QUIET_DAYS = 30
-HIGH_RISK = ("deploy", "delete", "spend", "send", "occupy")  # 部署上线、删除与撤不回、花钱、对外发送、占机器.
+HIGH_RISK = ask_kinds.HIGH_RISK  # The five kinds the owner is always asked (core/ask_kinds.py: one source, WAVE12 C3).
 EXTRA_KEY = "extra_questions"
 
 TAU_DUP = 0.55  # When core/memory_search.py has no DEFAULT_TAU_DUP of its own.
@@ -59,12 +61,8 @@ KEEP_ASKING, FOLLOW = "还要问", "以后按这次的做"
 STORE = "dedup.json"  # Under memory/: {"quiet": {class key: until}}; the Bridge writes it (an answer's path).
 ANSWER_SHOWN = 60  # Characters of an old answer on the card's grey line.
 
-CATEGORIES = (  # The first that matches; ``other`` for none.
-    ("delete", re.compile(r"删除|删掉|清理|清掉|移除|下掉|撤掉|覆盖|强推|回滚|丢弃|force|\bdrop\b|\brm\b", re.I)),
-    ("deploy", re.compile(r"部署|上线|发布|发版|现网|stable|deploy|release|rollout", re.I)),
-    ("spend", re.compile(r"花钱|付费|购买|充值|预算|费用|计费|开通|采购")),
-    ("send", re.compile(r"对外|发给|发送给|通知|发消息|发邮件|代发|群里|以.{0,4}身份")),
-    ("occupy", re.compile(r"占用|占机器|GPU|显卡|集群|长期运行|常驻|大量下载|训练任务", re.I)),
+CATEGORIES = (  # The first that matches; ``other`` for none. The five are core/ask_kinds.py's words, in its ORDER (deleting first).
+    *((key, ask_kinds.PATTERNS[key]) for key in ask_kinds.ORDER),
     ("merge", re.compile(r"合入|合进|合并|合到|主干|\bmerge\b|\bPR\b|\bMR\b", re.I)),
     ("sample", re.compile(r"样张|样式|外观|配色|颜色|版式|界面")),
 )

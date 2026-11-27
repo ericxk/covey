@@ -519,13 +519,31 @@ def is_wake(message_id) -> bool:
 OWNER_PRESENT = "owner_present"
 
 
-def woken(job) -> bool:
-    """Whether ``job`` (a job or its record) is a wake-up turn the owner was not in: a wake-up's message id
-    (``is_wake``) and none of his words went into it (``OWNER_PRESENT``)."""
+def wake_turn(job) -> bool:
+    """Whether ``job`` (a job or its record) is a lead's wake-up turn: its 轮次来源 says ``wake`` (WAVE12 C1), or, one queued
+    before the Bridge stamped them (no source), its message id is a wake-up's (``is_wake``)."""
     from collections.abc import Mapping
 
+    from covey.core import turn_source
+
+    if turn_source.of(job) is not None:
+        return turn_source.kind(job) == turn_source.WAKE
     get = job.get if isinstance(job, Mapping) else lambda name: getattr(job, name, None)
-    return is_wake(get("message_id")) and get(OWNER_PRESENT) is not True
+    return is_wake(get("message_id"))
+
+
+def woken(job) -> bool:
+    """Whether ``job`` (a job or its record) is a wake-up turn the owner was not in (the one read of 主人在场, WAVE12 C5): a
+    wake-up (``wake_turn``), none of his words went into it (``OWNER_PRESENT``), and it carries no message of his (a ``wake``
+    source's ``origin.message_id``: his own start or upgrade of a project, C5 item 5)."""
+    from collections.abc import Mapping
+
+    from covey.core import turn_source
+
+    get = job.get if isinstance(job, Mapping) else lambda name: getattr(job, name, None)
+    if not wake_turn(job) or get(OWNER_PRESENT) is True:
+        return False
+    return not turn_source.origin(job).get("message_id")
 
 
 LEAD_ALIAS_PREFIX = "project-lead-"  # The alias the butler's project_send addresses a lead by (app/butler_projects.py lead_target).

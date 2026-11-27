@@ -163,6 +163,18 @@ def media_dir(ctx) -> Path:
     return ctx.history_path.parent / "incoming_media"
 
 
+GRANTING = ("project_topic_start", "project_topic_send")  # The lead's tools that check an approval (app/project_tools.py approved).
+
+
+def granted(request) -> str:
+    """The approval line app/project_tools.py put in a lead's hand-on after checking it (``_approval_line``); '' for any other
+    call: only those two tools set it, from the record, after dropping any the model wrote (handed_args)."""
+    if getattr(request, "tool", "") not in GRANTING:
+        return ""
+    line = request.args.get("_approval_line")
+    return line.strip() if isinstance(line, str) else ""
+
+
 def handed(env, request, ctx):
     """(the owner's message the request's butler turn answers, the attachments of it the call hands ``ctx``'s
     topic, carried into its incoming_media). A project's lead's call hands on its own words alone (Asked with ``lead``
@@ -176,10 +188,11 @@ def handed(env, request, ctx):
         # next showed his words in place of their task). His files go to the topic the lead names them for (the owner:
         # 转不转给话题由负责人决定); none when it names none.
         chosen = request.args.get("attachments")
+        grant = granted(request)
         if not chosen or chosen == "none":
-            return butler_handoff.Asked(lead=lead[1] or "专项"), []
+            return butler_handoff.Asked(lead=lead[1] or "专项", grant=grant), []
         turn = butler_handoff.asked(env.state_dir, request.job_key)
-        owner = butler_handoff.Asked(attachments=turn.attachments, roots=turn.roots, lead=lead[1] or "专项")
+        owner = butler_handoff.Asked(attachments=turn.attachments, roots=turn.roots, lead=lead[1] or "专项", grant=grant)
         items = butler_handoff.picked(owner.attachments, chosen)
         return owner, butler_handoff.carry(items, media_dir(ctx), owner.roots) if items else []
     owner = butler_handoff.asked(env.state_dir, request.job_key)

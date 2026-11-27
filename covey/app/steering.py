@@ -311,21 +311,32 @@ class Steering(SteerForms, SteerReceiptFlow, SteerInterrupt):
         queued as should the turn never take it (``requeue_lost``): ``text``, ``prompt``, ``sender_id``, ``top`` and its
         轮次来源 ``source`` (WAVE12 C1: none for the owner's message). A supplement is the owner's
         words (a source that is not his never goes into a running task, core/turn_source.py): one that went, or may have
-        gone, into a project lead's wake-up turn makes it a turn he is in (app/project_loop.py owner_steered, W0-2)."""
+        gone, into a project lead's wake-up turn makes it a turn he is in (app/project_loop.py owner_steered, W0-2). The
+        mark is written before the supplement is sent (P1-8: a turn that took it and ended at once was judged without
+        it, its reply held back) and taken back when it surely did not go (refused, not ready, or not taken: rule 6)."""
+        marked = self._owner_in(ctx, job)
         try:
             saved = self._deliver_steer(ctx, job, text, mid, record_history=record_history, receipt=receipt,
                                         requeue=requeue, later=later, shown=shown, asked=asked)
         except SteerUncertain:
-            self._owner_in(ctx, job)
+            raise  # It may have gone: the mark stays.
+        except (SteerRefused, SteerNotReady):
+            if marked:
+                self._owner_out(ctx, job)
             raise
-        if isinstance(saved, dict) and (saved.get("status") in ("sent", "read", "held") or saved.get("merged")):
-            self._owner_in(ctx, job)
+        if marked and not (isinstance(saved, dict) and (saved.get("status") in ("sent", "read", "held") or saved.get("merged"))):
+            self._owner_out(ctx, job)
         return saved
 
-    def _owner_in(self, ctx, job):
+    def _owner_in(self, ctx, job) -> bool:
         from covey.app import project_loop
 
-        project_loop.owner_steered(ctx.state_dir, job, self.runtime.log)
+        return project_loop.owner_steered(ctx.state_dir, job, self.runtime.log)
+
+    def _owner_out(self, ctx, job) -> None:
+        from covey.app import project_loop
+
+        project_loop.owner_unsteered(ctx.state_dir, job, self.runtime.log)
 
     def _deliver_steer(self, ctx, job, text, mid, *, record_history=True, receipt=None, requeue=None, later=None,
                        shown="", asked=""):

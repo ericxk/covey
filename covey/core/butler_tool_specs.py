@@ -8,6 +8,7 @@ Every handler answers {"ok": bool, "text": what the model reads, "data": {...}};
 """
 from __future__ import annotations
 
+from covey.core import ask_kinds
 from covey.core import env as cenv
 from covey.core.checkpoint import ASK_SHORT
 from covey.core.process_env import env_flag
@@ -256,6 +257,34 @@ def butler_tools(tools) -> tuple:
 # thread of this project: T number or topic id.
 LEAD_ENV = "COVEY_PROJECT_LEAD"
 THREAD = {"type": "string", "description": "专项的话题：T 号（如 T412）或 topic_id，要是这个专项的话题"}
+# The deploy approval a lead hands a topic with (app/project_approvals.py): the Bridge checks it and heads the handoff with it.
+APPROVAL_ARG = {"type": "string", "description": "可选，派部署时填部署授权凭证（如 A3）"}
+# The lead's questions to the owner (WAVE12 C4): written into its turn's checkpoint, a question card at the turn's end.
+ASK_MAX = 4
+PROJECT_ASK = {
+    "name": "project_ask",
+    "description": f"问主人要他定的事（{ASK_SHORT}，范围、取舍，或主人说过要自己定的）：这一轮结束时 Bridge 发问题卡、进“等你”，"
+                   "任何汇报风格都发，主人答了会接着叫你。一次最多 4 题，你之前问了还没答的会并进来。"
+                   "部署一批时 kind 写 deploy、填 deploy；主人同意后 Bridge 给授权凭证，派部署时用 approval 带上。",
+    "input_schema": {"type": "object", "required": ["questions"], "properties": {
+        "summary": {"type": "string", "description": "一句话：要主人定什么"},
+        "questions": {"type": "array", "minItems": 1, "maxItems": ASK_MAX, "items": {
+            "type": "object", "required": ["id", "question", "kind"], "properties": {
+                "id": {"type": "string"},
+                "header": {"type": "string"},
+                "question": {"type": "string"},
+                "context": {"type": "string"},
+                "kind": {"type": "string", "enum": list(ask_kinds.QUESTION_KINDS)},
+                "multiple": {"type": "boolean"},
+                "options": {"type": "array", "items": {"type": "object", "required": ["label"], "properties": {
+                    "label": {"type": "string"},
+                    "description": {"type": "string"},
+                    "grants_approval": {"type": "boolean", "description": "kind 为 deploy 时：选它即同意部署"}}}},
+                "deploy": {"type": "object", "properties": {
+                    "commits": {"type": "array", "items": {"type": "string"}},
+                    "topics": {"type": "array", "items": {"type": "string"}},
+                    "target": {"type": "string"}}}}}}}},
+}
 PROJECT_TOOLS = (
     {"name": "project_topic_start",
      "description": "为这个专项开一个话题去做一件事，马上返回，不要等它做完：话题结束后会有下一轮叫醒你。"
@@ -275,7 +304,8 @@ PROJECT_TOOLS = (
          "model": {"type": "string", "description": MODEL_ARG},
          "effort": {"type": "string", "description": EFFORT_ARG},
          "basis": BASIS_ARG,
-         "redaction": REDACTION_ARG}}},
+         "redaction": REDACTION_ARG,
+         "approval": APPROVAL_ARG}}},
     {"name": "project_topic_send",
      "description": "给一个已有话题加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"
                     "可以是这个专项的话题，也可以是主人私聊里还不在任何专项的普通话题：那样它先被收进这个专项（在跑的任务照跑，"
@@ -284,7 +314,8 @@ PROJECT_TOOLS = (
          "thread": {"type": "string", "description": "话题的 T 号（如 T412）或 topic_id：这个专项的，或还不在任何专项的普通话题"},
          "text": {"type": "string", "description": "交给话题的内容：要它做或补充的事"},
          "note": {"type": "string", "description": "可选，一句背景（最多 100 字）"},
-         "attachments": LEAD_ATTACHMENTS}}},
+         "attachments": LEAD_ATTACHMENTS,
+         "approval": APPROVAL_ARG}}},
     {"name": "project_topic_stop",
      "description": "主人要停这个专项里的某个话题时用：停掉它排队和在跑的任务，也收掉它还在等主人回答的问题（话题不再等回答），"
                     "话题仍记在专项里、算结束。只能停这个专项自己的话题；停掉的话题要接着做，再用 project_topic_send 给它加话。"
@@ -292,15 +323,15 @@ PROJECT_TOOLS = (
      "input_schema": {"type": "object", "required": ["thread"], "properties": {
          "thread": THREAD, "why": {"type": "string", "description": "可选，一句话：主人为什么要停"}}}},
     {"name": "project_note",
-     "description": "在专项卡上记一句进展（最多 200 字）。report 为 true 的才是要告诉主人的，按风格过滤（只在里程碑和完成、话题结束、"
-                    "或详细时才发）；kind 说它是哪一类：ask 要主人定的事（范围、取舍、部署这一批，任何风格都发给主人，不用另标 report），"
-                    "milestone 里程碑，thread 话题的结果，note 一般进展。decision 为 true 时，"
-                    "也记进决定日志（之后每一轮都看到最近 10 条）。别每步都记。",
+     "description": "在专项卡上记一句进展（最多 200 字）。report 为 true 的要告诉主人：Bridge 按风格把这句原文发给他（里程碑和完成、"
+                    "话题结束、或详细时才发）；kind：milestone 里程碑，thread 话题的结果，note 一般进展。要主人定的事用 project_ask。"
+                    "decision 为 true 时也记进决定日志（之后每一轮都看到最近 10 条）。别每步都记。",
      "input_schema": {"type": "object", "required": ["text"], "properties": {
          "text": {"type": "string", "description": "一句话，最多 200 字"},
-         "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上（kind 为 ask 时总是发）"},
-         "kind": {"type": "string", "enum": ["ask", "milestone", "thread", "note"], "description": "默认 note；要主人定的写 ask"},
+         "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上"},
+         "kind": {"type": "string", "enum": ["milestone", "thread", "note"], "description": "默认 note"},
          "decision": {"type": "boolean", "description": "这是一条定下来的决定为 true"}}}},
+    PROJECT_ASK,
     {"name": "project_goal",
      "description": "写下这个专项的目标和完成标准：给主人看的一两句（要做成什么、做到什么算完，最多 200 字），网页工作台的专项标题下就显示它。"
                     "第一轮写一次；主人改了要求、目标变了再更新。只写目标，不写进度、状态和派活的安排。",
@@ -546,10 +577,15 @@ SECONDARY = frozenset({"topic_priority", "topic_stop", "settings_panel", "topics
                        "project_memory_revise",  # T852: a lead revises a line now and then; agy reads its schema when it calls it.
                        *(tool["name"] for tool in MEMORY_TOOLS + HISTORY_TOOLS), TIDY_TOOL["name"]})
 # The tools that hand work to topics, what a turn of the butler or of a lead is for: such a Harness loads them first.
-HANDING = frozenset({"topic_start", "topic_send", "topic_fork", "project_send", "project_topic_start", "project_topic_send"})
+HANDING = frozenset({"topic_start", "topic_send", "topic_fork", "project_send", "project_topic_start", "project_topic_send",
+                     "project_ask"})  # W1-A: a lead's question to the owner is what a wake-up turn is often for.
 # A lead sets its report style now and then: agy reads project_style's schema when it calls it, which leaves the room
 # project_topic_start's and project_topic_send's ``attachments`` take (T856).
 SECONDARY |= {"project_style"}
+# A lead writes its goal once, remembers a rule and stops a topic now and then: agy reads their schemas when it calls them,
+# which leaves the room project_ask and ``approval`` take (W1-A, WAVE12 C4: the up-front room had 42 bytes left).
+SECONDARY |= {"project_goal", "project_remember",
+              "project_topic_stop"}  # Stopping a member topic is as seldom as the butler's topic_stop, which is one too.
 assert SECONDARY | HANDING <= set(ALL_NAMES + BUTLER_PROJECT_NAMES + PROJECT_NAMES) and not SECONDARY & HANDING
 
 

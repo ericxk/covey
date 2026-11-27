@@ -142,6 +142,125 @@ class RouteTest(Held):
             triage.moved({"triage": {"state": triage.ANSWERED}}, triage.ESCALATED)
 
 
+class LeadFreeTest(Held):
+    """W1-A C3/C4 ③: what is the owner's by its kind goes to him at once; so does every question while the lead cannot take it
+    (a turn of it running, a guard over it, a wait for a limit). A lead that only waits for the owner's answer to its own
+    project_ask takes questions as ever. The card the owner gets says nothing of the lead (no hold was written)."""
+
+    def lead_turn(self, status, key="lead-k1"):
+        write_job(self.state, key, topic_id=LEAD, chat_id=CHAT, job_id=1, message_id=f"lead-{PID}-1", status=status)
+        return key
+
+    def owners(self):
+        self.assertEqual(self.route(), flow.OWNER)
+        self.assertNotIn("triage", self.saved())  # Not 已交负责人: it never was.
+
+    def test_a_question_of_the_five_kinds_or_the_owners_own_by_its_declared_kind_is_never_held(self):
+        for kind in ("deploy", "delete", "spend", "send", "occupy", "owner_asked"):
+            with self.subTest(kind=kind):
+                self.write(questions=[{**CHOICE[0], "kind": kind}])  # Words the gates do not know: the kind says it.
+                self.assertFalse(project_gates.hit([{**CHOICE[0], "kind": "other"}]))  # Not by its words.
+                self.owners()
+        # Raised, never lowered (RT-5 ①): declared blocked, its words say deleting and deploying.
+        self.write(questions=[{**CHOICE[0], "kind": "blocked", "question": "现在删掉旧服务并上线新版本吗？"}])
+        self.owners()
+        for kind in ("blocked", "other"):
+            with self.subTest(kind=kind):
+                self.write(questions=[{**CHOICE[0], "kind": kind}])
+                self.assertEqual(self.route(), flow.LEAD)
+
+    def test_a_lead_that_cannot_take_it_now_leaves_it_to_the_owner_at_once(self):
+        cases = {"running": lambda key: self.lead_turn("running", key), "queued": lambda key: self.lead_turn("queued", key),
+                 "waiting on a question of its checkpoint": lambda key: self.lead_turn("waiting_user", key),
+                 "a guard": lambda key: projects.update(self.state, PID, lambda r: r.update(wakes={"streak": projects.DEFAULT_WAKES})),
+                 "a limit": lambda key: mock.patch.object(project_loop, "limit_wait", return_value=("retry", NOW + 60)).start()}
+        for number, (name, make) in enumerate(cases.items()):
+            with self.subTest(name):
+                key = f"lead-k{number}"
+                make(key)
+                self.write()
+                self.owners()
+                mock.patch.stopall()
+                mock.patch.dict(os.environ, SWITCH).start()
+                self.lead_turn("cancelled", key)
+                projects.update(self.state, PID, lambda r: r.update(wakes={}))
+        self.write()
+        self.assertEqual(self.route(), flow.LEAD)  # All of it over: the lead takes it.
+
+    def test_a_lead_waiting_on_its_own_project_ask_still_takes_questions(self):
+        key = self.lead_turn("waiting_user")
+        write_json(self.state / "questions" / ("e" * 16 + ".json"),
+                   {"token": "e" * 16, "topic_id": LEAD, "chat_id": CHAT, "job_key": key, "status": "pending",
+                    "origin": project_loop.ASK_ORIGIN}, ensure_ascii=False)
+        self.write()
+        self.assertEqual(self.route(), flow.LEAD)
+        self.assertEqual(triage.state(self.saved()), triage.HELD)
+
+    def test_leads_says_what_route_would(self):
+        self.write()
+        self.assertTrue(self.triage.leads(self.ctx, self.saved()))
+        self.lead_turn("running")
+        self.assertFalse(self.triage.leads(self.ctx, self.saved()))
+        self.lead_turn("cancelled")
+        self.assertFalse(self.triage.leads(self.ctx, {**self.saved(), "questions": [{**CHOICE[0], "kind": "deploy"}]}))
+
+
+class EscalateRaceTest(Held):
+    """§5.4 R1: the lead answering (project_answer) and the question handed to the owner (his word in the topic, or
+    project_escalate in the same turn) with a copy read before: one of the two, never both."""
+
+    def setUp(self):
+        super().setUp()
+        self.write()
+        self.route()
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append), topics=mock.Mock())
+        self.inside, self.go = threading.Event(), threading.Event()
+        self.app = SimpleNamespace(questions=SimpleNamespace(submit_answer=self.submit))
+        self.shown = mock.patch.object(flow, "show", return_value=True).start()
+
+    def submit(self, ctx, chat, token, fields, event_id, *, by=None):
+        self.inside.set()
+        self.assertTrue(self.go.wait(10))
+        write_json(self.path, {**self.saved(), "status": "answered", "answers": {"0": {"answers": ["新版"]}}}, ensure_ascii=False)
+
+    def rows(self):
+        return [row for row in self.reload().get("triage") or () if row.get("kind") in ("answered", "escalated")]
+
+    def test_the_owners_word_while_the_lead_answers_leaves_the_answer_alone(self):
+        old = self.saved()  # What owner_spoke read before it took the lock.
+        result = {}
+        lead = threading.Thread(target=lambda: result.setdefault("done", flow.answer(
+            self.env, self.app, self.ctx, CHAT, self.reload(), {"0": "新版"}, "lead-r1")))
+        lead.start()
+        self.assertTrue(self.inside.wait(10))
+        for by in ("owner", "lead", "timeout"):
+            self.assertFalse(flow.escalate(self.env, old, "你在这个话题里说话了", by=by), by)
+        self.go.set()
+        lead.join(10)
+        saved = self.saved()
+        self.assertEqual((saved["status"], triage.state(saved), saved["display_pending"]), ("answered", triage.ANSWERED, False))
+        self.shown.assert_not_called()  # No card: the lead answered.
+        self.assertEqual([row["kind"] for row in self.rows()], ["answered"])
+
+    def test_handed_to_the_owner_first_the_lead_answers_nothing(self):
+        self.assertTrue(flow.escalate(self.env, self.saved(), "你在这个话题里说话了", by="owner"))
+        with self.assertRaisesRegex(ValueError, "没有交给你的问题"):
+            flow.answer(self.env, self.app, self.ctx, CHAT, self.reload(), {"0": "新版"}, "lead-r1")
+        saved = self.saved()
+        self.assertEqual((saved["status"], triage.state(saved), saved["display_pending"]), ("pending", triage.ESCALATED, True))
+        self.assertFalse(self.inside.is_set())
+        self.assertEqual([row["kind"] for row in self.rows()], ["escalated"])
+
+    def test_the_answers_own_failure_still_hands_it_on(self):
+        def failed(*args, **kwargs):
+            raise ValueError("原生问题已失去原执行上下文")
+        self.app.questions.submit_answer = failed
+        with self.assertRaisesRegex(ValueError, "转给主人"):
+            flow.answer(self.env, self.app, self.ctx, CHAT, self.reload(), {"0": "新版"}, "lead-r1")
+        saved = self.saved()
+        self.assertEqual((triage.state(saved), saved["triage"]["by"], saved["display_pending"]), (triage.ESCALATED, "error", True))
+
+
 class ShowTest(Held):
     """The owner, 2026-11-19: T538's question the lead handed on (09:59) went to the topic's thread alone; the turn had ended
     while it was held, so no copy went to the private chat's top level. ``show`` makes that copy once the card is out."""
@@ -500,7 +619,10 @@ class ToolTest(ToolsCase):
                                readonly=True, why="脚本在这个仓库")["data"]["topic_id"]
         self.path = self.state / "questions" / (TOKEN + ".json")
         write_json(self.path, question(topic=self.topic, job_key="x-1"), ensure_ascii=False)
-        flow.Triage(runtime=SimpleNamespace(log=print), cards=mock.Mock())._route(SimpleNamespace(state_dir=self.state), read_object(self.path))
+        # The member asked while the lead was idle (W1-A C4 ③: a busy lead's question goes to the owner at once); the wake-up's
+        # turn, ``lead-job``, answers it.
+        with mock.patch.object(project_loop, "lead_busy", return_value=False):
+            flow.Triage(runtime=SimpleNamespace(log=print), cards=mock.Mock())._route(SimpleNamespace(state_dir=self.state), read_object(self.path))
         self.label = "T" + str(json.loads((self.state / "topics" / self.topic / "topic.json").read_text())["topic_number"])
 
     def owner_ground(self) -> str:

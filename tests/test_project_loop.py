@@ -37,7 +37,7 @@ BUDGET = 10_000_000  # The budget the guard tests set (COVEY_PROJECT_BUDGET): wi
 
 def lead_app(case):
     """A Harness app that queues what it is given: ``case.queued`` lists (message id, prompt) of each turn."""
-    case.queued = []
+    case.queued, case.sources = [], []
 
     def event_context(base, event):
         topic = butler_topic(case, event["message_id"])
@@ -45,6 +45,7 @@ def lead_app(case):
 
     def enqueue(ctx, content, chat, message, **fields):
         case.queued.append((message, fields.get("prompt_content")))
+        case.sources.append(fields.get("source"))
         return SimpleNamespace(job_id=len(case.queued))
     return SimpleNamespace(harness=SimpleNamespace(context=object()), controls=object(),
                            submission=SimpleNamespace(event_context=event_context, enqueue_chat_job=enqueue))
@@ -177,6 +178,86 @@ class WakeTest(Loop):
             self.loop.tick(NOW + 5)
         self.assertEqual(self.queued, [])
         self.assertEqual([name for name, _ in self.loop.threads()], ["project_loop"])
+
+
+class WakeSourceTest(Loop):
+    """W1-A C4 ① and ③: the wake-up is stamped ``wake`` (it answers no question the lead waits on), and a lead that only
+    waits for the owner's answer to its project_ask is woken as ever."""
+
+    def lead_turn(self, status="waiting_user", key="lead-k1", message=f"lead-{PID}-1"):
+        write_job(self.state, key, topic_id=LEAD, chat_id=CHAT, job_id=1, message_id=message, status=status)
+        return key
+
+    def asked(self, key, origin=project_loop.ASK_ORIGIN, status="pending", token="q" * 16):
+        write_json(self.state / "questions" / f"{token}.json",
+                   {"token": token, "topic_id": LEAD, "chat_id": CHAT, "job_key": key, "status": status, "origin": origin})
+
+    def test_the_wake_up_is_stamped_wake_and_answers_no_question(self):
+        from covey.core import turn_source
+
+        self.receipt("start", "开始")
+        self.loop.tick(NOW)
+        [source] = self.sources
+        self.assertEqual((turn_source.kind({"turn_source": source}), source["asserted_by"]), (turn_source.WAKE, turn_source.PARTY_BRIDGE))
+        acts = turn_source.behavior({"turn_source": source})
+        self.assertEqual((acts.answers_questions, acts.owner_words, acts.owner_send), (False, False, False))
+        with mock.patch.object(turn_source, "STAMPING", False):  # The one switch back: unstamped, as before.
+            self.receipt("start", "再开始")
+            self.update(wakes={})
+            self.loop.tick(NOW + 60)
+        self.assertIsNone(self.sources[-1])
+
+    def test_a_lead_waiting_on_its_own_question_is_woken_by_a_receipt(self):
+        key = self.lead_turn()
+        self.asked(key)
+        self.assertFalse(project_loop.lead_busy(self.state, LEAD))
+        self.receipt("start", "T41 做完了")
+        self.loop.tick(NOW)
+        self.assertEqual(len(self.queued), 1)
+
+    def test_a_lead_waiting_on_another_question_or_running_is_not(self):
+        for name, status, origin in (("checkpoint question", "waiting_user", ""), ("answered", "waiting_user", "answered"),
+                                     ("running", "running", project_loop.ASK_ORIGIN)):
+            with self.subTest(name):
+                key = self.lead_turn(status=status)
+                self.asked(key, origin=project_loop.ASK_ORIGIN if origin == "answered" else origin,
+                           status="answered" if origin == "answered" else "pending")
+                self.assertTrue(project_loop.lead_busy(self.state, LEAD))
+
+    def test_the_wake_up_does_not_close_the_question_the_lead_waits_on(self):
+        # C4 ①: neither the start of the wake-up's turn (app/runs.py _continue_previous) nor its queueing
+        # (app/task_controls.py acknowledge_waiting_answer) marks the waiting turn answered: both ask answers_questions.
+        from covey.app.runs import Runs
+        from covey.app.task_controls import TaskControls
+        from covey.core import turn_source
+
+        key = self.lead_turn()
+        self.asked(key)
+        waiting = find_job_record(self.state, key)
+        wake = SimpleNamespace(message_id=f"lead-{PID}-2", job_id=2, topic_id=LEAD, chat_id=CHAT, recovery_context=None,
+                               turn_source=turn_source.stamp(turn_source.WAKE))
+        harness = mock.Mock()
+        harness.topic_records.return_value = [{**waiting, "checkpoint_path": str(self.state / "cp.json")}]
+        ctx = SimpleNamespace(state_dir=self.state, topic_id=LEAD)
+        self.assertIsNone(Runs._continue_previous(SimpleNamespace(harness=harness), ctx, wake))
+        controls = TaskControls.__new__(TaskControls)
+        controls.questions, controls.harness = mock.Mock(), harness
+        self.assertIsNone(controls.acknowledge_waiting_answer(ctx, wake))
+        harness.topic_records.assert_not_called()
+        self.assertEqual(find_job_record(self.state, key)["status"], "waiting_user")
+        self.assertEqual(json.loads((self.state / "questions" / ("q" * 16 + ".json")).read_text())["status"], "pending")
+
+    def test_a_wake_up_carrying_the_owners_message_is_his(self):
+        # C5 item 5 (stamped by W2-C): the owner's own start of a project; read now.
+        from covey.core import turn_source
+
+        his = SimpleNamespace(message_id=f"lead-{PID}-3", job_id=3, turn_source=turn_source.stamp(
+            turn_source.WAKE, origin={"message_id": "om_start"}))
+        bridge = SimpleNamespace(message_id=f"lead-{PID}-4", job_id=4, turn_source=turn_source.stamp(turn_source.WAKE))
+        old = SimpleNamespace(message_id=f"lead-{PID}-5", job_id=5)  # Queued before the stamp: its message id says it.
+        self.assertEqual([project_loop.woken(self.state, job) for job in (his, bridge, old)], [False, True, True])
+        relay = SimpleNamespace(message_id=f"lead-{PID}-6", job_id=6, turn_source=turn_source.stamp(turn_source.RELAY))
+        self.assertFalse(project_loop.woken(self.state, relay))  # Another source: no wake-up, whatever its id says.
 
 
 class GuardTest(Loop):
@@ -1269,13 +1350,40 @@ class SilentTest(DeliverCase):
         self.assertTrue(all(call.kwargs.get("delivery_ok") is not False for call in states[1:]), states)
         self.assertTrue(states[-1].kwargs["delivery_ok"])
 
-    def test_a_report_note_its_style_lets_through_sends_the_reply_to_the_top_level(self):
+    def test_a_report_note_its_style_lets_through_goes_on_its_own_and_the_reply_stays(self):
+        # W1-A C4 (the report channel): the note as the lead wrote it, under who says it, at the top level; never the reply.
         job = self.lead()
-        self.note(job_key(job.message_id, job.job_id))
-        delivery = self.deliver(job, reply="第一批迁完了。")
-        self.assertFalse(delivery.silent)
+        key = job_key(job.message_id, job.job_id)
+        self.note(key)
+        delivery = self.deliver(job, reply="第一批迁完了，我还顺手看了日志……")
+        self.assertTrue(delivery.silent)
         self.send_text.assert_called_once()
-        self.assertEqual(self.send_text.call_args.args[0].reply_to_message_id, "")
+        where, chat, text, idem = self.send_text.call_args.args
+        self.assertEqual((where.reply_to_message_id, chat, idem), ("", BUTLER_CHAT, f"lead-report-{key}"))
+        self.assertEqual(text, "专项「迁移账单」负责人：第一批迁完")
+        self.assertNotIn("日志", text)
+
+    def test_several_report_notes_go_as_one_message_and_a_detailed_style_says_what_the_turn_did(self):
+        from covey.app import project_tools
+
+        job = self.lead()
+        key = job_key(job.message_id, job.job_id)
+        rows = [{"id": "n1", "at": NOW, "text": "第一批迁完", "report": True, "kind": "milestone", "job": key},
+                {"id": "n2", "at": NOW, "text": "T12 对账一致", "report": True, "kind": "thread", "job": key}]
+        projects.update(self.state, PID, lambda record: record.update(notes=rows, style={"report": "each_thread", "detail": "简"}))
+        project_tools.acted(SimpleNamespace(state_dir=self.state), PID, SimpleNamespace(job_key=key), "start")
+        self.deliver(job)
+        text = self.send_text.call_args.args[2]
+        self.assertEqual(text.splitlines()[:3], ["专项「迁移账单」负责人：", "- 第一批迁完", "- T12 对账一致"])
+        self.assertEqual(text.splitlines()[-1], "这一轮：开了话题。")
+        # The newer rows say what a turn did as ``whats``.
+        projects.update(self.state, PID, lambda record: record.update(acted=[{"job": key, "whats": ["send", "stop"], "at": NOW}]))
+        self.deliver(job)
+        self.assertEqual(self.send_text.call_args.args[2].splitlines()[-1], "这一轮：给话题加了话、停了话题。")
+        # Under milestones: no line of what it did, and the thread note is held back by the style.
+        projects.update(self.state, PID, lambda record: record.update(style={"report": "milestones", "detail": "简"}))
+        self.deliver(job)
+        self.assertEqual(self.send_text.call_args.args[2], "专项「迁移账单」负责人：第一批迁完")
 
     def test_a_report_note_the_style_holds_back_is_not_sent_either(self):
         job = self.lead()
@@ -1283,6 +1391,7 @@ class SilentTest(DeliverCase):
         delivery = self.deliver(job, reply="线程做完了。")
         self.assertTrue(delivery.silent)
         self.send_text.assert_not_called()
+        self.assertFalse(project_loop.report_out(delivery))
 
     def test_a_note_that_is_not_a_report_or_is_another_turns_changes_nothing(self):
         job = self.lead()
@@ -1291,33 +1400,74 @@ class SilentTest(DeliverCase):
         self.note("other-key")
         self.assertTrue(self.deliver(job).silent)
 
-    def test_a_wake_up_turn_that_handed_out_work_is_sent_and_one_that_did_nothing_is_not(self):
-        # 2026-11-19 (the owner: 有变化才发): a wake-up turn that started, fed or stopped a topic, or answered or handed on a
-        # question (app/project_tools.py acted) tells the owner, as a report note does; the others stay on the card.
+    def test_a_wake_up_turn_that_only_did_things_tells_nobody(self):
+        # W1-A C4: what a wake-up turn changed (app/project_tools.py acted) no longer sends its whole reply (2026-11-19's
+        # 有变化才发); the owner hears of it through its report notes and its questions.
         from covey.app import project_tools
 
-        job, other = self.lead(), self.lead(f"lead-{PID}-2")
-        for turn in (job, job):  # Once a turn, however many tools it called.
-            project_tools.acted(SimpleNamespace(state_dir=self.state), PID,
-                                SimpleNamespace(job_key=job_key(turn.message_id, turn.job_id)), "start")
-        self.assertEqual(len(projects.read_record(self.state, PID)["acted"]), 1)
+        job = self.lead()
+        project_tools.acted(SimpleNamespace(state_dir=self.state), PID,
+                            SimpleNamespace(job_key=job_key(job.message_id, job.job_id)), "start")
         delivery = self.deliver(job, reply="开了 T12 去迁第二批。")
-        self.assertFalse(delivery.silent)
-        self.send_text.assert_called_once()
-        self.assertTrue(self.deliver(other, reply="还在等 T12。").silent)
+        self.assertTrue(delivery.silent)
+        self.send_text.assert_not_called()
 
-    def test_an_ask_goes_out_under_every_style(self):
-        # W0-2 (T892 P0-3): ask_only let no note through and the default no question: the lead could not ask the owner.
-        for style in project_lead.STYLE_CHOICES[project_lead.REPORT]:
-            self.assertTrue(project_lead.reportable({"report": style}, project_lead.ASK), style)
-        for style in ("ask_only", "milestones"):
-            with self.subTest(style=style):
-                projects.update(self.state, PID, lambda record: record.update(style={"report": style, "detail": "简"}))
-                job = self.lead()
-                self.note(job_key(job.message_id, job.job_id), kind=project_lead.ASK)
-                delivery = self.deliver(job, reply="要不要部署这一批？")
-                self.assertFalse(delivery.silent)
-                self.send_text.assert_called_once()
+    def deliver_waiting(self, job, shown=True, reply="要不要部署这一批？"):
+        """``deliver`` of a wake-up turn that asked the owner (project_ask): it waits for his answer, its question card to go
+        (``shown``: whether Questions.deliver_checkpoint_questions sent it)."""
+        from covey.app import butler_reply
+        from covey.app.turn_delivery import TurnDelivery
+        from test_butler_quiet import ASK
+
+        job.checkpoint_question_deferred = True
+        turn = SimpleNamespace(status="waiting_user", status_message="", final_text=reply,
+                               verified_delivery=SimpleNamespace(text=reply, fingerprint="f1"),
+                               verified_outcome=SimpleNamespace(status="completed", notice=lambda: "", error_code=""),
+                               outcome=None, allow_resume=True)
+        self.send_text = mock.Mock(return_value=True)
+        questions = mock.Mock()
+        questions.deliver_checkpoint_questions.return_value = shown
+        delivery = TurnDelivery(job, self.ctx, turn, prefix="p", cards=DeliverCase.cards(self), runtime=mock.Mock(),
+                                artifacts=mock.Mock(), questions=questions, steering=mock.Mock(),
+                                record_job_state=mock.Mock(), send_text=self.send_text, react=mock.Mock(return_value=True))
+        with mock.patch.object(TurnDelivery, "texts", return_value=(reply, reply, False)), \
+                mock.patch.object(TurnDelivery, "ask_block", return_value=ASK), \
+                mock.patch.object(TurnDelivery, "answer_tail", return_value=([], False, None)), \
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
+            delivery.deliver(None)
+            butler_reply.react_end(delivery)
+        return delivery
+
+    def test_a_wake_up_waiting_on_its_question_sends_the_card_and_not_the_reply(self):
+        # W1-A C4 ④: the turn that asked with project_ask waits for the owner; its question card goes, its reply does not.
+        delivery = self.deliver_waiting(self.lead())
+        self.assertTrue(delivery.silent)
+        self.send_text.assert_not_called()
+        delivery.questions.deliver_checkpoint_questions.assert_called_once()
+        last = delivery.record_job_state.call_args_list[-1]
+        self.assertEqual((last.kwargs["delivery_ok"], last.kwargs["question_delivery_ok"]), (True, True))
+
+    def test_a_question_card_that_does_not_go_says_so_and_is_never_swallowed(self):
+        # W1-A C4 ④: the reply is held back, but a question card that could not be sent is said, and the turn can be
+        # redelivered (its record says the question did not go), as any turn's.
+        job = self.lead()
+        delivery = self.deliver_waiting(job, shown=False)
+        self.assertTrue(delivery.silent)
+        [call] = self.send_text.call_args_list
+        self.assertIn("问题控件未能发送", call.args[2])
+        self.assertEqual(call.args[3], f"p-question-delivery-failed-{job.message_id}")
+        last = delivery.record_job_state.call_args_list[-1]
+        self.assertEqual((last.args[2], last.kwargs["question_delivery_ok"]), ("failed", False))
+        self.assertIn("问题控件发送失败", last.args[3])
+
+    def test_a_wake_up_paused_on_a_native_question_is_not_hidden(self):
+        job = self.lead()
+        job.paused_question_delivery = {"kind": "native"}
+        delivery = SimpleNamespace(job=job, ctx=self.ctx, runtime=mock.Mock(), turn=SimpleNamespace(
+            status="waiting_user", verified_delivery=object(), verified_outcome=SimpleNamespace(status="completed")))
+        self.assertFalse(project_loop.silent(delivery))
+        job.paused_question_delivery = None
+        self.assertTrue(project_loop.silent(delivery))
 
     def test_the_owners_words_steered_into_a_wake_up_turn_make_it_his(self):
         # W0-2 (T892 P0-5): the butler's project_send went into the running wake-up turn as a supplement; the turn stayed a
@@ -1344,20 +1494,66 @@ class SilentTest(DeliverCase):
         self.assertFalse(project_loop.woken(self.state, runner_job))
         self.assertTrue(self.deliver(other, reply="还在等 T12。").silent)  # Another wake-up: as before.
 
-    def test_a_supplement_into_a_wake_up_turn_marks_the_owner_there(self):
+    def steering(self):
         from covey.app.steering import Steering
 
         steering = Steering.__new__(Steering)
         steering.runtime = SimpleNamespace(log=mock.Mock())
-        job = self.lead()
-        with mock.patch.object(Steering, "_deliver_steer", return_value={"status": "sent"}), \
-                mock.patch.object(project_loop, "owner_steered") as steered:
+        return steering
+
+    def running(self, job):
+        from covey.core.jobs import upsert_job_record
+
+        upsert_job_record(self.state, job_key(job.message_id, job.job_id), message_id=job.message_id, job_id=job.job_id,
+                          topic_id=self.lead_topic, chat_id=BUTLER_CHAT, status="running")
+        return job
+
+    def test_a_supplement_into_a_wake_up_turn_marks_the_owner_there_before_it_goes(self):
+        # P1-8 (Wave 0 F5): the mark is on the record before the supplement is sent; one that surely did not go takes it back.
+        from covey.app.steering import Steering
+        from covey.core.steer import SteerNotReady, SteerRefused, SteerUncertain
+
+        steering, job = self.steering(), self.running(self.lead())
+        seen = []
+
+        def send(*args, **kwargs):
+            seen.append(project_loop.woken(self.state, self.lead()))  # A task runner's job of the same turn, from disk.
+            return {"status": "sent"}
+        with mock.patch.object(Steering, "_deliver_steer", side_effect=send):
             steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
-        steered.assert_called_once_with(self.ctx.state_dir, job, steering.runtime.log)
-        with mock.patch.object(Steering, "_deliver_steer", return_value={"status": "refused"}), \
-                mock.patch.object(project_loop, "owner_steered") as steered:
+        self.assertEqual(seen, [False])  # Already his while it went.
+        self.assertFalse(project_loop.woken(self.state, job))
+        for number, refusal in enumerate((SteerRefused("任务已结束或已取消"), SteerNotReady("还没准备好")), 5):
+            with self.subTest(refusal=type(refusal).__name__):
+                job = self.running(self.lead(f"lead-{PID}-{number}"))
+                with mock.patch.object(Steering, "_deliver_steer", side_effect=refusal), self.assertRaises(type(refusal)):
+                    steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
+                self.assertTrue(project_loop.woken(self.state, job))  # Nothing went in: taken back.
+                self.assertTrue(project_loop.woken(self.state, self.lead(job.message_id)))
+        job = self.running(self.lead(f"lead-{PID}-8"))
+        with mock.patch.object(Steering, "_deliver_steer", return_value={"status": "refused"}):
             steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
-        steered.assert_not_called()  # Nothing went in.
+        self.assertTrue(project_loop.woken(self.state, job))
+        job = self.running(self.lead(f"lead-{PID}-9"))
+        with mock.patch.object(Steering, "_deliver_steer", side_effect=SteerUncertain("没确认")), self.assertRaises(SteerUncertain):
+            steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
+        self.assertFalse(project_loop.woken(self.state, job))  # It may have gone: his.
+
+    def test_a_turn_that_takes_the_supplement_and_ends_at_once_sends_its_reply(self):
+        # P1-8 (fable RT|steer_then_judge_then_marker): the supplement went in, the turn ended and was judged before the
+        # Bridge wrote the mark; its reply was held back and no new turn came. Now the judgment sees the mark.
+        from covey.app.steering import Steering
+
+        steering, job = self.steering(), self.running(self.lead())
+        judged = []
+
+        def send(*args, **kwargs):
+            judged.append(self.deliver(self.lead(), reply="收到，改成先迁 orders 表。").silent)  # The runner, at once.
+            return {"status": "sent"}
+        with mock.patch.object(Steering, "_deliver_steer", side_effect=send):
+            steering.deliver_steer(self.ctx, job, "先迁 orders", "main-tok")
+        self.assertEqual(judged, [False])
+        self.send_text.assert_called_once()
 
     def test_the_owners_turn_in_the_lead_is_sent_as_before(self):
         delivery = self.deliver(self.lead("om_9"), reply="好的，我来拆。")
@@ -1373,6 +1569,87 @@ class SilentTest(DeliverCase):
         with mock.patch.dict(os.environ, {projects.ENV: "0"}):
             self.assertFalse(project_loop.silent(SimpleNamespace(job=self.lead(), turn=SimpleNamespace(), ctx=self.ctx,
                                                                  runtime=mock.Mock())))
+
+
+class RelayRaceTest(DeliverCase):
+    """§5.4 R3: a member's result the owner gets by its relay is not told again by the lead's report, read when the lead
+    reports (a merged relay waits ``pending`` a moment; the Bridge's own relay may come after the receipt), and a relay
+    that failed leaves the report to tell it."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, ON).start()
+        self.addCleanup(mock.patch.stopall)
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
+        write_json(self.state / butler_settings.FILE, {"mode": "agent"})
+        butler.forget_mode()
+        self.lead_topic = projects.lead_topic_id(BUTLER_CHAT, PID)
+        projects.create(self.state, projects.new_record(chat_id=BUTLER_CHAT, name="迁移账单", project_id=PID, now=NOW))
+        write_topic(self.state, topic_id=self.lead_topic, chat_id=BUTLER_CHAT, harness_id="claude",
+                    project=projects.project_field(PID, projects.LEAD))
+        write_topic(self.state, topic_id=THREAD, chat_id=BUTLER_CHAT, harness_id="claude", topic_number=41,
+                    project=projects.project_field(PID, projects.MEMBER))
+        projects.add_member(self.state, PID, THREAD)
+        projects.update(self.state, PID, lambda record: record.update(style={"report": "each_thread", "detail": "简"}))
+        self.logs = []
+        self.member = job_key("om_t1", 41)
+        write_job(self.state, self.member, topic_id=THREAD, chat_id=BUTLER_CHAT, job_id=41, message_id="om_t1", status="done",
+                  final_text="报告写好了")
+
+    def relay(self, state):
+        from covey.app.relay_send import relay_path
+
+        write_json(relay_path(self.state, self.member), {"state": state, "outcome": "done", "job_key": self.member})
+
+    def ended(self):
+        """The member's turn ends (its receipt) and the lead's wake-up takes it and reports it as a thread note."""
+        project_loop.after_runner(self.logs.append, self.state, make_job(job_id=41, chat_id=BUTLER_CHAT, message_id="om_t1",
+                                                                          topic_id=THREAD))
+        job = self.job(topic=self.lead_topic, message=f"lead-{PID}-1")
+        key = job_key(job.message_id, job.job_id)
+        project_lead.take_receipts(self.state, PID, key)
+        note = {"id": "n1", "at": NOW, "text": "T41 报告出了", "report": True, "kind": "thread", "job": key}
+        projects.update(self.state, PID, lambda record: record.update(notes=[note]))
+        return job
+
+    def test_a_relay_waiting_in_its_merge_window_is_not_told_again(self):
+        self.relay("pending")  # The runner left its relay to be merged with the chat's others a moment later.
+        job = self.ended()
+        delivery = self.deliver(job, reply="T41 报告出了，结论……")
+        self.assertTrue(delivery.silent)
+        self.send_text.assert_not_called()  # The owner gets it once: from the merged relay.
+        self.relay("sent")
+        self.deliver(job)
+        self.send_text.assert_not_called()
+
+    def test_a_relay_the_bridge_wrote_after_the_receipt_counts_when_the_lead_reports(self):
+        job = self.ended()  # No relay yet: the receipt says nothing of one.
+        [item] = project_lead.taken_receipts(self.state, PID, job_key(job.message_id, job.job_id))
+        self.assertNotIn("relayed", item)
+        for state in ("pending", "submitting", "uncertain"):
+            with self.subTest(state=state):
+                self.relay(state)
+                self.deliver(job)
+                self.send_text.assert_not_called()
+
+    def test_a_relay_that_failed_leaves_the_report_to_tell_it(self):
+        self.relay("pending")
+        job = self.ended()
+        self.relay("failed")  # Feishu refused the merged relay: the lead's report is the owner's way to hear it.
+        self.deliver(job)
+        self.send_text.assert_called_once()
+        self.assertEqual(self.send_text.call_args.args[2], "专项「迁移账单」负责人：T41 报告出了")
+        self.relay("unsent")
+        self.deliver(job)
+        self.send_text.assert_called_once()
+
+    def test_a_receipt_that_names_its_task_is_read_by_it(self):
+        self.relay("failed")
+        item = {"kind": "thread_end", "thread": THREAD, "text": "T41 的任务 #41 做完：x", "relayed": True}
+        self.assertEqual(project_loop.receipt_job(self.state, item), self.member)
+        self.assertFalse(project_loop.receipt_told(self.state, item))  # Its relay now, not what the receipt said.
+        self.assertTrue(project_loop.receipt_told(self.state, {**item, "text": "别的话题做完"}))  # No task: as it said.
+        self.assertEqual(project_loop.receipt_job(self.state, {**item, "job": "k-given"}), "k-given")
 
 
 class CardWordsTest(Loop):

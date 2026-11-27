@@ -41,7 +41,7 @@ LEAD = projects.lead_topic_id(CHAT, PID)
 ON = {projects.ENV: "1"}
 NOW = 1_800_000_000.0
 LEAD_NAMES = ["topics_list", "topics_search", "topic_read", "repos_list", "topics_switch",
-              "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_goal", "project_remember", "project_memory_revise",
+              "project_topic_start", "project_topic_send", "project_topic_stop", "project_note", "project_ask", "project_goal", "project_remember", "project_memory_revise",
               "project_style", "project_finish"]
 
 
@@ -140,8 +140,9 @@ class RulesTest(Case):
         self.assertEqual(project_lead.style_of({"style": {"spawn": "积极", "report": "verbose"}}),
                          {"report": "verbose", "detail": "简"})  # An older record's spawn is no error and not read.
         self.assertEqual(project_lead.style_of({}), project_lead.STYLE_DEFAULT)
-        table = {"ask_only": ("ask",), "milestones": ("ask", "milestone", "finish"), "each_thread": ("ask", "milestone", "finish", "thread"),
-                 "verbose": ("ask", "milestone", "finish", "thread", "note")}
+        # What the owner is to decide is a project_ask card under every style (WAVE12 C4): no note kind ``ask`` goes out.
+        table = {"ask_only": (), "milestones": ("milestone", "finish"), "each_thread": ("milestone", "finish", "thread"),
+                 "verbose": ("milestone", "finish", "thread", "note")}
         for report, kinds in table.items():
             for kind in ("ask", "milestone", "finish", "thread", "note"):
                 self.assertIs(project_lead.reportable({"report": report}, kind), kind in kinds, (report, kind))
@@ -1002,7 +1003,7 @@ class RecordToolsTest(ToolsCase):
     def test_a_note_goes_on_the_card_and_a_decision_into_the_log(self):
         one = self.tool("project_note", text="导出完成，开始对账", report=True, kind="milestone")
         self.assertTrue(one["ok"])
-        self.assertIn("会按风格告诉主人", one["text"])
+        self.assertIn("Bridge 会按风格把这句原文发给主人", one["text"])
         quiet = self.tool("project_note", text="换了批量大小", kind="note", report=True)
         self.assertIn("按风格不会打扰主人", quiet["text"])
         decided = self.tool("project_note", text="先迁 2024 年", decision=True)

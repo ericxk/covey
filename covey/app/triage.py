@@ -7,7 +7,10 @@ question goes to the project's lead before the owner, and the owner sees it only
   its ``status`` stays ``pending``, ``display_pending`` stays true (so no list of pending questions has it, and the card the owner
   would click is not there), and the task's ``question_delivery_ok`` is true: nothing is "undelivered", nothing offers a retry.
   All of these must hold, or it is the owner's: the switch, a member topic of an active project, a question that blocks, every
-  question a choice (free text is the owner's), and no gate word (core/project_gates.py).
+  question a choice (free text is the owner's), none the owner's by its kind (``must_owner``: core/ask_kinds.py MUST_OWNER,
+  the five kinds raised and never lowered, or what the owner asked to decide), no gate word (core/project_gates.py), and a
+  lead free to take it now (``lead_free``: app/project_loop.py lead_free, no turn of it queued or running or waiting on
+  anything but the answer to its own project_ask, no guard, no wait for a limit; W1-A C4 ③). Else the card goes at once.
 - The receipt (kind ``question``) in the project's inbox and the timeout are the Bridge's (``sweep``, from app/project_loop.py): a task
   process writes only its own question's record (AGENTS.md rule 8). The sweep sends the question on to the owner (``escalate``: the
   card the held question did not get, through the same two doors) when its 180 seconds are up, the project is no longer active,
@@ -35,7 +38,7 @@ from covey.app.answers import TOOL, AnswerBy, AnswerIncomplete, answer_fields
 from covey.core.butler import is_butler_topic
 from covey.cards.question_cards import triage_element
 from covey.core import memory as core_memory
-from covey.core import project_gates, project_memory, projects, triage, turn_source
+from covey.core import ask_kinds, project_gates, project_memory, projects, triage, turn_source
 from covey.core.jobs import find_job_record, saved_job, upsert_job_record
 from covey.core.state import keyed_json_path, read_object
 from covey.core.store import directory_store, update_question
@@ -57,6 +60,35 @@ _swept = {}  # state directory -> {"full": monotonic time of the last full look,
 
 def question_path(state_dir, token) -> Path:
     return keyed_json_path(state_dir, "questions", token)
+
+
+def must_owner(questions) -> bool:
+    """Whether any of ``questions`` is the owner's whatever the lead knows (core/ask_kinds.py MUST_OWNER: one of the five kinds
+    by its words or its declared kind, raised and never lowered, or one the owner asked to decide himself): it goes to him at
+    once, never held (WAVE12 C3)."""
+    return any(ask_kinds.question_kind(question) in ask_kinds.MUST_OWNER for question in questions or ()
+               if isinstance(question, dict))
+
+
+def holdable(record) -> bool:
+    """Whether ``record``'s question may be held for the lead at all: pending, blocking, every question a choice (free text is
+    the owner's), none the owner's by kind (``must_owner``) and no gate word (core/project_gates.py)."""
+    questions = record.get("questions")
+    return (record.get("status", "pending") == "pending" and record.get("blocking") is True
+            and project_gates.choice_only(questions) and not must_owner(questions) and not project_gates.hit(questions))
+
+
+# app/project_loop.py lead_free, which it sets here when it is imported (it imports this module, which may not import it
+# back: no import cycle in app/, tests/test_structure.py). Every process that delivers a question has it (app/worker.py
+# imports app/turn_delivery.py, which imports app/project_loop.py); unset, a lead counts as free, as before W1-A.
+LEAD_FREE = None
+
+
+def lead_free(state_dir, project) -> bool:
+    """Whether the project's lead can take a question now (app/project_loop.py lead_free: no turn of it busy, no guard over it,
+    no wait for a limit): when it cannot, the question is the owner's at once, not three minutes later (W1-A C4 ③). A lead
+    that only waits for the owner's answer to its own project_ask is free."""
+    return True if LEAD_FREE is None else bool(LEAD_FREE(state_dir, project))
 
 
 class Triage:
@@ -88,8 +120,7 @@ class Triage:
                                 if triage.state(row) == triage.HELD else None)
             return OWNER
         project = self.project_of(state, current)
-        if (project is None or current.get("status", "pending") != "pending" or current.get("blocking") is not True
-                or not project_gates.choice_only(current.get("questions")) or project_gates.hit(current.get("questions"))):
+        if project is None or not holdable(current) or not lead_free(state, project):
             return OWNER
         now = time.time()
 
@@ -107,9 +138,9 @@ class Triage:
         try:
             if not triage.enabled():
                 return False
-            project = self.project_of(Path(ctx.state_dir), record)
-            return bool(project is not None and record.get("status", "pending") == "pending" and record.get("blocking") is True
-                        and project_gates.choice_only(record.get("questions")) and not project_gates.hit(record.get("questions")))
+            state = Path(ctx.state_dir)
+            project = self.project_of(state, record)
+            return bool(project is not None and holdable(record) and lead_free(state, project))
         except Exception:  # noqa: BLE001 - the owner's, as route says when it fails
             return False
 
@@ -163,15 +194,25 @@ def summary(record, answered=None) -> str:
 
 def escalate(env, record, why, *, by="lead", context="", recommend="", if_not="") -> bool:
     """The held question sent on to the owner: its triage moves to ``escalated`` (with ``why``, which its card says), and the card
-    goes out through the door the question would have used. True when the card was sent; a card that could not go is made good by
-    the topic's 重新投递 (the task's record says its question was not delivered) or, sooner, by the sweep (``stranded``, ``reshow``). A question no longer held changes nothing (False).
+    goes out through the door the question would have used, the record read again under its lock: an answer of the lead's on its
+    way (``answering``) keeps the question unless it is that answer's own failure (``by`` error), §5.4 R1. True when the card was
+    sent; a card that could not go is made good by the topic's 重新投递 (the task's record says its question was not delivered) or, sooner, by the sweep (``stranded``, ``reshow``). A question no longer held changes nothing (False).
     ``context`` (a line of background), ``recommend`` (the option the lead recommends) and ``if_not`` (what not taking it costs) go
     into the triage record when given and on the card (cards/question_cards.py ``lead_notes``)."""
     state = Path(env.state_dir)
     path = question_path(state, record["token"])
-    moved = update_question(path, lambda row: {**triage.moved(row, triage.ESCALATED, why=cut(why, 120), by=by, at=time.time(),
-                                                **{k: cut(v, 120) for k, v in (("context", context), ("recommend", recommend), ("if_not", if_not)) if v}),
-                                               "display_pending": True} if triage.held(row) else None)
+    now = time.time()
+
+    def hand_on(row):
+        # Read again under the question's lock (§5.4 R1): an answer of the lead's on its way (``answering``) keeps the
+        # question, whoever asks for it with an older copy (the owner's word in the topic, project_escalate in the same
+        # turn); only that answer's own failure (``error``) hands it on then. One of the two, never both.
+        if not triage.held(row) or (by != "error" and answering(row, now)):
+            return None
+        return {**triage.moved(row, triage.ESCALATED, why=cut(why, 120), by=by, at=now,
+                               **{k: cut(v, 120) for k, v in (("context", context), ("recommend", recommend), ("if_not", if_not)) if v}),
+                "display_pending": True}
+    moved = update_question(path, hand_on)
     if moved is None:
         return False
     found = triage.of(moved)
@@ -194,6 +235,13 @@ def escalate(env, record, why, *, by="lead", context="", recommend="", if_not=""
         upsert_job_record(state, moved.get("job_key"), status="failed", question_delivery_ok=False,
                           status_message="问题要主人答，但问题控件还没送到；请重新投递")
     return ok
+
+
+def answering(record, now) -> bool:
+    """Whether an answer of the lead's to ``record``'s question is on its way (``answer`` marked it less than
+    core/triage.py ANSWERING seconds ago)."""
+    since = float(triage.of(record).get("answering") or 0)
+    return bool(since) and now - since < triage.ANSWERING
 
 
 def unshown(record) -> bool:
@@ -426,7 +474,7 @@ def owner_spoke(env, topic, chat) -> None:
     try:
         now = time.time()
         for _, record in held_questions(Path(env.state_dir), {topic}):
-            if record.get("chat_id") == chat and not (triage.of(record).get("answering") and now - float(triage.of(record)["answering"]) < triage.ANSWERING):
+            if record.get("chat_id") == chat and not answering(record, now):
                 escalate(env, record, "你在这个话题里说话了", by="owner")
     except Exception as exc:  # noqa: BLE001 - the topic's own refusal says what to do
         env.runtime.log(f"question triage hand-over failed: {type(exc).__name__}")

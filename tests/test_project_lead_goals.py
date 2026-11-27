@@ -927,7 +927,8 @@ class RetellTest(Case):
         self.assertTrue(project_loop.told_already(self.state, PID, f"lead-{PID}-1"))
         self.assertFalse(self.wake_reported("note"))
         self.assertTrue(self.wake_reported("milestone"))  # Its own judgment goes.
-        self.assertTrue(self.wake_reported("thread", acted=True))  # Work handed out goes.
+        # Work handed out no longer sends anything of its own (W1-A C4: report notes and questions are the channels).
+        self.assertFalse(self.wake_reported("thread", acted=True))
 
     def test_a_wake_that_read_only_consults_receipts_retells_none_of_them(self):
         project_lead.add_receipt(self.state, PID, collab.RECEIPT_ANSWERED, "T41 请 T55 协助：已答复：一致", thread=THREAD)
@@ -1007,6 +1008,9 @@ class GroundsTest(ToolsCase):
                                readonly=True, why="脚本在这个仓库")["data"]["topic_id"]
         self.path = self.state / "questions" / (TOKEN + ".json")
         write_json(self.path, question(topic=self.topic, job_key="x-1"), ensure_ascii=False)
+        # Asked while the lead was idle (W1-A C4 ③: a busy lead's question goes to the owner at once); the wake-up's turn,
+        # ``lead-job``, answers it.
+        mock.patch.object(project_loop, "lead_busy", return_value=False).start()
         flow.Triage(runtime=SimpleNamespace(log=print), cards=mock.Mock())._route(SimpleNamespace(state_dir=self.state),
                                                                                  read_object(self.path))
         self.label = label_of(self.state, self.topic)

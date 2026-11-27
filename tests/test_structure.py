@@ -1382,6 +1382,8 @@ class TurnSourceStampTest(unittest.TestCase):
         "covey/app/butler_projects.py::_send::relay": 2,
         "covey/app/butler_topics.py::source_of::lead": 1,
         "covey/app/butler_topics.py::source_of::relay": 2,
+        # W1-A: the Bridge's wake-up of a project's lead (ProjectLoop.enqueue).
+        "covey/app/project_loop.py::ProjectLoop.enqueue::wake": 1,
     }
 
     @classmethod
@@ -1410,6 +1412,206 @@ class TurnSourceStampTest(unittest.TestCase):
                                       "def f():\n    turn_source.stamp('owner')\n")]
         self.assertEqual(self.stamps(sources), {"covey/app/a.py::<module>::relay": 1, "covey/app/a.py::<module>::answer_for": 1,
                                                 "covey/app/a.py::f::owner": 1})
+
+
+# G7 (WAVE12 C11, W1-A): the rules a turn reads agree with what the Bridge gives it. The short codes they show as examples are
+# codes (core/memstore.py CODE_RE); a Bridge tool a role's rules or tool descriptions name is on that role's list; a value they
+# tell the model to write for an enumerated argument is one of that argument's values; a list of the five kinds the owner is
+# always asked is core/ask_kinds.py's (SHORT, LONG), written nowhere else.
+PROMPT_ON = {"COVEY_PROJECTS": "1", "COVEY_PROJECT_TRIAGE": "1", "COVEY_COLLAB": "1", "COVEY_PROJECT_AUTOWAKE": "1",
+             "COVEY_BUTLER_RULES": "1", "COVEY_HISTORY_CMD": "/absolute/history", "COVEY_PROJECT_TIDY": "1"}
+PROMPT_OFF = {"COVEY_PROJECTS": "1", "COVEY_PROJECT_TRIAGE": "0", "COVEY_COLLAB": "0", "COVEY_PROJECT_AUTOWAKE": "0",
+              "COVEY_BUTLER_RULES": "0", "COVEY_HISTORY_CMD": "", "COVEY_PROJECT_TIDY": "0"}
+EXAMPLE_CODE = re.compile(r"(?<![0-9A-Za-z_])[RDN][0-9][0-9A-Z]{2,6}(?![0-9A-Za-z_])")  # A code as a prompt shows one (R7K2M).
+TOLD = r"\s*(?:写|填|为|是|=|：|:)\s*([a-z][a-z_]*)"  # "kind 写 ask", "scope：global".
+
+
+def string_constants(source):
+    """(line, text) of each string constant of ``source`` but its docstrings (an f-string's literal parts count)."""
+    tree = ast.parse(source)
+    docs = {id(node.body[0].value) for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body
+            and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
+    return [(node.lineno, node.value) for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs]
+
+
+def schema_texts(node):
+    """Every description in a tool (its own and its arguments', at any depth)."""
+    if isinstance(node, dict):
+        return [text for key, value in node.items()
+                for text in ([value] if key == "description" and isinstance(value, str) else schema_texts(value))]
+    return [text for value in node for text in schema_texts(value)] if isinstance(node, (list, tuple)) else []
+
+
+def schema_enums(node, found=None):
+    """{argument name: its values} of every enumerated argument in ``node`` (a tool, a schema, a list of them), at any depth;
+    an array argument's items count as the argument."""
+    found = {} if found is None else found
+    if isinstance(node, dict):
+        for name, spec in (node.get("properties") or {}).items():
+            for side in (spec, spec.get("items") if isinstance(spec, dict) else None):
+                if isinstance(side, dict) and isinstance(side.get("enum"), list):
+                    found.setdefault(name, set()).update(side["enum"])
+        for value in node.values():
+            schema_enums(value, found)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            schema_enums(value, found)
+    return found
+
+
+def tool_names_in(text, names):
+    return {name for name in names if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text)}
+
+
+def told_values(text, enums):
+    """(argument, value) for each "<argument> 写 <value>" in ``text`` of an argument in ``enums`` (true/false are not values)."""
+    if not enums:
+        return []
+    pattern = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, sorted(enums, key=len, reverse=True))) + r")" + TOLD)
+    return [(m.group(1), m.group(2)) for m in pattern.finditer(text) if m.group(2) not in ("true", "false", "null")]
+
+
+def five_kinds_lists(sources):
+    """{"<file>": count} of the string constants outside core/ask_kinds.py that write a list of the five kinds by hand: two of
+    their short names joined by 、, or the long form of one (core/ask_kinds.py LONG's parts)."""
+    from covey.core import ask_kinds
+
+    shorts = "|".join(map(re.escape, (kind.short for kind in ask_kinds.KINDS)))
+    hand = [re.compile(rf"(?:{shorts})、(?:{shorts})"),
+            *(re.compile(re.escape(kind.long)) for kind in ask_kinds.KINDS if kind.long != kind.short)]
+    keys = [rel for rel, source in sources if rel != "covey/core/ask_kinds.py"
+            for _, text in string_constants(source) for pattern in hand if pattern.search(text)]
+    return counted(keys)
+
+
+class PromptSchemaTest(unittest.TestCase):
+    """G7 (WAVE12 C11): what the butler's and a lead's rules and tool descriptions say agrees with their tools' schemas, the
+    example codes are codes, and the five kinds are written in one place. Today's hand-written lists of the five are listed
+    (``FIVE_LISTED``, none left) and the list only shrinks."""
+
+    FIVE_LISTED = {}  # "<file>": string constants writing the five kinds by hand (W1-A 主会话清零; none found at W1-A).
+
+    @staticmethod
+    def roles(environ):
+        """(role, its tools, its rules and tool descriptions) for the butler and a lead under ``environ``. With everything on, a
+        lead's also every string of app/project_lead.py (the lines of its state pack, which name tools too); with it off, only
+        the rules as they are put together (the parts for 协作 and the question triage are left out then)."""
+        from unittest import mock
+
+        from covey.app import project_lead, project_loop, prompts
+        from covey.core import butler_tool_specs
+
+        with mock.patch.dict(os.environ, environ):
+            lead = butler_tool_specs.lead_tools(environ)
+            constants = [value for value in vars(project_lead).values() if isinstance(value, str)]
+            constants += [text for value in vars(project_lead).values() if isinstance(value, (tuple, list))
+                          for text in value if isinstance(text, str)]
+            constants = constants if environ is PROMPT_ON else []
+            lead_text = "\n".join([project_lead.lead_rules(), project_loop.WAKE_TEXT, *constants, *schema_texts(lead)])
+            butler = butler_tool_specs.listed(environ)
+            butler_text = "\n".join([prompts.butler_rules(), *schema_texts(butler)])
+        return (("负责人", lead, lead_text), ("管家", butler, butler_text))
+
+    @staticmethod
+    def known_tools():
+        from covey.core import butler_tool_specs as specs
+
+        return set(specs.ALL_NAMES) | set(specs.BUTLER_PROJECT_NAMES) | set(specs.PROJECT_NAMES) | set(specs.RENAMED_TOOLS)
+
+    def test_every_example_code_is_a_code(self):
+        from covey.core import memstore
+
+        found = {(rel, line, code) for rel, source in gated_sources() for line, text in string_constants(source)
+                 for code in EXAMPLE_CODE.findall(text)}
+        self.assertTrue(any(code == "R7K2M" for _, _, code in found))
+        self.assertEqual({f"{rel}:{line} {code}" for rel, line, code in found if not memstore.CODE_RE.match(code)}, set(),
+                         "示例短码要过 core/memstore.py 的 CODE_RE（用 R7K2M 这类）")
+
+    def test_a_tool_the_rules_name_is_on_the_roles_list(self):
+        known = self.known_tools()
+        for environ in (PROMPT_ON, PROMPT_OFF):
+            for role, tools, text in self.roles(environ):
+                with self.subTest(role=role, on=environ is PROMPT_ON):
+                    listed = {tool["name"] for tool in tools}
+                    self.assertEqual(tool_names_in(text, known) - listed, set(),
+                                     f"{role}的规则或工具说明点名了它没有的工具（改规则，或把工具加进{role}的清单）")
+
+    def test_a_value_the_rules_tell_is_one_of_the_arguments_values(self):
+        for environ in (PROMPT_ON, PROMPT_OFF):
+            for role, tools, text in self.roles(environ):
+                enums = schema_enums(tools)
+                with self.subTest(role=role, on=environ is PROMPT_ON):
+                    self.assertEqual([f"{arg}={value}" for arg, value in told_values(text, enums) if value not in enums[arg]],
+                                     [], f"{role}的规则让模型写的值不在工具 schema 的 enum 里")
+                    for tool in tools:  # What follows a tool's name in the same sentence is told of that tool.
+                        own = schema_enums(tool)
+                        for match in re.finditer(rf"(?<![A-Za-z0-9_]){re.escape(tool['name'])}(?![A-Za-z0-9_])[^。；\n]{{0,60}}",
+                                                 text):
+                            wrong = [f"{tool['name']}.{arg}={value}" for arg, value in told_values(match.group(0), own)
+                                     if value not in own[arg]]
+                            self.assertEqual(wrong, [], match.group(0))
+
+    def test_a_checkpoint_questions_kind_is_one_of_the_question_kinds(self):
+        from covey.core import ask_kinds, butler_tool_specs, checkpoint
+
+        listed = re.search(r"（([a-z_、]+)）", checkpoint.KIND_RULE)
+        self.assertEqual(tuple(listed.group(1).split("、")), ask_kinds.QUESTION_KINDS)
+        self.assertIn(checkpoint.KIND_RULE, checkpoint.CHECKPOINT_RULES)
+        tools = (*butler_tool_specs.TOOLS, *butler_tool_specs.PROJECT_TOOLS, *butler_tool_specs.TRIAGE_TOOLS,
+                 *butler_tool_specs.CHECKLIST_TOOLS, *butler_tool_specs.BUTLER_PROJECT_TOOLS)
+        for tool in tools:  # A tool that asks the owner questions (a lead's question card) takes the same kinds.
+            questions = tool["input_schema"].get("properties", {}).get("questions")
+            kind = ((questions or {}).get("items") or {}).get("properties", {}).get("kind") if isinstance(questions, dict) else None
+            if isinstance(kind, dict) and "enum" in kind:
+                with self.subTest(tool=tool["name"]):
+                    self.assertEqual(tuple(kind["enum"]), ask_kinds.QUESTION_KINDS)
+
+    def test_the_five_kinds_are_written_only_in_ask_kinds(self):
+        new, stale = against(five_kinds_lists(gated_sources()), self.FIVE_LISTED)
+        self.assertEqual(new, {}, "五类（部署、删除…）的列表只写在 core/ask_kinds.py：引用 checkpoint.ASK_SHORT / ASK_KINDS")
+        self.assertEqual(stale, {}, "这些文件已经不手写五类了：把它们从 FIVE_LISTED 里删掉")
+
+    # What only a checkpoint contract says (core/checkpoint.py CHECKPOINT_RULES and checkpoint_note): a lead's turn has none.
+    CONTRACT = ("requires_user", "本任务检查点文件", "next_step", "external_tasks", '"phase"')
+
+    def test_lead_turn_has_no_checkpoint_contract(self):
+        """WAVE12 C4 / G7: a lead's turn (held to LEAD, or in its topic) gets app/runs.py LEAD_RULE in place of the checkpoint
+        contract, and neither its rules, its wake-up text nor its tools' descriptions write one, under either switch setting."""
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from covey.app.runs import LEAD_RULE, Runs
+        from covey.core import checkpoint
+        from covey.core.harness import LEAD, TOOL_LIMIT
+
+        self.assertTrue(all(word in checkpoint.CHECKPOINT_RULES for word in self.CONTRACT[:1]))  # The markers are the contract's.
+        runs = Runs.__new__(Runs)
+        held = Runs.checkpoint_rules(runs, SimpleNamespace(options={TOOL_LIMIT: LEAD}, topic_id="t"), None)
+        with mock.patch("covey.app.runs.is_lead", return_value=True):
+            topic = Runs.checkpoint_rules(runs, SimpleNamespace(options={}, topic_id="t"),
+                                          SimpleNamespace(topic_id="t", chat_id="oc"))
+        self.assertEqual((held, topic), (LEAD_RULE, LEAD_RULE))
+        for environ in (PROMPT_ON, PROMPT_OFF):
+            lead = self.roles(environ)[0][2]
+            for text in (LEAD_RULE, lead):
+                with self.subTest(on=environ is PROMPT_ON):
+                    self.assertEqual([word for word in self.CONTRACT if word in text], [])
+
+    def test_the_checks_catch_a_bad_code_an_unlisted_tool_a_wrong_value_and_a_hand_written_list(self):
+        from covey.core import memstore
+
+        self.assertFalse(memstore.CODE_RE.match(EXAMPLE_CODE.findall("比如 R1IO0 这条")[0]))
+        self.assertEqual(tool_names_in("用 topic_start 开，再 project_note。project_notes 不是", {"topic_start", "project_note"}),
+                         {"topic_start", "project_note"})
+        self.assertEqual(told_values("project_note（kind 写 ask）；report 为 true；scope：global", {"kind": {"note"}, "scope": {"x"}}),
+                         [("kind", "ask"), ("scope", "global")])
+        self.assertEqual(schema_enums({"properties": {"a": {"enum": ["x"]}, "b": {"type": "array", "items": {"enum": ["y"]}}}}),
+                         {"a": {"x"}, "b": {"y"}})
+        source = ('"""部署、删除 in a docstring."""\nRULE = "要问：部署、删除、花钱"\nTAIL = f"{x}占机器（长时间占 GPU 或集群、起长期运行的服务、大量下载或写盘）"\n'
+                  'OK = "不部署、不删东西"\n')
+        self.assertEqual(five_kinds_lists([("covey/app/a.py", source), ("covey/core/ask_kinds.py", source)]), {"covey/app/a.py": 2})
 
 
 # G1 (W1-F, C11): a read for a write. read_object hands back {} for a file that is there but cannot be read for a moment (a

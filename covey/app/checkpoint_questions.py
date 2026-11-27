@@ -18,6 +18,10 @@ from covey.app.question_display import question_card_lock
 from covey.app.triage import LEAD
 from covey.core.store import directory_store, transition_question, update_question
 
+# Who asked a checkpoint question, as its record's ``origin`` keeps it: ``project_ask``, a project's lead (app/project_tools.py).
+# The lead stays free for wake-ups and the triage while it waits on one (app/project_loop.py lead_busy).
+ORIGINS = ("project_ask",)
+
 
 def _checkpoint_source(record, jobs):
     """The job a checkpoint question came from, when the record and that job still agree."""
@@ -146,10 +150,10 @@ class CheckpointQuestions:
                             self.runtime.log(f"Superseded question task display failed: {type(exc).__name__}")
                 break
 
-    def defer(self, ctx, job, questions):
+    def defer(self, ctx, job, questions, *, origin=""):
         """Only the already-returned checkpoint path may defer a question. ``questions`` as the turn wrote them, made into
         what a card takes first (core/checkpoint.py normalize_questions: a number id, a string option, ``header`` for
-        empty words…); ValueError when nothing is left to ask."""
+        empty words…); ValueError when nothing is left to ask. ``origin``: who asked (ORIGINS), kept on the record."""
         questions = normalize_questions(questions, "")
         # A multi-select question says "multiple" (core/checkpoint.py); Claude's own question tool's
         # "multiSelect" is taken too. Without either the card had a single select, though the question
@@ -161,7 +165,8 @@ class CheckpointQuestions:
         upsert_job_record(ctx.state_dir, job.message_id, checkpoint_question_deferred=True)
         with job.trace_lock:
             return self.questions.native.dispatch(ctx, job, "question",
-                {"request_id": "checkpoint-" + job.message_id, "isBlocking": True, "questions": questions},
+                {"request_id": "checkpoint-" + job.message_id, "isBlocking": True, "questions": questions,
+                 **({"origin": origin} if origin in ORIGINS else {})},
                 None, defer_question=True)
 
     def result_delivered(self, ctx, record):

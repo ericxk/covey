@@ -21,7 +21,7 @@ from covey.core.diff import capture_job_diff_snapshot
 from covey.core.harness import JobCancelled, backend_capabilities, normalize_run_result
 from covey.core.saved_results import reruns_after_withdrawal, observe_verified_reply
 from covey.app import devices as device_turns
-from covey.core.jobs import (DEVICE_LOST_STATUS, RECALLED, SIGTERM_STATUS, context_for_job, job_key, quick_held,
+from covey.core.jobs import (DEVICE_LOST_STATUS, checkpoint_file, RECALLED, SIGTERM_STATUS, context_for_job, job_key, quick_held,
                              topic_job_records)
 from covey.core.progress import turn_seconds
 from covey.core import timing, topic_repos, turn_source
@@ -81,7 +81,7 @@ def _start_turn(ctx, job, *, sessions, runtime, record_job_state):
     job.session_id = session_id
     job.bridge_run_id = str(uuid.uuid4())
     job.verified_reply = None
-    job.checkpoint_path = str(ctx.state_dir / "checkpoints" / (job_key(job.message_id, job.job_id) + ".json"))
+    job.checkpoint_path = str(checkpoint_file(ctx.state_dir, job_key(job.message_id, job.job_id)))
     write_json(Path(job.checkpoint_path), {"phase":SEED_PHASE, "completed":[],
         "artifacts":[], "external_tasks":[], "next_step":SEED_NEXT, "requires_user":False}, ensure_ascii=False)
     # Without a trace until its first event, a status line could say only "<后端> 已开始处理", with no

@@ -50,6 +50,53 @@ class GateWordsTest(unittest.TestCase):
         self.assertEqual({text: found for text, found in hits.items() if found}, {})
 
 
+# The acceptance list's 14 questions (WAVE12 §5.1 W0-6), as the Wave 0 review wrote them twice (wave0-verify-fable.md, P1-1:
+# 10 of 14 hit then), and its 3 that ask none of the five, likewise.
+SPEC_OWNERS = (
+    "要不要删掉旧的 worktree", "旧分支删了还是留着", "要不要回滚到上一版", "重启 Bridge 服务吗", "推到现网吗", "推 stable 通道吗",
+    "Proceed with deployment now?", "通知张三升级吗", "结果发到群里吗", "给他发邮件吗", "买 Pro 套餐吗", "提交训练任务（8 卡 × 12 小时）吗",
+    "起一个常驻服务吗", "强推覆盖远端分支吗",
+    "要不要删掉旧的 worktree？", "要删旧分支吗？", "回滚到上一版吗？", "现在重启 Bridge 吗？", "要推到现网吗？", "推到 stable 通道吗？",
+    "要通知同事张三吗？", "要发邮件给对方吗？", "要买 Pro 套餐吗？", "要申请 8 卡×12h 训练吗？", "要起一个常驻服务吗？", "要强推覆盖远端分支吗？",
+)
+SPEC_ORDINARY = ("用哪个方案", "测试要不要补", "标题用哪种写法", "选方案 A 还是 B？", "要不要补测试？", "起个标题？")
+
+
+class SpecQuestionsTest(unittest.TestCase):
+    def test_the_fourteen_questions_hit_both_ways_they_were_written(self):
+        from covey.core import ask_kinds
+
+        self.assertEqual(len(SPEC_OWNERS), 26)  # The second writing shares two of the first word for word.
+        self.assertEqual([text for text in SPEC_OWNERS if not project_gates.hit(asked(text))], [])
+        self.assertEqual([text for text in SPEC_OWNERS if ask_kinds.question_kind(asked(text)[0]) not in ask_kinds.HIGH_RISK], [])
+
+    def test_the_three_that_ask_none_of_them_pass(self):
+        self.assertEqual({text: project_gates.hits(asked(text)) for text in SPEC_ORDINARY if project_gates.hits(asked(text))}, {})
+
+    def test_the_gate_reads_a_questions_context(self):
+        question = {"question": "选哪个？", "context": "选 A 要把旧服务删掉", "options": [{"label": "A"}, {"label": "B"}]}
+        self.assertIn("选 A 要把旧服务删掉", project_gates.texts([question]))
+        self.assertTrue(project_gates.hit([question]))
+
+    def test_a_question_that_declares_a_kind_of_the_owners_hits_with_no_word(self):
+        for kind, word in (("deploy", "部署"), ("send", "对外发送"), ("owner_asked", project_gates.DECLARED["owner_asked"])):
+            with self.subTest(kind=kind):
+                self.assertEqual(project_gates.hit([{"question": "选哪个？", "kind": kind, "options": [{"label": "A"}]}]), word)
+        for kind in ("blocked", "other", "", "urgent"):
+            with self.subTest(kind=kind):
+                self.assertEqual(project_gates.hit([{"question": "选哪个？", "kind": kind, "options": [{"label": "A"}]}]), "")
+        # Raised, never lowered: words of the five hit whatever the question declares.
+        self.assertEqual(project_gates.hit([{"question": "要删除旧分支吗？", "kind": "blocked", "options": [{"label": "是"}]}]), "删除")
+
+    def test_what_is_not_of_the_five_stays_in_the_gate(self):
+        for text, word in (("要额度吗？", "额度"), ("把密钥写进去吗？", "密钥"), ("用 sudo 装吗？", "sudo"), ("现在申请配额吗？", "配额")):
+            with self.subTest(text=text):
+                self.assertIn(word, project_gates.hits(asked(text)))
+        from covey.core import ask_kinds
+
+        self.assertEqual(ask_kinds.classify("用 sudo 装吗？"), "")
+
+
 # The prompts a turn, the butler or a lead reads: every list of the five kinds in them.
 def prompt_texts(environ=None):
     with mock.patch.dict(os.environ, environ or {}):

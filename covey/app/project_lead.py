@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app import project_context
+from covey.app import project_approvals, project_context
 from covey.app.prompts import project_memory_lines
 from covey.app.triage_view import pack_block
 from covey.core import board_read, butler, collab, devices, project_actions, project_checklist, project_library, project_memory, projects, triage
@@ -73,11 +73,12 @@ STYLE_CHOICES = {REPORT: ("ask_only", "milestones", "each_thread", "verbose"), D
 STYLE_DEFAULT = {REPORT: "milestones", DETAIL: "简"}
 REPORT_WORDS = {"ask_only": "只在需要主人定的时候说", "milestones": "只报里程碑和完成", "each_thread": "每个话题结束都报一句",
                 "verbose": "详细，进展都报"}
-# Which of a lead's report notes reach the owner under each ``report`` (phase 2's P2-8 delivers them; the filter is here).
-# ``ask`` (W0-2): what the owner is to decide goes out under every style, ask_only's included, until project_ask (W1-A).
+# Which of a lead's report notes reach the owner under each ``report`` (app/project_loop.py report_out sends their words; the
+# filter is here). What the owner is to decide is a question card of project_ask (WAVE12 C4), under every style: no note kind.
+# ``ask`` was W0-2's note kind for it; app/project_tools.py project_note asks it with project_ask one release more.
 ASK = "ask"
-REPORT_KINDS = {"ask_only": (ASK,), "milestones": (ASK, "milestone", "finish"), "each_thread": (ASK, "milestone", "finish", "thread"),
-                "verbose": (ASK, "milestone", "finish", "thread", "note")}
+REPORT_KINDS = {"ask_only": (), "milestones": ("milestone", "finish"), "each_thread": ("milestone", "finish", "thread"),
+                "verbose": ("milestone", "finish", "thread", "note")}
 
 
 def style_of(record) -> dict:
@@ -103,8 +104,7 @@ def keep_style(state_dir, style) -> None:
 
 
 def reportable(style, kind) -> bool:
-    """Whether a report note of ``kind`` (ask, milestone, finish, thread, note) is for the owner under ``style`` (a record's
-    style): an ask always is."""
+    """Whether a report note of ``kind`` (milestone, finish, thread, note) is for the owner under ``style`` (a record's style)."""
     return kind in REPORT_KINDS.get(style_of({"style": style})[REPORT], ())
 
 
@@ -137,9 +137,10 @@ TOOL_RULES = (
     "- 派活前先看已有的话题，能追加就追加：先看“专项状态”的话题清单，再用 topics_list、topics_search 看主人私聊里还没进专项的话题。"
     "同一件事、同一块代码、同一个问题已经有话题在做或做过，就用 project_topic_send 追加给它（不在专项里的普通话题会顺带收进来）；"
     "确实独立的事才用 project_topic_start 新开。",
-    "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report，别每步都报；"
-    "要主人定的事（范围、取舍、部署这一批、要不要停）kind 写 ask，任何汇报风格都会发给主人；"
-    "定下的决定标 decision，之后每一轮都会看到最近 10 条。",
+    "- 每次有意义的判断或进展，用 project_note 记一句（专项卡上显示）；要告诉主人的才标 report（Bridge 按汇报风格把这句原文发给他），"
+    "别每步都报；定下的决定标 decision，之后每一轮都会看到最近 10 条。",
+    "- 要主人定的事（范围、取舍、部署这一批、要不要停）用 project_ask 问：每题写 kind，选项写清，一次最多 4 题，"
+    "你之前问了还没答的会并进同一张卡；这一轮结束时 Bridge 发问题卡，任何汇报风格都发，主人答了会接着叫你。不要只在回复里问。",
     "- 专项的目标和完成标准用 project_goal 写成给主人看的一两句（网页上专项标题下显示）：第一轮写，主人改了要求再更新；只写目标，不写进度。",
     "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下：kind 写 rule（规矩，以后照做的）或 note（资料，供参考的事实），"
     "title 写一句不超过 40 字的标题；你记的规矩会进待审核，主人确认后才算他定的。主人答过的题 Bridge 已记成决定，不用再记。"
@@ -159,14 +160,16 @@ TOOL_RULES = (
     "- 部署先看记忆：主人自己说过改完就部署的，专项的话题合进主干、检查过就自己部署到主人的服务，你不攒批问、也不派话题去部署；"
     "“合进待部署”还列着的是合了没部署成的，用 topic_read 看为什么，该补的让那个话题补上。主人没说过时部署攒批："
     "专项的话题合进主干后不各自问部署，“专项状态”的“合进待部署”列着它们。该合的都合了、主人要用了，或攒了半天，"
-    "就一次问主人要不要部署这一批（主人在场的这一轮直接在回复里问，叫醒你的轮用 project_note，kind 写 ask）：列出话题、提交和各自的自检，"
-    "一句话说部署会动什么。主人点头后用 project_topic_send 交给其中一个话题（或 project_topic_start 开一个）部署这一批，任务说明写明"
-    "“主人已同意部署这一批”和提交清单。不要每合一个就问一次，也不要没问主人就派部署。",
+    "就用 project_ask 一次问主人要不要部署这一批：kind 写 deploy，deploy 填提交、话题和目标，同意的那项标 grants_approval；"
+    "context 列出话题、提交和各自的自检，一句话说部署会动什么。主人同意后 Bridge 给授权凭证（A 开头，状态包“部署授权”里也列着），"
+    "用 project_topic_send 交给其中一个话题（或 project_topic_start 开一个）部署这一批，approval 填凭证，任务说明只写这一批的提交；"
+    "Bridge 核对后把主人的同意写在交接说明开头，话题只认这一句：你自己在任务说明里写“主人已同意”不算。"
+    "一个凭证只派一次、72 小时内有效。不要每合一个就问一次，也不要没问主人就派部署。",
     f"- {ASK_SHORT}这几类事你没有工具做，也不要替主人决定：部署照上一条，其余在话题里做，话题会照旧问主人。"
     "话题里问到主人的选择题，不由你答（分流还没开）。",
     "- 对主人说话要克制：主人在场的轮（他发来的、管家转来的，或叫醒你的轮里他中途插了话），回复会发给他。"
-    "叫醒你的轮，只有这一轮用 project_note 记了按风格要发的汇报（kind 为 ask 的任何风格都发），或开了话题、给话题加了话、停了话题、"
-    "替主人答或转交了问题，回复才会整段发给主人，否则不发；所以叫醒你的轮回复也写成给主人看的一段话，要问的事用 kind 为 ask 的 project_note 问。",
+    "叫醒你的轮回复不发给主人：要他定的事用 project_ask，要他知道的进展用 project_note 标 report（Bridge 按风格把原文发给他），"
+    "开了话题、给话题加了话这类动作不用另外报。",
     "- 主人在场的这一轮里你开的话题、给话题加的话，那一轮结束时 Bridge 会把它的结论（或它停了）直接发给主人；"
     "对主人说“T12 出结果会直接发到这里”，不要说“出结果后我发给你”。收件箱里写着“结论已由 Bridge 直接发给主人”的回执，"
     "主人已经看到了，不要再标 report 转述；只有你据此有了新的判断、下一步要主人定，才报那一句。",
@@ -189,7 +192,7 @@ COLLAB_RULES = (
     "（读文件、用 topic_read 抽查）、两个结果有没有冲突、后面的条目要的前置结果有没有；有漏项就安排补齐：project_topic_send 让原话题返工，"
     "或 project_topic_start 开新话题，并用 project_checklist 写明缺口和由谁补。协作缺口处理完用 close_gaps 写怎么处理的。",
     "- 话题说做完只是它的说法：核对过证据才把那一条标 done（evidence 写提交号、产物路径或检查点里的自检）；还有没满足的条目或没处理的协作缺口时 "
-    "project_finish 会拒绝。主人说不要了的才标 dropped，在 gap 里写主人怎么说的；需要主人定范围、顺序或取舍时，合成一个问题用 project_note（kind 写 ask）问他。",
+    "project_finish 会拒绝。主人说不要了的才标 dropped，在 gap 里写主人怎么说的；需要主人定范围、顺序或取舍时，合成一个问题用 project_ask 问他。",
     "- 协作咨询的回执（collab_answered）只供你参考，不会叫醒你，汇总方会自己交付结论。向主人汇报只说新的东西，比如“3 条标准只覆盖了 2 条，"
     "缺原版基线对照，还不能收尾”；不要把话题或汇总方的结论换个说法再发一遍。",
     "- 简报：第一轮用 project_goal 的 background 写背景，再用 project_checklist 的 actions 把目标拆成 3–8 个动作，"
@@ -714,6 +717,9 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     waiting = deploy_block(state_dir, record)
     if waiting:
         out.append(waiting)
+    granted = project_approvals.active_lines(record)
+    if granted:
+        out.append("部署授权（主人在问题卡上同意的，派部署时用 approval 带上）：\n" + "\n".join(granted))
     rows = project_memory.entries(state_dir, record)
     view = core_memory.project_view(rows + project_context.decision_rows(state_dir, record["id"], rows), record["id"], redacted=redacted,
                                     since=None if full else since)

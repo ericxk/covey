@@ -188,6 +188,7 @@
 | `app/policy_guard.py` | Independent policy stop consumer: covers adopted runners from older releases |
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
 | `app/preselection.py` | What the launch card and the 换配置 card preselect when they are drawn: pure functions of what the callers read |
+| `app/project_approvals.py` | Deploy approvals of a project (WAVE12 C4) |
 | `app/project_cards.py` | 专项卡, when COVEY_PROJECTS=1 |
 | `app/project_clicks.py` | What the buttons of a 专项卡 run |
 | `app/project_context.py` | What a project's memory and library do in the Bridge, when COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1 |

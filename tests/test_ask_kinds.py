@@ -67,6 +67,49 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(classify("先删除旧分支再部署"), "delete")  # Deleting first, as app/question_dedup.py orders them.
 
 
+class WordsTest(unittest.TestCase):
+    """P1-1 / F3 (Wave 0 review): the words of both lists before (app/question_dedup.py's classes, core/project_gates.py's
+    gate) in one, English verbs in their longer forms, and the plain words that are part of an ordinary one left out."""
+
+    def test_english_verbs_in_their_longer_forms_and_beside_chinese(self):
+        from covey.core.ask_kinds import classify
+
+        cases = {"Proceed with deployment now?": "deploy", "deploying it": "deploy", "deployed yet?": "deploy",
+                 "redeploy": "deploy", "published?": "deploy", "released?": "deploy", "要deploy吗": "deploy",
+                 "Deploy to production?": "deploy", "deletion of the cache": "delete", "deleting logs": "delete",
+                 "a rollback": "delete", "roll back": "delete", "git reset --hard": "delete", "git branch -D old": "delete",
+                 "dropped the table": "delete", "purchase a plan": "spend", "send an email": "send", "notify them": "send",
+                 "scale up to 4": "occupy", "nohup ./run": "occupy"}
+        for text, kind in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(classify(text), kind)
+
+    def test_plain_words_that_are_part_of_an_ordinary_one_say_nothing(self):
+        from covey.core.ask_kinds import classify
+
+        for text in ("排序用 stable sort 还是快排？", "覆盖检查加在第几步？", "通知卡片的样式用哪种？", "买家的头像放哪？", "常驻内存多大？",
+                     "执行 tailscale up 吗？", "enforce the rule?", "perform the form", "dropdown 的样式", "format 用哪种？",
+                     "建议先做中小模型服务的评测方案？", "推荐 stable 排序吗？"):
+            with self.subTest(text=text):
+                self.assertEqual(classify(text), "")
+
+    def test_words_in_gives_each_word_as_written_with_its_kind(self):
+        from covey.core.ask_kinds import words_in
+
+        self.assertEqual(words_in("Deploy 后通知同事"), [("deploy", "deploy"), ("send", "通知")])
+        self.assertEqual(words_in("要删除吗")[0], ("delete", "删除"))  # The word before the single 删.
+        self.assertEqual(words_in(""), [])
+        self.assertEqual(words_in(None), [])
+
+    def test_question_dedup_and_the_gate_read_these_words(self):
+        from covey.app import question_dedup
+        from covey.core import ask_kinds
+
+        self.assertIs(question_dedup.HIGH_RISK, ask_kinds.HIGH_RISK)
+        self.assertEqual([(name, pattern) for name, pattern in question_dedup.CATEGORIES[:5]],
+                         [(key, ask_kinds.PATTERNS[key]) for key in ask_kinds.ORDER])
+
+
 class QuestionKindTest(unittest.TestCase):
     def test_its_words_raise_it_whatever_it_declares(self):
         from covey.core.ask_kinds import question_kind
@@ -83,6 +126,17 @@ class QuestionKindTest(unittest.TestCase):
         for question, kind in cases:
             with self.subTest(question=question):
                 self.assertEqual(question_kind(question), kind)
+
+    def test_a_high_risk_question_declared_blocked_is_raised(self):
+        """§5.2 W1-A item 8 and RT-5 ①: a question that deletes and deploys, declared ``blocked``, is the owner's."""
+        from covey.core.ask_kinds import MUST_OWNER, question_kind
+
+        for text in ("把生产服务删掉并重新部署吗？", "现在删掉旧服务并上线新版本吗？"):
+            with self.subTest(text=text):
+                kind = question_kind({"kind": "blocked", "question": text})
+                self.assertIn(kind, {"delete", "deploy"})
+                self.assertIn(kind, MUST_OWNER)
+        self.assertEqual(question_kind({"kind": "other", "question": "选哪个？", "context": "选 A 会把线上数据覆盖掉"}), "delete")
 
     def test_without_such_words_the_declared_kind_counts_and_anything_else_is_other(self):
         from covey.core.ask_kinds import question_kind
