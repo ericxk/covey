@@ -1,13 +1,13 @@
 """辅助模型 (assist, docs/configuration.md 辅助模型): the one way the Bridge's background model calls go out. 分流 (the track
-judge and its standby), 整理专项 (its judge, the real-time merge, the 话题要点 backfill), 看看, the patrol, the evening
-candidates, 记忆自己长 and 整理记忆 all ask here (FEATURES); none of them picks a Harness or calls app/track_judge.py's
-``tools``, ``ask``, ``judge`` or ``warm``, app/track_standby.py or a backend's ``ask_once`` itself (tests/test_structure.py
-AssistExitTest).
+judge), 整理专项 (its judge and, inside a run, the 话题要点 backfill) and 记忆自己长 all ask here (FEATURES); none of them
+picks a Harness or calls app/track_judge.py's ``tools``, ``ask`` or ``judge`` or a backend's ``ask_once`` itself
+(tests/test_structure.py AssistExitTest). 看看, the evening candidates and 整理记忆 work by their rules alone, the
+real-time merge and the patrol were taken out (T898).
 
 Which Harness (``route``), from the 设置 card's 辅助模型 (core/butler_settings.py AssistChoice):
 
-- 不用模型 (``off``): no call at all; each feature has its own way without one (分流: a new track; 整理专项: the card says
-  why; 看看: the rules' sentence; the candidates: the rules' groups).
+- 不用模型 (``off``): no call at all; each feature has its own way without one (分流: a new track; 整理专项: no scheduled
+  run, a run the owner starts says why; 记忆自己长: the checkpoint's 以后/别再 rule records the owner's corrections).
 - A Harness named: that one only. Not enabled, unable to answer one question by itself, unusable now (the availability
   watch's last preflight and the latest task outcomes the Bridge holds in memory, app/availability.py), not signed in
   (Antigravity), broken for the background (core/assist.py ``breakers``), cooling for this feature or gated for the day:
@@ -25,11 +25,8 @@ an official refusal of a batch feature (BATCH) cools that feature on that Harnes
 toward the day's gate. A change of the setting clears the breaks and the coolings.
 
 Before a process starts the call is checked again against the settings read now (``allowed``): a Harness the owner no
-longer allows is refused with a log line ``assist refused harness=… feature=…``. The Claude Code standby of 分流
-(app/track_standby.py) is kept only while 分流's route is Claude Code and no extension wraps Claude Code's turns
-(``warm``); a settings change that moves it away shuts it down at once (``on_settings_changed``, every write of
-main-thread.json through core/butler_settings.py ``listen``), and a standby started for a route that changed meanwhile is
-killed (track_standby's ``generation``).
+longer allows is refused with a log line ``assist refused harness=… feature=…``. No process is kept between calls: each
+question starts its own (app/track_judge.py).
 """
 from __future__ import annotations
 
@@ -39,8 +36,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from covey.app import track_judge, track_standby
-from covey.app.track_standby import Failed
+from covey.app import track_judge
+from covey.app.track_judge import Failed
 from covey.core import assist as records
 from covey.core import butler, butler_settings
 from covey.core import project_proposals as proposals
@@ -58,23 +55,18 @@ class Feature:
     label: str
     heavy: bool = False  # Needs more than the small model: 整理专项's model (core/project_proposals.py model), not Haiku.
     batch: bool = False  # A refusal cools the feature on that Harness (BATCH); else only the item it was about.
+    row: str = ""  # The feature whose 后台活最近一次 row its calls are kept under ('' its own).
 
 
-TRACK, TIDY, REALTIME, BACKFILL = "track", "tidy", "tidy_realtime", "backfill"
-LOOK, PATROL, CANDIDATES, LEARN, MEMORY_TIDY = "look", "patrol", "candidates", "learn", "memory_tidy"
+TRACK, TIDY, BACKFILL, LEARN = "track", "tidy", "backfill", "learn"
 FEATURES = {
     TRACK: Feature("分流"),
     TIDY: Feature("整理专项", heavy=True, batch=True),
-    REALTIME: Feature("实时归并", heavy=True),
-    BACKFILL: Feature("补话题要点", heavy=True),
-    LOOK: Feature("看看"),
-    PATROL: Feature("巡逻", batch=True),
-    CANDIDATES: Feature("晚间候选", batch=True),
+    BACKFILL: Feature("补话题要点", heavy=True, row=TIDY),  # Only inside a 整理 run (app/tidy_run.py), before it judges.
     LEARN: Feature("记忆自己长"),
-    MEMORY_TIDY: Feature("整理记忆", heavy=True, batch=True),
 }
 # The web page's 后台活最近一次 lists these, in this order.
-SHOWN = (TRACK, TIDY, REALTIME, BACKFILL, LOOK, CANDIDATES, LEARN, MEMORY_TIDY, PATROL)
+SHOWN = (TRACK, TIDY, LEARN)
 NAMES = {"claude": "Claude Code", "codex": "Codex", "agy": "Antigravity"}
 
 
@@ -113,7 +105,6 @@ def name_of(harness) -> str:
 _lock = threading.Lock()
 _settings: dict = {}  # state directory -> (monotonic time, Settings)
 _ready: dict = {}  # (state directory, harness) -> (monotonic time, reason)
-_topics = None  # The Bridge's topics last seen: a settings change works out the new route with them.
 
 
 def settings_of(state, *, fresh=False):
@@ -270,8 +261,6 @@ def default_of(topics) -> str:
 
 def route(topics, feature=TRACK, *, manual=False, state=None, now=None) -> Route:
     """Where a call of ``feature`` goes now (the module docstring). Never raises."""
-    global _topics
-    _topics = topics if topics is not None else _topics
     state = state_of(topics, state)
     apps = getattr(topics, "apps", None) or {}
     runtime = getattr(topics, "runtime", None)
@@ -336,10 +325,11 @@ def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None, 
         raise ValueError(f"unknown assist feature {feature!r}")
     state = state_of(topics, state)
     log = log or (getattr(getattr(topics, "runtime", None), "log", None) or print)
+    kept = FEATURES[feature].row or feature  # The recent row (and a batch feature's cooling) it is kept under.
     found = route(topics, feature, manual=manual, state=state)
     if found.first is None:
         if state is not None:
-            records.settle(state, feature=feature, harness=found.about, code=found.why, manual=manual,
+            records.settle(state, feature=kept, harness=found.about, code=found.why, manual=manual,
                            batch=FEATURES[feature].batch)
         raise failed_of(found)
     tries = [found.first, *found.rest][:MAX_TRIES]
@@ -360,7 +350,7 @@ def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None, 
         except Failed as exc:
             ms = round((time.monotonic() - started) * 1000)
             code = exc.reason
-            records.settle(state, feature=feature, harness=choice.name, model=shown_model(choice, heavy), code=code, ms=ms,
+            records.settle(state, feature=kept, harness=choice.name, model=shown_model(choice, heavy), code=code, ms=ms,
                            manual=manual, batch=FEATURES[feature].batch)
             log(f"assist failed feature={feature} harness={choice.name} reason={code} ms={ms}"
                 + (f" detail={exc.detail[:160]}" if exc.detail else ""))
@@ -370,7 +360,7 @@ def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None, 
                 continue
             raise
         ms = round((time.monotonic() - started) * 1000)
-        records.settle(state, feature=feature, harness=choice.name, model=shown_model(choice, heavy), ms=ms, manual=manual,
+        records.settle(state, feature=kept, harness=choice.name, model=shown_model(choice, heavy), ms=ms, manual=manual,
                        batch=FEATURES[feature].batch)
         return raw
     raise failed_of(found)  # Not reached: the last try raises.
@@ -397,8 +387,7 @@ def judge(message, *, topics, redacted=False, question="", log=print, environ=No
         return track_judge.judge(message, question=question, redacted=redacted, log=log, environ=environ,
                                  unrouted="not_allowed")
     verdict = track_judge.judge(message, question=question, redacted=redacted, backend=choice.backend, ctx=choice.ctx,
-                                log=log, environ=environ, follow=choice.follow,
-                                rewarm=lambda: warm(topics, environ=environ, state=state))
+                                log=log, environ=environ, follow=choice.follow)
     if verdict.why not in track_judge.NOT_CALLED and state is not None:
         code = "" if verdict.why in ("ok", "low_confidence") else verdict.why
         records.settle(state, feature=TRACK, harness=choice.name, model=shown_model(choice, False), code=code,
@@ -406,57 +395,17 @@ def judge(message, *, topics, redacted=False, question="", log=print, environ=No
     return verdict
 
 
-def warm(topics, *, environ=None, state=None) -> bool:
-    """A Claude Code standby for 分流's next question (app/track_standby.py), only while its route is Claude Code and no
-    extension wraps Claude Code's turns (a protocol relay: the standby would outlive it); otherwise any standby is shut
-    down. The route is worked out now, never taken from an earlier call. True when a process was started."""
-    try:
-        generation = track_standby.generation()
-        found = route(topics, TRACK, state=state)
-        choice = found.first
-        if choice is None or choice.name != CLAUDE or track_judge.mode(environ) != CLAUDE \
-                or getattr(choice.backend, "turn_hooked", lambda ctx=None: False)(choice.ctx):
-            if track_standby.held():
-                track_standby.shutdown()
-            return False
-        return track_judge.warm(choice.backend, choice.ctx, environ, generation=generation,
-                                allow=lambda: still_claude(topics, state))
-    except Exception:  # noqa: BLE001 - a standby that cannot start is a one-shot later
-        return False
-
-
-def stop() -> None:
-    """The Bridge's stop: the standby of 分流, if any, is killed."""
-    track_standby.shutdown()
-
-
-def still_claude(topics, state=None) -> bool:
-    found = route(topics, TRACK, state=state)
-    return found.first is not None and found.first.name == CLAUDE
-
-
 # The settings changed ------------------------------------------------------------------------------------------------
-
-WATCHED = ("assist", "harness", "enabled", "topic_defaults", "lead", "review")
-
 
 def on_settings_changed(state_dir, before, after) -> None:
     """main-thread.json written (core/butler_settings.py ``listen``): the settings read again from now on; a change of the
-    辅助模型 clears its breaks and coolings; when the route of 分流 may have moved (the 辅助模型, the butler's Harness, the
-    mode, the Harnesses 自动 follows), the standby is shut down unless the new route is Claude Code still."""
+    辅助模型 clears its breaks and coolings."""
     forget()
     try:
         if before is not None and after is not None and before.assist != after.assist:
             records.clear(state_dir)
-        if before is not None and after is not None and all(getattr(before, key) == getattr(after, key) for key in WATCHED):
-            return
-        if not track_standby.held():
-            return
-        topics = _topics
-        if topics is None or not still_claude(topics, state_dir):
-            track_standby.shutdown()
     except Exception:  # noqa: BLE001 - the write itself is done
-        track_standby.shutdown()
+        pass
 
 
 butler_settings.listen(on_settings_changed)
@@ -541,7 +490,7 @@ def available(topics, *, state=None) -> tuple:
     if found.first is not None:
         return True, ""
     if found.why == "none":
-        return False, "辅助模型选了不用模型：整理专项只按规则提议"
+        return False, "辅助模型选了不用模型：不做定时整理专项，手动整理会说明原因；分流一律新开一件"
     about = name_of(found.about) if found.about else ""
     reason = records.words(found.detail or found.why) if found.why == "unusable" else records.words(found.why)
     return False, f"辅助模型现在用不了：{about + ' ' if about else ''}{reason}"

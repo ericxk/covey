@@ -430,6 +430,13 @@ class TurnBlockTest(Case):
         self.assertFalse(memory_turn.fix_rule(self.ctx, ReplyJob(job_id=2, user_text="以后都这样", chat_id=DM, message_id="om2",
                                                                  timeout=0, sender_id=OWNER, topic_id="t1"), lambda: True))
 
+    def test_with_the_switch_and_no_model_for_the_learner_the_correction_rule_comes_back(self):
+        job = ReplyJob(job_id=2, user_text="以后都这样", chat_id=DM, message_id="om2", timeout=0, sender_id=OWNER, topic_id="t1")
+        for off, expected in ((True, True), (False, False)):
+            settings = mock.Mock(assist=mock.Mock(off=off))
+            with mock.patch.object(memory_turn.assist, "settings_of", return_value=settings):
+                self.assertIs(memory_turn.fix_rule(self.ctx, job, lambda: True), expected)  # 不用模型: no learner reads it.
+
     def test_a_device_turn_has_no_lookup_line(self):
         with mock.patch("covey.app.memory_turn.device_of", return_value={"alias": "gpu1"}):
             self.assertEqual(memory_turn.search_command(self.ctx, self.job(), True), "")

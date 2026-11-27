@@ -274,7 +274,7 @@ const REVIEW_LAYOUT: string[][] = [['r_harness', 'r_provider', 'r_model', 'r_eff
 /** v36 专项负责人：新建的专项，负责人用的 Harness、模型、思考预算（开了专项才有这一段） */
 const LEAD_LAYOUT: string[][] = [['l_harness', 'l_provider', 'l_model', 'l_effort']];
 const MORE_LAYOUT: string[][] = [['subagent']];
-/** 辅助模型（T884）：分流、整理专项、看看、记忆这些后台活用哪个 Harness，一行；管家关着也能改 */
+/** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活用哪个 Harness，一行；管家关着也能改 */
 const ASSIST_LAYOUT: string[][] = [['assist']];
 
 const Note: React.FC<{ text?: string }> = ({ text }) => (text ? <p className="st-note">{text}</p> : null);

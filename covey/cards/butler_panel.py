@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from covey.cards import ui
 from covey.core.text import literal
-from covey.cards.elements import (CARD_BYTES, CARD_NODES, fits, grey, item, md, note, panel_header,
+from covey.cards.elements import (CARD_BYTES, CARD_NODES, collapsible, fits, grey, item, md, note, panel_header,
                                             section, shown_width, styled_panel, tag, text_button)
 from covey.cards.launch_config import (DEFAULT, Setting, tap, harness_setting, known,
                                                 redaction_setting, setting_line, setting_row, settings_block,
@@ -124,7 +124,7 @@ LEAD_FOLLOW = '跟管家一样'
 LEAD_NOTE = ('新建的专项，负责人用这里选的；没选就跟管家一样。已有的专项在专项卡上点「换配置」。'
              '只列能接 Bridge 工具的 Harness（负责人用它们派话题，在哪个上都只读）；管家开着脱敏时只列能脱敏的。')
 # 辅助模型's line under its row (app/assist.py), then what it runs on now (app/assist.py describe).
-ASSIST_NOTE = '分流、整理专项、看看、记忆这些后台活用它；选了哪个就只用哪个，用不了就不调模型并说明原因。'
+ASSIST_NOTE = '分流、整理专项、记忆自己长这些后台活用它；选了哪个就只用哪个，用不了就不调模型并说明原因。'
 RETIRED_NOTICE = '直接开工已下线：管家开的话题一律直接开工，这一项不用再设。'
 OFFLINE_NOTICE = '这个选项已下线：新话题一律从主目录开始，仓库在网页设置的「仓库」页管。'
 # 管家's line under its rows while 脱敏 keeps a Harness that cannot redact off its Harness row.
@@ -335,6 +335,27 @@ def summary(settings_):
     return ' · '.join(parts)
 
 
+# The rows nobody changed in 30 days (U4, docs/ui.md 13 U15), each at the end of its open section in a fold of its own,
+# 更多, closed (``view['more']`` opens it: the click was on one of them, MORE_KINDS). 脱敏 on and 每条直接开一个话题 are no
+# usual choice (USUAL) and stay in sight.
+FOLDED = frozenset({'provider', 't_provider', 'l_provider', 'redact', 't_redact', 'r_provider', 'r_model', 'l_model',
+                    'l_effort', 'mode'})
+MORE_KINDS = frozenset({PROVIDER, TOPIC_PROVIDER, LEAD_PROVIDER, REDACTION, TOPIC_REDACTION, REVIEW_PROVIDER, REVIEW_MODEL,
+                        LEAD_MODEL, LEAD_EFFORT, MODE})
+
+
+def folded(setting):
+    """Whether ``setting``'s row goes in its section's 更多: one of FOLDED, at its usual choice where it has one (USUAL)."""
+    return setting.key in FOLDED and USUAL.get(setting.key, setting.current) == setting.current
+
+
+def more_fold(part, settings_, rows, expanded=False, stamp=''):
+    """A section's 更多: a closed fold titled with what it holds, '更多：供应商、脱敏', its rows inside (``rows`` draws them);
+    its ID takes the revision (``stamp``) as the rows' do, so a redraw draws it as ``expanded`` says."""
+    return collapsible(f'more_{part}_{stamp}' if stamp else f'more_{part}', '更多：' + '、'.join(dict.fromkeys(s.label for s in settings_)), rows(settings_),
+                       expanded=expanded, quiet=True)
+
+
 def heading(title):
     """A section's heading in 配置, a little space above it to part it from the section before."""
     return {**section(title), 'margin': '6px 0px 0px 0px'}
@@ -347,14 +368,15 @@ def closed_section(part, line, click):
 
 
 def config_page(settings, choices, workspaces, limit, follows, models, fallback, rows, value, confirm, *,
-                butler_allowed, butler_on, review_on, open_=OPEN_FIRST, lead_on=False, assist=None):
+                butler_allowed, butler_on, review_on, open_=OPEN_FIRST, lead_on=False, assist=None, more=False, stamp=''):
     """配置's body, a section a use (``rows`` draws a section's rows, ``value`` a button's value): 新话题 (topic_settings,
     with 直接开工 and 记住的工作区 while ``butler_on``); 管家 while ``butler_allowed`` (the deployment allows the butler):
     its own rows (butler_setting_list) and the private chat mode, the mode's row alone in 纯话题, ``confirm`` asking
     before 每条直接开一个话题 is saved (mode_confirm, the section open); 独立复核 (review_setting_list) while
     ``review_on``; 专项负责人 (lead_setting_list) while ``lead_on`` (COVEY_PROJECTS=1); 辅助模型 (``assist``: app/assist.py's row
     data; with the butler off too: the background calls run without it); under 更多 子 Agent. Only the section
-    ``open_`` (SECTIONS) shows its rows; each other is its heading with 展开 (SECTION) and a grey line of what it holds
+    ``open_`` (SECTIONS) shows its rows, those nobody changes (``folded``) in its 更多 at the end (``more_fold``, open with
+    ``more`` or ``confirm``); each other is its heading with 展开 (SECTION) and a grey line of what it holds
     (``summary``)."""
     parts = {TOPIC_PART: topic_settings(settings.topic_defaults, choices, workspaces, limit, follows, models, fallback,
                                         butler=butler_on)}
@@ -373,7 +395,10 @@ def config_page(settings, choices, workspaces, limit, follows, models, fallback,
         if part != open_:
             elements.append(closed_section(part, summary(settings_), value(SECTION, open=part)))
             continue
-        elements += [heading(SECTIONS[part]), *rows(settings_)]
+        rare = [s for s in settings_ if folded(s)]
+        elements += [heading(SECTIONS[part]), *rows([s for s in settings_ if not folded(s)])]
+        if rare:
+            elements.append(more_fold(part, rare, rows, expanded=bool(more or confirm), stamp=stamp))
         if part == TOPIC_PART:
             elements.append(note(TOPIC_NOTE))
         elif part == BUTLER_PART:
@@ -406,7 +431,7 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
     (app/review.py enabled), for its rows; ``lead_on``: whether projects are on (COVEY_PROJECTS=1), for 专项负责人's;
     ``assist``: 辅助模型's row (app/assist.py: options, current, words), None without it.
     ``view['confirm']``: 管家 asks to confirm 每条直接开一个话题
-    (``mode_confirm``), ``view['open']`` the section of 配置 that shows its rows (SECTIONS). 整理专项 is not here: the
+    (``mode_confirm``), ``view['open']`` the section of 配置 that shows its rows (SECTIONS), ``view['more']`` its 更多 open. 整理专项 is not here: the
     看板's alone (cards/board.py)."""
     page = successor(page) if page else None
     revision = view['revision']
@@ -437,7 +462,7 @@ def butler_panel_card(token, view, settings, choices, workspaces, top=(), follow
         return elements + config_page(settings, choices, workspaces, limit, follows, models, fallback, rows, value,
                                       view.get('confirm'), butler_allowed=butler_allowed, butler_on=butler_on,
                                       review_on=review_on, open_=view.get('open') or OPEN_FIRST, lead_on=lead_on,
-                                      assist=assist)
+                                      assist=assist, more=view.get('more'), stamp=stamp)
 
     # Too much for one card: fewer options a row down to SHORT; then the new topic's model list down to SHORT, then fewer options.
     def tries():

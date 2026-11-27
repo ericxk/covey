@@ -29,7 +29,7 @@ from covey.core.groups import group_path
 from covey.core.state import read_json, write_json
 
 MEMBER = 'ou_member0012345678'
-LABELS = ['配置', '仓库', '脱敏', '群聊', '能做什么', '诊断']  # 记忆 only with COVEY_MEMORY=1, 设备 with nodes.
+LABELS = ['配置', '仓库', '脱敏', '群聊', '诊断']  # 记忆 only with COVEY_MEMORY=1, 设备 with nodes.
 
 
 def row_of(current):
@@ -121,13 +121,10 @@ class SettingsHubTests(HubCase):
             self.assertEqual(self.title(), '配置')  # Still the first tab: it preselects the launch card too.
             self.assertEqual(self.tabs(), [t for t in row_of('配置') if t[0] != '管家'])
             self.assertNotIn('**管家**', json.dumps(self.card(), ensure_ascii=False))  # No butler: no section of it.
-            self.assertEqual({k: a.__func__ for k, a in self.hub.menu_items().items()}, {
-                MENU_KEY: SettingsHub.open, 'manage_workspaces': SettingsHub.open_repos,
-                'redaction_dashboard': SettingsHub.open_redaction})
+            self.assertEqual({k: a.__func__ for k, a in self.hub.menu_items().items()}, {MENU_KEY: SettingsHub.open})
         self.app.messenger.recall.assert_called_once_with(self.ctx.profile, 'om_s1')
         self.assertEqual({k: a.__func__ for k, a in self.hub.menu_items().items()}, {
-            MENU_KEY: SettingsHub.open, 'manage_workspaces': SettingsHub.open_repos,
-            'redaction_dashboard': SettingsHub.open_redaction, 'main_thread_settings': SettingsHub.open_main})
+            MENU_KEY: SettingsHub.open, 'main_thread_settings': SettingsHub.open_main})
 
     @requires_extension()
     def test_a_tab_turns_the_same_records_card_once_a_click(self):
@@ -313,13 +310,11 @@ class SettingsHubTests(HubCase):
         self.open('ev-proxy', 'proxy_settings')
         standalone = self.hub.panel('proxy').menu.token('dm', 'ev-proxy')
         self.assertEqual((self.title(), self.tabs()), ('代答', []))
-        self.open('ev-groups', 'manage_groups')
-        self.assertEqual((self.title(), self.tabs()), ('群聊', []))
-        self.open('ev-menu')
+        self.open('ev-menu')  # om_s2: the 群聊 menu item that came between is gone (T898).
         hub = self.hub.token('dm', 'ev-menu')
 
         def to_proxy(event_id, current):  # No 代答 tab on the card: the click of an older one (values as they were).
-            return self.press({'kind': TAB, 'tab': 'proxy', 'from': current, 'token': hub}, event_id, message='om_s3')
+            return self.press({'kind': TAB, 'tab': 'proxy', 'from': current, 'token': hub}, event_id, message='om_s2')
         to_proxy('ev-t1', 'topic')
         refresh = values(self.puts[0][1], proxy_card.REFRESH)[0][1]
         self.assertEqual(self.press(refresh, 'ev-r1', message='om_s1'), 'proxy_expired')
@@ -327,14 +322,14 @@ class SettingsHubTests(HubCase):
         # The other way: a standalone card opened since expires the tab, whose card keeps its row to turn on.
         self.open('ev-proxy2', 'proxy_settings')
         on_hub = {'kind': proxy_card.REFRESH, 'token': hub, 'revision': 2}
-        self.assertEqual(self.press(on_hub, 'ev-r2', message='om_s3'), 'proxy_expired')
+        self.assertEqual(self.press(on_hub, 'ev-r2', message='om_s2'), 'proxy_expired')
         self.assertIn('已过期', self.title() + json.dumps(self.card()['header'], ensure_ascii=False))
         self.assertEqual(self.tabs(), row_of('代答'))  # Its row keeps 代答 though it is no tab, to turn from.
-        self.assertEqual(self.press(self.tab('群聊'), 'ev-t2', message='om_s3'), 'settings_tab')
+        self.assertEqual(self.press(self.tab('群聊'), 'ev-t2', message='om_s2'), 'settings_tab')
         self.assertEqual((self.title(), self.hub_record()['status']), ('群聊', 'open'))
         # Back on 代答, the card is the newest panel again and acts.
         self.assertEqual(to_proxy('ev-t3', 'groups'), 'settings_tab')
-        self.assertEqual(self.press({**on_hub, 'revision': 4}, 'ev-r3', message='om_s3'), 'proxy_panel')
+        self.assertEqual(self.press({**on_hub, 'revision': 4}, 'ev-r3', message='om_s2'), 'proxy_panel')
 
     @requires_extension()
     def test_the_tool_and_the_butlers_menu_key_send_the_settings_card_on_the_butler_page(self):
@@ -435,17 +430,17 @@ class SixTabsTests(HubCase):
         handler(ctx, event)
 
     @requires_extension()
-    def test_the_old_keys_open_the_card_on_their_tabs_as_the_one_settings_card(self):
-        self.open('ev-w', 'manage_workspaces')
-        self.assertEqual((self.title(), self.tabs()), ('仓库', row_of('仓库')))  # The old 工作区 key: the 仓库 tab now.
-        self.assertEqual(self.hub_record(self.hub.token('dm', 'ev-w'))['tab'], 'repos')
-        self.assertFalse((self.state / 'workspace-managers').exists())  # No card of its own.
-        self.app.menu.owner_said('dm')
-        self.open('ev-r', 'redaction_dashboard')
-        self.assertEqual((self.title(), self.tabs()), ('敏感词脱敏', row_of('脱敏')))
-        self.app.messenger.recall.assert_called_once_with(self.ctx.profile, 'om_s1')  # One 设置 card in the chat.
+    def test_the_old_keys_say_where_their_pages_went_and_open_no_card(self):
+        # T898: 仓库, 脱敏 and 群聊 are off the app's menu (core/app_manifest.py STALE_MENU_KEYS); a client's cached copy of one
+        # is answered with one line (app/bot_menu.py), not a card.
+        for event_id, key, name, tab in (('ev-w', 'manage_workspaces', '仓库', '仓库'),
+                                         ('ev-r', 'redaction_dashboard', '脱敏', '敏感词脱敏'), ('ev-g', 'manage_groups', '群聊', '群聊')):
+            self.open(event_id, key)
+            text = self.app.messenger.send_text.call_args.args[2]
+            self.assertIn(f'「{name}」已移到「设置」卡的「{tab}」页签', text)
+        self.assertFalse(self.puts)  # No 设置 card was sent.
+        self.assertFalse((self.state / 'workspace-managers').exists())
         self.assertFalse((self.state / 'dashboard-links').exists())
-        self.assertEqual(values(self.card(), 'bridge_dashboard_rotate'), [])  # The web dashboard is gone.
 
     @requires_extension()
     def test_the_repos_tab_is_the_home_and_the_repositories_read_only(self):

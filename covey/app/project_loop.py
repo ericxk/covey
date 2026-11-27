@@ -727,7 +727,7 @@ class ProjectLoop:
     def __init__(self, runtime, env, stop=None) -> None:
         """``stop``: app/project_clicks.py ``stop_tasks`` (it imports this module, so the wiring hands it over); none, no task is stopped."""
         self.runtime, self.env, self.stop = runtime, env, stop
-        triage_flow.attach(env)  # The 专项卡's 不对 click reaches the member topic through it (app/triage.py correct).
+        triage_flow.attach(env)  # app/interaction.py tells a wired project loop by it (app/triage.py ENV).
         self.worker, self.left = None, []  # The Worker the looks run in; the left-behind ones still stuck.
         self.stuck = {}  # project id -> the thread of a left-behind look stuck on it: the project is left out while it lives.
         self.generation = 0  # Moves on when a look is left behind; a look of an older one changes nothing (``behind``).

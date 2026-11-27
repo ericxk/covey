@@ -202,7 +202,10 @@ def desired_menu(before, after, plan):
     ids_now = {item_name(item): item.get("botMenuID") for item in after.get("botMenuConfig") or []}
     fresh = iter(str(number) for number in range(1, 100))
     items = []
+    gone = set(plan.get("menu_remove") or ())
     for item in before.get("botMenuConfig") or []:
+        if item.get("eventKey") in gone:  # A stale item core/app_manifest.py STALE_MENU_KEYS names.
+            continue
         items.append(menu_item({**item, "botMenuID": ids_now.get(item_name(item)) or next(fresh)}))
     limit = int(before.get("maxFloatingMenuCount") or 5)
     have = {item.get("eventKey") for item in items}
@@ -401,7 +404,7 @@ class Console:
         # The plan holds only what the online version lacks: it needs a version even when an earlier run already
         # wrote it to the console (nothing changed here).
         emit("step", name="version", state="doing")
-        wanted = any(plan.get(key) for key in ("scopes", "events", "callbacks", "bot", "menu"))
+        wanted = any(plan.get(key) for key in ("scopes", "events", "callbacks", "bot", "menu", "menu_remove"))
         if not self.changed and not wanted and not pending:
             emit("step", name="version", state="skipped")
             emit("done", version="", status="unchanged", changed=[])

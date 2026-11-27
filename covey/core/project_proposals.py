@@ -1,8 +1,8 @@
 """整理专项's records and switches (docs/projects.md 整理专项, COVEY_PROJECT_TIDY): what was proposed, what the owner decided and what
 整理专项 must not do again. app/project_tidy.py writes them, app/project_sorter.py reads them; no model, no Feishu call.
 
-- ``COVEY_PROJECT_TIDY``: ``suggest`` (整理 runs, joins into an existing project are done, a new project is only proposed) or
-  ``auto`` (a new project is made too, with 撤回 left); anything else, unset too, is off, and so is every value without
+- ``COVEY_PROJECT_TIDY``: ``suggest`` (unset or empty too: 整理 runs, joins into an existing project are done, a new project is
+  only proposed) or ``auto`` (a new project is made too, with 撤回 left); anything else is off, and so is every value without
   COVEY_PROJECTS=1. ./install writes ``suggest`` (and COVEY_PROJECTS=1) into a new service's manifest.
 - <state>/projects/tidy/state.json (``load``/``change``): the cursor of ended turns looked at (``cursor``, ``seen``), the last
   scheduled time done (``last_slot``), the owner's preferences (``prefs``: ``no_proposals`` 以后别提议, ``auto_create`` 以后直接建,
@@ -11,7 +11,7 @@
 - <state>/projects/tidy/proposals/<id>.json: one proposal (``new_proposal``): its ``kind`` (KINDS), the topics and project it is
   about, the name and goal, the judge's one line, its ``state`` (PROPOSAL_TRANSITIONS) and the card it went out on.
 - <state>/projects/tidy/topics/<topic_id>.json (``topic_flags``): ``never_auto`` (移出: never joined by itself again), what it
-  joined, the moments that already started a real-time 整理 (``fired``) and when it was last judged.
+  joined (records from before T898 also carry the moments of the real-time 整理, ``fired`` and ``judged_*``: unread).
 
 A proposal the owner turned down (``declined``) is not made again until there is new evidence (``declined_like``: EVIDENCE more
 topics than the declined one had). A name the owner chose or changed (``name_by`` "owner" in the project's record) is never
@@ -54,15 +54,13 @@ WEB_STARTED_WORDS = "已开始整理，进度和结果显示在整理面板上" 
 BUSY_PREFIX = "正在整理"  # ... and while one runs: 正在整理（12/40）.
 DATED = re.compile(r"(?:T\d{2,}|\d{4}[-/年.]\d{1,2}(?:[-/月.]\d{1,2}[日号]?)?|\d{1,2}[-/月.]\d{1,2}[日号]?|#\d+|第\s*\d+\s*[期轮次])")
 
-DEFAULTS = {"days": 7, "age_days": 3, "words": 15, "min_topics": 5, "judge_seconds": 90, "read_seconds": 60}
+DEFAULTS = {"days": 7, "min_topics": 5, "judge_seconds": 90, "read_seconds": 60}
 
 
 def raw(name, environ=None) -> str:
     """The text of the variable behind ``name`` (DEFAULTS)."""
     return {
         "days": cenv.get("COVEY_PROJECT_TIDY_DAYS", "", environ),
-        "age_days": cenv.get("COVEY_PROJECT_TIDY_AGE_DAYS", "", environ),
-        "words": cenv.get("COVEY_PROJECT_TIDY_WORDS", "", environ),
         "min_topics": cenv.get("COVEY_PROJECT_TIDY_MIN_TOPICS", "", environ),
         "judge_seconds": cenv.get("COVEY_PROJECT_TIDY_JUDGE_SECONDS", "", environ),
         "read_seconds": cenv.get("COVEY_PROJECT_TIDY_READ_SECONDS", "", environ),
@@ -259,15 +257,6 @@ def declined_like(state_dir, kind, topics, project="", projects_=()) -> bool:
         if (old & wanted or not wanted) and len(wanted - old) < EVIDENCE:
             return True
     return False
-
-
-QUEUE_MAX = 20  # The real-time 整理 waiting in state.json's ``queue`` (app/project_tidy.py drain).
-
-
-def queue_sweep(state_dir, project, now=None) -> None:
-    """A look over the recent topics for ones that belong in ``project`` (just made), for app/project_tidy.py to take next."""
-    item = {"project": project, "reason": "project", "at": time.time() if now is None else now}
-    change(state_dir, lambda data: data.update(queue=[*(data.get("queue") or []), item][-QUEUE_MAX:]))
 
 
 def open_with(state_dir, topic) -> list:

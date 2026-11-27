@@ -74,7 +74,8 @@ class WindowTest(unittest.TestCase):
 
 
 class ProposalNightTest(TidyCase):
-    """A proposal the real-time look found at night: no card until the morning, listed on the 看板 meanwhile."""
+    """The real-time look is gone (only a whole 整理 proposes, and its cards go at once); a proposal an older release held at
+    night still goes in the morning, listed on the 看板 meanwhile."""
 
     def setUp(self):
         super().setUp()
@@ -82,17 +83,16 @@ class ProposalNightTest(TidyCase):
         self.pair = [self.topic(A, gist={"essence": B}), self.topic("优化 Bootstrap 下一环节", gist={"essence": B})]
         self.see(lambda: list(self.pair))
 
-    def propose(self):
-        self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1, 2], "name": "DataLab Prompt 优化",
-                                               "goal": "新旧 Prompt 对率可比", "why": "都在改 Prompt", "confidence": 0.9}]})
-        return self.tidy.realtime.handle(self.ctx, CHAT, self.pair[0], "new", time.time())
+    def held(self):
+        """An open proposal an older release's real-time look held for the morning (``held``, no card)."""
+        made = proposals.new_proposal(proposals.CREATE, topics=self.pair, name="DataLab Prompt 优化", goal="新旧 Prompt 对率可比",
+                                      why="都在改 Prompt", source="realtime", confidence=0.9)
+        saved, _ = proposals.put_proposal(self.state, made)
+        return proposals.update_proposal(self.state, saved["id"], lambda data: data.update(held=time.time()))
 
-    def test_held_at_night_listed_meanwhile_and_sent_in_the_morning(self):
+    def test_held_by_an_older_release_listed_meanwhile_and_sent_in_the_morning(self):
+        record = self.held()
         with mock.patch.dict(os.environ, {quiet_hours.ENV: around_now()}):
-            self.assertEqual(self.propose(), "held")
-            self.assertEqual(self.sent_cards(), [])
-            (record,) = proposals.proposals(self.state, (proposals.OPEN,))
-            self.assertTrue(record["held"])
             self.assertEqual([found["id"] for found in proposals.waiting(self.state)], [record["id"]])  # The 看板's.
             self.assertEqual(self.tidy.proposal_cards.release(self.ctx, CHAT, time.time()), 0)  # Still night.
             self.assertEqual(self.tidy.proposal_cards.release(self.ctx, CHAT, time.time() + 3 * 3600), 1)  # Morning.
@@ -103,23 +103,18 @@ class ProposalNightTest(TidyCase):
         self.assertEqual(self.tidy.proposal_cards.release(self.ctx, CHAT, time.time() + 3 * 3600), 0)  # Once.
 
     def test_one_decided_on_the_board_at_night_is_not_sent_in_the_morning(self):
-        with mock.patch.dict(os.environ, {quiet_hours.ENV: around_now()}):
-            self.propose()
-        (record,) = proposals.proposals(self.state, (proposals.OPEN,))
+        record = self.held()
         proposals.update_proposal(self.state, record["id"], lambda data: data.update(state=proposals.DECLINED))
-        self.assertEqual(self.tidy.proposal_cards.release(self.ctx, CHAT, time.time()), 0)
+        with mock.patch.dict(os.environ, {quiet_hours.ENV: "off"}):
+            self.assertEqual(self.tidy.proposal_cards.release(self.ctx, CHAT, time.time()), 0)
         self.assertEqual(self.sent_cards(), [])
 
-    def test_off_or_by_day_it_goes_at_once(self):
-        with mock.patch.dict(os.environ, {quiet_hours.ENV: "off", "COVEY_DIGEST_TIMES": "09:30,21:30"}):
-            self.assertEqual(self.propose(), "proposed")
-        self.assertEqual(len(self.sent_cards()), 1)
-
-    def test_one_a_whole_tidy_found_goes_at_once(self):
+    def test_one_a_whole_tidy_found_goes_at_once_even_at_night(self):
         made = {**proposals.new_proposal(proposals.CREATE, topics=self.pair, name="DataLab Prompt 优化", goal="对率可比"),
                 "run": "r1"}  # A 整理 the owner set the time of or asked for.
         with mock.patch.dict(os.environ, {quiet_hours.ENV: around_now()}):
             self.assertEqual(self.tidy.proposal_cards.propose(self.ctx, CHAT, made), "proposed")
+        self.assertEqual(len(self.sent_cards()), 1)
 
 
 class AlertNightTest(unittest.TestCase):

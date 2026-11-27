@@ -64,7 +64,7 @@ bin/  →  app/  →  feishu/ · cards/ · backends/<名字>/  →  core/
 - **任务进程两端**：起进程 `app/runner_spawn.py`，收发 `app/runner_ipc.py`（`RemoteControl`、`RunnerLink`），认领和收尾 `app/detached.py`；文件名和收发原语 `core/run_dir.py`；退出前等的后台线程 `core/background.py`。
 - **投递**：结算 `app/turn_settle.py`，发送 `app/turn_delivery.py` 的 `TurnDelivery`（`app/worker.py` 调它）和 `app/answer_delivery.py`，答案卡 `cards/answer_card.py`、`app/answer_cards.py`，重投 `app/redelivery.py`、`app/outbox.py`，恢复 `core/recovery.py`、`app/recovery_cards.py`。
 - **看板**：`app/pins.py`、`app/status_cards.py`、`core/board_read.py`、`app/overview.py`、`app/topic_seen.py`。管家和回带见[管家](butler.md)，代答见[代答](proxy.md)。
-- **整理专项**：`app/project_tidy.py` 的 `ProjectTidy` 是协调器，不继承任何类：`__init__` 里依次造出各部件（构造参数就是它的依赖），自己管后台线程（`tick`）、话题要点收集和时机（`scan`、`saw`、`drain`），对外方法（`start`、`claim`、`matches`、`show_joined`、`web_*`）转给有它的部件。部件从下往上：纯函数和提议的认领 `app/tidy_facts.py`，共享状态 `app/tidy_state.py`（`busy`、`progress`、`counted`、`handed`），话题在卡上的字样 `app/tidy_words.py`，照办（建、归进、移出、合并、拆、收起，标话题的卡）`app/tidy_apply.py`，提议新专项、提议卡与跟着归并更新 `app/tidy_proposals.py`，实时归并 `app/tidy_realtime.py`，定时或手动的一次整理与整理卡 `app/tidy_run.py`，卡片点击 `app/tidy_clicks.py`，网页面板 `app/tidy_web.py`。上面的部件只调下面的，`TidyPartsTest` 检查导入方向。
+- **整理专项**：`app/project_tidy.py` 的 `ProjectTidy` 是协调器，不继承任何类：`__init__` 里依次造出各部件（构造参数就是它的依赖），自己管后台线程（`tick`）和话题要点收集（`scan`、`saw`；实时归并已删），对外方法（`start`、`claim`、`matches`、`show_joined`、`web_*`）转给有它的部件。部件从下往上：纯函数和提议的认领 `app/tidy_facts.py`，共享状态 `app/tidy_state.py`（`busy`、`progress`、`counted`、`handed`），话题在卡上的字样 `app/tidy_words.py`，照办（建、归进、移出、合并、拆、收起，标话题的卡）`app/tidy_apply.py`，提议新专项、提议卡与跟着归并更新 `app/tidy_proposals.py`，定时或手动的一次整理与整理卡 `app/tidy_run.py`，卡片点击 `app/tidy_clicks.py`，网页面板 `app/tidy_web.py`。上面的部件只调下面的，`TidyPartsTest` 检查导入方向。
 
 ## 一条消息的数据流
 
@@ -656,15 +656,10 @@ cancelled、superseded：终态
 - **活任务**：本进程登记表里家族的没结束的任务（排队、开始、在跑、在等回答），加上话题记录里 `waiting_user` 的（6 小时内；槽 0 的只在别处有活任务时才算）。每个交给路由层一条 `LiveJob`。
 - **认引用**：`parent_id` 先查补充送达记录（`merged`），再看是不是某个活任务的主人原消息、卡片或回复目标（`live_card`），再查别名（槽里有在等回答的任务时当作它的问题卡；其余是 `ended`；谁也不认识是 `unknown`）。
 - **分流**：`core/track_route.py` 的 `route` 九条规则；`ask_judge` 时调 `app/track_judge.py` 的 `judge`（处理事件的后台线程里同步等，不持锁），判完重读活任务，目标刚结束就新开一件。
-- **小模型的待命进程**（`app/track_standby.py`，`COVEY_TRACK_JUDGE_WARM`，默认开）：一次性的 Claude Code 每问一次要先花约 1 秒起命令行，第一个请求也比后面的慢（一次实测：冷起 p50 约 3.4 秒，其中约 1.2 秒是起进程，其余是模型），过不了硬上限（`COVEY_TRACK_JUDGE_MS`，默认 3 秒）。辅助模型不是 Claude Code、问的是 Codex 或 Antigravity 自己的命令行时没有待命进程，硬上限默认 10 秒（[配置 · 辅助模型](configuration.md#辅助模型)）。所以 `Tracks.handle` 一收到管家消息（家族里有没有活任务都一样，这条消息可能就是下一条要比对的任务）就调 `assist.warm`（它按当时的设置算一遍路由，是 Claude Code 才调 `track_judge.warm`）：起 stream-json 模式的 Claude Code，先用一条虚构的消息预热（它的第一个请求和连接就热了，里面没有主人的话），再等在标准输入上；`judge` 用 `take` 取走、写进这一问、读答案，用完杀掉进程组，每个进程只回答一个问题，上下文里没有别的消息。另有三处做法：
-
-- **取走时就起下一个**：`judge` 取走待命进程的同时调 `warm` 补上，不等答案回来；以前要等到 `Tracks.decide` 判完才补，这一问还在等时来的另一条消息（别的聊天、或同一聊天的下一句）拿不到待命进程，只能现起一次性进程（本机实测 5 秒多，超过硬上限）。
-- **同时问两个**（`COVEY_TRACK_JUDGE_HEDGE`，默认 2，取值 1 到 3）：`warm` 多留几个待命进程，`judge` 把同一问同时交给它们（`track_standby.ask_first`），第一个解析得出的答案算数，别的立刻杀掉；都失败时报第一个失败的原因，都超时就是超时，照旧按新开一件。慢请求是各请求自己的，两个里总有一个躲开；代价是每次判断多一个几十 token 的预热请求和一个小请求。1 就是只用一个，和以前一样。
+- **每问现起一个进程**：判断经辅助模型（`app/assist.py` 的 `judge`）问一次，Claude Code 是一次性进程（冷起 p50 约 3.4 秒，硬上限 `COVEY_TRACK_JUDGE_MS` 默认 6 秒），Codex、Antigravity 是它们自己的命令行（默认 10 秒）。问之间不留进程：以前的待命进程每条管家消息都先起两个、各用一次真实请求热身，只换来每问快约 1 秒，已删。
 - **输入变小**（`COVEY_TRACK_JUDGE_SLIM`，默认开）：Claude Code 命令行多带 `--setting-sources user --disable-slash-commands`，不再把工作目录一路向上的项目设置、记忆文件和技能清单放在每个问题前面，输入约 800 token（以前约 4800）。凭据不变，仍是 Harness 自己的环境和登录；Claude Code 不认这两个选项时记住、之后不再带。
 
-拿不到待命进程（还在起、已经死了、argv 变了、开关关了）就照旧现起一个一次性进程，日志行格式不变（`via=claude`），也不写主人的原话。空闲 10 分钟（`IDLE_S`）、超过 30 分钟（`MAX_AGE_S`，下次 `warm` 换新的）、超过硬上限、Bridge 停止（`stop_children` → `Butler.close`）和解释器退出都杀它们；`COVEY_BUTLER_TRACKS` 关了、模式不是管家、通道不是 `claude`、`COVEY_TRACK_JUDGE_WARM=0` 时不起任何进程。
-
-结论：同时问两个待命进程时，判断大多在 3 秒硬上限内；上限设到 2 秒会有约四成超时。下限在模型接口：一个很短的小模型请求本身就要 1.5 到 2 秒。
+日志行格式（`track judge route=… via=…`）不写主人的原话；`COVEY_BUTLER_TRACKS` 关了、模式不是管家、通道不是 `claude` 时不起任何进程。
 
 转发、图片、文件、只有链接的消息之后 30 秒内的文字（没引用、规则落到第 9 条）直接并进那条消息去的那件事，不进分流。
 - **动作**：`stop`（停止消息不建任务、不进模型）：任务在任务进程里时，把它任务卡上“停止”按钮的点击转给那个任务进程（`runner_ipc.forward_card_action`，同代答的 `proxy.stop_job`），由任务进程里的 `cancel_reply_job_from_card` 停自己的任务；任务还在 Bridge 里（排队、没交出去）才在 Bridge 里直接调它。只在 Bridge 里给任务的副本设停止标记到不了任务进程，后台命令和答案照常出来；主人引用的消息按 `reply_to` 认（lark-cli 1.0.69 起事件里只有 `reply_to`，没有 `parent_id`，`quoted_id`）；`merge` 把消息别名改到目标路再走 `app.handle_event`，`Butler.supplement` 带 `target`（目标任务）；目标在等回答时是回答，走原来的续接；`new` 按 `pick_slot` 选槽、`keep_track_topic`、改别名后入队。
@@ -740,7 +735,6 @@ cancelled、superseded：终态
     - 收尾与重开：专项只由负责人的 `project_finish` 记成 `done`。整理专项把已有话题收进来建的专项（`origin.kind` 是 `tidy`）在主人还没在里面说过话（记录的 `owner_at`）、负责人也没派过活（`acted`）时，`project_finish` 拒绝（`project_tools.finish_gate`），开工回执也写明“收进来的话题做完不等于专项完成”：此前拆出的专项在建好 5 秒后的第一次叫醒里就被收尾了。主人又在 `done` 的专项里说话（负责人话题 `owner_turn`、专项的话题 `heard`、管家 `project_send`、网页说话和重开，都经 `project_loop.owner_spoke`）时回到 `active`（`unfinish`）：记录的 `reopened` 记下时间和上次的结论，负责人下一轮的“专项状态”多一行“重开”；`state_job`、`conclusion_message_id` 清掉，专项卡的 `closed`、`digest` 清掉，下一次刷新在原处把整张卡画回来。管家快照列出 14 天内做完的专项（`butler.DONE_SHOWN`），`project_send` 能转给它。负责人的工具在不是 `active` 时的拒绝写清下一步（`project_tools.ended_words`）。`cancelled` 仍是终态。
   - **唤醒轮的回复默认不发**：唤醒轮和负责人的其他轮一样算安静轮（见上面的“不出任务卡”）：不显示任务卡，没有表情。已授权回复保存、记为已送达（`TurnDelivery.silent`：`send` 直接返回），所以重投不重试、恢复卡不把它当未送达；没做完的轮（失败、停止、被拒）照旧在顶层说一句，不藏。例外：负责人在这一轮用 `project_note` 记了 `report`、且按风格该报（`project_lead.reportable`；`project_finish` 的收尾也算；`kind` 为 `ask` 的要主人定的事任何风格都报），这时和负责人主人触发的轮一样发到顶层。主人的话中途作为补充进了这一轮（`app/steering.py` 的 `deliver_steer` → `project_loop.owner_steered`：在负责人话题里说、管家 `project_send`、网页），任务记录记 `owner_present`，这一轮按主人在场算（`projects.woken`）：回复照常发，派出去的活按主人在场的轮回带，叫醒次数清零。这一轮有变化也发（主人定的“有变化才发”）：用 `project_topic_start`、`project_topic_send` 派了活，`project_topic_stop` 停了话题，`project_answer`、`project_escalate` 替主人答了或转交了问题，工具都在专项记录的 `acted` 里记下这一轮（`app/project_tools.py` 的 `acted`，留最近 40 轮），`project_loop.reported` 认它。只是读了结果、没动手的唤醒轮照旧不发，只改专项卡。
 - **维护** `projects/` 里状态是 `done`、`cancelled` 且 180 天没改的记录连同 `projects/<id>/` 一起删（`ProjectRecords`，`remove_projects`），`projects/.locks/` 归 `Locks` 规则。
-- **主动记录**（`COVEY_PATROL=shadow`，只记不打扰）：规则每分钟、小模型每 30 分钟，写 `patrol/`，早晚汇总多一块；说明、可调数值和关法见[管家 · 我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰)。维护 `patrol/candidates/`、`patrol/decisions/` 里 14 天没改的日文件（`PatrolRecords`，`remove_patrol`）。
 - **网页工作台同步**（`COVEY_WEB=1`，默认关）：`web-push`（快看）、`web-pass`（全量）、`web-inbox`（取操作，交给各自的车道做）、`web-touch`（刚操作过的话题马上单独推）、`web-reread`（快看读卡住的话题换线程重读，有界）五条受监管线程，把专项、话题（含管家和专项负责人）、一轮（含过程和用量）、问题推给网页，取回网页上的说话（含对管家、负责人说）、答题、停止、重开、记为看过、作废一条专项记忆；不开没有线程。不持锁发请求，操作先记 `<state>/web/inbox.json` 再执行，不重放；说明和配置见[网页工作台](web.md)。
 
 ## 多参与者协作（开发中，默认关）

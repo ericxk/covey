@@ -1,12 +1,12 @@
-"""The 设置 card's tab row (app/settings_hub.py): 配置 | 仓库 | 脱敏 | 群聊 (| 记忆) (| 设备) | 能做什么 | 诊断 at
+"""The 设置 card's tab row (app/settings_hub.py): 配置 | 仓库 | 脱敏 | 群聊 (| 记忆) (| 设备) | 诊断 at
 the top of the body of the panel the card shows now, the panel's own card under it. 配置 is the butler's settings on
 one page (app/butler_panel.py): how a new topic (the launch card's and the butler's alike), the butler and 独立复核 run,
 models and all, which of the butler's topics start at once, the private chat mode and 子 Agent; the pages 模型, 新话题 and
 管家 it took the place of are retired (RETIRED). 仓库
 is the home and the repository map, read only (app/workspace_manager.py; the web page's 仓库 page edits it), 脱敏 the redaction term list
 (app/redaction_panel.py), 记忆 the owner's memory by scope and what the next turn carries (app/memory_panel.py, only with
-COVEY_MEMORY=1), 能做什么 what this deployment can do and what it lacks (app/about_panel.py, read only), 诊断
-service/doctor.py's report (app/doctor_panel.py, read only). 代答 is the bot menu's own item again (app/proxy.py): no
+COVEY_MEMORY=1), 诊断 service/doctor.py's report with, under it, 能做什么 (what this deployment can do and what it
+lacks, app/about_panel.py; the 能做什么 tab is retired into it) (app/doctor_panel.py, read only). 代答 is the bot menu's own item again (app/proxy.py): no
 tab, but a record still on it (an
 older card) is drawn there. The page 其他 is retired: an older card's 其他 or 工作区 tab lands on 仓库
 (RETIRED). Small buttons side by side in one row, each as wide as its short label: the current tab solid blue, the others
@@ -30,10 +30,10 @@ WORKSPACE, REDACTION, PROXY, GROUPS = 'workspace', 'redaction', 'proxy', 'groups
 REPOS = 'repos'  # 仓库 (app/workspace_manager.py): the home and the repository map, in the 工作区 tab's place (WORKSPACE, retired into it).
 NODES = 'nodes'  # 设备 (app/node_panel.py), only with COVEY_NODE_LISTEN.
 MEMORY = 'memory'  # 记忆 (app/memory_panel.py), only with COVEY_MEMORY=1.
-ABOUT = 'about'  # 能做什么 (app/about_panel.py), always.
+ABOUT = 'about'  # 能做什么 (app/about_panel.py): the lower part of 诊断 now (RETIRED); an older card's tab and record name it.
 DOCTOR = 'doctor'  # 诊断 (app/doctor_panel.py): service/doctor.py's report, read-only.
 OTHER = 'other'  # The retired page 其他: an older card's tab and record name it.
-RETIRED = {OTHER: REPOS, WORKSPACE: REPOS, BUTLER: CONFIG, TOPIC: CONFIG, MODELS: CONFIG}  # A retired tab -> where it lands.
+RETIRED = {OTHER: REPOS, WORKSPACE: REPOS, BUTLER: CONFIG, TOPIC: CONFIG, MODELS: CONFIG, ABOUT: DOCTOR}  # A retired tab -> where it lands.
 # The butler's page (app/butler_panel.py) and the retired ones its buttons still act on. 配置 first: a record without a tab.
 BUTLER_PAGES = (CONFIG, BUTLER, TOPIC, MODELS)
 # In the row's order. 代答 last: no tab any more (app/menu_panel.py hub_tabs), only an older record's.

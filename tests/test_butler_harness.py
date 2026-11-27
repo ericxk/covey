@@ -191,7 +191,7 @@ class JudgeCallersTest(Case):
     def apps(self):
         return {"codex": app("codex", ask_once=True), "dsh": app("dsh", tools=False)}
 
-    def test_tidy_and_the_patrol_and_the_memory_candidates_and_the_stuck_check_ask_codex_without_claude_code(self):
+    def test_tidy_and_the_learner_ask_codex_without_claude_code(self):
         apps = self.apps()
         found = assist.route(topics_with(self.state, apps))
         self.assertEqual((found.first.backend, found.first.ctx), (apps["codex"].harness.backend, apps["codex"].harness.context))

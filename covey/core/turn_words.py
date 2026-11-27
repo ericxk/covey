@@ -24,7 +24,7 @@ choice, not this module's.
 
 - ``defers``: a butler reply that says it will come back later ("稍后", "等下", "我去查") and names no topic that would
   bring it back; ``UNFOLLOWED`` the line the Bridge adds under such a reply when its turn handed nothing to a topic
-  (app/butler_reply.py unfollowed, #25), and app/patrol_rules.py records it.
+  (app/butler_reply.py unfollowed, #25).
 
 Standard library only, importing nothing of the Bridge's.
 """

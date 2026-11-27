@@ -44,7 +44,7 @@ from pathlib import Path
 from covey.app import assist, memory_collect, memory_turn, track_judge
 from covey.app import memory_candidates
 from covey.app.memory_candidates import CUES
-from covey.app.track_standby import Failed
+from covey.app.track_judge import Failed
 from covey.core import memory, memory_gate, memory_review, memstore, project_memory, projects, topic_memory
 from covey.core.butler_opened import handed_on
 from covey.core.checkpoint import read_checkpoint

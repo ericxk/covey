@@ -206,7 +206,6 @@ class MonitorTest(unittest.TestCase):
     def walk(self, monitor, wall):
         """The turn's plan as the model writes it: 读代码 doing at NOW, done at NOW + 300, 改卡片 done at NOW + 600, the
         monitor ticking at each; then at NOW + 720 跑测试 has had 120 s of a 300 s pace, three steps left."""
-        import json
         for at, done in ((NOW, 0), (NOW + 300, 1), (NOW + 600, 2)):
             wall[0] = at
             steps = [dict(step, state="done" if index < done else "doing" if index == done else "todo")
@@ -371,49 +370,24 @@ class LookTest(unittest.TestCase):
         messenger = SimpleNamespace(reply=lambda ctx, chat, text, key, voice: replies.append((chat, text, key)))
         return StuckCheck(harness, runtime=SimpleNamespace(log=lambda line: None), messenger=messenger)
 
-    def test_the_small_model_words_it_through_the_assist_on_any_harness_unless_the_topic_redacts(self):
-        # 看看 is worded by the 辅助模型 (app/assist.py), whatever the topic runs on: a Claude topic with Codex named asks
-        # Codex, never its own Claude Code (T883 P0-3); 不用模型 or a topic that redacts: the rules' sentence stands.
-        from covey.app import stuck_check, track_judge
-        from covey.app.stuck_check import StuckCheck
-        from covey.core import butler_settings
-        from covey.core.harness import HarnessCapabilities
-        from covey.core.redaction import TOPIC_KEY
-        from covey.core.state import write_json
-        from support.assist import harness_app, topics_with
-
-        state = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(state, ignore_errors=True))
-        write_json(state / "topics" / "t1" / "topic.json", {"topic_id": "t1"})
-        claude_backend = SimpleNamespace(name="claude-backend")
-        codex_backend = SimpleNamespace(name="codex-backend", capabilities=lambda ctx: HarnessCapabilities(ask_once=True))
-        apps = {"claude": harness_app(claude_backend, SimpleNamespace(backend_cmd=["claude"], state_dir=state)),
-                "codex": harness_app(codex_backend, SimpleNamespace(backend_cmd=["codex"], state_dir=state,
-                                                                    options={"harness_id": "codex"}))}
-        topics = topics_with(state, apps, default="claude")
-        own = SimpleNamespace(spec=SimpleNamespace(name="claude"), backend=claude_backend, voice=None)
-        ctx = SimpleNamespace(state_dir=state, backend_cmd=["claude"])
-        record = {"topic_id": "t1"}
-        found = {"processes": [], "log": [], "steps": [], "progress": {}, "runner": "alive"}
-        asked = []
-
-        def ask(system, data, *, backend, **kw):
-            asked.append(backend.name)
-            return json.dumps({"type": "result", "is_error": False, "result": "还在跑测试"})
-        check = StuckCheck(own, runtime=None, messenger=None, topics=topics)
-        with mock.patch.object(track_judge, "ask", side_effect=ask), \
-                mock.patch.object(stuck_check.turn_progress, "plan_words", return_value=""), \
-                mock.patch.object(stuck_check.turn_progress, "activity_line", return_value=""):
-            butler_settings.update(state, assist=butler_settings.AssistChoice(harness="codex"))
-            self.assertEqual(check.worded(ctx, record, found, "规则"), "还在跑测试")
-            self.assertEqual(asked, ["codex-backend"])  # Not the topic's own Claude Code.
-            butler_settings.update(state, assist=butler_settings.AssistChoice(off=True))
-            self.assertEqual(check.worded(ctx, record, found, "规则"), "")
-            self.assertEqual(asked, ["codex-backend"])  # 不用模型: nothing asked.
-            butler_settings.update(state, assist=butler_settings.AssistChoice())
-            write_json(state / "topics" / "t1" / "topic.json", {"topic_id": "t1", TOPIC_KEY: True})
-            self.assertEqual(check.worded(ctx, record, found, "规则"), "")  # It redacts: nothing goes to a model.
-            self.assertEqual(asked, ["codex-backend"])
+    def test_the_reply_is_the_rules_sentence_and_no_model_is_asked(self):
+        # T898: 看看 asks no model (the 辅助模型 only reworded the rules' sentence, and the button was never clicked).
+        from covey.app import assist, stuck_check, track_judge
+        replies = []
+        record = {"job_id": 7, "status": "running", "key": "k7", "topic_id": "t" * 32}
+        ctx = SimpleNamespace(topic_id="t" * 32, state_dir=Path(tempfile.mkdtemp()))
+        self.addCleanup(lambda: __import__("shutil").rmtree(ctx.state_dir, ignore_errors=True))
+        found = {"processes": [], "log": [], "steps": [], "progress": {}, "runner": "gone", "info": {}}
+        with mock.patch.object(stuck_check, "facts", return_value=found), \
+                mock.patch.object(stuck_check, "verdict", return_value="任务进程不在了"), \
+                mock.patch.object(stuck_check, "facts_lines", return_value=[]), \
+                mock.patch.object(assist, "ask") as ask, mock.patch.object(track_judge, "ask") as judge_ask:
+            self.app(record, replies).look(ctx, "oc_chat", record, "ev1")
+        ask.assert_not_called()
+        judge_ask.assert_not_called()
+        self.assertEqual(replies[-1][1], "🔍 看了一下任务 #7：任务进程不在了")
+        for name in ("ask_model", "SYSTEM", "MODEL_SECONDS"):
+            self.assertFalse(hasattr(stuck_check, name), name)
 
     def test_a_click_on_an_ended_turn_says_so_and_a_running_one_is_looked_at_once(self):
         from covey.app import stuck_check

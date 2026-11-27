@@ -1,5 +1,6 @@
-"""The 设置 card's 能做什么 tab (cards/about_panel.py): what this deployment can do and what it lacks, read only (no
-button, no model, no Feishu call). Shown always, so a colleague who did not install it can see what it has.
+"""The 设置 card's 能做什么 part (cards/about_panel.py): what this deployment can do and what it lacks, read only (no
+button, no model, no Feishu call). Shown always, under the report of the 诊断 tab (app/doctor_panel.py; the 能做什么 tab is
+retired into 诊断, cards/settings_hub.py RETIRED), so a colleague who did not install it can see what it has.
 
 What it reads, here and now, through each feature's own switch function (never a copy of the variable's rule): the
 Harnesses this Bridge enables and those its availability watch found unavailable (app/welcome.py ``harnesses``), the
@@ -10,8 +11,8 @@ in every deployment (a task in a process of its own, 换配置 with its handoff)
 INSTALL: 看板, 独立复核, 到点回来看, 记忆, the project's four) are listed with the rest. docs/configuration.md 开关速查 is the same
 list for the deployer.
 
-The tab's record is the 设置 card's (app/settings_hub.py, app/menu_panel.py); its view holds no facts (they are read at
-each draw), so a tap on the tab (it folds, then unfolds afresh) shows the deployment as it is then.
+It has no record of its own: ``elements`` reads the facts at each draw of the 诊断 tab, so a tap on the tab (it folds,
+then unfolds afresh) shows the deployment as it is then.
 """
 from __future__ import annotations
 
@@ -20,12 +21,10 @@ from types import SimpleNamespace
 import platform
 
 from covey.app import butler_harness, welcome
-from covey.app.menu_panel import MenuPanel, hub_top
 from covey.app.overview import Overview
-from covey.cards.about_panel import about_card
-from covey.cards.settings_hub import ABOUT
+from covey.cards.about_panel import about_elements
 from covey.cards.welcome import BUTLER_WORDS
-from covey.core import extensions, knowledge, memory, nodes, patrol, project_proposals, projects
+from covey.core import extensions, knowledge, memory, nodes, project_proposals, projects
 from covey.core import butler_settings, butler_tracks
 
 OWNER_ONLY = '⚠️ 仅机器人主人可以看这一页。'
@@ -217,12 +216,6 @@ def _web(probe):
     return False, "要一个配套的网页应用，再设 COVEY_WEB=1 和 COVEY_WEB_CONFIG", web_sync.ENV
 
 
-def _patrol(probe):
-    if patrol.enabled():
-        return True, "只记不打扰", patrol.ENV
-    return False, "设 COVEY_PATROL=shadow（只记不打扰）", patrol.ENV
-
-
 # (name, group, what it does for the owner, check): ``check(probe)`` is (on, a line: on, a detail of it, else how to get it;
 # the switch it reads, '' for none). In each group what everyone has first, as the deployer meets them (docs/configuration.md
 # 开关速查).
@@ -251,7 +244,6 @@ FEATURES = (
     ("历史搜索", SEE, "管家和话题能搜以前做过的事", _history),
     ("新话题带上最近话题的要点", SEE, "同一工作区新开的话题，先知道最近几个话题在做什么", _gists),
     ("网页工作台", SEE, "网页上看私聊里的话题、专项和设置", _web),
-    ("我本来想找你的事", SEE, "管家本来会提醒你的事，汇总里多一块", _patrol),
 )
 
 
@@ -293,28 +285,8 @@ class AboutPanel:
 
     def __init__(self, runtime, messenger, voice, topics):
         self.runtime, self.messenger, self.voice, self.topics = runtime, messenger, voice, topics
-        self.menu = MenuPanel(self, 'about-panel', 'about-cards', 'about-card', tab=ABOUT)
 
-    def path(self, ctx, token):
-        return self.menu.path(ctx, token)
-
-    @staticmethod
-    def tab_view(token):
-        return {'token': token, 'revision': 1, 'hub': True}
-
-    @staticmethod
-    def tab_fields(ctx):
-        return {}
-
-    def tab_card(self, ctx, token, record):
-        return self.draw(ctx, token, record['view'])
-
-    def tab_shown(self, ctx, token):
-        self.runtime.log(f'about tab shown token={token[:8]}')
-
-    def refuse(self, ctx, path, event):
-        return self.menu.refuse(ctx, path, event, OWNER_ONLY, lambda view, record: self.draw(ctx, path.stem, view))
-
-    def draw(self, ctx, token, view):
+    def elements(self, ctx):
+        """The part's card elements under the 诊断 report, from the deployment as it is now."""
         found = facts(ctx.state_dir, self.topics.apps, self.runtime)
-        return about_card(token, {**found, 'notice': view.get('notice') or ''}, top=hub_top(ABOUT, token, view))
+        return about_elements(found, heading=True)

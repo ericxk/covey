@@ -45,5 +45,20 @@ export function recentLine(r: SettingsAssistRecent, now: number): RecentLine {
   };
 }
 
-export const recentLines = (rows: readonly SettingsAssistRecent[] | undefined, now: number): RecentLine[] =>
-  (rows ?? []).map((r: SettingsAssistRecent) => recentLine(r, now));
+/** 列哪几行、什么顺序（T898：调模型的后台功能只剩分流、整理专项、记忆自己长；Covey 那边是 app/assist.py SHOWN） */
+export const SHOWN: readonly string[] = ['track', 'tidy', 'learn'];
+const LABEL: Record<string, string> = { track: '分流', tidy: '整理专项', learn: '记忆自己长' };
+/** 旧版 Covey 单独记的补话题要点，并进整理专项那一行（整理时先补要点再判断，取较新的一次） */
+const ROW_OF: Record<string, string> = { backfill: 'tidy' };
+
+/** 每个功能最近一次一行；旧版 Covey 还发来的、现在已下线（实时归并、巡逻）或不再调模型（看看、晚间候选、整理记忆）的几行不列 */
+export function recentLines(rows: readonly SettingsAssistRecent[] | undefined, now: number): RecentLine[] {
+  const latest: Map<string, SettingsAssistRecent> = new Map();
+  for (const r of rows ?? []) {
+    const key: string = ROW_OF[r.feature] ?? r.feature;
+    if (!SHOWN.includes(key)) continue;
+    const had: SettingsAssistRecent | undefined = latest.get(key);
+    if (!had || r.at > had.at) latest.set(key, { ...r, feature: key, label: LABEL[key] ?? r.label });
+  }
+  return SHOWN.filter((key: string) => latest.has(key)).map((key: string) => recentLine(latest.get(key) as SettingsAssistRecent, now));
+}

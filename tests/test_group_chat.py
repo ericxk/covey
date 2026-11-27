@@ -487,7 +487,7 @@ class GroupLaunchTests(GroupFixture, LaunchCase):
 
 
 class GroupManagerFixture(GroupFixture):
-    """The 群聊 card opened from the bot menu in the owner's private chat ``dm``; ``cards`` what was drawn."""
+    """The 群聊 tab of the 设置 card opened from the bot menu in the owner's private chat ``dm``; ``cards`` what was drawn."""
 
     def setUp(self):
         super().setUp()
@@ -502,9 +502,16 @@ class GroupManagerFixture(GroupFixture):
         messenger.put_card = mock.Mock(side_effect=lambda profile, card_id, card, **kw: (self.cards.append(card), {})[1])
 
     def open(self, event_id='ev1'):
+        """The 设置 card from the menu, turned to its 群聊 tab (the menu's own 群聊 item is gone, T898)."""
+        from covey.cards.settings_hub import TAB
         self.app.menu.owner_said('dm')  # The owner wrote since: a new card, not the last one folded (app/bot_menu.py).
-        self.app.handle_menu_event({'event_id': event_id, 'event_key': 'manage_groups', 'operator_open_id': 'owner'},
+        self.app.handle_menu_event({'event_id': event_id, 'event_key': 'bridge_settings', 'operator_open_id': 'owner'},
                                    self.ctx)
+        self.app.handle_card_action_event({'event_id': 'tab-' + event_id, 'operator_id': 'owner', 'chat_id': 'dm',
+                                           'message_id': 'om_groups', 'action_value': {
+                                               'kind': TAB, 'tab': 'groups', 'from': 'config',
+                                               'token': self.app.settings_hub.token('dm', event_id)}}, self.ctx)
+        self.logs[:] = [line for line in self.logs if 'outcome=settings_' not in line]  # The tests count the groups' clicks.
 
     def text(self):
         return json.dumps(self.cards[-1], ensure_ascii=False)
@@ -515,8 +522,8 @@ class GroupManagerFixture(GroupFixture):
 
         def walk(value):
             if isinstance(value, dict):
-                if value.get('tag') == 'button':
-                    found.append((value['text']['content'], value['behaviors'][0]['value'], value.get('disabled')))
+                if value.get('tag') == 'button' and value['behaviors'][0]['value'].get('kind') != 'bridge_settings_tab':
+                    found.append((value['text']['content'], value['behaviors'][0]['value'], value.get('disabled')))  # Not the tab row's.
                 for child in value.values():
                     walk(child)
             elif isinstance(value, list):

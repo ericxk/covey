@@ -183,12 +183,12 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ revisits/                    到点回来看（`COVEY_REVISIT`）：每个话题一个，几点回来看、看什么、排出的那一轮
 │  ├─ limit-notices/               几个话题同一原因停下的合并提示（`COVEY_LIMIT_NOTICE`）：每组一个，发没发过
 │  ├─ digest.json                  早晚汇总
-│  ├─ memory-candidates.json       晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（`COVEY_MEMORY` 没关）
+│  ├─ memory-candidates.json       旧版晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（`COVEY_MEMORY` 没关；新候选进待审核，不再写这里）
 │  ├─ memory-usage.json、memory-tidy.json、memory-harvest.json   记忆自己长（`COVEY_MEMORY_LEARN=1`）：每条记忆最后一次被用到的时间、每晚整理记忆收起了什么（撤销用）、读过的 Codex 和 Claude Code 自己的记忆
 │  ├─ projects/                    专项（`COVEY_PROJECTS`）：`<专项>.json`；`<专项>/` 里是记忆 `memory.json`（旧版也读写）、它的新字段 `memory-v2.json`、决定记录 `decisions.jsonl`、资料库索引 `library.json` 和复制的文件 `library/`、收件箱 `inbox/`；整理专项的记录 `tidy/`
 │  ├─ owner-send/                  代发的草稿和发送记录
 │  ├─ butler-asks/                 话题转给管家的事（`COVEY_PROJECTS`）：每轮一个，转了什么、发没发出去
-│  ├─ patrol/                      我本来想找你的事（`COVEY_PATROL=shadow`）的记录
+│  ├─ patrol/                      已下线的“我本来想找你的事”留下的记录，不再写、不再读、也不再被维护清理，可以手动删
 │  ├─ devices/、nodes/             多设备在本机的工作文件；节点的名单、口令和采样
 │  ├─ web/                         网页工作台：网页上发来的操作的账本 `inbox.json`、推过的内容、网页开的话题
 │  └─ app-setup/                   自动补齐飞书应用的状态和运行目录
@@ -197,7 +197,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
    ├─ launch-models/、native-models/   模型目录缓存、扩展的实测档位
    ├─ <网关名>/、<扩展>-sessions/   后端自己的会话和运行文件（<网关名>/relay.log 是模型网关的繁忙记录）
    ├─ pi-sessions/                 已下线的 Pi 留下的会话（老部署才有），不再读写，可以删
-   ├─ stuck-check/、track-judge/、memory-candidates/、memory-learn/、memory-tidy/、memory-harvest/   小模型一次调用的工作目录：「看看」、同时做几件事的判断、你反复说的分组
+   ├─ stuck-check/、track-judge/、memory-candidates/、memory-learn/、memory-tidy/、memory-harvest/   小模型一次调用的工作目录：同时做几件事的判断、记忆自己长（stuck-check/、memory-candidates/、memory-tidy/、memory-harvest/ 旧版用过，现在不写）
    ├─ codex-judge/、agy-judge/   没给工作目录时，小模型问 Codex、Antigravity 自己的命令行用的空目录（它们的临时主目录在 tmp/ 下，问完就删）
    └─ claude-diagnostics/、<扩展>-diagnostics/   后端诊断
 ```
@@ -421,7 +421,6 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 | `runs/` 运行目录 | 任务进程已不在、最新文件早于 7 天的删除；任务记录和执行过程保留 |
 | 代答批次 `proxy/batches/` | 只删已结束且 30 天没改动的 |
 | 专项记录 `projects/`（`COVEY_PROJECTS`） | 只删状态是 `done` 或 `cancelled` 且 180 天没改动的，连同它的 `projects/<id>/` 目录（`remove_projects`）；`active`、`paused` 的不动 |
-| 主动记录 `patrol/candidates/`、`patrol/decisions/`（`COVEY_PATROL`） | 日文件 14 天没改动的删（`remove_patrol`）；`state.json` 不动 |
 | 专项的记忆和资料库 `projects/<id>/memory.json`、`library/`（`COVEY_PROJECT_MEMORY`） | 已结束（做完、已取消）的专项，记忆条目写下 180 天后删（含墓碑，风格行留着，`trim_project_memory`；在做和停住的不动）；专项 `done` 且记录 30 天没改动后，资料库的文件删掉、索引留着名字和 sha256（`purge_project_files`）；单个专项的文件超过 200 MiB 时从最旧的删（话题的产物在前，主人发的文件在后）。备份收专项记录、记忆和资料库索引，不收资料库复制的文件 `library/` |
 | 锁文件 `.locks/` | 记录已不存在或 7 天未改动的删除；`cards/.locks/` 里没人持有的都删 |
 | `job-diffs/` | 超过 30 天的删除；总量超过 200 MiB 时从最旧的删，但只删云空间上传已确认的，一天内写的不删 |

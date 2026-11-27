@@ -16,7 +16,9 @@ from covey.feishu import events, messenger, transport
 
 # The menu keys every deployment wires (app/unified.py ``menu``): the butler's own key comes with its switch, 看板
 # with the digest's times.
-KEYS = ('weekly_usage', 'manage_workspaces', 'proxy_settings', 'redaction_dashboard', 'manage_groups', 'bridge_settings')
+KEYS = ('weekly_usage', 'proxy_settings', 'bridge_settings')
+# The older 仓库, 脱敏 and 群聊 items (core/app_manifest.py STALE_MENU_KEYS) are off the app's menu; a cached copy is told where they went.
+STALE = ('manage_workspaces', 'redaction_dashboard', 'manage_groups')
 
 
 class MenuTests(UnifiedCase):
@@ -48,21 +50,32 @@ class MenuTests(UnifiedCase):
     def test_the_real_features_are_wired_to_the_keys(self):
         fresh = type(self.app)(script_path=self.app.runtime.script_path)
         # The butler's old key too, unless COVEY_BUTLER=0 (docs/butler.md 私聊模式).
-        self.assertEqual(set(fresh.menu.actions), set(KEYS) | {'main_thread_settings', 'digest_board'})
-        self.assertEqual({key: action.__func__ for key, action in fresh.menu.actions.items()}, {
+        self.assertEqual(set(fresh.menu.actions), set(KEYS) | set(STALE) | {'main_thread_settings', 'digest_board'})
+        self.assertEqual({key: getattr(action, '__func__', None) or action.func.__func__
+                          for key, action in fresh.menu.actions.items()}, {
             'digest_board': type(fresh.digest).board,
-            'weekly_usage': type(fresh.weekly_usage).send, 'manage_workspaces': type(fresh.settings_hub).open_repos,
-            'proxy_settings': type(fresh.proxy.panel).open, 'redaction_dashboard': type(fresh.settings_hub).open_redaction,
-            'manage_groups': type(fresh.group_manager).open, 'bridge_settings': type(fresh.settings_hub).open,
-            'main_thread_settings': type(fresh.settings_hub).open_main})
+            'weekly_usage': type(fresh.weekly_usage).send,
+            'proxy_settings': type(fresh.proxy.panel).open, 'bridge_settings': type(fresh.settings_hub).open,
+            'main_thread_settings': type(fresh.settings_hub).open_main,
+            **{key: type(fresh.menu).moved for key in STALE}})
         with mock.patch.dict('os.environ', {'COVEY_BUTLER': '0'}):
             ruled_out = type(self.app)(script_path=self.app.runtime.script_path)
-        self.assertEqual(set(ruled_out.menu.actions), set(KEYS) | {'digest_board'})
+        self.assertEqual(set(ruled_out.menu.actions), set(KEYS) | set(STALE) | {'digest_board'})
         # Each folds its newest card in place (app/bot_menu.py); the old 工作区 and 脱敏 keys send a 设置 card.
         self.assertEqual({key: fold.__func__ for key, fold in fresh.menu.folds.items()}, {
             'weekly_usage': type(fresh.weekly_usage).fold, 'proxy_settings': type(fresh.proxy.panel).fold,
-            'manage_groups': type(fresh.group_manager).fold, 'bridge_settings': type(fresh.settings_hub).fold,
+            'bridge_settings': type(fresh.settings_hub).fold,
             'digest_board': type(fresh.digest).fold_board})  # 看板 in every deployment, the digest off too (T813).
+
+    def test_a_cached_copy_of_a_removed_item_is_told_where_its_page_went(self):
+        menu = bot_menu.BotMenu(self.app.runtime, 'inbound', {}, bot_menu.Panels(self.app.runtime, self.app.messenger))
+        self.assertEqual(set(menu.actions), set(STALE))
+        for key, name, tab in (('manage_workspaces', '仓库', '仓库'), ('redaction_dashboard', '脱敏', '敏感词脱敏'),
+                               ('manage_groups', '群聊', '群聊')):
+            menu.actions[key](self.ctx, 'oc_dm', 'src-' + key, shown=lambda message_id: None)
+            args = self.app.messenger.send_text.call_args.args
+            self.assertEqual((args[1], args[2]), ('oc_dm', f'「{name}」已移到「设置」卡的「{tab}」页签：发 /设置 或点菜单的「设置」打开。'))
+        self.assertEqual(self.click('manage_groups', 'ev-moved'), 'unknown_key')  # setUp's table has none of them.
 
     def test_others_unknown_keys_and_a_second_delivery_are_logged_and_ignored(self):
         self.dm('m1')
@@ -116,7 +129,7 @@ class MenuTests(UnifiedCase):
         self.app.menu.actions = {key: (lambda ctx, chat, source, shown: shown(next(sent))) for key in KEYS}
         recall = self.app.messenger.recall
         self.click('weekly_usage', 'ev1')
-        self.click('manage_groups', 'ev2')  # Another item: its own card, nothing recalled.
+        self.click('proxy_settings', 'ev2')  # Another item: its own card, nothing recalled.
         recall.assert_not_called()
         self.click('weekly_usage', 'ev3')
         recall.assert_called_once_with(self.ctx.profile, 'om_1')
@@ -128,7 +141,7 @@ class MenuTests(UnifiedCase):
         self.assertEqual(recall.call_count, 2)
         record = json.loads((self.ctx.state_dir / bot_menu.PANELS).read_text())
         self.assertEqual({key: value['message_id'] for key, value in record.items()},
-                         {'weekly_usage': 'om_4', 'manage_groups': 'om_2'})
+                         {'weekly_usage': 'om_4', 'proxy_settings': 'om_2'})
 
     def test_a_card_in_another_chat_or_a_broken_record_is_not_recalled(self):
         panels = bot_menu.Panels(self.app.runtime, self.app.messenger)

@@ -43,7 +43,7 @@ from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
 from covey.cards.memory_panel import KINDS as MEMORY_PANEL_KINDS
-from covey.cards.digest import MEMORY_KIND, REMEMBER_KIND
+from covey.cards.digest import MEMORY_KIND
 from covey.cards.project_proposal import KINDS as TIDY_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS, UNDO as OVERVIEW_UNDO
@@ -92,7 +92,8 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= set(extensions.card_kinds())  # An enabled extension's cards (its features claim them).
         before_routing |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (app/overview.py).
         before_routing |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (app/digest.py).
-        before_routing |= {REMEMBER_KIND, MEMORY_KIND}  # 你反复说的 and 整理记忆 on the evening digest (app/digest.py).
+        before_routing |= {MEMORY_KIND}  # 整理记忆's 撤销 on the evening digest (app/digest.py).
+        before_routing |= {"bridge_digest_remember"}  # An older evening card's 记下 / 不用, answered in words (app/digest.py).
         before_routing |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (app/app_setup.py).
         before_routing |= WEB_LOGIN_KINDS  # 网页登录确认 (app/web_login.py).
         before_routing |= {WELCOME_KIND}  # 发这句 on the welcome card (app/welcome.py).
@@ -995,15 +996,14 @@ class TidyPartsTest(unittest.TestCase):
     """ProjectTidy (app/project_tidy.py) is made of parts it builds in ``__init__`` (docs: app/project_tidy.py): none inherits from
     another, and each part imports only the parts below it, so reading one never needs the ones above."""
 
-    ORDER = ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_realtime", "tidy_run", "tidy_clicks",
+    ORDER = ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_run", "tidy_clicks",
              "tidy_web", "project_tidy")  # Bottom to top.
     BELOW = {"tidy_facts": (), "tidy_state": (), "tidy_words": ("tidy_facts",), "tidy_apply": ("tidy_facts",),
              "tidy_proposals": ("tidy_facts", "tidy_words", "tidy_apply"),
-             "tidy_realtime": ("tidy_facts", "tidy_state", "tidy_apply", "tidy_proposals"),
              "tidy_run": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals"),
              "tidy_clicks": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_run"),
              "tidy_web": ("tidy_facts", "tidy_state", "tidy_words", "tidy_clicks"),
-             "project_tidy": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals", "tidy_realtime",
+             "project_tidy": ("tidy_facts", "tidy_state", "tidy_words", "tidy_apply", "tidy_proposals",
                               "tidy_run", "tidy_clicks", "tidy_web")}
 
     def tidy_imports(self, name):
@@ -1032,11 +1032,12 @@ class TidyPartsTest(unittest.TestCase):
 
 class AssistExitTest(unittest.TestCase):
     """辅助模型 (app/assist.py): the Bridge's background model calls have one way out. No other module picks a Harness for
-    them or starts one: none calls app/track_judge.py's ``tools`` (gone), ``ask``, ``judge``, ``warm`` or its process
-    helpers, none touches app/track_standby.py but for its ``Failed``, and nothing but app/track_judge.py (and a backend
-    wrapping its own one-question module) calls a backend's ``ask_once``. So 不用模型 and a named Harness hold everywhere."""
+    them or starts one: none calls app/track_judge.py's ``tools`` (gone), ``ask``, ``judge`` or its process helpers (it
+    may import its ``Failed``), and nothing but app/track_judge.py (and a backend wrapping its own one-question module)
+    calls a backend's ``ask_once``. So 不用模型 and a named Harness hold everywhere. The standby of 分流
+    (app/track_standby.py) is gone (T898): no module may bring it back under that name."""
 
-    EXIT = {"app/assist.py", "app/track_judge.py", "app/track_standby.py"}
+    EXIT = {"app/assist.py", "app/track_judge.py"}
     JUDGE = {"tools", "available", "ask", "ask_native", "judge", "warm", "run", "claude_once", "standby_target"}
 
     def sources(self):
@@ -1075,6 +1076,19 @@ class AssistExitTest(unittest.TestCase):
                     found.append(f"{rel}:{node.lineno}")
         self.assertEqual(found, [])
 
+    def test_the_features_taken_out_stay_out(self):
+        """T898: the standby, the real-time merge and the patrol are gone; 看看, the evening candidates and 整理记忆 ask no
+        model."""
+        from covey.app import assist
+        for rel in ("app/track_standby.py", "app/tidy_realtime.py", "app/patrol.py", "app/patrol_judge.py",
+                    "app/patrol_rules.py", "core/patrol.py"):
+            self.assertFalse((PACKAGE / rel).exists(), rel)
+        self.assertEqual(set(assist.FEATURES), {"track", "tidy", "backfill", "learn"})
+        self.assertEqual(assist.SHOWN, ("track", "tidy", "learn"))
+        for rel in ("app/stuck_check.py", "app/memory_candidates.py", "app/memory_tidy.py"):
+            with self.subTest(rel=rel):
+                self.assertNotIn("assist.ask(", (PACKAGE / rel).read_text())
+
     def test_the_exit_checks_the_harness_again_before_it_starts_one(self):
         source = (PACKAGE / "app" / "assist.py").read_text()
         self.assertIn("assist refused harness=", source)
@@ -1082,9 +1096,8 @@ class AssistExitTest(unittest.TestCase):
 
     def test_every_feature_is_asked_through_the_exit(self):
         from covey.app import assist
-        users = {"track": "app/butler_tracks.py", "tidy": "app/tidy_run.py", "tidy_realtime": "app/tidy_realtime.py",
-                 "backfill": "app/project_sorter.py", "look": "app/stuck_check.py", "patrol": "app/patrol_judge.py",
-                 "candidates": "app/memory_candidates.py", "learn": "app/memory_learn.py", "memory_tidy": "app/memory_tidy.py"}
+        users = {"track": "app/butler_tracks.py", "tidy": "app/tidy_run.py", "backfill": "app/project_sorter.py",
+                 "learn": "app/memory_learn.py"}
         self.assertEqual(set(users), set(assist.FEATURES))
         for feature, rel in users.items():
             with self.subTest(feature=feature):

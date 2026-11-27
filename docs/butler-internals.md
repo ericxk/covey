@@ -43,7 +43,7 @@
 - **表情**：排在忙的那一路后面的消息挂“排队中”，开跑时换成 OnIt；并进成功的消息挂“并进”，主人引用它说“单独答”时摘掉、另起一件。
 - **别的几路答了什么**：每一路是分叉，它答了什么不在管家自己的会话里；管家的下一轮开头多一块“另外几件事这段时间答了什么”（12 小时内、最多 8 条），新开的那一路也带上，所以管家记得住。账本保留 7 天。
 
-底座（槽、分叉点、家族谓词）和运行时（分流规则、小模型的待命进程、选槽、账本、表情和停止的做法）见[架构 · 管家同时做几件事](architecture.md#管家同时做几件事)。
+底座（槽、分叉点、家族谓词）和运行时（分流规则、问小模型、选槽、账本、表情和停止的做法）见[架构 · 管家同时做几件事](architecture.md#管家同时做几件事)。
 
 ## 提问不开串的细节
 
@@ -207,8 +207,8 @@
 每天一次，只提议（`app/memory_candidates.py`，记忆和早晚汇总都开着，晚间汇总那一刻做，`app/digest.py` 的 `daily`）：
 
 - **读什么**：那个时间点之前 24 小时里结束的轮次，只读普通话题里主人自己那一轮的主人原话（`owner_words`；`not_owner_reason` 按轮次来源挡掉回看、叫醒、说明、复核、协作，来源没有时看消息号 `revisit-`/`main-`/`review-` 和文本是否以 `[Bridge` 开头；不读管家话题、代答话题、管家转交的轮次，不读开了脱敏或读不出设置的话题）；按句切开，只留带纠正字眼的句子（`CUES`：记忆的触发词，加上“一律、永远、总是、老是、说过、规则是、默认”，日常口语“先、不要、别、不是、应该、改成、又”不算），每个话题最多 6 句，一共最多 40 句。少于两个话题有这样的句子就不往下做。
-- **谁来分组**：小模型（和 `app/patrol_judge.py` 一样经 `app/track_judge.py` 的 `ask`：有 Claude Code 时是 Haiku，经 Claude Harness 自己的包装起一次性的 Claude Code，没有时问 Codex 或 Antigravity 自己的命令行；没有工具，最多 30 秒）。输入是句子（带 T 号）、已有的原则和主人说过“不用”的；要它找出在两个以上不同话题里说过的同一个纠正，每个写成一句以后都适用的话，最多 3 条，拿不准就不写。回答要能对上句子编号、跨两个以上话题才算。哪个都没有或调用失败时退回规则：不同话题里几乎一样的句子（`core/topic_gist.py` 的 `same_essence`）算一组，取最短的那句。和已有原则意思相同（`same_key`）或被说过“不用”的不再提。
-- **怎么定**：每个时间点只找一次（记录的 `ran`），找到的写进 `<state>/memory-candidates.json`（`rows`：id、话题、T 号、工作区、状态 `open|saved|declined`），汇总卡上每条一个「记下」一个「不用」（`bridge_digest_remember`，只认主人）。「记下」调 `core/principles.py` 的 `save`：来源话题都在一个工作区就记成那个工作区的原则，否则通用，来源写 `memory_candidates`；这一组满了时这一条留着没定，卡上写怎么腾地方。「不用」把这句的 `same_key` 记进 `declined`。点完在应答之后照汇总卡保存的样子重画，已定的那条换成灰字。模型调用和飞书调用都不在记录的锁里。
+- **谁来分组**：只按规则，不调模型（`by_rules`）：不同话题里几乎一样的句子（`core/topic_gist.py` 的 `same_essence`）算一组，取最短的那句，跨两个以上话题才算，最多 3 条。和已有原则意思相同（`same_key`）或被说过“不用”的不再提。
+- **怎么定**：每个时间点只找一次（记录的 `ran`），找到的放进待审核（`core/memory_review.py`，类型 `candidate`，带 `repeat` 标记），汇总卡不再列它们（旧版的「记下」「不用」`bridge_digest_remember` 已下线，点旧卡只回一句去哪里处理）。采纳时调 `core/principles.py` 的 `save`：来源话题都在一个工作区就记成那个工作区的原则，否则通用。`<state>/memory-candidates.json` 里旧版留下的行照旧可读，网页记忆中心还能定它们（`decide`：`save` 记原则，`drop` 把这句的 `same_key` 记进 `declined`）。飞书调用不在记录的锁里。
 
 ### 记忆自己长
 
@@ -219,16 +219,16 @@
   - 再看要不要读：正常结束（`done`、`waiting_user`）、这一轮还没读过（`memory_learned`）、检查点里没写 `memory` 也没有 `memory_notes`、不是管家转交的（`main-` 开头）、是主人的话（`memory_candidates.not_owner_reason`：有 `turn_source` 的只认 kind 是 `owner` 且 `asserted_by` 是主人；没有的看消息号和文本前缀；`Access.owner_turn`）、不是代答话题、没开脱敏（读不出设置按开了算）、主人原话（`memory_turn.owner_words`：问题卡那一轮只取答案和补充说明，反馈只取反馈）里有纠正的字眼（`CUES`；负责人的话题只认 `memory.CORRECTION_WORDS`）且不少于 4 个字（问题卡那一轮 2 个字，答案里没有字眼但题面带“记忆、记住、规矩、以后”等也读）。
   - 读：一个线程、一次一轮（多了最多排 8 轮，再多不读，记录 `memory_learned.state` 为 `busy`）。小模型（`app/track_judge.py` 的 `ask`，`SECONDS` 45 秒）拿到主人原话（最多 1500 字，长的留头尾）、话题标题、回复的第一段、这一轮带的记忆（编号、正文，专项里它总结的标 `voidable`）和已有原则，问题卡那一轮多一个 `asked`（题面和选项，`asked_card`）；回 `{"remember":[{quote,text,scope}],"void":[{id,quote}],"supersede":[{id,quote,text}]}`，各至多 2 条。
   - 写：`quote` 必须是主人原话里的一段（`memory_collect.from_owner`）；`refusal` 再核对一次（含 `RELATIVE` 里的相对时间或指代，除非是“每天”这类周期；没有“以后、每次”等字眼的报错、吐槽或提问；命中就丢，日志只写原因）；`scope` 是 `global` 或 `workspace`（有工作区时）就进候选（`memory_candidates.add`，`source` 是 `learn`，带 `quote` 和话题，不 `carried`，开着的一直出现在晚间汇总里，点「记下」才 `principles.save`），`topic` 或没有工作区就记到最窄的地方（专项的话题记专项，否则记话题）；负责人的话题只留前两种；`void` 只认这一轮带过的专项里它总结的（`memory_collect._void`）；`supersede` 只认这一轮 `memory_ids` 里带过的编号，专项的那条 `project_memory.settle` 成 `superseded`（有 `text` 时先记新的，`superseded_by` 写新条的 id），话题的那条删掉，原则不动、新说法进候选。任务记录写 `memory_notes`（`remembered`、`voided`、`superseded`、`pending`；`superseded` 带 `project_id` 和 `before`，“不对”（`memory_collect.take_back`）放回去，`pending` 的“不对”把候选标成不用）和 `memory_learned` `{at, state: asked|done|failed|busy, written}`，答案卡照旧加行。
-  - 这时 `memory_turn.fix_rule` 一律是假：规则里不再有 `MEMORY_FIX_RULE`。
+  - 这时 `memory_turn.fix_rule` 一律是假：规则里不再有 `MEMORY_FIX_RULE`；只有辅助模型选了“不用模型”（`memory_turn.learner_reads` 为否，这一遍读不了）时例外，检查点规则照旧带上。
 - **每轮的块**（`app/memory_turn.py`）：`gather` 另取 `memory_candidates.carried`（开着、`carried` 的候选，最新 8 条；全局的只在主人自己的一轮）当它总结的、`memory_usage.last_used` 当 `used`：每条的 `seen` 是写下时间和最后一次用的较晚者，`core/memory.py` 的排序按它。`memory_block` 多 `learn`：查记忆的命令（`search_command`：`bin/covey_memory.py search --state … --topic …`，主人自己的一轮加 `--owner`，开了脱敏加 `--redacted`，设备上的话题没有）和 `MEMORY_USED_RULE`。
-- **候选**（`app/memory_candidates.py`）：开着时新找到的行带 `carried: true`、`source: repeat`；开着又 `carried` 的行过了 `KEPT_DAYS` 也不删（`kept_rows`），等主人定或整理记忆让它过期（`expire`，状态 `expired`；`reopen` 放回去）。`add` 收别处学到的（`source` 是 `codex` 或 `claude`，不 `carried`，和原则、开着的候选、说过不用的意思相同的不加）。
+- **候选**（`app/memory_candidates.py`）：开着时新找到的行带 `carried: true`、`source: repeat`；开着又 `carried` 的行过了 `KEPT_DAYS` 也不删（`kept_rows`），等主人定或整理记忆让它过期（`expire`，状态 `expired`；`reopen` 放回去）。别处学到的（`source` 是 `codex` 或 `claude`）旧版也写在这里；现在不再写，Harness 自己记的直接进待审核。
 - **整理记忆**（`app/memory_tidy.py`，晚间汇总 `Digest.daily` 里在候选之后跑，一个时间点只跑一次）：
-  - 每个没做完、没取消的专项按条数从多到少，每晚最多 `MAX_PROJECTS`（4）个。先不问模型，直接收起三种（读全部专项的记忆一次，`core/project_memory.py` 的 `across`）：问答的题面（题目 id 和“→”之前那段）按条目 id 点了别的专项的记忆（`quoted`：六位十六进制、问答的“标识-题号”或问题记录的标识，前后不挨着字母数字；只点了专项 id 或名字的不算，只在回答里点的也不算），原因 `foreign`，卡上写“别的专项的”；问答的问题记录标识加题目 id 或题号出现在另一条记忆的纠正出处里（`carried_out`，迁移脚本照这道题改了那条，它已经管着），原因 `done`；当前决定和待核对参考里写下 30 天、30 天里没用过的（`IDLE`）。剩下不少于 `MIN_LINES`（3）条、总时长没过 `BUDGET`（150 秒）时，问整理用的模型（`core/project_proposals.py` 的 `model`，每次最多 60 秒），输入多一项 `others`（同一聊天别的没做完的专项的名字，最多 20 个），提示词说明对记忆本身的一次性处理（迁移、核对、问某条记忆以后怎么算）和说别的专项的事算办完、不能当约定的依据；回 `{"done":[id],"superseded":[{id,by}],"rules":[{text,from}]}`，只认给它看过的 id，`rules` 要至少两条依据、最多 2 条。约定还要过两道：依据得来自至少两次（同一份问题记录的几题算一次，`occasions`），也不能是别的专项某一条的复述（同义，或它的相邻字对有 60% 在那一条里，`borrowed`；不足 12 对的只比同义）；没过的不记，日志写一行。
-  - 收起写 `core/project_memory.py` 的 `settle`（`memory-meta.json` 的 `valid` 为 `done` 或 `superseded`，带 `superseded_by`；`describe` 读成历史记录，不再每轮带），返回改之前的样子留给 `unsettle`。主人自己的长期约定从不收起。提炼的约定是一条 `source: lead`、`kind: constraint` 的新条目（待核对参考，它总结的），意思和已有条目相同的不加。
+  - 每个没做完、没取消的专项按条数从多到少，每晚最多 `MAX_PROJECTS`（4）个，只按规则收起三种、不问模型（读全部专项的记忆一次，`core/project_memory.py` 的 `across`）：问答的题面（题目 id 和“→”之前那段）按条目 id 点了别的专项的记忆（`quoted`：六位十六进制、问答的“标识-题号”或问题记录的标识，前后不挨着字母数字；只点了专项 id 或名字的不算，只在回答里点的也不算），原因 `foreign`，卡上写“别的专项的”；问答的问题记录标识加题目 id 或题号出现在另一条记忆的纠正出处里（`carried_out`，迁移脚本照这道题改了那条，它已经管着），原因 `done`；当前决定和待核对参考里写下 30 天、30 天里没用过的（`IDLE`）。以前还有一步问整理用的模型，判“办完的”“被新回答替代的”和提炼新约定，已经去掉；旧记录里的 `superseded` 原因读成 `done`，`rules` 和 `cursors` 忽略。
+  - 收起写 `core/project_memory.py` 的 `settle`（`memory-meta.json` 的 `valid` 为 `done` 或 `superseded`，带 `superseded_by`；`describe` 读成历史记录，不再每轮带），返回改之前的样子留给 `unsettle`。主人自己的长期约定从不收起。
   - 开着、`carried`、30 天没用的候选 `expire`。
-  - 记录在 `<state>/memory-tidy.json`（最近 14 次）：每次 `{id, slot, chat_id, at, projects: [{id, name, settled: [[条目, 之前, 原因]], rules: [{entry, text, state}], failed?}], expired, undone?}`；汇总卡上画 `view_of` 的样子。
-  - 卡上的点击（`bridge_digest_memory`，只认主人，`Digest.memory_click`，应答后在 `memory_decided` 里做再整卡重画）：「撤销」`unsettle` 这次收起的、`reopen` 这次过期的；「确认长期」`project_memory.fix` 的 `confirm`（出处是这张卡的消息 id，所以算你说的）；「不对」那条约定留墓碑。同一个按钮重投只算一次。
-- **别处学到的**（`app/memory_harvest.py`，晚间汇总里和候选一起，一个时间点只读一次）：Codex 的 `memory_summary.md`（`memories_v2/` 先，`memories/` 后；只取标题是 User、用户的几节，最多 4000 字）和登记过的本机工作区在 Claude Code 自动记忆目录（`ClaudeSessionStore.project_dirs` 下的 `memory/`）里 `type` 是 user、feedback 的文件（最新 30 个，每个最多 400 字，按工作区合成一段）。每段算哈希记在 `<state>/memory-harvest.json` 的 `seen`，没变的不再发；小模型最多 45 秒，回最多 3 条，工作区不是来源里的就记成通用；失败时不记 `seen`，下一天再试。
+  - 记录在 `<state>/memory-tidy.json`（最近 14 次）：每次 `{id, slot, chat_id, at, projects: [{id, name, settled: [[条目, 之前, 原因]]}], expired, undone?}`；汇总卡上画 `view_of` 的样子。
+  - 卡上的点击（`bridge_digest_memory`，只认主人，`Digest.memory_click`，应答后在 `memory_decided` 里做再整卡重画）：只有「撤销」：`unsettle` 这次收起的、`reopen` 这次过期的，同一个按钮重投只算一次。旧卡上的「确认长期」「不对」只回一句已下线，不改记忆。
+- **别处学到的**（`app/memory_harvest.py`，晚间汇总里和候选一起，一个时间点只读一次，不调模型）：`core/harness_memory.py` 的 `fresh` 读本机各 Harness 的记忆文件（只读，一条一条，带指纹），新的或变了的条目放进待审核（`core/memstore.py` 的 `review_put`，类型 `import`），第一晚只记下现状；网页的“导入”列出全部给主人勾。汇总卡上没有这一节。
 - **查记忆**（`core/memory_search.py`，只读、只用标准库和 core）：通用原则和通用知识条目只在 `--owner` 时查；工作区的原则和知识条目；开着和已记下的候选；话题自己的记忆；话题所在专项的全部条目（包括历史记录，标“做完了”“被替代了”）、`memory-archive.json` 里放不下移出的、`answers/` 里每道题（专项条目里还有这道题的就不重复列）；开了脱敏的话题的条目只在 `--redacted` 时查；代答话题什么都查不到。按词打分：拉丁字母和数字的连续串、中文每两个字算一个词，每个词按有几条含它加权（每道题都有的“要不要”权重很低），得分是查询里的词被这一条命中的加权比例，低于 0.15 的不列，同分时还有效的在前、新的在前。
 
 ## 设置卡的细节
@@ -259,13 +259,3 @@
 - **结论沉底**：回带发出后，任务进程只留一张小便条 `<token>.relay.json`（不碰卡）；后台线程读到便条，把卡整卡换成一行“✅ 做完 · 看结论 ›”（顶层的卡：“结论在下方 ›”）（链到结论消息，面板收起、按钮摘掉），写成功后记录转 `settled`。失败或停止同样写一行原因。回带 `uncertain` 或 `unsent` 时不留便条，卡原样留着让主人看到出了问题。任务结束后 10 分钟（`TERMINAL_GRACE`）还没有便条，卡就按最后的样子转 `settled`；3 天还没结束的也一样。
 - **按钮**：`bridge_dispatch_steer`、`bridge_dispatch_stop` 在 `ACTIONS` 里（不是 `bot_only`）。点击那一刻 `card_routing` 先按话题现在的状态换成**当前在跑（或排队）的最新一轮**（`dispatch_cards.click_job`），这一轮结束后又开了新一轮也不会落空；话题没有在做的任务时回一句“这个话题现在没有在做的任务”。任务进程活着时点击转给它，和任务卡上的补充、停止一样。
 - **点了停止马上显示**：停止点击到达 Bridge 时在本进程记下（`dispatch_cards.stop_clicked`），下一次刷新就画“正在停止…”，不等任务进程写记录；只在内存里，最多显示 `STOP_SHOWN`（600 秒）。
-
-## 我本来想找你的事：三层
-
-开关和怎么看见 butler.md [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰)。
-
-- **第一层是规则**（`app/patrol_rules.py`），每分钟一次、不调模型，从看板、手上的事、汇总已经在读的记录里找候选：问题等了很久没回（默认 120 分钟）；做完的结果没人看（360 分钟）；同一个话题连着失败 2 次，或任务 180 分钟没有动静；最近三天的话题里看起来是同一件事的，或该归进某个在做的专项的（开了整理专项时改读它的提议）；专项有回执没人读或被护栏停住后 720 分钟没有进展，或专项的话题太多太散。同一件事状态没变不重复记。另有两条只记、不交给小模型（`core/patrol.py` 的 `RECORD_ONLY`）：`deferred`，最近一天里管家做完的一轮回答里有推迟的话（`core/turn_words.py` 的 `defers`），这一轮却没开、没分叉也没转交任何话题；`unrelayed`，话题做完超过 10 分钟（`COVEY_PATROL_RELAY_MINUTES`）、结论该回聊天区（`app/relay_targets.py`），回带记录却没有说发出了（没有记录，或 `submitting`、`uncertain`、`unsent`）。
-- **第二层是小模型**（`app/patrol_judge.py`），每 30 分钟一次，有新候选才调：给它候选、精简的上下文和主人的原则，它对每条给“丢掉 / 记下 / 该处理”、一句理由和本来要做的动作；每天最多 48 次，同一条试 4 轮仍不成就放弃。要脱敏的话题标题不外发。
-- **第三层是管家核查执行**，还没有。
-- **记录**在 `<state>/patrol/`（`candidates/<日期>.jsonl`、`decisions/<日期>.jsonl`、`state.json`），保留 14 天。
-- **可调数值**：`COVEY_PATROL_ASK_MINUTES`、`COVEY_PATROL_UNSEEN_MINUTES`、`COVEY_PATROL_STALL_MINUTES`、`COVEY_PATROL_FAILS`、`COVEY_PATROL_PROJECT_MINUTES`、`COVEY_PATROL_RELAY_MINUTES`、`COVEY_PATROL_TICK_SECONDS`、`COVEY_PATROL_JUDGE_MINUTES`、`COVEY_PATROL_DAILY_CALLS`、`COVEY_PATROL_JUDGE_MS`，默认值和范围见[配置](configuration.md)的一览；验收时把时间都调到几分钟、小模型间隔调到 1 分钟，几分钟内就能看到结果。

@@ -127,7 +127,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
              'weekly_usage', 'group_manager', 'redaction_panel', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'storage_alerts', 'digest',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
-             'project_loop', 'patrol', 'devices', 'nodes', 'web_sync', 'web_login', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
+             'project_loop', 'devices', 'nodes', 'web_sync', 'web_login', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
              'welcome', 'revisits', 'review', 'collab', 'fold_close', 'owner_ledger', 'quota_watch', 'batch_switch')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
@@ -186,7 +186,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.projects import Projects
         from covey.app.project_loop import ProjectLoop
         from covey.app.project_tidy import ProjectTidy
-        from covey.app.patrol import Patrol
         from covey.app.devices import Devices
         from covey.app.nodes import Nodes
         from covey.app.web_sync import WebSync
@@ -270,12 +269,11 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.storage_alerts = StorageAlerts(self.runtime, self.messenger, self.voice)
             # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
             self.digest = Digest(self.runtime, self.messenger, self.voice)
-            # 你反复说的 on the evening digest (app/memory_candidates.py), COVEY_MEMORY=1: the Claude Code that groups them.
-            self.digest.candidates = Candidates(self.runtime, self.topics)
-            # 整理记忆 on the evening digest (app/memory_tidy.py), COVEY_MEMORY_LEARN=1: the 整理 model it asks.
-            self.digest.memory_tidy = MemoryTidy(self.runtime, self.topics)
-            self.digest.harvest = Harvest(self.runtime, self.topics)  # Codex's and Claude Code's own notes as candidates.
-            self.digest.topics = self.topics  # A stopped row's 检查并继续 on the 看板 runs in its topic's app (Digest.recover).
+            # The day's candidates for 待审核, found at the evening digest (app/memory_candidates.py), COVEY_MEMORY=1: rules only.
+            self.digest.candidates = Candidates(self.runtime)
+            # 整理记忆 on the evening digest (app/memory_tidy.py), COVEY_MEMORY_LEARN=1: rules only.
+            self.digest.memory_tidy = MemoryTidy(self.runtime)
+            self.digest.harvest = Harvest(self.runtime)  # Codex's and Claude Code's own notes as candidates.
             # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
             self.overview.handed[self.digest.origin] = self.digest.dismissed
             self.overview.unhanded[self.digest.origin] = self.digest.undismissed  # 撤销 under its 已撤下 line.
@@ -300,8 +298,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.project_tidy.handed["board"] = self.proposal_decided
             # Wakes a project's lead when receipts wait and applies the guards (app/project_loop.py), COVEY_PROJECTS=1.
             self.project_loop = ProjectLoop(self.runtime, self.butler_env, stop_tasks)
-            # What the butler would have told the owner, only recorded (app/patrol.py), COVEY_PATROL=shadow; the digest lists it.
-            self.patrol = Patrol(self.runtime, self.butler_env)
             # The optional features: each says itself which worker threads (``threads()``: (name, target), each run as
             # ``target(ctx)``) and bot menu items (``menu_items()``: event key -> action) it adds; one off by default adds
             # none of its threads. The order is the threads' (worker_targets) and the menu's. The enabled extensions'
@@ -335,7 +331,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
                         self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup, self.welcome,
                         self.dispatch_cards, self.project_cards, self.projects, self.project_tidy,
-                        self.project_loop, self.patrol, self.devices, self.nodes, self.web_sync, self.source_watch,
+                        self.project_loop, self.devices, self.nodes, self.web_sync, self.source_watch,
                         self.revisits, self.collab, self.owner_ledger, self.quota_watch, *self.extension_features)
             # The bot menu's items (app/bot_menu.py): each answers in the owner's private chat, its card
             # replacing the one it sent before, or folding and unfolding it while it is the newest (``menu_folds()``).

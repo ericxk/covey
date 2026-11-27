@@ -92,7 +92,9 @@ class UsageCarryTest(Case):
         self.assertEqual(memory_usage.read(self.state), {"b": {"n": 4, "last": 300.0}})
 
     def test_a_candidate_made_a_principle_keeps_its_use(self):
-        row, = memory_candidates.add(self.state, [{"text": "回复一律先说结论"}], "slot", source="harvest")
+        row = {"id": "c0a1b2c3d", "text": "回复一律先说结论", "topics": [], "labels": [], "workspace": "", "slot": "slot", "at": NOW,
+               "state": memory_candidates.OPEN, "source": "harvest"}  # A row an older release wrote.
+        memory_candidates.save(self.state, {"schema_version": 1, "rows": [row], "declined": [], "ran": []})
         memory_usage.note(self.state, [f"candidate:{row['id']}"], now=NOW)
         done = memory_candidates.decide(self.state, row["id"], "save")
         self.assertEqual(done["state"], memory_candidates.SAVED)

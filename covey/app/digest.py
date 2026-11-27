@@ -38,22 +38,19 @@ a send not confirmed is tried again RETRY seconds later with the same key and ca
 
 The day's last digest time (``last_of_day``: with 09:30 and 21:30, the 21:30 one) is the evening digest; in the owner's private
 chat it has three parts more (``daily``): 本周找你 N 次 (app/weekly_usage.py ``reached``: the week's questions and stops, counted
-only), 今天代答 (``proxy_view``, when there is a 代答 sender: today's replies sent and not sent) and, with COVEY_MEMORY=1, 你反复说的
-(app/memory_candidates.py, the hook ``candidates`` app/unified.py sets): the corrections the owner repeated in the day's ended
-topics, each with 「记下」「不用」. A click on one (cards/digest.py REMEMBER_KIND, the owner's) decides it (memory_candidates
-``decide``) and, once acknowledged, redraws the card from its saved view (``remembered``). The counts never make a card be
-sent; an open candidate does, as the line of old questions does.
+only), 今天代答 (``proxy_view``, when there is a 代答 sender: today's replies sent and not sent) and, with COVEY_MEMORY=1, the
+day's candidates looked for and put in 待审核 (app/memory_candidates.py, the hook ``candidates`` app/unified.py sets; the Harnesses'
+own memory too, ``harvest``), which the card does not list: its 记忆：待审核 N 条 line (``review_view``) says how many wait. 整理记忆
+(``memory_tidy``) is the one part with a button, 撤销. The counts never make a card be sent; what 整理记忆 put away does.
 
 看板 (the bot menu's BOARD_KEY, in every deployment, the digest off too) is cards/board.py's card at any time, 随时查看 · HH:MM in its title (the view's ``asked``): what waits and runs now, and what ended since the
 last digest time (``last_slot``, ``board_since``; without the digest, the last day). It reads digest.json and never writes it: the times and their
 sends go on as before. Nothing to list, the card says so (a click wants an answer). Its record is
 <state>/BOARD_FOLDER/<token>.json (app/menu_panel.py), the view in ``digest``; the bot menu keeps one such card and a
 second click on the newest folds and unfolds it in place (app/bot_menu.py), unfolded with a fresh view. Its
-这些都不用回答了 is handed on as the timed card's (``dismissed``), the card redrawn from the record's view. A stopped
-topic's own 检查并继续 on it (cards/board.py RECOVER_KIND, ``recover`` on its row: core/failure.py says the record takes
-one) is done as its task card's click does it (``recover``: app/task_controls.py retry_topic, in the context an automatic
-retry runs in; a saved result or question sent again, never run twice: a task once taken on is not taken on again) and
-the card is redrawn in place with one line of what came of it. With the web page's address set (core/web_sync.py
+这些都不用回答了 is handed on as the timed card's (``dismissed``), the card redrawn from the record's view. The small
+buttons taken off the rows (cards/board.py RETIRED_KINDS) are answered in words when an older card's is clicked
+(``retired_click``), the card redrawn without them. With the web page's address set (core/web_sync.py
 page_url) its last line has 打开网页 (``web``), as the timed card's and 手上的事's do.
 """
 from __future__ import annotations
@@ -62,31 +59,29 @@ import datetime
 import re
 import time
 from concurrent import futures as concurrent_futures
-from pathlib import Path
 
-from covey.app import memory_candidates, weekly_usage
+from covey.app import weekly_usage
 from covey.app.overview import dismissable
 from covey.app.pins import board_look, kept, laid, record_path, taken_off as taken_off_now
-from covey.app import owner_ledger, project_loop, revisits, topic_links
+from covey.app import owner_ledger, revisits, topic_links
 from covey.app.topic_links import link_for, linkify
 from covey.app.form_cards import settle
 from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
-from covey.cards.board import (KINDS as BOARD_KINDS, OPEN_KIND, PROJECT_GO_KIND, RECOVER_KIND, REVISIT_KIND, SEEN_KIND,
-                               SEEN_MAX, board_card)
-from covey.cards.digest import MEMORY_KIND, ORIGIN, REMEMBER_KIND, digest_card, digest_text, folded_board
-from covey.core import board_read, failure, knowledge, look, memory, patrol, projects, quiet_hours, turn_words, web_sync
+from covey.cards.board import KINDS as BOARD_KINDS, OPEN_KIND, RETIRED_KINDS, board_card
+from covey.cards.digest import MEMORY_KIND, ORIGIN, digest_card, digest_text, folded_board
+REMEMBER_KIND = "bridge_digest_remember"  # 你反复说的's 记下 / 不用, taken off the evening card: an older card's click.
+from covey.core import board_read, knowledge, look, memory, projects, quiet_hours, turn_words, web_sync
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, order, started_at, unrun
 from covey.core.failure import LABELS as FAILURE_LABELS, failure_view
-from covey.core.jobs import find_job_record, topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.loops import every
 from covey.core.metrics import run_seconds, took_text
 from covey.core.state import read_object, write_json
 from covey.core.statuses import RUNNING, TERMINAL
-from covey.core.topics import label_title, topic_file, topic_label as number_of
+from covey.core.topics import label_title
 
 ENV = "COVEY_DIGEST_TIMES"
 RECORD = "digest.json"
@@ -104,7 +99,6 @@ BOARD_KIND = "digest-board"
 BOARD_FOLDER = "digest-boards"  # Its cards' records (app/menu_panel.py).
 BOARD_FAILED = "看板没能发出去，请稍后再点机器人菜单「看板」。"
 BOARD_SCANNED = 20  # The newest board records ``dismissed`` looks a card up in.
-RECOVER_ACTIONS = (failure.CONTINUE, failure.RETRY)  # What a stopped row's own button does (cards/board.py RECOVER_KIND).
 TOPIC_ID = re.compile(r"[0-9a-f]{16,128}")
 
 
@@ -181,16 +175,6 @@ def proxy_view(state_dir, now) -> dict:
     if not (sent or unsent or records.read_settings(state_dir).get("enabled")):
         return {}
     return {"sent": sent, "unsent": unsent}
-
-
-def remember_row(row) -> dict:
-    """A candidate (app/memory_candidates.py) as the card's view keeps it."""
-    return {"id": row["id"], "text": str(row.get("text") or ""), "labels": list(row.get("labels") or ()),
-            "workspace": str(row.get("workspace") or ""), "state": row.get("state") or memory_candidates.OPEN,
-            **({"error": str(row["error"])} if row.get("error") else {}),
-            **({"carried": True} if row.get("carried") else {}),
-            **({"quote": str(row["quote"])} if row.get("quote") else {}),
-            **({"source": str(row["source"])} if row.get("source") not in (None, "", memory_candidates.REPEAT) else {})}
 
 
 def since_of(times, slot, last):
@@ -374,47 +358,26 @@ def collect(state, chat, slot, since, now, *, board=False, asked=False):
         took = run_seconds(record.get("timings"), now=ended_at(record))
         status = record["status"]
         line, meta, card = "", [f"用时 {turn_words.wait_words(took)}" if took is not None else ""], ""
-        recover = {}
         if status in ("failed", "cancelled", "interrupted"):  # 停住了 on the 看板: why, where it stopped, what next.
             failed = failure_view(record, now)
             line = board_read.ended_line(record, now)  # The same line 手上的事's 刚结束 row says.
             acts = (failed or {}).get("actions") or []
-            recover = recovery(state, record, acts) if asks is not None and topic in asks.stopped else {}
             step = FAILURE_LABELS.get(acts[0], "") if acts else ""
-            # Its own button says what next when it has one (``recover``); else where to click it.
-            meta = [f"{clock_words(ended_at(record), now)} 停", f"下一步：在任务卡上点「{step}」" if step and not recover else ""]
+            meta = [f"{clock_words(ended_at(record), now)} 停", f"下一步：在任务卡上点「{step}」" if step else ""]
             card = str(record.get("card_message_id") or "")  # The 看板's row opens its task card (its buttons are there).
         elif status == "done":
             line = board_read.ended_line(record, now)
         done.append({**row(topic, turn_words.STATES.get(status, status), f"用时 {took_text(took)}" if took is not None else "",
                            topic not in unseen), "status": status, "line": line, "meta": meta, "card": card,
                      # 停住了, 已停止 (the owner's own stop), 有结果 or 做完 (core/look.py; cards/board.py groups by it).
-                     "tone": look.record_tone(record, seen=topic not in unseen), **({"recover": recover} if recover else {})})
+                     "tone": look.record_tone(record, seen=topic not in unseen)})
     view = {"slot": slot, "since": since, "waiting": waiting, "stale": stale, "running": running_rows, "done": done,
             "older": older, "dismissable": bool(board and stale)}
-    new, wanted = knowledge_view(state, since, slot), wanted_view(state, chat, since, slot)
-    return {**view, **({"knowledge": new} if new else {}), **({"wanted": wanted} if wanted else {})}
+    new = knowledge_view(state, since, slot)
+    return {**view, **({"knowledge": new} if new else {})}
 
 
-def recovery(state, record, actions) -> dict:
-    """What a stopped row's own button does (cards/board.py RECOVER_KIND): {action, label, job} of the first of
-    RECOVER_ACTIONS that core/failure.py offers for ``record`` (``actions``: 检查并继续, 现在重试, or 重新投递结果 for a result
-    that did not go out), {} when there is none (a pending automatic retry, a refusal that wants another model), the task
-    went on already (``retried_by``) or its topic was switched since (app/binding.py stale_job_card: its card's click
-    starts nothing then): such a row keeps 去任务卡."""
-    from covey.app.binding import stale_job_card
-
-    name = next((name for name in RECOVER_ACTIONS if name in (actions or ())), "")
-    if not name or record.get("retried_by") or not isinstance(record.get("job_id"), int):
-        return {}
-    try:
-        if stale_job_card(read_object(topic_file(Path(state), str(record.get("topic_id") or ""))), record):
-            return {}
-    except (OSError, TypeError, ValueError):
-        return {}
-    return {"action": name, "label": failure.label(record, name), "job": record["job_id"]}
-
-
+MEMORY_RETIRED = "整理记忆不再提新约定，这个按钮已下线，没有改动任何记忆；只有「撤销」还在。"
 KNOWLEDGE_SHOWN = 10  # Rows of 新记的知识; the rest is one line.
 KNOWLEDGE_TEXT = 40  # Characters of an entry's text on its row.
 KNOWLEDGE_OPS = {"add": "新增", "update": "改写", "drop": "作废"}
@@ -432,28 +395,6 @@ def knowledge_view(state, since, slot):
              "text": change["text"][:KNOWLEDGE_TEXT] + ("…" if len(change["text"]) > KNOWLEDGE_TEXT else "")}
             for change in found[:KNOWLEDGE_SHOWN]]
     return {"rows": rows, "more": len(found) - len(rows)} if rows else {}
-
-
-WANTED_SHOWN = 5  # Rows of 我本来想找你的事; the rest is left out.
-
-
-def wanted_view(state, chat, since, slot):
-    """The 我本来想找你的事 part (core/patrol.py decisions, COVEY_PATROL=shadow): rows {what, why, would} of what the butler
-    would have acted on in ``chat`` (verdict ``handle``) decided after ``since`` up to ``slot``, the newest first, an
-    object once, at most WANTED_SHOWN; [] when there are none (or the patrol is off): the card then has no such part. It
-    never makes a card be sent."""
-    if not patrol.enabled():
-        return []
-    rows, seen = [], set()
-    for row in reversed(patrol.rows(state, "decisions", since, slot)):
-        if row.get("verdict") != "handle" or row.get("chat") != chat or row.get("key") in seen:
-            continue
-        seen.add(row.get("key"))
-        would = patrol.ACTION_WORDS.get(row.get("action"), patrol.ACTION_WORDS["none"])
-        name = str(projects.read_record(state, row["project"]).get("name") or "") if row.get("action") == "join" and row.get("project") else ""
-        rows.append({"what": str(row.get("what") or ""), "why": str(row.get("why") or ""),
-                     "would": f"{would}「{name}」" if name else would})
-    return rows[:WANTED_SHOWN]
 
 
 def cleared(view, topics, at=None):
@@ -515,12 +456,9 @@ class Digest:
         self.others = {}  # chat_id -> a personal group's Digest (app/group_boards.py): its 看板's clicks are its own.
         self.link = lambda ctx, chat, text, cards=None: linkify(text, ctx.state_dir, chat, profile=ctx.profile, cards=cards)
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
-        self.candidates = None  # 你反复说的 (app/memory_candidates.py Candidates): the private chat's digest only (app/unified.py).
+        self.candidates = None  # The day's candidates for 待审核 (app/memory_candidates.py Candidates): the private chat's digest only (app/unified.py).
         self.memory_tidy = None  # 整理记忆 (app/memory_tidy.py MemoryTidy, COVEY_MEMORY_LEARN=1): the private chat's digest only.
-        self.harvest = None  # What Codex and Claude Code noted on their own (app/memory_harvest.py Harvest), the same.
-        # The Bridge's Topics (app/unified.py, app/group_boards.py): their apps take a stopped row's 检查并继续 (``recover``);
-        # None: the 看板's stopped rows keep 去任务卡.
-        self.topics = None
+        self.harvest = None  # What Codex and Claude Code noted on their own, queued for 待审核 (app/memory_harvest.py Harvest), the same.
 
     def menu_items(self):
         """The bot menu's 看板, always (app/unified.py menu)."""
@@ -536,15 +474,11 @@ class Digest:
         now = time.time() if now is None else now
         last = read_object(record_path(ctx.state_dir, chat, RECORD)).get("last_slot")
         view = collect(ctx.state_dir, chat, now, board_since(self.times(), now, last), now, board=dismissable(), asked=True)
-        view.pop("wanted", None)  # 我本来想找你的事 is the 早晚汇总's, not the 看板's.
         # Each block of the 看板 opens its topic (cards/board.py): the topic's applink, read outside any lock.
         # A 等你 row's opens the card it is acted on (core/board_read.py waits): the question card, the launch card.
         # The old ones' labels link through their ``url`` (cards/overview.py stale_line), plain for the band to lead with.
         # All of them read at once (``urls``): one by one, eight topics whose cards were not kept took four seconds.
         self.link_rows(ctx, view)
-        if self.topics is None:  # Nothing here to take a 检查并继续 on: the row's task card does.
-            for row in view["done"]:
-                row.pop("recover", None)
         # ``at``: when it was read (a redraw from this view later says so, cards/board.py empty_state); ``first_use``: it
         # lists nothing and the chat never had a topic (还没有话题), told from a clear board.
         first = not any(view[key] for key in ("waiting", "stale", "running", "done")) and not board_read.has_topics(ctx.state_dir, chat)
@@ -704,7 +638,7 @@ class Digest:
 
     @staticmethod
     def matches(raw):
-        return isinstance(raw, dict) and (raw.get("kind") in BOARD_KINDS or raw.get("kind") in (REMEMBER_KIND, MEMORY_KIND))
+        return isinstance(raw, dict) and (raw.get("kind") in BOARD_KINDS or raw.get("kind") in (MEMORY_KIND, REMEMBER_KIND))
 
     def claim(self, ctx, event, raw, owner):
         """刷新, 记为看过 or a project's 继续 on a 看板 card, or 去看板 under an answered question (cards/board.py KINDS;
@@ -718,11 +652,17 @@ class Digest:
             return other.claim(ctx, event, raw, owner)
         if not owner:
             return "owner_only"
-        if kind == REMEMBER_KIND:
-            return self.remember(ctx, event, raw)
         if kind == MEMORY_KIND:
             return self.memory_click(ctx, event, raw)
         message = str(event.get("message_id") or "")
+        if kind == REMEMBER_KIND:
+            # 记下 / 不用 under 你反复说的 on an older evening card (the section is gone): said in words, nothing recorded.
+            chat_id, event_id = str(event.get("chat_id") or ""), str(event.get("event_id") or message)
+            if chat_id:
+                from covey.app.card_actions import RETIRED_TEXT
+                after_ack(lambda: self.messenger.reply(ctx, chat_id, RETIRED_TEXT[REMEMBER_KIND],
+                                                       self.voice.key("retired-button", event_id), voice=self.voice))
+            return "digest_remember_retired"
         if kind == OPEN_KIND:
             # 去看板 under an answered question: the bot menu's 看板, a new card for this click (its event id keys it).
             chat, source = str(event.get("chat_id") or ""), str(event.get("event_id") or "")
@@ -730,151 +670,46 @@ class Digest:
                 return "board_open_ignored"
             after_ack(lambda: self.board(ctx, chat, source))
             return "board_open"
-        if kind == REVISIT_KIND:
-            # 取消 on a row of 到点回来看: that revisit (its ``set_at``: a newer one the topic asked for since stays).
-            topic, set_at = raw.get("topic"), raw.get("set_at")
-            if not isinstance(topic, str) or not topic or isinstance(set_at, bool) or not isinstance(set_at, (int, float)):
-                return "board_revisit_ignored"
-            gone = revisits.records.cancel(ctx.state_dir, topic, set_at)
-            self.runtime.log(f"revisit cancelled topic={topic[-8:]} gone={gone}")
-        elif kind == RECOVER_KIND:
-            # 检查并继续 on a stopped row (cards/board.py ``recover``): its task card's click, done after the acknowledgement
-            # in the topic's lane (its value names the topic), then the card redrawn in place saying what came of it.
-            topic, job, action = raw.get("topic_id"), raw.get("job_id"), raw.get("action")
-            if not (isinstance(topic, str) and TOPIC_ID.fullmatch(topic) and isinstance(job, int) and not isinstance(job, bool)
-                    and action in RECOVER_ACTIONS):
-                return "board_recover_ignored"
-            source = str(event.get("event_id") or message)
-            after_ack(lambda: self.recover(ctx, topic, job, action, source, message))
-            return "board_recover"
-        elif kind == PROJECT_GO_KIND:
-            # 继续 on the block of a project a guard paused: what the pause card's 继续 does (app/project_loop.py resume).
-            chat, project = self.fixed or self.runtime.access.notify_chat(), raw.get("project")
-            if not chat or not isinstance(project, str) or not projects.valid_id(project):
-                return "board_project_go_ignored"
-            outcome = project_loop.resume(ctx.state_dir, project, chat)
-            self.runtime.log(f"digest board project go project={project[:8]} outcome={outcome}")
-        elif kind == SEEN_KIND:
-            # One row's 记为看过 names its ``topic``; 全部记为看过 names them all (``topics``, cards/board.py SEEN_MAX).
-            chat = self.fixed or self.runtime.access.notify_chat()
-            topics = raw.get("topics") if isinstance(raw.get("topics"), list) else [raw.get("topic")]
-            topics = [topic for topic in topics[:SEEN_MAX] if isinstance(topic, str) and topic]
-            if not topics or not chat:
-                return "board_seen_ignored"
-            now = time.time()
-            for topic in topics:
-                fresh = board_read.mark_seen(ctx.state_dir, chat, topic, now)
-                self.runtime.log(f"digest board seen topic={topic[-8:]} fresh={fresh}")
+        if kind in RETIRED_KINDS:
+            # 记为看过, 取消, 继续 and 检查并继续 were taken off the rows (T898): said in words, nothing done, the card redrawn.
+            chat_id, event_id = str(event.get("chat_id") or ""), str(event.get("event_id") or message)
+            after_ack(lambda: self.retired_click(ctx, kind, chat_id, event_id, message))
+            return "board_retired"
         if message:
             after_ack(lambda: self.board_refresh(ctx, message))
-        return {SEEN_KIND: "board_seen", REVISIT_KIND: "board_revisit_cancel",
-                PROJECT_GO_KIND: "board_project_go"}.get(kind, "board_refresh")
+        return "board_refresh"
 
-    def recover(self, ctx, topic, job_id, action, source, message):
-        """A stopped row's 检查并继续 (``claim``), after the acknowledgement: done (``recovered``), then the 看板 card ``message``
-        redrawn from a fresh view, with what came of it under the band."""
-        chat = self.fixed or self.runtime.access.notify_chat()
-        notice = self.recovered(ctx, chat, topic, job_id, action, source) if chat else ""
-        self.runtime.log(f"digest board recover topic={topic[-8:]} job={job_id} action={action} said={notice[:40]!r}")
+    def retired_click(self, ctx, kind, chat_id, event_id, message):
+        """A click on a small button an older 看板 card still has (cards/board.py RETIRED_KINDS), after the acknowledgement:
+        what replaces it said in the chat (app/card_actions.py RETIRED_TEXT), then the card redrawn from a fresh view."""
+        from covey.app.card_actions import RETIRED_TEXT
+        text = RETIRED_TEXT.get(kind)
+        if text and chat_id:
+            self.messenger.reply(ctx, chat_id, text, self.voice.key("retired-button", event_id), voice=self.voice)
         if message:
-            self.board_refresh(ctx, message, notice=notice)
-
-    def recovered(self, ctx, chat, topic, job_id, action, source) -> str:
-        """The task card's 检查并继续 of task #``job_id`` of ``topic`` (``action``: core/failure.py continue or retry; 重新投递结果
-        for a result that did not go out), as the web page's ``recover`` does it (app/web_ops.py): app/task_controls.py
-        retry_topic in the context an automatic retry runs in (app/auto_retry.py retry_context), ``source`` (the click's
-        event id) the new turn's message id. What the 看板 then says of it: ↪ 已接着做 · 任务 #N, or why nothing was done
-        (it went on already: a second click or a repeated event starts nothing, the record says ``retried_by``; the topic
-        has a task at work; it was switched since; the record takes it on no more). Never raises."""
-        state = Path(ctx.state_dir)
-        label = number_of(state, topic) or "话题"
-        try:
-            record = next((each for each in topic_job_records(state, topic, chat_id=chat) if each.get("job_id") == job_id), None)
-            if record is None:
-                return f"⚠️ {label} 找不到任务 #{job_id}，没有接着做"
-            if record.get("retried_by"):
-                moved = find_job_record(state, str(record["retried_by"])) or {}
-                return f"↪ {label} 已经接着做了 · 任务 #{moved.get('job_id') or '?'}，没有再开一次"
-            app = getattr(self.topics, "apps", {}).get(record.get("backend")) if self.topics is not None else None
-            if app is None:
-                return f"⚠️ {label} 这个任务的 Harness 现在不可用，去任务卡上看"
-            offered = (failure_view(record) or {}).get("actions") or ()
-            if action not in offered or not recovery(state, record, (action,)):  # Its record takes it on no more.
-                return f"⚠️ {label} 现在不能在这里接着做了，去任务卡上看"
-            from covey.app import auto_retry
-
-            target = auto_retry.retry_context(app, record, auto_retry.record_topic(app, record))
-            if target.topic_id != topic:
-                return f"⚠️ {label} 现在读不到，没有接着做"
-            said = app.controls.retry_topic(target, chat, source, job_id=job_id)
-            after = find_job_record(state, record["key"]) or {}
-            if after.get("retried_by") and after.get("retried_by") != record.get("retried_by"):
-                moved = find_job_record(state, str(after["retried_by"])) or {}
-                return f"↪ {label} 已接着做 · 任务 #{moved.get('job_id') or '?'}"
-            if any(after.get(name) is True and record.get(name) is not True for name in ("delivery_ok", "question_delivery_ok")):
-                return f"↪ {label} 的结果已重新发出"
-            return f"⚠️ {label} {said}" if said else f"⚠️ {label} 没有接着做，去任务卡上看"
-        except Exception as exc:  # noqa: BLE001 - the card says so; the task card's button is still there
-            self.runtime.log(f"digest board recover failed topic={topic[-8:]} job={job_id}: {type(exc).__name__}")
-            return f"⚠️ {label} 没能接着做（{type(exc).__name__}），去任务卡上点「{failure.LABELS.get(action, failure.LABELS[failure.CONTINUE])}」"
-
-    def remember(self, ctx, event, raw):
-        """「记下」 or 「不用」 on one of 你反复说的 (the owner's): decided and the card redrawn once acknowledged."""
-        candidate, op, message = raw.get("id"), raw.get("op"), str(event.get("message_id") or "")
-        if not (isinstance(candidate, str) and re.fullmatch(r"c[0-9a-f]{8}", candidate)) or op not in ("save", "drop") \
-                or not message:
-            return "digest_remember_ignored"
-        after_ack(lambda: self.remembered(ctx, message, candidate, op))
-        return "digest_remember"
-
-    def remembered(self, ctx, message_id, candidate, op):
-        """After a click on 你反复说的: the candidate decided (app/memory_candidates.py ``decide``: the principle written, or it
-        set aside), then the card ``message_id`` redrawn from its saved view with every candidate as it stands now (the view
-        saved once Feishu took it). A card whose view is no longer kept is left as it is."""
-        row = memory_candidates.decide(ctx.state_dir, candidate, op)
-        self.runtime.log(f"digest candidate {op} id={candidate} state={(row or {}).get('state', 'gone')}")
-        path = self.path(ctx)
-        with resource_lock("digest", str(path)):
-            sent = read_object(path).get("sent")
-        entry = sent.get(message_id) if isinstance(sent, dict) else None
-        view = entry.get("view") if isinstance(entry, dict) else None
-        if not isinstance(view, dict) or not view.get("remember"):
-            self.runtime.log(f"digest card not redrawn message={message_id[-8:]}: no view of its candidates kept")
-            return
-        stored = {item["id"]: item for item in memory_candidates.load(ctx.state_dir)["rows"]}
-        rows = []
-        for shown in view["remember"]:
-            fresh = stored.get(shown.get("id"))
-            if fresh is not None:
-                shown = {**shown, "state": fresh.get("state") or memory_candidates.OPEN, "error": str(fresh.get("error") or "")}
-            rows.append(shown)
-        view = {**view, "remember": rows}
-        if not self.messenger.patch_card(ctx.profile, message_id, digest_card(view)):
-            self.runtime.log(f"digest card redraw failed message={message_id[-8:]}")
-            return
-        with resource_lock("digest", str(path)):
-            record = read_object(path)
-            sent = record.get("sent") if isinstance(record.get("sent"), dict) else {}
-            if isinstance(sent.get(message_id), dict):
-                write_json(path, {**record, "sent": {**sent, message_id: {**sent[message_id], "view": view}}},
-                           ensure_ascii=False)
+            self.board_refresh(ctx, message)
 
     def memory_click(self, ctx, event, raw):
-        """确认长期, 不对 or 撤销 on the evening digest's 整理记忆 (the owner's): decided (app/memory_tidy.py ``decide``) and the
-        card redrawn once acknowledged."""
+        """撤销 on the evening digest's 整理记忆 (the owner's): decided (app/memory_tidy.py ``decide``) and the card redrawn once
+        acknowledged. An older card's 确认长期 or 不对 (retired) is answered in words and decides nothing."""
         run, op, message = raw.get("run"), raw.get("op"), str(event.get("message_id") or "")
         if (self.memory_tidy is None or not (isinstance(run, str) and re.fullmatch(r"t[0-9a-f]{8}", run))
-                or op not in ("confirm", "wrong", "undo") or not message):
+                or not message):
             return "digest_memory_ignored"
-        project, entry = str(raw.get("project") or ""), str(raw.get("entry") or "")
-        after_ack(lambda: self.memory_decided(ctx, message, run, op, project, entry))
+        if op != "undo":  # 确认长期 and 不对 are gone: say so, decide nothing (new rules are no longer made here).
+            chat_id, event_id = str(event.get("chat_id") or ""), str(event.get("event_id") or message)
+            if chat_id:
+                after_ack(lambda: self.messenger.reply(ctx, chat_id, MEMORY_RETIRED, self.voice.key("retired-button", event_id),
+                                                       voice=self.voice))
+            return "digest_memory_retired"
+        after_ack(lambda: self.memory_decided(ctx, message, run, op))
         return "digest_memory"
 
-    def memory_decided(self, ctx, message_id, run_id, op, project, entry):
+    def memory_decided(self, ctx, message_id, run_id, op):
         """After a click on 整理记忆: the run decided, then the card ``message_id`` redrawn from its saved view with the run as it
         stands now. A card whose view is no longer kept is left as it is."""
         from covey.app.memory_tidy import view_of
-        run = self.memory_tidy.decide(ctx, run_id, op, project=project, entry=entry, message_id=message_id)
+        run = self.memory_tidy.decide(ctx, run_id, op)
         if run is None:
             self.runtime.log(f"digest memory {op} run={run_id}: no such run")
             return
@@ -898,8 +733,9 @@ class Digest:
                            ensure_ascii=False)
 
     def daily(self, ctx, chat, slot, now) -> dict:
-        """The evening digest's own parts (the private chat's, the day's last time): 本周找你, 今天代答 and 你反复说的; each
-        one that cannot be read is left out (a log line)."""
+        """The evening digest's own parts (the private chat's, the day's last time): 本周找你, 今天代答 and 整理记忆; each one that
+        cannot be read is left out (a log line). With COVEY_MEMORY=1 it also looks for the day's candidates and the Harnesses' own
+        notes, which wait in 待审核 and are not listed here."""
         found = {}
         try:
             found["reached"] = weekly_usage.reached(ctx.state_dir, now, log=self.runtime.log)
@@ -914,17 +750,11 @@ class Digest:
             found["proxy"] = proxied
         if self.candidates is not None and memory.enabled():
             try:
-                found_rows = self.candidates.offer(ctx, chat, slot)
-                if self.harvest is not None and memory.learning() and self.harvest.offer(ctx, slot):  # Never raises.
-                    found_rows = memory_candidates.rows_of(ctx.state_dir, slot)
-                rows = [remember_row(row) for row in found_rows]
-                for row in rows:
-                    row["sources"] = self.link(ctx, chat, "、".join(row["labels"])) if row["labels"] else ""
+                self.candidates.offer(ctx, chat, slot)
+                if self.harvest is not None and memory.learning():
+                    self.harvest.offer(ctx, slot)  # Never raises.
             except Exception as exc:  # noqa: BLE001 - the digest goes out without them
                 self.runtime.log(f"digest candidates unreadable: {type(exc).__name__}")
-                rows = []
-            if rows:
-                found["remember"] = rows
         if self.memory_tidy is not None and memory.learning():
             tidied = self.memory_tidy.view(ctx, chat, slot, now)  # 整理记忆: never raises.
             if tidied:
@@ -933,8 +763,7 @@ class Digest:
 
     def board_refresh(self, ctx, message_id, notice=""):
         """A 看板 card redrawn from a fresh view, after a proposal on it was decided (app/project_tidy.py ``handed``),
-        its 刷新 or 记为看过 was clicked (``claim``) or a stopped row's 检查并继续 was done (``recover``: ``notice``, what came
-        of it, under the band of this redraw alone). Whether ``message_id`` is a 看板 card."""
+        its 刷新 was clicked or a retired button of it (``claim``; ``notice``: one line under the band of this redraw alone). Whether ``message_id`` is a 看板 card."""
         chat = self.fixed or self.runtime.access.notify_chat()
         folder = self.menu.directory(ctx)
         try:
@@ -1016,15 +845,12 @@ class Digest:
             view.update(review_view(ctx.state_dir, self.runtime.log))
         if not self.fixed and last_of_day(times, slot):
             view.update(self.daily(ctx, chat, slot, now))
-        waits = (any(row.get("state") == memory_candidates.OPEN for row in view.get("remember") or ())
-                 or bool(view.get("memory_tidy")))  # 整理记忆 put something away or wrote a rule: it says so, with 撤销.
+        waits = bool(view.get("memory_tidy"))  # 整理记忆 put something away: it says so, with 撤销.
         if not (view["waiting"] or view["stale"] or view["running"] or view["done"] or view.get("pending")
                 or view.get("projects") or waits):
             self.save(ctx, last_slot=slot, pending=None)
             self.runtime.log("digest not sent: nothing to list")
             return
-        for row in view["done"]:
-            row.pop("recover", None)  # The 看板's button: this card is a record of its time.
         self.link_rows(ctx, view)
         named = f"{self.fixed}-{int(slot)}" if self.fixed else str(int(slot))  # A group's send is its own.
         pending = {"slot": slot, "chat_id": chat, "key": self.voice.safe_key(self.voice.key("digest", named)),

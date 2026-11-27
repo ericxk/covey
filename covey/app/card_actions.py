@@ -67,9 +67,8 @@ ACTIONS = {
     "bridge_memory_wrong": CardAction("撤销刚记下的记忆", handler="controls.memory_wrong"),  # COVEY_MEMORY=1: starts no task.
     # 升为全局 beside it (T647 E4): the line becomes one of the owner's principles; starts no task.
     "bridge_memory_promote": CardAction("把记忆升为全局", handler="controls.memory_promote"),
-    # 让 Covey 30 分钟后回看 under an ordinary topic's answer that put something off (cards/answer_card.py revisit_hint_element, COVEY_REVISIT=1):
-    # the owner's; sets that topic's revisit (app/revisit_hint.py), starts no task.
-    "bridge_revisit_hint": CardAction("让 Covey 30 分钟后回看", handler="controls.revisit_hint"),
+    # 让 Covey 30 分钟后回看 under an ordinary topic's answer (taken off the cards, T898): a click on an older card says where.
+    "bridge_revisit_hint": CardAction("让 Covey 30 分钟后回看", bot_only=True, handler=RETIRED),
     # The 专项卡's buttons (cards/project_card.py): the card's message routes to the project's lead topic, so a click is
     # that topic's. Not bot_only: none starts a task (补充 opens the form of the lead's running turn, and says so when it has
     # none), and the value names a project, not a job, so the Bridge takes it in any case (runner_ipc.forward_card_action).
@@ -78,8 +77,9 @@ ACTIONS = {
     "bridge_project_downgrade": CardAction("不要专项", handler="controls.project_downgrade"),
     "bridge_project_mem_del": CardAction("删记忆", handler="controls.project_mem_del"),
     "bridge_project_lib_del": CardAction("删专项资料", handler="controls.project_lib_del"),
-    "bridge_project_triage_wrong": CardAction("纠正分流", handler="controls.project_triage_wrong"),  # COVEY_PROJECT_TRIAGE=1
-    "bridge_project_triage_fix": CardAction("提交纠正", bot_only=True, handler="controls.project_triage_fix"),  # Queues a message in the member topic.
+    # 不对 on a row of the 分流记录 and its form's 提交纠正 (taken off the cards, T898): a click on an older card says where.
+    "bridge_project_triage_wrong": CardAction("纠正分流", bot_only=True, handler=RETIRED),
+    "bridge_project_triage_fix": CardAction("提交纠正", bot_only=True, handler=RETIRED),
     # The pause card's buttons (COVEY_PROJECT_ASK=1, cards/project_card.py ask_card): 继续 and 收尾 start the project again and
     # wake its lead (a turn of the bot's own schedule: bot_only, never forwarded to a task runner); 停 stops tasks as
     # 停止专项 does, which is not bot_only. The value names a project like the 专项卡's.
@@ -209,24 +209,22 @@ ACTIONS = {
     "bridge_overview_dismiss": CardAction("撤下看板"),
     # 撤销 on the line 不管了 leaves (cards/overview.py UNDO): the board's record changes back (app/overview.py Overview.undo).
     "bridge_overview_undismiss": CardAction("撤销撤下看板"),
-    # The 看板's 刷新 and 记为看过 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).
+    # The 看板's 刷新 (cards/board.py KINDS): the Bridge redraws the card (app/digest.py Digest.claim).
     "bridge_board_refresh": CardAction("刷新看板"),
-    "bridge_board_seen": CardAction("记为看过"),
     # 去看板 under a question the owner settled (cards/board.py OPEN_KIND): a new 看板 card (app/digest.py Digest.claim).
     "bridge_board_open": CardAction("打开看板"),
-    # 取消 on the 看板's 到点回来看 (cards/board.py REVISIT_KIND, COVEY_REVISIT=1): only the topic's revisit record goes.
-    "bridge_board_revisit_cancel": CardAction("取消到点回来看"),
-    # 继续 on the 看板's block of a project a guard paused (cards/board.py PROJECT_GO_KIND, app/digest.py Digest.claim): the
-    # project starts again as the pause card's 继续 starts it (app/project_loop.py resume), which wakes its lead: bot_only.
+    # The 看板's small buttons taken off the rows (cards/board.py RETIRED_KINDS, T898): like the other board kinds the Bridge takes
+    # them before topic routing (no handler: a 看板 card belongs to no topic), says where to do it from RETIRED_TEXT and redraws the
+    # card (app/digest.py Digest.claim, ``retired_click``); nothing is done.
+    "bridge_board_seen": CardAction("记为看过", bot_only=True),
+    "bridge_board_revisit_cancel": CardAction("取消到点回来看", bot_only=True),
     "bridge_board_project_go": CardAction("在看板上继续专项", bot_only=True),
-    # 检查并继续 on the 看板's row of a topic that stopped (cards/board.py RECOVER_KIND, app/digest.py Digest.recover): the task
-    # card's click done from the 看板, which is then redrawn; it may queue the topic's next turn.
     "bridge_board_recover": CardAction("在看板上检查并继续", bot_only=True),
-    # 你反复说的 on the evening digest (cards/digest.py REMEMBER_KIND, COVEY_MEMORY=1): 记下 writes a principle (app/digest.py).
-    "bridge_digest_remember": CardAction("记下或不用汇总里的候选"),
-    # 整理记忆 on the evening digest (cards/digest.py MEMORY_KIND, COVEY_MEMORY_LEARN=1): 撤销 puts the lines it put away back,
-    # 确认长期 makes a new rule the owner's, 不对 strikes it out (app/digest.py memory_click, app/memory_tidy.py decide).
-    "bridge_digest_memory": CardAction("确认或撤销汇总里的整理记忆"),
+    # 你反复说的 on the evening digest (REMEMBER_KIND, retired: the candidates wait in 待审核): a click on an older card says where.
+    "bridge_digest_remember": CardAction("记下或不用汇总里的候选"),  # Answered in words by app/digest.py (claim).
+    # 整理记忆 on the evening digest (cards/digest.py MEMORY_KIND, COVEY_MEMORY_LEARN=1): 撤销 puts the lines it put away back;
+    # an older card's 确认长期 and 不对 are answered in words (app/digest.py memory_click, app/memory_tidy.py decide).
+    "bridge_digest_memory": CardAction("撤销汇总里的整理记忆"),
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).
     "bridge_app_setup": CardAction("补齐飞书应用配置"),
     "bridge_app_setup_skip": CardAction("先不补飞书应用配置"),
@@ -257,6 +255,14 @@ RETIRED_TEXT = {
     "bridge_fork": "💬 侧聊和 🔀 分叉已下线：要从这个话题分出新话题，在私聊里跟管家说。",
     "bridge_compact": "📦 压缩上下文已下线：会话快到模型窗口时，Claude Code 会自己压缩。",
     "bridge_turn_export": "📥 下载请求与结果已下线，这次点击没有打包任何东西。",
+    "bridge_revisit_hint": "「让 Covey 30 分钟后回看」已下线，没有设回看：想让它过一会儿回来看，在这个话题里直接跟 Covey 说。",
+    "bridge_board_seen": "看板上的「记为看过」已下线，没有记任何东西：点进话题看一眼就算看过，或在网页上记为看过。",
+    "bridge_board_revisit_cancel": "看板上的「取消到点回来看」已下线，没有取消：想取消，到那个话题里跟 Covey 说一声。",
+    "bridge_board_project_go": "看板上的「继续专项」已下线，没有继续：到专项卡（专项话题里那张）上点「继续」。",
+    "bridge_board_recover": "看板上的「检查并继续」已下线，没有重试：到那个话题的任务卡上点「检查并继续」或「现在重试」。",
+    "bridge_project_triage_wrong": "分流记录里的「不对」已下线，没有改任何东西：要纠正负责人替你答的，到那个专项话题里直接说。",
+    "bridge_project_triage_fix": "分流记录里的「不对」已下线，这次提交没有生效：要纠正负责人替你答的，到那个专项话题里直接说。",
+    "bridge_digest_remember": "汇总里的「记下」「不用」已下线，没有记任何东西：想记的话在设置卡「记忆」页签或网页记忆中心的待审核里处理。",
 }
 # compat: cards sent by a feature that was taken out: (kind, the prefix of its forms' button names) -> what a click gets
 # (a card kind not in ACTIONS is otherwise dropped without a word). Paseo (covey_paseo) was taken out.

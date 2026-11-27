@@ -347,23 +347,6 @@ def memory_element(notes, topic_id="", job_id="", url=None):
         {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": rows}]}
 
 
-REVISIT_HINT_ID = "answer_revisit_hint"
-REVISIT_HINT_KIND = "bridge_revisit_hint"
-REVISIT_HINT_LINE = "这一轮结束后没有人会回来看"
-REVISIT_HINT_BUTTON = "让 Covey 30 分钟后回看"
-
-
-def revisit_hint_element(topic_id="", job_id="", button=False):
-    """The grey line under an ordinary topic's answer that put something off with nothing to bring it back (app/revisit_hint.py):
-    "这一轮结束后没有人会回来看", and with 到点回来看 on (``button``) a 让 Covey 30 分钟后回看 button that sets that topic's revisit
-    (``REVISIT_HINT_KIND``)."""
-    line = md(grey(REVISIT_HINT_LINE), size="notation")
-    row = item(line, text_button(REVISIT_HINT_BUTTON, {"kind": REVISIT_HINT_KIND, "topic_id": str(topic_id or ""),
-                                                       "job_id": job_id})) if button else line
-    return {"tag": "column_set", "element_id": REVISIT_HINT_ID, "columns": [
-        {"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px", "elements": [row]}]}
-
-
 ACCEPTANCE_ID = "answer_acceptance"
 LOCAL_ONLY = "只做了本地验证"  # 去哪看 without a link the owner can click (docs/usage.md).
 
@@ -456,8 +439,7 @@ def tail(files=None, inputs=(), outputs=(), link="", change=None, notes=(), butt
     ``change_element``: None, {} or '' without), the line marking a commit not found (``check_element``) and the
     ``notes`` (elements: what to check of a UI change, ``acceptance_element``; the completion criteria not met,
     ``criteria_element``), those to look up in one fold when more than one and those to see first, outside it
-    (``details``), then the 输入/输出 lines, then ``buttons`` (elements: 独立复核, ``review_element``, and the reminder to
-    come back, app/revisit_hint.py) under the lines, where they can be clicked at once; one of DETAIL_WORDS among them
+    (``details``), then the 输入/输出 lines, then ``buttons`` (elements: 独立复核, ``review_element``) under the lines, where they can be clicked at once; one of DETAIL_WORDS among them
     goes into the fold. The 记下了 lines (MEMORY_ID, in ``notes`` or ``buttons``) are never folded: they come first, right
     under the answer, with or without 产物."""
     def is_memory(element):

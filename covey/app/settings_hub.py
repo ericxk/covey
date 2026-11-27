@@ -1,9 +1,9 @@
 """The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings on one page, 配置
 (app/butler_panel.py), the home and the repository map, read only (app/workspace_manager.py), the redaction term
 list (app/redaction_panel.py), the 群聊 (app/group_manager.py), with COVEY_MEMORY=1 the 记忆 (app/memory_panel.py), with
-nodes the 设备 (app/node_panel.py), the 能做什么 (app/about_panel.py) and the 诊断 (app/doctor_panel.py, service/doctor.py's
-report, read-only) panels on one card in the owner's private chat, a tab row on top (cards/settings_hub.py: 配置 ·
-仓库 · 脱敏 · 群聊 · 记忆 · 设备 · 能做什么 · 诊断).
+nodes the 设备 (app/node_panel.py) and the 诊断 (app/doctor_panel.py, service/doctor.py's
+report, read-only, with the 能做什么 part of app/about_panel.py under it) panels on one card in the owner's private chat, a tab row on top (cards/settings_hub.py: 配置 ·
+仓库 · 脱敏 · 群聊 · 记忆 · 设备 · 诊断).
 代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
 there (app/proxy_panel.py). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
 retired: an older card's tab click on it, or a record still on it, lands on 仓库 (cards/settings_hub.py
@@ -35,16 +35,15 @@ The menu opens it on 配置 (``first_tab``), in either private chat mode and wit
 新话题 and 管家 it took the place of are retired into it (cards/settings_hub.py RETIRED): an older card's tab click
 on one of them, or a record still on one, lands on 配置. Its 管家 part is there unless COVEY_BUTLER=0 rules the butler
 out, in the mode 纯话题 too (its row of the mode turns the butler on). The butler's menu key (app/butler_panel.py
-MENU_KEY) and its tool settings_panel send it on 配置; the bot menu's older keys, 工作区
-(app/workspace_manager.py MENU_KEY, now on 仓库) and 脱敏 (REDACTION_KEY), on their tabs (``opens``: the console's
-menu shows them until the owner publishes the new one). The chat keeps one 设置 card (app/bot_menu.py Panels, key
-MENU_KEY). The bot menu's 代答 and 群聊 keys send their own cards, without tabs.
+MENU_KEY) and its tool settings_panel send it on 配置. The chat keeps one 设置 card (app/bot_menu.py Panels, key
+MENU_KEY). The bot menu's older 工作区, 脱敏 and 群聊 keys are gone from the menu; a client's cached copy is told where
+the page went (app/bot_menu.py). The bot menu's 代答 key sends its own card, without tabs.
 """
 from __future__ import annotations
 
 import functools
 
-from covey.app import butler_panel, workspace_manager
+from covey.app import butler_panel
 from covey.app.about_panel import AboutPanel
 from covey.app.bot_menu import Panels
 from covey.app.card_lanes import after_ack
@@ -54,13 +53,12 @@ from covey.app.memory_panel import MemoryPanel
 from covey.app.menu_panel import FOLDED, HUB_FOLDER, HUB_LOCK, MOVED, OPEN, MenuPanel, hub_tabs, valid_token
 from covey.app.proxy_panel import EXPIRED
 from covey.cards.butler_panel import BUTLER_PART
-from covey.cards.settings_hub import (ABOUT, CONFIG, DOCTOR, GROUPS, KINDS, LABELS, BUTLER_PAGES, MEMORY, NODES, PROXY,
+from covey.cards.settings_hub import (CONFIG, DOCTOR, GROUPS, KINDS, LABELS, BUTLER_PAGES, MEMORY, NODES, PROXY,
                                       REDACTION, REPOS, WORKSPACE, folded_hub, successor)
 from covey.core import butler
 from covey.core.state import read_json
 
 MENU_KEY = 'bridge_settings'
-REDACTION_KEY = 'redaction_dashboard'  # The bot menu's older 脱敏 key (core/app_manifest.py OLD_MENU_KEYS).
 KIND = 'settings-card'
 UNSAVED = '⚠️ 设置卡未能切换到「{}」，请重新点机器人菜单「设置」。'
 UNFOLDED = '⚠️ 设置卡未能{}，请再点一次「{}」。'
@@ -75,14 +73,14 @@ class SettingsHub:
         """``main``, ``workspaces``, ``redaction``, ``proxy``, ``groups``: the ButlerPanel (its two pages),
         WorkspaceManager (the 仓库 tab, also under the retired 工作区 key for the web page), RedactionPanel, ProxyPanel and GroupManager
         the tabs show; ``doctor`` the 诊断 tab's (a DoctorPanel of its own by default). A butler button on a card whose
-        record is still on the retired 工作区 tab redraws it through the WorkspaceManager (ButlerPanel.pages). ``topics``: the Bridge's Topics, whose Harnesses the 能做什么 tab names. The
-        记忆 tab (``memory``, its clicks app/unified.py PANELS's) and 能做什么 are made here."""
+        record is still on the retired 工作区 tab redraws it through the WorkspaceManager (ButlerPanel.pages). ``topics``: the Bridge's Topics, whose Harnesses the 能做什么 part of 诊断 names. The
+        记忆 tab (``memory``, its clicks app/unified.py PANELS's) and 能做什么 part are made here."""
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
         self.memory = MemoryPanel(runtime, messenger, voice)
         self.about = AboutPanel(runtime, messenger, voice, topics)
         self.panels = {**dict.fromkeys(BUTLER_PAGES, main), REPOS: workspaces, WORKSPACE: workspaces, REDACTION: redaction, PROXY: proxy,
-                       GROUPS: groups, MEMORY: self.memory, ABOUT: self.about, **({NODES: nodes} if nodes is not None else {}),
-                       DOCTOR: doctor or DoctorPanel(runtime, messenger, voice)}
+                       GROUPS: groups, MEMORY: self.memory, **({NODES: nodes} if nodes is not None else {}),
+                       DOCTOR: doctor or DoctorPanel(runtime, messenger, voice, about=self.about)}
         main.pages[REPOS] = workspaces.tab_card
         self.redaction = redaction
         self.recalls = Panels(runtime, messenger)
@@ -99,10 +97,9 @@ class SettingsHub:
         return self.menu.token(chat_id, source)
 
     def menu_items(self):
-        """The bot menu's 设置; the menu's older keys, 工作区 and 脱敏, on their tabs; unless
-        COVEY_BUTLER=0 also the butler's own key, on its tab."""
-        items = {MENU_KEY: self.open, workspace_manager.MENU_KEY: self.open_repos,
-                 REDACTION_KEY: self.open_redaction}
+        """The bot menu's 设置; unless COVEY_BUTLER=0 also the butler's own key, on its tab. The older 工作区, 脱敏 and
+        群聊 keys are answered by app/bot_menu.py (core/app_manifest.py STALE_MENU_KEYS)."""
+        items = {MENU_KEY: self.open}
         if butler.available():
             items[butler_panel.MENU_KEY] = self.open_main
         return items
@@ -131,14 +128,6 @@ class SettingsHub:
         """The card on 配置, its 管家 part open (管家's page before 配置), replacing the 设置 card before (not the item's own: there is one 设置
         card)."""
         self.open_on(ctx, chat_id, source, CONFIG, quote=quote, section=BUTLER_PART)
-
-    def open_repos(self, ctx, chat_id, source, shown=None):
-        """The bot menu's old 工作区: the card on 仓库, as ``open_main``."""
-        self.open_on(ctx, chat_id, source, REPOS)
-
-    def open_redaction(self, ctx, chat_id, source, shown=None):
-        """The bot menu's old 脱敏: the card on 脱敏, as ``open_main``."""
-        self.open_on(ctx, chat_id, source, REDACTION)
 
     def open_on(self, ctx, chat_id, source, tab, quote='', section=''):
         """The card on ``tab``, recorded as the 设置 card (it recalls the one before)."""

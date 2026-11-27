@@ -1311,7 +1311,6 @@ class ClaudeOneShotTests(unittest.TestCase):
                     left.append(run_id)
         backend = ClaudeBackend()
         with mock.patch.object(claude_bridge.extensions, "hooks", return_value=[("covey_internal", Hook)]):
-            self.assertTrue(backend.turn_hooked())
             with backend.one_shot(ctx, {"A": "b"}, run_id="assist-1") as (hooked, env, settings):
                 self.assertEqual(settings, {"disableAllHooks": True, "env": relay})
                 self.assertEqual(env, {"A": "b", "X": "1"})
@@ -1319,7 +1318,6 @@ class ClaudeOneShotTests(unittest.TestCase):
                 self.assertEqual(left, [])
         self.assertEqual((entered, left), (["assist-1"], ["assist-1"]))  # The relay ends with the question.
         with mock.patch.object(claude_bridge.extensions, "hooks", return_value=[]):
-            self.assertFalse(backend.turn_hooked())
             with backend.one_shot(ctx, {}) as (same, _, settings):
                 self.assertEqual(settings, {"disableAllHooks": True})
                 self.assertIs(same, ctx)

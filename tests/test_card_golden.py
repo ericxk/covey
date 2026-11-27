@@ -933,7 +933,7 @@ def answer_tail_cards():
         area = relay_stops.buttons(record, view)
         return relay_card("T439", STOPPED, reason=view["title"], buttons=[area] if area else [])[0]
     from covey.cards.answer_card import (ARTIFACTS_ID, acceptance_element, criteria_element, input_parts, memory_element,
-                                         output_parts, review_element, revisit_hint_element, tail, tail_card)
+                                         output_parts, review_element, tail, tail_card)
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_card
     from covey.cards.topic_actions import beside, relay_switch, topic_panel
@@ -1016,12 +1016,6 @@ def answer_tail_cards():
                 {"kind": "remembered", "text": "回答先给结论", "scope": "管全局", "entry_id": "p1a2b3c"},
                 {"kind": "remembered", "text": "项目代号用简称", "scope": "管这个话题", "entry_id": "0a1b2d", "redacted": True}],
                 "tf0001", 439, url="")]),
-            # An ordinary topic's reply that put something off with nothing to come back (app/revisit_hint.py): the line, and
-            # with COVEY_REVISIT=1 its 约 30 分钟后回来看 button.
-            "answer_card_unwatched": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs, buttons=[
-                revisit_hint_element("tf0001", 439)])),
-            "answer_card_unwatched_revisit": answer_card(text, "✅ T439 · 结论", tail(files, inputs, outputs, buttons=[
-                revisit_hint_element("tf0001", 439, button=True)])),
             "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
             "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),
                                                       [topic_head("T443", "改看板的 Pin 目标", "cancelled")]),
@@ -1390,6 +1384,9 @@ def settings_cards():
         "config_assist_closed": butler_panel_card("c" * 24, view, Settings(enabled=False), BUTLER_CHOICES,
                                                   ["bridge", "docs"], top=row("config"), page="config", assist=ASSIST_ROW,
                                                   butler_on=False, butler_allowed=False),
+        # U4 (T898, the owner's choice B): the rows nobody changes in their section's 更多, open after a click on one.
+        "config_butler_more": butler_panel_card("c" * 24, {**view, "open": "butler", "more": True}, Settings(), BUTLER_CHOICES,
+                                                ["bridge", "docs"], top=row("config"), page="config"),
         "config_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,
                                             ["bridge", "docs"], top=row("config"), page="config"),
         "config_topics": butler_panel_card("c" * 24, {**view, "open": "butler"}, Settings(enabled=False), BUTLER_CHOICES,
@@ -1464,7 +1461,7 @@ def settings_cards():
     }
 
 
-FULL_TABS = ["config", "repos", "redaction", "groups", "memory", "nodes", "about"]
+FULL_TABS = ["config", "repos", "redaction", "groups", "memory", "nodes", "doctor"]
 
 
 def memory_tab_cards():
@@ -1500,12 +1497,13 @@ def memory_tab_cards():
 
 
 def about_tab_cards():
-    """The 设置 card's 能做什么 tab (cards/about_panel.py; T604 #62, T647 D6), read only: three groups by what the owner does
-    with them, each line what it does for him first, on with its switch, off grey with how to get it; without Claude Code
-    there is no butler and it says how to get one."""
+    """The 设置 card's 能做什么 part under the 诊断 report (cards/about_panel.py; T604 #62, T647 D6, T898), read only: three
+    groups by what the owner does with them, each line what it does for him first, on with its switch, off grey with how to
+    get it; without Claude Code there is no butler and it says how to get one."""
     from covey.app.about_panel import FEATURES, GROUPS
-    from covey.cards.about_panel import about_card
-    from covey.cards.settings_hub import folded_hub, tab_row
+    from covey.cards.about_panel import about_elements
+    from covey.cards.doctor_card import doctor_card
+    from covey.cards.settings_hub import tab_row
     from covey.cards.welcome import BUTLER_WORDS, NO_CLAUDE
 
     off = {"早晚汇总": "设 COVEY_DIGEST_TIMES=09:30,21:30（按北京时间）", "手上的事": "设 COVEY_PINNED_OVERVIEW=1",
@@ -1513,7 +1511,7 @@ def about_tab_cards():
            "代答": "要一个带代答发送器的扩展（核心没有），再设 COVEY_PROXY_PROFILE",
            "新话题带上最近话题的要点": "设 COVEY_WORKSPACE_GISTS=3（话题要点要整理专项开着才会写）",
            "网页工作台": "要一个配套的网页应用，再设 COVEY_WEB=1 和 COVEY_WEB_CONFIG", "历史搜索": "设 COVEY_HISTORY_CMD=搜索命令的绝对路径",
-           "设备与机器状况": "设 COVEY_NODE_LISTEN=设备能连进来的监听地址", "我本来想找你的事": "设 COVEY_PATROL=shadow（只记不打扰）"}
+           "设备与机器状况": "设 COVEY_NODE_LISTEN=设备能连进来的监听地址"}
     details = {"敏感词脱敏": ("词表在「脱敏」，话题开了才替换", ""), "管家": ("", "COVEY_BUTLER"), "专项": ("", "COVEY_PROJECTS"),
                "看板": ("", "COVEY_BOARD"), "记忆": ("", "COVEY_MEMORY、COVEY_KNOWLEDGE"),
                "负责人自己往下推": ("", "COVEY_PROJECT_AUTOWAKE 等四个"), "限流后自动继续": ("", "COVEY_AUTO_RETRY_LONG")}
@@ -1524,11 +1522,11 @@ def about_tab_cards():
             "groups": [list(group) for group in GROUPS], "features": features, "extensions": [], "state_dir": "/absolute/state"}
     why, how = BUTLER_WORDS[NO_CLAUDE]
     no_butler = [{**row, "on": False, "line": f"{why}；{how}"} if row["name"] in ("管家", "回退一步") else row for row in features]
-    return {"about": about_card("c" * 24, view, top=[tab_row("about", "c" * 24, FULL_TABS)]),
-            "about_no_butler": about_card("c" * 24, {**view, "harnesses": ["Codex"], "down": [], "features": no_butler,
-                                                     "extensions": ["covey_internal"], "notice": "⚠️ 仅机器人主人可以看这一页。"},
-                                          top=[tab_row("about", "c" * 24, [t for t in FULL_TABS if t != "main"])]),
-            "about_folded": folded_hub("about", "c" * 24, FULL_TABS)}
+    top, data = [tab_row("doctor", "c" * 24, FULL_TABS)], {"checked_at": FROZEN, "error": "OSError"}
+    return {"doctor_about": doctor_card("c" * 24, {"token": "c" * 24, "hub": True}, data, top=top,
+                                        below=about_elements(view, heading=True)),
+            "doctor_about_no_butler": doctor_card("c" * 24, {"token": "c" * 24, "hub": True}, data, top=top, below=about_elements(
+                {**view, "harnesses": ["Codex"], "down": [], "features": no_butler, "extensions": ["covey_internal"]}, heading=True))}
 
 
 def overview_cards():
@@ -1718,8 +1716,8 @@ def digest_cards():
                                                  "tone": "cancelled", "state": "已取消", "took": "用时 2分0秒"},
                                                 {"topic": "l", "label": "T533", "title": "看板", "status": "done",
                                                  "tone": "done", "state": "做完", "took": "用时 9分0秒", "seen": True}]}),
-            # A stopped row whose record takes 检查并继续 on has it as its button (T657 B10); 重新投递结果 for a result that did
-            # not go out; one without (a pending automatic retry, a refusal) keeps 去任务卡. The web page's link (B9).
+            # A stopped row has 去任务卡 (its 检查并继续 button was taken off, T898; an old view's ``recover`` is ignored).
+            # The web page's link (B9).
             "board_recover": board_card({"waiting": [], "stale": [], "running": [], "stamp": "08:00", "can_dismiss": True,
                                          "web": "https://example.invalid/app/covey",
                                          "done": [{"topic": "c" * 16, "label": "T551", "title": "跑全量", "status": "failed",
@@ -1767,7 +1765,7 @@ def digest_cards():
                                 "stopped": 0, "stuck": 0, "running": 0, "folded": True, "url": f"https://applink.feishu.cn/t/f{n}"}
                                for n in range(30))],
                 "tidy": {}, "stamp": "20:59", "done_since": "09:30"}),
-            # 到点回来看 (COVEY_REVISIT=1, app/revisits.py): a topic waiting for its time with 取消, one being looked at now.
+            # 到点回来看 (COVEY_REVISIT=1, app/revisits.py): a topic waiting for its time (its 取消 button was taken off, T898), one being looked at now.
             "board_revisits": board_card({"waiting": [], "stale": [], "done": [], "stamp": "08:00",
                                           "running": [{"topic": "r", "label": "T42", "title": "跑全量", "line": "现在：在跑测试",
                                                        "url": "https://applink.feishu.cn/t/42", "meta": ["3/5 步"]}],
@@ -1776,34 +1774,28 @@ def digest_cards():
                                                         "url": "https://applink.feishu.cn/t/40", "fired": False},
                                                        {"topic": "x", "label": "T41", "title": "等 CI", "at": "08:00",
                                                         "look": "", "set_at": 1795000001.0, "url": "", "fired": True}]}),
-            # 我本来想找你的事 (COVEY_PATROL=shadow): what the butler would have acted on, under the other parts.
             # 整理专项 on (cards/project_proposal.py board_rows): the projects and the 整理专项 button.
             "tidy": digest_card({**view, "tidy": {"projects": ["账号额度运行台", "DataLab Prompt 优化"]}}),
             "tidy_none": digest_card({**view, "tidy": {"projects": []}}),
-            "wanted": digest_card({**view, "wanted": [
-                {"what": "T396 你为啥没有pin？：有个问题等了你 3小时0分", "why": "你一直没回，像是卡住了", "would": "主动来问你"},
-                {"what": "专项「重构」有事没人动，已经 1天0小时 没有进展", "why": "收件箱有回执没人读", "would": "叫醒负责人看一眼"}]}),
             **evening_digest_cards(view)}
 
 
 def evening_digest_cards(view):
-    """The evening digest's own parts (app/digest.py daily; T604 #1, #45, #28): 本周找你 and 今天代答 after the three parts, then
-    你反复说的 with an open candidate (its 记下 / 不用), one written, one set aside and one 记下 refused; with only a
-    candidate (the card is sent for it alone); and its Markdown."""
+    """The evening digest's own parts (app/digest.py daily; T604 #1, #45): 本周找你 and 今天代答 after the three parts, then
+    整理记忆 with 撤销 and the 待审核 line; with only 整理记忆 (the card is sent for it alone), after 撤销, and its Markdown.
+    A view of before (``remember``, ``wanted``, rules in 整理记忆) is drawn without them."""
     from covey.cards.digest import digest_card, digest_text
 
-    remember = [{"id": "c0a1b2c3d", "text": "回答先给结论，细节放后面", "labels": ["T396", "T401"],
-                 "sources": "[T396](https://applink.feishu.cn/client/thread/open?open_chat_id=oc_fake_chat)、T401",
-                 "workspace": "covey", "state": "open"},
-                {"id": "c1a2b3c4d", "text": "测试没跑全量不说通过", "labels": ["T402", "T405"], "workspace": "", "state": "saved"},
-                {"id": "c2a3b4c5d", "text": "周报用表格", "labels": ["T403", "T404"], "workspace": "", "state": "declined"},
-                {"id": "c3a4b5c6d", "text": "别用表情", "labels": ["T406", "T407"], "workspace": "", "state": "open",
-                 "error": "这一组的记忆已有 30 条，先在菜单「设置」→「记忆」里删掉不用的"}]
-    evening = {**view, "reached": {"questions": 9, "stopped": 3}, "proxy": {"sent": 5, "unsent": 1}, "remember": remember}
+    tidied = {"run": "t0a1b2c3d", "away": {"idle": 1, "done": 8, "foreign": 2}, "expired": 2, "undone": False}
+    evening = {**view, "reached": {"questions": 9, "stopped": 3}, "proxy": {"sent": 5, "unsent": 1}, "memory_tidy": tidied,
+               "review": {"pending": 3, "url": "https://covey.example.com/memory?tab=review"}}
     alone = {"slot": FROZEN, "since": FROZEN - 9.5 * 3600, "waiting": [], "stale": [], "running": [], "done": [],
-             "reached": {"questions": 0, "stopped": 0}, "remember": remember[:1]}
-    return {"evening": digest_card(evening), "evening_candidate_alone": digest_card(alone),
-            "evening_text": {"text": digest_text(evening)}}
+             "reached": {"questions": 0, "stopped": 0}, "memory_tidy": tidied}
+    undone = {**alone, "memory_tidy": {**tidied, "undone": True}}
+    older = {**evening, "remember": [{"id": "c0a1b2c3d", "text": "回答先给结论", "labels": ["T396"], "workspace": "", "state": "open"}],
+             "wanted": [{"what": "T396 等了你 3小时0分", "why": "你一直没回", "would": "主动来问你"}]}
+    return {"evening": digest_card(evening), "evening_tidy_alone": digest_card(alone), "evening_tidy_undone": digest_card(undone),
+            "evening_of_before": digest_card(older), "evening_text": {"text": digest_text(evening)}}
 
 
 def app_setup_cards():
@@ -1863,7 +1855,7 @@ def web_login_cards():
 
 def project_cards():
     """The 专项卡 (cards/project_card.py): the live card in each state, and the lines it shrinks to."""
-    from covey.cards import project_card as pc, triage_card
+    from covey.cards import project_card as pc
 
     link = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc_x&open_thread_id=omt_x"
     ask = "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=76"
@@ -1908,12 +1900,9 @@ def project_cards():
             "line_merged": pc.merged_card("把订单库迁到新集群", link),
             # Nothing to do for COVEY_PROJECT_IDLE_DAYS: the project folds away into one line until new work opens it again.
             "line_idle": pc.idle_card("把订单库迁到新集群", 7),
-            # COVEY_PROJECT_TRIAGE=1: a row of an answer the lead gave has the 不对 button, and the form it opens.
+            # COVEY_PROJECT_TRIAGE=1: a row of an answer the lead gave is a plain line (its 不对 button was taken off, T898).
             "running_triage": pc.project_card(pc.Project(**{**full.__dict__, "triage": (
                 ("09:40 答了：T501 · 用哪个库版本？ → 新版", "c" * 16), "10:05 转给你：T503 · 能不能停服务？（碰到硬闸）")})),
-            "triage_fix_form": triage_card.fix_form("T501 · 用哪个库版本？ → 新版", {"project_id": "a1b2c3d4e5f6", "topic_id": "f" * 32,
-                                                                              "token": "c" * 16}),
-            "triage_fixed": triage_card.fixed_card("T501 · 用哪个库版本？ → 新版 → 这类库版本的事要等我看过再定"),
             "ask_tokens": pc.ask_card("把订单库迁到新集群", "token 用到上限 1000 万", project_id="a1b2c3d4e5f6", lead_topic="f" * 32,
                                       note="在做的 2 个话题已请它们停下。"),
             "ask_wakes": pc.ask_card("把订单库迁到新集群", "负责人连续叫醒 30 次没有你的消息", project_id="a1b2c3d4e5f6",

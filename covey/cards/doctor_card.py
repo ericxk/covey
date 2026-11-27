@@ -141,8 +141,9 @@ def doctor_rows(data) -> list:
     return rows
 
 
-def doctor_card(token, view, data, *, top=()):
-    """The tab for ``view`` (its notice) over ``data``; ``top`` is the tab row."""
+def doctor_card(token, view, data, *, top=(), below=()):
+    """The tab for ``view`` (its notice) over ``data``; ``top`` is the tab row, ``below`` more elements under the report
+    (the 能做什么 part, cards/about_panel.py ``about_elements``)."""
     elements = [*top]
     if view.get("notice"):
         elements.append(ui.receipt(view["notice"]))
@@ -152,6 +153,7 @@ def doctor_card(token, view, data, *, top=()):
         if detail:
             elements.append(note(detail))
     elements.append(note(NOTE))
+    elements += below
     faults = sum(1 for ok, _, _ in rows if ok is False)
     when = clock((data or {}).get("checked_at"))
     subtitle = "｜".join(filter(None, ["都正常" if not faults else f"{faults} 项要看", f"{when} 查的" if when else ""]))

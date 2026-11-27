@@ -49,8 +49,9 @@ def failed_words(code, harness="", detail="") -> str:
 
 
 def last_assist(state) -> dict:
-    """The latest 补话题要点 call's {harness, model} (core/assist.py recent), for a run that stopped reading."""
-    row = (reasons.read(state).get("recent") or {}).get("backfill") or {}
+    """The latest 补话题要点 call's {harness, model} (core/assist.py recent: kept under 整理专项's row, app/assist.py BACKFILL),
+    for a run that stopped reading."""
+    row = (reasons.read(state).get("recent") or {}).get("tidy") or {}
     return {"harness": str(row.get("harness") or ""), "model": str(row.get("model") or "")}
 
 
@@ -64,7 +65,10 @@ class Runs:
         self.shared, self.words, self.applier, self.proposal_cards = shared, words, applier, proposal_cards
 
     def scheduled(self, ctx, chat, now) -> None:
-        """整理 at the 早晚汇总's times (COVEY_DIGEST_TIMES), each time once (its own ``last_slot``)."""
+        """整理 at the 早晚汇总's times (COVEY_DIGEST_TIMES), each time once (its own ``last_slot``). Not while the 辅助模型 is
+        不用模型: a 整理 is the judge's call, there is no rules-only one, so the card would only say it failed (one asked for
+        still says why)."""
+        from covey.app import assist
         from covey.app.digest import configured, due
 
         times = configured()
@@ -74,6 +78,9 @@ class Runs:
         if slot is None or self.shared.busy.locked():
             return
         proposals.change(ctx.state_dir, lambda data: data.update(last_slot=slot))
+        if assist.settings_of(ctx.state_dir).assist.off:
+            self.runtime.log(f"project tidy scheduled skipped slot={slot} reason=none")
+            return
         self.start(ctx, origin="scheduled", wait=True)
 
     def start(self, ctx=None, *, origin="asked", scope="", wait=False) -> str:
@@ -204,7 +211,7 @@ class Runs:
             if proposals.declined_like(state, kind, made["topics"], made.get("project") or "", made.get("projects") or ()):
                 continue
             if kind == proposals.CREATE:
-                # Each new project its own proposal card, the same as a real-time one (each topic
+                # Each new project its own proposal card (each topic
                 # linked with its gist, topics added or removed and the name changed before it is confirmed): the 整理专项 card only names it.
                 if self.proposal_cards.propose(ctx, chat, {**made, "run": record["run"]}) == "proposed":
                     view.setdefault("proposed", []).append(str(made.get("name") or ""))

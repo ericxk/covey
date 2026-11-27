@@ -1,6 +1,6 @@
 """The 设置 card's 记忆 tab (app/memory_panel.py, cards/memory_panel.py, COVEY_MEMORY=1): the counts, 待审核 to 采纳 or 不要, the way
 to the 网页记忆中心 and, without the web page, the rules to 收起; the kinds of the older tab only say they are offline. Also 常驻
-principles (core/principles.py pin) and the 能做什么 tab (app/about_panel.py, cards/about_panel.py; #62): what this deployment can
+principles (core/principles.py pin) and the 能做什么 part of the 诊断 tab (app/about_panel.py, cards/about_panel.py; #62): what this deployment can
 do and what it lacks, read only."""
 from __future__ import annotations
 
@@ -103,12 +103,13 @@ class MemoryCase(HubCase):
 
 
 class MemoryTabTests(MemoryCase):
-    def test_the_tab_is_there_with_the_switch_only_and_about_always(self):
+    def test_the_tab_is_there_with_the_switch_only_and_doctor_always(self):
         self.assertIn(MEMORY, hub_tabs())
-        self.assertEqual(hub_tabs()[-2:], [ABOUT, DOCTOR])  # 能做什么, then the 诊断 tab (app/doctor_panel.py).
+        self.assertEqual(hub_tabs()[-1:], [DOCTOR])  # 诊断 (app/doctor_panel.py), 能做什么 under it (T898).
+        self.assertNotIn(ABOUT, hub_tabs())
         with mock.patch.dict(os.environ, {'COVEY_MEMORY': '0'}):
             self.assertNotIn(MEMORY, hub_tabs())
-            self.assertIn(ABOUT, hub_tabs())
+            self.assertIn(DOCTOR, hub_tabs())
 
     def test_with_the_web_page_it_is_counts_and_links_only(self):
         self.web()
@@ -248,7 +249,7 @@ class WorstCaseTests(HubCase):
                   {'key': 'topics', 'title': '话题', 'counts': {}},
                   *({'key': f'p:{i:012x}', 'title': '名' * 60, 'counts': {'rule': 99, 'decision': 99, 'note': 99, 'pending': 99}}
                     for i in range(40))]
-        top = [tab_row(MEMORY, 'c' * 24, ['topic', 'main', 'workspace', 'redaction', 'groups', 'memory', 'nodes', 'about'])]
+        top = [tab_row(MEMORY, 'c' * 24, ['topic', 'main', 'workspace', 'redaction', 'groups', 'memory', 'nodes', 'doctor'])]
         for url in ('', URL):
             data = {'counts': {'rule': 99, 'decision': 99, 'note': 99, 'pending': 40}, 'scopes': scopes, 'review': review,
                     'rules': rules, 'url': url, 'review_url': url and url + '/memory/review'}
@@ -287,8 +288,9 @@ class PinTests(HubCase):
 class AboutTabTests(HubCase):
     def about(self):
         self.open()
-        self.assertEqual(self.press(self.tab('能做什么'), 'ev-about'), 'settings_tab')
-        self.assertEqual(self.title(), '能做什么')
+        self.hub.panels[DOCTOR].report = lambda: {}  # No lark-cli or service root here: the report is empty.
+        self.assertEqual(self.press(self.tab('诊断'), 'ev-about'), 'settings_tab')
+        self.assertEqual(self.title(), '诊断')
         return text_of(self.card())
 
     def test_it_says_what_is_on_and_how_to_get_what_is_not(self):
@@ -303,6 +305,7 @@ class AboutTabTests(HubCase):
         self.assertIn('Harness：', text)
         self.assertIn('没有启用扩展', text) if not about_panel.extensions.enabled() else None
         self.assertIn('--state-dir ' + str(self.state).replace('_', '&#95;').replace('.', '&#46;'), text.replace('&#45;', '-'))
+        self.assertNotIn('我本来想找你的事', text)  # 巡逻 is gone (T898).
         # Read only: the tab row's buttons and none of its own.
         self.assertEqual({v['kind'] for _, v in values(self.card())}, {TAB})
 
@@ -356,4 +359,4 @@ class AboutTabTests(HubCase):
         self.about()
         event = {'event_id': 'ev-o', 'chat_id': 'dm', 'message_id': 'om_s1'}
         self.assertEqual(self.hub.click(self.ctx, event, self.tab('配置'), False), 'owner_only')
-        self.assertIn('仅机器人主人可以看这一页', text_of(self.card()))
+        self.assertIn('仅机器人主人可以看诊断', text_of(self.card()))

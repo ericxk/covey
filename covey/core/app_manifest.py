@@ -10,7 +10,8 @@ app/app_setup.py syncs slash commands and checks at each start, offering the own
 scripts.
 
 A scope that needs the tenant admin's review is never added unless asked (``review``): listed apart on
-the card, unticked. Nothing is ever removed: the app's other scopes, events, slash commands and menu items stay.
+the card, unticked. Nothing is removed but the stale floating-menu items (``STALE_MENU_KEYS``): the app's other scopes, events, slash
+commands and menu items stay.
 Standard library only.
 """
 from __future__ import annotations
@@ -35,8 +36,9 @@ MENU_DISPLAY = 3  # 悬浮菜单 (bot_menu_display_strategy).
 
 @dataclasses.dataclass(frozen=True)
 class Need:
-    """One thing the app must have: ``kind`` scope, event, callback, bot, menu_enable or menu; ``name`` the
-    scope, event key, callback or menu event key; ``words`` what it is for, as the card says it."""
+    """One thing the app must have: ``kind`` scope, event, callback, bot, menu_enable or menu (or, to be rid of,
+    menu_remove); ``name`` the scope, event key, callback or menu event key; ``words`` what it is for, as the card
+    says it."""
     kind: str
     name: str
     words: str
@@ -80,8 +82,10 @@ GROUP_ALL_REVIEW = ("im:message.group_msg", "群聊免@ 收群里全部消息")
 # proxy_sender hook (``proxy_sender``).
 MENU = (("weekly_usage", "用量", "insert-chart_outlined"), ("digest_board", "看板", "bitablekanban_outlined"),
         ("proxy_settings", "代答", "robot_outlined"), ("bridge_settings", "设置", "setting_outlined"))
-# Older items that still work (app/bot_menu.py KEYS): counted toward the limit, never replaced or removed.
-OLD_MENU_KEYS = ("manage_workspaces", "redaction_dashboard", "manage_groups", "main_thread_settings")
+# Older floating-menu items whose cards moved onto 设置 tabs (T898 界面精简): event key -> the name it had. A sync takes
+# them off the app's menu (``missing`` lists each still online as a ``menu_remove`` need); a click on a stale copy a
+# client cached is answered by app/bot_menu.py. ``main_thread_settings`` (the butler's 配置 tab) stays.
+STALE_MENU_KEYS = {"manage_workspaces": "仓库", "redaction_dashboard": "脱敏", "manage_groups": "群聊"}
 
 # Feishu official slash commands (POST /open-apis/application/v7/app_slash_commands, feishu/slash_commands.py):
 # registered directly as the bot with no console login or version publish. Server enforces ^[a-z][a-z0-9_-]{0,31}$
@@ -188,6 +192,8 @@ def has(online, need):
         return bool(online.get("bot"))
     if need.kind == "menu_enable":
         return bool(online.get("menu_enable"))
+    if need.kind == "menu_remove":
+        return need.name not in (online.get("menu_keys") or ())
     field = {"scope": "scopes", "event": "events", "callback": "callbacks", "menu": "menu_keys"}[need.kind]
     return need.name in (online.get(field) or ())
 
@@ -199,8 +205,10 @@ def missing(env, online, *, bottom_menu=False):
     needs = required(env, bottom_menu=bottom_menu)
     if not bottom_menu and online.get("menu_enable"):
         needs.append(Need("event", MENU_EVENT, "机器人菜单的点击"))
+    stale = [key for key in (online.get("menu_keys") or ()) if key in STALE_MENU_KEYS]
+    needs += [Need("menu_remove", key, f"菜单旧项「{STALE_MENU_KEYS[key]}」（已移到设置卡）") for key in stale]
     lacking = [need for need in needs if not has(online, need)]
-    room = MENU_LIMIT - len(online.get("menu_keys") or ())
+    room = MENU_LIMIT - len(online.get("menu_keys") or ()) + len(stale)
     full = []
     for need in lacking:
         if need.kind == "menu":
@@ -231,6 +239,7 @@ def plan(needs, *, remark):
             "bot": any(n.kind == "bot" for n in needs),
             "menu_enable": any(n.kind in ("menu_enable", "menu") for n in needs),
             "menu": [{"key": n.name, "label": n.label, "icon": n.icon} for n in needs if n.kind == "menu"],
+            "menu_remove": [n.name for n in needs if n.kind == "menu_remove"],
             "menu_display": MENU_DISPLAY,
             "remark": remark}
 
@@ -241,6 +250,9 @@ def remark(needs):
     menus = [n.label for n in needs if n.kind == "menu"]
     if menus:
         parts.append("菜单 " + "、".join(menus))
+    gone = [STALE_MENU_KEYS.get(n.name, n.name) for n in needs if n.kind == "menu_remove"]
+    if gone:
+        parts.append("去掉菜单旧项 " + "、".join(gone))
     scopes = len([n for n in needs if n.kind == "scope"])
     if scopes:
         parts.append(f"{scopes} 项权限")

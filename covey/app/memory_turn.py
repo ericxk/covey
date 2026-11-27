@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from covey.app import knowledge_turn, memory_candidates, project_context
+from covey.app import assist, knowledge_turn, memory_candidates, project_context
 from covey.app.prompts import memory_rules_block, memory_tail_block
 from covey.core import (knowledge, memory, memory_review, memory_search, memory_usage, memstore, principles, projects,
                         topic_gist, topic_memory)
@@ -467,12 +467,21 @@ def triggered(text, *, knowledge_takes=False) -> bool:
     return any(word in text for word in WORDS if not (knowledge_takes and word in SAVED_WORDS))
 
 
+def learner_reads(ctx) -> bool:
+    """Whether the Bridge reads the owner's words after the turn (app/memory_learn.py): the memory learning and the 辅助模型 not set
+    to 不用模型 (the learner then asks nothing, and the checkpoint rule is the one path left to note a correction)."""
+    try:
+        return memory.learning() and not assist.settings_of(ctx.state_dir).assist.off
+    except Exception:  # noqa: BLE001 - unreadable settings: the learner is taken to be there, as before
+        return memory.learning()
+
+
 def fix_rule(ctx, job, owner_turn) -> bool:
     """Whether the rules of this turn carry the memory correction rule: memory on, the owner's own turn in a topic (not the
     butler's, which has its tools; not one the butler handed on), and their words hold one of ``WORDS``."""
     try:
-        if not active(ctx) or memory.learning() or not owner_turn() or handed_on(getattr(job, "message_id", "")):
-            return False  # With the memory learning, the Bridge reads the owner's words after the turn (app/memory_learn.py).
+        if not active(ctx) or learner_reads(ctx) or not owner_turn() or handed_on(getattr(job, "message_id", "")):
+            return False  # With the learner reading the owner's words after the turn (app/memory_learn.py), the rule is left out.
         if not turn_source.behavior(job).owner_words:
             return False  # A 协作 turn's words are not the owner's (core/turn_source.py): nothing of them is his to correct.
         if is_butler_topic(getattr(job, "topic_id", "") or ctx.topic_id, getattr(job, "chat_id", "")):

@@ -27,3 +27,13 @@ test('主人点的写明；没有时间写 —；旧版 Covey 没有 recent 是�
   assert.deepEqual(A.recentLines(undefined, NOW), []);
   assert.equal(A.tookWords(12500), '13 秒');
 });
+
+test('只列分流、整理专项、记忆自己长三行（T898）：旧版 Covey 的补话题要点并进整理专项取较新的一次，已下线的几项不列', () => {
+  const rows = [R({ feature: 'patrol', label: '巡逻' }), R({ feature: 'learn', label: '记忆自己长', at: NOW - 60 }),
+    R({ feature: 'backfill', label: '补话题要点', at: NOW - 10, ms: 5200 }), R({ feature: 'tidy', at: NOW - 600 }),
+    R({ feature: 'track', label: '分流', ms: 1900 }), R({ feature: 'tidy_realtime', label: '实时归并' }), R({ feature: 'look', label: '看看' })];
+  const lines = A.recentLines(rows, NOW);
+  assert.deepEqual(lines.map((l) => [l.key, l.feature]), [['track', '分流'], ['tidy', '整理专项'], ['learn', '记忆自己长']]);
+  assert.equal(lines[1].took, '5.2 秒');
+  assert.deepEqual(A.SHOWN, ['track', 'tidy', 'learn']);
+});

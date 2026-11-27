@@ -12,20 +12,16 @@ a record of its time) and the questions waiting over a day as one grey line of t
 ``view`` is plain data (app/digest.py collect, tick): ``slot`` and ``since`` (epoch seconds), ``waiting``, ``running`` and
 ``done`` rows as the 看板's (label, title, line, meta, url, card, tone, stuck, seen), ``older`` (results not seen that
 ended before ``since``), ``stale`` rows {topic, label, title, url}, ``pending`` (proposals), ``projects`` (the projects a guard
-paused), ``knowledge`` and ``wanted`` (rows {what, why, would}: 我本来想找你的事), ``dismissable``, ``cleared`` (the labels
+paused), ``knowledge``, ``dismissable``, ``cleared`` (the labels
 taken off from this card), ``web`` (the web page's address: 打开网页 on the last line). A view saved by an older release
 (its link in its label, a ``state`` and ``took`` in place of a line and figures, no ``tone``) is drawn the same way
 (``shaped``). ``asked``: the bot menu's 看板 of an older release (随时查看 in the title).
 
 The evening digest's own parts (app/digest.py ``daily``), each left out when the view has none: ``reached`` (本周找你 N 次：问题 a
 次、停住 b 次, cards/weekly_usage.py reached_line) and ``proxy`` ({sent, unsent}: 今天代答) as two lines after the topics,
-then ``remember`` (你反复说的: rows {id, text, labels, sources (the labels linked), workspace, state, error, carried?,
-source?}): each its rule in bold, where it came from and where it would go, and 「记下」 (REMEMBER_KIND, ``op`` save) and
-「不用」 (drop) while open; once decided, what came of it in grey instead. With 记忆自己长 (COVEY_MEMORY_LEARN=1) a ``carried`` row
-already counts as 它总结的 (its hint says so), and the rows of another ``source`` (what Codex or Claude Code noted on their own,
-app/memory_harvest.py) are a part of their own, ``HARVEST_TITLE``. Then ``memory_tidy`` (整理记忆, app/memory_tidy.py view_of:
-{run, away {idle, done, superseded}, rules [{project, name, entry, text, state}], expired, undone}): how many lines it put
-away and why with 「撤销」 (MEMORY_KIND, ``op`` undo), each new rule with 「确认长期」 (confirm) and 「不对」 (wrong) while open."""
+then ``memory_tidy`` (整理记忆, app/memory_tidy.py view_of: {run, away {idle, done, foreign}, expired, undone}): how many lines it put
+away and why, with 「撤销」 (MEMORY_KIND, ``op`` undo). A view an older release saved (``remember``, ``wanted``, a ``rules`` list in
+``memory_tidy``) is drawn without those parts; ``review`` is the memory's 待审核 line."""
 from __future__ import annotations
 
 from covey.cards import board, ui
@@ -34,7 +30,7 @@ from covey.cards.elements import callback_button, fits, folded_panel, grey, item
 from covey.cards.overview import clock, named
 from covey.cards.weekly_usage import reached_line
 from covey.core import look
-from covey.core.text import cut, literal, safe_text
+from covey.core.text import literal, safe_text
 
 TITLE = "汇总"
 SHOWN = 8
@@ -47,22 +43,10 @@ ICON = "waiting_outlined"
 
 
 ORIGIN = "digest"  # The stale line's button value's ``from`` (app/overview.py claim hands such a click on).
-REMEMBER_KIND = "bridge_digest_remember"  # 「记下」 / 「不用」 on one of 你反复说的: ``id`` of the candidate, ``op`` save or drop.
-REMEMBER_TITLE = "你反复说的"
-REMEMBER_HINT = ("从今天结束的话题里找的、你在不同话题里说过不止一次的话。点「记下」才记进记忆，以后每一轮都带上；"
-                 "不点不生效，开了脱敏的话题不看。")
-REMEMBER_DONE = {"saved": "已记下", "declined": "不用了，以后不再提", "expired": "很久没用，不再带"}
-CARRIED_HINT = ("从今天结束的话题里找的、你在不同话题里说过不止一次的话，已经先照着做（标“它总结的”，你的话和它冲突时以你的为准）。"
-                "点「记下」算你说的；点「不用」就撤下，以后不再提。开了脱敏的话题不看。")
-LEARN_TITLE = "自动学习想记的"
-LEARN_HINT = "从你的话里自动学到、会影响所有话题或整个工作区的规矩，先放在这里，带着你的原话。点「记下」才生效，不点不生效。"
-HARVEST_TITLE = "Codex 和 Claude Code 自己记的"
-HARVEST_HINT = "它们各自记下、只有自己的话题用得上的关于你的偏好。点「记下」才变成所有话题都带的原则，不点不生效。"
-MEMORY_KIND = "bridge_digest_memory"  # 整理记忆's 「撤销」 / 「确认长期」 / 「不对」: ``run``, ``op`` undo, confirm or wrong, ``project``, ``entry``.
+MEMORY_KIND = "bridge_digest_memory"  # 整理记忆's 「撤销」: ``run``, ``op`` undo (an older card's confirm and wrong are retired).
 MEMORY_TITLE = "整理记忆"
-MEMORY_AWAY = {"done": "办完的", "foreign": "别的专项的", "superseded": "被新回答替代的", "idle": "很久没用的"}
-MEMORY_HINT = "只收起不删除：收起的不再每轮带，用查记忆还能查到。新约定先照着做（标“它总结的”），点「确认长期」才算你说的。"
-MEMORY_RULE_DONE = {"confirmed": "已确认，以后算你说的", "dropped": "已撤下"}
+MEMORY_AWAY = {"done": "办完的", "foreign": "别的专项的", "idle": "很久没用的"}
+MEMORY_HINT = "只收起不删除：收起的不再每轮带，用查记忆还能查到。"
 GO_LINE = "在菜单「看板」上点「继续」接着做"  # What a project a guard paused waits for (cards/board.py PROJECT_GO_KIND).
 # How an older release's row said a state and a question (``shaped``).
 STATE_WORDS = frozenset({look.word(key) for key in look.STATES} | {word for words in look.RETIRED.values() for word in words})
@@ -147,7 +131,7 @@ def heading_with(key, count, after=""):
 
 
 def part_heading(title, count):
-    """The heading of a part that lists no topics (你反复说的, 新记的知识, 我本来想找你的事), as a group's is drawn."""
+    """The heading of a part that lists no topics (整理记忆, 新记的知识), as a group's is drawn."""
     return md(f"**{literal(title)}**  {grey(str(count))}", size="normal_v2")
 
 
@@ -193,10 +177,8 @@ def _drawn(view, shown):
     review = review_line(view)
     if review:
         elements.append(md(review, size="notation"))
-    elements += remember_elements(view)
     elements += memory_elements(view)
     elements += knowledge_elements(view)
-    elements += wanted_elements(view)
     if isinstance(view.get("tidy"), dict):  # A view saved when this card had 整理专项 (it is the 看板's alone now).
         elements += board_rows([str(name) for name in view["tidy"].get("projects") or ()])
     last = note(f"只列这个{view.get('where') or '私聊'}里的话题，管家不列")
@@ -233,60 +215,8 @@ def review_line(view, *, plain=False) -> str:
     return f"{line} · {url}" if plain else f"{line} · [去网页处理]({url})"
 
 
-def remember_meta(row, *, plain=False):
-    """Where a candidate came from and where 「记下」 puts it: ``来源：T12、T15 · 记到工作区 covey`` (``plain``: no Markdown, the
-    labels not linked); a row of another source says it: ``来源：Codex 自己记的 · 记到全局``."""
-    labels = [str(label) for label in row.get("labels") or ()]
-    where = f"工作区 {row['workspace']}" if row.get("workspace") else "全局"
-    if plain:
-        sources = "、".join(labels)
-    else:
-        sources, where = row.get("sources") or "、".join(literal(label) for label in labels), literal(where)
-    sources = sources or SOURCE_WORDS.get(str(row.get("source") or ""), "")
-    quote = cut(row["quote"], 60) if row.get("quote") else ""
-    said = f" · 你说过：“{quote if plain else literal(quote)}”" if quote else ""
-    return (f"来源：{sources} · " if sources else "") + f"记到{where}{said}"
-
-
-SOURCE_WORDS = {"codex": "Codex 自己记的", "claude": "Claude Code 自己记的", "learn": "自动学习记的"}  # As app/memory_candidates.py SOURCE_WORDS.
-
-
-def remember_elements(view):
-    rows = view.get("remember") or []
-    mine = [row for row in rows if not row.get("source")]
-    learned = [row for row in rows if row.get("source") == "learn"]
-    theirs = [row for row in rows if row.get("source") and row.get("source") != "learn"]
-    hint = CARRIED_HINT if any(row.get("carried") for row in mine) else REMEMBER_HINT
-    return [*candidate_part(REMEMBER_TITLE, mine, hint), *candidate_part(LEARN_TITLE, learned, LEARN_HINT),
-            *candidate_part(HARVEST_TITLE, theirs, HARVEST_HINT)]
-
-
-def candidate_part(title, rows, hint):
-    if not rows:
-        return []
-    elements = [part_heading(title, len(rows))]
-    for row in rows:
-        elements.append(md(f"**{literal(row.get('text') or '')}**"))
-        meta = remember_meta(row)
-        state = row.get("state") or "open"
-        if state in REMEMBER_DONE:
-            elements.append(note(f"{meta} · {REMEMBER_DONE[state]}"))
-            continue
-        if row.get("error"):
-            meta += f" · ⚠️ 没记下：{literal(row['error'])}"
-        value = {"kind": REMEMBER_KIND, "id": row.get("id") or ""}
-        elements += [note(meta), {"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "8px", "columns": [
-            {"tag": "column", "width": "auto", "elements": [callback_button("记下", {**value, "op": "save"},
-                                                                              style="primary", size="small")]},
-            {"tag": "column", "width": "auto", "elements": [callback_button("不用", {**value, "op": "drop"},
-                                                                              style="text", size="small")]}]}]
-    elements.append(note(hint))
-    return elements
-
-
 def away_line(part) -> str:
-    """整理记忆's count of what it put away: ``收起 14 条：办完的 8 条、别的专项的 2 条、被新回答替代的 3 条、很久没用的 1 条``; ''
-    with none."""
+    """整理记忆's count of what it put away: ``收起 14 条：办完的 8 条、别的专项的 2 条、很久没用的 1 条``; '' with none."""
     away = part.get("away") or {}
     counts = [(MEMORY_AWAY[key], int(away.get(key) or 0)) for key in MEMORY_AWAY]
     total = sum(count for _, count in counts)
@@ -300,30 +230,15 @@ def memory_elements(view):
     part = view.get("memory_tidy")
     if not isinstance(part, dict) or not part:
         return []
-    rules = part.get("rules") or []
-    elements = [part_heading(MEMORY_TITLE, len(rules))]
-    value = {"kind": MEMORY_KIND, "run": part.get("run") or ""}
     away = away_line(part)
+    elements = [part_heading(MEMORY_TITLE, sum(int((part.get("away") or {}).get(key) or 0) for key in MEMORY_AWAY))]
+    value = {"kind": MEMORY_KIND, "run": part.get("run") or ""}
     if away and part.get("undone"):
         elements.append(note(f"{away} · 已撤销，都放回去了"))
     elif away:
         elements.append(item(md(away), callback_button("撤销", {**value, "op": "undo"}, style="text", size="small")))
     if part.get("expired"):
         elements.append(note(f"{int(part['expired'])} 条候选很久没用，不再带"))
-    for rule in rules:
-        elements.append(md(f"**{literal(rule.get('text') or '')}**"))
-        where = f"专项「{literal(rule.get('name') or '')}」" if rule.get("name") else "专项"
-        state = rule.get("state") or "open"
-        if state in MEMORY_RULE_DONE:
-            elements.append(note(f"{where} · {MEMORY_RULE_DONE[state]}"))
-            continue
-        chosen = {**value, "project": rule.get("project") or "", "entry": rule.get("entry") or ""}
-        elements += [note(f"{where} · 新约定，已先照着做（它总结的）"), {"tag": "column_set", "flex_mode": "none",
-                     "horizontal_spacing": "8px", "columns": [
-            {"tag": "column", "width": "auto", "elements": [callback_button("确认长期", {**chosen, "op": "confirm"},
-                                                                              style="primary", size="small")]},
-            {"tag": "column", "width": "auto", "elements": [callback_button("不对", {**chosen, "op": "wrong"},
-                                                                              style="text", size="small")]}]}]
     elements.append(note(MEMORY_HINT))
     return elements
 
@@ -336,9 +251,6 @@ def memory_lines(view):
     lines = [f"**{MEMORY_TITLE}**"]
     if away_line(part):
         lines.append(away_line(part) + ("（已撤销）" if part.get("undone") else ""))
-    lines += [f"- {rule.get('text') or ''}（专项「{rule.get('name') or ''}」"
-              + (f" · {MEMORY_RULE_DONE[rule['state']]}" if rule.get("state") in MEMORY_RULE_DONE else " · 新约定") + "）"
-              for rule in part.get("rules") or ()]
     return lines
 
 
@@ -356,21 +268,6 @@ def knowledge_elements(view):
     more = (view.get("knowledge") or {}).get("more") or 0
     return [part_heading("新记的知识", len(lines) + more), *(md(text) for text in lines),
             *([note(f"另有 {more} 条")] if more else [])]
-
-
-WANTED_TITLE = "我本来想找你的事"
-WANTED_HINT = "这类该找你，或这类不用，在私聊里告诉我一句，我会记下。"
-
-
-def wanted_lines(view):
-    """我本来想找你的事's rows (app/digest.py wanted_view): what · why · would; none when the view has no such part."""
-    return [" · ".join(part for part in (row.get("what"), row.get("why"), f"本来会：{row.get('would')}" if row.get("would") else "") if part)
-            for row in view.get("wanted") or []]
-
-
-def wanted_elements(view):
-    lines = wanted_lines(view)
-    return [part_heading(WANTED_TITLE, len(lines)), *(md(text) for text in lines), note(WANTED_HINT)] if lines else []
 
 
 def folded_board():
@@ -394,19 +291,9 @@ def digest_text(view):
     lines += daily_lines(view)
     if review_line(view, plain=True):
         lines.append(review_line(view, plain=True))
-    rows = view.get("remember") or []
-    if rows:
-        lines.append(f"**{REMEMBER_TITLE}（{len(rows)}）**")
-        lines += [f"- {row.get('text') or ''}（{remember_meta(row, plain=True)}"
-                  + (f" · {REMEMBER_DONE[row['state']]}" if row.get("state") in REMEMBER_DONE else "") + "）" for row in rows]
-        lines.append("在卡片上点「记下」才记进记忆，不点不生效。" if not any(row.get("carried") for row in rows)
-                     else "在卡片上点「记下」算你说的，点「不用」就撤下。")
     lines += memory_lines(view)
     new = knowledge_lines(view)
     if new:
         more = (view.get("knowledge") or {}).get("more") or 0
         lines += [f"**新记的知识（{len(new) + more}）**", *new, *([f"另有 {more} 条"] if more else [])]
-    found = wanted_lines(view)
-    if found:
-        lines += [f"**{WANTED_TITLE}（{len(found)}）**", *found, WANTED_HINT]
     return "\n".join(lines)

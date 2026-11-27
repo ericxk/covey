@@ -229,8 +229,8 @@ class BoardTest(unittest.TestCase):
         self.assertIn("**4**</font> **件事**", text)
 
     def test_a_project_a_guard_paused_asks_for_him_and_one_he_stopped_does_not(self):
-        """P0-3 (T647): 停住了 and why in red, 继续 on its block, counted among 要你处理 and led with when nothing else asks; the
-        owner's own stop is 已停止, background; a folded one 收起."""
+        """P0-3 (T647): 停住了 and why in red, counted among 要你处理 and led with when nothing else asks (its 继续 is on the pause
+        card: the 看板's row buttons are gone); the owner's own stop is 已停止, background; a folded one 收起."""
         view = {"projects": [{"id": "a1b2c3d4e5f6", "name": "迁库", "topics": [], "halted": "token 用完了", "url": "https://x/p"},
                              {"id": "b2c3d4e5f6a7", "name": "周报", "topics": [], "cancelled": True},
                              {"id": "c3d4e5f6a7b8", "name": "旧的", "topics": [], "folded": True}]}
@@ -241,7 +241,7 @@ class BoardTest(unittest.TestCase):
         self.assertIn("<font color='red'>**停住了**</font><font color='grey'> · token 用完了</font>", text)
         self.assertIn("<font color='grey'>**已停止**</font>", text)
         go = [button for button in buttons_of(card) if button.get("kind") == board.PROJECT_GO_KIND]
-        self.assertEqual(go, [{"kind": board.PROJECT_GO_KIND, "project": "a1b2c3d4e5f6"}])
+        self.assertEqual(go, [])
         self.assertEqual([tag["text"]["content"] for tag in card["header"]["text_tag_list"]], ["1 停住了"])
         self.assertIn("旧的", text)
         self.assertIn("收起", text)

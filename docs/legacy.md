@@ -20,16 +20,22 @@
 | 脱敏标签的“新话题默认开”（`redaction/config.json` 的 `default_on`） | 不再读：新话题默认开不开脱敏是设置卡「配置」页“新话题”一段的“脱敏”一行（`main-thread.json` 的 `topic_defaults.redaction`）。启动时的迁移 `redaction-default` 在它开着时把那一行打开一次；值留在 `config.json` 给旧版本。旧卡上点这个开关只说它挪到了哪里 |
 | 脱敏词表里的替身词（`stand_in`） | 替身词一律自动生成：读时忽略旧词表的 `stand_in`，启动时的迁移 `redaction-stand-in` 把旧词表重写一遍；旧版本设的 `"anywhere": true` 照旧生效，不能新设 |
 | 文字命令、斜杠命令 | 以 `/` 开头的消息和以前的命令词（“代答”“本周用量”“管理工作区”“换配置”“停用本群”等）当作普通任务或补充。只有配对口令 `/pair` 还认。应用里残留的原生斜杠命令要在开发者后台删除并发布 |
-| 旧菜单键 `manage_workspaces`、`redaction_dashboard`、`manage_groups`、`main_thread_settings`（`proxy_settings` 现在又是正式的「代答」项） | 照旧能点（`app/bot_menu.py` 的 `KEYS` 和各功能的 `menu_items`）；自动补齐不删它们，也算进 5 项上限 |
+| 旧菜单键 `manage_workspaces`（仓库）、`redaction_dashboard`（脱敏）、`manage_groups`（群聊）（`proxy_settings` 现在又是正式的「代答」项） | 它们的页面在设置卡的页签里；应用菜单里的这三项由「飞书应用待补」的补齐一并去掉（`core/app_manifest.py` 的 `STALE_MENU_KEYS`），客户端缓存的旧菜单点它们，回一句“已移到「设置」卡的「X」页签”（`app/bot_menu.py`）。`main_thread_settings` 照旧能点，打开设置卡的配置页 |
 | 独立的敏感词网页看板（`COVEY_DASHBOARD`、`COVEY_DASHBOARD_URL`，扩展钩子 `dashboard_entry` 和它的 `COVEY_DASHBOARD_ENTRY`） | 不再读这几个变量，清单里留着也照常启动；扩展的 manifest 还写着 `dashboard_entry` 钩子也照常加载（`core/extensions.py` 的 `RETIRED_HOOKS`），核心不再调它。状态目录里的 `redaction/dashboard-token` 和 `redaction/dashboard-entry.json` 不再用，可以删（`app/bot_menu.py` 还从后者读旧链接卡发去的私聊）。旧链接卡和设置卡「脱敏」标签上的“换口令”（`bridge_dashboard_rotate`）点了只说网页看板已经去掉；旧菜单键 `redaction_dashboard` 照旧打开「脱敏」标签 |
 | 两卡式或 schema 3 之前的旧启动卡 | 点了只回“此启动卡已失效，请在主聊天重新发送消息开始任务。”，不改表单和等着的消息 |
 | 管家的“直接开工”设置（`main-thread.json` 的 `start`）和“记住的工作区”（`trusted`），以及设置卡上它们的行和按钮（`bridge_main_start_row`、`bridge_main_start`、`bridge_main_untrust`）、网页设置页的 `start_note`、`trusted` 和 `untrust` 操作 | 管家开的话题一律直接开工（运行方式是独立 worktree 的除外，仍出启动卡），不再读这两个字段：旧文件里有也能读，不报错，设置卡下次保存时不再写回。旧卡上点这三个按钮，设置卡回“直接开工已下线…”并重画，不改设置；网页的 `untrust` 回 failed。管家不再问、也不再记“以后这类直接开工吗” |
 | 以后这类按推荐走（`COVEY_STANDING_ANSWERS`）：问题卡下面的按钮和它那张卡（`bridge_question_standing`、`bridge_standing_save`、`bridge_standing_edit`、`bridge_standing_cancel`） | 不再读这个变量，清单里留着也不报错，`./install` 不再写它。旧卡上点这几个按钮只回一句“已下线”（`app/card_actions.py` 的 `MOVED_CARDS`），不记原则、不回答。以前记下的原则（`source.by` 为 `standing_answer`）照旧生效；`<state>/standing-forms/` 留在盘上，备份照旧跳过，可以手动删 |
 | 任务卡「下载请求与结果」（`COVEY_TURN_EXPORT`） | 整块删掉，不再读这个变量，清单里留着也不报错。已经发出的卡上的旧按钮点了只回一句“📥 下载请求与结果已下线，这次点击没有打包任何东西。”，不崩、不开工；要看一轮的请求和回答，读 Harness 自己的会话文件。Harness 能力 `turn_export` 改名 `session_files`，只给子 Agent 恢复读会话文件用 |
 | 可用性检查里的真实模型调用（`COVEY_HARNESS_PROBE`） | 不再读这个变量。可用性检查只看本机的命令和登录，不再对 Claude、Codex 各做一次真实调用；`core/harness_probe.py` 的探测留给 `./install` 和 `bin/covey_doctor.py` |
-| 小模型判断走模型网关（`COVEY_JUDGE_GATEWAY`） | 不再读这个变量，走网关的那条路径删了。同时做几件事的分流、整理专项、我本来想找你的事、晚间的“你反复说的”、看看现在都经辅助模型，问它选的 Harness 自己的命令行，见[配置 · 辅助模型](configuration.md#辅助模型) |
+| 小模型判断走模型网关（`COVEY_JUDGE_GATEWAY`） | 不再读这个变量，走网关的那条路径删了。同时做几件事的分流、整理专项现在都经辅助模型，问它选的 Harness 自己的命令行，见[配置 · 辅助模型](configuration.md#辅助模型) |
 | 菜单「看板」的开关（`COVEY_BOARD`） | 不再读这个变量，菜单「看板」每个部署都有，早晚汇总关了也有（应用菜单和斜杠命令都一直要这一项） |
 | 专项汇报风格的开关（`COVEY_PROJECT_STYLE_KEEP`） | 不再是开关，也不读这个变量。负责人用 `project_style` 改过的汇报风格总会记进 `<state>/project-style.json`，新开的专项从它开始 |
+| 我本来想找你的事（巡逻，`COVEY_PATROL` 和它的 10 个 `COVEY_PATROL_*` 数值） | 整块删掉：不再读这些变量，服务清单里留着也照常启动、不报错（部署预检 `dropped_config` 不列它们）；要清掉用 `bin/covey_service.py unset --state-dir <状态目录> COVEY_PATROL`。后台线程、小模型判断、汇总里的“我本来想找你的事”一节、维护里清 `patrol/` 的规则都没有了。状态目录里的 `patrol/` 不再读写，也不再被清理，可以手动删 |
+| 同时做几件事里分流的待命进程（`COVEY_TRACK_JUDGE_WARM`、`COVEY_TRACK_JUDGE_HEDGE`） | 不再读这两个变量，清单里留着也照常启动。以前每条管家消息都先起两个 Claude Code、各用一次真实请求热身，只换来每问快约 1 秒；现在每问现起一个一次性进程，`COVEY_TRACK_JUDGE_MS` 的默认从 3000 放到 6000（Claude Code 冷启动一问约 3.4 秒） |
+| 整理专项的实时归并（`COVEY_PROJECT_TIDY_AGE_DAYS`、`COVEY_PROJECT_TIDY_WORDS`，新专项建好后的扫一遍） | 不再读这两个变量。新话题、新专项该收进来的话题都等下一次定时或手动整理；`projects/tidy/state.json` 里旧版本排队的 `queue` 下次读话题要点时清掉，`topics/<话题>.json` 的 `fired`、`judged_*` 不再读；旧版本夜里扣下的提议卡早上照常发 |
+| 「看看」、晚间候选、整理记忆里的模型那一步 | 按钮和功能都在，只是不再调辅助模型：看看回规则那一句和事实，晚间候选只按规则分组进待审核，整理记忆只按规则收起 |
+| 早晚汇总的“你反复说的”“自动学习想记的”“Codex 和 Claude Code 自己记的”三节（`bridge_digest_remember`） | 汇总卡不再列这三节，只留“记忆：待审核 N 条”一行；候选和各 Harness 自己记的偏好都在设置卡「记忆」页签或网页记忆中心的待审核里。已发出的旧卡上点「记下」「不用」只回一句已下线，不记任何东西。晚间候选和整理记忆也不再调模型，旧 `memory-candidates.json`、`memory-tidy.json` 照常能读（里面的 `superseded`、新约定字段忽略） |
+| 整理记忆的“新约定”和它的「确认长期」「不对」按钮（`bridge_digest_memory` 的 `confirm`、`wrong`） | 不再提炼新约定，汇总卡上只剩「撤销」。旧卡上点这两个按钮只回一句已下线，不改记忆；以前已经写进专项的“它总结的”约定留着，在待审核里处理 |
 | 其他已下线卡片的按钮 | 见[已下线的功能](reference.md#已下线的功能) |
 
 ## 不再读取的变量

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from covey.app import answer_cards, revisit_hint, saved_send
+from covey.app import answer_cards, saved_send
 from covey.core import placement
 from covey.app.switch_handoff import topic_controls
 from covey.core.jobs import find_job_record, job_key, quick_held
@@ -97,14 +97,8 @@ class AnswerParts:
         try:
             record = find_job_record(ctx.state_dir, job.message_id) or {}
             snapshot = self.process_snapshot()
-            turn = self.turn
-            hint = revisit_hint.elements(
-                ctx.state_dir, topic_id=ctx.topic_id, chat_id=job.chat_id, job_id=job.job_id,
-                text=getattr(turn.verified_delivery, "text", ""), done=turn.status == "done"
-                and getattr(turn.verified_outcome, "status", "") == "completed",
-                checkpoint_path=str(job.checkpoint_path or ""), snapshot=snapshot)  # Display only: the saved reply stays.
             return saved_send.tail_parts(ctx.state_dir, record, ctx.topic_id, self.artifacts.voice, job,
-                                         self.cards.harness, snapshot, ctx, hint)
+                                         self.cards.harness, snapshot, ctx)
         except Exception as exc:  # noqa: BLE001 - the answer goes all the same
             self.runtime.log(f"answer card tail unavailable: {type(exc).__name__}: {exc}")
             return [], False, None

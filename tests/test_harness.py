@@ -53,7 +53,7 @@ from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
 from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
 from covey.cards.memory_panel import KINDS as MEMORY_PANEL_KINDS
-from covey.cards.digest import MEMORY_KIND, REMEMBER_KIND
+from covey.cards.digest import MEMORY_KIND
 from covey.cards.project_proposal import KINDS as TIDY_KINDS
 from covey.cards.settings_hub import KINDS as SETTINGS_KINDS
 from covey.cards.overview import DISMISS as OVERVIEW_DISMISS, UNDO as OVERVIEW_UNDO
@@ -723,7 +723,8 @@ class RetiredHarnessTests(unittest.TestCase):
         private |= set(extensions.card_kinds())  # An enabled extension's cards (tests/test_extension_cards.py).
         private |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (tests/test_pins.py).
         private |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (tests/test_digest.py).
-        private |= {REMEMBER_KIND, MEMORY_KIND}  # 你反复说的 and 整理记忆 on the evening digest (tests/test_memory_candidates.py, test_memory_tidy.py).
+        private |= {MEMORY_KIND}  # 整理记忆's 撤销 on the evening digest (tests/test_memory_tidy.py).
+        private |= {"bridge_digest_remember"}  # An older evening card's 记下 / 不用 (tests/test_digest.py).
         private |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (tests/test_app_setup.py).
         private |= WEB_LOGIN_KINDS  # 网页登录确认 (tests/test_web_login.py).
         private |= {WELCOME_KIND}  # 发这句 on the welcome card (tests/test_welcome.py).

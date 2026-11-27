@@ -5,7 +5,7 @@ the map has and, with the web page up (core/web_sync.py ``page_url``), the link 
 repositories' names, states and 用途. The map is ``<state>/repos.json`` (core/repomap.py, read without a lock, rule 2). Before it exists
 ``repo_entries`` reads the old workspace list (workspace-config.json) and the butler's 用途 for each (core/butler_settings.py
 ``workspace_notes``) as a read-only view, and writes nothing: the page's first ``repos_*`` change makes the file (app/web_settings.py).
-The bot menu's older 工作区 key (MENU_KEY) opens the 设置 card on this tab (app/settings_hub.py ``open_repos``).
+The bot menu's older 工作区 key is gone from the menu (core/app_manifest.py STALE_MENU_KEYS; app/bot_menu.py answers a cached copy).
 
 The manager card itself is retired: no entry sends it, the launch card's ⚙️ 添加或管理工作区… is gone with the 工作区 row, and a
 click on a card sent before (the manager's own buttons, or that option of a launch card) gets RETIRED_TEXT as a message and changes
@@ -28,7 +28,6 @@ from covey.core import statuses
 from covey.core.workspaces import config_path, directory_status
 
 MANAGING = statuses.MANAGING  # A launch card that became the manager: cards sent before still name it.
-MENU_KEY = 'manage_workspaces'  # The bot menu's older 工作区 key: the 设置 card on the 仓库 tab now.
 LOCK = 'workspace-manager'
 RETIRED_TEXT = '这个选项已下线：新话题一律从主目录开始，仓库在网页设置的「仓库」页管。'
 OWNER_ONLY = '⚠️ 只有机器人主人能改设置。'

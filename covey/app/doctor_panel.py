@@ -6,6 +6,9 @@ the hosting's own status command among them) and kept in the record as ``doctor`
 output). The card shows that report and when it was read; another click on 诊断 folds the card, the next reads anew. The
 owner's only, as every tab (a member's click is refused on the card). No buttons: nothing is changed and no model is called
 (the Harness lines are the last probe's, as covey_doctor.py prints them without --probe-harnesses).
+
+Under the report is the 能做什么 part (``about``, app/about_panel.py AboutPanel; the 能做什么 tab is retired into this one,
+cards/settings_hub.py RETIRED): what this deployment can do and what it lacks, read at each draw.
 """
 from __future__ import annotations
 
@@ -66,9 +69,11 @@ def diagnose():
 
 
 class DoctorPanel:
-    def __init__(self, runtime, messenger, voice, *, report=diagnose, clock=time.time):
-        """``report()``: service/doctor.py's diagnose (tests replace it)."""
+    def __init__(self, runtime, messenger, voice, *, report=diagnose, clock=time.time, about=None):
+        """``report()``: service/doctor.py's diagnose (tests replace it); ``about``: the AboutPanel whose part is drawn
+        under the report (none: the report alone)."""
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
+        self.about = about
         self.report, self.clock = report, clock
         self.menu = MenuPanel(self, 'doctor-panel', 'doctor-cards', 'doctor-card', tab=DOCTOR)
 
@@ -91,14 +96,14 @@ class DoctorPanel:
         return {'doctor': data}
 
     def tab_card(self, ctx, token, record):
-        return self.draw(token, record['view'], record)
+        return self.draw(token, record['view'], record, ctx)
 
     def tab_shown(self, ctx, token):
         self.runtime.log(f'doctor tab shown token={token[:8]}')
 
     def refuse(self, ctx, path, event):
-        return self.menu.refuse(ctx, path, event, OWNER_ONLY, lambda view, record: self.draw(path.stem, view, record))
+        return self.menu.refuse(ctx, path, event, OWNER_ONLY, lambda view, record: self.draw(path.stem, view, record, ctx))
 
-    @staticmethod
-    def draw(token, view, record):
-        return doctor_card(token, view, record.get('doctor') or {}, top=hub_top(DOCTOR, token, view))
+    def draw(self, token, view, record, ctx):
+        below = self.about.elements(ctx) if self.about is not None else []
+        return doctor_card(token, view, record.get('doctor') or {}, top=hub_top(DOCTOR, token, view), below=below)

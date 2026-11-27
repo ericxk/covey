@@ -239,17 +239,10 @@ class ProposalCards:
         if not new or saved.get("state") != proposals.OPEN or (saved.get("card") or {}).get("message_id"):
             return ""
         self.gists(ctx, chat, saved.get("topics") or ())
-        now = time.time()
-        if not made.get("run") and quiet_hours.quiet(now):
-            # The real-time look's, at night (core/quiet_hours.py): its card waits for the morning (``release``); the 看板
-            # lists it meanwhile (core/project_proposals.py waiting). One a 整理 the owner set or asked for goes now.
-            proposals.update_proposal(state, saved["id"], lambda data: data.update(held=now))
-            self.runtime.log(f"project tidy proposal held {quiet_hours.words(now)} proposal={saved['id'][:8]}")
-            return "held"
         return "proposed" if self.send_proposal(ctx, chat, saved) else ""
 
     def release(self, ctx, chat, now) -> int:
-        """The proposal cards held for the morning (``propose``), sent once the quiet hours are over, each tried once as
+        """The proposal cards an older release held for the morning (the real-time 整理's at night), sent once the quiet hours are over, each tried once as
         any proposal card is; how many went. Decided or merged into another meanwhile: as the record says now."""
         if quiet_hours.quiet(now):
             return 0

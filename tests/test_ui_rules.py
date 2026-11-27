@@ -421,9 +421,31 @@ class AssistSectionTest(unittest.TestCase):
         self.assertTrue(any(value.get("kind") == SECTION and value.get("open") == "assist" for value in closed))
 
 
+class MoreFoldTest(unittest.TestCase):
+    """U15: the rows nobody changes are in their open section's 更多 at its end, closed unless the click was in it; 脱敏 on
+    and 每条直接开一个话题 stay in sight."""
+
+    def test_closed_open_and_in_sight(self):
+        from covey.cards.butler_panel import FOLDED, MODE, PROVIDER, REDACTION
+
+        def mores(card):
+            return [node for node in walk(card) if node.get("tag") == "collapsible_panel"
+                    and str(node.get("element_id", "")).startswith("more_")]
+        closed, = mores(CARDS["settings.config_butler"])
+        opened, = mores(CARDS["settings.config_butler_more"])
+        self.assertEqual((closed["expanded"], opened["expanded"]), (False, True))
+        self.assertTrue(closed["header"]["title"]["content"].startswith("更多："))
+        inside = {node["value"]["kind"] for node in walk(opened) if isinstance(node.get("value"), dict)}
+        self.assertTrue({PROVIDER, REDACTION, MODE} <= inside)
+        self.assertEqual(len(FOLDED), 10)
+        # 纯话题: the mode is no usual choice and is the section's one row, in sight, no 更多.
+        self.assertEqual(mores(CARDS["settings.config_topics"]), [])
+
+
 # The rules of this module, by their number in docs/ui.md 13.
 RULES = {"U1": "BandTest", "U2": "HeaderTest", "U3": "SpeakerRowTest", "U4": "QuestionButtonsTest", "U5": "ModelChoiceTest",
-         "U6": "ButtonWordsTest", "U11": "BoardBandTest", "U13": "TidyFailedTest", "U14": "AssistSectionTest"}
+         "U6": "ButtonWordsTest", "U11": "BoardBandTest", "U13": "TidyFailedTest", "U14": "AssistSectionTest",
+         "U15": "MoreFoldTest"}
 
 
 def decisions() -> list:

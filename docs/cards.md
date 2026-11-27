@@ -192,8 +192,8 @@
 | 设置卡「脱敏」标签 | `bridge_redaction_*`（带 `token`、`revision`；`_page`、`_edit` 和 `_term` 的 `op: edit` 是标签改版前的旧按钮，点了整卡按新布局重画并说“这个按钮已更新”） | `RedactionPanel.click`：`redaction_tab`；同一事件再投递 `duplicate`。改词表在卡锁之外（`edit_terms`、`put_back`、`update_config`；`_add` 和 `_remove` 是同一个填词表单的两个提交按钮），在卡锁里记下结果就回执，整卡重画在回执之后（`after_ack`，连点只画最后一次）；「探测」在自己的后台线程里，跑完再画 |
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |
 | 设置卡「记忆」标签（`COVEY_MEMORY` 没关） | `bridge_memory_open`（带 `scope`：`review` 或 `rules`、`page`：翻页）、`bridge_memory_pin`（现在是待审核的“采纳”：`key` 是 `review:…`、`op` 是 `accept`；沿用原 kind，不新增）、`bridge_memory_delete`（待审核的“不要”：`op` 是 `reject`；没网页时规矩的“收起”：`key` 是条目、`op` 是 `ask`、`confirm`、`cancel`）；`bridge_memory_workspace`、`bridge_memory_to_global` 和带 `on` 的 `bridge_memory_pin` 只接旧卡片的点击，回“这个选项已下线”、不改任何东西；都带 `token`、`revision` | `MemoryPanel.click`：`memory_tab`；同一事件再投递 `duplicate`。采纳、不要走 `web_memory.review_decide`，收起走 `memstore.archive`，都在卡锁之外，整卡重画在应答之后（`after_ack`） |
-| 早晚汇总的“你反复说的” | `bridge_digest_remember`（带 `id`、`op`：`save` 或 `drop`） | `Digest.claim`：`digest_remember`，值不对 `digest_remember_ignored`；应答后定下这一条（`memory_candidates.decide`），再照汇总卡保存的样子 `patch_card` 重画 |
-| 晚间汇总的“整理记忆”（`COVEY_MEMORY_LEARN=1`） | `bridge_digest_memory`（带 `run`、`op`：`undo`、`confirm` 或 `wrong`；后两个另带 `project`、`entry`） | `Digest.claim`：`digest_memory`，值不对 `digest_memory_ignored`；只认主人。应答后定下（`memory_tidy.MemoryTidy.decide`：撤销这次收起、确认一条约定、撤下一条约定），再照汇总卡保存的样子 `patch_card` 重画 |
+| 早晚汇总的“你反复说的”（已下线） | `bridge_digest_remember`（带 `id`、`op`） | `ACTIONS` 里是 `handler=RETIRED`：点旧卡只回一句“已下线，候选都在设置卡「记忆」页签或网页记忆中心的待审核里”，不记任何东西 |
+| 晚间汇总的“整理记忆”（`COVEY_MEMORY_LEARN=1`） | `bridge_digest_memory`（带 `run`、`op`：只有 `undo`；旧卡上的 `confirm`、`wrong` 另带 `project`、`entry`） | `Digest.claim`：`digest_memory`，值不对 `digest_memory_ignored`，旧的 `confirm`、`wrong` 回一句已下线、不改记忆（`digest_memory_retired`）；只认主人。`undo` 应答后撤销这次收起（`memory_tidy.MemoryTidy.decide`），再照汇总卡保存的样子 `patch_card` 重画 |
 | 手上的事 | `bridge_overview_dismiss`（带 `topics`） | `Overview.claim`：只改看板记录，应答后由 `tick` 整卡重画 |
 | 不管了留下的那行灰字（手上的事、看板、早晚汇总）的「撤销」 | `bridge_overview_undismiss`（带 `taken`：{话题: 撤下时的 `at`}，早晚汇总和看板上还带 `from`） | `Overview.claim` → `Overview.undo`：只认主人；`undismiss` 把记录里 `at` 还对得上的话题放回（撤下之后又撤了一次的、问题已答或已收的，什么都不动）；应答后 `tick` 整卡重画，来源卡（`unhanded`：看板整卡按新读数重画，早晚汇总按保存的样子重画）也跟着画 |
 | 答完的问题卡下的「去看板」 | `bridge_board_open` | `Digest.claim`：只认主人；有看板、点的是本聊天的卡时（`board_open`），应答后（`after_ack`）发一张新的看板卡（同菜单的「看板」，点击的 `event_id` 作键）；否则 `board_open_ignored` |
@@ -232,12 +232,16 @@
 | `bridge_fork` | 💬 侧聊、🔀 分叉 | 要从这个话题分出新话题，在私聊里跟管家说 |
 | `bridge_compact` | 📦 压缩上下文 | 会话快到模型窗口时，Claude Code 会自己压缩 |
 | `bridge_turn_export` | 📥 下载请求与结果 | 下载请求与结果已下线，这次点击没有打包任何东西 |
+| `bridge_revisit_hint` | 答案卡下的「让 Covey 30 分钟后回看」 | 已下线，没有设回看：想让它过一会儿回来看，在这个话题里直接跟 Covey 说（检查点里的 `revisit` 不动） |
+| `bridge_project_triage_wrong`、`bridge_project_triage_fix` | 专项卡“分流记录”里的「不对」和它的表单「提交纠正」 | 已下线，没有改任何东西：要纠正负责人替你答的，到那个专项话题里直接说 |
+
+看板上的四个小按钮不走这条（看板的卡不属于任何话题，它们在 `ACTIONS` 里没有 `handler`，和看板的别的 kind 一样）：`bridge_board_seen`（记为看过）、`bridge_board_revisit_cancel`（取消到点回来看）、`bridge_board_project_go`（继续专项）、`bridge_board_recover`（检查并继续）仍由 `Digest.claim` 认领（`cards/board.py` 的 `RETIRED_KINDS`），只认主人，应答后（`after_ack`）回 `RETIRED_TEXT` 里的一句并按新样子重画看板，什么都不做（`board_retired`）：看过点进话题即可，取消到点回来看和检查并继续到话题或任务卡上做，专项的「继续」在专项卡上。
 
 设置卡的 `bridge_main_start`、`bridge_main_start_row`、`bridge_main_untrust`（直接开工、记住的工作区）不走这条：它们仍由设置卡认领（`app/butler_panel.py`，`RETIRED_KINDS`），回一句“直接开工已下线”并重画，不改设置。
 
 ### 设置卡配置页的格子版式
 
-配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式、脱敏；管家 Harness、供应商、模型、思考预算 / 工作区、脱敏、压缩阈值、私聊顶层的消息；独立复核四项；专项负责人四项；更多是子 Agent。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
+配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式、脱敏；管家 Harness、供应商、模型、思考预算 / 工作区、脱敏、压缩阈值、私聊顶层的消息；独立复核四项；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
 
 - 每项还是原来的折叠行 `setting_row`（`cell=True`：灰色标签后面跟当前值，同一行，格子只有一行高），点开列选项，点一个选项照旧记下并整卡重画，现在是一个带细边框（`TILE_BORDER`，灰色、圆角 8px）的格子，下拉箭头都在格子右缘；去掉了原来整块灰底。不用下拉框（`select`）的原因不变：iOS 飞书的 select 是全屏选择器，取消按钮在状态栏下面（见 `cards/launch_config.py` 的模块说明）。
 - 两格一行，`column_set` 的 `flex_mode` 取 `LINE_FLEX`（`stretch`），两个等宽（`weighted`）的 `column`：卡片宽时左右并排，窄（话题侧栏约 250–300px，手机）时自动上下叠成单列，所以不会把“Claude 自带”折成“Claude 自 / 带”。选的值很长的项（显示宽度超过 `WIDE`，如工作区、子 Agent）单独一行占满；落单的一项占半行（另一半放空的 `column`），格子不错位。`bisect`（任何宽度都两列，窄屏会断词）和 `flow` + `auto`（宽度参差）都试过，不用。

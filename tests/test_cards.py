@@ -1160,16 +1160,16 @@ class CardActionTableTest(unittest.TestCase):
     def test_job_starting_kinds_stay_with_the_bot(self):
         # bridge_question_skip: the Bridge hands the answer on to a runner that waits for it (forward_answer).
         # bridge_fork, bridge_compact: retired buttons on older cards, answered here (app/task_controls.py retired_action).
-        # bridge_project_triage_fix: the owner's correction of the lead's answer queues a message in a member topic (COVEY_PROJECT_TRIAGE).
+        # bridge_project_triage_wrong, _fix, bridge_revisit_hint, bridge_board_seen, _revisit_cancel, _project_go, _recover: retired
+        # buttons (T898), answered here and never forwarded to a task runner, which an older release might still run them in.
         # bridge_job_look: 看看 looks at the task runner from outside (app/stuck_check.py), which may be the stuck one.
         # bridge_review_open: 独立复核 opens a topic of its own and queues its first turn (app/review.py).
         # bridge_question_ask: 先问一句 queues the topic's turn or a supplement of its running task (app/questions.py).
-        # bridge_board_project_go: the 看板's 继续 starts a project a guard paused again, which wakes its lead (app/digest.py).
-        # bridge_board_recover: the 看板's 检查并继续 on a stopped row, the task card's retry (app/digest.py Digest.recover).
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
                                     "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_question_ask",
                                     "bridge_turn_export",
-                                    "bridge_project_triage_fix", "bridge_project_ask_continue", "bridge_project_ask_finish",
+                                    "bridge_project_triage_fix", "bridge_project_triage_wrong", "bridge_revisit_hint",
+                                    "bridge_board_seen", "bridge_board_revisit_cancel", "bridge_project_ask_continue", "bridge_project_ask_finish",
                                     "bridge_job_look", "bridge_job_diagnose", "bridge_job_split", "bridge_job_report",
                                     "bridge_welcome_try", "bridge_review_open", "bridge_board_project_go",
                                     "bridge_board_recover"})  # 看看 reads a stuck task; 查原因 and 拆小再试 queue a turn; 复制诊断 reads an ended one. Triage: the correction queues a message in a member topic; the pause card's two wake the lead. The welcome card's example is the owner's message.

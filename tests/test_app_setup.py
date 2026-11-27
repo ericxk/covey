@@ -109,11 +109,35 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(ids(manifest.offered(lacking, full, review=True)), ["scope:im:message.group_msg"])
 
     def test_menu_items_past_five_are_not_offered(self):
-        online = {**FULL, "menu_keys": ["a", "b", "c", "manage_workspaces"], "menu_enable": True}
+        online = {**FULL, "menu_keys": ["a", "b", "c", "d"], "menu_enable": True}
         with mock.patch.object(manifest, "proxy_sender", return_value=False):
             lacking, full = manifest.missing(SWITCHES, online, bottom_menu=True)
         self.assertEqual(ids(full), ["menu:digest_board", "menu:bridge_settings"])
         self.assertEqual(ids(manifest.offered(lacking, full)), ["menu:weekly_usage"])
+
+    def test_the_older_menu_items_are_lacking_until_taken_off_and_free_their_room(self):
+        # T898: 仓库, 脱敏 and 群聊 moved onto 设置 tabs; each still on the app's menu is a ``menu_remove`` need (the menu sync
+        # drops it), and while it is on it counts against the limit no more than the room it gives back.
+        online = {**FULL, "menu_keys": ["a", "manage_workspaces", "redaction_dashboard", "manage_groups", "main_thread_settings"],
+                  "menu_enable": True}
+        with mock.patch.object(manifest, "proxy_sender", return_value=False):
+            lacking, full = manifest.missing(SWITCHES, online, bottom_menu=True)
+        self.assertEqual(ids([n for n in lacking if n.kind == "menu_remove"]),
+                         ["menu_remove:manage_workspaces", "menu_remove:redaction_dashboard", "menu_remove:manage_groups"])
+        self.assertEqual(ids(full), [])  # Five on, three of them to go: the room for the three new ones is there.
+        full_menu = {**online, "menu_keys": ["a", "b", "manage_workspaces", "redaction_dashboard", "manage_groups"]}
+        with mock.patch.object(manifest, "proxy_sender", return_value=True):
+            lacking_full, full_now = manifest.missing(SWITCHES, full_menu, bottom_menu=True)
+        self.assertEqual(ids(full_now), ["menu:bridge_settings"])  # Four to add, room for three (the five on, minus the three to go).
+        self.assertNotIn("menu_remove:main_thread_settings", ids(lacking))  # The butler's 配置 key stays.
+        # Taken off: nothing lacking of that kind.
+        clean = {**online, "menu_keys": ["a", "main_thread_settings"]}
+        self.assertFalse([n for n in manifest.missing(SWITCHES, clean)[0] if n.kind == "menu_remove"])
+        needs = [n for n in lacking if n.kind == "menu_remove"]
+        plan = manifest.plan(needs, remark=manifest.remark(needs))
+        self.assertEqual(plan["menu_remove"], ["manage_workspaces", "redaction_dashboard", "manage_groups"])
+        self.assertIn("去掉菜单旧项 仓库、脱敏、群聊", plan["remark"])
+        self.assertEqual(cards.groups([{"kind": n.kind, "name": n.name, "words": n.words} for n in needs])[0][0], "菜单")
 
     def test_plan_and_remark(self):
         needs = [n for n in manifest.required(SWITCHES, bottom_menu=True)
@@ -212,6 +236,18 @@ class ConsoleTests(unittest.TestCase):
         self.assertNotEqual(app_console.menu_shape(want), app_console.menu_shape(after))
         self.assertEqual(app_console.menu_shape(want), app_console.menu_shape({**want, "botMenuConfig": [
             {**item, "botMenuID": "real"} for item in items]}))
+
+    def test_the_menu_sync_drops_the_stale_items_and_keeps_the_rest(self):
+        before = {"botMenuEnable": True, "botMenuDisplayStrategy": 3, "maxFloatingMenuCount": 5, "botMenuConfig": [
+            {"botMenuID": "1", "eventKey": "weekly_usage", "i18nBotMenuName": {"zh_cn": "用量"}, "menuContentType": 2},
+            {"botMenuID": "2", "eventKey": "manage_workspaces", "i18nBotMenuName": {"zh_cn": "仓库"}, "menuContentType": 2},
+            {"botMenuID": "3", "eventKey": "redaction_dashboard", "i18nBotMenuName": {"zh_cn": "脱敏"}, "menuContentType": 2},
+            {"botMenuID": "4", "eventKey": "manage_groups", "i18nBotMenuName": {"zh_cn": "群聊"}, "menuContentType": 2},
+            {"botMenuID": "5", "eventKey": "bridge_settings", "i18nBotMenuName": {"zh_cn": "设置"}, "menuContentType": 2}]}
+        plan = {"menu": [{"key": "digest_board", "label": "看板", "icon": "i"}],
+                "menu_remove": ["manage_workspaces", "redaction_dashboard", "manage_groups"], "menu_enable": True}
+        want = app_console.desired_menu(before, before, plan)
+        self.assertEqual([i["eventKey"] for i in want["botMenuConfig"]], ["weekly_usage", "bridge_settings", "digest_board"])
 
     def test_menu_off_turns_on_floating(self):
         want = app_console.desired_menu({"botMenuEnable": False, "botMenuConfig": []}, {}, {

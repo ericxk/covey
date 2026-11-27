@@ -14,7 +14,7 @@ question goes to the project's lead before the owner, and the owner sees it only
   or the lead says so (project_escalate).
 - The lead answers with ``answer`` (project_answer): the question's own submit path (app/questions.py ``submit_answer``) with its
   note saying the lead answered, so the topic goes on as if the owner had clicked. Every answer and hand-back is a row of the
-  project's ``triage`` list (the 专项卡's 分流记录); an answer's row has the 不对 button (``correct``).
+  project's ``triage`` list (the 专项卡's 分流记录); an answer's row had a 不对 button once (retired, T898: the owner says it in the member topic).
 - With 协作 on (COVEY_COLLAB=1), or whenever the lead names them, an answer stands on grounds the Bridge checks (``grounds``,
   docs/projects.md 分流的依据; by id or short code, the decisions of decisions.jsonl too): entries of the project's memory that the owner said and that still hold, or the owner's own
   messages in the project; the lead's notes (待核对参考) never alone, a line voided, done, superseded or only for that once
@@ -622,58 +622,9 @@ def answer(env, app, ctx, chat, project, answers, event_id, found=()) -> dict:
     return {"label": label, "status": saved.get("status"), "line": line}
 
 
-# The owner's 不对.
-
-ENV = None  # app/butler_env.py ButlerEnv, set by ProjectLoop: what a click on the 专项卡 needs to reach another topic.
-FIX_PREFIX = "triage-fix-"  # The message id of a correction in a member topic (not a wake-up's: core/projects.py is_wake).
+ENV = None  # app/butler_env.py ButlerEnv, set by ProjectLoop: non-None once the project loop is wired (app/interaction.py reads it).
 
 
 def attach(env) -> None:
     global ENV
     ENV = env
-
-
-def correct(project, token, text) -> str:
-    """The owner's correction ``text`` of the answer the lead gave to the question ``token``: queued as a message in the member
-    topic (they said it, as 补充), put in the project's decision log (the lead reads the last ten every turn), and marked on the
-    row. The line said to the owner. ValueError for a row that is not one of this project's answers or was corrected already."""
-    env = ENV
-    if env is None:
-        raise ValueError("现在不能纠正：Bridge 还没准备好")
-    state, pid = Path(env.state_dir), project["id"]
-    row = next((r for r in project.get("triage") or () if isinstance(r, dict) and r.get("token") == token and r.get("kind") == "answered"), None)
-    if row is None or row.get("corrected"):
-        raise ValueError("这一条已经纠正过，或已经不在分流记录里了")
-    topic, chat = str(row.get("topic") or ""), str(project.get("chat_id") or "")
-    found = env.topics.target(state, topic, chat)
-    if found is None:
-        raise ValueError("这个话题现在不能收消息，纠正没有发出")
-    app, ctx, _ = found
-    message = FIX_PREFIX + str(token)[:16]  # One per question: a second click finds the row corrected.
-    sent = f"（主人纠正负责人替答的那一条：{row.get('text')}）{text}"
-    from covey.core.history_storage import append_history
-    from covey.core.topics import remember_topic_message
-    remember_topic_message(state, topic, chat, message)
-    where = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
-    if where.topic_id != topic:
-        raise ValueError("这个话题现在不能收消息，纠正没有发出")
-    append_history(where.history_path, "user", sent, {"message_id": message})
-    queued = app.submission.enqueue_chat_job(where, sent, chat, message, prompt_content=sent)
-    decision = project_lead.entry(f"主人纠正了分流：{cut(str(row.get('text')), 120)} → {cut(text, 120)}", kind="note")
-
-    def change(data):
-        for each in data.get("triage") or ():
-            if isinstance(each, dict) and each.get("token") == token and each.get("kind") == "answered":
-                each["corrected"] = True
-        rows = data.get("decisions") if isinstance(data.get("decisions"), list) else []
-        rows.append({**decision, "report": False})
-        data["decisions"] = rows[-project_lead.DECISIONS_KEPT:]
-    projects.update(state, pid, change)
-    if projects.memory_enabled():  # COVEY_PROJECT_MEMORY=1: the owner's word over the lead's answer is a decision of the project too (member topics start with it).
-        try:
-            project_memory.add(state, pid, f"主人纠正了负责人替答的：{cut(str(row.get('text')), 200)} → {text}", "decision", "owner_fix",
-                               origin={"question": str(token), "topic": topic})
-        except Exception as exc:  # noqa: BLE001 - the correction is sent and in the decision log whether or not the memory took it
-            env.runtime.log(f"project memory of a correction failed: {type(exc).__name__}")
-    return "已记下：这句话发给了那个话题" + ("" if queued is not None else "（话题现在排不上，没有发出，但已记进决定日志）") + "，也记进专项的决定日志，负责人之后照做。"
-

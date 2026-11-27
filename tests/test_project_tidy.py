@@ -1,7 +1,7 @@
 """整理专项 (app/project_tidy.py, app/project_sorter.py, core/project_proposals.py, core/topic_gist.py; docs/projects.md 整理专项): a
-topic's 话题要点 kept from its checkpoint, the moments of a real-time 整理 (its essence changed: a topic that began as A and became
-B), a sure join done and its 移出 keeping the topic out for good, the proposal card's buttons, the 整理专项 card with a topic the
-model will not read left out alone, and with the switch off nothing of it."""
+topic's 话题要点 kept from its checkpoint, a sure join done by a 整理 and its 移出 keeping the topic out for good, the proposal
+card's buttons, the 整理专项 card with a topic the model will not read left out alone, and with the switch off nothing of it.
+There is no real-time 整理: the model judges only in a whole one (scheduled or asked for)."""
 from __future__ import annotations
 
 import datetime
@@ -21,7 +21,7 @@ from covey.app import project_sorter as sorter
 from covey.app import tidy_facts as facts, tidy_run, topic_links
 from covey.app import butler_projects, project_members as members, projects as upgrades
 from covey.app.project_tidy import ProjectTidy
-from covey.app.track_standby import Failed
+from covey.app.track_judge import Failed
 from covey.app.web_ops import Ops
 from covey.cards import project_proposal as cards
 from covey.app import digest, project_lead
@@ -140,20 +140,29 @@ class TidyCase(UpCase):
 
 
 class GistTest(TidyCase):
-    def test_a_turns_topic_gist_is_kept_and_an_essence_that_changed_calls_for_a_realtime_tidy(self):
+    def test_a_turns_topic_gist_is_kept_and_a_turn_without_one_keeps_the_last(self):
         topic = self.topic(A, words=("先修一下 064 数据包",), gist={"essence": A})
         self.tidy.tick(self.ctx)  # The first look only sets the cursor: the turn before it is not read.
         self.assertEqual(topic_gist.read(self.state, topic), {})
         self.turn(topic, "这数据包的问题其实在 Prompt", gist={"本质": A, "现在的目标": "复现"})
-        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [(topic, "turn")])  # The first essence is no change.
+        self.assertGreaterEqual(self.tidy.scan(self.state, CHAT, time.time()), 1)
         self.assertEqual(topic_gist.read(self.state, topic)["essence"], A)
         self.turn(topic, "那就改 Prompt 吧", gist="本质：" + B + "\n和上次比变了什么：从修一个数据包变成改 Prompt")
-        fired = self.tidy.scan(self.state, CHAT, time.time())
-        self.assertIn((topic, "essence"), fired)
+        self.assertGreaterEqual(self.tidy.scan(self.state, CHAT, time.time()), 1)
         saved = topic_gist.read(self.state, topic)
         self.assertEqual((saved["essence"], [item["text"] for item in saved["essences"]]), (B, [A, B]))
-        self.turn(topic, "接着改", gist={"essence": B + "（064 是第一个例子）"})
-        self.assertNotIn((topic, "essence"), self.tidy.scan(self.state, CHAT, time.time()))  # Reworded, not changed.
+        self.turn(topic, "接着说")  # No topic_gist in its checkpoint: the last one stays.
+        self.assertGreaterEqual(self.tidy.scan(self.state, CHAT, time.time()), 1)
+        self.assertEqual(topic_gist.read(self.state, topic), saved)
+        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), 0)  # Each turn is read once.
+        self.assertEqual(self.asked, [])  # Reading a turn never asks the model.
+
+    def test_a_queue_an_older_release_left_in_the_state_is_dropped(self):
+        self.tidy.tick(self.ctx)
+        proposals.change(self.state, lambda data: data.update(queue=[{"project": "p" * 16, "at": 1}]))
+        self.assertIn("queue", proposals.load(self.state))
+        self.tidy.scan(self.state, CHAT, time.time())
+        self.assertNotIn("queue", proposals.load(self.state))
 
     def test_the_judge_reads_the_repositories_a_topic_lists_and_no_workspace_for_a_home_topic(self):
         plain = self.topic("旧话题")
@@ -185,36 +194,9 @@ class GistTest(TidyCase):
         kept = topic_gist.read(self.state, topic)
         self.assertEqual((kept["essence"], kept["goal"], kept["source"]), (A, "复现", "turn"))
         self.turn(topic, "那个日志在哪")  # A follow-up: no topic_gist in its checkpoint.
-        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [(topic, "turn")])
+        self.assertGreaterEqual(self.tidy.scan(self.state, CHAT, time.time()), 1)
         self.assertEqual(topic_gist.read(self.state, topic), kept)
         self.assertFalse(sorter.needs_gist(self.state, topic, "om_x"))
-
-    def test_the_changed_essence_is_judged_for_that_topic_and_nothing_with_fewer_than_five_topics(self):
-        topic = self.topic(A, gist={"essence": A})
-        self.tidy.tick(self.ctx)
-        self.turn(topic, "改 Prompt", gist={"essence": B})
-        self.tidy.tick(self.ctx)
-        self.assertEqual(self.judged(), [])  # Two topics in the chat: too few.
-        self.filler()
-        self.tidy.shared.counted = (0.0, 0)
-        self.turn(topic, "再改", gist={"essence": A})
-        self.tidy.tick(self.ctx)
-        focus = self.judged()[-1]
-        self.assertEqual(focus["topics"][focus["focus"] - 1]["gist"]["essence"], A)
-
-    def test_a_new_topic_its_third_day_and_its_fifteenth_word_each_call_once(self):
-        self.tidy.tick(self.ctx)
-        fresh = self.topic("新开的话题")
-        old = self.topic("老话题", days_ago=4)
-        talky = self.topic("聊得多的话题", words=[f"第 {n} 句" for n in range(15)], days_ago=4)
-        reasons = {}
-        for topic, why in self.tidy.scan(self.state, CHAT, time.time()):
-            reasons.setdefault(topic, set()).add(why)
-        self.assertEqual(reasons[fresh], {"new", "turn"})
-        self.assertEqual(reasons[old], {"age", "turn"})
-        self.assertEqual(reasons[talky], {"age", "words", "turn"})
-        self.turn(old, "又来一轮")
-        self.assertEqual(self.tidy.scan(self.state, CHAT, time.time()), [(old, "turn")])  # Each turn the owner started.
 
     def test_the_turns_message_carries_the_rule_and_the_current_gist_only_with_the_switch_on(self):
         from covey.app.runs import Runs
@@ -233,23 +215,28 @@ class GistTest(TidyCase):
 
 
 class JoinTest(TidyCase):
+    def whole(self, run):
+        return self.tidy.runs.whole(self.ctx, CHAT, run, "test", "")
+
     def test_a_sure_join_makes_the_topic_the_projects_tells_the_lead_and_marks_it_and_after_leave_never_again(self):
         member = self.topic("DataLab Prompt 第一轮")
         pid = self.project("DataLab Prompt 优化", [member])
         self.filler()
         topic = self.topic(A, gist={"essence": B})
+        self.see(lambda: [topic])
         write_json(self.state / "topics" / topic / "topic.json",
                    {**read_object(self.state / "topics" / topic / "topic.json"), "root_id": "om_root"}, ensure_ascii=False)
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.95}]})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "essence", time.time()), "joined")
+        view = self.whole("run-j1")["view"]
+        self.assertTrue(any("已把" in line and "「DataLab Prompt 优化」" in line for line in view["did"]))
         self.assertEqual(projects.topic_project(self.state, topic).id, pid)
         self.assertIn(topic, projects.read_record(self.state, pid)["threads"])
         self.assertEqual(projects.cells(self.state, CHAT)[topic], projects.lead_topic_id(CHAT, pid))
         receipts = [read_object(path) for path in project_lead.inbox_dir(self.state, pid).glob("*.json")]
         self.assertEqual([item["kind"] for item in receipts], [members.JOINED])
+        self.assertEqual(projects.read_record(self.state, pid)["joins"][-1]["by"], "tidy")
         # Neither a topic card nor a status card: the line goes into the topic's thread as a card of its own.
-        sent = self.app.messenger.send_message.call_args
-        self.assertEqual(sent.kwargs["reply_to_message_id"], "om_root")
+        sent = next(call for call in self.app.messenger.send_message.call_args_list if call.kwargs.get("reply_to_message_id") == "om_root")
         self.assertIn("已归进专项「DataLab Prompt 优化」", text(sent.kwargs["card"]))
         self.assertIn(cards.LEAVE_KIND, text(sent.kwargs["card"]))
         self.click({"kind": cards.LEAVE_KIND, "topic_id": topic, "project_id": pid}, "om_topic_card")
@@ -258,8 +245,9 @@ class JoinTest(TidyCase):
         self.assertTrue(proposals.never_auto(self.state, topic))
         self.assertIn(members.LEFT, [read_object(path)["kind"] for path in project_lead.inbox_dir(self.state, pid).glob("*.json")])
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.99}]})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "words", time.time()), "none")
+        self.assertEqual(self.whole("run-j2")["view"]["did"], [])  # The next 整理 does not take it in again.
         self.assertIsNone(projects.topic_project(self.state, topic))
+        self.assertTrue(projects.read_record(self.state, pid)["joins"][-1]["left_at"])
 
     def test_the_status_card_gets_the_line_with_its_leave_button(self):
         from covey.app import status_cards
@@ -281,103 +269,11 @@ class JoinTest(TidyCase):
         self.project("DataLab Prompt 优化", [member])
         self.filler()
         topic = self.topic(A)
+        self.see(lambda: [topic])
         self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "像", "confidence": 0.6}]})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "new", time.time()), "none")
+        view = self.whole("run-j3")["view"]
+        self.assertEqual((view["did"], view["rows"]), ([], []))  # Not sure enough to do, not worth asking.
         self.assertIsNone(projects.topic_project(self.state, topic))
-
-
-class AutoJoinTest(TidyCase):
-    """自动收话题 (the owner, 2026-11-19): a project takes in the topics that belong to it as they go on, without a click — by
-    the 话题要点's related topics, after each turn he started, and when the project is made; one 移出 keeps a topic out."""
-
-    def number(self, topic):
-        return read_object(self.state / "topics" / topic / "topic.json")["topic_number"]
-
-    def gisted(self, title, gist):
-        """A topic whose 话题要点 is ``gist`` already (as a scan of its turn keeps it)."""
-        topic = self.topic(title)
-        topic_gist.save(self.state, topic, gist, source="turn", job="x")
-        return topic
-
-    def test_a_topic_whose_gist_names_a_projects_topic_joins_once_the_judge_is_sure(self):
-        member = self.topic("一轮")
-        pid = self.project("DataLab Prompt 优化", [member])
-        topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
-        self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "joined")
-        self.assertEqual(len(self.judged()), 1)  # One call against that project, not held back by the chat having few topics.
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "skipped")
-        self.assertEqual(projects.topic_project(self.state, topic).id, pid)
-        joins = projects.read_record(self.state, pid)["joins"]
-        self.assertEqual([(row["topic"], row["by"]) for row in joins], [(topic, "rule")])
-        self.assertIn(f"T{self.number(member)}", joins[0]["why"])
-
-    def test_a_gist_naming_a_projects_topics_in_passing_joins_only_when_the_judge_is_sure(self):
-        """T579 (2026-11-20): a disk check named T488 and T505 in ``related`` because their tests had filled the disk, and the
-        rule alone put it into their 数据包 project. A rule hit is now a candidate the judge confirms against that project."""
-        first, second = self.topic("修数据包"), self.topic("优化下一环节")
-        pid = self.project("数据包生产链路提示词优化", [first, second])
-        refs = [f"T{self.number(first)}", f"T{self.number(second)}"]
-        topic = self.gisted("本机系统盘 90% 排查", {"essence": "系统盘占满的来源排查与清理", "related": refs})
-        self.assertNotEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "new", time.time()), "joined")
-        self.assertIsNone(projects.topic_project(self.state, topic))
-        given = self.judged()[0]
-        self.assertEqual([row["name"] for row in given["projects"]], ["数据包生产链路提示词优化"])  # That project alone.
-        self.assertEqual([row["index"] for row in given["topics"]], [1])  # This topic alone.
-        # Nor when a project just made looks over the recent topics.
-        proposals.queue_sweep(self.state, pid)
-        self.tidy.drain(self.ctx, CHAT, time.time())
-        self.assertIsNone(projects.topic_project(self.state, topic))
-
-    def test_each_owner_turn_is_judged_against_the_projects_once_a_gist_and_a_sure_join_is_done(self):
-        member = self.topic("一轮")
-        pid = self.project("DataLab Prompt 优化", [member])
-        topic = self.gisted(A, {"essence": A})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "none")
-        self.assertEqual(len(self.judged()), 1)
-        given = self.judged()[0]
-        self.assertEqual([row["index"] for row in given["topics"]], [1])  # This topic alone, against the live projects.
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "same")  # Gist unchanged: no call.
-        self.assertEqual(len(self.judged()), 1)
-        topic_gist.save(self.state, topic, {"essence": B}, source="turn", job="x")
-        self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "joined")
-        self.assertEqual(projects.topic_project(self.state, topic).id, pid)
-        self.assertEqual(projects.read_record(self.state, pid)["joins"][-1]["by"], "tidy")
-
-    def test_a_topic_taken_out_is_not_joined_by_the_rule_nor_after_its_turns(self):
-        member = self.topic("一轮")
-        pid = self.project("DataLab Prompt 优化", [member])
-        topic = self.gisted(A, {"essence": B, "related": [f"T{self.number(member)}"]})
-        self.verdicts.append({"suggestions": [{"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.9}]})
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "joined")
-        self.tidy.applier.leave(self.ctx, CHAT, topic, pid)
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, topic, "turn", time.time()), "kept_out")
-        self.assertIsNone(projects.topic_project(self.state, topic))
-        self.assertEqual(len(self.judged()), 1)  # The join's own; none after 移出.
-        record = projects.read_record(self.state, pid)
-        self.assertTrue(record["joins"][-1]["left_at"])
-
-    def test_a_project_just_made_takes_in_the_recent_topics_the_judge_is_sure_of(self):
-        member = self.topic("一轮")
-        pid = self.project("DataLab Prompt 优化", [member])
-        other = self.project("别的专项", [self.topic("别的一轮")])
-        sure, unsure = self.gisted(A, {"essence": B}), self.gisted("杂事", {"essence": "杂事"})
-        self.verdicts.append({"suggestions": [
-            {"kind": "join", "topic": 1, "project": 1, "why": "同一件事", "confidence": 0.95},
-            {"kind": "join", "topic": 2, "project": 1, "why": "沾边", "confidence": 0.5}]})
-        items = []
-        original = sorter.material
-        with mock.patch.object(sorter, "material", side_effect=lambda *a, **k: items.append(a[2]) or original(*a, **k)):
-            proposals.queue_sweep(self.state, pid)
-            self.tidy.drain(self.ctx, CHAT, time.time())
-        given = self.judged()[-1]
-        self.assertEqual([row["name"] for row in given["projects"]], ["DataLab Prompt 优化"])  # This project alone.
-        self.assertNotIn(member, items)  # Topics already in a project are not read.
-        self.assertEqual(set(items), {unsure, sure})
-        self.assertEqual(projects.topic_project(self.state, sure).id, pid)
-        self.assertIsNone(projects.topic_project(self.state, unsure))  # Not sure enough: left alone, nothing proposed.
-        self.assertNotIn(other, [row["name"] for row in given["projects"]])
 
     def test_the_projects_card_lists_who_took_each_topic_in_with_a_leave_button_while_it_is_in(self):
         from covey.app import project_facts
@@ -397,11 +293,13 @@ class AutoJoinTest(TidyCase):
         self.assertEqual(lines[0][1], "")
 
 
+
 class ProposalTest(TidyCase):
     def propose(self, topics, name="DataLab Prompt 优化"):
-        self.verdicts.append({"suggestions": [{"kind": "create", "topics": list(range(1, len(topics) + 1)), "name": name,
-                                               "goal": "新旧 Prompt 对率可比", "why": "都在改 Prompt", "confidence": 0.9}]})
-        return self.tidy.realtime.handle(self.ctx, CHAT, topics[0], "new", time.time())
+        """What a whole 整理 hands the proposal cards for a new project the judge saw (its run id is on it)."""
+        made = proposals.new_proposal(proposals.CREATE, topics=topics, name=name, goal="新旧 Prompt 对率可比", why="都在改 Prompt",
+                                      confidence=0.9, run="run-p")
+        return self.tidy.proposal_cards.propose(self.ctx, CHAT, made)
 
     def setUp(self):
         super().setUp()
@@ -420,7 +318,8 @@ class ProposalTest(TidyCase):
             self.assertIn(word, card)
         for word in ("改个名再建", "以后别提议"):  # The owner, 2026-11-18: 4 个按钮太冗余了.
             self.assertNotIn(word, card)
-        self.assertEqual(self.propose(self.pair), "open")  # One open proposal about a topic at a time.
+        self.assertEqual(self.propose(self.pair), "")  # One open proposal about a topic at a time.
+        self.assertEqual(len(self.sent_cards()), 1)
         self.assertTrue(proposals.prefs(self.state)["first_sent"])
 
     def test_create_gathers_the_topics_into_a_project_and_its_lead_gets_them(self):
@@ -436,6 +335,16 @@ class ProposalTest(TidyCase):
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["state"], proposals.DONE)
         self.assertIn("已建专项「DataLab Prompt 优化」", text(self.patched()))
         self.assertEqual(proposals.prefs(self.state)["accepted_in_row"], 1)
+
+    def test_a_new_project_leaves_no_queue_in_the_state(self):
+        # There is no sweep of the recent topics after a project is made any more (it was the real-time 整理's).
+        self.propose(self.pair)
+        record, message = self.card_and_record()
+        self.assertEqual(self.click({"kind": cards.CREATE_KIND, "proposal": record["id"]}, message), "tidy_create")
+        self.assertIsNotNone(projects.read_record(self.state, upgrades.project_id("tidy", record["id"])))
+        self.assertNotIn("queue", proposals.load(self.state))
+        self.tidy.tick(self.ctx)
+        self.assertNotIn("queue", proposals.load(self.state))
 
     def test_rename_then_create_keeps_the_owners_name_out_of_reach_of_the_tidy(self):
         self.propose(self.pair)
@@ -464,21 +373,6 @@ class ProposalTest(TidyCase):
         self.assertIn(B, card)  # Their 本质, not their first titles' words alone.
         self.assertIn("为什么提：都在改 Prompt", card)
         self.assertEqual([row["essence"] for row in record["view"]["rows"]], [B, B])
-
-    def test_one_long_topic_without_a_gist_is_read_whole_before_it_is_judged_and_alone_it_is_no_project(self):
-        """A topic grown long (reason age) with no 话题要点 yet is read whole first: the judge sees its 本质 and so does the
-        card, which speaks of one topic, not of 这几个."""
-        alone = self.topic("阅读这个session，继续我们未完成的事情", words=[f"第 {n} 句" for n in range(3)], days_ago=19)
-        self.see(lambda: [alone])
-        self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1], "name": "账号额度运行台", "goal": "额度看得准",
-                                               "why": "一直在改运行台", "confidence": 0.8}]})
-        # Read whole first, so the judge sees what it is about; and a project of one topic is no project (the owner,
-        # 2026-11-18: 只有一个话题的不提专项), so nothing is proposed.
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, alone, "age", time.time()), "none")
-        systems = [system for system, _ in self.asked]
-        self.assertEqual(systems[:2], [sorter.GIST_SYSTEM, sorter.JUDGE_SYSTEM])
-        self.assertEqual(self.judged()[0]["topics"][0]["gist"]["essence"], "阅读这个session，继续我们未完成的事情")
-        self.assertEqual(self.sent_cards(), [])
 
     def test_a_kept_one_topic_view_still_draws(self):
         """A proposal card of one topic sent before 2026-11-18 is redrawn on a click as before."""
@@ -525,8 +419,7 @@ class ProposalTest(TidyCase):
         self.assertEqual(self.click({"kind": cards.LESSON_KIND, "proposal": record["id"]}, message,
                                     why="数据包和 Prompt 是两件事"), "tidy_lesson")
         self.assertEqual(proposals.lessons(self.state), ["数据包和 Prompt 是两件事"])
-        self.assertEqual(self.propose(self.pair), "none")
-        self.assertEqual(self.judged()[-1]["lessons"], ["数据包和 Prompt 是两件事"])
+        self.assertEqual(self.propose(self.pair), "")
         self.pair += [self.topic("Prompt 第三轮", gist={"essence": B}), self.topic("Prompt 第四轮", gist={"essence": B})]
         self.assertEqual(self.propose(self.pair), "proposed")
         record, message = self.card_and_record()
@@ -534,7 +427,7 @@ class ProposalTest(TidyCase):
         self.assertTrue(proposals.prefs(self.state)["no_proposals"])
         self.pair.append(self.topic("Prompt 第五轮"))
         self.pair.append(self.topic("Prompt 第六轮"))
-        self.assertEqual(self.propose(self.pair), "none")
+        self.assertEqual(self.propose(self.pair), "")
 
     def test_five_creates_in_a_row_ask_once_whether_to_create_directly_from_then_on(self):
         proposals.set_pref(self.state, accepted_in_row=5)
@@ -833,8 +726,9 @@ class FollowTest(TidyCase):
                                                "why": "都在修重启", "confidence": 0.9}]})
 
     def open_card(self, picks=(1, 2, 3), name="Covey重启后自启恢复"):
-        self.suggest(list(picks), name)
-        self.assertEqual(self.tidy.realtime.handle(self.ctx, CHAT, self.trio[0], "new", time.time()), "proposed")
+        made = proposals.new_proposal(proposals.CREATE, topics=[self.trio[pick - 1] for pick in picks], name=name, goal="自启恢复",
+                                      why="都在修重启", confidence=0.9, run="run-f0")
+        self.assertEqual(self.tidy.proposal_cards.propose(self.ctx, CHAT, made), "proposed")
         return proposals.waiting(self.state)[0]
 
     def test_a_topic_the_lead_takes_in_leaves_the_card_with_the_rest_and_the_card_says_where_it_went(self):
@@ -919,7 +813,7 @@ class FollowTest(TidyCase):
         self.assertEqual(view.get("pending"), ["Covey重启后自启恢复"])
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio)
         members.join_topic(self.state, self.pid, self.trio[0], by="lead")
-        with mock.patch.object(self.tidy, "scan", return_value=[]), mock.patch.object(self.tidy.runs, "scheduled"):
+        with mock.patch.object(self.tidy, "scan", return_value=0), mock.patch.object(self.tidy.runs, "scheduled"):
             self.tidy.tick(self.ctx)
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio[1:])
 
@@ -946,6 +840,41 @@ class MomentTest(TidyCase):
         runs = list((proposals.folder(self.state) / "runs").glob("*.json"))
         self.assertEqual(len(runs), 1)
         self.assertEqual(read_object(runs[0])["origin"], "scheduled")
+        self.assertFalse(self.tidy.shared.busy.locked())
+
+    def test_with_the_assist_model_off_the_digest_times_start_no_tidy_and_are_not_tried_again_until_it_is_back(self):
+        from covey.app import assist
+        from covey.core import butler_settings
+
+        self.filler()
+        self.tidy.tick(self.ctx)  # The cursor.
+        self.addCleanup(assist.forget)
+        butler_settings.update(self.state, assist=butler_settings.AssistChoice(off=True))
+        assist.forget()
+        now = time.time()
+        clock = datetime.datetime.fromtimestamp(now - 60, digest.ZONE)
+        runs = proposals.folder(self.state) / "runs"
+        with mock.patch.dict(os.environ, {"COVEY_DIGEST_TIMES": f"{clock.hour:02d}:{clock.minute:02d}"}), \
+                mock.patch.object(self.tidy.runs, "start", wraps=self.tidy.runs.start) as start, \
+                mock.patch.object(self.tidy.runtime, "log") as log:
+            self.tidy.tick(self.ctx, now)
+            self.tidy.tick(self.ctx, now + 20)
+            start.assert_not_called()
+            self.assertEqual(list(runs.glob("*.json")) if runs.exists() else [], [])
+            self.assertEqual(self.sent_cards(), [])
+            self.assertEqual(self.asked, [])
+            slot = proposals.load(self.state)["last_slot"]  # Marked once: no second try at the same time.
+            self.assertEqual([call.args[0] for call in log.call_args_list if "scheduled skipped" in call.args[0]],
+                             [f"project tidy scheduled skipped slot={slot} reason=none"])
+            butler_settings.update(self.state, assist=butler_settings.AssistChoice())
+            assist.forget()
+            self.tidy.tick(self.ctx, now + 40)  # Back on, but this time was given up.
+            start.assert_not_called()
+            self.tidy.tick(self.ctx, now + 86400)  # The next day's time runs as always.
+            start.assert_called_once()
+            self.assertEqual(start.call_args.kwargs["origin"], "scheduled")
+        (run,) = runs.glob("*.json")
+        self.assertEqual(read_object(run)["origin"], "scheduled")
         self.assertFalse(self.tidy.shared.busy.locked())
 
     def test_the_butlers_topic_card_is_drawn_again_with_the_line(self):
@@ -1016,19 +945,6 @@ class OffTest(TidyCase):
         saved = runtime_environment(ins.env)
         self.assertEqual(saved["LARK_BRIDGE_PROJECTS"], "0")
         self.assertEqual(saved["LARK_BRIDGE_PROJECT_TIDY"], "off")
-
-    def test_the_patrol_reads_the_tidys_proposals_instead_of_its_own_word_match(self):
-        from covey.app import patrol_rules
-
-        one, two = self.topic("网关失联"), self.topic("网关失联又来")
-        made = proposals.new_proposal("create", topics=[one, two], name="推理网关稳定")
-        proposals.put_proposal(self.state, made)
-        found = patrol_rules.find(patrol_rules.look(self.state, CHAT, time.time()))
-        groups = [item for item in found if item.kind == "group"]
-        self.assertEqual([item.key for item in groups], [f"group:{made['id'][:10]}"])
-        with mock.patch.dict(os.environ, {proposals.ENV: "off"}):
-            found = patrol_rules.find(patrol_rules.look(self.state, CHAT, time.time()))
-            self.assertFalse(any(item.key == f"group:{made['id'][:10]}" for item in found))
 
 
 class NameTest(TidyCase):

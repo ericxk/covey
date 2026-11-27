@@ -20,7 +20,7 @@ from covey.core.groups import group_path
 from covey.core.state import read_json, write_json
 
 # Each item: its title on the card unfolded, the menu word its folded line names.
-ITEMS = {'weekly_usage': ('本周用量', '用量'), 'proxy_settings': ('代答', '代答'), 'manage_groups': ('群聊', '群聊'),
+ITEMS = {'weekly_usage': ('本周用量', '用量'), 'proxy_settings': ('代答', '代答'),
          MENU_KEY: ('配置', '设置')}  # 设置 opens on its first tab, 配置 (T619; 新话题 since T546).
 
 
@@ -149,12 +149,12 @@ class MenuFoldTests(ProxyCase):
 
     def test_another_items_card_after_it_means_a_new_card(self):
         self.click('weekly_usage', 'ev1')
-        self.click('manage_groups', 'ev2')
+        self.click(MENU_KEY, 'ev2')
         self.assertEqual(self.click('weekly_usage', 'ev3'), ('weekly_usage', 'new'))
         self.app.messenger.recall.assert_called_once_with(self.ctx.profile, 'om_1')
-        self.assertEqual(self.click('manage_groups', 'ev4'), ('manage_groups', 'new'))  # 用量's is newer now.
+        self.assertEqual(self.click(MENU_KEY, 'ev4'), (MENU_KEY, 'new'))  # 用量's is newer now.
         # Folding one does not move it: the other stays older.
-        self.assertEqual(self.click('manage_groups', 'ev5'), ('manage_groups', 'fold'))
+        self.assertEqual(self.click(MENU_KEY, 'ev5'), (MENU_KEY, 'fold'))
         self.assertEqual(self.click('weekly_usage', 'ev6'), ('weekly_usage', 'new'))
 
     def test_a_card_sent_before_this_process_started_means_a_new_card(self):
@@ -189,14 +189,14 @@ class MenuFoldTests(ProxyCase):
         self.assertEqual(self.click('weekly_usage', 'ev3'), ('weekly_usage', 'fold'))
 
     def test_a_panels_own_redraw_leaves_it_unfolded(self):
-        self.click('manage_groups', 'ev1')
-        self.click('manage_groups', 'ev2')
-        path = next((self.ctx.state_dir / 'group-managers').glob('*.json'))
+        self.click(MENU_KEY, 'ev1')
+        self.click(MENU_KEY, 'ev2')
+        path = next((self.ctx.state_dir / 'settings-cards').glob('*.json'))
         self.assertTrue(read_json(path)[FOLDED])
         record = read_json(path)
-        self.app.group_manager.menu.publish(self.ctx, path, record, {**record['view'], 'revision': 9}, {'body': {}})
+        self.app.settings_hub.menu.publish(self.ctx, path, record, {**record['view'], 'revision': 9}, {'body': {}})
         self.assertNotIn(FOLDED, read_json(path))
-        self.assertEqual(self.click('manage_groups', 'ev3'), ('manage_groups', 'fold'))
+        self.assertEqual(self.click(MENU_KEY, 'ev3'), (MENU_KEY, 'fold'))
 
     # The record 用量 has now ---------------------------------------------------------
 
@@ -233,7 +233,7 @@ class MenuFoldTests(ProxyCase):
         card_id, folded, sequence = self.puts[-1]
         self.assertEqual((card_id, sequence, folded['header']['title']['content']), ('cid1', 1, '配置'))
         self.assertEqual([v['tab'] for v in tab_values(folded)],
-                         ['config', 'repos', 'redaction', 'groups', 'about', 'doctor'])  # 能做什么, 诊断: always.
+                         ['config', 'repos', 'redaction', 'groups', 'doctor'])  # 诊断: always (能做什么 is under it, T898).
         self.assertEqual(len(folded['body']['elements']), 2)  # The tab row and the line, none of the panel.
         record = read_json(path)
         self.assertEqual((record[FOLDED], record['tab'], record['turned']), (True, 'config', ['ev-t1']))

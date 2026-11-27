@@ -43,6 +43,8 @@ PANELS = 'menu-panels.json'  # event_key -> the chat and message of the card it 
 # Personal groups open only these three (same as app/group_menu.py ITEMS); 代答 stays in the owner's private chat.
 GROUP_SLASH_KEYS = frozenset({'weekly_usage', 'digest_board', 'bridge_settings'})
 SLASH_MESSAGE_TYPES = frozenset({'', 'text', 'post'})
+MOVED_TEXT = '「{name}」已移到「设置」卡的「{tab}」页签：发 /设置 或点菜单的「设置」打开。'  # An older menu item cached by a client.
+MOVED_TAB = {'redaction_dashboard': '敏感词脱敏'}  # The tab's title where it is not the item's name (cards/settings_hub.py TITLES).
 
 
 def slash_key(event):
@@ -144,8 +146,16 @@ class BotMenu:
     def __init__(self, runtime, inbound, actions, panels, hints=lambda ctx: (), opener=open_owner_chat, folds=None):
         self.runtime, self.inbound, self.actions, self.panels = runtime, inbound, actions, panels
         self.hints, self.opener, self.folds = hints, opener, dict(folds or {})
+        self.actions = {**actions, **{key: functools.partial(self.moved, key)  # Items taken off the app's menu:
+                                      for key in app_manifest.STALE_MENU_KEYS}}  # a cached copy still answers.
         self.started = time.time()  # A card sent before is not known to be the newest.
         self.said = {}  # chat_id -> when the owner's last top-level message there came (time.time()).
+
+    def moved(self, key, ctx, chat_id, source, shown=None):
+        """The answer to a stale menu item (core/app_manifest.py STALE_MENU_KEYS): where its card went."""
+        name = app_manifest.STALE_MENU_KEYS[key]
+        self.panels.messenger.send_text(ctx.profile, chat_id, MOVED_TEXT.format(name=name, tab=MOVED_TAB.get(key, name)),
+                                        'menu-moved-' + hashlib.sha256(source.encode()).hexdigest()[:24])
 
     def owner_said(self, chat_id):
         """The owner wrote at the top level of ``chat_id`` (not in a thread): the menu's cards there are older."""

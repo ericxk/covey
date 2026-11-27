@@ -1,6 +1,6 @@
-"""The 群聊 card: the owner turns groups on and off in the private chat (the bot menu's 群聊, app/bot_menu.py).
+"""The 群聊 card: the owner turns groups on and off in the private chat.
 
-One standalone card a click: no topic, no job. It lists every group record (Access.groups) with the
+A standalone card (older ones; the menu item is gone, app/bot_menu.py): no topic, no job. It lists every group record (Access.groups) with the
 name Feishu gave when the card was sent (looked up before it, all at once; saved on the card's record).
 停用 / 启用 go through Access.switch, outside the card's lock (enabling may ask Feishu whether the group
 is external); then the whole card is drawn again with what happened. The buttons name the state they
@@ -35,7 +35,7 @@ from covey.core import spaces
 from covey.core.groups import pending
 from covey.cards.group_manager import (ASKING, CONFIRM, DECIDED, EXTERNAL_ONLY, FREE, FREE_CHOICES, INACTIVE_ONLY,
                                                 KINDS, MEMBER, MEMBERS, MISSING, MODE_DONE, OFF, ON, PAGE, PROXY_BLOCKED,
-                                                SWITCH, VIEW, ask_card, ask_text, folded_card, free_limit,
+                                                SWITCH, VIEW, ask_card, ask_text, free_limit,
                                                 group_manager_card, name_of)
 from covey.cards.settings_hub import GROUPS
 
@@ -121,33 +121,6 @@ class GroupManager:
                 except OSError as exc:
                     self.runtime.log(f'space record not saved chat={chat[-8:]} ({type(exc).__name__})')
         return {'names': names}
-
-    def menu_items(self):
-        """The bot menu's 群聊 (app/unified.py menu)."""
-        return {"manage_groups": self.open}
-
-    def menu_folds(self):
-        """A second 群聊 on its card, the newest in the chat (app/bot_menu.py)."""
-        return {"manage_groups": self.fold}
-
-    def fold(self, ctx, chat_id, source, message_id):
-        """The card the click ``source`` sent folded, or drawn again with every group's name of now."""
-        return self.menu.toggle(ctx, chat_id, source, message_id,
-                                lambda token, record: self.card(record['view'], record['names']),
-                                lambda token, record: folded_card(),
-                                view=lambda token: {'token': token, 'revision': 1, 'page': 0},
-                                fields=lambda: self.lookup(ctx))
-
-    def open(self, ctx, chat_id, source, shown=None):
-        """Send a new 群聊 card to ``chat_id`` (the owner's private chat); ``source``, the menu click's
-        event_id, keys it; ``shown`` hears its message id."""
-        self.menu.open(ctx, chat_id, source, lambda token, record: self.card(record['view'], record['names']),
-                       '群聊卡未能发送，请稍后再点机器人菜单「群聊」。',
-                       view=lambda token: {'token': token, 'revision': 1, 'page': 0},
-                       fields=lambda: self.lookup(ctx),
-                       opened=lambda token: self.runtime.log(
-                           f'group manager opened token={token[:8]} groups={len(self.runtime.access.groups())}'),
-                       shown=shown)
 
     # The 设置 card's 群聊 tab (app/settings_hub.py): its first view, its record's fields (every group's name, read
     # before the record's lock), its card, once shown.

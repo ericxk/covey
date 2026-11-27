@@ -6,7 +6,6 @@ two at least, an open one follows its topics, a project left empty folds, the le
 from __future__ import annotations
 
 import json
-import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -196,9 +195,8 @@ class TypedNumberTest(TidyCase):
         other = self.topic("别的专项的话题")
         self.project("别的专项", [other])
         self.see(lambda: list(pair))
-        self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1, 2], "name": "网关稳定", "goal": "不失联",
-                                               "why": "", "confidence": 0.9}]})
-        self.tidy.realtime.handle(self.ctx, CHAT, pair[0], "new", time.time())
+        self.tidy.proposal_cards.propose(self.ctx, CHAT, proposals.new_proposal(  # What a whole 整理 proposes.
+            proposals.CREATE, topics=pair, name="网关稳定", goal="不失联", confidence=0.9, run="r1"))
         record = proposals.proposals(self.state, None)[-1]
         number = read_object(self.state / "topics" / other / "topic.json")["topic_number"]
         with mock.patch.object(topic_links, "topic_numbers", return_value={number: other}):
@@ -214,9 +212,8 @@ class TypedNumberTest(TidyCase):
         self.filler()
         pair = [self.topic("网关失联"), self.topic("网关扩容")]
         self.see(lambda: list(pair))
-        self.verdicts.append({"suggestions": [{"kind": "create", "topics": [1, 2], "name": "网关稳定", "goal": "不失联",
-                                               "why": "", "confidence": 0.9}]})
-        self.tidy.realtime.handle(self.ctx, CHAT, pair[0], "new", time.time())
+        self.tidy.proposal_cards.propose(self.ctx, CHAT, proposals.new_proposal(  # What a whole 整理 proposes.
+            proposals.CREATE, topics=pair, name="网关稳定", goal="不失联", confidence=0.9, run="r1"))
         record = proposals.proposals(self.state, None)[-1]
         self.project("抢先的专项", pair)
         self.assertEqual(self.click({"kind": cards.CREATE_KIND, "proposal": record["id"]}, record["card"]["message_id"]),

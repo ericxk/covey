@@ -180,7 +180,8 @@ class FlowTest(RevisitCase):
         self.assertEqual(self.record(), {})
         self.assertIn("(the last one in a row)", "\n".join(self.logs))
 
-    def test_the_board_lists_it_and_the_owners_cancel_takes_it_back(self):
+    def test_the_board_lists_it_and_an_old_cancel_button_changes_nothing(self):
+        """T898: the 取消 beside a row of 到点回来看 was taken off; a click on an older card's says where and leaves the revisit."""
         self.end(self.first, revisit={"minutes": 30, "look": "看 CI"})
         self.app.digest.link = lambda ctx, chat, text, cards=None: text
         view = self.app.digest.board_view(self.ctx, "chat")
@@ -191,13 +192,11 @@ class FlowTest(RevisitCase):
         self.assertIn("Covey 将于", card)
         self.assertIn("自动回看：看 CI", card)
         self.assertNotIn("约好回来看", card)
-        self.assertIn(REVISIT_KIND, card)
+        self.assertNotIn(REVISIT_KIND, card)
         raw = {"kind": REVISIT_KIND, "topic": self.topic, "set_at": row["set_at"]}
         self.assertEqual(self.app.digest.claim(self.ctx, {"chat_id": "chat"}, raw, False), "owner_only")
-        self.assertEqual(self.record()["state"], records.PENDING)
-        self.assertEqual(self.app.digest.claim(self.ctx, {"chat_id": "chat"}, raw, True), "board_revisit_cancel")
-        self.assertEqual(self.record(), {})
-        self.assertNotIn("revisits", self.app.digest.board_view(self.ctx, "chat"))
+        self.assertEqual(self.app.digest.claim(self.ctx, {"chat_id": "chat"}, raw, True), "board_retired")
+        self.assertEqual(self.record()["state"], records.PENDING)  # Still set: the topic's own checkpoint changes it.
 
     def test_a_topic_that_became_a_projects_loses_its_revisit_at_the_next_look_and_is_not_shown_meanwhile(self):
         """The owner, 2026-11-23: T675 asked for a look at 14:48, was taken into a project at 15:23, and "该回来看了" hung on the page

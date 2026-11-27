@@ -37,8 +37,8 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 - **管家用调通的那个**：先 Codex 后 Antigravity。安装器在服务第一次启动前把它写进状态目录里 `main-thread.json` 的 `harness`（文件里已经选了 Harness 的不动），私聊里照样是管家先接住每句话。
 - **别的照常开**：专项（负责人也跑在这个 Harness 上，只读，见[专项 · 负责人只读](projects.md#负责人只读)）、整理专项和其余默认开关都和有 Claude Code 时一样，`--showcase` 同样把协作也开上。
-- **辅助模型跟着管家**：整理专项、“我本来想找你的事”、同时做几件事的分流这些后台的一问一答问管家用的 Codex 或 Antigravity，一次 6 到 15 秒（Claude Code 有待命进程时 1 到 3 秒）。分流最多等 10 秒，超时按新开一件；嫌慢就装好 Claude Code，在设置卡把辅助模型选成它（[配置 · 辅助模型](configuration.md#辅助模型)）。
-- **用不了的**只有 Claude Code 自己的功能：敏感词脱敏、↩️ 回退、子 Agent 的模型（设置卡「能做什么」一页写着）。
+- **辅助模型跟着管家**：整理专项、同时做几件事的分流这些后台的一问一答问管家用的 Codex 或 Antigravity，一次 6 到 15 秒（Claude Code 约 3.4 秒）。分流最多等 10 秒，超时按新开一件；嫌慢就装好 Claude Code，在设置卡把辅助模型选成它（[配置 · 辅助模型](configuration.md#辅助模型)）。
+- **用不了的**只有 Claude Code 自己的功能：敏感词脱敏、↩️ 回退、子 Agent 的模型（设置卡「诊断」页下半的“能做什么”写着）。
 - 装好后的最后几行写着管家用的是哪个、Claude Code 这次为什么没调通（没装、没登录、网络不通），和装好 Claude Code 以后怎么换。
 
 装好并登录 Claude Code 以后：

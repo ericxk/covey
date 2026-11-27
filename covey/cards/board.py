@@ -6,23 +6,21 @@ of each state as a segment bar; 都在掌握中 when nothing asks for him. Then,
 有结果没看 → 在做 → 专项 (with 整理专项, the one place it is) → 做完 and 已停止 (folded). Each topic is a topic row
 (cards/ui.py topic_row): its state's dot and word, its title with ›, one line in words (what he is asked to decide, why
 it stopped, what it is doing now) and a grey line of figures; the whole row opens it (``url``; a topic without one is not
-a link). Buttons are real: 去回答 (opens the topic's question, the row's one primary button), 不管了 (a text button: takes
-a stopped topic off the board, app/overview.py DISMISS, ``from`` ORIGIN, app/digest.py redraws this card). What asks for
+a link). Buttons are real: 去回答 (opens the topic's question, the row's one primary button), 去任务卡 (a stopped row's
+link), 不管了 (a text button: takes a stopped topic off the board, app/overview.py DISMISS, ``from`` ORIGIN, app/digest.py
+redraws this card). The small buttons of T898 are gone: 记为看过, 取消 on 到点回来看, a paused project's 继续 and a stopped row's
+检查并继续 (``RETIRED_KINDS``: a card sent before still has them, and a click on one is answered in words, app/digest.py). What asks for
 him (等你, 停住了, 可能卡住) is listed whoever's it is; a live project's other topics are not listed by themselves: its
 project's block counts them.
 
 A project a guard paused (core/projects.py halted: its token budget, its wake-ups, no progress) is 停住了 in red with
-why, counted among 要你处理, and its block has 继续 (PROJECT_GO_KIND, app/digest.py Digest.claim: app/project_loop.py
-resume, what the pause card's 继续 does); one the owner stopped is 已停止 (docs/ui.md 2.2, 3).
+why, counted among 要你处理 (its block opens the project's card, where 继续 is); one the owner stopped is 已停止 (docs/ui.md 2.2, 3).
 
 A proposal of 整理专项 waiting for him (``pending``) is 等你 (docs/ui.md 2.2: 等你定的 are orange): listed under 等你 after
 the questions (cards/project_proposal.py waiting_block), with 建专项 and 不管了, and counted among 要你处理 as 手上的事 counts it
 (core/board_read.py Asks.proposals).
 
-A topic that stopped, whose record 检查并继续 can take on (``recover``: app/digest.py collect, core/failure.py: 检查并继续,
-现在重试 or 重新投递结果), has that button on its row (RECOVER_KIND): the click does what the task card's does
-(app/digest.py Digest.recover) and the 看板 is redrawn in place, saying what came of it (``notice``); one that cannot
-(a refusal, a pending automatic retry, a newer turn, 换配置) keeps 去任务卡.
+A topic that stopped has 去任务卡 on its row (the task card's link, where 检查并继续 and 看看 are).
 
 With the web page's address set (core/web_sync.py page_url, COVEY_WEB=1: ``web``) the last line has 打开网页.
 
@@ -61,23 +59,18 @@ STOPPED = frozenset({"failed", "cancelled", "interrupted"})
 LOOKS = {key: (look.STATES[key].word, look.STATES[key].color, look.STATES[key].tint)
          for key in ("waiting", "stopped", "result", "running", "stuck")}
 ACT = board_read.ACT  # 要你处理: what the band counts (core/board_read.py act_count), 手上的事's too.
-# The 看板's own buttons (app/digest.py Digest.claim, before topic routing): 刷新 redraws the card from a fresh view in
-# place (a second menu click folds it instead), 记为看过 takes a result off 有结果没看 (core/board_read.py mark_seen).
-REFRESH_KIND, SEEN_KIND = "bridge_board_refresh", "bridge_board_seen"
-# 取消 on a row of 到点回来看 (app/revisits.py, COVEY_REVISIT=1): that topic's revisit taken back (app/digest.py Digest.claim).
-REVISIT_KIND = "bridge_board_revisit_cancel"
-# 继续 on the block of a project a guard paused: it starts again as the pause card's 继续 starts it (app/project_loop.py
-# resume), and the card is redrawn (app/digest.py Digest.claim).
-PROJECT_GO_KIND = "bridge_board_project_go"
-# The button of a stopped row whose record 检查并继续 takes on (``recover``): the task card's click, done from here
-# (app/digest.py Digest.recover), then the card redrawn in place. Its value names the topic (``topic_id``: its clicks go
-# in that topic's lane, one at a time with its task card's), the task and the action (core/failure.py continue, retry).
-RECOVER_KIND = "bridge_board_recover"
-ALL_SEEN = "全部记为看过"  # 记为看过 on every result row at once: SEEN_KIND with ``topics``, at most SEEN_MAX.
-SEEN_MAX = 30
+# The 看板's own button (app/digest.py Digest.claim, before topic routing): 刷新 redraws the card from a fresh view in
+# place (a second menu click folds it instead).
+REFRESH_KIND = "bridge_board_refresh"
+# Taken off the rows (T898 界面精简); a card sent before still has them, and app/digest.py answers a click on one in words
+# (app/card_actions.py RETIRED_TEXT) and redraws the card: 记为看过, 取消 on a row of 到点回来看, 继续 on a paused project's
+# block, 检查并继续 on a stopped row.
+SEEN_KIND, REVISIT_KIND = "bridge_board_seen", "bridge_board_revisit_cancel"
+PROJECT_GO_KIND, RECOVER_KIND = "bridge_board_project_go", "bridge_board_recover"
+RETIRED_KINDS = frozenset({SEEN_KIND, REVISIT_KIND, PROJECT_GO_KIND, RECOVER_KIND})
 # 去看板 under an answered question (cards/question_cards.py others_row): a new 看板 card, as the bot menu's item sends one.
 OPEN_KIND = "bridge_board_open"
-KINDS = frozenset({REFRESH_KIND, SEEN_KIND, REVISIT_KIND, OPEN_KIND, PROJECT_GO_KIND, RECOVER_KIND})
+KINDS = frozenset({REFRESH_KIND, OPEN_KIND}) | RETIRED_KINDS
 NO_LINK = "找不到它在私聊里的位置，打不开"  # A row whose topic has no link (app/digest.py board_view).
 LEAD = 30  # Characters of the most pressing topic's words on the band.
 GOAL_CHARS = 60  # Of a project's or a proposal's goal on its grey line.
@@ -86,7 +79,6 @@ DONE_SHOWN = 12  # Rows in the folded 做完.
 FOLD_SHOWN = 20  # Projects past the blocks, or folded away, listed a line each in their fold; the rest one line.
 FIT_SHOWN = (SHOWN, 6, 4, 3, 2, 1)  # Blocks a group shows, tried in turn until the card fits (``board_card``).
 NODES, BYTES = CARD_NODES - 10, CARD_BYTES - 1500  # Room left under CardKit's limits for what CardKit adds.
-GO = "继续"
 WEB = "打开网页"  # The last line's link to the web page (``web``).
 
 
@@ -121,16 +113,6 @@ def block(kind, row, buttons=()):
 def task_card_button(row):
     """去任务卡: the row's link when it is its task card's (``card``), where 检查并继续 and 看看 are."""
     return [button(TASK_CARD_ACT, tone="primary", url=row["url"])] if row.get("card") and row.get("url") else []
-
-
-def recover_button(row):
-    """The stopped row's own 检查并继续 (现在重试, 重新投递结果: ``recover``'s label) when its record takes it on (RECOVER_KIND),
-    else 去任务卡 (``task_card_button``): the row's one primary button."""
-    found = row.get("recover") if isinstance(row.get("recover"), dict) else {}
-    if not (found.get("label") and found.get("action") and found.get("job") and row.get("topic")):
-        return task_card_button(row)
-    return [button(found["label"], tone="primary", value={"kind": RECOVER_KIND, "topic_id": row["topic"],
-                                                          "job_id": found["job"], "action": found["action"]})]
 
 
 def blocks(kind, rows, buttons=lambda row: (), shown=SHOWN):
@@ -257,18 +239,15 @@ def project_state(project) -> str:
 
 
 def project_block(project):
-    """A live project: its name, its own state (``project_state``), its goal and how its topics stand; 继续 when a guard
-    paused it (PROJECT_GO_KIND)."""
+    """A live project: its name, its own state (``project_state``), its goal and how its topics stand; the whole opens its card."""
     stand, state = stand_words(project), project_state(project)
     left = [md(f"**{literal_text(project.get('name') or '专项')}**" + (f"　{state}" if state else "")
                + (f"　{grey(stand)}" if stand else ""), size="normal_v2")]
     if project.get("goal"):
         left.append(md(grey("目标：" + one_line(project["goal"])), size="notation"))
-    go = [button(GO, tone="primary", value={"kind": PROJECT_GO_KIND, "project": project["id"]})] \
-        if project.get("halted") and project.get("id") else []
     return {"tag": "interactive_container", "width": "fill", "padding": "8px 10px 8px 10px", "corner_radius": "8px",
             "background_style": "grey-50", "has_border": True, "border_color": "grey-200", "vertical_spacing": "2px",
-            "elements": [body(left, go)], **({"behaviors": [{"type": "open_url", "default_url": project["url"]}]}
+            "elements": [body(left, [])], **({"behaviors": [{"type": "open_url", "default_url": project["url"]}]}
                                              if project.get("url") else {})}
 
 
@@ -282,17 +261,14 @@ def project_line(project):
 
 
 def revisit_blocks(rows, shown=SHOWN):
-    """到点回来看 (app/revisits.py board_rows): each topic that asked to be looked at again, when and what, 取消 while it waits;
+    """到点回来看 (app/revisits.py board_rows): each topic that asked to be looked at again, when and what;
     one whose turn is queued already says it is being looked at."""
     drawn = [{"tag": "markdown", "content": f"**Covey 定时回看**  <font color='grey'>{len(rows)}</font>", "text_size": "normal_v2",
               "icon": {"tag": "standard_icon", "token": "time_outlined", "color": "grey"}}]
     for row in rows[:shown]:
         what = f"：{row['look']}" if row.get("look") else ""
         line = f"Covey 正在自动回看{what}" if row.get("fired") else f"Covey 将于 {row.get('at') or ''} 自动回看{what}"
-        cancel = [] if row.get("fired") else [button("取消", tone="text", value={
-            "kind": REVISIT_KIND, "topic": row.get("topic") or "", "set_at": row.get("set_at")})]
-        drawn.append(ui.topic_row("running" if row.get("fired") else "queued", head_of(row), line, url=row.get("url") or "",
-                                  buttons=buttons_row(cancel)))
+        drawn.append(ui.topic_row("running" if row.get("fired") else "queued", head_of(row), line, url=row.get("url") or ""))
     if len(rows) > shown:
         drawn.append(note(f"另有 {len(rows) - shown} 个：" + "、".join(row.get("label") or "话题" for row in rows[shown:])))
     return drawn
@@ -374,20 +350,15 @@ def _drawn(view, now, shown, notice=""):
     elements += waiting_part(view, found, shown)
     if found["stopped"]:
         elements.append(heading("stopped", len(found["stopped"])))
-        elements += blocks("stopped", found["stopped"], lambda row: recover_button(row) + ([button("不管了", tone="text", value={
+        elements += blocks("stopped", found["stopped"], lambda row: task_card_button(row) + ([button("不管了", tone="text", value={
             "kind": DISMISS, "topics": [row["topic"]], "from": ORIGIN})] if view.get("can_dismiss") and row.get("topic") else []),
             shown)
     if found["stuck"]:  # Right after 停住了 (docs/ui.md 5.1): what may be stuck is not left at the end of 在做.
         elements.append(heading("stuck", len(found["stuck"])))
         elements += blocks("stuck", found["stuck"], task_card_button, shown)
     if found["result"]:
-        topics = [row["topic"] for row in found["result"] if row.get("topic")][:SEEN_MAX]
-        # 全部记为看过: two or more results cleared with one click and one redraw.
-        elements.append(body([heading("result", len(found["result"]))], [button(
-            ALL_SEEN, tone="text", value={"kind": SEEN_KIND, "topics": topics})]) if len(topics) > 1
-            else heading("result", len(found["result"])))
-        elements += blocks("result", found["result"], lambda row: [button("记为看过", tone="text", value={
-            "kind": SEEN_KIND, "topic": row["topic"]})] if row.get("topic") else [], shown)
+        elements.append(heading("result", len(found["result"])))
+        elements += blocks("result", found["result"], shown=shown)
     if found["running"]:
         elements.append(heading("running", len(found["running"])))
         elements += blocks("running", found["running"], shown=shown)

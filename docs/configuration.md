@@ -54,7 +54,7 @@
 | 功能 | 开关 | 打开后多什么、怎么确认 |
 | --- | --- | --- |
 | [群成员只读](#群成员只读) | `COVEY_GROUP_MEMBERS=read` | 没在群聊卡上单独选过的群，群成员开的任务只能读文件和搜索；群聊卡上这些群写着「群成员只读」，启用确认卡也照这个写 |
-| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN=1`（要 `COVEY_MEMORY` 开着，整理记忆还要早晚汇总） | 一轮结束后 Bridge 自己读你的话，长期要求直接记下（答案卡上能“不对”）；晚间汇总多“整理记忆”，收起做完的问答、把反复的选择提炼成约定，再收进 Codex、Claude Code 自己记的；每轮的记忆块能按需查放不下的 |
+| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN=1`（要 `COVEY_MEMORY` 开着，整理记忆还要早晚汇总） | 一轮结束后 Bridge 自己读你的话，长期要求直接记下（答案卡上能“不对”）；晚间汇总多“整理记忆”，只按规则收起做完的问答；Codex、Claude Code 自己记的进待审核；每轮的记忆块能按需查放不下的 |
 
 ### 按需打开
 
@@ -68,7 +68,6 @@
 | [节点与机器状况](#节点与机器状况默认关) | 一个设备能连进来的监听地址 | `COVEY_NODE_LISTEN` |
 | [群聊免@](#群聊免) | 应用要有收群里全部消息的权限（要管理员审核） | `COVEY_GROUP_ALL_MESSAGES=1` |
 | [历史搜索](#知识条目与历史搜索) | 一个能按一句话搜历史的命令 | `COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` |
-| [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰) | 只记不打扰，看看管家会提醒你什么 | `COVEY_PATROL=shadow` |
 | [内存看门狗](operations.md#内存看门狗) | 不是环境变量 | `python3 -B bin/covey_memguard.py enable` |
 | [本机运行锁](runtime-locks.md) | 同一台机器上有几个服务要共用锁 | `COVEY_LOCK_ROOT` |
 | [定时自动升级](deploy.md#定时自动升级) | 数据根里有 `upgrade.json`（扩展的 `./install`、核心在 git 检出里的 `./install` 装好或升级好后写） | `COVEY_AUTO_UPGRADE=05:00`（每天几点，按 Asia/Shanghai） |
@@ -193,15 +192,14 @@
 | [早晚汇总](#早晚汇总)（默认开） | `COVEY_DIGEST_TIMES`；`off` 关 | `digest` 后台线程；菜单「看板」不管它开不开都有 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE`（默认开，`0` 关）；`COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` | 管家多 `knowledge_*` 和 `history_search` 工具；话题首轮带知识条目，规则多一行查历史的命令 |
 | [记忆](#记忆)（默认开） | `COVEY_MEMORY=0` 关 | 每轮规则里多一块“记忆”；一轮结束后记下主人的长期要求，答案卡底部露一行和“不对”按钮；设置卡多「记忆」标签 |
-| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN=1`（要 `COVEY_MEMORY` 开着） | 主人的一轮结束后起一个短线程（`memory-learn`，一次一轮）用小模型读他的话；晚间汇总多“整理记忆”和“Codex 和 Claude Code 自己记的”两节；每轮的记忆块多一行查记忆的命令 |
+| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN=1`（要 `COVEY_MEMORY` 开着） | 主人的一轮结束后起一个短线程（`memory-learn`，一次一轮）用小模型读他的话；晚间汇总多“整理记忆”一节（只按规则、不调模型）；每轮的记忆块多一行查记忆的命令 |
 | [新话题带上最近话题的要点](#新话题带上最近话题的要点)（默认开） | `COVEY_WORKSPACE_GISTS=0` 关 | 不多线程；新会话的规则多一块同工作区最近话题的要点 |
 | [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡「配置」页多管家一段 |
 | [管家规则](#管家规则)（默认开） | `COVEY_BUTLER_RULES=0` 关 | 不多线程，只换管家规则的两条 |
 | [专项](projects.md)（默认开） | `COVEY_PROJECTS=0` 关 | `projects/` 记录、负责人话题和它的 `project_*` 工具、看板并格；进阶开关见[开关速查](#默认已开) |
 | [整理专项](#整理专项)（默认开） | `COVEY_PROJECT_TIDY`：`suggest`（不设）、`auto`；`off` 关（要专项开着） | `project_tidy` 后台线程；管家多 `projects_tidy`，看板卡多「整理专项」，提议卡、整理专项卡 |
 | [专项停住后问主人](projects.md#专项停住后问主人)（默认开） | `COVEY_PROJECT_ASK=0` 关（要专项开着） | 专项被护栏停住时多发一张卡：继续 / 收尾 / 停 |
-| [同时做几件事](butler.md#同时做几件事)（默认开） | `COVEY_BUTLER_TRACKS=0` 关 | 管家消息的分流；`COVEY_TRACK_JUDGE_WARM` 没关时多一个待命的小模型进程 |
-| [我本来想找你的事](butler.md#我本来想找你的事开关默认关只记不打扰) | `COVEY_PATROL=shadow` | `patrol` 后台线程，只写 `patrol/` 记录；汇总和「看板」多一块，不发消息 |
+| [同时做几件事](butler.md#同时做几件事)（默认开） | `COVEY_BUTLER_TRACKS=0` 关 | 管家消息的分流（规则定不了时问一次辅助模型，不留待命进程） |
 | [网页工作台](web.md) | `COVEY_WEB=1` 加 `COVEY_WEB_CONFIG=/absolute/path/to/web.json` | `web-push`、`web-pass`、`web-inbox`、`web-touch`、`web-reread` 后台线程：把专项、话题、一轮、问题推给网页应用，取回网页上的操作 |
 | [派发卡](#派发卡)（默认开） | `COVEY_DISPATCH_CARD=0` 关 | `dispatch_cards` 后台线程；管家转给已有话题后提问下面挂一张活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
@@ -259,23 +257,23 @@
 
 - 记录在 `<state>/digest.json`：最后发出的时间点 `last_slot`、发送中的 `pending`、最近 6 张发出的卡 `sent`。一个时间点只发一次：Bridge 在时间点停着、60 分钟内起来就补发一次，超过就跳过。卡先存再发；没确认的 60 秒后用同一个幂等键再发，最多 3 次。
 - 数据从记录读（`questions/`、`jobs/` 的索引），不持记录锁、不调模型，管家话题不列。
-- 一天里最后一个时间点是晚间汇总（`last_of_day`），私聊那张多“本周找你 N 次”（`app/weekly_usage.py` 的 `reached`）和有代答发送器时的“今天代答发出 N 条”（`proxy_view`）；开了[记忆](#记忆)时再多“你反复说的”，见下文。群里的汇总没有这几样。
+- 一天里最后一个时间点是晚间汇总（`last_of_day`），私聊那张多“本周找你 N 次”（`app/weekly_usage.py` 的 `reached`）和有代答发送器时的“今天代答发出 N 条”（`proxy_view`）；开了记忆自己长时再多“整理记忆”，另有一行“记忆：待审核 N 条”，见下文。群里的汇总没有这几样。
 - 菜单「看板」（事件 key `digest_board`）每个部署都有：发同一张卡、按现在取数，不改 `last_slot`；汇总关了时“做完”列最近一天的。卡的记录在 `<state>/digest-boards/`。开发者后台的机器人菜单和斜杠命令里要有这一项（「飞书应用待补」卡会补）。
 - 两个时间也是[夜里不打扰](usage.md#早晚汇总)的时段（没设 `COVEY_QUIET_HOURS` 时），整理专项的定时和晚间的记忆整理也按它们。
-- 日志：`digest sent slot=HH:MM`、`digest not sent: nothing to list`、`digest not sent try=N`、`digest not sent after N tries; given up`、`digest card redrawn message=… cleared=N`、`digest board sent`、`digest candidate save|drop id=… state=…`。
+- 日志：`digest sent slot=HH:MM`、`digest not sent: nothing to list`、`digest not sent try=N`、`digest not sent after N tries; given up`、`digest card redrawn message=… cleared=N`、`digest board sent`。
 
 ### 整理专项
 
 `COVEY_PROJECT_TIDY`（要专项开着；用户看到什么见[整理专项](usage.md#整理专项)，机制见[专项 · 整理专项](projects.md#整理专项)）：
 
-- `suggest`（只提议）：每轮结束时话题自己的模型更新话题要点；到实时时机、早晚汇总的时间点（`COVEY_DIGEST_TIMES`）、或主人手动叫时整理一次。能归进已有专项、把握很高的直接归，收起没事的专项也直接做；新建、合并、拆开、改名都发卡问，主人点了才做。
+- `suggest`（只提议）：每轮结束时话题自己的模型更新话题要点；到早晚汇总的时间点（`COVEY_DIGEST_TIMES`）或主人手动叫时整理一次（没写要点的话题在这时先补上）。没有实时归并：新话题、新专项该收进来的话题，都等下一次整理。能归进已有专项、把握很高的直接归，收起没事的专项也直接做；新建、合并、拆开、改名都发卡问，主人点了才做。
 - `auto`：再加新建专项也直接做（专项卡上留「不要专项」撤回）。主人在提议卡上点了「以后直接建」，效果和 `auto` 一样。
 - 不设或空：同 `suggest`。
 - `off`、`0` 或别的值，以及专项关着：关。没有后台线程、管家没有 `projects_tidy`、设置卡没有这一行、每轮的消息里没有话题要点那段，行为和原来一样。
 
 不设就是 `suggest`，新装的和老服务都一样（`core/switches.py` 的 `DEFAULTS` 记着各转正开关不设时的值，全部见[默认已开](#默认已开)）。要关，按[改开关三步](#改开关三步)设 `COVEY_PROJECT_TIDY=off`。
 
-可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_AGE_DAYS`（3，话题跨进第几天算一次实时时机）、`COVEY_PROJECT_TIDY_WORDS`（15，主人在话题里说到第几句算一次）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。补话题要点和判断都是一问一答，去[辅助模型](#辅助模型)选的地方：Claude Code 用 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），Codex 或 Antigravity 用账号自己的模型（不用它们的轻量模型，理由同上）。判断不了时整理卡写原因、用的是谁和下一步（「换辅助模型」「看诊断」）；补话题要点时遇到登录失效、额度用完这类模型那边的问题，不把话题标成“读不了”，整理在这里停下并说明。
+可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。补话题要点和判断都是一问一答，去[辅助模型](#辅助模型)选的地方：Claude Code 用 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），Codex 或 Antigravity 用账号自己的模型（不用它们的轻量模型，理由同上）。判断不了时整理卡写原因、用的是谁和下一步（「换辅助模型」「看诊断」）；补话题要点时遇到登录失效、额度用完这类模型那边的问题，不把话题标成“读不了”，整理在这里停下并说明。
 
 ### 记忆
 
@@ -283,42 +281,44 @@
 - 关着（`COVEY_MEMORY=0`）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`，设置卡没有「记忆」标签。
 - 开着时设置卡有一个「记忆」标签（`app/memory_panel.py`）：只看数、处理待审核、去网页。副标题是规矩、决定、资料、待审核各多少条，各范围一行计数；待审核每条“采纳”或“不要”（走网页记忆中心同一套 `review_decide`）；有网页（`COVEY_WEB=1` 且配了 `page_url`）时给“打开网页记忆中心”和“去网页逐条看”链接，没有时列出规矩的标题，每条能“收起”。常驻、工作区、下一轮带上什么都不在这里了，管理都去网页记忆中心。
 - 升为全局：飞书上已下线。答案卡上“记下了”那一行只有“不对”（有网页时多一个“改”，打开网页记忆中心）；要把一条提到更大的范围，到网页记忆中心做。旧卡片上点“升为全局”只回一句“升为全局已下线：到网页记忆中心把它提到更大的范围”，不改东西、不开任务。
-- 开着且[早晚汇总](#早晚汇总)也开着时，每天的晚间汇总多一节“你反复说的”（`app/memory_candidates.py`）：从那之前 24 小时里结束的普通话题（不读开了脱敏的话题、管家话题、代答话题，只读主人自己那一轮的原话里带纠正字眼的句子）找主人在两个以上话题里重复说的纠正，最多 3 条，每天看一次。分组用[辅助模型](#辅助模型)的轻量模型（最多 30 秒）；不用模型、用不了或调用失败时只按“几乎一样的话”分组。点「记下」才记成一条原则（来源话题都在一个工作区就记到那个工作区，否则通用），点「不用」以后不再提同一句；记录在 `<state>/memory-candidates.json`。日志：`memory candidates found=N via=model|rules sentences=N`、`memory candidates none: …`、`memory candidates judge failed reason=…`，不写原话。
+- 开着且[早晚汇总](#早晚汇总)也开着时，每天的晚间汇总时找一次“你反复说的”（`app/memory_candidates.py`，汇总卡上不再列）：从那之前 24 小时里结束的普通话题（不读开了脱敏的话题、管家话题、代答话题，只读主人自己那一轮的原话里带纠正字眼的句子）找主人在两个以上话题里重复说的纠正，最多 3 条，每天看一次。只按“几乎一样的话”分组，不调模型。找到的放进待审核（设置卡「记忆」页签、网页记忆中心），采纳才记成一条原则（来源话题都在一个工作区就记到那个工作区，否则通用），不要以后不再提同一句；旧版留在 `<state>/memory-candidates.json` 里的行照旧可读。日志：`memory candidates found=N sentences=N`、`memory candidates none: …`，不写原话。
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉。
-- 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`。
+- 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`、`memory line refused by the gate reason=… job=#…`。
 - `COVEY_MEMORY_LEARN=1`（只认 `1`，要 `COVEY_MEMORY` 开着）：记忆自己长，仍然默认关（[管家 · 记忆自己长](butler.md#记忆自己长开关默认关)）。关着时以下都没有，记忆和上面写的一字不差。
-  - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 45 秒，一次只问一轮）读一遍，引用核对过的长期要求直接记下：通用的、某个工作区的记成原则（`principles.json`，`source` 是 `memory_learn`），只对这件事的记到专项或话题；答案卡上照旧一行“记下了”带“不对”。不读：代答话题、负责人的话题、开了脱敏的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定。
-  - 用到才留：这一轮在检查点 `memory_used` 里写的编号和回复里提到的编号，记进 `<state>/memory-usage.json`；同一个范围放不下时最近用过的先带。
-  - 你反复说的：晚间汇总新找到的那几条先生效，标“它总结的”（主人的话和它冲突时让路），点「记下」才算你说的，点「不用」撤下；没点之前不会过期删掉。
-  - 整理记忆（`app/memory_tidy.py`，要早晚汇总）：晚间汇总时，每个在做的专项（每晚最多 4 个）里 30 天没用过的当前决定和待核对参考收起；整理用的模型（`COVEY_PROJECT_TIDY_MODEL`，默认 Sonnet）说哪些问的事已经办完、哪些被新回答替代，再从反复的选择里提炼最多 2 条约定（标“它总结的”，点「确认长期」才算你说的）。只收起不删除，卡上「撤销」放回去；30 天没用的候选也不再带。记录在 `<state>/memory-tidy.json`。
-  - 别处学到的（`app/memory_harvest.py`，要早晚汇总）：晚间汇总时只读一遍 Codex 的记忆摘要（`$CODEX_HOME/memories/memory_summary.md`）和各工作区 Claude Code 的自动记忆里 user、feedback 两类，有变化才问小模型，提出的放进汇总的“Codex 和 Claude Code 自己记的”一节，点「记下」才变成原则。不写 Harness 自己的文件。记录在 `<state>/memory-harvest.json`。
+  - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 45 秒，一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”。不读：代答话题、负责人的话题、开了脱敏的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
+  - 用到才留：这一轮在检查点 `memory_used` 里写的编号和回复里提到的编号，记进 `<state>/memory/usage.json`（旧的 `<state>/memory-usage.json` 只在整理记忆算闲置时一起读）；同一个范围放不下时最近用过的先带。
+  - 你反复说的：晚间汇总新找到的那几条进待审核，汇总卡不列；旧版标“它总结的”先生效的那几条不再新增。
+  - 整理记忆（`app/memory_tidy.py`，要早晚汇总，只按规则、不调模型）：晚间汇总时，每个在做的专项（每晚最多 4 个）里 30 天没用过的、问的事已经办完的、说的是别的专项的当前决定和待核对参考收起。只收起不删除，卡上「撤销」放回去；30 天没用的候选也不再带。以前的“被新回答替代”和“新约定”（含「确认长期」「不对」）已下线。记录在 `<state>/memory-tidy.json`。
+  - 别处学到的（`app/memory_harvest.py`，要早晚汇总）：晚间汇总时只读一遍各 Harness 的记忆文件，新的或变了的条目放进待审核（类型“导入”），不调模型，汇总卡上没有这一节。不写 Harness 自己的文件。记录在 `<state>/memory/imports.json`。
   - 查记忆：每轮的记忆块末尾多一行 `bin/covey_memory.py search` 的命令（设备上的话题没有），放不下的、收起的、答过的题都能查。
-  - 日志：`memory learned written=N of M job=#…`、`memory learn skipped reason=… job=#…`、`memory learn failed reason=… job=#…`、`memory lines used=N job=#…`、`memory tidy project=… put_away=N rules=N`、`memory harvest sources=N fresh=N added=N`，都不写原话。
+  - 日志：`memory learned written=N of M job=#…`、`memory learn skipped reason=… job=#…`、`memory learn failed reason=… job=#…`、`memory learn superseded …`、`memory learn dropped …`、`memory tidy project=… put_away=N`、`memory tidy undo run=…`、`memory import queued=N`、`memory import failed: …`，都不写原话。
 
 ### 辅助模型
 
-整理专项（判断、实时归并、补话题要点）、“我本来想找你的事”（`COVEY_PATROL`）、同时做几件事的分流和它的待命进程、晚间的“你反复说的”、记忆自己长、整理记忆和任务卡上的“看看”都是后台的一问一答：给一段 JSON，要一行 JSON，不用工具、不留会话，到点连进程组一起杀掉。它们只从一个出口出去（`app/assist.py`），由设置卡「配置」和网页设置页的**辅助模型**一项决定问谁（存在 `main-thread.json` 的 `assist`，旧版本读不到这个字段，回滚后这一项回到“自动”）：
+同时做几件事的分流、整理专项（判断，和整理时先补的话题要点）、记忆自己长是后台的一问一答：给一段 JSON，要一行 JSON，不用工具、不留会话，到点连进程组一起杀掉。它们只从一个出口出去（`app/assist.py`），由设置卡「配置」和网页设置页的**辅助模型**一项决定问谁（存在 `main-thread.json` 的 `assist`，旧版本读不到这个字段，回滚后这一项回到“自动”）：
 
 - **自动（跟随管家）**，默认：候选按这个顺序排，只取设置里出现过的 Harness：管家开着（`COVEY_BUTLER` 不是 `0`、私聊模式是管家）时管家的 Harness，再是新话题默认、专项负责人、独立复核里点名的 Harness；这些都没点名时用 Bridge 默认的 Harness。跟着谁就连它的供应商一起跟（管家在 Codex 的某个网关模型上，后台活也走那个网关）。过滤掉不能一问一答的（DeepSeek Harness 和扩展里没声明 `ask_once` 的 Harness）、现在用不了的（可用性检查的最近一次结果和最近一轮的失败，只读内存不读盘）、Antigravity 没登录或多账号都被挡住的、正在熔断的，用剩下的第一个。
 - **点名一个 Harness**：只用它。它没启用、用不了、在熔断，这次就不调模型，各功能走自己的退路，原因写清（“设置里选的 Codex 现在用不了（登录失效）”），**绝不换到别的 Harness**。点名的 Harness 下线了也照旧显示点名，不悄悄改回自动。
-- **不用模型（只按规则）**：后台活一律不调模型：分流按新开一件，整理卡写为什么，看看用规则那句，候选只按规则分组，巡逻不扣当天的次数。
+- **不用模型（只按规则）**：后台活一律不调模型：分流按新开一件；整理专项没有只按规则的整理，定时整理不跑（不再每天发一张注定失败的卡），你手动点的整理卡写为什么；记忆自己长开着时，主人说“以后/别再”由话题自己在检查点里记（和不开记忆自己长时一样）。
 
-模型不单列：轻的判断（分流、看看、巡逻、候选、记忆自己长）用这个 Harness 的轻量模型，整理类（整理专项、补话题要点、整理记忆）用重一档的：Claude Code 是 Haiku 和 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`）；Codex、Antigravity 轻的用目录里名字或说明写着轻量的第一个（Codex 如 `gpt-6-luna`；Antigravity 先找 Gemini 的 flash、lite，如 `gemini-3.8-flash`），最低一档思考，重的用账号自己的模型（Codex `medium`）。`COVEY_JUDGE_CODEX_MODEL`、`COVEY_JUDGE_AGY_MODEL` 可以指定。设置卡这一项下面一行写着现在实际用的是哪个。
+任务卡上的「看看」、晚间汇总的候选和整理记忆本来就只按规则，不调模型；实时归并、巡逻（“我本来想找你的事”）和分流的待命进程已下线（见 [legacy.md](legacy.md)）。
+
+模型不单列：轻的判断（分流、记忆自己长）用这个 Harness 的轻量模型，整理类（整理专项、补话题要点）用重一档的：Claude Code 是 Haiku 和 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`）；Codex、Antigravity 轻的用目录里名字或说明写着轻量的第一个（Codex 如 `gpt-6-luna`；Antigravity 先找 Gemini 的 flash、lite，如 `gemini-3.8-flash`），最低一档思考，重的用账号自己的模型（Codex `medium`）。`COVEY_JUDGE_CODEX_MODEL`、`COVEY_JUDGE_AGY_MODEL` 可以指定。设置卡这一项下面一行写着现在实际用的是哪个。
 
 **失败了怎么办**（原因码和 `core/result.py` 的 `ERROR_CODES` 同一套，三家各自的报错都先按它们正式轮次的分类认一遍，原话脱敏截断后只进日志和卡上，记录里只留原因码）：
 
-- 登录失效、额度用完、程序没起来、连不上模型服务、模型在账号里用不了：这个 Harness **熔断 15 分钟**，这段时间自动触发的后台活不找它（不影响正式话题）；你自己点的（✨ 整理、看看、管家的 `projects_tidy`）照样试一次，成功就解除。自动模式下这次会换下一个候选（一次最多两个）；**分流不换**，它在你消息的路上，只试一次，失败就按新开一件。
+- 登录失效、额度用完、程序没起来、连不上模型服务、模型在账号里用不了：这个 Harness **熔断 15 分钟**，这段时间自动触发的后台活不找它（不影响正式话题）；你自己点的（✨ 整理、管家的 `projects_tidy`）照样试一次，成功就解除。自动模式下这次会换下一个候选（一次最多两个）；**分流不换**，它在你消息的路上，只试一次，失败就按新开一件。
 - 超时、限流、模型服务临时故障：不熔断，不换家，过一会儿再试。
-- 被官方内容安全拦了：不换下一家（同样的内容不再发给你的另一个账号）。整理判断、整理记忆、晚间候选这类整批的，这个 Harness 对这一项 **6 小时内不再送**，卡上说明并给「换辅助模型」；回填一个话题、实时归并、记忆自己长这类单条的，只记这一条。同一个 Harness 一天被拦到 3 次，当天后台不再找它。
+- 被官方内容安全拦了：不换下一家（同样的内容不再发给你的另一个账号）。整理判断这类整批的，这个 Harness 对这一项 **6 小时内不再送**，卡上说明并给「换辅助模型」；补一个话题的要点、记忆自己长这类单条的，只记这一条。同一个 Harness 一天被拦到 3 次，当天后台不再找它。
 - 你改了辅助模型，熔断和冷却立即清空。
 
-熔断、冷却、当天被拦次数和每项后台活的最近一次（功能、用了谁、模型、结果、原因码、耗时、时间，不存原话）加锁写在 `<state>/assist-state.json`，重启不丢；网页设置页的“后台活最近一次”读它，它一变就推（`app/web_settings.py` 的 `stamps`）。
+熔断、冷却、当天被拦次数和每项后台活的最近一次（功能、用了谁、模型、结果、原因码、耗时、时间，不存原话）加锁写在 `<state>/assist-state.json`，重启不丢；网页设置页的“后台活最近一次”读它，它一变就推（`app/web_settings.py` 的 `stamps`）。这张表只有三行：分流、整理专项（补话题要点记在这一行）、记忆自己长（`app/assist.py` 的 `SHOWN`）；旧版本记下的其他行不再列出。
 
-**说了不用就不用**：所有后台活只能经 `app/assist.py`（`tests/test_structure.py` 的 `AssistExitTest` 封住直接调 `track_judge` 的 `ask`/`judge`/`warm`、`track_standby` 和后端的 `ask_once`）；起进程前出口再按当时的设置核一遍，不在允许的范围里就拒绝并记一行 `assist refused harness=… feature=…`；`tests/test_assist.py` 一格一格核对 Harness × 设置 × 功能，点名 Codex 和不用模型时 Claude Code 起进程（含待命进程）的次数是 0。
+**说了不用就不用**：所有后台活只能经 `app/assist.py`（`tests/test_structure.py` 的 `AssistExitTest` 封住直接调 `track_judge` 的 `ask`/`judge` 和后端的 `ask_once`）；起进程前出口再按当时的设置核一遍，不在允许的范围里就拒绝并记一行 `assist refused harness=… feature=…`；`tests/test_assist.py` 一格一格核对 Harness × 设置 × 功能，点名 Codex 和不用模型时 Claude Code 起进程的次数是 0。
 
-**分流的待命进程**：只有分流开着、辅助模型算出来是 Claude Code，而且没有扩展包住 Claude Code 的轮次（如 covey-internal 的协议归一中继 `COVEY_CLAUDE_CLI_NORMALIZE=1`）时才起；设置一改走（辅助模型、管家的 Harness、私聊模式、自动跟随的那几项），待命进程立即关掉，之前在跑的判断也不会再把它拉起来。扩展的 `claude_turn` 钩子（中继）也包住后台的一次性 Claude Code 调用：它的地址合进 `--settings`，hook 照旧关着。
+**每问现起一个进程**：问之间不留任何进程（以前分流的待命进程每条管家消息都先用一次真实调用热身，已删）。扩展的 `claude_turn` 钩子（如 covey-internal 的协议归一中继 `COVEY_CLAUDE_CLI_NORMALIZE=1`）也包住后台的一次性 Claude Code 调用：它的地址合进 `--settings`，hook 照旧关着。
 
-**慢**：Codex、Antigravity 每问都要起一次命令行，实测一次 6 到 15 秒，所以分流在这里最多等 10 秒（`COVEY_TRACK_JUDGE_MS` 设了就按它），超时按新开一件，这段时间这句话等着分流。嫌慢就把辅助模型选成 Claude Code（有待命进程，一般 1 到 3 秒）。
+**慢**：Claude Code 冷启动一问约 3.4 秒，分流最多等 6 秒；Codex、Antigravity 每问都要起一次命令行，实测一次 6 到 15 秒，分流在这里最多等 10 秒（`COVEY_TRACK_JUDGE_MS` 设了就按它）。超时按新开一件，这段时间这句话等着分流。
 
 `COVEY_TRACK_JUDGE=off` 或 `cmd:/absolute/path` 比这一项优先，只管分流，和以前一样。脱敏话题的内容哪里都不送；日志只记原因、毫秒和问的是谁（`via=claude|codex|agy`），不记你的原话。
 
@@ -331,7 +331,7 @@
 - 只给新会话的规则，续接的轮次不带，所以一个会话的规则不会跟着别的话题变。
 - 只在主人自己的一轮、普通话题里带；管家的话题、代答话题不带。只看同一个聊天的话题：群里的话题不会读到私聊的要点，反过来也一样。开了脱敏的话题的要点只给开了脱敏的话题。
 - 话题要点是整理专项（`COVEY_PROJECT_TIDY`）开着时每轮写的；没有要点的话题跳过，所以整理专项关着时这一块总是空的。只看最近 14 天有过任务的话题。
-- 设成 `0`：规则和没有这个功能时逐字相同。设置卡「能做什么」里有这一行。
+- 设成 `0`：规则和没有这个功能时逐字相同。设置卡「诊断」页下半的“能做什么”里有这一行。
 
 ### 知识条目与历史搜索
 
@@ -498,7 +498,7 @@
 | `COVEY_GROUP_ALL_MESSAGES` | `app/access.py`（`free_talk_on`；群聊卡 `app/group_manager.py` 经它） | 关；`1` 开（还要应用开通 `im:message.group_msg`） | 否 |
 | `COVEY_GROUP_MEMBERS` | `app/access.py`（`members_default`；群聊卡、启用确认卡和 `app/tool_limits.py` 经它） | `full`：没在群聊卡上选过的群，群成员的任务和你的一样；`read`：这些群的群成员任务只读（见[群成员只读](#群成员只读)） | 否 |
 | `COVEY_DIGEST_TIMES` | `app/digest.py`、`core/app_manifest.py`（菜单「看板」不看它，每个部署都要）、`app/tidy_run.py`（`scheduled`：整理专项的定时也按这些时间）、`core/quiet_hours.py`（`COVEY_QUIET_HOURS` 没设时，夜里是最后一个时间到第一个时间） | 空：`09:30,21:30`；写了时间就用写的；`off`（也认 `0`、`no`、`none`、`false`）：不发早晚汇总，整理专项也没有定时的一次 | 否 |
-| `COVEY_REVISIT` | `core/revisits.py`（`enabled`：`app/revisits.py` 的 `revisits` 后台线程、`app/runs.py` 普通话题每轮的规则行、`app/digest.py` 看板的“到点回来看”一组都看它；任务进程里 `app/turn_delivery.py` 据此决定没有变化的那一轮不发；`app/revisit_hint.py` 据此决定说了稍后的答案卡下面有没有「约 30 分钟后回来看」，提示那一行不看开关） | 开；`0`、`off`、`false`、`no` 关：检查点里的 `revisit` 不读，不写 `revisits/`，和没有这个功能时一样。见[到点回来看](usage.md#到点回来看) | 否 |
+| `COVEY_REVISIT` | `core/revisits.py`（`enabled`：`app/revisits.py` 的 `revisits` 后台线程、`app/runs.py` 普通话题每轮的规则行、`app/digest.py` 看板的“到点回来看”一组都看它；任务进程里 `app/turn_delivery.py` 据此决定没有变化的那一轮不发） | 开；`0`、`off`、`false`、`no` 关：检查点里的 `revisit` 不读，不写 `revisits/`，和没有这个功能时一样。见[到点回来看](usage.md#到点回来看) | 否 |
 | `COVEY_COLLAB` | `core/turn_source.py`（`enabled`：`refusal` 据此决定协作轮跑不跑；问它的有 `app/job_dispatch.py` 的 `refuse_source`，`app/worker.py` 开跑前）、`app/collab_flow.py`（线程、规则行、检查点的 `collab_ask`）、`app/collab_checks.py`（预检）；负责人这一侧也问 `turn_source.enabled`：`app/project_lead.py`（协作职责规则、状态包的简报和目标检查表和缺口、记忆条目 id、收件箱分组）、`app/project_tools.py`（`project_checklist`、`project_goal` 的背景、`project_topic_start` 和 `project_topic_send` 的 `action`、`item`、`project_finish` 的 `checklist_gate`；`project_answer` 的依据不看它，总是核对）、`app/project_loop.py`（回执合批、收尾回执的检查表一句）；`core/butler.py`（`mcp_config` 只在负责人的任务里把它交给 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`：据此列 `project_checklist`、另几个工具多简报的可选参数；`project_answer` 总要 `evidence`） | 关：不派发协作轮、不起线程、不加规则行，负责人的规则、状态包、工具和收尾都和原来一样；`1`：Bridge、任务进程、后端三方都支持时派发（见[多参与者协作](architecture.md#多参与者协作开发中默认关)），负责人对照目标检查表跟进、写项目简报（见[负责人对照目标跟进](projects.md#负责人对照目标跟进)；替主人答题要写依据，开不开都一样） | 否 |
 | `COVEY_COLLAB_QUEUE_SECONDS` | `core/collab_records.py`（`queue_seconds`：一次咨询等接收方空出来的时限） | 600 | 否 |
 | `COVEY_COLLAB_WINDOW_SECONDS` | `core/collab_records.py`（`window_seconds`：一次协作的整个时限，到了没答复的咨询到期） | 1800 | 否 |
@@ -517,7 +517,7 @@
 | `COVEY_STEER_URGENT_SECONDS` | `app/steer_interrupt.py`（`urgent_seconds`，任务进程和 Bridge 都读） | `20`：急的补充（带“马上”“立刻”“停”“过期”这类词）送达这么多秒还没被读到，就停掉模型正在等的那条命令（推送、部署这类不停），见[架构 · 补充投递](architecture.md#补充投递)；`0` 关自动打断，回执卡上的“打断它，马上读”照常 | 否 |
 | `COVEY_LEDGER_RECONCILE` | `app/owner_ledger.py`（`every`：`threads()` 据此起 `owner-ledger` 后台线程，两次对账之间的秒数） | 300：每 5 分钟对一次账，把没到聊天里的问题卡补发（最多 3 次，见[架构 · 等主人的账](architecture.md#等主人的账)）；`0` 关：不起线程、不写 `owner-ledger.json`，各处计数和原来一样 | 否 |
 | `COVEY_SOURCE_WATCH` | `app/source_watch.py`（`enabled`：`note` 据此登记主人的消息，`threads()` 据此起 `source-watch` 后台线程） | 开：主人撤回或编辑了变成任务或补充的消息，任务随之停下或收到改后的内容（见[架构 · 撤回与编辑](architecture.md#撤回与编辑)）；`0` 关：不读回消息，和原来一样按收到时的原文做 | 否 |
-| `COVEY_QUIET_HOURS` | `core/quiet_hours.py`（`window`、`quiet`：`app/tidy_proposals.py` 的 `propose` 夜里先不发实时判断的提议卡、`release` 早上发，`app/node_alerts.py` 的 `deliver_all` 夜里不发不严重的告警） | 空：按 `COVEY_DIGEST_TIMES` 从最后一个时间到第一个时间（默认的 `09:30,21:30` 是 21:30 到 09:30；只有一个时间或汇总关了时没有夜里）；`HH:MM-HH:MM` 设定时段（Asia/Shanghai，含开始、不含结束）；`off` 或 `0`（或写错）：没有，每张卡马上发（以前的做法） | 否 |
+| `COVEY_QUIET_HOURS` | `core/quiet_hours.py`（`window`、`quiet`：`app/tidy_proposals.py` 的 `release` 早上补发旧版本夜里扣下的提议卡，`app/node_alerts.py` 的 `deliver_all` 夜里不发不严重的告警） | 空：按 `COVEY_DIGEST_TIMES` 从最后一个时间到第一个时间（默认的 `09:30,21:30` 是 21:30 到 09:30；只有一个时间或汇总关了时没有夜里）；`HH:MM-HH:MM` 设定时段（Asia/Shanghai，含开始、不含结束）；`off` 或 `0`（或写错）：没有，每张卡马上发（以前的做法） | 否 |
 | `COVEY_RELAY_MERGE_SECONDS` | `app/relay_send.py`（`merge_seconds`、`send_merged`；`app/butler_relay.py` 的 `relay` 只对“完成”的回带用它） | 20：“完成”的回带发出时聊天里还有别的话题的任务在跑、在排队，或已有回带在等，就等这么多秒，期间等着的合成一条「N 个话题做完了」；没有别的在做时照旧马上发。`0`：关，每条马上发（以前的做法）；0 到 45 以外和非整数按 20 | 否 |
 | `COVEY_QUICK_ANSWER_SECONDS` | `app/submission.py`（`quick_seconds`、`quick_hold`：话题里的追问先不发任务卡，存进任务的 `card_after`；`app/cards.py` 的 `Cards.reveal` 到点或第一步时发卡，`app/worker.py` 答完时只发答案卡） | 10：话题里的追问（飞书话题串里或网页上说的）最多这么多秒不发任务卡，期间有了第一步（工具调用、进展说明、子任务）或问问题就发；这几秒内只答了话的只发答案卡，见[卡片 · 追问只发答案卡](cards.md#追问只发答案卡)。`0`：关，每轮先出任务卡（以前的做法）；0 到 120 以外和非整数按 10 | 否 |
 | `COVEY_TOPIC_STEER` | `core/deliveries.py`（`topic_steer`：`app/submission.py` 的 `steers_on_arrival` 据此决定话题里的消息进不进在跑的任务，`app/detached.py` 据此在任务进程结束后、Bridge 启动时把没读到的补成新一轮） | 开：话题里任务在跑时发来的消息自动补充给那个任务（和点排队卡上的「现在补给 #N」一样，只送一次），没发出就照旧排成下一轮，确定模型没读到的自动排成新一轮，见[架构 · 补充投递](architecture.md#补充投递)；`0` 关：和原来一样排成下一轮，要补充时点排队卡上的按钮 | 否 |
@@ -527,15 +527,13 @@
 | `COVEY_BUTLER_TRACKS_MAX`（旧名 COVEY_MAIN_TRACKS_MAX、LARK_BRIDGE_MAIN_TRACKS_MAX） | `core/butler_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
 | `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS` 开着才会问） | `claude`（默认，名字沿用旧的）：问[辅助模型](#辅助模型)选的那个；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一件 | 否 |
-| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py`（`limit_ms`） | 3000：小模型硬上限（毫秒，200 到 10000），超过按新开一件；问的是 Codex 或 Antigravity 自己的命令行时不设默认 10000（它们一次要 6 到 12 秒），设了就按设的 | 否 |
+| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py`（`limit_ms`） | 6000：小模型硬上限（毫秒，200 到 10000），超过按新开一件（Claude Code 冷启动一问约 3.4 秒）；问的是 Codex 或 Antigravity 自己的命令行时不设默认 10000（它们一次要 6 到 12 秒），设了就按设的 | 否 |
 | `COVEY_JUDGE_CODEX_MODEL` | `backends/codex/judge.py`（`choose`：辅助模型是 Codex 时用的模型） | 空：轻量的判断用账号模型目录里 id 或说明写着轻量的第一个（如 `gpt-6-luna`），最低一档思考；整理专项用 Codex 自己的默认模型、`medium`。写一个目录里有的模型 id 就都用它（目录里没有的不用） | 否 |
 | `COVEY_JUDGE_AGY_MODEL` | `backends/agy/judge.py`（`choose`：辅助模型是 Antigravity 时用的模型） | 空：轻量的判断先找保存的模型目录里 Gemini 名字带 flash、lite 的第一个（如 `gemini-3.8-flash`），没有再找其他轻量词，最低一档；整理专项用 agy 自己的默认。写一个 `agy models` 列出的 id（带档位，如 `gemini-3.8-flash-low`）就都用它 | 否 |
 | `COVEY_AGY_EAGER_BYTES` | `backends/agy/home.py`（`eager_room`：管家和专项负责人跑在 Antigravity 上时，Bridge 的工具里预先加载的最多占多少字节，按描述加参数 schema 算；其余只在 agy 的提示里列名字，用到时模型先读说明再调）、`backends/agy/bridge.py`（`left_out` 的日志提到它） | 15000：交给话题的工具和其余常用的都预先加载，原则、知识条目、历史搜索这些排最后；`0`：全部只列名字。agy 的日志警告说丢了 Bridge 工具时调小 | 否 |
 | `COVEY_AGY_ACCOUNTS` | `backends/agy/accounts.py`（`config_path`：每轮 agy、诊断 `service/doctor.py` 的 `agy_row`、升级检查 `service/plugins.py` 的 `agy_switching` 读多账号配置在哪） | 数据根的 `agy-accounts.json`；写了两个及以上的号才开 agy 多账号，见 [quota.md agy 多账号](quota.md#agy-多账号) | 否 |
 | `AGY_ACCOUNTS_DIR` | `backends/agy/account_homes.py`（`accounts_dir`：终端命令 `agy-as` 把账号目录建在哪） | `~/.agy-accounts` | 否 |
 | `AGY_CMD` | `backends/agy/account_homes.py`（`main`：`agy-as` 运行哪个 agy） | `agy`（PATH 上的） | 否 |
-| `COVEY_TRACK_JUDGE_WARM` | `app/track_judge.py`（`warm_enabled`；`Tracks.handle` 经 `warm` 调用，进程在 `app/track_standby.py`） | 空：开，收到管家消息时提前起好一个待命的 Claude Code 进程（空闲 10 分钟或 Bridge 停止时结束）；`0`、`off`、`false`、`no` 关，每次现起，慢约 1 秒 | 否 |
-| `COVEY_TRACK_JUDGE_HEDGE` | `app/track_judge.py`（`hedge`；`warm` 据此多留几个待命进程，`judge` 同时问它们，进程在 `app/track_standby.py`） | 2：同一问同时交给几个待命进程（1 到 3），第一个能用的答案算数；只在待命开着、通道是 `claude` 时有用 | 否 |
 | `COVEY_TRACK_JUDGE_SLIM` | `app/track_judge.py`（`slim_enabled`，给小模型的 Claude Code 命令行多两个选项） | 空：开，小模型的 Claude Code 带 `--setting-sources user --disable-slash-commands`，不读项目设置和技能清单；`0`、`off`、`false`、`no` 关 | 否 |
 | `COVEY_BUTLER_STATE`（旧名 COVEY_MAIN_STATE、LARK_BRIDGE_MAIN_STATE） | `core/butler_mcp.py`、（管家任务的 MCP 配置写进去，告诉工具服务 Bridge 的状态目录） | 无；缺了每次调用都回错误 | 否 |
 | `COVEY_BUTLER_JOB`（旧名 COVEY_MAIN_JOB、LARK_BRIDGE_MAIN_JOB） | `core/butler_mcp.py`（管家任务的任务键，Bridge 据此核对调用） | 无；缺了每次调用都回错误 | 否 |
@@ -543,26 +541,15 @@
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要专项开着）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞，关着时不叫醒谁的专项照常空闲收起）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`：没开时 `project_topic_start` 的说明写话题结束不会叫醒负责人） | 空：开，话题一轮结束、主人在专项的话题里说话、停滞提醒也唤醒负责人，并开停滞检查；`0`、`off`、`false`、`no` 关：只有专项的第一条回执唤醒负责人。见[架构 · 专项](architecture.md#专项) | 否 |
 | `COVEY_PROJECT_MEMORY` | `core/projects.py`（`memory_enabled`，要专项开着）、`app/project_context.py`（专项的话题开工带上记忆和资料库索引、主人答专项的问题卡记一条决定、主人发给负责人的文件和各话题的产物、交付进资料库）、`app/project_lead.py`（`library_index`：状态包的资料库）、`app/runs.py`（`bridge_rules`、`_with_rules` 取专项块） | 空：开，专项的话题开工带上专项记忆和资料库索引，主人的回答记成决定，主人发的文件和话题的产物进资料库；`0`、`off`、`false`、`no` 关：专项的话题开工不多带东西、不自动记、不收资料库。见[专项记忆与资料库](projects.md#专项记忆与资料库) | 否 |
 | `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py` | 空：开，原则、知识条目、专项记忆、话题记忆拼成一块“记忆”，主人说的长期要求一轮结束后记下；`0`、`off`、`false`、`no` 关：规则、续接提醒和答案卡与没有这个功能时逐字相同。见[记忆](#记忆) | 否 |
-| `COVEY_MEMORY_LEARN` | `core/memory.py`（`learning`，要 `COVEY_MEMORY=1`）；用它的：`app/memory_turn.py`（带上候选、查记忆的命令，不带“以后/别再”那句）、`app/memory_learn.py`（每轮之后读主人的话、记用到的编号）、`app/memory_candidates.py`（新候选先生效）、`app/memory_panel.py`、`app/digest.py`（整理记忆、别处学到的） | 空：关，记忆和没有它时一样；`1`：记忆自己长，见[记忆](#记忆) | 否 |
-| `COVEY_WORKSPACE_GISTS` | `app/workspace_gists.py`（`count`；`app/runs.py` 的 `Runs.bridge_rules` 只在新会话的规则里放这一块）、`app/about_panel.py`（设置卡「能做什么」那一行） | 空：3；`1` 到 `10`：同一聊天、同一工作区新开的话题，第一轮的规则带上这个工作区最近这么多个别的话题的[话题要点](projects.md#整理专项)（要点要整理专项开着才会写）；只在主人自己的一轮、普通话题里带，脱敏话题的要点只给脱敏话题；`0` 或别的值：关，规则和没有这个功能时逐字相同。见[新话题带上最近话题的要点](#新话题带上最近话题的要点) | 否 |
+| `COVEY_MEMORY_LEARN` | `core/memory.py`（`learning`，要 `COVEY_MEMORY=1`）；用它的：`app/memory_turn.py`（带上候选、查记忆的命令；辅助模型不是“不用模型”时不带“以后/别再”那句）、`app/memory_learn.py`（每轮之后读主人的话、记用到的编号）、`app/memory_panel.py`、`app/digest.py`（整理记忆） | 空：关，记忆和没有它时一样；`1`：记忆自己长，见[记忆](#记忆) | 否 |
+| `COVEY_WORKSPACE_GISTS` | `app/workspace_gists.py`（`count`；`app/runs.py` 的 `Runs.bridge_rules` 只在新会话的规则里放这一块）、`app/about_panel.py`（设置卡「诊断」页下半“能做什么”的那一行） | 空：3；`1` 到 `10`：同一聊天、同一工作区新开的话题，第一轮的规则带上这个工作区最近这么多个别的话题的[话题要点](projects.md#整理专项)（要点要整理专项开着才会写）；只在主人自己的一轮、普通话题里带，脱敏话题的要点只给脱敏话题；`0` 或别的值：关，规则和没有这个功能时逐字相同。见[新话题带上最近话题的要点](#新话题带上最近话题的要点) | 否 |
 | `COVEY_PROJECT_TRIAGE` | `core/triage.py`（`enabled`，要专项开着）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`）、`app/triage.py`、`app/project_loop.py`（`ProjectLoop.tick` 扫扣住的问题） | 空：开，选择题先交给负责人，3 分钟内它能替主人答的就答，其余才发问题卡；`0`、`off`、`false`、`no` 关：专项的话题的问题直接发给主人。见[专项的问题分流](projects.md#专项的问题分流) | 否 |
 | `COVEY_PROJECT_BUDGET` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 空：没有上限，专项不会因为 token 停住；正整数：一个专项的 token 合计（负责人和各话题，缓存算在输入里）到了就停住（`state_reason` 是 `tokens`） | 否 |
 | `COVEY_PROJECT_TOKENS` | `core/projects.py`（`token_limit`） | `COVEY_PROJECT_BUDGET` 的旧名，它没设时才读。名字里有 TOKEN，服务清单把它当成密钥不保存，重新 `launch` 带不进去：要设上限用 `COVEY_PROJECT_BUDGET` | 否 |
 | `COVEY_PROJECT_ASK` | `core/projects.py`（`ask_enabled`，要专项开着）、`app/project_loop.py`（`ProjectLoop.pause`）、`app/project_cards.py`（`ProjectCards.ask`、`ask_choice`） | 空：开，护栏停住的专项再发一张卡问 继续 / 收尾 / 停；`0`、`off`、`false`、`no` 关：只在专项卡上写“停住 · 原因” | 否 |
 | `COVEY_PROJECT_STALL_SECONDS` | `core/projects.py`（`stall_seconds`）、`app/project_loop.py`（`ProjectLoop.stall`） | 1800：专项有负责人能推动的事却这么多秒没进展，提醒负责人一次，再过同样久就停住 | 否 |
 | `COVEY_PROJECT_IDLE_DAYS` | `core/projects.py`（`idle_days`）、`app/project_loop.py`（`ProjectLoop.rest`）、`app/project_cards.py`（`ProjectCards.fold`） | 7：专项没有要做的事、主人也这么多天没提它，就收起（专项卡缩成一行）；主人对它说话或管家交给它新的事时自动展开。可以写小数 | 否 |
-| `COVEY_PATROL` | `core/patrol.py`（`mode`）、`app/patrol.py`、`app/digest.py` | 空：关。`shadow`：只记不打扰；`on` 现在同 `shadow`；其他值都是关 | 否 |
-| `COVEY_PATROL_ASK_MINUTES` | `core/patrol.py`（`number`） | 120：问题等主人这么多分钟算久（1 到 10080）；试用时调小，如 `3` | 否 |
-| `COVEY_PATROL_UNSEEN_MINUTES` | `core/patrol.py`（`number`） | 360：做完的结果这么多分钟没看算久（1 到 10080） | 否 |
-| `COVEY_PATROL_STALL_MINUTES` | `core/patrol.py`（`number`） | 180：在做的任务记录这么多分钟没变算没动静（1 到 10080） | 否 |
 | `COVEY_PROGRESS_STUCK_MINUTES` | `core/progress.py`（`stuck_seconds`）、`core/longtask.py`（`TaskMonitor`） | 30：在跑的一轮这么多分钟没有任何动静就算“可能卡住了”：任务卡状态行、看板、汇总里这么写，状态行下出「看看」按钮。1 到 1440 | 否 |
-| `COVEY_PATROL_FAILS` | `core/patrol.py`（`number`） | 2：同一个话题连着失败几次算（2 到 20） | 否 |
-| `COVEY_PATROL_PROJECT_MINUTES` | `core/patrol.py`（`number`） | 720：专项有事没人动这么多分钟算（1 到 43200） | 否 |
-| `COVEY_PATROL_RELAY_MINUTES` | `core/patrol.py`（`number`） | 10：话题做完这么多分钟后，该回聊天区的结论还没确认发出就记一条 `unrelayed`（1 到 1440；只记，不交给小模型） | 否 |
-| `COVEY_PATROL_TICK_SECONDS` | `core/patrol.py`（`number`） | 60：规则看一次记录的间隔，秒（5 到 3600） | 否 |
-| `COVEY_PATROL_JUDGE_MINUTES` | `core/patrol.py`（`number`） | 30：小模型两次调用的间隔，分钟（1 到 1440）；试用时设 `1` | 否 |
-| `COVEY_PATROL_DAILY_CALLS` | `core/patrol.py`（`number`） | 48：小模型一天最多调几次（1 到 1000） | 否 |
-| `COVEY_PATROL_JUDGE_MS` | `core/patrol.py`（`number`） | 30000：小模型一次调用的硬上限，毫秒（1000 到 120000） | 否 |
 | `COVEY_WEB` | `core/web_sync.py`（`enabled`）、`core/web_backup.py`（`snapshot`）、`app/web_sync.py`（`WebSync.threads`） | 空：关。`1`：开网页工作台同步，`web-push`、`web-pass`、`web-inbox`、`web-touch`、`web-reread` 五条线程（网页操作另在各自车道的短线程里做）；要同时设 `COVEY_WEB_CONFIG` | 否 |
 | `COVEY_WEB_CONFIG` | `core/web_sync.py`（`load_config`）、`core/web_backup.py`（`snapshot`）、`app/web_push_client.py`（`config_stamp`：文件变了才重读） | 空。指向一个 JSON：`base_url`（`https://`，或本机回环的 `http://127.0.0.1:端口`、`http://localhost`、`http://[::1]` 供自托管用，其他 `http://` 拒绝）、`key_file`（只从这个文件读密钥）、`push_seconds`（默认 1）、`poll_seconds`（默认 0.5）、`direct`（可选，`true` 时连网页不走环境变量里的 https 代理）；文件缺了或写错只记一行失败、退避重试 | 否 |
 | `COVEY_WEB_SELFHOST` | `service/web_selfhost.py`（`enabled`、`spec`、`wanted`）、`service/doctor.py`（体检）、`core/web_backup.py`（`snapshot`）、`service/manager.py`（`Manager.ensure_selfhost`） | 空：关，Manager 不起线程、不起进程。`1`：Manager 拉起自托管网页进程 `node <COVEY_WEB_SELFHOST_DIR>/server/selfhost/main.js`（`node` 按服务清单的 `PATH` 找），只监听 `127.0.0.1`，挂了按服务的退避重启，Manager 退出时整组回收（Manager 被强杀时网页进程发现父进程不在了自己退出）；要同时设 `COVEY_WEB_SELFHOST_DIR`，Bridge 一侧另要 `COVEY_WEB=1` 和 `COVEY_WEB_CONFIG`（`python3 -B -m covey.service.web_selfhost` 一次备好） | 否 |
@@ -575,9 +562,7 @@
 | `COVEY_PROJECT_TIDY` | `core/project_proposals.py`、`app/project_tidy.py`、`app/runs.py`、`core/butler.py`、`core/butler_tool_specs.py`、`app/web_sync.py`、`app/butler_panel.py` | 空或 `suggest`：只提议（能归进已有专项的直接归，新建要主人点）；`auto`：新建也直接做；`off`、`0` 或别的值，以及专项关着：关。见[整理专项](#整理专项) | 否 |
 | `COVEY_PROJECT_TIDY_MODEL` | `core/project_proposals.py`（`model`）、`app/project_sorter.py`（`ask`） | `sonnet`：补话题要点和整理判断用的 Claude Code 模型别名或 id；写错按默认 | 否 |
 | `COVEY_PROJECT_TIDY_DAYS` | `core/project_proposals.py`（`number`） | 7：整理看最近几天有过一轮的话题（专项里的话题不论多久都看） | 否 |
-| `COVEY_PROJECT_TIDY_AGE_DAYS` | `core/project_proposals.py`（`number`） | 3：话题开了这么多天后又有一轮结束，算一次实时时机（每个话题一次） | 否 |
-| `COVEY_PROJECT_TIDY_WORDS` | `core/project_proposals.py`（`number`） | 15：主人在话题里说到这么多句（他开的轮数），算一次实时时机（每个话题一次） | 否 |
-| `COVEY_PROJECT_TIDY_MIN_TOPICS` | `core/project_proposals.py`（`number`）、`app/tidy_realtime.py`（`Realtime.handle`）、`app/tidy_run.py`（`start`） | 5：聊天里的话题少于这个数时不整理（实时、定时、手动都不） | 否 |
+| `COVEY_PROJECT_TIDY_MIN_TOPICS` | `core/project_proposals.py`（`number`）、`app/tidy_run.py`（`start`） | 5：聊天里的话题少于这个数时不整理（定时、手动都不） | 否 |
 | `COVEY_PROJECT_TIDY_JUDGE_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`judge`） | 90：一次判断调用的硬上限，秒；超了这次判断作废，什么都不改 | 否 |
 | `COVEY_PROJECT_TIDY_READ_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`backfill`） | 60：补一个老话题的要点那次调用的上限，秒；超了只跳过这个话题 | 否 |
 | `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_DISPATCH_CARD=1`） | 空或 `butler`：管家转话时带了 `project`，派发卡就静默转成专项（`word` 是旧值，同 `butler`）；`auto`：再加该话题来回到第 3 轮（管家开这个话题算第 1 轮）；`off` 或别的值：不转成专项。同时最多 50 个活专项，满了先收起最久没动静的一个（[专项可长可短](projects.md#专项可长可短)） | 否 |

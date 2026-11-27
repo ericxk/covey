@@ -14,7 +14,7 @@ record written but the gists the backfill reads (core/topic_gist.py); app/projec
 - ``judge``: one call over the projects (name, goal, state, their topics' essences) and the topics (``material``), with the
   owner's lessons (the reasons he gave for 不用 and 移出) as rules: the answer is a list of suggestions (core/project_proposals.py
   KINDS). The model may first ask to read up to READ_MAX topics in full (``read``): they are given with READ_CHARS each and it is
-  asked once more, its last answer taken. ``focus`` (a real-time 整理): only suggestions about that topic count.
+  asked once more, its last answer taken.
 
 Both calls go out through the 辅助模型 (app/assist.py ask, ``Where`` says which of its features and whether the owner asked):
 no tools, MCP servers, hooks or saved session, killed past the limit; Claude Code is asked for COVEY_PROJECT_TIDY_MODEL
@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 
 from covey.app import assist, track_judge
-from covey.app.track_standby import Failed
+from covey.app.track_judge import Failed
 from covey.core import assist as reasons
 from covey.cards.review import answer_lead
 from covey.core import project_proposals as proposals
@@ -57,7 +57,7 @@ JUDGE_SYSTEM = (
     "你替一位用户整理他交给助理的事。输入是一个 JSON：projects（他已有的专项：index、name、goal、state、topics 里各话题的本质）、"
     "topics（最近的话题：index、label、title、gist 话题要点、owner 他在话题里说过的话、conclusions 每轮结论的第一段、"
     "project 所在专项的 index、days 开了几天、turns 他说了几次、workspace、repos 他在话题里用到的仓库名，只有声明过仓库的话题才有，从主目录开的话题没有工作区）、lessons（他以前说过的整理规则，以它为准）、"
-    "focus（只整理这一个话题时它的 index，否则为 null）、scope（只整理和这个词有关的，空就是全部）、full（你要求全文的话题）。"
+    "scope（只整理和这个词有关的，空就是全部）、full（你要求全文的话题）。"
     "专项是一个具体的目标：分几个话题、跨几天推进，有说得出的终点（做到什么就算完）。一次性的总结、查询、验收测试、闲聊都不算专项，"
     "反复出现也只是同一类事，不是同一件事。长期值守、日常运维、没有终点的事不建专项。只有一个话题的不建专项（至少两个话题是同一个目标）。"
     "不要按大主题把沾边的话题都塞进一个筐（比如“完善某产品”）：按具体目标拆开，一个专项一个终点；一个话题只在它真正服务这个目标时才放进来，"
@@ -159,8 +159,8 @@ def hidden(state, topic) -> bool:
 
 @dataclasses.dataclass(frozen=True)
 class Where:
-    """Where a call of 整理专项 goes (app/assist.py): the Bridge's ``topics``, the ``feature`` (assist TIDY, REALTIME,
-    BACKFILL) and whether the owner asked for this 整理 (``manual``: ✨ 整理, the butler's projects_tidy)."""
+    """Where a call of 整理专项 goes (app/assist.py): the Bridge's ``topics``, the ``feature`` (assist TIDY or BACKFILL) and
+    whether the owner asked for this 整理 (``manual``: ✨ 整理, the butler's projects_tidy)."""
     topics: object
     feature: str = assist.TIDY
     manual: bool = False
@@ -302,13 +302,12 @@ def topic_row(index, item, project_index, full=False) -> dict:
     return row
 
 
-def payload(state, records, items, *, focus=None, scope="", lessons=(), full=None) -> dict:
+def payload(state, records, items, *, scope="", lessons=(), full=None) -> dict:
     by_id = {item.topic: item for item in items}
     project_index = {record["id"]: index for index, record in enumerate(records, 1)}
     topics = [topic_row(index, item, project_index, full=bool(full) and item.topic in full)
               for index, item in enumerate(items, 1)]
     return {"projects": project_rows(state, records, by_id), "topics": topics, "lessons": list(lessons)[-LESSONS:],
-            "focus": (next((index for index, item in enumerate(items, 1) if item.topic == focus), None) if focus else None),
             "scope": str(scope or ""), "full": [row["index"] for row in topics if row.get("full")]}
 
 
@@ -320,10 +319,9 @@ def _indexes(value, size) -> list:
     return [item for item in dict.fromkeys(value if isinstance(value, list) else ()) if _index(item, size) is not None]
 
 
-def parse(text, records, items, *, focus=None, run="", source="tidy") -> list:
+def parse(text, records, items, *, run="", source="tidy") -> list:
     """The suggestions in ``text`` as proposal records; Failed("bad_output") without a list of them. An item that names no
-    topic or project it may, a name that the rule leaves empty, or a kind not in KINDS, is left out; with ``focus`` only those
-    about that topic stay."""
+    topic or project it may, a name that the rule leaves empty, or a kind not in KINDS, is left out."""
     found = first_object(text, "suggestions")
     if found is None or not isinstance(found.get("suggestions"), list):
         raise Failed("bad_output")
@@ -386,13 +384,11 @@ def parse(text, records, items, *, focus=None, run="", source="tidy") -> list:
                 made = proposals.new_proposal(kind, topics=list(record.get("threads") or ()), project=pid, **common)
         except (ValueError, IndexError):
             continue
-        if focus and focus not in made["topics"]:
-            continue
         kept.append(made)
     return kept
 
 
-def judge(state, records, items, *, where, focus=None, scope="", lessons=(), run="", source="tidy", log=print,
+def judge(state, records, items, *, where, scope="", lessons=(), run="", source="tidy", log=print,
           call=None) -> Verdict:
     """The model's suggestions over ``records`` (the projects) and ``items`` (``material`` of the topics), asked through
     ``where`` (``Where``); never raises."""
@@ -412,7 +408,7 @@ def judge(state, records, items, *, where, focus=None, scope="", lessons=(), run
     full = None
     try:
         for attempt in range(2):
-            data = json.dumps(payload(state, records, items, focus=focus, scope=scope, lessons=lessons, full=full),
+            data = json.dumps(payload(state, records, items, scope=scope, lessons=lessons, full=full),
                               ensure_ascii=False)
             text = answer((call or ask)(JUDGE_SYSTEM, data, where, limit))
             wanted = first_object(text, "read")
@@ -422,7 +418,7 @@ def judge(state, records, items, *, where, focus=None, scope="", lessons=(), run
                     full = {item.topic for item in chosen}
                     items = [in_full(state, item) if item.topic in full else item for item in items]
                     continue
-            suggestions = parse(text, records, items, focus=focus, run=run, source=source)
+            suggestions = parse(text, records, items, run=run, source=source)
             return done(Verdict(suggestions, "ok", tuple(sorted(full or ()))))
         raise Failed("bad_output")
     except Failed as exc:

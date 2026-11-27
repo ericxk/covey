@@ -101,7 +101,7 @@ scripts/upgrade.sh              # 部署：机器人重启一次，成功后检�
 - 服务清单里已经设了的开关照旧生效，设成 `0` 的仍是关。只有从没设过它们的老服务，升级后会多出这些功能；`./install` 重跑也不再往清单里写它们，只写飞书 SDK 的两个开关。
 - 不想要的功能，升级前后都按[改开关三步](configuration.md#改开关三步)设成 `0`，早晚汇总设 `off`，整理专项设 `off`。夜里不打扰默认跟着早晚汇总（21:30 到 09:30），所以想保持没有夜里不打扰，设 `COVEY_QUIET_HOURS=off`。
 - 话题自动 Pin 要应用订阅“消息已读”事件，「手上的事」要置顶权限。升级后私聊里的「飞书应用待补」卡会提示，点一下补齐；不补也不影响别的功能，只是 Pin 和置顶不生效。
-- 后台的一问一答（同时做几件事的分流、整理专项、晚间的“你反复说的”等）现在经[辅助模型](configuration.md#辅助模型)，默认跟随管家；以前设过 `COVEY_JUDGE_GATEWAY` 的，这个变量不再读，清单里留着不报错。`COVEY_TURN_EXPORT`、`COVEY_HARNESS_PROBE`、`COVEY_BOARD`、`COVEY_PROJECT_STYLE_KEEP` 也一样，见[已下线的功能与旧配置](legacy.md#已下线的功能)。
+- 后台的一问一答（同时做几件事的分流、整理专项等）现在经[辅助模型](configuration.md#辅助模型)，默认跟随管家；以前设过 `COVEY_JUDGE_GATEWAY` 的，这个变量不再读，清单里留着不报错。`COVEY_TURN_EXPORT`、`COVEY_HARNESS_PROBE`、`COVEY_BOARD`、`COVEY_PROJECT_STYLE_KEEP` 也一样，见[已下线的功能与旧配置](legacy.md#已下线的功能)。
 - 任务卡上的“下载请求与结果”整块下线，已发出的卡上的旧按钮点了只回一句说明。
 
 ### 稳定通道

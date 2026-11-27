@@ -8,7 +8,7 @@ from unittest import mock
 from test_dispatch_cards import CHAT
 from test_project_tidy import TidyCase
 from covey.app import project_sorter as sorter
-from covey.app.track_standby import Failed
+from covey.app.track_judge import Failed
 from covey.app.web_ops import Ops
 from covey.core import project_proposals as proposals
 from covey.core.state import write_json

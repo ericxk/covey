@@ -130,7 +130,7 @@ NOT_BACKED_UP = {
     "app-setup": "自动补齐飞书应用's runs",
     "owner-send": "代发's drafts and sends, tied to cards already sent",
     "butler-asks": "话题转交管家's send-once records of messages already sent: a restore hands nothing on again",
-    "patrol": "what the butler would have said (COVEY_PATROL=shadow), kept 14 days",
+    "patrol": "the retired patrol's records (no longer written)",
     "devices": "a device's working files on the hub",
     "nodes": "节点's keys (credentials) and samples",
     "stuck-check": "the working directory of a small model's run",

@@ -1,4 +1,5 @@
-"""The 设置 card's 能做什么 tab (app/about_panel.py): what this deployment can do and what it lacks, read only.
+"""The 设置 card's 能做什么 part (app/about_panel.py): what this deployment can do and what it lacks, read only. It is
+the lower half of the 诊断 tab now (cards/doctor_card.py ``below``; the 能做什么 tab is retired into 诊断).
 
 One layer under the tab row: 这台机器 (the Harnesses this Bridge enables, those unavailable now), then the features in three
 groups by what the owner does with them (T647 D6: 交给它办事, 不断、不丢, 看得全、记得住), each line what it does for him first:
@@ -10,12 +11,11 @@ draws it again from the deployment as it is then. ``view`` (app/about_panel.py `
 - ``groups``: [key, title] in order; ``features``: [{name, group, good, on, line, switch}] in the order of app/about_panel.py
   FEATURES (a row without a group goes in the last);
 - ``extensions``: the enabled extension packages' names; ``state_dir``: the service's, for the command;
-- ``notice``: one line on top (a refusal).
+- no ``notice``: the 诊断 card has the refusal line.
 """
 from __future__ import annotations
 
-from covey.cards import ui
-from covey.cards.elements import grey, md, note, panel_header, section, styled_panel
+from covey.cards.elements import grey, md, note, section
 from covey.core.text import literal
 
 TITLE = "能做什么"
@@ -54,15 +54,13 @@ def feature_line(row) -> str:
     return "- " + grey(f"{literal(row['name'])}：{good}{how}")
 
 
-def about_card(token, view, *, top=()):
-    """The tab for ``view`` (the module's docstring); ``top``: the tab row."""
-    del token  # No button carries it: the tab row has its own.
+def about_elements(view, *, heading=False):
+    """The part's elements for ``view`` (the module's docstring); ``heading``: a 能做什么 section first, for the part under
+    another tab's body."""
     features = view.get("features") or []
     groups = [tuple(group) for group in view.get("groups") or ()] or [("", "能做的")]
     keys = [key for key, _ in groups]
-    elements = [*top]
-    if view.get("notice"):
-        elements.append(ui.receipt(view["notice"]))
+    elements = [section(TITLE, ICON)] if heading else []
     elements += [section("这台机器", "computer_outlined"), md(machine_lines(view))]
     for key, title in groups:
         rows = [row for row in features if (row.get("group") if row.get("group") in keys else keys[-1]) == key]
@@ -75,7 +73,4 @@ def about_card(token, view, *, top=()):
     names = view.get("extensions") or []
     elements += [section("扩展"), md("、".join(literal(name) for name in names) if names else "没有启用扩展")]
     elements.append(note(literal(switches_note(view.get("state_dir") or ""))))
-    on = sum(1 for row in features if row.get("on"))
-    subtitle = f"装在 {view['host']}" if view.get("host") else ""
-    summary = f"{TITLE} · 开着 {on} 项，没开 {len(features) - on} 项"
-    return styled_panel(panel_header(ICON, TITLE, subtitle), elements, summary)
+    return elements

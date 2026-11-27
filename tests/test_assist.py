@@ -1,8 +1,7 @@
 """辅助模型 (app/assist.py, core/assist.py; docs/configuration.md 辅助模型): one way out for the background model calls, and
 "说了不用就不用": a matrix of the enabled Harnesses × the setting (自动, Codex, Claude Code, 不用模型) × every feature (A1 to
-A10), counting each process a Harness would start (the Claude Code standby of 分流 included), then the cases around it: a
-standby warmed before the setting moved, a timeout that never goes to another Harness, a break kept across a restart, an
-official refusal's cooling, Antigravity's accounts, a 整理 whose setting changes halfway, the last check before a process,
+A10), counting each process a Harness would start, then the cases around it: a timeout that never goes to another Harness,
+a break kept across a restart, an official refusal's cooling, Antigravity's accounts, a 整理 whose setting changes halfway, the last check before a process,
 Claude Code's error envelope read as a turn's result, and its one-shot inside an extension's relay (E2)."""
 from __future__ import annotations
 
@@ -10,15 +9,14 @@ import contextlib
 import json
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 from support.assist import harness_app, topics_with
-from covey.app import assist, project_sorter, track_judge, track_standby
-from covey.app.track_standby import Failed
+from covey.app import assist, project_sorter, track_judge
+from covey.app.track_judge import Failed
 from covey.core import assist as records
 from covey.core import butler_settings
 from covey.core.harness import AskFailed, HarnessCapabilities
@@ -32,7 +30,7 @@ APPS = (("claude", "codex", "agy"), ("claude", "codex"), ("claude",))
 
 
 class Spawns:
-    """Every process a Harness would start: Claude Code's one-shots and standbys, a native Harness's ask_once."""
+    """Every process a Harness would start: Claude Code's one-shots, a native Harness's ask_once."""
 
     def __init__(self):
         self.calls = []
@@ -58,48 +56,20 @@ def claude_app(state):
     return harness_app(backend, SimpleNamespace(backend_cmd=["claude"], state_dir=state, options={}, device=None))
 
 
-class FakeStandby:
-    """track_standby.Standby without a process: counted as Claude Code's."""
-    spawns = None
-
-    def __init__(self, argv, env, cwd, signature, idle_s=0):
-        FakeStandby.spawns.calls.append("claude")
-        self.signature, self.used, self.started = signature, False, time.monotonic()
-        self.dead = False
-
-    def alive(self):
-        return not self.dead
-
-    def touch(self):
-        pass
-
-    def kill(self):
-        self.dead = True
-
-    def ask(self, text, limit):
-        self.kill()
-        return json.dumps({"type": "result", "is_error": False, "result": ANSWER})
-
-
 class Case(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.state = Path(tmp.name)
         self.spawns = Spawns()
-        FakeStandby.spawns = self.spawns
-        patches = [mock.patch.object(track_standby, "Standby", FakeStandby),
-                   mock.patch.object(track_judge, "claude_once", side_effect=self.claude_once),
+        patches = [mock.patch.object(track_judge, "claude_once", side_effect=self.claude_once),
                    mock.patch.object(assist, "ready", return_value=""),
-                   mock.patch("covey.core.butler.available", return_value=True),
-                   mock.patch.dict(os.environ, {"COVEY_TRACK_JUDGE_HEDGE": "1"})]
+                   mock.patch("covey.core.butler.available", return_value=True)]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
-        for name in ("COVEY_TRACK_JUDGE", "COVEY_TRACK_JUDGE_WARM", "COVEY_TRACK_JUDGE_MS"):
+        for name in ("COVEY_TRACK_JUDGE", "COVEY_TRACK_JUDGE_MS"):
             os.environ.pop(name, None)
-        track_standby.shutdown()
-        self.addCleanup(track_standby.shutdown)
         self.claude_answer = json.dumps({"type": "result", "is_error": False, "result": ANSWER})
         self.logs = []
 
@@ -126,9 +96,8 @@ class Case(unittest.TestCase):
         return Message("这个也一起改了", (LiveJob(1, "j1", "running", "整理对比表", NOW - 300, NOW - 200),), Quote(), now=NOW)
 
     def call(self, topics, feature, manual=False):
-        """One call of ``feature`` the way its caller makes it (A1's judge and A2's warm; the others' ask)."""
+        """One call of ``feature`` the way its caller makes it (分流's judge; the others' ask)."""
         if feature == assist.TRACK:
-            assist.warm(topics)
             return assist.judge(self.message(), topics=topics, log=self.logs.append)
         try:
             return assist.ask(feature, "系统", "{}", topics=topics, limit=5, cwd=self.state / "judge", manual=manual)
@@ -142,14 +111,12 @@ class MatrixTest(Case):
             for key, choice in SETTINGS.items():
                 for feature in assist.FEATURES:
                     with self.subTest(apps=names, setting=key, feature=feature):
-                        track_standby.shutdown()
                         self.spawns.calls.clear()
                         topics = self.topics(names)
                         self.setting(choice)
                         self.call(topics, feature)
                         if key in ("codex", "none"):
                             self.assertEqual(self.spawns.count("claude"), 0)
-                            self.assertFalse(track_standby.held())
                         if key == "none":
                             self.assertEqual(self.spawns.calls, [])
                         if key == "codex":
@@ -186,43 +153,34 @@ class MatrixTest(Case):
         self.assertEqual((found.first, found.why, found.about), (None, "not_enabled", "pi"))
 
 
-class StandbyTest(Case):
-    def test_a_standby_warmed_for_claude_code_goes_when_the_setting_moves_and_the_judge_asks_codex(self):
-        topics = self.topics()
-        self.setting(SETTINGS["auto"])
-        self.assertTrue(assist.warm(topics))
-        self.assertTrue(track_standby.held())
-        self.setting(SETTINGS["codex"])  # core/butler_settings.py listen: app/assist.py on_settings_changed.
-        self.assertFalse(track_standby.held())
-        self.spawns.calls.clear()
-        verdict = assist.judge(self.message(), topics=topics, log=self.logs.append)
-        self.assertEqual((verdict.route, self.spawns.calls), ("merge", ["codex"]))
-        self.assertFalse(assist.warm(topics))
-        self.assertFalse(track_standby.held())
+class NoStandbyTest(Case):
+    """分流 keeps no process between questions (T898): each judgment through Claude Code is one one-shot, none before it."""
 
-    def test_moving_the_butler_off_claude_code_under_automatic_shuts_it_down_too(self):
+    def test_each_judgment_starts_one_one_shot_and_nothing_else(self):
         topics = self.topics()
-        self.setting(SETTINGS["auto"], enabled=True, harness="claude")
-        assist.warm(topics)
-        self.assertTrue(track_standby.held())
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex")
-        self.assertFalse(track_standby.held())
+        self.setting(SETTINGS["claude"])
+        for _ in range(2):
+            verdict = assist.judge(self.message(), topics=topics, log=self.logs.append)
+            self.assertEqual(verdict.route, "merge")
+        self.assertEqual(self.spawns.calls, ["claude", "claude"])
+        self.assertFalse(hasattr(assist, "warm"))
 
-    def test_an_extension_that_wraps_claude_codes_turns_has_no_standby(self):
-        topics = self.topics(("claude",))
-        topics.apps["claude"].harness.backend.turn_hooked = lambda ctx=None: True
-        self.assertFalse(assist.warm(topics))
-        self.assertFalse(track_standby.held())
+    def test_a_settings_change_still_clears_the_breaks_and_coolings(self):
+        topics = self.topics(answers={"codex": AskFailed("authentication_error")})
+        self.setting(SETTINGS["codex"])
+        self.call(topics, assist.TIDY)
+        self.assertIn("codex", records.read(self.state, fresh=True)["breakers"])
+        self.setting(SETTINGS["auto"])  # core/butler_settings.py listen: app/assist.py on_settings_changed.
+        self.assertEqual(records.read(self.state, fresh=True)["breakers"], {})
 
 
 class FallbackTest(Case):
     def test_a_timeout_never_goes_to_another_harness(self):
         topics = self.topics(answers={"codex": AskFailed("timeout")})
         self.setting(SETTINGS["auto"], enabled=True, harness="codex")
-        for feature in (assist.TIDY, assist.LOOK, assist.TRACK):
+        for feature in (assist.TIDY, assist.LEARN, assist.TRACK):
             with self.subTest(feature=feature):
                 self.spawns.calls.clear()
-                track_standby.shutdown()
                 outcome = self.call(topics, feature)
                 self.assertEqual(self.spawns.calls, ["codex"])
                 self.assertEqual(getattr(outcome, "reason", getattr(outcome, "why", "")), "timeout")
@@ -252,15 +210,15 @@ class FallbackTest(Case):
     def test_a_break_holds_across_a_restart_for_the_automatic_calls_and_not_for_the_owners(self):
         topics = self.topics(answers={"codex": AskFailed("authentication_error")})
         self.setting(SETTINGS["codex"])
-        self.call(topics, assist.CANDIDATES)
+        self.call(topics, assist.LEARN)
         assist.forget()  # A restart: nothing in memory.
         records.forget()
         self.assertEqual(records.read(self.state, fresh=True)["breakers"]["codex"]["code"], "authentication_error")
         self.spawns.calls.clear()
-        self.assertEqual(self.call(topics, assist.CANDIDATES).reason, "broken")
+        self.assertEqual(self.call(topics, assist.LEARN).reason, "broken")
         self.assertEqual(self.spawns.calls, [])
         ok = self.topics()
-        self.call(ok, assist.LOOK, manual=True)  # 看看, the owner's click: tried once, and it clears the break.
+        self.call(ok, assist.TIDY, manual=True)  # ✨ 整理, the owner's click: tried once, and it clears the break.
         self.assertEqual(self.spawns.calls, ["codex"])
         self.assertNotIn("codex", records.read(self.state, fresh=True)["breakers"])
 
@@ -293,6 +251,7 @@ class RefusalTest(Case):
         self.call(topics, assist.BACKFILL)
         self.assertEqual(records.read(self.state, fresh=True)["cooling"], {})
         self.assertEqual(assist.route(topics, assist.BACKFILL).harness, "codex")
+        self.assertEqual(assist.route(topics, assist.TIDY).harness, "codex")  # Kept under 整理专项's row, not cooling it.
 
     def test_the_days_refusals_gate_a_harness(self):
         topics = self.topics(answers={"codex": AskFailed("policy_refusal")})
@@ -323,6 +282,20 @@ class OtherCasesTest(Case):
         project_sorter.ask("系统", "{}", where, 5)
         self.assertEqual(self.spawns.calls, ["codex", "claude"])
 
+    def test_a_backfill_is_kept_under_the_tidy_row(self):
+        topics = self.topics()
+        self.setting(SETTINGS["codex"])
+        self.call(topics, assist.BACKFILL)
+        rows = assist.recent(self.state)
+        self.assertEqual([(row["feature"], row["label"], row["ok"]) for row in rows], [("tidy", "整理专项", True)])
+        self.assertNotIn("backfill", records.read(self.state, fresh=True)["recent"])
+
+    def test_old_rows_of_features_taken_out_are_not_listed(self):
+        records.settle(self.state, feature="tidy_realtime", harness="codex", code="timeout")
+        records.settle(self.state, feature="patrol", harness="codex")
+        records.settle(self.state, feature="learn", harness="codex")
+        self.assertEqual([row["feature"] for row in assist.recent(self.state)], ["learn"])
+
     def test_the_recent_row_of_each_feature_for_the_web_page(self):
         topics = self.topics(answers={"codex": AskFailed("authentication_error", "401")})
         self.setting(SETTINGS["codex"])
@@ -330,6 +303,7 @@ class OtherCasesTest(Case):
         rows = assist.recent(self.state)
         self.assertEqual([(row["feature"], row["name"], row["ok"], row["code"]) for row in rows],
                          [("tidy", "Codex", False, "authentication_error")])
+        self.assertEqual(assist.SHOWN, ("track", "tidy", "learn"))
         self.assertEqual(rows[0]["words"], "登录失效或没有权限")
         self.assertNotIn("401", json.dumps(records.read(self.state, fresh=True)))  # No words of the CLI kept.
 
@@ -340,38 +314,6 @@ class OtherCasesTest(Case):
         self.setting(SETTINGS["none"])
         self.assertEqual(assist.describe(topics)["words"], "后台活不调模型，只按规则做。")
         self.assertEqual(assist.available(topics)[0], False)
-
-
-class TurnHookedTest(unittest.TestCase):
-    """E2: an extension's claude_turn hook that is registered but off (the protocol relay without
-    COVEY_CLAUDE_CLI_NORMALIZE) leaves 分流's standby alone; one that wraps the turn has none kept."""
-
-    def test_only_a_hook_that_wraps_the_turn_counts(self):
-        from covey.backends.claude import bridge as claude_bridge
-        from covey.backends.claude import redaction
-        from covey.core import extensions
-        state = {"on": False}
-
-        @contextlib.contextmanager
-        def turn(ctx, env, *, run_id=""):
-            if not state["on"]:
-                yield ctx, env
-                return
-            yield SimpleNamespace(**{**vars(ctx), "options": {**ctx.options, redaction.SETTINGS_ENV: {
-                "ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}}}), env
-        backend = claude_bridge.ClaudeBackend.__new__(claude_bridge.ClaudeBackend)
-        backend.child_env = lambda ctx: {}
-        with mock.patch.object(extensions, "hooks", return_value=[("pkg", SimpleNamespace(turn=turn))]), \
-                mock.patch.object(claude_bridge, "dataclasses", SimpleNamespace(
-                    replace=lambda ctx, **kw: SimpleNamespace(**{**vars(ctx), **kw}))):
-            for on in (False, True):
-                claude_bridge._hooked.clear()
-                state["on"] = on
-                ctx = SimpleNamespace(state_dir=Path("/absolute/state"), backend_cmd=["claude"], options={})
-                with self.subTest(on=on):
-                    self.assertEqual(backend.turn_hooked(ctx), on)
-        with mock.patch.object(extensions, "hooks", return_value=[]):
-            self.assertFalse(backend.turn_hooked(SimpleNamespace(state_dir=Path("/x"), backend_cmd=["claude"], options={})))
 
 
 class ClaudeEnvelopeTest(unittest.TestCase):

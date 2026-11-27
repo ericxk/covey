@@ -36,7 +36,7 @@ from covey.app.butler_env import arg_text, reply
 from covey.cards.project_card import merged_card
 from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
-from covey.core import butler, butler_opened, butler_settings, devices, project_proposals, projects
+from covey.core import butler, butler_opened, butler_settings, devices, projects
 from covey.core.card_sequence import file_card, reserve
 from covey.core.jobs import topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
@@ -476,8 +476,6 @@ class Projects:
                     else self.gathered(state, record) if origin.get("kind") == "tidy"
                     else self.started(state, record))
             project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "")
-            if project_proposals.enabled():
-                project_proposals.queue_sweep(state, pid)  # The recent topics that belong in it join too (app/tidy_realtime.py sweep).
         return True
 
     @staticmethod

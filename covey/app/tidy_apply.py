@@ -1,6 +1,6 @@
 """Doing what 整理专项 decided: a project made, a join, a leave, a merge, a split, a fold, and the topic's cards marked 已归进.
 Takes no click and draws no proposal or 整理专项 card (docs/projects.md 整理专项); it depends on app/tidy_facts.py alone, and the
-parts that ask for it (app/tidy_proposals.py, app/tidy_realtime.py, app/tidy_run.py, app/tidy_clicks.py) come above it."""
+parts that ask for it (app/tidy_proposals.py, app/tidy_run.py, app/tidy_clicks.py) come above it."""
 from __future__ import annotations
 
 import time

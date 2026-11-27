@@ -360,7 +360,11 @@ class ButlerPanelTests(UnifiedCase):
                                                          available_models(self.app.topics, self.ctx), ["project"],
                                                          page=page, review_on=True, lead_on=True)
                 folds = [p['element_id'] for p in walk_panels(card)]
-                self.assertEqual(folds, [f'set_{key}_r9999' for key in (*shown, 'subagent')])
+                # Those nobody changes in 更多 at the section's end (U4, T898), its fold before them.
+                usual = [key for key in shown if key not in panel_card.FOLDED]
+                rare = [key for key in shown if key in panel_card.FOLDED]
+                self.assertEqual(folds, [f'set_{key}_r9999' for key in usual] + [f'more_{part}_r9999']
+                                 + [f'set_{key}_r9999' for key in (*rare, 'subagent')])
                 self.assertEqual([f for f in folds if len(f) > 20], [])
 
     def test_the_lead_section_with_projects_on_saves_what_a_new_lead_runs_on(self):
@@ -697,6 +701,40 @@ class ButlerPanelTests(UnifiedCase):
         self.assertIn(GONE, self.text())
         self.assertEqual(self.settings().butler_harness, 'claude')
         self.assertEqual(self.values(panel_card.SPACE), [])  # Its workspace is no row of 管家 any more (v43).
+
+    def test_a_click_in_更多_keeps_it_open_and_a_click_elsewhere_closes_it(self):
+        """U4 (T898, docs/ui.md U15): the rows nobody changes are in their section's 更多, closed; a click on one of them
+        redraws it open, a click on another row closed again; 脱敏 on stays out of it, in sight."""
+        self.ask()
+        token = self.values(panel_card.MODE)[0]['token']
+
+        def folds():
+            found = []
+
+            def look(node):
+                if isinstance(node, dict):
+                    if node.get('tag') == 'collapsible_panel' and str(node.get('element_id', '')).startswith('more_'):
+                        found.append((node['header']['title']['content'], node['expanded'],
+                                      {v['kind'] for _, v in walk(node, [])}))
+                    for child in node.values():
+                        look(child)
+                elif isinstance(node, list):
+                    for child in node:
+                        look(child)
+            look(self.cards[-1])
+            return found
+
+        self.click({'kind': panel_card.MODE, 'token': token, 'revision': 1, 'option': 'agent'}, event_id='m1')
+        (title, expanded, kinds), = folds()
+        self.assertEqual((title, expanded), ('更多：供应商、脱敏、私聊顶层的消息', True))
+        self.assertEqual(kinds, {panel_card.PROVIDER, panel_card.REDACTION, panel_card.MODE})
+        self.click({'kind': panel_card.COMPACT, 'token': token, 'revision': 2, 'option': '0'}, event_id='m2')
+        self.assertEqual([(t, e) for t, e, _ in folds()], [('更多：供应商、脱敏、私聊顶层的消息', False)])
+        self.click({'kind': panel_card.REDACTION, 'token': token, 'revision': 3, 'option': 'on'}, event_id='m3')
+        self.assertTrue(self.settings().redaction)
+        (title, expanded, kinds), = folds()
+        self.assertEqual((title, expanded, kinds), ('更多：供应商、私聊顶层的消息', True, {panel_card.PROVIDER, panel_card.MODE}))
+        self.assertTrue(self.values(panel_card.REDACTION))  # 脱敏 on: a row of its own, in sight.
 
     def test_a_row_of_a_card_drawn_before_the_pages_lands_on_its_page(self):
         """A 设置 card drawn before 配置 (T619: its pages 管家, 新话题 and 模型, or the one 管家 tab before them, key BUTLER):

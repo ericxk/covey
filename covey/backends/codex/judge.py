@@ -14,7 +14,7 @@ The model (``choose``): COVEY_JUDGE_CODEX_MODEL when the account's catalog (core
 gateway's lists it; else, when the question follows a setting whose model is a model gateway's (``follow``: its prefix,
 core/gateways.py), that gateway's: for a light question the first of its models whose id or description says it is a light
 one (``LIGHT``), else the followed model itself, for a heavy one the followed model; else for a light question (the track
-router, the patrol, the memory candidates, 看看) the first light model of the account's catalog (gpt-6-luna, "Fast and
+router, 记忆自己长) the first light model of the account's catalog (gpt-6-luna, "Fast and
 affordable model for easier tasks"), for a heavy one (整理专项) the owner's own default (no ``-m``). A followed model of the
 account's own (no prefix) changes nothing. The effort is the lowest the model has for a light question, ``medium`` for a
 heavy one. A gateway's model goes through a relay of its own for the question (backends/gateway/relay.py, its spent

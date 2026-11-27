@@ -97,7 +97,7 @@ class Case(unittest.TestCase):
                                       "AGY_", "CODEX_HOME"))}
         # No agy-accounts.json of this machine's data home is read (backends/agy/judge.py home_of).
         patch = mock.patch.dict(os.environ, {**env, "HOME": str(self.home), "FAKE_RECORD": str(self.record),
-                                             "FAKE_PIDS": str(self.pids), "COVEY_TRACK_JUDGE_WARM": "0",
+                                             "FAKE_PIDS": str(self.pids),
                                              agy_accounts.ACCOUNTS_CONFIG_ENV: str(self.root / "agy-accounts.json")},
                                 clear=True)
         patch.start()
@@ -605,7 +605,7 @@ class RoutingTest(unittest.TestCase):
         return SimpleNamespace(harness=SimpleNamespace(backend=backend, context=context), backend=backend)
 
     def setUp(self):
-        patch = mock.patch.dict(os.environ, {"COVEY_TRACK_JUDGE_WARM": "0"})
+        patch = mock.patch.dict(os.environ, {})
         patch.start()
         self.addCleanup(patch.stop)
         for name in ("COVEY_TRACK_JUDGE", "COVEY_TRACK_JUDGE_MS"):
@@ -646,7 +646,7 @@ class RoutingTest(unittest.TestCase):
         track_judge.ask("s", "{}", backend=backend, ctx=ctx, limit=5, cwd="/c", environ={"COVEY_JUDGE_GATEWAY": "gw:model"})
         self.assertEqual(len(backend.calls), 1)  # Codex answered: COVEY_JUDGE_GATEWAY is gone (T813).
 
-    def test_the_router_asks_codex_with_its_own_limit_logs_where_and_warms_no_claude_code(self):
+    def test_the_router_asks_codex_with_its_own_limit_and_logs_where(self):
         codex = self.app("codex", ask_once=True)
         backend, ctx = pick(codex)
         live = (LiveJob(1, "j1", "running", "整理对比表", NOW - 300, NOW - 200),)
@@ -658,9 +658,6 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(Path(backend.calls[-1]["cwd"]), Path("/absolute/state/track-judge"))
         self.assertTrue(lines[-1].startswith("track judge route=merge target=1") and lines[-1].endswith("via=codex"))
         self.assertNotIn(QUESTION, "\n".join(lines))
-        with mock.patch.object(track_judge.track_standby, "warm") as warm:
-            self.assertFalse(track_judge.warm(backend, ctx, environ={}))
-        warm.assert_not_called()
         verdict = track_judge.judge(Message(QUESTION, live, Quote(), now=NOW), redacted=True, backend=backend, ctx=ctx,
                                     log=lines.append, environ={})
         self.assertEqual((verdict.route, verdict.why, len(backend.calls)), ("new", "redacted", 1))  # Nothing sent.

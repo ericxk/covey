@@ -180,57 +180,6 @@ def stop_project(host, ctx, event) -> bool:
     return say(host, ctx, event, f"已停住专项「{name}」，已请 {stopped} 个任务停下（在跑的命令可能要过一会儿才停）。要继续，引用这张卡回复。", "project-stop")
 
 
-def triage_wrong(host, ctx, event) -> bool:
-    """不对 on a row of 分流记录: the form of the correction, a card of its own in the lead's topic (cards/triage_card.py)."""
-    from covey.cards.triage_card import fix_form
-
-    raw, record = click(ctx, event)
-    row = next((r for r in record.get("triage") or () if isinstance(r, dict) and r.get("token") == raw.get("token")
-                and r.get("kind") == "answered"), None)
-    if row is None or row.get("corrected"):
-        return say(host, ctx, event, "这一条已经纠正过，或已经不在分流记录里了。", "project-triage-gone")
-    value = {"project_id": record["id"], "topic_id": ctx.topic_id, "token": str(raw.get("token"))}
-    event_id = str(event.get("event_id") or event.get("message_id") or "")
-    host.messenger.publish_card(ctx, str(event.get("chat_id") or ""), "triage-fix-" + event_id,
-                                fix_form(words(row.get("text"), 160), value), voice=host.voice)
-    return True
-
-
-def triage_fix(host, ctx, event) -> bool:
-    """提交纠正 on that form: what the owner said goes to the member topic as a message, into the project's decisions and
-    its 分流记录 row (``corrected``); app/triage.py ``correct`` does it. The form then becomes the card that says so."""
-    from covey.app import triage
-    from covey.app.card_actions import form_fields
-    from covey.cards.triage_card import FIELD
-
-    raw, record = click(ctx, event)
-    text = " ".join(str((form_fields(event) or {}).get(FIELD) or "").split())
-    if not text:
-        raise ValueError("纠正的内容为空")
-    token = str(raw.get("token") or "")
-    row = next((r for r in record.get("triage") or () if isinstance(r, dict) and r.get("token") == token), {})
-    done = triage.correct(record, token, text)
-    say(host, ctx, event, done, "project-triage-fixed")
-    settle_fix_form(host, ctx, event, f"{words(row.get('text'), 120)} → {words(text, 120)}")
-    return True
-
-
-def settle_fix_form(host, ctx, event, summary) -> None:
-    """The submitted form, replaced whole by the card that says it was corrected and with what (AGENTS.md rule 9; it
-    must not stay open after its 提交纠正). A failed write leaves the form, whose second submit
-    ``triage.correct`` refuses."""
-    from covey.cards.triage_card import fixed_card
-
-    source = str(event.get("message_id") or "")
-    if not source:
-        return
-    try:
-        host.messenger.publish_card(ctx, str(event.get("chat_id") or ""), "triage-fixed-" + source, fixed_card(summary),
-                                    source_message=source, update_only=True, voice=host.voice)
-    except (ValueError, OSError, RuntimeError) as exc:
-        host.runtime.log(f"project triage fix form not settled: {type(exc).__name__}")
-
-
 ASK_REFUSED = {"none": "专项「{name}」现在没有要定的停住。", "answered": "专项「{name}」停住后的选择已经做过了。",
                "stale": "这是专项「{name}」之前一次停住的卡，已经过期了。",
                "moved": "专项「{name}」已经不是因为这个停住了，没有要定的。"}

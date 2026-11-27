@@ -33,18 +33,18 @@
 | 卡片按钮与点击 | `app/card_actions.py`、`app/card_routing.py`、`app/card_lanes.py` | [卡片点击的数据流](docs/architecture.md#卡片点击的数据流)、[cards.md](docs/cards.md) |
 | 谁被服务、群聊、别人私聊时回一句（`COVEY_STRANGER_REPLY`，默认开） | `app/access.py`、`core/groups.py`、`app/group_manager.py`、`app/strangers.py` | [谁被服务](docs/architecture.md#谁被服务) |
 | 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py`；跑在哪个 Harness `app/butler_harness.py` | [butler.md](docs/butler.md) |
-| 辅助模型：后台的一问一答（分流和它的待命进程、整理专项、看看、巡逻、晚间候选、记忆自己长、整理记忆）的唯一出口，设置里一项（自动跟随管家 / 点名 / 不用模型），熔断、拒绝冷却和最近一次记在 `assist-state.json` | `app/assist.py`（`route`、`ask`、`judge`、`warm`、`on_settings_changed`）、`core/assist.py`（记录、原因码）、`app/track_judge.py`（只管怎么问）、`app/track_standby.py`、`backends/codex/judge.py`、`backends/agy/judge.py`、`core/one_shot.py` | [配置 · 辅助模型](docs/configuration.md#辅助模型) |
+| 辅助模型：后台的一问一答（分流、整理专项和整理时补的话题要点、记忆自己长；看看、晚间候选、整理记忆只按规则）的唯一出口，设置里一项（自动跟随管家 / 点名 / 不用模型），熔断、拒绝冷却和最近一次记在 `assist-state.json` | `app/assist.py`（`route`、`ask`、`judge`、`on_settings_changed`）、`core/assist.py`（记录、原因码）、`app/track_judge.py`（只管怎么问，每问现起一个进程）、`backends/codex/judge.py`、`backends/agy/judge.py`、`core/one_shot.py` | [配置 · 辅助模型](docs/configuration.md#辅助模型) |
 | 话题与回带 | `app/butler_topics.py`（新话题的 Harness、模型、预算在 `app/butler_model_choice.py`；请求幂等账本 `core/butler_opened.py`）、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py`；停住卡的原因、按钮和点击 `app/relay_stops.py` | [butler.md](docs/butler.md) |
 | 引用卡片接着说（顶层引用结论卡、问题卡副本等直达话题的那句话上的表情） | `app/butler_reactions.py` 的 `top_message`、`top_queued` 等，接入点在 `app/submission.py`、`app/steering.py`、`app/questions.py`、`app/held_notes.py`、`app/task_controls.py` | [引用卡片接着说的表情](docs/architecture.md#引用卡片接着说的表情) |
 | 看板、Pin、手上的事 | `app/pins.py`、`app/status_cards.py`、`app/overview.py`、`core/board_read.py` | [手上的事](docs/usage.md#手上的事)、[配置](docs/configuration.md#手上的事与话题看板) |
 | 等主人的账（各处“等你”的同一个数）与对账补卡（`COVEY_LEDGER_RECONCILE`，默认开） | `app/owner_ledger.py`（`of`：看板、手上的事、早晚汇总、网页都从它数；`Reconcile`：缺的问题卡补发）、`core/owner_ledger.py`（条目、`owner-ledger.json`、补发次数）、诊断 `service/doctor.py` 的 `ledger_row`、`bin/covey_ledger.py` | [等主人的账](docs/architecture.md#等主人的账) |
-| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_realtime.py`（实时归并、新专项扫一遍）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [projects.md](docs/projects.md#整理专项)、[配置](docs/configuration.md#整理专项) |
+| 整理专项与话题要点（`COVEY_PROJECT_TIDY`） | `app/project_tidy.py`（`ProjectTidy` 协调器：`__init__` 里组装下面各部件，自己管线程和话题要点收集；部件不继承、只调更下面的）、`app/tidy_facts.py`（记录读写的纯函数，最底层）、`app/tidy_state.py`（共享状态 `busy`/`progress`/`counted`/`handed`）、`app/tidy_words.py`（话题在卡上的字样与链接）、`app/tidy_apply.py`（照办：建、归进、移出、合并、拆、收起）、`app/tidy_proposals.py`（提议新专项、提议卡与跟着归并更新）、`app/tidy_run.py`（定时/手动整理与整理卡）、`app/tidy_clicks.py`（卡片点击，`claim` 是入口）、`app/tidy_web.py`（网页面板）、`app/project_sorter.py`（小模型读什么、补要点）、`core/topic_gist.py`（话题要点）、`core/project_proposals.py`（提议与主人的决定）、`cards/project_proposal.py`、`app/projects.py` 的 `gather`、`app/project_members.py` 的 `join_topic`/`leave_topic` | [projects.md](docs/projects.md#整理专项)、[配置](docs/configuration.md#整理专项) |
 | 专项（默认开，`COVEY_PROJECTS=0` 关）：负责人、专项卡、问题分流、停住后问主人、满额腾位置、话题转给管家、负责人用哪个 Harness | `core/projects.py`、`app/project_lead.py`、`app/lead_harness.py`（负责人的 Harness、模型和预算：新建时选、专项卡与网页换配置）、`app/project_tools.py`、`app/project_loop.py`（`make_room`）、`app/butler_asks.py`、`app/project_cards.py`、`cards/project_card.py`、`app/triage.py`、`core/project_memory.py`、`core/project_library.py` | [projects.md](docs/projects.md)、[架构 · 专项](docs/architecture.md#专项) |
 | 多参与者协作（`COVEY_COLLAB`，开发中）：轮次来源、交付归属、协作的状态表；执行闭环（发起、咨询通道、派发、落账、续接、到期、停止、对账）和咨询轮的硬只读 | `core/turn_source.py`（来源、行为表 `behavior`、`refusal`、来源等级 `provenance`）、`core/collab.py`（`route`、状态表、限额、幂等键、通道和消息 id）；来源闸在 `app/job_dispatch.py` 的 `refuse_source` 和 `app/worker.py` 开跑前；`core/collab_records.py`（记录）、`app/collab_flow.py`（`Collaboration`：线程、检查点的 `collab_ask`、`start`/`clarify`/`stop`）、`app/collab_checks.py`（预检）、`app/collab_channel.py`（通道、分叉、咨询轮的文字）；硬只读 `CONSULT`：`app/tool_limits.py`、`backends/claude/argv.py`、`backends/codex/consult.py` | [多参与者协作](docs/architecture.md#多参与者协作开发中默认关)、[执行闭环](docs/architecture.md#执行闭环) |
 | 负责人对照目标跟进（`COVEY_COLLAB`，开发中）：目标检查表和收尾门禁、项目简报（背景、动作）、回执合批、不重复转述、咨询轮计进专项预算、替主人答题的依据校验 | `core/project_checklist.py`（条目、协作缺口、`unmet`、`apply`）、`core/project_actions.py`（动作、`state`、`attach`）、`app/project_tools.py`（`project_checklist`、`checklist_gate`、`project_answer`、`project_goal` 的背景、开话题带 `action`/`item`）、`app/triage.py`（`grounds`）、`app/project_lead.py`（`COLLAB_RULES`、`brief_block`、`checklist_block`、`inbox_block`）、`app/project_loop.py`（`settling`、`told_already`、`consult_tokens`） | [负责人对照目标跟进](docs/projects.md#负责人对照目标跟进)、[分流的依据](docs/projects.md#分流的依据) |
 | 网页工作台（`COVEY_WEB=1`） | `core/web_sync.py`、`app/web_sync.py`、`app/web_collect.py`、`app/web_ops.py`、`app/web_settings.py`；换配置 `app/web_switch.py`，附件 `app/web_files.py`；网页登录确认卡 `app/web_login.py`、`cards/web_login.py`；自托管网页进程 `service/web_selfhost.py`（Manager 的 `ensure_selfhost`） | [web.md](docs/web.md) |
-| 到点回来看（默认开，`COVEY_REVISIT=0` 关）：话题约好几点再看一次，到点 Bridge 排一轮 | `app/revisits.py`（线程、`after_runner`、`silent`、看板的行）、`app/revisit_hint.py`（普通话题说了稍后没人回来时答案卡的提示和按钮）、`core/revisits.py`（记录）、`cards/board.py` 的 `revisit_blocks` | [到点回来看](docs/usage.md#到点回来看) |
-| 早晚汇总 | `app/digest.py`、`cards/digest.py`；晚间汇总的“你反复说的” `app/memory_candidates.py`，“本周找你” `app/weekly_usage.py` 的 `reached` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
+| 到点回来看（默认开，`COVEY_REVISIT=0` 关）：话题约好几点再看一次，到点 Bridge 排一轮 | `app/revisits.py`（线程、`after_runner`、`silent`、看板的行）、`core/revisits.py`（记录）、`cards/board.py` 的 `revisit_blocks` | [到点回来看](docs/usage.md#到点回来看) |
+| 早晚汇总 | `app/digest.py`、`cards/digest.py`；晚间候选进待审核 `app/memory_candidates.py`（只按规则），“本周找你” `app/weekly_usage.py` 的 `reached` | [早晚汇总](docs/usage.md#早晚汇总)、[配置](docs/configuration.md#早晚汇总) |
 | 启动卡与工作区 | `app/launch.py`、`app/launch_submit.py`、`app/model_picker.py`、`app/directory_picker.py`、`core/workspaces.py` | [开始一个任务](docs/usage.md#开始一个任务) |
 | 任务卡与执行过程 | `app/cards.py`、`app/task_card.py`、`core/trace.py`、`cards/streaming.py` | [cards.md](docs/cards.md)、[执行指标口径](docs/architecture.md#执行指标口径) |
 | 问题卡与回答；什么时候问（部署、删除、花钱、对外发送、占机器才问，其余按推荐做；方案先交完整的） | `app/questions.py`、`app/native_questions.py`、`app/checkpoint_questions.py`、`app/answers.py`（提交回答 `with_note`）、`cards/question_cards.py`；问不问 `core/checkpoint.py` 的 `ASK_RULE`、`PLAN_RULE`，派活那头 `core/butler_tool_specs.py` 的 `ASK_NOTE`、`app/butler_handoff.py` 的 `lead_note`；问得多不多 `scripts/question_stats.py` | [问题与回答](docs/architecture.md#问题与回答)、[问题卡问得多不多](docs/operations.md#问题卡问得多不多) |
@@ -62,7 +62,7 @@
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/butler_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [butler.md](docs/butler.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
 | 记忆（默认开，`COVEY_MEMORY=0` 关） | `core/memory.py`（读口：条目、编号、范围上限）、`core/topic_memory.py`（话题的记忆）、`app/memory_turn.py`（每轮的块、`memory_ids`、纠正规则）、`app/memory_collect.py`（一轮结束后记下 `memory`、作废 `memory_void`，“不对”点击 `undo`）、`app/prompts.py` 的 `memory_block`、`cards/answer_card.py` 的 `memory_element`、`app/answer_cards.py` 的 `put_memory`、设置卡「记忆」`app/memory_panel.py`（看数、处理待审核、去网页）、网页记忆中心 `app/web_memory.py`（v43 各键与 17 个动作，推送 `app/web_sync.py` 的 `push_memory_center`） | [butler.md](docs/butler.md#记忆)、[配置](docs/configuration.md#记忆) |
-| 记忆自己长（`COVEY_MEMORY_LEARN=1`，默认关，要 `COVEY_MEMORY` 开着）：每轮之后读主人的话、用到才留、整理记忆、收拢 Harness 自己记的、查记忆 | `app/memory_learn.py`（`after_turn`：用到的编号、读原话记下）、`core/memory_usage.py`、`app/memory_tidy.py`（晚间汇总的整理记忆，`core/project_memory.py` 的 `settle`）、`app/memory_harvest.py`（Codex、Claude Code 自己的记忆进候选）、`app/memory_candidates.py`（`carried`）、`core/memory_search.py`（`bin/covey_memory.py search`）、`cards/digest.py` 的 `memory_elements`；Harness 自己的记忆在代答和脱敏里关掉：`backends/claude/argv.py` 的 `turn_env`、`backends/codex/appserver.py` 的 `keep_out_of_memories` | [butler.md](docs/butler.md#记忆自己长开关默认关)、[配置](docs/configuration.md#记忆) |
+| 记忆自己长（`COVEY_MEMORY_LEARN=1`，默认关，要 `COVEY_MEMORY` 开着）：每轮之后读主人的话、用到才留、整理记忆、收拢 Harness 自己记的、查记忆 | `app/memory_learn.py`（`after_turn`：用到的编号、读原话记下）、`core/memory_usage.py`、`app/memory_tidy.py`（晚间汇总的整理记忆，只按规则收起，`core/project_memory.py` 的 `settle`）、`app/memory_harvest.py`（Codex、Claude Code 自己的记忆进候选）、`app/memory_candidates.py`（`carried`）、`core/memory_search.py`（`bin/covey_memory.py search`）、`cards/digest.py` 的 `memory_elements`；Harness 自己的记忆在代答和脱敏里关掉：`backends/claude/argv.py` 的 `turn_env`、`backends/codex/appserver.py` 的 `keep_out_of_memories` | [butler.md](docs/butler.md#记忆自己长开关默认关)、[配置](docs/configuration.md#记忆) |
 | 敏感词脱敏 | `core/redaction.py`、`core/redactor.py`、`backends/claude/redaction.py`、`app/redaction_panel.py`（设置卡「脱敏」标签） | [敏感词脱敏](docs/architecture.md#敏感词脱敏) |
 | 官方拒绝与停止 | `app/policy_guard.py`、`core/model_policy.py`、`backends/claude/policy.py`；cyber/bio 拒绝换旧模型重试一次 `app/policy_retry.py` | [policy-stop.md](docs/policy-stop.md) |
 | 任务进程与 `runs/` 协议 | `app/detached.py`、`app/runner_spawn.py`、`app/runner_ipc.py`、`app/runner.py`、`core/run_dir.py` | [排队与任务进程](docs/architecture.md#排队与任务进程)、[跨版本检查](docs/testing.md#任务进程协议与跨版本检查) |
@@ -84,7 +84,7 @@
 
 | 文件 | 管什么 |
 | --- | --- |
-| `app/about_panel.py` | The 设置 card's 能做什么 tab |
+| `app/about_panel.py` | The 设置 card's 能做什么 part |
 | `app/access.py` | Who the Bridge serves: the one place that decides it |
 | `app/answer_cards.py` | The cards a finished turn's answer went out on: what they say under the answer and keeping their 产物 up to date |
 | `app/answer_delivery.py` | TurnDelivery's answer card sent on its own |
@@ -163,13 +163,13 @@
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
 | `app/limit_notice.py` | One notice in the owner's private chat when several topics stopped on the same cause with an automatic retry … |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
-| `app/memory_candidates.py` | 每天一次的候选整理: what the owner corrected more than once in the day's ended topics, at most SHOWN a day, put in the … |
+| `app/memory_candidates.py` | 每天一次的候选整理: what the owner corrected more than once in the day's ended topics, at most SHOWN a day, put in 待审核 … |
 | `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on becomes memory, and a click takes it back |
 | `app/memory_harvest.py` | What Codex, Claude Code and Antigravity learned of the owner on their own, offered to Covey's memory once a … |
 | `app/memory_learn.py` | 记忆自己长, one turn at a time |
 | `app/memory_observe.py` | What the Bridge sees of a turn's use of the memory: the strong signals the ranking counts, nothing else |
 | `app/memory_panel.py` | The 设置 card's 记忆 tab, shown when COVEY_MEMORY=1 |
-| `app/memory_tidy.py` | 整理记忆, once a day: at the evening digest what the memory holds is put in order, so a project's 当前决定 are not a … |
+| `app/memory_tidy.py` | 整理记忆, once a day: at the evening digest what the memory holds is put in order by rules alone (no model), so a … |
 | `app/memory_turn.py` | What a turn reads of the owner's memory, for app/runs.py |
 | `app/menu_panel.py` | A card the bot menu sends to the owner's private chat: no topic, no job, one card a menu click |
 | `app/model_picker.py` | The launch card's choices |
@@ -183,9 +183,6 @@
 | `app/overview.py` | 手上的事: one card in the owner's private chat with the bot, pinned (Pin 消息), that lists what waits for the owner … |
 | `app/owner_ledger.py` | 等主人的账 at the Bridge (docs/architecture.md 等主人的账 |
 | `app/owner_send.py` | 代发: a message a topic drafted, sent as the owner by the 代答 sender once the owner confirmed it on its card |
-| `app/patrol.py` | The feature object of "what the butler would have told the owner", COVEY_PATROL=shadow |
-| `app/patrol_judge.py` | The second layer: the small model reads the candidates app/patrol_rules.py found and says, for each, drop it … |
-| `app/patrol_rules.py` | The rules of the first layer |
 | `app/pins.py` | The pinned board: the owner's private chat's topics pinned (Pin 消息) in the order the Bridge keeps, under … |
 | `app/policy_guard.py` | Independent policy stop consumer: covers adopted runners from older releases |
 | `app/policy_retry.py` | One retry on an older model after an official safety refusal |
@@ -227,7 +224,6 @@
 | `app/repo_peers.py` | A topic hears that another topic works in the same git repository |
 | `app/repos_turn.py` | The repositories' part of a turn |
 | `app/review.py` | 独立复核: a read-only topic that reviews one finished turn's changes, opened only when the owner clicks the … |
-| `app/revisit_hint.py` | A line under an ordinary topic's answer that says nothing will come back to what the reply put off (display … |
 | `app/revisits.py` | 到点回来看 at the Bridge: a topic that waits on something outside (a training, CI, a deploy) ends its turn with … |
 | `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code) |
 | `app/runner.py` | The task runner process: one job of the Bridge, to completion |
@@ -259,7 +255,6 @@
 | `app/tidy_clicks.py` | The clicks on 整理专项's cards: the proposal card, a row of the 整理专项 card, the reason form, 移出 and 设置's 整理专项 |
 | `app/tidy_facts.py` | What 整理专项 reads of the records and says about them, as plain functions of the state directory |
 | `app/tidy_proposals.py` | The proposal card of 整理专项 and keeping it true |
-| `app/tidy_realtime.py` | The real-time half of 整理专项 |
 | `app/tidy_run.py` | A whole 整理 (scheduled or asked for) and the 整理专项 card it draws |
 | `app/tidy_state.py` | What the parts of 整理专项 share and change while it runs |
 | `app/tidy_web.py` | 整理专项 on the web page |
@@ -270,7 +265,6 @@
 | `app/topics.py` | Topics: which Harness app a topic's messages, clicks and jobs go to |
 | `app/track_digest.py` | Memory merge for 多路并行 |
 | `app/track_judge.py` | The small model that decides a new butler message the rules could not |
-| `app/track_standby.py` | A Claude Code kept ready for the track judge |
 | `app/triage.py` | 专项的问题分流 (docs/projects.md 专项的问题分流, COVEY_PROJECTS=1 and COVEY_PROJECT_TRIAGE=1 |
 | `app/triage_view.py` | The questions held for a project's lead, as the lead reads them (app/triage.py is the rest of the question … |
 | `app/turn_delivery.py` | Delivering one finished turn |
@@ -305,7 +299,7 @@
 
 | 文件 | 管什么 |
 | --- | --- |
-| `cards/about_panel.py` | The 设置 card's 能做什么 tab: what this deployment can do and what it lacks, read only |
+| `cards/about_panel.py` | The 设置 card's 能做什么 part: what this deployment can do and what it lacks, read only |
 | `cards/answer_card.py` | What follows a finished turn's answer on its answer card in the topic and on its relay at the private chat's … |
 | `cards/app_setup.py` | The 飞书应用待补 card: what the app lacks, then the run's steps, then what it added |
 | `cards/artifact_panels.py` | The 产物 panels of a task card: Drive links and uploading state, and the older per-file send buttons |
@@ -355,7 +349,6 @@
 | `cards/trace.py` | Text helpers the process panel is drawn with |
 | `cards/trace_updates.py` | Keep the process panel mounted while its content changes |
 | `cards/trace_view.py` | Feishu rendering from an isolated execution snapshot |
-| `cards/triage_card.py` | The 不对 form of the 专项卡's 分流记录: a card of its own with one input, because the 专项卡 is redrawn and holds no field |
 | `cards/ui.py` | The shared parts of the 夜航 look as schema 2.0 card elements |
 | `cards/web_login.py` | The 网页登录确认 card: a browser asks to sign in to the 网页工作台 and the owner says 允许 or 不是我 in the private chat |
 | `cards/weekly_usage.py` | The 本周用量 card, the bot menu's 用量 panel, in the 夜航 look: the window in its title bar |
@@ -447,7 +440,6 @@
 | `core/owner_ledger.py` | 等主人的账: what waits for the owner in a chat, one entry a thing with the card it is opened on, and the record of … |
 | `core/owner_send.py` | 代发 records: a message a topic drafted for the owner to send as themselves, sent only once the owner confirmed … |
 | `core/paths.py` | Resolve service storage independently of the execution workspace |
-| `core/patrol.py` | What the butler noticed and would have done: records and numbers, no judging |
 | `core/placement.py` | Where a turn's words go in the private chat: one table, the layout by the role |
 | `core/policy_feed.py` | Validate metadata-only policy observations and bind them to a single task interval |
 | `core/policy_process.py` | Stop one identity-checked task tree, including children with their own sessions |

@@ -66,9 +66,8 @@ class Base(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
         for name in ("COVEY_TRACK_JUDGE", "COVEY_TRACK_JUDGE_MS", "LARK_BRIDGE_TRACK_JUDGE", "LARK_BRIDGE_TRACK_JUDGE_MS",
-                     "COVEY_TRACK_JUDGE_SLIM", "COVEY_TRACK_JUDGE_HEDGE"):
+                     "COVEY_TRACK_JUDGE_SLIM"):
             os.environ.pop(name, None)
-        os.environ["COVEY_TRACK_JUDGE_WARM"] = "0"  # These are one-shots; the standby has its own tests.
         self.addCleanup(setattr, track_judge, "_refused_flag", False)
         track_judge._refused_flag = False
         self.logs = []
@@ -374,8 +373,8 @@ class CommandChannelTest(Base):
 
 
 class SettingsTest(unittest.TestCase):
-    def test_the_hard_limit_defaults_to_two_seconds_and_is_clamped(self):
-        for value, ms in ((None, 3000), ("", 3000), ("abc", 3000), ("1500", 1500), ("50", track_judge.MIN_MS),
+    def test_the_hard_limit_defaults_to_six_seconds_and_is_clamped(self):
+        for value, ms in ((None, 6000), ("", 6000), ("abc", 6000), ("1500", 1500), ("50", track_judge.MIN_MS),
                           ("999999", track_judge.MAX_MS), (" 2500 ", 2500)):
             env = {} if value is None else {"COVEY_TRACK_JUDGE_MS": value}
             self.assertEqual(track_judge.limit_ms(env), ms, value)
@@ -386,11 +385,31 @@ class SettingsTest(unittest.TestCase):
             env = {} if value is None else {"COVEY_TRACK_JUDGE": value}
             self.assertEqual(track_judge.mode(env), expected, value)
 
-    def test_the_default_limit_is_the_documented_two_seconds_and_the_confidence_line_seven_tenths(self):
-        self.assertEqual((track_judge.DEFAULT_MS, track_judge.CONFIDENCE_MIN), (3000, 0.7))
+    def test_the_default_limit_is_the_documented_six_seconds_and_the_confidence_line_seven_tenths(self):
+        # Claude Code's one-shot takes about 3.4 s from a cold start: no process is kept ready any more (T898).
+        self.assertEqual((track_judge.DEFAULT_MS, track_judge.CONFIDENCE_MIN), (6000, 0.7))
 
     def test_a_verdict_is_new_unless_told_otherwise(self):
         self.assertEqual(Verdict("new").target, None)
+
+
+class SlimTest(Base):
+    """COVEY_TRACK_JUDGE_SLIM: every Claude Code one-shot of the 辅助模型 (moved here from the standby's tests, T898)."""
+
+    def test_the_slim_options_are_in_the_argv_unless_switched_off_or_refused(self):
+        argv = track_judge.claude_argv(self.backend, self.ctx, True)
+        self.assertEqual(argv[argv.index("--setting-sources") + 1], "user")
+        self.assertIn("--disable-slash-commands", argv)
+        with mock.patch.dict(os.environ, {"COVEY_TRACK_JUDGE_SLIM": "0"}):
+            argv = track_judge.claude_argv(self.backend, self.ctx, True)
+        self.assertNotIn("--setting-sources", argv)
+        self.addCleanup(setattr, track_judge, "_refused_slim", False)
+        track_judge.refused(track_judge.Failed("exit_nonzero", "code=1 error: unknown option '--disable-slash-commands'"))
+        self.assertNotIn("--disable-slash-commands", track_judge.claude_argv(self.backend, self.ctx, True))
+
+    def test_another_failure_keeps_them(self):
+        track_judge.refused(track_judge.Failed("exit_nonzero", "code=1 boom"))
+        self.assertIn("--disable-slash-commands", track_judge.claude_argv(self.backend, self.ctx, True))
 
 
 if __name__ == "__main__":

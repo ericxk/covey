@@ -59,11 +59,10 @@ ROW_CHARS = 90
 CORRECTED = "（已纠正）"  # The end of a 分流记录 line the owner corrected (app/project_facts.py triage_lines), kept when it is clipped.
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
 MEM_DEL_KIND, LIB_DEL_KIND = "bridge_project_mem_del", "bridge_project_lib_del"  # MEM_DEL_KIND: no longer drawn, kept to take a card drawn before.
-TRIAGE_WRONG_KIND = "bridge_project_triage_wrong"
 SWITCH_LEAD = "project_id"  # In 换配置's value (app/harness_switch.py LEAD): the project whose lead it changes.
 # The pause card's buttons (choice -> kind): app/project_loop.py CHOICES.
 ASK_KINDS = {"continue": "bridge_project_ask_continue", "finish": "bridge_project_ask_finish", "stop": "bridge_project_ask_stop"}
-KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND, TRIAGE_WRONG_KIND, "bridge_project_triage_fix", *ASK_KINDS.values()})
+KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND, *ASK_KINDS.values()})
 # A project's state and a member's, as core/look.py STATES keys: the words and colours are the table's (docs/ui.md 2.2,
 # 3). A project a guard paused is STOPPED (停住了 and why, ``Project.reason``), one the owner stopped CANCELLED (已停止);
 # a member STUCK may be stuck (core/progress.py maybe_stuck).
@@ -253,17 +252,14 @@ def row_fold(element_id, title, rows, limit=MAX_ROWS, total=0) -> dict | None:
 
 
 def triage_rows(project) -> list:
-    """The 分流记录: a line each; a line that is (text, token) is a question the lead answered for the owner, and has the 不对
-    button that opens the form of the correction (cards/triage_card.py)."""
+    """The 分流记录: a line each (a line that is (text, token) is a question the lead answered for the owner; its 不对 button
+    was taken off, T898: the owner says the correction in the topic)."""
     rows = []
     for line in project.triage:
-        text, token = line if isinstance(line, tuple) else (line, "")
-        text = str(text)
+        text = str(line[0] if isinstance(line, tuple) else line)
         mark = CORRECTED if text.endswith(CORRECTED) else ""  # Clipped, a long line kept its start and lost the mark.
         body = md(grey(literal_text(clipped(text[:len(text) - len(mark)], ROW_CHARS - len(mark)) + mark)), size="notation")
-        rows.append(item(body, text_button("不对", {"kind": TRIAGE_WRONG_KIND, "project_id": project.project_id,
-                                                  "topic_id": project.lead_topic, "token": token}, tone="danger"))
-                    if token else body)
+        rows.append(body)
     return rows
 
 

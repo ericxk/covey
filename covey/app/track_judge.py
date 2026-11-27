@@ -5,7 +5,7 @@ belong to one of the live tasks (``merge``) or is it a request of its own (``new
 the tasks it listed is ``new`` (a wrong merge costs the owner more than a wrong new track). It never retries and never
 raises. Reasons for ``new`` other than the model's own: the judge is ``off``, the topic redacts (the text must not reach
 the model: nothing is called), no task to choose from, the process did not start, ran past the hard limit
-(COVEY_TRACK_JUDGE_MS, default 3000; the whole process group is killed), exited with an error, or its answer was not
+(COVEY_TRACK_JUDGE_MS, default 6000; the whole process group is killed), exited with an error, or its answer was not
 one line of JSON, had a confidence below CONFIDENCE_MIN, or an index outside the list.
 
 Two channels, COVEY_TRACK_JUDGE: ``claude`` (the default: the name is the old one; it means "the small model where it is")
@@ -26,17 +26,13 @@ the way a turn's result row is (backends/claude/completion.py result_failure; ``
 ``policy_refusal``), a bare stderr by its words (core/assist.py code_of_text); the detail is the CLI's own words,
 secrets hidden and cut (core/failure.py said_of), never the question.
 
-A native Harness's CLI starts for each question (5 to 9 s seen): its hard limit is NATIVE_MS unless COVEY_TRACK_JUDGE_MS
-says. Through Claude Code the process is, when it can be, a standby started and primed before the question
-(``warm``, called by app/assist.py; app/track_standby.py): it saves the CLI's start and the slow first request, answers
-this one question and is killed. COVEY_TRACK_JUDGE_HEDGE (default 2) standbys are kept and all asked at once, the first
-usable answer wins (the gateway's slow requests are each request's own); the next ones are started as these are taken, so a
-second question meanwhile does not fall back to a one-shot. Without one the call starts a one-shot as above.
-COVEY_TRACK_JUDGE_WARM=0 never starts a standby. COVEY_TRACK_JUDGE_SLIM (default on) adds SLIM to the argv: about 800
-input tokens instead of 4800.
+Every question starts its own process: a native Harness's CLI (5 to 9 s seen) within NATIVE_MS unless COVEY_TRACK_JUDGE_MS
+says, Claude Code's one-shot (about 3.4 s from a cold start) within DEFAULT_MS. No process is kept between questions (the
+standby kept before T898 primed one with a real call at every butler message). COVEY_TRACK_JUDGE_SLIM (default on) adds
+SLIM to the argv: about 800 input tokens instead of 4800.
 
 One log line per call, never with the owner's text: ``track judge route=… target=… conf=… why=… ms=… via=…`` or
-``track judge failed|skipped reason=… ms=… via=…`` (via: claude, gateway, cmd, or the native Harness's name). Needs a Claude Code that takes ``--no-session-persistence``
+``track judge failed|skipped reason=… ms=… via=…`` (via: claude, cmd, or the native Harness's name). Needs a Claude Code that takes ``--no-session-persistence``
 (2.1.322 does); an older one that refuses it is remembered and asked without it from the next call on.
 """
 from __future__ import annotations
@@ -51,8 +47,6 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from covey.app import track_standby
-from covey.app.track_standby import Failed
 from covey.core import env as cenv
 from covey.core.assist import code_of_text
 from covey.core.failure import said_of
@@ -64,14 +58,12 @@ from covey.core.track_route import LIVE_PHASES, LiveJob, Message
 
 MODEL = "haiku"
 CONFIDENCE_MIN = 0.7
-DEFAULT_MS = 3000  # One Haiku call through a gateway often takes 1–2 s; with 2000 about 4 in 10 judgments timed out.
+DEFAULT_MS = 6000  # A Claude Code one-shot on Haiku: about 3.4 s from a cold start (with 3000 and no standby most timed out).
 # A native Harness's own CLI answering (``ask_native``): a new process each question, 5 to 7 s through Codex (up to 11, codex-cli
 # 0.171.0), about 9 through Antigravity (agy 1.5.14).
 NATIVE_MS = 10000
 MIN_MS, MAX_MS = 200, 10000
 CLAUDE = "claude"
-NATIVE = ("codex", "agy")  # Where Claude Code is not enabled, the Harnesses whose own CLI answers, in this order.
-DEFAULT_HEDGE, MAX_HEDGE = 2, 3  # The gateway's latency spikes are per request: the second of two asked at once usually misses them.
 MAX_TASKS = 3
 CLIP = 300
 STDERR_KEPT = 300
@@ -90,6 +82,15 @@ SYSTEM = (
 )
 _refused_flag = False  # This Claude Code does not know FLAG.
 _refused_slim = False  # This Claude Code does not know SLIM's options.
+
+
+class Failed(Exception):
+    """A reason the model's answer cannot be used (``reason`` is what the log line says; a core/assist.py reason code)."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        super().__init__(reason)
+        self.reason, self.detail = reason, detail
+
 
 
 @dataclasses.dataclass(frozen=True)
@@ -170,17 +171,13 @@ def payload(message: Message, tasks: list[LiveJob], question: str) -> dict:
     return out
 
 
-def claude_argv(backend, ctx, with_flag: bool, stream: bool = False, system: str = SYSTEM, model: str = MODEL,
-                settings=None) -> list[str]:
+def claude_argv(backend, ctx, with_flag: bool, system: str = SYSTEM, model: str = MODEL, settings=None) -> list[str]:
     """The Claude Code's argv, like the model catalog's (backends/claude/argv.py stream_argv catalog): no MCP servers,
-    hooks or tools. One-shot: the prompt arrives on standard input and the answer is one JSON object. ``stream``
-    (the standby, app/track_standby.py): messages in and events out as stream-json lines. ``system``: another
-    question for the same small model (app/patrol_judge.py). ``model``: another model for a question that needs more than
+    hooks or tools. One-shot: the prompt arrives on standard input and the answer is one JSON object. ``system``: another
+    question for the same small model (a feature's own, app/assist.py ask). ``model``: another model for a question that needs more than
     the small one (app/project_sorter.py). ``settings``: its --settings (the backend's ``one_shot`` gives the relay's
     address with the hooks off); the hooks off without one."""
-    kind = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] if stream \
-        else ["--output-format", "json"]
-    argv = [*ctx.backend_cmd, "-p", "--model", model, *kind, "--max-turns", "1",
+    argv = [*ctx.backend_cmd, "-p", "--model", model, "--output-format", "json", "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings",
             json.dumps(settings, ensure_ascii=False, separators=(",", ":")) if settings else '{"disableAllHooks":true}',
             "--tools", "", "--system-prompt", system]
@@ -212,46 +209,6 @@ def slim_enabled(environ=None) -> bool:
     """COVEY_TRACK_JUDGE_SLIM: the question goes without the working directory's settings, memory files and skills (the
     default); 0, off, false or no: the full context, as before."""
     return env_flag("COVEY_TRACK_JUDGE_SLIM", True, environ)
-
-
-def warm_enabled(environ=None) -> bool:
-    """COVEY_TRACK_JUDGE_WARM: a Claude Code kept ready for the next question (the default); 0, off, false or no: a
-    one-shot is started at each question, as before."""
-    return env_flag("COVEY_TRACK_JUDGE_WARM", True, environ)
-
-
-def hedge(environ=None) -> int:
-    """How many standbys are asked the same question at once (the first answer wins): COVEY_TRACK_JUDGE_HEDGE, 1 to
-    MAX_HEDGE, DEFAULT_HEDGE when unset or not a number."""
-    try:
-        value = int(str(cenv.get("COVEY_TRACK_JUDGE_HEDGE", "", environ) or "").strip() or DEFAULT_HEDGE)
-    except ValueError:
-        return DEFAULT_HEDGE
-    return max(1, min(MAX_HEDGE, value))
-
-
-def standby_target(backend, ctx):
-    """(argv, env, cwd, signature) of the standby; the directory is made."""
-    cwd = Path(ctx.state_dir) / "track-judge"
-    cwd.mkdir(parents=True, exist_ok=True)
-    argv = claude_argv(backend, ctx, not _refused_flag, stream=True)
-    env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
-    return argv, env, cwd, (tuple(argv), str(cwd))
-
-
-def warm(backend, ctx, environ=None, *, generation=None, allow=None) -> bool:
-    """Have a Claude Code ready for the next question (app/track_standby.py): started and primed now unless a live one is
-    waiting. Nothing when the channel is not ``claude``, the warm standby is off, or ``backend`` or ``ctx``
-    is missing or a native Harness's (no Claude Code here). ``generation`` and ``allow``: app/assist.py's guard against a
-    standby the settings no longer want (track_standby ``warm``). Never raises, never waits (the Popen only). True when
-    a process was started."""
-    try:
-        if mode(environ) != "claude" or not warm_enabled(environ) or backend is None or ctx is None or native(backend, ctx):
-            return False
-        return track_standby.warm(*standby_target(backend, ctx), spares=hedge(environ) - 1, generation=generation,
-                                  allow=allow)
-    except Exception:  # noqa: BLE001  A standby that cannot start is a one-shot later.
-        return False
 
 
 def ask(system: str, data: str, *, backend, ctx, limit: float, cwd, model: str = MODEL, environ=None, heavy=None,
@@ -404,14 +361,11 @@ NOT_CALLED = frozenset({"redacted", "off", "bad_config", "no_tasks"})
 
 
 def judge(message: Message, *, question: str = "", redacted: bool = False, backend=None, ctx=None,
-          log: Callable[[str], None] = print, environ=None, follow: str = "", rewarm=None, allow=None,
-          unrouted: str = "") -> Verdict:
+          log: Callable[[str], None] = print, environ=None, follow: str = "", unrouted: str = "") -> Verdict:
     """The small model's verdict on ``message`` (core/track_route.Message, its ``live`` and ``quote.text`` are what the
     model sees) given what the waiting task asks (``question``). ``redacted``: the topic redacts, nothing is sent.
     ``backend`` and ``ctx``: the Harness app/assist.py chose (``claude`` channel only), ``follow`` its provider;
-    ``unrouted``: it chose none, and why (the verdict is ``new`` with that reason). ``rewarm``: called once a standby was
-    taken (the next one is started for the route as it is then, never with this call's backend); ``allow``: asked before
-    a standby is handed out. Only app/assist.py calls it."""
+    ``unrouted``: it chose none, and why (the verdict is ``new`` with that reason). Only app/assist.py calls it."""
     started = time.monotonic()
     via = mode(environ)
     own = via == "claude" and native(backend, ctx)
@@ -447,20 +401,9 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
             if backend is None or ctx is None:
                 raise Failed("no_backend")
             try:
-                standbys = []
-                if warm_enabled(environ) and not getattr(backend, "turn_hooked", lambda ctx=None: False)(ctx):
-                    signature = standby_target(backend, ctx)[3]
-                    first = track_standby.take(signature, allow)
-                    if first is not None:
-                        standbys = [first, *track_standby.take_spares(signature)]
-                        if rewarm is not None:
-                            rewarm()  # The next question (another chat's, or this one's next) finds them ready.
-                if standbys:
-                    raw = track_standby.ask_first(standbys, data, limit, lambda text: parse(answer_text(text, via), tasks))
-                else:
-                    cwd = Path(ctx.state_dir) / "track-judge"
-                    cwd.mkdir(parents=True, exist_ok=True)
-                    raw = claude_once(backend, ctx, data, cwd, limit)
+                cwd = Path(ctx.state_dir) / "track-judge"
+                cwd.mkdir(parents=True, exist_ok=True)
+                raw = claude_once(backend, ctx, data, cwd, limit)
             except Failed as exc:
                 refused(exc)
                 raise
@@ -469,7 +412,7 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
         verdict = parse(answer_text(raw, via), tasks)
     except Failed as exc:
         reason = exc.reason
-        if reason == "exit_nonzero":  # A standby's end says it only in its stderr.
+        if reason == "exit_nonzero":  # A CLI that exited says why only in its stderr.
             reason = code_of_text(exc.detail) or reason
         return done(Verdict("new", why=reason), "failed", **({"detail": json.dumps(exc.detail, ensure_ascii=False)} if exc.detail else {}))
     except Exception as exc:  # Nothing here may stop a message from being handled: a new track is the safe answer.

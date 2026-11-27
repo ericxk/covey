@@ -36,7 +36,7 @@ from covey.cards.butler_panel import (ASSIST, COMPACT, EFFORT, ENABLE, HARNESS, 
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
                                                     CLAUDE, follow_text,
                                                     REVIEW_EFFORT, REVIEW_HARNESS, REVIEW_MODEL, REVIEW_PROVIDER,
-                                                    LEAD_EFFORT, LEAD_HARNESS, LEAD_MODEL, LEAD_PROVIDER,
+                                                    LEAD_EFFORT, LEAD_HARNESS, LEAD_MODEL, LEAD_PROVIDER, MORE_KINDS,
                                                     PART_OF, SECTION, SECTIONS,
                                                     butler_panel_card)
 from covey.cards.launch_config import effort_choices
@@ -372,6 +372,9 @@ class ButlerPanel:
             view.pop('confirm', None)  # Any other click closes the question 每条直接开一个话题 asked.
             if confirm:
                 view['confirm'] = True
+            view.pop('more', None)  # 更多 stays open after a click on one of its rows (cards/butler_panel.py MORE_KINDS).
+            if outcome == 'main_panel' and value['kind'] in MORE_KINDS:
+                view['more'] = True
             # 配置 opens the section 展开 names, or the one of the row clicked (a card drawn before the sections too).
             part = value.get('open') if value['kind'] == SECTION else PART_OF.get(value['kind'])
             if outcome == 'main_panel' and part in SECTIONS:

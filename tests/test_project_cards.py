@@ -19,7 +19,7 @@ from support.world import UnifiedCase
 from test_projects import Case as ProjectsCase
 
 from covey.app import pins, project_cards, project_clicks, project_facts
-from covey.app.card_actions import ACTIONS
+from covey.app.card_actions import ACTIONS, RETIRED_TEXT
 from covey.cards import project_card as view
 from covey.cards.elements import CARD_BYTES, CARD_NODES, element_count, find_element, json_size
 from covey.core import board_read, look, projects
@@ -672,13 +672,14 @@ class ButtonTest(CardCase):
         for kind, handler in (("bridge_project_steer", "steering.project_steer"), ("bridge_project_stop", "controls.project_stop"),
                               ("bridge_project_downgrade", "controls.project_downgrade"),
                               ("bridge_project_mem_del", "controls.project_mem_del"),
-                              ("bridge_project_lib_del", "controls.project_lib_del"),
-                              ("bridge_project_triage_wrong", "controls.project_triage_wrong")):
+                              ("bridge_project_lib_del", "controls.project_lib_del")):
             self.assertEqual((ACTIONS[kind].handler, ACTIONS[kind].bot_only), (handler, False), kind)
-        # The correction's submit queues a message in a member topic: bot_only, as a button that starts a task is.
-        self.assertEqual((ACTIONS["bridge_project_triage_fix"].handler, ACTIONS["bridge_project_triage_fix"].bot_only),
-                         ("controls.project_triage_fix", True))
-        self.assertEqual(view.KINDS, {kind for kind in ACTIONS if kind.startswith("bridge_project_")})
+        # The 分流记录's 不对 and its form's submit were taken off the cards (T898): kept in the table, answered in words.
+        retired = ("bridge_project_triage_wrong", "bridge_project_triage_fix")
+        for kind in retired:
+            self.assertEqual((ACTIONS[kind].handler, ACTIONS[kind].bot_only), ("controls.retired_action", True), kind)
+            self.assertIn(kind, RETIRED_TEXT)
+        self.assertEqual(view.KINDS | set(retired), {kind for kind in ACTIONS if kind.startswith("bridge_project_")})
 
     def test_a_click_for_another_topic_or_a_project_not_there_is_refused(self):
         handlers = (self.claude.controls.project_stop, self.claude.controls.project_downgrade, self.claude.steering.project_steer,

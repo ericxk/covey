@@ -979,7 +979,7 @@ export interface SettingsConfigPage {
   /** v36：专项负责人（开了 COVEY_PROJECTS 才有）：新建的专项，负责人用这里选的 Harness、模型、思考预算；行的 key 是 l_harness、l_provider、l_model、l_effort，
    * 改行同独立复核（settings 的 row）。已有专项的负责人在它自己的配置栏换（话题条目 kind=lead 的 config） */
   lead?: SettingsConfigSection;
-  /** 辅助模型（T884）：分流、整理专项、看看、记忆这些后台活用哪个 Harness。一行（key assist，kind bridge_main_assist_harness，
+  /** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活用哪个 Harness。一行（key assist，kind bridge_main_assist_harness，
    * 改行同别的段：settings 的 row），管家关着也能改；旧版 Covey 不带这一段 */
   assist?: SettingsConfigAssist;
   more: SettingsRow[];
@@ -988,7 +988,7 @@ export interface SettingsConfigPage {
 }
 /** 后台活最近一次的一行：每个功能一行，只有原因码和说法，没有原话 */
 export interface SettingsAssistRecent {
-  /** track（分流）、tidy（整理专项）、tidy_realtime、backfill、look（看看）、candidates、learn、memory_tidy、patrol */
+  /** track（分流）、tidy（整理专项，含整理时补话题要点）、learn（记忆自己长）；旧版 Covey 还可能有 backfill 和已下线的几项（T898） */
   feature: string;
   label: string;
   /** Harness 的名字（claude、codex、agy）；没问到谁时是空串 */
@@ -1004,7 +1004,7 @@ export interface SettingsAssistRecent {
   ms: number;
   /** 秒 */
   at: number;
-  /** 主人点的（✨ 整理、看看） */
+  /** 主人点的（✨ 整理） */
   manual: boolean;
 }
 export interface SettingsConfigAssist extends SettingsConfigSection {

@@ -36,7 +36,7 @@ DAILY_REFUSALS = 3
 CACHE_SECONDS = 5.0  # How long a process trusts its own copy (``read``) before it reads the file again.
 RECENT_GAP = 60.0  # A feature's ``recent`` row is written again within this only when its outcome changed.
 
-# The reasons of one background call (core/harness.py AskFailed's, app/track_standby.py Failed's), by what they mean.
+# The reasons of one background call (core/harness.py AskFailed's, app/track_judge.py Failed's), by what they mean.
 # The environment of the Harness: the next call would fail the same; the automatic calls leave it for BREAK_SECONDS.
 BREAKS = frozenset({"authentication_error", "not_signed_in", "quota_exhausted", "spawn_failed", "transport_error",
                     "model_unavailable", "model_blocked"})

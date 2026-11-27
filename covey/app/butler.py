@@ -34,7 +34,7 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app import assist, butler_harness, butler_reactions, idle_compaction, butler_relay, pins, project_lead, track_digest
+from covey.app import butler_harness, butler_reactions, idle_compaction, butler_relay, pins, project_lead, track_digest
 from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import butler_tracks as tracks_module
@@ -120,12 +120,6 @@ class Butler:
         self.topics = topics
         self.runtime = topics.runtime
         self.tracks = Tracks(self)  # 多路并行 (app/butler_tracks.py); idle when COVEY_BUTLER_TRACKS is 0 or the mode says so.
-
-    @staticmethod
-    def close() -> None:
-        """The Bridge's stop (app/unified.py stop_children): the Claude Code kept ready for the track judge goes
-        (app/assist.py stop)."""
-        assist.stop()
 
     def harness_app(self, state_dir):
         """(name, app) of the Harness the butler runs on (app/butler_harness.py chosen): the settings', else Claude Code

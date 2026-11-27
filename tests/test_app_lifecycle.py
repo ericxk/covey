@@ -325,16 +325,17 @@ class WorkerTargetsTest(unittest.TestCase):
         # (app/source_watch.py), on unless COVEY_SOURCE_WATCH=0; 等主人的账's 对账 (app/owner_ledger.py Reconcile), on
         # unless COVEY_LEDGER_RECONCILE=0.
         app_setup = ["app-setup", "source-watch", "owner-ledger"]
-        # 工作区 and 脱敏 are tabs of 设置 since 2026-11-09; their old keys open it there.
-        menu = ["weekly_usage", *(["proxy_settings"] if proxy else []), "manage_groups", "bridge_settings",
-                "manage_workspaces", "redaction_dashboard"]
+        # 工作区, 脱敏 and 群聊 are tabs of 设置; their old keys are off the app's menu (core/app_manifest.py STALE_MENU_KEYS) and
+        # answered by one line of where they went (app/bot_menu.py), last.
+        menu = ["weekly_usage", *(["proxy_settings"] if proxy else []), "bridge_settings"]
+        stale = ["manage_workspaces", "redaction_dashboard", "manage_groups"]
         for env, extra in ((off, main + app_setup), ({}, ["overview", *main, *app_setup]), (ruled_out, app_setup)):
             with self.subTest(env=sorted(env)), mock.patch.dict(os.environ, env):
                 if "COVEY_PINNED_OVERVIEW" not in env:
                     os.environ.pop("COVEY_PINNED_OVERVIEW", None)
                 app = UnifiedBridgeApp(script_path=REPO / "bin/covey_bridge.py")
                 self.assertEqual([name for name, _ in app.worker_targets()], always + extra)
-                self.assertEqual(list(app.menu.actions), menu + ([] if env is ruled_out else ["main_thread_settings"]) + ["digest_board"])  # 看板 is always in the menu.
+                self.assertEqual(list(app.menu.actions), menu + ([] if env is ruled_out else ["main_thread_settings"]) + ["digest_board"] + stale)  # 看板 is always in the menu.
 
 
 if __name__ == "__main__":

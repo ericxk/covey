@@ -33,13 +33,11 @@ def queue(state_dir, home=None, *, root_of=None, log=print, now=None) -> int:
 
 
 class Harvest:
-    """The digest's hook (app/digest.py ``harvest``, set by app/unified.py): ``runtime`` for the log (``topics`` kept for
-    its caller; no model is asked here)."""
+    """The digest's hook (app/digest.py ``harvest``, set by app/unified.py): ``runtime`` for the log (no model is asked here)."""
 
-    def __init__(self, runtime, topics):
-        self.runtime, self.topics = runtime, topics
+    def __init__(self, runtime):
+        self.runtime = runtime
 
-    def offer(self, ctx, slot) -> list:
-        """The candidates the digest card shows: none, the Harnesses' entries go to 待审核 (``queue``)."""
+    def offer(self, ctx, slot) -> None:
+        """The Harnesses' entries go to 待审核 (``queue``); the digest card lists none of them."""
         queue(ctx.state_dir, log=self.runtime.log)
-        return []

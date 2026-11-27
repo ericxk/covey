@@ -5,7 +5,6 @@ write none (``claim`` returns the edit), send no card and call no model. This is
 other one may import it, it imports none of them (tests/test_structure.py TidyPartsTest)."""
 from __future__ import annotations
 
-import hashlib
 import re
 import time
 from pathlib import Path
@@ -24,7 +23,6 @@ from covey.core.store import directory_store
 from covey.core.text import cut
 from covey.core.topics import label_title
 
-TURN = "turn"  # The reason a turn the owner started gives (``saw``): a join only, and only when the 话题要点 changed.
 NOW_CHARS = 80  # Of a topic's latest conclusion on the proposal card (现在：…).
 PROJECT_KINDS = (proposals.SPLIT, proposals.MERGE, proposals.LEAVE, proposals.RENAME, proposals.FOLD)  # Proposals about a project.
 
@@ -58,15 +56,6 @@ def claim(to):
             raise Taken(data.get("state") or "")
         data.update(state=to, decided_at=time.time())
     return edit
-
-
-def gist_sign(state, topic) -> str:
-    """What the judge reads of a topic's 话题要点 that may change its project, as a short hash ('' without one)."""
-    gist = topic_gist.gist_of(topic_gist.read(state, topic))
-    if not gist:
-        return ""
-    text = "\n".join([str(gist.get("essence") or ""), str(gist.get("goal") or ""), ",".join(map(str, gist.get("related") or ()))])
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def where_now(state, chat, topic) -> str:
@@ -138,28 +127,6 @@ def in_scope(state, topic, scope, records) -> bool:
 def run_path(state, run) -> Path:
     """The record file of the 整理 ``run`` (its 整理专项 card's message and view)."""
     return proposals.folder(state) / "runs" / f"{run}.json"
-
-
-def by_rule(state, chat, topic, records) -> tuple:
-    """(project id, why) when the 话题要点 of ``topic`` names in ``related`` topics of one live project of ``records``, and
-    of no other; ('', '') otherwise. No model call."""
-    related = topic_gist.gist_of(topic_gist.read(state, topic)).get("related") or ()
-    numbers = topic_links.topic_numbers(state, chat)
-    members = {other: record["id"] for record in records for other in record.get("threads") or ()}
-    hits = {}
-    for ref in related if isinstance(related, list) else ():
-        found = re.fullmatch(r"[Tt](\d+)", str(ref).strip())
-        other = numbers.get(int(found.group(1))) if found else None
-        if other and other != topic and other in members:
-            hits.setdefault(members[other], []).append(f"T{found.group(1)}")
-    if len(hits) != 1:
-        return "", ""
-    pid, refs = next(iter(hits.items()))
-    return pid, f"它的话题要点说和 {'、'.join(refs[:3])} 相关，那是这个专项的话题"
-
-
-def rule_join(topic, pid, why) -> dict:
-    return proposals.new_proposal(proposals.JOIN, topics=[topic], project=pid, why=why, source="rule", confidence=1.0)
 
 
 def still_in(state, topics, pid) -> tuple:

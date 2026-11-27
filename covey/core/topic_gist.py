@@ -9,7 +9,7 @@ from), essence_at (when the essence last changed), essences (the last ESSENCES_K
 backfill could not read keeps ``unreadable`` {reason, at, job} instead and is tried again only after a newer turn.
 
 ``save`` says whether the essence changed (``moved``): an essence that reads differently enough from the one before
-(``same_essence``: the same words, or close) is the moment of a real-time 整理专项 (app/project_tidy.py). The first essence
+(``same_essence``: the same words, or close) is kept in ``essences``. The first essence
 a topic has is not a change. Standard library and core only; no model, no Feishu call."""
 from __future__ import annotations
 

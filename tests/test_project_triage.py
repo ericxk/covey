@@ -15,10 +15,10 @@ from unittest import mock
 from support.records import write_job
 from support.world import QuestionFixture
 
-from covey.app import project_clicks, project_context, project_facts, project_lead, project_loop, triage as flow
+from covey.app import project_context, project_facts, project_lead, project_loop, triage as flow
 from covey.app.project_loop import ProjectLoop
 from covey.app.questions import recover_question_delivery
-from covey.cards import project_card, triage_card
+from covey.cards import project_card
 from covey.cards.question_cards import HELD_NOTE, question_card, question_element
 from covey.core import butler, butler_tool_specs, project_gates, project_library, project_memory, projects, recovery, triage
 from covey.core.jobs import find_job_record, upsert_job_record
@@ -626,7 +626,7 @@ class LeadSideTest(Held):
 
 
 class CardTest(Held):
-    def test_the_row_of_an_answer_has_the_wrong_button_until_it_is_corrected(self):
+    def test_the_row_of_an_answer_has_no_wrong_button_any_more_and_shows_the_mark_once_corrected(self):
         flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
         flow.log_row(self.state, PID, "转给你：T41 · 能不能停服务？", kind="escalated")
         lines = project_facts.triage_lines(self.reload())
@@ -634,8 +634,7 @@ class CardTest(Held):
         self.assertIsInstance(lines[0], str)  # The hand-back has no button.
         view = project_card.Project(**{**project_card_sample().__dict__, "triage": lines})
         buttons = [b for b in walk(project_card.triage_rows(view)) if b.get("tag") == "button"]
-        self.assertEqual([b["behaviors"][0]["value"]["kind"] for b in buttons], [project_card.TRIAGE_WRONG_KIND])
-        self.assertEqual(buttons[0]["behaviors"][0]["value"]["token"], TOKEN)
+        self.assertEqual(buttons, [])  # The 不对 button was taken off (T898); a row is a line.
         projects.update(self.state, PID, lambda data: data["triage"][0].__setitem__("corrected", True))
         self.assertTrue(project_facts.triage_lines(self.reload())[1].endswith("（已纠正）"))
 
@@ -654,12 +653,6 @@ class CardTest(Held):
     def test_rows_without_a_token_draw_as_they_always_did(self):
         view = project_card.Project(**{**project_card_sample().__dict__, "triage": ("09:40 答了：用哪个库版本？",)})
         self.assertFalse([b for b in walk(project_card.triage_rows(view)) if b.get("tag") == "button"])
-
-    def test_the_form_asks_for_one_sentence_and_calls_back_with_the_question(self):
-        built = triage_card.fix_form("T41 · 用哪个库版本？ → 新版", {"project_id": PID, "topic_id": LEAD, "token": TOKEN})
-        form = next(e for e in walk(built) if e.get("tag") == "form")
-        self.assertEqual([e["tag"] for e in form["elements"]], ["input", "button"])
-        self.assertEqual(form["elements"][1]["behaviors"][0]["value"]["kind"], triage_card.FIX_KIND)
 
     def test_the_task_card_says_the_question_is_with_the_lead(self):
         self.write()
@@ -686,61 +679,6 @@ def walk(node):
 
 def project_card_sample():
     return project_card.Project(project_id=PID, name="迁移账单", status="在做", lead_topic=LEAD)
-
-
-class CorrectTest(Held):
-    def setUp(self):
-        super().setUp()
-        self.queued = []
-        app = SimpleNamespace(
-            harness=SimpleNamespace(context=object()),
-            submission=SimpleNamespace(
-                event_context=lambda base, event: SimpleNamespace(topic_id=THREAD, history_path=self.state / "h.jsonl"),
-                enqueue_chat_job=lambda ctx, text, chat, message, **fields: self.queued.append((message, text)) or object()))
-        flow.attach(SimpleNamespace(state_dir=self.state, topics=SimpleNamespace(target=lambda *a: (app, self.ctx, {}))))
-        self.addCleanup(flow.attach, None)
-        flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
-
-    def test_the_correction_goes_to_the_topic_the_decision_log_and_the_row(self):
-        said = flow.correct(self.reload(), TOKEN, "这类库版本的事要等我看过再定")
-        message, text = self.queued[0]
-        self.assertEqual(message, flow.FIX_PREFIX + TOKEN)
-        self.assertFalse(projects.is_wake(message))
-        self.assertIn("这类库版本的事要等我看过再定", text)
-        record = self.reload()
-        self.assertTrue(record["triage"][0]["corrected"])
-        self.assertIn("这类库版本的事要等我看过再定", record["decisions"][-1]["text"])
-        self.assertIn("决定日志", said)
-        self.assertIn("这类库版本的事要等我看过再定", project_lead.state_pack(self.state, record, "lead-1", full=False))
-
-    def test_a_row_is_corrected_once_and_only_an_answer_is_a_row(self):
-        flow.correct(self.reload(), TOKEN, "一次")
-        with self.assertRaisesRegex(ValueError, "已经纠正过"):
-            flow.correct(self.reload(), TOKEN, "两次")
-        with self.assertRaises(ValueError):
-            flow.correct(self.reload(), "d" * 16, "没有这一行")
-        self.assertEqual(len(self.queued), 1)
-
-    def test_the_submitted_form_becomes_the_card_that_says_it_was_corrected(self):
-        # The acceptance of 2026-11-17: after 提交纠正 the form stayed open, its input and button still there.
-        host = SimpleNamespace(messenger=mock.Mock(), voice=SimpleNamespace(key=lambda name, event_id: f"{name}:{event_id}"),
-                               runtime=SimpleNamespace(log=self.logs.append))
-        ctx = SimpleNamespace(state_dir=self.state, topic_id=LEAD)
-        event = {"chat_id": CHAT, "message_id": "om_form", "event_id": "ev-fix",
-                 "action_value": {"kind": triage_card.FIX_KIND, "project_id": PID, "topic_id": LEAD, "token": TOKEN},
-                 "form_value": {triage_card.FIELD: "应该用 CRLF"}}
-        self.assertTrue(project_clicks.triage_fix(host, ctx, event))
-        call = host.messenger.publish_card.call_args
-        self.assertEqual((call.args[1], call.kwargs["source_message"], call.kwargs["update_only"]), (CHAT, "om_form", True))
-        shown = json.dumps(call.args[3], ensure_ascii=False)
-        self.assertIn("已纠正", shown)
-        self.assertIn("新版 → 应该用 CRLF", shown)
-        self.assertFalse([e for e in walk(call.args[3]) if e.get("tag") in {"form", "input", "button"}])
-        host.messenger.publish_card.reset_mock()
-        with self.assertRaisesRegex(ValueError, "已经纠正过"):
-            project_clicks.triage_fix(host, ctx, {**event, "event_id": "ev-fix-2"})
-        host.messenger.publish_card.assert_not_called()
-        self.assertEqual(len(self.queued), 1)
 
 
 class HeldFixture(QuestionFixture, unittest.TestCase):
@@ -961,26 +899,6 @@ class MemoryInterplayTest(Held):
         data.pop("triage")
         project_context.remember_answer(self.state, THREAD, self.answered(data), self.logs.append, owners=True)
         self.assertEqual([source for _, source, _ in self.notes()], ["owner_answer"])
-
-    def test_the_owners_correction_is_a_decision_of_the_project_when_the_memory_is_on(self):
-        queued = []
-        app = SimpleNamespace(
-            harness=SimpleNamespace(context=object()),
-            submission=SimpleNamespace(
-                event_context=lambda base, event: SimpleNamespace(topic_id=THREAD, history_path=self.state / "h.jsonl"),
-                enqueue_chat_job=lambda ctx, text, chat, message, **fields: queued.append(message) or object()))
-        flow.attach(SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(log=self.logs.append),
-                                    topics=SimpleNamespace(target=lambda *a: (app, self.ctx, {}))))
-        self.addCleanup(flow.attach, None)
-        flow.log_row(self.state, PID, "答了：T41 · 用哪个库版本？ → 新版", token=TOKEN, topic=THREAD, kind="answered")
-        flow.correct(self.reload(), TOKEN, "库版本的事要等我看过")
-        self.assertEqual([(kind, source) for kind, source, _ in self.notes()], [("decision", "owner_fix")])
-        self.assertIn("库版本的事要等我看过", self.notes()[0][2])
-        with mock.patch.dict(os.environ, {projects.MEMORY_ENV: "0"}):  # Off: the decision log has it, the memory does not grow.
-            flow.log_row(self.state, PID, "答了：T41 · 另一题 → 旧版", token="d" * 16, topic=THREAD, kind="answered")
-            flow.correct(self.reload(), "d" * 16, "也要等我")
-        self.assertEqual(len(self.notes()), 1)
-
 
 class PauseInterplayTest(Held):
     """A tokens pause stops the member topics' tasks (COVEY_PROJECT_ASK=1) while a question of theirs is held for the lead: the

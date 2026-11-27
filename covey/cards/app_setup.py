@@ -13,7 +13,7 @@ TITLE = "飞书应用待补"
 START = "bridge_app_setup"  # 扫码自动补齐 (``review``: with the reviewed scopes)
 SKIP = "bridge_app_setup_skip"  # 这些先不补
 GROUPS = (("bot", "机器人"), ("event", "事件与回调"), ("callback", "事件与回调"), ("scope", "权限"),
-          ("menu_enable", "菜单"), ("menu", "菜单"))
+          ("menu_enable", "菜单"), ("menu", "菜单"), ("menu_remove", "菜单"))
 STEP_WORDS = (("login", "扫码登录开发者后台"), ("read", "读取后台配置"), ("manifest", "写入权限与事件"),
               ("menu", "写入菜单"), ("version", "发布新版本"), ("check", "核对线上版本"))
 MARKS = {"done": "✅", "doing": "⏳", "skipped": "➖", "failed": "❌", "todo": "▫️"}
@@ -22,7 +22,7 @@ MARKS = {"done": "✅", "doing": "⏳", "skipped": "➖", "failed": "❌", "todo
 def need_line(need):
     """One need in words: what it is for, then its name in grey when that is not the same."""
     name = need["name"]
-    if need["kind"] in ("menu", "bot", "menu_enable"):
+    if need["kind"] in ("menu", "bot", "menu_enable", "menu_remove"):
         return need["words"]
     return f"{need['words']} <font color='grey'>{name}</font>"
 

@@ -186,11 +186,8 @@ class Tracks:
             redacted = topic_redaction(ctx.state_dir, core.root_topic_id(chat))
         except ValueError:
             redacted = True
-        # The 辅助模型's Harness (app/assist.py): one try, a new track on any failure; the next standby is started for the
-        # route as it is then, never with this call's backend.
-        topics = self.main.topics
-        verdict = assist.judge(message, topics=topics, redacted=redacted, log=self.runtime.log)
-        assist.warm(topics)
+        # The 辅助模型's Harness (app/assist.py): one try, a new track on any failure.
+        verdict = assist.judge(message, topics=self.main.topics, redacted=redacted, log=self.runtime.log)
         if verdict.route == "merge" and verdict.target is not None:
             fresh = self.entries(ctx, chat, now)  # The model took a while: the task may have ended meanwhile.
             target = self.newest_of(fresh, verdict.target)
@@ -241,9 +238,6 @@ class Tracks:
         """True when the message was handled here; False: no task of the family is live, the usual path (slot 0) runs."""
         started = time.monotonic()
         now = time.time()
-        # A Claude Code ready for the judge of the next message (app/track_standby.py): this message may start the task
-        # that message will have to be told from. Nothing where the 辅助模型 is not Claude Code (app/assist.py warm).
-        assist.warm(self.main.topics)
         entries = self.entries(ctx, chat, now)
         if not entries:
             self.remember_bare(chat, 0, bare, now)
