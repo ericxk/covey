@@ -53,7 +53,7 @@ def messenger_send(messenger, profile, voice):
     def send(chat, text, key, reply_to, built, on_sent):
         return messenger.send_message(profile, chat, text, voice.key("main-relay", key), reply_to_message_id=reply_to,
                                       voice=voice, card=built, on_sent=on_sent)
-    send.outcome = messenger.last_outcome
+    send.outcome = getattr(messenger, "last_outcome", None)  # A stand-in without it: UNCERTAIN (``send_outcome``).
     return send
 
 
