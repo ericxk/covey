@@ -80,7 +80,6 @@
   "core/nodes.py:open_join",
   "core/nodes.py:record_sample",
   "core/nodes.py:write_link",
-  "core/owner_ledger.py:update",
   "core/project_proposals.py:change",
   "core/project_proposals.py:change_topic",
   "core/project_proposals.py:put_proposal",

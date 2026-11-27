@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from covey.core.locks import resource_lock
-from covey.core.state import read_object, write_json
+from covey.core.state import read_for_write, read_object, write_json
 
 RECORD = "owner-ledger.json"
 VERSION = 1
@@ -86,10 +86,11 @@ def read(state_dir) -> dict:
 
 def update(state_dir, change) -> dict:
     """``change(record)`` → the record to write (None: leave it), under the record's lock; the record written. Only the
-    Bridge writes it, never across a Feishu call (AGENTS rules 1 and 2)."""
+    Bridge writes it, never across a Feishu call (AGENTS rules 1 and 2). core/state.py Unreadable (nothing written: the
+    counts and tries kept) when the record is there and cannot be read now."""
     target = path(state_dir)
     with resource_lock("owner-ledger", str(target)):
-        record = read(state_dir)
+        record = read_for_write(target)
         changed = change({**record, "v": VERSION})
         if changed is None:
             return record
