@@ -20,7 +20,7 @@ from covey.core.checkpoint import ASK_GRANT, ASK_KINDS, ASK_RULE, ASK_SHORT
 # the review named (deleting a worktree, rolling back, pushing to stable, telling a colleague, posting to a group, buying a
 # plan, a training job, a service that keeps running, a forced push) and the rest of ASK_KINDS.
 OWNERS = (
-    "要不要删掉旧的 worktree？", "回滚到上一版吗？", "推到 stable 通道吗？", "要通知同事王钰吗？", "结果发到群里吗？",
+    "要不要删掉旧的 worktree？", "回滚到上一版吗？", "推到 stable 通道吗？", "要通知同事张三吗？", "结果发到群里吗？",
     "要不要买 Pro 套餐？", "现在提交训练任务吗？", "要起一个常驻服务盯着吗？", "要强推覆盖远端分支吗？", "要覆盖别人的改动吗？",
     "直接改线上数据吗？", "以主人身份发消息给对方吗？", "要长时间占 GPU 跑一晚吗？", "要大量下载 500GB 数据集吗？",
 )
