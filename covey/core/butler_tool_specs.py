@@ -439,9 +439,10 @@ EVIDENCE = {"type": "array", "minItems": 1, "maxItems": 6, "items": {"type": "st
                            "被拒了就用 project_escalate 转给主人。"}
 EVIDENCE_NOTE = "要写 evidence：Bridge 核对每条依据，没有主人说的、仍有效的依据就拒绝，回答记着依据，主人核对得到。"
 PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS + CHECKLIST_TOOLS)
-# How a project's lead asks the owner (WAVE12 C4: project_ask, W1-A; before it W0-2's project_note with kind ask), as
-# a backend's own words for a lead's turn say it (backends/codex/appserver.py ASK_LEAD, an extension's notes; W2-A).
-LEAD_ASK_TOOL = "project_ask" if "project_ask" in PROJECT_NAMES else "project_note（kind 写 ask）"
+# How a project's lead asks the owner (WAVE12 C4, W1-A), as a backend's own words for a lead's turn say it
+# (backends/codex/appserver.py ASK_LEAD, an extension's notes; W2-A).
+LEAD_ASK_TOOL = "project_ask"
+assert LEAD_ASK_TOOL in PROJECT_NAMES
 
 
 def with_evidence(tool) -> dict:

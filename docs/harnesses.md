@@ -73,7 +73,7 @@ CLI 登录和注册服务要用同一个系统账号、同一套环境变量。�
 - **准备**：装 `codex` 并用本人账号登录；任务开始前只检查可执行文件。
 - **运行方式**：每个任务一个 `codex app-server`，经 stdio 通信。命令、文件修改、MCP 工具、计划和子 Agent 都进执行过程（命令没有写说明的字段，桥接规则要它在命令第一行写一行 `# 这一步做什么`，执行过程显示这句；没写时显示去掉开头样板以后真正在跑的命令）；模型、推理强度、工作区和权限每轮传入；`agents.max_threads=4`。桥接规则在新会话首轮的用户输入开头，续接轮附提醒和约定（[一次运行](architecture.md#一次运行)）。
 - **原生提问**：不需要停下的显示在任务卡上，其他工作继续；必须先回答的让本轮先结束，回答后在同一会话继续。
-- **开发者指令**（`backends/codex/appserver.py` 的 `codex_instructions`，按这一轮的 `TOOL_LIMIT` 选）：普通轮照旧（要问的写检查点 `questions`，request_user_input 只在不答就做不下去时用）；协作咨询轮只留子 Agent 一句（不问、不写检查点）；负责人轮不写检查点，要主人定的事用负责人的 Bridge 工具问（有 `project_ask` 用它，没有时用 `project_note` 的 kind ask），不用 request_user_input；群成员只读轮不写检查点；只读首轮能写时说检查点和产物目录用 `bridge_workspace` 的 `workspace_write_file` 写，写不了（设备上）说检查点不用写。
+- **开发者指令**（`backends/codex/appserver.py` 的 `codex_instructions`，按这一轮的 `TOOL_LIMIT` 选）：普通轮照旧（要问的写检查点 `questions`，request_user_input 只在不答就做不下去时用）；协作咨询轮只留子 Agent 一句（不问、不写检查点）；负责人轮不写检查点，要主人定的事用负责人的 Bridge 工具 `project_ask` 问（`core/butler_tool_specs.py` 的 `LEAD_ASK_TOOL`），不用 request_user_input；群成员只读轮不写检查点；只读首轮能写时说检查点和产物目录用 `bridge_workspace` 的 `workspace_write_file` 写，写不了（设备上）说检查点不用写。
 - **工作区只读工具**：每个会话挂本任务专用的 `bridge_workspace` MCP 服务，可读工作区、附件目录和换配置的 `handoff/`，拒绝 `..`、符号链接和二进制；实际权限只由 `--sandbox` 决定。
 - **本轮结果**：thread 和 turn 双重绑定，只用当前 turn 的完整 items（不完整时按 ID 回读），取 `final_answer` 阶段的 agentMessage。子 Agent 恢复要读的会话文件在 rollout 里（能力 `session_files`）。
 - **执行指标**：token 取 `thread/tokenUsage/updated` 的累计减本轮基线（`CodexTurnUsage`），子 Agent 会话各自减基线；生成时间从 `turn/start` 计，扣除工具和提问区间（重试也算在内，token/s 会偏低）；TTFT `codex_item`、`codex_delta`。

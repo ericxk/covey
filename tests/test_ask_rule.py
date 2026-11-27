@@ -181,7 +181,9 @@ class CodexInstructionsByLimitTest(unittest.TestCase):
         self.assertIn("不写检查点", found)
         for words in ("requires_user", "按检查点约定"):
             self.assertNotIn(words, found)
-        self.assertTrue("project_ask" in butler_tool_specs.PROJECT_NAMES or "project_note" in found)
+        self.assertEqual(LEAD_ASK_TOOL, "project_ask")
+        self.assertIn(LEAD_ASK_TOOL, butler_tool_specs.PROJECT_NAMES)
+        self.assertNotIn("project_note", found)
 
     def test_a_members_read_only_turn_writes_no_checkpoint(self):
         from covey.core.harness import READ
