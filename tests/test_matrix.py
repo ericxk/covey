@@ -6,6 +6,11 @@ CORE_HARNESSES. The surfaces are the Feishu cards (core/placement.py by role, th
 and the web page (app/web_collect.py). One subTest a cell, each asked the same way of every Harness; what a backend does in
 detail stays in its own tests (test_claude, test_codex, test_agy, test_dsh, test_butler_harness, test_lead_harness).
 
+规则 (gate G8, W2-A) is a row of its own (``RulesRowTest``): on each Harness, how its turn asks the owner, whether its
+LOOK turn has a path gate (``LookRowTest``), whether a resumed turn takes the anchor in place of the whole rules (C9),
+whether a high context is told, whether the butler is reminded past its own tool calls and whether a search of the whole
+home is refused, on the command line and inside a program.
+
 话题 · 只读首轮 (LOOK, W1-C contract C6, gate G8) is a row of its own (``LookRowTest``): on each Harness, whether a turn the
 butler started without the owner's click writes only its checkpoint and the topic's outputs directory (the path gate, its
 ``.git`` refusal, its shell) and whether the topic's next turn is free again; what the gate leaves to the words is in
@@ -36,19 +41,22 @@ from support.records import write_job, write_topic
 from support.world import UnifiedCase
 from test_web_sync import T0, WebCase
 
-from covey.app import butler_harness, lead_harness, relay_targets, tool_limits, web_launch
+from covey.app import butler_harness, lead_harness, prompts, relay_targets, tool_limits, web_launch
 from covey.app.butler_model_choice import resolve
 from covey.app.launch_models import available_models
 from covey.backends.agy import home as agy_home
 from covey.backends.agy import bridge as agy_bridge
-from covey.backends.agy.bridge import LOOK_SETTINGS, READ_ONLY_SETTINGS, AntigravityBackend
+from covey.backends.agy.bridge import LOOK_SETTINGS, READ_ONLY_SETTINGS, AgyControl, AntigravityBackend, AntigravityEventAdapter
 from covey.backends.claude import argv as claude_argv
 from covey.backends.claude import tool_guard
 from covey.backends.claude.bridge import ClaudeBackend
+from covey.backends.claude.events import ClaudeEventAdapter
+from covey.backends.claude.hooks import TurnHooks
 from covey.backends.codex import appserver
+from covey.backends.codex.turn import context_of as codex_context_of
 from covey.backends.codex.workspace_reader import WorkspaceReader
 from covey.backends.dsh import bridge as dsh_bridge
-from covey.core import butler, butler_mcp, butler_settings, look_write, placement, projects
+from covey.core import butler, butler_mcp, butler_settings, home as covey_home, look_write, placement, projects
 from covey.core.butler import butler_topic_id
 from covey.core.butler_tool_specs import HANDING
 from covey.core.harness import LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, backend_capabilities
@@ -57,6 +65,7 @@ from covey.core.menu_choice import butler_harnesses, harness_of
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.roster import CORE_HARNESSES
 from covey.core.state import write_json
+from covey.core.steer import SteerRefused
 
 BRIDGE = {"mcpServers": {"bridge": {"command": "python3", "args": ["mcp.py"], "env": {"K": "v"}}}}
 # The Bridge's tools with every switch that adds one on: the most a Harness with a budget (Antigravity) has to fit.
@@ -198,6 +207,76 @@ def dsh_free(ctx) -> bool:
     return not dsh_bridge.lead_turn(ctx)
 
 
+# 规则 (G8, W2-A): the native question tool each backend wires for an ordinary turn ('' none), and the token_usage it
+# reports for a turn whose last request read a large context (the window too, when the backend knows it).
+def claude_asks(ctx) -> str:
+    """Claude Code's AskUserQuestion, answered by its control (backends/claude/control.py), unless the turn's argv takes it
+    away."""
+    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
+    return "" if "AskUserQuestion" in _value(argv, "--disallowedTools").split(",") else "AskUserQuestion"
+
+
+def codex_asks(ctx) -> str:
+    """Codex's request_user_input, on for the turn by its app server's switch."""
+    return appserver.QUESTION_TOOL if appserver.QUESTION_FLAG in appserver.server_flags(ctx) else ""
+
+
+def agy_asks(ctx) -> str:
+    """Antigravity has no native question: its control refuses an answer."""
+    try:
+        AgyControl(lambda *args: None).answer("r1", {})
+    except SteerRefused:
+        return ""
+    return "?"
+
+
+def dsh_asks(ctx) -> str:
+    """DeepSeek Harness has none: its turn asks through the checkpoint."""
+    return ""
+
+
+def claude_context() -> dict:
+    events = []
+    adapter = ClaudeEventAdapter(lambda kind, data: events.append((kind, dict(data))))
+    adapter.accept({"type": "system", "subtype": "init", "session_id": "s1", "model": "claude/opus"})
+    adapter.accept({"type": "stream_event", "session_id": "s1", "event": {"type": "message_start", "message": {
+        "id": "m1", "usage": {"input_tokens": 10, "cache_read_input_tokens": 700000, "cache_creation_input_tokens": 0,
+                                     "output_tokens": 1}}}})
+    adapter.accept({"type": "stream_event", "session_id": "s1", "event": {"type": "message_delta", "usage": {"output_tokens": 5}}})
+    adapter.accept({"type": "result", "subtype": "success", "session_id": "s1", "is_error": False, "result": "ok",
+                    "modelUsage": {"claude/opus": {"contextWindow": 1000000}}})
+    return next((data for kind, data in reversed(events) if kind == "token_usage"), {})
+
+
+def codex_context() -> dict:
+    return codex_context_of({"last": {"totalTokens": 240000}, "modelContextWindow": 258400})
+
+
+def agy_context() -> dict:
+    events = []
+    adapter = AntigravityEventAdapter(lambda kind, data: events.append((kind, dict(data))))
+    adapter.accept({"event": "step_update", "step_update": {
+        "step_index": 1, "step_type": "agent_response", "state": "DONE", "text_delta": "ok", "duration_seconds": 1.0,
+        "usage": {"output_tokens": 50, "input_tokens": 700000, "cache_read_tokens": 100000}}}, 1.0)
+    return next((data for kind, data in reversed(events) if kind == "token_usage"), {})
+
+
+def dsh_context() -> dict:
+    events = []
+    adapter = dsh_bridge.DshEventAdapter(lambda kind, data: events.append((kind, dict(data))))
+    adapter.accept({"type": "status", "phase": "step_start"}, 1.0)
+    adapter.accept({"type": "status", "phase": "step_end", "usage": {"inputTokens": 700000, "outputTokens": 50}}, 2.0)
+    return next((data for kind, data in reversed(events) if kind == "token_usage"), {})
+
+
+RULES_SEEN = {
+    "claude": {"asks": claude_asks, "context": claude_context},
+    "codex": {"asks": codex_asks, "context": codex_context},
+    "dsh": {"asks": dsh_asks, "context": dsh_context},
+    "agy": {"asks": agy_asks, "context": agy_context},
+}
+
+
 # How each core Harness's backend is seen to take the Bridge's tools (the names a turn has at hand, given the server's
 # list: all of them, or Antigravity's up-front ones), to hold a lead's turn to reading with those tools kept, and to hold a
 # LOOK turn's writes (``look``: its write and shell gates as the backend wires them; ``free``: a turn without the limit).
@@ -207,6 +286,9 @@ SEEN = {
     "dsh": {"tools": dsh_tools, "lead": dsh_lead, "look": dsh_look, "free": dsh_free},
     "agy": {"tools": agy_tools, "lead": agy_lead, "look": agy_look, "free": agy_free},
 }
+RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT, RULE_NUDGE, RULE_SEARCH, RULE_WALK = (
+    "规则 · 提问方式", "规则 · 只读首轮", "规则 · 续接锚点", "规则 · 上下文偏高提醒", "规则 · 管家工具提醒",
+    "规则 · 主目录搜索 · 命令行", "规则 · 主目录搜索 · 程序内递归")
 LOOK_GATE, LOOK_GIT, LOOK_SHELL, LOOK_NEXT = ("话题 · 只读首轮 · 路径闸", "话题 · 只读首轮 · .git 拒写", "话题 · 只读首轮 · 命令行写",
                                               "话题 · 只读首轮 · 第二轮解限")
 # Cells that do not hold on a Harness, on purpose or not yet, with why. A cell here that starts to hold fails
@@ -224,6 +306,20 @@ GAPS = {
     (LOOK_SHELL, "agy"): "设计如此（规范 C6）：LOOK_SETTINGS 只拒 agy 自己的写文件工具、不拒 command(*)，留着跑只读调研脚本；"
                          "命令行能写仓库（RT-4 第 5 类：agy 1.5.18 实测 echo >> 写进了仓库文件，AgyLookC6）",
     (LOOK_SHELL, "dsh"): "同 dsh 路径闸：文字约束",
+    (RULE_ANCHOR, "claude"): "W1-E（app/rules_sent.py，规范 C9）还没合入：续接轮仍每轮发全量规则；合入后 LEAN 含 claude，"
+                             "这一格成立，从 GAPS 去掉",
+    (RULE_ANCHOR, "codex"): "规范 C9：续接减重上线先只对 Claude Code 开（LEAN），Codex 过了压缩对照实测再加",
+    (RULE_ANCHOR, "agy"): "规范 C9：同上，agy 过了压缩对照实测再加",
+    (RULE_ANCHOR, "dsh"): "设计如此（规范 C9）：dsh 不报压缩事件和上下文窗口，看不出会话压缩过，维持每轮全量",
+    (RULE_CONTEXT, "agy"): "agy 只报上下文大小（context_tokens），不报窗口：stream 的 init/step/result 行、agy models 和本机会话库"
+                           "都没有窗口字段（agy 1.5.18，W2-A 查过），context_high 不知道窗口就不提醒",
+    (RULE_CONTEXT, "dsh"): "dsh 只报上下文大小，不报窗口：网关模型目录只有 id、协议、显示名和推理档位（docs/harnesses.md）；"
+                           "网关目录加了窗口字段再接",
+    (RULE_NUDGE, "dsh"): "dsh 不能执行中补充（没声明 steering），Bridge 送不进提醒，它也没有自己的 hook",
+    (RULE_WALK, "codex"): "搜索垫片（core/home.py SEARCH_SHIMS）只看命令行：Python 的 os.walk、rglob、glob('**')、git grep 这类"
+                          "程序自己递归的看不到；只有 Claude Code 的钩子能看到命令行里内联的 Python",
+    (RULE_WALK, "agy"): "同上：垫片看不到程序内递归",
+    (RULE_WALK, "dsh"): "同上：垫片看不到程序内递归",
 }
 # What a LOOK turn's gate leaves to the words on a Harness whose cells above hold (RT-4 第 5 类 and W0-5's read worktree).
 BOUNDS = {
@@ -236,6 +332,11 @@ BOUNDS = {
 }
 # An extension's Harness, outside CORE_HARNESSES (each extension's own tests ask its cells).
 EXTENSION_CELLS = {
+    (RULE_ASK, "扩展的 Harness"): "声明了 question_tool 的，管家规则写它的名字当场问；没声明的写检查点 questions（app/prompts.py "
+                                 "ask_words），扩展自己的测试核对它声明的工具真接得住",
+    (RULE_NUDGE, "扩展的 Harness"): "没声明 nudges 又能执行中补充（steering）的，由 Bridge 数工具步骤送提醒（app/interaction.py "
+                                   "count_for_nudge），和核心的 Codex、agy 一样",
+    (RULE_SEARCH, "扩展的 Harness"): "本机进程的 PATH 都由 core/home.py env 给，同样经过搜索垫片；程序内递归同样看不到",
     (LOOK_GATE, "扩展的 Harness"): "没声明 look_gate 的：只读首轮只有文字约束（app/tool_limits.py LOOK_WORDS：只写检查点和产物目录），"
                                   "扩展自己的提示对齐同一口径，由扩展自己的测试核对",
 }
@@ -756,12 +857,126 @@ class LookRowTest(HarnessCellsCase):
         self.assertTrue(all(why.strip() for why in (*BOUNDS.values(), *EXTENSION_CELLS.values())))
 
 
+class RulesRowTest(HarnessCellsCase):
+    """规则 × Harness (W2-A, gate G8): what each core Harness's turn is told and does, asked the same way of each. A cell
+    that does not hold is in GAPS with why (and fails here once it holds); an extension's Harness is in EXTENSION_CELLS."""
+
+    def test_every_harness_says_how_its_rules_are_seen(self):
+        self.assertEqual(sorted(RULES_SEEN), sorted(CORE_HARNESSES))
+
+    def test_how_its_turn_asks_the_owner(self):
+        """The question tool the Harness declares is the one its backend wires, and the butler's rules on it name that
+        tool, or, with none, the checkpoint's questions and no tool of another Harness."""
+        ctx = make_context(self.root)
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                wired, declared = RULES_SEEN[name]["asks"](ctx), self.capabilities(name).question_tool
+                rules = prompts.butler_rules(prompts.ask_words(self.capabilities(name)))
+                others = {"AskUserQuestion", appserver.QUESTION_TOOL} - {wired}
+                holds = wired == declared and (f"用 {wired} 出一道单选题" in rules if wired else prompts.LATER_PICK in rules) \
+                    and not any(other in rules for other in others)
+                self.assertEqual(holds, held(RULE_ASK, name), gap_words(RULE_ASK, name))
+        self.assertIn(appserver.QUESTION_TOOL, appserver.CODEX_INSTRUCTIONS)
+
+    def test_its_look_turn_has_its_row(self):
+        """LookRowTest asks the gate itself (the checkpoint and outputs written, a repository, another job's checkpoint, a
+        read worktree and .git refused, the shell, the next turn); here: the Harness's look_gate says what that row finds,
+        and what the gate leaves to the words is written down (BOUNDS)."""
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                gate = self.capabilities(name).look_gate
+                holds = gate == held(LOOK_GATE, name) and gate == held(LOOK_GIT, name) and bool(BOUNDS.get(name))
+                self.assertEqual(holds, held(RULE_LOOK, name), gap_words(RULE_LOOK, name))
+
+    def test_a_resumed_turn_takes_the_anchor(self):
+        """C9 (W1-E): the Harnesses whose resumed turns get the anchor in place of the whole rules (rules_sent.LEAN)."""
+        try:
+            from covey.app import rules_sent
+        except ImportError:
+            rules_sent = None
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                holds = rules_sent is not None and name in getattr(rules_sent, "LEAN", ())
+                self.assertEqual(holds, held(RULE_ANCHOR, name), gap_words(RULE_ANCHOR, name))
+
+    def test_a_high_context_is_told(self):
+        """The backend reports the latest request's context and the window it compacts against, so the next resumed turn
+        is told (app/prompts.py context_high) instead of stopping short of its work."""
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                usage = RULES_SEEN[name]["context"]()
+                window = usage.get("context_window")
+                holds = type(usage.get("context_tokens")) is int and type(window) is int and bool(
+                    prompts.context_high({"context_tokens": int(window * 0.95), "context_window": window}))
+                self.assertEqual(holds, held(RULE_CONTEXT, name), gap_words(RULE_CONTEXT, name))
+                self.assertIn("context_tokens", usage)  # Every core Harness says the context size at least.
+
+    def test_the_butler_is_reminded_past_its_own_tool_calls_once(self):
+        """Claude Code by its own PostToolUse hook (nudges); any other Harness that takes a supplement by the Bridge's
+        count, as an internal supplement, never twice and never for the Bridge's own tools."""
+        nudge = prompts.tool_nudge("查一下")
+        ctx = make_context(self.root, options={"tool_nudge": nudge})
+        inline = SimpleNamespace(CARD_UPDATES="card-updates", start=lambda _, fn, *args: fn(*args))
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                app, caps = self.apps[name], self.capabilities(name)
+                job = SimpleNamespace(tool_nudge={}, job_id=7, message_id=f"om_{name}")
+                with mock.patch.object(app.interaction.steering, "deliver_steer") as deliver, \
+                        mock.patch("covey.app.interaction.background", inline):
+                    for index in range(nudge["after"] - 1):
+                        app.interaction.count_for_nudge(ctx, job, {"id": f"s{index}", "name": "bash", "detail": "ls"})
+                    app.interaction.count_for_nudge(ctx, job, {"id": "b", "name": "mcp_bridge_topics_list"})
+                    before = deliver.call_count
+                    for index in range(nudge["after"] - 1, nudge["after"] + 2):
+                        app.interaction.count_for_nudge(ctx, job, {"id": f"s{index}", "name": "bash", "detail": "ls"})
+                bridge_side = before == 0 and deliver.call_count == 1 and deliver.call_args.kwargs.get("internal") is True
+                hooked = caps.nudges and "PostToolUse" in TurnHooks(ctx, {}).registration() and deliver.call_count == 0
+                self.assertEqual(hooked or bridge_side, held(RULE_NUDGE, name), gap_words(RULE_NUDGE, name))
+
+    def test_a_search_of_the_whole_home_on_the_command_line_is_refused(self):
+        """Claude Code's home-search hook, and for every Harness's process the search shims first on its PATH (core/home.py
+        env, SEARCH_SHIMS): rg or find over the home is refused, one in a repository runs."""
+        home = self.root / "home"
+        (home / "repo").mkdir(parents=True)
+        ctx = make_context(self.root, workdir=home, default_workdir=home)
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                env = covey_home.env(ctx)
+                shimmed = (env.get("PATH", "").split(os.pathsep)[0] == str(covey_home.bin_dir())
+                           and env.get("COVEY_HOME") == str(covey_home.of(ctx))
+                           and {"rg", "find"} <= set(covey_home.SEARCH_SHIMS)
+                           and bool(tool_guard.shim_refusal("find", ["."], str(home), str(home)))
+                           and bool(tool_guard.shim_refusal("rg", ["x", str(home)], str(home), str(home)))
+                           and not tool_guard.shim_refusal("rg", ["x", "repo"], str(home), str(home)))
+                if name == "claude":
+                    shimmed = shimmed and bool(tool_guard.bash_refusal("rg -n x", str(home), str(home)))
+                self.assertEqual(shimmed, held(RULE_SEARCH, name), gap_words(RULE_SEARCH, name))
+
+    def test_a_search_inside_a_program_is_refused_where_it_can_be_seen(self):
+        """``python3 -c "os.walk('.')"`` from the home: Claude Code's hook reads the inline Python; a shim sees only the
+        command it stands for."""
+        home = self.root / "home"
+        home.mkdir(parents=True, exist_ok=True)
+        command = 'python3 -c "import os; print(sum(1 for _ in os.walk(\'.\')))"'
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                if name == "claude":
+                    holds = bool(tool_guard.bash_refusal(command, str(home), str(home)))
+                else:
+                    holds = bool(tool_guard.shim_refusal("python3", shlex.split(command)[1:], str(home), str(home)))
+                self.assertEqual(holds, held(RULE_WALK, name), gap_words(RULE_WALK, name))
+
+    def test_every_gap_and_extension_cell_says_why(self):
+        self.assertTrue(all(why.strip() for why in (*GAPS.values(), *EXTENSION_CELLS.values())))
+
+
 class KnownGapsTest(HarnessCellsCase):
     def test_the_known_gaps_are_still_gaps(self):
-        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, test_redaction, LookRowTest): one
-        that holds now fails there; this one keeps GAPS to cells those tests ask."""
+        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, test_redaction, LookRowTest,
+        RulesRowTest): one that holds now fails there; this one keeps GAPS to cells those tests ask."""
         self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", "话题 · 敏感词脱敏", LOOK_GATE, LOOK_GIT,
-                                                          LOOK_SHELL})
+                                                          LOOK_SHELL, RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT,
+                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK})
 
 
 # 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's
