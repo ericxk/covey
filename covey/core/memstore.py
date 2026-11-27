@@ -38,7 +38,7 @@ from pathlib import Path
 
 from covey.core import knowledge, memory_rev, principles, project_memory, projects, turn_source
 from covey.core.locks import shared_file_lock
-from covey.core.state import epoch_seconds, read_object, write_json, write_private_text
+from covey.core.state import epoch_seconds, read_json, read_object, write_json, write_private_text
 from covey.core.state import read_for_write as state_read_for_write
 
 KINDS = ("rule", "decision", "note")
@@ -418,7 +418,11 @@ def _cached(path: Path, parse):
     hit = _cache.get(str(path))
     if hit is not None and hit[0] == key:
         return hit[1]
-    value = parse(read_object(path))
+    try:
+        data = read_json(path)
+    except (OSError, ValueError):
+        return parse({})  # Not kept: a network disk's passing error must not stand for the file until it changes (RT-6).
+    value = parse(data if isinstance(data, dict) else {})
     _cache[str(path)] = (key, value)
     return value
 
