@@ -102,9 +102,15 @@ def reporting(report):
         _click.report = previous
 
 
+TOLD_KEPT = 500  # Card-and-button pairs whose failure was already told (the oldest forgotten first).
+
+
 class CardLanes:
-    def __init__(self, handle, lane_key, log, shutdown, health=None):
+    def __init__(self, handle, lane_key, log, shutdown, health=None, notify=None):
+        """``notify(event, ctx, exc)``: says under the card that its click was not handled (a click is acknowledged first,
+        so no toast can); called at most once for one button of one card (``_tell``), outside the lock, a failure only logged."""
         self.handle, self.lane_key, self.log, self.shutdown, self.health = handle, lane_key, log, shutdown, health
+        self.notify, self.told = notify, deque(maxlen=TOLD_KEPT)
         self.lock = threading.Lock()
         self.settled = threading.Condition(self.lock)
         self.lanes = {}  # lane -> deque of (work, queued_at, what); present while a worker owns it
@@ -166,6 +172,7 @@ class CardLanes:
                     self.handle(event, ctx)
             except Exception as exc:  # noqa: BLE001 - one click must not end a lane
                 self.log(f"handle_card_action_event error: {exc}")
+                self._tell(event, ctx, exc)
             finally:
                 follow_ups, _click.pending, _click.message = _click.pending, None, ""
                 timing.mark("ack")
@@ -182,6 +189,20 @@ class CardLanes:
         finally:
             timing.end(flow)
             self._unsettle(-1)
+
+    def _tell(self, event, ctx, exc):
+        """The owner told once per card and button that the click failed: the next failure of the same one is only logged."""
+        if self.notify is None:
+            return
+        key = (str(event.get("message_id") or ""), click_kind(event))
+        with self.lock:
+            if key in self.told:
+                return
+            self.told.append(key)
+        try:
+            self.notify(event, ctx, exc)
+        except Exception as error:  # noqa: BLE001 - telling is a courtesy, never a reason to end the lane
+            self.log(f"card click failure not told: {type(error).__name__}")
 
     def _unsettle(self, change):
         with self.settled:

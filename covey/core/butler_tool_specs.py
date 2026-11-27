@@ -26,6 +26,9 @@ ATTACHMENTS = {"description": "可选，主人这条消息的附件交给它哪�
 # A lead's project_topic_start and project_topic_send: the owner's files it got go on to the topic it names them for, none
 # unnamed (T856: 转不转给话题由负责人决定). Short: agy's room for a lead's tools.
 LEAD_ATTACHMENTS = {"type": "array", "items": {"type": "string"}, "description": "可选，转给它的附件，如[\"图片 1\"]或[\"all\"]；不写不转"}
+# project_send's: which of the owner's files go to the lead (WAVE12 W2-B: one message for two projects or a project and a
+# topic). Short, as the lead's: agy's room for the butler's tools.
+SEND_ATTACHMENTS = {"type": "array", "items": {"type": "string"}, "description": "可选，主人的附件给负责人哪些，如[\"图片 1\"]或[\"none\"]；不写全给"}
 HARNESS_ARG = ("主人点名用哪个 Harness 时必须填（如“用 Claude Code”“让 Codex 做”），值写 Harness 名：claude、codex 等；"
                "主人没点名就不填，用设置里的默认")
 MODEL_ARG = "主人点名用哪个模型时必须填，写模型名；主人没点名就不填，用设置里的默认"
@@ -470,10 +473,11 @@ BUTLER_PROJECT_TOOLS = (
     {"name": "project_send",
      "description": "把主人的话交给一个专项的负责人：它正在跑就作为补充，已经停了就开它的下一轮。新的事和某个专项是同一件事，就用它交给那个专项，收起的专项会随之重新展开；拿不准是不是同一件事，用 topic_start 开普通话题，不要硬归；主人说“这是 X 的事”就归进 X。专项的话题不能用 topic_send 转话，只能经负责人。"
                     "text 写这次交给它的内容：主人要改的目标、要加的事、对某个话题的意见，用主人的说法，不含路由用语和本机路径；"
-                    "主人原话 Bridge 会附上。pid 是专项的 id（projects_list 里的，或名字）。" + DONE,
+                    "主人原话 Bridge 会附上。" + DONE,
      "input_schema": {"type": "object", "required": ["pid", "text"], "properties": {
          "pid": {"type": "string", "description": "专项的 id（projects_list 里的），或它名字里的几个字"},
          "text": {"type": "string", "description": "交给负责人的内容：主人这次要它做或改的事"},
+         "attachments": SEND_ATTACHMENTS,
          "topics": {"type": "array", "items": {"type": "string"},
                     "description": "可选：主人要收进这个专项的已有话题，T 号（如 T531）或话题 id，一个一项。直接挂进专项、交给负责人跟进，"
                                    "正在跑的不打断，等主人回答的问题仍归主人；挂不上的（没找到、已在别的专项里）回复里会逐个说，要转告主人"}}}},

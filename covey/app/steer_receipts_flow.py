@@ -140,14 +140,18 @@ class SteerReceiptFlow:
     def _requeue(self, ctx, chat, path, record, *, message_id=""):
         """Queue the supplement's message as a task of its own, then record the job. An error may
         have queued it: it is unconfirmed and never queued again by itself. ``message_id``: the new task's, the
-        owner's message itself for a butler one (app/steering.py queue_lost); else its own requeue key."""
+        owner's message itself for a butler one (app/steering.py queue_lost); else its own requeue key. It runs with the
+        轮次来源 it was sent with (``source``, WAVE12 C1: words handed on by the butler or a lead stay theirs) and the
+        title its hand-on gave the topic's turn (``title``)."""
         again, token = record["requeue"], record["token"]
         top = butler_reactions.steered_top(record)  # A message quoted from outside the topic's thread.
+        source = again.get("source") if isinstance(again.get("source"), dict) else None
         try:
             job = self.enqueue_chat_job(ctx, again["text"], chat, message_id or "requeue-" + token[:24],
                                         prompt_content=again.get("prompt") or again["text"],
                                         **({"sender_id": again["sender_id"]} if again.get("sender_id") else {}),
-                                        **({"top": top} if top else {}))
+                                        **({"top": top} if top else {}), **({"source": source} if source else {}),
+                                        **({"title": again["title"]} if again.get("title") else {}))
         except Exception:
             unconfirmed = update_delivery(path, requeue_state="uncertain")
             if unconfirmed:

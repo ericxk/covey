@@ -10,13 +10,14 @@ the turn the owner spoke in, up that chain. Reads records only: nothing here sen
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from covey.app import answer_cards
 from covey.cards.relay_card import WAITING
 from covey.core import butler_opened, placement, projects
 from covey.core.jobs import find_job_record, job_field, job_key, topic_job_records
 from covey.core.store import directory_store
-from covey.core.topics import load_topic, topic_label
+from covey.core.topics import load_topic, topic_label, topic_origin
 
 PREFIX = "main-"  # A butler tool's synthetic message id (app/butler_topics.py).
 RETRY_HOPS = 5
@@ -25,11 +26,47 @@ RETRY_HOPS = 5
 HAND_HOPS = 4
 
 
+def _token_of(request) -> str:
+    """The name of a request in record files and synthetic message ids (core/butler_opened.py request_token)."""
+    return butler_opened.request_token(SimpleNamespace(id=request))
+
+
+def _origin_record(state_dir, topic_id, token=""):
+    """(token, kind, a record shaped as the request ledger's) of the butler's request that opened or forked ``topic_id``, from
+    its topic.json ``origin`` ({kind "main", request, job_key, at, ``message_id``: the owner's message the butler's turn
+    answered, kept since W2-B}), the ledger gone or not (main-thread/opened/ is cleared after 7 days, core/maintenance_rules.py);
+    ``token``: only if it is that request's. None for a topic without one (a web one is ``web_root``'s) or one that names no butler job."""
+    origin = topic_origin(state_dir, topic_id)
+    request, job = str(origin.get("request") or ""), str(origin.get("job_key") or "")
+    if origin.get("kind") != "main" or not request or not job:
+        return None
+    mine = _token_of(request)
+    if token and token != mine:
+        return None
+    kind = butler_opened.FORK if origin.get("fork_of") else butler_opened.START
+    return mine, kind, {"job_key": job, "topic_id": topic_id, "at": origin.get("at") or 0,
+                        "message_id": str(origin.get("message_id") or "")}
+
+
+def _quote_of(state_dir, record) -> str:
+    """What a relay of a turn ``record`` (a request's, as the ledger or ``_origin_record`` gives it) quotes: its butler job's
+    card or the owner's message (``relay_quote``), else the message id the origin kept ('' without one)."""
+    quote = relay_quote(state_dir, record.get("job_key"))
+    if quote:
+        return quote
+    kept = str(record.get("message_id") or "")
+    return kept if kept.startswith("om_") else ""
+
+
 def _opened(state_dir, message_id, job_id, topic_id):
-    """(token, kind, the main-thread/opened record) the job came from, or None. A job topic_send supplemented
-    more than once: the latest owner message."""
+    """(token, kind, the request's record) the job came from, or None: for a turn the butler started or forked the topic's
+    own origin first (``_origin_record``: it outlives the ledger), then main-thread/opened/'s record; a job
+    topic_send supplemented more than once: the latest owner message."""
     if message_id.startswith(PREFIX):
         token = message_id[len(PREFIX):]
+        found = _origin_record(state_dir, topic_id, token)
+        if found is not None:
+            return found
         record = butler_opened.by_token(state_dir, token)
         if record:
             return token, butler_opened.kind_of(record), record
@@ -97,7 +134,11 @@ def _handed_up(state_dir, key):
             message_id = _origin_job(state_dir, record)[0]
         if not message_id.startswith(PREFIX):
             return
-        key = str(butler_opened.by_token(state_dir, message_id[len(PREFIX):]).get("job_key") or "")
+        token = message_id[len(PREFIX):]
+        key = str(butler_opened.by_token(state_dir, token).get("job_key") or "")
+        if not key:  # The ledger cleared: the topic's own origin names it (``_origin_record``).
+            found = _origin_record(state_dir, record.get("topic_id"), token)
+            key = str(found[2]["job_key"]) if found else ""
 
 
 def relay_quote(state_dir, butler_job_key) -> str:
@@ -170,6 +211,14 @@ def area_target(state_dir, topic_id, chat=""):
         return None
     best = butler_opened.latest_for_topic(state_dir, topic_id)
     if best is None:
+        # The ledger has nothing of it (cleared after 7 days): the request that opened it, from its origin.
+        started = _origin_record(state_dir, topic_id)
+        reply_to = _quote_of(state_dir, started[2]) if started else ""
+        if reply_to:
+            token, _, record = started
+            return {"chat_id": str(chat), "reply_to": reply_to,
+                    "label": topic_label(Path(state_dir), topic_id) or "话题", "token": token, "kind": "follow",
+                    "topic_id": topic_id, "main_key": record["job_key"]}
         web = web_root(state_dir, topic_id, chat)
         if web is None:
             return None
@@ -218,7 +267,7 @@ def relay_target(state_dir, job):
     if found is None:
         return area_target(state_dir, topic_id, chat)
     token, kind, record = found
-    reply_to = relay_quote(state_dir, record.get("job_key"))
+    reply_to = _quote_of(state_dir, record)
     if not reply_to:
         return None
     label = topic_label(Path(state_dir), topic_id) or "话题"

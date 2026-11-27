@@ -53,6 +53,18 @@ class AttachTest(unittest.TestCase):
         self.assertIn("收起", rows["bbb222"])
         self.assertIn("停住", rows["ccc333"])
 
+    def test_a_project_row_reads_the_goal_the_lead_wrote_before_the_old_field(self):
+        self.make("aaa111", "迁移订单库", "老目标", lead_goal={"text": "负责人定的目标\n第二行", "at": 1.0})
+        self.make("bbb222", "整理周报", "每周一出周报")
+        rows = self.groups()["projects"]
+        self.assertTrue(rows["aaa111"].endswith("目标：负责人定的目标 第二行"), rows["aaa111"])
+        self.assertTrue(rows["bbb222"].endswith("目标：每周一出周报"), rows["bbb222"])
+
+    def test_the_rule_names_the_days_a_finished_project_stays_from_the_constant(self):
+        self.assertIn(f"{projects.DONE_SHOWN // 86400} 天内还在快照里", prompts.PROJECT_RULE)
+        self.assertIs(session.DONE_SHOWN, projects.DONE_SHOWN)
+        self.assertEqual(projects.DONE_SHOWN, 14 * 86400)
+
     def test_a_long_list_shows_the_newest_on_first_and_points_to_projects_list_for_the_rest(self):
         for number in range(session.PROJECT_ROWS + 2):
             self.make(f"p{number:05d}", f"专项{number}", updated_at=1000.0 + number)

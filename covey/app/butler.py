@@ -568,7 +568,7 @@ PROJECT_GROUP = ("projects", "专项")
 # into one of them by its line; the rest are in projects_list.
 PROJECT_ROWS = 30
 PROJECT_STATE_WORDS = {"active": "在做", "paused": "停住", "done": "做完，主人再说话会重开"}
-DONE_SHOWN = 14 * 86400  # A finished project stays in the butler's snapshot this long: the owner's words for it still reach its lead.
+DONE_SHOWN = projects.DONE_SHOWN  # core/projects.py: kept importable from here for what patches it.
 
 
 def project_rows(state, chat, now=None) -> dict:
@@ -587,7 +587,8 @@ def project_rows(state, chat, now=None) -> dict:
     for _, _, record in sorted(found, key=lambda item: item[:2]):
         state = record.get("state") or projects.ACTIVE
         word = "收起" if projects.folded(record) else PROJECT_STATE_WORDS[state]
-        goal = str(record.get("goal") or "").strip().splitlines()[0][:40] if str(record.get("goal") or "").strip() else ""
+        text = (project_lead.lead_goal(record) or str(record.get("goal") or "")).strip()  # The lead's own goal first.
+        goal = text.splitlines()[0][:40] if text else ""
         rows[record["id"]] = line(record["id"], "·", str(record.get("name") or "专项"), "·", word, goal and f"· 目标：{goal}")
     return rows
 

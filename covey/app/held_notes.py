@@ -141,6 +141,28 @@ class HeldNotes:
             self.repaint_note(ctx, record)
         return record
 
+    def withdraw(self, ctx, token):
+        """The note ``token`` withdrawn while it is held or kept for the next round: its record after, None when another
+        action took it first."""
+        changed = self.update_note(ctx, token, {"held", "next_round"}, status="withdrawn")
+        if changed is not None and self.top_of(changed):
+            butler_reactions.clear(self.messenger, ctx.profile, self.top_of(changed), (butler_reactions.QUEUED,),
+                                   "note withdrawn", self._log)
+        return changed
+
+    def withdraw_message(self, ctx, mid) -> str:
+        """The owner recalled message ``mid`` (app/source_watch.py): the note kept for it withdrawn, as its card's 撤回 does.
+        Its status after: ``withdrawn``, or the one it had already left for (``attached``, ``queued``: it went with an
+        answer or runs as a turn); '' when there is no such note."""
+        token = hashlib.sha256(f"{ctx.topic_id}-{mid}".encode()).hexdigest()[:32]
+        path = self.note_path(ctx, token)
+        try:
+            if json.loads(path.read_text()).get("status") in {"held", "next_round"}:
+                self.withdraw(ctx, token)
+            return str(json.loads(path.read_text()).get("status") or "")
+        except (OSError, ValueError, AttributeError):
+            return ""
+
     def note_action(self, ctx, chat, raw, mid, *, by=None):
         """A click on a held note's card (``by``: who clicked, app/answers.py AnswerBy): 撤回, 随回答带上, 留作下一轮, or
         当作反馈, which submits it as the feedback of its question, the clicker's."""
@@ -156,10 +178,7 @@ class HeldNotes:
             return
         verb = raw.get("verb")
         if verb == "withdraw":
-            changed = self.update_note(ctx, token, {"held", "next_round"}, status="withdrawn")
-            if changed is not None and self.top_of(changed):
-                butler_reactions.clear(self.messenger, ctx.profile, self.top_of(changed), (butler_reactions.QUEUED,),
-                                       "note withdrawn", self._log)
+            changed = self.withdraw(ctx, token)
         elif verb == "attach":
             changed = self.update_note(ctx, token, {"next_round"}, status="held")
         elif verb == "next":

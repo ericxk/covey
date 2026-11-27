@@ -112,7 +112,9 @@ class BridgeApp:
         self.switch = SwitchHandoff(harness, runtime=runtime, cards=self.cards, topics=topics)
         self.steering = Steering(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                  record_job_state=record_job_state, enqueue_chat_job=enqueue_chat_job,
-                                 event_context=lambda ctx, event: self.submission.event_context(ctx, event))
+                                 event_context=lambda ctx, event: self.submission.event_context(ctx, event),
+                                 hold=lambda ctx, content, chat, mid, source: self.workspace_command(
+                                     ctx, content, chat, mid, note_only=True, source=source))
         self.controls = TaskControls(harness, runtime=runtime, messenger=messenger, cards=self.cards,
                                      questions=self.questions, artifacts=self.artifacts, models=self.models,
                                      steering=self.steering, record_job_state=record_job_state)

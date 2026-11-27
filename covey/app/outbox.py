@@ -81,7 +81,23 @@ def tick(gateway, ctx, *, now=None):
             owner.controls.settle_relay(owner.harness.context, record, STOPPED, PAUSED_REASON)
 
 
+def relay_stale(gateway, ctx):
+    """A 做完了 relay left waiting for others of its chat for over two merge windows goes now (app/relay_send.py
+    flush_stale: its task runner and window are gone). One step of the loop: nothing to read when none waits. Never
+    raises: the next round tries again."""
+    from covey.app import relay_send
+    from covey.core import butler
+
+    try:
+        if not butler.available():
+            return
+        send = relay_send.messenger_send(gateway.messenger, ctx.profile, gateway.voice)
+        relay_send.flush_stale(ctx.state_dir, send, profile=ctx.profile, log=gateway.runtime.log)
+    except Exception as exc:  # noqa: BLE001 - the pending relays are kept; the next round tries again
+        gateway.runtime.log(f"main relay stale not sent: {type(exc).__name__}")
+
+
 def run(gateway, ctx, *also):
     """Every 5 s: resume saved deliveries, then each of ``also`` (same arguments), such as the
     automatic retries; one step's failure does not stop the others."""
-    every(gateway.runtime, 5, tick, *also, args=(gateway, ctx), isolate="outbox")
+    every(gateway.runtime, 5, tick, relay_stale, *also, args=(gateway, ctx), isolate="outbox")

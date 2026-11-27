@@ -17,7 +17,7 @@ from covey.cards.elements import md
 from covey.cards.question_cards import (ASK_KIND, DRAFT, PICK, RESTORE_KIND, SET_ASIDE_KIND, SET_ASIDE_SETTLED, SKIP_ALL_KIND, folded,
                                         folded_refusal, question_feedback_card)
 from covey.app.card_lanes import after_ack
-from covey.app import provenance
+from covey.app import provenance, source_watch
 from covey.app.answers import (ATTACHMENTS, CARD, MESSAGE, AnswerBy, AnswerIncomplete, picked_fields, skip_all_fields,
                                with_note)
 from covey.core import butler as butler_contract
@@ -356,6 +356,8 @@ class Interaction:
         # An image sent as the answer reaches the model as its downloaded path; cards show only "附件：图片 1 张".
         if len(blocking) == 1 and len(blocking[0]["questions"]) == 1 and not note_only and blocking[0]["token"] not in released:
             inbound_ledger.note(ctx.state_dir, mid, "answer", topic_id=ctx.topic_id)
+            if not note_only:
+                source_watch.note_kind(self.runtime, self.harness.spec.name, ctx, mid, chat, by, content, "answer")
             self.questions.submit_answer(ctx, chat, blocking[0]["token"],
                                {"answer_0": content, **({ATTACHMENTS: attachments} if attachments else {})}, mid,
                                **({"top": top} if top else {}), by=self.answerer(by, MESSAGE, mid))
@@ -365,6 +367,8 @@ class Interaction:
             # the lead until this message (``released``, shown to him only now): keep the message for the first submitted
             # answer, marked whose it is.
             inbound_ledger.note(ctx.state_dir, mid, "held_note", topic_id=ctx.topic_id)
+            if not note_only:
+                source_watch.note_kind(self.runtime, self.harness.spec.name, ctx, mid, chat, by, content, "held")
             self.questions.hold_note(ctx, chat, content, mid, blocking, attachments=attachments,
                                      **({"by": note_by(source)} if note_only else {}), **({"top": top} if top else {}))
             return True

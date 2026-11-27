@@ -50,6 +50,7 @@ DEFAULT_WAKES = 30  # Wake-ups in a row with no one stepping in.
 # Projects active at the same time: a guard against a runaway, not a quota for the owner to manage. A new project at the
 # limit first folds the quietest one away (app/project_loop.py make_room); a folded or stopped one does not count.
 MAX_ACTIVE = 50
+DONE_SHOWN = 14 * 86400  # A finished project stays in the butler's snapshot this long: the owner's words for it still reach its lead.
 
 NAME_CHARS = 60
 GOAL_CHARS = 2000

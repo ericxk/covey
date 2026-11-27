@@ -213,13 +213,23 @@ class DispatchCase(UnifiedCase):
         """The 派发卡 of ``request_id``: a topic an earlier butler turn opened on an earlier question (topic_start "open-" +
         ``request_id``, no card) whose first turn ended, and the work the owner's question now hands to it again
         (topic_send ``request_id``, a turn of its own, its key ``job_key``). topic_send's answer."""
-        opened = self.start("open-" + request_id, job="open-job", **args)
+        opened = self.start("open-" + request_id, job=self.earlier_turn(request_id), **args)
         self.assertTrue(opened["ok"], opened)
         first = self.app.runtime.jobs.find(0, self.job_key("open-" + request_id))
         if first is not None:
             self.app.runtime.unregister_reply_job(first)
         self.set_job("open-" + request_id, status="done")
         return self.send(request_id, opened["data"]["topic_id"], "再看看前天的")
+
+    def earlier_turn(self, request_id):
+        """The butler job of the earlier turn that opened ``dispatched``'s topic: "open-job" for the first, a turn of its own
+        on the same earlier question for each other (the same call in one turn opens one topic, W2-B)."""
+        if request_id == "r1":
+            return "open-job"
+        key = "open-job-" + request_id
+        upsert_job_record(self.ctx.state_dir, key, message_id=EARLIER, reply_to_message_id=EARLIER, chat_id=CHAT,
+                          user_text="先看看昨晚的失败", job_id=2, status="done", topic_id="main")
+        return key
 
     def token(self, request_id="r1"):
         return butler_opened.request_token(SimpleNamespace(id=request_id))

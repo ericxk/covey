@@ -1377,8 +1377,9 @@ class TurnSourceStampTest(unittest.TestCase):
         # W1-B: the continuations of answers (app/questions.py _queue_continuation queues them so).
         "covey/app/answers.py::continuation_source::answer": 1,
         "covey/app/answers.py::continuation_source::answer_for": 1,
-        # W1-B: the butler's hand-on to a project's lead, and to a topic (topic_start, topic_send, topic_fork; a lead's too).
-        "covey/app/butler_projects.py::project_send::relay": 2,
+        # W1-B: the butler's hand-on to a project's lead (project_send's work, ``_send`` since W2-B's once-a-turn), and to a
+        # topic (topic_start, topic_send, topic_fork; a lead's too).
+        "covey/app/butler_projects.py::_send::relay": 2,
         "covey/app/butler_topics.py::source_of::lead": 1,
         "covey/app/butler_topics.py::source_of::relay": 2,
     }

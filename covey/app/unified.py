@@ -656,7 +656,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             health = consumer(CARD_ACTION_EVENT_KEY)
             health.inline_durations = False  # The lanes report each click's own time.
             self.card_lanes = CardLanes(self.handle_card_action_event, self.card_lane_key, self.runtime.log,
-                                        self.runtime.shutdown, health)
+                                        self.runtime.shutdown, health, self.tell_click_failed)
         self.consume_events(ctx, CARD_ACTION_EVENT_KEY, self.card_lanes.submit)
 
     def menu_loop(self, ctx: BridgeContext) -> None:

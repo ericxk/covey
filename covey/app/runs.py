@@ -167,7 +167,29 @@ class Runs:
             gists=workspace_gists.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)) if fresh else "",
             checkpoint=self.checkpoint_rules(ctx, job),
             home=home_turn.static_block(ctx),
+            waits=self.waits_of(ctx, job),
         )
+
+    @staticmethod
+    def waits_of(ctx: BridgeContext, job: ReplyJob | None) -> str:
+        """What a wait past app/prompts.py SHORT_WAIT_MINUTES is in ``job``'s topic (prompts.long_wait, WAVE12 W2-B): a revisit in an
+        ordinary topic with 到点回来看 on (its turns get the rule, ``_revisit_note``), the lead's next turn in a project's thread;
+        '' for any other (the butler's family, 代答, no job)."""
+        from covey.app import revisits
+        from covey.app.prompts import WAIT_LEAD, WAIT_REVISIT
+        from covey.core.projects import topic_project
+
+        topic = (job.topic_id if job is not None else "") or ctx.topic_id
+        if job is None or not topic:
+            return ""
+        try:
+            if revisits.ordinary(ctx.state_dir, topic, job.chat_id):
+                return WAIT_REVISIT if revisits.records.enabled() else ""
+            if not is_butler_topic(topic, job.chat_id) and topic_project(ctx.state_dir, topic) is not None:
+                return WAIT_LEAD
+        except (OSError, ValueError):
+            pass
+        return ""
 
     def backend_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
         """The backend's own constraints of ``ctx``'s turn (core/harness.py ``prompt_notes``), in the rules and in each

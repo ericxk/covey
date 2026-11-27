@@ -133,6 +133,16 @@ class CardRouting:
                              '这条消息收下后没来得及处理就中断了（Bridge 重启过），没有变成任何一轮，请再发一次。',
                              self.voice.key('lost-message', message_id), voice=self.voice)
 
+    def tell_click_failed(self, event, ctx, exc):
+        """A click that raised: one line under its card (the click was acknowledged already, so no toast can say it). Keyed by
+        the click's event, so a replayed one does not say it twice; no lock held."""
+        message = str(event.get('message_id') or '')
+        if not message:
+            return
+        self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=message), str(event.get('chat_id') or ''),
+                             f'这次点击没处理成（{type(exc).__name__}），可以再点一次。',
+                             self.voice.key('click-failed', str(event.get('event_id') or message)), voice=self.voice)
+
     def handle_menu_event(self, event, ctx):
         """A click on the bot menu (app/bot_menu.py): one ``timing`` line and one log line."""
         flow = timing.begin('menu', started=timing.take_arrival(), key=str(event.get('event_key') or '')[:40])

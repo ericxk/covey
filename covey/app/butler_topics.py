@@ -53,7 +53,7 @@ from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
 from covey.core.locks import LOCK, topic_lock
-from covey.core.butler_opened import done, record_path, request_token, save
+from covey.core.butler_opened import done, once_a_turn, record_path, request_token, save
 from covey.core.butler import is_butler_topic, is_lead
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import read_object, write_json
@@ -415,6 +415,19 @@ def topic_start(env, request):
         return reply(False, butler_handoff.choice_error(args.get("attachments")))
     if args.get("project") is True and getattr(env, "projects", None) is not None and projects.enabled() and lead_of(env, request) is None:
         return env.projects.start(request, args)  # 直接开专项: a project, not a topic (COVEY_PROJECTS=1; the butler's call alone).
+    # The same topic asked for again in this turn: the first call's answer, nothing opened twice (W2-B).
+    return once_a_turn(env.state_dir, request, "topic_start", title, prompt,
+                       lambda: _start(env, request, chat, args, title, prompt, why), rest=rest_of(args, "title", "prompt"))
+
+
+def rest_of(args, *texts) -> dict:
+    """A call's arguments but its ``texts`` (title, prompt): what else must be the same for a call to be the same one
+    (core/butler_opened.py once_a_turn)."""
+    return {key: value for key, value in args.items() if key not in texts}
+
+
+def _start(env, request, chat, args, title, prompt, why):
+    """topic_start's work once its arguments are checked and no same call came first: its plan, then ``_open``."""
     path = record_path(env.state_dir, request)
     record = read_object(path)
     if record.get("answer"):
@@ -448,6 +461,17 @@ def said_by(lead) -> dict:
     butler's: the owner's words when its turn answers his message. A lead's record from before T856 has none, and handed
     on the owner's words when its turn answered his message."""
     return {"by": "lead"} if lead is not None else {}
+
+
+def said_in(env, request) -> dict:
+    """{"message_id": the owner's message the request's butler turn answers} for a topic's ``origin`` in its topic.json: where
+    its turns' results go back to (app/relay_targets.py), read from the topic itself, never only from main-thread/opened,
+    which is cleared after a week (WAVE12 W2-B). {} for a project's lead's call (its threads hang under no message of the
+    owner's, ``place``) and when the turn answers none (a page's topic: app/web_launch.py)."""
+    if lead_of(env, request) is not None or not getattr(request, "job_key", ""):
+        return {}
+    owner = butler_job_owner_message(env.state_dir, request.job_key)
+    return {"message_id": owner} if owner else {}
 
 
 def _open(env, request, path, record, chat, prompt, args):
@@ -521,7 +545,7 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
     target = topic_context(app.harness.context, event, app.store.sessions_dir)
     origin = {"kind": kind, "request": request.id, "job_key": request.job_key, "why": record["why"],
               "readonly": args.get("readonly") is True, "user_requested": args.get("user_requested") is True,
-              "title": title, "at": record["at"]}
+              "title": title, "at": record["at"], **said_in(env, request)}
     lead = lead_of(env, request)
     if not record.get("topic_id"):
         with topic_lock(target), LOCK:
@@ -697,12 +721,23 @@ def topic_send(env, request):
         data["criteria"] = changed
     title = arg_text(request.args.get("title"), 40) or topic_title(Path(env.state_dir), ctx.topic_id)
     owner, items = handed(env, request, ctx)
+    # Words handed to a topic are its words' sender's (the butler's, a lead's: WAVE12 C1), as a supplement or a next turn.
+    source = source_of(env, request, owner)
     job = live_turn(app, ctx, chat)
+    if job is not None and app.steering.steer_stage(job) == "paused":
+        # Its turn waits on a live question (app/runtime.py job_stage): words handed on are never its answer (C2).
+        return done(path, record, reply(False, waiting_line(label, job, lead), **data, job_id=job.job_id, waiting=True))
     if job is not None:
         steer = butler_handoff.handoff_prompt(butler_handoff.STEER, label=label, title=title, task=text, owner=owner,
                                             items=items, extra=note)
+        # Should its turn never take them (it ends unread, or refuses them late): the topic's next turn, as the stopped
+        # topic gets below, with their 轮次来源 (app/steering.py end_unread_steers, the fourth way: W2-B).
+        again = next_turn(text=butler_handoff.shown(owner, text, items), title=title, source=source,
+                          prompt=butler_handoff.handoff_prompt(butler_handoff.NEXT, label=label, title=title, task=text,
+                                                               owner=owner, items=items, extra=note))
         try:
-            saved = app.steering.deliver_steer(ctx, job, steer, mid, shown=butler_handoff.shown(owner, text, items))
+            saved = app.steering.deliver_steer(ctx, job, steer, mid, shown=butler_handoff.shown(owner, text, items),
+                                               requeue=again)
         except SteerUncertain as exc:
             return done(path, record, reply(False, f"补充可能已送到 {label} 的任务 #{job.job_id}，送达没有确认（{exc}）；"
                                              "不会重发，别再转一次。", **data, job_id=job.job_id, uncertain=True))
@@ -720,7 +755,6 @@ def topic_send(env, request):
     # words are the butler's or a lead's, their source says so: WAVE12 C2), and a topic whose result or question card has
     # not arrived takes nothing. A question the project's lead holds (the triage, never shown to the owner) keeps them too
     # (P1-7), for its answer, the lead's or the owner's.
-    source = source_of(env, request, owner)
     waiting = len(app.questions.pending_questions(ctx, chat))
     triaged = any(triage.held(row) for _, row in directory_store(Path(env.state_dir) / "questions").query(
         topic_id=ctx.topic_id, chat_id=chat, status="pending"))
@@ -746,6 +780,26 @@ def topic_send(env, request):
             return done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
     dispatch_card(env, request, ctx.topic_id, **project_hint(request))
     return done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
+
+
+def next_turn(*, text, prompt, title, source, address="") -> dict:
+    """The ``requeue`` of words handed to a topic's running turn (core/deliveries.py handed): what the topic's next turn
+    is queued as should the turn never take them, with their 轮次来源 (``source``; none when stamping is off) and the
+    title its card is headed by. ``address``: the message whose context is the topic, for one with no root message (a
+    project's lead, app/butler_projects.py lead_target)."""
+    return {"text": text, "prompt": prompt, "topic": True, **({"title": title} if title else {}),
+            **({"source": dict(source)} if source else {}), **({"address": address} if address else {})}
+
+
+def waiting_line(label, job, lead) -> str:
+    """What the caller of topic_send or project_send is told when the turn there waits on a live question (WAVE12 W2-B):
+    nothing went in, and the words are not its answer; the butler answers with question_answer once the owner has said
+    it, a project's lead with project_answer or project_escalate when the question was handed to it."""
+    head = f"{label or '它'} 的任务 #{job.job_id} 正停在一道实时问题上等主人回答，这次没有送进去，也没有当成回答。"
+    if lead is not None:
+        return head + ("不要用加话代替回答：问题交给你分流时用 project_answer 替主人答（要有依据）或 project_escalate 转给主人，"
+                       "否则等主人答完这道题再转。")
+    return head + "主人这句话就是在答那道题，就用 question_answer 交上去；不是的话，等它答完这道题再转。"
 
 
 def held_next(lead) -> str:
@@ -774,10 +828,21 @@ def topic_fork(env, request):
         return reply(False, found)
     app, ctx, _ = found
     label = topic_label(Path(env.state_dir), ctx.topic_id) or arg_text(request.args.get("topic"))
+    if projects.enabled() and projects.is_member_topic(Path(env.state_dir), ctx.topic_id):
+        # A fork of a project's thread would be no thread of it, out of its lead's sight (W2-B): the lead decides.
+        return reply(False, f"{label or '这个话题'} 是专项的话题，不能分叉：用 projects_list 查专项的 id，再用 project_send 把话交给"
+                            "负责人，由它决定要不要再开话题。")
     path, token = record_path(env.state_dir, request), request_token(request)
     record = read_object(path)
     if record.get("answer"):
         return record["answer"]
+    return once_a_turn(env.state_dir, request, "topic_fork", title, prompt,
+                       lambda: _fork(env, request, chat, app, ctx, label, path, token, record, title, prompt),
+                       rest={**rest_of(request.args, "title", "prompt"), "source": ctx.topic_id})
+
+
+def _fork(env, request, chat, app, ctx, label, path, token, record, title, prompt):
+    """topic_fork's work once the topic is found and no same call came first: the fork and its first turn."""
     # Its turns on every Harness: one 🔁 换配置 moved to another has its finished turns on the one before.
     records = chat_records(env.state_dir, ctx.topic_id, chat)
     if not record.get("fork_topic_id") and (live_turn(app, ctx, chat) is not None
@@ -803,7 +868,7 @@ def topic_fork(env, request):
             new_topic = load_topic(Path(env.state_dir), fork["topic_id"])
             new_topic["origin"] = {"kind": "main", "request": request.id, "job_key": request.job_key, "why": "",
                                    "readonly": False, "user_requested": False, "title": title,
-                                   "at": record["at"], "fork_of": ctx.topic_id}
+                                   "at": record["at"], "fork_of": ctx.topic_id, **said_in(env, request)}
             write_json(Path(env.state_dir) / "topics" / fork["topic_id"] / "topic.json", new_topic,
                        ensure_ascii=False, indent=2)
     new_label = topic_label(Path(env.state_dir), fork["topic_id"])

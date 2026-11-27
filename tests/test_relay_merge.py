@@ -201,6 +201,88 @@ class MergedTest(MergeCase):
         self.assertEqual(self.saved("main-t1", 9)["state"], "sent")
 
 
+class WhoRelaysTest(MergeCase):
+    """T911: ``others_at_work`` counts only the tasks that will relay a conclusion. A member topic, a lead's wake-up and a
+    协作 ask relay none, and waiting for them held a single topic's relay for a window and merged it with no one."""
+
+    def test_member_lead_and_collab_turns_do_not_hold_a_relay(self):
+        from covey.core import butler, projects, turn_source
+        mock.patch.dict(os.environ, {projects.ENV: "1"}).start()
+        self.addCleanup(mock.patch.stopall)
+        self.addCleanup(butler.configure_state, butler.configure_state(self.state))  # A lead topic is told by its state.
+        pid = "a1b2c3d4e5f6"
+        lead = projects.lead_topic_id(CHAT, pid)
+        member = "ef" * 16
+        self.topic(lead, chat_id=CHAT, harness_id="claude", project=projects.project_field(pid, projects.LEAD))
+        self.topic(member, chat_id=CHAT, harness_id="claude", project=projects.project_field(pid, projects.MEMBER))
+        self.working("om_member", 20, topic=member)
+        self.working("om_wake", 21, topic=lead)
+        self.working("om_ask", 22, topic=OTHER)
+        upsert_job_record(self.state, job_key("om_ask", 22),
+                          turn_source=turn_source.make(turn_source.ASK, asserted_by="bridge", collab="c", ask="a"))
+        self.assertFalse(relay_send.others_at_work(self.state, self.job(), CHAT))
+        send = self.send()
+        self.assertEqual("sent", relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        self.assertEqual(self.later, [])  # At once, no window.
+        self.pause.assert_not_called()
+
+    def test_two_ordinary_topics_still_merge(self):
+        self.working()
+        self.assertTrue(relay_send.others_at_work(self.state, self.job(), CHAT))
+        send = self.send()
+        self.assertEqual(relay_send.PENDING, relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        relay(self.state, self.job("main-t2", 10, topic=OTHER), DONE, send=send, text="查完了")
+        self.wait()
+        send.assert_called_once()
+        self.assertIn("2 个话题", json.dumps(send.call_args.args[4], ensure_ascii=False))
+
+    def test_a_merged_card_is_not_routed_to_a_topic(self):
+        """引用直达 is for a card that is one topic's alone: a merged relay card is several topics', so a quote of it stays
+        the butler's (a single topic's relay card routes a quote to that topic: test_butler_relay OriginTest)."""
+        from covey.core.topics import routed_topic
+        self.working()
+        send = self.send()
+        relay(self.state, self.job(), DONE, send=send, text=REPLY)
+        relay(self.state, self.job("main-t2", 10, topic=OTHER), DONE, send=send, text="查完了")
+        self.wait()
+        self.assertEqual(("", BUTLER), (routed_topic(self.state, CHAT, "om_relay"),
+                                        message_topic(self.state, CHAT, "om_relay")))
+
+
+class StaleTest(MergeCase):
+    """A relay left PENDING past two merge windows (its window thread never took it) goes from the outbox loop, once."""
+
+    def pending(self):
+        self.working()
+        send = self.send()
+        self.assertEqual(relay_send.PENDING, relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        self.later.clear()  # Its runner died with its window.
+        return send
+
+    def test_a_relay_left_over_two_windows_is_sent_once_by_the_outbox_step(self):
+        from covey.app import outbox
+        send = self.pending()
+        path = relay_send.relay_path(self.state, job_key("main-t1", 9))
+        now = read_object(path)["at"]
+        self.assertEqual([], relay_send.flush_stale(self.state, send, now=now + 30))
+        send.assert_not_called()  # Within two windows: its own window's.
+        late = now + 2 * relay_send.MERGE_SECONDS + 1
+        self.assertEqual([job_key("main-t1", 9)],
+                         relay_send.flush_stale(self.state, send, now=late))
+        send.assert_called_once()
+        self.assertEqual("sent", read_object(path)["state"])
+        self.assertEqual([], relay_send.flush_stale(self.state, send, now=late + 5))
+        send.assert_called_once()
+        self.assertTrue(callable(outbox.relay_stale))
+
+    def test_the_outbox_loop_runs_the_step(self):
+        from covey.app import outbox
+        gateway, ctx = mock.Mock(), mock.Mock(state_dir=self.state, profile=None)
+        with mock.patch.object(outbox, "every") as every:
+            outbox.run(gateway, ctx)
+        self.assertIn(outbox.relay_stale, every.call_args.args)
+
+
 class CardTest(unittest.TestCase):
     def test_the_merged_card(self):
         built, text = merged_card([{"label": "T12", "title": "改看板", "lead": "按钮改好了", "url": "https://x/t12"},

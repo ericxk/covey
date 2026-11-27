@@ -62,7 +62,7 @@ from covey.cards.relay_card import DONE, STOPPED, WAITING
 from covey.cards.topic_actions import beside, relay_switch
 from covey.core import butler, placement, turn_source
 from covey.core.checkpoint import read_checkpoint
-from covey.core.jobs import find_job_record, job_field, job_key
+from covey.core.jobs import find_job_record, job_field, job_key, owner_stopped
 from covey.core.state import read_object
 from covey.core.store import directory_store
 from covey.core.topics import route_message, topic_title
@@ -159,9 +159,10 @@ def relay(state_dir, job, outcome, *, send, profile=None, log=None, merge=True, 
     key = job_key(str(job_field(job, "message_id")), job_field(job, "job_id"))
     if outcome == WAITING and any((Path(state_dir) / QUESTION_RELAYS).glob(f"{key}--*.json")):
         return "asked"  # Its question went to the top level as it was asked (``relay_question``).
-    if outcome == STOPPED and job_field(job, "cancel_requested_by"):
-        # The owner pressed 停止 on its card in the 话题区's thread, looking at it: no notice. The
-        # record says so; a failure, a refusal, a timeout or an interruption still relays.
+    if outcome == STOPPED and owner_stopped(job):
+        # The owner stopped it himself (his card's 停止 in the 话题区's thread, his word, the web page, a project's card,
+        # his recall: core/jobs.py owner_stopped), looking at it: no notice. The record says so; a failure, a refusal, a
+        # timeout, an interruption or a stop of the lead's or the guard's still relays.
         return record_only(state_dir, relay_path(state_dir, key), key, job, outcome, SKIPPED, log, target,
                            why="owner_stop")
     # 做完了 relays that come close together go as one (app/relay_send.py send_merged); 等你 and 停住了 never wait, and nor

@@ -448,6 +448,7 @@ read、refused、withdrawn：终态
 - 没读到的补充（`app/steer_interrupt.py`）：持有任务后端的进程（任务进程，或 Bridge 自己跑的任务）在补充 `sent` 后起一个 `steer-unread` 线程，送达后 `URGENT_SECONDS`（20 秒，`COVEY_STEER_URGENT_SECONDS`）和 `REPAINT_AT` 各看一次：还没读到就重画回执（“已等 N 秒”）；第一次看时补充是急的（`core/steer.py` 的 `is_urgent`），就调后端的 `stop_command`。点“打断它，马上读”（`bridge_steer_interrupt`，按 `job_id` 转给任务进程）走同一个 `interrupt`。每条补充只试一次（`interrupt_at`；没东西可停时清掉，可以再点），记录里留 `interrupt`（结果的话）和 `interrupted`（停掉的命令）。
 - `stop_command`（能力 `command_stop`，只有本机的 Claude）：从事件里取主任务正在等的前台 Bash 调用（不含后台命令和子任务的命令），在 Claude CLI 的子进程里按命令行找到它的 shell（`backends/claude/command_stop.py`），先送一条说明（为什么命令被停）再停它的进程组（SIGTERM，2 秒后 SIGKILL，pidfd 防 PID 复用）。`core/steer.py` 的 `keeps_running` 列的命令（推送、部署、发布、安装、远程拷贝、改服务、删除和移动）从不停。
 - 管家的补充没有回执卡：确定没读到的（`refused`，或 `target_ended`）标 `requeue_auto`，由 Bridge 用同一个 `_requeue` 以主人消息的 id 排成新一轮，同样只排一次（[butler.md](butler.md) 收尾时发来的消息）。
+- 第四条出路（WAVE12 W2-B）：转进话题在跑那一轮的话——管家的 `topic_send`、`project_send`，负责人的 `project_topic_send`，撤回编辑送的补充——也没有回执卡，送达记录的 `requeue` 带 `topic: true`（`core/deliveries.py` 的 `handed`），以及下一轮的说明、标题和来源（`source`：`relay`/`lead`，W1-B 盖的章）。确定没读到（`target_ended`，或晚到的 `refused`）时标 `requeue_next`，和自动送进去的话题消息一样排进那个话题（`in_topic`；负责人话题没有根消息，用 `address` 里的 `project-lead-<id>` 别名），新一轮带原来的来源，不当主人的话；排之前话题在等主人答题就交给 `hold`（`app/app.py` 的 `workspace_command`，`note_only`）暂存，记 `requeue_state` 为 `held`，不开新一轮、不冒答。主人停掉的一轮不排，在话题串里说一行（`tell_topic_lost`），可能已送达的（`uncertain`）也只说一行；没有 `requeue` 的旧记录同样只说一行。Bridge 自己发的提醒（记录带 `internal: true`）既不排也不说。任务进程只标记，Bridge 在它结束后或下次启动时排，不受 `COVEY_TOPIC_STEER` 影响（关着时只不排自动送进去的话题消息）。
 
 ## 引用卡片接着说的表情
 
@@ -511,15 +512,18 @@ cancelled、superseded：终态
 
 主人撤回或编辑了已经发出的消息时，Bridge 跟着改（`app/source_watch.py`，`COVEY_SOURCE_WATCH=0` 关掉）。lark-cli 的事件总线既没有撤回事件也没有编辑事件，但消息读回来带着两个标记：撤回后 `deleted` 为真，编辑后 `updated` 为真、`update_time` 变新。所以靠读回。
 
-- **登记**：`BridgeApp.handle_event` 把主人的一条消息变成任务或补充之后，记进 `Runtime.sources`（`core/source_book.py`，只在内存里）。只认主人（`Access.is_owner`）和 `om_` 开头的消息 ID（网页上发来的不算）；补充要能找到它进了哪个在跑的任务（那个任务的补充记录 `interaction-deliveries/`）。任务进程里不登记。
-- **读回**：后台线程 `source-watch` 每 `WATCH_SECONDS`（15 秒）读一遍登记的消息（`GET /open-apis/im/v1/messages/<id>`，锁外）。任务还活着就一直读，结束后再读 `GRACE_SECONDS`（10 分钟），超过一天的不再读，最多同时登记 200 条。读失败下一轮再读；读回说消息已撤回（`deleted`，或接口拒绝时报 230011）就按撤回处理。
+- **登记**：`BridgeApp.handle_event` 把主人的一条消息变成任务或补充之后，记进 `Runtime.sources`（`core/source_book.py`），同时写进 `<state>/source-book.json`（`update_json`，锁内只写文件；开关关着不读不写）。每条带 `kind`：`task`（自己成了任务）、`steer`（补充）、`answer`（被当成对等着的问题的回答）、`held`（暂存，`app/held_notes.py`）；后两种由 `app/interaction.py` 登记（`source_watch.note_kind`）。只认主人（`Access.is_owner`）和 `om_` 开头的消息 ID（网页上发来的不算）；补充要能找到它进了哪个在跑的任务（那个任务的补充记录 `interaction-deliveries/`）。任务进程里不登记。
+- **读回**：后台线程 `source-watch` 每 `WATCH_SECONDS`（15 秒）读一遍登记的消息（`GET /open-apis/im/v1/messages/<id>`，锁外）。任务还活着就一直读，结束后再读 `GRACE_SECONDS`（10 分钟），超过一天的不再读（`MAX_AGE_SECONDS`），最多同时登记 200 条。启动后先读回文件，重启前登记的消息接着读。读失败下一轮再读；读回说消息已撤回（`deleted`，或接口拒绝时报 230011）就按撤回处理。
 - **撤回**：
   - 消息自己的任务还在排队：取消，不执行；在跑：像点了停止一样停下（`app/project_clicks.py` 的 `stop_task`，任务进程活着时转给它）。停止带 `by: recall`（`core/jobs.py` 的 `RECALLED`），记录的 `cancel_requested_by` 是 `recall`，卡上写“原消息已撤回”，不回文字（那条消息已经没了，回不了）。
   - 是一条补充：再给那个任务送一条补充，说主人撤回了它、不要再按它做。
   - 不管任务结没结束：这一轮记下的记忆（回答卡上的“记下了”，同“不对”）和知识条目（`by=topic`、`source.job_key` 是它）作废；管家这一轮开的、分叉的、交过活的话题（`core/butler_opened.py`）各在话题串里收到一张小卡“来源消息已撤回”，话题还有排队或在跑的任务时带一个停止按钮（就是任务卡的 `bridge_job_stop`，带 `by: recall`）。话题不自动停（主人定的）。答案已经发出的不撤回。
-- **编辑**：读回的正文和原来的不一样才算编辑（`same_words`，空白不计）。只看 `updated` 和 `update_time` 不够：消息下面开了话题串（管家把话题挂在主人那条消息下）时，飞书也把它标成更新过、更新时间变新，正文一字没改。真编辑时，改后的全文作为一条补充交给这条消息的任务（`Steering.deliver_steer`，补充 ID 是 `edit-<消息>-<update_time>`，同一次编辑只送一次）：排队中的并入它的请求，在跑的读到它的下一步。任务已结束、在等回答，或后端不收补充时，在话题串里（管家的私聊在聊天区）发一句“你改了这条消息……这一轮是按改之前的内容做的，没有重做”，不自动再跑。
+  - 沿派发链走到下游：管家把主人原话转交话题时，那一轮的轮次来源是 `relay`，`origin.message_id` 是主人这条消息（`core/turn_source.py` 的 `downstream` 列在跑的、`finished_downstream` 列已结束的）。撤回时这些任务所在的话题也各收到那张小卡（在跑的带停止，不自动停）。负责人派给成员话题的活（`lead`）来源里没有主人的消息 ID，链到负责人为止：成员话题由负责人决定，不越过它去动。
+  - 被当成回答的消息撤回：话题里说一行“已作为回答提交，撤回不影响它”，什么都不改；暂存的消息撤回：像它卡上的“撤回”一样撤掉（已随回答带走的，同样说一行）。
+- **编辑**：读回的正文和原来的不一样才算编辑（`same_words`，空白不计）。只看 `updated` 和 `update_time` 不够：消息下面开了话题串（管家把话题挂在主人那条消息下）时，飞书也把它标成更新过、更新时间变新，正文一字没改。真编辑时，改后的全文作为一条补充交给这条消息的任务（`Steering.deliver_steer`，补充 ID 是 `edit-<消息>-<update_time>`，同一次编辑只送一次）：排队中的并入它的请求，在跑的读到它的下一步（补充带 `requeue`，没读到时由 `app/steering.py` 重新排队）。任务已结束、在等回答，或后端不收补充时，在话题串里（管家的私聊在聊天区）发一句“你改了这条消息……这一轮是按改之前的内容做的，没有重做”，不自动再跑。沿派发链的下游同样：在跑的收到补充，已结束的在各自话题串里说一行。
 - **被引用的消息**（`feishu/forward.py`）：回复一条已撤回的消息时，上下文写“已被发送者撤回”、不带它剩下的占位正文；编辑过的写“发出后编辑过”，正文是改后的。
-- **限制**：登记只在内存里，Bridge 重启后，重启前的消息不再读回。还在等启动卡（`waiting_workspace`）的任务、管家已经交给话题的任务说明、管家会话里的原文都不跟着改；编辑后的消息只取文字，新加的图片和文件不带。
+- **重启不重发**：做过的动作（撤回的小卡、编辑的补充或一行说明）先记进登记条目的 `acted`，再去做；重启后重放核对，记过的不再发（规则 6：宁可漏一次不发两次）。
+- **限制**：还在等启动卡（`waiting_workspace`）的任务、管家已经交给话题的任务说明、管家会话里的原文都不跟着改；编辑后的消息只取文字，新加的图片和文件不带。
 
 ## 结果授权与投递
 

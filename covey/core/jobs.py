@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from covey.core import look
 from covey.core.state import ensure_private_dir, utc_now_iso, write_private_text
 from covey.core.locks import resource_lock
 from covey.core.metrics import durations
@@ -319,6 +320,23 @@ def job_stop_action_value(job: Any) -> dict[str, str]:
 # a project's card, his recall of the task's message (RECALLED); a project's lead or its budget guard; 代答 stopping a
 # batch it replaces.
 STOP_SOURCES = frozenset({"card", "word", "web", "project", "lead", "guard", "proxy", RECALLED})
+
+
+def owner_stopped(record) -> bool:
+    """Whether ``record`` (a job record or a job) was stopped by the owner himself: its ``cancel_requested_by`` is one of
+    his (his card's 停止 "card"; his stop word, said to the butler or by the butler for him, ``by`` "word", which a
+    stopped topic's question records also carry as ``cancel_reason`` "butler_stop"; his stop on the web page "web", on a
+    project's card "project", his recall of the task's message "recall"), or it has none and was taken out of the queue or merged into a running task as a
+    supplement (``never_started``, ``merged_into_job_id``: only his click or his message does that). The lead's, the
+    guard's and 代答's stops (STOP_SOURCES), the Bridge's own (a timeout, a failure, an interruption: none named) and a
+    record that says nothing are not. The one reading of who stopped a task (core/look.py OWNER_STOPS is its table): the
+    butler's relay of a stop (app/butler_relay.py) and the stop notices share it. Never raises."""
+    if not isinstance(record, dict):
+        record = {key: getattr(record, key, "") for key in ("cancel_requested_by", "cancel_reason", "never_started",
+                                                            "merged_into_job_id")}
+    if record.get("cancel_reason") == "butler_stop":
+        return True  # The butler stopped it for the owner, on his word.
+    return look.owner_stopped(record) is True
 
 
 def parse_job_stop_action_value(raw: Any) -> dict[str, str] | None:

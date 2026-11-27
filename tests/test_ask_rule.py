@@ -118,6 +118,39 @@ class WordingTest(unittest.TestCase):
         self.assertNotIn("下面列出", owner_send.RULE)
         self.assertIn("不要再起一张一样的", owner_send.OPEN_HEAD)
 
+    def test_the_wait_line_names_the_short_wait_and_says_revisit_only_where_one_is_kept(self):
+        # W2-B: a wait past SHORT_WAIT_MINUTES is a revisit only in an ordinary topic with 到点回来看 on (app/runs.py waits_of),
+        # the lead's next turn in a project's thread; no other turn is told of either.
+        line = f"预计 {prompts.SHORT_WAIT_MINUTES} 分钟内出结果"
+        ordinary = prompts.constraints("claude", waits=prompts.WAIT_REVISIT)
+        member = prompts.constraints("claude", waits=prompts.WAIT_LEAD)
+        other = prompts.constraints("claude")
+        for rules in (ordinary, member, other):
+            self.assertIn(line, rules)
+        self.assertIn("revisit", ordinary)
+        self.assertNotIn("revisit", member)
+        self.assertIn("交给负责人下一轮", member)
+        self.assertNotIn("revisit", other)
+        self.assertNotIn("专项", other)
+        self.assertNotIn("负责人", other)
+
+    def test_a_topics_wait_follows_the_revisit_switch_and_its_project(self):
+        from types import SimpleNamespace
+        from covey.app import revisits
+        from covey.app.runs import Runs
+        ctx, job = SimpleNamespace(state_dir="/x", topic_id="t1"), SimpleNamespace(topic_id="t1", chat_id="oc")
+        with mock.patch.object(revisits, "ordinary", return_value=True), \
+                mock.patch.object(revisits.records, "enabled", return_value=True):
+            self.assertEqual(Runs.waits_of(ctx, job), prompts.WAIT_REVISIT)
+        with mock.patch.object(revisits, "ordinary", return_value=True), \
+                mock.patch.object(revisits.records, "enabled", return_value=False):
+            self.assertEqual(Runs.waits_of(ctx, job), "")
+        with mock.patch.object(revisits, "ordinary", return_value=False), \
+                mock.patch("covey.core.projects.topic_project", return_value=SimpleNamespace(id="p1")), \
+                mock.patch("covey.app.runs.is_butler_topic", return_value=False):
+            self.assertEqual(Runs.waits_of(ctx, job), prompts.WAIT_LEAD)
+        self.assertEqual(Runs.waits_of(ctx, None), "")
+
 
 if __name__ == "__main__":
     unittest.main()

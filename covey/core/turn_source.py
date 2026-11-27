@@ -293,3 +293,16 @@ def downstream(state_dir, message_id) -> list:
 
     return select_job_records(state_dir, lambda record: origin(record).get("message_id") == message_id,
                               status=frozenset(RUNNING))
+
+
+def finished_downstream(state_dir, message_id) -> list:
+    """The jobs that already ended (core/statuses.py TERMINAL) whose field's origin names ``message_id``, newest first: what
+    ``downstream`` no longer lists, for the line a recall or an edit of the message says in their topics."""
+    message_id = str(message_id or "")
+    if not message_id:
+        return []
+    from covey.core.jobs import select_job_records
+    from covey.core.statuses import TERMINAL
+
+    return select_job_records(state_dir, lambda record: origin(record).get("message_id") == message_id,
+                              status=frozenset(TERMINAL))

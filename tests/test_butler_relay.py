@@ -438,6 +438,46 @@ class SendTest(Case):
         again.assert_not_called()
 
 
+class OriginTest(Case):
+    """T911: a topic's own ``origin`` names the request that opened it, so the relay needs no main-thread/opened/ record
+    (daily maintenance clears the folder after 7 days)."""
+
+    def origin(self, **fields):
+        return {"kind": "main", "request": "t1", "job_key": job_key(OWNER, 5), "title": "查日志", "at": 1.0, **fields}
+
+    def test_without_the_ledger_the_origin_still_relays(self):
+        self.topic(TOPIC, topic_id=TOPIC, topic_number=410, chat_id=CHAT, origin=self.origin())
+        token = relay_targets._token_of("t1")
+        job = self.job(message_id="main-" + token)
+        target = relay_target(self.state, job)  # No opened/ record exists.
+        self.assertEqual(("start", OWNER, token), (target["kind"], target["reply_to"], target["token"]))
+        send = self.send()
+        self.assertEqual("sent", relay(self.state, job, DONE, send=send, text=REPLY))
+        self.assertEqual(OWNER, send.call_args.args[3] or OWNER)
+        # A later turn of the topic (its own words in the thread) follows the same origin.
+        follow = relay_target(self.state, self.job(message_id="om_in_topic", job_id=12))
+        self.assertEqual(("follow", OWNER), (follow["kind"], follow["reply_to"]))
+
+    def test_the_origin_keeps_the_owners_message_when_the_butlers_job_is_gone(self):
+        self.topic(TOPIC, topic_id=TOPIC, topic_number=410, chat_id=CHAT,
+                   origin=self.origin(job_key="gone", message_id="om_kept"))
+        job = self.job(message_id="main-" + relay_targets._token_of("t1"))
+        self.assertEqual("om_kept", relay_target(self.state, job)["reply_to"])
+
+    def test_an_origin_of_another_request_or_an_old_one_falls_back_to_the_ledger(self):
+        self.topic(TOPIC, topic_id=TOPIC, topic_number=410, chat_id=CHAT, origin=self.origin(request="other"))
+        self.opened("t1", plan={"start": True}, topic_id=TOPIC)
+        self.assertEqual("t1", relay_target(self.state, self.job())["token"])
+        self.topic(TOPIC, topic_id=TOPIC, topic_number=410, chat_id=CHAT, origin={"title": "老话题"})
+        self.assertEqual("t1", relay_target(self.state, self.job())["token"])  # No request in it.
+
+    def test_a_single_topic_relay_card_is_routed_to_its_topic(self):
+        from covey.core.topics import routed_topic
+        self.opened("t1", plan={"start": True}, topic_id=TOPIC)
+        self.assertEqual("sent", relay(self.state, self.job(), DONE, send=self.send(), text=REPLY))
+        self.assertEqual(TOPIC, routed_topic(self.state, CHAT, "om_relay"))
+
+
 class AskedTest(Case):
     """A question asked while the turn runs (relay_question, app/native_questions.py): at the top level once."""
 

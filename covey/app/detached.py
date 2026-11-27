@@ -42,8 +42,7 @@ from covey.core.card_sequence import adopt
 from covey.app import devices as device_turns
 from covey.core.jobs import (DEVICE_LOST_STATUS, SIGTERM_STATUS, context_for_job, find_job_record,
                                       interrupted_fields, job_key, upsert_job_record)
-from covey.core.butler import traits_of
-from covey.core.deliveries import lost, topic_steer
+from covey.core.deliveries import lost
 from covey.core.statuses import RUNNING
 from covey.core.run_dir import (DONE, EXIT, HANDOFF, INBOX, QUEUED, READ_PAUSES, ack, live_dirs,
                                          live_keys as _live_keys, queued_path, read_exit, read_steady,
@@ -446,9 +445,9 @@ def device_notice(record, job_id, directory) -> str:
 def queue_lost(app, job, ctx) -> None:
     """A butler turn's runner is done or gone: the owner's messages its turn never took, which the runner marked
     (app/steering.py requeue_lost), become turns of their own here; a runner never queues a job. A topic's turn
-    the same, for the messages that went into it as they arrived (COVEY_TOPIC_STEER, core/deliveries.py topic_steer)."""
-    if not (traits_of(job).lists_supplements or topic_steer()):
-        return
+    the same, for the messages that went into it as they arrived (COVEY_TOPIC_STEER, core/deliveries.py topic_steer) and
+    the words handed to it (core/deliveries.py handed, WAVE12 W2-B: whatever the switch says; Steering.queue_lost reads
+    the ones that went in as they arrived only with it on)."""
     try:
         app.steering.queue_lost(context_for_job(ctx, job), job)
     except Exception as exc:  # noqa: BLE001 - those not tried stay marked: the Bridge's next start queues them
@@ -461,8 +460,9 @@ def queue_stranded(gateway, ctx, app) -> None:
     while the Bridge was down, or the Bridge stopped before its ``queue_lost`` ran), become turns of their own now,
     once. An adopted or still live runner's wait for its end here (``release_done``, ``finish_detached``). ``app``:
     the butler's Harness app, None when this Bridge has none. With COVEY_TOPIC_STEER on, a topic's messages that
-    went into its turn as they arrived too, each by its topic's Harness app; the records are read once for all."""
-    others = [each for each in gateway.apps.values() if each is not app] if topic_steer() else []
+    went into its turn as they arrived too, each by its topic's Harness app, and, whatever the switch says, the words
+    handed to a topic (core/deliveries.py handed); the records are read once for all."""
+    others = [each for each in gateway.apps.values() if each is not app]
     if app is None and not others:
         return
     try:

@@ -67,6 +67,19 @@ def load_topic(state_dir: Path, topic_id: str) -> dict:
     return read_json(topic_file(state_dir, topic_id))
 
 
+def topic_origin(state_dir: Path, topic_id: str) -> dict:
+    """The ``origin`` of the topic's topic.json (where it came from: the butler's request for it, ``kind`` "main", or the
+    web page's, "web"; app/butler_topics.py bind_topic, app/web_launch.py), {} for a topic without one or one whose
+    topic.json cannot be read. Reads without a lock (rule 2): the file is replaced whole. The relay of a turn reads it
+    before the request ledger (app/relay_targets.py), which daily maintenance clears after 7 days."""
+    try:
+        data = load_topic(Path(state_dir), str(topic_id or ""))
+    except (OSError, ValueError):
+        return {}
+    origin = data.get("origin") if isinstance(data, dict) else None
+    return origin if isinstance(origin, dict) else {}
+
+
 def read_topic(ctx) -> dict:
     return read_json(ctx.history_path.parent / "topic.json")
 

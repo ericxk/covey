@@ -94,8 +94,26 @@ def resume_reminders(notes: tuple[str, ...] = ()) -> str:
 def _now() -> str:
     return _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
+SHORT_WAIT_MINUTES = 5  # Where a short wait (polled with short commands) ends and a long one (a revisit, or the lead's next turn) begins.
 
-def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = ()) -> str:
+
+# What a turn waiting longer than SHORT_WAIT_MINUTES does (``long_wait``), by its topic (app/runs.py waits_of).
+WAIT_REVISIT, WAIT_LEAD = "revisit", "lead"
+
+
+def long_wait(waits: str = "") -> str:
+    """What a wait longer than SHORT_WAIT_MINUTES is for a topic (WAVE12 W2-B): an ordinary one's ``revisit`` with 到点回来看
+    on (WAIT_REVISIT: app/revisits.py ordinary, the rule its turns get), a project's thread's end of the turn for its lead's
+    next (WAIT_LEAD); any other turn ends saying when to look again, no revisit named."""
+    head = f"预计 {SHORT_WAIT_MINUTES} 分钟内出结果的才这样轮询；"
+    if waits == WAIT_REVISIT:
+        return head + "更久的在检查点写 revisit 到点回来看。"
+    if waits == WAIT_LEAD:
+        return head + "更久的就结束这一轮，交给负责人下一轮再看。"
+    return head + "更久的，先告诉用户现状和预计什么时候有结果，然后结束这一轮。"
+
+
+def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = (), waits: str = "") -> str:
     runtime_note = runtime_note or f"{backend_name} 的权限由这个桥接器控制"
     return "\n".join((
         f"你是 {backend_name}，通过飞书回复用户。",
@@ -111,7 +129,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         *search_rules(),
         # A supplement such as 'the QR code expired, send a new one' must not wait minutes for a wait loop to end.
         "- 你干活时用户发来的话，只在两次工具调用之间才送到你这里。要等用户（扫码、确认）或外面的事（部署、任务、网页）时，"
-        "用每次最多 30 秒的短命令轮询，不要用一个长时间阻塞的命令或循环，这样新的指示几秒内就能读到。",
+        f"用每次最多 30 秒的短命令轮询，不要用一个长时间阻塞的命令或循环，这样新的指示几秒内就能读到。{long_wait(waits)}",
         "- 这个飞书话题是一个持续的会话：要追问就在这里问，在这里接着做。",
         "- 不要自动把过程、diff 或评审文档发到飞书，报告留在本地，用户要求发布时才发。",
         "- 除非直接有用，不写隐藏的推理、工具日志和实现细节。",
@@ -484,6 +502,7 @@ def bridge_rules(
     gists: str = "",
     checkpoint: str | None = None,
     home: str = "",
+    waits: str = "",
 ) -> str:
     """``proxy`` (a 代答 topic's): its own constraints and the workspace, nothing else (proxy_constraints). Otherwise
     identity and constraints, the workspace, the owner's principles (``principles``, principles_block; none: no
@@ -491,11 +510,12 @@ def bridge_rules(
     a new session's recent topics of the workspace (``gists``, workspace_gists_block; none: no block), the checkpoint
     contract (``checkpoint``, core/checkpoint.py checkpoint_rules; None: all of it; ``remember``: and the rule for writing
     entries): the same every turn of a topic. Static only, so the rules stay one cacheable prefix: what changes turn by turn goes to the prompt's
-    tail (``turn_tail``). ``home``: the home block (app/home_turn.py static_block) in place of the workspace block."""
+    tail (``turn_tail``). ``home``: the home block (app/home_turn.py static_block) in place of the workspace block.
+    ``waits``: what a long wait is in this topic (``long_wait``)."""
     where = home_section(workspace_name, workdir, device, remote_workdir, home=home)
     if proxy:
         return "\n\n".join((proxy_constraints(backend_name, runtime_note, notes), where))
-    return "\n\n".join((constraints(backend_name, runtime_note, notes), where,
+    return "\n\n".join((constraints(backend_name, runtime_note, notes, waits), where,
                         *memory_sections(memory_text=memory_text, principles=principles, project=project,
                                          knowledge_text=knowledge_text),
                         *((gists,) if gists else ()),
@@ -649,7 +669,7 @@ def shared_rules(environ=None) -> tuple[str, ...]:
 PIN_WORDS = "进度主人看 Pin。"
 PINNED_OVERVIEW_ENV = "COVEY_PINNED_OVERVIEW"  # app/overview.py ENV: that module imports the app, this one must not.
 AREA_RULE = ("- 交给话题后，你只用一句话说放到了哪里：新开的写“放到 T432「标题」里做”，追加的写“接着在 T432 里做”。"
-             "不写进度，不写“结论会带回来”之类的话，也不用再报结论：话题每一轮结束，Bridge 都会把它的结论作为新消息发到聊天区；"
+             "不写进度，不写“结论会带回来”之类的话，也不用再报结论：普通话题每一轮结束，Bridge 都会把它的结论作为新消息发到聊天区，专项里的话题由负责人汇报；没发出来时聊天区会有一行说明；"
              + PIN_WORDS + "被问到时用下面的快照和 topic_read 回答。"
              "主人问某个话题“咋样了”“还要多久”“是不是卡住了”，快照里在做的那一行写着阶段、最近动静和预计还要多久，"
              "直接照它回答，不用为此开话题或去查；没写预计的就说还估不出来，标着“可能卡住了”的照实说，"
@@ -689,7 +709,7 @@ PROJECT_RULE = (
     "- 聊天里有专项时（快照的“专项”一栏列着在做的和收起的，带 id、名字和一句目标），每件新的事先看它是不是其中某个专项的同一件事："
     "是的，用 project_send 交给那个专项的负责人（pid 用快照里的 id），收起的专项会随之重新展开，不要另开话题；"
     "拿不准是不是同一件事，就开普通话题（topic_start），不要硬归；主人说“这是 X 的事”“放到 X 里”，就归进 X，不用再判断。"
-    "做完的专项不在快照里，不往里交。"
+    f"做完的专项在 {projects.DONE_SHOWN // 86400} 天内还在快照里（标“做完”），同一件事用 project_send 交回去会重开它；更早做完的不在快照里，另开话题。"
     "主人要停专项里的某个话题（T 号属于专项的话题）时，也用 project_send 交给负责人，写明停哪个话题；负责人会停掉它的任务、收掉它等主人回答的问题，你自己不动它。")
 
 

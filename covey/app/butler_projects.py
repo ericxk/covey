@@ -123,7 +123,8 @@ def lead_prompt(name, text, owner, items=()) -> str:
     from covey.core.attachments import attachment_block
 
     parts = [f"{NOTE} 主人在私聊里对专项「{name}」说了话，由管家转给你；这是主人触发的一轮，不是自动唤醒，你的回复会由 Bridge "
-             "发给主人。按他的意思调整专项：开话题、给话题加话、记决定或改风格就用 project_* 工具。",
+             "发给主人。按他的意思调整专项：开话题、给话题加话、记决定或改风格就用 project_* 工具。"
+             "原话里如果还有别的事（别的专项、别的话题的），管家另有安排，你只管这个专项里说明的这一件。",
              "管家整理的说明：\n" + text]
     if owner.words:  # His words whole, as the butler read them: a forward's messages, the message he quoted (W0-3).
         parts.append("主人原话：\n" + "\n".join("> " + line for line in owner.model_words.split("\n")))
@@ -135,9 +136,7 @@ def lead_prompt(name, text, owner, items=()) -> str:
 def project_send(env, request):
     """Hand the owner's words to a project's lead: a supplement to the turn it is in, else its next turn (message id
     "main-<token>": the owner's, not a wake-up). Once a request."""
-    from covey.app import butler_handoff, butler_topics
-    from covey.core.history_storage import append_history
-    from covey.core.steer import SteerRefused, SteerUncertain
+    from covey.app import butler_handoff
 
     refused = butler_only(env, request)
     if refused is not None:
@@ -148,10 +147,24 @@ def project_send(env, request):
     text = arg_text(request.args.get("text"))
     if not text:
         return reply(False, "text 不能为空：写这次交给负责人的事。")
+    if butler_handoff.choice_error(request.args.get("attachments")):
+        return reply(False, butler_handoff.choice_error(request.args.get("attachments")))
     path, token = butler_opened.record_path(state, request), butler_opened.request_token(request)
     saved = read_object(path)
     if saved.get("answer"):
         return saved["answer"]
+    # The same words for the same project again in this turn: handed on once (W2-B).
+    return butler_opened.once_a_turn(state, request, "project_send", arg_text(request.args.get("pid")), text,
+                                     lambda: _send(env, request, chat, state, text, path, token),
+                                     rest={key: value for key, value in request.args.items() if key not in ("pid", "text")})
+
+
+def _send(env, request, chat, state, text, path, token):
+    """project_send's work once its arguments are checked and no same call came first."""
+    from covey.app import butler_handoff, butler_topics
+    from covey.core.history_storage import append_history
+    from covey.core.steer import SteerRefused, SteerUncertain
+
     record = find_project(state, chat, request.args.get("pid"))
     if isinstance(record, str):
         return reply(False, record)
@@ -173,8 +186,10 @@ def project_send(env, request):
             "at": time.time()}
     butler_opened.save(path, note)
     owner = butler_handoff.asked(state, request.job_key)
-    # His files go to the lead with his words (T856): it sees them, and hands them on to the topics it names them for.
-    items = butler_handoff.carry(owner.attachments, butler_topics.media_dir(ctx), owner.roots) if owner.attachments else []
+    # His files go to the lead with his words (T856): it sees them, and hands them on to the topics it names them for. Those
+    # the call names (``attachments``, all by default): one message for two projects, or a project and a topic (W2-B).
+    chosen = butler_handoff.picked(owner.attachments, request.args.get("attachments"))
+    items = butler_handoff.carry(chosen, butler_topics.media_dir(ctx), owner.roots) if chosen else []
     sent = lead_prompt(name, text, owner, items)
     taken = (f"收进专项的话题：{'、'.join(joined)}（不打断它们）。" if joined else "") + (
         f"没收进：{'；'.join(unjoined)}。把这些告诉主人。" if unjoined else "")
@@ -184,9 +199,16 @@ def project_send(env, request):
     source = (turn_source.stamp(turn_source.RELAY, asserted_by=turn_source.PARTY_OWNER, origin={"message_id": owner.message_id},
                                 via="butler") if owner.message_id else turn_source.stamp(turn_source.RELAY, via="butler"))
     job = butler_topics.live_turn(app, ctx, chat)
+    if job is not None and app.steering.steer_stage(job) == "paused":
+        return done(path, note, reply(False, butler_topics.waiting_line(f"专项「{name}」负责人", job, None), **data,
+                                      job_id=job.job_id, waiting=True))
     if job is not None:
+        # Its turn never taking them: the lead's next turn, as below (app/steering.py end_unread_steers; W2-B), addressed
+        # by the lead's alias (``lead_target``: its topic.json has no root message).
+        again = butler_topics.next_turn(text=shown, prompt=sent, title=name, source=source,
+                                        address=projects.LEAD_ALIAS_PREFIX + str(record["id"]))
         try:
-            saved = app.steering.deliver_steer(ctx, job, sent, mid, shown=shown)
+            saved = app.steering.deliver_steer(ctx, job, sent, mid, shown=shown, requeue=again)
         except SteerUncertain as exc:
             return done(path, note, reply(False, f"补充可能已送到专项「{name}」负责人的任务 #{job.job_id}，送达没有确认（{exc}）；"
                                         "不会重发，别再转一次。", **data, uncertain=True))

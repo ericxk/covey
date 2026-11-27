@@ -1197,8 +1197,8 @@ class CardLaneTests(unittest.TestCase):
         self.addCleanup(self.shutdown.set)
         self.logs = []
 
-    def lanes(self, handle, health=None):
-        return CardLanes(handle, UnifiedBridgeApp.card_lane_key, self.logs.append, self.shutdown, health)
+    def lanes(self, handle, health=None, notify=None):
+        return CardLanes(handle, UnifiedBridgeApp.card_lane_key, self.logs.append, self.shutdown, health, notify)
 
     def wait(self, predicate, timeout=5):
         end = time.monotonic() + timeout
@@ -1347,6 +1347,32 @@ class CardLaneTests(unittest.TestCase):
         lanes.submit(click("t1", label="next"), self.ctx)
         self.wait(lambda: seen == ["boom", "next"])
         self.assertIn("handle_card_action_event error: broken click", self.logs)
+
+    def test_a_click_that_raised_is_told_under_its_card_once_per_card_and_button(self):
+        told = []
+
+        def handle(event, ctx):
+            raise RuntimeError("broken click")
+        lanes = self.lanes(handle, notify=lambda event, ctx, exc: told.append((event["message_id"], type(exc).__name__)))
+        for message, label in (("om_a", "x"), ("om_a", "x"), ("om_b", "x")):
+            lanes.submit(click("t1", label=label, message=message), self.ctx)
+        self.wait(lambda: len([line for line in self.logs if line.startswith("handle_card_action_event error")]) == 3)
+        self.assertEqual(told, [("om_a", "RuntimeError"), ("om_b", "RuntimeError")])
+
+    def test_a_notify_that_raises_does_not_end_the_lane(self):
+        seen = []
+
+        def handle(event, ctx):
+            seen.append(event["message_id"])
+            raise RuntimeError("broken click")
+
+        def notify(event, ctx, exc):
+            raise OSError("no network")
+        lanes = self.lanes(handle, notify=notify)
+        lanes.submit(click("t1", message="om_a"), self.ctx)
+        lanes.submit(click("t1", message="om_b"), self.ctx)
+        self.wait(lambda: seen == ["om_a", "om_b"])
+        self.wait(lambda: self.logs.count("card click failure not told: OSError") == 2)
 
     def test_a_full_backlog_handles_on_the_consumer_thread(self):
         threads = []

@@ -146,8 +146,9 @@ def unread_of(state_dir, job_key, since=0.0):
 def marked(record) -> bool:
     """Whether ``record`` waits to be queued as a turn of its own: a butler supplement's ``requeue_auto``, or a topic's
     message's that went in as it arrived, ``requeue_next`` (``on_arrival``; its own name, so a release before it, which
-    reads every ``requeue_auto`` as the butler's, leaves it to its receipt's 重新排队)."""
-    return bool(record.get("requeue_next") if on_arrival(record) else record.get("requeue_auto"))
+    reads every ``requeue_auto`` as the butler's, leaves it to its receipt's 重新排队), and so words handed to a topic's
+    turn (``handed``: queued in that topic, ``in_topic``)."""
+    return bool(record.get("requeue_next") if in_topic(record) else record.get("requeue_auto"))
 
 
 def lost(state_dir, job_key=None, since=0.0):
@@ -213,6 +214,28 @@ def on_arrival(record) -> bool:
     app/steering.py steer_on_arrival), not by a click: its receipt, the message's queued card, is marked ``auto``."""
     receipt = record.get("receipt") if isinstance(record, dict) else None
     return isinstance(receipt, dict) and receipt.get("kind") == "job" and receipt.get("auto") is True
+
+
+def handed(record) -> bool:
+    """Whether ``record`` is of words handed to a topic's running turn, not written in it by the owner: the butler's
+    topic_send and project_send, a project's lead's project_topic_send, an edit of the owner's message passed on
+    (app/source_watch.py). Its ``requeue`` says ``topic`` (WAVE12 W2-B) and it has no receipt card: should the turn
+    never take it, it is queued as that topic's next turn (``in_topic``), with the 轮次来源 it was handed with."""
+    again = record.get("requeue") if isinstance(record, dict) else None
+    return isinstance(again, dict) and again.get("topic") is True and not record.get("receipt")
+
+
+def in_topic(record) -> bool:
+    """Whether ``record``, should its turn never take it, is queued again in its own topic (as 重新排队 queues it: a
+    message id of its own, the topic's context): a topic's message that went in as it arrived (``on_arrival``), or words
+    handed to the topic (``handed``). Else it is the butler's, queued as the owner's message itself."""
+    return on_arrival(record) or handed(record)
+
+
+def internal(record) -> bool:
+    """Whether ``record`` is a supplement the Bridge sent on its own (``internal``: a reminder to the model, not anyone's
+    words): never queued again and never said when its turn does not read it."""
+    return isinstance(record, dict) and record.get("internal") is True
 
 
 def unread(record) -> bool:

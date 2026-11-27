@@ -385,7 +385,8 @@ class Temporary(Rule):
     keys = ("remove_temporary",)
     days = TEMPORARY_DAYS
     # proxy/shots: 代答's failed-step screenshots; main-thread/opened: which topic each butler topic_start opened
-    # (app/butler_topics.py), kept so the same call opens no second one; main-thread/relays: which topic turn's outcome
+    # (app/butler_topics.py), kept so the same call opens no second one; main-thread/opened-calls: which request of a
+    # butler turn made a call first (core/butler_opened.py first_call), so the same call made again is not; main-thread/relays: which topic turn's outcome
     # went back to the top level (app/butler_relay.py), read for the RESULT_AGE the board and snapshot look back;
     # main-thread/dispatch: the 派发卡's records and conclusion notes (app/dispatch_cards.py); main-thread/tracks: the
     # ledger of what the butler's tracks answered (core/track_ledger.py; their session files go sooner,
@@ -396,9 +397,9 @@ class Temporary(Rule):
     # turn-ends: turns handed to a task runner whose end no Bridge ran yet (app/detached.py end_due; the next start runs
     # or drops each, so only one of a runner that outlives this stays this long); fold-cards: the relays whose
     # 这一轮中途的汇报 closes on a click on its text, as last written (app/fold_close.py; past this only its title closes it).
-    folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/relays",
-               "main-thread/dispatch", "main-thread/tracks", "answer-cards", "stranger-replies", "event-spool",
-               "turn-ends", "fold-cards")
+    folders = ("tmp", "artifact-upload", "inbound-messages", "proxy/shots", "main-thread/opened", "main-thread/opened-calls",
+               "main-thread/relays", "main-thread/dispatch", "main-thread/tracks", "answer-cards", "stranger-replies",
+               "event-spool", "turn-ends", "fold-cards")
     title = "删除 tmp/、artifact-upload/、proxy/shots/ 条目"
 
     def select(self, run):

@@ -84,8 +84,8 @@ class OpenTest(AreaCase):
 
 
 class RelayTest(AreaCase):
-    def opened_turn(self, request="open", **timings):
-        data, job = self.opened(request)
+    def opened_turn(self, request="open", title="查日志", **timings):
+        data, job = self.opened(request, title=title)
         token = butler_opened.request_token(SimpleNamespace(id=request))
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="main-" + token, topic_id=data["topic_id"],
                         timings=timings)
@@ -101,7 +101,7 @@ class RelayTest(AreaCase):
         # S6 (T444, 2026-11-08): both relays linked to the question's thread, which is the first topic's.
         upsert_job_record(self.ctx.state_dir, "main-job", user_text="A 和 B 两件事")
         first, first_turn = self.opened_turn("one")
-        second, second_turn = self.opened_turn("two")
+        second, second_turn = self.opened_turn("two", title="改看板")  # Another topic of the message (W2-B: not the same call).
         self.assertTrue(second["root_message_id"].startswith("om_root"))
         links = []
         with mock.patch("covey.app.topic_links.topic_thread_link",
@@ -170,7 +170,7 @@ class SettleTest(AreaCase):
 
     def test_a_card_handed_on_to_two_topics_stays_the_butlers(self):
         self.opened("one")
-        self.opened("two")
+        self.opened("two", title="改看板")
         upsert_job_record(self.ctx.state_dir, "main-job", status="done")
         gateway = SimpleNamespace(apps=self.app.topics.apps, runtime=self.app.runtime)
         butler_relay.after_runner(gateway, SimpleNamespace(message_id="main-job", job_id=1, chat_id=CHAT, topic_id=self.main),
@@ -308,7 +308,7 @@ class MirrorTest(MirrorCase):
         # B1 review of S6: the copy took the topic's latest request as a turn the owner started there: the turn's
         # own words, and a link to its main- id, which has none.
         upsert_job_record(self.ctx.state_dir, "main-job", user_text="A 和 B 两件事")
-        answer = self.start("two")
+        answer = self.start("two", title="另一件")  # The second topic of the message: not the first one's call again (W2-B).
         second, job = answer["data"], type(self).job(self, "two")  # setUp's self.job is the first topic's.
         self.assertTrue(second["root_message_id"].startswith("om_root"))
         token = butler_opened.request_token(SimpleNamespace(id="two"))

@@ -74,7 +74,7 @@ class ButlerRulesTest(unittest.TestCase):
         self.env(**{PINNED_OVERVIEW_ENV: "1"})
         self.assertEqual(area_rule(), AREA_RULE)
         self.assertIn("进度主人看 Pin。被问到时", butler_rules())
-        self.assertIn("发到聊天区；被问到时", area_rule({PINNED_OVERVIEW_ENV: "0"}))
+        self.assertIn("一行说明；被问到时", area_rule({PINNED_OVERVIEW_ENV: "0"}))
         self.assertEqual(area_rule({}), AREA_RULE)  # No key at all: pinned.
 
     def test_the_two_ways_of_asking_each_say_when(self):

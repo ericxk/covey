@@ -324,8 +324,12 @@ def merge_seconds(environ=None) -> int:
 
 
 def others_at_work(state_dir, job, chat) -> bool:
-    """Whether a task of ``chat`` in a topic other than ``job``'s own is queued or running: its 做完了 may come within
-    seconds. The butler's own turns relay nothing; a failure to read says no (the relay goes at once, as before)."""
+    """Whether a task of ``chat`` in a topic other than ``job``'s own is queued or running that will relay its conclusion:
+    its 做完了 may come within seconds. Only a task whose row of core/placement.py has a conclusion counts, and one that
+    delivers on its own (core/turn_source.py): not the butler's own turns, a project's member topics and the lead's
+    wake-ups (the lead reports), a 协作 channel's asks; they relay nothing, and waiting for them held a topic's
+    relay for a window and merged it with no one (T911). A failure to read says no (the relay goes at once, as before)."""
+    from covey.core import placement, turn_source
     from covey.core.jobs import jobs_dir, job_key
     from covey.core.store import directory_store
 
@@ -334,7 +338,9 @@ def others_at_work(state_dir, job, chat) -> bool:
     try:
         for _, record in directory_store(jobs_dir(Path(state_dir))).query(chat_id=chat, status=AT_WORK):
             topic = record.get("topic_id")
-            if record.get("key") != mine and topic and topic not in (own_topic, butler_topic):
+            if (record.get("key") != mine and topic and topic not in (own_topic, butler_topic)
+                    and turn_source.behavior(record).own_delivery
+                    and placement.plan(state_dir, record).row.conclusion != placement.NONE):
                 return True
     except Exception:  # noqa: BLE001 - none known: at once
         return False
@@ -476,3 +482,26 @@ def take_left(state_dir, key, send, profile=None, log=None):
     if log is not None:
         log(f"main relay pending taken job={str(key)[-10:]}: its task runner has exited")
     return take(state_dir, chat, path, key, target, send, (built, text, links, {}), profile, log)
+
+
+def flush_stale(state_dir, send, profile=None, log=None, *, now=None):
+    """The 做完了 relays left PENDING for more than two merge windows (``send_merged``): a window's thread that never took
+    them (its task runner killed, the Bridge restarted, ``take_left`` not reached) leaves them for good, and the owner
+    never hears of a finished topic. Each goes now as ``take_left`` sends it (with the chat's others still pending);
+    a record leaves PENDING once, under the lock, so one the window or the runner's exit took meanwhile is not sent
+    again (rule 6). The Bridge's outbox loop calls it (app/outbox.py). The keys it tried, in order."""
+    now = time.time() if now is None else now
+    limit = 2 * (merge_seconds() or MERGE_SECONDS)
+    if not read_object(Path(state_dir) / WAITING):
+        return []  # The usual round: nothing waits.
+    with lock(state_dir):
+        waiting = read_object(Path(state_dir) / WAITING)
+        stale = [key for keys in waiting.values() for key in keys or ()
+                 if float(read_object(relay_path(state_dir, key)).get("at") or now) < now - limit
+                 and read_object(relay_path(state_dir, key)).get("state") == PENDING]
+    tried = []
+    for key in stale:
+        if read_object(relay_path(state_dir, key)).get("state") == PENDING:  # Not taken with an earlier one's.
+            tried.append(key)
+            take_left(state_dir, key, send, profile=profile, log=log)
+    return tried

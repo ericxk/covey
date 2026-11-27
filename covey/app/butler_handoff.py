@@ -313,6 +313,11 @@ def lead_note(kind, name, project, noun) -> str:
     return f"{head}负责人把这件事交给你；下面是任务说明。直接做事，不要再试图开话题或切话题。{done}"
 
 
+# The owner's words quoted whole may ask for more than this hand-on (another topic's, another project's): the butler has
+# the rest in hand (WAVE12 W2-B: START had it, NEXT and STEER and a project's lead, app/butler_projects.py lead_prompt, too).
+ONLY_THIS = "原话里如果还有别的事，管家另有安排，你只做任务说明里的这件。"
+
+
 def note(kind, *, label, title, owner: Asked, source="") -> str:
     """The Bridge's note at the head of what the topic's model gets, for ``kind`` (START, NEXT, STEER, FORK);
     ``source``: the topic a fork came from."""
@@ -326,17 +331,17 @@ def note(kind, *, label, title, owner: Asked, source="") -> str:
     done = "你的回复就是这一轮的结论，由 Bridge 发给主人。"
     settled = (f"原话里“开个话题”“单开一个”“放到哪个 T 号里”“转给谁”这类安排管家已经办完了，你就是那个{noun}："
                "直接做事，不要回应这些安排，不要再试图开话题或切话题，也不要说“开不了话题”“切不到 T 号”。"
-               "原话里如果还有别的事，管家另有安排，你只做任务说明里的这件。")
+               f"{ONLY_THIS}")
     if kind == STEER:
         current = name or "本" + noun
         return (f"{NOTE} 管家转来{who}的补充（主人是在{where}说的，不是在本{noun}里），你仍在{current}的这一轮里："
                 f"把它并进手上的工作。其中“接着在{here}里做”“转给那个话题”这类安排管家已经办完，"
-                "不要再试图开话题或切话题。")
+                f"不要再试图开话题或切话题。{ONLY_THIS}")
     if kind == NEXT:
         return (f"{NOTE} 你在{noun}{name}。管家把{who}在{where}说的一条消息转给你，作为这个{noun}的下一轮；"
                 "下面是管家整理的任务说明和主人的原话（引用）。"
                 f"原话里“接着放到{here}里做”“转给那个话题”这类安排管家已经办完，你就在{here}里："
-                f"直接做事，不要再试图开话题或切话题。{done}")
+                f"直接做事，不要再试图开话题或切话题。{ONLY_THIS}{done}")
     opened = (f"管家按{who}在{where}的一条消息，从 {source} 分叉出这个{noun}（带着 {source} 的上下文），"
               if kind == FORK and source else f"管家按{who}在{where}的一条消息开了这个{noun}，")
     return (f"{NOTE} 你在{noun}{name}。{opened}把这件事交给你；下面先是管家整理的任务说明，再是主人的原话（引用）。"

@@ -11,6 +11,7 @@ from covey.app import source_watch
 from covey.app.source_watch import SourceWatch, read_back
 from covey.core import knowledge
 from covey.core.jobs import RECALLED, find_job_record, parse_job_stop_action_value, upsert_job_record
+from covey.core import source_book
 from covey.core.source_book import GRACE_SECONDS, SourceBook, Watched
 from covey.feishu.forward import render_replied_message_context
 from support.world import TopicFixture
@@ -224,6 +225,146 @@ class SourceWatchTest(TopicFixture, unittest.TestCase):
         self.assertIn("撤回了刚才那条补充", job.prompt_text)
         self.assertIn("补充的话", job.prompt_text)
         self.assertFalse(job.cancel_event.is_set())
+
+    # -- W2-B: the book on disk, downstream, answers and held notes ------------------------------------------------
+
+    def downstream_topic(self, topic="t_down", root="om_root"):
+        from covey.core.topics import topic_file
+
+        path = topic_file(self.topic("om_a").state_dir, topic)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"root_id": root}))
+
+    def relay_job(self, key, status, topic="t_down", message="om_a"):
+        from covey.core import turn_source
+
+        upsert_job_record(self.topic("om_a").state_dir, key, job_id=int(key[-1]) + 50, topic_id=topic, chat_id="oc_chat",
+                          status=status, message_id=key,
+                          turn_source=turn_source.make("relay", asserted_by="owner", origin={"message_id": message}))
+
+    def replies(self, root):
+        return [call for call in self.app.messenger.send_message.call_args_list
+                if call.kwargs.get("reply_to_message_id") == root]
+
+    def test_the_book_is_kept_on_disk_and_read_back(self):
+        self.receive("om_a", "one")
+        file = self.topic("om_a").state_dir / "source-book.json"
+        self.assertEqual(json.loads(file.read_text())["items"]["om_a"]["kind"], "task")
+        again = SourceBook()
+        again.attach(self.topic("om_a").state_dir)
+        self.assertEqual([(i.message_id, i.kind, i.stamp) for i in again.snapshot()],
+                         [("om_a", "task", self.app.runtime.sources.get("om_a").stamp)])
+        self.assertTrue(again.claim(again.get("om_a"), "x", "t1"))
+        later = SourceBook()
+        later.attach(self.topic("om_a").state_dir)
+        self.assertFalse(later.claim(later.get("om_a"), "x", "t1"))  # What was done is kept with the message.
+
+    def test_a_message_past_a_day_is_not_taken_back(self):
+        self.receive("om_a", "one")
+        self.app.runtime.sources.get("om_a").added -= source_book.MAX_AGE_SECONDS + 5
+        self.app.runtime.sources.save()
+        again = SourceBook()
+        again.attach(self.topic("om_a").state_dir)
+        self.assertEqual(len(again), 0)
+
+    def test_nothing_is_written_with_the_switch_off(self):
+        with mock.patch.dict("os.environ", {"COVEY_SOURCE_WATCH": "0"}):
+            self.receive("om_a", "one")
+        self.assertFalse((self.topic("om_a").state_dir / "source-book.json").exists())
+
+    def test_a_restart_does_not_tell_a_done_recall_twice(self):
+        self.receive("om_a", "one")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        self.app.runtime.jobs.unregister(job)
+        self.downstream_topic()
+        self.relay_job("relay-1", "done")
+        self.round(detail("om_a", deleted=True))
+        self.assertEqual(len(self.replies("om_root")), 1)
+        # Crashed after the line, before the book dropped the message: it is read in again.
+        state = self.topic("om_a").state_dir
+        book = self.app.runtime.sources
+        book.note(Watched("om_a", "oc_chat", self.app.spec.name, "", "1000", kind="task",
+                          acted={"recall": ["all"], "recall-mark": ["t_down"]}))
+        self.round(detail("om_a", deleted=True))
+        self.assertEqual(len(self.replies("om_root")), 1)
+        self.assertEqual(len(book), 0)
+        self.assertTrue(state.exists())
+
+    def test_an_edit_goes_to_the_running_downstream_and_is_said_in_an_ended_ones_thread(self):
+        self.receive("om_a", "原来的问题")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        self.app.runtime.jobs.unregister(job)
+        self.downstream_topic("t_done", "om_done")
+        self.relay_job("relay-1", "done", "t_done")
+        self.downstream_topic("t_run", "om_run")
+        self.relay_job("relay-2", "running", "t_run")
+        self.app.messenger.send_message.reset_mock()
+        self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
+        self.assertTrue(any("改过的问题" in str(call.args[2]) and "没有重做" in str(call.args[2])
+                            for call in self.replies("om_done")))
+        # relay-2 is no live job of this process, so its topic is told in a line too; once each.
+        self.assertEqual(len(self.replies("om_run")), 1)
+        self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
+        self.assertEqual((len(self.replies("om_done")), len(self.replies("om_run"))), (1, 1))
+
+    def test_an_edit_reaches_a_running_downstream_job_as_a_supplement(self):
+        self.receive("om_a", "原来的问题")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        self.app.runtime.jobs.unregister(job)
+        self.receive("om_r", "relayed")
+        down = self.app.runtime.jobs.queue.get_nowait()
+        down.execution_started = True
+        down.backend_control = SimpleNamespace(steer=mock.Mock(return_value="sent"), supports_steer=True)
+        self.app.cards.set_task_element = mock.Mock(return_value=True)
+        self.relay_job("relay-3", "running", down.topic_id)
+        upsert_job_record(self.topic("om_a").state_dir, "relay-3", job_id=down.job_id)
+        self.app.runtime.sources.drop("om_r")
+        self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
+        down.backend_control.steer.assert_called_once()
+        self.assertIn("改过的问题", down.backend_control.steer.call_args.args[0])
+
+    def test_a_lead_handing_on_is_not_followed_past_the_lead(self):
+        from covey.core import turn_source
+
+        self.receive("om_a", "one")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        self.app.runtime.jobs.unregister(job)
+        self.downstream_topic("t_member", "om_member")
+        upsert_job_record(self.topic("om_a").state_dir, "lead-1", job_id=71, topic_id="t_member", chat_id="oc_chat",
+                          status="running", turn_source=turn_source.make("lead", asserted_by="lead", origin={"topic": "t_lead"}))
+        self.app.messenger.send_message.reset_mock()
+        self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
+        self.round(detail("om_a", deleted=True))
+        self.assertEqual(self.replies("om_member"), [])
+
+    def test_a_supplement_of_the_watch_carries_its_requeue(self):
+        self.receive("om_a", "原来的问题")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value="sent"), supports_steer=True)
+        self.app.cards.set_task_element = mock.Mock(return_value=True)
+        with mock.patch.object(self.app.steering, "deliver_steer", wraps=self.app.steering.deliver_steer) as deliver:
+            self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
+        requeue = deliver.call_args.kwargs["requeue"]
+        self.assertIn("改过的问题", requeue["text"])
+        self.assertEqual(requeue["prompt"], requeue["text"])
+
+    def test_a_recalled_answer_is_said_to_stand(self):
+        self.app.runtime.sources.note(Watched("om_ans", "oc_chat", self.app.spec.name, "", "1000", text="好", kind="answer"))
+        self.app.messenger.send_message.reset_mock()
+        self.round(detail("om_ans", deleted=True))
+        said = [str(call.args[2]) for call in self.app.messenger.send_message.call_args_list]
+        self.assertTrue(any("撤回不影响" in text for text in said), said)
+        self.assertEqual(len(self.app.runtime.sources), 0)
+
+    def test_a_recalled_held_note_is_withdrawn(self):
+        ctx = self.topic("om_a")
+        notes = self.app.questions.notes
+        notes.hold_note(ctx, "oc_chat", "留着", "om_held", [{"token": "q1"}])
+        source_watch.note_kind(self.app.runtime, self.app.spec.name, ctx, "om_held", "oc_chat", "ou_user", "留着", "held")
+        self.assertEqual(self.app.runtime.sources.get("om_held").kind, "held")
+        self.round(detail("om_held", deleted=True))
+        self.assertEqual([n["status"] for n in notes.held_notes(ctx, "oc_chat", "held", "withdrawn")], ["withdrawn"])
 
 
 def walk(node):

@@ -531,6 +531,64 @@ class AnswerRowTest(HarnessCellsCase):
                     self.assertEqual((bool(taken), submit.called), (answers, answers))
 
 
+class HandedRowTest(HarnessCellsCase):
+    """转进在跑任务的话 × Harness (WAVE12 W2-B, the fourth way of app/steering.py end_unread_steers): words the butler (``relay``)
+    or a project's lead (``lead``) handed to a topic's running turn that the turn never took become that topic's next turn on
+    its own Harness, with the source they came with, which that Harness runs; with a question waiting there they are held
+    for its answer instead."""
+
+    SOURCES = {"relay": {"kind": "relay", "asserted_by": "owner", "origin": {"message_id": "om_said"}, "via": "butler"},
+               "lead": {"kind": "lead", "asserted_by": "lead", "origin": {"topic": "lead-topic"}, "via": "lead"}}
+
+    def handed(self, name, kind, *, waiting=False):
+        """A topic on Harness ``name`` whose turn took words of ``kind`` and ended without them; the jobs it then has."""
+        import threading
+        from covey.core.deliveries import delivery_path, delivery_token, save_delivery
+
+        app = self.apps[name]
+        key = f"om_run_{name}_{kind}"
+        ctx = app.submission.event_context(app.harness.context, {"chat_id": self.chat, "message_id": key, "root_id": key,
+                                                                 "thread_id": "omt_" + key})
+        self.assertIs(butler.traits(ctx.topic_id, self.chat), butler.TOPIC)  # An ordinary topic's thread.
+        topic = ctx.history_path.parent / "topic.json"
+        write_json(topic, {**json.loads(topic.read_text()), "harness_id": name, "topic_number": 9})
+        mid = f"main-{name}-{kind}"
+        save_delivery(delivery_path(self.state, ctx.topic_id, mid), {
+            "status": "refused", "text": "补充", "topic_id": ctx.topic_id, "chat_id": self.chat, "job_id": 41, "job_key": key,
+            "token": delivery_token(ctx.topic_id, mid), "mid": mid, "saved_at": 1.0,
+            # app/butler_topics.py next_turn's, written out.
+            "requeue": {"text": "把文档也改了", "prompt": "NEXT：把文档也改了", "topic": True, "title": "改文档",
+                        "source": self.SOURCES[kind]}})
+        job = SimpleNamespace(cancel_event=threading.Event(), topic_id=ctx.topic_id, chat_id=self.chat, message_id=key,
+                              job_id=41, timings={})
+        record = json.loads(delivery_path(self.state, ctx.topic_id, mid).read_text())
+        app.steering.hold = mock.Mock(return_value=waiting)
+        queued, enqueue = [], app.steering.enqueue_chat_job
+        app.steering.enqueue_chat_job = lambda *a, **k: queued.append(enqueue(*a, **k)) or queued[-1]
+        with mock.patch("covey.app.steering.background.start", side_effect=lambda _, fn, *a: fn(*a)):
+            app.steering.requeue_lost(app.harness.context, job, [record])
+        app.steering.enqueue_chat_job = enqueue
+        return app, [each for each in queued if each is not None and each.topic_id == ctx.topic_id]
+
+    def test_handed_words_a_turn_never_took_are_its_next_turn_on_every_harness(self):
+        from covey.core import turn_source
+
+        for name in CORE_HARNESSES:
+            for kind in self.SOURCES:
+                with self.subTest(harness=name, kind=kind):
+                    app, (again,) = self.handed(name, kind)
+                    self.assertTrue(again.message_id.startswith("requeue-"))
+                    self.assertEqual((turn_source.kind(again), again.prompt_text), (kind, "NEXT：把文档也改了"))
+                    self.assertEqual(turn_source.refusal(again, capabilities=self.capabilities(name)), "")
+
+    def test_with_a_question_waiting_they_are_held_on_every_harness(self):
+        for name in CORE_HARNESSES:
+            with self.subTest(harness=name):
+                app, queued = self.handed(name, "relay", waiting=True)
+                self.assertEqual(queued, [])
+                app.steering.hold.assert_called_once()
+
+
 class FeishuSurfaceTest(unittest.TestCase):
     """界面 · 飞书: each entry's turn has a place in the private chat (core/placement.py), whatever its Harness."""
 

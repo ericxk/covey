@@ -15,6 +15,28 @@ from covey.core import jobs, look
 REPO = Path(__file__).resolve().parents[1]
 
 
+class OwnerStoppedTest(unittest.TestCase):
+    """core/jobs.py owner_stopped: one reading of who stopped a task (W2-B, shared with W2-C)."""
+
+    def test_who_counts_as_the_owner(self):
+        table = [
+            ({"cancel_requested_by": "card"}, True), ({"cancel_requested_by": "word"}, True),
+            ({"cancel_requested_by": "web"}, True), ({"cancel_requested_by": "project"}, True),
+            ({"cancel_requested_by": "recall"}, True), ({"cancel_reason": "butler_stop"}, True),
+            ({"cancel_requested_by": "word", "cancel_reason": "butler_stop"}, True),
+            ({"never_started": True}, True), ({"merged_into_job_id": "4"}, True),
+            ({"cancel_requested_by": "lead"}, False), ({"cancel_requested_by": "guard"}, False),
+            ({"cancel_requested_by": "proxy"}, False), ({"status": "failed"}, False), ({"status": "interrupted"}, False),
+            ({"status": "timed_out"}, False), ({}, False), (None, False),
+        ]
+        for record, expected in table:
+            self.assertIs(jobs.owner_stopped(record), expected, record)
+
+    def test_a_job_object_reads_the_same(self):
+        self.assertTrue(jobs.owner_stopped(type("J", (), {"cancel_requested_by": "word"})()))
+        self.assertFalse(jobs.owner_stopped(type("J", (), {"cancel_requested_by": "guard"})()))
+
+
 class TableTest(unittest.TestCase):
     def test_the_board_states_read_as_the_table(self):
         """The 看板's five states (cards/board.py LOOKS) are the table's words and colours, so it moves here unchanged."""

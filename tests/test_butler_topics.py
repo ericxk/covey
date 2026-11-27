@@ -1017,7 +1017,7 @@ class HandoffTest(ButlerTopicsCase):
         # Nothing added to his words: the prompt is as it was.
         upsert_job_record(self.ctx.state_dir, "main-job", job_id=7, chat_id=CHAT, created_at=self.AT,
                           user_text="就这一句", prompt_text="就这一句")
-        self.start("h-q2", attachments="none")
+        self.start("h-q2", attachments="none", title="查一句")  # Another call, not the first one again (W2-B).
         plain = self.job("h-q2").prompt_text
         self.assertNotIn(butler_handoff.MATERIAL_HEAD, plain)
         self.assertNotIn(butler_handoff.MATERIAL_NOTE, plain)
@@ -1089,6 +1089,93 @@ class HandoffTest(ButlerTopicsCase):
                          [str(target / self.image.name)])
         self.assertFalse((target / outside.name).exists())
         self.assertFalse((target / link.name).exists())
+
+class DispatchDetailTest(ButlerTopicsCase):
+    """W2-B (WAVE12): the same topic asked for twice in one butler turn opens one; a project's thread is not forked; words
+    for a turn stopped on a live question go nowhere and point to question_answer; words handed to a running turn carry
+    what its next turn is queued as should it never read them; a topic's origin names the owner's message."""
+
+    def setUp(self):
+        super().setUp()
+        upsert_job_record(self.ctx.state_dir, "main-job", job_id=7, user_text="开个话题查日志", prompt_text="开个话题查日志",
+                          chat_id=CHAT, message_id="om_owner_msg")
+
+    def test_the_same_call_again_in_one_turn_gets_the_first_answer_and_opens_nothing(self):
+        first = self.start("t1")
+        again = self.start("t2")
+        self.assertTrue(again["ok"])
+        self.assertTrue(again["text"].startswith("这一轮已经用同样的标题和说明调过一次，没有再开："), again["text"])
+        self.assertEqual((again["data"]["topic_id"], again["data"]["repeated"]), (first["data"]["topic_id"], True))
+        self.assertEqual(self.app.messenger.create_and_send_card.call_count, 1)
+        self.assertIsNone(self.job("t2"))
+        # A text that differs past SAME_CHARS is the same call; one that differs within it, or another turn's, is not.
+        long = "看" * butler_opened.SAME_CHARS
+        self.start("t3", prompt=long + "甲")
+        self.assertTrue(self.start("t4", prompt=long + "乙")["data"]["repeated"])
+        self.assertNotIn("repeated", self.start("t5", prompt="看看今早的失败")["data"])
+        other = butler_topics.topic_start(self.env, Request("t6", "topic_start", {
+            "title": "查日志", "prompt": "看看昨晚的失败", "workspace": "project", "readonly": True}, "main-job-2", 0.0))
+        self.assertNotIn("repeated", other["data"])
+        self.assertEqual(self.app.messenger.create_and_send_card.call_count, 4)
+
+    def test_a_first_call_that_failed_is_made_again(self):
+        sent = self.app.messenger.create_and_send_card
+        sent.side_effect = lambda *a, **k: ("", "")
+        self.assertFalse(self.start("f1")["ok"])
+        sent.side_effect = self.sent_card
+        answer = self.start("f2")
+        self.assertTrue(answer["ok"], answer)
+        self.assertNotIn("repeated", answer["data"])
+        self.assertTrue(self.start("f3")["data"]["repeated"])  # The one that succeeded is the first now.
+
+    def test_a_projects_thread_is_not_forked(self):
+        data = self.start("open")["data"]
+        job = self.job("open")
+        self.app.runtime.unregister_reply_job(job)
+        upsert_job_record(self.ctx.state_dir, job.message_id, status="done")
+        with mock.patch.object(butler_topics.projects, "enabled", return_value=True), \
+                mock.patch.object(butler_topics.projects, "is_member_topic", return_value=True), \
+                mock.patch("covey.app.forks.Forks.create_fork") as fork:
+            answer = self.call("topic_fork", "f1", topic=data["label"], title="换个思路", prompt="试试另一种做法")
+        self.assertFalse(answer["ok"])
+        self.assertIn("project_send", answer["text"])
+        fork.assert_not_called()
+
+    def test_words_for_a_turn_stopped_on_a_live_question_go_nowhere_and_point_to_question_answer(self):
+        data = self.start("open")["data"]
+        job = self.job("open")
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(), remote=False, awaiting_answer=True)
+        answer = self.call("topic_send", "s1", topic=data["label"], text="用方案 B")
+        self.assertFalse(answer["ok"])
+        self.assertTrue(answer["data"]["waiting"])
+        self.assertIn("question_answer", answer["text"])
+        self.assertIn("没有当成回答", answer["text"])
+        job.backend_control.steer.assert_not_called()
+        self.assertEqual(self.call("topic_send", "s1", topic=data["label"], text="用方案 B"), answer)  # Once a request.
+
+    def test_words_into_a_running_turn_carry_their_next_turn_and_source(self):
+        from covey.core.deliveries import delivery_path, handed, read_delivery
+        data = self.start("open")["data"]
+        job = self.job("open")
+        job.execution_started = True
+        job.backend_control = SimpleNamespace(steer=mock.Mock(return_value=None), remote=False)
+        self.assertTrue(self.call("topic_send", "s2", topic=data["label"], text="再看一下前天的")["ok"])
+        mid = "main-" + butler_opened.request_token(SimpleNamespace(id="s2"))
+        record = read_delivery(delivery_path(self.ctx.state_dir, data["topic_id"], mid))
+        self.assertTrue(handed(record))
+        again = record["requeue"]
+        self.assertTrue(again["prompt"].startswith(f"[Bridge 说明] 你在话题 {data['label']}「查日志」。管家把主人"), again["prompt"])
+        self.assertIn("下一轮", again["prompt"])
+        self.assertEqual((again["title"], again["source"]["kind"], again["source"]["origin"]),
+                         ("查日志", "relay", {"message_id": "om_owner_msg"}))
+        self.assertIn("开个话题查日志", again["text"])
+
+    def test_a_topics_origin_names_the_owners_message_its_turn_answers(self):
+        data = self.start("o1")["data"]
+        origin = load_topic(self.ctx.state_dir, data["topic_id"])["origin"]
+        self.assertEqual((origin["message_id"], origin["job_key"], origin["kind"]), ("om_owner_msg", "main-job", "main"))
+
 
 class AttachmentBlockTest(UnifiedCase):
     def test_the_block_a_message_is_enriched_with_reads_back(self):
