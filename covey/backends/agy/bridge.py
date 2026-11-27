@@ -47,6 +47,7 @@ import shlex
 import signal
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 
@@ -54,7 +55,7 @@ from covey.backends.agy import accounts
 from covey.backends.agy import compaction as agy_compaction
 from covey.backends.agy.home import EAGER_ENV, PrivateHome
 from covey.core.harness import (BackendConfig, BackendRuntime, HARNESS_REGISTRY, HarnessCapabilities, HarnessSpec,
-                                JobCancelled, LEAD, TOOL_LIMIT, UUID_RE, for_device)
+                                CONSULT, JobCancelled, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, UUID_RE, for_device)
 from covey.core import env as cenv
 from covey.core import home as covey_home
 from covey.core import extensions, procfs
@@ -65,6 +66,7 @@ from covey.core.result import MAX_REPLY_BYTES
 from covey.core.steer import SteerRefused, refuse_steer, steer_text
 from covey.core.steps import AnswerNotes, Steps
 from covey.core.failure import said_of
+from covey.core.paths import entry_script
 from covey.core.quota_hold import clock
 from covey.core.text import redact, tool_detail
 from covey.core.usage import TurnTokens
@@ -102,11 +104,21 @@ UNSAID = ("root_failed", "process_exit", "root_incomplete", "output_missing")  #
 RETRIED = ("rate_limited", "server_fault")  # What app/auto_retry.py retries, of what error_code says.
 NOT_LOGGED_IN = ("Antigravity 还没有登录：在运行机器人的账号下执行一次 agy，选 Google OAuth 登录"
                  "（远程机器上打开它给的链接、把授权码贴回终端），再重试本轮。")
-# A project lead's turn (core/harness.py LEAD): agy's own deny rules for this run alone (``--settings`` is never saved): no
-# file written, no command run, no URL read; its reading tools and its MCP tools (the Bridge's) stay. Seen on agy 1.5.14 with
-# --dangerously-skip-permissions: write_file and a shell command were refused ("Matches user-configured deny rule"), a
-# Bridge tool answered and a file was read.
-READ_ONLY_SETTINGS = {"permissions": {"deny": ["write_file(*)", "command(*)", "read_url(*)"]}}
+# agy's tools that write or edit a file (1.5: write_file, edit_file; the older names it may still offer beside them).
+FILE_WRITES = ["write_file(*)", "edit_file(*)", "write_to_file(*)", "replace_file_content(*)", "multi_replace_file_content(*)"]
+# A turn held to reading (core/harness.py LEAD, READ, CONSULT): agy's own deny rules for this run alone (``--settings`` is
+# never saved): no file written or edited, no command run, no URL read; its reading tools and its MCP tools (the Bridge's)
+# stay. Seen on agy 1.5.14 with --dangerously-skip-permissions: write_file and a shell command were refused ("Matches
+# user-configured deny rule"), a Bridge tool answered and a file was read. edit_file and the older names joined in W1-C:
+# a LEAD turn could still edit a file through edit_file, and READ and CONSULT had no rule at all (they are refused before
+# they start, app/tool_limits.py refusal: the rules are the second wall).
+READ_ONLY_SETTINGS = {"permissions": {"deny": [*FILE_WRITES, "command(*)", "read_url(*)"]}}
+# A LOOK turn (W1-C, contract C6): no file written or edited by agy's own tools, its shell kept for read-only commands (not
+# every command denied: reading scripts run), and the one write tool of its private home (core/look_write.py
+# workspace_write_file, ``Homes``) for its checkpoint file and the topic's outputs directory. What its shell writes is its
+# limit (tests/test_matrix.py GAPS).
+LOOK_SETTINGS = {"permissions": {"deny": list(FILE_WRITES)}}
+HELD = (LEAD, READ, CONSULT)
 
 AGY_SPEC = HarnessSpec(
     name="agy", title="Antigravity", prompt_agent_name="Antigravity", idempotency_prefix="agy-lark",
@@ -426,9 +438,11 @@ class AntigravityBackend(BackendRuntime):
         # a home of its own (backends/agy/home.py), a lead's turn held to reading by READ_ONLY_SETTINGS. ask_once:
         # backends/agy/judge.py (this machine's only: DEVICE_OFF).
         # compaction: agy's own /compact (backends/agy/compaction.py), on this machine's conversations only.
+        # look_gate: a LOOK turn's deny rules for its file tools (LOOK_SETTINGS) and its private home's workspace_write_file
+        # (look_server; W1-C, on agy 1.5.18: tests/test_collab_c8.py AgyLookC6).
         here = not device_of(ctx)
         return for_device(HarnessCapabilities(steering=here, steer_reads=here, bridge_tools=True, rate_limit_retry=True,
-                                              fault_retry=True, ask_once=True, compaction=here), ctx)
+                                              fault_retry=True, ask_once=True, compaction=here, look_gate=True), ctx)
 
     # The butler's idle compaction (app/idle_compaction.py): how long after a turn it starts, and that it runs with the
     # butler's tools (the turn's MCP servers), so its request starts with the same prompt as the turn and reads it from
@@ -544,8 +558,7 @@ class AntigravityBackend(BackendRuntime):
                 *(["--conversation", session_id] if session_id else []),
                 *(["--model", ctx.model] if ctx.model else []),
                 *(["--effort", effort] if effort else []),
-                *(["--settings", json.dumps(READ_ONLY_SETTINGS, separators=(",", ":"))]
-                  if ctx.options.get(TOOL_LIMIT) == LEAD else [])]
+                *settings_args(ctx)]
 
     def run(self, request):
         request.check_cancelled()
@@ -570,12 +583,45 @@ class AntigravityBackend(BackendRuntime):
     def prompt_runtime_note(self, ctx):
         if ctx.options.get(TOOL_LIMIT) == LEAD:
             return "Antigravity 权限模式：只读，这一轮写文件、执行命令和读网址都会被拒绝，Bridge 工具照常可用"
+        if look_server(ctx):
+            return ("Antigravity 权限模式：只读，这一轮 write_file、edit_file 这些写文件工具都会被拒绝；"
+                    "检查点和产物目录用 workspace_write_file 写，命令行只跑只读命令")
         return ("Antigravity 权限模式：always-proceed（--dangerously-skip-permissions）" if ctx.skip_permissions
                 else "Antigravity 权限模式：request-review，要批准的操作会被跳过")
 
     def startup_lines(self, ctx):
         return [f"agy_cmd={ctx.backend_cmd} model={ctx.model or '(agy default)'} effort={ctx.effort or '(default)'} "
                 f"home={native_home()}"]
+
+
+def settings_args(ctx) -> list:
+    """agy's ``--settings`` of a turn: READ_ONLY_SETTINGS for one held to reading (LEAD, READ, CONSULT), LOOK_SETTINGS for a
+    LOOK one, none for any other (as before)."""
+    limit = ctx.options.get(TOOL_LIMIT)
+    found = READ_ONLY_SETTINGS if limit in HELD else LOOK_SETTINGS if limit == LOOK else None
+    return ["--settings", json.dumps(found, separators=(",", ":"))] if found else []
+
+
+def look_server(ctx) -> dict:
+    """The MCP server of a LOOK turn whose writes are held (``options[LOOK_ROOTS]`` held, app/tool_limits.py look_roots;
+    W1-C): core/look_write.py's ``workspace_write_file`` for its checkpoint file and the topic's outputs directory
+    (bin/covey_look_write.py), as Codex's workspace server has it; {} for any other turn and on a device."""
+    roots = ctx.options.get(LOOK_ROOTS) or {}
+    if ctx.options.get(TOOL_LIMIT) != LOOK or device_of(ctx) or not roots.get("held"):
+        return {}
+    return {"command": sys.executable, "args": ["-B", str(entry_script("covey_look_write.py")),
+                                                "--allow-file", str(roots.get("file") or ""),
+                                                "--allow-dir", str(roots.get("dir") or "")]}
+
+
+def home_config(ctx) -> dict | None:
+    """The --mcp-config of a turn's private home (``Homes``): the butler's or a lead's Bridge tools (``mcp_config``) and a
+    held LOOK turn's write tool (``look_server``, as ``bridge_workspace``); None when there is neither (no private home)."""
+    servers = dict(((ctx.options.get("mcp_config") or {}).get("mcpServers") or {}))
+    look = look_server(ctx)
+    if look:
+        servers["bridge_workspace"] = look
+    return {"mcpServers": servers} if servers else None
 
 
 @contextlib.contextmanager
@@ -599,9 +645,9 @@ def extension_turn(ctx, env, *, run_id=""):
 
 
 class Homes:
-    """The butler's turn (``options["mcp_config"]``) runs each agy process in a home of its own (backends/agy/home.py)
-    over its environment's HOME: made again when the turn goes on in another environment, removed with the turn. Any
-    other turn runs in the environment as it is."""
+    """The butler's turn (``options["mcp_config"]``) and a held LOOK turn (its write tool, ``look_server``) run each agy
+    process in a home of its own (backends/agy/home.py) over its environment's HOME: made again when the turn goes on in
+    another environment, removed with the turn. Any other turn runs in the environment as it is."""
 
     def __init__(self, ctx):
         self.ctx, self.home = ctx, None
@@ -609,7 +655,7 @@ class Homes:
     def env(self, env):
         """``env`` for the next process, the home of the one before removed."""
         self.close()
-        config = self.ctx.options.get("mcp_config")
+        config = home_config(self.ctx)
         if not config:
             return env
         # The same name at each turn of the topic, so the prompt agy starts it with reads from the cache.

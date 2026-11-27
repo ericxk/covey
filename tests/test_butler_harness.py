@@ -21,7 +21,7 @@ from covey.backends.agy.bridge import READ_ONLY_SETTINGS, AntigravityBackend
 from covey.backends.codex import appserver
 from covey.backends.codex.bridge import CodexBackend
 from covey.core import butler_settings
-from covey.core.harness import (CONSULT, LEAD, LOOK, READ, TOOL_LIMIT, HarnessCapabilities, backend_capabilities)
+from covey.core.harness import (CONSULT, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, HarnessCapabilities, backend_capabilities)
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 
 BRIDGE_TOOLS = {"mcpServers": {"bridge": {"command": "python3", "args": ["mcp.py"], "env": {"K": "v"}}}}
@@ -169,7 +169,38 @@ class LeadLimitTest(Case):
         self.assertNotIn("--settings", backend.argv(self.ctx(mcp_config=BRIDGE_TOOLS), None))  # The butler's.
         self.assertIn("只读", backend.prompt_runtime_note(ctx))
         self.assertNotIn("只读", backend.prompt_runtime_note(self.ctx()))
-        self.assertEqual(READ_ONLY_SETTINGS, {"permissions": {"deny": ["write_file(*)", "command(*)", "read_url(*)"]}})
+        # W1-C: every file tool of agy's denied, edit_file and the older names too (Neon's T893 find), and READ and CONSULT
+        # turns, refused before they start on agy (app/tool_limits.py refusal), have the same rules as a second wall.
+        self.assertEqual(READ_ONLY_SETTINGS, {"permissions": {"deny": [
+            "write_file(*)", "edit_file(*)", "write_to_file(*)", "replace_file_content(*)", "multi_replace_file_content(*)",
+            "command(*)", "read_url(*)"]}})
+        for limit in (READ, CONSULT):
+            argv = backend.argv(self.ctx(**{TOOL_LIMIT: limit}), None)
+            self.assertEqual(json.loads(argv[argv.index("--settings") + 1]), READ_ONLY_SETTINGS, limit)
+
+    def test_antigravity_holds_a_look_turn_to_its_checkpoint_and_outputs(self):
+        """W1-C (C6): a LOOK turn denies agy's own file tools (not its commands: reading scripts run) and its private home
+        has the one write tool, core/look_write.py's, for the checkpoint and the outputs directory; a LOOK turn whose
+        writes are not held (a device) gets the deny rules and no write tool."""
+        from covey.backends.agy import bridge as agy_bridge
+        backend = AntigravityBackend()
+        roots = {"file": "/s/checkpoints/k.json", "dir": "/s/topics/t/outputs", "held": True}
+        ctx = self.ctx(**{TOOL_LIMIT: LOOK, LOOK_ROOTS: roots})
+        argv = backend.argv(ctx, None)
+        self.assertEqual(json.loads(argv[argv.index("--settings") + 1]), agy_bridge.LOOK_SETTINGS)
+        self.assertNotIn("command(*)", agy_bridge.LOOK_SETTINGS["permissions"]["deny"])
+        self.assertIn("edit_file(*)", agy_bridge.LOOK_SETTINGS["permissions"]["deny"])
+        server = agy_bridge.home_config(ctx)["mcpServers"]["bridge_workspace"]
+        self.assertTrue(server["args"][1].endswith("covey_look_write.py"))
+        self.assertEqual(server["args"][2:], ["--allow-file", roots["file"], "--allow-dir", roots["dir"]])
+        self.assertIn("workspace_write_file", backend.prompt_runtime_note(ctx))
+        # The butler's tools and the write tool side by side would share the home (a lead takes LOOK's place: never both).
+        both = agy_bridge.home_config(self.ctx(**{TOOL_LIMIT: LOOK, LOOK_ROOTS: roots, "mcp_config": BRIDGE_TOOLS}))
+        self.assertEqual(sorted(both["mcpServers"]), sorted([*BRIDGE_TOOLS["mcpServers"], "bridge_workspace"]))
+        loose = self.ctx(**{TOOL_LIMIT: LOOK, LOOK_ROOTS: {**roots, "held": False}})
+        self.assertIsNone(agy_bridge.home_config(loose))
+        self.assertIn("--settings", backend.argv(loose, None))
+        self.assertIsNone(agy_bridge.home_config(self.ctx()))  # Any other turn: no private home, as before.
 
     def test_a_harness_without_the_bridge_tools_does_not_run_a_lead(self):
         ctx = self.ctx(**{TOOL_LIMIT: LEAD})
