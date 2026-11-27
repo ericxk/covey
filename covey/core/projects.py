@@ -45,8 +45,12 @@ STATES = frozenset(PROJECT_TRANSITIONS)
 LEAD, MEMBER = "lead", "thread"  # topic.json project.role. A project topic is a ``member`` in the code; its role stays "thread" on disk, as an older release's task runner reads it.
 ROLES = (LEAD, MEMBER)
 
-# The defaults for the guards of a later package (the lead's runs, the loop): not read here.
-DEFAULT_WAKES = 30  # Wake-ups in a row with no one stepping in.
+# The wake-up guard (app/project_loop.py hold): not read here. A lead's wake-up turn that handed out nothing, asked nothing and
+# wrote no note (no ``acted`` row, no ``notes`` row of its own) is an idle one (W2-C): IDLE_WAKES of them in a row with no one
+# stepping in, or IDLE_WAKES_HOUR in the last hour, pause the project; a lead that works at every wake-up is not paused for
+# waking often, only by MAX_WAKES_HOUR wake-ups in an hour, whatever they did (the safety net).
+IDLE_WAKES = 6
+IDLE_WAKES_HOUR = 12
 # Projects active at the same time: a guard against a runaway, not a quota for the owner to manage. A new project at the
 # limit first folds the quietest one away (app/project_loop.py make_room); a folded or stopped one does not count.
 MAX_ACTIVE = 50
@@ -422,7 +426,7 @@ BUDGET_ENV = "COVEY_PROJECT_BUDGET"  # One project's token budget; none (no ``to
 # ``launch`` dropped it without a word; still read when BUDGET_ENV is unset (a Manager started with it in its own environment).
 TOKENS_ENV = "COVEY_PROJECT_TOKENS"
 WAKE_PREFIX = "lead-"  # A wake-up turn's message id is ``lead-<project id>-<n>`` (``wake_id``).
-MAX_WAKES_HOUR = 12  # Wake-ups in the last hour, whoever stepped in or not.
+MAX_WAKES_HOUR = 60  # Wake-ups in the last hour, whoever stepped in or not, idle or not.
 STALL_SECONDS = 30 * 60  # Idle this long: one reminder; as long again with nothing moving: the project is paused.
 # state_reason of a project a guard stopped, and what the owner's own turn may start again (a click on 停止专项 too).
 GUARD_REASONS = ("tokens", "wakes", "stalled")

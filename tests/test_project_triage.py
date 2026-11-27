@@ -172,7 +172,7 @@ class LeadFreeTest(Held):
     def test_a_lead_that_cannot_take_it_now_leaves_it_to_the_owner_at_once(self):
         cases = {"running": lambda key: self.lead_turn("running", key), "queued": lambda key: self.lead_turn("queued", key),
                  "waiting on a question of its checkpoint": lambda key: self.lead_turn("waiting_user", key),
-                 "a guard": lambda key: projects.update(self.state, PID, lambda r: r.update(wakes={"streak": projects.DEFAULT_WAKES})),
+                 "a guard": lambda key: projects.update(self.state, PID, lambda r: r.update(wakes={"idle": projects.IDLE_WAKES})),
                  "a limit": lambda key: mock.patch.object(project_loop, "limit_wait", return_value=("retry", NOW + 60)).start()}
         for number, (name, make) in enumerate(cases.items()):
             with self.subTest(name):

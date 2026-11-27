@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 from covey.app import answer_cards
 from covey.cards.relay_card import WAITING
-from covey.core import butler_opened, placement, projects
+from covey.core import butler_opened, placement, projects, turn_source
 from covey.core.jobs import find_job_record, job_field, job_key, topic_job_records
 from covey.core.store import directory_store
 from covey.core.topics import load_topic, topic_label, topic_origin
@@ -145,15 +145,24 @@ def relay_quote(state_dir, butler_job_key) -> str:
     """What a relay of the butler job ``butler_job_key``'s hand-on quotes: its card at the top level (``relay``),
     else the owner's message it answers; for a job with neither that was handed on itself (a lead's turn the butler's
     project_send started: no card of its own, message id "main-<token>"), the same of the job it came from, up the
-    chain (``_handed_up``). '' when none is known: never for a chain that starts at a wake-up of the lead's."""
+    chain (``_handed_up``). '' when none is known: never for a chain that starts at a wake-up of the lead's, but for the
+    first turn of a project the owner started or upgraded himself (its ``wake`` source carries his message, WAVE12 C5:
+    what it hands out comes back quoting that message, W2-C)."""
     for _, record in _handed_up(state_dir, butler_job_key):
         card = str(record.get("card_message_id") or "")
         if card.startswith("om_"):
             return card
-        owner = _owner_message(record)
+        owner = _owner_message(record) or _started_by(record)
         if owner:
             return owner
     return ""
+
+
+def _started_by(job) -> str:
+    """The owner's Feishu message a lead's wake-up ``job`` carries in its source (app/project_loop.py started_by), '' for
+    none."""
+    found = turn_source.origin(job).get("message_id", "") if projects.wake_turn(job) else ""
+    return found if found.startswith("om_") else ""
 
 
 def _asker(state_dir, key):

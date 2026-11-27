@@ -896,6 +896,23 @@ class PackTest(Case):
         self.assertIn("背景：还没写（project_goal 的 background）", project_lead.state_pack(self.state, self.reload(), "lead-1", full=True, receipts=[]))
         self.assertNotIn("背景：", project_lead.state_pack(self.state, self.reload(), "lead-1", full=False, receipts=[]))
 
+    def test_a_resumed_session_folds_the_items_met_into_one_line(self):
+        # W2-C: a resumed session has had them whole; a new one, a consult and the tool's answer still get each line.
+        mock.patch.dict(os.environ, COLLAB).start()
+        self.addCleanup(mock.patch.stopall)
+        self.world()
+        record = self.reload()
+        resumed = project_lead.state_pack(self.state, record, "lead-1", full=False, receipts=[])
+        self.assertIn("目标检查表（2 条：1 条满足或不做了，1 条没满足）：\n- 满足或不做了：c2（续接的会话里只列 id）", resumed)
+        self.assertNotIn("- c2 · 满足 · 对账一致", resumed)
+        self.assertIn("- c1 · 没满足 · 导出 2024 年账单", resumed)
+        self.assertIn("⚠️ c2 标了满足，但它依赖的 c1 还没满足", resumed)  # What to look into stays.
+        whole = project_lead.state_pack(self.state, record, "lead-1", full=True, receipts=[])
+        self.assertIn("- c2 · 满足 · 对账一致", whole)
+        self.assertNotIn("满足或不做了：c2", whole)
+        rows = project_lead.member_rows(self.state, record)
+        self.assertIn("- c2 · 满足 · 对账一致", project_lead.checklist_block(self.state, record, rows, detail=True))
+
     def test_an_item_says_the_topics_that_took_part_when_the_tool_shows_the_checklist_in_detail(self):
         mock.patch.dict(os.environ, COLLAB).start()
         self.addCleanup(mock.patch.stopall)
@@ -978,14 +995,19 @@ class BatchTest(Loop):
         self.loop.tick(NOW + 20 * 4)  # The newest came 5 s ago; the oldest waited four windows.
         self.assertEqual(len(self.queued), 1)
 
-    def test_a_start_a_choice_a_question_or_a_gap_wakes_at_once(self):
-        for kind in ("start", "owner_choice", "question", collab.RECEIPT_GAP):
+    def test_a_start_or_a_choice_wakes_at_once_a_question_or_a_gap_after_a_moment(self):
+        # W2-C: questions held and 协作 gaps that come together wake once, QUICK_SECONDS after the newest.
+        for kind, wait in (("start", 0), ("owner_choice", 0), ("question", project_loop.QUICK_SECONDS),
+                           (collab.RECEIPT_GAP, project_loop.QUICK_SECONDS)):
             with self.subTest(kind=kind):
                 self.reset()
                 self.receipt(at=NOW)
                 self.receipt(kind, "要看的", at=NOW)
                 self.loop.tick(NOW + 1)
-                self.assertEqual(len(self.queued), 1)
+                self.assertEqual(len(self.queued), 0 if wait else 1)
+                if wait:
+                    self.loop.tick(NOW + wait)
+                    self.assertEqual(len(self.queued), 1)  # Not the ordinary window: the urgent one's.
 
     def test_a_consults_receipt_wakes_nobody_and_does_not_hold_the_others_back(self):
         project_lead.add_receipt(self.state, PID, collab.RECEIPT_ANSWERED, "T41 请 T55 协助：已答复：好", thread=THREAD, at=NOW)

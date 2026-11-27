@@ -12,9 +12,11 @@ how its session lives. Only a lead topic's turn (core/butler.py ``is_lead``) com
   turn's conversation ended over ``RESET_TOKENS``, the topic has been idle ``RESET_IDLE`` seconds, or the model changed.
 - ``lead_turn`` (app/butler.py ``butler_turn``): the turn's context (its Bridge tools, the turn held to reading on
   whichever Harness it runs: LEAD, ``held``) and message (rules, pack, then the turn's own message).
-- The inbox, ``projects/<id>/inbox/<n>.json`` ({id, kind, thread, text, at, taken_by}): receipts of what happened since
+- The inbox, ``projects/<id>/inbox/<n>.json`` ({id, kind, thread, label, text, at, taken_by}): receipts of what happened since
   the lead last looked (a member topic's turn ended, a question held, the owner spoke in a member topic). ``add_receipt`` writes
-  one (the Bridge does, app/project_loop.py: a member's turn ended, the owner spoke in a member topic, nothing moved), ``take_receipts`` gives the lead's turn what it has not read.
+  one (the Bridge does, app/project_loop.py: a member's turn ended, the owner spoke in a member topic, nothing moved), ``take_receipts`` gives the lead's turn what it has not read:
+  at most INBOX_ROWS, what to look at first and then the newest, the rest counted for a later turn. Those a turn the owner
+  stopped had taken stay with it (``gives_back``): the next turn is told how many.
   ``settle_receipt`` marks one ``done`` that no turn is to read any more (app/triage.py: its question went to the owner).
 - With 协作 on (COVEY_COLLAB=1, docs/projects.md 负责人对照目标跟进) the lead answers for the project's goal: its rules say so
   (``COLLAB_RULES``), and its pack (the consult's ``read_only_pack`` too) shows the 简报 (``brief_block``: the background, once
@@ -42,7 +44,7 @@ from covey.core import turn_source
 from covey.core.checkpoint import (ASK_SHORT, checked, checkpoint_delivery, delivery_commits, read_checkpoint, short_commit,
                                    turn_summary)
 from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT
-from covey.core.jobs import job_key, job_path, read_job_record, topic_job_records
+from covey.core.jobs import job_key, job_path, owner_stopped, read_job_record, topic_job_records
 from covey.core.locks import resource_lock
 from covey.core.state import epoch_seconds, read_for_write, read_object, write_json
 from covey.core.statuses import ENDED, RUNNING
@@ -262,14 +264,19 @@ def inbox_dir(state_dir, project_id) -> Path:
     return projects.folder(state_dir) / project_id / "inbox"
 
 
-def add_receipt(state_dir, project_id, kind, text, thread="", at=None, relayed=False) -> dict:
+def add_receipt(state_dir, project_id, kind, text, thread="", at=None, relayed=False, message_id="") -> dict:
     """One receipt in the inbox (what a member's turn did, a question held, what the owner said in a member topic): a file of
-    its own, named in the order they came, so writers never share one. ``relayed``: the member turn's result went to the
-    owner already (app/project_loop.py after_runner), kept only when true."""
+    its own, named in the order they came, so writers never share one. ``label``: its topic's number (T12) as it is when
+    written, kept when it has one (W2-C: the pack names the topic so, not by its id). ``relayed``: the member turn's result
+    went to the owner already (app/project_loop.py after_runner), kept only when true. ``message_id``: the owner's message a
+    ``start`` came of (app/projects.py step_receipt; app/project_loop.py started_by), kept only when given."""
     stamp = now_of(at)
-    item = {"id": f"{int(stamp * 1000):013d}-{secrets.token_hex(2)}", "kind": str(kind)[:20], "thread": str(thread or ""),
+    thread = str(thread or "")
+    label = topic_label(Path(state_dir), thread) if thread else ""
+    item = {"id": f"{int(stamp * 1000):013d}-{secrets.token_hex(2)}", "kind": str(kind)[:20], "thread": thread,
+            **({"label": label} if label else {}),
             "text": " ".join(str(text or "").split())[:500], "at": stamp, "taken_by": "",
-            **({"relayed": True} if relayed else {})}
+            **({"relayed": True} if relayed else {}), **({"message_id": str(message_id)} if message_id else {})}
     write_json(inbox_dir(state_dir, project_id) / (item["id"] + ".json"), item, ensure_ascii=False, indent=1)
     return item
 
@@ -294,36 +301,81 @@ def settle_receipt(state_dir, project_id, receipt_id, why) -> bool:
     return True
 
 
+def gives_back(job) -> bool:
+    """Whether the receipts the lead's turn ``job`` (its record; {} when it is gone) took are the lead's to read again: it did
+    not end well and is not running, and the owner did not stop it (core/jobs.py owner_stopped, W2-C: his stop is not
+    undone by a wake-up for the same receipts; the next turn's pack says how many it left, ``stopped_block``)."""
+    status = job.get("status")
+    return status not in GOOD_ENDS and status not in RUNNING and not owner_stopped(job)
+
+
 def took_it(state_dir, taken_by, key) -> bool:
     """Whether the receipts job ``taken_by`` took are still the lead's to read for job ``key``: its own, or those of a turn
-    that did not end well (the receipts it was given may never have been read)."""
+    that did not end well and the owner did not stop (``gives_back``: the receipts it was given may never have been read)."""
     if not taken_by or taken_by == key:
         return True
-    status = (read_job_record(job_path(state_dir, taken_by)) or {}).get("status")
-    return status not in GOOD_ENDS and status not in RUNNING
+    return gives_back(read_job_record(job_path(state_dir, taken_by)) or {})
 
 
-def take_receipts(state_dir, project_id, key, limit=INBOX_ROWS) -> list:
-    """The receipts the lead's turn ``key`` has not read, oldest first, marked as taken by it (a second call of the same
-    turn gives them again)."""
-    found = []
+class Taken(list):
+    """The receipts a turn is given (``take_receipts``, ``peek_receipts``), oldest first; ``left``: how many more are the
+    lead's to read, given to a later turn (the pack says so, ``inbox_block``)."""
+    left = 0
+
+
+def chosen(items, limit) -> Taken:
+    """Of ``items`` (the receipts the lead has to read, oldest first) the ``limit`` a turn is given: those to look at first
+    (FIRST_KINDS), then the newest of the rest (W2-C: an inbox that grew past ``limit`` gave the oldest, which a wake-up of
+    long ago was about); oldest first, ``left`` the others."""
+    first = [item for item in items if item.get("kind") in FIRST_KINDS]
+    rest = [item for item in items if item.get("kind") not in FIRST_KINDS]
+    picked = {id(item) for item in (first[::-1] + rest[::-1])[:max(0, limit)]}
+    found = Taken(item for item in items if id(item) in picked)
+    found.left = len(items) - len(found)
+    return found
+
+
+def _waiting(state_dir, project_id, key) -> list:
+    """(path, receipt) of each receipt the lead's turn ``key`` has to read (``took_it``), oldest first; read only."""
     try:
         paths = sorted(inbox_dir(state_dir, project_id).glob("*.json"))
     except OSError:
-        return found
+        return []
+    takers = {}  # A turn's record is read once.
+    found = []
     for path in paths:
-        if len(found) >= limit:
-            break
+        item = read_object(path)
+        taker = item.get("taken_by")
+        if taker not in takers:
+            takers[taker] = took_it(state_dir, taker, key)
+        if item.get(RECEIPT_DONE) and taker != key:
+            continue  # Settled by the Bridge (``settle_receipt``): no turn's to read, nor counted as left.
+        if item.get("id") and takers[taker]:
+            found.append((path, item))
+    return found
+
+
+def take_receipts(state_dir, project_id, key, limit=INBOX_ROWS) -> Taken:
+    """The receipts the lead's turn ``key`` has not read, at most ``limit`` (``chosen``: what to look at first, then the
+    newest), oldest first, marked as taken by it (a second call of the same turn gives them again); ``left``, how many it was
+    not given."""
+    waiting = _waiting(state_dir, project_id, key)
+    paths = {id(item): path for path, item in waiting}
+    picked = chosen([item for _, item in waiting], limit)
+    found = Taken()
+    for item in picked:
+        path = paths[id(item)]
         with resource_lock("record", path):
             item = read_object(path)
             if not item.get("id") or not took_it(state_dir, item.get("taken_by"), key):
-                continue
+                continue  # Another turn took it meanwhile.
             if item.get(RECEIPT_DONE) and item.get("taken_by") != key:
                 continue  # Settled by the Bridge before this turn had it (``settle_receipt``).
             if item.get("taken_by") != key:
                 item["taken_by"] = key
                 write_json(path, item, ensure_ascii=False, indent=1)
         found.append(item)
+    found.left = picked.left
     return found
 
 
@@ -597,12 +649,13 @@ def delivering(item) -> str:
     return (project_checklist.topics_of(item) or [""])[0]
 
 
-def checklist_block(state_dir, record, rows, detail=False) -> str:
+def checklist_block(state_dir, record, rows, detail=False, full=True) -> str:
     """The 目标检查表 and the 协作 gaps not dealt with, as the pack says them (core/project_checklist.py): an item a line (its id,
     state, criterion, the topic that delivers it and how that topic is, what it waits on, the evidence, the gap); then what to
     look into: an item met while one it needs is not, an item not met whose topic has ended (its claim is to be checked
     against the criterion); then the open gaps. ``rows``: ``member_rows``. ``detail``: for the tool's answer, an item says the
-    other topics on it too (``topics``), what a ``topics`` of a change replaces. The topic an item's line names is ``delivering``."""
+    other topics on it too (``topics``), what a ``topics`` of a change replaces. The topic an item's line names is ``delivering``.
+    ``full`` false (a resumed session, which has had them whole): the items met fold into one line of their ids (W2-C)."""
     entries = project_checklist.items(record)
     out = []
     if entries:
@@ -610,7 +663,12 @@ def checklist_block(state_dir, record, rows, detail=False) -> str:
         states = {item["id"]: item["state"] for item in entries}
         met = sum(1 for item in entries if item["state"] in project_checklist.MET)
         out.append(f"目标检查表（{len(entries)} 条：{met} 条满足或不做了，{len(entries) - met} 条没满足）：")
+        folded = [] if full else [item["id"] for item in entries if item["state"] in project_checklist.MET]
+        if folded:
+            out.append(f"- 满足或不做了：{id_list(folded, FOLDED_SHOWN)}（续接的会话里只列 id）")
         for item in entries:
+            if item["id"] in folded:
+                continue
             topic = delivering(item)
             row = by_topic.get(topic)
             parts = [item["id"], project_checklist.STATE_WORDS[item["state"]], item["criterion"],
@@ -642,6 +700,7 @@ def checklist_block(state_dir, record, rows, detail=False) -> str:
 
 
 UNLOCKS_SHOWN = 4  # The items a delivery says it unlocks.
+FOLDED_SHOWN = 30  # The ids of the items met a resumed session's checklist folds into one line.
 
 
 def unlock_words(entries, mine) -> str:
@@ -658,12 +717,15 @@ def inbox_block(state_dir, receipts, record) -> str:
     """The inbox as the pack says it. With 协作 on (COVEY_COLLAB=1) in groups, each in the order it came: what to look at
     first (a 协作 gap, a question, the owner's choice or word, a start), the topics' deliveries (``thread_end``, with the
     items of the 目标检查表 a topic delivers that are not met yet), the rest, and last the consults' receipts, folded (the
-    newest CONSULTS_SHOWN and a count: they wake nobody, and their integrator delivers); off, a line each as before."""
+    newest CONSULTS_SHOWN and a count: they wake nobody, and their integrator delivers); off, a line each as before. Either
+    way the receipts the turn was not given (``Taken.left``) are counted last."""
     head = "自上次唤醒以来的收件箱："
     if not receipts:
         return head + "没有新的。"
+    left = getattr(receipts, "left", 0)
+    more = f"\n另有 {left} 条较早的回执这一轮没给，下一轮接着给。" if left else ""
     if not turn_source.enabled():
-        return head + "\n" + "\n".join(map(receipt_line, receipts))
+        return head + "\n" + "\n".join(map(receipt_line, receipts)) + more
     named = [{**item, "label": topic_label(state_dir, item["thread"]) or ""} if item.get("thread") and not item.get("label")
              else item for item in receipts]
     first = [item for item in named if item.get("kind") in FIRST_KINDS]
@@ -688,7 +750,7 @@ def inbox_block(state_dir, receipts, record) -> str:
         out += [f"- {stamp(item.get('at'))} {cut(item.get('text'), 100)}" for item in consults[-CONSULTS_SHOWN:]]
         if len(consults) > CONSULTS_SHOWN:
             out.append(f"另有 {len(consults) - CONSULTS_SHOWN} 条更早的（要细节用 topic_read 看汇总方的话题）。")
-    return "\n".join(out)
+    return "\n".join(out) + more
 
 
 def device_workspace(state_dir, record) -> tuple:
@@ -717,8 +779,10 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     topic reads it: ``since`` the lead's previous turn's start (a resumed session: what was voided since then is said),
     ``redacted`` whether the lead's topic reads the lines from topics with redaction on; with the triage on, the owner's own
     words (``owner_word_lines``: grounds project_answer may name, W0-2). With 协作 on (COVEY_COLLAB=1) also
-    the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``)
-    and the inbox in groups (``inbox_block``), in a new session and a resumed one."""
+    the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``:
+    a resumed session's items met in one line) and the inbox in groups (``inbox_block``), in a new session and a resumed one.
+    A resumed session gets what the library has new since its previous turn began (``library_added``), and a turn after one
+    the owner stopped the receipts that one had taken (``stopped_block``)."""
     style = style_of(record)
     if receipts is None:
         receipts = take_receipts(state_dir, record["id"], key)
@@ -737,7 +801,7 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     out.append("话题（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
                + ("\n" + "\n".join(map(thread_line, rows)) if rows else ""))
     if collab_on:
-        out += [brief_block(state_dir, record, rows, full=full), checklist_block(state_dir, record, rows)]
+        out += [brief_block(state_dir, record, rows, full=full), checklist_block(state_dir, record, rows, full=full)]
     waiting = deploy_block(state_dir, record)
     if waiting:
         out.append(waiting)
@@ -760,6 +824,10 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
         library = library_index(state_dir, record["id"])
         if library:
             out.append("资料库：\n" + "\n".join(f"- {line}" for line in library))
+    elif since:
+        added = library_added(state_dir, record["id"], since)
+        if added:
+            out.append(added)
     held = pack_block(state_dir, record)  # COVEY_PROJECT_TRIAGE=1: the questions held for the lead, else nothing.
     if held:
         out.append(held)
@@ -772,8 +840,52 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
         last = reopened[-1]
         out.append(f"重开：这个专项收过尾（{cut(str(last.get('summary') or ''), 120) or '没有写结论'}），主人 {stamp(last.get('at'))} "
                    "又在专项里说话，已重新打开：按主人的新要求接着做，做完再 project_finish。")
+    stopped = stopped_block(state_dir, record, key)
+    if stopped:
+        out.append(stopped)
     out.append(inbox_block(state_dir, receipts, record))
     return "\n\n".join(out)
+
+
+LIBRARY_ADDED = 5  # Lines of a resumed session's 资料库新增, its count line among them.
+
+
+def library_added(state_dir, project_id, since) -> str:
+    """What a resumed session is told of the library (its index came whole in the new session's pack, ``library_index``):
+    the entries added since ``since`` (the lead's previous turn began), newest first, in at most LIBRARY_ADDED lines; '' for
+    none, and without COVEY_PROJECT_MEMORY=1 (W2-C)."""
+    if not projects.memory_enabled():
+        return ""
+    rows = [row for row in reversed(project_library.entries(state_dir, project_id))
+            if not row.get("redacted") and float(row.get("at") or 0) > float(since)]
+    if not rows:
+        return ""
+    shown = rows if len(rows) <= LIBRARY_ADDED else rows[:LIBRARY_ADDED - 1]
+    labels = {topic: topic_label(Path(state_dir), topic) or topic[:8] for topic in {row["topic_id"] for row in shown} if topic}
+    lines = [f"- {project_library.line_of(state_dir, project_id, row, labels.get(row['topic_id'], ''))}" for row in shown]
+    if len(rows) > len(shown):
+        lines.append(f"- 另有 {len(rows) - len(shown)} 条（新会话的状态包里列全）")
+    return f"资料库新增 {len(rows)} 条（上一轮开始以来）：\n" + "\n".join(lines)
+
+
+STOPPED_SHOWN = 5  # The receipts a turn the owner stopped had taken that the next turn's pack lists.
+
+
+def stopped_block(state_dir, record, key) -> str:
+    """When the lead's turn before ``key`` was stopped by the owner (core/jobs.py owner_stopped) with receipts it had taken:
+    how many, and the first of them, for the next turn (W2-C: they are not given back, so no wake-up comes for them again,
+    ``gives_back``); '' otherwise."""
+    last = previous_turn(state_dir, str(record.get("lead_topic_id") or ""), key) if key else None
+    if last is None or not owner_stopped(last):
+        return ""
+    taken = taken_receipts(state_dir, record["id"], str(last.get("key") or job_key(last.get("message_id"), last.get("job_id"))))
+    if not taken:
+        return ""
+    lines = [receipt_line(item) for item in taken[:STOPPED_SHOWN]]
+    if len(taken) > STOPPED_SHOWN:
+        lines.append(f"- 另有 {len(taken) - STOPPED_SHOWN} 条")
+    return (f"上一轮被主人停了，它拿到的 {len(taken)} 条回执没读完（不会再为它们叫醒你）：\n"
+            + "\n".join(lines))
 
 
 # The session.
@@ -874,16 +986,10 @@ def outcome_line(state_dir, key) -> str:
 
 # What a 协作 consult of the lead reads (app/collab_channel.py): the pack, nothing taken.
 
-def peek_receipts(state_dir, project_id, limit=INBOX_ROWS) -> list:
-    """The receipts no turn of the lead has read for good, oldest first, read only: none is marked as taken (the lead's
-    own turn takes them, ``take_receipts``)."""
-    try:
-        paths = sorted(inbox_dir(state_dir, project_id).glob("*.json"))
-    except OSError:
-        return []
-    found = [item for item in (read_object(path) for path in paths)
-             if item.get("id") and took_it(state_dir, item.get("taken_by"), "")]
-    return found[:limit]
+def peek_receipts(state_dir, project_id, limit=INBOX_ROWS) -> Taken:
+    """The receipts no turn of the lead has read for good, the ``limit`` a turn would be given (``chosen``), oldest first,
+    read only: none is marked as taken (the lead's own turn takes them, ``take_receipts``)."""
+    return chosen([item for _, item in _waiting(state_dir, project_id, "")], limit)
 
 
 def read_only_pack(state_dir, record, *, redacted=False) -> str:

@@ -260,6 +260,82 @@ class WakeSourceTest(Loop):
         self.assertFalse(project_loop.woken(self.state, relay))  # Another source: no wake-up, whatever its id says.
 
 
+class QuickBatchTest(Loop):
+    """W2-C: urgent receipts that come close together (questions held from several topics, 协作 gaps) wake the lead once,
+    gathered QUICK_SECONDS, with 协作 on or off; the owner's own doing (a start, his choice) never waits."""
+
+    def test_questions_held_together_wake_the_lead_once_after_a_moment(self):
+        self.receipt("question", "T41 在问：用哪个库", at=NOW)
+        self.loop.tick(NOW + 2)
+        self.assertEqual(self.queued, [])  # The newest came 2 s ago: another may follow.
+        self.receipt("question", "T42 在问：几点上线", at=NOW + 3)
+        self.loop.tick(NOW + 6)
+        self.assertEqual(self.queued, [])
+        self.loop.tick(NOW + 8)
+        self.assertEqual(len(self.queued), 1)  # One turn reads both.
+
+    def test_the_oldest_waits_at_most_a_few_windows_however_many_come(self):
+        for n in range(6):
+            self.receipt("question", f"第 {n} 题", at=NOW + 4 * n)
+        self.assertTrue(project_loop.settling(project_loop.unread(self.state, PID), NOW + 4 * 4 + 1))
+        self.assertFalse(project_loop.settling(project_loop.unread(self.state, PID), NOW + 20))
+
+    def test_a_collab_gap_is_gathered_too_and_a_start_or_the_owners_choice_never_waits(self):
+        from covey.core import collab
+        gap = [{"kind": collab.RECEIPT_GAP, "at": NOW}]
+        self.assertTrue(project_loop.settling(gap, NOW + 1))
+        self.assertFalse(project_loop.settling(gap, NOW + project_loop.QUICK_SECONDS))
+        for kind in ("start", "owner_choice"):
+            with self.subTest(kind):
+                self.assertFalse(project_loop.settling([*gap, {"kind": kind, "at": NOW}], NOW + 1))
+                self.assertFalse(project_loop.settling([{"kind": kind, "at": NOW}], NOW))
+
+
+class StartPresentTest(Loop):
+    """W2-C (WAVE12 C5): the first turn of a project the owner started or upgraded himself is his: its ``start`` receipt
+    carries his message, the wake-up's source has it in its origin, its words say he waits."""
+
+    def test_a_start_receipt_with_the_owners_message_makes_the_first_turn_his(self):
+        from covey.core import turn_source
+
+        project_lead.add_receipt(self.state, PID, "start", "开个专项迁移订单库", at=NOW, message_id="om_owner_start")
+        self.loop.tick(NOW + 5)
+        [(message, text)] = self.queued
+        self.assertEqual(text, project_loop.OWNER_START_TEXT)
+        self.assertIn("主人刚建了这个专项，在等你的第一轮回复", text)
+        [source] = self.sources
+        self.assertEqual(turn_source.origin({"turn_source": source}), {"message_id": "om_owner_start"})
+        self.assertEqual(turn_source.level({"turn_source": source}), turn_source.LEVEL_AGENT)  # His message, not his words.
+        job = SimpleNamespace(message_id=message, job_id=1, turn_source=source)
+        self.assertFalse(project_loop.woken(self.state, job))  # 主人在场: its reply is sent.
+        turn = SimpleNamespace(status="done", verified_delivery=object(), verified_outcome=SimpleNamespace(status="completed"))
+
+        def delivery(job):
+            return SimpleNamespace(job=job, turn=turn, ctx=SimpleNamespace(state_dir=self.state), runtime=self.runtime)
+        self.assertFalse(project_loop.silent(delivery(job)))
+        bridge = SimpleNamespace(message_id=projects.wake_id(PID, 2), job_id=2, turn_source=turn_source.stamp(turn_source.WAKE))
+        self.assertTrue(project_loop.silent(delivery(bridge)))  # The Bridge's own wake-up stays quiet, as before.
+
+    def test_what_that_first_turn_hands_out_comes_back_quoting_his_message(self):
+        from covey.app import relay_targets
+        from covey.core import turn_source
+
+        his = turn_source.stamp(turn_source.WAKE, origin={"message_id": "om_owner_start"})
+        write_job(self.state, "k-first", topic_id=LEAD, chat_id=CHAT, job_id=1, message_id=projects.wake_id(PID, 1),
+                  status="done", turn_source=his)
+        write_job(self.state, "k-later", topic_id=LEAD, chat_id=CHAT, job_id=2, message_id=projects.wake_id(PID, 2),
+                  status="done", turn_source=turn_source.stamp(turn_source.WAKE))
+        self.assertEqual(relay_targets.relay_quote(self.state, "k-first"), "om_owner_start")
+        self.assertEqual(relay_targets.relay_quote(self.state, "k-later"), "")  # The Bridge's own wake-up relays nothing, as before.
+
+    def test_a_start_without_it_and_a_message_not_the_owners_are_a_wake_up_as_before(self):
+        for given in ("", "main-abc", "lead-xyz"):
+            with self.subTest(given=given):
+                self.assertEqual(project_loop.started_by([{"kind": "start", "message_id": given}]), "")
+        self.assertEqual(project_loop.started_by([{"kind": "thread_end", "message_id": "om_x"}]), "")
+        self.assertEqual(project_loop.started_by([{"kind": "start", "message_id": "web-1"}]), "web-1")
+
+
 class GuardTest(Loop):
     def test_tokens_over_the_budget_pause_the_project_and_wake_no_more(self):
         self.receipt("start")
@@ -293,17 +369,18 @@ class GuardTest(Loop):
             with mock.patch.dict(os.environ, {projects.BUDGET_ENV: "400"}):
                 self.assertEqual(projects.token_limit(), 400)
 
-    def test_thirty_wakes_in_a_row_pause_the_project(self):
+    def test_six_idle_wakes_in_a_row_pause_the_project(self):
         self.autowake()
-        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": []})
+        self.update(wakes={"count": 6, "streak": 6, "last_at": NOW, "recent": [], "idle": 6, "idle_recent": []})
         self.receipt()
         self.loop.tick(NOW + 5)
         self.assertEqual((self.reload()["state"], self.reload()["state_reason"]), (projects.PAUSED, "wakes"))
         self.assertEqual(self.queued, [])
 
-    def test_twelve_wakes_in_an_hour_pause_it_but_not_after_the_hour(self):
+    def test_twelve_idle_wakes_in_an_hour_pause_it_but_not_after_the_hour(self):
         self.autowake()
-        self.update(wakes={"count": 12, "streak": 12, "last_at": NOW, "recent": [NOW + i for i in range(12)]})
+        self.update(wakes={"count": 12, "streak": 12, "last_at": NOW, "recent": [], "idle": 2,
+                           "idle_recent": [NOW + i for i in range(12)]})
         self.receipt()
         self.loop.tick(NOW + 100)
         self.assertEqual(self.reload()["state_reason"], "wakes")
@@ -311,13 +388,74 @@ class GuardTest(Loop):
         self.loop.tick(NOW + 2 * HOUR)
         self.assertEqual(len(self.queued), 1)
 
+    def test_sixty_wakes_in_an_hour_pause_it_whatever_they_did(self):
+        self.autowake()
+        self.update(wakes={"count": 60, "streak": 60, "last_at": NOW, "recent": [NOW + i for i in range(60)]})
+        self.receipt()
+        self.loop.tick(NOW + 100)
+        self.assertEqual(self.reload()["state_reason"], "wakes")
+
+    def test_a_lead_that_works_at_every_wake_up_is_not_paused_for_waking_often(self):
+        # W2-C: thirty wake-ups in a row (the guard of before) each handing out work: the project runs on.
+        self.autowake()
+        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW + i for i in range(30)]})
+        self.receipt()
+        self.loop.tick(NOW + 100)
+        self.assertEqual((self.reload()["state"], len(self.queued)), (projects.ACTIVE, 1))
+
+    def test_an_idle_wake_up_counts_a_busy_one_starts_the_run_again(self):
+        def key_of(number):
+            return job_key(projects.wake_id(PID, number), number)
+
+        def ended(number):
+            write_job(self.state, key_of(number), topic_id=LEAD, chat_id=CHAT, job_id=number, status="done",
+                      message_id=projects.wake_id(PID, number))
+            project_loop.after_runner(self.logs.append, self.state, SimpleNamespace(
+                topic_id=LEAD, chat_id=CHAT, message_id=projects.wake_id(PID, number), job_id=number))
+        for number in range(1, 6):
+            ended(number)
+        wakes = project_loop.wakes_of(self.reload())
+        self.assertEqual((wakes["idle"], len(wakes["idle_recent"])), (5, 5))
+        self.assertEqual(project_loop.hold(self.reload(), time.time()), "")
+        self.update(acted=[{"job": key_of(6), "whats": ["start"], "at": NOW}])
+        ended(6)
+        self.assertEqual(project_loop.wakes_of(self.reload())["idle"], 0)  # It handed out work: the run starts again.
+        self.update(notes=[{"id": "n1", "job": key_of(7), "text": "进展", "at": NOW}])
+        ended(7)
+        self.assertEqual(project_loop.wakes_of(self.reload())["idle"], 0)  # A note of its own is something done too.
+        for number in range(8, 14):
+            ended(number)
+        self.assertEqual(project_loop.wakes_of(self.reload())["idle"], 6)
+        self.assertEqual(project_loop.hold(self.reload(), time.time()), "wakes")
+        ended(13)  # Counted once a turn, as its tokens are.
+        self.assertEqual(project_loop.wakes_of(self.reload())["idle"], 6)
+
+    def test_a_wake_up_the_owner_stopped_counts_for_nothing_and_his_own_turn_clears_the_counts(self):
+        self.update(wakes={"count": 4, "streak": 4, "last_at": NOW, "recent": [NOW], "idle": 4, "idle_recent": [NOW] * 4})
+        write_job(self.state, job_key(projects.wake_id(PID, 5), 5), topic_id=LEAD, chat_id=CHAT, job_id=5, status="cancelled",
+                  cancel_requested_by="card", message_id=projects.wake_id(PID, 5))
+        project_loop.after_runner(self.logs.append, self.state, SimpleNamespace(
+            topic_id=LEAD, chat_id=CHAT, message_id=projects.wake_id(PID, 5), job_id=5))
+        self.assertEqual(project_loop.wakes_of(self.reload())["idle"], 4)
+        write_job(self.state, job_key("om_owner", 6), topic_id=LEAD, chat_id=CHAT, job_id=6, status="done", message_id="om_owner")
+        project_loop.after_runner(self.logs.append, self.state, SimpleNamespace(topic_id=LEAD, chat_id=CHAT, message_id="om_owner", job_id=6))
+        wakes = project_loop.wakes_of(self.reload())
+        self.assertEqual((wakes["idle"], wakes["idle_recent"], wakes["streak"], wakes["count"]), (0, [], 0, 4))
+
+    def test_a_record_from_before_reads_as_no_idle_wake_up_yet(self):
+        record = {"wakes": {"count": 3, "streak": 3, "last_at": NOW, "recent": [NOW]}}
+        self.assertEqual(project_loop.wakes_of(record),
+                         {"count": 3, "streak": 3, "recent": [NOW], "last_at": NOW, "idle": 0, "idle_recent": []})
+        self.assertEqual(project_loop.hold(record, NOW + 1), "")
+
     def test_the_owners_turn_clears_the_counts_and_starts_a_paused_project(self):
-        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW]}, state=projects.PAUSED,
-                    state_reason="wakes", stall={"at": NOW, "activity": NOW})
+        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [NOW], "idle": 6, "idle_recent": [NOW]},
+                    state=projects.PAUSED, state_reason="wakes", stall={"at": NOW, "activity": NOW})
         project_loop.owner_turn(self.state, LEAD, CHAT, "om_1")
         record = self.reload()
         self.assertEqual((record["state"], record["state_reason"]), (projects.ACTIVE, ""))
         self.assertEqual((record["wakes"]["streak"], record["wakes"]["recent"], record["wakes"]["count"]), (0, [], 30))
+        self.assertEqual((record["wakes"]["idle"], record["wakes"]["idle_recent"]), (0, []))
         self.assertNotIn("stall", record)
 
     def test_a_wake_up_turn_is_not_the_owners(self):
@@ -385,7 +523,7 @@ class NoBudgetTest(Loop):
     def test_without_a_budget_the_wakes_guard_still_pauses(self):
         self.no_budget()
         self.autowake()
-        self.update(tokens_used=50 * BUDGET, wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": []})
+        self.update(tokens_used=50 * BUDGET, wakes={"count": 6, "streak": 6, "last_at": NOW, "recent": [], "idle": 6})
         self.receipt()
         self.loop.tick(NOW + 5)
         self.assertEqual((self.reload()["state"], self.reload()["state_reason"]), (projects.PAUSED, "wakes"))
@@ -726,14 +864,19 @@ class PauseAskTest(Loop):
     def test_a_wakes_pause_leaves_the_running_topics_alone(self):
         self.ask_on()
         self.autowake()
-        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": []}, threads=[THREAD])
+        self.update(wakes={"count": 30, "streak": 30, "last_at": NOW, "recent": [], "idle": 6}, threads=[THREAD])
         self.receipt()
         self.loop.tick(NOW + 5)
-        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人连续叫醒 30 次没有你的消息")
+        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人连续 6 轮叫醒都没派活、没提问，也没记进展")
         self.stop.assert_not_called()
-        self.update(state=projects.ACTIVE, state_reason="", wakes={"count": 12, "streak": 3, "last_at": NOW, "recent": [NOW] * 12})
+        self.update(state=projects.ACTIVE, state_reason="", pause_ask=None,
+                    wakes={"count": 12, "streak": 3, "last_at": NOW, "recent": [NOW] * 12, "idle": 1, "idle_recent": [NOW] * 12})
         self.loop.tick(NOW + 100)
-        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人一小时内叫醒了 12 次")
+        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人一小时内有 12 轮叫醒没派活、没提问，也没记进展")
+        self.update(state=projects.ACTIVE, state_reason="", pause_ask=None,
+                    wakes={"count": 60, "streak": 3, "last_at": NOW, "recent": [NOW] * 60, "idle": 0, "idle_recent": []})
+        self.loop.tick(NOW + 200)
+        self.assertEqual(self.reload()["pause_ask"]["why"], "负责人一小时内叫醒了 60 次")
 
     def test_a_stall_pause_says_how_long_nothing_moved(self):
         self.ask_on()

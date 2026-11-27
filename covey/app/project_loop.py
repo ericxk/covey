@@ -12,7 +12,9 @@ when something happened since it last looked, and the mechanical checks that sto
   question now; when it cannot, the question goes to the owner at once.
 - Guards, any of which pauses the project with ``state_reason`` ``tokens``, ``wakes`` or ``stalled`` (core/projects.py
   GUARD_REASONS) and wakes it no more: the lead's and the members' tokens over COVEY_PROJECT_BUDGET, only when a deployment
-  sets it (``tokens_used`` is added once per task by ``after_runner`` all the same, the 专项卡 shows it); 30 wake-ups in a row with nobody stepping in, or 12 in the last hour; no task and no
+  sets it (``tokens_used`` is added once per task by ``after_runner`` all the same, the 专项卡 shows it); 6 idle wake-ups in a
+  row with nobody stepping in (a wake-up turn that handed out nothing, asked nothing and wrote no note, ``idle_turn``), or 12
+  in the last hour, or 60 wake-ups of any kind in the last hour (W2-C: a lead that works at every wake-up runs on); no task and no
   receipt for 30 minutes, which first wakes the lead with a ``stalled`` receipt and, as long again with nothing moving,
   pauses (only a project with something to do, ``has_work``, can stall). The owner's own turn in the lead's topic (``owner_turn``) clears the counts and starts a project a guard or the
   owner's stop paused (a ``tokens`` pause gets a new budget from there, ``token_floor``).
@@ -79,11 +81,11 @@ from covey.core import board_read, collab, collab_records, failure, project_chec
 from covey.core import env as cenv
 from covey.core.checkpoint import SUMMARY_CHARS, read_checkpoint, turn_summary
 from covey.core.history_storage import append_history
-from covey.core.jobs import (find_job_record, job_field, job_key, job_path, read_job_record, topic_job_records,
+from covey.core.jobs import (find_job_record, job_field, job_key, job_path, owner_stopped, read_job_record, topic_job_records,
                               update_job_record_if)
 from covey.core.loops import Stuck, Worker
 from covey.core.state import read_object
-from covey.core.statuses import ENDED, NOT_ENDED, RUNNING
+from covey.core.statuses import ENDED, NOT_ENDED
 from covey.core.store import directory_store, one_scan
 from covey.core.text import cut
 from covey.core.topics import load_topic, remember_topic_message, topic_label
@@ -105,6 +107,9 @@ HOUR = 3600
 WAKE_TEXT = ("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主人不在场：按回执判断下一步。"
              "要主人定的事用 project_ask 问他（出问题卡，任何汇报风格都发）；进展用 project_note 标 report，Bridge 按汇报风格把笔记原文发给主人。"
              "这一轮的回复不发给主人（主人中途插话时才发），要他知道的写进 project_note 或 project_ask。")
+# The first turn of a project the owner started or upgraded himself (``started_by``): he is there and waits for its reply.
+OWNER_START_TEXT = ("[Bridge 唤醒] 主人刚建了这个专项，在等你的第一轮回复：按收件箱里的开工回执（主人的原话）安排下一步，"
+                    "这一轮的回复会发给主人。要主人定的事用 project_ask 问他；进展用 project_note 记下。")
 TOKEN_JOBS_KEPT = projects.TOKEN_JOBS_KEPT
 EXECUTING = frozenset({"running", "cancel_requested"})
 COUNTED = ENDED | {"waiting_user"}  # A turn waiting for the owner's answer has used its tokens too.
@@ -126,6 +131,7 @@ CHOICE_BASIS = "这次的依据是主人在停住卡上选的收尾：evidence �
 BATCH_ENV = "COVEY_PROJECT_BATCH_SECONDS"  # 协作 on: how long ordinary receipts are gathered before they wake the lead.
 BATCH_SECONDS = 20
 BATCH_STRETCH = 4  # The oldest receipt of a batch waits at most this many windows, however many keep coming.
+QUICK_SECONDS = 5  # Urgent receipts (a held question, a 协作 gap) are gathered this long (``settling``, W2-C).
 LIMIT_REST = 600  # A lead turn that failed on a limit with no retry to come: the next wake waits this long after it ended.
 OWN_WAKES = ("start", "owner_choice")  # The owner's own doing: wakes the lead once even while it waits out a limit.
 RETRY_COMING = ("pending", "submitting")  # app/auto_retry.py AUTO_RETRY_TRANSITIONS: the retry has not been queued yet.
@@ -136,27 +142,70 @@ DOWN_LADDER = (60, 180, 600)  # The lead's turns that did not start, 1, 2, 3 or 
 WONT_HEAL = frozenset({"policy_refusal", "model_unavailable", "authentication_error", "model_blocked"})
 
 
+def _times(given) -> list:
+    return [float(t) for t in given or () if isinstance(t, (int, float)) and not isinstance(t, bool)]
+
+
 def wakes_of(record) -> dict:
-    """The record's ``wakes`` ({count, last_at, streak, recent}) with each missing or invalid part at none."""
+    """The record's ``wakes`` ({count, last_at, streak, recent, idle, idle_recent}) with each missing or invalid part at none:
+    ``streak`` and ``recent`` (when each was queued) count every wake-up, ``idle`` the idle ones in a row and ``idle_recent``
+    when each of them ended (``idle_turn``). A record from before W2-C has no ``idle``: none so far."""
     given = record.get("wakes") if isinstance(record.get("wakes"), dict) else {}
     number = lambda value: value if type(value) is int and value >= 0 else 0  # noqa: E731
-    recent = [float(t) for t in given.get("recent") or () if isinstance(t, (int, float)) and not isinstance(t, bool)]
-    return {"count": number(given.get("count")), "streak": number(given.get("streak")), "recent": recent,
-            "last_at": float(given["last_at"]) if isinstance(given.get("last_at"), (int, float)) else 0.0}
+    return {"count": number(given.get("count")), "streak": number(given.get("streak")), "recent": _times(given.get("recent")),
+            "last_at": float(given["last_at"]) if isinstance(given.get("last_at"), (int, float)) else 0.0,
+            "idle": number(given.get("idle")), "idle_recent": _times(given.get("idle_recent"))}
+
+
+def stepped_in(record) -> dict:
+    """``record``'s ``wakes`` once someone stepped in (the owner's turn, his word in a member topic, his choice on a pause
+    card): every count of a run of wake-ups starts again, the number of the next wake-up goes on."""
+    return {**wakes_of(record), "streak": 0, "recent": [], "idle": 0, "idle_recent": []}
 
 
 def hold(record, now) -> str:
-    """The guard a project is over now ('' for none): ``tokens`` (only with a budget, COVEY_PROJECT_BUDGET), or ``wakes`` (30
-    in a row, or 12 in the last hour)."""
+    """The guard a project is over now ('' for none): ``tokens`` (only with a budget, COVEY_PROJECT_BUDGET), or ``wakes``:
+    IDLE_WAKES idle wake-ups in a row, IDLE_WAKES_HOUR in the last hour, or MAX_WAKES_HOUR wake-ups of any kind in the last
+    hour (core/projects.py; W2-C: a lead that hands out work, asks or notes at every wake-up runs on)."""
     floor = record.get("token_floor") if type(record.get("token_floor")) is int else 0
     used = record.get("tokens_used") if type(record.get("tokens_used")) is int else 0
     limit = projects.token_limit()
     if limit and used - floor >= limit:
         return "tokens"
     wakes = wakes_of(record)
-    if wakes["streak"] >= projects.DEFAULT_WAKES or sum(1 for t in wakes["recent"] if now - t < HOUR) >= projects.MAX_WAKES_HOUR:
+    if (wakes["idle"] >= projects.IDLE_WAKES or within(wakes["idle_recent"], now) >= projects.IDLE_WAKES_HOUR
+            or within(wakes["recent"], now) >= projects.MAX_WAKES_HOUR):
         return "wakes"
     return ""
+
+
+def within(times, now) -> int:
+    """How many of ``times`` are in the hour before ``now``."""
+    return sum(1 for t in times if now - t < HOUR)
+
+
+def busy_turn(record, key) -> bool:
+    """Whether the lead's turn ``key`` did something (``record``: the project's): it handed out, stopped, answered or asked
+    (an ``acted`` row, app/project_tools.py acted) or wrote a note (a ``notes`` row of its own, project_note)."""
+    return any(isinstance(row, dict) and row.get("job") == key for field in ("acted", "notes") for row in record.get(field) or ())
+
+
+def idle_turn(record, key, job, now) -> None:
+    """Edit ``record`` in place: the lead's turn ``key`` (its job record ``job``) has ended, counted for the wake-up guard
+    (``hold``). A wake-up the owner was not in (``projects.woken``) that did nothing (``busy_turn``) is one more idle
+    one; one that did something starts the run again; a turn the owner was in (his own, or a wake-up with his words or
+    message) starts every count again (``stepped_in``); one he stopped changes nothing."""
+    if projects.woken(job):
+        if owner_stopped(job):
+            return
+        wakes = wakes_of(record)
+        if busy_turn(record, key):
+            record["wakes"] = {**wakes, "idle": 0}
+        else:
+            record["wakes"] = {**wakes, "idle": wakes["idle"] + 1,
+                               "idle_recent": [t for t in wakes["idle_recent"] if now - t < HOUR][-projects.IDLE_WAKES_HOUR:] + [now]}
+        return
+    record["wakes"] = stepped_in(record)
 
 
 def record_tokens(record) -> int:
@@ -169,8 +218,8 @@ def record_tokens(record) -> int:
                if type(value := part.get(name)) is int and value >= 0)
 
 
-# Receipts that no longer change: taken by a lead turn that ended well and is over (project_lead.take_receipts never takes such a
-# one again). Read once per process instead of every TICK: an inbox keeps every receipt, a hundred and more each.
+# Receipts that no longer change: taken by a lead turn that ended well and is over, or that the owner stopped
+# (project_lead.take_receipts never takes such a one again). Read once per process instead of every TICK: an inbox keeps every receipt, a hundred and more each.
 _settled = {}  # inbox directory -> {file name: receipt}
 _settled_lock = threading.Lock()
 SETTLED = project_lead.GOOD_ENDS & ENDED
@@ -178,7 +227,8 @@ SETTLED = project_lead.GOOD_ENDS & ENDED
 
 def inbox(state_dir, project_id) -> list:
     """[(receipt, unread)] of every receipt of the project's inbox, oldest first; ``unread``: no lead turn has read it (or one that
-    did not end well took it). The settled ones (``_settled``) are not read again."""
+    did not end well took it, unless the owner stopped that one: W2-C, his stop is not undone by the next look). The settled
+    ones (``_settled``) are not read again."""
     folder = project_lead.inbox_dir(state_dir, project_id)
     try:
         paths = sorted(folder.glob("*.json"))
@@ -195,13 +245,13 @@ def inbox(state_dir, project_id) -> list:
             continue
         item = read_object(path)
         taker = item.get("taken_by")
-        status = (read_job_record(job_path(state_dir, taker)) or {}).get("status") if taker else None
+        job = (read_job_record(job_path(state_dir, taker)) or {}) if taker else {}
         done = bool(item.get(project_lead.RECEIPT_DONE))  # Settled by the Bridge (project_lead.settle_receipt): read by nobody now.
-        if status in SETTLED or done:
+        if job.get("status") in SETTLED or job.get("status") in ENDED and owner_stopped(job) or done:
             settled[path.name] = item
-        # project_lead.took_it with no turn of its own: untaken, or taken by a turn that did not end well.
-        found.append((item, bool(item.get("id")) and not done
-                      and (not taker or (status not in project_lead.GOOD_ENDS and status not in RUNNING))))
+        # project_lead.took_it with no turn of its own: untaken, or taken by a turn that did not end well and the owner
+        # did not stop (``gives_back``).
+        found.append((item, bool(item.get("id")) and not done and (not taker or project_lead.gives_back(job))))
     with _settled_lock:
         _settled[str(folder)] = settled  # Only the files still there.
     return found
@@ -640,7 +690,7 @@ def reopen(record) -> None:
     """Edit ``record`` in place (``projects.update``'s ``change``): the counts of wake-ups start again, the stall reminder is
     forgotten, and a project a guard (or the owner's stop) paused is active again; a ``tokens`` pause gets a new budget from
     the tokens used so far."""
-    record["wakes"] = {**wakes_of(record), "streak": 0, "recent": []}
+    record["wakes"] = stepped_in(record)
     record.pop("stall", None)
     if record.get("state") == projects.PAUSED and record.get("state_reason") in projects.RESUMABLE:
         if record.get("state_reason") == "tokens":
@@ -748,9 +798,12 @@ def pause_words(record, reason, now, idle=0) -> str:
         return f"token 用到上限 {projects.count_words(limit)}" if limit else "token 用到上限"
     if reason == "wakes":
         wakes = wakes_of(record)
-        if wakes["streak"] >= projects.DEFAULT_WAKES:
-            return f"负责人连续叫醒 {wakes['streak']} 次没有你的消息"
-        return f"负责人一小时内叫醒了 {sum(1 for t in wakes['recent'] if now - t < HOUR)} 次"
+        if wakes["idle"] >= projects.IDLE_WAKES:
+            return f"负责人连续 {wakes['idle']} 轮叫醒都没派活、没提问，也没记进展"
+        idle_hour = within(wakes["idle_recent"], now)
+        if idle_hour >= projects.IDLE_WAKES_HOUR:
+            return f"负责人一小时内有 {idle_hour} 轮叫醒没派活、没提问，也没记进展"
+        return f"负责人一小时内叫醒了 {within(wakes['recent'], now)} 次"
     return f"{idle_words(idle)}没有进展"
 
 
@@ -773,15 +826,15 @@ def heard(state_dir, topic_id, text) -> None:
             data["owner_at"] = time.time()
             if projects.folded(data):
                 reopen(data)  # A project folded away for being idle: his word opens it again.
-            data["wakes"] = {**wakes_of(data), "streak": 0, "recent": []}
+            data["wakes"] = stepped_in(data)
         projects.update(state_dir, found.id, change)
     except (KeyError, ValueError, OSError):
         return
 
 
-def count_tokens(state_dir, project_id, key, used) -> bool:
-    """``used`` tokens of the task ``key`` added to the project's ``tokens_used``, once a task (``token_jobs``); whether this
-    was the first time."""
+def count_tokens(state_dir, project_id, key, used, also=None) -> bool:
+    """``used`` tokens of the task ``key`` added to the project's ``tokens_used``, once a task (``token_jobs``), and ``also``
+    (an edit of the record, or None) done in the same write that first time; whether this was the first time."""
     first = []
 
     def change(data):
@@ -791,6 +844,8 @@ def count_tokens(state_dir, project_id, key, used) -> bool:
         counted.append(key)
         data["token_jobs"] = counted[-TOKEN_JOBS_KEPT:]
         data["tokens_used"] = int(data.get("tokens_used") or 0) + used
+        if also is not None:
+            also(data)
         first.append(True)
     projects.update(state_dir, project_id, change)
     return bool(first)
@@ -832,7 +887,7 @@ def after_runner(log, state_dir, job) -> None:
     ("T12 的任务 #41 做完：<turn_summary>（全文 <path>）": its number, status, what became of it, where its whole reply is).
     That whole reply, however short, is kept first (C7: app/artifacts.py write_result_file, ``result-files/<key>.md``, an
     over-long one its runner sent as a file stays as it is) and noted in the library (app/project_context.py
-    result_to_library). A consult's turn of 协作 has its tokens counted in its collaboration's project
+    result_to_library). A lead's turn is counted for the wake-up guard in the same write (``idle_turn``). A consult's turn of 协作 has its tokens counted in its collaboration's project
     (``consult_tokens``) and nothing else. Never raises."""
     try:
         topic, chat = str(job_field(job, "topic_id")), str(job_field(job, "chat_id"))
@@ -850,7 +905,9 @@ def after_runner(log, state_dir, job) -> None:
             return  # Nor a 协作 ask's turn: its collaboration writes the lead's receipt (app/collab_flow.py), no thread_end.
         ended = found.role == projects.MEMBER and status in RECEIPT_ENDS
         whole = kept_reply(log, state_dir, found.id, topic, key, record) if ended else ""  # Whether or not it is the first look.
-        first = count_tokens(state_dir, found.id, key, record_tokens(record))
+        # A lead's turn counts for the wake-up guard once, as its tokens do (``idle_turn``, W2-C).
+        guard = (lambda data: idle_turn(data, key, record, time.time())) if found.role == projects.LEAD else None
+        first = count_tokens(state_dir, found.id, key, record_tokens(record), also=guard)
         if first and ended:
             checkpoint = str(record.get("checkpoint_path") or "")
             head = f"{topic_label(Path(state_dir), topic) or topic[:8]} 的任务 #{record.get('job_id')} {RESULTS.get(status, status)}"
@@ -1099,12 +1156,12 @@ class ProjectLoop:
         if pending:
             due = autowake_due(pending)
             if due and settling(pending, now):
-                return  # 协作 on: more ordinary receipts may come in a moment (members ending together): one turn reads them all.
+                return  # More may come in a moment (members ending together, questions held together): one turn reads them all.
             if due and not lead_busy(state, lead):
                 if self.waits(record, state, pending, now):
                     return  # A wake would only fail (a limit, a backend down); no wake, so nothing for the wakes guard to count either.
                 reason = hold(record, now)
-                return self.pause(record, reason, now) if reason else self.wake(record, now)
+                return self.pause(record, reason, now) if reason else self.wake(record, now, pending)
             if not due:
                 # Without COVEY_PROJECT_AUTOWAKE=1 these wake no one: the lead reads them in its next turn, which the owner
                 # starts. Nothing else moving, the project rests and folds away after the idle days as one with nothing to
@@ -1190,8 +1247,9 @@ class ProjectLoop:
             self.runtime.log(f"project wake held project={pid[:8]} why={why} until={time.strftime('%H:%M:%S', time.localtime(until))}")
         return True
 
-    def wake(self, record, now) -> None:
-        """One wake-up turn queued (its number counted first: a lost one is looked for again, never doubled)."""
+    def wake(self, record, now, pending=()) -> None:
+        """One wake-up turn queued (its number counted first: a lost one is looked for again, never doubled); ``pending``,
+        the receipts it is for, may carry the owner's message (``started_by``)."""
         pid, mine = record["id"], []
         if self.behind():
             return
@@ -1199,18 +1257,20 @@ class ProjectLoop:
 
         def change(data):
             wakes = wakes_of(data)
-            data["wakes"] = {"count": wakes["count"] + 1, "streak": wakes["streak"] + 1, "last_at": now,
+            data["wakes"] = {**wakes, "count": wakes["count"] + 1, "streak": wakes["streak"] + 1, "last_at": now,
                              "recent": [t for t in wakes["recent"] if now - t < HOUR][-projects.MAX_WAKES_HOUR:] + [now]}
             mine.append(data["wakes"]["count"])
         projects.update(self.env.state_dir, pid, change)
         message = projects.wake_id(pid, mine[0])
-        if self.enqueue(record, message):
+        if self.enqueue(record, message, started_by(pending)):
             self.runtime.log(f"project woken project={pid[:8]} message={message}")
         else:
             self.runtime.log(f"project wake not queued project={pid[:8]} message={message}")
 
-    def enqueue(self, record, message) -> bool:
-        """The wake-up turn queued as a message in the lead's topic (an alias makes the message the topic's)."""
+    def enqueue(self, record, message, owner="") -> bool:
+        """The wake-up turn queued as a message in the lead's topic (an alias makes the message the topic's). ``owner``: the
+        owner's message that started or upgraded the project (``started_by``), in the source's origin: the owner is there,
+        so the turn is his (core/projects.py woken, WAVE12 C5) and says so (OWNER_START_TEXT)."""
         state, chat, topic = Path(self.env.state_dir), str(record.get("chat_id") or ""), str(record["lead_topic_id"])
         data = load_topic(state, topic)
         app = lead_app(self.env, state, data)
@@ -1220,12 +1280,25 @@ class ProjectLoop:
         ctx = app.submission.event_context(app.harness.context, {"chat_id": chat, "message_id": message})
         if ctx.topic_id != topic:
             return False
-        append_history(ctx.history_path, "user", WAKE_TEXT, {"message_id": message})
+        text = OWNER_START_TEXT if owner else WAKE_TEXT
+        append_history(ctx.history_path, "user", text, {"message_id": message})
         # The Bridge's wake-up (WAVE12 C1 ``wake``): it answers no question the lead still waits on (C4 ①), its words are
-        # not the owner's, and it sends nothing as his (core/turn_source.py BEHAVIOR).
-        source = turn_source.stamp(turn_source.WAKE)
-        return app.submission.enqueue_chat_job(ctx, WAKE_TEXT, chat, message, prompt_content=WAKE_TEXT,
+        # not the owner's, and it sends nothing as his (core/turn_source.py BEHAVIOR); his message in its origin makes
+        # him there all the same (C5), its words still the Bridge's.
+        source = turn_source.stamp(turn_source.WAKE, origin={"message_id": owner} if owner else None)
+        return app.submission.enqueue_chat_job(ctx, text, chat, message, prompt_content=text,
                                                **({"source": source} if source else {})) is not None
+
+
+def started_by(pending) -> str:
+    """The owner's message (his own, turn_source.DIRECT: Feishu's, the web page's) that a ``start`` receipt of ``pending``
+    says began the project (app/projects.py step_receipt: his direct start, his upgrade); '' for none (a project
+    整理专项 made, a receipt from before W2-C)."""
+    for item in pending:
+        given = str(item.get("message_id") or "") if item.get("kind") == "start" else ""
+        if given.startswith(turn_source.DIRECT):
+            return given
+    return ""
 
 
 def lead_app(env, state, data):
@@ -1256,11 +1329,25 @@ def urgent(item) -> bool:
     return item.get("kind") in ALWAYS_WAKE or collab.RECEIPT_WAKES.get(item.get("kind")) is True
 
 
+def quick(item) -> bool:
+    """Whether the receipt ``item`` is an urgent one gathered for QUICK_SECONDS all the same (``settling``): a held question,
+    a 协作 gap. A ``start`` and the owner's choice on a pause card (OWN_WAKES, his own doing) never wait."""
+    return item.get("kind") == "question" or collab.RECEIPT_WAKES.get(item.get("kind")) is True
+
+
 def settling(pending, now) -> bool:
-    """Whether the lead's wake-up waits a moment for more receipts (``batch_seconds``, with 协作 on): none of ``pending`` is
-    ``urgent``, the newest ordinary one came less than the window ago, and the oldest has waited less than BATCH_STRETCH
-    windows. Topics that end within seconds of one another are then read in one turn, not one turn each. A consult's
-    receipt (``collab_answered``) wakes nobody and counts for neither."""
+    """Whether the lead's wake-up waits a moment for more receipts. A ``start`` or the owner's choice (OWN_WAKES) wakes at once.
+    Urgent receipts that come close together (``quick``: questions held from several topics, 协作 gaps, W2-C) wake once:
+    until none has come for QUICK_SECONDS, the oldest at most BATCH_STRETCH times as long; with 协作 on or off, the
+    question's 180 seconds leave room. Else, with 协作 on (``batch_seconds``), the ordinary ones: the newest came less than
+    the window ago and the oldest has waited less than BATCH_STRETCH windows. Topics that end within seconds of one another
+    are then read in one turn, not one turn each. A consult's receipt (``collab_answered``) wakes nobody and counts for
+    none."""
+    if any(item.get("kind") in OWN_WAKES for item in pending):
+        return False
+    hurried = [float(item.get("at") or 0) for item in pending if quick(item)]
+    if hurried:
+        return now - max(hurried) < QUICK_SECONDS and now - min(hurried) < QUICK_SECONDS * BATCH_STRETCH
     window = batch_seconds()
     if window <= 0 or any(urgent(item) for item in pending):
         return False

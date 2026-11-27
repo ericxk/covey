@@ -240,6 +240,15 @@ class UpgradeTest(UpCase):
         self.assertEqual((lead["harness_id"], lead["model"], lead["effort"]), ("codex", "", ""))
         self.assertTrue(lead["harness_locked"])
 
+    def test_the_start_receipt_carries_the_owners_message_the_upgrade_came_of(self):
+        # W2-C (WAVE12 C5): the lead's first turn is his, its reply sent and what it hands out relayed.
+        _, dispatch, project = self.upgraded()
+        (receipt,) = self.receipts(project["id"])
+        self.assertEqual(receipt["message_id"], "om_owner_question")
+        self.assertEqual(upgrades.owner_message(self.state, project), "om_owner_question")
+        upsert_job_record(self.state, "main-job", message_id="main-handed")  # The butler's turn was not his words.
+        self.assertEqual(upgrades.owner_message(self.state, project), "")
+
     def test_the_start_receipt_says_what_the_lead_takes_over(self):
         topic, dispatch, project = self.upgraded()
         (receipt,) = self.receipts(project["id"])
@@ -472,6 +481,17 @@ class CrashTest(UpCase):
 
 
 class DirectTest(UpCase):
+    def test_the_start_receipt_carries_the_owners_message_and_a_tidy_project_none(self):
+        # W2-C (WAVE12 C5): the owner's own start is his first turn of it.
+        answer = self.start("p1", project=True, title="迁移订单库", prompt="把订单库迁到新集群")
+        pid = answer["data"]["project_id"]
+        (receipt,) = self.receipts(pid)
+        self.assertEqual(receipt["message_id"], "om_owner_question")
+        tidy = {"origin": {"kind": "tidy", "topic_id": "t", "job_key": "main-job"}}
+        self.assertEqual(upgrades.owner_message(self.state, tidy), "")
+        gone = {"origin": {"kind": "direct", "job_key": "no-such-job"}}
+        self.assertEqual(upgrades.owner_message(self.state, gone), "")
+
     def test_topic_start_with_project_makes_a_project_card_and_a_receipt_and_opens_no_topic(self):
         answer = self.start("p1", project=True, title="迁移订单库", prompt="把订单库迁到新集群，分表要验证")
         self.assertTrue(answer["ok"], answer)

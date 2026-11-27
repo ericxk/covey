@@ -191,6 +191,27 @@ class PackTest(Case):
         self.assertIn("交付：a.csv；b.csv；c.csv", pack)
         self.assertNotIn("d.csv", pack)
 
+    def test_a_resumed_session_is_told_what_the_library_has_new_since_its_previous_turn(self):
+        # W2-C: the index came whole in the new session's pack only; a resumed one heard nothing of what came later.
+        from covey.core import project_library
+
+        self.thread("ab" * 16, "导出旧账单", 41)
+        with mock.patch.dict(os.environ, {projects.MEMORY_ENV: "1"}):
+            project_library.add_ref(self.state, PID, "path", "/absolute/old.csv", name="旧导出", topic_id="ab" * 16, now=NOW - 100)
+            for n in range(6):
+                project_library.add_ref(self.state, PID, "path", f"/absolute/out-{n}.csv", name=f"导出 {n}", topic_id="ab" * 16,
+                                        now=NOW + n)
+            pack = project_lead.state_pack(self.state, self.reload(), "lead-2", full=False, since=NOW - 1)
+            self.assertIn("资料库新增 6 条（上一轮开始以来）：\n- 导出 5（话题的产物", pack)
+            self.assertIn("T41）：/absolute/out-5.csv", pack)
+            self.assertIn("- 另有 2 条（新会话的状态包里列全）", pack)
+            self.assertNotIn("旧导出", pack)
+            added = pack[pack.index("资料库新增"):].split("\n\n")[0].splitlines()
+            self.assertEqual(len(added) - 1, project_lead.LIBRARY_ADDED)  # Its lines, the head aside: at most five.
+            self.assertNotIn("资料库新增", project_lead.state_pack(self.state, self.reload(), "lead-2", full=False, since=NOW + 10))
+            self.assertNotIn("资料库新增", project_lead.state_pack(self.state, self.reload(), "lead-2", full=True))
+        self.assertNotIn("资料库新增", project_lead.state_pack(self.state, self.reload(), "lead-2", full=False, since=NOW - 1))
+
     def test_a_project_without_threads_or_a_goal_says_so(self):
         projects.update(self.state, PID, lambda r: r.update(goal=""))
         pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=True)
@@ -227,6 +248,59 @@ class InboxTest(Case):
         project_lead.take_receipts(self.state, PID, "lead-1")
         self.lead_job("lead-1", status="running")
         self.assertEqual(project_lead.take_receipts(self.state, PID, "lead-2"), [])
+
+    def test_receipts_a_turn_the_owner_stopped_took_stay_with_it_and_the_next_pack_says_how_many(self):
+        # W2-C: his stop is not undone by a wake-up for the same receipts.
+        from covey.app import project_loop
+
+        self.thread("ab" * 16, "导出旧账单", 41)
+        project_lead.add_receipt(self.state, PID, "thread_end", "T41 的任务 #3 做完", thread="ab" * 16, at=NOW)
+        project_lead.add_receipt(self.state, PID, "owner_said", "主人说先停一下", at=NOW + 5)
+        project_lead.take_receipts(self.state, PID, "lead-1")
+        self.lead_job("lead-1", status="cancelled", cancel_requested_by="card")
+        self.assertEqual(project_lead.take_receipts(self.state, PID, "lead-2"), [])
+        self.assertEqual(project_loop.unread(self.state, PID), [])  # Nothing wakes the lead for them again.
+        pack = project_lead.state_pack(self.state, self.reload(), "lead-2", full=False)
+        self.assertIn("上一轮被主人停了，它拿到的 2 条回执没读完（不会再为它们叫醒你）：", pack)
+        self.assertIn("thread_end（T41）：T41 的任务 #3 做完", pack)
+        new = project_lead.add_receipt(self.state, PID, "thread_end", "T41 的任务 #4 做完", thread="ab" * 16, at=NOW + 9)
+        self.assertEqual([item["id"] for item in project_loop.unread(self.state, PID)], [new["id"]])  # A new one wakes as ever.
+        self.lead_job("lead-2", job_id=2, status="done")
+        self.assertNotIn("上一轮被主人停了", project_lead.state_pack(self.state, self.reload(), "lead-3", full=False))
+
+    def test_a_stop_not_the_owners_gives_the_receipts_back(self):
+        for by in ("guard", "lead", ""):
+            with self.subTest(by=by):
+                item = project_lead.add_receipt(self.state, PID, "thread_end", f"x{by}", at=NOW)
+                project_lead.take_receipts(self.state, PID, f"lead-{by}-1")
+                self.lead_job(f"lead-{by}-1", status="cancelled", cancel_requested_by=by)
+                self.assertIn(item["id"], [row["id"] for row in project_lead.take_receipts(self.state, PID, f"lead-{by}-2")])
+                self.lead_job(f"lead-{by}-2", status="done")
+
+    def test_a_full_inbox_gives_what_to_look_at_first_then_the_newest_and_counts_the_rest(self):
+        question = project_lead.add_receipt(self.state, PID, "question", "T41 在问", at=NOW - 100)
+        ends = [project_lead.add_receipt(self.state, PID, "thread_end", f"第 {n} 个", at=NOW + n) for n in range(25)]
+        taken = project_lead.take_receipts(self.state, PID, "lead-1")
+        self.assertEqual([item["id"] for item in taken], [question["id"], *(item["id"] for item in ends[6:])])  # Oldest first.
+        self.assertEqual(taken.left, 6)
+        peeked = project_lead.peek_receipts(self.state, PID)  # A consult reads what a turn would be given.
+        self.assertEqual(([item["id"] for item in peeked], peeked.left), ([question["id"], *(item["id"] for item in ends[6:])], 6))
+        pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=False)
+        self.assertIn("另有 6 条较早的回执这一轮没给，下一轮接着给。", pack)
+        self.assertIn("第 24 个", pack)
+        self.assertNotIn("第 5 个", pack)
+        self.lead_job("lead-1", status="done")
+        later = project_lead.take_receipts(self.state, PID, "lead-2")  # The next turn gets the rest.
+        self.assertEqual(([item["id"] for item in later], later.left), ([item["id"] for item in ends[:6]], 0))
+
+    def test_a_receipt_names_its_topic_by_number(self):
+        self.thread("ab" * 16, "导出旧账单", 41)
+        item = project_lead.add_receipt(self.state, PID, "thread_end", "做完了", thread="ab" * 16, at=NOW)
+        self.assertEqual(item["label"], "T41")
+        self.assertNotIn("label", project_lead.add_receipt(self.state, PID, "stalled", "没动静", at=NOW))
+        pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=False)  # 协作 off: a line each.
+        self.assertIn("thread_end（T41）：做完了", pack)
+        self.assertNotIn("abababab", pack)
 
 
 class RebuildTest(Case):

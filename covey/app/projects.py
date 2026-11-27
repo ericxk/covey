@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 
 from covey.app import (butler_harness, dispatch_cards, lead_harness, project_cards, project_facts, project_lead, project_loop,
-                       revisits)
+                       relay_targets, revisits)
 from covey.app.project_clicks import topic_ctx
 from covey.app.project_members import GATHERED_NOTE, topic_line, wanted_topics
 from covey.app.butler_env import arg_text, reply
@@ -38,7 +38,8 @@ from covey.core import dispatch_records as drecords
 from covey.core import env as cenv
 from covey.core import butler, butler_opened, butler_settings, devices, projects
 from covey.core.card_sequence import file_card, reserve
-from covey.core.jobs import topic_job_records
+from covey.core import turn_source
+from covey.core.jobs import find_job_record, topic_job_records
 from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.loops import every
 from covey.core.state import read_object, write_json
@@ -96,6 +97,29 @@ def has_receipt(state_dir, pid, kind) -> bool:
     except OSError:
         return False
     return any(read_object(path).get("kind") == kind for path in paths)
+
+
+def owner_message(state, record) -> str:
+    """The owner's own message (core/turn_source.py DIRECT: Feishu's, the web page's) that ``record``'s project came of: for
+    a direct start, the one the butler's turn that started it answers; for an upgrade, the one its 派发卡 answered
+    (core/dispatch_records.py ``owner_message``); either only when that butler turn's words are the owner's
+    (turn_source.level). '' for a project 整理专项 made (no word of his began it) and when none is known. Never raises."""
+    origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
+    try:
+        if origin.get("kind") == "direct":
+            key, given = str(origin.get("job_key") or ""), ""
+        elif origin.get("kind") == "upgrade":
+            dispatch = read_object(drecords.record_path(state, str(origin.get("token") or "")))
+            key, given = str(dispatch.get("job_key") or ""), str(dispatch.get("owner_message") or "")
+        else:
+            return ""
+        job = find_job_record(Path(state), key) or {} if key else {}
+        if not job or turn_source.level(job) != turn_source.LEVEL_OWNER:
+            return ""  # The butler's turn was not the owner's words (a topic's ask, a hand-on), or it is gone.
+        found = given or relay_targets.butler_job_owner_message(state, key) or str(job.get("message_id") or "")
+    except Exception:  # noqa: BLE001 - the start receipt goes without it: the first turn is a wake-up as before
+        return ""
+    return found if found.startswith(turn_source.DIRECT) else ""
 
 
 def steps_of(record):
@@ -469,13 +493,15 @@ class Projects:
 
     def step_receipt(self, record) -> bool:
         """The start receipt in the lead's inbox: an upgrade says what the lead takes over, a direct start has the owner's
-        request as he wrote it, 整理专项's the topics it gathered. Once, whatever happened to the step before."""
+        request as he wrote it, 整理专项's the topics it gathered. Once, whatever happened to the step before. It carries the
+        owner's message the project came of (``owner_message``), so the lead's first turn is his (WAVE12 C5, W2-C)."""
         state, pid, origin = Path(self.env.state_dir), record["id"], record.get("origin") or {}
         if not has_receipt(state, pid, "start"):
             text = (self.handover(state, record) if origin.get("kind") == "upgrade"
                     else self.gathered(state, record) if origin.get("kind") == "tidy"
                     else self.started(state, record))
-            project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "")
+            project_lead.add_receipt(state, pid, "start", text, thread=origin.get("topic_id") or "",
+                                     message_id=owner_message(state, record))
         return True
 
     @staticmethod
