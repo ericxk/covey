@@ -1366,3 +1366,155 @@ class TurnSourceStampTest(unittest.TestCase):
                                       "def f():\n    turn_source.stamp('owner')\n")]
         self.assertEqual(self.stamps(sources), {"covey/app/a.py::<module>::relay": 1, "covey/app/a.py::<module>::answer_for": 1,
                                                 "covey/app/a.py::f::owner": 1})
+
+
+# G1 (W1-F, C11): a read for a write. read_object hands back {} for a file that is there but cannot be read for a moment (a
+# network disk's passing error, a torn file); a function that reads a record so and writes it back writes over all of it with
+# only what it changed (settings reset to their defaults, a ledger emptied). Such a read is state.read_for_write (or
+# state.update_json), which refuses: core/state.py Unreadable.
+STATE_READS = {"read_object"}
+STATE_WRITES = {"write_json", "write_private_text", "write_durable_json", "atomic_write_bytes"}
+STATE_WRITES_FILE = REPO / "tests" / "golden" / "state_writes.json"
+
+
+def _called(func):
+    return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+
+
+def _record_read(call):
+    """read_object(...), or read_json(path, default): a read that is {} (the default) when the file cannot be read."""
+    name = _called(call.func)
+    return name in STATE_READS or (name == "read_json" and (len(call.args) >= 2 or any(k.arg == "default" for k in call.keywords)))
+
+
+def _names_in(node):
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+
+def state_writes(source, rel):
+    """[(``rel:function``, line)] of the functions of ``source`` (methods as ``Class.method``; nested functions count as
+    their outer one's) that read a record for a write: a record read (``_record_read``) of the path a write in the same
+    function writes, a call of a reader of this module (a top-level function with a record read and no write) on the names
+    that path is made of, or ``{**read_object(...)}`` in a function that writes."""
+    tree = ast.parse(source)
+    readers = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            calls = [n for n in ast.walk(node) if isinstance(n, ast.Call)]
+            if any(_record_read(c) for c in calls) and not any(_called(c.func) in STATE_WRITES for c in calls):
+                readers.add(node.name)
+    found = []
+
+    def check(func, name):
+        calls = [n for n in ast.walk(func) if isinstance(n, ast.Call)]
+        writes = [c.args[0] for c in calls if _called(c.func) in STATE_WRITES and c.args]
+        if not writes:
+            return
+        local = {}
+        for n in ast.walk(func):
+            if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+                local.setdefault(n.targets[0].id, n.value)
+        paths = {ast.dump(target) for target in writes}
+        made_of = []
+        for target in writes:
+            names = _names_in(target)
+            made_of.append(names.union(*(_names_in(local[n]) for n in names if n in local)))
+        for c in calls:
+            if _record_read(c) and c.args and ast.dump(c.args[0]) in paths:
+                found.append((f"{rel}:{name}", c.lineno))
+                return
+            if isinstance(c.func, ast.Name) and c.func.id in readers and c.func.id != func.name and c.args:
+                given = set().union(*(_names_in(a) for a in c.args))
+                if given and any(given <= names for names in made_of):
+                    found.append((f"{rel}:{name}", c.lineno))
+                    return
+        for d in ast.walk(func):
+            if isinstance(d, ast.Dict) and any(k is None and isinstance(v, ast.Call) and _called(v.func) in STATE_READS
+                                               for k, v in zip(d.keys, d.values)):
+                found.append((f"{rel}:{name}", d.lineno))
+                return
+
+    def visit(body, prefix):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                check(node, prefix + node.name)
+            elif isinstance(node, ast.ClassDef):
+                visit(node.body, prefix + node.name + ".")
+    visit(tree.body, "")
+    return found
+
+
+class StateWriteTest(unittest.TestCase):
+    """G1 (W1-F): no new read for a write through read_object; the functions found today are listed in
+    tests/golden/state_writes.json, which only shrinks."""
+
+    def allowed(self):
+        import json
+        return set(json.loads(STATE_WRITES_FILE.read_text())["allowed"])
+
+    def found(self):
+        rows = []
+        for path in sorted(PACKAGE.rglob("*.py")):
+            rows += state_writes(path.read_text(), path.relative_to(PACKAGE).as_posix())
+        return rows
+
+    def test_a_record_written_back_is_read_with_read_for_write(self):
+        allowed = self.allowed()
+        found = self.found()
+        new = [f"{name} (line {line})" for name, line in found if name not in allowed]
+        self.assertEqual(new, [], "写回同一个文件前的读改用 core/state.py read_for_write（或 update_json），读不出就不写"
+                                  "（tests/golden/state_writes.json 只减不增）")
+        gone = sorted(allowed - {name for name, _ in found})
+        self.assertEqual(gone, [], "这些函数已经不再这样读了：从 tests/golden/state_writes.json 去掉")
+
+    def test_the_scan_finds_each_kind_of_read_for_a_write(self):
+        bad = textwrap.dedent('''
+            from covey.core.state import read_object, read_json, write_json
+            def load(state_dir):
+                return read_object(path(state_dir))
+            def plain(state_dir):
+                with lock():
+                    data = read_object(path(state_dir))
+                    write_json(path(state_dir), {**data, "a": 1})
+            def by_name(state_dir):
+                target = path(state_dir)
+                data = read_json(target, {})
+                write_json(target, data)
+            def by_reader(state_dir):
+                target = path(state_dir)
+                data = load(state_dir)
+                write_json(target, data)
+            def spread(state_dir, other):
+                write_json(other, {**read_object(somewhere()), "b": 2})
+            class Panel:
+                def save(self, path):
+                    found = read_object(path)
+                    def change():
+                        write_json(path, found)
+                    change()
+        ''')
+        self.assertEqual([name for name, _ in state_writes(bad, "x.py")],
+                         ["x.py:plain", "x.py:by_name", "x.py:by_reader", "x.py:spread", "x.py:Panel.save"])
+        good = textwrap.dedent('''
+            from covey.core.state import read_for_write, read_json, read_object, update_json, write_json
+            def plain(state_dir):
+                with lock():
+                    data = read_for_write(path(state_dir))
+                    write_json(path(state_dir), {**data, "a": 1})
+            def updated(state_dir):
+                update_json(path(state_dir), lambda data: data.update(a=1))
+            def raises(state_dir):
+                write_json(path(state_dir), read_json(path(state_dir)))
+            def reads_only(state_dir):
+                return {**read_object(path(state_dir)), "b": 2}
+            def other_file(state_dir):
+                write_json(path(state_dir, "b"), read_object(path(state_dir, "a")))
+        ''')
+        self.assertEqual(state_writes(good, "y.py"), [])
+
+    def test_a_stale_or_new_entry_fails(self):
+        allowed = self.allowed()
+        found = {name for name, _ in self.found()}
+        self.assertTrue(allowed, "G1 的白名单不该是空的：真清空了就把这条改掉")
+        self.assertLessEqual(allowed, found)
+        self.assertNotIn("x.py:plain", allowed)
