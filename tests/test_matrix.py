@@ -9,7 +9,7 @@ detail stays in its own tests (test_claude, test_codex, test_agy, test_dsh, test
 话题 · 只读首轮 (LOOK, W1-C contract C6, gate G8) is a row of its own (``LookRowTest``): on each Harness, whether a turn the
 butler started without the owner's click writes only its checkpoint and the topic's outputs directory (the path gate, its
 ``.git`` refusal, its shell) and whether the topic's next turn is free again; what the gate leaves to the words is in
-``BOUNDS``, and the company extension's MASO, outside the roster, in ``EXTENSION_CELLS``.
+``BOUNDS``, and an extension's Harness, outside the roster, in ``EXTENSION_CELLS``.
 
 A cell left out is what the owner kept finding by hand: the butler only on Claude Code (T614), a lead that could not choose
 its Harness (T664), the butler on Antigravity without topic_start (T750, T754), a topic opened on the web page whose outcome
@@ -234,9 +234,10 @@ BOUNDS = {
     "agy": "命令行不拦（见 GAPS）；agy 1.5.18 的 edit_file 按 write_file 的权限名检查，FILE_WRITES 补齐的四个名字是防旧名和新版本的",
     "dsh": "只有文字约束（见 GAPS）",
 }
-# The company extension's Harness, outside CORE_HARNESSES (its own tests: extensions/covey_internal/tests).
+# An extension's Harness, outside CORE_HARNESSES (each extension's own tests ask its cells).
 EXTENSION_CELLS = {
-    (LOOK_GATE, "maso"): "MASO：只读首轮只有文字约束（maso/bridge.py prompt_notes 对齐 C6 口径：只写检查点和产物目录），没有路径闸",
+    (LOOK_GATE, "扩展的 Harness"): "没声明 look_gate 的：只读首轮只有文字约束（app/tool_limits.py LOOK_WORDS：只写检查点和产物目录），"
+                                  "扩展自己的提示对齐同一口径，由扩展自己的测试核对",
 }
 
 
