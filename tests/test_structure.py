@@ -1102,3 +1102,267 @@ class AssistExitTest(unittest.TestCase):
         for feature, rel in users.items():
             with self.subTest(feature=feature):
                 self.assertIn("assist", (PACKAGE / rel).read_text())
+
+
+# WAVE12 C11 gates G6 and G9 (W1-0 sets them up with every caller of today listed; W1-D and W1-B take the lists down). A
+# source of the package, and of the extensions a release carries beside it (extensions/), is read as its AST: an alias of
+# a module (``from covey.core import memstore as ms``) or of a function (``from covey.core.memstore import add as put``)
+# is still found. A listed caller that is gone fails too, so a list only shrinks.
+def gated_sources():
+    roots = [PACKAGE] + ([REPO / "extensions"] if (REPO / "extensions").is_dir() else [])
+    for root in roots:
+        for path in sorted(root.rglob("*.py")):
+            yield path.relative_to(REPO).as_posix(), path.read_text(encoding="utf-8")
+
+
+class _Calls(ast.NodeVisitor):
+    """The calls of one module to the functions of ``modules`` ({dotted module: {function, …}}) and to the names of
+    ``classes`` ({dotted module: {class, …}}), each as (qualified name of the enclosing def or class, "module.function",
+    the Call node), through whatever alias the module gave them."""
+
+    def __init__(self, modules, classes=None):
+        self.targets = {**{m: set(f) for m, f in modules.items()}}
+        for module, names in (classes or {}).items():
+            self.targets.setdefault(module, set()).update(names)
+        self.module_alias = {}  # Local name → dotted module.
+        self.name_alias = {}  # Local name → (dotted module, function).
+        self.stack = []
+        self.found = []
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            if alias.name in self.targets and alias.asname:
+                self.module_alias[alias.asname] = alias.name
+
+    def visit_ImportFrom(self, node):
+        for alias in node.names:
+            dotted = f"{node.module}.{alias.name}"
+            if dotted in self.targets:
+                self.module_alias[alias.asname or alias.name] = dotted
+            elif node.module in self.targets and alias.name in self.targets[node.module]:
+                self.name_alias[alias.asname or alias.name] = (node.module, alias.name)
+
+    def visit_Assign(self, node):
+        if isinstance(node.value, ast.Name) and node.value.id in self.module_alias:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.module_alias[target.id] = self.module_alias[node.value.id]
+        self.generic_visit(node)
+
+    def _scoped(self, node):
+        self.stack.append(node.name)
+        self.generic_visit(node)
+        self.stack.pop()
+
+    visit_FunctionDef = visit_AsyncFunctionDef = visit_ClassDef = _scoped
+
+    def _target(self, func):
+        if isinstance(func, ast.Name) and func.id in self.name_alias:
+            return self.name_alias[func.id]
+        if isinstance(func, ast.Attribute):
+            owner = func.value
+            dotted = self.module_alias.get(owner.id) if isinstance(owner, ast.Name) else None
+            if dotted is None and isinstance(owner, (ast.Attribute, ast.Name)):
+                dotted = ast.unparse(owner) if ast.unparse(owner) in self.targets else None
+            if dotted and func.attr in self.targets[dotted]:
+                return dotted, func.attr
+        return None
+
+    def visit_Call(self, node):
+        target = self._target(node.func)
+        if target:
+            self.found.append((".".join(self.stack) or "<module>", f"{target[0].rsplit('.', 1)[-1]}.{target[1]}", node))
+        self.generic_visit(node)
+
+
+def module_calls(source, modules, classes=None):
+    visitor = _Calls(modules, classes)
+    visitor.visit(ast.parse(source))
+    return visitor.found
+
+
+def counted(keys):
+    found = {}
+    for key in keys:
+        found[key] = found.get(key, 0) + 1
+    return found
+
+
+def against(found, listed):
+    """(new callers, listed callers that are gone or fewer): both empty when the list says what the code does."""
+    new = {key: count for key, count in found.items() if count > listed.get(key, 0)}
+    stale = {key: count for key, count in listed.items() if found.get(key, 0) < count}
+    return new, stale
+
+
+class MemoryWriteTest(unittest.TestCase):
+    """G6 (WAVE12 C11): core/memstore.py's writes and principles.save are called only by core/memory_gate.py and the store's
+    own modules; core/memory_gate.py's Proven is made only by app/memory_proof.py. Today's callers are listed (``WRITES``)
+    until W1-D moves them behind core/memory_gate.py write and revise."""
+
+    STORE = {"covey.core.memstore": {"add", "add_decision", "supersede", "archive", "settle", "set_status"},
+             "covey.core.principles": {"save"}}
+    PROOF = {"covey.core.memory_gate": {"Proven"}}
+    OWN = {"covey/core/memory_gate.py", "covey/core/memstore.py", "covey/core/memory_review.py", "covey/core/migrate.py"}
+    MAKER = "covey/app/memory_proof.py"
+    WRITES = {  # "<file>::<enclosing def>::<module>.<function>": calls.
+        "covey/app/butler_knowledge.py::memory_revise::memstore.add": 1,
+        "covey/app/butler_knowledge.py::memory_revise::memstore.add_decision": 1,
+        "covey/app/butler_knowledge.py::memory_revise::memstore.supersede": 1,
+        "covey/app/butler_knowledge.py::memory_save::memstore.add": 1,
+        "covey/app/butler_knowledge.py::memory_save::memstore.add_decision": 1,
+        "covey/app/butler_tools.py::principle_save::principles.save": 1,
+        "covey/app/knowledge_collect.py::_remember::memstore.add": 1,
+        "covey/app/memory_candidates.py::decide::principles.save": 1,
+        "covey/app/memory_collect.py::_take::memstore.add": 1,
+        "covey/app/memory_collect.py::promote::principles.save": 1,
+        "covey/app/memory_panel.py::MemoryPanel.put_away::memstore.archive": 1,
+        "covey/app/project_context.py::remember_answer::memstore.add_decision": 1,
+        "covey/app/project_tools.py::remember_new::memstore.add": 1,
+        "covey/app/project_tools.py::revise_decision::memstore.settle": 1,
+        "covey/app/project_tools.py::revise_decision::memstore.supersede": 1,
+        "covey/app/question_dedup.py::settle::memstore.add": 1,
+        "covey/app/web_memory.py::_add_one::principles.save": 1,
+        "covey/app/web_memory.py::_baseline_decide::memstore.archive": 1,
+        "covey/app/web_memory.py::_write_item::memstore.add": 1,
+        "covey/app/web_memory.py::_write_item::memstore.add_decision": 1,
+        "covey/app/web_memory.py::edit_v43::memstore.add": 1,
+        "covey/app/web_memory.py::edit_v43::memstore.add_decision": 1,
+        "covey/core/harness_memory.py::take::memstore.add": 1,  # 采纳 a Harness's own memory (W1-D).
+    }
+
+    @classmethod
+    def writes(cls, sources):
+        keys = []
+        for rel, source in sources:
+            if rel not in cls.OWN:
+                keys += [f"{rel}::{scope}::{name}" for scope, name, _ in module_calls(source, cls.STORE)]
+        return counted(keys)
+
+    @classmethod
+    def proofs(cls, sources):
+        return [f"{rel}:{node.lineno}" for rel, source in sources if rel != cls.MAKER
+                for _, _, node in module_calls(source, {}, cls.PROOF)]
+
+    def test_only_the_gate_and_the_store_write_memory_and_the_callers_of_today_are_listed(self):
+        new, stale = against(self.writes(gated_sources()), self.WRITES)
+        self.assertEqual(new, {}, "记忆写入走 core/memory_gate.py write / revise（WAVE12 C8），不要直接调 core/memstore.py")
+        self.assertEqual(stale, {}, "这几处已经不直接写了：把它们从 WRITES 里删掉")
+
+    def test_only_memory_proof_makes_a_proven(self):
+        self.assertEqual(self.proofs(gated_sources()), [], "Proven 只由 app/memory_proof.py 核对后构造")
+
+    def test_an_alias_a_new_caller_and_a_stale_listing_are_caught(self):
+        sources = [("covey/app/a.py", "from covey.core import memstore as ms\ndef f():\n    ms.add(1)\n    ms.find(1)\n"),
+                   ("covey/app/b.py", "from covey.core.memstore import settle as done\ndone(1)\n"),
+                   ("covey/app/c.py", "import covey.core.principles as p\nclass K:\n    def g(self):\n        p.save(1)\n"),
+                   ("covey/app/d.py", "from covey.core import memstore\nstore = memstore\nstore.archive(1)\n"),
+                   ("covey/core/memstore.py", "def add():\n    pass\nadd()\n"),
+                   ("covey/app/e.py", "from covey.core.memory_gate import Proven as P\nP(1, 'owner')\n"),
+                   ("covey/app/memory_proof.py", "from covey.core import memory_gate\nmemory_gate.Proven(1, 'owner')\n")]
+        found = self.writes(sources)
+        self.assertEqual(found, {"covey/app/a.py::f::memstore.add": 1, "covey/app/b.py::<module>::memstore.settle": 1,
+                                 "covey/app/c.py::K.g::principles.save": 1, "covey/app/d.py::<module>::memstore.archive": 1})
+        new, stale = against(found, {"covey/app/a.py::f::memstore.add": 1, "covey/app/gone.py::f::memstore.add": 1})
+        self.assertEqual(set(new), {"covey/app/b.py::<module>::memstore.settle", "covey/app/c.py::K.g::principles.save",
+                                    "covey/app/d.py::<module>::memstore.archive"})
+        self.assertEqual(stale, {"covey/app/gone.py::f::memstore.add": 1})
+        self.assertEqual(self.proofs(sources), ["covey/app/e.py:2"])
+
+
+class AnswerSourceTest(unittest.TestCase):
+    """G9 (WAVE12 C11): every call of ``submit_answer`` or ``submit_question_feedback`` says who answered (keyword ``by``:
+    an app/answers.py AnswerBy, or as before an open_id), and a core/memory_gate.py write of a decision carries its
+    ``proof``. Today's calls without ``by`` are listed (``UNSAID``) until W1-B gives each its AnswerBy."""
+
+    METHODS = {"submit_answer", "submit_question_feedback"}
+    GATE = {"covey.core.memory_gate": {"write"}}
+    UNSAID = {  # "<file>::<enclosing def>::<method>": calls without ``by``.
+        "covey/app/held_notes.py::HeldNotes.note_action::submit_question_feedback": 1,
+        "covey/app/interaction.py::Interaction.interaction_action::submit_question_feedback": 1,
+        "covey/app/questions.py::Questions.resume_saved_answer::submit_answer": 1,
+        "covey/app/runner_ipc.py::take_inbox::submit_answer": 1,  # Passes the runner's ``by`` on when it sent one.
+        "covey/app/triage.py::answer::submit_answer": 1,
+    }
+
+    @classmethod
+    def unsaid(cls, sources):
+        keys = []
+        for rel, source in sources:
+            stack = []
+
+            def walk(node):
+                scoped = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                if scoped:
+                    stack.append(node.name)
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in cls.METHODS
+                        and not any(keyword.arg == "by" for keyword in node.keywords)):
+                    keys.append(f"{rel}::{'.'.join(stack) or '<module>'}::{node.func.attr}")
+                for child in ast.iter_child_nodes(node):
+                    walk(child)
+                if scoped:
+                    stack.pop()
+
+            walk(ast.parse(source))
+        return counted(keys)
+
+    @classmethod
+    def unproven(cls, sources):
+        return [f"{rel}:{node.lineno}" for rel, source in sources for _, _, node in module_calls(source, cls.GATE)
+                if any(k.arg == "decision" for k in node.keywords) and not any(k.arg == "proof" for k in node.keywords)]
+
+    def test_every_answer_says_who_gave_it_and_the_calls_of_today_are_listed(self):
+        new, stale = against(self.unsaid(gated_sources()), self.UNSAID)
+        self.assertEqual(new, {}, "submit_answer / submit_question_feedback 要带 by=（app/answers.py AnswerBy，WAVE12 C2）")
+        self.assertEqual(stale, {}, "这几处已经带上 by 了：把它们从 UNSAID 里删掉")
+
+    def test_a_decision_written_through_the_gate_carries_its_proof(self):
+        self.assertEqual(self.unproven(gated_sources()), [], "带 decision= 的 memory_gate.write 要带 proof=")
+
+    def test_a_call_without_by_a_written_decision_without_proof_and_a_stale_listing_are_caught(self):
+        sources = [("covey/app/a.py", "class Q:\n    def f(self):\n        self.q.submit_answer(1, by=None)\n"
+                                      "        self.q.submit_answer(1, **extra)\n        self.q.submit_question_feedback(1)\n"),
+                   ("covey/app/b.py", "from covey.core import memory_gate as gate\ngate.write(1, decision={}, by='lead')\n"
+                                      "gate.write(1, decision={}, proof=None)\ngate.write(1, by='lead')\n")]
+        found = self.unsaid(sources)
+        self.assertEqual(found, {"covey/app/a.py::Q.f::submit_answer": 1, "covey/app/a.py::Q.f::submit_question_feedback": 1})
+        new, stale = against(found, {"covey/app/a.py::Q.f::submit_answer": 1, "covey/app/gone.py::f::submit_answer": 1})
+        self.assertEqual(set(new), {"covey/app/a.py::Q.f::submit_question_feedback"})
+        self.assertEqual(stale, {"covey/app/gone.py::f::submit_answer": 1})
+        self.assertEqual(self.unproven(sources), ["covey/app/b.py:2"])
+
+
+class TurnSourceStampTest(unittest.TestCase):
+    """WAVE12 W1-0 reads the five new kinds of core/turn_source.py and stamps none: no module makes a field of one
+    (``make`` or a ``stamp`` with it). The package that stamps a kind lists where (``STAMPED``)."""
+
+    NEW = {"relay", "lead", "wake", "answer", "answer_for"}
+    NAMES = {"RELAY", "LEAD", "WAKE", "ANSWER", "ANSWER_FOR"}
+    STAMPED = {}  # "<file>::<enclosing def>::<kind>": calls (W1-B, W1-A).
+
+    @classmethod
+    def stamps(cls, sources):
+        keys = []
+        for rel, source in sources:
+            if rel == "covey/core/turn_source.py":
+                continue
+            for scope, name, node in module_calls(source, {"covey.core.turn_source": {"make", "stamp"}}):
+                first = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "kind_"), None)
+                kind = (first.value if isinstance(first, ast.Constant) else
+                        first.attr if isinstance(first, ast.Attribute) else first.id if isinstance(first, ast.Name) else "")
+                kind = {name.lower(): name.lower() for name in cls.NAMES}.get(str(kind).lower(), str(kind))
+                if name.endswith(".stamp") or kind in cls.NEW:
+                    keys.append(f"{rel}::{scope}::{kind}")
+        return counted(keys)
+
+    def test_no_module_stamps_a_new_kind_yet(self):
+        new, stale = against(self.stamps(gated_sources()), self.STAMPED)
+        self.assertEqual(new, {}, "新 kind 的盖章归 W1-B / W1-A：盖的那个包在 STAMPED 里登记")
+        self.assertEqual(stale, {})
+
+    def test_a_stamp_by_constant_by_name_or_by_stamp_is_caught(self):
+        sources = [("covey/app/a.py", "from covey.core import turn_source\nturn_source.make(turn_source.RELAY, asserted_by='butler')\n"
+                                      "turn_source.make('answer_for', asserted_by='lead')\nturn_source.make(turn_source.ASK, asserted_by='topic')\n"
+                                      "def f():\n    turn_source.stamp('owner')\n")]
+        self.assertEqual(self.stamps(sources), {"covey/app/a.py::<module>::relay": 1, "covey/app/a.py::<module>::answer_for": 1,
+                                                "covey/app/a.py::f::owner": 1})

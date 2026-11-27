@@ -169,6 +169,7 @@
 | `app/memory_learn.py` | 记忆自己长, one turn at a time |
 | `app/memory_observe.py` | What the Bridge sees of a turn's use of the memory: the strong signals the ranking counts, nothing else |
 | `app/memory_panel.py` | The 设置 card's 记忆 tab, shown when COVEY_MEMORY=1 |
+| `app/memory_proof.py` | Checks that a memory write's proof is the owner's words (WAVE12 C8) |
 | `app/memory_tidy.py` | 整理记忆, once a day: at the evening digest what the memory holds is put in order by rules alone (no model), so a … |
 | `app/memory_turn.py` | What a turn reads of the owner's memory, for app/runs.py |
 | `app/menu_panel.py` | A card the bot menu sends to the owner's private chat: no topic, no job, one card a menu click |
@@ -199,6 +200,7 @@
 | `app/project_tools.py` | The tools of a project's lead, handlers as app/butler_env.py describes them |
 | `app/projects.py` | 专项的升级、直接开专项和降级 |
 | `app/prompts.py` | Shared prompt builders: the bridge rules and each turn's message |
+| `app/provenance.py` | Whether a turn's words are the owner's own |
 | `app/proxy.py` | Proxy replies (代答), the Bridge's side |
 | `app/proxy_commands.py` | Proxy replies (代答): what the 代答设置 card asks for, its settings, and finding the contacts to whitelist |
 | `app/proxy_intake.py` | Proxy replies (代答): taking messages in, as the owner (the IM events are the bot's and never show the owner's … |
@@ -361,6 +363,7 @@
 | --- | --- |
 | `core/agy_home.py` | A HOME of its own for one Antigravity (`agy`) run that must leave nothing behind |
 | `core/app_manifest.py` | What the Feishu app behind a Bridge must have, and what its online version lacks |
+| `core/ask_kinds.py` | 照常要问主人的五类事 (部署、删除、花钱、对外发送、占机器) in one place |
 | `core/assist.py` | 辅助模型: what the background model calls (分流, 整理专项, 看看, 记忆) share across processes, in … |
 | `core/attachments.py` | Image attachments a Harness hands its model itself (Claude Code's stream-json input) |
 | `core/avatars.py` | The avatars of the private chat's cards: which picture a speaker has, and the image keys Feishu gave them |

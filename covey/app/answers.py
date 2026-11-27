@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 
 from covey.app.held_notes import note_parts
 from covey.app.question_dedup import EXTRA_ANSWERS, extra_answers
@@ -22,6 +23,24 @@ from covey.cards.review import compact_text
 
 class AnswerIncomplete(ValueError):
     """The submitted form cannot be an answer yet; nothing was saved or sent."""
+
+
+@dataclass(frozen=True)
+class AnswerBy:
+    """Who answered a question, and how (WAVE12 C2). app/questions.py submit_answer takes one or, as before, the open_id
+    of who clicked (a string; a task runner of an older release sends that), and reads its ``open_id`` (``open_id_of``)."""
+
+    party: str  # core/turn_source.py PARTY_OWNER / PARTY_BUTLER / PARTY_LEAD
+    channel: str  # "card" | "message" | "web" | "tool"
+    open_id: str = ""  # Who clicked (a card's).
+    message_id: str = ""  # The owner's message: his own (message), the one the butler answers by (tool), the page's op (web).
+
+
+def open_id_of(by):
+    """The open_id ``by`` names: an AnswerBy's (None when it has none); anything else (an open_id, None) as it is."""
+    if isinstance(by, AnswerBy):
+        return by.open_id or None
+    return by
 
 
 SKIPPED = "用户选择不回答此题（不表示同意或授权）"

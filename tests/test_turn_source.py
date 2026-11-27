@@ -15,12 +15,13 @@ from covey.app.app import BridgeApp
 from covey.app.runner_spawn import dump_job, load_job
 from covey.core import turn_source
 from covey.core.harness import HarnessCapabilities
-from covey.core.jobs import BridgeReplyJob, find_job_record, record_bridge_job_state
+from covey.core.jobs import BridgeReplyJob, find_job_record, record_bridge_job_state, upsert_job_record
 from covey.core.turn_source import ASK, HANDOVER, LEGACY, MALFORMED, OWNER, REPLY
 
 REPO = Path(__file__).resolve().parent.parent
 FULL = HarnessCapabilities(read_only=True, collab=True)
-ALL_KINDS = frozenset({OWNER, ASK, REPLY, HANDOVER})
+NEW_KINDS = frozenset({"relay", "lead", "wake", "answer", "answer_for"})  # WAVE12 C1: read and run from W1-0, stamped later.
+ALL_KINDS = frozenset({OWNER, ASK, REPLY, HANDOVER, *NEW_KINDS})
 
 
 def asked(**extra):
@@ -95,7 +96,7 @@ class KindsTest(unittest.TestCase):
         self.assertFalse(handover.answers_questions)
         self.assertEqual(set(turn_source.BEHAVIOR), {LEGACY, *ALL_KINDS})
         self.assertEqual(turn_source.KINDS, ALL_KINDS)
-        self.assertEqual(turn_source.RUNS, {OWNER, HANDOVER, ASK, REPLY})
+        self.assertEqual(turn_source.RUNS, ALL_KINDS)
 
     def test_the_first_item_with_a_source_decides(self):
         job = BridgeReplyJob(job_id=1, user_text="", chat_id="c", message_id="om_1", timeout=0)
@@ -126,6 +127,128 @@ class ProvenanceTest(unittest.TestCase):
                          (1, ASK, "bridge", "topic", "agent", "c1"))
         with self.assertRaises(ValueError):
             turn_source.make("lead_wake", asserted_by="bridge")
+
+
+# WAVE12 C1: the five kinds of the hands-on and continuations, cell by cell (owner_words, answers_questions, steers,
+# read_only, own_delivery, owner_send).
+TABLE = {
+    "relay": (False, False, True, False, True, True),
+    "lead": (False, False, True, False, True, True),
+    "wake": (False, False, False, False, True, False),
+    "answer": (True, True, False, False, True, True),
+    "answer_for": (False, True, False, False, True, False),
+}
+FIELDS = ("owner_words", "answers_questions", "steers", "read_only", "own_delivery", "owner_send")
+
+
+def stamped(kind_, asserted_by, origin=None, **extra):
+    return {"turn_source": turn_source.make(kind_, asserted_by=asserted_by, origin=origin, **extra)}
+
+
+class NewKindsTest(unittest.TestCase):
+    """W1-0, readers first: this release runs the five new kinds as their rows say, before any release stamps them."""
+
+    def setUp(self):
+        patcher = mock.patch.dict("os.environ", {turn_source.SWITCH: ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_each_new_kind_has_its_row_cell_by_cell(self):
+        self.assertEqual(set(TABLE), NEW_KINDS)
+        self.assertEqual(dataclasses_fields(turn_source.Behavior), FIELDS)  # The six fields, as they were.
+        for kind_, cells in TABLE.items():
+            row = turn_source.BEHAVIOR[kind_]
+            for field, cell in zip(FIELDS, cells):
+                with self.subTest(kind=kind_, field=field):
+                    self.assertIs(getattr(row, field), cell)
+            self.assertEqual(turn_source.behavior(stamped(kind_, "bridge")), row)
+        self.assertEqual(turn_source.VERSION, 1)
+        self.assertEqual((turn_source.RELAY, turn_source.LEAD, turn_source.WAKE, turn_source.ANSWER, turn_source.ANSWER_FOR),
+                         ("relay", "lead", "wake", "answer", "answer_for"))
+
+    def test_each_runs_with_no_switch_and_no_capability_and_an_unknown_kind_still_never_runs(self):
+        for kind_ in sorted(NEW_KINDS):
+            with self.subTest(kind=kind_):
+                self.assertEqual(turn_source.refusal(stamped(kind_, "bridge")), "")
+                self.assertEqual(turn_source.refusal(stamped(kind_, "bridge"), capabilities=HarnessCapabilities()), "")
+        for value in ({"v": 1, "kind": "lead_wake"}, {"v": 2, "kind": "relay"}, {"v": 1, "kind": "Relay"}):
+            with self.subTest(value=value):
+                self.assertIn("这个版本不执行", turn_source.refusal({"turn_source": value}))
+                self.assertEqual(turn_source.behavior({"turn_source": value}), turn_source.NOTHING)
+
+    def test_via_is_an_optional_top_level_key(self):
+        made = turn_source.make("relay", asserted_by="owner", origin={"message_id": "om_1"}, via="butler")
+        self.assertEqual(made["via"], "butler")
+        self.assertNotIn("via", turn_source.make("relay", asserted_by="butler"))
+        with self.assertRaises(ValueError):
+            turn_source.make("relay", asserted_by="butler", via="email")
+        self.assertEqual(turn_source.VIAS, {"butler", "lead", "web", "card", "message"})
+        self.assertEqual(turn_source.via({"turn_source": made}), "butler")
+        for item in ({"turn_source": {**made, "via": "email"}}, {"turn_source": {**made, "via": 3}}, {"message_id": "om_1"},
+                     {"turn_source": {**made, "v": 2}}, {"turn_source": {**made, "kind": "lead_wake"}}):
+            with self.subTest(item=item):
+                self.assertEqual(turn_source.via(item), "")
+
+    def test_the_level_of_a_legacy_job_is_read_of_its_message_id(self):
+        from covey.core import web_sync
+
+        self.assertEqual(turn_source.DIRECT, ("om_", web_sync.PREFIX))
+        for message_id, level in (("om_1", "owner"), ("web-1-ab", "owner"), ("answer-0123", "agent"), ("main-3", "agent"),
+                                  ("lead-4", "agent"), ("collab-c1-1", "agent"), ("", "agent")):
+            with self.subTest(message_id=message_id):
+                self.assertEqual(turn_source.level({"message_id": message_id}), level)
+                job = BridgeReplyJob(job_id=1, user_text="", chat_id="c", message_id=message_id, timeout=0)
+                self.assertEqual(turn_source.level(job), level)
+
+    def test_the_level_of_a_stamped_job_is_its_provenance_and_unread_fields_are_an_agents(self):
+        cases = (
+            (stamped("relay", "owner", {"message_id": "om_9"}), "owner"),  # The owner's words carried in the hand-on.
+            (stamped("relay", "butler", {"message_id": "om_9"}), "agent"),
+            (stamped("relay", "owner", {"topic": "t3"}), "agent"),  # "主人说了" with nothing the Bridge took in.
+            (stamped("lead", "lead", {"topic": "t1"}), "agent"),
+            (stamped("wake", "bridge"), "agent"),
+            (stamped("answer", "owner", {"question": "0123456789abcdef"}), "owner"),
+            (stamped("answer_for", "lead", {"question": "0123456789abcdef"}), "agent"),
+            ({"message_id": "om_1", "turn_source": {"v": 2, "kind": "relay", "asserted_by": "owner",
+                                                     "recorded_by": "bridge", "origin": {"message_id": "om_1"}}}, "agent"),
+            ({"message_id": "om_1", "turn_source": {"v": 1, "kind": "lead_wake", "asserted_by": "owner",
+                                                     "recorded_by": "bridge", "origin": {"message_id": "om_1"}}}, "agent"),
+            ({"message_id": "om_1", "turn_source": ["owner"]}, "agent"),
+            ({"message_id": "om_1", "turn_source": {"v": 1, "kind": "relay", "asserted_by": "主人",
+                                                     "recorded_by": "bridge", "origin": {"message_id": "om_1"}}}, "agent"),
+        )
+        for item, level in cases:
+            with self.subTest(item=item):
+                self.assertEqual(turn_source.level(item), level)
+
+    def test_origin_reads_the_kept_parts_of_a_known_field(self):
+        item = stamped("relay", "owner", {"message_id": "om_9", "topic": "t3", "extra": "x"})
+        self.assertEqual(turn_source.origin(item), {"message_id": "om_9", "topic": "t3"})
+        self.assertEqual(turn_source.origin({"message_id": "om_1"}), {})
+        self.assertEqual(turn_source.origin({"turn_source": {**item["turn_source"], "v": 2}}), {})
+        self.assertEqual(turn_source.origin({"turn_source": {"v": 1, "kind": "relay", "origin": "om_9"}}), {})
+
+    def test_downstream_finds_the_running_jobs_one_message_led_to(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            relay = turn_source.make("relay", asserted_by="owner", origin={"message_id": "om_9"}, via="butler")
+            rows = (("relay-1", "running", relay), ("relay-2", "queued", relay), ("relay-3", "done", relay),
+                    ("other", "running", turn_source.make("relay", asserted_by="owner", origin={"message_id": "om_8"})),
+                    ("om_9", "running", None))  # The owner's own message, unstamped: not one it led to.
+            for number, (key, status, source) in enumerate(rows, 1):
+                upsert_job_record(state, key, job_id=number, topic_id="t1", chat_id="oc_1", status=status,
+                                  updated_at=f"2026-11-27T10:00:0{number}Z", **({"turn_source": source} if source else {}))
+            self.assertEqual([record["key"] for record in turn_source.downstream(state, "om_9")], ["relay-2", "relay-1"])
+            self.assertEqual(turn_source.downstream(state, "om_7"), [])
+            self.assertEqual(turn_source.downstream(state, ""), [])
+
+
+def dataclasses_fields(cls):
+    import dataclasses
+
+    return tuple(field.name for field in dataclasses.fields(cls))
 
 
 class RecordsAndHandoffTest(unittest.TestCase):
@@ -213,6 +336,16 @@ class BridgeGateTest(UnifiedCase):
                     self.app.process_reply_job(job, self.ctx)
                 self.assertEqual(process.call_count, 1)
 
+    def test_a_hand_on_of_the_butler_runs_as_its_row_says(self):
+        # W1-0 runs it before any release stamps it (an older release cancels it: refusal NOT_RUN).
+        _, job = self.queued("relayed")
+        job.turn_source = turn_source.make("relay", asserted_by="owner", origin={"message_id": "om_9"}, via="butler")
+        with mock.patch("covey.app.job_dispatch.check_or_raise"), \
+             mock.patch.object(BridgeApp, "process_reply_job", autospec=True) as process:
+            self.app.process_reply_job(job, self.ctx)
+        self.assertEqual(process.call_count, 1)
+        self.assertFalse(any("turn source refused" in line for line in self.logs))
+
     def test_enqueue_starts_no_lead_owner_turn_and_no_supplement_for_words_that_are_not_the_owners(self):
         app, ctx = self.route("lead-like")
         app.submission.start_workspace(ctx, "chat", ctx.workspace_name)
@@ -263,6 +396,14 @@ class RunnerGateTest(unittest.TestCase):
                 self.assertIn(words, record.call_args.args[3])
                 self.assertTrue(job.cancelled_before_start)
                 self.assertEqual(logs, ["turn source refused job=#8 kind=collab_ask"])
+
+    def test_each_new_kind_starts_its_turn(self):
+        for kind_ in sorted(NEW_KINDS):
+            with self.subTest(kind=kind_):
+                job, record, start, logs = self.run_job(turn_source.make(kind_, asserted_by="bridge"))
+                start.assert_called_once()
+                self.assertTrue(job.execution_started)
+                self.assertFalse(any("turn source refused" in line for line in logs))
 
     def test_a_job_without_a_source_starts_its_turn(self):
         job, record, start, _ = self.run_job({})

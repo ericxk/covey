@@ -29,8 +29,8 @@ from covey.core.run_dir import run_dir, runner_alive
 from covey.cards.elements import md
 from covey.cards.question_cards import (FOLDED, SET_ASIDE, SET_ASIDE_ANSWER, SET_ASIDE_HELD, SET_ASIDE_SETTLED,
                                         answer_notice_card, aside_offered, folded, folded_refusal)
-from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, question_feedback_fields, set_aside_answers,
-                               set_aside_message, submitted_answer)
+from covey.app.answers import (ATTACHMENTS, answer_message, answer_title, open_id_of, question_feedback_fields,
+                               set_aside_answers, set_aside_message, submitted_answer)
 from covey.app.checkpoint_questions import CheckpointQuestions
 from covey.app.held_notes import HeldNotes
 from covey.app.native_questions import NativeQuestions, turn_output
@@ -172,8 +172,10 @@ class Questions:
         """``fields`` as the answer to question ``token``: into the task that asks it when it still runs, else as its
         continuation, queued after the click is acknowledged. ``top``: the message the answer was typed in, quoted from
         outside the topic's thread (app/butler_reactions.py top_message): DONE on it once the running task took the
-        answer, else the continuation's reactions. ``by``: the open_id of who submitted it, when known (a card's click):
-        only the owner's own submit writes the rule its extra question proposes (app/question_dedup.py settle)."""
+        answer, else the continuation's reactions. ``by``: who submitted it, when known: the open_id of a card's click, or
+        an AnswerBy (app/answers.py), of which its open_id is read: only the owner's own submit writes the rule its extra
+        question proposes (app/question_dedup.py settle)."""
+        by = open_id_of(by)
         if forward_answer(self.runtime, ctx, chat, token, fields, event_id, by=by):
             self._took(ctx, top)  # The task runner that asked the question took the answer.
             return None

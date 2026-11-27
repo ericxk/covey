@@ -16,6 +16,13 @@ its queued file and its handoff's extras; a model's tool argument never sets it.
   (core/harness.py HarnessCapabilities ``collab``, ``read_only``).
 - ``provenance``: who said it (``asserted_by``) and who wrote it down (``recorded_by``), two fields, never one; the level is the
   Bridge's, from where the words came in: ``owner`` only with an origin it took in (a message id, a question token).
+- The readers ``level``, ``origin``, ``via`` and ``downstream`` say of any job, stamped or LEGACY, whose words it carries, where
+  they came from, through what, and which running jobs came of one owner's message.
+
+Readers first (WAVE12 W1-0): this release runs and reads the five kinds of the hands-on and continuations (``relay``,
+``lead``, ``wake``, ``answer``, ``answer_for``; each its row of ``BEHAVIOR``) and the optional ``via``, and stamps none of
+them; the release after it stamps them. So a job stamped by that release still runs as its row says here, after a rollback
+to this one, where an older release cancels it.
 
 Standard library and core only: cards, the MCP server and an extension's isolated interpreter may read it.
 """
@@ -35,12 +42,18 @@ OWNER = "owner"  # The owner's own message, stamped (no release stamps it yet: t
 ASK = "collab_ask"  # 协作咨询: one participant asks another, which answers in its own session, held to reading.
 REPLY = "collab_reply"  # 协作答复续接: the integrator's turn that goes on once the answers are in; its own delivery.
 HANDOVER = "handover"  # A butler turn for an owner's request a topic could not do (开专项, 停别的话题, 收进专项).
+RELAY = "relay"  # 管家转交: the butler hands the owner's request on to a topic (topic_start/send/fork, project_send).
+LEAD = "lead"  # 负责人派活: a project's lead hands work to one of its topics.
+WAKE = "wake"  # 叫醒负责人: the Bridge wakes a project's lead (app/project_loop.py).
+ANSWER = "answer"  # 主人作答续接: the continuation of the owner's own answer (or of the butler's, carrying his message).
+ANSWER_FOR = "answer_for"  # 负责人替答续接: the continuation of an answer a lead gave for him (project_answer).
 MALFORMED = "?"  # A field that is not an object, or whose kind is not a string.
-KINDS = frozenset({OWNER, ASK, REPLY, HANDOVER})
+KINDS = frozenset({OWNER, ASK, REPLY, HANDOVER, RELAY, LEAD, WAKE, ANSWER, ANSWER_FOR})
 # The kinds this release runs, LEGACY aside. A package that runs another adds it here: ``handover`` since 话题转交管家
 # (app/butler_asks.py) queues such a turn of the butler's; the two of 协作 since app/collab_flow.py queues them (with the
-# switch, on a Harness that declares NEEDS: its consumers ask ``behavior``).
-RUNS = frozenset({OWNER, HANDOVER, ASK, REPLY})
+# switch, on a Harness that declares NEEDS: its consumers ask ``behavior``). The five of the hands-on and continuations run
+# from W1-0, before any release stamps them (readers first: a rollback to this release still runs what the next one stamped).
+RUNS = frozenset({OWNER, HANDOVER, ASK, REPLY, RELAY, LEAD, WAKE, ANSWER, ANSWER_FOR})
 SWITCHED = frozenset({ASK, REPLY})  # Run only with SWITCH on.
 # HarnessCapabilities fields each kind needs: an ask runs in a fork of its helper's session held to CONSULT
 # (app/collab_channel.py; with no session to fork, from the helper's record), a continuation is the integrator's own turn.
@@ -53,6 +66,11 @@ PARTIES = frozenset({PARTY_OWNER, PARTY_BUTLER, PARTY_LEAD, PARTY_TOPIC, PARTY_B
 # a reply, an owner's word carried on without the origin that shows it).
 LEVEL_OWNER, LEVEL_AGENT = "owner", "agent"
 ORIGIN_KEYS = ("message_id", "question")  # What an origin may point at; ``topic`` and ``chat`` say where.
+VIA = "via"  # The field's optional top-level key: what the words came in through (one of VIAS).
+VIAS = frozenset({"butler", "lead", "web", "card", "message"})
+# The message ids of the owner's own words the Bridge took in, read of a LEGACY job (``level``): Feishu's, the web page's
+# (core/web_sync.py PREFIX; app/butler_asks.py DIRECT says the same).
+DIRECT = ("om_", "web-")
 
 NOT_RUN = "这一轮的来源（{kind}）这个版本不执行，没有按主人的消息跑"
 SWITCH_OFF = "协作没有打开（COVEY_COLLAB），这一轮没有跑"
@@ -87,6 +105,18 @@ BEHAVIOR = {
                     owner_send=True),
     HANDOVER: Behavior(owner_words=True, answers_questions=False, steers=False, read_only=False, own_delivery=True,
                        owner_send=False),
+    # The words of a hand-on are the butler's or the lead's (the owner's own, when there are, are in its origin), so none
+    # of them answers a waiting question or is memory's; each is its topic's own delivery.
+    RELAY: Behavior(owner_words=False, answers_questions=False, steers=True, read_only=False, own_delivery=True,
+                    owner_send=True),
+    LEAD: Behavior(owner_words=False, answers_questions=False, steers=True, read_only=False, own_delivery=True,
+                   owner_send=True),
+    WAKE: Behavior(owner_words=False, answers_questions=False, steers=False, read_only=False, own_delivery=True,
+                   owner_send=False),
+    ANSWER: Behavior(owner_words=True, answers_questions=True, steers=False, read_only=False, own_delivery=True,
+                     owner_send=True),
+    ANSWER_FOR: Behavior(owner_words=False, answers_questions=True, steers=False, read_only=False, own_delivery=True,
+                         owner_send=False),
 }
 
 
@@ -164,14 +194,80 @@ def provenance(asserted_by, recorded_by, origin=None) -> dict:
     return {"asserted_by": asserted_by, "recorded_by": recorded_by, "origin": kept, "level": level}
 
 
-def make(kind_, *, asserted_by, origin=None, collab="", ask="") -> dict:
+def make(kind_, *, asserted_by, origin=None, collab="", ask="", via="") -> dict:
     """The field the Bridge writes on a job it makes: ``kind_`` one of KINDS, recorded by the Bridge, with ``collab`` and
-    ``ask`` (a collaboration's id and its ask's) when it is one of 协作's. A kind outside KINDS raises ValueError."""
+    ``ask`` (a collaboration's id and its ask's) when it is one of 协作's, and ``via`` (one of VIAS) when given. A kind outside
+    KINDS or a ``via`` outside VIAS raises ValueError."""
     if kind_ not in KINDS:
         raise ValueError(f"unknown turn source: {kind_!r}")
+    if via and via not in VIAS:
+        raise ValueError(f"unknown via: {via!r}")
     made = {"v": VERSION, "kind": kind_, **provenance(asserted_by, PARTY_BRIDGE, origin)}
     if collab:
         made["collab"] = str(collab)
     if ask:
         made["ask"] = str(ask)
+    if via:
+        made[VIA] = via
     return made
+
+
+def _known(*items):
+    """The field of ``items`` when this release reads it (a mapping of a kind in KINDS, of no newer version); else None."""
+    value = of(*items)
+    if value is None or not isinstance(value, Mapping) or _newer(value) or kind(*items) not in KINDS:
+        return None
+    return value
+
+
+def _message_id(*items) -> str:
+    """The message id of the first of ``items`` that has one ('' for none)."""
+    for item in items:
+        value = item.get("message_id") if isinstance(item, Mapping) else getattr(item, "message_id", None)
+        if value:
+            return str(value)
+    return ""
+
+
+def level(*items) -> str:
+    """LEVEL_OWNER or LEVEL_AGENT: whose words the job of ``items`` carries, as the Bridge knows it. A LEGACY job's are the
+    owner's when its message id is one of his own the Bridge took in (``DIRECT``: Feishu's, the web page's); a stamped job's
+    by ``provenance`` of its fields (the owner said it, with an origin the Bridge took in); a field this release does not
+    read (a newer kind or version, a malformed one) is LEVEL_AGENT. Who the sender is (app/access.py) is not read here:
+    app/provenance.py owner_said adds it."""
+    value = of(*items)
+    if value is None:
+        return LEVEL_OWNER if _message_id(*items).startswith(DIRECT) else LEVEL_AGENT
+    value = _known(*items)
+    if value is None:
+        return LEVEL_AGENT
+    asserted, recorded = value.get("asserted_by"), value.get("recorded_by")
+    if asserted not in PARTIES or recorded not in PARTIES:
+        return LEVEL_AGENT
+    return provenance(asserted, recorded, value.get("origin"))["level"]
+
+
+def origin(*items) -> dict:
+    """The origin the field of ``items`` names (``origin_of``); {} for a LEGACY job or a field this release does not read."""
+    value = _known(*items)
+    return origin_of(value.get("origin")) if value is not None else {}
+
+
+def via(*items) -> str:
+    """What the words of the job of ``items`` came in through (one of VIAS); '' when its field says none or is not read."""
+    value = _known(*items)
+    found = value.get(VIA) if value is not None else ""
+    return found if isinstance(found, str) and found in VIAS else ""
+
+
+def downstream(state_dir, message_id) -> list:
+    """The running jobs (core/statuses.py RUNNING) whose field's origin names ``message_id``, newest first: the jobs one
+    message of the owner's led to, for an edit or a recall of it to reach. [] for no message id."""
+    message_id = str(message_id or "")
+    if not message_id:
+        return []
+    from covey.core.jobs import select_job_records
+    from covey.core.statuses import RUNNING
+
+    return select_job_records(state_dir, lambda record: origin(record).get("message_id") == message_id,
+                              status=frozenset(RUNNING))

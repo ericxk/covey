@@ -792,6 +792,7 @@ cancelled、superseded：终态
 - **字段** `turn_source`（`core/turn_source.py`，任务上是 `BridgeReplyJob.turn_source`）：`{v, kind, asserted_by, recorded_by, origin, level, collab, ask}`，只由 Bridge 建任务时写（`make`），有值时才进任务记录、`queued/` 和 `handoff.json` 的 `extras`。
 - **没有这个字段就是旧来源**（`LEGACY`）：主人的消息、管家和负责人转来的话、唤醒轮、到点回来看、自动重试，都照原来的判断（消息 id 的前缀、发送者、话题的角色），行为一字不变。主人的消息仍不盖章；带这个字段的只有咨询轮（`collab_ask`）、续接轮（`collab_reply`）和转交管家的那一轮（`handover`）。
 - **kind**（v1）：`owner`（盖了章的主人消息，还没有哪个版本盖）、`collab_ask`（协作咨询）、`collab_reply`（协作答复续接：答复到齐或到期后汇总方接着做的那一轮）、`handover`（话题转交管家，见下）。加新 kind 就是改协议：旧版本不认识的一律不跑，所以给已有来源补 kind 之前，回滚的目标版本要先认识它。
+- **转交和续接的五个 kind**（读者先行：这一版认识、照行为表跑，还没有哪处盖章；下一版各入口盖章，回滚到这一版仍照表跑，回滚到更早的版本才会被取消）：`relay`（管家转交）、`lead`（负责人派活）、`wake`（叫醒负责人）、`answer`（主人作答续接）、`answer_for`（负责人替答续接）。字段另可带顶层的 `via`（`butler`、`lead`、`web`、`card`、`message`）。读口：`level`（主人的话还是别人的：旧来源看消息 id 是不是 `om_`、`web-` 开头，盖了章的看 `provenance`）、`origin`、`via`、`downstream`（某条主人消息派生出来的在跑任务）；app 层判断“是不是主人本人的原话”统一用 `app/provenance.py` 的 `owner_said`（再加 `Access.owner_turn` 和不是自动重试），`synthetic` 说这一轮是不是 Bridge 或模型造的。
 - **行为表** `BEHAVIOR`：每个消费者只问 `behavior(任务或记录)`，不自己看 kind；不认识的 kind、更高的版本、格式不对的一律是 `NOTHING`（什么都不碰，按只读算）。
 
   | 行为 | 旧来源、`owner` | `collab_ask` | `collab_reply` | `handover` |
@@ -803,13 +804,22 @@ cancelled、superseded：终态
   | `own_delivery`：结果是这个话题自己的交付 | 是 | 否 | 是 | 是 |
   | `owner_send`：可以出代发草稿 | 是 | 否 | 是，主人在卡上确认 | 否 |
 
+  转交和续接的五个 kind（`read_only` 都是否，照任务；`own_delivery` 都是是）：
+
+  | 行为 | `relay` | `lead` | `wake` | `answer` | `answer_for` |
+  | --- | --- | --- | --- | --- | --- |
+  | `owner_words` | 否（主人原话在 `origin` 里） | 否 | 否 | 是 | 否 |
+  | `answers_questions` | 否 | 否 | 否 | 是 | 是 |
+  | `steers` | 是 | 是 | 否 | 否 | 否 |
+  | `owner_send` | 是 | 是 | 否 | 是 | 否 |
+
 - **已接上的消费者**：主人纠正的记忆（`app/memory_collect.py`）和记一下（`app/knowledge_collect.py`）的 `reason_to_ignore` 多一个 `not-owner-words`；代发草稿（`app/owner_send.py` 的 `collect`）；`Submission.enqueue_chat_job` 的 `source`：不是主人的话不触发负责人的主人触发轮（`project_loop.owner_turn`），也不当补充送进在跑的任务。
 - **执行闭环接上的**：协作轮不经 `BridgeApp.handle_event` 和网页 `say`，只经 `enqueue_chat_job(source=…)`，所以不消费等着的题（`answers_questions` 为否时 `Runs._continue_previous` 也不收尾等着的那一轮）；`own_delivery` 为否（咨询轮）时：没有任务卡（`Submission.publish_submission`、`Cards.reveal`）、静默投递（`TurnDelivery.silent`，保存的回复照样算已投递）、不回带（`butler_relay.after_turn`）、不出恢复卡（`TaskControls.show_recovery_card`、`report_unfinished`）、不自动重试（`auto_retry.plan`、`plan_restart`、`policy_retry.at_stop`）、不写 `thread_end` 回执也不进资料库（`project_loop.after_runner`）、不排到点回来看（`revisits.after_runner`）；`owner_words` 为否时这一轮的规则里不加记忆的纠正规则和记一下（`app/memory_turn.py` 的 `fix_rule`、`app/knowledge_turn.py` 的 `remembers`），晚间汇总的“你反复说的”也不从它取（`app/memory_candidates.py`）；检查并继续、自动重试再排同一轮时带上它的来源（`TaskControls.requeue`），续接轮重试还是续接轮，不会变成主人的话。咨询通道的任务不进看板、网页的话题、话题搜索和工作区的最近话题（`core/board_read.py` 的 `topic_jobs`、`app/butler_search.py`、`app/workspace_gists.py`）。
 - **读主人的记忆和原则不看来源**：`Runs.owner_turn`、`Access.owner_turn` 回答的是“这一轮是不是在主人自己的空间里”（隐私闸：群成员的一轮不读主人的私人条目），协作轮在主人的私聊里，照常读；“这句话是不是主人说的”只看 `owner_words`。
 
 ### 能力与预检
 
-- **三方都声明才派发**（`refusal`；`RUNS` 现在是 `owner`、`collab_ask`、`collab_reply`、`handover`）：
+- **三方都声明才派发**（`refusal`；`RUNS` 现在是 `owner`、`collab_ask`、`collab_reply`、`handover` 和转交续接的五个；只有协作的两个要开关和能力）：
   - Bridge：`COVEY_COLLAB=1`，而且本 release 的 `RUNS` 有这个 kind；
   - 任务进程：它自己 release 的 `RUNS` 有这个 kind，开跑前再查一次（`app/worker.py`）；
   - 后端：`HarnessCapabilities.collab`（咨询在接收方原会话的临时分叉里跑，限制只管这一轮，接收方的会话、指针、历史、回退标记都不动；真实拒写验过才声明），协作咨询另要 `read_only`（硬只读）。Claude Code 和 Codex 声明了（C8 见下）；Antigravity、dsh 和扩展的 Harness 没有，预检就是 `not_taken`，后端不启动；设备上不声明（`DEVICE_OFF`）。

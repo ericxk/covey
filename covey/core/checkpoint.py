@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 
+from covey.core import ask_kinds
 from covey.core.paths import expand_user
 from covey.core.state import read_object, utc_now_iso, write_private_text
 
@@ -76,9 +77,8 @@ def release_user_wait(path: Path, *, drop_questions: bool = False) -> None:
 # choice of T892 section 7 item 1): a rule the owner said himself, for the one kind of thing it names; never a deletion or
 # anything else that cannot be taken back; never a rule the lead wrote or the Bridge learned (marked 负责人记的); and what a
 # rule let spend money or take machines is said afterwards.
-ASK_SHORT = "部署、删除、花钱、对外发送、占机器"
-ASK_KINDS = ("部署上线和发布、删除和其他撤不回的操作（覆盖别人的改动、改线上数据、强推）、花钱、"
-             "对外发送（以主人身份发消息、发到别人看得到的地方）、占机器（长时间占 GPU 或集群、起长期运行的服务、大量下载或写盘）")
+ASK_SHORT = ask_kinds.SHORT  # 部署、删除、花钱、对外发送、占机器 (core/ask_kinds.py: the five in one place).
+ASK_KINDS = ask_kinds.LONG
 ASK_GRANT = ("记忆里主人亲口立的“不用再问”的规矩（没标“负责人记的”），只放行它写明的那一类事（如“改完直接部署到本机”只放行部署到本机、"
              "“流量涨了直接扩容”只放行扩容），别的照常问；删除和其他撤不回的操作永远照常问；标“负责人记的”的规矩"
              f"（负责人整理的、自动学到的）不能放行{ASK_SHORT}这几类事；按规矩没问就花了钱、占了机器的，在结论里报一句做了什么。")

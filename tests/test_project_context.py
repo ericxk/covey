@@ -282,6 +282,23 @@ class SubmittedAnswerTest(QuestionFixture, unittest.TestCase):
         self.assertEqual(memstore.decisions(self.state, "project", PID), [])
         self.assertEqual(json.loads(self.path.read_text())["status"], "answered")  # The answer itself went through.
 
+    def test_an_answer_by_of_the_owners_click_is_noted_as_his_string_was(self):
+        # WAVE12 C2 (W1-0): submit_answer takes an AnswerBy beside the open_id; its open_id is what decides, as before.
+        from covey.app.answers import AnswerBy
+
+        self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.token, {"option_0": "0"}, "answer-1",
+                                         by=AnswerBy("owner", "card", open_id=self.app.runtime.owner_open_id))
+        rows = memstore.decisions(self.state, "project", PID)
+        self.assertEqual([(row.kind, row.said, row.text) for row in rows], [("decision", "owner", "主人答：范围？→全部")])
+
+    def test_an_answer_by_without_the_owners_open_id_is_not_noted_as_his(self):
+        from covey.app.answers import AnswerBy
+
+        self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.token, {"option_0": "0"}, "answer-1",
+                                         by=AnswerBy("owner", "card", open_id="ou_member"))
+        self.assertEqual(memstore.decisions(self.state, "project", PID), [])
+        self.assertEqual(json.loads(self.path.read_text())["status"], "answered")
+
     def test_with_the_switch_off_it_is_not(self):
         os.environ[projects.MEMORY_ENV] = "0"
         self.app.questions.submit_answer(self.ctx_topic, "oc_chat", self.token, {"option_0": "0"}, "answer-1")
