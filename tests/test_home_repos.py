@@ -670,6 +670,14 @@ class ReadWorktreeTest(Sandbox):
         self.assertEqual((entry["mode"], entry["worktree"]), ("write", made["worktree"]))
         self.assertNotIn("base_at", entry)
 
+    def test_what_an_add_cut_short_left_is_made_again(self):
+        left = self.data / "worktrees" / "_read" / "core" / self.latest[:12]
+        left.mkdir(parents=True)
+        (left / "app.py").write_text("half\n")  # No .git: no worktree.
+        made = json.loads(self.use("--json")[1])
+        self.assertEqual((made["worktree"], made["created"], made["note"]), (str(left), True, ""))
+        self.assertEqual((left / "app.py").read_text(), "print('old')\n")
+
     def test_a_fetch_that_fails_says_it_may_be_behind(self):
         run_git(self.repo, "fetch", "-q", "origin")
         run_git(self.repo, "remote", "set-url", "origin", str(self.root / "gone.git"))

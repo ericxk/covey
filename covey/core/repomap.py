@@ -573,6 +573,9 @@ def read_worktree(repo: Repo, *, root=None, now=None) -> dict:
     with lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         if not _usable(dest, oid, main_git):
+            if dest.exists() and not (dest / ".git").exists():
+                shutil.rmtree(dest, ignore_errors=True)  # What an add cut short left (no worktree): only ever made here.
+                _git(["worktree", "prune"], repo.path)
             if dest.exists():
                 raise RepoError(f"{dest} 已经在了，但不是 {repo.name} {oid[:8]} 的只读 worktree")
             if not _writable(main_git):
