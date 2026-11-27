@@ -141,6 +141,12 @@ TABLE = {
 FIELDS = ("owner_words", "answers_questions", "steers", "read_only", "own_delivery", "owner_send")
 
 
+def hand_on(kind_):
+    """The field of a hand-on or a continuation as the release that stamps them writes it (core/turn_source.py make)."""
+    return {"v": 1, "kind": kind_, "asserted_by": "owner", "recorded_by": "bridge", "origin": {"message_id": "om_9"},
+            "level": "owner", "via": "butler"}
+
+
 def stamped(kind_, asserted_by, origin=None, **extra):
     return {"turn_source": turn_source.make(kind_, asserted_by=asserted_by, origin=origin, **extra)}
 
@@ -339,7 +345,7 @@ class BridgeGateTest(UnifiedCase):
     def test_a_hand_on_of_the_butler_runs_as_its_row_says(self):
         # W1-0 runs it before any release stamps it (an older release cancels it: refusal NOT_RUN).
         _, job = self.queued("relayed")
-        job.turn_source = turn_source.make("relay", asserted_by="owner", origin={"message_id": "om_9"}, via="butler")
+        job.turn_source = hand_on("relay")  # As the next release writes it: an older release reads only the dict.
         with mock.patch("covey.app.job_dispatch.check_or_raise"), \
              mock.patch.object(BridgeApp, "process_reply_job", autospec=True) as process:
             self.app.process_reply_job(job, self.ctx)
@@ -400,7 +406,7 @@ class RunnerGateTest(unittest.TestCase):
     def test_each_new_kind_starts_its_turn(self):
         for kind_ in sorted(NEW_KINDS):
             with self.subTest(kind=kind_):
-                job, record, start, logs = self.run_job(turn_source.make(kind_, asserted_by="bridge"))
+                job, record, start, logs = self.run_job(hand_on(kind_))
                 start.assert_called_once()
                 self.assertTrue(job.execution_started)
                 self.assertFalse(any("turn source refused" in line for line in logs))
