@@ -225,6 +225,16 @@ class SendOutcomeTest(EnsureTest):
         saved = read_object(record_path(self.state, "tq"))
         self.assertEqual((saved["state"], saved["message_id"]), ("sent", "om_status"))
 
+    def test_a_card_left_creating_by_a_bridge_that_stopped_goes_again_under_its_key_with_its_card(self):
+        """The Bridge stopped between ``creating`` and the outcome: the next tick sends the same card under the same key
+        (Feishu takes a key once)."""
+        write_json(record_path(self.state, "tq"), {"schema_version": 1, "topic_id": "tq", "chat_id": "oc_dm",
+                                                   "state": "creating", "card_id": "card_left", "at": NOW - 60})
+        self.assertEqual(self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW), {"tq": "om_status"})
+        call = self.messenger.create_and_send_card.call_args
+        self.assertEqual((call.args[3], call.kwargs["card_id"]), (self.app.voice.key("status-card", "tq"), "card_left"))
+        self.assertEqual(read_object(record_path(self.state, "tq"))["state"], "sent")
+
     def test_one_that_may_have_gone_is_uncertain_and_never_sent_again(self):
         self.messenger.create_and_send_card.return_value = ("card_s", "")
         with mock.patch.object(self.messenger, "last_outcome", return_value="uncertain"):

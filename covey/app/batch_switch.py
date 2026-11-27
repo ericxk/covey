@@ -16,10 +16,18 @@ on its own 🔁 换配置 card.
   are void, its next turn gets the handoff). A row is marked ``switching`` before its switch and ``done`` or ``failed`` after;
   a topic whose binding changed since the card was drawn is ``stale`` and left alone. Each switched topic hears it in its thread.
   No record lock is held across a switch or a card write (AGENTS.md rules 1 and 2).
+- What is left mid-way (WAVE12 C10, T904; tests/golden/midstates.json): the card's send is ``sending`` before it goes, then
+  ``pending`` with its message, ``failed`` when it surely did not go (the same request sends it again) or ``uncertain`` when it
+  may have gone (never sent again by itself). A click on a card whose record has no message yet (``sending``, ``uncertain``: the
+  Bridge stopped before it wrote it, or Feishu never confirmed it) is the proof it went: the record takes its message and is
+  ``pending``. ``running`` names its process (``owner``, core/process.py process_identity); one whose process is gone (a restart)
+  is settled (``settle_left``) at the Bridge's start and at the next click: rows it left ``switching`` or never reached are
+  ``failed`` (再试没换的 tries them), the record ``done``, its card redrawn. ``switch_all`` leaves ``running`` whatever happens.
 """
 from __future__ import annotations
 
 import functools
+import os
 import threading
 import time
 from pathlib import Path
@@ -32,9 +40,12 @@ from covey.core import butler, butler_settings, devices, projects
 from covey.core.butler_opened import request_token
 from covey.core.harness import backend_capabilities
 from covey.core.locks import resource_lock
+from covey.core.process import is_owned, process_identity
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import claim_once, keyed_json_path, read_object, write_json
 from covey.core.topics import topic_label, topic_title
+from covey.feishu.messenger import unsent_outcome
+from covey.feishu.transport import NOT_SENT
 
 FOLDER = "batch-switch"
 INBOUND = "inbound-messages"
@@ -42,6 +53,13 @@ MOST = 20  # Topics one call may switch.
 NO_CHAT = "还不知道主人和机器人的私聊（主人还没在私聊里发过消息），没有执行。"
 SENT = ("已在私聊发出批量换配置卡：{count} 个话题，主人点「确认更换」后才换，结果写在那张卡上。{skipped}"
         "告诉主人确认卡在私聊里，别说已经换了。")
+UNCERTAIN_SENT = ("批量换配置卡可能已经发到私聊（飞书没有确认），什么都还没换。告诉主人去私聊找这张卡，找到就点「确认更换」；"
+                  "找不到就请他再说一次，别说已经换了。")
+# What a row says when a switching stopped part way (``settled``): at a restart, and at an error that stopped ``switch_all``.
+LEFT_WHY = ("换的时候 Bridge 重启了，可能没换成：先在话题里看一眼，再点「再试没换的」",
+            "Bridge 重启前还没轮到它，没有换：点「再试没换的」接着换")
+BROKEN_WHY = ("换的时候出错，可能没换成：先在话题里看一眼，再点「再试没换的」",
+              "出错停下时还没轮到它，没有换：点「再试没换的」接着换")
 
 
 def path(state_dir, token) -> Path:
@@ -77,6 +95,39 @@ def refusal(topic, name, app) -> str:
         if refused:
             return refused.replace("任务尚未启动", "没有换")
     return ""
+
+
+def me() -> dict | None:
+    """This process, as a ``running`` record names its ``owner`` (core/process.py process_identity)."""
+    return process_identity(os.getpid())
+
+
+def left(record) -> bool:
+    """Whether the ``running`` record's switching is no process's now: its ``owner`` is not alive as another process (it is
+    gone, a restart; or it is this one, which runs one token's switching at a time and is past it; or an older release's
+    record names none)."""
+    owner = record.get("owner")
+    return not (isinstance(owner, dict) and owner != me() and is_owned(owner))
+
+
+def settled(record, why=LEFT_WHY) -> dict:
+    """``record`` once its switching is over: ``done``, and when it stopped part way (``why``: what a row it left
+    ``switching`` says, then one it never reached) those rows failed, so 再试没换的 tries them, and ``settled_at``."""
+    rows, changed = [], False
+    for row in record.get("rows") or ():
+        if row.get("state") in ("switching", "ready"):
+            row, changed = {**row, "state": "failed", "why": why[row["state"] == "ready"]}, True
+        rows.append(row)
+    return {**record, "rows": rows, "status": "done", **({"settled_at": time.time()} if changed else {})}
+
+
+def sent_answer(record) -> dict:
+    """The tool's answer once the card of ``record`` is out (its rows' count and what is not switched)."""
+    ready = [row for row in record["rows"] if row["state"] == "ready"]
+    skipped = [row for row in record["rows"] if row["state"] == "skip"]
+    said = "；".join(f"{row.get('label') or row['name']}：{row['why']}" for row in skipped)
+    return reply(True, SENT.format(count=len(ready), skipped=f"这几个不换：{said}。" if said else ""),
+                 count=len(ready), skipped=len(skipped))
 
 
 def plan(env, chat, name, args, lead=None, choices=None) -> dict:
@@ -185,15 +236,39 @@ def topics_switch(env, request):
         return answer
     sent = []
     key = env.voice.safe_key(f"batch-switch-{token}")
-    if not env.messenger.send_message(env.profile, chat, cards.text(record), key, voice=env.voice,
-                                      card=cards.card({**record, "status": "pending"}), on_card=sent.append) or not sent:
-        save(target, {**record, "status": "failed"})
+    if record.get("status") != "sending":  # A request whose send failed before (``failed``): tried again under its key.
+        record = {**record, "status": "sending"}
+        save(target, record)
+    ok = env.messenger.send_message(env.profile, chat, cards.text(record), key, voice=env.voice,
+                                    card=cards.card({**record, "status": "pending"}), on_card=sent.append)
+    if not ok and unsent_outcome(env.messenger) != NOT_SENT:
+        # It may have gone (rule 1): never sent again by itself; a click on it is the proof it went (``claim``).
+        answer = reply(False, UNCERTAIN_SENT)
+        if not finish(target, status="uncertain", answer=answer):
+            return read_object(target).get("answer") or sent_answer(read_object(target))
+        env.runtime.log(f"batch switch card uncertain token={token[:12]}")
+        return answer
+    if not ok or not sent:
+        # Surely not sent, or gone as Markdown (no card to click): the same request sends it again.
+        if not finish(target, status="failed"):
+            return read_object(target).get("answer") or sent_answer(read_object(target))
         return reply(False, "批量换配置卡没有发出去（飞书拒绝了卡片），什么都没换；可以稍后再试。")
-    answer = reply(True, SENT.format(count=len(ready), skipped=f"这几个不换：{said}。" if said else ""),
-                   count=len(ready), skipped=len(skipped))
-    save(target, {**record, "status": "pending", "message_id": str(sent[0]), "answer": answer})
+    answer = sent_answer(record)
+    if not finish(target, status="pending", message_id=str(sent[0]), answer=answer):
+        return read_object(target).get("answer") or answer  # A click took the card first (``claim``).
     env.runtime.log(f"batch switch card sent token={token[:12]} topics={len(ready)} skipped={len(skipped)}")
     return answer
+
+
+def finish(target, **fields) -> bool:
+    """The record at ``target`` given ``fields`` once its card's send is over, under its lock, while it is still ``sending``
+    (a click on the card may have taken it already, ``claim``): whether it was."""
+    with resource_lock("batch-switch", target):
+        record = read_object(target)
+        if record.get("status") != "sending":
+            return False
+        save(target, {**record, **fields})
+    return True
 
 
 def numbered(state_dir, chat, names) -> dict:
@@ -247,6 +322,8 @@ class BatchSwitch:
         token, message_id = str(raw.get("batch") or ""), str(event.get("message_id") or "")
         target = path(ctx.state_dir, token) if token else None
         record = read_object(target) if target is not None else {}
+        if record and not record.get("message_id") and record.get("chat_id") == str(event.get("chat_id") or ""):
+            record = self.adopt(target, message_id) or record
         if (not record or record.get("message_id") != message_id
                 or record.get("chat_id") != str(event.get("chat_id") or "")):
             return "batch_switch_stale"
@@ -258,21 +335,66 @@ class BatchSwitch:
         after_ack(functools.partial(self.decide, ctx, target, kind, token))
         return {cards.CONFIRM: "batch_switch_confirm", cards.CANCEL: "batch_switch_cancel"}.get(kind, "batch_switch_retry")
 
+    @staticmethod
+    def adopt(target, message_id) -> dict | None:
+        """The record at ``target`` with ``message_id``, the card a click came from, when it has no message yet and its send
+        is ``sending`` or ``uncertain`` (the click is the proof it went): ``pending``. None when it is not such a record."""
+        if not message_id:
+            return None
+        with resource_lock("batch-switch", target):
+            record = read_object(target)
+            if record.get("message_id") or record.get("status") not in ("sending", "uncertain") or not record.get("rows"):
+                return None
+            record = {**record, "status": "pending", "message_id": message_id,
+                      "answer": record.get("answer") or sent_answer(record)}
+            save(target, record)
+        return record
+
+    def settle_left(self, ctx, target) -> bool:
+        """The record at ``target`` settled when it is ``running`` and its process is gone (``left``, ``settled``), its card
+        redrawn: whether it was."""
+        with resource_lock("batch-switch", target):
+            record = read_object(target)
+            if record.get("status") != "running" or not left(record):
+                return False
+            record = settled(record)
+            save(target, record)
+        self.runtime.log(f"batch switch settled after a restart token={str(record.get('token'))[:12]}")
+        self.paint(ctx, record)
+        return True
+
+    def settle_all(self, ctx) -> int:
+        """At the Bridge's start: every ``running`` record whose process is gone settled (``settle_left``); how many."""
+        folder = Path(ctx.state_dir) / FOLDER
+        count = 0
+        for target in sorted(folder.glob("*.json")) if folder.is_dir() else ():
+            if read_object(target).get("status") == "running":
+                try:
+                    count += self.settle_left(ctx, target)
+                except Exception as exc:  # noqa: BLE001 - one record's trouble; the next click settles it
+                    self.runtime.log(f"batch switch not settled at start: {type(exc).__name__}")
+        return count
+
     def decide(self, ctx, target, kind, token) -> str:
         """What the click does, run after its acknowledgement: the outcome ('cancelled', 'switched', 'ignored')."""
         try:
             with resource_lock("batch-switch", target):
                 record = read_object(target)
+                if record.get("status") == "running" and left(record):
+                    # Its switching stopped with its process (``busy`` keeps this one's own click off): settled first,
+                    # so 再试没换的 goes on with it.
+                    record = settled(record)
+                    save(target, record)
+                    self.runtime.log(f"batch switch settled after a restart token={str(record.get('token'))[:12]}")
                 status = record.get("status")
                 if kind == cards.CANCEL and status == "pending":
                     record = {**record, "status": "cancelled"}
                     save(target, record)
                 elif (kind == cards.CONFIRM and status == "pending") or (kind == cards.RETRY and status == "done"):
-                    # (A "running" record here is not this process's: ``busy`` keeps a second click off. It stays as it is.)
-                    record = {**record, "status": "running"}
+                    record = {**record, "status": "running", "owner": me()}
                     save(target, record)
                 else:
-                    record = None  # A second click, or one on a card already decided: only redrawn.
+                    record = None  # A second click, or one on a card already decided (or another process's): redrawn.
             if record is None:
                 self.paint(ctx, read_object(target))
                 return "ignored"
@@ -299,20 +421,28 @@ class BatchSwitch:
 
     def switch_all(self, ctx, target, record) -> None:
         chat = record["chat_id"]
-        for index, row in enumerate(record["rows"]):
-            if row.get("state") not in ("ready", "failed", "switching"):
-                continue
-            self.put_row(target, index, state="switching", why="")  # Before the switch: a restart is settled at the next click.
-            try:
-                state, why = self.switch_one(ctx, chat, row)
-            except Exception as exc:  # noqa: BLE001 - one topic's trouble: said on its row, the others go on
-                self.runtime.log(f"batch switch failed topic={str(row.get('topic_id'))[:12]}: {type(exc).__name__}")
-                state, why = "failed", f"换的时候出错（{type(exc).__name__}），可能没换成：先在话题里看一眼再试"
-            self.put_row(target, index, state=state, why=why)
-        with resource_lock("batch-switch", target):
-            record = {**read_object(target), "status": "done"}
-            save(target, record)
-        self.paint(ctx, record)
+        try:
+            for index, row in enumerate(record["rows"]):
+                if row.get("state") not in ("ready", "failed", "switching"):
+                    continue
+                self.put_row(target, index, state="switching", why="")  # Before the switch: a restart settles it.
+                try:
+                    state, why = self.switch_one(ctx, chat, row)
+                except Exception as exc:  # noqa: BLE001 - one topic's trouble: said on its row, the others go on
+                    self.runtime.log(f"batch switch failed topic={str(row.get('topic_id'))[:12]}: {type(exc).__name__}")
+                    state, why = "failed", f"换的时候出错（{type(exc).__name__}），可能没换成：先在话题里看一眼再试"
+                self.put_row(target, index, state=state, why=why)
+        finally:
+            # Never left ``running``: what an error stopped part way is settled as a restart is.
+            with resource_lock("batch-switch", target):
+                record = read_object(target)
+                if record.get("status") == "running":
+                    record = settled(record, BROKEN_WHY)
+                    save(target, record)
+            try:  # Its card says what came of it, an error that stopped it included.
+                self.paint(ctx, record)
+            except Exception as exc:  # noqa: BLE001 - the record says it; the next click redraws it
+                self.runtime.log(f"batch switch card not redrawn: {type(exc).__name__}")
         numbers = cards.counted(record)
         self.runtime.log(f"batch switch done token={record['token'][:12]} done={numbers.get('done', 0)} "
                          f"failed={numbers.get('failed', 0)} stale={numbers.get('stale', 0)}")

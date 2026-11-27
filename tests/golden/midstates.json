@@ -1,0 +1,85 @@
+{
+  "doc": "WAVE12 G4 (T904): every module of covey/ that writes a mid-state (sending, creating, running, submitting, uncertain) as a record's state or status, the states it writes, and what a restart leaves of them. tests/test_structure.py MidStateTest finds them in the source and fails on one not listed here and on a listing the source no longer has; tests/test_matrix.py RESTART_CELLS has its 重启后再点一次 cell on 飞书 and 网页.",
+  "modules": {
+    "covey/app/batch_switch.py": {
+      "states": ["running", "sending", "uncertain"],
+      "restart": "批量换配置：卡发出前记 sending；没发出记 failed，同一请求同键再发；可能已发出记 uncertain，不再自动发，点它的卡即认领（记下消息转 pending）。running 记进程标识 owner，进程不在了（重启）在启动时和下一次点击时收尾：switching 和没轮到的行转 failed，记录转 done 并重画卡，「再试没换的」接着换；switch_all 出错也不会停在 running。"
+    },
+    "covey/app/butler_asks.py": {
+      "states": ["sending"],
+      "restart": "转给管家的话先记 sending 再发；发送的结果按是否可能已送达记 failed 或 uncertain，HANDED 里的状态都不再转，重启后不会重复转给管家。"
+    },
+    "covey/app/limit_notice.py": {
+      "states": ["sending", "uncertain"],
+      "restart": "合并提示先记 sending（连同正文）再发；没发出记 failed，120 秒后同键同文再发，最多再 3 次；Bridge 中途停下留下的 sending 过 120 秒同键再发（飞书同键只收一次）；可能已发出记 uncertain，不再发；旧版记录没存正文，不重发。"
+    },
+    "covey/app/owner_send.py": {
+      "states": ["sending"],
+      "restart": "代发草稿点发送时先转 sending 再发；没发出可再点，可能已发出记 uncertain，不会自动重发。"
+    },
+    "covey/app/questions.py": {
+      "states": ["submitting", "uncertain"],
+      "restart": "答题先转 submitting 再续接；重启时启动恢复（recover_question_delivery）按已存的答案对账，不重放答案；投递不确定的记 uncertain，不再自动发。"
+    },
+    "covey/app/relay_send.py": {
+      "states": ["submitting", "uncertain"],
+      "restart": "回带先记 submitting 再发；没发出记 failed，同一任务下次回带时同键再发，最多再 3 次；可能已发出记 uncertain，有记录的不再发。任务进程退出后留下的 pending 合并回带由 Bridge 接手（W1-F 第 6 步）。"
+    },
+    "covey/app/status_cards.py": {
+      "states": ["creating", "uncertain"],
+      "restart": "状态卡先记 creating（建好卡后带上 card_id）再发；Bridge 中途停下留下的 creating 在下一轮看板循环同键同卡再发；没发出记 failed，每 600 秒同键再发，最多再 3 次；可能已发出记 uncertain，不再发，话题保留旧 Pin。"
+    },
+    "covey/app/steer_receipts_flow.py": {
+      "states": ["uncertain"],
+      "restart": "补充回执的重新排队先记 submitting（requeue_state）再排；出错或任务已结束而不确定的记 uncertain，不再自动排队。"
+    },
+    "covey/app/steering.py": {
+      "states": ["submitting", "uncertain"],
+      "restart": "补充说明先记 submitting 再递给在跑的任务；没确认送达的记 uncertain，从不重放；卡片目标落盘，重启后点击仍认得。"
+    },
+    "covey/app/tidy_run.py": {
+      "states": ["running"],
+      "restart": "整理专项一次的视图先记 running，结束时（含出错）记结果和 finished_at；Bridge 在整理途中停下时这条记录留在 running、没有 finished_at，整理卡停在“正在整理”。重启后可以再开一次整理（新 run）。"
+    },
+    "covey/app/web_collect.py": {
+      "states": ["running"],
+      "restart": "推给网页的话题进度字段，每次推送按任务记录现算，不落盘；重启后按任务记录重算。"
+    },
+    "covey/app/web_login.py": {
+      "states": ["sending"],
+      "restart": "网页登录确认卡先记 sending 再发；没发出记 failed，网页上可重发；重启留下的 sending 不重发，网页上重新点登录是新请求。"
+    },
+    "covey/backends/claude/compaction.py": {
+      "states": ["running"],
+      "restart": "一轮里“压缩上下文”这一步的进度，跟着任务进程走；Bridge 重启时这一轮由启动恢复收尾（core/recovery.py），不靠点击。"
+    },
+    "covey/backends/claude/events.py": {
+      "states": ["running"],
+      "restart": "一轮里子代理步骤的进度，跟着任务进程走；Bridge 重启时这一轮由启动恢复收尾（core/recovery.py），不靠点击。"
+    },
+    "covey/backends/codex/events.py": {
+      "states": ["running"],
+      "restart": "一轮里 Codex 步骤与子代理的进度，跟着任务进程走；Bridge 重启时这一轮由启动恢复收尾（core/recovery.py），不靠点击。"
+    },
+    "covey/core/deliveries.py": {
+      "states": ["uncertain"],
+      "restart": "补充说明的送达记录：submitting 只能前进到 sent、read、refused 或 uncertain，uncertain 从不重放。"
+    },
+    "covey/core/longtask.py": {
+      "states": ["running"],
+      "restart": "在跑的一轮算进度用的临时记录，只在内存里，不落盘。"
+    },
+    "covey/core/steps.py": {
+      "states": ["running"],
+      "restart": "一轮里每一步的进度，跟着任务进程走；Bridge 重启时这一轮由启动恢复收尾（core/recovery.py），不靠点击。"
+    },
+    "covey/core/trace.py": {
+      "states": ["running"],
+      "restart": "一轮的执行过程里每一步的状态，跟着任务进程走；Bridge 重启时这一轮由启动恢复收尾（core/recovery.py），不靠点击。"
+    },
+    "covey/service/manager.py": {
+      "states": ["running"],
+      "restart": "服务管理器自己的进程状态；重启时它按清单的 desired_state 重新拉起服务，不是卡片。"
+    }
+  }
+}

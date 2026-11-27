@@ -1533,3 +1533,117 @@ class StateWriteTest(unittest.TestCase):
         self.assertTrue(allowed, "G1 的白名单不该是空的：真清空了就把这条改掉")
         self.assertLessEqual(allowed, found)
         self.assertNotIn("x.py:plain", allowed)
+
+
+# G4 (WAVE12 C11, T904): a mid-state a module writes, found in its source. MID_STATES are the states a restart can leave a record
+# in; a write is one as the value (a branch of a conditional too) of key "state" or "status" in a dict, of keyword state= or status=
+# of a call (not a read: MID_READS), or assigned to x["state"] / x["status"].
+MID_STATES = frozenset({"sending", "creating", "running", "submitting", "uncertain"})
+MID_KEYS = frozenset({"state", "status"})
+MID_READS = frozenset({"query", "reply"})  # store queries by state; a tool's reply fields.
+MIDSTATES = REPO / "tests" / "golden" / "midstates.json"
+RESTART_SURFACES = ("飞书", "网页")
+
+
+def mid_states_written(tree) -> set:
+    """The MID_STATES ``tree`` (a module's AST) writes as a record's state or status."""
+    def values(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            yield node.value
+        elif isinstance(node, ast.IfExp):
+            yield from values(node.body)
+            yield from values(node.orelse)
+
+    def called(func):
+        return func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
+
+    found = set()
+    for node in ast.walk(tree):
+        pairs = []
+        if isinstance(node, ast.Dict):
+            pairs = [(key.value, value) for key, value in zip(node.keys, node.values) if isinstance(key, ast.Constant)]
+        elif isinstance(node, ast.Call) and called(node.func) not in MID_READS:
+            pairs = [(keyword.arg, keyword.value) for keyword in node.keywords]
+        elif isinstance(node, ast.Assign):
+            pairs = [(target.slice.value, node.value) for target in node.targets
+                     if isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant)]
+        for key, value in pairs:
+            if key in MID_KEYS:
+                found |= set(values(value)) & MID_STATES
+    return found
+
+
+def mid_state_problems(found, listed, cells) -> list:
+    """What is wrong between ``found`` ({module: states its source writes}), ``listed`` (midstates.json's modules) and ``cells``
+    (test_matrix.py RESTART_CELLS' modules -> their surfaces): each a line saying what to do."""
+    problems = []
+    for module, states in sorted(found.items()):
+        entry = listed.get(module)
+        if entry is None:
+            problems.append(f"{module} 写中间态 {sorted(states)}：登记进 tests/golden/midstates.json，写明重启后怎么收尾")
+        elif set(entry.get("states") or ()) != states:
+            problems.append(f"{module} 写的中间态是 {sorted(states)}，登记的是 {sorted(entry.get('states') or ())}：改登记")
+    for module, entry in sorted(listed.items()):
+        if module not in found:
+            problems.append(f"{module} 已不写中间态：从 tests/golden/midstates.json 去掉")
+        if not str(entry.get("restart") or "").strip():
+            problems.append(f"{module} 没写重启后怎么收尾（restart）")
+        surfaces = cells.get(module)
+        if surfaces is None:
+            problems.append(f"{module} 在 tests/test_matrix.py RESTART_CELLS 没有「重启后再点一次」格")
+        elif sorted(surfaces) != sorted(RESTART_SURFACES):
+            problems.append(f"{module} 的「重启后再点一次」格要有 {'、'.join(RESTART_SURFACES)} 两格，现在是 {sorted(surfaces)}")
+    for module in sorted(set(cells) - set(listed)):
+        problems.append(f"{module} 在 RESTART_CELLS 里但没登记中间态：从 RESTART_CELLS 去掉")
+    return problems
+
+
+def restart_cells() -> dict:
+    """tests/test_matrix.py RESTART_CELLS as {module: [its surfaces]}, read from its source (test_matrix builds a whole Bridge)."""
+    tree = ast.parse((REPO / "tests" / "test_matrix.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "RESTART_CELLS" for t in node.targets):
+            return {ast.literal_eval(key): [ast.literal_eval(surface) for surface in value.keys]
+                    for key, value in zip(node.value.keys, node.value.values) if isinstance(value, ast.Dict)}
+    return {}
+
+
+class MidStateTest(unittest.TestCase):
+    """G4 (WAVE12 C11, T904): a module that writes sending, creating, running, submitting or uncertain is in
+    tests/golden/midstates.json with what a restart leaves of it, and has its 重启后再点一次 cells in tests/test_matrix.py."""
+
+    def found(self) -> dict:
+        found = {}
+        for path in sorted(PACKAGE.rglob("*.py")):
+            states = mid_states_written(ast.parse(path.read_text(encoding="utf-8")))
+            if states:
+                found[path.relative_to(REPO).as_posix()] = states
+        return found
+
+    def test_every_module_writing_a_mid_state_is_listed_with_its_restart_cells(self):
+        import json
+        listed = json.loads(MIDSTATES.read_text(encoding="utf-8"))["modules"]
+        self.assertEqual(mid_state_problems(self.found(), listed, restart_cells()), [])
+
+    def test_the_check_finds_writes_and_leaves_reads_and_says_what_is_stale(self):
+        source = textwrap.dedent('''
+            record = {"state": "sending", "other": "running"}
+            save(path, {**record, "status": "done" if ok else "uncertain"})
+            row["status"] = "creating"
+            update(path, state="submitting")
+            store.query(status="running")
+            reply(False, "x", status="uncertain")
+            if record.get("state") == "running":
+                pass
+        ''')
+        self.assertEqual(mid_states_written(ast.parse(source)), {"sending", "uncertain", "creating", "submitting"})
+        cells = {"covey/a.py": ["飞书", "网页"], "covey/gone.py": ["飞书", "网页"], "covey/half.py": ["飞书"]}
+        listed = {"covey/a.py": {"states": ["sending"], "restart": "x"}, "covey/gone.py": {"states": ["running"], "restart": "y"},
+                  "covey/half.py": {"states": ["running"], "restart": ""}}
+        problems = mid_state_problems({"covey/a.py": {"sending", "uncertain"}, "covey/new.py": {"running"},
+                                       "covey/half.py": {"running"}}, listed, {**cells, "covey/extra.py": ["飞书", "网页"]})
+        self.assertEqual(len(problems), 6, problems)
+        for words in ("covey/new.py 写中间态", "covey/a.py 写的中间态是", "covey/gone.py 已不写中间态", "covey/half.py 没写重启后",
+                      "covey/half.py 的「重启后再点一次」格", "covey/extra.py 在 RESTART_CELLS 里但没登记"):
+            self.assertTrue(any(line.startswith(words) for line in problems), words)
+        self.assertEqual(mid_state_problems({}, {}, {}), [])

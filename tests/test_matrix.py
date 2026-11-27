@@ -373,6 +373,85 @@ class KnownGapsTest(HarnessCellsCase):
         self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", "话题 · 敏感词脱敏"})
 
 
+# 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's
+# MidStateTest keeps true), on 飞书 and on 网页: the test that leaves the mid-state as a restart would and clicks (or ticks) again,
+# "不适用：" with why the surface has none, or "缺口：" with what does not hold yet.
+NOT_A_CLICK = "不适用：一轮里的步骤进度，跟着任务进程走，Bridge 重启时由启动恢复收尾（core/recovery.py），没有可点的"
+RESTART_CELLS = {
+    "covey/app/batch_switch.py": {
+        "飞书": "test_batch_switch.MidStateTest.test_a_switching_whose_process_is_gone_is_settled_by_the_next_click_and_retried",
+        "网页": "不适用：批量换配置只在飞书私聊的卡上确认，网页没有这张卡"},
+    "covey/app/butler_asks.py": {
+        "飞书": "test_butler_asks.HandOnTest.test_a_step_that_raised_before_or_in_the_send_is_said_as_what_it_left",
+        "网页": "不适用：转给管家的话由任务轮发出，网页上没有这一步"},
+    "covey/app/limit_notice.py": {
+        "飞书": "test_limit_notice.NoticeTest.test_a_notice_left_sending_by_a_bridge_that_stopped_goes_again_under_its_key",
+        "网页": "不适用：合并提示只发到飞书私聊"},
+    "covey/app/owner_send.py": {
+        "飞书": "test_owner_send.ClickTests.test_maybe_sent_is_never_sent_again",
+        "网页": "不适用：代发草稿只在飞书卡上确认"},
+    "covey/app/questions.py": {
+        "飞书": "test_questions.QuestionTest.test_restart_with_unacknowledged_saved_answer_never_replays",
+        "网页": "test_web_sync.InboxTest.test_a_restart_does_not_do_an_operation_again_and_an_unfinished_one_is_not_replayed"},
+    "covey/app/relay_send.py": {
+        "飞书": "test_butler_relay.SendTest.test_an_unconfirmed_send_is_never_sent_again",
+        "网页": "不适用：回带只发到飞书私聊顶层，网页按任务记录现算（WebSurfaceTest）"},
+    "covey/app/status_cards.py": {
+        "飞书": "test_status_cards.SendOutcomeTest.test_a_card_left_creating_by_a_bridge_that_stopped_goes_again_under_its_key_with_its_card",
+        "网页": "不适用：话题状态卡只在飞书话题里"},
+    "covey/app/steer_receipts_flow.py": {
+        "飞书": "test_steer.ReceiptActionTest.test_an_error_while_requeuing_is_unconfirmed_and_never_queued_again",
+        "网页": "不适用：补充回执卡只在飞书话题里"},
+    "covey/app/steering.py": {
+        "飞书": "test_steer.QueuedSteerTest.test_card_target_survives_restart_and_is_visible_before_click",
+        "网页": "test_web_sync.OpLaneTest.test_one_taken_by_an_earlier_process_is_still_failed_as_uncertain"},
+    "covey/app/tidy_run.py": {
+        "飞书": "缺口：Bridge 在整理途中停下，这次整理的记录留在 running，整理卡停在“正在整理”；重启后再点整理开的是新一次，旧卡不收尾",
+        "网页": "缺口：网页的整理面板读到这条没有 finished_at 的 running 记录仍显示在整理（app/tidy_web.py last_run）"},
+    "covey/app/web_collect.py": {
+        "飞书": "不适用：只是推给网页的进度字段", "网页": "不适用：每次推送按任务记录现算，不落盘，重启后重算"},
+    "covey/app/web_login.py": {
+        "飞书": "test_web_login.ClickTests.test_only_the_owner_once_per_event_on_the_card_it_sent",
+        "网页": "test_web_login.SendTests.test_a_card_feishu_refuses_is_a_failure_that_can_be_sent_again"},
+    "covey/backends/claude/compaction.py": {"飞书": NOT_A_CLICK, "网页": NOT_A_CLICK},
+    "covey/backends/claude/events.py": {"飞书": NOT_A_CLICK, "网页": NOT_A_CLICK},
+    "covey/backends/codex/events.py": {"飞书": NOT_A_CLICK, "网页": NOT_A_CLICK},
+    "covey/core/deliveries.py": {
+        "飞书": "test_steer.QueuedSteerTest.test_an_unconfirmed_supplement_never_runs_the_message_again",
+        "网页": "test_web_sync.InboxTest.test_a_restart_does_not_do_an_operation_again_and_an_unfinished_one_is_not_replayed"},
+    "covey/core/longtask.py": {"飞书": "不适用：只在内存里算进度，不落盘", "网页": "不适用：只在内存里算进度，不落盘"},
+    "covey/core/steps.py": {"飞书": NOT_A_CLICK, "网页": NOT_A_CLICK},
+    "covey/core/trace.py": {"飞书": NOT_A_CLICK, "网页": NOT_A_CLICK},
+    "covey/service/manager.py": {
+        "飞书": "不适用：服务管理器自己的进程状态，重启时按 desired_state 重新拉起服务",
+        "网页": "不适用：服务管理器自己的进程状态，重启时按 desired_state 重新拉起服务"},
+}
+RESTART_WORDS = ("不适用：", "缺口：")
+
+
+class RestartColumnTest(unittest.TestCase):
+    """重启后再点一次 × 飞书 / 网页 (WAVE12 G4): every cell names a test that is there, or says why the surface has none or
+    what does not hold yet; a cell of a module that writes no mid-state any more fails test_structure's MidStateTest."""
+
+    def test_every_cell_names_a_test_that_is_there_or_says_why_not(self):
+        """Read from the test files' source: importing one may skip it here (a test module that needs the extension)."""
+        import ast
+        from pathlib import Path
+        defined = {}
+        for module, surfaces in RESTART_CELLS.items():
+            for surface, cell in surfaces.items():
+                with self.subTest(module=module, surface=surface):
+                    if cell.startswith(RESTART_WORDS):
+                        self.assertTrue(cell.split("：", 1)[1].strip(), "写明原因")
+                        continue
+                    name, cls, method = cell.split(".")
+                    if name not in defined:
+                        tree = ast.parse((Path(__file__).parent / f"{name}.py").read_text(encoding="utf-8"))
+                        defined[name] = {(node.name, item.name) for node in tree.body if isinstance(node, ast.ClassDef)
+                                         for item in node.body if isinstance(item, ast.FunctionDef)}
+                    self.assertIn((cls, method), defined[name], f"{cell} 不存在：改成现有的测试")
+
+
 class AgyBudgetTest(unittest.TestCase):
     """管家、负责人 × Antigravity: agy loads a turn's tools up front within EAGER_BYTES and drops the largest whole past it
     (T750). Every tool but SECONDARY, of the butler and of a lead under every switch, fits strictly within the room, so

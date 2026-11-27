@@ -228,6 +228,109 @@ class TopicsSwitchTest(BatchCase):
         self.assertIn("专项「专项」的负责人提议的", json.dumps(self.cards[0], ensure_ascii=False))
 
 
+GONE = {"pid": 999_999_999, "start_ticks": "1", "boot_id": "gone"}  # A process that is no more (a restart).
+
+
+class MidStateTest(BatchCase):
+    """WAVE12 C10 (T904): what a restart or a send that went wrong leaves mid-way, and the click after it."""
+
+    def leave(self, request_id="s1", **fields):
+        """The record as an earlier process left it."""
+        target = batch_switch.path(self.ctx.state_dir, self.record(request_id)["token"])
+        target.write_text(json.dumps({**self.record(request_id), **fields}, ensure_ascii=False))
+
+    def running_left(self, owner=GONE):
+        rows = self.record()["rows"]
+        rows[0] = {**rows[0], "state": "switching"}
+        self.leave(status="running", rows=rows, **({"owner": owner} if owner is not None else {}))
+
+    def test_a_switching_whose_process_is_gone_is_settled_by_the_next_click_and_retried(self):
+        self.switch()
+        self.running_left()
+        self.assertEqual(self.click(cards.RETRY), "batch_switch_retry")
+        record = self.record()
+        self.assertEqual((record["status"], [row["state"] for row in record["rows"]]), ("done", ["done", "done"]))
+        self.assertEqual([self.harness(0), self.harness(1)], [self.after, self.after])
+        self.assertEqual(record["owner"], batch_switch.me())
+
+    def test_a_confirm_on_one_left_running_settles_it_and_offers_the_retry(self):
+        self.switch()
+        self.running_left()
+        self.click(cards.CONFIRM)
+        record = self.record()
+        self.assertEqual(record["status"], "done")
+        self.assertEqual([row["why"] for row in record["rows"]], list(batch_switch.LEFT_WHY))
+        self.assertIn("再试没换的", json.dumps(self.app.messenger.patch_card.call_args.args[2], ensure_ascii=False))
+        self.assertEqual([self.harness(0), self.harness(1)], [self.before, self.before])  # Nothing switched by it.
+
+    def test_the_bridges_start_settles_what_a_gone_process_left_running_and_redraws_its_card(self):
+        import os
+        from covey.core.process import process_identity
+        self.switch()
+        self.switch("s2", topics=[self.labels[0]])
+        self.switch("s3", topics=[self.labels[1]])
+        self.running_left()
+        self.leave("s2", status="running", owner=process_identity(os.getppid()))  # Alive, another process's: left alone.
+        self.leave("s3", status="running")  # An older release's, naming no process: settled.
+        self.assertEqual(self.app.batch_switch.settle_all(self.ctx), 2)
+        self.assertEqual([self.record(r)["status"] for r in ("s1", "s2", "s3")], ["done", "running", "done"])
+        self.assertEqual([row["state"] for row in self.record()["rows"]], ["failed", "failed"])
+        self.assertEqual(self.app.messenger.patch_card.call_count, 2)
+        self.assertEqual(self.app.batch_switch.settle_all(self.ctx), 0)  # Settled once.
+
+    def test_a_click_on_a_card_whose_record_has_no_message_yet_takes_it(self):
+        self.switch()
+        record = self.record()
+        self.leave(status="sending", message_id="", answer=None)  # The Bridge stopped after the send, before the save.
+        self.assertEqual(self.click(cards.CONFIRM), "batch_switch_confirm")
+        record = self.record()
+        self.assertEqual((record["message_id"], record["status"]), ("om_batch", "done"))
+        self.assertTrue(record["answer"]["ok"])
+        self.assertEqual([self.harness(0), self.harness(1)], [self.after, self.after])
+        self.assertEqual(self.switch(), record["answer"])  # The same request again: the card is out, none sent.
+        self.assertEqual(self.app.messenger.send_message.call_count, 1)
+
+    def test_a_card_feishu_refused_is_failed_and_the_same_request_sends_it_again_under_its_key(self):
+        refused = mock.Mock(return_value=False)
+        self.app.messenger.send_message, self.app.messenger.last_outcome = refused, mock.Mock(return_value="not_sent")
+        answer = self.switch()
+        self.assertFalse(answer["ok"])
+        self.assertEqual(self.record()["status"], "failed")
+        self.app.messenger.send_message = mock.Mock(side_effect=self.sent)
+        self.assertTrue(self.switch()["ok"])
+        self.assertEqual((self.record()["status"], self.record()["message_id"]), ("pending", "om_batch"))
+        self.assertEqual(refused.call_args.args[3], self.app.messenger.send_message.call_args.args[3])
+
+    def test_a_card_that_may_have_gone_is_never_sent_again_and_a_click_on_it_takes_it(self):
+        unsure = mock.Mock(return_value=False)
+        self.app.messenger.send_message, self.app.messenger.last_outcome = unsure, mock.Mock(return_value="uncertain")
+        answer = self.switch()
+        self.assertEqual((answer["ok"], answer["text"]), (False, batch_switch.UNCERTAIN_SENT))
+        self.assertEqual((self.record()["status"], self.record()["message_id"]), ("uncertain", ""))
+        self.assertEqual(self.switch(), answer)  # The same request: not sent again.
+        unsure.assert_called_once()
+        self.assertEqual(self.click(cards.CONFIRM, message_id="om_late"), "batch_switch_confirm")
+        self.assertEqual((self.record()["message_id"], self.record()["status"]), ("om_late", "done"))
+        self.assertEqual(self.click(cards.CONFIRM, message_id="om_other"), "batch_switch_stale")  # Only that card.
+
+    def test_switching_never_stays_running_when_it_breaks_part_way(self):
+        self.switch()
+        put_row, calls = self.app.batch_switch.put_row, []
+
+        def broken(target, index, **fields):
+            calls.append(index)
+            if len(calls) == 2:  # The first row's outcome cannot be written.
+                raise OSError("disk")
+            return put_row(target, index, **fields)
+        with mock.patch.object(self.app.batch_switch, "put_row", side_effect=broken):
+            with self.assertRaises(OSError):
+                self.click(cards.CONFIRM)
+        record = self.record()
+        self.assertEqual((record["status"], [row["state"] for row in record["rows"]]), ("done", ["failed", "failed"]))
+        self.assertEqual([row["why"] for row in record["rows"]], list(batch_switch.BROKEN_WHY))
+        self.assertIn("再试没换的", json.dumps(self.app.messenger.patch_card.call_args.args[2], ensure_ascii=False))
+
+
 class TopicCardBasisTest(ButlerTopicsCase):
     def test_a_topic_opened_on_the_owners_words_says_so_on_its_card(self):
         upsert_job_record(self.ctx.state_dir, "main-job", chat_id=CHAT, topic_id=butler.butler_topic_id(CHAT), job_id=1,

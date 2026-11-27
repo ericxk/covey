@@ -449,6 +449,10 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                 triage_flow.settle_closed(self.butler_env)
             except Exception as exc:  # noqa: BLE001 - the start does not depend on it
                 self.runtime.log(f"held questions not settled at start: {type(exc).__name__}")
+            try:  # 批量换配置 an earlier run left switching (app/batch_switch.py settle_all): its card says what is left.
+                self.batch_switch.settle_all(ctx)
+            except Exception as exc:  # noqa: BLE001 - the start does not depend on it; the next click settles it
+                self.runtime.log(f"batch switch not settled at start: {type(exc).__name__}")
             self.notify_stale_jobs(ctx)
 
             for name, target in self.worker_targets():
