@@ -24,13 +24,14 @@ from covey.app.card_lanes import clicked_message
 from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.cards.pages import fits
-from covey.cards.question_cards import (OTHERS, SET_ASIDE, answer_notice_card, mirror_card, output_pages, question_card,
+from covey.cards.question_cards import (OTHERS, SET_ASIDE, answer_notice_card, mirror_fit, output_pages, question_card,
                                         question_element, triage_element)
 from covey.core import butler, placement, triage
 from covey.core.jobs import find_job_record
 from covey.core.state import read_object, write_private_text
 from covey.core.store import update_question
 from covey.core.topics import route_message, topic_label, topic_title
+from covey.feishu.messenger import CardAbout
 
 MIRROR_OUTPUT_BYTES = 12000  # A longer output goes on cards of its own before the top-level question card.
 
@@ -48,8 +49,29 @@ def standalone_card(ctx, record):
 def top_card(ctx, record, files=None):
     """The top-level copy of ``record``'s card (``mirror``), its "你问" block as it was sent; ``files``: the asking
     turn's 产物 panel (QuestionDisplay.copy_files)."""
-    return mirror_card(record, topic_label(ctx.state_dir, record["topic_id"]), record.get("mirror_output") or "",
-                       ask=record.get("mirror_ask"), files=files)
+    return top_fit(ctx, record, files).card
+
+
+def top_fit(ctx, record, files=None):
+    """``top_card`` as cards/question_cards.py mirror_fit draws it: the card, and whether it holds all of it."""
+    return mirror_fit(record, topic_label(ctx.state_dir, record["topic_id"]), record.get("mirror_output") or "",
+                      ask=record.get("mirror_ask"), files=files)
+
+
+QUESTION_CARD, QUESTION_COPY = "问题卡", "问题卡副本"
+WEB_ANSWER = "，或到网页工作台答题"
+
+
+def answer_where(ctx, record, *, copy=False, link=None) -> str:
+    """Where the owner answers ``record``'s questions when a card of them could not be shown (feishu/messenger.py
+    CardAbout ``where``): the card in the topic for its top-level copy (``copy``; ``link``, text -> text, makes its T
+    number a link), else a reply in the topic, or at the top level for a question there itself; the web page too, but
+    not for the butler's own questions (docs/web.md 答题: answered in Feishu only)."""
+    web = "" if butler.is_butler_topic(record.get("topic_id"), record.get("chat_id")) else WEB_ANSWER
+    if copy:
+        words = f"到 {topic_label(ctx.state_dir, record.get('topic_id') or '') or '话题'} 里的问题卡作答{web}"
+        return link(words) if link else words
+    return ("直接回复作答" if record.get("at_top") else "可以直接在话题里回复作答") + web
 
 
 def owner_started(state_dir, job) -> bool:
@@ -219,12 +241,14 @@ class QuestionDisplay:
         return self.member_speaker(ctx, record, job)
 
     # The top-level copy of a 话题区's question.
-    def mirror(self, ctx, record, output="", job=None):
+    def mirror(self, ctx, record, output="", job=None, *, quiet=False):
         """Show the pending question ``record`` at the top level too, once, when its topic is a 话题区, or the butler's
         , whose card is in the owner's message's thread (core/placement.py question_copy); its message id,
         '' when it is not shown there (another topic, no butler request it came from, already tried). Threaded,
         it is a message of its own with a "你问" block (``job``: the turn that asks), quoting no card. Each try is one
-        log line ``main relay state=… outcome=question``, as a relay's (app/relay_send.py send_once)."""
+        log line ``main relay state=… outcome=question``, as a relay's (app/relay_send.py send_once). A copy that could
+        not be shown gets one line in its place, saying why and where to answer (``answer_where``), unless ``quiet``: the
+        caller's 等你 relay follows and says that (app/butler_relay.py after_turn)."""
         from covey.app.relay_targets import area_target, ask_for
 
         chat, token = record.get("chat_id") or "", record.get("token") or ""
@@ -257,10 +281,11 @@ class QuestionDisplay:
         with question_card_lock(path):
             files, drawn = self.copy_files(ctx, record)
             if text and not apart:
-                # The copy with the output on it past a card's room (the owner's words, many long questions, 产物):
-                # the output goes apart too, so the copy itself is never refused.
-                whole = {**record, "mirror_output": text, **({"mirror_ask": ask} if ask else {})}
-                apart = not fits(top_card(ctx, whole, files), cardkit=True)
+                # The copy with the output on it past a card's room (the owner's words, many long questions, samples,
+                # 产物): the output goes apart first, before a sample is left out (mirror_fit ``whole``), so the copy
+                # itself is never refused and shows what it can.
+                fit = top_fit(ctx, {**record, "mirror_output": text, **({"mirror_ask": ask} if ask else {})}, files)
+                apart = not (fit.whole and fits(fit.card, cardkit=True))
             current = update_question(path, lambda r: None if r.get("mirror_state") else
                                       {**r, "mirror_state": "creating", "mirror_output": "" if apart else text,
                                        **({"mirror_ask": ask} if ask else {})})
@@ -281,9 +306,11 @@ class QuestionDisplay:
                 # A quote of it goes to the topic; a reply to it stays where the topic's replies go.
                 route_message(ctx.state_dir, chat, mid, record["topic_id"], holder=record["topic_id"])
 
+            about = CardAbout(QUESTION_COPY, quiet=quiet, where=lambda: answer_where(
+                ctx, record, copy=True, link=lambda words: self.linked(ctx, chat, words)))
             try:
                 self.messenger.publish_card(top, chat, "question-top-" + token, top_card(ctx, current, files),
-                                            on_sent=remember, voice=self.voice)
+                                            on_sent=remember, voice=self.voice, about=about)
             except Exception as exc:  # noqa: BLE001 - as unconfirmed: never sent again
                 self.runtime.log(f"question top-level copy failed token={token[:10]}: {type(exc).__name__}")
             latest = update_question(path, lambda r: {**r, "mirror_state": "sent" if sent else "uncertain"})
@@ -292,6 +319,13 @@ class QuestionDisplay:
         self.runtime.log(f"main relay state={'sent' if sent else 'uncertain'} outcome=question job=#{record.get('job_id')}"
                          f" kind={target.get('kind')} token={token[:10]} message={(sent[0] if sent else '')[-8:]}")
         return sent[0] if sent else ""
+
+    @staticmethod
+    def linked(ctx, chat, words):
+        """``words`` with their T numbers links to their topics (app/topic_links.py linkify); never raises."""
+        from covey.app.topic_links import linkify
+
+        return linkify(words, ctx.state_dir, chat, profile=ctx.profile)
 
     def output_apart(self, ctx, record, text, ask, reply_to):
         """What the turn wrote before it asked (``text``), above the top-level copy of the question ``record`` when the
@@ -412,7 +446,8 @@ class QuestionDisplay:
 
         def remember(message_id):
             update_question(path, lambda current: {**current, "answer_notice_message_id": message_id})
-        if not self.messenger.publish_card(ctx, chat, mid, card, on_sent=remember, voice=self.voice):
+        if not self.messenger.publish_card(ctx, chat, mid, card, on_sent=remember, voice=self.voice,
+                                           about=CardAbout("回答提示", quiet=True)):  # The line below says it.
             self.messenger.reply(ctx, chat, f"回答还没提交：{text}", self.voice.key("answer-incomplete", mid), voice=self.voice)
 
     @staticmethod
@@ -459,7 +494,8 @@ class QuestionDisplay:
                     write_private_text(path, json.dumps(record, ensure_ascii=False))
 
         return self.messenger.publish_card(ctx, record['chat_id'], 'question-' + record['token'],
-                                                 standalone_card(ctx, visible or record), on_sent=remember, voice=self.voice)
+                                           standalone_card(ctx, visible or record), on_sent=remember, voice=self.voice,
+                                           about=CardAbout(QUESTION_CARD, where=answer_where(ctx, record)))
 
     def paint_standalone(self, ctx, record):
         mid = record['question_message_id']

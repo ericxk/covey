@@ -376,6 +376,19 @@ def send_merged(state_dir, job, path, key, target, send, profile=None, log=None,
     return PENDING
 
 
+def merged_fit(state_dir, chat, rows, links, profile=None):
+    """(card, text) of the 做完了 relays ``rows`` as one card (cards/relay_card.py merged_card), its T numbers links
+    (``linked``; ``links``, each topic's card): as many rows as one card holds (cards/pages.py fits), the rest on one grey
+    line under them. Many at once passed a card's bytes from about 19 rows and CardKit's 200 nodes from 29 (T889)."""
+    shown = len(rows)
+    while True:
+        built, text = merged_card(rows[:shown], more=rows[shown:])
+        built, text = linked(state_dir, chat, built, text, profile, cards=links)
+        if shown <= 1 or fits(built):
+            return built, text
+        shown -= 1
+
+
 def take(state_dir, chat, path, key, target, send, made, profile=None, log=None):
     """The relays of ``chat`` still PENDING, the one at ``path`` first, taken as one send (``send_merged``): nothing
     when that one went with another's already. The state of the one at ``path``."""
@@ -405,8 +418,8 @@ def take(state_dir, chat, path, key, target, send, made, profile=None, log=None)
 
         urls = links_for(state_dir, links, cards=links, profile=profile)  # Each row opens its topic.
         # No picture: each row has its topic's T number as its badge (cards/ui.py topic_badge).
-        built, text = merged_card([{**item, "url": urls.get(item.get("topic_id") or "", "")} for item in items])
-        built, text = linked(state_dir, chat, built, text, profile, cards=links)
+        rows = [{**item, "url": urls.get(item.get("topic_id") or "", "")} for item in items]
+        built, text = merged_fit(state_dir, chat, rows, links, profile)
         made = (built, text, links, {})
         key = key + "-merged"
     return _send(state_dir, taken, key, target, DONE_OUTCOME, send, made, profile, log)

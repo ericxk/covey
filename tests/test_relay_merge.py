@@ -233,6 +233,36 @@ class CardTest(unittest.TestCase):
         self.assertIn("- T12 改看板：按钮改好了（产物 3 个）", text)
 
 
+    def test_too_many_for_one_card_the_last_go_on_one_line(self):
+        """T889: 30 topics ending in one window took the card past Feishu's 30 KB and CardKit's 200 nodes."""
+        from covey.cards.elements import element_count
+        from covey.cards.pages import PAGE_NODES, fits
+        from covey.cards.relay_card import MERGED_MORE
+        rows = [{"label": f"T{n}", "title": f"第 {n} 个话题", "lead": "做完了，结论在话题里" * 3, "files": 2,
+                 "url": f"https://applink.feishu.cn/client/thread/open?open_chat_id=oc_{n:040d}&open_thread_id=omt_{n:040d}"}
+                for n in range(100, 130)]
+        whole, _ = merged_card(rows)
+        self.assertFalse(fits(whole))
+        with mock.patch.object(relay_send, "linked", side_effect=lambda state, chat, built, text, profile, cards=None: (built, text)):
+            built, text = relay_send.merged_fit("/absolute/state", "oc_x", rows, {}, None)
+        self.assertTrue(fits(built))
+        self.assertLessEqual(element_count(built), PAGE_NODES)
+        shown = json.dumps(built, ensure_ascii=False)
+        self.assertIn("30 个话题做完了", shown)
+        left = [row["label"] for row in rows if f"**{row['label']}**" not in shown]
+        self.assertTrue(left)
+        self.assertIn(MERGED_MORE.format(n=len(left), labels="、".join(left)), shown)
+        self.assertEqual(text.count("\n- T"), 30)  # The Markdown, sent when the card is refused, lists them all.
+
+
+    def test_a_card_over_its_nodes_does_not_fit_however_small(self):
+        from covey.cards.pages import PAGE_NODES, fits
+        small = {"schema": "2.0", "body": {"elements": [{"tag": "hr"} for _ in range(PAGE_NODES)]}}
+        self.assertTrue(fits(small))
+        small["body"]["elements"].append({"tag": "hr"})
+        self.assertFalse(fits(small))  # A few hundred bytes, yet CardKit would refuse it (300305).
+
+
 class RunnerTest(unittest.TestCase):
     def test_a_relay_window_does_not_hold_the_topic_but_the_exit_waits_for_it(self):
         before = set(threading.enumerate())

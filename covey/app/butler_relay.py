@@ -239,9 +239,10 @@ def question_asked(ctx, job, question, *, messenger, voice, log):
         return None
 
 
-def mirror_questions(delivery):
+def mirror_questions(delivery, *, quiet=False):
     """A waiting 话题区 turn's pending questions shown at the top level too (app/question_display.py mirror), with
-    the reply it delivered above them; whether any is there now."""
+    the reply it delivered above them; whether any is there now. ``quiet``: a copy that could not be shown gets no line
+    in its place, the 等你 relay that follows says where to answer (``after_turn``)."""
     job, turn, ctx = delivery.job, delivery.turn, delivery.ctx
     output = getattr(delivery, "display_text", None)  # As the topic's card shows it: without the question.
     if output is None:
@@ -251,7 +252,7 @@ def mirror_questions(delivery):
                                                                     topic_id=job_field(job, "topic_id"), status="pending")
     shown = False
     for _, record in rows:
-        if record.get("mirror_message_id") or delivery.questions.display.mirror(ctx, record, output, job=job):
+        if record.get("mirror_message_id") or delivery.questions.display.mirror(ctx, record, output, job=job, quiet=quiet):
             shown = True
     return shown
 
@@ -297,7 +298,9 @@ def after_turn(delivery, delivered, execution_status, *, messenger, profile, voi
         outcome = outcome_of(turn, delivered, execution_status, delivery.retry)
         if outcome is None:
             return None
-        if outcome == WAITING and row.question_copy and mirror_questions(delivery):
+        # A copy that could not be shown is followed by this layout's 等你 relay, which says where to answer: then the
+        # copy's own line would say it twice (T889).
+        if outcome == WAITING and row.question_copy and mirror_questions(delivery, quiet=bool(row.conclusion or row.stop)):
             return "mirrored"  # Its questions are at the top level as cards, the output above them.
         if not (row.conclusion or row.stop) and not (outcome in AWAITED and awaited_target(state_dir, job)):
             outcome = None

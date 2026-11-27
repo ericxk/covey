@@ -1,6 +1,7 @@
 """The question form, its standalone card, the feedback card and the answer notices."""
 from __future__ import annotations
 
+import dataclasses
 import re
 
 from covey.cards.board import OPEN_KIND
@@ -122,11 +123,12 @@ def question_lead(i, count, q):
     return f"**{label}**" if label else ""
 
 
-def question_element(record, tags="", *, headed=False):
+def question_element(record, tags="", *, headed=False, compact=0):
     """A question's element: its open form, or once settled the folded panel that says what came of it.
     ``tags``: ``T12 · #196``, which lead the form's first line when nothing above it says whose it is (a task card's
     form, a top-level copy sent before the speaker's row); ``headed``: the card's row (cards/ui.py speaker_row) says
-    whose it is and 等你, so the form starts with its first question."""
+    whose it is and 等你, so the form starts with its first question; ``compact``: the open form drawn smaller, for a card
+    that cannot hold it whole (``_question_form``, ``fitted``)."""
     token = record["token"]
     if record.get("status") == "superseded" and not folded(record):
         return {"tag": "markdown", "element_id": "q_" + token,
@@ -140,7 +142,7 @@ def question_element(record, tags="", *, headed=False):
                 "content": "完整结果或问题控件尚未送达，请使用本话题任务卡的重试按钮，重新投递后再回答。"}
     if record.get("status") in {"cancelled", "uncertain", "submitting", "answered", SET_ASIDE}:
         return settled_element(record)
-    return _question_form(with_dedup(record), token, tags, headed)
+    return _question_form(with_dedup(record), token, tags, headed, compact)
 
 
 DEDUP_MARKS, DEDUP_EXTRA, DEDUP_DRAWN = "dedup", "extra_questions", "dedup_drawn"  # app/question_dedup.py MARK_KEY, EXTRA_KEY.
@@ -305,9 +307,12 @@ def answer_hint(record):
     return f"怎么回答：{done}后点“{SUBMIT_LABEL}”，也可以{_reply_where(record)}"
 
 
-def answer_help(record):
+def answer_help(record, compact=0):
     """The form's last element: ``answer_hint`` as one small grey line, folded on the rules (``how_to_answer``), the
-    chevron after its words as on the line with the owner's words (cards/answer_card.py words_fold)."""
+    chevron after its words as on the line with the owner's words (cards/answer_card.py words_fold); ``compact``: the
+    line alone, unfolded (COMPACT_HINTS when the answer boxes are gone)."""
+    if compact:
+        return md(grey(COMPACT_HINTS.get(compact) or answer_hint(record)), size="notation")
     return fold(HELP_ID + record["token"], md(grey(answer_hint(record)), size="notation"),
                 [md(how_to_answer(record), size="notation")], title_padding="0px 0px 0px 0px",
                 icon_position="follow_text", spacing="4px")
@@ -359,7 +364,46 @@ def waiting_state(record):
             else "其他工作继续")
 
 
-def _question_form(record, token, tags="", headed=False):
+# A form drawn smaller (``compact``) for a card that cannot hold it whole (``fitted``): 1, each question's words, background
+# and options in one Markdown element and 怎么回答 one line; 2, no answer box under a question with options either (补充说明
+# takes what no option says); 3 (BRIEF), no field a question: the questions listed, the owner's answers written in 补充说明
+# and sent with 提交回答 (a question not answered on its own is 不回答此题, the model reading 补充说明), or answered on the
+# web. 提交回答 is always there.
+BRIEF = 3
+COMPACT_HINTS = {2: f"怎么回答：逐题选择，选项都不合适的写在“补充说明”，最后点“{SUBMIT_LABEL}”",
+                 BRIEF: f"怎么回答：把每题的回答写在“补充说明”里，点“{SUBMIT_LABEL}”"}
+BRIEF_HEAD = "这组 {n} 道题放不下一张卡的逐题选项"
+BRIEF_HOW = f"把每题的回答写在下面的“补充说明”里（如“1 选 A；2 选 B”），再点“{SUBMIT_LABEL}”"
+BRIEF_WEB = "，或到网页工作台逐题作答"
+BRIEF_CHARS, BRIEF_BYTES = 160, 12_000  # Each question's words in the list; the list, the rest counted as 还有 N 题.
+
+
+def brief_questions(record):
+    """The questions of a form drawn BRIEF, as one Markdown element: how to answer them, then each question's number, header,
+    opening words and options."""
+    from covey.core.butler import is_butler_topic
+
+    questions = record["questions"]
+    count = len(questions)
+    # The butler's own questions are answered in Feishu only (docs/web.md 答题).
+    web = "" if is_butler_topic(record.get("topic_id"), record.get("chat_id")) else BRIEF_WEB
+    lines = [f"**{BRIEF_HEAD.format(n=count)}**", grey(BRIEF_HOW + web + "。")]
+    used = sum(len(line.encode()) for line in lines)
+    for i, q in enumerate(questions):
+        lead = question_lead(i, count, q) or f"**{i + 1}.**"
+        line = f"{lead} {literal(compact_text(q.get('question') or '', BRIEF_CHARS))}"
+        options = " / ".join(str(o.get("label") or "")[:40] for o in q.get("options") or ())
+        if options:
+            line += "\n" + grey("选项：" + literal(options))
+        if used + len(line.encode()) > BRIEF_BYTES:
+            lines.append(grey(f"还有 {count - i} 题没有列出" + ("，到网页工作台看全部" if web else "")))
+            break
+        lines.append(line)
+        used += len(line.encode())
+    return md("\n".join(lines))
+
+
+def _question_form(record, token, tags="", headed=False, compact=0):
     """The open form: its first question right under the card's row (``headed``) or under one bold line that says whose
     it is, each question's fields, 补充说明, the buttons, then how to answer as one grey line that opens
     (``answer_help``). Above the first question only what the owner needs to decide: a turn that does not wait for the
@@ -376,15 +420,17 @@ def _question_form(record, token, tags="", headed=False):
     if triage.state(record) == triage.ESCALATED and triage.of(record).get("why"):
         elements.extend(lead_notes(record))
     draft = record.get(DRAFT) if isinstance(record.get(DRAFT), dict) else {}
-    for i, q in enumerate(record["questions"]):
-        elements.extend(_question_fields(i, q, count, record if buttons else None, draft))
+    if compact >= BRIEF:
+        elements.append(brief_questions(record))
+    for i, q in enumerate(record["questions"] if compact < BRIEF else ()):
+        elements.extend(_question_fields(i, q, count, record if buttons else None, draft, compact))
     # One place for anything beyond the answers, so no answer box doubles as a note.
     elements.append({"tag": "markdown", "content": "**补充说明**（可选）"})
     elements.append({"tag": "input", "name": SUPPLEMENT, "input_type": "multiline_text", "rows": 2,
                      "auto_resize": True, "max_rows": 5, "width": "fill", "max_length": 1000,
                      "placeholder": {"tag": "plain_text", "content": SUPPLEMENT_HINT}, **_typed(draft, SUPPLEMENT)})
     elements.append(_send_row(record, token))
-    elements.append(answer_help(record))
+    elements.append(answer_help(record, compact))
     return {"tag": "form", "element_id": "q_" + token, "name": "question_form_" + token, "elements": elements}
 
 
@@ -497,13 +543,16 @@ def short_question(q) -> bool:
             and not any(mark in text for mark in "*_`~"))
 
 
-def _question_fields(i, q, count=1, record=None, draft=None):
+def _question_fields(i, q, count=1, record=None, draft=None, compact=0):
     """Question ``i`` of ``count``: its number and header in bold, its text whole (one short question with neither in
     bold itself, ``short_question``: the band that said it is gone), its background (``question_context``) in small grey
     print under it, its options as a list, the dropdown (with ``record``, a picks() card's: a button per option), the
-    answer box and, without options, a skip box; each filled as ``draft`` (DRAFT) had it."""
+    answer box and, without options, a skip box; each filled as ``draft`` (DRAFT) had it. ``compact`` (``_question_form``):
+    the words, background and options one Markdown element; from 2 no answer box under the options."""
     draft = draft or {}
     elements = []
+    if compact:
+        return _compact_fields(i, q, count, record, draft, compact)
     lead = question_lead(i, count, q)
     text = f"**{q['question'].strip()}**" if not lead and short_question(q) else q["question"]
     for start in range(0, len(text), 6000):
@@ -513,7 +562,7 @@ def _question_fields(i, q, count=1, record=None, draft=None):
     if background:  # Read on a phone, a question alone did not say what it would change (T604 #14).
         elements.append(note("背景：" + literal(background)))
     options = q.get("options") or []
-    # A question with samples says each option's description over its sample (``samples_shown``), not again here.
+    # A question with samples says each option's description over its sample (``sample_blocks``), not again here.
     if options and not ui_samples.has(q):
         if any(o.get("description") for o in options):
             listed = "\n".join(f"- **{o['label']}**" + (f"：{o['description']}" if o.get("description") else "")
@@ -551,6 +600,30 @@ def _question_fields(i, q, count=1, record=None, draft=None):
     return elements
 
 
+def _compact_fields(i, q, count, record, draft, compact):
+    """``_question_fields`` drawn ``compact`` (``_question_form``): the question's number and header, its words, its
+    background grey and its options listed (each description beside its label, but not where a sample block says it) in
+    one Markdown element, then the same dropdown or buttons; the answer box only below 2 or without options, the skip box
+    without options."""
+    lead = question_lead(i, count, q)
+    words = str(q.get("question") or "").strip()[:6000]
+    parts = [lead, f"**{words}**" if not lead and short_question(q) else words]
+    background = question_context(q)
+    if background:
+        parts.append(grey("背景：" + literal(background)))
+    options = q.get("options") or []
+    if options and not ui_samples.has(q) and any(o.get("description") for o in options):
+        parts.append("\n".join(f"- **{o['label']}**" + (f"：{o['description']}" if o.get("description") else "")
+                               for o in options)[:3000])
+    elements = [{"tag": "markdown", "content": "\n".join(part for part in parts if part)}]
+    full = _question_fields(i, {**q, "context": None, "question": ""}, count, record, draft)
+    # What follows the words in the full fields: the dropdown or buttons, the answer box, the skip box.
+    rest = [element for element in full if element.get("tag") != "markdown"]
+    if options and compact >= 2:
+        rest = [element for element in rest if not (element.get("tag") == "input" and element.get("name") == f"answer_{i}")]
+    return [*elements, *rest]
+
+
 def others_row(record):
     """The grey line 还有 N 件等你 under a settled question's card, with 去看板 when the bot has the 看板 (the button sends
     one, cards/board.py OPEN_KIND); [] unless the record says something else waits (``OTHERS``)."""
@@ -567,7 +640,29 @@ def question_card(record, topic="", title="", *, rowed=False):
     In its thread (``topic`` or ``title``, the topic's title) it opens with the topic's row as every card of a topic does
     (cards/ui.py speaker_row: its T number's badge, its title, 等你 or how it was settled; no link, the card is in the
     thread), and the first question follows it (docs/ui.md 5.2 问题卡). ``rowed``: a row goes above it either way (the
-    top-level copy's, ``mirror_card``). With no row the form's first line says whose it is (``question_element``)."""
+    top-level copy's, ``mirror_card``). With no row the form's first line says whose it is (``question_element``).
+    Drawn to fit one card (``question_fit``)."""
+    return question_fit(record, topic, title, rowed=rowed).card
+
+
+@dataclasses.dataclass(frozen=True)
+class Fit:
+    """A question card drawn to fit one card (``fitted``): ``card``; ``whole``, nothing of it left out or drawn smaller;
+    ``left_out``, the samples (by ``sample_blocks``' order) not drawn on it."""
+    card: dict
+    whole: bool = True
+    left_out: tuple = ()
+
+
+def within(built) -> bool:
+    """Whether ``built`` keeps within what one card may hold (CARD_BYTES of JSON, CARD_NODES tagged nodes)."""
+    return ui_samples.size(built) <= CARD_BYTES and ui_samples.nodes(built) <= CARD_NODES
+
+
+def question_fit(record, topic="", title="", *, rowed=False, outer=None, elsewhere=()) -> Fit:
+    """``question_card`` as a ``Fit``. ``outer`` (card -> card): what goes round the card before it is sent (the top-level
+    copy's row, the turn's output, its 产物: ``mirror_fit``), counted with it, so what is sent is what was measured;
+    ``elsewhere``: the samples another card of the question draws (``sample_blocks``)."""
     pending = record.get('status') == 'pending'
     # A quiet butler turn's own card at the top level (app/question_display.py ask_block_for) has no task
     # number: the owner saw no card with it (B4 review).
@@ -582,7 +677,6 @@ def question_card(record, topic="", title="", *, rowed=False):
     # (``ask_headline``: the questions' headers or words, not "2 件事"), with no task number in it.
     who = " ".join(part for part in (topic, " ".join(str(title or "").split())) if part)
     own_row = bool(who) and not record.get(TOP_COPY)
-    element = question_element(record, tags, headed=own_row or rowed)
     # The topic list's preview while the card is the topic's latest message: what is asked of the owner, else what came
     # of the question (``settled_title``).
     summary = (f"{topic + ' ' if topic else ''}{look.word('waiting')} · 要你定：{ask_headline(record)}" if form
@@ -593,69 +687,112 @@ def question_card(record, topic="", title="", *, rowed=False):
                        tag=SETTLED_TAGS.get(record.get("status")), url="")] if own_row else []
     look_of = dict(padding=BODY_PADDING, spacing=BODY_SPACING) if own_row else {}
 
-    def drawn(shown):
+    def drawn(shown, compact=0):
+        element = question_element(record, tags, headed=own_row or rowed, compact=compact)
         elements = [*row, *shown, element, *others_row(record)]
         if record.get('refusal'):
             elements.append({"tag": "markdown", "content": "⚠️ " + record['refusal']})
-        return banded(card(elements, summary, default_width=True, **look_of))  # The badge's colours.
-    if not (form and ui_samples.any_of(record["questions"])):
-        return drawn([])
-    return with_samples(record, drawn)
+        built = banded(card(elements, summary, default_width=True, **look_of))  # The badge's colours.
+        return outer(built) if outer else built
+    return fitted(record, drawn, form, elsewhere)
 
 
 # 样张 (core/ui_samples.py, docs/ui.md 12): what the open form's question card draws above its first question.
 SAMPLES_HEAD = "下面 {n} 版样张由卡片 JSON 画成，样张里的按钮点不动；选哪一版，点最下面对应的选项。"
 SAMPLE_LEFT_OUT = "这版样张放不下这张卡，没有画"
+SAMPLE_IN_TOPIC = "这版样张放不下这张卡，话题里的问题卡上有"  # Left out of the top-level copy, drawn on the card in the topic.
+SAMPLES_LEFT_OUT = "这 {n} 版样张放不下这张卡，没有画"
+SAMPLES_IN_TOPIC = "，话题里的问题卡上画了 {n} 版"
 # What one card may hold (scripts/cardkit_check.py LIMITS: 30 KB of JSON, 200 tagged nodes), a little kept free.
 CARD_BYTES, CARD_NODES = 29_000, 195
 
 
-def sample_blocks(record, left_out=()):
+def sample_blocks(record, left_out=(), elsewhere=()):
     """Each sample of ``record``'s questions (core/ui_samples.py ``kept``) as the card draws it: (elements, colours), its
     option's label in bold, the option's description in grey under it and then the sample, or why it is not drawn (a note
-    ``carry`` kept, or SAMPLE_LEFT_OUT for the ``left_out`` ones, by their order)."""
+    ``carry`` kept, or SAMPLE_LEFT_OUT for the ``left_out`` ones, by their order: SAMPLE_IN_TOPIC for one of them another
+    card of the question draws, ``elsewhere``)."""
     blocks = []
+    for index, (head, kept) in enumerate(_sample_heads(record)):
+        shown = [] if index in left_out else kept.get("elements") or []
+        why = ((SAMPLE_IN_TOPIC if index in elsewhere else SAMPLE_LEFT_OUT) if index in left_out
+               else kept.get("note", ""))
+        colors = (kept.get("colors") or {}) if shown else {}
+        blocks.append(([md(head), *shown, *([note(why)] if why else [])], colors))
+    return blocks
+
+
+def _sample_heads(record):
+    """(the bold label and grey description over a sample, what ``carry`` kept of it) for each sample, in order."""
+    heads = []
     many = len(record["questions"]) > 1
     for i, q in enumerate(record["questions"]):
         for option in q.get("options") or ():
             kept = ui_samples.kept(option)
             if not kept:
                 continue
-            index = len(blocks)
             label = f"{question_header(q) or f'第 {i + 1} 题'} · " if many else ""
             head = f"**{label}{literal(str(option.get('label') or ''))}**"
             if option.get("description"):
                 head += "\n" + grey(literal(str(option["description"])))
-            shown = [] if index in left_out else kept.get("elements") or []
-            why = SAMPLE_LEFT_OUT if index in left_out else kept.get("note", "")
-            colors = (kept.get("colors") or {}) if shown else {}
-            blocks.append(([md(head), *shown, *([note(why)] if why else [])], colors))
-    return blocks
+            heads.append((head, kept))
+    return heads
 
 
-def with_samples(record, drawn):
-    """The open question card ``drawn(shown)`` draws with ``shown`` above the form: SAMPLES_HEAD, then each sample block
-    (``sample_blocks``) after a thin rule, a rule under the last; the last samples left out while the card is over
-    CARD_BYTES or CARD_NODES. The samples' own colours join the card's config."""
-    carried = _options_with_samples(record)
-    count = len(carried)
-    drawable = [index for index, option in enumerate(carried) if ui_samples.kept(option).get("elements")]
-    left_out = []
-    while True:
-        blocks = sample_blocks(record, left_out)
-        shown = [note(SAMPLES_HEAD.format(n=count))]
-        for elements, _ in blocks:
-            shown += [{"tag": "hr"}, *elements]
-        built = drawn([*shown, {"tag": "hr"}])
-        colors = {}
-        for _, own in blocks:
-            colors.update({name: value for name, value in own.items() if name not in colors})
+def samples_brief(record, elsewhere=()):
+    """Every sample left out, in one Markdown element: how many, how many another card of the question draws
+    (``elsewhere``), then each option's label and description as its block had them, a list."""
+    heads = _sample_heads(record)
+    first = SAMPLES_LEFT_OUT.format(n=len(heads)) + (SAMPLES_IN_TOPIC.format(n=len(elsewhere)) if elsewhere else "")
+    listed = ["- " + head.replace("\n", "：", 1) for head, _ in heads]
+    return md("\n".join([grey(first), *listed])[:6000])
+
+
+def _steps(record, form, elsewhere=()):
+    """What ``fitted`` tries, in order, as (shown above the form, its colours, the form's ``compact``): an open form with
+    samples SAMPLES_HEAD, then each sample block (``sample_blocks``) after a thin rule, a rule under the last, then the
+    same with the last samples left out one by one, then every sample in one line (``samples_brief``); then the form drawn
+    smaller (``_question_form`` compact 1 and 2), and last BRIEF, the questions listed with no sample."""
+    sampled = form and ui_samples.any_of(record["questions"])
+    brief = []
+    if sampled:
+        carried = _options_with_samples(record)
+        drawable = [index for index, option in enumerate(carried) if ui_samples.kept(option).get("elements")]
+        for gone in range(len(drawable) + 1):
+            left_out = tuple(drawable[len(drawable) - gone:])
+            blocks = sample_blocks(record, left_out, elsewhere)
+            shown = [note(SAMPLES_HEAD.format(n=len(carried)))]
+            colors = {}
+            for elements, own in blocks:
+                shown += [{"tag": "hr"}, *elements]
+                colors.update({name: value for name, value in own.items() if name not in colors})
+            yield [*shown, {"tag": "hr"}], colors, 0, left_out
+        brief = [samples_brief(record, elsewhere), {"tag": "hr"}]
+        yield brief, {}, 0, tuple(drawable)
+        left = tuple(drawable)
+    else:
+        yield [], {}, 0, ()
+        left = ()
+    if not form:
+        return
+    for compact in (1, 2):
+        yield brief, {}, compact, left
+    yield [], {}, BRIEF, left
+
+
+def fitted(record, drawn, form, elsewhere=()) -> Fit:
+    """``drawn(shown, compact)`` at the first of ``_steps`` that keeps within one card (``within``), else at the last; the
+    samples' own colours join the card's config. Each step leaves less on the card, never the question's 提交回答."""
+    built, whole, left_out = None, False, ()
+    for step, (shown, colors, compact, left_out) in enumerate(_steps(record, form, elsewhere)):
+        built = drawn(shown, compact)
         if colors:
             style = built.setdefault("config", {}).setdefault("style", {})
             style["color"] = {**colors, **style.get("color", {})}
-        if (ui_samples.size(built) <= CARD_BYTES and ui_samples.nodes(built) <= CARD_NODES) or len(left_out) >= len(drawable):
-            return built
-        left_out.append(drawable[len(drawable) - 1 - len(left_out)])
+        if within(built):
+            whole = step == 0
+            break
+    return Fit(built, whole, left_out)
 
 
 def _options_with_samples(record) -> list:
@@ -747,37 +884,56 @@ def mirror_card(record, topic="", output="", ask=None, files=None):
     2026-11-23), then ``files``,
     the asking turn's 产物 panel as its answer card in the topic has it (app/artifacts.py answer_files). Settled, the
     question is ``settled_element`` as on its card in the thread (its first lines, the rest folded with the answer, a line
-    under it of what he answered); the output stays, and the row says what it was about, not 要你定."""
+    under it of what he answered); the output stays, and the row says what it was about, not 要你定. Drawn to fit one
+    card with all of that (``mirror_fit``)."""
+    return mirror_fit(record, topic, output, ask, files).card
+
+
+def mirror_fit(record, topic="", output="", ask=None, files=None) -> Fit:
+    """``mirror_card`` as a ``Fit``: the row, the owner's words, the output and 产物 are counted with the form, so a copy
+    that cannot hold them all leaves out its last samples, then draws its form smaller (``fitted``) — never one CardKit
+    refuses (300305, 2026-11-27 T884: the samples fitted the card in the topic, the copy's row and 产物 took it to 201
+    nodes). ``whole`` False: the copy could not hold all of it (app/question_display.py mirror sends the output on cards
+    of its own first). A sample it leaves out that the card in the topic draws says so (SAMPLE_IN_TOPIC)."""
+    from covey.cards.answer_card import says, words_fold
     from covey.cards.review import reply_body, reply_shown
 
     meta, _ = split_ask([ask] if ask else [])
     legacy = [ask] if ask and meta is None else []  # A block sent before the title bar: kept as it was, at the top.
-    # Options as buttons (``top_level_card``); the row this card opens with says whose it is, but not over a legacy block.
-    built = question_card({**record, TOP_COPY: True}, topic, rowed=not legacy)
     settled = SETTLED_TAGS.get(record.get("status"))
-    elements = list(built["body"]["elements"])
     # The turn's output first (the owner, 2026-11-22: without it the questions cannot be understood), then the question.
     # A thin rule between them (as cards/proxy_panel.py RULE), a dict of its own on each card.
     said = [*reply_shown(reply_body(output), OUTPUT_ID, label=OUTPUT_LABEL), {"tag": "hr"}] if output else []
-    from covey.cards.answer_card import words_fold
-
     words = [part for part in (words_fold(meta),) if part] if meta else []  # What he said, one line that opens.
-    elements = [*words, *said, *elements]
-    if files:
-        elements.append(files)
-    if legacy:
-        built["body"]["elements"] = [*legacy, *elements]
-    else:
-        if settled and meta:  # It no longer asks: "关于你 20:33 的问题", not "要你定".
-            from covey.cards.answer_card import says
+    if settled and meta and not legacy:  # It no longer asks: "关于你 20:33 的问题", not "要你定".
+        # A project's topic doing its lead's work says that still, "办负责人派的事" (cards/answer_card.py SAYS), not
+        # "关于你的问题" of words it never quoted; a copy sent before keeps its "member" too.
+        doing = "member_settled" if meta.get("doing") == "member" else "about"
+        meta = {**meta, "doing": doing, "says": says(meta.get("verb") or "你问", doing, meta.get("at") or "").strip()}
 
-            # A project's topic doing its lead's work says that still, "办负责人派的事" (cards/answer_card.py SAYS), not
-            # "关于你的问题" of words it never quoted; a copy sent before keeps its "member" too.
-            doing = "member_settled" if meta.get("doing") == "member" else "about"
-            meta = {**meta, "doing": doing, "says": says(meta.get("verb") or "你问", doing, meta.get("at") or "").strip()}
-        built["body"]["elements"] = [speaker_row(meta, outcome="waiting", label=topic or "话题", tag=settled), *elements]
-        built["body"].update(padding=BODY_PADDING, vertical_spacing=BODY_SPACING)
-    return banded(built)  # The topic's badge has its colour in the card's config.
+    def outer(built):
+        elements = [*words, *said, *built["body"]["elements"], *([files] if files else [])]
+        if legacy:
+            built["body"]["elements"] = [*legacy, *elements]
+        else:
+            built["body"]["elements"] = [speaker_row(meta, outcome="waiting", label=topic or "话题", tag=settled),
+                                         *elements]
+            built["body"].update(padding=BODY_PADDING, vertical_spacing=BODY_SPACING)
+        return banded(built)  # The topic's badge has its colour in the card's config.
+    # The samples the card in the topic draws (a question at the top level itself has no card there).
+    elsewhere = () if record.get("at_top") or record.get("status") != "pending" else _drawn_in_topic(record, topic)
+    # Options as buttons (``top_level_card``); the row this card opens with says whose it is, but not over a legacy block.
+    return question_fit({**record, TOP_COPY: True}, topic, rowed=not legacy, outer=outer, elsewhere=elsewhere)
+
+
+def _drawn_in_topic(record, topic):
+    """The samples (by ``sample_blocks``' order) the question's card in its topic draws, as near as the copy can tell
+    (its title is not known here: the row's words take no node)."""
+    if not ui_samples.any_of(record.get("questions")):
+        return ()
+    carried = _options_with_samples(record)
+    drawable = {index for index, option in enumerate(carried) if ui_samples.kept(option).get("elements")}
+    return tuple(sorted(drawable - set(question_fit(record, topic).left_out)))
 
 
 OUTPUT_NEXT = "这一轮的输出，问题在下一条"

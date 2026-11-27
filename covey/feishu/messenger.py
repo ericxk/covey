@@ -6,16 +6,17 @@ import dataclasses
 import json
 import re
 import subprocess
+from typing import Any
 
 from covey.core import env as cenv
 from covey.core.card_sequence import file_card, reserve
 from covey.core.locks import resource_lock
 from covey.core.state import read_json, write_json
-from covey.core.topics import remember_topic_message
+from covey.core.topics import remember_topic_message, topic_label, topic_title
 from covey.feishu import cardkit, sdk
 from covey.feishu.delivery import resolve_message_format, safe_idempotency_key, send_message_with_fallback
 from covey.feishu.message_request import message_argv, runner as message_runner
-from covey.feishu.transport import call, data_of, lark_argv, message_id_of, run_cli
+from covey.feishu.transport import call, data_of, last_failure, lark_argv, message_id_of, reason, run_cli
 
 _MESSAGE_ID = re.compile(r"om_[A-Za-z0-9_-]+")
 _PATH_ID = re.compile(r"[A-Za-z0-9_-]+")  # An id put in an API path (a reaction id) as it is.
@@ -54,6 +55,52 @@ class Voice:
 
 
 CARDS = "/open-apis/cardkit/v1/cards"
+
+
+@dataclasses.dataclass(frozen=True)
+class CardAbout:
+    """What a card is, for the line ``publish_card`` sends in its place when it could not be shown: ``what`` it is (问题卡),
+    whose (``topic``, "T12「标题」"; '' reads ctx's topic, ``whose``), where the owner goes on from there (``where``, or a
+    function that says it, called only when the line goes; '' says to try again); ``quiet``: no line, the caller says it
+    itself (its own words, or a card that follows)."""
+
+    what: str = "卡片"
+    topic: str = ""
+    where: Any = ""
+    quiet: bool = False
+
+
+TITLE_CHARS = 30  # Of a topic's title in the line.
+
+
+def whose(ctx) -> str:
+    """ctx's topic as the line names it: "T12「标题」", and what of it is not known when part is ("话题「标题」（T 号未知）",
+    "话题（T 号和标题都没读到）"); '' for a card of no topic (the bot menu's). Never raises."""
+    state, topic = getattr(ctx, "state_dir", None), str(getattr(ctx, "topic_id", "") or "")
+    if not topic or state is None:
+        return ""
+    try:
+        label, title = topic_label(state, topic), topic_title(state, topic)
+    except (OSError, ValueError, TypeError):
+        label, title = "", ""
+    title = title[:TITLE_CHARS] + ("…" if len(title) > TITLE_CHARS else "")
+    if label:
+        return label + (f"「{title}」" if title else "")
+    return f"话题「{title}」（T 号未知）" if title else "话题（T 号和标题都没读到）"
+
+
+def not_shown_text(about, topic, failure, created) -> str:
+    """The line that stands for a card that could not be shown: whose card, what went wrong (``created``: CardKit made
+    it, the message did not go; transport.py ``reason``) and where to go on (CardAbout)."""
+    what = about.what or "卡片"
+    head = f"{topic}的{what}" if topic else f"这张{what}"
+    went = "建好了但没发出去" if created else "没建成"
+    try:
+        where = about.where() if callable(about.where) else about.where
+    except Exception:  # noqa: BLE001 - the line goes all the same, without where
+        where = ""
+    where = str(where or "").rstrip("。") or ("稍后再试；急的话直接在话题里说" if topic else "稍后再试")
+    return f"⚠️ {head}{went}：{reason(failure)}。{where}。"
 
 
 def card_json(card) -> dict:
@@ -285,10 +332,11 @@ class Messenger:
                             {**body, "sequence": sequence, "uuid": key}, **kwargs)
 
     def publish_card(self, ctx, chat_id, event_id, card, source_message="", *, voice: Voice, update_only=False,
-                     on_sent=None, card_id="", on_created=None):
+                     on_sent=None, card_id="", on_created=None, about=None):
         """Show ``card``: replace the card ``source_message`` showed in this topic, or send a new one
         (``update_only``: replace or raise). browse-cards/ records each sent card for later updates.
-        ``card_id`` / ``on_created`` let a caller persist the prepared card across delivery retries."""
+        ``card_id`` / ``on_created`` let a caller persist the prepared card across delivery retries. A new card that
+        could not be created or sent gets one line in its place (``not_shown``; ``about``: what the card is)."""
         folder = ctx.state_dir / "browse-cards"
         key = voice.safe_key(source_message or event_id)
         path = folder / (key + ".json")
@@ -316,14 +364,27 @@ class Messenger:
                                              **({"card_id": card_id, "on_created": on_created}
                                                 if card_id or on_created else {}))
         if not cid:
-            self.reply(ctx, chat_id, "卡片暂不可用，请稍后重试。", voice.key("browse-error", event_id), voice=voice)
+            self.not_shown(ctx, chat_id, event_id, about, created=False, voice=voice)
             return False
         if mid:
             self.remember(ctx, chat_id, mid)
             write_json(folder / (voice.safe_key(mid) + ".json"),
                        {"card_id": cid, "topic_id": ctx.topic_id, "chat_id": chat_id, "sequence": 0})
         if not mid:
-            self.reply(ctx, chat_id, "卡片发送失败，请稍后重试。", voice.key("browse-send-error", event_id), voice=voice)
+            self.not_shown(ctx, chat_id, event_id, about, created=True, voice=voice)
         if mid and on_sent:
             on_sent(mid)
         return bool(mid)
+
+    def not_shown(self, ctx, chat_id, event_id, about, *, created, voice: Voice):
+        """A new card that ``publish_card`` could not create (``created`` False) or send: a log line of what it was and
+        why, and, unless ``about`` is quiet, one line in its place in the same thread, under the key the fixed line had
+        ("browse-error" / "browse-send-error" and ``event_id``), so a later try of the same card says it once."""
+        about = about or CardAbout()
+        failure = last_failure()  # The failed call's: nothing has called Feishu since.
+        self.log(f"card not shown what={about.what} step={'send' if created else 'create'} "
+                 f"category={getattr(failure, 'category', '-') or '-'} code={getattr(failure, 'code', '') or '-'}")
+        if about.quiet:
+            return
+        text = not_shown_text(about, about.topic or whose(ctx), failure, created)
+        self.reply(ctx, chat_id, text, voice.key("browse-send-error" if created else "browse-error", event_id), voice=voice)

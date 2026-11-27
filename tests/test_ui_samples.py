@@ -195,6 +195,114 @@ class SampleCardTest(unittest.TestCase):
         self.assertLess(text.index("这一轮的输出"), text.index("A 的样子"))
 
 
+def sized(label, index, nodes):
+    """An option whose sample is ``nodes`` Markdown elements (one node each)."""
+    return {"label": label, "description": f"{label} 的说明",
+            "sample": ui_samples.sample([{"tag": "markdown", "content": f"{label} 第 {n} 行"} for n in range(nodes)], index)}
+
+
+def t884(nodes, **fields):
+    """The shape of T884's #7904 (2026-11-27): four questions of 3, 3, 4 and 3 options, six of them with a sample."""
+    def question(n, labels, sampled):
+        return {"id": f"q{n}", "header": f"第{n}项", "question": f"第 {n} 题用哪一版？",
+                "options": [sized(label, n * 10 + j, nodes) if j < sampled else {"label": label, "description": "不画"}
+                            for j, label in enumerate(labels)]}
+    return record([question(1, "ABC", 2), question(2, "ABC", 2), question(3, "ABCD", 1), question(4, "ABC", 1)], **fields)
+
+
+def uploading_files():
+    """An answer card's 产物 panel while its upload runs (7 nodes, as the copy's was when CardKit refused it)."""
+    from covey.cards.artifact_panels import drive_artifact_panel
+    return drive_artifact_panel(["/absolute/a.png", "/absolute/b.png"], {"job_id": 5}, "a" * 64, {},
+                                element_id="answer_artifacts", fold_uploading=True)
+
+
+class CardBudgetTest(unittest.TestCase):
+    """CardKit refuses a card over 200 tagged nodes (300305): T884's top-level copy was 201 with its row and 产物
+    uploading, the samples having been counted against the card in the topic only (2026-11-27, T889)."""
+
+    def assert_within(self, card):
+        from covey.cards.question_cards import CARD_BYTES, CARD_NODES, SUBMIT_LABEL
+        self.assertLessEqual(ui_samples.nodes(card), CARD_NODES)
+        self.assertLessEqual(ui_samples.size(card), CARD_BYTES)
+        self.assertIn(f'"content": "{SUBMIT_LABEL}"', json.dumps(card, ensure_ascii=False))  # Still answerable.
+
+    ask = staticmethod(lambda: __import__("covey.cards.answer_card", fromlist=["ask_block"]).ask_block(
+        "选哪一版", at="16:54", url="https://example.invalid/t884", who="T884 辅助模型", doing="waiting"))
+
+    def test_the_copy_counts_its_row_and_its_files(self):
+        from covey.cards.question_cards import mirror_card, question_card
+        for nodes in range(4, 31):
+            with self.subTest(nodes=nodes):
+                asked = t884(nodes)
+                self.assert_within(question_card(asked, "T884", "辅助模型"))
+                self.assert_within(mirror_card(asked, "T884", "", ask=self.ask(), files=uploading_files()))
+
+    def test_a_sample_left_out_of_the_copy_says_the_card_in_the_topic_has_it(self):
+        from covey.cards.question_cards import SAMPLE_IN_TOPIC, mirror_card
+        copies = [json.dumps(mirror_card(t884(nodes), "T884", "", ask=self.ask(), files=uploading_files()),
+                             ensure_ascii=False) for nodes in range(4, 31)]
+        self.assertTrue(any(SAMPLE_IN_TOPIC in copy for copy in copies))
+
+    def test_the_output_goes_apart_before_a_sample_is_left_out(self):
+        from covey.cards.question_cards import SAMPLE_LEFT_OUT, mirror_fit
+        from covey.core.trace import STAGE_HEADING
+        asked = t884(19)  # 193 nodes with all its samples: the output and its 中途的汇报 fold do not fit beside them.
+        alone = mirror_fit(asked, "T884", "", files=uploading_files())
+        self.assertTrue(alone.whole)
+        self.assertNotIn(SAMPLE_LEFT_OUT, json.dumps(alone.card, ensure_ascii=False))
+        output = "输出\n\n---\n\n" + STAGE_HEADING + "\n\n第一段汇报。\n\n第二段汇报。"
+        crowded = mirror_fit(asked, "T884", output, files=uploading_files())
+        self.assertFalse(crowded.whole)  # app/question_display.py mirror then sends the output on its own first.
+        self.assert_within(crowded.card)
+
+    def test_every_sample_left_out_goes_on_one_line(self):
+        from covey.cards.question_cards import SAMPLE_LEFT_OUT, SAMPLES_HEAD, SAMPLES_LEFT_OUT, question_fit
+        # Twelve questions of five options, the first four with samples: even without their bodies the sample blocks
+        # (a rule, a label, a note each) would pass the card.
+        questions = [{"id": f"q{n}", "question": f"第 {n} 题？", "context": "这题改什么",
+                      "options": [sized(chr(65 + j), n * 10 + j, 60) if n < 4 else {"label": chr(65 + j)}
+                                  for j in range(5)]} for n in range(12)]
+        fit = question_fit(record(questions), "T9", "很多题")
+        text = json.dumps(fit.card, ensure_ascii=False)
+        self.assert_within(fit.card)
+        self.assertFalse(fit.whole)
+        self.assertIn(SAMPLES_LEFT_OUT.format(n=20), text)
+        self.assertNotIn(SAMPLE_LEFT_OUT, text)
+        self.assertNotIn(SAMPLES_HEAD.format(n=20), text)
+        self.assertIn("A 的说明", text)  # Each option's words, in the one line's list.
+
+    def test_many_questions_are_drawn_smaller_then_listed(self):
+        from covey.cards.question_cards import BRIEF_HEAD, BRIEF_WEB, SUPPLEMENT, question_card
+        def asked(count, **fields):
+            return record([{"id": f"q{n}", "header": f"第{n}项", "question": f"第 {n} 题怎么办？", "context": "背景",
+                            "options": [{"label": f"选项{j}", "description": "说明"} for j in range(6)]}
+                           for n in range(count)], **fields)
+        smaller = question_card(asked(14), "T9", "很多题")
+        self.assert_within(smaller)
+        self.assertIn('"name": "option_13"', json.dumps(smaller, ensure_ascii=False))  # Every question's dropdown.
+        listed = question_card(asked(40), "T9", "很多题")
+        text = json.dumps(listed, ensure_ascii=False)
+        self.assert_within(listed)
+        self.assertIn(BRIEF_HEAD.format(n=40), text)
+        self.assertIn(BRIEF_WEB, text)
+        self.assertIn(f'"name": "{SUPPLEMENT}"', text)
+        self.assertIn("第 39 题怎么办", text)
+        with mock.patch("covey.core.butler.is_butler_topic", return_value=True):
+            butler_own = question_card(asked(40), "T9", "很多题")
+        self.assertNotIn(BRIEF_WEB, json.dumps(butler_own, ensure_ascii=False))  # The butler's: answered in Feishu only.
+
+    def test_settled_and_repainted_the_card_stays_within(self):
+        from covey.cards.question_cards import mirror_card, question_card
+        answered = t884(30, status="answered", answers={"q1": {"answers": ["A"]}})
+        self.assert_within_settled(question_card(answered, "T884", "辅助模型"))
+        self.assert_within_settled(mirror_card(answered, "T884", "输出", files=uploading_files()))
+
+    def assert_within_settled(self, card):
+        from covey.cards.question_cards import CARD_NODES
+        self.assertLessEqual(ui_samples.nodes(card), CARD_NODES)
+
+
 class GateTest(unittest.TestCase):
     def test_a_question_with_samples_is_the_owners(self):
         from covey.core import project_gates

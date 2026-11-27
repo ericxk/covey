@@ -73,18 +73,17 @@ def question(files, labels) -> list:
 
 
 def check(args) -> int:
-    from covey.cards.question_cards import CARD_BYTES, CARD_NODES, SAMPLE_LEFT_OUT, question_card, sample_blocks
+    from covey.cards.question_cards import CARD_BYTES, CARD_NODES, SAMPLE_LEFT_OUT, question_fit, sample_blocks
     from covey.core import ui_samples
 
     asked = ui_samples.carry(question(args.files, args.labels))
     record = {"token": "0" * 16, "status": "pending", "topic_id": "0" * 64, "chat_id": "oc_sample", "job_id": 1,
               "blocking": True, "questions": asked, "created_at": 0}
-    card = question_card(record, "T1", "样张")
+    fit = question_fit(record, "T1", "样张")
+    card = fit.card
     drawn = [block for block, _ in sample_blocks(record)]
-    # The card leaves out its last samples while it is too large (cards/question_cards.py with_samples), each saying so.
-    left = json.dumps(card, ensure_ascii=False).count(SAMPLE_LEFT_OUT)
-    whole = [i for i, option in enumerate(asked[0]["options"]) if ui_samples.kept(option).get("elements")]
-    left_out = set(whole[len(whole) - left:]) if left else set()
+    # The card leaves out its last samples while it is too large (cards/question_cards.py fitted), each saying so.
+    left_out = set(fit.left_out)
     bad = 0
     for i, (option, path) in enumerate(zip(asked[0]["options"], args.files)):
         kept = ui_samples.kept(option)

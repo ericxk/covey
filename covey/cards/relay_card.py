@@ -138,6 +138,7 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
 
 
 MERGED_SUBTITLE = "点一行进那个话题"
+MERGED_MORE = "还有 {n} 个也做完了：{labels}"  # The relays a merged card has no room for (``merged_card`` ``more``).
 ROW_ID = "merged_row"
 
 
@@ -146,17 +147,20 @@ def files_words(count) -> str:
     return f"产物 {count} 个" if isinstance(count, int) and not isinstance(count, bool) and count > 0 else ""
 
 
-def merged_card(items, avatar=""):
+def merged_card(items, avatar="", more=()):
     """(card, text): 做完了 relays that came close together (app/relay_send.py send_merged) as one card, the Markdown when
     the card is refused. ``items``: each relay's {label (T41), title, lead (its reply's first line), url (that opens
     its topic, when known), files (how many 产物, when any)}, in the order they came. The speaker's row (``avatar``, a
     picture when given) says how many (有结果 tag); one block each, the topic's T number as its badge (cards/ui.py
     topic_badge), its title bold and its lead grey beside it with its 产物 counted, the whole block opening ``url``; then
     MERGED_HINT: a reply to this card is the butler's, as it holds several topics (a relay with something the owner must
-    see never comes here: app/butler_relay.py relay)."""
+    see never comes here: app/butler_relay.py relay). ``more``: the relays after them, too many for one card
+    (app/relay_send.py take), their T numbers on one grey line under the blocks (MERGED_MORE); counted in the row and
+    listed in the Markdown all the same."""
+    shown, items = len(items), [*items, *more]
     count = len(items)
     rows = []
-    for item in items:
+    for item in items[:shown]:
         label, title, url = str(item.get("label") or ""), literal(item.get("title") or ""), str(item.get("url") or "")
         badge = topic_badge(label, url=url)  # Its own link too: a click on it would not reach the block's.
         head = title if badge else " ".join(part for part in (literal(label), title) if part)
@@ -168,6 +172,8 @@ def merged_card(items, avatar=""):
             {"tag": "column", "width": "weighted", "weight": 1, "vertical_align": "center", "elements": [text]}]}] if badge else [text]
         row = container(inner, background="grey-50", radius="6px", padding="6px 10px 6px 10px", url=url)
         rows.append(row)
+    if more:
+        rows.append(note(MERGED_MORE.format(n=len(more), labels="、".join(str(item.get("label") or "话题") for item in more))))
     head = speaker_row({"who": f"{count} 个话题做完了", "says": MERGED_SUBTITLE}, outcome="result", avatar=avatar)
     labels = "、".join(str(item.get("label") or "话题") for item in items)
     built = banded(card([head, *rows, reply_hint(words=MERGED_HINT)], summary(f"{count} 个话题", look.word("result"), labels),

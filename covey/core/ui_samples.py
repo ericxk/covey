@@ -9,7 +9,7 @@ a card drawn again later draws the same, whatever became of the file. What is ke
 ``form`` becomes a plain column (its fields drawn, nothing sent), each ``element_id`` and ``name`` is renamed for its sample so two samples never share one, a ``header``
 becomes its title as a bold line, and an image whose key is a test's fake one a grey mark. A file over FILE_BYTES, or a
 sample over SAMPLE_BYTES or SAMPLE_NODES once inert, is not kept; what the whole card may hold is the card's to count
-(cards/question_cards.py ``samples_shown``).
+(cards/question_cards.py ``fitted``).
 
 Standard library only.
 """

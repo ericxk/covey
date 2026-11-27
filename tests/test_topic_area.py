@@ -487,6 +487,66 @@ class MirrorTest(MirrorCase):
 
 
 
+    def refuse_copies(self):
+        """CardKit refuses every card the Messenger creates, as it refused T884's copy (300305)."""
+        from covey.feishu import transport
+
+        def refused(*args, **kwargs):
+            transport.set_failure(transport.Failure("api_rejected", code="300305", detail="ErrMsg: element exceeds the limit;"))
+            return "", ""
+        return mock.patch.object(self.app.messenger, "create_and_send_card", side_effect=refused)
+
+    def test_a_copy_that_would_leave_out_a_sample_sends_its_output_first(self):
+        """T889: the copy's row, output and samples are counted together; the output goes apart before a sample does."""
+        from test_ui_samples import t884
+        from covey.cards.question_cards import SAMPLE_LEFT_OUT
+        from covey.core.trace import STAGE_HEADING
+        from covey.app.question_display import top_fit
+        display = self.app_.questions.display
+        output = "输出\n\n---\n\n" + STAGE_HEADING + "\n\n" + "\n\n".join(f"第 {n} 段汇报。" for n in range(6))
+
+        def asked(nodes):
+            return {**t884(nodes), "token": "qtok", "topic_id": self.topic, "chat_id": CHAT, "job_id": self.job.job_id}
+        # The largest samples whose copy holds them all without the output, and not with it.
+        nodes = max(n for n in range(4, 40) if top_fit(self.tctx, asked(n)).whole
+                    and not top_fit(self.tctx, {**asked(n), "mirror_output": output}).whole)
+        record = asked(nodes)
+        write_json(self.path, record)
+        with mock.patch.object(self.app.messenger, "send_message", return_value=True) as send:
+            self.assertTrue(display.mirror(self.tctx, record, output))
+        self.assertEqual(send.call_count, 1)  # The output, on a card of its own.
+        copy = self.app.messenger.create_and_send_card.call_args.args[2]
+        self.assertNotIn(SAMPLE_LEFT_OUT, json.dumps(copy, ensure_ascii=False))
+        self.assertEqual(read_object(self.path)["mirror_output"], "")
+
+    def test_a_refused_copy_says_why_and_where_to_answer(self):
+        display = self.app_.questions.display
+        from covey.core.topics import topic_label
+        label = topic_label(self.ctx.state_dir, self.topic)
+        with self.refuse_copies(), mock.patch.object(self.app.messenger, "reply") as reply:
+            self.assertEqual(display.mirror(self.tctx, self.record, "输出"), "")
+        text = reply.call_args.args[2]
+        self.assertTrue(label and text.startswith(f"⚠️ {label}「"), text)
+        self.assertIn("的问题卡副本没建成：卡片超过飞书一张卡 200 个组件的上限（300305）。", text)
+        self.assertIn("里的问题卡作答，或到网页工作台答题。", text)
+        self.assertEqual(read_object(self.path)["mirror_state"], "uncertain")  # Never sent again (rule 1).
+
+    def test_a_waiting_turn_whose_copy_is_refused_relays_where_to_answer_once(self):
+        """The 等你 relay that follows a refused copy says where to answer: the copy's own line would say it twice."""
+        delivery = SimpleNamespace(job=self.job, ctx=self.tctx, questions=self.app_.questions, retry=None,
+                                   runtime=self.app.runtime,
+                                   turn=SimpleNamespace(status="waiting_user", verified_delivery=SimpleNamespace(text="输出"),
+                                                        status_message=""))
+        send = mock.Mock(side_effect=lambda *args, on_sent=None, **kwargs: (on_sent("om_relay") if on_sent else None, True)[1])
+        with self.refuse_copies(), mock.patch.object(self.app.messenger, "reply") as reply, \
+                mock.patch.object(self.app.messenger, "send_message", send):
+            state = butler_relay.after_turn(delivery, True, "waiting_user", messenger=self.app.messenger,
+                                            profile="p", voice=self.app_.voice)
+        self.assertNotEqual(state, "mirrored")
+        reply.assert_not_called()
+        self.assertEqual(send.call_count, 1)
+        self.assertIn("问题卡里答", send.call_args.args[2])
+
 class MemberCopyTest(MirrorCase):
     """A project topic's question copy at the top level (T658, the owner comparing a project topic's copy with an ordinary
     topic's): its row opens the topic's thread at the question whoever started the turn; a turn the owner started in the

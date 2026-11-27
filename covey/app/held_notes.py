@@ -27,6 +27,7 @@ from covey.core.locks import resource_lock
 from covey.core.state import keyed_json_path, write_private_text
 from covey.core.history_storage import append_history
 from covey.core.store import directory_store
+from covey.feishu.messenger import CardAbout
 
 IN_FLIGHT = "回答正在发送，稍后再操作这条补充"
 
@@ -106,7 +107,8 @@ class HeldNotes:
                 current = json.loads(path.read_text())
                 current["card_message_id"] = card_message
                 write_private_text(path, json.dumps(current, ensure_ascii=False))
-        if not self.messenger.publish_card(ctx, chat, mid, note_card(record), on_sent=remember, voice=self.voice):
+        if not self.messenger.publish_card(ctx, chat, mid, note_card(record), on_sent=remember, voice=self.voice,
+                                           about=CardAbout("暂存卡", quiet=True)):  # The line below says it.
             self.messenger.reply(ctx, chat, f"这条消息还没发给模型：{waiting_text(record)}还没答，提交回答时会一起带上。"
                                  + ANSWER_REQUIRED,
                                  self.voice.key("note-held", mid), voice=self.voice)

@@ -1094,6 +1094,67 @@ class CardPublishTest(TopicFixture, unittest.TestCase):
         self.assertEqual(lark.last.path, "/open-apis/cardkit/v1/cards/card-test")
 
 
+    def refused(self, code="300305", detail="ErrMsg: element exceeds the limit;", category="api_rejected"):
+        """A CardKit create that Feishu refused, its failure where the transport leaves it."""
+        def create(*args, **kwargs):
+            from covey.feishu import transport
+            transport.set_failure(transport.Failure(category, code=code, detail=detail))
+            return None
+        return create
+
+    def test_a_card_not_created_says_whose_what_why_and_where_to_go_on(self):
+        """T889 (2026-11-27): T884's copy was refused (300305) and the line in its place said only 卡片暂不可用，请稍后重试。"""
+        from covey.core.topics import topic_label
+        from covey.feishu.messenger import CardAbout
+        card = {"schema": "2.0", "body": {"elements": [{"tag": "markdown", "content": "page"}]}}
+        label = topic_label(self.target.state_dir, self.target.topic_id)
+        self.assertTrue(label)
+        with FakeCardKit(side_effect=self.refused()), mock.patch.object(self.app.messenger, "reply") as reply:
+            self.assertFalse(self.app.messenger.publish_card(
+                self.target, "oc_chat", "question-q1", card, voice=self.app.voice,
+                about=CardAbout("问题卡", where=lambda: "可以直接在话题里回复作答，或到网页工作台答题")))
+        text = reply.call_args.args[2]
+        self.assertTrue(text.startswith(f"⚠️ {label}"), text)
+        self.assertIn("的问题卡没建成：卡片超过飞书一张卡 200 个组件的上限（300305）。", text)
+        self.assertTrue(text.endswith("可以直接在话题里回复作答，或到网页工作台答题。"))
+        self.assertEqual(reply.call_args.args[3], self.app.voice.key("browse-error", "question-q1"))  # Said once a card.
+
+    def test_a_card_created_but_not_sent_and_one_of_no_topic(self):
+        from covey.feishu import transport
+        from covey.feishu.messenger import not_shown_text, CardAbout
+        card = {"schema": "2.0", "body": {"elements": [{"tag": "markdown", "content": "page"}]}}
+
+        def not_sent(*args, **kwargs):
+            transport.set_failure(transport.Failure("rate_limited", True))
+            return "", False
+        with FakeCardKit({"data": {"card_id": "card-x"}}, sent_effect=not_sent), \
+                mock.patch.object(self.app.messenger, "reply") as reply:
+            self.assertFalse(self.app.messenger.publish_card(self.target, "oc_chat", "page-1", card, voice=self.app.voice))
+        text = reply.call_args.args[2]
+        self.assertIn("的卡片建好了但没发出去：飞书限流，暂时不收。稍后再试；急的话直接在话题里说。", text)
+        self.assertEqual(reply.call_args.args[3], self.app.voice.key("browse-send-error", "page-1"))
+        # The bot menu's cards have no topic: the line says so without making one up; an unknown code keeps Feishu's words.
+        failure = transport.Failure("api_rejected", code="123", detail="some reason")
+        self.assertEqual(not_shown_text(CardAbout("设置卡"), "", failure, False),
+                         "⚠️ 这张设置卡没建成：飞书拒绝（123：some reason）。稍后再试。")
+
+    def test_a_quiet_card_leaves_the_line_to_its_caller(self):
+        from covey.feishu.messenger import CardAbout
+        card = {"schema": "2.0", "body": {"elements": [{"tag": "markdown", "content": "page"}]}}
+        with FakeCardKit(side_effect=self.refused()), mock.patch.object(self.app.messenger, "reply") as reply, \
+                mock.patch.object(self.app.messenger, "log") as log:
+            self.assertFalse(self.app.messenger.publish_card(self.target, "oc_chat", "note-1", card, voice=self.app.voice,
+                                                             about=CardAbout("暂存卡", quiet=True)))
+        reply.assert_not_called()
+        self.assertIn("card not shown what=暂存卡 step=create category=api_rejected code=300305",
+                      [c.args[0] for c in log.call_args_list])
+
+    def test_whose_names_what_it_could_not_read(self):
+        from covey.feishu.messenger import whose
+        self.assertEqual(whose(SimpleNamespace(state_dir=self.target.state_dir, topic_id="")), "")
+        self.assertEqual(whose(SimpleNamespace(state_dir=self.target.state_dir, topic_id="z" * 64)), "话题（T 号和标题都没读到）")
+
+
 class CardActionTableTest(unittest.TestCase):
 
     def test_job_starting_kinds_stay_with_the_bot(self):

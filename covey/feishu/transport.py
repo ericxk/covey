@@ -64,6 +64,34 @@ ADD_ELEMENTS = re.compile(r"POST /open-apis/cardkit/v1/cards/[^/?\s]+/elements$"
 AUDIT_REJECTED = "230028"
 
 
+# What a refusal is, in the owner's words, for the line that goes when a card could not be shown (feishu/messenger.py
+# publish_card): by Feishu's code first, else by the failure's category. Feishu's own message (``detail``) follows only an
+# unknown code, cut short; it never carries the request's content.
+CARD_NODES_OVER, CARD_SIZE_OVER = "300305", "200860"
+CODE_REASONS = {CARD_NODES_OVER: "卡片超过飞书一张卡 200 个组件的上限", CARD_SIZE_OVER: "卡片超过飞书一张卡的大小上限",
+                AUDIT_REJECTED: "内容里有邮箱或手机号，被飞书的安全审核拦下"}
+CATEGORY_REASONS = {"rate_limited": "飞书限流，暂时不收", "network": "网络出错，飞书没有确认",
+                    "network_timeout": "飞书超时没有回应", "authentication": "机器人的飞书鉴权没过",
+                    "invalid_card": "飞书认为这张卡无效", "content": "飞书不收这段内容", "validation": "飞书说请求参数不对",
+                    "local_process": "本机调用飞书的命令没跑起来", "idempotency_conflict": "同一个发送键已用于别的内容",
+                    "reconciliation_required": "上一次发送的结果还没核对清楚", "unconfirmed": "飞书没有确认"}
+REASON_DETAIL = 60  # Characters of Feishu's own message after a code it has no words for here.
+
+
+def reason(failure) -> str:
+    """Why a write failed, in a few words: CODE_REASONS, else CATEGORY_REASONS, with Feishu's code in brackets
+    ("卡片超过飞书一张卡 200 个组件的上限（300305）"); "飞书拒绝（code：message）" for a code not known here; "飞书没有确认"
+    without a failure. Never raises."""
+    if failure is None:
+        return "飞书没有确认"
+    code = str(getattr(failure, "code", "") or "")
+    words = CODE_REASONS.get(code) or CATEGORY_REASONS.get(str(getattr(failure, "category", "") or ""))
+    if words:
+        return words + (f"（{code}）" if code else "")
+    detail = " ".join(str(getattr(failure, "detail", "") or "").split())[:REASON_DETAIL].strip()
+    return "飞书拒绝" + (f"（{code}" + (f"：{detail}" if detail else "") + "）" if code else "")
+
+
 def card_write(argv):
     return CARD_WRITE.match(operation(argv)) is not None
 
