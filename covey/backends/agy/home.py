@@ -89,13 +89,14 @@ def tool_size(tool) -> int:
 
 def eager_names(tools, room) -> list:
     """The names of ``tools`` agy is to load up front: those that hand work to topics (HANDING), then the others but
-    SECONDARY, then SECONDARY, each in the server's order, until the next would take the eager ones past ``room``
-    bytes (``tool_size``)."""
+    SECONDARY, then SECONDARY, each in the server's order; one that would take the eager ones past ``room`` bytes
+    (``tool_size``) is left out (it takes none of the room) and the smaller ones after it still go in."""
     names, used = [], 0
     for tool in sorted(tools, key=lambda tool: (tool["name"] in SECONDARY, tool["name"] not in HANDING)):  # Stable.
-        used += tool_size(tool)
-        if used > room:
-            break
+        size = tool_size(tool)
+        if used + size > room:
+            continue
+        used += size
         names.append(tool["name"])
     return names
 

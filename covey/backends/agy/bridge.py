@@ -63,7 +63,7 @@ from covey.core.process import device_of, is_owned, process_identity, stop_group
 from covey.core.process_env import child_process_env, process_device
 from covey.core.reply_state import ReplyState
 from covey.core.result import MAX_REPLY_BYTES
-from covey.core.steer import SteerRefused, refuse_steer, steer_text
+from covey.core.steer import SteerRefused, keeps_running, refuse_steer, steer_text
 from covey.core.steps import AnswerNotes, Steps
 from covey.core.failure import said_of
 from covey.core.paths import entry_script
@@ -314,6 +314,9 @@ class AntigravityEventAdapter:
         # before its first request had ended took the conversation's 164M as its own).
         self.fresh = True
         self.first_output = False
+        # The turn's AgyControl (run_stream sets it): told when a tool or subagent step starts and ends, so a supplement
+        # waits for the running step instead of stopping it (AgyControl.steer).
+        self.control = None
 
     @property
     def tools(self):
@@ -352,10 +355,16 @@ class AntigravityEventAdapter:
             if key not in self.steps:
                 self.notes.to_notes(now)
                 self.steps.start(key, TOOL_NAMES.get(native, native), self.detail(key, native, parameters, index), now)
+                if self.control is not None:
+                    # The command a shell tool runs (``keeps_running`` looks at it); "" for any other step.
+                    command = tool_inputs(parameters).get("command", "") if TOOL_NAMES.get(native) == "bash" else ""
+                    self.control.step_started(key, command)
             if step.get("state") == "DONE":
                 # A call agy had not written down when it started: its summary is looked for once more.
                 again = {} if key in self.summarized else {"detail": self.detail(key, native, parameters, index)}
                 self.steps.finish(key, not info.get("error"), now, **again)
+                if self.control is not None:
+                    self.control.step_done(key)
 
     def detail(self, key, native, parameters, index):
         """A tool step's detail: a schedule's words (``schedule_words``), else its parameter (core/text.py tool_detail),
@@ -440,9 +449,11 @@ class AntigravityBackend(BackendRuntime):
         # compaction: agy's own /compact (backends/agy/compaction.py), on this machine's conversations only.
         # look_gate: a LOOK turn's deny rules for its file tools (LOOK_SETTINGS) and its private home's workspace_write_file
         # (look_server; W1-C, on agy 1.5.18: tests/test_collab_c8.py AgyLookC6).
+        # command_stop: AgyControl.stop_command stops the commands agy runs (the same SIGINT), on this machine's only.
         here = not device_of(ctx)
-        return for_device(HarnessCapabilities(steering=here, steer_reads=here, bridge_tools=True, rate_limit_retry=True,
-                                              fault_retry=True, ask_once=True, compaction=here, look_gate=True), ctx)
+        return for_device(HarnessCapabilities(steering=here, steer_reads=here, command_stop=here, bridge_tools=True,
+                                              rate_limit_retry=True, fault_retry=True, ask_once=True, compaction=here,
+                                              look_gate=True), ctx)
 
     # The butler's idle compaction (app/idle_compaction.py): how long after a turn it starts, and that it runs with the
     # butler's tools (the turn's MCP servers), so its request starts with the same prompt as the turn and reads it from
@@ -845,13 +856,18 @@ def auth_failure(stderr):
     return bool(AUTH_RE.search(stderr or ""))
 
 
+# The last reply is the turn's whole answer: StreamRows.reply() takes only what the last process wrote.
+WHOLE_REPLY = "最后的回复要写完整的结论，不要只写补充之后的部分。"
 RESUMED = ("用户补充（你刚才的执行被这条补充打断了，已经做完的仍然有效，停下来的命令没有跑完；"
-           "先看补充，再决定怎么接着做）：\n")
+           f"先看补充，再决定怎么接着做。{WHOLE_REPLY}）：\n")
+# A supplement that waited for the running step to end (AgyControl.step_done): nothing was cut off.
+BETWEEN_RESUMED = ("用户补充（上一步做完后停下来读这条补充，已经做完的仍然有效；"
+                   f"先看补充，再决定怎么接着做。{WHOLE_REPLY}）：\n")
 STOP_SECONDS = 5  # How long the commands a stopped turn left running get to exit before they are killed.
 # A process that failed as one of these may go on in another environment, when the agy_turn hook gives one (``switch``).
 SWITCHED = ("quota_exhausted", "rate_limited", "authentication_error")
 MAX_SWITCHES = 3  # How many times one turn goes on in another environment.
-SWITCH_RESUMED = "（刚才的执行因为模型额度或登录的问题停下了，已经做完的仍然有效；接着完成上面的要求）"
+SWITCH_RESUMED = f"（刚才的执行因为模型额度或登录的问题停下了，已经做完的仍然有效；接着完成上面的要求。{WHOLE_REPLY}）"
 SWITCH_NOTE = "换个环境接着做"  # The line in 执行过程 when the hook gives none.
 
 
@@ -892,9 +908,11 @@ def stop_left(identities):
 
 
 class AgyControl:
-    """The task's controls: a supplement stops the running agy (SIGINT) and is the next process's message.
-    Writes are never replayed (rule 6): an accepted supplement is held here until a process takes it. On a device
-    (``device``) there is no supplement: ``supports_steer`` is false, so app/steering.py sends none."""
+    """The task's controls: a supplement is held and is the next process's message. While a tool or subagent step runs
+    it waits for the step to end (``step_done``), then stops the running agy (SIGINT); with no step running it stops it
+    at once. ``stop_command`` stops the step's command for an urgent one. Writes are never replayed (rule 6): an
+    accepted supplement is held here until a process takes it. On a device (``device``) there is no supplement:
+    ``supports_steer`` is false, so app/steering.py sends none."""
     native_blocking_questions = False
     supports_steer = True
     awaiting_answer = False
@@ -912,6 +930,9 @@ class AgyControl:
         self.pending = []  # (text, event id), until a process takes them
         self.reaper = None  # The thread that stops what a stopped process left running, once it has exited.
         self.stopping = False
+        self.steps = {}  # The running process's tool and subagent steps still running: step key -> its command ("" none).
+        self.cut = False  # The process was stopped while a step ran or at once (not between two steps): RESUMED says so.
+        self.note = ""  # What stop_command tells the model of why its command ended, ahead of the supplements.
 
     def steer(self, text, event_id):
         if self.device:
@@ -919,20 +940,69 @@ class AgyControl:
         with self.lock:
             refuse_steer(text, closing=self.closing, ready=self.ready or self.stopping, label="Antigravity")
             self.pending.append((steer_text(text), event_id))
+            if self.stopping or self.steps:
+                # Already stopping for an earlier one: both go on together. A step runs: its end (step_done) stops the
+                # process, so a command such as the whole test run is not cut off by a supplement.
+                return
+            self.interrupt(cut=True)
+
+    def interrupt(self, *, cut):
+        """Stop the running agy with SIGINT, its reaper after it. Under ``self.lock``. Nothing when there is none
+        running (between two processes: the next one takes the supplements)."""
+        process = self.process
+        if self.stopping or process is None or process.poll() is not None:
+            return False
+        self.stopping = True
+        self.cut = self.cut or cut
+        left = descendants(process.pid)
+        try:
+            os.kill(process.pid, signal.SIGINT)
+        except OSError:
+            pass
+        # Once agy has exited: a command it left may hold its output open, so this cannot wait for its end.
+        self.reaper = threading.Thread(target=self.reap, args=(process, left), daemon=True)
+        self.reaper.start()
+        return True
+
+    def step_started(self, key, command=""):
+        with self.lock:
+            self.steps[key] = str(command or "")
+
+    def step_done(self, key):
+        """A step ended. The last one running with a supplement held stops the process, once (``stopping``)."""
+        with self.lock:
+            self.steps.pop(key, None)
+            if self.steps or not self.pending or self.closing:
+                return
+            self.interrupt(cut=False)
+
+    def stop_command(self, note=""):
+        """Stop the command the running step is, so the supplements held are read now (app/steer_interrupt.py): the
+        same SIGINT as a supplement at once, ``note`` (why the command ended) ahead of them in the next process's
+        message. Returns {"stopped": [commands]}, {"kept": command} for one never stopped (core/steer.py
+        ``keeps_running``), or {"reason": why nothing was stopped}."""
+        with self.lock:
+            if self.device:
+                return {"reason": "任务在设备上运行，不能从这里停命令"}
+            if self.closing:
+                return {"reason": "任务正在收尾"}
             if self.stopping:
-                return  # Already stopping for an earlier one: both go on together.
-            process = self.process
-            if process is None or process.poll() is not None:
-                return  # Between two processes: the next one takes it.
-            self.stopping = True
-            left = descendants(process.pid)
-            try:
-                os.kill(process.pid, signal.SIGINT)
-            except OSError:
-                pass
-            # Once agy has exited: a command it left may hold its output open, so this cannot wait for its end.
-            self.reaper = threading.Thread(target=self.reap, args=(process, left), daemon=True)
-            self.reaper.start()
+                return {"reason": "任务正在停下来读补充"}
+            if not self.steps:
+                return {"reason": "模型现在没有在等命令"}
+            commands = [command for command in self.steps.values() if command]
+            if not commands:
+                return {"reason": "模型现在在等子任务，不是命令"}
+            kept = next((command for command in commands if keeps_running(command)), None)
+            if kept is not None:
+                return {"kept": kept}
+            if not self.pending:
+                return {"reason": "没有等着读的补充"}
+            if not self.interrupt(cut=True):
+                return {"reason": "任务进程已经结束"}
+            if note:
+                self.note = steer_text(note)
+        return {"stopped": commands}
 
     @staticmethod
     def reap(process, left):
@@ -948,17 +1018,22 @@ class AgyControl:
         stop_left(list(seen.values()))
 
     def take(self):
-        """The held supplements as the next process's message and their event ids; ('', []) when none."""
+        """The held supplements as the next process's message and their event ids; ('', []) when none. Taken when
+        the task ends (stopped, closed) they are not read: no ``steer_read`` follows, so app/steering.py
+        end_unread_steers tells the owner of each."""
         with self.lock:
             reaper, self.reaper = self.reaper, None
         if reaper is not None:
             reaper.join()
         with self.lock:
             pending, self.pending = self.pending, []
+            cut, note, self.cut, self.note = self.cut, self.note, False, ""
             self.stopping, self.ready = False, False
+            self.steps.clear()
         if not pending:
             return "", []
-        return RESUMED + "\n\n".join(text for text, _ in pending), [event_id for _, event_id in pending]
+        words = "\n\n".join(text for text, _ in pending)
+        return (RESUMED if cut else BETWEEN_RESUMED) + (note + "\n\n" if note else "") + words, [event_id for _, event_id in pending]
 
     def started(self, process):
         with self.lock:
@@ -1079,6 +1154,7 @@ def run_stream(request, argv, stdin, env, switch=None):
     state = ReplyState(ctx.options, request.inputs.run_id, request.publish)
     adapter = AntigravityEventAdapter(lambda kind, data: request.emit(kind, data, None))
     control = AgyControl(lambda kind, data: request.emit(kind, data, control), device=bool(device_of(ctx)))
+    adapter.control = control
     cancel_event = request.inputs.cancel_event
     deadline = time.monotonic() + ctx.timeout if ctx.timeout > 0 else None
     rows = StreamRows(request, adapter, expected_session, control)

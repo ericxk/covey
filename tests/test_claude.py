@@ -1153,6 +1153,42 @@ class ClaudeCompactionTests(unittest.TestCase):
         self.assertEqual((usage["context_tokens"], usage["context_window"]), (5260, 1000000))
         self.assertEqual(usage["input_tokens"], 6120)
 
+    def test_the_window_reported_is_the_smaller_of_the_models_and_the_compaction_window(self):
+        # --claude-auto-compact-window decides where the session really compacts (app/prompts.py context_high).
+        def window(compact):
+            events = []
+            adapter = ClaudeEventAdapter(lambda k, d: events.append((k, dict(d))))
+            adapter.usage.compact_window = compact
+            adapter.accept({"type": "system", "subtype": "init", "session_id": SID, "model": "claude/opus"})
+            adapter.accept({"type": "assistant", "session_id": SID, "message": {
+                "id": "m1", "usage": {"input_tokens": 10, "output_tokens": 5}, "content": []}})
+            adapter.accept({**result(), "modelUsage": {"claude/opus": {"contextWindow": 1000000}}})
+            return [d for k, d in events if k == "token_usage"][-1].get("context_window")
+        self.assertEqual(window(None), 1000000)
+        self.assertEqual(window(400000), 400000)
+        self.assertEqual(window(2000000), 1000000)
+
+    def test_the_turn_hands_its_compaction_window_to_the_usage_it_reports(self):
+        seen = []
+
+        class Adapter(ClaudeEventAdapter):
+            def __init__(self, emit):
+                super().__init__(emit)
+                seen.append(self)
+        for options, expected in (({"auto_compact_window": 300000}, 300000), ({}, None)):
+            seen.clear()
+            tmp = tempfile.TemporaryDirectory()
+            self.addCleanup(tmp.cleanup)
+            ctx = dataclasses.replace(codex_context(Path(tmp.name), "stream-json"), timeout=8,
+                                      options={"transport": "stream-json", **options},
+                                      backend_cmd=[sys.executable, str(CLAUDE_JSONL), "success"])
+            with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(Path(tmp.name) / "cfg")}), \
+                    mock.patch.object(runtime, "ClaudeEventAdapter", Adapter):
+                ClaudeBackend().run(RunRequest(ctx, "prompt", SID, callbacks=RunCallbacks(
+                    event=lambda k, d, c: None, process=lambda p: None, verified_reply=lambda r: None),
+                    inputs=RunInputs(threading.Event(), run_id=RUN)))
+            self.assertEqual(seen[0].usage.compact_window, expected)
+
     def test_the_compaction_request_is_counted_but_is_not_generation(self):
         from covey.backends.claude.usage import ClaudeTurnUsage
         events = []

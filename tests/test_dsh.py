@@ -80,7 +80,7 @@ class DshTests(unittest.TestCase):
         usage = [d for k, d in events if k == "token_usage"][-1]
         seconds = usage.pop("generation_seconds")
         self.assertEqual(usage, {"output_tokens": 10, "input_tokens": 210, "cache_read_tokens": 90,
-                                 "cache_write_tokens": 0, "measured_output_tokens": 10})
+                                 "cache_write_tokens": 0, "measured_output_tokens": 10, "context_tokens": 113})
         self.assertGreaterEqual(seconds, 0)
         self.assertEqual(events[-1][0], "trace_finished")
         self.assertEqual(record["stdin"], "做个任务")
@@ -218,6 +218,19 @@ class DshTests(unittest.TestCase):
             self.backend.run(RunRequest(self.ctx, "x"))
         self.assertFalse((self.root / "record.json").exists())
         self.assertEqual(local_check("dsh", self.ctx)["reason"], "authentication")
+
+    def test_each_step_says_the_context_the_next_request_starts_from_and_no_window(self):
+        seen = []
+        adapter = DshEventAdapter(lambda kind, data: seen.append((kind, data)))
+        for usage in ({"inputTokens": 100, "cacheReadTokens": 5000, "cacheWriteTokens": 50, "outputTokens": 70},
+                      {"inputTokens": 10, "cacheReadTokens": 6000, "outputTokens": 30}):
+            adapter.accept({"type": "status", "phase": "step_start"}, 1.0)
+            adapter.accept({"type": "status", "phase": "step_end", "usage": usage}, 2.0)
+        counts = [d for k, d in seen if k == "token_usage"]
+        # The latest request's input with the cache and its output, not the turn's sum.
+        self.assertEqual([d["context_tokens"] for d in counts], [100 + 5000 + 50 + 70, 10 + 6000 + 30])
+        self.assertEqual(counts[-1]["input_tokens"], 100 + 5000 + 50 + 10 + 6000)
+        self.assertTrue(all("context_window" not in d for d in counts))  # The gateway's directory has no window field.
 
     def test_generation_time_stops_at_each_steps_first_commit(self):
         seen = []

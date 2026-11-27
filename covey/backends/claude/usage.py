@@ -222,6 +222,9 @@ class ClaudeTurnUsage:
         self.ttft = FirstToken(emit, 'claude_delta')
         self.last = None
         self.context = self.window = self.model = None
+        # --claude-auto-compact-window (CLAUDE_CODE_AUTO_COMPACT_WINDOW): where the session really compacts, so the window
+        # reported is the smaller of it and the model's (app/prompts.py context_high).
+        self.compact_window = None
         self.outside = set()  # Requests before the turn (a compaction): counted, but not generation or context.
 
     def arm(self, now):
@@ -317,12 +320,15 @@ class ClaudeTurnUsage:
 
     def read_window(self, row, now):
         """The main model's context window from a result row's per-model usage (``modelUsage``: 1,000,000
-        for Opus 5.5 on 2.1.310), published with the counts."""
+        for Opus 5.5 on 2.1.310), published with the counts, at most the compaction window when one is set (``compact_window``)."""
         models = row.get('modelUsage')
         models = models if isinstance(models, dict) else {}
         windows = {name: entry.get('contextWindow') for name, entry in models.items() if isinstance(entry, dict)}
         window = windows.get(self.model) if self.model in windows else (
             next(iter(windows.values())) if len(windows) == 1 else None)
+        compact = self.compact_window
+        if type(window) is int and window > 0 and type(compact) is int and not isinstance(compact, bool) and compact > 0:
+            window = min(window, compact)
         if type(window) is int and window > 0 and window != self.window:
             self.window = window
             self.publish(now)

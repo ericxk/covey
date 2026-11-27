@@ -231,6 +231,9 @@ def run_stream(backend, request, env):
         return False
 
     adapter = ClaudeEventAdapter(emit)
+    compact_window = ctx.options.get("auto_compact_window")
+    if type(compact_window) is int and compact_window > 0:
+        adapter.usage.compact_window = compact_window
     tolerated = []  # Where the subagent's refusal let through was (core/model_policy.py policy_where).
 
     def on_policy(signal, let_through):

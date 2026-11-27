@@ -200,6 +200,8 @@ class AntigravityTests(unittest.TestCase):
         usage = [d for k, d in events if k == "token_usage"]
         self.assertEqual((usage[-1]["output_tokens"], usage[-1]["input_tokens"], usage[-1]["cache_read_tokens"]),
                          (132, 15436 + 11130, 11130))
+        # The result's total is no request's context: never a context_tokens from it (context=False).
+        self.assertTrue(all("context_tokens" not in d and "context_window" not in d for d in usage))
         result, events, *_rest = self.run_agy("result-usage", session=SID)
         self.assertFalse(result.is_error, result.text)
         self.assertEqual([d for k, d in events if k == "token_usage"], [])
@@ -489,6 +491,10 @@ class AntigravityTests(unittest.TestCase):
         self.assertTrue(tools.wait(20))
         control = controls[0]
         control.steer("改成 B", "ev-1")
+        # The command runs on: a supplement waits for its step. The owner's 打断它，马上读 (or an urgent one) stops it.
+        time.sleep(0.5)
+        self.assertTrue(worker.is_alive() and not (self.root / "record.json.all").read_text().count("--conversation"))
+        self.assertEqual(control.stop_command("Bridge 停了命令"), {"stopped": ["ls"]})
         worker.join(30)
         result = done["result"]
         self.assertFalse(result.is_error, result.text)
@@ -499,6 +505,9 @@ class AntigravityTests(unittest.TestCase):
         self.assertEqual(runs[1]["argv"][runs[1]["argv"].index("--conversation") + 1], SID)
         message = json.loads(runs[1]["stdin"])["message"]["content"]
         self.assertTrue(message.startswith("用户补充（你刚才的执行被这条补充打断了") and message.endswith("改成 B"), message)
+        self.assertIn("停下来的命令没有跑完", message)
+        self.assertLess(message.index("Bridge 停了命令"), message.index("改成 B"))
+        self.assertIn("最后的回复要写完整的结论", message)
         self.assertIn(("steer_read", {"event_id": "ev-1"}), events)
         steps = {}
         for kind, data in events:
@@ -512,6 +521,51 @@ class AntigravityTests(unittest.TestCase):
         self.assertIsNone(controls[-1])  # The controls are dropped when the turn ends.
         with self.assertRaises(SteerRefused):
             control.steer("太晚了", "ev-2")
+
+    def test_a_supplement_waits_for_the_running_step_and_the_next_process_reads_it_after_it(self):
+        os.environ["FAKE_AGY_SCENARIO"] = "steer-between"
+        events, controls, tools = [], [], threading.Event()
+
+        def event(kind, data, control):
+            events.append((kind, data))
+            if kind == "tool" and data.get("status") == "running":
+                tools.set()
+        done = {}
+        request = RunRequest(self.ctx, "做个任务", callbacks=RunCallbacks(
+            event=event, control=controls.append, verified_reply=lambda reply: None),
+            inputs=RunInputs(threading.Event(), run_id=RUN))
+        worker = threading.Thread(target=lambda: done.update(result=self.backend.run(request)))
+        worker.start()
+        self.assertTrue(tools.wait(20))
+        controls[0].steer("改成 B", "ev-1")
+        time.sleep(0.7)
+        child = int((self.root / "record.json.child").read_text())
+        self.assertTrue(Path(f"/proc/{child}").exists())  # The step's command was not stopped.
+        self.assertEqual(len((self.root / "record.json.all").read_text().splitlines()), 1)
+        (self.root / "record.json.go").write_text("")  # The command ends: the step is DONE, then the process stops.
+        worker.join(40)
+        result = done["result"]
+        self.assertFalse(result.is_error, result.text)
+        runs = [json.loads(line) for line in (self.root / "record.json.all").read_text().splitlines()]
+        self.assertEqual(len(runs), 2)
+        message = json.loads(runs[1]["stdin"])["message"]["content"]
+        self.assertTrue(message.startswith("用户补充（上一步做完后停下来读这条补充") and message.endswith("改成 B"), message)
+        self.assertNotIn("停下来的命令没有跑完", message)
+        self.assertIn("最后的回复要写完整的结论", message)
+        self.assertIn(("steer_read", {"event_id": "ev-1"}), events)
+        steps = {}
+        for kind, data in events:
+            if kind == "tool":
+                steps[data["id"]] = data["status"]
+        self.assertEqual(steps["step-2"], "done")  # Its command finished: the stop did not fail it.
+
+    def test_agy_stops_commands_on_this_machine_only(self):
+        self.assertTrue(backend_capabilities(self.backend, self.ctx).command_stop)
+        self.assertFalse(backend_capabilities(self.backend, dataclasses.replace(self.ctx, device="box")).command_stop)
+
+    def test_the_switch_words_ask_for_the_whole_reply_too(self):
+        from covey.backends.agy.bridge import SWITCH_RESUMED
+        self.assertIn("最后的回复要写完整的结论", SWITCH_RESUMED)
 
     def test_a_supplement_before_agy_said_its_conversation_waits(self):
         from covey.backends.agy.bridge import AgyControl
@@ -569,6 +623,12 @@ class AntigravityTests(unittest.TestCase):
         _result, events, *_ = self.run_agy("ok")
         usage = [d for k, d in events if k == "token_usage"]
         self.assertEqual([d.get("context_tokens") for d in usage], [13187 + 0 + 91, 2249 + 11130 + 41])
+
+    def test_no_context_window_is_reported_as_agy_names_none(self):
+        # agy's stream (init, step and result rows), `agy models` and its conversation files carry no window (T910 W2-A).
+        _result, events, *_ = self.run_agy("ok")
+        usage = [d for k, d in events if k == "token_usage"]
+        self.assertTrue(usage and all("context_window" not in d for d in usage))
 
     def compact(self, how="", ctx=None):
         os.environ["FAKE_AGY_SCENARIO"] = "ok"
@@ -876,6 +936,151 @@ class AgyTurnHookTests(unittest.TestCase):
             self.assertEqual(run["cli"], str((self.root / f"acct-{index}" / ".gemini" / "antigravity-cli").resolve()))
             self.assertIn("bridge", run["mcp"]["mcpServers"])
         self.assertNotEqual(first["home"], second["home"])
+
+
+class FakeProcess:
+    pid = 4242
+
+    def __init__(self):
+        self.code = None
+
+    def poll(self):
+        return self.code
+
+
+class AgyControlStagingTests(unittest.TestCase):
+    """AgyControl: a supplement waits for the running step, the stop is once, stop_command (T910 W2-A)."""
+
+    def make(self):
+        from covey.backends.agy import bridge
+        control = bridge.AgyControl(lambda *a: None)
+        control.started(FakeProcess())
+        control.ready = True
+        kills = []
+        for patcher in (mock.patch.object(bridge.os, "kill", lambda pid, sig: kills.append((pid, sig))),
+                        mock.patch.object(bridge, "descendants", lambda pid: []),
+                        mock.patch.object(bridge.AgyControl, "reap", staticmethod(lambda process, left: None))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return control, kills
+
+    def test_no_step_running_stops_at_once(self):
+        control, kills = self.make()
+        control.steer("改成 B", "ev-1")
+        self.assertEqual(len(kills), 1)
+        message, ids = control.take()
+        self.assertEqual(ids, ["ev-1"])
+        self.assertIn("停下来的命令没有跑完", message)
+
+    def test_a_running_step_holds_the_stop_until_the_last_one_is_done(self):
+        control, kills = self.make()
+        control.step_started("a", "pytest -q")
+        control.step_started("b", "")
+        control.steer("改成 B", "ev-1")
+        control.steer("再加 C", "ev-2")
+        control.step_done("a")
+        self.assertEqual(kills, [])
+        control.step_done("b")
+        self.assertEqual(len(kills), 1)
+        control.step_done("c")  # Nothing runs and it is stopping: never a second one.
+        control.steer("D", "ev-3")
+        self.assertEqual(len(kills), 1)
+        message, ids = control.take()
+        self.assertEqual(ids, ["ev-1", "ev-2", "ev-3"])
+        self.assertTrue(message.startswith("用户补充（上一步做完后停下来读这条补充"), message)
+        self.assertNotIn("停下来的命令没有跑完", message)
+        self.assertIn("最后的回复要写完整的结论", message)
+
+    def test_a_step_done_without_a_supplement_stops_nothing(self):
+        control, kills = self.make()
+        control.step_started("a", "ls")
+        control.step_done("a")
+        self.assertEqual(kills, [])
+
+    def test_a_supplement_and_the_end_of_the_step_together_stop_once_and_lose_none(self):
+        for _ in range(60):
+            control, kills = self.make()
+            control.step_started("a", "pytest -q")
+            gate = threading.Barrier(2)
+
+            def steer():
+                gate.wait()
+                control.steer("改成 B", "ev-1")
+
+            def finish():
+                gate.wait()
+                control.step_done("a")
+            threads = [threading.Thread(target=steer), threading.Thread(target=finish)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(len(kills), 1, kills)
+            message, ids = control.take()
+            self.assertEqual((ids, message.count("改成 B")), (["ev-1"], 1))
+
+    def test_stop_command_stops_the_step_with_the_note_ahead_of_the_supplement(self):
+        control, kills = self.make()
+        control.step_started("a", "pytest -q")
+        control.steer("改成 B", "ev-1")
+        self.assertEqual(control.stop_command("（Bridge 停了命令）"), {"stopped": ["pytest -q"]})
+        self.assertEqual(len(kills), 1)
+        message, _ids = control.take()
+        self.assertIn("停下来的命令没有跑完", message)
+        self.assertLess(message.index("Bridge 停了命令"), message.index("改成 B"))
+        self.assertEqual(control.stop_command("x")["reason"], "模型现在没有在等命令")
+
+    def test_stop_command_keeps_a_push_and_says_why_it_stopped_nothing(self):
+        control, kills = self.make()
+        self.assertEqual(control.stop_command("n"), {"reason": "模型现在没有在等命令"})
+        control.step_started("a", "git push origin main")
+        control.steer("改成 B", "ev-1")
+        self.assertEqual(control.stop_command("n"), {"kept": "git push origin main"})
+        control.step_started("b", "")  # A subagent: no command to stop.
+        control.steps.pop("a")
+        self.assertIn("子任务", control.stop_command("n")["reason"])
+        self.assertEqual(kills, [])
+        control.step_done("b")  # The held supplement goes on at the end of the step.
+        self.assertEqual(len(kills), 1)
+
+    def test_stop_command_refuses_while_stopping_closing_and_on_a_device(self):
+        from covey.backends.agy.bridge import AgyControl
+        control, kills = self.make()
+        control.step_started("a", "pytest -q")
+        control.steer("x", "ev")
+        control.stop_command("n")
+        self.assertIn("正在", control.stop_command("n")["reason"])
+        closing, _ = self.make()
+        closing.closing = True
+        self.assertEqual(closing.stop_command("n"), {"reason": "任务正在收尾"})
+        self.assertIn("设备", AgyControl(lambda *a: None, device=True).stop_command("n")["reason"])
+
+    def test_the_adapter_tells_its_control_when_a_step_starts_and_ends(self):
+        calls = []
+        control = mock.Mock(step_started=lambda *a: calls.append(("start", *a)), step_done=lambda *a: calls.append(("done", *a)))
+        adapter = AntigravityEventAdapter(lambda *a: None)
+        adapter.control = control
+        row = {"conversation_id": SID, "step_index": 2, "step_type": "tool", "tool_name": "run_command",
+               "tool_info": {"name": "run_command", "parameters": {"CommandLine": "pytest -q"}}}
+        adapter.accept({"event": "step_update", "step_update": {**row, "state": "ACTIVE"}}, 1.0)
+        adapter.accept({"event": "step_update", "step_update": {**row, "state": "DONE"}}, 2.0)
+        sub = {"conversation_id": SID, "step_index": 3, "step_type": "subagent", "tool_name": "invoke_subagent",
+               "state": "ACTIVE"}
+        adapter.accept({"event": "step_update", "step_update": sub}, 3.0)
+        self.assertEqual(calls, [("start", "step-2", "pytest -q"), ("done", "step-2"), ("start", "step-3", "")])
+
+
+class EagerNamesTests(unittest.TestCase):
+    def test_a_tool_too_big_for_the_room_is_left_out_and_the_small_ones_after_it_still_load(self):
+        from covey.backends.agy import home
+        small = lambda name: {"name": name, "description": "x" * 10}
+        big = {"name": "big_one", "description": "y" * 500}
+        tools = [small("a"), big, small("b"), small("c")]
+        room = home.tool_size(small("a")) * 3 + 5
+        self.assertEqual(home.eager_names(tools, room), ["a", "b", "c"])
+        # Skipped, it takes none of the room: the three small ones fill it exactly.
+        self.assertEqual(home.eager_names(tools, home.tool_size(small("a")) * 3), ["a", "b", "c"])
+        self.assertEqual(home.eager_names(tools, 0), [])
 
 
 if __name__ == "__main__":

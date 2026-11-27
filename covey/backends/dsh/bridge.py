@@ -162,8 +162,11 @@ class DshEventAdapter:
             if not self.tokens.add(*counts.values(), seconds=seconds):  # No rate check, no context (as before).
                 return
             self.step_started = self.step_generated = None
-            # inputTokens is the uncached part; cache reads and writes are reported beside it.
-            self.emit("token_usage", self.tokens.payload())
+            # inputTokens is the uncached part; cache reads and writes are reported beside it. The step's request is the
+            # context the next one starts from (as Claude's and Antigravity's ``context_tokens``: its input with the cache
+            # and its output). No ``context_window``: the gateway's model directory has none (docs/harnesses.md).
+            size = sum(value for value in counts.values() if type(value) is int and value > 0)
+            self.emit("token_usage", self.tokens.payload(**({"context_tokens": size} if size > 0 else {})))
 
 
 class DshBackend(BackendRuntime):

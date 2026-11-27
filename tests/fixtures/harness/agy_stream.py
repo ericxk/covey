@@ -30,9 +30,9 @@ if scenario == "model-gone":
           'model "gemini-4-neon" PRIVATE_DETAIL', file=sys.stderr); sys.exit(1)
 if scenario == "crash":
     print("panic: runtime error: index out of range [3] with length 3", file=sys.stderr); sys.exit(2)
-if scenario == "steer" and "--conversation" in args:
+if scenario in ("steer", "steer-between") and "--conversation" in args:
     scenario = "ok"  # The process after the supplement: the turn goes on and ends.
-if scenario == "steer":
+if scenario in ("steer", "steer-between"):
     import signal
 
     def interrupted(*_):
@@ -104,7 +104,7 @@ step(1, "ACTIVE", "agent_response", text_delta="先看一下")
 step(1, "ACTIVE", "agent_response", text_delta="目录")
 step(1, "DONE", "agent_response", duration_seconds=4.0, usage={
     "input_tokens": 13187, "output_tokens": 91, "thinking_tokens": 40, "cache_read_tokens": 0, "total_tokens": 13278})
-if scenario == "steer":
+if scenario in ("steer", "steer-between"):
     import subprocess
     # The command the tool step runs, in a session of its own and holding the output open: the stop ends it.
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
@@ -115,8 +115,15 @@ if scenario == "slow":
     time.sleep(30)
 if scenario == "steer":
     time.sleep(30)
+if scenario == "steer-between":
+    # The command runs until the test lets it end (a file): the supplement sent meanwhile must not stop it.
+    waited = time.monotonic() + 30
+    while not os.path.exists(os.environ["FAKE_AGY_RECORD"] + ".go") and time.monotonic() < waited:
+        time.sleep(0.05)
 step(2, "DONE", "tool", tool_name="run_command", duration_seconds=0.07, tool_info={
     "name": "run_command", "parameters": {"CommandLine": "ls"}, "output": "PRIVATE_OUTPUT\r\n"})
+if scenario == "steer-between":
+    time.sleep(30)  # The step is done: the stop for the supplement comes now.
 # A subagent's own step: never the root's answer.
 emit({"event": "step_update", "step_update": {"conversation_id": "99999999-2222-4333-8444-555555555555",
                                               "step_index": 0, "state": "DONE", "step_type": "agent_response",
