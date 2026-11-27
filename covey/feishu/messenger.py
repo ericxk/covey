@@ -6,6 +6,7 @@ import dataclasses
 import json
 import re
 import subprocess
+import threading
 from typing import Any
 
 from covey.core import env as cenv
@@ -16,7 +17,8 @@ from covey.core.topics import remember_topic_message, topic_label, topic_title
 from covey.feishu import cardkit, sdk
 from covey.feishu.delivery import resolve_message_format, safe_idempotency_key, send_message_with_fallback
 from covey.feishu.message_request import message_argv, runner as message_runner
-from covey.feishu.transport import call, data_of, last_failure, lark_argv, message_id_of, reason, run_cli
+from covey.feishu.transport import (NOT_SENT, SENT, UNCERTAIN, call, data_of, last_failure, lark_argv, message_id_of, outcome,
+                                    reason, run_cli)
 
 _MESSAGE_ID = re.compile(r"om_[A-Za-z0-9_-]+")
 _PATH_ID = re.compile(r"[A-Za-z0-9_-]+")  # An id put in an API path (a reaction id) as it is.
@@ -103,6 +105,13 @@ def not_shown_text(about, topic, failure, created) -> str:
     return f"⚠️ {head}{went}：{reason(failure)}。{where}。"
 
 
+def unsent_outcome(messenger) -> str:
+    """For a send through ``messenger`` that was not confirmed: NOT_SENT when its ``last_outcome`` says it surely did not go
+    (the same key may go again), else UNCERTAIN (a stand-in that cannot say may have sent it: never sent again)."""
+    told = getattr(messenger, "last_outcome", None)
+    return NOT_SENT if callable(told) and told() == NOT_SENT else UNCERTAIN
+
+
 def card_json(card) -> dict:
     """A card's JSON as CardKit takes it when a card is created or replaced whole."""
     return {"type": "card_json", "data": json.dumps(card, ensure_ascii=False)}
@@ -115,16 +124,39 @@ class Messenger:
     Card writes: ``create_card`` / ``create_and_send_card`` for a new card, ``put_card`` to
     replace one whole, ``write_card`` for one part of it (elements, settings, batch_update).
     Callers reserve each write's ``sequence`` and name its idempotency ``key``; both go out
-    exactly as given."""
+    exactly as given.
+
+    What became of a send (``send_message``, ``reply``, ``send_card``, ``create_and_send_card``, ``publish_card``,
+    ``send_text``, ``send_to_user``, ``send_card_to_user``) is ``last_outcome`` on the thread that sent it, the return values
+    staying as they are."""
 
     def __init__(self, log) -> None:
         self.log = log
+
+    def _outcomes(self):
+        return self.__dict__.setdefault("_outcome_local", threading.local())
+
+    def _set_outcome(self, value) -> None:
+        self._outcomes().value = value
+
+    def _noted(self, ok):
+        """``ok`` as it came, its outcome (feishu/transport.py ``outcome`` of it and the last failure) kept for
+        ``last_outcome``."""
+        self._set_outcome(outcome(bool(ok), last_failure()))
+        return ok
+
+    def last_outcome(self) -> str:
+        """What became of this thread's last send through this Messenger: feishu/transport.py SENT, NOT_SENT (surely not
+        sent: the same key may go again) or UNCERTAIN (may have gone: never sent again by itself, AGENTS.md rule 1);
+        UNCERTAIN before any, and for one that raised."""
+        return getattr(self._outcomes(), "value", UNCERTAIN)
 
     def send_message(self, profile, chat_id, text, key, *, reply_to_message_id="", voice: Voice, card=None,
                      on_sent=None, on_card=None) -> bool:
         """``text`` as Markdown (``voice``'s format); ``card``: the same text as a card, tried first. ``on_sent``
         learns the ID of each message sent, ``on_card`` the card's when the card went (not the Markdown)."""
-        return send_message_with_fallback(
+        self._set_outcome(UNCERTAIN)
+        return self._noted(send_message_with_fallback(
             profile=profile,
             chat_id=chat_id,
             text=text,
@@ -138,7 +170,7 @@ class Messenger:
             card=card,
             on_sent=on_sent,
             on_card=on_card,
-        )
+        ))
 
     def reply(self, ctx, chat_id, text, key, *, voice: Voice, card=None, on_card=None) -> bool:
         """A text message in ctx's topic (the main chat when ctx has no topic); ``card`` and ``on_card`` as
@@ -246,17 +278,22 @@ class Messenger:
     def send_to_user(self, profile, open_id, text, key):
         """``text`` as a plain text message to the user ``open_id`` under ``key`` (already safe): the owner's first
         private message (app/bot_menu.py). Feishu's answer, None when it was not sent."""
-        return call(message_argv(profile, user_id=open_id, flag="--text", value=text, key=key),
-                    timeout=30, log=self.log, uuid=key)
+        self._set_outcome(UNCERTAIN)
+        payload = call(message_argv(profile, user_id=open_id, flag="--text", value=text, key=key),
+                       timeout=30, log=self.log, uuid=key)
+        self._noted(payload is not None)
+        return payload
 
     def send_card_to_user(self, profile, open_id, card_id, key):
         """The card ``card_id`` as a message to the user ``open_id`` under ``key`` (already safe), which opens the bot's
         private chat with them if there is none yet (the welcome card, app/welcome.py): (its message ID, the chat's ID
         when Feishu's answer names it), both '' when it was not sent (``last_failure`` says whether it may have)."""
         content = json.dumps({"type": "card", "data": {"card_id": card_id}}, ensure_ascii=False)
+        self._set_outcome(UNCERTAIN)
         payload = call(message_argv(profile, user_id=open_id, flag="--content", value=content, key=key),
                        timeout=30, log=self.log, uuid=key)
         data, message_id = data_of(payload), message_id_of(payload)
+        self._noted(message_id)
         chat_id = str(data.get("chat_id") or "") if message_id and isinstance(data, dict) else ""
         return message_id, chat_id
 
@@ -268,7 +305,9 @@ class Messenger:
         if text.startswith("@") or text == "-":
             text = "\u200b" + text  # lark-cli reads "@path" as a file and "-" as stdin (feishu/delivery.py).
         argv = message_argv(profile, chat_id=chat_id, flag="--text", value=text, key=key)
-        return message_id_of(call(argv, timeout=30, log=self.log, uuid=key, runner=message_runner(argv, self.log)))
+        self._set_outcome(UNCERTAIN)
+        return self._noted(message_id_of(call(argv, timeout=30, log=self.log, uuid=key,
+                                              runner=message_runner(argv, self.log))))
 
     def reply_image(self, profile, message_id, path):
         """The image file ``path`` as a reply to ``message_id``, run in its folder (lark-cli takes the image by a
@@ -301,7 +340,10 @@ class Messenger:
 
     def send_card(self, profile, chat_id, card_id, key, *, voice: Voice, **kwargs):
         """A card message under ``voice``'s safe ``key``; ``reply_to_message_id`` as send_card_message takes it."""
-        return cardkit.send_card_message(profile, chat_id, card_id, voice.safe_key(key), log=self.log, **kwargs)
+        self._set_outcome(UNCERTAIN)
+        sent = cardkit.send_card_message(profile, chat_id, card_id, voice.safe_key(key), log=self.log, **kwargs)
+        self._noted(sent[0])
+        return sent
 
     def create_card(self, profile, card):
         """Register ``card`` with CardKit; CardKit's response, None when the call failed."""
@@ -310,12 +352,15 @@ class Messenger:
     def create_and_send_card(self, profile, chat_id, card, key, *, voice: Voice,
                              card_id="", on_created=None, **kwargs) -> tuple[str, str]:
         """Create ``card`` and send it as a card message (``kwargs`` as send_card takes them):
-        (card_id, message_id), each '' when that step did not happen."""
+        (card_id, message_id), each '' when that step did not happen. No card made is NOT_SENT (``last_outcome``): nothing
+        can have gone."""
+        self._set_outcome(UNCERTAIN)
         if not card_id:
             card_id = cardkit.extract_card_id(self.create_card(profile, card) or {})
             if card_id and on_created:
                 on_created(card_id)  # Persist before sending so retries retain the same message content.
         if not card_id:
+            self._set_outcome(NOT_SENT)
             return "", ""
         message_id, _ = self.send_card(profile, chat_id, card_id, key, voice=voice, **kwargs)
         return card_id, message_id
@@ -354,6 +399,7 @@ class Messenger:
                     result = self.put_card(ctx.profile, record["card_id"], card, sequence=seq,
                                            key=voice.key("browse", event_id))
                 if result is not None:
+                    self._set_outcome(SENT)
                     return True
                 if update_only:
                     raise ValueError("卡片更新失败，未创建新卡；请稍后重试")
@@ -363,8 +409,10 @@ class Messenger:
                                              reply_to_message_id=ctx.reply_to_message_id,
                                              **({"card_id": card_id, "on_created": on_created}
                                                 if card_id or on_created else {}))
+        how = self.last_outcome()  # The card's: the line ``not_shown`` sends in its place is not what the caller asks about.
         if not cid:
             self.not_shown(ctx, chat_id, event_id, about, created=False, voice=voice)
+            self._set_outcome(how)
             return False
         if mid:
             self.remember(ctx, chat_id, mid)
@@ -372,6 +420,7 @@ class Messenger:
                        {"card_id": cid, "topic_id": ctx.topic_id, "chat_id": chat_id, "sequence": 0})
         if not mid:
             self.not_shown(ctx, chat_id, event_id, about, created=True, voice=voice)
+            self._set_outcome(how)
         if mid and on_sent:
             on_sent(mid)
         return bool(mid)

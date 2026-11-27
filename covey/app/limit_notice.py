@@ -13,10 +13,13 @@ when its retry goes on; this adds the one line at the top level that says it for
 - Never held or merged: a stop with no automatic retry (the butler's 停了 relay, app/butler_relay.py) goes out as it
   did, at once and one each, since it waits for the owner; the first stop of a group goes out as before, with its own
   card. Only the notice for the ones that go on by themselves is one line for all.
-- Once (rule 6, as app/relay_send.py): ``limit-notices/<group>.json`` says ``sending`` under a file lock no Feishu
-  call is made under, before the send, then ``sent``, or ``uncertain``; a window with a record is never sent again,
-  uncertain included. Run by the Bridge's outbox loop (app/unified.py OUTBOX_STEPS), every TICK seconds at most. Off:
-  nothing is read or sent.
+- Once (rule 6, as app/relay_send.py): ``limit-notices/<group>.json`` says ``sending`` with the notice's text under a file
+  lock no Feishu call is made under, before the send, then by what became of it (feishu/messenger.py ``last_outcome``):
+  ``sent``; ``failed`` when it surely did not go (Feishu refused it), sent again under the same key with the same text
+  RETRY_GAP seconds later; ``uncertain`` when it may have gone, never sent again. One still ``sending`` SENDING_STALE seconds
+  on (the Bridge stopped mid-send) goes again under its key too, which Feishu takes once. At most RETRIES tries after the
+  first, and only while its stops still wait; otherwise a window with a record is never sent again. Run by the Bridge's
+  outbox loop (app/unified.py OUTBOX_STEPS), every TICK seconds at most. Off: nothing is read or sent.
 """
 from __future__ import annotations
 
@@ -31,6 +34,8 @@ from covey.core.jobs import select_job_records
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
 from covey.core.topics import label_title
+from covey.feishu.messenger import unsent_outcome
+from covey.feishu.transport import NOT_SENT, SENT, UNCERTAIN
 
 SWITCH = "COVEY_LIMIT_NOTICE"
 FOLDER = "limit-notices"
@@ -38,6 +43,9 @@ WINDOW = 600  # Seconds from the first stop of a group: the stops of that window
 SETTLE = 45  # Seconds after the last stop of a burst before its notice goes.
 TICK = 20  # The Bridge's outbox loop runs ``tick`` every few seconds; the records are looked at this often.
 MAX_LISTED = 8
+RETRIES = 3  # Tries of a notice that did not go (or was left mid-send) after the first.
+RETRY_GAP = 120  # Seconds from a notice that surely did not go to its next try.
+SENDING_STALE = 120  # Seconds after which a notice still ``sending`` was left by a Bridge that stopped mid-send.
 CAUSES = {"rate_limited": "模型服务限流", "server_fault": "模型服务临时故障", "quota_exhausted": "模型额度用完"}
 _last = {}  # state dir -> when ``tick`` last looked.
 
@@ -100,6 +108,17 @@ def plan(state_dir, group, members, now):
     return start, window
 
 
+def again(saved, now) -> bool:
+    """Whether the notice of record ``saved`` goes again now, under its key with its text: one that surely did not go
+    (``failed``) RETRY_GAP seconds after its try, one left ``sending`` SENDING_STALE seconds after it began; at most RETRIES
+    tries after the first, and only a record that keeps its text (an older release's does not: never sent again)."""
+    if not saved.get("text") or int(saved.get("tries") or 1) > RETRIES:
+        return False
+    if saved.get("state") == "failed":
+        return now - float(saved.get("at") or 0) >= RETRY_GAP
+    return saved.get("state") == "sending" and now - float(saved.get("sending_at") or 0) > SENDING_STALE
+
+
 def tick(gateway, ctx, *, now=None):
     """An outbox-loop step: the notice for each group of stops that is due. Never raises (the retries do not depend on it)."""
     if not enabled():
@@ -123,24 +142,32 @@ def send_due(gateway, ctx, chat, now):
         groups.setdefault((record.get("backend"), auto_retry.kind_of(record)), []).append(record)
     for (backend, kind), members in groups.items():
         group = group_key(chat, backend, kind)
-        with resource_lock("record", state / FOLDER):
-            due = plan(state, group, members, now)
-            if due is None:
-                continue
-            anchor, window = due
-            # Written before the send, under the lock, no Feishu call in it: a window with a record is never sent again.
-            write_json(path(state, group), {"chat_id": chat, "backend": backend, "kind": kind, "anchor": anchor,
-                                            "state": "sending", "topics": [r["topic_id"] for r in window],
-                                            "jobs": [r.get("job_id") for r in window]})
         app = gateway.apps.get(backend)
         title = app.spec.title if app is not None else str(backend)
-        key = gateway.voice.safe_key(f"limit-notice-{group}-{int(anchor)}")
-        ok = False
+        with resource_lock("record", state / FOLDER):
+            saved = read_object(path(state, group))
+            if again(saved, now):
+                record = {**saved, "state": "sending", "sending_at": now, "tries": int(saved.get("tries") or 1) + 1}
+            else:
+                due = plan(state, group, members, now)
+                if due is None:
+                    continue
+                anchor, window = due
+                record = {"chat_id": chat, "backend": backend, "kind": kind, "anchor": anchor, "state": "sending",
+                          "topics": [r["topic_id"] for r in window], "jobs": [r.get("job_id") for r in window],
+                          "text": notice_text(state, window, title, kind), "sending_at": now, "tries": 1}
+            # Written before the send, under the lock, no Feishu call in it: a window with a record is never sent again
+            # but by ``again``.
+            write_json(path(state, group), record)
+        key = gateway.voice.safe_key(f"limit-notice-{group}-{int(record['anchor'])}")
+        how = UNCERTAIN  # One that raised may have gone.
         try:
-            ok = bool(gateway.messenger.send_message(ctx.profile, chat, notice_text(state, window, title, kind), key,
-                                                     voice=gateway.voice))
+            ok = bool(gateway.messenger.send_message(ctx.profile, chat, record["text"], key, voice=gateway.voice))
+            how = SENT if ok else unsent_outcome(gateway.messenger)
         finally:
             with resource_lock("record", state / FOLDER):
                 saved = read_object(path(state, group))
-                write_json(path(state, group), {**saved, "state": "sent" if ok else "uncertain", "at": now})
-        gateway.runtime.log(f"limit notice {'sent' if ok else 'uncertain'} kind={kind} topics={len(window)}")
+                saved = {**saved, "state": "sent" if how == SENT else "failed" if how == NOT_SENT else "uncertain", "at": now}
+                write_json(path(state, group), saved)
+        gateway.runtime.log(f"limit notice {saved['state']} kind={kind} topics={len(record['topics'])}"
+                            + (f" tries={record['tries']}" if record["tries"] > 1 else ""))

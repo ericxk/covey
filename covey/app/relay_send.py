@@ -1,6 +1,8 @@
 """Sending what goes back to the butler's top level (app/butler_relay.py): each relay once (``send_once``, rule 6:
 its card made first, then main-thread/relays/<job key>.json says ``submitting`` under a file lock no Feishu call is
-made under, rules 1 and 2, then ``sent`` with the message id, or ``uncertain``; a job with a record is never sent
+made under, rules 1 and 2, then by what became of the send (feishu/messenger.py ``last_outcome``): ``sent`` with the
+message id; ``failed`` when it surely did not go (Feishu refused it), which a later relay of the same job sends again
+under the same key, at most RETRIES times; ``uncertain`` when it may have gone; a job with any other record is never sent
 again; a 停住了 one keeps its card as sent, ``card``, for its buttons' clicks to redraw, app/relay_stops.py),
 ``unsent`` for one that failed before any Feishu call (``record_unsent``: kept and logged, never sent later),
 the one way a relay goes out through the Messenger (``messenger_send``), its T numbers as links (``linked``), and
@@ -24,11 +26,14 @@ from covey.core.jobs import job_field
 from covey.core.locks import resource_lock
 from covey.core.state import keyed_json_path, read_object, write_json
 from covey.core.topics import remember_topic_message, route_message
+from covey.feishu.transport import NOT_SENT, SENT, UNCERTAIN
 
 RELAYS = Path("main-thread") / "relays"
 QUESTION_RELAYS = RELAYS / "questions"  # A question relayed as it was asked (app/butler_relay.py relay_question).
 UNSENT = "unsent"  # Failed before it reached any Feishu call: the record says why; nothing sends it later.
 SKIPPED = "skipped"  # Not sent by rule (``why``: owner_stop, the owner pressed 停止 himself, app/butler_relay.py relay).
+FAILED = "failed"  # Surely not sent (feishu/transport.py NOT_SENT): a later relay of the job sends it again under its key.
+RETRIES = 3  # Sends of a FAILED relay after the first.
 
 
 def relay_path(state_dir, key) -> Path:
@@ -42,11 +47,26 @@ def lock(state_dir):
 
 def messenger_send(messenger, profile, voice):
     """send(chat, text, key, reply_to, built, on_sent) -> whether it was confirmed: one relay message, ``built`` its
-    card (None: the Markdown ``text`` alone), its idempotency key from ``key``."""
+    card (None: the Markdown ``text`` alone), its idempotency key from ``key``. ``send.outcome()``: what became of its last
+    send on this thread (feishu/messenger.py ``last_outcome``)."""
     def send(chat, text, key, reply_to, built, on_sent):
         return messenger.send_message(profile, chat, text, voice.key("main-relay", key), reply_to_message_id=reply_to,
                                       voice=voice, card=built, on_sent=on_sent)
+    send.outcome = messenger.last_outcome
     return send
+
+
+def send_outcome(send) -> str:
+    """What became of ``send``'s last send that was not confirmed (``messenger_send``'s ``outcome``): NOT_SENT when it says
+    so, else UNCERTAIN (a send that cannot say may have gone)."""
+    told = getattr(send, "outcome", None)
+    return NOT_SENT if callable(told) and told() == NOT_SENT else UNCERTAIN
+
+
+def again(saved) -> bool:
+    """Whether the relay record ``saved`` is one a relay of its job sends again: FAILED (surely not sent), at most RETRIES
+    times."""
+    return saved.get("state") == FAILED and int(saved.get("tries") or 0) <= RETRIES
 
 
 def remember_sent(state_dir, chat_id, topic_id, messages, *, skip_errors=False) -> None:
@@ -149,18 +169,19 @@ def record_only(state_dir, path, key, job, outcome, state, log=None, target=None
 
 def send_once(state_dir, job, path, key, target, outcome, send, profile=None, log=None, **facts):
     """app/butler_relay.py ``relay``'s steps for the record at ``path``, its send's key from ``key``: its card made, the
-    record ``submitting`` under the lock, the send outside it, then ``sent`` or ``uncertain``, which ``log`` (the
-    runtime's log, None: none) gets as one line ``main relay state=…``; the record's state. A card that cannot be made
-    leaves the record ``unsent`` (``record_unsent``): ``submitting`` only ever says it is about to go or went."""
+    record ``submitting`` under the lock, the send outside it, then ``sent``, ``failed`` or ``uncertain``, which ``log`` (the
+    runtime's log, None: none) gets as one line ``main relay state=…``; the record's state. A FAILED record is sent again
+    (``again``); any other is not. A card that cannot be made leaves the record ``unsent`` (``record_unsent``):
+    ``submitting`` only ever says it is about to go or went."""
     try:
         made = _made(state_dir, job, target, outcome, profile, log, facts)
     except Exception as exc:  # noqa: BLE001 - nothing went out: the record says so, the turn's delivery stands
         return record_unsent(state_dir, path, key, job, outcome, type(exc).__name__, log, target)
     with lock(state_dir):
         saved = read_object(path)
-        if saved:
+        if saved and not again(saved):
             return saved.get("state") or "uncertain"
-        record = _record(job, key, target, outcome, "submitting")
+        record = {**_record(job, key, target, outcome, "submitting"), **({"tries": int(saved.get("tries") or 0)} if saved else {})}
         write_json(path, record, ensure_ascii=False, indent=1)
     return _send(state_dir, [(path, record)], key, target, outcome, send, made, profile, log)
 
@@ -214,12 +235,14 @@ def _send(state_dir, taken, key, target, outcome, send, made, profile, log):
     sent = []
     cut = built if isinstance(built, Paged) else None
     after = list(cut.after) if cut else []  # Its 这一轮中途的汇报, when the cards left it to the small one.
+    how = UNCERTAIN  # One that raised may have gone.
     try:
         if isinstance(built, Paged):  # A reply too large for one card, on several (``send_pages``).
             ok, built = send_pages(target["chat_id"], key, reply_to, send, built, sent)
         else:
             ok = send(target["chat_id"], text, key, reply_to, built, sent.append)
-        error = "" if ok else "not confirmed"
+        how = SENT if ok else send_outcome(send)  # Of the send that failed: the pages stop at it.
+        error = "" if ok else "not sent" if how == NOT_SENT else "not confirmed"
         if ok and built is None and (facts.get("inputs") is not None or after):
             # Cards that could not hold its 产物 and 输入/输出 too: they follow on a small card, with the same row, its
             # 这一轮中途的汇报 folded first (cards/relay_card.py relay_pages).
@@ -235,7 +258,7 @@ def _send(state_dir, taken, key, target, outcome, send, made, profile, log):
                 built = tail_built
                 sent += tails
     except Exception as exc:  # noqa: BLE001 - it may have gone out: never sent again
-        ok, error = False, type(exc).__name__
+        ok, how, error = False, UNCERTAIN, type(exc).__name__
     # Its 这一轮中途的汇报 closes on a click on its text, on whichever of its cards they went.
     for page, message_id in zip(cut.pages if cut else (), sent):
         fold_close.remember(state_dir, message_id, page.card, key)
@@ -246,8 +269,10 @@ def _send(state_dir, taken, key, target, outcome, send, made, profile, log):
         answer_cards.register(state_dir, key, "relay", sent[-1], built, facts.get("files_status"))
     keys = [record["job_key"] for _, record in taken]
     for _, record in taken:
-        record.update(state="sent" if ok else "uncertain", message_id=sent[0] if sent else "", error=error,
-                      sent_at=time.time())
+        record.update(state="sent" if ok else FAILED if how == NOT_SENT else "uncertain",
+                      message_id=sent[0] if sent else "", error=error, sent_at=time.time())
+        if record["state"] == FAILED:
+            record["tries"] = int(record.get("tries") or 0) + 1
         if merged:
             record["merged"] = keys  # The relays that went out as this one message.
         if ok and sent and outcome == STOPPED_OUTCOME and isinstance(built, dict):
@@ -345,12 +370,13 @@ def send_merged(state_dir, job, path, key, target, send, profile=None, log=None,
     files = file_count(state_dir, job) if facts.get("files") else 0  # Its 产物, said on the merged card's row.
     with lock(state_dir):
         saved = read_object(path)
-        if saved:
+        if saved and not again(saved):
             return saved.get("state") or "uncertain"
         waiting = read_object(Path(state_dir) / WAITING)
         queued = [other for other in waiting.get(chat) or () if other != key]
-        alone = not busy and not queued
-        record = _record(job, key, target, outcome, "submitting" if alone else PENDING)
+        alone = bool(saved) or (not busy and not queued)  # One sent again (``again``) goes at once, on its own.
+        record = {**_record(job, key, target, outcome, "submitting" if alone else PENDING),
+                  **({"tries": int(saved.get("tries") or 0)} if saved else {})}
         if not alone:
             record.update(target=target, item={"label": target["label"], "title": title,
                                                "lead": answer_lead(facts.get("text") or "", HEADLINE_CHARS),

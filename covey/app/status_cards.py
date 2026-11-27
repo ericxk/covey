@@ -15,9 +15,12 @@ alone writes it, from the board's loop (app/overview.py, every TICK): a whole-ca
 most once every WRITE_GAP seconds, its sequence reserved from its record (rule 3).
 
 The record, <state>/status-cards/<topic_id>.json: {schema_version, topic_id, chat_id, card_id, message_id, state:
-creating | sent | uncertain, sequence, shown: [title, state, facts, line] last written, written_at}. Sending follows
-rule 1: ``creating`` (with the card's id once CardKit made it) under the record's lock, the send outside it, then
-``sent`` with the message or ``uncertain``; an uncertain one is never sent again and its topic keeps its old pin.
+creating | sent | failed | uncertain, sequence, shown: [title, state, facts, line] last written, written_at; tries, failed_at
+once a send surely did not go}. Sending follows rule 1: ``creating`` (with the card's id once CardKit made it) under the
+record's lock, the send outside it, then by what became of it (feishu/messenger.py ``last_outcome``): ``sent`` with the
+message; ``failed`` when it surely did not go (Feishu refused it, no card was made), sent again under the same key every
+RETRY_GAP seconds, at most RETRIES times; ``uncertain`` when it may have gone, never sent again. A topic whose card is not
+out keeps its old pin.
 """
 from __future__ import annotations
 
@@ -39,10 +42,14 @@ from covey.core.topics import remember_topic_message, topic_file, topic_label, t
 from covey.core import look
 from covey.core.board_read import START
 from covey.core.turn_words import BLANK_PHASES, START_LINE, request_line
+from covey.feishu.messenger import unsent_outcome
+from covey.feishu.transport import NOT_SENT
 
 FOLDER = "status-cards"
 SCHEMA = 1
 WRITE_GAP = 20  # Seconds between two writes of one card.
+RETRIES = 3  # Sends of a card that surely did not go, tried again under the same key after the first.
+RETRY_GAP = 600  # Seconds from a send that did not go to the next try.
 TITLE_CHARS = 30
 LINE_CHARS = 80
 # core/turn_words.py: no phase of the model's yet (an empty one too), the ended states' words, the request's line.
@@ -57,6 +64,13 @@ def card_message(state_dir, topic_id) -> str:
     """The message of ``topic_id``'s status card, '' without one sent."""
     message = str(read_object(record_path(state_dir, topic_id)).get("message_id") or "")
     return message if message.startswith("om_") else ""
+
+
+def retry_due(record, now) -> bool:
+    """Whether the card of ``record``, whose last send surely did not go (``failed``), is sent again now: RETRY_GAP seconds
+    after it, at most RETRIES times."""
+    tries = int(record.get("tries") or 0)
+    return tries <= RETRIES and now - float(record.get("failed_at") or 0) >= RETRY_GAP
 
 
 def when(at, now):
@@ -175,6 +189,8 @@ class StatusCards:
             record = read_object(path)
             if record.get("state") == "uncertain":
                 return ""
+            if not record.get("message_id") and record.get("state") == "failed" and not retry_due(record, now):
+                return ""
             if not record.get("message_id"):
                 record = {**record, "schema_version": SCHEMA, "topic_id": topic, "chat_id": chat, "state": "creating",
                           "at": record.get("at") or now}
@@ -197,15 +213,22 @@ class StatusCards:
         card_id, message = self.messenger.create_and_send_card(
             ctx.profile, chat, status_card(*shown), self.voice.key("status-card", topic), voice=self.voice,
             card_id=record.get("card_id", ""), on_created=created, reply_to_message_id=root)
+        # No card made: nothing went (feishu/messenger.py says so too, read here for a Messenger that does not).
+        how = "" if message else NOT_SENT if not card_id else unsent_outcome(self.messenger)
         with resource_lock("status-card", str(path)):
             saved = {**read_object(path), "card_id": card_id or record.get("card_id", "")}
-            saved.update(state="sent", message_id=message, shown=shown, written_at=now) if message else \
+            if message:
+                saved.update(state="sent", message_id=message, shown=shown, written_at=now)
+            elif how == NOT_SENT:
+                saved.update(state="failed", tries=int(saved.get("tries") or 0) + 1, failed_at=now)
+            else:
                 saved.update(state="uncertain")
             write_json(path, saved, ensure_ascii=False, indent=1)
         if message:
             remember_topic_message(Path(ctx.state_dir), topic, chat, message)
-        self.runtime.log(f"status card {'sent' if message else 'uncertain'} topic={topic[:12]}"
-                         + (f" message={message[-8:]}" if message else ""))
+        self.runtime.log(f"status card {saved['state']} topic={topic[:12]}"
+                         + (f" message={message[-8:]}" if message else "")
+                         + (f" tries={saved['tries']}" if saved["state"] == "failed" else ""))
         return message
 
     def _write(self, ctx, topic, shown, path, record, now):

@@ -268,6 +268,43 @@ class SendTest(Case):
                                    r"message= error=TimeoutError$")
         self.assertFalse(butler_relay.relayed(self.state, {"key": job_key("main-t1", 9)}))
 
+    def refused(self):
+        """A send Feishu refused outright (feishu/messenger.py last_outcome NOT_SENT), as messenger_send makes it."""
+        send = mock.Mock(return_value=False)
+        send.outcome = lambda: relay_send.NOT_SENT
+        return send
+
+    def test_a_send_feishu_refused_goes_again_at_the_next_relay_under_its_key_at_most_three_more_times(self):
+        """WAVE12 C10 (T904): surely not sent is ``failed``, which a later relay of the job sends again; uncertain never."""
+        send, log = self.refused(), mock.Mock()
+        path = relay_send.relay_path(self.state, job_key("main-t1", 9))
+        self.assertEqual("failed", relay(self.state, self.job(), DONE, send=send, log=log, text=REPLY))
+        saved = read_object(path)
+        self.assertEqual((saved["state"], saved["tries"], saved["error"]), ("failed", 1, "not sent"))
+        self.assertRegex(log.call_args.args[0], r"^main relay state=failed outcome=done job=\S+ kind=\w+ message= "
+                                                r"error=not sent$")
+        for _ in range(relay_send.RETRIES + 2):
+            self.assertEqual("failed", relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        self.assertEqual(send.call_count, 1 + relay_send.RETRIES)
+        self.assertEqual({call.args[2] for call in send.call_args_list}, {job_key("main-t1", 9)})  # Its own key.
+        self.assertFalse(butler_relay.relayed(self.state, {"key": job_key("main-t1", 9)}))
+
+    def test_a_refused_relay_that_goes_the_next_time_is_sent_once(self):
+        self.assertEqual("failed", relay(self.state, self.job(), STOPPED, send=self.refused(), reason="超时"))
+        send = self.send()
+        self.assertEqual("sent", relay(self.state, self.job(), STOPPED, send=send, reason="超时"))
+        self.assertEqual("sent", relay(self.state, self.job(), STOPPED, send=send, reason="超时"))
+        send.assert_called_once()
+        saved = read_object(relay_send.relay_path(self.state, job_key("main-t1", 9)))
+        self.assertEqual((saved["state"], saved["message_id"]), ("sent", "om_relay"))
+
+    def test_a_send_that_may_have_gone_is_uncertain_even_when_it_returned(self):
+        send = mock.Mock(return_value=False)
+        send.outcome = lambda: "uncertain"
+        self.assertEqual("uncertain", relay(self.state, self.job(), DONE, send=send, text=REPLY))
+        self.assertEqual("uncertain", relay(self.state, self.job(), DONE, send=self.send(), text=REPLY))
+        send.assert_called_once()
+
     def test_a_reply_too_large_for_one_card_goes_on_several_each_with_its_row(self):
         # T663 (the owner, 2026-11-22): it went as Markdown with no row (no T badge, title, 有结果, way into the topic),
         # its 产物 and 输入/输出 on a small card after it.
@@ -432,6 +469,14 @@ class AskedTest(Case):
         again = self.send()
         butler_relay.relay_question(self.state, self.job(), self.question, send=again)
         again.assert_not_called()
+
+    def test_refused_goes_again_with_the_next_try_of_the_question(self):
+        refused = mock.Mock(return_value=False)
+        refused.outcome = lambda: relay_send.NOT_SENT
+        self.assertEqual("failed", butler_relay.relay_question(self.state, self.job(), self.question, send=refused))
+        send = self.send()
+        self.assertEqual("sent", butler_relay.relay_question(self.state, self.job(), self.question, send=send))
+        self.assertEqual(send.call_args.args[2], job_key("main-t1", 9) + "--q1")
 
     def test_not_for_a_turn_the_owner_started(self):
         send = self.send()

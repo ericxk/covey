@@ -92,6 +92,22 @@ def reason(failure) -> str:
     return "飞书拒绝" + (f"（{code}" + (f"：{detail}" if detail else "") + "）" if code else "")
 
 
+# What became of one send, for its caller's record (WAVE12 C10): SENT confirmed; NOT_SENT surely did not go (Feishu refused it,
+# the CLI did not run, no card was made), so the same key may be sent again; UNCERTAIN may have gone (a timeout, an unconfirmed
+# answer, an earlier try still unknown): never sent again by itself (AGENTS.md rule 1).
+SENT, NOT_SENT, UNCERTAIN = "sent", "not_sent", "uncertain"
+
+
+def outcome(ok: bool, failure) -> str:
+    """SENT when ``ok``; UNCERTAIN without a failure, for an ambiguous one, or for ``reconciliation_required`` (an earlier try of
+    the key is still unknown); else NOT_SENT."""
+    if ok:
+        return SENT
+    if failure is None or getattr(failure, "ambiguous", False) or getattr(failure, "category", "") == "reconciliation_required":
+        return UNCERTAIN
+    return NOT_SENT
+
+
 def card_write(argv):
     return CARD_WRITE.match(operation(argv)) is not None
 

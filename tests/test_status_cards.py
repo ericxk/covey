@@ -194,6 +194,46 @@ class EnsureTest(Base):
         self.assertEqual(self.cards.ensure(self.ctx, "oc_dm", [{**self.running, "topic": "bare"}], NOW), {})
 
 
+class SendOutcomeTest(EnsureTest):
+    """WAVE12 C10 (T904): a status card that surely did not go (no card made, or Feishu refused its message) is ``failed``
+    and sent again under the same key every RETRY_GAP seconds, at most RETRIES times; one that may have gone is
+    ``uncertain`` and never sent again."""
+
+    def test_a_card_not_made_is_tried_again_under_its_key_every_gap_at_most_three_more_times(self):
+        self.messenger.create_and_send_card.return_value = ("", "")
+        self.assertEqual(self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW), {})
+        saved = read_object(record_path(self.state, "tq"))
+        self.assertEqual((saved["state"], saved["tries"]), ("failed", 1))
+        self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW + status_cards.RETRY_GAP - 1)
+        self.assertEqual(self.messenger.create_and_send_card.call_count, 1)  # Within its gap: the old pin stays.
+        for n in range(1, status_cards.RETRIES + 3):
+            self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW + n * status_cards.RETRY_GAP)
+        self.assertEqual(self.messenger.create_and_send_card.call_count, 1 + status_cards.RETRIES)
+        keys = {call.args[3] for call in self.messenger.create_and_send_card.call_args_list}
+        self.assertEqual(keys, {self.app.voice.key("status-card", "tq")})
+        self.assertEqual(read_object(record_path(self.state, "tq"))["tries"], 1 + status_cards.RETRIES)
+
+    def test_a_message_feishu_refused_goes_again_with_the_card_made_and_then_is_sent(self):
+        self.messenger.create_and_send_card.return_value = ("card_s", "")
+        with mock.patch.object(self.messenger, "last_outcome", return_value="not_sent"):
+            self.assertEqual(self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW), {})
+        self.assertEqual(read_object(record_path(self.state, "tq"))["state"], "failed")
+        self.messenger.create_and_send_card.return_value = ("card_s", "om_status")
+        self.assertEqual(self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW + status_cards.RETRY_GAP),
+                         {"tq": "om_status"})
+        self.assertEqual(self.messenger.create_and_send_card.call_args.kwargs["card_id"], "card_s")  # The same card.
+        saved = read_object(record_path(self.state, "tq"))
+        self.assertEqual((saved["state"], saved["message_id"]), ("sent", "om_status"))
+
+    def test_one_that_may_have_gone_is_uncertain_and_never_sent_again(self):
+        self.messenger.create_and_send_card.return_value = ("card_s", "")
+        with mock.patch.object(self.messenger, "last_outcome", return_value="uncertain"):
+            self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW)
+            self.cards.ensure(self.ctx, "oc_dm", [self.running], NOW + 10 * status_cards.RETRY_GAP)
+        self.assertEqual(read_object(record_path(self.state, "tq"))["state"], "uncertain")
+        self.messenger.create_and_send_card.assert_called_once()
+
+
 class BoardPinsTheCardTest(Base):
     def test_a_topic_with_a_thread_is_pinned_by_its_status_card(self):
         write_topic(self.state, {"topic_number": 401, "chat_id": "oc_dm", "root_id": "om_root_t1"}, topic_id="t1")
