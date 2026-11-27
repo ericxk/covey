@@ -73,6 +73,7 @@
     "test:theme": "node --import ./scripts/alias.mjs --test scripts/theme-toggle.test.mjs",
     "test:calib": "node --import ./scripts/alias.mjs --test scripts/calib.test.mjs",
     "test:perf": "node --import ./scripts/alias.mjs --test scripts/perf-server.test.mjs",
+    "test:math": "node --import ./scripts/alias.mjs --test scripts/math.test.mjs",
     "test:selfhost-logic": "node --import ./scripts/alias.mjs --test scripts/selfhost-logic.test.mjs",
     "test:selfhost-tls": "npm run build:selfhost:server && node --test scripts/selfhost-tls.test.mjs",
     "test:selfhost-api": "npm run build:selfhost:server && node --test scripts/selfhost-api.test.mjs"
@@ -164,6 +165,7 @@
     "framer-motion": "^12.38.0",
     "gsap": "^3.13.0",
     "input-otp": "^1.4.2",
+    "katex": "^0.19.1",
     "lodash": "^4.17.21",
     "lucide-react": "0.577.0",
     "nanoid": "^5.1.6",

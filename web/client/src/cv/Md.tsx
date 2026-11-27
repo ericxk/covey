@@ -5,6 +5,9 @@ import { Markdown } from '@/components/ui/markdown';
 import type { SnapshotTopic } from '@shared/api.interface';
 import { useTopicByNumber } from '@client/src/hooks/use-workbench';
 import { MdTable } from './MdTable';
+import { mathNodes, protectMath } from './mathText';
+import { mdMathComponents, preloadMath } from './MdMath';
+import './math.css';
 
 interface MdNode {
   type: string;
@@ -64,11 +67,16 @@ const MdInner: React.FC<{ body: string; dim?: boolean; said?: boolean }> = ({ bo
   const byNumber = useTopicByNumber();
   const plugin = useMemo(
     () => () => (tree: MdNode) => {
+      mathNodes(tree);
       linkify(tree, byNumber);
       if (said) softBreaks(tree);
     },
     [byNumber, said],
   );
+  // 数学公式（$…$、$$…$$、\(…\)、\[…\]）先换成 Markdown 不会动的行内代码，见 mathText.ts
+  const source: string = useMemo(() => protectMath(body), [body]);
+  // 有公式才去取 KaTeX（懒加载，没有公式的页面不下载它）
+  if (source !== body) void preloadMath();
   return (
     <div className={said ? 'mdans mdsaid' : 'mdans'} style={dim ? { opacity: 0.75 } : undefined}>
       <Markdown
@@ -79,6 +87,8 @@ const MdInner: React.FC<{ body: string; dim?: boolean; said?: boolean }> = ({ bo
           // 宽表格：横向滚动框、右缘渐隐、放大弹层。直接给组件本身：包一层箭头函数的话每次重绘都是新组件，
           // 表格会被卸载重建，打开的放大弹层也跟着没了
           table: MdTable,
+          // 公式：mathText.ts 标出的 span/div.cv-math 换成 KaTeX 排好的（MdMath.tsx，懒加载），别的 span/div 照旧
+          ...mdMathComponents,
           a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
             if (href?.startsWith(SCHEME)) {
               const key: string = decodeURIComponent(href.slice(SCHEME.length));
@@ -93,7 +103,7 @@ const MdInner: React.FC<{ body: string; dim?: boolean; said?: boolean }> = ({ bo
           },
         }}
       >
-        {body}
+        {source}
       </Markdown>
     </div>
   );
