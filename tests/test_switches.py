@@ -46,7 +46,8 @@ class SwitchesTests(unittest.TestCase):
             "COVEY_PROJECT_ASK": projects.ask_enabled, "COVEY_PROJECT_MEMORY": projects.memory_enabled,
             "COVEY_PROJECT_TRIAGE": triage.enabled, "COVEY_PROJECT_TIDY": project_proposals.mode,
             "COVEY_PROJECT_UPGRADE": upgrade.mode, "COVEY_REVIEW": review.enabled, "COVEY_REVISIT": revisits.enabled,
-            "COVEY_MEMORY": memory.enabled, "COVEY_KNOWLEDGE": knowledge.enabled, "COVEY_PINNED_OVERVIEW": Overview.enabled,
+            "COVEY_MEMORY": memory.enabled, "COVEY_MEMORY_LEARN": memory.learning, "COVEY_KNOWLEDGE": knowledge.enabled,
+            "COVEY_PINNED_OVERVIEW": Overview.enabled,
             "COVEY_PINNED_TOPICS": topic_seen.enabled, "COVEY_DIGEST_TIMES": quiet_hours.digest_times,
             "COVEY_DISPATCH_CARD": dispatch_cards.enabled, "COVEY_BUTLER_TRACKS": butler_tracks.enabled,
             "COVEY_BUTLER_RULES": prompts.butler_on, "COVEY_WORKSPACE_GISTS": workspace_gists.count}

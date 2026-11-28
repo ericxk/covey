@@ -71,7 +71,7 @@ BACKUP_DIRS = {
 # welcome card's (welcome.json, core/welcome.py), sent once a deployment. top-notices.json: the alerts sent at the top
 # level of a chat (app/pins.py remember_notice), so a reply to one is still the butler's after a restore. memory-candidates.json: an older release's
 # evening candidates (you can roll back to one): what the owner declined is not offered again by it after a restore.
-# memory-usage.json, memory-tidy.json, memory-harvest.json (记忆自己长, COVEY_MEMORY_LEARN=1): when each memory line was last of
+# memory-usage.json, memory-tidy.json, memory-harvest.json (记忆自己长, COVEY_MEMORY_LEARN on): when each memory line was last of
 # use (without it every older line would read as unused and 整理记忆 put it away), what each night's 整理记忆 put away (its
 # 撤销 still works after a restore) and what of the Harnesses' own memory was read (not offered again). repos.json, the
 # repo map (core/repomap.py), and home.json, the home directory's settings (core/home.py): the owner's, written by hand or

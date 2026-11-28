@@ -133,7 +133,7 @@ def extra_fields(path) -> set:
 
 class Case(unittest.TestCase):
     def setUp(self):
-        self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "0", "COVEY_MEMORY_LEARN": ""}))
+        self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "0", "COVEY_MEMORY_LEARN": "0"}))
         self.state = state_dir(self)
         self.home = self.state / "home"
         memstore._cache.clear()

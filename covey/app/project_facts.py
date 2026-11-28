@@ -162,7 +162,7 @@ def join_lines(state_dir, record) -> tuple:
 def memory_listing(state_dir, record) -> tuple:
     """((entry id, text) of the project's memory, how many lines it holds): what a turn can carry (core/memory.py: a line put
     away in the history is not carried and not listed), the newest first by when a turn last used it (core/memory_usage.py,
-    with COVEY_MEMORY_LEARN=1) as a turn's own choice orders them; at most LIST_CAP rows, the count is of them all.
+    with COVEY_MEMORY_LEARN on) as a turn's own choice orders them; at most LIST_CAP rows, the count is of them all.
     projects/<id>/memory.json and what an older release kept in the record; a deleted entry and the style line are not rows."""
     live = project_memory.live(state_dir, record, style=False)
     used = memory_usage.last_used(state_dir) if memory.learning() else None

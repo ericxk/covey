@@ -27,7 +27,7 @@ the one line the block ends with. ``project_view`` is a project's memory as ever
 lead's state pack and the web page alike: the same items, parts and choice, its version, and the lines voided since the reader's
 previous turn. Nothing here reads a file but through those stores, and nothing is written. Standard library and core only.
 
-With COVEY_MEMORY_LEARN=1 as well (``learning``, docs/butler.md 记忆自己长) two more things count. ``drafts``: what the Bridge
+With COVEY_MEMORY_LEARN on as well (``learning``, docs/butler.md 记忆自己长) two more things count. ``drafts``: what the Bridge
 distilled from the owner's repeated words and has not been confirmed or declined (an older release's evening candidates;
 none are made any more), an item of 它总结的 of 全局 or 工作区 (``ref`` "candidate:<id>"), always after his own words. ``used``: when a turn last used an
 item (core/memory_usage.py, ref -> epoch seconds): an item's ``seen`` is the later of its time and that, and "the newest first"
@@ -37,13 +37,12 @@ from __future__ import annotations
 import hashlib
 import os
 
-from covey.core import env as cenv
 from covey.core.process_env import env_flag
 from covey.core import knowledge, project_memory, turn_source
 from covey.core.state import epoch_seconds
 
 ENV = "COVEY_MEMORY"
-LEARN_ENV = "COVEY_MEMORY_LEARN"  # 记忆自己长 (``learning``): only with ENV on too.
+LEARN_ENV = "COVEY_MEMORY_LEARN"  # 记忆自己长 (``learning``): on unset, only with ENV on too.
 GLOBAL, WORKSPACE, PROJECT, TOPIC = "global", "workspace", "project", "topic"
 SCOPES = (GLOBAL, WORKSPACE, PROJECT, TOPIC)
 WORDS = {GLOBAL: "全局", WORKSPACE: "这个工作区", PROJECT: "这个专项", TOPIC: "这个话题"}
@@ -81,10 +80,11 @@ def enabled(environ=None) -> bool:
 
 
 def learning(environ=None) -> bool:
-    """Whether the memory learns by itself (docs/butler.md 记忆自己长): COVEY_MEMORY_LEARN=1 with the memory on. Off: every
-    reader and writer of the memory does what it did before it."""
+    """Whether the memory learns by itself (docs/butler.md 记忆自己长): COVEY_MEMORY_LEARN unset or anything but
+    0/off/false/no (T908 M6, the owner's call: on for every deployment, as the T813 switches are; core/switches.py DEFAULTS),
+    with the memory on (``enabled``). Off: every reader and writer of the memory does what it did before it."""
     env = os.environ if environ is None else environ
-    return enabled(env) and cenv.get(LEARN_ENV, "", env) == "1"
+    return enabled(env) and env_flag(LEARN_ENV, True, env)
 
 
 def by_source(source) -> str:

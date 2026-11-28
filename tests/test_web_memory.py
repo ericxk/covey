@@ -20,7 +20,7 @@ from covey.core.workspaces import config_path
 
 class StateCase(TestCase):
     def setUp(self):
-        self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "1", "COVEY_MEMORY_LEARN": ""}))
+        self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "1", "COVEY_MEMORY_LEARN": "0"}))
         self.state = Path(self.enterContext(tempfile.TemporaryDirectory()))
         for name in ("project", "docs"):
             (self.state / name).mkdir()

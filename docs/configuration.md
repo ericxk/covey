@@ -18,6 +18,7 @@
 | [独立复核](usage.md#答案在哪里) | `COVEY_REVIEW` | 改了代码的答案卡下面多「独立复核」：点了才开一个只读话题，换一家的模型只看你的原话、完成标准和这一轮的改动 | `COVEY_REVIEW=0` |
 | [到点回来看](usage.md#到点回来看) | `COVEY_REVISIT`（看和取消在菜单「看板」） | 话题要等训练、CI 这类外部的事时，这一轮说好几点回来看就结束，到点自己再起一轮；菜单「看板」里有“到点回来看”一组 | `COVEY_REVISIT=0` |
 | [记忆](#记忆) | `COVEY_MEMORY` | 你在话题里说的长期要求一轮结束后记下，答案卡底部露一行和“不对”“改”（有网页时）按钮；设置卡多「记忆」标签 | `COVEY_MEMORY=0` |
+| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN`（要 `COVEY_MEMORY` 开着） | 你自己的一轮里说了“以后、别再、记住”这类话，一轮结束后 Bridge 用辅助模型读一遍你的话，长期要求记下（答案卡上一行“记下了”带“不对”；处处适用的先在当地生效、同时进待审核问管不管全局，涉及部署、删除这类事的采纳前不生效）；每轮的记忆块末尾多一行查记忆的命令 | `COVEY_MEMORY_LEARN=0`（`COVEY_MEMORY=0` 时也跟着关） |
 | [知识条目](#知识条目与历史搜索) | `COVEY_KNOWLEDGE` | 说“记一下”的事记成条目，那一轮结束时卡上说记下了；话题首轮带上，汇总多一节 | `COVEY_KNOWLEDGE=0` |
 | [专项的进阶](projects.md#使用者概览) | `COVEY_PROJECT_AUTOWAKE`、`COVEY_PROJECT_ASK`、`COVEY_PROJECT_MEMORY`、`COVEY_PROJECT_TRIAGE`（都要专项开着） | 依次是：话题一轮结束就叫醒负责人（负责人多跑几轮，多花些 token）；专项停住时发卡问你继续、收尾还是停；专项有自己的记忆和资料库；话题的选择题先给负责人分流 | 各设成 `0` |
 | [等你的事补卡](architecture.md#等主人的账) | `COVEY_LEDGER_RECONCILE`（默认每 300 秒） | 要你回答的问题卡没发出去时，几分钟内自动补发到它的话题（最多 3 次）；补发了几次、发出几次见设置卡「诊断」和 `bin/covey_ledger.py` | `COVEY_LEDGER_RECONCILE=0`（只记账不补发也不起线程） |
@@ -55,7 +56,6 @@
 | 功能 | 开关 | 打开后多什么、怎么确认 |
 | --- | --- | --- |
 | [群成员只读](#群成员只读) | `COVEY_GROUP_MEMBERS=read` | 没在群聊卡上单独选过的群，群成员开的任务只能读文件和搜索；群聊卡上这些群写着「群成员只读」，启用确认卡也照这个写 |
-| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN=1`（要 `COVEY_MEMORY` 开着） | 一轮结束后 Bridge 自己读你的话，长期要求直接记下（答案卡上能“不对”）；Codex、Claude Code 自己记的进待审核；每轮的记忆块能按需查放不下的 |
 
 ### 按需打开
 
@@ -193,7 +193,7 @@
 | [早晚汇总](#早晚汇总)（默认开） | `COVEY_DIGEST_TIMES`；`off` 关 | `digest` 后台线程；菜单「看板」不管它开不开都有 |
 | [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE`（默认开，`0` 关）；`COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` | 管家多 `knowledge_*` 和 `history_search` 工具；话题首轮带知识条目，规则多一行查历史的命令 |
 | [记忆](#记忆)（默认开） | `COVEY_MEMORY=0` 关 | 每轮规则里多一块“记忆”；一轮结束后记下主人的长期要求，答案卡底部露一行和“不对”按钮；设置卡多「记忆」标签；`memory-tidy` 后台线程每天整理一次资料和决定 |
-| [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN=1`（要 `COVEY_MEMORY` 开着） | 主人的一轮结束后起一个短线程（`memory-learn`，一次一轮）用小模型读他的话；每轮的记忆块多一行查记忆的命令 |
+| [记忆自己长](#记忆)（默认开） | `COVEY_MEMORY_LEARN=0` 关（要 `COVEY_MEMORY` 开着，`COVEY_MEMORY=0` 时也关） | 主人的一轮结束、原话里有触发词时起一个短线程（`memory-learn`，一次一轮）用小模型读他的话；每轮的记忆块多一行查记忆的命令 |
 | [新话题带上最近话题的要点](#新话题带上最近话题的要点)（默认开） | `COVEY_WORKSPACE_GISTS=0` 关 | 不多线程；新会话的规则多一块同工作区最近话题的要点 |
 | [管家](#管家) | 默认允许；`COVEY_BUTLER=0` 不允许 | `main-tools`、`main-search` 后台线程；设置卡「配置」页多管家一段 |
 | [管家规则](#管家规则)（默认开） | `COVEY_BUTLER_RULES=0` 关 | 不多线程，只换管家规则的两条 |
@@ -288,7 +288,7 @@
 - 整理记忆（`app/memory_tidy.py`，自己的线程 `memory-tidy`，每天跑一次，只按规则、不调模型）：每个在做的专项（每天最多 4 个）里 30 天没用过的、问的事已经办完的、说的是别的专项的资料和决定（含 `decisions.jsonl`）收起，规矩一条不收。只收起不删除；开了早晚汇总时晚间汇总多一行“收起 N 条”带「撤销」。记录在 `<state>/memory-tidy.json`；日志 `memory tidy project=… put_away=N`、`memory tidy undo run=…`，不写原话。
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉，整理记忆也不再跑。
 - 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`、`memory line refused by the gate reason=… job=#…`。
-- `COVEY_MEMORY_LEARN=1`（只认 `1`，要 `COVEY_MEMORY` 开着）：记忆自己长，仍然默认关（[管家 · 记忆自己长](butler.md#记忆自己长开关默认关)）。关着时以下都没有，记忆和上面写的一字不差。
+- `COVEY_MEMORY_LEARN`：记忆自己长，默认开，设 `0`、`off`、`false`、`no` 才关；要 `COVEY_MEMORY` 开着，`COVEY_MEMORY=0` 时它也跟着关（[管家 · 记忆自己长](butler.md#记忆自己长)）。新装的和升级上来、清单里没设过它的服务都开着；关着时以下都没有，记忆和上面写的一字不差。
   - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 45 秒，一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”（同一条已在待审核里或处理过就不再写）。不读：代答话题、负责人的话题、开了脱敏的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
   - 整理记忆不要这个开关（见上）；以前的“被新回答替代”和“新约定”（含「确认长期」「不对」）已下线。
   - 别处学到的（Harness 记忆导入）已下线：晚间不再读各 Harness 的记忆文件，网页上没有导入入口；`<state>/memory/imports.json` 原样留着，不再读写。
@@ -545,7 +545,7 @@
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要专项开着）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞，关着时不叫醒谁的专项照常空闲收起）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`：没开时 `project_topic_start` 的说明写话题结束不会叫醒负责人） | 空：开，话题一轮结束、主人在专项的话题里说话、停滞提醒也唤醒负责人，并开停滞检查；`0`、`off`、`false`、`no` 关：只有专项的第一条回执唤醒负责人。见[架构 · 专项](architecture.md#专项) | 否 |
 | `COVEY_PROJECT_MEMORY` | `core/projects.py`（`memory_enabled`，要专项开着）、`app/project_context.py`（专项的话题开工带上记忆和资料库索引、主人答专项的问题卡记一条决定、主人发给负责人的文件和各话题的产物、交付进资料库）、`app/project_lead.py`（`library_index`：状态包的资料库）、`app/runs.py`（`bridge_rules`、`_with_rules` 取专项块） | 空：开，专项的话题开工带上专项记忆和资料库索引，主人的回答记成决定，主人发的文件和话题的产物进资料库；`0`、`off`、`false`、`no` 关：专项的话题开工不多带东西、不自动记、不收资料库。见[专项记忆与资料库](projects.md#专项记忆与资料库) | 否 |
 | `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py`、`app/memory_tidy.py` 和 `app/digest.py`（整理记忆，每天一次） | 空：开，原则、知识条目、专项记忆、话题记忆拼成一块“记忆”，主人说的长期要求一轮结束后记下，每天按规则整理一次资料和决定；`0`、`off`、`false`、`no` 关：规则、续接提醒和答案卡与没有这个功能时逐字相同。见[记忆](#记忆) | 否 |
-| `COVEY_MEMORY_LEARN` | `core/memory.py`（`learning`，要 `COVEY_MEMORY=1`）；用它的：`app/memory_turn.py`（带上候选、查记忆的命令；辅助模型不是“不用模型”时不带“以后/别再”那句）、`app/memory_learn.py`（每轮之后读主人的话、记用到的编号）、`app/memory_panel.py` | 空：关，记忆和没有它时一样；`1`：记忆自己长，见[记忆](#记忆) | 否 |
+| `COVEY_MEMORY_LEARN` | `core/memory.py`（`learning`，要 `COVEY_MEMORY` 开着）；用它的：`app/memory_turn.py`（带上候选、查记忆的命令；辅助模型不是“不用模型”时不带“以后/别再”那句）、`app/memory_learn.py`（每轮之后读主人的话、记用到的编号）、`app/memory_panel.py` | 不设（或空、`1`）：开，记忆自己长，见[记忆](#记忆)；`0`、`off`、`false`、`no`：关，记忆和没有它时一样 | 否 |
 | `COVEY_WORKSPACE_GISTS` | `app/workspace_gists.py`（`count`；`app/runs.py` 的 `Runs.bridge_rules` 只在新会话的规则里放这一块）、`app/about_panel.py`（设置卡「诊断」页下半“能做什么”的那一行） | 空：3；`1` 到 `10`：同一聊天、同一工作区新开的话题，第一轮的规则带上这个工作区最近这么多个别的话题的[话题要点](projects.md#整理专项)（要点要整理专项开着才会写）；只在主人自己的一轮、普通话题里带，脱敏话题的要点只给脱敏话题；`0` 或别的值：关，规则和没有这个功能时逐字相同。见[新话题带上最近话题的要点](#新话题带上最近话题的要点) | 否 |
 | `COVEY_PROJECT_TRIAGE` | `core/triage.py`（`enabled`，要专项开着）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`）、`app/triage.py`、`app/project_loop.py`（`ProjectLoop.tick` 扫扣住的问题） | 空：开，选择题先交给负责人，3 分钟内它能替主人答的就答，其余才发问题卡；`0`、`off`、`false`、`no` 关：专项的话题的问题直接发给主人。见[专项的问题分流](projects.md#专项的问题分流) | 否 |
 | `COVEY_PROJECT_BUDGET` | `core/projects.py`（`token_limit`）、`app/project_loop.py`（`hold`） | 空：没有上限，专项不会因为 token 停住；正整数：一个专项的 token 合计（负责人和各话题，缓存算在输入里）到了就停住（`state_reason` 是 `tokens`） | 否 |

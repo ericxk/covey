@@ -1,4 +1,4 @@
-"""记忆自己长, a turn at a time (COVEY_MEMORY_LEARN=1, app/memory_learn.py, app/memory_turn.py, core/memory.py drafts and
+"""记忆自己长, a turn at a time (COVEY_MEMORY_LEARN, on unset; app/memory_learn.py, app/memory_turn.py, core/memory.py drafts and
 ``seen``, core/memory_usage.py): the owner's own words of an ended turn read by the Bridge and written as 你说的 where they
 belong, the lines a turn used noted, the candidates carried as 它总结的, the block's lookup line, and that with the switch off
 everything is as it was."""
@@ -18,7 +18,8 @@ from support.records import write_job, write_topic
 from covey.app import memory_collect, memory_learn, memory_turn
 from covey.app.answers import FEEDBACK_START
 from covey.cards.answer_card import memory_element
-from covey.core import memory, memory_review, memory_usage, memstore, principles, project_memory, projects, topic_memory
+from covey.core import memory, memory_review, memory_usage, memstore, principles, project_memory, projects, switches
+from covey.core import topic_memory
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.core.jobs import find_job_record
 from covey.core.state import write_json
@@ -106,6 +107,30 @@ class SwitchTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"LARK_BRIDGE_MEMORY": "1"}, clear=True):
             self.assertTrue(memory.enabled())
 
+    def test_learning_is_on_unset_off_at_0_or_off_and_off_with_the_memory_off(self):
+        # T908 M6, the owner's call: 记忆自己长 on for every deployment, written as the T813 switches are (core/switches.py
+        # DEFAULTS): unset, empty or any other value is on, 0/off/false/no in any case off; never without the memory.
+        self.assertTrue(memory.learning({}))
+        self.assertTrue(memory.learning({"COVEY_MEMORY": "1"}))
+        for value in ("1", "", "yes", "on"):
+            with self.subTest(value=value):
+                self.assertTrue(memory.learning({memory.LEARN_ENV: value}))
+        for value in ("0", "off", "OFF", "false", "no", " 0 "):
+            with self.subTest(value=value):
+                self.assertFalse(memory.learning({memory.LEARN_ENV: value}))
+                self.assertFalse(memory.learning({"LARK_BRIDGE_MEMORY_LEARN": value}))
+        for off in ({"COVEY_MEMORY": "0"}, {"COVEY_MEMORY": "off"}, {"LARK_BRIDGE_MEMORY": "0"},
+                    {"COVEY_MEMORY": "0", memory.LEARN_ENV: "1"}):
+            with self.subTest(memory_off=off):
+                self.assertFalse(memory.learning(off))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(memory.learning())  # The process's environment, unset.
+        with mock.patch.dict(os.environ, {memory.LEARN_ENV: "0"}, clear=True):
+            self.assertFalse(memory.learning())
+        self.assertEqual(switches.DEFAULTS[memory.LEARN_ENV], "1")
+        self.assertTrue(switches.is_on(memory.LEARN_ENV, {}))
+        self.assertFalse(switches.is_on(memory.LEARN_ENV, {memory.LEARN_ENV: "0"}))
+
 
 class OwnerWordsTest(Case):
     def test_an_answers_turn_is_what_he_answered_and_added_never_the_question(self):
@@ -120,7 +145,7 @@ class OwnerWordsTest(Case):
         self.assertEqual(memory_turn.owner_words({"user_text": "以后都这样"}), "以后都这样")
 
     def test_the_old_paths_trigger_and_quote_check_take_his_words_alone(self):
-        self.env(**{memory.LEARN_ENV: ""})
+        self.env(**{memory.LEARN_ENV: "0"})
         said = "用户补充回答：\n底部菜单要不要再加一个按钮？\n不加"
         job = self.turn(said, key="answer-0123456789abcdef",
                         checkpoint={"memory": [{"quote": "要不要再加一个按钮", "text": "不要再加按钮"}]})
@@ -381,7 +406,7 @@ class LeadAndQuestionTest(Case):
         self.assertNotIn(project_lead.LEAD_REMEMBER, before)
         self.lead()
         self.assertIn(project_lead.LEAD_REMEMBER, project_lead.rules_of(self.ctx, self.turn()))
-        self.env(**{memory.LEARN_ENV: ""})
+        self.env(**{memory.LEARN_ENV: "0"})
         self.assertIn(project_lead.OWNER_REMEMBER, project_lead.rules_of(self.ctx, self.turn()))
 
     def question(self, token="0123456789abcdef", text="是否删掉记忆中这一部分？"):
@@ -454,7 +479,7 @@ class AfterTurnTest(Case):
         self.assertEqual(find_job_record(self.state, job.message_id)["memory_learned"]["state"], "asked")
 
     def test_off_without_the_switch(self):
-        self.env(**{memory.LEARN_ENV: ""})
+        self.env(**{memory.LEARN_ENV: "0"})
         job = self.turn(memory_ids=[{"n": "M12", "ref": "principle:p1", "scope": "global", "by": "owner"}],
                         final_text="照 M12 做了")
         with mock.patch.object(memory_learn, "start") as start:
@@ -505,7 +530,7 @@ class TurnBlockTest(Case):
         memstore.add(self.state, kind="rule", scope="global", text="用中文回复")
         on = memory_turn.block(self.ctx, self.job(), owner_turn=lambda: True)
         memory_turn._plans.clear()
-        self.env(**{memory.LEARN_ENV: ""})
+        self.env(**{memory.LEARN_ENV: "0"})
         self.assertEqual(memory_turn.block(self.ctx, self.job(), owner_turn=lambda: True), on)
         self.assertTrue(memory_turn.fix_rule(self.ctx, ReplyJob(job_id=2, user_text="以后都这样", chat_id=DM, message_id="om2",
                                                                 timeout=0, sender_id=OWNER, topic_id="t1"), lambda: True))

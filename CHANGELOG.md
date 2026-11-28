@@ -20,6 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cha
 
 ### Changed 变更
 
+- 记忆自己长（`COVEY_MEMORY_LEARN`）对所有部署默认开：不设就开，设 `0`、`off`、`false`、`no` 才关，仍要 `COVEY_MEMORY` 开着。只在主人自己的一轮、原话有“以后、别再、记住”这类字眼时，一轮结束后用辅助模型读一遍他的话；要管全局的、涉及部署删除这类事的照旧先进待审核。服务清单里没设过它的老服务升级后也开着。
 - 网页工作台输入框的回车和飞书聊天一样：Enter 发送，Shift+Enter（或 Ctrl / ⌘ + Enter）换行；点「放大」编辑时几种 Enter 都换行，点发送钮才发；手机上回车换行、点发送钮发。原来是 Enter 换行、⌘/Ctrl+Enter 发送。
 - 网页工作台的操作（说话、答题、停止、不管了、接着做、开新话题、整理、换配置、记忆）发出去以后统一由一个跟踪器等结果：回执到了才算有结果，不再各处用各自的等法；回执后马上取这个话题的轮次和快照，约 3 秒内每半秒只取这个话题的轮次，直到看到你的话成了正式的一轮、问题收起、话题停下。输入框发的话写进网页库就画成正式的气泡并写“✓ 已发出”，Covey 回执后写它的回执原话（“已开下一轮”“已作为补充交给在做的任务 #…”），不再是笼统的“已执行”；看板上的快速答题点了就锁并写“已发出，等 Covey 处理…”，停止点了写“正在停…”并禁用，问题卡等请求真发出去才写“已发出”。
 - 网页服务端和浏览器少拉、勤拉（数据约定 v38，都是可选参数，旧的不带照旧）：`GET /sync/inbox?wait=<秒>` 没有新操作时挂着等、有了马上返回，响应带 `waited: true`；`GET /api/snapshot?since=<cursor>` 只返回变过的话题加现在所有话题的 key（`partial`、`keys`、`cursor`），浏览器每秒取一次、每分钟回一份整份；`GET /api/outbox/:opId?wait=<秒>` 挂着等回执。
@@ -76,6 +77,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cha
 
 ### Changed (English)
 
+- 记忆自己长 (`COVEY_MEMORY_LEARN`) is on for every deployment: on unset, off at `0`, `off`, `false` or `no`, and still only with `COVEY_MEMORY` on. Only the owner's own turn whose words hold a trigger word (以后, 别再, 记住 and the like) is read by the assist model once it ends; a rule for everywhere, or one about deploying, deleting and the like, still goes to 待审核 first. A service whose manifest never set it has it on after the upgrade.
 - The web workbench's composer takes Enter the way Feishu chat does: Enter sends, Shift+Enter (or Ctrl / ⌘ + Enter) starts a new line; while expanded every Enter starts a new line and only the send button sends; on phones Return starts a new line. It used to be Enter for a new line and ⌘/Ctrl+Enter to send.
 - Web page operations (say, answer, stop, 不管了, 接着做, launch, tidy, switch config, memory) are now followed by one tracker that waits for the receipt, then refetches the topic's turns and the snapshot, and for about 3 seconds refetches only the topic's turns every half second until the new state shows (your line became a real round, the question closed, the topic stopped); the scattered waits are gone. A line sent from the composer turns into a regular bubble with “✓ 已发出” as soon as it is written to the web database and shows Covey's own receipt (“已开下一轮”, “已作为补充交给在做的任务 #…”) instead of a generic “已执行”; a quick answer on the board locks at once and says “已发出，等 Covey 处理…”, 停止 says “正在停…” and stays disabled, and a question card says “已发出” only after its request really went out.
 - Web server and browser pull less and more often (data contract v38, all optional parameters, old callers see no change): `GET /sync/inbox?wait=<seconds>` holds until there is a new operation and answers `waited: true`; `GET /api/snapshot?since=<cursor>` returns only the topics that changed plus the keys of all topics (`partial`, `keys`, `cursor`), fetched every second by the browser with a full copy every minute; `GET /api/outbox/:opId?wait=<seconds>` holds until the receipt.

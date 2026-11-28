@@ -209,7 +209,7 @@
 
 ### 记忆自己长
 
-`COVEY_MEMORY_LEARN=1` 且 `COVEY_MEMORY` 开着（`core/memory.py` 的 `learning`）；关着时下面这些都没有，规则、记录和卡片与没有它时逐字相同。
+`COVEY_MEMORY_LEARN` 没设成 `0`（默认开）且 `COVEY_MEMORY` 开着（`core/memory.py` 的 `learning`）；关着时下面这些都没有，规则、记录和卡片与没有它时逐字相同。
 
 - **每轮之后**（`app/memory_learn.py` 的 `after_turn`，在 `app/detached.py` 的 `after_job` 里、`memory_collect.collect` 之后跑，规则 8）：
   - 先记用到的：检查点 `memory_used` 里的编号和回复（`final_text`）里提到的编号，对上这一轮的 `memory_ids` 才算，写进 `core/memory_usage.py`（`<state>/memory-usage.json`：ref → 次数、最后一次，最多 2000 个），任务记录记一次 `memory_used`（ref 列表），之后不再记。

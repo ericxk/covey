@@ -358,7 +358,7 @@ MEMORY_LAYER_RULES = (  # With a project's lines in the block: what its three pa
     "或做要主人点头的事的依据。",
 )
 NO_ORIGIN_RULE = "标“你说的（无出处）”的是没留下原问题或原话出处的旧记录，条件可能不全，拿不准就照常问主人。"
-# 记忆自己长 (COVEY_MEMORY_LEARN=1, app/memory_turn.py learn): where to look up what the block left out, and which lines were used.
+# 记忆自己长 (COVEY_MEMORY_LEARN, on unset; app/memory_turn.py learn): where to look up what the block left out, and which lines were used.
 MEMORY_SEARCH_RULE = ("查记忆：放不下的、整理时收起的、以前问过主人的问题和他的回答，都能用这个命令查（只读）：{command}。"
                       "要问主人之前，先查一下他答过没有。")
 MEMORY_USED_RULE = ("这一轮照着哪几条记忆做了（或因为它没有再问主人），在检查点里写 memory_used：[\"M12\"]，只写编号；"

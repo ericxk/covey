@@ -1,4 +1,4 @@
-"""记忆自己长, one turn at a time (COVEY_MEMORY_LEARN=1 with COVEY_MEMORY=1, docs/butler.md 记忆自己长): once a turn of the
+"""记忆自己长, one turn at a time (COVEY_MEMORY_LEARN on unset, with COVEY_MEMORY on, docs/butler.md 记忆自己长): once a turn of the
 owner's has ended, the Bridge reads his own words of it and writes down what he wants done from now on, instead of waiting for a
 model to put ``memory`` into its checkpoint (app/memory_collect.py, which almost never happened) or for a trigger word.
 
@@ -188,7 +188,7 @@ def asked_card(state_dir, record) -> list:
 
 
 def after_turn(gateway, app, job, ctx) -> None:
-    """What the memory learns from ``job``'s ended turn (the module's docstring). Nothing without COVEY_MEMORY_LEARN=1."""
+    """What the memory learns from ``job``'s ended turn (the module's docstring). Nothing at COVEY_MEMORY_LEARN=0 (core/memory.py learning)."""
     if not memory.learning():
         return
     runtime = gateway.runtime

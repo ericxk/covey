@@ -378,7 +378,7 @@ def after_job(gateway, app, job, ctx) -> None:
         return
     knowledge_collect.collect(gateway.runtime, job, ctx)  # The owner's 记一下 in a topic's turn (off without COVEY_KNOWLEDGE).
     memory_collect.collect(gateway.runtime, getattr(app, "messenger", None), job, ctx)  # The owner's 以后 / 别再 … (off without COVEY_MEMORY).
-    memory_learn.after_turn(gateway, app, job, ctx)  # What the memory learns of the turn (off without COVEY_MEMORY_LEARN).
+    memory_learn.after_turn(gateway, app, job, ctx)  # What the memory learns of the turn (off at COVEY_MEMORY_LEARN=0).
     owner_send.collect(gateway, job, ctx)  # The turn's send_as_owner drafts: 代发草稿 cards (off without a 代答 sender).
     butler_asks.collect(gateway, job, ctx)  # The turn's ask_butler: handed to the butler (off without COVEY_PROJECTS=1).
     collab_after(gateway, job, ctx)  # 协作: an ask settled, a continuation's end, a turn's collab_ask (COVEY_COLLAB=1).
