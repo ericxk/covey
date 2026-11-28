@@ -2,6 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as C from '../client/src/cv/composerText.ts';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** 光标用 | 标出 */
 const at = (s) => ({ value: s.replace('|', ''), pos: s.indexOf('|') });
@@ -85,4 +88,12 @@ test('提示语和文件大小', () => {
   assert.equal(C.fmtSize(500), '500 B');
   assert.equal(C.fmtSize(12 * 1024), '12 KB');
   assert.equal(C.fmtSize(3.4 * 1024 * 1024), '3.4 MB');
+});
+
+test('换占位字真能重画（T952）：TipTap 的 extension.options 每次读是新拷贝，改它不进插件；占位是从 ref 读的函数', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'src', 'cv', 'RichText.tsx'), 'utf8');
+  assert.match(src, /Placeholder\.configure\(\{ placeholder: \(\) => hint\.current \}\)/u);
+  assert.match(src, /hint\.current = placeholder;/u);
+  assert.doesNotMatch(src, /x\.options\.placeholder = /u);
+  assert.match(src, /editor\.view\.dispatch\(editor\.state\.tr\)/u);
 });

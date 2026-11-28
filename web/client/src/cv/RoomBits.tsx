@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Check, ChevronDown, ChevronRight, CornerUpLeft, Handshake, Quote as QuoteIcon, UserPlus, X } from 'lucide-react';
-import type { SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
+import type { QuestionView, SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
 import { TOPIC } from '@shared/collab';
 import { Md } from './Md';
 import { hasPicture, RoleAvatar as Picture, TopicBadge } from './RoleAvatar';
 import { AnswerFoot } from './AnswerFoot';
 import { ArtifactFold } from './ArtifactFold';
 import { hhmm } from './lib';
-import { firstParagraph } from './topicText';
+import { askBand, firstParagraph } from './topicText';
 import type { RoomTurn, RouteView } from './room';
 import { knownKey, mentionInfo, type Candidate, type MentionInfo, type Plan, type QuoteRef } from './collab';
 import './room.css';
@@ -204,17 +204,44 @@ export const RelayTurn: React.FC<{ t: RoomTurn; topic: SnapshotTopic | undefined
   );
 };
 
-/** 一道等你回答的题：哪个话题在问、问的第一句，去答 */
-export const QuestionRow: React.FC<{ t: RoomTurn; topic: SnapshotTopic | undefined; butler: boolean }> = ({ t, topic, butler }) => (
+/** 一道等你回答的题：哪个话题在问、问的第一句，去答。onAnswer：题就在这页底下（专项页负责人自己的题，T952），去答是滚过去，不换页 */
+export const QuestionRow: React.FC<{ t: RoomTurn; topic: SnapshotTopic | undefined; butler: boolean; onAnswer?: () => void }> = ({ t, topic, butler, onAnswer }) => (
   <div className="rm-ask" data-seq={t.seq} data-room-key={t.key}>
     {butler ? <RoleAvatar who={{ kind: 'butler' }} /> : <TopicBadge number={topic?.number} />}
     {butler ? <b>管家</b> : topic?.number ? null : <b>话题</b>}
     <span className="rm-wait">等你</span>
     <span className="t2">问你：{t.body}</span>
     <span className="t3 rm-tm">{hhmm(t.room_at)}</span>
-    {butler ? <span className="t3">去飞书答</span> : <Link className="rm-act" to={`/topics/${encodeURIComponent(t.topic_key)}`}>去答 ›</Link>}
+    {butler ? (
+      <span className="t3">去飞书答</span>
+    ) : onAnswer ? (
+      <button type="button" className="rm-act" onClick={onAnswer}>去答 ›</button>
+    ) : (
+      <Link className="rm-act" to={`/topics/${encodeURIComponent(t.topic_key)}`}>去答 ›</Link>
+    )}
   </div>
 );
+
+/** 滚到底下的问题面板（Conversation 的 #a-question） */
+export const toQuestion = (): void => document.getElementById('a-question')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+
+/** 专项页负责人对话的顶上（T952）：负责人在等你答的题，和话题页总览的“等你 · 要你定”同一条带子；去回答滚到底下的问题面板 */
+export const AskBand: React.FC<{ q: QuestionView }> = ({ q }) => {
+  const { label, head } = askBand(q);
+  return (
+    <div className="a-ovwrap rm-askband">
+      <section className="a-ov ov2" aria-label="等你 · 要你定">
+        <div className="ov2-band">
+          <div className="ov2-l1">{label}</div>
+          <h2 className="ov2-head">{head}</h2>
+          <div className="ov2-act">
+            <button type="button" className="btn pri sm" onClick={toQuestion}>去回答</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+};
 
 /** 专项建好、做完或降级：负责人加入、离开 */
 export const ProjectEvent: React.FC<{ t: RoomTurn }> = ({ t }) => (

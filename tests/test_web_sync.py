@@ -2182,6 +2182,21 @@ class LeadTest(WebCase):
         self.assertEqual(self.app.answers, [(LEAD, TOKEN, {"option_0": "0", "supplement": ""}, "web-op-la1")])
         self.assertEqual(self.app.lesser, [("aside", TOKEN, "ou_owner", "web-op-la2")])
 
+    def test_say_to_a_lead_waiting_on_its_question_is_its_next_turn_and_the_question_waits_on(self):
+        """T952: the say was refused (负责人正在等你答题，请在题目里回答) while the project page's box said to write there. As the
+        owner's Feishu message to the lead that quotes no question card (app/interaction.py, top_level), it is the lead's next turn
+        and its question, one item or several, stays open for its panel; a topic's words still answer its one question."""
+        self.env.topics.apps = {"claude": self.app}
+        for n, items in enumerate((1, 3), 1):
+            with self.subTest(items=items):
+                self.question(topic_id=LEAD, origin="project_ask",
+                              questions=[{"id": f"q{i}", "question": f"第 {i} 题？", "options": [{"label": "A"}]} for i in range(items)])
+                self.web.op("say", n, f"op-lq{n}", LEAD, text="这个能大白话说一下么？")
+                self.sync.inbox_once()
+                self.assertEqual((self.web.acks[-1]["op_id"], self.web.acks[-1]["state"]), (f"op-lq{n}", "done"))
+                self.assertEqual((self.app.queued[-1], self.app.answers), ((LEAD, f"web-op-lq{n}", "这个能大白话说一下么？"), []))
+                self.assertEqual(read_object(self.state / "questions" / f"{TOKEN}.json")["status"], "pending")
+
     def test_the_leads_question_of_another_chat_or_with_projects_off_is_not_answered(self):
         self.env.topics.apps = {"claude": self.app}
         self.question(topic_id=LEAD, origin="project_ask")

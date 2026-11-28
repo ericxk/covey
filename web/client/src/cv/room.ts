@@ -211,6 +211,18 @@ export function onlyLead(rows: RoomTurn[], lead: string, project: string, snap: 
   }).map((t: RoomTurn, i: number) => ({ ...t, seq: i + 1 }));
 }
 
+/**
+ * 专项页的负责人对话（T952）：负责人自己在等你答的题，和话题页上同一道题一样画——顶上“等你 · 要你定”、底下问题面板、输入框就是回答。
+ * 题和它的发件行（交过回答的锁住）都从负责人自己的对话（`own`，/api/topics/<负责人>）读，发件行再并上大厅的；
+ * 大厅不是哪一个话题的，没有这道题（大厅里的题是一行“等你”，点了去那个话题答）。以前专项页也一律没有，题只在从看板点进负责人时才看得到。
+ */
+export function roomQuestion<Q>(lead: boolean, own: { question?: Q | null; outbox?: OutboxView[] } | undefined, roomOutbox: OutboxView[]): { question: Q | null; ops: OutboxView[] } {
+  if (!lead) return { question: null, ops: roomOutbox };
+  const mine: OutboxView[] = own?.outbox ?? [];
+  const seen = new Set<string>(mine.map((o: OutboxView) => o.op_id));
+  return { question: own?.question ?? null, ops: [...mine, ...roomOutbox.filter((o: OutboxView) => !seen.has(o.op_id))] };
+}
+
 function synth(key: string, topic: string, at: number, kind: 'project' | 'question' | 'sent', body: string): RoomTurn {
   return {
     key, seq: 0, role: kind === 'sent' ? 'owner' : 'event', status: 'done', body, job_id: null,

@@ -10,7 +10,7 @@ import { fmtDur, hhmm, isFinished, isRunning, isWaiting, shortWhen, toneOf, tone
 import { TopicMemory } from './MemoryPanel';
 import { MemoryList, useV43TopicEntries } from './MemoryList';
 import {
-  FALLBACK_FAILURE, ago, etaText, firstParagraph, firstSentence, groupRounds, isHelperTurn, lastAgent, lastDoneAgent, listTone, progressNote, splitTitle, stopPressing, type Round,
+  FALLBACK_FAILURE, ago, askBand, etaText, firstParagraph, firstSentence, groupRounds, isHelperTurn, lastAgent, lastDoneAgent, listTone, progressNote, splitTitle, stopPressing, type Round,
 } from './topicText';
 
 /** 一个话题此刻的进度：v4 的 progress 优先，没有就从 v3 的 plan / steps 和轮次里凑 */
@@ -205,8 +205,9 @@ export const TopicOverview: React.FC<{ topicKey: string; mobile?: boolean; compa
   let head: string;
   let rest: string = '';
   if (question) {
-    label = <>等你 · 要你定{question.questions.length > 1 ? `（共 ${question.questions.length} 题）` : ''}</>;
-    head = question.questions[0]?.question ?? '在等你的回答';
+    const band = askBand(question);
+    label = <>{band.label}</>;
+    head = band.head;
   } else if (v.failed && v.last) {
     const [h, r] = splitTitle((v.last.failure ?? FALLBACK_FAILURE).title);
     label = <>{pressing ? '停住了' : '已停止'} · 第 {lastRound?.n ?? t.round} 轮</>;

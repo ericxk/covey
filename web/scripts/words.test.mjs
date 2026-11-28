@@ -145,3 +145,10 @@ test('退役词检查自己认得出来：整句的“失败”、“失败：�
   // “完成标准”是 Covey 的名词（话题的完成标准），不是状态词
   assert.ok(!bad('完成标准没满足', '完成'));
 });
+
+test('“等你 · 要你定”带子的两行：一道题不写题数，几道写“共 N 题”，题面空时有兜底（话题页总览和专项页负责人对话共用，T952）', () => {
+  assert.deepEqual(T.askBand({ questions: [{ question: '合进 master 吗？' }] }), { label: '等你 · 要你定', head: '合进 master 吗？' });
+  assert.deepEqual(T.askBand({ questions: [{ question: '合进 master 吗？' }, { question: '补文档吗？' }, { question: '另开话题吗？' }] }),
+    { label: '等你 · 要你定（共 3 题）', head: '合进 master 吗？' });
+  assert.equal(T.askBand({ questions: [{ question: '' }] }).head, '在等你的回答');
+});

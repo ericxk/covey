@@ -240,3 +240,9 @@ export function splitTitle(title: string): [string, string] {
 export function stopPressing(t: Pick<SnapshotTopic, 'board'>): boolean {
   return typeof t.board === 'string' ? t.board === 'stopped' : true;
 }
+
+/** “等你 · 要你定”那条带子的两行：话题页的总览和专项页负责人对话的顶上（T952）是同一条，一处写 */
+export function askBand(q: { questions: { question?: string }[] }): { label: string; head: string } {
+  const n: number = q.questions.length;
+  return { label: `等你 · 要你定${n > 1 ? `（共 ${n} 题）` : ''}`, head: q.questions[0]?.question || '在等你的回答' };
+}

@@ -1,6 +1,9 @@
 // 大厅（T624）的纯函数：几路轮次排成一条线、每句话交给了谁、@ 候选、引用怎么拼进正文、按负责人筛。跑：npm run test:room
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as R from '../client/src/cv/room.ts';
 
 const B = 'butler';
@@ -90,4 +93,25 @@ test('交给谁：@ 优先，其次引用的那条，都没有是管家；引用
   assert.equal(R.withQuote(' 再压一档 ', quote), '> 引用 T12 密度：\n> 第一行\n> \n> 第二行\n\n再压一档');
   assert.equal(R.withQuote('只说话', null), '只说话');
   assert.ok(R.quoteText('字'.repeat(400)).endsWith('…'));
+});
+
+test('专项页的负责人对话（T952）：负责人自己在等你的题照话题页画，发件行并上负责人自己的；大厅没有这道题', () => {
+  const q = { token: 'ql', topic_key: L, turn_key: null, questions: [{ id: 'a', question: '合进 master 吗？', options: [] }], state: 'open', answer: null };
+  const mine = [{ op_id: 'a1', kind: 'answer', state: 'done' }];
+  const hall = [{ op_id: 's1', kind: 'say', state: 'failed' }, { op_id: 'a1', kind: 'answer', state: 'new' }];
+  const lead = R.roomQuestion(true, { question: q, outbox: mine }, hall);
+  assert.equal(lead.question, q);
+  assert.deepEqual(lead.ops.map((o) => [o.op_id, o.state]), [['a1', 'done'], ['s1', 'failed']]);
+  assert.deepEqual(R.roomQuestion(false, { question: q, outbox: mine }, hall), { question: null, ops: hall });
+  // 负责人的对话还没取到（占位）时没有题，不报错
+  assert.deepEqual(R.roomQuestion(true, undefined, hall), { question: null, ops: hall });
+});
+
+test('专项页的负责人对话接上了负责人自己的题：顶上“等你 · 要你定”、底下问题面板；不再一律 question: null（T952）', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'src', 'cv', 'Conversation.tsx'), 'utf8');
+  assert.doesNotMatch(src, /question: null, outbox: rq\.data\.outbox/u);
+  assert.match(src, /roomQuestion\(!!room\.lead, tq\.data/u);
+  assert.match(src, /room\?\.lead && asking \? <AskBand q=\{asking\} \/>/u);
+  // 负责人在等你时输入框不写“写你的回答”：不引用问题卡对它说的话是它新的一轮，题照旧等着（和飞书一样）
+  assert.match(src, /waiting && !butler && topic\?\.kind !== 'lead' \? '写你的回答'/u);
 });

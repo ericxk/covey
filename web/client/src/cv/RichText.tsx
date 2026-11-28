@@ -92,6 +92,9 @@ export const RichText = forwardRef<
   const cb = useRef({ onChange, onSubmit, sendOnEnter, onFiles, onKey, onTrigger });
   cb.current = { onChange, onSubmit, sendOnEnter, onFiles, onKey, onTrigger };
   const edRef = useRef<Editor | null>(null);
+  // 占位字也走 ref：TipTap 的 extension.options 每次读都是一份新拷贝，改它不会进插件（T952：题后到时输入框还写着旧的占位）
+  const hint = useRef<string>(placeholder);
+  hint.current = placeholder;
   const focused = useRef<boolean>(false);
   const trig = (ed: Editor | null): void => {
     if (ed) cb.current.onTrigger?.(triggerOf(ed));
@@ -102,7 +105,7 @@ export const RichText = forwardRef<
       TaskList,
       TaskItem.configure({ nested: true }),
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({ placeholder: () => hint.current }),
       Mention,
     ],
     content: value,
@@ -178,11 +181,6 @@ export const RichText = forwardRef<
   }, [editor, value]);
   useEffect(() => {
     if (!editor) return;
-    editor.extensionManager.extensions
-      .filter((x) => x.name === 'placeholder')
-      .forEach((x) => {
-        x.options.placeholder = placeholder;
-      });
     editor.view.dom.setAttribute('aria-label', placeholder);
     editor.view.dispatch(editor.state.tr); // 让占位字重画
   }, [editor, placeholder]);

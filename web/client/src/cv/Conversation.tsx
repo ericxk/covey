@@ -29,8 +29,8 @@ import { SentImages, withoutImageLine } from './TurnImages';
 import { localImage } from './attachments';
 import * as F from './scrollFollow';
 import './images.css';
-import { buildRoom, members as roomMembers, onlyLead, quoteText, speaker, type Member, type RoomTurn } from './room';
-import { ProjectEvent, QuestionRow, RelayTurn, RoleAvatar, RouteChip, RouteTop, RouteWho, SelectionQuote } from './RoomBits';
+import { buildRoom, members as roomMembers, onlyLead, quoteText, roomQuestion, speaker, type Member, type RoomTurn } from './room';
+import { AskBand, ProjectEvent, QuestionRow, RelayTurn, RoleAvatar, RouteChip, RouteTop, RouteWho, SelectionQuote, toQuestion } from './RoomBits';
 import { dropMention, participants, plainMentions, type MentionAttrs } from './mention';
 import { clearMentionEnv, onMentionRequest, setMentionEnv } from './MentionNode';
 import type { Trigger } from './RichText';
@@ -163,7 +163,9 @@ export const Conversation: React.FC<{
   const collabs: CollabView[] = (room ? rq.data?.collabs : tq.data?.collabs) ?? NO_COLLABS;
   const collabMap = useMemo(() => new Map<string, CollabView>(collabs.map((c: CollabView) => [c.key, c])), [collabs]);
   const butlerKey: string | null = rq.data?.butler_key ?? snap?.butler_key ?? null;
-  const data = room ? (rq.data ? { ...(tq.data ?? {}), turns: roomTurns as TurnView[], question: null, outbox: rq.data.outbox } : undefined) : tq.data;
+  // 专项页的负责人对话：负责人自己在等你的题照话题页画（T952，以前一律没有，只有从看板点进负责人才看得到）；大厅没有
+  const roomAsk = room ? roomQuestion(!!room.lead, tq.data, rq.data?.outbox ?? []) : null;
+  const data = room ? (rq.data ? { ...(tq.data ?? {}), turns: roomTurns as TurnView[], question: roomAsk?.question ?? null, outbox: rq.data.outbox } : undefined) : tq.data;
   const isPlaceholderData: boolean = room ? !rq.data : tq.isPlaceholderData;
   const isError: boolean = room ? rq.isError : tq.isError;
   const error: Error | null = room ? rq.error : tq.error;
@@ -193,7 +195,7 @@ export const Conversation: React.FC<{
   const text: string = draft.key === topicKey ? draft.text : getDraft(topicKey);
   const setText = (v: string): void => setDraftState({ key: topicKey, text: v });
   const input = useRef<ComposerHandle>(null);
-  const form = useQuestionForm(topicKey, butler ? null : question, outbox);
+  const form = useQuestionForm(topicKey, butler ? null : question, roomAsk ? roomAsk.ops : outbox);
 
   useEffect(() => {
     if (butler || !topic?.unseen || topic.kind !== 'topic') return;
@@ -690,6 +692,7 @@ export const Conversation: React.FC<{
   return (
     <div className="conv">
       {head}
+      {room?.lead && asking ? <AskBand q={asking} /> : null}
       <div className="feedwrap">
       <div
         className="feed"
@@ -720,7 +723,11 @@ export const Conversation: React.FC<{
               );
             }
             if (room && rt?.synth === 'project') return <ProjectEvent key={rt.key} t={rt} />;
-            if (room && rt?.synth === 'question') return <QuestionRow key={rt.key} t={rt} topic={turnTopic(rt.topic_key)} butler={rt.topic_key === butlerKey} />;
+            if (room && rt?.synth === 'question') {
+              // 负责人自己的题就在这页底下（T952）：去答滚过去
+              const here: boolean = !!asking && rt.topic_key === room.lead?.key;
+              return <QuestionRow key={rt.key} t={rt} topic={turnTopic(rt.topic_key)} butler={rt.topic_key === butlerKey} onAnswer={here ? toQuestion : undefined} />;
+            }
             if (g.agent && g.agent.role === 'event') {
               return (
                 <div className="mem" key={g.agent.key} data-seq={g.agent.seq} style={{ justifyContent: 'center', margin: '8px 0' }}>
@@ -841,6 +848,7 @@ export const Conversation: React.FC<{
       ) : null}
       </div>
       {running && topic && !butler ? <LivePill topic={topic} /> : null}
+      {/* 话题在等你、题还没画出来时，话题里的一句话就是那道题的回答；负责人不是（和飞书一样，不引用问题卡的话是它新的一轮，题照旧等着；T952） */}
       <Composer
         key={topicKey}
         topicKey={topicKey}
@@ -848,7 +856,7 @@ export const Conversation: React.FC<{
         value={text}
         onValue={onText}
         inputRef={input}
-        placeholder={answering ? words.placeholder : waiting && !butler ? '写你的回答' : placeholder}
+        placeholder={answering ? words.placeholder : waiting && !butler && topic?.kind !== 'lead' ? '写你的回答' : placeholder}
         hint={answering ? words.hint : undefined}
         onSubmit={answering ? answerFromComposer : undefined}
         canSubmit={answering ? form.complete(text) : undefined}

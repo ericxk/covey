@@ -214,9 +214,10 @@ class Ops:
         lead = projects.lead_record(state, topic, chat)
         app = self.lead_app(state, lead) if lead else self.topic(state, chat, topic)[0]
         text = self.attach(state, topic, text, files)
-        if self.asking(state, chat, topic):
-            if lead:
-                raise ValueError("负责人正在等你答题，请在题目里回答")
+        # A topic's words while its question waits answer it (``answer_with_words``). A lead's are a turn of its own and its question
+        # waits on, as the owner's Feishu message to it that does not quote the question's card is (app/interaction.py: the butler's
+        # family answers at the top level); they were refused, while the page's box said to write there (T952).
+        if not lead and self.asking(state, chat, topic):
             return self.answer_with_words(state, chat, topic, row, text)
         if lead and lead.get("state") == projects.DONE:  # His words open a finished project again (a steer reaches no owner_turn).
             projects.update(state, lead["id"], project_loop.owner_spoke)
