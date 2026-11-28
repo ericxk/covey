@@ -1,6 +1,6 @@
 """scripts/land.py (批量合入) on throwaway repositories: a bare origin, a clone and its worktrees as the topics'.
-The clone's scripts/test_map.py is a stand-in: a file breaks_<x> at the root fails test_x, a file STALE makes a full
-run refuse until `build` rewrote the map."""
+The clone's scripts/test_map.py is a stand-in: a file breaks_<x> at the root fails test_x, flaky_<x> fails it in a
+full run only, a file STALE makes a full run refuse until `build` rewrote the map."""
 
 import fcntl
 import importlib.util
@@ -22,7 +22,7 @@ from pathlib import Path
 args = sys.argv[1:]
 root = Path(".")
 rebuilt = "rebuilt" in (root / "tests" / "test_map.json").read_text()
-if args[0] == "run" and "--full" in args and (root / "STALE").exists() and not rebuilt:
+if args[0] == "run" and "--full" in args and "--force" not in args and (root / "STALE").exists() and not rebuilt:
     print("refused: a full run on a stale map (test ids)", file=sys.stderr)
     sys.exit(2)
 if args[0] == "build":
@@ -30,6 +30,8 @@ if args[0] == "build":
 paths = [arg for arg in args[1:] if arg.startswith("tests/")]
 failed = [f"test_{path.name[len('breaks_'):]}" for path in sorted(root.glob("breaks_*"))]
 failed = [module for module in failed if not paths or f"tests/{module}.py" in paths]
+if not paths:  # flaky_<x>: test_x fails in a full run only.
+    failed += [f"test_{path.name[len('flaky_'):]}" for path in sorted(root.glob("flaky_*"))]
 for module in failed:
     print(f"FAIL: test_y ({module}.C.test_y)", file=sys.stderr)
 sys.exit(1 if failed else 0)
@@ -47,7 +49,7 @@ class LandTest(unittest.TestCase):
         origin, self.clone = self.root / "origin.git", self.root / "clone"
         run("init", "-q", "--bare", "-b", "main", str(origin), cwd=self.root)
         run("init", "-q", "-b", "main", str(self.clone), cwd=self.root)
-        for key, value in (("user.name", "t"), ("user.email", "t@example.invalid"), ("commit.gpgsign", "false")):
+        for key, value in (("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")):
             run("config", key, value, cwd=self.clone)
         (self.clone / "scripts").mkdir()
         (self.clone / "tests").mkdir()
@@ -125,6 +127,12 @@ class LandTest(unittest.TestCase):
         merged = self.result("a")
         self.assertEqual((merged["state"], merged["mains_own"]), ("merged", ["test_bar.C.test_y"]))
         self.assertEqual(self.main_log()[0], "a's change")
+
+    def test_a_failure_that_does_not_come_back_on_the_branch_is_chance_and_the_batch_lands(self):
+        self.hand_in(self.topic("a", flaky_baz=""))
+        land.drive(cwd=self.clone)
+        merged = self.result("a")
+        self.assertEqual((merged["state"], merged["flaky"]), ("merged", ["test_baz.C.test_y"]))
 
     def test_map_only_commits_stay_out_and_a_stale_map_is_rebuilt_once_for_the_batch(self):
         self.commit(self.clone, "stale", STALE="")

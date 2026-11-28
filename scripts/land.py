@@ -21,7 +21,8 @@ What it does (docs/testing.md 批量合入):
 - Green: a fast-forward push of the batch to main. A push refused because main moved starts the batch again.
 - Red: what fails on main alone is main's own (named in the results, the batch lands). Otherwise the driver runs
   only the failed modules on longer prefixes of the batch (bisection), sends back the first branch that brings a
-  failure in, with the tests it breaks, and starts the batch again without it.
+  failure in, with the tests it breaks, and starts the batch again without it. A failure that does not come back
+  where the full run had it is a loaded machine's chance (named as ``flaky``; the batch lands).
 """
 from __future__ import annotations
 
@@ -184,21 +185,25 @@ def suite(batch: Path, why: str, paths=()) -> tuple[bool, set[str], str]:
     if paths:
         code, out = run("run", "--force", *paths)
     else:
-        code, out = run("run", "--full", "--force")
+        code, out = run("run", "--full")  # No --force: on a stale map it refuses, and build refreshes the map.
         if code == 2 and "stale map" in out:
-            code, out = run("build", "--force")
-    return code == 0, {test or module for test, module in FAILED.findall(out)}, "\n".join(out.splitlines()[-30:])
+            code, out = run("build")
+    # test_map.py prints the first run's failures, then, when it retried, the retried modules' own: the last say.
+    last = out.rfind("retrying the failed module")
+    final = out[last:] if last >= 0 else out
+    return code == 0, {test or module for test, module in FAILED.findall(final)}, "\n".join(out.splitlines()[-30:])
 
 
 def modules(tests) -> list[str]:
     return sorted({f"tests/{test.split('.')[0]}.py" for test in tests})
 
 
-def culprit(batch: Path, applied, base: str, failed: set[str], why: str) -> tuple[int, set[str]]:
+def culprit(batch: Path, applied, failed: set[str], why: str) -> tuple[int, set[str]] | None:
     """The first entry of ``applied`` whose commits bring in one of ``failed`` (failed modules only, run on longer
-    and longer prefixes, by halves) -> (its index, the tests that fail there)."""
+    and longer prefixes, by halves) -> (its index, the tests that fail there); None when they do not fail again
+    where the batch said they would (a loaded machine's chance failure: the batch lands)."""
     paths = modules(failed)
-    low, high, seen = 0, len(applied), failed  # The prefix up to low passes these tests, up to high does not.
+    low, high, seen = 0, len(applied), set()  # The prefix up to low passes these tests, up to high fails them.
     while high - low > 1:
         middle = (low + high) // 2
         git("checkout", "-q", "--detach", "-f", applied[middle - 1][1], cwd=batch)
@@ -207,7 +212,11 @@ def culprit(batch: Path, applied, base: str, failed: set[str], why: str) -> tupl
             high, seen = middle, found & failed
         else:
             low = middle
-    return high - 1, seen
+    if not seen:  # Not seen failing since the full run: once more where it would be.
+        git("checkout", "-q", "--detach", "-f", applied[high - 1][1], cwd=batch)
+        _, found, _ = suite(batch, f"{why}：确认第 {high}/{len(applied)} 个分支", paths)
+        seen = found & failed
+    return (high - 1, seen) if seen else None
 
 
 def drive(cwd=None, why_prefix="批量合入") -> int:
@@ -245,23 +254,28 @@ def drive(cwd=None, why_prefix="批量合入") -> int:
             write(state / "driver.json", {"pid": os.getpid(), "at": now(), "base": base, "batch": names,
                                           "phase": "full suite"})
             passed, failed, tail = suite(batch, why)
-            mains_own = set()
+            notes = {}
             if not passed:
+                if not failed:  # Red without a test id (a crash before any test): the batch cannot land.
+                    for entry, _ in applied:
+                        finish(state, entry, "kicked", cwd=cwd, reason="red", tail=tail,
+                               note="整批全量红了，但认不出是哪个测试；单独跑全量看看")
+                    continue
                 git("checkout", "-q", "--detach", "-f", base, cwd=batch)
-                _, on_main, _ = suite(batch, f"{why}：main 本身", modules(failed)) if failed else (True, set(), "")
-                mains_own, failed = failed & on_main, failed - on_main
-                if failed or not mains_own:
-                    if not failed:  # Red without a test id (an import error, a crash): the batch cannot land.
-                        for entry, _ in applied:
-                            finish(state, entry, "kicked", cwd=cwd, reason="red", tail=tail,
-                                   note="整批全量红了，但认不出是哪个测试；单独跑全量看看")
-                        continue
+                _, on_main, _ = suite(batch, f"{why}：main 本身", modules(failed))
+                if failed & on_main:
+                    notes["mains_own"] = sorted(failed & on_main)
+                failed -= on_main
+                if failed:
                     write(state / "driver.json", {"pid": os.getpid(), "at": now(), "base": base, "batch": names,
                                                   "phase": "bisecting"})
-                    index, breaks = culprit(batch, applied, base, failed, why)
-                    finish(state, applied[index][0], "kicked", cwd=cwd, reason="tests", failed=sorted(breaks),
-                           note="整批全量里这些测试失败，二分下来是这个分支带进来的；修好后重新交卷")
-                    continue
+                    found = culprit(batch, applied, failed, why)
+                    if found:
+                        index, breaks = found
+                        finish(state, applied[index][0], "kicked", cwd=cwd, reason="tests", failed=sorted(breaks),
+                               tail=tail, note="整批全量里这些测试失败，二分下来是这个分支带进来的；修好后重新交卷")
+                        continue
+                    notes["flaky"] = sorted(failed)  # Failed in the full run only, not again.
                 git("checkout", "-q", "--detach", "-f", applied[-1][1], cwd=batch)
             if git("status", "--porcelain", "--", MAP, cwd=batch).strip():
                 git("add", "--", MAP, cwd=batch)
@@ -272,8 +286,7 @@ def drive(cwd=None, why_prefix="批量合入") -> int:
                 print(f"push refused, main moved: the batch starts again ({pushed.stderr.strip()[-200:]})")
                 continue
             for entry, commit in applied:
-                finish(state, entry, "merged", cwd=cwd, commit=commit, batch=names,
-                       **({"mains_own": sorted(mains_own)} if mains_own else {}))
+                finish(state, entry, "merged", cwd=cwd, commit=commit, batch=names, **notes)
     finally:
         with contextlib.suppress(OSError):
             fcntl.flock(lock, fcntl.LOCK_UN)
