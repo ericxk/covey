@@ -124,6 +124,14 @@ def long_wait(waits: str = "") -> str:
 WORK_RULE = "- 权限允许时，用户要你做的，你可以在当前工作区里看文件、改代码、跑验证命令。"
 
 
+# What the owner reads is words (T969): a short code, a checklist's or an action's number, a message's or a question's id and
+# the design's own words for the memory stay in the tools' arguments and the checkpoint; core/memory_words.py rewrites what a
+# long session still lets through, at the outlets.
+CODES_RULE = ("- 记忆短码（如 R7K2M）、目标检查表和动作的编号、内部的消息和问题 id，以及“池子”“挑带”这类设计里的说法，"
+              "只写在工具参数、检查点和你自己的核对里；写给主人的回复、汇报和问题卡，直接用一句话说那条规矩或决定是什么"
+              "（如“按你说的改完就部署”），不写“按 R7K2M”这类短码，也不写内部机制的词。")
+
+
 def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...] = (), waits: str = "", *,
                 lead: bool = False) -> str:
     """The bridge's constraints of a turn; ``waits``: what a long wait is in its topic (``long_wait``); ``lead``: a
@@ -149,6 +157,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         "- 这个飞书话题是一个持续的会话：要追问就在这里问，在这里接着做。",
         "- 不要自动把过程、diff 或评审文档发到飞书，报告留在本地，用户要求发布时才发。",
         "- 除非直接有用，不写隐藏的推理、工具日志和实现细节。",
+        *((CODES_RULE,) if core_memory.enabled() else ()),  # COVEY_MEMORY=0: the rules as they were.
         "- " + LANGUAGE_RULE,
         # A backend's own constraints, one bullet each, after the shared ones.
         *("- " + note for note in notes),
@@ -426,7 +435,7 @@ RULES_HEAD = "记忆 · 规矩（照做；和主人这一轮的话冲突时听�
 RULES_SCOPES = {"global": "全局", "project": "本专项", "topic": "本话题"}
 RULES_GUIDE = (f"怎么用：标“负责人记的”照做，但不能单独作为{ASK_SHORT}这类要主人点头的事的依据。"
                "消息末尾的决定只管它问的那一题、那个范围，换了批次或范围照常问；资料是参考。"
-               "照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2M\"]；不写检查点时略过。")
+               "照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2M\"]，回复里不写。")
 RULES_SEARCH = "查记忆（只读）：{command}；看全文把 search \"<一句话>\" 换成 show <短码>。要问主人之前，先查一下他答过没有。"
 # The butler's and a lead's rules carry the 全局 资料 too (app/memory_turn.py pool_of): they pick from it for the topics they
 # hand work to (``memory`` of topic_start and the like, app/memory_picks.py), which see none of it but what is picked.
@@ -669,7 +678,8 @@ AREA_OPENING = (
     "要问时先说你倾向怎么做。",
     # The owner reads this chat only (Persona's 用户只看这个对话): a bare T number or "see the topic" says nothing to him.
     "- 写给主人的话，当他没看过别处：提到话题时写它在做的事，T 号放在后面的括号里，如“迁移账单（T432）”，不要只写 T 号；"
-    "话题里得出的数字和结论直接写进回复，不要只让他去话题里看。",
+    "话题里得出的数字和结论直接写进回复，不要只让他去话题里看。"
+    "提到一条记忆或决定，直接说它的内容，不写短码。",
     # Nothing wakes the butler after its turn (ClaudePartner's "never say later unless something brings you back").
     "- 这一轮结束后你不会自己醒来。没有在跑的话题会把结果带回来时，不要说“稍后”“等下”；没当场答完的事，派进话题再结束。",
 )
@@ -704,7 +714,7 @@ SHARED_RULES = (
     "主人原话明说“所有”“以后都”“处处”的才写 global，没明说的写 global 会进待审核，主人采纳后才管全局。"
     "写全局时：跨一切场景每一轮都照做的记规矩；只在某类事、某个对象上照做的（某类事怎么做、对谁怎样）记资料（kind note），"
     "它相关时才带，你和负责人每轮都看得到，派活时挑给话题。"
-    "回复里说一句“已记下：……”和它的短码；只对这件事、这一轮的要求不记。"
+    "回复里用一句话说“已记下：……”（记的是什么，不写短码）；只对这件事、这一轮的要求不记。"
     "主人说“忘掉/删掉那条”时，用 memory_search 找到它的短码，再用 memory_revise（action retire）收起；"
     "改、替代或收起主人定的规矩都要带 quote（他这一轮说这件事的原话），他没说要改就先问他。"
     "记下的规矩每一轮都附在 Bridge 的规则里，你和各个话题都会看到；全局的资料只有你和负责人每轮看到。",
@@ -770,7 +780,7 @@ def knowledge_rules() -> tuple[str, ...]:
             "以后每次都要照做的记规矩（kind rule）；quote 照抄主人这一轮原话里的一段；只关某个专项、话题的记到那里，"
             "其余的资料 scope 写 global。"
             "主人答过的题 Bridge 已记成决定，不用再记。"
-            "主人说“把 T483 的结论记一下”，先用 topic_read 读那一轮再起草。记完在回复里列出短码和正文。",
+            "主人说“把 T483 的结论记一下”，先用 topic_read 读那一轮再起草。记完在回复里用一句话说记下了什么，不列短码。",
             "- 主人说“改成……”用 memory_revise（action update 或 supersede，给原因），说“删了”“作废”用 memory_revise（action retire）；"
             "先用 memory_search 找到短码。只记主人说的，不要自己总结着记。"]
     if knowledge.history_cmd():

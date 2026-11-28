@@ -136,8 +136,10 @@ class MemoryTabTests(MemoryCase):
         self.memory_tab()
         text = text_of(self.card())
         self.assertEqual(self.urls(), [])
-        for words in ('规矩（2）', gone.code, '不要用表情', keep.code, '回答先给结论'):
+        for words in ('规矩（2）', '不要用表情', '回答先给结论'):
             self.assertIn(words, text)
+        for code in (gone.code, keep.code):  # T969: the owner reads titles; a code is the tools' and the page's.
+            self.assertNotIn(code, text)
         self.assertEqual(self.click(cards.DELETE, 'ev-d1', key=gone.ref, op='ask'), 'memory_tab')
         self.assertIn('确认收起', text_of(self.card()))
         self.assertEqual(memstore.find(self.state, gone.ref).status, 'active')  # Not yet.
@@ -148,7 +150,8 @@ class MemoryTabTests(MemoryCase):
         self.assertEqual(memstore.find(self.state, gone.ref).status, 'archived')
         self.assertEqual(memstore.find(self.state, keep.ref).status, 'active')
         text = text_of(self.card())
-        self.assertIn('已收起：' + gone.code, text)
+        self.assertIn('已收起：不要用表情', text)
+        self.assertNotIn(gone.code, text)
         self.assertIn('规矩（1）', text)
         # The same click delivered again acts once; an older card's button for it finds it gone.
         drawn = len(self.puts)
@@ -288,6 +291,7 @@ class MemoryTabTests(MemoryCase):
         self.assertIn('这个话题只读', text)
         self.assertIn('话题 T12', text)
         self.assertIn('只带标题', text)
+        self.assertNotIn('R2N6W', text)
 
 
 

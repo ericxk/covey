@@ -15,7 +15,7 @@ from covey.cards.facts import tile_count
 from covey.cards.project_card import (CANCELLED, CORRECTED, DONE, IDLE, RUNNING, STOPPED, STUCK, WAITING, Member,
                                       Project)
 from covey.app.card_publish import clock, words
-from covey.core import board_read, look, memory, memory_usage, memstore, project_library, project_memory, projects
+from covey.core import board_read, look, memory, memory_usage, memory_words, memstore, project_library, project_memory, projects
 from covey.core import progress as turn_progress
 from covey.core.jobs import topic_job_records
 from covey.core.metrics import run_seconds, timings_of
@@ -245,6 +245,9 @@ def facts(state_dir, record, now, titles=None, links=None, avatar="") -> Project
     else:
         status = WAITING if waiting or lead_state(state_dir, record, now).startswith("等你") else RUNNING
     need, need_from = "", ""
+
+    def owned(words):  # The card's words as the owner reads them: titles for memory short codes (core/memory_words.py).
+        return memory_words.for_chat(words, state_dir, record.get("chat_id"), url="")
     if status == WAITING:  # What waits and who asks it: a member's T number, else the lead.
         need = waiting.body.removeprefix(dc.ASK_WORDS) if waiting else lead_state(state_dir, record, now).removeprefix("等你 · ")
         need_from = (waiting.label or "话题") if waiting else "负责人"
@@ -269,10 +272,10 @@ def facts(state_dir, record, now, titles=None, links=None, avatar="") -> Project
     ask = record.get("ask") if isinstance(record.get("ask"), dict) else {}
     listed = memory_listing(state_dir, record)
     return Project(project_id=pid, lead_topic=lead, name=str(record.get("name") or ""), status=status,
-                   reason=projects.stop_reason(record), need=need, need_url=str(links.get("need") or ""), need_from=need_from,
+                   reason=projects.stop_reason(record), need=owned(need), need_url=str(links.get("need") or ""), need_from=need_from,
                    members=members, avatar=str(avatar or ""),
                    elapsed=elapsed, tokens=tokens,
-                   lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
+                   lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=owned(lead_note(record)),
                    triage=triage_lines(record), joins=join_lines(state_dir, record), memory=listed[0], memory_total=listed[1],
                    memory_counts=memory_counts(state_dir, pid), memory_url=memory_url(pid), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),

@@ -64,7 +64,7 @@ class SaveTest(Case):
         self.assertEqual((entry.kind, entry.said, entry.by, entry.title, entry.why), ("rule", "owner", "butler", "汇报顺序", "他嫌长"))
         self.assertEqual((entry.origin["message_id"], entry.origin["quote"], entry.origin["via"]),
                          ("om_butler1", "以后都汇报先给结论", "butler"))
-        self.assertEqual(answer["text"], f"记下了：{entry.code} 汇报顺序 · 管全局")
+        self.assertEqual(answer["text"], "记下了：汇报顺序 · 管全局")  # T969: the code is the data's, not the words'.
         self.assertEqual((answer["data"]["code"], answer["data"]["ref"]), (entry.code, entry.ref))
 
     def test_a_global_rule_his_words_do_not_say_is_for_everywhere_waits_in_the_review_queue(self):

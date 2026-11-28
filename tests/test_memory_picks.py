@@ -46,10 +46,13 @@ class CheckTest(Case):
         self.assertEqual([entry.code for entry in taken], [deploy.code, mine.code])
         self.assertEqual(len(refused), 5)
         words = "\n".join(refused)
-        for code, why in ((theirs.code, "只能带全局的或本专项的"), (rule.code, "是规矩"), (gone.code, "不在用了"),
-                          (topic.code, "只能带全局的或本专项的"), ("R9ZZZZ", "找不到")):
-            self.assertIn(f"{code}：", words)
-            self.assertIn(why, next(line for line in refused if line.startswith(code)))
+        # T969: a refused entry is named by its title (the code only when there is no entry).
+        for named, why in ((f"「{theirs.title}」", "只能带全局的或本专项的"), (f"「{rule.title}」", "是规矩"),
+                           (f"「{gone.title}」", "不在用了"), (f"「{topic.title}」", "只能带全局的或本专项的"), ("R9ZZZZ", "找不到")):
+            self.assertIn(f"{named}：", words)
+            self.assertIn(why, next(line for line in refused if line.startswith(named)))
+        for entry in (theirs, rule, gone, topic):
+            self.assertNotIn(entry.code, words)
 
     def test_the_butler_takes_global_only(self):
         mine = self.note("网关的预检脚本在 scripts/check.sh", scope="project", owner_key=PID)
@@ -105,7 +108,8 @@ class RememberTest(Case):
         a = self.note("甲")
         self.assertEqual(memory_picks.said([], []), "")
         words = memory_picks.said([a], ["R9ZZZZ：找不到这条记忆"])
-        self.assertIn(f"带上了记忆 {a.code}（按原文放在每一轮消息的末尾）", words)
+        self.assertIn(f"带上了记忆「{a.title}」（按原文放在每一轮消息的末尾）", words)
+        self.assertNotIn(a.code, words)
         self.assertIn("没带上的记忆：R9ZZZZ：找不到这条记忆；其余照常", words)
         self.assertIn("从它的下一轮起", memory_picks.said([a], [], steered=True))
 

@@ -1295,8 +1295,9 @@ class MemoryPickTest(ButlerTopicsCase):
         rule = memstore.add(self.ctx.state_dir, kind="rule", scope="global", text="回复主人用中文", said="owner", by="owner")
         answer = self.start("m1", harness="codex", memory=[deploy.code, rule.code, "R9ZZZZ"])
         self.assertTrue(answer["ok"], answer)
-        self.assertIn(f"带上了记忆 {deploy.code}", answer["text"])
-        self.assertIn(f"{rule.code}：是规矩，话题每一轮本来就带", answer["text"])
+        self.assertIn(f"带上了记忆「{deploy.title}」", answer["text"])
+        self.assertIn(f"「{rule.title}」：是规矩，话题每一轮本来就带", answer["text"])
+        self.assertNotIn(deploy.code, answer["text"])  # T969: titles, never a bare list of codes said back as it was.
         self.assertIn("R9ZZZZ：找不到这条记忆", answer["text"])
         topic = answer["data"]["topic_id"]
         self.assertEqual(self.carried(topic), [{"code": deploy.code, "ref": deploy.ref, "by": "butler"}])
@@ -1312,5 +1313,5 @@ class MemoryPickTest(ButlerTopicsCase):
         data = self.start("open", harness="codex", memory=[first.code])["data"]
         answer = self.call("topic_send", topic=data["label"], text="顺便看下前天的", memory=[second.code, first.code])
         self.assertTrue(answer["ok"], answer)
-        self.assertIn(f"带上了记忆 {second.code}", answer["text"])
+        self.assertIn(f"带上了记忆「{second.title}」", answer["text"])
         self.assertEqual([row["code"] for row in self.carried(data["topic_id"])], [first.code, second.code])

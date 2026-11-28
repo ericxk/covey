@@ -14,7 +14,7 @@ from pathlib import Path
 
 from covey.app import owner_ledger, owner_send, pins, project_lead, project_loop, revisits as revisit_rules, topic_links, web_images, web_pairing, web_room, web_said, web_switch, web_turns
 from covey.app.project_facts import rebound
-from covey.core import board_read, collab, collab_records, look, project_actions, project_checklist, project_library, project_memory, projects, revisits, store, turn_source, turn_words, web_sync
+from covey.core import board_read, collab, collab_records, look, memory_words, project_actions, project_checklist, project_library, project_memory, projects, revisits, store, turn_source, turn_words, web_sync
 from covey.core import owner_send as owner_send_records
 from covey.core import memory as core_memory
 from covey.core import progress as turn_progress
@@ -713,6 +713,7 @@ class Collector:
         data = read_object(topic_file(state, topic))
         found = None if butler else projects.topic_project(state, topic)
         turns, count = self.turns(state, topic, records, latest, word, project, now, questions, form=form, butler=butler)
+        turns = [owner_turn(state, chat, turn) for turn in turns]  # Display only: the history keeps the model's words.
         self.put_ran_with(turns, records, data)
         number = int(label[1:]) if label[1:].isdigit() else 0
         updated = max((epoch_seconds(record.get("updated_at")) or 0 for record in records), default=0)
@@ -766,7 +767,7 @@ class Collector:
         if not butler:
             out += [web_sync.item("turn", f"{topic}:collab-{cid}", turn) for cid, turn in self.helper_rows(topic, turns, body["last_seq"])]
         for row in questions:
-            made = web_pairing.question(row, topic, count, body["project_key"], number, records, questions)
+            made = owner_question(state, chat, web_pairing.question(row, topic, count, body["project_key"], number, records, questions))
             if made:
                 out.append(web_sync.item("question", row.get("token"), made))
         return out
@@ -1272,11 +1273,14 @@ class Collector:
                 version = view["version"]
             except Exception:  # noqa: BLE001 - the rest of the project is still worth pushing
                 memory, library, version = [], [], ""
+            progress = owner_progress(state, chat, {"goal": project_lead.lead_goal(record), **progress_fields(
+                record, project_lead.inbox_items(state, str(pid)) if turn_source.enabled() else ())})
+            goal = progress.pop("goal")
             item = web_sync.item("project", pid, {
-                "title": str(record.get("name") or ""), "goal": project_lead.lead_goal(record), "status": word, "status_reason": why,
+                "title": str(record.get("name") or ""), "goal": goal, "status": word, "status_reason": why,
                 "lead_topic_key": lead, "topic_keys": members, "memory": memory, "memory_version": version, "library": library,
                 "started_at": web_pairing.moment(record.get("created_at")), "updated_at": web_pairing.moment(record.get("updated_at")),
-                **progress_fields(record, project_lead.inbox_items(state, str(pid)) if turn_source.enabled() else ())})
+                **progress})
             with self.shared.lock:
                 self.shared.project_rows[pid] = (basis, item)
             out.append(item)
@@ -1411,6 +1415,47 @@ def project_stamp(state, pid) -> tuple:
             continue
         out.append((stat.st_ino, stat.st_mtime_ns, stat.st_size))
     return tuple(out)
+
+
+def owner_turn(state, chat, turn) -> dict:
+    """An agent's turn as the page shows it: its ``body`` with the memory short codes as their entries' titles, each linked to
+    the page's 记忆 where it opens there (core/memory_words.py for_chat: the owner's private chat only). The turn itself when
+    nothing changes (a cached one is never changed in place)."""
+    body = turn.get("body") if isinstance(turn, dict) else None
+    if turn.get("role") != "agent" or not isinstance(body, str):
+        return turn
+    shown = memory_words.for_chat(body, state, chat)
+    return turn if shown == body else {**turn, "body": shown}
+
+
+def owner_question(state, chat, made):
+    """A question item's words (its ``header``, ``question``, ``context`` and the options' ``description``) as ``owner_turn``
+    shows a turn's, in plain words; its ids and the options' labels, which the page answers with, as they are."""
+    if not isinstance(made, dict):
+        return made
+
+    def clean(value):
+        return memory_words.for_chat(value, state, chat, url="") if isinstance(value, str) else value
+
+    made["questions"] = [{**q, **{key: clean(q.get(key)) for key in ("header", "question", "context") if key in q},
+                          "options": [{**o, "description": clean(o.get("description"))} for o in q.get("options") or ()]}
+                         if isinstance(q, dict) else q for q in made.get("questions") or ()]
+    return made
+
+
+def owner_progress(state, chat, fields) -> dict:
+    """A project item's goal, background and the texts of its milestones and decisions as ``owner_turn`` shows a turn's."""
+    def clean(value):
+        return memory_words.for_chat(value, state, chat) if isinstance(value, str) else value
+
+    out = dict(fields)
+    for key in ("goal", "background"):
+        if key in out:
+            out[key] = clean(out[key])
+    for key in ("milestones", "decisions"):
+        if isinstance(out.get(key), list):
+            out[key] = [{**row, "text": clean(row.get("text"))} if isinstance(row, dict) else row for row in out[key]]
+    return out
 
 
 def progress_fields(record, receipts=()) -> dict:

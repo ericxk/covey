@@ -11,7 +11,7 @@ carries them whole at the tail of its message, the Bridge's own words over them 
 app/prompts.py memory_tail_block): what a lead wrote in a task is never one. Standard library and core/ only."""
 from __future__ import annotations
 
-from covey.core import memstore
+from covey.core import memory_words, memstore
 
 KEY = "memory_carried"  # topic.json: [{code, ref, by}], the oldest first.
 MAX = 5  # Entries a topic carries this way, and a call may name.
@@ -33,19 +33,26 @@ def codes_of(raw) -> list:
     return found
 
 
+def named(entry, code="") -> str:
+    """How an answer names an entry: its title in 「」 (the code only when there is no entry): the model says the title on,
+    never the code (app/prompts.py CODES_RULE)."""
+    title = memory_words.title_of(entry) if entry is not None else ""
+    return f"「{memory_words.clip(title)}」" if title else str(code or getattr(entry, "code", "") or "")
+
+
 def _why_not(entry, code, *, project) -> str:
     if entry is None:
         return f"{code}：找不到这条记忆"
     if entry.status != "active":
-        return f"{code}：已经不在用了（作废、收起或办完）"
+        return f"{named(entry, code)}：已经不在用了（作废、收起或办完）"
     if entry.kind == "rule":
-        return f"{code}：是规矩，话题每一轮本来就带"
+        return f"{named(entry, code)}：是规矩，话题每一轮本来就带"
     if entry.kind != "note":
-        return f"{code}：是主人答过的题，在办的话题 Bridge 自己会带"
+        return f"{named(entry, code)}：是主人答过的题，在办的话题 Bridge 自己会带"
     if entry.scope == "project" and project and entry.owner_key == project:
         pass
     elif entry.scope != "global":
-        return f"{code}：只能带全局的或本专项的"
+        return f"{named(entry, code)}：只能带全局的或本专项的"
     return ""
 
 
@@ -68,10 +75,10 @@ def check(state_dir, raw, *, project="", carried=()) -> tuple[list, list]:
         if entry.ref in have:
             continue  # Carried already: nothing to say.
         if count + 1 > MAX:
-            refused.append(f"{code}：一个话题最多带 {MAX} 条")
+            refused.append(f"{named(entry, code)}：一个话题最多带 {MAX} 条")
             continue
         if used + len(entry.text) > CHARS:
-            refused.append(f"{code}：带上它就超过 {CHARS} 字")
+            refused.append(f"{named(entry, code)}：带上它就超过 {CHARS} 字")
             continue
         taken.append(entry)
         have.add(entry.ref)
@@ -121,12 +128,13 @@ def entries_of(state_dir, data: dict, *, project="") -> list:
 
 
 def said(taken, refused, *, steered=False) -> str:
-    """What the call's answer adds (" …。", after a sentence that ended): the codes carried from now on (``steered``: from its
-    next turn, the one running has its message already), and each refused with why; '' with neither."""
+    """What the call's answer adds (" …。", after a sentence that ended): the entries carried from now on by their titles
+    (``named``: a bare list of codes was said back to the owner as it was; ``steered``: from its next turn, the one running
+    has its message already), and each refused with why; '' with neither."""
     parts = []
     if taken:
         when = "从它的下一轮起" if steered else ""
-        parts.append("带上了记忆 " + "、".join(entry.code for entry in taken) + f"（{when}按原文放在每一轮消息的末尾）")
+        parts.append("带上了记忆" + "".join(named(entry) for entry in taken) + f"（{when}按原文放在每一轮消息的末尾）")
     if refused:
         parts.append("没带上的记忆：" + "；".join(refused) + "；其余照常")
     return (" " + "。".join(parts) + "。") if parts else ""

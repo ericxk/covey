@@ -103,12 +103,18 @@ def linked(state_dir, chat_id, built, text, profile=None, cards=None, skip=()):
     """The relay's card and text with each T number a link to its topic (app/topic_links.py): the owner taps
     "T44" to open it; ``cards``: {topic id: the card its T number opens}, the relayed turn's; ``skip``: topic ids left
     plain. The answer's fold is linked, its opening (the fold's title) too; the card's row is not (a click on it opens
-    the topic already), nor its last grey line (HINT_ID, where a reply goes). Unchanged when no link can be told."""
+    the topic already), nor its last grey line (HINT_ID, where a reply goes). Unchanged when no link can be told. The same
+    words have their bare memory short codes as their entries' titles first, in the owner's private chat only
+    (core/memory_words.py for_chat: display only; inline code stays code here, the card's Markdown made a one-line fence
+    inline code, so the words a card is drawn from are rewritten before, as Markdown: ``owner_facts``, app/saved_send.py
+    plan)."""
     from covey.app.topic_links import linkify
     from covey.cards.ui import ROW_ID
+    from covey.core.memory_words import for_chat
 
     def link(words):
-        return linkify(words, state_dir, chat_id, profile=profile, cards=cards, skip=skip)
+        return linkify(for_chat(words, state_dir, chat_id, inline=False), state_dir, chat_id, profile=profile, cards=cards,
+                       skip=skip)
     def walk(elements):
         for element in elements or ():
             if not isinstance(element, dict) or element.get("element_id") in (ROW_ID, HINT_ID):
@@ -202,6 +208,7 @@ def _made(state_dir, job, target, outcome, profile, log, facts):
     each opens}), or, a 做完了 reply too large for one card once linked, its cards (cards/pages.py Paged,
     cards/relay_card.py relay_pages; ``send_pages``), and ``facts`` with the "你问" block."""
     card = turn_card(state_dir, job, outcome)
+    facts = owner_facts(state_dir, target["chat_id"], facts)
     # What the topic did with the owner's words, in the speaker's sentence (cards/answer_card.py says).
     facts = {**facts, "ask": ask_for(state_dir, job, target, profile, at=card, log=log, doing=outcome)}
     topic = str(target.get("topic_id") or job_field(job, "topic_id"))
@@ -217,6 +224,16 @@ def _made(state_dir, job, target, outcome, profile, log, facts):
                             link=lambda words: linked(state_dir, chat, None, words, profile, cards=links)[1],
                             finish=lambda page: linked(state_dir, chat, page, "", profile, cards=links)[0], **facts)
     return built, text, links, facts
+
+
+def owner_facts(state_dir, chat, facts) -> dict:
+    """The relay's words (its reply ``text``, a ``question``, a stop's ``reason``) with their memory short codes as their
+    entries' titles, as Markdown before a card is drawn of them (core/memory_words.py for_chat: the owner's private chat
+    only; display only)."""
+    from covey.core.memory_words import for_chat
+
+    return {**facts, **{key: for_chat(facts[key], state_dir, chat) for key in ("text", "question", "reason")
+                        if isinstance(facts.get(key), str)}}
 
 
 def send_pages(chat, key, reply_to, send, paged, sent):

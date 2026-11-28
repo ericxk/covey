@@ -39,7 +39,7 @@ from covey.app.answers import TOOL, AnswerBy, AnswerIncomplete, answer_fields
 from covey.core.butler import is_butler_topic
 from covey.cards.question_cards import triage_element
 from covey.core import memory as core_memory
-from covey.core import ask_kinds, project_gates, project_memory, projects, triage, turn_source
+from covey.core import ask_kinds, memory_words, project_gates, project_memory, projects, triage, turn_source
 from covey.core.jobs import find_job_record, saved_job, upsert_job_record
 from covey.core.state import keyed_json_path, read_object
 from covey.core.store import directory_store, update_question
@@ -160,7 +160,8 @@ class Triage:
     def note(self, ctx, job, record) -> None:
         """The task card says the question is with the lead (the question's element, core/triage.py held). Best effort."""
         try:
-            self.cards.set_task_element(ctx, job, triage_element(read_object(question_path(ctx.state_dir, record["token"])) or record))
+            found = read_object(question_path(ctx.state_dir, record["token"])) or record
+            self.cards.set_task_element(ctx, job, triage_element(memory_words.question_view(found, ctx.state_dir)))
         except Exception as exc:  # noqa: BLE001 - the question is held all the same
             self.runtime.log(f"question triage note failed: {type(exc).__name__}")
 

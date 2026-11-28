@@ -52,7 +52,7 @@ from covey.cards.overview import DISMISS, DISMISS_MAX, UNDO, clock, lists, overv
 from covey.core.card_sequence import CardHandle, file_card, reserve
 from covey.core.jobs import job_path, read_job_record
 from covey.core.locks import resource_lock
-from covey.core import board_read, look, projects, turn_words, web_sync
+from covey.core import board_read, look, memory_words, projects, turn_words, web_sync
 from covey.core import progress as turn_progress
 from covey.core.loops import every
 from covey.core.state import read_object, write_json
@@ -343,6 +343,7 @@ class Overview:
             label, title = self.topic(state, topic)
         # The question itself: most headers are the generic 补充信息.
         ask = turn_words.ask_words(record) if wait.kind == "question" else turn_words.START_LINE
+        ask = memory_words.for_chat(ask, state, chat, url="")  # Titles for memory short codes (core/memory_words.py).
         return {"label": label, "title": title, "topic": topic, "ask": ask, "since": wait.since,
                 "url": self.link(state, topic, wait.card)}
 

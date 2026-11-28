@@ -663,10 +663,10 @@ def remember_new(state, pid, kind, text, request):
     entry = written.entry
     words = "规矩" if kind == "rule" else "资料"
     if written.done == memstore.SAME:
-        return reply(True, f"专项记忆里已有这条（{entry.code}），没有重复记。", id=entry.code, ref=entry.ref, new=False)
+        return reply(True, f"专项记忆里已有这条「{entry.title}」，没有重复记。", id=entry.code, ref=entry.ref, new=False)
     if kind == "rule":
         card_line(state, request, entry)
-    return reply(True, f"已记进专项{words}（{entry.code}）{entry.title}：{entry.text}。", id=entry.code, ref=entry.ref, new=True)
+    return reply(True, f"已记进专项{words}「{entry.title}」：{entry.text}。", id=entry.code, ref=entry.ref, new=True)
 
 
 def card_line(state, request, entry) -> None:
@@ -731,17 +731,17 @@ def revise_decision(state, action, entry, args, origin):
             raise ValueError("这是主人的决定，不能改正文；办完了用 retire 收进历史，主人有了新的答复就用 supersede（by 写那条新答复的短码）。")
         text = " ".join(str(args.get("text") or "").split())[:memstore.DECISION_CHARS]
         made = memstore.edit(state, entry.ref, text=text or None, who="lead", because=because)
-        return reply(True, f"已改专项记忆（{made.code}）：{made.text}。", id=made.code)
+        return reply(True, f"已改专项记忆：{made.text}。", id=made.code)
     if action == "retire":
         made = memstore.settle(state, entry.ref, who="lead", because=because)
-        return reply(True, f"已把专项记忆（{made.code}）收进历史，不再每轮带上，仍可查：{made.text}", id=made.code)
+        return reply(True, f"已把这条专项记忆收进历史，不再每轮带上，仍可查：{made.text}", id=made.code)
     other = memstore.find(state, str(args.get("by") or "").strip()) if args.get("by") else None
     if other is None or other.ref == entry.ref or other.owner_key != entry.owner_key:
         raise ValueError("决定只能被同一专项里已有的一条替代：by 写那一条的短码" + ("" if mine else "，而且要是主人更新的答复"))
     if not mine and (other.said != "owner" or other.at <= entry.at):
         raise ValueError("这是主人的决定，只能被主人更新的答复替代：by 写那条新答复的短码；负责人自己写的新条不行，请问主人。")
     old = memstore.supersede(state, entry.ref, other.ref, who="lead", because=because)
-    return reply(True, f"已用（{other.code}）{other.title} 替代 {old.code}；旧的收进历史，不再每轮带上，仍可查。", id=other.code,
+    return reply(True, f"已用「{other.title}」替代「{old.title}」；旧的收进历史，不再每轮带上，仍可查。", id=other.code,
                  old=old.code, new=False)
 
 
@@ -776,19 +776,19 @@ def project_memory_revise(env, request):
         if action == "update":
             row = project_memory.update(state, pid, entry_id, text=text, kind=kind or "", **common)
             memstore.noted(state, was, ref, who="lead", action="edit", because=because)
-            return reply(True, f"已改专项记忆（{row['id']}）：{row['text']}。改之前的原文留在修改记录里。", id=row["id"])
+            return reply(True, f"已改专项记忆：{row['text']}。改之前的原文留在修改记录里。", id=row["id"])
         if action == "supersede":
             old, new, made = project_memory.supersede(state, pid, entry_id, text=text, kind=kind or "",
                                                       by=by, **common)
             if made:
                 memstore.noted(state, None, f"project:{pid}:{new['id']}", who="lead", action="add", because=because)
             memstore.noted(state, was, ref, who="lead", action="supersede", because=because)
-            return reply(True, f"已用{'新写的' if made else '已有的'}（{new['id']}）{new['text']} 替代 {old['id']}；"
+            return reply(True, f"已用{'新写的' if made else '已有的'}一条替代原来那条：{new['text']}；"
                          "旧的收进历史，不再每轮带上，仍可查。", id=new["id"], old=old["id"], new=made)
         row = project_memory.retire(state, pid, entry_id, **common)
         memstore.noted(state, was, ref, who="lead", action="settle" if was is not None and was.kind == "decision" else "archive",
                        because=because)
-        return reply(True, f"已把专项记忆（{row['id']}）收进历史，不再每轮带上，仍可查：{row['text']}", id=row["id"])
+        return reply(True, f"已把这条专项记忆收进历史，不再每轮带上，仍可查：{row['text']}", id=row["id"])
     except KeyError:
         raise ValueError("专项记录不在了") from None
 

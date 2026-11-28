@@ -1661,8 +1661,8 @@ class MemoryPickToolsTest(ToolsCase):
         answer = self.tool("project_topic_start", request_id="m1", title="导出", prompt="导出账单", workspace="project",
                            readonly=False, why="x", memory=[deploy.code, theirs.code])
         self.assertTrue(answer["ok"], answer)
-        self.assertIn(f"带上了记忆 {deploy.code}", answer["text"])
-        self.assertIn(f"{theirs.code}：只能带全局的或本专项的", answer["text"])
+        self.assertIn(f"带上了记忆「{deploy.title}」", answer["text"])
+        self.assertIn(f"「{theirs.title}」：只能带全局的或本专项的", answer["text"])
         topic = answer["data"]["topic_id"]
         sent = self.tool("project_topic_send", request_id="m2", thread=answer["data"]["label"], text="再核对一遍",
                          memory=[mine.code])

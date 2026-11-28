@@ -26,7 +26,7 @@ from covey.core.locks import resource_lock
 from covey.cards.pages import fits
 from covey.cards.question_cards import (OTHERS, SET_ASIDE, answer_notice_card, mirror_fit, output_pages, question_card,
                                         question_element, triage_element)
-from covey.core import butler, placement, triage
+from covey.core import butler, memory_words, placement, triage
 from covey.core.jobs import find_job_record
 from covey.core.state import read_object, write_private_text
 from covey.core.store import update_question
@@ -36,9 +36,17 @@ from covey.feishu.messenger import CardAbout
 MIRROR_OUTPUT_BYTES = 12000  # A longer output goes on cards of its own before the top-level question card.
 
 
+def owner_view(ctx, record):
+    """``record`` as its cards draw it (core/memory_words.py question_view): in the owner's private chat the memory short
+    codes in its words are their entries' titles; the ids and the options' labels, which an answer is matched by, as they
+    are. The record itself is never changed."""
+    return memory_words.question_view(record, ctx.state_dir)
+
+
 def standalone_card(ctx, record):
     """The standalone card of ``record``, its topic named on it; drawn as the top-level copy when it
     is at the top level itself (``at_top``)."""
+    record = owner_view(ctx, record)
     if record.get("at_top"):
         return top_card(ctx, record)
     # In its topic's thread it opens with the topic's row, as the topic's other cards do (docs/ui.md 5.2 问题卡).
@@ -54,6 +62,7 @@ def top_card(ctx, record, files=None):
 
 def top_fit(ctx, record, files=None):
     """``top_card`` as cards/question_cards.py mirror_fit draws it: the card, and whether it holds all of it."""
+    record = owner_view(ctx, record)
     return mirror_fit(record, topic_label(ctx.state_dir, record["topic_id"]), record.get("mirror_output") or "",
                       ask=record.get("mirror_ask"), files=files)
 
@@ -162,12 +171,12 @@ class QuestionDisplay:
                 if job and (job.topic_id != ctx.topic_id or job.chat_id != record["chat_id"]):
                     job = None
             if job:
-                self.cards.set_task_element(ctx, job, question_element(record))
+                self.cards.set_task_element(ctx, job, question_element(owner_view(ctx, record)))
             elif record.get("card_id"):
                 original = self.harness.topic_record(ctx, record["chat_id"], record["job_id"])
                 if original:
                     self.cards.update_record_panel(ctx, record["chat_id"], "answer-state-" + str(time.time_ns()),
-                        {"message_id": original.get("card_message_id", "")}, original, question_element(record))
+                        {"message_id": original.get("card_message_id", "")}, original, question_element(owner_view(ctx, record)))
             if not mirror_first:
                 self.paint_mirror(ctx, record)
         except Exception as exc:  # noqa: BLE001 - answer delivery is independent from UI
@@ -181,7 +190,8 @@ class QuestionDisplay:
             job = self.runtime.jobs.by_id.get(int(record["job_id"]))
             if job and (job.topic_id != ctx.topic_id or job.chat_id != record["chat_id"]):
                 job = None
-        element = triage_element(record) if triage.state(record) == triage.ESCALATED and record.get("status") == "pending" else question_element(record)
+        drawn = owner_view(ctx, record)
+        element = triage_element(drawn) if triage.state(record) == triage.ESCALATED and record.get("status") == "pending" else question_element(drawn)
         if job:
             self.cards.set_task_element(ctx, job, element)
         elif record.get("card_id"):
@@ -340,6 +350,7 @@ class QuestionDisplay:
         chat, token, topic = str(record.get("chat_id") or ""), str(record.get("token") or ""), str(record.get("topic_id") or "")
         skip, sent = (topic,), []
         try:
+            text = memory_words.for_chat(text, ctx.state_dir, chat)  # Display only, as Markdown before it is a card.
             cut = output_pages(optimize_markdown(text, step_headings=False), topic_label(ctx.state_dir, topic), ask,
                                link=lambda words: linked(ctx.state_dir, chat, None, words, ctx.profile, skip=skip)[1],
                                finish=lambda built: linked(ctx.state_dir, chat, built, "", ctx.profile, skip=skip)[0])

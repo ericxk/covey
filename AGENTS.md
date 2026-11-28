@@ -433,6 +433,7 @@
 | `core/memory_review.py` | The one review queue of the memory: what someone other than the owner proposes waits here |
 | `core/memory_search.py` | 查记忆: every entry of the memory store looked up by its words, ranked the one way the turn's block, the tools … |
 | `core/memory_usage.py` | Which memory lines the turns used and carried, so what is never of use goes first and in time out of the way |
+| `core/memory_words.py` | What the owner reads where a reply names a memory short code: the entry's title, never the code |
 | `core/memstore.py` | The one memory store: every entry, whatever file holds it, as one `Entry` with a short code |
 | `core/menu_choice.py` | A model menu's entries and the choices on them |
 | `core/metrics.py` | Content-free job timings |

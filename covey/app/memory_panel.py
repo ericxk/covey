@@ -176,4 +176,4 @@ class MemoryPanel:
         except ValueError as exc:
             return {'confirm': None, 'notice': f'⚠️ {exc}'}
         self.runtime.log('memory rule put away from the 记忆 tab')
-        return {'confirm': None, 'notice': f'已收起：{entry.code} {short(entry.title)}'}
+        return {'confirm': None, 'notice': f'已收起：{short(entry.title)}'}

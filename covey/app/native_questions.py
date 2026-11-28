@@ -12,6 +12,7 @@ import json
 import time
 from pathlib import Path
 
+from covey.core import memory_words
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import upsert_job_record
 from covey.core.locks import resource_lock
@@ -66,7 +67,7 @@ class NativeQuestions:
                 if record["job_id"] == job.job_id and not record["blocking"]:
                     record = transition_question(ctx.state_dir / "questions" / (record["token"] + ".json"), {"pending"}, task_finished=True)
                     if record:
-                        self.cards.set_task_element(ctx, job, question_element(record))
+                        self.cards.set_task_element(ctx, job, question_element(memory_words.question_view(record, ctx.state_dir)))
             return
         if kind == "cancel_questions":
             # Every pending question of the task, the ones never shown too (display_pending: held for a project's lead,
@@ -243,7 +244,7 @@ class NativeQuestions:
             return
         self.cards.close_streaming_reply(ctx, job.progress) if job.progress else None
         drawn = question_dedup.drawn(record)
-        if not self.cards.set_task_element(ctx, job, question_element(drawn)):
+        if not self.cards.set_task_element(ctx, job, question_element(memory_words.question_view(drawn, ctx.state_dir))):
             self.questions.publish_question_card(ctx, record, **({"visible": drawn} if drawn is not record else {}))
         if record["blocking"] and rpc is not None and not getattr(rpc, "native_blocking_questions", False):
             rpc.wait_for_answer("\n".join(q["question"] for q in record["questions"]))

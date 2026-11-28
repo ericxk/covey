@@ -15,7 +15,7 @@ from covey.core.checkpoint import QUESTION_ONLY_REPLY, checkpoint_reply_display,
 from covey.core.diff import append_diff_summary_note, finalize_job_diff
 from covey.core.saved_results import display_saved_reply, saved_delivery_kind, paused_question_delivery_key
 from covey.core.jobs import job_key, quick_held
-from covey.core import background, failure, placement, turn_source
+from covey.core import background, failure, memory_words, placement, turn_source
 from covey.core.metrics import mark
 from covey.feishu.outgoing_images import prepare_outgoing_markdown_images
 from covey.core.topics import proxy_topic
@@ -225,6 +225,7 @@ class TurnDelivery(AnswerParts, QuietDelivery):
         if turn.verified_delivery is not None and turn.verified_outcome.status != "completed":
             display_text = display_saved_reply(turn.verified_delivery, turn.verified_outcome)
             delivery_text = display_text
+        display_text = self.owner_words(display_text)  # Display only: delivery_text, the saved reply, stays as it was.
         display_text = outgoing_markdown(display_text, ctx)
         if traits_of(job).linkify_body:
             # The owner taps a T number on the butler's card to open that topic (display only:
@@ -241,6 +242,12 @@ class TurnDelivery(AnswerParts, QuietDelivery):
             except Exception as exc:  # noqa: BLE001 - isolate backend and delivery failures per job.
                 runtime.log(f"local diff recording failed: {exc}")
         return display_text, delivery_text, question_omitted
+
+    def owner_words(self, text):
+        """``text`` with its memory short codes as their entries' titles (core/memory_words.py for_chat), in the owner's
+        private chat only: a 代答 topic's words go to other people as the owner's and stay as they are."""
+        shown = memory_words.for_chat(text, self.ctx.state_dir, self.job.chat_id)
+        return text if shown == text or proxy_topic(self.ctx) else shown
 
     def note_standalone_result(self, standalone_verified, standalone_question):
         """A result or question sent apart from the card: say so on the card first."""

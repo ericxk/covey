@@ -660,7 +660,11 @@ def report_out(delivery) -> bool:
         rows = report_rows(ctx.state_dir, found.id, record, key)
         if not rows:
             return False
-        from covey.core import placement
+        from covey.core import memory_words, placement
+
+        # What the owner reads of each note (display only, the record keeps the lead's words): titles for memory short codes,
+        # in the card's title and its Markdown alike (core/memory_words.py for_chat).
+        rows = [{**row, "text": memory_words.for_chat(str(row.get("text") or ""), ctx.state_dir, job.chat_id)} for row in rows]
 
         top = placement.plan(ctx.state_dir, job).row.answer == placement.TOP
         where = delivery.top_ctx() if top else ctx

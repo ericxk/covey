@@ -35,7 +35,7 @@ from covey.cards.answer_card import tail as answer_tail, topic_head
 from covey.cards.answer_card import tail_card as answer_tail_card
 from covey.cards.pages import fits
 from covey.cards.ui import banded
-from covey.core import placement
+from covey.core import memory_words, placement
 from covey.core.jobs import job_key
 from covey.core.locks import resource_lock
 from covey.core.saved_results import FILE_BYTES
@@ -93,26 +93,27 @@ def plan(ctx, job_id, status, reply, text, *, key, file, top, tail, head, bare, 
     its ``tail`` on the small card after it."""
     head, tail = list(head), list(tail)
     label = label_of(ctx, job_id)
+    authorized, text = text, memory_words.for_chat(text, ctx.state_dir, chat_id)  # The card's words; signed as authorized.
     if file:
         small = (banded(answer_tail_card([*head, *tail], f"{label} · 产物与详情", TOP_FILE_LEAD if top else TAIL_LEAD,
                                          words=True)) if tail else None)
-        return signed(Outgoing(key, top, True, None, small, files, upload_status), text)
+        return signed(Outgoing(key, top, True, None, small, files, upload_status), authorized)
     built = answer_cards.saved_answer_card(ctx, job_id, status, reply, text, tail, head, bare=bare)
     built = linked(ctx, chat_id, built)
     if fits(built):
-        return signed(Outgoing(key, top, False, built, None, files, upload_status), text)
+        return signed(Outgoing(key, top, False, built, None, files, upload_status), authorized)
     if not paged:
         small = banded(answer_tail_card([*head, *tail], f"{label} · 产物与详情", TAIL_LEAD, words=True)) if tail else None
-        return signed(Outgoing(key, top, False, None, small, files, upload_status), text)
+        return signed(Outgoing(key, top, False, None, small, files, upload_status), authorized)
     cut = answer_cards.saved_answer_pages(ctx, job_id, status, reply, text, tail, head, bare=bare,
                                           link=lambda words: link_text(ctx, chat_id, words),
                                           finish=lambda page: linked(ctx, chat_id, page))
     small = banded(answer_tail_card([*head, *tail], f"{label} · 产物与详情", TAIL_LEAD)) if cut.alone and tail else None
     first = cut.pages[0].card
     if len(cut.pages) == 1:  # The answer fits one card without what follows it: that on the small card.
-        return signed(Outgoing(key, top, False, first, small, files, upload_status), text)
+        return signed(Outgoing(key, top, False, first, small, files, upload_status), authorized)
     pages = tuple({"card": page.card, "text": page.text} for page in cut.pages)
-    return signed(Outgoing(key, top, False, first, small, files, upload_status, pages=pages), text)
+    return signed(Outgoing(key, top, False, first, small, files, upload_status, pages=pages), authorized)
 
 
 def linked(ctx, chat_id, built):
@@ -339,10 +340,11 @@ def rebuilt(ctx, record, saved_job, reply, text, *, key, file, bare, harness, ca
 
 def send_paused(ctx, where, job, text, key, *, send, artifacts):
     """A paused question's words for ``job``: a file in ``ctx`` when longer than FILE_BYTES, else a message in
-    ``where`` under ``key`` (core/saved_results.py paused_question_delivery_key). Whether it was sent."""
+    ``where`` under ``key`` (core/saved_results.py paused_question_delivery_key), its memory short codes as titles in the
+    owner's private chat (core/memory_words.py for_chat; the file is the saved words). Whether it was sent."""
     if len(text.encode("utf-8")) > FILE_BYTES:
         return artifacts.send_result_file(ctx, job, text)
-    return send(where, job.chat_id, text, key)
+    return send(where, job.chat_id, memory_words.for_chat(text, ctx.state_dir, job.chat_id), key)
 
 
 def restore_original(ctx, job, text, file_text, *, key, send, artifacts, log, paint=None) -> bool:

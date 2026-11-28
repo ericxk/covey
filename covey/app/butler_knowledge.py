@@ -258,7 +258,7 @@ def memory_save(env, args, request=None):
         return _refused(memory_gate.Verdict(False, written.rewrite, written.flags, written.reason))
     entry = written.entry
     said = {memstore.CONFIRMED: "（原来是负责人记的同一条，现在算主人定的）", memstore.SAME: "（已经记过这一条）"}.get(written.done, "")
-    return reply(True, f"记下了：{entry.code} {entry.title} · {_where(entry)}{said}", code=entry.code, ref=entry.ref,
+    return reply(True, f"记下了：{entry.title} · {_where(entry)}{said}", code=entry.code, ref=entry.ref,
                  flags=list(written.flags))
 
 
@@ -297,7 +297,7 @@ def memory_revise(env, args, request=None):
             fresh = memstore.edit(state, entry.ref, text=text or None, title=title or None,
                                   why=knowledge.clean_text(args.get("why")) if args.get("why") is not None else None,
                                   who="butler")
-            return reply(True, f"改好了：{fresh.code} {fresh.title} · {_where(fresh)}", code=fresh.code, ref=fresh.ref)
+            return reply(True, f"改好了：{fresh.title} · {_where(fresh)}", code=fresh.code, ref=fresh.ref)
         if action == "supersede":
             if entry.kind == "decision":
                 new = memstore.add_decision(state, scope=entry.scope, owner_key=entry.owner_key, text=text,
@@ -307,12 +307,12 @@ def memory_revise(env, args, request=None):
                                    title=title, why=knowledge.clean_text(args.get("why")), said="owner", by="butler",
                                    repos=entry.repos, who="butler")
             memstore.supersede(state, entry.ref, new.ref, who="butler")
-            return reply(True, f"换成新的了：{new.code} {new.title}（{entry.code} 已收起）", code=new.code, ref=new.ref,
+            return reply(True, f"换成新的了：{new.title}（原来的「{entry.title}」已收起）", code=new.code, ref=new.ref,
                          old=entry.ref)
         done = (memstore.settle if entry.kind == "decision" else memstore.archive)(state, entry.ref, who="butler")
     except ValueError as exc:
         return reply(False, str(exc))
-    return reply(True, f"{done.code} {done.title} 已" + ("办完" if entry.kind == "decision" else "收起"), code=done.code,
+    return reply(True, f"「{done.title}」已" + ("办完" if entry.kind == "decision" else "收起"), code=done.code,
                  ref=done.ref)
 
 

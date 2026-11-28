@@ -143,8 +143,8 @@ def rule_line(row, titles) -> str:
     else:
         where = "全局" if row.get("scope") == "global" else titles.get(f"p:{row.get('project_key')}", "专项")
     over = " " + grey("· 只带标题") if row.get("over_cap") else ""
-    return (f"{grey(str(row.get('code') or ''))} {literal(cut(row.get('title') or '', TITLE_CHARS))} "
-            f"{grey('· ' + literal(cut(where, 12)))}{over}")
+    # No short code before it (T969): the owner reads the title; the code is the tools' and the page's.
+    return f"{literal(cut(row.get('title') or '', TITLE_CHARS))} {grey('· ' + literal(cut(where, 12)))}{over}"
 
 
 def rule_elements(rules, scopes, view, value, size=RULE_PAGE):

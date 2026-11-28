@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import json
 
-from covey.core import ui_samples
+from covey.core import memory_words, ui_samples
 from covey.core.checkpoint import normalize_questions
 from covey.core.jobs import upsert_job_record
 from covey.core.locks import resource_lock
@@ -206,7 +206,8 @@ class CheckpointQuestions:
                 visible = question_dedup.drawn({**record, "display_pending": False})  # Its grey lines and extra question.
                 # A question with samples goes on a card of its own: the task card is no place for two or three cards.
                 on_result_card = bool(use_result_card and not ui_samples.any_of(record.get("questions"))
-                                      and self.cards.set_task_element(ctx, job, question_element(visible)))
+                                      and self.cards.set_task_element(
+                                          ctx, job, question_element(memory_words.question_view(visible, ctx.state_dir))))
                 shown = on_result_card
                 if not shown:
                     shown = bool(self.questions.publish_question_card(ctx, record, visible=visible))

@@ -506,7 +506,7 @@ class SpecsTest(StateCase):
         self.env(**ON)
         rules = butler_rules()
         # The memory tools the butler is listed (T870 Wave 2B): memory_*, never the older names it cannot call.
-        for words in ("memory_save", "“记一下……”", "topic_read", "列出短码和正文", "memory_revise", "action retire",
+        for words in ("memory_save", "“记一下……”", "topic_read", "不列短码", "memory_revise", "action retire",
                       "memory_search → topics_search，"):
             self.assertIn(words, rules)
         for words in ("knowledge_save", "knowledge_update", "knowledge_drop", "knowledge_search", "principle_save", "principles_list"):
