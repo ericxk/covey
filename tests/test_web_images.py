@@ -296,6 +296,35 @@ class TouchImageTest(ImagesCase):
         self.assertEqual(self.sync.images.pending, {})
         self.assertFalse(self.sync.touch_event.is_set())  # Nothing more to send: no touch after it.
 
+    def test_an_image_said_on_the_page_goes_up_before_the_touch_builds_so_its_first_push_carries_it(self):
+        """2026-11-28 T933 acceptance: the touch built the topic, pushed the words bare, sent the image, built it again: 14 s for one
+        screenshot on a long topic. The say's images wait to go up as soon as it is done, and the touch sends them first."""
+        self.topic()
+        data = png(self.state / "src" / "shot.png").read_bytes()
+        ident = "e" * 32
+        self.web.uploads[ident] = ({"name": "shot.png", "mime": "image/png", "size": len(data), "done": True}, [data])
+        self.web.op("say", 1, "op-img", TOPIC, text="看这张", files=[{"id": ident, "name": "shot.png", "mime": "image/png", "size": len(data)}])
+        self.sync.load_sent()
+        self.sync.inbox_once()
+        self.assertEqual([(r["op_id"], r["state"]) for r in self.web.acks], [("op-img", "done")])
+        [saved] = sorted(self.media.glob(f"web-{ident[:16]}-*"))
+        self.assertIn(str(saved), self.sync.images.pending)  # Waiting before any build asked for it.
+        [(_, message, content)] = self.app.queued
+        append_history(self.state / "topics" / TOPIC / "history.jsonl", "user", content, {"message_id": message})  # As the app does.
+        self.assertTrue(self.sync.touch_event.is_set())
+        self.assertGreater(self.sync.touch_once(T0), 0)
+        owner = [item["data"] for item in self.web.items("turn") if item["data"]["role"] == "owner" and "看这张" in item["data"]["body"]]
+        self.assertEqual([image["id"] for image in owner[0]["images"]], [web_images.file_id(saved)])  # The first push has it.
+        self.assertEqual(self.sync.images.pending, {})
+        self.assertFalse(self.sync.touch_event.is_set())  # Not built a second time for it.
+
+    def test_an_operation_without_image_files_waits_for_no_image(self):
+        self.topic()
+        self.sync.expect_images({"payload": {"files": [{"id": "f" * 32, "name": "a.md", "mime": "text/markdown"}]}}, [TOPIC])
+        self.sync.expect_images({"payload": {"text": "只有字"}}, [TOPIC])
+        self.sync.expect_images({"payload": {"files": "坏的"}}, [TOPIC])
+        self.assertEqual(self.sync.images.pending, {})
+
     def test_the_touch_sends_only_the_images_of_the_topics_the_page_acted_on(self):
         other = png(self.state / "topics" / "other-topic" / "incoming_media" / "om_9-1-img.png", color=(200, 30, 30))
         self.sync.images.sent(f"`{other}`", "other-topic", T0, T0)

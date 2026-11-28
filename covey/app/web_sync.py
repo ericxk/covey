@@ -46,7 +46,7 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import card_lanes, self_upgrade, web_images, web_memory, web_quota
+from covey.app import card_lanes, self_upgrade, web_files, web_images, web_memory, web_quota
 from covey.app.web_collect import Collector, Shared
 from covey.app.web_ops import Ops
 from covey.app.web_push_client import Client, WebError
@@ -502,6 +502,10 @@ class WebSync:
             self.runtime.log(f"web sync touch leaves topic {topic[:12]} to the quick look: a touch's read of it is stuck")
         toucher = self.toucher
         toucher.touching = set(topics)
+        # The images the owner sent with these words (expect_images) go up first, so this one build carries them: built before, the
+        # words went out bare and the topic was built a second time once the image was up (2026-11-28 T933: 14 s for one screenshot).
+        toucher.mark("images")
+        self.push_images(toucher, time.time() if now is None else now, only=set(topics) - hung, again=False)
         try:
             with store.bounded(HOT_WAIT):
                 toucher.collect_touched(chat, sorted(topics), time.time() if now is None else now, skip=hung)
@@ -774,11 +778,32 @@ class WebSync:
         self.collector.images = self.passer.images = self.toucher.images = self.rereader.images = self.images
         self.passer.backfill = not self.images.backfilled
 
-    def push_images(self, collector, now, only=None) -> None:
+    def expect_images(self, row, topics) -> None:
+        """The images a say or a launch of the page (``row``) brought, now in the incoming_media of ``topics`` (app/web_files.py fetch:
+        ``web-<id's first 16>-<name>``), wait to go up (web_images.WebImages.refs) before any build has asked for them: the touch
+        that follows sends them before it builds (touch_once). Nothing of an operation without image files."""
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        try:
+            ids = [each["id"] for each in web_files.listed(payload.get("files")) if each["mime"].startswith("image/")]
+        except ValueError:
+            return
+        if not ids or not self.env.state_dir:
+            return
+        self.images_ready()
+        if self.images is None:
+            return
+        now = time.time()
+        for topic in topics:
+            media = Path(self.env.state_dir) / "topics" / str(topic) / web_images.MEDIA
+            paths = [found for ident in ids for found in sorted(media.glob(f"web-{ident[:16]}-*"))]
+            if paths:
+                self.images.refs([(path, "") for path in paths], "sent", str(topic), now, now, stable=True)
+
+    def push_images(self, collector, now, only=None, again=True) -> None:
         """Some of the images the turns asked for (web_images.WebImages.upload), from the pass's thread; their topics are built again
         on the next quick look, now with them. ``only`` (from the touch's thread): just the images of the topics the page acted on,
-        and the touch builds and pushes them again. A page that does not take them (an older page without /sync/image, a refusal) only
-        holds the images back IMAGES_WAIT seconds: the items go on as before."""
+        and the touch builds and pushes them again (not ``again``: it is about to build them). A page that does not take them (an
+        older page without /sync/image, a refusal) only holds the images back IMAGES_WAIT seconds: the items go on as before."""
         if self.images is None or now < self.images_wait or only == set():
             return
         try:
@@ -791,7 +816,7 @@ class WebSync:
             return
         self.images_down = 0
         if only is not None:
-            if topics:
+            if topics and again:
                 self.touch_soon(topics)
             return
         for topic in topics:
@@ -1247,6 +1272,7 @@ class WebSync:
             opened = self.ops.opened_topic(row)
             if opened:  # Else the page waits a minute for the topic it has just opened.
                 touched.append(opened)
+            self.expect_images(row, touched)
             for topic in touched:
                 self.collector.touch(topic)
             self.wake.set()  # The quick look builds what the operation touched now, not at its next tick.
